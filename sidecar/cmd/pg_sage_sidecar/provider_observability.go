@@ -62,31 +62,34 @@ func buildProviderObservability(
 	return runtime, sink, err
 }
 
+// startProviderObservability starts the provider's metrics and log API
+// reader and reports whether it became the RCA engine's log source.
 func startProviderObservability(
 	ctx context.Context, workers *sync.WaitGroup, pool *pgxpool.Pool,
 	cfg *config.Config, exec *executor.Executor, rcaEngine *rca.Engine,
-) {
+) bool {
 	token, err := config.LookupSecretEnv("SAGE_SUPABASE_OBSERVABILITY_TOKEN")
 	if err != nil {
 		logWarn("provider", "observability unavailable: %v", err)
-		return
+		return false
 	}
 	runtime, sink, err := buildProviderObservability(pool, cfg, token)
 	if err != nil {
 		logWarn("provider", "observability unavailable: %v", err)
-		return
+		return false
 	}
 	if runtime == nil {
-		return
+		return false
 	}
 	if err := sink.Start(ctx); err != nil {
 		logWarn("provider", "observability log source unavailable: %v", err)
-		return
+		return false
 	}
 	if exec != nil {
 		exec.WithHostCPUReader(runtime)
 	}
-	if rcaEngine != nil && cfg.LogWatch.Enabled {
+	logs := rcaEngine != nil && cfg.LogWatch.Enabled
+	if logs {
 		rcaEngine.SetLogSource(sink)
 	}
 	startInstanceWorker(workers, func() {
@@ -95,6 +98,7 @@ func startProviderObservability(
 			logWarn("provider", "observability collection failed: %v", err)
 		})
 	})
+	return logs
 }
 
 func waitProviderWorkers(ctx context.Context, workers *sync.WaitGroup) bool {

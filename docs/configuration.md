@@ -1869,8 +1869,9 @@ provider, and an info item when the log cannot be read.
 **Managed services.** Their server log files are not reachable from the sidecar. RDS and
 Aurora send logs to CloudWatch Logs, Cloud SQL and AlloyDB to Cloud Logging, and Azure to
 Azure Monitor; pg_sage reads none of these, so log-based RCA is unavailable there. Supabase
-logs arrive through the Management API when `SAGE_SUPABASE_OBSERVABILITY_TOKEN` is set, and
-Lakebase logs through the opt-in `lakebase_observability` reader.
+logs arrive through the Management API when `SAGE_SUPABASE_OBSERVABILITY_TOKEN` is set (the
+database's `log_source` is then `active` with `format` `supabase_api`), and Lakebase logs
+through the opt-in `lakebase_observability` reader.
 
 **Statement text.** Log records can carry SQL. Before log signals reach an LLM prompt,
 query text has its literals redacted and comments stripped, quoted values in messages are

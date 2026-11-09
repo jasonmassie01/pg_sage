@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -33,7 +34,7 @@ func nextLogRetry(prev time.Duration) time.Duration {
 type clusterLog struct {
 	fanout    *logwatch.LogFanout
 	watcher   *logwatch.FileWatcher
-	pool      *pgxpool.Pool // the latest database's pool, for re-detection
+	pools     []*pgxpool.Pool // live databases' pools, latest last, for re-detection
 	status    logwatch.SourceStatus
 	active    bool
 	retryDone chan struct{} // closed when the retry goroutine ends
@@ -65,14 +66,13 @@ func (s *logFanoutSet) forCluster(
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if cl := s.clusters[key]; cl != nil {
-		if pool != nil {
-			cl.pool = pool
-		}
+		cl.addPool(pool)
 		return cl.fanout
 	}
 	watcher := logwatch.NewFileWatcher(cfg.LogWatch, logStructuredWrapper)
-	cl := &clusterLog{watcher: watcher, pool: pool, retryDone: make(chan struct{}),
+	cl := &clusterLog{watcher: watcher, retryDone: make(chan struct{}),
 		fanout: logwatch.NewLogFanout(watcher).WithClusterKey(key)}
+	cl.addPool(pool)
 	s.clusters[key] = cl
 	// The first attempt holds s.mu so every database of the cluster sees
 	// its outcome; retries run outside it.
@@ -147,7 +147,7 @@ func (s *logFanoutSet) retry(ctx context.Context, key string, cl *clusterLog) {
 		case <-s.after(wait):
 		}
 		s.mu.Lock()
-		pool := cl.pool
+		pool := cl.latestPool()
 		s.mu.Unlock()
 		st := startClusterLog(ctx, key, cl.watcher, pool)
 		s.mu.Lock()
@@ -156,6 +156,34 @@ func (s *logFanoutSet) retry(ctx context.Context, key string, cl *clusterLog) {
 		if started {
 			return
 		}
+	}
+}
+
+func (cl *clusterLog) addPool(pool *pgxpool.Pool) {
+	if pool != nil {
+		cl.pools = append(cl.pools, pool)
+	}
+}
+
+// latestPool is the pool of the newest database still running, or nil.
+func (cl *clusterLog) latestPool() *pgxpool.Pool {
+	if n := len(cl.pools); n > 0 {
+		return cl.pools[n-1]
+	}
+	return nil
+}
+
+// release forgets a removed database's pool, so a retry never detects
+// through a closed pool while another database of the cluster runs.
+func (s *logFanoutSet) release(key string, pool *pgxpool.Pool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cl := s.clusters[key]
+	if cl == nil || pool == nil {
+		return
+	}
+	if i := slices.Index(cl.pools, pool); i >= 0 {
+		cl.pools = slices.Delete(cl.pools, i, i+1)
 	}
 }
 
@@ -191,15 +219,25 @@ func (s *logFanoutSet) retryDone(key string) <-chan struct{} {
 	return done
 }
 
+// providerLogFormat is the format a provider log API reports: RCA reads
+// Supabase logs through its Management API, not the cluster's files.
+const providerLogFormat = "supabase_api"
+
 // logSourceStatusFor is a database's log-source status: disabled with the
-// setting that turns it off, else its cluster's status.
-func logSourceStatusFor(set *logFanoutSet, key string) logwatch.SourceStatus {
+// setting that turns it off, active when RCA reads the provider's log API,
+// else its cluster's status.
+func logSourceStatusFor(
+	set *logFanoutSet, key string, providerLogs bool,
+) logwatch.SourceStatus {
 	if !cfg.LogWatch.Enabled {
 		return logwatch.DisabledStatus("logwatch.enabled is false")
 	}
 	if !logConsumerEnabled() {
 		return logwatch.DisabledStatus("no log consumer: rca.enabled is false and " +
 			"migration log detection is off")
+	}
+	if providerLogs {
+		return logwatch.SourceStatus{State: logwatch.SourceActive, Format: providerLogFormat}
 	}
 	st := set.status(key)
 	if st.State == "" {
@@ -210,5 +248,6 @@ func logSourceStatusFor(set *logFanoutSet, key string) logwatch.SourceStatus {
 
 // logSourceStatus is this runtime's log-source status for the fleet API.
 func (rt *databaseRuntime) logSourceStatus() logwatch.SourceStatus {
-	return logSourceStatusFor(runtimeLogFanouts, poolHostPort(rt.spec.Pool))
+	return logSourceStatusFor(runtimeLogFanouts, poolHostPort(rt.spec.Pool),
+		rt.providerLogs.Load())
 }

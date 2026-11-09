@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/logwatch"
 	"github.com/pg-sage/sidecar/internal/rca"
@@ -221,17 +223,17 @@ func TestLogSourceStatusDefaultsAndDisabled(t *testing.T) {
 		t.Fatalf("logwatch defaults = %+v, want the documented ones", lw)
 	}
 	set := newLogFanoutSet()
-	st := logSourceStatusFor(set, "db:5432")
+	st := logSourceStatusFor(set, "db:5432", false)
 	if st.State != logwatch.SourceDisabled || !strings.Contains(st.Reason, "logwatch.enabled") {
 		t.Fatalf("default status = %+v, want disabled naming logwatch.enabled", st)
 	}
 	cfg.LogWatch.Enabled, cfg.RCA.Enabled, cfg.Migration.Enabled = true, false, false
-	st = logSourceStatusFor(set, "db:5432")
+	st = logSourceStatusFor(set, "db:5432", false)
 	if st.State != logwatch.SourceDisabled || !strings.Contains(st.Reason, "rca.enabled") {
 		t.Fatalf("no consumer status = %+v, want disabled naming rca.enabled", st)
 	}
 	cfg.RCA.Enabled = true
-	st = logSourceStatusFor(set, "db:5432")
+	st = logSourceStatusFor(set, "db:5432", false)
 	if st.State != logwatch.SourceUnavailable || st.Reason == "" {
 		t.Fatalf("enabled but never started = %+v, want unavailable with a reason", st)
 	}
@@ -313,5 +315,75 @@ func TestLogErrorCounterUnknownUntilSourceActive(t *testing.T) {
 	}
 	if n, ok := (logErrorCounter{sub: sub, source: activeStub(true)}).DrainErrors(); !ok || n != 0 {
 		t.Fatalf("active empty source = (%d, %v), want a known zero", n, ok)
+	}
+}
+
+// Error propagation: with no database pool left to read pg_settings, an
+// auto-detected source is unavailable with the settings to set, never a
+// nil-pool panic.
+func TestLogSourceWithoutPoolNamesTheSettings(t *testing.T) {
+	prepareMetaGlobals(t)
+	cfg.LogWatch = config.LogWatchConfig{Enabled: true, LogDirectory: t.TempDir()}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	set := newLogFanoutSet()
+	set.after = newFakeAfter().after
+	set.forCluster(ctx, "db:5432", nil)
+	st := set.status("db:5432")
+	if st.State != logwatch.SourceUnavailable ||
+		!strings.Contains(st.Reason, "logwatch.format") {
+		t.Fatalf("status = %+v, want unavailable naming logwatch.format", st)
+	}
+}
+
+// State transition: a removed database's pool is released, so the retry
+// detects through a database that still runs, and nothing once none does.
+func TestLogSourceReleasesRemovedDatabasePools(t *testing.T) {
+	prepareMetaGlobals(t)
+	cfg.LogWatch = config.LogWatchConfig{Enabled: true, Format: "jsonlog",
+		LogDirectory: filepath.Join(t.TempDir(), "missing")}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	set := newLogFanoutSet()
+	set.after = newFakeAfter().after
+	first, second := &pgxpool.Pool{}, &pgxpool.Pool{}
+	set.forCluster(ctx, "db:5432", first)
+	set.forCluster(ctx, "db:5432", second)
+	latest := func() *pgxpool.Pool {
+		set.mu.Lock()
+		defer set.mu.Unlock()
+		return set.clusters["db:5432"].latestPool()
+	}
+	if latest() != second {
+		t.Fatal("the retry does not use the newest database's pool")
+	}
+	set.release("db:5432", second)
+	if latest() != first {
+		t.Fatal("a removed database's pool is still used for detection")
+	}
+	set.release("db:5432", second) // a second release is a no-op
+	set.release("db:5432", first)
+	if latest() != nil {
+		t.Fatal("a pool outlived every database of the cluster")
+	}
+	set.release("none:1", first) // an unknown cluster is ignored
+	set.release("db:5432", nil)
+}
+
+// A Supabase database whose RCA reads the provider's log API is active,
+// not "unavailable" from the file watcher it does not use; the switches
+// still win.
+func TestLogSourceStatusProviderLogs(t *testing.T) {
+	prepareMetaGlobals(t)
+	cfg = config.DefaultConfig()
+	cfg.LogWatch.Enabled, cfg.RCA.Enabled = true, true
+	st := logSourceStatusFor(newLogFanoutSet(), "db.supabase.co:5432", true)
+	if st.State != logwatch.SourceActive || st.Format != providerLogFormat || st.Reason != "" {
+		t.Fatalf("provider status = %+v, want active %s", st, providerLogFormat)
+	}
+	cfg.LogWatch.Enabled = false
+	st = logSourceStatusFor(newLogFanoutSet(), "db.supabase.co:5432", true)
+	if st.State != logwatch.SourceDisabled {
+		t.Fatalf("disabled logwatch with provider logs = %+v, want disabled", st)
 	}
 }

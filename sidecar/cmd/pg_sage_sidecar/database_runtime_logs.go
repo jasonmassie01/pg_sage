@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -57,6 +58,11 @@ func resolvedLogWatchConfig(
 	settings := cfg.LogWatch
 	if settings.LogDirectory != "" && settings.Format != "" {
 		return settings, nil
+	}
+	if pool == nil {
+		return config.LogWatchConfig{}, errors.New("no running database of this " +
+			"cluster to read log_destination and log_directory from pg_settings; " +
+			"set logwatch.log_directory and logwatch.format")
 	}
 	dir, format, err := logwatch.DetectLogSettings(ctx, pool)
 	if err != nil {
@@ -116,7 +122,13 @@ func (rt *databaseRuntime) clusterLogFanout() *logwatch.LogFanout {
 	if parent == nil {
 		parent = context.Background()
 	}
-	return runtimeLogFanouts.forCluster(parent, key, rt.spec.Pool)
+	fanout := runtimeLogFanouts.forCluster(parent, key, rt.spec.Pool)
+	pool := rt.spec.Pool
+	rt.start(func() {
+		<-rt.ctx.Done()
+		runtimeLogFanouts.release(key, pool)
+	})
+	return fanout
 }
 
 // wireRCA attaches the incident engine, fed by the cluster's log watcher.
