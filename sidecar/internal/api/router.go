@@ -105,6 +105,9 @@ type RuntimeDeps struct {
 	// NotificationSecretKey seals channel secrets at rest; every runtime
 	// dispatcher must read with the same key (G7-B20). nil = plaintext.
 	NotificationSecretKey []byte
+	// SecretsPosture reports how stored secrets are protected for the
+	// admin banner (security-08); nil omits GET /api/v1/security/posture.
+	SecretsPosture func(context.Context) (SecretsPosture, error)
 	// NotificationTargetPolicy validates channel targets on write and at
 	// test-send time (G7-B21).
 	NotificationTargetPolicy notify.TargetPolicy
@@ -291,6 +294,7 @@ func registerControlPoolRoutes(
 		return cfg != nil && cfg.Agents.SingleOperatorMode
 	})
 	registerDecommissionRoutes(apiMux, pool)
+	registerSecurityPostureRoutes(apiMux, rt.SecretsPosture)
 }
 
 // newRouterOAuthProvider builds the configured OAuth provider, tries
