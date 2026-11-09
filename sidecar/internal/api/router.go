@@ -173,7 +173,7 @@ func NewRouterFullRuntime(
 		middlewares = append(append([]func(http.Handler) http.Handler{}, middlewares...), databricksAppProtocolGuard)
 	}
 	apiHandler := wrapAPIHandler(apiMux, middlewares,
-		newCrossOriginProtection(cfg, rt.DatabricksAppAuth))
+		newCrossOriginProtection(cfg, rt.DatabricksAppAuth), accessLogOn(cfg))
 
 	// Top-level mux: API routes get auth, static does not.
 	root := http.NewServeMux()
@@ -313,13 +313,17 @@ func newRouterOAuthProvider(cfg *config.Config) *auth.OAuthProvider {
 }
 
 // wrapAPIHandler stacks the caller middlewares onto the API mux, then the
-// fixed chain every API route gets.
+// fixed chain every API route gets. accessLog adds the access log's two
+// layers (access_log.go): one around the mux, one outside auth.
 func wrapAPIHandler(
 	apiMux *http.ServeMux, middlewares []func(http.Handler) http.Handler,
-	crossOrigin *http.CrossOriginProtection,
+	crossOrigin *http.CrossOriginProtection, accessLog bool,
 ) http.Handler {
 	// Stack middlewares onto API routes only.
 	var apiHandler http.Handler = apiMux
+	if accessLog {
+		apiHandler = accessStampMiddleware(apiHandler)
+	}
 	for i := len(middlewares) - 1; i >= 0; i-- {
 		apiHandler = middlewares[i](apiHandler)
 	}
@@ -333,6 +337,11 @@ func wrapAPIHandler(
 	apiHandler = maxBodyMiddleware(apiHandler)
 	apiHandler = timeoutMiddleware(apiHandler)
 	apiHandler = crossOrigin.Handler(apiHandler)
+	if accessLog {
+		// Outside the cross-origin check and auth, so it logs their
+		// refusals too; inside the security headers.
+		apiHandler = accessLogMiddleware(apiHandler)
+	}
 	apiHandler = securityHeadersMiddleware(apiHandler)
 	return apiHandler
 }
