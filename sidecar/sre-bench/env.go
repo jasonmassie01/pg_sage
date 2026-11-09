@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
-	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -26,17 +25,6 @@ type Env struct {
 	mu       sync.Mutex
 	sessions []*session
 	release  func()
-}
-
-// NewEnv bootstraps the sage schema on dsn's database.
-func NewEnv(ctx context.Context, t *testing.T, dsn string) *Env {
-	t.Helper()
-	env, closeEnv, err := OpenEnv(ctx, dsn)
-	if err != nil {
-		t.Fatalf("bench database: %v", err)
-	}
-	t.Cleanup(closeEnv)
-	return env
 }
 
 // session is a background connection a fault program holds open. err
