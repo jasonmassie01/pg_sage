@@ -118,7 +118,7 @@ func newChatFixture(t *testing.T) *chatFixture {
 	chatopsRun = func(fn func()) { fn() }
 	chatopsReply = cf.replies.record
 	t.Cleanup(func() { chatopsRun, chatopsReply = restoreRun, restoreReply })
-	cf.h = NewRouterFullRuntime(mgr, config.DefaultConfig(), f.pool,
+	cf.h = newTestRouter(mgr, config.DefaultConfig(), f.pool,
 		&ActionDeps{Fleet: mgr}, nil, nil, &RuntimeDeps{})
 	return cf
 }
@@ -385,7 +385,7 @@ func TestChatOpsTelegramApproval(t *testing.T) {
 func TestChatOpsCallbacksAreTheOnlySessionlessRoutes(t *testing.T) {
 	cf := newChatFixture(t)
 	mgr := fleet.NewManager(config.DefaultConfig())
-	h := NewRouterFullRuntime(mgr, config.DefaultConfig(), cf.pool,
+	h := newTestRouter(mgr, config.DefaultConfig(), cf.pool,
 		&ActionDeps{Fleet: mgr}, nil, nil, &RuntimeDeps{}, SessionAuthMiddleware(cf.pool))
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/chatops/identities", nil)
 	if code, _ := serveJSON(h, req); code != http.StatusUnauthorized {
@@ -412,7 +412,7 @@ func TestChatOpsIdentityAdminRoutes(t *testing.T) {
 					userContextKey, u)))
 			})
 		}
-		return NewRouterFullRuntime(mgr, config.DefaultConfig(), cf.pool,
+		return newTestRouter(mgr, config.DefaultConfig(), cf.pool,
 			&ActionDeps{Fleet: mgr}, nil, nil, &RuntimeDeps{}, inject)
 	}
 	link := fmt.Sprintf(`{"provider":"slack","team_id":"T0001",`+

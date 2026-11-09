@@ -123,7 +123,7 @@ func perfAPISession(t *testing.T, ctx context.Context, harness *pgxpool.Pool) st
 // live-update subscriber for the whole run: an open dashboard.
 func perfRouter(t *testing.T) http.Handler {
 	t.Helper()
-	router := wireRouter(WireParams{Cfg: cfg, Pool: pool, FleetMgr: fleetMgr,
+	router := testWireRouter(WireParams{Cfg: cfg, Pool: pool, FleetMgr: fleetMgr,
 		Actions: struct {
 			Store    *store.ActionStore
 			Executor *executor.Executor

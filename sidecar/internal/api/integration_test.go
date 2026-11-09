@@ -190,10 +190,21 @@ func TestIntegration_EmergencyStopStopsExecutor(t *testing.T) {
 	}
 }
 
+// config-10: PUT /api/v1/config goes through the config controller, the
+// only write path; the old in-place mutation of the startup config is gone.
 func TestIntegration_ConfigUpdateTrustLevel(t *testing.T) {
-	r, _ := setupIntegrationRouter()
+	cfg := config.DefaultConfig()
+	cfg.Mode = "fleet"
+	cfg.Trust.Level = "advisory"
+	cfg.Databases = []config.DatabaseConfig{{
+		Name: "prod-orders", Host: "localhost", Port: 5432,
+		Database: "orders", User: "postgres", SSLMode: "disable",
+	}}
+	controller := config.NewConfigController(cfg, nil)
+	r := newTestRouter(fleet.NewManager(cfg), cfg, nil, nil, nil, nil,
+		&RuntimeDeps{ConfigController: controller}, fakeAdminMiddleware)
 
-	body := `{"trust":{"level":"autonomous"}}`
+	body := `{"trust":{"level":"autonomous"},"expected_generation":1}`
 	req := httptest.NewRequest("PUT", "/api/v1/config",
 		strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -201,19 +212,20 @@ func TestIntegration_ConfigUpdateTrustLevel(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	if w.Code != 200 {
-		t.Fatalf("status: %d", w.Code)
+		t.Fatalf("status: %d; body=%s", w.Code, w.Body.String())
 	}
-
-	// Verify change took effect
-	req = httptest.NewRequest("GET", "/api/v1/config", nil)
-	w = httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	var resp map[string]any
-	json.NewDecoder(w.Body).Decode(&resp)
-	trust := resp["trust"].(map[string]any)
-	if trust["Level"] != "autonomous" {
-		t.Errorf("trust level: %v", trust["Level"])
+	var result config.ApplyResult
+	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if result.DesiredGeneration != 2 {
+		t.Fatalf("desired generation = %d, want 2", result.DesiredGeneration)
+	}
+	if got := controller.Desired().Config.Trust.Level; got != "autonomous" {
+		t.Fatalf("desired trust level = %q, want autonomous", got)
+	}
+	if cfg.Trust.Level != "advisory" {
+		t.Fatalf("startup config mutated in place: trust %q", cfg.Trust.Level)
 	}
 }
 

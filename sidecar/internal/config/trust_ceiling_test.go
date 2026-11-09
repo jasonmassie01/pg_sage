@@ -128,10 +128,12 @@ func TestTrustCeilingValidationBoundaries(t *testing.T) {
 	for _, pct := range []int{0, 100} {
 		cfg := DefaultConfig()
 		cfg.Trust.RollbackThresholdPct = pct
-		cfg.Trust.RollbackWindowMinutes, cfg.Trust.RollbackCooldownDays = 0, 0
+		// config-02: window and cooldown share the API's 1.. range; the
+		// cascade cooldown keeps 0 = default.
+		cfg.Trust.RollbackWindowMinutes, cfg.Trust.RollbackCooldownDays = 1, 1
 		cfg.Trust.CascadeCooldownCycles = 0
 		if err := cfg.validate(); err != nil {
-			t.Errorf("rollback_threshold_pct=%d with zero bounds rejected: %v", pct, err)
+			t.Errorf("rollback_threshold_pct=%d with minimum bounds rejected: %v", pct, err)
 		}
 	}
 }

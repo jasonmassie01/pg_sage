@@ -128,6 +128,8 @@ func main() {
 	// Config hot-reload.
 	stopConfigWatcher := startConfigWatcher()
 	defer stopConfigWatcher()
+	// Global settings another replica saves converge here (config-05).
+	startConfigResync(shutdownCtx)
 
 	// Prometheus server.
 	promServer := startPrometheusServer(cfg.Prometheus.ListenAddr)
@@ -231,14 +233,9 @@ func connectStandaloneDatabaseOrExit() func() {
 	if cfg.HasMetaDB() || cfg.IsFleet() {
 		return func() {}
 	}
-	dsn := cfg.Postgres.DSN()
-	if dsn == "" {
-		dsn = envOrDefault("SAGE_DATABASE_URL",
-			"postgres://postgres@localhost:5432/"+
-				"postgres?sslmode=disable")
-	}
 	var err error
-	pool, err = connectMonitoredDB(dsn, cfg.Postgres.MaxConnections)
+	pool, err = connectMonitoredDB(
+		cfg.Postgres.DSN(), cfg.Postgres.MaxConnections)
 	if err != nil {
 		logError("startup", "%v", err)
 		os.Exit(1)

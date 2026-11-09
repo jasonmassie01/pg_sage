@@ -98,7 +98,7 @@ func TestDatabricksAppRateLimiterRequiresExplicitWiring(t *testing.T) {
 				app := rateLimitAppConfig(t)
 				params.DatabricksAppAuth = &app
 			}
-			h := wireRouter(params).Handler
+			h := testWireRouter(params).Handler
 			for i, email := range []string{"one@databricks.com", "two@databricks.com", "ONE@DATABRICKS.COM"} {
 				w := rateLimitAppRequest(h, email)
 				want := http.StatusOK

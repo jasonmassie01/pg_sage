@@ -83,7 +83,7 @@ func registerConfigRoutesRuntime(
 	disableWrites bool,
 ) {
 	if disableWrites {
-		registerReadOnlyConfigRoutes(mux, cfg, fm, controller)
+		registerReadOnlyConfigRoutes(mux, fm, controller)
 		return
 	}
 	adminOnly := RequireRole("admin")
@@ -95,16 +95,14 @@ func registerConfigRoutesRuntime(
 	}
 
 	globalGet := adminOnly(http.HandlerFunc(
-		configGlobalGetHandler(cs, baseCfg, controller)))
+		configGlobalGetHandler(cs, controller)))
 	mux.Handle("GET /api/v1/config/global", globalGet)
 
-	globalPutHandler := configGlobalPutHandler(cs, cfg, fm, controller)
+	globalPutHandler := configGlobalPutHandler(cs, controller)
 	globalPut := adminOnly(http.HandlerFunc(globalPutHandler))
 	mux.Handle("PUT /api/v1/config/global", globalPut)
 
-	globalDeleteHandler := configGlobalDeleteHandler(
-		cs, cfg, base, fm, controller,
-	)
+	globalDeleteHandler := configGlobalDeleteHandler(cs, base, controller)
 	globalDelete := adminOnly(http.HandlerFunc(globalDeleteHandler))
 	mux.Handle("DELETE /api/v1/config/global/{key}", globalDelete)
 
@@ -148,7 +146,6 @@ func registerDatabaseConfigRoutes(
 // reads come from the running config, every write answers 503.
 func registerReadOnlyConfigRoutes(
 	mux *http.ServeMux,
-	cfg *config.Config,
 	fm *fleet.DatabaseManager,
 	controller *config.ConfigController,
 ) {
@@ -157,13 +154,13 @@ func registerReadOnlyConfigRoutes(
 		configPersistenceUnavailableHandler(),
 	))
 	globalGet := adminOnly(http.HandlerFunc(
-		configReadOnlyGlobalGetHandler(cfg, controller),
+		configReadOnlyGlobalGetHandler(controller),
 	))
 	mux.Handle("GET /api/v1/config/global", globalGet)
 	mux.Handle("PUT /api/v1/config/global", unavailable)
 	mux.Handle("DELETE /api/v1/config/global/{key}", unavailable)
 	dbGet := adminOnly(http.HandlerFunc(
-		configReadOnlyDBGetHandler(cfg, fm, controller),
+		configReadOnlyDBGetHandler(fm, controller),
 	))
 	mux.Handle("GET /api/v1/config/databases/{id}", dbGet)
 	mux.Handle("PUT /api/v1/config/databases/{id}", unavailable)

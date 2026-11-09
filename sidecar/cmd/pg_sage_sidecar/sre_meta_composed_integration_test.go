@@ -28,7 +28,7 @@ func routeMetaIncidentEvents(
 	t *testing.T, state *metaDBState, userID int, sink *hookSink,
 ) {
 	t.Helper()
-	router := wireRouter(WireParams{
+	router := testWireRouter(WireParams{
 		Cfg: cfg, Pool: state.Pool, FleetMgr: fleetMgr, MetaState: state,
 	}).Handler
 	created := adminAPIRequest(t, router, state.Pool, userID, http.MethodPost,

@@ -24,19 +24,16 @@ var errInvalidExecMode = errors.New(
 	"execution_mode must be auto, approval, or manual")
 
 func configGlobalGetHandler(
-	cs *store.ConfigStore, cfg *config.Config,
-	controllers ...*config.ConfigController,
+	cs *store.ConfigStore, controller *config.ConfigController,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		responseCfg := cfg
-		response := map[string]any{}
-		if controller := firstConfigController(controllers); controller != nil {
-			desired := controller.Desired()
-			active := controller.Active()
-			responseCfg = desired.Config
-			response["desired_generation"] = desired.Generation
-			response["active_generation"] = active.Generation
-			response["pending_restart"] = controller.PendingRestart()
+		desired := controller.Desired()
+		responseCfg := desired.Config
+		response := map[string]any{
+			"desired_generation": desired.Generation,
+			"active_generation":  controller.Active().Generation,
+			"pending_restart":    controller.PendingRestart(),
+			"last_resync_at":     lastResyncValue(controller),
 		}
 		merged, err := cs.GetMergedConfig(r.Context(), responseCfg, 0)
 		if err != nil {
@@ -52,11 +49,11 @@ func configGlobalGetHandler(
 }
 
 func configReadOnlyGlobalGetHandler(
-	cfg *config.Config, controller *config.ConfigController,
+	controller *config.ConfigController,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		responseCfg, desired, active, pending := readOnlyConfigSnapshot(
-			cfg, controller,
+			controller,
 		)
 		jsonResponse(w, map[string]any{
 			"mode":               responseCfg.Mode,
@@ -72,8 +69,7 @@ func configReadOnlyGlobalGetHandler(
 }
 
 func configReadOnlyDBGetHandler(
-	cfg *config.Config, mgr *fleet.DatabaseManager,
-	controller *config.ConfigController,
+	mgr *fleet.DatabaseManager, controller *config.ConfigController,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		dbID, err := strconv.Atoi(r.PathValue("id"))
@@ -93,7 +89,7 @@ func configReadOnlyDBGetHandler(
 		}
 
 		responseCfg, desired, active, pending := readOnlyConfigSnapshot(
-			cfg, controller,
+			controller,
 		)
 		values := store.ConfigReadModel(responseCfg)
 		executionMode := instance.Config.ExecutionMode
@@ -129,11 +125,8 @@ func configReadOnlyDBGetHandler(
 }
 
 func readOnlyConfigSnapshot(
-	cfg *config.Config, controller *config.ConfigController,
+	controller *config.ConfigController,
 ) (*config.Config, uint64, uint64, []string) {
-	if controller == nil {
-		return config.Clone(cfg), 1, 1, nil
-	}
 	desired := controller.Desired()
 	active := controller.Active()
 	return desired.Config, desired.Generation, active.Generation,
@@ -141,9 +134,7 @@ func readOnlyConfigSnapshot(
 }
 
 func configGlobalPutHandler(
-	cs *store.ConfigStore, cfg *config.Config,
-	mgr *fleet.DatabaseManager,
-	controllers ...*config.ConfigController,
+	cs *store.ConfigStore, controller *config.ConfigController,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := UserFromContext(r.Context())
@@ -162,35 +153,14 @@ func configGlobalPutHandler(
 		// sage.config — strip it so it doesn't cause a
 		// validation error that blocks other fields.
 		delete(body, "execution_mode")
-		controller := firstConfigController(controllers)
-		if controller != nil {
-			applyControlledGlobalConfig(
-				w, r, cs, mgr, controller, body, userID,
-			)
-			return
-		}
-
-		errs := applyConfigOverrides(
-			r.Context(), cs, cfg, body, 0, userID)
-		if len(errs) > 0 {
-			jsonError(w, errs[0],
-				http.StatusBadRequest)
-			return
-		}
-
-		// Sync trust_level to fleet instances for display.
-		if _, ok := body["trust.level"]; ok && mgr != nil {
-			syncTrustLevelToFleet(mgr, cfg.Trust.Level)
-		}
-
-		jsonResponse(w, map[string]string{"status": "updated"})
+		applyControlledGlobalConfig(w, r, cs, controller, body, userID)
 	}
 }
 
 func applyControlledGlobalConfig(
 	w http.ResponseWriter, r *http.Request,
-	cs *store.ConfigStore, mgr *fleet.DatabaseManager,
-	controller *config.ConfigController, body map[string]any, userID int,
+	cs *store.ConfigStore, controller *config.ConfigController,
+	body map[string]any, userID int,
 ) {
 	expected, ok := configExpectedGeneration(body)
 	if !ok {
@@ -222,7 +192,7 @@ func applyControlledGlobalConfig(
 		},
 	)
 	if err != nil {
-		writeConfigApplyError(w, r, err)
+		writeControlledApplyError(w, r, controller, err)
 		return
 	}
 	jsonResponse(w, map[string]any{
@@ -244,15 +214,17 @@ func writeConfigApplyError(
 		jsonError(w, err.Error(), http.StatusConflict)
 		return
 	}
+	if errors.Is(err, config.ErrInvalidCandidate) {
+		// Validation text names the key and the operator's own value.
+		jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	internalError(w, r, "apply config generation", err)
 }
 
 func configGlobalDeleteHandler(
-	cs *store.ConfigStore,
-	cfg *config.Config,
-	base configBaseSource,
-	mgr *fleet.DatabaseManager,
-	controllers ...*config.ConfigController,
+	cs *store.ConfigStore, base configBaseSource,
+	controller *config.ConfigController,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		key := r.PathValue("key")
@@ -266,39 +238,14 @@ func configGlobalDeleteHandler(
 				http.StatusBadRequest)
 			return
 		}
-		if controller := firstConfigController(controllers); controller != nil {
-			applyControlledGlobalDelete(
-				w, r, cs, base, mgr, controller, key,
-			)
-			return
-		}
-		baseCfg, err := base()
-		if err != nil {
-			internalError(w, r, "load config base", err)
-			return
-		}
-		if err := cs.DeleteOverride(r.Context(), key, 0); err != nil {
-			internalError(w, r, "delete global config override", err)
-			return
-		}
-		if err := reloadGlobalConfigFromStore(
-			r.Context(), cs, cfg, baseCfg,
-		); err != nil {
-			internalError(w, r, "reload global config", err)
-			return
-		}
-		if key == "trust.level" && mgr != nil {
-			syncTrustLevelToFleet(mgr, cfg.Trust.Level)
-		}
-		jsonResponse(w, map[string]string{"status": "deleted"})
+		applyControlledGlobalDelete(w, r, cs, base, controller, key)
 	}
 }
 
 func applyControlledGlobalDelete(
 	w http.ResponseWriter, r *http.Request,
 	cs *store.ConfigStore, base configBaseSource,
-	mgr *fleet.DatabaseManager, controller *config.ConfigController,
-	key string,
+	controller *config.ConfigController, key string,
 ) {
 	expected, err := strconv.ParseUint(
 		r.URL.Query().Get("expected_generation"), 10, 64,
@@ -333,7 +280,7 @@ func applyControlledGlobalDelete(
 		},
 	)
 	if err != nil {
-		writeConfigApplyError(w, r, err)
+		writeControlledApplyError(w, r, controller, err)
 		return
 	}
 	jsonResponse(w, map[string]any{
@@ -359,33 +306,17 @@ func globalCandidateWithoutOverride(
 	if err != nil {
 		return nil, err
 	}
+	kept := make([]store.ConfigOverride, 0, len(overrides))
 	for _, override := range overrides {
 		if override.Key != omittedKey {
-			hotReload(candidate, override.Key, override.Value)
+			kept = append(kept, override)
 		}
 	}
+	ReplayStoredOverrides(candidate, kept, warnStoredOverride)
 	return candidate, nil
 }
 
-func reloadGlobalConfigFromStore(
-	ctx context.Context,
-	cs *store.ConfigStore,
-	cfg *config.Config,
-	baseCfg *config.Config,
-) error {
-	overrides, err := cs.GetOverrides(ctx, 0)
-	if err != nil {
-		return fmt.Errorf("global overrides: %w", err)
-	}
-	next := config.Clone(baseCfg)
-	config.LockForHotReload()
-	*cfg = *next
-	config.UnlockForHotReload()
-	for _, override := range overrides {
-		hotReload(cfg, override.Key, override.Value)
-	}
-	return nil
-}
+func warnStoredOverride(msg string) { slog.Warn(msg) }
 
 func configDBGetHandler(
 	cs *store.ConfigStore, cfg *config.Config,
@@ -542,7 +473,7 @@ func configDBPutHandler(
 			}
 			for _, write := range writes {
 				if write.Key == "trust.level" {
-					applyDatabaseTrustLevel(inst, write.Value, true)
+					applyDatabaseTrustLevel(inst, write.Value)
 				}
 			}
 			return nil
@@ -679,22 +610,9 @@ func configAuditHandler(
 	}
 }
 
-// syncTrustLevelToFleet applies global trust without replacing an explicit
-// per-database policy.
-func syncTrustLevelToFleet(
-	mgr *fleet.DatabaseManager, level string,
-) {
-	for _, inst := range mgr.Instances() {
-		if inst.HasTrustLevelOverride() {
-			continue
-		}
-		applyDatabaseTrustLevel(inst, level, false)
-	}
-}
-
-func applyDatabaseTrustLevel(
-	inst *fleet.DatabaseInstance, level string, explicit bool,
-) {
+// applyDatabaseTrustLevel applies an explicit per-database trust policy,
+// which a later global trust change does not replace.
+func applyDatabaseTrustLevel(inst *fleet.DatabaseInstance, level string) {
 	if inst.Executor != nil {
 		if err := inst.Executor.SetTrustLevel(level); err != nil {
 			slog.Error("apply executor trust level failed",
@@ -702,7 +620,7 @@ func applyDatabaseTrustLevel(
 			return
 		}
 	}
-	inst.SetTrustLevelOverride(explicit)
+	inst.SetTrustLevelOverride(true)
 	inst.UpdateStatus(func(s *fleet.InstanceStatus) {
 		s.TrustLevel = level
 	})

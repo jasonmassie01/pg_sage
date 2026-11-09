@@ -53,7 +53,7 @@ func managedAndSRERouter(mgr *fleet.DatabaseManager) http.Handler {
 		})
 	}
 	deps := &DatabaseDeps{Store: &store.DatabaseStore{}, Fleet: mgr}
-	return NewRouterFullRuntime(mgr, config.DefaultConfig(), nil, nil, deps, nil, nil,
+	return newTestRouter(mgr, config.DefaultConfig(), nil, nil, deps, nil, nil,
 		inject)
 }
 

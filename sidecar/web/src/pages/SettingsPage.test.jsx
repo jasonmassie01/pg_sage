@@ -306,3 +306,19 @@ describe('SettingsPage trust and emergency controls', () => {
       .toHaveTextContent('prod')
   })
 })
+
+// config-07: only the LLM connection, YAML fleet databases and trust.level
+// change without a restart; the banner must not promise any other rebuild.
+describe('SettingsPage lifecycle banner', () => {
+  it('names the live owners and no collector or alerting rebuild', () => {
+    localStorage.setItem('pg_sage_settings_mode', 'advanced')
+    render(<SettingsPage database="all" />)
+    const banner = screen.getByTestId('settings-lifecycle-banner')
+    expect(banner.textContent).toMatch(/LLM connection/)
+    expect(banner.textContent).toMatch(/fleet databases/)
+    expect(banner.textContent).toMatch(/trust\.level/)
+    expect(banner.textContent).toMatch(/pending restart/i)
+    expect(banner.textContent).not.toMatch(/collector|alerting|analyzer|briefing/i)
+    expect(banner.textContent).not.toMatch(/Reconfigured owners/)
+  })
+})

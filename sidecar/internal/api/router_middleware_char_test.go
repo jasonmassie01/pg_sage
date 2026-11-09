@@ -33,9 +33,9 @@ func chainRouter(t *testing.T, seen *chainProbe, withPool bool) http.Handler {
 		})
 	}
 	if !withPool {
-		return NewRouterFullRuntime(mgr, cfg, nil, nil, nil, nil, nil, mark)
+		return newTestRouter(mgr, cfg, nil, nil, nil, nil, nil, mark)
 	}
-	return NewRouterFullRuntime(mgr, cfg, unreachablePool(t), nil, nil, nil, nil, mark)
+	return newTestRouter(mgr, cfg, unreachablePool(t), nil, nil, nil, nil, mark)
 }
 
 func chainServe(

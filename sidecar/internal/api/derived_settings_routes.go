@@ -121,8 +121,9 @@ func derivedViews(settings []selfconfig.Setting, soak int) []derivedSettingView 
 	for _, rule := range selfconfig.Rules() {
 		v := derivedSettingView{Key: rule.Key, Unit: rule.Unit, Summary: rule.Summary,
 			Default: rule.Get(def), Rule: rule.Name, RuleVersion: rule.Version,
-			Lifecycle: lifecycleOf(rule.Key), Status: string(selfconfig.StatusDefault),
-			Value: rule.Get(def), Bounds: rule.Bounds(def),
+			Lifecycle: selfconfig.DerivedLifecycle(rule.Key),
+			Status:    string(selfconfig.StatusDefault),
+			Value:     rule.Get(def), Bounds: rule.Bounds(def),
 			Evidence: []selfconfig.Citation{}, History: []selfconfig.LedgerEntry{},
 			Note: "not derived yet on this database"}
 		if class, ok := config.KeyClassOf(rule.Key); ok {
@@ -157,13 +158,6 @@ func fillDerivedView(v *derivedSettingView, s selfconfig.Setting, soak int) {
 	if s.Pinned != nil {
 		v.Pinned = &derivedPinView{Value: *s.Pinned, By: s.PinnedBy, At: s.PinnedAt}
 	}
-}
-
-func lifecycleOf(key string) string {
-	if f, ok := config.LookupFieldLifecycle(key); ok {
-		return string(f.Lifecycle)
-	}
-	return string(config.LifecycleRestart)
 }
 
 func derivedSettingPinHandler(mgr *fleet.DatabaseManager, pin bool) http.HandlerFunc {

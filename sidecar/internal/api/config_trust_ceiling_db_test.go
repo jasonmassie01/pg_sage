@@ -20,7 +20,7 @@ func TestGlobalPutTrustCeilingIsAppliedNotPendingRestart(t *testing.T) {
 	base := config.DefaultConfig()
 	base.Trust.Tier3Safe = true
 	controller := config.NewConfigController(base, nil, apiTrustOwner{})
-	put := configGlobalPutHandler(cs, base, nil, controller)
+	put := configGlobalPutHandler(cs, controller)
 	response := doRequestWithUser(put, http.MethodPut, "/api/v1/config/global",
 		`{"trust.tier3_safe":"false","expected_generation":1}`, user)
 	if response.Code != http.StatusOK {
@@ -53,7 +53,7 @@ func TestGlobalPutTrustCeilingRejectsNegativeThreshold(t *testing.T) {
 	user := &auth.User{ID: phase2EnsureUser(t, pool, ctx), Role: auth.RoleAdmin}
 	base := config.DefaultConfig()
 	controller := config.NewConfigController(base, nil, apiTrustOwner{})
-	put := configGlobalPutHandler(cs, base, nil, controller)
+	put := configGlobalPutHandler(cs, controller)
 	response := doRequestWithUser(put, http.MethodPut, "/api/v1/config/global",
 		`{"trust.rollback_threshold_pct":"-1","expected_generation":1}`, user)
 	if response.Code != http.StatusBadRequest {

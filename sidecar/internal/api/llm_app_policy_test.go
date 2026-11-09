@@ -19,7 +19,7 @@ func TestDatabricksAppDiscoveryRejectsRequestScopedAuthDowngrade(t *testing.T) {
 		t.Fatal("invalid discovery reached provider")
 		return nil, nil
 	}
-	h := discoverModelsWithDiscovery(cfg, nil, discover)
+	h := discoverModelsWithDiscovery(llmController(cfg), discover)
 	for _, body := range []string{`{"config":{"llm.auth":"api_key","llm.api_key":"test-key"}}`, `{"config":{"llm.api_key":"test-key"}}`, `{"config":{"llm.endpoint":"https://other.example/v1"}}`} {
 		r := httptest.NewRequest(http.MethodPost, "/api/v1/llm/models/discover", strings.NewReader(body))
 		w := httptest.NewRecorder()

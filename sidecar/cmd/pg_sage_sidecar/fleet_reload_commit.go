@@ -218,7 +218,7 @@ func applyFleetDatabasePolicy(
 	}
 	inst.SetTrustLevelOverride(to.TrustLevelExplicit)
 	inst.UpdateStatus(func(status *fleet.InstanceStatus) { status.TrustLevel = level })
-	if trustRank(to.TrustLevel) > trustRank(from.TrustLevel) {
+	if config.TrustRank(to.TrustLevel) > config.TrustRank(from.TrustLevel) {
 		logWarn("fleet", "db %q: trust raised %s -> %s by reload", inst.Name,
 			from.TrustLevel, to.TrustLevel)
 	}

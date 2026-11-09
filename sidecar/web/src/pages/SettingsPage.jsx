@@ -370,9 +370,11 @@ export function SettingsPage({ database, databaseId }) {
           color: 'var(--text-secondary)',
         }}
       >
-        <span>
-          Saved fields follow server lifecycle metadata. Reconfigured owners
-          rebuild in place; restart-bound fields are reported as pending.
+        <span data-testid="settings-lifecycle-banner">
+          Saved fields follow server lifecycle metadata. The LLM connection
+          and YAML fleet databases rebuild in place, trust.level and the trust
+          ceilings apply live; every other field is reported as pending
+          restart.
         </span>
         <button
           data-testid="settings-restart-btn"

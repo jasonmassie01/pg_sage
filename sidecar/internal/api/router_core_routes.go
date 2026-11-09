@@ -23,8 +23,8 @@ func registerAPIRoutes(
 ) {
 	registerFindingRoutes(mux, mgr)
 	registerObservabilityRoutes(mux, mgr)
-	registerProcessControlRoutes(mux, mgr, cfg, controller, cs, disableConfigWrites)
-	registerLLMModelRoutes(mux, cfg, controller)
+	registerProcessControlRoutes(mux, mgr, controller, cs, disableConfigWrites)
+	registerLLMModelRoutes(mux, controller)
 	registerIncidentRoutes(mux, mgr)
 	registerAnalysisRoutes(mux, mgr, cfg, llmMgr)
 	registerEventRoutes(mux, mgr)
@@ -100,7 +100,6 @@ func registerObservabilityRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager)
 func registerProcessControlRoutes(
 	mux *http.ServeMux,
 	mgr *fleet.DatabaseManager,
-	cfg *config.Config,
 	controller *config.ConfigController,
 	cs *store.ConfigStore,
 	disableConfigWrites bool,
@@ -109,11 +108,9 @@ func registerProcessControlRoutes(
 	operatorUp := RequireRole("admin", "operator")
 
 	mux.HandleFunc(
-		"GET /api/v1/config", configGetHandler(mgr, cfg, controller))
+		"GET /api/v1/config", configGetHandler(mgr, controller))
 
-	configPutHandler := configUpdateHandlerWithStore(
-		mgr, cfg, controller, cs,
-	)
+	configPutHandler := configUpdateHandlerWithStore(controller, cs)
 	if disableConfigWrites {
 		configPutHandler = configPersistenceUnavailableHandler()
 	}
@@ -141,15 +138,15 @@ func registerProcessControlRoutes(
 
 // registerLLMModelRoutes covers model listing and admin model discovery.
 func registerLLMModelRoutes(
-	mux *http.ServeMux, cfg *config.Config, controller *config.ConfigController,
+	mux *http.ServeMux, controller *config.ConfigController,
 ) {
 	adminOnly := RequireRole("admin")
 	mux.HandleFunc(
 		"GET /api/v1/llm/models",
-		listModelsHandler(&cfg.LLM, controller))
+		listModelsHandler(controller))
 	mux.Handle(
 		"POST /api/v1/llm/models",
-		adminOnly(http.HandlerFunc(discoverModelsHandler(&cfg.LLM, controller))))
+		adminOnly(http.HandlerFunc(discoverModelsHandler(controller))))
 }
 
 // registerIncidentRoutes covers the v0.9 incident endpoints.

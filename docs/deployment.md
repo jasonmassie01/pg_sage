@@ -274,6 +274,25 @@ spec:
 Without `SAGE_TLS_CERT`/`SAGE_TLS_KEY`, drop them and use `scheme: HTTP` in the
 probes.
 
+### ConfigMap edits and hot reload
+
+An edit to the `pg-sage-config` ConfigMap hot-reloads without a restart. The
+kubelet publishes it after its sync delay, about 60 s plus its ConfigMap cache
+TTL, by swapping the volume's `..data` symlink. The sidecar watches the mount
+directory, waits 300 ms for the swap to settle (at most 2 s while other files
+in that directory keep changing), and reloads only when the file
+behind `config.yaml` has changed (its resolved path, size, mtime or content).
+The log then shows `[config-watcher] reloaded: [...]`. A candidate that fails
+validation is logged and the previous config stays active; fix the file, or
+`touch` it, to try again. Fields that need a restart (`postgres.*`, `mode`,
+`prometheus.listen_addr`) are logged as `restart required`.
+
+A ConfigMap mounted with `subPath` never receives updates, so a change there
+needs a pod restart. Secret files keep the rule in
+[Secrets from files](configuration.md#secrets-from-files-_file): a config
+reload re-reads the files behind `${NAME}` references, but rotating a secret
+alone does not trigger a reload, because only the config directory is watched.
+
 ### Health and readiness
 
 Both endpoints are on the API port and need no session.

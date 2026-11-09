@@ -22,6 +22,9 @@ func TestPersistedLLMAuthOverride(t *testing.T) {
 
 // A persisted override (Settings UI / API, stored in sage.config) of
 // "false" must win over the new default-on LLM switches at startup.
+// tuner.llm_enabled is not an override key (the store refuses it and replay
+// skips stale rows), so YAML is its only source and it has no setter
+// (config-10).
 
 type llmOverrideSwitch struct {
 	key string
@@ -34,7 +37,6 @@ var llmOverrideSwitches = []llmOverrideSwitch{
 		return c.LLM.Optimizer.Enabled
 	}},
 	{"advisor.enabled", func(c *config.Config) bool { return c.Advisor.Enabled }},
-	{"tuner.llm_enabled", func(c *config.Config) bool { return c.Tuner.LLMEnabled }},
 	{"rca.narration_enabled", func(c *config.Config) bool {
 		return c.RCA.NarrationEnabled
 	}},
@@ -72,9 +74,10 @@ func TestPersistedTrueOverrideRestoresLLMSwitch(t *testing.T) {
 	}
 }
 
-// Anything but the literal "true" fails closed to off.
+// Anything config.ParseBool does not read as true fails closed to off
+// ("1" is true since config-02; TestEveryBoolSetterAppliesParseBoolForms).
 func TestPersistedNonBooleanOverrideTurnsLLMSwitchOff(t *testing.T) {
-	for _, value := range []string{"", "yes", "1", "TRUE "} {
+	for _, value := range []string{"", "yes", "TRUE "} {
 		candidate := config.DefaultConfig()
 		ApplyConfigOverrideSnapshot(candidate, "llm.enabled", value)
 		if candidate.LLM.Enabled {

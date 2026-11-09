@@ -123,7 +123,7 @@ func TestDerivedSettingsListsEveryKeyWithEvidence(t *testing.T) {
 		t.Fatalf("history %v", qt["history"])
 	}
 	ci := rows["collector.interval_seconds"]
-	if ci["status"] != "operator" || ci["value"] != 45.0 || ci["lifecycle"] != "reconfigure" {
+	if ci["status"] != "operator" || ci["value"] != 45.0 || ci["lifecycle"] != "live" {
 		t.Fatalf("operator row %v", ci)
 	}
 	// A key with no evidence has a row and says why it is not derived.

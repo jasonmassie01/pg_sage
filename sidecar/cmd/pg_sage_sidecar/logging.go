@@ -26,10 +26,3 @@ func logStructuredWrapper(component, msg string, args ...any) {
 	}
 	logStructured("INFO", component, msg, args...)
 }
-
-func envOrDefault(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
-}

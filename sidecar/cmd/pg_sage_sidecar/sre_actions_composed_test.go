@@ -171,8 +171,15 @@ func m5Router(t *testing.T, c *config.Config, mgr *fleet.DatabaseManager,
 	if err != nil {
 		t.Fatalf("runtime: %v", err)
 	}
-	return api.NewRouterFullRuntime(mgr, c, pool, nil, nil, nil,
-		&api.RuntimeDeps{MCPHandler: runtime.HTTPHandler()}, api.SessionAuthMiddleware(pool))
+	router, err := api.NewRouterFullRuntime(mgr, c, pool, nil, nil, nil,
+		&api.RuntimeDeps{
+			MCPHandler:       runtime.HTTPHandler(),
+			ConfigController: config.NewConfigController(c, nil),
+		}, api.SessionAuthMiddleware(pool))
+	if err != nil {
+		t.Fatalf("router: %v", err)
+	}
+	return router
 }
 
 // m5Token is a person's MCP token: every scope for an operator, read
