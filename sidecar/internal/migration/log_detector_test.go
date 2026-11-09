@@ -157,7 +157,7 @@ func TestBuildLLMIncident_HighRiskScoresCritical(t *testing.T) {
 		EstDurationSec:  900,
 	}
 
-	inc := advisor.buildLLMIncident(resp, "ALTER TABLE foo ALTER COLUMN id TYPE bigint")
+	inc, _ := advisor.buildLLMIncident(resp, "ALTER TABLE foo ALTER COLUMN id TYPE bigint")
 	if inc == nil {
 		t.Fatal("buildLLMIncident returned nil")
 	}
@@ -205,7 +205,7 @@ func TestBuildLLMIncident_MediumRiskIsWarning(t *testing.T) {
 		Explanation:     "Moderate risk",
 		EstDurationSec:  10,
 	}
-	inc := advisor.buildLLMIncident(resp, "ALTER TABLE t ADD COLUMN x int")
+	inc, _ := advisor.buildLLMIncident(resp, "ALTER TABLE t ADD COLUMN x int")
 	if inc.Severity != "warning" {
 		t.Errorf("Severity = %q, want 'warning' for risk_score=0.5",
 			inc.Severity)

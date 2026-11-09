@@ -37,7 +37,9 @@ func contractIncident() *rca.Incident {
 		AffectedObjects: []string{"app.orders"},
 		SignalIDs:       []string{"ddl_index_not_concurrent"},
 		RecommendedSQL:  "CREATE INDEX CONCURRENTLY idx_orders_a ON app.orders (a)",
-		ActionRisk:      "risk_score=0.55", Confidence: 0.55, DatabaseName: "prod",
+		// The advisor marks its own templates; only they are copied.
+		RecommendedSQLSource: migration.SQLSourceDeterministic,
+		ActionRisk:           "risk_score=0.55", Confidence: 0.55, DatabaseName: "prod",
 	}
 }
 

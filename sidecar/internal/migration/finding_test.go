@@ -109,10 +109,12 @@ func migrationIncident(safeSQL string) *rca.Incident {
 		AffectedObjects: []string{"public.t"},
 		SignalIDs:       []string{"ddl_index_not_concurrent"},
 		RecommendedSQL:  safeSQL,
-		ActionRisk:      "risk_score=0.70",
-		Source:          "schema_advisor",
-		Confidence:      0.7,
-		DatabaseName:    "prod",
+		// The advisor marks its own templates; only they are copied.
+		RecommendedSQLSource: SQLSourceDeterministic,
+		ActionRisk:           "risk_score=0.70",
+		Source:               "schema_advisor",
+		Confidence:           0.7,
+		DatabaseName:         "prod",
 		CausalChain: []rca.ChainLink{{
 			Order:       1,
 			Signal:      "ddl_index_not_concurrent",

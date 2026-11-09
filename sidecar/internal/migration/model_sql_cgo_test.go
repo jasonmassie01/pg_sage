@@ -6,6 +6,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/pg-sage/sidecar/internal/sqlast"
 )
 
 var orders = modelTarget{Table: "orders"}
@@ -126,18 +128,19 @@ func TestValidateModelDDLNamesTheOffendingStatement(t *testing.T) {
 	}
 }
 
+// migration-10: a validated script is model output in llm_script, never
+// the recommendation, which stays the deterministic alternative.
 func TestGenerateScriptKeepsAValidatedScript(t *testing.T) {
 	rec := newRecordingLLM(t, "```sql\n"+typeChangeScript+"\n```")
 	gen := NewScriptGenerator(rec.client(), nil, 160004, nopMigrationLog)
 	got := gen.GenerateScript(context.Background(), ordersRisk())
-	if got.SQL != typeChangeScript || got.ModelText != "" || got.Reason != "" {
-		t.Fatalf("validated script = %+v, want it as the recommendation", got)
+	if got.Script != typeChangeScript || got.SQL != ordersRisk().SafeAlternative ||
+		got.ModelText != "" || got.Reason != "" {
+		t.Fatalf("validated script = %+v, want it as Script beside the deterministic SQL", got)
 	}
-	a := newEgressAdvisor(newRecordingLLM(t, "```sql\n"+typeChangeScript+"\n```"))
-	inc := a.buildIncident(context.Background(), ordersRisk())
-	if inc.RecommendedSQL != typeChangeScript ||
-		chainLink(inc, "model_text_unvalidated") != nil {
-		t.Fatalf("incident = %+v, want the validated script and no unvalidated link", inc)
+	fields := modelFields(got, detailLLMScript)
+	if fields[detailLLMScript] != typeChangeScript || len(fields) != 1 {
+		t.Fatalf("fields = %v, want only llm_script", fields)
 	}
 }
 
@@ -148,19 +151,49 @@ const validFallbackReply = `{"lock_level":"ACCESS EXCLUSIVE",` +
 
 func TestLLMFallbackKeepsAValidatedAlternative(t *testing.T) {
 	rec := newRecordingLLM(t, validFallbackReply)
-	inc, err := newEgressAdvisor(rec).Analyze(context.Background(),
+	inc, res := newEgressAdvisor(rec).fallbackResult(context.Background(),
 		"ALTER TABLE t ALTER COLUMN c SET DEFAULT 'x'")
-	if err != nil || inc == nil {
-		t.Fatalf("Analyze = %v, %v", inc, err)
+	if inc == nil {
+		t.Fatal("fallbackResult returned no incident")
 	}
 	want := "SET lock_timeout = '5s'; ALTER TABLE t ALTER COLUMN c SET DEFAULT 'y'"
-	if inc.RecommendedSQL != want {
-		t.Errorf("RecommendedSQL = %q, want %q", inc.RecommendedSQL, want)
+	if inc.RecommendedSQL != "" || res.Script != want {
+		t.Errorf("RecommendedSQL = %q Script = %q, want no recommendation and the script",
+			inc.RecommendedSQL, res.Script)
 	}
-	if l := chainLink(inc, "safe_alternative"); l == nil || l.Description != want {
-		t.Errorf("safe_alternative link = %+v", l)
+	if l := chainLink(inc, "llm_safe_alternative"); l == nil || l.Evidence != want {
+		t.Errorf("llm_safe_alternative link = %+v", l)
 	}
-	if chainLink(inc, "model_text_unvalidated") != nil {
-		t.Error("validated alternative also labelled unvalidated")
+	if chainLink(inc, "safe_alternative") != nil ||
+		chainLink(inc, "model_text_unvalidated") != nil {
+		t.Error("validated model text shown as pg_sage's alternative or as unvalidated")
+	}
+	if f := modelFields(res, detailLLMSafeAlternative); f[detailLLMSafeAlternative] != want {
+		t.Errorf("fields = %v", f)
+	}
+}
+
+// PostgreSQL refuses CREATE INDEX CONCURRENTLY in a transaction block, so a
+// script that wraps one in BEGIN/COMMIT is labelled, not kept (migration-10).
+func TestValidateModelDDLRefusesConcurrentlyInsideATransaction(t *testing.T) {
+	err := validateModelDDL("BEGIN; CREATE INDEX CONCURRENTLY i ON orders (x); COMMIT;",
+		orders)
+	if err == nil || !strings.Contains(err.Error(), "CONCURRENTLY") {
+		t.Fatalf("err = %v, want a CONCURRENTLY-in-transaction refusal", err)
+	}
+	if err := validateModelDDL("CREATE INDEX CONCURRENTLY i ON orders (x)", orders); err != nil {
+		t.Fatalf("a lone concurrent build was refused: %v", err)
+	}
+	stmts, err := sqlast.InspectStatements("CREATE INDEX CONCURRENTLY i ON orders (x)")
+	if err != nil || len(stmts) != 1 || !stmts[0].Concurrent {
+		t.Fatalf("parser did not mark CONCURRENTLY: %+v, %v", stmts, err)
+	}
+	rec := newRecordingLLM(t,
+		"```sql\nBEGIN;\nCREATE INDEX CONCURRENTLY i ON orders (x);\nCOMMIT;\n```")
+	got := NewScriptGenerator(rec.client(), nil, 160004, nopMigrationLog).
+		GenerateScript(context.Background(), ordersRisk())
+	if fields := modelFields(got, detailLLMScript); fields[detailLLMInvalid] == nil ||
+		fields[detailLLMScript] != nil {
+		t.Fatalf("fields = %v, want llm_script_invalid", fields)
 	}
 }

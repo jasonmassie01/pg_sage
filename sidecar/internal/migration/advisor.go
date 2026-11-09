@@ -25,12 +25,20 @@ type Advisor struct {
 	logFn      func(string, string, ...any)
 	llmClient  *llm.Client      // nil = deterministic-only, no LLM fallback
 	scriptGen  *ScriptGenerator // nil = deterministic SafeAlternative only
+	// enricher runs the model work off the poll path, and cache keeps one
+	// answer per statement identity for both detectors (migration-10).
+	// Both are nil without a model.
+	enricher *Enricher
+	cache    *replyCache
 }
 
 // WithCatalogReadTimeouts bounds the risk assessment's live-metric reads
 // with the safety configuration's timeouts.
 func (a *Advisor) WithCatalogReadTimeouts(t catalogread.Timeouts) *Advisor {
 	a.assessor.SetCatalogReadTimeouts(t)
+	if a.scriptGen != nil {
+		a.scriptGen.timeouts = t
+	}
 	return a
 }
 
@@ -65,6 +73,9 @@ func NewAdvisor(
 	if llmClient != nil {
 		a.scriptGen = NewScriptGenerator(
 			llmClient, pool, pgVersion, logFn)
+		a.cache = newReplyCache(enrichCacheSize, enrichCacheTTL)
+		a.scriptGen.cache = a.cache
+		a.enricher = newEnricher(dbName, enrichQueueSize, a.runEnrichJob, logFn)
 	}
 	return a
 }
@@ -74,9 +85,9 @@ func NewAdvisor(
 // threshold (risk_score > 0.3). Returns nil if all risks are low.
 //
 // The statement is sanitized first (comments stripped, literals
-// redacted) so no observed literal reaches a log, the findings table,
-// or the LLM. Only table-level DDL that no rule classified and that is
-// not already in its safe form may be sent to the LLM (G7-B01, G7-B27).
+// redacted) so no observed literal reaches a log or the findings table.
+// Analyze never calls the model: the detectors queue that work after
+// persisting the deterministic finding (queueEnrichment, migration-10).
 func (a *Advisor) Analyze(
 	ctx context.Context, sql string,
 ) (*rca.Incident, error) {
@@ -102,19 +113,13 @@ func (a *Advisor) AnalyzeSession(
 }
 
 // AnalyzeSessionRisk is AnalyzeSession that also returns the winning
-// assessment. The risk is nil whenever the incident is, and for an LLM
-// fallback incident, which has no rule assessment.
+// assessment. The risk is nil whenever the incident is.
 func (a *Advisor) AnalyzeSessionRisk(
 	ctx context.Context, sql, role string,
 ) (*rca.Incident, *DDLRisk, error) {
 	clean := sanitizeDDL(sql)
 	classifications := a.classifier.Classify(clean, a.pgVersion)
 	if len(classifications) == 0 {
-		if a.llmClient != nil && a.llmClient.IsEnabled() &&
-			llmEgressAllowed(clean) {
-			inc, err := a.llmFallback(ctx, clean)
-			return inc, nil, err
-		}
 		return nil, nil, nil
 	}
 
@@ -125,7 +130,7 @@ func (a *Advisor) AnalyzeSessionRisk(
 	if highest == nil || highest.RiskScore <= incidentThreshold {
 		return nil, nil, nil
 	}
-	incident := a.buildIncident(ctx, highest)
+	incident := a.buildIncident(highest)
 	if lockTimeout != nil && highest.LockLevel == "ACCESS EXCLUSIVE" {
 		incident.CausalChain = append(incident.CausalChain, rca.ChainLink{
 			Order:  len(incident.CausalChain) + 1,
@@ -166,12 +171,10 @@ func (a *Advisor) assessHighest(
 	return highest, lockTimeout
 }
 
-// buildIncident converts a DDLRisk into an rca.Incident. When a
-// ScriptGenerator is available, a validated LLM migration script replaces
-// RecommendedSQL; an unvalidated one is shown only as labelled model text.
-func (a *Advisor) buildIncident(
-	ctx context.Context, risk *DDLRisk,
-) *rca.Incident {
+// buildIncident converts a DDLRisk into an rca.Incident whose
+// recommendation is the rule's deterministic alternative; the model's
+// script, if any, arrives later in the finding's llm_ keys (migration-10).
+func (a *Advisor) buildIncident(risk *DDLRisk) *rca.Incident {
 	severity := "warning"
 	if risk.RiskScore > 0.7 {
 		severity = "critical"
@@ -180,7 +183,7 @@ func (a *Advisor) buildIncident(
 	tableFQN := qualifiedName(risk.SchemaName, risk.TableName)
 	chain := buildCausalChain(risk)
 
-	incident := &rca.Incident{
+	return &rca.Incident{
 		DetectedAt:      time.Now(),
 		Severity:        severity,
 		Source:          "schema_advisor",
@@ -192,20 +195,9 @@ func (a *Advisor) buildIncident(
 		ActionRisk:      fmt.Sprintf("risk_score=%.2f", risk.RiskScore),
 		Confidence:      risk.RiskScore,
 		DatabaseName:    a.dbName,
+		// The rule's own template: the only text a finding recommends.
+		RecommendedSQLSource: SQLSourceDeterministic,
 	}
-
-	if a.scriptGen != nil {
-		script := a.scriptGen.GenerateScript(ctx, risk)
-		if script.SQL != "" {
-			incident.RecommendedSQL = script.SQL
-		}
-		if script.ModelText != "" {
-			incident.CausalChain = append(incident.CausalChain, unvalidatedLink(
-				len(incident.CausalChain)+1, script.ModelText, script.Reason))
-		}
-	}
-
-	return incident
 }
 
 func buildCausalChain(risk *DDLRisk) []rca.ChainLink {

@@ -70,6 +70,9 @@ func (ld *LogDetector) processLogEntry(
 		return nil
 	}
 	ld.persistFinding(ctx, entry.PID, sql, inc, risk)
+	// The model work is queued after the deterministic finding is stored
+	// and never runs on the log path (migration-10).
+	ld.advisor.queueEnrichment(entry.PID, sql, inc, risk, ld.findingSink)
 	return inc
 }
 

@@ -119,6 +119,7 @@ func classifyStatement(root *pg_query.Node, st *Statement) {
 		st.Commands = []string{rename.GetRenameType().String()}
 	case root.GetIndexStmt() != nil:
 		st.Kind = KindCreateIndex
+		st.Concurrent = root.GetIndexStmt().GetConcurrent()
 	case root.GetUpdateStmt() != nil:
 		st.Kind = KindUpdate
 	case root.GetVacuumStmt() != nil && !root.GetVacuumStmt().GetIsVacuumcmd():

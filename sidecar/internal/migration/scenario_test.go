@@ -96,7 +96,7 @@ func TestScenario_IncidentSeverity_WarningVsCritical(t *testing.T) {
 				dbName: "test_db",
 				logFn:  func(string, string, ...any) {},
 			}
-			incident := a.buildIncident(context.Background(), risk)
+			incident := a.buildIncident(risk)
 			assert.Equal(t, tt.wantSev, incident.Severity)
 		})
 	}
@@ -130,7 +130,7 @@ func TestScenario_IncidentStructure(t *testing.T) {
 		dbName: "prod_db",
 		logFn:  func(string, string, ...any) {},
 	}
-	inc := a.buildIncident(context.Background(), risk)
+	inc := a.buildIncident(risk)
 
 	// Source and database.
 	assert.Equal(t, "schema_advisor", inc.Source)
@@ -192,7 +192,7 @@ func TestScenario_IncidentNoSafeAlt_TwoChainLinks(t *testing.T) {
 		dbName: "test_db",
 		logFn:  func(string, string, ...any) {},
 	}
-	inc := a.buildIncident(context.Background(), risk)
+	inc := a.buildIncident(risk)
 	assert.Len(t, inc.CausalChain, 2,
 		"without SafeAlternative, CausalChain should have 2 links")
 }

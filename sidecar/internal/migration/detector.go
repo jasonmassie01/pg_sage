@@ -153,10 +153,13 @@ func (d *Detector) PollOnce(
 }
 
 // evaluate analyses a new DDL (or reuses the analysis of one already
-// seen), applies the lock-queue verdict and persists the finding. It
-// returns the incident only when it was analysed on this poll.
+// seen), applies the lock-queue verdict and persists the finding. A new
+// analysis then queues its model work, which never runs on the poll path
+// (migration-10). It returns the incident only when it was analysed on
+// this poll.
 func (d *Detector) evaluate(ctx context.Context, a activeDDL) *rca.Incident {
-	inc, risk, analysed := d.incidentFor(ctx, a)
+	inc, risk, fresh := d.incidentFor(ctx, a)
+	analysed := inc
 	if a.waitingOnLock() && d.lockQueue != nil {
 		d.lockQueue.Nudge()
 	}
@@ -170,15 +173,17 @@ func (d *Detector) evaluate(ctx context.Context, a activeDDL) *rca.Incident {
 	if inc != nil {
 		d.persist(ctx, a, inc, risk, v)
 	}
-	if analysed {
-		return inc
+	if !fresh {
+		return nil
 	}
-	return nil
+	d.advisor.queueEnrichment(a.PID, a.Query, analysed, risk, d.findingSink)
+	return analysed
 }
 
 // incidentFor returns the DDL's analysis and its assessment, running the
-// advisor only for a new backend or statement; a failed analysis is
-// logged and not retried for that statement.
+// advisor only for a new backend or statement, and whether it ran and
+// succeeded on this call; a failed analysis is logged and not retried for
+// that statement.
 func (d *Detector) incidentFor(
 	ctx context.Context, a activeDDL,
 ) (*rca.Incident, *DDLRisk, bool) {
@@ -194,10 +199,11 @@ func (d *Detector) incidentFor(
 	inc, risk, err := d.analyze(ctx, a)
 	if err != nil {
 		d.logFn("warn", "migration: analysis failed for pid %d: %v", a.PID, err)
-		inc, risk = nil, nil
+		d.track(a, nil, nil)
+		return nil, nil, false
 	}
 	d.track(a, inc, risk)
-	return inc, risk, inc != nil
+	return inc, risk, true
 }
 
 func (d *Detector) track(a activeDDL, inc *rca.Incident, risk *DDLRisk) {

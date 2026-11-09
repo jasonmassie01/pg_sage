@@ -226,6 +226,9 @@ func (rt *databaseRuntime) startMigrationAdvisor() {
 	}
 	detector, logDetector := newMigrationDetectors(rt.spec.Pool, advisor,
 		store.NewMigrationSafetyFindingStore(rt.spec.Pool), &cfg.Migration, logs)
+	// One model worker per database, off both detectors' paths
+	// (migration-10); it returns at once without a model.
+	rt.start(func() { advisor.RunEnrichment(rt.ctx) })
 	if detector != nil {
 		if rt.lockObs != nil {
 			detector.WithLockQueue(rt.lockObs)
