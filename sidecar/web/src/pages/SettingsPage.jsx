@@ -10,6 +10,7 @@ import { useToast } from '../components/Toast'
 import { ShadowModePage } from './ShadowModePage'
 import { DerivedSettings } from './settings/DerivedSettings'
 import { readPref, writePref } from '../lib/storage'
+import { SETTINGS_SAVED_EVENT } from '../components/SecretsPostureBanner'
 import {
   ShieldAlert, Save, RotateCcw, Check, X,
 } from 'lucide-react'
@@ -242,6 +243,7 @@ export function SettingsPage({ database, databaseId }) {
       setEdits({})
       setShowDiff(false)
       refetch()
+      window.dispatchEvent(new CustomEvent(SETTINGS_SAVED_EVENT))
     } catch (e) {
       toast.error(e.message || 'Save failed')
     } finally {
