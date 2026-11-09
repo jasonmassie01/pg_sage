@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/clusterlock"
 	"github.com/pg-sage/sidecar/internal/sre"
-	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // WAL retention fault programs. WAL volume, slots and the archiver are
@@ -20,7 +20,7 @@ import (
 const archiveFlag = "/tmp/pg_sage_archive_fail"
 
 func lockCluster(ctx context.Context, dsn string) (func(), error) {
-	return testdb.LockCluster(ctx, dsn, "wal")
+	return clusterlock.Lock(ctx, dsn, "wal")
 }
 
 func walScenario(id, class string, gold Gold, p program) Scenario {
