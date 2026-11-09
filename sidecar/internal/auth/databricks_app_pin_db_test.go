@@ -71,7 +71,8 @@ func TestDatabricksAppPinFirstSightThenEnforceMismatch(t *testing.T) {
 	if err != nil || u == nil || u.Role != RoleViewer {
 		t.Fatalf("first sight = %+v, %v", u, err)
 	}
-	if p := storedPin(t, pool, u.ID); p == nil || *p != DatabricksAppUserPin(cfg.Workspace, "idp-1") {
+	if p := storedPin(t, pool, u.ID); p == nil ||
+		*p != DatabricksAppUserPin(cfg.Workspace, "idp-1") {
 		t.Fatalf("stored pin = %v, want the hash of the first value", p)
 	}
 	again, err := ResolveDatabricksAppUser(ctx, pool, cfg, u.Email, "idp-1")
@@ -106,7 +107,8 @@ func TestDatabricksAppPinLogModeAllowsAndAudits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE sage.users SET role = 'admin' WHERE id = $1`, u.ID); err != nil {
+	if _, err := pool.Exec(ctx,
+		`UPDATE sage.users SET role = 'admin' WHERE id = $1`, u.ID); err != nil {
 		t.Fatal(err)
 	}
 	got, err := ResolveDatabricksAppUser(ctx, pool, cfg, u.Email, "idp-2")
@@ -153,7 +155,8 @@ func TestDatabricksAppPinAbsentAndOffWriteNothing(t *testing.T) {
 	if _, err := ResolveDatabricksAppUser(ctx, pool, cfg, u.Email, "idp-1"); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := ResolveDatabricksAppUser(ctx, pool, cfg, u.Email, ""); err != nil || got.ID != u.ID {
+	if got, err := ResolveDatabricksAppUser(ctx, pool, cfg, u.Email, ""); err != nil ||
+		got.ID != u.ID {
 		t.Fatalf("absent value on a pinned account = %+v, %v", got, err)
 	}
 	if _, err := ResolveDatabricksAppUser(ctx, pool, off, u.Email, "idp-9"); err != nil {
@@ -173,7 +176,8 @@ func TestDatabricksAppPinResetRelinks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ResolveDatabricksAppUser(ctx, pool, cfg, u.Email, "idp-2"); !errors.Is(err, ErrDatabricksAppIdentityChanged) {
+	if _, err := ResolveDatabricksAppUser(ctx, pool, cfg, u.Email, "idp-2"); !errors.Is(
+		err, ErrDatabricksAppIdentityChanged) {
 		t.Fatalf("mismatch = %v", err)
 	}
 	cleared, err := ResetDatabricksAppUserPin(ctx, pool, 77, u.ID, "192.0.2.5")
@@ -184,14 +188,16 @@ func TestDatabricksAppPinResetRelinks(t *testing.T) {
 		t.Fatalf("pin after reset = %q", *p)
 	}
 	rows := pinAuditRows(t, pool, AuditDatabricksAppPinReset, u.ID)
-	if len(rows) != 1 || rows[0].actor != 77 || !strings.Contains(rows[0].detail, "previous_pin_prefix") {
+	if len(rows) != 1 || rows[0].actor != 77 ||
+		!strings.Contains(rows[0].detail, "previous_pin_prefix") {
 		t.Fatalf("reset audit = %+v, want one row by actor 77", rows)
 	}
 	got, err := ResolveDatabricksAppUser(ctx, pool, cfg, u.Email, "idp-2")
 	if err != nil || got.ID != u.ID {
 		t.Fatalf("after reset = %+v, %v", got, err)
 	}
-	if p := storedPin(t, pool, u.ID); p == nil || *p != DatabricksAppUserPin(cfg.Workspace, "idp-2") {
+	if p := storedPin(t, pool, u.ID); p == nil ||
+		*p != DatabricksAppUserPin(cfg.Workspace, "idp-2") {
 		t.Fatalf("pin after relink = %v, want the new value", p)
 	}
 	// Resetting an unpinned account succeeds and says nothing was pinned.
@@ -201,7 +207,8 @@ func TestDatabricksAppPinResetRelinks(t *testing.T) {
 	if cleared, err := ResetDatabricksAppUserPin(ctx, pool, 77, u.ID, ""); err != nil || cleared {
 		t.Fatalf("second reset = %v, %v; want nothing cleared", cleared, err)
 	}
-	if _, err := ResetDatabricksAppUserPin(ctx, pool, 77, 1<<30, ""); !errors.Is(err, ErrUserNotFound) {
+	if _, err := ResetDatabricksAppUserPin(ctx, pool, 77, 1<<30, ""); !errors.Is(
+		err, ErrUserNotFound) {
 		t.Fatalf("unknown user reset = %v, want ErrUserNotFound", err)
 	}
 }
@@ -265,7 +272,8 @@ func waitForLockWaiter(t *testing.T, pool *pgxpool.Pool, marker string) {
 	for time.Now().Before(deadline) {
 		var n int
 		if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM pg_stat_activity
-			WHERE wait_event_type = 'Lock' AND position($1 in query) > 0`, marker).Scan(&n); err != nil {
+			WHERE wait_event_type = 'Lock' AND position($1 in query) > 0`,
+			marker).Scan(&n); err != nil {
 			t.Fatalf("reading pg_stat_activity: %v", err)
 		}
 		if n > 0 {

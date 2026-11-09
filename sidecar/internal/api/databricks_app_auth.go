@@ -21,14 +21,18 @@ const authModeContextKey contextKey = "sage_auth_mode"
 // the email's account. Never install it on an application port exposed
 // directly to callers outside the Apps ingress.
 func DatabricksAppAuthMiddleware(pool *pgxpool.Pool, cfg auth.DatabricksAppConfig) func(http.Handler) http.Handler {
-	return databricksAppAuthMiddleware(func(ctx context.Context, email, user string) (*auth.User, error) {
+	return databricksAppAuthMiddleware(func(
+		ctx context.Context, email, user string,
+	) (*auth.User, error) {
 		return auth.ResolveDatabricksAppUser(ctx, pool, cfg, email, user)
 	})
 }
 
 // databricksAppResolver maps the platform email and forwarded IdP user value
 // ("" when absent) to the durable account.
-type databricksAppResolver func(ctx context.Context, email, forwardedUser string) (*auth.User, error)
+type databricksAppResolver func(
+	ctx context.Context, email, forwardedUser string,
+) (*auth.User, error)
 
 func databricksAppAuthMiddleware(resolve databricksAppResolver) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {

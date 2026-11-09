@@ -55,15 +55,7 @@ func TestDatabricksAppPinEnforceLocksOwnerUntilReset(t *testing.T) {
 	pool := surfacePool(t)
 	ctx := context.Background()
 	stamp := time.Now().UnixNano()
-	app := auth.DatabricksAppConfig{
-		Workspace:   fmt.Sprintf("https://pin-api-%d.cloud.databricks.com", stamp),
-		AdminEmail:  fmt.Sprintf("pin-owner-%d@example.com", stamp),
-		IdentityPin: auth.DatabricksAppPinEnforce,
-	}
-	require.NoError(t, auth.BootstrapDatabricksAppAdmin(ctx, pool, app))
-	cfg := config.DefaultConfig()
-	h := NewRouterFullRuntime(fleet.NewManager(cfg), cfg, pool, nil, nil, nil,
-		&RuntimeDeps{DatabricksAppAuth: true}, DatabricksAppAuthMiddleware(pool, app))
+	app, h := enforcedAppRouter(t, pool, stamp)
 
 	w := appCall(h, http.MethodGet, "/api/v1/auth/me", app.AdminEmail, "owner-1")
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
@@ -103,6 +95,25 @@ func TestDatabricksAppPinEnforceLocksOwnerUntilReset(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.Equal(t, auth.DatabricksAppUserPin(app.Workspace, "owner-2"), *appPin(t, pool, ownerID))
 
-	w = appCall(h, http.MethodPost, "/api/v1/users/2147483000/identity-pin/reset", second, "second-1")
+	w = appCall(h, http.MethodPost, "/api/v1/users/2147483000/identity-pin/reset",
+		second, "second-1")
 	require.Equal(t, http.StatusNotFound, w.Code, w.Body.String())
+}
+
+// enforcedAppRouter bootstraps a fresh owner in an enforce-mode workspace
+// and returns the Apps-mode router over the real pool.
+func enforcedAppRouter(
+	t *testing.T, pool *pgxpool.Pool, stamp int64,
+) (auth.DatabricksAppConfig, http.Handler) {
+	t.Helper()
+	app := auth.DatabricksAppConfig{
+		Workspace:   fmt.Sprintf("https://pin-api-%d.cloud.databricks.com", stamp),
+		AdminEmail:  fmt.Sprintf("pin-owner-%d@example.com", stamp),
+		IdentityPin: auth.DatabricksAppPinEnforce,
+	}
+	require.NoError(t, auth.BootstrapDatabricksAppAdmin(context.Background(), pool, app))
+	cfg := config.DefaultConfig()
+	h := NewRouterFullRuntime(fleet.NewManager(cfg), cfg, pool, nil, nil, nil,
+		&RuntimeDeps{DatabricksAppAuth: true}, DatabricksAppAuthMiddleware(pool, app))
+	return app, h
 }

@@ -116,7 +116,8 @@ func TestDatabricksAppPinResetRejectsInvalidID(t *testing.T) {
 	h := resetDatabricksAppPinHandler(nil)
 	for _, id := range []string{"0", "-3", "abc", "1.5", "99999999999999999999"} {
 		t.Run(id, func(t *testing.T) {
-			r := httptest.NewRequest(http.MethodPost, "/api/v1/users/"+id+"/identity-pin/reset", nil)
+			r := httptest.NewRequest(http.MethodPost,
+				"/api/v1/users/"+id+"/identity-pin/reset", nil)
 			r.SetPathValue("id", id)
 			w := httptest.NewRecorder()
 			h.ServeHTTP(w, r)

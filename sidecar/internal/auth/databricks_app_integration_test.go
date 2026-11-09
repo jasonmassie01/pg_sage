@@ -42,7 +42,8 @@ func TestDatabricksAppBootstrapMigratesOnlyExplicitOwner(t *testing.T) {
 	if other, err := Authenticate(ctx, p, "another@example.com", "another-password"); err != nil || other.ID != otherID {
 		t.Fatalf("unrelated account was changed: %+v, %v", other, err)
 	}
-	if _, err := ResolveDatabricksAppUser(ctx, p, cfg, "another@example.com", ""); !errors.Is(err, ErrOAuthLinkRequired) {
+	if _, err := ResolveDatabricksAppUser(ctx, p, cfg, "another@example.com", ""); !errors.Is(
+		err, ErrOAuthLinkRequired) {
 		t.Fatalf("unconfigured account was silently linked: %v", err)
 	}
 }
@@ -67,7 +68,8 @@ func TestDatabricksAppViewerIdentityAndLiveRole(t *testing.T) {
 	}
 	otherWorkspace := cfg
 	otherWorkspace.Workspace = "https://another.cloud.databricks.com"
-	if _, err := ResolveDatabricksAppUser(ctx, p, otherWorkspace, viewer.Email, ""); !errors.Is(err, ErrOAuthLinkRequired) {
+	if _, err := ResolveDatabricksAppUser(ctx, p, otherWorkspace, viewer.Email, ""); !errors.Is(
+		err, ErrOAuthLinkRequired) {
 		t.Fatalf("identity crossed workspace boundary: %v", err)
 	}
 }
