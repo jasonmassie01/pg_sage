@@ -1,0 +1,103 @@
+# Hollow tests that predate the assertlint gate (ci-11). This list may only
+# shrink: TestModuleTestsCanFail fails on any finding not listed here and on
+# any entry that no longer matches (the test now asserts, moved or was
+# deleted). Never add a line; give the test an assertion or delete it.
+#
+# Format: <rule> <path from sidecar/> <function>
+#   noassert  a Test function with no failing call
+#   getenv    a test-file read of SAGE_TEST_DATABASE_URL outside internal/testdb;
+#             use testdb.SkipUnlessLive(t) so a run without a server skips
+
+noassert cmd/pg_sage_sidecar/audit_wiring_test.go TestRunChainVerificationWithoutSources
+noassert internal/analyzer/analyzer_test.go TestDispatchRewriteFindings_NilDispatcher
+noassert internal/api/auth_handlers_test.go TestLogoutHandler_WithCookie
+noassert internal/api/config_handlers_test.go TestConfigGlobalGetHandler_NilStore
+noassert internal/api/coverage_phase2_test.go TestPhase2_RegisterAuthRoutes_NoPanic
+noassert internal/api/coverage_phase2_test.go TestPhase2_RegisterNotificationRoutes_NoPanic
+noassert internal/api/coverage_phase2_test.go TestPhase2_RegisterUserRoutes_NoPanic
+noassert internal/api/events_test.go TestEventBrokerPollOnceNilManagerIsSafe
+noassert internal/briefing/briefing_test.go TestDispatch_EmptyChannels
+noassert internal/briefing/briefing_test.go TestDispatch_SlackWithoutURL
+noassert internal/briefing/briefing_test.go TestDispatch_Stdout
+noassert internal/collector/collector_integ_test.go TestCircuitBreaker_ShouldSkip_EntersDormant
+noassert internal/collector/collector_integ_test.go TestCircuitBreaker_ShouldSkip_ZeroCeiling
+noassert internal/collector/collector_integ_test.go TestCollectSystem_PG14Path
+noassert internal/collector/collector_integ_test.go TestPersist
+noassert internal/collector/coverage_phase2_test.go TestPhase2_Cycle_CollectError
+noassert internal/executor/coverage_phase2_test.go TestPhase2_CheckSchemaCreate_ResolvesCurrentUser
+noassert internal/executor/coverage_phase2_test.go TestPhase2_CheckSignalBackend_PostgresUser
+noassert internal/executor/coverage_phase2_test.go TestPhase2_VerifyGrants_FullIntegration
+noassert internal/executor/dispatcher_test.go TestDispatchEvent_NilDispatcher
+noassert internal/logwatch/fanout_test.go TestFanoutSubscriber_ImplementsLogSource
+noassert internal/logwatch/fanout_test.go TestFanoutSubscriber_StopIsNoop
+noassert internal/logwatch/tailer_test.go TestTailer_Stop_NilFile
+noassert internal/logwatch/watcher_test.go TestFileWatcher_Stop_NilTailer
+noassert internal/optimizer/coverage_phase2_test.go TestPhase2_CheckExtensionRequired_GINTrgm_WithDB
+noassert internal/optimizer/coverage_phase2_test.go TestPhase2_ExtensionInstalled_WithDB_PgTrgm
+noassert internal/retention/cleanup_test.go TestPurgeTable_SkipsZeroRetention
+noassert internal/retention/cleanup_test.go TestPurgeTable_ZeroDaysAllTables
+noassert internal/selfmonitor/conn_config_test.go TestConfigureConn_NilIsNoop
+noassert internal/selfmonitor/pool_test.go TestConfigurePool_NilIsNoop
+noassert internal/store/config_consistency_test.go TestConfigConsistency_PrintRegistrySummary
+noassert internal/tuner/functional_test.go TestFunctional_Coverage_Tune_NilPool
+
+getenv cmd/pg_sage_sidecar/agent_gate_wiring_test.go TestWALArchivedReadsSettings
+getenv e2e/fleet_test.go adminDSN
+getenv e2e/fleet_test.go dbDSN
+getenv e2e/pipeline_helpers_test.go pipelineURL
+getenv e2e/smoke_test.go databaseURL
+getenv internal/api/coverage_phase2_test.go phase2DSN
+getenv internal/api/preflight_surface_helpers_test.go surfacePool
+getenv internal/auth/integration_test.go setupTestPool
+getenv internal/autoexplain/audit_parameterized_capture_test.go requireAuditFixturePool
+getenv internal/briefing/briefing_test.go testDSN
+getenv internal/cases/guarded_signal_db_test.go guardedDSN
+getenv internal/collector/audit_regression_test.go TestAuditCollectorCacheRatioUsesFractionContract
+getenv internal/collector/collect_immediately_test.go TestRunCollectsImmediately
+getenv internal/collector/collector_integ_test.go testPool
+getenv internal/collector/preflight_evidence_test.go preflightPoolWith
+getenv internal/collector/self_exclusion_backends_test.go TestSystemStatsCountClientSessionsNotTheirWorkers
+getenv internal/collector/self_exclusion_sessions_test.go TestCircuitBreakerLoadIgnoresPgSageSessions
+getenv internal/collector/self_exclusion_sessions_test.go TestConnectionChurnIgnoresPgSageSessions
+getenv internal/collector/self_exclusion_sessions_test.go TestConnectionStatesCountApplicationSessionsOnly
+getenv internal/collector/self_exclusion_sessions_test.go TestLocksSnapshotLeavesOutPgSageSessions
+getenv internal/collector/self_exclusion_sessions_test.go TestSystemStatsCountApplicationSessionsOnly
+getenv internal/collector/self_exclusion_sessions_test.go sageCollector
+getenv internal/collector/self_exclusion_test.go selfExclusionSessions
+getenv internal/executor/executor_extra_test.go testDSN
+getenv internal/executor/preflight_crash_process_test.go TestPreflightVerifierProcessCrashResumesRollback
+getenv internal/executor/preflight_durability_test.go preflightNewFixture
+getenv internal/executor/preflight_durability_test.go preflightPool
+getenv internal/explain/explain_integration_test.go testDSN
+getenv internal/fleet/runtime_capabilities_test.go TestRuntimeCapabilitiesInstalledExtensions
+getenv internal/forecaster/coverage_phase2_test.go phase2DSN
+getenv internal/forecaster/growth_integration_test.go testDSN
+getenv internal/ha/ha_test.go testDSN
+getenv internal/ha/preflight_evidence_test.go TestPreflightEvidenceUnknownHAWithholdsPolicyAdmission
+getenv internal/ledger/postgres_test.go requireLedgerPostgres
+getenv internal/migration/detector_regression_test.go fixtureDSN
+getenv internal/migration/integration_test.go requireDB
+getenv internal/migration/runtime/postgres_test.go TestPostgresRehearsalRunnerExecutesExpandOnlyOnCloneDSN
+getenv internal/migration/self_exclusion_test.go selfloadDSN
+getenv internal/querystore/preflight_evidence_test.go TestPreflightEvidenceInteriorResetWindow
+getenv internal/rca/fastpath_db_test.go dialTest
+getenv internal/rca/lifecycle_db_test.go lifecycleDB
+getenv internal/rca/preflight_persistence_test.go preflightRCAPool
+getenv internal/rca/preflight_process_test.go preflightRCAChild
+getenv internal/rca/rca_integration_test.go requireDB
+getenv internal/rca/subject_gone_db_test.go holdBackend
+getenv internal/retention/cleanup_test.go testDSN
+getenv internal/schema/bootstrap_lock_test.go requireMultiConnDB
+getenv internal/schema/lint/integration_test.go requireDB
+getenv internal/schema/schema_test.go testDSN
+getenv internal/smoke/smoke_test.go smokeDSN
+getenv internal/startup/coverage_boost_test.go coverageDSN
+getenv internal/startup/startup_test.go testDSN
+getenv internal/store/config_store_integration_test.go setupConfigTestDB
+getenv internal/store/integration_helpers_test.go testDSN
+getenv internal/store/migration_safety_findings_test.go requireMigrationSafetyDB
+getenv internal/tuner/db_coverage_test.go tunerTestDSN
+getenv internal/value/postgres_test.go requireValuePostgres
+getenv internal/verify/postgres_integration_test.go verifyIntegrationPool
+getenv internal/workload/workload_db_test.go testPool
+getenv test/hint_verify/hint_verify_test.go testDSN
