@@ -140,7 +140,9 @@ func TestRuleCacheHitRatio_LifetimeDetailUnknown(t *testing.T) {
 	}
 }
 
-func ioSnap(epoch time.Time, ioRead, ioWrite *float64, execs map[int64]float64) *collector.Snapshot {
+func ioSnap(
+	epoch time.Time, ioRead, ioWrite *float64, execs map[int64]float64,
+) *collector.Snapshot {
 	s := &collector.Snapshot{StatsEpoch: epoch}
 	s.System.Interval = &collector.SystemInterval{Seconds: 60,
 		BlkReadTimeMs: ioRead, BlkWriteTimeMs: ioWrite}
