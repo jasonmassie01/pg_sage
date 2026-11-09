@@ -124,7 +124,8 @@ func tryLegacyIncident(
 	), v AS (
 		INSERT INTO sage.verification (decision_id, action_log_id, criterion, baseline,
 		  minimum_samples, next_evaluation_at, hard_deadline_at, verdict, completed_at)
-		SELECT d.id, a.id, '{}', '{}', 1, now(), now(), 'success', now() FROM d, a
+		SELECT d.id, a.id, '{}'::jsonb, '{}'::jsonb, 1, now(), now(), 'success', now()
+		FROM d, a
 		RETURNING id, decision_id, action_log_id
 	)
 	INSERT INTO sage.incident_avoided (kind, severity, credited_minutes, evidence_id,
