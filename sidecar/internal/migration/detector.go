@@ -32,7 +32,7 @@ type Detector struct {
 
 	// Seams for tests; production reads pg_stat_activity and the advisor.
 	activity func(context.Context) ([]activeDDL, error)
-	analyze  func(context.Context, activeDDL) (*rca.Incident, error)
+	analyze  func(context.Context, activeDDL) (*rca.Incident, *DDLRisk, error)
 }
 
 // NewDetector creates a Detector for activity-based DDL detection.
@@ -51,8 +51,8 @@ func NewDetector(
 		tracked:      make(map[int]trackedDDL),
 	}
 	d.activity = d.queryActivity
-	d.analyze = func(ctx context.Context, a activeDDL) (*rca.Incident, error) {
-		return d.advisor.AnalyzeSession(ctx, a.Query, a.Role)
+	d.analyze = func(ctx context.Context, a activeDDL) (*rca.Incident, *DDLRisk, error) {
+		return d.advisor.AnalyzeSessionRisk(ctx, a.Query, a.Role)
 	}
 	return d
 }
@@ -156,7 +156,7 @@ func (d *Detector) PollOnce(
 // seen), applies the lock-queue verdict and persists the finding. It
 // returns the incident only when it was analysed on this poll.
 func (d *Detector) evaluate(ctx context.Context, a activeDDL) *rca.Incident {
-	inc, analysed := d.incidentFor(ctx, a)
+	inc, risk, analysed := d.incidentFor(ctx, a)
 	if a.waitingOnLock() && d.lockQueue != nil {
 		d.lockQueue.Nudge()
 	}
@@ -165,10 +165,10 @@ func (d *Detector) evaluate(ctx context.Context, a activeDDL) *rca.Incident {
 		// Tracked like an analysis, so later polls re-upsert it and its
 		// severity follows the queue as it drains.
 		inc = d.queueIncident(a)
-		d.track(a, inc)
+		d.track(a, inc, nil)
 	}
 	if inc != nil {
-		d.persist(ctx, a, inc, v)
+		d.persist(ctx, a, inc, risk, v)
 	}
 	if analysed {
 		return inc
@@ -176,56 +176,60 @@ func (d *Detector) evaluate(ctx context.Context, a activeDDL) *rca.Incident {
 	return nil
 }
 
-// incidentFor returns the DDL's analysis, running the advisor only for a
-// new backend or statement; a failed analysis is logged and not retried
-// for that statement.
+// incidentFor returns the DDL's analysis and its assessment, running the
+// advisor only for a new backend or statement; a failed analysis is
+// logged and not retried for that statement.
 func (d *Detector) incidentFor(
 	ctx context.Context, a activeDDL,
-) (*rca.Incident, bool) {
+) (*rca.Incident, *DDLRisk, bool) {
 	d.mu.Lock()
 	prev, seen := d.tracked[a.PID]
 	d.mu.Unlock()
 	if seen && d.knownQueries[a.PID] == a.Query &&
 		prev.ddl.BackendStart.Equal(a.BackendStart) {
-		d.track(a, prev.inc)
-		return prev.inc, false
+		d.track(a, prev.inc, prev.risk)
+		return prev.inc, prev.risk, false
 	}
 	d.knownQueries[a.PID] = a.Query
-	inc, err := d.analyze(ctx, a)
+	inc, risk, err := d.analyze(ctx, a)
 	if err != nil {
 		d.logFn("warn", "migration: analysis failed for pid %d: %v", a.PID, err)
-		inc = nil
+		inc, risk = nil, nil
 	}
-	d.track(a, inc)
-	return inc, inc != nil
+	d.track(a, inc, risk)
+	return inc, risk, inc != nil
 }
 
-func (d *Detector) track(a activeDDL, inc *rca.Incident) {
+func (d *Detector) track(a activeDDL, inc *rca.Incident, risk *DDLRisk) {
 	d.mu.Lock()
 	if d.tracked == nil {
 		d.tracked = make(map[int]trackedDDL)
 	}
-	d.tracked[a.PID] = trackedDDL{ddl: a, inc: inc}
+	d.tracked[a.PID] = trackedDDL{ddl: a, inc: inc, risk: risk}
 	d.mu.Unlock()
 }
 
-// persistFinding persists inc for pid with no lock-queue evidence.
+// persistFinding persists inc for pid with no assessment and no
+// lock-queue evidence.
 func (d *Detector) persistFinding(
 	ctx context.Context,
 	pid int,
 	query string,
 	inc *rca.Incident,
 ) {
-	d.persist(ctx, activeDDL{PID: pid, Query: query}, inc, lockQueueVerdict{})
+	d.persist(ctx, activeDDL{PID: pid, Query: query}, inc, nil, lockQueueVerdict{})
 }
 
+// persist upserts the finding for inc with risk's detection-time
+// measurements (nil: none) and the lock-queue verdict.
 func (d *Detector) persist(
-	ctx context.Context, a activeDDL, inc *rca.Incident, v lockQueueVerdict,
+	ctx context.Context, a activeDDL, inc *rca.Incident, risk *DDLRisk,
+	v lockQueueVerdict,
 ) {
 	if d.findingSink == nil {
 		return
 	}
-	finding, ok := FindingFromIncident(a.PID, a.Query, inc)
+	finding, ok := FindingFromIncident(a.PID, a.Query, inc, risk)
 	if !ok {
 		return
 	}

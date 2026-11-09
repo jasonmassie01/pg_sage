@@ -41,8 +41,9 @@ func (a activeDDL) waitingOnLock() bool { return a.WaitEventType == "Lock" }
 // trackedDDL is a DDL the detector has analysed; inc is nil when the
 // advisor found no risk.
 type trackedDDL struct {
-	ddl activeDDL
-	inc *rca.Incident
+	ddl  activeDDL
+	inc  *rca.Incident
+	risk *DDLRisk // the advisor's assessment; nil for a queue-only finding
 }
 
 // lockQueueVerdict is the latest observation of the queue behind a DDL.

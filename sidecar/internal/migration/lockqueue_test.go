@@ -99,9 +99,9 @@ func queueDetector(
 		d = d.WithLockQueue(src)
 	}
 	d.activity = func(context.Context) ([]activeDDL, error) { return *ddls, nil }
-	d.analyze = func(context.Context, activeDDL) (*rca.Incident, error) {
+	d.analyze = func(context.Context, activeDDL) (*rca.Incident, *DDLRisk, error) {
 		analyses++
-		return inc(), nil
+		return inc(), nil, nil
 	}
 	return d, sink, &analyses
 }
@@ -377,11 +377,11 @@ func TestDetector_ActivityAndAnalysisErrors(t *testing.T) {
 	other := waitingDDL(201)
 	ddls = []activeDDL{waitingDDL(200), other}
 	d.activity = func(context.Context) ([]activeDDL, error) { return ddls, nil }
-	d.analyze = func(_ context.Context, a activeDDL) (*rca.Incident, error) {
+	d.analyze = func(_ context.Context, a activeDDL) (*rca.Incident, *DDLRisk, error) {
 		if a.PID == 200 {
-			return nil, errors.New("assessment failed")
+			return nil, nil, errors.New("assessment failed")
 		}
-		return warningIncident(), nil
+		return warningIncident(), nil, nil
 	}
 	if _, err := d.PollOnce(context.Background()); err != nil {
 		t.Fatalf("PollOnce with one failed analysis: %v", err)

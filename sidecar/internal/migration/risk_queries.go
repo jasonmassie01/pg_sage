@@ -27,6 +27,7 @@ func (ra *RiskAssessor) fetchTableStats(
 			schema, risk.TableName, err)
 		return
 	}
+	risk.Measured.TableStats = true
 	// reltuples = -1 means "never analyzed" (PG14+): size unknown.
 	risk.StatsKnown = risk.EstimatedRows >= 0
 }
@@ -55,7 +56,9 @@ func (ra *RiskAssessor) fetchActiveQueries(
 		ra.logFn("debug",
 			"migration: active query check failed for %s: %v",
 			risk.TableName, err)
+		return
 	}
+	risk.Measured.Activity = true
 }
 
 var areSpecial = regexp.MustCompile(`[\\.^$|?*+()\[\]{}]`)
@@ -93,7 +96,9 @@ func (ra *RiskAssessor) fetchPendingLocks(
 		ra.logFn("debug",
 			"migration: pending lock check failed for %s.%s: %v",
 			schema, risk.TableName, err)
+		return
 	}
+	risk.Measured.PendingLocks = true
 }
 
 const replicationLagSQL = `
@@ -109,7 +114,9 @@ func (ra *RiskAssessor) fetchReplicationLag(
 	if err := row.Scan(&risk.ReplicationLag); err != nil {
 		ra.logFn("debug",
 			"migration: replication lag query failed: %v", err)
+		return
 	}
+	risk.Measured.ReplicationLag = true
 }
 
 func schemaOrPublic(s string) string {

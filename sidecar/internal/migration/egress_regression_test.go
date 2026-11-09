@@ -253,7 +253,7 @@ func TestFindingFromIncident_RedactsLiterals(t *testing.T) {
 		CausalChain:     []rca.ChainLink{{Order: 1, Evidence: sql}},
 		DatabaseName:    "db",
 	}
-	finding, ok := FindingFromIncident(42, sql, inc)
+	finding, ok := FindingFromIncident(42, sql, inc, nil)
 	if !ok {
 		t.Fatal("FindingFromIncident returned ok=false")
 	}

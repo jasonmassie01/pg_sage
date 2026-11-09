@@ -32,10 +32,15 @@ type MigrationSafetyFinding struct {
 	ImpactScore      float64
 }
 
+// FindingFromIncident builds the finding for incident. risk is the
+// advisor's winning assessment (nil when there is none, as for an LLM
+// fallback or lock-queue-only incident); its detection-time measurements
+// go into the detail, where the case preflight reads them (migration-01).
 func FindingFromIncident(
 	pid int,
 	originalSQL string,
 	incident *rca.Incident,
+	risk *DDLRisk,
 ) (MigrationSafetyFinding, bool) {
 	if incident == nil {
 		return MigrationSafetyFinding{}, false
@@ -46,6 +51,7 @@ func FindingFromIncident(
 	ruleID := ruleIDFromIncident(incident)
 	object := objectFromIncident(incident)
 	detail := detailFromIncident(pid, originalSQL, incident)
+	addRiskMeasurements(detail, risk)
 	safeSQL := executableSafeSQL(incident.RecommendedSQL)
 	return MigrationSafetyFinding{
 		DatabaseName:     incident.DatabaseName,

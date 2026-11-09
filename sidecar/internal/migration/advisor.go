@@ -80,7 +80,16 @@ func NewAdvisor(
 func (a *Advisor) Analyze(
 	ctx context.Context, sql string,
 ) (*rca.Incident, error) {
-	return a.AnalyzeSession(ctx, sql, "")
+	inc, _, err := a.AnalyzeSessionRisk(ctx, sql, "")
+	return inc, err
+}
+
+// AnalyzeRisk is Analyze that also returns the winning assessment, whose
+// live measurements the finding detail carries (migration-01).
+func (a *Advisor) AnalyzeRisk(
+	ctx context.Context, sql string,
+) (*rca.Incident, *DDLRisk, error) {
+	return a.AnalyzeSessionRisk(ctx, sql, "")
 }
 
 // AnalyzeSession is Analyze for DDL run by role, whose search_path
@@ -88,14 +97,25 @@ func (a *Advisor) Analyze(
 func (a *Advisor) AnalyzeSession(
 	ctx context.Context, sql, role string,
 ) (*rca.Incident, error) {
+	inc, _, err := a.AnalyzeSessionRisk(ctx, sql, role)
+	return inc, err
+}
+
+// AnalyzeSessionRisk is AnalyzeSession that also returns the winning
+// assessment. The risk is nil whenever the incident is, and for an LLM
+// fallback incident, which has no rule assessment.
+func (a *Advisor) AnalyzeSessionRisk(
+	ctx context.Context, sql, role string,
+) (*rca.Incident, *DDLRisk, error) {
 	clean := sanitizeDDL(sql)
 	classifications := a.classifier.Classify(clean, a.pgVersion)
 	if len(classifications) == 0 {
 		if a.llmClient != nil && a.llmClient.IsEnabled() &&
 			llmEgressAllowed(clean) {
-			return a.llmFallback(ctx, clean)
+			inc, err := a.llmFallback(ctx, clean)
+			return inc, nil, err
 		}
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	for i := range classifications {
@@ -103,7 +123,7 @@ func (a *Advisor) AnalyzeSession(
 	}
 	highest, lockTimeout := a.assessHighest(ctx, classifications)
 	if highest == nil || highest.RiskScore <= incidentThreshold {
-		return nil, nil
+		return nil, nil, nil
 	}
 	incident := a.buildIncident(ctx, highest)
 	if lockTimeout != nil && highest.LockLevel == "ACCESS EXCLUSIVE" {
@@ -114,7 +134,7 @@ func (a *Advisor) AnalyzeSession(
 				lockTimeout.SafeAlternative,
 		})
 	}
-	return incident, nil
+	return incident, highest, nil
 }
 
 // assessHighest scores every classification except the lock_timeout

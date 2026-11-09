@@ -24,7 +24,7 @@ func (s *recordingFindingSink) UpsertMigrationSafetyFinding(
 func TestFindingFromIncidentKeepsExecutableSafeSQL(t *testing.T) {
 	incident := migrationIncident("CREATE INDEX CONCURRENTLY idx ON t (id)")
 
-	got, ok := FindingFromIncident(123, "CREATE INDEX idx ON t (id)", incident)
+	got, ok := FindingFromIncident(123, "CREATE INDEX idx ON t (id)", incident, nil)
 
 	if !ok {
 		t.Fatal("FindingFromIncident returned false")
@@ -46,7 +46,7 @@ func TestFindingFromIncidentKeepsExecutableSafeSQL(t *testing.T) {
 func TestFindingFromIncidentDropsAdvisoryOnlySafeAlternative(t *testing.T) {
 	incident := migrationIncident("New column + trigger + backfill + swap")
 
-	got, ok := FindingFromIncident(123, "ALTER TABLE t ALTER c TYPE bigint", incident)
+	got, ok := FindingFromIncident(123, "ALTER TABLE t ALTER c TYPE bigint", incident, nil)
 
 	if !ok {
 		t.Fatal("FindingFromIncident returned false")

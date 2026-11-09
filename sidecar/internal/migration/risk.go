@@ -2,6 +2,7 @@ package migration
 
 import (
 	"context"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -62,6 +63,7 @@ func (ra *RiskAssessor) Assess(
 	}
 
 	if ra.pool != nil {
+		risk.MeasuredAt = time.Now().UTC()
 		if c.TableName != "" && c.SchemaName == "" {
 			ra.resolveTableSchema(ctx, risk, c.SessionRole)
 		}

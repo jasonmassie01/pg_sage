@@ -1,5 +1,7 @@
 package migration
 
+import "time"
+
 // DDLClassification is the result of classifying a DDL statement against
 // the rule catalog. Each matched rule produces one classification.
 type DDLClassification struct {
@@ -51,4 +53,18 @@ type DDLRisk struct {
 	// NameAmbiguous is true when an unqualified table name matched several
 	// schemas: stats are unknown rather than read from the wrong table.
 	NameAmbiguous bool
+	// Measured records which live reads succeeded. A failed read leaves
+	// its value zero and its flag false, so the finding reports it as not
+	// measured rather than as a passing zero (migration-01).
+	Measured DDLMeasured
+	// MeasuredAt is when the live reads ran; zero without a pool.
+	MeasuredAt time.Time
+}
+
+// DDLMeasured flags the live reads of one assessment that succeeded.
+type DDLMeasured struct {
+	TableStats     bool // reltuples and size from pg_class
+	Activity       bool // active queries on the table
+	PendingLocks   bool // ungranted locks on the table
+	ReplicationLag bool // replay lag from pg_stat_replication
 }

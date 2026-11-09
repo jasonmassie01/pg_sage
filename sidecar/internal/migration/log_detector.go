@@ -64,12 +64,12 @@ func (ld *LogDetector) processLogEntry(
 		return nil
 	}
 
-	inc, err := ld.advisor.Analyze(ctx, sql)
+	inc, risk, err := ld.advisor.AnalyzeRisk(ctx, sql)
 	if err != nil {
 		ld.log("warn", "migration: log entry analysis failed: %v", err)
 		return nil
 	}
-	ld.persistFinding(ctx, entry.PID, sql, inc)
+	ld.persistFinding(ctx, entry.PID, sql, inc, risk)
 	return inc
 }
 
@@ -79,12 +79,12 @@ func (ld *LogDetector) enabled() bool {
 }
 
 func (ld *LogDetector) persistFinding(
-	ctx context.Context, pid int, sql string, inc *rca.Incident,
+	ctx context.Context, pid int, sql string, inc *rca.Incident, risk *DDLRisk,
 ) {
 	if ld.findingSink == nil {
 		return
 	}
-	finding, ok := FindingFromIncident(pid, sql, inc)
+	finding, ok := FindingFromIncident(pid, sql, inc, risk)
 	if !ok {
 		return
 	}
