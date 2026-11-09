@@ -54,7 +54,11 @@ type Outcome struct {
 	EvidenceID    string
 	// Failed reports a failed verification of the change on the instance.
 	Failed bool
-	Detail string
+	// Pending reports a verification with no verdict by its deadline: it
+	// is neither a pass nor a failure, and the instance's own monitor
+	// still owns the change, so the rollout halts without a rollback.
+	Pending bool
+	Detail  string
 }
 type InstanceResult struct {
 	Status        string
@@ -82,7 +86,18 @@ const (
 	StatusRolledBack          = "rolled_back"
 	StatusRollbackFailed      = "rollback_failed"
 	StatusRollbackUnavailable = "rollback_unavailable"
+	// StatusVerificationPending: applied, verdict still pending at its deadline.
+	StatusVerificationPending = "verification_pending"
+	// StatusFailed: the instance's re-verification or apply returned an error.
+	StatusFailed = "failed"
+	// StatusAppliedUnverified: changed, then a rollout error, and the
+	// rollback failed too; the instance keeps a change no verdict judged.
+	StatusAppliedUnverified = "applied_unverified"
 )
+
+// HaltVerificationPending halts a rollout whose instance had no verdict
+// by its deadline; it rolls nothing back.
+const HaltVerificationPending = "verification_pending"
 
 // Rollbacker undoes an applied change; an Applier that implements it lets
 // a halted rollout roll back every instance it changed.

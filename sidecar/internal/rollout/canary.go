@@ -41,6 +41,9 @@ type CanaryTarget interface {
 		approvedBy *int) (int64, error)
 	Rollback(ctx context.Context, actionLogID int64, reason string) error
 	ActionResult(ctx context.Context, actionLogID int64) (string, string, error)
+	// MonitorDeadline is when the target's own post-action monitor stops
+	// watching the action: its execution plus its class's monitor cap.
+	MonitorDeadline(ctx context.Context, actionLogID int64) (time.Time, error)
 }
 
 // TargetResolver resolves a fleet database name.
@@ -50,10 +53,11 @@ type TargetResolver func(database string) (CanaryTarget, error)
 type CanaryOptions struct {
 	CanaryInstances    int
 	RegressionLimitPct float64
-	// Settle is the wait after a change before measuring it.
-	Settle time.Duration
-	Now    func() time.Time
-	Log    func(format string, args ...any)
+	// PollEvery is how often a measurement re-reads a target's verdict
+	// while the target still monitors the change. Default: 15 s.
+	PollEvery time.Duration
+	Now       func() time.Time
+	Log       func(format string, args ...any)
 }
 
 // StartRequest asks for a canary of one verified action.
@@ -72,8 +76,8 @@ type CanaryService struct {
 	resolve TargetResolver
 	runs    *PostgresRunStore
 	opts    CanaryOptions
-	// settle waits before a measurement (a test seam over opts.Settle).
-	settle  func(context.Context) error
+	// wait sleeps between verdict reads (a test seam over the clock).
+	wait    func(context.Context, time.Duration) error
 	running atomic.Bool
 }
 
@@ -92,19 +96,22 @@ func NewCanaryService(resolve TargetResolver, runs *PostgresRunStore,
 	if opts.Log == nil {
 		opts.Log = log.Printf
 	}
-	s := &CanaryService{resolve: resolve, runs: runs, opts: opts}
-	s.settle = func(ctx context.Context) error {
-		if opts.Settle <= 0 {
-			return nil
-		}
-		select {
-		case <-time.After(opts.Settle):
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
-		}
+	if opts.PollEvery <= 0 {
+		opts.PollEvery = defaultVerdictPoll
 	}
-	return s, nil
+	return &CanaryService{resolve: resolve, runs: runs, opts: opts, wait: sleepContext}, nil
+}
+
+// sleepContext waits d, or less when ctx ends first.
+func sleepContext(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // Run validates, records and runs a canary, waiting for it.
@@ -212,8 +219,8 @@ func (s *CanaryService) verifiedSource(ctx context.Context, req StartRequest) (S
 	if err != nil {
 		return SourceAction{}, fmt.Errorf("%w: %v", ErrSourceNotVerified, err)
 	}
-	verified := src.Verification == "" || src.Verification == "success"
-	if src.Outcome != "success" || !verified || strings.TrimSpace(src.SQL) == "" ||
+	if src.Outcome != "success" || src.Verification != "success" ||
+		strings.TrimSpace(src.SQL) == "" ||
 		strings.TrimSpace(src.RollbackSQL) == "" {
 		return SourceAction{}, fmt.Errorf("%w: outcome %q, verification %q", ErrSourceNotVerified,
 			src.Outcome, src.Verification)
@@ -341,36 +348,6 @@ func (b *canaryBackend) Apply(ctx context.Context, instance Instance,
 	b.actions[instance.ID] = actionID
 	b.mu.Unlock()
 	return AppliedChange{Handle: strconv.FormatInt(actionID, 10)}, nil
-}
-
-// Measure waits for the change to settle and reads its verification.
-func (b *canaryBackend) Measure(ctx context.Context, instance Instance,
-	change AppliedChange) (Outcome, error) {
-	if err := b.svc.settle(ctx); err != nil {
-		return Outcome{}, err
-	}
-	target, err := b.svc.resolve(instance.ID)
-	if err != nil {
-		return Outcome{}, err
-	}
-	actionID, _ := strconv.ParseInt(change.Handle, 10, 64)
-	outcome, verification, err := target.ActionResult(ctx, actionID)
-	if err != nil {
-		return Outcome{}, err
-	}
-	o := Outcome{EvidenceID: "action_log:" + change.Handle,
-		Detail: fmt.Sprintf("outcome %s, verification %q", outcome, verification)}
-	switch verification {
-	case "failed", "revert", "unverifiable":
-		o.Failed = true
-	}
-	if outcome != "success" {
-		o.Failed = true
-	}
-	if o.Failed {
-		o.RegressionPct = 100
-	}
-	return o, nil
 }
 
 // Rollback undoes the change on the target.
