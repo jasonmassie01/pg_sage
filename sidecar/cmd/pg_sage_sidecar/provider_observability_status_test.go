@@ -48,7 +48,9 @@ func (a *obsAPI) Logs(context.Context, string, time.Time, time.Time) (
 
 // polledObs returns a runtime polled once (memory only) or twice (CPU
 // 25%, memory), the last poll at now.
-func polledObs(t *testing.T, now time.Time, polls int, total, available int64) *providerobs.Runtime {
+func polledObs(
+	t *testing.T, now time.Time, polls int, total, available int64,
+) *providerobs.Runtime {
 	t.Helper()
 	api := &obsAPI{at: now.Add(-time.Duration(polls-1) * time.Minute), idle: 100,
 		total: total, available: available}

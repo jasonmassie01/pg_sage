@@ -57,14 +57,16 @@ func TestSupabaseLogsRejectInvalidOrFailedResponses(t *testing.T) {
 	for _, body := range []string{`{`, `{"error":"denied","result":[]}`,
 		`{}`, `{"result":null}`} {
 		c := fixtureClient(t, 200, body)
-		_, _, err := c.Logs(context.Background(), "postgres", time.Now().Add(-time.Minute), time.Now())
+		_, _, err := c.Logs(context.Background(), "postgres",
+			time.Now().Add(-time.Minute), time.Now())
 		if err == nil {
 			t.Errorf("accepted %s", body)
 		}
 	}
 	for _, status := range []int{301, 401, 402, 403, 429, 500} {
 		c := fixtureClient(t, status, "credential-secret-response")
-		_, _, err := c.Logs(context.Background(), "postgres", time.Now().Add(-time.Minute), time.Now())
+		_, _, err := c.Logs(context.Background(), "postgres",
+			time.Now().Add(-time.Minute), time.Now())
 		if err == nil || !strings.Contains(err.Error(), fmt.Sprint(status)) ||
 			strings.Contains(err.Error(), "credential-secret-response") {
 			t.Errorf("status %d: %v", status, err)
