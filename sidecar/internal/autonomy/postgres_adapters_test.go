@@ -200,12 +200,12 @@ func TestWALAdapterDefaultsEvidenceAndEscaping(t *testing.T) {
 		custodian.options.RetainedBytesLimit != DefaultWALBackstopBytes {
 		t.Fatalf("WAL defaults = %#v", custodian.options)
 	}
-	bytes, known := custodian.diskCapacity(context.Background())
-	if bytes != 1000 || !known {
-		t.Fatalf("disk capacity = %d/%v", bytes, known)
+	capacity := custodian.diskCapacity(context.Background())
+	if capacity.bytes != 1000 || !capacity.known {
+		t.Fatalf("disk capacity = %d/%v", capacity.bytes, capacity.known)
 	}
 	custodian.options.Disk = fixedDisk{err: errors.New("unavailable")}
-	if _, known := custodian.diskCapacity(context.Background()); known {
+	if custodian.diskCapacity(context.Background()).known {
 		t.Fatal("failed disk provider was treated as known")
 	}
 	policy := custodian.policy()

@@ -182,7 +182,7 @@ func (r *Runtime) HostMemory() (total, available int64) {
 }
 
 // CapacityBytes is the bounded storage capacity
-// (autonomy.DiskCapacityProvider).
+// (autonomy.DiskCapacityProvider); ErrUnbounded when storage auto-grows.
 func (r *Runtime) CapacityBytes(ctx context.Context) (int64, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, err
@@ -190,6 +190,9 @@ func (r *Runtime) CapacityBytes(ctx context.Context) (int64, error) {
 	s, _ := r.current()
 	if s == nil {
 		return 0, fmt.Errorf("%w: no fresh storage sample", ErrUnavailable)
+	}
+	if s.StorageAutoGrows {
+		return 0, ErrUnbounded
 	}
 	_, capacity, ok := s.EffectiveFreeStorage(r.now())
 	if !ok {

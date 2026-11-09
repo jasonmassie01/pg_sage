@@ -38,11 +38,14 @@ var (
 	ErrUnavailable   = errors.New("cloud telemetry unavailable")
 	ErrNoCredentials = fmt.Errorf("%w: no credentials", ErrUnavailable)
 	ErrIdentity      = fmt.Errorf("%w: database identity unknown", ErrUnavailable)
-	ErrAuth          = errors.New("cloud telemetry access denied")
-	ErrThrottled     = errors.New("cloud telemetry throttled")
-	ErrClockSkew     = errors.New("cloud telemetry clock skew")
-	ErrMalformed     = errors.New("cloud telemetry response malformed")
-	ErrProvider      = errors.New("cloud telemetry provider error")
+	// ErrUnbounded: the provider grows storage without a bound (Aurora,
+	// Cloud SQL auto-resize without a limit), so no capacity exists.
+	ErrUnbounded = fmt.Errorf("%w: storage grows without a bound", ErrUnavailable)
+	ErrAuth      = errors.New("cloud telemetry access denied")
+	ErrThrottled = errors.New("cloud telemetry throttled")
+	ErrClockSkew = errors.New("cloud telemetry clock skew")
+	ErrMalformed = errors.New("cloud telemetry response malformed")
+	ErrProvider  = errors.New("cloud telemetry provider error")
 )
 
 // Point is one measurement and when the provider measured it.
