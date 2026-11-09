@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -671,11 +672,6 @@ func Load(args []string) (*Config, error) {
 	if err := validateMode(cfg); err != nil {
 		return nil, err
 	}
-	if cfg.Mode == "standalone" && cfg.Postgres.DSN() == "" && cfg.MetaDB == "" {
-		return nil, fmt.Errorf(
-			"standalone mode requires postgres connection config or --meta-db")
-	}
-
 	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("config validation: %w", err)
 	}
@@ -1282,11 +1278,18 @@ func inferMode(cfg *Config) string {
 }
 
 // validateMode rejects unknown modes, meta mode without a meta database,
-// and the removed extension mode, which served the API over the deleted C
-// extension's schema.
+// standalone mode with one (main would run the meta-db fleet while metrics
+// report standalone), and the removed extension mode, which served the API
+// over the deleted C extension's schema.
 func validateMode(cfg *Config) error {
 	switch cfg.Mode {
-	case "standalone", "fleet":
+	case "standalone":
+		if cfg.MetaDB != "" {
+			return errors.New("mode standalone cannot be combined with " +
+				"meta_db; drop mode (meta is inferred) or set mode: meta")
+		}
+		return nil
+	case "fleet":
 		return nil
 	case ModeMeta:
 		if cfg.MetaDB == "" {
@@ -1300,25 +1303,6 @@ func validateMode(cfg *Config) error {
 	default:
 		return fmt.Errorf("invalid mode %q: must be 'standalone', 'fleet', "+
 			"or 'meta'", cfg.Mode)
-	}
-}
-
-// HotReloadable returns the fields that can be reloaded without restart.
-func (c *Config) HotReloadable() []string {
-	return []string{
-		"collector.interval_seconds",
-		"analyzer.*",
-		"safety.*",
-		"trust.level", "trust.tier3_safe", "trust.tier3_moderate",
-		"trust.maintenance_window",
-		"llm.*",
-		"briefing.schedule",
-		"alerting.*",
-		"auto_explain.log_min_duration_ms",
-		"auto_explain.max_plans_per_cycle",
-		"forecaster.*",
-		"tuner.*",
-		"retention.*",
 	}
 }
 
