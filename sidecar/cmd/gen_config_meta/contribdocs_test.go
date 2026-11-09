@@ -92,3 +92,39 @@ func TestCheckedInContributingHasNoContributorDrift(t *testing.T) {
 		t.Fatalf("CONTRIBUTING.md: %v", err)
 	}
 }
+
+// With neither docs flag, -check reads both default files: a drifted
+// contributor table fails even when the runtime table is current.
+func TestCheckWithoutFlagsAlsoChecksContributing(t *testing.T) {
+	root := t.TempDir()
+	sidecar := filepath.Join(root, "sidecar")
+	if err := os.MkdirAll(filepath.Join(root, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(sidecar, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runtimeDoc := config.EnvDocsStart + "\n" + config.EnvVarsMarkdown() + config.EnvDocsEnd + "\n"
+	err := os.WriteFile(filepath.Join(root, "docs", "configuration.md"), []byte(runtimeDoc), 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contrib := func(table string) {
+		t.Helper()
+		body := config.ContributorEnvDocsStart + "\n" + table + config.ContributorEnvDocsEnd + "\n"
+		if err := os.WriteFile(filepath.Join(root, "CONTRIBUTING.md"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Chdir(sidecar)
+	contrib("| stale |\n")
+	err = run([]string{"-check"})
+	if err == nil || !strings.Contains(err.Error(), "CONTRIBUTING.md") ||
+		!strings.Contains(err.Error(), "contributor") {
+		t.Fatalf("-check with a stale CONTRIBUTING.md = %v, want a contributor drift error", err)
+	}
+	contrib(config.ContributorEnvVarsMarkdown())
+	if err := run([]string{"-check"}); err != nil {
+		t.Fatalf("-check with both tables current: %v", err)
+	}
+}
