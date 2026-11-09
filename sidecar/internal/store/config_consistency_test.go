@@ -565,6 +565,7 @@ func TestConfigConsistency_HotReloadCoversAllAllowedKeys(
 		"pct":               "50",
 		"pct1_100":          "75",
 		"float01":           "0.5",
+		"float_share":       "0.5",
 		"bool":              "true",
 		"trust_level":       "advisory",
 		"exec_mode":         "auto",
@@ -807,6 +808,7 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 		"pct":               "50",
 		"pct1_100":          "50",
 		"float01":           "0.5",
+		"float_share":       "0.5",
 		"bool":              "true",
 		"trust_level":       "advisory",
 		"exec_mode":         "auto",
@@ -858,7 +860,7 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 						"want int",
 					sampleKey, input, vtype, result)
 			}
-		case "float01", "float_pos", "float_nonneg", "float_pct_pos":
+		case "float01", "float_share", "float_pos", "float_nonneg", "float_pct_pos":
 			if _, ok := result.(float64); !ok {
 				t.Errorf(
 					"coerceValue(%q, %q) [type %s] = %T, "+

@@ -26,7 +26,7 @@ var allowedConfigKeys = map[string]string{
 	"analyzer.autovacuum_tune_min_rows":   "int_pos",
 	"analyzer.analyze_stale_min_rows":     "int_pos",
 	"analyzer.analyze_stale_days":         "int_pos",
-	"analyzer.wraparound_freeze_share":    "float01",
+	"analyzer.wraparound_freeze_share":    "float_share",
 	"analyzer.regression_threshold_pct":   "pct",
 	"analyzer.cache_hit_ratio_warning":    "float01",
 	"trust.level":                         "trust_level",
@@ -189,6 +189,8 @@ func validateByType(vtype, key, value string) error {
 	switch vtype {
 	case "float01":
 		return validateFloatRange(key, value, 0, 1)
+	case "float_share": // a share of a maximum: (0, 1], as the config file holds it
+		return validateFloatRange(key, value, 0.01, 1)
 	case "float_pos":
 		return validateFloatRange(key, value, 0.001, 1e9)
 	case "float_nonneg":
@@ -760,7 +762,7 @@ func coerceValue(key, value string) any {
 		if n, err := strconv.Atoi(value); err == nil {
 			return n
 		}
-	case "float01", "float_pos", "float_nonneg", "float_pct_pos":
+	case "float01", "float_share", "float_pos", "float_nonneg", "float_pct_pos":
 		if f, err := strconv.ParseFloat(value, 64); err == nil {
 			return f
 		}
