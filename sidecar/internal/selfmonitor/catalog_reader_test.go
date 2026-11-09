@@ -46,6 +46,7 @@ func TestIsQueryText_TaggedCatalogReadersStaySelf(t *testing.T) {
 	userQueries := []string{
 		"SELECT id, name FROM public.customers WHERE active = true",
 		"UPDATE orders SET status = 'shipped' WHERE id = $1",
+		"SELECT count(*) FROM events WHERE created_at > now() - interval '1 day'",
 		"",
 		"   ",
 	}
