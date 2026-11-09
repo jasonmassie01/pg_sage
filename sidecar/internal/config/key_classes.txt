@@ -22,6 +22,7 @@ safety_critical mode
 safety_critical meta_db
 safety_critical encryption_key
 safety_critical encryption_key_previous
+safety_critical data_dir
 safety_critical postgres.database
 safety_critical postgres.database_url
 safety_critical postgres.host

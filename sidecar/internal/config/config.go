@@ -126,6 +126,9 @@ type Config struct {
 	// EncryptionKeyPrevious opens config secrets sealed under the key
 	// before a rotation; startup re-seals them under encryption_key.
 	EncryptionKeyPrevious string `yaml:"encryption_key_previous" doc:"Previous encryption_key during a rotation: config secrets sealed under it are re-encrypted at startup. Remove once rotated." secret:"true"`
+	// DataDir is a persistent directory pg_sage owns. Without an
+	// encryption_key, startup generates <data_dir>/encryption.key there.
+	DataDir string `yaml:"data_dir" doc:"Persistent directory owned by pg_sage. Without encryption_key, pg_sage generates data_dir/encryption.key (mode 600) and seals stored secrets with it; back the file up. Also SAGE_DATA_DIR."`
 
 	// Legacy env-var fields
 	APIKey  string `yaml:"-"`

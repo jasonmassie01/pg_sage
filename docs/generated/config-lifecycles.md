@@ -128,6 +128,7 @@
 | `custodian.freeze.red_buffer_pct` | `restart` | `-` | `safety_critical` |
 | `custodian.wal.abandon_after_minutes` | `restart` | `-` | `safety_critical` |
 | `custodian.wal.retained_wal_disk_pct_ceiling` | `restart` | `-` | `safety_critical` |
+| `data_dir` | `restart` | `-` | `safety_critical` |
 | `databases` | `reconfigure` | `fleet_databases` | `operator_preference` |
 | `debug.pprof_enabled` | `restart` | `-` | `safety_critical` |
 | `defaults.analyzer_interval_seconds` | `reconfigure` | `fleet_databases` | `operator_preference` |
