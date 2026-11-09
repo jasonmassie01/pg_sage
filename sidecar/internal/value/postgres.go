@@ -79,6 +79,9 @@ func (r *PostgresRepository) ZeroCreditOnRevert(
 	return r.zeroCreditAtomic(ctx, actionID, outcome)
 }
 
+// zeroCreditAtomic zeroes the action's toil credit and, in the same
+// statement, stamps reverted_at on the incident credits it earned (the
+// rows stay as evidence; the report skips them).
 func (r *PostgresRepository) zeroCreditAtomic(
 	ctx context.Context, actionID int64, outcome string,
 ) (ZeroCreditResult, error) {
@@ -88,7 +91,10 @@ func (r *PostgresRepository) zeroCreditAtomic(
 		SELECT id, COALESCE(toil_minutes_saved,0)::float8 AS minutes
 		FROM sage.action_log WHERE id=$1 FOR UPDATE), changed AS (
 		UPDATE sage.action_log al SET toil_minutes_saved=0, outcome=$2
-		FROM old WHERE al.id=old.id RETURNING old.minutes)
+		FROM old WHERE al.id=old.id RETURNING old.minutes), voided AS (
+		UPDATE sage.incident_avoided ia SET reverted_at=now()
+		FROM old WHERE ia.action_log_id=old.id AND ia.reverted_at IS NULL
+		RETURNING ia.id)
 		SELECT minutes, minutes<>0 FROM changed`, actionID, outcome).Scan(&previous, &applied)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ZeroCreditResult{}, fmt.Errorf("action %d not found", actionID)

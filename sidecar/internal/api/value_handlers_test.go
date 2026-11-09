@@ -22,7 +22,7 @@ func TestValueHandlerReturnsPrescribedJSONShape(t *testing.T) {
 		IncidentsAvoided: value.IncidentSummary{
 			Count: 1, CreditedHours: 8,
 			Detail: []value.Incident{{
-				Kind: "xid_wraparound", Severity: "prevented",
+				Kind: "xid_wraparound", Severity: "near_miss",
 				EvidenceID: "ev-1",
 			}},
 		},

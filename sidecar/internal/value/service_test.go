@@ -22,7 +22,7 @@ func TestMergeResultsSeparatesRealizedPotentialAndIncidents(t *testing.T) {
 		IncidentMinutes:   480,
 		Incidents: []Incident{{
 			Kind:       "xid_wraparound",
-			Severity:   "prevented",
+			Severity:   "near_miss",
 			EvidenceID: "ev-7",
 			OccurredAt: time.Date(2026, 7, 20, 2, 0, 0, 0, time.UTC),
 		}},

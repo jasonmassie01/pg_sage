@@ -450,7 +450,8 @@ func migrationStatements() []string {
 		ddlManagedChangeFingerprintV2,
 		ddlSessionsTokenHash,          // apiauth-04: hashed session cookies
 		ddlUsersDisabledAt,            // apiauth-01: user deactivation
-		ddlTrustLedgerIncidentCursors) // earned-02: after ddlTrustLedger()
+		ddlTrustLedgerIncidentCursors, // earned-02: after ddlTrustLedger()
+		ddlIncidentAvoidedRevert)      // earned-09: after ddlAgentNativeValue
 }
 
 // ---------------------------------------------------------------------------

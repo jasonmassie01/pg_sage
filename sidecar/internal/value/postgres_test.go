@@ -29,7 +29,7 @@ func TestFleetSourceSnapshotIsHonest(t *testing.T) {
 	insertPendingAction(t, ctx, pool, metaID, "create_index_concurrently")
 	insertCreditedAction(t, ctx, other.Pool, metaID, "analyze_table", 99)
 	incident, err := repo.RecordIncident(ctx, IncidentCredit{
-		DatabaseID: nil, Kind: "lock_storm", Severity: "prevented",
+		DatabaseID: nil, Kind: "xid_wraparound", Severity: "near_miss",
 		CreditedMinutes: 60, EvidenceID: graph.evidenceID + "-incident",
 		ModelVersion: 1, DecisionID: graph.decisionID,
 		ActionLogID: graph.actionID, VerificationID: graph.verificationID,
@@ -191,7 +191,7 @@ func TestPostgresRepositoryCancellationAndMissingRowsPropagate(t *testing.T) {
 		t.Fatalf("missing action error = %v", err)
 	}
 	_, err = repo.RecordIncident(cancelled, IncidentCredit{
-		Kind: "lock_storm", Severity: "prevented", EvidenceID: "cancelled",
+		Kind: "xid_wraparound", Severity: "near_miss", EvidenceID: "cancelled",
 	})
 	if !errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "incident") {
 		t.Fatalf("cancelled RecordIncident error = %v", err)

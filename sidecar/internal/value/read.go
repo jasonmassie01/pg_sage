@@ -100,9 +100,12 @@ func readPotential(
 func readIncidents(
 	ctx context.Context, pool *pgxpool.Pool, filter Filter, result *Snapshot,
 ) error {
+	// A rolled-back action's incident keeps its row as evidence but no
+	// longer counts (reverted_at, earned-09).
 	rows, err := pool.Query(ctx, `SELECT ia.kind, ia.severity, ia.evidence_id,
 		ia.occurred_at, ia.credited_minutes::float8 FROM sage.incident_avoided ia
-		WHERE ($1::timestamptz IS NULL OR ia.occurred_at >= $1)
+		WHERE ia.reverted_at IS NULL
+		AND ($1::timestamptz IS NULL OR ia.occurred_at >= $1)
 		AND ($2::timestamptz IS NULL OR ia.occurred_at < $2)
 		ORDER BY ia.occurred_at`, nullableTime(filter.Since),
 		nullableTime(filter.Until))
