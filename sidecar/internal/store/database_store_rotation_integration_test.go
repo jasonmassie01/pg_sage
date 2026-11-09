@@ -91,16 +91,29 @@ func TestDatabasePassword_CreateSealsUnderRowAAD(t *testing.T) {
 	}
 }
 
-func TestDatabasePassword_EmptyPasswordStillAllowed(t *testing.T) {
+// Nil/empty: a new database still needs a password (validation, unchanged
+// by sealing); an update with an empty password keeps the sealed one.
+func TestDatabasePassword_EmptyPasswordRules(t *testing.T) {
 	pool, ctx := requireDBWithClean(t)
 	s := NewDatabaseStore(pool, rotationKeyA)
 	in := validInput()
 	in.Password = ""
+	if _, err := s.Create(ctx, in, 1); !errors.Is(err, ErrValidation) {
+		t.Fatalf("Create with empty password: err = %v, want ErrValidation", err)
+	}
+	in.Password = "kept-pw"
 	id := mustCreate(t, s, in)
-	storedKeyID(t, storedCiphertext(t, pool, id))
+	before := storedCiphertext(t, pool, id)
+	in.Password = ""
+	if err := s.Update(ctx, id, in); err != nil {
+		t.Fatalf("Update with empty password: %v", err)
+	}
+	if after := storedCiphertext(t, pool, id); string(after) != string(before) {
+		t.Fatal("an update with an empty password rewrote the sealed password")
+	}
 	conn, err := s.GetConnectionString(ctx, id)
-	if err != nil || connectionPassword(t, conn) != "" {
-		t.Fatalf("GetConnectionString = %q, %v", conn, err)
+	if err != nil || connectionPassword(t, conn) != "kept-pw" {
+		t.Fatalf("GetConnectionString = %q, %v; want kept-pw", conn, err)
 	}
 }
 
