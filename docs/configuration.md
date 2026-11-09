@@ -882,6 +882,19 @@ trusted proxy. Without it every user shares the proxy's address and its
 [login throttling](security.md#login-throttling) budget; pg_sage logs one
 warning naming `api.trusted_proxies` when it ignores the header.
 
+#### API access log
+
+`api.access_log` (default `true`, restart to change) writes one `api access`
+log line per mutating API request and per 401/403: method, route pattern, user
+id, role, status and latency, never bodies or query strings
+([details](security.md#api-access-log)). Set it to `false` only when another
+layer (a proxy's access log) already records who changed what.
+
+```yaml
+api:
+  access_log: true
+```
+
 #### Profiling the sidecar
 
 `debug.pprof_enabled: true` (default `false`, restart to change) serves Go's profiler

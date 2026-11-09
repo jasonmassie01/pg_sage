@@ -688,12 +688,21 @@ break-glass session cookies are always `Secure`.
   downgrade to HTTP.
 - At startup a missing file, a key that doesn't match the certificate, or an
   expired or not-yet-valid certificate stops the sidecar with a message naming
-  the variable and file. A certificate expiring within 14 days logs a warning.
+  the variable and file.
+- Expiry is watched while the sidecar runs, not only at load: the serving
+  certificate is re-checked every hour, and a certificate with under 14
+  days left logs a warning, one with under 3 days an error, and an expired
+  one an error again, each once per certificate. `/ready` then reports
+  `"details":{"tls_expiring":true}` (under 14 days) without failing
+  readiness. `/metrics` exposes `pg_sage_api_tls_cert_not_after_seconds`
+  (the serving certificate's expiry, Unix time) and
+  `pg_sage_api_tls_reload_failures_total` (reloads that failed and kept the
+  old certificate); both are absent when the API serves plain HTTP.
 - Rotation needs no restart: on new connections pg_sage checks the two files'
   modification times at most every 5 seconds and loads a changed pair. The
   check follows symlinks, so cert-manager and Kubernetes secret volume swaps
-  work. A pair that fails to load is logged and the current certificate keeps
-  serving until the files change again.
+  work. A pair that fails to load is logged and counted, and the current
+  certificate keeps serving until the files change again.
 - The Prometheus listener (`:9187`) stays plain HTTP; keep it on a private
   network.
 
@@ -711,11 +720,25 @@ either way.
 - **Body size**: Maximum 1 MB per request.
 - **Rate limiting**: Configurable via `SAGE_RATE_LIMIT` (default: 60 requests per minute per client address; an IPv6 client counts as its /64). Password login has its own limits ([Login Throttling](#login-throttling)).
 - **Request timeout**: 30 seconds per API request.
-- **Pool exhaustion protection**: When the connection pool is exhausted, database-backed methods return `503`.
+- **Database unavailable**: When a handler cannot get a database connection
+  (the pool has no free connection before the request deadline, or the
+  connection attempt fails), the API answers `503` with
+  `{"error":"database unavailable","code":"db_unavailable"}` and
+  `Retry-After: 5`. Other server errors stay `500` `{"error":"internal error"}`;
+  neither body carries the cause, which is logged server-side.
 
 ### Security Headers
 
-All responses include `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and `Cache-Control: no-store`.
+Every `/api/v1/*` response (and `/mcp` in Databricks App mode) carries
+`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+`Referrer-Policy: strict-origin-when-cross-origin`,
+`Permissions-Policy: camera=(), microphone=(), geolocation=()` and
+`Cache-Control: no-store`, including refusals (401, 403, 404, 415) and
+responses that carry secrets (MCP and agent tokens, SSO link grants). The
+event stream (`/api/v1/events`) alone sends `Cache-Control: no-cache`, as
+server-sent events expect. `/ready` sends `no-store`; `/health` and the
+dashboard's static files set no cache header. HSTS and CSP are not set:
+add them at the TLS-terminating proxy.
 
 ---
 
@@ -854,9 +877,19 @@ Every autonomous action is recorded with:
 Logins, break-glass use, and user and role changes, with actor, time and
 client address; see [Authentication Audit](#authentication-audit).
 
-### API Request Log
+### API Access Log
 
-API requests are logged for audit purposes.
+With `api.access_log` on (the default), the sidecar writes one structured
+`api access` log line (not a table) for every mutating API request (POST,
+PUT, PATCH, DELETE) whatever its status, the signed ChatOps callbacks
+included, and for every `401` or `403`, the cross-origin check's refusals
+included. Each line has the method, the route pattern (for example
+`POST /api/v1/emergency-stop`; the path when the request was refused
+before routing), the user id and role when signed in, the status and the
+latency in milliseconds. Bodies, query strings, cookies and tokens are
+never logged; successful reads are not logged. Set `api.access_log: false`
+(restart to change) to turn it off; the auth, config and action tables
+above keep their own records either way.
 
 Both tables are subject to retention policies (configurable via `retention.actions_days`).
 
