@@ -60,10 +60,18 @@ This is a management/observability credential, separate from the PostgreSQL pass
 stale CPU/IO evidence must never be treated as zero utilization. [Supabase metrics][supa-metrics]
 
 The Supabase integration polls management logs and parses auto_explain plans into the query store
-and RCA input. It derives CPU utilization from core idle metrics and exposes memory evidence.
-Data/WAL device utilization remains unknown, so actions requiring complete host-load admission
-stay blocked. Malformed log records are reported without stopping valid records; transient storage
-errors remain retryable. Neon Free did not expose the paid log/metrics export integration.
+and RCA input. The log query names the monitored database, so a busy neighbouring database cannot
+fill the 1000-row cap (a database name containing a backslash or a control character is read
+unfiltered and filtered client-side). It derives CPU utilization from core idle metrics. Host memory
+(total and available) feeds the advisor and tuning memory gates, such as the `work_mem` cap of 5% of
+RAM and the memory-pressure guard, while it is less than 2 minutes old; older memory counts as
+unknown. Supabase CPU and memory appear in `GET /api/v1/cloud-telemetry` with `provider:
+"supabase"`, or as unavailable with a reason when no fresh metrics exist. In fleet mode each
+Supabase database has its own collector and its own status entry. Data/WAL device utilization
+remains unknown, so actions requiring complete host-load admission stay blocked. A log record with
+a malformed timestamp or process ID is skipped and counted, with one warning per poll, while the
+valid records of the batch are delivered and the cursor advances; transient storage errors remain
+retryable. Neon Free did not expose the paid log/metrics export integration.
 
 ## Provisioning (removed)
 

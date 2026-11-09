@@ -38,12 +38,15 @@ func (rt *databaseRuntime) initCloudTelemetry() {
 	}
 }
 
-// hostMemory is live host memory from telemetry (zero when unknown).
+// hostMemory is live host memory from managed-cloud telemetry or, without
+// it, from Supabase observability (zero when unknown or stale).
 func (rt *databaseRuntime) hostMemory() advisor.HostMemory {
-	if rt.cloud == nil {
-		return advisor.HostMemory{}
+	var total, available int64
+	if rt.cloud != nil {
+		total, available = rt.cloud.HostMemory()
+	} else if obs := rt.providerObs.Load(); obs != nil {
+		total, available = obs.HostMemory()
 	}
-	total, available := rt.cloud.HostMemory()
 	return advisor.HostMemory{TotalBytes: total, AvailableBytes: available}
 }
 

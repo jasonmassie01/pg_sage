@@ -23,6 +23,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/logwatch"
 	"github.com/pg-sage/sidecar/internal/managedparam"
 	"github.com/pg-sage/sidecar/internal/notify"
+	"github.com/pg-sage/sidecar/internal/providerobs"
 	"github.com/pg-sage/sidecar/internal/rca"
 	"github.com/pg-sage/sidecar/internal/sre"
 	sreaction "github.com/pg-sage/sidecar/internal/sre/action"
@@ -114,6 +115,9 @@ type databaseRuntime struct {
 	lakebaseScope atomic.Value // verified immutable resource/policy pair, read by history
 	cloud         *cloudtel.Runtime
 	cloudResolver managedparam.Resolver
+	// providerObs is Supabase observability (nil: not running); its memory
+	// backs the gates when there is no managed-cloud telemetry.
+	providerObs atomic.Pointer[providerobs.Runtime]
 }
 
 // buildDatabaseRuntime is the only per-database runtime constructor. It

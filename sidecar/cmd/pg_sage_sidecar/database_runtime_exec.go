@@ -18,9 +18,9 @@ import (
 func (rt *databaseRuntime) startExecution() {
 	rt.buildExecutor()
 	rt.startAutonomyLoops()
-	startProviderObservability(
+	rt.attachProviderObservability(startProviderObservability(
 		rt.ctx, rt.workers, rt.spec.Pool, rt.cfg, rt.executor, rt.rca,
-	)
+	))
 	rt.startCloudTelemetry()
 	rt.startLakebaseTelemetry()
 	// Autonomous index builds earn load admission from pg-side IO (D6).
