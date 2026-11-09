@@ -26,15 +26,12 @@ const notExtensionMember = `NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend e
 var maxRows = 50000
 
 // reachingRoles lists the exposed roles that hold a privilege granted to
-// grantees (directly or through PUBLIC) and USAGE on its schema (granted
-// to them or to PUBLIC). Membership in other roles is not followed: the
-// check reads ACLs as aclexplode reports them.
+// grantees and USAGE on its schema (usage lists its grantees): each
+// directly, through PUBLIC or through a group role they inherit.
 func reachingRoles(env Env, grantees, usage []uint32) []Role {
 	var out []Role
 	for _, e := range env.Exposed {
-		holds := slices.Contains(grantees, e.OID) || slices.Contains(grantees, PublicOID)
-		uses := slices.Contains(usage, e.OID) || slices.Contains(usage, PublicOID)
-		if holds && uses {
+		if env.holds(e, grantees) && env.holds(e, usage) {
 			out = append(out, e)
 		}
 	}

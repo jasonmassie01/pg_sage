@@ -43,11 +43,12 @@ type ap05Item struct {
 
 func (ap05) Detect(ctx context.Context, in Input) ([]Finding, error) {
 	lim := in.capRows("functions", maxRows)
-	rows, err := in.Q.Query(ctx, ap05SQL, in.Env.ExposedOIDs(), lim.fetch())
+	rows, err := in.Q.Query(ctx, ap05SQL, in.Env.ReachOIDs(), lim.fetch())
 	if err != nil {
 		return nil, fmt.Errorf("read definer functions: %w", err)
 	}
 	defer rows.Close()
+	in.noteVia()
 	var found []ap05Item
 	for rows.Next() && !lim.past() {
 		var it ap05Item
@@ -64,9 +65,10 @@ func (ap05) Detect(ctx context.Context, in Input) ([]Finding, error) {
 		return nil, fmt.Errorf("read definer functions: %w", err)
 	}
 	return groupBySchema(found, func(it ap05Item) string { return it.schema },
-		func(it ap05Item) Finding {
-			return ap05Finding(it.schema, it.name, it.args, it.kind, it.reach, it.grantees)
-		}, ap05SchemaFinding), nil
+		func(it ap05Item) Finding { return ap05Finding(in.Env, it) },
+		func(schema string, items []ap05Item) Finding {
+			return ap05SchemaFinding(in.Env, schema, items)
+		}), nil
 }
 
 // ap05PinAll pins the search_path of every SECURITY DEFINER routine of
@@ -88,8 +90,9 @@ END`
 
 // ap05SchemaFinding is one finding for a schema with more than
 // groupThreshold exposed definer functions; its fix pins them all.
-func ap05SchemaFinding(schema string, items []ap05Item) Finding {
+func ap05SchemaFinding(env Env, schema string, items []ap05Item) Finding {
 	var reach, targets []Role
+	var ps []Path
 	objs := make([]string, len(items))
 	ev := make([]Evidence, len(items))
 	for i, it := range items {
@@ -97,7 +100,8 @@ func ap05SchemaFinding(schema string, items []ap05Item) Finding {
 		ev[i] = Evidence{Source: "pg_proc", Ref: objs[i],
 			Detail: "prosecdef, no search_path in proconfig"}
 		reach = mergeRoles(reach, it.reach)
-		targets = mergeRoles(targets, revokeTargets(it.reach, it.grantees))
+		targets = mergeRoles(targets, revokeTargets(env, it.reach, it.grantees))
+		ps = append(ps, env.paths(it.reach, it.grantees)...)
 	}
 	fix := []string{"-- Pins the search_path of every SECURITY DEFINER routine in schema " +
 		schema + " that has none.", "DO " + dollarQuoted(ap05PinAll(schema)) + ";",
@@ -116,43 +120,47 @@ func ap05SchemaFinding(schema string, items []ap05Item) Finding {
 		Recommendation: "Pin the functions' search_path, and revoke EXECUTE from roles " +
 			"that do not need them.",
 		FixScript: strings.Join(fix, "\n"),
-		Caveat: "With a pinned search_path the bodies must schema-qualify the objects they " +
-			"use; the script pins every definer routine of the schema without one, so " +
-			"test them afterwards.",
+		Caveat: joinCaveats("With a pinned search_path the bodies must schema-qualify the "+
+			"objects they use; the script pins every definer routine of the schema without "+
+			"one, so test them afterwards.", groupCaveat(ps)),
 		Evidence: groupEvidence("pg_proc", schema, "definer functions", ev)}
 }
 
-func ap05Finding(schema, name, args, kind string, reach []Role,
-	grantees []uint32) Finding {
-	obj := fmt.Sprintf("%s.%s(%s)", schema, name, args)
-	sig := fmt.Sprintf("%s(%s)", QualifiedName(schema, name), args)
+// ap05Finding reports one definer function. Its commented REVOKEs name
+// PUBLIC, the exposed roles granted EXECUTE directly and the inherited
+// groups granted it; for a group it also offers ending the membership.
+func ap05Finding(env Env, it ap05Item) Finding {
+	obj := fmt.Sprintf("%s.%s(%s)", it.schema, it.name, it.args)
+	sig := fmt.Sprintf("%s(%s)", QualifiedName(it.schema, it.name), it.args)
 	what := "FUNCTION"
-	if kind == "p" {
+	if it.kind == "p" {
 		what = "PROCEDURE"
 	}
-	revoke, via := "", ""
-	if containsOID(grantees, PublicOID) {
-		revoke = fmt.Sprintf("\n-- REVOKE EXECUTE ON %s %s FROM PUBLIC;", what, sig)
-		via = " (EXECUTE is granted to PUBLIC)"
+	ps := env.paths(it.reach, it.grantees)
+	via := viaText(ps)
+	if containsOID(it.grantees, PublicOID) {
+		via = " (EXECUTE is granted to PUBLIC)" + via
 	}
-	for _, r := range reach {
-		if r.OID != PublicOID && containsOID(grantees, r.OID) {
-			revoke += fmt.Sprintf("\n-- REVOKE EXECUTE ON %s %s FROM %s;", what, sig,
-				grantTarget(r))
-		}
+	revoke := ""
+	for _, r := range revokeTargets(env, it.reach, it.grantees) {
+		revoke += fmt.Sprintf("\n-- REVOKE EXECUTE ON %s %s FROM %s;", what, sig,
+			grantTarget(r))
+	}
+	for _, line := range membershipFix(ps) {
+		revoke += "\n" + line
 	}
 	return Finding{Severity: Warning, ObjectType: "function", Object: obj,
 		Title: fmt.Sprintf("Definer function %s has no pinned search_path", obj),
 		Detail: fmt.Sprintf("%s runs with its owner's rights (SECURITY DEFINER), "+
 			"%s can execute it%s, and its search_path is not set. A caller who can "+
 			"create objects on the search path can make it run their code as the owner.",
-			obj, roleList(reach), via),
+			obj, roleList(it.reach), via),
 		Recommendation: "Pin the function's search_path, and revoke EXECUTE from roles " +
 			"that do not need it.",
 		FixScript: fmt.Sprintf("ALTER %s %s SET search_path = pg_catalog, pg_temp;\n"+
 			"-- and, if exposed roles do not need it:%s", what, sig, revoke),
-		Caveat: "With a pinned search_path the body must schema-qualify the objects it " +
-			"uses; test the function afterwards.",
-		Evidence: []Evidence{{Source: "pg_proc", Ref: obj,
-			Detail: "prosecdef, no search_path in proconfig"}}}
+		Caveat: joinCaveats("With a pinned search_path the body must schema-qualify the "+
+			"objects it uses; test the function afterwards.", groupCaveat(ps)),
+		Evidence: append([]Evidence{{Source: "pg_proc", Ref: obj,
+			Detail: "prosecdef, no search_path in proconfig"}}, viaEvidence(obj, ps)...)}
 }

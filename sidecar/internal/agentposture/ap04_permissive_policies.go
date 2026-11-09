@@ -43,11 +43,12 @@ type ap04Row struct {
 
 func (ap04) Detect(ctx context.Context, in Input) ([]Finding, error) {
 	lim := in.capRows("policies", maxRows)
-	rows, err := in.Q.Query(ctx, ap04SQL, in.Env.ExposedOIDs(), lim.fetch())
+	rows, err := in.Q.Query(ctx, ap04SQL, in.Env.ReachOIDs(), lim.fetch())
 	if err != nil {
 		return nil, fmt.Errorf("read permissive policies: %w", err)
 	}
 	defer rows.Close()
+	in.noteVia()
 	var out []Finding
 	for rows.Next() && !lim.past() {
 		var r ap04Row
@@ -60,13 +61,26 @@ func (ap04) Detect(ctx context.Context, in Input) ([]Finding, error) {
 	return out, rows.Err()
 }
 
-func ap04Finding(env Env, r ap04Row) Finding {
+// policyRoles lists the exposed roles a policy for roles applies to: the
+// ones it names and those that inherit a group role it names.
+func policyRoles(env Env, roles []uint32) []Role {
 	var who []Role
-	for _, oid := range r.roles {
+	for _, oid := range roles {
 		if e, ok := env.Exposure(oid); ok {
-			who = append(who, e)
+			who = mergeRoles(who, []Role{e})
+		}
+		for _, p := range env.Via[oid] {
+			if e, ok := env.Exposure(p.Exposed); ok {
+				who = mergeRoles(who, []Role{e})
+			}
 		}
 	}
+	return who
+}
+
+func ap04Finding(env Env, r ap04Row) Finding {
+	who := policyRoles(env, r.roles)
+	ps := env.paths(who, r.roles)
 	var exprs []string
 	if r.qual == "true" {
 		exprs = append(exprs, "USING (true)")
@@ -78,7 +92,8 @@ func ap04Finding(env Env, r ap04Row) Finding {
 	qt := QualifiedName(r.schema, r.table)
 	cmd := policyCommands[r.cmd]
 	detail := fmt.Sprintf("Permissive %s policy %s on %s applies to %s with %s, so it "+
-		"allows every row.", cmd, r.policy, table, roleList(who), strings.Join(exprs, " and "))
+		"allows every row.", cmd, r.policy, table, roleList(who)+viaText(ps),
+		strings.Join(exprs, " and "))
 	if !r.rls {
 		detail += " Row-level security is disabled on the table, so the policy takes " +
 			"effect once it is enabled."
@@ -98,6 +113,7 @@ func ap04Finding(env Env, r ap04Row) Finding {
 			"-- DROP POLICY %s ON %s;", QuoteIdent(r.policy), qt, clause,
 			QuoteIdent(r.policy), qt),
 		Caveat: "Check what the application expects before narrowing a policy.",
-		Evidence: []Evidence{{Source: "pg_policy", Ref: table + ":" + r.policy,
-			Detail: cmd + " " + strings.Join(exprs, " ")}}}
+		Evidence: append([]Evidence{{Source: "pg_policy", Ref: table + ":" + r.policy,
+			Detail: cmd + " " + strings.Join(exprs, " ")}},
+			viaEvidence(table+":"+r.policy, ps)...)}
 }

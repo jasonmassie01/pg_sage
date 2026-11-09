@@ -42,6 +42,14 @@ type Env struct {
 	// Exposed is PUBLIC first, then agents.exposed_roles that exist, then
 	// anon and authenticated when both exist.
 	Exposed []Role
+	// Via maps each group role an exposed role inherits (directly or
+	// through other groups) to the paths of the exposed roles that do. A
+	// membership that only allows SET ROLE gives no privilege until the role
+	// switches, so it is left out.
+	Via map[uint32][]Path
+	// ViaTruncated is set when the membership read stopped at its limit:
+	// the detectors that use Via report it as their own truncation.
+	ViaTruncated []Truncation
 	// Missing lists agents.exposed_roles entries that do not exist.
 	Missing []string
 	// Agents is the registered agent roles, then the client-hint roles.
@@ -145,6 +153,9 @@ func ResolveEnv(ctx context.Context, q Querier, cfg Config) (Env, error) {
 		return Env{}, fmt.Errorf("agent posture: read server version and own role: %w", err)
 	}
 	if err := resolveRoles(ctx, q, cfg, &env); err != nil {
+		return Env{}, err
+	}
+	if err := resolveVia(ctx, q, &env); err != nil {
 		return Env{}, err
 	}
 	if err := resolveHints(ctx, q, cfg, &env); err != nil {

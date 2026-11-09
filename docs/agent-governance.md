@@ -345,9 +345,24 @@ so its cost shows in `pg_stat_statements` and in pg_sage's performance gate.
 - `anon` and `authenticated`, added automatically when both exist (Supabase).
 
 A role is listed under `missing` when it's configured but doesn't exist. Privileges are
-read with `aclexplode` on the object's ACL, or its default ACL. A grant counts only when
-the exposed role (or `PUBLIC`) also has `USAGE` on the object's schema. Privileges an
-exposed role inherits through membership in another role are not followed.
+read with `aclexplode` on the object's ACL, or its default ACL. A grant counts when it is
+made to the exposed role, to `PUBLIC`, or to a group role the exposed role inherits,
+directly or through other groups (up to 16 levels). The same goes for `USAGE` on the
+object's schema, which a grant also needs. Inheritance is read from `pg_auth_members`:
+before PostgreSQL 16 by each member's `INHERIT` attribute (`rolinherit`), from 16 by each
+membership's `INHERIT` option. AP-03, AP-04, AP-05, AP-06 and AP-09 count it.
+
+- Findings name the path, for example `anon → api_reader`, in the detail and as
+  `pg_auth_members` evidence.
+- A fix that revokes from a group warns that every member of the group loses the
+  privilege, and offers ending the membership instead (`REVOKE api_reader FROM anon`; on
+  PostgreSQL 16+ add `GRANTED BY` when another role granted it).
+- A membership that only allows `SET ROLE` (no inheritance) gives nothing until the client
+  switches roles, so it is not reported.
+- User mappings never inherit, so AP-09 matches a mapping to the exposed role itself.
+- AP-15 still reports `PUBLIC` grants only.
+- When more memberships than the read's limit exist, the detectors that use them report a
+  truncated run, so their open findings stay open.
 
 **Agent roles** come in two kinds:
 - **Registered** agent roles follow pg_sage's agent role naming: `sage_agent_` or

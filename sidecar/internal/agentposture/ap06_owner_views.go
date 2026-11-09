@@ -64,11 +64,12 @@ type ap06Item struct {
 
 func (ap06) Detect(ctx context.Context, in Input) ([]Finding, error) {
 	lim := in.capRows("views", maxRows)
-	rows, err := in.Q.Query(ctx, ap06SQL, in.Env.ExposedOIDs(), lim.fetch())
+	rows, err := in.Q.Query(ctx, ap06SQL, in.Env.ReachOIDs(), lim.fetch())
 	if err != nil {
 		return nil, fmt.Errorf("read owner-rights views: %w", err)
 	}
 	defer rows.Close()
+	in.noteVia()
 	var found []ap06Item
 	for rows.Next() && !lim.past() {
 		var it ap06Item
