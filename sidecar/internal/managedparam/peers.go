@@ -113,17 +113,20 @@ func otherPeers(resource, database string) []peer {
 	return out
 }
 
-// holds reports whether the store holds p's change for the same target:
-// open, or rejected inside the cooldown.
-func (s *Store) holds(ctx context.Context, p Proposal) (bool, error) {
+// holds reports whether the store holds p's change (its fingerprint, the
+// identity Upsert uses): open, or rejected inside the cooldown. With
+// anyTarget false the stored copy must also name p's target.
+func (s *Store) holds(ctx context.Context, p Proposal, anyTarget bool) (bool, error) {
 	var held bool
 	err := s.pool.QueryRow(ctx, `/* pg_sage */ SELECT EXISTS (SELECT 1
 		FROM sage.managed_change_proposals
-		WHERE provider = $1 AND target = $2 AND parameter = $3 AND value = $4
+		WHERE provider = $1 AND parameter = $2 AND fingerprint = $3
+		  AND ($4::boolean OR target = $5)
 		  AND (status IN ('pending', 'approved')
 		       OR (status = 'rejected'
-		           AND decided_at > now() - make_interval(secs => $5))))`,
-		p.Provider, p.Target, p.Parameter, p.Value, RejectionCooldown.Seconds()).Scan(&held)
+		           AND decided_at > now() - make_interval(secs => $6))))`,
+		p.Provider, p.Parameter, p.Fingerprint, anyTarget, p.Target,
+		RejectionCooldown.Seconds()).Scan(&held)
 	return held, err
 }
 
@@ -144,19 +147,24 @@ func (w *Worker) upsert(ctx context.Context, p Proposal, findingID int64,
 }
 
 // heldByPeer reports that another member holds p. A database that holds
-// its own copy keeps refreshing it; a peer that cannot be read counts as
-// not holding it, so a failure never blocks the proposal.
+// its own copy (whatever its target) keeps refreshing it; a peer that
+// cannot be read counts as not holding it, so a failure never blocks the
+// proposal. A placeholder proposal (target unknown here) matches a peer's
+// copy for any target of the instance; a resolved one must name the same.
 func (w *Worker) heldByPeer(ctx context.Context, p Proposal, res *CycleResult) bool {
 	others := otherPeers(w.opts.Resource, w.opts.Database)
 	if len(others) == 0 {
 		return false
 	}
-	if own, err := w.store.holds(ctx, p); err != nil || own {
+	ownCtx, cancel := context.WithTimeout(ctx, peerReadTimeout)
+	own, err := w.store.holds(ownCtx, p, true)
+	cancel()
+	if err != nil || own {
 		return false // Upsert refreshes its own copy, or reports the error
 	}
 	for _, o := range others {
 		peerCtx, cancel := context.WithTimeout(ctx, peerReadTimeout)
-		held, err := o.store.holds(peerCtx, p)
+		held, err := o.store.holds(peerCtx, p, p.placeholderTarget())
 		cancel()
 		res.peerReads++
 		if err != nil {
