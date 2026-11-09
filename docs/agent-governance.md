@@ -13,11 +13,22 @@ parts:
 - **The kill switch**: stops agents at once, at any trust level.
 
 Posture works on every database with no configuration. Everything else needs a control
-database. `agents.control_database` names the monitored database that holds agent governance
-state; in `mode: meta` the meta database holds it. Principals, their roles, tokens and grant
-requests live there, and one principal covers every database of the fleet: a token or a grant
-names the databases it reaches. Without a control database the principal, token, grant and
-activity routes answer 503, and agent governance runs posture checks only.
+database: `agents.control_database` names the monitored database that holds agent governance
+state, and in `mode: meta` the meta database is the control database. The gate, the kill
+switch and freezes, grants and grant requests, activity, agent roles and taint use it. One
+principal covers every database of the fleet: a token or a grant names the databases it
+reaches.
+
+The principal and token routes, and MCP sign-in (tokens and OAuth identity bindings), use
+pg_sage's own store instead: the database that holds its users and sessions. In `mode: meta`
+that is the meta database, so the two are the same. Otherwise it is the single monitored
+database, or the fleet's primary database, and you set `agents.control_database` to that same
+database. The gate reads principals from the control database only, so it refuses an agent
+that exists only in another database as one that does not exist.
+
+Without a control database, the kill, freeze, unfreeze, grant and activity routes answer 503,
+agent requests are capped at approval (L2) and agent changes fail closed. The principal and
+token routes still answer, and posture checks still run.
 
 ## Principals
 
@@ -179,7 +190,7 @@ https (http only on a loopback host).
   claim is fine. A malformed one (not a printable string of at most 200 bytes) refuses the
   token, because the task is what per-task taint is keyed by.
 - **Identity bindings.** An identity maps to a principal through
-  `sage.guard_identity_bindings` on the control database: one row per `(issuer, subject)`,
+  `sage.guard_identity_bindings` in pg_sage's store: one row per `(issuer, subject)`,
   where the subject is the actor. There is no route for bindings yet; an admin inserts them:
 
   ```sql
