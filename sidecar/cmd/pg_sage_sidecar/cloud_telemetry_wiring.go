@@ -18,7 +18,7 @@ var newCloudTelemetry = func(ctx context.Context, rt *databaseRuntime) (*cloudte
 	managedparam.Resolver) {
 	host := rt.spec.Pool.Config().ConnConfig.Host
 	return cloudTelemetryFor(ctx, rt.cfg, rt.provider, host, rt.spec.Name, rt.spec.Shared,
-		defaultCloudDeps())
+		rt.spec.Config.CloudResource, defaultCloudDeps())
 }
 
 // initCloudTelemetry resolves the database's managed-cloud telemetry

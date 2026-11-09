@@ -77,6 +77,7 @@ type databaseRuntime struct {
 	cfg        *config.Config
 	checks     *startup.CheckResult
 	provider   string
+	probed     string // the probe outcome before any provider override
 	generalLLM *llm.Client
 	llmManager *llm.Manager
 	llmOn      bool

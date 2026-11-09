@@ -21,9 +21,12 @@ const providerRebuildTimeout = 2 * time.Minute
 
 // providerReprobe re-probes an unknown provider with backoff until it gets a
 // definite answer, then asks for this database's runtime to be rebuilt. The
-// running runtime's provider is never changed in place.
+// running runtime's provider is never changed in place. current is the
+// provider the runtime runs with (a configured override while the probes
+// were unknown); an answer equal to it needs no rebuild.
 type providerReprobe struct {
 	name     string
+	current  string
 	probe    func(context.Context) (string, error)
 	rebuild  func(provider string) error
 	sleep    func(context.Context, time.Duration) error
@@ -45,6 +48,11 @@ func (r providerReprobe) run(ctx context.Context) string {
 				r.name, wait, err)
 			continue
 		}
+		if provider == r.current {
+			logInfo("provider", "db %q: provider re-probe confirms the configured "+
+				"provider %s", r.name, provider)
+			return provider
+		}
 		logInfo("provider", "db %q: provider re-probe: %s -> %s; rebuilding the runtime",
 			r.name, providerUnknown, provider)
 		err = r.rebuild(provider)
@@ -61,16 +69,27 @@ func (r providerReprobe) run(ctx context.Context) string {
 	}
 }
 
-// detectProvider runs the startup detection and logs the outcome.
+// detectProvider runs the startup detection, applies the configured
+// provider override (which can only narrow) and logs the outcome. The probe
+// outcome stays in rt.probed for the re-probe.
 func (rt *databaseRuntime) detectProvider(ctx context.Context) string {
-	provider, err := detectRuntimeProvider(ctx, rt.spec.Pool)
-	if err != nil {
+	probed, err := detectRuntimeProvider(ctx, rt.spec.Pool)
+	rt.probed = probed
+	provider, warning := resolveProviderOverride(probed, rt.spec.Config.Provider)
+	if warning != "" {
+		logWarn(rt.spec.Scope, "db %q: %s", rt.spec.Name, warning)
+	}
+	switch {
+	case err != nil && provider != providerUnknown:
+		logWarn(rt.spec.Scope, "db %q: provider probe failed after retries; using the "+
+			"configured provider %s until a re-probe answers: %v", rt.spec.Name, provider, err)
+	case err != nil:
 		logWarn(rt.spec.Scope, "db %q: provider probe failed after retries; provider %s, "+
 			"provider-gated actions wait for a successful re-probe: %v",
 			rt.spec.Name, provider, err)
-		return provider
+	default:
+		logInfo(rt.spec.Scope, "db %q: cloud environment: %s", rt.spec.Name, provider)
 	}
-	logInfo(rt.spec.Scope, "db %q: cloud environment: %s", rt.spec.Name, provider)
 	return provider
 }
 
@@ -78,12 +97,13 @@ func (rt *databaseRuntime) detectProvider(ctx context.Context) string {
 // an instance worker: replacing this generation drains those, and the
 // replacement is requested from here. It ends with this runtime's context.
 func (rt *databaseRuntime) startProviderReprobe() {
-	if rt.provider != providerUnknown || rt.spec.Pool == nil {
+	if !rt.needsProviderReprobe() || rt.spec.Pool == nil {
 		return
 	}
 	detector := newProviderDetector(rt.spec.Pool)
 	worker := providerReprobe{
-		name: rt.spec.Name, probe: detector.probeOnce, rebuild: rt.rebuildForProvider,
+		name: rt.spec.Name, current: rt.provider,
+		probe: detector.probeOnce, rebuild: rt.rebuildForProvider,
 		sleep: sleepContext, min: providerReprobeMin, max: providerReprobeMax,
 	}
 	go worker.run(rt.ctx)

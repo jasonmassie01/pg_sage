@@ -53,7 +53,7 @@ func TestCloudSQLSocketHostRejectsMalformedPaths(t *testing.T) {
 
 // sqlAdminFake counts Cloud SQL Admin calls by kind.
 type sqlAdminFake struct {
-	mu         sync.Mutex
+	mu          sync.Mutex
 	lists, gets int
 }
 

@@ -59,6 +59,17 @@ func azureManagedConfig(
 	return adapter, fmt.Sprintf("azure server parameters apply through ARM for server %s", server)
 }
 
+// azureTargetConfig is the config azureManagedConfig reads for one database:
+// its cloud_resource.azure when set (validation requires all three names),
+// else the process azure.* settings.
+func azureTargetConfig(process *config.Config, r config.CloudResourceAzure) *config.Config {
+	if r == (config.CloudResourceAzure{}) {
+		return process
+	}
+	return &config.Config{Azure: config.AzureConfig{SubscriptionID: r.Subscription,
+		ResourceGroup: r.ResourceGroup, ServerName: r.Server}}
+}
+
 // installAzureManagedConfig attaches the adapter to exec and logs the outcome.
 func installAzureManagedConfig(
 	exec *executor.Executor, cfg *config.Config, provider, host, scope string,
