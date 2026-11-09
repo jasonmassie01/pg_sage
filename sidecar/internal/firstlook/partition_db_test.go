@@ -276,7 +276,7 @@ func TestPartitionIndexChecksLive(t *testing.T) {
 	// p_k is never scanned, p_k_copy is the duplicate, p_only is invalid.
 	want := map[string]bool{RuleInvalidIndex + ":" + s + ".p_only": true,
 		RuleDuplicateIndex + ":" + s + ".p_k_copy": true,
-		RuleNeverScannedIndex + ":" + s + ".p_k": true}
+		RuleNeverScannedIndex + ":" + s + ".p_k":   true}
 	if len(mine) != len(want) {
 		t.Fatalf("items %v, want exactly %v", mine, want)
 	}
