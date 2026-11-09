@@ -31,10 +31,12 @@ var maintainerRoles = []string{
 }
 
 // maintainPrivilegeSQL passes role OIDs to pg_has_role, so a listed role
-// that does not exist on this server version raises no error.
+// that does not exist on this server version raises no error. USAGE (not
+// MEMBER) asks whether the role holds the privileges without SET ROLE, so a
+// NOINHERIT member is not reported as able to maintain every table.
 const maintainPrivilegeSQL = `SELECT r.rolsuper OR EXISTS (
 	SELECT 1 FROM pg_catalog.pg_roles g
-	 WHERE g.rolname = ANY($1) AND pg_has_role(current_user, g.oid, 'MEMBER'))
+	 WHERE g.rolname = ANY($1) AND pg_has_role(current_user, g.oid, 'USAGE'))
   FROM pg_catalog.pg_roles r WHERE r.rolname = current_user`
 
 const maintainProbeFailed = "maintenance privilege probe failed; check role access"
@@ -55,7 +57,7 @@ func collectMaintainPrivilege(
 		"maintainer; table ANALYZE permission checked at execution"}
 	if maintains {
 		status = CapabilityStatus{Status: "ok",
-			Reason: "role is a superuser or a member of a maintainer role"}
+			Reason: "role is a superuser or holds a maintainer role's privileges"}
 	}
 	caps.Permissions["analyze"] = status
 }

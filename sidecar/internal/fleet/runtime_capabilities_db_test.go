@@ -223,3 +223,23 @@ func TestRefreshPicksUpExtensionInstalledAfterStart(t *testing.T) {
 		t.Fatalf("superuser with pg_stat_statements not ready: %v", after.Blockers)
 	}
 }
+
+// A NOINHERIT member of an admin role holds none of its privileges unless it
+// runs SET ROLE, which pg_sage never does, so ANALYZE stays "limited".
+func TestMaintainPrivilegeNoInheritMemberIsLimited(t *testing.T) {
+	db := newCapsDB(t)
+	db.exec(t, "DROP ROLE IF EXISTS rds_superuser")
+	db.exec(t, "CREATE ROLE rds_superuser NOLOGIN")
+	t.Cleanup(func() {
+		_, _ = db.admin.Exec(context.Background(), "DROP ROLE IF EXISTS rds_superuser")
+	})
+	// From PG 16 a grant takes its INHERIT option from the member at GRANT
+	// time, so NOINHERIT is set first.
+	member := db.role(t, "sage_caps_noinherit")
+	db.exec(t, "ALTER ROLE sage_caps_noinherit NOINHERIT")
+	db.exec(t, "GRANT rds_superuser TO sage_caps_noinherit")
+	caps := CollectProviderCapabilities(t.Context(), member, "rds", executeAnalyze)
+	if got := caps.Permissions["analyze"]; got.Status != "limited" {
+		t.Fatalf("NOINHERIT rds_superuser member analyze = %#v, want limited", got)
+	}
+}
