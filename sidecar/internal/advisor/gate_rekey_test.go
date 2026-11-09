@@ -70,3 +70,19 @@ func TestOpenGateRekey(t *testing.T) {
 		t.Errorf("open bloat table not dropped: %v", out)
 	}
 }
+
+// A re-emitted open finding is never rated below the moderate risk the
+// advisor gives every setting change, whatever form its SQL now has; an
+// advisory row without SQL carries no risk.
+func TestReemitRisk(t *testing.T) {
+	cases := map[string]string{
+		"":                                       "",
+		"ALTER SYSTEM SET max_wal_size = '4GB';": "moderate",
+		"ALTER DATABASE app SET work_mem = '64MB'": "moderate",
+	}
+	for sql, want := range cases {
+		if got := reemitRisk(sql); got != want {
+			t.Errorf("reemitRisk(%q) = %q, want %q", sql, got, want)
+		}
+	}
+}
