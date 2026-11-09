@@ -14,21 +14,28 @@ type relationPart struct {
 // statement's target, as SQL writes it) are the same relation. Both
 // default to schema public. A written unquoted name folds to lower case;
 // a named unquoted name matches either as is (catalog form) or folded (SQL
-// form). Anything that does not parse as schema.relation never matches.
+// form). A named name equal to the written one's catalog schema.relation
+// matches too, so a catalog name holding a space or a dot binds. Anything
+// else that does not parse as schema.relation never matches.
 func sameRelation(named, written string) bool {
-	n, ok := splitRelationName(named)
-	if !ok {
-		return false
-	}
 	w, ok := splitRelationName(written)
 	if !ok {
 		return false
 	}
 	for i := range w {
-		want := w[i].text
 		if !w[i].quoted {
-			want = strings.ToLower(want)
+			w[i].text = strings.ToLower(w[i].text)
 		}
+	}
+	if strings.TrimSpace(named) == w[0].text+"."+w[1].text {
+		return true
+	}
+	n, ok := splitRelationName(named)
+	if !ok {
+		return false
+	}
+	for i := range w {
+		want := w[i].text
 		got := n[i].text
 		if got != want && (n[i].quoted || strings.ToLower(got) != want) {
 			return false
