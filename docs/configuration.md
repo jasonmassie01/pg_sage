@@ -412,6 +412,19 @@ per-cycle and per-hour figures stay unknown (an open finding stays open) and onl
 schema's size is measured. In standalone mode the period is the configured interval, so nothing
 changes there.
 
+**Which statements and findings are pg_sage's own.** A statement is pg_sage's when it carries
+the `/* pg_sage */` tag or reads the `sage` schema; nothing else. Reading a statistics view is
+not pg_sage's signature: a Datadog, pganalyze or pgwatch agent's `SELECT ... FROM
+pg_stat_statements` or `pg_stat_activity` is another client's workload, so advice (slow-query
+and top-query findings, the tuner, plan capture) may name it, and it never counts toward
+pg_sage's own cost or budgets. The Go classifier and the SQL predicates apply the same rule.
+Findings about pg_sage's objects (an identifier in the `sage.` schema, or the bare name `sage`
+for a schema) are left out of advice and the finding views. The findings about pg_sage's cost
+on a database (`sage_self_cost`, `sage_self_budget`, `sage_footprint`) are always kept and name
+pg_sage, so a monitored or meta database named `sage` gets them too. On upgrade, a one-time
+migration resolves open findings captured before pg_sage tagged its statements (an untagged
+statistics-view read), with the reason `pre-tagging pg_sage statement` in their detail.
+
 ### Derived settings (self-configuration)
 
 Every configuration key has a self-config class (shown in

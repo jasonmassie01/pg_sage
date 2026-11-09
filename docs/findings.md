@@ -368,7 +368,7 @@ finding is kept, not resolved.
 **Example output:**
 
 ```
-Sage data uses 23.4% of database lifeos (limit 10%)
+pg_sage data uses 23.4% of database lifeos (limit 10%)
 ```
 
 **Recommended action:** Shorten `retention.snapshots_days` (or the retention of the
@@ -399,7 +399,7 @@ disables it. The same figures are exported as `pg_sage_self_*` Prometheus metric
 **Example output:**
 
 ```
-Sage monitoring used 4200 ms of database time per collector cycle on lifeos (budget 3000 ms)
+pg_sage monitoring used 4200 ms of database time per collector cycle on lifeos (budget 3000 ms)
 ```
 
 **Recommended action:** Look at the `pg_stat_statements` entries that contain
@@ -442,7 +442,7 @@ exceeded flag compares with it.
 **Example output:**
 
 ```
-Sage monitoring exceeded its own cpu, storage budget on lifeos
+pg_sage monitoring exceeded its own cpu, storage budget on lifeos
 ```
 
 **Recommended action:** Start with the top statements and loops in the finding.
