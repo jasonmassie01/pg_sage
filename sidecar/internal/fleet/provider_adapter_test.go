@@ -125,15 +125,14 @@ func TestAdapterForProviderRegistryAliases(t *testing.T) {
 	}
 }
 
-// Supported families derive from the executor contracts minus the
-// profile's exclusions, so readiness and the gate agree on provider support.
+// Supported families derive from the executor contracts, so readiness and
+// the gate agree on provider support.
 func TestAdapterFamiliesDeriveFromContracts(t *testing.T) {
 	for _, profile := range prov.Profiles() {
 		a := AdapterForProvider(profile.Name)
 		for _, action := range executor.ContractActionTypes() {
 			contract, _ := executor.ContractForActionType(action)
-			want := contractListsProvider(contract, profile.Name) &&
-				!containsString(profile.ExcludedFamilies, action)
+			want := contractListsProvider(contract, profile.Name)
 			if got := a.SupportsAction(action); got != want {
 				t.Errorf("%s: SupportsAction(%s) = %v, want %v", profile.Name, action,
 					got, want)

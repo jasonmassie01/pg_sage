@@ -38,16 +38,13 @@ func AdapterForProvider(provider string) ProviderAdapter {
 }
 
 // supportedFamilies are the contracts that list the provider (or list no
-// provider), minus the families the profile keeps out of readiness.
+// provider): exactly the families the standing gate does not block as
+// provider_unsupported.
 func supportedFamilies(profile prov.Profile) map[string]bool {
-	excluded := make(map[string]bool, len(profile.ExcludedFamilies))
-	for _, family := range profile.ExcludedFamilies {
-		excluded[family] = true
-	}
 	out := map[string]bool{}
 	for _, actionType := range executor.ContractActionTypes() {
 		contract, ok := executor.ContractForActionType(actionType)
-		if !ok || excluded[actionType] {
+		if !ok {
 			continue
 		}
 		if contractAllowsProvider(contract.ProviderSupport, profile.Name) {

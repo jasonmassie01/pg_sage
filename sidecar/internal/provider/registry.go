@@ -34,7 +34,7 @@ var profiles = []Profile{
 			"to shared_preload_libraries (az postgres flexible-server parameter set).",
 			restartStep}},
 	{Name: AzureCosmos, Managed: true, ConfigMechanism: ConfigGuidanceOnly,
-		LogAccess: "azure_monitor", ExcludedFamilies: []string{"alter_database_guc"},
+		LogAccess: "azure_monitor",
 		PreloadSteps: []string{"In the coordinator's server parameters, add {LIB} to " +
 			"azure.extensions and to shared_preload_libraries (az cosmosdb postgres " +
 			"configuration coordinator update).", "Restart the cluster " +

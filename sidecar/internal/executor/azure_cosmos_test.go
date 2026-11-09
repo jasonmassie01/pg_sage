@@ -23,6 +23,20 @@ func TestAzureCosmosSupportsPortableActions(t *testing.T) {
 	}
 }
 
+// Cosmos parameters are guidance-only, so the gate blocks ALTER DATABASE
+// ... SET there; flexible server and Lakebase keep it.
+func TestAzureCosmosHasNoDatabaseGUCContract(t *testing.T) {
+	contract, ok := ContractForActionType("alter_database_guc")
+	if !ok || contractSupportsProvider(contract, "azure-cosmos") {
+		t.Fatalf("alter_database_guc supports azure-cosmos: %v", contract.ProviderSupport)
+	}
+	for _, provider := range []string{"azure", "lakebase", "postgres", "rds"} {
+		if !contractSupportsProvider(contract, provider) {
+			t.Errorf("alter_database_guc lost %s: %v", provider, contract.ProviderSupport)
+		}
+	}
+}
+
 func TestAzureCosmosIsManagedWithCosmosGuidance(t *testing.T) {
 	if !isManagedProvider("azure-cosmos") {
 		t.Fatal("azure-cosmos is not treated as managed")

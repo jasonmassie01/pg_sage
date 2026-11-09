@@ -113,24 +113,15 @@ func TestProfilesInvariants(t *testing.T) {
 			t.Errorf("%s: log access %q", p.Name, p.LogAccess)
 		}
 	}
-	cosmos, _ := Lookup(AzureCosmos)
-	if len(cosmos.ExcludedFamilies) != 1 || cosmos.ExcludedFamilies[0] != "alter_database_guc" {
-		t.Errorf("cosmos excluded families = %v", cosmos.ExcludedFamilies)
-	}
-	if lb, _ := Lookup(Lakebase); len(lb.ExcludedFamilies) != 0 {
-		t.Errorf("lakebase excluded families = %v (its contracts narrow it)",
-			lb.ExcludedFamilies)
-	}
 }
 
 // A caller mutating a returned profile must not change the registry.
 func TestLookupReturnsCopies(t *testing.T) {
-	p, _ := Lookup(AzureCosmos)
-	p.Aliases = append(p.Aliases, "mutated")
-	p.ExcludedFamilies[0] = "mutated"
+	p, _ := Lookup(Azure)
+	p.Aliases[0] = "mutated"
 	p.PreloadSteps[0] = "mutated"
-	again, _ := Lookup(AzureCosmos)
-	if again.ExcludedFamilies[0] != "alter_database_guc" || again.PreloadSteps[0] == "mutated" {
+	again, _ := Lookup(Azure)
+	if again.Aliases[0] == "mutated" || again.PreloadSteps[0] == "mutated" {
 		t.Fatalf("registry was mutated through a returned profile: %+v", again)
 	}
 	all := Profiles()

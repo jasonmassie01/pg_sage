@@ -53,9 +53,6 @@ type Profile struct {
 	// {LIB} are the library name as given and upper-cased). Empty means the
 	// self-managed ALTER SYSTEM steps apply.
 	PreloadSteps []string
-	// ExcludedFamilies are action families the executor contracts allow
-	// for this provider that readiness must not advertise.
-	ExcludedFamilies []string
 }
 
 // Lookup resolves a canonical name or alias, case-folded and trimmed.
@@ -114,7 +111,6 @@ func Profiles() []Profile {
 func (p Profile) clone() Profile {
 	p.Aliases = append([]string(nil), p.Aliases...)
 	p.PreloadSteps = append([]string(nil), p.PreloadSteps...)
-	p.ExcludedFamilies = append([]string(nil), p.ExcludedFamilies...)
 	return p
 }
 
