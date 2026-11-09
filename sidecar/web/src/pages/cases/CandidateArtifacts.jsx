@@ -1,4 +1,5 @@
 import { SQLBlock } from '../../components/SQLBlock'
+import { measuredAgeText } from './preflightAge'
 
 // Artifacts of one case action candidate: the proposed SQL, the backend
 // identity a guarded cancel/terminate script is pinned to, the DDL
@@ -35,6 +36,31 @@ function BackendIdentity({ identity }) {
   )
 }
 
+const LIVE_CHECKS = ['activity', 'pending_locks', 'replica_lag', 'table_size',
+  'lock_timeout']
+
+// PreflightMeasurement says when the preflight's live values were measured
+// (migration-01): at detection, so they age. With no measurement time and
+// every live check unknown, it says nothing live was measured.
+function PreflightMeasurement({ preflight }) {
+  const age = measuredAgeText(preflight.measured_at)
+  if (age) {
+    return (
+      <div data-testid="preflight-measured-at" className="mb-2" style={muted}
+        title={preflight.measured_at}>
+        Measured at detection, {age}
+      </div>
+    )
+  }
+  const live = (preflight.checks || []).filter(c => LIVE_CHECKS.includes(c.name))
+  if (live.length === 0 || live.some(c => c.status !== 'unknown')) return null
+  return (
+    <div data-testid="preflight-not-measured" className="mb-2" style={muted}>
+      Live conditions were not measured at detection.
+    </div>
+  )
+}
+
 export function CandidateArtifacts({ candidate }) {
   const preflight = candidate.ddl_preflight
   const script = candidate.script_output
@@ -68,6 +94,7 @@ function DDLPreflight({ preflight }) {
       <div className="mb-2" style={{ color: 'var(--text-secondary)' }}>
         {preflight.summary}
       </div>
+      <PreflightMeasurement preflight={preflight} />
       <div className="flex flex-wrap gap-2 mb-2"
         style={{ color: 'var(--text-secondary)' }}>
         {preflight.lock_level && (
