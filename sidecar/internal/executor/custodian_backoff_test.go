@@ -90,7 +90,7 @@ func TestCustodianBackoffEscalatesARedTableExactlyOnce(t *testing.T) {
 	seedFailures(t, pool, sql, custodianMaxFailures)
 	for attempt := 1; attempt <= 2; attempt++ {
 		_, err := exec.SubmitCustodianProposalDecision(context.Background(),
-			redFreezeProposal(table, sql))
+			redVacuumProposal(table, sql))
 		if !errors.Is(err, ErrCustodianBackoff) ||
 			!strings.Contains(err.Error(), "escalate to an operator") {
 			t.Fatalf("attempt %d: error %v, want the exhausted backoff", attempt, err)
@@ -121,7 +121,7 @@ func TestCustodianBackoffBelowMaximumDoesNotEscalate(t *testing.T) {
 	table, sql := uniqueBackoffSQL()
 	seedFailures(t, pool, sql, custodianMaxFailures-1)
 	_, err := exec.SubmitCustodianProposalDecision(context.Background(),
-		redFreezeProposal(table, sql))
+		redVacuumProposal(table, sql))
 	// Two failures wait four minutes; the newest is ten minutes old, so the
 	// retry is allowed and reaches the (blocking) test gate.
 	if errors.Is(err, ErrCustodianBackoff) {
@@ -140,7 +140,7 @@ func TestCustodianBackoffOfANonRedProposalDoesNotEscalate(t *testing.T) {
 	exec, pool, d := backoffExecutor(t)
 	table, sql := uniqueBackoffSQL()
 	seedFailures(t, pool, sql, custodianMaxFailures)
-	proposal := redFreezeProposal(table, sql)
+	proposal := redVacuumProposal(table, sql)
 	proposal.Feature, proposal.Deadline = "autovacuum_tuning", nil
 	_, err := exec.SubmitCustodianProposalDecision(context.Background(), proposal)
 	if !errors.Is(err, ErrCustodianBackoff) {
@@ -163,7 +163,7 @@ func TestCustodianBackoffConcurrentSubmittersEscalateOnce(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			_, errs[i] = exec.SubmitCustodianProposalDecision(context.Background(),
-				redFreezeProposal(table, sql))
+				redVacuumProposal(table, sql))
 		}()
 	}
 	wg.Wait()
@@ -186,14 +186,14 @@ func TestCustodianBackoffNewFailureAfterEscalationEscalatesAgain(t *testing.T) {
 	table, sql := uniqueBackoffSQL()
 	seedFailures(t, pool, sql, custodianMaxFailures)
 	ctx := context.Background()
-	_, _ = exec.SubmitCustodianProposalDecision(ctx, redFreezeProposal(table, sql))
+	_, _ = exec.SubmitCustodianProposalDecision(ctx, redVacuumProposal(table, sql))
 	if _, err := pool.Exec(ctx, `INSERT INTO sage.action_log (action_type, sql_executed,
 		outcome, executed_at) VALUES ('vacuum_table', $1, 'failed', now() + interval '1 second')`,
 		sql); err != nil {
 		t.Fatalf("seed newer failure: %v", err)
 	}
 	time.Sleep(1100 * time.Millisecond)
-	_, _ = exec.SubmitCustodianProposalDecision(ctx, redFreezeProposal(table, sql))
+	_, _ = exec.SubmitCustodianProposalDecision(ctx, redVacuumProposal(table, sql))
 	if keys := escalations(d); len(keys) != 2 {
 		t.Fatalf("escalations across two streaks = %v, want two", keys)
 	}
@@ -206,6 +206,6 @@ func TestCustodianBackoffWithoutPoolIsInert(t *testing.T) {
 		t.Fatalf("no-pool backoff = %v, want nil", err)
 	}
 	exec.escalateCustodianBackoff(context.Background(),
-		redFreezeProposal("public.t", "VACUUM public.t"),
+		redVacuumProposal("public.t", "VACUUM public.t"),
 		&custodianBackoffError{failures: 3, exhausted: true})
 }

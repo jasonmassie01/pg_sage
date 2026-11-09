@@ -82,6 +82,8 @@ func constructorEvents() map[string]Event {
 		"IncidentDetectedEvent":  IncidentDetectedEvent(incident),
 		"IncidentEscalatedEvent": IncidentEscalatedEvent(incident),
 		"IncidentResolvedEvent":  IncidentResolvedEvent(incident),
+		"CustodianEscalationEvent": CustodianEscalationEvent(CustodianEscalation{
+			Database: "orders", Target: "public.t", SQLSHA256: "ab", Failures: 3}),
 	}
 }
 

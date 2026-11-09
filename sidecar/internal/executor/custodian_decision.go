@@ -27,6 +27,7 @@ func (e *Executor) SubmitCustodianProposalDecision(
 	ctx context.Context, proposal CustodianProposal,
 ) (CustodianSubmission, error) {
 	if err := e.custodianBackoff(ctx, proposal.SQL); err != nil {
+		e.escalateBackoff(ctx, proposal, err)
 		return CustodianSubmission{}, err
 	}
 	run := &custodianRun{executor: e, proposal: proposal,
