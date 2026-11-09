@@ -28,6 +28,10 @@ const (
 	// EnvRun must be "1" for TestPGIncidentBench to run. CI runs the bench
 	// in its own step so the ./... suites stay within their timeouts.
 	EnvRun = "SAGE_BENCH_RUN"
+	// EnvReplay "1" attaches the replay corpus section to the bench report.
+	// CI sets it on one shard per job (core): the corpus is the same in
+	// every shard, so one replay is the evidence (benches-11).
+	EnvReplay = "SAGE_BENCH_REPLAY"
 	// MaxRepeats bounds EnvRepeats.
 	MaxRepeats = 10
 
@@ -38,6 +42,11 @@ const (
 // BenchRunRequested reports whether EnvRun asks for the full bench.
 func BenchRunRequested(getenv func(string) string) bool {
 	return strings.TrimSpace(getenv(EnvRun)) == "1"
+}
+
+// BenchReplayRequested reports whether EnvReplay asks for the replay.
+func BenchReplayRequested(getenv func(string) string) bool {
+	return strings.TrimSpace(getenv(EnvReplay)) == "1"
 }
 
 // ParseRepeats reads EnvRepeats: empty means 1.

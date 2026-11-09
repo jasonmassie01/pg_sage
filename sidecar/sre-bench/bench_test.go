@@ -17,17 +17,21 @@ func TestMain(m *testing.M) {
 
 // Bench budgets: one scenario (every live arm) in one pass, so the pass
 // budget grows with the scenarios selected (SAGE_BENCH_FAMILIES); the
-// replay corpus; and the extra time a live model may take (up to 2 turns
-// of 50 s per investigation, though real replies take seconds).
+// replay corpus (only with SAGE_BENCH_REPLAY=1); and the extra time a
+// live model may take (up to 2 turns of 50 s per investigation, though
+// real replies take seconds).
 const (
 	scenarioBudget  = 30 * time.Second
 	replayBudget    = 3 * time.Minute
 	liveModelBudget = 60 * time.Minute
 )
 
-// benchBudget bounds the whole bench run.
-func benchBudget(repeats, scenarios int, llm LLMConfig) time.Duration {
-	d := time.Duration(repeats*scenarios)*scenarioBudget + replayBudget
+// benchBudget bounds the whole bench run; replay adds the corpus replay.
+func benchBudget(repeats, scenarios int, llm LLMConfig, replay bool) time.Duration {
+	d := time.Duration(repeats*scenarios) * scenarioBudget
+	if replay {
+		d += replayBudget
+	}
 	if llm.Mode == LLMLive {
 		d += liveModelBudget
 	}
@@ -53,7 +57,7 @@ func TestPGIncidentBench(t *testing.T) {
 	dsn := testdb.SkipUnlessLive(t)
 	b := planBench(t)
 	ctx, cancel := context.WithTimeout(context.Background(),
-		benchBudget(b.budgetRepeats(), len(b.selected), b.llm))
+		benchBudget(b.budgetRepeats(), len(b.selected), b.llm, b.replay))
 	t.Cleanup(cancel)
 	env := NewEnv(ctx, t, dsn)
 	var version string
@@ -69,7 +73,9 @@ func TestPGIncidentBench(t *testing.T) {
 		Pending: b.cfg.Pending(), Repeats: b.cfg.Repeats, ServerVersion: version,
 		GeneratedAt: time.Now().UTC(), LLM: b.llm, PgSageVersion: sageVersion,
 		PgSageCommit: sageCommit, MinRunsPerFamily: b.minRuns})
-	report.AttachReplay(benchReplay(t, ctx, env, b.cfg, version))
+	if b.replay {
+		report.AttachReplay(benchReplay(t, ctx, env, b.cfg, version))
+	}
 	t.Log("\n" + report.Markdown())
 	jsonPath, mdPath, err := WriteReport(ReportDir(os.Getenv(EnvReportDir), t.TempDir()),
 		report)
@@ -78,9 +84,18 @@ func TestPGIncidentBench(t *testing.T) {
 	}
 	t.Logf("report: %s, %s", jsonPath, mdPath)
 	checkRuns(t, b.cfg, results)
-	checkGates(t, b.cfg, append(append([]GateResult(nil), report.Gates...),
-		report.Replay.Gates...))
+	checkGates(t, b.cfg, benchGates(report))
 	checkCoverage(t, b, expected, report.Gates, results)
+}
+
+// benchGates are the report's gates, then its replay section's (none
+// without a replay).
+func benchGates(r Report) []GateResult {
+	out := append([]GateResult(nil), r.Gates...)
+	if r.Replay != nil {
+		out = append(out, r.Replay.Gates...)
+	}
+	return out
 }
 
 // benchPlan is what the environment asks the bench to run.
@@ -89,6 +104,7 @@ type benchPlan struct {
 	llm      LLMConfig
 	selected []Scenario
 	minRuns  int
+	replay   bool
 }
 
 func planBench(t *testing.T) benchPlan {
@@ -107,7 +123,7 @@ func planBench(t *testing.T) benchPlan {
 		t.Fatal(err)
 	}
 	return benchPlan{cfg: DefaultConfig(repeats, llm), llm: llm, selected: selected,
-		minRuns: minRuns}
+		minRuns: minRuns, replay: BenchReplayRequested(os.Getenv)}
 }
 
 // budgetRepeats is the repeats the budget allows: a top-up may run up to

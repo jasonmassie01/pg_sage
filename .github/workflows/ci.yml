@@ -169,6 +169,9 @@ jobs:
         env:
           SAGE_BENCH_RUN: "1"
           SAGE_BENCH_FAMILIES: lock_blocking,connection_pressure,wal_retention,plan_regression
+          # The replay corpus is the same in every shard: only core replays
+          # it, so the signed release keeps one replay section (benches-11).
+          SAGE_BENCH_REPLAY: "1"
           SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench/core
           # A release report must meet the promotion bar's n >= 10 scored
           # top-1 runs per family (earned MinTop1N): the bench sizes the
@@ -333,6 +336,8 @@ jobs:
         env:
           SAGE_BENCH_RUN: "1"
           SAGE_BENCH_FAMILIES: lock_blocking,connection_pressure,wal_retention,plan_regression
+          # Only core replays the corpus (the same in every shard).
+          SAGE_BENCH_REPLAY: "1"
           # On tags a scenario skip the manifest does not allow fails the
           # shard (benches-06), so every family is measured on every version.
           SAGE_BENCH_EXPECTED: ${{ startsWith(github.ref, 'refs/tags/v') && 'testdata/ci-expected.json' || '' }}
