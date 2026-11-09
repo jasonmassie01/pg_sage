@@ -359,6 +359,13 @@ func (w *Worker) buildStructured(findings string, totalOpen int, system, actions
 	return b.String()
 }
 
+// briefingMaxTokens is the briefing's completion cap. The prompt asks
+// for at most 2000 words (about 2700 tokens), so 4096 leaves headroom.
+// Reasoning models get the client's reasoning reserve on top (16384
+// tokens). It is not llm.context_budget_tokens, which is the trim
+// target for attached context (llm-05).
+const briefingMaxTokens = 4096
+
 func (w *Worker) enhanceWithLLM(ctx context.Context, structured string) (string, int, error) {
 	system := `You are pg_sage, a PostgreSQL DBA agent. Write a concise health briefing
 from the data provided. Use markdown. Prioritize critical findings. Keep it
@@ -379,17 +386,15 @@ statement is removed before the briefing is sent.
 	// The system prompt must not say "JSON": that turns on json_object mode.
 	// An answer cut at the token limit is kept and marked as cut (llm-07).
 	resp, err := w.llm.ChatResult(ctx, system,
-		llm.UntrustedData("briefing_data", structured),
-		w.cfg.LLM.ContextBudgetTokens)
+		llm.UntrustedData("briefing_data", structured), briefingMaxTokens)
 	if err != nil {
 		return "", resp.Tokens, err
 	}
 	text := llm.UnwrapText(resp.Content)
 	if resp.Truncated {
 		w.logFn("WARN", "briefing: LLM answer cut at the model's token limit "+
-			"(finish_reason=%s, tokens=%d); stored with a truncation note; "+
-			"raise llm.context_budget_tokens for complete briefings",
-			resp.FinishReason, resp.Tokens)
+			"(finish_reason=%s, tokens=%d, cap=%d); stored with a truncation note",
+			resp.FinishReason, resp.Tokens, briefingMaxTokens)
 		text = withTruncationNote(text)
 	}
 	return text, resp.Tokens, nil
