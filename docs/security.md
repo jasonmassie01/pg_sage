@@ -1,6 +1,6 @@
 # Security
 
-pg_sage is designed to observe and optimize PostgreSQL without accessing user data. This page documents the security model, privacy controls, and operational safeguards.
+pg_sage observes and optimizes PostgreSQL through catalog views, statistics and query plans. This page documents what it can read and change, the security model, privacy controls, and operational safeguards.
 
 For Databricks deployments, also read the
 [native implementation and identity boundaries](databricks-native.md#architecture-and-identity).
@@ -13,15 +13,32 @@ instead of assuming every standalone grant or setting is available.
 
 ## Required Database Grants
 
-pg_sage connects as a regular database user -- no superuser required.
+pg_sage connects as a regular database user -- no superuser required. Connect it
+as a dedicated non-superuser role without `BYPASSRLS`: as a superuser it bypasses
+row-level security and holds every agent role, so startup logs a warning and the
+posture check raises AP-14 ([agent governance](agent-governance.md)). On managed
+services, `rds_superuser`, `cloudsqlsuperuser`, `azure_pg_admin` and the like are
+admin roles to run these grants from, not roles to run pg_sage as. The grants are
+the same on PostgreSQL 14 to 18.
 
 ```sql
 CREATE USER sage_agent WITH PASSWORD 'YOUR_PASSWORD';
 GRANT pg_monitor TO sage_agent;
 GRANT pg_read_all_stats TO sage_agent;
-GRANT CREATE ON SCHEMA public TO sage_agent;    -- CREATE INDEX/STATISTICS; each schema with tables
+GRANT CREATE ON SCHEMA public TO sage_agent;    -- new objects in this schema
+-- CREATE INDEX and CREATE STATISTICS need table ownership; for autonomous index work:
+-- GRANT <table owner role> TO sage_agent;
 GRANT pg_signal_backend TO sage_agent;           -- for query termination
 ```
+
+`CREATE` on a schema lets pg_sage create new objects there; grant it on each
+schema with tables it should index. `CREATE INDEX`, `CREATE STATISTICS` and other
+table DDL also need the privileges of the table's owner, which pg_sage gets as a
+member of the owner role. That membership is the largest grant: it is what makes
+the [SQL boundary](#what-pg_sage-can-change) matter. On PostgreSQL 17+,
+`GRANT pg_maintain TO sage_agent` lets it `VACUUM`, `ANALYZE` and `REINDEX` tables
+it does not own. `GET /api/v1/onboarding/trust` (the dashboard's onboarding guide)
+lists which of these grants the role holds, with the SQL for each missing one.
 
 The sidecar bootstraps the `sage` schema and tables on first connect. Either
 connect with a role that can create that schema, or pre-create it and grant the
@@ -41,9 +58,9 @@ probes report `no_privilege` instead of a partial answer. See
 
 ---
 
-## What pg_sage Accesses
+## What pg_sage can read
 
-All data sources are read-only catalog views and statistics:
+Most of what pg_sage reads is catalog views and statistics:
 
 | Source | Purpose |
 |---|---|
@@ -61,13 +78,39 @@ All data sources are read-only catalog views and statistics:
 
 `pg_stat_statements` must be loaded on the target database. Without it, query-level analysis (slow queries, regressions, missing indexes) is unavailable.
 
+Beyond the catalog it reads:
+
+| What | When | What it keeps |
+|---|---|---|
+| `EXPLAIN` plans | Optimizer, query analysis and the EXPLAIN endpoint (`explain.enabled`; REST and MCP need the operator role or the `propose` scope) | The plan; no rows |
+| `EXPLAIN ANALYZE` | When the caller asks for it on the EXPLAIN endpoint, inside a `READ ONLY` transaction with `explain.timeout_ms`, and only for a statement pg_sage proves free of side effects (anything else gets the plan alone, with `analyze_refused`) | Executing the statement reads the rows it touches; pg_sage keeps the plan, timings and row counts, never result rows |
+| Retention row counts | A table whose owner declared a [retention contract](configuration.md#retention-contracts): the dry run counts eligible rows, and each batch reports how many it deleted | Counts only |
+| Live session text | `pg_stat_activity.query` for lock and incident evidence (`pg_read_all_stats`) | Literals redacted, cut to 256 bytes ([LLM data](#llm-configured)) |
+
+Agents get plan-only EXPLAIN under their own database role through agent
+governance (`analyze` is refused), so a plan never describes a table the agent
+cannot read. pg_sage never reads `pg_authid.rolpassword` or password hashes.
+
 ---
 
-## What pg_sage Never Does
+## What pg_sage can change
 
-- **Never reads table row data.** All analysis uses aggregate statistics and catalog metadata. EXPLAIN runs for operators (REST and MCP need the operator role or the `propose` scope, and honour `explain.enabled`); agents get plan-only EXPLAIN under their own database role through agent governance, so a plan never describes a table the agent cannot read.
-- **Never accesses credentials or secrets.** Does not read `pg_authid.rolpassword` or password hashes.
-- **Never modifies user data.** Autonomous actions are limited to maintenance and schema operations such as `ANALYZE`, guarded index DDL, and approved incident actions. Never runs `INSERT`, `UPDATE`, or `DELETE` on user tables.
+Each kind of change has a gate. None of them is free-form SQL run as pg_sage's
+role: the API and MCP expose typed actions and tools
+([MCP tools and scopes](#mcp-tools-and-scopes)).
+
+| Change | What runs | Gate |
+|---|---|---|
+| Executor actions | `CREATE INDEX CONCURRENTLY`, `DROP INDEX`, `REINDEX`, `VACUUM`, `ANALYZE`, `CREATE STATISTICS`, table storage parameters, allowlisted `ALTER SYSTEM` settings, query hints, cancelling or terminating a session | A typed action contract per class with its risk; execution mode, trust level, trust ramp, maintenance window, emergency stop and the standing policy's refusal set ([Trust Model](#trust-model), [One trust system](configuration.md#one-trust-system), [standing policy](configuration.md#agent-native-autonomy)). HIGH-risk actions always need approval |
+| Retention deletes | `DELETE` of application rows older than the declared window, at most 1,000 rows per batch | Only on a table whose owner declared a [retention contract](configuration.md#retention-contracts) with `declare_table_contract` (`approve` scope) naming the column; a dry run at least 24 hours old first; policy consent to the `retention` class; a batch with any row outside the predicate or relation rolls back. Irreversible, so the trust ledger never runs it above L1 |
+| Agent roles | `CREATE ROLE`/`ALTER ROLE` of `sage_agent_*` and `sage_agentb_*` roles and their grants; `NOLOGIN` and session termination on a kill | Typed contracts `guard_role_ensure` and `guard_role_retire` through the executor, operator-approved; a kill or freeze only takes access away and needs no approval ([agent governance](agent-governance.md#kill-switch-freeze-and-unfreeze)) |
+| Managed provider settings | RDS, Aurora and Cloud SQL parameter changes through the provider API | Proposed only from tuning findings and for allowlisted settings ([Model output is data](#model-output-is-data)) |
+| The `sage` schema | pg_sage's own tables, functions and audit chains | Created and migrated at startup; pg_sage writes there freely, and retention trims it (`retention.*`) |
+
+Model-authored SQL never runs through the executor ([Model-authored SQL](#model-authored-sql)).
+
+### Safeguards on those changes
+
 - **Never directly executes high-risk DDL.** Rewrite-heavy or forward-fix-only schema changes become migration-safety cases with preflight evidence, generated scripts, verification SQL, and PR/CI metadata for human review.
 - **Never ignores live DDL risk.** Active workload, pending locks, replica lag, large table size, and missing lock-timeout evidence keep DDL in reviewed PR/script mode.
 - **Never resolves its own DDL through `public`.** Every executor DDL session (transactional
@@ -709,11 +752,28 @@ break-glass session cookies are always `Secure`.
 Restrict direct access to the API/dashboard listener to trusted networks
 either way.
 
-### Input Validation
+### MCP tools and scopes
 
-- **Table names** are validated against a strict regex. No SQL injection is possible through resource URIs or tool arguments.
-- **Query IDs** are validated as integers only.
-- **Resource URIs** are matched against a known allowlist.
+MCP exposes typed tools, never pg_sage's own SQL connection. The full model is in
+[MCP for coding agents](mcp.md); in short:
+
+- **Credentials.** Over HTTP (`POST /api/v1/mcp`) MCP accepts only MCP bearer tokens,
+  never a session cookie, and a token authenticates nothing but MCP. Only each
+  token's SHA-256 is stored. Over stdio, whatever launched the process is an agent.
+- **Scopes.** Every tool declares one scope: `read`, `propose` or `approve`.
+  `tools/list` shows only the tools the caller may call. Agent tokens can hold
+  `read` and `propose`, never `approve`; an operator token follows its owner's
+  role. A missing scope is refused with `scope_required`, and an agent asking for
+  a person's decision with `approval_reserved_for_humans`.
+- **Databases.** A token names the databases it may use; any other name is refused
+  with `database_not_permitted`, whether that database exists or not.
+- **Arguments.** Every call is checked against the tool's JSON schema
+  (`invalid_arguments` otherwise). Proposals go through the same policy gate and
+  trust levels as pg_sage's own actions.
+- **Agent SQL.** `agent_query` runs one read-only `SELECT` as the agent's own
+  database role, never pg_sage's, with timeouts and row and byte limits;
+  `explain_query` gives agents plan-only EXPLAIN under that role.
+- **Audit.** Every call is recorded with the actor `mcp:token:<id>`.
 
 ### Request Limits
 
