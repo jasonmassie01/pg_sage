@@ -49,9 +49,10 @@ func (b IndexBuilds) building(x Index) (IndexBuild, bool) {
 }
 
 // InvalidIndexes reports indexes with pg_index.indisvalid = false. A build
-// in progress is info with no SQL. A leftover of a failed REINDEX
-// CONCURRENTLY is dropped, an invalid unique index looks for its duplicate
-// keys first, and any other failed build is rebuilt.
+// in progress is info with no SQL. A partitioned index gets indexes to
+// attach to its partitions, a leftover of a failed REINDEX CONCURRENTLY is
+// dropped, an invalid unique index looks for its duplicate keys first, and
+// any other failed build is rebuilt.
 func InvalidIndexes(idx []Index, b IndexBuilds) []Item {
 	var out []Item
 	for _, x := range idx {
@@ -107,6 +108,8 @@ func failedItem(x Index, idx []Index) Item {
 	on := fmt.Sprintf("%s on %s is invalid (%s)", x.object(), qualified(x.Schema, x.Table),
 		sizeText(x.SizeBytes))
 	switch {
+	case x.Partitioned:
+		partitionedInvalidText(&it, x, on)
 	case leftoverSuffix.MatchString(x.Name):
 		leftoverText(&it, x, idx, on, name)
 	case x.Unique:

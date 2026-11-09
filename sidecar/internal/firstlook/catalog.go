@@ -51,7 +51,7 @@ const foreignKeysSQL = tag + `SELECT con.conname::text, n.nspname::text, t.relna
   ARRAY(SELECT a.attname::text FROM unnest(con.conkey) WITH ORDINALITY k(attnum, ord)
         JOIN pg_catalog.pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k.attnum
         ORDER BY k.ord),
-  rn.nspname::text || '.' || rt.relname::text, t.reltuples::float8
+  rn.nspname::text || '.' || rt.relname::text, t.reltuples::float8, t.relkind = 'p'
 FROM pg_catalog.pg_constraint con
 JOIN pg_catalog.pg_class t ON t.oid = con.conrelid
 JOIN pg_catalog.pg_namespace n ON n.oid = t.relnamespace
@@ -71,7 +71,7 @@ func readForeignKeys(ctx context.Context, tx pgx.Tx) ([]ForeignKey, error) {
 	for rows.Next() {
 		var fk ForeignKey
 		if err := rows.Scan(&fk.Name, &fk.Schema, &fk.Table, &fk.TableOID, &fk.Columns,
-			&fk.ColumnNames, &fk.RefTable, &fk.TableRows); err != nil {
+			&fk.ColumnNames, &fk.RefTable, &fk.TableRows, &fk.Partitioned); err != nil {
 			return nil, fmt.Errorf("scan foreign key: %w", err)
 		}
 		out = append(out, fk)

@@ -24,10 +24,15 @@ func (p *pass) indexChecks(ctx context.Context, tx pgx.Tx) ([]outcome, error) {
 		return nil, err
 	}
 	keysErr := readUniqueKeys(ctx, tx, idx)
+	partsErr := readUnattached(ctx, tx, idx)
 	out := p.evalIndexes(idx, fks, readIndexBuilds(ctx, tx), truncated)
 	if keysErr != nil { // out[0] is the invalid-index rule
 		out[0].note = strings.TrimSpace(out[0].note + " No duplicate-key query for " +
 			"invalid unique indexes: " + keysErr.Error())
+	}
+	if partsErr != nil {
+		out[0].note = strings.TrimSpace(out[0].note + " No partitions named for invalid " +
+			"partitioned indexes: " + partsErr.Error())
 	}
 	return out, nil
 }

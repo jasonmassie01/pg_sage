@@ -103,11 +103,12 @@ func snapshotTx(t *testing.T, ctx context.Context, pool *pgxpool.Pool) pgx.Tx {
 	return tx
 }
 
-func requireSameIndexes(t *testing.T, got, want []Index) {
+func requireSameIndexes(t *testing.T, read, want []Index) {
 	t.Helper()
 	if len(want) == 0 {
 		t.Fatal("reference read returned no indexes: the fixture is missing")
 	}
+	got := withoutPartitionFields(read)
 	if reflect.DeepEqual(got, want) {
 		return
 	}
@@ -175,6 +176,18 @@ func scanOnce(t *testing.T, ctx context.Context, pool *pgxpool.Pool, query strin
 	if err := testdb.FlushStats(ctx, conn); err != nil {
 		t.Fatalf("flush statistics: %v", err)
 	}
+}
+
+// withoutPartitionFields clears what the reference reads do not read
+// (partition parentage, firstlook-04), so the comparison covers every
+// column they share.
+func withoutPartitionFields(idx []Index) []Index {
+	out := make([]Index, len(idx))
+	for i, x := range idx {
+		x.Partitioned, x.IsPartition, x.ParentOID = false, false, 0
+		out[i] = x
+	}
+	return out
 }
 
 func TestIndexReadDoesNotJoinTheStatisticsView(t *testing.T) {
@@ -316,7 +329,16 @@ func requireVariedShapes(t *testing.T, got []Index, s string) {
 			return reflect.DeepEqual(x.Columns, []int16{2, 1, 7, 3, 4})
 		}},
 		{`Odd "Name"`, func(x Index) bool { return x.Table == "t" && x.Valid }},
-		{"p_k", func(x Index) bool { return x.Table == "p" && x.Valid }},
+		{"p_k", func(x Index) bool {
+			return x.Table == "p" && x.Valid && x.Partitioned && !x.IsPartition
+		}},
+		{"p1_k_idx", func(x Index) bool {
+			return x.Table == "p1" && !x.Partitioned && x.IsPartition &&
+				x.ParentOID == byName(t, got, s, "p_k").OID
+		}},
+		{"t_a_dup", func(x Index) bool {
+			return !x.Partitioned && !x.IsPartition && x.ParentOID == 0
+		}},
 		{"mv_a", func(x Index) bool { return x.Table == "mv" && x.Unique }},
 		{"dupvals_v", func(x Index) bool { return !x.Valid && x.Unique }},
 		{"t_a", func(x Index) bool { return x.SizeBytes > 0 && x.Ready && x.Valid }},
