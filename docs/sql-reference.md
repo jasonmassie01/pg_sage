@@ -119,6 +119,44 @@ LIMIT 10;
 
 ---
 
+### `sage.decision`
+
+The decision ledger: every standing-gate verdict, with what it was decided
+under. A withheld verdict that repeats every cycle is one row per episode
+(`repeat_count`, `last_seen_at`).
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | bigserial | Primary key; `sage.action_log.decision_id` points here |
+| `database_id` | bigint | Fleet database the decision is about (NULL standalone) |
+| `feature`, `intent` | text | Change class and intent |
+| `target_objects` | jsonb | Objects the change touches |
+| `verdict` | text | `execute`, `queue_approval`, `parked`, `blocked`, `observe_only` |
+| `risk_tier` | text | `read_only`, `safe`, `moderate`, `high` |
+| `reason` | text | Why the gate decided so (for example `deadline_override`) |
+| `policy_version` | integer | Standing-policy version evaluated; 0 when the gate decided before reading one (a hard stop such as the emergency stop, or an unreadable policy) |
+| `policy_doc_sha256` | text | SHA-256 (64 lower-case hex) of that policy document's stored jsonb text; NULL with version 0 and on rows written before the column existed |
+| `guardrails` | jsonb | The action contract's guardrails |
+| `off_window_ok` | boolean | A deadline override allowed it outside the maintenance windows |
+| `evidence` | jsonb | Gate evidence (budgets, rollback, verification waits) |
+| `evidence_id` | text | Unique evidence ID |
+| `queue_id`, `action_log_id` | integer, bigint | The queue item or action the decision backs |
+| `created_at`, `resolved_at` | timestamptz | When decided; when its episode ended |
+
+The policy is named by version and hash rather than a foreign key: in
+fleet mode `sage.policy` lives in the control database, not beside the
+ledger. A lease-conflict park or refusal copies its execute decision's
+version, hash, guardrails and `off_window_ok`.
+
+```sql
+-- Executions that name a policy version but not its document (expect 0)
+SELECT count(*) FROM sage.decision
+WHERE verdict = 'execute' AND policy_version > 0 AND policy_doc_sha256 IS NULL
+  AND created_at > now() - interval '1 day';
+```
+
+---
+
 ### `sage.config`
 
 Key-value configuration store used by the sidecar at runtime.

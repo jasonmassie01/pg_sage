@@ -43,7 +43,8 @@ func (gate *authorizationGate) Explain(ctx context.Context, req ActionRequest) D
 	return decisionForRequest(req, gate.evaluate(ctx, req))
 }
 
-func (gate *authorizationGate) evaluate(ctx context.Context, req ActionRequest) Decision {
+// evaluateRequest is evaluate without the policy provenance stamp.
+func (gate *authorizationGate) evaluateRequest(ctx context.Context, req ActionRequest) Decision {
 	runtime, err := gate.runtime(ctx, req)
 	if err != nil {
 		return blocked(ReasonPolicyUnavailable, err.Error())
@@ -66,6 +67,9 @@ func (gate *authorizationGate) evaluate(ctx context.Context, req ActionRequest) 
 	}
 	if req.Principal != nil {
 		return gate.agentDecision(ctx, runtime, req)
+	}
+	if rollbackMitigation(req) {
+		return gate.rollbackDecision(ctx, runtime, req)
 	}
 	if req.OperatorApproved {
 		return gate.awaitVerification(ctx, req, gate.operatorDecision(ctx, runtime, req))
@@ -213,6 +217,11 @@ func (gate *authorizationGate) validateRequest(req ActionRequest) (Decision, boo
 		decision.Detail = string(guardrail)
 		return decision, true
 	}
+	if req.TargetMismatch != "" {
+		decision := gate.decision(req, VerdictBlocked, ReasonTargetMismatch)
+		decision.Detail = req.TargetMismatch
+		return decision, true
+	}
 	if trustedInternalControl(req) || (req.ExplainFamily && req.SQL == "") {
 		return Decision{}, false
 	}
@@ -255,7 +264,11 @@ func (gate *authorizationGate) policy(
 	if gate.config.Policy == nil {
 		return Document{}, ErrPolicyNotFound
 	}
-	return gate.config.Policy(ctx, req)
+	doc, err := gate.config.Policy(ctx, req)
+	if err == nil {
+		noteDocumentRead(ctx, doc)
+	}
+	return doc, err
 }
 
 func (gate *authorizationGate) usage(

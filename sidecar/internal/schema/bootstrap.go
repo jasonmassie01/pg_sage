@@ -451,8 +451,13 @@ func migrationStatements() []string {
 		ddlEmergencyStopSeed,
 		// clouds-02: after the table (ddlManagedChangeProposals).
 		ddlManagedChangeFingerprintV2,
-		ddlSessionsTokenHash, // apiauth-04: hashed session cookies
-		ddlUsersDisabledAt)   // apiauth-01: user deactivation
+		ddlSessionsTokenHash,        // apiauth-04: hashed session cookies
+		ddlUsersDisabledAt,          // apiauth-01: user deactivation
+		ddlApprovalCardNextCheck,    // policy-06: follow-up queue order
+		ddlActionQueueRevertsAction, // policy-05: withheld reverts reach a person
+		ddlDecisionCandidateKey(),   // policy-02: a withheld verdict is one row per episode
+		ddlDecisionPolicyProvenance, // policy-03: the policy hash, not a cross-database FK
+		ddlRolloutInstanceStatus)    // executor-04: canary pending and unverified states
 }
 
 // ---------------------------------------------------------------------------

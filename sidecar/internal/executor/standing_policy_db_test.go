@@ -241,7 +241,7 @@ func TestEveryReasonRecordsThroughUpsert(t *testing.T) {
 				req.Contract = &policy.ActionContract{ActionType: "vacuum_table",
 					RiskTier: decision.RiskTier}
 			}
-			input := ledgerInput(&fx.databaseID, 1, req, decision)
+			input := ledgerInputAt(&fx.databaseID, 1, req, decision)
 			recorded, err := service.RecordDecision(fx.ctx, input)
 			if err != nil || recorded.ID <= 0 {
 				t.Fatalf("%s typed=%t: record = %#v, %v", reason, typed, recorded, err)

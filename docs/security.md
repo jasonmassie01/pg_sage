@@ -897,6 +897,27 @@ The database role a session logged in as decides.
   providers pg_sage's role is the configured user, including IAM and
   OAuth users.
 
+### Evidence Packs
+
+`GET /api/v1/audit/evidence?database=<name>&action_id=<id>` (admin) exports
+one change as a `.tar.gz`: `action.json`, `decision.json`, `policy.json`,
+`queue.json`, `verification.json`, `outcome.json`, `pgaudit.json`, the
+chain proof, a `manifest.json` with every file's SHA-256, and
+`SHA256SUMS`. With `audit.evidence.signing_key_env` set, the manifest is
+signed with Ed25519.
+
+- **`policy.json`** holds the standing-policy version each of the action's
+  decisions was made under, read by database scope and version from the
+  database the policy lives in: the control database in fleet mode (the
+  same database standalone). Each row adds `doc_sha256`, the SHA-256 of
+  the stored policy document (`doc::text`).
+- **`policy_hash_match`** in the manifest is `true` when every decision's
+  `policy_doc_sha256` equals the `doc_sha256` of its policy row, and
+  `false` when a document changed after the decision or the version is
+  missing. It is absent when no decision recorded a hash (decisions
+  written before the hash column existed, or decisions made before any
+  policy was read, which record version 0).
+
 ---
 
 ## Production Checklist

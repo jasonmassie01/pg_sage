@@ -78,14 +78,13 @@ func (e *Executor) usageRow(ctx context.Context, sql string, args ...any) pgx.Ro
 // recordStandingDecision records a standing-gate decision in the ledger,
 // inside the budget transaction when the gate holds the budget lock.
 func (e *Executor) recordStandingDecision(
-	ctx context.Context, policyVersion int64, request policy.ActionRequest,
-	decision policy.Decision,
+	ctx context.Context, request policy.ActionRequest, decision policy.Decision,
 ) (string, int64, error) {
 	repository := ledger.NewPostgresRepository(e.pool)
 	if tx, ok := budgetTx(ctx); ok {
 		repository = ledger.NewTxRepository(tx)
 	}
-	input := ledgerInput(e.databaseID, policyVersion, request, decision)
+	input := ledgerInput(e.databaseID, request, decision)
 	recorded, err := ledger.NewService(repository).RecordDecision(ctx, input)
 	if err == nil {
 		countDecision(e.databaseName, decision)

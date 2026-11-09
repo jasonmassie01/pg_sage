@@ -74,7 +74,7 @@ func timeOrZero(at *time.Time) time.Time {
 // action holds its budget slot when nothing releases it (a crash): Apply's
 // two bounded stages, the waits and the run.
 func (e *Executor) budgetHoldHorizon() time.Duration {
-	return 2 * e.applyTimeout()
+	return 2 * e.maxApplyTimeout()
 }
 
 // releaseBudget ends the budget hold of execute authorizations once the

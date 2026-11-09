@@ -65,6 +65,10 @@ const (
 	// ReasonNarrowingDuringStop executes a narrowing contract while a hard
 	// stop (emergency stop, disabled executor, replica) blocks the rest.
 	ReasonNarrowingDuringStop Reason = "narrowing_during_stop"
+	// ReasonTargetMismatch blocks a self-initiated statement that changes
+	// another relation than the one its finding or proposal names
+	// (executor-08); Decision.Detail names both. No approval lifts it.
+	ReasonTargetMismatch Reason = "target_mismatch"
 	// ReasonDropRestore executes the soft-drop restore of an index pg_sage
 	// dropped itself, past a trust downgrade (executor-01).
 	ReasonDropRestore Reason = "drop_restore_bypass"
@@ -150,6 +154,10 @@ type ActionRequest struct {
 	// matches only their slot targets ("slot:<name>"). Every other check
 	// (leases, budgets, the one-object L3 rule) still sees TargetObjs.
 	TargetsNameNoRelation bool
+	// TargetMismatch, when set, says the statement changes another
+	// relation than the request names: the gate blocks it as
+	// target_mismatch with this detail.
+	TargetMismatch string
 	// ExplainFamily asks Explain for an action family's readiness, where no
 	// concrete SQL exists. Authorize ignores it and always validates SQL.
 	ExplainFamily bool
@@ -213,6 +221,14 @@ type Decision struct {
 	// object that parked it, that an operator approval overrode, or that
 	// was released at its hard deadline (one change per object).
 	VerificationWait *VerificationWait
+	// PolicyReadError is why the standing policy could not be read when a
+	// revert ran anyway (policy-05): it ran under safety.lock_timeout_ms.
+	PolicyReadError string
+	// PolicyVersion and PolicySHA256 name the standing-policy document the
+	// gate evaluated (policy-03). A decision made before the gate read one
+	// (a hard stop, a failed read) carries 0 and "".
+	PolicyVersion int64
+	PolicySHA256  string
 }
 
 // RuntimeState is the live authority snapshot for one authorization.

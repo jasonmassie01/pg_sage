@@ -27,12 +27,10 @@ func autonomyAPIDeps(mgr *fleet.DatabaseManager, control *pgxpool.Pool) *api.Aut
 		return deps
 	}
 	opts := rollout.CanaryOptions{CanaryInstances: 1, RegressionLimitPct: 10,
-		Settle: time.Minute,
-		Log:    func(format string, args ...any) { logWarn("rollout", format, args...) }}
+		Log: func(format string, args ...any) { logWarn("rollout", format, args...) }}
 	if cfg != nil {
 		c := cfg.SRE.Autonomy.Canary
 		opts.CanaryInstances, opts.RegressionLimitPct = c.CanaryInstances, c.RegressionLimitPct
-		opts.Settle = time.Duration(c.SettleSeconds) * time.Second
 	}
 	svc, err := rollout.NewCanaryService(fleetCanaryResolver(mgr),
 		rollout.NewPostgresRunStore(control), opts)
@@ -123,6 +121,15 @@ func (t fleetCanaryTarget) ActionResult(ctx context.Context, actionLogID int64) 
 	string, error) {
 	a, err := t.SourceAction(ctx, actionLogID)
 	return a.Outcome, a.Verification, err
+}
+
+// MonitorDeadline is when the database's own monitor of the action ends.
+func (t fleetCanaryTarget) MonitorDeadline(ctx context.Context, actionLogID int64) (
+	time.Time, error) {
+	if t.inst.Executor == nil {
+		return time.Time{}, fmt.Errorf("database %s has no executor", t.inst.Name)
+	}
+	return t.inst.Executor.MonitorDeadline(ctx, actionLogID)
 }
 
 // autonomyMCPBackend serves the MCP autonomy tools from the registry; a

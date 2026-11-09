@@ -37,6 +37,9 @@ func (e *Executor) ApprovalReadinessWithEvidence(
 	if actionID, ok := restoreQueueActionID(action); ok {
 		return e.dropRestoreReadiness(action, now, actionID)
 	}
+	if IsRevertCard(action) {
+		return e.revertReadiness(action, now)
+	}
 	readiness := lifecycleReadiness(action, now, evidencePresent)
 	if !readiness.Eligible {
 		return readiness

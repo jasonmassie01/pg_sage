@@ -37,22 +37,37 @@ func (e *Executor) evaluateStandingPolicy(
 // evaluateRollbackPolicy authorizes the rollback of a finding's executed
 // change. It is marked a rollback: undoing pg_sage's own change is never
 // withheld by the trust ledger (roadmap 1.2) nor parked by the kind budgets
-// (policy.BudgetBypassFor); the rest of the gate binds.
+// (policy.BudgetBypassFor); the rest of the gate binds. actionID (0:
+// unknown) is the reverted action, named in the decision (policy-05).
 func (e *Executor) evaluateRollbackPolicy(
-	ctx context.Context, f analyzer.Finding,
+	ctx context.Context, f analyzer.Finding, actionID int64,
 ) ActionPolicyDecision {
 	gate := e.StandingPolicyGate()
 	if gate == nil {
 		contract, _ := contractForFinding(f)
 		return noStandingPolicyDecision(contract)
 	}
-	request := findingRequest(f, false)
+	// A rollback re-runs pg_sage's recorded inverse, which names another
+	// object than the forward finding (a dropped index's table): it is not
+	// target-bound.
+	request := unboundFindingRequest(f, false)
 	request.Rollback = true
+	request.Evidence = map[string]any{"source": rollbackSource(false)}
+	if actionID > 0 {
+		request.Evidence["rolled_back_action_id"] = actionID
+	}
 	return standingPolicyDecision(gate.Authorize(ctx, request))
 }
 
-// findingRequest is the standing-gate request for a background finding.
+// findingRequest is the standing-gate request for a background finding,
+// its statement bound to the object the finding names (executor-08).
 func findingRequest(finding analyzer.Finding, isReplica bool) policy.ActionRequest {
+	request := unboundFindingRequest(finding, isReplica)
+	bindFindingRequest(&request, finding)
+	return request
+}
+
+func unboundFindingRequest(finding analyzer.Finding, isReplica bool) policy.ActionRequest {
 	request := policy.ActionRequest{
 		SQL: finding.RecommendedSQL, Feature: featureForFinding(finding),
 		TargetObjs:            targetObjectsForFinding(finding),

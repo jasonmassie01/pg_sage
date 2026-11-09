@@ -1,0 +1,99 @@
+package analyzer
+
+import (
+	"testing"
+	"time"
+
+	"github.com/pg-sage/sidecar/internal/collector"
+	"github.com/pg-sage/sidecar/internal/optimizer"
+)
+
+// CatalogSQLFindings fires every analyzer source that writes
+// RecommendedSQL on a fixture, keyed by its source file. The executor's
+// target-parity test (catalog_target_parity_test.go, executor-08) checks
+// that each statement changes the object its finding names.
+func CatalogSQLFindings(t *testing.T) map[string][]Finding {
+	t.Helper()
+	out := indexCatalogFindings()
+	for file, findings := range tableCatalogFindings() {
+		out[file] = findings
+	}
+	for file, findings := range sessionCatalogFindings() {
+		out[file] = findings
+	}
+	return out
+}
+
+func indexCatalogFindings() map[string][]Finding {
+	invalidExtras := &RuleExtras{InvalidFirstSeen: map[string]time.Time{},
+		IndexBuildTables: map[string]bool{}}
+	ruleInvalidIndexes(invalidSnap(), nil, nil, invalidExtras)
+	invalid := ruleInvalidIndexes(invalidSnap(), nil, nil, invalidExtras)
+	old := time.Now().Add(-30 * 24 * time.Hour)
+	unusedExtras := &RuleExtras{FirstSeen: map[string]time.Time{"public.idx_x": old},
+		RecentlyCreated: map[string]time.Time{}, StatsEpoch: old}
+	exact := duplicateSnap("CREATE INDEX idx_b ON public.orders USING btree (id)", "idx_b")
+	subset := duplicateSnap("CREATE INDEX idx_ab ON public.orders USING btree (id, name)",
+		"idx_ab")
+	duplicates := append(ruleDuplicateIndexes(exact, nil, nil, nil),
+		ruleDuplicateIndexes(subset, nil, nil, nil)...)
+	return map[string][]Finding{
+		"rules_index.go": append(invalid, duplicates...),
+		"rules_unused_index.go": ruleUnusedIndexes(unusedIndexSnap(0), nil, unusedCfg(),
+			unusedExtras),
+		"rules_fk_index.go": ruleMissingFKIndexes(fkSnap(nil,
+			[]collector.ForeignKey{fk("customer_id", "orders_customer_fk")}), nil, nil, nil),
+		"optimizer_mapping.go": {OptimizerRecommendationFinding(optimizer.Recommendation{
+			Table: "public.orders", Severity: "warning",
+			DDL: "CREATE INDEX CONCURRENTLY idx_o ON public.orders (customer_id)"})},
+	}
+}
+
+func duplicateSnap(def, name string) *collector.Snapshot {
+	return &collector.Snapshot{Indexes: []collector.IndexStats{
+		{SchemaName: "public", RelName: "orders", IndexRelName: "idx_a", IsValid: true,
+			IdxScan: 100, IndexDef: "CREATE INDEX idx_a ON public.orders USING btree (id)"},
+		{SchemaName: "public", RelName: "orders", IndexRelName: name, IsValid: true,
+			IdxScan: 10, IndexDef: def},
+	}}
+}
+
+func tableCatalogFindings() map[string][]Finding {
+	cfg := testConfig()
+	cfg.Analyzer.AnalyzeStaleMinRows = 10000
+	cfg.Analyzer.AnalyzeStaleDays = 7
+	cfg.Analyzer.WraparoundFreezeXIDAge = 150_000_000
+	now := time.Date(2026, 6, 11, 0, 0, 0, 0, time.UTC)
+	stale := &collector.Snapshot{Tables: []collector.TableStats{
+		{SchemaName: "Sales", RelName: "Events", NLiveTup: 50000, NTupIns: 50000}}}
+	freeze := &collector.Snapshot{Tables: []collector.TableStats{
+		{SchemaName: "public", RelName: "Hot", XIDAge: 210_000_000}}}
+	bloat := &collector.Snapshot{Tables: []collector.TableStats{
+		{SchemaName: "public", RelName: "cache_data", NLiveTup: 5000, NDeadTup: 4000}}}
+	return map[string][]Finding{
+		"rules_autovacuum_tuning.go": ruleAutovacuumTuning(
+			autovacuumSnap("autovacuum_vacuum_scale_factor=0.2"), nil, phase2Config(), nil),
+		"rules_stale_statistics.go":  ruleStaleStatisticsAt(stale, cfg, now),
+		"rules_wraparound_freeze.go": ruleWraparoundFreeze(freeze, nil, cfg, nil),
+		"rules_vacuum.go":            ruleTableBloat(bloat, nil, cfg, nil),
+	}
+}
+
+func sessionCatalogFindings() map[string][]Finding {
+	since := time.Now().Add(-2 * time.Hour)
+	idle := LockChain{RootBlockerPID: 500, RootBlockerApp: "app",
+		RootBlockerState: "idle in transaction",
+		RootBlockerSince: since, TotalBlocked: 5, BlockedPIDs: make([]int, 5), ChainDepth: 2}
+	active := idle
+	active.RootBlockerState = "active"
+	lc := baseLockChainConfig()
+	slots := slotSnapshot([]collector.SlotInfo{{SlotName: "stale_slot", Active: false,
+		SlotType: "logical", RetainedBytes: 50 << 30}})
+	return map[string][]Finding{
+		"rules_lockchain.go": {buildActionableFinding(idle, lc),
+			buildActionableFinding(active, lc)},
+		"rules_replication.go":       ruleInactiveSlots(slots, nil, nil, nil),
+		"rules_system.go":            ruleConnectionLeaks([]LeakedConn{{PID: 42}}),
+		"rules_workmem_promotion.go": {buildWorkMemPromotionFinding("app_worker", 5, 256, 5)},
+	}
+}

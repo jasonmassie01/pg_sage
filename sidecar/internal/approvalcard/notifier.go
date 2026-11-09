@@ -2,7 +2,6 @@ package approvalcard
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/chatops"
@@ -87,50 +86,6 @@ func (n *Notifier) enrich(ctx context.Context, evt notify.Event) notify.Event {
 	ref := notify.CardRef{Database: c.Database, QueueID: c.QueueID, CardHash: c.CardHash,
 		Title: c.Title, Summary: Summary(c), ExpiresAt: c.ExpiresAt}
 	return notify.WithApprovalCard(evt, ref, Text(c, n.loader.now()))
-}
-
-// RenotifySnoozed ends the snoozes that ran out and sends those cards
-// again, once per snooze.
-func RenotifySnoozed(ctx context.Context, l Loader, d Dispatcher) (int, error) {
-	if l.Pool == nil || d == nil {
-		return 0, fmt.Errorf("approvalcard: re-notify needs a pool and a dispatcher")
-	}
-	rows, err := l.Pool.Query(ctx, `/* pg_sage */ UPDATE sage.action_queue q
-		SET snoozed_until = NULL
-		WHERE q.snoozed_until IS NOT NULL AND q.snoozed_until <= now()
-		  AND q.status = 'pending' AND q.expires_at > now()
-		RETURNING q.id, q.proposed_sql, q.action_risk,
-		  (SELECT COALESCE(f.title, '') FROM sage.findings f WHERE f.id = q.finding_id)`)
-	if err != nil {
-		return 0, fmt.Errorf("approvalcard: end snoozes: %w", err)
-	}
-	type ended struct {
-		id               int
-		sql, risk, title string
-	}
-	var items []ended
-	for rows.Next() {
-		var e ended
-		var title *string
-		if err := rows.Scan(&e.id, &e.sql, &e.risk, &title); err != nil {
-			rows.Close()
-			return 0, fmt.Errorf("approvalcard: end snoozes: %w", err)
-		}
-		if title != nil {
-			e.title = *title
-		}
-		items = append(items, e)
-	}
-	if err := rows.Err(); err != nil {
-		return 0, fmt.Errorf("approvalcard: end snoozes: %w", err)
-	}
-	for _, e := range items {
-		evt := notify.QueuedApprovalEvent(e.title, e.sql, l.Database, e.risk, e.id)
-		if err := d.Dispatch(ctx, evt); err != nil {
-			return len(items), fmt.Errorf("approvalcard: re-send card %d: %w", e.id, err)
-		}
-	}
-	return len(items), nil
 }
 
 // TokenIssuer mints card tokens in the control database

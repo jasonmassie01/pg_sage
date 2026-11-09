@@ -88,14 +88,18 @@ func (e *Executor) skipCoveredCreate(
 }
 
 // supersedeGoneSQL closes pending proposals whose finding is no longer
-// open (a restore card outlives its drop's finding by design: see
-// supersedeSettledRestoresSQL), and those an equivalent newer pending proposal replaces (same
-// identity key, or the same SQL).
+// open (restore and revert cards outlive their action's finding by
+// design: see supersedeSettledRestoresSQL and supersedeSettledRevertsSQL),
+// and those an equivalent newer pending proposal replaces (same identity
+// key, or the same SQL). A revert item is replaced only by its identity
+// key: a forward proposal of the same SQL does not settle the withheld
+// revert, so superseding the item would dead-end it (policy-05).
 const supersedeGoneSQL = `/* pg_sage */ UPDATE sage.action_queue q
 	SET status = 'superseded',
 	    reason = 'superseded: finding ' || q.finding_id || ' is no longer open'
 	WHERE q.status = 'pending' AND q.finding_id IS NOT NULL
 	  AND q.action_type IS DISTINCT FROM '` + ActionTypeRestoreDroppedIndex + `'
+	  AND q.action_type IS DISTINCT FROM '` + ActionTypeRevertAction + `'
 	  AND NOT EXISTS (SELECT 1 FROM sage.findings f
 	                  WHERE f.id = q.finding_id AND f.status = 'open'
 	                    AND f.resolved_at IS NULL)
@@ -107,7 +111,8 @@ const supersedeNewerSQL = `/* pg_sage */ WITH newer AS (
 		  ON n.status = 'pending' AND n.id > q.id
 		 AND n.database_id IS NOT DISTINCT FROM q.database_id
 		 AND ((q.identity_key IS NOT NULL AND n.identity_key = q.identity_key)
-		      OR btrim(n.proposed_sql) = btrim(q.proposed_sql))
+		      OR (btrim(n.proposed_sql) = btrim(q.proposed_sql)
+		          AND q.action_type IS DISTINCT FROM '` + ActionTypeRevertAction + `'))
 		WHERE q.status = 'pending'
 		GROUP BY q.id)
 	UPDATE sage.action_queue q
@@ -123,6 +128,7 @@ const supersedeNewerSQL = `/* pg_sage */ WITH newer AS (
 const pendingCreatesSQL = `/* pg_sage */ SELECT id, proposed_sql FROM sage.action_queue
 	WHERE status = 'pending' AND proposed_sql ~* '^\s*CREATE\s+(UNIQUE\s+)?INDEX\s'
 	  AND action_type IS DISTINCT FROM '` + ActionTypeRestoreDroppedIndex + `'
+	  AND action_type IS DISTINCT FROM '` + ActionTypeRevertAction + `'
 	ORDER BY id`
 
 // supersedeStaleApprovals closes the pending proposals whose reason is
@@ -134,7 +140,7 @@ func (e *Executor) supersedeStaleApprovals(ctx context.Context) (int, error) {
 	}
 	total := 0
 	for _, stmt := range []string{supersedeGoneSQL, supersedeNewerSQL,
-		supersedeSettledRestoresSQL} {
+		supersedeSettledRestoresSQL, supersedeSettledRevertsSQL} {
 		rows, err := e.pool.Query(ctx, stmt)
 		if err != nil {
 			return total, fmt.Errorf("supersede stale proposals: %w", err)

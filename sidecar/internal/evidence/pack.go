@@ -78,14 +78,18 @@ type Signer struct {
 
 // Manifest describes a pack.
 type Manifest struct {
-	Format    string      `json:"format"`
-	Generator string      `json:"generator"`
-	CreatedAt time.Time   `json:"created_at"`
-	Scope     Scope       `json:"scope"`
-	ChainOK   bool        `json:"chain_ok"`
-	Truncated bool        `json:"truncated"`
-	Files     []FileEntry `json:"files"`
-	Signer    *Signer     `json:"signer,omitempty"`
+	Format    string    `json:"format"`
+	Generator string    `json:"generator"`
+	CreatedAt time.Time `json:"created_at"`
+	Scope     Scope     `json:"scope"`
+	ChainOK   bool      `json:"chain_ok"`
+	Truncated bool      `json:"truncated"`
+	// PolicyHashMatch reports, for an action pack, whether every policy
+	// hash its decisions recorded matches the document in policy.json;
+	// absent when no decision recorded one (policy-03).
+	PolicyHashMatch *bool       `json:"policy_hash_match,omitempty"`
+	Files           []FileEntry `json:"files"`
+	Signer          *Signer     `json:"signer,omitempty"`
 }
 
 // File is one named file of a pack.
@@ -101,16 +105,29 @@ type Pack struct {
 	key      ed25519.PrivateKey
 }
 
-// Build collects the pack of scope from q. key nil leaves it unsigned.
+// Build collects the pack of scope from q, which also holds the standing
+// policy (standalone). key nil leaves it unsigned.
 func Build(ctx context.Context, q auditchain.Querier, scope Scope,
+	key ed25519.PrivateKey, now time.Time) (*Pack, error) {
+	return BuildWithPolicy(ctx, q, q, scope, key, now)
+}
+
+// BuildWithPolicy collects the pack of scope from q and the standing
+// policy its decisions name from policyQ: the control database in fleet
+// mode, where the policy is not in the monitored database.
+func BuildWithPolicy(ctx context.Context, q, policyQ auditchain.Querier, scope Scope,
 	key ed25519.PrivateKey, now time.Time) (*Pack, error) {
 	if q == nil {
 		return nil, fmt.Errorf("evidence: no database")
 	}
+	if policyQ == nil {
+		return nil, fmt.Errorf("evidence: no policy database")
+	}
 	if err := scope.validate(); err != nil {
 		return nil, err
 	}
-	b := &builder{q: q, pack: &Pack{key: key, Manifest: Manifest{Format: FormatV1,
+	b := &builder{q: q, policyQ: policyQ, pack: &Pack{key: key, Manifest: Manifest{
+		Format:    FormatV1,
 		Generator: "pg_sage", CreatedAt: now.UTC(), Scope: scope, ChainOK: true}}}
 	var err error
 	if scope.ActionID > 0 {
@@ -138,8 +155,9 @@ func Build(ctx context.Context, q auditchain.Querier, scope Scope,
 }
 
 type builder struct {
-	q    auditchain.Querier
-	pack *Pack
+	q       auditchain.Querier
+	policyQ auditchain.Querier
+	pack    *Pack
 }
 
 func (b *builder) add(name string, v any) error {
@@ -180,7 +198,7 @@ func (b *builder) rows(ctx context.Context, name, table, where string,
 	return b.add(name, list)
 }
 
-// action collects one change: request, decision and policy version,
+// action collects one change: request, decision and the policy it names,
 // approvals, verification, outcome, pgaudit corroboration and chain proof.
 func (b *builder) action(ctx context.Context, id int64) error {
 	var raw []byte
@@ -197,8 +215,6 @@ func (b *builder) action(ctx context.Context, id int64) error {
 	}
 	related := []struct{ name, table, where string }{
 		{"decision.json", "sage.decision", decisionFilter("t")},
-		{"policy.json", "sage.policy", "t.id IN (SELECT d.policy_id FROM sage.decision d " +
-			"WHERE " + decisionFilter("d") + ")"},
 		{"queue.json", "sage.action_queue", "t.action_log_id = $1"},
 		{"verification.json", "sage.verification", "t.action_log_id = $1"},
 		{"outcome.json", "sage.action_outcome", "t.action_log_id = $1"},
@@ -208,6 +224,9 @@ func (b *builder) action(ctx context.Context, id int64) error {
 		if err := b.rows(ctx, r.name, r.table, r.where, id); err != nil {
 			return err
 		}
+	}
+	if err := b.policies(ctx, id); err != nil {
+		return err
 	}
 	return b.actionChain(ctx, id)
 }

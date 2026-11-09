@@ -105,7 +105,7 @@ func (a *executorIndexActions) Revert(
 	exec := a.exec
 	recordVerdict(ctx, exec.pool, exec.engineOutcome(ctx, actionID, verdict), exec.logFn)
 	if exec.checkEmergencyStop(ctx) {
-		updateActionOutcome(ctx, exec.pool, actionID, "rollback_skipped",
+		recordActionOutcome(ctx, exec.pool, exec.logFn, actionID, "rollback_skipped",
 			"emergency stop active; automatic rollback withheld")
 		return errors.New("emergency stop withheld verified index rollback")
 	}
@@ -133,7 +133,7 @@ func (e *Executor) dropCreatedIndex(
 ) error {
 	dropSQL := "DROP INDEX CONCURRENTLY IF EXISTS " + qualified
 	if !e.authorizeCreatedIndexRevert(ctx, dropSQL, qualified) {
-		updateActionOutcome(ctx, e.pool, actionID, "rollback_skipped",
+		recordActionOutcome(ctx, e.pool, e.logFn, actionID, "rollback_skipped",
 			"standing policy withheld automatic rollback")
 		return errors.New("standing policy withheld verified index rollback")
 	}
@@ -149,7 +149,7 @@ func (e *Executor) dropCreatedIndex(
 		lockOpt, timeout = WithLockTimeout(cfg.Safety.LockTimeout()), cfg.Safety.DDLTimeout()
 	}
 	if err := ExecConcurrently(ctx, e.pool, dropSQL, timeout, lockOpt); err != nil {
-		updateActionOutcome(ctx, e.pool, actionID, "rollback_failed", err.Error())
+		recordActionOutcome(ctx, e.pool, e.logFn, actionID, "rollback_failed", err.Error())
 		return fmt.Errorf("revert verified index action %d: %w", actionID, err)
 	}
 	e.finishRevert(ctx, actionID, verdict.Reason)
@@ -157,16 +157,30 @@ func (e *Executor) dropCreatedIndex(
 }
 
 func (e *Executor) finishRevert(ctx context.Context, actionID int64, reason string) {
-	updateActionOutcome(ctx, e.pool, actionID, "rolled_back", reason)
+	recordActionOutcome(ctx, e.pool, e.logFn, actionID, "rolled_back", reason)
 	e.completeVerificationRevert(ctx, actionID)
 	_, _ = value.NewPostgresRepository(e.pool).ZeroCreditOnRevert(ctx, actionID, "rolled_back")
+}
+
+// revertRefusedPrefix starts the reason of a revert abandoned because the
+// index is not provably pg_sage's; an operator retry is refused too.
+const revertRefusedPrefix = "revert refused: "
+
+// refusedRevertRetry refuses a retry of a revert abandoned for identity:
+// its DROP would hit an object pg_sage did not create (executor-07).
+func refusedRevertRetry(outcome, reason string) error {
+	if outcome != "rollback_skipped" || !strings.HasPrefix(reason, revertRefusedPrefix) {
+		return nil
+	}
+	return fmt.Errorf("rollback refused: the automatic revert was abandoned (%s); "+
+		"check the object and change it by hand", reason)
 }
 
 // abandonRevert records a revert that can never be performed safely and
 // closes the verification so it is not retried against the wrong object.
 func (e *Executor) abandonRevert(ctx context.Context, actionID int64, reason string) error {
-	updateActionOutcome(ctx, e.pool, actionID, "rollback_skipped",
-		"revert refused: "+reason)
+	recordActionOutcome(ctx, e.pool, e.logFn, actionID, "rollback_skipped",
+		revertRefusedPrefix+reason)
 	e.completeVerificationRevert(ctx, actionID)
 	return fmt.Errorf("revert of action %d refused: %s", actionID, reason)
 }

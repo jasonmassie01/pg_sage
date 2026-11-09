@@ -102,8 +102,11 @@ safety_critical safety.data_io_ceiling_pct
 safety_critical safety.ddl_timeout_seconds
 safety_critical safety.disk_pressure_threshold_pct
 safety_critical safety.dormant_interval_seconds
+safety_critical safety.index_build_timeout_seconds
 safety_critical safety.lock_timeout_ms
 derivable safety.query_timeout_ms
+safety_critical safety.reindex_timeout_seconds
+safety_critical safety.vacuum_timeout_seconds
 safety_critical safety.wal_io_ceiling_pct
 safety_critical verify.drop_window_hours
 safety_critical verify.io_baseline_days
@@ -345,7 +348,6 @@ operator_preference sre.automatic_start
 safety_critical sre.autonomy.bench_results_path
 safety_critical sre.autonomy.canary.canary_instances
 safety_critical sre.autonomy.canary.regression_limit_pct
-safety_critical sre.autonomy.canary.settle_seconds
 safety_critical sre.autonomy.class_promotion.min_success_rate_pct
 safety_critical sre.autonomy.class_promotion.min_successes_l2
 safety_critical sre.autonomy.class_promotion.min_successes_l3

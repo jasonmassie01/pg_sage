@@ -13,8 +13,8 @@ import (
 // the same change, and the trust level. With none of those it still says
 // the policy queued it. A missing finding is called out on its own.
 func whyOf(in Inputs, actionType string) []Reason {
-	var out []Reason
-	if in.Finding != nil {
+	out := revertReasons(in.Revert)
+	if in.Finding != nil && in.Revert == nil {
 		out = append(out, producerReasons(in.Finding.Detail)...)
 	}
 	out = append(out, gucReasons(in.Action.ProposedSQL)...)
@@ -46,7 +46,7 @@ func whyOf(in Inputs, actionType string) []Reason {
 		out = append(out, Reason{Code: "queued_for_approval", Text: fmt.Sprintf(
 			"The policy queued this change for approval (%s)", humanize(decision))})
 	}
-	if in.Finding == nil {
+	if in.Finding == nil && in.Revert == nil {
 		out = append(out, Reason{Code: "finding_missing", Text: "The finding behind this " +
 			"action is gone: check that the change still applies"})
 	}

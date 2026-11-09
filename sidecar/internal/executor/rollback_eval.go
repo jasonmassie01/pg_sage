@@ -3,6 +3,8 @@ package executor
 import (
 	"context"
 	"errors"
+	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -92,16 +94,55 @@ func detailInt64(v any) int64 {
 	return 0
 }
 
-// updateActionOutcome sets the outcome and rollback_reason for an action.
+// outcomeWriteAttempts is the first terminal write plus three retries;
+// outcomeWriteBackoff doubles between them (executor-07).
+const outcomeWriteAttempts = 4
+
+var outcomeWriteBackoff = 100 * time.Millisecond
+
+// updateActionOutcome sets the outcome and rollback_reason for an action,
+// retrying a failed write with backoff. A lost terminal write after a
+// rollback's DDL left the row in rolling_back. It returns the last error.
 func updateActionOutcome(
 	ctx context.Context, pool *pgxpool.Pool, actionID int64, outcome, reason string,
-) {
-	_, _ = pool.Exec(ctx,
-		`/* pg_sage */ UPDATE sage.action_log
-		 SET outcome = $1, rollback_reason = $2, measured_at = now()
-		 WHERE id = $3`,
-		outcome, reason, actionID,
-	)
+) error {
+	if pool == nil {
+		return fmt.Errorf("record outcome %s for action %d: no database pool",
+			outcome, actionID)
+	}
+	var err error
+	wait := outcomeWriteBackoff
+	for attempt := 1; ; attempt++ {
+		_, err = pool.Exec(ctx, `/* pg_sage */ UPDATE sage.action_log
+			 SET outcome = $1, rollback_reason = $2, measured_at = now()
+			 WHERE id = $3`, outcome, reason, actionID)
+		if err == nil || attempt == outcomeWriteAttempts || ctx.Err() != nil {
+			break
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(wait):
+		}
+		wait *= 2
+	}
+	if err != nil {
+		return fmt.Errorf("record outcome %s for action %d: %w", outcome, actionID, err)
+	}
+	return nil
+}
+
+// recordActionOutcome is updateActionOutcome that logs the action id and
+// outcome when every attempt failed; the caller may still act on the error.
+func recordActionOutcome(
+	ctx context.Context, pool *pgxpool.Pool, logFn func(string, string, ...any),
+	actionID int64, outcome, reason string,
+) error {
+	err := updateActionOutcome(ctx, pool, actionID, outcome, reason)
+	if err != nil && logFn != nil {
+		logFn("executor", "action %d: outcome %s was not recorded (the stuck-rollback "+
+			"reconciler settles a rolling_back row): %v", actionID, outcome, err)
+	}
+	return err
 }
 
 // setMonitoredOutcome is a compare-and-set: it changes the outcome only while

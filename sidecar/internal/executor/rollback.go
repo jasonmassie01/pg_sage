@@ -34,7 +34,11 @@ type RollbackMonitorConfig struct {
 	// as a visible approval card instead of skipping it (the soft-drop
 	// restore, executor-01).
 	HoldForStop func(ctx context.Context, actionID int64, rollbackSQL string)
-	Acquire     func(context.Context) (func(), error)
+	// QueueRevert, when set, offers a withheld rollback to a person as a
+	// "Revert action N" approval item carrying the reason (policy-05).
+	QueueRevert func(ctx context.Context, actionID int64, rollbackSQL string,
+		verdict RollbackVerdict)
+	Acquire func(context.Context) (func(), error)
 	// Track registers the rollback as in-flight work the emergency stop
 	// cancels; a latched stop refuses it.
 	Track func(ctx context.Context, label string) (context.Context, func(), error)
@@ -49,6 +53,11 @@ type RollbackVerdict struct {
 	Allowed bool
 	// Reason is why the rollback was withheld, recorded as rollback_reason.
 	Reason string
+	// LockCeilingMS is the policy's lock ceiling on an allowed rollback; it
+	// caps an in-transaction rollback's lock_timeout (0: none).
+	LockCeilingMS int64
+	// DecisionID is the gate decision behind the verdict (0: none).
+	DecisionID int64
 }
 
 // standingWithheld is the reason of a refusal by a yes/no authorizer.
@@ -206,9 +215,12 @@ func rollbackRegressedAction(
 		setMonitoredOutcome(ctx, pool, actionID, "rollback_skipped", err.Error())
 		return
 	}
-	if withheldRollback(ctx, pool, actionID, rollbackSQL, cfg, logFn) {
+	verdict, held := withheldRollback(ctx, pool, actionID, rollbackSQL, cfg, logFn)
+	if held {
 		return
 	}
+	cfg.LockTimeoutMs = rollbackLockTimeoutMS(rollbackSQL, cfg.LockTimeoutMs,
+		verdict.LockCeilingMS)
 	if !setMonitoredOutcome(ctx, pool, actionID, "rolling_back", "regression detected") {
 		logFn("rollback", "action %d changed state; rollback not repeated", actionID)
 		return
@@ -223,39 +235,57 @@ func rollbackRegressedAction(
 	}
 	if err != nil {
 		logFn("rollback", "rollback failed for action %d: %v", actionID, err)
-		updateActionOutcome(ctx, pool, actionID, "rollback_failed",
+		recordActionOutcome(ctx, pool, logFn, actionID, "rollback_failed",
 			"rollback execution failed: "+err.Error())
 		return
 	}
-	updateActionOutcome(ctx, pool, actionID, "rolled_back", reason)
+	recordActionOutcome(ctx, pool, logFn, actionID, "rolled_back", reason)
 	_, _ = finalizeActionVerification(ctx, pool, actionID, "revert", reason)
 	_, _ = value.NewPostgresRepository(pool).ZeroCreditOnRevert(ctx, actionID, "rolled_back")
 }
 
 // withheldRollback records a rollback the emergency stop or the authorizer
-// holds back and reports whether it was held. The stop is checked first.
+// holds back and reports whether it was held, with the authorizer's
+// verdict. The stop is checked first. A withheld rollback is offered to a
+// person as a revert item (cfg.QueueRevert), so it never dead-ends.
 func withheldRollback(
 	ctx context.Context, pool *pgxpool.Pool, actionID int64, rollbackSQL string,
 	cfg RollbackMonitorConfig, logFn func(string, string, ...any),
-) bool {
+) (RollbackVerdict, bool) {
 	if CheckEmergencyStop(ctx, pool) {
 		if cfg.HoldForStop != nil {
 			cfg.HoldForStop(ctx, actionID, rollbackSQL)
-			return true
+			return RollbackVerdict{}, true
 		}
 		logFn("rollback", "emergency stop active — skipping auto-rollback for "+
 			"action %d (manual rollback required)", actionID)
-		setMonitoredOutcome(ctx, pool, actionID, "rollback_skipped",
-			"emergency stop active; automatic rollback withheld")
-		return true
+		skipRollback(ctx, pool, actionID, rollbackSQL,
+			RollbackVerdict{Reason: stopWithheldReason}, cfg)
+		return RollbackVerdict{}, true
 	}
 	verdict := cfg.verdict(ctx, rollbackSQL)
 	if verdict.Allowed {
-		return false
+		return verdict, false
 	}
 	logFn("rollback", "rollback of action %d withheld: %s", actionID, verdict.Reason)
-	setMonitoredOutcome(ctx, pool, actionID, "rollback_skipped", verdict.Reason)
-	return true
+	skipRollback(ctx, pool, actionID, rollbackSQL, verdict, cfg)
+	return verdict, true
+}
+
+// stopWithheldReason is the rollback_reason of a revert the emergency stop
+// withheld.
+const stopWithheldReason = "emergency stop active; automatic rollback withheld"
+
+// skipRollback records the withheld rollback and, once it claimed the
+// action, queues its revert item.
+func skipRollback(
+	ctx context.Context, pool *pgxpool.Pool, actionID int64, rollbackSQL string,
+	verdict RollbackVerdict, cfg RollbackMonitorConfig,
+) {
+	if setMonitoredOutcome(ctx, pool, actionID, "rollback_skipped", verdict.Reason) &&
+		cfg.QueueRevert != nil {
+		cfg.QueueRevert(ctx, actionID, rollbackSQL, verdict)
+	}
 }
 
 // executeRollbackSQL runs rollback DDL concurrently where possible, under a
@@ -335,8 +365,12 @@ func (c RollbackMonitorConfig) exec(
 		return c.execRollback
 	}
 	return func(ctx context.Context, sql string, timeout time.Duration, opts ...DDLOption) error {
-		if NeedsConcurrently(sql) || NeedsTopLevel(sql) {
-			return ExecConcurrently(ctx, pool, sql, timeout, opts...)
+		if statementRunsTopLevel(sql) {
+			// A failed restore build is cleaned up by the remnant handler;
+			// its outcome is named in the rollback's error.
+			run := remnantRun{pool: pool, timeout: timeout, dropTimeout: timeout, opts: opts}
+			_, err := run.exec(ctx, sql)
+			return err
 		}
 		return ExecInTransaction(ctx, pool, sql, timeout, opts...)
 	}

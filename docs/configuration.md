@@ -453,6 +453,42 @@ HIGH-risk actions always require manual confirmation regardless of trust level.
 Plain CREATE/DROP/REINDEX and `VACUUM FULL` do not satisfy the typed background
 contracts; concurrent or non-FULL forms are required.
 
+### Executor statement timeouts and failed builds
+
+| Parameter | Default | Description |
+|---|---|---|
+| `safety.ddl_timeout_seconds` | `300` | `statement_timeout` of every executor statement without a class timeout below (ALTER TABLE, a non-concurrent CREATE INDEX or REINDEX, `VACUUM FULL`, drops). `0` uses the default |
+| `safety.index_build_timeout_seconds` | `14400` | `statement_timeout` of a `CREATE INDEX CONCURRENTLY` (also an index replacement's build), `60`-`86400`. `0` uses the default |
+| `safety.reindex_timeout_seconds` | `14400` | `statement_timeout` of a `REINDEX ... CONCURRENTLY`, `60`-`86400`. `0` uses the default |
+| `safety.vacuum_timeout_seconds` | `14400` | `statement_timeout` of a `VACUUM` that is not `VACUUM FULL`, `60`-`86400`. `0` uses the default |
+| `safety.lock_timeout_ms` | `30000` | `lock_timeout` of every executor statement; it bounds each lock wait of a long build, whatever its class timeout |
+
+No class timeout is ever unlimited. The recommendation claim, the change lease and the
+budget hold last at least twice the longest class timeout, so a four-hour build never outlives
+the claim that covers it.
+
+A failed `CREATE INDEX CONCURRENTLY` or `REINDEX ... CONCURRENTLY` leaves an INVALID index
+that writes still maintain and that holds disk. pg_sage drops it at once, on every path
+(autonomous, operator, index replacement, restore), but only when it is provably the failed
+statement's own object:
+
+- A build's OID is read from `pg_stat_progress_create_index` while the build runs. A short
+  transaction holding `ROW EXCLUSIVE` on the table (it blocks no reader or writer) keeps the
+  build in its first wait until the OID is read, at most half of `lock_timeout_ms`.
+- A failed `REINDEX ... CONCURRENTLY` drops only the `<name>_ccnew[N]` or `<name>_ccold[N]`
+  indexes it added; an older index of that shape is never touched.
+- Just before each `DROP INDEX CONCURRENTLY IF EXISTS`, pg_sage re-checks, under an advisory
+  lock on the OID, that the name still has that OID, is still INVALID, is on the same table and
+  is not being built by anyone. A VALID index is never dropped.
+
+The outcome is recorded as `remnant_cleanup` in the action's `before_state` and in the
+failure's error text: `dropped`, `nothing_to_drop`, `oid_mismatch`, `valid_kept`,
+`in_progress_elsewhere`, `unbound` (no OID was captured), `skipped_stopped` (an emergency stop
+ended the run) or `remnant_cleanup_failed` (the drop itself failed, for example on
+`lock_timeout`). Anything not dropped is left to the `invalid_index` finding. An operator-approved
+CREATE INDEX over an INVALID index of the same name is refused with the command that clears it.
+A build withheld because its index name exists is parked until that name is gone, then retried.
+
 ### One trust system
 
 Every action class pg_sage runs on its own initiative has one level per database in the
@@ -660,6 +696,50 @@ The soft-drop restore runs under its own typed contract:
   automatic rollback (<verdict>: <reason>)`). At startup the executor checks that every
   reversible forward contract's rollback classifies to a contract and logs each one that
   does not at ERROR.
+- **Every revert is a recorded decision.** The automatic revert of any action (pg_sage's
+  own, one an operator approved or ran by hand, one whose monitor resumed after a restart)
+  and the operator's rollback button go through the standing policy gate as a typed
+  rollback request, judged on the statement that runs (an index rollback in its
+  `CONCURRENTLY` form). Each leaves one `sage.decision` row with `evidence.rollback = true`,
+  `evidence.rolled_back_action_id` and `evidence.source` (`automatic_rollback` or
+  `operator_rollback`).
+- **A revert is a mitigation.** Undoing a change that already ran is not maintenance:
+  maintenance windows, the kind budgets, earned per-class autonomy, the trust tiers and
+  ramp and the change-class allowlist do not bind it, and its decision reads `execute` with
+  the reason `rollback_mitigation`. The executor-disabled switch, the emergency stop, a
+  replica, the provider list, `trust.level: observation` and the lock ceiling still bind; a
+  rollback no contract classifies is parked as `no_typed_contract`. An approval-required
+  rollback contract (for example an `ALTER TABLE ... RESET`) and, for an automatic revert,
+  the standing policy's `approval_required_classes` and `refusal_set` send it to a person
+  (`queue_approval`); an operator's revert already has one. If the standing policy cannot be
+  read, the revert still runs, under `safety.lock_timeout_ms` with no ceiling, and the
+  decision's `evidence.policy_read_error` names the error. The soft-drop restore keeps its
+  own `drop_restore_bypass` decision above.
+- **A withheld revert reaches a person.** An automatic revert the gate or an emergency stop
+  withholds is recorded as `rollback_skipped` (its `rollback_reason` names the verdict) and
+  one approval item, "Revert action N", is queued (`sage.action_queue.reverts_action_id`,
+  action type `revert_action`). Its card says why the revert was withheld; after an
+  emergency stop, that it is approvable once the stop is lifted. While the gate would still
+  refuse a person's revert the item stays pending and not approvable. Approving it runs the
+  action's recorded rollback through the operator rollback, once. It is superseded when the
+  action is rolled back another way, and expires like any queue item (7 days); the
+  action's rollback button stays available after that. The index-replace watch keeps its
+  own undo path and queues no item.
+
+A rollback interrupted by a crash or restart no longer stays `rolling_back`. Each cycle on
+the primary, a `rolling_back` action (other than an index replacement, which resumes its own
+undo) whose claim is older than `safety.ddl_timeout_seconds` plus one minute is settled from
+the catalog, while the executor has no work in flight; no DDL runs. A dropped index that is
+gone, a re-created index back with the recorded definition, or a setting at the rollback's
+value (`pg_settings`; for `ALTER DATABASE`, the stored setting read in a fresh session)
+becomes `rolled_back`. Anything else, including a statement it cannot probe, becomes
+`rollback_failed` with the reason `interrupted during rollback: ...`. An INVALID index left
+by an interrupted `CREATE INDEX CONCURRENTLY` is named in that reason: drop it with
+`DROP INDEX CONCURRENTLY` before retrying. Outcome writes are retried three times with
+backoff; a write that still fails is logged with the action id and outcome, and an operator
+rollback whose DDL ran reports that its outcome was not recorded. The Actions page offers
+**Retry rollback** on `rollback_skipped` and `rollback_failed` actions that have rollback
+SQL, and shows their reason.
 
 Each executed action carries `verification_outcome` in `GET /api/v1/actions` and
 `/api/v1/actions/{id}`; `GET /api/v1/action-outcomes?database=&class=&verdict=&since=&limit=` lists the
@@ -977,7 +1057,8 @@ The standing policy document also carries three safety fields, all enforced:
   the owner declared as the contract's `retention.column`; see [Retention
   contracts](#retention-contracts)). Unknown tokens are rejected.
 - `lock_duration_ceiling_ms`: caps `lock_timeout` for DDL that runs inside a
-  transaction at the smaller of the ceiling and `safety.lock_timeout_ms`.
+  transaction at the smaller of the ceiling and `safety.lock_timeout_ms`, reverts
+  included.
   `CONCURRENTLY` builds keep `safety.lock_timeout_ms`, because they wait on
   older transactions by design. `0` means no ceiling.
 - `serialize_mode`: `park` (both profiles). When another writer holds the
@@ -1121,6 +1202,34 @@ and the catalog, never from evidence or an LLM.
   unknown tier. A statement that maps to no change class (`TRUNCATE`, for
   one) records under the feature `unclassified`. No verdict changes: such a
   candidate never runs unattended.
+- **Unscoped VACUUM and REINDEX have no contract.** `vacuum_table` is a VACUUM
+  of exactly one named relation (an optional column list allowed); a bare
+  `VACUUM`, `VACUUM (FREEZE)` with no table and a comma list
+  (`VACUUM a, b`) classify as nothing and park as `no_typed_contract`, as
+  does `VACUUM FULL`. `reindex_concurrently` is `REINDEX INDEX|TABLE
+  CONCURRENTLY`; `REINDEX SCHEMA|DATABASE|SYSTEM CONCURRENTLY` parks as
+  `no_typed_contract`. A statement with no contract also has no top-level
+  route: were it ever to run, it would fail inside a transaction block.
+- **Execution route by typed action.** Only `create_index_concurrently`,
+  `reindex_concurrently`, `drop_unused_index`, `revert_created_index`,
+  `vacuum_table` and `alter_system_guc` run outside a transaction and keep
+  `safety.lock_timeout_ms`; every other statement runs in a transaction under
+  the tighter of the policy's `lock_duration_ceiling_ms` and
+  `safety.lock_timeout_ms`. An automatic rollback routes the same way, but
+  always under `safety.lock_timeout_ms` (it carries no policy ceiling). A
+  keyword in a table name (`concurrently_log`) no longer changes the route.
+- **`target_mismatch`.** A self-initiated finding whose object type names a
+  relation (`table`, `index`, `view`, `materialized_view`,
+  `partitioned_table`), and a custodian proposal, must change the object it
+  names: its statement target is compared with the finding's identifier
+  (an optimizer finding's table; a trailing column list is ignored) with
+  `public` as the default schema and unquoted names folded to lower case (a
+  catalog-form name such as `public.my table` matches its quoted spelling). A
+  difference is `blocked` with the reason `target_mismatch` before any lease
+  is taken; the detail names both objects, and an approval does not lift it.
+  A finding with no identifier leases its statement's target. Rollbacks of
+  pg_sage's own changes, findings that name a setting, the instance or a
+  query, and index replacements are not compared.
 - **Record failures.** A decision the gate cannot record in `sage.decision`
   is answered `blocked policy_unavailable` (fail closed); its detail names the
   verdict and reason it meant to record (for example
@@ -1129,6 +1238,18 @@ and the catalog, never from evidence or an LLM.
   failure by the decision's reason, and the sidecar logs each failing
   decision at most once an hour. Any series above zero means the ledger is
   missing decisions.
+- **Episodes.** A withheld verdict (parked, queued, blocked, observe-only)
+  that repeats every cycle is one `sage.decision` row per episode: repeats
+  count in `repeat_count` and stamp `last_seen_at`. An episode ends, and
+  `resolved_at` is set, when its decision is linked to the approval-queue item
+  it queued (`queue_id`), or when the same candidate executes. The candidate is
+  `candidate_key`: database, feature, targets, SQL and principal, without the
+  verdict, intent or policy version, so an operator's approved execute also
+  ends an autonomous park. The next withheld verdict starts a new row, so a
+  change re-queued after a rejection has its own decision and its approval
+  card keeps the gate's reason and tier. A park that stays parked stays one
+  episode. Rows written before the upgrade gain `candidate_key` at their next
+  repeat. Per database; PostgreSQL 14 to 18 behave the same.
 
 #### Retention contracts
 
@@ -1461,6 +1582,17 @@ and the decision goes through the same approval as the browser, attributed to th
 user. Bot tokens, signing secrets and webhook secrets are sealed at rest like other channel
 secrets.
 
+*Snooze and follow-ups.* Snoozing a card keeps the action pending; autonomy does not take it
+over while the snooze runs. When the snooze ends, pg_sage sends the card again, once per
+snooze. If that re-send fails, the other ended snoozes are still sent, and the failed one is
+retried 5 minutes later; the warning log names each queue item that failed. A re-sent card
+replaces the older cards of the same action in the same channel (closed as `superseded`), so
+the verification verdict is posted once per channel, as a reply to the message the decision
+was made from, even when the decision came from a card sent before the re-send. A card whose
+action has no verdict yet is checked again after an eighth of its age (at least 1 minute, at
+most 1 hour), so cards still waiting do not hold up newer ones; a card with no verdict after
+14 days is closed.
+
 #### Runways and pre-incident investigations
 
 A runway is the time left before a hard limit. Every `sre.runways.interval_seconds`, pg_sage
@@ -1656,7 +1788,7 @@ literals always removed.
 | `sre.autonomy.game_days.families` | `[]` | Families to exercise. Empty: every family the bench covers |
 | `sre.autonomy.canary.canary_instances` | `1` | Databases changed and verified before a fleet rollout widens, `1`-`10` |
 | `sre.autonomy.canary.regression_limit_pct` | `10` | Regression that halts and rolls back a rollout, `0`-`100` |
-| `sre.autonomy.canary.settle_seconds` | `60` | Seconds to wait after each change before measuring it, `0`-`3600` |
+| `sre.autonomy.canary.settle_seconds` | removed | Removed in executor-04: a canary now waits for each database's own verification verdict instead of a fixed settle time. A config that still sets it loads and prints one startup warning that the key is ignored; remove the key, which a later release rejects |
 
 Game days run only the deterministic causal-graph arm, so they spend no LLM tokens. A
 forbidden action on a game day is recorded as a safety violation. The clone DSN is never
@@ -1720,6 +1852,26 @@ other database, it applies the same statement only where that database has its o
 finding with the same SQL, and only through the approval path. It verifies the canary
 databases first, then widens. It halts and rolls back everything in reverse order on a
 failed verification or a regression above the limit.
+
+After each change the canary waits for that database's own verdict. A reversible action is
+`monitoring` until its rollback monitor decides, so the canary re-reads the action every
+15 seconds until the verdict is final (a verification of `success`, `revert`, `failed` or
+`unverifiable`, or a settled outcome; a rollback still in progress on that database is waited
+out). A change that database's own monitor already rolled back is recorded `rolled_back` and is
+not rolled back a second time. The wait ends at the action's monitor deadline (its
+execution plus its class's monitor cap: `verify.window_max_minutes`, or
+`verify.drop_window_hours` for a drop) plus 2 minutes. A verdict still open then halts the
+rollout as `verification_pending`, with that database's record `verification_pending`: nothing
+is judged or rolled back, and the database's own monitor keeps the change and gives its
+verdict. A long monitor cap holds the single canary slot for that long.
+
+The source action must have a verification of `success`; an action with no verification is
+refused. When the rollout itself fails (a database cannot be read, re-verified or changed, or
+the request ends), every database it changed is rolled back, the run is `failed` with
+`rollout_error`, and a database whose rollback also fails is recorded `applied_unverified`
+with the rollback error. Instance records are `applied`, `not_locally_verified`,
+`verification_pending`, `rolled_back`, `rollback_failed` (after a halt),
+`applied_unverified` (after an error), `rollback_unavailable` or `failed` (not changed).
 
 API, under `/api/v1/sre/autonomy`. Every route takes `?database=<name>`.
 
