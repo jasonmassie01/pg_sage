@@ -335,7 +335,6 @@ var excludedExactKeys = map[string]bool{
 	"sre.autonomy.game_days.families":          true,
 	"sre.autonomy.canary.canary_instances":     true,
 	"sre.autonomy.canary.regression_limit_pct": true,
-	"sre.autonomy.canary.settle_seconds":       true,
 	// Stored bench and game-day reports age out with retention; the
 	// floor protects the promotion evidence window, so YAML-only.
 	"sre.autonomy.report_retention_days": true,

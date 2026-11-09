@@ -31,7 +31,7 @@ func TestSREAutonomyDefaults_NoConfigFile(t *testing.T) {
 		t.Fatalf("game day defaults = %+v", g)
 	}
 	c := a.Canary
-	if c.CanaryInstances != 1 || c.RegressionLimitPct != 10 || c.SettleSeconds != 60 {
+	if c.CanaryInstances != 1 || c.RegressionLimitPct != 10 {
 		t.Fatalf("canary defaults = %+v", c)
 	}
 }
@@ -104,8 +104,6 @@ func TestSREAutonomy_GameDayAndCanaryBoundaries(t *testing.T) {
 		{"canary:\n      regression_limit_pct: -1", "canary.regression_limit_pct", false},
 		{"canary:\n      regression_limit_pct: 100", "", true},
 		{"canary:\n      regression_limit_pct: 101", "canary.regression_limit_pct", false},
-		{"canary:\n      settle_seconds: -1", "canary.settle_seconds", false},
-		{"canary:\n      settle_seconds: 3601", "canary.settle_seconds", false},
 	}
 	for _, c := range cases {
 		_, err := loadRCAYAML(t, "sre:\n  autonomy:\n    "+c.yaml+"\n")

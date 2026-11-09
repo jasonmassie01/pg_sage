@@ -46,7 +46,6 @@ type SREGameDaysConfig struct {
 type SRECanaryConfig struct {
 	CanaryInstances    int     `yaml:"canary_instances" doc:"Databases changed and measured before the rollout widens, 1-10. Default: 1."`
 	RegressionLimitPct float64 `yaml:"regression_limit_pct" doc:"Regression that halts and rolls back the rollout, 0-100. Default: 10."`
-	SettleSeconds      int     `yaml:"settle_seconds" doc:"Seconds to wait after each change before measuring it, 0-3600. Default: 60."`
 }
 
 func defaultSREAutonomyConfig() SREAutonomyConfig {
@@ -55,7 +54,7 @@ func defaultSREAutonomyConfig() SREAutonomyConfig {
 		ConcurrencyWindowMinutes: 15, SafetyWindowDays: 30, FailoverCooldownMinutes: 30,
 		ProposalTTLHours: 168, ReportRetentionDays: 90, Promotion: defaultSREPromotionConfig(),
 		GameDays: SREGameDaysConfig{IntervalHours: 168},
-		Canary:   SRECanaryConfig{CanaryInstances: 1, RegressionLimitPct: 10, SettleSeconds: 60}}
+		Canary:   SRECanaryConfig{CanaryInstances: 1, RegressionLimitPct: 10}}
 	c.ClassPromotion = defaultSREClassPromotionConfig()
 	return c
 }
@@ -79,7 +78,6 @@ func (a SREAutonomyConfig) validate() error {
 		{"report_retention_days", a.ReportRetentionDays, 30, 3650},
 		{"game_days.interval_hours", a.GameDays.IntervalHours, 24, 2160},
 		{"canary.canary_instances", a.Canary.CanaryInstances, 1, 10},
-		{"canary.settle_seconds", a.Canary.SettleSeconds, 0, 3600},
 	} {
 		if c.value < c.lo || c.value > c.hi {
 			return fmt.Errorf("sre.autonomy.%s must be %d-%d, got %d", c.key, c.lo, c.hi,

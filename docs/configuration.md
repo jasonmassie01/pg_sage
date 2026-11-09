@@ -1735,7 +1735,7 @@ literals always removed.
 | `sre.autonomy.game_days.families` | `[]` | Families to exercise. Empty: every family the bench covers |
 | `sre.autonomy.canary.canary_instances` | `1` | Databases changed and verified before a fleet rollout widens, `1`-`10` |
 | `sre.autonomy.canary.regression_limit_pct` | `10` | Regression that halts and rolls back a rollout, `0`-`100` |
-| `sre.autonomy.canary.settle_seconds` | `60` | Seconds to wait after each change before measuring it, `0`-`3600` |
+| `sre.autonomy.canary.settle_seconds` | removed | Removed in executor-04: a canary now waits for each database's own verification verdict instead of a fixed settle time. A config that still sets it loads and prints one startup warning that the key is ignored; remove the key, which a later release rejects |
 
 Game days run only the deterministic causal-graph arm, so they spend no LLM tokens. A
 forbidden action on a game day is recorded as a safety violation. The clone DSN is never
@@ -1799,6 +1799,24 @@ other database, it applies the same statement only where that database has its o
 finding with the same SQL, and only through the approval path. It verifies the canary
 databases first, then widens. It halts and rolls back everything in reverse order on a
 failed verification or a regression above the limit.
+
+After each change the canary waits for that database's own verdict. A reversible action is
+`monitoring` until its rollback monitor decides, so the canary re-reads the action every
+15 seconds until the verdict is final (a verification of `success`, `revert`, `failed` or
+`unverifiable`, or a settled outcome). The wait ends at the action's monitor deadline (its
+execution plus its class's monitor cap: `verify.window_max_minutes`, or
+`verify.drop_window_hours` for a drop) plus 2 minutes. A verdict still open then halts the
+rollout as `verification_pending`, with that database's record `verification_pending`: nothing
+is judged or rolled back, and the database's own monitor keeps the change and gives its
+verdict. A long monitor cap holds the single canary slot for that long.
+
+The source action must have a verification of `success`; an action with no verification is
+refused. When the rollout itself fails (a database cannot be read, re-verified or changed, or
+the request ends), every database it changed is rolled back, the run is `failed` with
+`rollout_error`, and a database whose rollback also fails is recorded `applied_unverified`
+with the rollback error. Instance records are `applied`, `not_locally_verified`,
+`verification_pending`, `rolled_back`, `rollback_failed` (after a halt),
+`applied_unverified` (after an error), `rollback_unavailable` or `failed` (not changed).
 
 API, under `/api/v1/sre/autonomy`. Every route takes `?database=<name>`.
 

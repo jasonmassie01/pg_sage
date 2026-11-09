@@ -349,7 +349,6 @@
 | `sre.autonomy.bench_results_path` | `restart` | `-` | `safety_critical` |
 | `sre.autonomy.canary.canary_instances` | `restart` | `-` | `safety_critical` |
 | `sre.autonomy.canary.regression_limit_pct` | `restart` | `-` | `safety_critical` |
-| `sre.autonomy.canary.settle_seconds` | `restart` | `-` | `safety_critical` |
 | `sre.autonomy.class_promotion.min_success_rate_pct` | `restart` | `-` | `safety_critical` |
 | `sre.autonomy.class_promotion.min_successes_l2` | `restart` | `-` | `safety_critical` |
 | `sre.autonomy.class_promotion.min_successes_l3` | `restart` | `-` | `safety_critical` |

@@ -109,11 +109,16 @@ func dropRetired(raw string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	raw, nestedWarnings, err := stripRetiredNestedKeys(raw)
+	if err != nil {
+		return "", err
+	}
 	raw, sectionWarnings, err := stripRetiredSections(raw)
 	if err != nil {
 		return "", err
 	}
-	warnings := append(append(ignoredWarnings, keyWarnings...), sectionWarnings...)
+	warnings := append(append(append(ignoredWarnings, keyWarnings...), nestedWarnings...),
+		sectionWarnings...)
 	for _, warning := range warnings {
 		_, _ = fmt.Fprintln(configWarningOutput, warning)
 	}

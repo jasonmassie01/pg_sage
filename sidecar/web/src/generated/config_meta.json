@@ -2290,12 +2290,6 @@
     "doc": "Regression that halts and rolls back the rollout, 0-100. Default: 10.",
     "class": "safety_critical"
   },
-  "sre.autonomy.canary.settle_seconds": {
-    "type": "int",
-    "default": 60,
-    "doc": "Seconds to wait after each change before measuring it, 0-3600. Default: 60.",
-    "class": "safety_critical"
-  },
   "sre.autonomy.class_promotion.min_success_rate_pct": {
     "type": "float64",
     "default": 80,
