@@ -917,6 +917,50 @@ signed with Ed25519.
   missing. It is absent when no decision recorded a hash (decisions
   written before the hash column existed, or decisions made before any
   policy was read, which record version 0).
+- **`policy_approvals.json`** holds each person's approval of the policy
+  versions in `policy.json` (`sage.policy_approvals`), from the same
+  database as the policy.
+
+`GET /api/v1/audit/evidence?database=<name>&from=<RFC 3339>&to=<RFC 3339>`
+exports a window of at most 31 days: `actions.json`, `auth_audit.json`,
+`config_audit.json`, `pgaudit.json`, `guard_query_audit.json`,
+`decisions.json` and `chains.json`, which verifies each chain over the
+positions of the rows the pack holds.
+
+- **Fleet mode.** Sign-ins, user changes, evidence downloads and config
+  changes are written to the control database, so `auth_audit.json` (the
+  whole deployment's) and `config_audit.json` come from there and are
+  proved by the control database's chains. `config_audit.json` holds the
+  changes of the requested database (by its `sage.databases` id) and the
+  global ones. When the id is unknown it holds only the global changes,
+  and its manifest entry says so in `note`. Every other file comes from
+  the requested database. The control database's own pack
+  (`database=control`) and standalone packs read everything from the one
+  database.
+- **Bounded, in id order.** Each file holds at most 10,000 rows, the
+  lowest ids first.
+
+The manifest's `format` is `pg_sage-evidence/2`. Version 2 adds, to each
+entry of `files`:
+
+| Field | Meaning |
+|---|---|
+| `source` | `database` (the requested database) or `control`; absent on `chains.json`, whose proofs each name their own `source` |
+| `rows` | rows in the file (files of rows only) |
+| `truncated` | `true` when the 10,000-row bound cut the file |
+| `last_id` | id of the file's last row; the `after_id` of its next page |
+| `note` | why a file holds less than it might (for example, global config only) |
+
+The manifest's own `truncated` is `true` when any file was cut. Fetch the
+rest of a cut file with `&file=<name>&after_id=<last_id>` on the same
+window: the continuation pack holds that file's rows above `after_id`
+(again at most 10,000, in id order) and their chain proof in
+`chains.json`, and its manifest `scope` records `file` and `after_id`.
+Paging applies to window packs only; `after_id` without `file`, a
+negative `after_id` or a name that is not a window file is refused with
+400. Every download, continuations included, is recorded in
+`sage.auth_audit` as `evidence_exported`. Consumers that check `format`
+must accept `pg_sage-evidence/2`.
 
 ---
 
