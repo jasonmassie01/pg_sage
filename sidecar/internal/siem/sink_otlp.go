@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/egress"
 )
 
 type otlpSink struct {
@@ -23,7 +25,7 @@ func NewOTLPSink(name, endpoint, token string, timeout time.Duration) Sink {
 		endpoint = strings.TrimRight(endpoint, "/") + "/v1/logs"
 	}
 	return &otlpSink{name: name, url: endpoint, token: token,
-		client: &http.Client{Timeout: timeout}}
+		client: egress.HTTPClient(timeout)}
 }
 
 func (s *otlpSink) Name() string { return s.name }

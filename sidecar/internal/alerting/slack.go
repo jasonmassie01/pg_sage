@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/egress"
 	"github.com/pg-sage/sidecar/internal/notify"
 )
 
@@ -30,7 +31,7 @@ func NewSlack(
 ) *SlackChannel {
 	return &SlackChannel{
 		webhookURL: webhookURL,
-		client:     &http.Client{Timeout: 10 * time.Second},
+		client:     egress.HTTPClient(10 * time.Second),
 		logFn:      logFn,
 	}
 }

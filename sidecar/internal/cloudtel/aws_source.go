@@ -9,6 +9,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
+
+	"github.com/pg-sage/sidecar/internal/egress"
 )
 
 // AWSOptions identify one RDS instance or Aurora cluster (writer) and how
@@ -51,7 +53,7 @@ func NewAWSSource(opts AWSOptions) (*AWSSource, error) {
 		return nil, fmt.Errorf("%w: no AWS credential provider", ErrNoCredentials)
 	}
 	if opts.HTTPClient == nil {
-		opts.HTTPClient = &http.Client{Timeout: 20 * time.Second}
+		opts.HTTPClient = egress.HTTPClient(20 * time.Second)
 	}
 	if opts.Now == nil {
 		opts.Now = time.Now

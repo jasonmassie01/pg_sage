@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/egress"
 )
 
 type DLEConfig struct {
@@ -36,7 +38,7 @@ func NewDLEProvider(cfg DLEConfig) (*DLEProvider, error) {
 	}
 	client := cfg.HTTPClient
 	if client == nil {
-		client = &http.Client{Timeout: 30 * time.Second}
+		client = egress.HTTPClient(30 * time.Second)
 	}
 	now := cfg.Now
 	if now == nil {

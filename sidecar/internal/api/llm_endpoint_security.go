@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/egress"
 )
 
 func validateLLMDiscoveryEndpoint(ctx context.Context, endpoint string) error {
@@ -63,24 +65,24 @@ func sameLLMOrigin(left, right string) bool {
 		l.Host != "" && l.User == nil && r.User == nil && strings.EqualFold(l.Host, r.Host)
 }
 
+// safeLLMDiscoveryHTTPClient composes the discovery rules (public
+// addresses only, pinned resolution, no proxy, no redirects) on top of the
+// egress floor.
 func safeLLMDiscoveryHTTPClient() *http.Client {
-	dialer := &net.Dialer{}
-	transport := &http.Transport{
-		Proxy: nil,
-		DialContext: func(
-			ctx context.Context, network, address string,
-		) (net.Conn, error) {
-			return dialSafeLLMEndpoint(ctx, dialer, network, address)
-		},
+	dialer := egress.Dialer(0)
+	transport := egress.Transport(0)
+	transport.Proxy = nil
+	transport.DialContext = func(
+		ctx context.Context, network, address string,
+	) (net.Conn, error) {
+		return dialSafeLLMEndpoint(ctx, dialer, network, address)
 	}
-	return &http.Client{
-		Transport: transport,
-		CheckRedirect: func(
-			_ *http.Request, _ []*http.Request,
-		) error {
-			return fmt.Errorf("provider redirects are forbidden")
-		},
+	client := egress.HTTPClient(0)
+	client.Transport = transport
+	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return fmt.Errorf("provider redirects are forbidden")
 	}
+	return client
 }
 
 func dialSafeLLMEndpoint(

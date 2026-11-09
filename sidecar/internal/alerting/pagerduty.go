@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/egress"
 	"github.com/pg-sage/sidecar/internal/notify"
 )
 
@@ -27,7 +28,7 @@ func NewPagerDuty(
 ) *PagerDutyChannel {
 	return &PagerDutyChannel{
 		routingKey: routingKey,
-		client:     &http.Client{Timeout: 10 * time.Second},
+		client:     egress.HTTPClient(10 * time.Second),
 		logFn:      logFn,
 	}
 }

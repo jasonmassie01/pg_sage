@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/egress"
 )
 
 // Prometheus connector errors; callers distinguish them with errors.Is.
@@ -72,7 +74,7 @@ func NewPromClient(c PromConfig) (*PromClient, error) {
 	}
 	hc := c.HTTPClient
 	if hc == nil {
-		hc = &http.Client{Timeout: timeout}
+		hc = egress.HTTPClient(timeout)
 	}
 	u.RawQuery, u.Fragment = "", ""
 	return &PromClient{base: u, token: c.BearerToken, timeout: timeout, http: hc}, nil

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/egress"
 )
 
 // WebhookChannel sends alerts to a generic HTTP endpoint.
@@ -27,7 +29,7 @@ func NewWebhook(
 		name:    "webhook:" + name,
 		url:     url,
 		headers: headers,
-		client:  &http.Client{Timeout: 10 * time.Second},
+		client:  egress.HTTPClient(10 * time.Second),
 		logFn:   logFn,
 	}
 }

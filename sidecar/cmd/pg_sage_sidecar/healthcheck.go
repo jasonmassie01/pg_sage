@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/egress"
 )
 
 // The container healthcheck (ci-06): "sage-sidecar healthcheck" probes GET
@@ -151,21 +152,19 @@ func isLoopbackHost(host string) bool {
 // certificate verification only for a loopback target, where the
 // sidecar's own (often self-signed) certificate names another host.
 func healthcheckClient(target healthcheckTarget, timeout time.Duration) *http.Client {
-	transport := &http.Transport{
-		Proxy:             nil,
-		DialContext:       (&net.Dialer{Timeout: timeout}).DialContext,
-		DisableKeepAlives: true,
-		TLSClientConfig: &tls.Config{
-			MinVersion:         tls.VersionTLS12,
-			InsecureSkipVerify: target.loopback,
-		},
+	transport := egress.Transport(timeout)
+	transport.Proxy = nil
+	transport.DisableKeepAlives = true
+	transport.TLSClientConfig = &tls.Config{
+		MinVersion:         tls.VersionTLS12,
+		InsecureSkipVerify: target.loopback,
 	}
-	return &http.Client{
-		Transport: transport,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
+	client := egress.HTTPClient(0)
+	client.Transport = transport
+	client.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
 	}
+	return client
 }
 
 func probeHealth(client *http.Client, target healthcheckTarget, timeout time.Duration) error {

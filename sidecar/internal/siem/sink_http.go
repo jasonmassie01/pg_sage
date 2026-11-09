@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/egress"
 )
 
 // Sink delivers a batch of events. Send returns nil only when the
@@ -29,7 +31,7 @@ type httpSink struct {
 // optional bearer token.
 func NewHTTPSink(name, url, token string, timeout time.Duration) Sink {
 	return &httpSink{name: name, url: url, token: token,
-		client: &http.Client{Timeout: timeout}}
+		client: egress.HTTPClient(timeout)}
 }
 
 func (s *httpSink) Name() string { return s.name }

@@ -14,6 +14,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/databricksauth"
+	"github.com/pg-sage/sidecar/internal/egress"
 )
 
 // Client is an OpenAI-compatible LLM client with circuit breaker.
@@ -109,7 +110,7 @@ func New(cfg *config.LLMConfig, logFn func(string, string, ...any)) *Client {
 	snapshot := *cfg
 	return &Client{
 		cfg:                 &snapshot,
-		httpClient:          &http.Client{},
+		httpClient:          egress.HTTPClient(0),
 		logFn:               logFn,
 		authorizeDatabricks: databricksauth.Authorize,
 		cooldown:            circuitCooldown(cfg.CooldownSeconds),

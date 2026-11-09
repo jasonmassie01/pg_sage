@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/egress"
 	"github.com/pg-sage/sidecar/internal/managedparam"
 )
 
@@ -59,7 +60,7 @@ func NewGCPSource(opts GCPOptions) (*GCPSource, error) {
 		return nil, fmt.Errorf("%w: no Google token source", ErrNoCredentials)
 	}
 	if opts.HTTPClient == nil {
-		opts.HTTPClient = &http.Client{Timeout: 20 * time.Second}
+		opts.HTTPClient = egress.HTTPClient(20 * time.Second)
 	}
 	if opts.Now == nil {
 		opts.Now = time.Now
