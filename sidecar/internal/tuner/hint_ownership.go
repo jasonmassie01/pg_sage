@@ -63,7 +63,7 @@ func (t *Tuner) hintStates(ctx context.Context, ids []int64) (map[int64]hintOwne
 		return out, nil
 	}
 	query := hintStateNoTableSQL
-	if t.hintPlan != nil && t.hintPlan.HintTableReady {
+	if h := t.hints(); h != nil && h.HintTableReady {
 		query = hintStateSQL
 	}
 	rows, err := t.pool.Query(ctx, query, ids)

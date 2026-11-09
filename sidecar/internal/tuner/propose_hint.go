@@ -39,11 +39,14 @@ type HintProposal struct {
 	Detail    map[string]any
 }
 
-// HintsAvailable reports whether hints can be installed: pg_hint_plan is
-// loaded and its hint table is ready.
+// HintsAvailable reports whether installed hints change application plans
+// (ApplicationEffect, tuning-04) and the hint table is ready.
 func (t *Tuner) HintsAvailable() bool {
-	return t != nil && t.hintPlan != nil && t.hintPlan.Available &&
-		t.hintPlan.HintTableReady
+	if t == nil {
+		return false
+	}
+	h := t.hints()
+	return h != nil && h.ApplicationEffect && h.HintTableReady
 }
 
 // CheckHint turns an agent hint into a query_tuning finding with the

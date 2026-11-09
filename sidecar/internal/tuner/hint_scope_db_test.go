@@ -130,7 +130,7 @@ func TestHintScope_RemovalLeavesOperatorReplacement(t *testing.T) {
 	installHintRow(t, pool, replaced, "", scopeOperatorHint)
 	recordSageHint(t, pool, installed, scopeOwnHint, "broken")
 	installHintRow(t, pool, installed, "", scopeOwnHint)
-	tu := New(pool, TunerConfig{}, &HintPlanAvailability{Available: true,
+	tu := New(pool, TunerConfig{}, &HintPlanAvailability{ApplicationEffect: true,
 		HintTableReady: true}, noopLog2)
 	findings := tu.hintRemovalFindings(ctx)
 	if len(findings) != 1 || findings[0].ObjectIdentifier != "queryid:9210022" {

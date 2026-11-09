@@ -15,7 +15,7 @@ import (
 
 func realHintSink(h *harness, maxMB int, hostBytes int64) *tuner.Tuner {
 	tu := tuner.New(nil, tuner.TunerConfig{WorkMemMaxMB: maxMB},
-		&tuner.HintPlanAvailability{Available: true, HintTableReady: true}, noLog)
+		&tuner.HintPlanAvailability{ApplicationEffect: true, HintTableReady: true}, noLog)
 	tu.WithHostMemory(func() advisor.HostMemory {
 		return advisor.HostMemory{TotalBytes: hostBytes}
 	})

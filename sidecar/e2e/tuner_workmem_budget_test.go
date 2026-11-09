@@ -39,7 +39,7 @@ func TestTunerWorkMemBudget_AgentHintsStayUnderTheCap(t *testing.T) {
 		ceiling int
 	}{{4 << 30, 204}, {16 << 30, 512}, {0, 512}} {
 		tu := tuner.New(nil, tuner.TunerConfig{WorkMemMaxMB: 512},
-			&tuner.HintPlanAvailability{Available: true, HintTableReady: true}, nil)
+			&tuner.HintPlanAvailability{ApplicationEffect: true, HintTableReady: true}, nil)
 		total := host.bytes
 		tu.WithHostMemory(func() advisor.HostMemory {
 			return advisor.HostMemory{TotalBytes: total}

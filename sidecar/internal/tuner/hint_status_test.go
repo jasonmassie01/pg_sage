@@ -70,7 +70,7 @@ func hintStatuses(t *testing.T, pool *pgxpool.Pool) []string {
 }
 
 func readyTuner(pool *pgxpool.Pool) *Tuner {
-	return New(pool, TunerConfig{}, &HintPlanAvailability{Available: true,
+	return New(pool, TunerConfig{}, &HintPlanAvailability{ApplicationEffect: true,
 		HintTableReady: true}, noopLogFn)
 }
 

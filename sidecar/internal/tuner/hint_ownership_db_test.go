@@ -22,7 +22,7 @@ import (
 func ownershipTuner(pool *pgxpool.Pool) *Tuner {
 	return New(pool, TunerConfig{WorkMemMaxMB: 256, CascadeCooldownCycles: 3,
 		MinQueryCalls: 1, PlanTimeRatio: 0.5},
-		&HintPlanAvailability{Available: true, HintTableReady: true}, noopLog2)
+		&HintPlanAvailability{ApplicationEffect: true, HintTableReady: true}, noopLog2)
 }
 
 func ownershipHint(qid int64, hint string) HintProposal {
@@ -268,7 +268,7 @@ func TestHintOwnership_NoHintTable(t *testing.T) {
 	pool, ctx := noHintTableDB(t)
 	recordSageHint(t, pool, qid, scopeOwnHint, "proposed")
 	tu := New(pool, TunerConfig{MinQueryCalls: 1, PlanTimeRatio: 0.5},
-		&HintPlanAvailability{Available: true}, noopLog2)
+		&HintPlanAvailability{ApplicationEffect: true}, noopLog2)
 	if tu.HintsAvailable() {
 		t.Fatal("HintsAvailable without a hint table")
 	}

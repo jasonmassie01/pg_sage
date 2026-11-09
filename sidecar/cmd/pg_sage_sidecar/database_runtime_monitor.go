@@ -165,6 +165,10 @@ func (rt *databaseRuntime) newTuner() *tuner.Tuner {
 	if err != nil {
 		logWarn(rt.spec.Scope, "db %q: pg_hint_plan detection: %v", rt.spec.Name, err)
 	}
+	if !hintPlan.ApplicationEffect {
+		logInfo(rt.spec.Scope, "db %q: query hints stay advisory: %s", rt.spec.Name,
+			hintPlan.Readiness())
+	}
 	tunerCfg := tunerConfig(cfg)
 	result := tuner.New(rt.spec.Pool, tunerCfg, hintPlan, logStructuredWrapper)
 	result.WithHostMemory(rt.hostMemory)

@@ -75,7 +75,7 @@ const hintRolledBackSQL = `/* pg_sage */ UPDATE sage.query_hints q
 // reconcileHintStatuses moves query_hints rows to the state hint_plan.hints
 // shows. Without a ready hint table nothing can have been applied.
 func (t *Tuner) reconcileHintStatuses(ctx context.Context) {
-	if t.pool == nil || t.hintPlan == nil || !t.hintPlan.HintTableReady {
+	if h := t.hints(); t.pool == nil || h == nil || !h.HintTableReady {
 		return
 	}
 	for _, step := range []struct{ name, sql string }{

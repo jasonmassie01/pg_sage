@@ -14,9 +14,16 @@ import (
 
 // Tuner produces per-query tuning findings from plan analysis.
 type Tuner struct {
-	pool          *pgxpool.Pool
-	cfg           TunerConfig
-	hintPlan      *HintPlanAvailability
+	pool *pgxpool.Pool
+	cfg  TunerConfig
+	// hintPlan holds the pg_hint_plan facts; read it through hints(). It is
+	// replaced, never changed in place, under hintMu: the tuning agent reads
+	// it from its own goroutine while a cycle re-reads it (tuning-04).
+	hintPlan *HintPlanAvailability
+	hintMu   sync.RWMutex
+	// hintSource re-reads the facts each cycle (the pool; nil without one).
+	hintSource HintQuerier
+
 	logFn         func(string, string, ...any)
 	recentlyTuned map[int64]int
 
@@ -60,6 +67,9 @@ func New(
 		logFn:         logFn,
 		recentlyTuned: make(map[int64]int),
 		spill:         statSpill{baselines: map[spillKey]spillBaseline{}},
+	}
+	if pool != nil {
+		t.hintSource = pool
 	}
 	// recentlyTuned is only the post-proposal cooldown: one hint per
 	// statement is enforced from the durable state on every check
@@ -106,6 +116,7 @@ func (t *Tuner) Tune(
 	}
 	t.staleStats = cache
 	t.staleStatsEmitted = map[string]bool{}
+	t.refreshHintPlan(ctx)
 	t.loadFacts(ctx)
 	t.reconcileHintStatuses(ctx)
 
@@ -440,11 +451,15 @@ func (t *Tuner) buildFinding(
 	if strings.TrimSpace(combinedHint) == "" {
 		return f
 	}
-	if t.hintPlan != nil && t.hintPlan.Available && t.hintPlan.HintTableReady {
+	// Executable SQL only when the hint would change the application's plan
+	// (tuning-04); otherwise the finding stays advisory and names why.
+	if t.HintsAvailable() {
 		f.RecommendedSQL = BuildInsertSQL(
 			c.QueryID, combinedHint,
 		)
 		f.RollbackSQL = BuildDeleteSQL(c.QueryID, combinedHint)
+	} else {
+		detail["hint_readiness"] = t.hints().Readiness()
 	}
 
 	// Persist to sage.query_hints for the dashboard query-hints page.

@@ -50,7 +50,7 @@ func hostOf(bytes int64) advisor.HostMemorySource {
 // spillTuner is a tuner without a database whose stat-spill settings come
 // from r; hostBytes 0 leaves host memory unknown.
 func spillTuner(r *fakeSpillReader, maxMB int, hostBytes int64) *Tuner {
-	tu := New(nil, TunerConfig{WorkMemMaxMB: maxMB}, &HintPlanAvailability{Available: true,
+	tu := New(nil, TunerConfig{WorkMemMaxMB: maxMB}, &HintPlanAvailability{ApplicationEffect: true,
 		HintTableReady: true}, noopLogFn)
 	tu.spill.read = r.read
 	if hostBytes > 0 {

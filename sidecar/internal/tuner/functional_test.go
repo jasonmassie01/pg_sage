@@ -1367,7 +1367,7 @@ var _ = math.Abs
 
 func TestFunctional_Coverage_New_NilPool(t *testing.T) {
 	cfg := TunerConfig{MinQueryCalls: 5, PlanTimeRatio: 0.5}
-	hp := &HintPlanAvailability{Available: true, HintTableReady: true}
+	hp := &HintPlanAvailability{ApplicationEffect: true, HintTableReady: true}
 	tu := New(nil, cfg, hp, noopLogFn)
 	if tu == nil {
 		t.Fatal("New returned nil")
@@ -1680,8 +1680,8 @@ func TestFunctional_Coverage_PrescribeAll_AllSymptoms(t *testing.T) {
 func TestFunctional_Coverage_BuildFinding_WithHintPlan(t *testing.T) {
 	tu := &Tuner{
 		hintPlan: &HintPlanAvailability{
-			Available:      true,
-			HintTableReady: true,
+			ApplicationEffect: true,
+			HintTableReady:    true,
 		},
 	}
 	c := candidate{
@@ -1753,8 +1753,8 @@ func TestFunctional_Coverage_BuildFinding_WithHintPlan(t *testing.T) {
 func TestFunctional_Coverage_BuildFinding_NoHintPlan(t *testing.T) {
 	tu := &Tuner{
 		hintPlan: &HintPlanAvailability{
-			Available:      false,
-			HintTableReady: false,
+			ApplicationEffect: false,
+			HintTableReady:    false,
 		},
 	}
 	c := candidate{QueryID: 99, Query: "SELECT 1"}
@@ -1777,8 +1777,8 @@ func TestFunctional_Coverage_BuildFinding_AvailableButNotReady(
 ) {
 	tu := &Tuner{
 		hintPlan: &HintPlanAvailability{
-			Available:      true,
-			HintTableReady: false,
+			ApplicationEffect: true,
+			HintTableReady:    false,
 		},
 	}
 	c := candidate{QueryID: 50, Query: "SELECT 1"}
@@ -1814,7 +1814,7 @@ func TestFunctional_Coverage_BuildFinding_MultipleSymptoms(
 ) {
 	tu := &Tuner{
 		hintPlan: &HintPlanAvailability{
-			Available: true, HintTableReady: true,
+			ApplicationEffect: true, HintTableReady: true,
 		},
 	}
 	c := candidate{QueryID: 777, Query: "SELECT * FROM t"}

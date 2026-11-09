@@ -252,7 +252,7 @@ func TestFunctional_Coverage_DB_ProcessCandidate_WithSymptom(
 		cleanTunerCoverageHints(t, pool, context.Background())
 	})
 
-	hp := &HintPlanAvailability{Available: false}
+	hp := &HintPlanAvailability{ApplicationEffect: false}
 	tuner := New(pool, TunerConfig{
 		PlanTimeRatio: 0.5,
 		MinQueryCalls: 1,

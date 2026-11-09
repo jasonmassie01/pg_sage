@@ -62,7 +62,7 @@ func TestHintRemovalFindings_RetiredAndBrokenOnly(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	ready := &HintPlanAvailability{Available: true, HintTableReady: true}
+	ready := &HintPlanAvailability{ApplicationEffect: true, HintTableReady: true}
 	tu := New(pool, TunerConfig{}, ready, noopLog2)
 	findings := tu.hintRemovalFindings(ctx)
 	var got []string

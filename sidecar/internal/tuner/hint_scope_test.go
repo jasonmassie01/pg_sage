@@ -85,7 +85,7 @@ func TestHintScope_InsertedHintTextRejects(t *testing.T) {
 // installs, so an action whose apply was a no-op over another row deletes
 // nothing when it is rolled back.
 func TestHintScope_BuildFindingRollbackMatchesInsert(t *testing.T) {
-	tu := &Tuner{hintPlan: &HintPlanAvailability{Available: true, HintTableReady: true}}
+	tu := &Tuner{hintPlan: &HintPlanAvailability{ApplicationEffect: true, HintTableReady: true}}
 	c := candidate{QueryID: 777, Query: "SELECT 1", MeanExecTime: 150, Calls: 100}
 	hint := "IndexScan(orders orders_pkey)"
 	f := tu.buildFinding(context.Background(), c, nil, hint, "t", "r")
