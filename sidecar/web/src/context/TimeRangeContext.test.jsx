@@ -53,6 +53,21 @@ describe('TimeRangeProvider tick', () => {
     expect(result.current.toISO).toBe('2026-11-09T10:01:00.000Z')
   })
 
+  it('counts the next tick from the tick on show', () => {
+    const { result } = renderHook(() => useTimeRange(), { wrapper })
+    act(() => hideTab())
+    advance(59000)
+    act(() => showTab())
+    expect(result.current.toISO).toBe('2026-11-09T10:00:59.000Z')
+    const shown = result.current
+    advance(1000) // the old 30 s schedule would tick again here, 1 s later
+    expect(result.current).toBe(shown)
+    advance(28999)
+    expect(result.current.toISO).toBe('2026-11-09T10:00:59.000Z')
+    advance(1)
+    expect(result.current.toISO).toBe('2026-11-09T10:01:29.000Z')
+  })
+
   it('ignores a visibilitychange that leaves the tab hidden', () => {
     const { result } = renderHook(() => useTimeRange(), { wrapper })
     act(() => hideTab())
