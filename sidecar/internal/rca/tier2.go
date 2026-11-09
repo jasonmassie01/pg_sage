@@ -217,8 +217,8 @@ var droppedPromptMetrics = map[string]bool{"detail": true, "user": true}
 var doubleQuoted = regexp.MustCompile(`"[^"]*"`)
 
 // redactSignalMetrics copies metrics for an LLM prompt: log messages have
-// quoted values redacted and queries are comment-stripped and have
-// literals redacted.
+// quoted values and long compared numbers redacted and queries are
+// comment-stripped and have literals redacted.
 func redactSignalMetrics(m map[string]any) map[string]any {
 	out := make(map[string]any, len(m))
 	for k, v := range m {
@@ -231,7 +231,7 @@ func redactSignalMetrics(m map[string]any) map[string]any {
 			out[k] = llm.SanitizeForLLM(s)
 		case isString && k == "message":
 			out[k] = doubleQuoted.ReplaceAllString(
-				llm.RedactSQLLiterals(s), `"?"`)
+				llm.RedactLiteralsForLLM(s), `"?"`)
 		default:
 			out[k] = v
 		}

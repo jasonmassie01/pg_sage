@@ -1455,6 +1455,12 @@
     "doc": "Daily token cap for the optimizer LLM — independent of the general llm.token_budget_daily so reasoning spend can be tracked separately.",
     "class": "derivable"
   },
+  "llm.redact_numeric_literals": {
+    "type": "bool",
+    "default": true,
+    "doc": "Replace compared numbers of 6+ digits (=, \u003c\u003e, \u003c, \u003e, IN, ANY, BETWEEN, Key (c)=(...)) with ? before SQL, plan or log text reaches a model. Short numbers are kept. Default: true.",
+    "class": "safety_critical"
+  },
   "llm.timeout_seconds": {
     "type": "int",
     "default": 30,

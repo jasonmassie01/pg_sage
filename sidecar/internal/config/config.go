@@ -244,6 +244,7 @@ type LLMConfig struct {
 	IndexOptimizer         IndexOptimizerConfig `yaml:"index_optimizer"` // Deprecated: use Optimizer.
 	Optimizer              OptimizerConfig      `yaml:"optimizer"`
 	OptimizerLLM           OptimizerLLMConfig   `yaml:"optimizer_llm"`
+	RedactNumericLiterals  bool                 `yaml:"redact_numeric_literals" doc:"Replace compared numbers of 6+ digits (=, <>, <, >, IN, ANY, BETWEEN, Key (c)=(...)) with ? before SQL, plan or log text reaches a model. Short numbers are kept. Default: true."`
 }
 
 type IndexOptimizerConfig struct {
@@ -930,13 +931,14 @@ func newDefaults() *Config {
 			CascadeCooldownCycles: DefaultCascadeCooldownCycles,
 		},
 		LLM: LLMConfig{
-			Enabled:             DefaultLLMEnabled,
-			TimeoutSeconds:      DefaultLLMTimeoutSeconds,
-			TokenBudgetDaily:    DefaultLLMTokenBudget,
-			ContextBudgetTokens: DefaultLLMContextBudget,
-			CooldownSeconds:     DefaultLLMCooldownSeconds,
-			TokenParameter:      DefaultLLMTokenParameter,
-			ToolReasoningEffort: DefaultLLMToolReasoningEffort,
+			Enabled:               DefaultLLMEnabled,
+			TimeoutSeconds:        DefaultLLMTimeoutSeconds,
+			TokenBudgetDaily:      DefaultLLMTokenBudget,
+			ContextBudgetTokens:   DefaultLLMContextBudget,
+			CooldownSeconds:       DefaultLLMCooldownSeconds,
+			TokenParameter:        DefaultLLMTokenParameter,
+			ToolReasoningEffort:   DefaultLLMToolReasoningEffort,
+			RedactNumericLiterals: DefaultLLMRedactNumericLiterals,
 			IndexOptimizer: IndexOptimizerConfig{
 				Enabled:            DefaultIdxOptEnabled,
 				MinQueryCalls:      DefaultIdxOptMinQueryCalls,

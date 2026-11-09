@@ -299,6 +299,7 @@ derivable llm.optimizer_llm.max_output_tokens
 safety_critical llm.optimizer_llm.model
 derivable llm.optimizer_llm.timeout_seconds
 derivable llm.optimizer_llm.token_budget_daily
+safety_critical llm.redact_numeric_literals
 derivable llm.timeout_seconds
 derivable llm.token_budget_daily
 safety_critical llm.token_parameter

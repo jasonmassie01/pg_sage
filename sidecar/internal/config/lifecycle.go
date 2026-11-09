@@ -126,6 +126,7 @@ func reconfigurationOwner(path string) string {
 		"tuner.revalidation_interval_hours":     "tuner",
 		"schema_lint.scan_interval_minutes":     "schema_lint",
 		"auto_explain.collect_interval_seconds": "auto_explain",
+		"llm.redact_numeric_literals":           LLMRedactionOwner,
 	}
 	if owner := exact[path]; owner != "" {
 		return owner

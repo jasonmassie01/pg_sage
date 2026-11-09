@@ -160,6 +160,8 @@ var excludedExactKeys = map[string]bool{
 	// llm reconfigure owner; auto adapts without operator action.
 	"llm.token_parameter":       true,
 	"llm.tool_reasoning_effort": true,
+	// Privacy switch (llm-09): YAML-only, applied live by llm_redaction.
+	"llm.redact_numeric_literals": true,
 
 	// Optimizer what-if rejection memory: YAML-only, read when the
 	// optimizer is built (restart-bound).
