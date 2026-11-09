@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { clockTime as clock } from '../lib/clock'
 
 const TICK_MS = 5000
 const LABELS = { live: 'Live', reconnecting: 'Polling', offline: 'Offline' }
@@ -12,11 +13,6 @@ function toMillis(value) {
   if (!value) return null
   const ms = new Date(value).getTime()
   return Number.isFinite(ms) && ms > 0 ? ms : null
-}
-
-function clock(ms) {
-  const d = new Date(ms)
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
 function age(ms, now) {

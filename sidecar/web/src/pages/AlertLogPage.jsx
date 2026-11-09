@@ -5,7 +5,8 @@ import { DataTable } from '../components/DataTable'
 import { TimeAgo } from '../components/TimeAgo'
 import { SeverityBadge } from '../components/SeverityBadge'
 import { LoadingSpinner } from '../components/LoadingSpinner'
-import { ErrorBanner } from '../components/ErrorBanner'
+import { QueryState } from '../components/QueryState'
+import { queryBlocked } from '../lib/queryState'
 import { EmptyState } from '../components/EmptyState'
 
 const STATUS_COLORS = {
@@ -154,19 +155,22 @@ function DateRangeFilter({ from, to, onFrom, onTo, onClear }) {
 export function AlertLogPage({ database }) {
   const dbParam = database && database !== 'all'
     ? `?database=${database}` : ''
-  const { data, loading, error, refetch } =
-    useAPI(`/api/v1/alert-log${dbParam}`)
+  const alertsQuery = useAPI(`/api/v1/alert-log${dbParam}`)
+  const { data } = alertsQuery
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
 
-  if (loading) return <LoadingSpinner />
-  if (error) return <ErrorBanner message={error} onRetry={refetch} />
+  if (queryBlocked(alertsQuery)) {
+    return <QueryState query={alertsQuery} skeleton={<LoadingSpinner />} />
+  }
 
   const allAlerts = data?.alerts || []
   const alerts = filterByDate(allAlerts, fromDate, toDate)
 
   if (allAlerts.length === 0) {
-    return <EmptyState message="No alerts sent yet. Configure notification channels in Notifications to receive alerts when pg_sage detects issues." />
+    return <QueryState query={alertsQuery}>
+      <EmptyState message="No alerts sent yet. Configure notification channels in Notifications to receive alerts when pg_sage detects issues." />
+    </QueryState>
   }
 
   const columns = [
@@ -209,7 +213,7 @@ export function AlertLogPage({ database }) {
   ]
 
   return (
-    <>
+    <QueryState query={alertsQuery}>
       <DateRangeFilter from={fromDate} to={toDate}
         onFrom={setFromDate} onTo={setToDate}
         onClear={() => { setFromDate(''); setToDate('') }} />
@@ -219,6 +223,6 @@ export function AlertLogPage({ database }) {
       ) : (
         <DataTable columns={columns} rows={alerts} />
       )}
-    </>
+    </QueryState>
   )
 }

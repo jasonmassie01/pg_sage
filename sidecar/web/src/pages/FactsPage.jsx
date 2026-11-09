@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useAPI } from '../hooks/useAPI'
 import { LoadingSpinner } from '../components/LoadingSpinner'
-import { ErrorBanner } from '../components/ErrorBanner'
+import { QueryState } from '../components/QueryState'
+import { queryBlocked } from '../lib/queryState'
 import { EmptyState } from '../components/EmptyState'
 import { canDecideFacts, factsListURL } from '../lib/facts'
 import { FactCard } from './facts/FactCard'
@@ -65,12 +66,13 @@ function FactsExplainer() {
 }
 
 function FactList({ list, empty, canDecide }) {
-  if (list.loading) return <LoadingSpinner />
-  if (list.error) return <ErrorBanner message={list.error} onRetry={list.refetch} />
+  if (queryBlocked(list)) {
+    return <QueryState query={list} skeleton={<LoadingSpinner />} />
+  }
   const facts = Array.isArray(list.data?.facts) ? list.data.facts : []
   const errors = Array.isArray(list.data?.errors) ? list.data.errors : []
   return (
-    <div className="space-y-2">
+    <QueryState query={list}><div className="space-y-2">
       {errors.length > 0 && (
         <div data-testid="facts-errors" className="text-xs" style={{ color: 'var(--red)' }}>
           {errors.map(e => <div key={e.database}>{e.database}: {e.error}</div>)}
@@ -82,6 +84,6 @@ function FactList({ list, empty, canDecide }) {
         <FactCard key={`${f.database}:${f.id}`} fact={f} canDecide={canDecide}
           onDecided={list.refetch} />
       ))}
-    </div>
+    </div></QueryState>
   )
 }

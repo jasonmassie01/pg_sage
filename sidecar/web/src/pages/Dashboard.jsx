@@ -4,6 +4,8 @@ import { useAPI } from '../hooks/useAPI'
 import { useLiveRefetch } from '../hooks/useLiveEvents'
 import { SeverityBadge } from '../components/SeverityBadge'
 import { ErrorBanner } from '../components/ErrorBanner'
+import { QueryState, StaleStrip } from '../components/QueryState'
+import { hasData, queryStale } from '../lib/queryState'
 import { TokenBudgetBanner } from '../components/TokenBudgetBanner'
 import { FleetHealthChart } from '../components/FleetHealthChart'
 import { DatabaseTile } from '../components/DatabaseTile'
@@ -357,7 +359,8 @@ export function Dashboard({ database, onSelectDB, user }) {
   const [overviewTab, setOverviewTab] = useState('databases')
   const dbParam = database && database !== 'all'
     ? `?database=${encodeURIComponent(database)}` : ''
-  const { data, loading, error, refetch } = useAPI('/api/v1/databases')
+  const fleet = useAPI('/api/v1/databases')
+  const { data, loading, refetch } = fleet
   const sep = dbParam ? '&' : '?'
   // Newest first: the API default sort is severity (G9-B08).
   const findings = useAPI(
@@ -390,7 +393,7 @@ export function Dashboard({ database, onSelectDB, user }) {
     }).length
   })()
 
-  if (error) return <ErrorBanner message={error} onRetry={refetch} />
+  if (fleet.error && !hasData(fleet)) return <QueryState query={fleet} />
 
   const summary = data?.summary
   const databases = data?.databases
@@ -402,6 +405,7 @@ export function Dashboard({ database, onSelectDB, user }) {
 
   return (
     <div className="space-y-6">
+      {queryStale(fleet) && <StaleStrip query={fleet} />}
       <TokenBudgetBanner canReset={user?.role === 'admin'} />
       {summary && <HealthHero summary={summary} />}
 

@@ -1,24 +1,16 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { apiGet } from '../lib/api'
+import { resourceKey } from '../lib/resourceKey'
 
-// resourceKey identifies what a URL fetches, ignoring the from/to time
-// window. Moving the window (the 30 s time-range tick) refreshes the
-// same resource, so its data stays visible while revalidating (G9-B05).
-export function resourceKey(url) {
-  if (!url) return null
-  const [path, query = ''] = url.split('?')
-  const params = new URLSearchParams(query)
-  params.delete('from')
-  params.delete('to')
-  const rest = params.toString()
-  return rest ? `${path}?${rest}` : path
-}
+export { resourceKey }
 
 // useAPI polls `url` at `interval` ms. Data is keyed by resource, so a
 // different database never renders the previous database's data, and a
 // new time window keeps the current data until the refresh lands.
 // In-flight requests are aborted on url change and unmount. updatedAt is
-// the time (ms) of the resource's last successful response, or null.
+// the time (ms) of the resource's last successful response, or null;
+// failedAt is the time of its latest failed request since then, or null.
+// stale is true while a failed refresh leaves the last good data on screen.
 // error is the message the operator reads (the server's own {error} when it
 // sent one); errorStatus is the HTTP status, or null for a network failure.
 export function useAPI(url, interval = 30000) {
@@ -66,7 +58,9 @@ export function useAPI(url, interval = 30000) {
   return { ...visibleState(state, key, url, inFlight), refetch: fetchData }
 }
 
-const EMPTY = { key: null, data: null, error: null, errorStatus: null, updatedAt: null }
+const EMPTY = {
+  key: null, data: null, error: null, errorStatus: null, updatedAt: null, failedAt: null,
+}
 
 // failedState keeps the resource's last good data and its time when a
 // refresh of the same resource fails; a different resource starts empty.
@@ -78,6 +72,7 @@ function failedState(prev, key, err) {
     error: err.message,
     errorStatus: Number.isInteger(err.status) ? err.status : null,
     updatedAt: same ? prev.updatedAt : null,
+    failedAt: Date.now(),
   }
 }
 
@@ -88,9 +83,11 @@ function visibleState(state, key, url, inFlight) {
   const error = current ? state.error : null
   const errorStatus = current ? state.errorStatus : null
   const updatedAt = current ? state.updatedAt : null
+  const failedAt = current ? state.failedAt : null
   const loading = Boolean(url) &&
     (!current || (data === null && error === null && inFlight))
-  return { data, loading, error, errorStatus, updatedAt }
+  const stale = Boolean(error) && data !== null
+  return { data, loading, error, errorStatus, updatedAt, failedAt, stale }
 }
 
 // withTimeRange returns `base` with ?from/&to query params appended

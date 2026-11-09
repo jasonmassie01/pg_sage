@@ -324,3 +324,74 @@ describe('useAPI error messages', () => {
     expect(result.current.errorStatus).toBeNull()
   })
 })
+
+// dashboard-01: a failed refresh keeps the data and says so. stale is true
+// only while showing kept data under an error; failedAt is when the latest
+// refresh failed. No concurrent access tests: one hook, single-threaded.
+describe('useAPI stale', () => {
+  it('marks kept data stale after a failed refresh and clears it on success', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date(2026, 10, 8, 14, 2, 0))
+      stubFetch({
+        '/api/v1/cases': [
+          { json: { n: 1 } },
+          { status: 502, json: { error: 'upstream down' } },
+          { json: { n: 2 } },
+        ],
+      })
+      const { result } = renderHook(() => useAPI('/api/v1/cases', 180000))
+      await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+      expect(result.current.stale).toBe(false)
+      expect(result.current.failedAt).toBeNull()
+      const loadedAt = result.current.updatedAt
+      expect(loadedAt).toBe(new Date(2026, 10, 8, 14, 2, 0).getTime())
+      await act(async () => { await vi.advanceTimersByTimeAsync(180000) })
+      expect(result.current.data).toEqual({ n: 1 })
+      expect(result.current.error).toBe('upstream down (502)')
+      expect(result.current.stale).toBe(true)
+      expect(result.current.failedAt).toBe(new Date(2026, 10, 8, 14, 5, 0).getTime())
+      expect(result.current.updatedAt).toBe(loadedAt)
+      expect(result.current.loading).toBe(false)
+      await act(async () => { await vi.advanceTimersByTimeAsync(180000) })
+      expect(result.current.data).toEqual({ n: 2 })
+      expect(result.current.stale).toBe(false)
+      expect(result.current.error).toBeNull()
+      expect(result.current.failedAt).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('is not stale when the first response fails (there is no data to keep)', async () => {
+    stubFetch({ '/api/v1/cases': { status: 503, json: { error: 'no db' } } })
+    const { result } = renderHook(() => useAPI('/api/v1/cases', 0))
+    await waitFor(() => expect(result.current.error).toBe('no db (503)'))
+    expect(result.current.stale).toBe(false)
+    expect(result.current.data).toBeNull()
+    expect(typeof result.current.failedAt).toBe('number')
+  })
+
+  it('does not carry staleness to another resource', async () => {
+    stubFetch({
+      '/api/v1/cases?database=a': [{ json: { db: 'a' } }, { status: 502 }],
+      '/api/v1/cases?database=b': () => new Promise(() => {}),
+    })
+    const { result, rerender } = renderHook(({ url }) => useAPI(url, 0), {
+      initialProps: { url: '/api/v1/cases?database=a' },
+    })
+    await waitFor(() => expect(result.current.data).toEqual({ db: 'a' }))
+    await act(async () => { await result.current.refetch() })
+    expect(result.current.stale).toBe(true)
+    rerender({ url: '/api/v1/cases?database=b' })
+    expect(result.current.stale).toBe(false)
+    expect(result.current.data).toBeNull()
+    expect(result.current.failedAt).toBeNull()
+  })
+
+  it('is not stale for a null url', () => {
+    const { result } = renderHook(() => useAPI(null, 0))
+    expect(result.current.stale).toBe(false)
+    expect(result.current.failedAt).toBeNull()
+  })
+})

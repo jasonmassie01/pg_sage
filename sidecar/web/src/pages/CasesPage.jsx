@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useAPI } from '../hooks/useAPI'
 import { LoadingSpinner } from '../components/LoadingSpinner'
-import { ErrorBanner } from '../components/ErrorBanner'
+import { QueryState } from '../components/QueryState'
+import { queryBlocked } from '../lib/queryState'
 import { SQLBlock } from '../components/SQLBlock'
 import { CaseControls, SuppressedFindings } from './cases/CaseControls'
 import { InvestigationPanel } from './cases/InvestigationPanel'
@@ -78,18 +79,17 @@ export function CasesPage({ database, initialSource = 'all', user }) {
     window.addEventListener('hashchange', onHashChange)
     return () => window.removeEventListener('hashchange', onHashChange)
   }, [])
-  const { data, loading, error, refetch } = useAPI(
-    `/api/v1/cases${dbParam(database)}`,
-    30000,
-  )
+  const casesQuery = useAPI(`/api/v1/cases${dbParam(database)}`, 30000)
+  const { data, refetch } = casesQuery
   const investigations = useAPI(
     `/api/v1/investigations?database=${encodeURIComponent(database || 'all')}`,
     30000,
   )
   const byCase = investigationsByCase(investigations.data?.items)
 
-  if (loading) return <LoadingSpinner />
-  if (error) return <ErrorBanner message={error} onRetry={refetch} />
+  if (queryBlocked(casesQuery)) {
+    return <QueryState query={casesQuery} skeleton={<LoadingSpinner />} />
+  }
 
   const cases = data?.cases || []
   const filteredCases = sourceFilter === 'all'
@@ -103,7 +103,7 @@ export function CasesPage({ database, initialSource = 'all', user }) {
     ? `?database=${encodeURIComponent(database)}` : ''
 
   return (
-    <div className="space-y-4" data-testid="cases-page">
+    <QueryState query={casesQuery}><div className="space-y-4" data-testid="cases-page">
       <div>
         <h2 className="text-sm font-semibold"
           style={{ color: 'var(--text-primary)' }}>
@@ -185,7 +185,7 @@ export function CasesPage({ database, initialSource = 'all', user }) {
             onDone={refetch} />
         ))}
       </div>
-    </div>
+    </div></QueryState>
   )
 }
 

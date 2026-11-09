@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useAPI } from '../hooks/useAPI'
 import { LoadingSpinner } from '../components/LoadingSpinner'
-import { ErrorBanner } from '../components/ErrorBanner'
+import { QueryState } from '../components/QueryState'
+import { queryBlocked } from '../lib/queryState'
 import { EvaluateNow } from './autonomy/EvaluateNow'
 import { PathToNextLevel } from './autonomy/PathToNextLevel'
 
@@ -54,10 +55,11 @@ export function AutonomyPage({ database, user }) {
   const [actionError, setActionError] = useState(null)
 
   if (view.loading) return <LoadingSpinner />
-  if (view.error && (!database || database === 'all') && /^400/.test(view.error)) {
+  if (view.error && !view.data && (!database || database === 'all')
+    && /^400/.test(view.error)) {
     return <PickDatabase />
   }
-  if (view.error) return <ErrorBanner message={view.error} onRetry={view.refetch} />
+  if (queryBlocked(view)) return <QueryState query={view} />
 
   const role = user?.role
   const canAct = role === 'admin' || role === 'operator'
@@ -73,7 +75,7 @@ export function AutonomyPage({ database, user }) {
   }
   const families = view.data?.view?.families || []
   return (
-    <section className="space-y-4" data-testid="autonomy-page">
+    <QueryState query={view}><section className="space-y-4" data-testid="autonomy-page">
       <Header data={view.data} />
       {actionError && (
         <div role="alert" className="text-sm" style={{ color: 'var(--red)' }}>
@@ -100,7 +102,7 @@ export function AutonomyPage({ database, user }) {
       <History items={history.data?.items || []} />
       <GameDays data={gameDays.data} />
       <Rollouts data={rollouts.data} />
-    </section>
+    </section></QueryState>
   )
 }
 

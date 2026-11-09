@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useAPI } from '../hooks/useAPI'
 import { LoadingSpinner } from '../components/LoadingSpinner'
-import { ErrorBanner } from '../components/ErrorBanner'
+import { QueryState } from '../components/QueryState'
+import { queryBlocked } from '../lib/queryState'
 import { EmptyState } from '../components/EmptyState'
 
 const MAX_INLINE_CHARS = 500000
@@ -65,18 +66,18 @@ function SnapshotView({ snapshot }) {
 
 export function DatabasePage({ database }) {
   const db = database && database !== 'all' ? database : null
-  const { data, loading, error, refetch } = useAPI(
-    db ? `/api/v1/snapshots/latest?database=${db}` : null, 0
-  )
+  const snapshot = useAPI(db ? `/api/v1/snapshots/latest?database=${db}` : null, 0)
+  const { data } = snapshot
 
   if (!db) {
     return <EmptyState message="Select a database from the picker above" />
   }
-  if (loading) return <LoadingSpinner />
-  if (error) return <ErrorBanner message={error} onRetry={refetch} />
+  if (queryBlocked(snapshot)) {
+    return <QueryState query={snapshot} skeleton={<LoadingSpinner />} />
+  }
 
   return (
-    <div className="space-y-6">
+    <QueryState query={snapshot}><div className="space-y-6">
       <div className="rounded p-4"
         style={{
           background: 'var(--bg-card)',
@@ -92,6 +93,6 @@ export function DatabasePage({ database }) {
           <EmptyState message="No snapshot data available yet" />
         )}
       </div>
-    </div>
+    </div></QueryState>
   )
 }

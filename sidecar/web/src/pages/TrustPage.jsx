@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useAPI } from '../hooks/useAPI'
 import { LoadingSpinner } from '../components/LoadingSpinner'
-import { ErrorBanner } from '../components/ErrorBanner'
+import { QueryState } from '../components/QueryState'
+import { queryBlocked } from '../lib/queryState'
 import { TrustTable } from './trust/TrustTable'
 import { ModelLift } from './trust/ModelLift'
 import { TuningCalibration } from './trust/TuningCalibration'
@@ -42,8 +43,9 @@ export function TrustPage({ database, user }) {
   const trust = useAPI(`/api/v1/trust${query}`, 30000)
   const [actionError, setActionError] = useState(null)
 
-  if (trust.loading) return <LoadingSpinner />
-  if (trust.error) return <ErrorBanner message={trust.error} onRetry={trust.refetch} />
+  if (queryBlocked(trust)) {
+    return <QueryState query={trust} skeleton={<LoadingSpinner />} />
+  }
 
   const onApprove = async (db, id) => {
     setActionError(null)
@@ -56,7 +58,7 @@ export function TrustPage({ database, user }) {
   }
   const databases = trust.data?.databases || []
   return (
-    <section className="space-y-4" data-testid="trust-page">
+    <QueryState query={trust}><section className="space-y-4" data-testid="trust-page">
       <div>
         <h2 className="text-sm font-semibold" style={strong}>Trust</h2>
         <p className="text-sm" style={muted}>{trust.data?.meaning}</p>
@@ -85,7 +87,7 @@ export function TrustPage({ database, user }) {
       ))}
       <ModelLift database={database} />
       <TuningCalibration database={database} />
-    </section>
+    </section></QueryState>
   )
 }
 

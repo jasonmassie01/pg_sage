@@ -1,6 +1,7 @@
 import { useAPI } from '../hooks/useAPI'
 import { LoadingSpinner } from '../components/LoadingSpinner'
-import { ErrorBanner } from '../components/ErrorBanner'
+import { QueryState } from '../components/QueryState'
+import { queryBlocked } from '../lib/queryState'
 
 function dbParam(database) {
   return database && database !== 'all'
@@ -25,16 +26,15 @@ function Stat({ label, value }) {
 }
 
 export function ShadowModePage({ database }) {
-  const { data, loading, error, refetch } = useAPI(
-    `/api/v1/shadow-report${dbParam(database)}`,
-    30000,
-  )
+  const report = useAPI(`/api/v1/shadow-report${dbParam(database)}`, 30000)
+  const { data } = report
 
-  if (loading) return <LoadingSpinner />
-  if (error) return <ErrorBanner message={error} onRetry={refetch} />
+  if (queryBlocked(report)) {
+    return <QueryState query={report} skeleton={<LoadingSpinner />} />
+  }
 
   return (
-    <section className="space-y-4" data-testid="shadow-mode-report">
+    <QueryState query={report}><section className="space-y-4" data-testid="shadow-mode-report">
       <div>
         <h2 className="text-sm font-semibold"
           style={{ color: 'var(--text-primary)' }}>
@@ -65,7 +65,7 @@ export function ShadowModePage({ database }) {
           ))}
         </div>
       )}
-    </section>
+    </section></QueryState>
   )
 }
 

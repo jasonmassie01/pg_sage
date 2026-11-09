@@ -1,4 +1,6 @@
 import { useAPI } from '../hooks/useAPI'
+import { QueryState } from '../components/QueryState'
+import { queryBlocked } from '../lib/queryState'
 
 const valuePollIntervalMs = 60000
 
@@ -243,15 +245,16 @@ function isEmptyValue(data) {
 }
 
 export function ValuePage({ database }) {
-  const { data, loading, error, refetch } = useAPI(
-    valueURL(database), valuePollIntervalMs,
-  )
+  const value = useAPI(valueURL(database), valuePollIntervalMs)
+  const { data } = value
 
-  if (loading) return <LoadingState />
-  if (error) return <ErrorState error={error} onRetry={refetch} />
+  if (queryBlocked(value)) {
+    return <QueryState query={value} skeleton={<LoadingState />}
+      failure={<ErrorState error={value.error} onRetry={value.refetch} />} />
+  }
 
   return (
-    <div className="space-y-6" data-testid="value-page">
+    <QueryState query={value}><div className="space-y-6" data-testid="value-page">
       <div>
         <h1 className="text-2xl font-semibold">Value delivered</h1>
         <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
@@ -269,6 +272,6 @@ export function ValuePage({ database }) {
           <IncidentsAvoided incidents={data.incidents_avoided} />
         </>
       )}
-    </div>
+    </div></QueryState>
   )
 }
