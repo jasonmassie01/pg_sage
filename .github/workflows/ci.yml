@@ -1004,8 +1004,21 @@ jobs:
           PG_IMAGE: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17
         run: scripts/ci/container-healthcheck.sh
 
+  # ci-05: one leg per arch on a native runner (no QEMU). Each leg pushes
+  # its image by digest only, with provenance and an SBOM, and smoke-tests
+  # it; docker-manifest then tags and signs the merged list, so no tag
+  # ever points at an image that was not run.
   docker:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     needs: [test, test-arm64, agent-servers, lint, bench-sign, integration-matrix, security,
       container-health]
     # master pushes publish :edge and :sha-*; release tags publish the
@@ -1035,6 +1048,8 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
 
       - id: meta
         uses: docker/metadata-action@v5
@@ -1068,9 +1083,11 @@ jobs:
         with:
           context: sidecar/
           file: sidecar/Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=ghcr.io/jasonmassie01/pg_sage,push-by-digest=true,name-canonical=true,push=true
+          provenance: mode=max
+          sbom: true
           build-args: |
             VERSION=${{ steps.meta.outputs.version }}
             COMMIT=${{ github.sha }}
@@ -1082,6 +1099,143 @@ jobs:
         run: |
           bash scripts/ci/smoke-version.sh "${{ steps.meta.outputs.version }}" \
             docker run --rm "ghcr.io/jasonmassie01/pg_sage@${{ steps.build.outputs.digest }}"
+
+      - name: Export the digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: image-digest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # ci-05: both legs pushed and smoke-tested: tag the manifest list (the
+  # tags :edge/:sha-* on master, semver and :latest on a tag) and sign it
+  # keyless with the bench reports' identity and issuer. !cancelled(): a
+  # grandparent the docker job tolerates on master (bench-sign) must not
+  # skip the merge.
+  docker-manifest:
+    runs-on: ubuntu-latest
+    needs: [docker]
+    if: ${{ !cancelled() && needs.docker.result == 'success' }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: image-digest-*
+          path: ${{ runner.temp }}/digests
+          merge-multiple: true
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/jasonmassie01/pg_sage
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=edge,branch=master
+            type=sha
+
+      - name: Create the tagged manifest list
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          set -euo pipefail
+          test "$(ls | wc -l)" -eq 2
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf 'ghcr.io/jasonmassie01/pg_sage@sha256:%s ' *)
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign the manifest list (keyless)
+        id: sign
+        run: |
+          set -euo pipefail
+          tag="$(jq -r '.tags[0]' <<< "$DOCKER_METADATA_OUTPUT_JSON")"
+          digest="$(docker buildx imagetools inspect "$tag" --format '{{json .Manifest}}' |
+            jq -r .digest)"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          cosign sign --yes "ghcr.io/jasonmassie01/pg_sage@$digest"
+
+      - name: Verify the image signature (cosign)
+        env:
+          IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/ci.yml@${{ github.ref }}
+          ISSUER: https://token.actions.githubusercontent.com
+          IMAGE: ghcr.io/jasonmassie01/pg_sage@${{ steps.sign.outputs.digest }}
+        run: |
+          cosign verify "$IMAGE" --certificate-identity "$IDENTITY" \
+            --certificate-oidc-issuer "$ISSUER" > /dev/null
+
+  # ci-05: a pull request that changes how releases are built runs
+  # goreleaser check and a snapshot release (nothing is published or
+  # signed; the committed dashboard build is embedded) and smoke-tests the
+  # snapshot's linux/amd64 binary.
+  release-dry-run:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Did this pull request change the release files?
+        id: changes
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          changed="$(git diff --name-only "$BASE" HEAD)"
+          release_files='\.goreleaser\.yml|sidecar/Dockerfile|\.github/workflows/ci\.yml'
+          release_files+='|scripts/ci/(smoke-version|release-notes)\.sh'
+          if grep -qxE "$release_files" <<< "$changed"; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No release files changed; the release dry run is skipped."
+          fi
+
+      - name: Stage placeholder bench reports
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          mkdir -p bench/dry-run
+          echo "release dry run: no signed reports" > bench/dry-run/README.md
+
+      - name: goreleaser check and snapshot release
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo \
+            --entrypoint bash ghcr.io/goreleaser/goreleaser-cross:v1.27.3 -c \
+            'export GOBIN=/tmp/release-tools PATH="/tmp/release-tools:$PATH" &&
+             go install github.com/anchore/syft/cmd/syft@v1.42.0 &&
+             git config --global --add safe.directory /repo &&
+             goreleaser check &&
+             goreleaser release --snapshot --clean --skip=before,validate,publish,sign'
+
+      - name: Smoke-test the snapshot linux/amd64 binary
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          smoke="$(mktemp -d)"
+          tar -xzf dist/pg_sage_linux_amd64.tar.gz -C "$smoke"
+          bash scripts/ci/smoke-version.sh "$(jq -r .version dist/metadata.json)" "$smoke/pg_sage"
 
   release:
     runs-on: ubuntu-latest
@@ -1158,6 +1312,15 @@ jobs:
           mkdir -p "$RUNNER_TEMP/release/bin"
           cp "$(command -v cosign)" "$RUNNER_TEMP/release/bin/cosign"
 
+      # ci-05: the release notes are the tag's CHANGELOG section; a stable
+      # tag without one fails here, before anything is built.
+      - name: Release notes from CHANGELOG.md
+        run: |
+          set -euo pipefail
+          bash scripts/ci/release-notes.sh "$GITHUB_REF_NAME" CHANGELOG.md \
+            > "$RUNNER_TEMP/release/notes.md"
+          cat "$RUNNER_TEMP/release/notes.md"
+
       # cgo release: goreleaser-cross carries a C cross-compiler per target
       # (osxcross for darwin) so libpg_query links into every binary.
       # syft is built in the container at an exact module version (checked
@@ -1174,7 +1337,8 @@ jobs:
             'export GOBIN=/tmp/release-tools PATH="/tmp/release-tools:/opt/release/bin:$PATH" &&
              go install github.com/anchore/syft/cmd/syft@v1.42.0 &&
              git config --global --add safe.directory /repo &&
-             goreleaser release --clean --skip=before,validate'
+             goreleaser release --clean --skip=before,validate \
+               --release-notes /opt/release/notes.md'
 
       # ci-05: checksums.txt verifies with the bench reports' identity and
       # issuer, the archives match it, and each archive has its SBOM.

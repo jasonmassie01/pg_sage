@@ -73,7 +73,8 @@ func relJobNamed(t *testing.T, wf relWorkflow, name string) relJob {
 func stepIndex(job relJob, needles ...string) int {
 	for i, s := range job.Steps {
 		text := s.Uses + "\n" + s.Run
-		if !slices.ContainsFunc(needles, func(n string) bool { return !strings.Contains(text, n) }) {
+		missing := func(n string) bool { return !strings.Contains(text, n) }
+		if !slices.ContainsFunc(needles, missing) {
 			return i
 		}
 	}
@@ -133,10 +134,12 @@ func TestDockerEdgeOnMasterKeepsItsRule(t *testing.T) {
 		assertRuns(t, "docker on master ("+n+" failed)", docker.If, master.with(n, "failure"), true)
 	}
 	for _, n := range []string{"test", "lint", "security", "container-health"} {
-		assertRuns(t, "docker on master ("+n+" failed)", docker.If, master.with(n, "failure"), false)
+		assertRuns(t, "docker on master ("+n+" failed)", docker.If,
+			master.with(n, "failure"), false)
 	}
 	pr := master
-	pr.ctx = map[string]string{"github.event_name": "pull_request", "github.ref": "refs/pull/1/merge"}
+	pr.ctx = map[string]string{"github.event_name": "pull_request",
+		"github.ref": "refs/pull/1/merge"}
 	assertRuns(t, "docker on a pull request", docker.If, pr, false)
 }
 
@@ -257,8 +260,8 @@ func TestPermissionProblemsFlagsMismatchedGrants(t *testing.T) {
 		{"push by digest", relJob{Steps: []relStep{{Uses: "docker/build-push-action@v6",
 			With: map[string]string{"outputs": "type=image,push-by-digest=true,push=true"}}}},
 			[]string{"writes packages"}},
-		{"snapshot writes nothing", relJob{Steps: []relStep{{Run: "goreleaser release --snapshot"}}},
-			nil},
+		{"snapshot writes nothing",
+			relJob{Steps: []relStep{{Run: "goreleaser release --snapshot"}}}, nil},
 		{"zero job", relJob{}, nil},
 	}
 	for _, c := range cases {
@@ -305,7 +308,8 @@ func loadGoreleaser(t *testing.T) goreleaserCfg {
 // only then is the release made public.
 func TestReleaseSmokeChecksArchivedBinary(t *testing.T) {
 	if !loadGoreleaser(t).Release.Draft {
-		t.Fatal(".goreleaser.yml release.draft is false: the release is public before its smoke test")
+		t.Fatal(".goreleaser.yml release.draft is false: " +
+			"the release is public before its smoke test")
 	}
 	release := relJobNamed(t, loadRelWorkflow(t), "release")
 	build := stepIndex(release, "goreleaser release")
