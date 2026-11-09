@@ -248,52 +248,6 @@ func TestProjectFindingBloatRemediationAddsPlanCandidate(t *testing.T) {
 	}
 }
 
-func TestProjectFindingReindexCandidateUsesConcurrentReindex(t *testing.T) {
-	f := SourceFinding{
-		ID:               "reindex-1",
-		DatabaseName:     "prod",
-		Category:         "reindex_candidate",
-		Severity:         SeverityWarning,
-		ObjectType:       "index",
-		ObjectIdentifier: "public.idx_orders_status",
-		Title:            "index bloat is high",
-		Recommendation:   "Reindex concurrently during maintenance.",
-		RecommendedSQL:   "REINDEX INDEX CONCURRENTLY public.idx_orders_status;",
-	}
-
-	got := ProjectFinding(f)
-
-	if len(got.ActionCandidates) != 1 {
-		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
-	}
-	assertCandidate(t, got.ActionCandidates[0],
-		"reindex_concurrently", "moderate", f.RecommendedSQL)
-}
-
-func TestProjectFindingBlockedVacuumAddsDiagnosticCandidate(t *testing.T) {
-	f := SourceFinding{
-		ID:               "blocked-vacuum",
-		DatabaseName:     "prod",
-		Category:         "blocked_vacuum",
-		Severity:         SeverityCritical,
-		ObjectType:       "table",
-		ObjectIdentifier: "public.orders",
-		Title:            "vacuum is blocked on orders",
-		Recommendation:   "Find blockers before running maintenance.",
-	}
-
-	got := ProjectFinding(f)
-
-	if len(got.ActionCandidates) != 1 {
-		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
-	}
-	assertCandidate(t, got.ActionCandidates[0],
-		"diagnose_vacuum_pressure", "safe", "")
-	if got.ActionCandidates[0].ProposedSQL == "" {
-		t.Fatal("expected vacuum pressure diagnostic SQL")
-	}
-}
-
 func TestProjectFindingClassifiesForecastAsForecastCase(t *testing.T) {
 	f := SourceFinding{
 		ID:               "77",

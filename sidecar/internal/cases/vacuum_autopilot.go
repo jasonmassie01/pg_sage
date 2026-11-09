@@ -18,10 +18,6 @@ func vacuumAutopilotCandidate(f SourceFinding) (ActionCandidate, bool) {
 		return autovacuumTuningCandidate(f), true
 	case "bloat_remediation":
 		return bloatRemediationCandidate(f), true
-	case "reindex_candidate":
-		return reindexCandidate(f), true
-	case "blocked_vacuum":
-		return blockedVacuumCandidate(f), true
 	default:
 		return ActionCandidate{}, false
 	}
@@ -41,40 +37,6 @@ func bloatRemediationCandidate(f SourceFinding) ActionCandidate {
 	}
 	candidate.ScriptOutput = bloatRemediationScriptOutput(f, candidate)
 	return candidate
-}
-
-func reindexCandidate(f SourceFinding) ActionCandidate {
-	sql := strings.TrimSpace(f.RecommendedSQL)
-	if sql == "" {
-		sql = "REINDEX INDEX CONCURRENTLY " +
-			sanitize.QuoteQualifiedString(f.ObjectIdentifier) + ";"
-	}
-	expires := evidenceTime(f).Add(72 * time.Hour)
-	return ActionCandidate{
-		ActionType:       "reindex_concurrently",
-		RiskTier:         "moderate",
-		Confidence:       0.72,
-		ProposedSQL:      sql,
-		ExpiresAt:        &expires,
-		OutputModes:      []string{"queue_for_approval", "generate_pr_or_script"},
-		RollbackClass:    "unknown",
-		RecoveryDetail:   "Reindexing rebuilds the physical index. No procedure to restore the previous physical state is attached; capture the definition and review a forward recovery plan.",
-		VerificationPlan: verificationPlanForAction("reindex_concurrently"),
-	}
-}
-
-func blockedVacuumCandidate(f SourceFinding) ActionCandidate {
-	expires := evidenceTime(f).Add(30 * time.Minute)
-	return ActionCandidate{
-		ActionType:       "diagnose_vacuum_pressure",
-		RiskTier:         "safe",
-		Confidence:       0.80,
-		ProposedSQL:      diagnoseVacuumPressureSQL(f.ObjectIdentifier),
-		ExpiresAt:        &expires,
-		OutputModes:      []string{"execute", "script"},
-		RollbackClass:    "not_applicable",
-		VerificationPlan: verificationPlanForAction("diagnose_vacuum_pressure"),
-	}
 }
 
 func bloatRemediationScriptOutput(
