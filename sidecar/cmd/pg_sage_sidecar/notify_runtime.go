@@ -7,9 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/alerting"
-	"github.com/pg-sage/sidecar/internal/crypto"
 	"github.com/pg-sage/sidecar/internal/notify"
-	"github.com/pg-sage/sidecar/internal/schema"
 )
 
 var (
@@ -54,27 +52,37 @@ func sharedNotifyDispatcher(controlPool *pgxpool.Pool) *notify.Dispatcher {
 
 // notificationSecretKey is the key that seals notification channel
 // secrets stored in controlPool (G7-B20): the meta-db encryption key, or
-// in standalone / YAML fleet the same passphrase derived with that
-// database's persisted KDF salt. The API router and every dispatcher call
-// this with the same pool, so writes and reads agree. nil means secrets
-// stay plaintext (no passphrase, or a pool that is neither the meta pool
-// nor a standalone/fleet control database).
+// in standalone / YAML fleet the same passphrase (or generated key)
+// derived with that database's persisted KDF salt. The API router and
+// every dispatcher call this with the same pool, so writes and reads
+// agree. nil means secrets stay plaintext (no key, or a pool that is
+// neither the meta pool nor a standalone/fleet control database).
 func notificationSecretKey(controlPool *pgxpool.Pool) []byte {
-	if controlPool == nil || cfg == nil {
+	keys, err := notificationKeys(context.Background(), controlPool)
+	if err != nil {
+		logError("notify", "channel secrets stay unsealed: %v", err)
 		return nil
+	}
+	if keys == nil {
+		return nil
+	}
+	return keys.active
+}
+
+// notificationKeys is the key set behind notificationSecretKey.
+func notificationKeys(
+	ctx context.Context, controlPool *pgxpool.Pool,
+) (*controlKeySet, error) {
+	if controlPool == nil || cfg == nil {
+		return nil, nil
 	}
 	if globalMetaState != nil && globalMetaState.Pool == controlPool {
-		return globalMetaState.EncryptKey
+		return globalMetaState.Keys, nil
 	}
-	if cfg.EncryptionKey == "" || (!cfg.IsStandalone() && !cfg.IsFleet()) {
-		return nil
+	if !cfg.IsStandalone() && !cfg.IsFleet() {
+		return nil, nil
 	}
-	salt, err := schema.ReadOrCreateKDFSalt(context.Background(), controlPool)
-	if err != nil {
-		logError("notify", "channel secrets stay unsealed: KDF salt unavailable: %v", err)
-		return nil
-	}
-	return crypto.DeriveKey(cfg.EncryptionKey, salt)
+	return controlKeys(ctx, controlPool)
 }
 
 // notificationTargetPolicy is the operator's notification target policy;

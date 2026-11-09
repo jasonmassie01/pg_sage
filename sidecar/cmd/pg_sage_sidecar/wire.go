@@ -168,6 +168,7 @@ func wireRouter(p WireParams) WireResult {
 			// Same key and policy as the runtime dispatchers (G7-B20/B21).
 			NotificationSecretKey:    notificationSecretKey(authPool),
 			NotificationTargetPolicy: notificationTargetPolicy(),
+			SecretsPosture:           secretsPostureSource(authPool),
 			DisableConfigWrites: p.Cfg != nil && p.Cfg.IsFleet() &&
 				!p.Cfg.HasMetaDB(),
 			MCPHandler: p.MCPHandler,

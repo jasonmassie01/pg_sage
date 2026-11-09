@@ -13,7 +13,6 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/config"
-	"github.com/pg-sage/sidecar/internal/crypto"
 	"github.com/pg-sage/sidecar/internal/databricksauth"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/llm"
@@ -34,7 +33,9 @@ var bootstrapManagedDatabaseSchema = schema.Bootstrap
 type metaDBState struct {
 	Pool       *pgxpool.Pool
 	EncryptKey []byte
-	Store      *store.DatabaseStore
+	// Keys holds EncryptKey's keyring and the previous key of a rotation.
+	Keys  *controlKeySet
+	Store *store.DatabaseStore
 }
 
 // connectMetaDB creates a connection pool for the metadata database
@@ -114,25 +115,18 @@ func initMetaDB(
 		return nil, fmt.Errorf("config schema migration: %w", err)
 	}
 
-	// Derive encryption key if provided. A per-deployment random
-	// salt is persisted in sage.crypto_meta on first bootstrap and
-	// reused on every subsequent startup, so keys derived here
-	// match keys used to encrypt prior records. The salt must be
-	// stable across restarts — if it is lost, all encrypted
-	// credentials become unrecoverable.
-	var encKey, salt []byte
-	if encKeyPassphrase != "" {
-		var err error
-		salt, err = schema.ReadOrCreateKDFSalt(ctx, metaPool)
-		if err != nil {
-			return nil, fmt.Errorf("kdf salt: %w", err)
-		}
-		encKey = crypto.DeriveKey(encKeyPassphrase, salt)
+	// The keys are derived with the per-deployment KDF salt persisted in
+	// sage.crypto_meta; without a passphrase a generated key may be settled
+	// here (security-08). Losing the salt or the key loses the secrets.
+	keys, err := controlKeysFor(ctx, metaPool, encKeyPassphrase)
+	if err != nil {
+		return nil, fmt.Errorf("meta-db encryption key: %w", err)
+	}
+	var encKey []byte
+	if keys != nil {
+		encKey = keys.active
 	} else {
-		log.Println(
-			"WARNING: --encryption-key not set; " +
-				"database credentials cannot be encrypted",
-		)
+		log.Println("WARNING: no encryption key; database credentials cannot be stored")
 	}
 
 	// Bootstrap admin user if none exist.
@@ -140,16 +134,15 @@ func initMetaDB(
 		return nil, fmt.Errorf("admin bootstrap: %w", err)
 	}
 
-	dbStore := store.NewDatabaseStore(metaPool, encKey)
-	if encKeyPassphrase != "" {
-		// Credentials written by v0.8.4/v0.8.5 used legacy key
-		// derivations; decrypt and re-encrypt them on first read (G5-B05).
-		dbStore.WithKeyMigration(encKeyPassphrase)
+	dbStore, err := metaDatabaseStore(ctx, metaPool, keys, encKeyPassphrase)
+	if err != nil {
+		return nil, err
 	}
 
 	return &metaDBState{
 		Pool:       metaPool,
 		EncryptKey: encKey,
+		Keys:       keys,
 		Store:      dbStore,
 	}, nil
 }

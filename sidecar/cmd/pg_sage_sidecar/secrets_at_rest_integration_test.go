@@ -75,14 +75,7 @@ func TestSecretsAtRest_GeneratedKeySealsThenGuardsLoss(t *testing.T) {
 	if _, err := os.Stat(keyPath); err != nil {
 		t.Fatalf("no key file generated: %v", err)
 	}
-	keys, err := controlKeys(ctx, p)
-	if err != nil || keys == nil {
-		t.Fatalf("controlKeys = %v, %v", keys, err)
-	}
-	if recorded, err := schema.ReadGeneratedKeyID(ctx, p); err != nil ||
-		recorded != keys.kr.ActiveKeyID() {
-		t.Fatalf("recorded id = %q, %v; want %s", recorded, err, keys.kr.ActiveKeyID())
-	}
+	assertGeneratedKeyRecorded(t, p)
 	if err := store.NewConfigStore(p).SetOverride(ctx, "llm.api_key",
 		"sk-test-generated", 0, 0); err != nil {
 		t.Fatalf("SetOverride: %v", err)
@@ -103,7 +96,7 @@ func TestSecretsAtRest_GeneratedKeySealsThenGuardsLoss(t *testing.T) {
 	cfg = config.DefaultConfig()
 	cfg.Mode, cfg.DataDir = config.ModeMeta, dir
 	startWithDataDir(t)
-	keys, err = controlKeys(ctx, p)
+	keys, err := controlKeys(ctx, p)
 	if err != nil || keys != nil {
 		t.Fatalf("controlKeys after loss = %v, %v; want no keys", keys, err)
 	}
@@ -112,6 +105,19 @@ func TestSecretsAtRest_GeneratedKeySealsThenGuardsLoss(t *testing.T) {
 	}
 	if got := secretsPosture(ctx, p); got.SecretsAtRest != "key_missing" {
 		t.Fatalf("posture = %+v, want key_missing", got)
+	}
+}
+
+func assertGeneratedKeyRecorded(t *testing.T, p *pgxpool.Pool) {
+	t.Helper()
+	ctx := context.Background()
+	keys, err := controlKeys(ctx, p)
+	if err != nil || keys == nil {
+		t.Fatalf("controlKeys = %v, %v", keys, err)
+	}
+	recorded, err := schema.ReadGeneratedKeyID(ctx, p)
+	if err != nil || recorded != keys.kr.ActiveKeyID() {
+		t.Fatalf("recorded id = %q, %v; want %s", recorded, err, keys.kr.ActiveKeyID())
 	}
 }
 
@@ -141,26 +147,7 @@ func TestSecretsAtRest_NoDataDirStaysPlaintext(t *testing.T) {
 func TestSecretsAtRest_RotationResealsPasswordsAndChannels(t *testing.T) {
 	p := freshSecretsFixture(t, "")
 	ctx := context.Background()
-	cfg.EncryptionKey = "rotation-passphrase-a"
-	stateA, err := initMetaDB(p, cfg.EncryptionKey)
-	if err != nil {
-		t.Fatalf("initMetaDB A: %v", err)
-	}
-	conn := p.Config().ConnConfig
-	dbID, err := stateA.Store.Create(ctx, store.DatabaseInput{
-		Name: "rotation-live", Host: conn.Host, Port: int(conn.Port),
-		DatabaseName: conn.Database, Username: conn.User, Password: conn.Password,
-		SSLMode: "disable", MaxConnections: 2, TrustLevel: "observation",
-		ExecutionMode: "approval"}, 1)
-	if err != nil {
-		t.Fatalf("Create under A: %v", err)
-	}
-	chID, err := store.NewNotificationStore(p, nil).WithSecretKey(stateA.EncryptKey).
-		CreateChannel(ctx, "rotation-pd", "pagerduty",
-			map[string]string{"routing_key": "rk-rotation"}, 0)
-	if err != nil {
-		t.Fatalf("CreateChannel under A: %v", err)
-	}
+	dbID, chID := seedUnderKeyA(t, p)
 
 	resetSecretsAtRest()
 	cfg.EncryptionKey, cfg.EncryptionKeyPrevious = "rotation-passphrase-b", "rotation-passphrase-a"
@@ -186,18 +173,50 @@ func TestSecretsAtRest_RotationResealsPasswordsAndChannels(t *testing.T) {
 		FROM sage.notification_channels WHERE id = $1`, chID); kid != wantKID {
 		t.Errorf("channel secret key id = %s, want B %s", kid, wantKID)
 	}
-	onlyB := store.NewDatabaseStore(p, stateB.EncryptKey)
-	connStr, err := onlyB.GetConnectionString(ctx, dbID)
+	assertConnects(t, store.NewDatabaseStore(p, stateB.EncryptKey), dbID)
+}
+
+// seedUnderKeyA stores a database password (for the test server itself)
+// and a channel secret under rotation-passphrase-a.
+func seedUnderKeyA(t *testing.T, p *pgxpool.Pool) (int, int) {
+	t.Helper()
+	ctx := context.Background()
+	cfg.EncryptionKey = "rotation-passphrase-a"
+	stateA, err := initMetaDB(p, cfg.EncryptionKey)
+	if err != nil {
+		t.Fatalf("initMetaDB A: %v", err)
+	}
+	conn := p.Config().ConnConfig
+	dbID, err := stateA.Store.Create(ctx, store.DatabaseInput{
+		Name: "rotation-live", Host: conn.Host, Port: int(conn.Port),
+		DatabaseName: conn.Database, Username: conn.User, Password: conn.Password,
+		SSLMode: "disable", MaxConnections: 2, TrustLevel: "observation",
+		ExecutionMode: "approval"}, 1)
+	if err != nil {
+		t.Fatalf("Create under A: %v", err)
+	}
+	chID, err := store.NewNotificationStore(p, nil).WithSecretKey(stateA.EncryptKey).
+		CreateChannel(ctx, "rotation-pd", "pagerduty",
+			map[string]string{"routing_key": "rk-rotation"}, 0)
+	if err != nil {
+		t.Fatalf("CreateChannel under A: %v", err)
+	}
+	return dbID, chID
+}
+
+func assertConnects(t *testing.T, s *store.DatabaseStore, id int) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	connStr, err := s.GetConnectionString(ctx, id)
 	if err != nil {
 		t.Fatalf("GetConnectionString under B only: %v", err)
 	}
-	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	c, err := pgx.Connect(cctx, connStr)
+	c, err := pgx.Connect(ctx, connStr)
 	if err != nil {
 		t.Fatalf("the rotated database does not connect: %v", err)
 	}
-	_ = c.Close(ctx)
+	_ = c.Close(context.Background())
 }
 
 func storedConfigValue(t *testing.T, p *pgxpool.Pool, key string) string {

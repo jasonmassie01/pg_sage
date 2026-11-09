@@ -56,21 +56,32 @@ func loadBootstrapAdminCredentials() (bootstrapAdminCredentials, error) {
 }
 
 func readBootstrapAdminPassword(path string) (string, error) {
+	return readOwnerOnlyFile(path, "SAGE_BOOTSTRAP_ADMIN_PASSWORD_FILE")
+}
+
+// maxOwnerOnlyFileBytes bounds a secret file read at startup.
+const maxOwnerOnlyFileBytes = 4096
+
+// readOwnerOnlyFile reads a secret file that must be a regular file only
+// its owner can access (mode 600 or 400) and at most 4 KiB. label names
+// the file in errors; the content never appears in them.
+func readOwnerOnlyFile(path, label string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return "", fmt.Errorf("cannot open SAGE_BOOTSTRAP_ADMIN_PASSWORD_FILE")
+		return "", fmt.Errorf("cannot open %s", label)
 	}
 	defer func() { _ = f.Close() }()
 	info, err := f.Stat()
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
-		return "", fmt.Errorf("SAGE_BOOTSTRAP_ADMIN_PASSWORD_FILE must be a regular file accessible only to its owner (mode 600 or 400)")
+		return "", fmt.Errorf("%s must be a regular file accessible only to its owner "+
+			"(mode 600 or 400)", label)
 	}
-	value, err := io.ReadAll(io.LimitReader(f, 4097))
+	value, err := io.ReadAll(io.LimitReader(f, maxOwnerOnlyFileBytes+1))
 	if err != nil {
-		return "", fmt.Errorf("cannot read SAGE_BOOTSTRAP_ADMIN_PASSWORD_FILE")
+		return "", fmt.Errorf("cannot read %s", label)
 	}
-	if len(value) > 4096 {
-		return "", fmt.Errorf("SAGE_BOOTSTRAP_ADMIN_PASSWORD_FILE exceeds maximum size")
+	if len(value) > maxOwnerOnlyFileBytes {
+		return "", fmt.Errorf("%s exceeds maximum size", label)
 	}
 	return strings.TrimRight(string(value), "\r\n"), nil
 }

@@ -93,6 +93,7 @@ func loadConfigCandidate() (*config.Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	applyGeneratedKey(candidate)
 	controlPool := configControlPool()
 	if err := applyPersistedGlobalOverrides(candidate, controlPool); err != nil {
 		return nil, err
