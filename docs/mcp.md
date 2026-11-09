@@ -319,6 +319,7 @@ Scope: `approve`
 
 | Argument | Type | Required | Notes |
 |---|---|---|---|
+| `consumer_identity` | string | no |  |
 | `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
 | `database_id` | integer | no | legacy numeric database id; prefer database |
 | `owner` | string | yes |  |

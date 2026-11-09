@@ -153,7 +153,8 @@ func moreIntentTools(object func(string, string) json.RawMessage, dbID string) [
 		{Name: "register_consumer", Description: "Protect a replication slot consumer " +
 			"(a person's declaration, imported as a confirmed fact)",
 			InputSchema: object(`{`+dbID+`,"slot_name":{"type":"string"},`+
-				`"owner":{"type":"string"}}`, `["slot_name","owner"]`)},
+				`"owner":{"type":"string"},"consumer_identity":{"type":"string"}}`,
+				`["slot_name","owner"]`)},
 		{Name: "set_maintenance_policy", Description: "Propose a maintenance policy patch",
 			InputSchema: object(`{`+dbID+`,"scope":{"type":"object"},"patch":{"type":"object"}}`,
 				`["scope","patch"]`)},

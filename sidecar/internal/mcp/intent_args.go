@@ -47,8 +47,9 @@ var intentValidators = map[string]func(json.RawMessage) *rpcError{
 	"register_consumer": strictIntent[struct {
 		SlotName     string     `json:"slot_name"`
 		Owner        string     `json:"owner"`
+		Identity     string     `json:"consumer_identity"`
 		CallerClaims jsonObject `json:"caller_claims"`
-	}]("register_consumer takes database, slot_name and owner"),
+	}]("register_consumer takes database, slot_name, owner and consumer_identity"),
 	"set_maintenance_policy": strictIntent[struct {
 		Scope jsonObject `json:"scope"`
 		Patch jsonObject `json:"patch"`
