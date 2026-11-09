@@ -787,7 +787,12 @@ the hashed columns are pinned per payload version: a change to either
 needs a new payload version, never a silent rehash of the trail.
 
 SIEM export (`audit.siem.sinks`) ships every link, with its hash, as an
-OCSF event. That copy is the defence against someone who rewrites a whole
+OCSF event. Each sink can pin its receiver to a private CA
+(`ca_file`) and present a client certificate (`client_cert_file`,
+`client_key_file`); see
+[configuration.md](configuration.md#siem-transport-security). A token
+over plain http warns at start in this release and is refused from the
+next minor. That copy is the defence against someone who rewrites a whole
 chain, and against a chain that goes back because the database was
 restored from a backup or PITR. Each sink keeps a cursor per source and
 chain on the control database: the position and hash of the last link it

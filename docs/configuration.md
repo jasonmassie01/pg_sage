@@ -1925,6 +1925,51 @@ stubs sent) and `lanes`: per source and chain, `cursor`, `head`, `lag`
 with an empty `chain` is a source whose chains could not be listed (an
 unreachable database). PostgreSQL 14-18 behave the same.
 
+### SIEM transport security
+
+Each entry of `audit.siem.sinks` takes these transport keys:
+
+| Key | Applies to | Meaning |
+| --- | --- | --- |
+| `ca_file` | `https://` http/otlp, syslog `network: tls` | PEM bundle the receiver's certificate must chain to. It replaces the system roots for this sink only (pinned). Without it the sink uses the system roots, as before, so `SSL_CERT_FILE` still applies where Go reads it. |
+| `client_cert_file`, `client_key_file` | same | PEM client certificate and key for mutual TLS. Set both or neither. |
+| `allow_insecure_http` | `http://` http/otlp | Accept a `token_env` token over plain http. Default `false`. |
+| `chains` | every sink | Chains to export; empty means all. Each must be `action_log`, `auth_audit`, `config_audit`, `guard_query_audit` or `pgaudit_events`. A misspelt name stops the config from loading. |
+
+- The files are read once at start; a missing file or one that holds no
+  PEM turns SIEM export off, and the startup log names the sink and the
+  path. TLS is 1.2 at least. TLS files on `http://`, syslog `tcp` or `udp`
+  are refused, not ignored.
+- A `token_env` token over `http://` without `allow_insecure_http` logs one
+  WARN per sink at start, and `GET /api/v1/audit/siem` lists the sink with
+  `warnings: ["token_over_http"]`. The next minor release refuses this
+  configuration.
+- Delivery is at least once over http, otlp, tcp and tls. Over udp it is
+  best effort: a datagram that was written is not known to have arrived,
+  and a lost one is not retried. A udp sink logs a WARN at start, and
+  every sink's status carries `delivery`: `at_least_once` or
+  `best_effort`.
+- Over TLS 1.3 a syslog receiver checks the client certificate after the
+  handshake. When it asks for one, a new session waits up to 0.5 s (at
+  most `timeout_seconds`) for a refusal before the first message, so a
+  rejected certificate fails the delivery instead of losing the event.
+- In fleet mode only the leader exports. Mount the TLS files on every
+  replica that can become leader.
+
+```yaml
+audit:
+  siem:
+    sinks:
+      - name: soc
+        type: syslog
+        network: tls
+        address: siem.internal:6514
+        ca_file: /etc/pg_sage/siem-ca.pem
+        client_cert_file: /etc/pg_sage/siem-client.pem
+        client_key_file: /etc/pg_sage/siem-client.key
+        chains: [action_log, auth_audit]
+```
+
 ### Postgres-specialist contract
 
 `specialist.*` configures the versioned investigation contract other agents
