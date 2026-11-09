@@ -44,6 +44,36 @@ docker logs pg_sage 2>&1 | grep 'INITIAL ADMIN PASSWORD'
 
 ---
 
+## Verify a Release
+
+Releases are signed keyless with [Sigstore](https://www.sigstore.dev/) by
+this repository's CI workflow, with the same identity and issuer as the
+signed bench reports. `checksums.txt` lists the SHA-256 of every archive and
+`checksums.txt.sigstore.json` is its signature bundle. Each archive also has
+an SPDX SBOM, `<archive>.sbom.json`. A release is published only after its
+linux/amd64 binary has answered `--version` with the tag's version and the
+libpg_query SQL parser.
+
+With [cosign](https://docs.sigstore.dev/cosign/system_config/installation/)
+installed (replace `v2.6.0` with your release in both places):
+
+```bash
+base=https://github.com/jasonmassie01/pg_sage/releases/download/v2.6.0
+curl -fsSL -O "$base/checksums.txt" -O "$base/checksums.txt.sigstore.json" \
+  -O "$base/pg_sage_linux_amd64.tar.gz"
+cosign verify-blob --bundle checksums.txt.sigstore.json \
+  --certificate-identity "https://github.com/jasonmassie01/pg_sage/.github/workflows/ci.yml@refs/tags/v2.6.0" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  checksums.txt
+sha256sum --ignore-missing -c checksums.txt
+```
+
+`cosign verify-blob` prints `Verified OK` and `sha256sum` prints
+`pg_sage_linux_amd64.tar.gz: OK`. On macOS use
+`shasum -a 256 --ignore-missing -c checksums.txt`.
+
+---
+
 ## Database User Setup
 
 pg_sage needs a database user with monitoring and limited DDL privileges. Run this on your target database:

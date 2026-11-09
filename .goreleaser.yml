@@ -68,6 +68,27 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
+# ci-05: a keyless Sigstore signature over checksums.txt (GitHub OIDC; the
+# release job passes the token request into the container), with the
+# identity and issuer of the signed bench reports. docs/installation.md
+# shows cosign verify-blob on checksums.txt.sigstore.json.
+signs:
+  - cmd: cosign
+    artifacts: checksum
+    signature: "${artifact}.sigstore.json"
+    args:
+      - sign-blob
+      - "--bundle=${signature}"
+      - "${artifact}"
+      - "--yes"
+    output: true
+
+# ci-05: an SPDX SBOM per archive (syft), published as <archive>.sbom.json.
+sboms:
+  - artifacts: archive
+    documents:
+      - "{{ .ArtifactName }}.sbom.json"
+
 changelog:
   sort: asc
   filters:
