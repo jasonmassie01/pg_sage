@@ -95,7 +95,7 @@ func TestIngestTaggedRecordLinksExistingAction(t *testing.T) {
 // packFile builds action's evidence pack and returns one of its files.
 func packFile(t *testing.T, pool *pgxpool.Pool, action int64, name string) string {
 	t.Helper()
-	pack, err := evidence.Build(context.Background(), pool,
+	pack, err := evidence.Build(context.Background(), evidence.Sources{DB: pool},
 		evidence.Scope{Database: "orders", ActionID: action}, nil, time.Now())
 	if err != nil {
 		t.Fatalf("build pack of action %d: %v", action, err)
