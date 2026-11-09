@@ -93,6 +93,7 @@ the same key must be used on every restart.
 
 ```bash
 openssl rand -hex 32 > fleet-local.key
+chmod 600 fleet-local.key
 ```
 
 Build and run:

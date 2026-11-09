@@ -101,7 +101,7 @@ A prior is evidence, never a grant. It may:
 
 - be shown on the proposal, with the number of look-alike databases, the
   lowest similarity among them and their outcome counts;
-- add caution: when look-alikes regressed at least as often as they
+- add caution: when look-alikes regressed, and at least as often as they
   improved, the proposal requires approval;
 - order proposals that have no local calibration yet.
 
@@ -149,6 +149,10 @@ agent governance reconcilers. The sidecars of a fleet elect that leader
 through a lease row in the control database (`sage.fleet_leader_lease`),
 one per fleet scope: `meta` for a meta-db fleet, `fleet:<hash of the
 database names>` for a YAML fleet, `standalone:<database>` otherwise.
+When `agents.control_database` puts agent governance state in another
+database, the governance reconcilers elect their own leader there, under
+the scope `agents:<fleet scope>`, so leadership and that state never sit
+in different databases.
 
 - The leader renews its lease every third of the lease (10 s by default).
   Each renewal is bounded to that third, so a stalled connection costs one
