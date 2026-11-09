@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/pg-sage/sidecar/internal/crypto"
 	"github.com/pg-sage/sidecar/internal/notify"
 )
 
@@ -50,13 +51,25 @@ func (s *NotificationStore) ResealChannelSecrets(ctx context.Context) (SecretSea
 		if err != nil {
 			return report, err
 		}
-		if swapped && notify.HasPlaintextSecrets(stored) {
+		if swapped && hasUnboundSecret(stored) {
 			report.Sealed++
 		} else if swapped {
 			report.Rotated++
 		}
 	}
 	return report, nil
+}
+
+// hasUnboundSecret reports whether a stored secret is plaintext or a
+// legacy enc:v1 value: re-sealing it seals it to its channel (Sealed), as
+// opposed to moving a sage-enc:v1 value to the active key (Rotated).
+func hasUnboundSecret(cfg map[string]string) bool {
+	for _, k := range notify.SecretConfigKeys {
+		if v := cfg[k]; v != "" && !crypto.IsSealed(v) {
+			return true
+		}
+	}
+	return false
 }
 
 // swapChannelConfig writes opened, sealed under the active key, only if
