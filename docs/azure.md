@@ -10,6 +10,23 @@ below pg_sage's minimum (14). Existing **Cosmos DB for PostgreSQL** clusters
 and server parameters are guidance-only. Azure no longer lets new Cosmos clusters be
 created, so this path is covered by unit tests only.
 
+### Cosmos DB for PostgreSQL
+
+`azure-cosmos` is a managed provider in its own right, not a flexible server:
+
+- **Configuration is guidance-only.** pg_sage has no adapter for Cosmos server parameters.
+  Configuration findings never carry `ALTER SYSTEM` (or any executable SQL); they name the
+  command to run, `az cosmosdb postgres configuration coordinator update --name <param>
+  --value <value>`. The `azure:` ARM section does not apply.
+- **Readiness has its own adapter.** The fleet overview shows `azure-cosmos` with
+  `azure_monitor` log access, the `azure.extensions` allow-list, and the limitation
+  "server parameters are guidance-only (Citus coordinator)". It does not advertise
+  `ALTER DATABASE ... SET` changes.
+- **Agent governance** (agent role contracts) covers Cosmos like the other managed
+  providers.
+- First-look preload steps for `pg_stat_statements` and `auto_explain` name the Cosmos
+  coordinator command, not `az postgres flexible-server parameter set`.
+
 ## What pg_sage does on Azure
 
 | Area | Behaviour |
