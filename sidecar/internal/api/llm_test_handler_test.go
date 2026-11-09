@@ -136,3 +136,30 @@ func TestLLMTestHandler_NoLLMConfigured(t *testing.T) {
 		t.Fatalf("status = %d, want 503 without an LLM", w.Code)
 	}
 }
+
+// CHECK-13: every client in /api/v1/llm/status carries the breaker fields.
+func TestLLMStatus_CarriesBreakerFields(t *testing.T) {
+	srv, _ := fakeProvider(t, http.StatusUnauthorized)
+	client := probeClient(srv.URL)
+	_, _ = postProbe(probeRouter(llm.NewManager(client, nil, false), testAdminUser()))
+	w := httptest.NewRecorder()
+	probeRouter(llm.NewManager(client, nil, false), testViewerUser()).ServeHTTP(w,
+		httptest.NewRequest(http.MethodGet, "/api/v1/llm/status", nil))
+	var body struct {
+		Clients map[string]map[string]any `json:"clients"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil || w.Code != 200 {
+		t.Fatalf("status=%d decode=%v", w.Code, err)
+	}
+	general := body.Clients["general"]
+	for _, key := range []string{"circuit_state", "last_error_class",
+		"last_error_at", "last_success_at", "consecutive_failures"} {
+		if _, ok := general[key]; !ok {
+			t.Fatalf("general client status lacks %s: %v", key, general)
+		}
+	}
+	if general["last_error_class"] != "auth" || general["last_error_at"] == nil ||
+		general["last_success_at"] != nil || general["consecutive_failures"] != 1.0 {
+		t.Fatalf("status = %v, want one auth failure and no success", general)
+	}
+}
