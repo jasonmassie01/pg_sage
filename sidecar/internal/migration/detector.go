@@ -162,7 +162,10 @@ func (d *Detector) evaluate(ctx context.Context, a activeDDL) *rca.Incident {
 	}
 	v := d.lockQueueVerdict(a)
 	if inc == nil && v.Escalate {
+		// Tracked like an analysis, so later polls re-upsert it and its
+		// severity follows the queue as it drains.
 		inc = d.queueIncident(a)
+		d.track(a, inc)
 	}
 	if inc != nil {
 		d.persist(ctx, a, inc, v)

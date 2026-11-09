@@ -109,10 +109,12 @@ func containsPID(pids []int, pid int) bool {
 
 // queueIncident opens a finding for a DDL the advisor scored low once a
 // queue builds behind it, on the DDL's table when it can be classified.
+// Its own severity is warning: applyLockQueue raises it to critical only
+// while the queue is at the threshold.
 func (d *Detector) queueIncident(a activeDDL) *rca.Incident {
 	object := d.queuedDDLObject(a.Query)
 	inc := &rca.Incident{
-		DetectedAt: time.Now(), Severity: "critical", Source: "schema_advisor",
+		DetectedAt: time.Now(), Severity: "warning", Source: "schema_advisor",
 		RootCause: fmt.Sprintf("DDL pid %d is queued for its lock with sessions "+
 			"waiting behind it", a.PID),
 		SignalIDs: []string{lockQueueRule}, ActionRisk: "lock_queue",
