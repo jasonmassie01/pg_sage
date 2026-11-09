@@ -39,7 +39,7 @@ func freshSecretsFixture(t *testing.T, dataDir string) *pgxpool.Pool {
 	}
 	isolateKeyGlobals(t)
 	cfg = config.DefaultConfig()
-	cfg.Mode, cfg.DataDir = config.ModeMeta, dataDir
+	cfg.Mode, cfg.DataDir = "standalone", dataDir
 	return p
 }
 
@@ -94,7 +94,7 @@ func TestSecretsAtRest_GeneratedKeySealsThenGuardsLoss(t *testing.T) {
 	}
 	resetSecretsAtRest()
 	cfg = config.DefaultConfig()
-	cfg.Mode, cfg.DataDir = config.ModeMeta, dir
+	cfg.Mode, cfg.DataDir = "standalone", dir
 	startWithDataDir(t)
 	keys, err := controlKeys(ctx, p)
 	if err != nil || keys != nil {
