@@ -11,8 +11,11 @@ on:
       - 'requirements-docs.txt'
       - '.github/workflows/docs.yml'
   push:
+    # Release tags only: a pre-release tag such as v2.6.0-rc.1 would publish
+    # features that have not shipped.
     tags:
       - 'v*'
+      - '!v*-*'
   workflow_dispatch:
 
 permissions:

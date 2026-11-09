@@ -23,16 +23,25 @@ type docsWorkflow struct {
 	} `yaml:"on"`
 	// Triggers holds every key under on:, since a bare
 	// `workflow_dispatch:` decodes to null and no struct field shows it.
-	Triggers map[string]any `yaml:"-"`
-	Jobs     map[string]struct {
-		If    string `yaml:"if"`
-		Steps []struct {
-			Name string `yaml:"name"`
-			If   string `yaml:"if"`
-			Run  string `yaml:"run"`
-		} `yaml:"steps"`
-	} `yaml:"jobs"`
+	Triggers map[string]any         `yaml:"-"`
+	Jobs     map[string]workflowJob `yaml:"jobs"`
 }
+
+type workflowJob struct {
+	If    string `yaml:"if"`
+	Steps []struct {
+		Name string `yaml:"name"`
+		If   string `yaml:"if"`
+		Run  string `yaml:"run"`
+	} `yaml:"steps"`
+}
+
+// The job guards: the strict build runs on pull requests, the deploy on
+// everything else (release tags and manual dispatch).
+const (
+	prOnlyGuard = "github.event_name == 'pull_request'"
+	notPRGuard  = "github.event_name != 'pull_request'"
+)
 
 var exactPin = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*==[0-9][0-9A-Za-z.+-]*$`)
 
@@ -74,6 +83,16 @@ func TestDocsWorkflowBuildsStrictOnPullRequests(t *testing.T) {
 	if !workflowRuns(wf, "mkdocs build --strict") {
 		t.Error("no docs workflow step runs `mkdocs build --strict`")
 	}
+	built := false
+	for _, job := range wf.Jobs {
+		if job.If == prOnlyGuard && jobRuns(job, "mkdocs build --strict") {
+			built = true
+		}
+	}
+	if !built {
+		t.Errorf("no job guarded by %q runs `mkdocs build --strict`; PRs are not checked",
+			prOnlyGuard)
+	}
 }
 
 func TestDocsWorkflowDeploysOnlyReleases(t *testing.T) {
@@ -82,8 +101,9 @@ func TestDocsWorkflowDeploysOnlyReleases(t *testing.T) {
 		t.Errorf("docs deploy on branch push %v; the site must match the latest release",
 			wf.On.Push.Branches)
 	}
-	if strings.Join(wf.On.Push.Tags, ",") != "v*" {
-		t.Errorf("push tags = %v, want [v*]", wf.On.Push.Tags)
+	if strings.Join(wf.On.Push.Tags, ",") != "v*,!v*-*" {
+		t.Errorf("push tags = %v, want [v* !v*-*]: release tags, no pre-releases",
+			wf.On.Push.Tags)
 	}
 	if _, ok := wf.Triggers["workflow_dispatch"]; !ok {
 		t.Error("docs workflow lost workflow_dispatch")
@@ -95,9 +115,11 @@ func TestDocsWorkflowDeploysOnlyReleases(t *testing.T) {
 				continue
 			}
 			deploys++
-			guard := job.If + " " + step.If
-			if !strings.Contains(guard, "pull_request") {
-				t.Errorf("job %s deploys without a guard against pull_request runs", name)
+			if job.If != notPRGuard {
+				t.Errorf("job %s deploys under if %q, want %q", name, job.If, notPRGuard)
+			}
+			if step.If != "" {
+				t.Errorf("job %s gates gh-deploy on step if %q; guard the job", name, step.If)
 			}
 		}
 	}
@@ -161,10 +183,17 @@ func TestExactPinPattern(t *testing.T) {
 
 func workflowRuns(wf docsWorkflow, command string) bool {
 	for _, job := range wf.Jobs {
-		for _, step := range job.Steps {
-			if strings.Contains(step.Run, command) {
-				return true
-			}
+		if jobRuns(job, command) {
+			return true
+		}
+	}
+	return false
+}
+
+func jobRuns(job workflowJob, command string) bool {
+	for _, step := range job.Steps {
+		if strings.Contains(step.Run, command) {
+			return true
 		}
 	}
 	return false
