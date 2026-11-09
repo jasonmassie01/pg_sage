@@ -159,7 +159,8 @@ func TestSupabaseStatusStaleOrEmptyIsUnavailable(t *testing.T) {
 		"never polled": newSupabaseStatus("orders", "ref", empty)} {
 		st := src.Status()
 		if st.Available || st.Sample != nil || st.Provider != "supabase" ||
-			!strings.HasPrefix(st.Reason, "unavailable: ") || st.Withhold == nil {
+			!strings.HasPrefix(st.Reason, "unavailable: ") || st.Withhold == nil ||
+			st.Resource != "ref" {
 			t.Errorf("%s: status = %+v", name, st)
 		}
 	}

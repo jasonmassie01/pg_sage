@@ -27,7 +27,7 @@ func (s *supabaseStatus) Database() string { return s.database }
 // Status maps fresh CPU and memory into a Sample; with neither fresh the
 // status is unavailable with a reason.
 func (s *supabaseStatus) Status() cloudtel.Status {
-	st := cloudtel.Status{Database: s.database, Provider: "supabase",
+	st := cloudtel.Status{Database: s.database, Provider: "supabase", Resource: s.resource,
 		Withhold: []string{}, Drift: []managedparam.Drift{}}
 	now := s.now()
 	t := s.obs.Telemetry()
@@ -58,7 +58,7 @@ func (s *supabaseStatus) Status() cloudtel.Status {
 		return st
 	}
 	observed := t.ObservedAt
-	st.Available, st.Sample, st.Resource = true, &sample, s.resource
+	st.Available, st.Sample = true, &sample
 	st.LastSuccessAt = &observed
 	return st
 }
