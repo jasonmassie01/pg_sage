@@ -21,12 +21,14 @@ func TestCloudIdentityAcceptsEveryProviderOverride(t *testing.T) {
 	}
 }
 
-func TestCloudIdentityRejectsInvalidInput(t *testing.T) {
-	cases := []struct {
-		name, provider string
-		resource       CloudResourceConfig
-		want           string
-	}{
+type invalidIdentityCase struct {
+	name, provider string
+	resource       CloudResourceConfig
+	want           string
+}
+
+func invalidIdentityCases() []invalidIdentityCase {
+	return []invalidIdentityCase{
 		{"unknown provider string", "heroku", CloudResourceConfig{}, `"heroku" is not a provider`},
 		{"unknown is not an override", "unknown", CloudResourceConfig{}, "rely on detection"},
 		{"case matters", "RDS", CloudResourceConfig{}, `"RDS" is not a provider`},
@@ -63,7 +65,10 @@ func TestCloudIdentityRejectsInvalidInput(t *testing.T) {
 			Subscription: subscriptionID, ResourceGroup: "rg", Server: "Flex_1"}},
 			`server "Flex_1"`},
 	}
-	for _, tc := range cases {
+}
+
+func TestCloudIdentityRejectsInvalidInput(t *testing.T) {
+	for _, tc := range invalidIdentityCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			err := validateCloudIdentity("databases[\"a\"]", tc.provider, tc.resource)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
