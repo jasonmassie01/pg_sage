@@ -90,6 +90,9 @@ func TestFindingTargetSpellings(t *testing.T) {
 		{`"public"."orders"`, "VACUUM PUBLIC.ORDERS", false},
 		{"public.orders", `VACUUM (FREEZE) "public"."orders";`, false},
 		{"public.orders(customer_id)", "VACUUM public.orders", false},
+		{`public."a""b"`, `VACUUM public."a""b"`, false},
+		{`public.""`, `VACUUM public.x`, true},
+		{"public.", `VACUUM public.x`, true},
 		// Fails closed: the statement parser cuts a name at "(".
 		{`public."Odd(name)"`, `VACUUM public."Odd(name)"`, true},
 		{`public."Orders"`, "VACUUM public.orders", true},
@@ -107,6 +110,25 @@ func TestFindingTargetSpellings(t *testing.T) {
 			t.Errorf("ident %q sql %q: decision %s/%s, mismatch=%v want %v",
 				tc.ident, tc.sql, d.Decision, d.BlockedReason, got, tc.mismatch)
 		}
+	}
+}
+
+// The exported binding reports a typed error naming the reason and both
+// objects (the catalog parity test and callers read it).
+func TestBindFindingTargetError(t *testing.T) {
+	_, err := BindFindingTarget(boundVacuumFinding("public.a", "VACUUM public.b"))
+	var mismatch *TargetMismatchError
+	if !errors.As(err, &mismatch) || mismatch.Named != "public.a" ||
+		mismatch.Statement != "public.b" {
+		t.Fatalf("BindFindingTarget error = %#v, want a TargetMismatchError", err)
+	}
+	if !strings.HasPrefix(err.Error(), "target_mismatch: ") {
+		t.Fatalf("error %q does not lead with the reason", err)
+	}
+	binding, err := BindFindingTarget(boundVacuumFinding("public.a", "VACUUM public.a"))
+	if err != nil || binding.Statement != "public.a" || binding.Named != "public.a" ||
+		!reflect.DeepEqual(binding.Targets, []string{"public.a"}) {
+		t.Fatalf("matched binding = %+v, %v", binding, err)
 	}
 }
 
