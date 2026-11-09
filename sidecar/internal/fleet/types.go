@@ -44,7 +44,10 @@ type DatabaseInstance struct {
 	// actions (M5). Nil when the action service could not be built.
 	Actions *action.ActionService
 	Status  *InstanceStatus
-	Stopped bool
+	// InstanceOwner reports who manages this database's instance settings
+	// (advisors-08); nil outside fleet mode.
+	InstanceOwner func() InstanceOwnership
+	Stopped       bool
 	// StoppedBy and StoppedAt attribute the active emergency stop. Like
 	// Stopped, they are guarded by the manager lock.
 	StoppedBy string

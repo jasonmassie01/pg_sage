@@ -17,7 +17,7 @@ func TestRewriteE2E_FullPipeline(t *testing.T) {
 	logFn := e2eAdvisorLog(t)
 
 	findings, err := analyzeQueryRewrites(
-		context.Background(), pool, mgr, snap, cfg, logFn,
+		context.Background(), mgr, snap, cfg, logFn,
 	)
 	if err != nil {
 		t.Fatalf("analyzeQueryRewrites: %v", err)

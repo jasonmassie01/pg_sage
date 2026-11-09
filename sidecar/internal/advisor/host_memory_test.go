@@ -17,9 +17,9 @@ import (
 // memory increase. Unknown memory keeps today's behavior.
 
 var memSettings = []collector.PGSetting{
-	{Name: "work_mem", Setting: "4096", Unit: "kB"},
-	{Name: "shared_buffers", Setting: "131072", Unit: "8kB"},
-	{Name: "maintenance_work_mem", Setting: "65536", Unit: "kB"},
+	{Name: "work_mem", Setting: "4096", Unit: "kB", Context: "user"},
+	{Name: "shared_buffers", Setting: "131072", Unit: "8kB", Context: "postmaster"},
+	{Name: "maintenance_work_mem", Setting: "65536", Unit: "kB", Context: "user"},
 }
 
 func gateOne(t *testing.T, sql, cloud string, host HostMemory) analyzer.Finding {

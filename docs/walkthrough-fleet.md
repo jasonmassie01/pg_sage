@@ -104,6 +104,53 @@ pass, and the next fingerprint cycle regroups the database. At startup
 pg_sage logs the count of databases per boundary, for example
 `fleet-learning boundaries: shared=1 tenant:acme=2`.
 
+### Several databases on one PostgreSQL instance
+
+WAL and connection settings, and every `ALTER SYSTEM` or managed parameter
+change (an RDS/Aurora parameter group, a Cloud SQL database flag), apply to
+the whole instance, not to one database. When the fleet monitors several
+databases of one instance, one of them owns those settings: the database
+with the lowest fleet name among those whose configuration advisor is on.
+Only the owner asks the model the WAL and connection questions (one model
+call per interval for the instance, not one per database) and only it
+proposes instance-wide changes. On the other databases:
+
+- the WAL and connection sub-advisors do not run, and their open WAL and
+  connection findings stay open as advisory guidance with
+  `detail.instance_owner` naming the owner and no `recommended_sql`;
+- an instance-wide change from the advisor or the tuning agent (for example
+  `work_mem` or `autovacuum_*` through `ALTER SYSTEM`) is advisory with
+  "instance settings are managed from database <owner>" and is never
+  executed, nor turned into a managed-change proposal there.
+
+Database-scope advice (rewrites, bloat, per-table storage parameters,
+`ALTER DATABASE` settings) stays per database. When the owner is removed or
+stopped the next database by name takes over on its next cycle. Its
+advisory WAL and connection rows stay open until its own review of that
+category runs, which then replaces them or, when it advises nothing for
+them, resolves them.
+
+The instance is identified by `pg_control_system().system_identifier`,
+which needs `EXECUTE` on that function. Grant it to the monitoring role for
+the exact identity:
+
+```sql
+GRANT EXECUTE ON FUNCTION pg_catalog.pg_control_system() TO sage_agent;
+```
+
+A physical standby shares its primary's system identifier but keeps its
+own settings, so it is its own instance (keyed by identifier and address)
+and never defers to its primary. Without the grant (some managed services
+revoke it) the connection's `host:port` identifies the instance. A proxy
+such as PgBouncer fronting several servers on one port then groups them
+under one owner, which only withholds advice from the others. If the identity cannot be read at all (connection error) the
+database is advised on its own and pg_sage logs why. The fleet status
+(`GET /api/v1/databases`, `status.capabilities.instance_owner`) shows each
+database's owner, whether it is the owner, and how the instance was
+identified (`system_identifier` or `address`). Separate
+pg_sage processes that monitor the same instance are not coordinated: each
+elects its own owner. Single-database mode is unchanged.
+
 ## 5. Verify the v1 UI
 
 | Screen | What to verify |

@@ -34,6 +34,11 @@ Each element: {"object_identifier":"schema.table","severity":"info",` +
 	`"rationale":"...","recommended_sql":null,"bloat_pct":N,` +
 	`"remediation_options":[...]}`
 
+// bloatGUCs are the autovacuum GUCs behind the bloat advisor's first
+// remedy (autovacuum tuning).
+var bloatGUCs = []string{"autovacuum_vacuum_scale_factor", "autovacuum_vacuum_threshold",
+	"autovacuum_vacuum_cost_limit", "autovacuum_vacuum_cost_delay", "autovacuum_max_workers"}
+
 func analyzeBloat(
 	ctx context.Context,
 	mgr *llm.Manager,
@@ -46,17 +51,15 @@ func analyzeBloat(
 		return nil, nil
 	}
 
-	// Find bloated tables.
+	// Find bloated tables; a table with an open finding is left out.
+	gate := openGateFrom(ctx)
 	var bloatContexts []string
 	for _, t := range snap.Tables {
+		if !qualifiesForBloat(t) || gate.hasTable(t) {
+			continue
+		}
 		total := t.NLiveTup + t.NDeadTup
-		if total < 1000 {
-			continue
-		}
 		ratio := float64(t.NDeadTup) / float64(max(total, 1))
-		if ratio < 0.10 { // Only look at 10%+ bloat for remediation
-			continue
-		}
 
 		sizeMB := float64(t.TableBytes) / (1024 * 1024)
 		indexSizeMB := float64(t.IndexBytes) / (1024 * 1024)
@@ -118,20 +121,17 @@ func analyzeBloat(
 		}
 	}
 
-	platform := detectPlatform(snap.ConfigData.PGSettings)
-
 	prompt := fmt.Sprintf(
 		"BLOAT REMEDIATION CONTEXT:\n\n"+
 			"pg_repack available: %v\n"+
-			"Platform: %s\n"+
 			"Database size: %d bytes\n\n%s",
 		hasRepack,
-		platform,
 		snap.System.DBSizeBytes,
 		strings.Join(bloatContexts, "\n\n"),
 	)
 
-	resp, err := chatAdvisor(ctx, mgr, "bloat", bloatSystemPrompt, "", prompt)
+	grounding := promptGrounding(ctx, bloatGUCs...)
+	resp, err := chatAdvisor(ctx, mgr, "bloat", bloatSystemPrompt, grounding, prompt)
 	if err != nil {
 		return nil, err
 	}

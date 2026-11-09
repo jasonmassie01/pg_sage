@@ -7,6 +7,9 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// configSettingsSQL reads the pg_settings rows the advisors reason about,
+// with each row's context: the managed-cloud rewrite routes on it, so every
+// GUC the advisor may change must be listed here.
 const configSettingsSQL = `/* pg_sage */
 		SELECT name, setting, COALESCE(unit,''), source,
 		       COALESCE(pending_restart, false), context
@@ -55,6 +58,7 @@ type configSubRead struct {
 
 var configSubReads = []configSubRead{
 	{"pg_settings", readConfigSettings},
+	{"set_privileges", readSetPrivileges},
 	{"reloptions", readConfigReloptions},
 	{"connection_states", readConnectionStates},
 	{"wal_position", readWALPosition},
@@ -103,6 +107,13 @@ func readConfigSettings(ctx context.Context, q catalogQuerier, cs *ConfigSnapsho
 			return r.Scan(&s.Name, &s.Setting, &s.Unit, &s.Source, &s.PendingRestart, &s.Context)
 		})
 	return err
+}
+
+// readSetPrivileges marks the superuser-context settings the role may SET
+// (advisors-01). It fails closed: a failed read leaves none settable, and
+// fails the snapshot like any other sub-read (collection-05).
+func readSetPrivileges(ctx context.Context, q catalogQuerier, cs *ConfigSnapshot) error {
+	return markSetPrivileges(ctx, q, cs.PGSettings)
 }
 
 func readConfigReloptions(ctx context.Context, q catalogQuerier, cs *ConfigSnapshot) (err error) {

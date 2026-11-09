@@ -3,12 +3,16 @@ package advisor
 import (
 	"context"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/pgconf"
 )
 
 const walSystemPrompt = `You are a PostgreSQL WAL and checkpoint tuning expert.
@@ -31,6 +35,10 @@ Each element: {"object_identifier":"instance","severity":"info",` +
 	`"current_settings":{...},"recommended_settings":{...},` +
 	`"requires_restart":false}`
 
+// walGUCs are the documented GUCs the WAL advisor tunes.
+var walGUCs = []string{"max_wal_size", "min_wal_size", "checkpoint_timeout",
+	"checkpoint_completion_target", "wal_buffers"}
+
 func analyzeWAL(
 	ctx context.Context,
 	mgr *llm.Manager,
@@ -43,9 +51,14 @@ func analyzeWAL(
 		return nil, nil
 	}
 
-	// Build WAL settings context.
+	// Build WAL settings context; settings with an open finding are left
+	// out (advisors-02).
+	gate := openGateFrom(ctx)
 	var walSettings []string
 	for _, s := range snap.ConfigData.PGSettings {
+		if gate.hasGUC("wal_tuning", s.Name) {
+			continue
+		}
 		switch s.Name {
 		case "max_wal_size", "min_wal_size",
 			"checkpoint_completion_target",
@@ -56,9 +69,7 @@ func analyzeWAL(
 				restart = " (pending_restart=true)"
 			}
 			walSettings = append(walSettings,
-				fmt.Sprintf("  %s = %s%s%s",
-					s.Name, s.Setting, s.Unit, restart),
-			)
+				fmt.Sprintf("  %s = %s%s", s.Name, settingText(s), restart))
 		}
 	}
 
@@ -70,9 +81,6 @@ func analyzeWAL(
 		prevCP = prev.System.TotalCheckpoints
 	}
 	cpDelta := totalCP - prevCP
-
-	// Detect platform.
-	platform := detectPlatform(snap.ConfigData.PGSettings)
 
 	// Count unlogged tables so the LLM knows some tables don't generate WAL.
 	unloggedNote := ""
@@ -91,21 +99,50 @@ func analyzeWAL(
 			"Current settings:\n%s\n\n"+
 			"Observed metrics:\n"+
 			"  Total checkpoints: %d (delta since last: %d)\n"+
-			"  WAL position: %s\n\n"+
-			"Platform: %s%s",
+			"  WAL position: %s%s%s",
 		strings.Join(walSettings, "\n"),
 		totalCP, cpDelta,
 		snap.ConfigData.WALPosition,
-		platform,
-		unloggedNote,
+		unloggedNote, gucNote(gate, "wal_tuning"),
 	)
 
-	resp, err := chatAdvisor(ctx, mgr, "wal", walSystemPrompt, "", prompt)
+	grounding := promptGrounding(ctx, walGUCs...)
+	resp, err := chatAdvisor(ctx, mgr, "wal", walSystemPrompt, grounding, prompt)
 	if err != nil {
 		return nil, err
 	}
 
 	return parseLLMFindings(resp, "wal_tuning", logFn), nil
+}
+
+// settingText renders a pg_settings value as SHOW does for a memory unit
+// that counts pages (wal_buffers in "8kB" is "4MB", not "5128kB"); other
+// values keep their unit suffix. A negative page count is a sentinel
+// (-1: auto) and stays bare.
+func settingText(s collector.PGSetting) string {
+	if s.Unit == "" || !unicode.IsDigit(rune(s.Unit[0])) {
+		return s.Setting + s.Unit
+	}
+	n, err := strconv.ParseFloat(s.Setting, 64)
+	if err != nil {
+		return s.Setting + s.Unit
+	}
+	if n < 0 {
+		return s.Setting
+	}
+	bytes, err := pgconf.ParseValue(s.Setting, pgconf.GUCDoc{Unit: "bytes", BaseUnit: s.Unit})
+	if err != nil {
+		return s.Setting + s.Unit
+	}
+	for _, u := range []struct {
+		name string
+		size float64
+	}{{"GB", 1 << 30}, {"MB", 1 << 20}} {
+		if bytes >= u.size && math.Mod(bytes, u.size) == 0 {
+			return strconv.FormatFloat(bytes/u.size, 'f', -1, 64) + u.name
+		}
+	}
+	return strconv.FormatFloat(bytes/(1<<10), 'f', -1, 64) + "kB"
 }
 
 // countUnloggedTables returns the number of tables with relpersistence='u'.
@@ -117,15 +154,4 @@ func countUnloggedTables(snap *collector.Snapshot) int {
 		}
 	}
 	return count
-}
-
-// detectPlatform infers managed service from pg_settings.
-func detectPlatform(settings []collector.PGSetting) string {
-	for _, s := range settings {
-		if s.Source == "cloud-sql" ||
-			strings.Contains(s.Source, "cloudsql") {
-			return "cloud-sql"
-		}
-	}
-	return "self-managed"
 }

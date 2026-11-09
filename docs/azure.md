@@ -16,6 +16,7 @@ created, so this path is covered by unit tests only.
 |---|---|
 | Detection | `<name>.postgres.database.azure.com` (including `privatelink`) hosts, or the `azure.extensions` server parameter, mark the target as `azure` |
 | Portable actions | ANALYZE, VACUUM, CREATE/DROP/REINDEX INDEX CONCURRENTLY, per-table autovacuum settings, `ALTER DATABASE ... SET`, backend cancel/terminate, reviewed `ALTER TABLE` run as SQL through the standing policy gate like any provider |
+| Database-scope settings | `ALTER DATABASE ... SET` is proposed only for settings whose `pg_settings.context` is `user`, or `superuser` when the role holds `SET` on the parameter (PostgreSQL 15+). `sighup` settings such as `max_wal_size`, `checkpoint_completion_target` and the `autovacuum_*` instance knobs, and `postmaster` settings, become advisory findings naming the server parameter; the executor refuses a stale `ALTER DATABASE` for them before it reaches PostgreSQL |
 | Instance parameters | `ALTER SYSTEM` is unavailable. Configuration changes use Azure **server parameters** through Azure Resource Manager when the `azure:` section is set; otherwise pg_sage reports the exact `az` command to run |
 | Restart-bound parameters | Applied through ARM and reported as `applied_pending_restart` until the server restarts |
 | Readiness | The fleet overview shows `azure_monitor` log access and the `azure.extensions` allow-list requirement for HypoPG, pg_hint_plan and auto_explain |

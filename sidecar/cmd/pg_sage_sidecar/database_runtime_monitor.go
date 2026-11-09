@@ -19,6 +19,7 @@ func (rt *databaseRuntime) startMonitoring() {
 	rt.start(func() { rt.collector.Run(rt.ctx) })
 	rt.note("collector")
 	rt.startAutoExplain()
+	rt.joinInstanceOwner()
 	// Interfaces stay true nils when a feature is off (no typed nils).
 	var queryTuner analyzer.QueryTuner
 	var tuningAgent analyzer.TuningProducer
@@ -123,9 +124,11 @@ func (rt *databaseRuntime) newAdvisor() analyzer.ConfigAdvisor {
 		rt.spec.Pool, cfg, rt.collector, rt.llmManager, logStructuredWrapper,
 	)
 	result.WithCloudEnv(rt.provider)
+	result.WithPGVersion(rt.pgVersion())
 	result.WithHostMemorySource(rt.hostMemory)
 	result.WithDatabaseName(rt.spec.Config.Database)
 	result.WithFacts(rt.facts)
+	result.WithInstanceOwner(rt.instanceOwnerFunc())
 	rt.note("advisor")
 	return result
 }

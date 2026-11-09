@@ -300,10 +300,17 @@ auto-executed. CREATE INDEX rewrites are filtered out (belong to the optimizer).
 - If advisor enabled but LLM disabled → emits a single `advisor_degraded`
   warning finding (`advisorDegradedFinding`, `:220-236`) so a silent no-finding
   cycle isn't mistaken for health.
-- Per-sub-advisor `*Enabled` flags + `hasOpenFindings(category)` dedup gate
-  (`:255-273`) to avoid redundant LLM calls.
-- Interval gate `ShouldRun()` (`:62-66`).
-- Budget-exhausted errors counted; remaining sub-advisors still attempted.
+- Per-sub-advisor `*Enabled` flags. Open findings gate per object, not per
+  category (advisors-02, `gate_open.go`): open GUCs leave the WAL/connection
+  prompts, open queryids the rewrite candidates, open tables the bloat
+  contexts; new findings about an open object are dropped.
+- Per-sub-advisor schedule in `sage.advisor_runs` (`runs.go`, `runs_pg.go`):
+  a run counts only on success; failures back off 1h, doubling, capped at
+  `advisor.interval_seconds`; the row lock serializes concurrent cycles.
+- Deterministic re-check of open findings each cycle (`resolve.go`); the
+  advisor reports the categories it fully read (`LastEvaluatedCategories`).
+- Budget-exhausted errors count as failures; remaining sub-advisors still
+  attempted.
 
 ---
 

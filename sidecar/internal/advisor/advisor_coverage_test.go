@@ -370,7 +370,7 @@ func TestAdvisor_LatestFindings_MultipleCopies(t *testing.T) {
 
 func TestAdvisor_ShouldRun_IntervalBoundary(t *testing.T) {
 	a := newTestAdvisor(true, true, 60)
-	a.lastRunAt = time.Now().Add(-61 * time.Second)
+	ranAt(a, time.Now().Add(-61*time.Second))
 	if !a.ShouldRun() {
 		t.Fatal("expected true after interval elapsed")
 	}
@@ -378,7 +378,7 @@ func TestAdvisor_ShouldRun_IntervalBoundary(t *testing.T) {
 
 func TestAdvisor_ShouldRun_JustBeforeInterval(t *testing.T) {
 	a := newTestAdvisor(true, true, 60)
-	a.lastRunAt = time.Now().Add(-59 * time.Second)
+	ranAt(a, time.Now().Add(-59*time.Second))
 	if a.ShouldRun() {
 		t.Fatal("expected false before interval elapsed")
 	}
@@ -452,7 +452,7 @@ func TestAnalyzeQueryRewrites_NoCandidates_EmptyQueries(t *testing.T) {
 		Queries: nil,
 	}
 	findings, err := analyzeQueryRewrites(
-		context.Background(), nil, nil, snap,
+		context.Background(), nil, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -478,7 +478,7 @@ func TestAnalyzeQueryRewrites_NoCandidates_LowActivity(t *testing.T) {
 		},
 	}
 	findings, err := analyzeQueryRewrites(
-		context.Background(), nil, nil, snap,
+		context.Background(), nil, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -501,7 +501,7 @@ func TestAnalyzeQueryRewrites_NoCandidates_SpillsLowCalls(t *testing.T) {
 		},
 	}
 	findings, err := analyzeQueryRewrites(
-		context.Background(), nil, nil, snap,
+		context.Background(), nil, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -928,28 +928,6 @@ func TestBloatFinding_AllFieldsForced(t *testing.T) {
 		if f.RecommendedSQL != "" {
 			t.Errorf("[%d]: RecommendedSQL not cleared", i)
 		}
-	}
-}
-
-// ---------------------------------------------------------------------------
-// detectPlatform additional cases (wal.go)
-// ---------------------------------------------------------------------------
-
-func TestDetectPlatform_NilSettings_Direct(t *testing.T) {
-	got := detectPlatform(nil)
-	if got != "self-managed" {
-		t.Fatalf("expected 'self-managed', got %q", got)
-	}
-}
-
-func TestDetectPlatform_NoMatch(t *testing.T) {
-	settings := []collector.PGSetting{
-		{Name: "work_mem", Setting: "4MB", Source: "configuration file"},
-		{Name: "wal_level", Setting: "replica", Source: "default"},
-	}
-	got := detectPlatform(settings)
-	if got != "self-managed" {
-		t.Fatalf("expected 'self-managed', got %q", got)
 	}
 }
 
@@ -1621,7 +1599,7 @@ func TestAnalyzeQueryRewrites_FullPath(t *testing.T) {
 	}
 
 	findings, err := analyzeQueryRewrites(
-		context.Background(), nil, mgr, snap,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -1667,7 +1645,7 @@ func TestAnalyzeQueryRewrites_SpillCandidates(t *testing.T) {
 	}
 
 	findings, err := analyzeQueryRewrites(
-		context.Background(), nil, mgr, snap,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -1690,7 +1668,7 @@ func TestAnalyzeQueryRewrites_LLMError(t *testing.T) {
 	}
 
 	_, err := analyzeQueryRewrites(
-		context.Background(), nil, mgr, snap,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err == nil {
@@ -1717,7 +1695,7 @@ func TestAnalyzeQueryRewrites_LongQuery_Truncated(t *testing.T) {
 	}
 
 	findings, err := analyzeQueryRewrites(
-		context.Background(), nil, mgr, snap,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -1738,7 +1716,6 @@ func TestAnalyze_NoConfigSnapshot(t *testing.T) {
 	// We can't easily test this without a real collector, but
 	// the nil snapshot check happens before sub-advisors.
 	a := newTestAdvisor(true, true, 0) // interval=0 so ShouldRun=true
-	a.lastRunAt = time.Time{}          // zero value
 
 	// Analyze will call a.coll.LatestSnapshot() which panics on nil coll.
 	// We can only test the disabled/LLM-disabled paths safely.
@@ -1818,37 +1795,6 @@ func TestAnalyzeWAL_WithUnloggedTables(t *testing.T) {
 			{RelName: "cache1", Relpersistence: "u"},
 			{RelName: "cache2", Relpersistence: "u"},
 			{RelName: "orders", Relpersistence: "p"},
-		},
-		System: collector.SystemStats{TotalCheckpoints: 50},
-	}
-
-	findings, err := analyzeWAL(
-		context.Background(), mgr, snap, nil,
-		&config.Config{}, noopLog,
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(findings) != 0 {
-		t.Fatalf("expected 0, got %d", len(findings))
-	}
-}
-
-// ---------------------------------------------------------------------------
-// WAL detectPlatform integration (wal.go)
-// ---------------------------------------------------------------------------
-
-func TestAnalyzeWAL_CloudSQLPlatform(t *testing.T) {
-	llmResp := `[]`
-	srv, mgr := mockLLMServer(t, llmResp)
-	defer srv.Close()
-
-	snap := &collector.Snapshot{
-		ConfigData: &collector.ConfigSnapshot{
-			PGSettings: []collector.PGSetting{
-				{Name: "max_wal_size", Setting: "1", Unit: "GB",
-					Source: "cloud-sql"},
-			},
 		},
 		System: collector.SystemStats{TotalCheckpoints: 50},
 	}

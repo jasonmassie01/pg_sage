@@ -16,6 +16,14 @@ func newTestAdvisor(enabled, llmEnabled bool, intervalSec int) *Advisor {
 	return New(nil, cfg, nil, nil, func(string, string, ...any) {})
 }
 
+// ranAt records a successful run of every sub-advisor at t (the per
+// sub-advisor schedule replaced the single lastRunAt, advisors-02).
+func ranAt(a *Advisor, t time.Time) {
+	for _, name := range subAdvisorNames {
+		a.schedule.set(name, runState{}.succeeded(t, a.cfg.Advisor.Interval()))
+	}
+}
+
 func TestAdvisor_ShouldRun_FirstRun(t *testing.T) {
 	adv := newTestAdvisor(true, true, 86400)
 	// lastRunAt is zero-value; time.Since(zero) is huge, so ShouldRun returns true.
@@ -26,7 +34,7 @@ func TestAdvisor_ShouldRun_FirstRun(t *testing.T) {
 
 func TestAdvisor_ShouldRun_RecentRun(t *testing.T) {
 	adv := newTestAdvisor(true, true, 86400)
-	adv.lastRunAt = time.Now()
+	ranAt(adv, time.Now())
 	if adv.ShouldRun() {
 		t.Fatal("expected ShouldRun() == false immediately after setting lastRunAt to now")
 	}
@@ -34,7 +42,7 @@ func TestAdvisor_ShouldRun_RecentRun(t *testing.T) {
 
 func TestAdvisor_ShouldRun_StaleRun(t *testing.T) {
 	adv := newTestAdvisor(true, true, 86400)
-	adv.lastRunAt = time.Now().Add(-25 * time.Hour)
+	ranAt(adv, time.Now().Add(-25*time.Hour))
 	if !adv.ShouldRun() {
 		t.Fatal("expected ShouldRun() == true when lastRunAt is 25h ago (interval=24h)")
 	}
@@ -156,9 +164,7 @@ func TestAdvisor_ShouldRun_TransitionsAfterManualSet(t *testing.T) {
 	}
 
 	// Simulate what Analyze does: set lastRunAt to now.
-	adv.mu.Lock()
-	adv.lastRunAt = time.Now()
-	adv.mu.Unlock()
+	ranAt(adv, time.Now())
 
 	// Now ShouldRun should be false.
 	if adv.ShouldRun() {

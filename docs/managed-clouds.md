@@ -47,9 +47,26 @@ still goes through the policy gate and the trust ledger.
   (pending a reboot, overridden by a database/role setting, or not in effect) open
   `managed_parameter_drift` findings.
 
+## Which settings run as SQL
+
+On every managed provider `ALTER SYSTEM` is unavailable, so the configuration advisor
+decides per setting, from the `context` column of `pg_settings` that pg_sage collects each
+cycle, whether `ALTER DATABASE <db> SET` can carry the change:
+
+| `pg_settings.context` | What pg_sage proposes |
+|---|---|
+| `user` (`work_mem`, `random_page_cost`, `maintenance_work_mem`, ...) | `ALTER DATABASE <db> SET ...`; the executor captures the prior database setting and rolls back to it |
+| `superuser` | `ALTER DATABASE <db> SET ...` only when the connected role is a superuser or, on PostgreSQL 15+, holds `SET` on the parameter (`has_parameter_privilege`); otherwise no SQL. PostgreSQL 14 has no parameter privileges |
+| `sighup` (`max_wal_size`, `min_wal_size`, `checkpoint_*`, the `autovacuum_*` instance knobs) and `postmaster` | No SQL: PostgreSQL refuses `ALTER DATABASE SET` for these. A managed proposal on RDS, Aurora and Cloud SQL; guidance naming the server parameters or flags on AlloyDB and Azure |
+| Not collected or any other context | No SQL (fail closed), plus the managed proposal where the provider has one |
+
+Before any `ALTER DATABASE ... SET` runs on a managed provider, the executor re-reads the
+setting's context and the role's privilege and refuses one PostgreSQL would refuse, so a
+finding written by an older pg_sage cannot reach the database.
+
 ## Managed proposals
 
-A restart-required or provider-restricted setting (for example `shared_buffers`,
+A restart-required or server-level setting (for example `shared_buffers`,
 `max_connections`, `max_wal_size` on RDS) becomes a proposal on the Actions page with the
 parameter group (or flag list), the value in the provider's unit, whether a reboot is needed,
 the rollback and the command, for example:

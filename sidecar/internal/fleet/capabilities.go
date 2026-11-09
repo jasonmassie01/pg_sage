@@ -31,6 +31,22 @@ type ProviderCapabilities struct {
 	// HintPlan holds whether pg_hint_plan hints reach application sessions
 	// (tuning-04); nil when the module is absent or was not probed.
 	HintPlan *tuner.HintPlanAvailability `json:"hint_plan,omitempty"`
+	// InstanceOwner is which database of the fleet manages this database's
+	// instance settings (advisors-08); nil outside fleet mode.
+	InstanceOwner *InstanceOwnership `json:"instance_owner,omitempty"`
+}
+
+// InstanceOwnership is the owner of a PostgreSQL instance's settings among
+// the fleet's databases on it: only the owner asks the instance-level
+// questions (WAL, connections) and proposes ALTER SYSTEM or managed
+// parameter changes. KeySource is how the instance was identified
+// (system_identifier or address); empty with a Reason when it
+// could not be, and the database is then advised on its own.
+type InstanceOwnership struct {
+	Owner     string `json:"owner,omitempty"`
+	IsOwner   bool   `json:"is_owner"`
+	KeySource string `json:"key_source,omitempty"`
+	Reason    string `json:"reason,omitempty"`
 }
 
 type ActionFamilyReadiness struct {
@@ -279,6 +295,10 @@ func EnsureCapabilities(inst *DatabaseInstance, snap *InstanceStatus) *InstanceS
 		caps.ActionFamilies = buildActionFamilyReadiness(caps, explain)
 		caps.Blockers = readinessBlockers(caps)
 		caps.ReadyForAutoSafe = readyForAutoSafe(caps)
+	}
+	if inst != nil && inst.InstanceOwner != nil {
+		o := inst.InstanceOwner()
+		caps.InstanceOwner = &o
 	}
 	snap.Capabilities = caps
 	return snap

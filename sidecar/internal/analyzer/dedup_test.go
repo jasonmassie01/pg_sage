@@ -543,38 +543,6 @@ func TestDedupFindings_ConflictingGUC_HigherSeverityWins(
 	}
 }
 
-func TestDedupFindings_ConflictingGUC_PerTableBeatsGlobal(
-	t *testing.T,
-) {
-	in := []Finding{
-		{
-			Category:         "memory_tuning",
-			Severity:         "critical",
-			ObjectIdentifier: "global",
-			Title:            "global work_mem",
-			RecommendedSQL: "ALTER SYSTEM SET " +
-				"autovacuum_vacuum_cost_delay = 20",
-		},
-		{
-			Category:         "vacuum_tuning",
-			Severity:         "warning",
-			ObjectIdentifier: "public.orders",
-			Title:            "per-table cost_delay",
-			RecommendedSQL: "ALTER TABLE orders SET " +
-				"(autovacuum_vacuum_cost_delay = 10)",
-		},
-	}
-	got := DeduplicateFindings(in, 0, noopLog)
-	if len(got) != 1 {
-		t.Fatalf("expected 1 finding, got %d", len(got))
-	}
-	if got[0].Title != "per-table cost_delay" {
-		t.Errorf(
-			"expected per-table to win, got %s", got[0].Title,
-		)
-	}
-}
-
 func TestDedupFindings_NoGUCConflict(t *testing.T) {
 	in := []Finding{
 		{

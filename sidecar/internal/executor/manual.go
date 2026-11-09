@@ -51,7 +51,7 @@ func (e *Executor) ExecuteManual(
 	defer release()
 	runCtx, cancel := e.detachedDDLContext(ctx)
 	defer cancel()
-	if err := e.checkLakebaseDatabaseSetting(runCtx, sql); err != nil {
+	if err := e.checkManagedDatabaseSetting(runCtx, sql); err != nil {
 		return 0, err
 	}
 	// Refuse early without a ledger row; record once the finding checks out.
