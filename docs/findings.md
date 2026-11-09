@@ -31,6 +31,36 @@ execution: the executor re-derives risk and approval under policy for every acti
 
 ---
 
+## Lifecycle
+
+Each analyzer cycle persists its findings, publishes them to the executor, the API and MCP,
+and resolves the open findings a fully evaluated category no longer reports.
+
+- **Identity.** A finding is one open row per `(category, object_identifier)`. Two writers
+  racing on a new identity end with one open row; neither reports an error.
+- **Partial failures.** A finding that cannot be persisted (for example a statement
+  timeout) does not stop the cycle. The rest are still persisted, and the cycle logs one
+  error naming each failed finding's category and identity. Resolving cleared findings
+  also continues past a failed row.
+- **Suppression.** Before publishing, one query drops every identity under an active
+  suppression (`status = 'suppressed'` with `suppressed_until` empty or in the future),
+  including identities that came after a failed row. If that query fails, the cycle keeps
+  the previously published findings, records no recommendations and resolves nothing.
+  Suppression is per database in fleet mode.
+- **After an action.** When an action resolves a finding, the snapshot's collection time
+  decides what the next sighting means. Evidence collected before the action resolved the
+  finding is stale and is ignored. Evidence collected up to 2 × max(analyzer interval,
+  collector interval) after it (20 minutes with the defaults) reopens the same row with
+  `detail.persisted_after_action` set to the action's `action_log` id: the action did not
+  clear the condition. A critical finding reopened this way pages once, subject to the
+  usual one-hour cooldown per identity. Later evidence opens a new row. Writers outside
+  the analyzer cycle (runway, schema lint, audit, cloud telemetry) carry no collection
+  time; their evidence is treated as two default collector intervals (2 minutes) old.
+  The comparison uses the sidecar's snapshot clock against the database's `resolved_at`,
+  so keep both clocks synchronised (NTP).
+
+---
+
 ## Index Health
 
 ### unused_index

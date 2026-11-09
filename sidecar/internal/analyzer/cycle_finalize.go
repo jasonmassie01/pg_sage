@@ -59,30 +59,55 @@ func (a *Analyzer) dispatchRewriteFindings(
 	}
 }
 
-// finalizeCycle publishes, persists, notifies and resolves one cycle's
+// finalizeCycle persists, notifies, publishes and resolves one cycle's
 // deduplicated findings. evaluated names the categories whose producers
-// completed successfully this cycle.
+// completed successfully this cycle. A finding that fails to persist is
+// still published unless suppressed. When the suppression state cannot be
+// read, nothing is published, recorded or resolved this cycle (rules-06).
 func (a *Analyzer) finalizeCycle(
 	ctx context.Context, findings []Finding, evaluated map[string]bool,
 ) {
-	res, err := UpsertFindingsWithResult(ctx, a.pool, findings)
+	res, err := UpsertFindingsObserved(ctx, a.pool, findings, a.cycleEvidence())
 	if err != nil {
-		a.logFn("ERROR", "analyzer: upsert findings: %v", err)
+		a.logFn("ERROR", "analyzer: %d of %d findings not persisted: %v",
+			len(res.Failed), len(findings), err)
 	}
-	// Operator-suppressed identities are never published to the executor
-	// or notifications (G2-B01).
-	findings = withoutSuppressed(findings, res)
-	a.mu.Lock()
-	a.findings = findings
-	a.mu.Unlock()
-	a.recordRecommendations(ctx, findings, evaluated)
-	// Notify only on new information: newly opened or severity-escalated
-	// findings, subject to a per-identity cooldown (G2-B06/G7-B07).
+	// Notify only on new information: newly opened, reopened after an
+	// action or severity-escalated findings, subject to a per-identity
+	// cooldown (G2-B06/G7-B07). The upsert already skipped suppressed ones.
 	a.dispatchCriticalFindings(ctx, a.notifiableCritical(res, time.Now()))
 	a.dispatchRewriteFindings(ctx, res.Opened)
 
-	a.resolveCleared(ctx, findings, evaluated)
-	a.logFn("INFO", "analyzer cycle: %d findings", len(findings))
+	// Operator-suppressed identities are never published to the executor,
+	// the API or recommendations (G2-B01), whether or not the upsert
+	// reached them.
+	published, err := withoutActiveSuppressions(ctx, a.suppressionReader(), findings)
+	if err != nil {
+		a.logFn("ERROR", "analyzer: %v; keeping the previous %d findings, "+
+			"skipping recommendations and resolving nothing this cycle",
+			err, len(a.LatestFindings()))
+		return
+	}
+	a.mu.Lock()
+	a.findings = published
+	a.mu.Unlock()
+	a.recordRecommendations(ctx, published, evaluated)
+	a.resolveCleared(ctx, published, evaluated)
+	a.logFn("INFO", "analyzer cycle: %d findings", len(published))
+}
+
+// cycleEvidence is when this cycle's snapshot was collected and how long
+// after an action a persisting condition reopens the action's row.
+func (a *Analyzer) cycleEvidence() Evidence {
+	return Evidence{CollectedAt: a.eval.evidenceAt(), Window: reopenWindow(a.cfg)}
+}
+
+// suppressionReader is the source of the publish-time suppression filter.
+func (a *Analyzer) suppressionReader() rowsQuerier {
+	if a.suppressions != nil {
+		return a.suppressions
+	}
+	return a.pool
 }
 
 // resolveCleared resolves open findings that are absent from this cycle's
@@ -146,35 +171,21 @@ func (a *Analyzer) dispatchResolvedCritical(
 	}
 }
 
-// withoutSuppressed drops findings whose identity is under an active
-// operator suppression.
-func withoutSuppressed(findings []Finding, res UpsertResult) []Finding {
-	if len(res.Suppressed) == 0 {
-		return findings
-	}
-	out := make([]Finding, 0, len(findings))
-	for _, f := range findings {
-		if !res.IsSuppressed(f) {
-			out = append(out, f)
-		}
-	}
-	return out
-}
-
 // criticalNotifyCooldown bounds how often the same critical identity can
 // be re-paged when it flaps between critical and a lower severity. A
 // resolve clears it (dispatchResolvedCritical), so a finding re-opened
 // after its page was resolved always pages again.
 const criticalNotifyCooldown = time.Hour
 
-// notifiableCritical returns the critical findings that were opened or
-// escalated this cycle and have not been notified within the cooldown.
+// notifiableCritical returns the critical findings that were opened,
+// reopened after an action or escalated this cycle and have not been notified within the cooldown.
 // It is only called from the analyzer's cycle goroutine.
 func (a *Analyzer) notifiableCritical(res UpsertResult, now time.Time) []Finding {
 	if a.dispatcher == nil {
 		return nil
 	}
-	candidates := append(append([]Finding(nil), res.Opened...), res.Escalated...)
+	candidates := append(append([]Finding(nil), res.Opened...), res.Reopened...)
+	candidates = append(candidates, res.Escalated...)
 	var out []Finding
 	for _, f := range candidates {
 		if f.Severity != "critical" {

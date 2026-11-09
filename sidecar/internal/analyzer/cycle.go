@@ -69,8 +69,10 @@ func (a *Analyzer) cycle(ctx context.Context) {
 
 // loadCycleInputs reads the state the rules need besides the snapshot:
 // recently created indexes (cooldown), the stats epoch, index builds and
-// the persisted unused_index clock (after the epoch, which it needs).
+// the persisted unused_index clock (after the epoch, which it needs). The
+// snapshot's collection time is the cycle's evidence time (rules-06).
 func (a *Analyzer) loadCycleInputs(ctx context.Context, current *collector.Snapshot) {
+	a.eval.collectedAt = current.CollectedAt
 	a.loadRecentlyCreatedIndexes(ctx)
 	a.loadStatsEpoch(ctx)
 	a.loadIndexBuilds(ctx)

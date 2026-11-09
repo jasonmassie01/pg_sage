@@ -1,5 +1,7 @@
 package analyzer
 
+import "time"
+
 // cycleEval tracks which finding categories were fully evaluated in one
 // analyzer cycle. Only evaluated categories may resolve their open
 // findings; a category whose evaluator was skipped, lacked input or
@@ -12,6 +14,18 @@ type cycleEval struct {
 	// not yet evidence (an unused_index clock that restarted without
 	// evidence after a sidecar restart, rules-04).
 	keepOpen map[string]map[string]bool
+	// collectedAt is when this cycle's snapshot was collected: the
+	// evidence time findings are judged by after an action (rules-06).
+	collectedAt time.Time
+}
+
+// evidenceAt returns when this cycle's evidence was collected, zero when
+// unknown.
+func (e *cycleEval) evidenceAt() time.Time {
+	if e == nil {
+		return time.Time{}
+	}
+	return e.collectedAt
 }
 
 func newCycleEval() *cycleEval {
