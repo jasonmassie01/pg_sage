@@ -144,6 +144,7 @@ func (t *Tailer) openAndSeek(path string) error {
 	t.partial = nil
 	t.discardUntilNewline = false
 	t.queue = nil
+	t.criticalHead = 0
 	t.captureCheckpoint()
 	return nil
 }
@@ -297,6 +298,7 @@ func (t *Tailer) Stop() {
 		t.file = nil
 	}
 	t.queue = nil
+	t.criticalHead = 0
 	t.partial = nil
 	t.checkpoint = nil
 	t.pumpRequests = nil

@@ -298,3 +298,36 @@ func TestTailerOverflowConcurrentReadsAccountForEveryLine(t *testing.T) {
 			batches*perBatch)
 	}
 }
+
+// State transition: reopening the log (startup or truncation) empties the
+// queue, so the critical prefix must go with it; a stale prefix would keep
+// the oldest noise lines of the next storm as if they were critical.
+func TestTailerReopenResetsCriticalPrefix(t *testing.T) {
+	tailer, path := openTestTailer(t)
+	panicLine := jsonRecord(t, "PANIC", "", "first crash", 1)
+	storm := bytes.Split(bytes.TrimSpace(
+		noiseStorm(t, maxTailerQueueSize, 0, panicLine)), []byte{10})
+	tailer.mu.Lock()
+	tailer.enqueue(storm)
+	head := tailer.criticalHead
+	tailer.mu.Unlock()
+	if head != 1 {
+		t.Fatalf("critical prefix after the first storm = %d, want 1", head)
+	}
+	_ = tailer.file.Close() // openAndSeek replaces the handle
+	if err := tailer.openAndSeek(path); err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	noise := bytes.Split(bytes.TrimSpace(
+		noiseStorm(t, maxTailerQueueSize+1, -1, nil)), []byte{10})
+	tailer.mu.Lock()
+	tailer.enqueue(noise)
+	tailer.mu.Unlock()
+	got := tailer.ReadLines()
+	if len(got) != maxTailerQueueSize {
+		t.Fatalf("queued = %d, want %d", len(got), maxTailerQueueSize)
+	}
+	if !bytes.Contains(got[0], []byte(`"pid":101,`)) {
+		t.Fatalf("oldest kept line = %s, want noise line 1 (line 0 evicted)", got[0])
+	}
+}
