@@ -350,7 +350,10 @@ func (b *canaryBackend) Apply(ctx context.Context, instance Instance,
 	return AppliedChange{Handle: strconv.FormatInt(actionID, 10)}, nil
 }
 
-// Rollback undoes the change on the target.
+// Rollback undoes the change on the target. An action the target's own
+// monitor already rolled back (a revert verdict) is done: the target
+// refuses a second rollback, which is not a failure. When the outcome
+// cannot be read, the rollback is still attempted.
 func (b *canaryBackend) Rollback(ctx context.Context, instance Instance,
 	change AppliedChange) error {
 	target, err := b.svc.resolve(instance.ID)
@@ -358,6 +361,10 @@ func (b *canaryBackend) Rollback(ctx context.Context, instance Instance,
 		return err
 	}
 	actionID, _ := strconv.ParseInt(change.Handle, 10, 64)
+	if outcome, _, err := target.ActionResult(ctx, actionID); err == nil &&
+		outcome == "rolled_back" {
+		return nil
+	}
 	return target.Rollback(ctx, actionID, "fleet canary halted: rolled back")
 }
 

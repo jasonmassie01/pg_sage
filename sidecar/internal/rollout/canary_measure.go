@@ -17,10 +17,11 @@ const (
 )
 
 // inProgressOutcomes are the action outcomes the target's own monitor has
-// not settled: a reversible action stays "monitoring" for its window, and
-// an interrupted monitor resumes when its sidecar restarts.
+// not settled: a reversible action stays "monitoring" for its window, an
+// interrupted monitor resumes when its sidecar restarts, and a rollback in
+// progress ("rolling_back") ends rolled_back or rollback_failed.
 var inProgressOutcomes = map[string]bool{"monitoring": true, "pending": true,
-	"interrupted": true}
+	"interrupted": true, "rolling_back": true}
 
 // finalVerifications are the verification verdicts that end a watch.
 var finalVerifications = map[string]bool{"success": true, "revert": true, "failed": true,

@@ -1803,7 +1803,9 @@ failed verification or a regression above the limit.
 After each change the canary waits for that database's own verdict. A reversible action is
 `monitoring` until its rollback monitor decides, so the canary re-reads the action every
 15 seconds until the verdict is final (a verification of `success`, `revert`, `failed` or
-`unverifiable`, or a settled outcome). The wait ends at the action's monitor deadline (its
+`unverifiable`, or a settled outcome; a rollback still in progress on that database is waited
+out). A change that database's own monitor already rolled back is recorded `rolled_back` and is
+not rolled back a second time. The wait ends at the action's monitor deadline (its
 execution plus its class's monitor cap: `verify.window_max_minutes`, or
 `verify.drop_window_hours` for a drop) plus 2 minutes. A verdict still open then halts the
 rollout as `verification_pending`, with that database's record `verification_pending`: nothing

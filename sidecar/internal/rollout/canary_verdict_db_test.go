@@ -63,13 +63,15 @@ func TestCanaryRevertAfterMonitoringHaltsAndRollsBack(t *testing.T) {
 	if run.State != "halted" || run.HaltReason != "verification_failed" {
 		t.Fatalf("run = %+v, want halted on the revert", run)
 	}
-	if len(f.targets["a"].rolledBack) != 1 || len(f.targets["b"].rolledBack) != 1 ||
+	// b's own monitor rolled it back (outcome rolled_back); only a is undone.
+	if len(f.targets["a"].rolledBack) != 1 || len(f.targets["b"].rolledBack) != 0 ||
 		len(f.targets["c"].executed) != 0 {
 		t.Fatalf("rollbacks a=%v b=%v, c executed %v", f.targets["a"].rolledBack,
 			f.targets["b"].rolledBack, f.targets["c"].executed)
 	}
-	if reads := f.targets["b"].reads[f.targets["b"].nextAction]; reads != 3 {
-		t.Fatalf("b's verdict read %d times, want 3 (judged only once terminal)", reads)
+	// Three polls until terminal, then one read by the halt's rollback.
+	if reads := f.targets["b"].reads[f.targets["b"].nextAction]; reads != 4 {
+		t.Fatalf("b's verdict read %d times, want 4 (judged only once terminal)", reads)
 	}
 }
 
