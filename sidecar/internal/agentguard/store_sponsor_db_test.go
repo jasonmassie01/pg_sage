@@ -180,3 +180,43 @@ func TestSponsor_ChangeRacesFreeze(t *testing.T) {
 	}
 	t.Logf("race outcomes: %v", outcomes)
 }
+
+// TestSponsor_ChangeWaitsForAFreezeInFlight: a sponsor change that starts
+// while a kill holds the principal's row (freeze written, not committed)
+// waits for it and then sees the freeze: it is refused, not applied on a
+// snapshot that predates the kill.
+func TestSponsor_ChangeWaitsForAFreezeInFlight(t *testing.T) {
+	pool := livePool(t)
+	s := NewStore(pool)
+	ctx := context.Background()
+	first, second := createUser(t, pool, "admin"), createUser(t, pool, "operator")
+	p := newPrincipal(t, s, &first)
+	tx, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = tx.Rollback(context.Background()) })
+	ids, err := lockPrincipals(ctx, tx, freezeMark{ids: []string{p.ID}}, 5000)
+	require.NoError(t, err)
+	require.NoError(t, writeFreeze(ctx, tx, freezeMark{ids: ids, reason: "kill",
+		actor: "t"}, ids))
+	done := make(chan error, 1)
+	go func() {
+		_, err := s.Update(ctx, p.ID, Patch{SponsorUserID: &second}, Audit{})
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		t.Fatalf("the sponsor change did not wait for the kill in flight: %v", err)
+	case <-time.After(500 * time.Millisecond):
+	}
+	require.NoError(t, tx.Commit(ctx))
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, ErrSponsorChangeFrozen)
+	case <-time.After(15 * time.Second):
+		t.Fatal("the sponsor change did not finish after the kill committed")
+	}
+	got := mustGet(t, s, p.ID)
+	require.Equal(t, first, *got.SponsorUserID, "the kill's sponsor stands")
+	require.Equal(t, StatusFrozen, got.Status)
+	require.Len(t, govEvents(t, pool, p.ID), 1, "only the create is recorded")
+}
