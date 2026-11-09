@@ -17,7 +17,7 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./vitest.setup.js'],
-    include: ['src/**/*.test.{js,jsx}'],
+    include: ['src/**/*.test.{js,jsx}', 'scripts/**/*.test.mjs'],
     // CI runs `npm run test -- --coverage`, so these floors fail the build.
     // The shared data layer (hooks, lib) is held at 70% on its own glob,
     // so a well-covered lib cannot hide an untested hook.

@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { useAPI } from '../hooks/useAPI'
 import { useLiveRefetch } from '../hooks/useLiveEvents'
 import { SeverityBadge } from '../components/SeverityBadge'
@@ -7,14 +7,19 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { QueryState, StaleStrip } from '../components/QueryState'
 import { hasData, queryStale } from '../lib/queryState'
 import { TokenBudgetBanner } from '../components/TokenBudgetBanner'
-import { FleetHealthChart } from '../components/FleetHealthChart'
 import { DatabaseTile } from '../components/DatabaseTile'
 import { ProviderReadinessMatrix } from '../components/ProviderReadinessMatrix'
 import { IndexAdmissionPanel } from '../components/IndexAdmissionPanel'
+import { Skeleton } from '../components/Skeleton'
 import { readPref } from '../lib/storage'
 import {
   CheckCircle, Clock, ListChecks, Server,
 } from 'lucide-react'
+
+// recharts is only needed by this chart, so it loads in its own chunk and the
+// first paint does not download it (dashboard-09).
+const FleetHealthChart = lazy(() => import('../components/FleetHealthChart')
+  .then(m => ({ default: m.FleetHealthChart })))
 
 const TRUST_LEVEL_LABELS = {
   0: 'Observation',
@@ -431,7 +436,10 @@ export function Dashboard({ database, onSelectDB, user, fleet = FLEET_LOADING })
           badge={newSinceVisit} />
       </div>
 
-      <FleetHealthChart database={database} />
+      <Suspense fallback={<Skeleton height={192}
+        data-testid="fleet-health-chart-loading" />}>
+        <FleetHealthChart database={database} />
+      </Suspense>
       <OverviewTabs activeTab={overviewTab} setActiveTab={setOverviewTab} />
       {overviewTab === 'databases' && (
         <DatabaseOverviewPanel databases={databases}
