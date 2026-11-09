@@ -407,3 +407,45 @@ func TestReconcileCursorIdlePassDoesNoWork(t *testing.T) {
 		t.Fatalf("idle pass made %d round trips, want at most %d", n, idlePassRoundTrips)
 	}
 }
+
+func (f *fixture) invalidationCount() int64 {
+	f.svc.mu.Lock()
+	defer f.svc.mu.Unlock()
+	return f.svc.invalidations
+}
+
+// A retry pass that records nothing new keeps the evidence cache; a failed
+// outcome write drops it, since the insert may have committed (fail closed).
+func TestReconcileCursorRetryPassKeepsTheEvidenceCache(t *testing.T) {
+	f := newSelfFixture(t)
+	id := f.l3Aged("success", 10*time.Minute)
+	f.attachVerification(id, "success")
+	r := NewReconciler(f.svc, f.pool, f.db, &recordingNotifier{fails: true})
+	if _, err := r.RunOnce(f.ctx); err == nil {
+		t.Fatal("a failed notification must surface")
+	}
+	before := f.invalidationCount()
+	if before == 0 {
+		t.Fatal("recording a new outcome did not invalidate the evidence cache")
+	}
+	res, err := r.RunOnce(f.ctx)
+	if err == nil || res.Recorded != 0 {
+		t.Fatalf("retry pass = %+v (%v), want the notice to fail again and nothing recorded",
+			res, err)
+	}
+	requirePending(t, f.incidentState().autoPending, id)
+	if got := f.invalidationCount() - before; got != 0 {
+		t.Fatalf("a retry pass that recorded nothing invalidated the cache %d times", got)
+	}
+	cancelled, cancel := context.WithCancel(f.ctx)
+	cancel()
+	_, err = f.svc.recordOutcome(cancelled, Outcome{Database: f.db, ActionLogID: id,
+		Family: FamilyWraparound, Class: ClassFreeze, Level: L3,
+		Result: ResultVerifiedRecovery, Source: SourceExecutor, Actor: ActorPgSage})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("outcome write on a cancelled context: %v, want context.Canceled", err)
+	}
+	if got := f.invalidationCount() - before; got != 1 {
+		t.Fatalf("a failed outcome write invalidated the cache %d times, want 1", got)
+	}
+}

@@ -325,8 +325,12 @@ func (s *Service) recordOutcomeDemoting(ctx context.Context, o Outcome) (bool, *
 	}
 	o.At = s.now()
 	inserted, err := s.store.insertOutcome(ctx, o)
-	if err != nil || !inserted {
-		return false, nil, err // nothing new: the cached evidence still holds
+	if err != nil {
+		s.invalidate() // the insert may have committed: fail closed
+		return false, nil, err
+	}
+	if !inserted {
+		return false, nil, nil // nothing new: the cached evidence still holds
 	}
 	s.invalidate()
 	if cause, ok := demeritCause(o); ok {
