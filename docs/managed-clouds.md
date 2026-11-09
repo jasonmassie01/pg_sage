@@ -239,7 +239,7 @@ Credentials come only from the standard chains and are never stored, logged or p
 - **Google Cloud:** Application Default Credentials (`GOOGLE_APPLICATION_CREDENTIALS` with a
   service-account key or user credentials, `gcloud auth application-default login`, or the
   metadata server on GCE/GKE/Cloud Run). Roles: `roles/monitoring.viewer`,
-    roles/cloudsql.viewer`. The project comes from the Auth Proxy socket,
+  `roles/cloudsql.viewer`. The project comes from the Auth Proxy socket,
   `cloud_resource.gcp.project`, `cloud_telemetry.gcp.project` or the credentials, in that
   order.
 
