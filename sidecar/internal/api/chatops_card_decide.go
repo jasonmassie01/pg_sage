@@ -27,6 +27,9 @@ import (
 // chatSnooze is how long a chat Snooze defers a card.
 const chatSnooze = 4 * time.Hour
 
+// chatopsNow is the clock a card's expiry is checked against.
+var chatopsNow = time.Now
+
 // cardOutcome is a card decision's response, chat reply and HTTP status.
 type cardOutcome struct {
 	body   map[string]any
@@ -39,6 +42,13 @@ func (d *chatopsDeps) decideCard(w http.ResponseWriter, r *http.Request, ch noti
 	a chatops.Action, user auth.User) {
 	card, inst, current, ok := d.checkCard(w, r, ch, a)
 	if !ok {
+		return
+	}
+	if a.Decision == chatops.DecisionSnooze && approvalcard.BackendSignal(current.ActionType) {
+		// A backend signal is decided now or not at all; the card stays usable.
+		reply(ch, a, "Not snoozed: a backend signal cannot be snoozed. Approve or reject it.")
+		sreErrorCode(w, "a backend signal cannot be snoozed", "snooze_unavailable",
+			http.StatusConflict)
 		return
 	}
 	if _, err := d.cards.Consume(r.Context(), a.CardToken, user.ID, a.Decision,
@@ -55,6 +65,9 @@ func (d *chatopsDeps) decideCard(w http.ResponseWriter, r *http.Request, ch noti
 		out = snoozeCardFromChat(r, as, card, a, user)
 	default:
 		out = rejectCardFromChat(r, as, card, a, user)
+	}
+	if a.Decision != chatops.DecisionSnooze {
+		syncSREProposal(r.Context(), inst, current)
 	}
 	out.body["database"], out.body["queue_id"] = inst.Name, card.QueueID
 	reply(ch, a, out.text)
@@ -84,7 +97,7 @@ func (d *chatopsDeps) checkCard(w http.ResponseWriter, r *http.Request, ch notif
 	case card.UsedAt != nil:
 		writeCardError(w, r, chatops.ErrCardUsed)
 		return card, nil, nil, false
-	case card.Expired(time.Now()):
+	case card.Expired(chatopsNow()):
 		writeCardError(w, r, chatops.ErrCardExpired)
 		return card, nil, nil, false
 	}
@@ -100,7 +113,12 @@ func (d *chatopsDeps) checkCard(w http.ResponseWriter, r *http.Request, ch notif
 			http.StatusNotFound)
 		return card, nil, nil, false
 	}
-	if approvalcard.ContentHash(*current) != card.CardHash {
+	hash, err := approvalcard.CurrentHash(r.Context(), inst.Pool, *current)
+	if err != nil {
+		internalError(w, r, "approval card hash", err)
+		return card, nil, nil, false
+	}
+	if hash != card.CardHash {
 		slog.Warn("approval card refused: content changed after it was sent",
 			"queue_id", card.QueueID, "card", card.ID)
 		reply(ch, a, "Refused: this action changed after the card was sent. "+

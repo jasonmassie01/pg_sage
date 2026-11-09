@@ -96,7 +96,7 @@ func TestFactCardReachesDefaultApprovalRule(t *testing.T) {
 func TestFactCardSeverityMatchesOtherApprovalCards(t *testing.T) {
 	fact := FactProposedEvent(factRef(), "b")
 	legacy := ApprovalNeededEvent("Reindex", "REINDEX", "orders", "high")
-	sre := ActionApprovalEvent(ActionApproval{Database: "orders", ProposalID: "p1"})
+	sre := sreCardEvent()
 	if fact.Severity != legacy.Severity || fact.Severity != sre.Severity {
 		t.Fatalf("fact card severity %q, approval cards %q / %q",
 			fact.Severity, legacy.Severity, sre.Severity)

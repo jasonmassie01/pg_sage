@@ -1503,6 +1503,18 @@ and the decision goes through the same approval as the browser, attributed to th
 user. Bot tokens, signing secrets and webhook secrets are sealed at rest like other channel
 secrets.
 
+*One protocol: the approval card.* A Sage SRE cancel is sent as an approval card, like every
+other queued action. Its Approve and Reject buttons carry a single-use card token that works
+only in the channel the card was sent to, only while the card is unchanged, and only until
+the earlier of 15 minutes and the approval request's expiry. The card is bound to the exact
+backend (pid and backend start), so a reused pid is a different card and an old card is
+refused as changed. A backend cancel has no Snooze button, and a snooze press for one is
+refused. A chat Reject records the denial on the proposal at once. The Approve / Deny
+buttons of releases before this one no longer act: for one release, pressing one replies
+"This button is outdated; open pg_sage to decide" and changes nothing (the callback still
+passes the signature, workspace or chat, replay and role checks first). Decide such requests
+in pg_sage or on a newer card.
+
 *Snooze and follow-ups.* Snoozing a card keeps the action pending; autonomy does not take it
 over while the snooze runs. When the snooze ends, pg_sage sends the card again, once per
 snooze. If that re-send fails, the other ended snoozes are still sent, and the failed one is

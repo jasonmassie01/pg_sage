@@ -41,8 +41,8 @@ func NewTelegramSenderWithPolicy(policy TargetPolicy) *TelegramSender {
 // Type returns the channel type identifier.
 func (s *TelegramSender) Type() string { return "telegram" }
 
-// Send posts the event to the channel's chat, with Approve/Deny buttons
-// when the event asks for a decision on a proposal.
+// Send posts the event to the channel's chat, with the card's buttons
+// when the event carries a card or fact token.
 func (s *TelegramSender) Send(ctx context.Context, ch Channel, evt Event) error {
 	text := evt.Subject
 	if evt.Body != "" {
@@ -53,13 +53,7 @@ func (s *TelegramSender) Send(ctx context.Context, ch Channel, evt Event) error 
 	if token := factToken(evt); token != "" {
 		msg["reply_markup"] = factKeyboard(token)
 	} else if token := cardToken(evt); token != "" {
-		msg["reply_markup"] = cardKeyboard(token)
-	} else if id, ok := approvalProposal(evt); ok {
-		msg["reply_markup"] = map[string]any{"inline_keyboard": [][]map[string]string{{
-			{"text": "Approve", "callback_data": chatops.CallbackData(
-				chatops.DecisionApprove, id)},
-			{"text": "Deny", "callback_data": chatops.CallbackData(chatops.DecisionDeny, id)},
-		}}}
+		msg["reply_markup"] = cardKeyboard(token, cardSnooze(evt))
 	}
 	if replyTo, ok := evt.Data[DataReplyTo].(int64); ok && replyTo > 0 {
 		msg["reply_to_message_id"] = replyTo

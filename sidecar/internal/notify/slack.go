@@ -63,11 +63,8 @@ func (s *SlackSender) Send(
 			return fmt.Errorf("build slack payload: %w", err)
 		}
 	case cardToken(evt) != "" && CardInteractive(ch):
-		if payload, err = withCardButtons(payload, cardToken(evt)); err != nil {
-			return fmt.Errorf("build slack payload: %w", err)
-		}
-	case ch.Config["interactive"] == "true":
-		if payload, err = withApprovalButtons(payload, evt); err != nil {
+		payload, err = withCardButtons(payload, cardToken(evt), cardSnooze(evt))
+		if err != nil {
 			return fmt.Errorf("build slack payload: %w", err)
 		}
 	}
