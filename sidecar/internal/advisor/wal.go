@@ -3,12 +3,16 @@ package advisor
 import (
 	"context"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/pgconf"
 )
 
 const walSystemPrompt = `You are a PostgreSQL WAL and checkpoint tuning expert.
@@ -65,9 +69,7 @@ func analyzeWAL(
 				restart = " (pending_restart=true)"
 			}
 			walSettings = append(walSettings,
-				fmt.Sprintf("  %s = %s%s%s",
-					s.Name, s.Setting, s.Unit, restart),
-			)
+				fmt.Sprintf("  %s = %s%s", s.Name, settingText(s), restart))
 		}
 	}
 
@@ -111,6 +113,36 @@ func analyzeWAL(
 	}
 
 	return parseLLMFindings(resp, "wal_tuning", logFn), nil
+}
+
+// settingText renders a pg_settings value as SHOW does for a memory unit
+// that counts pages (wal_buffers in "8kB" is "4MB", not "5128kB"); other
+// values keep their unit suffix. A negative page count is a sentinel
+// (-1: auto) and stays bare.
+func settingText(s collector.PGSetting) string {
+	if s.Unit == "" || !unicode.IsDigit(rune(s.Unit[0])) {
+		return s.Setting + s.Unit
+	}
+	n, err := strconv.ParseFloat(s.Setting, 64)
+	if err != nil {
+		return s.Setting + s.Unit
+	}
+	if n < 0 {
+		return s.Setting
+	}
+	bytes, err := pgconf.ParseValue(s.Setting, pgconf.GUCDoc{Unit: "bytes", BaseUnit: s.Unit})
+	if err != nil {
+		return s.Setting + s.Unit
+	}
+	for _, u := range []struct {
+		name string
+		size float64
+	}{{"GB", 1 << 30}, {"MB", 1 << 20}} {
+		if bytes >= u.size && math.Mod(bytes, u.size) == 0 {
+			return strconv.FormatFloat(bytes/u.size, 'f', -1, 64) + u.name
+		}
+	}
+	return strconv.FormatFloat(bytes/(1<<10), 'f', -1, 64) + "kB"
 }
 
 // countUnloggedTables returns the number of tables with relpersistence='u'.
