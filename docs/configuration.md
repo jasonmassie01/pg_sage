@@ -507,7 +507,8 @@ deletes are never withheld by the ledger.
 
 The **Trust** page (and `GET /api/v1/trust?database=`) shows every database x family x class
 with its level, effective level, evidence counts, last change and why, and the path to the
-next level. MCP `sre_get_autonomy` carries the same grid as `trust`. Each view is read with a
+next level; an incident row also carries `bench`, the report its bench checks read (id,
+origin, provenance label). MCP `sre_get_autonomy` carries the same grid as `trust`. Each view is read with a
 fixed number of set-based statements per database, however many classes and outcomes it
 shows. Every approval card carries its action class's row as `trust` (level, evidence
 counts, path to the next level) and one `Trust:` line in Slack and Telegram.
