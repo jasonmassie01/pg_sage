@@ -36,6 +36,9 @@ type llmClientRegistry struct {
 	// to (llm-03); globalLogged marks that its first value was logged.
 	global       *llm.Budget
 	globalLogged bool
+	// restore adds today's persisted usage to a client as it registers
+	// (fleet-10, attachUsageRestore); nil until the ledger restored.
+	restore func(llmRegistryEntry)
 }
 
 var llmClients = &llmClientRegistry{}
@@ -49,6 +52,7 @@ func (r *llmClientRegistry) bind(parent config.LLMConfig) {
 	defer r.mu.Unlock()
 	r.bound, r.parent, r.entries = true, parent, nil
 	r.global, r.globalLogged = llm.NewBudget(), false
+	r.restore = nil
 }
 
 func (r *llmClientRegistry) parentLocked() config.LLMConfig {
@@ -67,9 +71,7 @@ func (r *llmClientRegistry) add(
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.entries = append(r.entries, llmRegistryEntry{client, role, database, allowed})
-	r.attachGlobalLocked(client)
-	r.refreshGlobalLocked()
+	r.trackLocked(llmRegistryEntry{client, role, database, allowed})
 }
 
 // newClient builds and tracks a client from the current parent config.
@@ -81,10 +83,44 @@ func (r *llmClientRegistry) newClient(
 	defer r.mu.Unlock()
 	derived := derivedLLMConfig(r.parentLocked(), role, allowed)
 	client := llm.New(&derived, logStructuredWrapper)
-	r.entries = append(r.entries, llmRegistryEntry{client, role, database, allowed})
-	r.attachGlobalLocked(client)
-	r.refreshGlobalLocked()
+	r.trackLocked(llmRegistryEntry{client, role, database, allowed})
 	return client
+}
+
+// trackLocked registers a client with the global ceiling and, once the
+// usage ledger restored, today's persisted usage.
+func (r *llmClientRegistry) trackLocked(entry llmRegistryEntry) {
+	r.entries = append(r.entries, entry)
+	r.attachGlobalLocked(entry.client)
+	r.refreshGlobalLocked()
+	if r.restore != nil {
+		r.restore(entry)
+	}
+}
+
+// attachUsageRestore applies a restore to every tracked client and the
+// global ceiling, and to each client registered afterwards.
+func (r *llmClientRegistry) attachUsageRestore(
+	entry func(llmRegistryEntry), global func(*llm.Budget),
+) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	seen := make(map[*llm.Client]bool, len(r.entries))
+	for _, tracked := range r.entries {
+		if !seen[tracked.client] {
+			seen[tracked.client] = true
+			entry(tracked)
+		}
+	}
+	global(r.global)
+	r.restore = entry
+}
+
+// usageEntries snapshots the tracked clients and the global ceiling.
+func (r *llmClientRegistry) usageEntries() ([]llmRegistryEntry, *llm.Budget) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]llmRegistryEntry(nil), r.entries...), r.global
 }
 
 // remove stops tracking the given clients (a retired runtime generation).

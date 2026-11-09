@@ -88,6 +88,7 @@ func shutdownProcess(sig os.Signal, promServer *http.Server) {
 	// internal WaitGroup, so we can run them in parallel.
 	drainRuntimeWorkers(shutCtx)
 	shutdownExecutors(shutCtx)
+	flushLLMUsageOnShutdown() // fleet-10: after in-flight calls settled
 
 	logInfo("shutdown", "stopped")
 

@@ -358,8 +358,10 @@ func initMetaDBFleet(state *metaDBState) {
 	names := make([]string, 0, len(records))
 	for _, record := range records {
 		names = append(names, record.Name)
+		llmUsageIDs.setID(record.Name, record.ID)
 	}
 	initializeFleetBudget(names)
+	startLLMUsageLedger(state.Pool)      // fleet-10: before any database registers
 	startHistoryStoreCleaner(state.Pool) // history_store_wiring.go
 	for _, rec := range records {
 		registerStoreDatabase(state, rec)
@@ -407,6 +409,7 @@ func prepareStoreDatabaseConnection(
 	if err != nil {
 		return nil, err
 	}
+	llmUsageIDs.setID(rec.Name, rec.ID) // fleet-10: usage rows keyed by id
 	inst, err := buildStoreDatabaseRuntime(ctx, rec, dbPool)
 	if err != nil {
 		dbPool.Close()

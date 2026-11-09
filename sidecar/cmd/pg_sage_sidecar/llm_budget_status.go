@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/api"
@@ -25,8 +26,17 @@ func (r *llmClientRegistry) TokenStatus() map[string]llm.ClientStatus {
 }
 
 // ResetBudgets zeroes every tracked client, the global ceiling's spend
-// and the fleet budget.
+// and the fleet budget, and clears today's usage ledger rows so a restart
+// does not undo the reset.
 func (r *llmClientRegistry) ResetBudgets() {
+	if ledger := activeLLMUsageLedger.Load(); ledger != nil {
+		ledger.reset(context.Background(), r.resetLocalBudgets)
+		return
+	}
+	r.resetLocalBudgets()
+}
+
+func (r *llmClientRegistry) resetLocalBudgets() {
 	r.mu.Lock()
 	entries := append([]llmRegistryEntry(nil), r.entries...)
 	global := r.global
