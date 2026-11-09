@@ -277,6 +277,9 @@ func configGlobalDeleteHandler(
 			internalError(w, r, "load config base", err)
 			return
 		}
+		if !refuseUnboundDelete(w, r, cs, base, key, cfg, nil) {
+			return
+		}
 		if err := cs.DeleteOverride(r.Context(), key, 0); err != nil {
 			internalError(w, r, "delete global config override", err)
 			return
@@ -308,11 +311,9 @@ func applyControlledGlobalDelete(
 			http.StatusPreconditionRequired)
 		return
 	}
-	candidate, err := globalCandidateWithoutOverride(
-		r.Context(), cs, base, key,
-	)
-	if err != nil {
-		internalError(w, r, "load desired config revision", err)
+	candidate, ok := controlledDeleteCandidate(
+		w, r, cs, base, key, controller.Desired().Config)
+	if !ok {
 		return
 	}
 	result, err := controller.ApplyWithPersistence(

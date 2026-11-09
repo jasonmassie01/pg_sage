@@ -739,6 +739,14 @@ that:
   workspace origin and sends no API key. Switching `llm.auth` away from
   `databricks` while `llm.api_key` is stored asks for the key the same way,
   since the endpoint may have moved while the exemption applied.
+- Deleting a global override falls back to the config file, so the same
+  rule applies to deletes of `llm.endpoint`, `llm.api_key`, `llm.auth`,
+  `clone.dle_endpoint` and `clone.dle_token`. A secret from the config file
+  is sent only to the config file's endpoint origin: deleting the
+  `llm.api_key` override while `llm.endpoint` points at another origin
+  returns 400 and asks to delete `llm.endpoint` first. Deleting the
+  `llm.endpoint` override keeps an API-set key, which then goes to the
+  config file's endpoint.
 - Updating an email channel's `smtp_host` or `smtp_port` while sending the
   masked `smtp_pass` or `smtp_password` fails with a validation error asking
   for the password again; the stored value is unchanged.
