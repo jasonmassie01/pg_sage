@@ -34,6 +34,9 @@ type Advisor struct {
 
 	// facts renders the confirmed facts for prompts (roadmap 2.3); nil: none.
 	facts FactSource
+	// instanceOwner says whether this database owns its instance's
+	// settings in fleet mode (advisors-08); nil: it does.
+	instanceOwner InstanceOwner
 
 	snaps    snapshotSource
 	open     openFindingStore
@@ -164,17 +167,23 @@ func (a *Advisor) analyzeSnapshot(ctx context.Context, snap, prev *collector.Sna
 			"this cycle: %v", err)
 		return a.finish(out, evaluated)
 	}
-	res := a.resolveOpen(snap, open)
+	own := a.ownership()
+	checked, aside := splitInstanceOpen(open, own)
+	res := a.resolveOpen(snap, checked)
 	out = append(out, res.kept...)
+	var reviewed []analyzer.Finding
 	if llmOn {
-		r := a.review(withOpenGate(ctx, res.gate), snap, prev)
-		out = append(out, r.findings...)
+		r := a.review(withOwnership(withOpenGate(ctx, res.gate), own), snap, prev)
+		reviewed = r.findings
 		for c := range r.failed {
 			res.evaluated[c] = false
 		}
 	}
+	out = append(append(out, keepAside(aside, reviewed, own)...), reviewed...)
 	for _, c := range advisorCategories {
-		if res.evaluated[c] {
+		// A non-owner leaves its open instance rows to the owner: they are
+		// neither re-checked nor resolved here.
+		if res.evaluated[c] && !(own.defers() && instanceCategories[c]) {
 			evaluated = append(evaluated, c)
 		}
 	}
@@ -225,7 +234,13 @@ func (a *Advisor) runSubAdvisors(ctx context.Context, snap, prev *collector.Snap
 	gate := openGateFrom(ctx)
 	now := a.now()
 	a.loadSchedule(ctx)
+	own := ownershipFrom(ctx)
 	for _, sa := range a.subAdvisors(snap, prev) {
+		if own.defers() && instanceCategories[sa.category] {
+			a.logFn("DEBUG", "advisor: %s: instance settings are managed from "+
+				"database %s", sa.name, own.owner)
+			continue
+		}
 		if !sa.enabled || !a.claim(ctx, sa.name, now) {
 			continue
 		}

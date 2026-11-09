@@ -39,6 +39,10 @@ type Settings struct {
 	// HostMemory is live host memory from managed-cloud telemetry (nil:
 	// none); an unknown reading falls back to HostMemoryBytes.
 	HostMemory func() advisor.HostMemory
+	// InstanceOwner says whether this database owns its instance's
+	// settings in fleet mode (advisors-08); nil: it does. On a non-owner
+	// an instance-wide setting (ALTER SYSTEM) is not admitted.
+	InstanceOwner advisor.InstanceOwner
 	// WorkMemMaxMB is tuner.work_mem_max_mb, which rule 8 of the prompt
 	// cites with the host cap (0 means the default).
 	WorkMemMaxMB    int

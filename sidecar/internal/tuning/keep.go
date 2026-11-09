@@ -4,6 +4,7 @@ import (
 	"context"
 	"maps"
 
+	"github.com/pg-sage/sidecar/internal/advisor"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/optimizer"
@@ -33,7 +34,18 @@ func (a *Agent) keepOpen(ctx context.Context, cur *collector.Snapshot,
 		}
 		kept = append(kept, f)
 	}
-	return kept, busyCases(kept, cases)
+	return a.gateInstance(kept), busyCases(kept, cases)
+}
+
+// gateInstance makes the instance settings of a database that does not
+// own its instance advisory (advisors-08), so an ALTER SYSTEM stored
+// before it lost ownership stays open but is never executed here.
+func (a *Agent) gateInstance(findings []analyzer.Finding) []analyzer.Finding {
+	if a.settings.InstanceOwner == nil {
+		return findings
+	}
+	owner, isOwner := a.settings.InstanceOwner()
+	return advisor.GateInstanceSettings(findings, owner, isOwner)
 }
 
 // keepDrop applies indexes-03 to an open tuning index drop: one no other

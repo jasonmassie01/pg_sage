@@ -125,6 +125,7 @@ func (v *validator) gated(c Case, p Proposal, f analyzer.Finding, class,
 	s := v.a.settings
 	out := advisor.GateConfigFindingsHost([]analyzer.Finding{f}, s.hostMemory(), s.CloudEnv,
 		s.DatabaseName, settings)
+	out = v.a.gateInstance(out)
 	if len(out) != 1 {
 		return reject(p, ReasonInvalid, "the configuration gates refused %s",
 			f.RecommendedSQL)

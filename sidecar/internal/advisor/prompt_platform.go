@@ -57,6 +57,8 @@ func (a *Advisor) review(ctx context.Context, snap, prev *collector.Snapshot) su
 	r := a.runSubAdvisors(a.reviewContext(ctx), snap, prev)
 	r.findings = GateConfigFindingsHost(r.findings, a.hostMemory(), cloudEnv, dbName,
 		snap.ConfigData.PGSettings)
+	own := ownershipFrom(ctx)
+	r.findings = GateInstanceSettings(r.findings, own.owner, own.isOwner)
 	return r
 }
 
