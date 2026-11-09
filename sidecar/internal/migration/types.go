@@ -20,10 +20,11 @@ type DDLClassification struct {
 	SessionRole string
 }
 
-// SQLParser abstracts DDL classification. RegexClassifier is the only
-// implementation: it matches the rule catalog's regular expressions
-// against sanitized, statement-split SQL. pgVersion is the server's
-// server_version_num (0 when unknown).
+// SQLParser abstracts DDL classification. NewClassifier is the
+// production implementation (the parse-tree classifier, or the regex rules
+// on a build without cgo); RegexClassifier matches the rule catalog's
+// regular expressions alone. Both work on sanitized, statement-split SQL.
+// pgVersion is the server's server_version_num or major (0 when unknown).
 type SQLParser interface {
 	Classify(sql string, pgVersion int) []DDLClassification
 }

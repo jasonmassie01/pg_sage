@@ -20,24 +20,12 @@ func NewRegexClassifier() *RegexClassifier {
 // stripped, literals redacted) and split into statements, so batches
 // such as "SET lock_timeout = '5s'; ALTER TABLE ..." are classified per
 // statement. The server version is accepted for the SQLParser contract
-// but no rule depends on it: every rule holds on the supported floor
-// (PostgreSQL 14) and later.
-func (rc *RegexClassifier) Classify(sql string, _ int) []DDLClassification {
-	var results []DDLClassification
-	lockTimeoutSet := false
-	for _, stmt := range splitStatements(sanitizeDDL(sql)) {
-		stmt = collapseWhitespace(stmt)
-		if reLockTimeout.MatchString(stmt) {
-			lockTimeoutSet = true
-			continue
-		}
-		found := rc.classifyStatement(stmt)
-		results = append(results, found...)
-		if !lockTimeoutSet {
-			results = append(results, rc.checkLockTimeout(stmt, found)...)
-		}
-	}
-	return results
+// but no regex rule depends on it: every rule holds on the supported
+// floor (PostgreSQL 14) and later.
+func (rc *RegexClassifier) Classify(sql string, version int) []DDLClassification {
+	return classifyText(sql, version, func(stmt string, _ int) ([]DDLClassification, bool) {
+		return rc.classifyStatement(stmt), true
+	}).All()
 }
 
 func (rc *RegexClassifier) classifyStatement(sql string) []DDLClassification {

@@ -110,10 +110,6 @@ var (
 	// ALTER TABLE schema.table
 	reAlterTable = regexp.MustCompile(
 		`(?i)^\s*ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?` + qualifiedRE)
-
-	// SET lock_timeout
-	reLockTimeout = regexp.MustCompile(
-		`(?i)\bSET\s+(?:LOCAL\s+)?lock_timeout\b`)
 )
 
 // reservedAfterKeyword lists words that follow ADD/DROP/ALTER inside

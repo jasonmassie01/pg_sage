@@ -153,11 +153,54 @@ pg_sage serves both protocol eras on stdio and Streamable HTTP:
 migrations (`owned`) or must be left alone by pg_sage's DDL (`exempt`). It is recorded as a
 proposed [binding fact](facts.md) and binds nothing until a person confirms it.
 
+### How DDL is classified
+
+`lint_migration`, the agent gate (`apply_migration`, `request_change`) and the migration
+advisor classify DDL with one entry point. Release builds (`CGO_ENABLED=1`) read each
+statement's PostgreSQL parse tree: every `ALTER TABLE` subcommand, inline column
+constraints, `CONCURRENTLY` and `NOT VALID`, with the version the server runs (or the
+`pg_version` given). A statement holds the strongest lock of its subcommands. Each
+statement is either *known* (a rule below matched, or it is a form proven safe, such as
+`CREATE INDEX CONCURRENTLY`, `ADD CONSTRAINT ... NOT VALID`, `VALIDATE CONSTRAINT`,
+`DETACH PARTITION ... CONCURRENTLY` or a plain `VACUUM`) or *unrecognized* (no rule
+matched and the form is not proven safe, or it did not parse).
+
+| Rule | Form | Lock | Rewrite |
+|---|---|---|---|
+| `ddl_index_not_concurrent` | `CREATE INDEX` without `CONCURRENTLY` | SHARE | no |
+| `ddl_constraint_not_valid` | `ADD CHECK` without `NOT VALID`, `ADD COLUMN ... CHECK` | ACCESS EXCLUSIVE | no (scan) |
+| `ddl_fk_not_valid` | `ADD FOREIGN KEY` without `NOT VALID`, `ADD COLUMN ... REFERENCES` | SHARE ROW EXCLUSIVE (ACCESS EXCLUSIVE with `ADD COLUMN`) | no (scan) |
+| `ddl_add_key_builds_index` | `ADD PRIMARY KEY` / `UNIQUE` (also inline on `ADD COLUMN`) without `USING INDEX` | ACCESS EXCLUSIVE | no (index build) |
+| `ddl_add_exclusion_builds_index` | `ADD ... EXCLUDE` | ACCESS EXCLUSIVE | no (index build) |
+| `ddl_set_not_null` | `ALTER COLUMN ... SET NOT NULL` | ACCESS EXCLUSIVE | no (scan) |
+| `ddl_not_null_constraint_scan` | PG 18 `ADD CONSTRAINT n NOT NULL col` without `NOT VALID` | ACCESS EXCLUSIVE | no (scan) |
+| `ddl_alter_type_rewrite` | `ALTER COLUMN ... TYPE` (no rewrite when binary coercible, read from the catalog) | ACCESS EXCLUSIVE | yes |
+| `ddl_add_column_volatile_default` | `ADD COLUMN` with a volatile default, serial, identity or stored generated column | ACCESS EXCLUSIVE | yes |
+| `ddl_set_logged` | `SET LOGGED` / `SET UNLOGGED` | ACCESS EXCLUSIVE | yes |
+| `ddl_set_access_method` | `SET ACCESS METHOD` (PG 15+) | ACCESS EXCLUSIVE | yes |
+| `ddl_set_tablespace` | `SET TABLESPACE` | ACCESS EXCLUSIVE | yes |
+| `ddl_drop_column` / `ddl_drop_table` | `DROP COLUMN` / `DROP TABLE` | ACCESS EXCLUSIVE | no |
+| `ddl_drop_index_not_concurrent` | `DROP INDEX` without `CONCURRENTLY` | ACCESS EXCLUSIVE | no |
+| `ddl_attach_partition_no_check` | `ATTACH PARTITION` | ACCESS EXCLUSIVE | no (scan) |
+| `ddl_detach_partition_not_concurrent` | `DETACH PARTITION` without `CONCURRENTLY` | ACCESS EXCLUSIVE | no |
+| `ddl_rename` | `RENAME` of a table, column, constraint or index | ACCESS EXCLUSIVE (SHARE UPDATE EXCLUSIVE for an index) | no |
+| `ddl_create_trigger` | `CREATE TRIGGER` | SHARE ROW EXCLUSIVE | no |
+| `ddl_reindex_not_concurrent` | `REINDEX` without `CONCURRENTLY` | ACCESS EXCLUSIVE | no |
+| `ddl_vacuum_full` | `VACUUM FULL` | ACCESS EXCLUSIVE | yes |
+| `ddl_refresh_not_concurrent` | `REFRESH MATERIALIZED VIEW` without `CONCURRENTLY` | ACCESS EXCLUSIVE | yes |
+| `ddl_cluster` | `CLUSTER` | ACCESS EXCLUSIVE | yes |
+| `ddl_missing_lock_timeout` | an ACCESS EXCLUSIVE statement with no earlier `SET lock_timeout` | (advice) | no |
+
+A build without cgo has no parser. It logs once that classification is degraded and
+matches the older rules with regular expressions. `SET LOGGED`, `SET ACCESS METHOD`,
+`EXCLUDE`, `DETACH PARTITION`, the NOT NULL constraint, `RENAME`, `CREATE TRIGGER`,
+`DROP INDEX` and inline `ADD COLUMN` constraints are then unrecognized (`review` in lint;
+at the gate `ddl_locking`, or `ddl_destructive` for a drop), never safe.
+
 ### What counts as additive DDL
 
-`lint_migration` and the agent gate (`apply_migration`, `request_change`) share one rule:
-DDL is additive only when every statement is on a short allowlist, and anything else is
-not proven safe. The allowlist is `CREATE INDEX CONCURRENTLY`, `CREATE TABLE` (not `AS`,
+The agent gate classes DDL additive only when every statement is known and on a short
+allowlist; anything else is not proven safe. The allowlist is `CREATE INDEX CONCURRENTLY`, `CREATE TABLE` (not `AS`,
 `PARTITION OF` or `INHERITS`), `CREATE [OR REPLACE] VIEW`, `CREATE SCHEMA`, `COMMENT ON`,
 `CREATE SEQUENCE`, and `ALTER TABLE ... ADD [COLUMN] name type` with a built-in type and at
 most a constant or stable default (`now()`, `current_timestamp`). `SET lock_timeout`,
@@ -168,8 +211,11 @@ unterminated literal, quoted identifier or comment.
 
 * The agent gate classes such DDL `ddl_locking` (any `DROP` or `TRUNCATE` is still
   `ddl_destructive` first), so it earns trust in the locking class, not the additive one.
-* `lint_migration` returns `review`, never `safe`, for a statement outside the allowlist
-  that no DDL safety rule recognized, and its `note` says how many there are.
+  A statement that matches a rule, is unrecognized or does not parse is always
+  `ddl_locking`.
+* `lint_migration` returns `safe` only when every statement is known. It returns
+  `review`, never `safe`, for an unrecognized statement (on a build without the parser:
+  one outside the allowlist that no rule matched), and its `note` says how many there are.
 
 ### What `apply_migration` can plan
 

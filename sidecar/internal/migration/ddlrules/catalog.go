@@ -20,6 +20,7 @@ func Catalog() []Rule {
 	rules := schemaRules()
 	rules = append(rules, columnRules()...)
 	rules = append(rules, maintenanceRules()...)
+	rules = append(rules, formRules()...)
 	return rules
 }
 

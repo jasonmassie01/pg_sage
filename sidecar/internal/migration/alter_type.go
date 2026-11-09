@@ -2,9 +2,15 @@ package migration
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/pg-sage/sidecar/internal/catalogread"
 )
 
 const columnTypeSQL = `
@@ -17,24 +23,43 @@ WHERE  n.nspname = $1 AND c.relname = $2 AND a.attname = $3
 
 // refineAlterType marks ALTER COLUMN ... TYPE as metadata-only when the
 // change is binary coercible and PostgreSQL skips the rewrite
-// (varchar(n) -> varchar(m >= n), varchar -> text, G7-B35).
-func (a *Advisor) refineAlterType(ctx context.Context, c *DDLClassification) {
-	if c.RuleID != "ddl_alter_type_rewrite" || a.pool == nil ||
+// (varchar(n) -> varchar(m >= n), varchar -> text, G7-B35). It reads the
+// column's current type through q (a bounded catalog read). A column that
+// does not exist yet is left alone; a failed read is returned and the
+// change stays a rewrite.
+func refineAlterType(ctx context.Context, q catalogread.Querier, c *DDLClassification) error {
+	if c.RuleID != "ddl_alter_type_rewrite" || q == nil ||
 		c.TableName == "" || c.ColumnName == "" || c.TargetType == "" {
-		return
+		return nil
 	}
 	var current string
-	err := a.assessor.catalog().QueryRow(ctx, columnTypeSQL,
+	err := q.QueryRow(ctx, columnTypeSQL,
 		schemaOrPublic(c.SchemaName), c.TableName, c.ColumnName,
 	).Scan(&current)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
 	if err != nil {
-		a.logFn("debug", "migration: column type lookup failed: %v", err)
-		return
+		return fmt.Errorf("column type lookup for %s.%s.%s failed: %w",
+			schemaOrPublic(c.SchemaName), c.TableName, c.ColumnName, err)
 	}
 	if isBinaryCoercibleChange(current, c.TargetType) {
 		c.RequiresRewrite = false
 		c.Description = "Binary-coercible type change: no rewrite, " +
 			"but ACCESS EXCLUSIVE is still taken"
+	}
+	return nil
+}
+
+// refineAlterType is the free function over the advisor's bounded
+// catalog reads; a failed read is logged at debug and the change stays a
+// rewrite.
+func (a *Advisor) refineAlterType(ctx context.Context, c *DDLClassification) {
+	if a.pool == nil {
+		return
+	}
+	if err := refineAlterType(ctx, a.assessor.catalog(), c); err != nil {
+		a.logFn("debug", "migration: %v", err)
 	}
 }
 

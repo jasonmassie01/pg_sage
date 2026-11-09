@@ -189,24 +189,3 @@ func (rc *RegexClassifier) matchAttachPartition(
 	fillTableFromAlter(sql, &c)
 	return []DDLClassification{c}
 }
-
-// checkLockTimeout fires if any classification of this statement
-// requires ACCESS EXCLUSIVE; the caller skips it when an earlier
-// statement in the batch set lock_timeout.
-func (rc *RegexClassifier) checkLockTimeout(
-	sql string, prior []DDLClassification,
-) []DDLClassification {
-	if reLockTimeout.MatchString(sql) {
-		return nil
-	}
-	for _, c := range prior {
-		if c.LockLevel == "ACCESS EXCLUSIVE" {
-			r := rc.ruleByID("ddl_missing_lock_timeout")
-			lt := newClassification(r, sql)
-			lt.TableName = c.TableName
-			lt.SchemaName = c.SchemaName
-			return []DDLClassification{lt}
-		}
-	}
-	return nil
-}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/migration"
 )
 
@@ -47,7 +48,10 @@ type LintItem struct {
 
 // LintMigration classifies migration SQL against the DDL safety rules and
 // scores each hazard with the target table's size and activity. The SQL
-// is text to analyze: it is never run.
+// is text to analyze: it is never run. It classifies with the same entry
+// point as the advisor and the agent gate (migration.ClassifyStatements),
+// including the binary-coercible ALTER COLUMN TYPE check, so lint and the
+// advisor agree on a rewrite.
 func (t *Tools) LintMigration(ctx context.Context, req LintRequest) (LintResult, error) {
 	if err := t.ready(); err != nil {
 		return LintResult{}, err
@@ -62,10 +66,14 @@ func (t *Tools) LintMigration(ctx context.Context, req LintRequest) (LintResult,
 	if err != nil {
 		return LintResult{}, err
 	}
+	classified, err := migration.ClassifyStatements(ctx,
+		catalogread.New(t.pool, catalogread.Default()), req.SQL, version)
+	if err != nil {
+		t.opts.Log("warn", "lint_migration: %v; the type change is kept as a rewrite", err)
+	}
 	assessor := migration.NewRiskAssessor(t.pool, t.opts.Log)
 	res := LintResult{Statements: []LintItem{}}
-	classified := migration.NewRegexClassifier().Classify(req.SQL, version)
-	for _, c := range classified {
+	for _, c := range classified.All() {
 		risk, err := assessor.Assess(ctx, c)
 		if err != nil {
 			return LintResult{}, fmt.Errorf("assess %s: %w", c.RuleID, err)
@@ -77,46 +85,34 @@ func (t *Tools) LintMigration(ctx context.Context, req LintRequest) (LintResult,
 		res.Note = "No DDL safety rule recognized these statements: nothing is known to " +
 			"lock or rewrite a table. Unrecognized DDL is not proven safe."
 	}
-	return reviewUnproven(res, classified, req.SQL), nil
+	return reviewUnproven(res, classified), nil
 }
 
 // reviewUnproven raises a safe verdict to review when a statement is
-// outside the additive allowlist and no DDL safety rule recognized it, or
-// when the text cannot be tokenized (migration-04a): safe must mean the
-// statements are known. ddl_missing_lock_timeout is advice about the
-// batch, not a recognition of the statement's hazard. It never lowers a
-// verdict or changes the score.
-func reviewUnproven(
-	res LintResult, classified []migration.DDLClassification, sql string,
-) LintResult {
-	unproven, err := migration.UnprovenStatements(sql)
-	if err != nil { // migration.ErrUntokenizable
+// unrecognized (no DDL safety rule matched it and it is not a known safe
+// form, migration-04) or when the text cannot be tokenized: safe must mean
+// every statement is known. It never lowers a verdict or changes the
+// score.
+func reviewUnproven(res LintResult, classified migration.Classification) LintResult {
+	if classified.Untokenizable {
 		return raiseToReview(res, "The SQL could not be tokenized: it ends inside a "+
 			"literal, quoted identifier, dollar-quoted body or comment, which can hide "+
 			"statements. Review it.")
 	}
-	recognized := make(map[string]bool, len(classified))
-	for _, c := range classified {
-		if c.RuleID != "ddl_missing_lock_timeout" {
-			recognized[c.Statement] = true
-		}
-	}
-	n := 0
-	for _, stmt := range unproven {
-		if !recognized[stmt] {
-			n++
-		}
-	}
-	switch n {
-	case 0:
+	n := classified.Unrecognized()
+	if n == 0 {
 		return res
-	case 1:
-		return raiseToReview(res, "1 statement is outside the additive allowlist and "+
-			"matches no DDL safety rule: unrecognized DDL is not proven safe. Review it.")
 	}
-	return raiseToReview(res, fmt.Sprintf("%d statements are outside the additive "+
-		"allowlist and match no DDL safety rule: unrecognized DDL is not proven safe. "+
-		"Review them.", n))
+	known := "a known safe form"
+	if classified.Degraded {
+		known = "on the additive allowlist (this build has no SQL parser)"
+	}
+	if n == 1 {
+		return raiseToReview(res, "1 statement is not "+known+" and matches no DDL "+
+			"safety rule: unrecognized DDL is not proven safe. Review it.")
+	}
+	return raiseToReview(res, fmt.Sprintf("%d statements are not %s and match no DDL "+
+		"safety rule: unrecognized DDL is not proven safe. Review them.", n, known))
 }
 
 func raiseToReview(res LintResult, note string) LintResult {

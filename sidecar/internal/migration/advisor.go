@@ -58,7 +58,7 @@ func NewAdvisor(
 			cfg.Mode)
 	}
 	a := &Advisor{
-		classifier: NewRegexClassifier(),
+		classifier: NewClassifier(),
 		assessor:   NewRiskAssessor(pool, logFn),
 		pool:       pool,
 		cfg:        cfg,
