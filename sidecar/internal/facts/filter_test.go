@@ -155,7 +155,7 @@ func TestApplyFindingsKeepsArchivesAndSlots(t *testing.T) {
 
 func TestFindingFilterPassesThroughWhenFactsAreUnavailable(t *testing.T) {
 	var logged []string
-	f := NewFindingFilter(&fakeConfirmed{err: errors.New("relation sage.facts missing")},
+	f := NewFindingFilter(&fakeConfirmed{err: errors.New("relation sage.facts missing")}, nil,
 		func(_ string, format string, args ...any) { logged = append(logged, format) })
 	snap := fixtureSnapshot()
 	if got := f.ExcludeSnapshot(context.Background(), snap); got != nil ||
@@ -173,7 +173,7 @@ func TestFindingFilterPassesThroughWhenFactsAreUnavailable(t *testing.T) {
 func TestFindingFilterAppliesConfirmedFacts(t *testing.T) {
 	src := &fakeConfirmed{facts: []Fact{
 		confirmed(7, TypeTestFixture, KindSchema, "test_memory_*", nil)}}
-	f := NewFindingFilter(src, nil).WithActivity(&fakeActivity{counts: map[string]int64{
+	f := NewFindingFilter(src, nil, nil).WithActivity(&fakeActivity{counts: map[string]int64{
 		"test_memory_aa11bb": 0, "test_memory_cc22dd": 0}})
 	current, previous := fixtureSnapshot(), fixtureSnapshot()
 	excluded := f.ExcludeSnapshot(context.Background(), current, previous)

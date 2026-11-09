@@ -25,7 +25,7 @@ type fakeCatalog struct {
 	asked   [][]string
 }
 
-func (c *fakeCatalog) ResolveIndexes(_ context.Context, refs []ObjectRef) ([]ObjectRef,
+func (c *fakeCatalog) ResolveCatalog(_ context.Context, refs []ObjectRef) ([]ObjectRef,
 	error) {
 	return append([]ObjectRef(nil), refs...), nil
 }
@@ -167,7 +167,7 @@ func TestBinderLeavesQualifiedAndSlotTargetsAsWritten(t *testing.T) {
 // Nil-resolver behaviour is unchanged: targets are matched as written, so
 // an unqualified target still binds conservatively.
 func TestBinderWithoutTargetResolverMatchesTargetsAsWritten(t *testing.T) {
-	for name, res := range map[string]IndexResolver{"nil": nil,
+	for name, res := range map[string]RefResolver{"nil": nil,
 		"index only": &fakeResolver{}} {
 		b := NewBinder(&fakeConfirmed{facts: fixtureFacts()}, res,
 			func() time.Time { return bindNow })

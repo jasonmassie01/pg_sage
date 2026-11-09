@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/pg-sage/sidecar/internal/policy"
 )
 
@@ -15,11 +13,12 @@ type ConfirmedSource interface {
 	Confirmed(context.Context) ([]Fact, error)
 }
 
-// IndexResolver completes references from the catalog: a relation of
-// unknown kind that is an index, and an index without its table, get
-// their kind and table.
-type IndexResolver interface {
-	ResolveIndexes(context.Context, []ObjectRef) ([]ObjectRef, error)
+// RefResolver completes references from the catalog: a relation of
+// unknown kind gets its kind, an index its table, and a partition (or a
+// partition's index) the root of its partition tree (facts-10). It
+// returns one ref per ref, in order.
+type RefResolver interface {
+	ResolveCatalog(context.Context, []ObjectRef) ([]ObjectRef, error)
 }
 
 // SiblingDatabase is another database of the same cluster and its
@@ -37,7 +36,7 @@ type SiblingSource func() []SiblingDatabase
 // confirmed fact subjects, never model text.
 type Binder struct {
 	source   ConfirmedSource
-	resolver IndexResolver
+	resolver RefResolver
 	siblings SiblingSource
 	now      func() time.Time
 }
@@ -46,7 +45,7 @@ type Binder struct {
 // (references are then matched as written); a resolver that is also a
 // TargetResolver qualifies unqualified targets (binder_targets.go); now
 // defaults to time.Now.
-func NewBinder(source ConfirmedSource, resolver IndexResolver, now func() time.Time) *Binder {
+func NewBinder(source ConfirmedSource, resolver RefResolver, now func() time.Time) *Binder {
 	if now == nil {
 		now = time.Now
 	}
@@ -90,8 +89,8 @@ func (b *Binder) Bind(ctx context.Context, req policy.ActionRequest) (
 		return nil, err
 	}
 	if b.resolver != nil && needsResolution(refs) {
-		if refs, err = b.resolver.ResolveIndexes(ctx, refs); err != nil {
-			return nil, fmt.Errorf("resolve index tables: %w", err)
+		if refs, err = b.resolver.ResolveCatalog(ctx, refs); err != nil {
+			return nil, fmt.Errorf("resolve index tables and partition roots: %w", err)
 		}
 	}
 	return policyBindings(append(Bind(facts, refs, r), siblings...)), nil
@@ -139,11 +138,20 @@ func slotConsumerFacts(all []Fact) []Fact {
 	return out
 }
 
+// needsResolution reports whether the catalog can complete a ref: a
+// relation of unknown kind, an index without its table or partition root,
+// or a qualified table without its partition root. Unqualified tables are
+// matched as written (any schema).
 func needsResolution(refs []ObjectRef) bool {
 	for _, r := range refs {
-		if r.Kind == KindRelation || (r.Kind == KindIndex && r.TableName == "") {
-			return true
+		switch {
+		case r.Kind == KindRelation:
+		case r.Kind == KindIndex && (r.TableName == "" || r.RootName == ""):
+		case r.Kind == KindTable && r.Schema != "" && r.RootName == "":
+		default:
+			continue
 		}
+		return true
 	}
 	return false
 }
@@ -163,62 +171,4 @@ func policyBindings(bs []Binding) []policy.FactBinding {
 		out = append(out, pb)
 	}
 	return out
-}
-
-// CatalogResolver resolves index references from pg_class and pg_index.
-type CatalogResolver struct{ pool *pgxpool.Pool }
-
-// NewCatalogResolver resolves against the monitored database.
-func NewCatalogResolver(pool *pgxpool.Pool) *CatalogResolver {
-	return &CatalogResolver{pool: pool}
-}
-
-const resolveIndexesSQL = `/* pg_sage */
-SELECT w.n, c.relkind::text, COALESCE(tn.nspname, ''), COALESCE(t.relname, '')
-FROM unnest($1::text[], $2::text[]) WITH ORDINALITY AS w(s, r, n)
-JOIN pg_catalog.pg_namespace ns ON ns.nspname = w.s
-JOIN pg_catalog.pg_class c ON c.relnamespace = ns.oid AND c.relname = w.r
-LEFT JOIN pg_catalog.pg_index i ON i.indexrelid = c.oid
-LEFT JOIN pg_catalog.pg_class t ON t.oid = i.indrelid
-LEFT JOIN pg_catalog.pg_namespace tn ON tn.oid = t.relnamespace`
-
-// ResolveIndexes implements IndexResolver: qualified relations and indexes
-// found in the catalog get their kind (and an index its table); the rest
-// are returned as they were.
-func (c *CatalogResolver) ResolveIndexes(ctx context.Context, refs []ObjectRef) (
-	[]ObjectRef, error) {
-	out := append([]ObjectRef(nil), refs...)
-	var schemas, names []string
-	var at []int
-	for i, r := range out {
-		if r.Schema != "" && (r.Kind == KindRelation || r.Kind == KindIndex) {
-			schemas, names, at = append(schemas, r.Schema), append(names, r.Name), append(at, i)
-		}
-	}
-	if len(at) == 0 {
-		return out, nil
-	}
-	rows, err := c.pool.Query(ctx, resolveIndexesSQL, schemas, names)
-	if err != nil {
-		return nil, fmt.Errorf("read index tables: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var n int64
-		var relkind, tSchema, tName string
-		if err := rows.Scan(&n, &relkind, &tSchema, &tName); err != nil {
-			return nil, fmt.Errorf("scan index table: %w", err)
-		}
-		applyRelkind(&out[at[n-1]], relkind, tSchema, tName)
-	}
-	return out, rows.Err()
-}
-
-func applyRelkind(r *ObjectRef, relkind, tSchema, tName string) {
-	switch relkind {
-	case "i", "I":
-		r.Kind, r.TableSchema, r.TableName = KindIndex, tSchema, tName
-	case "r", "p", "m", "f":
-		r.Kind = KindTable
-	}
 }

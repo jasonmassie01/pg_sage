@@ -220,7 +220,7 @@ func TestFindingFilterWithholdsTheBatchWhenActivityCannotBeRead(t *testing.T) {
 	src := &fakeConfirmed{facts: []Fact{
 		confirmed(7, TypeTestFixture, KindSchema, "test_memory_*", nil)}}
 	reader := &fakeActivity{err: errors.New("canceling statement due to statement timeout")}
-	f := NewFindingFilter(src, capture(&logged)).WithActivity(reader)
+	f := NewFindingFilter(src, nil, capture(&logged)).WithActivity(reader)
 	in := []analyzer.Finding{{Category: "seq_scan_heavy",
 		ObjectIdentifier: "test_memory_aa11bb.events"}}
 	out, evaluated := f.ApplyFindings(context.Background(), in,
@@ -239,7 +239,7 @@ func TestFindingFilterWithoutAReaderOffersNoBatch(t *testing.T) {
 	var logged []logLine
 	src := &fakeConfirmed{facts: []Fact{
 		confirmed(7, TypeTestFixture, KindSchema, "test_memory_*", nil)}}
-	f := NewFindingFilter(src, capture(&logged))
+	f := NewFindingFilter(src, nil, capture(&logged))
 	out, evaluated := f.ApplyFindings(context.Background(), nil,
 		[]string{"test_memory_aa11bb"})
 	if len(out) != 0 || !reflect.DeepEqual(evaluated, []string{CategoryTestFixtureCleanup}) {
@@ -255,7 +255,7 @@ func TestFindingFilterReadsActivityOnlyForFixtureSchemas(t *testing.T) {
 		confirmed(7, TypeTestFixture, KindSchema, "test_memory_*", nil)}}
 	reader := &fakeActivity{counts: map[string]int64{"test_memory_aa11bb": 0,
 		"test_memory_cc22dd": 9}}
-	f := NewFindingFilter(src, nil).WithActivity(reader)
+	f := NewFindingFilter(src, nil, nil).WithActivity(reader)
 	f.now = func() time.Time { return bindNow }
 	if out, _ := f.ApplyFindings(context.Background(), nil, nil); len(out) != 0 ||
 		reader.calls != 0 {

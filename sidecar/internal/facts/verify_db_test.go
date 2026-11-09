@@ -108,7 +108,7 @@ func TestCatalogResolverFindsIndexParents(t *testing.T) {
 		{Kind: KindRelation, Schema: schemaName, Name: "missing"},
 		{Kind: KindSlot, Name: "cdc"},
 	}
-	got, err := NewCatalogResolver(pool).ResolveIndexes(ctx, refs)
+	got, err := NewCatalogResolver(pool).ResolveCatalog(ctx, refs)
 	if err != nil || len(got) != len(refs) {
 		t.Fatalf("%+v %v", got, err)
 	}

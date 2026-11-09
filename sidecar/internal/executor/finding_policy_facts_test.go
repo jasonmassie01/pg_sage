@@ -24,7 +24,7 @@ func (c confirmedFacts) Confirmed(context.Context) ([]facts.Fact, error) { retur
 // failingTargets resolves index refs as written but cannot read targets.
 type failingTargets struct{ err error }
 
-func (f failingTargets) ResolveIndexes(_ context.Context, refs []facts.ObjectRef) (
+func (f failingTargets) ResolveCatalog(_ context.Context, refs []facts.ObjectRef) (
 	[]facts.ObjectRef, error) {
 	return refs, nil
 }

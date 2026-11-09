@@ -174,11 +174,15 @@ func factClusterAddressKey(host string, port uint16) string {
 // facts, resolved against its catalog, plus its siblings' slot facts.
 func newClusterFactBinder(pool *pgxpool.Pool, source facts.ConfirmedSource,
 	r *factClusterRegistry, m *factClusterMember) *facts.Binder {
-	var resolver facts.IndexResolver
-	if pool != nil {
-		resolver = facts.NewCatalogResolver(pool)
+	return facts.NewBinder(source, catalogResolver(pool), nil).WithSiblings(
+		func() []facts.SiblingDatabase { return r.siblings(m) })
+}
+
+// catalogResolver resolves fact refs against the database's catalog
+// (index tables, partition roots); nil without a pool.
+func catalogResolver(pool *pgxpool.Pool) facts.RefResolver {
+	if pool == nil {
+		return nil
 	}
-	return facts.NewBinder(source, resolver, nil).WithSiblings(func() []facts.SiblingDatabase {
-		return r.siblings(m)
-	})
+	return facts.NewCatalogResolver(pool)
 }
