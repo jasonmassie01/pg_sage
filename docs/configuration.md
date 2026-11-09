@@ -1010,12 +1010,21 @@ The standing policy document also carries three safety fields, all enforced:
   included.
   `CONCURRENTLY` builds keep `safety.lock_timeout_ms`, because they wait on
   older transactions by design. `0` means no ceiling.
-- `serialize_mode`: `park` (both profiles). When another writer holds the
-  DDL lease for the same object, the action is parked with reason
-  `ddl_conflict` and retried next cycle. A park is not a failure: it does not
-  count toward the retry limit or the self-initiated rate limit. `queue` is
-  accepted and currently behaves like `park` (the action waits for the next
-  cycle, not for the lease holder).
+- `serialize_mode`: what happens when another writer holds the DDL lease on
+  the same object. `park` (both profiles): a self-initiated action is parked
+  with reason `ddl_conflict` and retried next cycle. A park is not a failure:
+  it does not count toward the retry limit or the self-initiated rate limit.
+  `queue`: the action waits its turn in a durable FIFO queue per object
+  (`sage.lease_queue`), so leases are granted in request order, and a waiter
+  that restarts resumes its place. The wait is bounded: a self-initiated
+  action waits at most 2 minutes, then parks with `ddl_conflict` and
+  `evidence.lease_queue = timeout`; an operator action waits at most
+  30 seconds, then is refused. At most 8 actions wait per object and 64 per
+  database; a request beyond that is not queued (a self-initiated one parks
+  with `evidence.lease_queue = full`, an operator one is refused). In both
+  modes an operator action that cannot get the lease is refused (recorded as
+  `blocked` `ddl_conflict`), not parked. See [Policy gate](policy-gate.md)
+  for every verdict and reason.
 
 #### Blast-radius budgets
 
@@ -1139,8 +1148,11 @@ and the catalog, never from evidence or an LLM.
   object waits; the approval card says so first ("approving overrides pending
   verification of action N") and the decision records
   `evidence.verification_override`.
-- **Metrics.** `pg_sage_policy_parks_total{database,reason}` counts every park
-  by reason (one per evaluation), and
+- **Metrics.** `pg_sage_policy_parks_total{database,reason}` counts the parks
+  the gate records in `sage.decision`, by reason (one per evaluation, so
+  repeats folded into one ledger row each count). A park that fails to record
+  is counted in `pg_sage_policy_record_failures_total` instead (below), and a
+  `ddl_conflict` lease park, recorded after the gate, is not counted. And
   `pg_sage_verification_wait_releases_total{database,cause}` the waits that
   ended without a verdict (`operator_override`, `hard_deadline`,
   `drop_first_window`).
