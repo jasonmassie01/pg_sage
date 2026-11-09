@@ -151,8 +151,8 @@ func TestRecordHint_RecordsOnlyWhenAsked(t *testing.T) {
 	if hint != "SeqScan(orders)" || symptom != "tuning_agent" || status != "proposed" {
 		t.Fatalf("row = %q %q %q", hint, symptom, status)
 	}
-	other := New(pool, TunerConfig{WorkMemMaxMB: 256}, &HintPlanAvailability{ApplicationEffect: true,
-		HintTableReady: true}, noopLogFn)
+	other := New(pool, TunerConfig{WorkMemMaxMB: 256},
+		&HintPlanAvailability{ApplicationEffect: true, HintTableReady: true}, noopLogFn)
 	if _, err := other.CheckHint(ctx, agentHint("IndexScan(orders)")); !errors.Is(err,
 		ErrHintExists) {
 		t.Fatalf("a proposed hint survives a restart (loaded from sage.query_hints): %v", err)
