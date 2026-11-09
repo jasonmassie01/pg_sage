@@ -384,7 +384,8 @@ func Sequences(res Result) ([]SequenceRunway, error) {
 			OwnerColumn: strField(r, "owner_column"), OwnerType: strField(r, "owner_type"),
 			OwnerTypeMax: floatField(r, "owner_type_max"),
 			OwnerTypeMin: floatField(r, "owner_type_min"),
-			Limit:        floatField(r, "effective_limit"), Fraction: floatField(r, "fraction_used")})
+			Limit:        floatField(r, "effective_limit"),
+			Fraction:     floatField(r, "fraction_used")})
 	}
 	return out, nil
 }
