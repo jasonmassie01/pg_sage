@@ -80,14 +80,18 @@ func IsFinding(f FindingFields) bool {
 	return detailHasSelfQuery(f.Detail)
 }
 
+// sqlSpaceChars are the ASCII characters strings.TrimSpace removes, as a
+// btrim set, so the SQL trims identifiers as IsObjectIdentifier does.
+const sqlSpaceChars = `E' \t\n\r\f\v'`
+
 // FindingsSQLExclusionClause is IsFinding as a WHERE fragment over
 // sage.findings (AND-ed onto a clause): the rows to show.
 func FindingsSQLExclusionClause() string {
-	ident := `lower(btrim(coalesce(object_identifier, '')))`
+	ident := `lower(btrim(coalesce(object_identifier, ''), ` + sqlSpaceChars + `))`
 	return ` AND (category IN ('` + strings.Join(SelfFindingCategories, `', '`) +
 		`') OR NOT (` +
 		`(` + ident + ` = 'sage' AND ` +
-		`lower(btrim(coalesce(object_type, ''))) = 'schema') OR ` +
+		`lower(btrim(coalesce(object_type, ''), ` + sqlSpaceChars + `)) = 'schema') OR ` +
 		ident + ` LIKE 'sage.%' OR ` +
 		ident + ` LIKE '"sage".%' OR ` +
 		`coalesce(title, '') ILIKE '%pg_sage%' OR ` +
