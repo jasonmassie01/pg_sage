@@ -70,9 +70,18 @@ export function fleetAutonomyHint(autonomy) {
     ? NOTHING_AUTO
     : 'Auto-executes now: ' + families
       .map(f => `${f} on ${autonomy.autoByFamily[f].join(', ')}`).join('; ')
+  const missing = unreportedNote(autonomy)
+  return missing ? `${base}. ${missing}` : base
+}
+
+// unreportedNote says how many databases have not reported their action
+// families, so a fleet-wide claim is never read as complete. It is null
+// when every database reported, or when none did and nothing is claimed.
+export function unreportedNote(autonomy) {
+  if (!autonomy?.reported) return null
   const missing = autonomy.total - autonomy.reported
-  if (missing <= 0) return base
-  return `${base}. ${missing} ${missing === 1 ? 'database has' : 'databases have'}`
+  if (missing <= 0) return null
+  return `${missing} ${missing === 1 ? 'database has' : 'databases have'}`
     + ' not reported their action policy'
 }
 

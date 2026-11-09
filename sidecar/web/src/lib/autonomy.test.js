@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   autoFamilies, fleetAutonomy, fleetAutonomyHint, fleetBadge, rowAutoFamilies,
+  unreportedNote,
 } from './autonomy'
 
 // dashboard-02: what pg_sage may run unattended right now, per database and
@@ -158,5 +159,36 @@ describe('fleetBadge', () => {
   it('shows no badge when no level is known', () => {
     expect(fleetBadge(fleetAutonomy([row('a', null)]))).toBeNull()
     expect(fleetBadge(fleetAutonomy([]))).toBeNull()
+  })
+})
+
+describe('unreportedNote', () => {
+  it('names one database that did not report, in the singular', () => {
+    expect(unreportedNote(fleetAutonomy([row('a', 'advisory', []), row('b', 'advisory')])))
+      .toBe('1 database has not reported their action policy')
+  })
+
+  it('names several databases that did not report, in the plural', () => {
+    expect(unreportedNote(fleetAutonomy([
+      row('a', 'autonomous', [fam('create_index', 'execute')]),
+      row('b', 'advisory'), row('c', null),
+    ]))).toBe('2 databases have not reported their action policy')
+  })
+
+  it('is null when every database reported', () => {
+    expect(unreportedNote(fleetAutonomy([row('a', 'advisory', []), row('b', 'observation', [])])))
+      .toBeNull()
+  })
+
+  it('is null when no database reported, since nothing was claimed', () => {
+    expect(unreportedNote(fleetAutonomy([row('a', 'advisory'), row('b', 'advisory')]))).toBeNull()
+    expect(unreportedNote(fleetAutonomy([]))).toBeNull()
+    expect(unreportedNote(undefined)).toBeNull()
+    expect(unreportedNote(null)).toBeNull()
+  })
+
+  it('counts an emergency-stopped database without families as reported', () => {
+    const stopped = row('b', 'autonomous', undefined, { emergency_stopped: true })
+    expect(unreportedNote(fleetAutonomy([row('a', 'advisory', []), stopped]))).toBeNull()
   })
 })
