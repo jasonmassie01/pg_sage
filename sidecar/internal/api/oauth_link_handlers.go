@@ -22,13 +22,14 @@ func registerAccountLinkRoutes(
 	mux *http.ServeMux, pool *pgxpool.Pool,
 	provider *auth.OAuthProvider, providerName string,
 ) {
-	mux.HandleFunc("POST "+oauthLinkGrantPath, oauthLinkGrantHandler(provider, pool))
-	mux.HandleFunc("GET /api/v1/auth/sso", ssoStatusHandler(pool, provider, providerName))
-	adminOnly := RequireRole("admin")
-	mux.Handle("DELETE /api/v1/users/{id}/oidc",
-		adminOnly(http.HandlerFunc(unlinkUserSSOHandler(pool))))
-	mux.Handle("POST /api/v1/users/{id}/oidc-link-grant",
-		adminOnly(http.HandlerFunc(issueLinkGrantHandler(pool))))
+	route(mux, "POST "+oauthLinkGrantPath, gateSelfAuth,
+		http.HandlerFunc(oauthLinkGrantHandler(provider, pool)))
+	route(mux, "GET /api/v1/auth/sso", gateViewer,
+		http.HandlerFunc(ssoStatusHandler(pool, provider, providerName)))
+	route(mux, "DELETE /api/v1/users/{id}/oidc", gateAdmin,
+		http.HandlerFunc(unlinkUserSSOHandler(pool)))
+	route(mux, "POST /api/v1/users/{id}/oidc-link-grant", gateAdmin,
+		http.HandlerFunc(issueLinkGrantHandler(pool)))
 }
 
 // oauthAuthorizeRouter serves /auth/oauth/authorize: intent=link starts a

@@ -18,12 +18,10 @@ import (
 const maxAgentEnvBody = 1 << 10
 
 func registerAgentEnvRoutes(mux *http.ServeMux, svc *envbind.Service) {
-	operatorUp := RequireRole("admin", "operator")
-	admin := RequireRole("admin")
 	h := agentEnvHandlers{svc: svc}
 	const path = "/api/v1/agent-environments/{database}"
-	mux.Handle("GET "+path, operatorUp(http.HandlerFunc(h.get)))
-	mux.Handle("PUT "+path, admin(http.HandlerFunc(h.put)))
+	route(mux, "GET "+path, gateOperator, http.HandlerFunc(h.get))
+	route(mux, "PUT "+path, gateAdmin, http.HandlerFunc(h.put))
 }
 
 type agentEnvHandlers struct{ svc *envbind.Service }

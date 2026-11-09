@@ -34,13 +34,11 @@ func registerAgentRoutes(mux *http.ServeMux, pool *pgxpool.Pool, cfg *config.Con
 	r := &agentRoutes{pool: pool, store: agentguard.NewStore(pool),
 		tokens:         mcptoken.NewStore(pool),
 		singleOperator: cfg != nil && cfg.Agents.SingleOperatorMode}
-	operator := RequireRole("admin", "operator")
-	admin := RequireRole("admin")
-	mux.Handle("GET /api/v1/agents", operator(http.HandlerFunc(r.list)))
-	mux.Handle("POST /api/v1/agents", admin(http.HandlerFunc(r.create)))
-	mux.Handle("GET /api/v1/agents/{id}", operator(http.HandlerFunc(r.get)))
-	mux.Handle("PATCH /api/v1/agents/{id}", admin(http.HandlerFunc(r.patch)))
-	mux.Handle("POST /api/v1/agents/{id}/tokens", admin(http.HandlerFunc(r.mintToken)))
+	route(mux, "GET /api/v1/agents", gateOperator, http.HandlerFunc(r.list))
+	route(mux, "POST /api/v1/agents", gateAdmin, http.HandlerFunc(r.create))
+	route(mux, "GET /api/v1/agents/{id}", gateOperator, http.HandlerFunc(r.get))
+	route(mux, "PATCH /api/v1/agents/{id}", gateAdmin, http.HandlerFunc(r.patch))
+	route(mux, "POST /api/v1/agents/{id}/tokens", gateAdmin, http.HandlerFunc(r.mintToken))
 }
 
 // decodeStrict reads a JSON body, refusing unknown fields.

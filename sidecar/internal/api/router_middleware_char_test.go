@@ -32,10 +32,14 @@ func chainRouter(t *testing.T, seen *chainProbe, withPool bool) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
+	// Routes carry their own gate, so the probes need a signed-in caller
+	// to reach a handler; fakeAdminMiddleware runs after mark.
 	if !withPool {
-		return NewRouterFullRuntime(mgr, cfg, nil, nil, nil, nil, nil, mark)
+		return NewRouterFullRuntime(mgr, cfg, nil, nil, nil, nil, nil, mark,
+			fakeAdminMiddleware)
 	}
-	return NewRouterFullRuntime(mgr, cfg, unreachablePool(t), nil, nil, nil, nil, mark)
+	return NewRouterFullRuntime(mgr, cfg, unreachablePool(t), nil, nil, nil, nil, mark,
+		fakeAdminMiddleware)
 }
 
 func chainServe(

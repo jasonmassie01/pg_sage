@@ -13,10 +13,10 @@ import (
 
 func registerSREMaintenanceRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
 	base := sreInvestigationsPath + "/{id}/maintenance"
-	mux.Handle("GET "+base, RequireRole("admin", "operator", "viewer")(maintenanceListHandler(mgr)))
-	mux.Handle("POST "+base, RequireRole("admin", "operator")(maintenanceProposeHandler(mgr)))
-	mux.Handle("POST "+base+"/{pid}/request", RequireRole("admin", "operator")(maintenanceMutationHandler(mgr, false)))
-	mux.Handle("POST "+base+"/{pid}/rollback", RequireRole("admin")(maintenanceMutationHandler(mgr, true)))
+	route(mux, "GET "+base, gateViewer, maintenanceListHandler(mgr))
+	route(mux, "POST "+base, gateOperator, maintenanceProposeHandler(mgr))
+	route(mux, "POST "+base+"/{pid}/request", gateOperator, maintenanceMutationHandler(mgr, false))
+	route(mux, "POST "+base+"/{pid}/rollback", gateAdmin, maintenanceMutationHandler(mgr, true))
 }
 
 func maintenanceService(w http.ResponseWriter, mgr *fleet.DatabaseManager, database string) (*sreaction.MaintenanceService, bool) {

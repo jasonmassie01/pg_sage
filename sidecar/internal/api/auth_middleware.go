@@ -24,7 +24,7 @@ func SessionAuthMiddleware(
 		return http.HandlerFunc(func(
 			w http.ResponseWriter, r *http.Request,
 		) {
-			if shouldSkipAuth(r.URL.Path) || isMCPTokenRequest(r) || isSpecialistRequest(r) {
+			if skipsSessionAuth(r) {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -88,6 +88,12 @@ func RequireRole(
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// skipsSessionAuth reports a request the session middleware leaves to
+// its handler: public paths and the self-authenticating transports.
+func skipsSessionAuth(r *http.Request) bool {
+	return shouldSkipAuth(r.URL.Path) || isMCPTokenRequest(r) || isSpecialistRequest(r)
 }
 
 // UserFromContext extracts the authenticated user from context.

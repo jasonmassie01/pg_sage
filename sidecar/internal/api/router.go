@@ -177,11 +177,11 @@ func NewRouterFullRuntime(
 
 	// Top-level mux: API routes get auth, static does not.
 	root := http.NewServeMux()
-	root.Handle("/api/v1/", apiHandler)
+	mount(root, "/api/v1/", apiMux, apiHandler)
 	if rt.DatabricksAppAuth {
 		// Avoid a misleading SPA response for the common protocol alias.
-		root.Handle("/mcp", apiHandler)
-		root.Handle("/mcp/", apiHandler)
+		mount(root, "/mcp", apiMux, apiHandler)
+		mount(root, "/mcp/", apiMux, apiHandler)
 	}
 	if pool != nil && !rt.DatabricksAppAuth {
 		// Signed ChatOps callbacks bypass session auth (their provider
@@ -189,7 +189,7 @@ func NewRouterFullRuntime(
 		registerChatOpsRoutes(root, apiMux, pool, mgr, cfg, rt)
 	}
 	// Readiness (E1): config loaded, control database up, schema migrated.
-	root.Handle("/ready", NewReadinessHandler(ControlPoolReadiness(cfg, pool)))
+	route(root, "/ready", gatePublic, NewReadinessHandler(ControlPoolReadiness(cfg, pool)))
 	if rt.MCPHandler != nil && !rt.DatabricksAppAuth {
 		registerMCPMetadata(root, rt.MCPOAuth)
 	}
@@ -247,7 +247,7 @@ func registerFleetScopedRoutes(
 	}
 	// Value is read from every monitored database in all modes (D3), so
 	// it depends on the fleet, not on the control pool.
-	apiMux.Handle("GET /api/v1/value", valueHandler(fleetValueReader(mgr)))
+	route(apiMux, "GET /api/v1/value", gateViewer, valueHandler(fleetValueReader(mgr)))
 	registerOnboardingRoutes(apiMux, mgr, cfg, pool)
 }
 
@@ -343,18 +343,18 @@ func registerRootRoutes(root *http.ServeMux) {
 	// Unauthenticated liveness endpoint. It was in the auth-skip
 	// allowlist but never registered, so /health fell through to the
 	// SPA and returned index.html instead of a real health check (W2).
-	root.HandleFunc("/health", func(
+	route(root, "/health", gatePublic, http.HandlerFunc(func(
 		w http.ResponseWriter, _ *http.Request,
 	) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
-	})
+	}))
 
 	// Embedded dashboard (SPA fallback).
 	staticSub, _ := fs.Sub(staticFiles, "dist")
 	fileServer := http.FileServer(http.FS(staticSub))
-	root.HandleFunc("/", func(
+	route(root, "/", gatePublic, http.HandlerFunc(func(
 		w http.ResponseWriter, r *http.Request,
 	) {
 		path := r.URL.Path
@@ -362,5 +362,5 @@ func registerRootRoutes(root *http.ServeMux) {
 			r.URL.Path = "/"
 		}
 		fileServer.ServeHTTP(w, r)
-	})
+	}))
 }

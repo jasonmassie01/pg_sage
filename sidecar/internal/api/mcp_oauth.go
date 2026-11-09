@@ -32,8 +32,8 @@ type principalGetter interface {
 func registerMCPRoutes(mux *http.ServeMux, handler http.Handler,
 	tokens *mcptoken.Store, oauth *mcpauth.Validator, principals principalGetter) {
 	h := bindMCPPrincipalOAuth(handler, tokens, oauth, principals)
-	mux.Handle("POST "+mcpEndpointPath, h)
-	mux.Handle("POST "+mcpDatabasePrefix+"{database}", h)
+	route(mux, "POST "+mcpEndpointPath, gateSelfAuth, h)
+	route(mux, "POST "+mcpDatabasePrefix+"{database}", gateSelfAuth, h)
 }
 
 // registerMCPMetadata publishes RFC 9728 metadata on the root mux (no
@@ -42,7 +42,7 @@ func registerMCPMetadata(root *http.ServeMux, oauth *mcpauth.Validator) {
 	if oauth == nil {
 		return
 	}
-	root.Handle("GET "+mcpauth.MetadataPrefix+"/", oauth.MetadataHandler())
+	route(root, "GET "+mcpauth.MetadataPrefix+"/", gatePublic, oauth.MetadataHandler())
 }
 
 // bindMCPPrincipalOAuth authenticates an MCP request with an OAuth access

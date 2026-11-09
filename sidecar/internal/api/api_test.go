@@ -148,7 +148,7 @@ func TestAPI_Databases_IncludesDegraded(t *testing.T) {
 			Error:     "timeout",
 		},
 	})
-	r := NewRouter(mgr, cfg, nil)
+	r := NewRouter(mgr, cfg, nil, fakeAdminMiddleware)
 	w := get(t, r, "/api/v1/databases")
 	m := decodeJSON(t, w)
 	summary := m["summary"].(map[string]any)

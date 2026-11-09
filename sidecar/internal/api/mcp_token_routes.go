@@ -27,10 +27,9 @@ type createMCPTokenBody struct {
 
 func registerMCPTokenRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 	store := mcptoken.NewStore(pool)
-	adminOnly := RequireRole("admin")
-	mux.Handle("GET /api/v1/mcp/tokens", adminOnly(listMCPTokensHandler(store)))
-	mux.Handle("POST /api/v1/mcp/tokens", adminOnly(createMCPTokenHandler(store)))
-	mux.Handle("DELETE /api/v1/mcp/tokens/{id}", adminOnly(revokeMCPTokenHandler(store)))
+	route(mux, "GET /api/v1/mcp/tokens", gateAdmin, listMCPTokensHandler(store))
+	route(mux, "POST /api/v1/mcp/tokens", gateAdmin, createMCPTokenHandler(store))
+	route(mux, "DELETE /api/v1/mcp/tokens/{id}", gateAdmin, revokeMCPTokenHandler(store))
 }
 
 func listMCPTokensHandler(store *mcptoken.Store) http.HandlerFunc {

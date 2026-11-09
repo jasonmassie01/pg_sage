@@ -11,16 +11,15 @@ func registerActionRoutes(
 	mux *http.ServeMux,
 	deps *ActionDeps,
 ) {
-	operatorUp := RequireRole("admin", "operator")
-	registerPendingActionRoutes(mux, deps, operatorUp)
+	registerPendingActionRoutes(mux, deps)
 
 	switch {
 	case deps.Store != nil && deps.Executor != nil:
-		registerExecutorActionRoutes(mux, deps, operatorUp)
+		registerExecutorActionRoutes(mux, deps)
 	case deps.Fleet != nil:
-		registerFleetActionRoutes(mux, deps, operatorUp)
+		registerFleetActionRoutes(mux, deps)
 	default:
-		registerUnavailableActionRoutes(mux, operatorUp)
+		registerUnavailableActionRoutes(mux)
 	}
 }
 
@@ -28,106 +27,83 @@ func registerActionRoutes(
 // lookup used by the inline action flow on the Findings page.
 func registerPendingActionRoutes(
 	mux *http.ServeMux, deps *ActionDeps,
-	operatorUp func(http.Handler) http.Handler,
 ) {
 	if deps.Fleet != nil {
 		// Fleet mode: dynamically resolve pool on each
 		// request so delete/re-add cycles don't break.
-		pendingH := operatorUp(http.HandlerFunc(
-			fleetPendingActionsHandler(deps.Fleet)))
-		mux.Handle(
-			"GET /api/v1/actions/pending", pendingH)
-		countH := operatorUp(http.HandlerFunc(
-			fleetPendingCountHandler(deps.Fleet)))
-		mux.Handle(
-			"GET /api/v1/actions/pending/count", countH)
+		pendingH := http.HandlerFunc(
+			fleetPendingActionsHandler(deps.Fleet))
+		route(mux, "GET /api/v1/actions/pending", gateOperator, pendingH)
+		countH := http.HandlerFunc(
+			fleetPendingCountHandler(deps.Fleet))
+		route(mux, "GET /api/v1/actions/pending/count", gateOperator, countH)
 	} else {
-		pendingH := operatorUp(http.HandlerFunc(
-			pendingActionsHandler(deps.Store, deps.Executor)))
-		mux.Handle(
-			"GET /api/v1/actions/pending", pendingH)
-		countH := operatorUp(http.HandlerFunc(
-			pendingCountHandler(deps.Store)))
-		mux.Handle(
-			"GET /api/v1/actions/pending/count", countH)
+		pendingH := http.HandlerFunc(
+			pendingActionsHandler(deps.Store, deps.Executor))
+		route(mux, "GET /api/v1/actions/pending", gateOperator, pendingH)
+		countH := http.HandlerFunc(
+			pendingCountHandler(deps.Store))
+		route(mux, "GET /api/v1/actions/pending/count", gateOperator, countH)
 	}
 
 	// Inline action flow on the Findings page — per-finding
 	// lookup of any pending queued actions. Works in both
 	// fleet and standalone modes.
-	byFindingH := operatorUp(http.HandlerFunc(
-		findingPendingActionsHandler(deps)))
-	mux.Handle(
-		"GET /api/v1/findings/{id}/pending-actions",
-		byFindingH)
+	byFindingH := http.HandlerFunc(
+		findingPendingActionsHandler(deps))
+	route(mux, "GET /api/v1/findings/{id}/pending-actions", gateOperator, byFindingH)
 }
 
 func registerExecutorActionRoutes(
 	mux *http.ServeMux, deps *ActionDeps,
-	operatorUp func(http.Handler) http.Handler,
 ) {
-	approveH := operatorUp(http.HandlerFunc(
+	approveH := http.HandlerFunc(
 		approveActionHandler(
-			deps.Store, deps.Executor)))
-	mux.Handle(
-		"POST /api/v1/actions/{id}/approve", approveH)
+			deps.Store, deps.Executor))
+	route(mux, "POST /api/v1/actions/{id}/approve", gateOperator, approveH)
 
-	rejectH := operatorUp(http.HandlerFunc(
-		rejectActionHandler(deps.Store)))
-	mux.Handle(
-		"POST /api/v1/actions/{id}/reject", rejectH)
+	rejectH := http.HandlerFunc(
+		rejectActionHandler(deps.Store))
+	route(mux, "POST /api/v1/actions/{id}/reject", gateOperator, rejectH)
 
-	rollbackH := operatorUp(http.HandlerFunc(
-		rollbackActionHandler(deps.Executor)))
-	mux.Handle(
-		"POST /api/v1/actions/{id}/rollback", rollbackH)
+	rollbackH := http.HandlerFunc(
+		rollbackActionHandler(deps.Executor))
+	route(mux, "POST /api/v1/actions/{id}/rollback", gateOperator, rollbackH)
 
-	execH := operatorUp(http.HandlerFunc(
-		manualExecuteHandler(deps.Executor)))
-	mux.Handle(
-		"POST /api/v1/actions/execute", execH)
+	execH := http.HandlerFunc(
+		manualExecuteHandler(deps.Executor))
+	route(mux, "POST /api/v1/actions/execute", gateOperator, execH)
 }
 
 func registerFleetActionRoutes(
 	mux *http.ServeMux, deps *ActionDeps,
-	operatorUp func(http.Handler) http.Handler,
 ) {
-	approveH := operatorUp(http.HandlerFunc(
-		fleetApproveActionHandler(deps.Fleet)))
-	mux.Handle(
-		"POST /api/v1/actions/{id}/approve", approveH)
+	approveH := http.HandlerFunc(
+		fleetApproveActionHandler(deps.Fleet))
+	route(mux, "POST /api/v1/actions/{id}/approve", gateOperator, approveH)
 
-	rejectH := operatorUp(http.HandlerFunc(
-		fleetRejectActionHandler(deps.Fleet)))
-	mux.Handle(
-		"POST /api/v1/actions/{id}/reject", rejectH)
+	rejectH := http.HandlerFunc(
+		fleetRejectActionHandler(deps.Fleet))
+	route(mux, "POST /api/v1/actions/{id}/reject", gateOperator, rejectH)
 
-	rollbackH := operatorUp(http.HandlerFunc(
-		fleetRollbackActionHandler(deps.Fleet)))
-	mux.Handle(
-		"POST /api/v1/actions/{id}/rollback", rollbackH)
+	rollbackH := http.HandlerFunc(
+		fleetRollbackActionHandler(deps.Fleet))
+	route(mux, "POST /api/v1/actions/{id}/rollback", gateOperator, rollbackH)
 
-	execH := operatorUp(http.HandlerFunc(
-		fleetManualExecuteHandler(deps.Fleet)))
-	mux.Handle(
-		"POST /api/v1/actions/execute", execH)
+	execH := http.HandlerFunc(
+		fleetManualExecuteHandler(deps.Fleet))
+	route(mux, "POST /api/v1/actions/execute", gateOperator, execH)
 }
 
-func registerUnavailableActionRoutes(
-	mux *http.ServeMux, operatorUp func(http.Handler) http.Handler,
-) {
-	notImpl := operatorUp(http.HandlerFunc(
+func registerUnavailableActionRoutes(mux *http.ServeMux) {
+	notImpl := http.HandlerFunc(
 		func(w http.ResponseWriter, _ *http.Request) {
 			jsonError(w,
 				"action approval not available",
 				http.StatusNotImplemented)
-		}))
-	mux.Handle(
-		"POST /api/v1/actions/{id}/approve", notImpl)
-	mux.Handle(
-		"POST /api/v1/actions/{id}/reject", notImpl)
-	mux.Handle(
-		"POST /api/v1/actions/{id}/rollback", notImpl)
-	mux.Handle(
-		"POST /api/v1/actions/execute", notImpl)
+		})
+	route(mux, "POST /api/v1/actions/{id}/approve", gateOperator, notImpl)
+	route(mux, "POST /api/v1/actions/{id}/reject", gateOperator, notImpl)
+	route(mux, "POST /api/v1/actions/{id}/rollback", gateOperator, notImpl)
+	route(mux, "POST /api/v1/actions/execute", gateOperator, notImpl)
 }

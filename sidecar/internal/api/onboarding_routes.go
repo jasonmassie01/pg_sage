@@ -23,9 +23,9 @@ import (
 func registerOnboardingRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
 	cfg *config.Config, control *pgxpool.Pool) {
 	reader := newFleetOnboardingReader(mgr, cfg, control)
-	mux.Handle("GET /api/v1/onboarding", onboardingHandler(reader))
-	mux.Handle("GET /api/v1/onboarding/trust", trustGuideHandler(reader))
-	mux.Handle("GET /api/v1/first-look", firstLookHandler(reader))
+	route(mux, "GET /api/v1/onboarding", gateViewer, onboardingHandler(reader))
+	route(mux, "GET /api/v1/onboarding/trust", gateViewer, trustGuideHandler(reader))
+	route(mux, "GET /api/v1/first-look", gateViewer, firstLookHandler(reader))
 }
 
 // fleetOnboardingReader reads onboarding state from each database's

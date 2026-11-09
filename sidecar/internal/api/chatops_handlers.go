@@ -64,9 +64,9 @@ func registerChatOpsRoutes(root, apiMux *http.ServeMux, pool *pgxpool.Pool,
 	wrap := func(h http.HandlerFunc) http.Handler {
 		return securityHeadersMiddleware(timeoutMiddleware(h))
 	}
-	root.Handle("POST /api/v1/chatops/slack/{channel}",
+	route(root, "POST /api/v1/chatops/slack/{channel}", gateSelfAuth,
 		wrap(d.callbackHandler(chatops.ProviderSlack)))
-	root.Handle("POST /api/v1/chatops/telegram/{channel}",
+	route(root, "POST /api/v1/chatops/telegram/{channel}", gateSelfAuth,
 		wrap(d.callbackHandler(chatops.ProviderTelegram)))
 	registerChatOpsIdentityRoutes(apiMux, d.ids)
 }

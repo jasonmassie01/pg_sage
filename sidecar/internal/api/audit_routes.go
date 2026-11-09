@@ -40,12 +40,10 @@ type AuditDeps struct {
 const auditEvidenceExported = "evidence_exported"
 
 func registerAuditRoutes(mux *http.ServeMux, deps AuditDeps) {
-	adminOnly := RequireRole("admin")
-	mux.Handle("GET /api/v1/audit/verify", adminOnly(auditVerifyHandler(deps)))
-	mux.Handle("GET /api/v1/audit/evidence", adminOnly(auditEvidenceHandler(deps)))
-	mux.Handle("GET /api/v1/audit/siem", adminOnly(auditSIEMHandler(deps)))
-	mux.Handle("POST /api/v1/audit/siem/{sink}/reanchor",
-		adminOnly(auditSIEMReanchorHandler(deps)))
+	route(mux, "GET /api/v1/audit/verify", gateAdmin, auditVerifyHandler(deps))
+	route(mux, "GET /api/v1/audit/evidence", gateAdmin, auditEvidenceHandler(deps))
+	route(mux, "GET /api/v1/audit/siem", gateAdmin, auditSIEMHandler(deps))
+	route(mux, "POST /api/v1/audit/siem/{sink}/reanchor", gateAdmin, auditSIEMReanchorHandler(deps))
 }
 
 // fleetAuditPool resolves audit sources: "control" is the control pool,

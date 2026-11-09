@@ -1603,7 +1603,7 @@ func TestCoverage_ConfigGet_PerDatabaseTags(t *testing.T) {
 		},
 		Status: &fleet.InstanceStatus{Connected: true},
 	})
-	r := NewRouter(mgr, cfg, nil)
+	r := NewRouter(mgr, cfg, nil, fakeAdminMiddleware)
 	w := get(t, r, "/api/v1/config?database=prod")
 	if w.Code != 200 {
 		t.Fatalf("status: %d", w.Code)
@@ -2088,7 +2088,7 @@ func TestCoverage_NewRouterFull_WithDBDeps(t *testing.T) {
 	})
 
 	dbDeps := &DatabaseDeps{Store: nil}
-	r := NewRouterFull(mgr, cfg, nil, nil, dbDeps, nil)
+	r := NewRouterFull(mgr, cfg, nil, nil, dbDeps, nil, fakeAdminMiddleware)
 
 	// dbDeps.Store is nil, so registerDatabaseRoutes is skipped.
 	// Verify router was created and core routes still work.
@@ -2250,7 +2250,7 @@ func TestCoverage_MiddlewareStack(t *testing.T) {
 		})
 	}
 
-	r := NewRouter(mgr, cfg, nil, testMiddleware)
+	r := NewRouter(mgr, cfg, nil, testMiddleware, fakeAdminMiddleware)
 
 	req := httptest.NewRequest(
 		"GET", "/api/v1/databases", nil)

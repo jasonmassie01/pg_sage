@@ -219,9 +219,9 @@ func llmBudgetSource(
 }
 
 func registerLLMBudgetRoutes(mux *http.ServeMux, budgets LLMBudgetRegistry) {
-	mux.HandleFunc("GET /api/v1/llm/status", llmStatusHandler(budgets))
-	mux.Handle("POST /api/v1/llm/budget/reset", RequireRole("admin")(
-		http.HandlerFunc(llmBudgetResetHandler(budgets))))
+	route(mux, "GET /api/v1/llm/status", gateViewer, http.HandlerFunc(llmStatusHandler(budgets)))
+	route(mux, "POST /api/v1/llm/budget/reset", gateAdmin,
+		http.HandlerFunc(llmBudgetResetHandler(budgets)))
 }
 
 // llmBudgetResetHandler zeroes the daily token counter on all

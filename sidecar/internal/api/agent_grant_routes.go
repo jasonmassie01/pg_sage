@@ -44,16 +44,16 @@ type AgentGrantService interface {
 const maxAgentGrantBody = 64 << 10
 
 func registerAgentGrantRoutes(mux *http.ServeMux, svc AgentGrantService) {
-	op := RequireRole("admin", "operator")
 	h := agentGrantHandlers{svc: svc}
 	const base = "/api/v1/agents/{id}"
-	mux.Handle("GET "+base+"/grants", op(http.HandlerFunc(h.list)))
-	mux.Handle("POST "+base+"/grants", op(http.HandlerFunc(h.grant)))
-	mux.Handle("POST "+base+"/grants/{grant}/revoke", op(http.HandlerFunc(h.revoke)))
-	mux.Handle("GET "+base+"/grant-requests", op(http.HandlerFunc(h.requests)))
-	mux.Handle("POST "+base+"/grant-requests/{request}/approve",
-		op(http.HandlerFunc(h.approve)))
-	mux.Handle("POST "+base+"/grant-requests/{request}/deny", op(http.HandlerFunc(h.deny)))
+	route(mux, "GET "+base+"/grants", gateOperator, http.HandlerFunc(h.list))
+	route(mux, "POST "+base+"/grants", gateOperator, http.HandlerFunc(h.grant))
+	route(mux, "POST "+base+"/grants/{grant}/revoke", gateOperator, http.HandlerFunc(h.revoke))
+	route(mux, "GET "+base+"/grant-requests", gateOperator, http.HandlerFunc(h.requests))
+	route(mux, "POST "+base+"/grant-requests/{request}/approve", gateOperator,
+		http.HandlerFunc(h.approve))
+	route(mux, "POST "+base+"/grant-requests/{request}/deny", gateOperator,
+		http.HandlerFunc(h.deny))
 }
 
 type agentGrantHandlers struct{ svc AgentGrantService }

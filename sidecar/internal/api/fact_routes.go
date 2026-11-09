@@ -29,14 +29,12 @@ const (
 type factHandlers struct{ mgr *fleet.DatabaseManager }
 
 func registerFactRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
-	viewer := RequireRole("admin", "operator", "viewer")
-	operatorUp := RequireRole("admin", "operator")
 	h := factHandlers{mgr: mgr}
-	mux.Handle("GET /api/v1/facts", viewer(http.HandlerFunc(h.list)))
-	mux.Handle("GET /api/v1/facts/match", viewer(http.HandlerFunc(h.match)))
-	mux.Handle("POST /api/v1/facts", operatorUp(http.HandlerFunc(h.declare)))
+	route(mux, "GET /api/v1/facts", gateViewer, http.HandlerFunc(h.list))
+	route(mux, "GET /api/v1/facts/match", gateViewer, http.HandlerFunc(h.match))
+	route(mux, "POST /api/v1/facts", gateOperator, http.HandlerFunc(h.declare))
 	for _, verb := range []string{"confirm", "reject", "expire"} {
-		mux.Handle("POST /api/v1/facts/{id}/"+verb, operatorUp(h.decide(verb)))
+		route(mux, "POST /api/v1/facts/{id}/"+verb, gateOperator, h.decide(verb))
 	}
 }
 

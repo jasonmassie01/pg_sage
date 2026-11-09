@@ -32,11 +32,11 @@ func isSpecialistRequest(r *http.Request) bool {
 
 func registerSpecialistRoutes(mux *http.ServeMux, rt RuntimeDeps) {
 	if rt.Specialist != nil {
-		mux.Handle(specialistPrefix, rt.Specialist)
+		route(mux, specialistPrefix, gateSelfAuth, rt.Specialist)
 	}
 	if rt.SpecialistAudit != nil {
-		mux.Handle("GET /api/v1/specialist-requests", RequireRole("admin", "operator")(
-			specialistAuditHandler(rt.SpecialistAudit)))
+		route(mux, "GET /api/v1/specialist-requests", gateOperator,
+			specialistAuditHandler(rt.SpecialistAudit))
 	}
 }
 

@@ -29,22 +29,19 @@ const maxRunbookBody = 64 << 10
 
 func registerRunbookRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
 	ledgers *earned.Registry) {
-	viewerUp := RequireRole("admin", "operator", "viewer")
-	operatorUp := RequireRole("admin", "operator")
-	adminOnly := RequireRole("admin")
 	one := runbooksPath + "/{id}"
-	mux.Handle("GET "+runbooksPath, viewerUp(runbookListHandler(mgr)))
-	mux.Handle("POST "+runbooksPath, operatorUp(runbookCreateHandler(mgr)))
-	mux.Handle("POST "+runbooksPath+"/compile", operatorUp(runbookCompileHandler(mgr)))
-	mux.Handle("GET "+one, viewerUp(runbookGetHandler(mgr)))
-	mux.Handle("GET "+one+"/runs", viewerUp(runbookRunsHandler(mgr)))
-	mux.Handle("POST "+one+"/versions", operatorUp(runbookReviseHandler(mgr)))
-	mux.Handle("POST "+one+"/retire", operatorUp(runbookRetireHandler(mgr)))
-	mux.Handle("POST "+one+"/sign", adminOnly(runbookSignHandler(mgr)))
-	mux.Handle("GET "+sreInvestigationsPath+"/{id}/similar",
-		viewerUp(similarIncidentsHandler(mgr)))
-	mux.Handle("POST "+sreInvestigationsPath+"/{id}/outcome",
-		operatorUp(outcomeHandler(mgr, ledgers)))
+	route(mux, "GET "+runbooksPath, gateViewer, runbookListHandler(mgr))
+	route(mux, "POST "+runbooksPath, gateOperator, runbookCreateHandler(mgr))
+	route(mux, "POST "+runbooksPath+"/compile", gateOperator, runbookCompileHandler(mgr))
+	route(mux, "GET "+one, gateViewer, runbookGetHandler(mgr))
+	route(mux, "GET "+one+"/runs", gateViewer, runbookRunsHandler(mgr))
+	route(mux, "POST "+one+"/versions", gateOperator, runbookReviseHandler(mgr))
+	route(mux, "POST "+one+"/retire", gateOperator, runbookRetireHandler(mgr))
+	route(mux, "POST "+one+"/sign", gateAdmin, runbookSignHandler(mgr))
+	route(mux, "GET "+sreInvestigationsPath+"/{id}/similar", gateViewer,
+		similarIncidentsHandler(mgr))
+	route(mux, "POST "+sreInvestigationsPath+"/{id}/outcome", gateOperator,
+		outcomeHandler(mgr, ledgers))
 }
 
 // runbookError writes a canonical error code for runbook and memory errors.

@@ -32,9 +32,8 @@ func registerTrustRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
 	if deps == nil || deps.Ledgers == nil {
 		return
 	}
-	viewer := RequireRole("admin", "operator", "viewer")
 	h := autonomyHandlers{deps: deps, mgr: mgr}
-	mux.Handle("GET "+trustPath, viewer(http.HandlerFunc(h.trust)))
+	route(mux, "GET "+trustPath, gateViewer, http.HandlerFunc(h.trust))
 }
 
 // trust serves one view per database.

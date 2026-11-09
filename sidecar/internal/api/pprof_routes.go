@@ -35,9 +35,8 @@ func registerPprofRoutes(mux *http.ServeMux, enabled bool) {
 	// blocked, one mutex contention in 100).
 	runtime.SetBlockProfileRate(1_000_000)
 	runtime.SetMutexProfileFraction(100)
-	admin := RequireRole("admin")
-	mux.Handle("GET "+pprofPrefix+"{$}", admin(noStore(http.HandlerFunc(pprof.Index))))
-	mux.Handle("GET "+pprofPrefix+"{name}", admin(noStore(http.HandlerFunc(pprofNamed))))
+	route(mux, "GET "+pprofPrefix+"{$}", gateAdmin, noStore(http.HandlerFunc(pprof.Index)))
+	route(mux, "GET "+pprofPrefix+"{name}", gateAdmin, noStore(http.HandlerFunc(pprofNamed)))
 }
 
 // pprofNamed serves one profile by name. cmdline is not served: the

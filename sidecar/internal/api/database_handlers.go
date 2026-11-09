@@ -39,45 +39,37 @@ type DatabaseDeps struct {
 func registerDatabaseRoutes(
 	mux *http.ServeMux, deps *DatabaseDeps,
 ) {
-	adminOnly := RequireRole("admin")
+	list := http.HandlerFunc(
+		listManagedDBHandler(deps))
+	route(mux, "GET /api/v1/databases/managed", gateAdmin, list)
 
-	list := adminOnly(http.HandlerFunc(
-		listManagedDBHandler(deps)))
-	mux.Handle("GET /api/v1/databases/managed", list)
+	create := http.HandlerFunc(
+		createManagedDBHandler(deps))
+	route(mux, "POST /api/v1/databases/managed", gateAdmin, create)
 
-	create := adminOnly(http.HandlerFunc(
-		createManagedDBHandler(deps)))
-	mux.Handle("POST /api/v1/databases/managed", create)
+	importH := http.HandlerFunc(
+		importCSVHandler(deps))
+	route(mux, "POST /api/v1/databases/managed/import", gateAdmin, importH)
 
-	importH := adminOnly(http.HandlerFunc(
-		importCSVHandler(deps)))
-	mux.Handle(
-		"POST /api/v1/databases/managed/import", importH)
+	getH := http.HandlerFunc(
+		getManagedDBHandler(deps))
+	route(mux, "GET /api/v1/databases/managed/{id}", gateAdmin, getH)
 
-	getH := adminOnly(http.HandlerFunc(
-		getManagedDBHandler(deps)))
-	mux.Handle("GET /api/v1/databases/managed/{id}", getH)
+	updateH := http.HandlerFunc(
+		updateManagedDBHandler(deps))
+	route(mux, "PUT /api/v1/databases/managed/{id}", gateAdmin, updateH)
 
-	updateH := adminOnly(http.HandlerFunc(
-		updateManagedDBHandler(deps)))
-	mux.Handle(
-		"PUT /api/v1/databases/managed/{id}", updateH)
+	deleteH := http.HandlerFunc(
+		deleteManagedDBHandler(deps))
+	route(mux, "DELETE /api/v1/databases/managed/{id}", gateAdmin, deleteH)
 
-	deleteH := adminOnly(http.HandlerFunc(
-		deleteManagedDBHandler(deps)))
-	mux.Handle(
-		"DELETE /api/v1/databases/managed/{id}", deleteH)
+	testH := http.HandlerFunc(
+		testManagedDBHandler(deps))
+	route(mux, "POST /api/v1/databases/managed/{id}/test", gateAdmin, testH)
 
-	testH := adminOnly(http.HandlerFunc(
-		testManagedDBHandler(deps)))
-	mux.Handle(
-		"POST /api/v1/databases/managed/{id}/test", testH)
-
-	testPreview := adminOnly(http.HandlerFunc(
-		testConnectionPreviewHandler()))
-	mux.Handle(
-		"POST /api/v1/databases/managed/test-connection",
-		testPreview)
+	testPreview := http.HandlerFunc(
+		testConnectionPreviewHandler())
+	route(mux, "POST /api/v1/databases/managed/test-connection", gateAdmin, testPreview)
 }
 
 func listManagedDBHandler(
