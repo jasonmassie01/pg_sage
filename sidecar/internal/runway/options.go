@@ -76,6 +76,11 @@ type Options struct {
 	SequenceCritical   time.Duration
 	// DiskCapacityBytes is the operator's declared capacity (0: unknown).
 	DiskCapacityBytes float64
+	// Capacity is the provider's measured storage capacity (managed-cloud
+	// telemetry), preferred over DiskCapacityBytes while it is fresh; nil
+	// without telemetry. ok is false without a fresh bounded value; source
+	// is then CapacityUnbounded for storage that grows without a bound.
+	Capacity func(ctx context.Context) (bytes float64, source string, ok bool)
 	// WALRetainedLimitBytes is a slot's limit while max_slot_wal_keep_size
 	// is unbounded: the WAL custodian's retained-WAL ceiling.
 	WALRetainedLimitBytes float64
