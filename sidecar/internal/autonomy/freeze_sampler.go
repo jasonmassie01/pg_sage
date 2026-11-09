@@ -67,7 +67,11 @@ func (s *FreezeSampler) Read(ctx context.Context) (FreezeReading, error) {
 	if err := ctx.Err(); err != nil {
 		return FreezeReading{}, err
 	}
-	asked, seen := s.now(), s.readings.Load()
+	// The counter is read before the clock: a reading that completes after
+	// the clock is read is always counted as completed while this caller
+	// waited.
+	seen := s.readings.Load()
+	asked := s.now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	// A reading completed since this caller arrived is as fresh as one it

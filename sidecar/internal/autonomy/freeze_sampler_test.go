@@ -122,6 +122,34 @@ func TestFreezeSamplerParallelReadersShareOneReading(t *testing.T) {
 	}
 }
 
+// A coarse clock (Windows) can give the waiting reader and the reading
+// the same instant: the completion counter, not the clock, makes the
+// waiter share the reading.
+func TestFreezeSamplerSameInstantReadersShareOneReading(t *testing.T) {
+	db := &fakeSamplerDB{entered: make(chan struct{}), release: make(chan struct{})}
+	at := time.Unix(1_700_000_000, 0)
+	calls := make(chan struct{}, 8)
+	sampler := NewFreezeSampler(db, 0, 0)
+	sampler.now = func() time.Time { calls <- struct{}{}; return at }
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	for i := range errs {
+		wg.Add(1)
+		go func() { defer wg.Done(); _, errs[i] = sampler.Read(context.Background()) }()
+	}
+	<-calls // both readers read the counter and the clock first
+	<-calls
+	<-db.entered
+	close(db.release)
+	wg.Wait()
+	if errs[0] != nil || errs[1] != nil {
+		t.Fatalf("readers: %v, %v", errs[0], errs[1])
+	}
+	if n := db.begins.Load(); n != 1 {
+		t.Fatalf("same-instant readers ran %d readings, want 1", n)
+	}
+}
+
 // State transitions: a reading is served again within the TTL, and a new
 // one (with rates against the last) is taken after it.
 func TestFreezeSamplerTTLThenFreshReadingWithRates(t *testing.T) {
