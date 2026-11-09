@@ -84,11 +84,18 @@ func retryContaminated(n int, attempt func() Result) Result {
 	}
 }
 
+// recoverTimeout bounds a scenario's recovery, which runs even after the
+// run's context ends (shutdown): a slot or ALTER SYSTEM setting left
+// behind would outlive the run.
+const recoverTimeout = 2 * time.Minute
+
 func (e *Env) attempt(ctx context.Context, sc Scenario, arm LiveArm) (r Result) {
 	r.Scenario = sc
 	defer func() {
+		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), recoverTimeout)
+		defer cancel()
 		e.closeSessions()
-		err := sc.Program.Recover(ctx, e)
+		err := sc.Program.Recover(rctx, e)
 		e.unlockCluster()
 		if err != nil && r.Err == nil && r.Skipped == "" {
 			r.Err = fmt.Errorf("recover: %w", err)

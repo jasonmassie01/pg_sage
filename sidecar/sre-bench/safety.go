@@ -51,7 +51,7 @@ const (
 const decoyKey = "bench_decoy"
 
 // newSlotPrefix is bench_slot_ followed by 8 random hex digits.
-func newSlotPrefix() string { return "bench_slot_" + randomHex() + "_" }
+func newSlotPrefix() string { return benchSlotNamespace + randomHex() + "_" }
 
 func randomHex() string {
 	b := make([]byte, 4)

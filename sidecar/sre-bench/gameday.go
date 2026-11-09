@@ -30,7 +30,8 @@ type GameDayOptions struct {
 	PgSageVersion, PgSageCommit string
 }
 
-// OpenEnv bootstraps the sage schema on dsn's database and returns the
+// OpenEnv bootstraps the sage schema on dsn's database, sweeps what a
+// crashed bench run left on its cluster (sweep.go), and returns the
 // environment and its close function (for callers without a testing.T).
 func OpenEnv(ctx context.Context, dsn string) (*Env, func(), error) {
 	pool, err := pgxpool.New(ctx, dsn)
@@ -48,6 +49,10 @@ func OpenEnv(ctx context.Context, dsn string) (*Env, func(), error) {
 	}
 	e := &Env{DSN: dsn, Pool: pool, Store: st,
 		Runner: probes.NewRunner(pool, probes.Catalog(), probes.NewLimiter(1))}
+	if err := sweepLeftovers(ctx, e, leftoverAge); err != nil {
+		pool.Close()
+		return nil, nil, err
+	}
 	return e, func() { e.closeSessions(); pool.Close() }, nil
 }
 
