@@ -12,6 +12,9 @@ const RANGES = [
 
 const TimeRangeContext = createContext(null)
 
+// TICK_MS is how often the window's end moves to now while the tab is shown.
+const TICK_MS = 30000
+
 export function TimeRangeProvider({ children }) {
   const [rangeKey, setRangeKey] = useState(() => readPref('pg_sage_range', '24h'))
   const [nowTick, setNowTick] = useState(() => Date.now())
@@ -20,9 +23,25 @@ export function TimeRangeProvider({ children }) {
     writePref('pg_sage_range', rangeKey)
   }, [rangeKey])
 
+  // Every tick moves from/to and so refetches each windowed page, so a
+  // hidden tab does not tick; showing it ticks once if a tick fell due.
   useEffect(() => {
-    const id = setInterval(() => setNowTick(Date.now()), 30000)
-    return () => clearInterval(id)
+    let last = Date.now()
+    const tick = () => {
+      last = Date.now()
+      setNowTick(last)
+    }
+    const id = setInterval(() => {
+      if (!document.hidden) tick()
+    }, TICK_MS)
+    const onVisibility = () => {
+      if (!document.hidden && Date.now() - last >= TICK_MS) tick()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      clearInterval(id)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
   }, [])
 
   const value = useMemo(() => {
