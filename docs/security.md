@@ -686,41 +686,83 @@ curl -c cookies.txt -H 'Content-Type: application/json' \
 
 ### Secrets at Rest
 
-Secrets set through the API or UI (`llm.api_key`, `clone.dle_token`,
-`alerting.slack_webhook_url`, `alerting.pagerduty_routing_key`) are stored in
-`sage.config` sealed with AES-256-GCM under a key derived from
-`encryption_key` (argon2id with the deployment's random salt). A stored value
-looks like `sage-enc:v1:<key id>:<ciphertext>`; the key id is a public
-fingerprint of the key. Each value is bound to its key name and scope, so it
-cannot be copied to another key. Audit rows never hold the value or its
-ciphertext.
+pg_sage seals every secret it stores with AES-256-GCM under a key derived
+from the encryption key (argon2id with the database's random salt in
+`sage.crypto_meta`):
 
-- **Key source.** `encryption_key`, `SAGE_ENCRYPTION_KEY`, or
-  `SAGE_ENCRYPTION_KEY_FILE` (a file a secrets manager fills; trailing newline
-  trimmed; setting both the variable and `_FILE` is an error).
-- **Startup migration.** With a key configured, startup seals existing
-  plaintext secret rows and logs how many.
-- **No key.** Secrets stay plaintext, as before, and startup warns once when
-  any are stored.
+- secrets set through the API or UI and stored in `sage.config`
+  (`llm.api_key`, `clone.dle_token`, `alerting.slack_webhook_url`,
+  `alerting.pagerduty_routing_key`);
+- per-database passwords in `sage.databases` (meta-db fleet mode);
+- notification channel secrets (webhook URLs, routing keys, SMTP passwords,
+  bot tokens) in `sage.notification_channels`.
+
+A sealed value looks like `sage-enc:v1:<key id>:<ciphertext>`; the key id is
+a public fingerprint of the key. Each value is bound to where it is stored
+(`sage.config|<key>|<database id>`, `sage.databases|<id>|password`,
+`sage.notification_channels|<id>|<key>`), so a value copied to another row or
+key does not open there. Audit rows never hold a value or its ciphertext.
+YAML and environment secrets are never written to `sage.config`.
+
+- **Key source.** In order: `encryption_key`, `SAGE_ENCRYPTION_KEY`, or
+  `SAGE_ENCRYPTION_KEY_FILE` (a file a secrets manager fills; trailing
+  newline trimmed; setting both the variable and `_FILE` is an error). A
+  configured key always wins; if a generated key file also exists, startup
+  warns that it is ignored.
+- **Generated key (the default in the container image).** Without a
+  configured key and with a writable `data_dir` (`SAGE_DATA_DIR`; the image
+  sets `/var/lib/pg_sage`), startup reads `<data_dir>/encryption.key`, or
+  creates it: 32 random bytes as base64, mode 600, written to a private
+  temporary file, fsynced and linked into place. A key file that is not
+  owner-only, is over 4 KiB or does not hold a 32-byte key stops startup
+  with an error naming the file. The meta database and the standalone
+  control database share this one key; managed providers are unaffected.
+  Databricks Apps still requires `SAGE_ENCRYPTION_KEY`.
+- **Back up the key file.** Sealed secrets cannot be opened without it.
+  Keep `encryption.key` with your backups of the database that holds the
+  secrets, but not inside them. Each database records the id of the
+  generated key in `sage.crypto_meta.generated_key_id`. If that id is
+  recorded and the file is missing, or holds a different key, startup logs
+  an ERROR naming the path and the key id, generates nothing, runs with
+  secrets unsealed, and the dashboard shows a "key missing" banner to
+  admins. Restore the file and restart.
+- **No persistent directory.** Without a key and without a writable
+  `data_dir`, secrets are stored in plaintext, as before. Startup warns on
+  every start, adding a database password is refused (set a key first),
+  and admins see a persistent dashboard banner.
+  `GET /api/v1/security/posture` (admin) returns `secrets_at_rest`
+  (`sealed`, `plaintext` or `key_missing`), `key_source` (`configured`,
+  `generated` or `none`) and `plaintext_rows`.
+- **Startup migration.** With a key, startup seals existing plaintext config
+  and channel secrets, moves older database passwords and channel secrets
+  (sealed without a row binding) to `sage-enc:v1`, and logs the counts. Each
+  write is a compare-and-swap, so a value edited at the same moment is never
+  overwritten. In YAML fleet mode (no meta database) channel secrets are
+  re-sealed when first read instead.
 - **Rotation.** Set the new passphrase as `encryption_key` and the old one as
   `encryption_key_previous` (or `SAGE_ENCRYPTION_KEY_PREVIOUS[_FILE]`) and
-  restart: values sealed under the old key are read and re-sealed under the
-  new one. Then remove `encryption_key_previous`. A value no configured key
-  can open is ignored with an ERROR naming its key and key id. Rotation
-  currently covers config secrets only: per-database passwords and
-  notification channel secrets are still sealed with `encryption_key` alone.
-- **Changed `encryption_key` and database passwords or channel secrets.**
-  After `encryption_key` changes, a stored database password that no longer
-  opens fails that database with `database <id>: encryption key does not open
-  this value`, and startup logs one ERROR per database id ("the stored
-  password does not open with encryption_key; was encryption_key changed?")
-  with `database_id`; reconnects do not repeat it. A sealed channel secret
-  fails with `channel secret <key> does not open with encryption_key`. The
-  failure is fast: no key is derived per read. To recover, either restore the
-  old `encryption_key` and restart, or keep the new one and re-enter each
-  named password and channel secret in the dashboard or through the API.
-  Passwords written by v0.8.x key derivations still open and are re-sealed
-  under the current key on first read.
+  restart: config secrets, database passwords and channel secrets sealed
+  under the old key are opened and re-sealed under the new one, and the
+  counts are logged. Then remove `encryption_key_previous`. A value no
+  configured key opens is left as stored, with an ERROR naming it.
+- **Changed `encryption_key` without `encryption_key_previous`.** A stored
+  database password that no longer opens fails that database with
+  `database <id>: encryption key does not open this value`, and startup logs
+  one ERROR per database id ("the stored password does not open with
+  encryption_key; was encryption_key changed?") with `database_id`;
+  reconnects do not repeat it. A sealed channel secret fails with
+  `channel secret <key> does not open with encryption_key`. The failure is
+  fast: no key is derived per read. To recover, restart with the old key as
+  `encryption_key_previous`, or re-enter each named password and channel
+  secret in the dashboard or through the API. Passwords written by v0.8.x key
+  derivations still open and are re-sealed under the current key.
+- **Upgrading.** The first start of this release seals or re-seals every
+  stored secret (a one-way change: an older release cannot read
+  `sage-enc:v1` database passwords or channel secrets). Installs that never
+  set `encryption_key` now get a generated key when `data_dir` is writable;
+  with the image, mount a persistent volume at `/var/lib/pg_sage` (the
+  bundled `docker-compose.yml` does) or the key is lost with the container.
+  The legacy read paths for unbound values stay for one release.
 
 ### Secrets Bound to Their Destination
 
