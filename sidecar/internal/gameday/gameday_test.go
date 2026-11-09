@@ -98,12 +98,16 @@ type fakeFaults struct {
 	dsns     []string
 	families [][]string
 	block    chan struct{}
+	// deadlines are the runs' context deadlines (zero: none).
+	deadlines []time.Time
 }
 
 func (f *fakeFaults) Run(ctx context.Context, dsn string, families []string) ([]byte, error) {
 	f.mu.Lock()
 	f.dsns = append(f.dsns, dsn)
 	f.families = append(f.families, families)
+	deadline, _ := ctx.Deadline()
+	f.deadlines = append(f.deadlines, deadline)
 	block := f.block
 	f.mu.Unlock()
 	if block != nil {

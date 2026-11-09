@@ -190,6 +190,8 @@ func (b *LocalBench) persistStart(ctx context.Context, run LocalBenchRun) error 
 
 func (b *LocalBench) execute(ctx context.Context, run LocalBenchRun) (LocalBenchRun,
 	error) {
+	ctx, cancel := context.WithTimeout(ctx, runBudget)
+	defer cancel()
 	c, err := b.provider.Create(ctx, clone.CloneSpec{IncludeData: true})
 	if err != nil {
 		return b.finish(ctx, run, StatusFailed, fmt.Errorf("create clone: %w", err))

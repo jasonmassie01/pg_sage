@@ -19,6 +19,12 @@ import (
 // MaxRunTime is how long a run may stay running before it is abandoned.
 const MaxRunTime = 6 * time.Hour
 
+// runBudget bounds each run's clone and fault programs, so no live run
+// reaches MaxRunTime and has its clone destroyed by another process's
+// sweep. The margin covers what still runs after the budget ends: the
+// in-flight scenario's recovery, the clone's destroy and the result.
+const runBudget = MaxRunTime - time.Hour
+
 // StatusAbandoned is a run its process never finished.
 const StatusAbandoned = "abandoned"
 

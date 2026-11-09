@@ -190,6 +190,8 @@ func (r *Runner) List(ctx context.Context, limit int) ([]GameDay, error) {
 }
 
 func (r *Runner) run(ctx context.Context, id string) (GameDay, error) {
+	ctx, cancel := context.WithTimeout(ctx, runBudget)
+	defer cancel()
 	gd := GameDay{ID: id, Database: r.cfg.Database, Provider: r.cfg.Provider,
 		Families: append([]string{}, r.cfg.Families...), Status: StatusRunning,
 		StartedAt: r.now()}
