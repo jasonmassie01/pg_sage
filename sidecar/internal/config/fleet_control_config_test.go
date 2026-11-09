@@ -3,6 +3,7 @@ package config
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // No concurrency or integration tests: validation is a pure function of
@@ -70,5 +71,31 @@ func TestFleetControlDatabase_LoadsFromYAML(t *testing.T) {
 	if class, ok := KeyClassOf("fleet_learning.control_database"); !ok ||
 		class != KeyOperatorPreference {
 		t.Fatalf("class = %q known=%v, want operator_preference", class, ok)
+	}
+}
+
+func TestFleetOrphanScopeDays_DefaultAndBounds(t *testing.T) {
+	c := DefaultConfig()
+	if c.FleetLearning.OrphanScopeDays != 14 ||
+		c.FleetLearning.OrphanScopeAge() != 14*24*time.Hour {
+		t.Fatalf("default = %d (%v), want 14 days", c.FleetLearning.OrphanScopeDays,
+			c.FleetLearning.OrphanScopeAge())
+	}
+	for _, v := range []int{1, 3650} {
+		c.FleetLearning.OrphanScopeDays = v
+		if err := c.Validate(); err != nil {
+			t.Fatalf("orphan_scope_days %d rejected: %v", v, err)
+		}
+	}
+	for _, v := range []int{0, -1, 3651} {
+		c.FleetLearning.OrphanScopeDays = v
+		if err := c.Validate(); err == nil ||
+			!strings.Contains(err.Error(), "fleet_learning.orphan_scope_days must be 1-3650") {
+			t.Fatalf("orphan_scope_days %d: %v, want rejected", v, err)
+		}
+	}
+	if class, ok := KeyClassOf("fleet_learning.orphan_scope_days"); !ok ||
+		class != KeyOperatorPreference {
+		t.Fatalf("class = %q known=%v", class, ok)
 	}
 }

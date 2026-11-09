@@ -1033,6 +1033,12 @@
     "doc": "Verified outcomes on look-alike databases needed before their evidence is shown on a proposal. 1-1000. Default: 3.",
     "class": "operator_preference"
   },
+  "fleet_learning.orphan_scope_days": {
+    "type": "int",
+    "default": 14,
+    "doc": "Days after its leader lease expired that another fleet scope's fingerprints, digests and lease are deleted (a renamed or retired fleet). 1-3650. Default: 14.",
+    "class": "operator_preference"
+  },
   "forecaster.alert_horizons": {
     "type": "[]int",
     "default": null,

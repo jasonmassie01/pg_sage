@@ -22,6 +22,7 @@ type FleetLearningConfig struct {
 	BudgetCeilingPct         int     `yaml:"budget_ceiling_pct" doc:"Largest share of a database under the need split, as a percentage of the even share. 100-1000. Default: 300."`
 	LeaderLeaseSeconds       int     `yaml:"leader_lease_seconds" doc:"Lease of the leader sidecar that runs fleet-wide jobs when several sidecars share a control database. 10-600; 0 disables election (every sidecar runs them). Default: 30."`
 	ControlDatabase          string  `yaml:"control_database" doc:"YAML fleet database that holds the leader lease; pin it to run several sidecars on one fleet. While it is down every sidecar follows, never leading elsewhere. Not with meta_db. Default: empty."`
+	OrphanScopeDays          int     `yaml:"orphan_scope_days" doc:"Days after its leader lease expired that another fleet scope's fingerprints, digests and lease are deleted (a renamed or retired fleet). 1-3650. Default: 14."`
 }
 
 // Fleet learning defaults.
@@ -34,6 +35,7 @@ const (
 	DefaultFleetBudgetFloorPct          = 50
 	DefaultFleetBudgetCeilingPct        = 300
 	DefaultLeaderLeaseSeconds           = 30
+	DefaultOrphanScopeDays              = 14
 )
 
 func defaultFleetLearningConfig() FleetLearningConfig {
@@ -45,12 +47,18 @@ func defaultFleetLearningConfig() FleetLearningConfig {
 		BudgetSplit:              DefaultFleetBudgetSplit,
 		BudgetFloorPct:           DefaultFleetBudgetFloorPct,
 		BudgetCeilingPct:         DefaultFleetBudgetCeilingPct,
-		LeaderLeaseSeconds:       DefaultLeaderLeaseSeconds}
+		LeaderLeaseSeconds:       DefaultLeaderLeaseSeconds,
+		OrphanScopeDays:          DefaultOrphanScopeDays}
 }
 
 // Interval is the fingerprint cycle period.
 func (f FleetLearningConfig) Interval() time.Duration {
 	return time.Duration(f.IntervalMinutes) * time.Minute
+}
+
+// OrphanScopeAge is how long after its lease expired a scope is pruned.
+func (f FleetLearningConfig) OrphanScopeAge() time.Duration {
+	return time.Duration(f.OrphanScopeDays) * 24 * time.Hour
 }
 
 // LeaderLease is the leader lease; 0 disables election.
@@ -92,6 +100,7 @@ func (f FleetLearningConfig) validate() error {
 		{"fleet_finding_min_databases", f.FleetFindingMinDatabases, 2, 10000},
 		{"budget_floor_pct", f.BudgetFloorPct, 0, 100},
 		{"budget_ceiling_pct", f.BudgetCeilingPct, 100, 1000},
+		{"orphan_scope_days", f.OrphanScopeDays, 1, 3650},
 	}
 	for _, c := range ints {
 		if c.v < c.lo || c.v > c.h {

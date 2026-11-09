@@ -141,6 +141,7 @@ widens what pg_sage may do or spend.
 | `fleet_learning.budget_ceiling_pct` | `300` | Largest share under the need split, as % of the even share, 100-1000 |
 | `fleet_learning.leader_lease_seconds` | `30` | Leader lease, 10-600; `0` turns election off |
 | `fleet_learning.control_database` | empty | YAML fleet database that holds the leader lease; must name an entry under `databases:`; not used with `meta_db` (see [Leader election](#leader-election)) |
+| `fleet_learning.orphan_scope_days` | `14` | Days after its lease expired that another scope's fingerprints, digests and lease row are deleted (a fleet whose database names changed, or that was retired), 1-3650; a scope without a lease row is kept |
 
 ## Leader election
 

@@ -25,6 +25,7 @@ type Settings struct {
 	WindowDays       int     // 0: DefaultWindowDays
 	MaxTables        int
 	MaxQueries       int
+	OrphanScopeAge   time.Duration // 0: DefaultOrphanScopeAge
 }
 
 // Defaults.
@@ -120,7 +121,7 @@ func (s *Service) RunCycle(ctx context.Context, f Fence) (CycleResult, error) {
 	if err := s.store.Prune(ctx, f, names); err != nil {
 		return res, err
 	}
-	return res, nil
+	return res, s.pruneOrphanScopes(ctx, f)
 }
 
 func (s *Service) learnOne(ctx context.Context, f Fence, src DatabaseSource) error {

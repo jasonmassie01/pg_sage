@@ -123,7 +123,8 @@ func startFleetLearning(ctx context.Context, control *pgxpool.Pool,
 	if fl.Enabled {
 		fleetLearning = fleetlearn.NewService(fleetlearn.NewStore(control, scope),
 			fleetLearningSources(mgr), fleetlearn.Settings{IncludeNames: fl.IncludeNames,
-				MinSimilarity: fl.LookalikeMinSimilarity, MinPriorOutcomes: fl.MinPriorOutcomes},
+				MinSimilarity: fl.LookalikeMinSimilarity, MinPriorOutcomes: fl.MinPriorOutcomes,
+				OrphanScopeAge: fl.OrphanScopeAge()},
 			logStructuredWrapper)
 		svc := fleetLearning
 		go afterDelay(ctx, firstCycleDelay, func() {

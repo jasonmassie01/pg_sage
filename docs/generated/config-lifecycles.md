@@ -151,6 +151,7 @@
 | `fleet_learning.leader_lease_seconds` | `restart` | `-` | `operator_preference` |
 | `fleet_learning.lookalike_min_similarity` | `restart` | `-` | `operator_preference` |
 | `fleet_learning.min_prior_outcomes` | `restart` | `-` | `operator_preference` |
+| `fleet_learning.orphan_scope_days` | `restart` | `-` | `operator_preference` |
 | `forecaster.alert_horizons` | `restart` | `-` | `derivable` |
 | `forecaster.cache_warn_threshold` | `restart` | `-` | `derivable` |
 | `forecaster.connection_warn_pct` | `restart` | `-` | `derivable` |

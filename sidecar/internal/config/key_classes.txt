@@ -498,6 +498,7 @@ operator_preference fleet_learning.interval_minutes
 operator_preference fleet_learning.leader_lease_seconds
 operator_preference fleet_learning.lookalike_min_similarity
 operator_preference fleet_learning.min_prior_outcomes
+operator_preference fleet_learning.orphan_scope_days
 
 # History placement (v2.3.0): where pg_sage keeps its own telemetry history is
 # deployment topology the operator declares. It never widens what pg_sage may
