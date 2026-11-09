@@ -16,11 +16,12 @@ const (
 )
 
 // guardProviders are the providers every agent governance action supports
-// (§6.3: self-managed, RDS/Aurora, Cloud SQL/AlloyDB, Azure, Supabase,
-// Neon).
+// (§6.3: self-managed, RDS/Aurora, Cloud SQL/AlloyDB, Azure flexible
+// server and Cosmos DB for PostgreSQL, Supabase, Neon). Lakebase is left
+// out on purpose: agent roles are not verified there.
 func guardProviders() []string {
 	return []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb", "azure",
-		"supabase", "neon"}
+		"azure-cosmos", "supabase", "neon"}
 }
 
 // guardRoleEnsureContract creates or re-asserts an agent's two cluster

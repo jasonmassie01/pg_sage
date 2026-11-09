@@ -42,7 +42,8 @@ func RequiresRestart(settingName string) bool {
 // service where ALTER SYSTEM is unavailable.
 func IsManagedService(platform string) bool {
 	switch strings.ToLower(strings.TrimSpace(platform)) {
-	case "rds", "aurora", "cloud-sql", "alloydb", "azure", "neon", "supabase", "lakebase":
+	case "rds", "aurora", "cloud-sql", "alloydb", "azure", "azure-cosmos", "neon",
+		"supabase", "lakebase":
 		return true
 	}
 	return false
@@ -62,6 +63,9 @@ func TransformForCloud(
 	}
 	if !IsManagedService(platform) {
 		return findings
+	}
+	if platform == "azure-cosmos" {
+		return transformGuidanceOnly(findings)
 	}
 
 	out := make([]analyzer.Finding, 0, len(findings))

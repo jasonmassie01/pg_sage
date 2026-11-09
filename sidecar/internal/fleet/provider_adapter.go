@@ -69,6 +69,8 @@ func AdapterForProvider(provider string) ProviderAdapter {
 		)
 	case "azure":
 		return azureAdapter()
+	case "azure-cosmos":
+		return cosmosAdapter()
 	case "postgres":
 		return managedAdapter(normalized, "local",
 			map[string]string{
@@ -133,6 +135,26 @@ func azureAdapter() ProviderAdapter {
 	)
 	adapter.SupportedActions["alter_database_guc"] = true
 	return adapter
+}
+
+// cosmosAdapter describes Azure Cosmos DB for PostgreSQL (Citus). pg_sage
+// has no adapter for its server parameters, so they stay guidance-only and
+// readiness does not advertise ALTER DATABASE changes.
+func cosmosAdapter() ProviderAdapter {
+	return managedAdapter("azure-cosmos", "azure_monitor",
+		map[string]string{
+			"pg_stat_statements": "available",
+			"hypopg":             "azure_extensions_allowlist_required",
+			"pg_hint_plan":       "azure_extensions_allowlist_required",
+			"auto_explain":       "azure_extensions_allowlist_required",
+		},
+		[]string{
+			"server parameters are guidance-only (Citus coordinator); set them with " +
+				"az cosmosdb postgres configuration",
+			"the azure.extensions allow-list controls CREATE EXTENSION",
+			"log access flows through Azure Monitor diagnostic settings",
+		},
+	)
 }
 
 func hostedPostgresAdapter(provider string) ProviderAdapter {
