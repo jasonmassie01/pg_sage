@@ -28,10 +28,12 @@ func docCategories(t *testing.T) []string {
 	if start < 0 {
 		t.Fatalf("docs/architecture.md has no %q sentence", lead)
 	}
-	sentence := doc[start+len(lead):]
-	sentence = sentence[:strings.Index(sentence, ".\n")+1]
-	// The category names are the backticked words outside parentheses.
-	sentence = regexp.MustCompile(`\([^)]*\)`).ReplaceAllString(sentence, "")
+	// The category names are the backticked words of the sentence, outside
+	// parentheses.
+	sentence := regexp.MustCompile(`\([^)]*\)`).ReplaceAllString(doc[start+len(lead):], "")
+	if end := regexp.MustCompile(`\.\s`).FindStringIndex(sentence); end != nil {
+		sentence = sentence[:end[0]]
+	}
 	var out []string
 	for _, m := range regexp.MustCompile("`([a-z_]+)`").FindAllStringSubmatch(sentence, -1) {
 		out = append(out, m[1])
