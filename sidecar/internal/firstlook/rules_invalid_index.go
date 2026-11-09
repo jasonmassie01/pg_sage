@@ -100,7 +100,7 @@ func buildingItem(x Index, bd IndexBuild) Item {
 func reindexSQL(name string) string { return "REINDEX INDEX CONCURRENTLY " + name + ";" }
 
 func failedItem(x Index, idx []Index) Item {
-	name := sqlident.Ident(x.Schema) + "." + sqlident.Ident(x.Name)
+	name := sqlident.Qualified(x.Schema, x.Name)
 	it := Item{Rule: RuleInvalidIndex, Severity: SeverityWarning, Object: x.object(),
 		Title: "Invalid index " + x.object(), Evidence: []Evidence{invalidEvidence(x)}}
 	// on reads "<index> on <table> is invalid (<size>)", today's wording.
@@ -146,7 +146,7 @@ func leftoverText(it *Item, x Index, idx []Index, on, name string) {
 		if m[1] == "new" && o.OID != x.OID && o.TableOID == x.TableOID &&
 			o.Schema == x.Schema && o.Name == base {
 			it.Recommendation += " To finish the rebuild, re-run " +
-				reindexSQL(sqlident.Ident(o.Schema)+"."+sqlident.Ident(o.Name))
+				reindexSQL(sqlident.Qualified(o.Schema, o.Name))
 			break
 		}
 	}
@@ -177,8 +177,8 @@ func duplicateKeysSQL(x Index) string {
 		where = append(where, "("+x.Predicate+")")
 	}
 	list := strings.Join(cols, ", ")
-	q := "SELECT " + list + ", count(*) AS copies FROM " + sqlident.Ident(x.Schema) + "." +
-		sqlident.Ident(x.Table)
+	q := "SELECT " + list + ", count(*) AS copies FROM " +
+		sqlident.Qualified(x.Schema, x.Table)
 	if len(where) > 0 {
 		q += " WHERE " + strings.Join(where, " AND ")
 	}

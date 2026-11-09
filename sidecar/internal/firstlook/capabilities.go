@@ -210,7 +210,7 @@ func autoExplain(e Extensions, provider string) Capability {
 		c.Steps = []string{"As a superuser: ALTER SYSTEM SET session_preload_libraries " +
 			"= " + libraryList(e.SessionPreloadLibraries, "auto_explain") + ";",
 			"ALTER SYSTEM SET auto_explain.log_min_duration = " +
-			"'1s';", "SELECT pg_reload_conf(); -- new sessions load it, no restart"}
+				"'1s';", "SELECT pg_reload_conf(); -- new sessions load it, no restart"}
 	}
 	return c
 }

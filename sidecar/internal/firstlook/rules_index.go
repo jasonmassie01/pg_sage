@@ -141,8 +141,7 @@ func duplicateItem(dup, keep Index) Item {
 			sizeText(dup.SizeBytes), keep.object(), qualified(dup.Schema, dup.Table)),
 		Recommendation: "Drop the duplicate after checking no query hint or constraint " +
 			"names it.",
-		SuggestedSQL: "DROP INDEX CONCURRENTLY " + sqlident.Ident(dup.Schema) + "." + sqlident.Ident(dup.Name) +
-			";",
+		SuggestedSQL: "DROP INDEX CONCURRENTLY " + sqlident.Qualified(dup.Schema, dup.Name) + ";",
 		Evidence: []Evidence{{Source: "pg_index",
 			Ref: "pg_index.indkey, indclass, indcollation (indexrelid " + dup.object() + ")",
 			Detail: fmt.Sprintf("indkey=%v indclass=%v same as %s", dup.Columns,
@@ -169,8 +168,8 @@ func redundantPrefixes(idx []Index, flagged map[uint32]bool) []Item {
 				Detail: fmt.Sprintf("The columns of %s (%s) lead %s, which serves the "+
 					"same lookups.", a.object(), sizeText(a.SizeBytes), b.object()),
 				Recommendation: "Drop it unless a query relies on its smaller size.",
-				SuggestedSQL: "DROP INDEX CONCURRENTLY " + sqlident.Ident(a.Schema) + "." +
-					sqlident.Ident(a.Name) + ";",
+				SuggestedSQL: "DROP INDEX CONCURRENTLY " +
+					sqlident.Qualified(a.Schema, a.Name) + ";",
 				Evidence: []Evidence{{Source: "pg_index",
 					Ref: "pg_index.indkey (indexrelid " + a.object() + ")",
 					Detail: fmt.Sprintf("indkey=%v is a prefix of %s indkey=%v",
@@ -273,8 +272,8 @@ func UnindexedForeignKeys(fks []ForeignKey, idx []Index, minRows float64) []Item
 				"on %s scans %s (%s rows) and holds locks longer.", table, cols, fk.RefTable,
 				table, rowsText(fk.TableRows)),
 			Recommendation: "Create an index on the referencing columns.",
-			SuggestedSQL: fmt.Sprintf("CREATE INDEX CONCURRENTLY ON %s.%s (%s);",
-				sqlident.Ident(fk.Schema), sqlident.Ident(fk.Table), strings.Join(quoted, ", ")),
+			SuggestedSQL: fmt.Sprintf("CREATE INDEX CONCURRENTLY ON %s (%s);",
+				sqlident.Qualified(fk.Schema, fk.Table), strings.Join(quoted, ", ")),
 			Evidence: []Evidence{{Source: "pg_constraint",
 				Ref: "pg_constraint.conkey (conname " + fk.Name + ", contype f)",
 				Detail: fmt.Sprintf("conkey=%v; no pg_index on %s leads with them",
