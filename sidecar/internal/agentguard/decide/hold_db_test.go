@@ -50,7 +50,7 @@ func livePrincipal(t *testing.T, pool *pgxpool.Pool, status agentguard.Status) s
 	}
 	if status != agentguard.StatusActive {
 		if _, err := store.SetStatus(context.Background(), p.ID, status,
-			"test"); err != nil {
+			agentguard.Audit{Reason: "test"}); err != nil {
 			t.Fatalf("set status: %v", err)
 		}
 	}

@@ -143,7 +143,7 @@ func TestStore_ListByStatus(t *testing.T) {
 	s := NewStore(pool)
 	ctx := context.Background()
 	p := newPrincipal(t, s, nil)
-	_, err := s.SetStatus(ctx, p.ID, StatusFrozen, "test")
+	_, err := s.SetStatus(ctx, p.ID, StatusFrozen, Audit{Reason: "test"})
 	require.NoError(t, err)
 	page, err := s.List(ctx, ListOptions{Limit: 200, Status: StatusFrozen})
 	require.NoError(t, err)
@@ -159,21 +159,21 @@ func TestStore_UpdateAndSponsorDeparture(t *testing.T) {
 	pool := livePool(t)
 	s := NewStore(pool)
 	ctx := context.Background()
-	first, second := createUser(t, pool, "admin"), createUser(t, pool, "viewer")
+	first, second := createUser(t, pool, "admin"), createUser(t, pool, "operator")
 	p := newPrincipal(t, s, &first)
 	dev, profile := EnvDev, "coding-agent"
 	got, err := s.Update(ctx, p.ID, Patch{SponsorUserID: &second, EnvCeiling: &dev,
-		Profile: &profile})
+		Profile: &profile}, Audit{})
 	require.NoError(t, err)
 	require.Equal(t, second, *got.SponsorUserID)
 	require.Equal(t, EnvDev, got.EnvCeiling)
 	require.Equal(t, "coding-agent", got.Profile)
 	require.True(t, got.UpdatedAt.After(p.UpdatedAt) || got.UpdatedAt.Equal(p.UpdatedAt))
-	unchanged, err := s.Update(ctx, p.ID, Patch{})
+	unchanged, err := s.Update(ctx, p.ID, Patch{}, Audit{})
 	require.NoError(t, err)
 	require.Equal(t, "coding-agent", unchanged.Profile)
 	missing := 2147483000
-	_, err = s.Update(ctx, p.ID, Patch{SponsorUserID: &missing})
+	_, err = s.Update(ctx, p.ID, Patch{SponsorUserID: &missing}, Audit{})
 	require.ErrorIs(t, err, ErrSponsorNotFound)
 	// The sponsor leaves: the principal becomes unsponsored (L0, ID-2).
 	_, err = pool.Exec(ctx, "DELETE FROM sage.users WHERE id = $1", second)
@@ -183,7 +183,7 @@ func TestStore_UpdateAndSponsorDeparture(t *testing.T) {
 	require.Nil(t, orphan.SponsorUserID)
 	require.False(t, orphan.Sponsored())
 	require.Equal(t, ReasonUnsponsored, ToolAccess(orphan, ToolAgent).Reason)
-	_, err = s.Update(ctx, "agp_aaaaaaaaaaaaaaaaaaaa", Patch{})
+	_, err = s.Update(ctx, "agp_aaaaaaaaaaaaaaaaaaaa", Patch{}, Audit{})
 	require.ErrorIs(t, err, ErrNotFound)
 }
 
@@ -192,25 +192,25 @@ func TestStore_StatusTransitions(t *testing.T) {
 	s := NewStore(pool)
 	ctx := context.Background()
 	p := newPrincipal(t, s, nil)
-	frozen, err := s.SetStatus(ctx, p.ID, StatusFrozen, "canary read")
+	frozen, err := s.SetStatus(ctx, p.ID, StatusFrozen, Audit{Reason: "canary read"})
 	require.NoError(t, err)
 	require.Equal(t, StatusFrozen, frozen.Status)
 	require.Equal(t, "canary read", frozen.FrozenReason)
-	active, err := s.SetStatus(ctx, p.ID, StatusActive, "ignored")
+	active, err := s.SetStatus(ctx, p.ID, StatusActive, Audit{Reason: "ignored"})
 	require.NoError(t, err)
 	require.Equal(t, StatusActive, active.Status)
 	require.Equal(t, "", active.FrozenReason, "the reason is cleared on unfreeze")
-	retired, err := s.SetStatus(ctx, p.ID, StatusRetired, "")
+	retired, err := s.SetStatus(ctx, p.ID, StatusRetired, Audit{})
 	require.NoError(t, err)
 	require.Equal(t, StatusRetired, retired.Status)
 	for _, to := range []Status{StatusActive, StatusFrozen, StatusRetired} {
-		_, err = s.SetStatus(ctx, p.ID, to, "")
+		_, err = s.SetStatus(ctx, p.ID, to, Audit{})
 		require.ErrorIs(t, err, ErrRetired, "retired is final (%s)", to)
 	}
 	dev := EnvDev
-	_, err = s.Update(ctx, p.ID, Patch{EnvCeiling: &dev})
+	_, err = s.Update(ctx, p.ID, Patch{EnvCeiling: &dev}, Audit{})
 	require.ErrorIs(t, err, ErrRetired)
-	_, err = s.SetStatus(ctx, "agp_aaaaaaaaaaaaaaaaaaaa", StatusFrozen, "")
+	_, err = s.SetStatus(ctx, "agp_aaaaaaaaaaaaaaaaaaaa", StatusFrozen, Audit{})
 	require.ErrorIs(t, err, ErrNotFound)
 }
 

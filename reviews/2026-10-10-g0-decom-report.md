@@ -74,5 +74,5 @@ meet coverage thresholds.
 
 ## Left
 
-- G1: drop the 27 tables by `decommission.LegacyTables` (§12 step 5).
+- ~~G1: drop the 27 tables by `decommission.LegacyTables` (§12 step 5).~~ Done in agentgov-11: admin-only `POST /api/v1/agentdb/decommission/drop-legacy-tables`, gated on every item acknowledged and the exported inventory digest.
 - The archived files still contain the AU-10 credentials; the `hygiene` workstream scrubs them.

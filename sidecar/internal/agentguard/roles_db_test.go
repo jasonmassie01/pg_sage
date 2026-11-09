@@ -206,7 +206,7 @@ func TestEnsure_Refusals(t *testing.T) {
 	require.ErrorIs(t, err, ErrSelfCheck, "pg_sage must not run Guard as superuser")
 	require.False(t, f.roleExists(t, p.BrokerRole()), "nothing was created")
 	r := f.principal(t)
-	_, err = f.store.SetStatus(ctx, r.ID, StatusRetired, "")
+	_, err = f.store.SetStatus(ctx, r.ID, StatusRetired, Audit{})
 	require.NoError(t, err)
 	_, err = f.manager.Ensure(ctx, f.request(r))
 	require.ErrorIs(t, err, ErrRetired)

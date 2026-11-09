@@ -57,14 +57,15 @@ func TestListPrincipalStatusFollowsTheAgent(t *testing.T) {
 	require.Equal(t, principal, got.PrincipalID)
 	require.Equal(t, "active", got.PrincipalStatus)
 
-	_, err := principals.SetStatus(ctx, principal, agentguard.StatusFrozen, "incident")
+	_, err := principals.SetStatus(ctx, principal, agentguard.StatusFrozen,
+		agentguard.Audit{Reason: "incident"})
 	require.NoError(t, err)
 	require.Equal(t, "frozen", listedByID(t, s, tok.ID).PrincipalStatus)
 	// A frozen agent's token still authenticates (it then gets agent_frozen).
 	_, err = s.Validate(ctx, tok.Secret)
 	require.NoError(t, err)
 
-	_, err = principals.SetStatus(ctx, principal, agentguard.StatusRetired, "")
+	_, err = principals.SetStatus(ctx, principal, agentguard.StatusRetired, agentguard.Audit{})
 	require.NoError(t, err)
 	retired := listedByID(t, s, tok.ID)
 	require.Equal(t, "retired", retired.PrincipalStatus)

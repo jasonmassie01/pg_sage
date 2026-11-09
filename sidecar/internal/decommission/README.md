@@ -91,9 +91,39 @@ section once you have followed the steps above. Persisted `agentdb.*` settings
 in `sage.config` are deleted on upgrade, each with a `sage.config_audit` row
 that keeps the old value.
 
-## 6. The legacy tables
+## 6. Drop the legacy tables
 
-The 27 legacy tables (`LegacyTables`) stay in G0 because the inventory reads
-them. G1 drops them by that explicit list once the acknowledgement exists or
-the operational tables are empty (§12 step 5). The historical design notes,
-runbooks and reports live under `reviews/archive/agentdb-2026-05/`.
+The 27 legacy tables (`LegacyTables`) hold the inventory's evidence, and also
+old agent token hashes and secret references. While they exist, every start
+logs the inventory. Once nothing is left to review, an admin drops them
+(§12 step 5). pg_sage never drops them on its own.
+
+1. **Export.** `GET /api/v1/agentdb/decommission` and keep the JSON. Its
+   `inventory_sha256` identifies the items you reviewed. Acknowledging or
+   deleting an item does not change it; a new or changed item does.
+2. **Acknowledge** every item (step 4). The inventory's `unacknowledged` must be 0.
+3. **Drop**, as an admin:
+
+```
+POST /api/v1/agentdb/decommission/drop-legacy-tables
+{"inventory_sha256": "<from the export>", "confirm": "drop 27 legacy tables"}
+```
+
+In one transaction (lock timeout 5s) pg_sage rebuilds the inventory and refuses
+with 409 while any item is unacknowledged or when the digest is not the current
+inventory's (export again and review). A wrong phrase or an unknown field is
+400. The drop names the tables still present, with no `CASCADE`: if one of your
+own views or foreign keys depends on a legacy table, nothing is dropped and the
+409 names the dependent object. Each dropped table gets a `sage.config_audit`
+row (key `decommission.legacy_table.<name>`, `present` to `dropped`, your login
+as `changed_by_actor`). The answer is 200 with the `dropped` list; a repeat, or
+an install that never had the tables, is 200 with an empty list.
+
+The drop is irreversible: take a backup of the `sage` schema first if you want
+to keep the history, and upgrade every sidecar that uses this control database
+first, so no older version still reads or writes the tables. Run it on the control database only (the meta database,
+else the fleet's primary); it is plain DDL by the owner role on PostgreSQL 14
+to 18 and on managed providers. `sage.agentdb_decommission` stays, so your
+acknowledgements remain on record. Afterwards the inventory reports
+`legacy_tables: false` and startup logs nothing about AgentDB. The historical
+design notes, runbooks and reports live under `reviews/archive/agentdb-2026-05/`.

@@ -1,4 +1,304 @@
-# Agent governance: agent posture
+# Agent governance
+
+Agent governance is how pg_sage lets AI agents (MCP clients, coding agents, LangGraph or CrewAI
+workers) work on your databases without letting them widen their own reach. It has these
+parts:
+- **Principals**: one identity per agent, with an accountable person (its sponsor), a profile
+  of allowed capability classes and an environment ceiling.
+- **Tokens and OAuth**: how an agent proves on the MCP endpoint that it is that principal.
+- **Grants and activity**: time-bounded read access an operator approves, and what the agent
+  did.
+- **Two-person rules**: a change that widens an agent's reach needs a second person.
+- **Agent posture**: a catalog check of how exposed each database is to agents.
+- **The kill switch**: stops agents at once, at any trust level.
+
+Posture works on every database with no configuration. Everything else needs a control
+database: `agents.control_database` names the monitored database that holds agent governance
+state, and in `mode: meta` the meta database is the control database. The gate, the kill
+switch and freezes, grants and grant requests, activity, agent roles and taint use it. One
+principal covers every database of the fleet: a token or a grant names the databases it
+reaches.
+
+The principal and token routes, and MCP sign-in (tokens and OAuth identity bindings), use
+pg_sage's own store instead: the database that holds its users and sessions. In `mode: meta`
+that is the meta database, so the two are the same. Otherwise it is the single monitored
+database, or the fleet's primary database, and you set `agents.control_database` to that same
+database. The gate reads principals from the control database only, so it refuses an agent
+that exists only in another database as one that does not exist.
+
+Without a control database, the kill, freeze, unfreeze, grant and activity routes answer 503,
+agent requests are capped at approval (L2) and agent changes fail closed. The principal and
+token routes still answer, and posture checks still run.
+
+## Principals
+
+A principal is one agent identity. pg_sage gives it two roles on each cluster it reaches:
+`sage_agent_<id10>` for the direct lane and `sage_agentb_<id10>` for the brokered lane
+(`agent_query`). `<id10>` is 10 lower-case base32 characters derived from the principal's id.
+The roles are created through the executor as operator-approved (L2) actions. They are never
+superuser or `BYPASSRLS`, hold no dangerous membership and own nothing. pg_sage records them in
+`sage.guard_cluster_roles` on the control database.
+
+| Field | Meaning |
+|---|---|
+| `id` | `agp_` and 20 lower-case base32 characters, assigned at creation |
+| `name` | a unique slug: `^[a-z][a-z0-9-]{1,62}$` |
+| `sponsor_user_id` | the accountable person, a pg_sage user id; required at creation |
+| `sponsor_active` | true while the sponsor is an existing, enabled operator or admin |
+| `profile` | the capability profile (see [Profiles](#profiles)); required |
+| `env_ceiling` | `branch`, `dev`, `stage` or `prod` (default `dev`): the most production-like environment the agent may reach |
+| `tenant` | optional free text, up to 200 characters |
+| `status` | `active`, `frozen` or `retired` |
+| `frozen_reason` | why it is frozen, while it is |
+| `tainted` | true while an uncleared taint row exists (see [Taint](#taint)) |
+| `created_by`, `created_at`, `updated_at` | who created it, and when it changed |
+
+| Request | Who | What it does |
+|---|---|---|
+| `GET /api/v1/agents` `?status=&limit=&cursor=` | operator | Lists principals, 1 to 200 a page |
+| `POST /api/v1/agents` `{"name", "sponsor_user_id", "profile", "env_ceiling", "tenant"}` | admin | Creates one (201) |
+| `GET /api/v1/agents/{id}` | operator | Reads one, with `sponsor_active` and `tainted` |
+| `PATCH /api/v1/agents/{id}` `{"sponsor_user_id", "profile", "env_ceiling", "status", "reason"}` | admin | Changes the sponsor, profile or ceiling, or retires it (`"status": "retired"`) |
+
+Unknown body fields are refused. A missing or bad field answers 422, an unknown agent 404,
+and a taken name or a change to a retired agent 409. A sponsor change while the agent has an
+open freeze answers 409 with `code: sponsor_change_frozen`. `status` accepts only `retired`: freeze
+and unfreeze have their own routes (see [the kill switch](#kill-switch-freeze-and-unfreeze)).
+
+**Statuses.**
+- `active`: the profile, the ceiling and the trust level decide what it may do.
+- `frozen`: set by a freeze or a kill. Read tools still work; propose tools and `agent_*`
+  tools answer `agent_frozen`, and it gets no new token.
+- `retired`: final. Its tokens and OAuth identities stop authenticating at once. The leader
+  sidecar drops its roles on every cluster after `agents.roles.retire_grace_days` (7), under
+  the approval of the admin who retired it.
+
+**Sponsor rules.**
+- Every agent is created with a sponsor: 422 without one, or with a user that doesn't exist.
+- The sponsor is an enabled operator or admin. Naming a viewer or a deactivated user, on
+  create or on `PATCH`, answers 422.
+- Deleting the sponsor's user clears the sponsor. A sponsor demoted to viewer or deactivated
+  stays on record but no longer counts: `sponsor_active` reads false. Either way the agent is
+  unsponsored: it keeps its read tools, its propose tools queue for a person (L2), and its
+  `agent_*` tools answer `agent_unsponsored` until an admin assigns a sponsor with `PATCH`.
+- Changing the sponsor doesn't widen anything, so one admin does it.
+- The sponsor can't change while the agent has an open freeze (409 `sponsor_change_frozen`):
+  unfreeze it first. The unfreeze after a kill refuses the sponsor as the second admin, so
+  handing the sponsorship to someone else first would get around that rule.
+- The sponsor is never the second person on their own agent's two-person decisions.
+
+**Audit.** Every governance change writes one row to `sage.auth_audit`, the hash-chained
+table that also records sign-ins and user administration, in the same transaction as the
+change. If the audit row can't be written, the change isn't made and the request answers 500.
+`actor_user_id` is the admin, `source_ip` the client address, and `target_user_id` the agent's
+sponsor (or an operator token's owner).
+
+| Event | Written by | `detail` |
+|---|---|---|
+| `agent_created` | `POST /api/v1/agents` | `principal_id`, `name`, `tenant`, `after` |
+| `agent_updated` | `PATCH /api/v1/agents/{id}` | `principal_id`, `name`, `before`, `after`, `reason` |
+| `agent_widened_single_operator` | a widening `PATCH` in single-operator mode | as `agent_updated`; `reason` is required |
+| `agent_retired` | `PATCH /api/v1/agents/{id}` `{"status": "retired"}` | `principal_id`, `name`, `before_status`, `after_status`, `reason` |
+| `agent_status_changed` | a freeze or unfreeze made through the principal store (tools and tests) | as `agent_retired` |
+| `agent_token_minted` | `POST /api/v1/agents/{id}/tokens` | `token_id`, `name`, `kind`, `scopes`, `databases`, `expires_at`, `principal_id` |
+| `mcp_token_created` | `POST /api/v1/mcp/tokens` | as `agent_token_minted`, with `owner_user_id` |
+| `mcp_token_revoked` | `DELETE /api/v1/mcp/tokens/{id}` (not a repeat on a revoked token) | as `mcp_token_created` |
+
+`before` and `after` are `{"sponsor_user_id", "profile", "env_ceiling"}`. No row carries a token
+secret, its hash or its prefix. An empty `PATCH` changes nothing and writes nothing. Kills and
+unfreezes are recorded in the action log (see [the kill switch](#kill-switch-freeze-and-unfreeze)).
+
+**Levels.** Read tools work up to L3. Propose tools are capped at L2: a person approves each
+proposal. `agent_*` tools reach L3 at most, and L2 while the agent is tainted. The trust level
+and the gate can only lower these.
+
+**Environment ceiling.** The effective ceiling is the narrower of the agent's `env_ceiling`
+and its profile's ceiling. A database's environment comes from its verified label (see
+[Environments](#environments)), never from the agent, and an unverified database counts as
+`prod`. A request to a database above the effective ceiling is refused with
+`agent_env_ceiling`.
+
+### Profiles
+
+pg_sage ships these profiles, fixed in this release. A profile name outside this table is
+accepted, but it allows no class, so every `agent_*` request under it is refused.
+
+| Profile | Classes | Ceiling |
+|---|---|---|
+| `readonly-analyst` | `read` | `prod` |
+| `app-writer` | `read`, `write_insert`, `write_update` | `prod` |
+| `coding-agent` | `read`, `write_insert`, `write_update`, `write_delete`, `ddl_additive`, `ddl_locking`, `sandbox` | `stage` |
+| `legacy` | `read` | `prod` |
+
+`legacy` is the profile of the principals created for migrated tokens (see
+[Tokens](#tokens)).
+
+### Taint
+
+A tainted agent has read something that may carry instructions it should not follow. While an
+uncleared row for it exists in `sage.guard_taint` (control database), its `agent_*` tools are
+capped at L2, so a person approves each change. A row names the whole principal (task `*`) or
+one task: the task an OAuth token's task claim names. Taint has no time expiry, and retention
+never removes the rows. In this release pg_sage has no route that taints an agent or clears
+its taint; an admin clears the rows by hand:
+
+```sql
+UPDATE sage.guard_taint SET cleared_at = now(), cleared_by = 'you@example.com'
+WHERE principal_id = 'agp_...' AND cleared_at IS NULL;
+```
+
+## Tokens
+
+An agent authenticates on the MCP endpoint with a pg_sage MCP token, or with an OAuth access
+token (see [OAuth](#oauth)). A bearer token authenticates the MCP endpoint only, never the
+rest of the API. [MCP tokens](mcp.md#tokens) has the fields and curl examples.
+
+| | Agent token | Operator token |
+|---|---|---|
+| For | an agent principal | a person: an operator or admin user |
+| Minted at | `POST /api/v1/agents/{id}/tokens` (admin; the **Agents** page) | `POST /api/v1/mcp/tokens` (admin; the **MCP tokens** page), which refuses `kind: agent` |
+| Scopes | `read`, `propose`; never `approve` | `read`, `propose`, `approve` |
+| Follows | its agent's status | its owner's role |
+
+- `POST /api/v1/agents/{id}/tokens` takes `{"name", "scopes", "databases", "expires_in_days"}`.
+  A frozen or retired agent gets no token.
+- Every token lives 1 to 90 days (`expires_in_days`). Only its SHA-256 is stored; the
+  plaintext is in the 201 response, once.
+- `GET /api/v1/mcp/tokens` (admin) lists both kinds. An agent token's `principal_status` is
+  its agent's status.
+- `DELETE /api/v1/mcp/tokens/{id}` (admin) revokes a token of either kind.
+- A freeze keeps the agent's tokens, which answer `agent_frozen` for anything but reads.
+- A kill revokes them, and they stay revoked after an unfreeze: mint new ones.
+- Retiring the agent stops its tokens.
+
+**Legacy tokens.** At startup pg_sage binds every live agent token without a principal (one
+minted before principals existed) to a new principal. Its name is a slug of the token's name,
+its profile `legacy`, its `created_by` `migration:g1`, and it has no sponsor. Its read tools
+keep working, its propose tools queue for a person, and its `agent_*` tools answer
+`agent_unsponsored` until an admin assigns a sponsor. The migration is idempotent and safe
+with several sidecars. Tokens of the removed agent provisioner are only counted, because
+nothing accepts them any more; they go with the legacy tables. See
+[Decommissioning the removed database provisioner](../sidecar/internal/decommission/README.md).
+
+## OAuth
+
+With `mcp.oauth` on, the MCP endpoint is an OAuth 2.1 resource server: it accepts access
+tokens (JWTs) from the issuers you list, beside pg_sage's own MCP tokens.
+
+```yaml
+mcp:
+  transport: http                # required for OAuth
+  oauth:
+    enabled: true
+    resource: https://sage.example.com/api/v1/mcp   # the MCP endpoint's canonical URL
+    issuers:
+      - issuer: https://idp.example.com
+        jwks_uri: ""             # empty: discovered from the issuer's metadata
+        signing_algs: []         # default: RS*, PS*, ES* and EdDSA; never HS* or none
+    task_claim: task_id          # empty ignores tasks
+```
+
+All four keys are safety-critical and take effect on restart. Issuer and JWKS URLs must be
+https (http only on a loopback host).
+
+- **Issuers.** A token must name a listed issuer, be signed with that issuer's key and be
+  unexpired.
+- **Audience.** Every monitored database is its own protected resource,
+  `<resource>/databases/<name>`, served at that path. A token whose audience names one
+  database's resource is refused at another's. At the server-wide resource (`resource`
+  itself) the audience must name it, and the token reaches only the databases whose resources
+  its audience also names. pg_sage publishes each resource's RFC 9728 metadata under
+  `/.well-known/oauth-protected-resource`.
+- **Scopes.** `read` is required for anything, `propose` adds the propose tools, and an OAuth
+  token never gets `approve`.
+- **Delegation.** Under RFC 8693 the token's `sub` is whom it acts for and `act.sub` is the
+  actor, the agent. pg_sage binds the actor and records `sub` as on-behalf-of. Nested `act`
+  claims are followed up to 8 deep; an actor from another issuer is refused.
+- **Task claim.** `task_claim` names the claim that carries the runtime's task id. A missing
+  claim is fine. A malformed one (not a printable string of at most 200 bytes) refuses the
+  token, because the task is what per-task taint is keyed by.
+- **Identity bindings.** An identity maps to a principal through
+  `sage.guard_identity_bindings` in pg_sage's store: one row per `(issuer, subject)`,
+  where the subject is the actor. There is no route for bindings yet; an admin inserts them:
+
+  ```sql
+  INSERT INTO sage.guard_identity_bindings (issuer, subject, principal_id, created_by)
+  VALUES ('https://idp.example.com', 'agent-client-id', 'agp_...', 'you@example.com');
+  ```
+
+  An identity with no binding, or bound to a retired agent, is refused (403).
+
+A bad token, audience or issuer answers 401 `invalid_token`, a missing scope 403
+`insufficient_scope`, and an issuer or binding lookup that can't be reached 503. pg_sage can't
+revoke an access token your issuer signed: a kill freezes the agent, which limits its OAuth
+tokens to read tools. Retire the agent, or delete its binding row, to refuse them outright.
+
+## Grants and activity
+
+An agent reads data it isn't otherwise granted through time-bounded grants. In this release
+every grant is approved by an operator (L2).
+
+| Request | Who | What it does |
+|---|---|---|
+| `GET /api/v1/agents/{id}/grants` `?database&state&limit&cursor` | operator | Lists the agent's grants in one database |
+| `POST /api/v1/agents/{id}/grants` `{"database", "capability", "objects": [{"object", "columns"}], "duration_minutes", "reason"}` | operator | Grants now: the operator's request is the approval (201) |
+| `POST /api/v1/agents/{id}/grants/{grant}/revoke` `{"database"}` | operator | Revokes one grant |
+| `GET /api/v1/agents/{id}/grant-requests` `?database&status&limit&cursor` | operator | Lists the agent's own requests |
+| `POST /api/v1/agents/{id}/grant-requests/{request}/approve` `{"database"}` | operator | Runs a pending request as the grant, once |
+| `POST /api/v1/agents/{id}/grant-requests/{request}/deny` `{"database"}` | operator | Closes a pending request |
+| `GET /api/v1/agents/{id}/activity` `?database&from&to&limit&cursor` | operator | The agent's activity |
+
+The agent asks with the MCP tool `agent_request_capability` (scope `propose`). Agent
+governance checks the request first: status, sponsor, ceiling, profile, the database's column
+classifications and rate limits. A request it allows waits 15 minutes for an operator. The
+grant lists only the columns the database's environment allows. Every grant expires, after at
+most `agents.capabilities.max_duration_minutes` (240), and the leader's reconciler revokes it
+(every `agents.reconcile_interval_seconds`, 60). A refusal answers 409
+`{"verdict": "blocked", "reason_code", "error", "fix"}`.
+
+Activity shows, per database, the agent's live sessions, the statements `pg_stat_statements`
+attributes to its roles, its `agent_query` audit rows and whether attribution is complete.
+When attribution may have dropped statements, the audit rows are the record. `from` and `to`
+default to the last 24 hours; `?database` narrows to one database and pages its audit rows
+with `cursor`.
+
+## Environments
+
+Each database has a verified environment label: `branch`, `dev`, `stage` or `prod`. A label
+is bound to the database's physical identity when it is set, and every evaluation re-reads
+that identity. A changed identity, one identity seen under two labels, a branch without an
+active clone receipt, or an identity too weak to verify all count as `prod`.
+
+| Request | Who | What it does |
+|---|---|---|
+| `GET /api/v1/agent-environments/{database}` | operator | The label, its identity snapshot and what it evaluates to now |
+| `PUT /api/v1/agent-environments/{database}` `{"label": "dev"}` | admin | Sets the label. Narrowing applies at once; widening answers 202 until a second admin repeats it |
+
+A label the live identity can't verify is refused with 409 and the reason. Only a provider or
+cluster identity verifies a label other than `prod`.
+
+## Two-person rules
+
+A change that widens what an agent may do needs a second person. Where the table allows it,
+`agents.single_operator_mode: true` lets one admin apply the change instead, but only with a
+reason, which pg_sage records for a review after the fact (a principal's widening is the
+`agent_widened_single_operator` event in `sage.auth_audit`).
+
+| Change | Request | Second person | Single-operator mode |
+|---|---|---|---|
+| Widen a principal: a higher `env_ceiling`, or any profile change | `PATCH /api/v1/agents/{id}` | Not available in this release: refused with 403 `two_person_required` | one admin, with a reason |
+| Widen a database's environment label (toward `branch`) | `PUT /api/v1/agent-environments/{database}` | another admin repeats the same label within 24 hours | does not apply |
+| Unfreeze after a kill | `POST /api/v1/agents/{id}/unfreeze` | another admin within 15 minutes, not the agent's sponsor | one admin, with a reason |
+| Unfreeze after an operator freeze | `POST /api/v1/agents/{id}/unfreeze` | none: one admin | does not apply |
+| Release a fleet or database kill | `POST /api/v1/agents/kill/release` | another admin within 15 minutes | one admin, with a reason |
+| Ratify an agent's policy proposal that widens the policy | `POST /api/v1/policy/proposals/{id}/ratify` | a second admin; neither may be the agent's sponsor | one admin, with a reason |
+
+Every request in the table is an admin's. The first admin's request waits as pending (202 for
+an unfreeze, a release or a label), and the same admin repeating it doesn't count. Narrowing
+changes (a lower ceiling, a narrower label, a freeze, a kill) need one person and apply at
+once.
+
+## Agent posture
 
 pg_sage's agent posture check reports how exposed a PostgreSQL database is to the AI agents
 and untrusted clients that connect to it. This covers MCP servers, coding agents, LangGraph
@@ -49,8 +349,9 @@ exposed role inherits through membership in another role are not followed.
 
 **Agent roles** come in two kinds:
 - **Registered** agent roles follow pg_sage's agent role naming: `sage_agent_` or
-  `sage_agentb_` plus 10 lower-case base32 characters. Until pg_sage manages agent identities
-  itself, this naming is what makes a role registered.
+  `sage_agentb_` plus 10 lower-case base32 characters. pg_sage records the agent roles it
+  creates in `sage.guard_cluster_roles` on the control database, and posture matches the
+  role names those records use.
 - **Client hints**: a role with a session whose `application_name` matches one of
   `agents.client_patterns`. Matching is anchored and case-insensitive, and the default
   patterns are `^mcp`, `^claude`, `^cursor`, `^codex`, `^langgraph` and `^crewai`. A hint
