@@ -218,7 +218,7 @@ func (b *builder) action(ctx context.Context, id int64) error {
 		{"queue.json", "sage.action_queue", "t.action_log_id = $1"},
 		{"verification.json", "sage.verification", "t.action_log_id = $1"},
 		{"outcome.json", "sage.action_outcome", "t.action_log_id = $1"},
-		{"pgaudit.json", "sage.guard_pgaudit_events", "t.action_id = $1"},
+		{"pgaudit.json", "sage.guard_pgaudit_events", pgauditFilter},
 	}
 	for _, r := range related {
 		if err := b.rows(ctx, r.name, r.table, r.where, id); err != nil {
@@ -236,3 +236,10 @@ func decisionFilter(alias string) string {
 	return alias + ".id = (SELECT decision_id FROM sage.action_log WHERE id = $1) OR " +
 		alias + ".action_log_id = $1"
 }
+
+// pgauditFilter selects the pgaudit records of action $1: those linked to
+// it, and those its decision's tagged session logged (audit-06), which may
+// have been stored before the action row existed, with no action_id.
+const pgauditFilter = "t.action_id = $1 OR (t.correlated_by = 'action_tag' AND " +
+	"t.application = 'pg_sage action:' || " +
+	"(SELECT decision_id FROM sage.action_log WHERE id = $1))"

@@ -457,7 +457,8 @@ func migrationStatements() []string {
 		ddlActionQueueRevertsAction, // policy-05: withheld reverts reach a person
 		ddlDecisionCandidateKey(),   // policy-02: a withheld verdict is one row per episode
 		ddlDecisionPolicyProvenance, // policy-03: the policy hash, not a cross-database FK
-		ddlRolloutInstanceStatus)    // executor-04: canary pending and unverified states
+		ddlRolloutInstanceStatus,    // executor-04: canary pending and unverified states
+		ddlPGAuditActionTagIndex)    // audit-06: pgaudit records of tagged action sessions
 }
 
 // ---------------------------------------------------------------------------
