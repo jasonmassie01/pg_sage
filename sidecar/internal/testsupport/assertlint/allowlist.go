@@ -23,9 +23,14 @@ func ParseAllowlist(r io.Reader) ([]string, error) {
 			return nil, fmt.Errorf("allowlist line %d: want \"<rule> <path> <func>\", got %q",
 				n, line)
 		}
-		if Rule(fields[0]) != RuleNoAssert && Rule(fields[0]) != RuleGetenv {
-			return nil, fmt.Errorf("allowlist line %d: unknown rule %q (want %s or %s)",
-				n, fields[0], RuleNoAssert, RuleGetenv)
+		switch Rule(fields[0]) {
+		case RuleNoAssert:
+		case RuleGetenv:
+			return nil, fmt.Errorf("allowlist line %d: a getenv finding cannot be allowlisted; "+
+				"read the DSN with testdb.SkipUnlessLive(t): %s", n, line)
+		default:
+			return nil, fmt.Errorf("allowlist line %d: unknown rule %q (want %s)",
+				n, fields[0], RuleNoAssert)
 		}
 		key := strings.Join(fields, " ")
 		if prev, dup := seen[key]; dup {

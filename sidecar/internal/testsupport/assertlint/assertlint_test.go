@@ -174,11 +174,11 @@ func TestCompareReportsStaleAndUnlisted(t *testing.T) {
 
 func TestParseAllowlist(t *testing.T) {
 	keys, err := ParseAllowlist(strings.NewReader(
-		"# comment\n\nnoassert a_test.go TestA\n  getenv b_test.go helper  \n"))
+		"# comment\n\nnoassert a_test.go TestA\n  noassert b_test.go TestB  \n"))
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	want := []string{"noassert a_test.go TestA", "getenv b_test.go helper"}
+	want := []string{"noassert a_test.go TestA", "noassert b_test.go TestB"}
 	if !slices.Equal(keys, want) {
 		t.Fatalf("keys = %q, want %q", keys, want)
 	}
@@ -187,6 +187,8 @@ func TestParseAllowlist(t *testing.T) {
 		{"noassert a_test.go TestA extra", "line 1"},
 		{"\nbogus a_test.go TestA", "line 2: unknown rule \"bogus\""},
 		{"noassert a TestA\nnoassert a TestA", "line 2: duplicate of line 1"},
+		// Every direct DSN read is converted (ci-11): a new one is fixed, never listed.
+		{"getenv b_test.go helper", "line 1: a getenv finding cannot be allowlisted"},
 	} {
 		_, err := ParseAllowlist(strings.NewReader(tc.in))
 		if err == nil || !strings.Contains(err.Error(), tc.want) {

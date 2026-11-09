@@ -3,11 +3,10 @@
 # any entry that no longer matches (the test now asserts, moved or was
 # deleted). Never add a line; give the test an assertion or delete it.
 #
-# Format: <rule> <path from sidecar/> <function>
-#   noassert  a Test function with no failing call
-#   getenv    a test-file read of SAGE_TEST_DATABASE_URL (or testdb.EnvName)
-#             outside internal/testdb; use testdb.SkipUnlessLive(t) so a
-#             run without a server skips
+# Format: noassert <path from sidecar/> <function>, for a Test function with
+# no failing call. A getenv finding (a test-file read of SAGE_TEST_DATABASE_URL
+# or testdb.EnvName outside internal/testdb) cannot be listed at all: use
+# testdb.SkipUnlessLive(t), so a run without a server skips.
 
 noassert cmd/pg_sage_sidecar/audit_wiring_test.go TestRunChainVerificationWithoutSources
 noassert cmd/pg_sage_sidecar/main_process_char_test.go TestMainProcessChild
