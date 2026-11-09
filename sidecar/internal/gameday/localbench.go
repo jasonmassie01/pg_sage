@@ -37,6 +37,9 @@ type LocalBenchConfig struct {
 	Now      func() time.Time
 	// Log reports a background run that failed (it is also kept as Last).
 	Log func(format string, args ...any)
+	// Leases are the shared targets held in this process (nil: the
+	// process-wide table game days share too).
+	Leases *Leases
 }
 
 // LocalBenchRun is one local bench run. The clone's DSN carries
@@ -84,6 +87,7 @@ func NewLocalBench(cfg LocalBenchConfig, provider clone.Provider, faults FaultRu
 	if cfg.Log == nil {
 		cfg.Log = log.Printf
 	}
+	cfg.Leases = leasesOr(cfg.Leases)
 	return &LocalBench{cfg: cfg, provider: provider, faults: faults, ledger: ledger}, nil
 }
 
@@ -108,23 +112,25 @@ func (b *LocalBench) Last() (LocalBenchRun, bool) {
 // Run runs the fault programs of families (empty: every family) now and
 // waits for it.
 func (b *LocalBench) Run(ctx context.Context, families []string) (LocalBenchRun, error) {
-	run, err := b.begin(families)
+	run, release, err := b.begin(ctx, families)
 	if err != nil {
 		return LocalBenchRun{}, err
 	}
 	defer b.running.Store(false)
+	defer release()
 	return b.execute(ctx, run)
 }
 
 // Start runs in the background (a run takes minutes) and returns the
 // started run; the run outlives ctx's cancellation.
 func (b *LocalBench) Start(ctx context.Context, families []string) (LocalBenchRun, error) {
-	run, err := b.begin(families)
+	run, release, err := b.begin(ctx, families)
 	if err != nil {
 		return LocalBenchRun{}, err
 	}
 	go func() {
 		defer b.running.Store(false)
+		defer release()
 		if done, err := b.execute(context.WithoutCancel(ctx), run); err != nil {
 			b.cfg.Log("local bench %s on %s %s: %v", done.ID, done.Database, done.Status, err)
 		}
@@ -132,24 +138,32 @@ func (b *LocalBench) Start(ctx context.Context, families []string) (LocalBenchRu
 	return run, nil
 }
 
-// begin validates families, takes the single run slot and records the
-// run as in progress.
-func (b *LocalBench) begin(families []string) (LocalBenchRun, error) {
+// begin validates families, takes the single run slot and the target's
+// lease, and records the run as in progress; a refused run is not kept.
+func (b *LocalBench) begin(ctx context.Context, families []string) (LocalBenchRun, func(),
+	error) {
 	for _, f := range families {
 		// The bench exercises incident families; a self-initiated trust
 		// family (tuning, hygiene) has no fault program.
 		if !earned.IsIncidentFamily(earned.Family(f)) {
-			return LocalBenchRun{}, fmt.Errorf("%w: %q", ErrUnknownFamily, f)
+			return LocalBenchRun{}, nil, fmt.Errorf("%w: %q", ErrUnknownFamily, f)
 		}
 	}
 	if !b.running.CompareAndSwap(false, true) {
-		return LocalBenchRun{}, ErrRunning
+		return LocalBenchRun{}, nil, ErrRunning
 	}
-	run := LocalBenchRun{ID: newID(), Database: b.cfg.Database, Provider: b.cfg.Provider,
+	id := newID()
+	release, err := b.cfg.Leases.Acquire(ctx, b.provider, Holder{Kind: kindLocalBench, ID: id,
+		Database: b.cfg.Database})
+	if err != nil {
+		b.running.Store(false)
+		return LocalBenchRun{}, nil, err
+	}
+	run := LocalBenchRun{ID: id, Database: b.cfg.Database, Provider: b.cfg.Provider,
 		Families: append([]string{}, families...), Status: StatusRunning,
 		StartedAt: b.cfg.Now().UTC()}
 	b.record(run)
-	return run, nil
+	return run, release, nil
 }
 
 func (b *LocalBench) execute(ctx context.Context, run LocalBenchRun) (LocalBenchRun,

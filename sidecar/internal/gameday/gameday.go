@@ -78,6 +78,9 @@ type Config struct {
 	Now      func() time.Time
 	// Log reports a background game day that failed (it is also recorded).
 	Log func(format string, args ...any)
+	// Leases are the shared targets held in this process (nil: the
+	// process-wide table every runtime shares).
+	Leases *Leases
 }
 
 // Runner runs one database's game days, one at a time.
@@ -117,33 +120,55 @@ func NewRunner(cfg Config, provider clone.Provider, faults FaultRunner, ledger L
 	if cfg.Log == nil {
 		cfg.Log = log.Printf
 	}
+	cfg.Leases = leasesOr(cfg.Leases)
 	return &Runner{cfg: cfg, provider: provider, faults: faults, ledger: ledger,
 		store: store}, nil
 }
 
 func (r *Runner) now() time.Time { return r.cfg.Now().UTC() }
 
-// Run runs one game day now and waits for it.
+// Run runs one game day now and waits for it. A target another run
+// holds refuses it (ErrRunning) before anything is recorded.
 func (r *Runner) Run(ctx context.Context) (GameDay, error) {
 	if !r.running.CompareAndSwap(false, true) {
 		return GameDay{}, ErrRunning
 	}
 	defer r.running.Store(false)
-	return r.run(ctx)
+	id, release, err := r.lease(ctx)
+	if err != nil {
+		return GameDay{}, err
+	}
+	defer release()
+	return r.run(ctx, id)
 }
 
-// Start runs one game day in the background (it takes minutes).
+// Start runs one game day in the background (it takes minutes); a busy
+// target refuses it here, not in the background.
 func (r *Runner) Start(ctx context.Context) error {
 	if !r.running.CompareAndSwap(false, true) {
 		return ErrRunning
 	}
+	id, release, err := r.lease(ctx)
+	if err != nil {
+		r.running.Store(false)
+		return err
+	}
 	go func() {
 		defer r.running.Store(false)
-		if gd, err := r.run(context.WithoutCancel(ctx)); err != nil {
+		defer release()
+		if gd, err := r.run(context.WithoutCancel(ctx), id); err != nil {
 			r.cfg.Log("gameday: %s on %s %s: %v", gd.ID, gd.Database, gd.Status, err)
 		}
 	}()
 	return nil
+}
+
+// lease names the next game day and holds its target for it.
+func (r *Runner) lease(ctx context.Context) (string, func(), error) {
+	id := newID()
+	release, err := r.cfg.Leases.Acquire(ctx, r.provider, Holder{Kind: kindGameDay, ID: id,
+		Database: r.cfg.Database})
+	return id, release, err
 }
 
 // RunDue runs a game day when the last one started an interval ago.
@@ -164,8 +189,8 @@ func (r *Runner) List(ctx context.Context, limit int) ([]GameDay, error) {
 	return r.store.List(ctx, r.cfg.Database, limit)
 }
 
-func (r *Runner) run(ctx context.Context) (GameDay, error) {
-	gd := GameDay{ID: newID(), Database: r.cfg.Database, Provider: r.cfg.Provider,
+func (r *Runner) run(ctx context.Context, id string) (GameDay, error) {
+	gd := GameDay{ID: id, Database: r.cfg.Database, Provider: r.cfg.Provider,
 		Families: append([]string{}, r.cfg.Families...), Status: StatusRunning,
 		StartedAt: r.now()}
 	if err := r.store.start(ctx, gd); err != nil {
