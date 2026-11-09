@@ -35,8 +35,10 @@ type Runtime struct {
 	mu        sync.RWMutex
 	statuses  map[Stream]StreamStatus
 	next      int
-	// narrowed holds forward widths halved on ErrBudget but not yet committed.
-	narrowed map[Stream]time.Duration
+	// narrowed holds read widths halved on ErrBudget, per stream and pass.
+	// A forward width lives here until a commit persists it in the cursor;
+	// a reconcile width lives here until sparse reads widen it back.
+	narrowed map[narrowKey]time.Duration
 }
 
 func NewRuntime(reader Reader, store *Store, scope Scope, options Options, consumers ...Consumer) (*Runtime, error) {
@@ -68,8 +70,11 @@ func NewRuntime(reader Reader, store *Store, scope Scope, options Options, consu
 	}
 	policy, _ := json.Marshal(options.SourceObjects)
 	policyHash := sha256.Sum256(policy)
-	r := &Runtime{reader: reader, store: store, scope: scope, options: options, consumers: consumers, binding: fmt.Sprintf("%s:v%d:%s:%s", scope.Hash(), SchemaVersion, mode, hex.EncodeToString(policyHash[:8])), statuses: map[Stream]StreamStatus{},
-		narrowed: map[Stream]time.Duration{}}
+	binding := fmt.Sprintf("%s:v%d:%s:%s", scope.Hash(), SchemaVersion, mode,
+		hex.EncodeToString(policyHash[:8]))
+	r := &Runtime{reader: reader, store: store, scope: scope, options: options,
+		consumers: consumers, binding: binding, statuses: map[Stream]StreamStatus{},
+		narrowed: map[narrowKey]time.Duration{}}
 	for _, s := range options.Streams {
 		r.statuses[s] = StreamStatus{Stream: s, HistoricalOnly: true}
 	}

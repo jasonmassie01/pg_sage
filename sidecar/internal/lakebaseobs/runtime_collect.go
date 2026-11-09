@@ -12,6 +12,12 @@ type cursorStore interface {
 	CommitBatch(context.Context, string, Stream, Cursor, Cursor, []Event, time.Duration) error
 }
 
+// narrowKey names one stream's pass whose read width ErrBudget narrowed.
+type narrowKey struct {
+	stream Stream
+	pass   pass
+}
+
 // streamPoll is one stream's state during a poll. After the first error the
 // stream reads nothing more this poll.
 type streamPoll struct {
@@ -57,7 +63,7 @@ func (r *Runtime) loadStreams(
 			sp.err = err
 		} else {
 			sp.cursor, sp.loaded = expireHistory(c, now), true
-			hint, ok := r.narrowed[sp.stream]
+			hint, ok := r.narrowed[narrowKey{sp.stream, forwardPass}]
 			if ok && hint < forwardWidth(sp.cursor, r.options) {
 				sp.cursor.Width = hint
 			}
@@ -118,6 +124,7 @@ func (r *Runtime) reconcile(
 		if !ok {
 			continue
 		}
+		w = r.narrow(sp.stream, p, w)
 		before := sp.cursor.Revision
 		r.step(ctx, cs, sp, p, w, now, budget, reserveFloor(*budget, len(polls)-i-1))
 		progressed = progressed || sp.cursor.Revision != before
@@ -154,13 +161,45 @@ func (r *Runtime) step(
 	after.Revision = sp.cursor.Revision + 1
 	sp.cursor = after
 	if p == forwardPass {
-		delete(r.narrowed, sp.stream)
+		delete(r.narrowed, narrowKey{sp.stream, p})
+	} else {
+		r.widen(sp, p, w, len(b.Events))
 	}
 }
 
-// read spends one budget unit per attempt. A forward ErrBudget narrows the
-// stream's width; the narrowed width is remembered in memory until a
-// commit persists it, so a poll that runs out of budget still converges.
+// narrow caps a reconcile read at the width an earlier ErrBudget left, so a
+// dense stretch of history is split across polls instead of retried whole.
+func (r *Runtime) narrow(s Stream, p pass, w Window) Window {
+	if hint, ok := r.narrowed[narrowKey{s, p}]; ok && w.To.Sub(w.From) > hint {
+		w.To = w.From.Add(hint)
+	}
+	return w
+}
+
+// widen doubles a narrowed reconcile width after a read projected under
+// MaxRows/4, and forgets it once it reaches the pass's own width.
+func (r *Runtime) widen(sp *streamPoll, p pass, w Window, rows int) {
+	key := narrowKey{sp.stream, p}
+	hint, ok := r.narrowed[key]
+	span := w.To.Sub(w.From)
+	quarter := float64(r.options.MaxRows) / 4 * float64(span)
+	if !ok || span <= 0 || float64(rows)*float64(hint) >= quarter {
+		return
+	}
+	limit := SourceRetention
+	if p == shortPass {
+		limit = r.options.ShortLookback
+	}
+	if hint *= 2; hint >= reconcileWidth(sp.cursor, r.options, limit) {
+		delete(r.narrowed, key)
+		return
+	}
+	r.narrowed[key] = hint
+}
+
+// read spends one budget unit per attempt. Every ErrBudget halving is
+// remembered per stream and pass, so a read stopped by the budget floor
+// resumes narrower on the next poll instead of retrying the same window.
 func (r *Runtime) read(
 	ctx context.Context, sp *streamPoll, p pass, w Window, budget *int, floor int,
 ) (Batch, Window, error) {
@@ -179,8 +218,8 @@ func (r *Runtime) read(
 		w.To = w.From.Add(w.To.Sub(w.From) / 2)
 		if p == forwardPass {
 			sp.cursor.Width, sp.cursor.Sparse = w.To.Sub(w.From), 0
-			r.narrowed[sp.stream] = sp.cursor.Width
 		}
+		r.narrowed[narrowKey{sp.stream, p}] = w.To.Sub(w.From)
 	}
 }
 
