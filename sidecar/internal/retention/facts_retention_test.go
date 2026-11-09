@@ -6,8 +6,10 @@ import (
 )
 
 // Roadmap 2.3: a confirmed or proposed fact is never purged (confirmed
-// facts are binding memory); a rejected or expired fact ages out of the
-// actions window from its last change. Fact cards age from creation.
+// facts are binding memory). facts-04: a rejected fact is a tombstone and
+// is never purged either, so neither ImportDeclared nor a detector can
+// bring it back; an expired fact ages out of the actions window from its
+// last change. Fact cards age from creation.
 
 func TestPurgeRulesKeepConfirmedFacts(t *testing.T) {
 	found := map[string]bool{}
@@ -15,7 +17,7 @@ func TestPurgeRulesKeepConfirmedFacts(t *testing.T) {
 		switch rule.table {
 		case "facts":
 			if rule.timeCol != "updated_at" || rule.days != 30 ||
-				rule.extra != "AND status IN ('rejected', 'expired')" {
+				rule.extra != "AND status = 'expired'" {
 				t.Fatalf("facts rule = %+v", rule)
 			}
 			found[rule.table] = true
@@ -31,7 +33,7 @@ func TestPurgeRulesKeepConfirmedFacts(t *testing.T) {
 	}
 }
 
-func TestRun_FactsAgeOutOnlyWhenRejectedOrExpired(t *testing.T) {
+func TestRun_FactsAgeOutOnlyWhenExpired(t *testing.T) {
 	_, ctx := requireDB(t)
 	tag := uniqueTag("facts_ret")
 	seed := func(status, age string) int64 {
@@ -54,7 +56,7 @@ func TestRun_FactsAgeOutOnlyWhenRejectedOrExpired(t *testing.T) {
 	})
 	New(testPool, allDays(30), noopLog).Run(ctx)
 	for id, kept := range map[int64]bool{oldConfirmed: true, oldProposed: true,
-		oldRejected: false, oldExpired: false, newRejected: true} {
+		oldRejected: true, oldExpired: false, newRejected: true} {
 		got := countWhere(t, ctx, `SELECT count(*) FROM sage.facts WHERE id = $1`, id) == 1
 		if got != kept {
 			t.Fatalf("fact %d kept=%v, want %v", id, got, kept)

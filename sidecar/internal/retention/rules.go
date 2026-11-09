@@ -228,10 +228,10 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		// is kept so it can still be scored.
 		{table: "shadow_decision", timeCol: "recorded_at", days: r.ActionsDays,
 			extra: "AND status <> 'pending'"},
-		// Binding facts (roadmap 2.3): proposed and confirmed facts are kept;
-		// rejected and expired ones age from their last change.
+		// Binding facts (roadmap 2.3): only expired ones age out; rejected
+		// ones are tombstones an import cannot re-confirm (facts-04).
 		{table: "facts", timeCol: "updated_at", days: r.ActionsDays,
-			extra: "AND status IN ('rejected', 'expired')"},
+			extra: "AND status = 'expired'"},
 		{table: "fact_card_deliveries", timeCol: "created_at", days: r.ActionsDays},
 		// Source-fix reports (MCP v2): a pending one is kept until its
 		// verdict is decided; decided ones age out like actions.
