@@ -8,10 +8,10 @@ covers packaging, installation, updates and recovery; it does not convert the
 application to AppKit or require a custom runtime container.
 
 The current release is **2.5.0**. The acceptance report for its last development
-build, [2.5.0-dev.14](../reviews/2026-11-02-v2.5-dev14-acceptance.md), covers the
-descriptions beside each tab's meme. The [dev.13 report](../reviews/2026-11-02-v2.5-dev13-acceptance.md)
+build, [2.5.0-dev.14](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-11-02-v2.5-dev14-acceptance.md), covers the
+descriptions beside each tab's meme. The [dev.13 report](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-11-02-v2.5-dev13-acceptance.md)
 records the 50-meme shuffle and standalone Settings correction. The
-[dev.11–12 report](../reviews/2026-11-02-v2.5-dev12-acceptance.md) retains the
+[dev.11–12 report](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-11-02-v2.5-dev12-acceptance.md) retains the
 earlier authentication, telemetry and event-stream evidence. The App remains in
 Observation mode with metadata-only telemetry. Acceptance is scoped to each deployment;
 it does not certify every Lakebase extension, cloud, privilege or long-duration
@@ -204,7 +204,7 @@ PG_SAGE_APP="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["
 ```
 
 Create the settings file from
-[`settings.example.json`](../deploy/databricks-apps/settings.example.json), edit
+[`settings.example.json`](https://github.com/jasonmassie01/pg_sage/blob/master/deploy/databricks-apps/settings.example.json), edit
 it outside version control, and fill actual resource references before running
 that block. No value in angle brackets is a deployable identifier. A fresh
 package directory is required: `package.py` refuses an existing output directory.
@@ -665,7 +665,7 @@ hashes/citations and eight unchanged action/approval ledgers.
 The advisory outcomes were inconclusive; no database cause or remediation was
 established. `allow_payload: false` remained active. This accepts structured
 retained history and its citations; App raw-plan-cache ingestion and complete
-telemetry remain unproven. The [dev.5 report](../reviews/2026-10-30-v2.5-dev5-acceptance.md#final-app-history-and-slo-evidence)
+telemetry remain unproven. The [dev.5 report](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-v2.5-dev5-acceptance.md#final-app-history-and-slo-evidence)
 records artifact/event identities and preserved transport/cleanup failures.
 
 ## Application SLI ingestion
@@ -714,7 +714,7 @@ Authenticated viewers can read `/api/v1/sre/slos?database=<name>` and
 configuration flags/counts; individual status exposes the target and burn
 rules. The global config API does not expose every startup SRE field, so
 validate the reviewed deployment configuration as well as runtime behavior.
-The [dev.5 App SLO acceptance](../reviews/2026-10-30-app-slo-acceptance.md#dev5-post-upgrade-pass)
+The [dev.5 App SLO acceptance](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-app-slo-acceptance.md#dev5-post-upgrade-pass)
 passed fifteen real-time samples across seven minutes, replay/refusal checks,
 both burn windows, a cited real-Gateway case and actual stopped-source staleness
 after 123.06 seconds. Eight action/approval ledgers were unchanged and exact
@@ -747,7 +747,7 @@ exact object, preserving a same-name replacement. **It cannot restore prior
 ANALYZE statistics.** Structural success establishes neither performance
 improvement nor incident recovery and earns no value/autonomy credit.
 
-The [native maintenance lifecycle](../reviews/2026-10-30-sre-maintenance.md)
+The [native maintenance lifecycle](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-sre-maintenance.md)
 passed on an owned PG18 fixture as the native user role. App-principal
 maintenance execution remains unproven; no broad workload-table grants or
 ownership transfer is implied by deployment.
@@ -799,7 +799,7 @@ checks. Record each result and any unproven item explicitly:
   action/approval ledgers. Remove only owned fixture rows and the temporary
   objective while preserving the case; synthetic data makes no production
   customer-impact claim. These scoped dev.5 checks
-  [passed on the dedicated development App](../reviews/2026-10-30-app-slo-acceptance.md);
+  [passed on the dedicated development App](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-app-slo-acceptance.md);
   overall final deployment acceptance is tracked separately.
 - SIGTERM shuts down cleanly within the platform allowance. The optional
   secondary Prometheus listener is not exposed by Apps' single public port.

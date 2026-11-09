@@ -12,7 +12,7 @@ identities. Public platform documentation was cross-checked November 1, 2026.
 The tables below distinguish native-process results from App-principal results
 and identify functionality that remains restricted or unproven.
 
-The [November 2 dev.11–12 follow-up](../reviews/2026-11-02-v2.5-dev12-acceptance.md)
+The [November 2 dev.11–12 follow-up](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-11-02-v2.5-dev12-acceptance.md)
 adds the optional organization email-domain audience gate and recognizable,
 locally bundled meme images. Its new validation covers auth, packaging, telemetry storage and UI;
 the broader database/telemetry compatibility evidence below retains its original
@@ -32,9 +32,9 @@ This does not establish unlimited viewer concurrency or a production load test.
 | Connect an installed/native binary to an existing Lakebase endpoint | [Lakebase local connection](lakebase.md#local-connection) |
 | Configure AI through Unity Gateway | [Gateway configuration and OAuth](lakebase.md#unity-gateway) |
 | Build, install, update or troubleshoot the Databricks App | [Databricks Apps operator guide](databricks-apps.md) |
-| Understand package files and deployment commands | [Deployment directory README](../deploy/databricks-apps/README.md) |
+| Understand package files and deployment commands | [Deployment directory README](https://github.com/jasonmassie01/pg_sage/blob/master/deploy/databricks-apps/README.md) |
 | Check feature-level support and provider limitations | [Lakebase compatibility matrix](lakebase.md#compatibility-at-a-glance) |
-| Review actual delivered behavior and test evidence | [dev.14 tab introductions](../reviews/2026-11-02-v2.5-dev14-acceptance.md), [dev.13 UI acceptance](../reviews/2026-11-02-v2.5-dev13-acceptance.md), [dev.11–12 acceptance](../reviews/2026-11-02-v2.5-dev12-acceptance.md), [dev.10 workflow acceptance](../reviews/2026-10-30-v2.5-dev10-acceptance.md) and [evidence index below](#validation-and-evidence) |
+| Review actual delivered behavior and test evidence | [dev.14 tab introductions](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-11-02-v2.5-dev14-acceptance.md), [dev.13 UI acceptance](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-11-02-v2.5-dev13-acceptance.md), [dev.11–12 acceptance](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-11-02-v2.5-dev12-acceptance.md), [dev.10 workflow acceptance](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-v2.5-dev10-acceptance.md) and [evidence index below](#validation-and-evidence) |
 
 ## Architecture and identity
 
@@ -123,10 +123,10 @@ Packages must not contain database passwords, workspace tokens or raw test data.
 | `lakebase_observability` settings and bindings | Explicit endpoint/database identity, bounds, retention and payload consent for the optional history reader |
 | Observation trust, executor/SRE policy and token budgets | Control proposals, mutations, background investigations and AI spend independently |
 
-Use [settings.example.json](../deploy/databricks-apps/settings.example.json),
-[configure.py](../deploy/databricks-apps/configure.py),
-[app.yaml](../deploy/databricks-apps/app.yaml) and
-[databricks.yml](../deploy/databricks-apps/databricks.yml) as portable inputs.
+Use [settings.example.json](https://github.com/jasonmassie01/pg_sage/blob/master/deploy/databricks-apps/settings.example.json),
+[configure.py](https://github.com/jasonmassie01/pg_sage/blob/master/deploy/databricks-apps/configure.py),
+[app.yaml](https://github.com/jasonmassie01/pg_sage/blob/master/deploy/databricks-apps/app.yaml) and
+[databricks.yml](https://github.com/jasonmassie01/pg_sage/blob/master/deploy/databricks-apps/databricks.yml) as portable inputs.
 The [operator guide](databricks-apps.md#establish-the-operator-inputs) explains
 which values to obtain from the deployed workspace and how to retain the full
 resource set when updating an App. CLI/bundle schemas vary: inspect installed
@@ -195,7 +195,7 @@ PG16/17 do not extend the broad PG18 test results to those engines.
 The nine controlled families were duplicate index, missing foreign-key index,
 stale statistics, bloat, heavy sequential scans, invalid index, sequence
 exhaustion, slow query at the default threshold and temporary spill. See the
-[scenario report](../reviews/2026-10-30-nerdlab-findings.md) for collection,
+[scenario report](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-nerdlab-findings.md) for collection,
 resolution and retained-fixture details. Invalid-index warmup preserves an
 existing finding until sufficient observations can support resolution. Query
 IDs stay exact signed 64-bit decimal strings across APIs and the browser.
@@ -267,7 +267,7 @@ scope/mode context before the content.
 Dev.11 replaces the original illustrated jokes with six recognizable classic
 image templates and route-specific HTML captions. Images are bundled in the
 binary, lazy-loaded and served from the App origin; the browser does not fetch
-them from a meme CDN. [Template provenance and rights notes](../sidecar/web/public/memes/CREDITS.md)
+them from a meme CDN. [Template provenance and rights notes](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/web/public/memes/CREDITS.md)
 record sources, attribution, transformations and hashes. These third-party
 images do not acquire the repository's software license.
 
@@ -295,13 +295,13 @@ UI does not infer that arbitrary schemas are synthetic from their names.
 
 | Revision | Evidence and limits |
 | --- | --- |
-| dev.5 | [Latest uninterrupted whole-repository run](../reviews/2026-10-30-v2.5-dev5-acceptance.md): 142 packages, 16,394 passing test/subtest events, 55 allowed skips, 141 package passes and one without tests. Native Lakebase: 79 pass, two explicit skips. Controlled telemetry: 24 records across all ten streams. Separate App/history/SLO acceptance |
-| dev.8 | [Scenario/restart acceptance](../reviews/2026-10-30-v2.5-dev8-acceptance.md): 627 analyzer race/integration/e2e tests/subtests; nine controlled finding families and invalid-index restart continuity |
-| dev.10 | [Workflow acceptance](../reviews/2026-10-30-v2.5-dev10-acceptance.md): 726 frontend tests/102 files; 46 browser tests including 22 desktop/mobile routes; 1,434 API/Cases race passes plus one opt-in live skip; lint/build and actual App auth/Gateway/Fleet/context/mobile checks |
-| dev.11 | [Audience and meme follow-up](../reviews/2026-11-02-v2.5-dev12-acceptance.md): 755 frontend tests/102 files, 46 browser tests, 1,627 auth/API race passes plus one opt-in live skip, 24 packaging tests, scoped deployed-App checks and retained live browser failures. No new whole-repository or live database compatibility run |
-| dev.12 | [App availability correction](../reviews/2026-11-02-v2.5-dev12-acceptance.md): 69 telemetry race/integration/e2e passes, zero skips/failures; 25 packaging tests; focused auth/API, HTTP/2 stream and limiter race checks. Final live desktop/mobile tour: 12 page checks, six decoded meme templates, six protected API checks, five clean stream completions and zero protocol errors. Earlier failed attempts remain documented |
-| dev.13 | [Meme shuffle and standalone Settings](../reviews/2026-11-02-v2.5-dev13-acceptance.md): 777 frontend tests/103 files, 49 browser tests, all 50 captioned memes at desktop/mobile widths, 25 packaging tests; no new database compatibility run |
-| dev.14 | [Descriptions beside each meme](../reviews/2026-11-02-v2.5-dev14-acceptance.md): 777 frontend tests/103 files, 49 browser tests including desktop alignment and mobile visibility of introductions across 22 routes; scoped UI follow-up |
+| dev.5 | [Latest uninterrupted whole-repository run](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-v2.5-dev5-acceptance.md): 142 packages, 16,394 passing test/subtest events, 55 allowed skips, 141 package passes and one without tests. Native Lakebase: 79 pass, two explicit skips. Controlled telemetry: 24 records across all ten streams. Separate App/history/SLO acceptance |
+| dev.8 | [Scenario/restart acceptance](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-v2.5-dev8-acceptance.md): 627 analyzer race/integration/e2e tests/subtests; nine controlled finding families and invalid-index restart continuity |
+| dev.10 | [Workflow acceptance](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-v2.5-dev10-acceptance.md): 726 frontend tests/102 files; 46 browser tests including 22 desktop/mobile routes; 1,434 API/Cases race passes plus one opt-in live skip; lint/build and actual App auth/Gateway/Fleet/context/mobile checks |
+| dev.11 | [Audience and meme follow-up](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-11-02-v2.5-dev12-acceptance.md): 755 frontend tests/102 files, 46 browser tests, 1,627 auth/API race passes plus one opt-in live skip, 24 packaging tests, scoped deployed-App checks and retained live browser failures. No new whole-repository or live database compatibility run |
+| dev.12 | [App availability correction](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-11-02-v2.5-dev12-acceptance.md): 69 telemetry race/integration/e2e passes, zero skips/failures; 25 packaging tests; focused auth/API, HTTP/2 stream and limiter race checks. Final live desktop/mobile tour: 12 page checks, six decoded meme templates, six protected API checks, five clean stream completions and zero protocol errors. Earlier failed attempts remain documented |
+| dev.13 | [Meme shuffle and standalone Settings](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-11-02-v2.5-dev13-acceptance.md): 777 frontend tests/103 files, 49 browser tests, all 50 captioned memes at desktop/mobile widths, 25 packaging tests; no new database compatibility run |
+| dev.14 | [Descriptions beside each meme](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-11-02-v2.5-dev14-acceptance.md): 777 frontend tests/103 files, 49 browser tests including desktop alignment and mobile visibility of introductions across 22 routes; scoped UI follow-up |
 
 The latest whole-repository result remains **dev.5**. Later reports identify their narrower validation scope.
 The final dev.10 workflow-baseline App SNAPSHOT is `01f1d4c0a6af15be95fc0632b1a607e1`; the
@@ -321,12 +321,12 @@ November 1 documentation follow-up.
 
 Additional evidence:
 
-- [Native SQL/action tests](../reviews/2026-10-29-lakebase-native-tests.md)
-- [Native and App SRE source matrix](../reviews/2026-10-30-native-sre-source-matrix.md)
-- [Provider compatibility failures and alternatives](../reviews/2026-10-30-provider-compatibility-gaps.md)
-- [Application SLO acceptance](../reviews/2026-10-30-app-slo-acceptance.md)
-- [Statistics-maintenance acceptance](../reviews/2026-10-30-sre-maintenance.md)
-- [First-time-user review](../reviews/2026-10-30-first-time-user-ux-review.md) and [dev.9 delivery](../reviews/2026-10-30-v2.5-dev9-acceptance.md)
+- [Native SQL/action tests](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-29-lakebase-native-tests.md)
+- [Native and App SRE source matrix](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-native-sre-source-matrix.md)
+- [Provider compatibility failures and alternatives](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-provider-compatibility-gaps.md)
+- [Application SLO acceptance](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-app-slo-acceptance.md)
+- [Statistics-maintenance acceptance](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-sre-maintenance.md)
+- [First-time-user review](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-first-time-user-ux-review.md) and [dev.9 delivery](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-v2.5-dev9-acceptance.md)
 
 Reports preserve failures and the scope of later fixes. Private credentials,
 screenshots/raw evidence, internal research and workspace/endpoint/principal identifiers are
@@ -344,7 +344,7 @@ explicit opt-ins and native targets. Packaging can be checked without a workspac
 python3 -m unittest discover -s deploy/databricks-apps -p 'test_*.py' -v
 ```
 
-The optional [controlled fixture helper](../scripts/lakebase-nerdlab.py) requires
+The optional [controlled fixture helper](https://github.com/jasonmassie01/pg_sage/blob/master/scripts/lakebase-nerdlab.py) requires
 an explicit profile, endpoint, direct host, database and user, through CLI flags
 or `SAGE_NERDLAB_*`. Run `--help` first. It manages only `nerdlab_20261030`, keeps
 an exact-identity/object ledger under private `.local-test-results/`, refuses
@@ -366,14 +366,14 @@ supported workaround satisfies the original contract.
 
 | Area | Source |
 | --- | --- |
-| Unified authentication and Lakebase pools | [databricksauth](../sidecar/internal/databricksauth/) |
-| Platform viewer identity and API policy | [App auth](../sidecar/internal/auth/databricks_app.go), [API boundary](../sidecar/internal/api/databricks_app_auth.go), [AI policy](../sidecar/internal/config/databricks_policy.go) |
-| Deployment diagnostics | [Safe deployment status](../sidecar/internal/api/deployment_status.go) |
-| Telemetry and provider plans | [lakebaseobs](../sidecar/internal/lakebaseobs/), [reader configuration](../sidecar/internal/config/lakebase_observability.go), [provider-plan adapter](../sidecar/internal/autoexplain/provider_plan.go) |
-| Historical SRE and maintenance | [Historical probes](../sidecar/internal/sre/probes/historical.go), [causal history](../sidecar/internal/sre/causal/historical.go), [maintenance](../sidecar/internal/sre/action/maintenance.go) |
-| App SLI ingestion | [Scoped authenticated handler](../sidecar/internal/api/sre_app_sli.go) |
-| Case recovery/provider guidance | [Recovery](../sidecar/internal/cases/recovery.go), [applicability](../sidecar/internal/cases/provider_applicability.go) |
-| UI context and presentation | [MonitoringContext](../sidecar/web/src/components/MonitoringContext.jsx), [case presentation](../sidecar/web/src/pages/cases/casePresentation.js), [action workflow](../sidecar/web/src/pages/actions/workflow.js), [memes](../sidecar/web/src/components/PostgresMeme.jsx) |
+| Unified authentication and Lakebase pools | [databricksauth](https://github.com/jasonmassie01/pg_sage/tree/master/sidecar/internal/databricksauth) |
+| Platform viewer identity and API policy | [App auth](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/auth/databricks_app.go), [API boundary](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/api/databricks_app_auth.go), [AI policy](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/config/databricks_policy.go) |
+| Deployment diagnostics | [Safe deployment status](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/api/deployment_status.go) |
+| Telemetry and provider plans | [lakebaseobs](https://github.com/jasonmassie01/pg_sage/tree/master/sidecar/internal/lakebaseobs), [reader configuration](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/config/lakebase_observability.go), [provider-plan adapter](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/autoexplain/provider_plan.go) |
+| Historical SRE and maintenance | [Historical probes](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/sre/probes/historical.go), [causal history](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/sre/causal/historical.go), [maintenance](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/sre/action/maintenance.go) |
+| App SLI ingestion | [Scoped authenticated handler](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/api/sre_app_sli.go) |
+| Case recovery/provider guidance | [Recovery](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/cases/recovery.go), [applicability](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/cases/provider_applicability.go) |
+| UI context and presentation | [MonitoringContext](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/web/src/components/MonitoringContext.jsx), [case presentation](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/web/src/pages/cases/casePresentation.js), [action workflow](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/web/src/pages/actions/workflow.js), [memes](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/web/src/components/PostgresMeme.jsx) |
 
 ## Public platform references
 

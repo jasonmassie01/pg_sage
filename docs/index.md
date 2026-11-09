@@ -71,7 +71,7 @@ can differ by managed-service constraints.
 
 ## Operations
 
-- [Databricks deployment templates](../deploy/databricks-apps/README.md) — package/configure commands and operator handoff
+- [Databricks deployment templates](https://github.com/jasonmassie01/pg_sage/blob/master/deploy/databricks-apps/README.md) — package/configure commands and operator handoff
 - [Deployment](deployment.md) — Docker, systemd, Kubernetes
 - [Security](security.md) — Least-privilege roles, network policies, audit logging
-- [Decommissioning the removed database provisioner](../sidecar/internal/decommission/README.md) -- inventory, delete templates and acknowledgement for resources an earlier version created
+- [Decommissioning the removed database provisioner](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/decommission/README.md) -- inventory, delete templates and acknowledgement for resources an earlier version created
