@@ -138,7 +138,8 @@ func (c *PostgresFreezeCustodian) respond(
 		return Proposal{}, nil, fmt.Errorf("evaluate freeze response: %w", err)
 	}
 	input := freeze.ResponseInput{Schema: sample.Schema, Table: sample.Table,
-		Urgency: assessment.Urgency, XIDAge: sample.XIDAge, DeadTupleRatio: row.deadRatio,
+		Urgency: assessment.Urgency, XIDAge: sample.XIDAge, MultiXactAge: sample.MultiXactAge,
+		Aggressive: sample.Aggressive, DeadTupleRatio: row.deadRatio,
 		BloatRatio: row.bloat, BloatKnown: row.bloatKnown, BloatSource: row.bloatSource,
 		SizeBytes: row.heapBytes, MinBloatBytes: c.bloatMinBytes,
 		PGRepackAvailable: repack}
@@ -303,7 +304,9 @@ func parseFailsafeAge(setting *string) int64 {
 // freezeHorizonSQL reads the catalog only (measured.md M3): the heap size
 // is relpages, and the bloat estimate's pg_stats lookup runs only for heaps
 // at the size floor ($1), so a small table costs one catalog row. The last
-// column marks user catalog tables, which a slot's catalog_xmin holds.
+// column marks user catalog tables, which a slot's catalog_xmin holds; the
+// last two are the freeze table ages that make a plain VACUUM aggressive
+// (NULL when a provider hides them: the custodian then keeps FREEZE).
 var freezeHorizonSQL = `/* pg_sage */
 SELECT n.nspname, c.relname, age(c.relfrozenxid)::bigint,
        current_setting('autovacuum_freeze_max_age')::bigint,
@@ -315,7 +318,9 @@ SELECT n.nspname, c.relname, age(c.relfrozenxid)::bigint,
 	`::float8 END,
        EXISTS (SELECT 1 FROM pg_options_to_table(c.reloptions) o
                WHERE o.option_name = 'user_catalog_table'
-                 AND lower(o.option_value) IN ('true', 'on', 'yes', '1'))
+                 AND lower(o.option_value) IN ('true', 'on', 'yes', '1')),
+       current_setting('vacuum_freeze_table_age', true)::bigint,
+       current_setting('vacuum_multixact_freeze_table_age', true)::bigint
 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
 CROSS JOIN LATERAL (SELECT pg_stat_get_live_tuples(c.oid) AS live,
                            pg_stat_get_dead_tuples(c.oid) AS dead) t

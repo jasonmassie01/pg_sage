@@ -48,6 +48,8 @@ type HorizonSample struct {
 	MultiXactAge        int64
 	MultiXactMaxAge     int64
 	MultiXactsPerSecond float64
+	// Aggressive are the ages at which a plain VACUUM is aggressive.
+	Aggressive AggressiveAges
 }
 type Thresholds struct{ RedBufferPct, AmberBufferPct float64 }
 type Horizon struct {

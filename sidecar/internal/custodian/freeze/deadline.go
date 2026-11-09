@@ -136,7 +136,8 @@ func freezeProposal(
 ) Proposal {
 	return Proposal{Database: sample.Database, Schema: sample.Schema, Table: sample.Table,
 		Threat: threat, Urgency: urgency, Intent: IntentVacuumFreeze,
-		SQL:      "VACUUM (FREEZE) " + quoteIdent(sample.Schema) + "." + quoteIdent(sample.Table),
+		SQL: VacuumSQL(sample.Schema, sample.Table, sample.XIDAge, sample.MultiXactAge,
+			sample.Aggressive),
 		Deadline: deadline, RequiresAuthorization: true}
 }
 

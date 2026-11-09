@@ -38,15 +38,29 @@ func scanHorizonRow(row interface{ Scan(...any) error }) (freezeRow, error) {
 	var out freezeRow
 	var pages int64
 	var expected *float64
+	var xidTableAge, mxidTableAge *int64
 	s := &out.sample
 	if err := row.Scan(&s.Schema, &s.Table, &s.XIDAge, &s.XIDMaxAge,
 		&s.MultiXactAge, &s.MultiXactMaxAge, &out.deadRatio,
-		&out.oid, &pages, &out.heapBytes, &expected, &out.userCatalog); err != nil {
+		&out.oid, &pages, &out.heapBytes, &expected, &out.userCatalog,
+		&xidTableAge, &mxidTableAge); err != nil {
 		return freezeRow{}, fmt.Errorf("scan freeze response: %w", err)
 	}
+	s.Aggressive = aggressiveAges(xidTableAge, mxidTableAge, s.XIDMaxAge, s.MultiXactMaxAge)
 	out.bloat, out.bloatKnown = freeze.EstimatedBloat(pages, expected)
 	out.bloatSource = freeze.BloatSourceEstimate
 	return out, nil
+}
+
+// aggressiveAges derives the ages at which a plain VACUUM is aggressive; a
+// setting the server did not report leaves them unknown (VACUUM (FREEZE)).
+func aggressiveAges(
+	xidTableAge, mxidTableAge *int64, xidMax, mxidMax int64,
+) freeze.AggressiveAges {
+	if xidTableAge == nil || mxidTableAge == nil {
+		return freeze.AggressiveAges{}
+	}
+	return freeze.AggressiveVacuumAges(*xidTableAge, xidMax, *mxidTableAge, mxidMax)
 }
 
 // WithBloatBounds sets the least heap size for a bloat plan and the bounds
