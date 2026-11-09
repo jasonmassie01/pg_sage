@@ -2,11 +2,9 @@ package principalfile
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/agentguard"
@@ -168,16 +166,32 @@ func (c *CoreBackend) sponsorID(ctx context.Context, email string) (*int, error)
 	if email == "" {
 		return nil, nil
 	}
-	var id int
-	err := c.pool.QueryRow(ctx, `/* pg_sage principals_file v1 */ SELECT id
-		FROM sage.users WHERE email = $1`, email).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, fmt.Errorf("sponsor %q is not a pg_sage user", email)
-	}
+	id, n, err := usersByEmail(ctx, c.pool, email)
 	if err != nil {
 		return nil, fmt.Errorf("look up sponsor: %w", err)
 	}
+	switch {
+	case n == 0:
+		return nil, fmt.Errorf("sponsor %q is not a pg_sage user", email)
+	case n > 1:
+		return nil, fmt.Errorf("sponsor %q matches more than one pg_sage user "+
+			"(emails that differ only in case); keep one account per email", email)
+	}
 	return &id, nil
+}
+
+// usersByEmail returns the lowest id and the number of pg_sage users whose
+// email matches case-insensitively (apiauth-05: one identity per address).
+func usersByEmail(ctx context.Context, pool *pgxpool.Pool, email string) (int, int, error) {
+	var id *int
+	var n int
+	err := pool.QueryRow(ctx, `/* pg_sage principals_file v2 */ SELECT min(id), count(*)
+		FROM sage.users WHERE lower(email) = lower($1)`,
+		strings.TrimSpace(email)).Scan(&id, &n)
+	if err != nil || id == nil {
+		return 0, 0, err
+	}
+	return *id, n, nil
 }
 
 // own records that a file manages the principal.
@@ -239,13 +253,12 @@ func (c *CoreCatalog) ProfileClasses(name string) ([]string, bool) {
 	return classes, ok
 }
 
-// UserExists reports a pg_sage user with that email. A lookup failure
-// counts as absent (the plan then refuses the sponsor).
+// UserExists reports exactly one pg_sage user with that email, in any
+// case. A lookup failure or an ambiguous email counts as absent (the plan
+// then refuses the sponsor).
 func (c *CoreCatalog) UserExists(email string) bool {
-	var one int
-	err := c.pool.QueryRow(context.Background(), `/* pg_sage principals_file v1 */
-		SELECT 1 FROM sage.users WHERE email = $1`, email).Scan(&one)
-	return err == nil
+	_, n, err := usersByEmail(context.Background(), c.pool, email)
+	return err == nil && n == 1
 }
 
 // SpecProfiles are the default profiles of spec §9 (agents.profiles), used

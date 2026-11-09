@@ -188,7 +188,10 @@ func fieldChanges(want PrincipalSpec, have Principal) []Change {
 	upd("profile", have.Profile, want.Profile, true)
 	upd("env_ceiling", have.EnvCeiling, want.EnvCeiling,
 		envRank[want.EnvCeiling] > envRank[have.EnvCeiling])
-	upd("sponsor", have.Sponsor, want.Sponsor, false)
+	// Emails are one identity whatever their case (apiauth-05).
+	if !strings.EqualFold(strings.TrimSpace(have.Sponsor), strings.TrimSpace(want.Sponsor)) {
+		upd("sponsor", have.Sponsor, want.Sponsor, false)
+	}
 	if have.Status != want.Status {
 		op, widening := OpFreeze, false
 		if want.Status == "active" {
