@@ -39,6 +39,15 @@ var metricsScopeCases = []invalidCase{
 	{"upper-case metrics", metricsOperator,
 		func(r *mcptoken.CreateRequest) { r.Scopes = []string{"METRICS"} },
 		mcptoken.ErrInvalid, "scope"},
+	// /metrics is the whole sidecar's exposition and cannot be narrowed to
+	// a database, so a database-scoped scrape token would promise a limit
+	// it cannot keep.
+	{"metrics for one database", metricsOperator,
+		func(r *mcptoken.CreateRequest) { r.Databases = []string{"orders"} },
+		mcptoken.ErrInvalid, "databases"},
+	{"metrics for two databases", metricsOperator,
+		func(r *mcptoken.CreateRequest) { r.Databases = []string{"orders", "billing"} },
+		mcptoken.ErrInvalid, "databases"},
 }
 
 func TestCreateRejectsInvalidMetricsScopes(t *testing.T) { runInvalid(t, metricsScopeCases) }

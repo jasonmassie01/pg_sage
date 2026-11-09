@@ -45,6 +45,11 @@ func normalize(req CreateRequest) (CreateRequest, error) {
 	if err != nil {
 		return CreateRequest{}, err
 	}
+	if scopes[0] == ScopeMetrics && databases[0] != allDatabases {
+		// /metrics renders every database's series: it cannot be narrowed.
+		return CreateRequest{}, invalid("databases must be [\"*\"] for a metrics token: " +
+			"/metrics covers every database")
+	}
 	if req.ExpiresIn < MinLifetime || req.ExpiresIn > MaxLifetime {
 		return CreateRequest{}, invalid("expires_in %s must be between %s and %s",
 			req.ExpiresIn, MinLifetime, MaxLifetime)

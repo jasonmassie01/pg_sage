@@ -360,8 +360,9 @@ serves the same snapshot as the separate listener, so a scrape adds no
 database load.
 
 An admin creates the scrape token (the secret is shown once). `metrics` must
-be the token's only scope, and it is an operator token owned by an operator
-or admin; it grants no MCP tool, and the MCP endpoint refuses it:
+be the token's only scope, it covers every database (`"databases":["*"]`:
+`/metrics` cannot be narrowed to one), and it is an operator token owned by an
+operator or admin; it grants no MCP tool, and the MCP endpoint refuses it:
 
 ```bash
 curl -b cookies.txt -X POST https://pg-sage.example.com/api/v1/mcp/tokens \
