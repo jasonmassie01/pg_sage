@@ -271,7 +271,8 @@ func TestDatabricksAppOptionalProtocolsCannotUseLocalTokensOrUnscopedIdentity(t 
 		return &auth.User{ID: 1, Email: "owner@example.com", Role: auth.RoleAdmin}, nil
 	})
 	cfg := config.DefaultConfig()
-	h := newTestRouter(fleet.NewManager(cfg), cfg, nil, nil, nil, nil, &RuntimeDeps{DatabricksAppAuth: true}, resolver)
+	h := newTestRouter(fleet.NewManager(cfg), cfg, nil, nil, nil, nil,
+		&RuntimeDeps{DatabricksAppAuth: true}, resolver)
 	for _, path := range []string{"/mcp", "/mcp/databases/orders", "/api/v1/mcp", "/api/v1/mcp/databases/orders", "/api/v1/mcp/tokens", "/api/v1/agents/test-agent/tokens", "/api/v1/specialist/investigate", "/api/v1/sre/change-events", "/api/v1/sre/sli/orders"} {
 		t.Run(path, func(t *testing.T) {
 			r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{}`))

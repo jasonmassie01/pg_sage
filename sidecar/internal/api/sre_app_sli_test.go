@@ -27,7 +27,8 @@ func appSLIRouter(mgr *fleet.DatabaseManager, cfg *config.Config, user *auth.Use
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
-	return newTestRouter(mgr, cfg, nil, nil, nil, nil, &RuntimeDeps{DatabricksAppAuth: true}, inject)
+	return newTestRouter(mgr, cfg, nil, nil, nil, nil,
+		&RuntimeDeps{DatabricksAppAuth: true}, inject)
 }
 
 func appSLIRequest(h http.Handler, path, body string, origin string) *httptest.ResponseRecorder {

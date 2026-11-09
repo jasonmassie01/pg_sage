@@ -366,7 +366,7 @@ func TestAutonomyAPI_RejectsMalformedInput(t *testing.T) {
 		"/api/v1/sre/autonomy/proposals/not-a-uuid/approve?database=orders": `{}`,
 		"/api/v1/sre/autonomy/downgrade?database=orders": `{"family":"lock_blocking",` +
 			`"class":"backend_cancel","level":"L9","reason":"r"}`,
-		"/api/v1/sre/autonomy/bench-results?database=orders": `{"schema":"x"}`,
+		"/api/v1/sre/autonomy/bench-results?database=orders":      `{"schema":"x"}`,
 		"/api/v1/sre/autonomy/history?database=orders&limit=9999": ``,
 	} {
 		method := "POST"

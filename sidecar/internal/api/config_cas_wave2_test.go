@@ -49,4 +49,3 @@ type apiPreparedConfig struct{}
 func (apiPreparedConfig) Commit(context.Context) error   { return nil }
 func (apiPreparedConfig) Rollback(context.Context) error { return nil }
 func (apiPreparedConfig) Drain(context.Context) error    { return nil }
-

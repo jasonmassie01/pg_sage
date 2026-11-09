@@ -63,7 +63,10 @@ func TestModelHandlersDoNotUsePendingRestartConfig(t *testing.T) {
 
 func TestModelHandlerUnconfiguredLLM(t *testing.T) {
 	empty := llmController(&config.LLMConfig{})
-	for _, handler := range []http.HandlerFunc{listModelsHandler(empty), discoverModelsHandler(empty)} {
+	handlers := []http.HandlerFunc{
+		listModelsHandler(empty), discoverModelsHandler(empty),
+	}
+	for _, handler := range handlers {
 		response := callModelSnapshotHandler(http.MethodPost, handler)
 		if response.Code != 503 || !strings.Contains(response.Body.String(), "not configured") {
 			t.Fatalf("unconfigured LLM should be actionable: %d %s", response.Code, response.Body)
