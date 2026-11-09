@@ -125,7 +125,10 @@ proposes instance-wide changes. On the other databases:
 
 Database-scope advice (rewrites, bloat, per-table storage parameters,
 `ALTER DATABASE` settings) stays per database. When the owner is removed or
-stopped the next database by name takes over on its next cycle.
+stopped the next database by name takes over on its next cycle. Its
+advisory WAL and connection rows stay open until its own review of that
+category runs, which then replaces them or, when it advises nothing for
+them, resolves them.
 
 The instance is identified by `pg_control_system().system_identifier`,
 which needs `EXECUTE` on that function. Grant it to the monitoring role for
@@ -135,15 +138,16 @@ the exact identity:
 GRANT EXECUTE ON FUNCTION pg_catalog.pg_control_system() TO sage_agent;
 ```
 
-Without it (some managed services revoke it) the provider resource from
-cloud telemetry identifies the instance, and failing that the connection's
-`host:port`. A proxy such as PgBouncer fronting several servers on one port
-then groups them under one owner, which only withholds advice from the
-others. If the identity cannot be read at all (connection error) the
+A physical standby shares its primary's system identifier but keeps its
+own settings, so it is its own instance (keyed by identifier and address)
+and never defers to its primary. Without the grant (some managed services
+revoke it) the connection's `host:port` identifies the instance. A proxy
+such as PgBouncer fronting several servers on one port then groups them
+under one owner, which only withholds advice from the others. If the identity cannot be read at all (connection error) the
 database is advised on its own and pg_sage logs why. The fleet status
 (`GET /api/v1/databases`, `status.capabilities.instance_owner`) shows each
 database's owner, whether it is the owner, and how the instance was
-identified (`system_identifier`, `provider` or `address`). Separate
+identified (`system_identifier` or `address`). Separate
 pg_sage processes that monitor the same instance are not coordinated: each
 elects its own owner. Single-database mode is unchanged.
 

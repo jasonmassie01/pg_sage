@@ -171,15 +171,14 @@ func (a *Advisor) analyzeSnapshot(ctx context.Context, snap, prev *collector.Sna
 	checked, aside := splitInstanceOpen(open, own)
 	res := a.resolveOpen(snap, checked)
 	out = append(out, res.kept...)
-	var reviewed []analyzer.Finding
+	var r subRun
 	if llmOn {
-		r := a.review(withOwnership(withOpenGate(ctx, res.gate), own), snap, prev)
-		reviewed = r.findings
+		r = a.review(withOwnership(withOpenGate(ctx, res.gate), own), snap, prev)
 		for c := range r.failed {
 			res.evaluated[c] = false
 		}
 	}
-	out = append(append(out, keepAside(aside, reviewed, own)...), reviewed...)
+	out = append(append(out, keepAside(aside, r, own)...), r.findings...)
 	for _, c := range advisorCategories {
 		// A non-owner leaves its open instance rows to the owner: they are
 		// neither re-checked nor resolved here.
@@ -222,6 +221,7 @@ type subRun struct {
 	findings     []analyzer.Finding
 	budgetErrors int
 	failed       map[string]bool // categories whose sub-advisor failed
+	ran          map[string]bool // categories whose sub-advisor ran and answered
 }
 
 // runSubAdvisors runs each enabled sub-advisor that is due and claimed.
@@ -230,7 +230,7 @@ type subRun struct {
 // already open are dropped.
 func (a *Advisor) runSubAdvisors(ctx context.Context, snap, prev *collector.Snapshot,
 ) subRun {
-	r := subRun{failed: map[string]bool{}}
+	r := subRun{failed: map[string]bool{}, ran: map[string]bool{}}
 	gate := openGateFrom(ctx)
 	now := a.now()
 	a.loadSchedule(ctx)
@@ -254,6 +254,7 @@ func (a *Advisor) runSubAdvisors(ctx context.Context, snap, prev *collector.Snap
 			}
 			continue
 		}
+		r.ran[sa.category] = true
 		r.findings = append(r.findings, gate.dropOpen(sa.category, findings, a.logFn)...)
 	}
 	if r.budgetErrors > 0 {

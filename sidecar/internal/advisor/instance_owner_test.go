@@ -217,22 +217,43 @@ func TestInstanceOwner_NonOwnerKeepsOpenInstanceFinding(t *testing.T) {
 }
 
 // State transition: a database that takes ownership keeps the advisory
-// rows it held as a non-owner open, and its fresh review of the same
-// object replaces the row instead of being dropped by the open gate.
+// rows it held as a non-owner open until its own review of the category
+// runs; that review's fresh finding replaces the row instead of being
+// dropped by the open gate, and a review that advises nothing for it
+// resolves the row (it no longer names a stale owner forever).
 func TestInstanceOwner_NewOwnerReclaimsDeferredFinding(t *testing.T) {
-	deferred := GateInstanceSettings([]analyzer.Finding{
-		openWAL("ALTER SYSTEM SET max_wal_size = '4GB'")}, "alpha", false)[0]
-	t.Run("model silent: row stays open", func(t *testing.T) {
-		a, _ := walAndBloatConfigAdvisor(t, "[]", &fakeOpen{
+	deferred := deferredWAL()
+	t.Run("review not due yet: row stays open", func(t *testing.T) {
+		open := &fakeOpen{}
+		a, capture := walAndBloatConfigAdvisor(t, "[]", open)
+		a.cfg.Advisor.BloatEnabled = false
+		a.WithInstanceOwner(ownedBy("beta", true))
+		a.analyzeSnapshot(context.Background(), walSnapAt("1024"), nil) // claims the run
+		open.findings = []analyzer.Finding{deferred}
+		got := a.analyzeSnapshot(context.Background(), walSnapAt("1024"), nil)
+		if len(capture()) != 1 {
+			t.Fatalf("model calls = %d, want 1 (the second cycle is not due)", len(capture()))
+		}
+		if len(got) != 1 || got[0].ObjectIdentifier != "instance" ||
+			got[0].Detail[DetailInstanceOwner] != "alpha" {
+			t.Fatalf("findings = %+v, want the deferred row kept open", got)
+		}
+	})
+	t.Run("model silent: row resolves", func(t *testing.T) {
+		a, capture := walAndBloatConfigAdvisor(t, "[]", &fakeOpen{
 			findings: []analyzer.Finding{deferred}})
 		a.cfg.Advisor.BloatEnabled = false
 		a.WithInstanceOwner(ownedBy("beta", true))
 		got := a.analyzeSnapshot(context.Background(), walSnapAt("1024"), nil)
-		if len(got) != 1 || got[0].ObjectIdentifier != "instance" {
-			t.Fatalf("findings = %v, want the deferred row kept open", findingIdents(got))
+		if !hasPrompt(capture(), "max_wal_size = 1024") {
+			t.Fatal("the new owner's prompt left out the deferred setting")
+		}
+		if len(got) != 0 {
+			t.Fatalf("findings = %v, want the deferred row resolved", findingIdents(got))
 		}
 		if !slices.Contains(a.LastEvaluatedCategories(), "wal_tuning") {
-			t.Fatalf("evaluated = %v", a.LastEvaluatedCategories())
+			t.Fatalf("evaluated = %v, want wal_tuning so the row resolves",
+				a.LastEvaluatedCategories())
 		}
 	})
 	t.Run("model re-advises: fresh finding replaces it", func(t *testing.T) {
@@ -249,6 +270,31 @@ func TestInstanceOwner_NewOwnerReclaimsDeferredFinding(t *testing.T) {
 			t.Fatalf("findings = %+v, want one fresh executable finding", got)
 		}
 	})
+}
+
+// deferredWAL is an open max_wal_size row a non-owner deferred to alpha.
+func deferredWAL() analyzer.Finding {
+	return GateInstanceSettings([]analyzer.Finding{
+		openWAL("ALTER SYSTEM SET max_wal_size = '4GB'")}, "alpha", false)[0]
+}
+
+// State transition: a new owner whose review fails keeps the deferred row
+// open and leaves wal_tuning unevaluated, so nothing resolves it.
+func TestInstanceOwner_NewOwnerReviewFailsKeepsDeferred(t *testing.T) {
+	deferred := deferredWAL()
+	srv, mgr := mockLLMServerError(t)
+	defer srv.Close()
+	a := lifecycleAdvisor(walOnlyConfig(""), mgr, &fakeOpen{
+		findings: []analyzer.Finding{deferred}})
+	a.WithInstanceOwner(ownedBy("beta", true))
+	got := a.analyzeSnapshot(context.Background(), walSnapAt("1024"), nil)
+	if len(got) != 1 || got[0].Detail[DetailInstanceOwner] != "alpha" {
+		t.Fatalf("findings = %+v, want the deferred row kept open", got)
+	}
+	if slices.Contains(a.LastEvaluatedCategories(), "wal_tuning") {
+		t.Fatalf("evaluated = %v, want wal_tuning unevaluated after a failure",
+			a.LastEvaluatedCategories())
+	}
 }
 
 // Nil owner function: single-database behaviour, unchanged.

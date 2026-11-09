@@ -133,30 +133,35 @@ func splitInstanceOpen(open []analyzer.Finding, o ownership) (checked,
 }
 
 // keepAside re-emits the set-aside findings: deferred to the owner on a
-// non-owner; on the owner, unless its review re-advised the same object.
-func keepAside(aside, reviewed []analyzer.Finding, o ownership) []analyzer.Finding {
+// non-owner. On the owner a deferred row stays open until the owner's own
+// review of its category has run (its setting was in that prompt, since
+// the row left the open gate): the review's answer then replaces the row,
+// or resolves it when the model advised nothing for it.
+func keepAside(aside []analyzer.Finding, r subRun, o ownership) []analyzer.Finding {
 	if o.defers() {
-		out := GateInstanceSettings(aside, o.owner, false)
-		for i, f := range out {
-			if _, named := f.Detail[DetailInstanceOwner]; !named {
-				f.Detail = maps.Clone(f.Detail)
-				if f.Detail == nil {
-					f.Detail = map[string]any{}
-				}
-				f.Detail[DetailInstanceOwner] = o.owner
-				out[i] = f
-			}
-		}
-		return out
-	}
-	fresh := map[string]bool{}
-	for _, f := range reviewed {
-		fresh[f.Category+"|"+f.ObjectIdentifier] = true
+		return deferAside(aside, o.owner)
 	}
 	var out []analyzer.Finding
 	for _, f := range aside {
-		if !fresh[f.Category+"|"+f.ObjectIdentifier] {
+		if !r.ran[f.Category] {
 			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// deferAside makes a non-owner's open instance rows advisory, each naming
+// the owner.
+func deferAside(aside []analyzer.Finding, owner string) []analyzer.Finding {
+	out := GateInstanceSettings(aside, owner, false)
+	for i, f := range out {
+		if _, named := f.Detail[DetailInstanceOwner]; !named {
+			f.Detail = maps.Clone(f.Detail)
+			if f.Detail == nil {
+				f.Detail = map[string]any{}
+			}
+			f.Detail[DetailInstanceOwner] = owner
+			out[i] = f
 		}
 	}
 	return out
