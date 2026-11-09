@@ -82,8 +82,8 @@ func LatestCheckpoint(ctx context.Context, q Querier, chain string) (Checkpoint,
 }
 
 // FullVerifyDue reports whether chain needs a full verification: hours is
-// 0 (always full), it has no full checkpoint, or its newest one is at
-// least hours old by the database's clock.
+// 0 (always full), it has no full checkpoint (or no checkpoint table yet),
+// or its newest one is at least hours old by the database's clock.
 func FullVerifyDue(ctx context.Context, q Querier, chain string, hours int) (bool, error) {
 	if hours < 0 {
 		return false, fmt.Errorf("auditchain: %s: full verification interval %d h is "+
@@ -100,6 +100,9 @@ func FullVerifyDue(ctx context.Context, q Querier, chain string, hours int) (boo
 		<= now() - make_interval(hours => $2::int), true)
 		FROM sage.audit_chain_checkpoint WHERE chain = $1 AND mode = 'full'`,
 		chain, hours).Scan(&due)
+	if pgErr := (*pgconn.PgError)(nil); errors.As(err, &pgErr) && pgErr.Code == "42P01" {
+		return true, nil // not migrated yet: verify in full, as before checkpoints
+	}
 	if err != nil {
 		return false, fmt.Errorf("auditchain: %s full verification schedule: %w", chain, err)
 	}

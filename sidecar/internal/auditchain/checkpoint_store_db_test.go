@@ -153,3 +153,21 @@ func TestCheckpointCallsPropagateErrors(t *testing.T) {
 		t.Fatalf("verify from checkpoint on a cancelled context: err = %v", err)
 	}
 }
+
+// Nil/empty: without the checkpoint table (a database bootstrapped by an
+// older sidecar), every pass is full, as before checkpoints existed; the
+// chain is still verified rather than reported unverifiable.
+func TestMissingCheckpointTableMeansFull(t *testing.T) {
+	pool := freshDB(t, "chain_cp_no_table")
+	ctx := context.Background()
+	insertAction(t, pool, "CREATE INDEX nocp1")
+	exec(t, pool, "DROP TABLE sage.audit_chain_checkpoint")
+	due, err := auditchain.FullVerifyDue(ctx, pool, "action_log", 168)
+	if err != nil || !due {
+		t.Fatalf("full verify due without the table: due=%v err=%v, want true", due, err)
+	}
+	rep, err := auditchain.VerifyFromCheckpoint(ctx, pool, auditchain.ActionLog, false)
+	if err != nil || !rep.OK() || rep.Mode != auditchain.ModeFull || rep.Links != 1 {
+		t.Fatalf("verify without the table: %+v err %v, want a clean full pass", rep, err)
+	}
+}
