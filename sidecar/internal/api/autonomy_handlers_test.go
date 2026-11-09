@@ -88,6 +88,8 @@ func (f *autonomyAPIFixture) register(database string) *earned.Service {
 	if err != nil {
 		f.t.Fatal(err)
 	}
+	// The investigator runs the model the lift reports measured (llm-01).
+	ledger.WithRunningModel(func() string { return "gpt-4o-mini" })
 	f.reg.Register(database, earned.RegistryEntry{Service: ledger,
 		Limiter: ledger.Limiter(earned.Binding{Database: database})})
 	return ledger

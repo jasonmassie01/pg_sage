@@ -190,7 +190,7 @@ func TestRootAuthorityEvents_AskingRecordsTheGrantBeforeUsingIt(t *testing.T) {
 	n := &rootNotifier{}
 	f.svc.WithRootAuthorityNotifier(n)
 	run := f.ingestLift(fixtureEpoch.Add(-time.Hour), good("lock_blocking", 16, 16))
-	got, err := f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking)
+	got, err := f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking, fixtureModel)
 	if err != nil || !got.Granted {
 		t.Fatalf("authority = %+v (%v)", got, err)
 	}
@@ -199,7 +199,8 @@ func TestRootAuthorityEvents_AskingRecordsTheGrantBeforeUsingIt(t *testing.T) {
 		decodeEvidence(t, evs[0].Evidence)["report_id"] != run.ID {
 		t.Fatalf("history = %+v", evs)
 	}
-	if _, err := f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking); err != nil {
+	if _, err := f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking,
+		fixtureModel); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.rootEvents(FamilyLockBlocking)) != 1 || len(n.got()) != 1 {
@@ -215,7 +216,7 @@ func TestRootAuthorityEvents_UnrecordableGrantIsNotGranted(t *testing.T) {
 	f := newFixture(t)
 	f.ingestLift(fixtureEpoch.Add(-time.Hour), good("lock_blocking", 16, 16))
 	f.rejectRootEvents()
-	got, err := f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking)
+	got, err := f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking, fixtureModel)
 	if err == nil || got.Granted || !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("authority = %+v (%v), want ErrUnavailable and no grant", got, err)
 	}
@@ -259,7 +260,7 @@ func TestRootAuthorityEvents_ConcurrentAsksRecordOnce(t *testing.T) {
 				_, errs[i] = f.svc.ReconcileRootAuthority(f.ctx)
 				return
 			}
-			_, errs[i] = f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking)
+			_, errs[i] = f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking, fixtureModel)
 		}(i)
 	}
 	wg.Wait()

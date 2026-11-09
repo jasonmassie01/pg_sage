@@ -166,13 +166,13 @@ func TestParseBenchReport_RejectsBadModelLift(t *testing.T) {
 func authority(t *testing.T, raw []byte, family Family, now time.Time) RootAuthority {
 	t.Helper()
 	if raw == nil {
-		return rootAuthorityOf(nil, family, now, DefaultThresholds().BenchMaxAge)
+		return rootAuthorityOf(nil, family, now, DefaultThresholds().BenchMaxAge, fixtureModel)
 	}
 	run, err := ParseBenchReport(raw, now)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	return rootAuthorityOf(&run, family, now, DefaultThresholds().BenchMaxAge)
+	return rootAuthorityOf(&run, family, now, DefaultThresholds().BenchMaxAge, fixtureModel)
 }
 
 func TestRootAuthority_GrantedOnlyByHeldOutLiveEvidence(t *testing.T) {

@@ -58,6 +58,9 @@ type Service struct {
 	// rootNotifier tells the operator about model-root authority changes
 	// (WithRootAuthorityNotifier); nil: recorded only.
 	rootNotifier RootAuthorityNotifier
+	// modelOf is the model the database's investigator runs
+	// (WithRunningModel); nil: unknown, so model roots stay advisory.
+	modelOf func() string
 }
 
 type pairKey struct {
