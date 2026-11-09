@@ -153,6 +153,23 @@ listed worst first, and by name among equal scores, so the tiles and the
 `pg_sage_fleet_instance_health` series keep a stable order. The rule is the
 same in every mode and on every provider.
 
+### Recurring across the fleet
+
+The Fleet page lists the problems open on several databases at once, from
+`GET /api/v1/fleet/findings` (the MCP `fleet_findings` tool reads the same
+data). pg_sage reads each database's open findings at most once a minute and
+serves every viewer, page load and MCP call from that read, so the list can
+be up to 60 seconds old. A database that could not be read is retried after
+15 seconds and is listed under `errors` ("Not read" on the page) without
+hiding the others. Up to 8 databases are read at a time, and a request waits
+at most 15 seconds: a database still being read then is listed in `errors`
+as `timed out`, and its read finishes in the background for the next
+request.
+
+Each database contributes at most its 500 newest open findings. A database
+with more is named in `truncated` and on the page as "counts may be low
+for", because a problem it shares may be among the findings not read.
+
 ## 6. API Checks
 
 ```bash
