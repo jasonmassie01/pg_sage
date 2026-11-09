@@ -97,10 +97,13 @@ start_postgres() {
   local image=${PG_SAGE_E2E_IMAGE:-ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg$major}
   docker run -d --name "$container" -e POSTGRES_PASSWORD=postgres \
     -p "127.0.0.1:$pg_port:5432" "$image" >/dev/null
+  local ready=0
   for _ in $(seq 1 60); do
-    docker exec "$container" pg_isready -U postgres >/dev/null 2>&1 && break
+    docker exec "$container" pg_isready -U postgres >/dev/null 2>&1 && { ready=1; break; }
     sleep 1
   done
+  ((ready)) || die "PostgreSQL in container '$container' did not accept connections" \
+    "within 60s (image $image); see 'docker logs $container'"
   bash "$root/scripts/ci/setup-test-postgres.sh" "$container" "$major" >/dev/null
   psql_in -c "CREATE DATABASE e2e_meta" -c "CREATE DATABASE e2e_standalone"
   local entry
