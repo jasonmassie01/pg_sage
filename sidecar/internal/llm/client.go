@@ -437,8 +437,8 @@ func (c *Client) recordSuccess() {
 }
 
 // NewOptimizerClient creates an independent LLM client for the optimizer.
-// It inherits endpoint, API key, and model from the general LLM config
-// when the optimizer-specific fields are empty.
+// It inherits endpoint and model from the general LLM config when the
+// optimizer-specific fields are empty; the API key follows OptimizerAPIKey.
 func NewOptimizerClient(
 	parent *config.LLMConfig,
 	opt *config.OptimizerLLMConfig,
@@ -450,10 +450,7 @@ func NewOptimizerClient(
 	if endpoint == "" {
 		endpoint = parent.Endpoint
 	}
-	apiKey := opt.APIKey
-	if apiKey == "" {
-		apiKey = parent.APIKey
-	}
+	apiKey := OptimizerAPIKey(authConfig)
 	model := opt.Model
 	if model == "" {
 		model = parent.Model
