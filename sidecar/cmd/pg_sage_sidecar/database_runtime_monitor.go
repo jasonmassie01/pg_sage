@@ -140,15 +140,16 @@ func (rt *databaseRuntime) newForecaster() analyzer.WorkloadForecaster {
 
 func forecasterConfig(c *config.Config) forecaster.ForecasterConfig {
 	return forecaster.ForecasterConfig{
-		Enabled:             c.Forecaster.Enabled,
-		LookbackDays:        c.Forecaster.LookbackDays,
-		DiskWarnGrowthGBDay: c.Forecaster.DiskWarnGrowthGBDay,
-		ConnectionWarnPct:   c.Forecaster.ConnectionWarnPct,
-		CacheWarnThreshold:  c.Forecaster.CacheWarnThreshold,
-		MinDataPoints:       c.Forecaster.MinDataPoints,
-		AlertHorizons:       c.Forecaster.AlertHorizons,
-		DiskCapacityBytes:   c.Forecaster.DiskCapacityBytes,
-		MinRSquared:         c.Forecaster.MinRSquared,
+		Enabled:                    c.Forecaster.Enabled,
+		LookbackDays:               c.Forecaster.LookbackDays,
+		DiskWarnGrowthGBDay:        c.Forecaster.DiskWarnGrowthGBDay,
+		ConnectionWarnPct:          c.Forecaster.ConnectionWarnPct,
+		CacheWarnThreshold:         c.Forecaster.CacheWarnThreshold,
+		CheckpointRequestedPerHour: c.Forecaster.CheckpointRequestedPerHour,
+		MinDataPoints:              c.Forecaster.MinDataPoints,
+		AlertHorizons:              c.Forecaster.AlertHorizons,
+		DiskCapacityBytes:          c.Forecaster.DiskCapacityBytes,
+		MinRSquared:                c.Forecaster.MinRSquared,
 	}
 }
 

@@ -225,53 +225,6 @@ func forecastQueryVolume(
 	}}
 }
 
-// forecastCheckpointPressure warns when the checkpoint rate is
-// trending upward. Days without a checkpoint count are skipped, and a
-// rate spans the days elapsed since the previous counted day (forecast-07).
-func forecastCheckpointPressure(
-	aggs []DaySystemAgg, cfg ForecasterConfig,
-) []analyzer.Finding {
-	known := knownDays(aggs, func(a DaySystemAgg) bool {
-		return a.CheckpointsUnknown
-	})
-	if len(known) < minDataPoints+1 {
-		return nil
-	}
-
-	rates := make([]float64, 0, len(known)-1)
-	for i := 1; i < len(known); i++ {
-		delta := known[i].TotalCheckpoints -
-			known[i-1].TotalCheckpoints
-		if delta < 0 {
-			delta = 0 // stats reset
-		}
-		hours := 24 * elapsedDays(known[i-1].Day, known[i].Day)
-		rates = append(rates, delta/hours) // per hour
-	}
-
-	smoothed := EWMA(rates, 0.1)
-	if smoothed <= 12 {
-		return nil
-	}
-
-	return []analyzer.Finding{{
-		Category:   "forecast_checkpoint_pressure",
-		Severity:   "warning",
-		ObjectType: "database",
-		Title: fmt.Sprintf(
-			"Checkpoint rate trending to %.1f/hr", smoothed,
-		),
-		Detail: map[string]any{
-			"forecast_type": "checkpoint_pressure",
-			"ewma_rate_hr":  smoothed,
-			"daily_rates":   rates,
-		},
-		Recommendation: "Checkpoint rate is high. Consider " +
-			"increasing checkpoint_completion_target or " +
-			"max_wal_size to reduce checkpoint frequency.",
-	}}
-}
-
 // --- helpers ---
 
 // sysToDataPoints converts system aggregates to regression points

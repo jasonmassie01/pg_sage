@@ -16,6 +16,9 @@ type ForecasterConfig struct {
 	DiskWarnGrowthGBDay float64
 	ConnectionWarnPct   float64
 	CacheWarnThreshold  float64
+	// CheckpointRequestedPerHour is the requested-checkpoint rate at
+	// which the checkpoint forecast warns (forecast-03); 0 means 2.
+	CheckpointRequestedPerHour float64
 	// v0.9: storage growth forecasting fields.
 	MinDataPoints     int
 	AlertHorizons     []int
@@ -88,13 +91,17 @@ func (f *Forecaster) Forecast(
 // evaluatedSystemCategories lists the system categories a read of aggs
 // evaluates. With minDataPoints days of history but fewer days of
 // measured size, the disk trend is unknown rather than flat, so an open
-// disk finding must not be resolved on missing data (forecast-07).
+// disk finding must not be resolved on missing data (forecast-07). The
+// checkpoint rate needs minDataPoints usable intervals of the split
+// counters (forecast-03); legacy rows carry none.
 func evaluatedSystemCategories(aggs []DaySystemAgg) []string {
 	diskUnknown := len(aggs) >= minDataPoints &&
 		len(knownSizeDays(aggs)) < minDataPoints
+	checkpointUnknown := !checkpointEvaluable(aggs)
 	cats := make([]string, 0, len(systemForecastCategories))
 	for _, c := range systemForecastCategories {
-		if diskUnknown && c == "forecast_disk_growth" {
+		if diskUnknown && c == "forecast_disk_growth" ||
+			checkpointUnknown && c == "forecast_checkpoint_pressure" {
 			continue
 		}
 		cats = append(cats, c)

@@ -152,6 +152,7 @@
 | `fleet_learning.min_prior_outcomes` | `restart` | `-` | `operator_preference` |
 | `forecaster.alert_horizons` | `restart` | `-` | `derivable` |
 | `forecaster.cache_warn_threshold` | `restart` | `-` | `derivable` |
+| `forecaster.checkpoint_requested_per_hour` | `restart` | `-` | `derivable` |
 | `forecaster.connection_warn_pct` | `restart` | `-` | `derivable` |
 | `forecaster.disk_capacity_bytes` | `restart` | `-` | `operator_preference` |
 | `forecaster.disk_warn_growth_gb_day` | `restart` | `-` | `derivable` |

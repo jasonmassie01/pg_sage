@@ -68,10 +68,14 @@ func TestDiskGrowth_SixKnownOfEightNoFindingNotEvaluated(t *testing.T) {
 		t.Fatalf("disk must stay unevaluated with 6 known-size days: %v", cats)
 	}
 	for _, c := range []string{"forecast_connection_saturation",
-		"forecast_cache_pressure", "forecast_checkpoint_pressure"} {
+		"forecast_cache_pressure"} {
 		if !hasCategory(cats, c) {
 			t.Fatalf("%s must stay evaluated: %v", c, cats)
 		}
+	}
+	// forecast-03: the fixture carries no split checkpoint counters.
+	if hasCategory(cats, "forecast_checkpoint_pressure") {
+		t.Fatalf("checkpoint evaluated without checkpoint counters: %v", cats)
 	}
 }
 
@@ -87,9 +91,12 @@ func TestDiskGrowth_AllDaysNullNoFinding(t *testing.T) {
 	if f := forecastDiskGrowth(aggs, ForecasterConfig{DiskWarnGrowthGBDay: 5}); len(f) != 0 {
 		t.Fatalf("all-unknown sizes must give no disk finding: %+v", f)
 	}
+	// forecast-03: without split counters the checkpoint rule is not
+	// evaluated either, leaving connections and cache.
 	if cats := evaluatedSystemCategories(aggs); hasCategory(cats, "forecast_disk_growth") ||
-		len(cats) != 3 {
-		t.Fatalf("all-unknown sizes over 10 days: evaluated = %v, want the other three", cats)
+		len(cats) != 2 {
+		t.Fatalf("all-unknown sizes over 10 days: evaluated = %v, want connections and cache",
+			cats)
 	}
 }
 
@@ -110,9 +117,14 @@ func TestEvaluatedSystemCategories_Boundaries(t *testing.T) {
 		if got := hasCategory(cats, "forecast_disk_growth"); got != tc.wantDisk {
 			t.Errorf("%s: disk evaluated = %v, want %v (%v)", tc.name, got, tc.wantDisk, cats)
 		}
-		want := 3
+		// forecast-03: these fixtures carry no split checkpoint counters,
+		// so the checkpoint category is never among them.
+		if hasCategory(cats, "forecast_checkpoint_pressure") {
+			t.Errorf("%s: checkpoint evaluated without counters: %v", tc.name, cats)
+		}
+		want := 2
 		if tc.wantDisk {
-			want = 4
+			want = 3
 		}
 		if len(cats) != want {
 			t.Errorf("%s: %d categories, want %d: %v", tc.name, len(cats), want, cats)

@@ -1854,7 +1854,7 @@ or approves. See [Ask Sage](ask-sage.md).
 
 The forecaster (`forecaster.*`, see `sidecar/config.example.yaml`) fits daily trends
 over `lookback_days` of system snapshots and needs 7 days of data for each trend
-(8 for the checkpoint rate, which is a difference between days).
+(8 closed days for the checkpoint rate, which is a difference between days).
 
 - Days without a measured database size (`pg_database_size` had not yet succeeded,
   timed out, or is refused by the provider) are left out of the disk growth trend
@@ -1863,8 +1863,27 @@ over `lookback_days` of system snapshots and needs 7 days of data for each trend
   finding opens, and an open one is neither refreshed nor resolved until 7 measured
   days exist again. The connection, cache and checkpoint trends still run.
 - Days without backend counts or `max_connections` are left out of the connection
-  trend, and days without a checkpoint count are left out of the checkpoint trend,
-  whose hourly rate spans the days since the previous counted day.
+  trend.
+- The checkpoint trend (`forecast_checkpoint_pressure`) counts requested checkpoints
+  only: WAL-triggered ones (WAL reached `max_wal_size` before `checkpoint_timeout`) and
+  explicit ones (`CHECKPOINT`, base backups). Timed checkpoints are counted by
+  PostgreSQL every `checkpoint_timeout` even when skipped on an idle server (288 a day
+  at the default 5 minutes), so they are not pressure. The rate of a day is the growth
+  of `checkpoints_req` (PG 14-16, `pg_stat_bgwriter`) or `num_requested` (PG 17+,
+  `pg_stat_checkpointer`) between the last snapshots of two closed days, divided by the
+  hours between them, so a missing day does not inflate it and the current, partial
+  day never moves the result. A day whose counters drop (a stats reset) is skipped, not
+  read as 0. The finding warns when the EWMA of those hourly rates is at or above
+  `forecaster.checkpoint_requested_per_hour` (default `2`, above `0` and at most
+  `3600`); its detail carries the requested share of all checkpoints, and the advice
+  is to raise `max_wal_size` (the config advisor sizes it from the measured WAL rate).
+- The checkpoint trend needs 7 usable day-to-day rates (8 closed days). Snapshots
+  written before this version carry only the total count, so after an upgrade the
+  category is not evaluated until 8 closed days of new snapshots exist: an open
+  checkpoint finding is neither refreshed nor resolved until then, and resolves when
+  the new rule first evaluates without warning. On PG 18+ the snapshot also records
+  `num_done` (checkpoints performed) as `checkpoints_done`. In fleet mode the counters
+  are cluster-wide, so every database on one cluster reports the same rate.
 - Sequences are forecast by the runway monitor (`sre.runways.sequence_horizon_days`
   and `sequence_critical_days`, see
   [Runways and pre-incident investigations](#runways-and-pre-incident-investigations)).

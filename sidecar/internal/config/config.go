@@ -335,11 +335,12 @@ type AutoExplainConfig struct {
 }
 
 type ForecasterConfig struct {
-	Enabled             bool    `yaml:"enabled"`
-	LookbackDays        int     `yaml:"lookback_days"`
-	DiskWarnGrowthGBDay float64 `yaml:"disk_warn_growth_gb_day"`
-	ConnectionWarnPct   float64 `yaml:"connection_warn_pct"`
-	CacheWarnThreshold  float64 `yaml:"cache_warn_threshold"`
+	Enabled                    bool    `yaml:"enabled"`
+	LookbackDays               int     `yaml:"lookback_days"`
+	DiskWarnGrowthGBDay        float64 `yaml:"disk_warn_growth_gb_day"`
+	ConnectionWarnPct          float64 `yaml:"connection_warn_pct"`
+	CacheWarnThreshold         float64 `yaml:"cache_warn_threshold"`
+	CheckpointRequestedPerHour float64 `yaml:"checkpoint_requested_per_hour" doc:"Requested (WAL-triggered or explicit) checkpoints per hour, as an EWMA over closed days, at which forecast_checkpoint_pressure warns. Timed checkpoints are not counted. 0 < value <= 3600. Default: 2."`
 
 	// v0.9 fields
 	MinDataPoints     int     `yaml:"min_data_points" doc:"Minimum data points required before generating a forecast. Default: 24."`
@@ -740,6 +741,9 @@ func (c *Config) validate() error {
 	if err := c.Ask.validate(); err != nil {
 		return err
 	}
+	if err := c.Forecaster.validate(); err != nil {
+		return err
+	}
 	if err := c.Specialist.validate(); err != nil {
 		return err
 	}
@@ -994,15 +998,16 @@ func newDefaults() *Config {
 			PreferSessionLoad:      true,
 		},
 		Forecaster: ForecasterConfig{
-			Enabled:             true,
-			LookbackDays:        DefaultForecasterLookbackDays,
-			DiskWarnGrowthGBDay: DefaultForecasterDiskWarnGBDay,
-			ConnectionWarnPct:   DefaultForecasterConnectionPct,
-			CacheWarnThreshold:  DefaultForecasterCacheThreshold,
-			MinDataPoints:       DefaultForecasterMinDataPoints,
-			AlertHorizons:       []int{30, 7, 3},
-			DiskCapacityBytes:   0,
-			MinRSquared:         DefaultForecasterMinRSquared,
+			Enabled:                    true,
+			LookbackDays:               DefaultForecasterLookbackDays,
+			DiskWarnGrowthGBDay:        DefaultForecasterDiskWarnGBDay,
+			ConnectionWarnPct:          DefaultForecasterConnectionPct,
+			CacheWarnThreshold:         DefaultForecasterCacheThreshold,
+			CheckpointRequestedPerHour: DefaultForecasterCheckpointRequestedPerHour,
+			MinDataPoints:              DefaultForecasterMinDataPoints,
+			AlertHorizons:              []int{30, 7, 3},
+			DiskCapacityBytes:          0,
+			MinRSquared:                DefaultForecasterMinRSquared,
 		},
 		// LogWatch defaults were previously absent here, so with
 		// logwatch enabled but no explicit values, MaxLinesPerCycle and

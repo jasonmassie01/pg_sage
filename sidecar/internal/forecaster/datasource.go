@@ -20,10 +20,17 @@ type DaySystemAgg struct {
 	MaxTotalBackends  float64
 	MaxConnections    float64
 	AvgCacheHitRatio  float64
-	TotalCheckpoints  float64
+	// The day maxima of the split checkpoint counters and the time of the
+	// day's last snapshot that carried them (forecast-03). Only closed days
+	// carry them: today's partial day is unknown, so the newest input does
+	// not move with the hour.
+	CheckpointsTimed     float64
+	CheckpointsRequested float64
+	CheckpointsLastAt    time.Time
 	// An input is unknown on a day where every snapshot left it null (or,
 	// for the size, wrote 0): its value above is then 0 and the rules
-	// that read it skip the day (forecast-07).
+	// that read it skip the day (forecast-07). Checkpoints are also
+	// unknown on legacy rows without the split and on the current day.
 	DBSizeUnknown         bool
 	BackendsUnknown       bool
 	MaxConnectionsUnknown bool
@@ -54,8 +61,14 @@ SELECT date_trunc('day', collected_at) AS day,
                          ELSE (data->>'cache_hit_ratio')::float END)
                 FILTER (WHERE (data->>'cache_hit_ratio')::float > 0),
                 -1)                              AS avg_cache_hit,
-       max((data->>'total_checkpoints')::bigint) AS total_chkpts
+       -- Split checkpoint counters of closed days only (forecast-03).
+       max((data->>'checkpoints_timed')::bigint) FILTER (WHERE c.split) AS chk_timed,
+       max((data->>'checkpoints_requested')::bigint) FILTER (WHERE c.split) AS chk_req,
+       max(s.collected_at) FILTER (WHERE c.split) AS chk_last_at
 FROM sage.snapshots s
+CROSS JOIN LATERAL (SELECT s.collected_at < date_trunc('day', now())
+       AND s.data->>'checkpoints_timed' IS NOT NULL
+       AND s.data->>'checkpoints_requested' IS NOT NULL AS split) c
 WHERE {db:s} AND s.category = 'system'
   AND s.collected_at > now() - make_interval(days => $1)
 GROUP BY 1 ORDER BY 1`
@@ -89,13 +102,15 @@ func QueryDailySystemAggs(
 
 // scanSystemAgg reads one day of systemAggsSQL. The size, backend,
 // max_connections and checkpoint aggregates are NULL on a day where no
-// snapshot measured them; such an input is marked unknown, not failed.
+// snapshot measured them (checkpoints: no split row of a closed day);
+// such an input is marked unknown, not failed.
 func scanSystemAgg(rows pgx.Rows) (DaySystemAgg, error) {
 	var a DaySystemAgg
-	var avgSize, maxSize, active, total, maxConns, chkpts *float64
+	var avgSize, maxSize, active, total, maxConns, timed, requested *float64
+	var lastAt *time.Time
 	if err := rows.Scan(
 		&a.Day, &avgSize, &maxSize, &active, &total, &maxConns,
-		&a.AvgCacheHitRatio, &chkpts,
+		&a.AvgCacheHitRatio, &timed, &requested, &lastAt,
 	); err != nil {
 		return DaySystemAgg{}, fmt.Errorf("scan system agg: %w", err)
 	}
@@ -105,8 +120,11 @@ func scanSystemAgg(rows pgx.Rows) (DaySystemAgg, error) {
 	a.BackendsUnknown = active == nil && total == nil
 	a.MaxConnections = orZero(maxConns)
 	a.MaxConnectionsUnknown = maxConns == nil
-	a.TotalCheckpoints = orZero(chkpts)
-	a.CheckpointsUnknown = chkpts == nil
+	a.CheckpointsTimed, a.CheckpointsRequested = orZero(timed), orZero(requested)
+	a.CheckpointsUnknown = timed == nil || requested == nil || lastAt == nil
+	if !a.CheckpointsUnknown {
+		a.CheckpointsLastAt = *lastAt
+	}
 	return a, nil
 }
 
