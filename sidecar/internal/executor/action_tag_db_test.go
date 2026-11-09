@@ -11,10 +11,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// sagePool is a pool of size connections named as pg_sage names its own.
-func sagePool(t *testing.T, size int32) (*pgxpool.Pool, context.Context) {
+// sagePool is a pool of size connections named as pg_sage names its own,
+// and the shared test pool to observe it from. requireDB is called once: a
+// second call would wait forever for the cross-package lock this test
+// already holds on another connection.
+func sagePool(t *testing.T, size int32) (*pgxpool.Pool, *pgxpool.Pool, context.Context) {
 	t.Helper()
-	_, ctx := requireDB(t)
+	observer, ctx := requireDB(t)
 	cfg, err := pgxpool.ParseConfig(testDSN())
 	if err != nil {
 		t.Fatalf("parse DSN: %v", err)
@@ -26,7 +29,7 @@ func sagePool(t *testing.T, size int32) (*pgxpool.Pool, context.Context) {
 		t.Fatalf("open pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	return pool, ctx
+	return pool, observer, ctx
 }
 
 func showApplicationName(t *testing.T, ctx context.Context, q searchPathQuerier) string {
@@ -56,8 +59,7 @@ func activityName(ctx context.Context, q searchPathQuerier, pid uint32, want str
 // runs, pg_stat_activity names its decision; after release the pooled
 // connection reads pg_sage and the role's search_path again.
 func TestActionTagExecConcurrentlyNamesDecision(t *testing.T) {
-	pool, ctx := sagePool(t, 1)
-	observer, _ := requireDB(t)
+	pool, observer, ctx := sagePool(t, 1)
 	table := fmt.Sprintf("public.action_tag_%d", time.Now().UnixNano())
 	mustExecTag(t, ctx, observer, "CREATE TABLE "+table+" (a int)")
 	t.Cleanup(func() { _, _ = observer.Exec(context.Background(), "DROP TABLE "+table) })
@@ -66,7 +68,8 @@ func TestActionTagExecConcurrentlyNamesDecision(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin blocker: %v", err)
 	}
-	if _, err := blocker.Exec(ctx, "LOCK TABLE "+table+" IN SHARE UPDATE EXCLUSIVE MODE"); err != nil {
+	lock := "LOCK TABLE " + table + " IN SHARE UPDATE EXCLUSIVE MODE"
+	if _, err := blocker.Exec(ctx, lock); err != nil {
 		t.Fatalf("lock: %v", err)
 	}
 	pids := make(chan uint32, 1)
@@ -97,8 +100,7 @@ func TestActionTagExecConcurrentlyNamesDecision(t *testing.T) {
 // State transition (transaction path): SET LOCAL names the decision inside
 // the transaction; the connection reads pg_sage once it commits.
 func TestActionTagInTransactionNamesDecision(t *testing.T) {
-	pool, ctx := sagePool(t, 1)
-	observer, _ := requireDB(t)
+	pool, observer, ctx := sagePool(t, 1)
 	table := fmt.Sprintf("public.action_tag_tx_%d", time.Now().UnixNano())
 	mustExecTag(t, ctx, observer, "CREATE TABLE "+table+" (a int)")
 	t.Cleanup(func() { _, _ = observer.Exec(context.Background(), "DROP TABLE "+table) })
@@ -123,8 +125,7 @@ func TestActionTagInTransactionNamesDecision(t *testing.T) {
 // Concurrent access: two tagged actions running at once each carry their
 // own decision, as pg_stat_activity reports them.
 func TestActionTagConcurrentActionsKeepTheirOwnDecision(t *testing.T) {
-	pool, ctx := sagePool(t, 2)
-	observer, _ := requireDB(t)
+	pool, observer, ctx := sagePool(t, 2)
 	var wg, inside sync.WaitGroup
 	release := make(chan struct{})
 	seen := make([]string, 2)
