@@ -12,12 +12,15 @@ function collectionTime(value) {
 function selectedPolicy(row) {
   const families = rowAutoFamilies(row)
   if (families === undefined) {
-    return 'Execution depends on the action’s policy, permissions and safety checks. Review its availability before approving a change.'
+    return 'Execution depends on the action’s policy, permissions and safety checks.'
+      + ' Review its availability before approving a change.'
   }
   if (families.length === 0) {
-    return 'Nothing runs without approval right now. Changes queue for approval or are blocked by policy.'
+    return 'Nothing runs without approval right now.'
+      + ' Changes queue for approval or are blocked by policy.'
   }
-  return `Can run without approval now: ${families.join(', ')}. Everything else queues for approval or is blocked by policy.`
+  return `Can run without approval now: ${families.join(', ')}.`
+    + ' Everything else queues for approval or is blocked by policy.'
 }
 
 // fleetPolicy summarises the fleet: observation count, stopped count and,
