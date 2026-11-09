@@ -120,11 +120,13 @@ func loadOrClaimPin(ctx context.Context, db pinDB, userID int, seen string) (str
 
 // recordPinMismatch logs and audits a changed identity at most once per
 // user, stored and seen pin per pinAuditWindow, so a dashboard polling
-// with a changed identity does not flood the audit chain. Detail carries
-// the user id and pin prefixes, never an email or a forwarded value.
+// with a changed identity does not flood the audit chain; a failed write
+// is retried on the next request. Detail carries the user id and pin
+// prefixes, never an email or a forwarded value.
 func recordPinMismatch(ctx context.Context, db pinDB, userID int,
 	stored, seen, mode string, refused bool) {
-	if !databricksPinAudits.allow(pinAuditKey{userID: userID, stored: stored, seen: seen}) {
+	key := pinAuditKey{userID: userID, stored: stored, seen: seen}
+	if !databricksPinAudits.allow(key) {
 		return
 	}
 	storedPrefix, seenPrefix := stored[:min(len(stored), pinPrefixLen)], seen[:pinPrefixLen]
@@ -137,6 +139,9 @@ func recordPinMismatch(ctx context.Context, db pinDB, userID int,
 			"seen_pin_prefix": seenPrefix, "mode": mode, "refused": refused},
 	})
 	if err != nil {
+		// Not recorded: let the next request retry instead of losing the
+		// event for a whole window.
+		databricksPinAudits.release(key)
 		slog.Error("auth audit write failed", "event", AuditDatabricksAppIdentityChanged,
 			"target_user_id", userID, "error", err)
 	}

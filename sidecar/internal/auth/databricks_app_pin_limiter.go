@@ -70,3 +70,10 @@ func (l *pinAuditLimiter) forget(userID int) {
 		}
 	}
 }
+
+// release forgets k, so the next sighting is recorded (its write failed).
+func (l *pinAuditLimiter) release(k pinAuditKey) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.seen, k)
+}

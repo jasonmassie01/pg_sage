@@ -205,8 +205,35 @@ func TestDatabricksAppPinMismatchAllowedInLog(t *testing.T) {
 	// A failed audit write in log mode still lets the request through.
 	resetPinAudits(t)
 	db.auditErr = errors.New("audit table unavailable")
-	if got, err := cfg.checkIdentityPin(context.Background(), db, u, "user-new"); err != nil || got != u {
+	got, err = cfg.checkIdentityPin(context.Background(), db, u, "user-new")
+	if err != nil || got != u {
 		t.Fatalf("log mismatch with failed audit = %+v, %v", got, err)
+	}
+}
+
+// A failed audit write must not use up the de-duplication window: the next
+// request with the same changed identity retries the audit.
+func TestDatabricksAppPinFailedAuditIsRetried(t *testing.T) {
+	resetPinAudits(t)
+	old := DatabricksAppUserPin("https://w.cloud.databricks.com", "user-old")
+	db := &scriptedPinDB{stored: &old, auditErr: errors.New("audit table unavailable")}
+	cfg := DatabricksAppConfig{Workspace: "https://w.cloud.databricks.com",
+		IdentityPin: DatabricksAppPinEnforce}
+	u := &User{ID: 36}
+	for i := range 2 {
+		if _, err := cfg.checkIdentityPin(context.Background(), db, u, "user-new"); !errors.Is(
+			err, ErrDatabricksAppIdentityChanged) {
+			t.Fatalf("attempt %d with failed audit: err = %v, want refusal", i, err)
+		}
+	}
+	if len(db.audits) != 2 {
+		t.Fatalf("audit attempts = %d, want 2 (a failed write is retried)", len(db.audits))
+	}
+	db.auditErr = nil
+	_, _ = cfg.checkIdentityPin(context.Background(), db, u, "user-new")
+	_, _ = cfg.checkIdentityPin(context.Background(), db, u, "user-new")
+	if len(db.audits) != 3 {
+		t.Fatalf("audit attempts = %d, want 3 (one success, then de-duplicated)", len(db.audits))
 	}
 }
 
@@ -216,7 +243,8 @@ func TestDatabricksAppPinEmptyModeBehavesAsLog(t *testing.T) {
 	old := DatabricksAppUserPin("https://w.cloud.databricks.com", "user-old")
 	db := &scriptedPinDB{stored: &old}
 	cfg := DatabricksAppConfig{Workspace: "https://w.cloud.databricks.com"}
-	if _, err := cfg.checkIdentityPin(context.Background(), db, &User{ID: 33}, "user-new"); err != nil {
+	_, err := cfg.checkIdentityPin(context.Background(), db, &User{ID: 33}, "user-new")
+	if err != nil {
 		t.Fatalf("empty mode refused: %v", err)
 	}
 	if len(db.audits) != 1 {
@@ -230,14 +258,16 @@ func TestDatabricksAppPinMatchAndFirstSight(t *testing.T) {
 		IdentityPin: DatabricksAppPinEnforce}
 	db := &scriptedPinDB{}
 	u := &User{ID: 34}
-	if got, err := cfg.checkIdentityPin(context.Background(), db, u, "user-1"); err != nil || got != u {
+	got, err := cfg.checkIdentityPin(context.Background(), db, u, "user-1")
+	if err != nil || got != u {
 		t.Fatalf("first sight = %+v, %v", got, err)
 	}
 	if db.claimed != 1 || db.stored == nil ||
 		*db.stored != DatabricksAppUserPin(cfg.Workspace, "user-1") {
 		t.Fatalf("first sight claimed=%d stored=%v; want the hashed pin", db.claimed, db.stored)
 	}
-	if got, err := cfg.checkIdentityPin(context.Background(), db, u, "user-1"); err != nil || got != u {
+	got, err = cfg.checkIdentityPin(context.Background(), db, u, "user-1")
+	if err != nil || got != u {
 		t.Fatalf("matching pin = %+v, %v", got, err)
 	}
 	if db.claimed != 1 || len(db.audits) != 0 {
