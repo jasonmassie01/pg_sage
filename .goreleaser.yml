@@ -84,5 +84,7 @@ release:
   extra_files:
     - glob: ./release-assets/*
   name_template: "v{{.Version}}"
-  draft: false
+  # ci-05: a draft until the release job has smoke-tested the archived
+  # binary; that job then publishes it.
+  draft: true
   prerelease: auto

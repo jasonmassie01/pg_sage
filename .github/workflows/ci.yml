@@ -1006,14 +1006,15 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
-    needs: [test, agent-servers, lint, bench-sign, integration-matrix, security,
+    needs: [test, test-arm64, agent-servers, lint, bench-sign, integration-matrix, security,
       container-health]
     # master pushes publish :edge and :sha-*; release tags publish the
     # semver tags and move :latest, so :latest is always a release.
     # A tag image needs verified signed bench reports; :edge is published
     # without them when bench-sign fails or is skipped (the sidecar starts
     # cleanly with no shipped reports). A tag image also needs the
-    # integration matrix (PG14, 15, 16, 18); :edge does not wait on it.
+    # integration matrix (PG14, 15, 16, 18), the agent servers and the
+    # arm64 tests (ci-05); :edge does not wait on them.
     if: >-
       always() && github.event_name == 'push' &&
       needs.test.result == 'success' && needs.lint.result == 'success' &&
@@ -1021,7 +1022,9 @@ jobs:
       needs.container-health.result == 'success' &&
       (github.ref == 'refs/heads/master' ||
        (startsWith(github.ref, 'refs/tags/v') && needs.bench-sign.result == 'success')) &&
-      (github.ref == 'refs/heads/master' || needs.integration-matrix.result == 'success')
+      (github.ref == 'refs/heads/master' || needs.integration-matrix.result == 'success') &&
+      (github.ref == 'refs/heads/master' ||
+       (needs.agent-servers.result == 'success' && needs.test-arm64.result == 'success'))
     permissions:
       packages: write
     steps:
@@ -1060,7 +1063,8 @@ jobs:
           name: sigstore-trusted-root
           path: sidecar/internal/benchsig
 
-      - uses: docker/build-push-action@v6
+      - id: build
+        uses: docker/build-push-action@v6
         with:
           context: sidecar/
           file: sidecar/Dockerfile
@@ -1072,9 +1076,18 @@ jobs:
             COMMIT=${{ github.sha }}
             DATE=${{ github.event.head_commit.timestamp }}
 
+      # ci-05: the pushed image answers --version with this build's
+      # version and the libpg_query parser.
+      - name: Smoke-test the image (--version)
+        run: |
+          bash scripts/ci/smoke-version.sh "${{ steps.meta.outputs.version }}"             docker run --rm "ghcr.io/jasonmassie01/pg_sage@${{ steps.build.outputs.digest }}"
+
   release:
     runs-on: ubuntu-latest
-    needs: [test, agent-servers, bench-sign, safety-bench-sign, integration-matrix, security]
+    # ci-05: a release waits for the whole green matrix. Without always()
+    # in the if, any need that failed or was skipped skips the release.
+    needs: [test, test-arm64, integration-matrix, agent-servers, lint, security,
+      container-health, bench-sign, safety-bench-sign]
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
@@ -1140,3 +1153,18 @@ jobs:
             --entrypoint bash ghcr.io/goreleaser/goreleaser-cross:v1.27.3 -c \
             'git config --global --add safe.directory /repo &&
              goreleaser release --clean --skip=before,validate'
+
+      # ci-05: goreleaser leaves the release a draft. The archived linux
+      # binary must answer --version with the tag and libpg_query before
+      # the release is made public.
+      - name: Smoke-test the archived linux/amd64 binary
+        run: |
+          set -euo pipefail
+          smoke="$(mktemp -d)"
+          tar -xzf dist/pg_sage_linux_amd64.tar.gz -C "$smoke"
+          bash scripts/ci/smoke-version.sh "${GITHUB_REF_NAME#v}" "$smoke/pg_sage"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
