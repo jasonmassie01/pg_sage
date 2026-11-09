@@ -42,11 +42,12 @@ type capKey struct {
 
 // capState is guarded by Collector.mu.
 type capState struct {
-	caps    Capabilities
-	key     capKey
-	probed  bool // a key probe has succeeded
-	cached  bool // caps hold the column probe of key
-	failing bool // a probe-failure streak is in progress (warned once)
+	caps      Capabilities
+	key       capKey
+	attempted bool // a refresh has run, successful or not
+	probed    bool // a key probe has succeeded
+	cached    bool // caps hold the column probe of key
+	failing   bool // a probe-failure streak is in progress (warned once)
 }
 
 // capabilityKeySQL is the one statement a steady-state cycle spends here.
@@ -96,6 +97,9 @@ func (c *Collector) probeQuerier() catalogQuerier {
 // last column probe found nothing, the column probe. A failed probe keeps
 // the last capabilities.
 func (c *Collector) refreshCapabilities(ctx context.Context) {
+	c.mu.Lock()
+	c.caps.attempted = true
+	c.mu.Unlock()
 	db := c.probeQuerier()
 	var key capKey
 	if err := db.QueryRow(ctx, capabilityKeySQL).Scan(
@@ -119,12 +123,13 @@ func (c *Collector) refreshCapabilities(ctx context.Context) {
 }
 
 // queryCapabilities are the capabilities for a statements read; a read
-// before any successful probe (a direct call) probes first.
+// before any refresh (a direct call) probes first. After a failed refresh
+// it keeps the last capabilities: one timeout per cycle, not two.
 func (c *Collector) queryCapabilities(ctx context.Context) Capabilities {
 	c.mu.RLock()
-	probed := c.caps.probed
+	attempted := c.caps.attempted
 	c.mu.RUnlock()
-	if !probed {
+	if !attempted {
 		c.refreshCapabilities(ctx)
 	}
 	return c.Capabilities()

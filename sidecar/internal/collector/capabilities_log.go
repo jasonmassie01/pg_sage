@@ -11,7 +11,7 @@ import (
 func (c *Collector) storeCapabilities(key capKey, next Capabilities, cached bool) {
 	c.mu.Lock()
 	prev := c.caps
-	c.caps = capState{caps: next, key: key, probed: true, cached: cached}
+	c.caps = capState{caps: next, key: key, attempted: true, probed: true, cached: cached}
 	c.mu.Unlock()
 	if prev.failing {
 		c.logFn("INFO", "collector: capability probe recovered")

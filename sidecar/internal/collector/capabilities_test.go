@@ -438,3 +438,27 @@ func TestCollectSystem_FallbackForcesReprobe(t *testing.T) {
 		t.Fatalf("version after the re-probe = %d, want %d", v, version)
 	}
 }
+
+// A statements read after a failed refresh in the same cycle uses the last
+// capabilities instead of probing again: a probe that times out must not
+// cost two timeouts per cycle before its first success.
+func TestQueryCapabilities_NoSecondProbeAfterFailedRefresh(t *testing.T) {
+	db := newFakeProbeDB(170002, 4242, "1.11", allStatementColumns...)
+	db.fail(stmtTimeout(), nil)
+	c := probedCollector(db, capsConfig(true, false), 160000, &logRecorder{})
+	seed := c.Capabilities()
+	c.refreshCapabilities(context.Background())
+	if got := c.queryCapabilities(context.Background()); got != seed {
+		t.Fatalf("capabilities after a failed refresh = %+v, want the seed %+v", got, seed)
+	}
+	if key, _ := db.calls(); key != 1 {
+		t.Fatalf("%d key probes, want 1 (no second probe in the cycle)", key)
+	}
+	// A direct read with no refresh yet still probes once.
+	direct := probedCollector(newFakeProbeDB(170002, 4242, "1.11",
+		allStatementColumns...), capsConfig(false, false), 160000, &logRecorder{})
+	if got := direct.queryCapabilities(context.Background()); !got.WALColumns ||
+		got.PGVersionNum != 170002 {
+		t.Fatalf("direct read capabilities = %+v, want the probed ones", got)
+	}
+}
