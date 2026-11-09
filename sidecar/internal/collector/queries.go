@@ -1,11 +1,5 @@
 package collector
 
-import (
-	"strings"
-
-	"github.com/pg-sage/sidecar/internal/selfmonitor"
-)
-
 // SQL constants for each collection category.
 
 // notTempRel is the catalog reads' predicate that leaves out temporary
@@ -34,32 +28,16 @@ const sageTag = "/* pg_sage */ "
 // Means and the population stddev are recombined from per-row calls.
 // The %[1]s and %[2]s verbs are the block read/write time expressions
 // chosen by the capability probe (blockTimeFor) (PG17 renamed blk_*_time to
-// shared_/local_blk_*_time); %[3]d, and the final %d after them, is the
-// row limit.
+// shared_/local_blk_*_time); the final %d is the candidate count.
 //
-// The candidates are ranked on the counters alone (showtext false), and
-// only their texts are matched against the self-exclusion and aggregated
-// (coordinator audit, 2026-10-04): on a 45k-entry server with 14 MB of
-// text, sorting every entry with its text spilled 16 MB to disk and the
-// regex ran on all of them (265-325 ms of the 500 ms budget); ranking
-// first took 156-178 ms. Twice the limit leaves room for pg_sage's own
-// statements among the top ones.
-const queryStatsWith = sageTag + `
-WITH ranked AS (
-    SELECT queryid FROM pg_stat_statements(false)
-     WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-       AND queryid IS NOT NULL
-     GROUP BY queryid
-     ORDER BY sum(total_exec_time) DESC
-     LIMIT 2 * %[3]d
-), candidates AS MATERIALIZED (
-    SELECT s.* FROM pg_stat_statements(true) s JOIN ranked r ON r.queryid = s.queryid
-     WHERE s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-)`
-
-const queryStatsSelect = queryStatsWith + `
+// It reads the counters only (showtext false): pg_stat_statements(true)
+// loads the whole query-text file whatever rows are kept (14 MB on
+// lifeos), so texts come from the collector's cache and are read only for
+// the candidates it lacks (statementTextsSQL, collection-11). It ranks
+// candidateHeadroom x MaxQueries: room for pg_sage's own statements, which
+// are left out in Go once their texts are known (IsStatementText).
+const queryStatsSelect = sageTag + `
 SELECT COALESCE(queryid, 0) AS queryid,
-       (array_agg(query ORDER BY calls DESC))[1] AS query,
        sum(calls)::bigint AS calls,
        sum(total_exec_time)::float8 AS total_exec_time,
        COALESCE(sum(total_exec_time) / NULLIF(sum(calls), 0), 0)::float8 AS mean_exec_time,
@@ -84,22 +62,21 @@ const queryStatsPlanColumns = `,
        COALESCE(sum(total_plan_time) / NULLIF(sum(plans), 0), 0)::float8
          AS mean_plan_time`
 
-// queryStatsFrom leaves pg_sage's own statements out of the candidates (a
-// format string: the predicate's % are doubled).
-var queryStatsFrom = `
-  FROM candidates
- WHERE ` + strings.ReplaceAll(selfmonitor.StatementExclusionSQL("query"), "%", "%%") + `
+const queryStatsFrom = `
+  FROM pg_stat_statements(false)
+ WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+   AND queryid IS NOT NULL
  GROUP BY queryid
  ORDER BY sum(total_exec_time) DESC
  LIMIT %d`
 
-var queryStatsSQL = queryStatsSelect + queryStatsFrom
+const queryStatsSQL = queryStatsSelect + queryStatsFrom
 
-var queryStatsWithWALSQL = queryStatsSelect + queryStatsWALColumns + queryStatsFrom
+const queryStatsWithWALSQL = queryStatsSelect + queryStatsWALColumns + queryStatsFrom
 
-var queryStatsWithPlanTimeSQL = queryStatsSelect + queryStatsPlanColumns + queryStatsFrom
+const queryStatsWithPlanTimeSQL = queryStatsSelect + queryStatsPlanColumns + queryStatsFrom
 
-var queryStatsWithWALAndPlanTimeSQL = queryStatsSelect + queryStatsWALColumns +
+const queryStatsWithWALAndPlanTimeSQL = queryStatsSelect + queryStatsWALColumns +
 	queryStatsPlanColumns + queryStatsFrom
 
 // tableStatsSQL pages pg_class by oid and reads each table's counters

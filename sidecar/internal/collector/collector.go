@@ -52,6 +52,7 @@ type Collector struct {
 	seqCoverage    SequenceCoverage
 	dbSize         dbSizeCache
 	pgssClass      classCache
+	stmtTexts      *stmtTextCache
 	exactTopN      int           // relations sized exactly per cycle
 	seqPageSize    int           // sequences per catalog transaction
 	seqScanCap     int           // sequences read per cycle
@@ -103,6 +104,7 @@ func New(
 		queries:        querystore.NewRecorder(),
 		partitions:     partition.NewKeeper(),
 		indexDefs:      newIndexDefCache(),
+		stmtTexts:      newStmtTextCache(),
 		exactTopN:      ExactSizeTopN,
 		seqPageSize:    SequencePageSize,
 		seqScanCap:     SequenceScanCap,
@@ -215,6 +217,7 @@ func (c *Collector) collect(ctx context.Context) (*Snapshot, error) {
 	// old epoch on reset counters, which the counter-decrease check and
 	// the next cycle's epoch change both expose.
 	snap.StatsEpoch = c.collectStatementsEpoch(ctx)
+	c.stmtTexts.observeEpoch(snap.StatsEpoch)
 	retries := 0
 	for _, step := range c.catalogSteps() {
 		err := c.runStep(ctx, step, snap, &retries)
