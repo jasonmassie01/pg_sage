@@ -60,38 +60,56 @@ func (f *fleetOnboardingReader) Names(database string) ([]string, bool) {
 func (f *fleetOnboardingReader) instance(name string) (*fleet.DatabaseInstance, error) {
 	inst := f.mgr.GetInstance(name)
 	if inst == nil || inst.Pool == nil {
-		return nil, fmt.Errorf("database %q has no runtime", name)
+		return nil, fmt.Errorf("database %q: %w", name, errNoRuntime)
 	}
 	return inst, nil
 }
 
+// Database reads the status snapshot first, so a database whose reads
+// fail is still named with its connection status and trust level.
 func (f *fleetOnboardingReader) Database(ctx context.Context, name string) (
 	onboardingDatabase, error) {
-	inst, err := f.instance(name)
-	if err != nil {
-		return onboardingDatabase{}, err
+	db := onboardingDatabase{Name: name}
+	inst := f.mgr.GetInstance(name)
+	if inst == nil {
+		return db, fmt.Errorf("database %q: %w", name, errNoRuntime)
 	}
 	status := inst.SnapshotStatus()
-	db := onboardingDatabase{Name: name, Connected: status.Connected,
-		TrustLevel: status.TrustLevel}
+	db.Connected, db.TrustLevel = status.Connected, status.TrustLevel
 	if inst.Executor != nil {
 		db.TrustLevel = inst.Executor.TrustLevel()
 	}
+	if inst.Pool == nil {
+		return db, fmt.Errorf("database %q: %w", name, errNoRuntime)
+	}
 	st, found, err := onboarding.Get(ctx, inst.Pool, name)
 	if err != nil {
-		return onboardingDatabase{}, err
+		return db, err
 	}
 	if found {
 		db.State = &st
 	}
-	report, found, err := firstlook.NewStore(inst.Pool).Latest(ctx, name)
+	look, found, err := firstlook.NewStore(inst.Pool).LatestSummary(ctx, name)
 	if err != nil {
-		return onboardingDatabase{}, err
+		return db, err
 	}
 	if found {
-		db.FirstLook = &report
+		db.FirstLook = &look
 	}
 	return db, nil
+}
+
+func (f *fleetOnboardingReader) FirstLook(ctx context.Context, name string) (
+	*firstlook.Report, error) {
+	inst, err := f.instance(name)
+	if err != nil {
+		return nil, err
+	}
+	report, found, err := firstlook.NewStore(inst.Pool).Latest(ctx, name)
+	if err != nil || !found {
+		return nil, err
+	}
+	return &report, nil
 }
 
 func isAdmin(ctx context.Context) bool {
