@@ -153,7 +153,7 @@ func gameDayProvider(s config.SREGameDaysConfig, cloneCfg config.CloneProviderCo
 	if !s.Enabled {
 		return nil, "", nil
 	}
-	if cloneCfg.Provider == "dle" || cloneCfg.Provider == "snapshot" {
+	if cloneCfg.Provider == "dle" {
 		p, err := configuredMCPCloneProvider(cloneCfg)
 		return p, cloneCfg.Provider, err
 	}
