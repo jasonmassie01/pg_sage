@@ -135,7 +135,7 @@ func chainProbeConfig() *config.Config {
 
 func realProbe(pool *pgxpool.Pool, cfg *config.Config) LockChainProbe {
 	return func(ctx context.Context) ([]analyzer.Finding, error) {
-		return analyzer.ProbeLockChains(ctx, pool, cfg)
+		return analyzer.ProbeLockChains(ctx, pool, cfg, nil)
 	}
 }
 
@@ -299,7 +299,7 @@ func TestFastPathDB_ProbeDisabledByConfig(t *testing.T) {
 	cfg := chainProbeConfig()
 	cfg.Analyzer.LockChain.Enabled = false
 	startBlockingChain(t, ctx, pool)
-	got, err := analyzer.ProbeLockChains(ctx, pool, cfg)
+	got, err := analyzer.ProbeLockChains(ctx, pool, cfg, nil)
 	if err != nil || got != nil {
 		t.Fatalf("disabled probe = %v, %v; want nil, nil", got, err)
 	}
