@@ -1205,7 +1205,7 @@
   "llm.context_budget_tokens": {
     "type": "int",
     "default": 8192,
-    "doc": "Trim target, in tokens (about 4 bytes each), for context attached to a prompt: lowering it shrinks advisor, tuning and explain prompts, each of which keeps its own cap too. 0 turns off the extra trim. It never refuses a request and does not cap answers or agent conversations.",
+    "doc": "Trim target in tokens (about 4 bytes each) for context attached to a prompt: lowering it shrinks advisor, tuning and explain prompts. 0 turns it off. It never refuses a request or caps answers.",
     "class": "derivable"
   },
   "llm.cooldown_seconds": {
