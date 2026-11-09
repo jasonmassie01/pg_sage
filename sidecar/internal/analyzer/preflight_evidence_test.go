@@ -174,9 +174,14 @@ func TestPreflightEvidenceStaleSnapshotDoesNotRefreshFinding(t *testing.T) {
 func TestPreflightEvidencePercentCollectorToRatioRule(t *testing.T) {
 	p, ctx := preflightPool(t)
 	preflightSQL(t, p, "CREATE SCHEMA preflight_catalog")
+	// collection-06: the rule reads the interval, so the shadow counters
+	// grow 80,000 hits and 20,000 reads per second of transaction time.
 	preflightSQL(t, p, `CREATE VIEW preflight_catalog.pg_stat_database AS
-		SELECT datname,80::bigint blks_hit,20::bigint blks_read,
-		deadlocks,blk_read_time,blk_write_time FROM pg_catalog.pg_stat_database`)
+		SELECT datname,
+		(80000 * extract(epoch FROM now()))::bigint blks_hit,
+		(20000 * extract(epoch FROM now()))::bigint blks_read,
+		deadlocks,blk_read_time,blk_write_time,xact_commit,xact_rollback,temp_bytes
+		FROM pg_catalog.pg_stat_database`)
 	pcfg, err := pgxpool.ParseConfig(os.Getenv("SAGE_TEST_DATABASE_URL"))
 	if err != nil {
 		t.Fatal(err)
@@ -189,6 +194,11 @@ func TestPreflightEvidencePercentCollectorToRatioRule(t *testing.T) {
 	t.Cleanup(shadow.Close)
 	c, cfg, _ := preflightCollector(t, shadow)
 	snap := c.LatestSnapshot()
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline) &&
+		(snap.System.Interval == nil || snap.System.Interval.CacheHitRatio == nil); {
+		time.Sleep(50 * time.Millisecond)
+		snap = c.LatestSnapshot()
+	}
 	findings := ruleCacheHitRatio(snap, nil, cfg, nil)
 	t.Logf("catalog input hit=80 read=20; collected=%f threshold=%f findings=%d",
 		snap.System.CacheHitRatio, cfg.Analyzer.CacheHitRatioWarning, len(findings))

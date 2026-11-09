@@ -33,6 +33,13 @@ func TestRegression_CacheHitRatioUnits(t *testing.T) {
 	for _, tc := range cases {
 		snap := &collector.Snapshot{}
 		snap.System.CacheHitRatio = tc.ratio
+		// collection-06: the rule judges the interval (always a fraction);
+		// the lifetime value, in either unit, is reported in the detail.
+		frac := NormalizeCacheHitRatio(tc.ratio)
+		if frac > 0 {
+			snap.System.Interval = &collector.SystemInterval{Seconds: 60,
+				CacheHitRatio: &frac, BlksAccessed: ivPtrI(100_000)}
+		}
 		got := ruleCacheHitRatio(snap, nil, cfg, nil)
 		if tc.wantSev == "" {
 			if len(got) != 0 {
@@ -49,6 +56,10 @@ func TestRegression_CacheHitRatioUnits(t *testing.T) {
 		}
 		if !strings.Contains(got[0].Title, tc.wantPct) {
 			t.Errorf("ratio %v: title %q lacks %q", tc.ratio, got[0].Title, tc.wantPct)
+		}
+		if got[0].Detail["lifetime_cache_hit_ratio"] != frac {
+			t.Errorf("ratio %v: lifetime detail %v, want %v", tc.ratio,
+				got[0].Detail["lifetime_cache_hit_ratio"], frac)
 		}
 	}
 }

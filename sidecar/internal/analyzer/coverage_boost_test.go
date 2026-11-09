@@ -801,6 +801,9 @@ func TestCoverage_RuleCacheHitRatio_Warning(t *testing.T) {
 	snap := &collector.Snapshot{
 		System: collector.SystemStats{CacheHitRatio: 0.90},
 	}
+	// collection-06: the rule reads the interval ratio.
+	snap.System.Interval = &collector.SystemInterval{Seconds: 60,
+		CacheHitRatio: ivPtrF(0.90), BlksAccessed: ivPtrI(100_000)}
 	findings := ruleCacheHitRatio(snap, nil, cfg, nil)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(findings))
@@ -818,6 +821,9 @@ func TestCoverage_RuleCacheHitRatio_Critical(t *testing.T) {
 	snap := &collector.Snapshot{
 		System: collector.SystemStats{CacheHitRatio: 0.70},
 	}
+	// collection-06: the rule reads the interval ratio.
+	snap.System.Interval = &collector.SystemInterval{Seconds: 60,
+		CacheHitRatio: ivPtrF(0.70), BlksAccessed: ivPtrI(100_000)}
 	findings := ruleCacheHitRatio(snap, nil, cfg, nil)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(findings))
