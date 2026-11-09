@@ -90,23 +90,21 @@ func (f *fixture) attachOutcome(actionLogID int64, verdict string) {
 // judged on its own (the rollback pass). A failed rollback is harmful.
 // Only a regression keeps its own (harmful) result.
 func TestClassifyWithVerdictRollbacks(t *testing.T) {
-	const unverified, harmful = ResultUnverified, ResultHarmful
 	for name, c := range map[string]struct {
 		outcome, verification, verdict string
 		want                           string
 		decided                        bool
 	}{
-		"rolled back after improving": {"rolled_back", "success", "improved", unverified, true},
-		"reverted after improving":    {"reverted", "success", "improved", unverified, true},
-		"rolled back, insufficient": {"rolled_back", "", "insufficient_evidence", unverified,
-			true},
-		"rolled back, unverifiable":    {"rolled_back", "", "unverifiable", unverified, true},
-		"neutral index-create revert":  {"rolled_back", "revert", "neutral", unverified, true},
-		"rolled back after regressing": {"rolled_back", "revert", "regressed", harmful, true},
-		"reverted after regressing":    {"reverted", "", "regressed", harmful, true},
-		"rollback failed, neutral":     {"rollback_failed", "", "neutral", harmful, true},
-		"rollback failed, improved":    {"rollback_failed", "success", "improved", harmful, true},
-		"rollback failed, regressed":   {"rollback_failed", "", "regressed", harmful, true},
+		"rolled back after improving":  {"rolled_back", "success", "improved", ResultUnverified, true},
+		"reverted after improving":     {"reverted", "success", "improved", ResultUnverified, true},
+		"rolled back, insufficient":    {"rolled_back", "", "insufficient_evidence", ResultUnverified, true},
+		"rolled back, unverifiable":    {"rolled_back", "", "unverifiable", ResultUnverified, true},
+		"neutral index-create revert":  {"rolled_back", "revert", "neutral", ResultUnverified, true},
+		"rolled back after regressing": {"rolled_back", "revert", "regressed", ResultHarmful, true},
+		"reverted after regressing":    {"reverted", "", "regressed", ResultHarmful, true},
+		"rollback failed, neutral":     {"rollback_failed", "", "neutral", ResultHarmful, true},
+		"rollback failed, improved":    {"rollback_failed", "success", "improved", ResultHarmful, true},
+		"rollback failed, regressed":   {"rollback_failed", "", "regressed", ResultHarmful, true},
 		"rolled back, verdict pending": {"rolled_back", "", "pending", "", false},
 		"rolled back, unknown verdict": {"rolled_back", "success", "great", "", false},
 		"kept improvement still earns": {"success", "success", "improved", ResultVerifiedRecovery,

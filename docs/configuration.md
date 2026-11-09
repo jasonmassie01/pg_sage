@@ -1594,9 +1594,8 @@ approval card. Promotion to L2 requires all of the following:
 Promotion to L3 also needs a Safe Pass rate of at least 95%, and at least 95% on game days if
 any have run. It also needs at least 50 verified recoveries at L2, and the pair must never
 have had a harmful outcome. An action an operator rolled back is never a verified recovery,
-whatever its verdict and whether the rollback came before or after pg_sage recorded it.
-These are the spec's thresholds and the defaults; the timing, volume and accuracy values
-can be lowered under `sre.autonomy.promotion` (see
+whatever its verdict and whether the rollback came before or after pg_sage recorded it. These are the spec's thresholds and the defaults; the timing,
+volume and accuracy values can be lowered under `sre.autonomy.promotion` (see
 [Fast elevation](#fast-elevation-dogfood-databases)). The report age (30 days) and the
 minimum bench run counts (10) are fixed.
 
