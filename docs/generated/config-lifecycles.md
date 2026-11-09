@@ -271,6 +271,7 @@
 | `postgres.user` | `restart` | `-` | `safety_critical` |
 | `prometheus.listen_addr` | `restart` | `-` | `safety_critical` |
 | `prometheus.refresh_interval_seconds` | `restart` | `-` | `operator_preference` |
+| `prometheus.serve_on_api` | `restart` | `-` | `safety_critical` |
 | `rca.connection_saturation_pct` | `restart` | `-` | `derivable` |
 | `rca.dedup_window_minutes` | `restart` | `-` | `derivable` |
 | `rca.enabled` | `restart` | `-` | `operator_preference` |

@@ -176,6 +176,7 @@ YAML value. Booleans accept `true`/`false`, `1`/`0`, `t`/`f`.
 | `SAGE_PG_MAX_CONNS` | `2` | Max PostgreSQL connections in the pool (`postgres.max_connections`) |
 | `SAGE_META_DB` / `_FILE` | (none) | Metadata database connection string; selects meta-db fleet mode |
 | `SAGE_PROMETHEUS_PORT` | `9187` | Port for Prometheus metrics, 1 to 65535; keeps the host of `prometheus.listen_addr` (default `127.0.0.1`) |
+| `SAGE_PROMETHEUS_ADDR` | (none) | Whole `host:port` of the separate `/metrics` listener (`prometheus.listen_addr`); wins over `SAGE_PROMETHEUS_PORT` when both are set |
 | `SAGE_RATE_LIMIT` | `60` | Max requests per minute per IP on the REST API; zero or negative means the default |
 | `SAGE_API_TRUSTED_ORIGINS` | (none) | Comma-separated `api.trusted_origins`: browser origins allowed to send cross-origin API writes ([CSRF](security.md#csrf-and-cross-origin-requests)) |
 | `SAGE_API_KEY` / `_FILE` | (none) | Legacy config field; the current web/API path uses session login cookies |

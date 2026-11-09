@@ -51,6 +51,9 @@ var envRegistry = []EnvVar{
 		Doc: "Metadata database connection string; selects meta-db fleet mode"},
 	{Name: "SAGE_PROMETHEUS_PORT", Default: envCode(9187), Doc: "Port for Prometheus metrics, " +
 		"1 to 65535; keeps the host of `prometheus.listen_addr` (default `127.0.0.1`)"},
+	{Name: "SAGE_PROMETHEUS_ADDR", Default: envNone, Doc: "Whole `host:port` of the " +
+		"separate `/metrics` listener (`prometheus.listen_addr`); wins over " +
+		"`SAGE_PROMETHEUS_PORT` when both are set"},
 	{Name: "SAGE_RATE_LIMIT", Default: envCode(DefaultRateLimit), Doc: "Max requests per " +
 		"minute per IP on the REST API; zero or negative means the default"},
 	{Name: "SAGE_API_TRUSTED_ORIGINS", Default: envNone, Doc: "Comma-separated " +
