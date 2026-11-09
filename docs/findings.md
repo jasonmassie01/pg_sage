@@ -1,6 +1,6 @@
 # Findings Catalog
 
-pg_sage detects issues across 16+ categories using deterministic rules (Tier 1) plus LLM-powered index optimization (Tier 2). Each finding includes a severity level, human-readable title, detailed description, recommendation, and (where applicable) remediation SQL with rollback SQL.
+pg_sage detects issues across more than 35 categories using deterministic rules (Tier 1) plus LLM-powered index optimization (Tier 2). Each finding includes a severity level, human-readable title, detailed description, recommendation, and (where applicable) remediation SQL with rollback SQL.
 
 Severities: **critical** > **warning** > **info**
 
@@ -509,9 +509,41 @@ SELECT pg_drop_replication_slot('old_subscriber');
 
 ---
 
+## More Tier 1 Categories
+
+These deterministic rules run alongside the categories above.
+
+| Category | What it detects |
+|----------|-----------------|
+| `high_total_time` | A query whose total execution time exceeds 10% of the analysis interval, even when each call is fast. |
+| `sort_without_index` | An EXPLAIN plan where a Sort feeding a Limit sorts at least 10x the rows the Limit returns; an index on the sort key avoids the sort. |
+| `plan_regression` | A query whose plan changed and whose estimated cost rose at least 2x, or 1.5x with node changes or new disk spills. |
+| `stale_statistics` | A table with writes and at least 10,000 live rows that was never analyzed or not analyzed in 7 days (`analyzer.analyze_stale_min_rows`, `analyzer.analyze_stale_days`). Recommends `ANALYZE`. |
+| `slow_replication_slot` | An active replication slot retaining at least 1 GB of WAL (critical at 5 GB): a slow consumer. |
+| `lock_chain` | A root blocker and the tree of sessions waiting on it in the monitored database. pg_sage's own sessions and configured safe processes get a finding but never cancel or terminate SQL. |
+| `stat_statements_pressure` | `pg_stat_statements` above 80% of `pg_stat_statements.max` (critical above 95%), where entries start being evicted. |
+| `work_mem_promotion` | A role with `work_mem` hints on five or more queries (`analyzer.work_mem_promotion_threshold`). Recommends one `ALTER ROLE ... SET work_mem`; advisory only. |
+| `extension_drift` | An installed extension whose version lags its default version until `ALTER EXTENSION ... UPDATE` runs. Advisory only. |
+
+---
+
+## LLM Advisors, Query Tuner and Executor
+
+| Category | Source | What it reports |
+|----------|--------|-----------------|
+| `wal_tuning` | LLM advisor | WAL and checkpoint settings, such as `max_wal_size` when checkpoints are forced. |
+| `connection_tuning` | LLM advisor | Connection capacity and churn, such as `max_connections` or pooling advice. |
+| `query_rewrite` | LLM advisor | Rewrites for the slowest queries. Text only, always advisory. |
+| `bloat_remediation` | LLM advisor | Options for removing table and index bloat. |
+| `memory_tuning`, `vacuum_tuning` | Tuning agent | Memory and autovacuum configuration changes. A recommendation without SQL is dropped. |
+| `query_tuning` | Query tuner | Per-query hints (for example `Set(work_mem ...)` or an index scan) stored in `sage.query_hints`. |
+| `runaway_query` | Executor | A running query past the configured runaway limits, such as its maximum duration. |
+
+---
+
 ## Tier 2 -- LLM Index Optimizer
 
-When LLM is enabled, the optimizer generates additional findings of category `index_recommendation`. These are consolidated index recommendations that have passed through 8 validators and confidence scoring. Each recommendation includes:
+When LLM is enabled, the optimizer generates additional findings of category `missing_index`; the index kind (missing, covering, partial or composite) is in the `index_category` detail. Releases before v1.8.0 stored the kind as the category (`covering_index`, `partial_index`, `composite_index`). These are consolidated index recommendations that have passed through 8 validators and confidence scoring. Each recommendation includes:
 
 - The CREATE INDEX statement (always uses CONCURRENTLY)
 - Confidence score (0.0-1.0)
