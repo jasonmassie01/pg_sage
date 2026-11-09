@@ -68,6 +68,20 @@ describe('FleetFindings', () => {
       .toHaveTextContent('tenant_x'))
   })
 
+  it('flags databases whose counts may be low', async () => {
+    respond({ ...recurring, truncated: ['tenant_big', 'tenant_huge'] })
+    render(<FleetFindings />)
+    await waitFor(() => expect(screen.getByTestId('fleet-findings-truncated'))
+      .toHaveTextContent('counts may be low for: tenant_big, tenant_huge'))
+  })
+
+  it('says nothing about counts when no database was truncated', async () => {
+    respond({ ...recurring, truncated: [] })
+    render(<FleetFindings />)
+    await screen.findByTestId('fleet-finding-toggle-0')
+    expect(screen.queryByTestId('fleet-findings-truncated')).not.toBeInTheDocument()
+  })
+
   it('shows a load failure instead of an empty list', async () => {
     respond({ error: 'boom' }, false)
     render(<FleetFindings />)

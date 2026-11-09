@@ -27,6 +27,7 @@ export function FleetFindings() {
 
   const findings = Array.isArray(data?.findings) ? data.findings : []
   const errors = Array.isArray(data?.errors) ? data.errors : []
+  const truncated = Array.isArray(data?.truncated) ? data.truncated : []
   const min = data?.min_databases || 3
 
   return (
@@ -51,6 +52,13 @@ export function FleetFindings() {
         <p className="text-xs mb-2" data-testid="fleet-findings-partial"
           style={{ color: 'var(--text-secondary)' }}>
           Not read: {errors.map(e => e.database).join(', ')}
+        </p>
+      )}
+      {truncated.length > 0 && (
+        <p className="text-xs mb-2" data-testid="fleet-findings-truncated"
+          style={{ color: 'var(--text-secondary)' }}>
+          More open findings than read; counts may be low for:{' '}
+          {truncated.join(', ')}
         </p>
       )}
       {findings.length > 0 && (
