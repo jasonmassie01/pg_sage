@@ -95,6 +95,7 @@ type Config struct {
 	Custodian   CustodianConfig     `yaml:"custodian"`
 	MCP         MCPConfig           `yaml:"mcp"`
 	Ask         AskConfig           `yaml:"ask"`
+	Facts       FactsConfig         `yaml:"facts"`
 	SelfBudget  SelfBudgetConfig    `yaml:"self_budget"`
 	History     HistoryConfig       `yaml:"history"`
 	Debug       DebugConfig         `yaml:"debug"`
@@ -742,6 +743,9 @@ func (c *Config) validate() error {
 	if err := c.Ask.validate(); err != nil {
 		return err
 	}
+	if err := c.Facts.validate(); err != nil {
+		return err
+	}
 	if err := c.Specialist.validate(); err != nil {
 		return err
 	}
@@ -1127,6 +1131,7 @@ func newDefaults() *Config {
 		MCP: MCPConfig{Enabled: DefaultMCPEnabled, Transport: DefaultMCPTransport,
 			OAuth: defaultMCPOAuthConfig()},
 		Ask:        defaultAskConfig(),
+		Facts:      defaultFactsConfig(),
 		SelfBudget: DefaultSelfBudget(),
 		History:    DefaultHistory(),
 		OAuth: OAuthConfig{

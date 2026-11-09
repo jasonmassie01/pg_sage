@@ -967,6 +967,12 @@
     "doc": "statement_timeout for EXPLAIN ANALYZE execution. Default: 10000.",
     "class": "derivable"
   },
+  "facts.confirmed_absence_days": {
+    "type": "int",
+    "default": 7,
+    "doc": "Days a confirmed operator or model fact keeps binding while its subject is absent, and may be restored after. Range 1-90. Default: 7.",
+    "class": "operator_preference"
+  },
   "fleet_learning.budget_ceiling_pct": {
     "type": "int",
     "default": 300,
