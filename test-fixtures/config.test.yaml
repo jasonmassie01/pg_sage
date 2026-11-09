@@ -25,7 +25,7 @@ analyzer:
   interval_seconds: 10
   slow_query_threshold_ms: 50
   seq_scan_min_rows: 1000
-  unused_index_window_days: 0
+  unused_index_window_days: 1   # 1-1073741824; 0 is rejected since config-02
   index_bloat_threshold_pct: 5
   table_bloat_dead_tuple_pct: 5
   table_bloat_min_rows: 100
@@ -49,7 +49,7 @@ trust:
   tier3_high_risk: false
   maintenance_window: "* * * * *"
   rollback_window_minutes: 2
-  rollback_cooldown_days: 0
+  rollback_cooldown_days: 1   # 1-1073741824; 0 is rejected since config-02
   cascade_cooldown_cycles: 1
 
 llm:
