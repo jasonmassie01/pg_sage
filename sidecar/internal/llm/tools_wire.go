@@ -58,7 +58,12 @@ func startShaped(
 ) (wireShape, []byte, error) {
 	shape := requestShape(cfg, tools)
 	body, err := marshalShaped(req, shape)
-	return shape, body, err
+	if err != nil {
+		return shape, nil, err
+	}
+	// The pre-flight size guard (llm-05) runs on the wire body, before
+	// the throttle, the budgets or any I/O.
+	return shape, body, preflight(cfg, estimateTokens(string(body)), req.MaxTokens)
 }
 
 // marshalShaped is the JSON body of the request in the given wire shape.

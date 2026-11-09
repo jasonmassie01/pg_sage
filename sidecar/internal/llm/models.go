@@ -93,6 +93,7 @@ func ListModelsWithClient(
 		return nil, err
 	}
 	defaultCache.setFor(key, models)
+	inputLimits.record(key, models)
 	return models, nil
 }
 

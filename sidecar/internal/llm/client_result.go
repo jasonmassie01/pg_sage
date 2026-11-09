@@ -36,6 +36,9 @@ func (c *Client) ChatResult(
 	}
 	defer c.endProbe(probe)
 	maxTokens = normalizedMaxTokens(cfg.Model, maxTokens)
+	if err := preflight(cfg, estimateTokens(system, user), maxTokens); err != nil {
+		return Response{}, err
+	}
 	throttleKey := requestThrottleKey(cfg, system, user)
 	if err := c.acquireThrottle(throttleKey, cfg.CooldownSeconds); err != nil {
 		return Response{}, err
