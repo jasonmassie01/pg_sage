@@ -148,6 +148,8 @@ func limitPhrases() []string {
 			probes.MaxSidecarConcurrency),
 		fmt.Sprintf("at most %d probes in %d s of active time", l.MaxProbes,
 			int(l.MaxActive/time.Second)),
+		fmt.Sprintf("has a statement timeout of up to %d s",
+			int(probes.MaxBackgroundStatementTimeout/time.Second)),
 	}
 }
 

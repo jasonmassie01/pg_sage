@@ -39,7 +39,8 @@ Sage SRE investigations need only `pg_monitor`; without `pg_read_all_stats` thei
 probes report `no_privilege` instead of a partial answer. See
 [Sage SRE: permissions and data flow](sage-sre-permissions-and-data-flow.md). Its approved
 actions need more, and only after a human approval: `pg_signal_backend` (or the target
-role's privileges) for a backend cancel, and table ownership for extended statistics. See
+role's privileges) for a backend cancel, and table ownership plus `CREATE` on the statistics
+object's schema for extended statistics. See
 [action privileges](sage-sre-permissions-and-data-flow.md#action-privileges), which also
 records, per managed provider, whether `pg_signal_backend` can be granted.
 

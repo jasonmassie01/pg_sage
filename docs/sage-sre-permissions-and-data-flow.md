@@ -47,8 +47,11 @@ monitored database                         pg_sage process                      
   same slots. A probe that waited 5 s for a slot without one is `concurrency_limit`; an
   investigation's probe refused that way runs once more when the investigation has the time,
   and the second result is stored whatever it is. Each investigation runs at most 12 probes
-  in 120 s of active time. The catalog is fixed and versioned (`internal/sre/probes`); the
-  model can only name a catalog probe with typed arguments.
+  in 120 s of active time. Outside investigations, the runway monitor samples the M6 runway
+  probes on its own cadence (sequences every 10 minutes by default); there a probe given a
+  background budget, such as `sequence_runway`, has a statement timeout of up to 2 s. The
+  catalog is fixed and versioned (`internal/sre/probes`); the model can only name a catalog
+  probe with typed arguments.
 - **Probes return identities, states, counts, ages and settings, never query text.** The
   lock and transaction probes return process ids, backend start times, lock modes, relation
   names and transaction ages. The connection probe returns `application_name` (first 64
@@ -181,9 +184,11 @@ proposal runs only through this path:
    a cancel with `sre.actions.request_approval: true`, at once.
 3. A human approves that item (the Actions page, the Cases panel or a signed ChatOps button).
    The approval is single use and records who approved.
-4. The executor's policy gate decides as for any action: `trust.level` must be `advisory` or
-   `autonomous`, and the emergency stop and the execution mode apply. The target is checked
-   again just before the change.
+4. The executor's policy gate decides as for any approved action: the executor must be
+   enabled, `trust.level` must be `advisory` or `autonomous`, the emergency stop holds it
+   back, and the policy must allow its change class. The execution mode does not: an approved
+   item is already the human step that `approval` and `manual` wait for. The target is
+   checked again just before the change.
 
 The keys are in [configuration](configuration.md#sage-sre-approved-actions).
 

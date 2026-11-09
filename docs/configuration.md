@@ -1431,9 +1431,9 @@ proposal never executes by itself:
    on the timeline and closes the action's verification. Value is credited only on recovery.
 
 The policy gate decides as for any action. `trust.level` must be `advisory` or `autonomous`
-(under `observation` the proposal shows why it is withheld), and the emergency stop and the
-execution mode apply. An approved cancel is incident mitigation, so maintenance windows do
-not delay it. Replication connections, pg_sage's own sessions and `pg_dump`,
+(under `observation` the proposal shows why it is withheld), and the executor switch and the
+emergency stop apply. The execution mode does not hold back an approved item. An approved
+cancel is incident mitigation, so maintenance windows do not delay it. Replication connections, pg_sage's own sessions and `pg_dump`,
 `pg_basebackup` and `pg_restore` sessions are never targeted. Superuser sessions are not
 protected by default, so list roles or applications that must never be cancelled.
 
