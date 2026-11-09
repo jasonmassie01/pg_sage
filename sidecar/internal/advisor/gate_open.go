@@ -2,6 +2,7 @@ package advisor
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -69,6 +70,7 @@ func (g openGate) dropOpen(category string, findings []analyzer.Finding,
 	logFn func(string, string, ...any)) []analyzer.Finding {
 	out := make([]analyzer.Finding, 0, len(findings))
 	for _, f := range findings {
+		f = g.rekey(category, f)
 		if g.covers(category, f) {
 			logFn("DEBUG", "advisor: %s: dropping new finding for %s, an open finding "+
 				"covers it", category, f.ObjectIdentifier)
@@ -77,6 +79,24 @@ func (g openGate) dropOpen(category string, findings []analyzer.Finding,
 		out = append(out, f)
 	}
 	return out
+}
+
+// rekey gives a setting finding whose key an open finding about another
+// setting already holds the per-setting key split statements use
+// ("instance:<guc>"). A single-statement proposal is keyed "instance",
+// like the open row, so dropping it by key would silence the rest of the
+// category again, and keeping its key would overwrite the open row.
+func (g openGate) rekey(category string, f analyzer.Finding) analyzer.Finding {
+	if !configCategories[category] || !g.idents[f.Category+"|"+f.ObjectIdentifier] {
+		return f
+	}
+	guc := findingGUC(f)
+	if guc == "" || g.hasGUC(category, guc) || strings.HasSuffix(f.ObjectIdentifier, ":"+guc) {
+		return f
+	}
+	f.ObjectIdentifier += ":" + guc
+	f.Title = fmt.Sprintf("%s: set %s", category, guc)
+	return f
 }
 
 func (g openGate) covers(category string, f analyzer.Finding) bool {
