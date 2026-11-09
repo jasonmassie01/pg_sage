@@ -157,11 +157,7 @@ func (r *Runner) attempts(ctx context.Context, spec Spec, args Args, res Result)
 // probe on it within the statement budget: the pool wait never spends
 // the statement's time.
 func (r *Runner) attempt(ctx context.Context, spec Spec, args Args, res Result) Result {
-	wait := r.acquireWait
-	if wait <= 0 {
-		wait = acquireWait
-	}
-	actx, cancel := context.WithTimeout(ctx, wait)
+	actx, cancel := context.WithTimeout(ctx, r.AcquireWait())
 	began := time.Now()
 	pool, store := r.poolFor(spec)
 	conn, err := pool.Acquire(actx)
