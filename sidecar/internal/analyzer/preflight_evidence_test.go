@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -15,13 +14,15 @@ import (
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"github.com/pg-sage/sidecar/internal/testsupport/pgssepoch"
 )
 
 // No parallel fixtures: collection and analysis ordering is the subject of these tests.
+// Without a test server they skip through testdb's live check.
 func preflightPool(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
-	p, err := pgxpool.New(context.Background(), os.Getenv("SAGE_TEST_DATABASE_URL"))
+	p, err := pgxpool.New(context.Background(), testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +178,7 @@ func TestPreflightEvidencePercentCollectorToRatioRule(t *testing.T) {
 	preflightSQL(t, p, `CREATE VIEW preflight_catalog.pg_stat_database AS
 		SELECT datname,80::bigint blks_hit,20::bigint blks_read,
 		deadlocks,blk_read_time,blk_write_time FROM pg_catalog.pg_stat_database`)
-	pcfg, err := pgxpool.ParseConfig(os.Getenv("SAGE_TEST_DATABASE_URL"))
+	pcfg, err := pgxpool.ParseConfig(testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatal(err)
 	}
