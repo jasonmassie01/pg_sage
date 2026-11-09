@@ -199,12 +199,16 @@ func applyControlledGlobalConfig(
 		return
 	}
 	delete(body, "expected_generation")
+	candidate := controller.Desired().Config
+	if err := bindSecretDestinations(body, candidate); err != nil {
+		jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	writes, validationErrs := validatedConfigWrites(body)
 	if len(validationErrs) > 0 {
 		jsonError(w, validationErrs[0], http.StatusBadRequest)
 		return
 	}
-	candidate := controller.Desired().Config
 	for _, write := range writes {
 		hotReload(candidate, write.Key, write.Value)
 	}

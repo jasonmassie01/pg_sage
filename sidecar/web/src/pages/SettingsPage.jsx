@@ -577,7 +577,7 @@ function SimpleAIAlertsTab(props) {
           label="Endpoint URL"
           configKey="llm.endpoint"
           type="text"
-          help="The URL of your AI provider. Works with any OpenAI-compatible API (OpenAI, Gemini, Groq, Ollama, etc)."
+          help="The URL of your AI provider. Works with any OpenAI-compatible API (OpenAI, Gemini, Groq, Ollama, etc). Moving it to another host, scheme or port asks for the API key again."
           {...props}
         />
         <ModelField
@@ -588,7 +588,7 @@ function SimpleAIAlertsTab(props) {
           label="API Key"
           configKey="llm.api_key"
           type="password"
-          help="Your AI provider's API key. Stored securely and never logged."
+          help="Your AI provider's API key. Stored securely and never logged. It is only sent to the endpoint it was saved with: re-enter it, or clear it, when the endpoint moves."
           {...props}
         />
       </div>
