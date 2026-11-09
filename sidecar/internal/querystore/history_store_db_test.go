@@ -83,12 +83,11 @@ func storeSamples(t *testing.T, p *histfixture.Pair) []string {
 
 // placementAnswer is everything the query store answers on the fixture.
 type placementAnswer struct {
-	rows      []string
+	rows    []string
 	windows map[int64]window
 }
 
-func readPlacementAnswer(t *testing.T, p *histfixture.Pair, from, to time.Time) (
-	placementAnswer) {
+func readPlacementAnswer(t *testing.T, p *histfixture.Pair, from, to time.Time) placementAnswer {
 	t.Helper()
 	ctx := context.Background()
 	a := placementAnswer{rows: storeSamples(t, p), windows: map[int64]window{}}

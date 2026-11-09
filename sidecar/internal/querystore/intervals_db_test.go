@@ -118,20 +118,19 @@ func intervalTotals(ivs []Interval) (calls int64, broken bool) {
 	return calls, broken
 }
 
-// Parity: QueryIntervals answers exactly what verify's SQL answered.
-func TestQueryIntervalsMatchesVerifyGolden(t *testing.T) {
-	pool, ctx := requireDB(t)
-	defer pool.Close()
-	a := time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC)
-	b := a.Add(24 * time.Hour)
-	const qid = int64(7_400_000_001)
-	cases := []struct {
-		name       string
-		rows       []seedRow
-		wantN      int
-		wantCalls  int64
-		wantBroken bool
-	}{
+// intervalCase is one seeded window of the verify parity test.
+type intervalCase struct {
+	name       string
+	rows       []seedRow
+	wantN      int
+	wantCalls  int64
+	wantBroken bool
+}
+
+// verifyGoldenCases are the verify parity windows of query qid, with
+// statistics epochs a and b.
+func verifyGoldenCases(qid int64, a, b time.Time) []intervalCase {
+	return []intervalCase{
 		{"steady with anchor", []seedRow{{qid, -50 * time.Minute, 100, 1000, &a},
 			{qid, -20 * time.Minute, 150, 2000, &a}, {qid, -5 * time.Minute, 200, 2600, &a}},
 			2, 100, false},
@@ -154,7 +153,15 @@ func TestQueryIntervalsMatchesVerifyGolden(t *testing.T) {
 			{qid, -30 * time.Minute, 100, 1000, &a}, {qid, -10 * time.Minute, 200, 3000, &a}},
 			2, 150, false},
 	}
-	for i, tc := range cases {
+}
+
+// Parity: QueryIntervals answers exactly what verify's SQL answered.
+func TestQueryIntervalsMatchesVerifyGolden(t *testing.T) {
+	pool, ctx := requireDB(t)
+	defer pool.Close()
+	a := time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC)
+	const qid = int64(7_400_000_001)
+	for i, tc := range verifyGoldenCases(qid, a, a.Add(24*time.Hour)) {
 		t.Run(tc.name, func(t *testing.T) {
 			clearQueryIDs(t, ctx, pool, qid, qid)
 			to := time.Date(2025, 3, 1+i, 12, 0, 0, 0, time.UTC)
@@ -247,22 +254,27 @@ func sameDeltas(got []Delta, reset bool, want []deltaRow) bool {
 	return true
 }
 
-// Parity: CaptureDeltas answers what the SLO latency proxy's SQL answered.
-func TestCaptureDeltasMatchesSLOGolden(t *testing.T) {
-	pool, ctx := requireDB(t)
-	defer pool.Close()
-	a := time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC)
-	b := a.Add(24 * time.Hour)
-	const q1, q2, q3, q4 = int64(7_400_000_011), int64(7_400_000_012), int64(7_400_000_013),
-		int64(7_400_000_014)
-	prevAt := -5 * time.Minute
-	cases := []struct {
-		name      string
-		rows      []seedRow
-		limit     int
-		wantN     int
-		wantReset bool
-	}{
+// sloCase is one seeded capture pair of the SLO parity test.
+type sloCase struct {
+	name      string
+	rows      []seedRow
+	limit     int
+	wantN     int
+	wantReset bool
+}
+
+// The SLO parity test's queries and where its previous capture sits.
+const (
+	sloQ1, sloQ2, sloQ3, sloQ4 = int64(7_400_000_011), int64(7_400_000_012),
+		int64(7_400_000_013), int64(7_400_000_014)
+	sloPrevAt = -5 * time.Minute
+)
+
+// sloGoldenCases are the SLO parity capture pairs, with statistics epochs
+// a and b.
+func sloGoldenCases(a, b time.Time) []sloCase {
+	q1, q2, q3, q4, prevAt := sloQ1, sloQ2, sloQ3, sloQ4, sloPrevAt
+	return []sloCase{
 		{"anchors inside and outside lookback", []seedRow{
 			{q1, prevAt, 100, 1000, &a}, {q1, 0, 150, 2000, &a},
 			{q2, prevAt - AnchorLookback + time.Minute, 10, 100, &a}, {q2, 0, 30, 1500, &a},
@@ -279,11 +291,18 @@ func TestCaptureDeltasMatchesSLOGolden(t *testing.T) {
 		{"epoch change after regrowth", []seedRow{
 			{q1, prevAt, 100, 1000, &a}, {q1, 0, 400, 9000, &b}}, 10, 1, true},
 	}
-	for i, tc := range cases {
+}
+
+// Parity: CaptureDeltas answers what the SLO latency proxy's SQL answered.
+func TestCaptureDeltasMatchesSLOGolden(t *testing.T) {
+	pool, ctx := requireDB(t)
+	defer pool.Close()
+	a := time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC)
+	for i, tc := range sloGoldenCases(a, a.Add(24*time.Hour)) {
 		t.Run(tc.name, func(t *testing.T) {
-			clearQueryIDs(t, ctx, pool, q1, q4)
+			clearQueryIDs(t, ctx, pool, sloQ1, sloQ4)
 			cur := time.Date(2025, 4, 1+i, 12, 0, 0, 0, time.UTC)
-			prev := cur.Add(prevAt)
+			prev := cur.Add(sloPrevAt)
 			seedRows(t, ctx, pool, cur, tc.rows)
 			want := goldenDeltas(t, ctx, pool, cur, prev, tc.limit)
 			got, reset, err := CaptureDeltas(ctx, pool, cur, prev, tc.limit)
