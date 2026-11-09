@@ -76,7 +76,8 @@ type ClearedFinding struct {
 // resolved, so the analyzer can resolve their pages (alerting-01). Each
 // row is resolved only while still open, so concurrent resolvers report
 // a finding once. A failed UPDATE does not stop the rest: the findings
-// resolved are returned with the joined errors (rules-06).
+// resolved are returned with the joined errors (rules-06). A lost
+// connection does stop them.
 func ResolveClearedFindings(
 	ctx context.Context,
 	pool *pgxpool.Pool,
@@ -111,6 +112,9 @@ func ResolveClearedFindings(
 			// Keep going: one bad row must not keep the rest open.
 			errs = append(errs, fmt.Errorf("resolve %s finding %s: %w",
 				category, id, err))
+			if connectionLost(err) {
+				break // every later row would wait out the same timeout
+			}
 			continue
 		}
 		cleared = append(cleared, c)
@@ -128,7 +132,8 @@ func clearedFindingIDs(
 ) ([]string, error) {
 	rows, err := pool.Query(ctx,
 		`/* pg_sage */ SELECT id, object_identifier FROM sage.findings
-		 WHERE category = $1 AND status = 'open'`,
+		 WHERE category = $1 AND status = 'open'
+		 ORDER BY id`,
 		category,
 	)
 	if err != nil {

@@ -84,7 +84,8 @@ func UpsertFindingsWithResult(
 // future) on the same identity is honoured: no open row is created or
 // refreshed for it. A per-finding error does not stop the batch: the
 // finding goes to Failed and the returned error joins every failure,
-// each naming its category and identity (rules-06).
+// each naming its category and identity (rules-06). A lost connection or
+// a cancelled ctx stops the batch: the rest go to Failed unattempted.
 func UpsertFindingsObserved(
 	ctx context.Context, pool *pgxpool.Pool, findings []Finding, ev Evidence,
 ) (UpsertResult, error) {
@@ -95,21 +96,30 @@ func UpsertFindingsObserved(
 			continue
 		}
 		if err := ctx.Err(); err != nil {
-			res.Failed = append(res.Failed, findings[i:]...)
-			errs = append(errs, fmt.Errorf("upsert stopped with %d findings left: %w",
-				len(findings)-i, err))
-			break
+			return res, stopBatch(&res, errs, findings[i:], err)
 		}
 		outcome, err := upsertOne(ctx, pool, f, ev)
-		if err != nil {
-			res.Failed = append(res.Failed, f)
-			errs = append(errs, fmt.Errorf("upsert %s finding %s: %w",
-				f.Category, f.ObjectIdentifier, err))
+		if err == nil {
+			res.record(outcome, f)
 			continue
 		}
-		res.record(outcome, f)
+		res.Failed = append(res.Failed, f)
+		errs = append(errs, fmt.Errorf("upsert %s finding %s: %w",
+			f.Category, f.ObjectIdentifier, err))
+		if connectionLost(err) {
+			return res, stopBatch(&res, errs, findings[i+1:], err)
+		}
 	}
 	return res, errors.Join(errs...)
+}
+
+// stopBatch records the unattempted rest of a batch as failed and returns
+// the batch's joined error, ending with why it stopped.
+func stopBatch(res *UpsertResult, errs []error, rest []Finding, cause error) error {
+	left := advisable(rest)
+	res.Failed = append(res.Failed, left...)
+	return errors.Join(append(errs,
+		fmt.Errorf("upsert stopped with %d findings left: %w", len(left), cause))...)
 }
 
 // upsertOne persists f, retrying once when a concurrent upserter opened
@@ -171,6 +181,7 @@ func lookupOpenFinding(
 	err := pool.QueryRow(ctx,
 		`/* pg_sage */ SELECT id, severity,
 		        CASE WHEN jsonb_typeof(detail->'persisted_after_action') = 'number'
+		              AND detail->>'persisted_after_action' ~ '^[0-9]{1,18}$'
 		             THEN (detail->>'persisted_after_action')::bigint END
 		   FROM sage.findings
 		  WHERE category = $1 AND object_identifier = $2 AND status = 'open'`,

@@ -41,7 +41,9 @@ and resolves the open findings a fully evaluated category no longer reports.
 - **Partial failures.** A finding that cannot be persisted (for example a statement
   timeout) does not stop the cycle. The rest are still persisted, and the cycle logs one
   error naming each failed finding's category and identity. Resolving cleared findings
-  also continues past a failed row.
+  also continues past a failed row. A lost connection (a connect or network error,
+  SQLSTATE class 08, a server shutdown) stops the batch instead, so an unreachable
+  database costs one timeout per cycle rather than one per finding.
 - **Suppression.** Before publishing, one query drops every identity under an active
   suppression (`status = 'suppressed'` with `suppressed_until` empty or in the future),
   including identities that came after a failed row. If that query fails, the cycle keeps
