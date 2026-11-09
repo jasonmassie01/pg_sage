@@ -63,15 +63,28 @@ func findingRequest(finding analyzer.Finding, isReplica bool) policy.ActionReque
 }
 
 func unboundFindingRequest(finding analyzer.Finding, isReplica bool) policy.ActionRequest {
+	var contract *policy.ActionContract
+	if found, ok := contractForFinding(finding); ok {
+		contract = policyContract(found)
+	}
+	return contractFindingRequest(finding, contract, isReplica)
+}
+
+// contractFindingRequest is the gate request for finding under contract
+// (nil when no contract runs it), before its statement is bound: the
+// request the executor authorizes and the Cases view explains.
+func contractFindingRequest(
+	finding analyzer.Finding, contract *policy.ActionContract, isReplica bool,
+) policy.ActionRequest {
 	request := policy.ActionRequest{
 		SQL: finding.RecommendedSQL, Feature: featureForFinding(finding),
 		TargetObjs:            targetObjectsForFinding(finding),
 		TargetsNameNoRelation: targetsNameNoRelation(finding),
 		IsReplica:             isReplica,
+		Contract:              contract,
 	}
-	if contract, ok := contractForFinding(finding); ok {
-		request.Contract = policyContract(contract)
-		requireApprovalWithoutWhatIf(finding, request.Contract)
+	if contract != nil {
+		requireApprovalWithoutWhatIf(finding, contract)
 	}
 	if gateSQL, targets, ok := replaceGateView(finding.RecommendedSQL); ok {
 		request.SQL, request.TargetObjs = gateSQL, targets
@@ -117,7 +130,7 @@ func targetObjectsForFinding(finding analyzer.Finding) []string {
 }
 
 func featureForFinding(finding analyzer.Finding) string {
-	return changeClassForActionType(actionTypeForProposalSQL(finding.RecommendedSQL))
+	return changeClassForActionType(ActionTypeForSQL(finding.RecommendedSQL))
 }
 
 func standingPolicyDecision(decision policy.Decision) ActionPolicyDecision {
@@ -178,6 +191,6 @@ func contractForFinding(f analyzer.Finding) (ActionContract, bool) {
 	if err := ValidateExecutorSQL(f.RecommendedSQL); err != nil {
 		return ActionContract{}, false
 	}
-	actionType := actionTypeForProposalSQL(f.RecommendedSQL)
+	actionType := ActionTypeForSQL(f.RecommendedSQL)
 	return ContractForActionType(actionType)
 }

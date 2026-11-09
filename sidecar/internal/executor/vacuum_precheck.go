@@ -123,7 +123,7 @@ func readMaintain(
 
 // maintenanceActionType is the prechecked action type of sql, or "".
 func maintenanceActionType(sql string) string {
-	switch actionType := actionTypeForProposalSQL(sql); actionType {
+	switch actionType := ActionTypeForSQL(sql); actionType {
 	case "vacuum_table", "set_table_autovacuum":
 		return actionType
 	}

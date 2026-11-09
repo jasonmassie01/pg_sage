@@ -1,9 +1,11 @@
-package analyzer
+package analyzer_test
 
 import (
 	"testing"
 
+	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/cases"
+	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/optimizer"
 )
 
@@ -19,7 +21,7 @@ func TestOptimizerRecommendationFinding_RiskAndRollback(t *testing.T) {
 		EstimatedImprovementPct: 25,
 		AffectedQueries:         []string{"SELECT * FROM orders WHERE status = $1"},
 	}
-	finding := OptimizerRecommendationFinding(rec)
+	finding := analyzer.OptimizerRecommendationFinding(rec)
 
 	if finding.ActionRisk != optimizer.RiskModerate {
 		t.Fatalf("ActionRisk = %q, want %q",
@@ -82,7 +84,7 @@ func TestOptimizerSpecializedRecommendationsProjectToIndexActions(t *testing.T) 
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			finding := OptimizerRecommendationFinding(
+			finding := analyzer.OptimizerRecommendationFinding(
 				optimizer.Recommendation{
 					Table:           "public." + tt.name + "_demo",
 					DDL:             tt.ddl,
@@ -107,7 +109,7 @@ func TestOptimizerSpecializedRecommendationsProjectToIndexActions(t *testing.T) 
 				RecommendedSQL:   finding.RecommendedSQL,
 				RollbackSQL:      finding.RollbackSQL,
 				Detail:           finding.Detail,
-			})
+			}, executor.ClassifySQL)
 
 			if len(projected.ActionCandidates) != 1 {
 				t.Fatalf("ActionCandidates = %d, want 1",

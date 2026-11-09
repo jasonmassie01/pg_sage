@@ -252,7 +252,7 @@ func TestForwardRollbacksClassifyToContracts(t *testing.T) {
 		t.Fatalf("unclassified rollbacks: %v", got)
 	}
 	for _, s := range forwardRollbackSamples {
-		if got := actionTypeForProposalSQL(s.forward); got != s.actionType {
+		if got := ActionTypeForSQL(s.forward); got != s.actionType {
 			t.Fatalf("sample forward %q classifies as %q, want %q", s.forward, got,
 				s.actionType)
 		}

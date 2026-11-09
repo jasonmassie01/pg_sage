@@ -96,20 +96,39 @@ func seedCountFindings(t *testing.T, ctx context.Context, n int) {
 	}
 }
 
-type policyPathCount struct{ emergencyStop, policyDoc, usage, total int }
+type policyPathCount struct{ emergencyStop, policyDoc, usage, inFlight, total int }
 
 func countPolicyPath(rec *testdb.QueryRecorder) policyPathCount {
 	return policyPathCount{
 		emergencyStop: len(rec.Matching("sage.config", "emergency_stop")),
 		policyDoc:     len(rec.Matching("FROM sage.policy")),
 		usage:         len(rec.Matching("JOIN sage.decision d ON d.id = al.decision_id")),
+		inFlight:      len(rec.Matching("al.id, 0::bigint, al.sql_executed")),
 		total:         rec.RoundTrips(),
 	}
 }
 
-// CHECK-02: the policy path reads the same number of statements for 50 and
-// 500 open findings: one snapshot per database, not one per case.
-func TestCasesPolicyStatementsDoNotScaleWithFindings(t *testing.T) {
+// hygieneFindings is how many of seedCountFindings' n findings ANALYZE or
+// VACUUM (g % 3 != 2): self-initiated hygiene the gate reaches the budget
+// for; the CREATE INDEX findings stop at approval first.
+func hygieneFindings(n int) int {
+	count := 0
+	for g := 1; g <= n; g++ {
+		if g%3 != 2 {
+			count++
+		}
+	}
+	return count
+}
+
+// CHECK-02, as cases-04 narrows it: the emergency stop and the policy are
+// read once per database for 50 and for 500 findings. What a finding's
+// own table decides (CHECK-08) is read per finding and nothing more: one
+// in-flight verification read per finding statement, one usage read per
+// statement that reaches its budget; every other statement is constant.
+// (cases-06 pinned the whole count constant while verdicts were
+// family-only; that was the bug cases-04 fixes.)
+func TestCasesPolicyStatementsScaleOnlyWithFindingTargets(t *testing.T) {
 	pool, rec, ctx := tracedCasePool(t)
 	counts := map[int]policyPathCount{}
 	for _, n := range []int{50, 500} {
@@ -126,22 +145,21 @@ func TestCasesPolicyStatementsDoNotScaleWithFindings(t *testing.T) {
 		}
 		counts[n] = countPolicyPath(rec)
 		t.Logf("%d findings: %+v", n, counts[n])
+		c := counts[n]
+		if c.emergencyStop != 1 || c.policyDoc != 1 {
+			t.Fatalf("%d findings: emergency-stop / policy reads = %d / %d, want 1 / 1",
+				n, c.emergencyStop, c.policyDoc)
+		}
+		if c.inFlight != n || c.usage != hygieneFindings(n) {
+			t.Fatalf("%d findings: in-flight / usage reads = %d / %d, want %d / %d", n,
+				c.inFlight, c.usage, n, hygieneFindings(n))
+		}
 	}
 	small, large := counts[50], counts[500]
-	if small.emergencyStop != 1 || large.emergencyStop != 1 {
-		t.Fatalf("emergency-stop reads = %d / %d, want 1 per database", small.emergencyStop,
-			large.emergencyStop)
-	}
-	if small.policyDoc != 1 || large.policyDoc != 1 {
-		t.Fatalf("policy reads = %d / %d, want 1 per database", small.policyDoc,
-			large.policyDoc)
-	}
-	if small.usage != large.usage {
-		t.Fatalf("usage reads = %d / %d, want the same for 50 and 500", small.usage, large.usage)
-	}
-	if small.total != large.total {
-		t.Fatalf("request statements = %d / %d, want the same for 50 and 500",
-			small.total, large.total)
+	if fixed := small.total - small.usage - small.inFlight; fixed !=
+		large.total-large.usage-large.inFlight {
+		t.Fatalf("statements besides per-target reads = %d / %d, want the same", fixed,
+			large.total-large.usage-large.inFlight)
 	}
 }
 
@@ -229,8 +247,9 @@ func seedGoldenFixture(t *testing.T, ctx context.Context) {
 }
 
 // CHECK-03: /api/v1/cases for a fixed fixture is byte-identical to the
-// response recorded before policy explanation was batched. Regenerate only
-// on the per-case code: SAGE_UPDATE_CASES_GOLDEN=1.
+// recorded response (SAGE_UPDATE_CASES_GOLDEN=1 regenerates it). cases-04
+// regenerated it: the ALTER SYSTEM case shows alter_system_guc, and the
+// missing-index case the executor's approval_required.
 func TestCasesHandlerGoldenResponse(t *testing.T) {
 	pool, ctx := phase2RequireDB(t)
 	resetCaseTables(t, ctx)

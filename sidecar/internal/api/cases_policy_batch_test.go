@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/cases"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
@@ -74,11 +75,14 @@ var batchObservedAt = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 
 // batchFixtureCases is n finding cases over three action types, every
 // fifth with an extra unknown candidate and every seventh with no SQL.
+// Each statement changes the table its finding names (cases-04: the
+// statement is now explained bound to that table, and a statement on
+// another table is a target_mismatch, as the executor would refuse it).
 func batchFixtureCases(n int) []cases.Case {
 	sqls := []string{
-		"ANALYZE public.orders",
-		"CREATE INDEX CONCURRENTLY idx_orders_c ON public.orders (c)",
-		"VACUUM public.orders",
+		"ANALYZE public.t%[1]d",
+		"CREATE INDEX CONCURRENTLY idx_t%[1]d_c ON public.t%[1]d (c)",
+		"VACUUM public.t%[1]d",
 	}
 	out := make([]cases.Case, 0, n)
 	for i := 0; i < n; i++ {
@@ -86,12 +90,12 @@ func batchFixtureCases(n int) []cases.Case {
 			ID: fmt.Sprint(i + 1), DatabaseName: "prod", Category: "stale_statistics",
 			Severity: cases.SeverityWarning, ObjectType: "table",
 			ObjectIdentifier: fmt.Sprintf("public.t%d", i), Title: fmt.Sprintf("finding %d", i),
-			RecommendedSQL: sqls[i%len(sqls)], ObservedAt: batchObservedAt,
+			RecommendedSQL: fmt.Sprintf(sqls[i%len(sqls)], i), ObservedAt: batchObservedAt,
 		}
 		if i%7 == 6 {
 			f.RecommendedSQL = ""
 		}
-		c := cases.ProjectFinding(f)
+		c := cases.ProjectFinding(f, executor.ClassifySQL)
 		if i%5 == 4 {
 			c.ActionCandidates = append(c.ActionCandidates,
 				cases.ActionCandidate{ActionType: "mystery_family"})
@@ -112,28 +116,34 @@ func cloneCases(in []cases.Case) []cases.Case {
 	return out
 }
 
-// perCaseReference is the per-case enrichment the handler ran before
-// batching: one explain per case through the instance executor.
+// perCaseReference explains each candidate of one case on its own, as
+// the executor decides it (cases-04): a candidate whose statement the
+// executor classifies to its type is explained with that statement and
+// its finding, any other by its family's readiness.
 func perCaseReference(c *cases.Case, inst *fleet.DatabaseInstance) {
 	caps := inst.SnapshotStatus().Capabilities
 	defer cases.ApplyProviderApplicability(c, caps.Provider)
-	var contracts []executor.ActionContract
-	var slots []int
 	for i := range c.ActionCandidates {
-		contract, ok := executor.ContractForActionType(c.ActionCandidates[i].ActionType)
+		candidate := &c.ActionCandidates[i]
+		contract, ok := executor.ContractForActionType(candidate.ActionType)
 		if !ok {
-			c.ActionCandidates[i].BlockedReason = "unknown action type"
+			candidate.BlockedReason = "unknown action type"
 			continue
 		}
-		contracts = append(contracts, contract)
-		slots = append(slots, i)
-	}
-	if len(contracts) == 0 {
-		return
-	}
-	decisions := inst.Executor.ExplainFamilies(context.Background(), contracts, caps.IsReplica)
-	for k, decision := range decisions {
-		applyCandidatePolicy(&c.ActionCandidates[slots[k]], decision)
+		request := executor.ExplainActionRequest{Contract: contract}
+		if candidate.ProposedSQL != "" &&
+			executor.ActionTypeForSQL(candidate.ProposedSQL) == candidate.ActionType {
+			request.Finding = analyzer.Finding{RecommendedSQL: candidate.ProposedSQL}
+			if src := candidate.Source; src != nil {
+				request.Finding.Category, request.Finding.Detail = src.Category, src.Detail
+				request.Finding.ObjectType = src.ObjectType
+				request.Finding.ObjectIdentifier = src.ObjectIdentifier
+				request.Finding.RollbackSQL = src.RollbackSQL
+			}
+		}
+		decision := inst.Executor.ExplainActions(context.Background(),
+			[]executor.ExplainActionRequest{request}, caps.IsReplica)[0]
+		applyCandidatePolicy(candidate, decision)
 	}
 }
 
@@ -161,9 +171,11 @@ func TestEnrichCasesActionPoliciesExplainsOncePerDatabase(t *testing.T) {
 	if len(calls) != 1 {
 		t.Fatalf("explain calls = %d, want 1 for one database", len(calls))
 	}
+	// One batch for the database; its concrete requests cover exactly the
+	// three executor types (cases-04 sends each statement, not each type).
 	wantTypes := []string{"analyze_table", "create_index_concurrently", "vacuum_table"}
-	if !reflect.DeepEqual(calls[0], wantTypes) {
-		t.Fatalf("explained types = %v, want each distinct type once: %v", calls[0], wantTypes)
+	if got := distinctInOrder(calls[0]); !reflect.DeepEqual(got, wantTypes) {
+		t.Fatalf("explained types = %v, want %v", got, wantTypes)
 	}
 	for i := range got {
 		if !reflect.DeepEqual(got[i], want[i]) {
@@ -301,7 +313,7 @@ func TestEnrichCasesActionPoliciesKeepsProviderApplicabilityPerCase(t *testing.T
 		ID: "99", DatabaseName: "prod", Category: "config", Severity: cases.SeverityWarning,
 		Title: "work_mem", RecommendedSQL: "ALTER SYSTEM SET work_mem = '64MB'",
 		ObservedAt: batchObservedAt,
-	}))
+	}, executor.ClassifySQL))
 	want := referenceCases(t, cfg, status, got[:4])
 	wantLast := cloneCases(got[4:])
 	ref, _ := countingCaseInstance(cfg, status)
@@ -391,4 +403,17 @@ func TestEnrichCasesActionPoliciesConcurrentRequests(t *testing.T) {
 			t.Fatalf("request %d verdicts differ from the per-case path", r)
 		}
 	}
+}
+
+// distinctInOrder is values without repeats, in first-seen order.
+func distinctInOrder(values []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, v := range values {
+		if !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+	return out
 }

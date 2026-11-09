@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/pg-sage/sidecar/internal/cases"
+	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/llm"
 )
 
@@ -96,7 +97,7 @@ func (r findingRow) ref(database string) FindingRef {
 		ID: r.ID, CaseKey: key, Category: r.Category, Severity: r.Severity,
 		Title: r.Title, ObjectIdentifier: r.ObjectIdentifier,
 		OccurrenceCount: r.OccurrenceCount,
-		RiskTier:        cases.RiskTierForSQL(r.RecommendedSQL),
+		RiskTier:        cases.RiskTierForSQL(r.RecommendedSQL, executor.ClassifySQL),
 		Recommendation:  r.Recommendation,
 		RecommendedSQL:  llm.SanitizeForLLM(r.RecommendedSQL),
 		rawSQL:          r.RecommendedSQL,

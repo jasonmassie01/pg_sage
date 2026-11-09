@@ -79,7 +79,7 @@ func TestProjectFindingCreatesActionableCase(t *testing.T) {
 		},
 	}
 
-	got := ProjectFinding(f)
+	got := projectFinding(f)
 
 	if got.SourceType != SourceFindingType {
 		t.Fatalf("SourceType = %q", got.SourceType)
@@ -113,7 +113,7 @@ func TestProjectFindingTableBloatAddsVacuumAutopilotCandidate(t *testing.T) {
 		},
 	}
 
-	got := ProjectFinding(f)
+	got := projectFinding(f)
 
 	if len(got.ActionCandidates) != 1 {
 		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
@@ -147,7 +147,7 @@ func TestProjectFindingBloatIOSaturatedBlocksAutonomousVacuum(t *testing.T) {
 		},
 	}
 
-	got := ProjectFinding(f)
+	got := projectFinding(f)
 
 	if len(got.ActionCandidates) != 1 {
 		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
@@ -176,7 +176,7 @@ func TestProjectFindingXIDWraparoundAddsFreezeDiagnosticCandidate(t *testing.T) 
 		},
 	}
 
-	got := ProjectFinding(f)
+	got := projectFinding(f)
 
 	if len(got.ActionCandidates) != 1 {
 		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
@@ -206,7 +206,7 @@ func TestProjectFindingVacuumTuningAddsAutovacuumScript(t *testing.T) {
 		},
 	}
 
-	got := ProjectFinding(f)
+	got := projectFinding(f)
 
 	if len(got.ActionCandidates) != 1 {
 		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
@@ -236,7 +236,7 @@ func TestProjectFindingBloatRemediationAddsPlanCandidate(t *testing.T) {
 		},
 	}
 
-	got := ProjectFinding(f)
+	got := projectFinding(f)
 
 	if len(got.ActionCandidates) != 1 {
 		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
@@ -261,7 +261,7 @@ func TestProjectFindingReindexCandidateUsesConcurrentReindex(t *testing.T) {
 		RecommendedSQL:   "REINDEX INDEX CONCURRENTLY public.idx_orders_status;",
 	}
 
-	got := ProjectFinding(f)
+	got := projectFinding(f)
 
 	if len(got.ActionCandidates) != 1 {
 		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
@@ -282,7 +282,7 @@ func TestProjectFindingBlockedVacuumAddsDiagnosticCandidate(t *testing.T) {
 		Recommendation:   "Find blockers before running maintenance.",
 	}
 
-	got := ProjectFinding(f)
+	got := projectFinding(f)
 
 	if len(got.ActionCandidates) != 1 {
 		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
@@ -309,7 +309,7 @@ func TestProjectFindingClassifiesForecastAsForecastCase(t *testing.T) {
 		},
 	}
 
-	got := ProjectFinding(f)
+	got := projectFinding(f)
 
 	if got.SourceType != SourceForecastType {
 		t.Fatalf("SourceType = %q, want %q",
@@ -333,7 +333,7 @@ func TestProjectFindingClassifiesSchemaLintAsSchemaCase(t *testing.T) {
 		Recommendation:   "Add a primary key during the next migration.",
 	}
 
-	got := ProjectFinding(f)
+	got := projectFinding(f)
 
 	if got.SourceType != SourceSchemaType {
 		t.Fatalf("SourceType = %q, want %q",
@@ -459,7 +459,7 @@ func TestProjectFindingRoleWorkMemPromotionAddsReviewedAction(t *testing.T) {
 		},
 	}
 
-	got := ProjectFinding(f)
+	got := projectFinding(f)
 
 	if len(got.ActionCandidates) != 1 {
 		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
@@ -486,7 +486,7 @@ func TestProjectFindingInformationalWhenNoRemediation(t *testing.T) {
 		Recommendation:   "Prefer identity columns for new schema.",
 	}
 
-	got := ProjectFinding(f)
+	got := projectFinding(f)
 
 	if len(got.ActionCandidates) != 0 {
 		t.Fatalf("expected no action candidates, got %d", len(got.ActionCandidates))
@@ -509,13 +509,16 @@ func TestProjectFindingIgnoresNarrativeRecommendedSQL(t *testing.T) {
 		RecommendedSQL:   "raise max_connections only after pool audit",
 	}
 
-	got := ProjectFinding(f)
+	got := projectFinding(f)
 
 	if len(got.ActionCandidates) != 0 {
 		t.Fatalf("expected no action candidates, got %#v", got.ActionCandidates)
 	}
 }
 
+// An ALTER SYSTEM recommendation carries the executor's alter_system_guc
+// contract (cases-04). This test once pinned ddl_preflight/high: the cases
+// table's own classification, which the executor never used.
 func TestProjectFindingKeepsGenericDDLActions(t *testing.T) {
 	f := SourceFinding{
 		ID:               "wal-tune",
@@ -529,13 +532,13 @@ func TestProjectFindingKeepsGenericDDLActions(t *testing.T) {
 		RecommendedSQL:   "ALTER SYSTEM SET wal_compression = on;",
 	}
 
-	got := ProjectFinding(f)
+	got := projectFinding(f)
 
 	if len(got.ActionCandidates) != 1 {
 		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
 	}
 	assertCandidate(t, got.ActionCandidates[0],
-		"ddl_preflight", "high", f.RecommendedSQL)
+		"alter_system_guc", "moderate", f.RecommendedSQL)
 }
 
 func TestProjectFindingTuningPackIndexActions(t *testing.T) {
@@ -573,7 +576,7 @@ func TestProjectFindingTuningPackIndexActions(t *testing.T) {
 				RecommendedSQL:   tt.sql,
 			}
 
-			got := ProjectFinding(f)
+			got := projectFinding(f)
 
 			if len(got.ActionCandidates) != 1 {
 				t.Fatalf("ActionCandidates = %d, want 1",
@@ -610,7 +613,7 @@ func TestProjectFindingSlowQueryAddsInvestigationActionWithQuery(t *testing.T) {
 		},
 	}
 
-	got := ProjectFinding(f)
+	got := projectFinding(f)
 
 	if len(got.ActionCandidates) != 1 {
 		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
@@ -653,7 +656,7 @@ func TestProjectFindingHighTotalTimeAddsInvestigationAction(t *testing.T) {
 		},
 	}
 
-	got := ProjectFinding(f)
+	got := projectFinding(f)
 
 	if len(got.ActionCandidates) != 1 {
 		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
@@ -686,7 +689,7 @@ func TestProjectFindingQueryTuningWithHintSQLAddsApplyHintAction(t *testing.T) {
 		},
 	}
 
-	got := ProjectFinding(f)
+	got := projectFinding(f)
 
 	if len(got.ActionCandidates) != 1 {
 		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
@@ -715,7 +718,7 @@ func TestProjectFindingMarksAlterTableForwardFixOnly(t *testing.T) {
 		RecommendedSQL:   "ALTER TABLE public.orders ALTER COLUMN amount TYPE numeric",
 	}
 
-	got := ProjectFinding(f)
+	got := projectFinding(f)
 
 	if len(got.ActionCandidates) != 1 {
 		t.Fatalf("action candidates = %d, want 1",
@@ -755,7 +758,7 @@ func TestProjectFindingMigrationSafetyCreateIndexCandidate(t *testing.T) {
 		},
 	}
 
-	got := ProjectFinding(f)
+	got := projectFinding(f)
 
 	if len(got.ActionCandidates) != 1 {
 		t.Fatalf("action candidates = %d, want 1",
@@ -821,7 +824,7 @@ func TestProjectFindingMigrationSafetyIncludesLivePreflightChecks(t *testing.T) 
 		},
 	}
 
-	got := ProjectFinding(f)
+	got := projectFinding(f)
 
 	action := got.ActionCandidates[0]
 	if action.DDLPreflight == nil {
@@ -853,7 +856,7 @@ func TestProjectFindingMigrationSafetyAdvisoryOnlyProducesPreflightScript(t *tes
 		},
 	}
 
-	got := ProjectFinding(f)
+	got := projectFinding(f)
 
 	if len(got.ActionCandidates) != 1 {
 		t.Fatalf("expected one action candidate, got %d",
@@ -907,7 +910,7 @@ func TestProjectFindingCreateStatisticsAddsReviewedAction(t *testing.T) {
 		},
 	}
 
-	got := ProjectFinding(f)
+	got := projectFinding(f)
 
 	if len(got.ActionCandidates) != 1 {
 		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
@@ -935,7 +938,7 @@ func TestProjectFindingParameterizedQueryAddsExperimentAction(t *testing.T) {
 		},
 	}
 
-	got := ProjectFinding(f)
+	got := projectFinding(f)
 
 	if len(got.ActionCandidates) != 1 {
 		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))

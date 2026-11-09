@@ -182,7 +182,7 @@ func (e *Executor) proposableFinding(ctx context.Context, id int64) (proposableF
 // typedProposal requires a typed action contract and a rollback, unless
 // the contract needs none.
 func typedProposal(id int64, f proposableFinding) (FindingProposal, ActionContract, error) {
-	actionType := actionTypeForProposalSQL(f.sql)
+	actionType := ActionTypeForSQL(f.sql)
 	contract, ok := ContractForActionType(actionType)
 	if actionType == "" || !ok {
 		return FindingProposal{}, ActionContract{}, fmt.Errorf(

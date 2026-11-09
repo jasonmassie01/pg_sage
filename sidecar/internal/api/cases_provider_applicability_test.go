@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/pg-sage/sidecar/internal/cases"
+	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
 )
 
@@ -19,7 +20,7 @@ func TestEnrichCaseActionPoliciesWithholdsLakebaseAlterSystemWithoutExecutor(t *
 		DatabaseName: "prod", Category: "wal_tuning",
 		Recommendation: "Enable WAL compression after review.",
 		RecommendedSQL: "ALTER SYSTEM SET wal_compression = on;",
-	})
+	}, executor.ClassifySQL)
 	enrichCaseActionPolicies(&c, mgr, "prod")
 	a := c.ActionCandidates[0]
 	if a.ProposedSQL != "" || a.ScriptOutput != nil || len(a.OutputModes) != 0 || !strings.Contains(c.Why, "Lakebase manages instance settings") {

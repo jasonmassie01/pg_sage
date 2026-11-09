@@ -300,8 +300,13 @@ config-format mismatch worth flagging.
 - `actionCandidatesForFinding` (`projector.go:54`) dispatches:
   `migration_safety` → `migrationSafetyCandidates`; vacuum/bloat/reindex/freeze
   categories → `vacuumAutopilotCandidate` (`vacuum_autopilot.go:8`); query
-  categories → `queryTuningCandidate`; else a generic candidate keyed off
-  `actionTypeForSQL` (`projector.go:153`).
+  categories → `queryTuningCandidate`; else a generic candidate classified by
+  the executor's own classifier (cases-04): `ProjectFinding(f, classify)` takes
+  `executor.ClassifySQL` (`executor.ActionTypeForSQL` plus the contract's
+  `BaseRiskTier`; cases cannot import the executor, so the API passes it). A
+  change the executor runs under no contract (VACUUM FULL, a plain DROP INDEX,
+  ALTER ROLE, an unlisted setting) is a high-risk, script-only `ddl_preflight`;
+  `briefing` takes its risk tier from the same classifier (`RiskTierForSQL`).
 - **vacuum_autopilot** (`vacuum_autopilot.go`) maps categories to candidates:
   `table_bloat`→`vacuum_table` (safe), `bloat_remediation`→
   `plan_bloat_remediation` (high, script-only, blocked by default),
@@ -312,9 +317,16 @@ config-format mismatch worth flagging.
   `RiskTier`, `Confidence`, `ExpiresAt`, `OutputModes`
   (`execute`/`queue_for_approval`/`generate_pr_or_script`/`script`),
   `RollbackClass`, and a `VerificationPlan`.
-- The API handler (`cases_handlers.go:495-508`) attaches an
-  `ActionPolicyDecision` per candidate by calling `EvaluateActionPolicy` with a
-  contract from `ContractForActionType`.
+- The API (`cases_policy.go`) attaches each candidate's `ActionPolicyDecision`
+  in one `Executor.ExplainActions` call per database (one policy snapshot,
+  nothing recorded). A candidate whose statement the executor runs under its
+  own type is explained as the executor would authorize its finding (targets,
+  statement binding, confirmed facts, approval rules, per-table budget usage);
+  overlays and SQL-less candidates get their family's readiness. The batch
+  reads usage once per (budget kind, targets, SQL), so the policy-path
+  statements grow with the number of such candidates (one in-flight
+  verification read each, one usage read for each that reaches its budget);
+  the emergency stop and the policy are read once per database.
 
 **Crucially**, executing a case action goes back through the *Executor* via the
 approval queue / manual path (`ExecuteManual`). That path re-validates SQL and

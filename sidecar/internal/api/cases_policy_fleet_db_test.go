@@ -38,8 +38,10 @@ func TestCasesPolicyExplainsOncePerSelectedDatabase(t *testing.T) {
 		if len(calls) != 1 {
 			t.Fatalf("%s explain calls = %d, want 1 for the fleet request", name, len(calls))
 		}
-		if !containsAll(calls[0], wantTypes) || hasDuplicate(calls[0]) {
-			t.Fatalf("%s explained %v, want each of %v once", name, calls[0], wantTypes)
+		// cases-04: the one call carries each finding's statement (a type
+		// repeats per table), no longer each type once.
+		if !containsAll(calls[0], wantTypes) {
+			t.Fatalf("%s explained %v, want all of %v", name, calls[0], wantTypes)
 		}
 	}
 
@@ -62,15 +64,4 @@ func containsAll(got, want []string) bool {
 		}
 	}
 	return true
-}
-
-func hasDuplicate(values []string) bool {
-	seen := map[string]bool{}
-	for _, v := range values {
-		if seen[v] {
-			return true
-		}
-		seen[v] = true
-	}
-	return false
 }

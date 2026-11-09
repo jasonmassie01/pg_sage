@@ -33,8 +33,8 @@ func TestClassifyRefusesUnscopedVacuumAndReindex(t *testing.T) {
 		"REINDEX DATABASE CONCURRENTLY x",
 		"REINDEX SYSTEM CONCURRENTLY x",
 	} {
-		if got := actionTypeForProposalSQL(sql); got != "" {
-			t.Errorf("actionTypeForProposalSQL(%q) = %q, want \"\" (no contract)", sql, got)
+		if got := ActionTypeForSQL(sql); got != "" {
+			t.Errorf("ActionTypeForSQL(%q) = %q, want \"\" (no contract)", sql, got)
 		}
 		finding := analyzer.Finding{RecommendedSQL: sql, ObjectType: "table"}
 		decision := exec.evaluateFindingPolicy(context.Background(), finding, false)
@@ -72,8 +72,8 @@ func TestClassifyKeepsSingleRelationVacuumAndReindex(t *testing.T) {
 		"REINDEX INDEX CONCURRENTLY":               "",
 	}
 	for sql, want := range cases {
-		if got := actionTypeForProposalSQL(sql); got != want {
-			t.Errorf("actionTypeForProposalSQL(%q) = %q, want %q", sql, got, want)
+		if got := ActionTypeForSQL(sql); got != want {
+			t.Errorf("ActionTypeForSQL(%q) = %q, want %q", sql, got, want)
 		}
 	}
 }

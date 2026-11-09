@@ -84,6 +84,10 @@ type ActionCandidate struct {
 	PolicyDecision            *ActionPolicyDecision `json:"policy_decision,omitempty"`
 	RequiresApproval          bool                  `json:"requires_approval,omitempty"`
 	RequiresMaintenanceWindow bool                  `json:"requires_maintenance_window,omitempty"`
+	// Source is the finding the candidate was projected from, so its
+	// policy verdict is explained as the executor would authorize that
+	// finding (cases-04). Nil for incident and query-hint candidates.
+	Source *SourceFinding `json:"-"`
 }
 
 type DDLPreflightReport struct {

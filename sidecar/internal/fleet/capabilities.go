@@ -296,23 +296,47 @@ func EnsureCapabilities(inst *DatabaseInstance, snap *InstanceStatus) *InstanceS
 // InstanceFamilyExplainer explains families through the instance
 // executor; a stopped instance or a missing executor fails closed.
 func InstanceFamilyExplainer(inst *DatabaseInstance) FamilyExplainer {
-	if inst == nil {
-		return ExecutorFamilyExplainer(nil)
-	}
-	if inst.Stopped {
-		return func(
-			_ context.Context, contracts []executor.ActionContract, _ bool,
-		) []executor.ActionPolicyDecision {
-			out := make([]executor.ActionPolicyDecision, len(contracts))
-			for i, contract := range contracts {
-				out[i] = executor.ActionPolicyDecision{Decision: executor.PolicyDecisionBlocked,
-					RiskTier: contract.BaseRiskTier, BlockedReason: "emergency stop is active",
-					Guardrails: contract.Guardrails}
-			}
-			return out
+	explain := InstanceActionExplainer(inst)
+	return func(
+		ctx context.Context, contracts []executor.ActionContract, isReplica bool,
+	) []executor.ActionPolicyDecision {
+		requests := make([]executor.ExplainActionRequest, len(contracts))
+		for i, contract := range contracts {
+			requests[i].Contract = contract
 		}
+		return explain(ctx, requests, isReplica)
 	}
-	return ExecutorFamilyExplainer(inst.Executor)
+}
+
+// ActionExplainer reports the standing policy's verdict for concrete
+// actions (and families, for a request without SQL) on one database, in
+// one policy snapshot. The reads run under ctx.
+type ActionExplainer func(
+	ctx context.Context, requests []executor.ExplainActionRequest, isReplica bool,
+) []executor.ActionPolicyDecision
+
+// InstanceActionExplainer explains actions through the instance executor;
+// a stopped instance (emergency stop) or a missing executor fails closed.
+func InstanceActionExplainer(inst *DatabaseInstance) ActionExplainer {
+	switch {
+	case inst == nil:
+		return (*executor.Executor)(nil).ExplainActions
+	case inst.Stopped:
+		return stoppedActionExplainer
+	}
+	return inst.Executor.ExplainActions
+}
+
+func stoppedActionExplainer(
+	_ context.Context, requests []executor.ExplainActionRequest, _ bool,
+) []executor.ActionPolicyDecision {
+	out := make([]executor.ActionPolicyDecision, len(requests))
+	for i, request := range requests {
+		out[i] = executor.ActionPolicyDecision{Decision: executor.PolicyDecisionBlocked,
+			RiskTier: request.Contract.BaseRiskTier, BlockedReason: "emergency stop is active",
+			Guardrails: request.Contract.Guardrails}
+	}
+	return out
 }
 
 func defaultPermissionReadiness() map[string]CapabilityStatus {

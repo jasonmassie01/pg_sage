@@ -11,7 +11,7 @@ func TestLakebaseServerSettingAdviceIsWithheldRatherThanExported(t *testing.T) {
 		"ALTER\nSYSTEM SET wal_compression = on;",
 		"ALTER /* server setting */ SYSTEM RESET wal_compression;",
 	} {
-		c := ProjectFinding(SourceFinding{Category: "migration_safety", Recommendation: "Enable WAL compression.", RecommendedSQL: sql})
+		c := projectFinding(SourceFinding{Category: "migration_safety", Recommendation: "Enable WAL compression.", RecommendedSQL: sql})
 		ApplyProviderApplicability(&c, "lakebase")
 		a := c.ActionCandidates[0]
 		if a.ProposedSQL != "" || a.ScriptOutput != nil || len(a.OutputModes) != 0 || a.RollbackClass != "not_applicable" {
@@ -30,7 +30,7 @@ func TestProviderApplicabilityKeepsGenericPostgresAndScopedSettings(t *testing.T
 		{"lakebase", "ALTER DATABASE application SET work_mem = '32MB';"},
 		{"lakebase", "ALTER ROLE reporter SET work_mem = '32MB';"},
 	} {
-		c := ProjectFinding(SourceFinding{RecommendedSQL: test.sql, Recommendation: "Review this proposal."})
+		c := projectFinding(SourceFinding{RecommendedSQL: test.sql, Recommendation: "Review this proposal."})
 		ApplyProviderApplicability(&c, test.provider)
 		if c.ActionCandidates[0].ProposedSQL != test.sql || c.Why != "Review this proposal." {
 			t.Fatalf("provider %q scoped SQL changed: %#v", test.provider, c)

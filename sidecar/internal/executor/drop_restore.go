@@ -49,7 +49,7 @@ func storedRollbackSQL(sql, rollbackSQL string) string {
 
 // isDropActionSQL reports a forward index drop (drop_unused_index).
 func isDropActionSQL(sql string) bool {
-	return actionTypeForProposalSQL(sql) == "drop_unused_index"
+	return ActionTypeForSQL(sql) == "drop_unused_index"
 }
 
 // matchDropRestore accepts only restoreSQL equal (byte for byte) to the
@@ -63,7 +63,7 @@ func matchDropRestore(restoreSQL, recordedRollback, droppedSQL string) error {
 	case recorded == "" || restoreSQL != recorded:
 		return fmt.Errorf("%s: the restore differs from the definition recorded with "+
 			"the drop", rollbackSQLMismatch)
-	case actionTypeForProposalSQL(recorded) != "create_index_concurrently":
+	case ActionTypeForSQL(recorded) != "create_index_concurrently":
 		return fmt.Errorf("%s: the recorded definition is not a CREATE INDEX",
 			rollbackSQLMismatch)
 	}

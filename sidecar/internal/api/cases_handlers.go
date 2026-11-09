@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/cases"
+	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
 	"github.com/pg-sage/sidecar/internal/store"
@@ -154,7 +155,7 @@ func queryFindingCases(ctx context.Context, selected namedPool) ([]cases.Case, [
 		}) {
 			continue
 		}
-		projected := cases.ProjectFinding(sourceFindingFromMap(row))
+		projected := cases.ProjectFinding(sourceFindingFromMap(row), executor.ClassifySQL)
 		if id, ok := caseFindingID(projected); ok {
 			findingIDs = append(findingIDs, id)
 		}

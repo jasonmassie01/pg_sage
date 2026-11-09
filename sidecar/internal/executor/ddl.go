@@ -240,5 +240,5 @@ func executionMode(actionType string) execMode {
 
 // statementRunsTopLevel is the route of sql's typed action.
 func statementRunsTopLevel(sql string) bool {
-	return executionMode(actionTypeForProposalSQL(sql)) == execTopLevel
+	return executionMode(ActionTypeForSQL(sql)) == execTopLevel
 }

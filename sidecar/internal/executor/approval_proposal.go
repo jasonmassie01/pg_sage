@@ -42,7 +42,7 @@ func (e *Executor) buildApprovalProposalMetadata(
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	actionType := actionTypeForProposalSQL(f.RecommendedSQL)
+	actionType := ActionTypeForSQL(f.RecommendedSQL)
 	metadata := store.ActionProposalMetadata{
 		ActionType:         actionType,
 		IdentityKey:        actionIdentityKey(f, actionType),

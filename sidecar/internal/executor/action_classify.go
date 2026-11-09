@@ -4,7 +4,10 @@ import (
 	"strings"
 )
 
-func actionTypeForProposalSQL(sql string) string {
+// ActionTypeForSQL names the action type whose contract the executor runs
+// sql under, or "" when no contract runs it. It is the one classifier: the
+// executor, its approval queue and the Cases view all use it (cases-04).
+func ActionTypeForSQL(sql string) string {
 	upper := strings.ToUpper(normalizeSQLText(sql))
 	switch {
 	case IsIndexReplaceSQL(sql):
@@ -46,6 +49,17 @@ func actionTypeForProposalSQL(sql string) string {
 	default:
 		return ""
 	}
+}
+
+// ClassifySQL is ActionTypeForSQL with its contract's base risk tier, the
+// classification the case projector shows (cases.SQLClassifier). A
+// statement no contract runs is ("", "").
+func ClassifySQL(sql string) (actionType, riskTier string) {
+	contract, ok := ContractForActionType(ActionTypeForSQL(sql))
+	if !ok {
+		return "", ""
+	}
+	return contract.ActionType, contract.BaseRiskTier
 }
 
 // isConcurrentReindexSQL is a REINDEX CONCURRENTLY of one index or one

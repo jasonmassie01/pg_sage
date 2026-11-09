@@ -388,7 +388,7 @@ func contractForCustodianProposal(sql string) (ActionContract, bool) {
 	if err := ValidateExecutorSQL(sql); err != nil {
 		return ActionContract{}, false
 	}
-	return ContractForActionType(actionTypeForProposalSQL(sql))
+	return ContractForActionType(ActionTypeForSQL(sql))
 }
 
 func custodianPolicyFeature(proposal CustodianProposal) string {
