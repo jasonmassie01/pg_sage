@@ -39,6 +39,12 @@ type Runtime struct {
 	// A forward width lives here until a commit persists it in the cursor;
 	// a reconcile width lives here until sparse reads widen it back.
 	narrowed map[narrowKey]time.Duration
+	// subscribed holds each StreamConsumer's streams; absent means all.
+	subscribed map[string][]Stream
+	// atCommit lists, per stream, the consumers acknowledged at commit.
+	atCommit map[Stream][]Consumer
+	// deliveries holds each consumer's backlog from the last poll.
+	deliveries map[string]DeliveryStatus
 }
 
 func NewRuntime(reader Reader, store *Store, scope Scope, options Options, consumers ...Consumer) (*Runtime, error) {
@@ -64,6 +70,10 @@ func NewRuntime(reader Reader, store *Store, scope Scope, options Options, consu
 			return nil, ErrScope
 		}
 	}
+	subscribed, atCommit, err := subscriptions(options.Streams, consumers)
+	if err != nil {
+		return nil, err
+	}
 	mode := "metadata"
 	if options.AllowPayload {
 		mode = "payload"
@@ -74,7 +84,8 @@ func NewRuntime(reader Reader, store *Store, scope Scope, options Options, consu
 		hex.EncodeToString(policyHash[:8]))
 	r := &Runtime{reader: reader, store: store, scope: scope, options: options,
 		consumers: consumers, binding: binding, statuses: map[Stream]StreamStatus{},
-		narrowed: map[narrowKey]time.Duration{}}
+		narrowed: map[narrowKey]time.Duration{}, subscribed: subscribed, atCommit: atCommit,
+		deliveries: map[string]DeliveryStatus{}}
 	for _, s := range options.Streams {
 		r.statuses[s] = StreamStatus{Stream: s, HistoricalOnly: true}
 	}
@@ -111,31 +122,6 @@ func (r *Runtime) Poll(ctx context.Context, now time.Time) error {
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
-}
-
-func (r *Runtime) deliver(ctx context.Context, now time.Time) []error {
-	var errs []error
-	for _, consumer := range r.consumers {
-		events, err := r.store.Pending(ctx, r.binding, consumer.Name(), r.options.MaxRows, now)
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		for _, e := range events {
-			deliveryCtx, cancel := context.WithTimeout(ctx, r.options.QueryTimeout)
-			err = r.store.DeliverAndAck(deliveryCtx, r.binding, e.ID, consumer, now)
-			cancel()
-			if err != nil {
-				if errors.Is(err, ErrPolicy) || errors.Is(err, ErrStalePolicy) {
-					errs = append(errs, err)
-					break
-				}
-				errs = append(errs, fmt.Errorf("lakebase telemetry consumer %s failed", consumer.Name()))
-				break
-			}
-		}
-	}
-	return errs
 }
 
 func (r *Runtime) Run(ctx context.Context, report func(error)) {

@@ -153,8 +153,7 @@ func (r *Runtime) step(
 	for _, e := range b.Events {
 		after.LastEvent = later(after.LastEvent, e.OccurredAt)
 	}
-	err = cs.CommitBatch(ctx, r.binding, sp.stream, sp.cursor, after, b.Events, r.options.Retention)
-	if err != nil {
+	if err = r.commit(ctx, cs, sp, after, b.Events); err != nil {
 		sp.err = err
 		return
 	}

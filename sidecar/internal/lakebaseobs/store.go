@@ -18,7 +18,7 @@ import (
 
 // MigrationVersion is independent of pg_sage bootstrap migrations. EnsureSchema
 // must run against the persistent metadata/control pool before starting workers.
-const MigrationVersion = 5
+const MigrationVersion = 6
 const ddl = `
 CREATE SCHEMA IF NOT EXISTS sage;
 CREATE TABLE IF NOT EXISTS sage.lakebaseobs_schema(version integer PRIMARY KEY);
@@ -51,7 +51,17 @@ CREATE TABLE IF NOT EXISTS sage.lakebaseobs_owner_policy(
  allowed_scopes text[] NOT NULL DEFAULT '{}', allow_payload boolean NOT NULL DEFAULT false,
  policy_epoch timestamptz NOT NULL DEFAULT 'epoch', updated_at timestamptz NOT NULL DEFAULT now(),
  PRIMARY KEY(deployment_id,database_id));
-INSERT INTO sage.lakebaseobs_schema(version)VALUES(1),(2),(3),(4),(5)ON CONFLICT DO NOTHING;`
+CREATE TABLE IF NOT EXISTS sage.lakebaseobs_attempts(
+ binding text NOT NULL, event_id text NOT NULL, consumer text NOT NULL,
+ attempts integer NOT NULL CHECK(attempts>0), next_at timestamptz NOT NULL,
+ last_error text NOT NULL DEFAULT '',
+ PRIMARY KEY(binding,event_id,consumer),
+ FOREIGN KEY(binding,event_id) REFERENCES sage.lakebaseobs_inbox(binding,event_id)
+  ON DELETE CASCADE);
+CREATE INDEX IF NOT EXISTS lakebaseobs_inbox_delivery_stream
+ ON sage.lakebaseobs_inbox(binding,stream,occurred_at,event_id) INCLUDE(payload_until)
+ WHERE event IS NOT NULL;
+INSERT INTO sage.lakebaseobs_schema(version)VALUES(1),(2),(3),(4),(5),(6)ON CONFLICT DO NOTHING;`
 
 type Store struct {
 	pool        *pgxpool.Pool
@@ -86,6 +96,10 @@ func (s *Store) EnsureSchema(ctx context.Context) error {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended('sage.lakebaseobs_schema',0))"); err != nil {
+		return err
+	}
+	// The advisory lock may wait; table locks for the DDL must not.
+	if _, err = tx.Exec(ctx, "SET LOCAL lock_timeout = '10s'"); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(ctx, ddl); err != nil {
@@ -142,96 +156,11 @@ func (s *Store) LoadCursor(ctx context.Context, binding string, stream Stream) (
 // CommitBatch atomically persists deduplicated events and compare-and-swaps the
 // cursor. Duplicate occurrence multiplicity is unknown, not silently exact.
 func (s *Store) CommitBatch(ctx context.Context, binding string, stream Stream, before, after Cursor, events []Event, retention time.Duration) error {
-	if binding == "" || retention <= 0 || retention > SourceRetention {
-		return ErrScope
-	}
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	if err = s.lockDeliveryPolicy(ctx, tx, binding, events); err != nil {
-		return err
-	}
-	_, err = tx.Exec(ctx, "INSERT INTO sage.lakebaseobs_cursors(binding,stream,revision,state)VALUES($1,$2,0,'{}')ON CONFLICT DO NOTHING", binding, string(stream))
-	if err != nil {
-		return err
-	}
-	var revision int64
-	if err = tx.QueryRow(ctx, "SELECT revision FROM sage.lakebaseobs_cursors WHERE binding=$1 AND stream=$2 FOR UPDATE", binding, string(stream)).Scan(&revision); err != nil {
-		return err
-	}
-	if revision != before.Revision {
-		return ErrConflict
-	}
-	for _, e := range events {
-		if e.ID == "" || e.Stream != stream || e.Version != SchemaVersion || e.OccurredAt.IsZero() || e.ReceivedAt.IsZero() {
-			return ErrMalformed
-		}
-		raw, jerr := json.Marshal(e)
-		if jerr != nil {
-			return jerr
-		}
-		_, err = tx.Exec(ctx, `INSERT INTO sage.lakebaseobs_inbox(binding,event_id,stream,occurred_at,received_at,payload_until,identity_until,event)
-VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb)ON CONFLICT(binding,event_id)DO NOTHING`, binding, e.ID, string(stream), e.OccurredAt, e.ReceivedAt, e.OccurredAt.Add(retention), e.OccurredAt.Add(SourceRetention+24*time.Hour), raw)
-		if err != nil {
-			return err
-		}
-	}
-	raw, err := json.Marshal(after)
-	if err != nil {
-		return err
-	}
-	_, err = tx.Exec(ctx, "UPDATE sage.lakebaseobs_cursors SET revision=revision+1,state=$3::jsonb,updated_at=now() WHERE binding=$1 AND stream=$2", binding, string(stream), raw)
-	if err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+	_, err := s.CommitBatchAcked(ctx, binding, stream, before, after, events, retention, nil)
+	return err
 }
 
 var consumerName = regexp.MustCompile(`^[a-zA-Z0-9_.-]{1,80}$`)
-
-// Select identities before reading JSON documents: an ACK-heavy backlog can
-// walk the covering index without fetching every already delivered payload.
-// There is no consumer watermark: a late historical event is still eligible.
-const pendingSQL = `WITH pending AS MATERIALIZED (
- SELECT i.binding,i.event_id,i.occurred_at FROM sage.lakebaseobs_inbox i
- WHERE i.binding=$1 AND i.event IS NOT NULL AND i.payload_until>$3
- AND NOT EXISTS(SELECT 1 FROM sage.lakebaseobs_acks a WHERE a.binding=i.binding AND a.event_id=i.event_id AND a.consumer=$2)
- ORDER BY i.occurred_at,i.event_id LIMIT $4)
-SELECT (SELECT i.event FROM sage.lakebaseobs_inbox i WHERE i.binding=p.binding AND i.event_id=p.event_id)
-FROM pending p ORDER BY p.occurred_at,p.event_id`
-
-func (s *Store) Pending(ctx context.Context, binding, consumer string, limit int, now time.Time) ([]Event, error) {
-	if !consumerName.MatchString(consumer) || limit < 1 || limit > 10000 {
-		return nil, ErrScope
-	}
-	ctx, cancel := context.WithTimeout(ctx, storeOperationTimeout)
-	defer cancel()
-	tx, err := beginStoreOperation(ctx, s.pool, true)
-	if err != nil {
-		return nil, err
-	}
-	defer rollbackStoreOperation(tx)
-	rows, err := tx.Query(ctx, pendingSQL, binding, consumer, now, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []Event
-	for rows.Next() {
-		var raw []byte
-		var e Event
-		if err = rows.Scan(&raw); err != nil {
-			return nil, err
-		}
-		if json.Unmarshal(raw, &e) != nil {
-			return nil, ErrSchema
-		}
-		out = append(out, e)
-	}
-	return out, rows.Err()
-}
 
 // History serves only this pipeline's retained events, never an account-wide
 // warehouse read. Callers must authorize the registered database before use.
