@@ -9,6 +9,7 @@ import (
 
 	"github.com/sigstore/sigstore-go/pkg/bundle"
 	"github.com/sigstore/sigstore-go/pkg/fulcio/certificate"
+	"github.com/sigstore/sigstore-go/pkg/verify"
 )
 
 // benches-10 (2026-11-08): the release identity pins the GitHub
@@ -162,6 +163,54 @@ func TestShippedReleaseCertificateMatchesThePinnedIdentity(t *testing.T) {
 	s.SourceRepositoryIdentifier = "999999999"
 	if err := v.identity.Verify(s); err == nil {
 		t.Fatal("the v2.4.0 certificate with another repository ID was accepted")
+	}
+}
+
+// The shipped bundle verifies in full (Fulcio chain, SCT, transparency
+// log and timestamp against the embedded trusted root) through the
+// production verifier with the pins, so the testdata is a real release
+// signature and reports signed before the pin keep verifying. The report
+// itself is not committed: the bundle's signed digest stands in for it.
+func TestShippedReleaseBundleVerifiesWithThePinnedReleaseVerifier(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "v2.4.0-core.sigstore.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := &bundle.Bundle{}
+	if err := b.UnmarshalJSON(raw); err != nil {
+		t.Fatalf("shipped bundle: %v", err)
+	}
+	digest := b.GetMessageSignature().GetMessageDigest().GetDigest()
+	if len(digest) != 32 {
+		t.Fatalf("shipped bundle signs a %d-byte digest, want SHA-256", len(digest))
+	}
+	v, err := NewReleaseVerifier()
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := func(id verify.CertificateIdentity) verify.PolicyBuilder {
+		return verify.NewPolicy(verify.WithArtifactDigest("sha256", digest),
+			verify.WithCertificateIdentity(id))
+	}
+	res, err := v.verifier.Verify(b, policy(v.identity))
+	if err != nil {
+		t.Fatalf("the v2.4.0 release bundle was refused by the pinned verifier: %v", err)
+	}
+	c := res.Signature.Certificate
+	if c.SourceRepositoryIdentifier != shippedRepositoryID ||
+		c.SourceRepositoryOwnerIdentifier != shippedOwnerID {
+		t.Fatalf("verified certificate names repository %q owner %q",
+			c.SourceRepositoryIdentifier, c.SourceRepositoryOwnerIdentifier)
+	}
+	other := ReleaseIdentity()
+	other.OwnerID = "143746528"
+	ov, err := NewVerifier(virtualSigstore(t), other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := v.verifier.Verify(b, policy(ov.identity)); err == nil ||
+		!strings.Contains(err.Error(), "SourceRepositoryOwnerIdentifier") {
+		t.Fatalf("err = %v, want the real bundle refused for another owner ID", err)
 	}
 }
 

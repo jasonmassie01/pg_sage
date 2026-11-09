@@ -89,8 +89,8 @@ type Verifier struct {
 
 // NewVerifier verifies against material for signatures of id: a Fulcio
 // certificate with an embedded SCT, a transparency-log entry and an
-// observer timestamp (log integration time or a TSA timestamp), from the
-// repository and owner id pins by ID.
+// observer timestamp (log integration time or a TSA timestamp), issued to
+// the repository and owner whose numeric IDs id pins.
 func NewVerifier(material root.TrustedMaterial, id Identity) (*Verifier, error) {
 	return newVerifier(material, id, 1, true)
 }
