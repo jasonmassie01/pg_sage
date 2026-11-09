@@ -114,6 +114,8 @@ type Executor struct {
 	replaceHooks replaceHooks
 	// remnantHooks: the CONCURRENTLY remnant handler's test seams.
 	remnantHooks remnantHooks
+	// vacuumHooks: the watched VACUUM's test seams (vacuum-05).
+	vacuumHooks vacuumHooks
 
 	// monitors tracks background MonitorAndRollback goroutines so
 	// Shutdown can wait for them. shutdownCh is closed to signal

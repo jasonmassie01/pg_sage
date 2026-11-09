@@ -226,7 +226,9 @@ func TestVacuumWatchedEmergencyStopCancelsWithinOneTick(t *testing.T) {
 	f := newVacuumFixture(t, 40000, "50ms")
 	var stopAt atomic.Int64
 	var stopped atomic.Bool
-	f.exec.emergencyStopFn = func(context.Context) bool { return stopped.Load() }
+	f.exec.vacuumHooks.emergencyStop = func(context.Context) (bool, error) {
+		return stopped.Load(), nil
+	}
 	f.exec.vacuumHooks.readProgress = func(ctx context.Context, pid uint32) (
 		vacuumProgress, bool, error) {
 		if !stopped.Load() {
@@ -263,6 +265,49 @@ func TestVacuumWatchedCapCancels(t *testing.T) {
 	requireCanceled(t, err)
 	if took < 700*time.Millisecond || took > 10*time.Second {
 		t.Fatalf("cap cancel after %s, want just after 700ms", took)
+	}
+}
+
+// An emergency-stop flag that cannot be read does not cancel a VACUUM that
+// may have run for hours (the in-process stop cancels it directly).
+func TestVacuumWatchedUnreadableStopFlagDoesNotCancel(t *testing.T) {
+	f := newVacuumFixture(t, 20000, "5ms")
+	var reads atomic.Int32
+	f.exec.vacuumHooks.emergencyStop = func(context.Context) (bool, error) {
+		reads.Add(1)
+		return true, errors.New("sage.config unreachable")
+	}
+	if _, err := f.vacuum(); err != nil {
+		t.Fatalf("VACUUM with an unreadable stop flag: %v", err)
+	}
+	if reads.Load() == 0 {
+		t.Fatal("the watchdog never read the stop flag")
+	}
+}
+
+// The in-process emergency stop (CancelInFlight) cancels the watched
+// VACUUM's statement directly and reports a StoppedError.
+func TestVacuumWatchedInFlightStopCancelsTheStatement(t *testing.T) {
+	f := newVacuumFixture(t, 40000, "50ms")
+	f.exec.vacuumHooks.readProgress = f.recordingReader()
+	ctx, run, err := f.exec.inflight.begin(f.ctx, "VACUUM")
+	if err != nil {
+		t.Fatalf("begin run: %v", err)
+	}
+	defer f.exec.inflight.end(run, 0)
+	go func() {
+		for !f.vacuumRunning() {
+			time.Sleep(20 * time.Millisecond)
+		}
+		_ = run.stop(context.Background(), ErrEmergencyStop)
+	}()
+	err = f.exec.execConcurrentDDL(ctx, "VACUUM (FREEZE) "+f.table, nil, WithLockTimeout(4321))
+	var stopped *StoppedError
+	if !errors.As(err, &stopped) || !errors.Is(err, ErrEmergencyStop) {
+		t.Fatalf("error %v, want a StoppedError of the emergency stop", err)
+	}
+	if f.vacuumRunning() {
+		t.Fatal("the VACUUM still runs after the in-process stop")
 	}
 }
 

@@ -460,8 +460,29 @@ contracts; concurrent or non-FULL forms are required.
 | `safety.ddl_timeout_seconds` | `300` | `statement_timeout` of every executor statement without a class timeout below (ALTER TABLE, a non-concurrent CREATE INDEX or REINDEX, `VACUUM FULL`, drops). `0` uses the default |
 | `safety.index_build_timeout_seconds` | `14400` | `statement_timeout` of a `CREATE INDEX CONCURRENTLY` (also an index replacement's build), `60`-`86400`. `0` uses the default |
 | `safety.reindex_timeout_seconds` | `14400` | `statement_timeout` of a `REINDEX ... CONCURRENTLY`, `60`-`86400`. `0` uses the default |
-| `safety.vacuum_timeout_seconds` | `14400` | `statement_timeout` of a `VACUUM` that is not `VACUUM FULL`, `60`-`86400`. `0` uses the default |
+| `safety.vacuum_timeout_seconds` | `14400` | Cap on a `VACUUM` that is not `VACUUM FULL`, `60`-`86400`, enforced by its watchdog (outcome `vacuum_cap`). `0` uses the default |
+| `safety.vacuum_stall_minutes` | `15` | Minutes a `VACUUM` heap phase may show no progress before its watchdog cancels it (outcome `vacuum_stalled`), `5`-`240`. `0` uses the default |
 | `safety.lock_timeout_ms` | `30000` | `lock_timeout` of every executor statement; it bounds each lock wait of a long build, whatever its class timeout |
+
+An executor `VACUUM` (not `VACUUM FULL`) runs on its own session with `statement_timeout = 0`
+and the same `lock_timeout`, so a freeze of a large table is not cancelled before it can advance
+`relfrozenxid`. A watchdog reads the session's `pg_stat_progress_vacuum` row every 30 s
+(phase, heap blocks scanned and vacuumed, index vacuum passes, and on PostgreSQL 17+
+`indexes_processed`) and cancels the backend with `pg_cancel_backend` when a heap phase shows
+no progress for `safety.vacuum_stall_minutes` (`vacuum_stalled`), when
+`safety.vacuum_timeout_seconds` ends (`vacuum_cap`), or when the emergency stop is set
+(`emergency_stop`). Index phases have no stall check: before PostgreSQL 17 they have no
+counter, and one large index can take longer than the stall window, so only the cap bounds
+them. If the cancel is refused, pg_sage closes the session.
+
+Before a `VACUUM` runs, pg_sage reads `pg_stat_progress_vacuum` for the table (and its TOAST
+table). When a vacuum, typically autovacuum, is already running there, the action is withheld
+as `vacuum_in_progress` with that backend's pid, phase, blocks scanned and whether it is an
+anti-wraparound autovacuum: a manual `VACUUM` would only wait behind it on `lock_timeout`, or
+cancel an ordinary autovacuum and lose its work. A withheld action writes no failed action
+row, so it never counts toward the custodian backoff. A role without `pg_read_all_stats`
+sees other roles' rows without a table; the action then proceeds and its decision records
+`progress_unknown`.
 
 No class timeout is ever unlimited. The recommendation claim, the change lease and the
 budget hold last at least twice the longest class timeout, so a four-hour build never outlives

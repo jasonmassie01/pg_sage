@@ -61,7 +61,7 @@ func admissionExecutor(t *testing.T, f *vacuumFixture) (*Executor, int64) {
 	return exec, decisionID
 }
 
-func redFreezeProposal(table, sql string) CustodianProposal {
+func redVacuumProposal(table, sql string) CustodianProposal {
 	return CustodianProposal{Feature: "freeze", SQL: sql, ResponseKind: "vacuum_freeze",
 		TargetObjects: []string{table},
 		Deadline: &policy.DeadlineContext{Kind: policy.DeadlineXID,
@@ -76,7 +76,7 @@ func TestCustodianVacuumWithheldWhileTargetIsBeingVacuumed(t *testing.T) {
 	pid := startThrottledVacuum(t, f)
 	exec, decisionID := admissionExecutor(t, f)
 	sql := "VACUUM " + f.table
-	sub, err := exec.SubmitCustodianProposalDecision(f.ctx, redFreezeProposal(f.table, sql))
+	sub, err := exec.SubmitCustodianProposalDecision(f.ctx, redVacuumProposal(f.table, sql))
 	if !errors.Is(err, ErrCustodianProposalWithheld) {
 		t.Fatalf("submit error = %v, want ErrCustodianProposalWithheld", err)
 	}
@@ -116,8 +116,10 @@ func TestCustodianVacuumWithheldWhileTargetIsBeingVacuumed(t *testing.T) {
 func TestCustodianVacuumRunsWhenNothingVacuumsTheTarget(t *testing.T) {
 	f := newVacuumFixture(t, 2000, "0")
 	exec, decisionID := admissionExecutor(t, f)
-	sql := "VACUUM " + f.table
-	sub, err := exec.SubmitCustodianProposalDecision(f.ctx, redFreezeProposal(f.table, sql))
+	// FREEZE: the post-check needs the horizon to advance, which a plain
+	// VACUUM of a table younger than its freeze table age need not do.
+	sql := "VACUUM (FREEZE) " + f.table
+	sub, err := exec.SubmitCustodianProposalDecision(f.ctx, redVacuumProposal(f.table, sql))
 	if err != nil || !sub.Executed {
 		t.Fatalf("submit = %+v, %v; want executed", sub, err)
 	}
@@ -134,9 +136,14 @@ func TestCustodianVacuumRunsWhenNothingVacuumsTheTarget(t *testing.T) {
 // Another table's vacuum is not this table's.
 func TestReadRunningVacuumsIgnoresOtherTables(t *testing.T) {
 	f := newVacuumFixture(t, 40000, "0")
-	other := newVacuumFixture(t, 10, "0")
+	// One fixture per test: requireDB holds the cross-package test lock.
+	other := f.table + "_other"
+	if _, err := f.pool.Exec(f.ctx, "CREATE TABLE "+other+" (a int)"); err != nil {
+		t.Fatalf("create %s: %v", other, err)
+	}
+	t.Cleanup(func() { _, _ = f.pool.Exec(context.Background(), "DROP TABLE IF EXISTS "+other) })
 	startThrottledVacuum(t, f)
-	rows, err := readRunningVacuums(other.ctx, other.pool, other.table)
+	rows, err := readRunningVacuums(f.ctx, f.pool, other)
 	if err != nil || len(rows) != 0 {
 		t.Fatalf("other table's running vacuums = %+v, %v; want none", rows, err)
 	}
