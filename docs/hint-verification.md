@@ -390,7 +390,35 @@ pg_hint_plan 1.7.1 supports table-driven hints via `hint_plan.hints`, keyed by `
       Index Cond: (status = 'shipped'::text)
     ```
 
-**Verdict:** Table-driven hints work. No application code changes needed &mdash; pg_sage inserts the hint, pg_hint_plan applies it automatically on matching queries.
+**Verdict:** Table-driven hints work without application code changes, but only in sessions
+where pg_hint_plan reads its table. `pg_hint_plan.enable_hint_table` defaults to `off`, and
+with it off pg_hint_plan ignores `hint_plan.hints` entirely. The test above turns it on for its
+own session; application sessions need it set for the database or their role.
+
+### Prerequisites pg_sage checks before it offers an executable hint
+
+A hint in `hint_plan.hints` changes an application's plan only when all four hold for the
+sessions that run the statement. pg_sage reads each from the catalog (`pg_settings`,
+`pg_db_role_setting`, `pg_class`/`pg_index`, `has_table_privilege`), never with `SET`, `ALTER`
+or `LOAD`, at startup and again at the start of every tuner cycle, so a change takes effect
+at the next cycle without a restart.
+
+| Fact | Holds when | `hint_readiness` when missing | Fix |
+|---|---|---|---|
+| Preload | `shared_preload_libraries`, or `session_preload_libraries` for the server, the database or a login role, lists `pg_hint_plan` | `not preloaded` (`shared_preload_libraries unreadable` when pg_sage's role may not see it: grant `pg_read_all_settings`, part of `pg_monitor`) | add `pg_hint_plan` to `shared_preload_libraries` and restart |
+| Hint table on | `pg_hint_plan.enable_hint_table` is on for the same sessions: server setting, `ALTER DATABASE ... SET` or `ALTER ROLE ... [IN DATABASE ...] SET`, with PostgreSQL's precedence | `enable_hint_table off`, or `preload and enable_hint_table differ by role` when one role preloads and another has the table on | `ALTER DATABASE mydb SET pg_hint_plan.enable_hint_table = on;` (new sessions pick it up) |
+| Table layout | `hint_plan.hints` has the pg_hint_plan 1.7 layout (`query_id`, `application_name`, `hints`) with its unique index, and pg_sage can read it | `hint table layout` | `CREATE EXTENSION pg_hint_plan;` at 1.7 or later (PG17+) |
+| Privilege | pg_sage's role holds `INSERT` and `DELETE` on `hint_plan.hints` (and `USAGE` on schema `hint_plan`, `SELECT` on the table) | `privilege` | `GRANT USAGE ON SCHEMA hint_plan TO sage_agent; GRANT SELECT, INSERT, DELETE ON hint_plan.hints TO sage_agent;` |
+
+When any is missing, `query_tuning` findings stay advisory: they keep the proposed
+`hint_directive` but carry no `recommended_sql`, and their `hint_readiness` detail names what
+is missing (several joined with `; `). The tuning agent proposes no hints. A failed catalog
+read counts as not ready (`probe failed`). The fleet capability report (`hint_plan`) shows the
+same facts, with a limitation line while hints have no effect.
+
+On RDS, Aurora and Cloud SQL, `shared_preload_libraries` is set through the parameter group or
+database flag; `ALTER DATABASE ... SET pg_hint_plan.enable_hint_table = on` works as the
+database owner. pg_sage only reads these settings.
 
 ---
 
