@@ -143,6 +143,7 @@ func DuplicateIndexes(idx []Index) ([]Item, map[uint32]bool) {
 		}
 		groups[k] = append(groups[k], x)
 	}
+	tree := newPartitionTree(idx)
 	var out []Item
 	for _, k := range keys {
 		copies := groups[k]
@@ -155,18 +156,19 @@ func DuplicateIndexes(idx []Index) ([]Item, map[uint32]bool) {
 				continue // dropping it means dropping a constraint or its parent
 			}
 			flagged[dup.OID] = true
-			out = append(out, duplicateItem(dup, copies[0]))
+			out = append(out, duplicateItem(dup, copies[0], tree.size(dup)))
 		}
 	}
-	return append(out, redundantPrefixes(idx, flagged)...), flagged
+	return append(out, redundantPrefixes(idx, flagged, tree)...), flagged
 }
 
-func duplicateItem(dup, keep Index) Item {
+// duplicateItem reports dup, of size bytes, as a copy of keep.
+func duplicateItem(dup, keep Index, size int64) Item {
 	return Item{Rule: RuleDuplicateIndex, Severity: SeverityWarning, Object: dup.object(),
 		Title: "Duplicate index " + dup.object(),
 		Detail: fmt.Sprintf("%s (%s) is identical to %s on %s: same columns, operator "+
 			"classes, collations and predicate. Every write maintains both.", dup.object(),
-			sizeText(dup.SizeBytes), keep.object(), qualified(dup.Schema, dup.Table)),
+			sizeText(size), keep.object(), qualified(dup.Schema, dup.Table)),
 		Recommendation: "Drop the duplicate after checking no query hint or constraint " +
 			"names it.",
 		SuggestedSQL: dropSQL(dup), Caveat: dropCaveat(dup),
@@ -178,7 +180,7 @@ func duplicateItem(dup, keep Index) Item {
 
 // redundantPrefixes reports plain btree indexes whose columns lead another
 // btree index on the same table.
-func redundantPrefixes(idx []Index, flagged map[uint32]bool) []Item {
+func redundantPrefixes(idx []Index, flagged map[uint32]bool, tree partitionTree) []Item {
 	var out []Item
 	for _, a := range idx {
 		if !plainBtree(a) || a.Unique || a.ConstraintBacked || a.IsPartition ||
@@ -195,9 +197,9 @@ func redundantPrefixes(idx []Index, flagged map[uint32]bool) []Item {
 			out = append(out, Item{Rule: RuleRedundantIndex, Severity: SeverityInfo,
 				Object: a.object(), Title: "Redundant index " + a.object(),
 				Detail: fmt.Sprintf("The columns of %s (%s) lead %s, which serves the "+
-					"same lookups.", a.object(), sizeText(a.SizeBytes), b.object()),
+					"same lookups.", a.object(), sizeText(tree.size(a)), b.object()),
 				Recommendation: "Drop it unless a query relies on its smaller size.",
-				SuggestedSQL: dropSQL(a), Caveat: dropCaveat(a),
+				SuggestedSQL:   dropSQL(a), Caveat: dropCaveat(a),
 				Evidence: []Evidence{{Source: "pg_index",
 					Ref: "pg_index.indkey (indexrelid " + a.object() + ")",
 					Detail: fmt.Sprintf("indkey=%v is a prefix of %s indkey=%v",

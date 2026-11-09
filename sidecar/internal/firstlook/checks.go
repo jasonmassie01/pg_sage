@@ -44,10 +44,14 @@ func (p *pass) evalIndexes(idx []Index, fks []ForeignKey, builds IndexBuilds,
 	truncated bool) []outcome {
 	th := p.opts.Thresholds
 	dups, flagged := DuplicateIndexes(idx)
+	unscanned := idx
+	if truncated {
+		unscanned = withoutPartitioned(idx)
+	}
 	out := []outcome{
 		p.add(RuleInvalidIndex, InvalidIndexes(idx, builds)),
 		p.add(RuleDuplicateIndex, dups),
-		p.add(RuleNeverScannedIndex, NeverScannedIndexes(idx, flagged, p.window,
+		p.add(RuleNeverScannedIndex, NeverScannedIndexes(unscanned, flagged, p.window,
 			p.opts.Now())),
 		p.add(RuleUnindexedFK, UnindexedForeignKeys(fks, idx, th.FKMinRows)),
 	}

@@ -15,12 +15,17 @@ const maxPartitionDepth = 64
 // maxIdentBytes is NAMEDATALEN - 1: PostgreSQL truncates longer names.
 const maxIdentBytes = 63
 
-// partitionDropCaveat says what DROP INDEX on a partitioned index locks.
+// partitionDropCaveat says what DROP INDEX on a partitioned index locks,
+// and the per-partition path. Re-attaching a partition while the parent
+// index exists rebuilds the index on it, so the parent goes before that.
 const partitionDropCaveat = "This is a partitioned index: PostgreSQL cannot drop it " +
-	"concurrently, and DROP INDEX takes an ACCESS EXCLUSIVE lock on the parent and every " +
-	"partition until it commits, blocking reads and writes on the whole table. On a large " +
-	"tree, detach each partition (ALTER TABLE ... DETACH PARTITION), drop its now-standalone " +
-	"copy one at a time, re-attach the partitions and drop the parent index last."
+	"concurrently. DROP INDEX is quick once it runs, but it waits for and then holds an " +
+	"ACCESS EXCLUSIVE lock on the parent and every partition until it commits, blocking " +
+	"reads and writes on the whole table. Run it with a short lock_timeout and retry if " +
+	"it times out. To lock one partition at a time instead, detach each partition " +
+	"(ALTER TABLE ... DETACH PARTITION) and drop its now-standalone index, drop the parent " +
+	"index once no partition is attached, then re-attach the partitions. A detached " +
+	"partition's rows are not visible through the parent until it is re-attached."
 
 // partitionBuildCaveat says what CREATE INDEX on a partitioned table
 // locks, and the path that avoids it.
@@ -31,14 +36,12 @@ const partitionBuildCaveat = "The table is partitioned: PostgreSQL cannot build 
 
 // partitionTree indexes the attached indexes by their parent.
 type partitionTree struct {
-	byOID    map[uint32]bool
 	children map[uint32][]Index
 }
 
 func newPartitionTree(idx []Index) partitionTree {
-	t := partitionTree{byOID: map[uint32]bool{}, children: map[uint32][]Index{}}
+	t := partitionTree{children: map[uint32][]Index{}}
 	for _, x := range idx {
-		t.byOID[x.OID] = true
 		if x.IsPartition && x.ParentOID != 0 {
 			t.children[x.ParentOID] = append(t.children[x.ParentOID], x)
 		}
@@ -60,6 +63,29 @@ func (t partitionTree) leaves(oid uint32, depth int) (n int, scans, size int64) 
 		n, scans, size = n+1, scans+c.Scans, size+c.SizeBytes
 	}
 	return n, scans, size
+}
+
+// size is x's size; for a partitioned index, which has no storage of its
+// own, the total of its leaf indexes.
+func (t partitionTree) size(x Index) int64 {
+	if !x.Partitioned {
+		return x.SizeBytes
+	}
+	_, _, size := t.leaves(x.OID, 0)
+	return size
+}
+
+// withoutPartitioned leaves out the partitioned indexes. After a read cut
+// at its row limit, a partitioned index's partitions may lie past the cut,
+// so the sum of their scans is unknown and it is not reported (fail closed).
+func withoutPartitioned(idx []Index) []Index {
+	out := make([]Index, 0, len(idx))
+	for _, x := range idx {
+		if !x.Partitioned {
+			out = append(out, x)
+		}
+	}
+	return out
 }
 
 // neverScannedParent reports a top-level partitioned index whose leaf
