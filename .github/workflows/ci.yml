@@ -635,6 +635,99 @@ jobs:
           scripts/ci/kill-replica-topology.sh down 17 killtopo
           docker rm -f agentaudit-pg >/dev/null 2>&1 || true
 
+  # ci-08: the root Playwright suite (e2e/) drives the real binary through
+  # the real dashboard: approvals, emergency stop, role boundaries and the
+  # walkthrough. scripts/ci/full-surface-fixture.sh builds its disposable
+  # fleet (one PostgreSQL 17 container, a metadata database and three
+  # targets, a random test-only key and admin). Mutating specs restore
+  # config in finally, so the suite runs serially. Any skipped test fails
+  # the job. Nightly, tag and manual runs only; the release waits for it.
+  # The browser layer does not vary by major, so PostgreSQL 17 only; the
+  # Go matrix covers the others.
+  web-e2e-full:
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.ref, 'refs/tags/v')
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: sidecar/go.mod
+          cache-dependency-path: sidecar/go.sum
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: sidecar/web/package-lock.json
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('e2e/package-lock.json') }}
+
+      - name: Log in to the GitHub container registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" |
+          docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Start the full-surface fixture (PostgreSQL 17)
+        run: bash scripts/ci/full-surface-fixture.sh 17
+
+      - name: Fixture input checks
+        run: bash scripts/ci/full-surface-fixture-test.sh "$PG_SAGE_E2E_PG_CONTAINER"
+
+      - name: Install the root suite and Chromium
+        working-directory: e2e
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: Root browser suite (full surface)
+        working-directory: e2e
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/full-surface.json
+        run: |
+          status=0
+          npx playwright test --grep-invert 'encryption-key requirement' --workers=1 \
+            --reporter=list,json || status=$?
+          node ../scripts/ci/playwright-skip-gate.mjs test-results/full-surface.json || status=1
+          exit $status
+
+      # The missing-key check needs a server without a key, which the
+      # encrypted metadata fleet above cannot be.
+      - name: Encryption-key requirement (keyless standalone server)
+        run: |
+          bash scripts/ci/full-surface-fixture.sh keyless
+          cd e2e
+          status=0
+          PG_SAGE_E2E_BASE_URL=http://127.0.0.1:8087 \
+            PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/keyless.json \
+            npx playwright test --grep 'encryption-key requirement' --workers=1 \
+            --reporter=list,json || status=$?
+          node ../scripts/ci/playwright-skip-gate.mjs test-results/keyless.json || status=1
+          exit $status
+
+      - name: Sidecar logs
+        if: failure()
+        run: tail -n 200 "$RUNNER_TEMP"/pg_sage_e2e/*.log || true
+
+      - name: Upload root browser test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-full-surface-test-results
+          path: e2e/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
   # ci-01 (also security-04): the vulnerability gate. govulncheck blocks
   # on vulnerabilities the code can reach, npm audit on high or critical
   # advisories in the dashboard's shipped dependencies, and on master and
@@ -1277,7 +1370,7 @@ jobs:
     # ci-05: a release waits for the whole green matrix. Without always()
     # in the if, any need that failed or was skipped skips the release.
     needs: [test, test-arm64, integration-matrix, agent-servers, lint, security,
-      container-health, bench-sign, safety-bench-sign]
+      container-health, bench-sign, safety-bench-sign, web-e2e-full]
     if: startsWith(github.ref, 'refs/tags/v')
     # id-token: goreleaser signs checksums.txt keyless (ci-05).
     permissions:

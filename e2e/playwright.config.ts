@@ -2,6 +2,8 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: '.',
+  // The suite needs the scripted fixture; without it the run fails, never skips.
+  globalSetup: './global-setup.ts',
   timeout: 30000,
   retries: 0,
   use: {

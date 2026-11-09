@@ -1,9 +1,8 @@
-// playwright.config.js — e2e test config for the dashboard.
+// playwright.config.js — mocked e2e suite for the dashboard.
 //
-// Plan reference: docs/plan_v0.8.5.md §7.5 CHECK-T20 (tooltip e2e).
-// Runs against the Vite dev server. CI is expected to
-// `npm run build` + serve dist/, but for local iteration this config
-// starts the dev server on demand.
+// Every spec stubs /api/* through e2e/fixtures.ts, so no backend runs.
+// The config starts the Vite dev server on demand, locally and in the CI
+// test job (ci-08), which runs `npx playwright test` with CI=1.
 //
 // Override the port via PLAYWRIGHT_PORT env var if the default
 // conflicts with another service (e.g. Docker).

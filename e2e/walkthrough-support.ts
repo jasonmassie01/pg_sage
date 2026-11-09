@@ -2,7 +2,7 @@ import { APIRequestContext, APIResponse, expect, Page } from '@playwright/test';
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { fixtureTargets } from './fixture-targets';
+import { fixturePgPort, fixtureTargets } from './fixture-targets';
 import { login as loginForm } from './helpers';
 
 export type Row = Record<string, unknown>;
@@ -190,8 +190,8 @@ export async function notificationLifecycle(page: Page, r: APIRequestContext) {
 }
 
 export const databaseInput = () => ({
-  name: unique(), host: '127.0.0.1', port: Number(process.env.PG_SAGE_E2E_PG_PORT || 5455),
-  database_name: 'audit_browser_target1', username: 'postgres', password: 'postgres',
+  name: unique(), host: '127.0.0.1', port: fixturePgPort,
+  database_name: fixtureTargets[0].db, username: 'postgres', password: 'postgres',
   sslmode: 'disable', trust_level: 'observation', execution_mode: 'approval',
 });
 

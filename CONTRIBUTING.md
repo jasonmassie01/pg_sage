@@ -59,8 +59,15 @@ cd sidecar/web
 npm run lint
 npm test
 npm run build
+npx playwright install chromium   # once
 npm run test:e2e
 ```
+
+`npm run test:e2e` runs the mocked dashboard suite (`sidecar/web/e2e`, every
+`/api` route stubbed); CI runs it on every push and fails on any skipped test.
+The full-surface suite in `e2e/` drives the real binary against a disposable
+fixture that `bash scripts/ci/full-surface-fixture.sh 17` builds; see
+`e2e/README.md`. CI runs it nightly, on tags and on manual runs.
 
 With Node 26, run unit tests with
 `NODE_OPTIONS=--no-experimental-webstorage npm test`. Its experimental global
