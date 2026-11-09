@@ -1159,6 +1159,18 @@ and the catalog, never from evidence or an LLM.
   failure by the decision's reason, and the sidecar logs each failing
   decision at most once an hour. Any series above zero means the ledger is
   missing decisions.
+- **Episodes.** A withheld verdict (parked, queued, blocked, observe-only)
+  that repeats every cycle is one `sage.decision` row per episode: repeats
+  count in `repeat_count` and stamp `last_seen_at`. An episode ends, and
+  `resolved_at` is set, when its decision is linked to the approval-queue item
+  it queued (`queue_id`), or when the same candidate executes. The candidate is
+  `candidate_key`: database, feature, targets, SQL and principal, without the
+  verdict, intent or policy version, so an operator's approved execute also
+  ends an autonomous park. The next withheld verdict starts a new row, so a
+  change re-queued after a rejection has its own decision and its approval
+  card keeps the gate's reason and tier. A park that stays parked stays one
+  episode. Rows written before the upgrade gain `candidate_key` at their next
+  repeat. Per database; PostgreSQL 14 to 18 behave the same.
 
 #### Retention contracts
 
