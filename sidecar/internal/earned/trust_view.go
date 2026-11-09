@@ -180,35 +180,20 @@ func lastChange(st State, e Event) TrustChange {
 // AnnotateTrust fills each row's effective level on this limiter's
 // database and the database-wide downgrade signals holding now: the
 // error budget and HA role read once, every family's safety record in
-// one statement.
+// one statement (or reused from the view). A row without a supported
+// level shows L0 where the evidence would bind (fail closed).
 func (l *Limiter) AnnotateTrust(ctx context.Context, v *TrustView) {
-	self := l.selfDowngrades(ctx)
-	safety, err := v.safety, error(nil)
-	if safety == nil {
-		safety, err = l.svc.store.safetySet(ctx, rowFamilies(v.Rows, false),
-			l.svc.now().Add(-l.svc.cfg.SafetyWindow))
-	}
-	byFamily := map[Family][]Downgrade{}
+	sig := l.viewSignals(ctx, v.safety, rowFamilies(v.Rows, false))
 	for i := range v.Rows {
 		row := &v.Rows[i]
-		downs := self
-		if !IsSelfInitiated(row.Family) {
-			if _, ok := byFamily[row.Family]; !ok {
-				byFamily[row.Family] = append(append([]Downgrade(nil), self...),
-					safetyDowngrades(safety[row.Family].n, err)...)
-			}
-			downs = byFamily[row.Family]
+		downs := sig.of(row.Family)
+		supported := L0
+		if row.Supported != nil {
+			supported = *row.Supported
 		}
-		level := MinLevel(row.Level, row.Cap)
-		switch {
-		case row.Provenance == ProvenanceCarriedOver:
-			level = MinLevel(row.Level, carryCap(row.Class))
-		case row.Supported != nil && row.Level >= L2:
-			level = MinLevel(level, *row.Supported)
-		}
-		if len(downs) > 0 && level > L1 {
-			level = L1
-		}
+		st := State{Family: row.Family, Class: row.Class, Level: row.Level,
+			Provenance: row.Provenance}
+		level := viewLevel(st, supported, downs)
 		if len(downs) > 0 {
 			row.Downgrades = downs
 		}
