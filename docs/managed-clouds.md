@@ -146,8 +146,10 @@ approval, its note and a rejection all survive a change of target and a failed l
 - A proposal is superseded when its finding is gone or a newer value for the same parameter
   is proposed.
 - Databases on one instance share its parameter group, so a change one of them holds (open,
-  or rejected in the last 7 days) for the same target and value is not proposed again by the
-  others: approve or reject it in the database that holds it. The cycle counts these as
+  or rejected in the last 7 days) for the same parameter group and value is not proposed again
+  by the others: approve or reject it in the database that holds it. A database that cannot
+  look up the parameter group right now does not add a placeholder copy of a change a peer
+  holds. The cycle counts these as
   `held_by_peer`, and `GET /api/v1/managed-changes` lists each database's
   `member_databases`. A different value is still proposed. If a peer database cannot be read,
   the change is proposed anyway (it may then be listed twice) and the failure is logged once.
@@ -277,9 +279,10 @@ database identity is unknown or access is denied, and up to 10 minutes (±20 % j
 throttling, provider, response, clock-skew and network errors. A ceiling never shortens a poll
 interval that is already longer. One success returns to the poll interval. pg_sage keeps
 retrying, so credentials added later are picked up within 30 minutes; reloading the
-configuration rebuilds the runtime and polls at once. When other databases share the instance's
-runtime, reloading one of them keeps the runtime (and its credentials chain) and polls at once. The log gets one warning when a failure
-starts or its reason changes and one line when telemetry recovers, not one per poll.
+configuration rebuilds the runtime and polls at once. When other databases share the
+instance's runtime, reloading one of them keeps the runtime (and its credentials chain) and
+polls at once. The log gets one warning when a failure starts or its reason changes and one
+line when telemetry recovers, not one per poll.
 `GET /api/v1/cloud-telemetry` shows `next_poll_at` and `consecutive_failures` for each
 database. A failed poll still drops the previous sample, so the guards never use stale
 evidence.
