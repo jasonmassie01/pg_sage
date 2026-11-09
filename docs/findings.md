@@ -105,6 +105,19 @@ Unused index public.idx_old on public.orders (zero scans)
 DROP INDEX CONCURRENTLY public.idx_old;
 ```
 
+**Partitioned tables:** an index attached to a partitioned index is never flagged:
+PostgreSQL refuses to drop it on its own ("index ... requires it"). Each attached index
+keeps its clock, and when every one under a partitioned index has been unused for the
+window, one finding is raised on the partitioned index itself ("unused on N of M
+partitions"; `detail.partitioned_index`, `partitions_unused`, `partitions_total`). It is
+advisory: no `recommended_sql`, a plain `DROP INDEX` in `detail.manual_sql` (a partitioned
+index cannot be dropped `CONCURRENTLY`, and the drop locks every partition) and
+`approval_required`. A sub-partitioned tree rolls up to its top partitioned index. A
+standalone index on a partition (never attached, or left by `DETACH PARTITION`) is
+evaluated like any other. The rule does not run in a cycle where the partition tree or
+the partitioned indexes could not be read. On upgrade, open findings on attached
+partition indexes resolve once.
+
 ---
 
 ### duplicate_index
@@ -126,6 +139,11 @@ Duplicate index public.idx_orders_dup2 matches idx_orders_dup1
 ```sql
 DROP INDEX CONCURRENTLY public.idx_orders_dup2;
 ```
+
+**Partitioned tables:** an index attached to a partitioned index is never the one to
+drop. Two attached duplicates (from two partitioned indexes on the same key) give no
+finding; a standalone index on a partition that duplicates an attached one is the one
+dropped.
 
 ---
 
@@ -171,6 +189,18 @@ Missing index on public.order_items(order_id) for FK to public.orders
 ```sql
 CREATE INDEX CONCURRENTLY idx_order_items_order_id ON public.order_items (order_id);
 ```
+
+**Partitioned tables:** PostgreSQL rejects `CREATE INDEX CONCURRENTLY` on a partitioned
+table, and its indexes are not in `pg_stat_user_indexes`. The rule checks a partitioned
+table's keys against its partitioned indexes (valid, non-partial, key columns leading).
+An uncovered key gives one advisory finding on the parent with no `recommended_sql` and,
+in `detail.partition_plan`, the statements that build the index without blocking writes:
+`CREATE INDEX ... ON ONLY` the parent, then for each partition `CREATE INDEX CONCURRENTLY`
+and `ALTER INDEX ... ATTACH PARTITION`. The parent index becomes valid once every partition
+is attached. A parent with sub-partitioned partitions gets the note only. The copies of
+the key that PostgreSQL clones onto each partition are covered by that one finding; a key
+declared on a partition alone is evaluated as on a plain table. The rule does not run in
+a cycle where the tables, the partition tree or the partitioned indexes could not be read.
 
 ---
 
