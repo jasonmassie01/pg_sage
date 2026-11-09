@@ -184,6 +184,17 @@ reconnects on its own. When a reconnect is refused (for example a proxy 502 or
 new stream after 3 s, doubling up to 60 s with 20% jitter, and goes back to
 "Live" when it connects, without a page reload.
 
+**Background tabs and outages.** A dashboard tab that is not shown sends no
+polls: each page fetches once when the tab is shown again, so the
+pending-approvals badge in a background tab catches up when you return to it
+(notification channels still carry urgent approvals). While an endpoint keeps
+failing, its polls slow down to 2x, 4x and so on of the normal interval, up to
+5 minutes, and return to normal after one success; Retry buttons still fetch at
+once. Live events refresh a page only for the database it shows (or for all of
+them in the all-databases view), and a burst of events refreshes it once, 2 s
+after the last one. The "Getting started" checklist polls every 10 s until setup is
+complete, then every 60 s.
+
 Provider readiness uses adapters for Postgres, Cloud SQL, AlloyDB, RDS, and
 Aurora. Adapters describe extension enablement paths, log access, managed
 service limitations, and supported action families before policy evaluation

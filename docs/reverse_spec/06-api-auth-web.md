@@ -377,9 +377,16 @@ standalone route.
   **No automatic 401→login redirect** — auth-loss recovery is handled by the
   App-level `/auth/me` gate, not useAPI.
 - Returns `{ data, loading, error, refetch }`.
+- Bounded polling (dashboard-08): a poll that falls due while `document.hidden`
+  is skipped and runs once when the tab is shown; failures in a row wait 1x, 2x,
+  4x the interval and so on, capped at 5 min (`pollDelay`), and a success
+  restores the interval. `refetch()` always fetches at once.
 - **SSE** via `hooks/useLiveEvents.jsx`: one `EventSource('/api/v1/events',
   {withCredentials:true})` at mount, named events `findings`/`actions`/`health`/
-  `heartbeat`; `useLiveRefetch(types, refetch)` invalidates polled data live.
+  `heartbeat`; `useLiveRefetch(types, refetch, {database})` invalidates polled
+  data live. It ignores events for a database other than the selected one,
+  refetches once 2 s after the last event of a burst, and in a hidden tab
+  refetches once when the tab is shown.
 
 ### 6.4 Client-side auth
 
@@ -402,7 +409,8 @@ fixed bottom-right `aria-live=polite` viewport, per-variant color + lucide icon.
 ### 6.6 Time-range context (`context/TimeRangeContext.jsx`)
 
 Five fixed windows: `1h`, `6h`, `24h`, `7d`, `30d`. Default `24h`, persisted in
-`localStorage['pg_sage_range']`. Recomputes `from`/`to` every 30 s. Exposes
+`localStorage['pg_sage_range']`. Recomputes `from`/`to` every 30 s while the
+tab is visible, and once on show if a tick fell due while hidden. Exposes
 `{rangeKey,setRangeKey,range,ranges,from,to,fromISO,toISO}`.
 Propagation is **opt-in** per page via `withTimeRange` (used by Actions,
 Findings); most pages ignore it. `TimeRangePicker` is a `<select>` in the header.
