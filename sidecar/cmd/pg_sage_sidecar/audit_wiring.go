@@ -97,12 +97,30 @@ func startSIEMExport(ctx context.Context, control *pgxpool.Pool,
 		}
 		return out
 	}, sinks, siem.NewCursorStore(control), siem.Options{BatchSize: sc.BatchSize,
-		Interval:   time.Duration(sc.IntervalSeconds) * time.Second,
-		MaxBackoff: time.Duration(sc.MaxBackoffSeconds) * time.Second},
+		Interval:        time.Duration(sc.IntervalSeconds) * time.Second,
+		MaxBackoff:      time.Duration(sc.MaxBackoffSeconds) * time.Second,
+		OnUndeliverable: siemUndeliverable(sources)},
 		auditLeaderFence, func(f string, a ...any) { logWarn("audit", f, a...) })
 	auditExport.Store(e)
 	go e.Run(ctx)
 	logInfo("audit", "SIEM export: %d sink(s), OCSF %s", len(sinks), siem.OCSFVersion)
+}
+
+// siemUndeliverable raises the siem_event_undeliverable finding on the
+// database a stubbed event came from. A source no longer in the fleet
+// fails the report, so its cursor holds rather than lose the record.
+func siemUndeliverable(sources func() []auditjob.Source) func(context.Context,
+	siem.Undeliverable) error {
+	return func(ctx context.Context, u siem.Undeliverable) error {
+		var pool *pgxpool.Pool
+		for _, s := range sources() {
+			if s.Name == u.Source {
+				pool = s.Pool
+				break
+			}
+		}
+		return auditjob.RaiseUndeliverable(ctx, pool, u)
+	}
 }
 
 // buildSIEMSinks builds the configured sinks; a token is read from its

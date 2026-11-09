@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/auditjob"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/evidence"
 	"github.com/pg-sage/sidecar/internal/leader"
@@ -174,5 +175,23 @@ func TestAuditLeaderFenceDisabledAndFollower(t *testing.T) {
 	want := siem.Fence{Scope: "s", Holder: "me", Epoch: 1}
 	if f, ok := auditLeaderFence(); !ok || f != want {
 		t.Fatalf("nil config: fence = %+v,%v, want %+v", f, ok, want)
+	}
+}
+
+// A stub from a source that left the fleet cannot be recorded: the report
+// fails naming the source, so the exporter holds that lane's cursor.
+func TestSIEMUndeliverableUnknownSource(t *testing.T) {
+	report := siemUndeliverable(func() []auditjob.Source {
+		return []auditjob.Source{{Name: "orders"}}
+	})
+	err := report(context.Background(), siem.Undeliverable{Sink: "soc", Source: "billing",
+		Chain: "action_log", Seq: 4})
+	if err == nil || !strings.Contains(err.Error(), "billing") {
+		t.Fatalf("unknown source: err = %v, want an error naming billing", err)
+	}
+	err = report(context.Background(), siem.Undeliverable{Sink: "soc", Source: "orders",
+		Chain: "action_log", Seq: 4})
+	if err == nil || !strings.Contains(err.Error(), "orders") {
+		t.Fatalf("source without a pool: err = %v, want an error naming orders", err)
 	}
 }
