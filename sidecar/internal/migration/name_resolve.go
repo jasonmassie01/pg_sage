@@ -29,10 +29,15 @@ WHERE  s.setdatabase IN (0, (SELECT oid FROM pg_catalog.pg_database
         (SELECT oid FROM pg_catalog.pg_roles WHERE rolname = $1))
 ORDER  BY (s.setrole <> 0) DESC, (s.setdatabase <> 0) DESC`
 
+// defaultSearchPath is PostgreSQL's search_path when no role or database
+// setting applies.
+var defaultSearchPath = []string{"$user", "public"}
+
 // resolveTableSchema fills risk.SchemaName for an unqualified table: the
 // DDL role's search_path, then public, then a unique relname. Several
-// matches mark the name ambiguous (stats unknown). A failed read leaves
-// the name unresolved, which falls back to public.
+// matches mark the name ambiguous (stats unknown). With no setting the
+// server default ("$user", public) applies. A failed candidate read
+// leaves the name unresolved, which falls back to public.
 func (ra *RiskAssessor) resolveTableSchema(
 	ctx context.Context, risk *DDLRisk, role string,
 ) {
@@ -46,6 +51,9 @@ func (ra *RiskAssessor) resolveTableSchema(
 	if err != nil {
 		ra.logFn("debug", "migration: search_path lookup failed for role %q: %v",
 			role, err)
+	}
+	if path == nil {
+		path = defaultSearchPath
 	}
 	schema, ambiguous := resolveSchema(candidates, path, role)
 	risk.SchemaName, risk.NameAmbiguous = schema, ambiguous
