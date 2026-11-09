@@ -37,7 +37,11 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA sage GRANT ALL ON TABLES TO sage_agent;
 
 Sage SRE investigations need only `pg_monitor`; without `pg_read_all_stats` their activity
 probes report `no_privilege` instead of a partial answer. See
-[Sage SRE: permissions and data flow](sage-sre-permissions-and-data-flow.md).
+[Sage SRE: permissions and data flow](sage-sre-permissions-and-data-flow.md). Its approved
+actions need more, and only after a human approval: `pg_signal_backend` (or the target
+role's privileges) for a backend cancel, and table ownership for extended statistics. See
+[action privileges](sage-sre-permissions-and-data-flow.md#action-privileges), which also
+records, per managed provider, whether `pg_signal_backend` can be granted.
 
 ---
 
