@@ -178,7 +178,7 @@ func (r *Reconciler) dropPending(what string, ids []int64, why string,
 		return
 	}
 	res.Dropped += len(ids)
-	r.svc.cfg.logf("autonomy: WARNING: stop waiting for the outcome of %d %s on %s (%s): "+
+	r.svc.cfg.logf("autonomy: stop waiting for the outcome of %d %s on %s (%s): "+
 		"action_log ids %v; their outcomes are not recorded", len(ids), what, r.database,
 		why, ids)
 }
