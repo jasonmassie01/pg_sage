@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
 )
 
 type pooledExecutor interface {
@@ -77,7 +80,7 @@ func runTopLevelSession(
 	run func(pooledExecutor) error,
 ) (retErr error) {
 	defer func() {
-		if cleanupErr := resetTopLevelSession(sess); cleanupErr != nil {
+		if cleanupErr := resetTopLevelSession(sess, opts); cleanupErr != nil {
 			sess.discard()
 			retErr = errors.Join(retErr, cleanupErr)
 			return
@@ -121,13 +124,32 @@ func setTopLevelSession(
 	if _, err := conn.Exec(ctx, "SET search_path = "+executorSearchPath); err != nil {
 		return fmt.Errorf("setting search_path: %w", err)
 	}
+	return setActionTag(ctx, conn, "SET", opts)
+}
+
+// setActionTag names the action's decision in application_name; verb is
+// SET or SET LOCAL. The name keeps pg_sage in it, so every collector still
+// excludes the session.
+func setActionTag(ctx context.Context, conn pooledExecutor, verb string, o ddlOpts) error {
+	if o.actionTag <= 0 {
+		return nil
+	}
+	name := selfmonitor.ActionApplicationName(o.actionTag)
+	if _, err := conn.Exec(ctx, verb+" application_name = '"+name+"'"); err != nil {
+		return fmt.Errorf("setting application_name: %w", err)
+	}
 	return nil
 }
 
-// resetTopLevelSession resets every session setting; the first failure
-// stops it, and the caller then discards the connection.
-func resetTopLevelSession(conn pooledExecutor) error {
-	for _, setting := range topLevelSessionSettings {
+// resetTopLevelSession resets every session setting, and the action tag
+// when one was set; the first failure stops it, and the caller then
+// discards the connection.
+func resetTopLevelSession(conn pooledExecutor, o ddlOpts) error {
+	settings := topLevelSessionSettings
+	if o.actionTag > 0 {
+		settings = append(slices.Clone(settings), "application_name")
+	}
+	for _, setting := range settings {
 		if err := resetSessionSetting(conn, setting); err != nil {
 			return err
 		}
