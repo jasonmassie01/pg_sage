@@ -1,6 +1,10 @@
 package executor
 
-import "errors"
+import (
+	"errors"
+
+	prov "github.com/pg-sage/sidecar/internal/provider"
+)
 
 type ActionContract struct {
 	ActionType          string
@@ -846,8 +850,8 @@ func prepareParameterizedQueryContract() ActionContract {
 }
 
 func portableActionProviders() []string {
-	return []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb",
-		"neon", "supabase", "azure", "azure-cosmos"}
+	return []string{prov.Postgres, prov.RDS, prov.Aurora, prov.CloudSQL, prov.AlloyDB,
+		prov.Neon, prov.Supabase, prov.Azure, prov.AzureCosmos}
 }
 
 // lakebaseOwnedActionProviders is intentionally limited to the contracts whose
@@ -855,5 +859,5 @@ func portableActionProviders() []string {
 // Other portable contracts keep their existing provider list; a PostgreSQL wire
 // connection alone does not establish provider feature or privilege support.
 func lakebaseOwnedActionProviders() []string {
-	return append(portableActionProviders(), "lakebase")
+	return append(portableActionProviders(), prov.Lakebase)
 }

@@ -1,6 +1,9 @@
 package provider
 
-const restartStep = "Restart the server (shared_preload_libraries applies at start)."
+const (
+	restartStep = "Restart the server (shared_preload_libraries applies at start)."
+	rebootStep  = "Then reboot the instance (the setting applies at start)."
+)
 
 // profiles is the registry. Every name provider detection can return has
 // a profile here except Unknown (see cmd/pg_sage_sidecar knownProviders).
@@ -10,11 +13,11 @@ var profiles = []Profile{
 	{Name: RDS, Aliases: []string{"aws", "aws-rds"}, Managed: true,
 		ConfigMechanism: ConfigParameterGroup, LogAccess: "cloudwatch",
 		PreloadSteps: []string{"In the instance's DB parameter group, add {lib} to " +
-			"shared_preload_libraries.", "Then reboot the instance (the setting applies at start)."}},
+			"shared_preload_libraries.", rebootStep}},
 	{Name: Aurora, Aliases: []string{"aurora-postgresql"}, Managed: true,
 		ConfigMechanism: ConfigClusterParameterGroup, LogAccess: "cloudwatch",
 		PreloadSteps: []string{"In the instance's DB cluster parameter group, add {lib} to " +
-			"shared_preload_libraries.", "Then reboot the instance (the setting applies at start)."}},
+			"shared_preload_libraries.", rebootStep}},
 	{Name: CloudSQL, Aliases: []string{"cloudsql", "gcp", "cloud sql", "gcp-cloud-sql"},
 		Managed: true, ConfigMechanism: ConfigCloudSQLFlags, LogAccess: "provider_logging",
 		PreloadSteps: []string{"Cloud SQL preloads {lib}; no database flag is needed to " +
