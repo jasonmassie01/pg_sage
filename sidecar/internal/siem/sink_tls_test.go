@@ -215,3 +215,22 @@ func TestSinkStatusDeliveryAndWarnings(t *testing.T) {
 		t.Fatalf("udp status JSON = %s (%v)", body, err)
 	}
 }
+
+// Under TLS 1.2 the receiver checks the client certificate inside the
+// handshake, so a refusal fails the dial without the TLS 1.3 confirm
+// wait; mTLS still refuses a missing pair and takes the configured one.
+func TestTLSSinksMutualTLS12(t *testing.T) {
+	pki := newTestPKI(t)
+	for _, k := range tlsKinds() {
+		cfg := receiverTLS(pki, true)
+		cfg.MaxVersion = tls.VersionTLS12
+		addr, got := k.serve(t, cfg)
+		if err := sendWith(t, k, addr, got, TLSFiles{CA: pki.caFile}); err == nil {
+			t.Fatalf("%s over TLS 1.2 without a client pair: delivered", k.name)
+		}
+		good := TLSFiles{CA: pki.caFile, Cert: pki.certFile, Key: pki.keyFile}
+		if err := sendWith(t, k, addr, got, good); err != nil {
+			t.Fatalf("%s over TLS 1.2 with the client pair: %v", k.name, err)
+		}
+	}
+}

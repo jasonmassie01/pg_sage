@@ -1,16 +1,23 @@
 package main
 
 import (
+	"context"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"io"
+	"log"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/pg-sage/sidecar/internal/auditchain"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/siem"
 )
@@ -145,5 +152,78 @@ func TestSIEMStartupWarningsAndStatus(t *testing.T) {
 	if err != nil || !strings.Contains(string(body), `"warnings":["token_over_http"]`) ||
 		!strings.Contains(string(body), `"delivery":"at_least_once"`) {
 		t.Fatalf("status JSON = %s (%v)", body, err)
+	}
+}
+
+// buildSIEMSinks hands each sink the TLS configuration its files describe:
+// a receiver signed by the test CA is refused without ca_file and trusted
+// with it, for http, otlp and syslog alike (a sink built with nil TLS
+// would fall back to the system roots and refuse it either way).
+func TestBuildSIEMSinksWireTheCAIntoEverySink(t *testing.T) {
+	ca, _, _, _ := siemPEMFiles(t)
+	ts := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter,
+		_ *http.Request) {
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	ts.Config.ErrorLog = log.New(io.Discard, "", 0)
+	ts.StartTLS()
+	defer ts.Close()
+	ln, err := tls.Listen("tcp", "127.0.0.1:0",
+		&tls.Config{Certificates: ts.TLS.Certificates, MinVersion: tls.VersionTLS12})
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+	go discardConns(ln)
+	kinds := []config.AuditSIEMSink{
+		{Name: "soc", Type: "http", URL: ts.URL, TimeoutSeconds: 2},
+		{Name: "otel", Type: "otlp", URL: ts.URL, TimeoutSeconds: 2},
+		{Name: "rsys", Type: "syslog", Address: ln.Addr().String(), Network: "tls",
+			TimeoutSeconds: 2},
+	}
+	events := []siem.Event{siem.Map(siem.Record{Source: "control", Chain: "action_log",
+		Link: auditchain.Link{Seq: 1, Op: "I", V: 1, At: time.Now()}})}
+	for _, k := range kinds {
+		for _, pinned := range []bool{false, true} {
+			s := k
+			if pinned {
+				s.CAFile = ca
+			}
+			err := sendOnce(t, s, events)
+			if pinned && err != nil {
+				t.Fatalf("%s with ca_file: %v", k.Name, err)
+			}
+			if !pinned && (err == nil ||
+				!strings.Contains(err.Error(), "certificate signed by unknown authority")) {
+				t.Fatalf("%s without ca_file: err = %v", k.Name, err)
+			}
+		}
+	}
+}
+
+// sendOnce builds one sink from its config and sends events through it.
+func sendOnce(t *testing.T, s config.AuditSIEMSink, events []siem.Event) error {
+	t.Helper()
+	sinks, err := buildSIEMSinks([]config.AuditSIEMSink{s})
+	if err != nil || len(sinks) != 1 {
+		t.Fatalf("%s: build: %v (%d sinks)", s.Name, err, len(sinks))
+	}
+	if c, ok := sinks[0].Sink.(io.Closer); ok {
+		defer c.Close()
+	}
+	return sinks[0].Sink.Send(context.Background(), events)
+}
+
+// discardConns accepts TLS connections and drains them until ln closes.
+func discardConns(ln net.Listener) {
+	for {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		go func() {
+			defer c.Close()
+			_, _ = io.Copy(io.Discard, c)
+		}()
 	}
 }
