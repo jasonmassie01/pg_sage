@@ -23,7 +23,7 @@ func TestPlanResponseAmberEmitsNothing(t *testing.T) {
 			t.Fatalf("dead %v: PlanResponse: %v", dead, err)
 		}
 		if response.Kind != "" || response.SQL != "" || response.Plan != "" ||
-			response.Park || response.PinnedBy != nil || response.Evidence != nil {
+			response.PinnedBy != nil || response.Evidence != nil {
 			t.Fatalf("dead %v: amber response = %#v, want none", dead, response)
 		}
 	}
@@ -39,7 +39,7 @@ func TestPlanResponseAmberBloatStillPlans(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PlanResponse: %v", err)
 	}
-	if response.Kind != ResponseParkBloat || !response.Park || response.SQL != "" {
+	if response.Kind != ResponseParkBloat || response.Plan == "" || response.SQL != "" {
 		t.Fatalf("amber bloat response = %#v, want a parked bloat plan", response)
 	}
 }

@@ -177,7 +177,7 @@ func TestHolderResponseSignalsOnlyUnprotectedSessions(t *testing.T) {
 	protected := active
 	protected.Protected, protected.AppName = true, "pg_basebackup"
 	r, err := HolderResponse(protected, pinnedTargets)
-	if err != nil || r.SQL != "" || r.Kind != ResponseEscalateHolder || !r.Park ||
+	if err != nil || r.SQL != "" || r.Kind != ResponseEscalateHolder ||
 		!strings.Contains(r.Plan, "42") || !strings.Contains(r.Plan, "pg_basebackup") {
 		t.Fatalf("protected session response = %#v, %v", r, err)
 	}
@@ -202,7 +202,8 @@ func TestHolderResponseEscalatesNonSessionHolders(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: HolderResponse: %v", name, err)
 		}
-		if response.SQL != "" || response.Kind != ResponseEscalateHolder || !response.Park {
+		if response.SQL != "" || response.Kind != ResponseEscalateHolder ||
+			response.Plan == "" {
 			t.Fatalf("%s: response = %#v", name, response)
 		}
 		for _, want := range c.names {

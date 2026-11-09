@@ -46,7 +46,6 @@ type Response struct {
 	Kind     ResponseKind
 	SQL      string
 	Plan     string
-	Park     bool
 	Evidence map[string]any
 	// PinnedBy is the holder that pins a red table: it gets one holder
 	// proposal per scan (HolderResponse), whether or not the table is
@@ -131,7 +130,7 @@ func freezeSQL(input ResponseInput) string {
 }
 
 func bloatResponse(input ResponseInput) Response {
-	response := Response{Park: true, Evidence: responseEvidence(input)}
+	response := Response{Evidence: responseEvidence(input)}
 	if input.PGRepackAvailable {
 		response.Kind = ResponsePlanRepack
 		response.Plan = "Plan pg_repack --table=" + input.Schema + "." + input.Table +

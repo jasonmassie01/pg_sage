@@ -90,7 +90,8 @@ func TestEvaluateHorizonUsesEarlierMultiXactDeadline(t *testing.T) {
 		t.Fatalf("MultiXact deadline = %#v", assessment.Deadline)
 	}
 	if assessment.Proposal.Intent != IntentVacuumFreeze ||
-		!assessment.Proposal.RequiresAuthorization {
+		assessment.Proposal.Threat != ThreatMultiXact ||
+		assessment.Proposal.Deadline != assessment.Deadline {
 		t.Fatalf("Proposal = %#v", assessment.Proposal)
 	}
 }

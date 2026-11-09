@@ -3,7 +3,6 @@ package freeze
 import (
 	"strings"
 	"testing"
-	"time"
 )
 
 // vacuum-05: at or above the effective freeze table age a plain VACUUM is
@@ -121,32 +120,5 @@ func TestPlanResponseRejectsNegativeMultiXactAge(t *testing.T) {
 		Urgency: UrgencyRed, XIDAge: 10, MultiXactAge: -1})
 	if err == nil || !strings.Contains(err.Error(), "multixact age") {
 		t.Fatalf("PlanResponse error = %v, want a multixact age error", err)
-	}
-}
-
-// The deadline ladder's own proposal uses the same choice.
-func TestEvaluateHorizonProposalUsesPlainVacuumWhenAggressive(t *testing.T) {
-	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
-	sample := HorizonSample{Database: "orders", Schema: "public", Table: "events",
-		XIDAge: 170, XIDMaxAge: 200, XIDsPerSecond: 1,
-		MultiXactAge: 1, MultiXactMaxAge: 400, MultiXactsPerSecond: 1,
-		Aggressive: AggressiveVacuumAges(150, 200, 150, 400)}
-	assessment, err := EvaluateHorizon(now, sample, Thresholds{RedBufferPct: 25,
-		AmberBufferPct: 50})
-	if err != nil {
-		t.Fatalf("EvaluateHorizon: %v", err)
-	}
-	if assessment.Proposal.SQL != `VACUUM "public"."events"` {
-		t.Fatalf("proposal SQL = %q, want plain VACUUM", assessment.Proposal.SQL)
-	}
-	sample.Aggressive = AggressiveAges{}
-	assessment, err = EvaluateHorizon(now, sample, Thresholds{RedBufferPct: 25,
-		AmberBufferPct: 50})
-	if err != nil {
-		t.Fatalf("EvaluateHorizon unknown ages: %v", err)
-	}
-	if assessment.Proposal.SQL != `VACUUM (FREEZE) "public"."events"` {
-		t.Fatalf("unknown ages: proposal SQL = %q, want VACUUM (FREEZE)",
-			assessment.Proposal.SQL)
 	}
 }

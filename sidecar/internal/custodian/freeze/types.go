@@ -1,9 +1,6 @@
 package freeze
 
-import (
-	"context"
-	"time"
-)
+import "time"
 
 type Urgency string
 
@@ -65,16 +62,13 @@ type Deadline struct {
 	Remaining int64
 }
 type Proposal struct {
-	Database              string
-	Schema                string
-	Table                 string
-	Threat                ThreatKind
-	Urgency               Urgency
-	Intent                Intent
-	SQL                   string
-	Deadline              Deadline
-	RequiresAuthorization bool
-	ExecuteDirectly       bool
+	Database string
+	Schema   string
+	Table    string
+	Threat   ThreatKind
+	Urgency  Urgency
+	Intent   Intent
+	Deadline Deadline
 }
 type Assessment struct {
 	XID       Horizon
@@ -82,28 +76,4 @@ type Assessment struct {
 	Urgency   Urgency
 	Deadline  Deadline
 	Proposal  Proposal
-}
-type DatabaseRef struct {
-	Name                         string
-	AllowConnections, IsTemplate bool
-}
-type DatabaseCatalog interface {
-	ListDatabases(context.Context) ([]DatabaseRef, error)
-}
-type HorizonReader interface {
-	ReadHorizons(context.Context, DatabaseRef) ([]HorizonSample, error)
-}
-type ProposalSink interface {
-	Publish(context.Context, []Proposal) error
-}
-type ScannerOptions struct {
-	Thresholds Thresholds
-	Now        func() time.Time
-}
-type ScanResult struct {
-	DatabasesDiscovered int
-	DatabasesScanned    int
-	DatabasesSkipped    int
-	ProposalsPublished  int
-	ExecutedActions     int
 }

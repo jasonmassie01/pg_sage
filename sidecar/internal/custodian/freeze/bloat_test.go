@@ -40,11 +40,11 @@ func TestPlanResponseBloatNeedsEstimateAndSizeFloor(t *testing.T) {
 			if response.Kind != test.kind {
 				t.Fatalf("kind = %q, want %q (response %#v)", response.Kind, test.kind, response)
 			}
-			if test.kind == "" && (response.Plan != "" || response.SQL != "" || response.Park) {
+			if test.kind == "" && (response.Plan != "" || response.SQL != "") {
 				t.Fatalf("no-plan case produced %#v", response)
 			}
-			if test.kind != "" && (!response.Park || response.Plan == "" || response.SQL != "") {
-				t.Fatalf("bloat plan must park with a plan and no SQL: %#v", response)
+			if test.kind != "" && (response.Plan == "" || response.SQL != "") {
+				t.Fatalf("bloat plan must carry a plan and no SQL: %#v", response)
 			}
 		})
 	}
@@ -89,7 +89,7 @@ func TestPlanResponseBloatNilAndZero(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: PlanResponse: %v", name, err)
 		}
-		if response.Kind != "" || response.Plan != "" || response.Park {
+		if response.Kind != "" || response.Plan != "" || response.SQL != "" {
 			t.Fatalf("%s: produced %#v", name, response)
 		}
 	}
