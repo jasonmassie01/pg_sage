@@ -14,6 +14,9 @@ import (
 type PostgresRehearsalRunner struct {
 	lockTimeout      time.Duration
 	statementTimeout time.Duration
+	// production identifies the server the clone must not be; without it
+	// Run refuses (migration-07).
+	production IdentitySource
 }
 
 func NewPostgresRehearsalRunner(
@@ -24,20 +27,26 @@ func NewPostgresRehearsalRunner(
 	}
 }
 
+// WithProduction sets the production server a clone is checked against
+// before the first step.
+func (runner *PostgresRehearsalRunner) WithProduction(
+	source IdentitySource,
+) *PostgresRehearsalRunner {
+	runner.production = source
+	return runner
+}
+
 func (runner *PostgresRehearsalRunner) Run(
 	ctx context.Context, dsn string, planned planpkg.Plan,
 ) (rehearsalpkg.Measurement, error) {
 	if runner == nil || dsn == "" {
 		return rehearsalpkg.Measurement{}, fmt.Errorf("rehearsal clone DSN is unavailable")
 	}
-	pool, err := pgxpool.New(ctx, dsn)
+	pool, err := runner.connectClone(ctx, dsn)
 	if err != nil {
-		return rehearsalpkg.Measurement{}, fmt.Errorf("connect rehearsal clone: %w", err)
+		return rehearsalpkg.Measurement{}, err
 	}
 	defer pool.Close()
-	if err := pool.Ping(ctx); err != nil {
-		return rehearsalpkg.Measurement{}, fmt.Errorf("ping rehearsal clone: %w", err)
-	}
 	before, err := rehearsalDatabaseSize(ctx, pool)
 	if err != nil {
 		return rehearsalpkg.Measurement{}, err

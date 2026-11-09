@@ -26,7 +26,13 @@ func TestPostgresRehearsalRunnerExecutesExpandOnlyOnCloneDSN(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS "+table)
 	})
-	runner := NewPostgresRehearsalRunner(time.Second, 10*time.Second)
+	// migration-07: Run now refuses without a production identity; this
+	// clone is checked against a production server it is not.
+	runner := NewPostgresRehearsalRunner(time.Second, 10*time.Second).
+		WithProduction(func(context.Context) (ServerIdentity, error) {
+			return ServerIdentity{Host: "production.invalid", Port: 5432,
+				StartedAt: time.Unix(1, 0), ServerPort: 5432}, nil
+		})
 	measurement, err := runner.Run(ctx, os.Getenv("SAGE_TEST_DATABASE_URL"), planpkg.Plan{
 		ExpandSteps: []planpkg.Step{{
 			Kind: planpkg.StepCreateUniqueIndex, RequiresTopLevel: true,
