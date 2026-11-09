@@ -68,7 +68,10 @@ var coreExemptions = map[string]string{
 	"sre_autonomy_events":    "append-only autonomy history (audit); updates are refused",
 	"sre_autonomy_outcomes":  "append-only live outcomes; promotion evidence",
 	"sre_packet_reviews":     "operator shadow reviews; promotion evidence, one per review",
-	"sre_game_days":          "game-day runs; low volume (at most one per interval_hours)",
+	"sre_game_days": "game-day and local bench runs; low volume (one at a time, " +
+		"game days at most one per interval_hours)",
+	"bench_fixture_state": "on a bench target, the ALTER SYSTEM settings a fault " +
+		"program changed; deleted when reset, at most a few rows",
 	"trust_ledger_state": "one row per database: when its time-ramp autonomy was " +
 		"grandfathered into the trust ledger, and the reconcile cursors",
 	"trust_shadow_evidence": "shadow-mode promotion evidence, one row per counted " +
