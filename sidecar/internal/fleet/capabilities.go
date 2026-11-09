@@ -36,7 +36,7 @@ type ProviderCapabilities struct {
 // the fleet's databases on it: only the owner asks the instance-level
 // questions (WAL, connections) and proposes ALTER SYSTEM or managed
 // parameter changes. KeySource is how the instance was identified
-// (system_identifier, provider or address); empty with a Reason when it
+// (system_identifier or address); empty with a Reason when it
 // could not be, and the database is then advised on its own.
 type InstanceOwnership struct {
 	Owner     string `json:"owner,omitempty"`

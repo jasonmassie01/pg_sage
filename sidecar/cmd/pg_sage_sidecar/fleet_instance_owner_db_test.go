@@ -81,7 +81,7 @@ func fleetAdvisor(t *testing.T, ctx context.Context, r *instanceOwnerRegistry,
 	mgr := llm.NewManager(llm.New(&c.LLM, func(string, string, ...any) {}), nil, false)
 	a := advisor.New(pool, c, coll, mgr, func(string, string, ...any) {})
 	a.WithDatabaseName(pool.Config().ConnConfig.Database)
-	m := r.join(runCtx, readInstanceKey(ctx, pool, ""), name, true)
+	m := r.join(runCtx, readInstanceKey(ctx, pool), name, true)
 	a.WithInstanceOwner(r.ownerFunc(m))
 	return a
 }
@@ -173,25 +173,23 @@ func TestFleetInstanceOwner_TwoClustersTwoOwners(t *testing.T) {
 }
 
 // Error propagation: a role without EXECUTE on pg_control_system() reads
-// no system identifier, so the provider ref (then the address) keys the
-// instance instead of failing.
+// no system identifier, so the address keys the instance instead of
+// failing.
 func TestReadInstanceKey_PermissionDeniedFallsBack(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	admin := clusterPool(t, ctx, "ownerperm")
-	if got := readInstanceKey(ctx, admin, "rds:db-1"); got.source != instanceKeySystemID {
-		t.Fatalf("superuser key = %+v, want the system identifier", got)
+	full := readInstanceKey(ctx, admin)
+	if full.source != instanceKeySystemID || !strings.HasPrefix(full.key, "sysid:") ||
+		strings.Contains(full.key, "standby") {
+		t.Fatalf("superuser key = %+v, want the primary's system identifier", full)
 	}
 	restricted := restrictedRolePool(t, ctx, admin)
-	if got := readInstanceKey(ctx, restricted, "rds:db-1"); got.key != "provider:rds:db-1" ||
-		got.source != instanceKeyProvider {
-		t.Fatalf("restricted key = %+v, want provider:rds:db-1", got)
-	}
 	cc := restricted.Config().ConnConfig
 	want := factClusterAddressKey(cc.Host, cc.Port)
-	if got := readInstanceKey(ctx, restricted, ""); got.key != want ||
-		got.source != instanceKeyAddress {
-		t.Fatalf("restricted key without provider = %+v, want %s", got, want)
+	if got := readInstanceKey(ctx, restricted); got.key != want ||
+		got.source != instanceKeyAddress || got.reason != "" {
+		t.Fatalf("restricted key = %+v, want %s", got, want)
 	}
 }
 

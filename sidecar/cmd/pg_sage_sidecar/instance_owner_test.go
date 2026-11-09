@@ -149,9 +149,9 @@ func TestInstanceOwner_OwnershipReport(t *testing.T) {
 	}
 }
 
-// The key prefers the system identifier, then the provider resource, then
-// the address. A pg_control_system permission error leaves the system
-// identifier empty, so the provider ref is used.
+// The key prefers the system identifier, then the address. A
+// pg_control_system permission error leaves the system identifier empty,
+// so the address is used; a provider ref alone never keys the instance.
 func TestInstanceKeyOf_FallbackOrder(t *testing.T) {
 	addr := factClusterAddressKey("db.internal", 5432)
 	for _, tc := range []struct {
@@ -161,8 +161,8 @@ func TestInstanceKeyOf_FallbackOrder(t *testing.T) {
 	}{
 		{"system identifier", envbind.Identity{SystemIdentifier: " 7301 ", ProviderRef: "rds:a"},
 			instanceKey{key: "sysid:7301", source: instanceKeySystemID}},
-		{"permission denied: provider ref", envbind.Identity{ProviderRef: "rds:db-1"},
-			instanceKey{key: "provider:rds:db-1", source: instanceKeyProvider}},
+		{"permission denied: address", envbind.Identity{ProviderRef: "rds:db-1"},
+			instanceKey{key: addr, source: instanceKeyAddress}},
 		{"address", envbind.Identity{},
 			instanceKey{key: addr, source: instanceKeyAddress}},
 	} {
@@ -177,10 +177,39 @@ func TestInstanceKeyOf_FallbackOrder(t *testing.T) {
 	}
 }
 
+// Boundary: a physical standby shares its primary's system identifier but
+// has its own settings, so it owns its own instance, and two standbys of
+// one primary at different addresses do too.
+func TestInstanceKeyOf_StandbyIsItsOwnInstance(t *testing.T) {
+	addrP := factClusterAddressKey("primary.internal", 5432)
+	addrS1 := factClusterAddressKey("standby1.internal", 5432)
+	addrS2 := factClusterAddressKey("standby2.internal", 5432)
+	primary := instanceKeyOf(envbind.Identity{SystemIdentifier: "7301"}, addrP)
+	s1 := instanceKeyOf(envbind.Identity{SystemIdentifier: "7301", InRecovery: true}, addrS1)
+	s1Again := instanceKeyOf(envbind.Identity{SystemIdentifier: "7301", InRecovery: true},
+		addrS1)
+	s2 := instanceKeyOf(envbind.Identity{SystemIdentifier: "7301", InRecovery: true}, addrS2)
+	if primary.key == s1.key || s1.key == s2.key || primary.key == s2.key {
+		t.Fatalf("keys collide: primary %q standby1 %q standby2 %q", primary.key, s1.key,
+			s2.key)
+	}
+	if s1 != s1Again || s1.source != instanceKeySystemID {
+		t.Fatalf("one standby's databases key differently: %+v vs %+v", s1, s1Again)
+	}
+	r := newInstanceOwnerRegistry()
+	p, _ := r.register(primary, "a_primary", true)
+	sb, _ := r.register(s1, "b_standby", true)
+	for _, m := range []*instanceMember{p, sb} {
+		if owner, is := r.owner(m); !is || owner != m.database {
+			t.Fatalf("%s: owner=%q isOwner=%v, want its own instance", m.database, owner, is)
+		}
+	}
+}
+
 // Error propagation: an unreachable server gives an empty key with the
 // error as the reason (per-database behaviour, reported).
 func TestReadInstanceKey_NoPool(t *testing.T) {
-	got := readInstanceKey(context.Background(), nil, "")
+	got := readInstanceKey(context.Background(), nil)
 	if got.key != "" || got.reason == "" {
 		t.Fatalf("key = %+v, want empty with a reason", got)
 	}

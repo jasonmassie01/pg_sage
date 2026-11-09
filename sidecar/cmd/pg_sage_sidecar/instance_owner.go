@@ -26,7 +26,6 @@ const instanceOwnerIdentityTimeout = 5 * time.Second
 // How an instance was identified, strongest first.
 const (
 	instanceKeySystemID = "system_identifier"
-	instanceKeyProvider = "provider"
 	instanceKeyAddress  = "address"
 )
 
@@ -35,32 +34,37 @@ const (
 type instanceKey struct{ key, source, reason string }
 
 // instanceKeyOf keys an identity: the system identifier (EXECUTE on
-// pg_control_system()), else the provider resource, else the address. A
-// proxy fronting several clusters at one address groups them: one owner
-// then asks for all of them, which loses advice, never adds a change.
+// pg_control_system()), else the address. A physical standby shares its
+// primary's system identifier but has its own settings (ALTER SYSTEM runs
+// there too), so a standby is keyed by identifier and address: it never
+// defers to its primary, nor two standbys to each other. A proxy fronting
+// several clusters at one address groups them: one owner then asks for
+// all of them, which loses advice, never adds a change. The managed-cloud
+// resource is not a key: telemetry first names it after the advisor is
+// built, so it would key a runtime differently depending on timing.
 func instanceKeyOf(id envbind.Identity, addr string) instanceKey {
 	if sysid := strings.TrimSpace(id.SystemIdentifier); sysid != "" {
+		if id.InRecovery {
+			return instanceKey{key: "sysid:" + sysid + "/standby@" + addr,
+				source: instanceKeySystemID}
+		}
 		return instanceKey{key: "sysid:" + sysid, source: instanceKeySystemID}
-	}
-	if ref := strings.TrimSpace(id.ProviderRef); ref != "" {
-		return instanceKey{key: "provider:" + ref, source: instanceKeyProvider}
 	}
 	if addr != "" {
 		return instanceKey{key: addr, source: instanceKeyAddress}
 	}
-	return instanceKey{reason: "instance identity unknown: no system identifier, " +
-		"provider resource or address"}
+	return instanceKey{reason: "instance identity unknown: no system identifier or address"}
 }
 
 // readInstanceKey reads pool's live identity. When it cannot be read the
 // key is empty and the reason names the error.
-func readInstanceKey(ctx context.Context, pool *pgxpool.Pool, providerRef string) instanceKey {
+func readInstanceKey(ctx context.Context, pool *pgxpool.Pool) instanceKey {
 	if pool == nil {
 		return instanceKey{reason: "instance identity unreadable: no connection pool"}
 	}
 	ctx, cancel := context.WithTimeout(ctx, instanceOwnerIdentityTimeout)
 	defer cancel()
-	id, err := envbind.ReadIdentity(ctx, pool, providerRef)
+	id, err := envbind.ReadIdentity(ctx, pool, "")
 	if err != nil {
 		return instanceKey{reason: "instance identity unreadable: " + err.Error()}
 	}
@@ -165,7 +169,7 @@ func (rt *databaseRuntime) joinInstanceOwner() {
 	if rt.spec.Shared {
 		return
 	}
-	key := readInstanceKey(rt.ctx, rt.spec.Pool, rt.providerRef())
+	key := readInstanceKey(rt.ctx, rt.spec.Pool)
 	if key.key == "" {
 		logWarn(rt.spec.Scope, "db %q: %s; its instance settings are advised for it "+
 			"alone", rt.spec.Name, key.reason)
@@ -174,17 +178,6 @@ func (rt *databaseRuntime) joinInstanceOwner() {
 	}
 	rt.instanceOwner = processInstanceOwners.join(rt.ctx, key, rt.spec.Name,
 		rt.advisorActive())
-}
-
-// providerRef is the database's managed-cloud resource ("" when none).
-func (rt *databaseRuntime) providerRef() string {
-	if rt.cloud == nil {
-		return ""
-	}
-	if st := rt.cloud.Status(); st.Resource != "" {
-		return st.Provider + ":" + st.Resource
-	}
-	return ""
 }
 
 // instanceOwnerFunc is nil outside fleet mode (the database owns).
