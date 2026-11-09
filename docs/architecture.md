@@ -122,6 +122,22 @@ lock, replica-lag, and lock-timeout checks. It also attaches generated
 migration SQL, rollback or forward-fix guidance, verification SQL, and PR/CI
 metadata.
 
+The live values come from the migration advisor's risk assessment, written
+into the finding detail when the DDL is detected (`table_size_bytes`,
+`estimated_rows`, `stats_known`, `active_queries`, `longest_query_sec`,
+`pending_locks`, `replication_lag`, `estimated_lock_ms`, `lock_level`,
+`requires_rewrite`, `affected_table`, `measured_at`). They are
+detection-time values, not a fresh probe: the preflight notes "measured at
+detection" and the dashboard shows their age. A live read that failed is left
+out, so its check reads `unknown` rather than passing on a zero, and table
+size is `unknown` when the table was never analysed (`stats_known = false`).
+Findings written before these keys existed keep rendering `unknown`. Lock
+level and rewrite come from the finding first (the candidate's own
+`CONCURRENTLY` SQL takes its own lock), then from the one DDL rule catalog
+(`internal/migration/ddlrules`) that the classifier also uses. A measured
+warning (for example an active query on the table) blocks the candidate for
+review.
+
 An in-flight DDL is analysed once per backend and statement but re-evaluated
 on every activity poll, and each poll re-persists its finding, so a DDL still
 running after 24 hours keeps its finding open. The detector adds no blocking
