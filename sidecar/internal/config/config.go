@@ -433,12 +433,13 @@ type SchemaLintConfig struct {
 
 // MigrationConfig controls the DDL safety advisor (v0.10).
 type MigrationConfig struct {
-	Enabled             bool   `yaml:"enabled" doc:"Enable DDL safety advisory."`
-	Mode                string `yaml:"mode" doc:"Operating mode: advisory (default). Active mode deferred to future release."`
-	LogDetection        bool   `yaml:"log_detection" doc:"Parse DDL from PG logs (requires log_statement=ddl)."`
-	ActivityPolling     bool   `yaml:"activity_polling" doc:"Scan pg_stat_activity for active DDL."`
-	PollIntervalSeconds int    `yaml:"poll_interval_seconds" doc:"How often to poll during active DDL. Default: 5."`
-	DDLRowThreshold     int    `yaml:"ddl_row_threshold" doc:"Row count below which DDL is considered low-risk. Default: 10000."`
+	Enabled               bool   `yaml:"enabled" doc:"Enable DDL safety advisory."`
+	Mode                  string `yaml:"mode" doc:"Operating mode: advisory (default). Active mode deferred to future release."`
+	LogDetection          bool   `yaml:"log_detection" doc:"Parse DDL from PG logs (requires log_statement=ddl)."`
+	ActivityPolling       bool   `yaml:"activity_polling" doc:"Scan pg_stat_activity for active DDL."`
+	PollIntervalSeconds   int    `yaml:"poll_interval_seconds" doc:"How often to poll during active DDL. Default: 5."`
+	DDLRowThreshold       int    `yaml:"ddl_row_threshold" doc:"Row count below which DDL is considered low-risk. Default: 10000."`
+	QueueWaitersThreshold int    `yaml:"queue_waiters_threshold" doc:"Sessions queued directly behind an in-flight DDL waiting for its lock before the finding turns critical with approval-only cancel guidance. Needs the RCA fast path. Default: 3."`
 }
 
 type TunerConfig struct {

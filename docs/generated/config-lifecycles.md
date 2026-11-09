@@ -246,6 +246,7 @@
 | `migration.log_detection` | `restart` | `-` | `operator_preference` |
 | `migration.mode` | `restart` | `-` | `safety_critical` |
 | `migration.poll_interval_seconds` | `restart` | `-` | `derivable` |
+| `migration.queue_waiters_threshold` | `restart` | `-` | `operator_preference` |
 | `mode` | `restart` | `-` | `safety_critical` |
 | `notification_policy.allow_private_targets` | `restart` | `-` | `safety_critical` |
 | `oauth.break_glass.enabled` | `restart` | `-` | `safety_critical` |

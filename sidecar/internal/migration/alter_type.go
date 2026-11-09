@@ -24,7 +24,7 @@ func (a *Advisor) refineAlterType(ctx context.Context, c *DDLClassification) {
 		return
 	}
 	var current string
-	err := a.pool.QueryRow(ctx, columnTypeSQL,
+	err := a.assessor.catalog().QueryRow(ctx, columnTypeSQL,
 		schemaOrPublic(c.SchemaName), c.TableName, c.ColumnName,
 	).Scan(&current)
 	if err != nil {

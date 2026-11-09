@@ -62,10 +62,15 @@ func (ra *RiskAssessor) Assess(
 	}
 
 	if ra.pool != nil {
-		if c.TableName != "" {
+		if c.TableName != "" && c.SchemaName == "" {
+			ra.resolveTableSchema(ctx, risk, c.SessionRole)
+		}
+		if c.TableName != "" && !risk.NameAmbiguous {
 			ra.fetchTableStats(ctx, risk)
-			ra.fetchActiveQueries(ctx, risk)
 			ra.fetchPendingLocks(ctx, risk)
+		}
+		if c.TableName != "" {
+			ra.fetchActiveQueries(ctx, risk)
 		}
 		ra.fetchReplicationLag(ctx, risk)
 	}

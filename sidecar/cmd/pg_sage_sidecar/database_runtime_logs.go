@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/llm"
@@ -170,12 +171,14 @@ func (rt *databaseRuntime) wireRCA() {
 		rt.rca.SetLogSource(sub)
 		critical = sub
 	}
+	rt.lockObs = analyzer.NewLockChainObserver(rt.cfg.RCA.LockChainInterval())
 	rt.rcaAdapter = newRCAAdapter(rcaAdapterDeps{
 		ctx: rt.ctx, eng: rt.rca, pool: rt.spec.Pool, name: rt.spec.Name,
 		cfg: rt.cfg, logFn: logStructuredWrapper, workers: rt.workers,
-		probes: rt.probes, logSource: critical,
+		probes: rt.probes, logSource: critical, lockObs: rt.lockObs,
 	})
 	rt.analyzer.WithRCAEngine(rt.rcaAdapter)
+	rt.analyzer.WithLockChainObserver(rt.lockObs)
 	rt.note("rca")
 	if rt.rcaAdapter.fastPath != nil {
 		rt.note("sre_fast_path")
@@ -224,6 +227,10 @@ func (rt *databaseRuntime) startMigrationAdvisor() {
 	detector, logDetector := newMigrationDetectors(rt.spec.Pool, advisor,
 		store.NewMigrationSafetyFindingStore(rt.spec.Pool), &cfg.Migration, logs)
 	if detector != nil {
+		if rt.lockObs != nil {
+			detector.WithLockQueue(rt.lockObs)
+			rt.lockObs.SetQueuedDDL(detector)
+		}
 		rt.start(func() { detector.Run(rt.ctx) })
 	}
 	rt.note("migration")

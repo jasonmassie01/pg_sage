@@ -80,6 +80,14 @@ func NewAdvisor(
 func (a *Advisor) Analyze(
 	ctx context.Context, sql string,
 ) (*rca.Incident, error) {
+	return a.AnalyzeSession(ctx, sql, "")
+}
+
+// AnalyzeSession is Analyze for DDL run by role, whose search_path
+// resolves unqualified table names ("" when the role is unknown).
+func (a *Advisor) AnalyzeSession(
+	ctx context.Context, sql, role string,
+) (*rca.Incident, error) {
 	clean := sanitizeDDL(sql)
 	classifications := a.classifier.Classify(clean, a.pgVersion)
 	if len(classifications) == 0 {
@@ -90,6 +98,9 @@ func (a *Advisor) Analyze(
 		return nil, nil
 	}
 
+	for i := range classifications {
+		classifications[i].SessionRole = role
+	}
 	highest, lockTimeout := a.assessHighest(ctx, classifications)
 	if highest == nil || highest.RiskScore <= incidentThreshold {
 		return nil, nil
@@ -200,6 +211,15 @@ func buildCausalChain(risk *DDLRisk) []rca.ChainLink {
 			Order:       3,
 			Signal:      "safe_alternative",
 			Description: risk.SafeAlternative,
+		})
+	}
+	if risk.NameAmbiguous {
+		chain = append(chain, rca.ChainLink{
+			Order:  len(chain) + 1,
+			Signal: "name_resolution",
+			Description: fmt.Sprintf("table name %q is ambiguous: it matches "+
+				"several schemas, so size and lock statistics are unknown",
+				risk.TableName),
 		})
 	}
 	return chain

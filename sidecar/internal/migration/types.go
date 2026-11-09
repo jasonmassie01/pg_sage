@@ -13,6 +13,9 @@ type DDLClassification struct {
 	Description     string // human-readable explanation
 	ColumnName      string // ALTER COLUMN target, when extracted
 	TargetType      string // ALTER COLUMN ... TYPE target, when extracted
+	// SessionRole is the role running the DDL, whose search_path resolves
+	// an unqualified table ("" when unknown).
+	SessionRole string
 }
 
 // SQLParser abstracts DDL classification. RegexClassifier is the only
@@ -45,4 +48,7 @@ type DDLRisk struct {
 	// StatsKnown is true when pg_class returned analyzed statistics
 	// (reltuples >= 0) for the target table.
 	StatsKnown bool
+	// NameAmbiguous is true when an unqualified table name matched several
+	// schemas: stats are unknown rather than read from the wrong table.
+	NameAmbiguous bool
 }

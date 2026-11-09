@@ -525,6 +525,8 @@ func hotReloadMigration(cfg *config.Config, key, v string) {
 		cfg.Migration.PollIntervalSeconds = atoi(v)
 	case "migration.ddl_row_threshold":
 		cfg.Migration.DDLRowThreshold = atoi(v)
+	case "migration.queue_waiters_threshold":
+		cfg.Migration.QueueWaitersThreshold = atoi(v)
 	}
 }
 

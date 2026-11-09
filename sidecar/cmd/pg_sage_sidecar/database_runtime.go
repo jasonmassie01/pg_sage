@@ -86,6 +86,10 @@ type databaseRuntime struct {
 	dispatcher *notify.Dispatcher
 	rca        *rca.Engine
 	rcaAdapter *rcaAdapter
+	// lockObs is the latest lock-chain observation, shared by the RCA fast
+	// path, the analyzer cycle and the migration detector (migration-05);
+	// nil without RCA.
+	lockObs *analyzer.LockChainObserver
 	// probes is the database's one catalog probe runner (at most one
 	// probe at a time on it), shared by RCA narration and Sage SRE.
 	probes *probes.Runner

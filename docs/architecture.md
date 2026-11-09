@@ -120,7 +120,23 @@ execution. The case projector attaches deterministic DDL preflight evidence,
 including lock/rewrite classification plus live table-size, activity, pending
 lock, replica-lag, and lock-timeout checks. It also attaches generated
 migration SQL, rollback or forward-fix guidance, verification SQL, and PR/CI
-metadata. These artifacts are shown in Cases and Actions so teams can review
+metadata.
+
+An in-flight DDL is analysed once per backend and statement but re-evaluated
+on every activity poll, and each poll re-persists its finding, so a DDL still
+running after 24 hours keeps its finding open. The detector adds no blocking
+query of its own: it reads the lock-chain fast path's latest observation
+(the `pg_blocking_pids` walk, which keeps each session's direct waiters) and,
+while a tracked DDL waits on `Lock`, nudges the fast path (at most once per
+10 s). When `migration.queue_waiters_threshold` (default 3) sessions wait
+directly behind the DDL in an observation at most two fast-path intervals old,
+the finding turns critical with the DDL's backend identity and an
+approval-only, HIGH-risk guarded cancel of the DDL, followed by a retry under
+`SET lock_timeout = '5s'`; the lock-chain finding for that queue keeps its
+evidence but no longer recommends cancelling the root reader. An unqualified
+table name resolves through the DDL role's `search_path`
+(`pg_db_role_setting`), then `public`, then a unique relation name; several
+matches are reported as ambiguous with statistics unknown. These artifacts are shown in Cases and Actions so teams can review
 schema work through their normal change-control process. A model-written
 script replaces the deterministic one only after pg_sage validates it;
 otherwise it is shown as labelled, unvalidated model text, and RCA Tier 2

@@ -441,6 +441,10 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 		input:  "50000",
 		reader: func(c *config.Config) string { return itoa(c.Migration.DDLRowThreshold) },
 	},
+	"migration.queue_waiters_threshold": {
+		input:  "5",
+		reader: func(c *config.Config) string { return itoa(c.Migration.QueueWaitersThreshold) },
+	},
 
 	// --- v1.4: Agent-native autonomy ---
 	"policy.profile": {

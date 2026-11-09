@@ -1635,6 +1635,12 @@
     "doc": "How often to poll during active DDL. Default: 5.",
     "class": "derivable"
   },
+  "migration.queue_waiters_threshold": {
+    "type": "int",
+    "default": 0,
+    "doc": "Sessions queued directly behind an in-flight DDL waiting for its lock before the finding turns critical with approval-only cancel guidance. Needs the RCA fast path. Default: 3.",
+    "class": "operator_preference"
+  },
   "mode": {
     "type": "string",
     "default": "standalone",
