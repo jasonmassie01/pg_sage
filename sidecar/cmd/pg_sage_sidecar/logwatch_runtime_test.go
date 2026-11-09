@@ -4,10 +4,12 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/logwatch"
 )
 
 func TestLogwatchRuntimeUsesExplicitPathAndReusesOwner(t *testing.T) {
@@ -60,12 +62,17 @@ func TestLogwatchRuntimeRejectsUnreadableConfiguredPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg.LogWatch = config.LogWatchConfig{Enabled: true, LogDirectory: path, Format: "jsonlog"}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
 	set := newLogFanoutSet()
-	if set.forCluster(context.Background(), "local:5432", nil) != nil {
-		t.Fatal("file path was accepted as a log directory")
+	set.after = newFakeAfter().after
+	set.forCluster(ctx, "local:5432", nil)
+	st := set.status("local:5432")
+	if st.State != logwatch.SourceUnavailable || !strings.Contains(st.Reason, path) {
+		t.Fatalf("file path was accepted as a log directory: %+v", st)
 	}
-	if len(set.fanouts) != 0 {
-		t.Fatal("a failed watcher was cached for the cluster")
+	if drops := set.droppedLines(); len(drops) != 0 {
+		t.Fatalf("a failed watcher was counted as running: %+v", drops)
 	}
 }
 

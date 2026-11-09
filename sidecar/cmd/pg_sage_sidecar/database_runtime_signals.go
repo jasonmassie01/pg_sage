@@ -36,7 +36,7 @@ func (rt *databaseRuntime) logErrorCounter() slo.ErrorCounter {
 		<-rt.ctx.Done()
 		sub.Stop()
 	})
-	return logErrorCounter{sub: sub}
+	return logErrorCounter{sub: sub, source: rt.logFanout}
 }
 
 // startSignals binds the signals to the investigator and runs them.

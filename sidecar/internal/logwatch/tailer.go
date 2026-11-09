@@ -17,7 +17,7 @@ import (
 const startupLookbackBytes int64 = 1024 * 1024
 
 // Tailer follows a single PostgreSQL log file and emits new lines.
-// It uses polling (no fsnotify) and handles copytruncate rotation
+// It polls (it uses no file-change notification) and handles copytruncate rotation
 // as well as new-file rotation.
 type Tailer struct {
 	dir          string
@@ -272,6 +272,13 @@ func (t *Tailer) openFileAtStart(path string) error {
 	t.checkpoint = nil
 	t.checkpointOffset = 0
 	return nil
+}
+
+// CurrentPath is the log file the tailer reads now; it changes on rotation.
+func (t *Tailer) CurrentPath() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.currentPath
 }
 
 // Stop closes the underlying file handle.

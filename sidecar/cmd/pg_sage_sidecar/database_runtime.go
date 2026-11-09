@@ -290,6 +290,7 @@ func (rt *databaseRuntime) instance() *fleet.DatabaseInstance {
 		SLO:            rt.sloEngine,
 		Changes:        rt.changeFeed,
 		Actions:        rt.sreActions,
+		LogSource:      rt.logSourceStatus,
 		Cancel:         rt.cancel, Workers: rt.workers,
 		ExecutorShutdown: rt.executor.Shutdown,
 		// Removal and replacement let in-flight actions finish first.

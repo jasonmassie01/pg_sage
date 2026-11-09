@@ -6,6 +6,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
@@ -30,6 +31,11 @@ type FileWatcher struct {
 	entryMu    sync.Mutex
 	entries    map[string]*entryBuffer
 	drops      dropCounters
+	// stateMu guards tailer and started against Status readers.
+	stateMu     sync.RWMutex
+	started     bool
+	lastLine    atomic.Int64 // unix nanos of the last record read; 0 = none
+	parseErrors atomic.Uint64
 }
 
 // NewFileWatcher creates a FileWatcher from the given config.
@@ -43,6 +49,16 @@ func NewFileWatcher(
 		logFn:   logFn,
 		entries: make(map[string]*entryBuffer),
 	}
+}
+
+// StartWithConfig replaces the config, then starts: a watcher created
+// before its source was detected starts on the detected directory and
+// format. Call it only while no Drain runs (before the drain loop).
+func (fw *FileWatcher) StartWithConfig(
+	ctx context.Context, cfg config.LogWatchConfig,
+) error {
+	fw.cfg = cfg
+	return fw.Start(ctx)
 }
 
 // Start creates the Tailer and Classifier from config, then starts
@@ -61,9 +77,12 @@ func (fw *FileWatcher) Start(ctx context.Context) error {
 		maxLineLen = 65536
 	}
 
-	fw.tailer = NewTailer(
+	tailer := NewTailer(
 		fw.cfg.LogDirectory, format, pollInterval, maxLineLen, fw.logFn,
 	)
+	fw.stateMu.Lock()
+	fw.tailer, fw.started = tailer, false
+	fw.stateMu.Unlock()
 	fw.classifier = NewClassifier(ClassifierConfig{
 		DedupWindowS:     fw.cfg.DedupWindowS,
 		ExcludeApps:      fw.cfg.ExcludeApplications,
@@ -72,9 +91,12 @@ func (fw *FileWatcher) Start(ctx context.Context) error {
 		MaxLinesPerCycle: fw.cfg.MaxLinesPerCycle,
 	}, fw.logFn)
 
-	if err := fw.tailer.Start(ctx); err != nil {
+	if err := tailer.Start(ctx); err != nil {
 		return fmt.Errorf("logwatch: start tailer: %w", err)
 	}
+	fw.stateMu.Lock()
+	fw.started = true
+	fw.stateMu.Unlock()
 	fw.log("info", "file watcher started: dir=%s format=%s",
 		fw.cfg.LogDirectory, format)
 	return nil
@@ -90,6 +112,9 @@ func (fw *FileWatcher) Drain() []*rca.Signal {
 		return nil
 	}
 	lines := fw.tailer.ReadLines()
+	if len(lines) > 0 {
+		fw.lastLine.Store(time.Now().UnixNano())
+	}
 	queueDropped := fw.tailer.TakeDropped()
 	signals := fw.classifyLines(lines)
 	capped := fw.classifier.ResetCycle()
@@ -129,6 +154,7 @@ func (fw *FileWatcher) classifyLines(lines [][]byte) []*rca.Signal {
 		}
 	}
 	if parseErrors > 0 {
+		fw.parseErrors.Add(uint64(parseErrors))
 		fw.log("warn", "%d log record(s) failed to parse this cycle; first error: %v",
 			parseErrors, firstErr)
 	}
@@ -137,6 +163,9 @@ func (fw *FileWatcher) classifyLines(lines [][]byte) []*rca.Signal {
 
 // Stop shuts down the tailer.
 func (fw *FileWatcher) Stop() {
+	fw.stateMu.Lock()
+	fw.started = false
+	fw.stateMu.Unlock()
 	if fw.tailer != nil {
 		fw.tailer.Stop()
 		fw.log("info", "file watcher stopped")

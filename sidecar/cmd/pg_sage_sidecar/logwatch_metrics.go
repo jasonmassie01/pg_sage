@@ -18,12 +18,12 @@ type clusterLogDrops struct {
 func (s *logFanoutSet) droppedLines() []clusterLogDrops {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := make([]clusterLogDrops, 0, len(s.fanouts))
-	for key, fanout := range s.fanouts {
-		if fanout == nil {
+	out := make([]clusterLogDrops, 0, len(s.clusters))
+	for key, cl := range s.clusters {
+		if !cl.active {
 			continue
 		}
-		out = append(out, clusterLogDrops{Cluster: key, Counts: fanout.DroppedLines()})
+		out = append(out, clusterLogDrops{Cluster: key, Counts: cl.fanout.DroppedLines()})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Cluster < out[j].Cluster })
 	return out
