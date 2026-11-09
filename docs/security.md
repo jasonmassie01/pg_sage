@@ -824,6 +824,12 @@ cursor still has that hash.
   or failed to start, verification cannot check the cursors, so an open
   `audit_chain_regressed` finding stays open.
 
+A receiver that refuses one event for good (HTTP 400, 413 or 422, OTLP
+rejected records) gets a stub labelled `undeliverable` in its place, with
+the link's position and hashes, and a `siem_event_undeliverable` warning is
+raised. One unreachable source or failing chain no longer holds back the
+others. See [configuration.md](configuration.md#siem-export-delivery).
+
 A cursor that goes back because the control database itself was restored
 is not a regression: the link it names is still there, so export simply
 re-sends what follows (delivery is at least once).

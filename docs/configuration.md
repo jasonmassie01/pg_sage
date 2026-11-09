@@ -1885,6 +1885,46 @@ the audit table, a lost connection), it raises an
 open `audit_chain_broken` finding stays open. The other chains are still
 verified.
 
+### SIEM export delivery
+
+`audit.siem.sinks` ships every audit chain link to each sink as an OCSF
+event (see [security.md](security.md#tamper-evident-chains-and-siem-export)).
+Each sink delivers every chain of every source (each fleet database, plus
+`control`) as its own lane, with its own cursor and backoff:
+
+- One unreachable database, or one failing chain, stops only its own lane.
+  The other sources and chains keep exporting every
+  `audit.siem.interval_seconds`. A failing lane retries after
+  `interval_seconds`, doubled per further failure, at most
+  `audit.siem.max_backoff_seconds`. Only a failed export-leader check (a lost
+  lease, an unreachable control database) backs the whole sink off.
+- A transient failure (a network error, HTTP 401, 403, 404, 429 or 5xx)
+  holds the lane's cursor and retries the batch. Nothing is lost.
+- A permanent refusal (HTTP 400, 413 or 422, OTLP `rejectedLogRecords`, a
+  syslog message over 65507 bytes, an event that cannot be encoded) is
+  narrowed by halving the batch down to the single refused event. That event
+  is replaced by a stub, and the lane moves on. The stub keeps the event's
+  class, type and time, says `status: "Failure"` (severity at least Medium),
+  and carries the link's source, chain, seq, op, row id and hashes. It is
+  labelled `metadata.labels: ["undeliverable"]` and leaves out the row and
+  the query. The event itself stays in the database, and its chain link
+  proves it.
+- Each stub raises a `siem_event_undeliverable` warning on the source
+  database, one per sink and chain (`siem_sink:<sink>/<chain>`), naming the
+  sink, source, chain and seq of the latest stub. It never resolves itself:
+  resolve it once the SIEM holds the content, or the loss is accepted. If
+  the finding cannot be recorded, the cursor holds before the event, and the
+  stub is sent again on the next pass (delivery stays at least once).
+- If the receiver refuses the stub too, the lane holds before the event and
+  shows `poisoned` until the receiver takes one of them.
+
+`GET /api/v1/audit/siem` (admin) lists each sink with `undeliverable` (the
+stubs sent) and `lanes`: per source and chain, `cursor`, `head`, `lag`
+(head minus cursor at the last attempt), `state` (`ok`, `failing`,
+`poisoned`, `regressed`), `consecutive_failures` and `last_error`. A lane
+with an empty `chain` is a source whose chains could not be listed (an
+unreachable database). PostgreSQL 14-18 behave the same.
+
 ### Postgres-specialist contract
 
 `specialist.*` configures the versioned investigation contract other agents
