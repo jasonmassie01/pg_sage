@@ -107,8 +107,11 @@ export function SettingsPage({ database, databaseId }) {
 	if (readOnly) return
 	if (isDatabaseScope
 	  && key !== 'trust.level' && key !== 'execution_mode') {
+	  // A hint on each rejected keystroke: it clears itself rather than
+	  // stacking up like the error toasts that wait to be dismissed.
 	  toast.error(
-	    'Per-database overrides currently support only trust and execution mode'
+	    'Per-database overrides currently support only trust and execution mode',
+	    { duration: 4000 },
 	  )
 	  return
 	}
