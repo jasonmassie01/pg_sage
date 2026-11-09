@@ -161,3 +161,37 @@ func TestAuditSIEMStatusRoute(t *testing.T) {
 	require.Contains(t, w.Body.String(), `"enabled":true`)
 	require.Contains(t, w.Body.String(), `"consecutive_failures":2`)
 }
+
+// GET /api/v1/audit/siem serves each sink's lanes with their lag, so a
+// stuck source or chain shows even while the others deliver (CHECK-25).
+func TestAuditSIEMStatusServesLanes(t *testing.T) {
+	pool := auditPool(t, "api_audit_siem_lanes")
+	mux := auditMux(pool, AuditDeps{SIEMStatus: func() []siem.SinkStatus {
+		return []siem.SinkStatus{{Name: "soc", Status: siem.StatusFailing, Undeliverable: 1,
+			Lanes: []siem.LaneStatus{
+				{Source: "billing", Chain: "", State: siem.LaneFailing,
+					LastError: "closed pool", ConsecutiveFailures: 3},
+				{Source: "orders", Chain: "action_log", Cursor: 5, Head: 9, Lag: 4,
+					State: siem.LaneOK}}}}
+	}})
+	w := auditGet(mux, "/api/v1/audit/siem", true)
+	require.Equal(t, http.StatusOK, w.Code)
+	var body struct {
+		Sinks []struct {
+			Undeliverable int64 `json:"undeliverable"`
+			Lanes         []map[string]any
+		} `json:"sinks"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Equal(t, 1, len(body.Sinks))
+	require.Equal(t, int64(1), body.Sinks[0].Undeliverable)
+	lanes := body.Sinks[0].Lanes
+	require.Equal(t, 2, len(lanes))
+	require.Equal(t, "failing", lanes[0]["state"])
+	require.Equal(t, "closed pool", lanes[0]["last_error"])
+	require.Equal(t, float64(3), lanes[0]["consecutive_failures"])
+	require.Equal(t, "action_log", lanes[1]["chain"])
+	require.Equal(t, float64(4), lanes[1]["lag"])
+	require.Equal(t, float64(5), lanes[1]["cursor"])
+	require.Equal(t, float64(9), lanes[1]["head"])
+}

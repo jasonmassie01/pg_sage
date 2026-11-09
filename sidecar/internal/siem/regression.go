@@ -83,7 +83,7 @@ func (e *Exporter) anchored(ctx context.Context, s *sinkState, src Source, cur C
 	fence Fence) (bool, error) {
 	a, err := CheckAnchor(ctx, src.DB, cur)
 	if err != nil {
-		return false, fmt.Errorf("source %s: check the export cursor: %w", src.Name, err)
+		return false, fmt.Errorf("check the export cursor: %w", err)
 	}
 	if !a.OK {
 		e.regress(s, Regression{Source: src.Name, Chain: cur.Chain, Seq: cur.Seq,
@@ -139,6 +139,7 @@ func (s *sinkState) keepRegressions(visited map[string]bool) {
 func (s *sinkState) statusLocked() SinkStatus {
 	st := s.status
 	st.Status = StatusOK
+	st.Lanes = s.lanesLocked()
 	if st.ConsecutiveFailures > 0 {
 		st.Status = StatusFailing
 	}
