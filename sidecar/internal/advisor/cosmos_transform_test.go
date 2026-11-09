@@ -116,3 +116,29 @@ func TestTransformForCloudAliasesUseCanonicalProfile(t *testing.T) {
 		t.Fatalf("gcp restricted setting: %+v", out[0])
 	}
 }
+
+// Invalid input: an ALTER SYSTEM statement the parser cannot read as one
+// setting (RESET ALL, a missing value, odd spacing) still loses its SQL on
+// Cosmos, so no ALTER SYSTEM survives the transform.
+func TestTransformForCloudAzureCosmosUnparsableAlterSystem(t *testing.T) {
+	for _, sql := range []string{
+		"ALTER SYSTEM RESET ALL",
+		"alter   system set work_mem",
+		"  ALTER\tSYSTEM SET shared_buffers TO ;",
+	} {
+		in := []analyzer.Finding{{Severity: "warning", Recommendation: "Tune.",
+			RecommendedSQL: sql, RollbackSQL: "ALTER SYSTEM RESET ALL"}}
+		out := TransformForCloud(in, "azure-cosmos", "app")
+		if len(out) != 1 {
+			t.Fatalf("%q: got %d findings, want 1", sql, len(out))
+		}
+		f := out[0]
+		if f.RecommendedSQL != "" || f.RollbackSQL != "" || f.Severity != "info" {
+			t.Errorf("%q: kept SQL %q / %q severity %q", sql, f.RecommendedSQL,
+				f.RollbackSQL, f.Severity)
+		}
+		if !strings.Contains(f.Recommendation, "az cosmosdb postgres configuration") {
+			t.Errorf("%q: recommendation lacks the cosmos command: %q", sql, f.Recommendation)
+		}
+	}
+}
