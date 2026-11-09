@@ -31,6 +31,14 @@ nav:
   - Five-minute quickstart: quickstart.md
   - Walkthrough: walkthrough.md
   - Installation: installation.md
+  - Guides:
+      - Try it out locally: try-it-out.md
+      - "Walkthrough: Linux and macOS": walkthrough-linux.md
+      - "Walkthrough: Windows": walkthrough-windows.md
+      - "Walkthrough: fleet": walkthrough-fleet.md
+      - Neon and Supabase: neon-supabase.md
+      - "Managed clouds: RDS, Aurora and Cloud SQL": managed-clouds.md
+      - LLM costing: llm-costing.md
   - Configuration: configuration.md
   - Architecture: architecture.md
   - SQL Reference: sql-reference.md
@@ -41,6 +49,9 @@ nav:
   - Postgres Specialist for Other Agents: specialist.md
   - Hint Verification: hint-verification.md
   - Security: security.md
+  - Governance and safety:
+      - Agent governance: agent-governance.md
+      - Agent safety bench: agent-safety-bench.md
   - "Sage SRE: permissions and data flow": sage-sre-permissions-and-data-flow.md
   - Deployment: deployment.md
   - Azure: azure.md
@@ -48,6 +59,20 @@ nav:
       - Overview: databricks-native.md
       - Lakebase and Unity Gateway: lakebase.md
       - Databricks Apps: databricks-apps.md
+
+# Reference pages generated from the config registry; configuration.md
+# links them, so they are published without a nav entry.
+not_in_nav: |
+  generated/*
+
+# `mkdocs build --strict` turns each of these warnings into a failure.
+validation:
+  nav:
+    omitted_files: warn
+    not_found: warn
+  links:
+    not_found: warn
+    anchors: warn
 
 markdown_extensions:
   - admonition
