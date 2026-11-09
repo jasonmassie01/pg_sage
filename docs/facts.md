@@ -15,7 +15,7 @@ would not have done anyway.
 |---|---|---|---|
 | `owned_by_app_migrations` | index, table or schema | The application's schema migrations create and change it | Never creates, drops or alters it. The change becomes a **source-fix packet**: the migration pg_sage recommends, attached to the finding, for you or a coding agent to put in a PR. |
 | `test_fixture` | schema pattern | Schemas left by test runs, not workload | Removes them from findings and from the budgets, takes no action on them by itself, and offers one **cleanup batch** (a reviewed script you run; see [The cleanup batch](#the-cleanup-batch)). pg_sage never drops schemas itself. A family pattern such as `test_*` also covers schemas created after you confirm it; the batch re-checks each schema's activity and locks before dropping it. |
-| `slot_consumer` | replication slot | The slot feeds a named consumer (Debezium, Fivetran, Airbyte...) | Never drops or advances the slot and never bounds WAL in a way that could invalidate it; it alerts instead. `max_slot_wal_keep_size` is cluster-wide, so any finite bound (and `RESET`) is blocked whichever slot it names; only `-1` (unbounded) is allowed. A confirmed slot is also registered in `sage.slot_consumer_registry`, so the WAL custodian escalates instead of acting; rejecting or expiring the fact unregisters the slot again (owner and last confirmation are kept). |
+| `slot_consumer` | replication slot | The slot feeds a named consumer (Debezium, Fivetran, Airbyte...) | Never drops or advances the slot and never bounds WAL in a way that could invalidate it; it alerts instead. `max_slot_wal_keep_size` is cluster-wide, so any finite bound (and `RESET`) is blocked whichever slot it names; only `-1` (unbounded) is allowed. A confirmed slot is also registered in `sage.slot_consumer_registry`, so the WAL custodian escalates instead of acting; rejecting or expiring the fact yourself unregisters the slot again (owner and last confirmation are kept); an automatic expiry does not (see [Expiry and re-verification](#expiry-and-re-verification)). |
 | `append_only` | table | Rows are only inserted (an archive or a log) | Never deletes its rows, rewrites it (`VACUUM FULL`, bloat plans) or drops its indexes (they look unused because an archive is rarely read). |
 | `table_window` | table | `maintenance` window (act only inside) or `batch` window (never act during) | Holds pg_sage's own work on the table until the window allows it. Your own approvals are not held. |
 
@@ -220,7 +220,10 @@ back, starts it over, so a sidecar restarted more often than hourly never expire
 fact (it keeps binding, which is the safe side). A fact with an expiry date expires on that
 date, and stops binding from that moment. Expired facts are purged after
 `retention.actions_days`; proposed, confirmed and rejected facts are kept (a rejected fact is
-the record that you said no). Expiring a slot consumer fact unregisters its slot.
+the record that you said no). Expiring a slot consumer fact yourself unregisters its slot, and
+so does the expiry date of a fact you confirmed. A slot that is gone keeps its registration
+when its fact expires, so a consumer that recreates it under the same name is still escalated
+until you decide; the same holds for a proposed fact's expiry date.
 
 Slots whose fact was rejected before this release are still registered: pg_sage does not
 unregister them on its own, because that would widen what the WAL custodian may do without a

@@ -21,12 +21,17 @@ var existsSQL = map[Kind]string{
 		WHERE slot_name LIKE $2 AND $1 = '')`,
 }
 
+// expiryDatePassed is the reason a fact past its expiry date expires.
+const expiryDatePassed = "its expiry date passed"
+
 // Reverify re-checks every proposed and confirmed fact at now. A fact past
 // its expiry date expires; a fact whose subject no longer names anything
 // expires once that absence has lasted the grace period (a migration may
 // be recreating it); the others are marked verified. Facts in fresh were
-// just observed (re-proposed this pass) and count as present. It returns
-// the facts it expired.
+// just observed (re-proposed this pass) and count as present. Only a
+// confirmed fact's expiry date, which a person accepted, unregisters a
+// slot; an absence keeps it registered, so a recreated slot is still
+// escalated. It returns the facts it expired.
 func (s *Store) Reverify(ctx context.Context, now time.Time, fresh ...int64) ([]Fact,
 	error) {
 	live, err := s.List(ctx, Filter{Status: []Status{StatusProposed, StatusConfirmed}})
@@ -54,7 +59,8 @@ func (s *Store) Reverify(ctx context.Context, now time.Time, fresh ...int64) ([]
 		if reason == "pending" {
 			continue
 		}
-		e, err := s.Expire(ctx, f.ID, reason)
+		byDate := reason == expiryDatePassed && f.Status == StatusConfirmed
+		e, err := s.expire(ctx, f.ID, reason, byDate)
 		if err != nil {
 			return expired, err
 		}
@@ -74,7 +80,7 @@ func (s *Store) Reverify(ctx context.Context, now time.Time, fresh ...int64) ([]
 // "pending" while an absence is inside the grace, else the reason.
 func (s *Store) absence(ctx context.Context, f Fact, now time.Time) (string, error) {
 	if f.ExpiresAt != nil && !f.ExpiresAt.After(now) {
-		return "its expiry date passed", nil
+		return expiryDatePassed, nil
 	}
 	p, err := ParsePattern(f.Kind, f.Subject)
 	if err != nil {

@@ -74,9 +74,18 @@ func statusIn(st Status, set []Status) bool {
 	return false
 }
 
-// Expire ends a proposed or confirmed fact that is no longer true. An
-// expired slot consumer is unregistered in the same transaction.
+// Expire ends, by a person's choice, a proposed or confirmed fact that is
+// no longer true. An expired slot consumer is unregistered in the same
+// transaction.
 func (s *Store) Expire(ctx context.Context, id int64, reason string) (Fact, error) {
+	return s.expire(ctx, id, reason, true)
+}
+
+// expire ends fact id. With unregister false the slot registry is left as
+// it is: an automatic expiry is nobody's decision, and unregistering would
+// widen what the WAL custodian may do.
+func (s *Store) expire(ctx context.Context, id int64, reason string,
+	unregister bool) (Fact, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return Fact{}, fmt.Errorf("expire fact %d: %w", id, err)
@@ -93,8 +102,10 @@ func (s *Store) Expire(ctx context.Context, id int64, reason string) (Fact, erro
 	if err != nil {
 		return Fact{}, fmt.Errorf("expire fact %d: %w", id, err)
 	}
-	if err := syncSlotRegistry(ctx, tx, f); err != nil {
-		return Fact{}, err
+	if unregister {
+		if err := syncSlotRegistry(ctx, tx, f); err != nil {
+			return Fact{}, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return Fact{}, fmt.Errorf("expire fact %d: %w", id, err)

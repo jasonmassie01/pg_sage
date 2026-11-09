@@ -289,3 +289,49 @@ func TestStoreRejectRacesImportDeclared(t *testing.T) {
 		t.Fatalf("import after the race %d %v", n, err)
 	}
 }
+
+// Safety: an automatic expiry is nobody's decision, so it must not widen
+// what the WAL custodian may do. A slot absent past the grace expires its
+// fact but stays registered (a consumer that recreates the slot is still
+// escalated); a proposed fact's expiry date leaves a register_consumer
+// registration alone; only an expiry date a person confirmed unregisters.
+func TestReverifyUnregistersOnlyAConfirmedExpiryDate(t *testing.T) {
+	pool, ctx := livePool(t)
+	s := NewStore(pool).WithMissingGrace(0)
+	gone := confirmedSlot(t, ctx, s, "cdc_gone")
+	soon := time.Now().Add(time.Minute)
+	datedProposal := slotFactProposal("cdc_dated", "debezium")
+	datedProposal.ExpiresAt = &soon
+	dated, err := s.Declare(ctx, datedProposal, "alice@example.com", "until the cutover")
+	if err != nil {
+		t.Fatalf("declare dated: %v", err)
+	}
+	execAll(t, ctx, pool, `INSERT INTO sage.slot_consumer_registry
+		(slot_name, owner_tag, registered) VALUES ('cdc_mcp', 'mcp:dev', true)`)
+	mcpProposal := slotFactProposal("cdc_mcp", "fivetran")
+	mcpProposal.ExpiresAt = &soon
+	proposed, _, err := s.Propose(ctx, mcpProposal)
+	if err != nil {
+		t.Fatalf("propose: %v", err)
+	}
+	got, err := s.Reverify(ctx, time.Now().Add(2*time.Minute))
+	if err != nil || len(got) != 3 {
+		t.Fatalf("reverify expired %d facts (%v), want 3: %+v", len(got), err, got)
+	}
+	for _, want := range []struct {
+		id         int64
+		slot       string
+		registered bool
+	}{{gone.ID, "cdc_gone", true}, {dated.ID, "cdc_dated", false},
+		{proposed.ID, "cdc_mcp", true}} {
+		f, err := s.Get(ctx, want.id)
+		if err != nil || f.Status != StatusExpired {
+			t.Fatalf("%s: %+v %v", want.slot, f, err)
+		}
+		if r := readRegistry(t, ctx, pool, want.slot); !r.exists ||
+			r.registered != want.registered {
+			t.Fatalf("%s (%s): registry %+v, want registered=%v", want.slot,
+				f.ExpiredReason, r, want.registered)
+		}
+	}
+}
