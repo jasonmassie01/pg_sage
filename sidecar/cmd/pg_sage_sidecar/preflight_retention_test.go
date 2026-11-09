@@ -97,7 +97,7 @@ func preflightRunRetentionCycles(
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = executor.SetEmergencyStop(ctx, p, false, "test") })
-	supervisor, err := newDatabaseAutonomy(p, c, "preflight", e)
+	supervisor, err := newDatabaseAutonomy(p, c, "preflight", e, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -140,12 +140,13 @@ func (autonomyLogReporter) Report(level, message string, fields map[string]any) 
 
 func newDatabaseAutonomy(
 	pool *pgxpool.Pool, cfg *config.Config, database string, exec *executor.Executor,
+	disk autonomy.DiskCapacityProvider,
 ) (*autonomy.Supervisor, error) {
 	if pool == nil || cfg == nil || exec == nil {
 		return nil, fmt.Errorf("autonomy runtime dependencies are incomplete")
 	}
 	freezeWorker := newFreezeCustodian(pool, cfg, database)
-	walWorker := newWALCustodian(pool, cfg, database)
+	walWorker := newWALCustodian(pool, cfg, database, disk)
 	auditor := ledger.NewService(ledger.NewPostgresRepository(pool))
 	router := executorProposalRouter{executor: exec, isReplica: haReplicaProbe(pool),
 		parkLog: newParkedLog(func(format string, args ...any) {
@@ -183,8 +184,9 @@ func autonomyInterval(cfg *config.Config) time.Duration {
 func startInstanceAutonomy(
 	ctx context.Context, workers *sync.WaitGroup, pool *pgxpool.Pool,
 	cfg *config.Config, database string, exec *executor.Executor,
+	disk autonomy.DiskCapacityProvider,
 ) error {
-	supervisor, err := newDatabaseAutonomy(pool, cfg, database, exec)
+	supervisor, err := newDatabaseAutonomy(pool, cfg, database, exec, disk)
 	if err != nil {
 		return err
 	}

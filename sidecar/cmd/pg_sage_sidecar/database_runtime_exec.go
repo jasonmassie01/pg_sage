@@ -30,6 +30,7 @@ func (rt *databaseRuntime) startExecution() {
 	}
 	if err := startInstanceAutonomy(
 		rt.ctx, rt.workers, rt.spec.Pool, rt.cfg, rt.spec.Name, rt.executor,
+		rt.diskCapacity(),
 	); err != nil {
 		logError(rt.spec.Scope, "db %q: continuous autonomy unavailable: %v",
 			rt.spec.Name, err)

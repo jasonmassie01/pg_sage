@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/autonomy"
 	"github.com/pg-sage/sidecar/internal/cloudtel"
 	"github.com/pg-sage/sidecar/internal/config"
@@ -171,6 +172,49 @@ func TestWALCustodianSitesUseProviderCapacity(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Custodian.WAL.RetainedWALDiskPctCeiling = 25
 	slot := "clouds07_wiring_slot"
+	retained := retainingSlot(t, pool, slot)
+	cloud, _ := storageRuntime(t, retained*2, false)
+	rt := &databaseRuntime{cloud: cloud}
+	for name, disk := range map[string]autonomy.DiskCapacityProvider{
+		"telemetry": rt.diskCapacity(), "none": (&databaseRuntime{}).diskCapacity()} {
+		got, err := newWALCustodian(pool, cfg, "orders", disk).Scan(ctx)
+		if err != nil {
+			t.Fatalf("%s: Scan: %v", name, err)
+		}
+		found := slotEvidence(got, slot)
+		if name == "none" && found != nil {
+			t.Fatalf("without telemetry the slot was proposed for: %#v", got)
+		}
+		if name == "telemetry" && (found == nil ||
+			found["capacity_source"] != autonomy.CapacitySourceProvider) {
+			t.Fatalf("with telemetry proposals = %#v, want provider evidence", got)
+		}
+	}
+	advisor := newRunwayAdvisorFor(pool, cfg, "orders", rt.diskCapacity())
+	got, err := advisor.wal.Scan(ctx)
+	if err != nil {
+		t.Fatalf("advisor WAL Scan: %v", err)
+	}
+	if ev := slotEvidence(got, slot); ev == nil ||
+		ev["capacity_source"] != autonomy.CapacitySourceProvider {
+		t.Fatalf("runway advisor's WAL custodian proposals = %#v, want provider evidence", got)
+	}
+}
+
+func slotEvidence(ps []autonomy.Proposal, slot string) map[string]any {
+	for _, p := range ps {
+		if reflect.DeepEqual(p.TargetObjects, []string{"slot:" + slot}) {
+			return p.Evidence
+		}
+	}
+	return nil
+}
+
+// retainingSlot creates a logical slot (dropped at cleanup) and writes WAL
+// past it, returning the WAL it retains.
+func retainingSlot(t *testing.T, pool *pgxpool.Pool, slot string) int64 {
+	t.Helper()
+	ctx := context.Background()
 	if _, err := pool.Exec(ctx, `SELECT pg_create_logical_replication_slot($1,
 		'test_decoding')`, slot); err != nil {
 		t.Fatalf("create logical slot: %v", err)
@@ -189,39 +233,5 @@ func TestWALCustodianSitesUseProviderCapacity(t *testing.T) {
 		slot).Scan(&retained); err != nil || retained <= 0 {
 		t.Fatalf("retained = %d, %v", retained, err)
 	}
-	cloud, _ := storageRuntime(t, retained*2, false)
-	rt := &databaseRuntime{cloud: cloud}
-	for name, disk := range map[string]autonomy.DiskCapacityProvider{
-		"telemetry": rt.diskCapacity(), "none": (&databaseRuntime{}).diskCapacity()} {
-		got, err := newWALCustodian(pool, cfg, "orders", disk).Scan(ctx)
-		if err != nil {
-			t.Fatalf("%s: Scan: %v", name, err)
-		}
-		var found map[string]any
-		for _, p := range got {
-			if reflect.DeepEqual(p.TargetObjects, []string{"slot:" + slot}) {
-				found = p.Evidence
-			}
-		}
-		if name == "none" && found != nil {
-			t.Fatalf("without telemetry the slot was proposed for: %#v", got)
-		}
-		if name == "telemetry" && (found == nil ||
-			found["capacity_source"] != autonomy.CapacitySourceProvider) {
-			t.Fatalf("with telemetry proposals = %#v, want provider evidence", got)
-		}
-	}
-	advisor := newRunwayAdvisorFor(pool, cfg, "orders", rt.diskCapacity())
-	got, err := advisor.wal.Scan(ctx)
-	if err != nil {
-		t.Fatalf("advisor WAL Scan: %v", err)
-	}
-	var advised bool
-	for _, p := range got {
-		advised = advised || (reflect.DeepEqual(p.TargetObjects, []string{"slot:" + slot}) &&
-			p.Evidence["capacity_source"] == autonomy.CapacitySourceProvider)
-	}
-	if !advised {
-		t.Fatalf("runway advisor's WAL custodian proposals = %#v, want provider evidence", got)
-	}
+	return retained
 }
