@@ -165,7 +165,7 @@ func (access *fleetMCPAccess) GetLedger(
 // the targets.
 func (access *fleetMCPAccess) GetValue(ctx context.Context) (map[string]any, error) {
 	if access == nil || access.manager == nil {
-		return nil, fmt.Errorf("MCP value fleet is unavailable")
+		return nil, fmt.Errorf("MCP value fleet: %w", mcp.ErrIntentUnavailable)
 	}
 	manager := access.manager
 	name, named := mcp.DatabaseFromContext(ctx)

@@ -29,3 +29,15 @@ func TestMCPTargetPoolUnavailableIsTypedUnavailable(t *testing.T) {
 		t.Fatalf("unknown database_id: err = %v, want ErrIntentUnavailable", err)
 	}
 }
+
+// get_value without a fleet is the same "retry later", never an internal
+// error.
+func TestMCPValueWithoutFleetIsTypedUnavailable(t *testing.T) {
+	var unwired *fleetMCPAccess
+	for _, access := range []*fleetMCPAccess{unwired, {}} {
+		if _, err := access.GetValue(context.Background()); !errors.Is(err,
+			mcp.ErrIntentUnavailable) {
+			t.Fatalf("no fleet: err = %v, want ErrIntentUnavailable", err)
+		}
+	}
+}

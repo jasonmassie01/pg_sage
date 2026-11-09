@@ -27,24 +27,25 @@ func parseRetention(raw json.RawMessage) (retentionSpec, error) {
 	}
 	var bare string
 	if json.Unmarshal(raw, &bare) == nil {
-		return retentionSpec{}, errors.New(
-			`retention must be {"interval": ..., "column": ...}; ` + retentionColumnRequired)
+		return retentionSpec{}, fmt.Errorf("%w: %s", ErrIntentInvalid,
+			`retention must be {"interval": ..., "column": ...}; `+retentionColumnRequired)
 	}
 	var value struct {
 		Interval string `json:"interval"`
 		Column   string `json:"column"`
 	}
 	if err := json.Unmarshal(raw, &value); err != nil {
-		return retentionSpec{}, fmt.Errorf("decode retention: %w", err)
+		return retentionSpec{}, fmt.Errorf("%w: decode retention: %v", ErrIntentInvalid, err)
 	}
 	spec := retentionSpec{
 		Interval: strings.TrimSpace(value.Interval), Column: strings.TrimSpace(value.Column),
 	}
 	if spec.Interval == "" {
-		return retentionSpec{}, errors.New("retention.interval is required")
+		return retentionSpec{}, fmt.Errorf("%w: retention.interval is required",
+			ErrIntentInvalid)
 	}
 	if spec.Column == "" {
-		return retentionSpec{}, errors.New(retentionColumnRequired)
+		return retentionSpec{}, fmt.Errorf("%w: %s", ErrIntentInvalid, retentionColumnRequired)
 	}
 	return spec, nil
 }
@@ -72,7 +73,7 @@ func (access *PostgresAccess) validateRetentionColumn(
 		return nil, nil
 	}
 	if declaration.RetentionColumn == "" {
-		return nil, errors.New(retentionColumnRequired)
+		return nil, fmt.Errorf("%w: %s", ErrIntentInvalid, retentionColumnRequired)
 	}
 	target := declaration.Schema + "." + declaration.Table
 	var relkind, typeName string
@@ -80,20 +81,21 @@ func (access *PostgresAccess) validateRetentionColumn(
 	err := access.pool.QueryRow(ctx, retentionColumnSQL, declaration.Schema,
 		declaration.Table, declaration.RetentionColumn).Scan(&relkind, &typeName, &partitionKey)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, fmt.Errorf("retention column %q does not exist on %s",
-			declaration.RetentionColumn, target)
+		return nil, fmt.Errorf("%w: retention column %q does not exist on %s",
+			ErrIntentInvalid, declaration.RetentionColumn, target)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("validate retention column: %w", err)
 	}
 	if relkind != "r" && relkind != "p" {
-		return nil, fmt.Errorf("retention target %s is not a table", target)
+		return nil, fmt.Errorf("%w: retention target %s is not a table", ErrIntentInvalid,
+			target)
 	}
 	switch typeName {
 	case "timestamptz", "timestamp", "date":
 	default:
-		return nil, fmt.Errorf("retention column %q is %s; it must be timestamptz, "+
-			"timestamp or date", declaration.RetentionColumn, typeName)
+		return nil, fmt.Errorf("%w: retention column %q is %s; it must be timestamptz, "+
+			"timestamp or date", ErrIntentInvalid, declaration.RetentionColumn, typeName)
 	}
 	if relkind == "p" && !partitionKey {
 		return []string{fmt.Sprintf("retention column %q is not the partition key of %s; "+
