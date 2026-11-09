@@ -363,3 +363,85 @@ func TestResolve_FleetManagersKeepSeparateRows(t *testing.T) {
 		t.Errorf("resolve attempts orders=%d billing=%d, want 2 and 1", a, b)
 	}
 }
+
+// alertLogSeverities lists the severities of the alert_log rows with the
+// given status for the given findings, in id (insert) order.
+func alertLogSeverities(t *testing.T, pool *pgxpool.Pool, status string, ids []int64) []string {
+	t.Helper()
+	rows, err := pool.Query(context.Background(), `SELECT severity FROM sage.alert_log
+		WHERE finding_id = ANY($1) AND status = $2 ORDER BY id`, ids, status)
+	if err != nil {
+		t.Fatalf("query alert_log severities: %v", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			t.Fatalf("scan alert_log severity: %v", err)
+		}
+		out = append(out, s)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate alert_log severities: %v", err)
+	}
+	return out
+}
+
+// TestEvaluate_CriticalLoggedFirst (alerting-05): one critical and three
+// warnings in sage.findings leave alert_log ids in critical-first order.
+// Five rounds, each with fresh findings, so a random group order cannot
+// pass by luck (1 in 32).
+func TestEvaluate_CriticalLoggedFirst(t *testing.T) {
+	pool := alertTestPool(t)
+	for round := 0; round < 5; round++ {
+		start := dbNow(t, pool)
+		var ids []int64
+		for i := 0; i < 3; i++ {
+			ids = append(ids, insertAlertFinding(t, pool, "warning", "alerting05_w"))
+		}
+		ids = append(ids, insertAlertFinding(t, pool, "critical", "alerting05_c"))
+		ch := &orderChannel{name: "slack"}
+		m := New(pool, ManagerConfig{}, routeAll(ch, "critical", "warning"), noop)
+		m.lastCheck = start
+		if err := m.evaluate(context.Background()); err != nil {
+			t.Fatalf("round %d: evaluate: %v", round, err)
+		}
+		got := strings.Join(alertLogSeverities(t, pool, "sent", ids), ",")
+		if want := "critical,warning,warning,warning"; got != want {
+			t.Fatalf("round %d: alert_log order = %s, want %s", round, got, want)
+		}
+	}
+}
+
+// TestEvaluate_CriticalResolvedFirst (alerting-05): resolve notifications
+// walk critical first too, even when the warning has the lower id.
+func TestEvaluate_CriticalResolvedFirst(t *testing.T) {
+	pool := alertTestPool(t)
+	start := dbNow(t, pool)
+	warn := insertAlertFinding(t, pool, "warning", "alerting05_rw")
+	crit := insertAlertFinding(t, pool, "critical", "alerting05_rc")
+	ch := &orderChannel{name: "slack"}
+	m := New(pool, ManagerConfig{}, routeAll(ch, "critical", "warning"), noop)
+	m.lastCheck = start.Add(-time.Second)
+	fx := &resolveFixture{pool: pool, manager: m}
+	fx.evaluate(t, 1)
+	markResolved(t, pool, warn, "now()")
+	markResolved(t, pool, crit, "now()")
+	fx.evaluate(t, 1)
+
+	ids := []int64{warn, crit}
+	got := strings.Join(alertLogSeverities(t, pool, "resolved", ids), ",")
+	if got != "critical,warning" {
+		t.Errorf("resolved rows = %s, want critical,warning", got)
+	}
+	var resolvedSends []int64
+	for _, s := range ch.sent {
+		if s.resolved {
+			resolvedSends = append(resolvedSends, s.id)
+		}
+	}
+	if fmt.Sprint(resolvedSends) != fmt.Sprint([]int64{crit, warn}) {
+		t.Errorf("resolve sends = %v, want [%d %d]", resolvedSends, crit, warn)
+	}
+}

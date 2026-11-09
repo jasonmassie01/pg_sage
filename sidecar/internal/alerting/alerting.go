@@ -135,11 +135,7 @@ func (m *Manager) evaluate(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("query pending alerts: %w", err)
 	}
-	for sev, group := range groupBySeverity(mergeFindings(findings, pending)) {
-		if channels, ok := m.routes[sev]; ok {
-			m.dispatchGroup(ctx, sev, group, channels)
-		}
-	}
+	m.dispatchFindings(ctx, mergeFindings(findings, pending))
 	m.sendResolutions(ctx)
 
 	m.mu.Lock()

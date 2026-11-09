@@ -144,7 +144,9 @@ func (m *Manager) queryResolvePending(ctx context.Context) ([]resolveTarget, err
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate resolve pending rows: %w", err)
 	}
-	return groupResolveRows(out), nil
+	targets := groupResolveRows(out)
+	orderResolveTargets(targets)
+	return targets, nil
 }
 
 // sendResolutions sends each resolved, previously alerted finding's
@@ -152,6 +154,7 @@ func (m *Manager) queryResolvePending(ctx context.Context) ([]resolveTarget, err
 // routed for its severity and has not resolved it yet. Each channel is
 // tracked on its own: success writes 'resolved', failure 'resolve_error'
 // and is retried next cycle, at most maxResolveAttempts times.
+// Findings are walked critical first, like triggers (alerting-05).
 func (m *Manager) sendResolutions(ctx context.Context) {
 	targets, err := m.queryResolvePending(ctx)
 	if err != nil {
