@@ -153,7 +153,7 @@ func TestCheckSelfBudget_TwoCyclesAgainstPostgres(t *testing.T) {
 	cfg.SelfBudget.CPUMsPerCycle = 100
 	cfg.SelfBudget.StorageMB = 0
 	cfg.SelfBudget.BlocksPerHour = 0
-	a := New(pool, cfg, nil, nil, nil, nil, nil, noopLog)
+	a := New(pool, cfg, startedCollector(cfg), nil, nil, nil, nil, noopLog)
 	fake := &fakeProcessCPU{at: time.Now(), cpu: time.Minute}
 	a.selfBudget.cpu = selfbudget.NewCPUMeter(fake.read, fake.now)
 	a.eval = newCycleEval()
@@ -193,7 +193,7 @@ func TestCheckSelfBudget_DisabledStillMeasures(t *testing.T) {
 	cfg := phase2Config()
 	cfg.Analyzer.SelfCostBudgetMs = 0
 	cfg.SelfBudget = config.SelfBudgetConfig{}
-	a := New(pool, cfg, nil, nil, nil, nil, nil, noopLog)
+	a := New(pool, cfg, startedCollector(cfg), nil, nil, nil, nil, noopLog)
 	fake := &fakeProcessCPU{at: time.Now(), cpu: time.Minute}
 	a.selfBudget.cpu = selfbudget.NewCPUMeter(fake.read, fake.now)
 	a.eval = newCycleEval()
@@ -266,7 +266,7 @@ func TestCheckSelfBudget_NamesTheBusiestLoop(t *testing.T) {
 	cfg.Collector.IntervalSeconds = 60
 	cfg.Analyzer.SelfCostBudgetMs = 0
 	cfg.SelfBudget = config.SelfBudgetConfig{CPUMsPerCycle: 100}
-	a := New(pool, cfg, nil, nil, nil, nil, nil, noopLog)
+	a := New(pool, cfg, startedCollector(cfg), nil, nil, nil, nil, noopLog)
 	fake := &fakeProcessCPU{at: time.Now(), cpu: time.Minute}
 	a.selfBudget.cpu = selfbudget.NewCPUMeter(fake.read, fake.now)
 	a.eval = newCycleEval()

@@ -50,6 +50,10 @@ type Usage struct {
 	BlocksPerHour   float64
 	StorageKnown    bool
 	StorageBytes    int64
+	// CycleSeconds is the period of the database's collector the per-cycle
+	// figures were normalized to (0: unknown). A budget inherited per
+	// cycle is scaled to an hour at this period.
+	CycleSeconds float64
 }
 
 // Breach is one resource over budget.
@@ -114,7 +118,8 @@ func Check(b Budget, u Usage) []Breach {
 // hour from the per-cycle cost, the sage schema's size. CPU is the
 // process's and comes from a CPUMeter.
 func FromCost(c selfcost.Cost) Usage {
-	u := Usage{StorageKnown: c.SchemaBytes > 0, StorageBytes: c.SchemaBytes}
+	u := Usage{StorageKnown: c.SchemaBytes > 0, StorageBytes: c.SchemaBytes,
+		CycleSeconds: c.CycleSeconds}
 	if c.Known && c.DBTimeKnown && c.CycleSeconds > 0 {
 		perHour := 3600 / c.CycleSeconds
 		u.DBKnown = true

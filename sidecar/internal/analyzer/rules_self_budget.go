@@ -99,7 +99,7 @@ func (a *Analyzer) checkSelfBudget(ctx context.Context, cost selfcost.Cost) []Fi
 			err)
 	}
 	u, loops := a.selfBudget.observe(withHistoryStorage(selfbudget.FromCost(cost), hist, err),
-		a.collectorInterval())
+		a.collectorPeriod())
 	if !budgetDecidable(b, u) {
 		a.evalFail(categorySelfBudget)
 		return nil

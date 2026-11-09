@@ -15,14 +15,16 @@ import (
 const categorySelfCost = "sage_self_cost"
 
 // checkSelfCost measures pg_sage's own cost once per analyzer cycle,
-// normalized to one collector cycle, keeps it for /metrics, and raises a
-// finding above the budget. Every read is bounded (the catalog reader) and
-// the sage schema's reading is the cycle's one (sageSchemaReading). The
-// first cycle after a start has no window and a failed reading proves
-// nothing: both leave the category unknown, so an open finding stays open;
-// failed statements alone leave the schema counters measured. A disabled
-// budget (0) still measures and resolves the finding. The same reading
-// feeds the declared self-budget (checkSelfBudget).
+// normalized to one cycle of this database's collector (collectorPeriod),
+// keeps it for /metrics, and raises a finding above the budget. Every
+// read is bounded (the catalog reader) and the sage schema's reading is
+// the cycle's one (sageSchemaReading). The first cycle after a start has
+// no window, an unknown collector period has no cycle and a failed
+// reading proves nothing: each leaves the category unknown, so an open
+// finding stays open; failed statements alone leave the schema counters
+// measured. A disabled budget (0) still measures and resolves the
+// finding. The same reading feeds the declared self-budget
+// (checkSelfBudget).
 func (a *Analyzer) checkSelfCost(ctx context.Context) []Finding {
 	if a.pool == nil {
 		a.evalFail(categorySelfCost) // no database to measure: unknown
@@ -41,7 +43,7 @@ func (a *Analyzer) checkSelfCost(ctx context.Context) []Finding {
 		a.logFn("WARN", "analyzer: measure pg_sage's own statements: %v",
 			reading.StatementsErr)
 	}
-	cost := a.selfCost.Observe(reading, a.collectorInterval())
+	cost := a.selfCost.Observe(reading, a.collectorPeriod())
 	return append(a.checkSelfCostBudget(cost), a.checkSelfBudget(ctx, cost)...)
 }
 
@@ -65,13 +67,15 @@ func (a *Analyzer) SelfCost() selfcost.Cost {
 	return a.selfCost.Last()
 }
 
-// collectorInterval is the cycle the cost is normalized to.
-func (a *Analyzer) collectorInterval() time.Duration {
-	secs := a.cfg.Collector.IntervalSeconds
-	if secs <= 0 {
-		secs = 60
+// collectorPeriod is the cycle the cost is normalized to: the period this
+// database's collector runs at (in fleet mode its own, possibly derived,
+// interval, not the global collector.interval_seconds). It is 0 (unknown)
+// without a collector or before it starts; the cost is then unknown.
+func (a *Analyzer) collectorPeriod() time.Duration {
+	if a.collector == nil {
+		return 0
 	}
-	return time.Duration(secs) * time.Second
+	return a.collector.Interval()
 }
 
 // ruleSelfCost raises a warning when the known DB time per collector

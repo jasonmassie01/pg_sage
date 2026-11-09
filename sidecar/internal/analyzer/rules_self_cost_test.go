@@ -94,7 +94,7 @@ func TestCheckSelfCost_TwoCyclesAgainstPostgres(t *testing.T) {
 	cfg := phase2Config()
 	cfg.Analyzer.SelfCostBudgetMs = 1
 	cfg.Collector.IntervalSeconds = 60
-	a := New(pool, cfg, nil, nil, nil, nil, nil, noopLog)
+	a := New(pool, cfg, startedCollector(cfg), nil, nil, nil, nil, noopLog)
 	a.eval = newCycleEval()
 	if got := a.checkSelfCost(ctx); len(got) != 0 {
 		t.Fatalf("first cycle raised %+v without a window", got)
