@@ -41,22 +41,28 @@ func startCloneReaper(ctx context.Context, c *config.Config, mgr *fleet.Database
 	if adapter == nil {
 		return
 	}
+	// The reaper keeps the clone config it started with, as the MCP
+	// executor does (mcpDependencies): its adapter and its receipt scope
+	// must name the same endpoint as the receipts the rehearsals write, and
+	// a hot reload of clone.* must not race the pass or split the two.
+	cloneCfg := c.Clone
 	go every(ctx, cloneReapInterval, func(ctx context.Context) {
-		cloneReapPass(ctx, c, mgr, meta, adapter)
+		cloneReapPass(ctx, c, cloneCfg, mgr, meta, adapter)
 	})
 	logInfo("clone", "rehearsal clone reaper started (every %s)", cloneReapInterval)
 }
 
-// cloneReapPass reaps every receipt database once, on the leader only; it
-// returns how many databases it reaped.
-func cloneReapPass(ctx context.Context, c *config.Config, mgr *fleet.DatabaseManager,
-	meta *metaDBState, adapter clone.Provider) int {
+// cloneReapPass reaps every receipt database once, on the leader only, with
+// adapter and the clone config it was built from; it returns how many
+// databases it reaped.
+func cloneReapPass(ctx context.Context, c *config.Config, cloneCfg config.CloneProviderConfig,
+	mgr *fleet.DatabaseManager, meta *metaDBState, adapter clone.Provider) int {
 	if !fleetLeaderAllows("rehearsal clone reaper") {
 		return 0
 	}
 	pools := cloneReceiptPools(c, mgr, meta)
 	for _, pool := range pools {
-		reapRehearsalClones(ctx, c.Clone, adapter, pool)
+		reapRehearsalClones(ctx, cloneCfg, adapter, pool)
 	}
 	return len(pools)
 }
