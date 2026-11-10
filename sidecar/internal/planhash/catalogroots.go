@@ -34,7 +34,8 @@ var errNoDatabase = errors.New("planhash: no database to resolve partition roots
 const partitionRootsSQL = `/* pg_sage planhash:partition_roots v1 */
 WITH RECURSIVE n AS (
     SELECT DISTINCT u.nsp, u.rel
-    FROM pg_catalog.unnest($1::text[], $2::text[]) AS u(nsp, rel)
+    FROM ROWS FROM (pg_catalog.unnest($1::text[]), pg_catalog.unnest($2::text[]))
+         AS u(nsp, rel)
 ), m AS (
     SELECT n.nsp, n.rel, c.oid,
            pg_catalog.count(*) OVER (PARTITION BY n.nsp, n.rel) AS matches
