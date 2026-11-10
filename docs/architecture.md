@@ -136,7 +136,10 @@ level and rewrite come from the finding first (the candidate's own
 `CONCURRENTLY` SQL takes its own lock), then from the one DDL rule catalog
 (`internal/migration/ddlrules`) that the classifier also uses. A measured
 warning (for example an active query on the table) blocks the candidate for
-review.
+review. `active_queries` leaves out the detected DDL's own backend, which is
+not load it competes with; its own queued lock still counts in
+`pending_locks`. `estimated_lock_ms` is a heuristic estimate, so its check
+says "estimated at detection", never "measured".
 
 An in-flight DDL is analysed once per backend and statement but re-evaluated
 on every activity poll, and each poll re-persists its finding, so a DDL still
