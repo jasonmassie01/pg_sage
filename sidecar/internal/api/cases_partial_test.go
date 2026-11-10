@@ -312,8 +312,10 @@ func TestCasesConcurrentReadsAreBoundedAndOrdered(t *testing.T) {
 	if first[0] != "finding:db00:a" || first[1] != "finding:db00:b" {
 		t.Fatalf("order starts %v, want db00's cases by id", first[:2])
 	}
-	if p := peak.Load(); p > casesMaxConcurrentDatabases || p < 2 {
-		t.Fatalf("peak concurrent reads = %d, want 2..%d", p, casesMaxConcurrentDatabases)
+	// The bound is the literal 8 the plan names, not the constant, so a
+	// change to the constant fails here.
+	if p := peak.Load(); p > 8 || p < 2 {
+		t.Fatalf("peak concurrent reads = %d, want 2..8", p)
 	}
 }
 
