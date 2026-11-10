@@ -74,7 +74,9 @@ func (e *Executor) admitVerifiedIndex(
 }
 
 // custodianWithheld reports a policy refusal as ErrCustodianProposalWithheld,
-// naming a refusal by the re-authorization with stage.
+// naming a refusal by the re-authorization with stage. A withhold caused by
+// an error (the maintenance precheck's missing privilege) keeps that cause
+// in the chain, so the caller can tell a grant to fix from other refusals.
 func custodianWithheld(err error, stage string) error {
 	var withheld *WithheldError
 	if !errors.As(err, &withheld) {
@@ -83,6 +85,11 @@ func custodianWithheld(err error, stage string) error {
 	if withheld.Reauthorized {
 		return fmt.Errorf("%w %s: %s", ErrCustodianProposalWithheld, stage,
 			withheld.Decision.BlockedReason)
+	}
+	var caused *causedWithheldError
+	if errors.As(err, &caused) {
+		return fmt.Errorf("%w: %s: %w", ErrCustodianProposalWithheld,
+			withheld.Decision.BlockedReason, caused.cause)
 	}
 	return fmt.Errorf("%w: %s", ErrCustodianProposalWithheld, withheld.Decision.BlockedReason)
 }
@@ -281,8 +288,8 @@ func (e *Executor) verifyCustodianAction(
 		return e.verifyXminBlocker(ctx, proposal.Evidence)
 	}
 	if proposal.Feature == "freeze" && baseline.horizon != nil {
-		after, err := e.freezeAge(ctx, proposal.TargetObjects[0])
-		if err != nil || after > baseline.horizon.xidAge {
+		after, err := e.readFreezeHorizon(ctx, proposal.TargetObjects[0])
+		if err != nil || after.xidAge > baseline.horizon.xidAge {
 			return "custodian_freeze", fmt.Errorf("freeze horizon did not improve")
 		}
 		return "custodian_freeze", nil
@@ -330,13 +337,6 @@ func (e *Executor) verifyXminBlocker(
 		return criterion, fmt.Errorf("xmin blocker pid %d still holds a snapshot or an XID", pid)
 	}
 	return criterion, nil
-}
-
-func (e *Executor) freezeAge(ctx context.Context, target string) (int64, error) {
-	var age int64
-	err := e.pool.QueryRow(ctx, `SELECT age(relfrozenxid)::bigint FROM pg_class
-		WHERE oid=to_regclass($1)`, target).Scan(&age)
-	return age, err
 }
 
 func setActionCustodianCriterion(

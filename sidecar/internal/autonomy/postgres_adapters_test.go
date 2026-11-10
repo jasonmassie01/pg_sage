@@ -71,32 +71,45 @@ func requireAutonomyDB(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
+// vacuum-09: an empty, just-frozen table is green, and the scan proposes
+// nothing for it (counted, not looped over: before, this test passed with
+// any number of proposals, zero included). The sampler's second read
+// measures both consumption rates.
 func TestPostgresFreezeCustodianScansLiveCatalog(t *testing.T) {
 	pool := requireAutonomyDB(t)
 	ctx := context.Background()
 	const table = "autonomy_freeze_probe"
-	if _, err := pool.Exec(ctx, "CREATE TABLE IF NOT EXISTS "+table+" (id bigint)"); err != nil {
-		t.Fatalf("create probe table: %v", err)
-	}
-	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS "+table) })
-	custodian := NewPostgresFreezeCustodian(pool, "testdb", 99)
-	proposals, err := custodian.Scan(ctx)
-	if err != nil {
-		t.Fatalf("Scan: %v", err)
-	}
-	for _, proposal := range proposals {
-		if len(proposal.TargetObjects) != 1 ||
-			strings.Contains(strings.ToUpper(proposal.SQL+proposal.Plan), "VACUUM FULL") {
-			t.Fatalf("unsafe or unscoped freeze proposal: %#v", proposal)
+	for _, sql := range []string{"DROP TABLE IF EXISTS " + table,
+		"CREATE TABLE " + table + " (id bigint)", "VACUUM (FREEZE) " + table} {
+		if _, err := pool.Exec(ctx, sql); err != nil {
+			t.Fatalf("%s: %v", sql, err)
 		}
 	}
-	if _, err := custodian.Sampler().Read(ctx); err != nil {
-		t.Fatalf("first sampler read: %v", err)
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS "+table) })
+	custodian := NewPostgresFreezeCustodian(pool, "testdb", 25)
+	for scan := 1; scan <= 2; scan++ {
+		proposals, err := custodian.Scan(ctx)
+		if err != nil {
+			t.Fatalf("Scan %d: %v", scan, err)
+		}
+		if n := len(proposalsFor(proposals, "public."+table)); n != 0 {
+			t.Fatalf("scan %d: %d proposals for the empty green table, want 0: %#v",
+				scan, n, proposals)
+		}
+		for _, proposal := range proposals {
+			if len(proposal.TargetObjects) != 1 ||
+				strings.Contains(strings.ToUpper(proposal.SQL+proposal.Plan), "VACUUM FULL") {
+				t.Fatalf("scan %d: unsafe or unscoped freeze proposal: %#v", scan, proposal)
+			}
+		}
 	}
 	reading, err := custodian.Sampler().Read(ctx)
 	rates := reading.rates
 	if err != nil || !rates.known || rates.xid <= 0 || rates.mxid <= 0 {
 		t.Fatalf("transactionRates = %#v, %v", rates, err)
+	}
+	if len(reading.Horizons) == 0 {
+		t.Fatal("the sampler read no horizons from a live catalog")
 	}
 }
 
