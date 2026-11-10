@@ -17,9 +17,11 @@ internal/agentguard/roles_retire.go#retireRun.dropOwned	gate:guard_role_retire	D
 internal/agentguard/roles_retire.go#retireRun.dropRoles	gate:guard_role_retire	DROP ROLE of a retired agent role
 internal/agentguard/roles_retire.go#retireRun.inherit	gate:guard_role_retire	temporary membership pg_sage needs to drop what the role owns
 internal/agentguard/unfreeze_roles.go#unfreezeExec.alterRoles	gate:guard_unfreeze	restores LOGIN and the connection limit after a freeze
+internal/decommission/drop.go#dropInTx	sage_schema	agentgov-11 admin drop of the legacy AgentDB tables: every name is sage-qualified (pgx.Identifier{"sage", n}) inside one transaction that also writes sage.config_audit
 internal/executor/backend_cancel.go#Executor.signalIdentity	gate:cancel_backend	identity-checked pg_cancel_backend of a root blocker, run by backendCancelRun through Executor.Apply
 internal/executor/backend_signal.go#Executor.signalMatchingBackend	gate:cancel_backend,terminate_backend	operator-approved backend signal, run by the manual path (manualRun) through Executor.Apply; refuses without approved_by
 internal/executor/config_apply.go#applyConfigChangeWithin	out_of_gate:rollback_monitor_revert	ALTER SYSTEM/DATABASE plus pg_reload_conf: the custodian and settle paths run it under alter_system_guc/alter_database_guc, but the rollback monitor also calls it to revert a gated change outside Executor.Apply; the stricter class is recorded
+internal/executor/vacuum_run.go#Executor.cancelVacuumBackend	gate:vacuum_table	vacuum-05 watchdog: pg_cancel_backend of the VACUUM backend pg_sage itself started in a vacuum_table run (execVacuumWatched), on a stall, the cap or the emergency stop
 internal/migration/runtime/postgres.go#PostgresApplier.Apply	out_of_gate:migration_policy_gate	MCP online-migration expand steps: dynamic step.SQL authorized step by step by policy.Gate in migration/runtime.Orchestrator, not by an executor contract
 internal/migration/runtime/postgres_rehearsal.go#PostgresRehearsalRunner.applyStep	clone_only	rehearses the expand steps on the clone DSN the clone provider returned; never the monitored pool
 internal/optimizer/hypopg_session.go#hypopgSession.createIndex	out_of_gate:hypothetical_index_session	hypopg_create_index inside the what-if transaction: backend-local, no catalog change, gone when the session closes
