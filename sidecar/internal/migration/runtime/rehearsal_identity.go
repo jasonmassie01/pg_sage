@@ -72,14 +72,19 @@ func readServerIdentity(ctx context.Context, pool *pgxpool.Pool) (ServerIdentity
 }
 
 // sameServer reports whether clone is production's server: the same DSN
-// host and port, or the same postmaster on the same port.
+// host and port, or the same postmaster on the same port. A server port of
+// 0 (a Unix-socket connection) is unknown, not different: the same
+// postmaster start time with an unknown port is refused (fail closed).
 func sameServer(production, clone ServerIdentity) bool {
 	if production.Host != "" && production.Host == clone.Host &&
 		production.Port == clone.Port {
 		return true
 	}
-	return !production.StartedAt.IsZero() && production.StartedAt.Equal(clone.StartedAt) &&
-		production.ServerPort == clone.ServerPort
+	if production.StartedAt.IsZero() || !production.StartedAt.Equal(clone.StartedAt) {
+		return false
+	}
+	return production.ServerPort == clone.ServerPort || production.ServerPort == 0 ||
+		clone.ServerPort == 0
 }
 
 func refuseProduction(production, clone ServerIdentity) error {
