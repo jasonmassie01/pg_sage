@@ -725,7 +725,7 @@ func validateMetric(metric string) bool {
 		"tables": true, "indexes": true, "queries": true,
 		"sequences": true, "foreign_keys": true, "system": true,
 		"io": true, "locks": true, "config_data": true, "replication": true,
-		"partitions": true,
+		"partitions": true, "partitioned_indexes": true,
 		// Dashboard time-series metrics.
 		"cache_hit_ratio": true, "connections": true,
 		"tps": true, "dead_tuples": true,
