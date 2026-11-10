@@ -298,17 +298,15 @@ config-format mismatch worth flagging.
   `Why`/`WhyNow`/`Evidence` and `ActionCandidates`. Source type derived from
   category prefix (`forecast_`, `schema_lint` → schema_health, else finding).
 - `actionCandidatesForFinding` (`projector.go:54`) dispatches:
-  `migration_safety` → `migrationSafetyCandidates`; vacuum/bloat/reindex/freeze
+  `migration_safety` → `migrationSafetyCandidates`; vacuum/bloat/freeze
   categories → `vacuumAutopilotCandidate` (`vacuum_autopilot.go:8`); query
   categories → `queryTuningCandidate`; else a generic candidate keyed off
   `actionTypeForSQL` (`projector.go:153`).
 - **vacuum_autopilot** (`vacuum_autopilot.go`) maps categories to candidates:
   `table_bloat`→`vacuum_table` (safe), `bloat_remediation`→
   `plan_bloat_remediation` (high, script-only, blocked by default),
-  `reindex_candidate`→`reindex_concurrently` (moderate),
   `xid_wraparound`→`diagnose_freeze_blockers` (safe),
-  `vacuum_tuning`→`set_table_autovacuum` (moderate, PR/script),
-  `blocked_vacuum`→`diagnose_vacuum_pressure` (safe). Each candidate carries
+  `vacuum_tuning`→`set_table_autovacuum` (moderate, PR/script). Each candidate carries
   `RiskTier`, `Confidence`, `ExpiresAt`, `OutputModes`
   (`execute`/`queue_for_approval`/`generate_pr_or_script`/`script`),
   `RollbackClass`, and a `VerificationPlan`.
