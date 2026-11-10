@@ -138,10 +138,11 @@ func TestDatabaseHealthMetaModeNeverReadsTheMetaPool(t *testing.T) {
 	}
 }
 
-// Happy path: every family carries the status the manager holds.
+// Happy path: every family carries the status the manager holds. The
+// collector sampled just now, so fleet-07's stale cap (25) does not apply.
 func TestDatabaseHealthRendersEveryFamily(t *testing.T) {
-	collected := time.Unix(1_700_000_100, 0)
-	analyzed := time.Unix(1_700_000_200, 0)
+	collected := time.Now().Truncate(time.Second)
+	analyzed := collected.Add(time.Second)
 	installHealthFleet(t, "fleet", healthInstance("alpha", fleet.InstanceStatus{
 		Connected: true, TrustLevel: "advisory", DatabaseSize: 987654321,
 		CollectorLastRun: collected, AnalyzerLastRun: analyzed,
@@ -151,8 +152,10 @@ func TestDatabaseHealthRendersEveryFamily(t *testing.T) {
 	score := 100 - 25 - 2*5 // fleet computeHealthScore: critical 25, warning 5 each
 	for _, want := range []string{
 		`pg_sage_database_up{database="alpha"} 1` + "\n",
-		`pg_sage_collector_last_success_timestamp_seconds{database="alpha"} 1700000100` + "\n",
-		`pg_sage_analyzer_last_success_timestamp_seconds{database="alpha"} 1700000200` + "\n",
+		fmt.Sprintf(`pg_sage_collector_last_success_timestamp_seconds{database="alpha"} %d`,
+			collected.Unix()) + "\n",
+		fmt.Sprintf(`pg_sage_analyzer_last_success_timestamp_seconds{database="alpha"} %d`,
+			analyzed.Unix()) + "\n",
 		`pg_sage_findings_open{database="alpha",severity="critical"} 1` + "\n",
 		`pg_sage_findings_open{database="alpha",severity="warning"} 2` + "\n",
 		`pg_sage_findings_open{database="alpha",severity="info"} 3` + "\n",
