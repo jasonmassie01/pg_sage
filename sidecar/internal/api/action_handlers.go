@@ -105,8 +105,9 @@ func fleetPendingActionsHandler(
 	}
 }
 
-// fleetPendingCountHandler returns the aggregate count of
-// pending actions across all fleet databases.
+// fleetPendingCountHandler returns the aggregate count of pending actions
+// across the fleet (or the ?database= one). Every database it could not
+// count, including one without a pool, is named in errors.
 func fleetPendingCountHandler(
 	mgr *fleet.DatabaseManager,
 ) http.HandlerFunc {
@@ -127,6 +128,8 @@ func fleetPendingCountHandler(
 				continue
 			}
 			if inst.Pool == nil {
+				// The badge shows "N+" rather than a partial count as exact.
+				failures = append(failures, notConnectedFailure(inst.Name))
 				continue
 			}
 			as := store.NewActionStore(inst.Pool)

@@ -12,6 +12,8 @@ import { useToast } from '../components/Toast'
 import { useLiveRefetch } from '../hooks/useLiveEvents'
 import { formatTotal, useCursorPages } from '../lib/listPaging'
 import { LoadMore } from '../components/LoadMore'
+import { QueryState } from '../components/QueryState'
+import { combineQueries } from '../lib/queryState'
 import {
   canRollBackRow, isQueuedRow, queuedLabels, rollbackButtonLabel, showsRollbackReason,
 } from './actions/ledger'
@@ -83,18 +85,20 @@ export function Actions({ database, user, fleetData }) {
   const single = database && database !== 'all'
   const dbParam = single ? `?database=${encodeURIComponent(database)}` : ''
   const actionsURL = withTimeRange(`/api/v1/actions${dbParam}`, range)
-  const { data, loading, error, refetch } = useAPI(actionsURL)
-  const paging = useCursorPages(data, actionsURL, 'actions')
+  const actionsQuery = useAPI(actionsURL)
+  const { data, loading, error, refetch } = actionsQuery
+  const paging = useCursorPages(data, actionsURL, 'actions', { idOf: actionRowKey })
   const pending = useAPI(canReview ? `/api/v1/actions/pending${dbParam}` : null)
   const cards = useAPI(canReview ? `/api/v1/approvals${dbParam}` : null)
   const caseData = useAPI(`/api/v1/cases${dbParam}`)
   const recommendations = useAPI(single
     ? `/api/v1/recommendations?database=${encodeURIComponent(database)}` : null)
   const managed = useAPI(`/api/v1/managed-changes${dbParam}`)
-  useLiveRefetch(['actions'], refetch)
-  useLiveRefetch(['actions'], canReview ? pending.refetch : null)
-  useLiveRefetch(['actions'], canReview ? cards.refetch : null)
-  useLiveRefetch(['actions'], recommendations.refetch)
+  const scope = { database }
+  useLiveRefetch(['actions'], refetch, scope)
+  useLiveRefetch(['actions'], canReview ? pending.refetch : null, scope)
+  useLiveRefetch(['actions'], canReview ? cards.refetch : null, scope)
+  useLiveRefetch(['actions'], recommendations.refetch, scope)
 
   const cases = caseData.data?.cases || []
   const selectedCase = caseScope ? cases.find(c => String(caseID(c)) === caseScope) : null
@@ -170,13 +174,14 @@ export function Actions({ database, user, fleetData }) {
       </p>}
       <TabBar tab={activeTab} setTab={setTab} counts={counts} canReview={canReview} />
       {activeTab === 'recommendations' && <RecommendationsTab database={database} items={proposals}
-        loading={proposalUnknown} error={proposalError} refetch={() => { caseData.refetch(); recommendations.refetch() }}
+        query={combineQueries([caseData, single ? recommendations : null],
+          () => { caseData.refetch(); recommendations.refetch() })}
         modeForDatabase={modeForDatabase} onReview={canReview ? () => setTab('pending') : null} />}
       {activeTab === 'pending' && <>
         <ManagedChanges database={database} canDecide={canReview} response={{ ...managed,
           data: { ...managed.data, databases: scopedManaged } }} statuses={['pending']} />
-        <PendingTab data={scopedPending} loading={pending.loading} error={pending.error}
-          refetch={refreshAll} cards={scopedCards} cases={cases} database={database} modeForDatabase={modeForDatabase} />
+        <PendingTab data={scopedPending} query={{ ...pending, refetch: refreshAll }}
+          cards={scopedCards} cases={cases} database={database} modeForDatabase={modeForDatabase} />
       </>}
       {activeTab === 'progress' && <>
         {recommendations.error && <ErrorBanner message={`Recommendation progress could not be loaded: ${recommendations.error}`} onRetry={recommendations.refetch} />}
@@ -184,15 +189,17 @@ export function Actions({ database, user, fleetData }) {
           data: { ...managed.data, databases: scopedManaged } }} statuses={['approved']} />
         {progressRecs.length > 0 && <RecommendationsTab database={database} items={progressRecs}
           modeForDatabase={modeForDatabase} view="progress" />}
-        <ExecutedTab data={data} paging={{ ...paging, rows: progressRows }} loading={loading}
-          error={error} refetch={refreshAll} user={user} view="progress" cases={cases} database={database} />
+        <ExecutedTab query={{ ...actionsQuery, refetch: refreshAll }}
+          paging={{ ...paging, rows: progressRows }} user={user} view="progress"
+          cases={cases} database={database} />
       </>}
       {activeTab === 'executed' && <>
         {recommendations.error && <ErrorBanner message={`Recommendation outcomes could not be loaded: ${recommendations.error}`} onRetry={recommendations.refetch} />}
         {historyRecs.length > 0 && <RecommendationsTab database={database} items={historyRecs}
           modeForDatabase={modeForDatabase} view="history" />}
-        <ExecutedTab data={data} paging={{ ...paging, rows: historyRows }} loading={loading}
-          error={error} refetch={refreshAll} user={user} view="history" cases={cases} database={database} />
+        <ExecutedTab query={{ ...actionsQuery, refetch: refreshAll }}
+          paging={{ ...paging, rows: historyRows }} user={user} view="history"
+          cases={cases} database={database} />
       </>}
       <details className="rounded border p-3 text-sm" data-testid="actions-safety-details"
         style={{ borderColor: 'var(--border)' }}>
@@ -222,22 +229,20 @@ function TabBar({ tab, setTab, counts, canReview }) {
   </div>
 }
 
-function ExecutedTab({ data, paging, loading, error, refetch, user, view, cases, database }) {
+// ExecutedTab shows the change records of query (the actions list) and
+// keeps them, with a strip, when a refresh fails.
+function ExecutedTab({ query, ...props }) {
+  return <QueryState query={query} skeleton={<div className="space-y-2"
+    data-testid="executed-actions-loading">
+    {Array.from({ length: 6 }).map((_, i) => <SkeletonRow key={i} cols={4} />)}
+  </div>}>
+    {() => <ExecutedList data={query.data} refetch={query.refetch} {...props} />}
+  </QueryState>
+}
+
+function ExecutedList({ data, paging, refetch, user, view, cases, database }) {
   const toast = useToast()
   const canRollback = user?.role === 'admin' || user?.role === 'operator'
-  if (loading) {
-    return (
-      <div className="space-y-2"
-        data-testid="executed-actions-loading">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <SkeletonRow key={i} cols={4} />
-        ))}
-      </div>
-    )
-  }
-  if (error) return <ErrorBanner message={error}
-    onRetry={refetch} />
-
   const actions = paging.rows
 
   const outcomeStyle = outcome => {
@@ -531,19 +536,21 @@ function actionRowKey(row) {
   return JSON.stringify([row.database_name || '', row.ledger_key || row.id])
 }
 
-function PendingTab({
-  data, loading, error, refetch, cards, cases, database, modeForDatabase,
-}) {
+// PendingTab shows the queued actions of query (the pending list) and
+// keeps them, with a strip, when a refresh fails.
+function PendingTab({ query, ...props }) {
+  return <QueryState query={query} skeleton={<PendingSkeleton />}>
+    {() => <PendingList refetch={query.refetch} {...props} />}
+  </QueryState>
+}
+
+function PendingList({ data, refetch, cards, cases, database, modeForDatabase }) {
   const [view, setView] = useState('cards')
   const [rejectId, setRejectId] = useState(null)
   const [rejectReason, setRejectReason] = useState('')
   const [actionMsg, setActionMsg] = useState(null)
   const refetchPendingCount = usePendingActionsRefetch()
   const toast = useToast()
-
-  if (loading) return <PendingSkeleton />
-  if (error) return <ErrorBanner message={error}
-    onRetry={refetch} />
 
   const actions = data?.pending || []
   const rawCards = cards?.data?.cards

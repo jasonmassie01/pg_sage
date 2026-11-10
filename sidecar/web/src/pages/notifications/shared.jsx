@@ -1,4 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
+import { ErrorBanner } from '../../components/ErrorBanner'
+
 export const inputStyle = {
   background: 'var(--bg-main)',
   border: '1px solid var(--border)',
@@ -47,23 +49,10 @@ export function FormField({ label, children }) {
   )
 }
 
-export function ErrorBanner({ msg }) {
-  return (
-    <div className="text-sm p-3 rounded mb-4"
-      style={{
-        background: 'rgba(239,68,68,0.1)',
-        color: '#ef4444',
-        border: '1px solid rgba(239,68,68,0.3)',
-      }}>
-      {msg}
-    </div>
-  )
-}
-
 export function StatusMessages({ error, success }) {
   return (
     <>
-      {error && <ErrorBanner msg={error} />}
+      {error && <div className="mb-4"><ErrorBanner message={error} /></div>}
       {success && (
         <div className="text-sm p-3 rounded mb-4"
           style={{

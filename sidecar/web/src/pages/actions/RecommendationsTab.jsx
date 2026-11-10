@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useAPI } from '../../hooks/useAPI'
 import { ErrorBanner } from '../../components/ErrorBanner'
+import { QueryState } from '../../components/QueryState'
+import { queryBlocked } from '../../lib/queryState'
 import { EmptyState } from '../../components/EmptyState'
 import { SkeletonRow } from '../../components/Skeleton'
 import { SQLBlock } from '../../components/SQLBlock'
@@ -9,12 +11,22 @@ import { actionLabel, blockerText, caseHref, recoveryForRevision, riskLabel, row
 
 const muted = { color: 'var(--text-secondary)' }
 
-export function RecommendationsTab({ database, items = [], loading, error, refetch,
+// RecommendationsTab lists items. With query (the requests items come
+// from) it shows their loading, failed and stale states too.
+export function RecommendationsTab({ database, items = [], query,
   onReview, modeForDatabase = () => null, view = 'proposed' }) {
-  if (loading) return <div className="space-y-2" data-testid="recommendations-loading">
-    {[0, 1, 2].map(i => <SkeletonRow key={i} cols={4} />)}
-  </div>
-  if (error) return <ErrorBanner message={error} onRetry={refetch} />
+  if (query && queryBlocked(query)) {
+    return <QueryState query={query} skeleton={<div className="space-y-2"
+      data-testid="recommendations-loading">
+      {[0, 1, 2].map(i => <SkeletonRow key={i} cols={4} />)}
+    </div>} />
+  }
+  const body = <RecommendationList database={database} items={items} onReview={onReview}
+    modeForDatabase={modeForDatabase} view={view} />
+  return query ? <QueryState query={query}>{body}</QueryState> : body
+}
+
+function RecommendationList({ database, items, onReview, modeForDatabase, view }) {
   if (!items.length) return (
     <div className="space-y-2">
       <EmptyState message={view === 'proposed'

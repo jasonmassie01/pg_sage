@@ -351,6 +351,54 @@ includes case projection, shadow report, action queue, provider readiness,
 findings, snapshots, config, forecasts, query hints, alerts, emergency stop,
 and fleet management. UI and `/api/v1/*` routes are session-authenticated.
 
+**Header and context strip.** The header says which database you are looking
+at, its mode and what pg_sage may do there right now. With one database
+selected, the trust badge shows its level, and its tooltip lists the action
+families that run without approval now ("Auto-executes now: analyze_table"),
+or "Nothing auto-executes right now". The list comes from each family's
+policy decision, which the server takes from the executor's gate on every
+status read, so it already accounts for the trust ramp, a disabled executor,
+replicas and the emergency stop. A database that is emergency-stopped never
+lists a family. In the all-databases view, a fleet on one level shows that
+level, and a fleet on several shows every level in use, for example
+"Mixed · 9 autonomous · 1 observation" (a database that has not reported a
+level counts as "unknown", never as autonomous). The tooltip then names, per
+family, the databases that run it unattended. The context strip under the
+header repeats this in words ("Can run without approval now: create_index,
+analyze_table. Everything else queues for approval or is blocked by policy.")
+and, in the all-databases view, says how many databases are emergency-stopped.
+While some databases have not reported their action policy, the strip and the
+fleet tooltip add "2 databases have not reported their action policy" and the
+strip limits its claim to the databases that did, since one that has not
+reported may still auto-execute.
+The pending-approvals badge counts the selected database, or the whole fleet
+in the all-databases view, the same scope as the Actions list. When a
+database could not be counted (not connected, or its read failed) the badge
+shows "3+" and its tooltip names the databases left out.
+
+**Data freshness.** The header shows how current the page is. "Live" means the
+`/api/v1/events` stream is open and pages refresh as changes are pushed.
+"Polling, updated 40 s ago" means the stream is not live yet, or dropped; pages
+keep their normal 30-second polling and the age is that of the last good fleet
+poll. "Offline, data from 14:02" means three reconnects in a row failed; the
+data on screen is from that time. Each tab keeps one stream for every database,
+also in fleet mode. The server ends each stream after 45 seconds and the browser
+reconnects on its own. When a reconnect is refused (for example a proxy 502 or
+504 while the sidecar restarts) the browser gives up, so the dashboard opens a
+new stream after 3 s, doubling up to 60 s with 20% jitter, and goes back to
+"Live" when it connects, without a page reload.
+
+**Background tabs and outages.** A dashboard tab that is not shown sends no
+polls: each page fetches once when the tab is shown again, so the
+pending-approvals badge in a background tab catches up when you return to it
+(notification channels still carry urgent approvals). While an endpoint keeps
+failing, its polls slow down to 2x, 4x and so on of the normal interval, up to
+5 minutes, and return to normal after one success; Retry buttons still fetch at
+once. Live events refresh a page only for the database it shows (or for all of
+them in the all-databases view), and a burst of events refreshes it once, 2 s
+after the last one. The "Getting started" checklist polls every 10 s until setup is
+complete, then every 60 s.
+
 Provider readiness uses adapters for Postgres, Cloud SQL, AlloyDB, RDS, and
 Aurora. Adapters describe extension enablement paths, log access, managed
 service limitations, and supported action families before policy evaluation

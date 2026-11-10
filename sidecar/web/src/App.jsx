@@ -169,10 +169,9 @@ export default function App({ reloadPage = () => window.location.reload() }) {
     return () => { cancelled = true }
   }, [authAttempt])
 
+  const fleetQuery = useAPI(user ? '/api/v1/databases' : null, 30000)
   const { data: fleetData, loading: fleetLoading, error: fleetError,
-    refetch: refetchFleet } = useAPI(
-    user ? '/api/v1/databases' : null, 30000
-  )
+    refetch: refetchFleet, updatedAt: fleetUpdatedAt } = fleetQuery
 
   useEffect(() => {
     const linked = new URLSearchParams(route.split('?')[1] || '').get('database')
@@ -275,19 +274,6 @@ export default function App({ reloadPage = () => window.location.reload() }) {
     ? null
     : databases.find(db => db.name === effectiveDB)
 
-  // TODO(fleet-ctx): Audit every fetch() call site and ensure
-  // per-database context is forwarded via ?database= where the
-  // endpoint accepts it. Current direct fetch() call sites:
-  //   - Actions.jsx approve/reject: id-scoped, no ?database= needed
-  //   - Findings.jsx suppress/execute: id-scoped, no ?database=
-  //   - ChannelsTab, RulesTab, LogTab: global notifications config
-  //   - DatabaseTable/DatabaseForm: address the managed DB by id
-  //   - SettingsPage config/global, emergency-stop, resume: pass dbParam
-  //   - UsersPage, LoginPage, DatabasesPage: global resources
-  // Page-level useAPI calls already pass dbParam where applicable
-  // (Findings, Actions, AlertLog, Dashboard, DatabasePage, etc).
-  // Revisit when new per-DB endpoints are added.
-
   const isAdmin = user.role === 'admin'
   const denied = { title: 'Access denied', node: <AccessDenied /> }
   const pageState = (() => {
@@ -303,7 +289,7 @@ export default function App({ reloadPage = () => window.location.reload() }) {
       case '/advanced':
         return { title: 'Snapshot & metrics',
           node: <Dashboard database={effectiveDB}
-            onSelectDB={setSelectedDB} user={user} /> }
+            onSelectDB={setSelectedDB} user={user} fleet={fleetQuery} /> }
       case '/advanced/findings':
         return { title: 'Findings explorer',
           node: <CasesPage key={route} database={effectiveDB} user={user} /> }
@@ -403,6 +389,7 @@ export default function App({ reloadPage = () => window.location.reload() }) {
             onSelectDB={selectDatabase} user={user} authMode={authMode}
             fleetError={inventoryError}
             fleetData={fleetData ? { ...fleetData, databases } : fleetData}
+            fleetUpdatedAt={fleetUpdatedAt}
             onFleetChanged={refetchFleet}
             onLogout={platformManaged ? undefined : handleLogout}
             pageTitle={pageState.title}>

@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { isMaskedSecret, SettingsPage } from './SettingsPage'
 import { useAPI } from '../hooks/useAPI'
+import { ToastProvider } from '../components/Toast'
 
 const refetch = vi.fn()
 let configReadOnly = false
@@ -304,5 +305,33 @@ describe('SettingsPage trust and emergency controls', () => {
     render(<SettingsPage database="prod" databaseId={12} />)
     expect(screen.getByTestId('emergency-scope'))
       .toHaveTextContent('prod')
+  })
+
+  // dashboard-05 review: error toasts now stay until dismissed, but this
+  // hint fires on every keystroke into a field the database scope cannot
+  // override, so it must still clear itself instead of piling up.
+  it('clears the per-database guard hint after 4 s', () => {
+    localStorage.setItem('pg_sage_settings_mode', 'advanced')
+    vi.useFakeTimers()
+    try {
+      render(
+        <ToastProvider>
+          <SettingsPage database="orders" databaseId={12} />
+        </ToastProvider>,
+      )
+      fireEvent.click(screen.getByTestId('settings-tab-retention'))
+      const field = screen.getByTestId('setting-retention.snapshots_days')
+      fireEvent.change(field, { target: { value: '21' } })
+      fireEvent.change(field, { target: { value: '22' } })
+      const shown = screen.getAllByTestId('toast')
+      expect(shown).toHaveLength(2)
+      expect(shown[0]).toHaveTextContent('support only trust and execution mode')
+      act(() => { vi.advanceTimersByTime(3999) })
+      expect(screen.getAllByTestId('toast')).toHaveLength(2)
+      act(() => { vi.advanceTimersByTime(1) })
+      expect(screen.queryAllByTestId('toast')).toHaveLength(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

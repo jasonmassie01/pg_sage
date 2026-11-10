@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useAPI } from '../../hooks/useAPI'
 import { ErrorBanner } from '../../components/ErrorBanner'
+import { QueryState } from '../../components/QueryState'
+import { queryBlocked } from '../../lib/queryState'
 
 // Derived settings (roadmap phase 3, self-configuration): per database,
 // every key pg_sage derives from evidence, with its value, status
@@ -134,12 +136,15 @@ async function changePin(database, key, action) {
 
 export function DerivedSettings({ database }) {
   const url = derivedURL(database)
-  const { data, loading, error, refetch } = useAPI(url, 60000)
+  const derived = useAPI(url, 60000)
+  const { data, refetch } = derived
   const [failure, setFailure] = useState(null)
   const [busy, setBusy] = useState(false)
 
-  if (loading && !data) return null
-  if (error) return <ErrorBanner message={`Derived settings: ${error}`} onRetry={refetch} />
+  const message = e => `Derived settings: ${e}`
+  if (queryBlocked(derived)) {
+    return <QueryState query={derived} skeleton={null} message={message} />
+  }
 
   async function onPin(db, key, action) {
     setBusy(true)
@@ -157,6 +162,7 @@ export function DerivedSettings({ database }) {
 
   const databases = Array.isArray(data?.databases) ? data.databases : []
   return (
+    <QueryState query={derived} message={message}>
     <section data-testid="derived-settings" data-url={url} className="rounded p-4 space-y-2"
       style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
       <h2 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
@@ -178,6 +184,6 @@ export function DerivedSettings({ database }) {
           ))}
         </div>
       ))}
-    </section>
+    </section></QueryState>
   )
 }

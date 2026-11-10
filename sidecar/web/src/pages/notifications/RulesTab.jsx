@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   inputStyle, cardStyle, EVENT_TYPES, SEVERITIES, defaultMinSeverity,
-  FormField, ErrorBanner,
+  FormField,
 } from './shared'
+import { ErrorBanner } from '../../components/ErrorBanner'
 
 export function RulesTab() {
   const [rules, setRules] = useState([])
@@ -111,7 +112,7 @@ export function RulesTab() {
 
   return (
     <div>
-      {error && <ErrorBanner msg={error} />}
+      {error && <div className="mb-4"><ErrorBanner message={error} /></div>}
       <div className="rounded-lg p-4 mb-6"
         style={cardStyle}>
         <h2 className="text-sm font-semibold mb-3"

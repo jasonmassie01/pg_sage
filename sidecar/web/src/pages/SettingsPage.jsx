@@ -3,6 +3,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useAPI } from '../hooks/useAPI'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { ErrorBanner } from '../components/ErrorBanner'
+import { QueryState } from '../components/QueryState'
+import { queryBlocked } from '../lib/queryState'
 import { TokenBudgetBanner } from '../components/TokenBudgetBanner'
 import { ConfigTooltip } from '../components/ConfigTooltip'
 import { ConfigDiff } from '../components/ConfigDiff'
@@ -61,7 +63,8 @@ export function SettingsPage({ database, databaseId }) {
     : !selectedDatabase || needsStandaloneConfig
       ? '/api/v1/config/global'
       : null
-  const { data, loading, error, refetch } = useAPI(configUrl, 0)
+  const config = useAPI(configUrl, 0)
+  const { data, refetch } = config
   const isStandaloneScope = needsStandaloneConfig && data?.mode === 'standalone'
   const toast = useToast()
   const [mode, setMode] = useState(getInitialMode)
@@ -108,8 +111,11 @@ export function SettingsPage({ database, databaseId }) {
 	if (readOnly) return
 	if (isDatabaseScope
 	  && key !== 'trust.level' && key !== 'execution_mode') {
+	  // A hint on each rejected keystroke: it clears itself rather than
+	  // stacking up like the error toasts that wait to be dismissed.
 	  toast.error(
-	    'Per-database overrides currently support only trust and execution mode'
+	    'Per-database overrides currently support only trust and execution mode',
+	    { duration: 4000 },
 	  )
 	  return
 	}
@@ -283,12 +289,15 @@ export function SettingsPage({ database, databaseId }) {
     }
   }
 
-  if (loading) return <LoadingSpinner />
-  if (error) return <ErrorBanner message={error} onRetry={refetch} />
+  if (queryBlocked(config)) {
+    return <QueryState query={config} skeleton={<LoadingSpinner />} />
+  }
   if (selectedDatabase && !isDatabaseScope && !isStandaloneScope) {
+    // Whether the database is missing rests on the deployment mode; after a
+    // failed refresh that mode is not current, so the failure is shown.
     return (
       <ErrorBanner
-        message={`Selected database "${database}" is not available`}
+        message={config.error || `Selected database "${database}" is not available`}
         onRetry={refetch}
       />
     )
@@ -302,7 +311,7 @@ export function SettingsPage({ database, databaseId }) {
   const hasEdits = Object.keys(edits).length > 0
 
   return (
-    <div className="space-y-4 max-w-3xl">
+    <QueryState query={config}><div className="space-y-4 max-w-3xl">
       {pendingTrust && (
         <TrustLevelConfirm
           from={pendingTrust.from}
@@ -431,7 +440,7 @@ export function SettingsPage({ database, databaseId }) {
           </button>
         </div>
       )}
-    </div>
+    </div></QueryState>
   )
 }
 

@@ -1,8 +1,63 @@
+import {
+  fleetAutonomy, normalizeTrustLevel, rowAutoFamilies, unreportedNote,
+} from '../lib/autonomy'
+
 const muted = { color: 'var(--text-secondary)' }
 
 function collectionTime(value) {
   const time = new Date(value || '')
   return Number.isNaN(time.getTime()) || time.getUTCFullYear() < 1971 ? null : time
+}
+
+// selectedPolicy states what one non-observation database may run without
+// approval now, from its reported action families (dashboard-02).
+function selectedPolicy(row) {
+  const families = rowAutoFamilies(row)
+  if (families === undefined) {
+    return 'Execution depends on the action’s policy, permissions and safety checks.'
+      + ' Review its availability before approving a change.'
+  }
+  if (families.length === 0) {
+    return 'Nothing runs without approval right now.'
+      + ' Changes queue for approval or are blocked by policy.'
+  }
+  return `Can run without approval now: ${families.join(', ')}.`
+    + ' Everything else queues for approval or is blocked by policy.'
+}
+
+// fleetAutoClaim states what the fleet may run without approval now. While
+// some databases have not reported, the claim covers only those that did
+// and says how many are missing, since an unreported one may still execute.
+function fleetAutoClaim(autonomy) {
+  const { autoByFamily, reported } = autonomy
+  const missing = unreportedNote(autonomy)
+  const families = Object.keys(autoByFamily).sort()
+  const parts = []
+  if (families.length > 0) {
+    parts.push('Can run without approval now: ' + families
+      .map(f => `${f} on ${autoByFamily[f].join(', ')}`).join('; ') + '.')
+  } else if (missing) {
+    parts.push('Of the databases that reported their action policy,'
+      + ' none runs anything without approval right now.')
+  } else if (reported > 0) {
+    parts.push('Nothing runs without approval right now.')
+  }
+  if (missing) parts.push(`${missing}.`)
+  return parts
+}
+
+// fleetPolicy summarises the fleet: observation count, stopped count and,
+// per family, the databases that run it unattended.
+function fleetPolicy(rows, summary) {
+  const autonomy = fleetAutonomy(rows)
+  const parts = [`${autonomy.levels.observation} of ${rows.length} databases use Observation mode.`]
+  const stopped = summary?.emergency_stopped_count
+  if (Number.isInteger(stopped) && stopped > 0) {
+    parts.push(`${stopped} of ${rows.length} databases emergency-stopped.`)
+  }
+  parts.push(...fleetAutoClaim(autonomy))
+  parts.push('Select a database to see its execution policy and collection time.')
+  return parts.join(' ')
 }
 
 // This describes reported collection and policy state, not database health.
@@ -14,7 +69,6 @@ export function MonitoringContext({ database, fleetData, error, user }) {
   const status = selected?.status
   const mode = status?.trust_level
   const collected = collectionTime(status?.collector_last_run)
-  const observationCount = rows?.filter(row => row.status?.trust_level === 'observation').length
   return (
     <aside data-testid="monitoring-context" aria-label="Monitoring scope and execution mode"
       className="rounded border p-3 mb-4 text-sm space-y-1"
@@ -24,14 +78,14 @@ export function MonitoringContext({ database, fleetData, error, user }) {
       <p style={muted}>
         {selected?.emergency_stopped
           ? 'The emergency stop blocks database changes. Review evidence and execution settings in Trust.'
-          : mode === 'observation'
+          : normalizeTrustLevel(mode) === 'observation'
             ? 'Database changes are disabled in Observation mode. Review Cases and proposed changes; no database changes will run in this mode.'
             : mode
-              ? 'Execution depends on the action’s policy, permissions and safety checks. Review its availability before approving a change.'
+              ? selectedPolicy(selected)
               : selected
                 ? 'This database has not reported its execution policy. Review its status in Fleet before deciding on a change.'
                 : rows?.length
-                ? `${observationCount} of ${rows.length} databases use Observation mode. Select a database to see its execution policy and collection time.`
+                ? fleetPolicy(rows, fleetData?.summary)
                 : 'Waiting for database status. Execution policy and evidence freshness are not established.'}
       </p>
       {selected && <p className="text-xs" style={muted}>

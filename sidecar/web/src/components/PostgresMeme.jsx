@@ -43,7 +43,7 @@ export function PostgresMeme({ route = window.location.hash, compact = false, ro
       <div className="postgres-meme-media">
         <div className={`postgres-meme-poster postgres-meme-${meme.template}`}
           style={{ '--meme-ratio': template.width / template.height }}>
-          <img src={`/memes/${template.file}`} alt={template.alt}
+          <img src={template.src} alt={template.alt}
             width={template.width} height={template.height} loading="eager" decoding="async" />
           {meme.captions.map((caption, index) => (
             <span key={index} className={`postgres-meme-label postgres-meme-label-${index + 1}`}>

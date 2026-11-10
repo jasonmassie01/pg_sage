@@ -62,6 +62,21 @@ npm run build
 npm run test:e2e
 ```
 
+CI runs the unit tests as `npm run test -- --coverage --maxWorkers=2`. Coverage
+of `src/hooks` and of `src/lib` must each stay at or above 70% of lines and
+functions, and `src/components/ConfigTooltip.jsx` at 100%; below that the
+command exits non-zero. Test the shared data layer through the real hooks:
+`vitest.setup.js` installs a `FakeEventSource` (`src/test/fakeEventSource.js`)
+on `globalThis`, and `stubFetch` (`src/test/fetchStub.js`) answers `fetch` with
+real `Response` objects, so a test does not need to mock `useAPI` or
+`useLiveEvents` away.
+
+`npm run test:e2e` runs the mocked Playwright specs in `e2e/`. Locally it starts
+the Vite dev server. With `CI` set it runs `vite build` and serves the built
+bundle with `vite preview`, so the specs exercise the bundle the sidecar
+embeds. Run `CI=1 npm run test:e2e` to reproduce the CI run; it rebuilds
+`sidecar/internal/api/dist`, so restore that directory before committing.
+
 With Node 26, run unit tests with
 `NODE_OPTIONS=--no-experimental-webstorage npm test`. Its experimental global
 storage otherwise overrides jsdom's browser storage and fails storage-dependent

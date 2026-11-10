@@ -156,3 +156,65 @@ describe('OnboardingPanel', () => {
     expect(pollIntervals().every(i => i === 60000)).toBe(true)
   })
 })
+
+// dashboard-08's cadence cases, on the cadence firstlook-03 owns: 60 s while a
+// required step is open, no polling once every database is done.
+// No concurrent access tests: pure renders over a mocked hook.
+describe('OnboardingPanel poll cadence', () => {
+  const doneSteps = steps.map(s => ({ ...s, done: s.optional ? s.done : true }))
+  const entry = extra => ({ ...onboarding.databases[0], ...extra })
+  const lastInterval = () => api.useAPI.mock.calls.at(-1)[1]
+
+  beforeEach(() => {
+    api.useAPI.mockReset()
+  })
+
+  it('polls every 60 s while a required step is open', () => {
+    respond(() => onboarding)
+    render(<OnboardingPanel database="app" />)
+    expect(lastInterval()).toBe(60000)
+  })
+
+  it('stops polling once every required step is done', () => {
+    respond(() => ({ databases: [entry({ steps: doneSteps })] }))
+    render(<OnboardingPanel database="app" />)
+    expect(lastInterval()).toBe(0)
+  })
+
+  it('keeps polling while any database still has an open step', () => {
+    respond(() => ({ databases: [entry({ steps: doneSteps }), entry({ database: 'b' })] }))
+    render(<OnboardingPanel database="all" />)
+    expect(lastInterval()).toBe(60000)
+  })
+
+  it('keeps polling with no data, no databases or no steps', () => {
+    respond(() => null)
+    const first = render(<OnboardingPanel database="app" />)
+    expect(lastInterval()).toBe(60000)
+    first.unmount()
+    respond(() => ({ databases: [] }))
+    const second = render(<OnboardingPanel database="app" />)
+    expect(lastInterval()).toBe(60000)
+    second.unmount()
+    respond(() => ({ databases: [entry({ steps: [] })] }))
+    render(<OnboardingPanel database="app" />)
+    expect(lastInterval()).toBe(60000)
+  })
+
+  it('ignores the MCP token step in Databricks Apps when judging done', () => {
+    const managed = doneSteps.map(s => (s.id === 'mcp_token'
+      ? { ...s, optional: false, done: false } : s))
+    respond(() => ({ databases: [entry({ steps: managed })] }))
+    render(<OnboardingPanel database="app" authMode="databricks_app" />)
+    expect(lastInterval()).toBe(0)
+  })
+
+  it('resumes polling when a step reopens', () => {
+    respond(() => ({ databases: [entry({ steps: doneSteps })] }))
+    const { rerender } = render(<OnboardingPanel database="app" />)
+    expect(lastInterval()).toBe(0)
+    respond(() => onboarding)
+    rerender(<OnboardingPanel database="app" />)
+    expect(lastInterval()).toBe(60000)
+  })
+})

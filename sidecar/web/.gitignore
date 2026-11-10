@@ -23,3 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 test-results/
+
+# Vitest coverage output (npm run test -- --coverage)
+coverage/

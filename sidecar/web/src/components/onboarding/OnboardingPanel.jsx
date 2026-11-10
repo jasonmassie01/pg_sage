@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useAPI } from '../../hooks/useAPI'
 import { entryErrorText } from './entryError'
 import { LoadError } from './LoadError'
@@ -12,6 +12,28 @@ import { GrantMoreDialog } from './GrantMoreDialog'
 function onboardingURL(database) {
   if (!database || database === 'all') return '/api/v1/onboarding'
   return `/api/v1/onboarding?database=${encodeURIComponent(database)}`
+}
+
+// Polling backs off to a minute while setup is incomplete and stops once
+// every database's required steps are done (firstlook-03; the Grant flow
+// refetches, and a refetch that reopens a step resumes polling).
+const POLL_MS = 60000
+
+// visibleSteps drops the MCP token step, which Databricks Apps cannot use.
+function visibleSteps(entry, platformManaged) {
+  return (entry?.steps || []).filter(step => !platformManaged || step.id !== 'mcp_token')
+}
+
+// entryComplete: a database pg_sage could not read is never complete.
+function entryComplete(entry, platformManaged) {
+  const required = visibleSteps(entry, platformManaged).filter(s => !s.optional)
+  return !entry?.error && required.length > 0 && required.every(s => s.done)
+}
+
+function setupComplete(data, platformManaged) {
+  const entries = data?.databases
+  return Array.isArray(entries) && entries.length > 0 &&
+    entries.every(entry => entryComplete(entry, platformManaged))
 }
 
 function formatSeconds(s) {
@@ -41,22 +63,9 @@ function StepItem({ step }) {
   )
 }
 
-// Polling backs off to a minute while setup is incomplete and stops once
-// every database's required steps are done (the Grant flow refetches).
-const POLL_MS = 60000
-
-function visibleSteps(entry, platformManaged) {
-  return (entry.steps || []).filter(step => !platformManaged || step.id !== 'mcp_token')
-}
-
-function setupComplete(entry, platformManaged) {
-  const required = visibleSteps(entry, platformManaged).filter(s => !s.optional)
-  return !entry.error && required.length > 0 && required.every(s => s.done)
-}
-
 function DatabaseChecklist({ entry, onGrant, platformManaged }) {
   const steps = visibleSteps(entry, platformManaged)
-  const complete = setupComplete(entry, platformManaged)
+  const complete = entryComplete(entry, platformManaged)
   const grantStep = steps.find(s => s.id === 'grant_more')
   return (
     <div className="space-y-2">
@@ -92,13 +101,14 @@ function DatabaseChecklist({ entry, onGrant, platformManaged }) {
 }
 
 export function OnboardingPanel({ database, authMode }) {
+  const platformManaged = authMode === 'databricks_app'
   const [settled, setSettled] = useState(false)
   const { data, error, refetch } = useAPI(onboardingURL(database), settled ? 0 : POLL_MS)
+  // The cadence follows the latest answer (state adjusted during render).
+  const allDone = setupComplete(data, platformManaged)
+  if (allDone !== settled) setSettled(allDone)
   const [granting, setGranting] = useState(null)
-  const platformManaged = authMode === 'databricks_app'
   const entries = data?.databases || []
-  const allDone = entries.length > 0 && entries.every(e => setupComplete(e, platformManaged))
-  useEffect(() => { setSettled(allDone) }, [allDone])
   if (error && !data) {
     return <LoadError what="Setup status" error={error} onRetry={refetch} />
   }

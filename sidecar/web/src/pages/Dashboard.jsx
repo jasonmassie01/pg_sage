@@ -1,18 +1,24 @@
 /* eslint-disable react-refresh/only-export-components */
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { useAPI } from '../hooks/useAPI'
 import { useLiveRefetch } from '../hooks/useLiveEvents'
 import { SeverityBadge } from '../components/SeverityBadge'
 import { ErrorBanner } from '../components/ErrorBanner'
+import { QueryState, StaleStrip } from '../components/QueryState'
+import { hasData, queryStale } from '../lib/queryState'
 import { TokenBudgetBanner } from '../components/TokenBudgetBanner'
-import { FleetHealthChart } from '../components/FleetHealthChart'
 import { DatabaseTile } from '../components/DatabaseTile'
 import { ProviderReadinessMatrix } from '../components/ProviderReadinessMatrix'
 import { IndexAdmissionPanel } from '../components/IndexAdmissionPanel'
-import { readPref } from '../lib/storage'
+import { Skeleton } from '../components/Skeleton'
 import {
   CheckCircle, Clock, ListChecks, Server,
 } from 'lucide-react'
+
+// recharts is only needed by this chart, so it loads in its own chunk and the
+// first paint does not download it (dashboard-09).
+const FleetHealthChart = lazy(() => import('../components/FleetHealthChart')
+  .then(m => ({ default: m.FleetHealthChart })))
 
 const TRUST_LEVEL_LABELS = {
   0: 'Observation',
@@ -51,11 +57,11 @@ export function formatTrustLevel(raw) {
 }
 
 function StatCard({
-  label, value, color, 'data-testid': testId, badge,
+  label, value, color, 'data-testid': testId,
 }) {
   const isLoading = value === undefined || value === null
   return (
-    <div className="rounded p-4 relative"
+    <div className="rounded p-4"
       data-testid={testId}
       style={{
         background: 'var(--bg-card)',
@@ -72,15 +78,6 @@ function StatCard({
           style={{ color: color || 'var(--text-primary)' }}>
           {value}
         </div>
-      )}
-      {badge !== undefined && badge !== null && badge > 0 && (
-        <span
-          data-testid="new-since-visit-badge"
-          className="absolute top-2 right-2 px-1.5 py-0.5 rounded-full
-            text-xs font-semibold"
-          style={{ background: 'var(--red)', color: '#fff' }}>
-          +{badge} new
-        </span>
       )}
     </div>
   )
@@ -353,44 +350,25 @@ function RecentRecommendationsPanel({ findings, error, onRetry }) {
   )
 }
 
-export function Dashboard({ database, onSelectDB, user }) {
+// FLEET_LOADING stands in for App's fleet query before it is passed.
+const FLEET_LOADING = { data: null, loading: true, error: null, refetch: null }
+
+// Dashboard renders App's /api/v1/databases query (`fleet`, the useAPI
+// result) instead of polling the fleet a second time (dashboard-08).
+export function Dashboard({ database, onSelectDB, user, fleet = FLEET_LOADING }) {
   const [overviewTab, setOverviewTab] = useState('databases')
   const dbParam = database && database !== 'all'
     ? `?database=${encodeURIComponent(database)}` : ''
-  const { data, loading, error, refetch } = useAPI('/api/v1/databases')
+  const { data, loading, refetch } = fleet
   const sep = dbParam ? '&' : '?'
   // Newest first: the API default sort is severity (G9-B08).
   const findings = useAPI(
     `/api/v1/findings${dbParam}${sep}limit=5&sort=last_seen&order=desc`)
+  // The fleet summary covers every database, so any database's event counts.
   useLiveRefetch(['findings', 'health'], refetch)
-  useLiveRefetch(['findings'], findings.refetch)
+  useLiveRefetch(['findings'], findings.refetch, { database })
 
-  const [lastVisitAt, setLastVisitAt] = useState(() => {
-    const v = readPref('pg_sage_findings_visit', null)
-    return v ? parseInt(v, 10) : 0
-  })
-
-  useEffect(() => {
-    const onStorage = e => {
-      if (e.key === 'pg_sage_findings_visit') {
-        setLastVisitAt(parseInt(e.newValue, 10) || 0)
-      }
-    }
-    window.addEventListener('storage', onStorage)
-    return () => window.removeEventListener('storage', onStorage)
-  }, [])
-
-  const newSinceVisit = (() => {
-    const list = findings.data?.findings
-    if (!Array.isArray(list) || !lastVisitAt) return 0
-    return list.filter(f => {
-      const t = f.first_seen || f.created_at || f.last_seen
-      if (!t) return false
-      return new Date(t).getTime() > lastVisitAt
-    }).length
-  })()
-
-  if (error) return <ErrorBanner message={error} onRetry={refetch} />
+  if (fleet.error && !hasData(fleet)) return <QueryState query={fleet} />
 
   const summary = data?.summary
   const databases = data?.databases
@@ -402,6 +380,7 @@ export function Dashboard({ database, onSelectDB, user }) {
 
   return (
     <div className="space-y-6">
+      {queryStale(fleet) && <StaleStrip query={fleet} />}
       <TokenBudgetBanner canReset={user?.role === 'admin'} />
       {summary && <HealthHero summary={summary} />}
 
@@ -418,11 +397,13 @@ export function Dashboard({ database, onSelectDB, user }) {
         <StatCard label="Critical Findings"
           value={summary?.total_critical}
           color={summary?.total_critical > 0
-            ? 'var(--red)' : 'var(--text-primary)'}
-          badge={newSinceVisit} />
+            ? 'var(--red)' : 'var(--text-primary)'} />
       </div>
 
-      <FleetHealthChart database={database} />
+      <Suspense fallback={<Skeleton height={192}
+        data-testid="fleet-health-chart-loading" />}>
+        <FleetHealthChart database={database} />
+      </Suspense>
       <OverviewTabs activeTab={overviewTab} setActiveTab={setOverviewTab} />
       {overviewTab === 'databases' && (
         <DatabaseOverviewPanel databases={databases}
