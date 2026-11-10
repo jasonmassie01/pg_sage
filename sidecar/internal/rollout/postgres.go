@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -80,20 +79,6 @@ func (store *PostgresRunStore) Get(
 		" WHERE evidence_id=$1", evidenceID))
 }
 
-func (store *PostgresRunStore) Latest(
-	ctx context.Context,
-) (RunRecord, bool, error) {
-	if store == nil || store.pool == nil {
-		return RunRecord{}, false, errors.New("rollout run store is unavailable")
-	}
-	record, err := scanRunRecord(store.pool.QueryRow(ctx, rolloutRunSelect+
-		" ORDER BY updated_at DESC, id DESC LIMIT 1"))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return RunRecord{}, false, nil
-	}
-	return record, err == nil, err
-}
-
 const rolloutRunSelect = `SELECT evidence_id, source_instance,
 	prior_evidence_id, policy, state,
 	COALESCE(aggregate_regression_pct, 0)::float8,
@@ -122,5 +107,3 @@ func scanRunRecord(row runRecordScanner) (RunRecord, error) {
 	}
 	return record, nil
 }
-
-var _ RuntimeRunStore = (*PostgresRunStore)(nil)

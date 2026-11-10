@@ -144,8 +144,24 @@ func newDatabaseAutonomy(
 	pool *pgxpool.Pool, cfg *config.Config, database string, exec *executor.Executor,
 	freezeWorker *autonomy.PostgresFreezeCustodian,
 ) (*autonomy.Supervisor, error) {
+	workers, err := databaseAutonomyWorkers(pool, cfg, database, exec, freezeWorker)
+	if err != nil {
+		return nil, err
+	}
+	return superviseDatabaseAutonomy(workers, exec)
+}
+
+// databaseAutonomyWorkers builds one database's autonomy workers: the
+// freeze custodian it is given (shared with the runway advisor and the
+// analyzer), the WAL custodian, the schema guard, the executor router and
+// the ledger self-audit.
+func databaseAutonomyWorkers(
+	pool *pgxpool.Pool, cfg *config.Config, database string, exec *executor.Executor,
+	freezeWorker *autonomy.PostgresFreezeCustodian,
+) (autonomy.DatabaseWorkersConfig, error) {
 	if pool == nil || cfg == nil || exec == nil || freezeWorker == nil {
-		return nil, fmt.Errorf("autonomy runtime dependencies are incomplete")
+		return autonomy.DatabaseWorkersConfig{},
+			fmt.Errorf("autonomy runtime dependencies are incomplete")
 	}
 	walWorker := newWALCustodian(pool, cfg, database)
 	auditor := ledger.NewService(ledger.NewPostgresRepository(pool))
@@ -156,18 +172,27 @@ func newDatabaseAutonomy(
 	schemaGuard, err := autonomy.NewPostgresSchemaGuard(
 		pool, database, router, auditor, router.executeRetention, schemaGuardOptions(cfg))
 	if err != nil {
-		return nil, err
+		return autonomy.DatabaseWorkersConfig{}, err
 	}
-	supervisor, err := autonomy.NewSupervisor([]autonomy.DatabaseWorkersConfig{{
+	return autonomy.DatabaseWorkersConfig{
 		Database: database, Interval: autonomyInterval(cfg),
 		DDLDebounce: autonomyDDLDebounce(cfg),
 		Freeze:      freezeWorker, WAL: walWorker, Schema: schemaGuard,
 		Router:  router,
 		Auditor: auditor, Reporter: autonomyLogReporter{},
-	}})
+	}, nil
+}
+
+// superviseDatabaseAutonomy puts one database's workers under a supervisor
+// and points the executor's post-DDL hook at its schema guard.
+func superviseDatabaseAutonomy(
+	workers autonomy.DatabaseWorkersConfig, exec *executor.Executor,
+) (*autonomy.Supervisor, error) {
+	supervisor, err := autonomy.NewSupervisor([]autonomy.DatabaseWorkersConfig{workers})
 	if err != nil {
 		return nil, err
 	}
+	database := workers.Database
 	exec.WithPostDDLHook(func(context.Context) error {
 		return supervisor.RequestSchemaGuard(database)
 	})

@@ -13,6 +13,17 @@ type Engine struct {
 
 func NewEngine(verifier ReVerifier, applier Applier) *Engine { return &Engine{verifier, applier} }
 
+// validatePolicy refuses a policy that could widen past its own blast
+// radius or skip the per-instance re-verification.
+func validatePolicy(policy Policy) error {
+	if policy.CanaryInstances <= 0 || policy.MaxAffectedInstances <= 0 ||
+		policy.CanaryInstances > policy.MaxAffectedInstances ||
+		policy.AggregateRegressionLimitPct < 0 || !policy.RequireLocalReverification {
+		return ErrInvalidPolicy
+	}
+	return nil
+}
+
 // applied is one changed instance, kept for a rollback.
 type applied struct {
 	instance Instance

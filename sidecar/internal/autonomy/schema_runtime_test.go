@@ -24,8 +24,8 @@ func TestSupervisorRunsSchemaGuardPeriodicallyAndOnDDL(t *testing.T) {
 	supervisor.Start(ctx)
 	ticks <- time.Now()
 	requireEventually(t, func() bool { return schemaGuard.callCount() == 1 })
-	if err := supervisor.TriggerSchemaGuard(ctx, "orders"); err != nil {
-		t.Fatalf("TriggerSchemaGuard: %v", err)
+	if err := runSchemaGuardNow(ctx, supervisor, "orders"); err != nil {
+		t.Fatalf("runSchemaGuardNow: %v", err)
 	}
 	if schemaGuard.callCount() != 2 {
 		t.Fatalf("schema calls = %d, want 2", schemaGuard.callCount())
@@ -35,7 +35,7 @@ func TestSupervisorRunsSchemaGuardPeriodicallyAndOnDDL(t *testing.T) {
 	}
 }
 
-func TestSchemaGuardTriggerFailsClosedForUnknownDatabase(t *testing.T) {
+func TestRequestSchemaGuardFailsClosedForUnknownDatabase(t *testing.T) {
 	supervisor, err := NewSupervisor([]DatabaseWorkersConfig{{
 		Database: "orders", Freeze: &recordingCustodian{}, WAL: &recordingCustodian{},
 		Schema: &recordingSchemaGuard{}, Router: &recordingRouter{},
@@ -44,13 +44,13 @@ func TestSchemaGuardTriggerFailsClosedForUnknownDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSupervisor: %v", err)
 	}
-	err = supervisor.TriggerSchemaGuard(context.Background(), "missing")
-	if err == nil || !strings.Contains(err.Error(), "missing") {
+	err = supervisor.RequestSchemaGuard("missing")
+	if err == nil || !strings.Contains(err.Error(), "schema guard database missing is unknown") {
 		t.Fatalf("unknown database error = %v", err)
 	}
 }
 
-func TestSchemaGuardTriggerHonorsCancellation(t *testing.T) {
+func TestSchemaGuardScanHonorsCancellation(t *testing.T) {
 	guard := &recordingSchemaGuard{started: make(chan struct{}, 1), block: true}
 	supervisor, err := NewSupervisor([]DatabaseWorkersConfig{{
 		Database: "orders", Freeze: &recordingCustodian{}, WAL: &recordingCustodian{},
@@ -62,11 +62,11 @@ func TestSchemaGuardTriggerHonorsCancellation(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- supervisor.TriggerSchemaGuard(ctx, "orders") }()
+	go func() { done <- runSchemaGuardNow(ctx, supervisor, "orders") }()
 	<-guard.started
 	cancel()
 	if err := <-done; err == nil || !strings.Contains(err.Error(), "canceled") {
-		t.Fatalf("trigger cancellation error = %v", err)
+		t.Fatalf("scan cancellation error = %v", err)
 	}
 }
 
@@ -88,4 +88,22 @@ func TestRequestSchemaGuardSchedulesDDLScan(t *testing.T) {
 	}
 	requireEventually(t, func() bool { return guard.callCount() == 1 })
 	shutdownSupervisor(t, supervisor)
+}
+
+// A database without a schema guard refuses a DDL request instead of
+// silently dropping it.
+func TestRequestSchemaGuardFailsClosedWithoutSchemaGuard(t *testing.T) {
+	supervisor, err := NewSupervisor([]DatabaseWorkersConfig{{
+		Database: "orders", Freeze: &recordingCustodian{}, WAL: &recordingCustodian{},
+		Router: &recordingRouter{}, Auditor: &recordingAuditor{},
+		Reporter: &recordingReporter{},
+	}})
+	if err != nil {
+		t.Fatalf("NewSupervisor: %v", err)
+	}
+	err = supervisor.RequestSchemaGuard("orders")
+	if err == nil || !strings.Contains(err.Error(),
+		"schema guard for database orders is unavailable") {
+		t.Fatalf("missing schema guard error = %v", err)
+	}
 }
