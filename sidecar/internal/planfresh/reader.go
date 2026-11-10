@@ -26,6 +26,11 @@ type Plan struct {
 	// StaleReason says why the newest cached plan was not used ("" when
 	// it was, or when there was none).
 	StaleReason string
+	// StaleJSON is the newest cached plan when none was fresh. Only the
+	// relations it names may be read (the tuner's deferral gate: a
+	// statement reads the same tables after an ANALYZE); its shape never
+	// drives a symptom, a hint or the agent.
+	StaleJSON []byte
 }
 
 // Provenance is the plan's source, capture time and age at now, for tool
@@ -93,15 +98,19 @@ func (r Reader) Read(ctx context.Context, queryID int64, text string) (Plan, err
 			reason = v.Reason
 		}
 	}
+	var staleJSON []byte
+	if len(caps) > 0 {
+		staleJSON = caps[0].JSON
+	}
 	if r.Explain == nil || (len(caps) == 0 && !r.ExplainUncached) {
-		return Plan{Source: SourceNone, StaleReason: reason}, nil
+		return Plan{Source: SourceNone, StaleReason: reason, StaleJSON: staleJSON}, nil
 	}
 	p, err := r.Explain(ctx, text)
 	if err != nil {
 		return Plan{}, fmt.Errorf("plan queryid %d afresh: %w", queryID, err)
 	}
 	// A plain EXPLAIN never carries actuals, whatever its JSON holds.
-	p.HasActuals, p.StaleReason = false, reason
+	p.HasActuals, p.StaleReason, p.StaleJSON = false, reason, staleJSON
 	if p.Source != SourceNone && p.CapturedAt.IsZero() {
 		p.CapturedAt = now
 	}

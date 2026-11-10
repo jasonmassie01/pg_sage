@@ -27,7 +27,7 @@ func (t *Tuner) readPlan(ctx context.Context, queryID int64, text string) planfr
 		return planfresh.Plan{Source: planfresh.SourceNone}
 	}
 	r := planfresh.Reader{DB: catalogread.New(t.pool, t.planTimeouts), MaxAge: t.planMaxAge(),
-		Explain: t.planExplain}
+		Explain: t.explainOrNone(queryID)}
 	p, err := r.Read(ctx, queryID, text)
 	if err != nil {
 		t.logFn("WARN", "tuner: no plan for queryid=%d: %v", queryID, err)
@@ -38,6 +38,33 @@ func (t *Tuner) readPlan(ctx context.Context, queryID int64, text string) planfr
 			p.StaleReason)
 	}
 	return p
+}
+
+// explainOrNone is the tuner's fallback EXPLAIN: a statement it cannot plan
+// afresh has no plan, and the reader still reports the stale plan's
+// relations to the deferral gate.
+func (t *Tuner) explainOrNone(queryID int64) planfresh.ExplainFunc {
+	if t.planExplain == nil {
+		return nil
+	}
+	return func(ctx context.Context, text string) (planfresh.Plan, error) {
+		p, err := t.planExplain(ctx, text)
+		if err != nil {
+			t.logFn("WARN", "tuner: cannot plan queryid=%d afresh: %v", queryID, err)
+			return planfresh.Plan{Source: planfresh.SourceNone}, nil
+		}
+		return p, nil
+	}
+}
+
+// deferralPlanJSON is the plan whose relations the deferral gate reads:
+// the fresh plan, else the newest stale one. A statement reads the same
+// tables after an ANALYZE, so a stale plan still defers it (fail closed).
+func (t *Tuner) deferralPlanJSON(ctx context.Context, queryID int64) string {
+	if j := t.fetchPlanJSON(ctx, queryID); j != "" {
+		return j
+	}
+	return string(t.cyclePlan(ctx, queryID).StaleJSON)
 }
 
 // cyclePlan is queryID's plan: the one read for it this pass, else a read.

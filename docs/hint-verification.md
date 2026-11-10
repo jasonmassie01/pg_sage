@@ -528,7 +528,13 @@ among the statement's three newest is used. When none is fresh:
   parameterized statement has no plan). A failing `EXPLAIN` is reported as no
   plan; the stale plan is never used in its place;
 - the query tuner does the same for a statement that had a cached plan; a
-  statement that never had one keeps the stat-based rules only.
+  statement that never had one keeps the stat-based rules only. When the
+  tuner cannot plan the statement afresh, it has no plan.
+
+A stale plan never drives a symptom or a hint, but the tuner still reads the
+tables it names to defer a statement whose table has a pending index
+recommendation: a statement reads the same tables after an `ANALYZE`, so
+dropping the stale plan does not let the statement past that gate.
 
 A plan made by plain `EXPLAIN` carries no actuals, so the disk sort, hash
 spill and bad nested loop rules, which need `EXPLAIN ANALYZE` output, never

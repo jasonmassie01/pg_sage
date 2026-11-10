@@ -14,7 +14,7 @@ func (t *Tuner) deferralReason(
 	if len(deferredTables) == 0 {
 		return ""
 	}
-	planJSON := t.fetchPlanJSON(ctx, c.QueryID)
+	planJSON := t.deferralPlanJSON(ctx, c.QueryID)
 	if planJSON == "" {
 		return ""
 	}
