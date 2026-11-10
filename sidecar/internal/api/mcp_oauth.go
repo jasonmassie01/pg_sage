@@ -31,7 +31,7 @@ type principalGetter interface {
 // principal an OAuth identity is bound to.
 func registerMCPRoutes(mux *http.ServeMux, handler http.Handler,
 	tokens *mcptoken.Store, oauth *mcpauth.Validator, principals principalGetter) {
-	h := bindMCPPrincipalOAuth(handler, tokens, oauth, principals)
+	h := bindMCPPrincipalOAuth(accessPrincipalMiddleware(handler), tokens, oauth, principals)
 	route(mux, "POST "+mcpEndpointPath, gateSelfAuth, h)
 	route(mux, "POST "+mcpDatabasePrefix+"{database}", gateSelfAuth, h)
 }

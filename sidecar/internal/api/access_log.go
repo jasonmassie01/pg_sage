@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/mcp"
 )
 
 // The API access log (apiauth-12) records who did what through the API:
@@ -20,6 +21,8 @@ import (
 // itself: ServeMux sets r.Pattern on the request it is handed, and auth has
 // put the user in that request's context, so only the innermost layer can
 // read both. It copies them into the entry the outer layer then logs.
+// An MCP Bearer call has no session user: accessPrincipalMiddleware, below
+// the Bearer check, records its token principal instead.
 
 // accessLogMaxPath caps the path logged for a request refused before
 // routing, which has no pattern.
@@ -30,12 +33,15 @@ type accessEntryKey struct{}
 // accessLogOn reports api.access_log; with no config the log is on.
 func accessLogOn(cfg *config.Config) bool { return cfg == nil || cfg.API.AccessLogEnabled() }
 
-// accessEntry is what the inner layer learned about the request.
+// accessEntry is what the inner layer learned about the request. actor is
+// the MCP token principal ("token:<id>") of a Bearer call, which has no
+// session user.
 type accessEntry struct {
 	pattern string
 	userID  int
 	role    string
 	hasUser bool
+	actor   string
 }
 
 // accessStatusWriter records the response status. Unwrap keeps
@@ -103,6 +109,19 @@ func accessStampMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// accessPrincipalMiddleware wraps the MCP handler, below the Bearer
+// check that binds the token principal, and records that principal for
+// accessLogMiddleware: a Bearer call has no session user.
+func accessPrincipalMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		entry, ok := r.Context().Value(accessEntryKey{}).(*accessEntry)
+		if p, bound := mcp.PrincipalFromContext(r.Context()); ok && bound && p.Actor != "" {
+			entry.actor, entry.role = p.Actor, p.Role
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // accessLogged keeps the log to changes and refusals: reads that succeed
 // or fail for other reasons are not logged.
 func accessLogged(method string, status int) bool {
@@ -132,6 +151,8 @@ func logAccess(r *http.Request, entry *accessEntry, status int, latency time.Dur
 	}
 	if entry.hasUser {
 		attrs = append(attrs, "user_id", entry.userID, "role", entry.role)
+	} else if entry.actor != "" {
+		attrs = append(attrs, "actor", entry.actor, "role", entry.role)
 	}
 	slog.Info("api access", attrs...)
 }

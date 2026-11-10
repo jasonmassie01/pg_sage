@@ -885,8 +885,9 @@ PUT, PATCH, DELETE) whatever its status, the signed ChatOps callbacks
 included, and for every `401` or `403`, the cross-origin check's refusals
 included. Each line has the method, the route pattern (for example
 `POST /api/v1/emergency-stop`; the path when the request was refused
-before routing), the user id and role when signed in, the status and the
-latency in milliseconds. Bodies, query strings, cookies and tokens are
+before routing), the user id and role when signed in (for an MCP call made
+with a Bearer token, the token principal as `actor=token:<id>` and its
+owner's role), the status and the latency in milliseconds. Bodies, query strings, cookies and tokens are
 never logged; successful reads are not logged. Set `api.access_log: false`
 (restart to change) to turn it off; the auth, config and action tables
 above keep their own records either way.
