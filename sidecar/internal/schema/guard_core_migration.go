@@ -104,7 +104,11 @@ BEGIN
                    AND (proposed_by IS NULL OR length(proposed_by) BETWEEN 1 AND 200))
             NOT VALID;
     END IF;
-    ALTER TABLE sage.action_queue DROP CONSTRAINT IF EXISTS action_queue_proposed_via_check;
+    -- Checked first, so a second boot takes no lock (config-04).
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'action_queue_proposed_via_check'
+               AND conrelid = 'sage.action_queue'::regclass) THEN
+        ALTER TABLE sage.action_queue DROP CONSTRAINT action_queue_proposed_via_check;
+    END IF;
 END
 $guard_core$;
 `

@@ -1,0 +1,14 @@
+# schema testdata
+
+`v2.4.0_sage_dump.sql` is the `sage` schema, with its rows, of an empty
+database that pg_sage v2.4.0 bootstrapped twice. `upgrade_db_test.go`
+restores it and boots the current code over it (config-04).
+
+How it was made (PostgreSQL 14, so the dump restores on 14 to 18):
+
+1. `git archive v2.4.0 sidecar/go.mod sidecar/go.sum sidecar/internal`,
+   extracted to a scratch directory, plus a small `main` that calls
+   `schema.Bootstrap` twice on a new database `v240`.
+2. `pg_dump -d v240 --schema=sage --inserts --no-owner --no-privileges
+   --no-comments > v2.4.0_sage_dump.sql`, then the `\restrict` /
+   `\unrestrict` psql lines removed.

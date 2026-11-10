@@ -103,9 +103,11 @@ CREATE INDEX IF NOT EXISTS idx_incidents_previous
     WHERE previous_incident_id IS NOT NULL;
 `
 
+// migrateIncidentLifecycle runs ddlIncidentLifecycle as a prechecked step,
+// so a second boot does not lock sage.incidents (config-04).
 func migrateIncidentLifecycle(ctx context.Context, db bootstrapDB) error {
-	if _, err := db.Exec(ctx, ddlIncidentLifecycle); err != nil {
-		return fmt.Errorf("incident lifecycle columns: %w", err)
-	}
-	return nil
+	_, err := runMigrationStep(ctx, db, migrationStep{
+		name: "ddlIncidentLifecycle", sql: ddlIncidentLifecycle,
+	})
+	return err
 }

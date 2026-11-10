@@ -30,6 +30,9 @@ type advisoryLock struct {
 	mu       sync.Mutex
 	conn     *pgxpool.Conn
 	released bool
+	// discard closes the session on release instead of returning it to
+	// the pool: its settings could not be reset (config-04).
+	discard bool
 }
 
 // expectedTables lists every table the sage schema must contain.
@@ -82,8 +85,8 @@ func Bootstrap(ctx context.Context, pool *pgxpool.Pool) error {
 	if err := startup.ValidateSessionEndpoint(endpoint.Host, endpoint.Port); err != nil {
 		return err
 	}
-	return withAdvisoryLock(
-		ctx, pool, bootstrapLockTimeout,
+	return withBootstrapSession(
+		ctx, pool,
 		func(conn *pgxpool.Conn) error {
 			exists, err := schemaExists(ctx, conn)
 			if err != nil {
@@ -242,7 +245,8 @@ func withAdvisoryLock(
 
 // Release unlocks on the exact PostgreSQL session that acquired the lock.
 // Cleanup is bounded independently of caller cancellation. If unlock fails,
-// the connection is discarded so PostgreSQL releases the session lock.
+// or the session is marked discard, the connection is discarded (closing
+// it also releases the session lock).
 func (l *advisoryLock) Release(ctx context.Context) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -262,7 +266,7 @@ func (l *advisoryLock) Release(ctx context.Context) error {
 		"SELECT pg_advisory_unlock(hashtext($1))",
 		bootstrapAdvisoryLockKey,
 	).Scan(&unlocked)
-	if err == nil && unlocked {
+	if err == nil && unlocked && !l.discard {
 		l.conn.Release()
 		return nil
 	}
@@ -358,98 +362,6 @@ func ensureTablesExist(ctx context.Context, db bootstrapDB) error {
 		return fmt.Errorf("running migrations: %w", err)
 	}
 	return nil
-}
-
-// runMigrations applies idempotent schema changes to existing installs.
-func runMigrations(ctx context.Context, db bootstrapDB) error {
-	qctx, cancel := context.WithTimeout(ctx, migrationBatchTimeout)
-	defer cancel()
-
-	migrations := migrationStatements()
-	for _, m := range migrations {
-		if _, err := db.Exec(qctx, m); err != nil {
-			return fmt.Errorf("migration failed: %w", err)
-		}
-	}
-	return nil
-}
-
-func migrationStatements() []string {
-	statements := []string{
-		ddlActionLogApprovalCols,
-		ddlUsersOAuth,
-		ddlAuthAccountLinking,
-		ddlQueryHintsRewrite,
-		ddlQueryHintsRevalidate,
-		ddlIncidentsLastDetected,
-		ddlActionQueueLifecycleCols,
-		ddlSchemaFindingsLintRunner,
-		ddlFindingsAbsorbsSchemaFindings,
-		ddlFindingsBackfillFromSchemaFindings,
-		ddlFleetScaleIndexes,
-		ddlQueryStoreStatsEpoch,
-		ddlExplainCachePlanHash,
-		ddlExplainCacheProvenance,
-	}
-	statements = append(statements, agentNativeMigrationStatements()...)
-	// After the agent-native DDL: sage.policy and sage.table_contract must
-	// exist. The window migration (policy schema version 3) follows the
-	// class split (version 2).
-	return append(statements, ddlPolicyChangeClassSplit, ddlPolicyWindowCronDuration,
-		ddlRetentionColumnDeclaration, ddlTableContractIdentity, ddlSRECoordination,
-		ddlSREInvestigator, ddlSREModelEvents, ddlSREReasoningBudget,
-		ddlSRESLOChangeEvents, ddlSREActions,
-		ddlRecommendationAll,
-		ddlRunwaySamples, ddlSRERunbooks, ddlSREAutonomy, ddlSREAutonomyCarryOver,
-		ddlSREAutonomyDatabaseScope,
-		ddlSREBenchProvenance,
-		ddlSREModelLift,
-		ddlHAIdentity,
-		ddlDebtExec,
-		ddlIncidentOpenIdentity,
-		ddlSnapshotDelta,
-		ddlDecisionLedger(),
-		ddlPerfIndexes,
-		ddlSREPerf(),
-		ddlAPIListIndexes(),
-		ddlSelfExclIndexes(),
-		ddlGuardHistoryIndexes(),
-		ddlApprovalCards,
-		ddlOptimizerRejection,
-		ddlActionOutcome(),
-		ddlTrustLedger(),
-		ddlVerificationWait(),
-		ddlShadowMode(),
-		ddlFacts,
-		ddlSREAutonomyRootAuthority,
-		ddlMCPv2,
-		ddlObserverIndexes,
-		ddlSelfConfig,
-		ddlTuningBudgetDay,
-		ddlOnboarding,
-		ddlSpecialist,
-		ddlSpecialistQueryScope,
-		ddlAsk,
-		ddlManagedChangeProposals,
-		ddlFleetLearning,
-		ddlIndexReplace,
-		ddlChangeFeedIndexes(),
-		ddlDecommission,
-		ddlAuthAuditSourceIP,
-		ddlAuthAuditCreatedIndex,
-		ddlGuardCore, ddlGuardCoreValidate,
-		ddlAgentEnvClass, ddlAgentGate,
-		ddlGuardKill, ddlGuardQueryAudit, ddlGuardGrants, ddlGuardOps,
-		// E2: after the core principal tables, which the bindings reference.
-		ddlGuardPGAuditEvents, ddlGuardIdentityBindings, ddlSIEMCursor,
-		ddlQueryHintsLifecycle, // tuning-01
-		ddlVerificationObservationRetry,
-		ddlEmergencyStopFunction,
-		ddlEmergencyStopSeed,
-		// clouds-02: after the table (ddlManagedChangeProposals).
-		ddlManagedChangeFingerprintV2,
-		ddlSessionsTokenHash, // apiauth-04: hashed session cookies
-		ddlUsersDisabledAt)   // apiauth-01: user deactivation
 }
 
 // ---------------------------------------------------------------------------
@@ -733,8 +645,15 @@ CREATE INDEX IF NOT EXISTS idx_action_queue_expiry
 const ddlUsersOAuth = `
 ALTER TABLE sage.users
     ADD COLUMN IF NOT EXISTS oauth_provider TEXT DEFAULT '';
-ALTER TABLE sage.users
-    ALTER COLUMN password DROP NOT NULL;
+-- Checked first, so a second boot takes no lock on sage.users (config-04).
+DO $users_password$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_attribute
+                WHERE attrelid = 'sage.users'::regclass AND attname = 'password'
+                  AND attnotnull) THEN
+        ALTER TABLE sage.users ALTER COLUMN password DROP NOT NULL;
+    END IF;
+END $users_password$;
 -- OIDC identities are keyed on issuer+subject (G6-B04 / SURF-02).
 ALTER TABLE sage.users
     ADD COLUMN IF NOT EXISTS oauth_issuer TEXT;
@@ -880,30 +799,63 @@ ALTER TABLE sage.schema_findings
     ADD COLUMN IF NOT EXISTS query_count BIGINT;
 ALTER TABLE sage.schema_findings
     ADD COLUMN IF NOT EXISTS impact TEXT NOT NULL DEFAULT '';
-ALTER TABLE sage.schema_findings
-    ALTER COLUMN column_name SET DEFAULT '',
-    ALTER COLUMN index_name SET DEFAULT '';
-UPDATE sage.schema_findings
-    SET column_name = '' WHERE column_name IS NULL;
-UPDATE sage.schema_findings
-    SET index_name = '' WHERE index_name IS NULL;
-ALTER TABLE sage.schema_findings
-    ALTER COLUMN column_name SET NOT NULL,
-    ALTER COLUMN index_name SET NOT NULL;
-DROP INDEX IF EXISTS sage.idx_schema_findings_active_key;
+-- Each reshape checks the catalog first, so a second boot takes no lock on
+-- sage.schema_findings (config-04). The NOT NULL columns get '' defaults,
+-- then the active-key index is rebuilt over them (or when it is invalid).
+DO $lint_runner$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_attribute a
+                 LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+                WHERE a.attrelid = 'sage.schema_findings'::regclass
+                  AND a.attname IN ('column_name', 'index_name') AND NOT a.attisdropped
+                  AND (NOT a.attnotnull OR d.adbin IS NULL
+                       OR pg_get_expr(d.adbin, d.adrelid) <> '''''::text')) THEN
+        ALTER TABLE sage.schema_findings
+            ALTER COLUMN column_name SET DEFAULT '',
+            ALTER COLUMN index_name SET DEFAULT '';
+        UPDATE sage.schema_findings
+            SET column_name = '' WHERE column_name IS NULL;
+        UPDATE sage.schema_findings
+            SET index_name = '' WHERE index_name IS NULL;
+        ALTER TABLE sage.schema_findings
+            ALTER COLUMN column_name SET NOT NULL,
+            ALTER COLUMN index_name SET NOT NULL;
+        DROP INDEX IF EXISTS sage.idx_schema_findings_active_key;
+    ELSIF EXISTS (SELECT 1 FROM pg_index
+                   WHERE indexrelid = to_regclass('sage.idx_schema_findings_active_key')
+                     AND NOT indisvalid) THEN
+        DROP INDEX sage.idx_schema_findings_active_key;
+    END IF;
+END $lint_runner$;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_schema_findings_active_key
     ON sage.schema_findings (
         rule_id, schema_name, table_name, column_name, index_name
     )
     WHERE resolved_at IS NULL;
-ALTER TABLE sage.schema_findings
-    DROP CONSTRAINT IF EXISTS schema_findings_category_check;
-ALTER TABLE sage.schema_findings
-    ADD CONSTRAINT schema_findings_category_check
-    CHECK (category IN (
-        'safety', 'performance', 'correctness', 'convention',
-        'indexing', 'data_integrity', 'schema_design', 'maintenance'
-    ));
+-- The category check is replaced only when it does not list exactly these
+-- eight values.
+DO $lint_category$
+DECLARE
+    def text;
+BEGIN
+    SELECT pg_get_constraintdef(oid) INTO def FROM pg_constraint
+     WHERE conrelid = 'sage.schema_findings'::regclass
+       AND conname = 'schema_findings_category_check';
+    IF def IS NOT NULL AND def LIKE ALL (ARRAY['%''safety''%', '%''performance''%',
+           '%''correctness''%', '%''convention''%', '%''indexing''%',
+           '%''data_integrity''%', '%''schema_design''%', '%''maintenance''%'])
+       AND (SELECT count(*) FROM regexp_matches(def, '''[^'']*''', 'g')) = 8 THEN
+        RETURN;
+    END IF;
+    ALTER TABLE sage.schema_findings
+        DROP CONSTRAINT IF EXISTS schema_findings_category_check;
+    ALTER TABLE sage.schema_findings
+        ADD CONSTRAINT schema_findings_category_check
+        CHECK (category IN (
+            'safety', 'performance', 'correctness', 'convention',
+            'indexing', 'data_integrity', 'schema_design', 'maintenance'
+        ));
+END $lint_category$;
 `
 
 // v0.9 — Root Cause Analysis incidents table.
