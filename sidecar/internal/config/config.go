@@ -844,6 +844,9 @@ func (c *Config) validate() error {
 	if err := validateReplicas(c.Databases); err != nil {
 		return err
 	}
+	if err := c.validateSLOOwners(); err != nil {
+		return err
+	}
 
 	// Fleet-specific validation.
 	if c.Mode == "fleet" {

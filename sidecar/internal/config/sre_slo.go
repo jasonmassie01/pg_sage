@@ -65,7 +65,8 @@ type SREProxyConfig struct {
 // defaults (30-day window, 50 events, 5-minute staleness).
 type SREObjectiveConfig struct {
 	Name              string  `yaml:"name" doc:"Lower-case name; db_ is reserved for proxies."`
-	Database          string  `yaml:"database" doc:"Monitored database the service uses; empty = every database."`
+	Database          string  `yaml:"database" doc:"Monitored database the service uses; empty = every database (fleets need owner_database)."`
+	OwnerDatabase     string  `yaml:"owner_database" doc:"Fleets, no database: only this database opens the slo_burn investigation."`
 	Description       string  `yaml:"description" doc:"What the SLI measures, shown with its state."`
 	Owner             string  `yaml:"owner" doc:"Team or person who owns the service SLO."`
 	Source            string  `yaml:"source" doc:"Where the counters come from: prometheus or push."`

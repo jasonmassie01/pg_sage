@@ -1928,6 +1928,36 @@ unverified". Pushed and proxy SLIs measure coverage from their stored samples.
 | `sre.slo.objectives[].coverage_query` | empty | Optional PromQL for the earliest sample time over `$window` (must contain `$window`; Prometheus sources only). Adding it does not reset the SLO's history |
 | `sre.slo.objectives[].stale_after_seconds` | `300` | Pushed samples, and Prometheus samples with `coverage_query`, older than this are stale |
 
+#### Fleet SLOs and `owner_database`
+
+An app objective with no `database` belongs to every database. In standalone mode that is
+the one monitored database. In a fleet (`mode: fleet`, or a meta-db fleet) every database's
+engine evaluates the same queries, so one service burn used to open one `slo_burn`
+investigation per database: N model sessions, N probe budgets and N customer-impact rows.
+
+Fleet and meta-db configs must now either bind the objective with `database`, or name the
+database whose investigator handles its burns with `owner_database`. Every database still
+evaluates an owned objective, so its error budget still caps autonomy on every database,
+but only the owner opens the investigation. The others log at INFO that the burn is owned
+by the owner database. A static fleet's `owner_database` must be one of `databases[].name`.
+A meta-db fleet discovers its databases, so pg_sage cannot check the name when it loads the
+config. At startup it logs a WARN for each owner that matches no registered database: until
+one does, that SLO's burns open no investigation anywhere. The owner must also evaluate the
+objective: a read policy that keeps only bound push objectives (database scope, such as
+Lakebase) or that leaves out `slo_status` drops it on the owner, so pg_sage logs a WARN
+naming the objective when that owner database starts.
+
+| Parameter | Default | Description |
+|---|---|---|
+| `sre.slo.objectives[].owner_database` | empty | Fleet and meta-db modes, objectives with no `database` only: the one database that opens the SLO's `slo_burn` investigations. Refused with `database` set and in standalone mode. Setting or changing it starts a new SLO definition (fresh history) |
+
+**Upgrade note (breaking for fleets):** a fleet or meta-db config with an app objective that
+has no `database` and no `owner_database` now fails to load. The error names the objective
+(`sre.slo.objectives[N] (name)`) and both fixes. Add `database: <db>` when the service uses
+one database, or `owner_database: <db>` when it spans the fleet. Standalone configs and
+bound objectives are unchanged, and so are idempotency keys and the SLO history of every
+objective without an owner. No migration is needed.
+
 ### Sage SRE earned autonomy
 
 pg_sage keeps an autonomy level per incident family and action class (for example

@@ -27,8 +27,11 @@ type sreSignals struct {
 	poller          *changefeed.Poller
 	engine          *slo.Engine
 	applicationOnly bool
-	coord           atomic.Pointer[sre.Coordinator]
-	logFn           func(string, string, ...any)
+	// owners maps an SLO to its owner_database: only that database's
+	// investigator opens the SLO's slo_burn investigations.
+	owners map[string]string
+	coord  atomic.Pointer[sre.Coordinator]
+	logFn  func(string, string, ...any)
 }
 
 type sreSignalsDeps struct {
@@ -69,6 +72,14 @@ func newSRESignals(d sreSignalsDeps) (*sreSignals, error) {
 			return nil, err
 		}
 	}
+	if d.settings.SLO.Enabled && s.logFn != nil {
+		for _, name := range unevaluatedOwnedSLOs(d.settings.SLO, d.name, s.owners) {
+			s.logFn("WARN", "sre slo: %s names %s as owner_database, but the read "+
+				"policy of %s does not evaluate it; its page-level burns open no "+
+				"slo_burn investigation anywhere (bind it with database, or name an "+
+				"owner whose read policy allows slo_status)", name, d.name, d.name)
+		}
+	}
 	return s, nil
 }
 
@@ -85,6 +96,7 @@ func (s *sreSignals) newEngine(d sreSignalsDeps) (*slo.Engine, error) {
 	if err != nil {
 		return nil, err
 	}
+	s.owners = sloOwners(objs)
 	rules, err := sloRules(cfg)
 	if err != nil {
 		return nil, err
@@ -157,10 +169,17 @@ func (s *sreSignals) scope(ctx context.Context) (sre.Scope, error) {
 // onPage opens (or coalesces into) the slo_burn investigation of a
 // page-level burn: always for a registered app SLI, for a database proxy
 // only with sre.automatic_start (R1 keeps automatic starts opt-in), and
-// never with sre.slo.open_investigations off.
+// never with sre.slo.open_investigations off. A fleet SLO with an
+// owner_database pages only on its owner (each database evaluates it).
 func (s *sreSignals) onPage(ctx context.Context, st slo.Status) error {
 	if !s.settings.SLO.OpenInvestigations || st.BurnStartedAt == nil ||
 		(st.Kind == slo.KindProxy && !s.settings.AutomaticStart) {
+		return nil
+	}
+	if owner := s.owners[st.Name]; owner != "" && owner != s.name {
+		s.logFn("INFO", "sre slo: %s burns its error budget at page level on %s; "+
+			"burn owned by %s, whose investigator opens the slo_burn investigation",
+			st.Name, s.name, owner)
 		return nil
 	}
 	c := s.coord.Load()

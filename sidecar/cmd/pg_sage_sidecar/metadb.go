@@ -362,7 +362,8 @@ func initMetaDBFleet(state *metaDBState) {
 		llmUsageIDs.setID(record.Name, record.ID)
 	}
 	initializeFleetBudget(names)
-	startLLMUsageLedger(state.Pool)      // fleet-10: before any database registers
+	startLLMUsageLedger(state.Pool) // fleet-10: before any database registers
+	warnMissingSLOOwners(cfg.SRE.SLO, names, logStructuredWrapper)
 	startHistoryStoreCleaner(state.Pool) // history_store_wiring.go
 	for _, rec := range records {
 		registerStoreDatabase(state, rec)
