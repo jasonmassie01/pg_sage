@@ -800,11 +800,8 @@ func configUpdateHandlerWithStore(
 			r, controller, cs, expected, candidate,
 		)
 		if err != nil {
-			if errors.Is(err, config.ErrGenerationConflict) {
-				jsonError(w, err.Error(), http.StatusConflict)
-				return
-			}
-			internalError(w, r, "apply config generation", err)
+			// A durable conflict is a 409 that resyncs first (config-05).
+			writeControlledApplyError(w, r, controller, err)
 			return
 		}
 		jsonResponse(w, result)
