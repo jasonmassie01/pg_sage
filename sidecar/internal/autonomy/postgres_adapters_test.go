@@ -96,6 +96,12 @@ func TestPostgresFreezeCustodianScansLiveCatalog(t *testing.T) {
 			t.Fatalf("scan %d: %d proposals for the empty green table, want 0: %#v",
 				scan, n, proposals)
 		}
+		for _, proposal := range proposals {
+			if len(proposal.TargetObjects) != 1 ||
+				strings.Contains(strings.ToUpper(proposal.SQL+proposal.Plan), "VACUUM FULL") {
+				t.Fatalf("scan %d: unsafe or unscoped freeze proposal: %#v", scan, proposal)
+			}
+		}
 	}
 	reading, err := custodian.Sampler().Read(ctx)
 	rates := reading.rates

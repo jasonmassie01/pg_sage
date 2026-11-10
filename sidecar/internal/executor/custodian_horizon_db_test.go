@@ -126,3 +126,55 @@ func TestReadFreezeHorizonOfAPartitionedParentIsAnError(t *testing.T) {
 		t.Fatalf("horizon = %+v, err = %v, want a freeze horizon error naming the table", h, err)
 	}
 }
+
+// freezePostCheck runs the freeze post-check on target against a baseline
+// measured at baselineAge.
+func freezePostCheck(
+	t *testing.T, ctx context.Context, pool *pgxpool.Pool, target string, baselineAge int64,
+) (string, error) {
+	t.Helper()
+	baseline := custodianBaseline{horizon: &freezeHorizon{xidAge: baselineAge,
+		xidMax: 200_000_000, mxidMax: 400_000_000}}
+	return horizonExecutor(pool).verifyCustodianAction(ctx, CustodianProposal{
+		Feature: "freeze", SQL: "VACUUM (FREEZE) " + target,
+		TargetObjects: []string{target}}, baseline)
+}
+
+// The post-check reads the same horizon as the baseline: a freeze that
+// left the table older than its baseline fails (a pinned horizon must not
+// pass silently) and one that brought it back passes. One XID past the
+// baseline is the boundary that fails (XIDs other sessions consume can
+// only age the table between the reads, so the case is not flaky).
+func TestFreezePostCheckComparesTheRankedHorizon(t *testing.T) {
+	pool, ctx := requireDB(t)
+	horizonTable(t, ctx, pool, "horizon_postcheck", "autovacuum_enabled = false,"+
+		" toast.autovacuum_enabled = false", 1_000)
+	h, err := horizonExecutor(pool).readFreezeHorizon(ctx, "public.horizon_postcheck")
+	if err != nil {
+		t.Fatalf("readFreezeHorizon: %v", err)
+	}
+
+	criterion, err := freezePostCheck(t, ctx, pool, "public.horizon_postcheck", h.xidAge-1)
+	if criterion != "custodian_freeze" || err == nil ||
+		!strings.Contains(err.Error(), "did not improve") {
+		t.Fatalf("older than baseline: criterion=%q err=%v, want a failed custodian_freeze",
+			criterion, err)
+	}
+	if criterion, err = freezePostCheck(t, ctx, pool, "public.horizon_postcheck",
+		h.xidAge+1_000_000); criterion != "custodian_freeze" || err != nil {
+		t.Fatalf("younger than baseline: criterion=%q err=%v, want a passed check",
+			criterion, err)
+	}
+}
+
+// A target that is gone after the action fails the post-check (fail
+// closed) instead of reading as improved.
+func TestFreezePostCheckOfAMissingTableFails(t *testing.T) {
+	pool, ctx := requireDB(t)
+
+	criterion, err := freezePostCheck(t, ctx, pool, "public.horizon_postcheck_gone", 1<<30)
+
+	if criterion != "custodian_freeze" || err == nil {
+		t.Fatalf("criterion=%q err=%v, want a failed custodian_freeze", criterion, err)
+	}
+}
