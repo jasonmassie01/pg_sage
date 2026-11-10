@@ -34,6 +34,7 @@ SAGE_TEST_DATABASE_URL='postgres://postgres:postgres@localhost:5432/postgres?ssl
 | `SAGE_BENCH_EXPECTED` | unset | Path of the expected-scenario manifest, `testdata/ci-expected.json` in CI on tags. For the server's PG major it lists the scenarios that must be scored and the allowed skips with their reasons. The test then fails when an expected scenario is skipped (the message carries the skip reason), or when skips leave a gated arm's per-family gate without data. A manifest that is empty, names an unknown scenario or leaves one out fails to load. Unset, skips are reported and do not fail. |
 | `SAGE_BENCH_FAMILIES` | all | Comma-separated families to run, for example `checkpoint_storm,lwlock_contention`. An unknown family fails the test. |
 | `SAGE_BENCH_REPORT_DIR` | the test's temp dir | Where `pgincidentbench.json` and `pgincidentbench.md` are written. CI sets this and uploads the directory. |
+| `SAGE_BENCH_REPLAY` | unset | `1` replays the corpus and attaches its section, with the model lift, to the bench report (and adds 3 minutes to the bench budget). The corpus is the same in every shard, so CI sets it on the core shard of each job only. Unset, the report has no replay section and its replay-backed gates stay `not_evaluated`. |
 | `PG_SAGE_BENCH_LLM_URL` | unset | OpenAI-compatible endpoint for the LLM-on arm (opt-in). If unset, the LLM-on arm uses the deterministic fake model. |
 | `PG_SAGE_BENCH_LLM_MODEL` | unset | Model name. Required when the URL is set. |
 | `PG_SAGE_BENCH_LLM_KEY` | unset | API key. Optional, because local models need none. The key is never written to the report. |
@@ -192,8 +193,8 @@ replayed through the real investigator: the coordinator, the store, the
 causal graph and the model turn. Nothing is injected into a database, so a
 case takes milliseconds and the corpus can be large. `TestReplayCorpus` runs
 all of it through the three live arms with every DB test run (about 100 s) and writes
-`pgincidentbench-replay.json` and `.md`. `TestPGIncidentBench` attaches the
-same section to the bench report.
+`pgincidentbench-replay.json` and `.md`. With `SAGE_BENCH_REPLAY=1`,
+`TestPGIncidentBench` attaches the same section to the bench report.
 
 ```sh
 SAGE_TEST_DATABASE_URL=... go test -count=1 -v -run TestReplayCorpus ./sre-bench/
