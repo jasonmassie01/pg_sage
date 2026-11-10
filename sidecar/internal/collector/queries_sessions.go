@@ -44,8 +44,19 @@ SELECT
     WHERE datname = current_database()), 0) AS blk_write_time,
 `
 
+// idleInTxMaxColumn is how long this database's longest
+// idle-in-transaction client session has been idle (rca-03: the longest,
+// which one forgotten session sets, not the average; all PG versions).
+var idleInTxMaxColumn = `
+  COALESCE((SELECT max(EXTRACT(EPOCH FROM (now() - state_change)))::float8
+    FROM pg_stat_activity
+    WHERE state = 'idle in transaction' AND backend_type = 'client backend'
+      AND datname = current_database() AND ` + notSelf + `), 0) AS idle_in_tx_max_seconds,
+`
+
 // systemCountersSQL is this database's lifetime counters the system
-// interval is differenced from (collection-06; all PG versions).
+// interval is differenced from (collection-06; all supported versions:
+// sessions is PG 14+, rca-03).
 const systemCountersSQL = `
   COALESCE((SELECT blks_hit FROM pg_stat_database
     WHERE datname = current_database()), 0) AS blks_hit,
@@ -57,6 +68,8 @@ const systemCountersSQL = `
     WHERE datname = current_database()), 0) AS xact_rollback,
   COALESCE((SELECT temp_bytes FROM pg_stat_database
     WHERE datname = current_database()), 0) AS temp_bytes,
+  COALESCE((SELECT sessions FROM pg_stat_database
+    WHERE datname = current_database()), 0) AS sessions,
 `
 
 // checkpointEpochSQL is the checkpoint counters' epoch over the view the
@@ -79,7 +92,7 @@ const checkpointEpochSQL = `
 // readers. checkpoints_done (num_done, performed checkpoints) is PG 18+.
 
 // systemStatsSQL14 uses pg_stat_bgwriter (PG 14-16).
-var systemStatsSQL14 = systemStatsSQLBase + systemCountersSQL + `
+var systemStatsSQL14 = systemStatsSQLBase + systemCountersSQL + idleInTxMaxColumn + `
   v.checkpoints_timed + v.checkpoints_req AS total_checkpoints,
   v.checkpoints_timed AS checkpoints_timed,
   v.checkpoints_req AS checkpoints_requested,
@@ -87,7 +100,7 @@ var systemStatsSQL14 = systemStatsSQLBase + systemCountersSQL + `
 FROM pg_stat_bgwriter v`
 
 // systemStatsSQL17 uses pg_stat_checkpointer (PG 17).
-var systemStatsSQL17 = systemStatsSQLBase + systemCountersSQL + `
+var systemStatsSQL17 = systemStatsSQLBase + systemCountersSQL + idleInTxMaxColumn + `
   v.num_timed + v.num_requested AS total_checkpoints,
   v.num_timed AS checkpoints_timed,
   v.num_requested AS checkpoints_requested,
@@ -95,7 +108,7 @@ var systemStatsSQL17 = systemStatsSQLBase + systemCountersSQL + `
 FROM pg_stat_checkpointer v`
 
 // systemStatsSQL18 adds pg_stat_checkpointer.num_done (PG 18+).
-var systemStatsSQL18 = systemStatsSQLBase + systemCountersSQL + `
+var systemStatsSQL18 = systemStatsSQLBase + systemCountersSQL + idleInTxMaxColumn + `
   v.num_timed + v.num_requested AS total_checkpoints,
   v.num_timed AS checkpoints_timed,
   v.num_requested AS checkpoints_requested,

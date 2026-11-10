@@ -128,7 +128,6 @@ func TestTier2E2E_HappyPath(t *testing.T) {
 	eng := testEngine()
 	eng.WithLLM(tier2LLMClient(srv.URL))
 	eng.cfg.LLMCorrelationThreshold = 3
-
 	curr, prev, lcf := realTier2Inputs()
 	incidents := eng.Analyze(curr, prev, testConfig(), lcf)
 

@@ -13,11 +13,20 @@ type SystemInterval struct {
 	Seconds float64 `json:"seconds"`
 	// CacheHitRatio is blks_hit / (blks_hit + blks_read) of the interval,
 	// a fraction in [0,1]; nil also when no block was accessed.
-	CacheHitRatio  *float64 `json:"cache_hit_ratio"`
-	BlksAccessed   *int64   `json:"blks_accessed"`
-	Deadlocks      *int64   `json:"deadlocks"`
-	Xacts          *int64   `json:"xacts"`
-	TempBytes      *int64   `json:"temp_bytes"`
+	CacheHitRatio *float64 `json:"cache_hit_ratio"`
+	BlksAccessed  *int64   `json:"blks_accessed"`
+	Deadlocks     *int64   `json:"deadlocks"`
+	Xacts         *int64   `json:"xacts"`
+	TempBytes     *int64   `json:"temp_bytes"`
+	// Sessions is how many sessions this database opened in the interval,
+	// those already closed included (rca-03).
+	Sessions *int64 `json:"sessions,omitempty"`
+	// WALBytes is how far the cluster's WAL insert position advanced
+	// between the two reads of it, WALSeconds apart (rca-03). It needs no
+	// statistics epoch: nil on a standby, when either position is unread
+	// and when the position went back (a failover to a server behind).
+	WALBytes       *int64   `json:"wal_bytes,omitempty"`
+	WALSeconds     float64  `json:"wal_seconds,omitempty"`
 	BlkReadTimeMs  *float64 `json:"blk_read_time_ms"`
 	BlkWriteTimeMs *float64 `json:"blk_write_time_ms"`
 	// Checkpoints is cluster-wide, under its own epoch.
@@ -47,11 +56,26 @@ func computeSystemInterval(prev, cur *Snapshot) *SystemInterval {
 	if sameEpoch(p.RelationStatsEpoch, s.RelationStatsEpoch) {
 		databaseInterval(iv, p, s)
 	}
+	walInterval(iv, p, s)
 	if sameEpoch(p.CheckpointStatsEpoch, s.CheckpointStatsEpoch) &&
 		s.TotalCheckpoints >= p.TotalCheckpoints {
 		iv.Checkpoints = int64Ptr(s.TotalCheckpoints - p.TotalCheckpoints)
 	}
 	return iv
+}
+
+// walInterval sets the WAL advance between two primary reads of the
+// insert position (rca-03).
+func walInterval(iv *SystemInterval, p, s *SystemStats) {
+	if p.IsReplica || s.IsReplica || p.WALReadAt.IsZero() || s.WALReadAt.IsZero() ||
+		s.WALLSN < p.WALLSN {
+		return
+	}
+	elapsed := s.WALReadAt.Sub(p.WALReadAt).Seconds()
+	if elapsed <= 0 {
+		return
+	}
+	iv.WALBytes, iv.WALSeconds = int64Ptr(s.WALLSN-p.WALLSN), elapsed
 }
 
 // databaseInterval fills the per-database fields when no counter fell:
@@ -60,8 +84,14 @@ func databaseInterval(iv *SystemInterval, p, s *SystemStats) {
 	if s.BlksHit < p.BlksHit || s.BlksRead < p.BlksRead ||
 		s.Deadlocks < p.Deadlocks || s.XactCommit < p.XactCommit ||
 		s.XactRollback < p.XactRollback || s.TempBytes < p.TempBytes ||
-		s.BlkReadTime < p.BlkReadTime || s.BlkWriteTime < p.BlkWriteTime {
+		s.BlkReadTime < p.BlkReadTime || s.BlkWriteTime < p.BlkWriteTime ||
+		s.Sessions < p.Sessions {
 		return
+	}
+	// A previous count of 0 is a row from before sessions was read: the
+	// collector's own connection is always a session.
+	if p.Sessions > 0 {
+		iv.Sessions = int64Ptr(s.Sessions - p.Sessions)
 	}
 	hits := s.BlksHit - p.BlksHit
 	accessed := hits + s.BlksRead - p.BlksRead

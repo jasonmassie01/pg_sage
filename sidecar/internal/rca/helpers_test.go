@@ -542,18 +542,11 @@ func TestDetectIdleInTxElevated(t *testing.T) {
 	})
 
 	t.Run("below duration threshold returns nil", func(t *testing.T) {
-		// Threshold = 5 minutes = 300 seconds; avg 100s should not fire.
-		snap := &collector.Snapshot{
-			ConfigData: &collector.ConfigSnapshot{
-				ConnectionStates: []collector.ConnectionState{
-					{
-						State:              "idle in transaction",
-						Count:              3,
-						AvgDurationSeconds: 100.0,
-					},
-				},
-			},
-		}
+		// Threshold = 5 minutes = 300 seconds; the longest idle session
+		// (rca-03: the system stats' maximum, not the configuration
+		// snapshot's average) at 100s should not fire.
+		snap := &collector.Snapshot{System: collector.SystemStats{
+			IdleInTransaction: 3, IdleInTxMaxSeconds: 100}}
 		sig := eng.detectIdleInTxElevated(snap, cfg)
 		if sig != nil {
 			t.Errorf("expected nil for 100s < 300s threshold, got %+v", sig)
@@ -561,18 +554,9 @@ func TestDetectIdleInTxElevated(t *testing.T) {
 	})
 
 	t.Run("above duration threshold fires", func(t *testing.T) {
-		// 5 minutes = 300 seconds; avg 400s should fire.
-		snap := &collector.Snapshot{
-			ConfigData: &collector.ConfigSnapshot{
-				ConnectionStates: []collector.ConnectionState{
-					{
-						State:              "idle in transaction",
-						Count:              3,
-						AvgDurationSeconds: 400.0,
-					},
-				},
-			},
-		}
+		// 5 minutes = 300 seconds; the longest idle session at 400s fires.
+		snap := &collector.Snapshot{System: collector.SystemStats{
+			IdleInTransaction: 3, IdleInTxMaxSeconds: 400}}
 		sig := eng.detectIdleInTxElevated(snap, cfg)
 		if sig == nil {
 			t.Fatal("expected signal for 400s > 300s threshold, got nil")
@@ -594,13 +578,22 @@ func TestDetectIdleInTxElevated(t *testing.T) {
 // detectCacheHitDrop
 // ---------------------------------------------------------------------------
 
+// intervalRatio is system stats whose last interval (rca-03: the ratio
+// the signal reads, not the lifetime one) had ratio over 50,000 blocks.
+func intervalRatio(ratio float64) collector.SystemStats {
+	blocks := int64(50_000)
+	return collector.SystemStats{CacheHitRatio: 0.999,
+		Interval: &collector.SystemInterval{Seconds: 60, CacheHitRatio: &ratio,
+			BlksAccessed: &blocks}}
+}
+
 func TestDetectCacheHitDrop(t *testing.T) {
 	eng := newTestEngine()
 	cfg := defaultCfg()
 
 	t.Run("above threshold returns nil", func(t *testing.T) {
 		snap := &collector.Snapshot{
-			System: collector.SystemStats{CacheHitRatio: 0.99},
+			System: intervalRatio(0.99),
 		}
 		sig := eng.detectCacheHitDrop(snap, nil, cfg)
 		if sig != nil {
@@ -610,7 +603,7 @@ func TestDetectCacheHitDrop(t *testing.T) {
 
 	t.Run("below threshold returns warning", func(t *testing.T) {
 		snap := &collector.Snapshot{
-			System: collector.SystemStats{CacheHitRatio: 0.93},
+			System: intervalRatio(0.93),
 		}
 		sig := eng.detectCacheHitDrop(snap, nil, cfg)
 		if sig == nil {
@@ -624,7 +617,7 @@ func TestDetectCacheHitDrop(t *testing.T) {
 	t.Run("well below threshold returns critical", func(t *testing.T) {
 		// critical threshold = warnThreshold - 0.05 = 0.90
 		snap := &collector.Snapshot{
-			System: collector.SystemStats{CacheHitRatio: 0.85},
+			System: intervalRatio(0.85),
 		}
 		sig := eng.detectCacheHitDrop(snap, nil, cfg)
 		if sig == nil {
@@ -637,7 +630,7 @@ func TestDetectCacheHitDrop(t *testing.T) {
 
 	t.Run("exactly at threshold returns nil", func(t *testing.T) {
 		snap := &collector.Snapshot{
-			System: collector.SystemStats{CacheHitRatio: 0.95},
+			System: intervalRatio(0.95),
 		}
 		sig := eng.detectCacheHitDrop(snap, nil, cfg)
 		if sig != nil {
@@ -912,77 +905,6 @@ func TestDetectLockContention(t *testing.T) {
 		blocked := intMetric(sig, "total_blocked")
 		if blocked != 10 {
 			t.Errorf("total_blocked = %d, want 10", blocked)
-		}
-	})
-}
-
-// ---------------------------------------------------------------------------
-// detectWALSpike
-// ---------------------------------------------------------------------------
-
-func TestDetectWALSpike(t *testing.T) {
-	eng := newTestEngine()
-	cfg := defaultCfg()
-
-	t.Run("no previous returns nil", func(t *testing.T) {
-		curr := &collector.Snapshot{
-			Queries: []collector.QueryStats{
-				{WALBytes: 1000},
-			},
-		}
-		sig := eng.detectWALSpike(curr, nil, cfg)
-		if sig != nil {
-			t.Errorf("expected nil for nil previous, got %+v", sig)
-		}
-	})
-
-	t.Run("below multiplier returns nil", func(t *testing.T) {
-		prev := &collector.Snapshot{
-			Queries: []collector.QueryStats{{WALBytes: 1000}},
-		}
-		curr := &collector.Snapshot{
-			Queries: []collector.QueryStats{{WALBytes: 1500}}, // 1.5x
-		}
-		sig := eng.detectWALSpike(curr, prev, cfg)
-		if sig != nil {
-			t.Errorf("expected nil for 1.5x < 2.0x, got %+v", sig)
-		}
-	})
-
-	t.Run("at multiplier fires", func(t *testing.T) {
-		prev := &collector.Snapshot{
-			Queries: []collector.QueryStats{{WALBytes: 1000}},
-		}
-		curr := &collector.Snapshot{
-			CollectedAt: time.Now(),
-			Queries:     []collector.QueryStats{{WALBytes: 2000}}, // 2.0x
-		}
-		sig := eng.detectWALSpike(curr, prev, cfg)
-		if sig == nil {
-			t.Fatal("expected signal for 2.0x ratio")
-		}
-		if sig.ID != "wal_growth_spike" {
-			t.Errorf("ID = %q", sig.ID)
-		}
-		if sig.Severity != "warning" {
-			t.Errorf("Severity = %q, want warning", sig.Severity)
-		}
-		ratio := floatMetric(sig, "ratio")
-		if ratio != 2.0 {
-			t.Errorf("ratio = %f, want 2.0", ratio)
-		}
-	})
-
-	t.Run("zero previous WAL returns nil", func(t *testing.T) {
-		prev := &collector.Snapshot{
-			Queries: []collector.QueryStats{{WALBytes: 0}},
-		}
-		curr := &collector.Snapshot{
-			Queries: []collector.QueryStats{{WALBytes: 5000}},
-		}
-		sig := eng.detectWALSpike(curr, prev, cfg)
-		if sig != nil {
-			t.Errorf("expected nil for zero prevWAL, got %+v", sig)
 		}
 	})
 }

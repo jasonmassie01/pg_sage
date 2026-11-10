@@ -23,13 +23,12 @@ func clusterHotSnapshot() *collector.Snapshot {
 	return &collector.Snapshot{
 		CollectedAt: now,
 		System: collector.SystemStats{TotalBackends: 97, ClientBackends: 90,
-			MaxConnections: 100, CacheHitRatio: 0.999},
+			MaxConnections: 100, CacheHitRatio: 0.999,
+			IdleInTransaction: 2, IdleInTxMaxSeconds: 900},
 		Replication: &collector.ReplicationStats{Replicas: []collector.ReplicaInfo{
 			{ClientAddr: &addr, ReplayLag: &lag}}},
 		PreparedXacts: []collector.PreparedTransaction{{GID: "gx",
 			Prepared: now.Add(-time.Hour), Database: "app", XIDAge: 1000}},
-		ConfigData: &collector.ConfigSnapshot{ConnectionStates: []collector.ConnectionState{
-			{State: "idle in transaction", Count: 2, AvgDurationSeconds: 900}}},
 	}
 }
 

@@ -69,6 +69,11 @@ func (e *Engine) detectConnectionsHigh(
 	}
 }
 
+// detectIdleInTxElevated fires when this database's longest
+// idle-in-transaction client session has been idle for
+// analyzer.idle_in_tx_timeout_minutes (rca-03: the longest, not the
+// average, so one session idle for an hour among many short ones fires).
+// It reads the system stats, collected with or without the advisor.
 func (e *Engine) detectIdleInTxElevated(
 	curr *collector.Snapshot,
 	cfg *config.Config,
@@ -77,22 +82,9 @@ func (e *Engine) detectIdleInTxElevated(
 	if threshold == 0 {
 		threshold = 5
 	}
-	if curr.ConfigData == nil {
-		return nil
-	}
-	var idleCount int
-	var maxDuration float64
-	for _, cs := range curr.ConfigData.ConnectionStates {
-		if cs.State == "idle in transaction" {
-			idleCount = cs.Count
-			maxDuration = cs.AvgDurationSeconds
-		}
-	}
-	if idleCount == 0 {
-		return nil
-	}
-	// Fire if any idle-in-tx sessions exceed the threshold.
-	if maxDuration < float64(threshold*60) {
+	idleCount := curr.System.IdleInTransaction
+	maxDuration := curr.System.IdleInTxMaxSeconds
+	if idleCount == 0 || maxDuration < float64(threshold*60) {
 		return nil
 	}
 	return &Signal{
@@ -101,20 +93,25 @@ func (e *Engine) detectIdleInTxElevated(
 		Severity: "warning",
 		Metrics: map[string]any{
 			"idle_in_tx_count":     idleCount,
-			"avg_duration_seconds": maxDuration,
+			"max_duration_seconds": maxDuration,
 		},
 	}
 }
 
+// detectCacheHitDrop fires on the cache hit ratio of the last collector
+// interval (collection-06), when it accessed enough blocks to be evidence.
+// The lifetime ratio (since the last reset, often months) barely moves
+// when a working set outgrows shared_buffers. Across a reset the interval
+// ratio is unknown: no signal (rca-03).
 func (e *Engine) detectCacheHitDrop(
-	curr, prev *collector.Snapshot,
+	curr, _ *collector.Snapshot,
 	cfg *config.Config,
 ) *Signal {
 	warnThreshold := cfg.Analyzer.CacheHitRatioWarning
 	if warnThreshold == 0 {
 		warnThreshold = 0.95
 	}
-	ratio, ok := normalizeCacheHitRatio(curr.System.CacheHitRatio)
+	ratio, blocks, ok := analyzer.IntervalCacheRatio(curr)
 	if !ok || ratio >= warnThreshold {
 		return nil
 	}
@@ -127,29 +124,12 @@ func (e *Engine) detectCacheHitDrop(
 		FiredAt:  curr.CollectedAt,
 		Severity: sev,
 		Metrics: map[string]any{
-			"cache_hit_ratio": ratio,
-			"threshold":       warnThreshold,
+			"cache_hit_ratio":  ratio,
+			"blocks_accessed":  blocks,
+			"interval_seconds": curr.System.Interval.Seconds,
+			"threshold":        warnThreshold,
 		},
 	}
-}
-
-// normalizeCacheHitRatio returns the cache hit ratio as a fraction.
-// The collector has reported a percentage (0-100) and is moving to a
-// fraction (0-1); values above 1 are treated as percentages. A value of
-// zero or below means "no data" (the collector COALESCEs a missing ratio
-// to 0) and must not fire a critical signal; values above 100% are
-// invalid.
-func normalizeCacheHitRatio(v float64) (float64, bool) {
-	if v <= 0 {
-		return 0, false
-	}
-	if v > 1 {
-		v /= 100
-	}
-	if v > 1 {
-		return 0, false
-	}
-	return v, true
 }
 
 func (e *Engine) detectReplicationLag(
@@ -258,39 +238,6 @@ func (e *Engine) detectLockContention(
 			"total_blocked":    totalBlocked,
 		},
 		blockers: blockersFromFindings(lockChainFindings),
-	}
-}
-
-func (e *Engine) detectWALSpike(
-	curr, prev *collector.Snapshot,
-	cfg *config.Config,
-) *Signal {
-	if prev == nil {
-		return nil
-	}
-	multiplier := cfg.RCA.WALSpikeMultiplier
-	if multiplier == 0 {
-		multiplier = 2.0
-	}
-	currWAL := totalWALBytes(curr)
-	prevWAL := totalWALBytes(prev)
-	if prevWAL == 0 {
-		return nil
-	}
-	ratio := float64(currWAL) / float64(prevWAL)
-	if ratio < multiplier {
-		return nil
-	}
-	return &Signal{
-		ID:       signalid.WALGrowthSpike,
-		FiredAt:  curr.CollectedAt,
-		Severity: "warning",
-		Metrics: map[string]any{
-			"current_wal_bytes":  currWAL,
-			"previous_wal_bytes": prevWAL,
-			"ratio":              ratio,
-			"multiplier":         multiplier,
-		},
 	}
 }
 

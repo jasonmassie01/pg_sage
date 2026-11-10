@@ -134,6 +134,14 @@ func fleetIncidents(
 	return out
 }
 
+// deadlockSignal is a deadlock line of database db, with the id and
+// severity the watcher gives it (patterns.go), so the deadlock tree opens
+// an incident for it.
+func deadlockSignal(db string) *rca.Signal {
+	return &rca.Signal{ID: "log_deadlock_detected", FiredAt: time.Now(),
+		Severity: "critical", Metrics: map[string]any{"database": db}}
+}
+
 // CHECK-24: one cluster PANIC gives one incident row and one notification
 // across the fleet, on the owner; a deadlock of database b stays on b.
 func TestFleetClusterPanicOneIncidentInDB(t *testing.T) {
@@ -141,7 +149,7 @@ func TestFleetClusterPanicOneIncidentInDB(t *testing.T) {
 	f := NewLogFanout(&FileWatcher{}).WithClusterKey("pg:5432")
 	d := &countingDispatcher{}
 	engs := fleetEngines(t, ctx, pool, f, d, "c", "a", "b")
-	f.distribute([]*rca.Signal{panicSignal(), dbSignal("b_db")})
+	f.distribute([]*rca.Signal{panicSignal(), deadlockSignal("b_db")})
 	quiet := &collector.Snapshot{CollectedAt: time.Now(), System: collector.SystemStats{
 		TotalBackends: 10, ClientBackends: 5, MaxConnections: 100, CacheHitRatio: 0.999}}
 	runFleetCycle(t, ctx, pool, engs, quiet)
