@@ -209,10 +209,8 @@ func heldUnused(open []string, byIdent map[string]collector.IndexStats, e *RuleE
 	for _, ident := range open {
 		idx, ok := byIdent[ident]
 		since, seen := e.FirstSeen[ident]
-		// An attached index is never emitted (rules-03), so a hold on it
-		// would never end.
 		if !ok || !seen || idx.IdxScan != 0 || idx.IndexRelID == 0 ||
-			idx.ParentIndexOID != 0 || e.IndexOID[ident] != idx.IndexRelID {
+			e.IndexOID[ident] != idx.IndexRelID {
 			continue
 		}
 		if now.Sub(since) < window && !epoch.After(since) {
@@ -244,7 +242,7 @@ func (a *Analyzer) holdUnusedFindings(current, previous *collector.Snapshot, emi
 	for _, f := range emitted {
 		ended[f.ObjectIdentifier] = true
 	}
-	// An index attached since the hold began is never emitted (rules-03).
+	// An attached index is never emitted (rules-03), so its hold ends.
 	for _, idx := range current.Indexes {
 		if idx.ParentIndexOID != 0 {
 			ended[idx.SchemaName+"."+idx.IndexRelName] = true
