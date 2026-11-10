@@ -279,6 +279,35 @@ func TestHoldsStatement(t *testing.T) {
 	}
 }
 
+// The sidecar's pool moves the tag after the first keyword on the wire
+// (selfmonitor), so pg_stat_statements holds "SELECT /* pg_sage */ ..."
+// for a source text "/* pg_sage */ SELECT ..."; PostgreSQL 18 drops a
+// leading comment altogether. Both are the same statement.
+func TestHoldsStatementWherePgStatStatementsMovedTheTag(t *testing.T) {
+	sql := "/* pg_sage */ SELECT count(*)::float8\nFROM pg_catalog.pg_class c\n" +
+		"LEFT JOIN pg_catalog.pg_stat_all_tables s ON s.relid = c.oid"
+	cases := map[string]string{
+		"tag after keyword": "SELECT /* pg_sage */ count(*)::float8 FROM pg_catalog.pg_class c " +
+			"LEFT JOIN pg_catalog.pg_stat_all_tables s ON s.relid = c.oid",
+		"component tag": "SELECT /* pg_sage selfconfig */ count(*)::float8 FROM " +
+			"pg_catalog.pg_class c LEFT JOIN pg_catalog.pg_stat_all_tables s ON s.relid = c.oid",
+		"no tag (PG18)": "SELECT count(*)::float8 FROM pg_catalog.pg_class c " +
+			"LEFT JOIN pg_catalog.pg_stat_all_tables s ON s.relid = c.oid",
+	}
+	for name, stored := range cases {
+		if !HoldsStatement([]Statement{{Query: stored}}, sql) {
+			t.Errorf("%s: %q not recognised as %q", name, stored, sql)
+		}
+	}
+	other := "SELECT /* pg_sage */ count(*)::float8 FROM pg_catalog.pg_class c"
+	if HoldsStatement([]Statement{{Query: other}}, sql) {
+		t.Errorf("a shorter statement %q matched the full catalog scan", other)
+	}
+	if HoldsStatement([]Statement{{Query: "SELECT 1"}}, "/* pg_sage */") {
+		t.Error("a tag-only text must not match every statement")
+	}
+}
+
 func TestUntaggedStatementsTopFive(t *testing.T) {
 	var stmts []Statement
 	for i := 1; i <= 7; i++ {

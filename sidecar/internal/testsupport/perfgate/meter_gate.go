@@ -3,6 +3,7 @@ package perfgate
 import (
 	"fmt"
 	"math"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -178,8 +179,10 @@ func UntaggedStatements(stmts []Statement, n int) []Statement {
 	return out
 }
 
-// HoldsStatement reports whether a statement with sql's text (whitespace
-// aside) is among stmts.
+// HoldsStatement reports whether a statement with sql's text is among
+// stmts, white space and pg_sage tag comments aside: the sidecar's pool
+// moves the tag after the first keyword on the wire, and PostgreSQL 18's
+// pg_stat_statements drops a leading comment.
 func HoldsStatement(stmts []Statement, sql string) bool {
 	want := oneLine(sql)
 	if want == "" {
@@ -193,6 +196,11 @@ func HoldsStatement(stmts []Statement, sql string) bool {
 	return false
 }
 
+// tagComments matches pg_sage's tag comments (/* pg_sage */ or one naming
+// a component).
+var tagComments = regexp.MustCompile(`/\*\s*pg_sage\b[^*]*\*/`)
+
 func oneLine(q string) string {
+	q = tagComments.ReplaceAllString(q, " ")
 	return strings.TrimSpace(spaces.ReplaceAllString(q, " "))
 }
