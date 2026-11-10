@@ -1574,7 +1574,10 @@ but only the owner opens the investigation. The others log at INFO that the burn
 by the owner database. A static fleet's `owner_database` must be one of `databases[].name`.
 A meta-db fleet discovers its databases, so pg_sage cannot check the name when it loads the
 config. At startup it logs a WARN for each owner that matches no registered database: until
-one does, that SLO's burns open no investigation anywhere.
+one does, that SLO's burns open no investigation anywhere. The owner must also evaluate the
+objective: a read policy that keeps only bound push objectives (database scope, such as
+Lakebase) or that leaves out `slo_status` drops it on the owner, so pg_sage logs a WARN
+naming the objective when that owner database starts.
 
 | Parameter | Default | Description |
 |---|---|---|

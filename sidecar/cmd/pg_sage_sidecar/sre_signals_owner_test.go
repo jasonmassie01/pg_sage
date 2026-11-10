@@ -8,6 +8,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/sre"
+	"github.com/pg-sage/sidecar/internal/sre/probes"
 	"github.com/pg-sage/sidecar/internal/sre/slo"
 )
 
@@ -206,5 +207,68 @@ func TestSRESignals_NoOwnerKeepsPerDatabasePage(t *testing.T) {
 		WHERE source_case_id = $1`, "slo:"+name).Scan(&key)
 	if err != nil || !strings.HasPrefix(key, "slo:"+name+":") {
 		t.Fatalf("idempotency key = %q err=%v", key, err)
+	}
+}
+
+func TestUnevaluatedOwnedSLOs(t *testing.T) {
+	cfg := ownedSettings("payments", "billing").SLO
+	cfg.Objectives = append(cfg.Objectives, config.SREObjectiveConfig{Name: "ledger",
+		Source: "push", Target: 0.99, OwnerDatabase: "orders"})
+	evaluated := map[string]string{"payments": "billing", "ledger": "orders"}
+	if got := unevaluatedOwnedSLOs(cfg, "billing", evaluated); len(got) != 0 {
+		t.Fatalf("an evaluated owned SLO warned: %q", got)
+	}
+	if got := unevaluatedOwnedSLOs(cfg, "billing", nil); len(got) != 1 ||
+		got[0] != "payments" {
+		t.Fatalf("owner without an engine: %q, want [payments]", got)
+	}
+	if got := unevaluatedOwnedSLOs(cfg, "inventory", nil); len(got) != 0 {
+		t.Fatalf("a database that owns nothing warned: %q", got)
+	}
+	if got := unevaluatedOwnedSLOs(config.SRESLOConfig{}, "billing", nil); len(got) != 0 {
+		t.Fatalf("no objectives warned: %q", got)
+	}
+}
+
+// An owner whose read policy drops the owned objective (database scope
+// keeps only bound push objectives; a narrow allowlist builds no engine)
+// would silently swallow every burn: the others defer to it. It warns.
+func TestSRESignals_OwnerThatCannotEvaluateWarns(t *testing.T) {
+	name := uniqueSLO()
+	settings := ownedSettings(name, "billing")
+	r := signalsFixtureNamed(t, settings, "billing")
+	database := r.pool.Config().ConnConfig.Database
+	scoped := &probes.ReadPolicy{Version: 1, Scope: "database", Database: database,
+		Binding: probes.PoolBinding(r.pool)}
+	narrow := &probes.ReadPolicy{Version: 1, Scope: "cluster", Database: database,
+		Binding: probes.PoolBinding(r.pool), Allowed: []probes.ID{probes.StatTables}}
+	cases := []struct {
+		label  string
+		policy *probes.ReadPolicy
+		db     string
+		warn   bool
+	}{{"database scope", scoped, "billing", true}, {"no engine", narrow, "billing", true},
+		{"full policy", nil, "billing", false}, {"not the owner", scoped, "orders", false}}
+	for _, c := range cases {
+		var rec logRecorder
+		sig, err := newSRESignals(sreSignalsDeps{control: r.pool, monitored: r.pool,
+			name: c.db, readPolicy: c.policy, settings: settings, logFn: rec.log})
+		if err != nil {
+			t.Fatalf("%s: newSRESignals: %v", c.label, err)
+		}
+		if got := rec.has("WARN", name+" names billing as owner_database"); got != c.warn {
+			t.Fatalf("%s: warned=%v, want %v: %q", c.label, got, c.warn, rec.lines)
+		}
+		if c.label == "full policy" && sig.owners[name] != "billing" {
+			t.Fatalf("full policy did not evaluate the owned SLO: %v", sig.owners)
+		}
+	}
+	off := settings
+	off.SLO.Enabled = false
+	var rec logRecorder
+	if _, err := newSRESignals(sreSignalsDeps{control: r.pool, monitored: r.pool,
+		name: "billing", readPolicy: narrow, settings: off, logFn: rec.log}); err != nil ||
+		rec.has("WARN", "owner_database") {
+		t.Fatalf("SLO layer off: err=%v lines=%q", err, rec.lines)
 	}
 }

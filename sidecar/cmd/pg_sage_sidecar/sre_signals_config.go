@@ -109,3 +109,19 @@ func sloOwners(objs []slo.Objective) map[string]string {
 	}
 	return out
 }
+
+// unevaluatedOwnedSLOs names each objective that names database as its
+// owner_database but that database's engine does not evaluate: a read
+// policy that builds no engine, or keeps only bound push objectives. The
+// other databases defer its burns to this one, so they would open no
+// investigation anywhere. owners is the engine's sloOwners (nil: no engine).
+func unevaluatedOwnedSLOs(cfg config.SRESLOConfig, database string,
+	owners map[string]string) []string {
+	var out []string
+	for _, o := range cfg.Objectives {
+		if o.OwnerDatabase == database && owners[o.Name] != database {
+			out = append(out, o.Name)
+		}
+	}
+	return out
+}

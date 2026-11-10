@@ -72,6 +72,14 @@ func newSRESignals(d sreSignalsDeps) (*sreSignals, error) {
 			return nil, err
 		}
 	}
+	if d.settings.SLO.Enabled && s.logFn != nil {
+		for _, name := range unevaluatedOwnedSLOs(d.settings.SLO, d.name, s.owners) {
+			s.logFn("WARN", "sre slo: %s names %s as owner_database, but the read "+
+				"policy of %s does not evaluate it; its page-level burns open no "+
+				"slo_burn investigation anywhere (bind it with database, or name an "+
+				"owner whose read policy allows slo_status)", name, d.name, d.name)
+		}
+	}
 	return s, nil
 }
 
