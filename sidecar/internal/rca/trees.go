@@ -49,9 +49,9 @@ func (e *Engine) runDecisionTrees(
 			"wal_spike",
 			fmt.Sprintf("WAL generation spiked %.1fx over previous cycle",
 				floatMetric(s, "ratio")),
-			fmt.Sprintf("Current: %d bytes, Previous: %d bytes",
-				intMetric(s, "current_wal_bytes"),
-				intMetric(s, "previous_wal_bytes"))))
+			fmt.Sprintf("WAL rate: %.1f MiB/min this interval, %.1f MiB/min the one before",
+				floatMetric(s, "current_wal_bytes_per_min")/(1<<20),
+				floatMetric(s, "previous_wal_bytes_per_min")/(1<<20))))
 	}
 	if s, ok := sigMap["orphaned_prepared_tx"]; ok {
 		incidents = append(incidents,
@@ -65,7 +65,7 @@ func (e *Engine) runDecisionTrees(
 //	connections_high fires:
 //	  -> idle_in_tx_elevated also firing?
 //	    -> YES: root cause = idle-in-tx holding connections
-//	    -> NO: churn > 2x previous?
+//	    -> NO: sessions opened per minute > 2x the interval before?
 //	      -> YES: root cause = connection storm
 //	      -> NO: root cause = gradual growth
 func (e *Engine) treeConnectionsHigh(
@@ -101,21 +101,19 @@ func (e *Engine) treeConnectionsHigh(
 		)
 	}
 
-	if prev != nil && curr.ConfigData != nil && prev.ConfigData != nil {
-		prevChurn := prev.ConfigData.ConnectionChurn
-		currChurn := curr.ConfigData.ConnectionChurn
-		if prevChurn > 0 && currChurn > prevChurn*2 {
-			return buildIncident(now, connSig.Severity, ids,
-				"Connection storm: rapid connection creation/teardown",
-				[]ChainLink{
-					{Order: 1, Signal: "connections_high",
-						Description: "Connection churn doubled since last cycle",
-						Evidence: fmt.Sprintf("Churn: %d (prev %d)",
-							currChurn, prevChurn)},
-				},
-				[]string{"pg_stat_activity"}, "", "moderate",
-			)
-		}
+	prevRate, prevOK := sessionsPerMinute(prev)
+	currRate, currOK := sessionsPerMinute(curr)
+	if prevOK && currOK && prevRate > 0 && currRate > prevRate*2 {
+		return buildIncident(now, connSig.Severity, ids,
+			"Connection storm: rapid connection creation/teardown",
+			[]ChainLink{
+				{Order: 1, Signal: "connections_high",
+					Description: "Sessions opened per minute more than doubled since last cycle",
+					Evidence: fmt.Sprintf("Sessions opened: %.0f/min (prev %.0f/min)",
+						currRate, prevRate)},
+			},
+			[]string{"pg_stat_database"}, "", "moderate",
+		)
 	}
 
 	return buildIncident(now, connSig.Severity, ids,
@@ -135,7 +133,8 @@ func (e *Engine) treeConnectionsHigh(
 // treeCacheHitDrop implements the cache_hit_ratio_drop decision tree.
 //
 //	cache_hit_ratio_drop fires:
-//	  -> any query SharedBlksRead delta > 10x previous?
+//	  -> any query's shared blocks read per call this interval > 10x its
+//	     reads per call before (same pg_stat_statements epoch)?
 //	    -> YES: root cause = specific query evicting buffers
 //	    -> NO: root cause = working set exceeds shared_buffers
 func (e *Engine) treeCacheHitDrop(
@@ -145,33 +144,26 @@ func (e *Engine) treeCacheHitDrop(
 	ids := []string{"cache_hit_ratio_drop"}
 	now := curr.CollectedAt
 
-	if prev != nil {
-		prevReads := queryReadsMap(prev)
-		for _, q := range curr.Queries {
-			pr, ok := prevReads[q.QueryID]
-			if !ok || pr == 0 {
-				continue
-			}
-			if q.SharedBlksRead > pr*10 {
-				truncQ := q.Query
-				if len(truncQ) > 120 {
-					truncQ = truncQ[:120] + "..."
-				}
-				return buildIncident(now, sig.Severity, ids,
-					fmt.Sprintf("Query %d reading excessive blocks, "+
-						"evicting shared_buffers", q.QueryID),
-					[]ChainLink{
-						{Order: 1, Signal: "cache_hit_ratio_drop",
-							Description: "Specific query read 10x+ more blocks",
-							Evidence: fmt.Sprintf(
-								"QueryID %d: %d blks (prev %d) -- %s",
-								q.QueryID, q.SharedBlksRead, pr, truncQ)},
-					},
-					[]string{fmt.Sprintf("query:%d", q.QueryID)},
-					"", "safe",
-				)
-			}
+	if spike, ok := queryReadSpike(curr, prev); ok {
+		q := spike.query
+		truncQ := q.Query
+		if len(truncQ) > 120 {
+			truncQ = truncQ[:120] + "..."
 		}
+		return buildIncident(now, sig.Severity, ids,
+			fmt.Sprintf("Query %d reading excessive blocks, "+
+				"evicting shared_buffers", q.QueryID),
+			[]ChainLink{
+				{Order: 1, Signal: "cache_hit_ratio_drop",
+					Description: "Specific query read 10x+ more blocks per call",
+					Evidence: fmt.Sprintf(
+						"QueryID %d: %.0f blks/call this interval (%d blks), "+
+							"%.0f blks/call before -- %s",
+						q.QueryID, spike.perCall, spike.reads, spike.earlier, truncQ)},
+			},
+			[]string{fmt.Sprintf("query:%d", q.QueryID)},
+			"", "safe",
+		)
 	}
 
 	return buildIncident(now, sig.Severity, ids,

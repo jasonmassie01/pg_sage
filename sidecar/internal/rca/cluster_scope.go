@@ -3,14 +3,15 @@ package rca
 import "github.com/pg-sage/sidecar/internal/collector"
 
 // Cluster scope (rca-08). In a fleet, several databases share one
-// PostgreSQL cluster. Two snapshot signals read cluster-wide state:
+// PostgreSQL cluster. Three snapshot signals read cluster-wide state:
 // connections_high (client backends of every database against the
-// cluster's max_connections) and replication_lag (pg_stat_replication
-// lists every walsender). Only the cluster owner detects them, so one
+// cluster's max_connections), replication_lag (pg_stat_replication
+// lists every walsender) and wal_growth_spike (the cluster's WAL insert
+// position, rca-03). Only the cluster owner detects them, so one
 // cluster event opens one incident and one page, not one per database.
-// The other snapshot signals read this database's own rows (statements
-// and their WAL, prepared transactions since rca-01, idle sessions,
-// vacuum, locks) and stay on every engine. Cluster log events are routed
+// The other snapshot signals read this database's own rows (statements,
+// prepared transactions since rca-01, idle sessions, vacuum, locks) and
+// stay on every engine. Cluster log events are routed
 // to the owner by the log fanout.
 
 // SetClusterOwner marks whether this engine owns its cluster's

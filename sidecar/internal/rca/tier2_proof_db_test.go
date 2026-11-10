@@ -59,6 +59,7 @@ func TestTier2StoredIncidentsCarryOnlyProvenSQL(t *testing.T) {
 			t.Fatalf("Hydrate: %v", err)
 		}
 		curr, prev, lcf := realTier2Inputs()
+		primeWALRate(eng, prev)
 		eng.AnalyzeContext(ctx, curr, prev, testConfig(), lcf)
 		srv.Close()
 		if err := eng.PersistIncidents(ctx, pool); err != nil {

@@ -1875,7 +1875,7 @@
   "rca.wal_spike_multiplier": {
     "type": "float64",
     "default": 2,
-    "doc": "WAL bytes delta must exceed previous delta by this multiplier to trigger wal_growth_spike. Default: 2.0.",
+    "doc": "wal_growth_spike fires when the WAL rate (insert position advance per minute) of a collector interval is this many times the previous interval's and at least 1 MiB/min. Default: 2.0.",
     "class": "derivable"
   },
   "rca.xmin_holder_min_minutes": {

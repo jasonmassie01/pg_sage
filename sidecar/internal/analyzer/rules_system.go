@@ -51,10 +51,10 @@ func ruleConnectionLeaks(leakedConns []LeakedConn) []Finding {
 // few hundred reads says nothing about the cache.
 const cacheRatioMinBlocks = 10_000
 
-// intervalCacheRatio is the interval's cache hit ratio and block count
+// IntervalCacheRatio is the interval's cache hit ratio and block count
 // when the interval is evidence: measured, with at least
 // cacheRatioMinBlocks accessed.
-func intervalCacheRatio(s *collector.Snapshot) (float64, int64, bool) {
+func IntervalCacheRatio(s *collector.Snapshot) (float64, int64, bool) {
 	iv := s.System.Interval
 	if iv == nil || iv.CacheHitRatio == nil || iv.BlksAccessed == nil ||
 		*iv.BlksAccessed < cacheRatioMinBlocks {
@@ -73,7 +73,7 @@ func ruleCacheHitRatio(
 	cfg *config.Config,
 	_ *RuleExtras,
 ) []Finding {
-	ratio, blocks, ok := intervalCacheRatio(current)
+	ratio, blocks, ok := IntervalCacheRatio(current)
 	if !ok || ratio >= cfg.Analyzer.CacheHitRatioWarning {
 		return nil
 	}

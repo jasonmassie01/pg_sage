@@ -126,7 +126,7 @@ func hasReplication(cur, _ *collector.Snapshot) bool { return cur.Replication !=
 // first cycle after a start, a reset or a quiet interval proves nothing
 // either way, so an open cache finding is left as it is.
 func hasCacheRatio(cur, _ *collector.Snapshot) bool {
-	_, _, ok := intervalCacheRatio(cur)
+	_, _, ok := IntervalCacheRatio(cur)
 	return ok
 }
 

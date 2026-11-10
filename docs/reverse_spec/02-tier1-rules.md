@@ -264,20 +264,22 @@ Tier 1 = deterministic decision trees; Tier 2 = optional LLM correlation; plus s
 | Signal ID | Fires when | Threshold (config / default) |
 |---|---|---|
 | `connections_high` | `total_backends/max_connections ≥ pct` | `RCA.ConnectionSaturationPct` (**80**); ≥90 critical |
-| `idle_in_tx_elevated` | idle-in-tx avg duration ≥ timeout (from `ConfigData.ConnectionStates`) | `IdleInTxTimeoutMinutes` (fallback 5) |
-| `cache_hit_ratio_drop` | `cache_hit_ratio < warning` | `CacheHitRatioWarning` (**0.95**); −0.05 → critical |
+| `idle_in_tx_elevated` | longest idle-in-tx session ≥ timeout (`System.IdleInTxMaxSeconds`, rca-03) | `IdleInTxTimeoutMinutes` (fallback 5) |
+| `cache_hit_ratio_drop` | last interval's hit ratio < warning, ≥ 10,000 blocks; none across a reset (rca-03) | `CacheHitRatioWarning` (**0.95**); −0.05 → critical |
 | `replication_lag_increasing` | worst replica replay lag ≥ threshold | `RCA.ReplicationLagThresholdS` (**30s**) |
 | `vacuum_blocked` | any table dead% ≥ threshold | `TableBloatDeadTuplePct` (fallback 10) |
 | `lock_contention` | any `lock_chain` finding passed in | from lock-chain findings |
-| `wal_growth_spike` | `currWAL/prevWAL ≥ multiplier` | `RCA.WALSpikeMultiplier` (**2.0**) |
+| `wal_growth_spike` | WAL rate (insert LSN advance/min) ≥ multiplier × previous interval's and ≥ 1 MiB/min; primary and cluster owner only (rca-03) | `RCA.WALSpikeMultiplier` (**2.0**) |
 | `orphaned_prepared_tx` | `len(PreparedXacts)>0` | xid age >100M → critical |
 
 ### 5.2 Decision trees (`trees.go`) — heuristics
 
 - **`treeConnectionsHigh`** (`:76`): if `idle_in_tx_elevated` co-fires → "idle-in-tx saturating pool"
-  (moderate); elif churn `> 2× previous` → "connection storm"; else "gradual growth" (safe).
-- **`treeCacheHitDrop`** (`:146`): if any query's `SharedBlksRead > 10× previous` → "query evicting
-  buffers"; else "working set exceeds shared_buffers".
+  (moderate); elif sessions opened/min (`pg_stat_database.sessions` Δ) `> 2× previous interval's` →
+  "connection storm"; else "gradual growth" (safe).
+- **`treeCacheHitDrop`** (`:146`): if any query's blocks read per call this interval `> 10×` its reads
+  per call before (same `StatsEpoch`) → "query evicting buffers"; else "working set exceeds
+  shared_buffers".
 - **`treeVacuumBlocked`** (`:202`): idle-in-tx lock holder → terminate (high_risk); elif prepared
   xact → `ROLLBACK PREPARED` (high_risk, forced critical); else "autovacuum falling behind".
 - **`treeOrphanedPreparedTx`** (`:278`): always high_risk, surfaces `ROLLBACK PREPARED '<gid>'`.
