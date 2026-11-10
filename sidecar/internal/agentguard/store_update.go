@@ -2,10 +2,10 @@ package agentguard
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/pg-sage/sidecar/internal/auth"
 )
 
 // ListOptions page through principals by name (§8.1: limit ≤ 200,
@@ -95,61 +95,137 @@ func (patch Patch) validate() error {
 	return nil
 }
 
-// Update applies patch to an active or frozen principal.
-func (s *Store) Update(ctx context.Context, id string, patch Patch) (Principal, error) {
+// empty reports whether the patch changes nothing.
+func (patch Patch) empty() bool {
+	return patch.SponsorUserID == nil && patch.Profile == nil && patch.EnvCeiling == nil
+}
+
+// apply is cur with the patch applied.
+func (patch Patch) apply(cur shape) shape {
+	if patch.SponsorUserID != nil {
+		v := *patch.SponsorUserID
+		cur.SponsorUserID = &v
+	}
+	if patch.Profile != nil {
+		cur.Profile = *patch.Profile
+	}
+	if patch.EnvCeiling != nil {
+		cur.EnvCeiling = string(*patch.EnvCeiling)
+	}
+	return cur
+}
+
+// movesSponsor reports whether the patch names another sponsor than cur's.
+func (patch Patch) movesSponsor(cur shape) bool {
+	return patch.SponsorUserID != nil &&
+		(cur.SponsorUserID == nil || *cur.SponsorUserID != *patch.SponsorUserID)
+}
+
+// Update applies patch to an active or frozen principal and records
+// agent_updated (or a.Event) in the same transaction. A new sponsor must
+// be an enabled operator or admin, and the sponsor cannot change while the
+// principal has an open freeze. An empty patch changes and records nothing.
+func (s *Store) Update(ctx context.Context, id string, patch Patch,
+	a Audit) (Principal, error) {
 	if err := patch.validate(); err != nil {
 		return Principal{}, err
 	}
-	var env *string
-	if patch.EnvCeiling != nil {
-		v := string(*patch.EnvCeiling)
-		env = &v
-	}
-	return s.mutate(ctx, id, "updating", `/* pg_sage guard_principal_update v1 */
-		UPDATE sage.guard_principals SET
-			sponsor_user_id = COALESCE($2::int, sponsor_user_id),
-			profile = COALESCE($3::text, profile),
-			env_ceiling = COALESCE($4::text, env_ceiling), updated_at = now()
-		WHERE id = $1 AND status <> 'retired' RETURNING id`,
-		patch.SponsorUserID, patch.Profile, env)
-}
-
-// SetStatus moves a principal between active and frozen, or retires it.
-// A retired principal never changes again. reason is kept for frozen.
-func (s *Store) SetStatus(ctx context.Context, id string, to Status,
-	reason string) (Principal, error) {
-	if !to.Valid() {
-		return Principal{}, invalid("status %q is not a principal status", to)
-	}
-	if err := checkText("reason", reason, 0, maxReasonLen); err != nil {
+	err := a.validate(auth.AuditAgentUpdated, auth.AuditAgentWidenedSingleOperator)
+	if err != nil {
 		return Principal{}, err
 	}
-	return s.mutate(ctx, id, "setting status of", `/* pg_sage guard_principal_status v1 */
-		UPDATE sage.guard_principals SET status = $2,
-			frozen_reason = CASE WHEN $2 = 'frozen' THEN $3 ELSE '' END, updated_at = now()
-		WHERE id = $1 AND status <> 'retired' RETURNING id`, string(to), reason)
-}
-
-// mutate runs one UPDATE … RETURNING id and reloads the principal; no row
-// means unknown (ErrNotFound) or retired (ErrRetired).
-func (s *Store) mutate(ctx context.Context, id, what, sql string,
-	args ...any) (Principal, error) {
 	if !ValidID(id) {
 		return Principal{}, fmt.Errorf("%w: principal %q", ErrNotFound, id)
 	}
 	if err := s.ready(); err != nil {
 		return Principal{}, err
 	}
-	var got string
-	err := s.pool.QueryRow(ctx, sql, append([]any{id}, args...)...).Scan(&got)
-	if errors.Is(err, pgx.ErrNoRows) {
-		if _, gerr := s.Get(ctx, id); gerr != nil {
-			return Principal{}, gerr
+	if patch.empty() {
+		p, err := s.Get(ctx, id)
+		if err == nil && p.Retired() {
+			return Principal{}, fmt.Errorf("%w: principal %s", ErrRetired, id)
 		}
-		return Principal{}, fmt.Errorf("%w: principal %s", ErrRetired, id)
+		return p, err
 	}
+	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		return updateInTx(ctx, tx, id, patch, a)
+	})
 	if err != nil {
-		return Principal{}, mapWriteError(err, what+" principal "+id)
+		return Principal{}, err
+	}
+	return s.Get(ctx, id)
+}
+
+func updateInTx(ctx context.Context, tx pgx.Tx, id string, patch Patch, a Audit) error {
+	cur, err := lockForChange(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	if patch.movesSponsor(cur.shape) {
+		if err := refuseWhileFrozen(ctx, tx, id); err != nil {
+			return err
+		}
+		if err := checkSponsor(ctx, tx, *patch.SponsorUserID); err != nil {
+			return err
+		}
+	}
+	next := patch.apply(cur.shape)
+	_, err = tx.Exec(ctx, `/* pg_sage guard_principal_update v2 */
+		UPDATE sage.guard_principals SET sponsor_user_id = $2, profile = $3,
+			env_ceiling = $4, updated_at = now()
+		WHERE id = $1`, id, next.SponsorUserID, next.Profile, next.EnvCeiling)
+	if err != nil {
+		return mapWriteError(err, "updating principal "+id)
+	}
+	return record(ctx, tx, a, a.event(auth.AuditAgentUpdated), next.SponsorUserID,
+		map[string]any{"principal_id": id, "name": cur.name, "before": cur.shape,
+			"after": next, "reason": a.Reason})
+}
+
+// statusEvent is the event a move to status to records.
+func statusEvent(to Status) string {
+	if to == StatusRetired {
+		return auth.AuditAgentRetired
+	}
+	return auth.AuditAgentStatusChanged
+}
+
+// SetStatus moves a principal between active and frozen, or retires it,
+// and records the move in the same transaction. A retired principal never
+// changes again. a.Reason is kept as the frozen reason.
+func (s *Store) SetStatus(ctx context.Context, id string, to Status,
+	a Audit) (Principal, error) {
+	if !to.Valid() {
+		return Principal{}, invalid("status %q is not a principal status", to)
+	}
+	if err := a.validate(statusEvent(to)); err != nil {
+		return Principal{}, err
+	}
+	if !ValidID(id) {
+		return Principal{}, fmt.Errorf("%w: principal %q", ErrNotFound, id)
+	}
+	if err := s.ready(); err != nil {
+		return Principal{}, err
+	}
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		cur, err := lockForChange(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `/* pg_sage guard_principal_status v2 */
+			UPDATE sage.guard_principals SET status = $2,
+				frozen_reason = CASE WHEN $2 = 'frozen' THEN $3 ELSE '' END,
+				updated_at = now()
+			WHERE id = $1`, id, string(to), a.Reason); err != nil {
+			return fmt.Errorf("agentguard: setting status of principal %s: %w", id, err)
+		}
+		return record(ctx, tx, a, statusEvent(to), cur.shape.SponsorUserID,
+			map[string]any{"principal_id": id, "name": cur.name,
+				"before_status": string(cur.status), "after_status": string(to),
+				"reason": a.Reason})
+	})
+	if err != nil {
+		return Principal{}, err
 	}
 	return s.Get(ctx, id)
 }

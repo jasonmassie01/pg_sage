@@ -113,4 +113,5 @@ can differ by managed-service constraints.
 - [Databricks deployment templates](../deploy/databricks-apps/README.md) — package/configure commands and operator handoff
 - [Deployment](deployment.md) — Docker, systemd, Kubernetes
 - [Security](security.md) — Least-privilege roles, network policies, audit logging
+- [Agent governance](agent-governance.md) — agent principals, tokens and OAuth, grants, two-person rules, posture and the kill switch
 - [Decommissioning the removed database provisioner](../sidecar/internal/decommission/README.md) -- inventory, delete templates and acknowledgement for resources an earlier version created

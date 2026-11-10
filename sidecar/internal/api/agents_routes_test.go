@@ -210,7 +210,7 @@ func TestAgentRoutes_MintToken(t *testing.T) {
 		require.NotContains(t, resp, mcptoken.SecretPrefix)
 	}
 	_, err = agentguard.NewStore(pool).SetStatus(context.Background(), id,
-		agentguard.StatusFrozen, "anomaly")
+		agentguard.StatusFrozen, agentguard.Audit{Reason: "anomaly"})
 	require.NoError(t, err)
 	code, resp = tokenCall(t, h, http.MethodPost, path, body)
 	require.Equal(t, http.StatusConflict, code, resp)

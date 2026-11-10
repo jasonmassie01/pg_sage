@@ -37,7 +37,7 @@ func TestLiveSessionSeesFreezeAndRetireImmediately(t *testing.T) {
 		t.Fatalf("active = (%d, %v), want allowed at L2", level, stop)
 	}
 	if _, err := store.SetStatus(context.Background(), id, agentguard.StatusFrozen,
-		"kill"); err != nil {
+		agentguard.Audit{Reason: "kill"}); err != nil {
 		t.Fatal(err)
 	}
 	dec, _, stop := gate.Decide(ctx, req)
@@ -45,7 +45,7 @@ func TestLiveSessionSeesFreezeAndRetireImmediately(t *testing.T) {
 		t.Fatalf("after freeze = %+v, want agent_frozen on the same session", dec)
 	}
 	if _, err := store.SetStatus(context.Background(), id, agentguard.StatusRetired,
-		""); err != nil {
+		agentguard.Audit{}); err != nil {
 		t.Fatal(err)
 	}
 	dec, _, stop = gate.Decide(ctx, req)

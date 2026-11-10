@@ -13,17 +13,22 @@ var fingerprintParts = []string{
 	`SELECT COALESCE(sum(hashtext(m::text)), 0) FROM pg_catalog.pg_auth_members m`,
 	`SELECT COALESCE(sum(hashtext(s::text)), 0) FROM pg_catalog.pg_db_role_setting s`,
 	`SELECT COALESCE(sum(hashtext(concat_ws('#', n.oid, n.nspname, n.nspowner,
-    n.nspacl))), 0) FROM pg_catalog.pg_namespace n`,
+    n.nspacl))), 0) FROM pg_catalog.pg_namespace n
+    WHERE n.nspname !~ '^pg_(toast_)?temp_'`,
 	`SELECT COALESCE(sum(hashtext(concat_ws('#', c.oid, c.relname, c.relnamespace,
     c.relkind, c.relowner, c.relacl, c.relrowsecurity, c.relforcerowsecurity,
     c.reloptions))), 0) FROM pg_catalog.pg_class c
-    WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f')`,
-	`SELECT COALESCE(sum(hashtext(p::text)), 0) FROM pg_catalog.pg_policy p`,
+    WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f') AND c.relpersistence <> 't'`,
+	`SELECT COALESCE(sum(hashtext(p::text)), 0) FROM pg_catalog.pg_policy p
+    JOIN pg_catalog.pg_class c ON c.oid = p.polrelid WHERE c.relpersistence <> 't'`,
 	`SELECT COALESCE(sum(hashtext(concat_ws('#', w.oid, w.ev_class, w.xmin))), 0)
-    FROM pg_catalog.pg_rewrite w`,
+    FROM pg_catalog.pg_rewrite w
+    JOIN pg_catalog.pg_class c ON c.oid = w.ev_class WHERE c.relpersistence <> 't'`,
 	`SELECT COALESCE(sum(hashtext(concat_ws('#', f.oid, f.proname, f.proowner,
     f.prosecdef, f.proacl, f.proconfig))), 0) FROM pg_catalog.pg_proc f
-    WHERE f.prosecdef OR f.proacl IS NOT NULL OR f.proconfig IS NOT NULL`,
+    JOIN pg_catalog.pg_namespace n ON n.oid = f.pronamespace
+    WHERE (f.prosecdef OR f.proacl IS NOT NULL OR f.proconfig IS NOT NULL)
+      AND n.nspname !~ '^pg_temp_'`,
 	`SELECT COALESCE(sum(hashtext(d::text)), 0) FROM pg_catalog.pg_default_acl d`,
 	`SELECT COALESCE(sum(hashtext(concat_ws('#', l.oid, l.lanpltrusted, l.lanacl))), 0)
     FROM pg_catalog.pg_language l`,
@@ -43,7 +48,10 @@ var fingerprintParts = []string{
 // ownership, row-level security and its policies, view rules and
 // extension versions. Each catalog adds an order-independent sum of row
 // hashes; it reads no statistics, so data changes, ANALYZE and VACUUM
-// leave it alone. Each sum stays far below 2^63 (int4 hashes over at most
+// leave it alone. Temporary relations, their policies and rules, the
+// pg_temp_N and pg_toast_temp_N schemas and functions in pg_temp are left
+// out: no detector reads them, and temp-table churn would otherwise re-run
+// every detector on every analyzer cycle. Each sum stays far below 2^63 (int4 hashes over at most
 // millions of rows), so the bigint total cannot overflow.
 var fingerprintSQL = func() string {
 	sql := "SELECT 0::bigint"

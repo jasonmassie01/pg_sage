@@ -12,7 +12,7 @@ package schema
 //     never deletes without its audit row; it is idempotent.
 //
 // The 27 legacy AgentDB tables are not dropped here: the inventory reads
-// them, and §12 step 5 drops them in G1.
+// them until an admin drops them (decommission.DropLegacyTables, §12 step 5).
 const ddlDecommission = `
 CREATE TABLE IF NOT EXISTS sage.agentdb_decommission (
     resource_id     text PRIMARY KEY,

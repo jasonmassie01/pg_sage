@@ -127,3 +127,21 @@ func TestMemoryGrowth_UnjudgedCases(t *testing.T) {
 		t.Fatalf("clock went backwards: %+v %v", fs, record)
 	}
 }
+
+// A schema whose checkpoint tables differ between the two observations
+// (a truncated read that cut the schema, then a complete one) compares
+// different tables, so its size jump is not growth; the same tables are.
+func TestMemoryGrowth_DifferentTablesAreNotJudged(t *testing.T) {
+	prev := obs(t0, "lg", 2*gb, 0) // only lg.checkpoints read
+	cur := obs(t0.Add(24*time.Hour), "lg", 30*gb, 0)
+	cur.Values["lg"] = ObservedValue{Bytes: 30 * gb,
+		Tables: []string{"lg.checkpoint_blobs", "lg.checkpoints"}}
+	fs, record := memoryGrowth(prev, true, cur, 5)
+	if len(fs) != 0 || !record {
+		t.Fatalf("different tables: findings %+v, record %v; want none and record", fs, record)
+	}
+	same := obs(t0.Add(24*time.Hour), "lg", 30*gb, 0)
+	if fs, _ := memoryGrowth(prev, true, same, 5); findObject(fs, "lg") == nil {
+		t.Fatalf("same tables, 28 GB in a day: findings %+v, want growth", fs)
+	}
+}

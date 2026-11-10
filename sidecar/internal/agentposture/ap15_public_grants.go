@@ -49,11 +49,11 @@ ORDER BY 1, 2, 3
 LIMIT $1`)
 
 func (ap15) Detect(ctx context.Context, in Input) ([]Finding, error) {
-	out, err := publicTableGrants(ctx, in.Q)
+	out, err := publicTableGrants(ctx, in)
 	if err != nil {
 		return nil, err
 	}
-	defs, err := publicDefaultPrivileges(ctx, in.Q)
+	defs, err := publicDefaultPrivileges(ctx, in)
 	if err != nil {
 		return nil, err
 	}
@@ -68,14 +68,15 @@ type schemaGrants struct {
 	ev     []Evidence
 }
 
-func publicTableGrants(ctx context.Context, q Querier) ([]Finding, error) {
-	rows, err := q.Query(ctx, ap15TablesSQL, apbMaxRows)
+func publicTableGrants(ctx context.Context, in Input) ([]Finding, error) {
+	lim := in.capRows("PUBLIC grants", apbMaxRows)
+	rows, err := in.Q.Query(ctx, ap15TablesSQL, lim.fetch())
 	if err != nil {
 		return nil, fmt.Errorf("read PUBLIC table grants: %w", err)
 	}
 	defer rows.Close()
 	var all []*schemaGrants
-	for rows.Next() {
+	for rows.Next() && !lim.past() {
 		var schema, rel string
 		var privs []string
 		if err := rows.Scan(&schema, &rel, &privs); err != nil {
@@ -110,14 +111,15 @@ func publicTableGrants(ctx context.Context, q Querier) ([]Finding, error) {
 
 var defaultObjects = map[string]string{"r": "tables", "S": "sequences"}
 
-func publicDefaultPrivileges(ctx context.Context, q Querier) ([]Finding, error) {
-	rows, err := q.Query(ctx, ap15DefaultsSQL, apbMaxRows)
+func publicDefaultPrivileges(ctx context.Context, in Input) ([]Finding, error) {
+	lim := in.capRows("default privileges", apbMaxRows)
+	rows, err := in.Q.Query(ctx, ap15DefaultsSQL, lim.fetch())
 	if err != nil {
 		return nil, fmt.Errorf("read PUBLIC default privileges: %w", err)
 	}
 	defer rows.Close()
 	var out []Finding
-	for rows.Next() {
+	for rows.Next() && !lim.past() {
 		var owner, schema, kind string
 		var privs []string
 		if err := rows.Scan(&owner, &schema, &kind, &privs); err != nil {

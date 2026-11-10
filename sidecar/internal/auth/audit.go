@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Account-linking audit events (D7).
@@ -39,6 +37,25 @@ const (
 	AuditSessionsRevoked = "sessions_revoked"
 )
 
+// Agent governance audit events (agentgov-05). Each is written in the
+// same transaction as the change it records; target_user_id is the
+// agent's sponsor (or a token's owner). Detail carries principal_id, the
+// before and after {sponsor_user_id, profile, env_ceiling}, the reason,
+// and a token's id, name, scopes, databases and expiry; never a token
+// secret or its hash.
+const (
+	AuditAgentCreated               = "agent_created"
+	AuditAgentUpdated               = "agent_updated"
+	AuditAgentWidenedSingleOperator = "agent_widened_single_operator"
+	AuditAgentRetired               = "agent_retired"
+	// AuditAgentStatusChanged records a freeze or unfreeze made through
+	// the principal store rather than the kill switch.
+	AuditAgentStatusChanged = "agent_status_changed"
+	AuditAgentTokenMinted   = "agent_token_minted"
+	AuditMCPTokenCreated    = "mcp_token_created"
+	AuditMCPTokenRevoked    = "mcp_token_revoked"
+)
+
 // AuthAuditEvent is one identity-change record. Detail must never carry
 // credentials, grant tokens or email addresses. SourceIP is the client
 // address as the API resolved it (trusted proxies honoured).
@@ -50,9 +67,10 @@ type AuthAuditEvent struct {
 	Detail       map[string]any
 }
 
-// RecordAuthAudit appends ev to sage.auth_audit.
+// RecordAuthAudit appends ev to sage.auth_audit through q: a pool, or the
+// transaction of the change the event records.
 func RecordAuthAudit(
-	ctx context.Context, pool *pgxpool.Pool, ev AuthAuditEvent,
+	ctx context.Context, q Execer, ev AuthAuditEvent,
 ) error {
 	if ev.Event == "" {
 		return fmt.Errorf("recording auth audit: event is required")
@@ -65,7 +83,7 @@ func RecordAuthAudit(
 	if err != nil {
 		return fmt.Errorf("encoding auth audit detail: %w", err)
 	}
-	if _, err := pool.Exec(ctx,
+	if _, err := q.Exec(ctx,
 		"/* pg_sage auth_audit v1 */ INSERT INTO sage.auth_audit "+
 			"(event, actor_user_id, target_user_id, detail, source_ip) "+
 			"VALUES ($1, $2, $3, $4::jsonb, $5)",

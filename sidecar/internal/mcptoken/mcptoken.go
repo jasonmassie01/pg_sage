@@ -74,6 +74,16 @@ type CreateRequest struct {
 	// for; required for agent tokens, refused on operator tokens.
 	PrincipalID string
 	CreatedBy   string
+	// Audit is who issued it; recorded as mcp_token_created (operator) or
+	// agent_token_minted (agent) in the insert's transaction.
+	Audit Audit
+}
+
+// Audit says who made a token change and from where (agentgov-05). The
+// sage.auth_audit row it becomes never carries the secret or its hash.
+type Audit struct {
+	ActorUserID int    // the signed-in admin; 0 when no user made it
+	SourceIP    string // the client address as the API resolved it
 }
 
 // Token is a stored token. Secret is set only in Create's return value.

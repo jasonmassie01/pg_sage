@@ -77,7 +77,7 @@ func (ap10) Detect(ctx context.Context, in Input) ([]Finding, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read the pgvector version: %w", err)
 	}
-	idx, err := vectorIndexes(ctx, in.Q)
+	idx, err := vectorIndexes(ctx, in)
 	if err != nil {
 		return nil, err
 	}
@@ -85,14 +85,15 @@ func (ap10) Detect(ctx context.Context, in Input) ([]Finding, error) {
 }
 
 // vectorIndexes lists the HNSW and IVFFlat indexes by access method.
-func vectorIndexes(ctx context.Context, q Querier) (map[string][]string, error) {
-	rows, err := q.Query(ctx, ap10IndexSQL, apbMaxRows)
+func vectorIndexes(ctx context.Context, in Input) (map[string][]string, error) {
+	lim := in.capRows("vector indexes", apbMaxRows)
+	rows, err := in.Q.Query(ctx, ap10IndexSQL, lim.fetch())
 	if err != nil {
 		return nil, fmt.Errorf("read vector indexes: %w", err)
 	}
 	defer rows.Close()
 	out := map[string][]string{}
-	for rows.Next() {
+	for rows.Next() && !lim.past() {
 		var am, name string
 		if err := rows.Scan(&am, &name); err != nil {
 			return nil, fmt.Errorf("read vector indexes: %w", err)

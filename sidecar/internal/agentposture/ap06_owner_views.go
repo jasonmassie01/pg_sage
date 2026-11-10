@@ -58,22 +58,36 @@ GROUP BY n.nspname, v.oid, v.relname
 ORDER BY n.nspname, v.relname
 LIMIT $2`)
 
+// ap06Item is one owner-rights view and its base tables with RLS.
+type ap06Item struct {
+	schema, name string
+	bases        []string
+}
+
 func (ap06) Detect(ctx context.Context, in Input) ([]Finding, error) {
-	rows, err := in.Q.Query(ctx, ap06SQL, in.Env.ExposedOIDs(), maxRows)
+	lim := in.capRows("views", maxRows)
+	rows, err := in.Q.Query(ctx, ap06SQL, in.Env.ReachOIDs(), lim.fetch())
 	if err != nil {
 		return nil, fmt.Errorf("read owner-rights views: %w", err)
 	}
 	defer rows.Close()
-	var out []Finding
-	for rows.Next() {
-		var schema, name string
-		var bases []string
-		if err := rows.Scan(&schema, &name, &bases); err != nil {
+	in.noteVia()
+	var found []ap06Item
+	for rows.Next() && !lim.past() {
+		var it ap06Item
+		if err := rows.Scan(&it.schema, &it.name, &it.bases); err != nil {
 			return nil, fmt.Errorf("read owner-rights views: %w", err)
 		}
-		out = append(out, ap06Finding(in, schema, name, bases))
+		found = append(found, it)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read owner-rights views: %w", err)
+	}
+	return groupBySchema(found, func(it ap06Item) string { return it.schema },
+		func(it ap06Item) Finding { return ap06Finding(in, it.schema, it.name, it.bases) },
+		func(schema string, is []ap06Item) Finding {
+			return ap06SchemaFinding(in, schema, is)
+		}), nil
 }
 
 func ap06Finding(in Input, schema, name string, bases []string) Finding {

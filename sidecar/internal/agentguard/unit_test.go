@@ -273,10 +273,11 @@ func TestCreateRequest_InvalidNeverTouchesStorage(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalid)
 	_, err = s.List(context.Background(), ListOptions{Cursor: "Bad Cursor"})
 	require.ErrorIs(t, err, ErrInvalid)
-	_, err = s.SetStatus(context.Background(), "agp_abcdefghijklmnopqrst", "gone", "")
+	_, err = s.SetStatus(context.Background(), "agp_abcdefghijklmnopqrst", "gone", Audit{})
 	require.ErrorIs(t, err, ErrInvalid)
 	bad2 := "Bad"
-	_, err = s.Update(context.Background(), "agp_abcdefghijklmnopqrst", Patch{Profile: &bad2})
+	_, err = s.Update(context.Background(), "agp_abcdefghijklmnopqrst", Patch{Profile: &bad2},
+		Audit{})
 	require.ErrorIs(t, err, ErrInvalid)
 	require.ErrorIs(t, s.Taint(context.Background(), "agp_abcdefghijklmnopqrst", "", ""),
 		ErrInvalid)

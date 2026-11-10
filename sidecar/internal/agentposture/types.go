@@ -159,10 +159,21 @@ type Querier interface {
 // Input is what a detector reads: the transaction, the resolved
 // environment and which of its arms apply to the server.
 type Input struct {
-	Q      Querier
-	Env    Env
-	active map[string]bool
+	Q         Querier
+	Env       Env
+	active    map[string]bool
+	truncated *[]Truncation // the run's Outcome.Truncated
 }
 
 // Arm reports whether the detector's arm name applies to this server.
 func (in Input) Arm(name string) bool { return in.active[name] }
+
+// Truncated reports that the detector's read arm stopped at limit rows:
+// the rows past it were not checked, so the run does not evaluate the
+// detector and its open findings stay open. Outside RunDetector there is
+// no run to report to and it does nothing.
+func (in Input) Truncated(arm string, limit int) {
+	if in.truncated != nil {
+		*in.truncated = append(*in.truncated, Truncation{Arm: arm, Limit: limit})
+	}
+}

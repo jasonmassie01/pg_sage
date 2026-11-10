@@ -3,6 +3,7 @@ package agentposture
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -48,7 +49,7 @@ func (ap12) Detect(ctx context.Context, in Input) ([]Finding, error) {
 	if store == nil {
 		return nil, nil
 	}
-	cur, err := observeCheckpoints(ctx, in.Q)
+	cur, err := observeCheckpoints(ctx, in)
 	if err != nil {
 		return nil, err
 	}
@@ -61,14 +62,15 @@ func (ap12) Detect(ctx context.Context, in Input) ([]Finding, error) {
 }
 
 // observeCheckpoints sums the checkpoint tables' size and deletes per schema.
-func observeCheckpoints(ctx context.Context, q Querier) (Observation, error) {
-	rows, err := q.Query(ctx, ap12SQL, checkpointTables, apbMaxRows)
+func observeCheckpoints(ctx context.Context, in Input) (Observation, error) {
+	lim := in.capRows("checkpoint tables", apbMaxRows)
+	rows, err := in.Q.Query(ctx, ap12SQL, checkpointTables, lim.fetch())
 	if err != nil {
 		return Observation{}, fmt.Errorf("read checkpoint table sizes: %w", err)
 	}
 	defer rows.Close()
 	cur := Observation{Values: map[string]ObservedValue{}}
-	for rows.Next() {
+	for rows.Next() && !lim.past() {
 		var schema, table string
 		var bytes, deletes int64
 		if err := rows.Scan(&schema, &table, &bytes, &deletes, &cur.At); err != nil {
@@ -93,7 +95,9 @@ func observeCheckpoints(ctx context.Context, q Querier) (Observation, error) {
 // whether cur becomes the new baseline. Without a previous one, or when
 // the clock went backwards, cur is recorded; closer than
 // minObservationGap the older one stays. A schema whose deletes went down
-// (a statistics reset) or that is new is not judged.
+// (a statistics reset), that is new, or whose checkpoint tables differ (a
+// table added or dropped, or a read truncated at a different row) is not
+// judged: its sizes are not of the same tables.
 func memoryGrowth(prev Observation, have bool, cur Observation,
 	limitGBDay float64) ([]Finding, bool) {
 	elapsed := cur.At.Sub(prev.At)
@@ -113,7 +117,7 @@ func memoryGrowth(prev Observation, have bool, cur Observation,
 	for _, s := range schemas {
 		before, ok := prev.Values[s]
 		now := cur.Values[s]
-		if !ok || now.Deletes != before.Deletes {
+		if !ok || now.Deletes != before.Deletes || !slices.Equal(now.Tables, before.Tables) {
 			continue
 		}
 		rate := float64(now.Bytes-before.Bytes) / bytesPerGB / days
