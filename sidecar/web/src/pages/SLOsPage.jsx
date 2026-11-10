@@ -87,6 +87,14 @@ function SLORow({ slo }) {
             Customer impact
           </div>
         )}
+        {slo.coverage_unverified && (
+          <div data-testid="slo-coverage-unverified" className="text-xs mt-1"
+            style={{ color: 'var(--yellow)' }}
+            title={'No coverage_query: Prometheus windows are taken as fully ' +
+              'covered and fresh'}>
+            coverage unverified
+          </div>
+        )}
         {unknown.length > 0 && (
           <div data-testid="slo-unknown" className="text-xs mt-1"
             style={{ color: 'var(--text-secondary)' }}>

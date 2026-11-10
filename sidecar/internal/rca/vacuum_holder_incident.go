@@ -7,6 +7,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/sanitize"
+	"github.com/pg-sage/sidecar/internal/signalid"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
@@ -39,7 +40,7 @@ func (e *Engine) holderIncident(sig *Signal, curr *collector.Snapshot,
 }
 
 func holderLink(desc, evidence string, b *BlockerIdentity) []ChainLink {
-	return []ChainLink{{Order: 1, Signal: "vacuum_blocked", Description: desc,
+	return []ChainLink{{Order: 1, Signal: signalid.VacuumBlocked, Description: desc,
 		Evidence: evidence, Blocker: b}}
 }
 
@@ -76,7 +77,7 @@ func sessionHolderIncident(sig *Signal, curr *collector.Snapshot, c xminCandidat
 		sql = fmt.Sprintf("SELECT pg_terminate_backend(%d); -- idle-in-tx xmin holder", h.PID)
 		risk = "high_risk"
 	}
-	return buildIncident(curr.CollectedAt, sig.Severity, []string{"vacuum_blocked"}, root,
+	return buildIncident(curr.CollectedAt, sig.Severity, []string{signalid.VacuumBlocked}, root,
 		holderLink("Session holding the oldest snapshot or XID prevents dead-tuple "+
 			"cleanup", evidence, sessionBlocker(curr, c, state)),
 		blockedTables(sig), sql, risk)
@@ -137,7 +138,7 @@ func preparedHolderIncident(sig *Signal, curr *collector.Snapshot,
 	age := int64(h.XminAge)
 	b := &BlockerIdentity{State: "prepared", XminAge: age,
 		HolderKind: probes.HolderPreparedXact, HolderName: h.Name}
-	return buildIncident(curr.CollectedAt, "critical", []string{"vacuum_blocked"},
+	return buildIncident(curr.CollectedAt, "critical", []string{signalid.VacuumBlocked},
 		fmt.Sprintf("Prepared transaction (gid md5 %s) holding oldest xmin (age %d), "+
 			"blocking autovacuum", h.Name, age),
 		holderLink("Prepared transaction holds xmin indefinitely -- invisible to "+
@@ -156,7 +157,7 @@ func preparedIncident(sig *Signal, curr *collector.Snapshot,
 	p collector.PreparedTransaction, age int64) Incident {
 	b := &BlockerIdentity{State: "prepared", XminAge: age, XactStart: p.Prepared,
 		HolderKind: probes.HolderPreparedXact, HolderName: gidHash(p.GID)}
-	return buildIncident(curr.CollectedAt, "critical", []string{"vacuum_blocked"},
+	return buildIncident(curr.CollectedAt, "critical", []string{signalid.VacuumBlocked},
 		fmt.Sprintf("Orphaned prepared transaction %q holding xmin (age %d), "+
 			"blocking autovacuum", p.GID, age),
 		holderLink("Prepared transaction holds xmin indefinitely -- invisible to "+
@@ -183,7 +184,7 @@ func standbyHolderIncident(sig *Signal, curr *collector.Snapshot,
 	age := int64(h.XminAge)
 	b := &BlockerIdentity{PID: int(h.PID), BackendStart: h.BackendStart, State: h.State,
 		XminAge: age, HolderKind: probes.HolderStandby}
-	return buildIncident(curr.CollectedAt, sig.Severity, []string{"vacuum_blocked"},
+	return buildIncident(curr.CollectedAt, sig.Severity, []string{signalid.VacuumBlocked},
 		fmt.Sprintf("Hot standby feedback through walsender PID %d holding oldest xmin "+
 			"(age %d), blocking autovacuum", h.PID, age),
 		holderLink("A standby's hot_standby_feedback holds back dead-tuple cleanup; end "+
@@ -207,7 +208,7 @@ func slotHolderIncident(sig *Signal, curr *collector.Snapshot,
 		root = fmt.Sprintf("Logical replication slot %q holding oldest catalog_xmin "+
 			"(age %d), blocking catalog vacuum", h.Name, age)
 	}
-	return buildIncident(curr.CollectedAt, sig.Severity, []string{"vacuum_blocked"}, root,
+	return buildIncident(curr.CollectedAt, sig.Severity, []string{signalid.VacuumBlocked}, root,
 		holderLink("A replication slot holds back dead-tuple cleanup; confirm its "+
 			"consumer is alive before advancing or dropping it",
 			fmt.Sprintf("slot %q (%s) %s age %d", h.Name, h.State, h.Kind, age), b),

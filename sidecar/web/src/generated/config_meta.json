@@ -2706,6 +2706,12 @@
     "doc": "PromQL for bad events over $window (use 'or vector(0)' so zero errors is not absent data).",
     "class": "operator_preference"
   },
+  "sre.slo.objectives[].coverage_query": {
+    "type": "string",
+    "default": "",
+    "doc": "Optional PromQL for the earliest sample time (Unix s) over $window, e.g. min_over_time(timestamp(\u003cseries\u003e)[$window:1m]); marks windows partial or stale. Empty: coverage unverified.",
+    "class": "operator_preference"
+  },
   "sre.slo.objectives[].database": {
     "type": "string",
     "default": "",
@@ -2757,7 +2763,7 @@
   "sre.slo.objectives[].stale_after_seconds": {
     "type": "int",
     "default": 0,
-    "doc": "Pushed samples older than this are stale. Default: 300.",
+    "doc": "Pushed samples (Prometheus samples, with coverage_query) older than this are stale. Default: 300.",
     "class": "operator_preference"
   },
   "sre.slo.objectives[].target": {

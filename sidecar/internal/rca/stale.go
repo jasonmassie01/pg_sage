@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strconv"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/signalid"
 )
 
 // Resolutions the engine records for incidents it stopped seeing
@@ -34,7 +36,7 @@ var holderEvidence = regexp.MustCompile(`^PID ([0-9]{1,10}) in state: idle in tr
 // incidents are about the contention, not one blocker, and have none.
 func backendSubject(inc *Incident) (BackendRef, bool) {
 	for _, l := range inc.CausalChain {
-		if l.Signal != "vacuum_blocked" {
+		if l.Signal != signalid.VacuumBlocked {
 			continue
 		}
 		if b := l.Blocker; b != nil && b.PID > 0 {

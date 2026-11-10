@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/cases"
+	"github.com/pg-sage/sidecar/internal/signalid"
 )
 
 // Episode is one poll of an open reactive detector episode, handed to
@@ -51,8 +52,8 @@ type EpisodeSink interface {
 const detectorSeverity = "warning"
 
 // detectorSignals are the incident signal ids of detector episodes.
-var detectorSignals = map[TriggerKind]string{TriggerCheckpoint: "sre_checkpoint_storm",
-	TriggerTempFiles: "sre_temp_file_explosion", TriggerLWLock: "sre_lwlock_contention"}
+var detectorSignals = map[TriggerKind]string{TriggerCheckpoint: signalid.SRECheckpointStorm,
+	TriggerTempFiles: signalid.SRETempFileExplosion, TriggerLWLock: signalid.SRELWLockContention}
 
 var detectorSummaries = map[TriggerKind]string{
 	TriggerCheckpoint: "Checkpoint storm: requested checkpoints outnumber timed ones",

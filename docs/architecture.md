@@ -227,7 +227,23 @@ diagnostic SQL is kept only once proven read-only (see
 
 Incident playbooks follow the same typed-action model. Read-only diagnostics
 can inspect blocker graphs, runaway queries, connection pressure,
-WAL/replication state, standby conflicts, and vacuum pressure. Backend
+WAL/replication state, standby conflicts, vacuum pressure, and freeze
+blockers. Each diagnostic proposes the SQL of the Sage SRE catalog probes
+for its family (lock_graph; long_transactions and temp_file_holders;
+connection_saturation; replication_slots and replication_lag;
+standby_replay_state; xmin_horizon and wraparound_tables; stat_tables,
+xmin_horizon and vacuum_progress), rendered with the probe's row cap as a
+literal LIMIT and its `/* pg_sage sre:<probe> <version> */` comment, so it is
+bounded and scoped to `current_database()`. Run it read-only with a
+statement_timeout; temp_file_holders reads `pg_ls_tmpdir()`, which needs
+`pg_monitor`. The playbook is chosen from the incident's signal ids through one
+table that records a decision, "none" included, for every signal RCA, the log
+classifier and the SRE detector emit; the root-cause wording never selects
+one. Analyzer and executor findings route the same way: replication lag and
+inactive slots get the read-only WAL diagnostic (never a slot drop), a
+sequence near its limit gets the reviewed migration script, and a runaway
+query gets the diagnostic while its cancel stays with the executor's runaway
+policy. Backend
 cancel/terminate candidates come only from the structured blocker identity
 RCA records on a lock_contention incident (pid, backend_start, query_start
 and a hash of the first 200 characters of the query), never from a PID in

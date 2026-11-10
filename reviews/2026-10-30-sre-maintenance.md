@@ -19,7 +19,10 @@ immutable proposal UUID identity, including the separately committed enqueue
 window before the proposal saves its queue ID. If execution commits before the
 bridge saves its action ID, a narrow unresolved-state check preserves the
 matching finding, forward SQL, inverse and audit record. This preserves crash
-evidence; it does not implement automatic reconciliation or crash recovery.
+evidence. Since playbooks-05 (2026-11-09) the action pass also reconciles
+proposals stranded in `executing` or `rolling_back` from that record and the
+catalog under the table lock; see the maintenance section of
+`docs/sage-sre-permissions-and-data-flow.md`.
 Finalized, aged investigations still cascade and release ordinary dependencies.
 Existing credited-action retention remains unchanged.
 

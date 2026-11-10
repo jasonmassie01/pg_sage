@@ -91,7 +91,7 @@ func freezeDiagnosticCandidate(f SourceFinding) ActionCandidate {
 		ActionType:       "diagnose_freeze_blockers",
 		RiskTier:         "safe",
 		Confidence:       0.78,
-		ProposedSQL:      diagnoseFreezeBlockersSQL(),
+		ProposedSQL:      diagnosticSQL("diagnose_freeze_blockers"),
 		ExpiresAt:        &expires,
 		OutputModes:      []string{"execute", "script"},
 		RollbackClass:    "not_applicable",
@@ -121,52 +121,4 @@ func autovacuumTuningCandidate(f SourceFinding) ActionCandidate {
 		candidate.ScriptOutput.RollbackSQL = rollback
 	}
 	return candidate
-}
-
-func diagnoseFreezeBlockersSQL() string {
-	return `SELECT datname,
-       age(datfrozenxid) AS database_xid_age
-FROM pg_database
-ORDER BY database_xid_age DESC;
-
-SELECT pid,
-       usename,
-       application_name,
-       backend_xmin,
-       age(backend_xmin) AS xmin_age,
-       state,
-       now() - xact_start AS transaction_age,
-       left(query, 1000) AS query
-FROM pg_stat_activity
-WHERE backend_xmin IS NOT NULL
-ORDER BY age(backend_xmin) DESC
-LIMIT 20;`
-}
-
-func diagnoseVacuumPressureSQL(table string) string {
-	tableFilter := ""
-	if strings.TrimSpace(table) != "" {
-		tableFilter = "WHERE relid = " +
-			sanitize.QuoteLiteral(table) + "::regclass"
-	}
-	return `SELECT schemaname,
-       relname,
-       n_dead_tup,
-       last_vacuum,
-       last_autovacuum,
-       vacuum_count,
-       autovacuum_count
-FROM pg_stat_user_tables
-` + tableFilter + `;
-
-SELECT pid,
-       backend_xmin,
-       age(backend_xmin) AS xmin_age,
-       state,
-       now() - xact_start AS transaction_age,
-       left(query, 1000) AS query
-FROM pg_stat_activity
-WHERE backend_xmin IS NOT NULL
-ORDER BY age(backend_xmin) DESC
-LIMIT 20;`
 }

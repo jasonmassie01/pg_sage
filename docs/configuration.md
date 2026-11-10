@@ -1802,6 +1802,47 @@ investigation says so and gives the manual step.
 
 Changing these needs a restart.
 
+#### SLO burn-rate evaluation and Prometheus coverage
+
+Each SLO (`sre.slo`) is evaluated against multi-window burn-rate rules (by default the
+Google SRE workbook pairs: page at 14.4x over 1h and 5m or 6x over 6h and 30m, ticket at 1x
+over 3d and 6h). A rule fires only when both of its windows burn at or above its factor.
+A window is unknown when it has too few eligible events (`min_eligible_events`), none,
+samples covering under 90% of it, no data, stale data, a failed query or an invalid value.
+
+A rule is decided as a Kleene AND of its windows: when one window is known and below the
+factor, the rule is not firing even though the other window has too few events, zero
+events or partial coverage (`low_traffic`, `zero_eligible`, `partial_window`). The rule
+then reports that reason as `partial` instead of `unknown`, so a quiet low-traffic service
+is `ok` at night rather than `unknown`. A rule stays unknown while a known window is at
+or above the factor (it could still fire), while neither window is known, and whenever
+the other window is absent, stale, failed or invalid (`no_data`, `stale`, `source_error`,
+`invalid_value`, `ambiguous_series`): a stale source never turns `ok`. A firing rule
+still beats an unknown one.
+
+A Prometheus SLI's windows are only as honest as their coverage. Set
+`sre.slo.objectives[].coverage_query` to PromQL that returns the earliest sample time
+(Unix seconds) over `$window` as one value, for example
+`min(min_over_time(timestamp(http_requests_total{job="checkout"})[$window:1m]))`. Apply
+`timestamp()` to a raw series selector (on an aggregate it returns the evaluation time,
+which would claim full coverage); the outer `min` makes several series one value (several
+values are `ambiguous_series`). pg_sage then evaluates
+it over each window (coverage) and over `stale_after_seconds` (freshness): a series that
+began two hours ago gives a 30-day budget of `partial_window`, and no sample within the
+stale limit makes the window `stale`. Prometheus resolves recency to its lookback delta
+(5 minutes by default), so a scrape outage is seen up to that much later. Keep
+`stale_after_seconds` at least the subquery step (`1m` above): a shorter freshness range
+can hold no step, and the window then reads `stale`. A failing
+coverage query makes the window unknown with the query's reason, never fully covered.
+Without `coverage_query`, Prometheus windows are taken as fully covered and fresh (as
+before) and the SLO reports `coverage_unverified: true`; the SLOs page shows "coverage
+unverified". Pushed and proxy SLIs measure coverage from their stored samples.
+
+| Parameter | Default | Description |
+|---|---|---|
+| `sre.slo.objectives[].coverage_query` | empty | Optional PromQL for the earliest sample time over `$window` (must contain `$window`; Prometheus sources only). Adding it does not reset the SLO's history |
+| `sre.slo.objectives[].stale_after_seconds` | `300` | Pushed samples, and Prometheus samples with `coverage_query`, older than this are stale |
+
 ### Sage SRE earned autonomy
 
 pg_sage keeps an autonomy level per incident family and action class (for example
@@ -1876,7 +1917,13 @@ change is logged once per transition.
 - The database's SLO engine (`sre.slo`) reports an SLO burning its error budget at the page
   rate (database proxy SLOs included), or a
   registered app SLO's state is unknown. An unknown proxy SLO does not count, since it is
-  often unknown for structural reasons (no standbys, no log access).
+  often unknown for structural reasons (no standbys, no log access). A rule decided "not
+  firing" by one quiet window (see
+  [SLO burn-rate evaluation](#slo-burn-rate-evaluation-and-prometheus-coverage)) does not
+  make the SLO unknown, so a low-traffic window alone no longer caps autonomy. A
+  Prometheus SLO with `coverage_unverified` is not unknown and does not cap autonomy by
+  itself; add `coverage_query` so a scrape outage or a new series is seen as stale or
+  partial.
 - The HA role is not primary, safe mode is on, or the role changed in the last
   `failover_cooldown_minutes`.
 - The action's evidence is older than `max_evidence_age_seconds`.

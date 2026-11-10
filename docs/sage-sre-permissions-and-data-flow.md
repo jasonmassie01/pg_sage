@@ -94,7 +94,7 @@ Every read an investigation can make, and what the role pg_sage connects as need
 | `lock_graph`, `lock_chains` | `pg_stat_activity`, `pg_locks`, `pg_blocking_pids()`, `pg_class` | `pg_read_all_stats` (through `pg_monitor`) to see other roles' sessions |
 | `long_transactions`, `backend_identity` | `pg_stat_activity` | `pg_read_all_stats` |
 | `prepared_xacts` | `pg_prepared_xacts` | none beyond `CONNECT` |
-| `connection_saturation` | `pg_stat_activity`, `max_connections`, `superuser_reserved_connections`, `pg_postmaster_start_time()` | `pg_read_all_stats` for other roles' states |
+| `connection_saturation` | `pg_stat_activity`, `max_connections`, `superuser_reserved_connections` (plus `reserved_connections` on PG16+), `pg_postmaster_start_time()` | `pg_read_all_stats` for other roles' states |
 | `replication_slots` | `pg_replication_slots` | none beyond `CONNECT` |
 | `replication_lag` | `pg_stat_replication` | `pg_read_all_stats` for lag columns |
 | `wal_checkpoint` | `pg_stat_wal`, `pg_stat_bgwriter` (PG14-16) or `pg_stat_checkpointer` (PG17+), `pg_settings` | `pg_read_all_settings` (through `pg_monitor`) |
@@ -388,6 +388,33 @@ tokens, plus 16,384 reasoning tokens for thinking models.
 Each change is recorded, with the user, in the investigation's append-only event chain. No
 role can make an investigation execute anything; an action runs only after a person approves
 its one queued item, and the policy gate can still refuse it.
+
+## Operator maintenance (extended statistics)
+
+An operator can propose `CREATE STATISTICS` from a concluded investigation's retained
+`stat_tables` evidence. It runs only after human approval, only where the coordination
+and target databases are the same database (colocated topology), and a rollback drops only
+the object it created; prior `ANALYZE` statistics cannot be restored.
+
+A run that dies between its claim and its record (a crash, or a failed write to the
+control database) is settled by the action pass once it is older than twice the executor's
+apply timeout plus one minute (13 minutes with the default `safety.ddl_timeout_seconds`;
+the wait for a DDL slot is bounded to one apply timeout, so a live run never reaches it).
+Its age is measured on the database clock that stamps the proposal, so a skewed sidecar
+host clock cannot settle a live run early.
+The pass takes the table lock the executor takes, reads the catalog for the proposal's
+`sage_stx_<id>` object on the bound table and the exact `action_log` record, and never
+re-runs the forward SQL or the DROP:
+
+| Stranded in | Found | Settled as |
+|---|---|---|
+| `executing` | the action record and the object on the bound table | `uncertain` with both; typed rollback works |
+| `executing` | neither (or only a failed action record) | `failed` |
+| `executing` | anything else (object without a record, a record without the object, the name on another table) | `uncertain` without an object; rollback is refused and an operator must review |
+| `rolling_back` | the created object is gone | `rolled_back` |
+| `rolling_back` | the created object still exists | `rollback_failed`; the rollback can be retried |
+
+Each settlement adds an `action_failed` or `action_executed` event marked `reconciled`.
 
 ## Retention
 

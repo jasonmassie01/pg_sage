@@ -69,14 +69,14 @@ func TestFileWatcher_Integration_Jsonlog(t *testing.T) {
 		"timestamp":        "2024-03-10 14:30:00.000 UTC",
 		"pid":              1234,
 		"session_id":       "sess1",
-		"dbname":    "prod",
-		"user":        "app",
+		"dbname":           "prod",
+		"user":             "app",
 		"error_severity":   "FATAL",
 		"state_code":       "53300",
 		"message":          "sorry, too many clients already",
 		"detail":           "",
 		"hint":             "",
-		"statement":            "",
+		"statement":        "",
 		"application_name": "myapp",
 	}
 	data, err := json.Marshal(logLine)
@@ -91,11 +91,11 @@ func TestFileWatcher_Integration_Jsonlog(t *testing.T) {
 	}
 
 	cfg := config.LogWatchConfig{
-		LogDirectory:    dir,
-		Format:          "jsonlog",
-		PollIntervalMs:  100,
-		DedupWindowS:    60,
-		MaxLineLenBytes: 65536,
+		LogDirectory:     dir,
+		Format:           "jsonlog",
+		PollIntervalMs:   100,
+		DedupWindowS:     60,
+		MaxLineLenBytes:  65536,
 		MaxLinesPerCycle: 10000,
 	}
 	fw := NewFileWatcher(cfg, nopLog)
@@ -176,11 +176,11 @@ func TestFileWatcher_Integration_Csvlog(t *testing.T) {
 	}
 
 	cfg := config.LogWatchConfig{
-		LogDirectory:    dir,
-		Format:          "csvlog",
-		PollIntervalMs:  100,
-		DedupWindowS:    60,
-		MaxLineLenBytes: 65536,
+		LogDirectory:     dir,
+		Format:           "csvlog",
+		PollIntervalMs:   100,
+		DedupWindowS:     60,
+		MaxLineLenBytes:  65536,
 		MaxLinesPerCycle: 10000,
 	}
 	fw := NewFileWatcher(cfg, nopLog)
@@ -253,9 +253,9 @@ func TestFileWatcher_DefaultFormat(t *testing.T) {
 
 	// Format is empty — should default to jsonlog.
 	cfg := config.LogWatchConfig{
-		LogDirectory:    dir,
-		Format:          "",
-		PollIntervalMs:  100,
+		LogDirectory:     dir,
+		Format:           "",
+		PollIntervalMs:   100,
 		MaxLinesPerCycle: 10000,
 	}
 	fw := NewFileWatcher(cfg, nopLog)

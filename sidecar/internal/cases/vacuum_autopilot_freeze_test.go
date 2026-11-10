@@ -1,7 +1,7 @@
 package cases
 
 import (
-	"strings"
+	"regexp"
 	"testing"
 )
 
@@ -10,11 +10,19 @@ import (
 // autovacuum_tuning (the analyzer's category) maps to the tuning
 // candidate and keeps the rollback the finding captured (vacuum-07).
 
+// vacuumStatement finds a VACUUM statement: the keyword opening the text or
+// following a semicolon.
+var vacuumStatement = regexp.MustCompile(`(?i)(^|;)\s*VACUUM\b`)
+
 func TestVacuumAutopilotWraparoundFreezeIsDiagnosis(t *testing.T) {
 	candidate, ok := vacuumAutopilotCandidate(SourceFinding{Category: "wraparound_freeze",
 		ObjectIdentifier: "public.orders"})
+	// The diagnosis is the read-only freeze probe script (playbooks-04),
+	// which reads vacuum statistics; what it must not hold is a VACUUM
+	// statement.
 	if !ok || candidate.ActionType != "diagnose_freeze_blockers" ||
-		strings.Contains(strings.ToUpper(candidate.ProposedSQL), "VACUUM") ||
+		candidate.ProposedSQL != diagnosticSQL("diagnose_freeze_blockers") ||
+		vacuumStatement.MatchString(candidate.ProposedSQL) ||
 		candidate.RiskTier != "safe" {
 		t.Fatalf("wraparound_freeze candidate = %#v (%v), want the read-only diagnosis",
 			candidate, ok)

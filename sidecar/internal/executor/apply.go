@@ -232,6 +232,12 @@ func (e *Executor) ddlTimeout() time.Duration {
 	return time.Duration(config.DefaultDDLTimeoutSeconds) * time.Second
 }
 
+// ApplyTimeout is the bound on one stage of Apply for a statement of the
+// default timeout class (safety.ddl_timeout_seconds plus the grace). A
+// typed run bounds its DDL-slot wait with it, and its owner uses it to
+// tell a dead run from a slow one.
+func (e *Executor) ApplyTimeout() time.Duration { return e.applyTimeoutFor("") }
+
 // lockOption is the lock_timeout for one statement under an authorized
 // decision: safety.lock_timeout_ms, capped by the policy's
 // lock_duration_ceiling_ms for in-transaction statements (D1). Every

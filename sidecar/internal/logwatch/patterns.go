@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/signalid"
 )
 
 // signalPattern defines one pattern the classifier matches against log entries.
@@ -65,57 +67,57 @@ var (
 
 // patterns is the catalog of signal definitions, matched in order.
 var patterns = []signalPattern{
-	{ID: "log_deadlock_detected", Severity: "critical",
+	{ID: signalid.LogDeadlockDetected, Severity: "critical",
 		SQLStates: []string{"40P01"}, MinLevel: "ERROR"},
-	{ID: "log_connection_refused", Severity: "critical",
+	{ID: signalid.LogConnectionRefused, Severity: "critical",
 		SQLStates: []string{"53300"}, MinLevel: "FATAL"},
-	{ID: "log_out_of_memory", Severity: "critical",
+	{ID: signalid.LogOutOfMemory, Severity: "critical",
 		SQLStates: []string{"53200"}, MinLevel: "ERROR"},
-	{ID: "log_disk_full", Severity: "critical",
+	{ID: signalid.LogDiskFull, Severity: "critical",
 		SQLStates: []string{"53100"}, MinLevel: "ERROR"},
-	{ID: "log_panic_server_crash", Severity: "critical", MinLevel: "LOG",
+	{ID: signalid.LogPanicServerCrash, Severity: "critical", MinLevel: "LOG",
 		Regex: reCrash, Extract: extractCrash, Origin: originPostmaster},
 	// Before the XX rules: the standby's walreceiver may log the quoted
 	// walsender error under a generic SQLSTATE such as XX000.
-	{ID: "log_wal_segment_removed", Severity: "critical", MinLevel: "ERROR",
+	{ID: signalid.LogWALSegmentRemoved, Severity: "critical", MinLevel: "ERROR",
 		Regex: reWALRemoved, Extract: extractWALSegment, Origin: originServer},
-	{ID: "log_data_corruption", Severity: "critical",
+	{ID: signalid.LogDataCorruption, Severity: "critical",
 		MinLevel: "WARNING"},
-	{ID: "log_internal_error", Severity: "warning",
+	{ID: signalid.LogInternalError, Severity: "warning",
 		SQLStates: []string{"XX000"}, MinLevel: "WARNING"},
-	{ID: "log_wraparound_outage", Severity: "critical", MinLevel: "ERROR",
+	{ID: signalid.LogWraparoundOutage, Severity: "critical", MinLevel: "ERROR",
 		SQLStates: []string{"54000"}, Regex: reXIDOutage,
 		Extract: extractWraparoundDB},
-	{ID: "log_multixact_wraparound_outage", Severity: "critical",
+	{ID: signalid.LogMultiXactWraparoundOutage, Severity: "critical",
 		MinLevel: "ERROR", SQLStates: []string{"54000"},
 		Regex: reMultiXactOutage},
-	{ID: "log_multixact_wraparound_warning", Severity: "critical",
+	{ID: signalid.LogMultiXactWraparoundWarning, Severity: "critical",
 		MinLevel: "WARNING", Regex: reMultiXactWarning},
-	{ID: "log_txid_wraparound_warning", Severity: "critical",
+	{ID: signalid.LogTxidWraparoundWarning, Severity: "critical",
 		Substrings: []string{"must be vacuumed within"},
 		MinLevel:   "WARNING"},
-	{ID: "log_archive_failed", Severity: "critical",
+	{ID: signalid.LogArchiveFailed, Severity: "critical",
 		Substrings: []string{"archive command failed"}, MinLevel: "LOG"},
-	{ID: "log_temp_file_created", Severity: "warning",
+	{ID: signalid.LogTempFileCreated, Severity: "warning",
 		Substrings: []string{"temporary file"}, MinLevel: "LOG"},
-	{ID: "log_checkpoint_too_frequent", Severity: "warning",
+	{ID: signalid.LogCheckpointTooFrequent, Severity: "warning",
 		Substrings: []string{"checkpoints are occurring too frequently"},
 		MinLevel:   "LOG"},
-	{ID: "log_lock_timeout", Severity: "warning",
+	{ID: signalid.LogLockTimeout, Severity: "warning",
 		SQLStates: []string{"55P03"}, MinLevel: "ERROR"},
-	{ID: "log_statement_timeout", Severity: "warning",
+	{ID: signalid.LogStatementTimeout, Severity: "warning",
 		SQLStates: []string{"57014"}, MinLevel: "ERROR"},
-	{ID: "log_replication_conflict", Severity: "warning",
+	{ID: signalid.LogReplicationConflict, Severity: "warning",
 		Substrings: []string{"conflict with recovery"},
 		MinLevel:   "ERROR"},
-	{ID: "log_autovacuum_cancel", Severity: "warning",
+	{ID: signalid.LogAutovacuumCancel, Severity: "warning",
 		Substrings: []string{"canceling autovacuum task"},
 		MinLevel:   "LOG"},
-	{ID: "log_replication_slot_inactive", Severity: "warning", MinLevel: "LOG",
+	{ID: signalid.LogReplicationSlotInactive, Severity: "warning", MinLevel: "LOG",
 		Regex: reSlotInvalidated, Extract: extractSlotName, Origin: originServer},
-	{ID: "log_authentication_failure", Severity: "warning",
+	{ID: signalid.LogAuthenticationFailure, Severity: "warning",
 		MinLevel: "FATAL"},
-	{ID: "log_slow_query", Severity: "info",
+	{ID: signalid.LogSlowQuery, Severity: "info",
 		Substrings: []string{"duration:"}, MinLevel: "LOG", OptIn: true},
 }
 

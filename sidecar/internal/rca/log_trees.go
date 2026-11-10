@@ -1,6 +1,10 @@
 package rca
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/pg-sage/sidecar/internal/signalid"
+)
 
 // ---------------------------------------------------------------------------
 // Log-based decision trees: map log-originated signals to Incidents
@@ -55,39 +59,39 @@ func (e *Engine) logTreesCriticalP0(
 	sigMap map[string]*Signal,
 ) []Incident {
 	var out []Incident
-	if s, ok := sigMap["log_deadlock_detected"]; ok {
+	if s, ok := sigMap[signalid.LogDeadlockDetected]; ok {
 		out = append(out, logTreeDeadlock(s))
 	}
-	if s, ok := sigMap["log_connection_refused"]; ok {
+	if s, ok := sigMap[signalid.LogConnectionRefused]; ok {
 		out = append(out, logTreeSimple(s, "critical",
 			"Connection refused: too many clients already", "high_risk"))
 	}
-	if s, ok := sigMap["log_out_of_memory"]; ok {
+	if s, ok := sigMap[signalid.LogOutOfMemory]; ok {
 		out = append(out, logTreeOOM(s))
 	}
-	if s, ok := sigMap["log_disk_full"]; ok {
+	if s, ok := sigMap[signalid.LogDiskFull]; ok {
 		out = append(out, logTreeSimple(s, "critical",
 			"Disk full: no space left on device", "high_risk"))
 	}
-	if s, ok := sigMap["log_panic_server_crash"]; ok {
+	if s, ok := sigMap[signalid.LogPanicServerCrash]; ok {
 		out = append(out, logTreeSimple(s, "critical",
 			"PostgreSQL server crash (PANIC or signal)", "high_risk"))
 	}
-	if s, ok := sigMap["log_data_corruption"]; ok {
+	if s, ok := sigMap[signalid.LogDataCorruption]; ok {
 		out = append(out, logTreeSimple(s, "critical",
 			"Data corruption detected (class XX error)", "high_risk"))
 	}
-	if s, ok := sigMap["log_txid_wraparound_warning"]; ok {
+	if s, ok := sigMap[signalid.LogTxidWraparoundWarning]; ok {
 		out = append(out, logTreeTxidWraparound(s))
 	}
-	if s, ok := sigMap["log_archive_failed"]; ok {
+	if s, ok := sigMap[signalid.LogArchiveFailed]; ok {
 		out = append(out, logTreeSimple(s, "critical",
 			"WAL archive command failed", "moderate"))
 	}
-	if s, ok := sigMap["log_temp_file_created"]; ok {
+	if s, ok := sigMap[signalid.LogTempFileCreated]; ok {
 		out = append(out, logTreeTempFile(s))
 	}
-	if s, ok := sigMap["log_checkpoint_too_frequent"]; ok {
+	if s, ok := sigMap[signalid.LogCheckpointTooFrequent]; ok {
 		out = append(out, logTreeSimple(s, "warning",
 			"Checkpoints occurring too frequently "+
 				"-- WAL volume is forcing them; increase max_wal_size",
@@ -101,43 +105,43 @@ func (e *Engine) logTreesWarningP1(
 	sigMap map[string]*Signal,
 ) []Incident {
 	var out []Incident
-	if s, ok := sigMap["log_lock_timeout"]; ok {
+	if s, ok := sigMap[signalid.LogLockTimeout]; ok {
 		out = append(out, logTreeSimple(s, "warning",
 			"Lock wait timeout exceeded", "safe"))
 	}
-	if s, ok := sigMap["log_statement_timeout"]; ok {
+	if s, ok := sigMap[signalid.LogStatementTimeout]; ok {
 		out = append(out, logTreeSimple(s, "warning",
 			"Statement timeout exceeded", "safe"))
 	}
-	if s, ok := sigMap["log_replication_conflict"]; ok {
+	if s, ok := sigMap[signalid.LogReplicationConflict]; ok {
 		out = append(out, logTreeSimple(s, "warning",
 			"Replication conflict with recovery on standby",
 			"moderate"))
 	}
-	if s, ok := sigMap["log_wal_segment_removed"]; ok {
+	if s, ok := sigMap[signalid.LogWALSegmentRemoved]; ok {
 		out = append(out, logTreeSimple(s, "critical",
 			"WAL segment removed before replica could consume "+
 				"it -- replica may need rebuild", "high_risk"))
 	}
-	if s, ok := sigMap["log_autovacuum_cancel"]; ok {
+	if s, ok := sigMap[signalid.LogAutovacuumCancel]; ok {
 		out = append(out, logTreeSimple(s, "warning",
 			"Autovacuum task cancelled due to lock conflict",
 			"safe"))
 	}
-	if s, ok := sigMap["log_replication_slot_inactive"]; ok {
+	if s, ok := sigMap[signalid.LogReplicationSlotInactive]; ok {
 		out = append(out, logTreeReplicationSlot(s))
 	}
-	if s, ok := sigMap["log_internal_error"]; ok {
+	if s, ok := sigMap[signalid.LogInternalError]; ok {
 		out = append(out, logTreeSimple(s, "warning",
 			"Internal error (SQLSTATE XX000) -- an unexpected internal "+
 				"condition such as a cache lookup failure; investigate if "+
 				"it repeats", "safe"))
 	}
-	if s, ok := sigMap["log_authentication_failure"]; ok {
+	if s, ok := sigMap[signalid.LogAuthenticationFailure]; ok {
 		out = append(out, logTreeSimple(s, "warning",
 			"Authentication failure", "safe"))
 	}
-	if s, ok := sigMap["log_slow_query"]; ok {
+	if s, ok := sigMap[signalid.LogSlowQuery]; ok {
 		out = append(out, logTreeSlowQuery(s))
 	}
 	return out
@@ -239,19 +243,19 @@ func logTreeTxidWraparound(s *Signal) Incident {
 // limits. The XID warning stays in logTreesCriticalP0.
 func logTreesWraparound(sigMap map[string]*Signal) []Incident {
 	var out []Incident
-	if s, ok := sigMap["log_wraparound_outage"]; ok {
+	if s, ok := sigMap[signalid.LogWraparoundOutage]; ok {
 		out = append(out, logTreeXIDHorizon(s,
 			"Transaction ID wraparound protection engaged: the database "+
 				"refuses commands that assign new transaction IDs until it "+
 				"is vacuumed",
 			"Wraparound stop limit reached (SQLSTATE 54000)"))
 	}
-	if s, ok := sigMap["log_multixact_wraparound_warning"]; ok {
+	if s, ok := sigMap[signalid.LogMultiXactWraparoundWarning]; ok {
 		out = append(out, logTreeMultiXact(s,
 			"MultiXact ID wraparound approaching -- vacuum must freeze "+
 				"old multixacts before the stop limit"))
 	}
-	if s, ok := sigMap["log_multixact_wraparound_outage"]; ok {
+	if s, ok := sigMap[signalid.LogMultiXactWraparoundOutage]; ok {
 		out = append(out, logTreeMultiXact(s,
 			"MultiXact wraparound protection engaged: the database refuses "+
 				"commands that create new MultiXactIds until it is vacuumed"))

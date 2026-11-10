@@ -104,7 +104,7 @@ func TestDecoders_CarryTheServerIdentity(t *testing.T) {
 // The compared probes are versioned up and every SQL variant selects
 // every identity column.
 func TestCatalog_ComparedProbesSelectTheIdentity(t *testing.T) {
-	want := map[ID]string{ConnectionSaturation: "v3", WALCheckpoint: "v2",
+	want := map[ID]string{ConnectionSaturation: "v4", WALCheckpoint: "v2",
 		ReplicationSlots: "v2"}
 	for id, version := range want {
 		spec, ok := Catalog().Spec(id)

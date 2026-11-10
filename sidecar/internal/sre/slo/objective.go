@@ -157,6 +157,9 @@ type Objective struct {
 	BadQuery      string
 	EligibleQuery string
 	ResetsQuery   string
+	// CoverageQuery, optional, returns the earliest sample time (Unix
+	// seconds) over $window; without it coverage is unverified.
+	CoverageQuery string
 	// MinEligible is the least eligible events a window needs to be known.
 	MinEligible float64
 	// StaleAfter is how old the newest stored sample may be (zero: 5m).
@@ -193,7 +196,8 @@ func (o Objective) Validate() error {
 }
 
 func (o Objective) validateSource() error {
-	queries := o.BadQuery != "" || o.EligibleQuery != "" || o.ResetsQuery != ""
+	queries := o.BadQuery != "" || o.EligibleQuery != "" || o.ResetsQuery != "" ||
+		o.CoverageQuery != ""
 	var problem string
 	switch {
 	case o.Kind == KindApp && strings.HasPrefix(o.Name, ProxyPrefix):
@@ -226,6 +230,9 @@ func promQueryProblem(o Objective) string {
 	if o.ResetsQuery != "" && !strings.Contains(o.ResetsQuery, "$window") {
 		return "the resets query must use $window"
 	}
+	if o.CoverageQuery != "" && !strings.Contains(o.CoverageQuery, "$window") {
+		return "the coverage query must use $window"
+	}
 	return ""
 }
 
@@ -256,8 +263,15 @@ func FormatWindow(d time.Duration) string {
 	return fmt.Sprintf("%ds", d/time.Second)
 }
 
+// coverageUnverified reports a Prometheus SLI without a coverage query:
+// its windows are taken as fully covered and fresh.
+func (o Objective) coverageUnverified() bool {
+	return o.Source == SourcePrometheus && o.CoverageQuery == ""
+}
+
 // Hash identifies the definition: a changed target, window, source or
-// query is a new definition.
+// SLI query is a new definition. The coverage query is left out: it
+// changes how a window is measured, not what the SLI counts.
 func (o Objective) Hash() string {
 	sum := sha256.Sum256([]byte(strings.Join([]string{o.Name, string(o.Kind),
 		string(o.Source), strconv.FormatFloat(o.Target, 'g', -1, 64), o.Window.String(),

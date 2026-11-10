@@ -57,6 +57,20 @@ func TestSLOObjectivesFromConfig(t *testing.T) {
 	}
 }
 
+// The optional Prometheus coverage query reaches the objective.
+func TestSLOObjectivesCoverageQuery(t *testing.T) {
+	s := config.DefaultConfig().SRE
+	q := "min_over_time(timestamp(requests)[$window:1m])"
+	s.SLO.Prometheus.URL = "http://prom:9090"
+	s.SLO.Objectives = []config.SREObjectiveConfig{{Name: "checkout", Source: "prometheus",
+		Target: 0.999, BadQuery: "errors[$window]", EligibleQuery: "requests[$window]",
+		CoverageQuery: q}}
+	objs, err := sloObjectives(s.SLO, "orders")
+	if err != nil || len(objs) != 1 || objs[0].CoverageQuery != q {
+		t.Fatalf("objectives = %+v err=%v", objs, err)
+	}
+}
+
 func TestSLORulesAndProxyConfig(t *testing.T) {
 	s := config.DefaultConfig().SRE
 	rules, err := sloRules(s.SLO)

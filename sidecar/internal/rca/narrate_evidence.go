@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/signalid"
 	"github.com/pg-sage/sidecar/internal/sre/causal"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
@@ -71,7 +72,7 @@ func (e *Engine) gatherEvidence(ctx context.Context, inc Incident) incidentEvide
 		ev.observations = append(ev.observations, causal.Observation{
 			EvidenceID: fmt.Sprintf("P%d", i+1), Result: runner.Run(ctx, id, probes.Args{})})
 	}
-	if hasSignal(inc, "lock_contention") {
+	if hasSignal(inc, signalid.LockContention) {
 		d := causal.DiagnoseLock(ev.observations, causalBlockers(inc))
 		ev.diagnosis = &d
 		ev.hypotheses = orderedHypotheses(d)

@@ -74,8 +74,9 @@ type SREObjectiveConfig struct {
 	BadQuery          string  `yaml:"bad_query" doc:"PromQL for bad events over $window (use 'or vector(0)' so zero errors is not absent data)."`
 	EligibleQuery     string  `yaml:"eligible_query" doc:"PromQL for eligible events over $window."`
 	ResetsQuery       string  `yaml:"resets_query" doc:"Optional PromQL counting counter resets over $window."`
+	CoverageQuery     string  `yaml:"coverage_query" doc:"Optional PromQL for the earliest sample time (Unix s) over $window, e.g. min_over_time(timestamp(<series>)[$window:1m]); marks windows partial or stale. Empty: coverage unverified."`
 	MinEligibleEvents float64 `yaml:"min_eligible_events" doc:"Fewer eligible events in a window is low traffic (unknown). Default: 50."`
-	StaleAfterSeconds int     `yaml:"stale_after_seconds" doc:"Pushed samples older than this are stale. Default: 300."`
+	StaleAfterSeconds int     `yaml:"stale_after_seconds" doc:"Pushed samples (Prometheus samples, with coverage_query) older than this are stale. Default: 300."`
 }
 
 // SREChangeEventsConfig configures the change feed.

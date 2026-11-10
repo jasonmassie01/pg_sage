@@ -5,6 +5,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/signalid"
 )
 
 // ---------------------------------------------------------------------------
@@ -22,38 +23,36 @@ func (e *Engine) runDecisionTrees(
 	}
 
 	var incidents []Incident
-	if s, ok := sigMap["connections_high"]; ok {
+	if s, ok := sigMap[signalid.ConnectionsHigh]; ok {
 		incidents = append(incidents,
 			e.treeConnectionsHigh(s, sigMap, curr, prev, cfg))
 	}
-	if s, ok := sigMap["cache_hit_ratio_drop"]; ok {
+	if s, ok := sigMap[signalid.CacheHitRatioDrop]; ok {
 		incidents = append(incidents,
 			e.treeCacheHitDrop(s, curr, prev))
 	}
-	if s, ok := sigMap["vacuum_blocked"]; ok {
+	if s, ok := sigMap[signalid.VacuumBlocked]; ok {
 		incidents = append(incidents,
 			e.treeVacuumBlocked(s, curr, e.vacuumRules(cfg)))
 	}
-	if s, ok := sigMap["replication_lag_increasing"]; ok {
+	if s, ok := sigMap[signalid.ReplicationLagIncreasing]; ok {
 		incidents = append(incidents, e.simpleIncident(s,
-			"replication_lag",
 			"Replication lag exceeds threshold",
 			fmt.Sprintf("Worst replica lag: %.0fs",
 				floatMetric(s, "worst_lag_seconds"))))
 	}
-	if s, ok := sigMap["lock_contention"]; ok {
+	if s, ok := sigMap[signalid.LockContention]; ok {
 		incidents = append(incidents, lockContentionIncident(s))
 	}
-	if s, ok := sigMap["wal_growth_spike"]; ok {
+	if s, ok := sigMap[signalid.WALGrowthSpike]; ok {
 		incidents = append(incidents, e.simpleIncident(s,
-			"wal_spike",
 			fmt.Sprintf("WAL generation spiked %.1fx over previous cycle",
 				floatMetric(s, "ratio")),
 			fmt.Sprintf("Current: %d bytes, Previous: %d bytes",
 				intMetric(s, "current_wal_bytes"),
 				intMetric(s, "previous_wal_bytes"))))
 	}
-	if s, ok := sigMap["orphaned_prepared_tx"]; ok {
+	if s, ok := sigMap[signalid.OrphanedPreparedTx]; ok {
 		incidents = append(incidents,
 			e.treeOrphanedPreparedTx(s, curr))
 	}
@@ -74,19 +73,19 @@ func (e *Engine) treeConnectionsHigh(
 	curr, prev *collector.Snapshot,
 	cfg *config.Config,
 ) Incident {
-	ids := []string{"connections_high"}
+	ids := []string{signalid.ConnectionsHigh}
 	now := curr.CollectedAt
 
-	if _, hasIdle := sigMap["idle_in_tx_elevated"]; hasIdle {
-		ids = append(ids, "idle_in_tx_elevated")
+	if _, hasIdle := sigMap[signalid.IdleInTxElevated]; hasIdle {
+		ids = append(ids, signalid.IdleInTxElevated)
 		return buildIncident(now, connSig.Severity, ids,
 			"Idle-in-transaction sessions saturating connection pool",
 			[]ChainLink{
-				{Order: 1, Signal: "idle_in_tx_elevated",
+				{Order: 1, Signal: signalid.IdleInTxElevated,
 					Description: "Sessions stuck in idle-in-transaction state",
 					Evidence: fmt.Sprintf("%d idle-in-tx sessions",
 						curr.System.IdleInTransaction)},
-				{Order: 2, Signal: "connections_high",
+				{Order: 2, Signal: signalid.ConnectionsHigh,
 					Description: "Connection slots exhausted by idle sessions",
 					Evidence: fmt.Sprintf("%d/%d connections used",
 						connectionSlotsUsed(curr.System),
@@ -108,7 +107,7 @@ func (e *Engine) treeConnectionsHigh(
 			return buildIncident(now, connSig.Severity, ids,
 				"Connection storm: rapid connection creation/teardown",
 				[]ChainLink{
-					{Order: 1, Signal: "connections_high",
+					{Order: 1, Signal: signalid.ConnectionsHigh,
 						Description: "Connection churn doubled since last cycle",
 						Evidence: fmt.Sprintf("Churn: %d (prev %d)",
 							currChurn, prevChurn)},
@@ -121,7 +120,7 @@ func (e *Engine) treeConnectionsHigh(
 	return buildIncident(now, connSig.Severity, ids,
 		"Gradual connection pool growth approaching max_connections",
 		[]ChainLink{
-			{Order: 1, Signal: "connections_high",
+			{Order: 1, Signal: signalid.ConnectionsHigh,
 				Description: "Backend count growing without churn spike",
 				Evidence: fmt.Sprintf("%d/%d (%d%%)",
 					connectionSlotsUsed(curr.System),
@@ -142,7 +141,7 @@ func (e *Engine) treeCacheHitDrop(
 	sig *Signal,
 	curr, prev *collector.Snapshot,
 ) Incident {
-	ids := []string{"cache_hit_ratio_drop"}
+	ids := []string{signalid.CacheHitRatioDrop}
 	now := curr.CollectedAt
 
 	if prev != nil {
@@ -161,7 +160,7 @@ func (e *Engine) treeCacheHitDrop(
 					fmt.Sprintf("Query %d reading excessive blocks, "+
 						"evicting shared_buffers", q.QueryID),
 					[]ChainLink{
-						{Order: 1, Signal: "cache_hit_ratio_drop",
+						{Order: 1, Signal: signalid.CacheHitRatioDrop,
 							Description: "Specific query read 10x+ more blocks",
 							Evidence: fmt.Sprintf(
 								"QueryID %d: %d blks (prev %d) -- %s",
@@ -177,7 +176,7 @@ func (e *Engine) treeCacheHitDrop(
 	return buildIncident(now, sig.Severity, ids,
 		"Working set exceeds shared_buffers -- cache hit ratio degraded",
 		[]ChainLink{
-			{Order: 1, Signal: "cache_hit_ratio_drop",
+			{Order: 1, Signal: signalid.CacheHitRatioDrop,
 				Description: "No single query spike; aggregate working set too large",
 				Evidence: fmt.Sprintf("Cache hit ratio: %.4f",
 					floatMetric(sig, "cache_hit_ratio"))},
@@ -216,10 +215,10 @@ func (e *Engine) treeVacuumBlocked(
 
 	// Branch 3: no obvious blocker found. Live evidence too: an open
 	// incident whose holder no longer qualifies drops its proposal.
-	inc := buildIncident(curr.CollectedAt, sig.Severity, []string{"vacuum_blocked"},
+	inc := buildIncident(curr.CollectedAt, sig.Severity, []string{signalid.VacuumBlocked},
 		"Autovacuum falling behind -- dead tuple accumulation",
 		[]ChainLink{
-			{Order: 1, Signal: "vacuum_blocked",
+			{Order: 1, Signal: signalid.VacuumBlocked,
 				Description: "No idle-in-tx or prepared tx blocker found; " +
 					"autovacuum workers cannot keep pace",
 				Evidence: fmt.Sprintf("Tables with high dead tuples: %v",
@@ -239,7 +238,7 @@ func (e *Engine) treeOrphanedPreparedTx(
 	sig *Signal,
 	curr *collector.Snapshot,
 ) Incident {
-	ids := []string{"orphaned_prepared_tx"}
+	ids := []string{signalid.OrphanedPreparedTx}
 	now := curr.CollectedAt
 
 	count := intMetric(sig, "count")
@@ -255,13 +254,13 @@ func (e *Engine) treeOrphanedPreparedTx(
 		fmt.Sprintf("Orphaned prepared transaction(s) holding xmin "+
 			"(oldest: %s, xid_age: %d)", oldestGID, maxAge),
 		[]ChainLink{
-			{Order: 1, Signal: "orphaned_prepared_tx",
+			{Order: 1, Signal: signalid.OrphanedPreparedTx,
 				Description: fmt.Sprintf(
 					"%d prepared transaction(s) found -- "+
 						"invisible to pg_stat_activity", count),
 				Evidence: fmt.Sprintf(
 					"oldest_gid=%s xid_age=%d", oldestGID, maxAge)},
-			{Order: 2, Signal: "orphaned_prepared_tx",
+			{Order: 2, Signal: signalid.OrphanedPreparedTx,
 				Description: "Prepared transactions survive " +
 					"connection drops and server restarts, " +
 					"holding xmin and locks indefinitely",
@@ -273,9 +272,8 @@ func (e *Engine) treeOrphanedPreparedTx(
 
 func (e *Engine) simpleIncident(
 	sig *Signal,
-	source, rootCause, evidence string,
+	rootCause, evidence string,
 ) Incident {
-	_ = source // reserved for future Tier 2 source tagging
 	return buildIncident(sig.FiredAt, sig.Severity, []string{sig.ID},
 		rootCause,
 		[]ChainLink{

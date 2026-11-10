@@ -62,6 +62,10 @@ type MaintenanceDeps struct {
 	DatabaseID     *int
 	ApprovalTTL    time.Duration
 	MaxEvidenceAge time.Duration
+	// Now is the clock the stranded-run sweeper ages proposals by; nil reads
+	// the control database's clock, the one that stamps updated_at, so a
+	// sidecar host whose clock runs ahead cannot settle a live run early.
+	Now func() time.Time
 }
 type MaintenanceService struct {
 	MaintenanceDeps

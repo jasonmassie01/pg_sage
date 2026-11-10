@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/rca"
+	"github.com/pg-sage/sidecar/internal/signalid"
 )
 
 // ---------------------------------------------------------------------------
@@ -217,7 +218,7 @@ func (c *Classifier) matchPattern(entry LogEntry) (signalPattern, bool) {
 }
 
 func (c *Classifier) optInEnabled(id string) bool {
-	if id == "log_slow_query" {
+	if id == signalid.LogSlowQuery {
 		return c.slowQueryEnabled
 	}
 	return false
@@ -253,13 +254,13 @@ func (c *Classifier) buildSignal(
 	applyExtract(pat, entry.Message, metrics)
 
 	switch pat.ID {
-	case "log_temp_file_created":
+	case signalid.LogTempFileCreated:
 		sz := parseTempFileSize(entry.Message)
 		if sz < c.tempFileMinBytes {
 			return nil
 		}
 		metrics["temp_file_bytes"] = sz
-	case "log_slow_query":
+	case signalid.LogSlowQuery:
 		dur := parseSlowQueryDuration(entry.Message)
 		metrics["duration_ms"] = dur
 		if entry.Query != "" {

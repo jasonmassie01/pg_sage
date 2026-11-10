@@ -7,6 +7,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/signalid"
 )
 
 // ---------------------------------------------------------------------------
@@ -56,7 +57,7 @@ func (e *Engine) detectConnectionsHigh(
 		return nil
 	}
 	return &Signal{
-		ID:       "connections_high",
+		ID:       signalid.ConnectionsHigh,
 		FiredAt:  curr.CollectedAt,
 		Severity: severityForPct(pct, 90),
 		Metrics: map[string]any{
@@ -95,7 +96,7 @@ func (e *Engine) detectIdleInTxElevated(
 		return nil
 	}
 	return &Signal{
-		ID:       "idle_in_tx_elevated",
+		ID:       signalid.IdleInTxElevated,
 		FiredAt:  curr.CollectedAt,
 		Severity: "warning",
 		Metrics: map[string]any{
@@ -122,7 +123,7 @@ func (e *Engine) detectCacheHitDrop(
 		sev = "critical"
 	}
 	return &Signal{
-		ID:       "cache_hit_ratio_drop",
+		ID:       signalid.CacheHitRatioDrop,
 		FiredAt:  curr.CollectedAt,
 		Severity: sev,
 		Metrics: map[string]any{
@@ -178,7 +179,7 @@ func (e *Engine) detectReplicationLag(
 		return nil
 	}
 	return &Signal{
-		ID:       "replication_lag_increasing",
+		ID:       signalid.ReplicationLagIncreasing,
 		FiredAt:  curr.CollectedAt,
 		Severity: severityForFloat(worstLagS, float64(thresholdS*2)),
 		Metrics: map[string]any{
@@ -216,7 +217,7 @@ func (e *Engine) detectVacuumBlocked(
 		return nil
 	}
 	return &Signal{
-		ID:       "vacuum_blocked",
+		ID:       signalid.VacuumBlocked,
 		FiredAt:  curr.CollectedAt,
 		Severity: "warning",
 		Metrics: map[string]any{
@@ -249,7 +250,7 @@ func (e *Engine) detectLockContention(
 		return nil
 	}
 	return &Signal{
-		ID:       "lock_contention",
+		ID:       signalid.LockContention,
 		FiredAt:  time.Now(),
 		Severity: worstSev,
 		Metrics: map[string]any{
@@ -281,7 +282,7 @@ func (e *Engine) detectWALSpike(
 		return nil
 	}
 	return &Signal{
-		ID:       "wal_growth_spike",
+		ID:       signalid.WALGrowthSpike,
 		FiredAt:  curr.CollectedAt,
 		Severity: "warning",
 		Metrics: map[string]any{
@@ -327,7 +328,7 @@ func (e *Engine) detectOrphanedPreparedTx(
 		sev = "critical"
 	}
 	return &Signal{
-		ID:       "orphaned_prepared_tx",
+		ID:       signalid.OrphanedPreparedTx,
 		FiredAt:  curr.CollectedAt,
 		Severity: sev,
 		Metrics: map[string]any{

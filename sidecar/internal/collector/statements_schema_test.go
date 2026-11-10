@@ -81,7 +81,7 @@ func TestQualifyStatements_QuotesHostileSchemaNames(t *testing.T) {
 	got := qualifyStatements(capabilityKeySQL, schema)
 	want := `to_regclass('"o''dd ""x""".pg_stat_statements')`
 	if !strings.Contains(got, want) {
-		t.Errorf("block time probe = %s\nwant it to contain %s", got, want)
+		t.Errorf("capability probe = %s\nwant it to contain %s", got, want)
 	}
 	got = qualifyStatements(statementsEntriesSQL, schema)
 	if !strings.Contains(got, `FROM "o'dd ""x""".pg_stat_statements(false)`) {
