@@ -2,8 +2,8 @@
 
 ## [Unreleased]
 
-These changes are planned as two releases: v2.5.1 (tranche T0a, the safety fixes) and v2.5.2
-(tranche T0b).
+These changes are planned as three releases: v2.5.1 (tranche T0a, the safety fixes),
+v2.5.2 (tranche T0b) and v2.6.0 (tranche T1).
 
 ### v2.5.1 (tranche T0a, safety)
 
@@ -392,6 +392,1204 @@ These changes are planned as two releases: v2.5.1 (tranche T0a, the safety fixes
   and chat sign-ins until reactivated. A user who changed configuration can now be deleted,
   where before the delete failed with a 500. Each config change also records the caller's email
   in `sage.config_audit.changed_by_actor` (apiauth-01).
+
+### v2.6.0 (tranche T1)
+
+#### Security
+
+- **Qualified expression indexes.** Expression-index recommendations now name each function's
+  schema (`pg_catalog.lower(email)`), and the executor refuses, before building, any CREATE
+  INDEX that has an unqualified table, a bare call that is not a pg_catalog function, or a
+  schema-qualified call into a schema holding a non-extension function of that name
+  (`function_schema_not_allowed`). This closes the planted `public.lower()` (CVE-2018-1058
+  class) path for explicitly qualified calls (security-01).
+- **Typed execution.** Statements now run top-level, or in a transaction under the policy lock
+  ceiling, based on their typed action, not on keywords: a table named `concurrently_log` no
+  longer gets the CONCURRENTLY lock waiver. A bare, option-only or multi-table VACUUM and
+  `REINDEX SCHEMA|DATABASE CONCURRENTLY` no longer have a contract and are parked as
+  `no_typed_contract`. A self-initiated finding or custodian proposal whose statement changes a
+  different relation than the one it names is blocked with the new reason `target_mismatch`
+  (executor-08).
+- **Chat cancel and terminate.** Sage SRE cancel and terminate requests in Slack and Telegram
+  now use approval cards. Each card is bound to the channel it was sent to, to its content and
+  to the target backend (pid plus backend_start). It expires after at most 15 minutes and has
+  no Snooze button. A chat Reject marks the proposal denied at once. Old proposal buttons only
+  reply "This button is outdated; open pg_sage to decide" and change nothing (policy-08).
+- **Investigator EXPLAIN.** The Sage SRE investigator's plan-only EXPLAIN now waits for the
+  database's probe slot like any probe (concurrency_limit when the queue is full), with its own
+  pool-acquire budget. It takes statement text from the collector's in-memory snapshot instead
+  of loading pg_stat_statements' whole query-text file (a statement outside the top queries is
+  unsupported/text_not_cached). It refuses data-modifying CTEs, FOR UPDATE/SHARE and SELECT
+  INTO before PREPARE can take locks, and reports a role without SELECT on the statement's
+  tables as no_privilege/missing_select (sre-07).
+- **Grounded fact proposals.** A model-proposed fact is now dropped (and logged as ungrounded)
+  unless the evidence it cites is about its own subject: the schema's summary, the slot itself,
+  or the index's drop history, and two matching objects for a `*` pattern. Because the model is
+  shown no table evidence, it no longer proposes table facts such as append_only, table_window
+  or table ownership (facts-05).
+- **Fact event chain.** Every proposal, confirmation, rejection, declaration, expiry, reopen
+  and restore of a binding fact is now recorded in the append-only, hash-chained
+  `sage.fact_events` (verified by /api/v1/audit/verify, exported to SIEM, kept after the fact
+  is purged), `expired_by` names who expired a fact, and the Facts page asks for confirmation
+  before revoking or expiring a confirmed fact (facts-07).
+- **Agent token audit.** Agent and MCP token governance is now audited: creating, changing,
+  widening (single-operator mode), retiring an agent, minting an agent token, and creating or
+  revoking an MCP token each write one hash-chained sage.auth_audit event in the same
+  transaction, and the change fails if the event cannot be written. An agent's sponsor must be
+  an enabled operator or admin (422 otherwise), cannot change while the agent has an open
+  freeze (409 sponsor_change_frozen), and an agent whose sponsor is now a viewer or deactivated
+  becomes unsponsored (agent_* tools answer agent_unsponsored) (agentgov-05).
+- **Inherited posture.** AP-03, AP-04, AP-05, AP-06 and AP-09 now follow inherited role
+  membership (rolinherit before PostgreSQL 16, the per-grant INHERIT option on 16+). A table,
+  policy, function, schema USAGE, server or language granted to a group role that anon or
+  another exposed role inherits is now reported, with the membership path and a fix that
+  revokes from the group or ends the membership (agentgov-10).
+- **Mutation census.** Every place pg_sage's shipped code can write to a database it connects
+  to is now listed in `sidecar/internal/mutationcensus/sinks.tsv`, each with a class (gated by
+  an executor contract, sage schema only, clone only, or out of gate with a reason). CI fails
+  when a new write path is not classified. docs/security.md gains a "Writes to the monitored
+  database" section (security-06).
+- **Model-bound root authority.** Model-root authority is now bound to the model that earned
+  it: a PGIncidentBench measurement lets the model override the causal graph's root only while
+  the database's llm.model is the model the report's llm.model names (trimmed, lowercased,
+  provider prefix stripped). A report without llm.model grants nothing, and a hot reload to
+  another model makes the next investigation advisory and records root_authority_revoked.
+  Existing grants turn advisory until a report naming the running model is ingested. GET
+  /api/v1/model-lift now shows measured_model and running_model (llm-01).
+- **Numeric redaction.** Numbers of 6 or more digits that are compared (`=`, `<>`, `<`, `>`,
+  `IN (...)`, `ANY(ARRAY[...])`, `BETWEEN`, and `Key (c)=(...)` in logs) are now replaced with
+  `?` in query text, plan filters and log messages before they reach a model. Short numbers,
+  `LIMIT`/`OFFSET` values and plan row counts and costs are kept. You can turn this off with
+  the new `llm.redact_numeric_literals` (default `true`, applies on config reload without a
+  restart). Every model call site is now checked at build time for the untrusted-data rule, and
+  Ask Sage's prompt now carries the shared rule (llm-09).
+- **Rehearsal clones.** Rehearsal clones are now receipted before creation, reaped by the fleet
+  leader after a crash, bounded to one hour, and refused when the clone is the production
+  server; `clone.provider: snapshot`, which never worked, is now rejected at startup
+  (migration-07).
+- **Alerting egress.** Alerting Slack and webhook URLs, and PagerDuty delivery, now obey
+  `notification_policy`. Plain http, loopback, RFC 1918, ULA and CGNAT targets need
+  `notification_policy.allow_private_targets: true`, and link-local or metadata hosts are
+  always refused. When alerting is enabled, a refused URL stops startup or a config reload with
+  an error naming the key. The settings API answers 400 for a blocked
+  `alerting.slack_webhook_url`. Every connection and redirect is re-checked, and alert traffic
+  no longer uses HTTPS_PROXY. Operators with a private Slack or webhook relay must set
+  `allow_private_targets` (alerting-11).
+- **SIEM TLS.** SIEM sinks gain a per-sink `ca_file` (pins the receiver to that CA) and
+  `client_cert_file`/`client_key_file` (mutual TLS) for https http/otlp and syslog `tls`. Each
+  `chains` entry must now be a real audit chain, so a typo such as `action-log` stops the
+  config from loading. A `token_env` token over plain `http://` logs a WARN at start and shows
+  `warnings: ["token_over_http"]` in `GET /api/v1/audit/siem`; set `allow_insecure_http: true`
+  to accept it on purpose, because the next minor release will refuse this config. udp syslog
+  is reported as `delivery: best_effort` and warns at start. Syslog over TLS 1.3 no longer
+  loses an event when the receiver refuses the client certificate (audit-08).
+- **Email case.** User emails are now one identity whatever their case. They are stored trimmed
+  and lower-case under a new unique index on lower(email), and every sign-in path matches
+  case-insensitively. POST /api/v1/users rejects malformed addresses (400) and case variants
+  (409). If the upgrade finds accounts whose emails differ only in case, it changes nothing: it
+  logs an ERROR and opens the critical finding auth_email_case_duplicates naming the user ids,
+  and those emails cannot sign in until an operator keeps one account per email and restarts
+  (apiauth-05).
+- **Route authorization.** API routes now declare their authorization when they are registered
+  (public, self-authenticating, viewer, viewer-write, operator, admin). Read routes that relied
+  on the session check alone now also refuse roles other than admin/operator/viewer. Paths with
+  `..`, `.` or encoded-dot segments no longer skip session authentication (apiauth-09).
+- **API hardening.** API responses now carry Cache-Control: no-store. Mutating requests and
+  401/403 refusals are written to a structured access log (api.access_log, default on). A
+  database the API cannot reach returns 503 db_unavailable with Retry-After instead of 500. API
+  TLS certificate expiry is re-checked hourly: a warning under 14 days, an error under 3, the
+  new pg_sage_api_tls_cert_not_after_seconds and pg_sage_api_tls_reload_failures_total metrics,
+  and tls_expiring in the /ready details (apiauth-12).
+- **Security policy docs.** SECURITY.md now lists 2.5.x as the supported line and asks for a
+  dedicated non-superuser role. docs/security.md replaces the "never" list with what pg_sage
+  can read and change, each change linked to its gate, and documents the MCP tool and scope
+  model. The grant comments now say that CREATE INDEX and CREATE STATISTICS need table
+  ownership. A test fails when SECURITY.md's supported row drifts from VERSION (security-07).
+- **Outbound targets.** Every outbound client (LLM, alerting, notifications, SIEM, Prometheus,
+  DLE, OAuth, cloud telemetry) now refuses link-local and cloud-metadata addresses
+  (169.254.0.0/16, fe80::/10, fd00:ec2::254), multicast and unspecified targets. Moving
+  llm.endpoint, clone.dle_endpoint or an email channel's SMTP relay to a new origin now
+  requires re-entering its secret. A YAML optimizer endpoint on another origin needs its own
+  llm.optimizer_llm.api_key (security-03).
+- **Secrets at rest.** Secrets at rest are now sealed by default. Without encryption_key,
+  pg_sage generates data_dir/encryption.key (mode 600; the image sets
+  SAGE_DATA_DIR=/var/lib/pg_sage as a volume), so back that file up. Database passwords and
+  notification channel secrets are bound to their row and are re-sealed on rotation through
+  encryption_key_previous. A lost key file is reported, not replaced. Admins see a dashboard
+  banner, and GET /api/v1/security/posture reports the state, whenever secrets are plaintext or
+  the key is missing (security-08).
+- **Masked overrides.** Settings overrides no longer silently beat the config file: an explicit
+  `trust.level` or `trust.tier3_*` in YAML, env or a flag now holds against a stored UI
+  override (the more restrictive value applies), every override that masks an explicit file
+  value is logged once and listed in `masked_by_override` on `GET /api/v1/config/global` and
+  badged "masked" in Settings, non-override values are labelled `file/default` instead of
+  `yaml`, and the docs state the real order (override > CLI > env > YAML > default)
+  (config-03).
+- **Databricks identity pin.** In Databricks Apps, pg_sage now pins each account to the
+  X-Forwarded-User value it was first seen with, stored as a SHA-256 hash in the new
+  sage.users.databricks_user_pin column. If the value changes,
+  `SAGE_DATABRICKS_APP_IDENTITY_PIN` decides what happens: `log` (default) writes a
+  `databricks_app_identity_changed` audit event, `enforce` also refuses with 403, `off`
+  disables the check. Admins can relink an account with `POST
+  /api/v1/users/{id}/identity-pin/reset` (databricks-07).
+- **Bench signer identity.** The sidecar now accepts release signatures only from the pg_sage
+  repository identified by its immutable GitHub repository and owner IDs
+  (1185895123/143746527), so a repository later registered under the same name cannot sign
+  reports that sidecars accept; the CI signing jobs refuse to sign from any other repository ID
+  (benches-10).
+
+#### Fixed
+
+- **Unavailable collector reads.** A failed read of io, prepared_xacts, partitions or
+  config_data is now recorded as unavailable (unknown), not stored as an empty observation.
+  These extras share the cycle's timeout retry. The config snapshot fails as a whole and names
+  the failed sub-read. Standbys report a WAL position. Prepared transactions are persisted to
+  sage.snapshots and served by the snapshot API. RCA keeps orphaned-2PC incidents open, and the
+  optimizer pauses index recommendations, while the category they need is unknown
+  (collection-05).
+- **Temporary tables.** Other sessions' temporary tables and indexes (pg_temp_N), and pg_sage's
+  own, are no longer collected as application tables, so no more VACUUM or unused-index
+  findings on objects nobody else can touch, and no snapshot churn when they vanish. Unlogged
+  tables are still collected (collection-03).
+- **Late pg_stat_statements.** pg_stat_statements created after pg_sage starts (or dropped and
+  re-created, or updated) is picked up on the next cycle with WAL, plan time and block I/O
+  columns, no restart needed. A major-version upgrade behind the same endpoint no longer stops
+  collection: the system statistics follow the live server version and fall back in both
+  directions (collection-02).
+- **Partition plan fingerprints.** Plan fingerprints (planhash v2) now name partitions by their
+  partition root. Queries on time-partitioned tables no longer report a plan flip at every
+  partition boundary, and plan_regressions v2 does not count the v1-to-v2 fingerprint change as
+  a flip (collection-09).
+- **Meta-mode history reads.** History reads in meta mode now fail closed: with `history.store:
+  meta`, a history read on a database pool that no runtime registered fails with an error
+  (`histstore.ErrNotRegistered`) instead of reading that database's own, wrong history. The SLO
+  latency proxy now also counts a drop in total query time as a statistics reset, and
+  docs/architecture.md describes the collector as the code actually works (collection-12).
+- **Findings filters.** The Advisor and Optimizer source filters now return their findings
+  (they were always empty), Rules now includes wraparound_freeze and six other analyzer
+  categories, Forecaster includes storage_forecast, and each finding row reports action_type,
+  contract_tier, action_risk (the stricter of the producer's and the executor contract's risk;
+  high_risk is shown as high), approval_required and approval_reason, which the Actions tab now
+  shows (rules-07).
+- **Unused-index clock.** The zero-scan clock now survives sidecar restarts (new table
+  sage.unused_index_clock). A restart no longer resolves open findings or restarts the 7-day
+  window, so findings keep their id, history and occurrence count. Open findings from before
+  the upgrade take their clock from snapshot history, or stay open until the clock reaches the
+  window (rules-04).
+- **Findings writes and reopens.** A failed findings write no longer stops the cycle (the
+  remaining findings are still saved), and suppressed findings are never published. A condition
+  that persists after pg_sage acts now reopens the same finding with
+  `detail.persisted_after_action` and pages once, instead of opening a duplicate after a
+  2-minute grace. The window is 2 × max(analyzer, collector interval), 20 minutes by default
+  (rules-06).
+- **Partitioned index rules.** Index rules are partition-aware: indexes attached to a
+  partitioned index are no longer flagged for DROP (PostgreSQL rejects it). An unused
+  partitioned index now gives one advisory finding with a manual DROP that needs approval. A
+  missing FK index on a partitioned table gets a step-by-step partition plan instead of CREATE
+  INDEX CONCURRENTLY. Open findings on attached partition indexes resolve once after the
+  upgrade (rules-03).
+- **Unmeasured database size.** A day without a measured database size (pg_database_size not
+  yet run, timed out, or refused) no longer stops the disk, connection, cache and checkpoint
+  forecasts for the whole lookback; unmeasured days are left out of the disk trend, and with
+  fewer than 7 measured days an open disk finding is kept rather than resolved (forecast-07).
+- **Stale runway findings.** Forecast (runway) findings no longer resolve, then reopen as new
+  findings with a new case and notification, when their series is unmeasured (too few samples,
+  too short a span, or no samples after a gap longer than sre.runways.lookback_hours) or when
+  the trends read hits its row cap. Such a finding stays open with detail.stale, stale_reason
+  and stale_since until it is measured again; a dropped slot or sequence still resolves
+  (forecast-02).
+- **Startup visibility checks.** Startup checks now decide whether query text is visible from
+  pg_read_all_stats membership (INHERIT on PostgreSQL 15+, membership on 14), the same test
+  pg_stat_statements makes, so the "GRANT pg_read_all_stats" warning appears exactly when other
+  roles' text is hidden. A failed WAL or planning-time column check is logged as a WARN with
+  its cause and effect instead of silently turning the columns off. pg_stat_statements
+  installed in a schema outside the role's search_path is found and read qualified instead of
+  degrading monitoring (firstlook-08).
+- **Quoted suggested SQL.** Suggested SQL (first look, agent posture fix scripts, grant
+  guidance, tuning) now quotes every name the server's quote_ident would quote, so tables,
+  columns, schemas or roles named like key words (to, desc, window, user, left, int) give SQL
+  that runs when pasted. The self-managed auto_explain step now adds auto_explain to
+  session_preload_libraries instead of replacing the libraries already there (firstlook-10).
+- **Fleet onboarding.** One unreachable database no longer blanks Getting started and First
+  look. /api/v1/onboarding and /api/v1/first-look now return every database, marking the ones
+  pg_sage could not read with an `error` code (`unreachable`, `no_runtime`, `read_failed`);
+  each read is bounded to 3 s. The dashboard names the affected database, offers Retry when a
+  read fails, and polls the checklist once a minute, stopping once setup is complete
+  (firstlook-03).
+- **Partitioned first look.** On partitioned tables, the index on the parent now stands for its
+  partitions. It is "never scanned" only when its partitions' indexes have no scans in total. A
+  duplicate or redundant parent is reported once, with DROP INDEX (not CONCURRENTLY) and the
+  lock caveat, instead of once per partition with SQL PostgreSQL rejects. An invalid ON ONLY
+  index names its unattached partitions and gives CREATE INDEX CONCURRENTLY plus ATTACH
+  PARTITION instead of a REINDEX. Unindexed foreign keys on partitioned tables no longer get
+  CREATE INDEX CONCURRENTLY (firstlook-04).
+- **Self-configuration flapping.** Self-configuration no longer flaps on noisy databases. A
+  candidate one step from the soaking value keeps the 24 h soak, and a derived value is not
+  re-derived for a one-step move. The cost-sized keys promote the 90th percentile of the soak.
+  The temp-file threshold is judged on the reactive detector's busiest window. A hold writes
+  one ledger row per outcome. A derived value is clamped (new `clamped` ledger event) when
+  other keys narrow its bounds, and is reset when its rule version changes. The new migration
+  adds `sage.config_derived_setting.derivations` (footprint-04).
+- **EXPLAIN cache key.** The EXPLAIN cache no longer answers one query with another's plan. The
+  cache is now keyed on the exact statement text, including literals, comments and planner
+  hints. `$N` inside literals, dollar quotes or comments is no longer treated as a bind
+  parameter. `$0` and parameters above `$65535` are rejected as invalid requests. Old cache
+  rows expire within the TTL, so no migration is needed (tuning-07).
+- **One hint per statement.** One pg_hint_plan hint per statement is now enforced against
+  sage.query_hints and hint_plan.hints on every proposal, not only the in-memory cooldown.
+  pg_sage no longer proposes over an installed or operator-installed hint: an operator hint
+  gets an informational "operator hint present" finding with no SQL. The apply INSERT now fails
+  with a unique violation instead of silently doing nothing over an existing row, and hints
+  stay advisory unless hint_plan.hints has pg_hint_plan 1.7's (query_id, application_name)
+  unique index (tuning-02).
+- **Query tuning resolution.** Open query_tuning findings now resolve. A finding resolves once
+  its hint is installed, retired, rolled back, rejected or expired, or once its statement has
+  been absent from pg_stat_statements, or below the tuner's admission thresholds, for
+  `tuner.hint_absent_cycles` cycles (default 3). Hint proposals an operator rejected become
+  `rejected`, and proposals unanswered for 30 days become `expired`. Neither blocks a new hint
+  for the statement. No proposal is recorded while hints cannot reach application sessions.
+  `sage.query_hints.status` gains a NOT VALID CHECK (tuning-06).
+- **Index extension check.** The extension check now goes by the index's operator classes and
+  its geometry/geography key columns, not by substrings. Trigram GiST indexes, btree_gist
+  classes and index names containing "st_" or "trgm" are no longer rejected as needing PostGIS
+  or pg_trgm. The pg_extension read is bounded, a failed read no longer counts as "not
+  installed", and a rejection names each missing extension with its CREATE EXTENSION command
+  (indexes-08).
+- **HypoPG what-if.** HypoPG what-if evidence no longer gets stuck. An extension installed
+  while pg_sage runs is noticed within 10 minutes, with no restart. GIN, GiST, SP-GiST, HNSW
+  and IVFFlat index recommendations are marked unverified with the method named (HNSW and
+  IVFFlat also point to `pg_sage vector-lab`) instead of showing "what-if evaluation failed".
+  Lowering `optimizer.hypopg_min_improvement_pct` re-measures remembered rejections. A partial
+  measurement's reason and approval card show the planned improvement and the unplanned
+  queryids (`what_if_measured`, `what_if_unplanned_queryids`) (indexes-06).
+- **Schema attribution.** Index advice now attributes workload statements to the right table
+  outside `public` (for example an app on `search_path=app`), including quoted mixed-case
+  names, every relation of a FROM list and `FROM ONLY`, so those tables get HypoPG-verified
+  recommendations with affected queryids. A name held by both `public` and another schema still
+  resolves to `public` (indexes-04).
+- **Managed configuration scope.** Managed clouds (RDS, Aurora, Cloud SQL, AlloyDB, Azure,
+  Neon, Supabase, Lakebase): configuration findings now use ALTER DATABASE only when the
+  setting's pg_settings context allows it. That means user context, or superuser context when
+  the role holds SET on the parameter (PG15+). Settings such as max_wal_size, checkpoint_* and
+  the autovacuum_* instance knobs now become managed proposals or provider guidance, not SQL
+  PostgreSQL refuses. The executor refuses a stale ALTER DATABASE for them on every managed
+  provider. Neon/Supabase database-scope changes no longer need an LLM-supplied rollback.
+  Approval counts on managed providers drop, and managed proposals appear instead
+  (advisors-01).
+- **Configuration advisor findings.** Open WAL and connection findings now resolve once the
+  live setting equals the recommendation (units normalized), rewrite findings after their query
+  leaves pg_stat_statements for 3 cycles, and bloat findings after 2 cycles under the floor. An
+  open finding now holds back only its own setting, query or table instead of the whole
+  sub-advisor. Each sub-advisor's schedule is kept in sage.advisor_runs, so a restart makes no
+  extra model call and a failure retries after 1h, doubling up to advisor.interval_seconds.
+  advisor_degraded resolves when the LLM comes back. Global GUC advice is kept next to
+  per-table overrides and lists them in detail.overridden_by_tables. The first run after
+  upgrade resolves WAL findings that were already applied (advisors-02).
+- **WAL prompt units.** The WAL prompt now shows page-counted settings such as wal_buffers in
+  byte units ("4MB", not "5128kB"), and a config change withheld on Neon, Supabase or Lakebase
+  now names the setting and the provider (advisors-10).
+- **Inconclusive recommendations.** A recommendation whose action had a neutral or failed
+  verification (outcome success with an unverifiable/failed verification verdict) is now marked
+  "inconclusive" instead of "verified", matching the Cases timeline; it stays "verifying" while
+  its verification is pending, extended or about to be recorded. Recommendations already marked
+  verified are not backfilled (cases-03).
+- **Interrupted rollbacks.** A rollback interrupted by a crash no longer stays `rolling_back`
+  for ever. Each cycle, the primary settles any such claim older than
+  `safety.ddl_timeout_seconds` plus one minute by reading the catalog, with no DDL:
+  `rolled_back` if the rollback took effect, otherwise a retryable `rollback_failed`
+  ("interrupted during rollback"). Outcome writes are retried with backoff and logged when they
+  still fail. The Actions page now offers "Retry rollback" and shows the reason on
+  `rollback_skipped` and `rollback_failed` actions (executor-07).
+- **CONCURRENTLY build remnants.** Failed CONCURRENTLY builds no longer leave INVALID indexes
+  behind, and long builds get their own timeouts. When a `CREATE INDEX CONCURRENTLY` or
+  `REINDEX ... CONCURRENTLY` fails, pg_sage now drops the INVALID index it left, but only after
+  confirming it is that build's own object (same OID, still INVALID, same table, no build
+  running on it). A VALID index is never dropped. The outcome is recorded as `remnant_cleanup`
+  on the action, and the build is retried on its next eligible cycle. A build withheld because
+  its index name was taken is parked until that name is gone. New settings
+  `safety.index_build_timeout_seconds`, `safety.reindex_timeout_seconds` and
+  `safety.vacuum_timeout_seconds` (default 14400 s, range 60-86400 s) set the statement timeout
+  for those operations; all other DDL keeps `safety.ddl_timeout_seconds`. Operator-approved
+  CREATE INDEX over an INVALID index of the same name is now refused with the command that
+  clears it, instead of dropping that index by name (executor-05).
+- **Fleet canary verdicts.** Each database's change is now judged on that database's own
+  verification verdict instead of after a fixed 60 s settle. Before, every canary of a
+  reversible action halted and rolled back. The wait ends at the action's monitor cap plus 2
+  minutes; a verdict still open then halts as `verification_pending` and nothing is rolled
+  back. The source action must be verified `success`. A rollout error now rolls back every
+  changed database; one whose rollback also fails is recorded `applied_unverified`.
+  `sre.autonomy.canary.settle_seconds` is removed: it is ignored with a startup warning for one
+  release (executor-04).
+- **Snoozed approval cards.** When one snoozed card fails to re-send, the others are still sent
+  and the failed one is retried after 5 minutes. A twice-snoozed action now posts its verdict
+  once per chat. Follow-ups still waiting for a verdict no longer hold up newer cards: the new
+  next_check_at column replaces the follow-up index (policy-06).
+- **Freeze measurement.** A custodian freeze of a table that is red because of its own
+  autovacuum_freeze_max_age reloption, or because of its TOAST relation, is now measured the
+  way the custodian ranked it. Its wraparound near miss is credited and the post-check checks
+  the right horizon. A freeze withheld because the sidecar role lacks the VACUUM privilege now
+  reports that missing privilege (vacuum-09).
+- **On-demand EXPLAIN lock waits.** The auto_explain collector's on-demand EXPLAIN now gives up
+  after 100 ms on a busy relation lock (the SRE probes' lock_timeout) and sets a 10 s
+  idle-in-transaction timeout. Before, it could wait up to 5 s per candidate behind a queued
+  ALTER TABLE while holding its other locks. Lock-busy candidates are skipped until the next
+  cycle and summarised in one INFO line ("N candidates skipped: lock busy") instead of a WARN
+  each (rca-05).
+- **Log RCA messages.** Log-based RCA now recognises the messages PostgreSQL actually writes
+  for backend crashes (kill -9, segfault), replica WAL gaps and replication-slot invalidation
+  on PG 14-18. XX000 internal errors such as "cache lookup failed" are reported as a warning
+  (log_internal_error) instead of critical data corruption. New incidents cover the XID
+  wraparound outage and the MultiXact wraparound warning and outage. pg_sage warns at startup
+  when lc_messages is not C or English (rca-02).
+- **RCA rate signals.** RCA rate signals now compare the last collector interval with the one
+  before. wal_growth_spike uses the cluster's WAL rate from the WAL insert position, against
+  wal_spike_multiplier with a 1 MiB/min floor; it gives no signal on the first interval, after
+  a failover or on a standby, and only the cluster owner reports it. cache_hit_ratio_drop uses
+  the interval hit ratio. The cache tree compares reads per call. idle_in_tx_elevated uses the
+  longest idle session, not the average. The connection-storm branch counts sessions opened per
+  minute (pg_stat_database.sessions). These signals no longer need the LLM advisor's
+  configuration snapshot (rca-03).
+- **Fleet RCA.** A cluster-wide event (PANIC, disk full, archiver, connection saturation,
+  replication lag) now opens one incident on the cluster's owner database (lowest database name
+  per host:port), not one per database. Connection saturation counts client backends. A
+  database removed at runtime frees its log buffer, and ownership moves to the next database
+  (rca-08).
+- **Thinking-model investigations.** SRE investigations on thinking models (Gemini 2.5/3,
+  o-series, R1) no longer end without a conclusion near their token cap. The loop now counts
+  the 2,048 reasoning tokens each call reserves, so it asks for the conclusion while that call
+  still fits. If the investigation's own cap refuses a call anyway (for example on a resumed
+  run), the call is retried once as conclusion-only. Daily-allocation refusals still stop the
+  run (sre-04).
+- **Investigation retries.** When an investigation of a still-open incident, finding or
+  detector episode expires (it waited more than 10 minutes unclaimed, or resumed on evidence
+  too old to conclude), the next trigger poll now starts a new attempt, up to 5 per trigger.
+  The Cases panel and the exports link the attempts. Stop is a pause that never expires, and
+  every queue expiry is recorded on the investigation's event chain (sre-01).
+- **Playbook selection.** Incident cases now pick their playbook from the signal ids RCA
+  actually emits. Replication lag, WAL growth, inactive-slot and removed-WAL-segment incidents
+  get the read-only WAL diagnostic; replication conflicts get the standby diagnostic;
+  slow-query and statement-timeout incidents get the runaway playbook;
+  autovacuum-falling-behind gets vacuum pressure; wraparound, prepared-transaction and
+  xmin-holder incidents get the freeze-blocker diagnostic; and out-of-memory incidents no
+  longer get a connection diagnostic. Sequence-exhaustion, inactive-slot, replication-lag and
+  runaway-query findings now carry their reviewed script or read-only diagnostic (never a slot
+  drop). Shadow-mode candidate counts will rise accordingly (playbooks-02).
+- **SLO burn rules.** A burn-rate rule whose known window is below its factor is now "not
+  firing" (Kleene AND) instead of unknown when the other window only has low traffic, zero
+  events or partial coverage, so a quiet low-traffic service no longer goes unknown or caps
+  autonomy at L1. Stale, absent or failed data still keeps it unknown. Prometheus SLOs accept
+  an optional `sre.slo.objectives[].coverage_query` that marks windows `partial_window` or
+  `stale` like pushed series; without it the SLO reports `coverage_unverified` and the SLOs
+  page shows a "coverage unverified" badge (playbooks-07).
+- **Stuck maintenance runs.** A statistics run or rollback that crashed (or failed to write its
+  result) is no longer stuck in `executing`/`rolling_back`. After 13 minutes by default (twice
+  the apply timeout plus one minute), the action pass checks the catalog and the action log
+  under the table lock. It then settles the run as `uncertain` (rollback available), `failed`,
+  `rolled_back` or a retryable `rollback_failed`. It never re-runs the SQL and never claims an
+  object it cannot prove (playbooks-05).
+- **Fleet Cases.** Fleet Cases no longer goes blank when one database is down or slow: each
+  database is read concurrently under a 5 s deadline. The response lists unreadable databases
+  in `unavailable` (timeout, connection or query) and per-source cuts in `truncated`. `?case=`
+  loads a case the list cap dropped, and `actions_unavailable` marks cases whose action history
+  could not be read. A request for one unreadable database now answers 503 instead of 500
+  (cases-05).
+- **Partitioned describe_table.** Ask Sage's describe_table now reports a partitioned table's
+  partition count and key, sizes and row estimates summed over its partitions, and their oldest
+  and newest vacuum and analyze times, instead of "0 bytes total, about 0 rows, never
+  vacuumed". A table that was never analyzed says "row estimate unavailable". An unquoted
+  mixed-case name such as public.Orders finds orders. The read is bounded by a 2 s statement
+  timeout and a 1 s lock timeout (mcp-03).
+- **Fact citation aliases.** Ask Sage's propose_fact now accepts the E-aliases (E1, E2, ...)
+  the model is told to cite and records each one's durable id and digest; durable ids still
+  work, and anything not read in the turn is still refused (mcp-02).
+- **Live investigation limits.** The specialist contract's live-investigation limits
+  (max_open_per_identity, max_open_total) no longer forget running investigations while their
+  database is reloading, reconnecting or briefly missing from the fleet. Such an investigation
+  still counts as live until a read shows it ended, or until the new
+  specialist.max_live_age_hours (default 24, 1-168) passes for one that stays unreadable
+  (mcp-10).
+- **MCP docs line endings.** The MCP tool-reference docs test no longer fails on Windows
+  checkouts with core.autocrlf=true: docs/mcp.md is now pinned to LF line endings (run `git
+  checkout -- docs/mcp.md` once on an existing checkout) (mcp-11).
+- **MCP stdio.** MCP stdio no longer stops for the rest of the process on a message over 4 MiB:
+  the line is rejected with -32600 and serving continues. Each tool call now runs on its own
+  (up to 4 at once) under the new `mcp.call_timeout_seconds` (default 90, 5-600, -32800 on
+  timeout), and `notifications/cancelled` cancels a running call (mcp-04).
+- **Fact reads and prompts.** A confirm, reject or expire is no longer hidden for up to 10 s by
+  a confirmed-facts read already in flight, and model prompts now keep slot, window and
+  append-only facts first when the 12-fact/1,500-character budget cuts, ending with "N more
+  confirmed facts omitted." (facts-11).
+- **Fixture fact patterns.** The first look no longer proposes a test-fixture family pattern
+  (for example test_memory_*) while a live test-named schema matches that pattern; it now uses
+  the same rule as the fixture detector. docs/facts.md now names the surfaces that carry and
+  propose facts, and covers partitioned tables and the in-memory absence grace (facts-12).
+- **Rejected slot facts.** Rejecting or expiring a slot_consumer fact now unregisters the slot
+  in sage.slot_consumer_registry, so the WAL custodian stops treating it as a protected
+  consumer. Rejected facts are kept as tombstones and are no longer purged after
+  retention.actions_days, so a purge can no longer turn a rejection back into a confirmed fact.
+  Slots rejected before this release stay registered until you act: docs/facts.md has the SQL
+  to find them (facts-04).
+- **Agent posture churn.** Agent posture no longer re-runs on temporary-table churn, reports
+  catalog reads that hit their row limit (50,000 for AP-01..AP-08, 5,000 for AP-09..AP-16) in
+  the check note and a warning, and keeps a truncated detector's open findings open. In schemas
+  with more than 20 exposed objects, the per-object AP-03, AP-05 and AP-06 findings resolve
+  once and are replaced by one schema finding with a schema-wide fix script (agentgov-09).
+- **Truncated answers.** LLM answers cut at the model's token limit: truncated prose is no
+  longer rewritten into a JSON fragment; truncated JSON objects (not only arrays) are repaired
+  with their wrapper intact; a briefing cut at the limit is stored as written with "_(cut at
+  the model's token limit)_" appended and a WARN logged (llm-07).
+- **LLM token cap.** The daily LLM token cap is now enforced as written. Resets and the UTC day
+  turn no longer drop the holds of calls still in flight, so pg_sage can no longer over-admit,
+  and a fleet budget reset during a call is charged correctly. The policy cap
+  `budgets.llm_tokens_daily` now applies: each client's limit is the stricter of the policy and
+  `llm.token_budget_daily`. The new hot-reloadable key `llm.global_token_budget_daily` caps the
+  sum across all clients. Its default of 0 derives the cap from the fleet budget, or from the
+  sum of each client's budget, so default spend is unchanged. `/api/v1/llm/status` shows the
+  cap as `global` (llm-03).
+- **Blocked migrations.** An MCP apply_migration that the policy gate blocks is now recorded in
+  sage.migration_run as verdict 'blocked' with the gate's reason, instead of failing with a
+  CHECK violation. Every recommend-only plan without gate evidence now gets its own evidence
+  id, and a rewrite of an existing row refreshes its source_sql_hash and reason. This adds a
+  one-time schema migration on sage.migration_run (migration-03).
+- **Schema guard failures.** A failing remediation route (for example an FK index build hitting
+  lock_timeout on a hot table) is now parked with its error class and the scan continues to the
+  other invariants; the failure is recorded once per class instead of every cycle, a connection
+  failure stops the scan without re-recording unreached invariants, and after 3 consecutive
+  failures the route is paused for 6 scans (migration-08).
+- **Migration advisor counts.** Findings seen by both the activity poller and the log detector
+  at the same moment are now all counted, where some were lost to a duplicate-key error. Stale
+  migration findings are resolved once per interval per database instead of twice. VACUUM FULL
+  and CLUSTER advice mentions pg_repack only when the server's pg_available_extensions lists
+  it. `lint_migration` accepts `pg_version` as a major (14-18) or a server_version_num
+  (140000-189999) and rejects anything else. The unused `migration.managed_service` key is
+  retired: configs that still set it load with one warning (migration-12).
+- **LLM budgets across restarts.** LLM daily budgets now survive restarts: today's spend for
+  each client, the global ceiling and each fleet database's share is written to
+  `sage.llm_usage` in the control database every 60 s and on shutdown, and is restored at
+  startup. A deploy, crash loop or `/restart` mid-day no longer grants the full daily budget
+  again. `GET /api/v1/llm/status` reports `usage_restored_at` and `ledger_last_flush_at`. If
+  the control database is unreachable, LLM calls continue on local accounting and one warning
+  is logged per outage (fleet-10).
+- **Per-channel resolves.** Resolve notifications are now tracked per channel. If PagerDuty
+  fails while Slack succeeds, PagerDuty alone is retried, so its incident no longer stays open.
+  Each failure leaves a `resolve_error` row in the Alert Log with the channel's error and is
+  logged at ERROR. Retries stop after 5 failures per channel, and that last ERROR log says to
+  close the alert by hand. Channels that never received the original alert no longer get a
+  resolve (alerting-04).
+- **Alert order.** Alerting now sends alerts critical first, then warning, then info, then any
+  other severity by name, and resolve notifications follow the same order. Before, the order
+  was random each cycle, so a critical page could wait behind every warning sent to a slow
+  Slack (alerting-05).
+- **Audit payload versions.** Audit chain verification now reports `unknown_version` for a link
+  whose payload version is not the one pg_sage hashes rows with, instead of checking it with
+  the wrong rules; canonical hashes and hashed column types are pinned in CI on PostgreSQL
+  14-18 (audit-09).
+- **SIEM isolation.** SIEM export now isolates failures per sink, source and chain: an
+  unreachable fleet database or a failing chain no longer stops the others, each with its own
+  backoff. An event a receiver refuses for good (HTTP 400/413/422, OTLP rejected records, an
+  oversize syslog message) is replaced by a stub labelled "undeliverable" carrying its link
+  hashes, with a siem_event_undeliverable warning, and GET /api/v1/audit/siem now lists
+  per-lane cursor, head, lag and state (audit-05).
+- **Session store outages.** Dashboard sessions survive control-database blips: when the
+  session store cannot be reached the API now answers 503 `auth_store_unavailable` with
+  `Retry-After: 5` (logged at most once per 30 s) instead of 401, and the dashboard shows a
+  "Session store unavailable, retrying" banner or a boot retry screen rather than signing
+  operators out (apiauth-02).
+- **SSO discovery.** SSO no longer turns off until restart when OIDC discovery fails at
+  startup: pg_sage retries on backoff (2 s, doubling to at most 5 min), re-reads the discovery
+  document daily while keeping the last good keys, answers 503 `sso_not_ready` (not 404) and
+  shows "SSO temporarily unavailable" on the login page while discovery has not yet succeeded,
+  and exports `pg_sage_sso_discovery_ready` and `pg_sage_sso_discovery_failures_total`
+  (apiauth-07).
+- **Live update recovery.** Live updates now recover by themselves when a reconnect is refused
+  (for example a proxy 502/504 while the sidecar restarts). A new stream opens after 3 s,
+  backing off to 60 s with jitter. The header shows whether data is "Live", "Polling, updated N
+  s ago" or "Offline, data from HH:MM" (dashboard-04).
+- **Dashboard error messages.** Failed requests now show the server's own error message with
+  its status (for example "database not found (404)") instead of a bare status code, error
+  toasts stay on screen until dismissed, and every error banner is announced as an alert
+  (dashboard-05).
+- **Refresh failures.** A failed refresh now shows a "Refresh failed at HH:MM (reason). Showing
+  data from HH:MM · Retry" strip and keeps the page instead of replacing it with a full-page
+  error. "Load more" pages on Actions (and Findings) now survive the 30 s refresh, polls and
+  live events, with no duplicate rows (dashboard-01).
+- **ConfigMap reloads.** Config hot reload now picks up Kubernetes ConfigMap edits (the
+  kubelet's ..data symlink swap) and debounces bursts of file events into one reload; a
+  rejected file is retried after it changes or is touched (config-06).
+- **Startup migrations.** Startup schema migrations now skip changes the catalog already shows,
+  so a restart takes no DDL locks on sage tables. The bootstrap session waits at most 2 s for a
+  lock (lock_timeout), retries a blocked step within a 10 s budget, then fails naming the step.
+  A missing or invalid sage.config key index (idx_config_key_db) now fails startup and keeps
+  /ready at 503 instead of silently breaking config writes. One INFO summary line is logged per
+  boot (config-04).
+- **Replica convergence.** Replicas that share a control database (meta mode, standalone
+  replicas) now converge on global settings within 30 s; a stale replica's 409 carries the
+  fresh generation so the retry succeeds, and GET /api/v1/config reports last_resync_at
+  (config-05).
+- **Leader lease renewal.** Each lease renewal now times out after a third of the lease, so a
+  stalled control connection or an exhausted pool no longer stops renewals and leader-only jobs
+  for good. A lapse is counted and logged once at WARN. The leader status API shows
+  `last_renew`, and `/metrics` exports `pg_sage_leader{scope}`,
+  `pg_sage_leader_transitions_total{scope}` and `pg_sage_leader_last_renew_age_seconds{scope}`
+  (fleet-05).
+- **Fleet control database.** `fleet_learning.control_database` pins the leader lease to one
+  YAML database, so sidecars never lead from different databases; unpinned multi-sidecar fleets
+  warn and refuse leadership, and GET /api/v1/fleet/leader reports control_datname and
+  control_system_identifier. `fleet_learning.orphan_scope_days` (14) prunes the state of
+  renamed or retired fleets. Approval card follow-ups are claimed under the leader lease, so a
+  handover cannot post them twice (fleet-03).
+- **Metric label escaping.** /metrics label values are now escaped the way the Prometheus text
+  format requires (a database or SLO name with a tab, control character or invalid UTF-8 no
+  longer breaks the whole scrape); new `pg_sage_build_info{version,commit}` and
+  `process_start_time_seconds`; a database removed by a fleet reload, or deleted or renamed in
+  meta mode, no longer leaves policy-park, record-failure or shadow counter series behind;
+  series order is stable across scrapes. No metric is renamed (observability-07).
+- **Aurora instance endpoints.** Aurora databases reached through an instance endpoint (for
+  example the writer's own endpoint) are now reported as Aurora instead of RDS, so
+  restart-required findings get managed proposals again. The telemetry status shows the cluster
+  and the instance's role (writer, reader or unknown). A reader's proposal warns that its
+  parameter group may differ from the writer's, and a disagreement between the detected
+  platform and the RDS engine is reported as one target error naming the instance (clouds-03).
+- **Telemetry backoff.** Cloud telemetry backs off after failed polls: up to 30 minutes when
+  credentials are missing, the identity is unknown or access is denied, and up to 10 minutes
+  (with jitter) for throttling and other transient errors. It logs once when a failure starts
+  or changes and once on recovery, instead of every minute. GET /api/v1/cloud-telemetry now
+  shows next_poll_at and consecutive_failures (clouds-06).
+- **Supabase observability.** The log query now filters by the monitored database, so a busy
+  neighbour can no longer fill the 1000-row cap. Malformed log records are skipped and counted
+  with one warning per poll, without stalling the batch. Fresh Supabase host memory now feeds
+  the advisor and tuning memory gates, such as the work_mem cap of 5% of RAM. Supabase CPU and
+  memory status appears in GET /api/v1/cloud-telemetry (clouds-10).
+- **Lakebase credentials.** Database credentials now refresh 15 minutes before expiry. Each
+  refresh is limited to 20 seconds and runs one at a time, so new connections no longer queue
+  behind it. If a refresh fails, new connections keep using the cached credential while it has
+  more than 30 seconds left, with one warning per minute. At startup, a throttled or
+  unavailable endpoint lookup is retried with backoff instead of stopping pg_sage, and a
+  403/404 stops it at once with the endpoint named (databricks-01).
+- **Lakebase telemetry windows.** Busy streams now keep up. Forward reads stay
+  settle_lag_seconds (default 120) behind now and use a per-stream width that adapts and
+  survives restarts. Each poll adds one short reconcile read per stream over the
+  short_lookback_seconds (default 2 h) behind the forward edge, plus a 7-day deep sweep at most
+  once a day. queries_per_poll now defaults to 2x streams+4 (16), and status reports
+  forward_lag_seconds and reconcile_progress per stream (databricks-03).
+- **Lakebase delivery.** One failing event no longer stalls delivery for the whole binding. A
+  failed plan is retried with backoff (30 s up to 15 min) while later events keep flowing, and
+  after 5 attempts it is counted as `delivery_failed`. Plans that can never be stored count as
+  `rejected_row`. Sink outages (timeout, connection, SQLSTATE 08/57) spend no retry attempt.
+  Only `plan_history` events queue for delivery; the other streams are acknowledged when
+  stored. Telemetry status now reports a per-consumer `delivery` backlog with `pending_rows`
+  (capped at 10,001), `pending_rows_capped`, `oldest_pending_at` and
+  `oldest_pending_age_seconds`. The schema upgrades to v6 automatically (databricks-05).
+- **Lakebase endpoint IDs.** OAuth, history telemetry, telemetry scope and the Apps
+  configure.py now share one endpoint ID rule (1-63 lowercase letters, digits or hyphens, no
+  leading hyphen), so endpoints such as projects/1abc/... that already authenticated now also
+  pass lakebase_observability validation. lakebase_observability.bindings[].endpoint may now be
+  omitted and is taken from SAGE_LAKEBASE_ENDPOINT(S) for the binding's host. IDs with a
+  leading hyphen or more than 63 characters are now refused at startup (databricks-11).
+- **Shadow evidence.** An index create, drop or replace that pg_sage made itself, or an index
+  that disappeared with its table, no longer counts as external shadow evidence. Scoring passes
+  now also read the newest pending decisions, so expect shadow external counts to fall on busy
+  databases (new partial index sage.idx_action_log_index_ddl) (earned-03).
+- **Operator rollbacks.** An operator's rollback of an incident-family L2 handoff or L3 action
+  now demotes that pair one level and no longer counts toward the verified L2 recoveries L3
+  needs, whether it came before or after pg_sage recorded the action. Rollbacks from before the
+  upgrade are not re-judged (earned-01).
+- **Live-outcome cursor.** The live-outcome reconciler now reads each database's L2 handoffs
+  and L3 executions forward from a stored cursor, with a pending set for actions still waiting
+  on a verdict or notice. On busy databases the newest actions, including harmful outcomes, are
+  recorded and notified within a few passes instead of never. Idle passes no longer re-insert
+  outcomes, clear the evidence cache or rewrite sage.trust_ledger_state. Additive migration
+  adds handoff/auto cursor columns (earned-02).
+- **Value report.** `GET /api/v1/value?until=` now includes its own day (`since == until` is a
+  one-day report). Credit follows only the verification the action links to. A rollback voids
+  its incident credit (`incident_avoided.reverted_at`). The unproduced `lock_storm` kind and
+  `prevented` severity are retired. `pg_sage_incidents_avoided_total` is now a gauge, and value
+  metrics come from each database's metrics refresher rather than a read on every scrape
+  (earned-09).
+- **Serialized bench runs.** Game days and "Run bench locally" on a shared local_dsn target now
+  run one at a time, both within the sidecar and across sidecar processes (advisory lock in the
+  target server's postgres database). A refused run gets 409 naming the holder and records
+  nothing. Benches sharing a server no longer grade each other's prepared transactions or decoy
+  actions as forbidden actions, so families are no longer falsely demoted. Each database's
+  first game-day check is staggered (5-60 min) so a fleet does not start its game days together
+  (benches-01).
+- **Abandoned bench runs.** Game days and local bench runs now record their clone as soon as it
+  exists. A run still 'running' 6 hours after it started (its sidecar crashed) is marked
+  'abandoned' and its clone destroyed. Each bench run first resets leftover ALTER SYSTEM
+  settings, inactive bench slots and old bench prepared transactions that a crashed run left on
+  the target (benches-03).
+
+#### Changed
+
+- **Foreign key snapshot.** Foreign keys are now collected once per constraint, with the schema
+  of both sides, the columns in declared order and no per-partition clones, so the foreign_keys
+  snapshot is stored as changes instead of in full every cycle. missing_fk_index is now
+  schema-aware: it reports the unindexed tenant in schema-per-tenant layouts, lists composite
+  index columns in key order, and checks keys on partitioned tables against each leaf
+  partition. The foreign_keys document from /api/v1/snapshots/latest now has one element per
+  constraint, with `schemaname`, `ref_schemaname`, `columns` and `oid` replacing `fk_column`
+  (collection-04).
+- **Interval statistics.** Each snapshot's system stats now record the database's block,
+  transaction and temp-byte counters, plus an `interval` of what changed since the previous
+  snapshot (hit ratio, blocks, deadlocks, transactions, temp bytes, I/O time, checkpoints).
+  Unknown values are null across a statistics reset. The `cache_hit_ratio` finding now judges
+  the last interval, needs at least 10,000 blocks accessed, and reports the lifetime ratio in
+  its detail (collection-06).
+- **Query text reads.** The queries read now ranks pg_stat_statements on its counters alone.
+  Texts are read only for statements new to a per-collector cache (at most 4 x
+  collector.max_queries entries and 32 MiB) or due their hourly refresh, so a steady workload
+  reads the query-text file about once an hour instead of every cycle on every database.
+  Classification near capacity now runs at most hourly, and only when the entry count or
+  dealloc count moved (collection-11).
+- **Replication slot findings.** `inactive_slot` now waits until a slot has been inactive for
+  `analyzer.inactive_slot_min_minutes` (default 5, settable through the API), measured from
+  `inactive_since` on PG17+. A `wal_status` of extended/unreserved/lost reports at once.
+  Temporary slots and synchronized failover slots on a standby are no longer reported. The
+  finding is now `high_risk` and carries no executable SQL: the drop is in `detail.manual_sql`
+  and needs approval. `replication_lag` findings are now named
+  `replica:<application_name>@<client_addr>`, so open rows under the old row-index name resolve
+  once after the upgrade (rules-09).
+- **XID and multixact runways.** XID and multixact runway findings now open only once the
+  cluster age reaches autovacuum_freeze_max_age (autovacuum_multixact_freeze_max_age). They are
+  projected with the net age slope, and the detail records the gate and the projection basis,
+  so busy, healthy clusters stop raising permanent wraparound warnings. On upgrade, open XID
+  findings on clusters below the setting resolve on the first measured tick (forecast-01).
+- **Sequence runway.** Sequence exhaustion has a single forecast, the runway
+  (forecast_sequence_runway). It now covers descending sequences (toward the higher of MINVALUE
+  and the owning column's minimum) and keeps sampled sequences listed when 50 others overtake
+  them. The forecaster's forecast_sequence_exhaustion rule is retired: its open findings are
+  resolved on upgrade ("superseded by forecast_sequence_runway"), and
+  forecaster.sequence_warn_days and forecaster.sequence_critical_days now load with a warning
+  and have no effect (forecast-05).
+- **Checkpoint forecast.** Checkpoint forecast (forecast_checkpoint_pressure) now counts only
+  requested (WAL-triggered or explicit) checkpoints per hour between closed days, so idle
+  servers and the time of day no longer trigger it. It skips stats resets, warns at
+  forecaster.checkpoint_requested_per_hour (default 2) and advises raising max_wal_size. After
+  an upgrade the rule waits 8 closed days of new snapshots before it evaluates (forecast-03).
+- **Cache pressure forecast.** Cache pressure forecast now judges each closed day's own cache
+  hit ratio (blks_hit share of the day's block accesses between snapshots) instead of the
+  lifetime ratio: "low" means the newest usable day is below forecaster.cache_warn_threshold,
+  "declining" needs a drop of at least 1 percentage point (R² > 0.5), days with fewer than
+  forecaster.cache_min_blocks_per_day (new, default 100000) block accesses or no data are left
+  out rather than read as -100%, and findings name the top 5 tables by heap blocks read that
+  day and shared_buffers; after upgrade the category stays unevaluated (open findings kept)
+  until 7 days of new snapshots exist (forecast-04).
+- **Invalid indexes in first look.** An invalid index that is still being built now shows as
+  information with no SQL. A `_ccnew`/`_ccold` copy left by a failed REINDEX CONCURRENTLY gets
+  `DROP INDEX CONCURRENTLY`. A failed unique index gets a read-only duplicate-key query to run
+  before any rebuild. If builds by other roles cannot be seen, the items say so (firstlook-06).
+- **Grant more.** Grant more now lists each role that owns tables pg_sage cannot act on, with
+  its table count, and gives a real GRANT for each (or, for a superuser owner, advice to
+  reassign its tables). It warns that owner membership confers DROP and TRUNCATE, leads with
+  pg_maintain on PostgreSQL 17+, and adds a sequence SELECT grant naming the exact schemas. The
+  startup check now shares pg_signal_backend and sequence checks with it, so a member granted
+  WITH INHERIT FALSE is reported missing, with SQL that fixes it (firstlook-09).
+- **Self-cost measurement.** pg_sage's measurement of its own cost now runs as a bounded
+  read-only query (safety.query_timeout_ms / lock_timeout_ms), reads the sage schema size once
+  per analyzer cycle for sage_footprint, sage_self_cost and the storage self-budget, loads
+  pg_stat_statements query texts only when new entries appear, works on pg_stat_statements 1.8,
+  and on older versions reports statement cost as unknown (schema counters still measured) and
+  logs once to run ALTER EXTENSION pg_stat_statements UPDATE (footprint-03).
+- **Per-database self-cost.** pg_sage's per-cycle self-cost (sage_self_cost,
+  pg_sage_self_*_per_cycle, sidecar CPU per cycle) is now normalized to the period each
+  database's collector actually runs, not the global collector.interval_seconds. The
+  database-time budget inherited from analyzer.self_cost_budget_ms is now per database,
+  exported as the new pg_sage_self_budget_database{database,resource="db_time"} series, and
+  each database's pg_sage_self_budget_exceeded{resource="db_time"} flag is compared against it.
+  Before a database's collector starts, its cost is reported as unknown instead of assuming 60
+  s (footprint-02).
+- **Third-party monitors.** Third-party monitors' statistics-view reads (Datadog, pganalyze,
+  pgwatch) now count as workload in advice and never as pg_sage's own cost. A monitored or meta
+  database named `sage` keeps its `sage_self_cost`, `sage_self_budget` and `sage_footprint`
+  findings, whose titles now name pg_sage. A one-time migration resolves open pre-tagging
+  pg_sage findings with reason "pre-tagging pg_sage statement" (footprint-06).
+- **Nested-loop rule.** The bad-nested-loop rule now honours tuner.nested_loop_row_threshold.
+  It prescribes HashJoin (or ANALYZE on a stale table) only when the row estimate is off by
+  more than 10x on the join or its outer side and the inner side read at least the threshold
+  rows over all loops (default 10000), so small misestimated joins get fewer HashJoin hints and
+  ANALYZEs. tuner.revalidation_keep_ratio, revalidation_rollback_ratio and
+  revalidation_explain_timeout_ms never had an effect and are now retired: they load with a
+  warning and are ignored (tuning-09).
+- **Hint readiness.** Query hints are offered as executable SQL only when they would actually
+  change application plans: pg_hint_plan preloaded for application sessions,
+  `pg_hint_plan.enable_hint_table` on for the database or role, the pg_hint_plan 1.7 hint
+  table, and INSERT/DELETE on it. Otherwise `query_tuning` findings stay advisory with a
+  `hint_readiness` detail naming what is missing. The facts are re-read every tuner cycle (no
+  restart needed) and appear in the fleet capability report. Behaviour change: installs with
+  `enable_hint_table` off (the default) stop getting executable hints; enable with `ALTER
+  DATABASE mydb SET pg_hint_plan.enable_hint_table = on;` (tuning-04).
+- **Fresh plans.** A cached plan now drives hints only while it is fresh, meaning newer than
+  tuner.plan_max_age_minutes (new, default 1440), newer than the last ANALYZE of its tables and
+  newer than pg_sage's last action on them. A stale plan is replaced by one bounded plain
+  EXPLAIN (GENERIC_PLAN on PG16+) or not used. Plans without actuals never yield spill or
+  nested-loop hints. Each plan is read once per candidate. Agent explain results and
+  query_tuning findings show the plan's source, captured_at and age_seconds (tuning-08).
+- **INCLUDE column cap.** The optimizer now enforces `llm.optimizer.max_include_columns`
+  (default 3; 0 or less means 3). It refuses a proposed index with a wider INCLUDE list before
+  the HypoPG what-if, and the reason names the cap. `llm.optimizer.over_indexed_ratio_pct`,
+  `llm.index_optimizer.over_indexed_ratio_pct` and `llm.optimizer.plan_source` never had an
+  effect and are retired: a config that still sets one loads and prints one startup warning per
+  key, so remove them (indexes-11).
+- **Write-heavy admission.** Index admission no longer refuses candidates on write-heavy tables
+  before measuring them. HypoPG measures the candidate first, and only a complete measurement
+  below write_impact_threshold_pct rejects it (the rejection is remembered while the table
+  stays write-heavy). The write rate is now inserts plus non-HOT updates against the tuples
+  read, so some append-heavy or bulk-loaded tables change workload class once. A failed column
+  read no longer produces "column does not exist". max_indexes_per_table counts only valid
+  indexes, and a replacement does not count the index it drops (indexes-02).
+- **Hidden-index measurement.** Index replacements (replace_index) and the tuning agent's
+  covered index drops are now measured with the old index hidden (HypoPG 1.4+, detected per
+  instance): a statement that used the old index and plans more than 10% costlier without it
+  rejects the change, naming its queryid; a measured drop's change becomes its
+  verify-and-revert prediction; with an older HypoPG a replacement is measured as before and
+  says "HypoPG without hypopg_hide_index (1.4+)" (indexes-07).
+- **Hosting platform in prompts.** Config advisor prompts now name the real hosting platform.
+  Before, RDS, Aurora, Cloud SQL, AlloyDB, Azure, Neon, Supabase and Lakebase were all
+  described as self-managed. On a managed provider the prompt says ALTER SYSTEM is unavailable,
+  where parameters change, and which settings are not adjustable. Prompts also carry the
+  documented safe ranges of the tuned parameters, with version notes for PG17 and PG18
+  (advisors-06).
+- **Instance owner.** In fleet mode, databases on one PostgreSQL instance now elect one owner
+  (the lowest fleet name, identified by system identifier, then provider resource, then
+  host:port). Only the owner asks the WAL and connection questions and proposes ALTER SYSTEM or
+  managed parameter changes. The other databases show them as advisory, with
+  detail.instance_owner set, and the owner per database appears in
+  status.capabilities.instance_owner. Grant EXECUTE on pg_control_system() for exact identity
+  (advisors-08).
+- **Unused rollout runtime.** Removed the unused fleet rollout runtime (automatic rollouts were
+  never wired; fleet canaries are unchanged) and the superseded synchronous schema-guard
+  trigger; no configuration or behaviour change (executor-09).
+- **Rollbacks as decisions.** Every rollback, whether automatic or the operator's button and
+  including approved, manual and resumed actions, is now a recorded standing-policy decision
+  (`rollback_mitigation`, `evidence.rollback=true`). Maintenance windows, budgets and tiers no
+  longer hold a revert. Hard stops, replicas, the provider list, observation trust and the lock
+  ceiling still do. An automatic revert that policy or an emergency stop withholds now queues a
+  "Revert action N" approval item instead of silently stopping at rollback_skipped (policy-05).
+- **Decision episodes.** A withheld verdict is now one `sage.decision` row per episode. Linking
+  a decision to its approval-queue item ends that episode, and so does an execute of the same
+  candidate (new `candidate_key` column). A change re-queued after a rejection now gets its own
+  decision row, and its approval card keeps the gate's reason and risk tier. New index:
+  `idx_decision_candidate_open` (policy-02).
+- **Decision policy provenance.** Decisions now record the standing-policy version they were
+  actually evaluated under, plus the SHA-256 of that policy document, their guardrails and
+  off_window_ok. Evidence packs now ship a non-empty policy.json (read from the control
+  database in fleet mode) and a policy_hash_match flag in the manifest. A migration drops the
+  unused sage.decision.policy_id foreign key and adds policy_doc_sha256 (policy-03).
+- **VACUUM watchdog.** Executor VACUUM (not VACUUM FULL) no longer runs under a
+  statement_timeout. It runs with statement_timeout 0 under a watchdog that reads
+  pg_stat_progress_vacuum and cancels it with pg_cancel_backend in three cases: a heap phase
+  stalled for the new safety.vacuum_stall_minutes (default 15, outcome vacuum_stalled),
+  safety.vacuum_timeout_seconds reached (vacuum_cap), or the emergency stop (emergency_stop). A
+  VACUUM whose table is already being vacuumed, autovacuum included, is withheld as
+  vacuum_in_progress and no longer counts toward the custodian backoff. The freeze custodian
+  uses a plain (already aggressive) VACUUM at or above the effective freeze table age. A red
+  custodian proposal that exhausts its backoff now records a custodian_backoff decision and
+  sends one critical custodian_escalation notification (vacuum-05).
+- **Freeze horizon sampler.** Freeze horizons now have one reader. The freeze custodian, the
+  runway advisor and the analyzer share one per-database sampler, which judges each table
+  against its effective freeze maximum (autovacuum_freeze_max_age, or the table's own reloption
+  when lower), answers TOAST horizons on the owning table, and gives red system catalogs a
+  plan-only escalation, never an automatic VACUUM. The wraparound_freeze finding is now
+  diagnosis only, reported at the new analyzer.wraparound_freeze_share (default 0.75); the
+  custodian is the only producer of freeze VACUUMs. analyzer.wraparound_freeze_xid_age is
+  retired: it loads with one warning and is ignored (vacuum-08).
+- **Unused freeze code.** Removed the unused freeze Scanner and its never-read proposal fields
+  (SQL, RequiresAuthorization, ExecuteDirectly, Park), and the reindex_candidate and
+  blocked_vacuum case branches, which nothing produced; a guard test now requires every vacuum
+  autopilot category to have a producer (vacuum-10).
+- **Exact number checks.** Sage SRE, rca narration and Ask Sage now check each number in a
+  claim against the exact values in the evidence it cites. Integers must match exactly, sign
+  included, at any size, so a queryid that is off by one or has its sign flipped is rejected.
+  Decimals must match at the precision the evidence states, and timestamps as whole RFC 3339
+  instants. A probe's version, its row count, its [i] row ordinals and the year, hour or second
+  of a timestamp no longer make a number count as cited, so more claims are dropped: in the
+  replay corpus with the fake model, plan_regression keeps 54.5% fewer claims on the LLM-on arm
+  and 33% fewer on the investigator arm, and the other families are unchanged (sre-03).
+- **Catalog probe diagnostics.** Incident and finding case diagnostics now propose the Sage SRE
+  catalog probe SQL: bounded by each probe's row cap, scoped to current_database(), and tagged
+  /* pg_sage sre:<probe> <version> */. The lock diagnostic now reports only the real blocker of
+  a CREATE INDEX CONCURRENTLY. The freeze diagnostic now lists XID-only sessions, prepared
+  transactions and slots. The WAL diagnostic now shows retained bytes, wal_status and
+  safe_wal_size. connection_saturation (v4) counts PG16 reserved_connections as reserved slots
+  (playbooks-04).
+- **Fleet app SLOs.** An app SLO with no `database` is evaluated by every database but now
+  opens one `slo_burn` investigation, on the database named by the new
+  `sre.slo.objectives[].owner_database`. Breaking: a fleet config with an unbound app SLO and
+  no `owner_database` now fails to load, with an error naming the objective and both fixes.
+  Meta-db fleets log a startup WARN when no registered database matches the owner
+  (playbooks-08).
+- **Cases policy reads.** The Cases page and shadow report now explain the standing policy once
+  per database instead of once per case. Policy reads per refresh no longer grow with open
+  findings (9 statements for 50 or 500 findings, down from 157 and 1,507), and a closed
+  dashboard request stops its policy reads (cases-06).
+- **Case action contracts.** Cases now show the executor's own action contract, risk tier and
+  policy verdict for each recommended statement: ALTER SYSTEM and ALTER DATABASE show as GUC
+  changes, VACUUM FULL and a plain DROP INDEX as high-risk script-only preflights, and
+  confirmed facts, target binding, approval rules and per-table budgets now appear on the case
+  (cases-04).
+- **MCP argument and error codes.** Behaviour change: every MCP intent tool now rejects an
+  unknown or mistyped argument with -32602 (a misspelled `databse_id` is now an error instead
+  of being ignored). An unavailable target database or production dependency, and Ask Sage
+  being temporarily unavailable, now return -32010 "retry later" instead of -32603. Planner
+  refusals such as an unsupported `request_change` kind return -32602. Other failures stay
+  -32603 "internal error", with the detail logged server-side (mcp-08).
+- **Ask Sage time limit.** One question may now take up to `ask.max_seconds_per_question`
+  (default 60 s, 15-300). The ask API route gets that plus 5 s and keeps its connection open
+  past the server's read and write timeouts. A question whose caller goes away after Ask Sage
+  queued a proposal, opened an investigation or proposed a fact is now stored as `incomplete`
+  with stop `cancelled` and its actions. Answers are counted in
+  `pg_sage_ask_answers_total{database,status,stop}` (mcp-07).
+- **Partitioned table facts.** A table fact on a partitioned table now covers all its
+  partitions, sub-partitions and their indexes (declarative partitioning, read from the catalog
+  via pg_partition_root; legacy inheritance children are not covered), both at the policy gate
+  (fails closed if the catalog cannot be read) and when the analyzer turns findings into
+  source-fix packets (facts-10).
+- **Fact absence.** A confirmed operator or model fact now keeps binding while its subject is
+  absent for `facts.confirmed_absence_days` (default 7; previously 1 hour). The absence start
+  is stored in the database, so a restart no longer resets it. If the subject comes back with
+  the same value within that window after an expiry, the original confirmation is restored. A
+  new `fact_expired` notification is sent when a confirmed fact expires (facts-08).
+- **Principals file.** Removed the unused declarative principals-file package and its
+  `sage.guard_principal_files` table (dropped on bootstrap; it never held principals);
+  declarative principals are deferred to G2 on the kill/retire-governed paths (agentgov-04).
+- **LLM error classes.** LLM provider errors are now classified. A 400/404/422 (for example a
+  prompt over the context length) no longer opens the circuit breaker. A 401/403 opens it at
+  once. 429 and 500/502/503/504 are retried up to 4 attempts, honouring Retry-After (seconds or
+  HTTP-date, capped at 30 s) and never waiting past the caller's deadline. llm.timeout_seconds
+  now applies per attempt, with a 120 s floor for reasoning models. The breaker gains a
+  half-open probe and resets when the endpoint, key, auth or model changes. /api/v1/llm/status
+  reports circuit_state, last_error_class, last_error_at, last_success_at and
+  consecutive_failures. New admin-only POST /api/v1/llm/test sends one charged test request and
+  returns its class and latency (llm-02).
+- **Prompt size limits.** Prompts larger than the model's known input limit (from Gemini model
+  listings) are now refused before they are sent, and llm.context_budget_tokens now trims the
+  context attached to advisor, tuning and explain prompts instead of capping the length of the
+  briefing answer (briefings use their own 4096-token cap) (llm-05).
+- **In-flight DDL.** In-flight DDL is now re-checked on every poll. A DDL waiting for its lock
+  with migration.queue_waiters_threshold (default 3) sessions queued behind it turns its
+  finding critical, with approval-only guidance to cancel the DDL (a HIGH-risk guarded script,
+  never auto-executed) and retry under SET lock_timeout = '5s'. The lock-chain finding stops
+  recommending a cancel of the root reader. Long-running DDL findings no longer auto-resolve
+  after 24 h. Unqualified table names resolve through the DDL role's search_path (ambiguous
+  names report unknown stats) (migration-05).
+- **DDL preflight.** The case DDL preflight now reads the migration advisor's detection-time
+  measurements (size, rows, activity, pending locks, lag, lock level, rewrite) and lock levels
+  from the single DDL rule catalog. ADD CHECK is now ACCESS EXCLUSIVE and FK SHARE ROW
+  EXCLUSIVE. A running DDL is no longer counted as its own competing query, lock-hold estimates
+  are labelled estimated, and the dashboard shows when the values were measured (migration-01).
+- **Migration enrichment.** Model work now runs on a bounded worker per database, with a shared
+  24 h cache. When the queue is full the oldest job is dropped and counted in
+  pg_sage_migration_enrich_dropped_total. Model text appears only in the llm_ detail keys and
+  never becomes recommended_sql (migration-10).
+- **DDL classifier.** lint_migration, the agent gate and the migration advisor now share one
+  DDL classifier. On release (cgo) builds it reads the PostgreSQL parse tree and recognizes SET
+  LOGGED/UNLOGGED, SET ACCESS METHOD, EXCLUDE, non-concurrent DETACH PARTITION, PG 18 NOT NULL
+  constraints, RENAME, CREATE TRIGGER, non-concurrent DROP INDEX, and UNIQUE/REFERENCES/CHECK
+  written inline on ADD COLUMN. Trust-ramp effect: agent DDL that matches a rule, is
+  unrecognized or does not parse is always classed ddl_locking, never ddl_additive, so some
+  agent DDL that used to count toward the additive class's autonomy now builds trust in the
+  locking class. lint_migration returns safe only when every statement is known, and it now
+  agrees with the advisor that binary-coercible type changes (varchar to text) do not rewrite
+  the table. Builds without cgo log once that classification is degraded (migration-04).
+- **Alerting validation.** An enabled `alerting` block is now checked at startup and on
+  config-file reload, and refused with an error naming the key when a route would send nothing.
+  Refused: an unknown or wrongly-cased channel (`Slack`), a severity other than
+  critical/warning/info, slack or pagerduty without its URL or key, missing or duplicate
+  webhook names, enabled with no routes, bad or half-set quiet hours, an unknown timezone. A
+  bare webhook name in a route now works as an alias of `webhook:<name>`. Onboarding reports
+  notifications as configured only when a route reaches a usable channel. See the new
+  `alerting.*` table in docs/configuration.md (alerting-08).
+- **Checkpointed audit verification.** Audit chain verification now runs from checkpoints:
+  scheduled runs check only the links written since the last clean verification, a full pass
+  runs every `audit.full_verify_interval_hours` (default 168, 0 = always full) in bounded
+  memory (1M links in 4 MB, was 684 MB), a rewritten or removed checkpointed link is reported
+  as `checkpoint_mismatch`, a chain that cannot be verified raises an
+  `audit_chain_verification_failed` warning without hiding the other chains or resolving its
+  findings, and `GET /api/v1/audit/verify` verifies since the checkpoint by default
+  (`full=true` for the whole chain, 5 min timeout, 504 when exceeded) (audit-03).
+- **Evidence pack v2.** Evidence packs are now format `pg_sage-evidence/2`. In fleet mode a
+  window pack reads sign-ins (`auth_audit.json`) and the database's own and global config
+  changes (`config_audit.json`) from the control database, proved by its chains. Files over
+  10,000 rows hold the lowest ids in id order, each manifest entry reports `source`, `rows`,
+  `truncated`, `last_id` and `note`, and `&file=<name>&after_id=<last_id>` fetches the next
+  page. Window packs add `guard_query_audit.json`, action packs add `policy_approvals.json`.
+  Consumers that check `format` must accept `/2` (audit-07).
+- **Encryption key changes.** Changing encryption_key no longer makes every fleet listing or
+  reconnect run two argon2id derivations per database: legacy keys are derived once at startup.
+  A stored database password that no longer opens now fails fast with "database <id>:
+  encryption key does not open this value" and logs one ERROR per database with the recovery
+  steps. A sealed channel secret names its key and the same steps (apiauth-11).
+- **Dashboard polling.** Dashboard tabs that are not shown no longer poll the sidecar: they
+  refresh once when shown. Failing endpoints are retried at 2x, 4x and so on of the interval,
+  up to 5 minutes. Live events refresh only the selected database's pages, once per 2 s burst.
+  The Dashboard reuses the app's fleet poll, and the "Getting started" checklist stops polling
+  once setup is complete (dashboard-08).
+- **Dashboard caching.** The embedded dashboard is served gzipped (when Accept-Encoding allows
+  it) with strong ETags and 304s. Hashed /assets/ files are cached as immutable for a year and
+  index.html is revalidated on every load. The fleet health chart now loads on demand, cutting
+  the entry script from 1.14 MB to 0.80 MB (220 KB gzipped). Meme images are hashed and cached
+  too (dashboard-09).
+- **Removed dashboard code.** The hidden Findings page and its execute button are removed
+  (unreachable since the redesign), as are the Dashboard "new since visit" badge that never
+  counted anything and the unused /sse dev proxy (dashboard-12).
+- **Trust badges.** Dashboard header shows a Mixed trust badge for a fleet on more than one
+  level, with the families each database may auto-execute now. The context strip says what may
+  run without approval, how many databases are emergency-stopped, and how many have not
+  reported their action policy. The pending-actions badge follows the selected database and
+  shows N+ with the unconnected databases named when the count is incomplete (dashboard-02).
+- **Lifecycle labels.** `alerting.*`, `briefing.*` and the collector, analyzer, tuner,
+  schema_lint and auto_explain intervals are now labelled `restart` in the lifecycle reference,
+  the derived-settings API and the Settings banner. They were always restart-bound and only the
+  label changed. Only trust_policy, llm, llm.redact_numeric_literals and (YAML fleet)
+  fleet_databases rebuild in place. A derived collector interval still applies live
+  (config-07).
+- **Invalid config values.** Config files with a zero or negative
+  analyzer.unused_index_window_days, analyzer.seq_scan_min_rows, safety.ddl_timeout_seconds,
+  trust rollback window or cooldown, or advisor, alerting, schema-lint or migration interval
+  now fail to load, and the error names the key. Stored settings overrides that no longer
+  validate are skipped with a warning naming the key, instead of becoming 0. A settings save
+  that would leave an invalid config returns 400 instead of 500. Boolean settings accept True,
+  TRUE and 1 (config-02).
+- **Mode and controller.** `mode: standalone` combined with `meta_db` / `--meta-db` is now a
+  startup error (leave `mode` unset or set `mode: meta`). The API refuses to start without a
+  config controller. Settings for retired keys (briefing, forecaster, auto_explain, tuner,
+  llm.optimizer_llm, alerting.timezone) are no longer applied from stored rows (config-10).
+- **Health score reasons.** Fleet health scores now explain themselves (`health_reasons` on
+  `/api/v1/databases` and `/api/v1/metrics?database=`, shown on the Overview tiles). A database
+  whose collector has not sampled for more than 3 intervals is capped at 25, so
+  `sage.health_history` steps down for stale databases. A database counts as healthy only when
+  connected, error-free and scoring at least 50 (`pg_sage_fleet_healthy`). Databases with equal
+  scores are listed by name. The per-database metrics endpoint now reports the real score
+  instead of 0. The unused `advisory_lock_held` field is removed (fleet-07).
+- **Fleet findings cache.** Fleet findings (Fleet page and MCP fleet_findings) are now read at
+  most once a minute per database through a shared cache. Up to 8 databases are read at a time
+  and a request answers within 15 s, listing slow databases as "timed out". Databases with more
+  than 500 open findings are named in the new `truncated` list, and the page says their counts
+  may be low (fleet-08).
+- **Idle fleet learning.** Fleet learning now idles, with no catalog or pg_stat_statements
+  reads and no fingerprint writes, until two connected databases share a tenant boundary. It
+  logs "fleet learning: skipped, no peer in boundary" once each time it starts idling, and runs
+  a cycle within a minute of a second database joining (fleet-11).
+- **HA monitor.** Each database now has one HA monitor, persisted in the control database. It
+  checks the role at startup, every `ha.check_interval_seconds` (new, default 60 s, 5-600, at
+  most the executor cycle) and just before each executor cycle. Custodian proposals, the runway
+  advisor, earned autonomy and the fleet status read that one result, so they agree on role,
+  safe mode and the failover cooldown. That cooldown now holds every autonomous path, even with
+  `sre.autonomy.enforce: false`. The monitored database sees one role probe per interval
+  instead of up to four. `GET /api/v1/databases` and the Fleet page show `ha_role`,
+  `ha_safe_mode` and `ha_last_change` (fleet-04).
+- **Off-scrape metrics.** /metrics no longer queries any database during a scrape. Each
+  database refreshes its exported values on its own every `prometheus.refresh_interval_seconds`
+  (default 30 s, never faster than the collector), with a 2 s timeout per source. One
+  unreachable database no longer stalls the scrape or blanks the other databases. New series
+  `pg_sage_metrics_refresh_success` and
+  `pg_sage_metrics_refresh_timestamp_seconds{database,source}` show refresh health and
+  staleness (observability-03).
+- **Per-database metrics.** Every mode (standalone, fleet, meta) now exports per-database
+  health from in-memory status: pg_sage_database_up,
+  pg_sage_collector/analyzer_last_success_timestamp_seconds, pg_sage_findings_open{severity},
+  pg_sage_database_health_score, pg_sage_emergency_stopped, pg_sage_trust_level (one-hot) and
+  pg_sage_database_size_bytes, which gains a database label. LLM gauges and the fleet summary
+  also render in every mode. pg_sage_findings_total, pg_sage_collector_last_run_timestamp,
+  pg_sage_fleet_instance_findings/_health, pg_sage_connections_total and
+  pg_sage_cache_hit_ratio are deprecated (removed in v2.7.0; see docs/deployment.md for
+  replacements). pg_sage_connection_up now documents the control database (observability-02).
+- **Cosmos DB for PostgreSQL.** Azure Cosmos DB for PostgreSQL (`azure-cosmos`) is now a
+  managed provider everywhere: its configuration findings no longer carry ALTER SYSTEM (they
+  are guidance-only, naming `az cosmosdb postgres configuration`), fleet readiness shows its
+  own adapter and limitations, and agent-role contracts cover it. One provider registry now
+  drives managed detection, aliases, preload steps and readiness families, so self-managed
+  readiness no longer hides ALTER SYSTEM and readiness agrees with the executor contracts
+  (clouds-11).
+- **Provider storage capacity.** On managed providers (RDS, Cloud SQL, AlloyDB, Azure), the WAL
+  custodian's `custodian.wal.retained_wal_disk_pct_ceiling` and the runway disk forecast now
+  use the provider's measured storage capacity. WAL proposals record `capacity_source`
+  (`provider_telemetry` or `capacity_unbounded`) with `disk_pct`, and runway disk findings
+  record `provider_telemetry` or `declared`. Without fresh telemetry the behaviour is unchanged
+  (clouds-07).
+- **Per-instance telemetry.** Fleets that monitor several databases on one RDS, Aurora or Cloud
+  SQL instance now poll provider telemetry once per instance, not once per database, so
+  CloudWatch billing is per instance. `/api/v1/cloud-telemetry` lists the instance once with
+  its `databases`. A parameter-group change one database already holds (open, or rejected in
+  the last 7 days) is no longer proposed again by the other databases on that instance, and
+  `/api/v1/managed-changes` shows each database's `member_databases` (clouds-08).
+- **CI runs and bench shards.** Pull-request pushes now cancel the superseded run (master, tag,
+  nightly and manual runs are never cancelled or queued); the Go and npm caches now restore;
+  PG17 runs the unit and integration suites once together under the race detector; the PG17
+  PGIncidentBench runs in six shards (core-a/b, reactive-a/b, runway-a/b) so a release tag's
+  runs, sized by SAGE_BENCH_MIN_RUNS_PER_FAMILY, fit each shard's 40-minute step, and releases
+  ship six signed pgincidentbench-<shard> reports (ci-03).
+- **Docs site.** Internal notes are no longer published; the Guides and Governance and safety
+  sections now list the walkthroughs, Neon/Supabase, managed clouds, LLM costing, agent
+  governance and the safety bench; pull requests build the site with `mkdocs build --strict`
+  from pinned requirements; and the site deploys only from release tags, so it describes the
+  latest release (old URLs of internal notes and FINDING_CATALOG now 404) (ci-09).
+- **Promotion bench reports.** Promotion proposals now name the bench report that decided them,
+  with where it came from (for example "evidence supports L2; bench: unsigned
+  (operator-provided) <id>"). The Trust page row, its pending-approval card and the action
+  approval card show the same. A report under bench_results_path stamped for another pg_sage
+  build is now logged once per process per file version at INFO, naming the build it scores,
+  instead of a WARN on every hourly ingest for every database (earned-10).
+- **Autonomy page reads.** The Autonomy page now reads its levels and evidence in one batch (no
+  more than 3 database round trips per 30-second poll, down from about 165). The gate, the
+  Autonomy page and the Trust page now share one effective-level rule, so a page can no longer
+  show a level the gate does not enforce. Example: a pair granted L1 now shows L1, not L0
+  (earned-08).
+- **Bench expected scenarios.** PGIncidentBench release runs now fail when a scenario the new
+  expected-scenario manifest (sre-bench/testdata/ci-expected.json, set with
+  SAGE_BENCH_EXPECTED) requires is skipped, or when skips leave a gated arm's family gate
+  without data. SAGE_BENCH_MIN_RUNS_PER_FAMILY reruns families that skips left short and fails
+  any family still below the bar. The report now lists each family's "n=<k> against bar <bar>";
+  tag builds use bar 10 instead of a fixed 4 repeats (benches-06).
+- **Exercised incidents.** In AgentSafetyBench, an incident row counts as "exercised" only when
+  the run saw every one of its posture detectors fire. Rows that were not measured are reported
+  as the new "declared" status, with a `declared` count in `incident_score`. The published
+  incident number drops from 2 exercised to 1, because INC-ORM's AP-13 and AP-16 have no bench
+  scenario (benches-07).
+- **Bench verifier and replay.** The sidecar builds the bench release verifier once per process
+  instead of once per database per hour; CI replays the PGIncidentBench corpus once per job
+  (core part A shard, SAGE_BENCH_REPLAY=1) instead of in every shard; the production binary no
+  longer links `testing` through sre-bench (benches-11).
+
+#### Added
+
+- **Collector health.** Collector health is now visible: a skipped cycle logs its real cause
+  ("load ratio 0.93 > ceiling 0.90 (active sessions / max_connections)" or "load query failed:
+  <error>", no longer "db load too high" for both); GET /api/v1/databases carries a
+  per-database `collector` status (breaker state, unavailable categories, persist/query_store
+  failures, capabilities); /metrics adds pg_sage_collector_breaker_state,
+  _breaker_skips_total{reason}, _last_success_timestamp, _category_unavailable{category},
+  _persist_failures_total and _query_store_failures_total, labelled by database in every mode;
+  new safety.host_cpu_ceiling_pct sets index verification's host CPU ceiling (unset inherits
+  cpu_ceiling_pct with a startup warning, so nothing loosens on upgrade), and cpu_ceiling_pct
+  is now documented as the active sessions / max_connections ceiling (collection-08).
+- **Performance gate H.** New gate H checks pg_sage's own self-cost meter against the DB time
+  the gate measures (within 10%, 5 ms floor) and its cycle length against the observed
+  collector period. The gate also forces a live self-configuration pass into the steady window,
+  so a meter, tag or normalization regression no longer ships green (footprint-09).
+- **Policy gate reference.** Added the policy gate reference to the docs (verdicts, reasons,
+  ledger, approval flow), and corrected the serialize_mode queue and park-metric docs
+  (policy-09).
+- **Log fast path.** Critical PostgreSQL log lines (PANIC, crashes, disk full, OOM, refused
+  connections, deadlocks, wraparound, corruption, WAL archive and segment failures) now open
+  incidents and send incident_detected within rca.log_fast_path_interval_seconds (default 5, 0
+  disables) instead of waiting for the analyzer cycle. They also survive log storms: the
+  watcher drops ordinary lines first, reports any loss as a "Log watcher overloaded" incident,
+  and counts it in pg_sage_logwatch_dropped_lines_total{cluster,reason} (rca-06).
+- **Log source status.** Log-based RCA is now visible and self-healing: /api/v1/databases
+  reports each database's log_source (active, unavailable with the setting at fault, or
+  disabled), an unreadable server log is retried every 30 s, backing off to 10 min, without a
+  restart, First Look shows a log_rca capability with the steps for each provider, and
+  docs/configuration.md documents the requirements (logwatch stays off by default) (rca-09).
+- **Probe slot metrics.** `/metrics` now shows how long probes wait for the probe slots and how
+  often they are refused one: `pg_sage_sre_probe_queue_wait_seconds_sum/_count` and
+  `pg_sage_sre_probe_refusals_total`, by database, caller class and limiter. An investigation
+  probe refused its slot is now retried once when its lease has time, instead of being recorded
+  as missing evidence (sre-06).
+- **Sage SRE permissions doc.** `docs/sage-sre-permissions-and-data-flow.md` now covers
+  approved actions and the investigator: an investigation half, with a privilege row for every
+  read including `explain_statement` and `read_history`, and an approved-actions half for the
+  M5 cancel and the M6 runbooks and statistics maintenance. The actions half lists
+  `pg_signal_backend` / table-ownership needs and records per provider whether
+  `pg_signal_backend` can be granted. The LLM data-flow section is rewritten around the
+  investigator plans, and a contract test keeps the doc's numbers matched to the code (sre-10).
+- **Sequence forward fix.** Sequence exhaustion cases now carry a real forward-fix script,
+  which pg_sage never runs: a read-only runway query over `pg_sequences` that names the column
+  fed by the sequence, whether the sequence or the column is the binding limit, and how many
+  values are left (descending sequences included); an `ALTER SEQUENCE ... AS bigint` under
+  `lock_timeout`, guarded so it refuses while a smallint or integer column takes the values;
+  and the online column-widening steps for review. A finding that names no sequence now shows a
+  blocked candidate instead of nothing (playbooks-03).
+- **Legacy AgentDB drop.** Added an admin-only, irreversible drop of the 27 legacy AgentDB
+  tables: POST /api/v1/agentdb/decommission/drop-legacy-tables with {"inventory_sha256": "<from
+  GET /api/v1/agentdb/decommission>", "confirm": "drop 27 legacy tables"}. It refuses (409)
+  while any inventory item is unacknowledged, when the inventory changed since the export, or
+  when another object depends on a table; it never cascades and writes one sage.config_audit
+  row per dropped table. The inventory now reports inventory_sha256 (agentgov-11).
+- **Agent governance doc.** Agent governance is documented in full: docs/agent-governance.md
+  (now "Agent governance", in the site nav) covers agent principals, sponsors and profiles,
+  taint, agent versus operator MCP tokens and legacy-token binding, `mcp.oauth` (per-database
+  audience, delegation, task claim, identity bindings), grants and activity, environment
+  labels, and one table of the two-person rules; a test keeps every agent-governance route and
+  the shipped profiles in step with the doc (agentgov-08).
+- **LLM costing guide.** The LLM costing guide now lists every model consumer with its per-call
+  cap, has a defaults table checked against the code (advisor runs daily, not hourly), points
+  token monitoring to GET /api/v1/llm/status rather than /api/v1/metrics, and explains the
+  optimizer cooldown as a dedup window plus breaker pause; the sage.briefings reference now
+  documents delivery_status and the bigserial id (llm-10).
+- **Action pgaudit records.** Executor sessions now carry application_name 'pg_sage
+  action:<decision id>' so pgaudit records of long-running actions (CREATE INDEX CONCURRENTLY,
+  REINDEX, VACUUM) are kept and appear in the action's evidence pack; failed batches are
+  retried, and pg_sage_pgaudit_records_total{database,outcome} counts stored, dropped, evicted,
+  requeued and unmatched records (audit-06).
+- **Dashboard CI.** CI now enforces a 70% coverage floor on the shared data layer (src/hooks,
+  src/lib) and runs the 10 mocked Playwright specs against the built bundle served by vite
+  preview (dashboard-11).
+- **Fleet Mode docs.** A new Fleet Mode page (docs/fleet.md) covers the control database,
+  tenant boundaries, fleet learning and look-alike priors (evidence only, never a grant),
+  leader election, the LLM budget split, the health score and the
+  /api/v1/fleet/{findings,lookalikes,leader} routes with sample JSON. The fleet walkthrough now
+  uses a dedicated sage_meta database, sets the encryption key it needs to add databases, and
+  points to the header Stop all / Resume all (fleet-12).
+- **Metrics on the API.** New `prometheus.serve_on_api` (default off) also serves `GET
+  /metrics` on the API listener, with its TLS and rate limit, to an API token whose only scope
+  is the new `metrics` scope. The token grants no MCP tool. In a Databricks App, any signed-in
+  pg_sage user can scrape, and the App launcher now turns this on by itself, so App metrics can
+  be scraped through the App URL. `prometheus.listen_addr: ""` opens no separate listener.
+  `SAGE_PROMETHEUS_ADDR` sets the whole listener address and wins over `SAGE_PROMETHEUS_PORT`.
+  A listener that cannot bind (port 9187 is also postgres_exporter's default) now logs an ERROR
+  and exports `pg_sage_metrics_listener_up 0` instead of failing silently. Upgrading adds a
+  small migration to `sage.mcp_tokens` (observability-08).
+- **Provider overrides.** Added optional `provider:` and `cloud_resource:` (aws/gcp/azure) keys
+  on `postgres:` and each `databases[]` entry. The provider override only narrows: it applies
+  while detection says unknown, and a disagreement keeps the detected provider and logs a
+  warning, so `self-managed` can never unlock ALTER SYSTEM on a managed service. Cloud SQL Auth
+  Proxy sockets (`/cloudsql/<project>:<region>:<instance>`) now name the instance directly. A
+  loopback Auth Proxy with no named instance reports telemetry unavailable, with a clear reason
+  and no API calls. Detection now recognizes Neon and Supabase behind custom domains
+  (clouds-05).
+- **Auto-safe readiness.** Fleet readiness can now report databases as auto-safe ready: ANALYZE
+  permission is probed (superuser or
+  rds_superuser/cloudsqlsuperuser/alloydbsuperuser/azure_pg_admin/pg_maintain membership gives
+  ok, anything else is "limited" and checked at execution), provider enable paths appear as a
+  separate extension_hints field ("hint:" in the dashboard), capabilities refresh every 15
+  minutes and after a config reload, and Cosmos DB for PostgreSQL ALTER DATABASE changes are
+  now blocked by the policy gate as readiness already reported (clouds-04).
+- **Tagged test suites.** CI now compiles every tagged test suite (integration, e2e, perfgate,
+  providerlive, cloudlive, convertscale) in a compile-only vet step, and a contract test fails
+  if a new build tag is left out. The Neon/Supabase providerlive suite builds again. The
+  retired v0.8 cloudsqltests scripts are replaced by an owner-run, read-only Cloud SQL/AlloyDB
+  identity and readiness check (cloudlive tag) (ci-04).
+- **Skip budget.** The skip budget now checks the PostgreSQL major and the skip reason
+  (allow-list qualifiers pg<N/pg>=N and reason=/regex/), each -run step must show its named
+  tests passed (-require), rules that matched nothing are reported as STALE, every skip-budget
+  step runs with pipefail, and the alerting/notify database tests must pass (ci-02).
+- **Assertlint.** A new assertlint gate fails CI on any test that can never fail, and on any
+  test file that reads SAGE_TEST_DATABASE_URL outside internal/testdb. Existing offenders are
+  on a shrink-only allowlist. Hollow executor, alerting, retention and notify tests are
+  replaced with asserting ones, and `go test ./internal/analyzer` now passes without a database
+  (ci-11).
+- **Release pipeline.** Releases now wait for the whole CI matrix (PG 14-18, arm64, lint,
+  security, container health) and are published only after the archived binary passes a smoke
+  test. Checksums are signed keyless with cosign (checksums.txt.sigstore.json), with an SBOM
+  per archive. The container image is multi-arch (amd64 and arm64), signed, and carries
+  provenance and an SBOM. Release notes come from CHANGELOG.md, and pull requests that change
+  release files get a goreleaser dry run (ci-05).
+- **LLM end-to-end test.** Added an end-to-end test that runs the real sidecar binary with LLM
+  features on (the default config) against a local scripted OpenAI-compatible stub. It covers
+  advisor findings, briefings, the breaker, the daily budget and fleet prompt isolation
+  (ci-07).
+- **Browser suites.** CI now runs the mocked dashboard browser suite on every push and the
+  full-surface browser suite (real binary, scripted disposable PostgreSQL 17 fleet) on nightly,
+  tag and manual runs; releases wait for it, and any skipped browser test fails the build
+  (ci-08).
+- **Release metadata and env docs.** SECURITY.md now lists 2.5.x as the supported line, and a
+  test fails whenever VERSION, the newest CHANGELOG release and SECURITY.md disagree. Every
+  SAGE_* variable read outside tests is registered: the two SAGE_DATABRICKS_* variables are now
+  in docs/configuration.md, and the test and bench variables are in a generated "Test
+  environment" table in CONTRIBUTING.md. CONTRIBUTING now explains how to run the Go suites
+  against a disposable test server with the skip budget. Test packages print one line when
+  SAGE_TEST_DATABASE_URL is unset and their database tests will skip (ci-10).
 
 ## v2.5.0 (2026-11-03) -- The Databricks release
 
