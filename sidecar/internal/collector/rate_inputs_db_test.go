@@ -81,6 +81,9 @@ func TestRateInputsDB_IdleInTxMaxDuration(t *testing.T) {
 func TestRateInputsDB_SessionsCountClosedConnections(t *testing.T) {
 	pool, c := sysIntervalCollector(t)
 	ctx := context.Background()
+	// PG 14's statistics collector creates the new database's entry (and
+	// its stats_reset, the epoch) only after the first report: let it land.
+	ivWorkload(t, pool)
 	collectAndPublish(t, c)
 	for i := 0; i < 15; i++ {
 		conn, err := pgx.Connect(ctx, pool.Config().ConnString())
