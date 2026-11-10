@@ -161,13 +161,15 @@ func TestSetOverrideMaskDetachesBaseAndCloneKeepsIt(t *testing.T) {
 	}
 }
 
-func TestRestrictTrustTakesTheMostRestrictive(t *testing.T) {
-	cases := []struct {
-		name, key       string
-		file, override  func(*Config)
-		check           func(*Config) bool
-		wantRestrictive bool
-	}{
+type restrictTrustCase struct {
+	name, key       string
+	file, override  func(*Config)
+	check           func(*Config) bool
+	wantRestrictive bool
+}
+
+func restrictTrustCases() []restrictTrustCase {
+	return []restrictTrustCase{
 		{"level lower in file", "trust.level",
 			func(c *Config) { c.Trust.Level = "observation" },
 			func(c *Config) { c.Trust.Level = "autonomous" },
@@ -198,7 +200,10 @@ func TestRestrictTrustTakesTheMostRestrictive(t *testing.T) {
 			func(c *Config) bool { return c.Trust.MaintenanceWindow == "* * * * *" },
 			false},
 	}
-	for _, tc := range cases {
+}
+
+func TestRestrictTrustTakesTheMostRestrictive(t *testing.T) {
+	for _, tc := range restrictTrustCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			file, effective := DefaultConfig(), DefaultConfig()
 			tc.file(file)
