@@ -147,7 +147,9 @@ slow does not hide the others:
   log (`cases read failed for database`). A fleet request (`database=all`
   or no parameter) still answers `200` with the other databases' cases. A
   request for one database that cannot be read answers `503` with
-  `error_class`.
+  `error_class`. A database that could not connect when the sidecar
+  started is listed as `connection` too (log line `cases read skipped
+  for database without a pool`).
 - `truncated` names each database whose list was cut at its cap, per
   source: `{"pg1": {"findings": true, "incidents": false, "query_hints":
   false}}`. The caps are 500 open findings (most severe first), 100 open

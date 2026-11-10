@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net"
+	"sort"
 	"sync"
 	"time"
 
@@ -106,7 +107,43 @@ func collectCases(
 		}()
 	}
 	wg.Wait()
-	return mergeDatabaseCases(selected, results, errs)
+	report := mergeDatabaseCases(selected, results, errs)
+	addUnpooledDatabases(&report, mgr, database, selected)
+	return report
+}
+
+// errNoDatabasePool is the read error of a selected database that has no
+// pool, such as a fleet member that could not connect at startup.
+var errNoDatabasePool = errors.New("database has no connection pool")
+
+// addUnpooledDatabases names the selected databases that have no pool as
+// unavailable (connection), so a database that was down when the sidecar
+// started is reported instead of silently missing from the cases.
+func addUnpooledDatabases(
+	report *casesReport, mgr *fleet.DatabaseManager, database string,
+	selected []namedPool,
+) {
+	read := make(map[string]bool, len(selected))
+	for _, sel := range selected {
+		read[sel.name] = true
+	}
+	var names []string
+	for name, inst := range mgr.Instances() {
+		if inst == nil || inst.Pool != nil || read[name] {
+			continue
+		}
+		if database == "all" || name == database {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		slog.Warn("cases read skipped for database without a pool",
+			"database", name, "error_class", caseErrorConnection)
+		report.Unavailable = append(report.Unavailable,
+			casesUnavailable{Database: name, ErrorClass: caseErrorConnection})
+		report.errs = append(report.errs, errNoDatabasePool)
+	}
 }
 
 func mergeDatabaseCases(
