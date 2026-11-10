@@ -175,11 +175,14 @@ func TestPostgresStore_IdentityErrorIsRetried(t *testing.T) {
 		!errors.Is(err, context.Canceled) {
 		t.Fatalf("acquire on a cancelled context = %v, want context.Canceled", err)
 	}
-	if st.identity != nil {
-		t.Fatal("a failed round trip must not cache an identity")
-	}
-	if _, held, err := st.Acquire(context.Background(), uniqueScope(t), "A",
-		time.Minute); err != nil || !held {
+	l, held, err := st.Acquire(context.Background(), uniqueScope(t), "A", time.Minute)
+	if err != nil || !held {
 		t.Fatalf("retry held=%v err=%v", held, err)
+	}
+	if l.Control.Datname == "" || l.Control.SystemIdentifier == "" {
+		t.Fatalf("retry control = %+v, want datname and system identifier", l.Control)
+	}
+	if st.noSysid.Load() {
+		t.Fatal("a cancelled round trip must not turn off the system identifier")
 	}
 }
