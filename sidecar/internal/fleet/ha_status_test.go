@@ -61,7 +61,7 @@ func TestSnapshotStatusWithoutAMonitorIsUnknown(t *testing.T) {
 	}
 }
 
-// GET /api/v1/fleet serializes ha_role and ha_safe_mode per database;
+// GET /api/v1/databases serializes ha_role and ha_safe_mode per database;
 // ha_last_change only once a role changed.
 func TestFleetStatusJSONShowsTheHAFields(t *testing.T) {
 	m := flipMonitor(true)
