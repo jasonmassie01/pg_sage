@@ -28,6 +28,8 @@ type Collector struct {
 	// (guarded by mu); probeDB replaces the probe's querier (tests).
 	caps       capState
 	probeDB    catalogQuerier
+	loadDB     catalogQuerier // replaces the breaker's load querier (tests)
+	health     health         // outcome record behind Status (status.go)
 	logFn      func(string, string, ...any)
 	snapWriter *snapstore.Writer
 	// period is the ticker's period in nanoseconds (0 before Run); only
@@ -155,13 +157,8 @@ func (c *Collector) Run(ctx context.Context) {
 }
 
 func (c *Collector) cycle(ctx context.Context, ticker intervalResetter) {
-	if c.breaker.ShouldSkip(ctx, timedCatalogQuerier{collector: c}) {
-		if c.breaker.IsDormant() {
-			c.logFn("WARN", "circuit breaker dormant, using dormant interval")
-			c.usePeriod(ticker, c.cfg.Safety.DormantInterval())
-		} else {
-			c.logFn("WARN", "circuit breaker skip, db load too high")
-		}
+	if d := c.breaker.ShouldSkip(ctx, c.loadQuerier()); d.Skip {
+		c.skipCycle(ticker, d)
 		return
 	}
 
@@ -171,6 +168,7 @@ func (c *Collector) cycle(ctx context.Context, ticker intervalResetter) {
 
 	snap, err := c.collect(ctx)
 	if err != nil {
+		c.noteError("collect", err)
 		c.logFn("ERROR", "collection failed: %v", err)
 		return
 	}
@@ -181,12 +179,35 @@ func (c *Collector) cycle(ctx context.Context, ticker intervalResetter) {
 	c.mu.Unlock()
 
 	c.breaker.RecordSuccess()
+	c.noteSuccess()
 
 	if err := c.persist(ctx, snap); err != nil {
+		c.notePersistFailure(err)
 		c.logFn("ERROR", "snapshot persist failed: %v", err)
 	}
 
 	c.recordQueryStore(ctx, snap)
+}
+
+// skipCycle logs why the breaker skipped this cycle (load, or a failed
+// load query: not load) and slows to the dormant interval once dormant.
+func (c *Collector) skipCycle(ticker intervalResetter, d Decision) {
+	if d.Err != nil {
+		c.noteError("load query", d.Err)
+	}
+	c.logFn("WARN", "circuit breaker skip: %s", d.cause())
+	if c.breaker.IsDormant() {
+		c.logFn("WARN", "circuit breaker dormant, using dormant interval")
+		c.usePeriod(ticker, c.cfg.Safety.DormantInterval())
+	}
+}
+
+// loadQuerier runs the breaker's load query.
+func (c *Collector) loadQuerier() catalogQuerier {
+	if c.loadDB != nil {
+		return c.loadDB
+	}
+	return timedCatalogQuerier{collector: c}
 }
 
 // LatestSnapshot returns the most recent snapshot (thread-safe).

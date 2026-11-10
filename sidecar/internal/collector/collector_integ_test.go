@@ -581,7 +581,7 @@ func TestCircuitBreaker_ShouldSkip_LowLoad(t *testing.T) {
 	cb := NewCircuitBreaker(99, 5)
 	ctx := context.Background()
 
-	if cb.ShouldSkip(ctx, pool) {
+	if cb.ShouldSkip(ctx, pool).Skip {
 		t.Error("ShouldSkip should return false with high ceiling")
 	}
 }
@@ -593,7 +593,7 @@ func TestCircuitBreaker_ShouldSkip_ZeroCeiling(t *testing.T) {
 	cb := NewCircuitBreaker(0, 3)
 	ctx := context.Background()
 
-	if !cb.ShouldSkip(ctx, pool) {
+	if !cb.ShouldSkip(ctx, pool).Skip {
 		// With cpuCeiling=0, threshold=0.0, any positive load > 0.
 		// But if the DB is truly idle, load might be 0.
 		t.Log("ShouldSkip returned false with zero ceiling (DB may be idle)")

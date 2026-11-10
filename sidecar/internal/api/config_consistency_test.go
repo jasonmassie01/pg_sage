@@ -122,6 +122,10 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 		input:  "90",
 		reader: func(c *config.Config) string { return itoa(c.Safety.CPUCeilingPct) },
 	},
+	"safety.host_cpu_ceiling_pct": {
+		input:  "80",
+		reader: func(c *config.Config) string { return itoa(c.Safety.HostCPUCeilingPct) },
+	},
 	"safety.query_timeout_ms": {
 		input:  "10000",
 		reader: func(c *config.Config) string { return itoa(c.Safety.QueryTimeoutMs) },

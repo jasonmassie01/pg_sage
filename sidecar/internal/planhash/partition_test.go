@@ -10,7 +10,7 @@ import (
 )
 
 // No concurrent access tests here: ComputeWith is a pure function of its
-// input and resolver; CatalogRoots' shared cache is exercised concurrently
+// input and resolver; concurrent catalog reads (Resolve) are exercised
 // in partition_db_test.go.
 
 // fakeRoots resolves "schema.rel" keys; a key mapped to an error fails.

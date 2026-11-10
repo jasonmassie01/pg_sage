@@ -152,10 +152,14 @@ read-only catalog query per capture (`pg_class`, `pg_namespace`, `pg_inherits` a
 `pg_partition_root()`, which `CONNECT` alone allows) under a 2 s statement timeout and a
 100 ms lock timeout; it takes no relation locks. A fingerprint whose relations were all
 resolved starts with `v2:`. One that could not be resolved (no database, a failed read, a
-name that is ambiguous without `EXPLAIN VERBOSE`, more than 256 relations) starts with
-`v2u:`. `plan_regressions` v2 compares a fingerprint only with the previous one of the same
-version, so the upgrade from v1 and unresolved captures never report a flip. No migration
-is needed: old `v1:` values age out with the query store.
+name without `EXPLAIN VERBOSE` that exists in several schemas and is a partition or
+partitioned table in one of them, more than 256 relations) starts with `v2u:`. A name shared
+by plain tables or indexes in several schemas is its own root, so it resolves.
+`plan_regressions` v2 compares a fingerprint only with the previous one of the same
+version, so the upgrade from v1 and unresolved captures never report a flip; the cost is
+that a flip which also changes the version (a new plan that names an unresolvable relation)
+is not reported as a flip. No migration is needed: old `v1:` values age out with the query
+store.
 
 The coordination tables (`sage.sre_investigations`, `sage.sre_evidence`, `sage.sre_events`,
 `sage.sre_hypotheses`, the budget ledger and the rest) are created at startup by the schema

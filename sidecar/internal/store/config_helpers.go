@@ -40,6 +40,7 @@ var allowedConfigKeys = map[string]string{
 	"trust.rollback_cooldown_days":        "int_pos",
 	"trust.cascade_cooldown_cycles":       "int_pos",
 	"safety.cpu_ceiling_pct":              "pct1_100",
+	"safety.host_cpu_ceiling_pct":         "pct1_100",
 	"safety.query_timeout_ms":             "int_pos",
 	"safety.ddl_timeout_seconds":          "int_pos",
 	"safety.lock_timeout_ms":              "int_pos",
@@ -557,6 +558,7 @@ func addTrustFields(m map[string]any, t *config.TrustConfig) {
 
 func addSafetyFields(m map[string]any, s *config.SafetyConfig) {
 	addField(m, "safety.cpu_ceiling_pct", s.CPUCeilingPct, "yaml")
+	addField(m, "safety.host_cpu_ceiling_pct", s.EffectiveHostCPUCeilingPct(), "yaml")
 	addField(m, "safety.query_timeout_ms", s.QueryTimeoutMs, "yaml")
 	addField(m, "safety.ddl_timeout_seconds",
 		s.DDLTimeoutSeconds, "yaml")

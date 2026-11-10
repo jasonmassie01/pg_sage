@@ -99,6 +99,7 @@ safety_critical trust.tier3_safe
 safety_critical safety.backoff_consecutive_skips
 safety_critical safety.cpu_ceiling_pct
 safety_critical safety.data_io_ceiling_pct
+safety_critical safety.host_cpu_ceiling_pct
 safety_critical safety.ddl_timeout_seconds
 safety_critical safety.disk_pressure_threshold_pct
 safety_critical safety.dormant_interval_seconds
