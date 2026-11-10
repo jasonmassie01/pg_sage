@@ -186,9 +186,12 @@ type ForeignKey struct {
 
 // SystemStats holds database-wide health metrics.
 type SystemStats struct {
-	ActiveBackends    int     `json:"active_backends"`
-	IdleInTransaction int     `json:"idle_in_transaction"`
-	TotalBackends     int     `json:"total_backends"`
+	ActiveBackends    int `json:"active_backends"`
+	IdleInTransaction int `json:"idle_in_transaction"`
+	TotalBackends     int `json:"total_backends"`
+	// ClientBackends counts the cluster's client sessions, the backends
+	// that take max_connections slots (rca-08).
+	ClientBackends    int     `json:"client_backends"`
 	MaxConnections    int     `json:"max_connections"`
 	CacheHitRatio     float64 `json:"cache_hit_ratio"` // fraction 0..1, or CacheHitRatioUnknown
 	Deadlocks         int64   `json:"deadlocks"`

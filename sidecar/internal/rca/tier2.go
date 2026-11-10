@@ -212,7 +212,11 @@ func tier2SignalList(candidates, all []*Signal) string {
 
 // droppedPromptMetrics never leave the sidecar: DETAIL lines carry key
 // values ("Key (email)=(...)") and user names identify people.
-var droppedPromptMetrics = map[string]bool{"detail": true, "user": true}
+// cluster_key is the server's host:port (rca-08): an address, not
+// evidence, and kept out of prompts.
+var droppedPromptMetrics = map[string]bool{
+	"detail": true, "user": true, "cluster_key": true,
+}
 
 var doubleQuoted = regexp.MustCompile(`"[^"]*"`)
 

@@ -6,6 +6,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
@@ -29,6 +30,12 @@ type FileWatcher struct {
 	classifier *Classifier
 	entryMu    sync.Mutex
 	entries    map[string]*entryBuffer
+	drops      dropCounters
+	// stateMu guards tailer and started against Status readers.
+	stateMu     sync.RWMutex
+	started     bool
+	lastLine    atomic.Int64 // unix nanos of the last record read; 0 = none
+	parseErrors atomic.Uint64
 }
 
 // NewFileWatcher creates a FileWatcher from the given config.
@@ -42,6 +49,16 @@ func NewFileWatcher(
 		logFn:   logFn,
 		entries: make(map[string]*entryBuffer),
 	}
+}
+
+// StartWithConfig replaces the config, then starts: a watcher created
+// before its source was detected starts on the detected directory and
+// format. Call it only while no Drain runs (before the drain loop).
+func (fw *FileWatcher) StartWithConfig(
+	ctx context.Context, cfg config.LogWatchConfig,
+) error {
+	fw.cfg = cfg
+	return fw.Start(ctx)
 }
 
 // Start creates the Tailer and Classifier from config, then starts
@@ -60,9 +77,12 @@ func (fw *FileWatcher) Start(ctx context.Context) error {
 		maxLineLen = 65536
 	}
 
-	fw.tailer = NewTailer(
+	tailer := NewTailer(
 		fw.cfg.LogDirectory, format, pollInterval, maxLineLen, fw.logFn,
 	)
+	fw.stateMu.Lock()
+	fw.tailer, fw.started = tailer, false
+	fw.stateMu.Unlock()
 	fw.classifier = NewClassifier(ClassifierConfig{
 		DedupWindowS:     fw.cfg.DedupWindowS,
 		ExcludeApps:      fw.cfg.ExcludeApplications,
@@ -71,9 +91,12 @@ func (fw *FileWatcher) Start(ctx context.Context) error {
 		MaxLinesPerCycle: fw.cfg.MaxLinesPerCycle,
 	}, fw.logFn)
 
-	if err := fw.tailer.Start(ctx); err != nil {
+	if err := tailer.Start(ctx); err != nil {
 		return fmt.Errorf("logwatch: start tailer: %w", err)
 	}
+	fw.stateMu.Lock()
+	fw.started = true
+	fw.stateMu.Unlock()
 	fw.log("info", "file watcher started: dir=%s format=%s",
 		fw.cfg.LogDirectory, format)
 	return nil
@@ -81,13 +104,38 @@ func (fw *FileWatcher) Start(ctx context.Context) error {
 
 // Drain reads all new lines from the tailer, parses and classifies
 // each one, and returns the resulting signals. It also resets the
-// classifier cycle counter and cleans expired dedup entries.
+// classifier cycle counter and cleans expired dedup entries. When lines
+// were lost since the last drain (queue overflow or the per-cycle cap) it
+// counts them and appends a log_watcher_overloaded signal (rca-06).
 func (fw *FileWatcher) Drain() []*rca.Signal {
 	if fw.tailer == nil || fw.classifier == nil {
 		return nil
 	}
 	lines := fw.tailer.ReadLines()
+	if len(lines) > 0 {
+		fw.lastLine.Store(time.Now().UnixNano())
+	}
+	queueDropped := fw.tailer.TakeDropped()
+	signals := fw.classifyLines(lines)
+	capped := fw.classifier.ResetCycle()
+	fw.classifier.CleanExpiredDedup()
+	fw.drops.add(queueDropped, capped)
+	if sig := overloadSignal(queueDropped, capped, time.Now()); sig != nil {
+		fw.log("warn", "log watcher overloaded: dropped %d log lines "+
+			"(%d queue overflow, %d over logwatch.max_lines_per_cycle); "+
+			"critical lines were kept", queueDropped+capped, queueDropped, capped)
+		signals = append(signals, sig)
+	}
+	return signals
+}
 
+// DroppedLines reports the lines this watcher lost since it started.
+func (fw *FileWatcher) DroppedLines() DropCounts {
+	return fw.drops.snapshot()
+}
+
+// classifyLines parses, publishes and classifies one drain's records.
+func (fw *FileWatcher) classifyLines(lines [][]byte) []*rca.Signal {
 	var signals []*rca.Signal
 	parseErrors := 0
 	var firstErr error
@@ -106,17 +154,18 @@ func (fw *FileWatcher) Drain() []*rca.Signal {
 		}
 	}
 	if parseErrors > 0 {
+		fw.parseErrors.Add(uint64(parseErrors))
 		fw.log("warn", "%d log record(s) failed to parse this cycle; first error: %v",
 			parseErrors, firstErr)
 	}
-
-	fw.classifier.ResetCycle()
-	fw.classifier.CleanExpiredDedup()
 	return signals
 }
 
 // Stop shuts down the tailer.
 func (fw *FileWatcher) Stop() {
+	fw.stateMu.Lock()
+	fw.started = false
+	fw.stateMu.Unlock()
 	if fw.tailer != nil {
 		fw.tailer.Stop()
 		fw.log("info", "file watcher stopped")

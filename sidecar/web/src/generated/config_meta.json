@@ -1464,7 +1464,7 @@
   "logwatch.enabled": {
     "type": "bool",
     "default": false,
-    "doc": "Enable RCA logs from a configured provider API or local PostgreSQL jsonlog/csvlog files. Requires rca.enabled=true.",
+    "doc": "Enable RCA logs from a configured provider API or local PostgreSQL jsonlog/csvlog files. Requires rca.enabled=true. Default: false.",
     "class": "operator_preference"
   },
   "logwatch.exclude_applications": {
@@ -1500,7 +1500,7 @@
   "logwatch.poll_interval_ms": {
     "type": "int",
     "default": 1000,
-    "doc": "Fallback poll interval when fsnotify is unavailable. Default: 1000.",
+    "doc": "How often the log tailer polls the log file for new lines (it only polls). Default: 1000.",
     "class": "derivable"
   },
   "logwatch.slow_query_enabled": {
@@ -1804,6 +1804,12 @@
     "type": "int",
     "default": 60,
     "doc": "Seconds between lock-chain fast-path checks, which open or update the lock_contention incident between analyzer cycles. 0 disables the fast path; otherwise 10-3600. Default: 60.",
+    "class": "derivable"
+  },
+  "rca.log_fast_path_interval_seconds": {
+    "type": "int",
+    "default": 5,
+    "doc": "Seconds between log fast-path passes, which open incidents for critical log lines (PANIC, disk full, OOM, wraparound) between analyzer cycles. 0 disables; otherwise 1-3600. Default: 5.",
     "class": "derivable"
   },
   "rca.narration_enabled": {

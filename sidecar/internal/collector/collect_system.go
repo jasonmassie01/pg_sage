@@ -60,7 +60,7 @@ func (c *Collector) scanSystemStats(ctx context.Context, sql string) (SystemStat
 		&s.BlkReadTime, &s.BlkWriteTime,
 		&s.BlksHit, &s.BlksRead, &s.XactCommit, &s.XactRollback, &s.TempBytes,
 		&s.TotalCheckpoints, &s.CheckpointsTimed, &s.CheckpointsRequested,
-		&s.CheckpointsDone, &ckptEpoch, &s.IsReplica,
+		&s.CheckpointsDone, &ckptEpoch, &s.IsReplica, &s.ClientBackends,
 	)
 	if ckptEpoch != nil {
 		s.CheckpointStatsEpoch = ckptEpoch.UTC()

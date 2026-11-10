@@ -17,7 +17,7 @@ import (
 const startupLookbackBytes int64 = 1024 * 1024
 
 // Tailer follows a single PostgreSQL log file and emits new lines.
-// It uses polling (no fsnotify) and handles copytruncate rotation
+// It polls (it uses no file-change notification) and handles copytruncate rotation
 // as well as new-file rotation.
 type Tailer struct {
 	dir          string
@@ -37,13 +37,17 @@ type Tailer struct {
 	// a producer writes a huge line or never terminates one.
 	discardUntilNewline bool
 	queue               [][]byte
-	checkpoint          []byte
-	checkpointOffset    int64
-	started             bool
-	pumpRequests        chan chan struct{}
-	stopCh              chan struct{}
-	doneCh              chan struct{}
-	mu                  sync.Mutex
+	// criticalHead counts the leading queued lines known to be critical;
+	// dropped counts lines overflow evicted since TakeDropped (rca-06).
+	criticalHead     int
+	dropped          int
+	checkpoint       []byte
+	checkpointOffset int64
+	started          bool
+	pumpRequests     chan chan struct{}
+	stopCh           chan struct{}
+	doneCh           chan struct{}
+	mu               sync.Mutex
 }
 
 // NewTailer creates a Tailer that will watch dir for log files in the
@@ -140,6 +144,7 @@ func (t *Tailer) openAndSeek(path string) error {
 	t.partial = nil
 	t.discardUntilNewline = false
 	t.queue = nil
+	t.criticalHead = 0
 	t.captureCheckpoint()
 	return nil
 }
@@ -269,6 +274,13 @@ func (t *Tailer) openFileAtStart(path string) error {
 	return nil
 }
 
+// CurrentPath is the log file the tailer reads now; it changes on rotation.
+func (t *Tailer) CurrentPath() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.currentPath
+}
+
 // Stop closes the underlying file handle.
 func (t *Tailer) Stop() {
 	t.mu.Lock()
@@ -293,6 +305,7 @@ func (t *Tailer) Stop() {
 		t.file = nil
 	}
 	t.queue = nil
+	t.criticalHead = 0
 	t.partial = nil
 	t.checkpoint = nil
 	t.pumpRequests = nil

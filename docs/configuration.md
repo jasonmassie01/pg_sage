@@ -385,6 +385,7 @@ briefing:
 | `self_budget.blocks_per_hour` | `18000000` | Shared buffer blocks (8 KB, hit or read) pg_sage's own statements may touch per hour on each database (5,000 a second). `0` disables. `0`-`1000000000000` |
 | `self_budget.storage_mb` | `10240` | Size the `sage` schema (tables, TOAST, indexes) may reach on each database, in MB; complements the relative `retention.sage_size_warning_pct`. `0` disables. `0`-`10485760` |
 | `rca.lock_chain_interval_seconds` | `60` | Seconds between lock-chain fast-path checks. Each check opens or updates the `lock_contention` incident (with the root blocker's pid, `backend_start` and query identity) and sends `incident_detected` without waiting for the analyzer cycle. `0` disables the fast path; otherwise `10`-`3600`. Escalation and auto-resolution still count analyzer cycles. Restart to change |
+| `rca.log_fast_path_interval_seconds` | `5` | Seconds between log fast-path passes. Each pass takes the critical log signals (PANIC and crashes, disk full, out of memory, refused connections, deadlocks, wraparound, corruption, WAL archive and WAL segment failures), opens or updates their incidents and sends `incident_detected` without waiting for the analyzer cycle. Other log signals still wait for the cycle. `0` disables the log fast path; otherwise `1`-`3600`. Escalation and auto-resolution still count analyzer cycles. In a YAML fleet each database on a cluster runs its own pass. Restart to change |
 | `rca.stale_after_hours` | `24` | Hours an open incident may go without being re-detected before pg_sage resolves it (`resolved_by` `pg_sage:stale`). Incidents about an idle-in-transaction session also resolve once that session is gone (`pg_sage:subject_gone`). Resolutions of incidents last seen longer ago than this send no notification. `1`-`8760`, and at least `rca.dedup_window_minutes` |
 | `rca.vacuum_min_dead_tuples` | `1000` | Fewest dead tuples a table needs before its dead-tuple ratio counts toward the `vacuum_blocked` ("Autovacuum falling behind") incident. Ratios on tables below either floor are ignored, so a table with a handful of rows never opens, nor escalates, an incident. `1`-`1000000000` |
 | `rca.vacuum_min_table_mb` | `8` | Smallest heap (MB, from `pg_class.relpages`) a table needs before its dead-tuple ratio counts toward the `vacuum_blocked` incident. `1`-`1048576` |
@@ -2144,6 +2145,109 @@ over `lookback_days` of system snapshots and needs 7 days of data for each trend
   [Runways and pre-incident investigations](#runways-and-pre-incident-investigations)).
   The retired `forecaster.sequence_warn_days` and `forecaster.sequence_critical_days`
   still load, with a warning each, and have no effect; remove them.
+
+### Log-based RCA
+
+With `logwatch.enabled` and `rca.enabled`, pg_sage tails the server's csvlog or jsonlog
+and opens incidents from it (crashes, WAL gaps, corruption, wraparound, disk full and the
+other signals below). It is **off by default**: `logwatch.enabled` is `false`. Migration
+log detection (`migration.log_detection`) reads the same watcher.
+
+**Requirements.** PostgreSQL 14-18. The server must write log files pg_sage can parse:
+
+| Setting | Needed value | Why |
+|---|---|---|
+| `log_destination` | includes `jsonlog` (PostgreSQL 15+) or `csvlog` (14+), e.g. `'stderr,jsonlog'` | pg_sage parses only these formats; plain `stderr` is not read |
+| `logging_collector` | `on` (restart to change) | csvlog and jsonlog files are written only by the collector |
+| `log_directory` | readable by the sidecar | auto-detected from `pg_settings` (relative paths are under `data_directory`); mount it read-only into the sidecar at the same path, or set `logwatch.log_directory` |
+| `lc_messages` | `'C'` or English | the text-matched signals need English messages; SQLSTATE signals work in any language |
+| `log_temp_files` | `>= 0`, e.g. `'10MB'` | without it `log_temp_file_created` never fires |
+| `log_min_duration_statement` | `>= 0` | only with `logwatch.slow_query_enabled`, for `log_slow_query` |
+
+`log_lock_waits` and `log_autovacuum_min_duration` feed no signal today; leaving them off
+loses nothing. Detection only reads `pg_settings` (read-only, bounded by a timeout).
+
+| Key | Default | Meaning |
+|---|---|---|
+| `logwatch.enabled` | `false` | Tail the server log for RCA. Needs `rca.enabled` (or migration log detection) |
+| `logwatch.log_directory` | auto | Log directory as the sidecar sees it; blank reads `log_directory` from `pg_settings` |
+| `logwatch.format` | auto | `jsonlog` or `csvlog`; blank reads `log_destination` |
+| `logwatch.poll_interval_ms` | `1000` | How often the tailer polls the log file (it only polls) |
+| `logwatch.dedup_window_seconds` | `60` | Suppress repeats of one signal within this window |
+| `logwatch.max_line_len_bytes` | `65536` | Discard longer lines |
+| `logwatch.temp_file_min_bytes` | `10485760` | Smallest temporary file that raises `log_temp_file_created` |
+| `logwatch.max_lines_per_cycle` | `10000` | Lines classified per drain; critical lines are never skipped |
+| `logwatch.exclude_applications` | `[pg_sage]` | `application_name` values excluded from timeout and deadlock signals |
+| `logwatch.slow_query_enabled` | `false` | Parse `log_min_duration_statement` output as `log_slow_query` |
+
+**Log source status.** `GET /api/v1/databases` returns `status.log_source` for every
+database: `state` is `active` (tailing; with `format`, `file`, `last_line_at`,
+`parse_errors` and `dropped_lines`), `unavailable` (wanted but unreadable; `reason` names the
+setting at fault, for example `log_destination is "stderr"` or `logging_collector is "off"`,
+and `next_retry_at` says when pg_sage tries again) or `disabled` (`reason` names the switch,
+for example `logwatch.enabled is false`). `hints` lists settings that keep a signal silent.
+An unavailable source is retried in the background, first after 30 s and then doubling to
+every 10 minutes, until it starts or the sidecar stops; databases that started while it was
+unavailable receive its signals once it is active, without a restart. In fleet mode one
+watcher serves each cluster (host:port), so every database on a cluster shows that cluster's
+status. The First Look reports the `log_rca` capability with the exact steps for the
+provider, and an info item when the log cannot be read.
+
+**Managed services.** Their server log files are not reachable from the sidecar. RDS and
+Aurora send logs to CloudWatch Logs, Cloud SQL and AlloyDB to Cloud Logging, and Azure to
+Azure Monitor; pg_sage reads none of these, so log-based RCA is unavailable there. Supabase
+logs arrive through the Management API when `SAGE_SUPABASE_OBSERVABILITY_TOKEN` is set (the
+database's `log_source` is then `active` with `format` `supabase_api`), and Lakebase logs
+through the opt-in `lakebase_observability` reader.
+
+**Statement text.** Log records can carry SQL. Before log signals reach an LLM prompt,
+query text has its literals redacted and comments stripped, quoted values in messages are
+replaced with `"?"`, and the `detail`, `user` and `cluster_key` fields are dropped.
+
+| Signal | Matched on | Severity |
+|---|---|---|
+| `log_deadlock_detected` | SQLSTATE 40P01 | critical |
+| `log_connection_refused` | SQLSTATE 53300 (too many connections) | critical |
+| `log_out_of_memory` | SQLSTATE 53200 | critical |
+| `log_disk_full` | SQLSTATE 53100 | critical |
+| `log_archive_failed` | "archive command failed" | critical |
+| `log_txid_wraparound_warning` | "must be vacuumed within" | critical |
+| `log_temp_file_created` | "temporary file" (needs `log_temp_files`) | warning |
+| `log_checkpoint_too_frequent` | "checkpoints are occurring too frequently" | warning |
+| `log_lock_timeout` | SQLSTATE 55P03 | warning |
+| `log_statement_timeout` | SQLSTATE 57014 | warning |
+| `log_replication_conflict` | "conflict with recovery" | warning |
+| `log_autovacuum_cancel` | "canceling autovacuum task" | warning |
+| `log_authentication_failure` | FATAL authentication failures | warning |
+| `log_slow_query` | "duration:" (opt-in, `logwatch.slow_query_enabled`) | info |
+
+The signals below need the server process that logs them and are matched as follows. The
+text-matched ones need `lc_messages = 'C'` or English: when `lc_messages` is something else,
+pg_sage logs a warning naming the setting when the log watcher starts, and lists it in
+`log_source.hints`.
+
+| Signal | How it is matched | Incident |
+|---|---|---|
+| `log_panic_server_crash` | PANIC, or the postmaster's `... (PID n) was terminated by signal n` | critical; records the crashed PID and the signal |
+| `log_wal_segment_removed` | `requested WAL segment <name> has already been removed` (walsender or walreceiver) | critical; records the segment |
+| `log_replication_slot_inactive` | `invalidating [obsolete replication] slot "<name>"` at LOG | warning; records the slot |
+| `log_data_corruption` | SQLSTATE XX001, XX002 (and any unknown XX code) | critical |
+| `log_internal_error` | SQLSTATE XX000 (for example "cache lookup failed") | warning, not corruption |
+| `log_wraparound_outage` | SQLSTATE 54000 with "is not accepting commands ... to avoid wraparound data loss" | critical |
+| `log_multixact_wraparound_warning` | "must be vacuumed before n more MultiXactIds / multixact members are used" | critical |
+| `log_multixact_wraparound_outage` | SQLSTATE 54000 with the MultiXactId stop-limit or `multixact "members" limit exceeded` text | critical |
+
+When a log storm outruns the watcher, it drops lines before classifying them: the line queue holds 10,000 unread lines, and `logwatch.max_lines_per_cycle` caps the lines classified per drain. Both evict ordinary lines first and never skip a critical one (PANIC or FATAL, or SQLSTATE class 53, 57P or 58, XX001 or XX002); only a queue full of critical lines loses its oldest. A drain that dropped lines emits the `log_watcher_overloaded` signal (a warning incident, "Log watcher overloaded", with `dropped_lines`, `queue_overflow_lines` and `classifier_cap_lines`), and Prometheus counts the losses in `pg_sage_logwatch_dropped_lines_total{cluster,reason}` (`reason` is `queue_overflow` or `classifier_cap`).
+
+A client's `RAISE` of the same text does not fire the crash, WAL-gap or slot signals: those
+need the server process that really logs them (`backend_type` in csvlog and jsonlog; without
+it, a line with no user and no database counts as the postmaster's). Managed services whose
+logs arrive through a provider sink use the same classifier.
+
+The patterns are tested against the server's own log records for PostgreSQL 14-18, kept
+under `sidecar/internal/logwatch/testdata/`. To cover a new major, run
+`python scripts/capture_logwatch_corpus.py --majors <n>` (it needs Docker and a
+`pgvector/pgvector:<version>-pg<n>` image) and then `go test ./internal/logwatch/`.
 
 ### Retention
 

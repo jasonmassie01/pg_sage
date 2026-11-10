@@ -191,12 +191,19 @@ func (s *sreSignals) start(run func(func()), ctx context.Context) {
 	}
 }
 
-// logErrorCounter counts server-class errors in a database's log entries.
+// logErrorCounter counts server-class errors in the database's log
+// entries. While its source is not reading the log (unavailable, retrying)
+// the count is unknown, never a healthy zero.
 type logErrorCounter struct {
-	sub *logwatch.EntrySubscriber
+	sub    *logwatch.EntrySubscriber
+	source interface{ Active() bool }
 }
 
 func (c logErrorCounter) DrainErrors() (int64, bool) {
+	if c.source == nil || !c.source.Active() {
+		c.sub.Drain()
+		return 0, false
+	}
 	var n int64
 	for _, e := range c.sub.Drain() {
 		if slo.ServerErrorClass(e.SQLState) {

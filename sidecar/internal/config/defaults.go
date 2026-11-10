@@ -165,6 +165,8 @@ const (
 	DefaultRCAWALSpikeMultiplier       = 2.0
 	DefaultRCALockChainIntervalSeconds = 60
 	DefaultRCANarrationEnabled         = true
+	// rca-06: critical log lines open incidents within seconds.
+	DefaultRCALogFastPathIntervalSeconds = 5
 
 	// v0.9 — Lock chain defaults.
 	DefaultLockChainMinBlocked        = 3

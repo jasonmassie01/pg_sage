@@ -3,6 +3,7 @@ package autoexplain
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -10,10 +11,12 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/planhash"
 	"github.com/pg-sage/sidecar/internal/sanitize"
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
 	"github.com/pg-sage/sidecar/internal/workload"
 )
 
@@ -91,10 +94,6 @@ func (c *Collector) Collect(ctx context.Context) error {
 	}
 	defer rows.Close()
 
-	type candidate struct {
-		queryID int64
-		query   string
-	}
 	var candidates []candidate
 	for rows.Next() {
 		var cand candidate
@@ -110,19 +109,47 @@ func (c *Collector) Collect(ctx context.Context) error {
 		return fmt.Errorf("iterate candidates: %w", err)
 	}
 
+	c.captureCandidates(ctx, candidates)
+	return nil
+}
+
+// candidate is one slow statement without a recent plan.
+type candidate struct {
+	queryID int64
+	query   string
+}
+
+// captureCandidates captures a plan for each explainable candidate. A
+// candidate whose relation lock is busy (DDL queued on it) is skipped for
+// this cycle and retried on the next one; the cycle reports the skips once.
+func (c *Collector) captureCandidates(ctx context.Context, candidates []candidate) {
+	skipped := 0
 	for _, cand := range candidates {
 		if !isExplainable(cand.query) {
 			continue
 		}
-		if err := c.captureOnDemand(
-			ctx, cand.queryID, cand.query,
-		); err != nil {
-			c.logFn(
-				"WARN", "autoexplain: capture queryid=%d: %v", cand.queryID, err,
-			)
+		if c.reportCapture(cand.queryID, c.captureOnDemand(ctx, cand.queryID, cand.query)) {
+			skipped++
 		}
 	}
-	return nil
+	if skipped > 0 {
+		c.logFn("INFO", "autoexplain: %d candidates skipped: lock busy", skipped)
+	}
+}
+
+// reportCapture logs a capture's outcome and reports whether it was
+// skipped for a busy lock: that is DEBUG, every other failure is WARN.
+func (c *Collector) reportCapture(queryID int64, err error) bool {
+	switch {
+	case err == nil:
+		return false
+	case errors.Is(err, errLockBusy):
+		c.logFn("DEBUG", "autoexplain: skip queryid=%d this cycle: %v", queryID, err)
+		return true
+	default:
+		c.logFn("WARN", "autoexplain: capture queryid=%d: %v", queryID, err)
+		return false
+	}
 }
 
 var candidateSQL = `
@@ -175,16 +202,44 @@ func (c *Collector) captureOnDemand(
 	}
 	planJSON, err := c.explainReadOnly(ctx, query, generic)
 	if err != nil {
-		return err
+		return lockBusy(err)
 	}
 	totalCost, execTime := extractPlanMetrics(planJSON)
 	return c.storePlan(ctx, queryID, query, planJSON, source, totalCost, execTime)
 }
 
+// sqlStateLockNotAvailable is the SQLSTATE of a lock_timeout.
+const sqlStateLockNotAvailable = "55P03"
+
+// errLockBusy marks a capture that gave up waiting for a relation lock.
+var errLockBusy = errors.New("relation lock busy")
+
+// lockBusy wraps a lock_timeout in errLockBusy, keeping the server error;
+// any other error is returned as it is.
+func lockBusy(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == sqlStateLockNotAvailable {
+		return fmt.Errorf("%w: %w", errLockBusy, err)
+	}
+	return err
+}
+
+// The on-demand EXPLAIN is a probe of the monitored database, bounded like
+// the SRE probes (rca-05). Planning takes AccessShare or RowExclusive locks:
+// queued behind an ALTER TABLE it would hold the statement's other locks
+// for the whole statement_timeout, so it gives up after the shared probe
+// lock timeout. The idle timeout ends the session if the transaction is
+// ever left open, so it cannot keep its snapshot or its locks.
+var (
+	explainLockTimeoutSQL = fmt.Sprintf("SET LOCAL lock_timeout = '%dms'",
+		selfmonitor.ProbeLockTimeout.Milliseconds())
+	explainIdleTimeoutSQL = "SET LOCAL idle_in_transaction_session_timeout = '10s'"
+)
+
 // explainReadOnly returns the EXPLAIN JSON for query. auto_explain
-// settings are applied with SET LOCAL so they end with the transaction
-// instead of leaking into the pooled session (G1-B15). The connection is
-// released before the plan is stored.
+// settings and the bounds are applied with SET LOCAL so they end with the
+// transaction instead of leaking into the pooled session (G1-B15). The
+// connection is released before the plan is stored.
 func (c *Collector) explainReadOnly(
 	ctx context.Context, query string, generic bool,
 ) ([]byte, error) {
@@ -205,6 +260,12 @@ func (c *Collector) explainReadOnly(
 	}
 	if _, err := tx.Exec(ctx, "SET LOCAL statement_timeout = '5s'"); err != nil {
 		return nil, fmt.Errorf("set statement_timeout: %w", err)
+	}
+	if _, err := tx.Exec(ctx, explainLockTimeoutSQL); err != nil {
+		return nil, fmt.Errorf("set lock_timeout: %w", err)
+	}
+	if _, err := tx.Exec(ctx, explainIdleTimeoutSQL); err != nil {
+		return nil, fmt.Errorf("set idle_in_transaction_session_timeout: %w", err)
 	}
 	if c.avail != nil && (c.avail.SessionLoad || c.avail.SharedPreload ||
 		c.avail.AlreadyLoaded) {

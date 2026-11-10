@@ -106,9 +106,12 @@ type databaseRuntime struct {
 	// runwayAdvisor attaches custodian proposals to runway investigations.
 	runwayAdvisor *runwayAdvisor
 	logFanout     *logwatch.LogFanout
-	brief         *briefing.Worker
-	features      []string
-	inst          *fleet.DatabaseInstance
+	// providerLogs is set when RCA reads the provider's log API instead of
+	// the cluster's log files (Supabase).
+	providerLogs atomic.Bool
+	brief        *briefing.Worker
+	features     []string
+	inst         *fleet.DatabaseInstance
 	// facts is the database's fact store (roadmap 2.3); factCluster is its
 	// place among the process's databases of the same cluster (facts-02).
 	facts       *facts.Store
@@ -295,6 +298,7 @@ func (rt *databaseRuntime) instance() *fleet.DatabaseInstance {
 		SLO:            rt.sloEngine,
 		Changes:        rt.changeFeed,
 		Actions:        rt.sreActions,
+		LogSource:      rt.logSourceStatus,
 		Cancel:         rt.cancel, Workers: rt.workers,
 		ExecutorShutdown: rt.executor.Shutdown,
 		// Removal and replacement let in-flight actions finish first.

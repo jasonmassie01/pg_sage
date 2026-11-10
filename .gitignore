@@ -109,3 +109,5 @@ sidecar/release-bench/*
 
 # Performance gate reports, profiles and test binaries (PG_SAGE_PERF_REPORT)
 /perfgate/
+# Logwatch classifier corpus: real PostgreSQL log records (scripts/capture_logwatch_corpus.py)
+!sidecar/internal/logwatch/testdata/pg*/*/*.log

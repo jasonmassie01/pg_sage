@@ -14,6 +14,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
+	"github.com/pg-sage/sidecar/internal/logwatch"
 	"github.com/pg-sage/sidecar/internal/sre"
 	"github.com/pg-sage/sidecar/internal/sre/action"
 	"github.com/pg-sage/sidecar/internal/sre/changefeed"
@@ -88,6 +89,9 @@ type DatabaseInstance struct {
 	// Production instances use defaultInstanceTeardownTimeout.
 	teardownTimeout time.Duration
 
+	// LogSource reports the live log-source status; nil reports disabled.
+	LogSource func() logwatch.SourceStatus
+
 	// statusMu guards reads/writes to the InstanceStatus pointed to by
 	// Status. Always access via UpdateStatus / SnapshotStatus.
 	statusMu sync.RWMutex
@@ -143,6 +147,7 @@ func (d *DatabaseInstance) SnapshotStatus() *InstanceStatus {
 		cp = *d.Status
 	}
 	d.statusMu.RUnlock()
+	cp.LogSource = d.logSourceStatus()
 	if d.Collector != nil {
 		sample := d.Collector.LatestSnapshot()
 		if sample != nil && !sample.CollectedAt.IsZero() && !sample.CollectedAt.Before(cp.CollectorLastRun) {
@@ -151,6 +156,15 @@ func (d *DatabaseInstance) SnapshotStatus() *InstanceStatus {
 		}
 	}
 	return &cp
+}
+
+// logSourceStatus is the live log-source status, never a zero value.
+func (d *DatabaseInstance) logSourceStatus() logwatch.SourceStatus {
+	var st logwatch.SourceStatus
+	if d.LogSource != nil {
+		st = d.LogSource()
+	}
+	return st.OrDisabled("no log source is wired for this database")
 }
 
 // RemoveInstance keeps the legacy bool API while bounding its caller.
@@ -469,4 +483,7 @@ type InstanceStatus struct {
 	LastSeen         time.Time            `json:"last_seen"`
 	DatabaseName     string               `json:"database_name"`
 	Capabilities     ProviderCapabilities `json:"capabilities,omitempty"`
+	// LogSource is the log-based RCA source of this database (rca-09); in
+	// fleet mode it is its cluster's watcher.
+	LogSource logwatch.SourceStatus `json:"log_source"`
 }

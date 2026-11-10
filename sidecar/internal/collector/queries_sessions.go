@@ -7,7 +7,9 @@ import "github.com/pg-sage/sidecar/internal/selfmonitor"
 // index builds) are not the workload: active and idle-in-transaction
 // counts, locks, connection states, churn and the load circuit breaker
 // leave them out with selfmonitor.ActivityExclusionSQL. Connection slots
-// (total_backends) are capacity and still count every backend.
+// (total_backends, client_backends) are capacity and still count every
+// backend; client_backends counts the cluster's client sessions only, the
+// ones max_connections limits (rca-08).
 
 // notSelf is the session filter of these reads.
 var notSelf = selfmonitor.ActivityExclusionSQL("")
@@ -59,11 +61,16 @@ const systemCountersSQL = `
 
 // checkpointEpochSQL is the checkpoint counters' epoch over the view the
 // variant reads (alias v): the later of its stats_reset and the postmaster
-// start (a crash discards the counters without touching stats_reset).
+// start (a crash discards the counters without touching stats_reset). Then
+// the replica flag and the cluster's client sessions, every database's, as
+// total_backends counts (client_backends, rca-08).
 const checkpointEpochSQL = `
   GREATEST(COALESCE(v.stats_reset, '-infinity'::timestamptz),
     pg_postmaster_start_time()) AS checkpoint_stats_epoch,
-  pg_is_in_recovery() AS is_replica`
+  pg_is_in_recovery() AS is_replica,
+  (SELECT count(*) FROM pg_stat_activity
+    WHERE pid <> pg_backend_pid()
+      AND backend_type = 'client backend') AS client_backends`
 
 // The checkpoint counters are read split (forecast-03): a timed
 // checkpoint is counted every checkpoint_timeout even when it is skipped

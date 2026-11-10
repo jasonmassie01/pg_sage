@@ -76,6 +76,7 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 	writeShadowMetrics(&b, shadow.DecisionCounts(), shadow.ScoreCounts())
 	writeParkMetrics(&b, executor.ParkCounts(), executor.WaitReleaseCounts())
 	writeRecordFailureMetrics(&b, executor.RecordFailureCounts())
+	writeLogwatchMetrics(&b, runtimeLogFanouts.droppedLines())
 
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	if _, err := fmt.Fprint(w, b.String()); err != nil {

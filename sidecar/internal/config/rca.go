@@ -10,6 +10,10 @@ const (
 	minRCALockChainIntervalSeconds = 10
 	maxRCALockChainIntervalSeconds = 3600
 	maxRCAStaleAfterHours          = 8760
+
+	// Bounds for rca.log_fast_path_interval_seconds. 0 disables it.
+	minRCALogFastPathIntervalSeconds = 1
+	maxRCALogFastPathIntervalSeconds = 3600
 )
 
 // LockChainInterval is the lock-chain fast-path period; zero means the
@@ -19,6 +23,15 @@ func (r *RCAConfig) LockChainInterval() time.Duration {
 		return 0
 	}
 	return time.Duration(r.LockChainIntervalSeconds) * time.Second
+}
+
+// LogFastPathInterval is the log fast-path period; zero means the log fast
+// path is disabled.
+func (r *RCAConfig) LogFastPathInterval() time.Duration {
+	if r.LogFastPathIntervalSeconds <= 0 {
+		return 0
+	}
+	return time.Duration(r.LogFastPathIntervalSeconds) * time.Second
 }
 
 // StaleAfter is how long an open incident may go without being
@@ -39,6 +52,9 @@ func (r *RCAConfig) validate() error {
 		return err
 	}
 	if err := r.validateHolderFloor(); err != nil {
+		return err
+	}
+	if err := r.validateLogFastPath(); err != nil {
 		return err
 	}
 	s := r.LockChainIntervalSeconds
@@ -62,6 +78,19 @@ func (r *RCAConfig) validateStaleAfter() error {
 	if h*60 < r.DedupWindowMinutes {
 		return fmt.Errorf("rca.stale_after_hours (%d h) must cover "+
 			"rca.dedup_window_minutes (%d)", h, r.DedupWindowMinutes)
+	}
+	return nil
+}
+
+func (r *RCAConfig) validateLogFastPath() error {
+	s := r.LogFastPathIntervalSeconds
+	if s == 0 {
+		return nil
+	}
+	if s < minRCALogFastPathIntervalSeconds || s > maxRCALogFastPathIntervalSeconds {
+		return fmt.Errorf("rca.log_fast_path_interval_seconds must be 0 "+
+			"(disabled) or %d-%d, got %d", minRCALogFastPathIntervalSeconds,
+			maxRCALogFastPathIntervalSeconds, s)
 	}
 	return nil
 }

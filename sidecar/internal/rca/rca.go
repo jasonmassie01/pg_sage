@@ -3,6 +3,7 @@ package rca
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -129,6 +130,9 @@ type Engine struct {
 	// mu guards the fields above and is never held across I/O.
 	cycleMu sync.Mutex
 	mu      sync.Mutex
+	// clusterNonOwner is set on a fleet engine that does not own its
+	// cluster's cluster-wide signals (rca-08); the zero value owns them.
+	clusterNonOwner atomic.Bool
 }
 
 // defaultLogReplayGrace tolerates clock skew between the PostgreSQL
@@ -147,11 +151,16 @@ func (e *Engine) WithLLM(client *llm.Client) {
 }
 
 // SetLogSource attaches a log-based signal source (logwatch adapter).
-// When set, Analyze drains log signals each cycle.
+// When set, Analyze drains log signals each cycle. The source it replaces
+// is stopped, so a replaced fanout subscription stops buffering (rca-08).
 func (e *Engine) SetLogSource(src LogSource) {
 	e.mu.Lock()
-	defer e.mu.Unlock()
+	old := e.logSource
 	e.logSource = src
+	e.mu.Unlock()
+	if old != nil && old != src {
+		old.Stop()
+	}
 }
 
 // WithActionStore enables self-action correlation by wiring in a

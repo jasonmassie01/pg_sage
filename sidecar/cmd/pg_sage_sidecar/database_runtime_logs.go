@@ -2,9 +2,7 @@ package main
 
 import (
 	"context"
-	"net"
-	"strconv"
-	"sync"
+	"errors"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -19,48 +17,37 @@ import (
 	"github.com/pg-sage/sidecar/internal/store"
 )
 
-// logFanoutSet shares one log watcher per PostgreSQL cluster (host:port)
-// across every runtime: databases on one cluster share its log directory.
-type logFanoutSet struct {
-	mu      sync.Mutex
-	fanouts map[string]*logwatch.LogFanout
-}
+// logLocaleProbeTimeout bounds each pg_settings read made when a log
+// watcher starts (lc_messages and the signal settings).
+const logLocaleProbeTimeout = 5 * time.Second
 
-func newLogFanoutSet() *logFanoutSet {
-	return &logFanoutSet{fanouts: map[string]*logwatch.LogFanout{}}
-}
-
-// runtimeLogFanouts is the process-wide set every mode uses.
-var runtimeLogFanouts = newLogFanoutSet()
-
-// forCluster returns the cluster's fanout, starting its watcher and drain
-// loop on first use. ctx is the process lifetime: the watcher outlives any
-// one database. nil means log watching is unavailable for the cluster; a
-// later database retries.
-func (s *logFanoutSet) forCluster(
-	ctx context.Context, key string, pool *pgxpool.Pool,
-) *logwatch.LogFanout {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if fanout := s.fanouts[key]; fanout != nil {
-		return fanout
+// logSettingHints warns once per cluster when lc_messages is not C or
+// English (the text-matched signals would never fire) or a setting keeps an
+// optional signal silent, and returns the warnings for the source status.
+// Without a pool (an explicitly configured log path needs none) there is
+// nothing to read.
+func logSettingHints(ctx context.Context, key string, pool *pgxpool.Pool) []string {
+	if pool == nil {
+		return nil
 	}
-	settings, err := resolvedLogWatchConfig(ctx, pool)
+	ctx, cancel := context.WithTimeout(ctx, logLocaleProbeTimeout)
+	defer cancel()
+	var hints []string
+	setting, err := logwatch.DetectLCMessages(ctx, pool)
 	if err != nil {
-		logWarn("logwatch", "[%s] auto-detect: %v", key, err)
-		return nil
+		logWarn("logwatch", "[%s] %v", key, err)
+	} else if msg := logwatch.LCMessagesWarning(setting); msg != "" {
+		hints = append(hints, msg)
 	}
-	watcher := logwatch.NewFileWatcher(settings, logStructuredWrapper)
-	if err := watcher.Start(ctx); err != nil {
-		logWarn("logwatch", "[%s] start failed: %v", key, err)
-		return nil
+	signal, err := logwatch.DetectSignalHints(ctx, pool, cfg.LogWatch.SlowQueryEnabled)
+	if err != nil {
+		logWarn("logwatch", "[%s] %v", key, err)
 	}
-	fanout := logwatch.NewLogFanout(watcher)
-	s.fanouts[key] = fanout
-	go runFanoutDrain(ctx, key, fanout, logwatchPollInterval())
-	logInfo("logwatch", "[%s] started (dir=%s format=%s)",
-		key, settings.LogDirectory, settings.Format)
-	return fanout
+	hints = append(hints, signal...)
+	for _, h := range hints {
+		logWarn("logwatch", "[%s] %s", key, h)
+	}
+	return hints
 }
 
 // resolvedLogWatchConfig fills an unset log directory or format from the
@@ -71,6 +58,11 @@ func resolvedLogWatchConfig(
 	settings := cfg.LogWatch
 	if settings.LogDirectory != "" && settings.Format != "" {
 		return settings, nil
+	}
+	if pool == nil {
+		return config.LogWatchConfig{}, errors.New("no running database of this " +
+			"cluster to read log_destination and log_directory from pg_settings; " +
+			"set logwatch.log_directory and logwatch.format")
 	}
 	dir, format, err := logwatch.DetectLogSettings(ctx, pool)
 	if err != nil {
@@ -113,21 +105,30 @@ func runFanoutDrain(
 	}
 }
 
+// logConsumerEnabled reports whether anything reads the server log: RCA
+// or migration log detection.
+func logConsumerEnabled() bool {
+	return cfg.RCA.Enabled || (cfg.Migration.Enabled && cfg.Migration.LogDetection)
+}
+
 // clusterLogFanout returns the shared log fanout when a log consumer (RCA
 // or migration log detection) is enabled.
 func (rt *databaseRuntime) clusterLogFanout() *logwatch.LogFanout {
-	logConsumer := cfg.RCA.Enabled ||
-		(cfg.Migration.Enabled && cfg.Migration.LogDetection)
-	if !cfg.LogWatch.Enabled || !logConsumer {
+	if !cfg.LogWatch.Enabled || !logConsumerEnabled() {
 		return nil
 	}
-	conn := rt.spec.Pool.Config().ConnConfig
-	key := net.JoinHostPort(conn.Host, strconv.Itoa(int(conn.Port)))
+	key := poolHostPort(rt.spec.Pool)
 	parent := shutdownCtx
 	if parent == nil {
 		parent = context.Background()
 	}
-	return runtimeLogFanouts.forCluster(parent, key, rt.spec.Pool)
+	fanout := runtimeLogFanouts.forCluster(parent, key, rt.spec.Pool)
+	pool := rt.spec.Pool
+	rt.start(func() {
+		<-rt.ctx.Done()
+		runtimeLogFanouts.release(key, pool)
+	})
+	return fanout
 }
 
 // wireRCA attaches the incident engine, fed by the cluster's log watcher.
@@ -140,18 +141,26 @@ func (rt *databaseRuntime) wireRCA() {
 	if rt.llmOn {
 		rt.rca.WithLLM(rt.generalLLM)
 	}
+	var critical rca.CriticalLogSource
+	var logSub rca.LogSource
 	if rt.logFanout != nil {
-		rt.rca.SetLogSource(rt.logFanout.Subscribe(rt.spec.Name))
+		sub := rt.logFanout.Subscribe(rt.spec.Name)
+		rt.rca.SetLogSource(sub)
+		critical, logSub = sub, sub
 	}
+	rt.joinClusterScope(logSub)
 	rt.rcaAdapter = newRCAAdapter(rcaAdapterDeps{
 		ctx: rt.ctx, eng: rt.rca, pool: rt.spec.Pool, name: rt.spec.Name,
 		cfg: rt.cfg, logFn: logStructuredWrapper, workers: rt.workers,
-		probes: rt.probes,
+		probes: rt.probes, logSource: critical,
 	})
 	rt.analyzer.WithRCAEngine(rt.rcaAdapter)
 	rt.note("rca")
 	if rt.rcaAdapter.fastPath != nil {
 		rt.note("sre_fast_path")
+	}
+	if rt.rcaAdapter.logFastPath != nil {
+		rt.note("log_fast_path")
 	}
 }
 
