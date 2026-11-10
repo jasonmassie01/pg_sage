@@ -24,8 +24,34 @@ func (c *Collector) collectSystem(ctx context.Context) (SystemStats, error) {
 	}
 	if err == nil {
 		s.DBSizeBytes = c.databaseSize(ctx)
+		c.readWALPosition(ctx, &s)
 	}
 	return s, err
+}
+
+// walInsertLSNSQL is the WAL insert position in bytes on a primary; NULL
+// on a standby, which replays WAL it did not generate (and where
+// pg_current_wal_lsn() fails).
+const walInsertLSNSQL = sageTag + `SELECT CASE WHEN pg_is_in_recovery() THEN NULL
+  ELSE pg_wal_lsn_diff(pg_current_wal_lsn(), '0/0')::bigint END`
+
+// readWALPosition sets the WAL insert position and the instant it was
+// read (the midpoint of the read), which the WAL rate divides by (rca-03).
+// It never fails the system stats: an unreadable position stays zero, an
+// unknown WAL rate for this cycle.
+func (c *Collector) readWALPosition(ctx context.Context, s *SystemStats) {
+	start := time.Now().UTC()
+	var lsn *int64
+	if err := c.catalogQueryRow(ctx, walInsertLSNSQL).Scan(&lsn); err != nil {
+		c.logFn("WARN", "collector: WAL position unavailable this cycle "+
+			"(no WAL rate signal until it is readable): %v", err)
+		return
+	}
+	if lsn == nil {
+		return
+	}
+	end := time.Now().UTC()
+	s.WALLSN, s.WALReadAt = *lsn, start.Add(end.Sub(start)/2)
 }
 
 // otherMajorVersion reports an undefined column or relation: the system
@@ -46,7 +72,8 @@ func (c *Collector) scanSystemStats(ctx context.Context, sql string) (SystemStat
 		&s.TotalBackends, &s.MaxConnections,
 		&ratio, &s.Deadlocks,
 		&s.BlkReadTime, &s.BlkWriteTime,
-		&s.BlksHit, &s.BlksRead, &s.XactCommit, &s.XactRollback, &s.TempBytes,
+		&s.BlksHit, &s.BlksRead, &s.XactCommit, &s.XactRollback, &s.TempBytes, &s.Sessions,
+		&s.IdleInTxMaxSeconds,
 		&s.TotalCheckpoints, &ckptEpoch, &s.IsReplica, &s.ClientBackends,
 	)
 	if ckptEpoch != nil {

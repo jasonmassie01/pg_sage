@@ -161,7 +161,11 @@ type ForeignKey struct {
 type SystemStats struct {
 	ActiveBackends    int `json:"active_backends"`
 	IdleInTransaction int `json:"idle_in_transaction"`
-	TotalBackends     int `json:"total_backends"`
+	// IdleInTxMaxSeconds is how long this database's longest
+	// idle-in-transaction client session has been idle (rca-03); 0 with
+	// none.
+	IdleInTxMaxSeconds float64 `json:"idle_in_tx_max_seconds,omitempty"`
+	TotalBackends      int     `json:"total_backends"`
 	// ClientBackends counts the cluster's client sessions, the backends
 	// that take max_connections slots (rca-08).
 	ClientBackends    int     `json:"client_backends"`
@@ -189,6 +193,14 @@ type SystemStats struct {
 	XactCommit   int64 `json:"xact_commit"`
 	XactRollback int64 `json:"xact_rollback"`
 	TempBytes    int64 `json:"temp_bytes"`
+	// Sessions is pg_stat_database.sessions (PG 14+): the sessions this
+	// database has had since RelationStatsEpoch, closed ones included.
+	Sessions int64 `json:"sessions,omitempty"`
+	// WALLSN is the cluster's WAL insert position in bytes, read at
+	// WALReadAt (rca-03). Both are zero on a standby and when the position
+	// could not be read this cycle.
+	WALLSN    int64     `json:"wal_lsn,omitempty"`
+	WALReadAt time.Time `json:"wal_read_at,omitzero"`
 	// CheckpointStatsEpoch is the instant since which TotalCheckpoints
 	// accumulates: the later of the checkpoint view's stats_reset
 	// (pg_stat_bgwriter before 17, pg_stat_checkpointer from 17) and the

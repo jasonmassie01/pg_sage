@@ -180,7 +180,8 @@ func TestPreflightEvidencePercentCollectorToRatioRule(t *testing.T) {
 		SELECT datname,
 		(80000 * extract(epoch FROM now()))::bigint blks_hit,
 		(20000 * extract(epoch FROM now()))::bigint blks_read,
-		deadlocks,blk_read_time,blk_write_time,xact_commit,xact_rollback,temp_bytes
+		deadlocks,blk_read_time,blk_write_time,xact_commit,xact_rollback,temp_bytes,
+		sessions
 		FROM pg_catalog.pg_stat_database`)
 	pcfg, err := pgxpool.ParseConfig(os.Getenv("SAGE_TEST_DATABASE_URL"))
 	if err != nil {

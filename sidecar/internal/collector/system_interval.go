@@ -13,11 +13,14 @@ type SystemInterval struct {
 	Seconds float64 `json:"seconds"`
 	// CacheHitRatio is blks_hit / (blks_hit + blks_read) of the interval,
 	// a fraction in [0,1]; nil also when no block was accessed.
-	CacheHitRatio  *float64 `json:"cache_hit_ratio"`
-	BlksAccessed   *int64   `json:"blks_accessed"`
-	Deadlocks      *int64   `json:"deadlocks"`
-	Xacts          *int64   `json:"xacts"`
-	TempBytes      *int64   `json:"temp_bytes"`
+	CacheHitRatio *float64 `json:"cache_hit_ratio"`
+	BlksAccessed  *int64   `json:"blks_accessed"`
+	Deadlocks     *int64   `json:"deadlocks"`
+	Xacts         *int64   `json:"xacts"`
+	TempBytes     *int64   `json:"temp_bytes"`
+	// Sessions is how many sessions this database opened in the interval,
+	// those already closed included (rca-03).
+	Sessions       *int64   `json:"sessions,omitempty"`
 	BlkReadTimeMs  *float64 `json:"blk_read_time_ms"`
 	BlkWriteTimeMs *float64 `json:"blk_write_time_ms"`
 	// Checkpoints is cluster-wide, under its own epoch.
@@ -60,8 +63,14 @@ func databaseInterval(iv *SystemInterval, p, s *SystemStats) {
 	if s.BlksHit < p.BlksHit || s.BlksRead < p.BlksRead ||
 		s.Deadlocks < p.Deadlocks || s.XactCommit < p.XactCommit ||
 		s.XactRollback < p.XactRollback || s.TempBytes < p.TempBytes ||
-		s.BlkReadTime < p.BlkReadTime || s.BlkWriteTime < p.BlkWriteTime {
+		s.BlkReadTime < p.BlkReadTime || s.BlkWriteTime < p.BlkWriteTime ||
+		s.Sessions < p.Sessions {
 		return
+	}
+	// A previous count of 0 is a row from before sessions was read: the
+	// collector's own connection is always a session.
+	if p.Sessions > 0 {
+		iv.Sessions = int64Ptr(s.Sessions - p.Sessions)
 	}
 	hits := s.BlksHit - p.BlksHit
 	accessed := hits + s.BlksRead - p.BlksRead

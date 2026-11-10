@@ -51,8 +51,19 @@ const clientBackendsColumn = `,
     WHERE pid <> pg_backend_pid()
       AND backend_type = 'client backend') AS client_backends`
 
+// idleInTxMaxColumn is how long this database's longest
+// idle-in-transaction client session has been idle (rca-03: the longest,
+// which one forgotten session sets, not the average; all PG versions).
+var idleInTxMaxColumn = `
+  COALESCE((SELECT max(EXTRACT(EPOCH FROM (now() - state_change)))::float8
+    FROM pg_stat_activity
+    WHERE state = 'idle in transaction' AND backend_type = 'client backend'
+      AND datname = current_database() AND ` + notSelf + `), 0) AS idle_in_tx_max_seconds,
+`
+
 // systemCountersSQL is this database's lifetime counters the system
-// interval is differenced from (collection-06; all PG versions).
+// interval is differenced from (collection-06; all supported versions:
+// sessions is PG 14+, rca-03).
 const systemCountersSQL = `
   COALESCE((SELECT blks_hit FROM pg_stat_database
     WHERE datname = current_database()), 0) AS blks_hit,
@@ -64,6 +75,8 @@ const systemCountersSQL = `
     WHERE datname = current_database()), 0) AS xact_rollback,
   COALESCE((SELECT temp_bytes FROM pg_stat_database
     WHERE datname = current_database()), 0) AS temp_bytes,
+  COALESCE((SELECT sessions FROM pg_stat_database
+    WHERE datname = current_database()), 0) AS sessions,
 `
 
 // checkpointEpochExpr is the checkpoint counters' epoch over the view the
@@ -73,7 +86,7 @@ const checkpointEpochExpr = `GREATEST(COALESCE(stats_reset, '-infinity'::timesta
     pg_postmaster_start_time())`
 
 // systemStatsSQL14 uses pg_stat_bgwriter (PG 14-16).
-var systemStatsSQL14 = systemStatsSQLBase + systemCountersSQL + `
+var systemStatsSQL14 = systemStatsSQLBase + systemCountersSQL + idleInTxMaxColumn + `
   (SELECT checkpoints_timed + checkpoints_req
     FROM pg_stat_bgwriter) AS total_checkpoints,
   (SELECT ` + checkpointEpochExpr + `
@@ -81,7 +94,7 @@ var systemStatsSQL14 = systemStatsSQLBase + systemCountersSQL + `
   pg_is_in_recovery() AS is_replica` + clientBackendsColumn
 
 // systemStatsSQL17 uses pg_stat_checkpointer (PG 17+).
-var systemStatsSQL17 = systemStatsSQLBase + systemCountersSQL + `
+var systemStatsSQL17 = systemStatsSQLBase + systemCountersSQL + idleInTxMaxColumn + `
   (SELECT num_timed + num_requested
     FROM pg_stat_checkpointer) AS total_checkpoints,
   (SELECT ` + checkpointEpochExpr + `
