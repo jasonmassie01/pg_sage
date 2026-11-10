@@ -345,10 +345,11 @@ about once a day. Only a row committed so late that its event time has left
 that horizon before a sweep reaches it is never read. Raising
 `settle_lag_seconds` makes forward reads more complete but every finding later.
 
-**Read width.** `window_seconds` (default 900) is the widest single forward or
-reconcile read, not only the first one. Reads narrow when a window hits
-`max_rows` or `max_bytes` and widen back up to this cap, and the first forward
-read of a new stream starts this far back.
+**Read width.** `window_seconds` (default 900) is the widest single forward
+read and the base width of every reconcile read, not only the first one. Reads
+narrow when a window hits `max_rows` or `max_bytes` and widen back up to this
+cap; a stream that stays sparse at the full width reconciles up to four windows
+per read. The first forward read of a new stream starts this far back.
 
 **Warehouse cost.** Every read is a SQL statement on the bound warehouse. A
 poll spends at most `queries_per_poll` statements (default 16 for six
