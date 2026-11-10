@@ -28,7 +28,12 @@ func (f *fakeLedgerRead) read(
 ) ([]value.SourceResult, error) {
 	f.calls.Add(1)
 	if f.started != nil {
-		f.started <- struct{}{}
+		// Never block on the signal: a cache that lets a second read
+		// through must fail on the read count, not hang the test.
+		select {
+		case f.started <- struct{}{}:
+		default:
+		}
 		<-f.release
 	}
 	if f.fail != nil {
