@@ -8,6 +8,7 @@ let configReadOnly = false
 let configMode = 'fleet'
 let configError = null
 let configLoading = false
+let configMasked = []
 
 vi.mock('../hooks/useAPI', () => ({
   useAPI: vi.fn(url => {
@@ -40,6 +41,7 @@ vi.mock('../hooks/useAPI', () => ({
         mode: configMode,
         databases: 3,
         desired_generation: 7,
+        masked_by_override: configMasked,
         read_only: configReadOnly,
         write_guidance: configReadOnly ? 'edit the YAML file' : undefined,
       },
@@ -70,6 +72,7 @@ describe('SettingsPage', () => {
     configMode = 'fleet'
     configError = null
     configLoading = false
+    configMasked = []
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ status: 'updated' }),
@@ -291,6 +294,27 @@ describe('SettingsPage restart', () => {
 // G9-B11: trust.tier3_high_risk has no runtime reader.
 // G9-B13: emergency controls state their scope.
 describe('SettingsPage trust and emergency controls', () => {
+  beforeEach(() => {
+    configMasked = []
+  })
+
+  it('badges a trust level whose file value an override masks (config-03)', () => {
+    configMasked = [{
+      key: 'trust.level', file_value: 'observation', override_value: 'autonomous',
+      effective_value: 'observation', updated_by: 7, updated_at: '2026-11-10T08:30:00Z',
+    }]
+    render(<SettingsPage database="all" />)
+    fireEvent.click(screen.getByTestId('settings-tab-trust-safety'))
+    expect(screen.getAllByText('masked')).toHaveLength(1)
+    expect(screen.getAllByText('file/default').length).toBeGreaterThan(0)
+  })
+
+  it('shows no masked badge when nothing is masked', () => {
+    render(<SettingsPage database="all" />)
+    fireEvent.click(screen.getByTestId('settings-tab-trust-safety'))
+    expect(screen.queryByText('masked')).toBeNull()
+  })
+
   it('does not offer the unused Tier 3 High Risk toggle', () => {
     localStorage.setItem('pg_sage_settings_mode', 'advanced')
     render(<SettingsPage database="all" />)
