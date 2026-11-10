@@ -86,7 +86,7 @@ func (h *HypoPG) probeInstalled(ctx context.Context) (bool, error) {
 // Failed instead of aborting the evaluation, but a lock timeout ends it
 // with an error. The verdict is the caller's (whatIfVerdict).
 func (h *HypoPG) Validate(ctx context.Context, rec Recommendation, queries []QueryInfo,
-) (res WhatIfResult, retErr error) {
+) (WhatIfResult, error) {
 	if h.pool == nil {
 		return WhatIfResult{}, fmt.Errorf("HypoPG requires a database pool")
 	}
@@ -97,6 +97,16 @@ func (h *HypoPG) Validate(ctx context.Context, rec Recommendation, queries []Que
 	if len(queries) == 0 {
 		return WhatIfResult{}, nil
 	}
+	return h.inSession(ctx, func(s *hypopgSession) (WhatIfResult, error) {
+		return s.evaluate(ctx, rec, queries)
+	})
+}
+
+// inSession runs measure on one owning session and restores the session
+// before release. A failed measurement or cleanup leaves no evidence.
+func (h *HypoPG) inSession(ctx context.Context,
+	measure func(*hypopgSession) (WhatIfResult, error),
+) (res WhatIfResult, retErr error) {
 	session, err := openHypoPGSession(ctx, h.pool, h.lockTimeout)
 	if err != nil {
 		return WhatIfResult{}, err
@@ -107,7 +117,7 @@ func (h *HypoPG) Validate(ctx context.Context, rec Recommendation, queries []Que
 			retErr = errors.Join(retErr, err)
 		}
 	}()
-	res, err = session.evaluate(ctx, rec.DDL, rec.Alongside, queries)
+	res, err = measure(session)
 	if err != nil {
 		return WhatIfResult{}, err
 	}
