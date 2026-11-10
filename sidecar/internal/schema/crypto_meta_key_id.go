@@ -19,10 +19,19 @@ const cryptoMetaKeyIDSQL = `/* pg_sage crypto_meta_key_id v1 */
 ALTER TABLE sage.crypto_meta ADD COLUMN IF NOT EXISTS generated_key_id text`
 
 // migrateCryptoMetaKeyID adds the nullable generated_key_id column under a
-// short lock_timeout. It is idempotent.
+// short lock_timeout. It is idempotent. When the catalog already shows the
+// column it runs no DDL, so a restart takes no ACCESS EXCLUSIVE lock on
+// sage.crypto_meta (the config-04 precheck).
 func migrateCryptoMetaKeyID(ctx context.Context, db bootstrapDB) error {
 	qctx, cancel := context.WithTimeout(ctx, cryptoMetaKeyIDTimeout)
 	defer cancel()
+	stmts := classifyStep(cryptoMetaKeyIDSQL)
+	if err := markDone(qctx, db, stmts); err != nil {
+		return fmt.Errorf("crypto_meta key id migration: precheck: %w", err)
+	}
+	if !pendingWork(stmts) {
+		return nil
+	}
 	tx, err := db.Begin(qctx)
 	if err != nil {
 		return fmt.Errorf("crypto_meta key id migration: begin: %w", err)

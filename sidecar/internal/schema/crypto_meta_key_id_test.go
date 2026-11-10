@@ -88,3 +88,15 @@ func TestGeneratedKeyID_RecordWithoutSaltRowFails(t *testing.T) {
 		t.Fatal("recording a key id with no crypto_meta row succeeded")
 	}
 }
+
+// Boundary: the config-04 precheck recognises the migration as one column
+// check, so a boot that finds the column skips the ALTER and its lock.
+func TestGeneratedKeyID_MigrationIsPrecheckable(t *testing.T) {
+	stmts := classifyStep(cryptoMetaKeyIDSQL)
+	want := catalogCheck{kind: "column", rel: "sage.crypto_meta", col: "generated_key_id"}
+	if len(stmts) != 1 || stmts[0].shape != shapeColumns || len(stmts[0].checks) != 1 ||
+		stmts[0].checks[0] != want {
+		t.Fatalf("classifyStep(cryptoMetaKeyIDSQL) = %+v, want one %+v column check",
+			stmts, want)
+	}
+}
