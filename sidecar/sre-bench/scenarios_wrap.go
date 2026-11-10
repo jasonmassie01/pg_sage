@@ -56,7 +56,7 @@ func wrapScenario(id, class string, gold Gold, f wrapFixture,
 func wrapScenarios() []Scenario {
 	held := func(holder string) wrapFixture {
 		return wrapFixture{table: uniqueName("bench_wrap_"), lowMax: true, holder: holder,
-			sampleBurn: 45000, gid: uniqueName("bench_gid_")}
+			sampleBurn: 45000, gid: uniqueName(gidPrefix)}
 	}
 	session := Gold{Root: "xmin_held_by_session"}
 	return []Scenario{

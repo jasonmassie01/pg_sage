@@ -127,8 +127,8 @@ func TestDesigns_ClassifyRefusal(t *testing.T) {
 
 // TestPrivilegeRoleHoldsAcrossTransactionAndRoleResets: the privilege design
 // is a session logged in as the read-only role, not the owner's session
-// after SET LOCAL ROLE, which a COMMIT or RESET ROLE inside the statement
-// would end. Either reset still leaves the write refused for privilege.
+// with the role switched for the transaction, which a COMMIT or RESET ROLE
+// inside the statement would end. Either reset still leaves the write refused for privilege.
 func TestPrivilegeRoleHoldsAcrossTransactionAndRoleResets(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()

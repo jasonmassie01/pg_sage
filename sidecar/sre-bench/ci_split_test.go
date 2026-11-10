@@ -1,6 +1,7 @@
 package srebench
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/pg-sage/sidecar/internal/earned"
 	"github.com/pg-sage/sidecar/internal/sre"
 )
 
@@ -34,6 +36,7 @@ type ciStep struct {
 }
 
 type ciWorkflow struct {
+	Env  map[string]string `yaml:"env"`
 	Jobs map[string]struct {
 		Env   map[string]string `yaml:"env"`
 		Steps []ciStep          `yaml:"steps"`
@@ -129,7 +132,8 @@ func TestCISplit_EveryShardIsGatedAndBounded(t *testing.T) {
 			dirs[dir] = true
 			fams, _ := ParseFamilies(st.Env[EnvFamilies])
 			n := len(FilterScenarios(Scenarios(), fams))
-			if b := benchBudget(1, n, LLMConfig{Mode: LLMFake}); b >= benchTimeout {
+			replay := BenchReplayRequested(func(k string) string { return st.Env[k] })
+			if b := benchBudget(1, n, LLMConfig{Mode: LLMFake}, replay); b >= benchTimeout {
 				t.Errorf("%s / %s: bench budget %s for %d scenarios is not under %s",
 					job, st.Name, b, n, benchTimeout)
 			}
@@ -137,33 +141,149 @@ func TestCISplit_EveryShardIsGatedAndBounded(t *testing.T) {
 	}
 }
 
+// benches-11: the replay corpus is the same in every shard, so exactly one
+// shard per job (core) replays it, and no workflow or job env turns it on
+// for all of them.
+func TestCISplit_OneShardPerJobReplays(t *testing.T) {
+	wf := readCIWorkflow(t)
+	if v, set := wf.Env[EnvReplay]; set {
+		t.Errorf("ci.yml sets %s=%q for every job", EnvReplay, v)
+	}
+	for _, job := range []string{"test", "integration-matrix"} {
+		if v, set := wf.Jobs[job].Env[EnvReplay]; set {
+			t.Errorf("%s sets %s=%q for every shard", job, EnvReplay, v)
+		}
+		var replaying []string
+		for _, st := range benchSteps(wf, job) {
+			if v, set := st.Env[EnvReplay]; set && strings.TrimSpace(v) != "1" {
+				t.Errorf("%s / %s: %s=%q, want 1 or unset", job, st.Name, EnvReplay, v)
+			}
+			if BenchReplayRequested(func(k string) string { return st.Env[k] }) {
+				replaying = append(replaying, st.Name)
+			}
+		}
+		if len(replaying) != 1 || !strings.Contains(replaying[0], "core") {
+			t.Errorf("%s: shards replaying the corpus = %q, want the core shard only",
+				job, replaying)
+		}
+	}
+}
+
+func TestBenchBudget_ReplayOnlyWhenAsked(t *testing.T) {
+	fake, live := LLMConfig{Mode: LLMFake}, LLMConfig{Mode: LLMLive}
+	for _, c := range []struct {
+		repeats, scenarios int
+		llm                LLMConfig
+		replay             bool
+		want               time.Duration
+	}{
+		{1, 4, fake, false, 2 * time.Minute},
+		{1, 4, fake, true, 2*time.Minute + replayBudget},
+		{0, 0, fake, false, 0},
+		{0, 0, fake, true, replayBudget},
+		{2, 3, live, false, 3*time.Minute + liveModelBudget},
+		{2, 3, live, true, 3*time.Minute + replayBudget + liveModelBudget},
+	} {
+		if got := benchBudget(c.repeats, c.scenarios, c.llm, c.replay); got != c.want {
+			t.Errorf("benchBudget(%d, %d, %s, %v) = %s, want %s", c.repeats, c.scenarios,
+				c.llm.Mode, c.replay, got, c.want)
+		}
+	}
+}
+
+func TestBenchReplayRequested(t *testing.T) {
+	for v, want := range map[string]bool{"1": true, " 1 ": true, "": false, "0": false,
+		"true": false, "yes": false} {
+		got := BenchReplayRequested(func(k string) string {
+			if k == EnvReplay {
+				return v
+			}
+			return "1"
+		})
+		if got != want {
+			t.Errorf("%s=%q: replay requested = %v, want %v", EnvReplay, v, got, want)
+		}
+	}
+}
+
+func TestBenchGates_ReplayGatesOnlyWithAReplay(t *testing.T) {
+	shard := Report{Gates: []GateResult{{ID: GateTop1, Arm: ArmCausalGraph}}}
+	if got := benchGates(shard); len(got) != 1 || got[0].ID != GateTop1 {
+		t.Fatalf("a shard without replay: gates = %+v", got)
+	}
+	if got := benchGates(Report{}); len(got) != 0 {
+		t.Fatalf("an empty report: gates = %+v", got)
+	}
+	core := shard
+	core.Replay = &ReplayReport{Gates: []GateResult{{ID: GateForbidden, Arm: ArmLLM}}}
+	got := benchGates(core)
+	if len(got) != 2 || got[0].ID != GateTop1 || got[1].ID != GateForbidden ||
+		got[1].Arm != ArmLLM {
+		t.Fatalf("a shard with replay: gates = %+v", got)
+	}
+	if len(core.Gates) != 1 {
+		t.Fatalf("benchGates changed the report's gates: %+v", core.Gates)
+	}
+}
+
+func TestShardReportWithoutReplayIsIngested(t *testing.T) {
+	rate := 1.0
+	r := Report{Schema: ReportSchema, SchemaRevision: ReportSchemaRevision,
+		GeneratedAt: time.Now().UTC().Add(-time.Minute), Gated: []string{ArmCausalGraph},
+		Cells: []CellRecord{{Arm: ArmCausalGraph, Family: "checkpoint_storm", Runs: 12,
+			SafePass: Metric{K: 12, N: 12}, Top1: Metric{K: 11, N: 12},
+			MechanismPrecision: &rate}}}
+	raw, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), `"replay"`) || strings.Contains(string(raw), "model_lift") {
+		t.Fatalf("a shard without replay wrote a replay section: %s", raw)
+	}
+	run, err := earned.ParseBenchReport(raw, time.Now())
+	if err != nil {
+		t.Fatalf("the ledger refused a shard report without replay: %v", err)
+	}
+	if run.ModelLift != nil || len(run.Cells) != 1 || run.Cells[0].Family != "checkpoint_storm" ||
+		run.Cells[0].Top1.K != 11 {
+		t.Fatalf("ingested shard = %+v (lift %+v)", run.Cells, run.ModelLift)
+	}
+}
+
 // quotedInt matches the integer literals of a workflow expression.
 var quotedInt = regexp.MustCompile(`'([^']*)'`)
 
-// worstCaseRepeats is the largest repeat count a SAGE_BENCH_REPEATS value
-// can take: a literal, or every quoted literal of a ${{ }} expression
-// (a v* tag picks the larger one).
-func worstCaseRepeats(v string) (int, error) {
+// worstCaseLiteral is the largest integer a workflow value can take: a
+// literal, or every quoted literal of a ${{ }} expression (a v* tag picks
+// the larger one). parse reads one literal; empty literals are allowed
+// only when allowEmpty (an unset bar).
+func worstCaseLiteral(v, env string, allowEmpty bool,
+	parse func(string) (int, error)) (int, error) {
 	v = strings.TrimSpace(v)
 	if !strings.HasPrefix(v, "${{") {
-		return ParseRepeats(v)
+		return parse(v)
 	}
-	lits := quotedInt.FindAllStringSubmatch(v, -1)
 	worst := 0
-	for _, m := range lits {
-		if strings.HasPrefix(m[1], "refs/") {
-			continue // a ref the expression compares, not a repeat count
+	for _, m := range quotedInt.FindAllStringSubmatch(v, -1) {
+		if strings.HasPrefix(m[1], "refs/") || (allowEmpty && m[1] == "") {
+			continue // a ref the expression compares, or the unset value
 		}
-		n, err := ParseRepeats(m[1])
+		n, err := parse(m[1])
 		if err != nil || m[1] == "" {
-			return 0, fmt.Errorf("%s: literal %q is not a repeat count: %v", v, m[1], err)
+			return 0, fmt.Errorf("%s: literal %q is not a count: %v", v, m[1], err)
 		}
 		worst = max(worst, n)
 	}
 	if worst == 0 {
-		return 0, fmt.Errorf("%s=%q names no repeat count", EnvRepeats, v)
+		return 0, fmt.Errorf("%s=%q names no count", env, v)
 	}
 	return worst, nil
+}
+
+// worstCaseRepeats is the largest repeat count a SAGE_BENCH_REPEATS value
+// can take.
+func worstCaseRepeats(v string) (int, error) {
+	return worstCaseLiteral(v, EnvRepeats, false, ParseRepeats)
 }
 
 func TestWorstCaseRepeats(t *testing.T) {
@@ -192,42 +312,73 @@ func TestWorstCaseRepeats(t *testing.T) {
 	}
 }
 
-// The bench budget's edge at 4 repeats: 18 fake-model scenarios fit the
-// 2400 s step, 19 do not.
+// The bench budget's edge at 4 repeats: a shard that replays the corpus
+// (core part A, benches-11) fits 18 fake-model scenarios in the 2400 s
+// step and not 19; a shard without the replay fits 19 and not 20.
 func TestBenchBudgetEdgeAtFourRepeats(t *testing.T) {
 	fake := LLMConfig{Mode: LLMFake}
-	if b := benchBudget(4, 18, fake); b != 2340*time.Second || b >= benchTimeout {
-		t.Fatalf("benchBudget(4, 18) = %s, want 39m0s, under %s", b, benchTimeout)
+	if b := benchBudget(4, 18, fake, true); b != 2340*time.Second || b >= benchTimeout {
+		t.Fatalf("benchBudget(4, 18, replay) = %s, want 39m0s, under %s", b, benchTimeout)
 	}
-	if b := benchBudget(4, 19, fake); b < benchTimeout {
-		t.Fatalf("benchBudget(4, 19) = %s, want at least %s", b, benchTimeout)
+	if b := benchBudget(4, 19, fake, true); b < benchTimeout {
+		t.Fatalf("benchBudget(4, 19, replay) = %s, want at least %s", b, benchTimeout)
 	}
-	if b := benchBudget(4, 0, fake); b != replayBudget {
-		t.Fatalf("benchBudget(4, 0) = %s, want the replay budget %s", b, replayBudget)
+	if b := benchBudget(4, 19, fake, false); b >= benchTimeout {
+		t.Fatalf("benchBudget(4, 19) = %s, want under %s", b, benchTimeout)
+	}
+	if b := benchBudget(4, 20, fake, false); b < benchTimeout {
+		t.Fatalf("benchBudget(4, 20) = %s, want at least %s", b, benchTimeout)
+	}
+	if b := benchBudget(4, 0, fake, true); b != replayBudget {
+		t.Fatalf("benchBudget(4, 0, replay) = %s, want the replay budget %s", b, replayBudget)
 	}
 }
 
-// A v* tag sets SAGE_BENCH_REPEATS=4 for the promotion bar's n >= 10, so
-// every shard must fit its 2400 s timeout at its worst-case repeat count,
-// not only at the single pass of a pull request.
+// shardRepeats is a shard's worst-case repeat count: its fixed
+// SAGE_BENCH_REPEATS, else what a tag's SAGE_BENCH_MIN_RUNS_PER_FAMILY bar
+// sizes for the shard's scenarios (RepeatsFor, benches-06).
+func shardRepeats(env map[string]string, scenarios []Scenario) (int, error) {
+	if v, set := env[EnvRepeats]; set {
+		return worstCaseRepeats(v)
+	}
+	v, set := env[EnvMinRunsPerFamily]
+	if !set {
+		return 1, nil
+	}
+	bar, err := worstCaseLiteral(v, EnvMinRunsPerFamily, true, ParseMinRuns)
+	if err != nil {
+		return 0, err
+	}
+	return RepeatsFor(scenarios, bar), nil
+}
+
+// A v* tag sets SAGE_BENCH_MIN_RUNS_PER_FAMILY=10 (the promotion bar's n
+// >= 10), so every shard must fit its 2400 s timeout at the repeats that
+// bar sizes, plus the replay budget where it replays, not only at the
+// single pass of a pull request (ci-03).
 func TestBenchShardsFitTheirTimeoutOnTags(t *testing.T) {
 	wf := readCIWorkflow(t)
 	for _, job := range []string{"test", "integration-matrix"} {
 		for _, st := range benchSteps(wf, job) {
-			v, set := st.Env[EnvRepeats]
-			if !set {
-				v = wf.Jobs[job].Env[EnvRepeats]
+			env := map[string]string{}
+			for k, v := range wf.Jobs[job].Env {
+				env[k] = v
 			}
-			repeats, err := worstCaseRepeats(v)
+			for k, v := range st.Env {
+				env[k] = v
+			}
+			fams, _ := ParseFamilies(env[EnvFamilies])
+			scenarios := FilterScenarios(Scenarios(), fams)
+			repeats, err := shardRepeats(env, scenarios)
 			if err != nil {
 				t.Errorf("%s / %s: %v", job, st.Name, err)
 				continue
 			}
-			fams, _ := ParseFamilies(st.Env[EnvFamilies])
-			n := len(FilterScenarios(Scenarios(), fams))
-			if b := benchBudget(repeats, n, LLMConfig{Mode: LLMFake}); b >= benchTimeout {
+			replay := BenchReplayRequested(func(k string) string { return env[k] })
+			b := benchBudget(repeats, len(scenarios), LLMConfig{Mode: LLMFake}, replay)
+			if b >= benchTimeout {
 				t.Errorf("%s / %s: %d scenarios x %d repeats need %s, not under %s",
-					job, st.Name, n, repeats, b, benchTimeout)
+					job, st.Name, len(scenarios), repeats, b, benchTimeout)
 			}
 		}
 	}

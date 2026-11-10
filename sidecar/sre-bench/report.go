@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -27,6 +28,10 @@ const (
 	// EnvRun must be "1" for TestPGIncidentBench to run. CI runs the bench
 	// in its own step so the ./... suites stay within their timeouts.
 	EnvRun = "SAGE_BENCH_RUN"
+	// EnvReplay "1" attaches the replay corpus section to the bench report.
+	// CI sets it on one shard per job (core): the corpus is the same in
+	// every shard, so one replay is the evidence (benches-11).
+	EnvReplay = "SAGE_BENCH_REPLAY"
 	// MaxRepeats bounds EnvRepeats.
 	MaxRepeats = 10
 
@@ -37,6 +42,11 @@ const (
 // BenchRunRequested reports whether EnvRun asks for the full bench.
 func BenchRunRequested(getenv func(string) string) bool {
 	return strings.TrimSpace(getenv(EnvRun)) == "1"
+}
+
+// BenchReplayRequested reports whether EnvReplay asks for the replay.
+func BenchReplayRequested(getenv func(string) string) bool {
+	return strings.TrimSpace(getenv(EnvReplay)) == "1"
 }
 
 // ParseRepeats reads EnvRepeats: empty means 1.
@@ -72,6 +82,9 @@ type ReportMeta struct {
 	// PgSageVersion and PgSageCommit name the pg_sage build the report
 	// scores (empty: unstamped).
 	PgSageVersion, PgSageCommit string
+	// MinRunsPerFamily is the scored top-1 runs every family needs on the
+	// gated arms (EnvMinRunsPerFamily); 0 reports no sample size.
+	MinRunsPerFamily int
 }
 
 // Thresholds are the pre-registered gate thresholds.
@@ -106,6 +119,16 @@ type Report struct {
 	// (roadmap 2.4); LLMBudget is a live model's spending against its caps.
 	ModelLift []LiftRecord  `json:"model_lift,omitempty"`
 	LLMBudget *BudgetRecord `json:"llm_budget,omitempty"`
+	// FamilyRuns is each family's scored top-1 runs (the fewest of the
+	// ready gated arms) against the bar the run asked for (benches-06).
+	FamilyRuns []FamilyRunRecord `json:"family_top1_runs,omitempty"`
+}
+
+// FamilyRunRecord is one family's sample size against the bar.
+type FamilyRunRecord struct {
+	Family string `json:"family"`
+	N      int    `json:"n"`
+	Bar    int    `json:"bar"`
 }
 
 // AttachReplay sets the replay section with its model lift and the live
@@ -292,6 +315,7 @@ func BuildReport(rs []Result, meta ReportMeta) Report {
 	for _, res := range rs {
 		r.Runs = append(r.Runs, runOf(res))
 	}
+	r.FamilyRuns = familyRunsOf(rs, meta)
 	if b := meta.LLM.budget; b != nil {
 		rec := b.Record()
 		r.LLMBudget = &rec
@@ -317,4 +341,33 @@ func WriteReport(dir string, r Report) (jsonPath, mdPath string, err error) {
 		return "", "", fmt.Errorf("write %s: %w", mdPath, err)
 	}
 	return jsonPath, mdPath, nil
+}
+
+// familyRunsOf is the per-family sample size against meta's bar, sorted
+// by family; nothing without a bar.
+func familyRunsOf(rs []Result, meta ReportMeta) []FamilyRunRecord {
+	if meta.MinRunsPerFamily <= 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	var scenarios []Scenario
+	for _, r := range rs {
+		if !seen[r.Scenario.ID] {
+			seen[r.Scenario.ID] = true
+			scenarios = append(scenarios, r.Scenario)
+		}
+	}
+	var arms []string
+	for _, a := range meta.Gated {
+		if _, pending := meta.Pending[a]; !pending {
+			arms = append(arms, a)
+		}
+	}
+	counts := FamilyTop1Runs(rs, scenarios, arms)
+	out := make([]FamilyRunRecord, 0, len(counts))
+	for fam, n := range counts {
+		out = append(out, FamilyRunRecord{Family: fam, N: n, Bar: meta.MinRunsPerFamily})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Family < out[j].Family })
+	return out
 }

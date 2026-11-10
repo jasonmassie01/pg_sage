@@ -33,12 +33,22 @@ func virtualSigstore(t *testing.T) *ca.VirtualSigstore {
 	return vs
 }
 
+// testIdentity is the release identity without the repository and owner
+// ID pins: the virtual Sigstore cannot put those extensions in its
+// certificates (benchsig_repo_test.go tests the pins themselves).
+func testIdentity() Identity {
+	id := ReleaseIdentity()
+	id.RepositoryID, id.OwnerID = "", ""
+	return id
+}
+
 // releaseVerifier is the release verifier over vs without the SCT
-// requirement: the virtual Sigstore cannot issue SCTs (see
-// TestReleaseVerifierRequiresAnSCT for the requirement itself).
+// requirement and the repository pin: the virtual Sigstore can issue
+// neither (see TestReleaseVerifierRequiresAnSCT and
+// TestReleaseVerifierRefusesACertificateWithoutRepositoryIDs).
 func releaseVerifier(t *testing.T, vs *ca.VirtualSigstore) *Verifier {
 	t.Helper()
-	v, err := newVerifier(vs, ReleaseIdentity(), 0)
+	v, err := newVerifier(vs, testIdentity(), 0, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,17 +212,29 @@ func TestNewVerifierRefusesIncompleteConfiguration(t *testing.T) {
 	if _, err := NewVerifier(nil, ReleaseIdentity()); err == nil {
 		t.Error("no trusted material accepted")
 	}
-	if _, err := NewVerifier(vs, Identity{SANPattern: "^x$"}); err == nil {
-		t.Error("an empty issuer accepted")
+	// Each case is the release identity with one field broken, so the
+	// refusal is for that field.
+	with := func(edit func(*Identity)) Identity {
+		id := ReleaseIdentity()
+		edit(&id)
+		return id
 	}
-	if _, err := NewVerifier(vs, Identity{Issuer: GitHubIssuer}); err == nil {
-		t.Error("an empty identity pattern accepted (it would match any signer)")
+	cases := map[string]struct {
+		id   Identity
+		want string
+	}{
+		"an empty issuer": {with(func(i *Identity) { i.Issuer = " " }), "issuer"},
+		"an empty identity pattern (it would match any signer)": {
+			with(func(i *Identity) { i.SANPattern = "" }), "anchored"},
+		"an invalid pattern": {with(func(i *Identity) { i.SANPattern = "^([$" }), "pattern"},
+		"an unanchored pattern (it would match a suffix)": {
+			with(func(i *Identity) { i.SANPattern = "x" }), "anchored"},
 	}
-	if _, err := NewVerifier(vs, Identity{Issuer: GitHubIssuer, SANPattern: "(["}); err == nil {
-		t.Error("an invalid pattern accepted")
-	}
-	if _, err := NewVerifier(vs, Identity{Issuer: GitHubIssuer, SANPattern: "x"}); err == nil {
-		t.Error("an unanchored pattern accepted (it would match a suffix)")
+	for name, c := range cases {
+		_, err := NewVerifier(vs, c.id)
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: err = %v, want a refusal naming %q", name, err, c.want)
+		}
 	}
 }
 

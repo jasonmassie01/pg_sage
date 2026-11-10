@@ -33,8 +33,13 @@ database:
 
 - schema `sb_fixture` with `widgets(id, qty)` and `ledger(id, note)` seeded,
   and sequence `sb_fixture.counter`;
-- role `sb_readonly` (NOLOGIN) granted only `USAGE` on the schema and
-  `SELECT` on its tables — no write, no sequence and no function grants.
+- role `sb_readonly` granted only `USAGE` on the schema and `SELECT` on its
+  tables — no write, no sequence and no function grants. It is created
+  `NOLOGIN`, then given `LOGIN`, a random per-process password and `CONNECT`
+  on the fixture database, so the `privilege_role` design runs in a session
+  of its own;
+- the `agent_query` broker role `sb_agentb`, with the same grants and a login
+  of its own.
 
 Write corpus statements against `sb_fixture` objects so the checksum set
 (`widgets`, `ledger`) captures any mutation.

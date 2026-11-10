@@ -48,8 +48,9 @@ func (readOnlyTxnDesign) Attempt(ctx context.Context, owner *pgxpool.Pool, sql s
 // and SELECT only, so a write fails with 42501 regardless of transaction
 // mode. It models the design the bypass taxonomy concludes is the one that
 // holds: privileges on the database role. A session of its own matters: in
-// the owner's session after SET LOCAL ROLE, a COMMIT or RESET ROLE inside
-// the statement would hand the write the owner's privileges.
+// the owner's session with the role only switched for the transaction, a
+// COMMIT or RESET ROLE inside the statement would hand the write the
+// owner's privileges.
 type privRoleDesign struct{ roleName string }
 
 func (d privRoleDesign) Name() string { return "privilege_role" }

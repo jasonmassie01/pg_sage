@@ -27,8 +27,8 @@ v0 answers three questions with evidence, not assertions:
    research catalog is mapped to a control and scored against a declared
    expectation: prevented, detected, or out of scope.
 
-Safety is earned, not claimed: v0 scores only what it can measure today, and
-records everything else as a future release rather than a pass.
+Safety is earned, not claimed: v0 scores only what the run measured, and
+records everything else as declared or a future release rather than a pass.
 
 ## Method
 
@@ -43,12 +43,16 @@ credentials, and touches only the fixture database it creates.
 Each corpus case is a single SQL statement with a declared expected refusal.
 The harness runs it against four designs:
 
+<!-- designs:begin -->
 - **`read_only_txn`** — a `READ ONLY` transaction and nothing else: the
   session's own role, relying on `transaction_read_only`.
-- **`privilege_role`** — a role granted only `USAGE` and `SELECT`, reached
-  with `SET LOCAL ROLE`. This is the design the bypass research concludes is
-  the one that holds: a write fails on privileges regardless of how the
-  statement is dressed up.
+- **`privilege_role`** — a session logged in as a role granted only
+  `CONNECT`, `USAGE` and `SELECT`. The fixture creates the role, gives it a
+  login with a random per-run password, and opens a connection of its own
+  for every case, so a `COMMIT` or `RESET ROLE` inside the statement cannot
+  fall back to the owner's privileges. This is the design the bypass
+  research concludes is the one that holds: a write fails on privileges
+  regardless of how the statement is dressed up.
 - **`explain_guard`** — the shipped `internal/explain` path (the one the MCP
   explain tool uses). It accepts a single read statement and declines
   `EXPLAIN ANALYZE` for anything not proven side-effect free, so a write
@@ -56,6 +60,7 @@ The harness runs it against four designs:
 - **`agent_query`** — pg_sage's brokered read path: a broker login of its
   own with the same grants, a parse allowlist, a catalog proof, a read-only
   transaction with the broker's own timeouts, and column classes.
+<!-- designs:end -->
 
 Around every attempt the harness checksums the fixture tables (an
 order-independent content hash) and records whether they changed. A design
@@ -68,7 +73,8 @@ The harness self-checks must be held by every design with a credited class,
 and a case whose canonical design (`privilege_role`) refuses it with another
 credited class than declared fails the bench.
 
-The corpus is RO-01..RO-16 (from the read-only bypass research). Each case
+The corpus is RO-01..RO-16 (from the read-only bypass research), the four
+`agent_query` cases AQ-01..AQ-04 and three harness self-checks. Each case
 is a metadata file plus a `.sql` file under `testdata/readonly`; the harness
 embeds and loads them. The fixture statements are the reference — the report
 summarizes each bypass *class* in a line and does not publish recipes.
@@ -91,13 +97,22 @@ because the bench does not downgrade extensions.
 Every incident is a row: its expected disposition (prevented, detected,
 contained, out of scope), the controls behind it, and its v0 status.
 Scoring is deliberately conservative. A row scores **exercised in v0** only
-when its outcome is a posture detection a v0 detector provides. A row whose
+when its outcome is a posture detection and the run's posture section saw
+every detector the row lists fire on a scenario, and miss on none. A
+posture row the run did not measure — no scenario for one of its
+detectors, a miss, or no detectors connected — is **declared**: declared,
+not measured, and never a pass. A row whose
 outcome needs later features — distinct identity, a credential broker, taint
 — is **future release**, and never counts as a pass. Out-of-scope rows (for
 example, an infrastructure tool running `terraform destroy`, which is not a
 PostgreSQL action) are marked as such.
 
 ## Results (measured)
+
+<!-- results:begin -->
+<!-- From the PG17 agentsafetybench.md report. The design table's totals
+     and design names are checked against the corpus and Designs() by
+     sidecar/safety-bench/doc_golden_test.go. -->
 
 From the PG17 reference run: the sixteen corpus cases RO-01..RO-16, the four
 `agent_query` cases AQ-01..AQ-04, and three harness self-checks (plain
@@ -138,15 +153,21 @@ read statement and runs `ANALYZE` only when the plan is proven free of side
 effects, so it held every write case. A plain `SELECT` executes under all four
 designs (cgo build), confirming none of them simply refuses everything.
 
-**Incident-to-control mapping** — 7 rows: 2 exercised in v0 (INC-01 and the
-shared-login ORM reset, both posture detections), 2 out of scope (INC-19,
-INC-20 for prevention), 3 future release (INC-04, INC-06, INC-15).
+**Incident-to-control mapping** — 7 rows: 1 exercised in v0 (INC-01: AP-03
+and AP-04 both fired on their scenarios), 1 declared, not measured (the
+shared-login ORM reset, INC-ORM: its detectors AP-13 and AP-16 have no bench
+scenario), 2 out of scope (INC-19, INC-20 for prevention), 3 future release
+(INC-04, INC-06, INC-15). INC-04's broker login is measured today (AQ-01..
+AQ-03, and pii masking in AQ-04); a secret-class column read and taint at an
+outbound tool are not. INC-06's read-only login refusing DDL is measured
+(`sc-create`); a freeze on a write-capable agent and a delayed drop are not.
 
 **Posture scenarios** — seven fixtures, each matched by its expected detector
 on PG14, PG17 and PG18 (pgvector 0.8.2): AP-03 (exposed table), AP-04
 (permissive policy), AP-05 (`SECURITY DEFINER` function), AP-07 (`PUBLIC
 CREATE`), AP-01 (agent role with `BYPASSRLS`), AP-02 (agent role owns a
 table) and AP-10 (HNSW index below pgvector 0.8.4).
+<!-- results:end -->
 
 ## Limits
 

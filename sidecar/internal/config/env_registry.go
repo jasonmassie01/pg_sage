@@ -225,6 +225,13 @@ var contributorEnvVars = []EnvVar{
 		Doc: "`1` runs `TestPGIncidentBench` in `sre-bench`"},
 	{Name: "SAGE_BENCH_REPEATS", Default: envCode(1),
 		Doc: "Runs of every PGIncidentBench scenario, 1 to 10"},
+	{Name: "SAGE_BENCH_MIN_RUNS_PER_FAMILY", Default: envUnset,
+		Doc: "Scored top-1 runs every PGIncidentBench family needs: sizes the repeats, " +
+			"tops up short families and fails a family still short"},
+	{Name: "SAGE_BENCH_EXPECTED", Default: envUnset,
+		Doc: "PGIncidentBench expected-scenario manifest; a skip it does not allow fails the run"},
+	{Name: "SAGE_BENCH_REPLAY", Default: envUnset,
+		Doc: "`1` also replays the PGIncidentBench corpus (CI: the core shard only)"},
 	{Name: "SAGE_BENCH_REPORT_DIR", Default: "(a temporary directory)",
 		Doc: "Directory that receives the PGIncidentBench JSON and Markdown reports"},
 	{Name: "SAGE_BENCH_FAMILIES", Default: "(all)", Doc: "Comma-separated trigger kinds a " +

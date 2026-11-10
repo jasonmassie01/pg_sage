@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/pg-sage/sidecar/internal/clone"
+	"github.com/pg-sage/sidecar/internal/clusterlock"
 )
 
 // TargetMarker is the database comment that marks a local game-day
@@ -36,16 +37,21 @@ type targetConn interface {
 // configured: a disposable database the operator names and marks, on a
 // cluster of its own (the fault programs act on the whole cluster).
 // Destroy leaves it in place (the fault programs clean up after
-// themselves).
+// themselves). It is a shared target: runs on it take turns (Leases).
 type LocalProvider struct {
 	dsn      string
 	endpoint string
+	cluster  string // host:port, the target key
 	database string
 	refused  RefusedFunc
 	connect  func(ctx context.Context, dsn string) (targetConn, error)
+	lock     func(ctx context.Context, dsn, name string) (func(), bool, error)
 }
 
-var _ clone.Provider = (*LocalProvider)(nil)
+var (
+	_ clone.Provider     = (*LocalProvider)(nil)
+	_ clone.SharedTarget = (*LocalProvider)(nil)
+)
 
 // NewLocalProvider refuses at boot a DSN that names a monitored database
 // (same host, port and database name); Create then compares cluster
@@ -74,7 +80,8 @@ func NewLocalProvider(dsn string, monitored []string, refused RefusedFunc) (*Loc
 			strings.ToLower(cfg.Host), cfg.Port, other)
 	}
 	return &LocalProvider{dsn: dsn, endpoint: target, database: cfg.Database,
-		refused: refused, connect: connectTarget}, nil
+		cluster: fmt.Sprintf("%s:%d", strings.ToLower(cfg.Host), cfg.Port),
+		refused: refused, connect: connectTarget, lock: clusterlock.TryLock}, nil
 }
 
 // otherServer is a fallback server of cfg other than its first ("" when
@@ -106,6 +113,17 @@ func (p *LocalProvider) Create(ctx context.Context, _ clone.CloneSpec) (clone.Cl
 		return clone.Clone{}, err
 	}
 	return clone.Clone{DSN: p.dsn, ID: "local", CreatedFrom: time.Now().UTC()}, nil
+}
+
+// TargetKey is the target's cluster (host:port): the fault programs act
+// on the whole cluster, so every database on it is one target.
+func (p *LocalProvider) TargetKey() string { return p.cluster }
+
+// lockTarget takes the bench_target cluster lock, bounded by probeTimeout.
+func (p *LocalProvider) lockTarget(ctx context.Context) (func(), bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+	return p.lock(ctx, p.dsn, BenchTargetLock)
 }
 
 // Destroy leaves the local database in place.

@@ -219,9 +219,10 @@ jobs:
       # The bench runs in shards by incident family (SAGE_BENCH_FAMILIES), each
       # its own step, so it neither crowds the ./... suites nor needs one long
       # timeout. Every bench family must be in exactly one shard, and every
-      # shard must fit its 2400 s timeout at a tag's 4 repeats: at most 18
-      # scenarios (sre-bench/ci_split_test.go). The later shards run even
-      # when an earlier shard failed.
+      # shard must fit its 2400 s timeout at the repeats a tag's
+      # SAGE_BENCH_MIN_RUNS_PER_FAMILY=10 sizes (4 for a family of 3 scored
+      # scenarios): at most 18 scenarios (sre-bench/ci_split_test.go). The
+      # later shards run even when an earlier shard failed.
       - name: PGIncidentBench (core families, part A)
         id: bench-core-a
         working-directory: sidecar
@@ -229,10 +230,17 @@ jobs:
         env:
           SAGE_BENCH_RUN: "1"
           SAGE_BENCH_FAMILIES: lock_blocking,connection_pressure
+          # The replay corpus is the same in every shard: only core part A
+          # replays it, so the signed release keeps one replay section
+          # (benches-11).
+          SAGE_BENCH_REPLAY: "1"
           SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench/core-a
-          # A release report must meet the promotion bar's n >= 10 per
-          # family (the smallest family has 3 scored scenarios).
-          SAGE_BENCH_REPEATS: ${{ startsWith(github.ref, 'refs/tags/v') && '4' || '1' }}
+          # A release report must meet the promotion bar's n >= 10 scored
+          # top-1 runs per family (earned MinTop1N): the bench sizes the
+          # repeats, tops up families that skips left short and fails on one
+          # still short, or on a skip the manifest does not allow (benches-06).
+          SAGE_BENCH_MIN_RUNS_PER_FAMILY: ${{ startsWith(github.ref, 'refs/tags/v') && '10' || '' }}
+          SAGE_BENCH_EXPECTED: ${{ startsWith(github.ref, 'refs/tags/v') && 'testdata/ci-expected.json' || '' }}
         shell: bash
         run: |
           status=0
@@ -251,9 +259,12 @@ jobs:
           SAGE_BENCH_RUN: "1"
           SAGE_BENCH_FAMILIES: wal_retention,plan_regression
           SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench/core-b
-          # A release report must meet the promotion bar's n >= 10 per
-          # family (the smallest family has 3 scored scenarios).
-          SAGE_BENCH_REPEATS: ${{ startsWith(github.ref, 'refs/tags/v') && '4' || '1' }}
+          # A release report must meet the promotion bar's n >= 10 scored
+          # top-1 runs per family (earned MinTop1N): the bench sizes the
+          # repeats, tops up families that skips left short and fails on one
+          # still short, or on a skip the manifest does not allow (benches-06).
+          SAGE_BENCH_MIN_RUNS_PER_FAMILY: ${{ startsWith(github.ref, 'refs/tags/v') && '10' || '' }}
+          SAGE_BENCH_EXPECTED: ${{ startsWith(github.ref, 'refs/tags/v') && 'testdata/ci-expected.json' || '' }}
         shell: bash
         run: |
           status=0
@@ -272,9 +283,12 @@ jobs:
           SAGE_BENCH_RUN: "1"
           SAGE_BENCH_FAMILIES: checkpoint_storm,temp_file_explosion
           SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench/reactive-a
-          # A release report must meet the promotion bar's n >= 10 per
-          # family (the smallest family has 3 scored scenarios).
-          SAGE_BENCH_REPEATS: ${{ startsWith(github.ref, 'refs/tags/v') && '4' || '1' }}
+          # A release report must meet the promotion bar's n >= 10 scored
+          # top-1 runs per family (earned MinTop1N): the bench sizes the
+          # repeats, tops up families that skips left short and fails on one
+          # still short, or on a skip the manifest does not allow (benches-06).
+          SAGE_BENCH_MIN_RUNS_PER_FAMILY: ${{ startsWith(github.ref, 'refs/tags/v') && '10' || '' }}
+          SAGE_BENCH_EXPECTED: ${{ startsWith(github.ref, 'refs/tags/v') && 'testdata/ci-expected.json' || '' }}
         shell: bash
         run: |
           status=0
@@ -293,9 +307,12 @@ jobs:
           SAGE_BENCH_RUN: "1"
           SAGE_BENCH_FAMILIES: replication_lag,lwlock_contention
           SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench/reactive-b
-          # A release report must meet the promotion bar's n >= 10 per
-          # family (the smallest family has 3 scored scenarios).
-          SAGE_BENCH_REPEATS: ${{ startsWith(github.ref, 'refs/tags/v') && '4' || '1' }}
+          # A release report must meet the promotion bar's n >= 10 scored
+          # top-1 runs per family (earned MinTop1N): the bench sizes the
+          # repeats, tops up families that skips left short and fails on one
+          # still short, or on a skip the manifest does not allow (benches-06).
+          SAGE_BENCH_MIN_RUNS_PER_FAMILY: ${{ startsWith(github.ref, 'refs/tags/v') && '10' || '' }}
+          SAGE_BENCH_EXPECTED: ${{ startsWith(github.ref, 'refs/tags/v') && 'testdata/ci-expected.json' || '' }}
         shell: bash
         run: |
           status=0
@@ -314,9 +331,12 @@ jobs:
           SAGE_BENCH_RUN: "1"
           SAGE_BENCH_FAMILIES: wraparound_runway,disk_wal_runway
           SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench/runway-a
-          # A release report must meet the promotion bar's n >= 10 per
-          # family (the smallest family has 3 scored scenarios).
-          SAGE_BENCH_REPEATS: ${{ startsWith(github.ref, 'refs/tags/v') && '4' || '1' }}
+          # A release report must meet the promotion bar's n >= 10 scored
+          # top-1 runs per family (earned MinTop1N): the bench sizes the
+          # repeats, tops up families that skips left short and fails on one
+          # still short, or on a skip the manifest does not allow (benches-06).
+          SAGE_BENCH_MIN_RUNS_PER_FAMILY: ${{ startsWith(github.ref, 'refs/tags/v') && '10' || '' }}
+          SAGE_BENCH_EXPECTED: ${{ startsWith(github.ref, 'refs/tags/v') && 'testdata/ci-expected.json' || '' }}
         shell: bash
         run: |
           status=0
@@ -335,9 +355,12 @@ jobs:
           SAGE_BENCH_RUN: "1"
           SAGE_BENCH_FAMILIES: sequence_runway
           SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench/runway-b
-          # A release report must meet the promotion bar's n >= 10 per
-          # family (the smallest family has 3 scored scenarios).
-          SAGE_BENCH_REPEATS: ${{ startsWith(github.ref, 'refs/tags/v') && '4' || '1' }}
+          # A release report must meet the promotion bar's n >= 10 scored
+          # top-1 runs per family (earned MinTop1N): the bench sizes the
+          # repeats, tops up families that skips left short and fails on one
+          # still short, or on a skip the manifest does not allow (benches-06).
+          SAGE_BENCH_MIN_RUNS_PER_FAMILY: ${{ startsWith(github.ref, 'refs/tags/v') && '10' || '' }}
+          SAGE_BENCH_EXPECTED: ${{ startsWith(github.ref, 'refs/tags/v') && 'testdata/ci-expected.json' || '' }}
         shell: bash
         run: |
           status=0
@@ -465,6 +488,11 @@ jobs:
         env:
           SAGE_BENCH_RUN: "1"
           SAGE_BENCH_FAMILIES: lock_blocking,connection_pressure,wal_retention,plan_regression
+          # Only core replays the corpus (the same in every shard).
+          SAGE_BENCH_REPLAY: "1"
+          # On tags a scenario skip the manifest does not allow fails the
+          # shard (benches-06), so every family is measured on every version.
+          SAGE_BENCH_EXPECTED: ${{ startsWith(github.ref, 'refs/tags/v') && 'testdata/ci-expected.json' || '' }}
         shell: bash
         run: |
           status=0
@@ -482,6 +510,9 @@ jobs:
         env:
           SAGE_BENCH_RUN: "1"
           SAGE_BENCH_FAMILIES: checkpoint_storm,temp_file_explosion,replication_lag,lwlock_contention
+          # On tags a scenario skip the manifest does not allow fails the
+          # shard (benches-06), so every family is measured on every version.
+          SAGE_BENCH_EXPECTED: ${{ startsWith(github.ref, 'refs/tags/v') && 'testdata/ci-expected.json' || '' }}
         shell: bash
         run: |
           status=0
@@ -499,6 +530,9 @@ jobs:
         env:
           SAGE_BENCH_RUN: "1"
           SAGE_BENCH_FAMILIES: wraparound_runway,disk_wal_runway,sequence_runway
+          # On tags a scenario skip the manifest does not allow fails the
+          # shard (benches-06), so every family is measured on every version.
+          SAGE_BENCH_EXPECTED: ${{ startsWith(github.ref, 'refs/tags/v') && 'testdata/ci-expected.json' || '' }}
         shell: bash
         run: |
           status=0
@@ -832,6 +866,23 @@ jobs:
       contents: read
       id-token: write
     steps:
+      # benches-10: sign only in the repository the sidecar pins by ID
+      # (ReleaseIdentity in sidecar/internal/benchsig/benchsig.go). A
+      # repository registered later under this name has other IDs, and a
+      # certificate from it would be refused by every shipped sidecar.
+      - name: Refuse to sign outside the pinned repository
+        env:
+          REPO_ID: ${{ github.repository_id }}
+          OWNER_ID: ${{ github.repository_owner_id }}
+        run: |
+          set -euo pipefail
+          if [ "$REPO_ID" != "1185895123" ] || [ "$OWNER_ID" != "143746527" ]; then
+            echo "::error::$GITHUB_REPOSITORY has repository ID $REPO_ID, owner ID $OWNER_ID."
+            echo "::error::Sidecars trust signatures only from 1185895123/143746527; change"
+            echo "::error::benchsig.ReleaseIdentity and this check together in a release."
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
@@ -902,6 +953,23 @@ jobs:
       contents: read
       id-token: write
     steps:
+      # benches-10: sign only in the repository the sidecar pins by ID
+      # (ReleaseIdentity in sidecar/internal/benchsig/benchsig.go). A
+      # repository registered later under this name has other IDs, and a
+      # certificate from it would be refused by every shipped sidecar.
+      - name: Refuse to sign outside the pinned repository
+        env:
+          REPO_ID: ${{ github.repository_id }}
+          OWNER_ID: ${{ github.repository_owner_id }}
+        run: |
+          set -euo pipefail
+          if [ "$REPO_ID" != "1185895123" ] || [ "$OWNER_ID" != "143746527" ]; then
+            echo "::error::$GITHUB_REPOSITORY has repository ID $REPO_ID, owner ID $OWNER_ID."
+            echo "::error::Sidecars trust signatures only from 1185895123/143746527; change"
+            echo "::error::benchsig.ReleaseIdentity and this check together in a release."
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
 
       - uses: actions/download-artifact@v4

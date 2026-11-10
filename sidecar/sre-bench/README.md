@@ -30,8 +30,11 @@ SAGE_TEST_DATABASE_URL='postgres://postgres:postgres@localhost:5432/postgres?ssl
 | Variable | Default | Meaning |
 |---|---|---|
 | `SAGE_BENCH_REPEATS` | `1` | How many times each scenario runs (1 to 10). Run-to-run consistency needs at least 2. With both live arms, one repeat of every family takes about 25 minutes (PostgreSQL 17, Docker); the bench budgets 30 s per scenario and repeat. Raise `go test -timeout` accordingly, or split the run with `SAGE_BENCH_FAMILIES` as CI does. |
+| `SAGE_BENCH_MIN_RUNS_PER_FAMILY` | unset | At least this many scored top-1 runs per family on every ready gated arm. The bench sizes the repeats from the smallest family, then reruns the scored scenarios of any family that skips left short, numbering the passes on, up to 10 repeats. A family still short fails the test, and the report lists each family's n against the bar. It conflicts with `SAGE_BENCH_REPEATS`. CI sets `10`, the promotion bar, on tags. |
+| `SAGE_BENCH_EXPECTED` | unset | Path of the expected-scenario manifest, `testdata/ci-expected.json` in CI on tags. For the server's PG major it lists the scenarios that must be scored and the allowed skips with their reasons. The test then fails when an expected scenario is skipped (the message carries the skip reason), or when skips leave a gated arm's per-family gate without data. A manifest that is empty, names an unknown scenario or leaves one out fails to load. Unset, skips are reported and do not fail. |
 | `SAGE_BENCH_FAMILIES` | all | Comma-separated families to run, for example `checkpoint_storm,lwlock_contention`. An unknown family fails the test. |
 | `SAGE_BENCH_REPORT_DIR` | the test's temp dir | Where `pgincidentbench.json` and `pgincidentbench.md` are written. CI sets this and uploads the directory. |
+| `SAGE_BENCH_REPLAY` | unset | `1` replays the corpus and attaches its section, with the model lift, to the bench report (and adds 3 minutes to the bench budget). The corpus is the same in every shard, so CI sets it on the core shard of each job only. Unset, the report has no replay section and its replay-backed gates stay `not_evaluated`. |
 | `PG_SAGE_BENCH_LLM_URL` | unset | OpenAI-compatible endpoint for the LLM-on arm (opt-in). If unset, the LLM-on arm uses the deterministic fake model. |
 | `PG_SAGE_BENCH_LLM_MODEL` | unset | Model name. Required when the URL is set. |
 | `PG_SAGE_BENCH_LLM_KEY` | unset | API key. Optional, because local models need none. The key is never written to the report. |
@@ -59,6 +62,8 @@ scenarios read live temp files with `pg_ls_tmpdir` (superuser or
 `pg_monitor`), and the repeated-spill and workload scenarios need
 `pg_stat_statements` preloaded. If the server lacks a fixture, that scenario
 is reported as skipped. A skipped scenario is never scored.
+
+CI's image (`scripts/ci/setup-test-postgres.sh`) has every fixture except the archive one, so on tags the manifest allows only the archiver scenario to skip. A new scenario must be added to the manifest for every major, as expected or as an allowed skip with its reason.
 
 ## What runs
 
@@ -188,8 +193,8 @@ replayed through the real investigator: the coordinator, the store, the
 causal graph and the model turn. Nothing is injected into a database, so a
 case takes milliseconds and the corpus can be large. `TestReplayCorpus` runs
 all of it through the three live arms with every DB test run (about 100 s) and writes
-`pgincidentbench-replay.json` and `.md`. `TestPGIncidentBench` attaches the
-same section to the bench report.
+`pgincidentbench-replay.json` and `.md`. With `SAGE_BENCH_REPLAY=1`,
+`TestPGIncidentBench` attaches the same section to the bench report.
 
 ```sh
 SAGE_TEST_DATABASE_URL=... go test -count=1 -v -run TestReplayCorpus ./sre-bench/

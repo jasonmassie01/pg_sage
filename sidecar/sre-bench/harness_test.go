@@ -2,6 +2,7 @@ package srebench
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -252,4 +253,69 @@ func terminateAndLog(ctx context.Context, e *Env) error {
 			pid)
 		return n == 0, err
 	})
+}
+
+// benches-03 (review): recovery outlives a cancelled run, so after a
+// shutdown Run must stop starting scenarios; otherwise every remaining
+// scenario would inject on a dead context and then run a full recovery,
+// holding shutdown for minutes. The scenario in flight still recovers.
+func TestRun_CancelledRunStartsNoFurtherScenario(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	first := &fakeProgram{inject: func(context.Context, *Env) error {
+		cancel() // shutdown while the first fault is injected
+		return context.Canceled
+	}}
+	second := &fakeProgram{}
+	arm := &fakeArm{name: "fake"}
+	rs := Run(ctx, &Env{}, []Scenario{lockScenarioWith(first), lockScenarioWith(second)},
+		fakeConfig(3, arm))
+	if first.injects != 1 || first.recovers != 1 {
+		t.Fatalf("the scenario in flight: %+v, want 1 inject and 1 recover", first)
+	}
+	if second.injects != 0 || second.recovers != 0 || arm.calls != 0 {
+		t.Fatalf("after the cancel: next program %+v, arm calls %d, want none", second,
+			arm.calls)
+	}
+	if len(rs) != 3 || !errors.Is(rs[0].Err, context.Canceled) || rs[0].Repeat != 1 {
+		t.Fatalf("results %d (first %+v), want the cancelled run and its 2 derived",
+			len(rs), rs[0])
+	}
+	// Nil/empty: a context already ended starts nothing at all.
+	idle := &fakeProgram{}
+	rs = Run(ctx, &Env{}, []Scenario{lockScenarioWith(idle)}, fakeConfig(1, arm))
+	if len(rs) != 0 || idle.injects != 0 || idle.recovers != 0 {
+		t.Fatalf("a cancelled context ran %d result(s): %+v", len(rs), idle)
+	}
+}
+
+// benches-03 (review): a game day cut off by shutdown or the run budget
+// returns no report, so a partial run never counts as evidence; a run that
+// finished returns the report of every result.
+func TestGameDayReportRefusesACancelledRun(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cut := &fakeProgram{inject: func(context.Context, *Env) error {
+		cancel()
+		return context.Canceled
+	}}
+	skipped := &fakeProgram{}
+	cfg := fakeConfig(1, &fakeArm{name: "fake"})
+	raw, err := gameDayReport(ctx, &Env{}, []Scenario{lockScenarioWith(cut),
+		lockScenarioWith(skipped)}, cfg, ReportMeta{Arms: cfg.ArmNames()})
+	if raw != nil || !errors.Is(err, context.Canceled) ||
+		!strings.Contains(err.Error(), "3 result(s) discarded") {
+		t.Fatalf("cancelled run: %d-byte report, err %v; want no report and the cancel",
+			len(raw), err)
+	}
+	if skipped.injects != 0 {
+		t.Fatalf("a scenario started after the cancel: %+v", skipped)
+	}
+	done := &fakeProgram{manifestErr: errors.New("0 lock waiters, want 2")}
+	raw, err = gameDayReport(context.Background(), &Env{}, []Scenario{lockScenarioWith(done)},
+		cfg, ReportMeta{Arms: cfg.ArmNames(), Repeats: 1})
+	var rep Report
+	if err != nil || json.Unmarshal(raw, &rep) != nil || len(rep.Runs) != 3 ||
+		rep.Repeats != 1 {
+		t.Fatalf("finished run: report %s, err %v; want 3 runs", raw, err)
+	}
 }

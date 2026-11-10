@@ -61,7 +61,11 @@ func withVerifier(t *testing.T, v benchingest.Verifier, err error) {
 	t.Helper()
 	old := newBenchVerifier
 	newBenchVerifier = func() (benchingest.Verifier, error) { return v, err }
-	t.Cleanup(func() { newBenchVerifier = old })
+	benchVerifiers.reset()
+	t.Cleanup(func() {
+		newBenchVerifier = old
+		benchVerifiers.reset()
+	})
 }
 
 // writeShippedReport writes a stamped one-family report into dir/shard,

@@ -166,5 +166,6 @@ func trancheOneMigrations() []namedStep {
 		{"ddlUsersDatabricksPin", ddlUsersDatabricksPin},                 // databricks-07: Apps forwarded-user pin
 		{"ddlTrustLedgerIncidentCursors", ddlTrustLedgerIncidentCursors}, // earned-02: after ddlTrustLedger()
 		{"ddlIncidentAvoidedRevert", ddlIncidentAvoidedRevert},           // earned-09: after ddlAgentNativeValue
+		{"ddlBenchCrashRecovery", ddlBenchCrashRecovery},                 // benches-03: after ddlSREAutonomy (sre_game_days)
 	}
 }

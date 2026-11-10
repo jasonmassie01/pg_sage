@@ -41,6 +41,49 @@ var newBenchVerifier = func() (benchingest.Verifier, error) {
 	return v, nil
 }
 
+// verifierCache keeps the first verifier newBenchVerifier built without an
+// error. Every database's ingester asks for one on every tick, and each
+// build parses the embedded trusted root, so a fleet builds it once per
+// process; a failed build is not kept and is retried on the next ask.
+type verifierCache struct {
+	mu sync.Mutex
+	v  benchingest.Verifier
+}
+
+// benchVerifiers is the process's verifier cache.
+var benchVerifiers verifierCache
+
+// get is the cached verifier, built with build when there is none yet.
+func (c *verifierCache) get(build func() (benchingest.Verifier,
+	error)) (benchingest.Verifier, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.v != nil {
+		return c.v, nil
+	}
+	v, err := build()
+	if err != nil {
+		return nil, err
+	}
+	if v == nil {
+		return nil, errors.New("the release verifier is missing")
+	}
+	c.v = v
+	return v, nil
+}
+
+// reset forgets the cached verifier (tests swap newBenchVerifier).
+func (c *verifierCache) reset() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.v = nil
+}
+
+// benchVerifier is the process's release verifier.
+func benchVerifier() (benchingest.Verifier, error) {
+	return benchVerifiers.get(newBenchVerifier)
+}
+
 // runningBuild is this binary's build (ldflags), normalized.
 func runningBuild() earned.Build {
 	return earned.Build{Version: version, Commit: commit}.Normalized()
@@ -132,7 +175,7 @@ func (n *benchNotices) noteRefused(refused []benchingest.Refused,
 // signed reports go in unsigned.
 func ingestBenchSources(ctx context.Context, svc *earned.Service,
 	sources []benchingest.Source) (benchingest.Result, error) {
-	verifier, err := newBenchVerifier()
+	verifier, err := benchVerifier()
 	if err != nil {
 		logWarn("autonomy", "bench report signatures cannot be verified (%v); signed "+
 			"reports are ingested as unsigned", err)
@@ -187,8 +230,13 @@ func newLocalBenchFor(database string, svc *earned.Service, s config.SREAutonomy
 	b := runningBuild()
 	faults := srebench.GameDayFaults{MinRunsPerFamily: max(th.MinTop1N, th.MinSafePassN),
 		PgSageVersion: b.Version, PgSageCommit: b.Commit}
+	store, err := gameday.NewStore(svc.Store().Pool(), svc.Store().DeploymentID())
+	if err != nil {
+		return nil, fmt.Errorf("local bench run store: %w", err)
+	}
 	return gameday.NewLocalBench(gameday.LocalBenchConfig{Database: database, Provider: name,
-		Log: func(format string, args ...any) { logWarn("autonomy", format, args...) }},
+		Store: store,
+		Log:   func(format string, args ...any) { logWarn("autonomy", format, args...) }},
 		provider, faults, svc)
 }
 
@@ -207,6 +255,11 @@ func (rt *databaseRuntime) startLocalBench(svc *earned.Service, s config.SREAuto
 	benches.Register(rt.spec.Name, bench)
 	name := rt.spec.Name
 	rt.start(func() {
+		if n, err := bench.AbandonStale(rt.ctx); err != nil {
+			logWarn("autonomy", "db %q: abandon stale local bench runs: %v", name, err)
+		} else if n > 0 {
+			logInfo("autonomy", "db %q: abandoned %d stale local bench run(s)", name, n)
+		}
 		<-rt.ctx.Done()
 		benches.Remove(name)
 	})
@@ -215,7 +268,7 @@ func (rt *databaseRuntime) startLocalBench(svc *earned.Service, s config.SREAuto
 // verifyReportFile verifies a report's <report>.sigstore.json bundle and,
 // when want is set, that it is the report of that commit.
 func verifyReportFile(path, want string) (benchsig.Signature, error) {
-	verifier, err := newBenchVerifier()
+	verifier, err := benchVerifier()
 	if err != nil {
 		return benchsig.Signature{}, fmt.Errorf("load the embedded Sigstore trusted root: %w",
 			err)

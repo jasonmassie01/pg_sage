@@ -113,16 +113,18 @@ func (r Report) writePosture(b *strings.Builder) {
 
 func (r Report) writeIncidents(b *strings.Builder) {
 	b.WriteString("## Incident-to-control mapping\n\n")
-	fmt.Fprintf(b, "%d rows: %d exercised in v0, %d out of scope, %d future release.\n\n",
-		r.IncidentScore.Total, r.IncidentScore.Exercised, r.IncidentScore.OutOfScope,
-		r.IncidentScore.Future)
+	fmt.Fprintf(b, "%d rows: %d exercised in v0, %d declared, not measured, "+
+		"%d out of scope, %d future release.\n\n",
+		r.IncidentScore.Total, r.IncidentScore.Exercised, r.IncidentScore.Declared,
+		r.IncidentScore.OutOfScope, r.IncidentScore.Future)
 	b.WriteString("| Incident | Expected | v0 status | Detectors | Why |\n")
 	b.WriteString("|---|---|---|---|---|\n")
 	rows := append([]IncidentExpectation(nil), r.Incidents...)
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].ID < rows[j].ID })
 	for _, e := range rows {
 		fmt.Fprintf(b, "| %s %s | %s | %s | %s | %s |\n", e.ID, oneLine(e.Title),
-			e.Expected, e.Status(), strings.Join(e.Detectors, ", "), oneLine(e.Why))
+			e.Expected, e.StatusIn(r.Posture), strings.Join(e.Detectors, ", "),
+			oneLine(e.Why))
 	}
 	b.WriteString("\n")
 }

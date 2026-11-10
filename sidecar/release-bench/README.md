@@ -20,8 +20,18 @@ pg_sage bench verify --commit <release commit> pgincidentbench-core-a.json
 cosign verify-blob --bundle pgincidentbench-core-a.json.sigstore.json \
   --certificate-identity https://github.com/jasonmassie01/pg_sage/.github/workflows/ci.yml@refs/tags/v<version> \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-github-workflow-repository jasonmassie01/pg_sage \
   pgincidentbench-core-a.json
 ```
+
+The sidecar also pins the repository by the immutable GitHub IDs that
+Fulcio writes into every signing certificate: repository ID `1185895123`
+and owner ID `143746527` (`gh api repos/jasonmassie01/pg_sage --jq '.id,
+.owner.id'`). A repository renamed or transferred and then registered
+again under this name gets other IDs, so its `ci.yml` cannot sign a
+report that any shipped sidecar accepts. Moving the repository therefore
+needs a release that updates `ReleaseIdentity` in `internal/benchsig` and
+the matching check in the `bench-sign` and `safety-bench-sign` jobs.
 
 (`pg_sage bench verify` expects the bundle next to the report as
 `<report>.sigstore.json`; rename the release asset accordingly.)

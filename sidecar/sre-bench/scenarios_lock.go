@@ -143,7 +143,7 @@ func hotRow() program {
 // preparedHolder: a prepared (two-phase) transaction holds a row lock.
 func preparedHolder() program {
 	tb := newTable("prep")
-	gid := fmt.Sprintf("bench_prepared_%d", time.Now().UnixNano())
+	gid := uniqueName(gidPrefix)
 	update := "UPDATE %s SET v = v + 1 WHERE id = 1"
 	return program{
 		inject: func(ctx context.Context, e *Env) error {

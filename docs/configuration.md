@@ -2332,6 +2332,41 @@ every game day and local bench run pg_sage opens one short, read-only connection
 A refused run is recorded as `failed` with the reason and the fix, and no fault program
 runs.
 
+One run at a time per `local_dsn` cluster. Every database of a fleet is given the same
+`local_dsn`, so game days and local bench runs on it take turns: a run holds the target
+from the start of its fault programs to the end, inside the sidecar and, through a
+session-level advisory lock in the target server's `postgres` database (the role needs
+`CONNECT` there), across sidecar processes. A run started while another holds the target
+is refused before anything is recorded: the API answers `409` naming the holder
+(`target busy: game day <id> for <database>`, or "another session" for another
+process), and a scheduled game day tries again at its next hourly check. A holder that
+crashes releases the target with its connection. Each database's first game-day check
+waits five minutes plus a delay derived from its name (under an hour), so a fleet does
+not start its game days together. Clone providers (`dle`, `snapshot`) give each run its
+own clone and are not serialized.
+
+A run that its sidecar never finished (a crash, `kill -9`, a redeploy mid-run) is
+cleaned up afterwards. Game days and local bench runs are both recorded in
+`sage.sre_game_days` (`kind` is `game_day` or `local`; the game-day list and schedule
+read only game days), and each run's clone id is recorded as soon as the clone exists. A
+run still `running` 6 hours after it started is marked `abandoned` and its recorded
+clone destroyed (no live run gets that old: a run's clone and fault programs stop after
+5 hours, and the run fails): game days at each hourly check, local bench runs at
+startup and before each new run. A younger `running` row may be another
+sidecar's live run and is left alone. A clone that cannot be destroyed is named in the
+row's `error`, for the operator to remove; with `local_dsn` nothing is destroyed (the
+target stays). Shutdown no longer stops a fault program's recovery: it finishes on a
+2-minute budget of its own, no further fault program starts, and the run fails
+without a report (a partial run is never counted as evidence). Before any fault
+program runs, a run also removes what a crashed run left on the target's cluster,
+under the same cluster lock the WAL and checkpoint programs hold: `ALTER SYSTEM`
+settings a fault program recorded in `sage.bench_fixture_state` on the target are
+reset, inactive `bench_slot_*` replication slots are dropped, and bench prepared
+transactions (`bench_gid_*`, `bench_prepared_*`) prepared more than 6 hours ago are
+rolled back. Nothing a bench did not name or record
+is touched: an operator's own `ALTER SYSTEM` setting, another slot or an application's
+prepared transaction stays.
+
 #### Bench evidence: signed release reports and local runs
 
 L2 needs a PGIncidentBench report for the family. You do not have to copy CI artifacts:
@@ -2343,7 +2378,9 @@ L2 needs a PGIncidentBench report for the family. You do not have to copy CI art
   They are also release assets (`pgincidentbench-<shard>.json` with
   `.json.sigstore.json`). The sidecar ingests them at startup and hourly, verifying the
   signature offline against the Sigstore trusted root embedded in the binary, so an
-  air-gapped install has them too.
+  air-gapped install has them too. The signer must be the `ci.yml` workflow of the
+  jasonmassie01/pg_sage repository, pinned by its immutable GitHub repository and owner
+  IDs, so a repository registered later under the same name cannot sign accepted reports.
 - **Bound to the build.** A report names the pg_sage version and commit it scored. A
   report for another build is refused, and stored reports of an older build stop
   counting after an upgrade (until the new release's report is ingested). A signature

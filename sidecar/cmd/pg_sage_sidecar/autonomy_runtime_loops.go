@@ -122,7 +122,10 @@ func (rt *databaseRuntime) startGameDays(svc *earned.Service, s config.SREAutono
 			provider, srebench.GameDayFaults{}, svc, store)
 		if err == nil {
 			processAutonomy().gameDays.Register(rt.spec.Name, runner)
-			rt.start(func() { every(rt.ctx, gameDayCheckInterval, gameDayTick(runner)) })
+			delay := gameDayStartDelay(rt.spec.Name, gameDayCheckInterval)
+			rt.start(func() {
+				everyAfter(rt.ctx, delay, gameDayCheckInterval, gameDayTick(runner))
+			})
 		}
 	}
 	if err != nil {
@@ -130,8 +133,15 @@ func (rt *databaseRuntime) startGameDays(svc *earned.Service, s config.SREAutono
 	}
 }
 
+// gameDayTick first abandons game days a stopped process left running
+// past gameday.MaxRunTime (destroying their clones), then runs one when due.
 func gameDayTick(runner *gameday.Runner) func(context.Context) {
 	return func(ctx context.Context) {
+		if n, err := runner.AbandonStale(ctx); err != nil {
+			logWarn("autonomy", "abandon stale game days: %v", err)
+		} else if n > 0 {
+			logInfo("autonomy", "abandoned %d stale game day(s) and destroyed their clones", n)
+		}
 		gd, ran, err := runner.RunDue(ctx)
 		if err != nil {
 			logWarn("autonomy", "game day %s on %s: %v", gd.ID, gd.Database, err)

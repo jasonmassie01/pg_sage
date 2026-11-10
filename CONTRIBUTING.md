@@ -103,6 +103,9 @@ Variables the test suites and benches read. Runtime variables are in
 | `SAGE_TEST_DSN` | (set by the fixture) | Legacy test DSN name; the fixture overwrites it with the package database, so do not set it |
 | `SAGE_BENCH_RUN` | (unset) | `1` runs `TestPGIncidentBench` in `sre-bench` |
 | `SAGE_BENCH_REPEATS` | `1` | Runs of every PGIncidentBench scenario, 1 to 10 |
+| `SAGE_BENCH_MIN_RUNS_PER_FAMILY` | (unset) | Scored top-1 runs every PGIncidentBench family needs: sizes the repeats, tops up short families and fails a family still short |
+| `SAGE_BENCH_EXPECTED` | (unset) | PGIncidentBench expected-scenario manifest; a skip it does not allow fails the run |
+| `SAGE_BENCH_REPLAY` | (unset) | `1` also replays the PGIncidentBench corpus (CI: the core shard only) |
 | `SAGE_BENCH_REPORT_DIR` | (a temporary directory) | Directory that receives the PGIncidentBench JSON and Markdown reports |
 | `SAGE_BENCH_FAMILIES` | (all) | Comma-separated trigger kinds a bench run is limited to, such as `checkpoint_storm,lwlock_contention` |
 | `SAGE_BENCH_SPLIT` | `all` | Replayed cases: `all`, `held_out` or `tuning` |

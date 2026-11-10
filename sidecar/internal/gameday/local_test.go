@@ -40,6 +40,8 @@ func fakeLocal(t *testing.T, dsn string, target *fakeCluster,
 		return nil, err
 	}
 	p.connect = func(context.Context, string) (targetConn, error) { return target, nil }
+	// The fake target has no server to take the bench target lock on.
+	p.lock = grantLock
 	return p, nil
 }
 

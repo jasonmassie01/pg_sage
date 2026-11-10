@@ -70,7 +70,7 @@ func BuildReport(meta ReportMeta, ro []CaseResult, posture []PostureResult,
 		Posture:        posture,
 		PostureWired:   meta.PostureWired,
 		Incidents:      incidents,
-		IncidentScore:  ScoreIncidents(incidents),
+		IncidentScore:  ScoreIncidents(incidents, posture),
 	}
 }
 

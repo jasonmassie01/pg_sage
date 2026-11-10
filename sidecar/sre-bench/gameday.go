@@ -30,7 +30,8 @@ type GameDayOptions struct {
 	PgSageVersion, PgSageCommit string
 }
 
-// OpenEnv bootstraps the sage schema on dsn's database and returns the
+// OpenEnv bootstraps the sage schema on dsn's database, sweeps what a
+// crashed bench run left on its cluster (sweep.go), and returns the
 // environment and its close function (for callers without a testing.T).
 func OpenEnv(ctx context.Context, dsn string) (*Env, func(), error) {
 	pool, err := pgxpool.New(ctx, dsn)
@@ -48,6 +49,10 @@ func OpenEnv(ctx context.Context, dsn string) (*Env, func(), error) {
 	}
 	e := &Env{DSN: dsn, Pool: pool, Store: st,
 		Runner: probes.NewRunner(pool, probes.Catalog(), probes.NewLimiter(1))}
+	if err := sweepLeftovers(ctx, e, leftoverAge); err != nil {
+		pool.Close()
+		return nil, nil, err
+	}
 	return e, func() { e.closeSessions(); pool.Close() }, nil
 }
 
@@ -109,7 +114,21 @@ func RunGameDay(ctx context.Context, dsn string, opts GameDayOptions,
 		return nil, fmt.Errorf("game day: server version: %w", err)
 	}
 	cfg, meta := gameDayRun(scenarios, opts, version, now)
-	return json.Marshal(BuildReport(Run(ctx, env, scenarios, cfg), meta))
+	return gameDayReport(ctx, env, scenarios, cfg, meta)
+}
+
+// gameDayReport runs the fault programs and returns their report. Once
+// ctx ends (shutdown, the run budget) Run starts no further scenario, so
+// its results cover only part of the selection: that report is refused,
+// never ingested as evidence (benches-03).
+func gameDayReport(ctx context.Context, env *Env, scenarios []Scenario, cfg RunConfig,
+	meta ReportMeta) ([]byte, error) {
+	results := Run(ctx, env, scenarios, cfg)
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("game day: the run ended before every fault program ran "+
+			"(%d result(s) discarded): %w", len(results), err)
+	}
+	return json.Marshal(BuildReport(results, meta))
 }
 
 // gameDayRun is the run configuration and report metadata of a game day

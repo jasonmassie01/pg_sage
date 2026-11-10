@@ -21,3 +21,11 @@ type Provider interface {
 	Destroy(context.Context, Clone) error
 	SnapshotAge(context.Context) (time.Duration, error)
 }
+
+// SharedTarget is a provider whose every Create hands out the same
+// target (the local game-day database), so runs on it must take turns.
+// TargetKey names that target without credentials. A provider that gives
+// each run its own clone does not implement it.
+type SharedTarget interface {
+	TargetKey() string
+}
