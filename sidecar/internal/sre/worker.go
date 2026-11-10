@@ -171,8 +171,12 @@ func (c *Coordinator) collect(ctx context.Context, lease Lease, inv Investigatio
 		if i == len(plan)-1 {
 			next = StateEvaluating
 		}
+		var results []probes.Result
+		if results, lease, err = c.runStepHeld(ctx, lease, st); err != nil {
+			return lease, err
+		}
 		committed, err := c.store.CommitStep(ctx, lease, StepResult{IdempotencyKey: key,
-			Results: c.runStep(ctx, lease, st), NextState: next})
+			Results: results, NextState: next})
 		if err != nil {
 			return lease, err
 		}
@@ -219,6 +223,19 @@ func (c *Coordinator) committedSteps(ctx context.Context, scope Scope,
 }
 
 func stepKey(i int) string { return fmt.Sprintf("step-%d", i+1) }
+
+// runStepHeld runs a step's probes while heartbeating the lease. A step
+// of several probes, each of which may wait for its slots twice
+// (runQueued), can outlast the lease TTL it was renewed for before it
+// began; its commit would then be refused as a stale worker's. A lost
+// lease is returned (its heartbeat cancelled the step's probes).
+func (c *Coordinator) runStepHeld(ctx context.Context, lease Lease,
+	st planStep) ([]probes.Result, Lease, error) {
+	stepCtx, stop := c.keepAlive(ctx, lease)
+	results := c.runStep(stepCtx, lease, st)
+	held, err := stop()
+	return results, held, err
+}
 
 // runStep runs a step's probes in order (runQueued).
 func (c *Coordinator) runStep(ctx context.Context, lease Lease, st planStep) []probes.Result {
