@@ -74,7 +74,9 @@ func (e *Executor) admitVerifiedIndex(
 }
 
 // custodianWithheld reports a policy refusal as ErrCustodianProposalWithheld,
-// naming a refusal by the re-authorization with stage.
+// naming a refusal by the re-authorization with stage. A withhold caused by
+// an error (the maintenance precheck's missing privilege) keeps that cause
+// in the chain, so the caller can tell a grant to fix from other refusals.
 func custodianWithheld(err error, stage string) error {
 	var withheld *WithheldError
 	if !errors.As(err, &withheld) {
@@ -83,6 +85,11 @@ func custodianWithheld(err error, stage string) error {
 	if withheld.Reauthorized {
 		return fmt.Errorf("%w %s: %s", ErrCustodianProposalWithheld, stage,
 			withheld.Decision.BlockedReason)
+	}
+	var caused *causedWithheldError
+	if errors.As(err, &caused) {
+		return fmt.Errorf("%w: %s: %w", ErrCustodianProposalWithheld,
+			withheld.Decision.BlockedReason, caused.cause)
 	}
 	return fmt.Errorf("%w: %s", ErrCustodianProposalWithheld, withheld.Decision.BlockedReason)
 }
