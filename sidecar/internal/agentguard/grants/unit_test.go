@@ -48,7 +48,9 @@ func TestContracts_GrantWidensRevokeNarrows(t *testing.T) {
 		c, ok := executor.ContractForActionType(at)
 		require.True(t, ok)
 		require.NoError(t, c.Validate())
-		require.Len(t, c.ProviderSupport, 8)
+		// clouds-11 added Cosmos DB for PostgreSQL; Lakebase stays out on purpose.
+		require.Equal(t, []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb",
+			"azure", "azure-cosmos", "supabase", "neon"}, c.ProviderSupport, at)
 	}
 }
 
