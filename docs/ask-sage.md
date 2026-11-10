@@ -20,7 +20,8 @@ coding agent with the MCP tool `ask_sage`.
   `unknown_evidence`, `ungrounded`, ...). They are never part of the answer.
 - **Actions**: an investigation Ask Sage opened or a proposal it queued, if any.
 - A **status**: `answered`, `not_observed`, `budget_exhausted`, `llm_unavailable` or
-  `incomplete` (the run was cut short by a provider error, a timeout or its own bounds).
+  `incomplete` (the run was cut short by a provider error, a timeout, its own bounds or a
+  cancel; the answer's `stop` says which, for example `wall_clock` or `cancelled`).
 
 ## What it reads
 
@@ -79,6 +80,28 @@ then Ask Sage) sends every question with `read_only`. The flag applies to that o
 question; a later question in the same conversation without it is an ordinary question.
 Clients that omit it are unchanged.
 
+## Time bound and interrupted questions
+
+One question may run for `ask.max_seconds_per_question` (default 60 s, 15-300) across its
+model calls, and each model call for at most 15 s. The REST route
+`POST /api/v1/databases/{db}/ask` gets that bound plus 5 s as its request deadline and keeps
+its connection open past the server's read and write timeouts; every other API route keeps
+its 30 s deadline. An MCP `ask_sage` call keeps its own deadline
+(`mcp.call_timeout_seconds` over stdio, the API's 30 s over HTTP), and the question ends
+1.5 s before whichever deadline comes first. A run that
+reaches the bound before it concludes is stored with status `incomplete` and stop
+`wall_clock`.
+
+When the caller goes away mid-run (the browser tab closes, the MCP client cancels or times
+out) after Ask Sage already acted, the partial answer is still stored: status `incomplete`,
+stop `cancelled`, with every action it took (a queued proposal, an opened investigation, a
+proposed fact) and no statements. So every proposal Ask Sage queued has the question that
+caused it in the asker's conversation. A run cancelled before any action stores nothing.
+The same holds when Ask Sage's own store fails mid-run after an action.
+
+`pg_sage_ask_answers_total{database,status,stop}` counts answers since the process started.
+A growing `stop="wall_clock"` series means questions need more time than the bound allows.
+
 ## Budget
 
 Ask Sage has its own daily LLM token budget, separate from `llm.token_budget_daily` (which
@@ -97,6 +120,7 @@ up, Ask Sage answers with `budget_exhausted` without calling the model.
 | `ask.daily_tokens_per_user` | `100000` | Daily tokens for one user or MCP token on one database (at most the database's). |
 | `ask.max_tokens_per_question` | `40000` | Most tokens one question may use across its model calls (4000-200000). |
 | `ask.retention_days` | `30` | Days a conversation is kept after its last question (1-3650). |
+| `ask.max_seconds_per_question` | `60` | Wall clock of one question (15-300); each model call is still bounded at 15 s. The ask API route gets this plus 5 s. |
 
 All keys are read when a database's runtime starts (restart to change). Without an LLM,
 Ask Sage answers `llm_unavailable`.
