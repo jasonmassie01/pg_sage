@@ -125,9 +125,11 @@ func TestSequenceFindingScriptRunsOnPostgres(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DROP TABLE IF EXISTS public.pb02_orders`)
 	})
+	// No SQL classifier: rca cannot import the executor (it imports rca),
+	// and the sequence playbook's script does not go through one (cases-04).
 	got := cases.ProjectFinding(cases.SourceFinding{ID: "f-seq",
 		Category: "sequence_exhaustion", ObjectType: "sequence",
-		ObjectIdentifier: "public.pb02_orders_id_seq", ObservedAt: time.Now()})
+		ObjectIdentifier: "public.pb02_orders_id_seq", ObservedAt: time.Now()}, nil)
 	if len(got.ActionCandidates) != 1 || got.ActionCandidates[0].ScriptOutput == nil {
 		t.Fatalf("sequence finding candidates = %+v", got.ActionCandidates)
 	}
