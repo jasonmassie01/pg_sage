@@ -127,6 +127,69 @@ All data sources are read-only catalog views and statistics:
 
 ---
 
+## Writes to the monitored database
+
+Every place pg_sage's shipped code can write to a database it connects to is
+listed in one inventory,
+[`sidecar/internal/mutationcensus/sinks.tsv`](../sidecar/internal/mutationcensus/sinks.tsv).
+A test (`go test ./internal/mutationcensus/`) parses `internal/` and `cmd/` and
+fails when a write sink is missing from the file, when a row names a function
+that no longer writes, or when a row's class is unknown. A new write path cannot
+merge until someone has said, in review, why it is safe.
+
+The scan finds two kinds of sink:
+
+- **SQL text that writes.** A SQL string passed to `Exec`, `Query`,
+  `QueryRow`, `CopyFrom`, `SendBatch` or `Batch.Queue` (directly or through a
+  wrapper in the same package that forwards its SQL) whose statement starts
+  with `INSERT`, `UPDATE ... SET`, `DELETE`, `TRUNCATE`, `MERGE`, `CREATE`,
+  `ALTER`, `DROP`, `COMMENT ON`, `GRANT`, `REVOKE`, `VACUUM`, `ANALYZE`,
+  `REINDEX`, `CLUSTER` or `REFRESH MATERIALIZED`, or that calls
+  `hypopg_create_index`, `pg_cancel_backend`, `pg_terminate_backend`,
+  `pg_stat_reset*`, `pg_stat_statements_reset`, `pg_reload_conf`, a
+  replication-slot function, `pg_switch_wal`, `pg_promote` or
+  `pg_create_restore_point`. The scan reads literals, constants,
+  concatenations, `fmt.Sprintf`, `pgx.Identifier{...}.Sanitize()` and the
+  package's own SQL builders. A write whose target it can prove is `sage.*`
+  (pg_sage's own schema) is not a sink; a `DROP`, `TRUNCATE`, `GRANT`,
+  `REVOKE`, `VACUUM` or `ANALYZE` that lists several targets is dropped only
+  when every target is `sage.*`.
+- **Raw executor helpers.** Any use of `executor.ExecConcurrently`,
+  `executor.ExecInTransaction` or `executor.ExecStatistics` outside
+  `internal/executor`, whatever the SQL, because those helpers run whatever
+  they are given.
+
+Each row is `path#Func<TAB>class<TAB>note`. The classes are:
+
+| Class | Meaning |
+|---|---|
+| `gate:<contract>[,<contract>]` | Runs only through `Executor.Apply` under those action contracts. The test checks that each contract is registered in `internal/executor`. |
+| `sage_schema` | Writes only the `sage` schema, which the scan could not prove from the SQL text (for example, a table name passed in as a parameter). |
+| `text` | The SQL is shown to a person and never run. |
+| `clone_only` | Runs only against a disposable clone or rehearsal database, never the monitored pool. |
+| `out_of_gate:<reason>` | Writes the monitored database outside `Executor.Apply`. The reason names the path, and the note says what bounds it. |
+
+The `out_of_gate` rows show where a change reaches the monitored database
+without an executor contract: the agent kill-switch fallback, the MCP
+online-migration applier (gated by the policy gate step by step), the
+config rollback monitor and the HypoPG what-if session.
+
+**Contributor note: classifying a new sink.** If the census test reports
+`unclassified sink <path>#<Func>`, first try to route the write through a typed
+contract and `Executor.Apply`, then add a `gate:` row. If the write touches only
+the `sage` schema, prefer naming `sage.` in the SQL so the scan drops it on its
+own; use `sage_schema` only when the target comes from a parameter. Use
+`out_of_gate:<reason>` only for a path that cannot run inside the gate, and say
+in the note what bounds it (approval, policy gate, session scope). The scan does
+not follow SQL built from runtime input (for example, a statement read from a
+plan), so a new helper that runs caller-supplied SQL on the monitored database
+belongs inside `internal/executor` behind a contract. If such a helper must be
+exported, add it to the census's list of raw executor helpers (`executorSinks`
+in `internal/mutationcensus/scan_test.go`) so every caller outside the executor
+is reported.
+
+---
+
 ## Trust Model
 
 pg_sage uses graduated trust to control autonomous actions:
