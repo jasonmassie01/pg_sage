@@ -80,6 +80,23 @@ this cycle, column existence is left to HypoPG and PostgreSQL and an unverified
 reason says "column metadata unavailable this cycle". The per-table index cap
 counts only valid indexes, and a replacement does not count the index it drops.
 
+A replacement (`replace_index`) is measured as the swap it is: HypoPG plans the
+workload with the old index, creates the wider one, hides the old one with
+`hypopg_hide_index` and plans again, so the improvement is judged without the
+index that will be dropped. Every statement whose plan used the old index is
+guarded: one whose planned cost rises more than 10% once it is hidden rejects
+the replacement, and the reason names its queryid. A covered drop proposed by
+the tuning agent is measured the same way (the index hidden): a guarded
+statement rising more than 10% rejects the drop, and otherwise the measured
+change is the drop's prediction (`expected_change_pct`, method `model`) for
+verify-and-revert. Hiding needs HypoPG 1.4 or later, detected per instance in
+`pg_proc` because providers ship different versions; with an older HypoPG a
+replacement is measured with the old index present and its reason says
+"HypoPG without hypopg_hide_index (1.4+)", and a drop keeps the rule's
+"reads unchanged" prediction. Hidden indexes are backend-local: pg_sage unhides
+them before the what-if connection goes back to the pool, and a connection whose
+hide failed is closed instead.
+
 Provider readiness is adapter-driven for Lakebase, self-managed Postgres, Cloud SQL,
 AlloyDB, RDS, and Aurora. The matrix shows extension enablement paths, log
 access, provider limitations, and action-family readiness so automation policy
