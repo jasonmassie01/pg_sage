@@ -1205,7 +1205,10 @@ Admission uses one of two evidence modes:
 
 Host CPU is used when a provider reader supplies it (Supabase with
 `SAGE_SUPABASE_OBSERVABILITY_TOKEN`) and must be at or below
-`safety.cpu_ceiling_pct`. When CPU is unavailable, admission is granted only
+`safety.host_cpu_ceiling_pct`. While that key is unset it inherits
+`safety.cpu_ceiling_pct`, and the sidecar warns once at startup when that value is not the
+default 90, so no verify guardrail loosens on upgrade. `safety.cpu_ceiling_pct` itself is
+the collector's ceiling on active client sessions / `max_connections`, not host CPU. When CPU is unavailable, admission is granted only
 while the maintenance window is open (`trust.maintenance_window` and the
 standing policy's windows, evaluated as the policy gate does).
 
@@ -1217,6 +1220,8 @@ standing policy's windows, evaluated as the policy gate does).
 | `verify.io_capacity.read_write_mbps` | (none) | Standalone only. Declared data read+write throughput in MiB/s |
 | `verify.io_capacity.wal_mbps` | (none) | Standalone only. Declared WAL throughput in MiB/s |
 | `databases[].verify.io_capacity` | (none) | Fleet: the same attestation per database. A fleet-wide `verify.io_capacity` is rejected |
+| `safety.cpu_ceiling_pct` | `90` | Collector circuit breaker: skip a cycle while active client sessions / `max_connections` exceeds this percent (1-100). After `backoff_consecutive_skips` skips the collector goes dormant |
+| `safety.host_cpu_ceiling_pct` | unset (inherits `cpu_ceiling_pct`) | Host CPU ceiling for index verification admission, percent (1-100). Restart to apply |
 | `safety.data_io_ceiling_pct` | `70` | Data IO ceiling, percent of declared capacity. Independent of `cpu_ceiling_pct` |
 | `safety.wal_io_ceiling_pct` | `70` | WAL IO ceiling, percent of declared capacity. Independent of `cpu_ceiling_pct` |
 

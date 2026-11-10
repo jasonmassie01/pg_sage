@@ -49,11 +49,19 @@ pg_sage sidecar (single Go binary)
 ### Collector
 
 Gathers a snapshot every 60s (configurable) from the catalog and statistics views, under a
-circuit breaker that skips cycles while the database is in trouble (CPU over
-`safety.cpu_ceiling_pct`). A cycle reads the catalog categories in order (`catalogSteps`:
+circuit breaker that skips cycles while the database is in trouble (active client sessions
+over `max_connections` above `safety.cpu_ceiling_pct`). A cycle reads the catalog categories in order (`catalogSteps`:
 `queries`, `tables`, `indexes`, `foreign_keys`, `system`, `locks`, `sequences`), then
 `replication` and the extra categories (`extraSteps`: `io`, `prepared_xacts`, `partitions`,
 `config_data`).
+
+**Health.** A skipped cycle is logged with its cause: `load ratio 0.93 > ceiling 0.90
+(active sessions / max_connections)`, or `load query failed: <error>` when the load query
+itself fails (a permission or pooler fault, not load; it still counts toward dormancy).
+`Collector.Status()` reports the breaker state (`closed`, `skipping`, `dormant`), the skip
+reason and counts, the last load ratio, the last success and the last error, the latest
+snapshot's unavailable categories, persist and `query_store` failure counts, and the
+current capabilities. `GET /api/v1/databases` carries it per database as `collector`.
 
 **Bounded reads.** Every catalog read runs under a statement and lock timeout and is
 bounded by the size of the catalog it reads, not by the cycle:
@@ -353,7 +361,15 @@ metadata database, each row tagged with the database's meta-db record id.
 
 ### Prometheus Exporter
 
-Metrics endpoint on `:9187`. Exports findings count by severity, the LLM circuit breaker state (`pg_sage_llm_circuit_open`), connection stats, cache hit ratio, database size, and LLM usage.
+Metrics endpoint on `:9187`. Exports findings count by severity, the LLM circuit breaker
+state (`pg_sage_llm_circuit_open`), connection stats, cache hit ratio, database size, and
+LLM usage. Collector health is exported per database (label `database`) in every mode: the
+collector circuit breaker state (`pg_sage_collector_breaker_state`, 0 closed, 1 skipping,
+2 dormant), `pg_sage_collector_breaker_skips_total{reason}` (`load`, `load_query_error`),
+`pg_sage_collector_last_success_timestamp`,
+`pg_sage_collector_category_unavailable{category}`,
+`pg_sage_collector_persist_failures_total` and
+`pg_sage_collector_query_store_failures_total`.
 
 ---
 
