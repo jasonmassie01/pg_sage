@@ -28,10 +28,11 @@ var errNoDatabase = errors.New("planhash: no database to resolve partition roots
 
 // partitionRootsSQL maps each (schema, name) to its partition root and
 // the root's leaf count. An empty schema (plans without VERBOSE) matches
-// the name in every non-system schema; matches > 1 means ambiguous. The
-// leaf count walks pg_inherits instead of pg_partition_tree, which would
+// the name in every non-system schema; matches > 1 means ambiguous unless
+// plain is true: no candidate is a partition or partitioned, so each one
+// is its own root and the name resolves to itself. The leaf count walks pg_inherits instead of pg_partition_tree, which would
 // lock every partition. pg_partition_root exists on PostgreSQL 12+.
-const partitionRootsSQL = `/* pg_sage planhash:partition_roots v1 */
+const partitionRootsSQL = `/* pg_sage planhash:partition_roots v2 */
 WITH RECURSIVE n AS (
     SELECT DISTINCT u.nsp, u.rel
     FROM ROWS FROM (pg_catalog.unnest($1::text[]), pg_catalog.unnest($2::text[]))
@@ -61,7 +62,8 @@ WITH RECURSIVE n AS (
     GROUP BY t.root
 )
 SELECT r.nsp, r.rel, r.matches::int8, rs.nspname::text, rc.relname::text,
-       CASE WHEN rc.relkind = 'p' THEN COALESCE(l.n, 0) END::int8
+       CASE WHEN rc.relkind = 'p' THEN COALESCE(l.n, 0) END::int8,
+       pg_catalog.bool_and(r.root IS NULL) OVER (PARTITION BY r.nsp, r.rel) AS plain
 FROM r
 LEFT JOIN pg_catalog.pg_class rc ON rc.oid = r.root
 LEFT JOIN pg_catalog.pg_namespace rs ON rs.oid = rc.relnamespace
@@ -154,18 +156,26 @@ func readRoots(ctx context.Context, db Beginner, rels []Relation) (catalogRoots,
 		var matches int64
 		var rootSchema, rootName *string
 		var leaves *int64
+		var plain bool
 		if err := rows.Scan(&rel.Schema, &rel.Name, &matches, &rootSchema, &rootName,
-			&leaves); err != nil {
+			&leaves, &plain); err != nil {
 			return nil, fmt.Errorf("scan partition root: %w", err)
 		}
-		out.add(rel, matches, rootSchema, rootName, leaves)
+		out.add(rel, matches, plain, rootSchema, rootName, leaves)
 	}
 	return out, rows.Err()
 }
 
-// add records one match. An ambiguous name is left out (unresolved); a
-// relation that is not a partition resolves to itself.
-func (c catalogRoots) add(rel Relation, matches int64, schema, name *string, leaves *int64) {
+// add records one match. A relation that is not a partition resolves to
+// itself. An ambiguous name resolves to itself when no candidate is a
+// partition or partitioned (plain: each is its own root) and is left out
+// (unresolved) otherwise.
+func (c catalogRoots) add(rel Relation, matches int64, plain bool, schema, name *string,
+	leaves *int64) {
+	if matches > 1 && plain {
+		c[rel] = Root{Schema: rel.Schema, Name: rel.Name}
+		return
+	}
 	if matches != 1 {
 		return
 	}
