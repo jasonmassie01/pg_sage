@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/api"
+	"github.com/pg-sage/sidecar/internal/ask"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
@@ -84,6 +85,7 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 	writeSREProbeMetrics(&b, probes.QueueStats())
 	writeMigrationEnrichMetrics(&b, migration.EnrichDroppedCounts())
 	writePGAuditMetrics(&b, pgaudit.RecordCounts())
+	writeAskMetrics(&b, ask.AnswerCounts())
 
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	if _, err := fmt.Fprint(w, b.String()); err != nil {

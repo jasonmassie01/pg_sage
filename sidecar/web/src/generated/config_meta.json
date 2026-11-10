@@ -507,6 +507,12 @@
     "doc": "Answer questions about each database from cited evidence (UI, API, MCP ask_sage). It reads; it never executes or approves. Default: true.",
     "class": "safety_critical"
   },
+  "ask.max_seconds_per_question": {
+    "type": "int",
+    "default": 60,
+    "doc": "Wall clock of one question (each model call is still bounded at 15 s). The ask API route gets this plus 5 s; MCP calls keep their own deadline. Range 15-300. Default: 60.",
+    "class": "operator_preference"
+  },
   "ask.max_tokens_per_question": {
     "type": "int",
     "default": 40000,
@@ -1568,6 +1574,12 @@
     "default": 10485760,
     "doc": "Minimum temp file size to trigger log_temp_file_created. Default: 10485760.",
     "class": "derivable"
+  },
+  "mcp.call_timeout_seconds": {
+    "type": "int",
+    "default": 90,
+    "doc": "Seconds one stdio tools/call may run before it is cancelled and answered -32800. 5 to 600. Default: 90.",
+    "class": "safety_critical"
   },
   "mcp.enabled": {
     "type": "bool",

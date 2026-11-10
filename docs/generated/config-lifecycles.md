@@ -87,6 +87,7 @@
 | `ask.daily_tokens_per_database` | `restart` | `-` | `derivable` |
 | `ask.daily_tokens_per_user` | `restart` | `-` | `operator_preference` |
 | `ask.enabled` | `restart` | `-` | `safety_critical` |
+| `ask.max_seconds_per_question` | `restart` | `-` | `operator_preference` |
 | `ask.max_tokens_per_question` | `restart` | `-` | `derivable` |
 | `ask.retention_days` | `restart` | `-` | `operator_preference` |
 | `audit.evidence.signing_key_env` | `restart` | `-` | `safety_critical` |
@@ -233,6 +234,7 @@
 | `logwatch.poll_interval_ms` | `restart` | `-` | `derivable` |
 | `logwatch.slow_query_enabled` | `restart` | `-` | `operator_preference` |
 | `logwatch.temp_file_min_bytes` | `restart` | `-` | `derivable` |
+| `mcp.call_timeout_seconds` | `restart` | `-` | `safety_critical` |
 | `mcp.enabled` | `restart` | `-` | `safety_critical` |
 | `mcp.oauth.enabled` | `restart` | `-` | `safety_critical` |
 | `mcp.oauth.issuers` | `restart` | `-` | `safety_critical` |

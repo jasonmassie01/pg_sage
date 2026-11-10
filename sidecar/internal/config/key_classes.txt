@@ -53,6 +53,7 @@ safety_critical mcp.oauth.issuers
 safety_critical mcp.oauth.resource
 safety_critical mcp.oauth.task_claim
 safety_critical mcp.stdio_principal
+safety_critical mcp.call_timeout_seconds
 safety_critical notification_policy.allow_private_targets
 safety_critical policy.profile
 safety_critical self_config.enabled
@@ -465,6 +466,7 @@ derivable ask.daily_tokens_per_database
 operator_preference ask.daily_tokens_per_user
 safety_critical ask.enabled
 derivable ask.max_tokens_per_question
+operator_preference ask.max_seconds_per_question
 operator_preference ask.retention_days
 operator_preference facts.confirmed_absence_days
 

@@ -1,6 +1,9 @@
 package config
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 type PolicyConfig struct {
 	Profile string `yaml:"profile" doc:"Bootstrap standing-policy profile: staffed or unattended."`
@@ -63,6 +66,17 @@ type MCPConfig struct {
 	// StdioPrincipal names the agent principal the stdio client acts as
 	// (agents_core.go).
 	StdioPrincipal string `yaml:"stdio_principal" doc:"Name of the agent principal the stdio client acts as. Empty: stdio keeps read and propose tools capped at approval, and agent_* tools answer agent_unsponsored. Default: empty."`
+	// CallTimeoutSeconds bounds one stdio tools/call (mcp-04).
+	CallTimeoutSeconds int `yaml:"call_timeout_seconds" doc:"Seconds one stdio tools/call may run before it is cancelled and answered -32800. 5 to 600. Default: 90."`
+}
+
+// CallTimeout is mcp.call_timeout_seconds as a duration; an unset (zero)
+// value keeps the default, so a call is never unbounded.
+func (c MCPConfig) CallTimeout() time.Duration {
+	if c.CallTimeoutSeconds <= 0 {
+		return DefaultMCPCallTimeoutSeconds * time.Second
+	}
+	return time.Duration(c.CallTimeoutSeconds) * time.Second
 }
 
 func (c *Config) validateAgentNative() error {
@@ -110,6 +124,11 @@ func (c *Config) validateAgentNative() error {
 	}
 	if c.MCP.Transport != "stdio" && c.MCP.Transport != "http" {
 		return fmt.Errorf("mcp.transport must be stdio or http")
+	}
+	if c.MCP.CallTimeoutSeconds < MinMCPCallTimeoutSeconds ||
+		c.MCP.CallTimeoutSeconds > MaxMCPCallTimeoutSeconds {
+		return fmt.Errorf("mcp.call_timeout_seconds must be within 5-600, got %d",
+			c.MCP.CallTimeoutSeconds)
 	}
 	return nil
 }
