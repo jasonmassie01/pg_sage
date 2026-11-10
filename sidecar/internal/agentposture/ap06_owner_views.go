@@ -115,17 +115,17 @@ func ap06Finding(in Input, schema, name string, bases []string) Finding {
 		"security_invoker views."
 	f.FixScript = "-- PostgreSQL 14 has no security_invoker views.\n" +
 		"REVOKE ALL ON " + qn + " FROM PUBLIC;\n" + revokeExposed(in.Env, qn)
+	f.Caveat = in.Env.inheritedCaveat()
 	return f
 }
 
-// revokeExposed revokes qn from every configured or Supabase exposed role.
+// revokeExposed revokes qn from every configured or Supabase exposed role
+// and every group role they inherit: a grant to any of them reaches an
+// exposed role.
 func revokeExposed(env Env, qn string) string {
 	var lines []string
-	for _, r := range env.Exposed {
-		if r.OID != PublicOID {
-			lines = append(lines, fmt.Sprintf("REVOKE ALL ON %s FROM %s;", qn,
-				grantTarget(r)))
-		}
+	for _, r := range env.revokeAllTargets() {
+		lines = append(lines, fmt.Sprintf("REVOKE ALL ON %s FROM %s;", qn, grantTarget(r)))
 	}
 	return strings.Join(lines, "\n")
 }

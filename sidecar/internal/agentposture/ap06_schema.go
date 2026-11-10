@@ -35,8 +35,9 @@ END`
 }
 
 // ap06SchemaFix is the schema finding's fix: every candidate view made a
-// security_invoker view (PostgreSQL 15+), or revoked from PUBLIC and the
-// exposed roles where security_invoker does not exist.
+// security_invoker view (PostgreSQL 15+), or revoked from PUBLIC, the
+// exposed roles and the group roles they inherit where security_invoker
+// does not exist.
 func ap06SchemaFix(in Input, schema string) string {
 	head := "-- Every view in schema " + schema + " over tables with row-level security"
 	if in.Arm(armSecurityInvoker) {
@@ -45,14 +46,15 @@ func ap06SchemaFix(in Input, schema string) string {
 				[]string{"ALTER VIEW %s SET (security_invoker = true)"})) + ";"
 	}
 	stmts := []string{"REVOKE ALL ON %s FROM PUBLIC"}
-	for _, r := range in.Env.Exposed {
-		if r.OID != PublicOID {
-			target := strings.ReplaceAll(grantTarget(r), "%", "%%")
-			stmts = append(stmts, "REVOKE ALL ON %s FROM "+target)
-		}
+	for _, r := range in.Env.revokeAllTargets() {
+		target := strings.ReplaceAll(grantTarget(r), "%", "%%")
+		stmts = append(stmts, "REVOKE ALL ON %s FROM "+target)
 	}
-	return "-- PostgreSQL 14 has no security_invoker views.\n" + head +
-		" is revoked from PUBLIC and the exposed roles.\nDO " +
+	who := " is revoked from PUBLIC and the exposed roles"
+	if len(in.Env.inheritedGroups()) > 0 {
+		who += " and the group roles they inherit"
+	}
+	return "-- PostgreSQL 14 has no security_invoker views.\n" + head + who + ".\nDO " +
 		dollarQuoted(ap06EachView(schema, stmts)) + ";"
 }
 
@@ -91,7 +93,8 @@ func ap06SchemaFinding(in Input, schema string, items []ap06Item) Finding {
 		f.Recommendation = "Revoke the views from exposed roles, or replace them with " +
 			"functions that check the caller; upgrading to PostgreSQL 15+ allows " +
 			"security_invoker views."
-		f.Caveat = "Applications using the views as these roles lose access."
+		f.Caveat = joinCaveats("Applications using the views as these roles lose access.",
+			in.Env.inheritedCaveat())
 	}
 	return f
 }

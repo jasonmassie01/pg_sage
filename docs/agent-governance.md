@@ -360,7 +360,10 @@ membership's `INHERIT` option. AP-03, AP-04, AP-05, AP-06 and AP-09 count it.
   `pg_auth_members` evidence.
 - A fix that revokes from a group warns that every member of the group loses the
   privilege, and offers ending the membership instead (`REVOKE api_reader FROM anon`; on
-  PostgreSQL 16+ add `GRANTED BY` when another role granted it).
+  PostgreSQL 16+ add `GRANTED BY` when another role granted it). Only the shortest path is
+  named, so any other membership that leads to the same group has to end too.
+- On PostgreSQL 14, AP-06's `REVOKE` names every group the exposed roles inherit as well,
+  since a grant of the view to any of them still reaches the exposed role.
 - A membership that only allows `SET ROLE` (no inheritance) gives nothing until the client
   switches roles, so it is not reported.
 - User mappings never inherit, so AP-09 matches a mapping to the exposed role itself.
