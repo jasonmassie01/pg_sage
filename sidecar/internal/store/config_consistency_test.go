@@ -98,6 +98,8 @@ var excludedExactKeys = map[string]bool{
 	// The stdio tools/call deadline (mcp-04) is YAML only and restart-bound,
 	// read when the stdio server starts.
 	"mcp.call_timeout_seconds": true,
+	// The HA role check interval (fleet-04) is YAML only and restart-bound.
+	"ha.check_interval_seconds": true,
 
 	// Trust ramp_start — written in YAML but not overridable.
 	"trust.ramp_start": true,
@@ -722,80 +724,6 @@ func TestConfigConsistency_StructFieldPathsReturnsExpectedPaths(
 				"structFieldPaths did not produce expected "+
 					"path %q", key)
 		}
-	}
-}
-
-// TestConfigConsistency_PrintRegistrySummary is not a real test —
-// it prints a summary of registry coverage for debugging. Skipped
-// in CI but useful during development.
-func TestConfigConsistency_PrintRegistrySummary(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping summary in short mode")
-	}
-
-	allPaths := structFieldPaths(
-		reflect.TypeOf(config.Config{}), "")
-
-	cfg := &config.Config{
-		Trust: config.TrustConfig{Level: "observation"},
-	}
-	mapKeys := configToMap(cfg)
-
-	sort.Strings(allPaths)
-
-	t.Logf("%-50s %-12s %-12s %-10s",
-		"FIELD PATH", "ALLOWED", "IN MAP", "EXCLUDED")
-	t.Logf("%s", strings.Repeat("-", 90))
-
-	for _, path := range allPaths {
-		_, inAllowed := allowedConfigKeys[path]
-		_, inMap := mapKeys[path]
-		excluded := isExcluded(path)
-
-		status := func(b bool) string {
-			if b {
-				return "YES"
-			}
-			return "---"
-		}
-
-		marker := ""
-		if !excluded && !inAllowed {
-			marker = " << MISSING"
-		}
-
-		t.Logf("%-50s %-12s %-12s %-10s%s",
-			path,
-			status(inAllowed),
-			status(inMap),
-			status(excluded),
-			marker)
-	}
-
-	t.Logf("\nTotal struct fields: %d", len(allPaths))
-	t.Logf("Allowed config keys: %d", len(allowedConfigKeys))
-	t.Logf("configToMap keys:    %d", len(mapKeys))
-
-	// Count coverage.
-	var coveredCount, excludedCount, missingCount int
-	for _, path := range allPaths {
-		switch {
-		case isExcluded(path):
-			excludedCount++
-		case allowedConfigKeys[path] != "":
-			coveredCount++
-		default:
-			missingCount++
-		}
-	}
-	t.Logf(
-		"Covered: %d, Excluded: %d, Missing: %d",
-		coveredCount, excludedCount, missingCount)
-
-	if missingCount > 0 {
-		t.Logf(
-			"WARNING: %d field(s) are neither in "+
-				"allowedConfigKeys nor excluded", missingCount)
 	}
 }
 
