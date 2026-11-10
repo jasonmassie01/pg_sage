@@ -84,6 +84,8 @@ func ListModelsWithClient(
 	}
 	key := modelCacheKey(endpoint, apiKey)
 	if cached, ok := defaultCache.getFor(key); ok {
+		// Re-record: the limit registry may have reset since the fetch.
+		inputLimits.record(key, cached)
 		return cached, nil
 	}
 	models, err := fetchModelsWithClient(

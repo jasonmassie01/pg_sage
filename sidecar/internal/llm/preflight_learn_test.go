@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -30,9 +31,13 @@ type fakeTransport struct {
 	listing         string
 	listingStatus   int
 	block           bool
+	fail            error
 }
 
 func (f *fakeTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if f.fail != nil {
+		return nil, f.fail
+	}
 	if f.block {
 		<-req.Context().Done()
 		return nil, req.Context().Err()
@@ -56,7 +61,7 @@ func geminiClient(t *testing.T, ft *fakeTransport, logs *[]string) *Client {
 	t.Helper()
 	logFn := func(_, msg string, args ...any) {
 		if logs != nil {
-			*logs = append(*logs, msg)
+			*logs = append(*logs, fmt.Sprintf(msg, args...))
 		}
 	}
 	c := New(&config.LLMConfig{Enabled: true, Endpoint: geminiTestEndpoint,
@@ -157,5 +162,65 @@ func TestLearnInputLimits_IsBounded(t *testing.T) {
 func TestLearnInputLimits_DefaultTimeoutIsFiveSeconds(t *testing.T) {
 	if inputLimitListingTimeout != 5*time.Second {
 		t.Fatalf("listing timeout = %s, want 5s", inputLimitListingTimeout)
+	}
+}
+
+// A model-cache hit must re-record the listing's limits: the registry
+// resets at maxInputLimitIdentities, and without the re-record the
+// configured provider stayed unguarded until the 1 h cache expired.
+func TestListModels_CacheHitRestoresLimitAfterRegistryReset(t *testing.T) {
+	InvalidateModelCache()
+	t.Cleanup(InvalidateModelCache)
+	ft := &fakeTransport{listing: geminiListing}
+	c := geminiClient(t, ft, nil)
+	list := func() {
+		t.Helper()
+		if _, err := ListModelsWithClient(context.Background(), geminiTestEndpoint,
+			"learn-"+t.Name(), &http.Client{Transport: ft}); err != nil {
+			t.Fatalf("ListModelsWithClient: %v", err)
+		}
+	}
+	list()
+	for i := 0; i < maxInputLimitIdentities; i++ {
+		inputLimits.record(fmt.Sprintf("reset-%d", i),
+			[]ModelInfo{{ID: "m", InputTokenLimit: 100}})
+	}
+	cfg, _ := c.configSnapshot()
+	if got := inputLimits.limit(cfg); got != 0 {
+		t.Fatalf("precondition: limit after reset = %d, want 0", got)
+	}
+	list()
+	if ft.listings.Load() != 1 {
+		t.Fatalf("listings = %d, want 1 (second call is a cache hit)", ft.listings.Load())
+	}
+	if got := inputLimits.limit(cfg); got != 2000 {
+		t.Fatalf("limit after a cache hit = %d, want 2000", got)
+	}
+	_, _, err := c.Chat(context.Background(), "", promptOf(1901), 100)
+	if !errors.Is(err, ErrPromptTooLarge) {
+		t.Fatalf("err = %v, want the cached limit to guard the client", err)
+	}
+	if ft.chats.Load() != 0 {
+		t.Fatalf("chat requests = %d, want 0 on refusal", ft.chats.Load())
+	}
+}
+
+// The Gemini listing puts the key in the URL query; a transport error
+// (url.Error quotes the URL) must not carry it into the log line.
+func TestLearnInputLimits_TransportErrorLogOmitsKey(t *testing.T) {
+	InvalidateModelCache()
+	t.Cleanup(InvalidateModelCache)
+	ft := &fakeTransport{fail: errors.New("connection refused")}
+	var logs []string
+	c := geminiClient(t, ft, &logs)
+	c.LearnInputLimits(context.Background())
+	if len(logs) != 1 || !strings.Contains(logs[0], "connection refused") {
+		t.Fatalf("logs = %q, want one line with the transport error", logs)
+	}
+	if strings.Contains(logs[0], "learn-") {
+		t.Fatalf("the failure log carries the API key: %q", logs[0])
+	}
+	if !strings.Contains(logs[0], "models/gemini-x") {
+		t.Fatalf("log %q does not name the model", logs[0])
 	}
 }

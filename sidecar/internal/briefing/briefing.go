@@ -359,11 +359,8 @@ func (w *Worker) buildStructured(findings string, totalOpen int, system, actions
 	return b.String()
 }
 
-// briefingMaxTokens is the briefing's completion cap. The prompt asks
-// for at most 2000 words (about 2700 tokens), so 4096 leaves headroom.
-// Reasoning models get the client's reasoning reserve on top (16384
-// tokens). It is not llm.context_budget_tokens, which is the trim
-// target for attached context (llm-05).
+// briefingMaxTokens caps the answer: 2000 words is about 2700 tokens. It
+// is not llm.context_budget_tokens, the trim target for attached context.
 const briefingMaxTokens = 4096
 
 func (w *Worker) enhanceWithLLM(ctx context.Context, structured string) (string, int, error) {

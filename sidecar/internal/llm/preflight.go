@@ -56,6 +56,13 @@ func preflight(cfg config.LLMConfig, estimate, maxTokens int) error {
 	return checkPromptSize(cfg, inputLimits.limit(cfg), estimate, maxTokens)
 }
 
+// preflightMaxTokens normalizes maxTokens for cfg's model, then runs the
+// pre-flight size guard on the prompt with that completion reserve.
+func preflightMaxTokens(cfg config.LLMConfig, system, user string, maxTokens int) (int, error) {
+	maxTokens = normalizedMaxTokens(cfg.Model, maxTokens)
+	return maxTokens, preflight(cfg, estimateTokens(system, user), maxTokens)
+}
+
 // maxInputLimitIdentities bounds the registry: request-scoped model
 // discovery can list under any endpoint and key.
 const maxInputLimitIdentities = 64

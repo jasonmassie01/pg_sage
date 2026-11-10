@@ -58,7 +58,7 @@ var allowedConfigKeys = map[string]string{
 	"llm.token_budget_daily":              "int_pos",
 	"llm.fleet_token_budget_daily":        "int_nonneg",
 	"llm.global_token_budget_daily":       "int_nonneg",
-	"llm.context_budget_tokens":           "int_pos",
+	"llm.context_budget_tokens":           "int_nonneg",
 	"advisor.enabled":                     "bool",
 	"advisor.interval_seconds":            "int_min5",
 	"llm.optimizer.enabled":               "bool",

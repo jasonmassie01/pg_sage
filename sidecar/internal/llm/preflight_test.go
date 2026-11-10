@@ -239,7 +239,8 @@ func TestContextBudgetBytes(t *testing.T) {
 	for _, tc := range []struct{ tokens, want int }{
 		{8192, 32768}, {2048, 8192}, {1, 4}, {0, 0}, {-3, 0},
 	} {
-		if got := ContextBudgetBytes(config.LLMConfig{ContextBudgetTokens: tc.tokens}); got != tc.want {
+		cfg := config.LLMConfig{ContextBudgetTokens: tc.tokens}
+		if got := ContextBudgetBytes(cfg); got != tc.want {
 			t.Errorf("ContextBudgetBytes(%d) = %d, want %d", tc.tokens, got, tc.want)
 		}
 	}
@@ -250,5 +251,43 @@ func TestContextBudgetBytes(t *testing.T) {
 	c := New(&config.LLMConfig{ContextBudgetTokens: 1000}, noopLog)
 	if got := c.ContextBudgetBytes(); got != 4000 {
 		t.Fatalf("client budget = %d, want 4000", got)
+	}
+}
+
+// toolBodyEstimate is the guard's estimate of a ChatWithTools request: the
+// JSON wire body, as exchangeTools sends it.
+func toolBodyEstimate(t *testing.T, c *Client, msgs []Message, opts ToolOptions) int {
+	t.Helper()
+	cfg, _ := c.configSnapshot()
+	req := buildToolRequest(cfg.Model, msgs, evidenceTools, opts)
+	body, err := marshalShaped(req, requestShape(cfg, true))
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	return estimateTokens(string(body))
+}
+
+func TestPreflight_ChatWithToolsBoundaryKeepsMaxTokensForTheAnswer(t *testing.T) {
+	ts := newToolServer(t, toolReply("done", nil, 10))
+	c := toolClient(ts.srv.URL)
+	msgs := append(userMsgs(), Message{Role: "user", Content: promptOf(3000)})
+	opts := ToolOptions{MaxTokens: 700}
+	est := toolBodyEstimate(t, c, msgs, opts)
+	knownLimit(t, c, "m", est+700-1)
+	_, err := c.ChatWithTools(context.Background(), msgs, evidenceTools, opts)
+	if !errors.Is(err, ErrPromptTooLarge) {
+		t.Fatalf("err = %v, want refusal when max_tokens no longer fits", err)
+	}
+	if ts.calls.Load() != 0 {
+		t.Fatalf("calls = %d: a refused tool request reached the provider",
+			ts.calls.Load())
+	}
+	knownLimit(t, c, "m", est+700)
+	if _, err := c.ChatWithTools(context.Background(), msgs, evidenceTools,
+		opts); err != nil {
+		t.Fatalf("tool request at limit - max_tokens refused: %v", err)
+	}
+	if ts.calls.Load() != 1 {
+		t.Fatalf("calls = %d, want the request at the bound sent", ts.calls.Load())
 	}
 }
