@@ -487,7 +487,7 @@ The node identity is kept in `sage.ha_identity` in the control database. A
 failover while pg_sage was not running is therefore seen at startup: a changed
 role, timeline or system identifier opens the cooldown for every consumer. On
 managed providers that restrict `pg_control_system()`, only the role is
-compared. `GET /api/v1/fleet` shows `ha_role`, `ha_safe_mode` and
+compared. `GET /api/v1/databases` shows `ha_role`, `ha_safe_mode` and
 `ha_last_change` for each database, and the Fleet page shows them on each tile.
 
 ### One trust system

@@ -267,7 +267,7 @@ same in every mode and on every provider.
 Each tile also shows the database's HA role: `primary`, `replica`, or
 `unknown` when the last check failed or is stale. It shows an `HA safe mode`
 badge while role flapping holds autonomous actions; hover the badge to see the
-last role change. `GET /api/v1/fleet` reports the same values as
+last role change. `GET /api/v1/databases` reports the same values as
 `status.ha_role`, `status.ha_safe_mode` and `status.ha_last_change` (the last
 one is absent until a change is seen). Each database has one HA monitor, and
 every part of pg_sage reads it. See
