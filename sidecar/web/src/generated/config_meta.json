@@ -1075,6 +1075,12 @@
     "doc": "Days-until-full thresholds that generate findings. Default: [30, 7, 3].",
     "class": "derivable"
   },
+  "forecaster.cache_min_blocks_per_day": {
+    "type": "int64",
+    "default": 100000,
+    "doc": "Block accesses (blks_hit + blks_read over a closed day) below which the day's cache hit ratio is too thin to judge; forecast_cache_pressure leaves such a day out. At least 1. Default: 100000.",
+    "class": "derivable"
+  },
   "forecaster.cache_warn_threshold": {
     "type": "float64",
     "default": 0.95,

@@ -18,6 +18,8 @@ SELECT s.schemaname, s.relname,
        COALESCE(pg_indexes_size(c.oid), 0) AS index_bytes,
        c.relpersistence::text,
        age(c.relfrozenxid) AS xid_age,
+       pg_stat_get_blocks_fetched(c.oid) - pg_stat_get_blocks_hit(c.oid)
+         AS heap_blks_read, -- forecast-04: not in v1.8.2; pg_statio's definition
        c.reloptions, -- rules-02: not in v1.8.2; read beside the verbatim columns
        s.relid
   FROM pg_stat_user_tables s

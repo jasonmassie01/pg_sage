@@ -2295,6 +2295,25 @@ over `lookback_days` of system snapshots and needs 7 days of data for each trend
   the new rule first evaluates without warning. On PG 18+ the snapshot also records
   `num_done` (checkpoints performed) as `checkpoints_done`. In fleet mode the counters
   are cluster-wide, so every database on one cluster reports the same rate.
+- The cache trend (`forecast_cache_pressure`) judges each closed day's own hit ratio,
+  not the lifetime ratio of `pg_stat_database` (which barely moves when a working set
+  outgrows `shared_buffers` today). A day's ratio is the `blks_hit` share of the
+  `blks_hit + blks_read` growth between consecutive snapshots that day, summed over the
+  day. An interval across a stats reset adds nothing, a day with fewer than
+  `forecaster.cache_min_blocks_per_day` block accesses (default `100000`, at least `1`)
+  is left out as too thin to judge, and the current, partial day never counts; a
+  left-out day is unknown, never read as 0 or -100%. With 7 usable days the finding
+  warns "low" when the newest usable day's ratio is below
+  `forecaster.cache_warn_threshold` (a fraction, default `0.95`), with an EWMA of the
+  usable days beside it, and "declining" when the fitted drop across them is at least
+  1 percentage point with R² above 0.5. Its detail names the judged day, its block
+  accesses, the 5 tables with the most `heap_blks_read` growth over that day (from the
+  table snapshots, which record `heap_blks_read` from this version on) and
+  `shared_buffers`. Until then "low" meant the lifetime ratio's EWMA; it now means the
+  newest day. Snapshots written before this version carry no interval counters, so after
+  an upgrade the category is not evaluated until 7 usable days of new snapshots exist:
+  an open cache finding is neither refreshed nor resolved until then. In fleet mode each
+  database is judged on its own counters.
 - Sequences are forecast by the runway monitor (`sre.runways.sequence_horizon_days`
   and `sequence_critical_days`, see
   [Runways and pre-incident investigations](#runways-and-pre-incident-investigations)).

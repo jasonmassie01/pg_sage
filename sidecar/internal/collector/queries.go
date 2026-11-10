@@ -114,6 +114,7 @@ SELECT n.nspname, c.relname,
          -1)::int8 AS xid_age,
        COALESCE(CASE WHEN c.relminmxid <> '0'::xid THEN mxid_age(c.relminmxid) END,
          -1)::int8 AS mxid_age,
+       pg_stat_get_blocks_fetched(c.oid) - pg_stat_get_blocks_hit(c.oid) AS heap_blks_read,
        c.reloptions, c.oid
   FROM pg_class c
   JOIN pg_namespace n ON n.oid = c.relnamespace

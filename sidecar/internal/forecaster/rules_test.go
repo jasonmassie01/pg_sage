@@ -98,7 +98,7 @@ func TestForecastConnectionSaturation_Insufficient(t *testing.T) {
 func TestForecastCachePressure_Declining(t *testing.T) {
 	aggs := makeSysAggs(14, func(i int) DaySystemAgg {
 		return DaySystemAgg{
-			AvgCacheHitRatio: 99.0 - float64(i)*1.5,
+			CacheHitRatio: 99.0 - float64(i)*1.5,
 		}
 	})
 	cfg := ForecasterConfig{CacheWarnThreshold: 0.90}
@@ -110,7 +110,7 @@ func TestForecastCachePressure_Declining(t *testing.T) {
 
 func TestForecastCachePressure_Stable(t *testing.T) {
 	aggs := makeSysAggs(14, func(_ int) DaySystemAgg {
-		return DaySystemAgg{AvgCacheHitRatio: 99.5}
+		return DaySystemAgg{CacheHitRatio: 99.5}
 	})
 	cfg := ForecasterConfig{CacheWarnThreshold: 0.90}
 	findings := forecastCachePressure(aggs, cfg)
@@ -121,7 +121,7 @@ func TestForecastCachePressure_Stable(t *testing.T) {
 
 func TestForecastCachePressure_Insufficient(t *testing.T) {
 	aggs := makeSysAggs(3, func(_ int) DaySystemAgg {
-		return DaySystemAgg{AvgCacheHitRatio: 80}
+		return DaySystemAgg{CacheHitRatio: 80}
 	})
 	cfg := ForecasterConfig{CacheWarnThreshold: 0.90}
 	findings := forecastCachePressure(aggs, cfg)

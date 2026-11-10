@@ -20,8 +20,9 @@ func TestLastEvaluatedCategories_Success(t *testing.T) {
 	for _, c := range f.LastEvaluatedCategories() {
 		got[c] = true
 	}
-	for _, c := range []string{"forecast_disk_growth", "forecast_query_volume",
-		"forecast_cache_pressure"} {
+	// forecast-04: forecast_cache_pressure needs 7 days of interval data,
+	// which an empty history lacks; rules_cache_test.go covers it.
+	for _, c := range []string{"forecast_disk_growth", "forecast_query_volume"} {
 		if !got[c] {
 			t.Fatalf("missing %s in %v", c, got)
 		}

@@ -154,6 +154,7 @@
 | `fleet_learning.lookalike_min_similarity` | `restart` | `-` | `operator_preference` |
 | `fleet_learning.min_prior_outcomes` | `restart` | `-` | `operator_preference` |
 | `forecaster.alert_horizons` | `restart` | `-` | `derivable` |
+| `forecaster.cache_min_blocks_per_day` | `restart` | `-` | `derivable` |
 | `forecaster.cache_warn_threshold` | `restart` | `-` | `derivable` |
 | `forecaster.checkpoint_requested_per_hour` | `restart` | `-` | `derivable` |
 | `forecaster.connection_warn_pct` | `restart` | `-` | `derivable` |

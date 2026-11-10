@@ -122,9 +122,18 @@ func TestEvaluatedSystemCategories_Boundaries(t *testing.T) {
 		if hasCategory(cats, "forecast_checkpoint_pressure") {
 			t.Errorf("%s: checkpoint evaluated without counters: %v", tc.name, cats)
 		}
-		want := 2
+		// forecast-04: the cache category needs minDataPoints usable days;
+		// these fixtures' zero-value days count, so it follows the length.
+		if got := hasCategory(cats, "forecast_cache_pressure"); got !=
+			(len(tc.aggs) >= minDataPoints) {
+			t.Errorf("%s: cache evaluated = %v with %d days", tc.name, got, len(tc.aggs))
+		}
+		want := 1
 		if tc.wantDisk {
-			want = 3
+			want++
+		}
+		if len(tc.aggs) >= minDataPoints {
+			want++
 		}
 		if len(cats) != want {
 			t.Errorf("%s: %d categories, want %d: %v", tc.name, len(cats), want, cats)

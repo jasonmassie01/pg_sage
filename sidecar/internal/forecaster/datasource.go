@@ -19,7 +19,12 @@ type DaySystemAgg struct {
 	MaxActiveBackends float64
 	MaxTotalBackends  float64
 	MaxConnections    float64
-	AvgCacheHitRatio  float64
+	// The cache inputs of a closed day (forecast-04): the interval block
+	// accesses (blks_hit + blks_read growth between two snapshots,
+	// collection-06) summed over the day, and the share that hit
+	// shared_buffers, a fraction. The lifetime ratio is not read.
+	CacheHitRatio       float64
+	CacheBlocksAccessed float64
 	// The split checkpoint counters at the day's last snapshot that carried
 	// them, and that snapshot's time (forecast-03). Only closed days
 	// carry them: today's partial day is unknown, so the newest input does
@@ -35,6 +40,10 @@ type DaySystemAgg struct {
 	BackendsUnknown       bool
 	MaxConnectionsUnknown bool
 	CheckpointsUnknown    bool
+	// CacheUnknown: no snapshot of the closed day carried interval
+	// counters (legacy rows, a stats reset, today), no block was accessed,
+	// or (gateCacheDays) fewer than forecaster.cache_min_blocks_per_day.
+	CacheUnknown bool
 }
 
 // DayQueryAgg holds daily aggregated query volume.
@@ -54,25 +63,26 @@ SELECT date_trunc('day', collected_at) AS day,
        max((data->>'active_backends')::int)      AS max_active,
        max((data->>'total_backends')::int)       AS max_total,
        max((data->>'max_connections')::int)      AS max_conns,
-       -- cache_hit_ratio is a fraction; legacy rows stored a percent and
-       -- negative values mean "no data" (C01).
-       COALESCE(avg(CASE WHEN (data->>'cache_hit_ratio')::float > 1
-                         THEN (data->>'cache_hit_ratio')::float / 100
-                         ELSE (data->>'cache_hit_ratio')::float END)
-                FILTER (WHERE (data->>'cache_hit_ratio')::float > 0),
-                -1)                              AS avg_cache_hit,
+       -- Interval block counts of closed days (forecast-04). A reset
+       -- interval (null blocks) and a legacy row add nothing; a day with
+       -- none stays NULL, unknown.
+       sum(c.accessed) FILTER (WHERE c.closed) AS cache_accessed,
+       sum(c.accessed * COALESCE(c.ratio, 0)) FILTER (WHERE c.closed) AS cache_hits,
        -- Split checkpoint counters of closed days only, read at the day's
        -- last split sample so a mid-day stats reset shows as a drop
        -- rather than as the pre-reset maximum (forecast-03).
        (array_agg((data->>'checkpoints_timed')::bigint ORDER BY s.collected_at DESC)
-           FILTER (WHERE c.split))[1] AS chk_timed,
+           FILTER (WHERE k.split))[1] AS chk_timed,
        (array_agg((data->>'checkpoints_requested')::bigint ORDER BY s.collected_at DESC)
-           FILTER (WHERE c.split))[1] AS chk_req,
-       max(s.collected_at) FILTER (WHERE c.split) AS chk_last_at
+           FILTER (WHERE k.split))[1] AS chk_req,
+       max(s.collected_at) FILTER (WHERE k.split) AS chk_last_at
 FROM sage.snapshots s
-CROSS JOIN LATERAL (SELECT s.collected_at < date_trunc('day', now())
+CROSS JOIN LATERAL (SELECT s.collected_at < date_trunc('day', now()) AS closed,
+       (s.data->'interval'->>'blks_accessed')::float8 AS accessed,
+       (s.data->'interval'->>'cache_hit_ratio')::float8 AS ratio) c
+CROSS JOIN LATERAL (SELECT c.closed
        AND s.data->>'checkpoints_timed' IS NOT NULL
-       AND s.data->>'checkpoints_requested' IS NOT NULL AS split) c
+       AND s.data->>'checkpoints_requested' IS NOT NULL AS split) k
 WHERE {db:s} AND s.category = 'system'
   AND s.collected_at > now() - make_interval(days => $1)
 GROUP BY 1 ORDER BY 1`
@@ -105,16 +115,18 @@ func QueryDailySystemAggs(
 }
 
 // scanSystemAgg reads one day of systemAggsSQL. The size, backend,
-// max_connections and checkpoint aggregates are NULL on a day where no
-// snapshot measured them (checkpoints: no split row of a closed day);
-// such an input is marked unknown, not failed.
+// max_connections, cache and checkpoint aggregates are NULL on a day
+// where no snapshot measured them (checkpoints: no split row of a closed
+// day; cache: no interval counters on a closed day); such an input is
+// marked unknown, not failed.
 func scanSystemAgg(rows pgx.Rows) (DaySystemAgg, error) {
 	var a DaySystemAgg
 	var avgSize, maxSize, active, total, maxConns, timed, requested *float64
+	var accessed, hits *float64
 	var lastAt *time.Time
 	if err := rows.Scan(
 		&a.Day, &avgSize, &maxSize, &active, &total, &maxConns,
-		&a.AvgCacheHitRatio, &timed, &requested, &lastAt,
+		&accessed, &hits, &timed, &requested, &lastAt,
 	); err != nil {
 		return DaySystemAgg{}, fmt.Errorf("scan system agg: %w", err)
 	}
@@ -124,6 +136,11 @@ func scanSystemAgg(rows pgx.Rows) (DaySystemAgg, error) {
 	a.BackendsUnknown = active == nil && total == nil
 	a.MaxConnections = orZero(maxConns)
 	a.MaxConnectionsUnknown = maxConns == nil
+	a.CacheBlocksAccessed = orZero(accessed)
+	a.CacheUnknown = a.CacheBlocksAccessed <= 0 || hits == nil
+	if !a.CacheUnknown {
+		a.CacheHitRatio = *hits / a.CacheBlocksAccessed
+	}
 	a.CheckpointsTimed, a.CheckpointsRequested = orZero(timed), orZero(requested)
 	a.CheckpointsUnknown = timed == nil || requested == nil || lastAt == nil
 	if !a.CheckpointsUnknown {

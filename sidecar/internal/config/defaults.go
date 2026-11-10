@@ -154,6 +154,9 @@ const (
 	// DefaultForecasterCheckpointRequestedPerHour is the requested
 	// checkpoint rate that warns (forecast-03).
 	DefaultForecasterCheckpointRequestedPerHour = 2.0
+	// DefaultForecasterCacheMinBlocksPerDay is the day's block accesses
+	// below which its cache hit ratio is left out (forecast-04).
+	DefaultForecasterCacheMinBlocksPerDay = 100_000
 
 	// v0.9 — RCA defaults.
 	DefaultRCALLMCorrelationThreshold  = 3

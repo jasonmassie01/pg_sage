@@ -149,6 +149,7 @@ func forecasterConfig(c *config.Config) forecaster.ForecasterConfig {
 		DiskWarnGrowthGBDay:        c.Forecaster.DiskWarnGrowthGBDay,
 		ConnectionWarnPct:          c.Forecaster.ConnectionWarnPct,
 		CacheWarnThreshold:         c.Forecaster.CacheWarnThreshold,
+		CacheMinBlocksPerDay:       c.Forecaster.CacheMinBlocksPerDay,
 		CheckpointRequestedPerHour: c.Forecaster.CheckpointRequestedPerHour,
 		MinDataPoints:              c.Forecaster.MinDataPoints,
 		AlertHorizons:              c.Forecaster.AlertHorizons,

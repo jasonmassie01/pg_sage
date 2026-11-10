@@ -352,6 +352,7 @@ type ForecasterConfig struct {
 	DiskWarnGrowthGBDay        float64 `yaml:"disk_warn_growth_gb_day"`
 	ConnectionWarnPct          float64 `yaml:"connection_warn_pct"`
 	CacheWarnThreshold         float64 `yaml:"cache_warn_threshold"`
+	CacheMinBlocksPerDay       int64   `yaml:"cache_min_blocks_per_day" doc:"Block accesses (blks_hit + blks_read over a closed day) below which the day's cache hit ratio is too thin to judge; forecast_cache_pressure leaves such a day out. At least 1. Default: 100000."`
 	CheckpointRequestedPerHour float64 `yaml:"checkpoint_requested_per_hour" doc:"Requested (WAL-triggered or explicit) checkpoints per hour, as an EWMA over closed days, at which forecast_checkpoint_pressure warns. Timed checkpoints are not counted. 0 < value <= 3600. Default: 2."`
 
 	// v0.9 fields
@@ -1031,6 +1032,7 @@ func newDefaults() *Config {
 			DiskWarnGrowthGBDay:        DefaultForecasterDiskWarnGBDay,
 			ConnectionWarnPct:          DefaultForecasterConnectionPct,
 			CacheWarnThreshold:         DefaultForecasterCacheThreshold,
+			CacheMinBlocksPerDay:       DefaultForecasterCacheMinBlocksPerDay,
 			CheckpointRequestedPerHour: DefaultForecasterCheckpointRequestedPerHour,
 			MinDataPoints:              DefaultForecasterMinDataPoints,
 			AlertHorizons:              []int{30, 7, 3},
