@@ -2,10 +2,13 @@ package config
 
 import "fmt"
 
-// validateIOAdmission checks the D6 load-admission keys. A declared
-// capacity loosens a safety gate, so it must be complete and positive, and
-// in fleet mode it must be made per database.
+// validateIOAdmission checks the load-admission keys (D6 and verify's
+// host CPU ceiling). A declared capacity loosens a safety gate, so it must
+// be complete and positive, and in fleet mode it must be made per database.
 func (c *Config) validateIOAdmission() error {
+	if err := c.Safety.validateHostCPUCeiling(); err != nil {
+		return err
+	}
 	if c.Safety.DataIOCeilingPct <= 0 || c.Safety.DataIOCeilingPct > 100 {
 		return fmt.Errorf("safety.data_io_ceiling_pct must be 1-100")
 	}

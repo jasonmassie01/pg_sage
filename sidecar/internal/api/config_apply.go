@@ -277,6 +277,8 @@ func hotReloadSafety(cfg *config.Config, key, v string) {
 	switch key {
 	case "safety.cpu_ceiling_pct":
 		cfg.Safety.CPUCeilingPct = atoi(v)
+	case "safety.host_cpu_ceiling_pct":
+		cfg.Safety.HostCPUCeilingPct = atoi(v)
 	case "safety.query_timeout_ms":
 		cfg.Safety.QueryTimeoutMs = atoi(v)
 	case "safety.ddl_timeout_seconds":

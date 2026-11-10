@@ -1983,7 +1983,7 @@
   "safety.cpu_ceiling_pct": {
     "type": "int",
     "default": 90,
-    "doc": "Skip cycles when database-host CPU exceeds this percent (1-100). Prevents pg_sage from adding load during incidents.",
+    "doc": "Skip collector cycles when active client sessions / max_connections exceeds this percent (1-100), so pg_sage adds no load during incidents. Verify inherits it while host_cpu_ceiling_pct is unset.",
     "class": "safety_critical"
   },
   "safety.data_io_ceiling_pct": {
@@ -2008,6 +2008,12 @@
     "type": "int",
     "default": 600,
     "doc": "Cycle interval (seconds) used while in dormant mode — typically much larger than the normal interval so the sidecar wakes rarely while the target is stressed.",
+    "class": "safety_critical"
+  },
+  "safety.host_cpu_ceiling_pct": {
+    "type": "int",
+    "default": 0,
+    "doc": "Index verification applies a change only while database-host CPU is at or below this percent (1-100). Unset (0) inherits cpu_ceiling_pct, default 90.",
     "class": "safety_critical"
   },
   "safety.lock_timeout_ms": {
