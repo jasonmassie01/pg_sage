@@ -1901,7 +1901,7 @@ over `lookback_days` of system snapshots and needs 7 days of data for each trend
   warns "low" when the newest usable day's ratio is below
   `forecaster.cache_warn_threshold` (a fraction, default `0.95`), with an EWMA of the
   usable days beside it, and "declining" when the fitted drop across them is at least
-  1 percentage point with R² above 0.5. Its detail names the judged day, its block
+  1 percentage point with RÂ² above 0.5. Its detail names the judged day, its block
   accesses, the 5 tables with the most `heap_blks_read` growth over that day (from the
   table snapshots, which record `heap_blks_read` from this version on) and
   `shared_buffers`. Until then "low" meant the lifetime ratio's EWMA; it now means the
