@@ -190,9 +190,9 @@ func TestAskRoute_SlowModelBoundary(t *testing.T) {
 	script := []scriptedReply{{12 * time.Second, "list_findings", `{}`},
 		{12 * time.Second, "list_facts", `{}`}, {11 * time.Second, "answer", groundedAnswer}}
 	for _, c := range []struct {
-		seconds int
-		status  string
-	}{{40, ask.StatusAnswered}, {30, ask.StatusIncomplete}} {
+		seconds      int
+		status, stop string
+	}{{40, ask.StatusAnswered, "final"}, {30, ask.StatusIncomplete, "wall_clock"}} {
 		t.Run(c.status, func(t *testing.T) {
 			t.Parallel()
 			h := routedAskAPI(t, c.seconds, newScriptedModel(t, script...))
@@ -204,7 +204,8 @@ func TestAskRoute_SlowModelBoundary(t *testing.T) {
 			h.ServeHTTP(w, req)
 			var body map[string]any
 			_ = json.Unmarshal(w.Body.Bytes(), &body)
-			if w.Code != http.StatusOK || body["status"] != c.status || body["id"] == nil {
+			if w.Code != http.StatusOK || body["status"] != c.status ||
+				body["stop"] != c.stop || body["id"] == nil {
 				t.Fatalf("setting %d s: %d %v", c.seconds, w.Code, body)
 			}
 			if took := time.Since(start); took > time.Duration(c.seconds+5)*time.Second {
