@@ -1,11 +1,33 @@
 # Configuration
 
-pg_sage uses three configuration sources with the following precedence (highest wins):
+pg_sage reads its configuration from these sources, highest precedence first:
 
-1. **CLI flags** (`--pg-url`, `--config`, `--prom-addr`, `--meta-db`, `--encryption-key`)
-2. **Environment variables** (`SAGE_DATABASE_URL`, `SAGE_LLM_API_KEY`, etc.)
-3. **YAML config file** (`config.yaml`)
-4. **Built-in defaults**
+1. **Settings overrides**: values saved in Settings or through `PUT /api/v1/config/global`,
+   stored in the control database (`sage.config`)
+2. **CLI flags** (`--pg-url`, `--config`, `--prom-addr`, `--meta-db`, `--encryption-key`)
+3. **Environment variables** (`SAGE_DATABASE_URL`, `SAGE_LLM_API_KEY`, etc.)
+4. **YAML config file** (`config.yaml`)
+5. **Built-in defaults**
+
+**Trust takes the most restrictive value.** For `trust.level`, `trust.tier3_safe`,
+`trust.tier3_moderate` and `trust.tier3_high_risk`, when the YAML file, an environment
+variable or a flag sets the key explicitly, the effective value is the more restrictive of
+that value and a stored override: the lower trust level, and a tier3 switch only when both
+are on. `SAGE_TRUST_LEVEL=observation`, or `trust.level: observation` in the YAML during an
+incident, therefore holds even though an old Settings override says `autonomous`; removing
+the file key lets the override apply again. An explicit value counts even when it equals the
+default. Every other key keeps the override winning.
+
+**Masked overrides are reported.** When a stored override replaces a different explicit
+file value (YAML, environment or flag), the key is *masked*: the sidecar logs one WARN per
+distinct pair of values, naming the key, both values, the user who stored the override and
+when, and `GET /api/v1/config/global` lists it in `masked_by_override` (an empty array when
+nothing is masked; secret values are redacted). Settings shows a **masked** badge on the
+key. The source badge says `override`, `db_override` or `file/default`: the file, an
+environment variable, a flag or the built-in default (the sidecar does not track which).
+Reset in Settings, or `DELETE /api/v1/config/global/<key>`, removes a stored override. In
+meta-db and fleet mode the same rule applies to the global overrides; per-database trust
+already takes the stricter of the database's level and the global ceiling.
 
 The sidecar validates a complete candidate before publishing a YAML reload.
 Every field has a typed lifecycle: `live_policy` swaps an immutable policy
@@ -40,7 +62,7 @@ value), so a failure never raises autonomy. `trust.tier3_high_risk` and the trus
 
 **Replicas share the global settings and converge within 30 seconds.** A setting saved in
 Settings or through the API is a global override stored in the control database, and it
-takes precedence over each replica's YAML. Replicas on one control database share these
+takes precedence over each replica's YAML (except the trust rule above). Replicas on one control database share these
 overrides: meta-db mode (every sidecar on one `--meta-db`) and standalone replicas on one
 monitored database. Each replica reads the durable config generation every 30 seconds (one
 small query) and adopts a newer one the way a local save applies: its current YAML file plus
