@@ -129,7 +129,7 @@ func startPreflightCycles(
 ) *preflightCycles {
 	t.Helper()
 	workers, err := databaseAutonomyWorkers(p, c, "preflight", e,
-		newFreezeCustodian(p, c, "preflight"))
+		newFreezeCustodian(p, c, "preflight"), checkedHAMonitor(t, p))
 	if err != nil {
 		t.Fatal(err)
 	}

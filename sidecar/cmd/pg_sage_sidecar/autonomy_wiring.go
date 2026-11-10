@@ -12,6 +12,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/earned/hasource"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/gameday"
+	"github.com/pg-sage/sidecar/internal/ha"
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/policy"
 )
@@ -116,6 +117,9 @@ type autonomyBinding struct {
 	// runningModel is the model the database's investigator runs (read
 	// at each use); nil: unknown, so model roots stay advisory.
 	runningModel func() string
+	// ha is the database's one HA monitor; earned autonomy reads its
+	// snapshot. Nil downgrades every governed action (fail closed).
+	ha *ha.Monitor
 }
 
 // failClosedLimiter answers every governed action (incident families and
@@ -165,7 +169,7 @@ func (a *autonomyLedgers) install(ctx context.Context, ex *executor.Executor,
 		return err
 	}
 	lim := svc.Limiter(earned.Binding{Database: b.database, Budget: b.budget,
-		HA:          hasource.New(newPersistedHAMonitor(b)),
+		HA:          hasource.FromSnapshot(b.ha),
 		Concurrency: earned.NewPostgresConcurrency(b.monitored, b.databaseID)})
 	if b.settings.Enforce {
 		ex.WithAutonomy(lim)

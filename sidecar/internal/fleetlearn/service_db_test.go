@@ -271,9 +271,17 @@ func TestService_CycleWithNothingReadKeepsStoredFingerprints(t *testing.T) {
 	if err != nil || res.Databases != 0 {
 		t.Fatalf("empty cycle = %+v, %v", res, err)
 	}
-	dead := NewService(NewStore(f.control, "test-scope"),
-		func() []DatabaseSource { return []DatabaseSource{{Name: "x"}} }, Settings{}, nil)
-	if res, err := dead.RunCycle(ctx, Fence{}); err != nil || len(res.Failed) != 1 {
+	// Two unreachable peers make the fleet eligible, so the cycle runs and
+	// reads nothing (a lone pool-less source is now skipped before any read).
+	gone, err := pgxpool.New(ctx, "postgres://x@127.0.0.1:1/x?connect_timeout=1")
+	if err != nil {
+		t.Fatalf("pool: %v", err)
+	}
+	gone.Close()
+	dead := NewService(NewStore(f.control, "test-scope"), func() []DatabaseSource {
+		return []DatabaseSource{{Name: "x", Pool: gone}, {Name: "y", Pool: gone}}
+	}, Settings{}, nil)
+	if res, err := dead.RunCycle(ctx, Fence{}); err != nil || len(res.Failed) != 2 {
 		t.Fatalf("all-failed cycle = %+v, %v", res, err)
 	}
 	got, _ := NewStore(f.control, "test-scope").Fingerprints(ctx)

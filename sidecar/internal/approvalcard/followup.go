@@ -24,9 +24,11 @@ const (
 	maxFollowupDelay = time.Hour
 )
 
-// DeliveryStore lists cards waiting for their follow-up.
+// DeliveryStore lists cards waiting for their follow-up and claims one
+// before it is posted.
 type DeliveryStore interface {
 	PendingFollowups(ctx context.Context, limit int) ([]chatops.CardDelivery, error)
+	ClaimFollowup(ctx context.Context, id int64, fence chatops.ClaimFence) (bool, error)
 	MarkFollowedUp(ctx context.Context, id int64, verdict string) error
 	DeferFollowup(ctx context.Context, id int64, delay time.Duration) error
 }
@@ -53,6 +55,10 @@ type Followups struct {
 	GiveUp time.Duration
 	Batch  int
 	Now    func() time.Time
+	// Fence is the leader lease every post is claimed under, read again
+	// before each post; ok false (no longer the leader) skips the post.
+	// nil claims unfenced (leader election disabled).
+	Fence func() (chatops.ClaimFence, bool)
 }
 
 // RunOnce follows up every due card whose outcome is final. It returns how
@@ -112,6 +118,9 @@ func (f *Followups) followUp(ctx context.Context, d chatops.CardDelivery) (bool,
 	if !o.Final {
 		return false, f.later(ctx, d, now)
 	}
+	if claimed, err := f.claim(ctx, d); err != nil || !claimed {
+		return false, err
+	}
 	evt := notify.ApprovalOutcomeEvent(notify.ApprovalOutcome{Database: d.Database,
 		QueueID: d.QueueID, Title: d.Title, Verdict: o.Verdict, Detail: o.Detail,
 		Predicted: d.Summary, ReplyTo: d.MessageID})
@@ -135,6 +144,24 @@ func (f *Followups) later(ctx context.Context, d chatops.CardDelivery, now time.
 		return fmt.Errorf("approvalcard: defer follow-up %d: %w", d.ID, err)
 	}
 	return nil
+}
+
+// claim takes d's follow-up for this leader's epoch, right before the
+// post; false means another leader has it or this one lost the lease.
+func (f *Followups) claim(ctx context.Context, d chatops.CardDelivery) (bool, error) {
+	fence := chatops.ClaimFence{}
+	if f.Fence != nil {
+		var ok bool
+		if fence, ok = f.Fence(); !ok {
+			return false, nil
+		}
+	}
+	claimed, err := f.Store.ClaimFollowup(ctx, d.ID, fence)
+	if err != nil {
+		return false, fmt.Errorf("approvalcard: claim follow-up %d (queue item %d): %w",
+			d.ID, d.QueueID, err)
+	}
+	return claimed, nil
 }
 
 func (f *Followups) close(ctx context.Context, d chatops.CardDelivery, verdict string) error {

@@ -1,6 +1,9 @@
 package fleet
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // LifecycleMutation is the exclusive publication scope for managed database
 // lifecycle changes. Reads remain available while a mutation prepares a new
@@ -94,6 +97,7 @@ func (op *LifecycleMutation) PublishRegistration(
 	if m.primaryName == "" && inst.Pool != nil {
 		m.primaryName = inst.Name
 	}
+	stampRegistered(inst, time.Now())
 	m.instances[inst.Name] = inst
 	pending := m.applyFleetLatchLocked(inst, false)
 	m.mu.Unlock()

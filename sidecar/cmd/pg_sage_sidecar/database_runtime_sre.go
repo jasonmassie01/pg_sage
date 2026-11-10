@@ -127,7 +127,7 @@ func (rt *databaseRuntime) startInvestigator() {
 			logStructuredWrapper)...)
 	}
 	rt.runwayAdvisor = newRunwayAdvisorFor(rt.freezeCustodian(), rt.spec.Pool, rt.cfg,
-		rt.spec.Name)
+		rt.spec.Name, rt.ha)
 	specialistCustodian.register(rt.spec.Name, rt.runwayAdvisor)
 	svc, err := newSREInvestigator(sreInvestigatorDeps{control: rt.spec.ControlPool,
 		monitored: rt.spec.Pool, runner: rt.probes, name: rt.spec.Name,

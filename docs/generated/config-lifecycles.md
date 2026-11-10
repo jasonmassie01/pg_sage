@@ -149,6 +149,7 @@
 | `fleet_learning.budget_ceiling_pct` | `restart` | `-` | `operator_preference` |
 | `fleet_learning.budget_floor_pct` | `restart` | `-` | `operator_preference` |
 | `fleet_learning.budget_split` | `restart` | `-` | `operator_preference` |
+| `fleet_learning.control_database` | `restart` | `-` | `operator_preference` |
 | `fleet_learning.enabled` | `restart` | `-` | `operator_preference` |
 | `fleet_learning.fleet_finding_min_databases` | `restart` | `-` | `operator_preference` |
 | `fleet_learning.include_names` | `restart` | `-` | `operator_preference` |
@@ -156,6 +157,7 @@
 | `fleet_learning.leader_lease_seconds` | `restart` | `-` | `operator_preference` |
 | `fleet_learning.lookalike_min_similarity` | `restart` | `-` | `operator_preference` |
 | `fleet_learning.min_prior_outcomes` | `restart` | `-` | `operator_preference` |
+| `fleet_learning.orphan_scope_days` | `restart` | `-` | `operator_preference` |
 | `forecaster.alert_horizons` | `restart` | `-` | `derivable` |
 | `forecaster.cache_min_blocks_per_day` | `restart` | `-` | `derivable` |
 | `forecaster.cache_warn_threshold` | `restart` | `-` | `derivable` |
@@ -167,6 +169,7 @@
 | `forecaster.lookback_days` | `restart` | `-` | `derivable` |
 | `forecaster.min_data_points` | `restart` | `-` | `derivable` |
 | `forecaster.min_r_squared` | `restart` | `-` | `derivable` |
+| `ha.check_interval_seconds` | `restart` | `-` | `operator_preference` |
 | `history.store` | `restart` | `-` | `operator_preference` |
 | `lakebase_observability.allow_payload` | `restart` | `-` | `safety_critical` |
 | `lakebase_observability.bindings` | `restart` | `-` | `safety_critical` |

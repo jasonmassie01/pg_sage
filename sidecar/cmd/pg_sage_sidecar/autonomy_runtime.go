@@ -120,14 +120,6 @@ func retentionDelete(batch autonomy.RetentionBatch) executor.RetentionDelete {
 	}
 }
 
-// haReplicaProbe reports replica or failover safe mode for one database.
-func haReplicaProbe(pool *pgxpool.Pool) func(context.Context) bool {
-	monitor := ha.New(pool, logStructuredWrapper)
-	return func(ctx context.Context) bool {
-		return monitor.Check(ctx) || monitor.InSafeMode()
-	}
-}
-
 type autonomyLogReporter struct{}
 
 func (autonomyLogReporter) Report(level, message string, fields map[string]any) {
@@ -138,13 +130,15 @@ func (autonomyLogReporter) Report(level, message string, fields map[string]any) 
 	logInfo("autonomy", "%s fields=%v", message, fields)
 }
 
-// newDatabaseAutonomy builds the database's autonomy workers around its
-// one freeze custodian (shared with the runway advisor and the analyzer).
+// newDatabaseAutonomy builds the database's continuous autonomy workers
+// around its one freeze custodian (shared with the runway advisor and the
+// analyzer); their proposals carry the HA state of monitor's snapshot.
 func newDatabaseAutonomy(
 	pool *pgxpool.Pool, cfg *config.Config, database string, exec *executor.Executor,
-	freezeWorker *autonomy.PostgresFreezeCustodian,
+	freezeWorker *autonomy.PostgresFreezeCustodian, monitor *ha.Monitor,
 ) (*autonomy.Supervisor, error) {
-	workers, err := databaseAutonomyWorkers(pool, cfg, database, exec, freezeWorker)
+	workers, err := databaseAutonomyWorkers(pool, cfg, database, exec, freezeWorker,
+		monitor)
 	if err != nil {
 		return nil, err
 	}
@@ -154,10 +148,11 @@ func newDatabaseAutonomy(
 // databaseAutonomyWorkers builds one database's autonomy workers: the
 // freeze custodian it is given (shared with the runway advisor and the
 // analyzer), the WAL custodian, the schema guard, the executor router and
-// the ledger self-audit.
+// the ledger self-audit. The router reads monitor's snapshot for the
+// replica gate.
 func databaseAutonomyWorkers(
 	pool *pgxpool.Pool, cfg *config.Config, database string, exec *executor.Executor,
-	freezeWorker *autonomy.PostgresFreezeCustodian,
+	freezeWorker *autonomy.PostgresFreezeCustodian, monitor *ha.Monitor,
 ) (autonomy.DatabaseWorkersConfig, error) {
 	if pool == nil || cfg == nil || exec == nil || freezeWorker == nil {
 		return autonomy.DatabaseWorkersConfig{},
@@ -165,7 +160,7 @@ func databaseAutonomyWorkers(
 	}
 	walWorker := newWALCustodian(pool, cfg, database)
 	auditor := ledger.NewService(ledger.NewPostgresRepository(pool))
-	router := executorProposalRouter{executor: exec, isReplica: haReplicaProbe(pool),
+	router := executorProposalRouter{executor: exec, isReplica: haReplicaGate(monitor),
 		parkLog: newParkedLog(func(format string, args ...any) {
 			logInfo("autonomy", "db %q: "+format, append([]any{database}, args...)...)
 		})}
@@ -210,9 +205,9 @@ func autonomyInterval(cfg *config.Config) time.Duration {
 func startInstanceAutonomy(
 	ctx context.Context, workers *sync.WaitGroup, pool *pgxpool.Pool,
 	cfg *config.Config, database string, exec *executor.Executor,
-	freeze *autonomy.PostgresFreezeCustodian,
+	freeze *autonomy.PostgresFreezeCustodian, monitor *ha.Monitor,
 ) error {
-	supervisor, err := newDatabaseAutonomy(pool, cfg, database, exec, freeze)
+	supervisor, err := newDatabaseAutonomy(pool, cfg, database, exec, freeze, monitor)
 	if err != nil {
 		return err
 	}

@@ -61,7 +61,8 @@ func initStandalone() {
 
 // initFleetMultiDB builds one runtime per YAML-configured database. The
 // first database that connects is the control database: it holds the
-// admin user, the standing policy and the notification rules.
+// admin user, the standing policy and the notification rules. A pinned
+// fleet_learning.control_database is tried first.
 func initFleetMultiDB() {
 	fleetMgr = fleet.NewManager(cfg)
 	initializeAnalyzeSemaphore()
@@ -81,7 +82,7 @@ func initFleetMultiDB() {
 	initializeFleetBudget(names)
 
 	boot := &fleetBootstrap{}
-	for _, dbCfg := range cfg.Databases {
+	for _, dbCfg := range fleetStartOrder(cfg.Databases, cfg.FleetLearning.ControlDatabase) {
 		boot.start(dbCfg)
 	}
 	registerFleetDatabasesOwner(boot)

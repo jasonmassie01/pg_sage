@@ -111,10 +111,18 @@ pg_sage bootstraps the `sage` schema in every monitored database and, with
 
 | Data | Standalone / YAML fleet | Meta-db mode |
 |---|---|---|
-| Logins, sessions, MCP tokens, notification channels and rules, standing policy | the control database (standalone: the monitored database; YAML fleet: the first database that started) | metadata database |
+| Logins, sessions, MCP tokens, notification channels and rules, standing policy | the control database (standalone: the monitored database; YAML fleet: `fleet_learning.control_database` when it connected, else the first database that started) | metadata database |
+| Leader lease and fleet learning state | the control database; with `fleet_learning.control_database` set, only that database (while it is down every sidecar follows) | metadata database |
 | Sage SRE investigations, SLOs, change events; the earned-trust ledger (levels, outcomes, proposals, shadow evidence) | control database | metadata database |
 | Telemetry history: snapshots, query store | each monitored database | each monitored database; with `history.store: meta`, the metadata database |
 | Other history: explain cache, findings, incidents, recommendations, action log, verification outcomes, decision ledger, shadow decisions, runway and size samples | each monitored database | each monitored database |
+
+Running more than one sidecar for a fleet (HA) needs a pinned control database:
+`meta_db`, or `fleet_learning.control_database` set to the same `databases:` entry on
+every sidecar. Without a pin, a sidecar that starts while the first database is down
+uses another one, and two sidecars can lead at once; such a sidecar logs a WARN at
+startup and refuses leadership once it sees another live sidecar on its lease (see
+[Leader election](fleet.md#leader-election)).
 
 Telemetry history is what makes pg_sage heavy: the collector's snapshots and the
 per-query samples (on a busy database, gigabytes before delta storage). In meta-db
@@ -641,6 +649,35 @@ ended the run) or `remnant_cleanup_failed` (the drop itself failed, for example 
 `lock_timeout`). Anything not dropped is left to the `invalid_index` finding. An operator-approved
 CREATE INDEX over an INVALID index of the same name is refused with the command that clears it.
 A build withheld because its index name exists is parked until that name is gone, then retried.
+
+### HA role checks
+
+| Parameter | Default | Description |
+|---|---|---|
+| `ha.check_interval_seconds` | `60` | Seconds between HA role checks of each database, `5`-`600`, at most the executor cycle (`analyzer.interval_seconds` + 5 s). Restart to apply |
+
+Each database has one HA monitor, in standalone, YAML fleet and meta-db mode
+alike. It checks the role (`pg_is_in_recovery()`) and the node identity
+(timeline, system identifier, start time) once at startup, then every
+`ha.check_interval_seconds` with a 5 s timeout, and once more just before each
+executor cycle. Everything else that needs the role reads that monitor's last
+check without probing: continuous custodian proposals, the runway advisor,
+earned autonomy and the fleet status. So they always agree, and the monitored
+database sees one role probe per interval.
+
+Autonomous actions run only on a confirmed primary, outside safe mode, and at
+least `sre.autonomy.failover_cooldown_minutes` (default `30`) after a role or
+node change. This holds whatever `sre.autonomy.enforce` says. Safe mode starts
+after 2 role flips within an hour and ends after 3 stable checks once 30
+minutes have passed since the last flip. The monitor fails closed: a failed
+check, or a last check older than three intervals, reads as role `unknown`.
+
+The node identity is kept in `sage.ha_identity` in the control database. A
+failover while pg_sage was not running is therefore seen at startup: a changed
+role, timeline or system identifier opens the cooldown for every consumer. On
+managed providers that restrict `pg_control_system()`, only the role is
+compared. `GET /api/v1/databases` shows `ha_role`, `ha_safe_mode` and
+`ha_last_change` for each database, and the Fleet page shows them on each tile.
 
 ### One trust system
 

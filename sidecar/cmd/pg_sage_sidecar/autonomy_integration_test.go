@@ -154,7 +154,8 @@ func TestInstallAutonomyBindsTheErrorBudget(t *testing.T) {
 	ex := autonomousExecutor(pool)
 	if err := ledgers.install(context.Background(), ex, autonomyBinding{database: "orders",
 		control: pool, monitored: pool, settings: config.DefaultConfig().SRE.Autonomy,
-		budget: earned.NewSummaryBudget(burningSummary{})}); err != nil {
+		budget: earned.NewSummaryBudget(burningSummary{}),
+		ha:     checkedHAMonitor(t, pool)}); err != nil {
 		t.Fatal(err)
 	}
 	doc := policy.UnattendedProfile()

@@ -1,13 +1,16 @@
 # pg_sage Fleet Walkthrough
 
 Run one pg_sage sidecar against multiple PostgreSQL databases and verify the
-v1 autonomous DBA workflow.
+v1 autonomous DBA workflow. [Fleet Mode](fleet.md) explains the pieces used
+here: the control database, tenant boundaries, fleet learning, leader
+election and the fleet routes.
 
 ## Prerequisites
 
 - Docker or Docker Desktop
 - Go 1.26+
 - Node.js 22+ and npm
+- `openssl`, to generate the encryption key
 - Ports `5433`, `5434`, `8080`, and `9187` available
 
 ## 1. Start Two PostgreSQL Targets
@@ -25,6 +28,16 @@ This starts:
 - `pg2` on `localhost:5434`
 
 ## 2. Seed Databases
+
+pg_sage keeps the fleet's control data (logins, the database registry, the
+trust ledger, the leader lease) in a meta database. Create a dedicated one,
+`sage_meta`, next to the monitored databases:
+
+```bash
+docker exec pg_sage-pg1-1 psql -U postgres -c "CREATE DATABASE sage_meta;" 2>/dev/null || true
+```
+
+Then create and seed the two monitored databases:
 
 ```bash
 docker exec pg_sage-pg1-1 psql -U postgres -c "CREATE DATABASE app_production;" 2>/dev/null || true
@@ -58,7 +71,7 @@ Create `fleet-local.yaml`:
 ```yaml
 mode: fleet
 
-meta_db: "postgres://postgres:postgres@localhost:5433/app_production?sslmode=disable"
+meta_db: "postgres://postgres:postgres@localhost:5433/sage_meta?sslmode=disable"
 
 api:
   listen_addr: "0.0.0.0:8080"
@@ -67,13 +80,29 @@ prometheus:
   listen_addr: "0.0.0.0:9187"
 ```
 
+`mode: fleet` with a `meta_db` runs a meta-db fleet: the databases come from
+the meta database, where you add them in the next step. You could point
+`meta_db` at a monitored database such as `app_production`; that is
+supported, but its `sage` schema then also holds the control data and the
+lease writes, and its backups carry them (see
+[Sharing the control database](fleet.md#sharing-the-control-database-with-a-monitored-database)).
+
+Database passwords are stored encrypted in the meta database, so pg_sage
+needs an encryption key before you add a database. Create one and keep it:
+the same key must be used on every restart.
+
+```bash
+openssl rand -hex 32 > fleet-local.key
+chmod 600 fleet-local.key
+```
+
 Build and run:
 
 ```bash
 cd sidecar
 cd web && npm ci && npm run build && cd ..
 go build -o pg_sage ./cmd/pg_sage_sidecar
-./pg_sage --config ../fleet-local.yaml
+SAGE_ENCRYPTION_KEY_FILE=../fleet-local.key ./pg_sage --config ../fleet-local.yaml
 ```
 
 Copy the one-time `INITIAL ADMIN PASSWORD` from stderr.
@@ -95,14 +124,11 @@ Use **Test Connection** before saving each database.
 
 Fleet learning (look-alike databases and shared action priors) only compares
 databases inside one boundary. A database tagged `tenant=<name>` belongs to
-that tenant's boundary (the name is case-insensitive); untagged databases
-share one boundary. This applies to databases added here (stored in the meta
-database) exactly as to `databases[].tags` in YAML. A tag edit on a running
-database needs no restart: an edit saved here applies at once, a change
-written to `sage.databases` by other means applies at the next reconcile
-pass, and the next fingerprint cycle regroups the database. At startup
-pg_sage logs the count of databases per boundary, for example
-`fleet-learning boundaries: shared=1 tenant:acme=2`.
+that tenant's boundary; untagged databases share one. Leave both databases
+untagged here so they share a boundary. Fleet learning idles until two
+connected databases share one, and its first cycle runs 2 minutes after
+startup. See [Tenant boundaries](fleet.md#tenant-boundaries-tenant-tags)
+and [Fleet learning](fleet.md#fleet-learning).
 
 ### Several databases on one PostgreSQL instance
 
@@ -159,7 +185,8 @@ elects its own owner. Single-database mode is unchanged.
 | Cases | Cases from both databases, sorted by urgency/actionability |
 | Actions | Pending Approval and Executed tabs |
 | Fleet | Both managed databases and their status |
-| Settings | Emergency controls and Shadow Mode report |
+| Header | **Stop all** and **Resume all**, the emergency controls |
+| Settings | Shadow Mode report |
 
 The old `#/findings` route remains a compatibility alias for **Cases**.
 
@@ -167,6 +194,12 @@ The old `#/findings` route remains a compatibility alias for **Cases**.
 holds starts stopped, and only **Resume all** lifts it. Resuming a single
 database returns `409 fleet-wide stop is active: resume all first`. See
 [Fleet-wide stop](security.md#fleet-wide-stop).
+
+Each database tile shows a health score and the reasons behind it; see
+[Health score](fleet.md#health-score). The **Fleet** page lists problems
+open on several databases at once, 3 by default, so it stays empty with
+this walkthrough's two databases; see
+[Recurring across the fleet](fleet.md#recurring-across-the-fleet).
 
 ## 6. API Checks
 
@@ -211,6 +244,24 @@ slow does not hide the others:
 `GET /api/v1/shadow-report` carries the same `unavailable` list. All of
 these fields are additive; existing fields are unchanged.
 
+Fleet routes (sample responses in [Fleet Mode](fleet.md#api-routes)). With
+two databases, pass `min_databases=2`: a fleet finding needs 3 databases by
+default.
+
+```bash
+curl -b cookies.txt 'http://localhost:8080/api/v1/fleet/findings?min_databases=2'
+curl -b cookies.txt 'http://localhost:8080/api/v1/fleet/lookalikes?database=production'
+curl -b cookies.txt http://localhost:8080/api/v1/fleet/leader
+```
+
+The leader route names the control database the lease lives in
+(`control_datname`, and `control_system_identifier` where the provider allows
+`pg_control_system()`), and `leadership_refused` with its reason when this
+sidecar refused to lead. A second sidecar for this fleet must use the same
+`--meta-db`; a YAML fleet without a meta database needs
+`fleet_learning.control_database` pinned on every sidecar instead (see
+[Leader election](fleet.md#leader-election)).
+
 Metrics:
 
 ```bash
@@ -224,6 +275,9 @@ Stop pg_sage with `Ctrl+C`.
 ```bash
 docker compose stop pg1 pg2
 ```
+
+Delete `fleet-local.key` only together with the `sage_meta` database: the
+passwords stored there cannot be read without it.
 
 Use `docker compose down -v` only when you intentionally want to delete the
 local demo database volumes.

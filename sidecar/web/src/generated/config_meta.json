@@ -1039,6 +1039,12 @@
     "doc": "How llm.fleet_token_budget_daily is split: need (by open findings and incidents, within the floor and ceiling) or even. The cap itself is never exceeded. Default: need.",
     "class": "operator_preference"
   },
+  "fleet_learning.control_database": {
+    "type": "string",
+    "default": "",
+    "doc": "YAML fleet database that holds the leader lease; pin it to run several sidecars on one fleet. While it is down every sidecar follows, never leading elsewhere. Not with meta_db. Default: empty.",
+    "class": "operator_preference"
+  },
   "fleet_learning.enabled": {
     "type": "bool",
     "default": true,
@@ -1079,6 +1085,12 @@
     "type": "int",
     "default": 3,
     "doc": "Verified outcomes on look-alike databases needed before their evidence is shown on a proposal. 1-1000. Default: 3.",
+    "class": "operator_preference"
+  },
+  "fleet_learning.orphan_scope_days": {
+    "type": "int",
+    "default": 14,
+    "doc": "Days after its leader lease expired that another fleet scope's fingerprints, digests and lease are deleted (a renamed or retired fleet). 1-3650. Default: 14.",
     "class": "operator_preference"
   },
   "forecaster.alert_horizons": {
@@ -1146,6 +1158,12 @@
     "default": 0.5,
     "doc": "Minimum R-squared for forecast reliability. Below this, findings are info-only. Default: 0.5.",
     "class": "derivable"
+  },
+  "ha.check_interval_seconds": {
+    "type": "int",
+    "default": 60,
+    "doc": "Seconds between HA role checks of each database, at most the executor cycle interval. A check older than three intervals reads as an unknown role (actions blocked). 5-600. Default: 60.",
+    "class": "operator_preference"
   },
   "history.store": {
     "type": "string",
@@ -1566,7 +1584,7 @@
   "logwatch.poll_interval_ms": {
     "type": "int",
     "default": 1000,
-    "doc": "How often the log tailer polls the log file for new lines (it only polls). Default: 1000.",
+    "doc": "Log file poll interval (the tailer only polls). Default: 1000.",
     "class": "derivable"
   },
   "logwatch.slow_query_enabled": {

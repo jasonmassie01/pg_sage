@@ -20,6 +20,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/facts"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/ha"
 	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/logwatch"
 	"github.com/pg-sage/sidecar/internal/managedparam"
@@ -109,7 +110,9 @@ type databaseRuntime struct {
 	changeFeed *changefeed.Feed
 	// runwayAdvisor attaches custodian proposals to runway investigations.
 	runwayAdvisor *runwayAdvisor
-	logFanout     *logwatch.LogFanout
+	// ha is the database's one HA monitor (ha_loop.go).
+	ha        *ha.Monitor
+	logFanout *logwatch.LogFanout
 	// providerLogs is set when RCA reads the provider's log API instead of
 	// the cluster's log files (Supabase).
 	providerLogs atomic.Bool
@@ -152,6 +155,7 @@ func buildDatabaseRuntime(
 	}
 	migrateRecommendations(ctx, spec)
 	rt := newDatabaseRuntime(spec, checks)
+	rt.startHA()
 	if err := rt.installHistory(ctx); err != nil { // history_store_wiring.go
 		rt.cancel()
 		return nil, err
@@ -245,6 +249,8 @@ func newDatabaseRuntime(
 	rt.initCloudTelemetry()
 	rt.resolveLLM()
 	rt.dispatcher = sharedNotifyDispatcher(spec.ControlPool)
+	rt.ha = newInstanceHAMonitor(spec.Pool, spec.ControlPool, spec.Name,
+		rt.recordID(), haCadence(rt.cfg), rt.cfg.SRE.Autonomy.FailoverCooldown())
 	return rt
 }
 
@@ -290,6 +296,15 @@ func (rt *databaseRuntime) note(feature string) {
 	rt.features = append(rt.features, feature)
 }
 
+// recordID is the database's control-plane id, nil without one.
+func (rt *databaseRuntime) recordID() *int {
+	if rt.spec.DatabaseID <= 0 {
+		return nil
+	}
+	id := rt.spec.DatabaseID
+	return &id
+}
+
 func (rt *databaseRuntime) pgVersion() int {
 	return rt.checks.PGVersionNum
 }
@@ -302,6 +317,7 @@ func (rt *databaseRuntime) instance() *fleet.DatabaseInstance {
 		Name: rt.spec.Name, DatabaseID: rt.spec.DatabaseID,
 		Config: rt.spec.Config, Pool: rt.spec.Pool,
 		Collector: rt.collector, Analyzer: rt.analyzer, Executor: rt.executor,
+		HA:             rt.ha,
 		Investigations: rt.sreService,
 		SLO:            rt.sloEngine,
 		Changes:        rt.changeFeed,

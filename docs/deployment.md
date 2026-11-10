@@ -375,6 +375,9 @@ scrape_configs:
 | `pg_sage_sso_discovery_failures_total` | rate > 0 | OIDC discovery attempts failing (IdP outage, DNS, or misconfiguration) |
 | `pg_sage_api_tls_cert_not_after_seconds` | `- time() < 14*86400` | API TLS certificate expires within 14 days; rotate `SAGE_TLS_CERT`/`SAGE_TLS_KEY` (present only when the API serves TLS) |
 | `pg_sage_api_tls_reload_failures_total` | increase > 0 | A rotated TLS pair failed to load; the old certificate is still serving |
+| `pg_sage_leader{scope}` | `sum by (scope)` == 0 across sidecars | No sidecar holds the lease: leader-only jobs (fleet learning, SIEM export, governance reconcilers) are not running. 1 = this sidecar leads, 0 = follower |
+| `pg_sage_leader_transitions_total{scope}` | rate > 0 for long | Leadership is flapping; a lapse (renewal overdue past the local deadline) counts and logs one WARN |
+| `pg_sage_leader_last_renew_age_seconds{scope}` | > lease TTL | Seconds since the last successful lease-store round trip (since start when none yet). Each renewal is bounded to a third of the lease, so a stall shows here instead of wedging the elector |
 
 ### Sage SRE probe slots
 

@@ -80,6 +80,7 @@ func (m *DatabaseManager) RegisterInstance(inst *DatabaseInstance) {
 		if m.primaryName == "" && inst.Pool != nil {
 			m.primaryName = inst.Name
 		}
+		stampRegistered(inst, time.Now())
 		m.instances[inst.Name] = inst
 		pending = m.applyFleetLatchLocked(inst, inherited)
 		return nil
@@ -142,7 +143,8 @@ func (m *DatabaseManager) Config() *config.Config {
 	return m.cfg
 }
 
-// FleetStatus returns the fleet overview with health scores.
+// FleetStatus returns the fleet overview with health scores, worst first
+// and by name among equal scores.
 func (m *DatabaseManager) FleetStatus() FleetOverview {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -151,24 +153,10 @@ func (m *DatabaseManager) FleetStatus() FleetOverview {
 		Mode:      m.cfg.Mode,
 		Databases: make([]DatabaseStatus, 0, len(m.instances)),
 	}
-
+	now := time.Now()
 	for _, inst := range m.instances {
-		// Snapshot fields under the instance lock so that background
-		// writers (updateInstanceFindings, config_handlers) don't race
-		// with the health-score compute or the JSON marshaller.
-		snap := inst.SnapshotStatus()
-		snap = EnsureCapabilities(inst, snap)
-		snap.HealthScore = computeHealthScore(snap)
-		snap.DatabaseName = inst.Name
-		ds := DatabaseStatus{
-			ID:         inst.DatabaseID,
-			DatabaseID: inst.DatabaseID,
-			Name:       inst.Name,
-			Tags:       cloneTags(inst.Config.Tags),
-			Status:     snap,
-		}
-		applyStopStatus(&ds, inst)
-		overview.Databases = append(overview.Databases, ds)
+		overview.Databases = append(overview.Databases,
+			m.databaseStatusLocked(inst, now))
 		if inst.Stopped {
 			overview.Summary.EmergencyStoppedCount++
 		}
@@ -176,21 +164,26 @@ func (m *DatabaseManager) FleetStatus() FleetOverview {
 
 	applyFleetStopStatus(&overview.Summary, m.fleetStop)
 
-	// Sort by health score ascending (worst first).
-	sort.Slice(overview.Databases, func(i, j int) bool {
-		return overview.Databases[i].Status.HealthScore <
-			overview.Databases[j].Status.HealthScore
+	dbs := overview.Databases
+	sort.SliceStable(dbs, func(i, j int) bool {
+		if dbs[i].Status.HealthScore != dbs[j].Status.HealthScore {
+			return dbs[i].Status.HealthScore < dbs[j].Status.HealthScore
+		}
+		return dbs[i].Name < dbs[j].Name
 	})
 
 	summarizeFleet(&overview)
 	return overview
 }
 
-// summarizeFleet fills the overview's totals from its database rows.
+// summarizeFleet fills the overview's totals from its database rows. A
+// database is healthy when it is connected, has no error and scores at
+// least healthyScoreFloor; every other database is degraded.
 func summarizeFleet(overview *FleetOverview) {
 	for _, db := range overview.Databases {
 		overview.Summary.TotalDatabases++
-		if db.Status.Connected && db.Status.Error == "" {
+		if db.Status.Connected && db.Status.Error == "" &&
+			db.Status.HealthScore >= healthyScoreFloor {
 			overview.Summary.Healthy++
 		} else {
 			overview.Summary.Degraded++
@@ -201,23 +194,6 @@ func summarizeFleet(overview *FleetOverview) {
 	}
 	overview.Summary.EmergencyStopped = overview.Summary.EmergencyStoppedCount > 0 ||
 		overview.Summary.FleetStopped
-}
-
-// computeHealthScore calculates 0-100 health for an instance.
-func computeHealthScore(s *InstanceStatus) int {
-	if !s.Connected {
-		return 0
-	}
-	if s.Error != "" {
-		return 0
-	}
-	score := 100
-	score -= s.FindingsCritical * 25
-	score -= s.FindingsWarning * 5
-	if score < 0 {
-		score = 0
-	}
-	return score
 }
 
 // RecordHealthSnapshots appends the current health score + finding
@@ -235,12 +211,13 @@ func (m *DatabaseManager) RecordHealthSnapshots(ctx context.Context) {
 		s    *InstanceStatus
 	}
 	samples := make([]sample, 0, len(m.instances))
+	now := time.Now()
 	for _, inst := range m.instances {
 		if inst.Pool == nil {
 			continue
 		}
 		snap := inst.SnapshotStatus()
-		snap.HealthScore = computeHealthScore(snap)
+		m.scoreLocked(inst, snap, now)
 		samples = append(samples, sample{
 			name: inst.Name, pool: inst.Pool, s: snap,
 		})
@@ -265,8 +242,8 @@ func (m *DatabaseManager) RecordHealthSnapshot(
 	}
 	pool := inst.Pool
 	snapshot := inst.SnapshotStatus()
+	m.scoreLocked(inst, snapshot, time.Now())
 	m.mu.RUnlock()
-	snapshot.HealthScore = computeHealthScore(snapshot)
 	recordHealthSample(ctx, name, pool, snapshot)
 }
 

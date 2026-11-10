@@ -160,5 +160,7 @@ func trancheOneMigrations() []namedStep {
 		{"ddlFactEvents", ddlFactEvents},                             // facts-07
 		{"ddlMigrationRunBlocked", ddlMigrationRunBlocked},           // migration-03
 		{"ddlLLMUsage", ddlLLMUsage},                                 // fleet-10
+		{"ddlFleetLeaseControl", ddlFleetLeaseControl},               // fleet-03: control database on the lease
+		{"ddlApprovalFollowupClaim", ddlApprovalFollowupClaim},       // fleet-03: fenced follow-up claims
 	}
 }

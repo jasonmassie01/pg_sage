@@ -68,6 +68,7 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 	}
 	writeFleetBudgetMetrics(&b, fleetLLMBudget)
 	writeCollectorMetrics(&b, collectorStatuses(fleetMgr, coll, resolveDBName()))
+	writeLeaderMetrics(&b, fleetLeader, governanceElector.Load())
 
 	// Database metrics (only when global pool exists).
 	if pool != nil {

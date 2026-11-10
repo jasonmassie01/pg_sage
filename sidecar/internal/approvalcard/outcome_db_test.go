@@ -144,6 +144,13 @@ func (f *fakeDeliveries) PendingFollowups(context.Context, int) ([]chatops.CardD
 	return out, nil
 }
 
+// ClaimFollowup always grants the claim: fencing is tested on PostgreSQL
+// (chatops, followup_db_test.go); these tests cover posting and closing.
+func (f *fakeDeliveries) ClaimFollowup(context.Context, int64, chatops.ClaimFence) (bool,
+	error) {
+	return true, nil
+}
+
 func (f *fakeDeliveries) MarkFollowedUp(_ context.Context, id int64, verdict string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

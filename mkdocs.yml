@@ -33,6 +33,7 @@ nav:
   - Installation: installation.md
   - Configuration: configuration.md
   - Architecture: architecture.md
+  - Fleet Mode: fleet.md
   - SQL Reference: sql-reference.md
   - Findings Catalog: findings.md
   - Binding Facts: facts.md

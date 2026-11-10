@@ -108,8 +108,11 @@ func TestSIEMStatusFunc(t *testing.T) {
 // preserveAuditFenceGlobals restores cfg and fleetLeader after a test.
 func preserveAuditFenceGlobals(t *testing.T) {
 	t.Helper()
-	oldCfg, oldLeader := cfg, fleetLeader
-	t.Cleanup(func() { cfg, fleetLeader = oldCfg, oldLeader })
+	oldCfg, oldLeader, oldGov := cfg, fleetLeader, governanceElector.Load()
+	t.Cleanup(func() {
+		cfg, fleetLeader = oldCfg, oldLeader
+		governanceElector.Store(oldGov)
+	})
 }
 
 func yamlFleetConfig(names ...string) *config.Config {

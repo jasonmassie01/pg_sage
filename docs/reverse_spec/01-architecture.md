@@ -162,11 +162,13 @@ retention, plus per-instance finding refresh.
   `firstConnectedPoolLocked()` (sorted-name order) if the primary is gone.
   The primary pool is what auth/session storage and `sage.databases`
   catalog writes use (`wire.go:44-52`, `main.go:815`).
-- **Health score** (`computeHealthScore`, `manager.go:131-146`):
-  `0` if disconnected or errored; else `100 − 25·critical − 5·warning`,
-  floored at 0. Warning-only (`s.FindingsWarning`) — no `info` penalty.
-  Computed lazily inside `FleetStatus` (`manager.go:93`) and persisted
-  by `RecordHealthSnapshots` into `sage.health_history` (`manager.go:153-193`).
+- **Health score** (`healthOf`, `fleet/health.go`): `0` if disconnected
+  or errored; else `100 − 25·critical − 5·warning`, floored at 0, and
+  capped at 25 when the collector has not sampled for more than 3
+  intervals. No `info` penalty. `HealthReasons` explains the score.
+  Computed lazily inside `FleetStatus` and `InstanceStatus` and persisted
+  by `RecordHealthSnapshots` into `sage.health_history`. `Summary.Healthy`
+  counts connected, error-free databases scoring at least 50.
 - **Instance registration in catalog**: YAML fleet upserts each DB into
   `sage.databases` via `upsertFleetDatabase` (`main.go:1391-1419`) with a
   `[]byte{0}` placeholder password (creds stay in YAML). Meta-DB fleet

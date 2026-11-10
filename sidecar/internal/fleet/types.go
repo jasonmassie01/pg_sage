@@ -14,6 +14,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
+	"github.com/pg-sage/sidecar/internal/ha"
 	"github.com/pg-sage/sidecar/internal/logwatch"
 	"github.com/pg-sage/sidecar/internal/sre"
 	"github.com/pg-sage/sidecar/internal/sre/action"
@@ -33,6 +34,10 @@ type DatabaseInstance struct {
 	Collector  *collector.Collector
 	Analyzer   *analyzer.Analyzer
 	Executor   *executor.Executor
+	// HA is the database's one HA monitor (fleet-04): the HA loop and the
+	// executor check it, every other consumer reads its snapshot. Nil
+	// without a pool, which every consumer treats as not writable.
+	HA *ha.Monitor
 	// Investigations is the Sage SRE investigator of this database: the
 	// API and MCP tools read investigations through it. Nil when the
 	// investigator could not be built.
@@ -53,6 +58,10 @@ type DatabaseInstance struct {
 	// Stopped, they are guarded by the manager lock.
 	StoppedBy string
 	StoppedAt time.Time
+	// RegisteredAt is when the runtime was published to the manager; a
+	// collector that never sampled is stale only once it is old enough.
+	// Guarded by the manager lock.
+	RegisteredAt time.Time
 	// stopsPending counts stops latched in memory whose durable flag is
 	// not yet written; an overlapping resume must not release them.
 	stopsPending int
@@ -148,6 +157,7 @@ func (d *DatabaseInstance) SnapshotStatus() *InstanceStatus {
 	}
 	d.statusMu.RUnlock()
 	cp.LogSource = d.logSourceStatus()
+	applyHASnapshot(&cp, d.HA)
 	if d.Collector != nil {
 		health := d.Collector.Status()
 		cp.Collector = &health
@@ -305,6 +315,7 @@ func (m *DatabaseManager) commitReplacement(
 		delete(m.instances, oldName)
 	}
 	inherited := inheritEmergencyStop(old, candidate)
+	stampRegistered(candidate, time.Now())
 	m.instances[candidate.Name] = candidate
 	if m.primaryName == oldName {
 		m.primaryName = candidate.Name
@@ -466,25 +477,32 @@ func (m *DatabaseManager) firstConnectedNameLocked() string {
 
 // InstanceStatus tracks the health of a single database.
 type InstanceStatus struct {
-	Connected        bool                 `json:"connected"`
-	PGVersion        string               `json:"pg_version"`
-	Platform         string               `json:"platform"`
-	DatabaseSize     int64                `json:"database_size_bytes"`
-	TrustLevel       string               `json:"trust_level"`
-	CollectorLastRun time.Time            `json:"collector_last_run"`
-	AnalyzerLastRun  time.Time            `json:"analyzer_last_run"`
-	FindingsOpen     int                  `json:"findings_open"`
-	FindingsCritical int                  `json:"findings_critical"`
-	FindingsWarning  int                  `json:"findings_warning"`
-	FindingsInfo     int                  `json:"findings_info"`
-	ActionsTotal     int                  `json:"actions_total"`
-	LLMTokensUsed    int                  `json:"llm_tokens_used"`
-	AdvisoryLockHeld bool                 `json:"advisory_lock_held"`
-	HealthScore      int                  `json:"health_score"`
-	Error            string               `json:"error,omitempty"`
-	LastSeen         time.Time            `json:"last_seen"`
-	DatabaseName     string               `json:"database_name"`
-	Capabilities     ProviderCapabilities `json:"capabilities,omitempty"`
+	Connected        bool      `json:"connected"`
+	PGVersion        string    `json:"pg_version"`
+	Platform         string    `json:"platform"`
+	DatabaseSize     int64     `json:"database_size_bytes"`
+	TrustLevel       string    `json:"trust_level"`
+	CollectorLastRun time.Time `json:"collector_last_run"`
+	AnalyzerLastRun  time.Time `json:"analyzer_last_run"`
+	FindingsOpen     int       `json:"findings_open"`
+	FindingsCritical int       `json:"findings_critical"`
+	FindingsWarning  int       `json:"findings_warning"`
+	FindingsInfo     int       `json:"findings_info"`
+	ActionsTotal     int       `json:"actions_total"`
+	LLMTokensUsed    int       `json:"llm_tokens_used"`
+	HealthScore      int       `json:"health_score"`
+	// HealthReasons explains HealthScore ("collector stale 42m",
+	// "2 critical findings"); set only on scored snapshots.
+	HealthReasons []string             `json:"health_reasons"`
+	Error         string               `json:"error,omitempty"`
+	LastSeen      time.Time            `json:"last_seen"`
+	DatabaseName  string               `json:"database_name"`
+	Capabilities  ProviderCapabilities `json:"capabilities,omitempty"`
+	// HARole, HASafeMode and HALastChange are the HA monitor's last check
+	// (ha_status.go); filled when the status is read, never stored.
+	HARole       string     `json:"ha_role"`
+	HASafeMode   bool       `json:"ha_safe_mode"`
+	HALastChange *time.Time `json:"ha_last_change,omitempty"`
 	// LogSource is the log-based RCA source of this database (rca-09); in
 	// fleet mode it is its cluster's watcher.
 	LogSource logwatch.SourceStatus `json:"log_source"`
