@@ -26,6 +26,32 @@ func TestSpecialistDefaults_NoConfigFile(t *testing.T) {
 	if s.Webhook.Tolerance() != 5*time.Minute {
 		t.Fatalf("tolerance %s", s.Webhook.Tolerance())
 	}
+	if s.MaxLiveAgeHours != 24 || s.MaxLiveAge() != 24*time.Hour {
+		t.Fatalf("max live age %d h (%s), want 24 h", s.MaxLiveAgeHours, s.MaxLiveAge())
+	}
+}
+
+func TestSpecialistMaxLiveAgeFromYAML(t *testing.T) {
+	for _, tc := range []struct {
+		yaml string
+		want time.Duration
+	}{{"1", time.Hour}, {"168", 7 * 24 * time.Hour}, {"48", 48 * time.Hour}} {
+		cfg, err := loadRCAYAML(t, "specialist:\n  max_live_age_hours: "+tc.yaml+"\n")
+		if err != nil {
+			t.Fatalf("%s: %v", tc.yaml, err)
+		}
+		if cfg.Specialist.MaxLiveAge() != tc.want || cfg.Specialist.MaxOpenTotal != 10 {
+			t.Fatalf("%s: max live age %s, total %d", tc.yaml, cfg.Specialist.MaxLiveAge(),
+				cfg.Specialist.MaxOpenTotal)
+		}
+	}
+	for _, bad := range []string{"0", "-1", "169", "720"} {
+		_, err := loadRCAYAML(t, "specialist:\n  max_live_age_hours: "+bad+"\n")
+		if err == nil || !strings.Contains(err.Error(), "specialist.max_live_age_hours") {
+			t.Errorf("max_live_age_hours %s: want a validation error naming the key, got %v",
+				bad, err)
+		}
+	}
 }
 
 func TestSpecialistPartialSectionKeepsDefaults(t *testing.T) {

@@ -89,12 +89,11 @@ const (
 
 // Caller is who asks. Actor is the stable identity ("user:42",
 // "mcp:token:<id>"); MayPropose is the right to open an investigation or
-// queue a proposal (operator or admin, or the MCP propose scope); Agent
-// marks a program rather than a person. Nobody gets an approve path.
+// queue a proposal (operator or admin, or the MCP propose scope). Nobody
+// gets an approve path.
 type Caller struct {
 	Actor      string
 	MayPropose bool
-	Agent      bool
 }
 
 // For is the caller as it may act on r: a read-only request drops the

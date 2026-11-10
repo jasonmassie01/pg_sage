@@ -2125,6 +2125,12 @@
     "doc": "Keep schema, table and other identifiers in results. Secrets and PII are always removed; false replaces identifiers by keyed hashes like a replay export. Default: true.",
     "class": "safety_critical"
   },
+  "specialist.max_live_age_hours": {
+    "type": "int",
+    "default": 24,
+    "doc": "Hours after which an opened investigation pg_sage cannot read (database gone from the fleet) stops counting against the live bounds, 1-168. A readable live one always counts. Default: 24.",
+    "class": "safety_critical"
+  },
   "specialist.max_open_per_identity": {
     "type": "int",
     "default": 3,

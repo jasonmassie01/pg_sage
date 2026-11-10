@@ -2347,6 +2347,7 @@ call (see [specialist.md](specialist.md)). It is on by default and token-only
 | `specialist.reads_per_minute` | `240` | Status, result and stream calls per token per minute (1-10000). |
 | `specialist.max_open_per_identity` | `3` | Live investigations one token may have opened (1-100). |
 | `specialist.max_open_total` | `10` | Live investigations all tokens may have opened (1-100). |
+| `specialist.max_live_age_hours` | `24` | Hours before an opened investigation that cannot be read stops counting as live (1-168); a readable live one always counts. |
 | `specialist.keep_identifiers` | `true` | `false` hashes identifiers in results; secrets and PII are always removed. |
 | `specialist.pagerduty.signing_secret` | | PagerDuty webhook subscription secret (required with `services`). |
 | `specialist.pagerduty.services` | `[]` | `SERVICE_ID=database[:family]` mappings. |

@@ -22,8 +22,8 @@ const maxFactEvidence = 6
 func (ss *session) proposeFactTool() agentloop.Tool {
 	return tool("propose_fact", "Propose one fact about the database for a person to "+
 		"confirm (it binds nothing until then): who owns an object, test-fixture schemas, "+
-		"a slot's consumer, an append-only table or a window. Cite the evidence ids "+
-		"(e.g. finding:42) you read. At most once per question.",
+		"a slot's consumer, an append-only table or a window. Cite the aliases (E1, E2, "+
+		"...) of what you read. At most once per question.",
 		`"type":{"type":"string","enum":["owned_by_app_migrations","test_fixture",`+
 			`"slot_consumer","append_only","table_window"]},"subject_kind":{"type":"string",`+
 			`"enum":["index","table","schema","slot"]},"subject":{"type":"string",`+
@@ -48,7 +48,7 @@ func (ss *session) proposeFact(ctx context.Context, raw json.RawMessage) (agentl
 	if err := decodeArgs(raw, &a); err != nil {
 		return agentloop.Output{}, err
 	}
-	cites, err := ss.factCitations(a.EvidenceIDs)
+	cites, err := ss.factCitations(ctx, a.EvidenceIDs)
 	if err != nil {
 		return agentloop.Output{}, err
 	}
@@ -77,21 +77,34 @@ func (ss *session) proposeFact(ctx context.Context, raw json.RawMessage) (agentl
 		act.Status, fact.Describe(), fact.Provenance())), nil
 }
 
-// factCitations turns evidence ids this run read into fact citations;
-// an id the run did not read is refused.
-func (ss *session) factCitations(ids []string) ([]facts.Citation, error) {
-	if len(ids) == 0 || len(ids) > maxFactEvidence {
-		return nil, invalidArgs("cite 1-%d evidence ids read in this conversation turn",
-			maxFactEvidence)
+// factCitations turns evidence this run read into fact citations. A ref
+// is an alias the loop issued (E1, E2, ...) or a durable id; either way
+// the evidence must be what this session read, or the ref is refused.
+// Two refs to the same evidence (E1 and its finding:42) cite it once.
+func (ss *session) factCitations(ctx context.Context, refs []string) ([]facts.Citation,
+	error) {
+	if len(refs) == 0 || len(refs) > maxFactEvidence {
+		return nil, invalidArgs("cite 1-%d aliases (E1, E2, ...) of evidence read in this "+
+			"conversation turn", maxFactEvidence)
 	}
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
-	out := make([]facts.Citation, 0, len(ids))
-	for _, id := range ids {
+	out := make([]facts.Citation, 0, len(refs))
+	cited := make(map[string]bool, len(refs))
+	for _, ref := range refs {
+		id := ref
+		if ev, ok := agentloop.ResolveEvidence(ctx, ref); ok {
+			id = ev.ID
+		}
 		ev, ok := ss.evidence[id]
 		if !ok {
-			return nil, invalidArgs("evidence %q was not read in this turn", id)
+			return nil, invalidArgs("evidence %q was not read in this turn; cite the alias "+
+				"(E1, E2, ...) shown with a result", ref)
 		}
+		if cited[id] {
+			continue
+		}
+		cited[id] = true
 		kind, _, _ := strings.Cut(id, ":")
 		out = append(out, facts.Citation{Kind: "ask_sage:" + kind, Ref: id,
 			Detail: clip(ev.Label+" sha256:"+ev.Digest, 300)})

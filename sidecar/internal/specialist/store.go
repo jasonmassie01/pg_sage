@@ -56,6 +56,7 @@ type LiveRef struct {
 	RecordID        string
 	Database        string
 	InvestigationID string
+	OpenedAt        time.Time // when it was opened (the record's creation)
 }
 
 // RequestStore keeps the audit trail and the outbound queue.
@@ -164,10 +165,10 @@ func scanRecords(rows pgx.Rows) ([]Record, error) {
 }
 
 // LiveOpened lists the investigations tokenID ("" = every token) opened
-// that were not yet seen terminal.
+// that were not yet seen terminal, with when each was opened.
 func (s *PGStore) LiveOpened(ctx context.Context, tokenID string) ([]LiveRef, error) {
 	rows, err := s.pool.Query(ctx, `/* pg_sage */ SELECT id::text, database_name,
-		COALESCE(investigation_id, '') FROM sage.specialist_requests
+		COALESCE(investigation_id, ''), created_at FROM sage.specialist_requests
 		WHERE kind = 'open' AND created AND terminal_at IS NULL
 		  AND ($1 = '' OR token_id = $1)
 		ORDER BY created_at LIMIT 1000`, tokenID)
@@ -178,7 +179,8 @@ func (s *PGStore) LiveOpened(ctx context.Context, tokenID string) ([]LiveRef, er
 	var out []LiveRef
 	for rows.Next() {
 		var l LiveRef
-		if err := rows.Scan(&l.RecordID, &l.Database, &l.InvestigationID); err != nil {
+		if err := rows.Scan(&l.RecordID, &l.Database, &l.InvestigationID,
+			&l.OpenedAt); err != nil {
 			return nil, fmt.Errorf("scan live specialist investigation: %w", err)
 		}
 		out = append(out, l)

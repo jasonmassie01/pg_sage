@@ -60,6 +60,13 @@ func buildSpecialist(cfg *config.Config, mgr *fleet.DatabaseManager, pool *pgxpo
 		registry)
 }
 
+// specialistLimits are the contract's bounds from configuration.
+func specialistLimits(sc config.SpecialistConfig) specialist.Limits {
+	return specialist.Limits{WritesPerMinute: sc.WritesPerMinute,
+		ReadsPerMinute: sc.ReadsPerMinute, MaxOpenPerIdentity: sc.MaxOpenPerIdentity,
+		MaxOpenTotal: sc.MaxOpenTotal, MaxLiveAge: sc.MaxLiveAge()}
+}
+
 // buildSpecialistWithStore wires the contract on store (tests pass a
 // memory store and no authenticator).
 func buildSpecialistWithStore(cfg *config.Config, mgr *fleet.DatabaseManager,
@@ -72,9 +79,7 @@ func buildSpecialistWithStore(cfg *config.Config, mgr *fleet.DatabaseManager,
 	}
 	deps := specialist.Deps{Directory: specialist.NewFleetDirectory(mgr, custodians),
 		Store: store, KeepIdentifiers: sc.KeepIdentifiers, Logger: slog.Default(),
-		Limits: specialist.Limits{WritesPerMinute: sc.WritesPerMinute,
-			ReadsPerMinute: sc.ReadsPerMinute, MaxOpenPerIdentity: sc.MaxOpenPerIdentity,
-			MaxOpenTotal: sc.MaxOpenTotal}}
+		Limits: specialistLimits(sc)}
 	if len(registry) > 0 && registry[0] != nil {
 		deps.Calibrator = specialist.BenchCalibrator{Registry: registry[0]}
 	}

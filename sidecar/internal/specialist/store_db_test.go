@@ -118,6 +118,35 @@ func TestPGStore_LiveOpenedAndTerminal(t *testing.T) {
 	}
 }
 
+func TestPGStore_LiveOpenedCarriesOpenedAt(t *testing.T) {
+	pool := livePool(t)
+	st := NewPGStore(pool)
+	ctx := context.Background()
+	tok := uniqueToken("opened")
+	rec, err := st.Record(ctx, Record{Kind: KindOpen, TokenID: tok, IdentityName: "x",
+		Actor: "agent:x:" + tok, Transport: "http", Database: "orders",
+		InvestigationID: "00000000-0000-4000-8000-000000000009", Created: true,
+		Match: "new", Outbound: OutboundNone})
+	if err != nil {
+		t.Fatal(err)
+	}
+	live, err := st.LiveOpened(ctx, tok)
+	if err != nil || len(live) != 1 {
+		t.Fatalf("live %+v %v", live, err)
+	}
+	got := live[0]
+	if got.RecordID != rec.ID || got.Database != "orders" ||
+		got.InvestigationID != "00000000-0000-4000-8000-000000000009" {
+		t.Fatalf("live ref %+v", got)
+	}
+	if got.OpenedAt.IsZero() || !got.OpenedAt.Equal(rec.CreatedAt) {
+		t.Fatalf("opened at %s, record created at %s", got.OpenedAt, rec.CreatedAt)
+	}
+	if age := time.Since(got.OpenedAt); age < -time.Minute || age > time.Hour {
+		t.Fatalf("opened at %s is not the row's creation time (age %s)", got.OpenedAt, age)
+	}
+}
+
 func TestPGStore_RefusesInvalidRows(t *testing.T) {
 	st := NewPGStore(livePool(t))
 	_, err := st.Record(context.Background(), Record{Kind: "approve", TokenID: "t",

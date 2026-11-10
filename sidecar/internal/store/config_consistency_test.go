@@ -290,6 +290,7 @@ var excludedExactKeys = map[string]bool{
 	"specialist.reads_per_minute":                    true,
 	"specialist.max_open_per_identity":               true,
 	"specialist.max_open_total":                      true,
+	"specialist.max_live_age_hours":                  true,
 	"specialist.keep_identifiers":                    true,
 	"specialist.pagerduty.signing_secret":            true,
 	"specialist.pagerduty.services":                  true,

@@ -20,6 +20,9 @@ var legacyDatabaseIDTools = map[string]bool{"get_policy": true,
 
 func (s *Server) callIntentTool(ctx context.Context, name string,
 	arguments json.RawMessage) (any, *rpcError) {
+	if failed := validateIntentArguments(name, arguments); failed != nil {
+		return nil, failed
+	}
 	var result any
 	var err error
 	switch name {
@@ -50,7 +53,7 @@ func (s *Server) callIntentTool(ctx context.Context, name string,
 	default:
 		return s.callNamedIntent(ctx, name, arguments)
 	}
-	return toolResult(result, err)
+	return intentResult(ctx, name, result, err)
 }
 
 func (s *Server) callNamedIntent(ctx context.Context, name string,
@@ -59,12 +62,8 @@ func (s *Server) callNamedIntent(ctx context.Context, name string,
 	if !ok {
 		return nil, failure(codeInternal, "internal error")
 	}
-	if name == "apply_migration" {
-		if failed := validateMigrationArguments(arguments); failed != nil {
-			return nil, failed
-		}
-	}
-	return toolResult(backend.RequestIntent(ctx, name, arguments))
+	result, err := backend.RequestIntent(ctx, name, arguments)
+	return intentResult(ctx, name, result, err)
 }
 
 // migrationTable is a schema-qualified name of plain identifiers; the
@@ -154,7 +153,8 @@ func moreIntentTools(object func(string, string) json.RawMessage, dbID string) [
 		{Name: "register_consumer", Description: "Protect a replication slot consumer " +
 			"(a person's declaration, imported as a confirmed fact)",
 			InputSchema: object(`{`+dbID+`,"slot_name":{"type":"string"},`+
-				`"owner":{"type":"string"}}`, `["slot_name","owner"]`)},
+				`"owner":{"type":"string"},"consumer_identity":{"type":"string"}}`,
+				`["slot_name","owner"]`)},
 		{Name: "set_maintenance_policy", Description: "Propose a maintenance policy patch",
 			InputSchema: object(`{`+dbID+`,"scope":{"type":"object"},"patch":{"type":"object"}}`,
 				`["scope","patch"]`)},

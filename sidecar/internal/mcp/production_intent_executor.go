@@ -91,7 +91,8 @@ func (executor *ProductionIntentExecutor) declareTableContract(
 		Exemptions json.RawMessage `json:"exemptions"`
 	}
 	if err := json.Unmarshal(request.Arguments, &input); err != nil {
-		return WriteOutcome{}, fmt.Errorf("decode table contract: %w", err)
+		return WriteOutcome{}, fmt.Errorf("%w: decode table contract: %v", ErrIntentInvalid,
+			err)
 	}
 	schemaName, tableName, err := qualifiedName(input.Table)
 	if err != nil {
@@ -119,10 +120,12 @@ func (executor *ProductionIntentExecutor) registerConsumer(
 		Identity string `json:"consumer_identity"`
 	}
 	if err := json.Unmarshal(request.Arguments, &input); err != nil {
-		return WriteOutcome{}, fmt.Errorf("decode consumer registration: %w", err)
+		return WriteOutcome{}, fmt.Errorf("%w: decode consumer registration: %v",
+			ErrIntentInvalid, err)
 	}
 	if strings.TrimSpace(input.SlotName) == "" || strings.TrimSpace(input.Owner) == "" {
-		return WriteOutcome{}, errors.New("slot_name and owner are required")
+		return WriteOutcome{}, fmt.Errorf("%w: slot_name and owner are required",
+			ErrIntentInvalid)
 	}
 	return executor.store.RegisterConsumer(ctx, ConsumerRegistration{
 		SlotName: strings.TrimSpace(input.SlotName), Owner: strings.TrimSpace(input.Owner),
@@ -338,7 +341,8 @@ func (executor *ProductionIntentExecutor) buildMigrationPlan(
 func qualifiedName(value string) (string, string, error) {
 	parts := strings.Split(strings.TrimSpace(value), ".")
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return "", "", errors.New("table must be a schema-qualified name")
+		return "", "", fmt.Errorf("%w: table must be a schema-qualified name",
+			ErrIntentInvalid)
 	}
 	return parts[0], parts[1], nil
 }

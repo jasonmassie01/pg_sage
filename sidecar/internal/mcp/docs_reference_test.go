@@ -36,6 +36,24 @@ func TestToolReferenceDocsMatchSchemas(t *testing.T) {
 	require.Equal(t, generated, current, "docs/mcp.md tool reference is stale")
 }
 
+// Boundary (mcp-11): the begin marker ends in a newline, so a CRLF
+// checkout of docs/mcp.md hides it and the drift test reports "markers
+// missing". .gitattributes pins the file to LF; this names that cause.
+func TestToolReferenceMarkersFoundInFile(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Clean(mcpDocsPath))
+	require.NoError(t, err)
+	require.False(t, strings.Contains(string(raw), "\r"),
+		"docs/mcp.md has CRLF line endings; it must be LF (.gitattributes eol=lf), "+
+			"run: git checkout -- docs/mcp.md")
+	doc := string(raw)
+	require.Equal(t, 1, strings.Count(doc, ToolReferenceBegin), "begin marker count")
+	require.Equal(t, 1, strings.Count(doc, ToolReferenceEnd), "end marker count")
+	require.True(t, strings.Index(doc, ToolReferenceBegin) < strings.Index(doc, ToolReferenceEnd),
+		"begin marker must precede end marker")
+}
+
+// No concurrent access test: the doc file is read-only test input.
+
 func TestToolReferenceCoversEveryToolAndScope(t *testing.T) {
 	tools := NewServer(&recordingBackend{}).Tools()
 	text := ToolReferenceMarkdown(tools)

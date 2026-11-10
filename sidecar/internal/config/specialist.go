@@ -19,6 +19,7 @@ type SpecialistConfig struct {
 	ReadsPerMinute     int                       `yaml:"reads_per_minute" doc:"Status, result and stream calls one token may make per minute, 1-10000. Default: 240."`
 	MaxOpenPerIdentity int                       `yaml:"max_open_per_identity" doc:"Live investigations one token may have opened at once, 1-100. Attaching to an existing investigation never counts. Default: 3."`
 	MaxOpenTotal       int                       `yaml:"max_open_total" doc:"Live investigations all tokens together may have opened at once, 1-100. Default: 10."`
+	MaxLiveAgeHours    int                       `yaml:"max_live_age_hours" doc:"Hours after which an opened investigation pg_sage cannot read (database gone from the fleet) stops counting against the live bounds, 1-168. A readable live one always counts. Default: 24."`
 	KeepIdentifiers    bool                      `yaml:"keep_identifiers" doc:"Keep schema, table and other identifiers in results. Secrets and PII are always removed; false replaces identifiers by keyed hashes like a replay export. Default: true."`
 	PagerDuty          SpecialistPagerDutyConfig `yaml:"pagerduty"`
 	Webhook            SpecialistWebhookConfig   `yaml:"webhook"`
@@ -47,6 +48,7 @@ const (
 	DefaultSpecialistReadsPerMinute     = 240
 	DefaultSpecialistMaxOpenPerIdentity = 3
 	DefaultSpecialistMaxOpenTotal       = 10
+	DefaultSpecialistMaxLiveAgeHours    = 24
 	DefaultSpecialistWebhookTolerance   = 300
 )
 
@@ -55,9 +57,16 @@ func defaultSpecialistConfig() SpecialistConfig {
 		WritesPerMinute:    DefaultSpecialistWritesPerMinute,
 		ReadsPerMinute:     DefaultSpecialistReadsPerMinute,
 		MaxOpenPerIdentity: DefaultSpecialistMaxOpenPerIdentity,
-		MaxOpenTotal:       DefaultSpecialistMaxOpenTotal, KeepIdentifiers: true,
+		MaxOpenTotal:       DefaultSpecialistMaxOpenTotal,
+		MaxLiveAgeHours:    DefaultSpecialistMaxLiveAgeHours, KeepIdentifiers: true,
 		Webhook: SpecialistWebhookConfig{
 			TimestampToleranceSeconds: DefaultSpecialistWebhookTolerance}}
+}
+
+// MaxLiveAge is the age after which an unreadable opened investigation
+// stops counting against the live-investigation bounds.
+func (s SpecialistConfig) MaxLiveAge() time.Duration {
+	return time.Duration(s.MaxLiveAgeHours) * time.Hour
 }
 
 // Tolerance is the accepted age of a signed webhook request.
@@ -74,6 +83,7 @@ func (s SpecialistConfig) validate() error {
 		{"reads_per_minute", s.ReadsPerMinute, 1, 10000},
 		{"max_open_per_identity", s.MaxOpenPerIdentity, 1, 100},
 		{"max_open_total", s.MaxOpenTotal, 1, 100},
+		{"max_live_age_hours", s.MaxLiveAgeHours, 1, 168},
 		{"webhook.timestamp_tolerance_seconds", s.Webhook.TimestampToleranceSeconds, 30, 900},
 	} {
 		if r.value < r.lo || r.value > r.hi {

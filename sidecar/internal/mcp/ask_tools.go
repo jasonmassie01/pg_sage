@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/ask"
@@ -54,10 +55,9 @@ func askTools() []Tool {
 func askCaller(ctx context.Context) ask.Caller {
 	p, bound := PrincipalFromContext(ctx)
 	if !bound {
-		return ask.Caller{Actor: unboundActor, Agent: true}
+		return ask.Caller{Actor: unboundActor}
 	}
-	return ask.Caller{Actor: ActorFromContext(ctx), MayPropose: p.Has(ScopePropose),
-		Agent: p.Kind == KindAgent}
+	return ask.Caller{Actor: ActorFromContext(ctx), MayPropose: p.Has(ScopePropose)}
 }
 
 func (s *Server) callAskTool(ctx context.Context, _ string, raw json.RawMessage) (any,
@@ -91,8 +91,11 @@ func askFailure(err error) *rpcError {
 		return failure(codeNotFound, "not found")
 	case errors.Is(err, ask.ErrDisabled):
 		return failure(codeUnavailable, "Ask Sage is disabled (ask.enabled: false)")
+	case errors.Is(err, ask.ErrUnavailable):
+		return failure(codeUnavailable, "Ask Sage is temporarily unavailable; retry later")
 	}
-	return failure(codeInternal, "Ask Sage is unavailable")
+	slog.Error("ask_sage failed", "error", err)
+	return failure(codeInternal, "internal error")
 }
 
 // AskSage serves ask_sage through ProductionDependencies.Ask.

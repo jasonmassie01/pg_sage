@@ -1,5 +1,7 @@
 package mcp
 
+import "errors"
+
 // JSON-RPC protocol error codes and the codes of tool execution errors.
 // Since MCP 2025-06-18 a failed tool call that the model can act on
 // (invalid arguments, a refused scope or database, a missing object) is a
@@ -53,3 +55,12 @@ func toolError(failed *rpcError) map[string]any {
 			"code": failed.Code, "reason": reason, "message": failed.Message}},
 	}
 }
+
+// Typed intent failures (mcp-08), mapped to distinguishable codes.
+var (
+	// ErrIntentInvalid is a request the caller must fix (-32602).
+	ErrIntentInvalid = errors.New("invalid intent")
+	// ErrIntentUnavailable is a target database or dependency that is
+	// unavailable now; the caller may retry later (-32010).
+	ErrIntentUnavailable = errors.New("dependency unavailable")
+)

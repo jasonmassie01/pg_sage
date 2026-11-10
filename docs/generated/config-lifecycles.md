@@ -322,6 +322,7 @@
 | `self_config.soak_hours` | `restart` | `-` | `safety_critical` |
 | `specialist.enabled` | `restart` | `-` | `safety_critical` |
 | `specialist.keep_identifiers` | `restart` | `-` | `safety_critical` |
+| `specialist.max_live_age_hours` | `restart` | `-` | `safety_critical` |
 | `specialist.max_open_per_identity` | `restart` | `-` | `safety_critical` |
 | `specialist.max_open_total` | `restart` | `-` | `safety_critical` |
 | `specialist.pagerduty.api_token` | `restart` | `-` | `safety_critical` |

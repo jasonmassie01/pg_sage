@@ -79,13 +79,33 @@ func TestLimits_Validate(t *testing.T) {
 	}
 	d := DefaultLimits()
 	if d.WritesPerMinute != 30 || d.ReadsPerMinute != 240 || d.MaxOpenPerIdentity != 3 ||
-		d.MaxOpenTotal != 10 {
+		d.MaxOpenTotal != 10 || d.MaxLiveAge != 24*time.Hour {
 		t.Fatalf("defaults %+v", d)
 	}
-	for _, bad := range []Limits{{0, 1, 1, 1}, {1, 0, 1, 1}, {1, 1, 0, 1}, {1, 1, 1, 0},
-		{-1, 1, 1, 1}, {1, 1, 5, 4}, {100001, 1, 1, 1}} {
+	const day = 24 * time.Hour
+	for _, bad := range []Limits{{0, 1, 1, 1, day}, {1, 0, 1, 1, day}, {1, 1, 0, 1, day},
+		{1, 1, 1, 0, day}, {-1, 1, 1, 1, day}, {1, 1, 5, 4, day}, {100001, 1, 1, 1, day}} {
 		if err := bad.Validate(); !errors.Is(err, ErrInvalid) {
 			t.Errorf("%+v: want ErrInvalid, got %v", bad, err)
+		}
+	}
+}
+
+func TestLimits_ValidateMaxLiveAge(t *testing.T) {
+	for _, age := range []time.Duration{0, -time.Hour, time.Hour - time.Second,
+		7*24*time.Hour + time.Second, 8 * 24 * time.Hour} {
+		l := DefaultLimits()
+		l.MaxLiveAge = age
+		err := l.Validate()
+		if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "live investigation") {
+			t.Errorf("max live age %s: want ErrInvalid, got %v", age, err)
+		}
+	}
+	for _, age := range []time.Duration{time.Hour, 24 * time.Hour, 7 * 24 * time.Hour} {
+		l := DefaultLimits()
+		l.MaxLiveAge = age
+		if err := l.Validate(); err != nil {
+			t.Errorf("max live age %s: %v", age, err)
 		}
 	}
 }

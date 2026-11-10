@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/sre"
 )
@@ -140,7 +141,7 @@ func TestOpen_OtherFamiliesScopeTheResultEvidence(t *testing.T) {
 
 func TestOpen_DistinctStatementsOpenDistinctInvestigations(t *testing.T) {
 	h := newHarness(t, Limits{WritesPerMinute: 100, ReadsPerMinute: 100,
-		MaxOpenPerIdentity: 20, MaxOpenTotal: 20})
+		MaxOpenPerIdentity: 20, MaxOpenTotal: 20, MaxLiveAge: 24 * time.Hour})
 	var wg sync.WaitGroup
 	ids := make([]string, 8)
 	errs := make([]error, 8)

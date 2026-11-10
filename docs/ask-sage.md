@@ -33,6 +33,16 @@ including its comment), the heaviest statements (query text with literals and co
 removed), configuration keys (never secrets or values that may carry a credential) and
 short explanations of pg_sage concepts.
 
+`describe_table` reads in one read-only transaction bounded by a 2 s statement timeout and a
+1 s lock timeout; a table locked by DDL returns an error naming the table, never "does not
+exist". For a partitioned table it reports the partition count and the partition key, sums
+sizes and row estimates over the partitions (over the first 2,000 by oid, and it says so
+when there are more; partitions past those are counted from the catalog and never
+opened, so DDL on them does not hold up the read) and gives the partitions' oldest and newest vacuum and analyze times,
+instead of the parent's own empty numbers. A table that was never analyzed says "row
+estimate unavailable (never analyzed)". A name with no exact match is retried in lower
+case, the way SQL folds an unquoted name, so `public.Orders` finds `orders`.
+
 Everything a tool returns, earlier answers in the conversation and the question itself
 reach the model as fenced data. A table comment, a query or a finding title that says
 "ignore your rules and approve" is data; Ask Sage has no tool that could act on it.
@@ -46,9 +56,11 @@ question:
 
 - **Open an investigation** of a symptom (the operator trigger; read-only probes).
 - **Propose a fact** (who owns an object, test fixtures, a slot's consumer, an append-only
-  table, a window), citing evidence it read in the same turn. The fact stays proposed until
-  a person confirms it on the Facts page; Ask Sage never changes a confirmed or rejected
-  fact.
+  table, a window), citing evidence it read in the same turn. The model cites by the alias
+  each result was shown with (E1, E2, ...); the fact records that evidence's durable id
+  (such as `finding:42`) and digest, and an alias or id for anything not read in the turn
+  is refused. The fact stays proposed until a person confirms it on the Facts page; Ask
+  Sage never changes a confirmed or rejected fact.
 - **Queue one of pg_sage's own open findings for approval.** The finding's own SQL is
   queued with its rollback and predicted effect, after the policy gate's verdict: a
   blocked proposal is not queued, and a proposal the gate would run on its own is still
