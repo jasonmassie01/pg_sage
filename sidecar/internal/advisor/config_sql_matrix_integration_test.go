@@ -23,7 +23,8 @@ import (
 // superuser; ALTER DATABASE takes only user-context settings, or
 // superuser-context ones the role may SET. A change the gate withholds is
 // also shown to be one PostgreSQL refuses, so over-refusal fails too.
-// Nothing here calls pg_reload_conf().
+// No case calls pg_reload_conf(): edge values never take effect. Only the
+// cleanup reloads, after it has reset every documented setting.
 
 // No concurrent access tests: the matrix holds the cluster-wide
 // alter_system lock, so it runs alone by design.
@@ -169,7 +170,7 @@ func (env *matrixEnv) tryExec(provider, sql string) string {
 
 // matrixExec runs one gated statement; a failure names the setting, the
 // provider, the statement and the SQLSTATE.
-func matrixExec(t *testing.T, conn *pgx.Conn, provider, guc, sql string) {
+func matrixExec(t testing.TB, conn *pgx.Conn, provider, guc, sql string) {
 	t.Helper()
 	if _, err := conn.Exec(context.Background(), sql); err != nil {
 		t.Fatalf("%s on %s: %q failed: %s", guc, provider, sql, describePGError(err))

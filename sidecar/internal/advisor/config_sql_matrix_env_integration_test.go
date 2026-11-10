@@ -72,12 +72,16 @@ func matrixConnect(t *testing.T, dsn, user, password string) *pgx.Conn {
 
 // matrixRole creates the tenant role; its cleanup runs after the scratch
 // database (created later) is dropped.
-func matrixRole(t *testing.T, admin *pgx.Conn) (role, password string) {
+func matrixRole(t testing.TB, admin *pgx.Conn) (role, password string) {
 	t.Helper()
 	role, password = "pgsage_matrix_"+randomHex(t, 4), randomHex(t, 16)
 	// DDL takes no bind parameters; both values are generated hex, quoted.
-	matrixExec(t, admin, "setup", "role", "CREATE ROLE "+sanitize.QuoteIdentifier(role)+
+	// The statement carries the password, so a failure names only the role.
+	_, err := admin.Exec(context.Background(), "CREATE ROLE "+sanitize.QuoteIdentifier(role)+
 		" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD "+sanitize.QuoteLiteral(password))
+	if err != nil {
+		t.Fatalf("config matrix: create role %s: %s", role, describePGError(err))
+	}
 	t.Cleanup(func() {
 		_, err := admin.Exec(context.Background(),
 			"DROP ROLE IF EXISTS "+sanitize.QuoteIdentifier(role))
@@ -88,7 +92,7 @@ func matrixRole(t *testing.T, admin *pgx.Conn) (role, password string) {
 	return role, password
 }
 
-func randomHex(t *testing.T, n int) string {
+func randomHex(t testing.TB, n int) string {
 	t.Helper()
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {
@@ -98,12 +102,16 @@ func randomHex(t *testing.T, n int) string {
 }
 
 // resetSystemSettings leaves postgresql.auto.conf without any documented
-// GUC, even when a case stopped between its SET and RESET.
+// GUC, even when a case stopped between its SET and RESET. It then reloads,
+// so a value another suite's reload put in effect meanwhile is undone too.
 func resetSystemSettings(t *testing.T, admin *pgx.Conn) {
 	for _, name := range documentedGUCs() {
 		if _, err := admin.Exec(context.Background(), "ALTER SYSTEM RESET "+name); err != nil {
 			t.Errorf("config matrix cleanup: reset %s: %s", name, describePGError(err))
 		}
+	}
+	if _, err := admin.Exec(context.Background(), "SELECT pg_reload_conf()"); err != nil {
+		t.Errorf("config matrix cleanup: reload after reset: %s", describePGError(err))
 	}
 }
 
