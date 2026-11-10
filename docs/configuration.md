@@ -1208,7 +1208,8 @@ Host CPU is used when a provider reader supplies it (Supabase with
 `safety.host_cpu_ceiling_pct`. While that key is unset it inherits
 `safety.cpu_ceiling_pct`, and the sidecar warns once at startup when that value is not the
 default 90, so no verify guardrail loosens on upgrade. `safety.cpu_ceiling_pct` itself is
-the collector's ceiling on active client sessions / `max_connections`, not host CPU. When CPU is unavailable, admission is granted only
+the collector's ceiling on active client sessions / `max_connections`, not host CPU.
+When CPU is unavailable, admission is granted only
 while the maintenance window is open (`trust.maintenance_window` and the
 standing policy's windows, evaluated as the policy gate does).
 

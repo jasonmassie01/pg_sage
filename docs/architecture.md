@@ -50,10 +50,10 @@ pg_sage sidecar (single Go binary)
 
 Gathers a snapshot every 60s (configurable) from the catalog and statistics views, under a
 circuit breaker that skips cycles while the database is in trouble (active client sessions
-over `max_connections` above `safety.cpu_ceiling_pct`). A cycle reads the catalog categories in order (`catalogSteps`:
-`queries`, `tables`, `indexes`, `foreign_keys`, `system`, `locks`, `sequences`), then
-`replication` and the extra categories (`extraSteps`: `io`, `prepared_xacts`, `partitions`,
-`config_data`).
+over `max_connections` above `safety.cpu_ceiling_pct`). A cycle reads the catalog categories
+in order (`catalogSteps`: `queries`, `tables`, `indexes`, `foreign_keys`, `system`, `locks`,
+`sequences`), then `replication` and the extra categories (`extraSteps`: `io`,
+`prepared_xacts`, `partitions`, `config_data`).
 
 **Health.** A skipped cycle is logged with its cause: `load ratio 0.93 > ceiling 0.90
 (active sessions / max_connections)`, or `load query failed: <error>` when the load query
