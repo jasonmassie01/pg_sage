@@ -35,6 +35,11 @@ type Investigation struct {
 	Summary          Summary   `json:"summary"`
 	ConcludedAt      time.Time `json:"concluded_at"`
 	EvidencePurgedAt time.Time `json:"evidence_purged_at"`
+	// sre-01: the run's number under its idempotency key, the expired run
+	// it supersedes and the newer attempt that superseded it.
+	Attempt      int  `json:"attempt"`
+	Supersedes   UUID `json:"supersedes,omitempty"`
+	SupersededBy UUID `json:"superseded_by,omitempty"`
 }
 
 // MarshalJSON adds the scope ids and renders unset times as null.

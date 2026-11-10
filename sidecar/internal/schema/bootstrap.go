@@ -462,7 +462,8 @@ func migrationStatements() []string {
 		ddlApprovalCardNextCheck, // policy-06: follow-up queue order
 		ddlActionQueueRevertsAction, // policy-05: withheld reverts reach a person
 		ddlDecisionCandidateKey(), // policy-02: a withheld verdict is one row per episode
-		ddlDecisionPolicyProvenance) // policy-03: the policy hash, not a cross-database FK
+		ddlDecisionPolicyProvenance, // policy-03: the policy hash, not a cross-database FK
+		ddlSREAttempts) // sre-01: numbered re-runs of a trigger
 }
 
 // ---------------------------------------------------------------------------

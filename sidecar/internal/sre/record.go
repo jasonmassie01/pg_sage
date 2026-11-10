@@ -126,6 +126,8 @@ const (
 	EventModelReviewed  = "model_reviewed"
 	EventModelRejected  = "model_rejected"
 	EventModelDisagreed = "model_disagreed"
+	// sre-01: the newest attempt of a trigger expired and was the last.
+	EventAttemptsExhausted = "attempts_exhausted"
 )
 
 // Event is one link of an investigation's hash chain.

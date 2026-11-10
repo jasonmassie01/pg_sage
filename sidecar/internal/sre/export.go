@@ -64,6 +64,7 @@ func (s *Service) ExportMarkdown(ctx context.Context, id UUID) (string, error) {
 	fmt.Fprintf(&b, "# Investigation %s\n\n", inv.ID)
 	fmt.Fprintf(&b, "- Schema: %s\n- Database: %s\n- Trigger: %s (%s)\n- State: %s\n",
 		doc.SchemaVersion, doc.Database, inv.TriggerKind, inv.Subject, inv.State)
+	writeAttempt(&b, inv)
 	fmt.Fprintf(&b, "- Case: %s\n- Event chain verified: %t\n- Model turns: %d\n\n",
 		inv.CaseID, doc.ChainVerified, inv.ModelTurns)
 	if inv.Summary.Reason != "" {
@@ -121,4 +122,20 @@ func writeHypotheses(b *strings.Builder, title string, hs []HypothesisRecord,
 		fmt.Fprintf(b, "- refutation probe: %s\n- operator step: %s\n\n",
 			h.RefutationProbe, h.OperatorStep)
 	}
+}
+
+// writeAttempt names the run's attempt (sre-01) and the runs it replaces
+// and was replaced by; a first attempt that was not replaced has no line.
+func writeAttempt(b *strings.Builder, inv Investigation) {
+	if inv.Attempt <= 1 && inv.SupersededBy == "" {
+		return
+	}
+	var links []string
+	if inv.Supersedes != "" {
+		links = append(links, "supersedes "+string(inv.Supersedes))
+	}
+	if inv.SupersededBy != "" {
+		links = append(links, "superseded by "+string(inv.SupersededBy))
+	}
+	fmt.Fprintf(b, "- Attempt: %d (%s)\n", max(inv.Attempt, 1), strings.Join(links, ", "))
 }

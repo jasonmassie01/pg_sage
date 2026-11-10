@@ -17,14 +17,26 @@ import (
 // idx_decision_policy) and adds policy_doc_sha256, the SHA-256 of the
 // policy document the gate evaluated.
 
-func TestDecisionProvenanceMigrationIsRegisteredLastAndBounded(t *testing.T) {
+func TestDecisionProvenanceMigrationIsRegisteredAfterLedgerAndBounded(t *testing.T) {
 	statements := migrationStatements()
-	last := statements[len(statements)-1]
-	if !strings.Contains(last, "policy_doc_sha256") || !strings.Contains(last, "policy_id") {
-		t.Fatalf("the last migration is not the decision provenance step:\n%s", last)
+	ledger, provenance := -1, -1
+	for i, statement := range statements {
+		if statement == ddlDecisionLedger() {
+			ledger = i
+		}
+		if strings.Contains(statement, "policy_doc_sha256") &&
+			strings.Contains(statement, "policy_id") {
+			provenance = i
+		}
 	}
-	if !strings.Contains(last, "lock_timeout") {
-		t.Fatalf("the provenance step has no lock_timeout:\n%s", last)
+	// The integration chain appends other items' steps after it, so the
+	// step is checked to follow the ledger it alters, not to be last.
+	if provenance < 0 || provenance < ledger {
+		t.Fatalf("decision provenance step at %d, decision ledger at %d: want it "+
+			"registered after the ledger", provenance, ledger)
+	}
+	if step := statements[provenance]; !strings.Contains(step, "lock_timeout") {
+		t.Fatalf("the provenance step has no lock_timeout:\n%s", step)
 	}
 	for _, statement := range statements {
 		if strings.Contains(statement, "idx_decision_policy") {

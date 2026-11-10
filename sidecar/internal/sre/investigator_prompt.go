@@ -126,14 +126,22 @@ func catalogMenu() string {
 }
 
 // groundClaim checks that every number of a claim appears in the
-// evidence it cites (the claim validator's rule).
+// evidence it cites (the claim validator's rule): in its typed Values
+// when the evidence carries them, in its formatted Text otherwise.
 func groundClaim(text string, cited []agentloop.Evidence) error {
-	cat := EvidenceCatalog{}
-	ids := make([]string, 0, len(cited))
+	ids := make([]string, len(cited))
+	known := groundSet{}
 	for i, e := range cited {
-		key := fmt.Sprintf("C%d", i+1)
-		cat[key] = e.Text
-		ids = append(ids, key)
+		ids[i] = fmt.Sprintf("C%d", i+1)
+		if len(e.Values) > 0 {
+			known.add(valueTokens(e.Values))
+		} else {
+			known.add(textTokens(e.Text))
+		}
 	}
-	return validateClaim(1, Claim{Text: text, EvidenceIDs: ids}, cat)
+	clean, err := claimShape(1, Claim{Text: text, EvidenceIDs: ids})
+	if err != nil {
+		return err
+	}
+	return groundNumbers(1, clean, known)
 }

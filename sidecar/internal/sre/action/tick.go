@@ -174,8 +174,9 @@ func (a *ActionService) sampleRecovery(ctx context.Context, p Proposal) error {
 	if p.Target == nil {
 		return nil
 	}
-	res := a.targets.Run(ctx, probes.RecoverySample, probes.Args{PID: p.Target.PID,
-		BackendStart: p.Target.BackendStart})
+	res := a.targets.Run(probes.WithCaller(ctx, probes.CallerActionTarget),
+		probes.RecoverySample, probes.Args{PID: p.Target.PID,
+			BackendStart: p.Target.BackendStart})
 	rows, err := probes.RecoveryRows(res)
 	if err != nil && res.Status.Usable() {
 		res.Status, res.Reason = probes.StatusError, "unreadable: "+err.Error()

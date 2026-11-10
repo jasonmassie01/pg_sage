@@ -10,6 +10,7 @@ import { SimilarIncidents } from './SimilarIncidents'
 import { InvestigationReview } from './InvestigationReview'
 import { EvidenceAge } from './EvidenceAge'
 import { isStaleExpiry, STALE_EVIDENCE_TEXT } from './staleEvidence'
+import { AttemptNotice } from './AttemptNotice'
 
 // Sage SRE investigation of a case (AI-SRE-SPEC §9): impact and state,
 // observed facts, the likely explanation, other and ruled-out
@@ -59,6 +60,11 @@ const boxStyle = { borderColor: 'var(--border)' }
 
 export function InvestigationPanel({ database, investigation, user }) {
   const [open, setOpen] = useState(false)
+  // The attempt opened from this one; a newer attempt of the case (a new
+  // investigation prop) replaces the choice.
+  const [chosen, setChosen] = useState(null)
+  const shownID = chosen?.from === investigation.id ? chosen.id : investigation.id
+  const openAttempt = id => setChosen({ from: investigation.id, id })
   const tone = stateTone(investigation.state)
   const summary = investigation.summary || {}
   return (
@@ -80,13 +86,14 @@ export function InvestigationPanel({ database, investigation, user }) {
         </button>
       </div>
       {open && (
-        <InvestigationDetail database={database} id={investigation.id} user={user} />
+        <InvestigationDetail database={database} id={shownID} user={user}
+          onOpenAttempt={openAttempt} />
       )}
     </section>
   )
 }
 
-function InvestigationDetail({ database, id, user }) {
+function InvestigationDetail({ database, id, user, onOpenAttempt }) {
   const { data, loading, error, refetch } = useAPI(basePath(database, id), 0)
   const [openEvidence, setOpenEvidence] = useState(null)
   if (loading) return <div style={muted}>Loading investigation...</div>
@@ -102,6 +109,7 @@ function InvestigationDetail({ database, id, user }) {
   return (
     <div className="mt-2 space-y-2" data-testid="investigation-detail">
       <Warnings data={data} />
+      <AttemptNotice investigation={data.investigation} onOpen={onOpenAttempt} />
       <EvidenceAge investigation={data.investigation} />
       <FactList title="Observed" facts={summary.observed || []} onCite={cite} />
       <HypothesisSection title="Likely explanation" testid="investigation-likely"

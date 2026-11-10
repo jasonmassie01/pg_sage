@@ -77,8 +77,8 @@ const (
 	MinWindow     = time.Minute
 	MaxWindow     = 7 * 24 * time.Hour
 	DefaultWindow = 24 * time.Hour
-	// queueWait bounds how long a probe waits for a concurrency slot.
-	queueWait = 5 * time.Second
+	// QueueWait bounds how long a probe waits for its concurrency slots.
+	QueueWait = 5 * time.Second
 	// acquireWait bounds how long a probe waits for a pool connection,
 	// apart from its statement budget.
 	acquireWait = 5 * time.Second

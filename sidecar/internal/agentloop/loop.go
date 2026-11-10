@@ -90,8 +90,7 @@ func (r *run) step(ctx, parent context.Context, step int) (bool, error) {
 	// is added for the first two only, so it never makes a call that fits
 	// the token budget unaffordable.
 	full, _ := r.request(false)
-	tight := r.res.Transcript.Tokens+2*EstimateTokens(r.msgs, full,
-		r.cfg.Budget.StepTokens) > r.cfg.Budget.MaxTokens
+	tight := r.res.Transcript.Tokens+2*r.estimate(full) > r.cfg.Budget.MaxTokens
 	last := step == r.cfg.Budget.MaxSteps ||
 		r.res.Transcript.ToolCalls >= r.cfg.Budget.MaxCalls
 	finalOnly := last || tight
@@ -101,7 +100,7 @@ func (r *run) step(ctx, parent context.Context, step int) (bool, error) {
 		r.noticed = true
 	}
 	tools, opts := r.request(finalOnly)
-	est := EstimateTokens(r.msgs, tools, r.cfg.Budget.StepTokens)
+	est := r.estimate(tools)
 	if r.res.Transcript.Tokens+est > r.cfg.Budget.MaxTokens {
 		r.stop(StopTokens, fmt.Sprintf("%d tokens used; the next call needs about %d of "+
 			"the %d budget", r.res.Transcript.Tokens, est, r.cfg.Budget.MaxTokens))
@@ -121,6 +120,13 @@ func (r *run) step(ctx, parent context.Context, step int) (bool, error) {
 		r.nativeOK = true
 	}
 	return r.handle(ctx, res, finalOnly)
+}
+
+// estimate is what the next call may cost with these tools: the request,
+// its completion cap and a thinking model's reasoning allowance.
+func (r *run) estimate(tools []llm.ToolSpec) int {
+	return EstimateTokens(r.msgs, tools, r.cfg.Budget.StepTokens) +
+		r.cfg.Budget.ReasoningPerCall
 }
 
 // request is the call's tools and options under the remaining budget.

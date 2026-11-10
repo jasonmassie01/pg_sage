@@ -58,6 +58,12 @@ func (r StartRequest) Fingerprint() []byte {
 	return sum[:]
 }
 
+// automatic reports a request of the system: the trigger loop (empty, or
+// the coordinator's triggerActor), not an operator or an agent.
+func (r StartRequest) automatic() bool {
+	return r.Actor == "" || r.Actor == triggerActor
+}
+
 // actor is who started the investigation; "system" when unset.
 func (r StartRequest) actor() string {
 	if r.Actor == "" {

@@ -100,6 +100,10 @@ type ReplayCaseExport struct {
 	GraphRootPreserved bool          `json:"graph_root_preserved"`
 	Notes              []string      `json:"notes"`
 	Promote            string        `json:"promote"`
+	// Attempt is the contested run's number under its trigger (sre-01).
+	// It stays out of the versioned case document, which describes the
+	// incident, not the run.
+	Attempt int `json:"attempt"`
 	// ModelContest is the model's own disagreement with the graph, when
 	// the investigator (roadmap 2.1) or the review turn recorded one.
 	ModelContest *ReplayModelContest `json:"model_contest,omitempty"`
@@ -214,7 +218,7 @@ func BuildReplayCase(inv Investigation, ev []Evidence, out *Outcome,
 	exp := ReplayCaseExport{Case: doc, IdentifiersKept: opts.KeepIdentifiers,
 		Contest: ContestInfo{Verdict: string(out.Verdict), ActualNode: out.ActualNode,
 			GraphRoot: graphRoot, RecordedAt: out.RecordedAt},
-		Promote: replayPromoteNotes, Notes: []string{}}
+		Promote: replayPromoteNotes, Notes: []string{}, Attempt: max(inv.Attempt, 1)}
 	exp.GraphRootPreserved, exp.Notes = preserved(inv, doc, graphRoot)
 	if exp.ModelContest = modelContestOf(inv.Summary); exp.ModelContest != nil {
 		exp.Case.Tags = append(exp.Case.Tags, ModelContestTag)

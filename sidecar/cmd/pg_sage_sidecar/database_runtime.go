@@ -236,6 +236,7 @@ func newDatabaseRuntime(
 	rt.provider = rt.detectProvider(parent)
 	rt.cfg = rt.runtimeConfig()
 	rt.probes = probes.NewRunner(spec.Pool, probes.Catalog(), sreProbeLimiter, rt.sreReadPolicy())
+	rt.probes.SetDatabaseName(spec.Name)
 	rt.deriveSettingsAtStartup()
 	rt.initCloudTelemetry()
 	rt.resolveLLM()

@@ -138,17 +138,21 @@ const invColumns = `deployment_id::text, database_id::text, id::text, source_cas
 	lease_until, segment_deadline, active_ms, probe_count, model_turns,
 	created_at, updated_at, expires_at, COALESCE(failure_code, ''),
 	COALESCE(source_incident_id, ''), subject, pinned, summary::text, concluded_at,
-	evidence_purged_at`
+	evidence_purged_at, attempt, COALESCE(supersedes::text, ''),
+	COALESCE((SELECT n.id::text FROM sage.sre_investigations n
+	          WHERE n.deployment_id = sre_investigations.deployment_id
+	            AND n.database_id = sre_investigations.database_id
+	            AND n.supersedes = sre_investigations.id), '')`
 
 func scanInvestigation(row pgx.Row) (Investigation, error) {
 	var inv Investigation
-	var dep, db, id, owner, kind, state, summary string
+	var dep, db, id, owner, kind, state, summary, supersedes, supersededBy string
 	var until, deadline, concluded, purged *time.Time
 	err := row.Scan(&dep, &db, &id, &inv.CaseID, &kind, &state, &inv.Version,
 		&inv.Fence, &owner, &until, &deadline, &inv.ActiveMS, &inv.ProbeCount,
 		&inv.ModelTurns, &inv.CreatedAt, &inv.UpdatedAt, &inv.ExpiresAt,
 		&inv.FailureCode, &inv.IncidentID, &inv.Subject, &inv.Pinned, &summary,
-		&concluded, &purged)
+		&concluded, &purged, &inv.Attempt, &supersedes, &supersededBy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return inv, ErrNotFound
 	}
@@ -160,6 +164,7 @@ func scanInvestigation(row pgx.Row) (Investigation, error) {
 	}
 	inv.Scope = Scope{DeploymentID: UUID(dep), DatabaseID: UUID(db)}
 	inv.ID, inv.LeaseOwner = UUID(id), UUID(owner)
+	inv.Supersedes, inv.SupersededBy = UUID(supersedes), UUID(supersededBy)
 	inv.TriggerKind, inv.State = TriggerKind(kind), State(state)
 	inv.LeaseUntil, inv.SegmentDeadline = timeOrZero(until), timeOrZero(deadline)
 	inv.ConcludedAt, inv.EvidencePurgedAt = timeOrZero(concluded), timeOrZero(purged)

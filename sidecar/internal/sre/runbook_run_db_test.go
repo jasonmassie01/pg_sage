@@ -281,7 +281,7 @@ func TestRunbookRun_ResumesFromNeedsEvidence(t *testing.T) {
 	}
 	plan, _ := planFor(TriggerLock, c.cfg.ActionWindow)
 	if _, err := st.CommitStep(ctx, lease, StepResult{IdempotencyKey: stepKey(0),
-		Results: c.runStep(ctx, plan[0]), NextState: StateEvaluating}); err != nil {
+		Results: c.runStep(ctx, lease, plan[0]), NextState: StateEvaluating}); err != nil {
 		t.Fatalf("commit the plan step: %v", err)
 	}
 	// The worker stops while waiting for more evidence.

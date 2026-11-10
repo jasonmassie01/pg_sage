@@ -75,7 +75,7 @@ func (s *PostgresStore) checkClaimable(ctx context.Context, tx pgx.Tx, scope Sco
 	case r.state == StatePaused:
 		return ErrInvalidTransition
 	case r.expiredNow:
-		if _, err := s.setState(ctx, tx, scope, id, StateExpired, "queue_expired",
+		if _, err := s.setState(ctx, tx, scope, id, StateExpired, ReasonQueueExpired,
 			"system"); err != nil {
 			return err
 		}

@@ -46,8 +46,11 @@ func newSREActions(d sreActionDeps) (*sreaction.ActionService, error) {
 	if d.cards != nil {
 		notifier = dispatcherNotifier{d: d.cards}
 	}
+	targets := probes.NewRunner(d.monitored, probes.ActionRegistry(), sreProbeLimiter,
+		d.readPolicy)
+	targets.SetDatabaseName(d.name)
 	a, err := sreaction.NewActionService(sreaction.ActionDeps{Service: d.service,
-		Targets:  probes.NewRunner(d.monitored, probes.ActionRegistry(), sreProbeLimiter, d.readPolicy),
+		Targets:  targets,
 		Queue:    sreaction.NewPGApprovalQueue(d.monitored, d.databaseID),
 		Executor: d.executor, Notifier: notifier, Config: sreActionConfig(d.settings),
 		LogFn: d.logFn})

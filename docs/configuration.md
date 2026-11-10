@@ -885,7 +885,7 @@ through the policy gate, trust level and execution mode, like any other recommen
 | `tuner.hint_absent_cycles` | `3` | Analyzer cycles an open `query_tuning` finding's statement must be absent from `pg_stat_statements`, or below the tuner's admission thresholds, before the finding resolves; the wait is N x the analyzer interval. 0 or less means 3 (see [hint verification](hint-verification.md#when-a-query_tuning-finding-resolves)) |
 | `tuner.llm_enabled` | `true` | Let the tuning agent propose per-query pg_hint_plan hints; the tuner validates, clamps and records them (YAML only). The tuner's deterministic hint rules run either way. Hints are offered as executable SQL only when they would reach application sessions: pg_hint_plan preloaded, `pg_hint_plan.enable_hint_table` on for the database or role (`ALTER DATABASE mydb SET pg_hint_plan.enable_hint_table = on`), the 1.7 hint table, and `INSERT`/`DELETE` on it. Otherwise findings stay advisory with a `hint_readiness` detail; the tuner re-reads these facts every cycle (see [hint verification, section 10](hint-verification.md#10-hint_planhints-table-integration)) |
 | `explain.enabled` | `true` | `POST /api/v1/explain`; adds an LLM narrative when an LLM is configured |
-| `rca.narration_enabled` | `true` | Let the LLM rewrite the summary on `incident_detected` and `incident_escalated` notifications. The model can only read the incident's own evidence: its causal chain (`E#`), the results of the fixed read-only catalog probes run for it (`P#`, also readable with `get_probe_result`) and the deterministic causal-graph hypotheses (`H#`). It writes no SQL and has no database access. It answers with claims; each must cite evidence ids, and every number in a claim must appear in the evidence that claim cites. Budget per narration: 2 model turns, 1,024 output tokens per turn, about 16k input tokens, 20 s per turn; at most 3 narrations per persistence cycle within 45 s. Any failure (LLM off, budget, rate limit, timeout, malformed or uncited output) uses the deterministic summary, which is always labeled. `llm.enabled=false` is the hot kill switch and cancels narrations in flight |
+| `rca.narration_enabled` | `true` | Let the LLM rewrite the summary on `incident_detected` and `incident_escalated` notifications. The model can only read the incident's own evidence: its causal chain (`E#`), the results of the fixed read-only catalog probes run for it (`P#`, also readable with `get_probe_result`) and the deterministic causal-graph hypotheses (`H#`). It writes no SQL and has no database access. It answers with claims; each must cite evidence ids, and every number in a claim must equal a value in the evidence that claim cites (integers exactly and with their sign, decimals at the stated precision, timestamps as whole RFC 3339 instants; a probe result's head line, row count and `[i]` row ordinals ground nothing). Budget per narration: 2 model turns, 1,024 output tokens per turn, about 16k input tokens, 20 s per turn; at most 3 narrations per persistence cycle within 45 s. Any failure (LLM off, budget, rate limit, timeout, malformed or uncited output) uses the deterministic summary, which is always labeled. `llm.enabled=false` is the hot kill switch and cancels narrations in flight |
 
 Retired keys: `llm.optimizer.plan_source`, `llm.optimizer.over_indexed_ratio_pct` and `llm.index_optimizer.over_indexed_ratio_pct` had no effect and are no longer read. A config that still sets one loads and prints one startup warning per key; remove them. The optimizer captures no plans (plan_source chose how it once did): the HypoPG what-if plans at most 25 SELECT statements per candidate (writes take no slot; the hottest by total time, always including the proposal's or the case's target statements) under `safety.lock_timeout_ms` capped at 1 s (below its 5 s statement timeout), and a lock timeout leaves the candidate unverified.
 
@@ -1495,7 +1495,10 @@ has scored the hypotheses. Every tool only reads:
 - three pg_stat views (`database`, `tables`, `statements`), registered as catalog probes;
 - a plan-only `EXPLAIN` of a statement by its `pg_stat_statements` queryid (the broad plan, and the narrow plan of a plan-regression investigation).
   It is never `ANALYZE` and never runs the statement. It plans the generic plan in a
-  read-only transaction and returns node shapes only, never query text;
+  read-only transaction and returns node shapes only, never query text. The text comes
+  from the collector's latest snapshot, never the query-text file (a statement outside its
+  top queries is `unsupported` / `text_not_cached`), and the `EXPLAIN` holds the database's
+  probe slot like any probe;
 - the graph's current state and operator-confirmed facts.
 
 No tool can change anything. Remediation stays a typed proposal through the policy gate.
@@ -1520,8 +1523,13 @@ The model finishes with `submit_conclusion`, whose outcome is one of:
 - `unmodeled`: it names a cause the graph has no node for;
 - `inconclusive`.
 
-Each claim must cite evidence ids, and every number in a claim must appear in the cited
-evidence. Uncited or ungrounded claims are dropped and counted. A conclusion, contest or
+Each claim must cite evidence ids, and every number in a claim must equal a typed value of
+the cited evidence: an integer exactly and with its sign (a 64-bit queryid off by one, or
+with its sign flipped, is ungrounded), a decimal at the precision the evidence states, and a
+timestamp as the whole RFC 3339 instant, never its year, hour or second. For the model's own
+reads these are the row values it was shown; a probe's version, its row count and its `[i]`
+row ordinals ground nothing. A minus sign counts only at the start of a value or after a
+space, `(`, `=`, `:`, `[` or `,`, so `10-20` is a range. Uncited or ungrounded claims are dropped and counted. A conclusion, contest or
 unmodeled cause with no surviving claim counts as inconclusive. The model's root stays
 advisory unless its family has earned model-root authority from held-out bench results, and
 the model's self-reported confidence is ignored. An unmodeled cause is always advisory. The
@@ -1546,7 +1554,7 @@ scored the hypotheses, the configured LLM (`llm.*`) reviews the result. It may o
   narrative").
 
 Every reply is checked: known node ids only, catalog probes with valid arguments, evidence ids
-of this investigation, every number found in the cited evidence, and a 16 KiB size limit. A
+of this investigation, every number equal to a value of the cited evidence, and a 16 KiB size limit. A
 reply that fails gets one repair attempt. If the repair fails too, or the model times out, is
 rate limited or is over budget, the investigation ends with the deterministic result and a
 `model_rejected` event that gives the reason. Before concluding, a verifier rechecks the ranking
@@ -1579,6 +1587,14 @@ reasoning than allowed, the usage is recorded as reported and no further turn is
 | `sre.detectors.lwlock_waiters` | `8` | Backends waiting on one modeled LWLock class that count as contention, `1`-`10000` |
 | `sre.detectors.lwlock_polls` | `3` | Consecutive trigger polls the waiters must hold before an episode opens, `1`-`100` |
 | `sre.detectors.cooldown_minutes` | `30` | Minutes after an episode starts before a new episode of the same family can open, `1`-`1440` |
+
+Stop (in the Cases panel, or `POST .../{id}/stop`) pauses an investigation: it keeps its
+evidence, steps and used budget, never expires while paused, and continues from where it
+stopped on Resume. A queued investigation that is not claimed within 10 minutes (a backlog or
+a sidecar outage) ends `expired` with `queue_expired`. While its incident or finding is still
+open, the next trigger poll starts a new attempt, up to 5 per trigger; the same holds for a
+resumed run that ends `expired` on `stale_evidence`. Investigations started by an operator are
+not re-run automatically.
 
 Pinned investigations (Pin in the Cases panel, or `POST .../pin`) and running ones are never
 deleted. Where the data lives: the `sage.sre_*` tables are in the meta database when one is
@@ -1627,9 +1643,9 @@ proposal never executes by itself:
    on the timeline and closes the action's verification. Value is credited only on recovery.
 
 The policy gate decides as for any action. `trust.level` must be `advisory` or `autonomous`
-(under `observation` the proposal shows why it is withheld), and the emergency stop and the
-execution mode apply. An approved cancel is incident mitigation, so maintenance windows do
-not delay it. Replication connections, pg_sage's own sessions and `pg_dump`,
+(under `observation` the proposal shows why it is withheld), and the executor switch and the
+emergency stop apply. The execution mode does not hold back an approved item. An approved
+cancel is incident mitigation, so maintenance windows do not delay it. Replication connections, pg_sage's own sessions and `pg_dump`,
 `pg_basebackup` and `pg_restore` sessions are never targeted. Superuser sessions are not
 protected by default, so list roles or applications that must never be cancelled.
 

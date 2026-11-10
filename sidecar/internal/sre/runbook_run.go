@@ -176,7 +176,7 @@ func (w *runbookWalk) step(ctx context.Context, n runbook.Node,
 
 // probe runs one probe step under the probe ceiling and the active time.
 // A step committed by an earlier (crashed) run of this investigation is
-// not run again.
+// not run again; a probe refused its slot runs once more (runQueued).
 func (w *runbookWalk) probe(ctx context.Context, n runbook.Node,
 	out *RunbookRun) (bool, error) {
 	key := fmt.Sprintf("runbook-%s-v%d-%s", w.rb.ID, w.rb.Latest.Version, n.ID)
@@ -206,7 +206,7 @@ func (w *runbookWalk) probe(ctx context.Context, n runbook.Node,
 	if w.lease, err = w.c.store.Heartbeat(ctx, w.lease); err != nil {
 		return true, err
 	}
-	res := w.c.runner.Run(ctx, probes.ID(n.Probe), stepArgs(n))
+	res := w.c.runQueued(ctx, w.lease, probes.ID(n.Probe), stepArgs(n))
 	_, err = w.c.store.CommitStep(ctx, w.lease, StepResult{IdempotencyKey: key,
 		Results: []probes.Result{res}, NextState: StateCollecting})
 	if errors.Is(err, ErrBudgetExhausted) {

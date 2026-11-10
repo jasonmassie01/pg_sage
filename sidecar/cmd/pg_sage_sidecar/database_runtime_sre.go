@@ -51,6 +51,9 @@ type sreInvestigatorDeps struct {
 	// onDetector receives the reactive detector built for the trigger
 	// source (self-configuration samples its temp-file peaks); optional.
 	onDetector func(*sre.ReactiveDetector)
+	// texts serves the plan-only EXPLAIN the collector's in-memory
+	// statement texts; nil leaves every statement text_not_cached.
+	texts sre.StatementTexts
 }
 
 // newSREInvestigator builds one database's investigator (coordinator,
@@ -78,7 +81,10 @@ func newSREInvestigator(d sreInvestigatorDeps) (*sre.Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	icfg := sreInvestigatorConfig(d.settings, d.monitored)
+	// Only the catalog runner owns the database's probe slots; the EXPLAIN
+	// holds them too.
+	catalog, _ := d.runner.(*probes.Runner)
+	icfg := sreInvestigatorConfig(d.settings, catalog, d.texts)
 	if icfg != nil {
 		icfg.History = d.history
 	}
@@ -96,6 +102,15 @@ func newSREInvestigator(d sreInvestigatorDeps) (*sre.Service, error) {
 			"(retried by the investigator loop): %v", d.name, err)
 	}
 	return sre.NewService(d.name, coord, store), nil
+}
+
+// statementTexts is the collector's in-memory statement texts for the
+// plan-only EXPLAIN (nil without a collector).
+func (rt *databaseRuntime) statementTexts() sre.StatementTexts {
+	if rt.collector == nil {
+		return nil
+	}
+	return rt.collector.StatementText
 }
 
 // startInvestigator runs the database's Sage SRE investigator on the
@@ -120,7 +135,7 @@ func (rt *databaseRuntime) startInvestigator() {
 		logFn: logStructuredWrapper, llm: rt.generalLLM,
 		dailyTokens: rt.cfg.LLM.TokenBudgetDaily, signals: signalProbes,
 		advisor: rt.runwayAdvisor, episodes: rt.detectorIncidents(),
-		history:    rt.sreHistorySource(),
+		history: rt.sreHistorySource(), texts: rt.statementTexts(),
 		onDetector: func(d *sre.ReactiveDetector) { rt.tempDetector = d },
 		rootAuthority: registryRootAuthority{registry: processAutonomy().registry,
 			database: rt.spec.Name}})

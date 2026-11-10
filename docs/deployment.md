@@ -350,6 +350,34 @@ scrape_configs:
 | `pg_sage_cache_hit_ratio` | < 0.95 | Cache hit ratio below 95% |
 | `pg_sage_llm_circuit_open` | == 1 | LLM circuit breaker tripped |
 | `pg_sage_executor_actions_total{outcome="failed"}` | rate > 0 | Failed autonomous actions |
+| `pg_sage_sre_probe_refusals_total{caller="investigation"}` | rate > 0 | Investigations losing probe slots |
+
+### Sage SRE probe slots
+
+Sage SRE probes share two limits: one probe at a time on each monitored
+database, and four probes at a time across the sidecar. A probe that
+finds no free slot within 5 seconds is refused before it runs and is
+recorded as `concurrency_limit` evidence. These metrics show who waits:
+
+| Metric | Type | Labels |
+|---|---|---|
+| `pg_sage_sre_probe_queue_wait_seconds_sum` / `_count` | summary | `database`, `caller`, `limiter` |
+| `pg_sage_sre_probe_refusals_total` | counter | `database`, `caller`, `limiter` |
+
+- `caller` is the work the probe runs for: `investigation`, `detector`
+  (the reactive detector), `runway` (the runway monitor), `log_rca`,
+  `narration` (incident narration evidence), `action_target` (the target
+  checks of an SRE action), or `other`.
+- `limiter` is `database` (the per-database slot) or `sidecar` (the
+  shared four).
+- Every wait is counted, granted or refused, so `_sum / _count` is the
+  mean wait per probe.
+- An investigation step or investigator read that is refused runs once
+  more, but only when its lease leaves at least 10 seconds (the queue
+  wait plus the step margin). The second result is kept whatever it is.
+  A sustained `caller="investigation"` refusal rate means background
+  sampling is crowding out investigations. In fleet mode, compare
+  `limiter="sidecar"` refusals across databases.
 
 ### Grafana Dashboard
 

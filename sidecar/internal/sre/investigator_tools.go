@@ -245,9 +245,11 @@ func (s *investigatorSession) diagnosis(ctx context.Context) (causal.Diagnosis,
 }
 
 // collect runs one read under the lease, commits its result as evidence
-// and returns it as the model sees it. Running out of active time or of
-// the investigation's probe ceiling is a tool failure the model is told
-// about; a lost lease or an unavailable store aborts the run.
+// and returns it as the model sees it. A read refused its probe slot is
+// read once more when the lease allows (retryQueued). Running out of
+// active time or of the investigation's probe ceiling is a tool failure
+// the model is told about; a lost lease or an unavailable store aborts
+// the run.
 func (s *investigatorSession) collect(ctx context.Context,
 	read func(context.Context) probes.Result) (agentloop.Output, error) {
 	if time.Until(s.lease.SegmentDeadline) < 2*stepMargin {
@@ -258,7 +260,8 @@ func (s *investigatorSession) collect(ctx context.Context,
 		return agentloop.Output{}, agentloop.Abort(err)
 	}
 	s.lease = lease
-	res := read(ctx)
+	res := retryQueued(s.lease.SegmentDeadline, read(ctx),
+		func() probes.Result { return read(ctx) })
 	ev, err := s.commit(ctx, res)
 	if errors.Is(err, ErrBudgetExhausted) {
 		return agentloop.Output{}, fmt.Errorf("the investigation's probe ceiling is "+
@@ -267,10 +270,11 @@ func (s *investigatorSession) collect(ctx context.Context,
 	if err != nil {
 		return agentloop.Output{}, agentloop.Abort(err)
 	}
-	text := resultForModel(res)
+	text, values := resultForModel(res)
 	return agentloop.Output{Status: string(res.Status), Text: text,
 		Evidence: &agentloop.Evidence{ID: string(ev.ID), Digest: hex.EncodeToString(ev.SHA256),
-			Label: string(res.ProbeID) + " " + string(res.Status), Text: text}}, nil
+			Label: string(res.ProbeID) + " " + string(res.Status), Text: text,
+			Values: values}}, nil
 }
 
 // commit stores one result as a step (evaluating -> needs_evidence ->
@@ -303,7 +307,9 @@ func (s *investigatorSession) commit(ctx context.Context, res probes.Result) (Ev
 
 // resultForModel is a result as the model sees it: every text value
 // scrubbed of secrets and PII-like literals, at most maxResultRows rows.
-func resultForModel(res probes.Result) string {
+// It returns the text and the typed values of the same rows, which
+// ground the claims that cite the read (sre-03).
+func resultForModel(res probes.Result) (string, []string) {
 	clean := res
 	clean.Reason, clean.Error = scrub(res.Reason), scrub(res.Error)
 	clean.Rows = make([]probes.Row, 0, len(res.Rows))
@@ -321,5 +327,5 @@ func resultForModel(res probes.Result) string {
 	if res.Error != "" {
 		text += "\nerror: " + clean.Error
 	}
-	return truncateRunes(text, maxResultRunes)
+	return truncateRunes(text, maxResultRunes), clean.GroundingValues(maxResultRows)
 }
