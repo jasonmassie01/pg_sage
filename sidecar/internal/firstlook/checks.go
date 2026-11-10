@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/pg-sage/sidecar/internal/facts"
+	"github.com/pg-sage/sidecar/internal/rolegrants"
 	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
@@ -85,13 +86,18 @@ func (p *pass) sequences(ctx context.Context, tx pgx.Tx) ([]outcome, error) {
 	items, unreadable := SequenceRunway(seqs, p.opts.Thresholds)
 	o := p.add(RuleSequenceRunway, items)
 	if unreadable > 0 {
-		o.note = degradedPrefix + unreadableNote(seqs, unreadable)
+		var role string
+		if err := tx.QueryRow(ctx, tag+"SELECT current_user::text").Scan(&role); err != nil {
+			return nil, fmt.Errorf("read the connected role: %w", err)
+		}
+		o.note = degradedPrefix + unreadableNote(seqs, unreadable, role)
 	}
 	return []outcome{o}, nil
 }
 
-// unreadableNote names the grant that lets the role read the sequences.
-func unreadableNote(seqs []Sequence, n int) string {
+// unreadableNote names the grant that lets role read the sequences: the
+// SQL the Grant more guide and the startup check print (rolegrants).
+func unreadableNote(seqs []Sequence, n int, role string) string {
 	schemas := map[string]bool{}
 	for _, s := range seqs {
 		if s.LastValue == nil {
@@ -103,17 +109,11 @@ func unreadableNote(seqs []Sequence, n int) string {
 		names = append(names, s)
 	}
 	sort.Strings(names)
-	grants := make([]string, 0, len(names))
 	for i, s := range names {
-		if i == 3 {
-			grants = append(grants, "...")
-			break
-		}
-		grants = append(grants, fmt.Sprintf("GRANT SELECT ON ALL SEQUENCES IN SCHEMA %s "+
-			"TO <pg_sage role>;", sqlident.Ident(s)))
+		names[i] = sqlident.Ident(s)
 	}
 	return fmt.Sprintf("%d sequences are not readable by the pg_sage role, so their "+
-		"runway is unknown: %s", n, strings.Join(grants, " "))
+		"runway is unknown: %s;", n, rolegrants.SequenceSelectSQL(names, sqlident.Role(role)))
 }
 
 func (p *pass) bloat(ctx context.Context, tx pgx.Tx) ([]outcome, error) {

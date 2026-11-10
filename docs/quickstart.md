@@ -23,7 +23,8 @@ CREATE ROLE sage_agent LOGIN PASSWORD 'YOUR_PASSWORD';
 GRANT pg_monitor TO sage_agent;
 -- pg_sage keeps its own state in the sage schema and writes nowhere else.
 CREATE SCHEMA IF NOT EXISTS sage AUTHORIZATION sage_agent;
--- Sequence runway: lets pg_sage read each sequence's current value.
+-- Sequence runway: lets pg_sage read each sequence's current value. List every
+-- schema holding sequences; "Grant more" names any it still cannot read.
 GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO sage_agent;
 -- Query statistics. Optional: without it the first look tells you how to enable it.
 CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
@@ -156,7 +157,34 @@ schema. Nothing else in your database changes.
 When you are ready, click **"Grant more"** on the landing page. For each trust level it
 shows what pg_sage may do, what it never does without a person's approval, how much of the
 trust ramp is left, and which grants the level needs, checked live against your role. It
-also gives the SQL for any grant that is missing. Choosing a level sets `trust.level`
+also gives the SQL for any grant that is missing. The startup check in the log uses the
+same checks and prints the same SQL.
+
+- Observation lists `pg_monitor`, the `sage` schema and SELECT on sequences. The
+  sequence grant names exactly the schemas whose sequences pg_sage cannot read
+  (`GRANT SELECT ON ALL SEQUENCES IN SCHEMA app, billing TO sage_agent;`), an
+  extension's schema such as `hint_plan` included, since the first look reads those
+  sequences too. The first look's degraded sequence check prints the same statement for
+  the role it ran as, and the startup log notes it at every trust level.
+- The advisory and autonomous levels lead with the least privilege. On PostgreSQL 17+
+  that is `pg_maintain`, which covers VACUUM, ANALYZE, REINDEX and CLUSTER on every
+  table without owning it.
+- Table ownership comes next, for what only an owner may do (CREATE and DROP INDEX,
+  ALTER TABLE storage settings). The guide lists each role that owns tables pg_sage
+  cannot act on, with its table count, up to 20 roles, and gives `GRANT <role> TO
+  sage_agent;` for each. Tables that belong to an extension are not counted.
+  Membership lets pg_sage do anything that owner can, DROP and TRUNCATE included; only
+  its typed actions and the policy gate stop that. A superuser owner is never granted,
+  since that would make pg_sage a superuser: the guide advises reassigning those tables
+  (`ALTER TABLE ... OWNER TO`, or `REASSIGN OWNED BY`) to an ordinary owner role and
+  granting that. Do the same where your provider refuses membership in an owner role
+  its admin role holds (RDS, Cloud SQL).
+- CREATE on the schemas holding your tables, then `pg_signal_backend`. A role that is a
+  member of `pg_signal_backend` but does not inherit its privileges cannot cancel
+  queries; the guide gives `GRANT pg_signal_backend TO sage_agent WITH INHERIT TRUE;`
+  (PostgreSQL 16+) or `ALTER ROLE sage_agent INHERIT;` for it.
+
+In a fleet, each database is checked on its own. Choosing a level sets `trust.level`
 through the same settings API the Settings page uses (`/api/v1/config/global`). In a YAML
 fleet it gives the line to put in your file instead. Even at a higher level, every action
 still passes the policy gate, waits for its ramp, `trust.tier3_safe` and

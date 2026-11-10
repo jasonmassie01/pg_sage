@@ -78,28 +78,13 @@ func CheckSchemaCreate(ctx context.Context, pool *pgxpool.Pool) (SchemaCreate, e
 // Lacking reports whether CREATE is missing on any schema holding tables.
 func (s SchemaCreate) Lacking() bool { return len(s.Missing) > 0 }
 
-// target is the schemas a grant names: the missing ones, else every schema
-// holding tables, else public, where new tables go by default.
-func (s SchemaCreate) target() []string {
-	switch {
-	case len(s.Missing) > 0:
-		return s.Missing
-	case len(s.Schemas) > 0:
-		return s.Schemas
-	}
-	return []string{"public"}
-}
-
 // What names the privilege, e.g. "CREATE on schemas app, public".
 func (s SchemaCreate) What() string {
-	t := s.target()
-	if len(t) == 1 {
-		return "CREATE on schema " + t[0]
-	}
-	return "CREATE on schemas " + strings.Join(t, ", ")
+	return "CREATE on " + schemaList(schemaTarget(s.Missing, s.Schemas))
 }
 
 // GrantSQL is the statement that grants it to role (already quoted).
 func (s SchemaCreate) GrantSQL(role string) string {
-	return "GRANT CREATE ON SCHEMA " + strings.Join(s.target(), ", ") + " TO " + role
+	return "GRANT CREATE ON SCHEMA " + strings.Join(schemaTarget(s.Missing, s.Schemas), ", ") +
+		" TO " + role
 }
