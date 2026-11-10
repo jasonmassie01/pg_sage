@@ -462,6 +462,7 @@ derivable ask.daily_tokens_per_database
 operator_preference ask.daily_tokens_per_user
 safety_critical ask.enabled
 derivable ask.max_tokens_per_question
+operator_preference ask.max_seconds_per_question
 operator_preference ask.retention_days
 
 # Managed-cloud telemetry (v2.2.0): the provider identity is an endpoint; the

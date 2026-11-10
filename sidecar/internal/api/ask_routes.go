@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/ask"
 )
@@ -74,6 +75,7 @@ func (h askHandlers) ask(w http.ResponseWriter, r *http.Request) {
 			"\"read_only\"?: boolean}", "invalid_request", http.StatusBadRequest)
 		return
 	}
+	extendConnDeadlines(w, r)
 	answer, err := svc.Ask(r.Context(), askCaller(r), req)
 	if err != nil {
 		askError(w, err)
@@ -137,5 +139,29 @@ func askError(w http.ResponseWriter, err error) {
 		slog.Error("ask sage request failed", "error", err)
 		sreErrorCode(w, "Ask Sage is unavailable; try again", "ask_unavailable",
 			http.StatusServiceUnavailable)
+	}
+}
+
+// askConnSlack is how long past the request deadline the connection
+// stays open for the answer to be written.
+const askConnSlack = 5 * time.Second
+
+// extendConnDeadlines lets a question outlive the server's read and write
+// timeouts (30 s and 60 s; ask.max_seconds_per_question may be 300): the
+// connection stays open until the request deadline plus askConnSlack. An
+// expired read deadline cancels the request through net/http's
+// background read, and an expired write deadline drops the answer.
+func extendConnDeadlines(w http.ResponseWriter, r *http.Request) {
+	deadline, ok := r.Context().Deadline()
+	if !ok {
+		return
+	}
+	rc := http.NewResponseController(w)
+	until := deadline.Add(askConnSlack)
+	if err := rc.SetReadDeadline(until); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		slog.Warn("ask sage: extend the read deadline", "error", err)
+	}
+	if err := rc.SetWriteDeadline(until); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		slog.Warn("ask sage: extend the write deadline", "error", err)
 	}
 }

@@ -174,7 +174,7 @@ func NewRouterFullRuntime(
 		middlewares = append(append([]func(http.Handler) http.Handler{}, middlewares...), databricksAppProtocolGuard)
 	}
 	apiHandler := wrapAPIHandler(apiMux, middlewares,
-		newCrossOriginProtection(cfg, rt.DatabricksAppAuth))
+		newCrossOriginProtection(cfg, rt.DatabricksAppAuth), askRequestTimeout(cfg))
 
 	// Top-level mux: API routes get auth, static does not.
 	root := http.NewServeMux()
@@ -311,10 +311,11 @@ func newRouterOAuthProvider(cfg *config.Config) *auth.OAuthProvider {
 }
 
 // wrapAPIHandler stacks the caller middlewares onto the API mux, then the
-// fixed chain every API route gets.
+// fixed chain every API route gets; askTimeout is the ask route's request
+// deadline (askRequestTimeout).
 func wrapAPIHandler(
 	apiMux *http.ServeMux, middlewares []func(http.Handler) http.Handler,
-	crossOrigin *http.CrossOriginProtection,
+	crossOrigin *http.CrossOriginProtection, askTimeout time.Duration,
 ) http.Handler {
 	// Stack middlewares onto API routes only.
 	var apiHandler http.Handler = apiMux
@@ -323,13 +324,13 @@ func wrapAPIHandler(
 	}
 	// Always apply the cross-origin check, body size limit, security
 	// headers, JSON content-type validation, and a per-request deadline
-	// to API routes. timeoutMiddleware is applied outside the body/JSON
+	// to API routes. The deadline is applied outside the body/JSON
 	// middlewares so its context also covers body parsing. The
 	// cross-origin check runs before any of them (and before auth), and
 	// its refusal still carries the security headers.
 	apiHandler = requireJSONMiddleware(apiHandler)
 	apiHandler = maxBodyMiddleware(apiHandler)
-	apiHandler = timeoutMiddleware(apiHandler)
+	apiHandler = routeTimeoutMiddleware(apiHandler, askTimeout)
 	apiHandler = crossOrigin.Handler(apiHandler)
 	apiHandler = securityHeadersMiddleware(apiHandler)
 	return apiHandler

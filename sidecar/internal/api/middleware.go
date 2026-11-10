@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/config"
 )
 
 // maxBodyMiddleware wraps r.Body with a size limit for
@@ -64,6 +66,15 @@ const defaultRequestTimeout = 30 * time.Second
 func timeoutMiddleware(
 	next http.Handler,
 ) http.Handler {
+	return routeTimeoutMiddleware(next, defaultRequestTimeout)
+}
+
+// routeTimeoutMiddleware is timeoutMiddleware with askTimeout for
+// POST /api/v1/databases/{db}/ask (ask.max_seconds_per_question plus
+// askRouteSlack); every other route keeps defaultRequestTimeout.
+func routeTimeoutMiddleware(
+	next http.Handler, askTimeout time.Duration,
+) http.Handler {
 	return http.HandlerFunc(func(
 		w http.ResponseWriter, r *http.Request,
 	) {
@@ -74,11 +85,41 @@ func timeoutMiddleware(
 			next.ServeHTTP(w, r)
 			return
 		}
-		ctx, cancel := context.WithTimeout(
-			r.Context(), defaultRequestTimeout)
+		timeout := defaultRequestTimeout
+		if isAskQuestion(r) {
+			timeout = askTimeout
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), timeout)
 		defer cancel()
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// askRouteSlack is what the ask route's deadline adds to the question's
+// wall clock, for reading the conversation and storing the answer.
+const askRouteSlack = 5 * time.Second
+
+// askRequestTimeout is the ask route's request deadline under cfg (the
+// default setting when cfg is nil).
+func askRequestTimeout(cfg *config.Config) time.Duration {
+	seconds := config.DefaultAskMaxSecondsPerQuestion
+	if cfg != nil && cfg.Ask.MaxSecondsPerQuestion > 0 {
+		seconds = cfg.Ask.MaxSecondsPerQuestion
+	}
+	return time.Duration(seconds)*time.Second + askRouteSlack
+}
+
+// isAskQuestion is POST /api/v1/databases/{db}/ask with a non-empty {db}.
+func isAskQuestion(r *http.Request) bool {
+	if r.Method != http.MethodPost {
+		return false
+	}
+	rest, ok := strings.CutPrefix(r.URL.Path, "/api/v1/databases/")
+	if !ok {
+		return false
+	}
+	db, ok := strings.CutSuffix(rest, "/ask")
+	return ok && db != "" && !strings.Contains(db, "/")
 }
 
 // requireJSONMiddleware rejects POST/PUT/PATCH requests

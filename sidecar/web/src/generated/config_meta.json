@@ -501,6 +501,12 @@
     "doc": "Answer questions about each database from cited evidence (UI, API, MCP ask_sage). It reads; it never executes or approves. Default: true.",
     "class": "safety_critical"
   },
+  "ask.max_seconds_per_question": {
+    "type": "int",
+    "default": 60,
+    "doc": "Wall clock of one question (each model call is still bounded at 15 s). The ask API route gets this plus 5 s; MCP calls keep their own deadline. Range 15-300. Default: 60.",
+    "class": "operator_preference"
+  },
   "ask.max_tokens_per_question": {
     "type": "int",
     "default": 40000,
