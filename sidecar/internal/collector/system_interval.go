@@ -20,7 +20,13 @@ type SystemInterval struct {
 	TempBytes     *int64   `json:"temp_bytes"`
 	// Sessions is how many sessions this database opened in the interval,
 	// those already closed included (rca-03).
-	Sessions       *int64   `json:"sessions,omitempty"`
+	Sessions *int64 `json:"sessions,omitempty"`
+	// WALBytes is how far the cluster's WAL insert position advanced
+	// between the two reads of it, WALSeconds apart (rca-03). It needs no
+	// statistics epoch: nil on a standby, when either position is unread
+	// and when the position went back (a failover to a server behind).
+	WALBytes       *int64   `json:"wal_bytes,omitempty"`
+	WALSeconds     float64  `json:"wal_seconds,omitempty"`
 	BlkReadTimeMs  *float64 `json:"blk_read_time_ms"`
 	BlkWriteTimeMs *float64 `json:"blk_write_time_ms"`
 	// Checkpoints is cluster-wide, under its own epoch.
@@ -50,11 +56,26 @@ func computeSystemInterval(prev, cur *Snapshot) *SystemInterval {
 	if sameEpoch(p.RelationStatsEpoch, s.RelationStatsEpoch) {
 		databaseInterval(iv, p, s)
 	}
+	walInterval(iv, p, s)
 	if sameEpoch(p.CheckpointStatsEpoch, s.CheckpointStatsEpoch) &&
 		s.TotalCheckpoints >= p.TotalCheckpoints {
 		iv.Checkpoints = int64Ptr(s.TotalCheckpoints - p.TotalCheckpoints)
 	}
 	return iv
+}
+
+// walInterval sets the WAL advance between two primary reads of the
+// insert position (rca-03).
+func walInterval(iv *SystemInterval, p, s *SystemStats) {
+	if p.IsReplica || s.IsReplica || p.WALReadAt.IsZero() || s.WALReadAt.IsZero() ||
+		s.WALLSN < p.WALLSN {
+		return
+	}
+	elapsed := s.WALReadAt.Sub(p.WALReadAt).Seconds()
+	if elapsed <= 0 {
+		return
+	}
+	iv.WALBytes, iv.WALSeconds = int64Ptr(s.WALLSN-p.WALLSN), elapsed
 }
 
 // databaseInterval fills the per-database fields when no counter fell:

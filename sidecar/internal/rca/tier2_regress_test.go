@@ -77,15 +77,18 @@ func realTier2Inputs() (
 	curr, prev *collector.Snapshot, lcf []analyzer.Finding,
 ) {
 	now := time.Now()
-	// rca-03: the WAL rate is the insert LSN's advance (5x the 10 MiB/min
-	// primeWALRate stores for the interval before), and idle in
+	// rca-03: the WAL rate is the insert LSN's advance over each collector
+	// interval (50 MiB/min, 5x the interval before), and idle in
 	// transaction is the system stats' longest idle session.
 	sys := collector.SystemStats{
 		TotalBackends: 10, MaxConnections: 100, CacheHitRatio: 0.999,
 	}
 	prevSys, currSys := sys, sys
-	prevSys.WALLSN, prevSys.WALReadAt = 0x10000000, now.Add(-time.Minute)
-	currSys.WALLSN, currSys.WALReadAt = 0x10000000+50<<20, now
+	prevWAL, currWAL := int64(10<<20), int64(50<<20)
+	prevSys.Interval = &collector.SystemInterval{Seconds: 60, WALBytes: &prevWAL,
+		WALSeconds: 60}
+	currSys.Interval = &collector.SystemInterval{Seconds: 60, WALBytes: &currWAL,
+		WALSeconds: 60}
 	currSys.IdleInTransaction, currSys.IdleInTxMaxSeconds = 4, 900
 	prev = &collector.Snapshot{CollectedAt: now.Add(-time.Minute), System: prevSys}
 	curr = &collector.Snapshot{CollectedAt: now, System: currSys}
@@ -94,14 +97,6 @@ func realTier2Inputs() (
 		Detail: map[string]any{"total_blocked": 3},
 	}}
 	return curr, prev, lcf
-}
-
-// primeWALRate stores the 10 MiB/min WAL rate of the interval that ended
-// at prev, as the engine's previous cycle would have (rca-03).
-func primeWALRate(e *Engine, prev *collector.Snapshot) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.walRate = walRateAt{end: prev.CollectedAt, perMin: 10 << 20, ok: true}
 }
 
 func llmIncidents(incs []Incident) []Incident {
@@ -123,7 +118,6 @@ func TestTier2_FiresOnRealCoOccurringSignals(t *testing.T) {
 	eng.WithLLM(tier2LLMClient(srv.srv.URL))
 
 	curr, prev, lcf := realTier2Inputs()
-	primeWALRate(eng, prev)
 	incs := eng.Analyze(curr, prev, testConfig(), lcf)
 
 	got := llmIncidents(incs)
@@ -155,7 +149,6 @@ func TestTier2_NoCallWhenEverySignalExplained(t *testing.T) {
 	eng.WithLLM(tier2LLMClient(srv.srv.URL))
 
 	curr, prev, lcf := realTier2Inputs()
-	primeWALRate(eng, prev)
 	curr.System.IdleInTransaction = 0 // idle_in_tx_elevated no longer fires
 	incs := eng.Analyze(curr, prev, testConfig(), lcf)
 

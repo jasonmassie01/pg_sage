@@ -129,7 +129,6 @@ func TestTier2E2E_HappyPath(t *testing.T) {
 	eng.WithLLM(tier2LLMClient(srv.URL))
 	eng.cfg.LLMCorrelationThreshold = 3
 	curr, prev, lcf := realTier2Inputs()
-	primeWALRate(eng, prev)
 	incidents := eng.Analyze(curr, prev, testConfig(), lcf)
 
 	// Should have exactly 1 Tier 2 incident.

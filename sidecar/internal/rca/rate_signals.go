@@ -1,8 +1,6 @@
 package rca
 
 import (
-	"time"
-
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 )
@@ -20,35 +18,33 @@ const walSpikeFloorPerMin = 1 << 20
 // statement must read this interval to be named as evicting the cache.
 const cacheSpikeFactor = 10
 
-// walRateAt is the WAL rate of the interval that ended at a snapshot.
-type walRateAt struct {
-	end    time.Time
-	perMin float64
-	ok     bool
-}
-
-// detectWALSpike fires when the cluster's WAL rate this interval is at
-// least wal_spike_multiplier times the previous interval's and at least
-// walSpikeFloorPerMin. It stores this interval's rate for the next cycle.
-// There is no signal on the first interval, after an LSN regression
-// (failover) or on a standby, and only the cluster owner reports it (the
-// WAL is the cluster's). Caller holds e.mu.
+// detectWALSpike fires when the cluster's WAL rate over the collector
+// interval that ended at curr is at least wal_spike_multiplier times the
+// rate over the interval that ended at prev, and at least
+// walSpikeFloorPerMin. Both intervals are the collector's own (each
+// snapshot carries the WAL advance since the one before it), so the
+// comparison is of two consecutive intervals whatever the analyzer's
+// cadence. There is no signal on the first interval, after an LSN
+// regression (failover) or on a standby (the collector leaves the WAL
+// interval unknown there), and only the cluster owner reports it (the WAL
+// is the cluster's).
 func (e *Engine) detectWALSpike(
 	curr, prev *collector.Snapshot,
 	cfg *config.Config,
 ) *Signal {
-	perMin, ok := walRatePerMin(prev, curr)
-	last := e.walRate
-	e.walRate = walRateAt{end: curr.CollectedAt, perMin: perMin, ok: ok}
-	if !ok || !last.ok || !last.end.Equal(prev.CollectedAt) || last.perMin <= 0 ||
-		!e.ClusterOwner() || perMin < walSpikeFloorPerMin {
+	if !e.ClusterOwner() {
+		return nil
+	}
+	perMin, ok := walRatePerMin(curr)
+	before, beforeOK := walRatePerMin(prev)
+	if !ok || !beforeOK || before <= 0 || perMin < walSpikeFloorPerMin {
 		return nil
 	}
 	multiplier := cfg.RCA.WALSpikeMultiplier
 	if multiplier <= 0 {
 		multiplier = config.DefaultRCAWALSpikeMultiplier
 	}
-	ratio := perMin / last.perMin
+	ratio := perMin / before
 	if ratio < multiplier {
 		return nil
 	}
@@ -58,33 +54,23 @@ func (e *Engine) detectWALSpike(
 		Severity: "warning",
 		Metrics: map[string]any{
 			"current_wal_bytes_per_min":  int64(perMin),
-			"previous_wal_bytes_per_min": int64(last.perMin),
-			"interval_wal_bytes":         curr.System.WALLSN - prev.System.WALLSN,
+			"previous_wal_bytes_per_min": int64(before),
+			"interval_wal_bytes":         *curr.System.Interval.WALBytes,
 			"ratio":                      ratio,
 			"multiplier":                 multiplier,
 		},
 	}
 }
 
-// walRatePerMin is the WAL bytes a minute between two primary snapshots,
-// over the instants their positions were read. It is unknown without a
-// previous snapshot, on a standby, without a read position, when the
-// position went back (a failover to a server that was behind) and when no
-// time passed.
-func walRatePerMin(prev, curr *collector.Snapshot) (float64, bool) {
-	if prev == nil || curr == nil {
+// walRatePerMin is the WAL bytes a minute over the collector interval
+// that ended at s, unknown without a snapshot or a measured WAL interval.
+func walRatePerMin(s *collector.Snapshot) (float64, bool) {
+	if s == nil || s.System.Interval == nil || s.System.Interval.WALBytes == nil ||
+		s.System.Interval.WALSeconds <= 0 {
 		return 0, false
 	}
-	p, c := prev.System, curr.System
-	if p.IsReplica || c.IsReplica || p.WALReadAt.IsZero() || c.WALReadAt.IsZero() ||
-		c.WALLSN < p.WALLSN {
-		return 0, false
-	}
-	elapsed := c.WALReadAt.Sub(p.WALReadAt).Seconds()
-	if elapsed <= 0 {
-		return 0, false
-	}
-	return float64(c.WALLSN-p.WALLSN) * 60 / elapsed, true
+	iv := s.System.Interval
+	return float64(*iv.WALBytes) * 60 / iv.WALSeconds, true
 }
 
 // queryReadSpike is the statement reading the most blocks this interval

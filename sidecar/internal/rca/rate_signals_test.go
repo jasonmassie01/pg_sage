@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/collector"
+	"github.com/pg-sage/sidecar/internal/config"
 )
 
 // rca-03: wal_growth_spike compares the cluster's WAL rate (the insert
@@ -14,33 +15,45 @@ import (
 // which stays near 1.0 in steady state, doubles on young counters after a
 // reset and moves with the top-N set.
 //
-// No concurrent access test: the detectors run under e.mu, and the stored
-// WAL rate is written by the detector under that same lock.
+// The collector measures each interval's WAL advance (WALBytes over
+// WALSeconds, TestSystemInterval_WAL*); the detector compares the
+// intervals that ended at prev and at curr.
+//
+// No concurrent access test: the detector keeps no state; it reads the
+// two snapshots it is given.
 
-// walSnap is a primary's snapshot at at with the insert LSN at lsn, read
-// at the snapshot instant.
-func walSnap(at time.Time, lsn int64) *collector.Snapshot {
+// walSnap is a primary's first snapshot at at: no interval before it.
+func walSnap(at time.Time) *collector.Snapshot {
 	return &collector.Snapshot{
 		CollectedAt: at,
-		System: collector.SystemStats{MaxConnections: 100, CacheHitRatio: 0.999,
-			WALLSN: lsn, WALReadAt: at},
+		System:      collector.SystemStats{MaxConnections: 100, CacheHitRatio: 0.999},
 	}
 }
 
-// walRun feeds the detector one snapshot a minute, starting at LSN
-// 0x1000000, with the given WAL bytes written in each minute. It returns
-// the signal of every pair: perMin[i] is the interval ending at snapshot
-// i+1.
+// walIvSnap is a snapshot at at whose collector interval (one minute)
+// wrote n bytes of WAL.
+func walIvSnap(at time.Time, n int64) *collector.Snapshot {
+	s := walSnap(at)
+	s.System.Interval = &collector.SystemInterval{Seconds: 60, WALBytes: &n, WALSeconds: 60}
+	return s
+}
+
+// walRun feeds the detector one snapshot a minute with the given WAL
+// bytes written in each minute, after a first snapshot with no interval.
+// It returns the signal of every pair: perMin[i] is the interval ending
+// at snapshot i+1.
 func walRun(t *testing.T, eng *Engine, perMin ...int64) []*Signal {
 	t.Helper()
-	cfg := defaultCfg()
+	return walRunCfg(t, eng, defaultCfg(), perMin...)
+}
+
+func walRunCfg(t *testing.T, eng *Engine, cfg *config.Config, perMin ...int64) []*Signal {
+	t.Helper()
 	start := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
-	lsn := int64(0x1000000)
-	prev := walSnap(start, lsn)
+	prev := walSnap(start)
 	out := make([]*Signal, 0, len(perMin))
 	for i, n := range perMin {
-		lsn += n
-		curr := walSnap(start.Add(time.Duration(i+1)*time.Minute), lsn)
+		curr := walIvSnap(start.Add(time.Duration(i+1)*time.Minute), n)
 		out = append(out, eng.detectWALSpike(curr, prev, cfg))
 		prev = curr
 	}
@@ -111,15 +124,16 @@ func TestWALSpike_RatioAtMultiplierBoundary(t *testing.T) {
 
 // Boundary: the configured multiplier is honoured (3x: 2.5x is quiet).
 func TestWALSpike_ConfiguredMultiplier(t *testing.T) {
-	eng := newTestEngine()
 	cfg := defaultCfg()
 	cfg.RCA.WALSpikeMultiplier = 3
-	start := time.Now().UTC()
-	s0, s1 := walSnap(start, 0x1000000), walSnap(start.Add(time.Minute), 0x1000000+10*mib)
-	s2 := walSnap(start.Add(2*time.Minute), 0x1000000+35*mib)
-	eng.detectWALSpike(s1, s0, cfg)
-	if sig := eng.detectWALSpike(s2, s1, cfg); sig != nil {
-		t.Errorf("2.5x fired under multiplier 3: %+v", sig.Metrics)
+	sigs := walRunCfg(t, newTestEngine(), cfg, 10*mib, 25*mib, 75*mib)
+	if sigs[1] != nil {
+		t.Errorf("2.5x fired under multiplier 3: %+v", sigs[1].Metrics)
+	}
+	if sigs[2] == nil {
+		t.Error("3x did not fire under multiplier 3")
+	} else if v := floatMetric(sigs[2], "multiplier"); v != 3 {
+		t.Errorf("multiplier = %v, want 3", v)
 	}
 }
 
@@ -127,7 +141,7 @@ func TestWALSpike_ConfiguredMultiplier(t *testing.T) {
 // give no signal however large.
 func TestWALSpike_NoPreviousSnapshotOrRate(t *testing.T) {
 	eng := newTestEngine()
-	if sig := eng.detectWALSpike(walSnap(time.Now(), 0x5000000), nil, defaultCfg()); sig != nil {
+	if sig := eng.detectWALSpike(walIvSnap(time.Now(), 900*mib), nil, defaultCfg()); sig != nil {
 		t.Fatalf("nil previous fired: %+v", sig.Metrics)
 	}
 	if got := firedAt(walRun(t, newTestEngine(), 900*mib)); len(got) != 0 {
@@ -159,20 +173,22 @@ func TestWALSpike_IdleClusterBelowFloor(t *testing.T) {
 }
 
 // State transition: an LSN regression (failover to a standby that was
-// behind) gives no signal and clears the stored rate, so the interval
-// after it is a first interval; a later spike still fires.
-func TestWALSpike_LSNRegressionResetsRate(t *testing.T) {
+// behind) or a standby leaves that interval's WAL unknown (the collector's
+// TestSystemInterval_WALUnknown): neither the pair ending there nor the
+// pair after it fires, and a later spike still does.
+func TestWALSpike_UnknownIntervalAfterRegression(t *testing.T) {
 	eng := newTestEngine()
 	cfg := defaultCfg()
 	start := time.Now().UTC()
 	s := []*collector.Snapshot{
-		walSnap(start, 0x9000000),
-		walSnap(start.Add(1*time.Minute), 0x9000000+10*mib),
-		walSnap(start.Add(2*time.Minute), 0x2000000), // promoted, behind
-		walSnap(start.Add(3*time.Minute), 0x2000000+80*mib),
-		walSnap(start.Add(4*time.Minute), 0x2000000+90*mib),
-		walSnap(start.Add(5*time.Minute), 0x2000000+190*mib),
+		walSnap(start),
+		walIvSnap(start.Add(1*time.Minute), 10*mib),
+		walSnap(start.Add(2 * time.Minute)), // promoted, behind: WAL unknown
+		walIvSnap(start.Add(3*time.Minute), 80*mib),
+		walIvSnap(start.Add(4*time.Minute), 10*mib),
+		walIvSnap(start.Add(5*time.Minute), 100*mib),
 	}
+	s[2].System.Interval = &collector.SystemInterval{Seconds: 60}
 	var fired []int
 	for i := 1; i < len(s); i++ {
 		if eng.detectWALSpike(s[i], s[i-1], cfg) != nil {
@@ -181,23 +197,6 @@ func TestWALSpike_LSNRegressionResetsRate(t *testing.T) {
 	}
 	if len(fired) != 1 || fired[0] != 5 {
 		t.Fatalf("fired at %v, want only snapshot 5 (10 -> 100 MiB/min)", fired)
-	}
-}
-
-// A standby replays WAL it did not generate: no signal there.
-func TestWALSpike_StandbyNoSignal(t *testing.T) {
-	eng := newTestEngine()
-	cfg := defaultCfg()
-	start := time.Now().UTC()
-	s0 := walSnap(start, 0x1000000)
-	s1 := walSnap(start.Add(time.Minute), 0x1000000+10*mib)
-	s2 := walSnap(start.Add(2*time.Minute), 0x1000000+110*mib)
-	for _, s := range []*collector.Snapshot{s0, s1, s2} {
-		s.System.IsReplica = true
-	}
-	eng.detectWALSpike(s1, s0, cfg)
-	if sig := eng.detectWALSpike(s2, s1, cfg); sig != nil {
-		t.Errorf("standby fired: %+v", sig.Metrics)
 	}
 }
 
@@ -210,10 +209,10 @@ func TestWALSpike_StatementsResetNoSignal(t *testing.T) {
 	start := time.Now().UTC()
 	epoch1, epoch2 := start.Add(-time.Hour), start.Add(90*time.Second)
 	s := []*collector.Snapshot{
-		walSnap(start, 0x1000000),
-		walSnap(start.Add(1*time.Minute), 0x1000000+10*mib),
-		walSnap(start.Add(2*time.Minute), 0x1000000+20*mib),
-		walSnap(start.Add(3*time.Minute), 0x1000000+30*mib),
+		walSnap(start),
+		walIvSnap(start.Add(1*time.Minute), 10*mib),
+		walIvSnap(start.Add(2*time.Minute), 10*mib),
+		walIvSnap(start.Add(3*time.Minute), 10*mib),
 	}
 	s[0].StatsEpoch, s[1].StatsEpoch = epoch1, epoch1
 	s[0].Queries = []collector.QueryStats{{QueryID: 1, WALBytes: 900 * mib}}
@@ -229,42 +228,58 @@ func TestWALSpike_StatementsResetNoSignal(t *testing.T) {
 	}
 }
 
-// Invalid input: an unknown WAL position (never read, or unreadable this
-// cycle) or a non-positive elapsed time gives no signal.
-func TestWALSpike_UnknownPositionOrElapsed(t *testing.T) {
+// Invalid input: an interval without a WAL advance (never read, or
+// unreadable this cycle) or with no elapsed WAL time gives no signal, on
+// either side of the comparison.
+func TestWALSpike_UnknownOrZeroElapsedInterval(t *testing.T) {
 	cfg := defaultCfg()
 	start := time.Now().UTC()
-	for name, mutate := range map[string]func(s2 *collector.Snapshot){
-		"unread position": func(s *collector.Snapshot) { s.System.WALReadAt = time.Time{} },
-		"same read time": func(s *collector.Snapshot) {
-			s.System.WALReadAt = start.Add(time.Minute)
-		},
+	for name, mutate := range map[string]func(prev, curr *collector.Snapshot){
+		"curr unread":   func(_, c *collector.Snapshot) { c.System.Interval.WALBytes = nil },
+		"prev unread":   func(p, _ *collector.Snapshot) { p.System.Interval.WALBytes = nil },
+		"curr no time":  func(_, c *collector.Snapshot) { c.System.Interval.WALSeconds = 0 },
+		"prev no time":  func(p, _ *collector.Snapshot) { p.System.Interval.WALSeconds = 0 },
+		"curr no iv":    func(_, c *collector.Snapshot) { c.System.Interval = nil },
+		"prev negative": func(p, _ *collector.Snapshot) { p.System.Interval.WALSeconds = -60 },
 	} {
-		eng := newTestEngine()
-		s0 := walSnap(start, 0x1000000)
-		s1 := walSnap(start.Add(time.Minute), 0x1000000+10*mib)
-		s2 := walSnap(start.Add(2*time.Minute), 0x1000000+200*mib)
-		eng.detectWALSpike(s1, s0, cfg)
-		mutate(s2)
-		if sig := eng.detectWALSpike(s2, s1, cfg); sig != nil {
+		prev := walIvSnap(start, 10*mib)
+		curr := walIvSnap(start.Add(time.Minute), 200*mib)
+		if newTestEngine().detectWALSpike(curr, prev, cfg) == nil {
+			t.Fatalf("%s: the unmutated pair did not fire", name)
+		}
+		mutate(prev, curr)
+		if sig := newTestEngine().detectWALSpike(curr, prev, cfg); sig != nil {
 			t.Errorf("%s: fired %+v", name, sig.Metrics)
 		}
 	}
 }
 
-// The stored rate belongs to the interval that ended at the previous
-// snapshot: a pair that does not continue it (a skipped cycle, a restart)
-// is a first interval.
-func TestWALSpike_StoredRateMustEndAtPrevious(t *testing.T) {
+// The analyzer runs every analyzer.interval_seconds (600 by default) over
+// the collector's latest snapshot and the one before it (60 s apart): it
+// sees one pair in ten. A spike in the minute before an analyzer cycle
+// fires against the minute before it, not against a rate the engine saw
+// ten minutes earlier (the review of rca-03 found that design never fired
+// at the default cadence).
+func TestWALSpike_FiresAtTheAnalyzerCadence(t *testing.T) {
 	eng := newTestEngine()
 	cfg := defaultCfg()
-	start := time.Now().UTC()
-	eng.detectWALSpike(walSnap(start.Add(time.Minute), 0x1000000+mib),
-		walSnap(start, 0x1000000), cfg)
-	s3 := walSnap(start.Add(3*time.Minute), 0x1000000+5*mib)
-	s4 := walSnap(start.Add(4*time.Minute), 0x1000000+105*mib)
-	if sig := eng.detectWALSpike(s4, s3, cfg); sig != nil {
-		t.Errorf("a non-consecutive pair used a stale rate: %+v", sig.Metrics)
+	start := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	snaps := []*collector.Snapshot{walSnap(start)}
+	for i := 1; i <= 30; i++ {
+		n := int64(10 * mib)
+		if i == 20 {
+			n = 100 * mib
+		}
+		snaps = append(snaps, walIvSnap(start.Add(time.Duration(i)*time.Minute), n))
+	}
+	var fired []int
+	for i := 10; i < len(snaps); i += 10 {
+		if eng.detectWALSpike(snaps[i], snaps[i-1], cfg) != nil {
+			fired = append(fired, i)
+		}
+	}
+	if len(fired) != 1 || fired[0] != 20 {
+		t.Fatalf("analyzer cycles fired at %v, want only snapshot 20", fired)
 	}
 }
 
@@ -286,7 +301,7 @@ func TestWALSpike_IncidentStatesRates(t *testing.T) {
 		t.Fatal("3x did not fire")
 	}
 	now := time.Now()
-	incs := eng.runDecisionTrees([]*Signal{sigs[1]}, walSnap(now, 0), nil, defaultCfg())
+	incs := eng.runDecisionTrees([]*Signal{sigs[1]}, walSnap(now), nil, defaultCfg())
 	if len(incs) != 1 {
 		t.Fatalf("incidents = %d, want 1", len(incs))
 	}

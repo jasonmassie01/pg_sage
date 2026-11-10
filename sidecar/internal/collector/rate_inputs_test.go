@@ -93,3 +93,79 @@ func TestSystemStats_RateInputsJSON(t *testing.T) {
 		t.Errorf("legacy row = %+v, want zero rate inputs", legacy)
 	}
 }
+
+// walPair is two primary snapshots a minute apart whose WAL positions were
+// read 59.5 s apart, prev at 0x1000000 and next n bytes later.
+func walPair(n int64) (prev, next *Snapshot) {
+	p, c := ivBase(), ivNext()
+	p.WALLSN, p.WALReadAt = 0x1000000, ivStart.Add(250*time.Millisecond)
+	c.WALLSN, c.WALReadAt = 0x1000000+n, ivStart.Add(59750*time.Millisecond)
+	return ivSnap(ivStart, p), ivSnap(ivStart.Add(time.Minute), c)
+}
+
+// rca-03: the interval carries the WAL insert position's advance and the
+// time between the two reads of it, which the WAL rate divides by.
+func TestSystemInterval_WALAdvance(t *testing.T) {
+	prev, next := walPair(5 << 20)
+	iv := computeSystemInterval(prev, next)
+	if iv == nil {
+		t.Fatal("interval = nil")
+	}
+	i64(t, "WALBytes", iv.WALBytes, 5<<20)
+	if iv.WALSeconds != 59.5 {
+		t.Errorf("WALSeconds = %v, want 59.5 (between the reads, not the snapshots)",
+			iv.WALSeconds)
+	}
+}
+
+// Zero: an idle minute is a measured zero, not unknown.
+func TestSystemInterval_WALZeroAdvance(t *testing.T) {
+	iv := computeSystemInterval(walPair(0))
+	if iv == nil {
+		t.Fatal("interval = nil")
+	}
+	i64(t, "WALBytes", iv.WALBytes, 0)
+}
+
+// State transition: pg_stat_reset() moves the database epoch but not the
+// WAL position, so the WAL advance is still measured across it.
+func TestSystemInterval_WALAcrossStatsReset(t *testing.T) {
+	prev, next := walPair(3 << 20)
+	next.System.RelationStatsEpoch = ivDBEpoch.Add(time.Hour)
+	next.System.BlksHit = 10
+	iv := computeSystemInterval(prev, next)
+	if iv == nil || iv.CacheHitRatio != nil {
+		t.Fatalf("interval %+v, want the database fields unknown", iv)
+	}
+	i64(t, "WALBytes", iv.WALBytes, 3<<20)
+}
+
+// The WAL advance is unknown on a standby (either side), without a read
+// position on either side, after the position went back (a failover to a
+// server that was behind) and when the reads are not in time order.
+func TestSystemInterval_WALUnknown(t *testing.T) {
+	for name, mutate := range map[string]func(p, c *SystemStats){
+		"prev standby":   func(p, _ *SystemStats) { p.IsReplica = true },
+		"next standby":   func(_, c *SystemStats) { c.IsReplica = true },
+		"prev unread":    func(p, _ *SystemStats) { p.WALReadAt = time.Time{} },
+		"next unread":    func(_, c *SystemStats) { c.WALReadAt = time.Time{} },
+		"regression":     func(p, c *SystemStats) { c.WALLSN = p.WALLSN - 1 },
+		"same read time": func(p, c *SystemStats) { c.WALReadAt = p.WALReadAt },
+		"reads reversed": func(p, c *SystemStats) {
+			c.WALReadAt = p.WALReadAt.Add(-time.Second)
+		},
+	} {
+		prev, next := walPair(5 << 20)
+		mutate(&prev.System, &next.System)
+		iv := computeSystemInterval(prev, next)
+		if iv == nil {
+			t.Fatalf("%s: interval = nil, want the other fields measured", name)
+		}
+		if iv.WALBytes != nil || iv.WALSeconds != 0 {
+			t.Errorf("%s: WAL %v over %v s, want unknown", name, iv.WALBytes, iv.WALSeconds)
+		}
+		if iv.CacheHitRatio == nil {
+			t.Errorf("%s: an unknown WAL advance dropped the database fields", name)
+		}
+	}
+}

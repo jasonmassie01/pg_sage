@@ -278,19 +278,15 @@ func TestAnalyze_WALSpike(t *testing.T) {
 	eng := testEngine()
 	cfg := testConfig()
 
-	// rca-03: the WAL rate is the insert LSN's advance per minute, a
-	// cumulative position. The old fixture fed summed statement WAL bytes
-	// of 1000 then 3000 as if they were per-interval deltas. Here the
-	// cluster writes 10 MiB in the first minute and 30 MiB in the second.
+	// rca-03: the WAL rate is the insert LSN's advance per minute over
+	// each collector interval, a cumulative position the collector
+	// differences. The old fixture fed summed statement WAL bytes of 1000
+	// then 3000 as if they were per-interval deltas. Here the cluster
+	// writes 10 MiB in the first minute and 30 MiB in the second.
 	base := time.Now().Add(-2 * time.Minute)
-	walAt := func(i int, lsn int64) *collector.Snapshot {
-		at := base.Add(time.Duration(i) * time.Minute)
-		return &collector.Snapshot{CollectedAt: at, System: collector.SystemStats{
-			MaxConnections: 100, CacheHitRatio: 0.999, WALLSN: lsn, WALReadAt: at}}
-	}
-	first := walAt(0, 0x1000000)
-	prev := walAt(1, 0x1000000+10<<20)
-	curr := walAt(2, 0x1000000+40<<20) // 3x the previous minute's rate
+	first := walSnap(base)
+	prev := walIvSnap(base.Add(time.Minute), 10<<20)
+	curr := walIvSnap(base.Add(2*time.Minute), 30<<20) // 3x the previous minute's rate
 	if got := eng.Analyze(prev, first, cfg, nil); len(got) != 0 {
 		t.Fatalf("first interval opened %d incidents, want none", len(got))
 	}

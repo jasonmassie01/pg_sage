@@ -126,9 +126,6 @@ type Engine struct {
 	// backendLookup lists live backends for backend-subject incidents;
 	// nil uses the incident store (tests inject one).
 	backendLookup BackendLookup
-	// walRate is the WAL rate of the last interval detectWALSpike saw
-	// (rca-03), the base the next interval's rate is compared with.
-	walRate walRateAt
 	// cycleMu serializes analysis, hydration and persistence cycles.
 	// mu guards the fields above and is never held across I/O.
 	cycleMu sync.Mutex
