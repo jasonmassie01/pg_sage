@@ -180,3 +180,31 @@ func TestAP09_ServerUsageThroughGroup(t *testing.T) {
 	requireFinding(t, o, f.exposed+"@"+srv, Critical)
 	requireNoFinding(t, o, g+"@"+srv)
 }
+
+// AP-06 on PostgreSQL 14 revokes the view; a grant to the group must go
+// too, or the exposed role keeps reading it through the group. On 15+ the
+// fix is security_invoker and names no role.
+func TestAP06_FixClosesGroupGrant(t *testing.T) {
+	f, g := groupFixture(t)
+	s := "pst_grpw_" + suffix(t)
+	f.exec("CREATE TABLE "+f.q("rls_w")+" (id int)",
+		"ALTER TABLE "+f.q("rls_w")+" ENABLE ROW LEVEL SECURITY",
+		"CREATE SCHEMA "+s, "GRANT USAGE ON SCHEMA "+s+" TO "+g,
+		"CREATE VIEW "+s+".v AS SELECT id FROM "+f.q("rls_w"),
+		"GRANT SELECT ON "+s+".v TO "+g)
+	t.Cleanup(func() { dropSchema(f, s) })
+	env := f.env(nil)
+	got := requireFinding(t, f.run("AP-06", env), s+".v", Warning)
+	if env.VersionNum >= 150000 {
+		requireContains(t, "AP-06 15+ fix", got.FixScript, "security_invoker = true")
+		return
+	}
+	requireContains(t, "AP-06 PG14 fix", got.FixScript, "REVOKE ALL ON "+s+".v FROM "+g+";")
+	requireContains(t, "AP-06 PG14 caveat", got.Caveat, "every member")
+	f.exec(got.FixScript)
+	var can bool
+	if err := f.pool.QueryRow(f.ctx, "SELECT has_table_privilege($1, $2, 'SELECT')",
+		f.exposed, s+".v").Scan(&can); err != nil || can {
+		t.Fatalf("after the fix %s can read %s.v: %v (err %v)", f.exposed, s, can, err)
+	}
+}
