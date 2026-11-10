@@ -3,20 +3,18 @@ package databricksauth
 import (
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
 
 	"github.com/databricks/databricks-sdk-go/apierr"
 	"github.com/databricks/databricks-sdk-go/service/postgres"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-)
 
-var endpointName = regexp.MustCompile(`^projects/[a-z0-9-]+/branches/[a-z0-9-]+/endpoints/[a-z0-9-]+$`)
+	"github.com/pg-sage/sidecar/internal/lakebaseid"
+)
 
 // ErrUnverifiedTLS refuses a Lakebase OAuth connection whose TLS does not
 // verify the endpoint's certificate and hostname. sslmode=require and
@@ -119,32 +117,7 @@ func ConfigurePool(ctx context.Context, cfg *pgxpool.Config) error {
 // endpointForHost returns the endpoint resource configured for host, or ""
 // when host is ordinary PostgreSQL.
 func endpointForHost(host string) (string, error) {
-	endpoint := os.Getenv("SAGE_LAKEBASE_ENDPOINT")
-	if raw := os.Getenv("SAGE_LAKEBASE_ENDPOINTS"); raw != "" {
-		if endpoint != "" {
-			return "", fmt.Errorf(
-				"set only one of SAGE_LAKEBASE_ENDPOINT and SAGE_LAKEBASE_ENDPOINTS")
-		}
-		var endpoints map[string]string
-		if err := json.Unmarshal([]byte(raw), &endpoints); err != nil {
-			return "", fmt.Errorf("SAGE_LAKEBASE_ENDPOINTS must be a JSON object " +
-				"mapping hostnames to endpoint resource paths")
-		}
-		for mapped, resource := range endpoints {
-			if !endpointName.MatchString(resource) {
-				return "", fmt.Errorf(
-					"invalid Lakebase endpoint resource path in SAGE_LAKEBASE_ENDPOINTS")
-			}
-			if allowedHost(host, []string{mapped}) {
-				endpoint = resource
-			}
-		}
-	}
-	if endpoint != "" && !endpointName.MatchString(endpoint) {
-		return "", fmt.Errorf(
-			"lakebase endpoint must be projects/<id>/branches/<id>/endpoints/<id>")
-	}
-	return endpoint, nil
+	return lakebaseid.EndpointForHost(os.Getenv, host)
 }
 
 // resolveEndpointHosts reads the endpoint's connection hosts. Permission and
