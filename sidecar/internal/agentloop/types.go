@@ -171,6 +171,9 @@ const (
 	StopCooldown    = "cooldown"
 	StopProvider    = "provider_error"
 	StopMalformed   = "malformed_replies"
+	// StopCancelled is set by a caller that keeps a run its own caller
+	// cancelled (Run returns the cancellation, not a stop).
+	StopCancelled = "cancelled"
 )
 
 // Rejection reasons, counted in Transcript.Rejected.
