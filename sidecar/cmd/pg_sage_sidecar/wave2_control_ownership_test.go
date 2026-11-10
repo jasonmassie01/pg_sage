@@ -37,7 +37,7 @@ func TestWave2MetaControlOwnershipIgnoresMonitoredFleetPrimary(t *testing.T) {
 		Store: store.NewDatabaseStore(metaPool, nil),
 	}
 
-	result := wireRouter(WireParams{
+	result := testWireRouter(WireParams{
 		Cfg:       cfg,
 		Pool:      metaPool,
 		FleetMgr:  mgr,
@@ -246,7 +246,7 @@ func TestWave2MonitoredRemovalAndReplacementDoNotRebindMetaAuth(t *testing.T) {
 		Pool:  metaPool,
 		Store: store.NewDatabaseStore(metaPool, nil),
 	}
-	result := wireRouter(WireParams{
+	result := testWireRouter(WireParams{
 		Cfg:       cfg,
 		Pool:      metaPool,
 		FleetMgr:  mgr,
@@ -280,7 +280,7 @@ func TestWave2MonitoredRemovalAndReplacementDoNotRebindMetaAuth(t *testing.T) {
 			t.Fatal("replacement pool must remain active")
 		},
 	})
-	rewired := wireRouter(WireParams{
+	rewired := testWireRouter(WireParams{
 		Cfg:       cfg,
 		Pool:      metaPool,
 		FleetMgr:  mgr,
@@ -313,7 +313,7 @@ func TestWave2MetaAuthOwnershipSurvivesNoConnectedMonitoredDatabases(t *testing.
 		Store: store.NewDatabaseStore(metaPool, nil),
 	}
 
-	result := wireRouter(WireParams{
+	result := testWireRouter(WireParams{
 		Cfg:       cfg,
 		Pool:      metaPool,
 		FleetMgr:  mgr,

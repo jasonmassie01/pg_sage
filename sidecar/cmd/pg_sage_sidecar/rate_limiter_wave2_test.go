@@ -250,7 +250,7 @@ func TestWave2WireRouterEnforcesLimiterAtRequest61(t *testing.T) {
 	t.Cleanup(pool.Close)
 	rl := NewRateLimiter(60)
 	t.Cleanup(rl.Stop)
-	result := wireRouter(WireParams{
+	result := testWireRouter(WireParams{
 		Cfg:         testCfg,
 		Pool:        pool,
 		FleetMgr:    testFleetMgr(testCfg),
@@ -286,7 +286,7 @@ func TestWave2WireRouterLimiterRunsBeforeAuth(t *testing.T) {
 	if !rl.Allow(client) {
 		t.Fatal("failed to exhaust limiter before request")
 	}
-	result := wireRouter(WireParams{
+	result := testWireRouter(WireParams{
 		Cfg:         testCfg,
 		FleetMgr:    testFleetMgr(testCfg),
 		RateLimiter: rl,

@@ -55,7 +55,7 @@ func persistMetaTrustLevel(
 	return err
 }
 
-func (o *trustPolicyOwner) Name() string { return "trust_policy" }
+func (o *trustPolicyOwner) Name() string { return config.TrustPolicyOwner }
 
 func (o *trustPolicyOwner) Prepare(
 	_ context.Context, active, desired config.ConfigSnapshot,
@@ -128,11 +128,11 @@ func (p *preparedTrustPolicy) addCeilingTarget(
 	instance *fleet.DatabaseInstance, oldLevel string,
 ) {
 	switch {
-	case trustRank(oldLevel) > trustRank(p.level):
+	case config.TrustRank(oldLevel) > config.TrustRank(p.level):
 		p.targets = append(p.targets, trustPolicyTarget{
 			instance: instance, oldLevel: oldLevel,
 		})
-	case trustRank(oldLevel) < trustRank(p.level):
+	case config.TrustRank(oldLevel) < config.TrustRank(p.level):
 		p.notRaised++
 	}
 }
@@ -194,18 +194,6 @@ func (p *preparedTrustPolicy) Warnings() []string {
 		"trust.level %s is a ceiling in meta-db mode: %d databases were "+
 			"not raised; raise each database's trust level individually",
 		p.level, p.notRaised))
-}
-
-func trustRank(level string) int {
-	switch level {
-	case "observation":
-		return 0
-	case "advisory":
-		return 1
-	case "autonomous":
-		return 2
-	}
-	return -1
 }
 
 func applyTrustPolicyLevel(

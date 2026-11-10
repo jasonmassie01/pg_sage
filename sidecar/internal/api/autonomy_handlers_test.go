@@ -105,7 +105,7 @@ func (f *autonomyAPIFixture) router(user *auth.User) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
-	return NewRouterFullRuntime(f.mgr, config.DefaultConfig(), nil, nil, nil, nil,
+	return newTestRouter(f.mgr, config.DefaultConfig(), nil, nil, nil, nil,
 		&RuntimeDeps{Autonomy: &AutonomyDeps{Ledgers: f.reg}}, inject)
 }
 

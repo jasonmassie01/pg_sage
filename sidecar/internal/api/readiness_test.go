@@ -220,7 +220,7 @@ func TestReadiness_ConcurrentProbes(t *testing.T) {
 
 // The router serves /ready without a session, next to /health.
 func TestRouter_ReadyIsRegisteredAndUnauthenticated(t *testing.T) {
-	h := NewRouterFullRuntime(nil, &config.Config{}, nil, nil, nil, nil, nil,
+	h := newTestRouter(nil, &config.Config{}, nil, nil, nil, nil, nil,
 		SessionAuthMiddleware(nil))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "/ready", nil))

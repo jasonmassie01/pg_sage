@@ -129,11 +129,13 @@ func TestSecretBindingSkipsDatabricksAuth(t *testing.T) {
 
 func TestSecretBindingPutRefusedLeavesConfig(t *testing.T) {
 	cfg := bindingConfig()
-	handler := configGlobalPutHandler(nil, cfg, nil)
+	controller := config.NewConfigController(cfg, nil, apiTrustOwner{})
+	handler := configGlobalPutHandler(nil, controller)
 	for _, body := range []string{
-		`{"llm.endpoint":"https://other.example/v1"}`,
-		`{"clone.dle_endpoint":"https://other.example"}`,
-		`{"llm.endpoint":"https://other.example/v1","llm.api_key":"****cret"}`,
+		`{"expected_generation":1,"llm.endpoint":"https://other.example/v1"}`,
+		`{"expected_generation":1,"clone.dle_endpoint":"https://other.example"}`,
+		`{"expected_generation":1,"llm.endpoint":"https://other.example/v1",` +
+			`"llm.api_key":"****cret"}`,
 	} {
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, httptest.NewRequest(
@@ -143,19 +145,24 @@ func TestSecretBindingPutRefusedLeavesConfig(t *testing.T) {
 			t.Fatalf("PUT %s = %d %s, want 400 new origin", body, w.Code, w.Body.String())
 		}
 	}
-	if cfg.LLM.APIKey != "sk-stored-secret" || cfg.LLM.Endpoint != "https://llm.example/v1" {
-		t.Fatalf("llm config changed after refusal: %+v", cfg.LLM)
+	desired := controller.Desired()
+	if desired.Generation != 1 {
+		t.Fatalf("desired generation = %d after refusals, want 1", desired.Generation)
 	}
-	if cfg.Clone.DLEToken != "dle-stored-token" ||
-		cfg.Clone.DLEEndpoint != "https://dle.example:2345" {
-		t.Fatalf("clone config changed after refusal: %+v", cfg.Clone)
+	got := desired.Config
+	if got.LLM.APIKey != "sk-stored-secret" || got.LLM.Endpoint != "https://llm.example/v1" {
+		t.Fatalf("llm config changed after refusal: %+v", got.LLM)
+	}
+	if got.Clone.DLEToken != "dle-stored-token" ||
+		got.Clone.DLEEndpoint != "https://dle.example:2345" {
+		t.Fatalf("clone config changed after refusal: %+v", got.Clone)
 	}
 }
 
 func TestSecretBindingControlledPutRefused(t *testing.T) {
 	cfg := bindingConfig()
 	controller := config.NewConfigController(cfg, nil, apiTrustOwner{})
-	handler := configGlobalPutHandler(nil, cfg, nil, controller)
+	handler := configGlobalPutHandler(nil, controller)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, httptest.NewRequest(http.MethodPut, "/api/v1/config/global",
 		strings.NewReader(`{"expected_generation":1,"llm.endpoint":"https://evil.example"}`)))
@@ -188,15 +195,18 @@ func TestSecretBindingNewOriginReceivesNoAuthorization(t *testing.T) {
 	defer oldOrigin.Close()
 	cfg := bindingConfig()
 	cfg.LLM.Endpoint = oldOrigin.URL + "/v1"
-	handler := configGlobalPutHandler(nil, cfg, nil)
+	controller := config.NewConfigController(cfg, nil, apiTrustOwner{})
+	handler := configGlobalPutHandler(nil, controller)
 	w := httptest.NewRecorder()
+	body := `{"expected_generation":1,"llm.endpoint":"` + newOrigin.URL + `/v1"}`
 	handler.ServeHTTP(w, httptest.NewRequest(http.MethodPut, "/api/v1/config/global",
-		strings.NewReader(`{"llm.endpoint":"`+newOrigin.URL+`/v1"}`)))
+		strings.NewReader(body)))
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("endpoint-only PUT = %d, want 400", w.Code)
 	}
-	if _, err := llm.ListModelsWithClient(t.Context(), cfg.LLM.Endpoint, cfg.LLM.APIKey,
-		egress.HTTPClient(0)); err != nil {
+	desired := controller.Desired().Config
+	if _, err := llm.ListModelsWithClient(t.Context(), desired.LLM.Endpoint,
+		desired.LLM.APIKey, egress.HTTPClient(0)); err != nil {
 		t.Fatalf("list models at the configured origin: %v", err)
 	}
 	if newHits.Load() != 0 || oldAuth.Load() != 1 {

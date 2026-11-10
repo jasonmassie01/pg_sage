@@ -44,7 +44,7 @@ func buildOptionalRouter(t *testing.T, mw func(http.Handler) http.Handler) http.
 		SpecialistAudit: stubSpecialistAudit{},
 		Ask:             ask.NewRegistry(),
 	}
-	return NewRouterFullRuntime(mgr, cfg, pool, nil, nil, nil, rt, mw)
+	return newTestRouter(mgr, cfg, pool, nil, nil, nil, rt, mw)
 }
 
 // buildDatabricksAppRouter is a Databricks App deployment: platform
@@ -54,5 +54,5 @@ func buildDatabricksAppRouter(t *testing.T, mw func(http.Handler) http.Handler) 
 	mgr := fleet.NewManager(cfg)
 	pool := unreachablePool(t)
 	rt := &RuntimeDeps{DatabricksAppAuth: true}
-	return NewRouterFullRuntime(mgr, cfg, pool, nil, nil, nil, rt, mw)
+	return newTestRouter(mgr, cfg, pool, nil, nil, nil, rt, mw)
 }

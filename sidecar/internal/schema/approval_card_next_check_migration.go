@@ -24,7 +24,11 @@ BEGIN
             ON sage.approval_card_deliveries (next_check_at, id)
             WHERE followed_up_at IS NULL;
     END IF;
+    -- Inside the block, checked first, so a boot without the old index
+    -- takes no lock (config-04's precheck runs a DO block every boot).
+    IF to_regclass('sage.idx_approval_card_followup') IS NOT NULL THEN
+        DROP INDEX sage.idx_approval_card_followup;
+    END IF;
 END
 $approval_card_next_check$;
-DROP INDEX IF EXISTS sage.idx_approval_card_followup;
 `

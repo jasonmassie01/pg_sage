@@ -59,10 +59,6 @@ func coverageDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 			cbPool = nil
 			return
 		}
-		if err := schema.EnsureDatabasesTable(qctx, cbPool); err != nil {
-			cbPoolErr = fmt.Errorf("ensure databases: %w", err)
-			return
-		}
 		if err := schema.MigrateConfigSchema(qctx, cbPool); err != nil {
 			cbPoolErr = fmt.Errorf("migrate config: %w", err)
 			return
@@ -1098,8 +1094,8 @@ func TestCoverage_ConfigStore_GetMergedConfig(t *testing.T) {
 		t.Fatal("missing collector.interval_seconds")
 	}
 	em := entry.(map[string]any)
-	if em["source"] != "yaml" {
-		t.Errorf("source = %v, want yaml", em["source"])
+	if em["source"] != SourceFileDefault {
+		t.Errorf("source = %v, want %s", em["source"], SourceFileDefault)
 	}
 
 	// Set global override.

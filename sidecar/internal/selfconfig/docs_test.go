@@ -92,9 +92,12 @@ func anyFileDeclares(t *testing.T, files []string, decl string) bool {
 }
 
 // CHECK-03: a new derived key marked live without a reader test is
-// caught. analyzer.interval_seconds is a reconfigure (live) field that is
-// not derived today.
+// caught. analyzer.interval_seconds is not derived today; it is made live
+// here by listing it as a cycle reader (config-07: no field lifecycle makes
+// a derived key live any more).
 func TestUnlistedLiveKeysCatchesANewLiveKey(t *testing.T) {
+	cycleReaders["analyzer.interval_seconds"] = true
+	t.Cleanup(func() { delete(cycleReaders, "analyzer.interval_seconds") })
 	rules := append(Rules(), Rule{Key: "analyzer.interval_seconds"})
 	got := unlistedLiveKeys(rules, liveKeyReaders)
 	if !reflect.DeepEqual(got, []string{"analyzer.interval_seconds"}) {

@@ -114,6 +114,10 @@ const (
 	DefaultAlertingCheckInterval = 60
 	DefaultAlertingCooldown      = 15
 
+	// Schema lint and DDL-safety polling (the runners' own fallbacks).
+	DefaultSchemaLintScanIntervalMinutes = 60
+	DefaultMigrationPollIntervalSeconds  = 5
+
 	// auto_explain defaults.
 	DefaultAutoExplainLogMinDuration   = 1000
 	DefaultAutoExplainCollectInterval  = 300

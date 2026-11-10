@@ -47,7 +47,7 @@ func startAPIServer(rl *RateLimiter) {
 	}
 
 	configureAPIProcessHooks()
-	result := wireRouter(WireParams{
+	result, err := wireRouter(WireParams{
 		DatabricksAppAuth: databricksAppAuth,
 		Cfg:               cfg,
 		Pool:              pool,
@@ -68,6 +68,10 @@ func startAPIServer(rl *RateLimiter) {
 		LLMBudgets:       llmBudgetRegistry(),
 		MCPHandler:       mcpHTTPHandler(),
 	})
+	if err != nil {
+		logError("api", "refusing to start API server: %v", err)
+		os.Exit(1)
+	}
 	startAuthPoolServices(result.AuthPool)
 	startTLSExpiryWatch(shutdownCtx, apiTLS, tlsExpiryCheckInterval)
 	serveAPI(addr, result.Handler)

@@ -1135,7 +1135,7 @@ func TestCoverage_Actions_WithOffset(t *testing.T) {
 func TestCoverage_ConfigUpdate_Observation(t *testing.T) {
 	r := testRouter("db1")
 	w := put(t, r, "/api/v1/config",
-		`{"trust":{"level":"observation"}}`)
+		`{"trust":{"level":"observation"},"expected_generation":1}`)
 	if w.Code != 200 {
 		t.Fatalf("status: %d", w.Code)
 	}
@@ -1144,7 +1144,7 @@ func TestCoverage_ConfigUpdate_Observation(t *testing.T) {
 func TestCoverage_ConfigUpdate_Autonomous(t *testing.T) {
 	r := testRouter("db1")
 	w := put(t, r, "/api/v1/config",
-		`{"trust":{"level":"autonomous"}}`)
+		`{"trust":{"level":"autonomous"},"expected_generation":1}`)
 	if w.Code != 200 {
 		t.Fatalf("status: %d", w.Code)
 	}
@@ -1153,7 +1153,7 @@ func TestCoverage_ConfigUpdate_Autonomous(t *testing.T) {
 func TestCoverage_ConfigUpdate_InvalidTrustLevel(t *testing.T) {
 	r := testRouter("db1")
 	w := put(t, r, "/api/v1/config",
-		`{"trust":{"level":"dangerous"}}`)
+		`{"trust":{"level":"dangerous"},"expected_generation":1}`)
 	if w.Code != 400 {
 		t.Errorf("status: %d, want 400", w.Code)
 	}
@@ -1161,20 +1161,21 @@ func TestCoverage_ConfigUpdate_InvalidTrustLevel(t *testing.T) {
 
 func TestCoverage_ConfigUpdate_EmptyObject(t *testing.T) {
 	r := testRouter("db1")
-	w := put(t, r, "/api/v1/config", `{}`)
+	w := put(t, r, "/api/v1/config", `{"expected_generation":1}`)
 	if w.Code != 200 {
-		t.Fatalf("status: %d", w.Code)
+		t.Fatalf("status: %d; body=%s", w.Code, w.Body.String())
 	}
 	m := decodeJSON(t, w)
-	if m["status"] != "updated" {
-		t.Errorf("status: got %v", m["status"])
+	// A save that changes nothing keeps the generation.
+	if m["desired_generation"] != float64(1) {
+		t.Errorf("desired_generation: got %v, want 1", m["desired_generation"])
 	}
 }
 
 func TestCoverage_ConfigUpdate_NonTrustKey(t *testing.T) {
 	r := testRouter("db1")
 	w := put(t, r, "/api/v1/config",
-		`{"other":"value"}`)
+		`{"other":"value","expected_generation":1}`)
 	if w.Code != 200 {
 		t.Fatalf("status: %d", w.Code)
 	}
@@ -1183,7 +1184,7 @@ func TestCoverage_ConfigUpdate_NonTrustKey(t *testing.T) {
 func TestCoverage_ConfigUpdate_TrustNotMap(t *testing.T) {
 	r := testRouter("db1")
 	w := put(t, r, "/api/v1/config",
-		`{"trust":"string_not_map"}`)
+		`{"trust":"string_not_map","expected_generation":1}`)
 	// Trust is present but not a map. Handler should skip
 	// but succeed.
 	if w.Code != 200 {
@@ -1194,7 +1195,7 @@ func TestCoverage_ConfigUpdate_TrustNotMap(t *testing.T) {
 func TestCoverage_ConfigUpdate_TrustNoLevel(t *testing.T) {
 	r := testRouter("db1")
 	w := put(t, r, "/api/v1/config",
-		`{"trust":{"other":"value"}}`)
+		`{"trust":{"other":"value"},"expected_generation":1}`)
 	if w.Code != 200 {
 		t.Fatalf("status: %d", w.Code)
 	}
@@ -1361,44 +1362,6 @@ func TestCoverage_NewRouterFull_FleetActions(t *testing.T) {
 	r.ServeHTTP(w2, req2)
 	if w2.Code != http.StatusBadRequest {
 		t.Errorf("approve status: got %d, want 400", w2.Code)
-	}
-}
-
-// ================================================================
-// configGlobalPutHandler — syncTrustLevelToFleet path
-// ================================================================
-
-func TestCoverage_ConfigGlobalPut_SyncsTrustToFleet(
-	t *testing.T,
-) {
-	// syncTrustLevelToFleet is tested directly via
-	// TestSyncTrustLevelToFleet. The configGlobalPutHandler
-	// calls applyConfigOverrides which requires a real
-	// ConfigStore (backed by pgxpool). Testing the full
-	// handler path with trust.level sync requires integration
-	// tests. We verify the sync function is correct separately.
-	cfg := &config.Config{}
-	mgr := fleet.NewManager(cfg)
-	mgr.RegisterInstance(&fleet.DatabaseInstance{
-		Name:   "db1",
-		Config: config.DatabaseConfig{Name: "db1"},
-		Status: &fleet.InstanceStatus{TrustLevel: "observation"},
-	})
-
-	// Test the handler with empty body (no store needed).
-	handler := configGlobalPutHandler(nil, cfg, mgr)
-	w := doRequest(
-		handler, "PUT", "/api/v1/config/global", `{}`)
-	if w.Code != http.StatusOK {
-		t.Fatalf("status: got %d, want 200", w.Code)
-	}
-
-	// Directly verify sync function works.
-	syncTrustLevelToFleet(mgr, "autonomous")
-	inst := mgr.GetInstance("db1")
-	if inst.Status.TrustLevel != "autonomous" {
-		t.Errorf("fleet trust: got %q, want autonomous",
-			inst.Status.TrustLevel)
 	}
 }
 
@@ -1704,19 +1667,6 @@ func TestCoverage_CSVImportResult_ZeroValue(t *testing.T) {
 	}
 	if result.Skipped != 0 {
 		t.Errorf("skipped: got %d", result.Skipped)
-	}
-}
-
-// ================================================================
-// applyConfigOverrides — additional empty body path
-// ================================================================
-
-func TestCoverage_ApplyConfigOverrides_EmptyBody(t *testing.T) {
-	cfg := &config.Config{}
-	errs := applyConfigOverrides(
-		nil, nil, cfg, map[string]any{}, 0, 0)
-	if len(errs) != 0 {
-		t.Errorf("errs: got %v, want empty", errs)
 	}
 }
 

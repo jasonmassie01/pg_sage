@@ -67,70 +67,96 @@ func migrateConfigUserKeys(ctx context.Context, db bootstrapDB) error {
 	return nil
 }
 
+// ddlConfigColumns adds the per-database and updater columns to sage.config.
+// The precheck leaves out a column that exists, so a second boot takes no
+// lock on sage.config.
+const ddlConfigColumns = `
+ALTER TABLE sage.config ADD COLUMN IF NOT EXISTS database_id INT;
+ALTER TABLE sage.config ADD COLUMN IF NOT EXISTS updated_by_user_id INT
+    REFERENCES sage.users(id) ON DELETE SET NULL;
+`
+
+// configKeyIndex is the unique index every ON CONFLICT (key,
+// COALESCE(database_id, 0)) on sage.config needs (config CAS, emergency stop).
+const configKeyIndex = "idx_config_key_db"
+
+const ddlConfigKeyIndex = `CREATE UNIQUE INDEX IF NOT EXISTS idx_config_key_db
+    ON sage.config (key, COALESCE(database_id, 0))`
+
+// configKeyIndexStateSQL reads whether sage.config_pkey exists and whether
+// idx_config_key_db exists, is valid and is unique.
+const configKeyIndexStateSQL = `/* pg_sage config key index v1 */
+SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint
+                WHERE conrelid = 'sage.config'::regclass AND conname = 'config_pkey'),
+       i.indexrelid IS NOT NULL, COALESCE(i.indisvalid, false),
+       COALESCE(i.indisunique, false)
+  FROM (SELECT 1) one
+  LEFT JOIN pg_catalog.pg_index i
+    ON i.indexrelid = pg_catalog.to_regclass('sage.idx_config_key_db')`
+
 func addConfigColumns(
 	ctx context.Context, db bootstrapDB,
 ) error {
 	qctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-
-	// Add database_id column if missing.
-	_, err := db.Exec(qctx, `/* pg_sage */
-		DO $$ BEGIN
-			ALTER TABLE sage.config
-				ADD COLUMN database_id INT;
-		EXCEPTION
-			WHEN duplicate_column THEN NULL;
-		END $$;
-	`)
-	if err != nil {
-		return fmt.Errorf("adding database_id: %w", err)
+	if _, err := runMigrationStep(qctx, db, migrationStep{
+		name: "ddlConfigColumns", sql: ddlConfigColumns,
+	}); err != nil {
+		return err
 	}
-
-	// Add updated_by_user_id column if missing.
-	_, err = db.Exec(qctx, `/* pg_sage */
-		DO $$ BEGIN
-			ALTER TABLE sage.config
-				ADD COLUMN updated_by_user_id INT
-				REFERENCES sage.users(id) ON DELETE SET NULL;
-		EXCEPTION
-			WHEN duplicate_column THEN NULL;
-		END $$;
-	`)
-	if err != nil {
-		return fmt.Errorf("adding updated_by_user_id: %w", err)
-	}
-
 	return addConfigCompositeIndex(qctx, db)
 }
 
+// configKeyIndexState is what configKeyIndexStateSQL reads.
+type configKeyIndexState struct {
+	hasPK, exists, valid, unique bool
+}
+
+func readConfigKeyIndexState(
+	ctx context.Context, db bootstrapDB,
+) (configKeyIndexState, error) {
+	var st configKeyIndexState
+	err := db.QueryRow(ctx, configKeyIndexStateSQL).
+		Scan(&st.hasPK, &st.exists, &st.valid, &st.unique)
+	if err != nil {
+		return st, fmt.Errorf("reading sage.config keys from the catalog: %w", err)
+	}
+	return st, nil
+}
+
+// addConfigCompositeIndex creates idx_config_key_db when it is missing,
+// fails naming it unless it is then present, valid and unique (G5-B24:
+// errors were swallowed, and a missing index broke every config upsert),
+// and only then drops the old single-column primary key on (key), so
+// per-database overrides can coexist with global rows and sage.config is
+// never left without a unique key.
 func addConfigCompositeIndex(
 	ctx context.Context, db bootstrapDB,
 ) error {
-	// Drop the old single-column PK on (key) so per-database
-	// overrides can coexist with global config rows.
-	_, err := db.Exec(ctx, `/* pg_sage */
-		DO $$ BEGIN
-			ALTER TABLE sage.config
-				DROP CONSTRAINT IF EXISTS config_pkey;
-		EXCEPTION
-			WHEN others THEN NULL;
-		END $$;
-	`)
+	st, err := readConfigKeyIndexState(ctx, db)
 	if err != nil {
-		return fmt.Errorf("dropping old PK: %w", err)
+		return err
 	}
-
-	_, err = db.Exec(ctx, `/* pg_sage */
-		DO $$ BEGIN
-			CREATE UNIQUE INDEX IF NOT EXISTS
-				idx_config_key_db
-				ON sage.config (key, COALESCE(database_id, 0));
-		EXCEPTION
-			WHEN others THEN NULL;
-		END $$;
-	`)
-	if err != nil {
-		return fmt.Errorf("creating composite index: %w", err)
+	if !st.exists {
+		if _, err := db.Exec(ctx, ddlConfigKeyIndex); err != nil {
+			return fmt.Errorf("creating unique index sage.%s on sage.config "+
+				"(key, COALESCE(database_id, 0)): %w; remove duplicate (key, database_id) "+
+				"rows from sage.config and restart", configKeyIndex, err)
+		}
+		if st, err = readConfigKeyIndexState(ctx, db); err != nil {
+			return err
+		}
+	}
+	if !st.exists || !st.valid || !st.unique {
+		return fmt.Errorf("sage.%s is not a valid unique index on sage.config "+
+			"(exists %t, valid %t, unique %t): drop it and restart so bootstrap "+
+			"rebuilds it", configKeyIndex, st.exists, st.valid, st.unique)
+	}
+	if st.hasPK {
+		if _, err := db.Exec(ctx,
+			"ALTER TABLE sage.config DROP CONSTRAINT config_pkey"); err != nil {
+			return fmt.Errorf("dropping the old primary key sage.config_pkey: %w", err)
+		}
 	}
 	return nil
 }
@@ -141,11 +167,10 @@ func ensureConfigAudit(
 	qctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	_, err := db.Exec(qctx, ddlConfigAudit)
-	if err != nil {
-		return fmt.Errorf("creating config_audit: %w", err)
-	}
-	return nil
+	_, err := runMigrationStep(qctx, db, migrationStep{
+		name: "ddlConfigAudit", sql: ddlConfigAudit,
+	})
+	return err
 }
 
 // ddlConfigUserKeys reshapes the two config foreign keys to sage.users so

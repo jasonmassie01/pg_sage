@@ -28,7 +28,7 @@ func TestAccessLog_ChatOpsCallbackIsLogged(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := config.DefaultConfig()
 			cfg.API.AccessLog = tc.accessLog
-			h := NewRouterFullRuntime(fleet.NewManager(cfg), cfg, unreachablePool(t),
+			h := newTestRouter(fleet.NewManager(cfg), cfg, unreachablePool(t),
 				nil, nil, nil, nil)
 			buf := captureAccessLog(t)
 			// The channel lookup cannot reach the database: 503.

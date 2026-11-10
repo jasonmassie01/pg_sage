@@ -229,48 +229,6 @@ func TestPhase2_EnvOr_EmptyString(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// HotReloadable (0% coverage)
-// ---------------------------------------------------------------------------
-
-func TestPhase2_HotReloadable_ReturnsNonEmpty(t *testing.T) {
-	cfg := &Config{}
-	fields := cfg.HotReloadable()
-	if len(fields) == 0 {
-		t.Fatal("HotReloadable() returned empty slice")
-	}
-	// Verify expected fields are present.
-	expected := []string{
-		"collector.interval_seconds",
-		"analyzer.*",
-		"safety.*",
-		"trust.level",
-		"llm.*",
-		"retention.*",
-	}
-	for _, exp := range expected {
-		found := false
-		for _, f := range fields {
-			if f == exp {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("HotReloadable() missing %q", exp)
-		}
-	}
-}
-
-func TestPhase2_HotReloadable_DoesNotContainPostgres(t *testing.T) {
-	cfg := &Config{}
-	for _, f := range cfg.HotReloadable() {
-		if f == "postgres.*" || f == "postgres.host" {
-			t.Errorf("HotReloadable() should not contain postgres fields, found %q", f)
-		}
-	}
-}
-
-// ---------------------------------------------------------------------------
 // IsStandalone (0% coverage)
 // ---------------------------------------------------------------------------
 

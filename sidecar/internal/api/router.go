@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -152,12 +153,13 @@ func NewRouterFullRuntime(
 	llmMgr *llm.Manager,
 	runtime *RuntimeDeps,
 	middlewares ...func(http.Handler) http.Handler,
-) http.Handler {
-	apiMux := http.NewServeMux()
-	var rt RuntimeDeps
-	if runtime != nil {
-		rt = *runtime
+) (http.Handler, error) {
+	if runtime == nil || runtime.ConfigController == nil {
+		return nil, errors.New("api router: a config controller is required " +
+			"(every mode builds one before the API starts)")
 	}
+	apiMux := http.NewServeMux()
+	rt := *runtime
 	registerAuthModeRoute(apiMux, rt.DatabricksAppAuth)
 	registerFleetScopedRoutes(apiMux, mgr, cfg, pool, llmMgr, rt)
 	if pool != nil {
@@ -202,7 +204,7 @@ func NewRouterFullRuntime(
 		registerMCPMetadata(root, rt.MCPOAuth)
 	}
 	registerRootRoutes(root)
-	return root
+	return root, nil
 }
 
 // registerFleetScopedRoutes registers the routes that resolve their data

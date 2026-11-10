@@ -11,6 +11,9 @@ import { ConfigDiff } from '../components/ConfigDiff'
 import { useToast } from '../components/Toast'
 import { ShadowModePage } from './ShadowModePage'
 import { DerivedSettings } from './settings/DerivedSettings'
+import {
+  MaskedBadge, MaskedOverridesContext, SourceBadge, maskedByKey,
+} from './settings/SourceBadge'
 import { readPref, writePref } from '../lib/storage'
 import { SETTINGS_SAVED_EVENT } from '../components/SecretsPostureBanner'
 import {
@@ -95,6 +98,10 @@ export function SettingsPage({ database, databaseId }) {
   }
 
   const cfg = useMemo(() => data?.config || {}, [data?.config])
+  const masked = useMemo(
+    () => maskedByKey(data?.masked_by_override),
+    [data?.masked_by_override],
+  )
 
   const getVal = useCallback((key) => {
     if (key in edits) return edits[key]
@@ -104,7 +111,7 @@ export function SettingsPage({ database, databaseId }) {
 
   const getSource = useCallback((key) => {
     if (key in edits) return 'modified'
-    return cfg[key]?.source ?? 'default'
+    return cfg[key]?.source ?? 'file/default'
   }, [cfg, edits])
 
   const setVal = (key, val) => {
@@ -311,6 +318,7 @@ export function SettingsPage({ database, databaseId }) {
   const hasEdits = Object.keys(edits).length > 0
 
   return (
+    <MaskedOverridesContext.Provider value={masked}>
     <QueryState query={config}><div className="space-y-4 max-w-3xl">
       {pendingTrust && (
         <TrustLevelConfirm
@@ -381,9 +389,11 @@ export function SettingsPage({ database, databaseId }) {
           color: 'var(--text-secondary)',
         }}
       >
-        <span>
-          Saved fields follow server lifecycle metadata. Reconfigured owners
-          rebuild in place; restart-bound fields are reported as pending.
+        <span data-testid="settings-lifecycle-banner">
+          Saved fields follow server lifecycle metadata. The LLM connection
+          and YAML fleet databases rebuild in place, trust.level and the trust
+          ceilings apply live; every other field is reported as pending
+          restart.
         </span>
         <button
           data-testid="settings-restart-btn"
@@ -441,6 +451,7 @@ export function SettingsPage({ database, databaseId }) {
         </div>
       )}
     </div></QueryState>
+    </MaskedOverridesContext.Provider>
   )
 }
 
@@ -755,25 +766,6 @@ function FeedbackBanner({ type, msg }) {
   )
 }
 
-function SourceBadge({ source }) {
-  const colors = {
-    default: 'var(--text-secondary)',
-    yaml: 'var(--blue)',
-    override: 'var(--accent)',
-    db_override: 'var(--green)',
-    modified: 'var(--yellow)',
-  }
-  return (
-    <span className="text-[10px] ml-2 px-1.5 py-0.5 rounded"
-      style={{
-        color: colors[source] || 'var(--text-secondary)',
-        border: `1px solid ${colors[source] || 'var(--border)'}`,
-      }}>
-      {source}
-    </span>
-  )
-}
-
 function Field({
   label, configKey, type, getVal, setVal, getSource,
   resetField, options, help, readOnly = false,
@@ -792,6 +784,7 @@ function Field({
             <span>{label}</span>
           </ConfigTooltip>
           <SourceBadge source={source} />
+          <MaskedBadge configKey={configKey} />
         </label>
         {help && (
           <div className="text-[11px] mt-0.5"
@@ -1113,6 +1106,7 @@ function ModelField({
             style={{ color: 'var(--text-primary)' }}>
             Model
             <SourceBadge source={source} />
+            <MaskedBadge configKey="llm.model" />
           </label>
           {help && (
             <div className="text-[11px] mt-0.5"
@@ -1165,6 +1159,7 @@ function ModelField({
           style={{ color: 'var(--text-primary)' }}>
           Model
           <SourceBadge source={source} />
+          <MaskedBadge configKey="llm.model" />
         </label>
         {help && (
           <div className="text-[11px] mt-0.5"

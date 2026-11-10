@@ -168,7 +168,7 @@ func actionRouter(t *testing.T, mgr *fleet.DatabaseManager, user *auth.User) htt
 			next.ServeHTTP(w, r)
 		})
 	}
-	return NewRouterFullRuntime(mgr, config.DefaultConfig(), nil,
+	return newTestRouter(mgr, config.DefaultConfig(), nil,
 		&ActionDeps{Fleet: mgr}, nil, nil, nil, inject)
 }
 

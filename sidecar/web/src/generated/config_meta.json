@@ -1679,7 +1679,7 @@
   },
   "migration.poll_interval_seconds": {
     "type": "int",
-    "default": 0,
+    "default": 5,
     "doc": "How often to poll during active DDL. Default: 5.",
     "class": "derivable"
   },
@@ -2151,7 +2151,7 @@
   },
   "schema_lint.scan_interval_minutes": {
     "type": "int",
-    "default": 0,
+    "default": 60,
     "doc": "How often to run the full schema lint scan. Default: 60.",
     "class": "derivable"
   },

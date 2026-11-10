@@ -171,7 +171,7 @@ func routerConfigs() []routerConfig {
 func buildBareRouter(t *testing.T, mw func(http.Handler) http.Handler) http.Handler {
 	cfg := config.DefaultConfig()
 	mgr := fleet.NewManager(cfg)
-	return NewRouterFullRuntime(mgr, cfg, nil, nil, nil, nil, nil, mw)
+	return newTestRouter(mgr, cfg, nil, nil, nil, nil, nil, mw)
 }
 
 func buildStandaloneRouter(t *testing.T, mw func(http.Handler) http.Handler) http.Handler {
@@ -191,7 +191,7 @@ func buildStandaloneRouter(t *testing.T, mw func(http.Handler) http.Handler) htt
 		MCPHandler: mcp,
 		Autonomy:   &AutonomyDeps{Ledgers: earned.NewRegistry(false)},
 	}
-	return NewRouterFullRuntime(mgr, cfg, pool, actions, nil, nil, rt, mw)
+	return newTestRouter(mgr, cfg, pool, actions, nil, nil, rt, mw)
 }
 
 func buildFleetReadOnlyRouter(t *testing.T, mw func(http.Handler) http.Handler) http.Handler {
@@ -202,12 +202,12 @@ func buildFleetReadOnlyRouter(t *testing.T, mw func(http.Handler) http.Handler) 
 	actions := &ActionDeps{Fleet: mgr}
 	dbDeps := &DatabaseDeps{Store: &store.DatabaseStore{}, Fleet: mgr}
 	rt := &RuntimeDeps{DisableConfigWrites: true}
-	return NewRouterFullRuntime(mgr, cfg, pool, actions, dbDeps, nil, rt, mw)
+	return newTestRouter(mgr, cfg, pool, actions, dbDeps, nil, rt, mw)
 }
 
 func buildStoreOnlyActionsRouter(t *testing.T, mw func(http.Handler) http.Handler) http.Handler {
 	cfg := config.DefaultConfig()
 	mgr := fleet.NewManager(cfg)
 	actions := &ActionDeps{Store: store.NewActionStore(nil)}
-	return NewRouterFullRuntime(mgr, cfg, nil, actions, nil, nil, nil, mw)
+	return newTestRouter(mgr, cfg, nil, actions, nil, nil, nil, mw)
 }

@@ -68,11 +68,12 @@ metric path (`main.go:1780`).
 |---|---|---|---|
 | **Standalone** | `mode: standalone`, no `--meta-db` | one global `pool` | `initStandalone` (`main.go:295`) |
 | **YAML Fleet** | `mode: fleet`, `databases:` in YAML | one pool per DB | `initFleetMultiDB` (`main.go:828`) |
-| **Meta-DB Fleet** | `--meta-db` set (any mode) | meta pool + one pool per stored DB | `initMetaDBFleet` (`metadb.go:279`) |
+| **Meta-DB Fleet** | `--meta-db` set, `mode` unset, `meta` or `fleet` (`standalone` with a meta-db is refused at load) | meta pool + one pool per stored DB | `initMetaDBFleet` (`metadb.go:279`) |
 
 `HasMetaDB()` takes precedence over `IsFleet()`/`IsStandalone()` in the
 connection branch (`main.go:117,139`) — a meta-DB DSN routes you to the
-store-backed fleet path regardless of `mode`.
+store-backed fleet path regardless of `mode`. `config.Load` refuses `mode: standalone`
+with a meta-db, so the metrics never report standalone for a meta-db fleet.
 
 **Standalone** (`initStandalone`, `main.go:295-690`): runs `startup.RunChecks`,
 `schema.Bootstrap`, admin bootstrap, builds the full single-DB pipeline

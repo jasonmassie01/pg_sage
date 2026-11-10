@@ -53,7 +53,7 @@ func TestDeleteUser_AfterConfigWrite(t *testing.T) {
 	target, email := statusTestUser(t, ctx, pool, auth.RoleAdmin)
 	base := config.DefaultConfig()
 	controller := config.NewConfigController(base, nil, apiTrustOwner{})
-	put := configGlobalPutHandler(store.NewConfigStore(pool), base, nil, controller)
+	put := configGlobalPutHandler(store.NewConfigStore(pool), controller)
 	w := doRequestWithUser(put, http.MethodPut, "/api/v1/config/global",
 		`{"trust.level":"advisory","expected_generation":1}`,
 		&auth.User{ID: target, Email: email, Role: auth.RoleAdmin})

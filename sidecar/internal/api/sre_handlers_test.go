@@ -78,7 +78,7 @@ func sreRouter(t *testing.T, mgr *fleet.DatabaseManager, user *auth.User) http.H
 			next.ServeHTTP(w, r)
 		})
 	}
-	return NewRouterFullRuntime(mgr, config.DefaultConfig(), nil, nil, nil, nil, nil, inject)
+	return newTestRouter(mgr, config.DefaultConfig(), nil, nil, nil, nil, nil, inject)
 }
 
 func sreCall(t *testing.T, h http.Handler, method, path string) (int, string, string) {

@@ -54,7 +54,7 @@ func accessRouter(
 	t.Helper()
 	cfg := config.DefaultConfig()
 	cfg.API.AccessLog = accessLog
-	return NewRouterFullRuntime(fleet.NewManager(cfg), cfg, nil, nil, nil, nil, nil, mw...)
+	return newTestRouter(fleet.NewManager(cfg), cfg, nil, nil, nil, nil, nil, mw...)
 }
 
 func accessServe(h http.Handler, method, target, body, origin string) int {

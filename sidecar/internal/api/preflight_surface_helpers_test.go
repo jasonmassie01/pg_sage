@@ -51,7 +51,7 @@ func surfacePool(t *testing.T) *pgxpool.Pool {
 func surfaceRouter(t *testing.T, pool *pgxpool.Pool, cfg *config.Config,
 	runtime *RuntimeDeps) *surfaceFixture {
 	t.Helper()
-	handler := NewRouterFullRuntime(nil, cfg, pool, nil, nil, nil, runtime,
+	handler := newTestRouter(nil, cfg, pool, nil, nil, nil, runtime,
 		SessionAuthMiddleware(pool))
 	server := httptest.NewTLSServer(handler)
 	t.Cleanup(server.Close)
@@ -126,7 +126,7 @@ func surfaceMCP(t *testing.T, pool *pgxpool.Pool, stopped bool) *RuntimeDeps {
 	backend, err := mcp.NewProductionBackend(mcp.ProductionDependencies{
 		Gate: gate, Planner: mcp.DeterministicIntentPlanner{},
 		Executor: mcp.NewProductionIntentExecutor(access, plan.NewPlanner(), gate),
-		Policy: access, Ledger: access, Guarantees: access,
+		Policy:   access, Ledger: access, Guarantees: access,
 		Value: mcp.NewValueAccess(value.NewFleetService(func() []value.Source {
 			return []value.Source{{Name: "primary", Pool: pool}}
 		})),

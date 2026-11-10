@@ -51,7 +51,7 @@ func TestMCPBearerWithoutControlPoolIsRefused(t *testing.T) {
 	backend := &bearerBackend{}
 	runtime, err := mcp.NewRuntime(cfg.MCP, mcp.NewServer(backend), nil, nil)
 	require.NoError(t, err)
-	h := NewRouterFullRuntime(nil, cfg, nil, nil, nil, nil,
+	h := newTestRouter(nil, cfg, nil, nil, nil, nil,
 		&RuntimeDeps{MCPHandler: runtime.HTTPHandler()}, SessionAuthMiddleware(nil))
 
 	secret := mcptoken.SecretPrefix + strings.Repeat("A", 43)

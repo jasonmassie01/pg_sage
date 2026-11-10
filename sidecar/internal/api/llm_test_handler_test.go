@@ -45,7 +45,7 @@ func probeRouter(mgr *llm.Manager, user *auth.User) http.Handler {
 			next.ServeHTTP(w, withUser(r, user))
 		})
 	}
-	return NewRouterFullRuntime(nil, config.DefaultConfig(), nil, nil, nil,
+	return newTestRouter(nil, config.DefaultConfig(), nil, nil, nil,
 		mgr, &RuntimeDeps{}, inject)
 }
 

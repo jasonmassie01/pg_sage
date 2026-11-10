@@ -43,7 +43,7 @@ type llmClientRegistry struct {
 
 var llmClients = &llmClientRegistry{}
 
-func (*llmClientRegistry) Name() string { return "llm" }
+func (*llmClientRegistry) Name() string { return config.LLMOwner }
 
 // bind makes the registry authoritative for the parent LLM config and
 // forgets clients from a previous runtime.

@@ -16,6 +16,20 @@ const (
 	LifecycleRestart     ConfigLifecycle = "restart"
 )
 
+// Reconfiguration owners production registers. Field metadata names no
+// other owner; see ProductionOwners.
+const (
+	TrustPolicyOwner = "trust_policy"
+	LLMOwner         = "llm"
+)
+
+// ProductionOwners returns every reconfiguration owner the sidecar registers
+// in some mode: trust_policy, llm and llm_redaction in every mode,
+// fleet_databases in YAML fleet mode. The result is a fresh copy.
+func ProductionOwners() []string {
+	return []string{TrustPolicyOwner, LLMOwner, LLMRedactionOwner, FleetDatabasesOwner}
+}
+
 // FieldLifecycle is the canonical lifecycle metadata for one YAML field.
 type FieldLifecycle struct {
 	Path      string
@@ -100,7 +114,7 @@ func classifyField(path string) (ConfigLifecycle, string) {
 		return LifecycleReconfigure, owner
 	}
 	if path == "trust.level" || liveTrustCeilingFields[path] {
-		return LifecycleLivePolicy, "trust_policy"
+		return LifecycleLivePolicy, TrustPolicyOwner
 	}
 	// A field is restart-bound until a concrete runtime consumer proves it can
 	// adopt an immutable snapshot or supplies a reconfiguration owner.
@@ -119,28 +133,17 @@ func isRestartField(path string) bool {
 		path == "api.trusted_origins" || path == "prometheus.listen_addr"
 }
 
+// reconfigurationOwner names the production owner that rebuilds a field in
+// place. Only the LLM connection and the LLM redaction switch have one: a
+// field whose owner production never registers would be labelled
+// reconfigure yet wait for a restart in every mode (config-07), so it stays
+// restart-bound until an owner exists.
 func reconfigurationOwner(path string) string {
-	exact := map[string]string{
-		"collector.interval_seconds":            "collector",
-		"analyzer.interval_seconds":             "analyzer",
-		"tuner.revalidation_interval_hours":     "tuner",
-		"schema_lint.scan_interval_minutes":     "schema_lint",
-		"auto_explain.collect_interval_seconds": "auto_explain",
-		"llm.redact_numeric_literals":           LLMRedactionOwner,
-	}
-	if owner := exact[path]; owner != "" {
-		return owner
-	}
-	for prefix, owner := range map[string]string{
-		"alerting.": "alerting",
-		"briefing.": "briefing",
-	} {
-		if strings.HasPrefix(path, prefix) {
-			return owner
-		}
+	if path == "llm.redact_numeric_literals" {
+		return LLMRedactionOwner // llm-09: process-wide, registered in every mode
 	}
 	if strings.HasPrefix(path, "llm.") && isLLMResourceField(path) {
-		return "llm"
+		return LLMOwner
 	}
 	return ""
 }

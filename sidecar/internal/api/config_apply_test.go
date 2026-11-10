@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"net/http"
 	"strings"
 	"testing"
@@ -23,11 +22,16 @@ func slackConfig() *config.Config {
 	return cfg
 }
 
-func TestConfigApply_LinkLocalSlackURLRefused(t *testing.T) {
+// The legacy apply path is gone (config-10); every global write is checked
+// by boundConfigWrites before the controller persists or applies it.
+func TestConfigWrites_LinkLocalSlackURLRefused(t *testing.T) {
 	cfg := slackConfig()
-	errs := applyConfigOverrides(context.Background(), nil, cfg, map[string]any{
+	writes, errs := boundConfigWrites(map[string]any{
 		"alerting.slack_webhook_url": "https://169.254.169.254/latest/meta-data",
-	}, 0, 0)
+	}, cfg)
+	if len(writes) != 0 {
+		t.Fatalf("writes = %+v, want none", writes)
+	}
 	if len(errs) != 1 || !strings.Contains(errs[0], "alerting.slack_webhook_url") ||
 		!strings.Contains(errs[0], notify.ErrTargetBlocked.Error()) {
 		t.Fatalf("errs = %q, want one policy refusal naming the key", errs)
@@ -36,23 +40,24 @@ func TestConfigApply_LinkLocalSlackURLRefused(t *testing.T) {
 		t.Fatalf("error %q echoes the submitted URL", errs[0])
 	}
 	if cfg.Alerting.SlackWebhookURL != oldSlackURL {
-		t.Fatalf("slack URL hot-reloaded to %q", cfg.Alerting.SlackWebhookURL)
+		t.Fatalf("slack URL changed to %q", cfg.Alerting.SlackWebhookURL)
 	}
 }
 
 func TestConfigPut_LinkLocalSlackURLReturns400(t *testing.T) {
 	cfg := slackConfig()
-	handler := configGlobalPutHandler(nil, cfg, nil)
+	controller := config.NewConfigController(cfg, nil, apiTrustOwner{})
+	handler := configGlobalPutHandler(nil, controller)
 	w := doRequest(handler, "PUT", "/api/v1/config/global",
-		`{"alerting.slack_webhook_url":"http://169.254.169.254/latest"}`)
+		`{"alerting.slack_webhook_url":"http://169.254.169.254/latest","expected_generation":1}`)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400; body %s", w.Code, w.Body.String())
 	}
 	if !strings.Contains(w.Body.String(), "blocked by policy") {
 		t.Fatalf("body = %s, want the policy reason", w.Body.String())
 	}
-	if cfg.Alerting.SlackWebhookURL != oldSlackURL {
-		t.Fatalf("slack URL changed to %q", cfg.Alerting.SlackWebhookURL)
+	if got := controller.Desired().Config.Alerting.SlackWebhookURL; got != oldSlackURL {
+		t.Fatalf("slack URL changed to %q", got)
 	}
 }
 
@@ -60,7 +65,7 @@ func TestConfigPut_ControlledLinkLocalSlackURLReturns400(t *testing.T) {
 	cfg := slackConfig()
 	controller := config.NewConfigController(cfg, nil, apiTrustOwner{})
 	before := controller.Desired().Generation
-	handler := configGlobalPutHandler(nil, cfg, nil, controller)
+	handler := configGlobalPutHandler(nil, controller)
 	w := doRequest(handler, "PUT", "/api/v1/config/global",
 		`{"alerting.slack_webhook_url":"https://[fe80::1]/hook","expected_generation":1}`)
 	if w.Code != http.StatusBadRequest {

@@ -224,7 +224,7 @@ func applyMetaExecutorPolicy(rec store.DatabaseRecord, current *fleet.DatabaseIn
 	current.SetTrustLevelOverride(true)
 	level := current.Executor.TrustLevel()
 	current.UpdateStatus(func(status *fleet.InstanceStatus) { status.TrustLevel = level })
-	if trustRank(level) > trustRank(previous) {
+	if config.TrustRank(level) > config.TrustRank(previous) {
 		logWarn("meta-db", "db %q: trust raised %s -> %s from sage.databases",
 			rec.Name, previous, level)
 	}

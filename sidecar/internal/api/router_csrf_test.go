@@ -30,7 +30,7 @@ func csrfRouter(t *testing.T, cfg *config.Config, rt *RuntimeDeps) (http.Handler
 			w.WriteHeader(http.StatusAccepted)
 		})
 	}
-	h := NewRouterFullRuntime(fleet.NewManager(cfg), cfg, nil, nil, nil, nil, rt, probe)
+	h := newTestRouter(fleet.NewManager(cfg), cfg, nil, nil, nil, nil, rt, probe)
 	return h, reached
 }
 

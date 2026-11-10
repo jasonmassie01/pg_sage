@@ -219,7 +219,7 @@ func TestDatabricksAppRouterDisablesAlternateLoginsAndLocalUsers(t *testing.T) {
 	resolver := databricksAppAuthMiddleware(func(context.Context, string) (*auth.User, error) {
 		return &auth.User{ID: 1, Email: "owner@example.com", Role: auth.RoleAdmin}, nil
 	})
-	h := NewRouterFullRuntime(fleet.NewManager(cfg), cfg, unreachablePool(t), nil, nil, nil,
+	h := newTestRouter(fleet.NewManager(cfg), cfg, unreachablePool(t), nil, nil, nil,
 		&RuntimeDeps{DatabricksAppAuth: true}, resolver)
 	for _, path := range []string{
 		"/api/v1/auth/login", "/api/v1/auth/logout", "/api/v1/auth/break-glass",
@@ -247,7 +247,7 @@ func TestDatabricksAppRouterDisablesAlternateLoginsAndLocalUsers(t *testing.T) {
 
 func TestDatabricksAppRouterRejectsCrossOriginMutationAndLocalCORS(t *testing.T) {
 	cfg := config.DefaultConfig()
-	h := NewRouterFullRuntime(fleet.NewManager(cfg), cfg, nil, nil, nil, nil,
+	h := newTestRouter(fleet.NewManager(cfg), cfg, nil, nil, nil, nil,
 		&RuntimeDeps{DatabricksAppAuth: true})
 	r := httptest.NewRequest(http.MethodPost, "https://sage.databricksapps.com/api/v1/auth/login", strings.NewReader(`{}`))
 	r.Header.Set("Origin", "https://other.example.com")
@@ -271,7 +271,8 @@ func TestDatabricksAppOptionalProtocolsCannotUseLocalTokensOrUnscopedIdentity(t 
 		return &auth.User{ID: 1, Email: "owner@example.com", Role: auth.RoleAdmin}, nil
 	})
 	cfg := config.DefaultConfig()
-	h := NewRouterFullRuntime(fleet.NewManager(cfg), cfg, nil, nil, nil, nil, &RuntimeDeps{DatabricksAppAuth: true}, resolver)
+	h := newTestRouter(fleet.NewManager(cfg), cfg, nil, nil, nil, nil,
+		&RuntimeDeps{DatabricksAppAuth: true}, resolver)
 	for _, path := range []string{"/mcp", "/mcp/databases/orders", "/api/v1/mcp", "/api/v1/mcp/databases/orders", "/api/v1/mcp/tokens", "/api/v1/agents/test-agent/tokens", "/api/v1/specialist/investigate", "/api/v1/sre/change-events", "/api/v1/sre/sli/orders"} {
 		t.Run(path, func(t *testing.T) {
 			r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{}`))

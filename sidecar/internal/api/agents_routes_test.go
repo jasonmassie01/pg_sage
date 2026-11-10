@@ -36,7 +36,7 @@ func agentRouter(t *testing.T, pool *pgxpool.Pool, user *auth.User,
 			next.ServeHTTP(w, r)
 		})
 	}
-	return NewRouterFullRuntime(nil, cfg, pool, nil, nil, nil, &RuntimeDeps{}, inject)
+	return newTestRouter(nil, cfg, pool, nil, nil, nil, &RuntimeDeps{}, inject)
 }
 
 func agentBody(name string, sponsor int, ceiling string) string {

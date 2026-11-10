@@ -1,11 +1,33 @@
 # Configuration
 
-pg_sage uses three configuration sources with the following precedence (highest wins):
+pg_sage reads its configuration from these sources, highest precedence first:
 
-1. **CLI flags** (`--pg-url`, `--config`, `--prom-addr`, `--meta-db`, `--encryption-key`)
-2. **Environment variables** (`SAGE_DATABASE_URL`, `SAGE_LLM_API_KEY`, etc.)
-3. **YAML config file** (`config.yaml`)
-4. **Built-in defaults**
+1. **Settings overrides**: values saved in Settings or through `PUT /api/v1/config/global`,
+   stored in the control database (`sage.config`)
+2. **CLI flags** (`--pg-url`, `--config`, `--prom-addr`, `--meta-db`, `--encryption-key`)
+3. **Environment variables** (`SAGE_DATABASE_URL`, `SAGE_LLM_API_KEY`, etc.)
+4. **YAML config file** (`config.yaml`)
+5. **Built-in defaults**
+
+**Trust takes the most restrictive value.** For `trust.level`, `trust.tier3_safe`,
+`trust.tier3_moderate` and `trust.tier3_high_risk`, when the YAML file, an environment
+variable or a flag sets the key explicitly, the effective value is the more restrictive of
+that value and a stored override: the lower trust level, and a tier3 switch only when both
+are on. `SAGE_TRUST_LEVEL=observation`, or `trust.level: observation` in the YAML during an
+incident, therefore holds even though an old Settings override says `autonomous`; removing
+the file key lets the override apply again. An explicit value counts even when it equals the
+default. Every other key keeps the override winning.
+
+**Masked overrides are reported.** When a stored override replaces a different explicit
+file value (YAML, environment or flag), the key is *masked*: the sidecar logs one WARN per
+distinct pair of values, naming the key, both values, the user who stored the override and
+when, and `GET /api/v1/config/global` lists it in `masked_by_override` (an empty array when
+nothing is masked; secret values are redacted). Settings shows a **masked** badge on the
+key. The source badge says `override`, `db_override` or `file/default`: the file, an
+environment variable, a flag or the built-in default (the sidecar does not track which).
+Reset in Settings, or `DELETE /api/v1/config/global/<key>`, removes a stored override. In
+meta-db and fleet mode the same rule applies to the global overrides; per-database trust
+already takes the stricter of the database's level and the global ceiling.
 
 The sidecar validates a complete candidate before publishing a YAML reload.
 Every field has a typed lifecycle: `live_policy` swaps an immutable policy
@@ -13,6 +35,17 @@ snapshot, `reconfigure` tears down and rebuilds its named runtime owner, and
 `restart` remains pending until process restart. A `reconfigure` or
 `live_policy` field whose owner does not run in the current mode is treated
 as `restart`. In-flight work keeps its original snapshot.
+
+**Three owners rebuild in place.** The sidecar registers `trust_policy` and
+`llm` (the LLM connection: `llm.enabled`, `llm.endpoint`, `llm.api_key`,
+`llm.model`, `llm.auth` and its timeouts) in every mode, and `fleet_databases`
+(`databases` and `defaults.*`) in YAML fleet mode. Every other field,
+including `alerting.*`, `briefing.*` and the collector, analyzer, tuner,
+`schema_lint` and `auto_explain` intervals, is `restart`: a change made from
+Settings, the API or the YAML file is saved and reported as pending restart.
+A derived `collector.interval_seconds` is the exception on the derivation side:
+the collector re-reads it every cycle, so a promoted value applies live (see
+[derived settings](generated/derived-settings.md)).
 
 **Trust ceilings are live.** `trust.level`, `trust.tier3_safe`,
 `trust.tier3_moderate`, `trust.maintenance_window`, `trust.rollback_threshold_pct`,
@@ -26,6 +59,24 @@ it. If the change fails part-way, each executor keeps the stricter of its old an
 ceiling (a tier3 switch stays on only if both have it on; the other bounds keep their old
 value), so a failure never raises autonomy. `trust.tier3_high_risk` and the trust ramp
 (`trust.ramp_*`) still need a restart.
+
+**Replicas share the global settings and converge within 30 seconds.** A setting saved in
+Settings or through the API is a global override stored in the control database, and it
+takes precedence over each replica's YAML (except the trust rule above). Replicas on one control database share these
+overrides: meta-db mode (every sidecar on one `--meta-db`) and standalone replicas on one
+monitored database. Each replica reads the durable config generation every 30 seconds (one
+small query) and adopts a newer one the way a local save applies: its current YAML file plus
+the stored overrides, validated as a whole, live fields rebuilt by their owners, `restart`
+fields reported as pending restart. A save based on a stale generation is still refused with
+`409`, but the refusing replica resyncs first, so the `409` body's `desired_generation` (and
+a refetch of `GET /api/v1/config/global`) is the fresh one and the retry succeeds. A YAML hot
+reload that loses this race takes effect through the same resync. If the stored overrides do
+not validate on a replica (for example `clone.provider: dle` where that replica's YAML has no
+endpoint), the replica keeps its current config and logs an ERROR naming the key; an
+unreadable generation logs a WARN, and the next tick retries. `GET /api/v1/config` and
+`GET /api/v1/config/global` report `last_resync_at`: when the replica last adopted a
+generation another writer saved (`null` if it never has). A YAML fleet has no shared
+overrides: each sidecar's file is its configuration, and nothing is polled.
 
 **Restarting from the dashboard** is offered only under a declared supervisor: set
 `SAGE_SUPERVISED=1` when a supervisor (systemd, Kubernetes, the Databricks Apps launcher)
@@ -363,11 +414,34 @@ briefing:
 
 ## Key Settings Reference
 
+### One range per setting
+
+The config file and the settings API (`PUT /api/v1/config/global`) accept the same values for
+the settings below; a config file with a value outside the range fails to load, and the error
+names the key. The API's ranges are unchanged.
+
+| Key | Range |
+|---|---|
+| `analyzer.unused_index_window_days`, `analyzer.seq_scan_min_rows`, `safety.ddl_timeout_seconds`, `trust.rollback_window_minutes`, `trust.rollback_cooldown_days`, `schema_lint.scan_interval_minutes`, `migration.poll_interval_seconds` | `1`-`1073741824` |
+| `advisor.interval_seconds`, `alerting.check_interval_seconds` | `5`-`1073741824` |
+| `trust.rollback_threshold_pct` | `0`-`100` |
+
+Boolean settings saved through the API accept `true`/`false`, `t`/`f` and `1`/`0` in any
+case, and apply the value they validate as (`"True"` is true).
+
+Stored overrides (`sage.config`) are checked again when they are replayed at startup, on a
+config-file reload and when an override is deleted: a row whose key is not a settable override,
+or whose value fails its range, is skipped with a warning that names the key, its scope and its
+`updated_at` (never the value). An invalid stored `trust.maintenance_window` replays as `never`,
+so the window stays closed. If the stored overrides together leave an invalid configuration,
+startup exits naming the key and a reload keeps the previous configuration. A settings save that
+would produce an invalid configuration answers `400` with the key.
+
 ### Core
 
 | Parameter | Default | Description |
 |---|---|---|
-| `mode` | `standalone` | `standalone` (one database), `fleet` (YAML `databases`), or `meta` (inferred from `--meta-db`). The former `extension` mode was removed with the C extension and is rejected at startup |
+| `mode` | `standalone` | `standalone` (one database), `fleet` (YAML `databases`), or `meta` (inferred from `--meta-db`). `mode: standalone` together with `meta_db` / `--meta-db` is a startup error: leave `mode` unset (meta is inferred) or set `mode: meta`. The former `extension` mode was removed with the C extension and is rejected at startup |
 | `postgres.max_connections` | `2` | Connection pool size |
 | `postgres.sslmode` | `prefer` | SSL mode (`disable`, `prefer`, `require`, `verify-ca`, `verify-full`) |
 
@@ -378,6 +452,8 @@ briefing:
 | `collector.interval_seconds` | `60` | Seconds between snapshot collections |
 | `analyzer.interval_seconds` | `600` | Seconds between analysis cycles |
 | `analyzer.inactive_slot_min_minutes` | `5` | Report a replication slot (`inactive_slot`) once it has been inactive this many minutes. A slot whose `wal_status` is `extended`, `unreserved` or `lost` is reported at once. `0` uses the default. Settable through the configuration API without a restart (`1`-`10080` there). `0`-`10080` |
+| `analyzer.unused_index_window_days` | `7` | Days an index must show no scans before it is reported unused (the evidence for a drop). `1`-`1073741824`; `0` is rejected, because it would report every eligible index unused |
+| `analyzer.seq_scan_min_rows` | `100000` | Smallest table whose sequential scans are reported. `1`-`1073741824` |
 | `analyzer.self_cost_budget_ms` | `3000` | Raise a `sage_self_cost` finding when pg_sage's own statements (the `pg_stat_statements` entries carrying the `/* pg_sage */` tag after their first keyword) use more than this many milliseconds of database time per collector cycle, measured over each analyzer cycle. `0` disables the finding; the `pg_sage_self_*` Prometheus metrics are exported either way. `0`-`3600000` |
 | `analyzer.table_bloat_min_bytes` | `1073741824` (1 GiB) | Smallest heap (bytes, from `pg_class.relpages`) for which the freeze custodian plans an online bloat rebuild. The plan needs a catalog bloat estimate of at least 50% (`reltuples` times the `pg_stats` row width against `relpages`, at the table's fillfactor); the dead-tuple ratio alone never plans one, because the analyzer's `table_bloat` `VACUUM` covers it, and a table never analyzed has no estimate. When `pgstattuple` is installed, the three largest candidates per cycle are confirmed with `pgstattuple_approx` under `safety.query_timeout_ms` and `safety.lock_timeout_ms`; a timeout or error keeps the estimate (`evidence.bloat_source` is `estimate` or `pgstattuple`). Every plan is recorded once, and its repeats folded into that row, as a parked `bloat_remediation` decision at risk tier `high`; pg_sage never runs it. A `pg_repack` plan is offered only where the extension is installed. `0` uses the default. Restart to change |
 | `analyzer.wraparound_freeze_share` | `0.75` | Share (above 0, at most 1) of a table's effective freeze maximum (the lower of `autovacuum_freeze_max_age` and the table's reloption; XID or multixact) at which the analyzer reports a `wraparound_freeze` finding. Diagnosis only: the freeze custodian decides and proposes the VACUUM. Replaces `analyzer.wraparound_freeze_xid_age`, which is retired (it loads with one warning and is ignored). Restart to change |
@@ -487,7 +563,7 @@ time); the startup log prints one `derived settings:` line per database.
 | `trust.maintenance_window` | (none) | When autonomous MODERATE actions may run; see [Maintenance windows](#maintenance-windows). Unset or `never` closes the window. Live |
 | `trust.tier3_safe` | `true` | Operator switch for unattended SAFE actions the ledger has earned; off caps them at approval. Live: turning it off stops the next unattended SAFE action |
 | `trust.tier3_moderate` | `false` | Operator switch for unattended MODERATE actions the ledger has earned; off caps them at approval. Live |
-| `trust.rollback_cooldown_days` | `7` | Days a rolled-back finding is not re-applied. Live; a negative value is rejected |
+| `trust.rollback_cooldown_days` | `7` | Days a rolled-back finding is not re-applied. Live, `1`-`1073741824` (0 would turn the anti-flap cooldown off) |
 | `trust.cascade_cooldown_cycles` | `3` | Collector cycles an object rests after an action before the next one. Live for the executor's cascade guard; the tuner's re-tune cooldown for a query keeps its startup value until the database's runtime is rebuilt. A negative value is rejected |
 | `trust.ramp_start` | (auto) | When pg_sage began observing the database. Auto-persisted on first start; set to override |
 | `trust.ramp_safe_hours` | `192` | Minimum hours observed before pg_sage may propose a promotion to L2 (and to L3 for SAFE classes), 8 days, `1`-`8760`. A floor, never a grant. Actions that cannot be rolled back always wait at least `192` |
@@ -824,7 +900,7 @@ outcome ledger (`sage.action_outcome`).
 
 | Parameter | Default | Description |
 |---|---|---|
-| `trust.rollback_window_minutes` | `15` | Minimum minutes before a first verdict (not for drops). Live; a negative value is rejected |
+| `trust.rollback_window_minutes` | `15` | Minimum minutes before a first verdict (not for drops). Live, `1`-`1073741824` |
 | `trust.rollback_threshold_pct` | `10` | Regression bar on a target's call-weighted mean. Live, `0`-`100` |
 | `verify.min_samples` | `30` | Calls each window needs |
 | `verify.min_gain_pct` | `20` | Gain bar for `improved` |

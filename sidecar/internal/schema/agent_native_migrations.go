@@ -44,11 +44,3 @@ func agentNativeMigrations() []numberedMigration {
 	}
 }
 
-func agentNativeMigrationStatements() []string {
-	migrations := agentNativeMigrations()
-	statements := make([]string, 0, len(migrations))
-	for _, migration := range migrations {
-		statements = append(statements, migration.SQL)
-	}
-	return statements
-}

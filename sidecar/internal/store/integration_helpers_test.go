@@ -65,10 +65,6 @@ func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 			testPool = nil
 			return
 		}
-		if err := schema.EnsureDatabasesTable(qctx, testPool); err != nil {
-			testPoolErr = fmt.Errorf("ensure databases: %w", err)
-			return
-		}
 	})
 
 	if testPoolErr != nil {

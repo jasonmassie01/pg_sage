@@ -80,7 +80,7 @@ func TestReadinessTLSExpiry_RouterWiresRuntimeDep(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			h := NewRouterFullRuntime(fleet.NewManager(cfg), cfg, nil, nil, nil, nil, tc.rt)
+			h := newTestRouter(fleet.NewManager(cfg), cfg, nil, nil, nil, nil, tc.rt)
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ready", nil))
 			var body map[string]json.RawMessage

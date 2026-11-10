@@ -2,7 +2,9 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -143,37 +145,41 @@ func TestSecretBindingDeleteRefusalErrors(t *testing.T) {
 func TestSecretBindingDeleteHandlerRefusesFileKeyOnNewOrigin(t *testing.T) {
 	cs, user := contractSetup(t)
 	base := bindingConfig()
-	cfg := config.Clone(base)
-	put := configGlobalPutHandler(cs, cfg, nil)
+	controller := config.NewConfigController(config.Clone(base), nil, apiTrustOwner{})
+	put := configGlobalPutHandler(cs, controller)
 	w := doRequestWithUserRetry(t, put, "PUT", "/api/v1/config/global",
-		`{"llm.endpoint":"https://evil.example/v1","llm.api_key":"junk"}`, user)
+		`{"expected_generation":1,"llm.endpoint":"https://evil.example/v1",`+
+			`"llm.api_key":"junk"}`, user)
 	if w.Code != http.StatusOK {
 		t.Fatalf("PUT = %d %s, want 200", w.Code, w.Body.String())
 	}
-	del := configGlobalDeleteHandler(cs, cfg, staticConfigBase(base), nil)
+	del := configGlobalDeleteHandler(cs, staticConfigBase(base), controller)
 	mux := http.NewServeMux()
 	mux.HandleFunc("DELETE /api/v1/config/global/{key}", del)
-	w = doRequestWithUserRetry(t, mux.ServeHTTP, "DELETE",
-		"/api/v1/config/global/llm.api_key", "", user)
+	deleteKey := func(key string) *httptest.ResponseRecorder {
+		path := fmt.Sprintf("/api/v1/config/global/%s?expected_generation=%d",
+			key, controller.Desired().Generation)
+		return doRequestWithUserRetry(t, mux.ServeHTTP, "DELETE", path, "", user)
+	}
+	w = deleteKey("llm.api_key")
 	if w.Code != http.StatusBadRequest ||
 		!strings.Contains(w.Body.String(), "delete llm.endpoint first") {
 		t.Fatalf("DELETE = %d %s, want 400", w.Code, w.Body.String())
 	}
-	if v, ok := storedOverride(t, cs, "llm.api_key"); !ok || v != "junk" {
+	if v, ok := storedOverrideValue(t, cs, "llm.api_key"); !ok || v != "junk" {
 		t.Fatalf("stored llm.api_key = %q (present=%v), want the override kept", v, ok)
 	}
-	if cfg.LLM.APIKey != "junk" || cfg.LLM.Endpoint != "https://evil.example/v1" {
-		t.Fatalf("live config changed: endpoint %q", cfg.LLM.Endpoint)
+	if got := controller.Desired().Config.LLM; got.APIKey != "junk" ||
+		got.Endpoint != "https://evil.example/v1" {
+		t.Fatalf("desired config changed: endpoint %q", got.Endpoint)
 	}
-	w = doRequestWithUserRetry(t, mux.ServeHTTP, "DELETE",
-		"/api/v1/config/global/llm.endpoint", "", user)
-	if w.Code != http.StatusOK {
+	if w = deleteKey("llm.endpoint"); w.Code != http.StatusOK {
 		t.Fatalf("DELETE endpoint = %d %s, want 200", w.Code, w.Body.String())
 	}
-	w = doRequestWithUserRetry(t, mux.ServeHTTP, "DELETE",
-		"/api/v1/config/global/llm.api_key", "", user)
-	if w.Code != http.StatusOK || cfg.LLM.APIKey != base.LLM.APIKey ||
-		cfg.LLM.Endpoint != base.LLM.Endpoint {
+	w = deleteKey("llm.api_key")
+	got := controller.Desired().Config.LLM
+	if w.Code != http.StatusOK || got.APIKey != base.LLM.APIKey ||
+		got.Endpoint != base.LLM.Endpoint {
 		t.Fatalf("DELETE key after endpoint = %d %s, want the file pair back",
 			w.Code, w.Body.String())
 	}

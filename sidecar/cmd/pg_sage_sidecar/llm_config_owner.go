@@ -9,10 +9,13 @@ import (
 
 // registerLLMConfigOwner binds the client registry to the active LLM config,
 // tracks the shared client, and registers the registry as the single "llm"
-// reconfiguration owner so every client follows live llm.* changes.
+// reconfiguration owner so every client follows live llm.* changes. The
+// process-wide redaction owner (llm-09) is registered after it in every mode,
+// even when there is no LLM client.
 func registerLLMConfigOwner() {
-	registerLLMRedactionOwner()
-	if configController == nil || llmClient == nil {
+	defer registerLLMRedactionOwner()
+	if configController == nil || llmClient == nil ||
+		!modeRegistersOwner(config.LLMOwner) {
 		return
 	}
 	llmClients.bind(configController.Active().Config.LLM)

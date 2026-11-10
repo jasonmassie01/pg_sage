@@ -75,7 +75,7 @@ func registerConfigRoutesRuntime(
 	disableWrites bool,
 ) {
 	if disableWrites {
-		registerReadOnlyConfigRoutes(mux, cfg, fm, controller)
+		registerReadOnlyConfigRoutes(mux, fm, controller)
 		return
 	}
 	cs := store.NewConfigStore(pool)
@@ -85,18 +85,13 @@ func registerConfigRoutesRuntime(
 		baseCfg = config.Clone(cfg)
 	}
 
-	globalGet := http.HandlerFunc(
-		configGlobalGetHandler(cs, baseCfg, controller))
+	globalGet := http.HandlerFunc(configGlobalGetHandler(cs, controller))
 	route(mux, "GET /api/v1/config/global", gateAdmin, globalGet)
 
-	globalPutHandler := configGlobalPutHandler(cs, cfg, fm, controller)
-	globalPut := http.HandlerFunc(globalPutHandler)
+	globalPut := http.HandlerFunc(configGlobalPutHandler(cs, controller))
 	route(mux, "PUT /api/v1/config/global", gateAdmin, globalPut)
 
-	globalDeleteHandler := configGlobalDeleteHandler(
-		cs, cfg, base, fm, controller,
-	)
-	globalDelete := http.HandlerFunc(globalDeleteHandler)
+	globalDelete := http.HandlerFunc(configGlobalDeleteHandler(cs, base, controller))
 	route(mux, "DELETE /api/v1/config/global/{key}", gateAdmin, globalDelete)
 
 	registerDatabaseConfigRoutes(mux, cs, baseCfg, cfg, pool, fm, controller)
@@ -133,22 +128,17 @@ func registerDatabaseConfigRoutes(
 // reads come from the running config, every write answers 503.
 func registerReadOnlyConfigRoutes(
 	mux *http.ServeMux,
-	cfg *config.Config,
 	fm *fleet.DatabaseManager,
 	controller *config.ConfigController,
 ) {
 	unavailable := http.HandlerFunc(
 		configPersistenceUnavailableHandler(),
 	)
-	globalGet := http.HandlerFunc(
-		configReadOnlyGlobalGetHandler(cfg, controller),
-	)
+	globalGet := http.HandlerFunc(configReadOnlyGlobalGetHandler(controller))
 	route(mux, "GET /api/v1/config/global", gateAdmin, globalGet)
 	route(mux, "PUT /api/v1/config/global", gateAdmin, unavailable)
 	route(mux, "DELETE /api/v1/config/global/{key}", gateAdmin, unavailable)
-	dbGet := http.HandlerFunc(
-		configReadOnlyDBGetHandler(cfg, fm, controller),
-	)
+	dbGet := http.HandlerFunc(configReadOnlyDBGetHandler(fm, controller))
 	route(mux, "GET /api/v1/config/databases/{id}", gateAdmin, dbGet)
 	route(mux, "PUT /api/v1/config/databases/{id}", gateAdmin, unavailable)
 	route(mux, "DELETE /api/v1/config/databases/{id}/{key}", gateAdmin, unavailable)

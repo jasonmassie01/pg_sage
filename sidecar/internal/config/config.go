@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -143,6 +144,11 @@ type Config struct {
 	HasPlanTimeColumns bool   `yaml:"-"`
 	StatementsSchema   string `yaml:"-"` // pg_stat_statements' schema; empty: unqualified
 	CloudEnvironment   string `yaml:"-"` // e.g. "rds", "cloud-sql", "self-managed"
+
+	// The file layer's presence set and the overrides masking it (config-03,
+	// explicit_paths.go). Both are immutable once set, so Clone shares them.
+	explicitPaths map[string]struct{}
+	overrideMask  *overrideMask
 }
 
 type PostgresConfig struct {
@@ -585,7 +591,9 @@ func conninfoValue(value string) string {
 }
 
 // Load reads config from YAML file, then overlays env vars, then CLI flags.
-// Precedence: CLI > env > YAML > defaults.
+// Precedence: CLI > env > YAML > defaults. Persisted UI overrides replay on
+// top of the result, except that trust ceilings take the most restrictive
+// of an explicit file value and the override (config-03).
 func Load(args []string) (*Config, error) {
 	cfg := newDefaults()
 	// Mode starts unset so inferMode can tell an explicit choice (YAML,
@@ -635,6 +643,7 @@ func Load(args []string) (*Config, error) {
 	if err := applySecretFiles(cfg); err != nil {
 		return nil, err
 	}
+	markEnvPaths(cfg)
 
 	// Step 3: Overlay CLI flags (highest precedence).
 	if *mode != "" {
@@ -670,6 +679,7 @@ func Load(args []string) (*Config, error) {
 	if *encryptionKey != "" {
 		cfg.EncryptionKey = *encryptionKey
 	}
+	markFlagPaths(cfg, fs)
 
 	// Legacy env-var compat.
 	if v := os.Getenv("SAGE_API_KEY"); v != "" {
@@ -688,11 +698,6 @@ func Load(args []string) (*Config, error) {
 	if err := validateMode(cfg); err != nil {
 		return nil, err
 	}
-	if cfg.Mode == "standalone" && cfg.Postgres.DSN() == "" && cfg.MetaDB == "" {
-		return nil, fmt.Errorf(
-			"standalone mode requires postgres connection config or --meta-db")
-	}
-
 	if err := cfg.validateFileConfig(); err != nil {
 		return nil, fmt.Errorf("config validation: %w", err)
 	}
@@ -744,6 +749,9 @@ func (c *Config) validate() error {
 	}
 	if c.Analyzer.SlowQueryThresholdMs < 0 {
 		return fmt.Errorf("analyzer.slow_query_threshold_ms must be non-negative")
+	}
+	if err := c.validateAPITypedRanges(); err != nil {
+		return err
 	}
 	if err := c.Analyzer.validateSchemaGuard(); err != nil {
 		return err
@@ -877,10 +885,7 @@ func (c *Config) validate() error {
 // validateTrust checks the trust level and the maintenance window grammar
 // so a typo fails at load instead of silently meaning "never".
 func (c *Config) validateTrust() error {
-	validTrust := map[string]bool{
-		"observation": true, "advisory": true, "autonomous": true,
-	}
-	if !validTrust[c.Trust.Level] {
+	if !IsTrustLevel(c.Trust.Level) {
 		return fmt.Errorf(
 			"trust.level must be observation, advisory, or autonomous (got %q)",
 			c.Trust.Level,
@@ -1026,6 +1031,12 @@ func newDefaults() *Config {
 			CheckIntervalSeconds: DefaultAlertingCheckInterval,
 			CooldownMinutes:      DefaultAlertingCooldown,
 			Timezone:             "UTC",
+		},
+		SchemaLint: SchemaLintConfig{
+			ScanIntervalMinutes: DefaultSchemaLintScanIntervalMinutes,
+		},
+		Migration: MigrationConfig{
+			PollIntervalSeconds: DefaultMigrationPollIntervalSeconds,
 		},
 		AutoExplain: AutoExplainConfig{
 			Enabled:                true,
@@ -1221,6 +1232,9 @@ func loadYAML(path string, cfg *Config) error {
 	if err := migrateLegacyIndexOptimizer(expanded, candidate); err != nil {
 		return err
 	}
+	if candidate.explicitPaths, err = yamlPresencePaths(expanded); err != nil {
+		return err
+	}
 	*cfg = *candidate
 	return nil
 }
@@ -1309,11 +1323,18 @@ func inferMode(cfg *Config) string {
 }
 
 // validateMode rejects unknown modes, meta mode without a meta database,
-// and the removed extension mode, which served the API over the deleted C
-// extension's schema.
+// standalone mode with one (main would run the meta-db fleet while metrics
+// report standalone), and the removed extension mode, which served the API
+// over the deleted C extension's schema.
 func validateMode(cfg *Config) error {
 	switch cfg.Mode {
-	case "standalone", "fleet":
+	case "standalone":
+		if cfg.MetaDB != "" {
+			return errors.New("mode standalone cannot be combined with " +
+				"meta_db; drop mode (meta is inferred) or set mode: meta")
+		}
+		return nil
+	case "fleet":
 		return nil
 	case ModeMeta:
 		if cfg.MetaDB == "" {
@@ -1327,25 +1348,6 @@ func validateMode(cfg *Config) error {
 	default:
 		return fmt.Errorf("invalid mode %q: must be 'standalone', 'fleet', "+
 			"or 'meta'", cfg.Mode)
-	}
-}
-
-// HotReloadable returns the fields that can be reloaded without restart.
-func (c *Config) HotReloadable() []string {
-	return []string{
-		"collector.interval_seconds",
-		"analyzer.*",
-		"safety.*",
-		"trust.level", "trust.tier3_safe", "trust.tier3_moderate",
-		"trust.maintenance_window",
-		"llm.*",
-		"briefing.schedule",
-		"alerting.*",
-		"auto_explain.log_min_duration_ms",
-		"auto_explain.max_plans_per_cycle",
-		"forecaster.*",
-		"tuner.*",
-		"retention.*",
 	}
 }
 

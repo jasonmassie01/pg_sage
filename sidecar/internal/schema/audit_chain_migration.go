@@ -75,8 +75,14 @@ BEGIN
         created_at   timestamptz NOT NULL DEFAULT now(),
         PRIMARY KEY (issuer, subject)
     );
-    CREATE INDEX IF NOT EXISTS guard_identity_bindings_principal
-        ON sage.guard_identity_bindings (principal_id);
+    -- Checked first: CREATE INDEX IF NOT EXISTS takes its table lock before
+    -- it checks (config-04).
+    IF to_regclass('sage.guard_identity_bindings_principal') IS NULL THEN
+        CREATE INDEX guard_identity_bindings_principal
+            ON sage.guard_identity_bindings (principal_id);
+    END IF;
+    -- The unused principals-file table is dropped (agentgov-04); checked
+    -- first so a boot without it takes no lock.
     IF to_regclass('sage.guard_principal_files') IS NOT NULL THEN
         DROP TABLE IF EXISTS sage.guard_principal_files;
     END IF;
@@ -86,10 +92,12 @@ END $do$;
 // migrateAuditChain installs the hash chains over the audit tables (E2).
 // It is Bootstrap's last step, so every table it chains exists (the config
 // migration creates sage.config_audit after the migration list runs).
+// It runs as a prechecked migration step, so a second boot does not take
+// the link table's index locks (config-04).
 func migrateAuditChain(ctx context.Context, db bootstrapDB) error {
-	qctx, cancel := context.WithTimeout(ctx, migrationBatchTimeout)
-	defer cancel()
-	if _, err := db.Exec(qctx, auditchain.MigrationSQL()); err != nil {
+	if _, err := runMigrationStep(ctx, db, migrationStep{
+		name: "auditchain.MigrationSQL", sql: auditchain.MigrationSQL(),
+	}); err != nil {
 		return fmt.Errorf("audit chain migration: %w", err)
 	}
 	return nil

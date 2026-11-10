@@ -109,7 +109,7 @@ func exhaustedPool(t *testing.T) *pgxpool.Pool {
 // answers 503 db_unavailable, not 500.
 func TestPoolExhaust_HandlerAnswers503DBUnavailable(t *testing.T) {
 	pool := exhaustedPool(t)
-	h := NewRouterFullRuntime(nil, config.DefaultConfig(), pool, nil, nil, nil, nil,
+	h := newTestRouter(nil, config.DefaultConfig(), pool, nil, nil, nil, nil,
 		fakeAdminMiddleware)
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()

@@ -54,7 +54,7 @@ type WireResult struct {
 
 // wireRouter assembles the HTTP handler from the given params.
 // This is the testable core extracted from startAPIServer.
-func wireRouter(p WireParams) WireResult {
+func wireRouter(p WireParams) (WireResult, error) {
 	// Meta mode has an explicit canonical control pool. Monitored
 	// databases are replaceable and must never own auth or sessions.
 	var authPool *pgxpool.Pool
@@ -156,7 +156,7 @@ func wireRouter(p WireParams) WireResult {
 	api.SetClientIPResolver(clientIP)
 	// X-Forwarded-Proto marks a session cookie Secure only from a trusted proxy.
 	api.SetForwardedProtoTrust(fromTrustedProxy)
-	router := api.NewRouterFullRuntime(
+	router, err := api.NewRouterFullRuntime(
 		p.FleetMgr, p.Cfg, authPool, actionDeps, dbDeps,
 		p.LLMMgr, &api.RuntimeDeps{
 			DatabricksAppAuth: p.DatabricksAppAuth != nil,
@@ -198,13 +198,15 @@ func wireRouter(p WireParams) WireResult {
 		},
 		middlewares...,
 	)
-
+	if err != nil {
+		return WireResult{}, err
+	}
 	return WireResult{
 		Handler:    router,
 		AuthPool:   authPool,
 		ActionDeps: actionDeps,
 		DBDeps:     dbDeps,
-	}
+	}, nil
 }
 
 func applyMetaDatabaseCreate(

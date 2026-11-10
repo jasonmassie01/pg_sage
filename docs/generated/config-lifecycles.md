@@ -2,7 +2,7 @@
 
 > Generated from `internal/config` by `cmd/gen_config_meta`; do not edit manually.
 
-`live_policy` swaps an immutable policy snapshot. `reconfigure` tears down and rebuilds the named owner. `restart` is rejected during reload. A `reconfigure` or `live_policy` field whose owner is not running in the current mode is treated as `restart`. The self-config class says whether pg_sage may derive the key (`derivable`) or never does (`safety_critical`, `operator_preference`); see [derived settings](derived-settings.md).
+`live_policy` swaps an immutable policy snapshot. `reconfigure` tears down and rebuilds the named owner. `restart` is rejected during reload. A `reconfigure` or `live_policy` field whose owner is not running in the current mode is treated as `restart`. The owners are `trust_policy` and `llm` in every mode and `fleet_databases` in YAML fleet mode. The self-config class says whether pg_sage may derive the key (`derivable`) or never does (`safety_critical`, `operator_preference`); see [derived settings](derived-settings.md).
 
 | Field | Lifecycle | Runtime owner | Self-config class |
 | --- | --- | --- | --- |
@@ -41,16 +41,16 @@
 | `agents.roles.temp_file_limit_mb` | `restart` | `-` | `safety_critical` |
 | `agents.roles.transaction_timeout_ms` | `restart` | `-` | `safety_critical` |
 | `agents.single_operator_mode` | `restart` | `-` | `safety_critical` |
-| `alerting.check_interval_seconds` | `reconfigure` | `alerting` | `operator_preference` |
-| `alerting.cooldown_minutes` | `reconfigure` | `alerting` | `operator_preference` |
-| `alerting.enabled` | `reconfigure` | `alerting` | `operator_preference` |
-| `alerting.pagerduty_routing_key` | `reconfigure` | `alerting` | `safety_critical` |
-| `alerting.quiet_hours_end` | `reconfigure` | `alerting` | `operator_preference` |
-| `alerting.quiet_hours_start` | `reconfigure` | `alerting` | `operator_preference` |
-| `alerting.routes` | `reconfigure` | `alerting` | `operator_preference` |
-| `alerting.slack_webhook_url` | `reconfigure` | `alerting` | `safety_critical` |
-| `alerting.timezone` | `reconfigure` | `alerting` | `operator_preference` |
-| `alerting.webhooks` | `reconfigure` | `alerting` | `safety_critical` |
+| `alerting.check_interval_seconds` | `restart` | `-` | `operator_preference` |
+| `alerting.cooldown_minutes` | `restart` | `-` | `operator_preference` |
+| `alerting.enabled` | `restart` | `-` | `operator_preference` |
+| `alerting.pagerduty_routing_key` | `restart` | `-` | `safety_critical` |
+| `alerting.quiet_hours_end` | `restart` | `-` | `operator_preference` |
+| `alerting.quiet_hours_start` | `restart` | `-` | `operator_preference` |
+| `alerting.routes` | `restart` | `-` | `operator_preference` |
+| `alerting.slack_webhook_url` | `restart` | `-` | `safety_critical` |
+| `alerting.timezone` | `restart` | `-` | `operator_preference` |
+| `alerting.webhooks` | `restart` | `-` | `safety_critical` |
 | `analyzer.analyze_stale_days` | `restart` | `-` | `derivable` |
 | `analyzer.analyze_stale_min_rows` | `restart` | `-` | `derivable` |
 | `analyzer.autovacuum_tune_min_rows` | `restart` | `-` | `derivable` |
@@ -59,7 +59,7 @@
 | `analyzer.idle_in_transaction_timeout_minutes` | `restart` | `-` | `derivable` |
 | `analyzer.inactive_slot_min_minutes` | `restart` | `-` | `derivable` |
 | `analyzer.index_bloat_threshold_pct` | `restart` | `-` | `derivable` |
-| `analyzer.interval_seconds` | `reconfigure` | `analyzer` | `derivable` |
+| `analyzer.interval_seconds` | `restart` | `-` | `derivable` |
 | `analyzer.lock_chain.active_query_cancel_minutes` | `restart` | `-` | `safety_critical` |
 | `analyzer.lock_chain.critical_blocked_threshold` | `restart` | `-` | `derivable` |
 | `analyzer.lock_chain.enabled` | `restart` | `-` | `safety_critical` |
@@ -99,7 +99,7 @@
 | `audit.siem.max_backoff_seconds` | `restart` | `-` | `operator_preference` |
 | `audit.siem.sinks` | `restart` | `-` | `safety_critical` |
 | `audit.verify_interval_hours` | `restart` | `-` | `operator_preference` |
-| `auto_explain.collect_interval_seconds` | `reconfigure` | `auto_explain` | `derivable` |
+| `auto_explain.collect_interval_seconds` | `restart` | `-` | `derivable` |
 | `auto_explain.enabled` | `restart` | `-` | `operator_preference` |
 | `auto_explain.log_min_duration_ms` | `restart` | `-` | `derivable` |
 | `auto_explain.max_plans_per_cycle` | `restart` | `-` | `derivable` |
@@ -107,9 +107,9 @@
 | `azure.resource_group` | `restart` | `-` | `safety_critical` |
 | `azure.server_name` | `restart` | `-` | `safety_critical` |
 | `azure.subscription_id` | `restart` | `-` | `safety_critical` |
-| `briefing.channels` | `reconfigure` | `briefing` | `operator_preference` |
-| `briefing.schedule` | `reconfigure` | `briefing` | `operator_preference` |
-| `briefing.slack_webhook_url` | `reconfigure` | `briefing` | `safety_critical` |
+| `briefing.channels` | `restart` | `-` | `operator_preference` |
+| `briefing.schedule` | `restart` | `-` | `operator_preference` |
+| `briefing.slack_webhook_url` | `restart` | `-` | `safety_critical` |
 | `clone.dle_endpoint` | `restart` | `-` | `safety_critical` |
 | `clone.dle_token` | `restart` | `-` | `safety_critical` |
 | `clone.max_clone_age_minutes` | `restart` | `-` | `operator_preference` |
@@ -126,7 +126,7 @@
 | `cloud_telemetry.min_storage_runway_hours` | `restart` | `-` | `safety_critical` |
 | `cloud_telemetry.poll_interval_seconds` | `restart` | `-` | `derivable` |
 | `collector.batch_size` | `restart` | `-` | `derivable` |
-| `collector.interval_seconds` | `reconfigure` | `collector` | `derivable` |
+| `collector.interval_seconds` | `restart` | `-` | `derivable` |
 | `collector.max_queries` | `restart` | `-` | `derivable` |
 | `custodian.freeze.red_buffer_pct` | `restart` | `-` | `safety_critical` |
 | `custodian.wal.abandon_after_minutes` | `restart` | `-` | `safety_critical` |
@@ -323,7 +323,7 @@
 | `schema_lint.exclude_schemas` | `restart` | `-` | `operator_preference` |
 | `schema_lint.include_schemas` | `restart` | `-` | `operator_preference` |
 | `schema_lint.min_table_rows` | `restart` | `-` | `derivable` |
-| `schema_lint.scan_interval_minutes` | `reconfigure` | `schema_lint` | `derivable` |
+| `schema_lint.scan_interval_minutes` | `restart` | `-` | `derivable` |
 | `self_budget.blocks_per_hour` | `restart` | `-` | `operator_preference` |
 | `self_budget.cpu_ms_per_cycle` | `restart` | `-` | `operator_preference` |
 | `self_budget.db_time_ms_per_hour` | `restart` | `-` | `operator_preference` |
@@ -462,7 +462,7 @@
 | `tuner.parallel_min_table_rows` | `restart` | `-` | `derivable` |
 | `tuner.plan_max_age_minutes` | `restart` | `-` | `derivable` |
 | `tuner.plan_time_ratio` | `restart` | `-` | `derivable` |
-| `tuner.revalidation_interval_hours` | `reconfigure` | `tuner` | `derivable` |
+| `tuner.revalidation_interval_hours` | `restart` | `-` | `derivable` |
 | `tuner.stale_stats_age_minutes` | `restart` | `-` | `derivable` |
 | `tuner.stale_stats_estimate_skew` | `restart` | `-` | `derivable` |
 | `tuner.stale_stats_mod_ratio` | `restart` | `-` | `derivable` |

@@ -29,7 +29,8 @@ type fleetDatabasesOwner struct {
 // registerFleetDatabasesOwner makes YAML fleet databases reloadable. The
 // control database is fixed at startup.
 func registerFleetDatabasesOwner(boot *fleetBootstrap) {
-	if configController == nil || boot == nil {
+	if configController == nil || boot == nil ||
+		!modeRegistersOwner(config.FleetDatabasesOwner) {
 		return
 	}
 	owner := &fleetDatabasesOwner{
