@@ -7,15 +7,11 @@ for feature-specific permissions, limitations and test evidence. This page
 covers packaging, installation, updates and recovery; it does not convert the
 application to AppKit or require a custom runtime container.
 
-The current release is **2.5.0**. The acceptance report for its last development
-build, [2.5.0-dev.14](../reviews/2026-11-02-v2.5-dev14-acceptance.md), covers the
-descriptions beside each tab's meme. The [dev.13 report](../reviews/2026-11-02-v2.5-dev13-acceptance.md)
-records the 50-meme shuffle and standalone Settings correction. The
-[dev.11–12 report](../reviews/2026-11-02-v2.5-dev12-acceptance.md) retains the
-earlier authentication, telemetry and event-stream evidence. The App remains in
-Observation mode with metadata-only telemetry. Acceptance is scoped to each deployment;
-it does not certify every Lakebase extension, cloud, privilege or long-duration
-scenario. Older release evidence remains linked from the matrix and reports.
+The current release is **2.5.0**. The App runs in Observation mode with
+metadata-only telemetry. Acceptance is scoped to each deployment; it does not
+certify every Lakebase extension, cloud, privilege or long-duration scenario.
+Dated acceptance reports are in the
+[evidence appendix](lakebase-evidence.md#databricks-apps-guide).
 
 Follow the sections in order for a new installation. For an existing App, read
 [resource preservation](#keep-all-resources-and-identity-settings) and

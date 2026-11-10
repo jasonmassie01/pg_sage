@@ -7,23 +7,10 @@ operators sign in through Databricks only; there is no second pg_sage login or
 Gateway API key.
 
 This is a development integration, not a claim of complete Lakebase support.
-The October 29–30, 2026 acceptance results establish specific paths and
-identities. Public platform documentation was cross-checked November 1, 2026.
 The tables below distinguish native-process results from App-principal results
-and identify functionality that remains restricted or unproven.
-
-The [November 2 dev.11–12 follow-up](../reviews/2026-11-02-v2.5-dev12-acceptance.md)
-adds the optional organization email-domain audience gate and recognizable,
-locally bundled meme images. Its new validation covers auth, packaging, telemetry storage and UI;
-the broader database/telemetry compatibility evidence below retains its original
-revision and date.
-
-Dev.12 corrects an availability failure found during that live UI check:
-telemetry inbox delivery and expiry scans competed with authentication in the
-standalone App's two-connection pool. It adds query bounds/indexes and an Apps
-default of five shared connections, preserving explicit configuration. Account
-storage outages return retryable 503; organization/identity refusals remain 403.
-This does not establish unlimited viewer concurrency or a production load test.
+and identify functionality that remains restricted or unproven. Dated
+acceptance results are in the
+[evidence appendix](lakebase-evidence.md#databricks-native-guide).
 
 ## Start here
 
@@ -293,44 +280,9 @@ UI does not infer that arbitrary schemas are synthetic from their names.
 
 ## Validation and evidence
 
-| Revision | Evidence and limits |
-| --- | --- |
-| dev.5 | [Latest uninterrupted whole-repository run](../reviews/2026-10-30-v2.5-dev5-acceptance.md): 142 packages, 16,394 passing test/subtest events, 55 allowed skips, 141 package passes and one without tests. Native Lakebase: 79 pass, two explicit skips. Controlled telemetry: 24 records across all ten streams. Separate App/history/SLO acceptance |
-| dev.8 | [Scenario/restart acceptance](../reviews/2026-10-30-v2.5-dev8-acceptance.md): 627 analyzer race/integration/e2e tests/subtests; nine controlled finding families and invalid-index restart continuity |
-| dev.10 | [Workflow acceptance](../reviews/2026-10-30-v2.5-dev10-acceptance.md): 726 frontend tests/102 files; 46 browser tests including 22 desktop/mobile routes; 1,434 API/Cases race passes plus one opt-in live skip; lint/build and actual App auth/Gateway/Fleet/context/mobile checks |
-| dev.11 | [Audience and meme follow-up](../reviews/2026-11-02-v2.5-dev12-acceptance.md): 755 frontend tests/102 files, 46 browser tests, 1,627 auth/API race passes plus one opt-in live skip, 24 packaging tests, scoped deployed-App checks and retained live browser failures. No new whole-repository or live database compatibility run |
-| dev.12 | [App availability correction](../reviews/2026-11-02-v2.5-dev12-acceptance.md): 69 telemetry race/integration/e2e passes, zero skips/failures; 25 packaging tests; focused auth/API, HTTP/2 stream and limiter race checks. Final live desktop/mobile tour: 12 page checks, six decoded meme templates, six protected API checks, five clean stream completions and zero protocol errors. Earlier failed attempts remain documented |
-| dev.13 | [Meme shuffle and standalone Settings](../reviews/2026-11-02-v2.5-dev13-acceptance.md): 777 frontend tests/103 files, 49 browser tests, all 50 captioned memes at desktop/mobile widths, 25 packaging tests; no new database compatibility run |
-| dev.14 | [Descriptions beside each meme](../reviews/2026-11-02-v2.5-dev14-acceptance.md): 777 frontend tests/103 files, 49 browser tests including desktop alignment and mobile visibility of introductions across 22 routes; scoped UI follow-up |
-
-The latest whole-repository result remains **dev.5**. Later reports identify their narrower validation scope.
-The final dev.10 workflow-baseline App SNAPSHOT is `01f1d4c0a6af15be95fc0632b1a607e1`; the
-acceptance report retains exact macOS/Linux artifact hashes and its source
-fingerprint scope. The November 1 documentation publication changed guides, packaging
-exclusions, the portable fixture helper and test-only credential setup; it did not rebuild/redeploy that
-runtime or re-label its acceptance.
-
-Publication checks on November 1 passed all 22 existing Python packaging tests,
-325 relative links/anchors across 35 changed/new Markdown files, whitespace
-checks and fixture-helper configuration/refusal checks. Mocked helper checks
-verified that an endpoint-host mismatch is refused before minting a credential
-or invoking SQL. The native-auth race package also passed after its fixture URL
-was made passwordless while preserving the bootstrap-credential check.
-No new live workload or compatibility soak was run for that
-November 1 documentation follow-up.
-
-Additional evidence:
-
-- [Native SQL/action tests](../reviews/2026-10-29-lakebase-native-tests.md)
-- [Native and App SRE source matrix](../reviews/2026-10-30-native-sre-source-matrix.md)
-- [Provider compatibility failures and alternatives](../reviews/2026-10-30-provider-compatibility-gaps.md)
-- [Application SLO acceptance](../reviews/2026-10-30-app-slo-acceptance.md)
-- [Statistics-maintenance acceptance](../reviews/2026-10-30-sre-maintenance.md)
-- [First-time-user review](../reviews/2026-10-30-first-time-user-ux-review.md) and [dev.9 delivery](../reviews/2026-10-30-v2.5-dev9-acceptance.md)
-
-Reports preserve failures and the scope of later fixes. Private credentials,
-screenshots/raw evidence, internal research and workspace/endpoint/principal identifiers are
-excluded from the public repository; reviewed reports retain outcomes and hashes.
+Each revision's validation scope, test counts, App snapshots and preserved
+failures are in the
+[evidence appendix](lakebase-evidence.md#databricks-native-guide).
 
 ## Reproduce safely and track remaining work
 
