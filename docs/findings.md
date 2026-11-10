@@ -398,7 +398,11 @@ The snapshot's `system` category keeps `cache_hit_ratio` with its lifetime meani
 forecaster and the dashboard read it) and adds the raw counters and an `interval`
 object: `seconds`, `cache_hit_ratio`, `blks_accessed`, `deadlocks`, `xacts`,
 `temp_bytes`, `blk_read_time_ms`, `blk_write_time_ms` and `checkpoints` since the
-previous snapshot, each `null` when it is unknown.
+previous snapshot, each `null` when it is unknown. Three more are left out when unknown:
+`sessions` (sessions the database opened, closed ones included; PG 14+), and `wal_bytes`
+over `wal_seconds` (how far the cluster's WAL insert position advanced between the two
+reads of it; unknown on a standby and after the position went back). RCA's
+`wal_growth_spike` and connection storm compare these across two consecutive intervals.
 
 ---
 
