@@ -142,7 +142,7 @@ func operatorRollbackRefusal(decision ActionPolicyDecision) error {
 // ceiling caps an in-transaction rollback, a CONCURRENTLY one keeps
 // safety.lock_timeout_ms (as forward DDL does).
 func rollbackLockTimeoutMS(rollbackSQL string, safetyMS int, ceilingMS int64) int {
-	return ddlLockTimeoutMS(actionTypeForProposalSQL(concurrentIndexRollbackSQL(rollbackSQL)),
+	return ddlLockTimeoutMS(ActionTypeForSQL(concurrentIndexRollbackSQL(rollbackSQL)),
 		safetyMS, ceilingMS)
 }
 

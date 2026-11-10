@@ -149,7 +149,7 @@ func TestIndexReplaceRefusesToDropAnOpclassIndex(t *testing.T) {
 
 func TestIndexReplaceClassification(t *testing.T) {
 	sql, _ := rpPair()
-	if got := actionTypeForProposalSQL(sql); got != ActionTypeReplaceIndex {
+	if got := ActionTypeForSQL(sql); got != ActionTypeReplaceIndex {
 		t.Fatalf("contract type = %q", got)
 	}
 	if got := categorizeAction(sql); got != ActionTypeReplaceIndex {
@@ -169,7 +169,7 @@ func TestIndexReplaceClassification(t *testing.T) {
 		t.Fatal("an index replacement moves the plans of a whole partition tree")
 	}
 	// A plain create and drop keep their own types.
-	if actionTypeForProposalSQL(rpCreate) != "create_index_concurrently" ||
+	if ActionTypeForSQL(rpCreate) != "create_index_concurrently" ||
 		categorizeAction("DROP INDEX CONCURRENTLY public.x") != "drop_index" {
 		t.Fatal("single statements are classified as before")
 	}

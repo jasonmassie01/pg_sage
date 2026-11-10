@@ -90,7 +90,7 @@ func everyDiagnosticCandidate() []ActionCandidate {
 		}
 	}
 	for _, category := range []string{"inactive_slot", "replication_lag", "runaway_query"} {
-		got := ProjectFinding(SourceFinding{ID: "f-" + category, DatabaseName: "prod",
+		got := projectFinding(SourceFinding{ID: "f-" + category, DatabaseName: "prod",
 			Category: category, Severity: SeverityWarning, ObjectIdentifier: "x",
 			ObservedAt: evidenceAnchor})
 		out = append(out, got.ActionCandidates...)

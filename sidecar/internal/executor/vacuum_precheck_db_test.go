@@ -415,7 +415,7 @@ func TestApplyPrecheckReadsTheWholeTarget(t *testing.T) {
 	// forced first decision, the precheck no longer applies and the
 	// re-authorization (no standing gate installed) withholds it.
 	multi := "VACUUM " + first + ", " + second
-	if got := actionTypeForProposalSQL(multi); got != "" {
+	if got := ActionTypeForSQL(multi); got != "" {
 		t.Fatalf("two tables classify as %q, want no contract", got)
 	}
 	executed, err := vpApply(ctx, e, multi, vpDecision(t, ctx, admin, first))

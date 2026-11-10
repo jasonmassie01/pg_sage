@@ -71,8 +71,8 @@ func TestStatisticsActionTypes(t *testing.T) {
 		"CREATE STATISTICS IF NOT EXISTS public.sage_stx_orders_ab ON a, b FROM public.orders": "",
 		"DROP STATISTICS public.st_orders":                                                     "",
 	} {
-		if got := actionTypeForProposalSQL(sql); got != want {
-			t.Errorf("actionTypeForProposalSQL(%q) = %q, want %q", sql, got, want)
+		if got := ActionTypeForSQL(sql); got != want {
+			t.Errorf("ActionTypeForSQL(%q) = %q, want %q", sql, got, want)
 		}
 	}
 	// The action_log label is what the trust ledger reads when no outcome

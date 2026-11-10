@@ -21,7 +21,7 @@ func sequenceFinding(ident string) SourceFinding {
 }
 
 func TestSequenceExhaustionFindingAddsMigrationScript(t *testing.T) {
-	got := ProjectFinding(sequenceFinding("public.orders_id_seq"))
+	got := projectFinding(sequenceFinding("public.orders_id_seq"))
 
 	assertActionTypes(t, "sequence", got, "prepare_sequence_capacity_migration")
 	action := got.ActionCandidates[0]
@@ -57,7 +57,7 @@ func TestSequenceExhaustionFindingAddsMigrationScript(t *testing.T) {
 
 // Invalid input: a hostile identifier stays inside quoted identifiers.
 func TestSequenceFindingQuotesHostileIdentifier(t *testing.T) {
-	got := ProjectFinding(sequenceFinding(`public.s"; DROP TABLE t; --`))
+	got := projectFinding(sequenceFinding(`public.s"; DROP TABLE t; --`))
 
 	script := got.ActionCandidates[0].ScriptOutput
 	if strings.Contains(script.MigrationSQL, `FROM public.s"; DROP`) ||
@@ -69,7 +69,7 @@ func TestSequenceFindingQuotesHostileIdentifier(t *testing.T) {
 // inactive_slot carries the analyzer's pg_drop_replication_slot SQL; the
 // case offers only the read-only WAL diagnostic, never the drop.
 func TestInactiveSlotFindingOffersReadOnlyDiagnostic(t *testing.T) {
-	got := ProjectFinding(SourceFinding{
+	got := projectFinding(SourceFinding{
 		ID: "f-slot", DatabaseName: "prod", Category: "inactive_slot",
 		Severity: SeverityWarning, ObjectType: "replication_slot",
 		ObjectIdentifier: "slot:s1",
@@ -92,7 +92,7 @@ func TestInactiveSlotFindingOffersReadOnlyDiagnostic(t *testing.T) {
 }
 
 func TestReplicationLagFindingOffersWALDiagnostic(t *testing.T) {
-	got := ProjectFinding(SourceFinding{
+	got := projectFinding(SourceFinding{
 		ID: "f-lag", DatabaseName: "prod", Category: "replication_lag",
 		Severity: SeverityCritical, ObjectIdentifier: "replica:0:10.0.0.2",
 		ObservedAt: evidenceAnchor,
@@ -106,7 +106,7 @@ func TestReplicationLagFindingOffersWALDiagnostic(t *testing.T) {
 // The executor's runaway finding carries a bare-PID cancel; the case shows
 // the diagnostic and a blocked cancel (the runaway policy owns the signal).
 func TestRunawayQueryFindingOffersDiagnosticAndBlockedCancel(t *testing.T) {
-	got := ProjectFinding(SourceFinding{
+	got := projectFinding(SourceFinding{
 		ID: "f-run", DatabaseName: "prod", Category: "runaway_query",
 		Severity: SeverityCritical, ObjectType: "process",
 		ObjectIdentifier: "pid:222:policy:default",
@@ -124,7 +124,7 @@ func TestRunawayQueryFindingOffersDiagnosticAndBlockedCancel(t *testing.T) {
 
 // Boundary: categories next to the new branches keep today's behaviour.
 func TestNeighbourFindingCategoriesUnchanged(t *testing.T) {
-	got := ProjectFinding(SourceFinding{
+	got := projectFinding(SourceFinding{
 		ID: "f-slow", Category: "slow_replication_slot", ObservedAt: evidenceAnchor,
 		RecommendedSQL: "SELECT pg_drop_replication_slot('s2');",
 	})
@@ -135,7 +135,7 @@ func TestNeighbourFindingCategoriesUnchanged(t *testing.T) {
 // relation has no max_value, and pg_get_serial_sequence with empty names errors.
 // sequence_playbook_db_test.go runs them on PostgreSQL.
 func TestSequenceScriptQueriesTheCatalogForLimits(t *testing.T) {
-	script := ProjectFinding(sequenceFinding("public.orders_id_seq")).
+	script := projectFinding(sequenceFinding("public.orders_id_seq")).
 		ActionCandidates[0].ScriptOutput
 	all := script.MigrationSQL + "\n" + strings.Join(script.VerificationSQL, "\n")
 	for _, bad := range []string{"pg_get_serial_sequence('', '')",
@@ -152,7 +152,7 @@ func TestSequenceScriptQueriesTheCatalogForLimits(t *testing.T) {
 
 // Invalid input: a quote in the name cannot leave the regclass literal.
 func TestSequenceScriptEscapesQuoteInRegclassLiteral(t *testing.T) {
-	script := ProjectFinding(sequenceFinding(`public.it's_seq`)).
+	script := projectFinding(sequenceFinding(`public.it's_seq`)).
 		ActionCandidates[0].ScriptOutput
 	if !strings.Contains(script.MigrationSQL, `'"public"."it''s_seq"'::regclass`) {
 		t.Fatalf("quote not doubled in regclass literal:\n%s", script.MigrationSQL)

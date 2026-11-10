@@ -28,7 +28,7 @@ func FindingActionPreview(sql string, detail map[string]any) FindingPreview {
 	if strings.TrimSpace(sql) == "" {
 		return p
 	}
-	if actionType := actionTypeForProposalSQL(sql); actionType != "" {
+	if actionType := ActionTypeForSQL(sql); actionType != "" {
 		if c, ok := ContractForActionType(actionType); ok {
 			p.ActionType, p.ContractTier = actionType, c.BaseRiskTier
 		}

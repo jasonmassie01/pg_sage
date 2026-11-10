@@ -21,7 +21,7 @@ func TestValidateRejectsAlterTableSubcommandLists(t *testing.T) {
 		if err := ValidateExecutorSQL(sql); err == nil {
 			t.Fatalf("ValidateExecutorSQL(%q) accepted a non-reloption subcommand", sql)
 		}
-		if got := actionTypeForProposalSQL(sql); got == "set_table_autovacuum" {
+		if got := ActionTypeForSQL(sql); got == "set_table_autovacuum" {
 			t.Fatalf("%q classified as set_table_autovacuum", sql)
 		}
 	}
@@ -48,11 +48,11 @@ func TestVacuumFullIsNeverClassifiedAsSafeVacuum(t *testing.T) {
 		"VACUUM /**/ FULL public.orders",
 		"VACUUM (VERBOSE,  FULL) public.orders",
 	} {
-		if got := actionTypeForProposalSQL(sql); got == "vacuum_table" {
+		if got := ActionTypeForSQL(sql); got == "vacuum_table" {
 			t.Fatalf("%q classified as safe vacuum_table", sql)
 		}
 	}
-	if got := actionTypeForProposalSQL("VACUUM  public.orders"); got != "vacuum_table" {
+	if got := ActionTypeForSQL("VACUUM  public.orders"); got != "vacuum_table" {
 		t.Fatalf("plain VACUUM with double space = %q, want vacuum_table", got)
 	}
 }

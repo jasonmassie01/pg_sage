@@ -46,7 +46,8 @@ func TestVacuumAutopilotCategoriesAllHaveProducers(t *testing.T) {
 	for _, category := range vacuumAutopilotCategories(t) {
 		handled[category] = true
 		t.Run(category, func(t *testing.T) {
-			if _, ok := vacuumAutopilotCandidate(SourceFinding{Category: category}); !ok {
+			if _, ok := vacuumAutopilotCandidate(SourceFinding{Category: category},
+				testClassify); !ok {
 				t.Fatalf("the switch names %q but vacuumAutopilotCandidate does not map it",
 					category)
 			}

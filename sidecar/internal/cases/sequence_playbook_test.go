@@ -14,7 +14,7 @@ import (
 
 func sequenceScript(t *testing.T, ident string) *ScriptOutput {
 	t.Helper()
-	got := ProjectFinding(sequenceFinding(ident))
+	got := projectFinding(sequenceFinding(ident))
 	assertActionTypes(t, ident, got, "prepare_sequence_capacity_migration")
 	script := got.ActionCandidates[0].ScriptOutput
 	if script == nil {
@@ -25,7 +25,7 @@ func sequenceScript(t *testing.T, ident string) *ScriptOutput {
 
 // CHECK-03: the review-only contract does not change.
 func TestSequenceCandidateKeepsReviewOnlyContract(t *testing.T) {
-	c := ProjectFinding(sequenceFinding("public.orders_id_seq")).ActionCandidates[0]
+	c := projectFinding(sequenceFinding("public.orders_id_seq")).ActionCandidates[0]
 	if c.RiskTier != "high" || c.RollbackClass != "forward_fix_only" ||
 		!reflect.DeepEqual(c.OutputModes, []string{"generate_pr_or_script"}) {
 		t.Fatalf("contract = tier %q rollback %q modes %v", c.RiskTier, c.RollbackClass,
@@ -74,7 +74,7 @@ func TestSequenceScriptHasRunwayThenGuardedAlter(t *testing.T) {
 func TestBigintSequenceScriptCarriesColumnWideningSteps(t *testing.T) {
 	f := sequenceFinding("public.orders_id_seq")
 	f.Detail["data_type"] = "bigint"
-	sql := ProjectFinding(f).ActionCandidates[0].ScriptOutput.MigrationSQL
+	sql := projectFinding(f).ActionCandidates[0].ScriptOutput.MigrationSQL
 	steps := []string{"ADD COLUMN", "trigger", "batches", "NOT VALID",
 		"VALIDATE CONSTRAINT", "lock_timeout", "ACCESS EXCLUSIVE", "rewrites"}
 	last := -1
@@ -173,7 +173,7 @@ func TestSequenceRunwayHandlesDescendingSequences(t *testing.T) {
 // as blocked, with the reason and without a script.
 func TestSequenceFindingWithoutIdentityIsBlocked(t *testing.T) {
 	for _, ident := range []string{"", "   ", "\t"} {
-		got := ProjectFinding(sequenceFinding(ident))
+		got := projectFinding(sequenceFinding(ident))
 		assertActionTypes(t, "blank "+ident, got, "prepare_sequence_capacity_migration")
 		c := got.ActionCandidates[0]
 		if c.BlockedReason != "no sequence identity in evidence" || c.ScriptOutput != nil {

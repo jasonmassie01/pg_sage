@@ -16,7 +16,7 @@ var vacuumStatement = regexp.MustCompile(`(?i)(^|;)\s*VACUUM\b`)
 
 func TestVacuumAutopilotWraparoundFreezeIsDiagnosis(t *testing.T) {
 	candidate, ok := vacuumAutopilotCandidate(SourceFinding{Category: "wraparound_freeze",
-		ObjectIdentifier: "public.orders"})
+		ObjectIdentifier: "public.orders"}, testClassify)
 	// The diagnosis is the read-only freeze probe script (playbooks-04),
 	// which reads vacuum statistics; what it must not hold is a VACUUM
 	// statement.
@@ -33,7 +33,7 @@ func TestVacuumAutopilotAutovacuumTuningKeepsCapturedRollback(t *testing.T) {
 	f := SourceFinding{Category: "autovacuum_tuning", ObjectIdentifier: "public.t",
 		RecommendedSQL: `ALTER TABLE "public"."t" SET (autovacuum_vacuum_scale_factor = 0.01)`,
 		RollbackSQL:    `ALTER TABLE "public"."t" RESET (autovacuum_vacuum_scale_factor)`}
-	candidate, ok := vacuumAutopilotCandidate(f)
+	candidate, ok := vacuumAutopilotCandidate(f, testClassify)
 	if !ok || candidate.ActionType != "set_table_autovacuum" ||
 		candidate.ProposedSQL != f.RecommendedSQL {
 		t.Fatalf("autovacuum_tuning candidate = %#v (%v)", candidate, ok)
@@ -55,7 +55,7 @@ func TestVacuumAutopilotAutovacuumTuningRejectsForeignRollback(t *testing.T) {
 	} {
 		candidate, _ := vacuumAutopilotCandidate(SourceFinding{Category: "autovacuum_tuning",
 			RecommendedSQL: `ALTER TABLE "public"."t" SET (autovacuum_vacuum_scale_factor = 0.01)`,
-			RollbackSQL:    rollback})
+			RollbackSQL:    rollback}, testClassify)
 		if candidate.RollbackClass != "unknown" || candidate.ScriptOutput.RollbackSQL == rollback &&
 			rollback != "" {
 			t.Fatalf("rollback %q trusted: %#v", rollback, candidate)
@@ -78,7 +78,7 @@ func TestVacuumAutopilotAutovacuumTuningRejectsExtraSubcommands(t *testing.T) {
 		`ALTER TABLE "public"."t" SET autovacuum_vacuum_scale_factor = 0.2`,
 	} {
 		candidate, _ := vacuumAutopilotCandidate(SourceFinding{Category: "autovacuum_tuning",
-			RecommendedSQL: change, RollbackSQL: rollback})
+			RecommendedSQL: change, RollbackSQL: rollback}, testClassify)
 		if candidate.RollbackClass != "unknown" || candidate.ScriptOutput.RollbackSQL != "" {
 			t.Fatalf("rollback %q trusted: class %q, script rollback %q", rollback,
 				candidate.RollbackClass, candidate.ScriptOutput.RollbackSQL)
@@ -99,7 +99,7 @@ func TestVacuumAutopilotAutovacuumTuningTrustsQuotedRollbacks(t *testing.T) {
 			`public.t SET (autovacuum_vacuum_scale_factor = 0.2, fillfactor = 90)`,
 	} {
 		candidate, _ := vacuumAutopilotCandidate(SourceFinding{Category: "autovacuum_tuning",
-			RecommendedSQL: change, RollbackSQL: rollback})
+			RecommendedSQL: change, RollbackSQL: rollback}, testClassify)
 		if candidate.RollbackClass != "reversible" ||
 			candidate.ScriptOutput.RollbackSQL != rollback {
 			t.Fatalf("rollback %q for %q not trusted: class %q", rollback, change,
@@ -109,7 +109,7 @@ func TestVacuumAutopilotAutovacuumTuningTrustsQuotedRollbacks(t *testing.T) {
 	candidate, _ := vacuumAutopilotCandidate(SourceFinding{Category: "autovacuum_tuning",
 		RecommendedSQL: `ALTER TABLE "public"."a SET (b" SET ` +
 			`(autovacuum_vacuum_scale_factor = 0.01)`,
-		RollbackSQL: `ALTER TABLE "public"."a" RESET (autovacuum_vacuum_scale_factor)`})
+		RollbackSQL: `ALTER TABLE "public"."a" RESET (autovacuum_vacuum_scale_factor)`}, testClassify)
 	if candidate.RollbackClass != "unknown" {
 		t.Fatal("a rollback of a different (prefix-named) table was trusted")
 	}

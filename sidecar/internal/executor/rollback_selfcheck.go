@@ -51,7 +51,7 @@ func rollbackContractFor(forwardSQL, rollbackSQL string) (ActionContract, bool) 
 	if isDropActionSQL(forwardSQL) {
 		restore := restoreSQLForDrop(rollbackSQL)
 		if ValidateExecutorSQL(restore) != nil ||
-			actionTypeForProposalSQL(restore) != "create_index_concurrently" {
+			ActionTypeForSQL(restore) != "create_index_concurrently" {
 			return ActionContract{}, false
 		}
 		return restoreDroppedIndexContract(), true

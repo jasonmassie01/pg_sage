@@ -47,7 +47,7 @@ func (e *Executor) explainOperatorAction(ctx context.Context, sql string) Action
 func operatorRequest(sql string, findingID int, approvedBy *int) (
 	policy.ActionRequest, ActionContract,
 ) {
-	actionType := actionTypeForProposalSQL(sql)
+	actionType := ActionTypeForSQL(sql)
 	contract, ok := ContractForActionType(actionType)
 	if !ok {
 		contract = ActionContract{ActionType: actionType, BaseRiskTier: "high"}

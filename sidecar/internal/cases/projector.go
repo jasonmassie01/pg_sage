@@ -6,7 +6,24 @@ import (
 	"time"
 )
 
-func ProjectFinding(f SourceFinding) Case {
+// SQLClassifier is the executor's classification of a recommended
+// statement: the action type whose contract would run it and that
+// contract's base risk tier, or ("", "") when no contract runs it. The api
+// passes executor.ClassifySQL; cases cannot import the executor (the
+// executor depends on cases), and must not keep a table of its own that
+// can disagree with it (cases-04).
+type SQLClassifier func(sql string) (actionType, riskTier string)
+
+// ProjectFinding projects a finding into a case, classifying its SQL with
+// classify. A nil classifier classifies nothing (fail closed): a change is
+// a high-risk, script-only ddl_preflight and anything else has no
+// candidate.
+func ProjectFinding(f SourceFinding, classify SQLClassifier) Case {
+	candidates := actionCandidatesForFinding(f, classify)
+	source := f
+	for i := range candidates {
+		candidates[i].Source = &source
+	}
 	return NewCase(CaseInput{
 		SourceType:       sourceTypeForFinding(f),
 		SourceID:         f.ID,
@@ -17,7 +34,7 @@ func ProjectFinding(f SourceFinding) Case {
 		Why:              f.Recommendation,
 		WhyNow:           whyNowForFinding(f),
 		Evidence:         evidenceForFinding(f),
-		ActionCandidates: actionCandidatesForFinding(f),
+		ActionCandidates: candidates,
 		ObservedAt:       f.ObservedAt,
 	})
 }
@@ -62,14 +79,14 @@ func evidenceTypeForFinding(f SourceFinding) string {
 	}
 }
 
-func actionCandidatesForFinding(f SourceFinding) []ActionCandidate {
+func actionCandidatesForFinding(f SourceFinding, classify SQLClassifier) []ActionCandidate {
 	if f.Category == "migration_safety" {
-		return migrationSafetyCandidates(f)
+		return migrationSafetyCandidates(f, classify)
 	}
 	if candidates, ok := findingPlaybookCandidates(f); ok {
 		return candidates
 	}
-	if candidate, ok := vacuumAutopilotCandidate(f); ok {
+	if candidate, ok := vacuumAutopilotCandidate(f, classify); ok {
 		return []ActionCandidate{candidate}
 	}
 	if candidate, ok := queryTuningCandidate(f); ok {
@@ -81,7 +98,7 @@ func actionCandidatesForFinding(f SourceFinding) []ActionCandidate {
 		return nil
 	}
 
-	actionType := actionTypeForSQL(sql)
+	actionType, riskTier := classifySQL(sql, classify)
 	if actionType == "" {
 		return nil
 	}
@@ -89,11 +106,11 @@ func actionCandidatesForFinding(f SourceFinding) []ActionCandidate {
 	expires := evidenceTime(f).Add(24 * time.Hour)
 	candidate := ActionCandidate{
 		ActionType:       actionType,
-		RiskTier:         riskForActionType(actionType),
+		RiskTier:         riskTier,
 		Confidence:       0.70,
 		ProposedSQL:      sql,
 		ExpiresAt:        &expires,
-		OutputModes:      []string{"queue_for_approval", "generate_pr_or_script"},
+		OutputModes:      candidateOutputModes(actionType),
 		RollbackClass:    rollbackClassForAction(actionType),
 		VerificationPlan: verificationPlanForAction(actionType),
 	}
@@ -103,13 +120,12 @@ func actionCandidatesForFinding(f SourceFinding) []ActionCandidate {
 	return []ActionCandidate{candidate}
 }
 
-func migrationSafetyCandidates(f SourceFinding) []ActionCandidate {
+func migrationSafetyCandidates(f SourceFinding, classify SQLClassifier) []ActionCandidate {
 	sql := strings.TrimSpace(f.RecommendedSQL)
-	actionType := actionTypeForSQL(sql)
+	actionType, riskTier := classifySQL(sql, classify)
 	if actionType == "" {
-		actionType = "ddl_preflight"
+		actionType, riskTier = ddlPreflightType, ddlPreflightRisk
 	}
-	riskTier := riskForActionType(actionType)
 	if detailFloat(f.Detail, "risk_score", 0) > 0.7 {
 		riskTier = "high"
 	}
@@ -120,7 +136,7 @@ func migrationSafetyCandidates(f SourceFinding) []ActionCandidate {
 		Confidence:       migrationSafetyConfidence(f),
 		ProposedSQL:      sql,
 		ExpiresAt:        &expires,
-		OutputModes:      migrationOutputModes(actionType),
+		OutputModes:      candidateOutputModes(actionType),
 		RollbackClass:    rollbackClassForAction(actionType),
 		VerificationPlan: verificationPlanForAction(actionType),
 	}
@@ -157,7 +173,7 @@ func migrationSafetyConfidence(f SourceFinding) float64 {
 	return 0.70
 }
 
-func migrationOutputModes(actionType string) []string {
+func candidateOutputModes(actionType string) []string {
 	if actionType == "ddl_preflight" {
 		return []string{"generate_pr_or_script"}
 	}
@@ -165,72 +181,53 @@ func migrationOutputModes(actionType string) []string {
 }
 
 // RiskTierForSQL is the risk tier the case projector gives a candidate
-// running sql: "safe", "moderate" or "high" (unclassified SQL fails closed
-// to "high"). Blank SQL has no tier.
-func RiskTierForSQL(sql string) string {
+// running sql, as classify (the executor) has it; a statement the executor
+// runs under no contract fails closed to "high". Blank SQL has no tier.
+func RiskTierForSQL(sql string, classify SQLClassifier) string {
 	sql = strings.TrimSpace(sql)
 	if sql == "" {
 		return ""
 	}
-	return riskForActionType(actionTypeForSQL(sql))
+	if _, riskTier := classifySQL(sql, classify); riskTier != "" {
+		return riskTier
+	}
+	return ddlPreflightRisk
 }
 
-func actionTypeForSQL(sql string) string {
-	upper := strings.ToUpper(strings.TrimSpace(sql))
-	switch {
-	case strings.HasPrefix(upper, "ANALYZE "):
-		return "analyze_table"
-	case strings.HasPrefix(upper, "VACUUM "):
-		return "vacuum_table"
-	case strings.HasPrefix(upper, "CREATE INDEX CONCURRENTLY "):
-		return "create_index_concurrently"
-	case strings.HasPrefix(upper, "DROP INDEX "):
-		return "drop_unused_index"
-	case strings.HasPrefix(upper, "ALTER TABLE ") &&
-		strings.Contains(upper, "AUTOVACUUM_"):
-		return "set_table_autovacuum"
-	case strings.HasPrefix(upper, "ALTER ROLE ") &&
-		strings.Contains(upper, "WORK_MEM"):
-		return "promote_role_work_mem"
-	case strings.HasPrefix(upper, "CREATE STATISTICS "):
-		return "create_statistics"
-	case strings.HasPrefix(upper, "REINDEX ") &&
-		strings.Contains(upper, " CONCURRENTLY "):
-		return "reindex_concurrently"
-	case strings.HasPrefix(upper, "ALTER TABLE "):
-		return "alter_table"
-	case strings.HasPrefix(upper, "CREATE ") ||
-		strings.HasPrefix(upper, "ALTER ") ||
-		strings.HasPrefix(upper, "DROP ") ||
-		strings.HasPrefix(upper, "GRANT ") ||
-		strings.HasPrefix(upper, "REVOKE ") ||
-		strings.HasPrefix(upper, "COMMENT ") ||
-		strings.HasPrefix(upper, "TRUNCATE "):
-		return "ddl_preflight"
-	default:
-		return ""
+// ddlPreflightType is the overlay for a change the executor runs under no
+// contract: a high-risk, script-only migration plan.
+const (
+	ddlPreflightType = "ddl_preflight"
+	ddlPreflightRisk = "high"
+)
+
+// classifySQL is the executor's action type and risk tier for sql, or the
+// ddl_preflight overlay for an unclassified change, or ("", "").
+func classifySQL(sql string, classify SQLClassifier) (string, string) {
+	if classify != nil {
+		if actionType, riskTier := classify(sql); actionType != "" {
+			return actionType, riskTier
+		}
 	}
+	if unclassifiedChange(sql) {
+		return ddlPreflightType, ddlPreflightRisk
+	}
+	return "", ""
 }
 
-func riskForActionType(actionType string) string {
-	switch actionType {
-	case "analyze_table", "vacuum_table", "diagnose_freeze_blockers",
-		"investigate_query_plan":
-		return "safe"
-	case "set_table_autovacuum":
-		return "moderate"
-	case "prepare_query_rewrite", "promote_role_work_mem", "apply_query_hint":
-		return "moderate"
-	case "create_statistics", "prepare_parameterized_query",
-		"reindex_concurrently":
-		return "moderate"
-	case "retire_query_hint":
-		return "safe"
-	case "create_index_concurrently", "drop_unused_index":
-		return "moderate"
-	default:
-		return "high"
+// unclassifiedChange reports a statement that changes the database. One
+// the executor has no contract for (VACUUM FULL, a plain DROP INDEX, a
+// non-concurrent REINDEX, ALTER ROLE, an unlisted setting) is only ever a
+// script to review.
+func unclassifiedChange(sql string) bool {
+	upper := strings.ToUpper(strings.Join(strings.Fields(sql), " "))
+	for _, prefix := range []string{"CREATE ", "ALTER ", "DROP ", "GRANT ", "REVOKE ",
+		"COMMENT ", "TRUNCATE ", "VACUUM", "REINDEX "} {
+		if strings.HasPrefix(upper, prefix) {
+			return true
+		}
 	}
+	return false
 }
 
 func rollbackClassForAction(actionType string) string {
