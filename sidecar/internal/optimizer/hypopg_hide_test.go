@@ -258,3 +258,17 @@ func TestOptimizerMeasureDropUnverified(t *testing.T) {
 		})
 	}
 }
+
+// Invalid input: an old index with no identity (OID 0) cannot be hidden.
+// It is an error naming the index, before any SQL runs (the session has
+// no transaction), not a lookup that reports OID 0 as gone.
+func TestIndexToHideRejectsUnknownOID(t *testing.T) {
+	s := &hypopgSession{canHide: true}
+	old, err := s.indexToHide(context.Background(), &IndexRef{Name: "items_a"})
+	if err == nil || !strings.Contains(err.Error(), "identity (OID) of index items_a") {
+		t.Fatalf("indexToHide = %+v, %v; want the unknown identity named", old, err)
+	}
+	if old != (hiddenIndex{}) {
+		t.Fatalf("hidden index = %+v, want none", old)
+	}
+}

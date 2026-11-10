@@ -53,6 +53,10 @@ func (s *hypopgSession) indexToHide(ctx context.Context, ref *IndexRef) (hiddenI
 	if ref == nil || !s.canHide {
 		return hiddenIndex{}, nil
 	}
+	if ref.OID == 0 {
+		return hiddenIndex{}, fmt.Errorf("the identity (OID) of index %s is unknown, so "+
+			"it cannot be hidden", ref.Name)
+	}
 	var name string
 	err := s.tx.QueryRow(ctx, "SELECT relname FROM pg_catalog.pg_class WHERE oid=$1",
 		ref.OID).Scan(&name)
