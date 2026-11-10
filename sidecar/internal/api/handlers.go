@@ -825,6 +825,8 @@ func applyConfigUpdateCandidate(
 	writes := []store.ConfigOverrideWrite{{
 		Key: "trust.level", Value: candidate.Trust.Level,
 	}}
+	// The stored override never raises trust over an explicit file value.
+	applyMaskedWrites(candidate, writes, userID, time.Now())
 	return controller.ApplyWithPersistence(
 		r.Context(), expected, candidate,
 		func(ctx context.Context, snapshot config.ConfigSnapshot) error {
