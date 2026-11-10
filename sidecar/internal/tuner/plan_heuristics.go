@@ -28,6 +28,15 @@ type scanContext struct {
 	facts             *CatalogFacts
 	parallelMinRows   int64
 	nestedLoopMinRows int64
+	// estimatesOnly: the plan has no actuals (plain EXPLAIN), so the
+	// rules that need an executed plan are skipped (tuning-08).
+	estimatesOnly bool
+}
+
+// WithEstimatesOnly skips the spill and nested-loop rules, which need an
+// executed plan (EXPLAIN ANALYZE), for a plan without actuals.
+func WithEstimatesOnly() ScanOption {
+	return func(sc *scanContext) { sc.estimatesOnly = true }
 }
 
 // ScanOption configures ScanPlan.

@@ -95,6 +95,22 @@ func walkNodeWithParent(
 
 func checkNode(node planNode, depth int, underGather bool, sc *scanContext) []PlanSymptom {
 	var out []PlanSymptom
+	if !sc.estimatesOnly {
+		out = append(out, actualsSymptoms(node, depth, sc)...)
+	}
+	if s := checkSeqScan(node, depth, sc); s != nil {
+		out = append(out, *s)
+	}
+	if s := checkParallelDisabled(node, depth, underGather, sc); s != nil {
+		out = append(out, *s)
+	}
+	return out
+}
+
+// actualsSymptoms are the rules that read an executed plan: disk sort,
+// hash spill and nested-loop misestimate.
+func actualsSymptoms(node planNode, depth int, sc *scanContext) []PlanSymptom {
+	var out []PlanSymptom
 	if s := checkDiskSort(node, depth); s != nil {
 		out = append(out, *s)
 	}
@@ -102,12 +118,6 @@ func checkNode(node planNode, depth int, underGather bool, sc *scanContext) []Pl
 		out = append(out, *s)
 	}
 	if s := checkBadNestedLoop(node, depth, sc); s != nil {
-		out = append(out, *s)
-	}
-	if s := checkSeqScan(node, depth, sc); s != nil {
-		out = append(out, *s)
-	}
-	if s := checkParallelDisabled(node, depth, underGather, sc); s != nil {
 		out = append(out, *s)
 	}
 	return out

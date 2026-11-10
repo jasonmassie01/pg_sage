@@ -137,12 +137,18 @@ func (tb *toolbox) explain(ctx context.Context, args toolArgs) toolResult {
 	if err != nil {
 		return refused("no plan for queryid %d: %v", qid, err)
 	}
-	if plan.Source == PlanSourceNone || len(plan.JSON) == 0 {
-		return toolResult{plain: true, fields: map[string]any{"source": PlanSourceNone,
-			"note": "no plan is available for this statement"}}
+	// Every result carries source, captured_at and age_seconds (tuning-08).
+	fields := plan.Provenance(tb.a.now())
+	if r, ok := fields["stale_reason"].(string); ok {
+		fields["stale_reason"] = llm.SanitizeForLLM(r)
 	}
-	return toolResult{ref: fmt.Sprintf("queryid:%d", qid),
-		text: "plan from " + plan.Source,
-		fields: map[string]any{"queryid": fmt.Sprint(qid), "source": plan.Source,
-			"plan": clip(llm.SanitizeForLLM(string(plan.JSON)), maxPlanChars)}}
+	if plan.Source == PlanSourceNone || len(plan.JSON) == 0 {
+		fields["source"] = PlanSourceNone
+		fields["note"] = "no plan is available for this statement"
+		return toolResult{plain: true, fields: fields}
+	}
+	fields["queryid"] = fmt.Sprint(qid)
+	fields["plan"] = clip(llm.SanitizeForLLM(string(plan.JSON)), maxPlanChars)
+	return toolResult{ref: fmt.Sprintf("queryid:%d", qid), text: "plan from " + plan.Source,
+		fields: fields}
 }

@@ -85,6 +85,9 @@ type TunerConfig struct {
 	MinQueryCalls          int     `yaml:"min_query_calls"`
 	VerifyAfterApply       bool    `yaml:"verify_after_apply"`
 	CascadeCooldownCycles  int     `yaml:"cascade_cooldown_cycles"`
+	// PlanMaxAgeMinutes: a cached plan this old is stale (tuning-08);
+	// 0 or less means 1440.
+	PlanMaxAgeMinutes int `yaml:"plan_max_age_minutes"`
 
 	// Feature 1 — Hint revalidation loop (v0.8.5).
 	HintRetirementDays        int `yaml:"hint_retirement_days"`

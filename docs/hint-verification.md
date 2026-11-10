@@ -505,6 +505,45 @@ pg_sage's `CombineHints()` merges multiple prescriptions into a single hint stri
 
 ---
 
+## Which plan a hint is built from
+
+The tuner and the tuning agent read a statement's plan from
+`sage.explain_cache` (never Lakebase plan history), and use a cached plan
+only while it still describes the statement. A plan is stale when:
+
+- it is `tuner.plan_max_age_minutes` old or older (default 1440, 24 hours;
+  0 or less means the default);
+- it was captured before the last `ANALYZE` or autoanalyze of a relation it
+  reads (`pg_stat_user_tables`, read for those relations only);
+- it was captured before an executed pg_sage action (`sage.action_log`,
+  outcome not `failed`) whose finding or `sage.decision.target_objects` names
+  one of its relations or indexes, such as a `CREATE INDEX` on its table.
+
+A capture at the same instant as one of these events counts as stale, and so
+does a plan whose relation history cannot be read. The newest fresh capture
+among the statement's three newest is used. When none is fresh:
+
+- the tuning agent runs one plain `EXPLAIN` in a bounded read-only
+  transaction (`GENERIC_PLAN` on PostgreSQL 16 and later; on 14 and 15 a
+  parameterized statement has no plan). A failing `EXPLAIN` is reported as no
+  plan; the stale plan is never used in its place;
+- the query tuner does the same for a statement that had a cached plan; a
+  statement that never had one keeps the stat-based rules only. When the
+  tuner cannot plan the statement afresh, it has no plan.
+
+A stale plan never drives a symptom or a hint, but the tuner still reads the
+tables it names to defer a statement whose table has a pending index
+recommendation: a statement reads the same tables after an `ANALYZE`, so
+dropping the stale plan does not let the statement past that gate.
+
+A plan made by plain `EXPLAIN` carries no actuals, so the disk sort, hash
+spill and bad nested loop rules, which need `EXPLAIN ANALYZE` output, never
+run on it. pg_sage never runs `EXPLAIN ANALYZE` on this path. The tuner reads
+each candidate's plan once per cycle. The agent's `explain` tool result and
+each `query_tuning` finding (`detail.plan`) carry the plan's `source`,
+`capture`, `captured_at` and `age_seconds`, and, when the cached plan was
+skipped, `stale_reason`.
+
 ## Hint lifecycle
 
 Every hint pg_sage records lives in `sage.query_hints`. Its `status` moves

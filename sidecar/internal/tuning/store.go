@@ -8,6 +8,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/facts"
 	"github.com/pg-sage/sidecar/internal/optimizer"
+	"github.com/pg-sage/sidecar/internal/planfresh"
 	"github.com/pg-sage/sidecar/internal/tuner"
 )
 
@@ -104,17 +105,15 @@ type QueryState struct {
 
 // Plan sources.
 const (
-	PlanSourceCache   = "explain_cache"
-	PlanSourceGeneric = "generic_plan"
-	PlanSourceExplain = "explain"
-	PlanSourceNone    = "none"
+	PlanSourceCache   = planfresh.SourceCache
+	PlanSourceGeneric = planfresh.SourceGeneric
+	PlanSourceExplain = planfresh.SourceExplain
+	PlanSourceNone    = planfresh.SourceNone
 )
 
-// Plan is a statement's plan as JSON.
-type Plan struct {
-	Source string
-	JSON   []byte
-}
+// Plan is a statement's plan as JSON with its source and capture time
+// (tuning-08).
+type Plan = planfresh.Plan
 
 // ExtStat is one extended statistics object.
 type ExtStat struct {

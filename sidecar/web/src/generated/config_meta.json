@@ -3093,6 +3093,12 @@
     "doc": "Threshold for suggesting parallel-enable hints on large sequential scans. Tables smaller than this are assumed not to benefit from parallelism.",
     "class": "derivable"
   },
+  "tuner.plan_max_age_minutes": {
+    "type": "int",
+    "default": 1440,
+    "doc": "A cached plan this many minutes old is stale, as is one older than its tables' last ANALYZE or a pg_sage action on them; stale plans never drive hints. 0 or less means 1440 (default).",
+    "class": "derivable"
+  },
   "tuner.plan_time_ratio": {
     "type": "float64",
     "default": 3,

@@ -250,6 +250,7 @@ safety_critical tuner.max_concurrent_analyze
 derivable tuner.min_query_calls
 derivable tuner.nested_loop_row_threshold
 derivable tuner.parallel_min_table_rows
+derivable tuner.plan_max_age_minutes
 derivable tuner.plan_time_ratio
 derivable tuner.revalidation_interval_hours
 derivable tuner.stale_stats_age_minutes

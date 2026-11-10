@@ -5,6 +5,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/optimizer"
+	"github.com/pg-sage/sidecar/internal/planfresh"
 	"github.com/pg-sage/sidecar/internal/tuner"
 	"github.com/pg-sage/sidecar/internal/tuning"
 )
@@ -22,7 +23,8 @@ func (rt *databaseRuntime) newTuningAgent(hints *tuner.Tuner) *tuning.Agent {
 	deps := tuning.Deps{Model: primary,
 		Indexes: optimizer.New(rt.spec.Pool, &cfg.LLM.Optimizer,
 			logStructuredWrapper, optimizer.WithCatalogReadTimeouts(timeouts)),
-		Store: tuning.NewPostgresStore(rt.spec.Pool, rt.pgVersion(), timeouts)}
+		Store: tuning.NewPostgresStore(rt.spec.Pool, rt.pgVersion(), timeouts,
+			tuning.PlanMaxAge(planfresh.MaxAge(cfg.Tuner.PlanMaxAgeMinutes)))}
 	if fallback != nil {
 		deps.Fallback = fallback
 	}
