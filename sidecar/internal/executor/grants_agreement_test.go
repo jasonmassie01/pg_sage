@@ -88,3 +88,99 @@ func TestVerifyGrantsAgreesWithGrantMore(t *testing.T) {
 			schemaWarnings(pool, "advisory"))
 	}
 }
+
+// guideGrant is the named grant of a level in the live Grant more guide.
+func guideGrant(t *testing.T, pool *pgxpool.Pool, level, name string) onboarding.Grant {
+	t.Helper()
+	g, err := onboarding.CheckGrants(context.Background(), pool)
+	if err != nil {
+		t.Fatalf("onboarding grants: %v", err)
+	}
+	for _, l := range onboarding.TrustGuide(onboarding.GuideInput{Grants: g}) {
+		if l.Level != level {
+			continue
+		}
+		for _, gr := range l.Grants {
+			if gr.Name == name {
+				return gr
+			}
+		}
+	}
+	t.Fatalf("no %s grant at level %s", name, level)
+	return onboarding.Grant{}
+}
+
+func startupLines(pool *pgxpool.Pool, level, match string) []string {
+	var lines []logLine
+	VerifyGrants(context.Background(), pool, "ignored", level, captureLog(&lines))
+	var out []string
+	for _, l := range lines {
+		if strings.Contains(l.text, match) {
+			out = append(out, l.text)
+		}
+	}
+	return out
+}
+
+// pg_signal_backend: both checks use the shared probe, so a role without it
+// is missing in both with the same SQL, and once granted in neither.
+func TestVerifyGrantsAgreesOnSignalBackend(t *testing.T) {
+	dsn := tablesInApp(t)
+	pool, role := grantsRole(t, dsn)
+	g := guideGrant(t, pool, "advisory", onboarding.GrantSignalBackend)
+	warn := startupLines(pool, "advisory", "pg_signal_backend")
+	fix := strings.TrimSuffix(g.SQL, ";")
+	if g.Present == nil || *g.Present || len(warn) != 1 ||
+		fix != "GRANT pg_signal_backend TO "+role || !strings.HasSuffix(warn[0], fix) {
+		t.Fatalf("guide %+v, startup %q: want both missing with one SQL", g, warn)
+	}
+	admin, err := pgxpool.New(context.Background(), dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer admin.Close()
+	if _, err := admin.Exec(context.Background(), fix); err != nil {
+		t.Fatalf("%s: %v", fix, err)
+	}
+	g = guideGrant(t, pool, "advisory", onboarding.GrantSignalBackend)
+	if w := startupLines(pool, "advisory", "pg_signal_backend"); g.Present == nil ||
+		!*g.Present || len(w) != 0 {
+		t.Fatalf("after grant: guide %+v, startup %q: want both satisfied", g, w)
+	}
+}
+
+// Sequences: the startup check names the same unreadable schemas and SQL as
+// the observation grant, at every level, since reading needs no trust.
+func TestVerifyGrantsAgreesOnSequences(t *testing.T) {
+	dsn := tablesInApp(t)
+	admin, err := pgxpool.New(context.Background(), dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer admin.Close()
+	seqs := "CREATE TABLE app.s (id serial); CREATE SCHEMA other; CREATE SEQUENCE other.q"
+	if _, err := admin.Exec(context.Background(), seqs); err != nil {
+		t.Fatalf("sequences: %v", err)
+	}
+	pool, role := grantsRole(t, dsn)
+	g := guideGrant(t, pool, "observation", onboarding.GrantSequenceSelect)
+	fix := strings.TrimSuffix(g.SQL, ";")
+	if g.Present == nil || *g.Present ||
+		fix != "GRANT SELECT ON ALL SEQUENCES IN SCHEMA app, other TO "+role {
+		t.Fatalf("guide sequence grant = %+v", g)
+	}
+	for _, level := range []string{"observation", "advisory"} {
+		w := startupLines(pool, level, "SEQUENCES")
+		if len(w) != 1 || !strings.HasSuffix(w[0], fix) || strings.Contains(w[0], "WARNING") {
+			t.Fatalf("%s startup %q, want one note ending in %q", level, w, fix)
+		}
+	}
+	if _, err := admin.Exec(context.Background(), fix); err != nil {
+		t.Fatalf("%s: %v", fix, err)
+	}
+	g = guideGrant(t, pool, "observation", onboarding.GrantSequenceSelect)
+	if w := startupLines(pool, "observation", "SEQUENCES"); g.Present == nil ||
+		!*g.Present || len(w) != 0 {
+		t.Fatalf("after grant: guide %+v, startup %q: want both satisfied", g, w)
+	}
+}

@@ -1628,26 +1628,6 @@ func TestCoverage_VerifyGrants_SuperuserHasAll(t *testing.T) {
 	}
 }
 
-// TestCoverage_CheckSignalBackend_HasRole verifies the happy path
-// where user has pg_signal_backend membership.
-func TestCoverage_CheckSignalBackend_HasRole(t *testing.T) {
-	pool, ctx := requireDB(t)
-
-	var warned bool
-	logFn := func(_, msg string, args ...any) {
-		formatted := fmt.Sprintf(msg, args...)
-		if len(formatted) > 7 && formatted[:7] == "WARNING" {
-			warned = true
-		}
-	}
-
-	checkSignalBackend(ctx, pool, "postgres", logFn)
-	// postgres superuser typically has this role.
-	if warned {
-		t.Log("postgres lacks pg_signal_backend (may be expected)")
-	}
-}
-
 // TestCoverage_WithActionStore_EmptyMode verifies that passing an
 // empty mode string preserves the existing mode.
 func TestCoverage_WithActionStore_EmptyMode(t *testing.T) {

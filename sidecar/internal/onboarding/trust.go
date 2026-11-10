@@ -12,6 +12,9 @@ import (
 const (
 	GrantMonitor        = "pg_monitor"
 	GrantSageSchema     = "sage_schema"
+	GrantSequenceSelect = "sequence_select"
+	// GrantTableOwnership names the summary grant; each listed owner role is
+	// "table_ownership:<role>".
 	GrantTableOwnership = "table_ownership"
 	GrantSchemaCreate   = "schema_create"
 	GrantMaintain       = "pg_maintain"
@@ -86,6 +89,7 @@ func observationLevel(in GuideInput, role string) Level {
 			{Name: GrantSageSchema, Why: "Keep pg_sage's own state in its sage schema.",
 				SQL:     "CREATE SCHEMA IF NOT EXISTS sage AUTHORIZATION " + role + ";",
 				Present: g.SageSchema},
+			sequenceGrant(g.Sequences, role),
 		}}
 }
 
@@ -97,7 +101,7 @@ func advisoryLevel(in GuideInput, role string) Level {
 		Never: []string{"MODERATE actions run only after a person approves them.",
 			"High-risk actions run only after a person approves them."},
 		Waits:  rampWaits(in.RampElapsedHours, in.SafeRampHours, "safe"),
-		Grants: ownershipGrants(in.Grants, role)}
+		Grants: actingGrants(in.Grants, role)}
 	if !in.Tier3Safe {
 		l.Waits = append(l.Waits, "trust.tier3_safe is off: SAFE actions also wait for "+
 			"approval.")
@@ -113,7 +117,7 @@ func autonomousLevel(in GuideInput, role string) Level {
 		Never: []string{"High-risk actions run only after a person approves them, at " +
 			"every level."},
 		Waits: rampWaits(in.RampElapsedHours, in.ModerateRampHours, "moderate"),
-		Grants: append(ownershipGrants(in.Grants, role), Grant{Name: GrantAlterSystem,
+		Grants: append(actingGrants(in.Grants, role), Grant{Name: GrantAlterSystem,
 			Why: "Change server settings (managed services: the parameter group or flags).",
 			SQL: "GRANT ALTER SYSTEM ON PARAMETER work_mem TO " + role +
 				"; -- one grant per parameter (PostgreSQL 15+)",
@@ -144,26 +148,6 @@ func rampWaits(elapsed *float64, ramp float64, kind string) []string {
 			ramp, kind)}
 	}
 	return []string{}
-}
-
-func ownershipGrants(g GrantStatus, role string) []Grant {
-	owned := Grant{Name: GrantTableOwnership,
-		Why: "CREATE INDEX and other DDL need the privileges of the table owner.",
-		SQL: "GRANT <table owner role> TO " + role + ";"}
-	if g.TablesTotal > 0 {
-		all := g.TablesOwned == g.TablesTotal
-		owned.Present = &all
-		owned.Detail = fmt.Sprintf("owns %d of %d tables", g.TablesOwned, g.TablesTotal)
-	}
-	out := []Grant{owned, schemaCreateGrant(g.SchemaCreate, role)}
-	if g.Maintain != nil {
-		out = append(out, Grant{Name: GrantMaintain,
-			Why: "VACUUM, ANALYZE and REINDEX tables it does not own (PostgreSQL 17+).",
-			SQL: "GRANT pg_maintain TO " + role + ";", Present: g.Maintain})
-	}
-	return append(out, Grant{Name: GrantSignalBackend,
-		Why: "Cancel a runaway query when an approved action needs it.",
-		SQL: "GRANT pg_signal_backend TO " + role + ";", Present: g.SignalBackend})
 }
 
 // schemaCreateGrant is CREATE on the schemas holding user tables, with the
