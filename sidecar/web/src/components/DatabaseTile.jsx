@@ -25,6 +25,7 @@ export function DatabaseTile({ db, selected, onSelect }) {
   const ready = caps.ready_for_auto_safe
   const readiness = ready === true ? 'ready' : ready === false ? 'blocked' : 'unknown'
   const reasons = Array.isArray(s.health_reasons) ? s.health_reasons : []
+  const haRole = typeof s.ha_role === 'string' && s.ha_role ? s.ha_role : null
 
   return (
     <button
@@ -138,8 +139,37 @@ export function DatabaseTile({ db, selected, onSelect }) {
             {blocker}
           </div>
         )}
+        {haRole && (
+          <HAStatus role={haRole} safeMode={s.ha_safe_mode === true}
+            lastChange={s.ha_last_change} />
+        )}
       </div>
     </button>
+  )
+}
+
+// HAStatus shows the database's HA role and failover safe mode (fleet-04).
+// Only a confirmed primary outside safe mode allows autonomous actions.
+function HAStatus({ role, safeMode, lastChange }) {
+  const writable = role === 'primary' && !safeMode
+  return (
+    <div className="flex items-center justify-between gap-2 mt-1">
+      <span data-testid="ha-role" className="text-xs"
+        style={{ color: writable ? 'var(--text-secondary)' : 'var(--yellow)' }}>
+        HA {role}
+      </span>
+      {safeMode && (
+        <span data-testid="ha-safe-mode"
+          className="text-xs px-1.5 py-0.5 rounded"
+          title={lastChange ? `Last role change ${lastChange}` : undefined}
+          style={{
+            background: 'rgba(245,158,11,0.15)',
+            color: 'var(--yellow)',
+          }}>
+          HA safe mode
+        </span>
+      )}
+    </div>
   )
 }
 
