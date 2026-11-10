@@ -119,10 +119,35 @@ func rdsNotes(p *Proposal, t Target) {
 			"writer's DB parameter group; cluster-level parameters live in the DB cluster "+
 			"parameter group (modify-db-cluster-parameter-group). Apply it to every "+
 			"instance that should run it.")
+		auroraMemberNotes(p, t)
 	}
 	if p.RebootRequired {
 		p.Notes = append(p.Notes, "The change is pending until the instance reboots; the "+
 			"reboot is an outage (Multi-AZ shortens it with a failover).")
+	}
+}
+
+// auroraMemberNotes names the cluster of an Aurora instance and, for a
+// reader, warns that its parameter group may not be the writer's.
+func auroraMemberNotes(p *Proposal, t Target) {
+	if t.Cluster == "" {
+		return
+	}
+	instance := orPlaceholder(t.InstanceID, placeholderID)
+	switch t.InstanceRole {
+	case InstanceRoleWriter:
+		p.Notes = append(p.Notes, fmt.Sprintf("%s is the writer of Aurora cluster %s.",
+			instance, t.Cluster))
+	case InstanceRoleReader:
+		p.Notes = append(p.Notes, fmt.Sprintf("%s is a reader of Aurora cluster %s: its DB "+
+			"parameter group may differ from the writer's, so this change reaches only the "+
+			"instances that use %s; change the writer's group too if the writer should "+
+			"run it.", instance, t.Cluster, orPlaceholder(t.ParameterGroup, placeholderGroup)))
+	default:
+		p.Notes = append(p.Notes, fmt.Sprintf("pg_sage could not tell whether %s is the "+
+			"writer or a reader of Aurora cluster %s (rds:DescribeDBClusters failed): check "+
+			"that %s is the group the intended instances use.", instance, t.Cluster,
+			orPlaceholder(t.ParameterGroup, placeholderGroup)))
 	}
 }
 

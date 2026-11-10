@@ -53,7 +53,10 @@ type DatabaseInstance struct {
 	// InstanceOwner reports who manages this database's instance settings
 	// (advisors-08); nil outside fleet mode.
 	InstanceOwner func() InstanceOwnership
-	Stopped       bool
+	// CapabilityRefresh asks the runtime's capability refresher for a
+	// prompt recollection without blocking; nil when none runs.
+	CapabilityRefresh func()
+	Stopped           bool
 	// StoppedBy and StoppedAt attribute the active emergency stop. Like
 	// Stopped, they are guarded by the manager lock.
 	StoppedBy string

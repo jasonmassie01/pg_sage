@@ -121,7 +121,8 @@ func (m *Monitor) Tick(ctx context.Context) (TickResult, error) {
 	in := EvalInput{XID: snap.XID, Trends: set.Trends, TrendsOK: err == nil,
 		TrendsTruncated: set.Truncated, TrendsLastKind: set.LastKind, Tables: snap.Tables,
 		TablesOK: snap.TablesOK, Slots: snap.Slots, SlotsOK: snap.SlotsOK,
-		Sequences: snap.Sequences, SequencesOK: snap.SequencesOK}
+		Sequences: snap.Sequences, SequencesOK: snap.SequencesOK,
+		Capacity: snap.diskCapacity(m.opts)}
 	openErr := m.fillOpenSlots(ctx, &in, res.Standby)
 	runways, evaluated := Evaluate(in, m.opts)
 	if openErr != nil { // fail closed: a slot without samples may still exist
@@ -139,7 +140,8 @@ func (m *Monitor) Tick(ctx context.Context) (TickResult, error) {
 // read runs the current-state probes; an unreadable one is reported and
 // left out of the snapshot.
 func (m *Monitor) read(ctx context.Context) (Snapshot, []error) {
-	var s Snapshot
+	c := capacity(ctx, m.opts)
+	s := Snapshot{Capacity: &c}
 	var errs []error
 	run := func(id probes.ID) probes.Result { return m.runner.Run(ctx, id, probes.Args{}) }
 	note := func(id probes.ID, err error) bool {

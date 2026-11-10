@@ -30,6 +30,9 @@ type EvalInput struct {
 	OpenSlots   []string
 	Sequences   []probes.SequenceRunway
 	SequencesOK bool
+	// Capacity is this tick's disk capacity; a disk runway projected
+	// against it names its source.
+	Capacity DiskCapacity
 }
 
 // Runway is one runway that crossed its horizon: the forecast finding it
@@ -113,7 +116,11 @@ func trendRunway(tr probes.RunwayTrend, in EvalInput, opts Options) (Runway, boo
 		return Runway{}, false
 	}
 	r.Detail = trendDetail(tr, horizon)
-	r.Title, r.Recommendation = trendWords(r, tr)
+	source := diskSource(tr, in.Capacity)
+	if source != "" {
+		r.Detail["capacity_source"] = source
+	}
+	r.Title, r.Recommendation = trendWords(r, tr, source)
 	if sq, ok := sequenceOf(in.Sequences, tr.Subject); ok && sq.Descending() {
 		describeDescending(&r, tr)
 	}
@@ -182,9 +189,18 @@ func finiteOrNil(v float64) any {
 	return round2(v)
 }
 
+// diskSource is the capacity source of a disk runway whose limit is this
+// tick's capacity; a limit sampled under another capacity names none.
+func diskSource(tr probes.RunwayTrend, c DiskCapacity) string {
+	if tr.Kind != probes.RunwayDiskUsed || c.Source == "" || tr.Limit != c.Bytes {
+		return ""
+	}
+	return c.Source
+}
+
 // trendWords titles a disk, slot or sequence runway (ageWords titles the
-// wraparound ones).
-func trendWords(r Runway, tr probes.RunwayTrend) (string, string) {
+// wraparound ones); source names a provider-measured disk capacity.
+func trendWords(r Runway, tr probes.RunwayTrend, source string) (string, string) {
 	when := (time.Duration(r.SecondsToLimit) * time.Second).Round(time.Minute)
 	what := map[string]string{probes.RunwayDiskUsed: "Disk usage",
 		probes.RunwayWALSlot:  fmt.Sprintf("WAL retained by slot %s", tr.Subject),
@@ -192,6 +208,9 @@ func trendWords(r Runway, tr probes.RunwayTrend) (string, string) {
 	limit := map[string]string{probes.RunwayDiskUsed: "the declared disk capacity",
 		probes.RunwayWALSlot:  "its configured WAL maximum",
 		probes.RunwaySequence: "its binding limit"}[tr.Kind]
+	if source == CapacityProviderTelemetry {
+		limit = "the provider-reported disk capacity"
+	}
 	title := fmt.Sprintf("%s reaches %s in about %s", what, limit, when)
 	rec := fmt.Sprintf("%s grows at %s per second (measured over %d samples). A "+
 		"read-only pre-incident investigation explains what drives it; act before "+

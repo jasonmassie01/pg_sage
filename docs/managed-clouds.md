@@ -13,8 +13,10 @@ turns setting changes that SQL cannot make into proposals with the exact provide
 
 pg_sage names the provider of each database from its host name or, failing that, from SQL
 probes (`aurora_version()` and the `rds.*`, `alloydb.*`, `cloudsql.*` and `azure.*`
-settings). Each probe has its own 2 second timeout. "Function does not exist" or an unset
-setting means "not this provider"; no match means `self-managed`.
+settings). The last probe statement also recognizes Neon (a `neon.tenant_id` or
+`neon.timeline_id` setting) and Supabase (the `supabase_admin` role) behind a custom domain,
+so detection stays at five statements. Each probe has its own 2 second timeout. "Function
+does not exist" or an unset setting means "not this provider"; no match means `self-managed`.
 
 A probe that fails (a timeout, a dropped connection, a permission error) makes the provider
 `unknown`, never `self-managed`. At startup the probes retry after 1, 2 and 4 seconds. An
@@ -25,6 +27,23 @@ change and rebuilds that database's runtime (YAML fleet and meta-db databases). 
 standalone mode, and for the control database of a YAML fleet, it cannot rebuild one
 runtime, so readiness shows `provider re-probe found <provider>; restart pg_sage to apply`
 until you restart.
+
+### Provider override
+
+`postgres.provider` (standalone) and `databases[].provider` (fleet) name the provider
+yourself: `rds`, `aurora`, `cloud-sql`, `alloydb`, `azure`, `azure-cosmos`, `lakebase`,
+`neon`, `supabase` or `self-managed`. Any other value fails validation. The override can
+only narrow what detection says:
+
+- While the probes say `unknown`, the override is used. The re-probe keeps running; when it
+  agrees, nothing changes, and when it disagrees, the runtime is rebuilt with the detected
+  provider.
+- When it agrees with detection, it changes nothing.
+- When it disagrees, pg_sage keeps the detected provider and logs a warning. In particular
+  `self-managed` never replaces a detected managed provider, so it cannot unlock
+  `ALTER SYSTEM` on RDS, Cloud SQL or Azure.
+
+Meta-db (store) databases have no override key; their provider always comes from detection.
 
 ## What the telemetry is used for
 
@@ -43,6 +62,24 @@ still goes through the policy gate and the trust ledger.
   headroom) is under `min_free_storage_pct`, storage at its recent rate runs out within
   `min_storage_runway_hours`, or available memory is under the floor. A
   `managed_storage_runway` finding opens a week ahead.
+- **Retained WAL and the disk runway.** PostgreSQL cannot see the volume size on a managed
+  provider, so the WAL custodian's `custodian.wal.retained_wal_disk_pct_ceiling` uses the
+  provider's storage capacity as its denominator. A slot holding more than that share of the
+  volume gets the cluster-wide `max_slot_wal_keep_size` bound proposal (applied through the
+  managed-config adapter, still behind the policy gate), or a plan-only escalation when a safe
+  bound would not fit on the volume. The proposal evidence carries `capacity_source`
+  (`provider_telemetry`), `disk_capacity_bytes` and `disk_pct`. The runway monitor's disk
+  forecast also projects against a fresh provider capacity before `forecaster.disk_capacity_bytes`,
+  and the finding names its `capacity_source` (`provider_telemetry` or `declared`).
+  Capacity only adds proposals. It never admits an action, and replication slots are never
+  dropped. Without fresh telemetry (none configured, unavailable, or a stale sample), the
+  custodian and the runway behave exactly as they do on self-managed PostgreSQL: the byte
+  backstop and the declared capacity.
+  Storage that grows without a bound has no capacity, so there is no disk percentage. That is
+  Aurora (the cluster volume grows to 128 TiB) and Cloud SQL with automatic storage increase and
+  no limit. A bound proposed there by the byte backstop records
+  `capacity_source=capacity_unbounded`. A Cloud SQL auto-resize limit counts as the capacity.
+  In fleet mode each database uses its own telemetry runtime.
 - **Parameter drift.** Values set in the parameter group or flags that PostgreSQL does not run
   (pending a reboot, overridden by a database/role setting, or not in effect) open
   `managed_parameter_drift` findings.
@@ -125,6 +162,15 @@ approval, its note and a rejection all survive a change of target and a failed l
 - A rejected change is not proposed again for 7 days, whatever the target lookup returns.
 - A proposal is superseded when its finding is gone or a newer value for the same parameter
   is proposed.
+- Databases on one instance share its parameter group, so a change one of them holds (open,
+  or rejected in the last 7 days) for the same parameter group and value is not proposed again
+  by the others: approve or reject it in the database that holds it. A database that cannot
+  look up the parameter group right now does not add a placeholder copy of a change a peer
+  holds. The cycle counts these as
+  `held_by_peer`, and `GET /api/v1/managed-changes` lists each database's
+  `member_databases`. A different value is still proposed. If a peer database cannot be read,
+  the change is proposed anyway (it may then be listed twice) and the failure is logged once.
+  A database that already held its own copy before this release keeps refreshing it.
 
 Upgrading from v2.5.1 or earlier recomputes the stored identities once; open proposals keep
 their ids, status and decisions. Duplicates left by earlier outages (the same change open
@@ -166,10 +212,68 @@ privilege)", not as a neutral result.
 ## Identity and credentials
 
 The resource is named by the connection host: an RDS instance endpoint, an Aurora cluster
-(writer) endpoint, or a Cloud SQL IP address (matched through the Admin API). Reader endpoints,
-RDS Proxy and custom DNS are not resolved; in standalone mode set
-`cloud_telemetry.aws.db_instance_identifier` (or `db_cluster_identifier`) and `region`, or
-`cloud_telemetry.gcp.instance`. Fleet databases are always identified from their hosts.
+(writer) endpoint, a Cloud SQL Auth Proxy socket (`/cloudsql/<project>:<region>:<instance>`),
+or a Cloud SQL IP address (matched through the Admin API). A host that names the resource
+always wins. When it does not, name the resource with `cloud_resource` on `postgres:`
+(standalone) or on each `databases[]` entry (fleet). The older standalone-only
+`cloud_telemetry.aws.*` and `cloud_telemetry.gcp.instance` names still work when
+`cloud_resource` is empty.
+
+```yaml
+databases:
+  - name: orders                 # RDS Proxy, an IP or custom DNS
+    host: orders-proxy.proxy-abc123.us-east-1.rds.amazonaws.com
+    provider: rds
+    cloud_resource:
+      aws:
+        db_instance_identifier: orders-prod   # or cluster_identifier for Aurora
+        region: us-east-1
+  - name: billing                # Cloud SQL Auth Proxy on TCP
+    host: 127.0.0.1
+    provider: cloud-sql
+    cloud_resource:
+      gcp:
+        project: my-project
+        instance: billing-main
+  - name: ledger                 # Azure flexible server behind private DNS
+    host: ledger.db.internal
+    provider: azure
+    cloud_resource:
+      azure:
+        subscription: 00000000-0000-0000-0000-000000000000
+        resource_group: rg-ledger
+        server: ledger-flex
+```
+
+- **Cloud SQL Auth Proxy.** Through the unix socket (`host=/cloudsql/<project>:<region>:<instance>`)
+  the socket names the instance: it is read directly and never listed. Through TCP on
+  `127.0.0.1` (or any loopback address, or `localhost`) the address never matches an
+  instance. Without `cloud_resource.gcp.instance` telemetry reports unavailable, names the
+  Auth Proxy, and makes no Google API call.
+- **RDS Proxy.** A proxy endpoint (`<proxy>.proxy-<id>.<region>.rds.amazonaws.com`) does not
+  name the instance behind it. Set `cloud_resource.aws.db_instance_identifier` (or
+  `cluster_identifier` for Aurora) and `region`. The SQL probes still see the real server, so
+  the provider is detected as usual.
+- **Custom DNS or an IP.** Set the `cloud_resource` block of the cloud. For Cloud SQL by IP the
+  instance is found by its IP once through `instances.list`; naming it skips that call.
+- **Azure.** `cloud_resource.azure` (`subscription`, `resource_group` and `server`, all three)
+  wins over `azure.*` for that database. A `<name>.postgres.database.azure.com` host still
+  names the server.
+
+A `cloud_resource` block names one cloud, and when `provider` is set it must match it: `aws`
+for `rds` or `aurora`, `gcp` for `cloud-sql`, `azure` for `azure`. The block identifies the
+resource only; it never changes the detected provider.
+
+An Aurora instance endpoint (`writer-1.abc.us-east-1.rds.amazonaws.com`) is Aurora, not
+RDS, when PostgreSQL reports Aurora (`aurora_version()`) or `DescribeDBInstances` reports an
+`aurora*` engine; this holds in fleet mode too, where each member may use its own instance
+endpoint. The telemetry status (`GET /api/v1/cloud-telemetry`) then carries `cluster` and
+`instance_role` (`writer`, `reader`, or `unknown` when `rds:DescribeDBClusters` is denied:
+metrics are still collected). Managed proposals name the cluster; a reader's proposal adds
+that its DB parameter group may differ from the writer's. When the detected platform and the
+instance's engine disagree (PostgreSQL says Aurora, AWS says `postgres`, or the reverse), the
+managed-change worker reports one target error naming the instance and both providers, and
+its proposals keep placeholders instead of naming a group of the wrong kind of resource.
 
 Credentials come only from the standard chains and are never stored, logged or put in errors:
 
@@ -179,11 +283,26 @@ Credentials come only from the standard chains and are never stored, logged or p
 - **Google Cloud:** Application Default Credentials (`GOOGLE_APPLICATION_CREDENTIALS` with a
   service-account key or user credentials, `gcloud auth application-default login`, or the
   metadata server on GCE/GKE/Cloud Run). Roles: `roles/monitoring.viewer`,
-  `roles/cloudsql.viewer`. The project comes from `cloud_telemetry.gcp.project` or the
-  credentials.
+  `roles/cloudsql.viewer`. The project comes from the Auth Proxy socket,
+  `cloud_resource.gcp.project`, `cloud_telemetry.gcp.project` or the credentials, in that
+  order.
 
 Without credentials telemetry reports `unavailable: <reason>` (see
 `GET /api/v1/cloud-telemetry`) and pg_sage behaves as before.
+
+Failed polls back off instead of retrying every interval. After *n* failures in a row the next
+poll waits the poll interval × 2^(n-1): up to 30 minutes when credentials are missing, the
+database identity is unknown or access is denied, and up to 10 minutes (±20 % jitter) for
+throttling, provider, response, clock-skew and network errors. A ceiling never shortens a poll
+interval that is already longer. One success returns to the poll interval. pg_sage keeps
+retrying, so credentials added later are picked up within 30 minutes; reloading the
+configuration rebuilds the runtime and polls at once. When other databases share the
+instance's runtime, reloading one of them keeps the runtime (and its credentials chain) and
+polls at once. The log gets one warning when a failure starts or its reason changes and one
+line when telemetry recovers, not one per poll.
+`GET /api/v1/cloud-telemetry` shows `next_poll_at` and `consecutive_failures` for each
+database. A failed poll still drops the previous sample, so the guards never use stale
+evidence.
 
 ## Configuration
 
@@ -209,7 +328,11 @@ Environment overrides: `SAGE_CLOUD_TELEMETRY_ENABLED`, `SAGE_AWS_REGION`,
 
 Cost: CloudWatch bills `GetMetricData` per metric requested (about 10 metrics per poll, plus
 one per read replica); Performance Insights and Cloud Monitoring API reads have their own
-pricing. Raise `poll_interval_seconds` to read less often.
+pricing. Raise `poll_interval_seconds` to read less often. The cost is per instance, not per
+database: databases of one fleet on the same instance (the same host and port, or the same
+`cloud_resource`, with the same polling settings) share one poller, polled once per interval
+from the first of them that starts until the last one stops. `GET /api/v1/cloud-telemetry`
+lists such an instance once, with its member databases in `databases`.
 
 ## Live check (owner-run, never in CI)
 

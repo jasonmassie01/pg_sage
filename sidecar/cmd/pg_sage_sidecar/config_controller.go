@@ -114,6 +114,7 @@ func applyWatchedConfig(updated *config.Config) error {
 			resyncConfigFromStore(shutdownCtx) {
 			logInfo("config", "hot-reload applied through a resync to generation %d",
 				configController.Desired().Generation)
+			requestCapabilityRefresh()
 			return nil
 		}
 		return applyErr
@@ -121,6 +122,7 @@ func applyWatchedConfig(updated *config.Config) error {
 	logInfo("config", "hot-reload desired=%d active=%d pending_restart=%d",
 		result.DesiredGeneration, result.ActiveGeneration,
 		len(result.PendingRestart))
+	requestCapabilityRefresh()
 	return nil
 }
 

@@ -60,11 +60,17 @@ func (c *PostgresWALCustodian) Scan(ctx context.Context) ([]Proposal, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	diskBytes, diskKnown := c.diskCapacity(ctx)
 	slots, err := c.readSlots(ctx)
 	if err != nil {
 		return nil, err
 	}
+	return c.proposeFor(ctx, slots)
+}
+
+// proposeFor classifies the slots against one read of the disk capacity.
+func (c *PostgresWALCustodian) proposeFor(ctx context.Context, slots []walSlot) (
+	[]Proposal, error) {
+	capacity := c.diskCapacity(ctx)
 	// max_slot_wal_keep_size is cluster-wide: size it for the slot that
 	// retains the most WAL, and propose it at most once per scan.
 	var maxRetained int64
@@ -74,7 +80,7 @@ func (c *PostgresWALCustodian) Scan(ctx context.Context) ([]Proposal, error) {
 	result := make([]Proposal, 0)
 	bounded := false
 	for _, slot := range slots {
-		proposal, err := c.proposalForSlot(ctx, slot, maxRetained, diskBytes, diskKnown)
+		proposal, err := c.proposalForSlot(ctx, slot, maxRetained, capacity)
 		if err != nil {
 			return nil, err
 		}
@@ -130,22 +136,23 @@ func (c *PostgresWALCustodian) scanSlot(
 	if err != nil {
 		return Proposal{}, err
 	}
-	return c.proposalForSlot(ctx, slot, slot.retained, diskBytes, diskKnown)
+	return c.proposalForSlot(ctx, slot, slot.retained, knownCapacity(diskBytes, diskKnown))
 }
 
 func (c *PostgresWALCustodian) proposalForSlot(
-	ctx context.Context, slot walSlot, maxRetained, diskBytes int64, diskKnown bool,
+	ctx context.Context, slot walSlot, maxRetained int64, capacity walCapacity,
 ) (Proposal, error) {
 	evidence := c.slotEvidence(ctx, slot.name, wal.SlotType(slot.slotType),
 		slot.active, slot.retained)
-	evidence.DiskCapacityKnown, evidence.DiskCapacityBytes = diskKnown, diskBytes
+	evidence.DiskCapacityKnown, evidence.DiskCapacityBytes = capacity.known, capacity.bytes
 	decision, err := wal.Classify(ctx, evidence, c.policy())
 	if err != nil {
 		return Proposal{}, err
 	}
 	switch decision.Action {
 	case wal.ActionBound:
-		return c.boundOrEscalate(ctx, slot, evidence, maxRetained)
+		proposal, err := c.boundOrEscalate(ctx, slot, evidence, maxRetained)
+		return withCapacityEvidence(proposal, slot, capacity), err
 	case wal.ActionDrop:
 		return c.dropProposal(slot.name), nil
 	default:
@@ -273,14 +280,6 @@ func (c *PostgresWALCustodian) readRegistry(
 	evidence.ConsumerRegistered = registered
 	evidence.OwnerTagKnown = strings.TrimSpace(owner) != ""
 	evidence.OwnerTag = owner
-}
-
-func (c *PostgresWALCustodian) diskCapacity(ctx context.Context) (int64, bool) {
-	if c.options.Disk == nil {
-		return 0, false
-	}
-	bytes, err := c.options.Disk.CapacityBytes(ctx)
-	return bytes, err == nil && bytes > 0
 }
 
 func (c *PostgresWALCustodian) policy() wal.Policy {

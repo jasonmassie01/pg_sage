@@ -140,7 +140,7 @@ func TestFreezeCustodianIsBuiltOncePerRuntime(t *testing.T) {
 			t.Fatalf("caller %d got %p, want the one custodian %p", i, c, got[0])
 		}
 	}
-	advisor := newRunwayAdvisorFor(rt.freezeCustodian(), nil, rt.cfg, rt.spec.Name, nil)
+	advisor := newRunwayAdvisorFor(rt.freezeCustodian(), nil, rt.cfg, rt.spec.Name, nil, nil)
 	if advisor.freeze != autonomy.Custodian(got[0]) {
 		t.Fatal("the runway advisor built its own freeze custodian")
 	}

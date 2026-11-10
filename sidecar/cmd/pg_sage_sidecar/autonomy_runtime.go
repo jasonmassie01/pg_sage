@@ -136,9 +136,10 @@ func (autonomyLogReporter) Report(level, message string, fields map[string]any) 
 func newDatabaseAutonomy(
 	pool *pgxpool.Pool, cfg *config.Config, database string, exec *executor.Executor,
 	freezeWorker *autonomy.PostgresFreezeCustodian, monitor *ha.Monitor,
+	disk autonomy.DiskCapacityProvider,
 ) (*autonomy.Supervisor, error) {
 	workers, err := databaseAutonomyWorkers(pool, cfg, database, exec, freezeWorker,
-		monitor)
+		monitor, disk)
 	if err != nil {
 		return nil, err
 	}
@@ -149,16 +150,18 @@ func newDatabaseAutonomy(
 // freeze custodian it is given (shared with the runway advisor and the
 // analyzer), the WAL custodian, the schema guard, the executor router and
 // the ledger self-audit. The router reads monitor's snapshot for the
-// replica gate.
+// replica gate; disk is the provider storage capacity the WAL custodian
+// judges retained WAL against (clouds-07; nil without cloud telemetry).
 func databaseAutonomyWorkers(
 	pool *pgxpool.Pool, cfg *config.Config, database string, exec *executor.Executor,
 	freezeWorker *autonomy.PostgresFreezeCustodian, monitor *ha.Monitor,
+	disk autonomy.DiskCapacityProvider,
 ) (autonomy.DatabaseWorkersConfig, error) {
 	if pool == nil || cfg == nil || exec == nil || freezeWorker == nil {
 		return autonomy.DatabaseWorkersConfig{},
 			fmt.Errorf("autonomy runtime dependencies are incomplete")
 	}
-	walWorker := newWALCustodian(pool, cfg, database)
+	walWorker := newWALCustodian(pool, cfg, database, disk)
 	auditor := ledger.NewService(ledger.NewPostgresRepository(pool))
 	router := executorProposalRouter{executor: exec, isReplica: haReplicaGate(monitor),
 		parkLog: newParkedLog(func(format string, args ...any) {
@@ -206,8 +209,10 @@ func startInstanceAutonomy(
 	ctx context.Context, workers *sync.WaitGroup, pool *pgxpool.Pool,
 	cfg *config.Config, database string, exec *executor.Executor,
 	freeze *autonomy.PostgresFreezeCustodian, monitor *ha.Monitor,
+	disk autonomy.DiskCapacityProvider,
 ) error {
-	supervisor, err := newDatabaseAutonomy(pool, cfg, database, exec, freeze, monitor)
+	supervisor, err := newDatabaseAutonomy(pool, cfg, database, exec, freeze,
+		monitor, disk)
 	if err != nil {
 		return err
 	}

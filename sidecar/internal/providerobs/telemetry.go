@@ -41,6 +41,21 @@ func (t Telemetry) CPU(now time.Time) (float64, error) {
 	return *t.CPUPct, nil
 }
 
+// HostMemory is fresh total and available memory in bytes (0 = unknown),
+// under the same freshness rule as CPU. An available figure that is
+// invalid or above the total is dropped as inconsistent.
+func (t Telemetry) HostMemory(now time.Time) (total, available int64) {
+	if !validAge(t.ObservedAt, now) || t.MemoryTotalBytes == nil ||
+		!validNumber(*t.MemoryTotalBytes) || *t.MemoryTotalBytes < 1 {
+		return 0, 0
+	}
+	total = int64(*t.MemoryTotalBytes)
+	if a := t.MemoryAvailableBytes; a != nil && validNumber(*a) && *a <= *t.MemoryTotalBytes {
+		available = int64(*a)
+	}
+	return total, available
+}
+
 // DeriveTelemetry converts idle CPU-seconds per core to host utilization over a real interval.
 // Disk and WAL byte/time counters cannot establish capacity utilization, so remain unknown.
 func DeriveTelemetry(before, after MetricSnapshot, now time.Time) (Telemetry, error) {

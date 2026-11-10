@@ -1,6 +1,11 @@
 package executor
 
-import "errors"
+import (
+	"errors"
+	"slices"
+
+	prov "github.com/pg-sage/sidecar/internal/provider"
+)
 
 type ActionContract struct {
 	ActionType          string
@@ -85,8 +90,7 @@ func ContractForActionType(actionType string) (ActionContract, bool) {
 	case "alter_system_guc":
 		return gucChangeContract(actionType, "ALTER SYSTEM", []string{"postgres"}), true
 	case "alter_database_guc":
-		return gucChangeContract(actionType, "ALTER DATABASE",
-			lakebaseOwnedActionProviders()), true
+		return gucChangeContract(actionType, "ALTER DATABASE", databaseGUCProviders()), true
 	case "diagnose_lock_blockers":
 		return incidentDiagnoseLockBlockersContract(), true
 	case "diagnose_runaway_query":
@@ -846,8 +850,15 @@ func prepareParameterizedQueryContract() ActionContract {
 }
 
 func portableActionProviders() []string {
-	return []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb",
-		"neon", "supabase", "azure", "azure-cosmos"}
+	return []string{prov.Postgres, prov.RDS, prov.Aurora, prov.CloudSQL, prov.AlloyDB,
+		prov.Neon, prov.Supabase, prov.Azure, prov.AzureCosmos}
+}
+
+// databaseGUCProviders run ALTER DATABASE ... SET: not Cosmos DB for
+// PostgreSQL, whose parameters are guidance-only (no pg_sage adapter).
+func databaseGUCProviders() []string {
+	return slices.DeleteFunc(lakebaseOwnedActionProviders(),
+		func(name string) bool { return name == prov.AzureCosmos })
 }
 
 // lakebaseOwnedActionProviders is intentionally limited to the contracts whose
@@ -855,5 +866,5 @@ func portableActionProviders() []string {
 // Other portable contracts keep their existing provider list; a PostgreSQL wire
 // connection alone does not establish provider feature or privilege support.
 func lakebaseOwnedActionProviders() []string {
-	return append(portableActionProviders(), "lakebase")
+	return append(portableActionProviders(), prov.Lakebase)
 }

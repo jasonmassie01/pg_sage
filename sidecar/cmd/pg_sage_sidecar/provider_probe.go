@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -32,19 +33,34 @@ type providerQuerier interface {
 }
 
 // providerProbe identifies one provider by a function or setting that only
-// it has. The list and its order are a compatibility contract.
+// it has. The list and its order are a compatibility contract. A statement
+// whose value is one of also names that provider instead: the last one
+// carries the Neon and Supabase fallbacks for custom domains, so detection
+// stays at five statements.
 type providerProbe struct {
 	provider string
 	sql      string
+	also     []string
 }
 
 var providerProbes = []providerProbe{
-	{"aurora", "SELECT aurora_version()"},
-	{"rds", "SELECT current_setting('rds.extensions', true)"},
-	{"alloydb", "SELECT current_setting('alloydb.iam_authentication', true)"},
-	{"cloud-sql", "SELECT current_setting('cloudsql.iam_authentication', true)"},
-	{"azure", "SELECT current_setting('azure.extensions', true)"},
+	{provider: "aurora", sql: "SELECT aurora_version()"},
+	{provider: "rds", sql: "SELECT current_setting('rds.extensions', true)"},
+	{provider: "alloydb", sql: "SELECT current_setting('alloydb.iam_authentication', true)"},
+	{provider: "cloud-sql", sql: "SELECT current_setting('cloudsql.iam_authentication', true)"},
+	{provider: "azure", sql: azureAndFallbackProbe, also: []string{"neon", "supabase"}},
 }
+
+// azureAndFallbackProbe answers azure first, then a neon.* setting (Neon
+// sets its tenant and timeline), then the supabase_admin role Supabase
+// creates. pg_roles is readable by every role.
+const azureAndFallbackProbe = `SELECT CASE
+ WHEN current_setting('azure.extensions', true) IS NOT NULL THEN 'azure'
+ WHEN COALESCE(NULLIF(current_setting('neon.tenant_id', true), ''),
+   NULLIF(current_setting('neon.timeline_id', true), '')) IS NOT NULL THEN 'neon'
+ WHEN EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'supabase_admin')
+   THEN 'supabase'
+ END`
 
 // providerDetector runs the provider probes, with startup retries.
 type providerDetector struct {
@@ -86,29 +102,35 @@ func (d providerDetector) probeOnce(ctx context.Context) (string, error) {
 		if err != nil {
 			return providerUnknown, fmt.Errorf("provider probe %s: %w", probe.provider, err)
 		}
-		if found {
-			return probe.provider, nil
+		if found != "" {
+			return found, nil
 		}
 	}
 	return providerSelfManaged, nil
 }
 
-// run answers whether this server is probe.provider. Only "function does
-// not exist" and a NULL setting mean "not this provider"; every other
+// run names the provider the probe found, or "" for none. Only "function
+// does not exist" and a NULL value mean "not this provider"; every other
 // error (connection, timeout, 57014, permission) is returned.
-func (d providerDetector) run(parent context.Context, probe providerProbe) (bool, error) {
+func (d providerDetector) run(parent context.Context, probe providerProbe) (string, error) {
 	ctx, cancel := context.WithTimeout(parent, d.timeout)
 	defer cancel()
 	var value *string
 	err := d.query.QueryRow(ctx, probe.sql).Scan(&value)
 	if err == nil {
-		return value != nil, nil
+		switch {
+		case value == nil:
+			return "", nil
+		case slices.Contains(probe.also, *value):
+			return *value, nil
+		}
+		return probe.provider, nil
 	}
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == sqlStateUndefinedFunction {
-		return false, nil
+		return "", nil
 	}
-	return false, err
+	return "", err
 }
 
 // sleepContext waits for d or until ctx ends.

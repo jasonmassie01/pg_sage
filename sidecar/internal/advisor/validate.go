@@ -1,11 +1,10 @@
 package advisor
 
 import (
-	"strings"
-
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/pgconf"
+	"github.com/pg-sage/sidecar/internal/provider"
 )
 
 // RequiresRestart returns true if changing the setting needs a restart.
@@ -15,13 +14,9 @@ func RequiresRestart(settingName string) bool {
 }
 
 // IsManagedService returns true if the platform is a managed cloud
-// service where ALTER SYSTEM is unavailable.
+// service where ALTER SYSTEM is unavailable (the provider registry).
 func IsManagedService(platform string) bool {
-	switch strings.ToLower(strings.TrimSpace(platform)) {
-	case "rds", "aurora", "cloud-sql", "alloydb", "azure", "neon", "supabase", "lakebase":
-		return true
-	}
-	return false
+	return provider.IsManaged(platform)
 }
 
 // TransformForCloud rewrites setting findings for a managed provider,
@@ -35,20 +30,25 @@ func IsManagedService(platform string) bool {
 //     managed intent where the provider has one, guidance otherwise.
 //   - unknown or missing context, or no database name: advisory.
 //
+// A guidance-only provider (the registry's ConfigGuidanceOnly, such as
+// Azure Cosmos DB for PostgreSQL) keeps no executable SQL (clouds-11).
 // Self-managed platforms keep ALTER SYSTEM unchanged.
 func TransformForCloud(
 	findings []analyzer.Finding,
 	platform, dbName string,
 	settings ...[]collector.PGSetting,
 ) []analyzer.Finding {
-	platform = strings.ToLower(strings.TrimSpace(platform))
-	if !IsManagedService(platform) {
+	profile, ok := provider.Lookup(platform)
+	if !ok || !profile.Managed {
 		return findings
+	}
+	if profile.ConfigMechanism == provider.ConfigGuidanceOnly {
+		return transformGuidanceOnly(findings)
 	}
 	known := settingsByName(settings)
 	out := make([]analyzer.Finding, 0, len(findings))
 	for _, f := range findings {
-		out = append(out, routeManagedSetting(f, platform, dbName, known))
+		out = append(out, routeManagedSetting(f, profile.Name, dbName, known))
 	}
 	return out
 }

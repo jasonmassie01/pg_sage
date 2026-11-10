@@ -88,3 +88,24 @@ func TestAuthorizeTyped(t *testing.T) {
 		t.Fatalf("observe only: %+v %v", d, err)
 	}
 }
+
+// Agent governance covers Cosmos DB for PostgreSQL like every other managed
+// provider; Lakebase stays out on purpose (agent roles are not verified there).
+func TestGuardProvidersCoverAzureCosmosNotLakebase(t *testing.T) {
+	for _, actionType := range []string{ActionTypeGuardRoleEnsure, ActionTypeGuardRoleRetire} {
+		contract, ok := ContractForActionType(actionType)
+		if !ok {
+			t.Fatalf("%s has no contract", actionType)
+		}
+		if !contractSupportsProvider(contract, "azure-cosmos") {
+			t.Errorf("%s does not support azure-cosmos: %v", actionType,
+				contract.ProviderSupport)
+		}
+		if contractSupportsProvider(contract, "lakebase") {
+			t.Errorf("%s supports lakebase: %v", actionType, contract.ProviderSupport)
+		}
+		if contractSupportsProvider(contract, "unknown") {
+			t.Errorf("%s supports unknown: %v", actionType, contract.ProviderSupport)
+		}
+	}
+}

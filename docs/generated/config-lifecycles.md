@@ -270,12 +270,21 @@
 | `oauth.role_mapping` | `restart` | `-` | `safety_critical` |
 | `oauth.unmapped_users` | `restart` | `-` | `safety_critical` |
 | `policy.profile` | `restart` | `-` | `safety_critical` |
+| `postgres.cloud_resource.aws.cluster_identifier` | `restart` | `-` | `safety_critical` |
+| `postgres.cloud_resource.aws.db_instance_identifier` | `restart` | `-` | `safety_critical` |
+| `postgres.cloud_resource.aws.region` | `restart` | `-` | `safety_critical` |
+| `postgres.cloud_resource.azure.resource_group` | `restart` | `-` | `safety_critical` |
+| `postgres.cloud_resource.azure.server` | `restart` | `-` | `safety_critical` |
+| `postgres.cloud_resource.azure.subscription` | `restart` | `-` | `safety_critical` |
+| `postgres.cloud_resource.gcp.instance` | `restart` | `-` | `safety_critical` |
+| `postgres.cloud_resource.gcp.project` | `restart` | `-` | `safety_critical` |
 | `postgres.database` | `restart` | `-` | `safety_critical` |
 | `postgres.database_url` | `restart` | `-` | `safety_critical` |
 | `postgres.host` | `restart` | `-` | `safety_critical` |
 | `postgres.max_connections` | `restart` | `-` | `safety_critical` |
 | `postgres.password` | `restart` | `-` | `safety_critical` |
 | `postgres.port` | `restart` | `-` | `safety_critical` |
+| `postgres.provider` | `restart` | `-` | `safety_critical` |
 | `postgres.sslmode` | `restart` | `-` | `safety_critical` |
 | `postgres.user` | `restart` | `-` | `safety_critical` |
 | `prometheus.listen_addr` | `restart` | `-` | `safety_critical` |
@@ -501,6 +510,14 @@ In YAML fleet mode the `fleet_databases` owner reconciles the list: an added ent
 | Field | Lifecycle | Runtime owner | Self-config class |
 | --- | --- | --- | --- |
 | `databases[].analyzer_interval_seconds` | `reconfigure` | `fleet_databases` | `operator_preference` |
+| `databases[].cloud_resource.aws.cluster_identifier` | `reconfigure` | `fleet_databases` | `safety_critical` |
+| `databases[].cloud_resource.aws.db_instance_identifier` | `reconfigure` | `fleet_databases` | `safety_critical` |
+| `databases[].cloud_resource.aws.region` | `reconfigure` | `fleet_databases` | `safety_critical` |
+| `databases[].cloud_resource.azure.resource_group` | `reconfigure` | `fleet_databases` | `safety_critical` |
+| `databases[].cloud_resource.azure.server` | `reconfigure` | `fleet_databases` | `safety_critical` |
+| `databases[].cloud_resource.azure.subscription` | `reconfigure` | `fleet_databases` | `safety_critical` |
+| `databases[].cloud_resource.gcp.instance` | `reconfigure` | `fleet_databases` | `safety_critical` |
+| `databases[].cloud_resource.gcp.project` | `reconfigure` | `fleet_databases` | `safety_critical` |
 | `databases[].collector_interval_seconds` | `reconfigure` | `fleet_databases` | `operator_preference` |
 | `databases[].database` | `reconfigure` | `fleet_databases` | `safety_critical` |
 | `databases[].execution_mode` | `live_policy` | `fleet_databases` | `safety_critical` |
@@ -511,6 +528,7 @@ In YAML fleet mode the `fleet_databases` owner reconciles the list: an added ent
 | `databases[].name` | `reconfigure` | `fleet_databases` | `safety_critical` |
 | `databases[].password` | `reconfigure` | `fleet_databases` | `safety_critical` |
 | `databases[].port` | `reconfigure` | `fleet_databases` | `safety_critical` |
+| `databases[].provider` | `reconfigure` | `fleet_databases` | `safety_critical` |
 | `databases[].replicas` | `reconfigure` | `fleet_databases` | `safety_critical` |
 | `databases[].sslmode` | `reconfigure` | `fleet_databases` | `safety_critical` |
 | `databases[].tags` | `live_policy` | `fleet_databases` | `operator_preference` |

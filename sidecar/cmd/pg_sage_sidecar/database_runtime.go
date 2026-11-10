@@ -25,6 +25,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/logwatch"
 	"github.com/pg-sage/sidecar/internal/managedparam"
 	"github.com/pg-sage/sidecar/internal/notify"
+	"github.com/pg-sage/sidecar/internal/providerobs"
 	"github.com/pg-sage/sidecar/internal/rca"
 	"github.com/pg-sage/sidecar/internal/sre"
 	sreaction "github.com/pg-sage/sidecar/internal/sre/action"
@@ -78,6 +79,7 @@ type databaseRuntime struct {
 	cfg        *config.Config
 	checks     *startup.CheckResult
 	provider   string
+	probed     string // the probe outcome before any provider override
 	generalLLM *llm.Client
 	llmManager *llm.Manager
 	llmOn      bool
@@ -137,6 +139,9 @@ type databaseRuntime struct {
 	// advisor and the autonomy worker (vacuum-08).
 	freeze     *autonomy.PostgresFreezeCustodian
 	freezeOnce sync.Once
+	// providerObs is Supabase observability (nil: not running); its memory
+	// backs the gates when there is no managed-cloud telemetry.
+	providerObs atomic.Pointer[providerobs.Runtime]
 }
 
 // buildDatabaseRuntime is the only per-database runtime constructor. It
@@ -173,6 +178,7 @@ func buildDatabaseRuntime(
 	rt.logExecutorSettings()
 	rt.inst = rt.instance()
 	rt.startMetricsRefresher() // metrics_refresher.go
+	rt.startCapabilityRefresh()
 	rt.startProviderReprobe()
 	logInfo(spec.Scope, "db %q: initialized (%s)", spec.Name,
 		strings.Join(rt.features, "+"))

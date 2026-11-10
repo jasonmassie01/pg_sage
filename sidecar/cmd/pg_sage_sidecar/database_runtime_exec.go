@@ -18,9 +18,11 @@ import (
 func (rt *databaseRuntime) startExecution() {
 	rt.buildExecutor()
 	rt.startAutonomyLoops()
-	if startProviderObservability(
+	obs, providerLogs := startProviderObservability(
 		rt.ctx, rt.workers, rt.spec.Pool, rt.cfg, rt.executor, rt.rca,
-	) {
+	)
+	rt.attachProviderObservability(obs)
+	if providerLogs {
 		rt.providerLogs.Store(true)
 	}
 	rt.startCloudTelemetry()
@@ -32,7 +34,7 @@ func (rt *databaseRuntime) startExecution() {
 	}
 	if err := startInstanceAutonomy(
 		rt.ctx, rt.workers, rt.spec.Pool, rt.cfg, rt.spec.Name, rt.executor,
-		rt.freezeCustodian(), rt.ha,
+		rt.freezeCustodian(), rt.ha, rt.diskCapacity(),
 	); err != nil {
 		logError(rt.spec.Scope, "db %q: continuous autonomy unavailable: %v",
 			rt.spec.Name, err)
@@ -72,7 +74,8 @@ func (rt *databaseRuntime) buildExecutor() {
 	}
 	ex := executor.New(rt.spec.Pool, rt.cfg, rampStart, logStructuredWrapper)
 	ex.WithAnalyzeSemaphore(ensureAnalyzeSemaphore())
-	installAzureManagedConfig(ex, cfg, rt.provider,
+	installAzureManagedConfig(ex, azureTargetConfig(cfg, rt.spec.Config.CloudResource.Azure),
+		rt.provider,
 		rt.spec.Pool.Config().ConnConfig.Host, rt.spec.Scope)
 	rt.actions = store.NewActionStore(rt.spec.Pool)
 	ex.WithActionStore(rt.actions, rt.spec.ExecMode)

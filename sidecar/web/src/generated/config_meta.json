@@ -839,6 +839,54 @@
     "mode": "fleet-only",
     "class": "operator_preference"
   },
+  "databases[].cloud_resource.aws.cluster_identifier": {
+    "type": "string",
+    "default": "",
+    "doc": "Aurora DB cluster identifier (its writer is read) when the host does not name it. Set this or db_instance_identifier, not both.",
+    "class": "safety_critical"
+  },
+  "databases[].cloud_resource.aws.db_instance_identifier": {
+    "type": "string",
+    "default": "",
+    "doc": "RDS DB instance identifier of this database when its host does not name it (IP, RDS Proxy, custom DNS). An RDS endpoint host always wins.",
+    "class": "safety_critical"
+  },
+  "databases[].cloud_resource.aws.region": {
+    "type": "string",
+    "default": "",
+    "doc": "AWS region of the named instance or cluster. Empty: AWS_REGION.",
+    "class": "safety_critical"
+  },
+  "databases[].cloud_resource.azure.resource_group": {
+    "type": "string",
+    "default": "",
+    "doc": "Azure resource group of this database's flexible server.",
+    "class": "safety_critical"
+  },
+  "databases[].cloud_resource.azure.server": {
+    "type": "string",
+    "default": "",
+    "doc": "Flexible server name when the host does not name it. A \u003cname\u003e.postgres.database.azure.com host always wins.",
+    "class": "safety_critical"
+  },
+  "databases[].cloud_resource.azure.subscription": {
+    "type": "string",
+    "default": "",
+    "doc": "Azure subscription ID of this database's flexible server. Set with resource_group and server; wins over azure.* for this database.",
+    "class": "safety_critical"
+  },
+  "databases[].cloud_resource.gcp.instance": {
+    "type": "string",
+    "default": "",
+    "doc": "Cloud SQL instance name when the host does not name it (Auth Proxy on 127.0.0.1, custom DNS). With it set the instance is read directly, never listed.",
+    "class": "safety_critical"
+  },
+  "databases[].cloud_resource.gcp.project": {
+    "type": "string",
+    "default": "",
+    "doc": "Google Cloud project of the Cloud SQL instance. Empty: the project of a /cloudsql/\u003cproject\u003e:\u003cregion\u003e:\u003cinstance\u003e socket host, else of the Application Default Credentials.",
+    "class": "safety_critical"
+  },
   "databases[].collector_interval_seconds": {
     "type": "int",
     "default": 0,
@@ -893,6 +941,13 @@
     "type": "int",
     "default": 0,
     "doc": "TCP port of this fleet database.",
+    "mode": "fleet-only",
+    "class": "safety_critical"
+  },
+  "databases[].provider": {
+    "type": "string",
+    "default": "",
+    "doc": "Optional provider override, e.g. rds, cloud-sql, neon or self-managed. Used only while detection cannot tell; a disagreement with detection keeps the detected provider and warns.",
     "mode": "fleet-only",
     "class": "safety_critical"
   },
@@ -1805,6 +1860,54 @@
     "doc": "Bootstrap standing-policy profile: staffed or unattended.",
     "class": "safety_critical"
   },
+  "postgres.cloud_resource.aws.cluster_identifier": {
+    "type": "string",
+    "default": "",
+    "doc": "Aurora DB cluster identifier (its writer is read) when the host does not name it. Set this or db_instance_identifier, not both.",
+    "class": "safety_critical"
+  },
+  "postgres.cloud_resource.aws.db_instance_identifier": {
+    "type": "string",
+    "default": "",
+    "doc": "RDS DB instance identifier of this database when its host does not name it (IP, RDS Proxy, custom DNS). An RDS endpoint host always wins.",
+    "class": "safety_critical"
+  },
+  "postgres.cloud_resource.aws.region": {
+    "type": "string",
+    "default": "",
+    "doc": "AWS region of the named instance or cluster. Empty: AWS_REGION.",
+    "class": "safety_critical"
+  },
+  "postgres.cloud_resource.azure.resource_group": {
+    "type": "string",
+    "default": "",
+    "doc": "Azure resource group of this database's flexible server.",
+    "class": "safety_critical"
+  },
+  "postgres.cloud_resource.azure.server": {
+    "type": "string",
+    "default": "",
+    "doc": "Flexible server name when the host does not name it. A \u003cname\u003e.postgres.database.azure.com host always wins.",
+    "class": "safety_critical"
+  },
+  "postgres.cloud_resource.azure.subscription": {
+    "type": "string",
+    "default": "",
+    "doc": "Azure subscription ID of this database's flexible server. Set with resource_group and server; wins over azure.* for this database.",
+    "class": "safety_critical"
+  },
+  "postgres.cloud_resource.gcp.instance": {
+    "type": "string",
+    "default": "",
+    "doc": "Cloud SQL instance name when the host does not name it (Auth Proxy on 127.0.0.1, custom DNS). With it set the instance is read directly, never listed.",
+    "class": "safety_critical"
+  },
+  "postgres.cloud_resource.gcp.project": {
+    "type": "string",
+    "default": "",
+    "doc": "Google Cloud project of the Cloud SQL instance. Empty: the project of a /cloudsql/\u003cproject\u003e:\u003cregion\u003e:\u003cinstance\u003e socket host, else of the Application Default Credentials.",
+    "class": "safety_critical"
+  },
   "postgres.database": {
     "type": "string",
     "default": "postgres",
@@ -1840,6 +1943,12 @@
     "type": "int",
     "default": 5432,
     "doc": "TCP port of the target PostgreSQL instance. Ignored when database_url is set.",
+    "class": "safety_critical"
+  },
+  "postgres.provider": {
+    "type": "string",
+    "default": "",
+    "doc": "Optional provider override, e.g. rds, cloud-sql, neon or self-managed. Used only while detection cannot tell; a disagreement with detection keeps the detected provider and warns.",
     "class": "safety_critical"
   },
   "postgres.sslmode": {

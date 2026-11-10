@@ -6,6 +6,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/advisor"
 	"github.com/pg-sage/sidecar/internal/cloudtel"
+	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/managedparam"
 )
 
@@ -16,63 +17,90 @@ const managedChangeInterval = 5 * time.Minute
 // newCloudTelemetry is a variable so tests can stub the credential chains.
 var newCloudTelemetry = func(ctx context.Context, rt *databaseRuntime) (*cloudtel.Runtime,
 	managedparam.Resolver) {
-	host := rt.spec.Pool.Config().ConnConfig.Host
-	return cloudTelemetryFor(ctx, rt.cfg, rt.provider, host, rt.spec.Name, rt.spec.Shared,
-		defaultCloudDeps())
+	return runtimeCloudTelemetry(ctx, rt, defaultCloudDeps())
 }
 
-// initCloudTelemetry resolves the database's managed-cloud telemetry
-// before monitoring starts, so the memory gates can read it.
+// runtimeCloudTelemetry resolves the telemetry of rt's database from its
+// host and its own cloud_resource.
+func runtimeCloudTelemetry(ctx context.Context, rt *databaseRuntime,
+	deps cloudDeps) (*cloudtel.Runtime, managedparam.Resolver) {
+	host := rt.spec.Pool.Config().ConnConfig.Host
+	return cloudTelemetryFor(ctx, rt.cfg, rt.provider, host, rt.spec.Name, rt.spec.Shared,
+		rt.spec.Config.CloudResource, deps)
+}
+
+// initCloudTelemetry acquires the managed-cloud telemetry of the
+// database's provider instance before monitoring starts, so the memory
+// gates can read it. Databases on one instance share it (clouds-08): it
+// polls from the first acquire until the last database stops.
 func (rt *databaseRuntime) initCloudTelemetry() {
-	rt.cloud, rt.cloudResolver = newCloudTelemetry(rt.ctx, rt)
+	var release func()
+	rt.cloud, rt.cloudResolver, release = processCloudTelemetry.acquire(rt.cloudShareKey(),
+		rt.spec.Name, func(ctx context.Context) (*cloudtel.Runtime, managedparam.Resolver) {
+			return newCloudTelemetry(ctx, rt)
+		})
 	if rt.cloud == nil {
 		return
 	}
-	cloudtel.Register(rt.cloud)
 	rt.start(func() {
 		<-rt.ctx.Done()
-		cloudtel.Unregister(rt.cloud)
+		release()
 	})
 	if st := rt.cloud.Status(); !st.Available && rt.cloudResolver == nil {
 		logWarn(rt.spec.Scope, "db %q: managed-cloud telemetry %s", rt.spec.Name, st.Reason)
 	}
 }
 
-// hostMemory is live host memory from telemetry (zero when unknown).
-func (rt *databaseRuntime) hostMemory() advisor.HostMemory {
-	if rt.cloud == nil {
-		return advisor.HostMemory{}
+// cloudShareKey names the database's provider instance (cloudShareKey).
+func (rt *databaseRuntime) cloudShareKey() string {
+	var ct config.CloudTelemetryConfig
+	if rt.cfg != nil {
+		ct = rt.cfg.CloudTelemetry
 	}
-	total, available := rt.cloud.HostMemory()
+	cc := rt.spec.Pool.Config().ConnConfig
+	return cloudShareKey(rt.provider, cc.Host, cc.Port, rt.spec.Config.CloudResource, ct)
+}
+
+// hostMemory is live host memory from managed-cloud telemetry or, without
+// it, from Supabase observability (zero when unknown or stale).
+func (rt *databaseRuntime) hostMemory() advisor.HostMemory {
+	var total, available int64
+	if rt.cloud != nil {
+		total, available = rt.cloud.HostMemory()
+	} else if obs := rt.providerObs.Load(); obs != nil {
+		total, available = obs.HostMemory()
+	}
 	return advisor.HostMemory{TotalBytes: total, AvailableBytes: available}
 }
 
-// startCloudTelemetry starts polling, gives the executor host CPU and the
-// host guards, and runs the managed-change worker. Telemetry supplies
-// evidence only: trust levels and the policy gate are untouched.
+// startCloudTelemetry gives the executor host CPU and the host guards,
+// and runs the managed-change worker (the shared runtime already polls).
+// Telemetry supplies evidence only: trust levels and the policy gate are
+// untouched. The worker joins its instance's peers, so a change another
+// database of the instance holds is not proposed twice.
 func (rt *databaseRuntime) startCloudTelemetry() {
 	if rt.cloud != nil && rt.cloudResolver != nil {
 		if rt.executor != nil {
 			rt.executor.WithHostCPUReader(rt.cloud)
 		}
-		rt.start(func() {
-			rt.cloud.Run(rt.ctx, func(err error) {
-				logWarn(rt.spec.Scope, "db %q: cloud telemetry: %v", rt.spec.Name, err)
-			})
-		})
 		rt.note("cloud_telemetry")
 	}
 	if !managedparam.Supported(rt.provider) {
 		return
 	}
+	resource, store := rt.cloudShareKey(), managedparam.NewStore(rt.spec.Pool)
 	worker, err := managedparam.NewWorker(managedparam.WorkerOptions{Database: rt.spec.Name,
-		Provider: rt.provider, Pool: rt.spec.Pool, Store: managedparam.NewStore(rt.spec.Pool),
-		Resolver: rt.cloudResolver})
+		Provider: rt.provider, Pool: rt.spec.Pool, Store: store,
+		Resolver: rt.cloudResolver, Resource: resource})
 	if err != nil {
 		logWarn(rt.spec.Scope, "db %q: managed changes unavailable: %v", rt.spec.Name, err)
 		return
 	}
-	rt.start(func() { worker.Run(rt.ctx, managedChangeInterval, rt.afterManagedCycle) })
+	leave := managedparam.JoinPeers(resource, rt.spec.Name, store)
+	rt.start(func() {
+		defer leave()
+		worker.Run(rt.ctx, managedChangeInterval, rt.afterManagedCycle)
+	})
 	rt.note("managed_changes")
 }
 
@@ -81,6 +109,9 @@ func (rt *databaseRuntime) afterManagedCycle(res managedparam.CycleResult, err e
 	if err != nil {
 		logWarn(rt.spec.Scope, "db %q: managed changes: %v", rt.spec.Name, err)
 		return
+	}
+	if res.PeerError != "" {
+		logWarn(rt.spec.Scope, "db %q: managed changes: %s", rt.spec.Name, res.PeerError)
 	}
 	for _, e := range res.BuildErrors {
 		logWarn(rt.spec.Scope, "db %q: managed change not proposed: %s", rt.spec.Name, e)
