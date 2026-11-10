@@ -1165,7 +1165,10 @@ jobs:
       (github.ref == 'refs/heads/master' || needs.integration-matrix.result == 'success') &&
       (github.ref == 'refs/heads/master' ||
        (needs.agent-servers.result == 'success' && needs.test-arm64.result == 'success'))
+    # This block replaces the top-level one, so the checkout's contents: read
+    # is named here too.
     permissions:
+      contents: read
       packages: write
     steps:
       - uses: actions/checkout@v4
