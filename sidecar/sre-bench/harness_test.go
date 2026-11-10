@@ -2,6 +2,7 @@ package srebench
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -284,5 +285,37 @@ func TestRun_CancelledRunStartsNoFurtherScenario(t *testing.T) {
 	rs = Run(ctx, &Env{}, []Scenario{lockScenarioWith(idle)}, fakeConfig(1, arm))
 	if len(rs) != 0 || idle.injects != 0 || idle.recovers != 0 {
 		t.Fatalf("a cancelled context ran %d result(s): %+v", len(rs), idle)
+	}
+}
+
+// benches-03 (review): a game day cut off by shutdown or the run budget
+// returns no report, so a partial run never counts as evidence; a run that
+// finished returns the report of every result.
+func TestGameDayReportRefusesACancelledRun(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cut := &fakeProgram{inject: func(context.Context, *Env) error {
+		cancel()
+		return context.Canceled
+	}}
+	skipped := &fakeProgram{}
+	cfg := fakeConfig(1, &fakeArm{name: "fake"})
+	raw, err := gameDayReport(ctx, &Env{}, []Scenario{lockScenarioWith(cut),
+		lockScenarioWith(skipped)}, cfg, ReportMeta{Arms: cfg.ArmNames()})
+	if raw != nil || !errors.Is(err, context.Canceled) ||
+		!strings.Contains(err.Error(), "3 result(s) discarded") {
+		t.Fatalf("cancelled run: %d-byte report, err %v; want no report and the cancel",
+			len(raw), err)
+	}
+	if skipped.injects != 0 {
+		t.Fatalf("a scenario started after the cancel: %+v", skipped)
+	}
+	done := &fakeProgram{manifestErr: errors.New("0 lock waiters, want 2")}
+	raw, err = gameDayReport(context.Background(), &Env{}, []Scenario{lockScenarioWith(done)},
+		cfg, ReportMeta{Arms: cfg.ArmNames(), Repeats: 1})
+	var rep Report
+	if err != nil || json.Unmarshal(raw, &rep) != nil || len(rep.Runs) != 3 ||
+		rep.Repeats != 1 {
+		t.Fatalf("finished run: report %s, err %v; want 3 runs", raw, err)
 	}
 }

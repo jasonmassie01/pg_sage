@@ -114,7 +114,21 @@ func RunGameDay(ctx context.Context, dsn string, opts GameDayOptions,
 		return nil, fmt.Errorf("game day: server version: %w", err)
 	}
 	cfg, meta := gameDayRun(scenarios, opts, version, now)
-	return json.Marshal(BuildReport(Run(ctx, env, scenarios, cfg), meta))
+	return gameDayReport(ctx, env, scenarios, cfg, meta)
+}
+
+// gameDayReport runs the fault programs and returns their report. Once
+// ctx ends (shutdown, the run budget) Run starts no further scenario, so
+// its results cover only part of the selection: that report is refused,
+// never ingested as evidence (benches-03).
+func gameDayReport(ctx context.Context, env *Env, scenarios []Scenario, cfg RunConfig,
+	meta ReportMeta) ([]byte, error) {
+	results := Run(ctx, env, scenarios, cfg)
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("game day: the run ended before every fault program ran "+
+			"(%d result(s) discarded): %w", len(results), err)
+	}
+	return json.Marshal(BuildReport(results, meta))
 }
 
 // gameDayRun is the run configuration and report metadata of a game day
