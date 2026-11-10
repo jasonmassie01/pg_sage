@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"strconv"
 	"time"
 
@@ -17,129 +16,64 @@ import (
 	"github.com/pg-sage/sidecar/internal/workload"
 )
 
-func casesHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		database, ok := readDatabaseParam(w, r)
-		if !ok {
-			return
-		}
-		if database == "" {
-			database = "all"
-		}
-		if rejectUnknownDatabase(w, mgr, database) {
-			return
-		}
-		if mgr == nil {
-			writeCasesResponse(w, database, []cases.Case{})
-			return
-		}
-
-		projected, err := queryProjectedCases(r.Context(), mgr, database)
-		if err != nil {
-			slog.Error("query cases failed", "error", err)
-			jsonError(w, "failed to query cases", http.StatusInternalServerError)
-			return
-		}
-		writeCasesResponse(w, database, projected)
-	}
-}
-
-func shadowReportHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		database, ok := readDatabaseParam(w, r)
-		if !ok {
-			return
-		}
-		if database == "" {
-			database = "all"
-		}
-		if rejectUnknownDatabase(w, mgr, database) {
-			return
-		}
-		if mgr == nil {
-			jsonResponse(w, cases.BuildShadowReport(nil))
-			return
-		}
-
-		projected, err := queryProjectedCases(r.Context(), mgr, database)
-		if err != nil {
-			slog.Error("query shadow report failed", "error", err)
-			jsonError(w, "failed to query shadow report", http.StatusInternalServerError)
-			return
-		}
-		jsonResponse(w, cases.BuildShadowReport(projected))
-	}
-}
-
-func writeCasesResponse(w http.ResponseWriter, database string, projected []cases.Case) {
-	if projected == nil {
-		projected = []cases.Case{}
-	}
-	jsonResponse(w, map[string]any{
-		"database": database,
-		"cases":    projected,
-		"total":    len(projected),
-	})
-}
-
-func queryProjectedCases(
-	ctx context.Context,
-	mgr *fleet.DatabaseManager,
-	database string,
-) ([]cases.Case, error) {
-	out := make([]cases.Case, 0)
-	for _, selected := range poolsForDatabaseSelection(mgr, database) {
-		databaseCases, err := queryDatabaseCases(ctx, mgr, selected)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, databaseCases...)
-	}
-	sortCasesGlobally(out)
-	return out, nil
-}
-
 // queryDatabaseCases projects one database's open findings, active
-// incidents and query hints. The finding and incident candidates share one
-// standing-policy explanation for the database.
+// incidents and query hints, each read one row past its cap so the cut is
+// reported. The finding and incident candidates share one standing-policy
+// explanation for the database.
 func queryDatabaseCases(
 	ctx context.Context,
 	mgr *fleet.DatabaseManager,
 	selected namedPool,
-) ([]cases.Case, error) {
-	findingCases, findingIDs, err := queryFindingCases(ctx, selected)
+) (databaseCases, error) {
+	var res databaseCases
+	findingCases, findingIDs, cut, err := queryFindingCases(ctx, selected)
 	if err != nil {
-		return nil, err
+		return res, err
 	}
-	incidentCases, err := queryIncidentCases(ctx, selected)
+	res.truncated.Findings = cut
+	incidentCases, cut, err := queryIncidentCases(ctx, selected)
 	if err != nil {
-		return nil, err
+		return res, err
 	}
+	res.truncated.Incidents = cut
 	out := append(findingCases, incidentCases...)
 	enrichCasesActionPolicies(ctx, out, mgr.GetInstance(selected.name))
 	enrichCaseActionTimelines(
-		ctx, out[:len(findingCases)], selected.pool,
+		ctx, out[:len(findingCases)], selected,
 		store.NewActionStore(selected.pool), findingIDs,
 	)
-	queryHintCases, err := queryHintCases(ctx, selected)
+	hintCases, cut, err := queryHintCases(ctx, selected)
 	if err != nil {
-		return nil, err
+		return res, err
 	}
-	return append(out, queryHintCases...), nil
+	res.truncated.QueryHints = cut
+	res.cases = append(out, hintCases...)
+	return res, nil
 }
 
 // queryFindingCases projects one database's open findings (one bounded
 // index-ordered read; the cases view needs no total), skipping pg_sage's
-// own monitoring queries.
-func queryFindingCases(ctx context.Context, selected namedPool) ([]cases.Case, []int, error) {
-	filters := fleet.FindingFilters{Status: "open", Limit: 500, Sort: "severity", Order: "desc"}
+// own monitoring queries. cut reports open findings past the cap.
+func queryFindingCases(
+	ctx context.Context, selected namedPool,
+) (out []cases.Case, findingIDs []int, cut bool, err error) {
+	filters := fleet.FindingFilters{
+		Status: "open", Limit: caseFindingsCap, Sort: "severity", Order: "desc",
+	}
 	page, err := queryFindingsPage(ctx, selected.pool, filters,
 		listPage{Limit: filters.Limit}, selected.name, false)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
-	rows, _ := mergePage(page.rows, listPage{Limit: filters.Limit}, true,
+	rows, next := mergePage(page.rows, listPage{Limit: filters.Limit}, true,
 		filters.Sort, filters.Order)
+	out, findingIDs = projectFindingRows(rows)
+	return out, findingIDs, next != "", nil
+}
+
+// projectFindingRows projects finding rows into cases and their finding
+// ids, skipping pg_sage's own monitoring queries.
+func projectFindingRows(rows []map[string]any) ([]cases.Case, []int) {
 	out := make([]cases.Case, 0, len(rows))
 	findingIDs := make([]int, 0, len(rows))
 	for _, row := range rows {
@@ -161,7 +95,7 @@ func queryFindingCases(ctx context.Context, selected namedPool) ([]cases.Case, [
 		}
 		out = append(out, projected)
 	}
-	return out, findingIDs, nil
+	return out, findingIDs
 }
 
 func caseFindingID(c cases.Case) (int, bool) {
@@ -175,27 +109,45 @@ func caseFindingID(c cases.Case) (int, bool) {
 func queryIncidentCases(
 	ctx context.Context,
 	selected namedPool,
-) ([]cases.Case, error) {
-	rows, err := queryActiveIncidents(ctx, selected.pool, "")
+) ([]cases.Case, bool, error) {
+	rows, err := queryActiveIncidentsLimit(ctx, selected.pool, "", caseIncidentsCap+1)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
+	cut := len(rows) > caseIncidentsCap
+	if cut {
+		rows = rows[:caseIncidentsCap]
+	}
+	return projectIncidentRows(rows, selected.name), cut, nil
+}
+
+func projectIncidentRows(rows []map[string]any, database string) []cases.Case {
 	out := make([]cases.Case, 0, len(rows))
 	for _, row := range rows {
-		annotateIncidentFleetDatabase(row, selected.name)
+		annotateIncidentFleetDatabase(row, database)
 		out = append(out, cases.ProjectIncident(sourceIncidentFromMap(row)))
 	}
-	return out, nil
+	return out
 }
 
 func queryHintCases(
 	ctx context.Context,
 	selected namedPool,
-) ([]cases.Case, error) {
-	rows, err := queryQueryHints(ctx, selected.pool)
+) ([]cases.Case, bool, error) {
+	rows, err := queryQueryHintsLimit(ctx, selected.pool, caseQueryHintsCap+1, "")
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
+	cut := len(rows) > caseQueryHintsCap
+	if cut {
+		rows = rows[:caseQueryHintsCap]
+	}
+	return projectHintRows(ctx, selected, rows), cut, nil
+}
+
+func projectHintRows(
+	ctx context.Context, selected namedPool, rows []map[string]any,
+) []cases.Case {
 	annotateQueryHintTexts(ctx, selected.pool, rows)
 	rows = filterSelfMonitoringHintRows(rows)
 	out := make([]cases.Case, 0, len(rows))
@@ -206,7 +158,7 @@ func queryHintCases(
 		row["database_name"] = selected.name
 		out = append(out, cases.ProjectQueryHint(sourceQueryHintFromMap(row)))
 	}
-	return out, nil
+	return out
 }
 
 func annotateQueryHintTexts(
@@ -315,10 +267,13 @@ func filterSelfMonitoringHintRows(
 	return out
 }
 
+// enrichCaseActionTimelines attaches each finding case's queued and
+// executed actions. A history that cannot be read is logged and marks the
+// cases actions_unavailable rather than reading as "no actions".
 func enrichCaseActionTimelines(
 	ctx context.Context,
 	projected []cases.Case,
-	pool *pgxpool.Pool,
+	selected namedPool,
 	actionStore *store.ActionStore,
 	findingIDs []int,
 ) {
@@ -327,35 +282,36 @@ func enrichCaseActionTimelines(
 	}
 	now := time.Now().UTC()
 	queuedByID := map[int][]store.QueuedAction{}
-	loggedByID := map[int][]map[string]any{}
+	unavailable := false
 	if actionStore != nil {
-		if queued, err := actionStore.ListLedgerByFindingIDs(
-			ctx, findingIDs,
-		); err == nil {
+		queued, err := actionStore.ListLedgerByFindingIDs(ctx, findingIDs)
+		if err != nil {
+			slog.Warn("case action queue read failed",
+				"database", selected.name, "error", err)
+			unavailable = true
+		} else {
 			queuedByID = queued
 		}
 	}
-	if logged, err := queryActionLogsByFindingIDs(
-		ctx, pool, findingIDs,
-	); err == nil {
-		loggedByID = logged
+	loggedByID, err := queryActionLogsByFindingIDs(ctx, selected.pool, findingIDs)
+	if err != nil {
+		slog.Warn("case action log read failed",
+			"database", selected.name, "error", err)
+		unavailable = true
 	}
 	for i := range projected {
 		findingID, ok := caseFindingID(projected[i])
 		if !ok {
 			continue
 		}
+		projected[i].ActionsUnavailable = unavailable
 		for _, action := range queuedByID[findingID] {
-			projected[i].Actions = append(
-				projected[i].Actions,
-				caseActionFromQueuedAction(action, now),
-			)
+			projected[i].Actions = append(projected[i].Actions,
+				caseActionFromQueuedAction(action, now))
 		}
 		for _, action := range loggedByID[findingID] {
-			projected[i].Actions = append(
-				projected[i].Actions,
-				caseActionFromActionLog(action),
-			)
+			projected[i].Actions = append(projected[i].Actions,
+				caseActionFromActionLog(action))
 		}
 	}
 }

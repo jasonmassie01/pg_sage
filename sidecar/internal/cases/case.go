@@ -64,6 +64,9 @@ type Case struct {
 	UpdatedAt        time.Time         `json:"updated_at"`
 	ActionCandidates []ActionCandidate `json:"action_candidates,omitempty"`
 	Actions          []CaseAction      `json:"actions,omitempty"`
+	// ActionsUnavailable is set when the action history could not be read,
+	// so an empty Actions does not read as "nothing was done" (cases-05).
+	ActionsUnavailable bool `json:"actions_unavailable,omitempty"`
 }
 
 type ActionCandidate struct {

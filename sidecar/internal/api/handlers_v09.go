@@ -442,17 +442,25 @@ func queryIncidents(
 func queryActiveIncidents(
 	ctx context.Context, pool *pgxpool.Pool, dbName string,
 ) ([]map[string]any, error) {
+	return queryActiveIncidentsLimit(ctx, pool, dbName, 100)
+}
+
+// queryActiveIncidentsLimit reads up to limit open incidents, most severe
+// and then most recent first.
+func queryActiveIncidentsLimit(
+	ctx context.Context, pool *pgxpool.Pool, dbName string, limit int,
+) ([]map[string]any, error) {
 	where := " WHERE resolved_at IS NULL"
-	var args []any
+	args := []any{limit}
 	if dbName != "" {
-		where += " AND database_name = $1"
+		where += " AND database_name = $2"
 		args = append(args, dbName)
 	}
 	query := incidentsBaseSQL + where +
 		` ORDER BY CASE severity
 		    WHEN 'critical' THEN 1
 		    WHEN 'warning' THEN 2
-		    ELSE 3 END, detected_at DESC LIMIT 100`
+		    ELSE 3 END, detected_at DESC LIMIT $1`
 	rows, err := pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query active incidents: %w", err)
@@ -546,10 +554,7 @@ func scanIncidentRows(
 		}
 		results = append(results, ir.toMap())
 	}
-	if results == nil {
-		results = []map[string]any{}
-	}
-	return results, nil
+	return scannedRows(rows, results, "incidents")
 }
 
 func scanIncidentRow(

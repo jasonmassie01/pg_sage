@@ -260,13 +260,25 @@ const queryHintsSQL = `/* pg_sage */SELECT queryid, hint_text, symptom,
 func queryQueryHints(
 	ctx context.Context, pool *pgxpool.Pool, status ...string,
 ) ([]map[string]any, error) {
-	query := queryHintsSQL
-	var args []any
-	if len(status) > 0 && status[0] != "" {
-		query += " WHERE status = $1"
-		args = append(args, status[0])
+	only := ""
+	if len(status) > 0 {
+		only = status[0]
 	}
-	query += " ORDER BY created_at DESC LIMIT 200"
+	return queryQueryHintsLimit(ctx, pool, 200, only)
+}
+
+// queryQueryHintsLimit reads up to limit query hints, newest first, only
+// those with the given status when it is not empty.
+func queryQueryHintsLimit(
+	ctx context.Context, pool *pgxpool.Pool, limit int, status string,
+) ([]map[string]any, error) {
+	query := queryHintsSQL
+	args := []any{limit}
+	if status != "" {
+		query += " WHERE status = $2"
+		args = append(args, status)
+	}
+	query += " ORDER BY created_at DESC LIMIT $1"
 	rows, err := pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query hints: %w", err)
@@ -321,10 +333,7 @@ func scanQueryHintRows(rows pgx.Rows) ([]map[string]any, error) {
 		}
 		results = append(results, row)
 	}
-	if results == nil {
-		results = []map[string]any{}
-	}
-	return results, nil
+	return scannedRows(rows, results, "query hints")
 }
 
 func timeFromMap(row map[string]any, key string) time.Time {
