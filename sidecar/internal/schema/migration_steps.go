@@ -163,5 +163,6 @@ func trancheOneMigrations() []namedStep {
 		{"ddlFleetLeaseControl", ddlFleetLeaseControl},               // fleet-03: control database on the lease
 		{"ddlApprovalFollowupClaim", ddlApprovalFollowupClaim},       // fleet-03: fenced follow-up claims
 		{"ddlMCPTokensMetricsScope", ddlMCPTokensMetricsScope},       // observability-08: scrape tokens
+		{"ddlUsersDatabricksPin", ddlUsersDatabricksPin},             // databricks-07: Apps forwarded-user pin
 	}
 }

@@ -1,18 +1,12 @@
 # Lakebase compatibility and operations
 
-This guide describes the native Lakebase integration delivered through
-**pg_sage `2.5.0-dev.10`**. Database and App acceptance evidence was collected
-October 29–30, 2026; public platform documentation was cross-checked November 1,
-2026. These are scoped development results, **not full Lakebase compatibility
-certification** or a production reliability guarantee. A passing local
-PostgreSQL suite is separate from a passing native Lakebase test.
-
-The [dev.11–12 follow-up](../reviews/2026-11-02-v2.5-dev12-acceptance.md) adds an
-optional App email-domain audience gate and classic meme images. It does not
-extend the version-specific database compatibility evidence in this guide.
-It also corrects telemetry inbox contention, App request-limit isolation and
-event-stream lifetime behavior; those availability checks are reported
-separately from feature compatibility.
+This guide covers operating pg_sage 2.5 against Lakebase: connections, Unity
+Gateway, history telemetry, SRE and managed-service limits. Dated acceptance
+results, with the build each one tested, are in the
+[evidence appendix](lakebase-evidence.md#lakebase-guide). They are scoped
+development results, **not full Lakebase compatibility certification** or a
+production reliability guarantee. A passing local PostgreSQL suite is separate
+from a passing native Lakebase test.
 
 Start with the [native Databricks implementation guide](databricks-native.md)
 for the architecture and linked setup, or the [Databricks Apps guide](databricks-apps.md)
@@ -24,38 +18,32 @@ later revision closes a gap.
 The Lakebase integration uses the standard PostgreSQL wire protocol and the
 official Databricks Go SDK for unified authentication. It supports local CLI
 profiles and Databricks Apps service principal credentials. Short-lived
-database tokens are obtained at physical connection time, cached until two
-minutes before expiry, and never written into pg_sage configuration or its
-metadata database.
+database tokens are obtained at physical connection time and never written
+into pg_sage configuration or its metadata database.
 
-The current [dev.10 acceptance](../reviews/2026-10-30-v2.5-dev10-acceptance.md)
-verifies Databricks-only App sign-in, native Gateway OAuth M2M, connected Fleet,
-database-preserving Cases/Actions/Ask workflows and desktop/mobile rendering.
-Cases retain exact technical evidence while distinguishing unknown urgency,
-missing measurements and unproven impact. Unnamed indexes no longer receive a
-guessed inverse or catalog target; proposals without captured recovery remain
-unknown. Inapplicable Lakebase `ALTER SYSTEM` procedures are withheld, including
-older saved SQL when current applicability guidance rejects it. Saved and current
-procedures retain separate risk/recovery claims; matching a source does not
-validate an older proposal.
+Each pool keeps one cached database token (in fleet mode, one per database
+pool). Lakebase checks a token's expiry only at login, so open connections
+are unaffected by expiry and only new physical connections need a valid token:
 
-The [dev.8 acceptance](../reviews/2026-10-30-v2.5-dev8-acceptance.md)
-also preserves invalid-index findings during restart warmup and exact query
-identities in finding responses and Cases artifacts. The
-[dev.6 acceptance](../reviews/2026-10-30-v2.5-dev6-acceptance.md)
-fixed singleton Ask Sage selection and Fleet inventory and added hint-free spill
-advice. Nine controlled finding families have real Lakebase proof. The
-[scenario matrix](../reviews/2026-10-30-nerdlab-findings.md) distinguishes positive
-finding/recovery tests from readable sources, provider restrictions and incident
-conditions that were not induced.
+- A cached token with more than 15 minutes left is used without contacting
+  Databricks.
+- With 15 minutes or less left, the next new connection mints a fresh token.
+  One mint runs at a time and is bounded to 20 seconds; other connections keep
+  using the cached token meanwhile instead of queueing behind the mint.
+- If the mint fails (for example while the workspace control plane throttles
+  or is unavailable), connections keep using the cached token while it has
+  more than 30 seconds left. pg_sage logs one warning per minute
+  (`lakebase credential refresh failed; using the cached credential`) with the
+  endpoint, the consecutive failure count and the time the cached token stays
+  valid. With 30 seconds or less left, new connections fail with
+  `refresh Lakebase database credential: ...` until a mint succeeds.
 
-The [dev.5 acceptance](../reviews/2026-10-30-v2.5-dev5-acceptance.md) passed
-one complete 142-package Go invocation, the native PG18 suite and final App
-SNAPSHOT `01f1d48e0748107d95b5bdd1ffad0e22`. All five historical SRE adapters
-returned positive observations and accepted citations, including exact controlled
-plan and DDL events. The same binary separately passed a real-time synthetic
-application SLI lifecycle. The App remains in observation mode with metadata-only
-consent; App-principal workload-table maintenance execution is unproven.
+At startup the endpoint lookup is part of each connection attempt: the meta
+database, the monitored database and every fleet database retry a throttled,
+unavailable or unreachable endpoint lookup up to five times with backoff
+(1, 2, 4 and 8 seconds), each lookup bounded to 30 seconds. A permission
+denied (403) or not found (404) answer, an invalid endpoint mapping and an
+unverified TLS mode stop startup at once with an error naming the endpoint.
 
 `temp_spill` findings use new temporary-block counters from comparable query
 snapshots and do not require pg_hint_plan or auto_explain. Their advice calls
@@ -286,14 +274,145 @@ lakebase_observability:
   warehouse_id: '<existing-warehouse-id>'
   allow_payload: false
   poll_interval_seconds: 60
-  queries_per_poll: 12
+  queries_per_poll: 16
   retention_hours: 168
+  settle_lag_seconds: 120
+  short_lookback_seconds: 7200
   bindings:
     - host: '<direct-lakebase-host>'
       database: '<monitored-database>'
       endpoint: projects/<project>/branches/<branch>/endpoints/<endpoint>
       allow_compute: false
 ```
+
+`endpoint` is optional. When a binding omits it, pg_sage takes the endpoint that
+`SAGE_LAKEBASE_ENDPOINT` or `SAGE_LAKEBASE_ENDPOINTS` maps to the binding's host,
+the same mapping OAuth uses, so the host-to-endpoint mapping is stated once. If
+neither variable maps the host, startup fails with `binding for <host> has no
+endpoint and SAGE_LAKEBASE_ENDPOINT(S) maps none`. An `endpoint` you set is kept.
+Every project, branch and endpoint ID is 1-63 lowercase letters, digits or
+hyphens and must not start with a hyphen; OAuth, telemetry and the Apps
+`configure.py` apply this same rule.
+
+#### Read cadence and query budget
+
+Each poll spends at most `queries_per_poll` SQL warehouse reads. When it is 0
+or unset, the budget is two reads per stream plus four: 16 for the six default
+streams. A poll spends the budget in this order:
+
+1. **Forward.** Every stream reads new history first, ending
+   `settle_lag_seconds` (default 120) before now, so rows the provider commits
+   late are visible when their window is read. Each stream keeps one read
+   reserved while earlier streams catch up, so no stream misses a poll.
+2. **Short reconcile.** Each stream gets one read of a sweep over the
+   `short_lookback_seconds` (default 7,200, two hours) behind its forward
+   edge. This catches rows that arrive later than the settle lag.
+3. **Deep reconcile.** Whatever budget is left goes to a sweep of the full
+   seven-day source horizon. A stream starts a new deep sweep at most once
+   every 24 hours.
+
+The forward read width adapts to each stream. A read that exceeds
+`max_rows` or `max_bytes` is split in half, and the narrower width is kept in
+the cursor, so it survives a restart. After three reads projected under a
+quarter of `max_rows`, the width doubles, up to `window_seconds`. A stream that
+stays that sparse at the full window also reconciles four windows per read.
+A reconcile read that is split keeps its narrower width for later polls, so a
+dense stretch of old history is read in pieces rather than retried whole.
+History that leaves the source horizon before it is read still counts as a gap.
+
+`GET /api/v1/lakebase-observability/status` reports each stream's
+`forward_lag_seconds` (how far the forward cursor trails the last poll) and
+`reconcile_progress` (the share of the current deep sweep read, 0 to 1). A
+forward lag that keeps growing means the stream needs more than its share of
+the budget: raise `queries_per_poll` or `max_rows`.
+
+#### Cost and freshness
+
+**Freshness.** A row the provider has committed to its system table is read by
+the first forward read whose window covers it. Forward reads stop
+`settle_lag_seconds` (default 120) short of now and run every
+`poll_interval_seconds` (default 60), so a promptly committed row arrives about
+two to three minutes after its event time. The provider's own delay before a
+row appears in the system table comes on top of that; Databricks publishes no
+delivery or latency guarantee for these tables.
+
+**Settle behavior.** The settle lag trades latency for completeness: rows the
+provider commits up to `settle_lag_seconds` late are read by the forward pass.
+Rows later than that are picked up by the short reconcile sweep, which re-reads
+the last `short_lookback_seconds` (default two hours) behind the forward edge,
+or failing that by the deep sweep, which re-reads the seven-day source horizon
+about once a day. Only a row committed so late that its event time has left
+that horizon before a sweep reaches it is never read. Raising
+`settle_lag_seconds` makes forward reads more complete but every finding later.
+
+**Read width.** `window_seconds` (default 900) is the widest single forward
+read and the base width of every reconcile read, not only the first one. Reads
+narrow when a window hits `max_rows` or `max_bytes` and widen back up to this
+cap; a stream that stays sparse at the full width reconciles up to four windows
+per read. The first forward read of a new stream starts this far back.
+
+**Warehouse cost.** Every read is a SQL statement on the bound warehouse. A
+poll spends at most `queries_per_poll` statements (default 16 for six
+streams), so the default schedule can issue up to 23,040 statements a day; most
+polls spend fewer once reconcile sweeps finish. The warehouse is billed while it
+runs. If `poll_interval_seconds` is shorter than the warehouse's auto-stop idle
+time, the warehouse never stops. To cut cost, raise `poll_interval_seconds`,
+lower `queries_per_poll`, select fewer `streams`, or share a warehouse that
+already runs for other work.
+
+**Scale-to-zero.** The history reader queries system tables through the SQL
+warehouse and opens no connection to the Lakebase endpoint. The sidecar's own
+collectors do connect: they query the monitored database every
+`collector.interval_seconds`, so an endpoint with scale-to-zero enabled stays
+active while pg_sage monitors it. Budget its compute accordingly. Activity
+around a scale-to-zero or resume, such as DDL, can be missing from provider
+capture (see [Platform capture and access](#platform-capture-and-access)).
+
+#### Delivery, retries and backlog
+
+Only `plan_history` events have a sink: they are copied into the monitored
+database's plan cache. Events of the other streams stay in the durable inbox
+as history and are acknowledged in the same transaction that stores them,
+under the same policy fence, so they never queue for delivery. Each poll
+delivers at most `max_rows` plan events, oldest first.
+
+One event that cannot be delivered no longer blocks the events behind it:
+
+- A plan that can never be stored (for example, one whose plan tree has no
+  valid EXPLAIN shape) is acknowledged and counted as `rejected_row`.
+- Any other sink failure is retried. The next attempt waits 30 seconds,
+  doubling to at most 15 minutes, while later events keep being delivered.
+  After 5 failed attempts the event is acknowledged and counted as
+  `delivery_failed`; its inbox history remains until it expires.
+- A timeout, cancellation, failed connection, or SQLSTATE class 08 or 57
+  means the sink or control database is unavailable, not that the event is
+  bad. Delivery stops for that poll without spending an attempt, and resumes
+  on the next poll.
+- Three consecutive failed events also stop the poll, after each spends one
+  attempt. A sink-wide fault that is not one of the outage classes above (a
+  full disk, a read-only sink, a revoked grant) then costs a few events per
+  poll instead of exhausting the whole backlog as `delivery_failed`.
+
+Attempts are kept in `sage.lakebaseobs_attempts` (schema version 6, created
+by the telemetry schema setup). The table stores the attempt count, the next
+attempt time and a fixed failure class such as `sqlstate_40P01` or `timeout`,
+never error text.
+
+`GET /api/v1/lakebase-observability/status` reports, per database, a
+`delivery` list with one entry per consumer as of the last poll:
+
+| Field | Meaning |
+|---|---|
+| `consumer` | Consumer name, for example `normalized_history_v1` |
+| `pending_rows` | Deliverable, unacknowledged events, including those waiting for a retry |
+| `pending_rows_capped` | `true` when `pending_rows` reached 10,001; the backlog is at least that large |
+| `oldest_pending_at` | Occurrence time of the oldest pending event; absent when nothing is pending |
+| `oldest_pending_age_seconds` | Age of that event at the last poll |
+
+`delivery_outcomes_since_start` counts `normalized`, `payload_unavailable`,
+`rejected_row`, `self_excluded` and `delivery_failed` per stream. A backlog
+that keeps growing while plans are delivered means plan events arrive faster
+than `max_rows` per poll: raise `max_rows`.
 
 This configuration is restart-bound and never grants permissions or enables a
 provider setting. Compute-wide streams require explicit `allow_compute: true`.
@@ -535,7 +654,7 @@ transparent HypoPG replacement, proof of latency improvement or permission to
 create candidate indexes on production workload tables. Advanced Telemetry
 does not activate either planner extension.
 
-Version `2.5.0-dev.1` explicitly enables eight Lakebase contracts after testing
+pg_sage 2.5 explicitly enables eight Lakebase contracts after testing
 their production operator paths on an isolated PG18 test branch:
 `analyze_table`, `vacuum_table`, `create_index_concurrently`,
 `revert_created_index`, `reindex_concurrently`, `create_statistics`,
@@ -650,25 +769,8 @@ PG_SAGE_LIVE_LLM=1 SAGE_LLM_AUTH=databricks \
 ```
 
 Set the gateway endpoint and model before running the LLM checks. They send
-synthetic prompts/evidence only. All five full advisor workflows passed with
-real native Unity Gateway calls and billed-token assertions on both isolated
-local PG17 and native Lakebase PG18. The native advisor fixture used a fresh
-prefixed database and an in-memory short-lived credential for its raw test
-connections; the production OAuth refresh hook is tested separately. Post-run
-database inventory confirmed cleanup. No real application query text was sent
-to the model.
-
-The real credential-expiry retry passed in 3,634.55 seconds: the held connection
-remained healthy through 30 seconds beyond expiry, then a fresh backend used a
-second minted credential with a later expiry. This verifies constant-query
-connection liveness and production credential refresh for the native user role;
-it does not test table grants or UC-only claims across expiry. The first attempt
-lost network continuity before expiry and remains recorded separately. Native
-idle/resume also passed: the API reported ACTIVE → IDLE → ACTIVE, followed by
-production OAuth reconnect and a read-only check of the existing marker,
-77 snapshots and 63 findings. The two race-enabled tests passed in 8.077 seconds.
-The App's separate service-principal hour-boundary check is tracked in its
-acceptance report; failover and multi-day reliability remain unverified.
+synthetic prompts/evidence only. Results of these runs are in the
+[evidence appendix](lakebase-evidence.md#lakebase-guide).
 
 See the [source-linked live findings](../reviews/2026-10-29-lakebase-compatibility.md)
 for exact versions, databases, failures and evidence, and the

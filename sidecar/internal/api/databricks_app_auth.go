@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -15,15 +16,25 @@ const authModeContextKey contextKey = "sage_auth_mode"
 
 // DatabricksAppAuthMiddleware trusts only the Databricks Apps authenticated
 // ingress email. It deliberately ignores local sessions, bearer-token bypasses,
-// forwarded role/user headers and request-body identity. Never install it on an
-// application port exposed directly to callers outside the Apps ingress.
+// forwarded role headers and request-body identity. X-Forwarded-User never
+// selects an account or a role: it is only compared with the value pinned to
+// the email's account. Never install it on an application port exposed
+// directly to callers outside the Apps ingress.
 func DatabricksAppAuthMiddleware(pool *pgxpool.Pool, cfg auth.DatabricksAppConfig) func(http.Handler) http.Handler {
-	return databricksAppAuthMiddleware(func(ctx context.Context, email string) (*auth.User, error) {
-		return auth.ResolveDatabricksAppUser(ctx, pool, cfg, email)
+	return databricksAppAuthMiddleware(func(
+		ctx context.Context, email, user string,
+	) (*auth.User, error) {
+		return auth.ResolveDatabricksAppUser(ctx, pool, cfg, email, user)
 	})
 }
 
-func databricksAppAuthMiddleware(resolve func(context.Context, string) (*auth.User, error)) func(http.Handler) http.Handler {
+// databricksAppResolver maps the platform email and forwarded IdP user value
+// ("" when absent) to the durable account.
+type databricksAppResolver func(
+	ctx context.Context, email, forwardedUser string,
+) (*auth.User, error)
+
+func databricksAppAuthMiddleware(resolve databricksAppResolver) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Cache-Control", "no-store")
@@ -41,7 +52,12 @@ func databricksAppAuthMiddleware(resolve func(context.Context, string) (*auth.Us
 				jsonError(w, "invalid Databricks identity", http.StatusUnauthorized)
 				return
 			}
-			user, err := resolve(r.Context(), email)
+			forwardedUser, ok := databricksAppForwardedUser(r)
+			if !ok {
+				jsonError(w, "ambiguous Databricks identity", http.StatusUnauthorized)
+				return
+			}
+			user, err := resolve(r.Context(), email, forwardedUser)
 			if msg, code, ok := databricksAppRefusal(err); ok {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusForbidden)
@@ -69,6 +85,20 @@ func databricksAppAuthMiddleware(resolve func(context.Context, string) (*auth.Us
 	}
 }
 
+// databricksAppForwardedUser returns the single X-Forwarded-User value, or
+// "" when the header is absent or empty (today's email-only behavior). Two
+// or more values are ambiguous, the same as duplicate emails.
+func databricksAppForwardedUser(r *http.Request) (string, bool) {
+	values := r.Header.Values("X-Forwarded-User")
+	switch len(values) {
+	case 0:
+		return "", true
+	case 1:
+		return values[0], true
+	}
+	return "", false
+}
+
 // databricksAppRefusal maps a resolver error that rejects the identity to
 // its 403 message and code; ok is false for any other error.
 func databricksAppRefusal(err error) (msg, code string, ok bool) {
@@ -82,6 +112,10 @@ func databricksAppRefusal(err error) (msg, code string, ok bool) {
 	case errors.Is(err, auth.ErrUserDisabled):
 		return "This pg_sage account is deactivated. " +
 			"Ask an app administrator to reactivate it.", "databricks_app_user_disabled", true
+	case errors.Is(err, auth.ErrDatabricksAppIdentityChanged):
+		return "This Databricks identity no longer matches the account it was first seen with. " +
+				"Ask an app administrator to review it and reset the identity pin.",
+			"databricks_app_identity_changed", true
 	case errors.Is(err, auth.ErrOAuthEmailUnverified):
 		return "This Databricks identity could not be verified. " +
 			"Contact an app administrator.", "databricks_app_identity_rejected", true
@@ -130,4 +164,30 @@ func registerDatabricksAppAuthRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 	route(mux, "GET /api/v1/users", gateAdmin, http.HandlerFunc(listUsersHandler(pool)))
 	route(mux, "PUT /api/v1/users/{id}/role", gateAdmin,
 		http.HandlerFunc(updateUserRoleHandler(pool)))
+	route(mux, "POST /api/v1/users/{id}/identity-pin/reset", gateAdmin,
+		resetDatabricksAppPinHandler(pool))
+}
+
+// resetDatabricksAppPinHandler clears a user's forwarded-identity pin after
+// an administrator has reviewed a databricks_app_identity_changed event; the
+// next request from that email pins its forwarded user value again.
+func resetDatabricksAppPinHandler(pool *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.Atoi(r.PathValue("id"))
+		if err != nil || id < 1 {
+			jsonError(w, "invalid user ID", http.StatusBadRequest)
+			return
+		}
+		cleared, err := auth.ResetDatabricksAppUserPin(r.Context(), pool, actorID(r), id,
+			requestClientIP(r))
+		if errors.Is(err, auth.ErrUserNotFound) {
+			jsonError(w, "user not found", http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			internalError(w, r, "reset Databricks identity pin", err)
+			return
+		}
+		jsonResponse(w, map[string]any{"status": "reset", "previously_pinned": cleared})
+	}
 }

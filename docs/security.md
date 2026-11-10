@@ -553,6 +553,10 @@ Apps mode requires `SAGE_AUTH_MODE=databricks_app`, the injected platform runtim
 and an explicit administrator email. The platform ingress authenticates the
 user; pg_sage authorizes the forwarded identity using its own stored roles.
 There is no local password/session, break-glass login or local-token fallback.
+Because the account is keyed on a reassignable email, the forwarded
+`X-Forwarded-User` value is pinned per account; a change is audited as
+`databricks_app_identity_changed` and, with `SAGE_DATABRICKS_APP_IDENTITY_PIN=enforce`,
+refused with 403 ([Identity pin](databricks-apps.md#identity-pin)).
 Optional `SAGE_DATABRICKS_ALLOWED_EMAIL_DOMAINS` restricts protected access to
 exact email domains, checked before account lookup or provisioning on every
 request, including existing administrators. Domain matches are case-insensitive;

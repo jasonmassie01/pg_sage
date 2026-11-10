@@ -7,15 +7,11 @@ for feature-specific permissions, limitations and test evidence. This page
 covers packaging, installation, updates and recovery; it does not convert the
 application to AppKit or require a custom runtime container.
 
-The current release is **2.5.0**. The acceptance report for its last development
-build, [2.5.0-dev.14](../reviews/2026-11-02-v2.5-dev14-acceptance.md), covers the
-descriptions beside each tab's meme. The [dev.13 report](../reviews/2026-11-02-v2.5-dev13-acceptance.md)
-records the 50-meme shuffle and standalone Settings correction. The
-[dev.11–12 report](../reviews/2026-11-02-v2.5-dev12-acceptance.md) retains the
-earlier authentication, telemetry and event-stream evidence. The App remains in
-Observation mode with metadata-only telemetry. Acceptance is scoped to each deployment;
-it does not certify every Lakebase extension, cloud, privilege or long-duration
-scenario. Older release evidence remains linked from the matrix and reports.
+The current release is **2.5.0**. The App runs in Observation mode with
+metadata-only telemetry. Acceptance is scoped to each deployment; it does not
+certify every Lakebase extension, cloud, privilege or long-duration scenario.
+Dated acceptance reports are in the
+[evidence appendix](lakebase-evidence.md#databricks-apps-guide).
 
 Follow the sections in order for a new installation. For an existing App, read
 [resource preservation](#keep-all-resources-and-identity-settings) and
@@ -100,6 +96,43 @@ every forwarded identity field is immutable. pg_sage does not infer roles from
 client-supplied role headers or assume the forwarded user ID equals a workspace
 SCIM ID. App service-principal authentication for background Lakebase/Gateway
 operations remains separate from the current viewer's identity.
+
+### Identity pin
+
+An App account is keyed on the forwarded email, and an IdP can give a departed
+employee's address to someone else. pg_sage therefore pins the
+`X-Forwarded-User` value the Apps proxy sends beside the email: the first time an
+account is seen with that header, it stores the hex SHA-256 of the workspace
+origin and the value in `sage.users.databricks_user_pin` (never the raw value).
+Later requests compare the value with the pin. The account is still selected by
+email, the audience check still runs before any lookup, and roles never come
+from headers. A request without the header (or with an empty value) behaves as
+it did before; two or more `X-Forwarded-User` values return HTTP 401.
+
+`SAGE_DATABRICKS_APP_IDENTITY_PIN` selects what a changed value does:
+
+| Value | Behavior |
+|---|---|
+| `log` (default) | Writes a warning and a `databricks_app_identity_changed` auth audit event with `refused: false`, then lets the request through. |
+| `enforce` | Writes the same event with `refused: true` and returns HTTP 403 `databricks_app_identity_changed`. |
+| `off` | Never reads or writes the pin. |
+
+Any other value stops startup. The audit event carries the user ID and the first
+12 hex characters of the stored and seen pins, never an email or forwarded
+value. One changed identity is recorded once an hour per process, so a polling
+dashboard does not flood the audit chain. Set the variable in the App's
+`app.yaml` environment. Ship in `log` and move to `enforce` only after checking
+that one user's `X-Forwarded-User` stays the same across two sign-ins and a
+browser restart in your workspace; the public header reference does not promise
+it is stable.
+
+To relink after reviewing an event (for example, the IdP really did reissue the
+user's ID), an administrator calls `POST /api/v1/users/{id}/identity-pin/reset`.
+It clears the pin, writes a `databricks_app_pin_reset` audit event naming the
+administrator, and returns `{"status":"reset","previously_pinned":true|false}`;
+the user's next request pins its current value. If the only administrator is
+locked out in `enforce` mode, restart the App with
+`SAGE_DATABRICKS_APP_IDENTITY_PIN=log`, reset the pin, then restore `enforce`.
 
 In Apps mode the outbound SDK is pinned to `oauth-m2m`, using the platform's
 injected workspace, client ID and client secret. The launcher and native SDK

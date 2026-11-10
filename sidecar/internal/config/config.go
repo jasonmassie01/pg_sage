@@ -799,7 +799,7 @@ func (c *Config) validate() error {
 	if err := c.validateIOAdmission(); err != nil {
 		return err
 	}
-	if err := c.LakebaseObservability.validate(); err != nil {
+	if err := c.LakebaseObservability.resolveAndValidate(os.Getenv); err != nil {
 		return err
 	}
 	if err := c.validateCloudTelemetry(); err != nil {

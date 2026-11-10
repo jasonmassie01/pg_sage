@@ -30,7 +30,9 @@ func TestDatabricksAppAuthRequiresUnambiguousPlatformEmail(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			called := false
-			h := databricksAppAuthMiddleware(func(context.Context, string) (*auth.User, error) {
+			h := databricksAppAuthMiddleware(func(
+				context.Context, string, string,
+			) (*auth.User, error) {
 				called = true
 				return &auth.User{ID: 1, Role: auth.RoleAdmin}, nil
 			})(http.HandlerFunc(meHandler()))
@@ -114,7 +116,9 @@ func TestDatabricksAppAuthDistinguishesRejectionsFromUnavailableStore(t *testing
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			called := false
-			h := databricksAppAuthMiddleware(func(context.Context, string) (*auth.User, error) {
+			h := databricksAppAuthMiddleware(func(
+				context.Context, string, string,
+			) (*auth.User, error) {
 				if tc.err != nil {
 					// Even an accidentally returned administrator must not
 					// bypass a simultaneous resolver error.
@@ -154,7 +158,7 @@ func TestDatabricksAppAuthDistinguishesRejectionsFromUnavailableStore(t *testing
 
 func TestDatabricksAppAuthNeverReusesRoleAfterResolverFailure(t *testing.T) {
 	calls := 0
-	h := databricksAppAuthMiddleware(func(context.Context, string) (*auth.User, error) {
+	h := databricksAppAuthMiddleware(func(context.Context, string, string) (*auth.User, error) {
 		calls++
 		switch calls {
 		case 1:
@@ -181,7 +185,7 @@ func TestDatabricksAppAuthNeverReusesRoleAfterResolverFailure(t *testing.T) {
 }
 
 func TestDatabricksAppAuthUsesPersistedRoleAndNoLocalSession(t *testing.T) {
-	resolver := func(_ context.Context, email string) (*auth.User, error) {
+	resolver := func(_ context.Context, email, _ string) (*auth.User, error) {
 		if email != "viewer@example.com" {
 			t.Fatalf("wrong identity: %q", email)
 		}
@@ -216,7 +220,9 @@ func TestDatabricksAppAuthUsesPersistedRoleAndNoLocalSession(t *testing.T) {
 
 func TestDatabricksAppRouterDisablesAlternateLoginsAndLocalUsers(t *testing.T) {
 	cfg := config.DefaultConfig()
-	resolver := databricksAppAuthMiddleware(func(context.Context, string) (*auth.User, error) {
+	resolver := databricksAppAuthMiddleware(func(
+		context.Context, string, string,
+	) (*auth.User, error) {
 		return &auth.User{ID: 1, Email: "owner@example.com", Role: auth.RoleAdmin}, nil
 	})
 	h := newTestRouter(fleet.NewManager(cfg), cfg, unreachablePool(t), nil, nil, nil,
@@ -267,7 +273,9 @@ func TestDatabricksAppRouterRejectsCrossOriginMutationAndLocalCORS(t *testing.T)
 }
 
 func TestDatabricksAppOptionalProtocolsCannotUseLocalTokensOrUnscopedIdentity(t *testing.T) {
-	resolver := databricksAppAuthMiddleware(func(context.Context, string) (*auth.User, error) {
+	resolver := databricksAppAuthMiddleware(func(
+		context.Context, string, string,
+	) (*auth.User, error) {
 		return &auth.User{ID: 1, Email: "owner@example.com", Role: auth.RoleAdmin}, nil
 	})
 	cfg := config.DefaultConfig()

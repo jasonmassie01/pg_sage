@@ -108,6 +108,7 @@ var routeProbes = []routeProbe{
 	{"PUT", "/api/v1/notifications/channels/7"},
 	{"PUT", "/api/v1/notifications/rules/7"},
 	{"PUT", "/api/v1/users/7/role"},
+	{"POST", "/api/v1/users/7/identity-pin/reset"},
 	// Routes registered from constants or per-database bases.
 	{"GET", "/api/v1/sre/autonomy"},
 	{"POST", "/api/v1/sre/autonomy/bench-results"},

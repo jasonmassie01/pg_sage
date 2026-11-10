@@ -2,6 +2,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -341,6 +342,18 @@ class ConfigureTests(unittest.TestCase):
             self.assertEqual(config["lakebase_observability"], rendered)
             self.assertFalse(config["ask"]["enabled"])
 
+    def test_telemetry_schedule_keys_are_bounded(self):
+        accepted = {"settle_lag_seconds": 3600, "short_lookback_seconds": 604800}
+        rendered = configurer.telemetry_config(self.settings() | {"lakebase_observability": accepted})
+        self.assertEqual(rendered["settle_lag_seconds"], 3600)
+        self.assertEqual(rendered["short_lookback_seconds"], 604800)
+        for telemetry in ({"settle_lag_seconds": 3601}, {"settle_lag_seconds": -1},
+                          {"settle_lag_seconds": True}, {"short_lookback_seconds": 604801},
+                          {"short_lookback_seconds": 0}, {"short_lookback_seconds": "7200"}):
+            with self.subTest(telemetry=telemetry):
+                with self.assertRaises(ValueError):
+                    configurer.telemetry_config(self.settings() | {"lakebase_observability": telemetry})
+
     def test_telemetry_rejects_unbounded_settings_credentials_and_unreviewed_scope(self):
         for telemetry in ({"enabled": True}, {"enabled": "true"}, {"warehouse_id": "id?token=secret"},
                           {"allow_payload": "true"}, {"max_rows": 10001}, {"max_rows": True},
@@ -361,6 +374,43 @@ class ConfigureTests(unittest.TestCase):
             self.assertEqual(json.loads((package / "databricks.yml").read_text())["resources"]["apps"]["pg_sage"]["name"], "pg-sage-dev")
             self.assertEqual((package / "binary.json").read_text(), "{}")
             self.assertIs(json.loads((package / "config.json").read_text())["llm"]["json_mode"], True)
+
+
+class LakebaseIDTests(unittest.TestCase):
+    """configure.py must accept exactly the endpoint resources the Go sidecar accepts."""
+    GO_SOURCE = ROOT.parent.parent / "sidecar" / "internal" / "lakebaseid" / "lakebaseid.go"
+    TABLE = ROOT.parent.parent / "sidecar" / "internal" / "lakebaseid" / "testdata" / "resources.json"
+
+    def cases(self):
+        cases = json.loads(self.TABLE.read_text(encoding="utf-8"))
+        self.assertGreater(len(cases), 10)
+        return cases
+
+    def test_segment_matches_go_pattern_text(self):
+        found = re.search(r"const Pattern = `([^`]+)`", self.GO_SOURCE.read_text(encoding="utf-8"))
+        self.assertIsNotNone(found, "lakebaseid.go no longer declares const Pattern")
+        self.assertEqual(configurer.SEGMENT, found.group(1))
+
+    def test_endpoint_rule_matches_shared_verdicts(self):
+        for case in self.cases():
+            with self.subTest(case=case["name"]):
+                got = configurer.ENDPOINT.fullmatch(case["resource"]) is not None
+                self.assertEqual(got, case["valid"], case["resource"])
+
+    def test_render_matches_shared_verdicts(self):
+        base = ConfigureTests().settings()
+        for case in self.cases():
+            resource = case["resource"]
+            branch = "/".join(resource.split("/")[:4])
+            settings = base | {"endpoint": resource, "branch": branch,
+                               "database_resource": branch + "/databases/sage-dev"}
+            with self.subTest(case=case["name"]):
+                if case["valid"]:
+                    runtime, _ = configurer.render(settings)
+                    self.assertIn({"name": "SAGE_LAKEBASE_ENDPOINT", "value": resource}, runtime["env"])
+                else:
+                    with self.assertRaises(ValueError):
+                        configurer.render(settings)
 
 
 @unittest.skipUnless(os.name == "posix", "Apps supervision requires POSIX process groups")

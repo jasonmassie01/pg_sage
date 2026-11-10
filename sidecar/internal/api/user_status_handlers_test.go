@@ -179,7 +179,7 @@ func TestDisabledUserSSOFailure(t *testing.T) {
 }
 
 func TestDatabricksAppMiddleware_RefusesDisabledUser(t *testing.T) {
-	mw := databricksAppAuthMiddleware(func(context.Context, string) (*auth.User, error) {
+	mw := databricksAppAuthMiddleware(func(context.Context, string, string) (*auth.User, error) {
 		return nil, auth.ErrUserDisabled
 	})
 	called := false

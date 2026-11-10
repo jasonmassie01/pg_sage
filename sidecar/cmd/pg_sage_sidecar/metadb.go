@@ -13,7 +13,6 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/config"
-	"github.com/pg-sage/sidecar/internal/databricksauth"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/schema"
@@ -40,59 +39,26 @@ type metaDBState struct {
 
 // connectMetaDB creates a connection pool for the metadata database
 // with exponential backoff. Retries up to 5 times with delays of
-// 1s, 2s, 4s, 8s, 16s before giving up.
+// 1s, 2s, 4s, 8s before giving up; each attempt resolves the Lakebase
+// endpoint afresh.
 func connectMetaDB(dsn string) (*pgxpool.Pool, error) {
-	poolCfg, err := pgxpool.ParseConfig(dsn)
+	base, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("parsing meta-db DSN: %w", err)
 	}
-	poolCfg.MaxConns = 5
-	if err := databricksauth.ConfigurePool(context.Background(), poolCfg); err != nil {
-		return nil, err
-	}
-	poolCfg.MinConns = 1
-	poolCfg.MaxConnLifetime = 30 * time.Minute
-	poolCfg.MaxConnIdleTime = 5 * time.Minute
-	// pg_sage's sessions are named and its statements tagged, not hidden
-	// from pg_stat_statements: a DBA sees its cost (perf v1.8.3).
-	selfmonitor.ConfigurePool(poolCfg)
-
-	const maxAttempts = 5
-	backoff := 1 * time.Second
-	var lastErr error
-
-	for attempt := range maxAttempts {
-		p, err := pgxpool.NewWithConfig(
-			context.Background(), poolCfg)
-		if err != nil {
-			lastErr = fmt.Errorf("creating meta-db pool: %w", err)
-			logRetry("meta-db", attempt, maxAttempts,
-				backoff, lastErr)
-			time.Sleep(backoff)
-			backoff *= 2
-			continue
-		}
-
-		ctx, cancel := context.WithTimeout(
-			context.Background(), 5*time.Second,
-		)
-		err = p.Ping(ctx)
-		cancel()
-		if err == nil {
-			return p, nil
-		}
-		p.Close()
-		lastErr = fmt.Errorf("pinging meta-db: %w", err)
-		if attempt < maxAttempts-1 {
-			logRetry("meta-db", attempt, maxAttempts,
-				backoff, lastErr)
-			time.Sleep(backoff)
-			backoff *= 2
-		}
-	}
-	return nil, fmt.Errorf(
-		"meta-db failed after %d attempts: %w",
-		maxAttempts, lastErr)
+	base.MaxConns = 5
+	return retryStartup(context.Background(), "meta-db", startupAttempts,
+		func(ctx context.Context) (*pgxpool.Pool, error) {
+			return openStartupPool(ctx, base, func(poolCfg *pgxpool.Config) {
+				poolCfg.MinConns = 1
+				poolCfg.MaxConnLifetime = 30 * time.Minute
+				poolCfg.MaxConnIdleTime = 5 * time.Minute
+				// pg_sage's sessions are named and its statements tagged,
+				// not hidden from pg_stat_statements: a DBA sees its cost
+				// (perf v1.8.3).
+				selfmonitor.ConfigurePool(poolCfg)
+			})
+		})
 }
 
 // initMetaDB bootstraps the meta database: schema, admin user,
@@ -219,7 +185,7 @@ func loadDatabasesFromStore(
 
 // connectMonitoredDB creates and pings a pool for a monitored DB
 // with exponential backoff. Retries up to 5 times with delays of
-// 1s, 2s, 4s, 8s, 16s before giving up.
+// 1s, 2s, 4s, 8s before giving up.
 func connectMonitoredDB(
 	dsn string, maxConns int,
 ) (*pgxpool.Pool, error) {
@@ -234,14 +200,18 @@ func connectMonitoredDBContext(
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	poolCfg, err := pgxpool.ParseConfig(dsn)
+	base, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("invalid DSN: %w", err)
 	}
-	poolCfg.MaxConns = int32(maxConns)
-	if err := databricksauth.ConfigurePool(ctx, poolCfg); err != nil {
-		return nil, err
-	}
+	base.MaxConns = int32(maxConns)
+	return retryStartup(ctx, "connect", startupAttempts,
+		func(ctx context.Context) (*pgxpool.Pool, error) {
+			return openStartupPool(ctx, base, tuneMonitoredPool)
+		})
+}
+
+func tuneMonitoredPool(poolCfg *pgxpool.Config) {
 	if poolCfg.MaxConns < 2 {
 		poolCfg.MaxConns = 2
 	}
@@ -249,77 +219,12 @@ func connectMonitoredDBContext(
 	poolCfg.MaxConnLifetime = 30 * time.Minute
 	poolCfg.MaxConnIdleTime = 5 * time.Minute
 	poolCfg.HealthCheckPeriod = 30 * time.Second
-
 	// A stable application_name lets the analyzer and executor recognize
 	// every sidecar backend (not just pg_backend_pid() of one pool conn)
 	// when deciding whether a query is safe to terminate; every statement
 	// carries the /* pg_sage */ tag so pg_stat_statements shows pg_sage's
 	// cost and pg_sage's own analysis leaves it out.
 	selfmonitor.ConfigurePool(poolCfg)
-
-	const maxAttempts = 5
-	backoff := 1 * time.Second
-	var lastErr error
-
-	for attempt := range maxAttempts {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		p, err := pgxpool.NewWithConfig(ctx, poolCfg)
-		if err != nil {
-			lastErr = fmt.Errorf("creating pool: %w", err)
-			if attempt < maxAttempts-1 {
-				logRetry("connect", attempt, maxAttempts,
-					backoff, lastErr)
-				if err := waitForRetry(ctx, backoff); err != nil {
-					return nil, err
-				}
-				backoff *= 2
-			}
-			continue
-		}
-
-		pingCtx, cancel := context.WithTimeout(
-			ctx, 5*time.Second,
-		)
-		err = p.Ping(pingCtx)
-		cancel()
-		if err == nil {
-			return p, nil
-		}
-		p.Close()
-		lastErr = fmt.Errorf("cannot connect: %w", err)
-		if attempt < maxAttempts-1 {
-			logRetry("connect", attempt, maxAttempts,
-				backoff, lastErr)
-			if err := waitForRetry(ctx, backoff); err != nil {
-				return nil, err
-			}
-			backoff *= 2
-		}
-	}
-	return nil, fmt.Errorf(
-		"failed after %d attempts: %w", maxAttempts, lastErr)
-}
-
-func waitForRetry(ctx context.Context, delay time.Duration) error {
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-	select {
-	case <-timer.C:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-func logRetry(
-	component string, attempt, max int,
-	backoff time.Duration, err error,
-) {
-	logWarn(component,
-		"attempt %d/%d failed: %v — retrying in %s",
-		attempt+1, max, err, backoff)
 }
 
 // initMetaDBFleet loads databases from the meta-db store and

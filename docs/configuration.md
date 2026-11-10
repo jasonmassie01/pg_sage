@@ -1189,7 +1189,9 @@ session cookies; password/OAuth login, break-glass, account linking and local
 user creation/deletion are disabled. The configured administrator is explicitly
 bound while preserving its account ID; other newly provisioned platform users
 start as viewers. Stored pg_sage roles still control access and are reread per
-request. Grant/revoke App access through Databricks permissions. See the
+request. `SAGE_DATABRICKS_APP_IDENTITY_PIN` (`log` by default, `enforce` or `off`)
+pins each account's forwarded `X-Forwarded-User` value and audits or refuses a
+change; see [Identity pin](databricks-apps.md#identity-pin). Grant/revoke App access through Databricks permissions. See the
 [Apps deployment guide](databricks-apps.md) for the trusted-ingress boundary and
 resource setup. This browser identity does not change the App service principal
 used by Lakebase and Gateway background operations.

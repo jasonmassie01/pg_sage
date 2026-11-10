@@ -124,7 +124,7 @@ func TestDatabricksAppAudienceExactDomainBeforeAccountStore(t *testing.T) {
 		"viewer@example-com.test", cfg.AdminEmail,
 	} {
 		t.Run(email, func(t *testing.T) {
-			_, err := ResolveDatabricksAppUser(context.Background(), nil, cfg, email)
+			_, err := ResolveDatabricksAppUser(context.Background(), nil, cfg, email, "")
 			if !errors.Is(err, ErrDatabricksAppAudienceDenied) {
 				t.Fatalf("denied identity reached nil account store: %v", err)
 			}
