@@ -33,17 +33,41 @@ type WhatIfResult struct {
 	// UnplannedQueryIDs are the failed queries' queryids, in workload
 	// order.
 	UnplannedQueryIDs []int64
+	// HiddenIndex is the existing index the second plan ran without (a
+	// replacement's old index or a measured drop), "" when none was hidden.
+	HiddenIndex string
+	// Guarded counts the statements whose baseline plan used HiddenIndex.
+	Guarded int
+	// Regressions are the guarded statements whose planned cost rose more
+	// than maxGuardedRegressionPct once HiddenIndex was hidden.
+	Regressions []QueryRegression
+	// OldIndexPresent marks an index that should have been hidden but was
+	// not: HypoPG lacks hypopg_hide_index (before 1.4).
+	OldIndexPresent bool
 }
 
 // whatIfVerdict turns an evaluation into a verdict and, unless verified,
-// the reason. Only a complete measurement can reject or verify: when some
+// the reason. A guarded statement that regresses once the replaced index
+// is hidden rejects: nothing an unplanned statement could show undoes it.
+// Otherwise only a complete measurement can reject or verify: when some
 // queries could not be planned, the unmeasured ones may be the
 // beneficiaries or the regressions, so the verdict is unverified and the
-// reason says what the planned ones showed and which were not planned.
+// reason says what the planned ones showed and which were not planned. A
+// replacement measured with its old index present says so in the reason.
 func whatIfVerdict(res WhatIfResult, err error, minPct float64) (string, string) {
+	verdict, reason := createVerdict(res, err, minPct)
+	if err == nil && res.OldIndexPresent {
+		reason = strings.TrimPrefix(reason+"; "+hideUnsupportedReason, "; ")
+	}
+	return verdict, reason
+}
+
+func createVerdict(res WhatIfResult, err error, minPct float64) (string, string) {
 	switch {
 	case err != nil:
 		return WhatIfUnverified, "what-if evaluation failed: " + err.Error()
+	case len(res.Regressions) > 0:
+		return WhatIfRejected, regressionReason("replacing", res)
 	case res.Measured == 0:
 		return WhatIfUnverified, "no workload query could be measured"
 	case res.Failed > 0:

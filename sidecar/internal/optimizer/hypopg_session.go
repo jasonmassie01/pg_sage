@@ -33,7 +33,23 @@ type hypopgSession struct {
 	tx        pgx.Tx
 	namespace string
 	version   int
+	// canHide: the extension has hypopg_hide_index and
+	// hypopg_unhide_all_indexes (HypoPG 1.4+), found in pg_proc because
+	// providers ship different HypoPG versions.
+	canHide bool
+	// discard: the backend's hidden-index state is in doubt, so close
+	// closes the connection instead of pooling it.
+	discard bool
 }
+
+// hypopgSessionSQL finds the extension's schema, the server version and
+// whether the extension can hide existing indexes.
+const hypopgSessionSQL = `SELECT n.nspname, current_setting('server_version_num')::int,
+	(SELECT count(DISTINCT p.proname) = 2 FROM pg_catalog.pg_proc p
+	  WHERE p.pronamespace = e.extnamespace
+	    AND p.proname IN ('hypopg_hide_index', 'hypopg_unhide_all_indexes'))
+	FROM pg_catalog.pg_extension e
+	JOIN pg_catalog.pg_namespace n ON n.oid=e.extnamespace WHERE e.extname='hypopg'`
 
 // openHypoPGSession acquires one connection and opens the bounded
 // transaction every what-if statement runs in.
@@ -44,10 +60,7 @@ func openHypoPGSession(ctx context.Context, pool *pgxpool.Pool, lockTimeout time
 		return nil, fmt.Errorf("acquire HypoPG session: %w", err)
 	}
 	s := &hypopgSession{conn: conn}
-	err = conn.QueryRow(ctx, `SELECT n.nspname, current_setting('server_version_num')::int
-		FROM pg_catalog.pg_extension e
-		JOIN pg_catalog.pg_namespace n ON n.oid=e.extnamespace WHERE e.extname='hypopg'`,
-	).Scan(&s.namespace, &s.version)
+	err = conn.QueryRow(ctx, hypopgSessionSQL).Scan(&s.namespace, &s.version, &s.canHide)
 	if err != nil {
 		conn.Release()
 		return nil, fmt.Errorf("discover HypoPG extension namespace: %w", err)
@@ -81,29 +94,39 @@ func (s *hypopgSession) function(name string) string {
 	return pgx.Identifier{s.namespace, name}.Sanitize()
 }
 
-func (s *hypopgSession) evaluate(ctx context.Context, ddl string, alongside []string,
+// evaluate plans the workload without and with rec's index. In-flight
+// indexes are part of the baseline: the candidate is judged on what it adds
+// to them. A replacement's old index is hidden once the candidate exists,
+// so the improvement is judged on the swapped plan and each statement that
+// used the old index is guarded against a regression; without hide support
+// the old index stays present and the result says so.
+func (s *hypopgSession) evaluate(ctx context.Context, rec Recommendation,
 	queries []QueryInfo,
 ) (WhatIfResult, error) {
-	// In-flight indexes are part of the baseline: the candidate is judged
-	// on what it adds to them.
-	for _, d := range alongside {
+	for _, d := range rec.Alongside {
 		if _, err := s.createIndex(ctx, d); err != nil {
 			return WhatIfResult{}, fmt.Errorf("in-flight index %q: %w", d, err)
 		}
 	}
-	before, unplanned, err := s.measureCosts(ctx, queries)
-	if err != nil || len(before) == 0 {
-		return WhatIfResult{Failed: len(unplanned), UnplannedQueryIDs: unplanned}, err
-	}
-	oid, err := s.createIndex(ctx, ddl)
+	old, err := s.indexToHide(ctx, rec.Replaces)
 	if err != nil {
 		return WhatIfResult{}, err
 	}
-	after, _, err := s.measureCosts(ctx, queries)
+	before, err := s.measureCosts(ctx, queries, old.name)
+	if err != nil || len(before.costs) == 0 {
+		return WhatIfResult{Failed: len(before.unplanned),
+			UnplannedQueryIDs: before.unplanned}, err
+	}
+	after, oid, err := s.measureWithCandidate(ctx, rec.DDL, old, queries)
 	if err != nil {
 		return WhatIfResult{}, err
 	}
-	res := comparedCosts(queries, before, after, unplanned)
+	res := comparedCosts(queries, before.costs, after.costs, before.unplanned)
+	res.OldIndexPresent = rec.Replaces != nil && !s.canHide
+	if old.name != "" {
+		res.HiddenIndex = old.name
+		res.Guarded, res.Regressions = guardedRegressions(queries, before, after.costs)
+	}
 	if res.Measured == 0 {
 		return res, nil
 	}
@@ -112,6 +135,24 @@ func (s *hypopgSession) evaluate(ctx context.Context, ddl string, alongside []st
 		return WhatIfResult{}, err
 	}
 	return res, nil
+}
+
+// measureWithCandidate creates the candidate, hides old (if any) and plans
+// the workload again. It returns the candidate's OID for its size.
+func (s *hypopgSession) measureWithCandidate(ctx context.Context, ddl string,
+	old hiddenIndex, queries []QueryInfo,
+) (measurement, uint32, error) {
+	oid, err := s.createIndex(ctx, ddl)
+	if err != nil {
+		return measurement{}, 0, err
+	}
+	if old.name != "" {
+		if err := s.hide(ctx, old.oid); err != nil {
+			return measurement{}, 0, err
+		}
+	}
+	after, err := s.measureCosts(ctx, queries, "")
+	return after, oid, err
 }
 
 func (s *hypopgSession) createIndex(ctx context.Context, ddl string) (uint32, error) {
@@ -164,45 +205,47 @@ func lostPlans(queries []QueryInfo, before, after map[int64]float64) []int64 {
 	return lost
 }
 
-// measureCosts plans every explainable workload query. Each EXPLAIN runs
+// measureCosts plans every explainable workload query and, when guard
+// names an index, records the statements whose plan uses it. Each EXPLAIN runs
 // in its own savepoint, so a query that fails (a dropped column, a type
 // it cannot plan) is named in the unplanned queryids and skipped instead
 // of aborting the shared transaction. A cancelled context or a lock
 // timeout (the table is locked: every other statement on it would wait
 // as long) aborts the measurement.
-func (s *hypopgSession) measureCosts(ctx context.Context,
-	queries []QueryInfo,
-) (map[int64]float64, []int64, error) {
-	costs := make(map[int64]float64)
-	var unplanned []int64
+func (s *hypopgSession) measureCosts(ctx context.Context, queries []QueryInfo,
+	guard string,
+) (measurement, error) {
+	m := measurement{costs: make(map[int64]float64), uses: make(map[int64]bool)}
 	for _, query := range queries {
 		if !isExplainable(query.Text) {
 			continue
 		}
 		if err := sanitize.RejectMultiStatement(query.Text); err != nil {
-			unplanned = append(unplanned, query.QueryID)
+			m.unplanned = append(m.unplanned, query.QueryID)
 			continue
 		}
 		plan, err := s.explainIsolated(ctx, query.Text)
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, unplanned, ctxErr
+			return measurement{unplanned: m.unplanned}, ctxErr
 		}
 		if err != nil {
 			if errors.Is(err, errSessionBroken) {
-				return nil, unplanned, err
+				return measurement{unplanned: m.unplanned}, err
 			}
 			if isLockTimeout(err) {
-				return nil, unplanned, fmt.Errorf("lock timeout: queryid %d waited past "+
-					"lock_timeout for a lock on its tables: %w", query.QueryID, err)
+				return measurement{unplanned: m.unplanned}, fmt.Errorf("lock timeout: "+
+					"queryid %d waited past lock_timeout for a lock on its tables: %w",
+					query.QueryID, err)
 			}
-			unplanned = append(unplanned, query.QueryID)
+			m.unplanned = append(m.unplanned, query.QueryID)
 			continue
 		}
 		if cost := extractTotalCost(plan); cost > 0 {
-			costs[query.QueryID] = cost
+			m.costs[query.QueryID] = cost
+			m.uses[query.QueryID] = planUsesIndex(plan, guard)
 		}
 	}
-	return costs, unplanned, nil
+	return m, nil
 }
 
 // isLockTimeout reports a statement cancelled by lock_timeout.
@@ -263,11 +306,18 @@ func (s *hypopgSession) close() error {
 			cleanupErr = fmt.Errorf("rollback HypoPG transaction: %w", err)
 		}
 	}
-	// HypoPG indexes are session state, so transaction rollback alone is insufficient.
+	// Hidden and hypothetical indexes are backend state, not transactional:
+	// the rollback undoes neither, and hypopg_reset does not unhide.
+	if s.canHide {
+		_, err := s.conn.Exec(ctx, "SELECT "+s.function("hypopg_unhide_all_indexes")+"()")
+		if err != nil {
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("unhide indexes: %w", err))
+		}
+	}
 	if _, err := s.conn.Exec(ctx, "SELECT "+s.function("hypopg_reset")+"()"); err != nil {
 		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("reset hypothetical indexes: %w", err))
 	}
-	if cleanupErr != nil {
+	if cleanupErr != nil || s.discard {
 		raw := s.conn.Hijack()
 		return errors.Join(cleanupErr, raw.Close(ctx))
 	}

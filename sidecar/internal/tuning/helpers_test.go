@@ -182,14 +182,18 @@ func proposalsJSON(t *testing.T, ps ...map[string]any) string {
 // ---- fake index tools (optimizer) ----
 
 type fakeIndexes struct {
-	mu        sync.Mutex
-	cold      bool
-	contexts  map[string]optimizer.TableContext
-	admit     func(rec optimizer.Recommendation) optimizer.Admission
-	admitted  []string
-	measured  []string
-	ctxErr    error
-	whatIfSkp int64
+	mu       sync.Mutex
+	cold     bool
+	contexts map[string]optimizer.TableContext
+	admit    func(rec optimizer.Recommendation) optimizer.Admission
+	admitted []string
+	// drop answers MeasureDrop (nil: unverified, HypoPG unavailable);
+	// dropsMeasured records each call's index.
+	drop          func(ix optimizer.IndexRef) optimizer.DropMeasurement
+	dropsMeasured []optimizer.IndexRef
+	measured      []string
+	ctxErr        error
+	whatIfSkp     int64
 }
 
 func newFakeIndexes() *fakeIndexes {
@@ -224,6 +228,18 @@ func (f *fakeIndexes) Admit(_ context.Context, rec optimizer.Recommendation,
 		rec.AffectedQueryIDs = append(rec.AffectedQueryIDs, q.QueryID)
 	}
 	return optimizer.Admission{Rec: rec, Outcome: optimizer.AdmitAccepted}
+}
+
+func (f *fakeIndexes) MeasureDrop(_ context.Context, ix optimizer.IndexRef,
+	_ optimizer.TableContext) optimizer.DropMeasurement {
+	f.mu.Lock()
+	f.dropsMeasured = append(f.dropsMeasured, ix)
+	f.mu.Unlock()
+	if f.drop != nil {
+		return f.drop(ix)
+	}
+	return optimizer.DropMeasurement{Verdict: optimizer.WhatIfUnverified,
+		Reason: "HypoPG unavailable"}
 }
 
 func (f *fakeIndexes) MeasuredRejections(context.Context, optimizer.TableContext) []string {

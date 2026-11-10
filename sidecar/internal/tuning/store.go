@@ -24,6 +24,10 @@ type IndexTools interface {
 		optimizer.TableContext, bool, error)
 	Admit(ctx context.Context, rec optimizer.Recommendation,
 		tc optimizer.TableContext) optimizer.Admission
+	// MeasureDrop measures dropping an existing index of tc's table by
+	// planning its workload with the index hidden (HypoPG 1.4+).
+	MeasureDrop(ctx context.Context, ix optimizer.IndexRef,
+		tc optimizer.TableContext) optimizer.DropMeasurement
 	MeasuredRejections(ctx context.Context, tc optimizer.TableContext) []string
 	MemoryStats() optimizer.MemoryStats
 }
