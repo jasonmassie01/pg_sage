@@ -119,7 +119,7 @@ func (p *metaPlan) discard() {
 		logWarn("meta-db", "db %q: unpublished candidate drain: %v", p.rec.Name, err)
 	}
 	if p.kind == "added" && fleetMgr != nil && fleetMgr.GetInstance(p.rec.Name) == nil {
-		unregisterFleetBudget(p.rec.Name)
+		forgetRemovedDatabase(p.rec.Name)
 	}
 	p.candidate = nil
 }

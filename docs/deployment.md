@@ -371,8 +371,13 @@ recorded as `concurrency_limit` evidence. These metrics show who waits:
 - `limiter` is `database` (the per-database slot) or `sidecar` (the
   shared four).
 - Every wait is counted, granted or refused, so `_sum / _count` is the
-  mean wait per probe.
-- An investigation step or investigator read that is refused runs once
+  mean wait per probe. A probe whose caller gave up while it waited (a
+  shutdown, a lost lease) counts as a wait, not a refusal.
+- The counters live in the sidecar process and start at zero on a
+  restart. A database removed from the fleet (a reload, a delete or a
+  rename) loses its series; added back, it starts at zero.
+- An investigation probe that is refused (a plan step, an investigator
+  read, the model's follow-up probe or a runbook probe step) runs once
   more, but only when its lease leaves at least 10 seconds (the queue
   wait plus the step margin). The second result is kept whatever it is.
   A sustained `caller="investigation"` refusal rate means background

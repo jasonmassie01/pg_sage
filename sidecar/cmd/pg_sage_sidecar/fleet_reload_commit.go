@@ -64,7 +64,7 @@ func (p *preparedFleetReload) Drain(ctx context.Context) error {
 	for _, inst := range p.removals {
 		// A later reload may already have added the name back.
 		if p.mgr.GetInstance(inst.Name) == nil {
-			unregisterFleetBudget(inst.Name)
+			forgetRemovedDatabase(inst.Name)
 		}
 		logInfo("fleet", "db %q: removed by reload", inst.Name)
 	}
@@ -80,7 +80,7 @@ func (p *preparedFleetReload) discardCandidates() error {
 		}
 		instances = append(instances, candidate.instance)
 		if candidate.old == nil && p.mgr.GetInstance(candidate.cfg.Name) == nil {
-			unregisterFleetBudget(candidate.cfg.Name)
+			forgetRemovedDatabase(candidate.cfg.Name)
 		}
 	}
 	return shutdownInstances(context.Background(), instances)
