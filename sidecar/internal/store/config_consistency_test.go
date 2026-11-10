@@ -92,6 +92,9 @@ var excludedExactKeys = map[string]bool{
 	// The stdio transport's agent identity (agent governance G1) is YAML
 	// only and restart-bound: an API write must never rebind it.
 	"mcp.stdio_principal": true,
+	// The stdio tools/call deadline (mcp-04) is YAML only and restart-bound,
+	// read when the stdio server starts.
+	"mcp.call_timeout_seconds": true,
 
 	// Trust ramp_start — written in YAML but not overridable.
 	"trust.ramp_start": true,
