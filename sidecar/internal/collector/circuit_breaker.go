@@ -35,8 +35,12 @@ func (d Decision) cause() string {
 	if d.Reason == SkipReasonLoadQueryError {
 		return fmt.Sprintf("load query failed: %v", d.Err)
 	}
-	return fmt.Sprintf("load ratio %.2f > ceiling %.2f "+
-		"(active sessions / max_connections)", d.Ratio, d.Ceiling)
+	ratio, ceiling := fmt.Sprintf("%.2f", d.Ratio), fmt.Sprintf("%.2f", d.Ceiling)
+	if ratio == ceiling { // just over the ceiling: show the digits that differ
+		ratio = fmt.Sprintf("%.6g", d.Ratio)
+	}
+	return fmt.Sprintf("load ratio %s > ceiling %s "+
+		"(active sessions / max_connections)", ratio, ceiling)
 }
 
 // CircuitBreaker prevents collection when the database is under heavy load.

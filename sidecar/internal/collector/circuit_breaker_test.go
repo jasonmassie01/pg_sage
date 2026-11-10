@@ -221,6 +221,26 @@ func TestCycleLogsLoadRatioAndCeiling(t *testing.T) {
 	}
 }
 
+// A ratio just over the ceiling must not read as "0.90 > ceiling 0.90".
+func TestSkipCauseJustOverCeilingShowsDifference(t *testing.T) {
+	cases := map[float64]string{
+		0.9001:    "load ratio 0.9001 > ceiling 0.90 ",
+		0.904:     "load ratio 0.904 > ceiling 0.90 ",
+		0.906:     "load ratio 0.91 > ceiling 0.90 ",
+		2.0 / 3.0: "load ratio 0.67 > ceiling 0.60 ",
+	}
+	for ratio, want := range cases {
+		ceiling := 0.90
+		if ratio < 0.9 {
+			ceiling = 0.60
+		}
+		d := Decision{Skip: true, Reason: SkipReasonLoad, Ratio: ratio, Ceiling: ceiling}
+		if got := d.cause(); !strings.HasPrefix(got, want) {
+			t.Errorf("ratio %v: cause = %q, want prefix %q", ratio, got, want)
+		}
+	}
+}
+
 func TestCycleLoadErrorThenOverloadReportsLatestReason(t *testing.T) {
 	db := &fakeLoadDB{err: errors.New("permission denied for view pg_stat_activity")}
 	c, _ := breakerCollector(t, db)
