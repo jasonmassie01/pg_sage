@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/llm"
@@ -149,12 +150,14 @@ func (rt *databaseRuntime) wireRCA() {
 		critical, logSub = sub, sub
 	}
 	rt.joinClusterScope(logSub)
+	rt.lockObs = analyzer.NewLockChainObserver(rt.cfg.RCA.LockChainInterval())
 	rt.rcaAdapter = newRCAAdapter(rcaAdapterDeps{
 		ctx: rt.ctx, eng: rt.rca, pool: rt.spec.Pool, name: rt.spec.Name,
 		cfg: rt.cfg, logFn: logStructuredWrapper, workers: rt.workers,
-		probes: rt.probes, logSource: critical,
+		probes: rt.probes, logSource: critical, lockObs: rt.lockObs,
 	})
 	rt.analyzer.WithRCAEngine(rt.rcaAdapter)
+	rt.analyzer.WithLockChainObserver(rt.lockObs)
 	rt.note("rca")
 	if rt.rcaAdapter.fastPath != nil {
 		rt.note("sre_fast_path")
@@ -194,27 +197,60 @@ func (rt *databaseRuntime) startMigrationAdvisor() {
 		rt.spec.Pool, &cfg.Migration, rt.pgVersion(), rt.spec.Name,
 		logStructuredWrapper, general,
 	).WithCatalogReadTimeouts(catalogread.FromSafety(cfg.Safety))
-	findings := store.NewMigrationSafetyFindingStore(rt.spec.Pool)
-	if cfg.Migration.ActivityPolling {
-		detector := migration.NewDetector(
-			rt.spec.Pool, advisor, &cfg.Migration, logStructuredWrapper,
-		).WithFindingSink(findings)
+	logs := cfg.Migration.LogDetection
+	if logs && rt.logFanout == nil {
+		logWarn(rt.spec.Scope, "db %q: migration log detection unavailable: "+
+			"enable a working logwatch source", rt.spec.Name)
+		logs = false
+	}
+	detector, logDetector := newMigrationDetectors(rt.spec.Pool, advisor,
+		store.NewMigrationSafetyFindingStore(rt.spec.Pool), &cfg.Migration, logs)
+	// One model worker per database, off both detectors' paths
+	// (migration-10); it returns at once without a model.
+	rt.start(func() { advisor.RunEnrichment(rt.ctx) })
+	if detector != nil {
+		if rt.lockObs != nil {
+			detector.WithLockQueue(rt.lockObs)
+			rt.lockObs.SetQueuedDDL(detector)
+		}
 		rt.start(func() { detector.Run(rt.ctx) })
 	}
 	rt.note("migration")
-	if !cfg.Migration.LogDetection {
-		return
-	}
-	if rt.logFanout == nil {
-		logWarn(rt.spec.Scope, "db %q: migration log detection unavailable: "+
-			"enable a working logwatch source", rt.spec.Name)
+	if logDetector == nil {
 		return
 	}
 	entries := rt.logFanout.SubscribeEntries(
 		"migration:"+rt.spec.Name, rt.spec.Config.Database,
 	)
-	logDetector := migration.NewLogDetector(
-		advisor, logStructuredWrapper,
-	).WithFindingSink(findings)
 	rt.start(func() { logDetector.Run(rt.ctx, entries, logwatchPollInterval()) })
+}
+
+// newMigrationStaleResolver builds a database's resolver of stale
+// migration findings (a variable so tests can count constructions).
+var newMigrationStaleResolver = migration.NewStaleResolver
+
+// newMigrationDetectors builds one database's activity detector (when
+// mcfg.ActivityPolling) and log detector (when logs). Both share one
+// stale-finding resolver, so the resolve UPDATE runs once per interval
+// rather than once per detector (migration-12).
+func newMigrationDetectors(
+	pool *pgxpool.Pool, advisor *migration.Advisor,
+	findings *store.MigrationSafetyFindingStore, mcfg *config.MigrationConfig, logs bool,
+) (*migration.Detector, *migration.LogDetector) {
+	activity := mcfg.ActivityPolling
+	if !activity && !logs {
+		return nil, nil
+	}
+	stale := newMigrationStaleResolver(pool, logStructuredWrapper)
+	var detector *migration.Detector
+	if activity {
+		detector = migration.NewDetector(pool, advisor, mcfg,
+			logStructuredWrapper).WithFindingSink(findings).WithStaleResolver(stale)
+	}
+	var logDetector *migration.LogDetector
+	if logs {
+		logDetector = migration.NewLogDetector(advisor, logStructuredWrapper).
+			WithFindingSink(findings).WithStaleResolver(stale)
+	}
+	return detector, logDetector
 }

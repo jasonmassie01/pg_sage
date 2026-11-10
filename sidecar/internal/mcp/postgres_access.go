@@ -114,11 +114,15 @@ func (access *PostgresAccess) RecordMigration(
 		return ErrProductionDependencyUnavailable
 	}
 	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(record.SourceSQL)))
+	// On conflict the row takes the latest run's hash and reason too, so
+	// it never pairs a new verdict with the first run's SQL.
 	_, err := access.pool.Exec(ctx, `INSERT INTO sage.migration_run
-		(database_id, evidence_id, phase, source_sql_hash, verdict)
-		VALUES ($1,$2,'plan',$3,$4)
+		(database_id, evidence_id, phase, source_sql_hash, verdict, reason)
+		VALUES ($1,$2,'plan',$3,$4,$5)
 		ON CONFLICT (evidence_id) DO UPDATE SET verdict=EXCLUDED.verdict,
-		updated_at=now()`, record.DatabaseID, record.EvidenceID, hash, record.Verdict)
+		source_sql_hash=EXCLUDED.source_sql_hash, reason=EXCLUDED.reason,
+		updated_at=now()`, record.DatabaseID, record.EvidenceID, hash, record.Verdict,
+		record.Reason)
 	if err != nil {
 		return fmt.Errorf("record MCP migration plan: %w", err)
 	}

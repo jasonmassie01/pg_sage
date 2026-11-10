@@ -74,6 +74,7 @@ type Analyzer struct {
 	forecaster   WorkloadForecaster
 	tuner        QueryTuner
 	rcaEngine    RCAEngine
+	lockObs      *LockChainObserver // nil records no lock-chain observation
 	detectors    []SupplementalDetector
 	planNarrator PlanNarrator
 	logFn        func(string, string, ...any)
@@ -184,6 +185,12 @@ func (a *Analyzer) WithDispatcher(d EventDispatcher) {
 // WithRCAEngine sets the root cause analysis engine for the analyzer.
 func (a *Analyzer) WithRCAEngine(e RCAEngine) {
 	a.rcaEngine = e
+}
+
+// WithLockChainObserver shares the database's lock-chain observer, which
+// the cycle's lock-chain check records into (migration-05).
+func (a *Analyzer) WithLockChainObserver(o *LockChainObserver) {
+	a.lockObs = o
 }
 
 // WithSupplementalDetector attaches a detector before the analyzer starts.

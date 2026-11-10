@@ -117,20 +117,22 @@ func TestLintMigrationNothingRecognized(t *testing.T) {
 		"note must say nothing was recognized: %q", res.Note)
 }
 
-// SET LOGGED/UNLOGGED rewrites the table under ACCESS EXCLUSIVE, and no
-// regex rule knows it: lint must not call it safe (migration-04a).
+// SET LOGGED/UNLOGGED rewrites the table under ACCESS EXCLUSIVE: lint
+// must not call it safe (migration-04a). The parse-tree classifier names
+// the rule (migration-04); a build without the parser reports the
+// statement as unrecognized instead. Either way the verdict is review.
 func TestLintMigrationUnrecognizedDDLIsReview(t *testing.T) {
 	f := newFixture(t)
 	table := lintTable(f)
-	for _, sql := range []string{
-		"ALTER TABLE " + table + " SET LOGGED",
-		"ALTER TABLE " + table + " SET UNLOGGED",
-		"ALTER TABLE " + table + " RENAME COLUMN a TO a2",
+	for sql, rule := range map[string]string{
+		"ALTER TABLE " + table + " SET LOGGED":            "ddl_set_logged",
+		"ALTER TABLE " + table + " SET UNLOGGED":          "ddl_set_logged",
+		"ALTER TABLE " + table + " RENAME COLUMN a TO a2": "ddl_rename",
 	} {
 		res, err := New(f.pool, Options{}).LintMigration(f.ctx, LintRequest{SQL: sql})
 		require.NoError(t, err)
 		require.Equal(t, "review", res.Verdict, "SQL %q", sql)
-		require.Contains(t, res.Note, "allowlist", "SQL %q", sql)
+		requireRuleOrUnrecognized(t, res, rule)
 	}
 	var persistence string
 	f.scalar(&persistence, "SELECT relpersistence::text FROM pg_class WHERE oid = $1::regclass",

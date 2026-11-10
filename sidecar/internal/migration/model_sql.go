@@ -13,6 +13,10 @@ import (
 // not validate. That text is never a recommendation (security-05).
 const unvalidatedLabel = "Model text, not validated by pg_sage"
 
+// validatedLabel heads the chain link that shows model SQL pg_sage did
+// validate; it is still model output, never a recommendation (migration-10).
+const validatedLabel = "Model text, validated by pg_sage; not a recommendation"
+
 // modelTarget is the one table a model script may touch. Schema is ""
 // when the original statement relied on the search_path.
 type modelTarget struct {
@@ -56,6 +60,25 @@ func validateModelDDL(sql string, target modelTarget) error {
 	for i, st := range stmts {
 		if err := checkModelStatement(st, target); err != nil {
 			return fmt.Errorf("statement %d (%s): %w", i+1, st.Node, err)
+		}
+	}
+	return checkTransactionShape(stmts)
+}
+
+// checkTransactionShape refuses a CONCURRENTLY statement after BEGIN and
+// before its COMMIT: PostgreSQL rejects it there, so the script cannot run
+// as written (migration-10).
+func checkTransactionShape(stmts []sqlast.Statement) error {
+	inBlock := false
+	for i, st := range stmts {
+		switch {
+		case st.Kind == sqlast.KindBegin:
+			inBlock = true
+		case st.Kind == sqlast.KindCommit:
+			inBlock = false
+		case st.Concurrent && inBlock:
+			return fmt.Errorf("statement %d runs CONCURRENTLY inside BEGIN/COMMIT, "+
+				"which PostgreSQL refuses in a transaction block", i+1)
 		}
 	}
 	return nil

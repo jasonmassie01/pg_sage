@@ -139,7 +139,7 @@ func ingestBenchSources(ctx context.Context, svc *earned.Service,
 // control databases.
 func localBenchProvider(s config.SREAutonomyConfig, cloneCfg config.CloneProviderConfig,
 	guard localTargetGuard) (clone.Provider, string, error) {
-	if cloneCfg.Provider == "dle" || cloneCfg.Provider == "snapshot" {
+	if cloneCfg.Provider == "dle" {
 		p, err := configuredMCPCloneProvider(cloneCfg)
 		return p, cloneCfg.Provider, err
 	}

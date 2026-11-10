@@ -1,6 +1,7 @@
 package decide
 
 import (
+	"context"
 	"regexp"
 	"strings"
 
@@ -99,25 +100,21 @@ var (
 	destructiveDDL = regexp.MustCompile(`(?i)\b(DROP|TRUNCATE)\b`)
 	sqlComment     = regexp.MustCompile(`(?s)--[^\n]*|/\*.*?\*/`)
 	sqlString      = regexp.MustCompile(`'(?:[^']|'')*'`)
-	ddlClassifier  = migration.NewRegexClassifier()
 )
 
 // ClassifyDDL classes a schema change (§5.2): any DROP or TRUNCATE is
 // destructive (pg_sage cannot tell a unique index from another here);
-// anything the migration classifier flags for its lock or rewrite is
-// locking. Additive is earned, not the default (migration-04a): only SQL
-// whose every statement is on the migration package's additive allowlist
-// is additive; anything else, including text the scanner cannot
-// tokenize, is locking. No SQL is the worst case, destructive.
+// anything the migration classifier flags for its lock or rewrite, or
+// does not recognize (a statement that does not parse included), is
+// locking (migration-04). Additive is earned, not the default
+// (migration-04a): only SQL whose every statement the classifier knows
+// and that is on the migration package's additive allowlist is additive;
+// text the scanner cannot tokenize is locking. No SQL is the worst case,
+// destructive.
 func ClassifyDDL(sql string) Capability {
 	text := sqlString.ReplaceAllString(sqlComment.ReplaceAllString(sql, " "), "''")
 	if strings.Trim(text, " \t\r\n\f;") == "" || destructiveDDL.MatchString(text) {
 		return CapDDLDestructive
-	}
-	for _, c := range ddlClassifier.Classify(text, oldestSupportedPG) {
-		if c.RuleID != "ddl_missing_lock_timeout" {
-			return CapDDLLocking
-		}
 	}
 	unproven, err := migration.UnprovenStatements(sql)
 	if err != nil {
@@ -133,6 +130,24 @@ func ClassifyDDL(sql string) Capability {
 	}
 	if len(unproven) > 0 {
 		return CapDDLLocking
+	}
+	return classifiedCapability(sql)
+}
+
+// classifiedCapability is locking when the migration classifier flags a
+// lock or rewrite in sql or does not recognize one of its statements, and
+// additive otherwise. It reads no catalog, so ClassifyStatements cannot
+// fail here.
+func classifiedCapability(sql string) Capability {
+	classified, err := migration.ClassifyStatements(context.Background(), nil, sql,
+		oldestSupportedPG)
+	if err != nil || classified.Untokenizable || classified.Unrecognized() > 0 {
+		return CapDDLLocking
+	}
+	for _, c := range classified.All() {
+		if c.RuleID != "ddl_missing_lock_timeout" {
+			return CapDDLLocking
+		}
 	}
 	return CapDDLAdditive
 }

@@ -11,6 +11,10 @@ import (
 
 const SafetyFindingCategory = "migration_safety"
 
+// SQLSourceDeterministic marks an incident's RecommendedSQL as one of
+// pg_sage's own templates. Model text never carries it (migration-10).
+const SQLSourceDeterministic = "deterministic"
+
 type FindingSink interface {
 	UpsertMigrationSafetyFinding(
 		ctx context.Context,
@@ -32,10 +36,15 @@ type MigrationSafetyFinding struct {
 	ImpactScore      float64
 }
 
+// FindingFromIncident builds the finding for incident. risk is the
+// advisor's winning assessment (nil when there is none, as for an LLM
+// fallback or lock-queue-only incident); its detection-time measurements
+// go into the detail, where the case preflight reads them (migration-01).
 func FindingFromIncident(
 	pid int,
 	originalSQL string,
 	incident *rca.Incident,
+	risk *DDLRisk,
 ) (MigrationSafetyFinding, bool) {
 	if incident == nil {
 		return MigrationSafetyFinding{}, false
@@ -46,7 +55,8 @@ func FindingFromIncident(
 	ruleID := ruleIDFromIncident(incident)
 	object := objectFromIncident(incident)
 	detail := detailFromIncident(pid, originalSQL, incident)
-	safeSQL := executableSafeSQL(incident.RecommendedSQL)
+	addRiskMeasurements(detail, risk)
+	safeSQL := executableSafeSQL(deterministicSQL(incident))
 	return MigrationSafetyFinding{
 		DatabaseName:     incident.DatabaseName,
 		RuleID:           ruleID,
@@ -85,7 +95,7 @@ func detailFromIncident(
 		"pid":              pid,
 		"database_name":    incident.DatabaseName,
 		"original_sql":     originalSQL,
-		"safe_alternative": incident.RecommendedSQL,
+		"safe_alternative": deterministicSQL(incident),
 		"risk_score":       incident.Confidence,
 		"action_risk":      incident.ActionRisk,
 		"source":           incident.Source,
@@ -111,8 +121,17 @@ func sanitizedChain(chain []rca.ChainLink) []rca.ChainLink {
 	return out
 }
 
+// deterministicSQL is the incident's recommendation when pg_sage's own
+// template wrote it, else "": a finding never recommends model text.
+func deterministicSQL(incident *rca.Incident) string {
+	if incident.RecommendedSQLSource != SQLSourceDeterministic {
+		return ""
+	}
+	return incident.RecommendedSQL
+}
+
 func recommendationForIncident(incident *rca.Incident) string {
-	if incident.RecommendedSQL != "" {
+	if deterministicSQL(incident) != "" {
 		return "Review the safer migration path before continuing live DDL."
 	}
 	return "Review the migration risk and produce a safe rollout plan."
@@ -138,8 +157,13 @@ func normalizeMigrationSQL(sql string) string {
 	return strings.Join(strings.Fields(strings.ToLower(sql)), " ")
 }
 
+// executableSafeSQL keeps sql only when it is one statement of a kind the
+// executor runs alone; the prefix alone let a batch through (migration-10).
 func executableSafeSQL(sql string) string {
 	trimmed := strings.TrimSpace(sql)
+	if len(splitStatements(sanitizeDDL(trimmed))) != 1 {
+		return ""
+	}
 	upper := strings.ToUpper(trimmed)
 	if strings.HasPrefix(upper, "CREATE INDEX CONCURRENTLY ") ||
 		strings.HasPrefix(upper, "DROP INDEX CONCURRENTLY ") ||

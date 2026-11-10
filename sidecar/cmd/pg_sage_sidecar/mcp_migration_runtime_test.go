@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/clone"
@@ -36,7 +35,9 @@ func TestConfiguredMCPCloneProviderNoneDisablesDDLRuntime(t *testing.T) {
 	require.Nil(t, provider)
 }
 
-func TestConfiguredMCPCloneProviderDLEAndSnapshotSelection(t *testing.T) {
+// migration-07: snapshot has no adapter in this build, so it is refused
+// instead of being selected through a factory that always failed.
+func TestConfiguredMCPCloneProviderDLEOnly(t *testing.T) {
 	dle, err := configuredMCPCloneProvider(config.CloneProviderConfig{
 		Provider: "dle", DLEEndpoint: "https://database-lab.example.test",
 		DLEToken: "test-token", MaxCloneAgeMinutes: 60,
@@ -44,17 +45,12 @@ func TestConfiguredMCPCloneProviderDLEAndSnapshotSelection(t *testing.T) {
 	require.NoError(t, err)
 	require.IsType(t, &clone.DLEProvider{}, dle)
 
-	original := mcpSnapshotProviderFactory
-	t.Cleanup(func() { mcpSnapshotProviderFactory = original })
-	expected := &commandCloneProvider{}
-	mcpSnapshotProviderFactory = func(config.CloneProviderConfig) (clone.Provider, error) {
-		return expected, nil
-	}
 	snapshot, err := configuredMCPCloneProvider(config.CloneProviderConfig{
 		Provider: "snapshot", MaxCloneAgeMinutes: 60,
 	})
-	require.NoError(t, err)
-	require.Same(t, expected, snapshot)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unsupported clone provider snapshot")
+	require.Nil(t, snapshot)
 }
 
 func TestFleetMCPApplyMigrationInjectsPerDatabaseConfiguredRuntime(t *testing.T) {
@@ -127,22 +123,10 @@ func (runtime *commandMigrationRuntime) Apply(
 	return runtime.result, nil
 }
 
-type commandCloneProvider struct{}
-
 type failingCommandRehearser struct{}
 
 func (failingCommandRehearser) Rehearse(
 	context.Context, plan.Plan,
 ) (rehearsal.Result, error) {
 	return rehearsal.Result{}, errors.New("clone control plane unavailable")
-}
-
-func (*commandCloneProvider) Create(
-	context.Context, clone.CloneSpec,
-) (clone.Clone, error) {
-	return clone.Clone{}, nil
-}
-func (*commandCloneProvider) Destroy(context.Context, clone.Clone) error { return nil }
-func (*commandCloneProvider) SnapshotAge(context.Context) (time.Duration, error) {
-	return 0, nil
 }

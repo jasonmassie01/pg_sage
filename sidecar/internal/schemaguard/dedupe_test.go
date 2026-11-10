@@ -334,8 +334,10 @@ func TestRouteFailureStillRecordsEarlierOutcomes(t *testing.T) {
 	custodian := NewCustodian(detector, &targetContracts{}, ledger,
 		&failSecondRoute{err: routeErr}, ledger, testPolicy())
 	result, err := custodian.Scan(context.Background())
-	if !errors.Is(err, routeErr) || result.Recorded != 2 || ledger.count() != 2 {
-		t.Fatalf("result=%+v rows=%d err=%v, want the first outcome and the failure",
+	// migration-08: the failure no longer halts the scan, so the third
+	// invariant is routed and recorded too.
+	if !errors.Is(err, routeErr) || result.Recorded != 3 || ledger.count() != 3 {
+		t.Fatalf("result=%+v rows=%d err=%v, want every outcome and the failure",
 			result, ledger.count(), err)
 	}
 	tables := []string{}
@@ -343,8 +345,8 @@ func TestRouteFailureStillRecordsEarlierOutcomes(t *testing.T) {
 		tables = append(tables, row.Invariant.Table)
 	}
 	sort.Strings(tables)
-	if strings.Join(tables, ",") != "first,second" {
-		t.Fatalf("recorded tables = %v, want first and second", tables)
+	if strings.Join(tables, ",") != "first,second,third" {
+		t.Fatalf("recorded tables = %v, want first, second and third", tables)
 	}
 }
 

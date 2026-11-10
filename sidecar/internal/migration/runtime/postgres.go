@@ -71,17 +71,19 @@ func (r *PostgresRecorder) Record(ctx context.Context, record Record) error {
 	if err != nil {
 		return err
 	}
+	// A conflict refreshes source_sql_hash and reason with the verdict, so
+	// the row never pairs the latest verdict with the first run's SQL.
 	_, err = r.pool.Exec(ctx, `INSERT INTO sage.migration_run
 		(database_id, evidence_id, phase, source_sql_hash, measurement, verdict,
-		 contract_not_before)
-		VALUES ($1, $2, 'expand', $3, $6::jsonb, $4, $5)
+		 contract_not_before, reason)
+		VALUES ($1, $2, 'expand', $3, $6::jsonb, $4, $5, $7)
 		ON CONFLICT (evidence_id) DO UPDATE SET
 		database_id=EXCLUDED.database_id, phase=EXCLUDED.phase,
-		measurement=EXCLUDED.measurement,
+		source_sql_hash=EXCLUDED.source_sql_hash, measurement=EXCLUDED.measurement,
 		verdict=EXCLUDED.verdict, contract_not_before=EXCLUDED.contract_not_before,
-		updated_at=now()`, record.Request.DatabaseID, evidenceID,
+		reason=EXCLUDED.reason, updated_at=now()`, record.Request.DatabaseID, evidenceID,
 		migrationHash(record.Request.SQL),
-		databaseMigrationVerdict(record.Verdict), contractAt, measurement)
+		databaseMigrationVerdict(record.Verdict), contractAt, measurement, record.Reason)
 	if err != nil {
 		return fmt.Errorf("persist migration continuation: %w", err)
 	}

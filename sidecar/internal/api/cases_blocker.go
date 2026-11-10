@@ -47,6 +47,7 @@ func incidentBlockerFromAny(v any) *cases.IncidentBlocker {
 		State:          stringValue(m["state"]),
 		TotalBlocked:   int(floatValue(m["total_blocked"])),
 		LockedRelation: stringValue(m["locked_relation"]),
+		QueuedDDLPID:   int(floatValue(m["queued_ddl_pid"])),
 	}
 }
 

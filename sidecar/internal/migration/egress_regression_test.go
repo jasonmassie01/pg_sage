@@ -99,7 +99,7 @@ func TestLLMFallback_NeverSendsCredentialDDL(t *testing.T) {
 	for _, sql := range secretDDL {
 		t.Run(sql, func(t *testing.T) {
 			rec := newRecordingLLM(t, highRiskLLMReply)
-			inc, err := newEgressAdvisor(rec).Analyze(
+			inc, err := analyzeEnriched(newEgressAdvisor(rec),
 				context.Background(), sql)
 			if err != nil {
 				t.Fatalf("Analyze error: %v", err)
@@ -128,7 +128,7 @@ func TestLLMFallback_RedactsLiteralsInTableDDL(t *testing.T) {
 	for _, sql := range cases {
 		t.Run(sql, func(t *testing.T) {
 			rec := newRecordingLLM(t, highRiskLLMReply)
-			inc, err := newEgressAdvisor(rec).Analyze(
+			inc, err := analyzeEnriched(newEgressAdvisor(rec),
 				context.Background(), sql)
 			if err != nil {
 				t.Fatalf("Analyze error: %v", err)
@@ -171,7 +171,7 @@ func TestLLMFallback_SkipsMultiStatementBatches(t *testing.T) {
 	sql := "ALTER TABLE t SET (fillfactor = 70); " +
 		"ALTER ROLE app PASSWORD 'S3cretPw!'"
 	rec := newRecordingLLM(t, highRiskLLMReply)
-	_, err := newEgressAdvisor(rec).Analyze(context.Background(), sql)
+	_, err := analyzeEnriched(newEgressAdvisor(rec), context.Background(), sql)
 	if err != nil {
 		t.Fatalf("Analyze error: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestLLMFallback_SkipsProvablySafeDDL(t *testing.T) {
 	for _, sql := range safe {
 		t.Run(sql, func(t *testing.T) {
 			rec := newRecordingLLM(t, highRiskLLMReply)
-			inc, err := newEgressAdvisor(rec).Analyze(
+			inc, err := analyzeEnriched(newEgressAdvisor(rec),
 				context.Background(), sql)
 			if err != nil {
 				t.Fatalf("Analyze error: %v", err)
@@ -218,7 +218,7 @@ func TestLLMFallback_ClampsRiskAndRendersVersion(t *testing.T) {
 	reply := strings.Replace(highRiskLLMReply,
 		`"risk_score":0.9`, `"risk_score":7.5`, 1)
 	rec := newRecordingLLM(t, reply)
-	inc, err := newEgressAdvisor(rec).Analyze(context.Background(),
+	inc, err := analyzeEnriched(newEgressAdvisor(rec), context.Background(),
 		"ALTER TABLE t ALTER COLUMN c SET STATISTICS 500")
 	if err != nil {
 		t.Fatalf("Analyze error: %v", err)
@@ -253,7 +253,7 @@ func TestFindingFromIncident_RedactsLiterals(t *testing.T) {
 		CausalChain:     []rca.ChainLink{{Order: 1, Evidence: sql}},
 		DatabaseName:    "db",
 	}
-	finding, ok := FindingFromIncident(42, sql, inc)
+	finding, ok := FindingFromIncident(42, sql, inc, nil)
 	if !ok {
 		t.Fatal("FindingFromIncident returned ok=false")
 	}

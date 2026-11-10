@@ -2,7 +2,6 @@ package cases
 
 import (
 	"fmt"
-	"math"
 	"regexp"
 	"strings"
 
@@ -33,90 +32,6 @@ func enrichDDLSafetyCandidate(
 		candidate.BlockedReason = "live DDL preflight has warnings; review required"
 	}
 	return candidate
-}
-
-func ddlPreflightFromFinding(f SourceFinding) *DDLPreflightReport {
-	d := f.Detail
-	ruleID := detailString(d, "rule_id", f.RuleID)
-	lockLevel := lockLevelForRule(ruleID, f.RecommendedSQL)
-	requiresRewrite := detailBool(d, "requires_rewrite",
-		strings.Contains(ruleID, "rewrite"))
-	riskScore := detailFloat(d, "risk_score", 0)
-	table := detailString(d, "affected_table",
-		detailString(d, "table_name", f.ObjectIdentifier))
-	report := &DDLPreflightReport{
-		Summary:         ddlPreflightSummary(lockLevel, requiresRewrite),
-		RiskScore:       riskScore,
-		LockLevel:       lockLevel,
-		RequiresRewrite: requiresRewrite,
-		TableName:       table,
-		TableSizeBytes:  detailInt64(d, "table_size_bytes", 0),
-		EstimatedRows:   detailInt64(d, "estimated_rows", 0),
-		ActiveQueries:   int(detailInt64(d, "active_queries", 0)),
-		PendingLocks:    int(detailInt64(d, "pending_locks", 0)),
-		ReplicationLag:  detailFloat(d, "replication_lag", 0),
-		EstimatedLockMs: detailInt64(d, "lock_timeout_ms",
-			detailInt64(d, "estimated_lock_ms", 0)),
-	}
-	report.Checks = ddlPreflightChecks(report)
-	applyPreflightEvidencePresence(report, f, ruleID)
-	return report
-}
-
-func applyPreflightEvidencePresence(report *DDLPreflightReport, f SourceFinding, ruleID string) {
-	_, rewriteReported := f.Detail["requires_rewrite"].(bool)
-	concurrentPath := concurrentIndexDDL.MatchString(f.RecommendedSQL) ||
-		(strings.HasPrefix(strings.ToUpper(strings.TrimSpace(f.RecommendedSQL)), "REINDEX ") && strings.Contains(strings.ToUpper(f.RecommendedSQL), " CONCURRENTLY "))
-	rewriteKnown := rewriteReported || strings.Contains(ruleID, "rewrite") || concurrentPath
-	if !rewriteKnown {
-		report.Summary = "Lock and rewrite risks require assessment"
-		if report.LockLevel != "" {
-			report.Summary = report.LockLevel + " lock estimate; rewrite not assessed"
-		}
-	}
-	measurementKeys := map[string][]string{
-		"activity": {"active_queries"}, "pending_locks": {"pending_locks"},
-		"replica_lag": {"replication_lag"}, "table_size": {"table_size_bytes"},
-		"lock_timeout": {"lock_timeout_ms", "estimated_lock_ms"},
-	}
-	for i := range report.Checks {
-		check := &report.Checks[i]
-		switch check.Name {
-		case "lock_level":
-			if report.LockLevel == "" {
-				check.Status, check.Detail = "unknown", "Lock level has not been established."
-			} else {
-				check.Detail += " (estimated from proposed DDL; live lock conditions require separate measurement)"
-			}
-		case "rewrite":
-			switch {
-			case !rewriteKnown:
-				check.Status, check.Detail = "unknown", "Table rewrite risk has not been assessed."
-			case !report.RequiresRewrite && rewriteReported:
-				check.Detail = "Reported as not requiring a table rewrite."
-			case !report.RequiresRewrite && concurrentPath:
-				check.Detail = "Concurrent index operation; a table rewrite is not expected."
-			}
-		default:
-			keys, ok := measurementKeys[check.Name]
-			if !ok {
-				continue
-			}
-			measured := false
-			for _, key := range keys {
-				value := detailFloat(f.Detail, key, math.NaN())
-				if !math.IsNaN(value) && !math.IsInf(value, 0) && value >= 0 {
-					measured = true
-					break
-				}
-			}
-			if !measured {
-				check.Status, check.Detail = "unknown", "Not measured in the source evidence."
-			} else if check.Name == "table_size" && report.TableSizeBytes == 0 {
-				check.Status, check.Detail = "pass", "0 bytes"
-			}
-		}
-	}
 }
 
 func hasLiveDDLWarnings(report *DDLPreflightReport) bool {
@@ -374,25 +289,6 @@ func riskLabelsForFinding(
 		labels = append(labels, rule)
 	}
 	return labels
-}
-
-func lockLevelForRule(ruleID string, sql string) string {
-	upperSQL := strings.ToUpper(strings.TrimSpace(sql))
-	switch {
-	case concurrentIndexDDL.MatchString(sql):
-		return "SHARE UPDATE EXCLUSIVE"
-	case strings.HasPrefix(upperSQL, "REINDEX ") &&
-		strings.Contains(upperSQL, " CONCURRENTLY "):
-		return "SHARE UPDATE EXCLUSIVE"
-	case strings.Contains(ruleID, "index_not_concurrent"):
-		return "SHARE"
-	case strings.Contains(ruleID, "constraint_not_valid"):
-		return "SHARE ROW EXCLUSIVE"
-	case strings.HasPrefix(upperSQL, "ALTER TABLE "):
-		return "ACCESS EXCLUSIVE"
-	default:
-		return ""
-	}
 }
 
 func detailString(detail map[string]any, key, fallback string) string {

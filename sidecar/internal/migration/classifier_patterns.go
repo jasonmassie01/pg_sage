@@ -48,6 +48,10 @@ var (
 			`)\s+(?:SET\s+DATA\s+)?TYPE\s+([^,;]+?)` +
 			`(?:\s+(?:USING|COLLATE)\b.*)?(?:,|;|$)`)
 
+	// reUsingOrCollate finds the USING or COLLATE clause of an ALTER TYPE
+	// match, either of which keeps the change a rewrite.
+	reUsingOrCollate = regexp.MustCompile(`(?i)\b(?:USING|COLLATE)\b`)
+
 	// ADD [COLUMN] x type ... DEFAULT expr
 	reAddColumnDefault = regexp.MustCompile(
 		`(?i)\bADD\s+(?:COLUMN\s+)?(?:IF\s+NOT\s+EXISTS\s+)?(` + identRE +
@@ -59,12 +63,6 @@ var (
 		`(?i)\bADD\s+(?:COLUMN\s+)?(?:IF\s+NOT\s+EXISTS\s+)?(` + identRE +
 			`)\s+(?:(?:small|big)?serial[248]?\b|\S+.*\bGENERATED\s+` +
 			`(?:ALWAYS|BY\s+DEFAULT)\s+AS\s+(?:IDENTITY\b|\(.*\)\s*STORED\b))`)
-
-	// ADD [COLUMN] x type NOT NULL without DEFAULT
-	reAddColumnNotNull = regexp.MustCompile(
-		`(?i)\bADD\s+(?:COLUMN\s+)?(?:IF\s+NOT\s+EXISTS\s+)?(` + identRE +
-			`)\s+\S+\s+NOT\s+NULL\b`)
-	reHasDefault = regexp.MustCompile(`(?i)\bDEFAULT\b`)
 
 	// DROP [COLUMN] [IF EXISTS] x
 	reDropColumn = regexp.MustCompile(
@@ -116,10 +114,6 @@ var (
 	// ALTER TABLE schema.table
 	reAlterTable = regexp.MustCompile(
 		`(?i)^\s*ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?` + qualifiedRE)
-
-	// SET lock_timeout
-	reLockTimeout = regexp.MustCompile(
-		`(?i)\bSET\s+(?:LOCAL\s+)?lock_timeout\b`)
 )
 
 // reservedAfterKeyword lists words that follow ADD/DROP/ALTER inside

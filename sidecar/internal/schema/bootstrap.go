@@ -465,7 +465,8 @@ func migrationStatements() []string {
 		ddlDecisionPolicyProvenance, // policy-03: the policy hash, not a cross-database FK
 		ddlSREAttempts, // sre-01: numbered re-runs of a trigger
 		ddlFactsMissingSince, // facts-08: persisted absence of a fact's subject
-		ddlFactEvents) // facts-07: the fact history and facts.expired_by
+		ddlFactEvents, // facts-07: the fact history and facts.expired_by
+		ddlMigrationRunBlocked) // migration-03: 'blocked' verdict and reason
 }
 
 // ---------------------------------------------------------------------------

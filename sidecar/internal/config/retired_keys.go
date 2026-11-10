@@ -37,6 +37,13 @@ var retiredKeys = []struct {
 			"analyzer.wraparound_freeze_share of each table's effective freeze maximum " +
 			"(default 0.75) and the freeze custodian decides the VACUUM; remove it",
 	}},
+	// migration-12: nothing ever read it; pg_sage now asks the server
+	// whether pg_repack is available.
+	{[]string{"migration"}, map[string]string{
+		"managed_service": "migration.managed_service is no longer used and is " +
+			"ignored: pg_sage now checks whether the server offers pg_repack " +
+			"before recommending it; remove it from the config file",
+	}},
 	// forecast-05: the forecaster's sequence thresholds went with its
 	// sequence rule; the runway forecasts sequences
 	// (sre.runways.sequence_horizon_days and sequence_critical_days).

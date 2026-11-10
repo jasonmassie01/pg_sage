@@ -71,7 +71,9 @@ func agentTools() []Tool {
 			"classifier and live table statistics: lock level, table rewrite, estimated " +
 			"lock time, risk score and the safe alternative per statement",
 			InputSchema: schema(`"sql":{"type":"string","minLength":1,"maxLength":100000},`+
-				`"pg_version":{"type":"integer","minimum":0}`, `["sql"]`)},
+				`"pg_version":{"type":"integer","minimum":0,"description":"a major `+
+				`(14-18) or a server_version_num (140000-189999); 0 or absent reads `+
+				`the server's"}`, `["sql"]`)},
 		{Name: "query_sources", Description: "Attribute statements to application code: " +
 			"sqlcommenter tags in pg_stat_statements text and application_name and tags " +
 			"sampled from pg_stat_activity (no extension needed)",

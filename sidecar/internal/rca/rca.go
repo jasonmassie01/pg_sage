@@ -40,6 +40,9 @@ type Incident struct {
 	// PreviousIncidentID links a recurrence to the resolved incident with
 	// the same identity that preceded it.
 	PreviousIncidentID string `json:"previous_incident_id,omitempty"`
+	// RecommendedSQLSource says who wrote RecommendedSQL: "deterministic"
+	// for pg_sage's own templates. A migration finding copies only those.
+	RecommendedSQLSource string `json:"recommended_sql_source,omitempty"`
 	// liveEvidence marks detections whose root cause and chain describe
 	// the current state (lock chains): merging one into an open incident
 	// refreshes that incident's evidence instead of keeping the first.

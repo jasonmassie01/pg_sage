@@ -31,6 +31,11 @@ type LockChain struct {
 	ChainDepth              int       `json:"chain_depth"`
 	BlockedPIDs             []int     `json:"blocked_pids"`
 	TotalBlocked            int       `json:"total_blocked"`
+	// DirectWaiters counts, per pid in the tree, the sessions waiting
+	// directly on it (depth-1 edges): the queue behind a waiting DDL.
+	DirectWaiters map[int]int `json:"direct_waiters,omitempty"`
+	// OldestWaitSince is the earliest query_start of a blocked session.
+	OldestWaitSince time.Time `json:"oldest_wait_since,omitempty"`
 }
 
 // isSafeProcess returns true if the given PID or application name matches
@@ -111,7 +116,10 @@ SELECT
     sa.query_id                        AS root_blocker_query_id,
     max(lc.depth)                      AS chain_depth,
     array_agg(DISTINCT lc.blocked_pid) AS blocked_pids,
-    count(DISTINCT lc.blocked_pid)     AS total_blocked
+    count(DISTINCT lc.blocked_pid)     AS total_blocked,
+    -- chain[1] waits directly on chain[2]: every member's depth-1 edge.
+    array_agg(DISTINCT ARRAY[lc.chain[1], lc.chain[2]]) AS direct_edges,
+    min(lc.blocked_since)              AS oldest_wait_since
 FROM root_blockers rb
 JOIN lock_chain lc ON lc.blocker_pid = rb.root_pid
     OR (rb.root_pid = ANY(lc.chain) AND lc.blocked_pid != rb.root_pid)
@@ -171,25 +179,37 @@ func DetectLockChains(
 	return chains, nil
 }
 
+// lockChainRow is one lockChainQuery row before it becomes a LockChain.
+type lockChainRow struct {
+	c             LockChain
+	blockedPIDs32 []int32
+	edges         [][]int32
+	rootQuery     *string
+	rootState     *string
+	rootSince     *time.Time
+	rootApp       *string
+	waitType      *string
+	backendStart  *time.Time
+	queryID       *int64
+	oldestWait    *time.Time
+}
+
 func scanLockChain(rows interface{ Scan(...any) error }) (LockChain, error) {
-	var (
-		c             LockChain
-		blockedPIDs32 []int32
-		rootQuery     *string
-		rootState     *string
-		rootSince     *time.Time
-		rootApp       *string
-		waitType      *string
-		backendStart  *time.Time
-		queryID       *int64
-	)
+	var r lockChainRow
 	if err := rows.Scan(
-		&c.RootBlockerPID, &rootQuery, &rootState, &rootSince, &rootApp,
-		&waitType, &backendStart, &queryID,
-		&c.ChainDepth, &blockedPIDs32, &c.TotalBlocked,
+		&r.c.RootBlockerPID, &r.rootQuery, &r.rootState, &r.rootSince, &r.rootApp,
+		&r.waitType, &r.backendStart, &r.queryID,
+		&r.c.ChainDepth, &r.blockedPIDs32, &r.c.TotalBlocked,
+		&r.edges, &r.oldestWait,
 	); err != nil {
-		return c, fmt.Errorf("scan lock chain row: %w", err)
+		return r.c, fmt.Errorf("scan lock chain row: %w", err)
 	}
+	return r.chain(), nil
+}
+
+func (r lockChainRow) chain() LockChain {
+	c, rootQuery, rootState, rootSince := r.c, r.rootQuery, r.rootState, r.rootSince
+	rootApp, backendStart, queryID := r.rootApp, r.backendStart, r.queryID
 	if rootQuery != nil {
 		c.RootBlockerQuery = *rootQuery
 	}
@@ -208,11 +228,34 @@ func scanLockChain(rows interface{ Scan(...any) error }) (LockChain, error) {
 	if queryID != nil {
 		c.RootBlockerQueryID = *queryID
 	}
-	c.BlockedPIDs = make([]int, len(blockedPIDs32))
-	for i, pid := range blockedPIDs32 {
+	c.BlockedPIDs = make([]int, len(r.blockedPIDs32))
+	for i, pid := range r.blockedPIDs32 {
 		c.BlockedPIDs[i] = int(pid)
 	}
-	return c, nil
+	c.DirectWaiters = directWaiters(r.edges)
+	if r.oldestWait != nil {
+		c.OldestWaitSince = *r.oldestWait
+	}
+	return c
+}
+
+// directWaiters counts the distinct sessions waiting directly on each pid
+// from [blocked, blocker] edges; an edge of another arity is ignored.
+func directWaiters(edges [][]int32) map[int]int {
+	out := make(map[int]int)
+	seen := make(map[[2]int32]bool, len(edges))
+	for _, e := range edges {
+		if len(e) != 2 {
+			continue
+		}
+		key := [2]int32{e[0], e[1]}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out[int(e[1])]++
+	}
+	return out
 }
 
 // enrichLockedRelation fills LockedRelation(s) and BlockerMode from pg_locks.

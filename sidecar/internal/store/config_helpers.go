@@ -124,13 +124,13 @@ var allowedConfigKeys = map[string]string{
 	"schema_lint.min_table_rows":        "int_pos",
 
 	// v0.10: Migration / DDL safety.
-	"migration.enabled":               "bool",
-	"migration.mode":                  "string",
-	"migration.managed_service":       "string",
-	"migration.log_detection":         "bool",
-	"migration.activity_polling":      "bool",
-	"migration.poll_interval_seconds": "int_pos",
-	"migration.ddl_row_threshold":     "int_pos",
+	"migration.enabled":                 "bool",
+	"migration.mode":                    "string",
+	"migration.log_detection":           "bool",
+	"migration.activity_polling":        "bool",
+	"migration.poll_interval_seconds":   "int_pos",
+	"migration.ddl_row_threshold":       "int_pos",
+	"migration.queue_waiters_threshold": "int_pos",
 
 	// v1.4: Agent-native autonomy.
 	"policy.profile":                              "policy_profile",
@@ -215,7 +215,7 @@ func validateByType(vtype, key, value string) error {
 		})
 	case "clone_provider":
 		return validateEnum(key, value, map[string]bool{
-			"none": true, "dle": true, "snapshot": true,
+			"none": true, "dle": true,
 		})
 	case "mcp_transport":
 		return validateEnum(key, value, map[string]bool{
@@ -703,8 +703,6 @@ func addMigrationFields(
 ) {
 	addField(m, "migration.enabled", mg.Enabled, "yaml")
 	addField(m, "migration.mode", mg.Mode, "yaml")
-	addField(m, "migration.managed_service",
-		mg.ManagedService, "yaml")
 	addField(m, "migration.log_detection",
 		mg.LogDetection, "yaml")
 	addField(m, "migration.activity_polling",
@@ -713,6 +711,8 @@ func addMigrationFields(
 		mg.PollIntervalSeconds, "yaml")
 	addField(m, "migration.ddl_row_threshold",
 		mg.DDLRowThreshold, "yaml")
+	addField(m, "migration.queue_waiters_threshold",
+		mg.QueueWaitersThreshold, "yaml")
 }
 
 func addAgentNativeFields(m map[string]any, cfg *config.Config) {

@@ -691,7 +691,7 @@
   "clone.provider": {
     "type": "string",
     "default": "none",
-    "doc": "Clone provider: none, dle, or snapshot.",
+    "doc": "Clone provider: none or dle (Database Lab).",
     "class": "safety_critical"
   },
   "cloud_telemetry.aws.db_cluster_identifier": {
@@ -1617,12 +1617,6 @@
     "doc": "Parse DDL from PG logs (requires log_statement=ddl).",
     "class": "operator_preference"
   },
-  "migration.managed_service": {
-    "type": "string",
-    "default": "",
-    "doc": "Cloud provider: none, rds, aurora, cloudsql, alloydb, neon, supabase. Filters unavailable recommendations.",
-    "class": "operator_preference"
-  },
   "migration.mode": {
     "type": "string",
     "default": "",
@@ -1634,6 +1628,12 @@
     "default": 0,
     "doc": "How often to poll during active DDL. Default: 5.",
     "class": "derivable"
+  },
+  "migration.queue_waiters_threshold": {
+    "type": "int",
+    "default": 0,
+    "doc": "Sessions queued directly behind an in-flight DDL waiting for its lock before the finding turns critical with approval-only cancel guidance. Needs the RCA fast path. Default: 3.",
+    "class": "operator_preference"
   },
   "mode": {
     "type": "string",
@@ -2356,7 +2356,7 @@
   "sre.autonomy.game_days.enabled": {
     "type": "bool",
     "default": false,
-    "doc": "Run game days. Needs clone.provider (dle or snapshot) or local_dsn. Default: false.",
+    "doc": "Run game days. Needs clone.provider dle or local_dsn. Default: false.",
     "class": "safety_critical"
   },
   "sre.autonomy.game_days.families": {

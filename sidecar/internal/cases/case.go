@@ -102,7 +102,10 @@ type DDLPreflightReport struct {
 	PendingLocks    int              `json:"pending_locks,omitempty"`
 	ReplicationLag  float64          `json:"replication_lag_seconds,omitempty"`
 	EstimatedLockMs int64            `json:"estimated_lock_ms,omitempty"`
-	Checks          []PreflightCheck `json:"checks,omitempty"`
+	// MeasuredAt is when the source finding's live values were measured
+	// (RFC 3339, at detection); empty when nothing was measured.
+	MeasuredAt string           `json:"measured_at,omitempty"`
+	Checks     []PreflightCheck `json:"checks,omitempty"`
 }
 
 type PreflightCheck struct {

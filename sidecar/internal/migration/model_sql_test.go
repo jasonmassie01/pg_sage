@@ -121,26 +121,27 @@ func chainLink(inc *rca.Incident, signal string) *rca.ChainLink {
 	return nil
 }
 
+// migration-10: buildIncident is deterministic and asks no model; the
+// script arrives later as labelled model text in the llm_ detail keys.
 func TestBuildIncidentLabelsUnvalidatedModelText(t *testing.T) {
 	rec := newRecordingLLM(t, grantScript)
 	a := newEgressAdvisor(rec)
-	inc := a.buildIncident(context.Background(), ordersRisk())
-	if inc.RecommendedSQL != ordersRisk().SafeAlternative {
-		t.Errorf("RecommendedSQL = %q, want the deterministic alternative",
-			inc.RecommendedSQL)
+	inc := a.buildIncident(ordersRisk())
+	if inc.RecommendedSQL != ordersRisk().SafeAlternative ||
+		inc.RecommendedSQLSource != SQLSourceDeterministic {
+		t.Errorf("RecommendedSQL = %q from %q, want the deterministic alternative",
+			inc.RecommendedSQL, inc.RecommendedSQLSource)
 	}
-	link := chainLink(inc, "model_text_unvalidated")
-	if link == nil {
-		t.Fatalf("no model_text_unvalidated link in %+v", inc.CausalChain)
+	if len(rec.calls()) != 0 || chainLink(inc, "model_text_unvalidated") != nil {
+		t.Fatalf("buildIncident asked the model (%d calls) or shows model text",
+			len(rec.calls()))
 	}
-	if !strings.HasPrefix(link.Description, "Model text, not validated by pg_sage") {
-		t.Errorf("link description = %q", link.Description)
-	}
-	if link.Evidence != "GRANT ALL ON orders TO PUBLIC;" {
-		t.Errorf("link evidence = %q, want the model text", link.Evidence)
-	}
-	if link.Order != len(inc.CausalChain) {
-		t.Errorf("link order = %d, want %d (last)", link.Order, len(inc.CausalChain))
+	fields := modelFields(a.scriptGen.GenerateScript(context.Background(), ordersRisk()),
+		detailLLMScript)
+	reason, _ := fields[detailLLMInvalid].(string)
+	if fields[detailLLMUnvalidated] != "GRANT ALL ON orders TO PUBLIC;" || reason == "" ||
+		fields[detailLLMScript] != nil {
+		t.Fatalf("fields = %v, want the model text labelled with a reason", fields)
 	}
 }
 
@@ -151,7 +152,7 @@ const grantFallbackReply = `{"lock_level":"ACCESS EXCLUSIVE",` +
 
 func TestLLMFallbackWithholdsUnvalidatedAlternative(t *testing.T) {
 	rec := newRecordingLLM(t, grantFallbackReply)
-	inc, err := newEgressAdvisor(rec).Analyze(context.Background(),
+	inc, err := analyzeEnriched(newEgressAdvisor(rec), context.Background(),
 		"ALTER TABLE t ALTER COLUMN c SET DEFAULT 'x'")
 	if err != nil || inc == nil {
 		t.Fatalf("Analyze = %v, %v; want an incident", inc, err)
@@ -175,7 +176,7 @@ func TestLLMFallbackWithholdsUnvalidatedAlternative(t *testing.T) {
 
 func TestLLMFallbackEmptyAlternativeAddsNoLink(t *testing.T) {
 	rec := newRecordingLLM(t, highRiskLLMReply)
-	inc, err := newEgressAdvisor(rec).Analyze(context.Background(),
+	inc, err := analyzeEnriched(newEgressAdvisor(rec), context.Background(),
 		"ALTER TABLE t ALTER COLUMN c SET DEFAULT 'x'")
 	if err != nil || inc == nil {
 		t.Fatalf("Analyze = %v, %v", inc, err)

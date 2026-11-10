@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/pg-sage/sidecar/internal/ledger"
 	"github.com/pg-sage/sidecar/internal/migration/plan"
 	migrationruntime "github.com/pg-sage/sidecar/internal/migration/runtime"
 	"github.com/pg-sage/sidecar/internal/policy"
@@ -133,40 +134,18 @@ func (executor *ProductionIntentExecutor) registerConsumer(
 	})
 }
 
+// planMigration returns the safe plan for an apply_migration the gate
+// authorized and records it as recommend_only; it never runs the DDL.
 func (executor *ProductionIntentExecutor) planMigration(
 	ctx context.Context, request policy.ActionRequest, decision policy.Decision,
 ) (MigrationOutcome, error) {
-	var input struct {
-		SQL   string `json:"sql"`
-		DDL   string `json:"ddl"`
-		Table string `json:"table"`
-		Cycle int    `json:"cycle"`
-	}
-	if err := json.Unmarshal(request.Arguments, &input); err != nil {
-		return MigrationOutcome{}, fmt.Errorf("decode migration: %w", err)
-	}
-	if input.SQL == "" {
-		input.SQL = input.DDL
-	}
-	schemaName, tableName, err := qualifiedName(input.Table)
+	input, planned, err := executor.buildMigrationPlan(ctx, request)
 	if err != nil {
 		return MigrationOutcome{}, err
 	}
-	planned, err := executor.planner.Plan(ctx, plan.Request{
-		SQL: input.SQL, Cycle: input.Cycle,
-		Table: plan.TableFacts{Schema: schemaName, Name: tableName},
-	})
-	if err != nil {
-		return MigrationOutcome{}, fmt.Errorf("build safe migration plan: %w", err)
-	}
-	const verdict = "recommend_only"
-	if err := executor.store.RecordMigration(ctx, MigrationRecord{
-		DatabaseID: request.DatabaseID, EvidenceID: decision.EvidenceID,
-		SourceSQL: input.SQL, Verdict: verdict,
-	}); err != nil {
-		return MigrationOutcome{}, err
-	}
-	return MigrationOutcome{Verdict: verdict, Plan: planned}, nil
+	return executor.recordMigrationPlan(ctx, request, input, MigrationOutcome{
+		Verdict: "recommend_only", EvidenceID: decision.EvidenceID, Plan: planned,
+	}, "")
 }
 
 func (executor *ProductionIntentExecutor) findCandidates(
@@ -224,31 +203,42 @@ func (executor *ProductionIntentExecutor) authorizeMigration(
 	}
 	actions, blocked := executor.preflightMigration(ctx, request, input, planned)
 	if blocked != nil {
-		if err := executor.store.RecordMigration(ctx, MigrationRecord{
-			DatabaseID: request.DatabaseID, EvidenceID: blocked.EvidenceID,
-			SourceSQL: input.sql, Verdict: "blocked",
-		}); err != nil {
-			return MigrationOutcome{}, err
-		}
-		return MigrationOutcome{Verdict: "blocked", EvidenceID: blocked.EvidenceID,
-			Plan: planned, Actions: actions}, nil
+		return executor.recordMigrationPlan(ctx, request, input, MigrationOutcome{
+			Verdict: "blocked", EvidenceID: blocked.EvidenceID,
+			Plan: planned, Actions: actions,
+		}, string(blocked.Reason))
 	}
 	if executor.migrationRuntime != nil {
 		return executor.runMigration(ctx, request, input, planned)
 	}
-	evidenceID := "migration-recommendation"
-	if len(actions) > 0 && actions[0].EvidenceID != "" {
+	evidenceID := ""
+	if len(actions) > 0 {
 		evidenceID = actions[0].EvidenceID
 	}
+	return executor.recordMigrationPlan(ctx, request, input, MigrationOutcome{
+		Verdict: "recommend_only", EvidenceID: evidenceID,
+		Plan: planned, Actions: actions,
+	}, "")
+}
+
+// recordMigrationPlan writes a migration plan that never reaches the
+// rehearsal runtime to sage.migration_run. A plan without gate evidence
+// gets a fresh evidence id: a shared literal made every such run update
+// one row (evidence_id is unique) and hid the runs after the first.
+func (executor *ProductionIntentExecutor) recordMigrationPlan(
+	ctx context.Context, request policy.ActionRequest, input migrationInput,
+	outcome MigrationOutcome, reason string,
+) (MigrationOutcome, error) {
+	if outcome.EvidenceID == "" {
+		outcome.EvidenceID = ledger.NewEvidenceID()
+	}
 	if err := executor.store.RecordMigration(ctx, MigrationRecord{
-		DatabaseID: request.DatabaseID, EvidenceID: evidenceID,
-		SourceSQL: input.sql, Verdict: "recommend_only",
+		DatabaseID: request.DatabaseID, EvidenceID: outcome.EvidenceID,
+		SourceSQL: input.sql, Verdict: outcome.Verdict, Reason: reason,
 	}); err != nil {
 		return MigrationOutcome{}, err
 	}
-	return MigrationOutcome{
-		Verdict: "recommend_only", Plan: planned, Actions: actions,
-	}, nil
+	return outcome, nil
 }
 
 // preflightMigration asks the gate about every expand step before any

@@ -16,7 +16,7 @@ type LogDetector struct {
 	advisor     *Advisor
 	logFn       func(string, string, ...any)
 	findingSink FindingSink
-	stale       *staleResolver
+	stale       *StaleResolver
 }
 
 // NewLogDetector creates a LogDetector backed by the given Advisor.
@@ -31,11 +31,18 @@ func NewLogDetector(
 // deduplicating store used by activity polling.
 func (ld *LogDetector) WithFindingSink(sink FindingSink) *LogDetector {
 	ld.findingSink = sink
-	if sink != nil && ld.advisor != nil {
-		ld.stale = newStaleResolver(ld.advisor.pool, ld.logFn)
-	}
 	return ld
 }
+
+// WithStaleResolver gives the log detector the database's shared
+// resolver of stale findings.
+func (ld *LogDetector) WithStaleResolver(r *StaleResolver) *LogDetector {
+	ld.stale = r
+	return ld
+}
+
+// StaleResolver is the resolver the log detector runs (nil when none).
+func (ld *LogDetector) StaleResolver() *StaleResolver { return ld.stale }
 
 // ProcessLogEntry checks if a log entry contains DDL and, if so,
 // runs it through the advisor for risk assessment. Returns nil if
@@ -57,12 +64,15 @@ func (ld *LogDetector) processLogEntry(
 		return nil
 	}
 
-	inc, err := ld.advisor.Analyze(ctx, sql)
+	inc, risk, err := ld.advisor.AnalyzeRisk(ctx, sql)
 	if err != nil {
 		ld.log("warn", "migration: log entry analysis failed: %v", err)
 		return nil
 	}
-	ld.persistFinding(ctx, entry.PID, sql, inc)
+	ld.persistFinding(ctx, entry.PID, sql, inc, risk)
+	// The model work is queued after the deterministic finding is stored
+	// and never runs on the log path (migration-10).
+	ld.advisor.queueEnrichment(entry.PID, sql, inc, risk, ld.findingSink)
 	return inc
 }
 
@@ -72,12 +82,12 @@ func (ld *LogDetector) enabled() bool {
 }
 
 func (ld *LogDetector) persistFinding(
-	ctx context.Context, pid int, sql string, inc *rca.Incident,
+	ctx context.Context, pid int, sql string, inc *rca.Incident, risk *DDLRisk,
 ) {
 	if ld.findingSink == nil {
 		return
 	}
-	finding, ok := FindingFromIncident(pid, sql, inc)
+	finding, ok := FindingFromIncident(pid, sql, inc, risk)
 	if !ok {
 		return
 	}

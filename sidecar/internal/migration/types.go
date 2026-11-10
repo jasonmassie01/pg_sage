@@ -1,5 +1,7 @@
 package migration
 
+import "time"
+
 // DDLClassification is the result of classifying a DDL statement against
 // the rule catalog. Each matched rule produces one classification.
 type DDLClassification struct {
@@ -10,14 +12,19 @@ type DDLClassification struct {
 	SafeAlternative string // suggested safe DDL
 	TableName       string // extracted from statement
 	SchemaName      string // extracted from statement
-	MinPGVersion    int    // 0 = all versions
 	Description     string // human-readable explanation
 	ColumnName      string // ALTER COLUMN target, when extracted
 	TargetType      string // ALTER COLUMN ... TYPE target, when extracted
+	// SessionRole is the role running the DDL, whose search_path resolves
+	// an unqualified table ("" when unknown).
+	SessionRole string
 }
 
-// SQLParser abstracts DDL classification so a future pg_query_go
-// implementation can replace the regex-based classifier.
+// SQLParser abstracts DDL classification. NewClassifier is the
+// production implementation (the parse-tree classifier, or the regex rules
+// on a build without cgo); RegexClassifier matches the rule catalog's
+// regular expressions alone. Both work on sanitized, statement-split SQL.
+// pgVersion is the server's server_version_num or major (0 when unknown).
 type SQLParser interface {
 	Classify(sql string, pgVersion int) []DDLClassification
 }
@@ -44,4 +51,21 @@ type DDLRisk struct {
 	// StatsKnown is true when pg_class returned analyzed statistics
 	// (reltuples >= 0) for the target table.
 	StatsKnown bool
+	// NameAmbiguous is true when an unqualified table name matched several
+	// schemas: stats are unknown rather than read from the wrong table.
+	NameAmbiguous bool
+	// Measured records which live reads succeeded. A failed read leaves
+	// its value zero and its flag false, so the finding reports it as not
+	// measured rather than as a passing zero (migration-01).
+	Measured DDLMeasured
+	// MeasuredAt is when the live reads ran; zero without a pool.
+	MeasuredAt time.Time
+}
+
+// DDLMeasured flags the live reads of one assessment that succeeded.
+type DDLMeasured struct {
+	TableStats     bool // reltuples and size from pg_class
+	Activity       bool // active queries on the table
+	PendingLocks   bool // ungranted locks on the table
+	ReplicationLag bool // replay lag from pg_stat_replication
 }

@@ -24,6 +24,9 @@ type IncidentBlocker struct {
 	State          string    `json:"state"`
 	TotalBlocked   int       `json:"total_blocked,omitempty"`
 	LockedRelation string    `json:"locked_relation,omitempty"`
+	// QueuedDDLPID is the in-flight DDL the queue waits behind; such a
+	// blocker gets no signal (migration-05).
+	QueuedDDLPID int `json:"queued_ddl_pid,omitempty"`
 }
 
 const (
@@ -31,6 +34,8 @@ const (
 	noBackendIdentityReason   = "no structured backend identity"
 	idleCancelReason          = "blocker is idle in transaction: pg_cancel_backend " +
 		"does not end an idle session"
+	queuedDDLReason = "sessions queue behind in-flight DDL pid %d, not this blocker: " +
+		"cancel the DDL from its migration_safety finding (approval-only)"
 	stateActive        = "active"
 	stateIdleInTx      = "idle in transaction"
 	signalScriptHeader = "/* pg_sage guarded %s: signals only the session recorded by " +
@@ -49,6 +54,11 @@ func lockBlockerCandidates(i SourceIncident, expires time.Time) []ActionCandidat
 	if !ok {
 		return []ActionCandidate{blockedSignalCandidate(
 			"cancel_backend", noStructuredBlockerReason, expires, i.Confidence)}
+	}
+	if b.QueuedDDLPID > 0 {
+		reason := fmt.Sprintf(queuedDDLReason, b.QueuedDDLPID)
+		return []ActionCandidate{blockedSignalCandidate(
+			"cancel_backend", reason, expires, i.Confidence)}
 	}
 	switch b.State {
 	case stateActive:

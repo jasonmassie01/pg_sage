@@ -44,4 +44,7 @@ type Statement struct {
 	// NestedWrite is set when a data-modifying statement appears inside
 	// this one (a writing common table expression).
 	NestedWrite bool
+	// Concurrent is set for CREATE INDEX CONCURRENTLY, which PostgreSQL
+	// refuses inside a transaction block.
+	Concurrent bool
 }

@@ -218,12 +218,65 @@ execution. The case projector attaches deterministic DDL preflight evidence,
 including lock/rewrite classification plus live table-size, activity, pending
 lock, replica-lag, and lock-timeout checks. It also attaches generated
 migration SQL, rollback or forward-fix guidance, verification SQL, and PR/CI
-metadata. These artifacts are shown in Cases and Actions so teams can review
-schema work through their normal change-control process. A model-written
-script replaces the deterministic one only after pg_sage validates it;
-otherwise it is shown as labelled, unvalidated model text, and RCA Tier 2
-diagnostic SQL is kept only once proven read-only (see
-[Model-authored SQL](security.md#model-authored-sql)).
+metadata.
+
+The live values come from the migration advisor's risk assessment, written
+into the finding detail when the DDL is detected (`table_size_bytes`,
+`estimated_rows`, `stats_known`, `active_queries`, `longest_query_sec`,
+`pending_locks`, `replication_lag`, `estimated_lock_ms`, `lock_level`,
+`requires_rewrite`, `affected_table`, `measured_at`). They are
+detection-time values, not a fresh probe: the preflight notes "measured at
+detection" and the dashboard shows their age. A live read that failed is left
+out, so its check reads `unknown` rather than passing on a zero, and table
+size is `unknown` when the table was never analysed (`stats_known = false`).
+Findings written before these keys existed keep rendering `unknown`. Lock
+level and rewrite come from the finding first (the candidate's own
+`CONCURRENTLY` SQL takes its own lock), then from the one DDL rule catalog
+(`internal/migration/ddlrules`) that the classifier also uses. A measured
+warning (for example an active query on the table) blocks the candidate for
+review.
+
+An in-flight DDL is analysed once per backend and statement but re-evaluated
+on every activity poll, and each poll re-persists its finding, so a DDL still
+running after 24 hours keeps its finding open. The detector adds no blocking
+query of its own: it reads the lock-chain fast path's latest observation
+(the `pg_blocking_pids` walk, which keeps each session's direct waiters) and,
+while a tracked DDL waits on `Lock`, nudges the fast path (at most once per
+10 s). When `migration.queue_waiters_threshold` (default 3) sessions wait
+directly behind the DDL in an observation at most two fast-path intervals old,
+the finding turns critical with the DDL's backend identity and an
+approval-only, HIGH-risk guarded cancel of the DDL, followed by a retry under
+`SET lock_timeout = '5s'`; the lock-chain finding and the RCA lock-contention
+incident for that queue keep their evidence but no longer offer a signal to
+the root reader. An unqualified table name resolves through the DDL role's
+`search_path` (`pg_db_role_setting`, else the server default `"$user", public`),
+then `public`, then a unique relation name; several matches are reported as
+ambiguous with statistics unknown. These artifacts are shown in Cases and
+Actions so teams can review
+schema work through their normal change-control process.
+
+Migration enrichment is asynchronous. Detection never waits for a model:
+both detectors store the deterministic finding first, then queue the model
+work on one worker per database, with a queue of 16 that drops the oldest
+request when full (`pg_sage_migration_enrich_dropped_total{database}`). The
+worker asks for a migration script for a classified statement, or runs the
+LLM fallback for one no rule classified; the fallback's finding is stored only
+when it scores above the 0.3 threshold. One answer per statement identity
+(sha256 of the rule, the sanitized statement and the table's schema text) is
+cached for 24 h, up to 256 entries, so the activity and log detectors share
+one call and a schema change asks again. Schema context is read through the
+bounded catalog reader with `to_regclass(format('%I.%I', ...))`, so
+mixed-case names resolve.
+
+Model text is shown as model output and is never `recommended_sql`: only a
+rule's deterministic template (`RecommendedSQLSource = deterministic`) is,
+and only as one statement the executor runs alone. A model script that
+pg_sage validates is `detail.llm_script` (the fallback's alternative is
+`detail.llm_safe_alternative`); one it cannot validate, including one that
+runs `CONCURRENTLY` inside `BEGIN`/`COMMIT`, is `detail.llm_unvalidated_text`
+with the reason in `detail.llm_script_invalid`. A re-detection keeps these
+`llm_` keys. RCA Tier 2 diagnostic SQL is kept only once proven read-only
+(see [Model-authored SQL](security.md#model-authored-sql)).
 
 Incident playbooks follow the same typed-action model. Read-only diagnostics
 can inspect blocker graphs, runaway queries, connection pressure,

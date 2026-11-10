@@ -120,7 +120,18 @@ func actionCandidatesForFinding(f SourceFinding, classify SQLClassifier) []Actio
 	return []ActionCandidate{candidate}
 }
 
+// migrationSafetyCandidates is the DDL candidate plus, when the lock
+// queue behind the DDL escalated the finding, the approval-only cancel of
+// the DDL backend; that cancel's evidence is good for an hour.
 func migrationSafetyCandidates(f SourceFinding, classify SQLClassifier) []ActionCandidate {
+	out := migrationDDLCandidates(f, classify)
+	if c, ok := lockQueueCancelCandidate(f, evidenceTime(f).Add(time.Hour)); ok {
+		out = append(out, c)
+	}
+	return out
+}
+
+func migrationDDLCandidates(f SourceFinding, classify SQLClassifier) []ActionCandidate {
 	sql := strings.TrimSpace(f.RecommendedSQL)
 	actionType, riskTier := classifySQL(sql, classify)
 	if actionType == "" {

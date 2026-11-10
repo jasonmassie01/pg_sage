@@ -28,7 +28,20 @@ const (
 	// before/after workload evidence, so a regression cannot be ruled
 	// out and the plan is never promoted (G7-B22, R08).
 	ReasonInconclusiveWorkload Reason = "inconclusive_no_workload"
+	// ReasonNoReceiptStore: no durable receipt could be written for the
+	// clone, so none was created (migration-07).
+	ReasonNoReceiptStore Reason = "no_receipt_store"
+	// ReasonTargetIsProduction: the clone the provider returned is the
+	// production server; nothing ran on it (migration-07).
+	ReasonTargetIsProduction Reason = "target_is_production"
+	// ReasonTargetUnverified: the clone could not be shown not to be the
+	// production server; nothing ran on it.
+	ReasonTargetUnverified Reason = "target_unverified"
 )
+
+// DefaultMaxDuration bounds one rehearsal, clone creation included, when
+// Options.MaxDuration is not set. A clone receipt must outlive it.
+const DefaultMaxDuration = time.Hour
 
 // ErrCloneUnavailable wraps failures of the clone provider (snapshot
 // age, create). ErrStepFailed wraps failures of the rehearsed steps on
@@ -36,6 +49,12 @@ const (
 var (
 	ErrCloneUnavailable = errors.New("rehearsal clone unavailable")
 	ErrStepFailed       = errors.New("rehearsal step failed")
+	// ErrTargetIsProduction: a Runner refuses a target that is the
+	// production server (the same server, under any DSN).
+	ErrTargetIsProduction = errors.New("rehearsal target is the production server")
+	// ErrTargetUnverified: a Runner could not show the target is not the
+	// production server, so it ran nothing (fail closed).
+	ErrTargetUnverified = errors.New("rehearsal target not verified as non-production")
 )
 
 type QueryMeasurement struct {
@@ -62,6 +81,8 @@ type Result struct {
 type Options struct {
 	MaxCloneAge   time.Duration
 	RegressionPct float64
+	// MaxDuration bounds one rehearsal; zero means DefaultMaxDuration.
+	MaxDuration time.Duration
 }
 type Runner interface {
 	Run(context.Context, string, planpkg.Plan) (Measurement, error)
@@ -79,6 +100,8 @@ func NewOrchestrator(p clonepkg.Provider, r Runner, o Options) *Orchestrator {
 func (o *Orchestrator) Rehearse(
 	ctx context.Context, plan planpkg.Plan,
 ) (result Result, err error) {
+	ctx, cancel := context.WithTimeout(ctx, o.maxDuration())
+	defer cancel()
 	age, err := o.provider.SnapshotAge(ctx)
 	if err != nil {
 		return Result{Verdict: VerdictRecommendOnly},
@@ -101,6 +124,13 @@ func (o *Orchestrator) Rehearse(
 			fmt.Errorf("%w: rehearse migration: %w", ErrStepFailed, err)
 	}
 	return o.judge(measurement), nil
+}
+
+func (o *Orchestrator) maxDuration() time.Duration {
+	if o.options.MaxDuration > 0 {
+		return o.options.MaxDuration
+	}
+	return DefaultMaxDuration
 }
 
 // destroy tears the clone down on a fresh context (the caller's may be

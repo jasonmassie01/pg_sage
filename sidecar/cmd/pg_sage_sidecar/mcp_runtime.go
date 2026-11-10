@@ -232,7 +232,13 @@ func (executor *fleetIntentExecutor) ExecuteConcrete(
 				delegate: executor.gate, databaseID: request.DatabaseID,
 			})
 			runtime, runtimeErr := factory(targetPool, boundGate, executor.cloneConfig)
-			if runtimeErr == nil && runtime != nil {
+			if runtimeErr != nil {
+				// A broken clone provider must not silently turn rehearsed
+				// apply_migration off (migration-07).
+				logError("mcp", "apply_migration is recommend-only: the migration "+
+					"runtime is unavailable (clone.provider %q): %v",
+					executor.cloneConfig.Provider, runtimeErr)
+			} else if runtime != nil {
 				production.WithMigrationRuntime(runtime)
 			}
 		}

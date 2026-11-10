@@ -213,7 +213,7 @@ YAML value. Booleans accept `true`/`false`, `1`/`0`, `t`/`f`.
 | `SAGE_VERIFY_REGRESS_PCT` | `15` | Regression percentage that triggers a revert (`verify.regress_pct`) |
 | `SAGE_VERIFY_WRITE_IMPACT_PCT` | `20` | Maximum write-latency increase (`verify.write_impact_pct`) |
 | `SAGE_VERIFY_MIN_SAMPLES` | `30` | Minimum verification samples (`verify.min_samples`) |
-| `SAGE_CLONE_PROVIDER` | `none` | Clone provider (`clone.provider`): `none`, `dle` or `snapshot` |
+| `SAGE_CLONE_PROVIDER` | `none` | Clone provider (`clone.provider`): `none` or `dle` |
 | `SAGE_CLONE_DLE_ENDPOINT` | (none) | Database Lab Engine API endpoint (`clone.dle_endpoint`) |
 | `SAGE_CLONE_DLE_TOKEN` / `_FILE` | (none) | Database Lab bearer token (`clone.dle_token`) |
 | `SAGE_CLONE_MAX_AGE_MINUTES` | `1440` | Maximum source snapshot age (`clone.max_clone_age_minutes`) |
@@ -391,6 +391,7 @@ briefing:
 | `rca.vacuum_min_table_mb` | `8` | Smallest heap (MB, from `pg_class.relpages`) a table needs before its dead-tuple ratio counts toward the `vacuum_blocked` incident. `1`-`1048576` |
 | `rca.xmin_holder_min_minutes` | `5` | Minutes a session's transaction must be open before the `vacuum_blocked` incident names it as the holder of the oldest xmin. Younger sessions are never named, so a briefly idle session opens no incident. A holder idle in transaction for at least `analyzer.lock_chain.idle_in_tx_terminate_minutes` gets `pg_terminate_backend` proposed for approval; an active one gets a diagnostic. `1`-`1440` |
 | `rca.prepared_xact_min_age_minutes` | `30` | Minutes a prepared transaction of this database must be old before it opens the `orphaned_prepared_tx` incident or is named as the `vacuum_blocked` holder (with `ROLLBACK PREPARED` of its quoted GID proposed for approval). Other databases' prepared transactions are never blamed. `1`-`10080` |
+| `migration.queue_waiters_threshold` | `3` | Sessions queued directly behind an in-flight DDL that is waiting for its lock (`wait_event_type = Lock`) before the DDL's `migration_safety` finding turns critical. The queue comes from the RCA lock-chain fast path (`rca.lock_chain_interval_seconds`; an observation counts for two intervals, so with the fast path off the queue is never observed and the detail reads "lock queue not observed"). The escalated finding carries the DDL's backend identity and approval-only guidance: cancel the DDL (`SELECT pg_cancel_backend(pid)`, a HIGH-risk guarded script, never auto-executed; managed services need `pg_signal_backend`), then retry with `SET lock_timeout = '5s'`. The lock-chain finding for that queue drops its cancel of the root reader. `0` means `3`. API-settable |
 
 **How pg_sage measures its own cost.** Once per analyzer cycle pg_sage reads the sage
 tables' sizes and statistics in one bounded, read-only statement (`safety.query_timeout_ms`,
@@ -1121,6 +1122,21 @@ The default `unattended` policy profile permits explicitly bounded deadline
 overrides for XID and disk emergencies. Use `staffed` for narrow maintenance
 windows without deadline overrides. Clone-backed migration rehearsal defaults
 to disabled (`clone.provider: none`) and stale clones are recommendation-only.
+`dle` (Database Lab Engine) is the only clone adapter in this build; `snapshot`
+is refused at startup.
+
+A rehearsal clone holds production data, so pg_sage keeps a receipt for it
+(`sage.clone_instances`, purpose `rehearsal`) in the agent governance control
+database, else in the target database's `sage` schema. The receipt is written
+before the clone is requested and is closed when the clone is destroyed. With no
+receipt store the rehearsal is recommendation-only with reason
+`no_receipt_store`. A rehearsal is bounded to one hour and its receipt expires
+15 minutes later. Every 10 minutes the fleet leader destroys the clones of
+expired rehearsal receipts of its own adapter, endpoint and deployment. An
+expired receipt that never got a clone id is logged, never destroyed. Before the
+first step the rehearsal checks that the clone is not the production server:
+the same DSN host and port, or the same postmaster start time and port under
+any name, is refused (`target_is_production`), and nothing runs on it.
 
 #### Freeze custodian: what holds the xmin horizon
 
@@ -2086,7 +2102,7 @@ L2 needs a PGIncidentBench report for the family. You do not have to copy CI art
   counting after an upgrade (until the new release's report is ingested). A signature
   must name the same commit as the report.
 - **Run bench locally.** On the Autonomy page an admin can run the fault programs of a
-  family on a disposable clone (`clone.provider` `dle` or `snapshot`, else
+  family on a disposable clone (`clone.provider` `dle`, else
   `sre.autonomy.game_days.local_dsn`; game days need not be enabled). `local_dsn` must
   be its own cluster, marked, as for game days: a database on the cluster of a monitored
   or the metadata database is refused. The report counts only for the
