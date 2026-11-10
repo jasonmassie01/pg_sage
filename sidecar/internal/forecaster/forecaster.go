@@ -16,6 +16,9 @@ type ForecasterConfig struct {
 	DiskWarnGrowthGBDay float64
 	ConnectionWarnPct   float64
 	CacheWarnThreshold  float64
+	// CacheMinBlocksPerDay is the day's block accesses below which its
+	// cache hit ratio is left out (forecast-04); 0 means 100,000.
+	CacheMinBlocksPerDay int64
 	// CheckpointRequestedPerHour is the requested-checkpoint rate at
 	// which the checkpoint forecast warns (forecast-03); 0 means 2.
 	CheckpointRequestedPerHour float64
@@ -69,9 +72,12 @@ func (f *Forecaster) Forecast(
 	if sysAggs, err := QueryDailySystemAggs(ctx, f.pool, f.cfg.LookbackDays); err != nil {
 		f.logFn("WARN", "forecaster: system aggs: %v", err)
 	} else {
+		gateCacheDays(sysAggs, cacheMinBlocks(f.cfg))
+		cache := forecastCachePressure(sysAggs, f.cfg)
+		f.addCacheEvidence(ctx, cache)
 		all = append(all, forecastDiskGrowth(sysAggs, f.cfg)...)
 		all = append(all, forecastConnectionSaturation(sysAggs, f.cfg)...)
-		all = append(all, forecastCachePressure(sysAggs, f.cfg)...)
+		all = append(all, cache...)
 		all = append(all, forecastCheckpointPressure(sysAggs, f.cfg)...)
 		evaluated = append(evaluated, evaluatedSystemCategories(sysAggs)...)
 	}
@@ -93,15 +99,18 @@ func (f *Forecaster) Forecast(
 // measured size, the disk trend is unknown rather than flat, so an open
 // disk finding must not be resolved on missing data (forecast-07). The
 // checkpoint rate needs minDataPoints usable intervals of the split
-// counters (forecast-03); legacy rows carry none.
+// counters (forecast-03); legacy rows carry none. The cache ratio needs
+// minDataPoints days with interval counters (forecast-04).
 func evaluatedSystemCategories(aggs []DaySystemAgg) []string {
 	diskUnknown := len(aggs) >= minDataPoints &&
 		len(knownSizeDays(aggs)) < minDataPoints
 	checkpointUnknown := !checkpointEvaluable(aggs)
+	cacheUnknown := !cacheEvaluable(aggs)
 	cats := make([]string, 0, len(systemForecastCategories))
 	for _, c := range systemForecastCategories {
 		if diskUnknown && c == "forecast_disk_growth" ||
-			checkpointUnknown && c == "forecast_checkpoint_pressure" {
+			checkpointUnknown && c == "forecast_checkpoint_pressure" ||
+			cacheUnknown && c == "forecast_cache_pressure" {
 			continue
 		}
 		cats = append(cats, c)

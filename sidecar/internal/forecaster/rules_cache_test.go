@@ -18,6 +18,9 @@ import (
 
 const cacheTestBlocks = 1e6
 
+// cache95 is the default threshold.
+var cache95 = ForecasterConfig{CacheWarnThreshold: 0.95}
+
 // cacheDays builds one closed day per ratio, oldest first, ending
 // yesterday. NaN is an unknown day (no interval data).
 func cacheDays(ratios ...float64) []DaySystemAgg {
@@ -70,7 +73,7 @@ func TestCachePressure_UnknownDayIsExcluded(t *testing.T) {
 	// become the judged day, nor a -100% point.
 	eight := cacheDays(0.99, 0.99, 0.99, 0.99, 0.99, 0.99, 0.99, math.NaN())
 	eight[7].CacheHitRatio = 0
-	if got := forecastCachePressure(eight, ForecasterConfig{CacheWarnThreshold: 0.95}); len(got) != 0 {
+	if got := forecastCachePressure(eight, cache95); len(got) != 0 {
 		t.Fatalf("an unknown newest day was judged: %+v", got)
 	}
 	if n := len(knownCacheDays(eight)); n != 7 {
@@ -175,8 +178,8 @@ func TestCachePressure_LowJudgesTheNewestDay(t *testing.T) {
 	if d["threshold"].(float64) != 0.95 || d["days_evaluated"].(int) != 7 {
 		t.Errorf("detail = %+v", d)
 	}
-	if d["day"] != aggs[6].Day.Format("2006-01-02") {
-		t.Errorf("day = %v, want %s", d["day"], aggs[6].Day.Format("2006-01-02"))
+	if day, _ := d["day"].(time.Time); !day.Equal(aggs[6].Day) {
+		t.Errorf("day = %v, want the newest day %s", d["day"], aggs[6].Day)
 	}
 	if d["blocks_accessed"].(float64) != cacheTestBlocks {
 		t.Errorf("blocks_accessed = %v", d["blocks_accessed"])
@@ -199,12 +202,12 @@ func TestCachePressure_InvalidRatios(t *testing.T) {
 		ForecasterConfig{CacheWarnThreshold: 0.95}); len(got) != 0 {
 		t.Fatalf("a steady 99.1%% gave findings: %+v", got)
 	}
-	// A negative, NaN-free out-of-range or NaN value never reaches the EWMA
+	// A negative, above-100%, infinite or NaN value never reaches the EWMA
 	// or the regression, even on a day not marked unknown.
 	for _, bad := range []float64{-1, -0.5, 150, math.Inf(1)} {
 		aggs := cacheDays(0.99, 0.99, 0.99, 0.99, 0.99, 0.99, 0.99, 0.99)
 		aggs[7].CacheHitRatio = bad
-		if got := forecastCachePressure(aggs, ForecasterConfig{CacheWarnThreshold: 0.95}); len(got) != 0 {
+		if got := forecastCachePressure(aggs, cache95); len(got) != 0 {
 			t.Errorf("ratio %v reached the rule: %+v", bad, got)
 		}
 		if n := len(knownCacheDays(aggs)); n != 7 {
@@ -261,7 +264,7 @@ func TestCachePressure_ResetDayIsSkipped(t *testing.T) {
 			t.Fatalf("reset day or a negative ratio kept: %+v", a)
 		}
 	}
-	if got := forecastCachePressure(aggs, ForecasterConfig{CacheWarnThreshold: 0.95}); len(got) != 0 {
+	if got := forecastCachePressure(aggs, cache95); len(got) != 0 {
 		t.Fatalf("a reset day produced findings: %+v", got)
 	}
 }

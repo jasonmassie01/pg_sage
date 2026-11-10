@@ -29,8 +29,8 @@ func cacheRow(accessed *int64, ratio *float64) map[string]any {
 			"cache_hit_ratio": ratio}}
 }
 
-func i64(v int64) *int64       { return &v }
-func f64p(v float64) *float64  { return &v }
+func i64(v int64) *int64        { return &v }
+func f64p(v float64) *float64   { return &v }
 func dayKey(t time.Time) string { return t.Format("2006-01-02") }
 
 // seedCacheDays writes cacheSeedDays closed days of hourly snapshots,
@@ -120,7 +120,8 @@ func TestCacheForecast_IntervalDropWarnsWhereLifetimeWouldNot(t *testing.T) {
 	}
 	var low map[string]any
 	for _, fd := range findings {
-		if fd.Category == "forecast_cache_pressure" && fd.Detail["forecast_type"] == "cache_pressure" {
+		if fd.Category == "forecast_cache_pressure" &&
+			fd.Detail["forecast_type"] == "cache_pressure" {
 			low = fd.Detail
 			if !strings.Contains(fd.Title, "80.0%") {
 				t.Errorf("title = %q, want day N's 80.0%%", fd.Title)
@@ -130,8 +131,9 @@ func TestCacheForecast_IntervalDropWarnsWhereLifetimeWouldNot(t *testing.T) {
 	if low == nil {
 		t.Fatalf("no low finding for day N at 80%%: %+v", findings)
 	}
-	if low["day"] != dayKey(dayStart(1)) || low["days_evaluated"].(int) != 7 {
-		t.Errorf("detail = %+v, want day %s over 7 usable days", low, dayKey(dayStart(1)))
+	if day, _ := low["day"].(time.Time); !day.Equal(dayStart(1)) ||
+		low["days_evaluated"].(int) != 7 {
+		t.Errorf("detail = %+v, want day %s over 7 usable days", low, dayStart(1))
 	}
 	if sb, _ := low["shared_buffers"].(string); sb == "" {
 		t.Errorf("shared_buffers missing from the evidence: %+v", low)

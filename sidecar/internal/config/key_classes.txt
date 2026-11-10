@@ -183,6 +183,7 @@ operator_preference explain.enabled
 derivable explain.max_tokens
 derivable explain.timeout_ms
 derivable forecaster.alert_horizons
+derivable forecaster.cache_min_blocks_per_day
 derivable forecaster.cache_warn_threshold
 derivable forecaster.checkpoint_requested_per_hour
 derivable forecaster.connection_warn_pct
