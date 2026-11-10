@@ -305,7 +305,8 @@ Both endpoints are on the API port and need no session.
 `/ready` is ready when the configuration is loaded, the control database
 answers (the metadata database, or the monitored database in standalone and
 fleet mode), and its `sage` schema has every table the bootstrap migrations
-create. Each probe is bounded to 0.9 s. The body names the state of each check
+create plus a valid `sage.idx_config_key_db` (the unique index every config
+write needs). Each probe is bounded to 0.9 s. The body names the state of each check
 and never an error message, because the endpoint is unauthenticated:
 
 ```json
@@ -422,6 +423,43 @@ sudo systemctl restart pg_sage
 ```
 
 The sidecar handles schema migrations automatically on startup (adding new columns or tables as needed).
+
+### How startup migrations behave
+
+Every start runs the `sage` schema migrations under a PostgreSQL advisory lock,
+in every database pg_sage bootstraps (the monitored database in standalone
+mode, each managed database in fleet mode, and the metadata database).
+
+- **A second start changes nothing.** Before each migration step runs, pg_sage
+  reads the catalog: a column, index or table that already exists is not
+  touched, so a restart takes no DDL lock on its tables. Steps whose effect the
+  catalog cannot show (`DO` blocks, function definitions, small backfills) run
+  every time and are written to check the catalog themselves.
+- **Lock waits are bounded.** The bootstrap session waits at most 2 seconds for
+  any table lock (`lock_timeout = 2s`, reset before the session goes back to
+  the pool). A step that cannot get its lock is retried after about 0.5, 1, 2
+  and 4 seconds while its 10-second budget lasts, then startup fails with an
+  error naming the step, for example
+  `migration step ddlActionLogApprovalCols: table lock not granted in 3 attempts (lock_timeout 2s each, ...)`.
+  Nothing is left half-applied (each step is one transaction), and the next
+  start retries. This keeps a start during a long `pg_dump` or a long-running
+  transaction from queueing your application's sessions behind pg_sage's DDL.
+  The whole migration list has a budget of 10 seconds per step, capped at 5
+  minutes, inside the caller's own startup deadline.
+- **The config key index is verified.** Startup fails, naming
+  `idx_config_key_db`, when that unique index on `sage.config` cannot be built
+  (usually duplicate `(key, database_id)` rows) or exists but is invalid or not
+  unique, and `/ready` answers `503` (`schema: not_migrated`) until it is
+  fixed. Remove the duplicate rows, or drop the broken index, and restart.
+- **One summary line per boot** is logged at INFO, for example
+  `schema: 89 steps, 0 applied, 42 rerun, 47 skipped, 95 ms; slowest ddlSREAutonomy 4 ms`.
+  `applied` steps created something that was missing, `rerun` steps ran only
+  their self-checking statements, and `skipped` steps found everything in
+  place. Each applied step is also logged at DEBUG with its duration.
+
+If a start fails on a lock, find the holder with
+`SELECT pid, mode, query FROM pg_locks JOIN pg_stat_activity USING (pid) WHERE relation::regclass::text LIKE 'sage.%';`
+and wait for it to finish, or restart pg_sage after it.
 
 ### Docker
 
