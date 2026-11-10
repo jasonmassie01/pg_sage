@@ -21,7 +21,7 @@ type LakebaseObservabilityConfig struct {
 	MaxRows              int                            `yaml:"max_rows" doc:"Maximum rows per read window; 0=500, range 1-10000. Full windows split rather than silently truncate."`
 	MaxBytes             int                            `yaml:"max_bytes" doc:"Maximum result bytes per read; 0=4194304, range 1024-16777216."`
 	QueriesPerPoll       int                            `yaml:"queries_per_poll" doc:"Query budget per poll; 0=2x streams+4 (16 for the six default streams), range 1-1000. Forward reads come first; backlog or expiry gaps remain visible."`
-	WindowSeconds        int                            `yaml:"window_seconds" doc:"Width cap (s) of each forward and reconcile read, and how far back the first forward read starts; reads narrow when full and widen back, sparse streams reconcile 4 windows. 0=900, max 7 days."`
+	WindowSeconds        int                            `yaml:"window_seconds" doc:"Seconds in the width of each forward and reconcile read, and how far back the first forward read starts; reads narrow when full, widen back, reconcile 4 windows. 0=900, max 7 days."`
 	RetentionHours       int                            `yaml:"retention_hours" doc:"Raw provider payload retention by event time; 0=168, range 1-168. Dedup receipts outlive the replay horizon."`
 	SettleLagSeconds     int                            `yaml:"settle_lag_seconds" doc:"Seconds forward reads stay behind now so rows the provider commits late are read; 0=120, range 1-3600."`
 	ShortLookbackSeconds int                            `yaml:"short_lookback_seconds" doc:"Seconds behind the forward edge each short reconcile sweep re-reads for late rows; 0=7200, range 1-604800."`
