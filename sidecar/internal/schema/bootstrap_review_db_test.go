@@ -5,12 +5,36 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // config-04 review: the sage.config key index is trusted only when it is
-// valid and unique.
+// valid and unique, and a second boot takes no lock a writer would wait on.
+// ACCESS SHARE (the pg_dump test) conflicts only with ACCESS EXCLUSIVE, and
+// pg_locks sampling can miss a short SHARE lock; ROW EXCLUSIVE (any writer)
+// conflicts with every lock CREATE INDEX, CREATE TRIGGER or ALTER TABLE
+// takes, so a second boot that finishes under it took none of them.
+
+// Happy path, the busy-writer case: a second boot while another session
+// holds ROW EXCLUSIVE on every sage table finishes without a lock wait.
+func TestBootstrap_SecondBootUnderRowExclusiveTakesNoShareLock(t *testing.T) {
+	pool := freshSchemaPool(t, "schema_boot_rowx")
+	holdLocks(t, pool, "ROW EXCLUSIVE", "")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	start := time.Now()
+	err := Bootstrap(ctx, pool)
+	took := time.Since(start)
+	if err != nil {
+		t.Fatalf("second boot under ROW EXCLUSIVE: %v", err)
+	}
+	if took >= migrationLockTimeout {
+		t.Fatalf("second boot took %s, want under %s (no lock wait)", took,
+			migrationLockTimeout)
+	}
+}
 
 // Invalid state: a non-unique index named idx_config_key_db breaks every
 // ON CONFLICT upsert on sage.config just as a missing one does, so
