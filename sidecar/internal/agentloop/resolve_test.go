@@ -3,6 +3,7 @@ package agentloop
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -18,7 +19,7 @@ func TestResolveEvidence_NoRunResolvesNothing(t *testing.T) {
 	for name, ctx := range map[string]context.Context{"background": context.Background(),
 		"nil": nil, "canceled": canceledCtx()} {
 		for _, ref := range []string{"E1", "", "seed-1"} {
-			if ev, ok := ResolveEvidence(ctx, ref); ok || ev != (Evidence{}) {
+			if ev, ok := ResolveEvidence(ctx, ref); ok || !reflect.DeepEqual(ev, Evidence{}) {
 				t.Errorf("%s ctx: ResolveEvidence(%q) = %+v, %v; want zero, false",
 					name, ref, ev, ok)
 			}
