@@ -1,6 +1,9 @@
 package fleet
 
-import "sync"
+import (
+	"sync"
+	"time"
+)
 
 // FleetBudget tracks per-database LLM token spending.
 type FleetBudget struct {
@@ -15,6 +18,10 @@ type FleetBudget struct {
 	// epoch counts ResetDaily calls, so a hold taken before a reset is not
 	// subtracted from the new day's usage (Hold, Settle).
 	epoch uint64
+	// day is the UTC day the usage belongs to (SnapshotDay); pending holds
+	// restored usage of databases not registered yet (Restore).
+	day     time.Time
+	pending map[string]int
 }
 
 type dbBudget struct {
@@ -28,6 +35,7 @@ func NewBudget(totalDaily int, databases []string) *FleetBudget {
 	b := &FleetBudget{
 		TotalDaily: totalDaily,
 		perDB:      make(map[string]*dbBudget, len(databases)),
+		day:        utcDay(time.Now()),
 	}
 	alloc := 0
 	if len(databases) > 0 {
@@ -46,7 +54,8 @@ func (b *FleetBudget) Register(database string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.perDB[database] == nil {
-		b.perDB[database] = &dbBudget{weight: 1}
+		b.perDB[database] = &dbBudget{weight: 1, used: b.pending[database]}
+		delete(b.pending, database)
 	}
 	b.rebalanceLocked()
 }
@@ -92,13 +101,7 @@ type BudgetUsage struct {
 
 // Snapshot returns every registered database's allocation and usage.
 func (b *FleetBudget) Snapshot() map[string]BudgetUsage {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	out := make(map[string]BudgetUsage, len(b.perDB))
-	for name, db := range b.perDB {
-		out[name] = BudgetUsage{Allocation: db.allocation, Used: db.used,
-			Weight: db.weight}
-	}
+	_, out := b.SnapshotDay()
 	return out
 }
 
@@ -145,11 +148,13 @@ func (b *FleetBudget) Allocation(database string) int {
 	return 0
 }
 
-// ResetDaily resets all usage to zero and starts a new hold epoch.
+// ResetDaily resets all usage to zero, drops restores still held for
+// unregistered databases and starts a new hold epoch.
 func (b *FleetBudget) ResetDaily() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.epoch++
+	b.day, b.pending = utcDay(time.Now()), nil
 	for _, db := range b.perDB {
 		db.used = 0
 	}

@@ -42,6 +42,7 @@ func initStandalone() {
 	registerLLMConfigOwner()
 	learnLLMInputLimits()
 	llmMgr = newStandaloneLLMManager(llmClient)
+	startLLMUsageLedger(pool) // fleet-10: before the runtime's first call
 	rt, err := buildDatabaseRuntime(ctx, databaseRuntimeSpec{
 		Scope: "startup", Name: name, Config: buildDBConfig(name),
 		Pool: pool, ControlPool: pool, ExecMode: resolveExecutionMode(),
@@ -84,6 +85,8 @@ func initFleetMultiDB() {
 		boot.start(dbCfg)
 	}
 	registerFleetDatabasesOwner(boot)
+	// fleet-10: the control database is known only once one connected.
+	startLLMUsageLedger(boot.controlPool)
 	// Register fleet databases in sage.databases for config API.
 	if boot.controlPool != nil {
 		registerFleetDatabases(boot.controlPool)

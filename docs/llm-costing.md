@@ -202,3 +202,5 @@ midnight UTC.
   `pg_sage_llm_circuit_open` describe the shared general client only.
 - Logs: there is no per-call token log line. The client logs when its circuit breaker
   opens, with the last error class and the pause.
+- Restarts: today's usage is kept in `sage.llm_usage` in the control database and restored
+  at startup; `GET /api/v1/llm/status` reports `usage_restored_at` and `ledger_last_flush_at`

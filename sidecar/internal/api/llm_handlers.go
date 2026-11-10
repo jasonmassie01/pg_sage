@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/databricksauth"
@@ -210,6 +211,13 @@ type LLMGlobalBudgetReporter interface {
 	GlobalBudget() llm.BudgetStatus
 }
 
+// LLMUsageLedgerReporter is a registry whose daily usage survives restarts
+// (fleet-10): it says when today's usage was restored from the control
+// database and when it was last flushed there (zero: not yet).
+type LLMUsageLedgerReporter interface {
+	UsageLedgerStatus() (restoredAt, lastFlushAt time.Time)
+}
+
 // llmBudgetSource prefers the process registry and falls back to the
 // shared manager; nil means no LLM is configured.
 func llmBudgetSource(
@@ -319,6 +327,19 @@ func llmStatusPayload(mgr LLMBudgetRegistry) map[string]any {
 		body["global"] = global
 		anyExhausted = anyExhausted || global.Exhausted
 	}
+	if reporter, ok := mgr.(LLMUsageLedgerReporter); ok {
+		restored, flushed := reporter.UsageLedgerStatus()
+		body["usage_restored_at"] = ledgerTimestamp(restored)
+		body["ledger_last_flush_at"] = ledgerTimestamp(flushed)
+	}
 	body["any_exhausted"] = anyExhausted
 	return body
+}
+
+// ledgerTimestamp is RFC 3339 in UTC, or null for a zero time.
+func ledgerTimestamp(t time.Time) any {
+	if t.IsZero() {
+		return nil
+	}
+	return t.UTC().Format(time.RFC3339)
 }

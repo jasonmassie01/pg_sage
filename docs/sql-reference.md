@@ -196,6 +196,26 @@ Generated health briefings.
 
 ---
 
+### `sage.llm_usage`
+
+Today's LLM token spend, so a restart mid-day restores it instead of granting a fresh daily
+budget. Lives in the control database (the meta database, the fleet's first connected
+database, or the standalone database). Flushed every 60 s and on shutdown; a flush only
+raises `tokens`. Rows older than 35 days are pruned at startup; the admin budget reset
+(`POST /api/v1/llm/budget/reset`) deletes today's rows.
+
+| Column | Type | Description |
+|---|---|---|
+| `day` | date | UTC day the spend belongs to |
+| `database_key` | text | `id:<sage.databases id>` for a meta-DB database, `name:<name>` for a YAML or standalone one, `process` for the process-wide clients and the global ceiling |
+| `role` | text | `general`, `optimizer`, `shared` (the `llm.global_token_budget_daily` ceiling) or `fleet` (the database's `fleet_token_budget_daily` share) |
+| `tokens` | bigint | Tokens spent that day (at least 0) |
+| `updated_at` | timestamptz | Last flush that raised the count |
+
+Primary key `(day, database_key, role)`.
+
+---
+
 ### `sage.explain_cache`
 
 Cached EXPLAIN plans for query analysis.

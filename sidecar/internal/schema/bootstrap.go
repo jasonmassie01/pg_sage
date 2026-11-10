@@ -451,22 +451,23 @@ func migrationStatements() []string {
 		ddlEmergencyStopSeed,
 		// clouds-02: after the table (ddlManagedChangeProposals).
 		ddlManagedChangeFingerprintV2,
-		ddlSessionsTokenHash, // apiauth-04: hashed session cookies
-		ddlUsersDisabledAt, // apiauth-01: user deactivation
-		ddlUnusedIndexClock, // rules-04: unused_index clock survives restarts
-		ddlSelfConfigDerivations, // footprint-04: soak derivations, clamped events
-		ddlPreTaggingSelfFindings, // footprint-06: resolve pre-tagging self findings
-		ddlQueryHintsStatusCheck, // tuning-06: rejected and expired hints
-		ddlAdvisorRuns, // advisors-02: persisted sub-advisor schedule
-		ddlRolloutInstanceStatus, // executor-04: canary pending and unverified states
-		ddlApprovalCardNextCheck, // policy-06: follow-up queue order
+		ddlSessionsTokenHash,        // apiauth-04: hashed session cookies
+		ddlUsersDisabledAt,          // apiauth-01: user deactivation
+		ddlUnusedIndexClock,         // rules-04: unused_index clock survives restarts
+		ddlSelfConfigDerivations,    // footprint-04: soak derivations, clamped events
+		ddlPreTaggingSelfFindings,   // footprint-06: resolve pre-tagging self findings
+		ddlQueryHintsStatusCheck,    // tuning-06: rejected and expired hints
+		ddlAdvisorRuns,              // advisors-02: persisted sub-advisor schedule
+		ddlRolloutInstanceStatus,    // executor-04: canary pending and unverified states
+		ddlApprovalCardNextCheck,    // policy-06: follow-up queue order
 		ddlActionQueueRevertsAction, // policy-05: withheld reverts reach a person
-		ddlDecisionCandidateKey(), // policy-02: a withheld verdict is one row per episode
+		ddlDecisionCandidateKey(),   // policy-02: a withheld verdict is one row per episode
 		ddlDecisionPolicyProvenance, // policy-03: the policy hash, not a cross-database FK
-		ddlSREAttempts, // sre-01: numbered re-runs of a trigger
-		ddlFactsMissingSince, // facts-08: persisted absence of a fact's subject
-		ddlFactEvents, // facts-07: the fact history and facts.expired_by
-		ddlMigrationRunBlocked) // migration-03: 'blocked' verdict and reason
+		ddlSREAttempts,              // sre-01: numbered re-runs of a trigger
+		ddlFactsMissingSince,        // facts-08: persisted absence of a fact's subject
+		ddlFactEvents,               // facts-07: the fact history and facts.expired_by
+		ddlMigrationRunBlocked,      // migration-03: 'blocked' verdict and reason
+		ddlLLMUsage)                 // fleet-10: LLM usage survives restarts
 }
 
 // ---------------------------------------------------------------------------
