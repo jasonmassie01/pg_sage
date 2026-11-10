@@ -135,8 +135,10 @@ func (v *validator) createPrediction(c Case, p Proposal,
 // covers. Unique and primary-key indexes are never dropped, and a
 // never-scanned index is the unused_index rule's (indexes-03). The drop
 // carries the rules engine's standby gate: primary statistics miss replica
-// reads.
-func (v *validator) judgeIndexDrop(c Case, p Proposal) Judged {
+// reads. The drop is measured by hiding the index (HypoPG 1.4+): a guarded
+// statement that regresses rejects it, a verified measurement becomes the
+// prediction, and an unmeasured drop keeps the rule's "reads unchanged".
+func (v *validator) judgeIndexDrop(ctx context.Context, c Case, p Proposal) Judged {
 	schema, name, ok := splitQualified(p.Index)
 	if !ok {
 		return reject(p, ReasonInvalid, "%q is not a schema-qualified index", p.Index)
@@ -153,16 +155,56 @@ func (v *validator) judgeIndexDrop(c Case, p Proposal) Judged {
 	if by == "" {
 		return reject(p, ReasonInvalid, "%s", why)
 	}
+	m := v.measureDrop(ctx, ix, table)
+	if m.Verdict == optimizer.WhatIfRejected {
+		return reject(p, ReasonWhatIfRejected, "%s", m.Reason)
+	}
 	v.dropping[ix.IndexRelName] = true
 	f := analyzer.WithStandbyGate(dropFinding(ix, table, p, by),
 		analyzer.StandbyUsageUnknown(v.cur))
-	zero := 0.0
-	pred := verify.Prediction{Class: verify.ClassIndexDrop, Method: verify.MethodRule,
-		Metric: verify.MetricMeanExecTime, ExpectedChangePct: &zero,
-		TargetQueryIDs: v.targets(c, p), Source: PredictionSource,
-		Note: "reads are expected unchanged; the index's writes and space are freed"}
+	f.Detail["what_if_verdict"] = m.Verdict
+	if m.Reason != "" {
+		f.Detail["what_if_reason"] = m.Reason
+	}
 	return Judged{Proposal: p, Verdict: VerdictAdmitted, Finding: &f, Tables: []string{table},
-		Class: verify.ClassIndexDrop, Prediction: pred}
+		Class: verify.ClassIndexDrop, Prediction: dropPrediction(v.targets(c, p), m)}
+}
+
+// measureDrop measures dropping ix through the optimizer; an index with no
+// identity (OID) or table context cannot be measured.
+func (v *validator) measureDrop(ctx context.Context, ix collector.IndexStats,
+	table string) optimizer.DropMeasurement {
+	if ix.IndexRelID == 0 {
+		return optimizer.DropMeasurement{Verdict: optimizer.WhatIfUnverified,
+			Reason: "the index's identity (OID) is not in the snapshot"}
+	}
+	tc, ok := v.a.tableContext(ctx, v.cur, table)
+	if !ok {
+		return optimizer.DropMeasurement{Verdict: optimizer.WhatIfUnverified,
+			Reason: "no table context for " + table}
+	}
+	return v.a.deps.Indexes.MeasureDrop(ctx,
+		optimizer.IndexRef{Name: ix.IndexRelName, OID: ix.IndexRelID}, tc)
+}
+
+// dropPrediction is a verified measurement's change (model), or the rule's
+// "reads unchanged" with why the drop was not measured.
+func dropPrediction(targets []int64, m optimizer.DropMeasurement) verify.Prediction {
+	pred := verify.Prediction{Class: verify.ClassIndexDrop, Method: verify.MethodRule,
+		Metric: verify.MetricMeanExecTime, TargetQueryIDs: targets,
+		Source: PredictionSource}
+	change := 0.0
+	if m.Verdict == optimizer.WhatIfVerified {
+		change = m.ChangePct
+		pred.Method = verify.MethodModel
+		pred.Note = "HypoPG's call-weighted planned-cost change with the index hidden; " +
+			"the index's writes and space are freed"
+	} else {
+		pred.Note = "reads are expected unchanged; the index's writes and space are " +
+			"freed (not measured: " + m.Reason + ")"
+	}
+	pred.ExpectedChangePct = &change
+	return pred
 }
 
 func (v *validator) findIndex(schema, name string) (collector.IndexStats, bool) {

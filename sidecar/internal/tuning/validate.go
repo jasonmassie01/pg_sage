@@ -128,7 +128,7 @@ func (v *validator) judge(ctx context.Context, c Case, ev evidenceSet, p Proposa
 	case ProposeIndexCreate:
 		j = v.judgeIndexCreate(ctx, c, p)
 	case ProposeIndexDrop:
-		j = v.judgeIndexDrop(c, p)
+		j = v.judgeIndexDrop(ctx, c, p)
 	case ProposeGUC:
 		j = v.judgeGUC(c, p)
 	case ProposeReloption:
