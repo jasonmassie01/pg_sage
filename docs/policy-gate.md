@@ -181,10 +181,30 @@ operator action (`blocked` `ddl_conflict`); see `serialize_mode` in
 
 ### Agent requests
 
-An agent's request runs the agent decider first. Its own reasons (`agent_frozen`,
-`agent_capability`, `agent_rate` and the rest) are recorded the same way; see
-[Agent governance](agent-governance.md). The gate then maps the agent's level, capped by the
-operator's trust level and the action's rollback class, to a verdict:
+An agent's request runs the agent decider first, in steps D1 to D10. The first step that
+refuses decides, and its reason is recorded the same way as the gate's; the detail ends with
+the fix when there is one.
+
+| Reason | Step | Verdict | Meaning | What clears it | Shows |
+|---|---|---|---|---|---|
+| `agent_retired` | D1 | `blocked` | The agent is retired, its status is unknown, or it does not exist. | Nothing: register the agent again. | Ledger |
+| `agent_frozen` | D1 | `blocked` | The agent is frozen, or agent changes are frozen for the database or the fleet. Reads still work. | An admin lifting the freeze. | Ledger |
+| `agent_level0` | D1 | `blocked` | The tool is neither a proposal nor an `agent_*` capability. | Nothing: use a proposal or capability tool. | Ledger |
+| `agent_unsponsored` | D2 | `blocked` | An `agent_*` request from an agent with no active sponsor. Its proposals still queue at L2. | An admin assigning an active sponsor. | Ledger |
+| `agent_env_ceiling` | D3 | `blocked` | The database's environment is above the agent's ceiling (the lower of the agent's and its profile's); an unknown environment counts as prod. | Correcting the environment label, or two admins raising `env_ceiling`. | Ledger |
+| `agent_capability` | D4 | `blocked` | The capability class is unknown, or the agent's profile is not configured or does not allow it. | An admin adding the class to the profile (two people). | Ledger |
+| `agent_classification` | D5 | `blocked` | An object does not resolve, or its classification or grants refuse the request; the detail says which. | The fix in the detail. | Ledger |
+| `agent_change_freeze` | D6 | `blocked` | A change freeze is on for the database. | The operator lifting the change freeze. | Ledger |
+| `agent_no_pitr` | D7 | `blocked` | A write or DDL in prod on a database with no point-in-time recovery, or whose recovery posture is unknown. | Enabling PITR (WAL archiving or the provider's). | Ledger |
+| `agent_budget` | D9 | `blocked` | The agent already has its limit of approvals pending. | People deciding the pending approvals. | Ledger |
+| `agent_rate` | D9 | `park` | More requests in the last hour than the agent's limit; the detail has `retry_after`. | The hour moving on. | Ledger, Metric |
+| `agent_lease_expired` | D10 | `blocked` | A brokered use of a grant whose lease has expired, or with no lease registry. | Requesting the capability again; a person approves the new grant. | Ledger |
+| `agent_governance_unavailable` | any | `blocked` | Agent governance could not read what it needs (principal, freezes, objects, recovery, leases). | Fixing the control database connection. | Ledger |
+
+Freezes and the kill switch are described in
+[Agent governance](agent-governance.md#kill-switch-freeze-and-unfreeze). If the decider allows
+the request, the gate maps the agent's level, capped by the operator's trust level and the
+action's rollback class, to a verdict:
 
 | Reason | Verdict | Meaning | Shows |
 |---|---|---|---|

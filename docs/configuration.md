@@ -1228,7 +1228,9 @@ The standing policy document also carries three safety fields, all enforced:
   `evidence.lease_queue = timeout`; an operator action waits at most
   30 seconds, then is refused. At most 8 actions wait per object and 64 per
   database; a request beyond that is not queued (a self-initiated one parks
-  with `evidence.lease_queue = full`, an operator one is refused). In both
+  with `evidence.lease_queue = full`, an operator one is refused), and a
+  request identical to one already waiting is not queued twice
+  (`evidence.lease_queue = duplicate`). In both
   modes an operator action that cannot get the lease is refused (recorded as
   `blocked` `ddl_conflict`), not parked. See [Policy gate](policy-gate.md)
   for every verdict and reason.

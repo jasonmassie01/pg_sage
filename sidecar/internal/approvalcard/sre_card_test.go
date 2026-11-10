@@ -128,3 +128,38 @@ func TestSRECardHashMalformedTarget(t *testing.T) {
 
 // No concurrent access tests: Assemble and the hash are pure functions of
 // their inputs and share no state.
+
+// A queue row with no action_type (written before the column existed, or
+// by a store without metadata) is still a backend signal when its SQL
+// signals a backend, so its card keeps the 15-minute TTL, the missing
+// Snooze and the target-bound hash.
+func TestUntypedSignalSQLIsABackendSignal(t *testing.T) {
+	for sql, want := range map[string]string{
+		"SELECT pg_cancel_backend(5151)":              "cancel_backend",
+		"select pg_catalog.pg_terminate_backend(77);": "terminate_backend",
+		"ANALYZE public.orders":                       "analyze_table",
+		"SELECT 1":                                    "",
+	} {
+		a := queued(9, "", sql, "", "moderate")
+		signal := BackendSignal(want)
+		if got := SignalsBackend(a); got != signal {
+			t.Errorf("%q: SignalsBackend = %v, want %v", sql, got, signal)
+		}
+		c := Assemble(Inputs{Database: "orders", Action: a, Now: now})
+		if c.ActionType != want {
+			t.Errorf("%q: card action type %q, want %q", sql, c.ActionType, want)
+		}
+		ref := CardRefOf(c)
+		if ref.NoSnooze != signal || (ref.MaxTTL == BackendSignalCardTTL) != signal {
+			t.Errorf("%q: card ref %+v, backend signal %v", sql, ref, signal)
+		}
+		if (c.CardHash != ContentHash(a)) != signal {
+			t.Errorf("%q: card hash bound to a target = %v, want %v", sql,
+				c.CardHash != ContentHash(a), signal)
+		}
+	}
+	if SignalsBackend(queued(9, "analyze_table", "SELECT pg_cancel_backend(1)", "",
+		"safe")) {
+		t.Fatal("a typed row was reclassified by its SQL")
+	}
+}

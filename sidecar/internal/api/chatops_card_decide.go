@@ -44,7 +44,7 @@ func (d *chatopsDeps) decideCard(w http.ResponseWriter, r *http.Request, ch noti
 	if !ok {
 		return
 	}
-	if a.Decision == chatops.DecisionSnooze && approvalcard.BackendSignal(current.ActionType) {
+	if a.Decision == chatops.DecisionSnooze && approvalcard.SignalsBackend(*current) {
 		// A backend signal is decided now or not at all; the card stays usable.
 		reply(ch, a, "Not snoozed: a backend signal cannot be snoozed. Approve or reject it.")
 		sreErrorCode(w, "a backend signal cannot be snoozed", "snooze_unavailable",

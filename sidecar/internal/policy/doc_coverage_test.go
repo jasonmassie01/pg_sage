@@ -135,9 +135,14 @@ func constValue(declared string, expr ast.Expr) (string, string, bool) {
 	return declared, value, ok
 }
 
+// identName returns a type's name, local (Reason) or qualified
+// (agentguard.Reason, as the agent decider declares its reasons).
 func identName(expr ast.Expr) string {
-	if ident, ok := expr.(*ast.Ident); ok {
-		return ident.Name
+	switch e := expr.(type) {
+	case *ast.Ident:
+		return e.Name
+	case *ast.SelectorExpr:
+		return e.Sel.Name
 	}
 	return ""
 }

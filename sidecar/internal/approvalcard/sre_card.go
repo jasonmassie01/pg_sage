@@ -34,6 +34,12 @@ func BackendSignal(actionType string) bool {
 	return actionType == "cancel_backend" || actionType == "terminate_backend"
 }
 
+// SignalsBackend reports whether a queue row signals a backend: by its
+// action_type or, for an untyped row, by its SQL.
+func SignalsBackend(a store.QueuedAction) bool {
+	return BackendSignal(actionTypeOf(a))
+}
+
 // CardRefOf is the reference a card's chat delivery carries.
 func CardRefOf(c Card) notify.CardRef {
 	ref := notify.CardRef{Database: c.Database, QueueID: c.QueueID, CardHash: c.CardHash,
@@ -75,7 +81,7 @@ func (t signalTarget) String() string {
 // content hash, plus the signal target for a backend signal.
 func cardHash(a store.QueuedAction, f *FindingRow) string {
 	base := ContentHash(a)
-	if !BackendSignal(actionTypeOf(a)) {
+	if !SignalsBackend(a) {
 		return base
 	}
 	t, _ := signalTargetOf(f)
@@ -91,7 +97,7 @@ func cardHash(a store.QueuedAction, f *FindingRow) string {
 // its finding's signal target from pool; any other action needs no read.
 func CurrentHash(ctx context.Context, pool *pgxpool.Pool,
 	a store.QueuedAction) (string, error) {
-	if !BackendSignal(actionTypeOf(a)) {
+	if !SignalsBackend(a) {
 		return ContentHash(a), nil
 	}
 	if pool == nil {

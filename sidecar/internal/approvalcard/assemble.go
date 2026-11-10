@@ -63,6 +63,13 @@ func actionTypeOf(a store.QueuedAction) string {
 			return p.typ
 		}
 	}
+	// An untyped backend signal keeps its class (policy-08 card limits).
+	switch {
+	case strings.Contains(sql, "PG_CANCEL_BACKEND"):
+		return "cancel_backend"
+	case strings.Contains(sql, "PG_TERMINATE_BACKEND"):
+		return "terminate_backend"
+	}
 	return ""
 }
 

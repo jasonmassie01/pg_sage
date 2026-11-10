@@ -267,3 +267,20 @@ func TestOutdatedProposalButtonsChangeNothing(t *testing.T) {
 	}
 	cf.assertUntouched(t, "a refused outdated button")
 }
+
+// A cancel queued without an action_type is still a backend signal: a
+// forged Snooze press on its card is refused and changes nothing.
+func TestUntypedSignalCardSnoozeIsRefused(t *testing.T) {
+	cf := newChatFixture(t)
+	if _, err := cf.pool.Exec(context.Background(), `UPDATE sage.action_queue
+		SET action_type = NULL WHERE id = $1`, cf.proposal.QueueID); err != nil {
+		t.Fatal(err)
+	}
+	token, _ := cf.sreCard(t, cf.slackCh)
+	code, out := cf.slackTo(t, cf.slackCh, chatops.SlackCardSnoozeAction, token)
+	if code != http.StatusConflict || out["code"] != "snooze_unavailable" {
+		t.Fatalf("snooze of an untyped cancel = %d %v, want 409 snooze_unavailable",
+			code, out)
+	}
+	cf.assertUntouched(t, "a refused snooze of an untyped cancel")
+}
