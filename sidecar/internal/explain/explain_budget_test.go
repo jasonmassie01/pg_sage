@@ -107,3 +107,52 @@ func TestEnhanceWithLLM_PlanBoundedByClientBudget(t *testing.T) {
 		t.Fatalf("wire plan = %d bytes, want about the 8192-byte budget", len(body))
 	}
 }
+
+func TestClipPlan_CutsOnARuneBoundary(t *testing.T) {
+	plan := strings.Repeat("é", 100) // 200 bytes, every rune 2 bytes
+	for _, limit := range []int{1, 51, 199} {
+		got := clipPlan(plan, limit)
+		kept := strings.TrimSuffix(got, planClipNote(limit-1, len(plan)))
+		if kept == got {
+			t.Fatalf("limit %d: %q does not end in a note for %d kept bytes",
+				limit, got, limit-1)
+		}
+		if !utf8.ValidString(kept) || len(kept) != limit-1 {
+			t.Fatalf("limit %d: kept %d bytes (valid=%v), want %d on a rune boundary",
+				limit, len(kept), utf8.ValidString(kept), limit-1)
+		}
+	}
+	if got := clipPlan(plan, 200); got != plan {
+		t.Fatalf("a plan at the limit was changed: %q", got)
+	}
+}
+
+// The plan is redacted before it is clipped: a cut through a literal must
+// never leave part of the literal in the prompt.
+func TestExplainUserPrompt_CutThroughALiteralLeaksNothing(t *testing.T) {
+	plan := `[{"Plan":{"Node Type":"Seq Scan",` +
+		`"Filter":"(email = 'alice.secret@example.com'::text)"}}]`
+	cutAt := strings.Index(plan, "secret")
+	result := &ExplainResult{Query: "SELECT 1", PlanJSON: json.RawMessage(plan)}
+	for _, budget := range []int{cutAt - 6, cutAt, cutAt + 3, cutAt + 12} {
+		user := explainUserPrompt(result, budget)
+		for _, part := range []string{"alice", "secret", "example.com"} {
+			if strings.Contains(user, part) {
+				t.Fatalf("budget %d: prompt leaks %q: %q", budget, part, user)
+			}
+		}
+	}
+}
+
+// A cut through a long number must not leave its leading digits: they
+// are redacted (6+ digits in a comparison) before the plan is clipped.
+func TestExplainUserPrompt_CutThroughANumberLeaksNoDigits(t *testing.T) {
+	plan := `[{"Plan":{"Node Type":"Seq Scan","Filter":"(pan = 4111111111111111)"}}]`
+	cutAt := strings.Index(plan, "4111")
+	result := &ExplainResult{Query: "SELECT 1", PlanJSON: json.RawMessage(plan)}
+	for _, budget := range []int{cutAt + 2, cutAt + 4, cutAt + 5, cutAt + 9} {
+		if user := explainUserPrompt(result, budget); strings.Contains(user, "41") {
+			t.Fatalf("budget %d: prompt keeps digits of the number: %q", budget, user)
+		}
+	}
+}
