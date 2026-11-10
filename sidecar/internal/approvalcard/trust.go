@@ -32,7 +32,12 @@ type Trust struct {
 	NextLevel   string             `json:"next_level,omitempty"`
 	Path        []string           `json:"path,omitempty"`
 	Unavailable string             `json:"unavailable,omitempty"`
-	Line        string             `json:"line"`
+	// Bench is the deciding bench report's provenance label, BenchOrigin
+	// its origin and BenchID its id (none without bench evidence).
+	Bench       string `json:"bench,omitempty"`
+	BenchOrigin string `json:"bench_origin,omitempty"`
+	BenchID     string `json:"bench_id,omitempty"`
+	Line        string `json:"line"`
 }
 
 // trustRead is one read of a database's Trust view.
@@ -94,6 +99,9 @@ func trustOf(in Inputs) *Trust {
 	if row.Effective != nil {
 		t.Effective = row.Effective.String()
 	}
+	if b := row.Bench; b != nil {
+		t.Bench, t.BenchOrigin, t.BenchID = b.Provenance, b.Origin, b.ID
+	}
 	if row.Next != nil {
 		t.NextLevel = row.Next.Target.String()
 		t.Path = pathOf(*row.Next)
@@ -137,6 +145,9 @@ func trustLine(t *Trust) string {
 		"%d regressed, %d rolled back, %d rejected", t.Family, t.Class, level,
 		strings.Join(notes, ", "), e.Improved, e.Neutral, e.Regressed, e.RolledBack,
 		e.Rejected)
+	if t.Bench != "" {
+		line += strings.TrimRight("; bench: "+t.Bench+" "+t.BenchID, " ")
+	}
 	switch {
 	case t.NextLevel == "":
 		return line + "; at its highest level"

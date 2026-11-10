@@ -13,7 +13,8 @@ import (
 // run is planned with and without a hypothetical index (HypoPG, the
 // optimizer's own session: savepoint per query, bounded statement
 // timeout). It plans the queries; it never builds an index. Errors make
-// no fact: the decision waits for other evidence or the horizon.
+// no fact: the decision waits for other evidence or the horizon. Nor does
+// an index create pg_sage itself ran since the decision (scorer_own.go).
 
 var concurrently = regexp.MustCompile(`(?i)\s+concurrently\b`)
 
@@ -39,6 +40,14 @@ func (w *whatIf) evaluate(ctx context.Context, p pendingDecision) *hypoFact {
 	}
 	queries := w.queries(ctx, running)
 	if len(queries) == 0 || !w.hypo.IsAvailable(ctx) {
+		return nil
+	}
+	// pg_sage's own create of the index (rolled back since, or past the
+	// pass's action window) already decided the decision: no evidence.
+	if own, err := w.s.madeByPgSage(ctx, p.Decision); err != nil || own {
+		if err != nil {
+			w.s.logf("shadow: what-if of decision %d: %v", p.ID, err)
+		}
 		return nil
 	}
 	w.budget--

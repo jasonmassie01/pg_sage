@@ -29,7 +29,7 @@ func TestFleetSourceSnapshotIsHonest(t *testing.T) {
 	insertPendingAction(t, ctx, pool, metaID, "create_index_concurrently")
 	insertCreditedAction(t, ctx, other.Pool, metaID, "analyze_table", 99)
 	incident, err := repo.RecordIncident(ctx, IncidentCredit{
-		DatabaseID: nil, Kind: "lock_storm", Severity: "prevented",
+		DatabaseID: nil, Kind: "xid_wraparound", Severity: "near_miss",
 		CreditedMinutes: 60, EvidenceID: graph.evidenceID + "-incident",
 		ModelVersion: 1, DecisionID: graph.decisionID,
 		ActionLogID: graph.actionID, VerificationID: graph.verificationID,
@@ -191,7 +191,7 @@ func TestPostgresRepositoryCancellationAndMissingRowsPropagate(t *testing.T) {
 		t.Fatalf("missing action error = %v", err)
 	}
 	_, err = repo.RecordIncident(cancelled, IncidentCredit{
-		Kind: "lock_storm", Severity: "prevented", EvidenceID: "cancelled",
+		Kind: "xid_wraparound", Severity: "near_miss", EvidenceID: "cancelled",
 	})
 	if !errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "incident") {
 		t.Fatalf("cancelled RecordIncident error = %v", err)
@@ -272,6 +272,11 @@ func insertValueEvidenceGraph(
 	if err != nil {
 		t.Fatalf("insert value verification: %v", err)
 	}
+	// Both verification writers link the row they insert (earned-09).
+	if _, err := pool.Exec(ctx, `UPDATE sage.action_log SET verification_id=$1
+		WHERE id=$2`, graph.verificationID, graph.actionID); err != nil {
+		t.Fatalf("link value verification: %v", err)
+	}
 	t.Cleanup(func() { cleanupValueGraph(pool, graph) })
 	return graph
 }
@@ -281,6 +286,10 @@ func cleanupValueGraph(pool *pgxpool.Pool, graph valueEvidenceGraph) {
 	defer cancel()
 	_, _ = pool.Exec(ctx, "DELETE FROM sage.incident_avoided WHERE decision_id=$1",
 		graph.decisionID)
+	_, _ = pool.Exec(ctx, "UPDATE sage.action_log SET verification_id=NULL WHERE id=$1",
+		graph.actionID)
+	_, _ = pool.Exec(ctx, "DELETE FROM sage.verification WHERE action_log_id=$1",
+		graph.actionID)
 	_, _ = pool.Exec(ctx, "DELETE FROM sage.verification WHERE id=$1",
 		graph.verificationID)
 	_, _ = pool.Exec(ctx, "DELETE FROM sage.action_log WHERE id=$1", graph.actionID)

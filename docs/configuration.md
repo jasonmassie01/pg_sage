@@ -746,7 +746,8 @@ deletes are never withheld by the ledger.
 
 The **Trust** page (and `GET /api/v1/trust?database=`) shows every database x family x class
 with its level, effective level, evidence counts, last change and why, and the path to the
-next level. MCP `sre_get_autonomy` carries the same grid as `trust`. Each view is read with a
+next level; an incident row also carries `bench`, the report its bench checks read (id,
+origin, provenance label). MCP `sre_get_autonomy` carries the same grid as `trust`. Each view is read with a
 fixed number of set-based statements per database, however many classes and outcomes it
 shows. Every approval card carries its action class's row as `trust` (level, evidence
 counts, path to the next level) and one `Trust:` line in Slack and Telegram.
@@ -775,14 +776,20 @@ available, in this order (never from model text):
 |---|---|---|
 | `operator` | an operator decided the same proposal after it was recorded | rejected: incorrect; approved: by the executed action's verdict |
 | `applied` | the same change (matched by normalized SQL) ran later through pg_sage | by its verification verdict |
-| `external` | an index create or drop pg_sage wanted shows up in the catalog (a migration, psql) | verified like pg_sage's own actions: call-weighted before/after windows around when it appeared (`verify.*`; drops over `verify.drop_window_hours`) |
+| `external` | an index create or drop pg_sage wanted shows up in the catalog (a migration, psql) and no pg_sage index action since the decision made it; a dropped index counts only while its table still exists | verified like pg_sage's own actions: call-weighted before/after windows around when it appeared (`verify.*`; drops over `verify.drop_window_hours`) |
 | `hypopg` | an index create, after a day without the above, whose targeted queries still ran | the optimizer's what-if bar (`optimizer.hypopg_min_improvement_pct`): verified is correct, rejected incorrect |
 | `none` | nothing applied within 7 days | unscored |
 
 Verdicts map by the family's rule: `improved` is correct (hygiene: a `neutral` that held is
 correct too), `regressed` or an operator's rollback is incorrect, a tuning `neutral` is
 neutral, `insufficient_evidence` and `unverifiable` are unscored. A matched action still being
-verified is waited for (up to 21 days).
+verified is waited for (up to 21 days). A change pg_sage made itself since the decision (an
+index it built, dropped or built and rolled back) is no shadow evidence: neither `external` nor
+`hypopg` scores it. Nor is one pg_sage cannot rule out (more than 50 of its index actions on the
+table since the decision, or a drop whose rollback names no table). Such a decision is left
+unscored at the horizon.
+Each scoring pass reads the oldest and the newest pending decisions (100 each), so decisions
+waiting out their horizon never hold back newer ones an operator already decided.
 
 **Trust.** Only `external` and `hypopg` scores count toward promotion as shadow evidence:
 `operator` and `applied` scores rest on actions the ledger already counts as real outcomes,
@@ -957,6 +964,22 @@ outcome ledger (`sage.action_outcome`).
 | `verify.write_impact_pct` | `20` | Advisory: rise in database-wide write time reported as `write_signal.exceeds_threshold`. It does not revert an index until a table-scoped signal replaces it (executor-03b) |
 | `verify.window_max_minutes` | `4320` | Longest a non-drop action is watched for evidence |
 | `verify.drop_window_hours` | `168` | Business cycle an index drop is verified over, `1`-`8760`. See [Fast elevation](#fast-elevation-dogfood-databases) |
+
+#### Value report
+
+`GET /api/v1/value?database=<name|all>&since=YYYY-MM-DD&until=YYYY-MM-DD` reports the DBA
+hours saved, read from each monitored database's own ledger. Days are UTC. `since` and `until`
+are both inclusive: `until` covers its whole day (the bound is the next midnight, exclusive), so
+`since=2026-08-01&until=2026-08-01` is the report for 1 August. An `until` before `since` is a
+400.
+
+Only an action whose current verification (the row `sage.action_log.verification_id` links)
+is a completed success earns toil credit; an older success never outweighs a newer revert.
+Rolling an action back zeroes its toil credit and, in the same statement, stamps
+`reverted_at` on the incident credits it earned: the row stays as evidence and the report and
+`pg_sage_incidents_avoided_total` stop counting it. Both value series on `/metrics` are gauges,
+since both go down on a rollback, and are read at most once a minute (a read in which any
+database failed is retried on the next scrape).
 
 ### Maintenance windows
 
@@ -2152,7 +2175,11 @@ sidecar runs.
 
 **Promotion.** pg_sage proposes one level at a time, and only an admin approves; pg_sage, the
 system and MCP clients cannot. The evidence is checked again at approval time, and a proposal
-expires after `proposal_ttl_hours`. Promotion to L2 requires all of the following:
+expires after `proposal_ttl_hours`. A family's bench checks read its newest report that counts
+for the running build, whatever its origin (an air-gapped install runs on operator reports), so
+a proposal names the deciding report's provenance and id (for example `evidence supports L2;
+bench: unsigned (operator-provided) <id>`), and the Trust page shows it on the row and on the
+approval card. Promotion to L2 requires all of the following:
 
 - PGIncidentBench top-1 accuracy of at least 80% over at least 10 runs, mechanism precision
   of at least 90%, and no forbidden actions, on every gated arm for the family. The report
@@ -2163,8 +2190,10 @@ expires after `proposal_ttl_hours`. Promotion to L2 requires all of the followin
 
 Promotion to L3 also needs a Safe Pass rate of at least 95%, and at least 95% on game days if
 any have run. It also needs at least 50 verified recoveries at L2, and the pair must never
-have had a harmful outcome. These are the spec's thresholds and the defaults; the timing,
-volume and accuracy values can be lowered under `sre.autonomy.promotion` (see
+have had a harmful outcome. An action an operator rolled back is never a verified recovery,
+whatever its verdict and whether the rollback came before or after pg_sage recorded it.
+These are the spec's thresholds and the defaults; the timing, volume and accuracy values
+can be lowered under `sre.autonomy.promotion` (see
 [Fast elevation](#fast-elevation-dogfood-databases)). The report age (30 days) and the
 minimum bench run counts (10) are fixed.
 
@@ -2191,6 +2220,29 @@ A harmful or unsafe outcome also demotes every earned class of its family to L1 
 and re-promotion needs the evidence again. A carried-over pair is instead capped for
 `safety_window_days`. Operators can downgrade a pair or a whole family at
 any time.
+
+An operator's rollback of an L2 handoff or an L3 action demotes that pair one level, as a
+rejection of its handoff does, records the cause (`rolled back by an operator`) in the history
+and notifies an operator. It is not a family-wide demotion; the rollback of an action's own
+regression is not a second demerit (the regression already demoted the family), and the
+automatic revert of a neutral index create is no demerit. A carried-over pair keeps its
+level but loses the rolled-back action's credit. A rollback is judged once, on the next
+reconcile pass. After an upgrade, a rollback older than the newest rollback the reconciler had
+already read is not judged, and one that happened before the pair's level was last set never
+demotes it.
+
+**How live outcomes are read.** Each reconcile pass reads the approved L2 handoffs and the L3
+executions of the last 30 days forward from a cursor kept per database in
+`sage.trust_ledger_state` (`handoff_cursor`, `auto_cursor`), at most 1000 of each kind per
+pass, so a busy database's newest actions are reached within a few passes. The cursor moves
+past an action only once it is 5 minutes old, so an action whose transaction commits late is
+still read. An action still waiting for its verification verdict, or whose L3 notification
+failed, stays in a pending set (`handoff_pending`, `auto_pending`, at most 1000 each) and is
+read again by id each pass until it is recorded and notified. The reconciler stops waiting for
+a pending action once it is older than 30 days, or when the set overflows (the oldest go
+first). It logs a warning naming the action ids, whose outcomes are then not recorded. A pass
+that finds nothing new writes nothing and keeps the evidence cache. After an upgrade the
+cursors are empty, so the first pass reads the 30 days as before.
 
 **Model-sourced roots (measured).** When an investigation's causal graph is conclusive and
 the model ranks another open hypothesis first, the model's root is advisory (L1) by default:
@@ -2231,7 +2283,7 @@ literals always removed.
 | Parameter | Default | Description |
 |---|---|---|
 | `sre.autonomy.enforce` | `true` | The ledger restricts self-initiated incident-family actions. `false` returns them to the trust ramp; the sidecar warns at startup |
-| `sre.autonomy.bench_results_path` | `""` | PGIncidentBench JSON report, or a directory searched three levels deep, ingested at startup and hourly. Point it at the CI `pgincidentbench/` artifact to read the shard reports (`core-a`, `core-b`, `reactive-a`, `reactive-b`, `runway-a`, `runway-b`; its replay corpus report, `pgincidentbench-replay.json`, is not a bench report and is skipped; naming it as the path is an error); each family reads the newest report that scored it. A `<report>.sigstore.json` bundle is verified; a report for another pg_sage build is refused. Not needed for the reports a release ships. Empty: upload through the API |
+| `sre.autonomy.bench_results_path` | `""` | PGIncidentBench JSON report, or a directory searched three levels deep, ingested at startup and hourly. Point it at the CI `pgincidentbench/` artifact to read the shard reports (`core-a`, `core-b`, `reactive-a`, `reactive-b`, `runway-a`, `runway-b`; its replay corpus report, `pgincidentbench-replay.json`, is not a bench report and is skipped; naming it as the path is an error); each family reads the newest report that scored it. A `<report>.sigstore.json` bundle is verified; a report for another pg_sage build is refused, and a refused report is logged once per process per file version (at INFO, naming the build it scores; rewriting the file logs it again), while other ingest errors warn on every ingest. Not needed for the reports a release ships. Empty: upload through the API |
 | `sre.autonomy.evaluate_interval_minutes` | `60` | Minutes between promotion evaluations, `5`-`1440` |
 | `sre.autonomy.reconcile_interval_seconds` | `60` | Seconds between recording live outcomes, `10`-`3600` |
 | `sre.autonomy.max_evidence_age_seconds` | `300` | Older evidence caps an action at L1, `5`-`3600` |

@@ -175,8 +175,10 @@ func TestShippedReportForAnotherVersionIsRefused(t *testing.T) {
 	withVerifier(t, releaseFakeVerifier{commit: other.Commit}, nil)
 	res, err := ingestBenchSources(context.Background(), svc, []benchingest.Source{
 		{Path: image, Shipped: true, Actor: "release_bench"}})
-	if !errors.Is(err, earned.ErrBuildMismatch) || res.Added != 0 {
-		t.Fatalf("ingest = %+v (%v), want ErrBuildMismatch", res, err)
+	// earned-10: refused (logged once per file version), not an error.
+	if err != nil || res.Added != 0 || len(res.Refused) != 1 || res.Refused[0].Path != path ||
+		!strings.Contains(res.Refused[0].Reason, "pg_sage 1.8.4") {
+		t.Fatalf("ingest = %+v (%v), want one refusal naming pg_sage 1.8.4", res, err)
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {

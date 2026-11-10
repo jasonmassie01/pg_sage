@@ -144,25 +144,27 @@ func latestMigrations() []namedStep {
 // trancheOneMigrations are the steps after latestMigrations, in order.
 func trancheOneMigrations() []namedStep {
 	return []namedStep{
-		{"ddlUnusedIndexClock", ddlUnusedIndexClock},                 // rules-04
-		{"ddlSelfConfigDerivations", ddlSelfConfigDerivations},       // footprint-04
-		{"ddlPreTaggingSelfFindings", ddlPreTaggingSelfFindings},     // footprint-06
-		{"ddlQueryHintsStatusCheck", ddlQueryHintsStatusCheck},       // tuning-06
-		{"ddlAdvisorRuns", ddlAdvisorRuns},                           // advisors-02
-		{"ddlRolloutInstanceStatus", ddlRolloutInstanceStatus},       // executor-04
-		{"ddlPGAuditActionTagIndex", ddlPGAuditActionTagIndex},       // audit-06
-		{"ddlApprovalCardNextCheck", ddlApprovalCardNextCheck},       // policy-06
-		{"ddlActionQueueRevertsAction", ddlActionQueueRevertsAction}, // policy-05
-		{"ddlDecisionCandidateKey", ddlDecisionCandidateKey()},       // policy-02
-		{"ddlDecisionPolicyProvenance", ddlDecisionPolicyProvenance}, // policy-03
-		{"ddlSREAttempts", ddlSREAttempts},                           // sre-01
-		{"ddlFactsMissingSince", ddlFactsMissingSince},               // facts-08
-		{"ddlFactEvents", ddlFactEvents},                             // facts-07
-		{"ddlMigrationRunBlocked", ddlMigrationRunBlocked},           // migration-03
-		{"ddlLLMUsage", ddlLLMUsage},                                 // fleet-10
-		{"ddlFleetLeaseControl", ddlFleetLeaseControl},               // fleet-03: control database on the lease
-		{"ddlApprovalFollowupClaim", ddlApprovalFollowupClaim},       // fleet-03: fenced follow-up claims
-		{"ddlMCPTokensMetricsScope", ddlMCPTokensMetricsScope},       // observability-08: scrape tokens
-		{"ddlUsersDatabricksPin", ddlUsersDatabricksPin},             // databricks-07: Apps forwarded-user pin
+		{"ddlUnusedIndexClock", ddlUnusedIndexClock},                     // rules-04
+		{"ddlSelfConfigDerivations", ddlSelfConfigDerivations},           // footprint-04
+		{"ddlPreTaggingSelfFindings", ddlPreTaggingSelfFindings},         // footprint-06
+		{"ddlQueryHintsStatusCheck", ddlQueryHintsStatusCheck},           // tuning-06
+		{"ddlAdvisorRuns", ddlAdvisorRuns},                               // advisors-02
+		{"ddlRolloutInstanceStatus", ddlRolloutInstanceStatus},           // executor-04
+		{"ddlPGAuditActionTagIndex", ddlPGAuditActionTagIndex},           // audit-06
+		{"ddlApprovalCardNextCheck", ddlApprovalCardNextCheck},           // policy-06
+		{"ddlActionQueueRevertsAction", ddlActionQueueRevertsAction},     // policy-05
+		{"ddlDecisionCandidateKey", ddlDecisionCandidateKey()},           // policy-02
+		{"ddlDecisionPolicyProvenance", ddlDecisionPolicyProvenance},     // policy-03
+		{"ddlSREAttempts", ddlSREAttempts},                               // sre-01
+		{"ddlFactsMissingSince", ddlFactsMissingSince},                   // facts-08
+		{"ddlFactEvents", ddlFactEvents},                                 // facts-07
+		{"ddlMigrationRunBlocked", ddlMigrationRunBlocked},               // migration-03
+		{"ddlLLMUsage", ddlLLMUsage},                                     // fleet-10
+		{"ddlFleetLeaseControl", ddlFleetLeaseControl},                   // fleet-03: control database on the lease
+		{"ddlApprovalFollowupClaim", ddlApprovalFollowupClaim},           // fleet-03: fenced follow-up claims
+		{"ddlMCPTokensMetricsScope", ddlMCPTokensMetricsScope},           // observability-08: scrape tokens
+		{"ddlUsersDatabricksPin", ddlUsersDatabricksPin},                 // databricks-07: Apps forwarded-user pin
+		{"ddlTrustLedgerIncidentCursors", ddlTrustLedgerIncidentCursors}, // earned-02: after ddlTrustLedger()
+		{"ddlIncidentAvoidedRevert", ddlIncidentAvoidedRevert},           // earned-09: after ddlAgentNativeValue
 	}
 }

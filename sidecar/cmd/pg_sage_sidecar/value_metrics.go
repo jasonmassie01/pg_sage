@@ -12,10 +12,13 @@ import (
 //
 // Net verified toil can decrease when a rollback zeroes an action's
 // credit, so it is a gauge (SURF-18); a counter would make rate()
-// report a reset spike. pg_sage_value_metrics_up{database} reports
-// whether that database's last refresh read its ledger, so a partial
-// scrape is visible instead of silently missing a database. A database
-// not yet refreshed has no sample at all.
+// report a reset spike. Incidents avoided decrease the same way when a
+// rollback voids an incident credit (earned-09), so they are a gauge too;
+// the name keeps its _total suffix so existing queries keep working.
+// pg_sage_value_metrics_up{database} reports whether that database's
+// last refresh read its ledger, so a partial scrape is visible instead
+// of silently missing a database. A database not yet refreshed has no
+// sample at all.
 func writeValueMetrics(b *strings.Builder, views []metricsView) {
 	rows := valueRows(views)
 	b.WriteString("# HELP pg_sage_toil_minutes_saved " +
@@ -25,8 +28,8 @@ func writeValueMetrics(b *strings.Builder, views []metricsView) {
 		writeToilSeries(b, v)
 	}
 	b.WriteString("\n# HELP pg_sage_incidents_avoided_total " +
-		"Incidents avoided by kind\n" +
-		"# TYPE pg_sage_incidents_avoided_total counter\n")
+		"Incidents avoided by kind (decreases on rollback)\n" +
+		"# TYPE pg_sage_incidents_avoided_total gauge\n")
 	for _, v := range rows {
 		writeIncidentSeries(b, v)
 	}

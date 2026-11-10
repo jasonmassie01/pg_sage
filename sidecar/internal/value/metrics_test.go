@@ -14,11 +14,12 @@ import (
 
 // observability-03: /metrics reads only what it exports. IncidentCounts
 // counts the ledger by kind in SQL, so it must agree with the detailed
-// row scan /api/v1/value keeps using.
+// row scan /api/v1/value keeps using. (Two of the kinds earned-09 kept:
+// lock_storm is retired.)
 func TestIncidentCountsAgreesWithRowScan(t *testing.T) {
 	ctx := context.Background()
 	source := newLedgerSource(t, "incident_counts")
-	for i, kind := range []string{IncidentXIDWraparound, IncidentLockStorm,
+	for i, kind := range []string{IncidentXIDWraparound, IncidentDiskFullSlot,
 		IncidentXIDWraparound} {
 		graph := insertValueEvidenceGraph(t, ctx, source.Pool, 7,
 			"counts-"+string(rune('a'+i)))
@@ -42,7 +43,7 @@ func TestIncidentCountsAgreesWithRowScan(t *testing.T) {
 	for _, incident := range snapshot.Incidents {
 		scanned[incident.Kind]++
 	}
-	want := map[string]int64{IncidentXIDWraparound: 2, IncidentLockStorm: 1}
+	want := map[string]int64{IncidentXIDWraparound: 2, IncidentDiskFullSlot: 1}
 	if !reflect.DeepEqual(counts, want) || !reflect.DeepEqual(scanned, want) {
 		t.Fatalf("IncidentCounts = %v, row scan = %v, want %v", counts, scanned, want)
 	}

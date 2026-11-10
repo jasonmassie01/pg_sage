@@ -44,30 +44,33 @@ func (s *Service) Evaluate(ctx context.Context) (Evaluation, error) {
 	if err := s.expire(ctx); err != nil {
 		return e, err
 	}
-	pending, err := s.store.listProposals(ctx, StatusPending, 200)
+	grid, b := gridPairs(), &readBatch{}
+	in, err := s.queueLedger(ctx, b, grid, evidenceNeeds{incident: true, records: true},
+		s.now())
 	if err != nil {
 		return e, err
 	}
+	if err := s.store.runBatch(ctx, b); err != nil {
+		return e, err
+	}
 	waiting := map[pairKey]string{}
-	for _, p := range pending {
+	for _, p := range in.pending {
 		waiting[pairKey{p.Family, p.Class}] = p.ID
 	}
-	for _, f := range AllFamilies() {
-		for _, c := range ApplicableClasses(f) {
-			if err := s.evaluateOne(ctx, f, c, waiting, &e); err != nil {
-				return e, err
-			}
+	for _, key := range grid {
+		st := in.granted(key.family, key.class)
+		ev := s.evidenceOf(*in.e, key.family, key.class)
+		if err := s.evaluateOne(ctx, st, ev, waiting, &e); err != nil {
+			return e, err
 		}
 	}
 	return e, nil
 }
 
-func (s *Service) evaluateOne(ctx context.Context, f Family, c ActionClass,
+// evaluateOne proposes the pair of st one level up, or explains why not.
+func (s *Service) evaluateOne(ctx context.Context, st State, ev Evidence,
 	waiting map[pairKey]string, e *Evaluation) error {
-	st, err := s.Granted(ctx, f, c)
-	if err != nil {
-		return err
-	}
+	f, c := st.Family, st.Class
 	np := NotProposed{Family: f, Class: c, Granted: st.Level}
 	target := st.Level + 1
 	if target > CapForPair(f, c) || !target.Grantable() {
@@ -80,10 +83,6 @@ func (s *Service) evaluateOne(ctx context.Context, f Family, c ActionClass,
 		np.Reason, np.Pending = NotProposedPending, id
 		e.NotProposed = append(e.NotProposed, np)
 		return nil
-	}
-	ev, err := s.Evidence(ctx, f, c)
-	if err != nil {
-		return err
 	}
 	a := Assess(s.cfg.Thresholds, target, ev)
 	if !a.Met {

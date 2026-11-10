@@ -53,7 +53,7 @@ func TestWriteValueMetricsEmitsVerifiedToilAndIncidentSeries(t *testing.T) {
 	}
 	for _, header := range []string{
 		"# TYPE pg_sage_toil_minutes_saved gauge",
-		"# TYPE pg_sage_incidents_avoided_total counter",
+		"# TYPE pg_sage_incidents_avoided_total gauge",
 		`pg_sage_value_metrics_up{database="primary"} 1`,
 	} {
 		if !strings.Contains(output, header) {

@@ -19,33 +19,42 @@ import (
 
 // external is the verification of d's change applied outside pg_sage;
 // nil when the class cannot be checked in the catalog or nothing changed.
-func (s *Scorer) external(ctx context.Context, p pendingDecision) (*verifiedFact, error) {
+// own is true when the change is in the catalog but pg_sage made it (or
+// may have): no other source may score it then, not even the what-if of
+// an index that already exists, and the horizon leaves it unscored. A
+// change already marked applied is asked again on every pass: pg_sage's
+// action may be logged just after its index became valid, and a mark may
+// predate this check (an upgrade).
+func (s *Scorer) external(ctx context.Context, p pendingDecision) (*verifiedFact, bool,
+	error) {
 	if p.Class != "index_create" && p.Class != "index_drop" {
-		return nil, nil
+		return nil, false, nil
 	}
-	if p.AppliedDetectedAt == nil || p.AppliedAfter == nil {
+	marked := p.AppliedDetectedAt != nil && p.AppliedAfter != nil
+	if !marked {
 		applied, err := s.appliedOutside(ctx, p.Decision)
 		if err != nil || !applied {
-			return nil, err
+			return nil, false, err
 		}
-		if err := s.markApplied(ctx, p.ID); err != nil {
-			return nil, err
-		}
-		return &verifiedFact{Reason: "the after window has just started"}, nil
 	}
-	return s.verifyApplied(ctx, p)
+	own, err := s.madeByPgSage(ctx, p.Decision) // scorer_own.go
+	if err != nil || own {
+		return nil, own, err
+	}
+	if !marked {
+		if err := s.markApplied(ctx, p.ID); err != nil {
+			return nil, false, err
+		}
+		return &verifiedFact{Reason: "the after window has just started"}, false, nil
+	}
+	f, err := s.verifyApplied(ctx, p)
+	return f, false, err
 }
 
 // appliedOutside checks the catalog for d's change.
 func (s *Scorer) appliedOutside(ctx context.Context, d Decision) (bool, error) {
 	if d.Class == "index_drop" {
-		name := strings.TrimPrefix(d.Shape, "drop index ")
-		var gone bool
-		if err := s.pool.QueryRow(ctx, `/* pg_sage */ SELECT to_regclass($1) IS NULL`,
-			name).Scan(&gone); err != nil {
-			return false, fmt.Errorf("shadow: look up index %s: %w", name, err)
-		}
-		return gone, nil
+		return s.droppedOutside(ctx, d)
 	}
 	table, ok := shapeTable(d.Shape)
 	if !ok {
@@ -67,6 +76,23 @@ func (s *Scorer) appliedOutside(ctx context.Context, d Decision) (bool, error) {
 		}
 	}
 	return false, rows.Err()
+}
+
+// droppedOutside: the index d drops is gone and its table is not. The
+// table is named by d's rollback (the index definition); without it a
+// dropped table cannot be ruled out, and the drop is not counted.
+func (s *Scorer) droppedOutside(ctx context.Context, d Decision) (bool, error) {
+	name := strings.TrimPrefix(d.Shape, "drop index ")
+	table, ok := shapeTable(Shape(d.RollbackSQL))
+	if !ok {
+		return false, nil
+	}
+	var dropped bool
+	if err := s.pool.QueryRow(ctx, `/* pg_sage */ SELECT to_regclass($1) IS NULL
+		AND to_regclass($2) IS NOT NULL`, name, table).Scan(&dropped); err != nil {
+		return false, fmt.Errorf("shadow: look up index %s of %s: %w", name, table, err)
+	}
+	return dropped, nil
 }
 
 // shapeTable is the table of an index-create shape.

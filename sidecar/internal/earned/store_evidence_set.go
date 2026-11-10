@@ -101,21 +101,34 @@ func (s *PostgresStore) ShadowStats(ctx context.Context, f Family, since time.Ti
 	return set[f], err
 }
 
+// liveSetSQL counts each pair's live record. A verified recovery an
+// operator later rolled back (a rollback row for its action) is no
+// credit: it counts as unverified, as it does when the rollback landed
+// before the reconciler first read the action (earned-01).
 const liveSetSQL = `/* pg_sage */ SELECT p.family, p.action_class, l.verified, l.harmful,
 	l.unverified
 	FROM unnest($3::text[], $4::text[]) AS p(family, action_class)
 	CROSS JOIN LATERAL (
-		SELECT count(*) FILTER (WHERE o.result = 'verified_recovery' AND o.level = 2)
-		           AS verified,
+		SELECT count(*) FILTER (WHERE o.result = 'verified_recovery' AND o.level = 2
+		                          AND NOT x.rolled_back) AS verified,
 		       count(*) FILTER (WHERE o.result IN ('harmful', 'safety_violation'))
 		           AS harmful,
-		       count(*) FILTER (WHERE o.result = 'unverified') AS unverified
+		       count(*) FILTER (WHERE o.result = 'unverified'
+		                           OR x.rolled_back)
+		           AS unverified
 		  FROM sage.sre_autonomy_outcomes o
+		  CROSS JOIN LATERAL (SELECT o.result = 'verified_recovery'
+		        AND o.action_log_id IS NOT NULL AND EXISTS (
+		        SELECT 1 FROM sage.sre_autonomy_outcomes b
+		         WHERE b.deployment_id = o.deployment_id
+		           AND b.database_name = o.database_name
+		           AND b.action_log_id = o.action_log_id AND b.source = 'rollback')
+		        AS rolled_back) x
 		 WHERE o.deployment_id = $1 AND o.database_name = $2 AND o.family = p.family
 		   AND o.action_class = p.action_class) l`
 
-// liveSet counts each pair's verified L2 recoveries, harmful and
-// unverified outcomes.
+// liveSet counts each pair's verified L2 recoveries (none an operator
+// rolled back), harmful and unverified outcomes.
 func (s *PostgresStore) liveSet(ctx context.Context, pairs []pairKey) (map[pairKey]Live,
 	error) {
 	out := map[pairKey]Live{}

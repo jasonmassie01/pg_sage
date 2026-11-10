@@ -39,7 +39,7 @@ func (l *logLines) all() []string {
 }
 
 func TestReplayNoticesLogEachSkippedFileOnce(t *testing.T) {
-	var notices replayNotices
+	var notices benchNotices
 	var log logLines
 	a := filepath.Join("ci", "pgincidentbench-replay.json")
 	b := filepath.Join("other", "pgincidentbench-replay.json")
@@ -63,7 +63,7 @@ func TestReplayNoticesLogEachSkippedFileOnce(t *testing.T) {
 }
 
 func TestReplayNoticesConcurrentTicksLogOnce(t *testing.T) {
-	var notices replayNotices
+	var notices benchNotices
 	var log logLines
 	var wg sync.WaitGroup
 	for range 16 {

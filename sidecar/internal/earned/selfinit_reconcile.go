@@ -27,6 +27,15 @@ const selfBatch = 500
 // selfCursors are the last observation times read, per kind.
 type selfCursors struct{ verdict, rollback, rejection *time.Time }
 
+func (c selfCursors) equal(o selfCursors) bool {
+	return sameTime(c.verdict, o.verdict) && sameTime(c.rollback, o.rollback) &&
+		sameTime(c.rejection, o.rejection)
+}
+
+func sameTime(a, b *time.Time) bool {
+	return (a == nil) == (b == nil) && (a == nil || a.Equal(*b))
+}
+
 // selfFact is one observed action or proposal with the outcome it makes.
 type selfFact struct {
 	outcome Outcome
@@ -34,10 +43,11 @@ type selfFact struct {
 }
 
 func (r *Reconciler) selfInitiated(ctx context.Context, res *ReconcileResult) error {
-	cur, err := r.svc.store.cursors(ctx)
+	loaded, err := r.svc.store.cursors(ctx)
 	if err != nil {
 		return err
 	}
+	cur := loaded
 	var notifyErrs []error
 	for _, kind := range []struct {
 		read   func(context.Context, *time.Time) ([]selfFact, *time.Time, error)
@@ -59,8 +69,10 @@ func (r *Reconciler) selfInitiated(ctx context.Context, res *ReconcileResult) er
 			*kind.cursor = last
 		}
 	}
-	if err := r.svc.store.saveCursors(ctx, cur); err != nil {
-		return err
+	if !cur.equal(loaded) { // an idle pass writes nothing (earned-02)
+		if err := r.svc.store.saveCursors(ctx, cur); err != nil {
+			return err
+		}
 	}
 	return errors.Join(notifyErrs...)
 }
@@ -127,42 +139,78 @@ func (r *Reconciler) verdictFacts(ctx context.Context, cursor *time.Time) ([]sel
 		})
 }
 
+// rollbackFactsSQL reads every rolled-back action, an incident family's
+// too (earned-01): its decision's incident pair, else the autonomy
+// handoff key of its approval item, names the pair it is judged under.
 const rollbackFactsSQL = `/* pg_sage */ SELECT l.id,
 	COALESCE((SELECT o.action_class FROM sage.action_outcome o
 	          WHERE o.action_log_id = l.id), ''),
 	COALESCE((SELECT o.verdict FROM sage.action_outcome o WHERE o.action_log_id = l.id), ''),
 	l.action_type, l.measured_at, COALESCE(d.reason, ''),
-	COALESCE(d.evidence ? 'approved_by', false)
+	COALESCE(d.evidence ? 'approved_by', false),
+	d.evidence->>'incident_family', COALESCE(d.evidence->>'autonomy_class', ''),
+	COALESCE((SELECT q.identity_key FROM sage.action_queue q
+	          WHERE q.action_log_id = l.id AND q.identity_key LIKE 'autonomy:%'
+	          ORDER BY q.id LIMIT 1), '')
 	FROM sage.action_log l
 	LEFT JOIN sage.decision d ON d.id = l.decision_id
 	WHERE l.outcome = 'rolled_back'
 	  AND l.measured_at >= COALESCE($1::timestamptz,
 	                                now() - make_interval(secs => $2::double precision))
-	  AND NOT COALESCE(d.evidence ? 'incident_family', false)
 	ORDER BY l.measured_at, l.id LIMIT $3`
 
-// rollbackFacts are self-initiated actions rolled back for another reason
-// than their own regression or the no-gain revert of an index create.
+// rollbackRow is one rolled-back action as rollbackFactsSQL reads it;
+// incidentFamily is nil when its decision names no incident family.
+type rollbackRow struct {
+	id                                   int64
+	outcomeClass, verdict, label, reason string
+	approved                             bool
+	at                                   time.Time
+	incidentFamily                       *string
+	incidentClass, handoffKey            string
+}
+
+// pair is the ledger pair and level a rollback is judged under: an
+// incident action's own pair (its decision's, else its handoff key's),
+// else its self-initiated class. ok is false when the ledger does not
+// judge it; a malformed incident marker is never judged as a self class.
+func (w rollbackRow) pair() (Family, ActionClass, Level, bool) {
+	level := actionLevel(w.reason, w.approved || w.handoffKey != "")
+	switch {
+	case w.incidentFamily != nil:
+		f, c := Family(*w.incidentFamily), ActionClass(w.incidentClass)
+		return f, c, level, IsIncidentFamily(f) && knownClass(c)
+	case w.handoffKey != "":
+		f, c, ok := parseHandoffKey(w.handoffKey)
+		return f, c, level, ok
+	}
+	c := ClassForOutcomeClass(w.outcomeClass)
+	if c == "" {
+		c = classForActionLabel(w.label)
+	}
+	return SelfFamilyFor(c), c, level, c != ""
+}
+
+// rollbackFacts are actions an operator rolled back, other than the
+// rollback of their own regression or the no-gain revert of an index
+// create: a one-level demerit of their pair, as a rejection is.
 func (r *Reconciler) rollbackFacts(ctx context.Context, cursor *time.Time) ([]selfFact,
 	*time.Time, error) {
 	return r.readFacts(ctx, "read rolled-back actions", rollbackFactsSQL, cursor,
 		func(rows pgx.Rows) (selfFact, bool, error) {
-			var id int64
-			var outcomeClass, verdict, label, reason string
-			var approved bool
-			var at time.Time
-			if err := rows.Scan(&id, &outcomeClass, &verdict, &label, &at, &reason,
-				&approved); err != nil {
+			var w rollbackRow
+			if err := rows.Scan(&w.id, &w.outcomeClass, &w.verdict, &w.label, &w.at,
+				&w.reason, &w.approved, &w.incidentFamily, &w.incidentClass,
+				&w.handoffKey); err != nil {
 				return selfFact{}, false, err
 			}
-			c := ClassForOutcomeClass(outcomeClass)
-			if c == "" {
-				c = classForActionLabel(label)
-			}
-			o := r.selfOutcome(id, c, actionLevel(reason, approved), at)
-			o.Result, o.Source, o.Verdict = ResultRejected, SourceRollback, CauseRolledBack
-			o.Detail = fmt.Sprintf("rolled back; verdict %q", verdict)
-			return selfFact{outcome: o, at: at}, c != "" && rollbackIsDemerit(c, verdict), nil
+			f, c, level, ok := w.pair()
+			ts := w.at.UTC()
+			o := Outcome{Database: r.database, ActionLogID: w.id, Family: f, Class: c,
+				Level: level, Actor: ActorPgSage, ObservedAt: &ts, Result: ResultRejected,
+				Source: SourceRollback, Verdict: CauseRolledBack,
+				Detail: fmt.Sprintf("rolled back; verdict %q", w.verdict)}
+			return selfFact{outcome: o, at: w.at}, ok && rollbackIsDemerit(c, w.verdict), nil
 		})
 }
 

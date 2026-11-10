@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 )
@@ -52,6 +53,9 @@ type Service struct {
 
 	mu    sync.Mutex
 	cache map[pairKey]cachedLevel
+	// invalidations counts the cache drops: an idle reconcile pass makes
+	// none (earned-02).
+	invalidations int64
 	// ramp is the trust ramp, the promotion floor of self-initiated
 	// classes (WithRamp); nil: unknown.
 	ramp func() RampFloor
@@ -200,6 +204,7 @@ func (s *Service) supportedLevel(ctx context.Context, f Family, c ActionClass) (
 func (s *Service) invalidate() {
 	s.mu.Lock()
 	s.cache = map[pairKey]cachedLevel{}
+	s.invalidations++
 	s.mu.Unlock()
 }
 
@@ -229,13 +234,26 @@ func (s *Service) createProposal(ctx context.Context, st State, target Level, ev
 	}
 	err = s.store.appendEvent(ctx, s.store.pool, Event{Family: p.Family, Class: p.Class,
 		Type: EventPromotionProposed, From: levelPtr(p.From), To: levelPtr(p.To),
-		Actor: ActorPgSage, Reason: fmt.Sprintf("evidence supports %s", p.To),
+		Actor: ActorPgSage, Reason: proposalReason(p.To, ev.Bench),
 		ProposalID: p.ID, Evidence: raw, At: now})
 	if err != nil {
 		return Proposal{}, false, err
 	}
 	stored, err := s.store.Proposal(ctx, p.ID)
 	return stored, err == nil, err
+}
+
+// proposalReason says what a proposal rests on: the level the evidence
+// supports and, with bench evidence, the deciding report's provenance and
+// id. The newest report decides whatever its origin, so the approver must
+// see which one it is.
+func proposalReason(to Level, bench *EvalRun) string {
+	reason := fmt.Sprintf("evidence supports %s", to)
+	if bench == nil {
+		return reason
+	}
+	return strings.TrimSpace(fmt.Sprintf("%s; bench: %s %s", reason,
+		bench.ProvenanceLabel(), bench.ID))
 }
 
 // expire marks pending proposals past their expiry and records it.

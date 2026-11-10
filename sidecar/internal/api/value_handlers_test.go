@@ -22,7 +22,7 @@ func TestValueHandlerReturnsPrescribedJSONShape(t *testing.T) {
 		IncidentsAvoided: value.IncidentSummary{
 			Count: 1, CreditedHours: 8,
 			Detail: []value.Incident{{
-				Kind: "xid_wraparound", Severity: "prevented",
+				Kind: "xid_wraparound", Severity: "near_miss",
 				EvidenceID: "ev-1",
 			}},
 		},
@@ -147,4 +147,59 @@ func (f *fakeValueReader) Get(
 	f.calls++
 	f.filter = filter
 	return f.report, f.err
+}
+
+// until names the last day of the report: the filter ends at the next
+// midnight (exclusive), so the whole until day is counted and since ==
+// until is a one-day report (earned-09).
+func TestValueFilterUntilIncludesItsOwnDay(t *testing.T) {
+	for _, tc := range []struct{ query, since, until string }{
+		{"until=2026-08-01", "", "2026-08-02T00:00:00Z"},
+		{"since=2026-08-01&until=2026-08-01", "2026-08-01T00:00:00Z", "2026-08-02T00:00:00Z"},
+		{"since=2026-02-28&until=2026-02-28", "2026-02-28T00:00:00Z", "2026-03-01T00:00:00Z"},
+		{"since=2026-12-30&until=2026-12-31", "2026-12-30T00:00:00Z", "2027-01-01T00:00:00Z"},
+		{"since=2026-08-01", "2026-08-01T00:00:00Z", ""},
+	} {
+		request := httptest.NewRequest(http.MethodGet, "/api/v1/value?"+tc.query, nil)
+		filter, err := valueFilterFromRequest(request)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.query, err)
+		}
+		if got := formatFilterTime(filter.Since); got != tc.since {
+			t.Errorf("%s: since = %q, want %q", tc.query, got, tc.since)
+		}
+		if got := formatFilterTime(filter.Until); got != tc.until {
+			t.Errorf("%s: until = %q, want %q", tc.query, got, tc.until)
+		}
+	}
+}
+
+// The range check compares calendar days, not the exclusive bound: an
+// until one day before since is still reversed.
+func TestValueFilterRejectsUntilBeforeSinceAndBadDates(t *testing.T) {
+	for _, query := range []string{
+		"since=2026-08-01&until=2026-07-31",
+		"until=2026-02-30",
+		"until=2026-8-1",
+		"until=2026-08-01T00:00:00Z",
+	} {
+		request := httptest.NewRequest(http.MethodGet, "/api/v1/value?"+query, nil)
+		filter, err := valueFilterFromRequest(request)
+		if err == nil {
+			t.Errorf("%s: accepted as %#v, want an error", query, filter)
+			continue
+		}
+		var rangeErr *valueRangeError
+		var dateErr *valueDateError
+		if !errors.As(err, &rangeErr) && !errors.As(err, &dateErr) {
+			t.Errorf("%s: error %T %v, want a range or date error", query, err, err)
+		}
+	}
+}
+
+func formatFilterTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.Format(time.RFC3339)
 }

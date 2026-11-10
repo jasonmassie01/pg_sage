@@ -44,7 +44,8 @@ type pendingDecision struct {
 	now time.Time
 }
 
-// RunOnce scores what it can of the oldest pending decisions.
+// RunOnce scores what it can of the oldest and the newest pending
+// decisions (half a batch each).
 func (s *Scorer) RunOnce(ctx context.Context) (Result, error) {
 	res := Result{Scored: map[string]int{}}
 	if s == nil || s.pool == nil {
@@ -54,7 +55,7 @@ func (s *Scorer) RunOnce(ctx context.Context) (Result, error) {
 	if err != nil || len(pending) == 0 {
 		return res, err
 	}
-	since := pending[0].RecordedAt
+	since := pending[0].RecordedAt // the oldest read
 	queue, err := s.queueFacts(ctx, since)
 	if err != nil {
 		return res, err
@@ -88,15 +89,16 @@ func (s *Scorer) RunOnce(ctx context.Context) (Result, error) {
 }
 
 // evidence gathers every source for p; the costlier ones (catalog and
-// verification reads, what-if) only when no cheaper one decided.
+// verification reads, what-if) only when no cheaper one decided. A change
+// pg_sage made itself, found in the catalog, is no evidence of any source.
 func (s *Scorer) evidence(ctx context.Context, p pendingDecision, queue []queueRow,
 	actions []actionRow, w *whatIf) (facts, error) {
 	ev := facts{queue: matchQueue(queue, p.Decision), action: matchAction(actions, p.Decision)}
 	if ev.queue != nil || ev.action != nil {
 		return ev, nil
 	}
-	ext, err := s.external(ctx, p)
-	if err != nil || ext != nil {
+	ext, own, err := s.external(ctx, p)
+	if err != nil || ext != nil || own {
 		ev.external = ext
 		return ev, err
 	}
@@ -106,13 +108,24 @@ func (s *Scorer) evidence(ctx context.Context, p pendingDecision, queue []queueR
 	return ev, nil
 }
 
-const pendingSQL = `/* pg_sage */ SELECT ` + decisionColumns + `,
+// pendingSQL reads the oldest $1 and the newest $2 pending decisions, each
+// once, oldest first: decisions that wait (up to the horizon) never keep
+// a newer one, whose evidence is in, from being scored. The rows are read
+// by primary key (a join may hash every pending row).
+const pendingSQL = `/* pg_sage */ WITH picked AS (
+	(SELECT id FROM sage.shadow_decision WHERE status = 'pending'
+	 ORDER BY recorded_at, id LIMIT $1)
+	UNION
+	(SELECT id FROM sage.shadow_decision WHERE status = 'pending'
+	 ORDER BY recorded_at DESC, id DESC LIMIT $2))
+	SELECT ` + decisionColumns + `,
 	extract(epoch FROM now() - recorded_at)::float8, now()
-	FROM sage.shadow_decision WHERE status = 'pending'
-	ORDER BY recorded_at, id LIMIT $1`
+	FROM sage.shadow_decision
+	WHERE id = ANY (ARRAY(SELECT id FROM picked)) AND status = 'pending'
+	ORDER BY recorded_at, id`
 
 func (s *Scorer) pending(ctx context.Context) ([]pendingDecision, error) {
-	rows, err := s.pool.Query(ctx, pendingSQL, s.opts.Batch)
+	rows, err := s.pool.Query(ctx, pendingSQL, (s.opts.Batch+1)/2, s.opts.Batch/2)
 	if err != nil {
 		return nil, fmt.Errorf("shadow: read pending decisions: %w", err)
 	}

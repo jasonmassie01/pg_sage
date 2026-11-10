@@ -47,61 +47,61 @@ type View struct {
 	Bench       *EvalRun     `json:"bench,omitempty"`
 	GameDays    []EvalRun    `json:"game_days"`
 	Families    []FamilyView `json:"families"`
+	// safety is the incident families' safety record the view read, for
+	// Annotate to reuse; nil when the view did not read it.
+	safety map[Family]familySafetyRow
 }
 
 // View lists every applicable pair with its level, cap, the level its
-// evidence supports, its pending proposal and the next level's evidence.
+// evidence supports, its pending proposal and the next level's evidence:
+// the proposal expiry, then every read in one pipelined round trip.
 func (s *Service) View(ctx context.Context) (View, error) {
-	pending, err := s.PendingProposals(ctx)
+	if err := s.expire(ctx); err != nil {
+		return View{}, err
+	}
+	now, b := s.now(), &readBatch{}
+	in, err := s.queueLedger(ctx, b, viewPairs(), evidenceNeeds{incident: true}, now)
 	if err != nil {
 		return View{}, err
 	}
-	byPair := map[pairKey]*Proposal{}
-	for i := range pending {
-		byPair[pairKey{pending[i].Family, pending[i].Class}] = &pending[i]
+	latest := map[Family]*EvalRun{}
+	if err := s.store.readBench(ctx, b, []Family{""}, latest); err != nil {
+		return View{}, err
 	}
-	v := View{GeneratedAt: s.now(), Thresholds: s.cfg.Thresholds, GameDays: []EvalRun{}}
+	if err := s.store.runBatch(ctx, b); err != nil {
+		return View{}, err
+	}
+	return s.buildView(now, in, latest[""]), nil
+}
+
+// buildView assembles the view from its reads; bench is the newest report
+// of any family. The game days are the evidence's own read (the same
+// statement and window as GameDayRuns).
+func (s *Service) buildView(now time.Time, in *ledgerReads, bench *EvalRun) View {
+	pending, e := in.pendingByPair(), *in.e
+	v := View{GeneratedAt: now, Thresholds: s.cfg.Thresholds, Bench: bench,
+		GameDays: []EvalRun{}}
+	if e.safetyRead {
+		v.safety = e.safety
+	}
+	if len(e.gameDays) > 0 {
+		v.GameDays = e.gameDays
+	}
 	for _, f := range Families() {
-		fv, err := s.familyView(ctx, f, byPair)
-		if err != nil {
-			return View{}, err
+		fv := FamilyView{Family: f, Classes: []ClassView{}}
+		for _, c := range ApplicableClasses(f) {
+			ev := s.evidenceOf(e, f, c)
+			fv.Shadow, fv.Bench = ev.Shadow, SummarizeBench(ev.Bench)
+			fv.Classes = append(fv.Classes,
+				s.classView(in.granted(f, c), ev, pending[pairKey{f, c}]))
 		}
 		v.Families = append(v.Families, fv)
 	}
-	if v.Bench, err = s.store.LatestBench(ctx, ""); err != nil {
-		return View{}, err
-	}
-	runs, err := s.store.GameDayRuns(ctx, s.now().Add(-s.cfg.Thresholds.BenchMaxAge))
-	if runs != nil {
-		v.GameDays = runs
-	}
-	return v, err
+	return v
 }
 
-func (s *Service) familyView(ctx context.Context, f Family,
-	pending map[pairKey]*Proposal) (FamilyView, error) {
-	fv := FamilyView{Family: f, Classes: []ClassView{}}
-	for _, c := range ApplicableClasses(f) {
-		ev, err := s.Evidence(ctx, f, c)
-		if err != nil {
-			return FamilyView{}, err
-		}
-		fv.Shadow, fv.Bench = ev.Shadow, SummarizeBench(ev.Bench)
-		row, err := s.classView(ctx, ev, pending[pairKey{f, c}])
-		if err != nil {
-			return FamilyView{}, err
-		}
-		fv.Classes = append(fv.Classes, row)
-	}
-	return fv, nil
-}
-
-func (s *Service) classView(ctx context.Context, ev Evidence, pending *Proposal) (ClassView,
-	error) {
-	st, err := s.Granted(ctx, ev.Family, ev.Class)
-	if err != nil {
-		return ClassView{}, err
-	}
+// classView is one pair's row from its granted state and evidence.
+func (s *Service) classView(st State, ev Evidence, pending *Proposal) ClassView {
 	spec, _ := Spec(ev.Class)
 	row := ClassView{Class: ev.Class, Reversibility: spec.Reversibility,
 		Cap:     CapForPair(ev.Family, ev.Class),
@@ -117,5 +117,5 @@ func (s *Service) classView(ctx context.Context, ev Evidence, pending *Proposal)
 		a := Assess(s.cfg.Thresholds, next, ev)
 		row.Next = &a
 	}
-	return row, nil
+	return row
 }

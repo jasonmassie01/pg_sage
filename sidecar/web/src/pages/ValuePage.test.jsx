@@ -30,7 +30,7 @@ const valueFixture = {
     credited_hours: 10,
     detail: [{
       kind: 'xid_wraparound',
-      severity: 'prevented',
+      severity: 'near_miss',
       when: '2026-07-20T02:15:00Z',
       evidence_id: 'ev-xid-7',
     }],
@@ -127,7 +127,7 @@ describe('ValuePage', () => {
     expect(within(incidents).getByText('10 h')).toBeInTheDocument()
     expect(within(incidents).getByText(/xid wraparound/i))
       .toBeInTheDocument()
-    expect(within(incidents).getByText(/prevented/i)).toBeInTheDocument()
+    expect(within(incidents).getByText(/near miss/i)).toBeInTheDocument()
     expect(incidents).toHaveTextContent(/credited separately/i)
 
     // SURF-14: there is no ledger route, so no dead link; the evidence
