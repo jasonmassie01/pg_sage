@@ -1871,6 +1871,17 @@ watcher serves each cluster (host:port), so every database on a cluster shows th
 status. The First Look reports the `log_rca` capability with the exact steps for the
 provider, and an info item when the log cannot be read.
 
+**Cluster events in fleet mode.** A log line that names no database (PANIC, disk full,
+archiver, checkpoints) and the cluster-wide signals `connections_high`, `wal_growth_spike` and
+`replication_lag_increasing` concern the whole cluster, so pg_sage raises them once, on the
+cluster owner: the database with the lowest name among those on that host:port. Other
+databases of the cluster do not repeat them. Cluster log signals carry `scope` `cluster`,
+`cluster_key` and `databases` in their metrics. When the owner is removed at runtime,
+the next database by name becomes the owner and receives the cluster events it had not yet
+analyzed. A line that names a database still goes only to that database. In single-database
+mode the one database is the owner. `connections_high` counts client backends (not
+background workers) against `max_connections`.
+
 **Managed services.** Their server log files are not reachable from the sidecar. RDS and
 Aurora send logs to CloudWatch Logs, Cloud SQL and AlloyDB to Cloud Logging, and Azure to
 Azure Monitor; pg_sage reads none of these, so log-based RCA is unavailable there. Supabase

@@ -263,10 +263,10 @@ Tier 1 = deterministic decision trees; Tier 2 = optional LLM correlation; plus s
 
 | Signal ID | Fires when | Threshold (config / default) |
 |---|---|---|
-| `connections_high` | `total_backends/max_connections ≥ pct` | `RCA.ConnectionSaturationPct` (**80**); ≥90 critical |
+| `connections_high` | `client_backends/max_connections ≥ pct`; cluster owner only (rca-08) | `RCA.ConnectionSaturationPct` (**80**); ≥90 critical |
 | `idle_in_tx_elevated` | longest idle-in-tx session ≥ timeout (`System.IdleInTxMaxSeconds`, rca-03) | `IdleInTxTimeoutMinutes` (fallback 5) |
 | `cache_hit_ratio_drop` | last interval's hit ratio < warning, ≥ 10,000 blocks; none across a reset (rca-03) | `CacheHitRatioWarning` (**0.95**); −0.05 → critical |
-| `replication_lag_increasing` | worst replica replay lag ≥ threshold | `RCA.ReplicationLagThresholdS` (**30s**) |
+| `replication_lag_increasing` | worst replica replay lag ≥ threshold; cluster owner only (rca-08) | `RCA.ReplicationLagThresholdS` (**30s**) |
 | `vacuum_blocked` | any table dead% ≥ threshold | `TableBloatDeadTuplePct` (fallback 10) |
 | `lock_contention` | any `lock_chain` finding passed in | from lock-chain findings |
 | `wal_growth_spike` | WAL rate (insert LSN advance/min) ≥ multiplier × previous interval's and ≥ 1 MiB/min; primary and cluster owner only (rca-03) | `RCA.WALSpikeMultiplier` (**2.0**) |
