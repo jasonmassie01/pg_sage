@@ -62,7 +62,8 @@ type DDLRisk struct {
 	// its value zero and its flag false, so the finding reports it as not
 	// measured rather than as a passing zero (migration-01).
 	Measured DDLMeasured
-	// MeasuredAt is when the live reads ran; zero without a pool.
+	// MeasuredAt is when the live reads ran; zero without a pool or when
+	// every read failed.
 	MeasuredAt time.Time
 }
 
@@ -72,4 +73,9 @@ type DDLMeasured struct {
 	Activity       bool // active queries on the table
 	PendingLocks   bool // ungranted locks on the table
 	ReplicationLag bool // replay lag from pg_stat_replication
+}
+
+// any reports whether at least one live read succeeded.
+func (m DDLMeasured) any() bool {
+	return m.TableStats || m.Activity || m.PendingLocks || m.ReplicationLag
 }

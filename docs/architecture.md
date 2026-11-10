@@ -129,7 +129,8 @@ into the finding detail when the DDL is detected (`table_size_bytes`,
 `requires_rewrite`, `affected_table`, `measured_at`). They are
 detection-time values, not a fresh probe: the preflight notes "measured at
 detection" and the dashboard shows their age. A live read that failed is left
-out, so its check reads `unknown` rather than passing on a zero, and table
+out, so its check reads `unknown` rather than passing on a zero (with every
+read failed there is no `measured_at` and no lock-hold estimate), and table
 size is `unknown` when the table was never analysed (`stats_known = false`).
 Findings written before these keys existed keep rendering `unknown`. Lock
 level and rewrite come from the finding first (the candidate's own
