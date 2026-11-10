@@ -25,23 +25,21 @@ type rowQuerier interface {
 // resolved from the monitored pool (histstore.Resolve).
 type PostgresObservationSource struct {
 	queryer rowQuerier
-	history histstore.Store
 }
 
 func NewPostgresObservationSource(pool *pgxpool.Pool) *PostgresObservationSource {
 	if pool == nil {
 		return &PostgresObservationSource{}
 	}
-	return &PostgresObservationSource{queryer: pool, history: histstore.Resolve(pool)}
+	return &PostgresObservationSource{queryer: pool}
 }
 
-// historyStore is where the history reads run: the resolved store, or the
-// catalog handle itself (monitored) for a source built without one.
+// historyStore is where the history reads run, resolved from the catalog
+// handle on every read (histstore.Resolve): a source built before its
+// runtime registered still reaches the right store, and in meta mode an
+// unregistered pool is refused rather than read as its own history.
 func (s *PostgresObservationSource) historyStore() histstore.Store {
-	if s.history.DB() == nil {
-		return histstore.NewMonitored(s.queryer)
-	}
-	return s.history
+	return histstore.Resolve(s.queryer)
 }
 
 func (s *PostgresObservationSource) QueryMeasurements(

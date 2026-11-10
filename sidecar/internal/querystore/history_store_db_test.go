@@ -2,7 +2,6 @@ package querystore
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -84,27 +83,16 @@ func storeSamples(t *testing.T, p *histfixture.Pair) []string {
 
 // placementAnswer is everything the query store answers on the fixture.
 type placementAnswer struct {
-	rows      []string
-	evidence  map[int64]Evidence
-	latencies string
+	rows    []string
+	windows map[int64]window
 }
 
-func readPlacementAnswer(t *testing.T, p *histfixture.Pair, from, to time.Time) (
-	placementAnswer) {
+func readPlacementAnswer(t *testing.T, p *histfixture.Pair, from, to time.Time) placementAnswer {
 	t.Helper()
 	ctx := context.Background()
-	a := placementAnswer{rows: storeSamples(t, p), evidence: map[int64]Evidence{}}
+	a := placementAnswer{rows: storeSamples(t, p), windows: map[int64]window{}}
 	for _, qid := range []int64{11, 22, 33, 44} {
-		ev, err := WindowedLatencyEvidence(ctx, p.Monitored, qid, from, to)
-		if err != nil {
-			t.Fatalf("evidence %d: %v", qid, err)
-		}
-		a.evidence[qid] = ev
-		ms, ok, err := WindowedLatencyMs(ctx, p.Monitored, qid, from)
-		if err != nil {
-			t.Fatalf("latency %d: %v", qid, err)
-		}
-		a.latencies += fmt.Sprintf("%d:%.4f:%v ", qid, ms, ok)
+		a.windows[qid] = windowOf(t, ctx, p.Monitored, qid, from, to)
 	}
 	return a
 }
@@ -135,16 +123,13 @@ func TestQueryStoreIdenticalInBothPlacements(t *testing.T) {
 		t.Fatalf("plan_hash must be the newest fingerprint from the monitored database's "+
 			"explain_cache, got %q", mon.rows[0])
 	}
-	for qid, ev := range mon.evidence {
-		if meta.evidence[qid] != ev {
-			t.Fatalf("evidence for %d: monitored %+v, meta %+v", qid, ev, meta.evidence[qid])
+	for qid, w := range mon.windows {
+		if meta.windows[qid] != w {
+			t.Fatalf("window for %d: monitored %+v, meta %+v", qid, w, meta.windows[qid])
 		}
 	}
-	if mon.evidence[11].Status != EvidenceMeasured {
-		t.Fatalf("query 11 must be measured, got %+v", mon.evidence[11])
-	}
-	if mon.latencies != meta.latencies {
-		t.Fatalf("latencies: monitored %s, meta %s", mon.latencies, meta.latencies)
+	if _, ok := mon.windows[11].measured(); !ok {
+		t.Fatalf("query 11 must be measured, got %+v", mon.windows[11])
 	}
 }
 
@@ -152,7 +137,7 @@ func TestQueryStoreMetaModeWritesNothingToTheMonitoredDatabase(t *testing.T) {
 	p := histfixture.NewPair(t)
 	p.Switch(t, histstore.ModeMeta)
 	seedPlans(t, p)
-	if err := Record(context.Background(), p.Monitored, []Sample{{QueryID: 22, Calls: 1,
+	if err := recordNow(context.Background(), p.Monitored, []Sample{{QueryID: 22, Calls: 1,
 		TotalExecMs: 1, MeanExecMs: 1}}); err != nil {
 		t.Fatalf("record: %v", err)
 	}
@@ -180,7 +165,7 @@ func TestQueryStoreMetaModeFailsLoudlyWhenTheStoreIsDown(t *testing.T) {
 	closed.Meta.Close()
 	unreg := histstore.Register(p.Monitored, "app", store)
 	defer unreg()
-	err = Record(context.Background(), p.Monitored, []Sample{{QueryID: 1, Calls: 1,
+	err = recordNow(context.Background(), p.Monitored, []Sample{{QueryID: 1, Calls: 1,
 		TotalExecMs: 1, MeanExecMs: 1}})
 	if err == nil {
 		t.Fatal("a write to a closed store must fail, never fall back to the monitored DB")
@@ -188,8 +173,8 @@ func TestQueryStoreMetaModeFailsLoudlyWhenTheStoreIsDown(t *testing.T) {
 	if mon, _ := p.Count(t, "query_store"); mon != 0 {
 		t.Fatalf("the failed write landed %d rows in the monitored database", mon)
 	}
-	if _, err := WindowedLatencyEvidence(context.Background(), p.Monitored, 1,
-		time.Now().Add(-time.Hour), time.Now()); err == nil {
-		t.Fatal("evidence from a closed store must be an error, not 'not sampled'")
+	if _, err := QueryIntervals(context.Background(), p.Monitored, 1,
+		time.Now().Add(-time.Hour), time.Now(), time.Minute); err == nil {
+		t.Fatal("intervals from a closed store must be an error, not 'not sampled'")
 	}
 }

@@ -3,13 +3,20 @@ package collector
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
+// collectSystem reads the system stats with the live version's SQL. The
+// other major version's SQL is the fallback, both ways (a PG17 server has
+// no checkpoints_timed, 42703; an older one no pg_stat_checkpointer,
+// 42P01): the version moved since the probe, so the next cycle re-probes.
 func (c *Collector) collectSystem(ctx context.Context) (SystemStats, error) {
-	s, err := c.scanSystemStats(ctx, systemStatsSQLFor(c.pgVersionNum))
-	if fallback := systemStatsFallback(c.pgVersionNum, err); fallback != "" {
+	version := c.Capabilities().PGVersionNum
+	s, err := c.scanSystemStats(ctx, systemStatsSQLFor(version))
+	if fallback := systemStatsFallback(version, err); fallback != "" {
+		c.invalidateCapabilities()
 		s, err = c.scanSystemStats(ctx, fallback)
 	}
 	if err == nil {
@@ -18,16 +25,21 @@ func (c *Collector) collectSystem(ctx context.Context) (SystemStats, error) {
 	return s, err
 }
 
-// systemStatsFallback is the older read to retry when a server lacks the
+// systemStatsFallback is the other read to retry when a server lacks the
 // version's view or column: pg_stat_bgwriter's columns when
 // pg_stat_checkpointer is missing (42P01), PG 17's when num_done is
-// (42703). "" when there is nothing to retry.
+// (42703), and PG 17's when a pre-17 version meets a server without
+// checkpoints_timed (42703). "" when there is nothing to retry.
 func systemStatsFallback(versionNum int, err error) string {
 	var pgErr *pgconn.PgError
-	if versionNum < 170000 || !errors.As(err, &pgErr) {
+	if !errors.As(err, &pgErr) {
 		return ""
 	}
 	switch {
+	case versionNum < 170000 && pgErr.Code == "42703":
+		return systemStatsSQL17
+	case versionNum < 170000:
+		return ""
 	case pgErr.Code == "42P01":
 		return systemStatsSQL14
 	case pgErr.Code == "42703" && versionNum >= 180000:
@@ -41,14 +53,19 @@ func systemStatsFallback(versionNum int, err error) string {
 func (c *Collector) scanSystemStats(ctx context.Context, sql string) (SystemStats, error) {
 	var s SystemStats
 	var ratio *float64
+	var ckptEpoch *time.Time
 	err := c.catalogQueryRow(ctx, sql).Scan(
 		&s.ActiveBackends, &s.IdleInTransaction,
 		&s.TotalBackends, &s.MaxConnections,
 		&ratio, &s.Deadlocks,
 		&s.BlkReadTime, &s.BlkWriteTime,
+		&s.BlksHit, &s.BlksRead, &s.XactCommit, &s.XactRollback, &s.TempBytes,
 		&s.TotalCheckpoints, &s.CheckpointsTimed, &s.CheckpointsRequested,
-		&s.CheckpointsDone, &s.IsReplica,
+		&s.CheckpointsDone, &ckptEpoch, &s.IsReplica,
 	)
+	if ckptEpoch != nil {
+		s.CheckpointStatsEpoch = ckptEpoch.UTC()
+	}
 	s.CacheHitRatio = CacheHitRatioUnknown
 	if ratio != nil {
 		s.CacheHitRatio = *ratio

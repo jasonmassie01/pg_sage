@@ -9,7 +9,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/pg-sage/sidecar/internal/histstore"
 	"github.com/pg-sage/sidecar/internal/querystore"
 )
 
@@ -26,7 +25,7 @@ type latencyProxy struct {
 }
 
 // NewLatencyProxy builds the latency proxy over sage.query_store, read in
-// the pool's history store (histstore.Resolve).
+// the pool's history store through the querystore readers.
 func NewLatencyProxy(pool *pgxpool.Pool, cfg ProxyConfig) Proxy {
 	return &latencyProxy{pool: pool, cfg: cfg}
 }
@@ -39,33 +38,8 @@ func (p *latencyProxy) Objective() Objective {
 // baselineSpan is the history the relative threshold uses.
 const latencyBaselineSpan = 7 * 24 * time.Hour
 
-const capturesSQL = `/* pg_sage sre:slo_proxy */
-SELECT DISTINCT q.captured_at FROM sage.query_store q
-WHERE {db:q} AND q.captured_at > pg_catalog.now() - interval '30 minutes'
-ORDER BY q.captured_at DESC LIMIT 2`
-
-// deltasSQL lists the top queries of the interval ending at capture $1,
-// and whether any query's counters reset (another statistics epoch, or
-// fewer calls) in it. A query's sample is written only when its counters
-// move, so its interval starts at its own last sample at or before the
-// previous capture $2 (within $4, querystore.AnchorLookback), not at a
-// row of $2 that an idle query does not have.
-const deltasSQL = `/* pg_sage sre:slo_proxy */
-SELECT (c.calls - p.calls)::float8, (c.total_exec_time - p.total_exec_time)::float8,
-       bool_or(c.stats_epoch IS DISTINCT FROM p.stats_epoch OR c.calls < p.calls) OVER ()
-FROM sage.query_store c
-CROSS JOIN LATERAL (
-    SELECT q.calls, q.total_exec_time, q.stats_epoch FROM sage.query_store q
-    WHERE {db:q} AND q.queryid = c.queryid AND q.captured_at <= $2
-      AND q.captured_at >= $2 - $4::interval
-    ORDER BY q.captured_at DESC, q.id DESC LIMIT 1) p
-WHERE {db:c} AND c.captured_at = $1
-ORDER BY c.total_exec_time - p.total_exec_time DESC
-LIMIT $3`
-
-type queryDelta struct {
-	calls, totalMs float64
-}
+// captureWindow is how recent the two captures a slice compares must be.
+const captureWindow = 30 * time.Minute
 
 func (p *latencyProxy) Slice(ctx context.Context, now time.Time, h History) ProxySlice {
 	p95, latest, reason := p.measure(ctx)
@@ -90,21 +64,8 @@ func (p *latencyProxy) Slice(ctx context.Context, now time.Time, h History) Prox
 
 // measure reads the newest interval's p95, or why there is none.
 func (p *latencyProxy) measure(ctx context.Context) (float64, time.Time, string) {
-	rows, err := histstore.Resolve(p.pool).Query(ctx, capturesSQL)
+	caps, err := querystore.RecentCaptures(ctx, p.pool, captureWindow, 2)
 	if err != nil {
-		return 0, time.Time{}, ReasonSourceError
-	}
-	var caps []time.Time
-	for rows.Next() {
-		var at time.Time
-		if err := rows.Scan(&at); err != nil {
-			rows.Close()
-			return 0, time.Time{}, ReasonSourceError
-		}
-		caps = append(caps, at)
-	}
-	rows.Close()
-	if rows.Err() != nil {
 		return 0, time.Time{}, ReasonSourceError
 	}
 	p.mu.Lock()
@@ -125,50 +86,44 @@ func (p *latencyProxy) measure(ctx context.Context) (float64, time.Time, string)
 	return weightedP95(deltas), caps[0], ""
 }
 
-func (p *latencyProxy) deltas(ctx context.Context, cur, prev time.Time) ([]queryDelta, bool,
-	error) {
-	rows, err := histstore.Resolve(p.pool).Query(ctx, deltasSQL, cur, prev,
-		max(p.cfg.TopQueries, 1), querystore.AnchorLookback)
+// deltas reads the interval's top queries (querystore.CaptureDeltas, which
+// owns the anchor and epoch rules) and keeps those that ran.
+func (p *latencyProxy) deltas(ctx context.Context, cur, prev time.Time) ([]querystore.Delta,
+	bool, error) {
+	all, reset, err := querystore.CaptureDeltas(ctx, p.pool, cur, prev,
+		max(p.cfg.TopQueries, 1))
 	if err != nil {
 		return nil, false, err
 	}
-	defer rows.Close()
-	var out []queryDelta
-	reset := false
-	for rows.Next() {
-		var d queryDelta
-		var r bool
-		if err := rows.Scan(&d.calls, &d.totalMs, &r); err != nil {
-			return nil, false, err
-		}
-		reset = reset || r
-		if d.calls > 0 && d.totalMs >= 0 {
+	out := all[:0]
+	for _, d := range all {
+		if d.Calls > 0 && d.TotalMs >= 0 {
 			out = append(out, d)
 		}
 	}
-	return out, reset, rows.Err()
+	return out, reset, nil
 }
 
 // weightedP95 is the calls-weighted 95th percentile of the queries'
 // interval mean latencies.
-func weightedP95(ds []queryDelta) float64 {
+func weightedP95(ds []querystore.Delta) float64 {
 	sort.Slice(ds, func(i, j int) bool {
-		return ds[i].totalMs/ds[i].calls <
-			ds[j].totalMs/ds[j].calls
+		return ds[i].TotalMs/ds[i].Calls <
+			ds[j].TotalMs/ds[j].Calls
 	})
 	total := 0.0
 	for _, d := range ds {
-		total += d.calls
+		total += d.Calls
 	}
 	target, cum := 0.95*total, 0.0
 	for _, d := range ds {
-		cum += d.calls
+		cum += d.Calls
 		if cum >= target {
-			return d.totalMs / d.calls
+			return d.TotalMs / d.Calls
 		}
 	}
 	last := ds[len(ds)-1]
-	return last.totalMs / last.calls
+	return last.TotalMs / last.Calls
 }
 
 // threshold is the configured absolute threshold, or the relative one

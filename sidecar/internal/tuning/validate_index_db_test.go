@@ -32,7 +32,7 @@ func TestTune_NeverScannedFKIndexDropIsRefusedAndNotStored(t *testing.T) {
 	prev, cur := schemaOrdersPair(s)
 	cur.Indexes = catalogIndexes(t, pool, s)
 	cur.ForeignKeys = []collector.ForeignKey{{TableName: s + ".orders",
-		ReferencedTable: s + ".customers", FKColumn: "customer_id",
+		ReferencedTable: s + ".customers", Columns: []string{"customer_id"},
 		ConstraintName: "orders_customer_id_fkey"}}
 	cur.System.RelationStatsEpoch = cur.CollectedAt.Add(-30 * 24 * time.Hour)
 	h := newHarness(t, answer(`{"proposals":[`+

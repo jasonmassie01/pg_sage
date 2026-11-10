@@ -141,6 +141,8 @@ func (d *DatabaseInstance) SnapshotStatus() *InstanceStatus {
 	}
 	d.statusMu.RUnlock()
 	if d.Collector != nil {
+		health := d.Collector.Status()
+		cp.Collector = &health
 		sample := d.Collector.LatestSnapshot()
 		if sample != nil && !sample.CollectedAt.IsZero() && !sample.CollectedAt.Before(cp.CollectorLastRun) {
 			cp.CollectorLastRun = sample.CollectedAt
@@ -466,4 +468,7 @@ type InstanceStatus struct {
 	LastSeen         time.Time            `json:"last_seen"`
 	DatabaseName     string               `json:"database_name"`
 	Capabilities     ProviderCapabilities `json:"capabilities,omitempty"`
+	// Collector is the collector's health (breaker state, unavailable
+	// categories, failure counts); nil when the database has none.
+	Collector *collector.Status `json:"collector,omitempty"`
 }

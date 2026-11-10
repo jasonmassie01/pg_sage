@@ -302,6 +302,7 @@
 | `safety.ddl_timeout_seconds` | `restart` | `-` | `safety_critical` |
 | `safety.disk_pressure_threshold_pct` | `restart` | `-` | `safety_critical` |
 | `safety.dormant_interval_seconds` | `restart` | `-` | `safety_critical` |
+| `safety.host_cpu_ceiling_pct` | `restart` | `-` | `safety_critical` |
 | `safety.lock_timeout_ms` | `restart` | `-` | `safety_critical` |
 | `safety.query_timeout_ms` | `restart` | `-` | `derivable` |
 | `safety.wal_io_ceiling_pct` | `restart` | `-` | `safety_critical` |

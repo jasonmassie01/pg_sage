@@ -3,6 +3,7 @@ package collector
 import (
 	"context"
 	"github.com/pg-sage/sidecar/internal/testdb"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -120,7 +121,7 @@ func TestPhase2_CollectForeignKeys_WithData(t *testing.T) {
 	for _, fk := range fks {
 		if fk.TableName == "phase2_orders" &&
 			fk.ReferencedTable == "phase2_users" &&
-			fk.FKColumn == "user_id" {
+			reflect.DeepEqual(fk.Columns, []string{"user_id"}) {
 			found = true
 			if fk.ConstraintName == "" {
 				t.Error("ConstraintName should not be empty")
@@ -435,7 +436,7 @@ func TestPhase2_ShouldSkip_ThresholdExceeded_EntersDormant(t *testing.T) {
 	cancel()
 
 	// First call: query fails => skip, consecutiveSkips=1
-	if !cb.ShouldSkip(cancelledCtx, pool) {
+	if !cb.ShouldSkip(cancelledCtx, pool).Skip {
 		t.Error("ShouldSkip should return true when query fails")
 	}
 
@@ -450,7 +451,7 @@ func TestPhase2_ShouldSkip_ThresholdExceeded_EntersDormant(t *testing.T) {
 	cb.mu.Unlock()
 
 	// Second call: query fails => skip, consecutiveSkips=2 >= maxSkips=2
-	if !cb.ShouldSkip(cancelledCtx, pool) {
+	if !cb.ShouldSkip(cancelledCtx, pool).Skip {
 		t.Error("ShouldSkip should return true on second failure")
 	}
 
@@ -482,7 +483,7 @@ func TestPhase2_ShouldSkip_SuccessResetsSkips(t *testing.T) {
 	cb.mu.Unlock()
 
 	// Successful check should reset consecutiveSkips to 0.
-	if cb.ShouldSkip(ctx, pool) {
+	if cb.ShouldSkip(ctx, pool).Skip {
 		t.Error("ShouldSkip should return false with 99% ceiling")
 	}
 
@@ -990,7 +991,7 @@ func TestPhase2_ShouldSkip_HighCeiling_NoSkip(t *testing.T) {
 	ctx := context.Background()
 
 	cb := NewCircuitBreaker(100, 10)
-	if cb.ShouldSkip(ctx, pool) {
+	if cb.ShouldSkip(ctx, pool).Skip {
 		t.Error("100% ceiling should never skip")
 	}
 
@@ -1014,7 +1015,7 @@ func TestPhase2_ShouldSkip_MultipleSuccessesResetSkips(t *testing.T) {
 	cb.mu.Unlock()
 
 	// Success should reset.
-	if cb.ShouldSkip(ctx, pool) {
+	if cb.ShouldSkip(ctx, pool).Skip {
 		t.Error("should not skip with 99% ceiling")
 	}
 

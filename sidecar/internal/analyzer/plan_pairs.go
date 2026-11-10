@@ -1,6 +1,10 @@
 package analyzer
 
-import "context"
+import (
+	"context"
+
+	"github.com/pg-sage/sidecar/internal/planhash"
+)
 
 // planPairsSQL reads the newest two plans of each query captured in the
 // last seven days, with matching source/resource/compute and capture flags. Each query's plans are read newest first through
@@ -64,5 +68,29 @@ func (a *Analyzer) checkPlanRegression(ctx context.Context) []Finding {
 		a.evalFail("plan_regression")
 		a.logFn("ERROR", "analyzer: iterate plan pairs: %v", err)
 	}
-	return rulePlanRegression(pairs)
+	// Release the pair read's connection before the root reads need one.
+	rows.Close()
+	return rulePlanRegression(a.resolvePlanRoots(ctx, pairs))
+}
+
+// resolvePlanRoots resolves both plans of each pair with one catalog read,
+// so their fingerprints are comparable (collection-09). Unresolved pairs
+// keep v2u fingerprints; the first read error of the pass is logged.
+func (a *Analyzer) resolvePlanRoots(ctx context.Context, pairs []planPair) []planPair {
+	failed := 0
+	var first error
+	for i := range pairs {
+		roots, err := planhash.Resolve(ctx, a.pool, pairs[i].CurrentPlan, pairs[i].PreviousPlan)
+		if err != nil {
+			if failed++; first == nil {
+				first = err
+			}
+		}
+		pairs[i].Roots = roots
+	}
+	if failed > 0 {
+		a.logFn("WARN", "analyzer: plan_regression: %d of %d plan pairs keep unresolved "+
+			"fingerprints: %v", failed, len(pairs), first)
+	}
+	return pairs
 }

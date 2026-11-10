@@ -197,7 +197,8 @@ type AnalyzerConfig struct {
 }
 
 type SafetyConfig struct {
-	CPUCeilingPct            int `yaml:"cpu_ceiling_pct" doc:"Skip cycles when database-host CPU exceeds this percent (1-100). Prevents pg_sage from adding load during incidents."`
+	CPUCeilingPct            int `yaml:"cpu_ceiling_pct" doc:"Skip collector cycles when active client sessions / max_connections exceeds this percent (1-100), so pg_sage adds no load during incidents. Verify inherits it while host_cpu_ceiling_pct is unset."`
+	HostCPUCeilingPct        int `yaml:"host_cpu_ceiling_pct" doc:"Index verification applies a change only while database-host CPU is at or below this percent (1-100). Unset (0) inherits cpu_ceiling_pct, default 90."`
 	QueryTimeoutMs           int `yaml:"query_timeout_ms" doc:"statement_timeout applied to every collector and analyzer query issued by the sidecar. Protects the target from runaway introspection."`
 	DDLTimeoutSeconds        int `yaml:"ddl_timeout_seconds" doc:"Timeout applied to DDL actions (CREATE INDEX, ALTER TABLE) executed by the executor. Per-statement ceiling, not per-cycle."`
 	DiskPressureThresholdPct int `yaml:"disk_pressure_threshold_pct" doc:"When database data volume usage exceeds this percent, skip write-producing actions. Prevents adding indexes to a near-full volume."`
@@ -678,6 +679,7 @@ func Load(args []string) (*Config, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("config validation: %w", err)
 	}
+	cfg.Safety.warnInheritedHostCPUCeiling()
 
 	return cfg, nil
 }

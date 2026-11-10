@@ -43,7 +43,9 @@ analyzer:
   work_mem_promotion_threshold: 5
 
 safety:
-  cpu_ceiling_pct: 90           # active_backends / max_connections threshold
+  cpu_ceiling_pct: 90           # collector breaker: active sessions / max_connections, %
+  # host_cpu_ceiling_pct: 90    # index verification host CPU ceiling, %; unset inherits
+  #                             # cpu_ceiling_pct
   query_timeout_ms: 500         # Collector/analyzer query timeout
   lock_timeout_ms: 30000        # Lock acquisition timeout for DDL
   ddl_timeout_seconds: 300      # Tier 3 DDL timeout (CREATE INDEX, etc.)

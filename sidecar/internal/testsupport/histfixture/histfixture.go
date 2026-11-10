@@ -5,6 +5,11 @@
 // database's history (Noise) with colliding query ids and larger numbers:
 // a reader that forgets to scope its rows to its own database answers
 // differently in meta mode, and the comparison fails.
+//
+// In meta mode the process mode is meta too (histstore.SetProcessMode), as
+// in a sidecar with history.store: meta: a reader that resolves a pool no
+// runtime registered is refused, and the test fails at cleanup naming how
+// many history statements were refused (the fallback count).
 package histfixture
 
 import (
@@ -33,6 +38,11 @@ type Pair struct {
 	Monitored *pgxpool.Pool
 	Meta      *pgxpool.Pool
 	unreg     func()
+	// metaSince is histstore.Refused() when meta mode began (meta is true
+	// while it lasts); refused sums the refusals of meta phases that ended.
+	meta      bool
+	metaSince uint64
+	refused   uint64
 }
 
 // NewPair creates both databases (skipping without a live test server) and
@@ -52,7 +62,15 @@ func NewPair(t testing.TB) *Pair {
 	if err := schema.BootstrapHistoryStore(ctx, p.Meta); err != nil {
 		t.Fatalf("bootstrap history store: %v", err)
 	}
-	t.Cleanup(func() { p.unregister() })
+	t.Cleanup(func() {
+		p.unregister()
+		p.leaveMeta(t)
+		if p.refused > 0 {
+			t.Errorf("histfixture: %d history statements were refused in meta mode: a "+
+				"reader resolved a pool no runtime registered (histstore.ErrNotRegistered)",
+				p.refused)
+		}
+	})
 	return p
 }
 
@@ -88,9 +106,29 @@ func (p *Pair) MetaStore(t testing.TB) histstore.Store {
 func (p *Pair) Switch(t testing.TB, mode histstore.Mode) {
 	t.Helper()
 	p.unregister()
+	p.leaveMeta(t)
 	p.Truncate(t)
-	if mode == histstore.ModeMeta {
-		p.unreg = histstore.Register(p.Monitored, "monitored", p.MetaStore(t))
+	if mode != histstore.ModeMeta {
+		return
+	}
+	p.unreg = histstore.Register(p.Monitored, "monitored", p.MetaStore(t))
+	if err := histstore.SetProcessMode(histstore.ModeMeta); err != nil {
+		t.Fatalf("histfixture: %v", err)
+	}
+	p.meta, p.metaSince = true, histstore.Refused()
+}
+
+// leaveMeta ends a meta phase: it counts the phase's refused statements and
+// puts the process back in monitored mode.
+func (p *Pair) leaveMeta(t testing.TB) {
+	t.Helper()
+	if !p.meta {
+		return
+	}
+	p.refused += histstore.Refused() - p.metaSince
+	p.meta = false
+	if err := histstore.SetProcessMode(histstore.ModeMonitored); err != nil {
+		t.Fatalf("histfixture: %v", err)
 	}
 }
 

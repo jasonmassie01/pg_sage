@@ -3,11 +3,19 @@ package optimizer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/collector"
 )
+
+// ErrPartitionsUnknown: the collector could not read the partition map
+// this cycle, so whether a table is a partitioned parent or a partition is
+// unknown; a context then would plan either as a standalone table, so none
+// is built until the next cycle reads it (collection-05).
+var ErrPartitionsUnknown = errors.New("partition map unavailable this cycle; " +
+	"partition-sensitive recommendations wait for the next collection")
 
 // TableContext builds the context of one table ("schema.table", quoted
 // where needed) from the snapshot: its workload statements, indexes,
@@ -21,6 +29,10 @@ func (o *Optimizer) TableContext(
 ) (TableContext, bool, error) {
 	if snap == nil {
 		return TableContext{}, false, errors.New("table context: nil snapshot")
+	}
+	if !snap.Available("partitions") {
+		return TableContext{}, false, fmt.Errorf("table context of %s: %w (%s)", table,
+			ErrPartitionsUnknown, snap.Unavailable["partitions"])
 	}
 	ts, ok := findTable(snap, table)
 	if !ok || skipSchema(ts.SchemaName) {

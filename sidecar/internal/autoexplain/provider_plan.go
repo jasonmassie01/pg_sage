@@ -42,7 +42,8 @@ func StoreProviderPlan(ctx context.Context, pool *pgxpool.Pool, p ProviderPlan) 
 	if selfmonitor.IsQueryText(p.Query) {
 		return ErrSelfStatement
 	}
-	hash := planHashParam(p.JSON)
+	// A failed root read leaves the v2u fingerprint, which records it.
+	hash, _ := planHashParam(ctx, pool, p.JSON)
 	if hash == nil {
 		return errors.New("provider plan has no valid EXPLAIN shape")
 	}

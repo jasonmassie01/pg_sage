@@ -138,11 +138,8 @@ func TestPreflightEvidenceResetAfterRegrowth(t *testing.T) {
 	if !after.StatsReset {
 		t.Error("collector missed confirmed reset after counter regrowth")
 	}
-	ms, ok, err := querystore.WindowedLatencyMs(ctx, p, q1.QueryID,
+	ms, ok := preflightWindowLatency(t, ctx, p, q1.QueryID,
 		before.CollectedAt.Add(-time.Second))
-	if err != nil {
-		t.Fatal(err)
-	}
 	t.Logf("cross-epoch latency ms=%f ok=%v", ms, ok)
 	if ok {
 		t.Error("query store certified a window crossing confirmed statistics epochs")
@@ -271,15 +268,36 @@ func preflightCohortWindow(t *testing.T, p *pgxpool.Pool, c *Collector, run func
 			column, label, cohorts, calls2-calls1)}
 	}
 	expected := (total2 - total1) / float64(calls2-calls1)
-	ms, ok, err := querystore.WindowedLatencyMs(ctx, p, id,
-		before.CollectedAt.Add(-time.Second))
-	if err != nil {
-		t.Fatal(err)
-	}
+	ms, ok := preflightWindowLatency(t, ctx, p, id, before.CollectedAt.Add(-time.Second))
 	t.Logf("%s=%d aggregate expected=%f; actual=%f ok=%v", label, cohorts, expected, ms, ok)
 	if !ok || math.Abs(ms-expected) > 0.000001 {
 		return []string{fmt.Sprintf("same-query %s cohorts lost: got %f/%v want "+
 			"aggregate %f", column, ms, ok, expected)}
 	}
 	return nil
+}
+
+// preflightWindowLatency is the query store's per-call latency for id from
+// since to now (querystore.QueryIntervals): ok only without an epoch break
+// and with new calls.
+func preflightWindowLatency(t *testing.T, ctx context.Context, p *pgxpool.Pool, id int64,
+	since time.Time) (float64, bool) {
+	t.Helper()
+	ivs, err := querystore.QueryIntervals(ctx, p, id, since, time.Now().Add(time.Hour),
+		24*time.Hour)
+	if err != nil {
+		t.Fatalf("query %d intervals: %v", id, err)
+	}
+	var calls int64
+	var total float64
+	for _, iv := range ivs {
+		if iv.EpochBreak {
+			return 0, false
+		}
+		calls, total = calls+iv.Calls, total+iv.TotalMs
+	}
+	if calls <= 0 {
+		return 0, false
+	}
+	return total / float64(calls), true
 }

@@ -98,17 +98,18 @@ func (c *Collector) ensurePartitions(ctx context.Context, at time.Time) {
 // category. An unavailable category is unknown, not empty: no row.
 func snapshotRows(snap *Snapshot) ([]snapstore.Row, error) {
 	categories := map[string]any{
-		"queries":      snap.Queries,
-		"tables":       snap.Tables,
-		"indexes":      snap.Indexes,
-		"foreign_keys": snap.ForeignKeys,
-		"system":       snap.System,
-		"locks":        snap.Locks,
-		"sequences":    snap.Sequences,
-		"replication":  snap.Replication,
-		"io":           snap.IO,
-		"partitions":   snap.Partitions,
-		"config_data":  snap.ConfigData,
+		"queries":        snap.Queries,
+		"tables":         snap.Tables,
+		"indexes":        snap.Indexes,
+		"foreign_keys":   snap.ForeignKeys,
+		"system":         snap.System,
+		"locks":          snap.Locks,
+		"sequences":      snap.Sequences,
+		"replication":    snap.Replication,
+		"io":             snap.IO,
+		"partitions":     snap.Partitions,
+		"prepared_xacts": snap.PreparedXacts,
+		"config_data":    snap.ConfigData,
 	}
 	rows := make([]snapstore.Row, 0, len(categories))
 	for cat, data := range categories {

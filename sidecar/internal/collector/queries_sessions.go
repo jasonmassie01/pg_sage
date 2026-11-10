@@ -42,6 +42,29 @@ SELECT
     WHERE datname = current_database()), 0) AS blk_write_time,
 `
 
+// systemCountersSQL is this database's lifetime counters the system
+// interval is differenced from (collection-06; all PG versions).
+const systemCountersSQL = `
+  COALESCE((SELECT blks_hit FROM pg_stat_database
+    WHERE datname = current_database()), 0) AS blks_hit,
+  COALESCE((SELECT blks_read FROM pg_stat_database
+    WHERE datname = current_database()), 0) AS blks_read,
+  COALESCE((SELECT xact_commit FROM pg_stat_database
+    WHERE datname = current_database()), 0) AS xact_commit,
+  COALESCE((SELECT xact_rollback FROM pg_stat_database
+    WHERE datname = current_database()), 0) AS xact_rollback,
+  COALESCE((SELECT temp_bytes FROM pg_stat_database
+    WHERE datname = current_database()), 0) AS temp_bytes,
+`
+
+// checkpointEpochExpr is the checkpoint counters' epoch over the view the
+// variant reads (b or k): the later of its stats_reset and the postmaster
+// start (a crash discards the counters without touching stats_reset).
+func checkpointEpochExpr(alias string) string {
+	return `GREATEST(COALESCE(` + alias + `.stats_reset, '-infinity'::timestamptz),
+    pg_postmaster_start_time()) AS checkpoint_stats_epoch,`
+}
+
 // The checkpoint counters are read split (forecast-03): a timed
 // checkpoint is counted every checkpoint_timeout even when it is skipped
 // on an idle server, so only the requested (WAL-triggered or explicit)
@@ -49,29 +72,32 @@ SELECT
 // readers. checkpoints_done (num_done, performed checkpoints) is PG 18+.
 
 // systemStatsSQL14 uses pg_stat_bgwriter (PG 14-16).
-var systemStatsSQL14 = systemStatsSQLBase + `
+var systemStatsSQL14 = systemStatsSQLBase + systemCountersSQL + `
   b.checkpoints_timed + b.checkpoints_req AS total_checkpoints,
   b.checkpoints_timed AS checkpoints_timed,
   b.checkpoints_req AS checkpoints_requested,
   NULL::bigint AS checkpoints_done,
+  ` + checkpointEpochExpr("b") + `
   pg_is_in_recovery() AS is_replica
 FROM pg_stat_bgwriter b`
 
 // systemStatsSQL17 uses pg_stat_checkpointer (PG 17).
-var systemStatsSQL17 = systemStatsSQLBase + `
+var systemStatsSQL17 = systemStatsSQLBase + systemCountersSQL + `
   k.num_timed + k.num_requested AS total_checkpoints,
   k.num_timed AS checkpoints_timed,
   k.num_requested AS checkpoints_requested,
   NULL::bigint AS checkpoints_done,
+  ` + checkpointEpochExpr("k") + `
   pg_is_in_recovery() AS is_replica
 FROM pg_stat_checkpointer k`
 
 // systemStatsSQL18 adds pg_stat_checkpointer.num_done (PG 18+).
-var systemStatsSQL18 = systemStatsSQLBase + `
+var systemStatsSQL18 = systemStatsSQLBase + systemCountersSQL + `
   k.num_timed + k.num_requested AS total_checkpoints,
   k.num_timed AS checkpoints_timed,
   k.num_requested AS checkpoints_requested,
   k.num_done AS checkpoints_done,
+  ` + checkpointEpochExpr("k") + `
   pg_is_in_recovery() AS is_replica
 FROM pg_stat_checkpointer k`
 

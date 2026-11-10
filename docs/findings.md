@@ -4,6 +4,21 @@ pg_sage detects issues across 16+ categories using deterministic rules (Tier 1) 
 
 Severities: **critical** > **warning** > **info**
 
+**When a snapshot category could not be read.** A category the collector could not read in a
+cycle is unknown, not empty (see the snapshot's `unavailable` map). The rules and features
+that depend on it stay quiet for that cycle instead of reading the absence as a fact:
+
+| Category unavailable | What stays quiet |
+|---|---|
+| `indexes`, `foreign_keys` | index-health rules (unused, duplicate, invalid, missing FK index) |
+| `tables` | table rules (bloat, autovacuum tuning, wraparound) |
+| `replication` | unused-index drops (a standby may use the index) |
+| `prepared_xacts` | the RCA `orphaned_prepared_tx` signal; an open orphaned 2PC incident is held open, not counted as cleared |
+| `partitions` | index recommendations (the tuning agent gets no table context, since any table might be a partitioned parent or a partition) |
+| `config_data` | the advisor's config features and the RCA idle-in-transaction signal |
+
+The next cycle that reads the category resumes them.
+
 !!! tip "See also: [Hint Verification](hint-verification.md)"
     EXPLAIN before-and-after output for every optimization pg_sage applies, proving each hint and index change produces the intended plan improvement.
 
@@ -94,6 +109,17 @@ Detects foreign key columns that lack a supporting index on the referencing tabl
 **Severity:** warning
 
 **What it detects:** Foreign keys where the referencing column(s) have no matching index. This causes sequential scans on JOINs and cascading DELETE operations.
+
+The rule is schema-aware: each key is checked against the indexes of its own schema's table,
+so in a schema-per-tenant layout an unindexed `tenant_b.orders` is reported even when
+`tenant_a.orders` is indexed. An index whose leading columns are the key's columns in any
+order supports it; the recommended index lists a composite key's columns in declared order.
+A key on a partitioned table is checked on each leaf partition (PostgreSQL enforces it there,
+and only the leaves' indexes are visible), and the finding names the partition. Nothing is
+guessed: a key whose table is not in the snapshot gives no finding. An index that is the only
+support of a key is never recommended for drop by `unused_index`. That includes a partition's index
+for a key on its partitioned parent; when the partition list could not be read, `unused_index`
+does not run while a key is on a partitioned table or one missing from the snapshot.
 
 **Example output:**
 
@@ -335,19 +361,44 @@ Connection leak: 15 idle connections from app-server-1 (oldest: 4h)
 
 ### cache_hit_ratio
 
-Detects low buffer cache hit ratio.
+Detects a low buffer cache hit ratio over the last collector interval.
 
-**Severity:** critical (if below threshold)
+**Severity:** warning below `analyzer.cache_hit_ratio_warning` (default 0.95); critical below 0.80.
 
-**What it detects:** Cache hit ratio below the expected level, indicating insufficient `shared_buffers` or a working set that exceeds available memory.
+**What it detects:** The hit ratio of the blocks this database accessed since the
+previous snapshot, `blks_hit / (blks_hit + blks_read)` of the interval, is below the
+threshold: a working set that outgrew `shared_buffers`, or a new heavy scan. The
+lifetime ratio in `pg_stat_database` counts since the last statistics reset, often
+months, and barely moves when the cache starts missing now, so it is reported in the
+detail (`lifetime_cache_hit_ratio`) but never judged.
+
+The rule is evaluated only when the interval is evidence:
+
+- at least 10,000 blocks were accessed in the interval (a quiet minute of a few hundred
+  reads proves nothing either way);
+- the interval was measured: not the first snapshot after pg_sage starts, and no
+  statistics reset (`pg_stat_reset()`, a single-relation reset, a server restart, or a
+  counter that fell) inside it.
+
+Otherwise an open finding is left as it is; it resolves only on an interval that shows
+a healthy ratio over enough blocks.
 
 **Example output:**
 
 ```
-Cache hit ratio 87% (expected > 95%)
+Cache hit ratio 80.00% over the last 60s (threshold 95.00%)
 ```
 
+The detail carries `cache_hit_ratio` (interval), `lifetime_cache_hit_ratio`,
+`blocks_accessed`, `interval_seconds` and `threshold`.
+
 **Recommended action:** Increase `shared_buffers` or investigate workload changes.
+
+The snapshot's `system` category keeps `cache_hit_ratio` with its lifetime meaning (the
+forecaster and the dashboard read it) and adds the raw counters and an `interval`
+object: `seconds`, `cache_hit_ratio`, `blks_accessed`, `deadlocks`, `xacts`,
+`temp_bytes`, `blk_read_time_ms`, `blk_write_time_ms` and `checkpoints` since the
+previous snapshot, each `null` when it is unknown.
 
 ---
 

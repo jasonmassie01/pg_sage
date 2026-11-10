@@ -2,13 +2,12 @@ package collector
 
 import (
 	"context"
+	"fmt"
+
+	"github.com/jackc/pgx/v5"
 )
 
-func collectConfigSnapshot(ctx context.Context, pool catalogQuerier) (*ConfigSnapshot, error) {
-	cs := &ConfigSnapshot{}
-
-	// pg_settings for advisor features
-	rows, err := pool.Query(ctx, `/* pg_sage */ 
+const configSettingsSQL = `/* pg_sage */
 		SELECT name, setting, COALESCE(unit,''), source,
 		       COALESCE(pending_restart, false), context
 		FROM pg_settings
@@ -24,80 +23,122 @@ func collectConfigSnapshot(ctx context.Context, pool catalogQuerier) (*ConfigSna
 		      'temp_buffers','max_connections','superuser_reserved_connections',
 		      'idle_in_transaction_session_timeout','statement_timeout',
 		      'tcp_keepalives_idle','tcp_keepalives_interval',
-		      'hash_mem_multiplier')`)
-	if err != nil {
-		return cs, err
-	}
-	for rows.Next() {
-		var s PGSetting
-		if err := rows.Scan(&s.Name, &s.Setting, &s.Unit, &s.Source,
-			&s.PendingRestart, &s.Context); err != nil {
-			continue
-		}
-		cs.PGSettings = append(cs.PGSettings, s)
-	}
-	rows.Close()
+		      'hash_mem_multiplier')`
 
-	// Table reloptions (autovacuum overrides)
-	rows2, err := pool.Query(ctx, `/* pg_sage */ 
+// configReloptionsSQL lists the tables with per-table storage options
+// (autovacuum overrides), temporary tables left out (collection-03).
+var configReloptionsSQL = `/* pg_sage */
 		SELECT n.nspname, c.relname, c.reloptions::text
 		FROM pg_class c
 		JOIN pg_namespace n ON n.oid = c.relnamespace
 		WHERE n.nspname NOT IN ('pg_catalog','information_schema','sage','google_ml')
 		  AND c.relkind = 'r'
-		  AND c.reloptions IS NOT NULL`)
-	if err == nil {
-		for rows2.Next() {
-			var t TableReloption
-			if err := rows2.Scan(&t.SchemaName, &t.RelName, &t.Reloptions); err != nil {
-				continue
-			}
-			cs.TableReloptions = append(cs.TableReloptions, t)
-		}
-		rows2.Close()
-	}
+		  AND ` + notTempRel("c") + `
+		  AND c.reloptions IS NOT NULL`
 
-	// Connection state distribution
-	rows3, err := pool.Query(ctx, connectionStatesSQL)
-	if err == nil {
-		for rows3.Next() {
-			var c ConnectionState
-			if err := rows3.Scan(&c.State, &c.Count, &c.AvgDurationSeconds); err != nil {
-				continue
-			}
-			cs.ConnectionStates = append(cs.ConnectionStates, c)
-		}
-		rows3.Close()
-	}
+// walPositionSQL reads the WAL position on a primary and on a standby,
+// where pg_current_wal_lsn() fails: the last WAL received, else replayed.
+// NULL (a standby that has neither yet) is an empty position.
+const walPositionSQL = `/* pg_sage */ SELECT (CASE WHEN pg_is_in_recovery()
+		THEN COALESCE(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn())
+		ELSE pg_current_wal_lsn() END)::text`
 
-	// WAL position
-	var walPos string
-	err = pool.QueryRow(ctx, `/* pg_sage */ SELECT pg_current_wal_lsn()::text`).Scan(&walPos)
-	if err == nil {
-		cs.WALPosition = walPos
-	}
-
-	// Available extensions
-	rows4, err := pool.Query(ctx, `/* pg_sage */ 
+const configExtensionsSQL = `/* pg_sage */
 		SELECT name FROM pg_available_extensions
-		WHERE name IN ('pg_repack','pg_buffercache','pgstattuple','hypopg')`)
-	if err == nil {
-		for rows4.Next() {
-			var name string
-			if err := rows4.Scan(&name); err != nil {
-				continue
-			}
-			cs.ExtensionsAvailable = append(cs.ExtensionsAvailable, name)
+		WHERE name IN ('pg_repack','pg_buffercache','pgstattuple','hypopg')`
+
+// configSubRead is one read of the configuration snapshot.
+type configSubRead struct {
+	name string
+	read func(context.Context, catalogQuerier, *ConfigSnapshot) error
+}
+
+var configSubReads = []configSubRead{
+	{"pg_settings", readConfigSettings},
+	{"reloptions", readConfigReloptions},
+	{"connection_states", readConnectionStates},
+	{"wal_position", readWALPosition},
+	{"extensions", readConfigExtensions},
+	{"connection_churn", readConnectionChurn},
+}
+
+// collectConfigSnapshot reads the advisor's configuration snapshot. Every
+// sub-read must succeed: a partial snapshot would present a failed read
+// as a fact (a reloptions timeout as "no per-table autovacuum overrides"),
+// so any failure, including a row that does not scan, fails the snapshot
+// and names the sub-read (collection-05).
+func collectConfigSnapshot(ctx context.Context, q catalogQuerier) (*ConfigSnapshot, error) {
+	cs := &ConfigSnapshot{}
+	for _, sr := range configSubReads {
+		if err := sr.read(ctx, q, cs); err != nil {
+			return nil, fmt.Errorf("%s: %w", sr.name, err)
 		}
-		rows4.Close()
 	}
-
-	// Connection churn (new connections in last 5 minutes)
-	var churn int
-	err = pool.QueryRow(ctx, connectionChurnSQL).Scan(&churn)
-	if err == nil {
-		cs.ConnectionChurn = churn
-	}
-
 	return cs, nil
+}
+
+// queryList runs sql and scans every row; a row that does not scan, or an
+// error while reading the rows, fails the read.
+func queryList[T any](ctx context.Context, q catalogQuerier, sql string,
+	scan func(pgx.Rows, *T) error) ([]T, error) {
+	rows, err := q.Query(ctx, sql)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []T
+	for rows.Next() {
+		var v T
+		if err := scan(rows, &v); err != nil {
+			return nil, fmt.Errorf("scan row: %w", err)
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+func readConfigSettings(ctx context.Context, q catalogQuerier, cs *ConfigSnapshot) (err error) {
+	cs.PGSettings, err = queryList(ctx, q, configSettingsSQL,
+		func(r pgx.Rows, s *PGSetting) error {
+			return r.Scan(&s.Name, &s.Setting, &s.Unit, &s.Source, &s.PendingRestart, &s.Context)
+		})
+	return err
+}
+
+func readConfigReloptions(ctx context.Context, q catalogQuerier, cs *ConfigSnapshot) (err error) {
+	cs.TableReloptions, err = queryList(ctx, q, configReloptionsSQL,
+		func(r pgx.Rows, t *TableReloption) error {
+			return r.Scan(&t.SchemaName, &t.RelName, &t.Reloptions)
+		})
+	return err
+}
+
+func readConnectionStates(ctx context.Context, q catalogQuerier, cs *ConfigSnapshot) (err error) {
+	cs.ConnectionStates, err = queryList(ctx, q, connectionStatesSQL,
+		func(r pgx.Rows, c *ConnectionState) error {
+			return r.Scan(&c.State, &c.Count, &c.AvgDurationSeconds)
+		})
+	return err
+}
+
+func readWALPosition(ctx context.Context, q catalogQuerier, cs *ConfigSnapshot) error {
+	var pos *string
+	if err := q.QueryRow(ctx, walPositionSQL).Scan(&pos); err != nil {
+		return err
+	}
+	if pos != nil {
+		cs.WALPosition = *pos
+	}
+	return nil
+}
+
+func readConfigExtensions(ctx context.Context, q catalogQuerier, cs *ConfigSnapshot) (err error) {
+	cs.ExtensionsAvailable, err = queryList(ctx, q, configExtensionsSQL,
+		func(r pgx.Rows, name *string) error { return r.Scan(name) })
+	return err
+}
+
+// readConnectionChurn counts new connections in the last 5 minutes.
+func readConnectionChurn(ctx context.Context, q catalogQuerier, cs *ConfigSnapshot) error {
+	return q.QueryRow(ctx, connectionChurnSQL).Scan(&cs.ConnectionChurn)
 }

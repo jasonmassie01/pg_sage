@@ -17,7 +17,9 @@
 // with $n one argument past the statement's own. A marker is not SQL, so a
 // statement sent without a Store fails to parse instead of reading an
 // empty or a mixed history. Readers find their Store from the monitored
-// pool they already hold (Resolve), so none can be wired to the wrong one.
+// pool they already hold (Resolve). In meta mode (SetProcessMode) a pool
+// no runtime registered is refused (ErrNotRegistered) rather than read as
+// its own history, so none can be wired to the wrong one.
 package histstore
 
 import (
@@ -95,6 +97,9 @@ type Store struct {
 	// the meta database monitored as itself, whose tables also hold the
 	// store's rows.
 	legacyNull bool
+	// err refuses every statement: an unregistered pool in meta mode
+	// (Resolve). Such a store has no database.
+	err error
 }
 
 // NewMonitored keeps history in db, the monitored database itself. db is
@@ -129,7 +134,7 @@ func (s Store) Scoped() bool { return s.databaseID > 0 }
 // DatabaseID is the meta-db record id; 0 for a monitored store.
 func (s Store) DatabaseID() int { return s.databaseID }
 
-// DB is the handle statements run on.
+// DB is the handle statements run on (nil for a refused store).
 func (s Store) DB() any { return s.db }
 
 // WithDB is the same placement on another handle of the same database,
@@ -178,6 +183,27 @@ func (s Store) Bind(sql string, args ...any) (string, []any) {
 	return out, append(bound, s.databaseID)
 }
 
+// Err is why the store refuses every statement (ErrNotRegistered), or nil.
+// Code that runs a bound statement on its own connection (Bind) checks it
+// first; a refusal counts in Refused.
+func (s Store) Err() error {
+	if s.err != nil {
+		refused.Add(1)
+	}
+	return s.err
+}
+
+// unusable is why the store cannot run a statement on its handle, or nil.
+func (s Store) unusable(ok bool) error {
+	if err := s.Err(); err != nil {
+		return err
+	}
+	if !ok || isNil(s.db) {
+		return s.noDB()
+	}
+	return nil
+}
+
 func (s Store) noDB() error {
 	if isNil(s.db) {
 		return ErrNoDatabase
@@ -188,8 +214,8 @@ func (s Store) noDB() error {
 // Exec binds and runs a statement.
 func (s Store) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 	e, ok := s.db.(execer)
-	if !ok || isNil(s.db) {
-		return pgconn.CommandTag{}, s.noDB()
+	if err := s.unusable(ok); err != nil {
+		return pgconn.CommandTag{}, err
 	}
 	sql, args = s.Bind(sql, args...)
 	return e.Exec(ctx, sql, args...)
@@ -198,8 +224,8 @@ func (s Store) Exec(ctx context.Context, sql string, args ...any) (pgconn.Comman
 // Query binds and runs a query.
 func (s Store) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 	q, ok := s.db.(querier)
-	if !ok || isNil(s.db) {
-		return nil, s.noDB()
+	if err := s.unusable(ok); err != nil {
+		return nil, err
 	}
 	sql, args = s.Bind(sql, args...)
 	return q.Query(ctx, sql, args...)
@@ -208,8 +234,8 @@ func (s Store) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, er
 // QueryRow binds and runs a single-row query.
 func (s Store) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
 	q, ok := s.db.(rowQuerier)
-	if !ok || isNil(s.db) {
-		return errRow{s.noDB()}
+	if err := s.unusable(ok); err != nil {
+		return errRow{err}
 	}
 	sql, args = s.Bind(sql, args...)
 	return q.QueryRow(ctx, sql, args...)
@@ -219,8 +245,8 @@ func (s Store) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
 // on it with WithDB.
 func (s Store) Begin(ctx context.Context) (pgx.Tx, error) {
 	b, ok := s.db.(beginner)
-	if !ok || isNil(s.db) {
-		return nil, s.noDB()
+	if err := s.unusable(ok); err != nil {
+		return nil, err
 	}
 	return b.Begin(ctx)
 }
