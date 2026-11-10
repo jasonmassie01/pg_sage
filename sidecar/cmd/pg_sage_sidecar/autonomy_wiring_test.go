@@ -110,7 +110,7 @@ func TestInstallAdoptsLegacyLevelsForTheDatabase(t *testing.T) {
 	})
 	ledgers := newAutonomyLedgers(true)
 	if err := ledgers.install(ctx, autonomousExecutor(pool), autonomyBinding{database: db,
-		control: pool, monitored: pool,
+		control: pool, monitored: pool, ha: checkedHAMonitor(t, pool),
 		settings: config.DefaultConfig().SRE.Autonomy}); err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,8 @@ func TestInstallAutonomyCarriesOverAndGovernsCustodians(t *testing.T) {
 	ledgers := newAutonomyLedgers(true)
 	ex := autonomousExecutor(pool)
 	if err := ledgers.install(context.Background(), ex, autonomyBinding{database: "orders",
-		control: pool, monitored: pool, settings: config.DefaultConfig().SRE.Autonomy}); err != nil {
+		control: pool, monitored: pool, settings: config.DefaultConfig().SRE.Autonomy,
+		ha: checkedHAMonitor(t, pool)}); err != nil {
 		t.Fatal(err)
 	}
 	ex.EnableStandingPolicyDocument(doc, nil)
@@ -185,7 +186,8 @@ func TestInstallAutonomyCarriesOverAndGovernsCustodians(t *testing.T) {
 	settings := config.DefaultConfig().SRE.Autonomy
 	settings.Enforce = false
 	if err := off.install(context.Background(), legacy, autonomyBinding{database: "orders",
-		control: pool, monitored: pool, settings: settings}); err != nil {
+		control: pool, monitored: pool, settings: settings,
+		ha: checkedHAMonitor(t, pool)}); err != nil {
 		t.Fatal(err)
 	}
 	legacy.EnableStandingPolicyDocument(doc, nil)

@@ -8,6 +8,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/autonomy"
 	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/ha"
 	"github.com/pg-sage/sidecar/internal/runway"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
@@ -38,11 +39,12 @@ func newWALCustodian(pool *pgxpool.Pool, cfg *config.Config,
 }
 
 // newRunwayAdvisorFor builds the advisor over the database's own
-// custodians; the executor is attached once it is built.
+// custodians and its HA monitor's snapshot; the executor is attached once
+// it is built.
 func newRunwayAdvisorFor(pool *pgxpool.Pool, cfg *config.Config,
-	database string) *runwayAdvisor {
+	database string, monitor *ha.Monitor) *runwayAdvisor {
 	return newRunwayAdvisor(newFreezeCustodian(pool, cfg, database),
-		newWALCustodian(pool, cfg, database), haReplicaProbe(pool))
+		newWALCustodian(pool, cfg, database), haReplicaGate(monitor))
 }
 
 func runwayOptions(cfg *config.Config, database string) runway.Options {

@@ -4,12 +4,15 @@ import (
 	"context"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/pg-sage/sidecar/internal/briefing"
-	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/ha"
 )
+
+// cycleExecutor is the executor cycle the orchestrator drives
+// (executor.Executor).
+type cycleExecutor interface {
+	RunCycle(ctx context.Context, isReplica bool)
+}
 
 // retentionRunner is the per-instance retention cleaner (retention.Cleaner).
 type retentionRunner interface {
@@ -18,10 +21,10 @@ type retentionRunner interface {
 
 // fleetCycleDeps are the per-database workers one orchestrator cycle drives.
 type fleetCycleDeps struct {
-	name    string
-	pool    *pgxpool.Pool
+	name string
+	// ha is the database's one HA monitor (ha_loop.go).
 	ha      *ha.Monitor
-	exec    *executor.Executor
+	exec    cycleExecutor
 	brief   *briefing.Worker
 	cleaner retentionRunner
 	// interval is the cycle period, fixed when the runtime is built so the
@@ -36,12 +39,6 @@ type fleetCycleDeps struct {
 func fleetDBOrchestrator(ctx context.Context, deps fleetCycleDeps) {
 	ticker := time.NewTicker(deps.interval)
 	defer ticker.Stop()
-
-	// Per-database HA monitor so fleet executors gate autonomous actions
-	// on this DB's own replica/safe-mode state (S2/S3).
-	if deps.pool != nil {
-		deps.ha = ha.New(deps.pool, logStructuredWrapper)
-	}
 	for {
 		select {
 		case <-ticker.C:
@@ -55,18 +52,20 @@ func fleetDBOrchestrator(ctx context.Context, deps fleetCycleDeps) {
 	}
 }
 
-// runFleetDBCycle is one orchestrator tick: executor (HA-gated), scheduled
+// runFleetDBCycle is one orchestrator tick: executor (HA-gated: the
+// database's monitor is checked just before the cycle, which is told
+// isReplica on a replica, an unknown role, safe mode or inside the
+// failover cooldown), scheduled
 // briefing, retention (G5-B08: fleet and meta databases used to grow
 // sage.* forever), then status and health history.
 func runFleetDBCycle(ctx context.Context, deps fleetCycleDeps) {
 	if deps.exec != nil && deps.ha != nil {
-		isReplica := deps.ha.Check(ctx)
-		if deps.ha.InSafeMode() {
+		isReplica := checkHA(ctx, deps.ha)
+		if deps.ha.Snapshot().SafeMode {
 			logWarn("ha", "[%s] safe mode active — "+
 				"suppressing autonomous actions", deps.name)
-			isReplica = true
 		}
-		deps.exec.RunCycle(ctx, isReplica)
+		deps.exec.RunCycle(ctx, isReplica || haNotWritable(deps.ha))
 	}
 	if deps.brief != nil && deps.brief.ShouldRun(time.Now()) {
 		text, err := deps.brief.Generate(ctx)

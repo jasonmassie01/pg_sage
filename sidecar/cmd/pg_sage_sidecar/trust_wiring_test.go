@@ -40,7 +40,7 @@ func TestInstallGrandfathersTheRampAutonomy(t *testing.T) {
 	ex := autonomousExecutor(pool) // ramp started 60 days ago, tier3_safe on
 	db := uniqueDatabase("gf")
 	binding := autonomyBinding{database: db, control: pool, monitored: pool,
-		settings: config.DefaultConfig().SRE.Autonomy}
+		settings: config.DefaultConfig().SRE.Autonomy, ha: checkedHAMonitor(t, pool)}
 	if err := ledgers.install(context.Background(), ex, binding); err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestInstallWithAFreshRampLeavesTheLedgerAtL1(t *testing.T) {
 	ledgers := newAutonomyLedgers(true)
 	if err := ledgers.install(context.Background(), ex, autonomyBinding{
 		database: uniqueDatabase("fresh"), control: pool, monitored: pool,
-		settings: config.DefaultConfig().SRE.Autonomy}); err != nil {
+		settings: config.DefaultConfig().SRE.Autonomy, ha: checkedHAMonitor(t, pool)}); err != nil {
 		t.Fatal(err)
 	}
 	ex.EnableStandingPolicyDocument(doc, nil)

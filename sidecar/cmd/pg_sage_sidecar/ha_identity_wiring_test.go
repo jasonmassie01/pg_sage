@@ -1,6 +1,14 @@
 package main
 
-import "testing"
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/ha"
+)
 
 // The earned-autonomy HA monitor persists its node identity under a key
 // that survives restarts and never collides between databases: the
@@ -18,5 +26,27 @@ func TestHAIdentityKey(t *testing.T) {
 	}
 	if got := haIdentityKey("", nil); got != "" {
 		t.Fatalf("no database = %q, want no key (persistence off)", got)
+	}
+}
+
+// fleet-04: the instance monitor carries the HA loop's cadence (the
+// default when unset); pool construction does not connect.
+func TestNewInstanceHAMonitorAppliesTheCadence(t *testing.T) {
+	pool, err := pgxpool.New(context.Background(), "postgres://sage@127.0.0.1:1/none")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	if m := newInstanceHAMonitor(pool, pool, "orders", nil, 20*time.Second); m == nil ||
+		m.Cadence() != 20*time.Second {
+		t.Fatalf("persisted monitor = %v, want one at a 20s cadence", m)
+	}
+	if m := newInstanceHAMonitor(pool, nil, "orders", nil, 0); m == nil ||
+		m.Cadence() != ha.DefaultCheckInterval {
+		t.Fatalf("unpersisted monitor = %v, want one at the default cadence", m)
+	}
+	m := newInstanceHAMonitor(pool, nil, "orders", nil, time.Minute)
+	if s := m.Snapshot(); s.Role != ha.RoleUnknown {
+		t.Fatalf("an unchecked instance monitor = %q, want unknown", s.Role)
 	}
 }

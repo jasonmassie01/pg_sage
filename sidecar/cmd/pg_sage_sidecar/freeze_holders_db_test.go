@@ -100,7 +100,7 @@ func v02Router(t *testing.T, pool *pgxpool.Pool) executorProposalRouter {
 	doc.MaintenanceWindows = []string{"always"}
 	ex := autonomousExecutor(pool)
 	if err := newAutonomyLedgers(true).install(context.Background(), ex, autonomyBinding{
-		database: "testdb", control: pool, monitored: pool,
+		database: "testdb", control: pool, monitored: pool, ha: checkedHAMonitor(t, pool),
 		settings: config.DefaultConfig().SRE.Autonomy}); err != nil {
 		t.Fatalf("install ledger: %v", err)
 	}

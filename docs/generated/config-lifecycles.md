@@ -163,6 +163,7 @@
 | `forecaster.min_r_squared` | `restart` | `-` | `derivable` |
 | `forecaster.sequence_critical_days` | `restart` | `-` | `derivable` |
 | `forecaster.sequence_warn_days` | `restart` | `-` | `derivable` |
+| `ha.check_interval_seconds` | `restart` | `-` | `operator_preference` |
 | `history.store` | `restart` | `-` | `operator_preference` |
 | `lakebase_observability.allow_payload` | `restart` | `-` | `safety_critical` |
 | `lakebase_observability.bindings` | `restart` | `-` | `safety_critical` |

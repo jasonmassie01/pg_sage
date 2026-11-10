@@ -1105,6 +1105,12 @@
     "doc": "",
     "class": "derivable"
   },
+  "ha.check_interval_seconds": {
+    "type": "int",
+    "default": 60,
+    "doc": "Seconds between HA role checks of each database, at most the executor cycle interval. A check older than three intervals reads as an unknown role (actions blocked). 5-600. Default: 60.",
+    "class": "operator_preference"
+  },
   "history.store": {
     "type": "string",
     "default": "monitored",

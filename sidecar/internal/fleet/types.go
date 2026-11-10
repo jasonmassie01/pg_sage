@@ -14,6 +14,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
+	"github.com/pg-sage/sidecar/internal/ha"
 	"github.com/pg-sage/sidecar/internal/sre"
 	"github.com/pg-sage/sidecar/internal/sre/action"
 	"github.com/pg-sage/sidecar/internal/sre/changefeed"
@@ -32,6 +33,10 @@ type DatabaseInstance struct {
 	Collector  *collector.Collector
 	Analyzer   *analyzer.Analyzer
 	Executor   *executor.Executor
+	// HA is the database's one HA monitor (fleet-04): the HA loop and the
+	// executor check it, every other consumer reads its snapshot. Nil
+	// without a pool, which every consumer treats as not writable.
+	HA *ha.Monitor
 	// Investigations is the Sage SRE investigator of this database: the
 	// API and MCP tools read investigations through it. Nil when the
 	// investigator could not be built.
@@ -144,6 +149,7 @@ func (d *DatabaseInstance) SnapshotStatus() *InstanceStatus {
 		cp = *d.Status
 	}
 	d.statusMu.RUnlock()
+	applyHASnapshot(&cp, d.HA)
 	if d.Collector != nil {
 		sample := d.Collector.LatestSnapshot()
 		if sample != nil && !sample.CollectedAt.IsZero() && !sample.CollectedAt.Before(cp.CollectorLastRun) {
@@ -473,4 +479,9 @@ type InstanceStatus struct {
 	LastSeen      time.Time            `json:"last_seen"`
 	DatabaseName  string               `json:"database_name"`
 	Capabilities  ProviderCapabilities `json:"capabilities,omitempty"`
+	// HARole, HASafeMode and HALastChange are the HA monitor's last check
+	// (ha_status.go); filled when the status is read, never stored.
+	HARole       string     `json:"ha_role"`
+	HASafeMode   bool       `json:"ha_safe_mode"`
+	HALastChange *time.Time `json:"ha_last_change,omitempty"`
 }

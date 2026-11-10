@@ -28,11 +28,6 @@ func (rt *databaseRuntime) installAutonomy(ex *executor.Executor) {
 	if control == nil {
 		control = rt.spec.Pool
 	}
-	var databaseID *int
-	if rt.spec.DatabaseID > 0 {
-		id := rt.spec.DatabaseID
-		databaseID = &id
-	}
 	if !settings.Enforce {
 		logWarn(rt.spec.Scope, "db %q: sre.autonomy.enforce is false: self-initiated "+
 			"actions (custodians, index create/drop, GUC, vacuum, analyze, hints) run "+
@@ -40,9 +35,9 @@ func (rt *databaseRuntime) installAutonomy(ex *executor.Executor) {
 	}
 	// The M5 SLO engine is built with the investigator, before execution.
 	err := processAutonomy().install(rt.ctx, ex, autonomyBinding{database: rt.spec.Name,
-		control: control, monitored: rt.spec.Pool, databaseID: databaseID,
+		control: control, monitored: rt.spec.Pool, databaseID: rt.recordID(),
 		settings: settings, budget: slobudget.New(rt.sloEngine),
-		notifier: rt.ledgerNotifier()})
+		notifier: rt.ledgerNotifier(), ha: rt.ha})
 	if err != nil {
 		logError(rt.spec.Scope, "db %q: trust ledger unavailable; self-initiated "+
 			"actions are blocked until it is: %v", rt.spec.Name, err)

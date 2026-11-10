@@ -29,7 +29,7 @@ func (rt *databaseRuntime) startExecution() {
 		rt.note("io_admission")
 	}
 	if err := startInstanceAutonomy(
-		rt.ctx, rt.workers, rt.spec.Pool, rt.cfg, rt.spec.Name, rt.executor,
+		rt.ctx, rt.workers, rt.spec.Pool, rt.cfg, rt.spec.Name, rt.executor, rt.ha,
 	); err != nil {
 		logError(rt.spec.Scope, "db %q: continuous autonomy unavailable: %v",
 			rt.spec.Name, err)
@@ -48,10 +48,10 @@ func (rt *databaseRuntime) startExecution() {
 	rt.brief = briefing.New(rt.spec.Pool, cfg, rt.generalLLM, logStructuredWrapper).
 		WithDatabaseName(rt.spec.Name)
 	deps := fleetCycleDeps{
-		name: rt.spec.Name, pool: rt.spec.Pool, exec: rt.executor,
+		name: rt.spec.Name, ha: rt.ha, exec: rt.executor,
 		brief: rt.brief, cleaner: retention.New(rt.spec.Pool, cfg, logStructuredWrapper).
 			WithControlPool(rt.spec.ControlPool),
-		interval: cfg.Analyzer.Interval() + 5*time.Second,
+		interval: orchestratorInterval(cfg),
 	}
 	rt.start(func() { fleetDBOrchestrator(rt.ctx, deps) })
 	rt.note("briefing+retention")
@@ -73,11 +73,7 @@ func (rt *databaseRuntime) buildExecutor() {
 		rt.spec.Pool.Config().ConnConfig.Host, rt.spec.Scope)
 	rt.actions = store.NewActionStore(rt.spec.Pool)
 	ex.WithActionStore(rt.actions, rt.spec.ExecMode)
-	var policyDatabaseID *int
-	if rt.spec.DatabaseID > 0 {
-		id := rt.spec.DatabaseID
-		policyDatabaseID = &id
-	}
+	policyDatabaseID := rt.recordID()
 	if err := ex.SetTrustLevel(rt.spec.Config.TrustLevel); err != nil {
 		logWarn(rt.spec.Scope, "db %q: invalid trust level %q: %v",
 			rt.spec.Name, rt.spec.Config.TrustLevel, err)

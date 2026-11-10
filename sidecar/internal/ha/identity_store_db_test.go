@@ -138,3 +138,33 @@ func TestLiveMonitor_PersistsAndComparesTheIdentity(t *testing.T) {
 		t.Fatalf("a timeline change while down did not open the cooldown: %v", got)
 	}
 }
+
+// fleet-04: the shared snapshot carries the cooldown a persisted history
+// opens at startup, so every consumer that reads it (not only earned
+// autonomy) holds writes after a failover while pg_sage was down.
+func TestLiveMonitor_SnapshotCarriesTheStartupCooldown(t *testing.T) {
+	pool, ctx := storePool(t)
+	store := NewPostgresIdentityStore(pool)
+	key := uniqueKey(t)
+	New(pool, noopLog).WithIdentityStore(store, key).Check(ctx)
+	if _, err := pool.Exec(ctx, `UPDATE sage.ha_identity SET timeline_id = timeline_id + 1
+		WHERE monitor_key = $1`, key); err != nil {
+		t.Fatalf("simulate an earlier timeline: %v", err)
+	}
+	before := time.Now()
+	m := New(pool, noopLog).WithIdentityStore(store, key).WithCadence(time.Minute)
+	if m.Check(ctx) {
+		t.Fatal("the test primary reported as not-primary")
+	}
+	s := m.Snapshot()
+	if s.Role != RolePrimary || s.LastChange.Before(before) || s.CheckedAt.Before(before) {
+		t.Fatalf("snapshot after a timeline change while down = %+v, want primary "+
+			"changed and checked after %v", s, before)
+	}
+	if s.Writable(time.Now(), 30*time.Minute) {
+		t.Fatal("the startup failover cooldown reads as writable")
+	}
+	if !s.Writable(s.LastChange.Add(30*time.Minute), 30*time.Minute) {
+		t.Fatal("the snapshot stays not writable after the cooldown")
+	}
+}

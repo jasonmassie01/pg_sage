@@ -120,14 +120,6 @@ func retentionDelete(batch autonomy.RetentionBatch) executor.RetentionDelete {
 	}
 }
 
-// haReplicaProbe reports replica or failover safe mode for one database.
-func haReplicaProbe(pool *pgxpool.Pool) func(context.Context) bool {
-	monitor := ha.New(pool, logStructuredWrapper)
-	return func(ctx context.Context) bool {
-		return monitor.Check(ctx) || monitor.InSafeMode()
-	}
-}
-
 type autonomyLogReporter struct{}
 
 func (autonomyLogReporter) Report(level, message string, fields map[string]any) {
@@ -138,8 +130,11 @@ func (autonomyLogReporter) Report(level, message string, fields map[string]any) 
 	logInfo("autonomy", "%s fields=%v", message, fields)
 }
 
+// newDatabaseAutonomy builds the database's continuous autonomy workers;
+// their proposals carry the HA state of monitor's snapshot.
 func newDatabaseAutonomy(
 	pool *pgxpool.Pool, cfg *config.Config, database string, exec *executor.Executor,
+	monitor *ha.Monitor,
 ) (*autonomy.Supervisor, error) {
 	if pool == nil || cfg == nil || exec == nil {
 		return nil, fmt.Errorf("autonomy runtime dependencies are incomplete")
@@ -147,7 +142,7 @@ func newDatabaseAutonomy(
 	freezeWorker := newFreezeCustodian(pool, cfg, database)
 	walWorker := newWALCustodian(pool, cfg, database)
 	auditor := ledger.NewService(ledger.NewPostgresRepository(pool))
-	router := executorProposalRouter{executor: exec, isReplica: haReplicaProbe(pool),
+	router := executorProposalRouter{executor: exec, isReplica: haReplicaGate(monitor),
 		parkLog: newParkedLog(func(format string, args ...any) {
 			logInfo("autonomy", "db %q: "+format, append([]any{database}, args...)...)
 		})}
@@ -182,9 +177,9 @@ func autonomyInterval(cfg *config.Config) time.Duration {
 
 func startInstanceAutonomy(
 	ctx context.Context, workers *sync.WaitGroup, pool *pgxpool.Pool,
-	cfg *config.Config, database string, exec *executor.Executor,
+	cfg *config.Config, database string, exec *executor.Executor, monitor *ha.Monitor,
 ) error {
-	supervisor, err := newDatabaseAutonomy(pool, cfg, database, exec)
+	supervisor, err := newDatabaseAutonomy(pool, cfg, database, exec, monitor)
 	if err != nil {
 		return err
 	}

@@ -500,6 +500,11 @@ operator_preference fleet_learning.lookalike_min_similarity
 operator_preference fleet_learning.min_prior_outcomes
 operator_preference fleet_learning.orphan_scope_days
 
+# HA monitor cadence (fleet-04): how often each database's role is checked. A
+# longer interval never widens authority: a check older than three intervals
+# reads as an unknown role, which blocks autonomous actions.
+operator_preference ha.check_interval_seconds
+
 # History placement (v2.3.0): where pg_sage keeps its own telemetry history is
 # deployment topology the operator declares. It never widens what pg_sage may
 # do and is never derived; a change is restart-bound and refused at startup

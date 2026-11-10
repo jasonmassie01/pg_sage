@@ -81,7 +81,7 @@ func TestInstallGivesTheLedgerTheNotifyPath(t *testing.T) {
 	d := &capturedDispatch{}
 	binding := autonomyBinding{database: db, control: pool, monitored: pool,
 		settings: config.DefaultConfig().SRE.Autonomy,
-		notifier: autonomyNotifier{dispatcher: d}}
+		notifier: autonomyNotifier{dispatcher: d}, ha: checkedHAMonitor(t, pool)}
 	if err := ledgers.install(context.Background(), autonomousExecutor(pool),
 		binding); err != nil {
 		t.Fatal(err)
