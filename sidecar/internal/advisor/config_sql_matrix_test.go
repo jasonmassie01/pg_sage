@@ -44,7 +44,7 @@ func matrixFinding(sql string) analyzer.Finding {
 		RecommendedSQL: sql}
 }
 
-// gateOne gates a single finding and requires exactly one back.
+// gateMatrix gates a single finding and requires exactly one back.
 func gateMatrix(t *testing.T, f analyzer.Finding, provider, db string,
 	rows []collector.PGSetting) analyzer.Finding {
 	t.Helper()
