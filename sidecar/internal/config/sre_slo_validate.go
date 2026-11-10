@@ -150,3 +150,36 @@ func (c SREChangeEventsConfig) validate() error {
 	}
 	return firstProblem("sre.change_events.", checks)
 }
+
+// validateSLOOwners checks owner_database (playbooks-08). In a fleet or a
+// meta-db fleet every database evaluates an objective with no database,
+// so without an owner one burn would open an slo_burn investigation per
+// database. Static fleets name their databases, so the owner must be one
+// of them; meta-db fleets discover theirs (the sidecar warns at startup).
+func (c *Config) validateSLOOwners() error {
+	fleet := c.Mode == "fleet" || c.HasMetaDB()
+	configured := make(map[string]bool, len(c.Databases))
+	for _, db := range c.Databases {
+		configured[db.Name] = true
+	}
+	for i, o := range c.SRE.SLO.Objectives {
+		prefix := fmt.Sprintf("sre.slo.objectives[%d] (%s): ", i, o.Name)
+		switch {
+		case o.OwnerDatabase != "" && o.Database != "":
+			return fmt.Errorf("%sowner_database applies only to an objective with no "+
+				"database; remove it (database %q already owns this SLO)", prefix, o.Database)
+		case o.OwnerDatabase != "" && !fleet:
+			return fmt.Errorf("%sowner_database applies only in fleet and meta-db "+
+				"modes; remove it (standalone monitors one database)", prefix)
+		case o.OwnerDatabase == "" && o.Database == "" && fleet:
+			return fmt.Errorf("%sin fleet mode an objective with no database is "+
+				"evaluated by every database and would open one slo_burn investigation "+
+				"per database; set database to the database the service uses, or set "+
+				"owner_database to the database whose investigator handles its burns", prefix)
+		case o.OwnerDatabase != "" && !c.HasMetaDB() && !configured[o.OwnerDatabase]:
+			return fmt.Errorf("%sowner_database %q is not a configured database "+
+				"(databases[].name)", prefix, o.OwnerDatabase)
+		}
+	}
+	return nil
+}

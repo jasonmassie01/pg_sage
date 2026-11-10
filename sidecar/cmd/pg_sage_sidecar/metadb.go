@@ -360,6 +360,7 @@ func initMetaDBFleet(state *metaDBState) {
 		names = append(names, record.Name)
 	}
 	initializeFleetBudget(names)
+	warnMissingSLOOwners(cfg.SRE.SLO, names, logStructuredWrapper)
 	startHistoryStoreCleaner(state.Pool) // history_store_wiring.go
 	for _, rec := range records {
 		registerStoreDatabase(state, rec)

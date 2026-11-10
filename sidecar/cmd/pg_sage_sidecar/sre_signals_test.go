@@ -162,6 +162,13 @@ type signalsRig struct {
 
 func signalsFixture(t *testing.T, settings config.SREConfig) signalsRig {
 	t.Helper()
+	return signalsFixtureNamed(t, settings, "orders")
+}
+
+// signalsFixtureNamed builds the signals and investigator of the named
+// database (each with its own runtime key, so its own database scope).
+func signalsFixtureNamed(t *testing.T, settings config.SREConfig, name string) signalsRig {
+	t.Helper()
 	dsn := testdb.SkipUnlessLive(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	t.Cleanup(cancel)
@@ -173,7 +180,7 @@ func signalsFixture(t *testing.T, settings config.SREConfig) signalsRig {
 	if err := schema.Bootstrap(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
-	sig, err := newSRESignals(sreSignalsDeps{control: pool, monitored: pool, name: "orders",
+	sig, err := newSRESignals(sreSignalsDeps{control: pool, monitored: pool, name: name,
 		settings: settings, logFn: func(string, string, ...any) {}})
 	if err != nil {
 		t.Fatalf("newSRESignals: %v", err)

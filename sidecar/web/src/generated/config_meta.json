@@ -2709,7 +2709,7 @@
   "sre.slo.objectives[].database": {
     "type": "string",
     "default": "",
-    "doc": "Monitored database the service uses; empty = every database.",
+    "doc": "Monitored database the service uses; empty = every database (fleets need owner_database).",
     "class": "operator_preference"
   },
   "sre.slo.objectives[].description": {
@@ -2740,6 +2740,12 @@
     "type": "string",
     "default": "",
     "doc": "Team or person who owns the service SLO.",
+    "class": "operator_preference"
+  },
+  "sre.slo.objectives[].owner_database": {
+    "type": "string",
+    "default": "",
+    "doc": "Fleets, no database: only this database opens the slo_burn investigation.",
     "class": "operator_preference"
   },
   "sre.slo.objectives[].resets_query": {
