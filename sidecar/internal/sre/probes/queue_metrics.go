@@ -2,6 +2,7 @@ package probes
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"sync"
 	"time"
@@ -136,11 +137,14 @@ func QueueStats() []QueueStat {
 }
 
 // timedAcquire takes a slot of l, recording the wait under the runner's
-// database label and the context's caller class.
+// database label and the context's caller class. Only a wait that ran
+// out of time is a refusal; a caller that gave up (cancelled) was not
+// refused a slot, though its wait counts.
 func (r *Runner) timedAcquire(ctx context.Context, l *Limiter, limiter string) error {
 	began := time.Now()
 	err := l.acquire(ctx)
-	observeQueue(r.databaseLabel(), CallerOf(ctx), limiter, time.Since(began), err != nil)
+	observeQueue(r.databaseLabel(), CallerOf(ctx), limiter, time.Since(began),
+		errors.Is(err, context.DeadlineExceeded))
 	return err
 }
 
