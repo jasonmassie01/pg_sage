@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -31,6 +32,9 @@ var (
 
 func (p *OAuthProvider) discoverOIDC(ctx context.Context, issuer string) error {
 	issuer = strings.TrimRight(issuer, "/")
+	if err := checkIssuerURL(issuer); err != nil {
+		return err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		issuer+"/.well-known/openid-configuration", nil)
 	if err != nil {
@@ -53,26 +57,38 @@ func (p *OAuthProvider) discoverOIDC(ctx context.Context, issuer string) error {
 	}
 	keys := oidc.NewRemoteKeySet(oidc.ClientContext(context.Background(), p.client),
 		disc.JWKSURI)
-	p.verifier = oidc.NewVerifier(disc.Issuer, keys, &oidc.Config{
+	p.storeDiscovered(&disc, oidc.NewVerifier(disc.Issuer, keys, &oidc.Config{
 		ClientID: p.cfg.ClientID, SupportedSigningAlgs: disc.SigningAlgs,
-	})
-	p.discovery = &disc
+	}))
+	return nil
+}
+
+// checkIssuerURL rejects an issuer_url that is not an absolute http(s) URL
+// before any request: a typo is a misconfiguration, not an IdP outage.
+func checkIssuerURL(issuer string) error {
+	u, err := url.Parse(issuer)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+		return fmt.Errorf("%w: issuer_url %q is not an absolute http(s) URL",
+			ErrDiscoveryMisconfigured, issuer)
+	}
 	return nil
 }
 
 // checkDiscovery enforces OIDC Discovery 1.0 section 4.3: the document
 // must name the configured issuer, and it must publish the keys that sign
-// id_tokens.
+// id_tokens. Its failures are misconfigurations (ErrDiscoveryMisconfigured).
 func checkDiscovery(disc *OIDCDiscovery, issuer string) error {
 	if disc.AuthorizationEndpoint == "" || disc.TokenEndpoint == "" {
-		return fmt.Errorf("oauth: discovery missing required endpoints")
+		return fmt.Errorf("%w: discovery missing required endpoints",
+			ErrDiscoveryMisconfigured)
 	}
 	if strings.TrimRight(disc.Issuer, "/") != issuer {
-		return fmt.Errorf("oauth: discovery issuer %q does not match configured "+
-			"issuer %q", disc.Issuer, issuer)
+		return fmt.Errorf("%w: discovery issuer %q does not match configured "+
+			"issuer %q", ErrDiscoveryMisconfigured, disc.Issuer, issuer)
 	}
 	if disc.JWKSURI == "" {
-		return fmt.Errorf("oauth: discovery has no jwks_uri; id_tokens cannot be verified")
+		return fmt.Errorf("%w: discovery has no jwks_uri; id_tokens cannot be verified",
+			ErrDiscoveryMisconfigured)
 	}
 	return nil
 }
@@ -111,10 +127,11 @@ func (p *OAuthProvider) oidcIdentity(
 func (p *OAuthProvider) verifyIDToken(
 	ctx context.Context, raw, nonce string,
 ) (*oidc.IDToken, error) {
-	if p.verifier == nil {
+	_, verifier := p.discovered()
+	if verifier == nil {
 		return nil, fmt.Errorf("%w: discovery not performed", ErrOIDCIDTokenInvalid)
 	}
-	tok, err := p.verifier.Verify(oidc.ClientContext(ctx, p.client), raw)
+	tok, err := verifier.Verify(oidc.ClientContext(ctx, p.client), raw)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrOIDCIDTokenInvalid, err)
 	}

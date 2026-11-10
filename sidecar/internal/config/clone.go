@@ -25,6 +25,7 @@ func Clone(cfg *Config) *Config {
 	cp.LakebaseObservability.Bindings = append([]LakebaseObservabilityBinding(nil), cfg.LakebaseObservability.Bindings...)
 	cp.API.TrustedProxies = append([]string(nil), cfg.API.TrustedProxies...)
 	cp.API.TrustedOrigins = append([]string(nil), cfg.API.TrustedOrigins...)
+	cp.API.AccessLog = cloneBool(cfg.API.AccessLog)
 	cp.OAuth.RoleMapping = append([]OAuthRoleMapping(nil), cfg.OAuth.RoleMapping...)
 	cp.Briefing.Channels = append(
 		[]string(nil), cfg.Briefing.Channels...)

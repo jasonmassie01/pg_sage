@@ -30,8 +30,7 @@ const shadowMeaning = "Below a class's earned trust level pg_sage records every 
 	"admin still approves every promotion."
 
 func registerShadowRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
-	viewer := RequireRole("admin", "operator", "viewer")
-	mux.Handle("GET "+shadowPath, viewer(shadowDecisionsHandler(mgr)))
+	route(mux, "GET "+shadowPath, gateViewer, shadowDecisionsHandler(mgr))
 }
 
 // shadowDatabase is one database's shadow ledger as served.

@@ -17,8 +17,7 @@ func registerDecommissionRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 	h := decommission.NewHandlers(pool, authenticatedActor, func(format string, args ...any) {
 		slog.Error("api decommission", "err", fmt.Sprintf(format, args...))
 	})
-	adminOnly := RequireRole("admin")
-	mux.Handle("GET "+decommission.InventoryPath, adminOnly(http.HandlerFunc(h.Inventory)))
-	mux.Handle("POST "+decommission.AckPath, adminOnly(http.HandlerFunc(h.Ack)))
-	mux.Handle("POST "+decommission.DropPath, adminOnly(http.HandlerFunc(h.Drop)))
+	route(mux, "GET "+decommission.InventoryPath, gateAdmin, http.HandlerFunc(h.Inventory))
+	route(mux, "POST "+decommission.AckPath, gateAdmin, http.HandlerFunc(h.Ack))
+	route(mux, "POST "+decommission.DropPath, gateAdmin, http.HandlerFunc(h.Drop))
 }

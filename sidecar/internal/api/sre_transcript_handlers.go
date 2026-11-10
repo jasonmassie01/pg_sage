@@ -16,8 +16,8 @@ import (
 // redaction); ?keep_identifiers=true is for operators and admins.
 
 func registerTranscriptRoute(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
-	mux.Handle("GET "+sreInvestigationsPath+"/{id}/transcript",
-		RequireRole("admin", "operator", "viewer")(investigationTranscriptHandler(mgr)))
+	route(mux, "GET "+sreInvestigationsPath+"/{id}/transcript", gateViewer,
+		investigationTranscriptHandler(mgr))
 }
 
 func investigationTranscriptHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {

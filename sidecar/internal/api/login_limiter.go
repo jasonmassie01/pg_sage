@@ -1,10 +1,11 @@
 package api
 
 import (
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/auth"
 )
 
 // loginRateLimiter bounds login attempts per key (an email, or a client
@@ -91,10 +92,6 @@ func ShutdownLoginLimiter() {
 	loginFailureBudget.Stop()
 }
 
-func normalizeLoginEmail(email string) string {
-	return strings.ToLower(strings.TrimSpace(email))
-}
-
 func (l *loginRateLimiter) purgeExpired() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -124,7 +121,7 @@ func pruneAttempts(attempts []time.Time, cutoff time.Time) []time.Time {
 // A new key arriving when the limiter is full and every key is locked is
 // refused: failing closed beats handing a locked account fresh guesses.
 func (l *loginRateLimiter) reserve(key string) bool {
-	key = normalizeLoginEmail(key)
+	key = auth.NormalizeEmail(key)
 	now := time.Now()
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -187,13 +184,13 @@ func liveAttempts(attempts []time.Time, cutoff time.Time) int {
 func (l *loginRateLimiter) reset(email string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	delete(l.attempts, normalizeLoginEmail(email))
+	delete(l.attempts, auth.NormalizeEmail(email))
 }
 
 // refund gives back one reserved attempt for a request that turned out not
 // to be a failed login. Earlier failures stay counted.
 func (l *loginRateLimiter) refund(key string) {
-	key = normalizeLoginEmail(key)
+	key = auth.NormalizeEmail(key)
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	attempts, ok := l.attempts[key]

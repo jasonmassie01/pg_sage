@@ -18,78 +18,60 @@ type notificationRouteDeps struct {
 func registerNotificationRoutes(
 	mux *http.ServeMux, pool *pgxpool.Pool, deps notificationRouteDeps,
 ) {
-	adminOnly := RequireRole("admin")
 	d := newDefaultDispatcher(pool, deps)
 	ns := store.NewNotificationStore(pool, d).
 		WithSecretKey(deps.secretKey).WithTargetPolicy(deps.policy)
 
-	registerNotificationChannelRoutes(mux, ns, adminOnly)
-	registerNotificationRuleRoutes(mux, ns, adminOnly)
+	registerNotificationChannelRoutes(mux, ns)
+	registerNotificationRuleRoutes(mux, ns)
 
-	logList := adminOnly(http.HandlerFunc(
-		listNotificationLogHandler(ns)))
-	mux.Handle(
-		"GET /api/v1/notifications/log", logList)
+	logList := http.HandlerFunc(
+		listNotificationLogHandler(ns))
+	route(mux, "GET /api/v1/notifications/log", gateAdmin, logList)
 }
 
 func registerNotificationChannelRoutes(
 	mux *http.ServeMux, ns *store.NotificationStore,
-	adminOnly func(http.Handler) http.Handler,
 ) {
-	chList := adminOnly(http.HandlerFunc(
-		listChannelsHandler(ns)))
-	mux.Handle(
-		"GET /api/v1/notifications/channels", chList)
+	chList := http.HandlerFunc(
+		listChannelsHandler(ns))
+	route(mux, "GET /api/v1/notifications/channels", gateAdmin, chList)
 
-	chCreate := adminOnly(http.HandlerFunc(
-		createChannelHandler(ns)))
-	mux.Handle(
-		"POST /api/v1/notifications/channels", chCreate)
+	chCreate := http.HandlerFunc(
+		createChannelHandler(ns))
+	route(mux, "POST /api/v1/notifications/channels", gateAdmin, chCreate)
 
-	chUpdate := adminOnly(http.HandlerFunc(
-		updateChannelHandler(ns)))
-	mux.Handle(
-		"PUT /api/v1/notifications/channels/{id}",
-		chUpdate)
+	chUpdate := http.HandlerFunc(
+		updateChannelHandler(ns))
+	route(mux, "PUT /api/v1/notifications/channels/{id}", gateAdmin, chUpdate)
 
-	chDelete := adminOnly(http.HandlerFunc(
-		deleteChannelHandler(ns)))
-	mux.Handle(
-		"DELETE /api/v1/notifications/channels/{id}",
-		chDelete)
+	chDelete := http.HandlerFunc(
+		deleteChannelHandler(ns))
+	route(mux, "DELETE /api/v1/notifications/channels/{id}", gateAdmin, chDelete)
 
-	chTest := adminOnly(http.HandlerFunc(
-		testChannelHandler(ns)))
-	mux.Handle(
-		"POST /api/v1/notifications/channels/{id}/test",
-		chTest)
+	chTest := http.HandlerFunc(
+		testChannelHandler(ns))
+	route(mux, "POST /api/v1/notifications/channels/{id}/test", gateAdmin, chTest)
 }
 
 func registerNotificationRuleRoutes(
 	mux *http.ServeMux, ns *store.NotificationStore,
-	adminOnly func(http.Handler) http.Handler,
 ) {
-	ruleList := adminOnly(http.HandlerFunc(
-		listRulesHandler(ns)))
-	mux.Handle(
-		"GET /api/v1/notifications/rules", ruleList)
+	ruleList := http.HandlerFunc(
+		listRulesHandler(ns))
+	route(mux, "GET /api/v1/notifications/rules", gateAdmin, ruleList)
 
-	ruleCreate := adminOnly(http.HandlerFunc(
-		createRuleHandler(ns)))
-	mux.Handle(
-		"POST /api/v1/notifications/rules", ruleCreate)
+	ruleCreate := http.HandlerFunc(
+		createRuleHandler(ns))
+	route(mux, "POST /api/v1/notifications/rules", gateAdmin, ruleCreate)
 
-	ruleDelete := adminOnly(http.HandlerFunc(
-		deleteRuleHandler(ns)))
-	mux.Handle(
-		"DELETE /api/v1/notifications/rules/{id}",
-		ruleDelete)
+	ruleDelete := http.HandlerFunc(
+		deleteRuleHandler(ns))
+	route(mux, "DELETE /api/v1/notifications/rules/{id}", gateAdmin, ruleDelete)
 
-	ruleUpdate := adminOnly(http.HandlerFunc(
-		updateRuleHandler(ns)))
-	mux.Handle(
-		"PUT /api/v1/notifications/rules/{id}",
-		ruleUpdate)
+	ruleUpdate := http.HandlerFunc(
+		updateRuleHandler(ns))
+	route(mux, "PUT /api/v1/notifications/rules/{id}", gateAdmin, ruleUpdate)
 }
 
 func newDefaultDispatcher(

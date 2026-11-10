@@ -66,6 +66,10 @@ func CreateUser(
 	if !IsValidRole(role) {
 		return 0, fmt.Errorf("invalid role: %q", role)
 	}
+	email = NormalizeEmail(email)
+	if email == "" {
+		return 0, fmt.Errorf("email required")
+	}
 	hash, err := HashPassword(password)
 	if err != nil {
 		return 0, err
@@ -73,38 +77,36 @@ func CreateUser(
 	var id int
 	err = pool.QueryRow(ctx,
 		"INSERT INTO sage.users (email, password, role) "+
-			"VALUES ($1, $2, $3) RETURNING id",
+			"SELECT $1::text, $2::text, $3::text "+newEmailOnlySQL+" RETURNING id",
 		email, hash, role,
 	).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, fmt.Errorf("creating user: %w", ErrEmailInUse)
+	}
 	if err != nil {
 		return 0, fmt.Errorf("creating user: %w", err)
 	}
 	return id, nil
 }
 
-// Authenticate verifies credentials and returns the user.
+// Authenticate verifies credentials and returns the user. The email
+// matches case-insensitively; one that matches several accounts (case
+// variants from before apiauth-05) is refused like an unknown one.
 func Authenticate(
 	ctx context.Context, pool *pgxpool.Pool,
 	email, password string,
 ) (*User, error) {
-	var u User
-	var hash *string
-	err := pool.QueryRow(ctx,
-		"SELECT id, email, password, role, created_at, last_login "+
-			"FROM sage.users WHERE email = $1 AND disabled_at IS NULL",
-		email,
-	).Scan(&u.ID, &u.Email, &hash, &u.Role,
-		&u.CreatedAt, &u.LastLogin)
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && hash == nil) {
-		// No password to check (unknown, SSO-only or deactivated): pay the
-		// same bcrypt cost anyway, so the response time does not reveal
-		// which emails have accounts.
+	u, hash, err := passwordAccount(ctx, pool, email)
+	if errors.Is(err, errNoPasswordAccount) {
+		// No password to check (unknown, ambiguous, SSO-only or
+		// deactivated): pay the same bcrypt cost anyway, so the response
+		// time does not reveal which emails have accounts.
 		return nil, equalizeRefusalTiming(password)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("querying user: %w", err)
+		return nil, err
 	}
-	if !CheckPassword(*hash, password) {
+	if !CheckPassword(hash, password) {
 		return nil, ErrInvalidCredentials
 	}
 	_, err = pool.Exec(ctx,
@@ -114,7 +116,48 @@ func Authenticate(
 	if err != nil {
 		return nil, fmt.Errorf("updating last_login: %w", err)
 	}
-	return &u, nil
+	return u, nil
+}
+
+// errNoPasswordAccount: no single enabled account with a password has
+// this email.
+var errNoPasswordAccount = errors.New("no password account for email")
+
+// passwordAccount returns the one account with this email (any case) and
+// its password hash, or errNoPasswordAccount.
+func passwordAccount(
+	ctx context.Context, pool *pgxpool.Pool, email string,
+) (*User, string, error) {
+	rows, err := pool.Query(ctx,
+		"SELECT id, email, password, role, created_at, last_login, "+
+			"disabled_at IS NOT NULL FROM sage.users "+
+			"WHERE lower(email) = lower($1) ORDER BY id LIMIT 2",
+		NormalizeEmail(email))
+	if err != nil {
+		return nil, "", fmt.Errorf("querying user: %w", err)
+	}
+	defer rows.Close()
+	var found []User
+	var hash *string
+	var disabled bool
+	for rows.Next() {
+		var u User
+		if err := rows.Scan(&u.ID, &u.Email, &hash, &u.Role,
+			&u.CreatedAt, &u.LastLogin, &disabled); err != nil {
+			return nil, "", fmt.Errorf("querying user: %w", err)
+		}
+		found = append(found, u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", fmt.Errorf("querying user: %w", err)
+	}
+	if len(found) > 1 {
+		logAmbiguousEmail("password", []int{found[0].ID, found[1].ID})
+	}
+	if len(found) != 1 || hash == nil || disabled {
+		return nil, "", errNoPasswordAccount
+	}
+	return &found[0], *hash, nil
 }
 
 // CreateSession inserts a session row and returns its cookie value.
@@ -127,14 +170,18 @@ func CreateSession(
 // ValidateSession returns the enabled user of an unexpired session, looked
 // up by the cookie's hash. It returns ErrSessionInvalid for an unknown,
 // expired or malformed cookie, or a deactivated user (a malformed one is
-// never queried) and a wrapped "validating session" error when the
-// session store fails.
+// never queried), and ErrSessionStoreUnavailable, wrapping the cause, when
+// there is no store or it fails to answer.
 func ValidateSession(
 	ctx context.Context, pool *pgxpool.Pool, token string,
 ) (*User, error) {
 	hash, ok := sessionTokenHash(token)
 	if !ok {
 		return nil, ErrSessionInvalid
+	}
+	if pool == nil {
+		return nil, fmt.Errorf("validating session: %w: no database pool",
+			ErrSessionStoreUnavailable)
 	}
 	var u User
 	err := pool.QueryRow(ctx,
@@ -151,7 +198,8 @@ func ValidateSession(
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrSessionInvalid
 		}
-		return nil, fmt.Errorf("validating session: %w", err)
+		return nil, fmt.Errorf("validating session: %w: %w",
+			ErrSessionStoreUnavailable, err)
 	}
 	return &u, nil
 }

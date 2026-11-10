@@ -29,7 +29,7 @@ func registerPolicyRoutes(mux *http.ServeMux, service policyService) {
 func registerPolicyRoutesWith(
 	mux *http.ServeMux, service policyService, singleOperator func() bool,
 ) {
-	mux.HandleFunc("GET /api/v1/policy", authenticatedPolicy(
+	route(mux, "GET /api/v1/policy", gateViewer, authenticatedPolicy(
 		func(w http.ResponseWriter, r *http.Request, _ *auth.User) {
 			scope, ok := policyScope(w, r)
 			if !ok {
@@ -38,7 +38,7 @@ func registerPolicyRoutesWith(
 			result, err := service.Current(r.Context(), scope)
 			writePolicyResult(w, result, err, http.StatusOK)
 		}))
-	mux.HandleFunc("GET /api/v1/policy/history", authenticatedPolicy(
+	route(mux, "GET /api/v1/policy/history", gateViewer, authenticatedPolicy(
 		func(w http.ResponseWriter, r *http.Request, _ *auth.User) {
 			scope, ok := policyScope(w, r)
 			if !ok {
@@ -51,7 +51,7 @@ func registerPolicyRoutesWith(
 			result, err := service.History(r.Context(), scope, limit)
 			writePolicyResult(w, map[string]any{"policies": result}, err, http.StatusOK)
 		}))
-	mux.HandleFunc("POST /api/v1/policy/proposals", authenticatedPolicy(
+	route(mux, "POST /api/v1/policy/proposals", gateOperator, authenticatedPolicy(
 		func(w http.ResponseWriter, r *http.Request, user *auth.User) {
 			if user.Role != auth.RoleAdmin && user.Role != auth.RoleOperator {
 				jsonError(w, "insufficient permissions", http.StatusForbidden)
@@ -64,7 +64,7 @@ func registerPolicyRoutesWith(
 			result, err := service.Propose(r.Context(), request)
 			writePolicyResult(w, result, err, http.StatusCreated)
 		}))
-	mux.HandleFunc("POST /api/v1/policy/proposals/{id}/ratify", authenticatedPolicy(
+	route(mux, "POST /api/v1/policy/proposals/{id}/ratify", gateAdmin, authenticatedPolicy(
 		func(w http.ResponseWriter, r *http.Request, user *auth.User) {
 			if user.Role != auth.RoleAdmin {
 				jsonError(w, "insufficient permissions", http.StatusForbidden)

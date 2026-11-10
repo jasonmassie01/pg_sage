@@ -18,8 +18,8 @@ import (
 // only, like the investigation export.
 
 func registerReplayCaseRoute(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
-	mux.Handle("GET "+sreInvestigationsPath+"/{id}/replay-case",
-		RequireRole("admin", "operator")(investigationReplayCaseHandler(mgr)))
+	route(mux, "GET "+sreInvestigationsPath+"/{id}/replay-case", gateOperator,
+		investigationReplayCaseHandler(mgr))
 }
 
 func investigationReplayCaseHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {

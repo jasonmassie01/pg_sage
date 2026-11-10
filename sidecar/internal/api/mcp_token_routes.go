@@ -33,10 +33,9 @@ func tokenAudit(r *http.Request) mcptoken.Audit {
 
 func registerMCPTokenRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 	store := mcptoken.NewStore(pool)
-	adminOnly := RequireRole("admin")
-	mux.Handle("GET /api/v1/mcp/tokens", adminOnly(listMCPTokensHandler(store)))
-	mux.Handle("POST /api/v1/mcp/tokens", adminOnly(createMCPTokenHandler(store)))
-	mux.Handle("DELETE /api/v1/mcp/tokens/{id}", adminOnly(revokeMCPTokenHandler(store)))
+	route(mux, "GET /api/v1/mcp/tokens", gateAdmin, listMCPTokensHandler(store))
+	route(mux, "POST /api/v1/mcp/tokens", gateAdmin, createMCPTokenHandler(store))
+	route(mux, "DELETE /api/v1/mcp/tokens/{id}", gateAdmin, revokeMCPTokenHandler(store))
 }
 
 func listMCPTokensHandler(store *mcptoken.Store) http.HandlerFunc {
@@ -75,7 +74,6 @@ func createMCPTokenHandler(store *mcptoken.Store) http.HandlerFunc {
 			mcpTokenError(w, r, "create mcp token", err)
 			return
 		}
-		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(tok)

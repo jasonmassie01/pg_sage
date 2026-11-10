@@ -61,12 +61,19 @@ func registerChatOpsRoutes(root, apiMux *http.ServeMux, pool *pgxpool.Pool,
 	if cfg != nil {
 		d.tolerance = cfg.SRE.Actions.ChatOpsTolerance()
 	}
+	logOn := accessLogOn(cfg)
 	wrap := func(h http.HandlerFunc) http.Handler {
-		return securityHeadersMiddleware(timeoutMiddleware(h))
+		var next http.Handler = timeoutMiddleware(h)
+		if logOn {
+			// The callbacks decide actions, so they are access-logged like
+			// every mutating API request; the root mux set r.Pattern.
+			next = accessLogMiddleware(accessStampMiddleware(next))
+		}
+		return securityHeadersMiddleware(next)
 	}
-	root.Handle("POST /api/v1/chatops/slack/{channel}",
+	route(root, "POST /api/v1/chatops/slack/{channel}", gateSelfAuth,
 		wrap(d.callbackHandler(chatops.ProviderSlack)))
-	root.Handle("POST /api/v1/chatops/telegram/{channel}",
+	route(root, "POST /api/v1/chatops/telegram/{channel}", gateSelfAuth,
 		wrap(d.callbackHandler(chatops.ProviderTelegram)))
 	registerChatOpsIdentityRoutes(apiMux, d.ids)
 }

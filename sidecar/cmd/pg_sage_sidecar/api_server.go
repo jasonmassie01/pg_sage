@@ -69,6 +69,7 @@ func startAPIServer(rl *RateLimiter) {
 		MCPHandler:       mcpHTTPHandler(),
 	})
 	startAuthPoolServices(result.AuthPool)
+	startTLSExpiryWatch(shutdownCtx, apiTLS, tlsExpiryCheckInterval)
 	serveAPI(addr, result.Handler)
 }
 

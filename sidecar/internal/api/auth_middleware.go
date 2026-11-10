@@ -3,8 +3,8 @@ package api
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"net/http"
+	"path"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -25,7 +25,7 @@ func SessionAuthMiddleware(
 		return http.HandlerFunc(func(
 			w http.ResponseWriter, r *http.Request,
 		) {
-			if shouldSkipAuth(r.URL.Path) || isMCPTokenRequest(r) || isSpecialistRequest(r) {
+			if skipsSessionAuth(r) {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -37,12 +37,8 @@ func SessionAuthMiddleware(
 				return
 			}
 
-			if pool == nil {
-				jsonError(w, "session invalid or expired",
-					http.StatusUnauthorized)
-				return
-			}
-
+			// A nil pool is handled by ValidateSession: a malformed
+			// cookie is still 401, a well-formed one cannot be checked.
 			user, err := auth.ValidateSession(
 				r.Context(), pool, cookie.Value,
 			)
@@ -54,10 +50,7 @@ func SessionAuthMiddleware(
 			if err != nil {
 				// Fail closed, but do not bounce a signed-in user to
 				// the login page because the session store blinked.
-				slog.Error("session validation failed",
-					"path", r.URL.Path, "error", err)
-				jsonError(w, "session store unavailable",
-					http.StatusServiceUnavailable)
+				writeSessionStoreUnavailable(w, r, err)
 				return
 			}
 
@@ -96,6 +89,31 @@ func RequireRole(
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// skipsSessionAuth reports a request the session middleware leaves to
+// its handler: public paths and the self-authenticating transports. The
+// decision reads the decoded path before routing, so only a canonical
+// path can skip: "/api/v1/specialist/../users" (or its %2e%2e and %2F
+// spellings) looks like a skipped prefix but is not the route it names.
+func skipsSessionAuth(r *http.Request) bool {
+	if !isCanonicalPath(r.URL.Path) {
+		return false
+	}
+	return shouldSkipAuth(r.URL.Path) || isMCPTokenRequest(r) || isSpecialistRequest(r)
+}
+
+// isCanonicalPath reports a rooted path with no ".", ".." or empty
+// segments: the path ServeMux would serve without redirecting.
+func isCanonicalPath(p string) bool {
+	if p == "" || p[0] != '/' {
+		return false
+	}
+	clean := path.Clean(p)
+	if strings.HasSuffix(p, "/") && clean != "/" {
+		clean += "/"
+	}
+	return clean == p
 }
 
 // UserFromContext extracts the authenticated user from context.

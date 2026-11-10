@@ -26,8 +26,7 @@ const fleetInvestigationLimit = 100
 
 func registerSRERoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
 	ledgers *earned.Registry) {
-	viewerUp := RequireRole("admin", "operator", "viewer")
-	mux.Handle("GET /api/v1/investigations", viewerUp(fleetInvestigationsHandler(mgr)))
+	route(mux, "GET /api/v1/investigations", gateViewer, fleetInvestigationsHandler(mgr))
 	perDB := perDatabaseSREMux(mgr, ledgers)
 	// The per-database routes go through their own mux behind one
 	// catch-all per method: "{db}/investigations" and the fleet-mode
@@ -37,29 +36,27 @@ func registerSRERoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
 	// "{db}" patterns stop ServeMux redirecting "/databases/x" to the
 	// catch-all's "/databases/x/"; the inner mux answers them 404.
 	for _, method := range []string{"GET", "POST"} {
-		mux.Handle(method+" /api/v1/databases/{db}", perDB)
-		mux.Handle(method+" /api/v1/databases/{db}/{rest...}", perDB)
+		mount(mux, method+" /api/v1/databases/{db}", perDB, perDB)
+		mount(mux, method+" /api/v1/databases/{db}/{rest...}", perDB, perDB)
 	}
 }
 
 func perDatabaseSREMux(mgr *fleet.DatabaseManager, ledgers *earned.Registry) *http.ServeMux {
-	viewerUp := RequireRole("admin", "operator", "viewer")
-	operatorUp := RequireRole("admin", "operator")
 	base := sreInvestigationsPath
 	mux := http.NewServeMux()
-	mux.Handle("GET "+base, viewerUp(investigationListHandler(mgr)))
-	mux.Handle("GET "+base+"/{id}", viewerUp(investigationDetailHandler(mgr)))
-	mux.Handle("GET "+base+"/{id}/events", viewerUp(investigationEventsHandler(mgr)))
-	mux.Handle("GET "+base+"/{id}/evidence/{evidence}",
-		viewerUp(investigationEvidenceHandler(mgr)))
-	mux.Handle("GET "+base+"/{id}/export", operatorUp(investigationExportHandler(mgr)))
-	mux.Handle("POST "+base+"/{id}/pin", operatorUp(investigationPinHandler(mgr, true)))
-	mux.Handle("POST "+base+"/{id}/unpin", operatorUp(investigationPinHandler(mgr, false)))
-	mux.Handle("POST "+base, operatorUp(investigationStartHandler(mgr)))
-	mux.Handle("POST "+base+"/{id}/stop", operatorUp(investigationTransitionHandler(mgr,
-		false)))
-	mux.Handle("POST "+base+"/{id}/resume", operatorUp(investigationTransitionHandler(mgr,
-		true)))
+	route(mux, "GET "+base, gateViewer, investigationListHandler(mgr))
+	route(mux, "GET "+base+"/{id}", gateViewer, investigationDetailHandler(mgr))
+	route(mux, "GET "+base+"/{id}/events", gateViewer, investigationEventsHandler(mgr))
+	route(mux, "GET "+base+"/{id}/evidence/{evidence}", gateViewer,
+		investigationEvidenceHandler(mgr))
+	route(mux, "GET "+base+"/{id}/export", gateOperator, investigationExportHandler(mgr))
+	route(mux, "POST "+base+"/{id}/pin", gateOperator, investigationPinHandler(mgr, true))
+	route(mux, "POST "+base+"/{id}/unpin", gateOperator, investigationPinHandler(mgr, false))
+	route(mux, "POST "+base, gateOperator, investigationStartHandler(mgr))
+	route(mux, "POST "+base+"/{id}/stop", gateOperator, investigationTransitionHandler(mgr,
+		false))
+	route(mux, "POST "+base+"/{id}/resume", gateOperator, investigationTransitionHandler(mgr,
+		true))
 	registerSREActionRoutes(mux, mgr)
 	registerSREMaintenanceRoutes(mux, mgr)
 	registerRunbookRoutes(mux, mgr, ledgers)

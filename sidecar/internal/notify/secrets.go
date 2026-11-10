@@ -2,6 +2,7 @@ package notify
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -55,6 +56,11 @@ func OpenSecrets(cfg map[string]string, key []byte) (map[string]string, error) {
 			return nil, fmt.Errorf("decoding channel secret %s: %w", k, err)
 		}
 		pt, err := crypto.Decrypt(ct, key)
+		if errors.Is(err, crypto.ErrWrongEncryptionKey) {
+			return nil, fmt.Errorf("channel secret %s does not open with "+
+				"encryption_key; was encryption_key changed? re-enter the "+
+				"secret or restore the old key: %w", k, crypto.ErrWrongEncryptionKey)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("decrypting channel secret %s: %w", k, err)
 		}

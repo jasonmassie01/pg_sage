@@ -25,7 +25,9 @@ func maxBodyMiddleware(next http.Handler) http.Handler {
 
 // securityHeadersMiddleware sets standard security headers
 // on every response. HSTS and CSP are excluded as they
-// require deployment-specific configuration.
+// require deployment-specific configuration. Cache-Control:
+// no-store keeps tokens, grants and data out of browser and
+// proxy caches; the SSE stream alone replaces it with no-cache.
 func securityHeadersMiddleware(
 	next http.Handler,
 ) http.Handler {
@@ -42,6 +44,7 @@ func securityHeadersMiddleware(
 		w.Header().Set(
 			"Permissions-Policy",
 			"camera=(), microphone=(), geolocation=()")
+		w.Header().Set("Cache-Control", "no-store")
 		next.ServeHTTP(w, r)
 	})
 }

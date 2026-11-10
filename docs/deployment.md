@@ -351,6 +351,10 @@ scrape_configs:
 | `pg_sage_llm_circuit_open` | == 1 | LLM circuit breaker tripped |
 | `pg_sage_executor_actions_total{outcome="failed"}` | rate > 0 | Failed autonomous actions |
 | `pg_sage_sre_probe_refusals_total{caller="investigation"}` | rate > 0 | Investigations losing probe slots |
+| `pg_sage_sso_discovery_ready` | == 0 for 10m | SSO is enabled but OIDC discovery has not succeeded; SSO sign-in is unavailable |
+| `pg_sage_sso_discovery_failures_total` | rate > 0 | OIDC discovery attempts failing (IdP outage, DNS, or misconfiguration) |
+| `pg_sage_api_tls_cert_not_after_seconds` | `- time() < 14*86400` | API TLS certificate expires within 14 days; rotate `SAGE_TLS_CERT`/`SAGE_TLS_KEY` (present only when the API serves TLS) |
+| `pg_sage_api_tls_reload_failures_total` | increase > 0 | A rotated TLS pair failed to load; the old certificate is still serving |
 
 ### Sage SRE probe slots
 
@@ -436,6 +440,11 @@ sudo systemctl restart pg_sage
 ```
 
 The sidecar handles schema migrations automatically on startup (adding new columns or tables as needed).
+
+User emails become case-insensitive on upgrade. If two accounts have emails
+that differ only in case, startup logs an ERROR and opens the critical finding
+`auth_email_case_duplicates` instead; see
+[Email Identity](security.md#email-identity) for how to resolve it.
 
 ### Docker
 

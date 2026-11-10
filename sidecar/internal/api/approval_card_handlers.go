@@ -36,13 +36,12 @@ type approvalCardHandlers struct {
 
 func registerApprovalCardRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
 	ledgers *earned.Registry) {
-	operatorUp := RequireRole("admin", "operator")
 	h := &approvalCardHandlers{mgr: mgr, ledgers: ledgers}
-	mux.Handle("GET /api/v1/approvals", operatorUp(http.HandlerFunc(h.list)))
-	mux.Handle("GET /api/v1/approvals/{id}", operatorUp(http.HandlerFunc(h.get)))
-	mux.Handle("POST /api/v1/approvals/{id}/approve", operatorUp(http.HandlerFunc(h.approve)))
-	mux.Handle("POST /api/v1/approvals/{id}/reject", operatorUp(http.HandlerFunc(h.reject)))
-	mux.Handle("POST /api/v1/approvals/{id}/snooze", operatorUp(http.HandlerFunc(h.snooze)))
+	route(mux, "GET /api/v1/approvals", gateOperator, http.HandlerFunc(h.list))
+	route(mux, "GET /api/v1/approvals/{id}", gateOperator, http.HandlerFunc(h.get))
+	route(mux, "POST /api/v1/approvals/{id}/approve", gateOperator, http.HandlerFunc(h.approve))
+	route(mux, "POST /api/v1/approvals/{id}/reject", gateOperator, http.HandlerFunc(h.reject))
+	route(mux, "POST /api/v1/approvals/{id}/snooze", gateOperator, http.HandlerFunc(h.snooze))
 }
 
 // cardLoader reads one database's cards with its executor's trust level

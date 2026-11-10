@@ -32,12 +32,11 @@ const (
 
 func registerSRESignalRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
 	cfg *config.Config) {
-	viewerUp := RequireRole("admin", "operator", "viewer")
-	mux.Handle("POST "+changeEventsPath, changeEventIngestHandler(mgr, cfg))
-	mux.Handle("POST "+sliPushPrefix+"{name}", sliPushHandler(mgr, cfg))
-	mux.Handle("GET /api/v1/sre/slos", viewerUp(sloListHandler(mgr)))
-	mux.Handle("GET /api/v1/sre/slos/{name}", viewerUp(sloDetailHandler(mgr)))
-	mux.Handle("GET /api/v1/sre/changes", viewerUp(changeListHandler(mgr)))
+	route(mux, "POST "+changeEventsPath, gateSelfAuth, changeEventIngestHandler(mgr, cfg))
+	route(mux, "POST "+sliPushPrefix+"{name}", gateSelfAuth, sliPushHandler(mgr, cfg))
+	route(mux, "GET /api/v1/sre/slos", gateViewer, sloListHandler(mgr))
+	route(mux, "GET /api/v1/sre/slos/{name}", gateViewer, sloDetailHandler(mgr))
+	route(mux, "GET /api/v1/sre/changes", gateViewer, changeListHandler(mgr))
 }
 
 // isSignedIngestPath reports the routes authenticated by their signature

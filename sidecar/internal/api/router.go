@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"io/fs"
-	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -132,6 +131,9 @@ type RuntimeDeps struct {
 	// AgentGrants serves agent grants and capability requests; nil answers
 	// 503 (no control database or executor).
 	AgentGrants AgentGrantService
+	// TLSExpiring adds tls_expiring to /ready details; nil when the API
+	// serves plain HTTP.
+	TLSExpiring func() bool
 }
 
 // NewRouterFullRuntime creates the API handler with process controllers.
@@ -172,15 +174,16 @@ func NewRouterFullRuntime(
 		middlewares = append(append([]func(http.Handler) http.Handler{}, middlewares...), databricksAppProtocolGuard)
 	}
 	apiHandler := wrapAPIHandler(apiMux, middlewares,
-		newCrossOriginProtection(cfg, rt.DatabricksAppAuth), askRequestTimeout(cfg))
+		newCrossOriginProtection(cfg, rt.DatabricksAppAuth), askRequestTimeout(cfg),
+		accessLogOn(cfg))
 
 	// Top-level mux: API routes get auth, static does not.
 	root := http.NewServeMux()
-	root.Handle("/api/v1/", apiHandler)
+	mount(root, "/api/v1/", apiMux, apiHandler)
 	if rt.DatabricksAppAuth {
 		// Avoid a misleading SPA response for the common protocol alias.
-		root.Handle("/mcp", apiHandler)
-		root.Handle("/mcp/", apiHandler)
+		mount(root, "/mcp", apiMux, apiHandler)
+		mount(root, "/mcp/", apiMux, apiHandler)
 	}
 	if pool != nil && !rt.DatabricksAppAuth {
 		// Signed ChatOps callbacks bypass session auth (their provider
@@ -188,7 +191,7 @@ func NewRouterFullRuntime(
 		registerChatOpsRoutes(root, apiMux, pool, mgr, cfg, rt)
 	}
 	// Readiness (E1): config loaded, control database up, schema migrated.
-	root.Handle("/ready", NewReadinessHandler(ControlPoolReadiness(cfg, pool)))
+	route(root, "/ready", gatePublic, NewReadinessHandler(routerReadiness(cfg, pool, rt)))
 	if rt.MCPHandler != nil && !rt.DatabricksAppAuth {
 		registerMCPMetadata(root, rt.MCPOAuth)
 	}
@@ -246,7 +249,7 @@ func registerFleetScopedRoutes(
 	}
 	// Value is read from every monitored database in all modes (D3), so
 	// it depends on the fleet, not on the control pool.
-	apiMux.Handle("GET /api/v1/value", valueHandler(fleetValueReader(mgr)))
+	route(apiMux, "GET /api/v1/value", gateViewer, valueHandler(fleetValueReader(mgr)))
 	registerOnboardingRoutes(apiMux, mgr, cfg, pool)
 }
 
@@ -289,34 +292,41 @@ func registerControlPoolRoutes(
 	registerDecommissionRoutes(apiMux, pool)
 }
 
-// newRouterOAuthProvider discovers the configured OAuth provider and starts
-// its CSRF-state cleaner; nil when OAuth is disabled or discovery fails.
+// newRouterOAuthProvider builds the configured OAuth provider, tries
+// discovery once so a healthy IdP is ready at startup, and keeps
+// discovery and the CSRF-state cleaner running on the shutdown context.
+// It is nil only when OAuth is disabled: a failed discovery leaves SSO
+// enabled but not ready until a retry succeeds.
 func newRouterOAuthProvider(cfg *config.Config) *auth.OAuthProvider {
 	if !cfg.OAuth.Enabled {
+		routerSSOProvider.Store(nil)
 		return nil
 	}
 	oauthProvider := auth.NewOAuthProvider(&cfg.OAuth)
-	if err := oauthProvider.Discover(
-		context.Background(),
-	); err != nil {
-		slog.Error("oauth discovery failed",
-			"error", err)
-		return nil
-	}
-	go oauthProvider.StartStateCleaner(
-		shutdownContext())
+	// Discover logs its own failure (WARN for an outage, one ERROR for a
+	// misconfiguration) and StartDiscovery retries, so the error needs no
+	// handling here.
+	_ = oauthProvider.Discover(context.Background())
+	routerSSOProvider.Store(oauthProvider)
+	ctx := shutdownContext()
+	go oauthProvider.StartDiscovery(ctx)
+	go oauthProvider.StartStateCleaner(ctx)
 	return oauthProvider
 }
 
 // wrapAPIHandler stacks the caller middlewares onto the API mux, then the
 // fixed chain every API route gets; askTimeout is the ask route's request
-// deadline (askRequestTimeout).
+// deadline (askRequestTimeout). accessLog adds the access log's two
+// layers (access_log.go): one around the mux, one outside auth.
 func wrapAPIHandler(
 	apiMux *http.ServeMux, middlewares []func(http.Handler) http.Handler,
-	crossOrigin *http.CrossOriginProtection, askTimeout time.Duration,
+	crossOrigin *http.CrossOriginProtection, askTimeout time.Duration, accessLog bool,
 ) http.Handler {
 	// Stack middlewares onto API routes only.
 	var apiHandler http.Handler = apiMux
+	if accessLog {
+		apiHandler = accessStampMiddleware(apiHandler)
+	}
 	for i := len(middlewares) - 1; i >= 0; i-- {
 		apiHandler = middlewares[i](apiHandler)
 	}
@@ -330,6 +340,11 @@ func wrapAPIHandler(
 	apiHandler = maxBodyMiddleware(apiHandler)
 	apiHandler = routeTimeoutMiddleware(apiHandler, askTimeout)
 	apiHandler = crossOrigin.Handler(apiHandler)
+	if accessLog {
+		// Outside the cross-origin check and auth, so it logs their
+		// refusals too; inside the security headers.
+		apiHandler = accessLogMiddleware(apiHandler)
+	}
 	apiHandler = securityHeadersMiddleware(apiHandler)
 	return apiHandler
 }
@@ -340,18 +355,18 @@ func registerRootRoutes(root *http.ServeMux) {
 	// Unauthenticated liveness endpoint. It was in the auth-skip
 	// allowlist but never registered, so /health fell through to the
 	// SPA and returned index.html instead of a real health check (W2).
-	root.HandleFunc("/health", func(
+	route(root, "/health", gatePublic, http.HandlerFunc(func(
 		w http.ResponseWriter, _ *http.Request,
 	) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
-	})
+	}))
 
 	// Embedded dashboard (SPA fallback).
 	staticSub, _ := fs.Sub(staticFiles, "dist")
 	fileServer := http.FileServer(http.FS(staticSub))
-	root.HandleFunc("/", func(
+	route(root, "/", gatePublic, http.HandlerFunc(func(
 		w http.ResponseWriter, r *http.Request,
 	) {
 		path := r.URL.Path
@@ -359,5 +374,5 @@ func registerRootRoutes(root *http.ServeMux) {
 			r.URL.Path = "/"
 		}
 		fileServer.ServeHTTP(w, r)
-	})
+	}))
 }

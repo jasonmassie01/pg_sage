@@ -29,8 +29,8 @@ func registerBreakGlassRoutes(
 	mux *http.ServeMux, pool *pgxpool.Pool, cfg *config.Config,
 	alerter breakGlassAlerter,
 ) {
-	mux.HandleFunc("POST "+breakGlassPath,
-		breakGlassHandler(pool, cfg.OAuth.BreakGlass, alerter))
+	route(mux, "POST "+breakGlassPath, gateSelfAuth,
+		http.HandlerFunc(breakGlassHandler(pool, cfg.OAuth.BreakGlass, alerter)))
 }
 
 // breakGlassLimiterKey rate-limits break-glass attempts per client address

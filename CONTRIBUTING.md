@@ -88,6 +88,13 @@ python3 -m unittest discover -s deploy/databricks-apps -p 'test_*.py' -v
 1. Create a focused branch.
 2. Add or update tests for behavior changes.
 3. Update docs when setup, UI routes, API contracts, or config keys change.
+   New API routes are registered with `route(mux, pattern, gate, handler)` in
+   `sidecar/internal/api` (see `route_registry.go`), never with `mux.Handle`;
+   `TestNoBareAPIHandle` fails on a bare registration and the router table
+   tests probe every registered route as nobody, viewer, operator and admin.
+   Add a golden probe for the route to `router_table_probes_test.go` and
+   regenerate with `go test ./internal/api -run RouterTable_MatchesGolden
+   -update-router-golden`.
 4. Run the relevant verification commands and include results in the PR.
 5. Submit a PR with a clear description of what changed and why.
 

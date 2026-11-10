@@ -11,7 +11,7 @@ import (
 // The legacy table drop is irreversible, so it is admin-only like the
 // inventory, and absent without a control pool.
 func TestDecommissionDropRoute_AdminOnly(t *testing.T) {
-	h := buildStandaloneRouter(t)
+	h := buildStandaloneRouter(t, injectCharRole)
 	p := routeProbe{http.MethodPost, decommission.DropPath}
 	for role, want := range map[string]int{"operator": http.StatusForbidden,
 		"viewer": http.StatusForbidden, "": http.StatusUnauthorized} {
@@ -24,7 +24,7 @@ func TestDecommissionDropRoute_AdminOnly(t *testing.T) {
 		t.Errorf("admin POST %s {} = %d %s, want the handler's 400 for the phrase",
 			p.path, code, body)
 	}
-	bare := buildBareRouter(t)
+	bare := buildBareRouter(t, injectCharRole)
 	if code, _ := serveProbe(bare, p, "admin"); code != http.StatusNotFound {
 		t.Errorf("without a control pool the drop route = %d, want 404", code)
 	}

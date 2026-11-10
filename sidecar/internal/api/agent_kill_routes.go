@@ -34,13 +34,11 @@ type AgentKillSwitch interface {
 const maxAgentKillBody = 4 << 10
 
 func registerAgentKillRoutes(mux *http.ServeMux, sw AgentKillSwitch) {
-	operatorUp := RequireRole("admin", "operator")
-	admin := RequireRole("admin")
 	h := agentKillHandlers{sw: sw}
-	mux.Handle("POST /api/v1/agents/kill", admin(http.HandlerFunc(h.kill)))
-	mux.Handle("POST /api/v1/agents/kill/release", admin(http.HandlerFunc(h.release)))
-	mux.Handle("POST /api/v1/agents/{id}/freeze", operatorUp(http.HandlerFunc(h.freeze)))
-	mux.Handle("POST /api/v1/agents/{id}/unfreeze", admin(http.HandlerFunc(h.unfreeze)))
+	route(mux, "POST /api/v1/agents/kill", gateAdmin, http.HandlerFunc(h.kill))
+	route(mux, "POST /api/v1/agents/kill/release", gateAdmin, http.HandlerFunc(h.release))
+	route(mux, "POST /api/v1/agents/{id}/freeze", gateOperator, http.HandlerFunc(h.freeze))
+	route(mux, "POST /api/v1/agents/{id}/unfreeze", gateAdmin, http.HandlerFunc(h.unfreeze))
 }
 
 type agentKillHandlers struct{ sw AgentKillSwitch }

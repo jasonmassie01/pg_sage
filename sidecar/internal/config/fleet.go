@@ -116,7 +116,14 @@ type APIConfig struct {
 	// reverse proxy rewrites Host and the browser sends no Sec-Fetch-Site,
 	// or when a separately hosted UI calls the API.
 	TrustedOrigins []string `yaml:"trusted_origins" doc:"Browser origins (scheme://host[:port]) allowed to send cross-origin writes to the API. Empty by default: only same-origin browser writes and non-browser clients are accepted." warning:"Every listed origin can submit authenticated writes with a signed-in user's cookie; list only origins you control."`
+
+	// AccessLog writes one line per mutating API request and per 401/403
+	// (apiauth-12); nil means enabled.
+	AccessLog *bool `yaml:"access_log" doc:"Log one structured line per mutating API request and per 401/403 response: method, route pattern, user id, role, status and latency, never bodies or query strings. Default true." warning:"Turning this off removes the record of who changed what through the API."`
 }
+
+// AccessLogEnabled reports whether the API access log is on (default: on).
+func (a APIConfig) AccessLogEnabled() bool { return a.AccessLog == nil || *a.AccessLog }
 
 // normalize fills in defaults and synthesizes Databases from legacy
 // Postgres fields when appropriate. Must be called after loading

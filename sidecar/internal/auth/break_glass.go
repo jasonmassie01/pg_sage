@@ -30,8 +30,8 @@ var (
 	ErrBreakGlassDisabled = errors.New("break-glass login is not enabled")
 	// ErrBreakGlassDenied is a wrong break-glass password.
 	ErrBreakGlassDenied = errors.New("break-glass login denied")
-	// ErrBreakGlassConflict means BreakGlassEmail belongs to an ordinary
-	// account, which break-glass refuses to take over.
+	// ErrBreakGlassConflict means BreakGlassEmail, in any case, belongs to
+	// an ordinary account, which break-glass refuses to take over.
 	ErrBreakGlassConflict = errors.New(
 		"break-glass account email is held by another account")
 )
@@ -52,9 +52,11 @@ func BreakGlassLogin(
 	}
 	u := User{Email: BreakGlassEmail, Role: RoleAdmin}
 	err := pool.QueryRow(ctx,
-		`/* pg_sage auth_break_glass v1 */
+		`/* pg_sage auth_break_glass v2 */
 		INSERT INTO sage.users (email, password, role, oauth_provider, last_login)
-		VALUES ($1, NULL, 'admin', $2, now())
+		SELECT $1::text, NULL, 'admin', $2::text, now()
+		 WHERE NOT EXISTS (SELECT 1 FROM sage.users
+		                    WHERE lower(email) = lower($1::text) AND email <> $1::text)
 		ON CONFLICT (email) DO UPDATE SET role = 'admin', last_login = now(),
 		    disabled_at = NULL
 		 WHERE sage.users.password IS NULL AND sage.users.oauth_issuer IS NULL

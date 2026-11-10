@@ -35,13 +35,11 @@ func registerAgentRoutes(mux *http.ServeMux, pool *pgxpool.Pool, cfg *config.Con
 	r := &agentRoutes{pool: pool, store: agentguard.NewStore(pool),
 		tokens:         mcptoken.NewStore(pool),
 		singleOperator: cfg != nil && cfg.Agents.SingleOperatorMode}
-	operator := RequireRole("admin", "operator")
-	admin := RequireRole("admin")
-	mux.Handle("GET /api/v1/agents", operator(http.HandlerFunc(r.list)))
-	mux.Handle("POST /api/v1/agents", admin(http.HandlerFunc(r.create)))
-	mux.Handle("GET /api/v1/agents/{id}", operator(http.HandlerFunc(r.get)))
-	mux.Handle("PATCH /api/v1/agents/{id}", admin(http.HandlerFunc(r.patch)))
-	mux.Handle("POST /api/v1/agents/{id}/tokens", admin(http.HandlerFunc(r.mintToken)))
+	route(mux, "GET /api/v1/agents", gateOperator, http.HandlerFunc(r.list))
+	route(mux, "POST /api/v1/agents", gateAdmin, http.HandlerFunc(r.create))
+	route(mux, "GET /api/v1/agents/{id}", gateOperator, http.HandlerFunc(r.get))
+	route(mux, "PATCH /api/v1/agents/{id}", gateAdmin, http.HandlerFunc(r.patch))
+	route(mux, "POST /api/v1/agents/{id}/tokens", gateAdmin, http.HandlerFunc(r.mintToken))
 }
 
 // governanceAudit is the audit of a change the signed-in admin makes.
@@ -223,7 +221,6 @@ func (a *agentRoutes) mintToken(w http.ResponseWriter, r *http.Request) {
 		agentError(w, r, "mint agent token", err)
 		return
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(tok)

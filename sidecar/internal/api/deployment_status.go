@@ -13,15 +13,19 @@ import (
 )
 
 func registerDeploymentStatusRoutes(mux *http.ServeMux, cfg *config.Config, rt RuntimeDeps, clients LLMBudgetRegistry) {
-	mux.Handle("GET /api/v1/deployment/status", RequireRole(auth.RoleAdmin)(deploymentStatusHandler(cfg, rt, clients)))
-	mux.Handle("GET /api/v1/lakebase-observability/history", RequireRole(auth.RoleAdmin)(telemetryHistoryHandler(rt)))
-	mux.Handle("GET /api/v1/lakebase-observability/status", RequireRole(auth.RoleAdmin, auth.RoleOperator, auth.RoleViewer)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		if rt.TelemetryStatus == nil {
-			jsonResponse(w, map[string]any{"enabled": false, "state": "not_configured", "mode": "metadata_only"})
-			return
-		}
-		jsonResponse(w, rt.TelemetryStatus())
-	})))
+	route(mux, "GET /api/v1/deployment/status", gateAdmin,
+		deploymentStatusHandler(cfg, rt, clients))
+	route(mux, "GET /api/v1/lakebase-observability/history", gateAdmin, telemetryHistoryHandler(rt))
+	route(mux, "GET /api/v1/lakebase-observability/status", gateViewer,
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			if rt.TelemetryStatus == nil {
+				jsonResponse(w, map[string]any{
+					"enabled": false, "state": "not_configured", "mode": "metadata_only",
+				})
+				return
+			}
+			jsonResponse(w, rt.TelemetryStatus())
+		}))
 }
 
 func telemetryHistoryHandler(rt RuntimeDeps) http.Handler {
@@ -61,7 +65,6 @@ func telemetryHistoryHandler(rt RuntimeDeps) http.Handler {
 			jsonError(w, "historical telemetry unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		w.Header().Set("Cache-Control", "no-store")
 		jsonResponse(w, result)
 	})
 }
@@ -122,7 +125,6 @@ func deploymentStatusHandler(fallback *config.Config, rt RuntimeDeps, clients LL
 		if clients != nil {
 			result["registered_ai_clients"] = clients.TokenStatus()
 		}
-		w.Header().Set("Cache-Control", "no-store")
 		jsonResponse(w, result)
 	})
 }

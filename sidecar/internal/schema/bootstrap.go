@@ -122,7 +122,10 @@ func Bootstrap(ctx context.Context, pool *pgxpool.Pool) error {
 			if err := retireSequenceForecast(ctx, conn); err != nil { // forecast-05
 				return err
 			}
-			return migrateAuditCheckpoint(ctx, conn) // audit-03
+			if err := migrateAuditCheckpoint(ctx, conn); err != nil { // audit-03
+				return err
+			}
+			return migrateUsersEmailCase(ctx, conn) // apiauth-05
 		},
 	)
 }

@@ -30,6 +30,7 @@ safety_critical postgres.password
 safety_critical postgres.port
 safety_critical postgres.sslmode
 safety_critical postgres.user
+safety_critical api.access_log
 safety_critical api.listen_addr
 safety_critical api.trusted_proxies
 safety_critical api.trusted_origins

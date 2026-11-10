@@ -94,18 +94,18 @@ func UserRole(ctx context.Context, pool *pgxpool.Pool, userID int) (string, erro
 	return role, nil
 }
 
-// UserIDByEmail returns the id of the user with this exact email, so a
-// failed login can be audited against the account it targeted.
+// UserIDByEmail returns the id of the user with this email (any case), so
+// a failed login can be audited against the account it targeted. An email
+// that matches several accounts returns ErrEmailAmbiguous.
 func UserIDByEmail(ctx context.Context, pool *pgxpool.Pool, email string) (int, error) {
-	var id int
-	err := pool.QueryRow(ctx,
-		"/* pg_sage auth_user_lookup v1 */ SELECT id FROM sage.users WHERE email = $1",
-		email).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
+	ids, err := usersWithEmail(ctx, pool, email)
+	switch {
+	case err != nil:
+		return 0, err
+	case len(ids) == 0:
 		return 0, ErrUserNotFound
+	case len(ids) > 1:
+		return 0, fmt.Errorf("%w: user ids %v", ErrEmailAmbiguous, ids)
 	}
-	if err != nil {
-		return 0, fmt.Errorf("looking up user by email: %w", err)
-	}
-	return id, nil
+	return ids[0], nil
 }

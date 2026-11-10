@@ -36,7 +36,7 @@ func asViewer(next http.Handler) http.Handler {
 
 func routedAPI(cfg *config.Config, mux *http.ServeMux) http.Handler {
 	return wrapAPIHandler(mux, []func(http.Handler) http.Handler{asViewer},
-		newCrossOriginProtection(cfg, false), askRequestTimeout(cfg))
+		newCrossOriginProtection(cfg, false), askRequestTimeout(cfg), accessLogOn(cfg))
 }
 
 func TestAskRoute_DeadlineIsTheSettingPlusFiveSeconds(t *testing.T) {

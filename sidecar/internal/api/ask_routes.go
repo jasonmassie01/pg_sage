@@ -31,12 +31,11 @@ func registerAskRoutes(mux *http.ServeMux, reg *ask.Registry) {
 	if reg == nil {
 		return
 	}
-	viewer := RequireRole("admin", "operator", "viewer")
 	h := askHandlers{reg: reg}
-	mux.Handle("POST "+askBasePath, viewer(http.HandlerFunc(h.ask)))
-	mux.Handle("GET "+askBasePath+"/conversations", viewer(http.HandlerFunc(h.list)))
-	mux.Handle("GET "+askBasePath+"/conversations/{id}", viewer(http.HandlerFunc(h.thread)))
-	mux.Handle("GET "+askBasePath+"/budget", viewer(http.HandlerFunc(h.budget)))
+	route(mux, "POST "+askBasePath, gateViewerWrite, http.HandlerFunc(h.ask))
+	route(mux, "GET "+askBasePath+"/conversations", gateViewer, http.HandlerFunc(h.list))
+	route(mux, "GET "+askBasePath+"/conversations/{id}", gateViewer, http.HandlerFunc(h.thread))
+	route(mux, "GET "+askBasePath+"/budget", gateViewer, http.HandlerFunc(h.budget))
 }
 
 // askCaller is the session user as an Ask Sage caller.

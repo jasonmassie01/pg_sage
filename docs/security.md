@@ -376,8 +376,22 @@ sessions one hour); a malformed cookie is refused without a query.
   `{"revoked": N}` and records `sessions_revoked` with the count.
 - Unlinking a user's SSO identity, and the Databricks admin bootstrap, end all
   of that user's sessions.
-- If the session store cannot be read the API answers 503, not 401, so a
-  database blip does not look like an expired session.
+- If the session store cannot be read (no database pool, a refused or dropped
+  connection, a failover, a saturated pool) the API answers `503` with
+  `Retry-After: 5` and
+  `{"error":"session store unavailable","code":"auth_store_unavailable"}`,
+  not `401`, so a database blip does not look like an expired session. The
+  dashboard keeps the user signed in, shows "Session store unavailable,
+  retrying" and clears it on the next successful request; a reload during
+  the outage shows a retry screen instead of the login page. API clients
+  should retry on this code and re-authenticate only on `401`. The cause is
+  logged at ERROR at most once every 30 seconds, with a count of the
+  suppressed repeats. The SSO link flow (`authorize?intent=link`) answers the
+  same way. In standalone mode the session store is the monitored database;
+  in fleet and meta modes it is the control database.
+- `401` still means the session is over: no cookie, an unknown or expired
+  session, a deactivated user, or a cookie that cannot be a session (that one
+  is `401` even during an outage, because it is refused without a query).
 
 Upgrading to the release that introduced hashed sessions deletes every
 existing session once: every dashboard user signs in again after the upgrade.
@@ -390,6 +404,34 @@ again deletes the unhashed sessions and restores the constraint.
 
 `SAGE_API_KEY` is a legacy config field and does not secure the current v1
 web/API path.
+
+### Route Authorization
+
+Signing in proves who the caller is; each route then decides which roles may
+use it. Every API route declares one gate when it is registered, and the
+router refuses a route that declares none:
+
+| Gate | Who may call it |
+|---|---|
+| Public | Anyone: login, OAuth sign-in, `auth/mode`, `/health`, `/ready`, the dashboard |
+| Self-authenticating | The handler checks its own credential: MCP bearer tokens, signed change events and SLI pushes, signed ChatOps callbacks, the specialist contract, break-glass, OIDC link grants |
+| Viewer | Any signed-in role (admin, operator, viewer); reads only |
+| Viewer write | Any signed-in role, on a short documented list of writes: logout, "sign out everywhere else", Ask Sage |
+| Operator | Operators and admins |
+| Admin | Admins only |
+
+A signed-in user whose role is none of admin, operator or viewer is refused
+everywhere except public and self-authenticating routes. The gate sits on the
+route itself, not only in front of the router, so a route answers `401`
+without a session and `403` for a role it does not allow even if the session
+middleware is bypassed.
+
+Only a canonical path can skip session authentication. A path with `.` or
+`..` segments, doubled slashes or their percent-encoded spellings
+(`/api/v1/specialist/../users`, `/api/v1/specialist/%2e%2e/users`,
+`/api/v1/mcp%2F..%2Fusers`) needs a session even when it starts like a public
+or self-authenticating route; the router redirects `..` paths to their clean
+form first, and that form is checked again.
 
 ### User Offboarding
 
@@ -447,12 +489,33 @@ not on-behalf-of user permissions. Agent transports and signed machine ingestion
 without an equivalent platform identity/grant contract remain explicitly
 unsupported. See the [App auth contract](databricks-apps.md#what-runs-where).
 
+### Email Identity
+
+An email address is one identity whatever its case. pg_sage stores emails
+trimmed and in lower case, and every comparison is case-insensitive:
+password login, the failed-login audit, the login throttle, SSO first sign-in,
+link grants and the break-glass account. `POST /api/v1/users` answers `400`
+for anything but a single bare address (`name@example.com`), and `409` for an
+email that already exists in any case. `sage.users` enforces this with the
+unique index `users_email_lower` on `lower(email)`.
+
+Upgrading rewrites existing emails in lower case and creates that index, unless
+two accounts have emails that differ only in case (or surrounding spaces).
+Then the upgrade changes nothing, startup still completes, and pg_sage logs an
+ERROR and opens a critical finding (`auth_email_case_duplicates` on
+`sage.users`) naming the colliding user ids. While the duplicates exist, those
+emails fail closed: password login is refused, the failed-login audit names no
+account, and SSO answers `link_required`. Keep one account per email (delete or
+rename the others, then re-grant roles and links to the one you keep) and
+restart pg_sage. The next startup finishes the migration and resolves the
+finding. In fleet mode, each database's `sage` schema is migrated on its own.
+
 ### SSO Account Linking
 
 SSO users are matched on the identity provider's issuer and subject, never on
-email. A first SSO sign-in whose verified email belongs to an existing account
-is refused (HTTP `403`) until the account is linked by one of these explicit
-acts:
+email. A first SSO sign-in whose verified email belongs to an existing account,
+compared case-insensitively, is refused (HTTP `403`) until the account is linked
+by one of these explicit acts:
 
 - **Link SSO (self-service).** A user signed in with a password opens their
   account page (click their email in the sidebar, `#/profile`) and chooses
@@ -509,7 +572,40 @@ providers:
   no email, and must name the same subject.
 - **Discovery.** The discovery document must name the configured issuer
   (`oauth.issuer_url`, trailing slash ignored) and publish `jwks_uri`;
-  otherwise SSO stays disabled and startup logs why.
+  otherwise SSO stays unavailable and the log says why (see
+  [SSO temporarily unavailable](#sso-temporarily-unavailable)).
+
+#### SSO temporarily unavailable
+
+pg_sage tries OIDC discovery once at startup and keeps trying in the
+background, so an identity provider or DNS blip during a rollout never turns
+SSO off until a restart. While discovery has not succeeded:
+
+- `GET /api/v1/auth/oauth/config` answers
+  `{"enabled": true, "ready": false, "reason": "..."}`, and the login page
+  shows the SSO button disabled with **SSO temporarily unavailable**. The page
+  asks again every 30 seconds and enables the button once SSO is ready.
+- `GET /api/v1/auth/oauth/authorize`, the OAuth callback and
+  `POST /api/v1/auth/oauth/link-grant` answer `503` with
+  `{"code": "sso_not_ready"}` and `Retry-After`, not `404`. A link grant is
+  not used up by a refused request. Password login and break-glass are
+  unaffected.
+- `pg_sage_sso_discovery_ready` is `0` and
+  `pg_sage_sso_discovery_failures_total` counts the failed attempts.
+
+The `reason` tells the two cases apart:
+
+| `reason` | Cause | Retry |
+|---|---|---|
+| `identity provider unreachable` | Transport error, timeout, or a non-200 or unreadable answer from `/.well-known/openid-configuration` | Every 2 s, doubling to at most every 5 min (with jitter); a `WARN` log per attempt |
+| `misconfigured` | `oauth.issuer_url` names an issuer the document does not, the document lacks the authorization, token or `jwks_uri` endpoints, or the provider or `oauth.issuer_url` setting is invalid (not an absolute http(s) URL) | Once a day; logged once at `ERROR`. Fix the configuration or the IdP, then restart |
+
+Once discovery has succeeded, pg_sage re-reads the document every 24 hours.
+A failed refresh keeps the last good endpoints and signing keys, so sign-in
+keeps working through a later outage; the refresh is retried on the short
+backoff. The `oauth.enabled: false` answers are unchanged: `enabled: false`
+and `404 OAuth not configured`. GitHub uses static endpoints and is always
+ready.
 
 Every refusal is recorded in `sage.auth_audit` as `login_failed` with a
 reason code (`nonce_mismatch`, `id_token_invalid`, `id_token_missing`,
@@ -654,8 +750,19 @@ ciphertext.
   new one. Then remove `encryption_key_previous`. A value no configured key
   can open is ignored with an ERROR naming its key and key id. Rotation
   currently covers config secrets only: per-database passwords and
-  notification channel secrets are still sealed with `encryption_key` alone
-  and must be re-entered after a rotation.
+  notification channel secrets are still sealed with `encryption_key` alone.
+- **Changed `encryption_key` and database passwords or channel secrets.**
+  After `encryption_key` changes, a stored database password that no longer
+  opens fails that database with `database <id>: encryption key does not open
+  this value`, and startup logs one ERROR per database id ("the stored
+  password does not open with encryption_key; was encryption_key changed?")
+  with `database_id`; reconnects do not repeat it. A sealed channel secret
+  fails with `channel secret <key> does not open with encryption_key`. The
+  failure is fast: no key is derived per read. To recover, either restore the
+  old `encryption_key` and restart, or keep the new one and re-enter each
+  named password and channel secret in the dashboard or through the API.
+  Passwords written by v0.8.x key derivations still open and are re-sealed
+  under the current key on first read.
 
 ### CSRF and Cross-Origin Requests
 
@@ -702,12 +809,21 @@ break-glass session cookies are always `Secure`.
   downgrade to HTTP.
 - At startup a missing file, a key that doesn't match the certificate, or an
   expired or not-yet-valid certificate stops the sidecar with a message naming
-  the variable and file. A certificate expiring within 14 days logs a warning.
+  the variable and file.
+- Expiry is watched while the sidecar runs, not only at load: the serving
+  certificate is re-checked every hour, and a certificate with under 14
+  days left logs a warning, one with under 3 days an error, and an expired
+  one an error again, each once per certificate. `/ready` then reports
+  `"details":{"tls_expiring":true}` (under 14 days) without failing
+  readiness. `/metrics` exposes `pg_sage_api_tls_cert_not_after_seconds`
+  (the serving certificate's expiry, Unix time) and
+  `pg_sage_api_tls_reload_failures_total` (reloads that failed and kept the
+  old certificate); both are absent when the API serves plain HTTP.
 - Rotation needs no restart: on new connections pg_sage checks the two files'
   modification times at most every 5 seconds and loads a changed pair. The
   check follows symlinks, so cert-manager and Kubernetes secret volume swaps
-  work. A pair that fails to load is logged and the current certificate keeps
-  serving until the files change again.
+  work. A pair that fails to load is logged and counted, and the current
+  certificate keeps serving until the files change again.
 - The Prometheus listener (`:9187`) stays plain HTTP; keep it on a private
   network.
 
@@ -725,11 +841,25 @@ either way.
 - **Body size**: Maximum 1 MB per request.
 - **Rate limiting**: Configurable via `SAGE_RATE_LIMIT` (default: 60 requests per minute per client address; an IPv6 client counts as its /64). Password login has its own limits ([Login Throttling](#login-throttling)).
 - **Request timeout**: 30 seconds per API request.
-- **Pool exhaustion protection**: When the connection pool is exhausted, database-backed methods return `503`.
+- **Database unavailable**: When a handler cannot get a database connection
+  (the pool has no free connection before the request deadline, or the
+  connection attempt fails), the API answers `503` with
+  `{"error":"database unavailable","code":"db_unavailable"}` and
+  `Retry-After: 5`. Other server errors stay `500` `{"error":"internal error"}`;
+  neither body carries the cause, which is logged server-side.
 
 ### Security Headers
 
-All responses include `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and `Cache-Control: no-store`.
+Every `/api/v1/*` response (and `/mcp` in Databricks App mode) carries
+`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+`Referrer-Policy: strict-origin-when-cross-origin`,
+`Permissions-Policy: camera=(), microphone=(), geolocation=()` and
+`Cache-Control: no-store`, including refusals (401, 403, 404, 415) and
+responses that carry secrets (MCP and agent tokens, SSO link grants). The
+event stream (`/api/v1/events`) alone sends `Cache-Control: no-cache`, as
+server-sent events expect. `/ready` sends `no-store`; `/health` and the
+dashboard's static files set no cache header. HSTS and CSP are not set:
+add them at the TLS-terminating proxy.
 
 ---
 
@@ -869,9 +999,20 @@ Logins, break-glass use, user and role changes, and agent and MCP token
 governance, with actor, time and client address; see
 [Authentication Audit](#authentication-audit).
 
-### API Request Log
+### API Access Log
 
-API requests are logged for audit purposes.
+With `api.access_log` on (the default), the sidecar writes one structured
+`api access` log line (not a table) for every mutating API request (POST,
+PUT, PATCH, DELETE) whatever its status, the signed ChatOps callbacks
+included, and for every `401` or `403`, the cross-origin check's refusals
+included. Each line has the method, the route pattern (for example
+`POST /api/v1/emergency-stop`; the path when the request was refused
+before routing), the user id and role when signed in (for an MCP call made
+with a Bearer token, the token principal as `actor=token:<id>` and its
+owner's role), the status and the latency in milliseconds. Bodies, query strings, cookies and tokens are
+never logged; successful reads are not logged. Set `api.access_log: false`
+(restart to change) to turn it off; the auth, config and action tables
+above keep their own records either way.
 
 Both tables are subject to retention policies (configurable via `retention.actions_days`).
 

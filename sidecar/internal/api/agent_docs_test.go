@@ -50,8 +50,8 @@ func readGovernanceDoc(path string) (string, error) {
 	return doc, nil
 }
 
-// scanRoutes returns the pattern of every two-argument Handle or HandleFunc
-// call in one Go file. A pattern that is not a constant string is an error,
+// scanRoutes returns the pattern of every route registration (two-argument
+// Handle or HandleFunc, or route) in one Go file. A pattern that is not a constant string is an error,
 // so a registration can never slip past the check.
 func scanRoutes(name string, src []byte) ([]string, error) {
 	fset := token.NewFileSet()
@@ -67,10 +67,14 @@ func scanRoutes(name string, src []byte) ([]string, error) {
 	var bad []string
 	ast.Inspect(f, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
-		if !ok || !isHandleCall(call) {
+		if !ok {
 			return true
 		}
-		pattern, err := evalString(call.Args[0], consts, 0)
+		arg, ok := routePatternArg(call)
+		if !ok {
+			return true
+		}
+		pattern, err := evalString(arg, consts, 0)
 		if err != nil {
 			bad = append(bad, fmt.Sprintf("%s: %v", fset.Position(call.Pos()), err))
 			return true
@@ -83,17 +87,26 @@ func scanRoutes(name string, src []byte) ([]string, error) {
 			strings.Join(bad, "; "))
 	}
 	if len(routes) == 0 {
-		return nil, fmt.Errorf("no Handle or HandleFunc registrations found in %s", name)
+		return nil, fmt.Errorf("no route, Handle or HandleFunc registrations found in %s", name)
 	}
 	return routes, nil
 }
 
-func isHandleCall(call *ast.CallExpr) bool {
-	sel, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok || len(call.Args) != 2 {
-		return false
+// routePatternArg is the pattern argument of a route registration: the
+// first of mux.Handle / mux.HandleFunc, or the second of the gated
+// route(mux, pattern, gate, handler) (route_registry.go).
+func routePatternArg(call *ast.CallExpr) (ast.Expr, bool) {
+	switch fn := call.Fun.(type) {
+	case *ast.SelectorExpr:
+		if len(call.Args) == 2 && (fn.Sel.Name == "Handle" || fn.Sel.Name == "HandleFunc") {
+			return call.Args[0], true
+		}
+	case *ast.Ident:
+		if fn.Name == "route" && len(call.Args) == 4 {
+			return call.Args[1], true
+		}
 	}
-	return sel.Sel.Name == "Handle" || sel.Sel.Name == "HandleFunc"
+	return nil, false
 }
 
 // fileConsts maps every constant declared in f (at any scope) to its

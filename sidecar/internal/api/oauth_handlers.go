@@ -17,11 +17,16 @@ func oauthConfigHandler(
 	providerName string,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		enabled := provider != nil
-		jsonResponse(w, map[string]any{
-			"enabled":  enabled,
-			"provider": providerName,
-		})
+		if provider == nil {
+			jsonResponse(w, map[string]any{"enabled": false, "provider": providerName})
+			return
+		}
+		ready, reason := provider.Ready()
+		resp := map[string]any{"enabled": true, "ready": ready, "provider": providerName}
+		if !ready {
+			resp["reason"] = reason
+		}
+		jsonResponse(w, resp)
 	}
 }
 
@@ -36,6 +41,9 @@ func oauthAuthorizeHandler(
 		if provider == nil {
 			jsonError(w, "OAuth not configured",
 				http.StatusNotFound)
+			return
+		}
+		if ssoNotReady(w, provider) {
 			return
 		}
 		authURL, state, err := provider.AuthorizationURL()
@@ -84,6 +92,9 @@ func oauthCallbackHandler(
 		if provider == nil {
 			jsonError(w, "OAuth not configured",
 				http.StatusNotFound)
+			return
+		}
+		if ssoNotReady(w, provider) {
 			return
 		}
 		code, state, cookieState, ok := oauthCallbackParams(w, r)

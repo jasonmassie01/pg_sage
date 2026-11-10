@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -51,10 +52,12 @@ type DatabaseInput struct {
 type DatabaseStore struct {
 	pool       *pgxpool.Pool
 	encryptKey []byte
-	// passphrase and salt enable lazy migration of ciphertext written by
-	// pre-v0.9 key derivations. Empty passphrase disables migration.
-	passphrase string
-	salt       []byte
+	// legacy holds the pre-v0.9 keys, derived once, for lazy migration of
+	// old ciphertext. The zero value disables migration.
+	legacy crypto.LegacyKeys
+	// wrongKeyLogged records database ids whose wrong-key ERROR has been
+	// logged, so a fleet listing or reconnect loop logs each id once.
+	wrongKeyLogged sync.Map
 }
 
 // NewDatabaseStore creates a DatabaseStore with the given pool and
@@ -65,13 +68,11 @@ func NewDatabaseStore(pool *pgxpool.Pool, encryptKey []byte) *DatabaseStore {
 
 // WithKeyMigration lets reads decrypt passwords stored by v0.8.x key
 // derivations (SHA-256 and deterministic-salt argon2id) and re-encrypt
-// them under the current key. passphrase and salt must be the inputs that
-// derived encryptKey.
-func (s *DatabaseStore) WithKeyMigration(
-	passphrase string, salt []byte,
-) *DatabaseStore {
-	s.passphrase = passphrase
-	s.salt = append([]byte(nil), salt...)
+// them under the current key. passphrase must be the one that derived
+// encryptKey. The legacy keys are derived here, once, never per read; an
+// empty passphrase leaves migration off.
+func (s *DatabaseStore) WithKeyMigration(passphrase string) *DatabaseStore {
+	s.legacy = crypto.DeriveLegacyKeys(passphrase)
 	return s
 }
 
