@@ -7,8 +7,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/executor"
-	"github.com/pg-sage/sidecar/internal/tuner"
 	prov "github.com/pg-sage/sidecar/internal/provider"
+	"github.com/pg-sage/sidecar/internal/tuner"
 )
 
 type CapabilityStatus struct {

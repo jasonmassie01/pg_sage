@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/pg-sage/sidecar/internal/sqlident"
 	prov "github.com/pg-sage/sidecar/internal/provider"
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 // Capability names.
