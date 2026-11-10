@@ -48,6 +48,10 @@ func initializeConfigController(controlPool *pgxpool.Pool) error {
 	configController = config.NewConfigControllerAtGeneration(
 		cfg, generation, nil, owners...,
 	)
+	// Logs the startup masks now, and each later mask once (config-03).
+	configController.SetMaskedOverrideLogger(func(msg string) {
+		logWarn("config", "%s", msg)
+	})
 	if durable != nil {
 		configController.SetDurableSource(durable)
 	}

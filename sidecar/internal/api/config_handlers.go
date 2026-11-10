@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -41,9 +42,11 @@ func configGlobalGetHandler(
 			jsonError(w, "failed to load configuration", 500)
 			return
 		}
+		markMaskedEntries(merged, responseCfg)
 		response["mode"] = responseCfg.Mode
 		response["databases"] = len(responseCfg.Databases)
 		response["config"] = merged
+		response["masked_by_override"] = maskedResponse(responseCfg)
 		jsonResponse(w, response)
 	}
 }
@@ -64,6 +67,7 @@ func configReadOnlyGlobalGetHandler(
 			"pending_restart":    pending,
 			"read_only":          true,
 			"write_guidance":     "edit the YAML file",
+			"masked_by_override": maskedResponse(responseCfg),
 		})
 	}
 }
@@ -105,10 +109,10 @@ func configReadOnlyDBGetHandler(
 			trustLevel = responseCfg.Trust.Level
 		}
 		values["execution_mode"] = map[string]any{
-			"value": executionMode, "source": "yaml",
+			"value": executionMode, "source": store.SourceFileDefault,
 		}
 		values["trust.level"] = map[string]any{
-			"value": trustLevel, "source": "yaml",
+			"value": trustLevel, "source": store.SourceFileDefault,
 		}
 		jsonResponse(w, map[string]any{
 			"mode":               responseCfg.Mode,
@@ -178,6 +182,7 @@ func applyControlledGlobalConfig(
 	for _, write := range writes {
 		hotReload(candidate, write.Key, write.Value)
 	}
+	applyMaskedWrites(candidate, writes, userID, time.Now())
 	result, err := controller.ApplyWithPersistence(
 		r.Context(), expected, candidate,
 		func(ctx context.Context, snapshot config.ConfigSnapshot) error {

@@ -1094,8 +1094,8 @@ func TestCoverage_ConfigStore_GetMergedConfig(t *testing.T) {
 		t.Fatal("missing collector.interval_seconds")
 	}
 	em := entry.(map[string]any)
-	if em["source"] != "yaml" {
-		t.Errorf("source = %v, want yaml", em["source"])
+	if em["source"] != SourceFileDefault {
+		t.Errorf("source = %v, want %s", em["source"], SourceFileDefault)
 	}
 
 	// Set global override.

@@ -73,6 +73,8 @@ type ConfigController struct {
 	// no control database shares the global overrides.
 	durable    atomic.Pointer[durableBinding]
 	lastResync atomic.Pointer[time.Time]
+	// masked logs each masked override once per value pair (config-03).
+	masked maskedNotices
 }
 
 // RegisterOwner adds a runtime resource owner before configuration writers
@@ -382,6 +384,7 @@ func (c *ConfigController) persistDesired(
 		}
 	}
 	c.desired.Store(snapshotPointer(desired))
+	c.noteMasked(desired.Config)
 	return nil
 }
 

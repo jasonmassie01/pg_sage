@@ -139,6 +139,11 @@ type Config struct {
 	HasWALColumns      bool   `yaml:"-"`
 	HasPlanTimeColumns bool   `yaml:"-"`
 	CloudEnvironment   string `yaml:"-"` // e.g. "rds", "cloud-sql", "self-managed"
+
+	// The file layer's presence set and the overrides masking it (config-03,
+	// explicit_paths.go). Both are immutable once set, so Clone shares them.
+	explicitPaths map[string]struct{}
+	overrideMask  *overrideMask
 }
 
 type PostgresConfig struct {
@@ -569,7 +574,9 @@ func conninfoValue(value string) string {
 }
 
 // Load reads config from YAML file, then overlays env vars, then CLI flags.
-// Precedence: CLI > env > YAML > defaults.
+// Precedence: CLI > env > YAML > defaults. Persisted UI overrides replay on
+// top of the result, except that trust ceilings take the most restrictive
+// of an explicit file value and the override (config-03).
 func Load(args []string) (*Config, error) {
 	cfg := newDefaults()
 	// Mode starts unset so inferMode can tell an explicit choice (YAML,
@@ -619,6 +626,7 @@ func Load(args []string) (*Config, error) {
 	if err := applySecretFiles(cfg); err != nil {
 		return nil, err
 	}
+	markEnvPaths(cfg)
 
 	// Step 3: Overlay CLI flags (highest precedence).
 	if *mode != "" {
@@ -654,6 +662,7 @@ func Load(args []string) (*Config, error) {
 	if *encryptionKey != "" {
 		cfg.EncryptionKey = *encryptionKey
 	}
+	markFlagPaths(cfg, fs)
 
 	// Legacy env-var compat.
 	if v := os.Getenv("SAGE_API_KEY"); v != "" {
@@ -1185,6 +1194,9 @@ func loadYAML(path string, cfg *Config) error {
 		return fmt.Errorf("config must contain exactly one YAML document")
 	}
 	if err := migrateLegacyIndexOptimizer(expanded, candidate); err != nil {
+		return err
+	}
+	if candidate.explicitPaths, err = yamlPresencePaths(expanded); err != nil {
 		return err
 	}
 	*cfg = *candidate

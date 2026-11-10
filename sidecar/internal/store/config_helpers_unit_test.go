@@ -139,8 +139,8 @@ func TestConfigToMap_AllKeysPresent(t *testing.T) {
 		}
 		if src, hasSrc := em["source"]; !hasSrc {
 			t.Errorf("key %q: missing 'source' in entry", key)
-		} else if src != "yaml" {
-			t.Errorf("key %q: source = %q, want %q", key, src, "yaml")
+		} else if src != SourceFileDefault {
+			t.Errorf("key %q: source = %q, want %q", key, src, SourceFileDefault)
 		}
 	}
 }

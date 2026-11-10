@@ -443,16 +443,21 @@ func scanAuditRows(rows pgx.Rows) ([]ConfigAuditEntry, error) {
 	return results, rows.Err()
 }
 
+// SourceFileDefault labels a value no persisted override sets: the config
+// file, the environment, a flag or the built-in default (config-03). The
+// presence set cannot say which, so the badge does not pretend to.
+const SourceFileDefault = "file/default"
+
 // configToMap converts a Config struct into a flat map with source
 // indicators.
 func configToMap(cfg *config.Config) map[string]any {
 	m := make(map[string]any, 70)
 	addField(m, "collector.interval_seconds",
-		cfg.Collector.IntervalSeconds, "yaml")
+		cfg.Collector.IntervalSeconds, SourceFileDefault)
 	addField(m, "collector.batch_size",
-		cfg.Collector.BatchSize, "yaml")
+		cfg.Collector.BatchSize, SourceFileDefault)
 	addField(m, "collector.max_queries",
-		cfg.Collector.MaxQueries, "yaml")
+		cfg.Collector.MaxQueries, SourceFileDefault)
 	addAnalyzerFields(m, &cfg.Analyzer)
 	addTrustFields(m, &cfg.Trust)
 	addSafetyFields(m, &cfg.Safety)
@@ -483,231 +488,234 @@ func addField(m map[string]any, key string, val any, src string) {
 
 func addAnalyzerFields(m map[string]any, a *config.AnalyzerConfig) {
 	addField(m, "analyzer.interval_seconds",
-		a.IntervalSeconds, "yaml")
+		a.IntervalSeconds, SourceFileDefault)
 	addField(m, "analyzer.slow_query_threshold_ms",
-		a.SlowQueryThresholdMs, "yaml")
+		a.SlowQueryThresholdMs, SourceFileDefault)
 	addField(m, "analyzer.self_cost_budget_ms",
-		a.SelfCostBudgetMs, "yaml")
+		a.SelfCostBudgetMs, SourceFileDefault)
 	addField(m, "analyzer.seq_scan_min_rows",
-		a.SeqScanMinRows, "yaml")
+		a.SeqScanMinRows, SourceFileDefault)
 	addField(m, "analyzer.unused_index_window_days",
-		a.UnusedIndexWindowDays, "yaml")
+		a.UnusedIndexWindowDays, SourceFileDefault)
 	addField(m, "analyzer.index_bloat_threshold_pct",
-		a.IndexBloatThresholdPct, "yaml")
+		a.IndexBloatThresholdPct, SourceFileDefault)
 	addField(m, "analyzer.table_bloat_dead_tuple_pct",
-		a.TableBloatDeadTuplePct, "yaml")
+		a.TableBloatDeadTuplePct, SourceFileDefault)
 	addField(m, "analyzer.autovacuum_tune_min_rows",
-		a.AutovacuumTuneMinRows, "yaml")
+		a.AutovacuumTuneMinRows, SourceFileDefault)
 	addField(m, "analyzer.analyze_stale_min_rows",
-		a.AnalyzeStaleMinRows, "yaml")
+		a.AnalyzeStaleMinRows, SourceFileDefault)
 	addField(m, "analyzer.analyze_stale_days",
-		a.AnalyzeStaleDays, "yaml")
+		a.AnalyzeStaleDays, SourceFileDefault)
 	addField(m, "analyzer.wraparound_freeze_xid_age",
-		a.WraparoundFreezeXIDAge, "yaml")
+		a.WraparoundFreezeXIDAge, SourceFileDefault)
 	addField(m, "analyzer.regression_threshold_pct",
-		a.RegressionThresholdPct, "yaml")
+		a.RegressionThresholdPct, SourceFileDefault)
 	addField(m, "analyzer.cache_hit_ratio_warning",
-		a.CacheHitRatioWarning, "yaml")
+		a.CacheHitRatioWarning, SourceFileDefault)
 	addField(m, "analyzer.slow_slot_retained_bytes",
-		a.SlowSlotRetainedBytes, "yaml")
+		a.SlowSlotRetainedBytes, SourceFileDefault)
 	addField(m, "analyzer.lock_chain.enabled",
-		a.LockChain.Enabled, "yaml")
+		a.LockChain.Enabled, SourceFileDefault)
 	addField(m, "analyzer.lock_chain.min_blocked_threshold",
-		a.LockChain.MinBlockedThreshold, "yaml")
+		a.LockChain.MinBlockedThreshold, SourceFileDefault)
 	addField(m, "analyzer.lock_chain.critical_blocked_threshold",
-		a.LockChain.CriticalBlockedThreshold, "yaml")
+		a.LockChain.CriticalBlockedThreshold, SourceFileDefault)
 	addField(m, "analyzer.lock_chain.idle_in_tx_terminate_minutes",
-		a.LockChain.IdleInTxTerminateMinutes, "yaml")
+		a.LockChain.IdleInTxTerminateMinutes, SourceFileDefault)
 	addField(m, "analyzer.lock_chain.active_query_cancel_minutes",
-		a.LockChain.ActiveQueryCancelMinutes, "yaml")
+		a.LockChain.ActiveQueryCancelMinutes, SourceFileDefault)
 }
 
 func addTrustFields(m map[string]any, t *config.TrustConfig) {
-	addField(m, "trust.level", t.Level, "yaml")
-	addField(m, "trust.tier3_safe", t.Tier3Safe, "yaml")
-	addField(m, "trust.tier3_moderate", t.Tier3Moderate, "yaml")
-	addField(m, "trust.tier3_high_risk", t.Tier3HighRisk, "yaml")
+	addField(m, "trust.level", t.Level, SourceFileDefault)
+	addField(m, "trust.tier3_safe", t.Tier3Safe, SourceFileDefault)
+	addField(m, "trust.tier3_moderate", t.Tier3Moderate, SourceFileDefault)
+	addField(m, "trust.tier3_high_risk", t.Tier3HighRisk, SourceFileDefault)
 	addField(m, "trust.maintenance_window",
-		t.MaintenanceWindow, "yaml")
+		t.MaintenanceWindow, SourceFileDefault)
 	addField(m, "trust.rollback_threshold_pct",
-		t.RollbackThresholdPct, "yaml")
+		t.RollbackThresholdPct, SourceFileDefault)
 	addField(m, "trust.rollback_window_minutes",
-		t.RollbackWindowMinutes, "yaml")
+		t.RollbackWindowMinutes, SourceFileDefault)
 	addField(m, "trust.rollback_cooldown_days",
-		t.RollbackCooldownDays, "yaml")
+		t.RollbackCooldownDays, SourceFileDefault)
 	addField(m, "trust.cascade_cooldown_cycles",
-		t.CascadeCooldownCycles, "yaml")
+		t.CascadeCooldownCycles, SourceFileDefault)
 }
 
 func addSafetyFields(m map[string]any, s *config.SafetyConfig) {
-	addField(m, "safety.cpu_ceiling_pct", s.CPUCeilingPct, "yaml")
-	addField(m, "safety.query_timeout_ms", s.QueryTimeoutMs, "yaml")
+	addField(m, "safety.cpu_ceiling_pct", s.CPUCeilingPct, SourceFileDefault)
+	addField(m, "safety.query_timeout_ms", s.QueryTimeoutMs, SourceFileDefault)
 	addField(m, "safety.ddl_timeout_seconds",
-		s.DDLTimeoutSeconds, "yaml")
-	addField(m, "safety.lock_timeout_ms", s.LockTimeoutMs, "yaml")
+		s.DDLTimeoutSeconds, SourceFileDefault)
+	addField(m, "safety.lock_timeout_ms", s.LockTimeoutMs, SourceFileDefault)
 }
 
 func addLLMFields(m map[string]any, l *config.LLMConfig) {
-	addField(m, "llm.enabled", l.Enabled, "yaml")
-	addField(m, "llm.auth", l.Auth, "yaml")
-	addField(m, "llm.endpoint", l.Endpoint, "yaml")
-	addField(m, "llm.api_key", maskSecret(l.APIKey), "yaml")
-	addField(m, "llm.model", l.Model, "yaml")
-	addField(m, "llm.json_mode", l.JSONMode, "yaml")
-	addField(m, "llm.timeout_seconds", l.TimeoutSeconds, "yaml")
+	addField(m, "llm.enabled", l.Enabled, SourceFileDefault)
+	addField(m, "llm.auth", l.Auth, SourceFileDefault)
+	addField(m, "llm.endpoint", l.Endpoint, SourceFileDefault)
+	addField(m, "llm.api_key", maskSecret(l.APIKey), SourceFileDefault)
+	addField(m, "llm.model", l.Model, SourceFileDefault)
+	addField(m, "llm.json_mode", l.JSONMode, SourceFileDefault)
+	addField(m, "llm.timeout_seconds", l.TimeoutSeconds, SourceFileDefault)
 	addField(m, "llm.token_budget_daily",
-		l.TokenBudgetDaily, "yaml")
+		l.TokenBudgetDaily, SourceFileDefault)
 	addField(m, "llm.fleet_token_budget_daily",
-		l.FleetTokenBudgetDaily, "yaml")
+		l.FleetTokenBudgetDaily, SourceFileDefault)
 	addField(m, "llm.context_budget_tokens",
-		l.ContextBudgetTokens, "yaml")
+		l.ContextBudgetTokens, SourceFileDefault)
 	addField(m, "llm.optimizer.enabled",
-		l.Optimizer.Enabled, "yaml")
+		l.Optimizer.Enabled, SourceFileDefault)
 	addField(m, "llm.optimizer.min_query_calls",
-		l.Optimizer.MinQueryCalls, "yaml")
+		l.Optimizer.MinQueryCalls, SourceFileDefault)
 	addField(m, "llm.optimizer.max_new_per_table",
-		l.Optimizer.MaxNewPerTable, "yaml")
+		l.Optimizer.MaxNewPerTable, SourceFileDefault)
 }
 
 func addAdvisorFields(m map[string]any, a *config.AdvisorConfig) {
-	addField(m, "advisor.enabled", a.Enabled, "yaml")
+	addField(m, "advisor.enabled", a.Enabled, SourceFileDefault)
 	addField(m, "advisor.interval_seconds",
-		a.IntervalSeconds, "yaml")
+		a.IntervalSeconds, SourceFileDefault)
 }
 
 func addAlertingFields(
 	m map[string]any, a *config.AlertingConfig,
 ) {
-	addField(m, "alerting.enabled", a.Enabled, "yaml")
+	addField(m, "alerting.enabled", a.Enabled, SourceFileDefault)
 	addField(m, "alerting.slack_webhook_url",
-		maskSecret(a.SlackWebhookURL), "yaml")
+		maskSecret(a.SlackWebhookURL), SourceFileDefault)
 	addField(m, "alerting.pagerduty_routing_key",
-		maskSecret(a.PagerDutyRoutingKey), "yaml")
+		maskSecret(a.PagerDutyRoutingKey), SourceFileDefault)
 	addField(m, "alerting.check_interval_seconds",
-		a.CheckIntervalSeconds, "yaml")
+		a.CheckIntervalSeconds, SourceFileDefault)
 	addField(m, "alerting.cooldown_minutes",
-		a.CooldownMinutes, "yaml")
+		a.CooldownMinutes, SourceFileDefault)
 	addField(m, "alerting.quiet_hours_start",
-		a.QuietHoursStart, "yaml")
+		a.QuietHoursStart, SourceFileDefault)
 	addField(m, "alerting.quiet_hours_end",
-		a.QuietHoursEnd, "yaml")
+		a.QuietHoursEnd, SourceFileDefault)
 }
 
 func addRetentionFields(
 	m map[string]any, r *config.RetentionConfig,
 ) {
 	addField(m, "retention.snapshots_days",
-		r.SnapshotsDays, "yaml")
+		r.SnapshotsDays, SourceFileDefault)
 	addField(m, "retention.findings_days",
-		r.FindingsDays, "yaml")
+		r.FindingsDays, SourceFileDefault)
 	addField(m, "retention.actions_days",
-		r.ActionsDays, "yaml")
+		r.ActionsDays, SourceFileDefault)
 	addField(m, "retention.explains_days",
-		r.ExplainsDays, "yaml")
+		r.ExplainsDays, SourceFileDefault)
 	addField(m, "retention.sage_size_warning_pct",
-		r.SageSizeWarningPct, "yaml")
+		r.SageSizeWarningPct, SourceFileDefault)
 }
 
 func addRCAFields(m map[string]any, r *config.RCAConfig) {
-	addField(m, "rca.enabled", r.Enabled, "yaml")
+	addField(m, "rca.enabled", r.Enabled, SourceFileDefault)
 	addField(m, "rca.llm_correlation_threshold",
-		r.LLMCorrelationThreshold, "yaml")
+		r.LLMCorrelationThreshold, SourceFileDefault)
 	addField(m, "rca.dedup_window_minutes",
-		r.DedupWindowMinutes, "yaml")
+		r.DedupWindowMinutes, SourceFileDefault)
 	addField(m, "rca.escalation_cycles",
-		r.EscalationCycles, "yaml")
+		r.EscalationCycles, SourceFileDefault)
 	addField(m, "rca.resolution_cycles",
-		r.ResolutionCycles, "yaml")
+		r.ResolutionCycles, SourceFileDefault)
 	addField(m, "rca.connection_saturation_pct",
-		r.ConnectionSaturationPct, "yaml")
+		r.ConnectionSaturationPct, SourceFileDefault)
 	addField(m, "rca.replication_lag_threshold_seconds",
-		r.ReplicationLagThresholdS, "yaml")
+		r.ReplicationLagThresholdS, SourceFileDefault)
 	addField(m, "rca.wal_spike_multiplier",
-		r.WALSpikeMultiplier, "yaml")
-	addField(m, "rca.narration_enabled", r.NarrationEnabled, "yaml")
+		r.WALSpikeMultiplier, SourceFileDefault)
+	addField(m, "rca.narration_enabled", r.NarrationEnabled, SourceFileDefault)
 }
 
 func addRunawayFields(m map[string]any, r *config.RunawayConfig) {
-	addField(m, "runaway.enabled", r.Enabled, "yaml")
+	addField(m, "runaway.enabled", r.Enabled, SourceFileDefault)
 }
 
 func addExplainFields(m map[string]any, e *config.ExplainConfig) {
-	addField(m, "explain.enabled", e.Enabled, "yaml")
-	addField(m, "explain.timeout_ms", e.TimeoutMs, "yaml")
+	addField(m, "explain.enabled", e.Enabled, SourceFileDefault)
+	addField(m, "explain.timeout_ms", e.TimeoutMs, SourceFileDefault)
 	addField(m, "explain.cache_ttl_minutes",
-		e.CacheTTLMinutes, "yaml")
-	addField(m, "explain.max_tokens", e.MaxTokens, "yaml")
+		e.CacheTTLMinutes, SourceFileDefault)
+	addField(m, "explain.max_tokens", e.MaxTokens, SourceFileDefault)
 }
 
 func addLogWatchFields(
 	m map[string]any, lw *config.LogWatchConfig,
 ) {
-	addField(m, "logwatch.enabled", lw.Enabled, "yaml")
+	addField(m, "logwatch.enabled", lw.Enabled, SourceFileDefault)
 	addField(m, "logwatch.log_directory",
-		lw.LogDirectory, "yaml")
-	addField(m, "logwatch.format", lw.Format, "yaml")
+		lw.LogDirectory, SourceFileDefault)
+	addField(m, "logwatch.format", lw.Format, SourceFileDefault)
 	addField(m, "logwatch.poll_interval_ms",
-		lw.PollIntervalMs, "yaml")
+		lw.PollIntervalMs, SourceFileDefault)
 	addField(m, "logwatch.dedup_window_seconds",
-		lw.DedupWindowS, "yaml")
+		lw.DedupWindowS, SourceFileDefault)
 	addField(m, "logwatch.max_line_len_bytes",
-		lw.MaxLineLenBytes, "yaml")
+		lw.MaxLineLenBytes, SourceFileDefault)
 	addField(m, "logwatch.temp_file_min_bytes",
-		lw.TempFileMinBytes, "yaml")
+		lw.TempFileMinBytes, SourceFileDefault)
 	addField(m, "logwatch.max_lines_per_cycle",
-		lw.MaxLinesPerCycle, "yaml")
+		lw.MaxLinesPerCycle, SourceFileDefault)
 	addField(m, "logwatch.exclude_applications",
-		strings.Join(lw.ExcludeApplications, ","), "yaml")
+		strings.Join(lw.ExcludeApplications, ","), SourceFileDefault)
 	addField(m, "logwatch.slow_query_enabled",
-		lw.SlowQueryEnabled, "yaml")
+		lw.SlowQueryEnabled, SourceFileDefault)
 }
 
 func addSchemaLintFields(
 	m map[string]any, sl *config.SchemaLintConfig,
 ) {
-	addField(m, "schema_lint.enabled", sl.Enabled, "yaml")
+	addField(m, "schema_lint.enabled", sl.Enabled, SourceFileDefault)
 	addField(m, "schema_lint.scan_interval_minutes",
-		sl.ScanIntervalMinutes, "yaml")
+		sl.ScanIntervalMinutes, SourceFileDefault)
 	addField(m, "schema_lint.min_table_rows",
-		sl.MinTableRows, "yaml")
+		sl.MinTableRows, SourceFileDefault)
 }
 
 func addMigrationFields(
 	m map[string]any, mg *config.MigrationConfig,
 ) {
-	addField(m, "migration.enabled", mg.Enabled, "yaml")
-	addField(m, "migration.mode", mg.Mode, "yaml")
+	addField(m, "migration.enabled", mg.Enabled, SourceFileDefault)
+	addField(m, "migration.mode", mg.Mode, SourceFileDefault)
 	addField(m, "migration.managed_service",
-		mg.ManagedService, "yaml")
+		mg.ManagedService, SourceFileDefault)
 	addField(m, "migration.log_detection",
-		mg.LogDetection, "yaml")
+		mg.LogDetection, SourceFileDefault)
 	addField(m, "migration.activity_polling",
-		mg.ActivityPolling, "yaml")
+		mg.ActivityPolling, SourceFileDefault)
 	addField(m, "migration.poll_interval_seconds",
-		mg.PollIntervalSeconds, "yaml")
+		mg.PollIntervalSeconds, SourceFileDefault)
 	addField(m, "migration.ddl_row_threshold",
-		mg.DDLRowThreshold, "yaml")
+		mg.DDLRowThreshold, SourceFileDefault)
 }
 
 func addAgentNativeFields(m map[string]any, cfg *config.Config) {
-	addField(m, "policy.profile", cfg.Policy.Profile, "yaml")
-	addField(m, "value.toil_model_version", cfg.Value.ToilModelVersion, "yaml")
-	addField(m, "verify.window_minutes", cfg.Verify.WindowMinutes, "yaml")
-	addField(m, "verify.window_max_minutes", cfg.Verify.WindowMaxMinutes, "yaml")
-	addField(m, "verify.min_gain_pct", cfg.Verify.MinGainPct, "yaml")
-	addField(m, "verify.regress_pct", cfg.Verify.RegressPct, "yaml")
-	addField(m, "verify.write_impact_pct", cfg.Verify.WriteImpactPct, "yaml")
-	addField(m, "verify.min_samples", cfg.Verify.MinSamples, "yaml")
-	addField(m, "clone.provider", cfg.Clone.Provider, "yaml")
-	addField(m, "clone.dle_endpoint", cfg.Clone.DLEEndpoint, "yaml")
-	addField(m, "clone.dle_token", maskSecret(cfg.Clone.DLEToken), "yaml")
-	addField(m, "clone.max_clone_age_minutes", cfg.Clone.MaxCloneAgeMinutes, "yaml")
-	addField(m, "custodian.freeze.red_buffer_pct", cfg.Custodian.Freeze.RedBufferPct, "yaml")
-	addField(m, "custodian.wal.abandon_after_minutes", cfg.Custodian.WAL.AbandonAfterMinutes, "yaml")
+	addField(m, "policy.profile", cfg.Policy.Profile, SourceFileDefault)
+	addField(m, "value.toil_model_version", cfg.Value.ToilModelVersion, SourceFileDefault)
+	addField(m, "verify.window_minutes", cfg.Verify.WindowMinutes, SourceFileDefault)
+	addField(m, "verify.window_max_minutes", cfg.Verify.WindowMaxMinutes, SourceFileDefault)
+	addField(m, "verify.min_gain_pct", cfg.Verify.MinGainPct, SourceFileDefault)
+	addField(m, "verify.regress_pct", cfg.Verify.RegressPct, SourceFileDefault)
+	addField(m, "verify.write_impact_pct", cfg.Verify.WriteImpactPct, SourceFileDefault)
+	addField(m, "verify.min_samples", cfg.Verify.MinSamples, SourceFileDefault)
+	addField(m, "clone.provider", cfg.Clone.Provider, SourceFileDefault)
+	addField(m, "clone.dle_endpoint", cfg.Clone.DLEEndpoint, SourceFileDefault)
+	addField(m, "clone.dle_token", maskSecret(cfg.Clone.DLEToken), SourceFileDefault)
+	addField(m, "clone.max_clone_age_minutes", cfg.Clone.MaxCloneAgeMinutes,
+		SourceFileDefault)
+	addField(m, "custodian.freeze.red_buffer_pct", cfg.Custodian.Freeze.RedBufferPct,
+		SourceFileDefault)
+	addField(m, "custodian.wal.abandon_after_minutes",
+		cfg.Custodian.WAL.AbandonAfterMinutes, SourceFileDefault)
 	addField(m, "custodian.wal.retained_wal_disk_pct_ceiling",
-		cfg.Custodian.WAL.RetainedWALDiskPctCeiling, "yaml")
-	addField(m, "mcp.enabled", cfg.MCP.Enabled, "yaml")
-	addField(m, "mcp.transport", cfg.MCP.Transport, "yaml")
+		cfg.Custodian.WAL.RetainedWALDiskPctCeiling, SourceFileDefault)
+	addField(m, "mcp.enabled", cfg.MCP.Enabled, SourceFileDefault)
+	addField(m, "mcp.transport", cfg.MCP.Transport, SourceFileDefault)
 }
 
 func maskSecret(s string) string {
