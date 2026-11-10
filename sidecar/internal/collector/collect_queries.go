@@ -34,6 +34,7 @@ func (c *Collector) recordQueryStore(ctx context.Context, snap *Snapshot) {
 		})
 	}
 	if _, err := c.queries.Record(ctx, c.pool, samples, snap.CollectedAt); err != nil {
+		c.noteQueryStoreFailure(err)
 		c.logFn("WARN", "query_store record failed: %v", err)
 	}
 }
