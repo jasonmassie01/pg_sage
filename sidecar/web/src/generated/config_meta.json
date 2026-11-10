@@ -1533,6 +1533,12 @@
     "doc": "Minimum temp file size to trigger log_temp_file_created. Default: 10485760.",
     "class": "derivable"
   },
+  "mcp.call_timeout_seconds": {
+    "type": "int",
+    "default": 90,
+    "doc": "Seconds one stdio tools/call may run before it is cancelled and answered -32800. 5 to 600. Default: 90.",
+    "class": "safety_critical"
+  },
   "mcp.enabled": {
     "type": "bool",
     "default": true,

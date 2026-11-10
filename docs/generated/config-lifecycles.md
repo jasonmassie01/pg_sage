@@ -231,6 +231,7 @@
 | `logwatch.poll_interval_ms` | `restart` | `-` | `derivable` |
 | `logwatch.slow_query_enabled` | `restart` | `-` | `operator_preference` |
 | `logwatch.temp_file_min_bytes` | `restart` | `-` | `derivable` |
+| `mcp.call_timeout_seconds` | `restart` | `-` | `safety_critical` |
 | `mcp.enabled` | `restart` | `-` | `safety_critical` |
 | `mcp.oauth.enabled` | `restart` | `-` | `safety_critical` |
 | `mcp.oauth.issuers` | `restart` | `-` | `safety_critical` |

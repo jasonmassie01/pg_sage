@@ -233,6 +233,7 @@ custodian:
 mcp:
   enabled: true
   transport: "http"           # intent-level, never raw SQL; MCP token required
+  call_timeout_seconds: 90    # stdio: one tools/call is cancelled after this (5-600)
 
 # pg_sage's declared budget for itself: over budget raises sage_self_budget,
 # naming its costliest statements and loops. 0 disables a resource.

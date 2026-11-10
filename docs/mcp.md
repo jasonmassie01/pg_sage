@@ -50,6 +50,28 @@ To use stdio instead, set `mcp.transport: stdio`: the sidecar process itself the
 MCP on stdin/stdout. Whatever launched it is treated as an agent: it can read and propose,
 never approve. `mcp.enabled: false` turns MCP off.
 
+How the stdio transport behaves:
+
+- **Size limit.** One message is one line of at most 4 MiB (the line ending not
+  counted). A longer line is skipped up to its newline and answered
+  `{"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"message exceeds 4 MiB"}}`;
+  the session keeps serving the next line. A blank line is ignored. Send a larger
+  `lint_migration` body over HTTP, or split it.
+- **Concurrency.** Each `tools/call` runs on its own, at most 4 at a time; a fifth waits
+  for a free slot, and the reader waits with it (so a cancel sent then is read only once a
+  slot frees or a call times out). `initialize`, `ping`, `tools/list` and
+  `subscriptions/listen` are answered in order, so a slow call never delays them and
+  `initialize` finishes before the next request is read. Responses can arrive out of
+  order: match them by `id`. An id that is still in flight is refused with -32600.
+- **Timeout.** A call that runs longer than `mcp.call_timeout_seconds` (5 to 600,
+  default 90) is cancelled and answered -32800 "tools/call timed out after ...". A call
+  that completed is never reported as timed out.
+- **Cancellation.** `notifications/cancelled` with the call's `requestId` cancels it, and
+  no response is sent for it (as the MCP specification says). Cancelling an id that is not
+  in flight does nothing; cancelling a `subscriptions/listen` id ends that subscription.
+- **End of input.** At EOF the sidecar waits for in-flight calls, writes their responses
+  and stops serving MCP. A failed write to stdout also ends the stdio session.
+
 ## Tokens
 
 | Field | Meaning |

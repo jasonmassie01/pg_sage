@@ -209,4 +209,8 @@ const (
 	DefaultWALRetainedDiskPctCeiling = 10.0
 	DefaultMCPEnabled                = true
 	DefaultMCPTransport              = "http"
+	// mcp.call_timeout_seconds: default and accepted range.
+	DefaultMCPCallTimeoutSeconds = 90
+	MinMCPCallTimeoutSeconds     = 5
+	MaxMCPCallTimeoutSeconds     = 600
 )
