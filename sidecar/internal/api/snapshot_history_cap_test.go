@@ -96,3 +96,21 @@ func pointData(p historyPoint) (map[string]any, bool) {
 	}
 	return m, true
 }
+
+// partitioned_indexes (rules-03) lists one element per partitioned index,
+// so it is a per-object category: history points the caller at
+// /snapshots/latest instead of calling the metric invalid.
+func TestHistoryMetricProblem_PartitionedIndexesIsPerObject(t *testing.T) {
+	got := historyMetricProblem("partitioned_indexes")
+	want := "history is not available for the per-object category " +
+		"partitioned_indexes; read the latest document from /api/v1/snapshots/latest"
+	if got != want {
+		t.Fatalf("historyMetricProblem(partitioned_indexes) = %q, want %q", got, want)
+	}
+	if got := historyMetricProblem("partitioned_index"); got != "invalid metric" {
+		t.Fatalf("historyMetricProblem(partitioned_index) = %q, want invalid metric", got)
+	}
+	if got := historyMetricProblem("system"); got != "" {
+		t.Fatalf("historyMetricProblem(system) = %q, want empty", got)
+	}
+}

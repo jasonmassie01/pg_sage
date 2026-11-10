@@ -116,7 +116,7 @@ func invalidIndexFinding(
 		detail["unlogged"] = true
 		rec += " (unlogged table — indexes lost on crash)"
 	}
-	return Finding{
+	f := Finding{
 		Category:         "invalid_index",
 		Severity:         severity,
 		ObjectType:       "index",
@@ -128,6 +128,24 @@ func invalidIndexFinding(
 		RollbackSQL:      idx.IndexDef + ";",
 		ActionRisk:       "safe",
 	}
+	if idx.ParentIndexOID != 0 {
+		adviseAttachedInvalid(&f, idx)
+	}
+	return f
+}
+
+// adviseAttachedInvalid makes an invalid index attached to a partitioned
+// index advisory: PostgreSQL refuses to drop it on its own, and a rebuild
+// in place keeps it attached (rules-03).
+func adviseAttachedInvalid(f *Finding, idx collector.IndexStats) {
+	f.RecommendedSQL, f.RollbackSQL = "", ""
+	f.ActionRisk = "high_risk" // advisory only: no SQL is run for it
+	f.Detail["attached_to_partitioned_index"] = true
+	f.Recommendation = "The invalid index is attached to a partitioned index, so " +
+		"PostgreSQL will not drop it on its own. Rebuild it in place with REINDEX " +
+		"INDEX CONCURRENTLY " +
+		sanitize.QuoteQualifiedName(idx.SchemaName, idx.IndexRelName) +
+		", or drop the partitioned index it belongs to."
 }
 
 // ruleDuplicateIndexes detects exact-duplicate and subset btree indexes.

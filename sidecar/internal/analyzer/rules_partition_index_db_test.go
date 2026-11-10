@@ -36,11 +36,15 @@ func partitionDB(t *testing.T, label string, ddl ...string) *pgxpool.Pool {
 	return pool
 }
 
-// oldClocks starts every index's zero-scan clock 8 days before now.
+// oldClocks starts every index's zero-scan clock 8 days before now. A
+// database made for the test has its statistics epoch (stats_reset) at its
+// creation, which restarts every clock, so the epoch is moved back too: the
+// window is evidence the analyzer gathers over days, not the fixture's.
 func oldClocks(snap *collector.Snapshot) *RuleExtras {
 	e := defaultExtras()
 	now := time.Now()
 	e.Now = func() time.Time { return now }
+	snap.System.RelationStatsEpoch = now.Add(-9 * 24 * time.Hour)
 	for _, idx := range snap.Indexes {
 		e.FirstSeen[idx.SchemaName+"."+idx.IndexRelName] = now.Add(-8 * 24 * time.Hour)
 	}

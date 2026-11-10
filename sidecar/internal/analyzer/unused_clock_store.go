@@ -224,7 +224,8 @@ func heldUnused(open []string, byIdent map[string]collector.IndexStats, e *RuleE
 // rule ran: while the store has not loaded the category fails, so nothing
 // resolves; afterwards each held finding is kept open while its clock is
 // the one it was held with. Emission, a scan, a dropped or recreated
-// index, a counter decrease or a later reset end the hold.
+// index, a counter decrease, a later reset or an attach to a partitioned
+// index end the hold.
 func (a *Analyzer) holdUnusedFindings(current, previous *collector.Snapshot, emitted []Finding) {
 	s := a.unusedClock
 	if s == nil {
@@ -237,14 +238,20 @@ func (a *Analyzer) holdUnusedFindings(current, previous *collector.Snapshot, emi
 	if len(s.held) == 0 || a.eval.hasFailed("unused_index") || !hasIndexes(current, previous) {
 		return
 	}
-	out := map[string]bool{}
+	ended := map[string]bool{}
 	for _, f := range emitted {
-		out[f.ObjectIdentifier] = true
+		ended[f.ObjectIdentifier] = true
+	}
+	// An attached index is never emitted (rules-03), so its hold ends.
+	for _, idx := range current.Indexes {
+		if idx.ParentIndexOID != 0 {
+			ended[idx.SchemaName+"."+idx.IndexRelName] = true
+		}
 	}
 	epoch := relationStatsEpoch(current, a.extras)
 	for ident, h := range s.held {
 		since, seen := a.extras.FirstSeen[ident]
-		if out[ident] || !a.extras.zeroScanSeen[ident] || !seen || !since.Equal(h.since) ||
+		if ended[ident] || !a.extras.zeroScanSeen[ident] || !seen || !since.Equal(h.since) ||
 			a.extras.IndexOID[ident] != h.oid || epoch.After(h.since) {
 			delete(s.held, ident)
 			continue

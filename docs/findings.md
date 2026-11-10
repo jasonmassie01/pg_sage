@@ -178,6 +178,12 @@ Invalid index public.idx_orders_status_ccnew (indisvalid=false)
 
 **Recommended action:** Drop the invalid index and re-create it.
 
+**Partitioned tables:** an invalid index can be attached to a partitioned index (a failed
+`CREATE INDEX CONCURRENTLY` on a partition, then `ATTACH PARTITION`). PostgreSQL refuses to
+drop it on its own, so the finding is advisory (`detail.attached_to_partitioned_index`, no
+`recommended_sql`) and recommends `REINDEX INDEX CONCURRENTLY` on it, which keeps it
+attached, or dropping the partitioned index.
+
 ```sql
 DROP INDEX CONCURRENTLY public.idx_orders_status_ccnew;
 CREATE INDEX CONCURRENTLY idx_orders_status ON public.orders (status);
