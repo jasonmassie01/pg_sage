@@ -43,4 +43,3 @@ func agentNativeMigrations() []numberedMigration {
 		},
 	}
 }
-
