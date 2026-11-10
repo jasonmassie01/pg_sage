@@ -7,7 +7,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/planfresh"
 )
 
-// No concurrent access tests: estimateSymptoms and planMaxAge are pure.
+// No concurrent access tests: ScanPlan and planMaxAge are pure.
 
 func TestTuner_PlanMaxAgeDefaults(t *testing.T) {
 	cases := map[int]time.Duration{0: 24 * time.Hour, -1: 24 * time.Hour,
@@ -20,17 +20,39 @@ func TestTuner_PlanMaxAgeDefaults(t *testing.T) {
 	}
 }
 
-func TestEstimateSymptoms_DropsActualsOnlyRules(t *testing.T) {
-	in := []PlanSymptom{{Kind: SymptomDiskSort}, {Kind: SymptomHashSpill},
-		{Kind: SymptomBadNestedLoop}, {Kind: SymptomSeqScanWithIndex},
-		{Kind: SymptomSortLimit}}
-	out := estimateSymptoms(in)
-	if len(out) != 2 || out[0].Kind != SymptomSeqScanWithIndex ||
-		out[1].Kind != SymptomSortLimit {
-		t.Fatalf("estimate-only plan keeps only estimate rules: %v", out)
+// actualsPlan holds a disk sort, a hash spill and a 50000x nested-loop
+// misestimate under a Limit whose sort reads 100x the rows it needs.
+const actualsPlan = `[{"Plan":{"Node Type":"Limit","Plan Rows":10,"Plans":[
+	{"Node Type":"Sort","Plan Rows":1000,"Sort Space Type":"Disk","Sort Space Used":9000,
+	 "Plans":[{"Node Type":"Hash Join","Plan Rows":1000,"Plans":[
+	  {"Node Type":"Nested Loop","Plan Rows":10,"Actual Rows":500000,"Actual Loops":1,
+	   "Plans":[
+	    {"Node Type":"Seq Scan","Relation Name":"o","Alias":"o","Plan Rows":10,
+	     "Actual Rows":1000,"Actual Loops":1},
+	    {"Node Type":"Index Scan","Relation Name":"i","Alias":"i","Plan Rows":1,
+	     "Actual Rows":500,"Actual Loops":1000}]},
+	  {"Node Type":"Hash","Hash Batches":8,"Plan Rows":5}]}]}]}}]`
+
+func TestScanPlan_EstimatesOnlySkipsActualsRules(t *testing.T) {
+	all, err := ScanPlan([]byte(actualsPlan))
+	if err != nil {
+		t.Fatalf("scan: %v", err)
 	}
-	if got := estimateSymptoms(nil); len(got) != 0 {
-		t.Fatalf("nil in, nothing out: %v", got)
+	for _, k := range []SymptomKind{SymptomDiskSort, SymptomHashSpill, SymptomBadNestedLoop,
+		SymptomSortLimit} {
+		if !hasKind(all, k) {
+			t.Fatalf("with actuals the plan yields %s: %v", k, all)
+		}
+	}
+	est, err := ScanPlan([]byte(actualsPlan), WithEstimatesOnly())
+	if err != nil {
+		t.Fatalf("scan estimates only: %v", err)
+	}
+	if len(est) != 1 || est[0].Kind != SymptomSortLimit {
+		t.Fatalf("estimates only keeps just the estimate rules: %v", est)
+	}
+	if _, err := ScanPlan([]byte("not json"), WithEstimatesOnly()); err == nil {
+		t.Fatal("invalid JSON must still fail")
 	}
 }
 

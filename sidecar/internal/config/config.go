@@ -451,6 +451,8 @@ type TunerConfig struct {
 	// v0.8.5 Feature 1 — Hint revalidation loop.
 	HintRetirementDays        int `yaml:"hint_retirement_days" doc:"Hints older than this many days are stamped due for re-verification (reverify_due); they stay installed. 0 disables the age rule. Default 14."`
 	RevalidationIntervalHours int `yaml:"revalidation_interval_hours" doc:"How often the hint revalidation loop runs. Set to 0 to disable the loop entirely. Default 24 hours."`
+	// tuning-08: cached plans have an age limit.
+	PlanMaxAgeMinutes int `yaml:"plan_max_age_minutes" doc:"A cached plan this many minutes old is stale, as is one older than its tables' last ANALYZE or a pg_sage action on them; stale plans never drive hints. 0 or less means 1440 (default)."`
 	// tuning-06: open query_tuning findings resolve.
 	HintAbsentCycles int `yaml:"hint_absent_cycles" doc:"Analyzer cycles a query_tuning finding's statement must be absent from pg_stat_statements, or below the tuner's admission thresholds, before it resolves. 0 or less means 3. Default 3."`
 
@@ -1032,6 +1034,7 @@ func newDefaults() *Config {
 			HintRetirementDays:        DefaultTunerHintRetirementDays,
 			RevalidationIntervalHours: DefaultTunerRevalidationIntervalHours,
 			HintAbsentCycles:          DefaultTunerHintAbsentCycles,
+			PlanMaxAgeMinutes:         DefaultTunerPlanMaxAgeMinutes,
 
 			// Feature 2 — Stale-stats detection + ANALYZE.
 			StaleStatsEstimateSkew: DefaultTunerStaleStatsEstimateSkew,

@@ -79,7 +79,8 @@ func fixture(t *testing.T, pool *pgxpool.Pool) (string, int64) {
 func analyzeAndWait(t *testing.T, pool *pgxpool.Pool, s string) {
 	t.Helper()
 	var mark time.Time
-	if err := pool.QueryRow(context.Background(), "SELECT clock_timestamp()").Scan(&mark); err != nil {
+	err := pool.QueryRow(context.Background(), "SELECT clock_timestamp()").Scan(&mark)
+	if err != nil {
 		t.Fatalf("clock: %v", err)
 	}
 	exec(t, pool, "ANALYZE "+s+".t")

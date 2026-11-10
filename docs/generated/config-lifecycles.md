@@ -448,6 +448,7 @@
 | `tuner.min_query_calls` | `restart` | `-` | `derivable` |
 | `tuner.nested_loop_row_threshold` | `restart` | `-` | `derivable` |
 | `tuner.parallel_min_table_rows` | `restart` | `-` | `derivable` |
+| `tuner.plan_max_age_minutes` | `restart` | `-` | `derivable` |
 | `tuner.plan_time_ratio` | `restart` | `-` | `derivable` |
 | `tuner.revalidation_interval_hours` | `reconfigure` | `tuner` | `derivable` |
 | `tuner.stale_stats_age_minutes` | `restart` | `-` | `derivable` |

@@ -135,6 +135,9 @@ const (
 	// DefaultTunerHintAbsentCycles: cycles before an open query_tuning
 	// finding of an absent or now-fast statement resolves (tuning-06).
 	DefaultTunerHintAbsentCycles = 3
+	// DefaultTunerPlanMaxAgeMinutes: age at which a cached plan is stale
+	// (tuning-08).
+	DefaultTunerPlanMaxAgeMinutes = 1440
 
 	// Tuner v0.8.5 — Stale-stats detection + ANALYZE (Feature 2).
 	DefaultTunerStaleStatsEstimateSkew = 10.0

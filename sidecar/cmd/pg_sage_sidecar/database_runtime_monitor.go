@@ -4,11 +4,13 @@ import (
 	"github.com/pg-sage/sidecar/internal/advisor"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/autoexplain"
+	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/forecaster"
 	"github.com/pg-sage/sidecar/internal/tuner"
+	"github.com/pg-sage/sidecar/internal/tuning"
 )
 
 // startMonitoring builds and starts the collector and analyzer with every
@@ -172,6 +174,8 @@ func (rt *databaseRuntime) newTuner() *tuner.Tuner {
 	tunerCfg := tunerConfig(cfg)
 	result := tuner.New(rt.spec.Pool, tunerCfg, hintPlan, logStructuredWrapper)
 	result.WithHostMemory(rt.hostMemory)
+	timeouts := catalogread.FromSafety(cfg.Safety)
+	result.WithPlanSource(tuning.PlanExplainer(rt.spec.Pool, rt.pgVersion(), timeouts), timeouts)
 	rt.start(func() {
 		result.StartRevalidationLoop(rt.ctx, tunerCfg.RevalidationIntervalHours)
 	})
@@ -189,6 +193,7 @@ func tunerConfig(c *config.Config) tuner.TunerConfig {
 		MinQueryCalls:             c.Tuner.MinQueryCalls,
 		VerifyAfterApply:          c.Tuner.VerifyAfterApply,
 		CascadeCooldownCycles:     c.Trust.CascadeCooldownCycles,
+		PlanMaxAgeMinutes:         c.Tuner.PlanMaxAgeMinutes,
 		HintRetirementDays:        c.Tuner.HintRetirementDays,
 		RevalidationIntervalHours: c.Tuner.RevalidationIntervalHours,
 		StaleStatsEstimateSkew:    c.Tuner.StaleStatsEstimateSkew,

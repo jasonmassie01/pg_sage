@@ -9,6 +9,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/advisor"
 	"github.com/pg-sage/sidecar/internal/analyzer"
+	"github.com/pg-sage/sidecar/internal/catalogread"
+	"github.com/pg-sage/sidecar/internal/planfresh"
 	"github.com/pg-sage/sidecar/internal/workload"
 )
 
@@ -51,6 +53,14 @@ type Tuner struct {
 
 	// hostMemory reads live host memory (nil: unknown); set before use.
 	hostMemory advisor.HostMemorySource
+
+	// planExplain replaces a stale cached plan (nil: no fallback) and
+	// planTimeouts bound the plan reads (tuning-08); see plan_fresh.go.
+	planExplain  planfresh.ExplainFunc
+	planTimeouts catalogread.Timeouts
+	// plans memoizes each candidate's plan for one tuneCandidates pass;
+	// nil outside it. Guarded by mu.
+	plans map[int64]planfresh.Plan
 }
 
 // New creates a Tuner with the given dependencies.
@@ -67,6 +77,7 @@ func New(
 		logFn:         logFn,
 		recentlyTuned: make(map[int64]int),
 		spill:         statSpill{baselines: map[spillKey]spillBaseline{}},
+		planTimeouts:  catalogread.Default(),
 	}
 	if pool != nil {
 		t.hintSource = pool
@@ -148,6 +159,8 @@ func (t *Tuner) tuneCandidates(
 	if err != nil {
 		return nil, fmt.Errorf("tuner: %w", err)
 	}
+	t.plans = map[int64]planfresh.Plan{}
+	defer func() { t.plans = nil }()
 	var findings []analyzer.Finding
 	for _, c := range candidates {
 		if _, ok := t.recentlyTuned[c.QueryID]; ok {
@@ -159,6 +172,7 @@ func (t *Tuner) tuneCandidates(
 		case hintForeign:
 			c.foreignHint = true
 		}
+		t.plans[c.QueryID] = t.readPlan(ctx, c.QueryID, c.Query)
 		if reason := t.deferralReason(ctx, c, deferredTables); reason != "" {
 			t.logFn("INFO",
 				"tuner: deferring queryid=%d, %s "+
@@ -359,52 +373,19 @@ func (t *Tuner) gatherSymptoms(
 	return symptoms
 }
 
-func (t *Tuner) scanPlanForQuery(
-	ctx context.Context, queryID int64,
-) []PlanSymptom {
-	planJSON := t.fetchPlanJSON(ctx, queryID)
-	if planJSON == "" {
-		return nil
-	}
-	symptoms, err := t.scanPlan(ctx, []byte(planJSON))
-	if err != nil {
-		t.logFn("tuner", "scan plan for queryid %d: %v",
-			queryID, err)
-		return nil
-	}
-	return symptoms
-}
-
 // scanPlan scans one cached plan with this tuner's thresholds, then routes
 // bad_nested_loop to stale_stats symptoms when any relation in the plan has
 // stale statistics.
-func (t *Tuner) scanPlan(ctx context.Context, planJSON []byte) ([]PlanSymptom, error) {
-	symptoms, err := ScanPlan(planJSON,
+func (t *Tuner) scanPlan(ctx context.Context, planJSON []byte, extra ...ScanOption) (
+	[]PlanSymptom, error) {
+	opts := append([]ScanOption{
 		WithCatalogFacts(t.cycleFacts(ctx, planJSON), t.cfg.ParallelMinTableRows),
-		WithNestedLoopMinRows(t.cfg.NestedLoopRowThreshold))
+		WithNestedLoopMinRows(t.cfg.NestedLoopRowThreshold)}, extra...)
+	symptoms, err := ScanPlan(planJSON, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return annotateForStaleStats(planJSON, symptoms, t.staleStats), nil
-}
-
-func (t *Tuner) fetchPlanJSON(
-	ctx context.Context, queryID int64,
-) string {
-	if t.pool == nil {
-		return ""
-	}
-	var planJSON []byte
-	err := t.pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT plan_json FROM sage.explain_cache
-		 WHERE queryid = $1 AND source <> 'lakebase_plan_history'
-		 ORDER BY captured_at DESC LIMIT 1`,
-		queryID,
-	).Scan(&planJSON)
-	if err != nil {
-		return ""
-	}
-	return string(planJSON)
 }
 
 func (t *Tuner) isHighPlanTime(c candidate) bool {
@@ -438,6 +419,7 @@ func (t *Tuner) buildFinding(
 		"query":          c.Query,
 		"symptoms":       names,
 		"hint_directive": combinedHint,
+		"plan":           t.planProvenance(ctx, c.QueryID),
 	}
 	f := analyzer.Finding{
 		Category:         "query_tuning",
