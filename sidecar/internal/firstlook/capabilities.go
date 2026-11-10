@@ -97,7 +97,8 @@ func statStatements(e Extensions, provider string) Capability {
 		return c
 	case loadedKnownTrue:
 		c.Status, c.Detail = CapabilityMissing, "The library is loaded; the extension "+
-			"is not created in this database."
+			"is not created in this database. pg_sage picks it up on its next "+
+			"collection cycle: no pg_sage restart is needed."
 		c.Steps = []string{createStatements}
 		return c
 	case loadedKnownFalse:
@@ -106,7 +107,8 @@ func statStatements(e Extensions, provider string) Capability {
 		c.Status = CapabilityMissing
 	}
 	c.Detail = "Without it pg_sage sees no query statistics: the first look and the " +
-		"catalog rules still run, query tuning does not."
+		"catalog rules still run, query tuning does not. Once it is created, pg_sage " +
+		"picks it up on its next collection cycle: no pg_sage restart is needed."
 	c.Steps = preloadSteps(provider, "pg_stat_statements", e.PreloadLibraries)
 	return c
 }

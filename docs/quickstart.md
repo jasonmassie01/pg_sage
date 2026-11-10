@@ -29,6 +29,11 @@ GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO sage_agent;
 CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
 ```
 
+You can also create `pg_stat_statements` after pg_sage is running: the collector checks for
+it every cycle and starts reading query statistics (with WAL, plan time and block I/O
+columns where the installed version has them) on the next cycle, with no restart of
+pg_sage. The same check follows a major-version upgrade behind the same endpoint.
+
 That is all a read-only install needs. The privileges that changes need (table ownership,
 CREATE on the schemas that hold your tables, `pg_signal_backend`, parameter changes) come
 later, from the **"Grant more"** step.

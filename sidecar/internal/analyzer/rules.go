@@ -96,9 +96,11 @@ var AllRules = []RuleSpec{
 func cats(c ...string) []string { return c }
 
 // hasIndexes needs the index list and the foreign keys: an index that
-// supports a key must not look unused when the keys could not be read.
+// supports a key must not look unused when the keys could not be read, or
+// when the partitions a key is enforced on are unknown (fkKeysPlaced).
 func hasIndexes(cur, _ *collector.Snapshot) bool {
-	return len(cur.Indexes) > 0 && cur.Available("indexes") && cur.Available("foreign_keys")
+	return len(cur.Indexes) > 0 && cur.Available("indexes") &&
+		cur.Available("foreign_keys") && fkKeysPlaced(cur)
 }
 
 // hasIndexList needs only the index list.
@@ -120,8 +122,12 @@ func hasQueries(cur, _ *collector.Snapshot) bool     { return len(cur.Queries) >
 func hasSequences(cur, _ *collector.Snapshot) bool   { return len(cur.Sequences) > 0 }
 func hasReplication(cur, _ *collector.Snapshot) bool { return cur.Replication != nil }
 
+// hasCacheRatio needs a measured interval with enough block accesses: the
+// first cycle after a start, a reset or a quiet interval proves nothing
+// either way, so an open cache finding is left as it is.
 func hasCacheRatio(cur, _ *collector.Snapshot) bool {
-	return NormalizeCacheHitRatio(cur.System.CacheHitRatio) > 0
+	_, _, ok := intervalCacheRatio(cur)
+	return ok
 }
 
 func hasStatStatementsMax(cur, _ *collector.Snapshot) bool {

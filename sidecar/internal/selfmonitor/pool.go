@@ -91,6 +91,17 @@ func StatementExclusionSQL(column string) string {
 	return text + " NOT ILIKE '%pg_sage%' AND " + text + " !~* '" + QueryTextSQLRegex + "'"
 }
 
+// IsStatementText reports a statement text StatementExclusionSQL leaves
+// out (pg_sage's own), for readers that filter texts in Go: ILIKE
+// '%pg_sage%' (where _ is any one character) or a sage schema reference.
+// SQL NULL is the empty string there, which is not pg_sage's. Letters
+// outside ASCII count as separators here; PostgreSQL's [[:alnum:]] follows
+// the database's locale, so the two can differ only on such a letter right
+// before "sage.".
+func IsStatementText(text string) bool {
+	return applicationNamePattern.MatchString(text) || sageSchemaRef.MatchString(text)
+}
+
 // ActivityExclusionSQL is a predicate over pg_stat_activity, true for a
 // session that is not pg_sage's own (every pg_sage pool sets
 // application_name). alias qualifies the column; empty for none.

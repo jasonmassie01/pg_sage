@@ -293,6 +293,18 @@ func (e *Engine) detectWALSpike(
 	}
 }
 
+// heldSignals are the signals this cycle cannot evaluate because the
+// collector could not read the category they need: their silence is not
+// a clear, so an open incident they back is not counted toward
+// resolution (collection-05).
+func heldSignals(curr *collector.Snapshot) map[string]bool {
+	held := map[string]bool{}
+	if curr != nil && !curr.Available("prepared_xacts") {
+		held["orphaned_prepared_tx"] = true
+	}
+	return held
+}
+
 // detectOrphanedPreparedTx fires when this database has a prepared
 // transaction at least rca.prepared_xact_min_age_minutes old (rca-01:
 // two-phase commit prepares and commits transactions in normal
@@ -303,6 +315,9 @@ func (e *Engine) detectWALSpike(
 func (e *Engine) detectOrphanedPreparedTx(
 	curr *collector.Snapshot,
 ) *Signal {
+	if !curr.Available("prepared_xacts") { // unknown, not "none" (heldSignals)
+		return nil
+	}
 	oldest, ok := agedPrepared(curr, e.cfg.PreparedXactFloor())
 	if !ok {
 		return nil

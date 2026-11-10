@@ -725,7 +725,7 @@ func validateMetric(metric string) bool {
 		"tables": true, "indexes": true, "queries": true,
 		"sequences": true, "foreign_keys": true, "system": true,
 		"io": true, "locks": true, "config_data": true, "replication": true,
-		"partitions": true,
+		"partitions": true, "prepared_xacts": true,
 		// Dashboard time-series metrics.
 		"cache_hit_ratio": true, "connections": true,
 		"tps": true, "dead_tuples": true,
@@ -1463,9 +1463,7 @@ func querySnapshotLatest(
 	if err != nil {
 		return nil, err
 	}
-	var parsed any
-	_ = json.Unmarshal(data, &parsed)
-	return parsed, nil
+	return decodeLatestSnapshot(metric, data)
 }
 
 func derefStr(s *string) string {

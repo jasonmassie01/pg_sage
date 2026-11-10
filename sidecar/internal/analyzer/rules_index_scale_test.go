@@ -32,7 +32,7 @@ func scaleFixture(schemas, tables int) *collector.Snapshot {
 			snap.Indexes = append(snap.Indexes, tableIndexes(schema, table, n)...)
 			if s == 0 && n%3 == 0 {
 				snap.ForeignKeys = append(snap.ForeignKeys, collector.ForeignKey{
-					TableName: table, ReferencedTable: "parent", FKColumn: "fk_id",
+					TableName: table, ReferencedTable: "parent", Columns: []string{"fk_id"},
 					ConstraintName: table + "_fk_id_fkey"})
 			}
 		}

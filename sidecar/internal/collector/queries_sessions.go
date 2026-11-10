@@ -51,16 +51,41 @@ const clientBackendsColumn = `,
     WHERE pid <> pg_backend_pid()
       AND backend_type = 'client backend') AS client_backends`
 
+// systemCountersSQL is this database's lifetime counters the system
+// interval is differenced from (collection-06; all PG versions).
+const systemCountersSQL = `
+  COALESCE((SELECT blks_hit FROM pg_stat_database
+    WHERE datname = current_database()), 0) AS blks_hit,
+  COALESCE((SELECT blks_read FROM pg_stat_database
+    WHERE datname = current_database()), 0) AS blks_read,
+  COALESCE((SELECT xact_commit FROM pg_stat_database
+    WHERE datname = current_database()), 0) AS xact_commit,
+  COALESCE((SELECT xact_rollback FROM pg_stat_database
+    WHERE datname = current_database()), 0) AS xact_rollback,
+  COALESCE((SELECT temp_bytes FROM pg_stat_database
+    WHERE datname = current_database()), 0) AS temp_bytes,
+`
+
+// checkpointEpochExpr is the checkpoint counters' epoch over the view the
+// variant names: the later of its stats_reset and the postmaster start
+// (a crash discards the counters without touching stats_reset).
+const checkpointEpochExpr = `GREATEST(COALESCE(stats_reset, '-infinity'::timestamptz),
+    pg_postmaster_start_time())`
+
 // systemStatsSQL14 uses pg_stat_bgwriter (PG 14-16).
-var systemStatsSQL14 = systemStatsSQLBase + `
+var systemStatsSQL14 = systemStatsSQLBase + systemCountersSQL + `
   (SELECT checkpoints_timed + checkpoints_req
     FROM pg_stat_bgwriter) AS total_checkpoints,
+  (SELECT ` + checkpointEpochExpr + `
+    FROM pg_stat_bgwriter) AS checkpoint_stats_epoch,
   pg_is_in_recovery() AS is_replica` + clientBackendsColumn
 
 // systemStatsSQL17 uses pg_stat_checkpointer (PG 17+).
-var systemStatsSQL17 = systemStatsSQLBase + `
+var systemStatsSQL17 = systemStatsSQLBase + systemCountersSQL + `
   (SELECT num_timed + num_requested
     FROM pg_stat_checkpointer) AS total_checkpoints,
+  (SELECT ` + checkpointEpochExpr + `
+    FROM pg_stat_checkpointer) AS checkpoint_stats_epoch,
   pg_is_in_recovery() AS is_replica` + clientBackendsColumn
 
 // locksSQL is the lock wait graph of the current database (collection-01),

@@ -325,14 +325,19 @@ func parameterCount(query string) int {
 	return maxParam
 }
 
-// planHashParam fingerprints a plan for sage.explain_cache.plan_hash.
-// A plan that cannot be fingerprinted is still stored, with NULL.
-func planHashParam(planJSON []byte) *string {
-	h, err := planhash.Compute(planJSON)
+// planHashParam fingerprints a plan for sage.explain_cache.plan_hash,
+// naming partitions by their roots as read from db, the monitored
+// database the plan ran on (collection-09). A plan that cannot be
+// fingerprinted is stored with NULL. When the roots cannot be read the
+// hash is the unresolved v2u fingerprint and the read error is returned
+// beside it for the caller to log.
+func planHashParam(ctx context.Context, db planhash.Beginner, planJSON []byte) (*string, error) {
+	roots, resolveErr := planhash.Resolve(ctx, db, planJSON)
+	h, err := planhash.ComputeWith(planJSON, planhash.Options{Roots: roots})
 	if err != nil {
-		return nil
+		return nil, nil
 	}
-	return &h
+	return &h, resolveErr
 }
 
 // storePlan inserts a captured plan into sage.explain_cache.
@@ -345,13 +350,17 @@ func (c *Collector) storePlan(
 	totalCost float64,
 	execTime float64,
 ) error {
+	hash, resolveErr := planHashParam(ctx, c.pool, planJSON)
+	if resolveErr != nil {
+		c.logFn("WARN", "autoexplain: query %d plan stored with an unresolved "+
+			"fingerprint: %v", queryID, resolveErr)
+	}
 	_, err := c.pool.Exec(ctx, `
 		INSERT INTO sage.explain_cache
 			(queryid, query_text, plan_json, source,
 			 total_cost, execution_time, plan_hash)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		queryID, queryText, planJSON, source, totalCost, execTime,
-		planHashParam(planJSON),
+		queryID, queryText, planJSON, source, totalCost, execTime, hash,
 	)
 	if err != nil {
 		return fmt.Errorf("insert explain_cache: %w", err)

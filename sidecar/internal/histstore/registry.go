@@ -1,9 +1,12 @@
 package histstore
 
 import (
+	"errors"
+	"fmt"
 	"reflect"
 	"sort"
 	"sync"
+	"sync/atomic"
 )
 
 // The registry maps a monitored database's pool to its history store. A
@@ -54,9 +57,48 @@ func Register(monitored any, name string, s Store) func() {
 	}
 }
 
+// ErrNotRegistered: the process keeps history in the meta database and the
+// pool a reader holds has no registered store, so its history is unknown.
+var ErrNotRegistered = errors.New("histstore: history.store is meta and this pool has no " +
+	"registered history store")
+
+// processMeta is the process's history.store: true when it is meta.
+var processMeta atomic.Bool
+
+// refused counts the statements refused with ErrNotRegistered.
+var refused atomic.Uint64
+
+// SetProcessMode sets where this process keeps history (history.store).
+// In meta mode an unregistered pool is refused instead of read as its own
+// history. The sidecar calls it once at startup; the default is monitored.
+func SetProcessMode(m Mode) error {
+	switch m {
+	case ModeMonitored, ModeMeta:
+		processMeta.Store(m == ModeMeta)
+		return nil
+	}
+	return fmt.Errorf("history process mode %q: want %q or %q", m, ModeMonitored, ModeMeta)
+}
+
+// ProcessMode is the mode SetProcessMode set.
+func ProcessMode() Mode {
+	if processMeta.Load() {
+		return ModeMeta
+	}
+	return ModeMonitored
+}
+
+// Refused is how many statements were refused with ErrNotRegistered since
+// the process started: each one is a reader wired to a pool no runtime
+// registered.
+func Refused() uint64 { return refused.Load() }
+
 // Resolve returns the history store of the monitored database db: the
-// registered one, else db itself (monitored mode). A Store resolves to
-// itself, so code given a Store directly runs on it.
+// registered one, else db itself in monitored mode. In meta mode an
+// unregistered db resolves to a store that refuses every statement with
+// ErrNotRegistered: reading the pool's own tables would read the wrong
+// history. A Store resolves to itself, so code given a Store directly runs
+// on it; nil resolves to the zero Store.
 func Resolve(db any) Store {
 	if s, ok := db.(Store); ok {
 		return s
@@ -71,6 +113,10 @@ func Resolve(db any) Store {
 		if ok {
 			return r.store
 		}
+	}
+	if processMeta.Load() {
+		return Store{err: fmt.Errorf("%w for %T: the runtime that owns it must Register "+
+			"it (history.store: meta)", ErrNotRegistered, db)}
 	}
 	return NewMonitored(db)
 }

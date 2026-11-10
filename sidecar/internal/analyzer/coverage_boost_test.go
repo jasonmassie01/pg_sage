@@ -23,7 +23,7 @@ func coverageTestConfig() *config.Config {
 			SlowQueryThresholdMs:         1000,
 			TableBloatDeadTuplePct:       20,
 			TableBloatMinRows:            1000,
-			SeqScanMinRows:              10000,
+			SeqScanMinRows:               10000,
 			UnusedIndexWindowDays:        7,
 			RegressionThresholdPct:       50,
 			RegressionLookbackDays:       7,
@@ -801,6 +801,9 @@ func TestCoverage_RuleCacheHitRatio_Warning(t *testing.T) {
 	snap := &collector.Snapshot{
 		System: collector.SystemStats{CacheHitRatio: 0.90},
 	}
+	// collection-06: the rule reads the interval ratio.
+	snap.System.Interval = &collector.SystemInterval{Seconds: 60,
+		CacheHitRatio: ivPtrF(0.90), BlksAccessed: ivPtrI(100_000)}
 	findings := ruleCacheHitRatio(snap, nil, cfg, nil)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(findings))
@@ -818,6 +821,9 @@ func TestCoverage_RuleCacheHitRatio_Critical(t *testing.T) {
 	snap := &collector.Snapshot{
 		System: collector.SystemStats{CacheHitRatio: 0.70},
 	}
+	// collection-06: the rule reads the interval ratio.
+	snap.System.Interval = &collector.SystemInterval{Seconds: 60,
+		CacheHitRatio: ivPtrF(0.70), BlksAccessed: ivPtrI(100_000)}
 	findings := ruleCacheHitRatio(snap, nil, cfg, nil)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(findings))
@@ -1899,7 +1905,7 @@ func TestCoverage_RuleMissingFKIndexes_Covered(t *testing.T) {
 		},
 		ForeignKeys: []collector.ForeignKey{
 			{
-				TableName: "orders", FKColumn: "customer_id",
+				Schema: "public", TableName: "orders", Columns: []string{"customer_id"},
 				ReferencedTable: "customers", ConstraintName: "fk_cust",
 			},
 		},
@@ -1918,7 +1924,7 @@ func TestCoverage_RuleMissingFKIndexes_NotCovered(t *testing.T) {
 		},
 		ForeignKeys: []collector.ForeignKey{
 			{
-				TableName: "orders", FKColumn: "customer_id",
+				Schema: "public", TableName: "orders", Columns: []string{"customer_id"},
 				ReferencedTable: "customers", ConstraintName: "fk_cust",
 			},
 		},
@@ -1943,7 +1949,7 @@ func TestCoverage_RuleMissingFKIndexes_UnloggedTable(t *testing.T) {
 		},
 		ForeignKeys: []collector.ForeignKey{
 			{
-				TableName: "orders", FKColumn: "customer_id",
+				Schema: "public", TableName: "orders", Columns: []string{"customer_id"},
 				ReferencedTable: "customers", ConstraintName: "fk_cust",
 			},
 		},

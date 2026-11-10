@@ -155,15 +155,19 @@ func (r *Runner) attempts(ctx context.Context, spec Spec, args Args, res Result)
 
 // attempt takes a pool connection within acquireWait, then runs the
 // probe on it within the statement budget: the pool wait never spends
-// the statement's time.
+// the statement's time. A history probe whose store refuses statements
+// (histstore.ErrNotRegistered) fails before it takes a connection.
 func (r *Runner) attempt(ctx context.Context, spec Spec, args Args, res Result) Result {
+	pool, store := r.poolFor(spec)
+	if err := store.Err(); err != nil {
+		return failedAt(res, PhaseExecution, StatusError, ReasonHistoryNotRegistered, err)
+	}
 	wait := r.acquireWait
 	if wait <= 0 {
 		wait = acquireWait
 	}
 	actx, cancel := context.WithTimeout(ctx, wait)
 	began := time.Now()
-	pool, store := r.poolFor(spec)
 	conn, err := pool.Acquire(actx)
 	res.Timing.Acquire += time.Since(began)
 	cancel()

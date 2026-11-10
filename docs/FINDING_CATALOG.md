@@ -90,7 +90,7 @@ All findings include Category, Severity, ObjectType, RecommendedSQL (if applicab
 
 | Category | Source | Trigger | ActionRisk | SQL Shape | Auto-Execute |
 |----------|--------|---------|-----------|-----------|--------------|
-| cache_hit_ratio | rules_system.go:50 | Ratio <90% | safe | None | NO |
+| cache_hit_ratio | rules_system.go:70 | Interval ratio < threshold over >= 10k blocks | safe | None | NO |
 | checkpoint_pressure | rules_system.go:91 | >threshold/hr | safe | None | NO |
 | stat_statements_pressure | rules_system.go:142 | >80% capacity | safe | None | NO |
 

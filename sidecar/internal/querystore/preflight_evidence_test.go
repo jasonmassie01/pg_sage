@@ -38,7 +38,7 @@ func TestPreflightEvidenceInteriorResetWindow(t *testing.T) {
 			}
 			for _, s := range tc.samples {
 				s.QueryID = id
-				if err := Record(ctx, p, []Sample{s}); err != nil {
+				if err := recordNow(ctx, p, []Sample{s}); err != nil {
 					t.Fatal(err)
 				}
 				time.Sleep(2 * time.Millisecond)
@@ -51,10 +51,7 @@ func TestPreflightEvidenceInteriorResetWindow(t *testing.T) {
 			if err := p.QueryRow(ctx, "SELECT clock_timestamp()").Scan(&now); err != nil {
 				t.Fatal(err)
 			}
-			ms, ok, err := WindowedLatencyMsBetween(ctx, p, id, now.Add(-time.Minute), now)
-			if err != nil {
-				t.Fatal(err)
-			}
+			ms, ok := windowOf(t, ctx, p, id, now.Add(-time.Minute), now).measured()
 			t.Logf("samples=%+v ms=%f ok=%v", tc.samples, ms, ok)
 			if ok != tc.wantOK {
 				t.Errorf("window validity=%v want %v", ok, tc.wantOK)

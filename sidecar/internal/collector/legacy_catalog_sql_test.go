@@ -23,6 +23,7 @@ SELECT s.schemaname, s.relname,
   FROM pg_stat_user_tables s
   JOIN pg_class c ON c.oid = s.relid
  WHERE s.schemaname NOT IN ('sage', 'pg_catalog', 'information_schema', 'google_ml')
+   AND c.relpersistence <> 't' -- collection-03: not in v1.8.2
    AND s.relid > $1
  ORDER BY s.relid
  LIMIT $2`
@@ -41,6 +42,7 @@ SELECT s.schemaname, s.relname, s.indexrelname,
   JOIN pg_class ic ON ic.oid = s.indexrelid
   JOIN pg_am am ON am.oid = ic.relam
  WHERE s.schemaname NOT IN ('sage', 'pg_catalog', 'information_schema', 'google_ml')
+   AND ic.relpersistence <> 't' -- collection-03: not in v1.8.2
    AND s.indexrelid > $1
  ORDER BY s.indexrelid
  LIMIT $2`
