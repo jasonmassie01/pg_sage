@@ -239,7 +239,8 @@ func TestContextBudgetBytes(t *testing.T) {
 	for _, tc := range []struct{ tokens, want int }{
 		{8192, 32768}, {2048, 8192}, {1, 4}, {0, 0}, {-3, 0},
 	} {
-		if got := ContextBudgetBytes(config.LLMConfig{ContextBudgetTokens: tc.tokens}); got != tc.want {
+		cfg := config.LLMConfig{ContextBudgetTokens: tc.tokens}
+		if got := ContextBudgetBytes(cfg); got != tc.want {
 			t.Errorf("ContextBudgetBytes(%d) = %d, want %d", tc.tokens, got, tc.want)
 		}
 	}

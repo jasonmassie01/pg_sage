@@ -35,8 +35,7 @@ func (c *Client) ChatResult(
 		return Response{}, err
 	}
 	defer c.endProbe(probe)
-	maxTokens = normalizedMaxTokens(cfg.Model, maxTokens)
-	if err := preflight(cfg, estimateTokens(system, user), maxTokens); err != nil {
+	if maxTokens, err = preflightMaxTokens(cfg, system, user, maxTokens); err != nil {
 		return Response{}, err
 	}
 	throttleKey := requestThrottleKey(cfg, system, user)
@@ -45,8 +44,8 @@ func (c *Client) ChatResult(
 	}
 	throttleSuccess := false
 	defer func() { c.releaseThrottle(throttleKey, throttleSuccess) }()
-	external := externalReservation(system, user, maxTokens)
-	reservation, err := c.reserveBudget(cfg, maxTokens, external)
+	reservation, err := c.reserveBudget(cfg, maxTokens,
+		externalReservation(system, user, maxTokens))
 	if err != nil {
 		return Response{}, err
 	}
@@ -56,7 +55,6 @@ func (c *Client) ChatResult(
 			c.releaseBudget(reservation)
 		}
 	}()
-
 	chatResp, err := c.sendChat(ctx, requestCtx, cfg, system, user, maxTokens)
 	if err != nil {
 		c.noteFailure(generation, err, true)
@@ -65,15 +63,13 @@ func (c *Client) ChatResult(
 	if !c.generationCurrent(generation) {
 		return Response{}, fmt.Errorf("LLM disabled or reconfigured during request")
 	}
-
 	c.recordSuccess()
 	tokens := usageTokens(chatResp, system, user)
 	c.reconcileBudget(reservation, tokens)
 	reconciled = true
-	r := newResponse(chatResp, tokens)
-	if strings.TrimSpace(r.Content) == "" {
-		r.Content = ""
-		return r, fmt.Errorf("%w (finish_reason=%s)", ErrEmptyResponse, r.FinishReason)
+	r, err := newResponse(chatResp, tokens)
+	if err != nil {
+		return r, err
 	}
 	throttleSuccess = true
 	c.repairIfTruncated(&r, system)
@@ -82,14 +78,20 @@ func (c *Client) ChatResult(
 
 // newResponse reads the first choice of resp. Providers report a stop at
 // the output token limit as "length" (OpenAI-compatible) or "max_tokens".
-func newResponse(resp *ChatResponse, tokens int) Response {
+// A blank completion returns ErrEmptyResponse with the tokens kept.
+func newResponse(resp *ChatResponse, tokens int) (Response, error) {
 	reason := resp.Choices[0].FinishReason
-	return Response{
+	r := Response{
 		Content:      resp.Choices[0].Message.Content,
 		Tokens:       tokens,
 		FinishReason: reason,
 		Truncated:    reason == "length" || reason == "max_tokens",
 	}
+	if strings.TrimSpace(r.Content) == "" {
+		r.Content = ""
+		return r, fmt.Errorf("%w (finish_reason=%s)", ErrEmptyResponse, r.FinishReason)
+	}
+	return r, nil
 }
 
 // repairIfTruncated logs a truncated answer and repairs it when it is
