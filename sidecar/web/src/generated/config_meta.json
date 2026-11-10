@@ -1325,7 +1325,7 @@
   "lakebase_observability.window_seconds": {
     "type": "int",
     "default": 0,
-    "doc": "Width cap (s) of each forward and reconcile read, and how far back the first forward read starts; reads narrow when full and widen back, sparse streams reconcile 4 windows. 0=900, max 7 days.",
+    "doc": "Seconds in the width of each forward and reconcile read, and how far back the first forward read starts; reads narrow when full, widen back, reconcile 4 windows. 0=900, max 7 days.",
     "class": "safety_critical"
   },
   "llm.api_key": {
