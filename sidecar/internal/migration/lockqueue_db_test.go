@@ -9,8 +9,8 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/config"
-	"github.com/pg-sage/sidecar/internal/testsupport/lockqueue"
 	"github.com/pg-sage/sidecar/internal/testdb"
+	"github.com/pg-sage/sidecar/internal/testsupport/lockqueue"
 )
 
 // migration-05 (CHECK-23): session A holds ACCESS SHARE on t, B waits in

@@ -321,4 +321,3 @@ func TestCoverage_PurgeTable_NilPoolPositiveRetention(t *testing.T) {
 	c := New(nil, cfg, noopLog)
 	c.purgeTable(context.Background(), "snapshots", "collected_at", 1, "")
 }
-
