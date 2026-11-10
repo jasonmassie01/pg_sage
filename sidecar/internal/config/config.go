@@ -840,10 +840,7 @@ func (c *Config) validate() error {
 // validateTrust checks the trust level and the maintenance window grammar
 // so a typo fails at load instead of silently meaning "never".
 func (c *Config) validateTrust() error {
-	validTrust := map[string]bool{
-		"observation": true, "advisory": true, "autonomous": true,
-	}
-	if !validTrust[c.Trust.Level] {
+	if !IsTrustLevel(c.Trust.Level) {
 		return fmt.Errorf(
 			"trust.level must be observation, advisory, or autonomous (got %q)",
 			c.Trust.Level,

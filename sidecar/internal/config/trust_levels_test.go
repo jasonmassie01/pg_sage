@@ -81,3 +81,20 @@ func TestTrustLevels_ConcurrentReaders(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestValidateTrust_AcceptsExactlyTrustLevels(t *testing.T) {
+	for _, level := range TrustLevels() {
+		cfg := DefaultConfig()
+		cfg.Trust.Level = level
+		if err := cfg.validateTrust(); err != nil {
+			t.Errorf("validateTrust(%q) = %v, want nil", level, err)
+		}
+	}
+	for _, level := range []string{"", "Autonomous", "auto", "observe"} {
+		cfg := DefaultConfig()
+		cfg.Trust.Level = level
+		if err := cfg.validateTrust(); err == nil {
+			t.Errorf("validateTrust(%q) accepted a level outside TrustLevels", level)
+		}
+	}
+}
