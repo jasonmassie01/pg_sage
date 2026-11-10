@@ -235,14 +235,18 @@ into the finding detail when the DDL is detected (`table_size_bytes`,
 `requires_rewrite`, `affected_table`, `measured_at`). They are
 detection-time values, not a fresh probe: the preflight notes "measured at
 detection" and the dashboard shows their age. A live read that failed is left
-out, so its check reads `unknown` rather than passing on a zero, and table
+out, so its check reads `unknown` rather than passing on a zero (with every
+read failed there is no `measured_at` and no lock-hold estimate), and table
 size is `unknown` when the table was never analysed (`stats_known = false`).
 Findings written before these keys existed keep rendering `unknown`. Lock
 level and rewrite come from the finding first (the candidate's own
 `CONCURRENTLY` SQL takes its own lock), then from the one DDL rule catalog
 (`internal/migration/ddlrules`) that the classifier also uses. A measured
 warning (for example an active query on the table) blocks the candidate for
-review.
+review. `active_queries` leaves out the detected DDL's own backend, which is
+not load it competes with; its own queued lock still counts in
+`pending_locks`. `estimated_lock_ms` is a heuristic estimate, so its check
+says "estimated at detection", never "measured".
 
 An in-flight DDL is analysed once per backend and statement but re-evaluated
 on every activity poll, and each poll re-persists its finding, so a DDL still

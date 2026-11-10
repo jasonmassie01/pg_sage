@@ -51,26 +51,29 @@ func (a *Advisor) fallbackResult(
 }
 
 // fallbackResponse is the model's parsed assessment of clean, cached for
-// the statement and its table's schema; a failed call is not cached.
+// the statement and its table's schema. A failed call, and a reply that
+// does not parse, is not cached, so the next detection asks again.
 func (a *Advisor) fallbackResponse(ctx context.Context, clean string) *llmDDLResponse {
 	schema := ""
 	if target := statementTarget(clean); target.Table != "" && a.scriptGen != nil {
 		schema = a.scriptGen.schemaText(ctx, target.Schema, target.Table)
 	}
 	key := enrichKey(fallbackRuleID, clean, schema)
-	raw, ok := a.cache.get(key)
-	if !ok {
+	raw, cached := a.cache.get(key)
+	if !cached {
 		var err error
 		if raw, err = a.llmFallback(ctx, clean); err != nil {
 			a.logFn("warn", "migration: LLM DDL fallback failed: %v", err)
 			return nil
 		}
-		a.cache.put(key, raw)
 	}
 	resp, err := parseDDLLLMResponse(raw)
 	if err != nil {
 		a.logFn("warn", "migration: LLM DDL parse failed: %v", err)
 		return nil
+	}
+	if !cached {
+		a.cache.put(key, raw)
 	}
 	return resp
 }

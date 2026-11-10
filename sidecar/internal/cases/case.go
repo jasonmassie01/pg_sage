@@ -94,17 +94,17 @@ type ActionCandidate struct {
 }
 
 type DDLPreflightReport struct {
-	Summary         string           `json:"summary"`
-	RiskScore       float64          `json:"risk_score,omitempty"`
-	LockLevel       string           `json:"lock_level,omitempty"`
-	RequiresRewrite bool             `json:"requires_rewrite"`
-	TableName       string           `json:"table_name,omitempty"`
-	TableSizeBytes  int64            `json:"table_size_bytes,omitempty"`
-	EstimatedRows   int64            `json:"estimated_rows,omitempty"`
-	ActiveQueries   int              `json:"active_queries,omitempty"`
-	PendingLocks    int              `json:"pending_locks,omitempty"`
-	ReplicationLag  float64          `json:"replication_lag_seconds,omitempty"`
-	EstimatedLockMs int64            `json:"estimated_lock_ms,omitempty"`
+	Summary         string  `json:"summary"`
+	RiskScore       float64 `json:"risk_score,omitempty"`
+	LockLevel       string  `json:"lock_level,omitempty"`
+	RequiresRewrite bool    `json:"requires_rewrite"`
+	TableName       string  `json:"table_name,omitempty"`
+	TableSizeBytes  int64   `json:"table_size_bytes,omitempty"`
+	EstimatedRows   int64   `json:"estimated_rows,omitempty"`
+	ActiveQueries   int     `json:"active_queries,omitempty"`
+	PendingLocks    int     `json:"pending_locks,omitempty"`
+	ReplicationLag  float64 `json:"replication_lag_seconds,omitempty"`
+	EstimatedLockMs int64   `json:"estimated_lock_ms,omitempty"`
 	// MeasuredAt is when the source finding's live values were measured
 	// (RFC 3339, at detection); empty when nothing was measured.
 	MeasuredAt string           `json:"measured_at,omitempty"`

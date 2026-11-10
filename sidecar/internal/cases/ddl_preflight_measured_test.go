@@ -91,3 +91,29 @@ func TestPreflight_InvalidMeasurementIsUnknown(t *testing.T) {
 
 // No concurrent access test: the preflight is a pure function of the
 // finding.
+
+// migration-01 review follow-up: estimated_lock_ms is the advisor's
+// heuristic lock-hold estimate, not a measurement. Only a measured
+// lock_timeout_ms is labelled measured.
+func TestPreflight_LockEstimateIsLabelledEstimated(t *testing.T) {
+	at := "2026-11-09T12:30:00Z"
+	estimate := checkByName(ddlPreflightFromFinding(measuredFinding(map[string]any{
+		"measured_at": at, "estimated_lock_ms": 50.0})), "lock_timeout")
+	if estimate.Status != "pass" ||
+		!strings.HasSuffix(estimate.Detail, "(estimated at detection)") ||
+		strings.Contains(estimate.Detail, "measured") {
+		t.Errorf("estimate-only lock_timeout check = %+v, want an estimate label", estimate)
+	}
+	measured := checkByName(ddlPreflightFromFinding(measuredFinding(map[string]any{
+		"measured_at": at, "lock_timeout_ms": 2000.0, "estimated_lock_ms": 50.0})),
+		"lock_timeout")
+	if measured.Detail != "2000ms (measured at detection)" {
+		t.Errorf("measured lock_timeout check = %+v", measured)
+	}
+	// Zero is no estimate: the check warns rather than passes.
+	zero := checkByName(ddlPreflightFromFinding(measuredFinding(map[string]any{
+		"measured_at": at, "estimated_lock_ms": 0.0})), "lock_timeout")
+	if zero.Status != "warn" {
+		t.Errorf("zero estimate lock_timeout check = %+v, want warn", zero)
+	}
+}

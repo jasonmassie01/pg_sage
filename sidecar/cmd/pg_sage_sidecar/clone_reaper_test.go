@@ -167,15 +167,47 @@ func TestCloneReapPassRunsOnTheLeaderOnly(t *testing.T) {
 
 	fleetLeader = leader.NewElector(stubLease{held: false}, "s", "me", time.Minute)
 	_ = fleetLeader.Tick(context.Background())
-	if n := cloneReapPass(context.Background(), c, mgr, nil, adapter); n != 0 ||
+	if n := cloneReapPass(context.Background(), c, reaperCloneConfig, mgr, nil,
+		adapter); n != 0 ||
 		len(adapter.destroyed) != 0 {
 		t.Fatalf("a follower reaped %d databases: %v", n, adapter.destroyed)
 	}
 	fleetLeader = leader.NewElector(stubLease{held: true}, "s", "me", time.Minute)
 	_ = fleetLeader.Tick(context.Background())
-	if n := cloneReapPass(context.Background(), c, mgr, nil, adapter); n != 1 ||
+	if n := cloneReapPass(context.Background(), c, reaperCloneConfig, mgr, nil,
+		adapter); n != 1 ||
 		len(adapter.destroyed) != 1 || adapter.destroyed[0] != crashed.ID {
 		t.Fatalf("leader reaped %d databases: %v", n, adapter.destroyed)
+	}
+}
+
+// A hot reload of clone.* changes cfg.Clone but not the MCP executor's copy,
+// so rehearsals keep writing receipts under the startup endpoint. The pass
+// reaps with the config its adapter was built from, never the reloaded one,
+// so those receipts are still reaped and the adapter is never pointed at
+// another endpoint's clone ids.
+func TestCloneReapPassUsesItsStartupCloneConfig(t *testing.T) {
+	pool := reaperPool(t)
+	adapter := &reaperAdapter{}
+	crashed := crashedRehearsal(t, pool, adapter)
+	old := fleetLeader
+	t.Cleanup(func() { fleetLeader = old })
+	mgr := fleet.NewManager(&config.Config{Mode: "fleet"})
+	mgr.RegisterInstance(&fleet.DatabaseInstance{Name: "live", Pool: pool,
+		Config: config.DatabaseConfig{Name: "live"}, Status: &fleet.InstanceStatus{}})
+	reloaded := reaperCloneConfig
+	reloaded.DLEEndpoint = "https://dle-other.invalid:2345"
+	c := &config.Config{Clone: reloaded}
+	fleetLeader = leader.NewElector(stubLease{held: true}, "s", "me", time.Minute)
+	_ = fleetLeader.Tick(context.Background())
+
+	if n := cloneReapPass(context.Background(), c, reaperCloneConfig, mgr, nil,
+		adapter); n != 1 || len(adapter.destroyed) != 1 || adapter.destroyed[0] != crashed.ID {
+		t.Fatalf("reaped %d databases, destroyed %v; want %s", n, adapter.destroyed,
+			crashed.ID)
+	}
+	if got := receiptStatus(t, pool, crashed.ID); got != clone.StatusDestroyed {
+		t.Fatalf("crashed receipt %s, want destroyed", got)
 	}
 }
 

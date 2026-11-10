@@ -36,13 +36,15 @@ func (ra *RiskAssessor) fetchTableStats(
 // query mentions the table as a whole word. PostgreSQL ARE uses \y for
 // a word boundary; \b is a backspace (G7-B02). pg_sage's own sessions
 // (probes, EXPLAINs and plan captures run application query text) are
-// not load the DDL competes with.
+// not load the DDL competes with, and neither is the DDL's own backend
+// ($2, 0 when unknown, which matches no backend).
 var activeQueriesSQL = `
 SELECT COUNT(*)::int,
        COALESCE(MAX(EXTRACT(EPOCH FROM now() - query_start)), 0)
 FROM   pg_stat_activity
 WHERE  state = 'active'
   AND  pid <> pg_backend_pid()
+  AND  pid <> $2
   AND  datname = current_database()
   AND  query ~* $1
   AND  ` + selfmonitor.ActivityExclusionSQL("")
@@ -51,7 +53,7 @@ func (ra *RiskAssessor) fetchActiveQueries(
 	ctx context.Context, risk *DDLRisk,
 ) {
 	pattern := `\y` + quoteARE(risk.TableName) + `\y`
-	row := ra.catalog().QueryRow(ctx, activeQueriesSQL, pattern)
+	row := ra.catalog().QueryRow(ctx, activeQueriesSQL, pattern, risk.SessionPID)
 	if err := row.Scan(&risk.ActiveQueries, &risk.LongestQuerySec); err != nil {
 		ra.logFn("debug",
 			"migration: active query check failed for %s: %v",

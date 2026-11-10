@@ -150,8 +150,11 @@ func TestSameServer(t *testing.T) {
 			StartedAt: started, ServerPort: 6001}, false},
 		"one microsecond later": {ServerIdentity{Host: "x", Port: 1,
 			StartedAt: started.Add(time.Microsecond), ServerPort: 5432}, false},
-		"unix socket server": {ServerIdentity{Host: "/tmp", Port: 5432,
-			StartedAt: started, ServerPort: 0}, false},
+		// The same postmaster reached over its Unix socket reports no port.
+		"unix socket, same postmaster": {ServerIdentity{Host: "/tmp", Port: 5432,
+			StartedAt: started, ServerPort: 0}, true},
+		"unix socket, other postmaster": {ServerIdentity{Host: "/tmp", Port: 5432,
+			StartedAt: started.Add(time.Second), ServerPort: 0}, false},
 	} {
 		if got := sameServer(prod, tc.clone); got != tc.want {
 			t.Errorf("%s: sameServer = %v, want %v", name, got, tc.want)
@@ -159,5 +162,10 @@ func TestSameServer(t *testing.T) {
 	}
 	if sameServer(ServerIdentity{}, ServerIdentity{}) {
 		t.Error("two unknown identities are not proof of the same server")
+	}
+	socketProd := ServerIdentity{Host: "/var/run/postgresql", Port: 5432, StartedAt: started}
+	if !sameServer(socketProd, ServerIdentity{Host: "10.0.0.5", Port: 5432,
+		StartedAt: started, ServerPort: 5432}) {
+		t.Error("production over its socket and the clone over TCP are the same postmaster")
 	}
 }

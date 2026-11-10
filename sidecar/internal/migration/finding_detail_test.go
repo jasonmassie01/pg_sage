@@ -109,7 +109,8 @@ func TestFindingDetail_MeasuredZeroAndNoPool(t *testing.T) {
 	if _, present := got.Detail["measured_at"]; present {
 		t.Fatalf("measured_at = %#v without a live read", got.Detail["measured_at"])
 	}
-	if got.Detail["affected_table"] != "public.t" || got.Detail["lock_level"] != "ACCESS EXCLUSIVE" {
+	if got.Detail["affected_table"] != "public.t" ||
+		got.Detail["lock_level"] != "ACCESS EXCLUSIVE" {
 		t.Fatalf("affected_table=%#v lock_level=%#v", got.Detail["affected_table"],
 			got.Detail["lock_level"])
 	}

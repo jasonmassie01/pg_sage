@@ -18,6 +18,9 @@ type DDLClassification struct {
 	// SessionRole is the role running the DDL, whose search_path resolves
 	// an unqualified table ("" when unknown).
 	SessionRole string
+	// SessionPID is the backend running the DDL (0 when unknown), which
+	// the activity read leaves out: the DDL is not load it competes with.
+	SessionPID int
 }
 
 // SQLParser abstracts DDL classification. NewClassifier is the
@@ -38,6 +41,7 @@ type DDLRisk struct {
 	RequiresRewrite bool
 	TableName       string
 	SchemaName      string
+	SessionPID      int // the DDL's own backend, 0 when unknown
 	TableSizeBytes  int64
 	EstimatedRows   int64
 	ActiveQueries   int
@@ -58,7 +62,8 @@ type DDLRisk struct {
 	// its value zero and its flag false, so the finding reports it as not
 	// measured rather than as a passing zero (migration-01).
 	Measured DDLMeasured
-	// MeasuredAt is when the live reads ran; zero without a pool.
+	// MeasuredAt is when the live reads ran; zero without a pool or when
+	// every read failed.
 	MeasuredAt time.Time
 }
 
@@ -68,4 +73,9 @@ type DDLMeasured struct {
 	Activity       bool // active queries on the table
 	PendingLocks   bool // ungranted locks on the table
 	ReplicationLag bool // replay lag from pg_stat_replication
+}
+
+// any reports whether at least one live read succeeded.
+func (m DDLMeasured) any() bool {
+	return m.TableStats || m.Activity || m.PendingLocks || m.ReplicationLag
 }

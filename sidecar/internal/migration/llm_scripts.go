@@ -98,7 +98,8 @@ func (g *ScriptGenerator) GenerateScript(
 }
 
 // reply is the model's answer for risk on this schema: cached for the
-// statement's identity, else asked. A failed call is not cached.
+// statement's identity, else asked. A failed call, and a reply with no
+// SQL in it, is not cached, so the next detection asks again.
 func (g *ScriptGenerator) reply(
 	ctx context.Context, risk *DDLRisk, schema string,
 ) (string, bool) {
@@ -111,7 +112,9 @@ func (g *ScriptGenerator) reply(
 		g.logFn("warn", "migration: LLM script generation failed: %v", err)
 		return "", false
 	}
-	g.cache.put(key, raw)
+	if extractSQLFromResponse(raw) != "" {
+		g.cache.put(key, raw)
+	}
 	return raw, true
 }
 

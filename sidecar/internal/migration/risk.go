@@ -58,12 +58,13 @@ func (ra *RiskAssessor) Assess(
 		RequiresRewrite: c.RequiresRewrite,
 		TableName:       c.TableName,
 		SchemaName:      c.SchemaName,
+		SessionPID:      c.SessionPID,
 		SafeAlternative: ra.safeAlternative(ctx, c),
 		Description:     c.Description,
 	}
 
 	if ra.pool != nil {
-		risk.MeasuredAt = time.Now().UTC()
+		at := time.Now().UTC()
 		if c.TableName != "" && c.SchemaName == "" {
 			ra.resolveTableSchema(ctx, risk, c.SessionRole)
 		}
@@ -75,6 +76,10 @@ func (ra *RiskAssessor) Assess(
 			ra.fetchActiveQueries(ctx, risk)
 		}
 		ra.fetchReplicationLag(ctx, risk)
+		// Only a read that succeeded is a measurement to date.
+		if risk.Measured.any() {
+			risk.MeasuredAt = at
+		}
 	}
 
 	risk.RiskScore = computeRiskScore(risk)

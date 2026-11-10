@@ -52,7 +52,7 @@ func NewDetector(
 	}
 	d.activity = d.queryActivity
 	d.analyze = func(ctx context.Context, a activeDDL) (*rca.Incident, *DDLRisk, error) {
-		return d.advisor.AnalyzeSessionRisk(ctx, a.Query, a.Role)
+		return d.advisor.AnalyzeSessionRisk(ctx, a.Query, a.Role, a.PID)
 	}
 	return d
 }
