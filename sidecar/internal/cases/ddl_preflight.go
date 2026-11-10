@@ -183,10 +183,24 @@ func applyMeasurementEvidence(report *DDLPreflightReport, d map[string]any) {
 		case check.Name == "table_size" && report.TableSizeBytes == 0:
 			check.Status, check.Detail = "pass", "0 bytes"
 		}
-		if report.MeasuredAt != "" {
-			check.Detail += " (measured at detection)"
-		}
+		check.Detail += evidenceSuffix(check.Name, d, report.MeasuredAt != "")
 	}
+}
+
+// evidenceSuffix says where a live check's value came from. A lock_timeout
+// check read only from estimated_lock_ms rests on the advisor's heuristic
+// lock-hold estimate, which is never a measurement.
+func evidenceSuffix(name string, d map[string]any, atDetection bool) string {
+	estimate := name == "lock_timeout" && !measuredIn(d, []string{"lock_timeout_ms"})
+	switch {
+	case estimate && atDetection:
+		return " (estimated at detection)"
+	case estimate:
+		return " (estimated)"
+	case atDetection:
+		return " (measured at detection)"
+	}
+	return ""
 }
 
 func measuredIn(d map[string]any, keys []string) bool {
