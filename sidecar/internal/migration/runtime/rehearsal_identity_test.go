@@ -3,7 +3,6 @@ package runtime
 import (
 	"context"
 	"errors"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	planpkg "github.com/pg-sage/sidecar/internal/migration/plan"
 	rehearsalpkg "github.com/pg-sage/sidecar/internal/migration/rehearsal"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // migration-07: before the first step the rehearsal runner proves its
@@ -39,7 +39,7 @@ func guardFixture(t *testing.T) (*pgxpool.Pool, string) {
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS "+guardTable)
 	})
-	return pool, os.Getenv("SAGE_TEST_DATABASE_URL")
+	return pool, testdb.SkipUnlessLive(t)
 }
 
 func assertNoStepRan(t *testing.T, pool *pgxpool.Pool) {

@@ -2,16 +2,17 @@ import { execFileSync } from 'child_process';
 import { test, expect } from '@playwright/test';
 import { login, getConsoleErrors } from './helpers';
 import { object, rows } from './walkthrough-support';
+import { fixtureTargets } from './fixture-targets';
 
 const ADMIN_EMAIL = process.env.PG_SAGE_ADMIN_EMAIL || 'admin@pg-sage.local';
 const ADMIN_PASS = process.env.PG_SAGE_ADMIN_PASS || 'admin';
 
 function psql(sql: string) {
   execFileSync('docker', [
-    'exec', 'pgsage_audit_20260904', 'psql',
+    'exec', fixtureTargets[0].container, 'psql',
     '-v', 'ON_ERROR_STOP=1',
     '-U', 'postgres',
-    '-d', 'audit_browser_target1',
+    '-d', fixtureTargets[0].db,
     '-c', sql,
   ], { stdio: 'pipe' });
 }
@@ -49,11 +50,6 @@ test.describe('Query Hints lifecycle', () => {
   test('API and UI show active, retired, and broken hints', async ({
     page,
   }) => {
-    test.skip(
-      process.env.PG_SAGE_E2E_FIXTURE !== 'full-surface',
-      'requires full-surface query-hints fixture',
-    );
-
     seedHintLifecycleRows();
 
     const allRes = await page.request.get('/api/v1/query-hints');

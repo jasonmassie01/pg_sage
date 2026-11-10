@@ -47,7 +47,7 @@ func projectStored(t *testing.T, f MigrationSafetyFinding) cases.Case {
 		Severity: cases.Severity(f.Severity), ObjectType: f.ObjectType,
 		ObjectIdentifier: f.ObjectIdentifier, RuleID: f.RuleID, Title: f.Title,
 		RecommendedSQL: f.RecommendedSQL, Detail: detail, ObservedAt: time.Now(),
-	})
+	}, nil) // nil classifier (cases-04): executor would be an import cycle here
 }
 
 // G7-B28 / CHECK-31: a model answering DROP INDEX CONCURRENTLY on the

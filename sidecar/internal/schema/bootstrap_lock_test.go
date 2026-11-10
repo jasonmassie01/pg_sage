@@ -3,21 +3,18 @@ package schema
 import (
 	"context"
 	"errors"
-	"os"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 func requireMultiConnDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 
-	dsn := os.Getenv("SAGE_DATABASE_URL")
-	if dsn == "" {
-		dsn = os.Getenv("SAGE_TEST_DATABASE_URL")
-	}
+	dsn := testdb.SkipUnlessLive(t)
 	poolCfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		t.Fatalf("parse test DSN: %v", err)

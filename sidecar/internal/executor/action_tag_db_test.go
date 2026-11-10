@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // sagePool is a pool of size connections named as pg_sage names its own,
@@ -18,7 +19,7 @@ import (
 func sagePool(t *testing.T, size int32) (*pgxpool.Pool, *pgxpool.Pool, context.Context) {
 	t.Helper()
 	observer, ctx := requireDB(t)
-	cfg, err := pgxpool.ParseConfig(testDSN())
+	cfg, err := pgxpool.ParseConfig(testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("parse DSN: %v", err)
 	}

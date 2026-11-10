@@ -13,6 +13,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/partition"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // A deployment upgraded with a large or busy sage.query_store keeps the
@@ -108,7 +109,7 @@ func (r *logRecorder) matching(level, substr string) []string {
 // pool has one connection, used by the cleaner).
 func lockHolder(t *testing.T, ctx context.Context, rel string) func() {
 	t.Helper()
-	conn, err := pgx.Connect(ctx, testDSN())
+	conn, err := pgx.Connect(ctx, testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +210,7 @@ func TestRun_DoesNotWaitForTheConversion(t *testing.T) {
 	plainQueryStore(t, ctx)
 	// A production-sized pool: the shared test pool has one connection,
 	// which the background attempt would hold.
-	pool, err := pgxpool.New(ctx, testDSN())
+	pool, err := pgxpool.New(ctx, testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatal(err)
 	}

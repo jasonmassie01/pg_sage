@@ -16,7 +16,9 @@ security fixes. Its last source is preserved at the `c-extension-final` tag.
 When a new minor version is released, update this table in the same change
 as the CHANGELOG entry. `TestSecurityDocsSupportedVersionMatchesVERSION`
 (`sidecar/internal/config`) fails when the supported row is not the minor in
-`VERSION`.
+`VERSION`, and `TestReleaseMetadataAgrees` (`sidecar/internal/docscontract`)
+fails when `VERSION`, the newest `## vX.Y.Z` CHANGELOG heading and this table
+disagree.
 
 ## Reporting a Vulnerability
 

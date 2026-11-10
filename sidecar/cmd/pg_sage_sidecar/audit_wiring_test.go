@@ -58,11 +58,6 @@ func TestAuditSourcesDeduplicateTheControlPool(t *testing.T) {
 	}
 }
 
-// Verification with nothing to verify, or as a follower, does nothing.
-func TestRunChainVerificationWithoutSources(t *testing.T) {
-	runChainVerification(context.Background(), nil)
-}
-
 // The evidence signing key loads from its variable; unset or invalid keys
 // leave packs hashed only.
 func TestEvidenceSigningKey(t *testing.T) {

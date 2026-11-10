@@ -178,7 +178,7 @@ keep working, its propose tools queue for a person, and its `agent_*` tools answ
 `agent_unsponsored` until an admin assigns a sponsor. The migration is idempotent and safe
 with several sidecars. Tokens of the removed agent provisioner are only counted, because
 nothing accepts them any more; they go with the legacy tables. See
-[Decommissioning the removed database provisioner](../sidecar/internal/decommission/README.md).
+[Decommissioning the removed database provisioner](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/decommission/README.md).
 
 ## OAuth
 

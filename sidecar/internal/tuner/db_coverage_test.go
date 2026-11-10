@@ -3,12 +3,12 @@ package tuner
 import (
 	"context"
 	"fmt"
-	"os"
 	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 var (
@@ -18,13 +18,6 @@ var (
 )
 
 const tunerCoverageQueryID int64 = 999999999
-
-func tunerTestDSN() string {
-	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
-		return v
-	}
-	return os.Getenv("SAGE_TEST_DATABASE_URL")
-}
 
 func cleanTunerCoverageHints(t *testing.T, pool *pgxpool.Pool, ctx context.Context) {
 	t.Helper()
@@ -39,8 +32,8 @@ func cleanTunerCoverageHints(t *testing.T, pool *pgxpool.Pool, ctx context.Conte
 func requireTunerDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
 	ctx := context.Background()
+	dsn := testdb.SkipUnlessLive(t)
 	tunerTestPoolOnce.Do(func() {
-		dsn := tunerTestDSN()
 		poolCfg, err := pgxpool.ParseConfig(dsn)
 		if err != nil {
 			tunerTestPoolErr = fmt.Errorf("parsing DSN: %w", err)

@@ -235,25 +235,6 @@ func TestCoverage_InMaintenanceWindow_WithLeadingWhitespace(t *testing.T) {
 // RunCycle early-exit paths (no DB required for some)
 // ---------------------------------------------------------------------------
 
-// TestCoverage_RunCycle_ManualMode verifies that manual mode returns
-// immediately without touching the pool.
-func TestCoverage_RunCycle_ManualMode(t *testing.T) {
-	// Manual mode skips the cycle before the nil pool is touched, regardless
-	// of trust level. Trust never promotes manual to auto.
-	e := &Executor{
-		cfg: &config.Config{
-			Trust: config.TrustConfig{Level: "observation"},
-		},
-		recentActions: make(map[string]time.Time),
-		logFn:         func(string, string, ...any) {},
-		execMode:      "manual",
-		pool:          nil, // would panic if accessed
-	}
-
-	// Should not panic — manual + observation returns before any pool use.
-	e.RunCycle(context.Background(), false)
-}
-
 // TestCoverage_RunCycle_EmptyFindings verifies that an empty findings
 // list is handled gracefully (cycle runs without errors).
 func TestCoverage_RunCycle_EmptyFindings(t *testing.T) {

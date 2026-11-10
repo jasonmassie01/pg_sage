@@ -2,7 +2,7 @@
 // by reflecting over config.DefaultConfig(). It is a build tool, not part of
 // the shipped sidecar binary.
 //
-// Plan reference: docs/plan_v0.8.5.md §7.3.2.
+// Plan reference: reviews/archive/docs-internal/plan_v0.8.5.md §7.3.2.
 package main
 
 import (
@@ -80,8 +80,9 @@ func main() {
 
 // options are the generator's command-line settings.
 type options struct {
-	out, lifecycleOut, derivedOut, envDocs string
-	lifecycleOnly, envOnly, check, strict  bool
+	out, lifecycleOut, derivedOut         string
+	envDocs, contribDocs                  string
+	lifecycleOnly, envOnly, check, strict bool
 }
 
 func parseOptions(args []string) (options, error) {
@@ -98,10 +99,13 @@ func parseOptions(args []string) (options, error) {
 	fs.StringVar(&o.envDocs, "env-docs", "",
 		"optional Markdown file whose env-vars section is regenerated in place "+
 			"(-check reads "+defaultEnvDocs+" when unset)")
+	fs.StringVar(&o.contribDocs, "contrib-docs", "",
+		"optional Markdown file whose test-env-vars section is regenerated in place "+
+			"(-check reads "+defaultContribDocs+" when neither docs flag is set)")
 	fs.BoolVar(&o.envOnly, "env-only", false,
-		"regenerate only the env-vars section (requires -env-docs)")
+		"regenerate only the env-var tables (requires -env-docs or -contrib-docs)")
 	fs.BoolVar(&o.check, "check", false,
-		"write nothing; fail if the env-vars section of the docs has drifted")
+		"write nothing; fail if a generated env-var table of the docs has drifted")
 	fs.BoolVar(&o.strict, "strict", false,
 		"fail if any yaml-tagged field lacks a doc tag (CHECK-T01)")
 	err := fs.Parse(args)
@@ -118,12 +122,12 @@ func run(args []string) error {
 	}
 	switch {
 	case o.check:
-		return checkEnvDocs(o.envDocs)
+		return checkEnvDocs(o.envDocs, o.contribDocs)
 	case o.envOnly:
-		if o.envDocs == "" {
-			return fmt.Errorf("-env-only requires -env-docs")
+		if o.envDocs == "" && o.contribDocs == "" {
+			return fmt.Errorf("-env-only requires -env-docs or -contrib-docs")
 		}
-		return writeEnvDocs(o.envDocs)
+		return writeEnvDocs(o.envDocs, o.contribDocs)
 	case o.lifecycleOnly:
 		if o.lifecycleOut == "" {
 			return fmt.Errorf("-lifecycle-only requires -lifecycle-out")
@@ -156,10 +160,8 @@ func generateAll(o options) error {
 	if err := writeDerivedReference(o.derivedOut); err != nil {
 		return err
 	}
-	if o.envDocs != "" {
-		if err := writeEnvDocs(o.envDocs); err != nil {
-			return err
-		}
+	if err := writeEnvDocs(o.envDocs, o.contribDocs); err != nil {
+		return err
 	}
 	fmt.Fprintf(os.Stderr,
 		"gen_config_meta: wrote %d fields to %s\n", len(meta), o.out)

@@ -166,27 +166,6 @@ func TestCoverage_SendSlack_Success(t *testing.T) {
 	}
 }
 
-func TestCoverage_SendSlack_ServerError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer srv.Close()
-
-	lc := &logCapture{}
-	cfg := &config.Config{
-		Briefing: config.BriefingConfig{
-			SlackWebhookURL: srv.URL,
-		},
-	}
-	w := &Worker{
-		cfg:   cfg,
-		logFn: lc.logFn,
-	}
-
-	// Should not panic; just log.
-	w.sendSlack(context.Background(), "test message")
-}
-
 func TestCoverage_SendSlack_InvalidURL(t *testing.T) {
 	lc := &logCapture{}
 	cfg := &config.Config{

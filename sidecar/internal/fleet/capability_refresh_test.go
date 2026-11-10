@@ -72,7 +72,14 @@ func TestRefreshNilInstanceIsNoOp(t *testing.T) {
 	r.Request()
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
 	defer cancel()
+	start := time.Now()
 	r.Run(ctx) // must return at the deadline without panicking
+	if ctx.Err() == nil {
+		t.Fatal("Run returned before its context ended")
+	}
+	if waited := time.Since(start); waited > 5*time.Second {
+		t.Fatalf("Run returned %s after a 20ms deadline", waited)
+	}
 }
 
 func TestCapabilityRefresherIntervalDefaults(t *testing.T) {

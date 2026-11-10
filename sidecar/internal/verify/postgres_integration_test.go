@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 func TestPostgresStateStorePersistsAndReloadsWatch(t *testing.T) {
@@ -78,10 +78,7 @@ func TestPostgresObservationSourceReadsRealCollectorTables(t *testing.T) {
 
 func verifyIntegrationPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("SAGE_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("SKIPPED: SAGE_TEST_DATABASE_URL is not configured")
-	}
+	dsn := testdb.SkipUnlessLive(t)
 	pool, err := pgxpool.New(t.Context(), dsn)
 	if err != nil {
 		t.Fatalf("pgxpool.New() error = %v", err)

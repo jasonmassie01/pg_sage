@@ -1,10 +1,10 @@
 package briefing
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 var sageMu sync.Mutex
@@ -39,13 +40,6 @@ func ensureSageSchema(t *testing.T, ctx context.Context) {
 	}
 }
 
-func testDSN() string {
-	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
-		return v
-	}
-	return os.Getenv("SAGE_TEST_DATABASE_URL")
-}
-
 var (
 	testPool     *pgxpool.Pool
 	testPoolOnce sync.Once
@@ -55,8 +49,8 @@ var (
 func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
 	ctx := context.Background()
+	dsn := testdb.SkipUnlessLive(t)
 	testPoolOnce.Do(func() {
-		dsn := testDSN()
 		poolCfg, err := pgxpool.ParseConfig(dsn)
 		if err != nil {
 			testPoolErr = fmt.Errorf("parsing DSN: %w", err)
@@ -250,36 +244,42 @@ func TestNew(t *testing.T) {
 }
 
 func TestDispatch_Stdout(t *testing.T) {
-	cfg := &config.Config{
-		Briefing: config.BriefingConfig{
-			Channels: []string{"stdout"},
-		},
-	}
-	w := newTestWorker(cfg)
-	// Should not panic.
+	w := newTestWorker(&config.Config{
+		Briefing: config.BriefingConfig{Channels: []string{"stdout"}},
+	})
+	var out, errOut bytes.Buffer
+	w.stdout, w.stderr = &out, &errOut
 	w.Dispatch(context.Background(), "test briefing")
+	if out.String() != "test briefing\n" || errOut.Len() != 0 {
+		t.Fatalf("stdout=%q stderr=%q, want the briefing on stdout only",
+			out.String(), errOut.String())
+	}
 }
 
 func TestDispatch_SlackWithoutURL(t *testing.T) {
-	cfg := &config.Config{
-		Briefing: config.BriefingConfig{
-			Channels:        []string{"slack"},
-			SlackWebhookURL: "",
-		},
-	}
-	w := newTestWorker(cfg)
-	// Should not panic; slack is skipped when URL is empty.
+	w := newTestWorker(&config.Config{
+		Briefing: config.BriefingConfig{Channels: []string{"slack"}},
+	})
+	var out, errOut bytes.Buffer
+	w.stdout, w.stderr = &out, &errOut
 	w.Dispatch(context.Background(), "test briefing")
+	if out.Len() != 0 || errOut.Len() != 0 {
+		t.Fatalf("slack without a URL wrote stdout=%q stderr=%q, want nothing",
+			out.String(), errOut.String())
+	}
 }
 
 func TestDispatch_EmptyChannels(t *testing.T) {
-	cfg := &config.Config{
-		Briefing: config.BriefingConfig{
-			Channels: []string{},
-		},
-	}
-	w := newTestWorker(cfg)
+	w := newTestWorker(&config.Config{
+		Briefing: config.BriefingConfig{Channels: []string{}},
+	})
+	var out, errOut bytes.Buffer
+	w.stdout, w.stderr = &out, &errOut
 	w.Dispatch(context.Background(), "test briefing")
+	if out.Len() != 0 || errOut.Len() != 0 {
+		t.Fatalf("no channels wrote stdout=%q stderr=%q, want nothing",
+			out.String(), errOut.String())
+	}
 }
 
 func TestParseCron(t *testing.T) {

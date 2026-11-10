@@ -13,6 +13,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/recommendation"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // Dogfood lifeos, 2026-10-03 (v1.8.4): finding 18569 (CREATE INDEX on
@@ -39,7 +40,7 @@ func isolatedSageDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 // already called requireDB (which holds the cross-package lock).
 func anotherSageDB(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	t.Helper()
-	admin, err := pgxpool.New(ctx, testDSN())
+	admin, err := pgxpool.New(ctx, testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("admin pool: %v", err)
 	}
@@ -48,7 +49,7 @@ func anotherSageDB(t *testing.T, ctx context.Context) *pgxpool.Pool {
 		admin.Close()
 		t.Fatalf("create database: %v", err)
 	}
-	cfg, err := pgxpool.ParseConfig(testDSN())
+	cfg, err := pgxpool.ParseConfig(testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("parse dsn: %v", err)
 	}

@@ -17,14 +17,6 @@ import (
 // Requires a real ConfigStore (backed by pgxpool). We test that the
 // handler correctly returns errors from the store.
 
-func TestConfigGlobalGetHandler_NilStore(t *testing.T) {
-	// ConfigStore with nil pool will panic on GetMergedConfig.
-	// This confirms the handler does call through to the store.
-	// Integration tests cover the full path.
-	//
-	// No unit test possible without interface-based store.
-}
-
 // --- configGlobalPutHandler ---
 
 func TestConfigGlobalPutHandler_MalformedJSON(t *testing.T) {

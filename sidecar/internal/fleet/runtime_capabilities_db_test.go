@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"os"
 	"slices"
 	"testing"
 	"time"
@@ -12,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/executor"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // capsDB is a throwaway database on the test server, so the extension and
@@ -24,10 +24,7 @@ type capsDB struct {
 
 func newCapsDB(t *testing.T) capsDB {
 	t.Helper()
-	dsn := os.Getenv("SAGE_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("SAGE_TEST_DATABASE_URL absent; maintenance privilege probe not verified")
-	}
+	dsn := testdb.SkipUnlessLive(t)
 	ctx := t.Context()
 	server, err := pgxpool.New(ctx, dsn)
 	if err != nil {

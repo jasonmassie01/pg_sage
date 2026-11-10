@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
 // nopTailerLog is a no-op logger for tailer tests.
@@ -317,10 +319,10 @@ func TestTailer_TruncationDetection(t *testing.T) {
 // Stop
 // ---------------------------------------------------------------------------
 
+// Stopping a tailer that never opened a file is a no-op.
 func TestTailer_Stop_NilFile(t *testing.T) {
 	tailer := NewTailer(".", "jsonlog", time.Second, 1024, nopTailerLog)
-	// file is nil — Stop should not panic.
-	tailer.Stop()
+	require.NotPanics(t, tailer.Stop)
 }
 
 func TestTailer_Stop_ClosesFile(t *testing.T) {

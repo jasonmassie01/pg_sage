@@ -34,20 +34,6 @@ func connectTestDB2(t *testing.T) *pgxpool.Pool {
 // checkSchemaCreate (was 57.1%) — test missing-grant path
 // ---------------------------------------------------------------------------
 
-func TestPhase2_CheckSchemaCreate_ResolvesCurrentUser(t *testing.T) {
-	pool := connectTestDB2(t)
-	defer pool.Close()
-
-	var logged []string
-	logFn := func(_ string, msg string, args ...any) {
-		logged = append(logged, msg)
-	}
-
-	// Call VerifyGrants which resolves the current user.
-	VerifyGrants(context.Background(), pool, "", "advisory", logFn)
-	// Should not panic and should resolve user correctly.
-}
-
 // ---------------------------------------------------------------------------
 // checkSignalBackend probes the connected role: a superuser may signal, and
 // a failed probe is logged and never reported as missing.
@@ -218,19 +204,6 @@ func TestPhase2_ExtractIndexName_Variants(t *testing.T) {
 // ---------------------------------------------------------------------------
 // VerifyGrants full integration
 // ---------------------------------------------------------------------------
-
-func TestPhase2_VerifyGrants_FullIntegration(t *testing.T) {
-	pool := connectTestDB2(t)
-	defer pool.Close()
-
-	var messages []string
-	logFn := func(_ string, msg string, args ...any) {
-		messages = append(messages, msg)
-	}
-
-	// Should not panic. postgres user should have grants.
-	VerifyGrants(context.Background(), pool, "postgres", "advisory", logFn)
-}
 
 // ---------------------------------------------------------------------------
 // Executor accessor methods

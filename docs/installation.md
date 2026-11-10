@@ -36,11 +36,63 @@ docker run --name pg_sage \
   ghcr.io/jasonmassie01/pg_sage:latest
 ```
 
+The image is published for linux/amd64 and linux/arm64 (one manifest list;
+Docker pulls the image for your platform, including Graviton and Apple
+silicon).
+
 Then read the generated admin password from container logs:
 
 ```bash
 docker logs pg_sage 2>&1 | grep 'INITIAL ADMIN PASSWORD'
 ```
+
+---
+
+## Verify a Release
+
+Releases are signed keyless with [Sigstore](https://www.sigstore.dev/) by
+this repository's CI workflow, with the same identity and issuer as the
+signed bench reports. `checksums.txt` lists the SHA-256 of every archive and
+`checksums.txt.sigstore.json` is its signature bundle. Each archive also has
+an SPDX SBOM, `<archive>.sbom.json`. A release is published only after its
+linux/amd64 binary has answered `--version` with the tag's version and the
+libpg_query SQL parser.
+
+With [cosign](https://docs.sigstore.dev/cosign/system_config/installation/)
+installed (replace `v2.6.0` with your release in both places):
+
+```bash
+base=https://github.com/jasonmassie01/pg_sage/releases/download/v2.6.0
+curl -fsSL -O "$base/checksums.txt" -O "$base/checksums.txt.sigstore.json" \
+  -O "$base/pg_sage_linux_amd64.tar.gz"
+cosign verify-blob --bundle checksums.txt.sigstore.json \
+  --certificate-identity "https://github.com/jasonmassie01/pg_sage/.github/workflows/ci.yml@refs/tags/v2.6.0" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  checksums.txt
+sha256sum --ignore-missing -c checksums.txt
+```
+
+`cosign verify-blob` prints `Verified OK` and `sha256sum` prints
+`pg_sage_linux_amd64.tar.gz: OK`. On macOS use
+`shasum -a 256 --ignore-missing -c checksums.txt`.
+
+### Verify the image
+
+Each image tag is a manifest list (linux/amd64 and linux/arm64) signed
+keyless the same way, and each platform image carries BuildKit provenance
+(`mode=max`) and an SBOM. Release tags drop the `v` (`2.6.0`, `2.6`,
+`latest`):
+
+```bash
+cosign verify ghcr.io/jasonmassie01/pg_sage:2.6.0 \
+  --certificate-identity "https://github.com/jasonmassie01/pg_sage/.github/workflows/ci.yml@refs/tags/v2.6.0" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+docker buildx imagetools inspect ghcr.io/jasonmassie01/pg_sage:2.6.0 \
+  --format '{{ json .Provenance }}'
+```
+
+`:edge` and `:sha-*` images from master are signed with the identity
+`https://github.com/jasonmassie01/pg_sage/.github/workflows/ci.yml@refs/heads/master`.
 
 ---
 

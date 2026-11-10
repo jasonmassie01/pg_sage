@@ -76,10 +76,10 @@ collector probes do not extend that entire PG18 result to those versions.
 | Operator statistics-maintenance bridge | Native owned-table proposal → approval → execution → structural check → rollback verified | Not executed under the App principal | App workload-table ownership unproven; rollback cannot restore prior ANALYZE statistics |
 | `pg_hint_plan` / HypoPG | Hook activation unavailable / extension unavailable on tested PG18 image and role | Not made available by Apps or telemetry | Plain EXPLAIN and a reviewed disposable real-index experiment are separate, limited alternatives |
 
-See the [dev.5 native and App source matrix](../reviews/2026-10-30-native-sre-source-matrix.md),
-[native action tests](../reviews/2026-10-29-lakebase-native-tests.md),
-[provider follow-up](../reviews/2026-10-30-provider-compatibility-gaps.md) and
-[dev.10 acceptance](../reviews/2026-10-30-v2.5-dev10-acceptance.md) for the
+See the [dev.5 native and App source matrix](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-native-sre-source-matrix.md),
+[native action tests](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-29-lakebase-native-tests.md),
+[provider follow-up](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-provider-compatibility-gaps.md) and
+[dev.10 acceptance](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-v2.5-dev10-acceptance.md) for the
 specific successes, failed attempts and remaining boundaries behind this table.
 
 ## Local connection
@@ -238,7 +238,7 @@ The tested integration uses `system.lakebase.plan_history` and `postgres_logs`
 through the warehouse, rather than configuring the ordinary session path or
 tailing files. A capability badge saying ordinary `auto_explain` is unavailable
 must be read separately from provider-history availability. The
-[original telemetry assessment](../reviews/2026-10-29-lakebase-advanced-telemetry.md)
+[original telemetry assessment](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-29-lakebase-advanced-telemetry.md)
 records those read-only settings checks and the initially empty delivery results;
 the later positive provider tests are recorded separately below.
 
@@ -464,7 +464,7 @@ available memory.
 The October 30 controlled native follow-up delivered exact-fixture plans,
 logs and DDL, with nonempty metadata in all ten requested streams. The earlier
 zero-row results remain valid for their original selectors and observation
-times. See the [provider follow-up](../reviews/2026-10-30-provider-compatibility-gaps.md)
+times. See the [provider follow-up](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-provider-compatibility-gaps.md)
 for attribution, normalization and timing limits. This proves controlled native
 delivery, not a completeness/latency SLA or App-principal payload access.
 The final dev.5 App-principal investigator executed and cited all five history
@@ -481,10 +481,10 @@ readback and eight unchanged action/approval ledgers passed.
 Payload consent remained `allow_payload: false`. These are positive structured
 history paths; raw App plan/log cache access, complete delivery and live root
 cause remain separate claims. Both healthy cases concluded advisory inconclusive.
-The [dev.5 acceptance](../reviews/2026-10-30-v2.5-dev5-acceptance.md#final-app-history-and-slo-evidence)
+The [dev.5 acceptance](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-v2.5-dev5-acceptance.md#final-app-history-and-slo-evidence)
 records exact events, hashes, delays and the preserved failed transport attempt.
-Earlier [telemetry](../reviews/2026-10-29-lakebase-advanced-telemetry.md) and
-[SRE acceptance](../reviews/2026-10-29-lakebase-sre-acceptance.md) reports retain
+Earlier [telemetry](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-29-lakebase-advanced-telemetry.md) and
+[SRE acceptance](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-29-lakebase-sre-acceptance.md) reports retain
 their original zero-row and version-specific evidence.
 
 ### SRE with and without Advanced Telemetry
@@ -496,7 +496,7 @@ conditions, but it lacks the provider's retained plan/log/session/DDL history.
 With it, historical evidence augments investigation; it does not prove a current
 root cause, change live incident state, or authorize maintenance by itself.
 
-The [per-source native matrix](../reviews/2026-10-30-native-sre-source-matrix.md)
+The [per-source native matrix](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-native-sre-source-matrix.md)
 inventories 32 catalog probes and the original auxiliary sources. A separate
 explicitly authorized gate completed 16 selected cluster/filesystem queries
 without new grants: eleven returned usable rows and five valid empty results.
@@ -509,7 +509,7 @@ real signals and a read-only investigation. Native Gateway investigation and
 App history citations also passed, with healthy historical cases concluding
 advisory/inconclusive. Exhaustion, failover, sustained resource pressure,
 wraparound and many other incident variants were deliberately not induced.
-The [scenario inventory](../reviews/2026-10-30-nerdlab-findings.md#complete-analyzer-inventory-what-the-nine-fixtures-do-not-prove)
+The [scenario inventory](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-nerdlab-findings.md#complete-analyzer-inventory-what-the-nine-fixtures-do-not-prove)
 distinguishes readable inputs, tested detectors, uninduced incidents and actual
 provider restrictions. Automatic migration fan-out and context-equivalent
 provider-plan regression comparison remain incomplete.
@@ -539,7 +539,7 @@ application burn can open a read-only `slo_burn` case even when
 source provides bound push-SLO evidence; an explicit read allowlist must permit
 it. This enables an investigation, not action execution or notification.
 Synthetic acceptance counters establish synthetic behavior only. The
-[October 30 dev.5 App SLO acceptance](../reviews/2026-10-30-app-slo-acceptance.md#dev5-post-upgrade-pass)
+[October 30 dev.5 App SLO acceptance](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-app-slo-acceptance.md#dev5-post-upgrade-pass)
 passed fifteen current-time samples over seven minutes, both configured burn
 windows, a cited real-Gateway investigation and actual stale-to-unknown behavior
 123.06 seconds after pushes stopped. Exact cleanup preserved the case and left
@@ -568,7 +568,7 @@ its retained fixtures support UI inspection, not a remediation-execution claim.
 | Temporary spill | Real sort spilled under session-local 64 kB `work_mem`, with actual plan and temp counters | Same query under a 64 MB control did not spill; a newer observed non-spilling execution resolved the finding |
 
 The eight-condition run passed in 99.92 seconds; the separate default slow-query
-run passed in 65.86 seconds. The [scenario report](../reviews/2026-10-30-nerdlab-findings.md)
+run passed in 65.86 seconds. The [scenario report](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-nerdlab-findings.md)
 records exact evidence, bounded workload/cleanup rules and untested analyzer
 branches. In particular, the ordinary unused-index rule's seven-day clean
 observation window was not accelerated, million-row autovacuum tuning and
@@ -627,7 +627,7 @@ include real execution plans in `plan_history` and structured `postgres_logs`.
 Workspace preview enablement, Unity Catalog access and statement-text unmasking
 are separate prerequisites. The explicit telemetry configuration above enables
 scoped reads. A successful empty query does not prove capture, completeness,
-unmasking or zero errors. See the [Advanced Telemetry and SRE gap assessment](../reviews/2026-10-29-lakebase-advanced-telemetry.md).
+unmasking or zero errors. See the [Advanced Telemetry and SRE gap assessment](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-29-lakebase-advanced-telemetry.md).
 
 Lakebase's default SRE policy is database-only. A `policy_scope_denied` result
 for a cluster/filesystem source describes that trusted policy boundary; it does
@@ -637,10 +637,10 @@ using the existing role and no added grants. Eleven returned usable rows and
 five returned valid empty results. Production policy remains database-only.
 Query support, configured authorization and positive incident detection are
 three separate claims: empty replication/lock/WAL reads do not establish those
-incident or platform semantics. The [provider matrix](../reviews/2026-10-30-provider-compatibility-gaps.md#explicit-provider-probe-compatibility-matrix)
+incident or platform semantics. The [provider matrix](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-provider-compatibility-gaps.md#explicit-provider-probe-compatibility-matrix)
 records the exact sources and execution evidence.
 
-The same [provider follow-up](../reviews/2026-10-30-provider-compatibility-gaps.md#planner-extension-incompatibilities-observed)
+The same [provider follow-up](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-provider-compatibility-gaps.md#planner-extension-incompatibilities-observed)
 cross-checks internal extension issues with the public extension list and live
 activation/install results. Installed `pg_hint_plan` is reported as
 `installed_not_loaded`; plain EXPLAIN remains usable but does not enforce hints.
@@ -685,7 +685,7 @@ does not establish a performance benefit. Unmeasured changes remain unverifiable
 The deployed App's Observation mode prevents database actions even where a
 contract is enabled. Completing a baseline, accepting a proposal or obtaining
 an approval does not prove SQL ran, recovery is complete or performance improved.
-The [dev.10 workflow acceptance](../reviews/2026-10-30-v2.5-dev10-acceptance.md)
+The [dev.10 workflow acceptance](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-v2.5-dev10-acceptance.md)
 covers that distinction, recovery guards and source-preserving proposal
 deduplication.
 
@@ -723,11 +723,11 @@ replacement is preserved. **Rollback cannot restore the table's prior ANALYZE
 statistics.** This native lifecycle passed on an owned PG18 fixture using the
 native user role; App-principal maintenance execution remains unproven.
 Database/schema ownership or an attached Apps resource does not establish
-ownership of workload tables. See the [maintenance evidence and refusal coverage](../reviews/2026-10-30-sre-maintenance.md).
+ownership of workload tables. See the [maintenance evidence and refusal coverage](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-sre-maintenance.md).
 
 Other mutation families retain their prior provider gates. User-index DROP,
 instance settings, OS/log access, broker role authentication, and failover are
-not established by these results. See the [native test report](../reviews/2026-10-29-lakebase-native-tests.md)
+not established by these results. See the [native test report](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-29-lakebase-native-tests.md)
 for actual grants, extension versions, action evidence, and unsupported fixtures.
 This remains a development release with explicit managed-platform boundaries.
 
@@ -735,13 +735,13 @@ This remains a development release with explicit managed-platform boundaries.
 
 | Implementation | Source / recorded validation |
 | --- | --- |
-| Verified endpoint mapping and physical-connection credential refresh | [Native OAuth pool hook](../sidecar/internal/databricksauth/lakebase.go); [native compatibility findings](../reviews/2026-10-29-lakebase-compatibility.md) |
-| Resource-bound warehouse reader, normalization, durable delivery and retention | [Configuration](../sidecar/internal/config/lakebase_observability.go), [reader and store](../sidecar/internal/lakebaseobs/); [provider follow-up](../reviews/2026-10-30-provider-compatibility-gaps.md) |
-| Provider plan provenance, cache and historical evidence | [Provider-plan consumer](../sidecar/internal/autoexplain/provider_plan.go), [historical evidence adapter](../sidecar/internal/lakebaseobs/evidence.go); [source matrix](../reviews/2026-10-30-native-sre-source-matrix.md) |
-| Hint-free interval spill finding and recovery guards | [Spill rule](../sidecar/internal/analyzer/rules_temp_spill.go); [nine-scenario inventory](../reviews/2026-10-30-nerdlab-findings.md) |
-| Enabled Lakebase action families and connected-database GUC execution | [Provider adapter](../sidecar/internal/fleet/provider_adapter.go), [database setting executor](../sidecar/internal/executor/database_setting.go); [native action tests](../reviews/2026-10-29-lakebase-native-tests.md) |
-| SRE statistics proposal, approval and exact-object recovery | [Maintenance bridge](../sidecar/internal/sre/action/maintenance.go); [maintenance acceptance](../reviews/2026-10-30-sre-maintenance.md) |
-| Current applicability and recovery presentation | [Case applicability](../sidecar/internal/cases/provider_applicability.go), [recovery normalization](../sidecar/internal/cases/recovery.go); [dev.10 acceptance](../reviews/2026-10-30-v2.5-dev10-acceptance.md) |
+| Verified endpoint mapping and physical-connection credential refresh | [Native OAuth pool hook](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/databricksauth/lakebase.go); [native compatibility findings](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-29-lakebase-compatibility.md) |
+| Resource-bound warehouse reader, normalization, durable delivery and retention | [Configuration](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/config/lakebase_observability.go), [reader and store](https://github.com/jasonmassie01/pg_sage/tree/master/sidecar/internal/lakebaseobs); [provider follow-up](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-provider-compatibility-gaps.md) |
+| Provider plan provenance, cache and historical evidence | [Provider-plan consumer](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/autoexplain/provider_plan.go), [historical evidence adapter](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/lakebaseobs/evidence.go); [source matrix](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-native-sre-source-matrix.md) |
+| Hint-free interval spill finding and recovery guards | [Spill rule](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/analyzer/rules_temp_spill.go); [nine-scenario inventory](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-nerdlab-findings.md) |
+| Enabled Lakebase action families and connected-database GUC execution | [Provider adapter](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/fleet/provider_adapter.go), [database setting executor](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/executor/database_setting.go); [native action tests](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-29-lakebase-native-tests.md) |
+| SRE statistics proposal, approval and exact-object recovery | [Maintenance bridge](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/sre/action/maintenance.go); [maintenance acceptance](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-sre-maintenance.md) |
+| Current applicability and recovery presentation | [Case applicability](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/cases/provider_applicability.go), [recovery normalization](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/cases/recovery.go); [dev.10 acceptance](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-v2.5-dev10-acceptance.md) |
 
 Public references for platform behavior: [PostgreSQL compatibility](https://docs.databricks.com/aws/en/oltp/projects/compatibility),
 [extensions](https://docs.databricks.com/aws/en/oltp/projects/extensions),
@@ -772,6 +772,6 @@ Set the gateway endpoint and model before running the LLM checks. They send
 synthetic prompts/evidence only. Results of these runs are in the
 [evidence appendix](lakebase-evidence.md#lakebase-guide).
 
-See the [source-linked live findings](../reviews/2026-10-29-lakebase-compatibility.md)
+See the [source-linked live findings](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-29-lakebase-compatibility.md)
 for exact versions, databases, failures and evidence, and the
 [Databricks Apps pilot](databricks-apps.md) for packaging and deployed checks.

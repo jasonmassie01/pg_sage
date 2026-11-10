@@ -11,5 +11,11 @@ import (
 func TestMain(m *testing.M) {
 	// cgo-less local builds would queue every unattended mutation.
 	executor.AssumeASTValidationForTests()
-	os.Exit(testdb.Run(m.Run, "cmd_pg_sage_sidecar"))
+	os.Exit(testdb.Run(func() int {
+		// A characterization test re-runs this binary as the sidecar.
+		if args := os.Getenv(mainChildEnv); args != "" {
+			return runMainChild(args)
+		}
+		return m.Run()
+	}, "cmd_pg_sage_sidecar"))
 }

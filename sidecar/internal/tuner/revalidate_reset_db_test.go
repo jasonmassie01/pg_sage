@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"github.com/pg-sage/sidecar/internal/testsupport/pgssepoch"
 )
 
@@ -330,7 +331,7 @@ func assertInstalledAndKept(t *testing.T, ctx context.Context, tu *Tuner, qid in
 // read error: the hint keeps its status and nothing is written.
 func TestRevalidate_MissingPgssInfoFailsClosed(t *testing.T) {
 	pool, ctx := requireTunerDB(t)
-	cfg, err := pgxpool.ParseConfig(tunerTestDSN())
+	cfg, err := pgxpool.ParseConfig(testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("parse DSN: %v", err)
 	}

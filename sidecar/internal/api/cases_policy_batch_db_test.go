@@ -24,7 +24,7 @@ import (
 func tracedCasePool(t *testing.T) (*pgxpool.Pool, *testdb.QueryRecorder, context.Context) {
 	t.Helper()
 	_, ctx := phase2RequireDB(t)
-	cfg, err := pgxpool.ParseConfig(phase2DSN())
+	cfg, err := pgxpool.ParseConfig(testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("parse DSN: %v", err)
 	}

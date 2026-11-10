@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -20,7 +19,7 @@ import (
 // connects lazily, so a database that does not exist yet is "down".
 func poolOn(t *testing.T, name, user string) *pgxpool.Pool {
 	t.Helper()
-	pc, err := pgxpool.ParseConfig(os.Getenv(testdb.EnvName))
+	pc, err := pgxpool.ParseConfig(testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("parse test URL: %v", err)
 	}

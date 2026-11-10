@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
 func TestConfigurePool_SetsApplicationNameAndTagging(t *testing.T) {
@@ -77,8 +78,9 @@ func TestConfigurePool_ChainedHookErrorPropagates(t *testing.T) {
 	}
 }
 
+// A nil pool config is left alone.
 func TestConfigurePool_NilIsNoop(t *testing.T) {
-	ConfigurePool(nil) // must not panic
+	require.NotPanics(t, func() { ConfigurePool(nil) })
 }
 
 func TestStatementExclusionSQL_Shape(t *testing.T) {

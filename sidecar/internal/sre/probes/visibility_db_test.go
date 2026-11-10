@@ -70,7 +70,7 @@ func restrictedPool(t *testing.T, ctx context.Context, admin *pgxpool.Pool) (*pg
 		t.Fatalf("create role: %v", err)
 	}
 	t.Cleanup(func() { _, _ = admin.Exec(context.Background(), "DROP ROLE IF EXISTS "+ident) })
-	u, _ := url.Parse(os.Getenv(testdb.EnvName))
+	u, _ := url.Parse(testdb.SkipUnlessLive(t))
 	u.User = url.UserPassword(role, "sre-vis-test")
 	pool, err := pgxpool.New(ctx, u.String())
 	if err != nil {

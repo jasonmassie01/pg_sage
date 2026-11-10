@@ -33,8 +33,17 @@ func TestRuntimeSharePollNowWakesRun(t *testing.T) {
 // no-op that never blocks.
 func TestRuntimeSharePollNowOnUnavailable(t *testing.T) {
 	r := Unavailable("pollnow-u", "rds", "no credentials")
-	r.PollNow()
-	r.PollNow()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		r.PollNow()
+		r.PollNow()
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("PollNow blocked on an Unavailable runtime")
+	}
 }
 
 func waitCalls(t *testing.T, src *stubSource, n int) {

@@ -4,25 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // ---------------------------------------------------------------------------
 // DB pool setup — mirrors patterns from retention and schema test packages
 // ---------------------------------------------------------------------------
-
-func phase2DSN() string {
-	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
-		return v
-	}
-	return os.Getenv("SAGE_TEST_DATABASE_URL")
-}
 
 var (
 	p2Pool     *pgxpool.Pool
@@ -35,8 +28,8 @@ const destructiveTestLockKey = "pg_sage_test_cross_pkg"
 func phase2RequireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
 	ctx := context.Background()
+	dsn := testdb.SkipUnlessLive(t)
 	p2PoolOnce.Do(func() {
-		dsn := phase2DSN()
 		poolCfg, err := pgxpool.ParseConfig(dsn)
 		if err != nil {
 			p2PoolErr = fmt.Errorf("parsing DSN: %w", err)

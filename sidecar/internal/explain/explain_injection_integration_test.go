@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // G6-B01: a multi-statement body must never escape the READ ONLY
@@ -101,7 +102,7 @@ func TestExplain_ParameterizedSingleSelectStillWorks(t *testing.T) {
 func TestExplain_FailedExecuteDoesNotLeakPreparedStatement(t *testing.T) {
 	shared, ctx := requireDB(t)
 	cleanExplainResults(t, shared, ctx)
-	cfg, err := pgxpool.ParseConfig(testDSN())
+	cfg, err := pgxpool.ParseConfig(testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("parse DSN: %v", err)
 	}

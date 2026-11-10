@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
 // ---------------------------------------------------------------------------
@@ -50,11 +51,10 @@ func TestFileWatcher_Drain_NilTailer(t *testing.T) {
 // Stop on nil tailer
 // ---------------------------------------------------------------------------
 
+// Stopping a watcher that never started a tailer is a no-op.
 func TestFileWatcher_Stop_NilTailer(t *testing.T) {
-	cfg := config.LogWatchConfig{}
-	fw := NewFileWatcher(cfg, nopLog)
-	// Should not panic.
-	fw.Stop()
+	fw := NewFileWatcher(config.LogWatchConfig{}, nopLog)
+	require.NotPanics(t, fw.Stop)
 }
 
 // ---------------------------------------------------------------------------

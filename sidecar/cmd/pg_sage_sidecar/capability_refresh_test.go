@@ -52,7 +52,19 @@ func TestRequestCapabilityRefreshWithoutManager(t *testing.T) {
 	saved := fleetMgr
 	t.Cleanup(func() { fleetMgr = saved })
 	fleetMgr = nil
-	requestCapabilityRefresh() // standalone start-up before the manager exists
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		requestCapabilityRefresh() // standalone start-up before the manager exists
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("requestCapabilityRefresh blocked without a fleet manager")
+	}
+	if fleetMgr != nil {
+		t.Fatal("requestCapabilityRefresh created a fleet manager")
+	}
 }
 
 func TestCapabilityRefreshInterval(t *testing.T) {

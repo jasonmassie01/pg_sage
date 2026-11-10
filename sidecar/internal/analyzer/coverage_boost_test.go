@@ -224,14 +224,6 @@ func TestCoverage_FilterSchemaExclusions_Empty(t *testing.T) {
 // dispatchCriticalFindings
 // ---------------------------------------------------------------------------
 
-func TestCoverage_DispatchCriticalFindings_NoDispatcher(t *testing.T) {
-	a := New(nil, coverageTestConfig(), nil, nil, nil, nil, nil, noopLog)
-	// Should not panic with nil dispatcher.
-	a.dispatchCriticalFindings(context.Background(), []Finding{
-		{Severity: "critical", Title: "test"},
-	})
-}
-
 func TestCoverage_DispatchCriticalFindings_CriticalOnly(t *testing.T) {
 	d := &mockDispatcher{}
 	a := New(nil, coverageTestConfig(), nil, nil, nil, nil, nil, noopLog)

@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // executor-05 review: the build watch must work on the sidecar's default
@@ -18,7 +19,7 @@ import (
 // lock timeout and left an unbound INVALID index.
 func TestBuildWatchOnTheDefaultPoolSize(t *testing.T) {
 	_, ctx := requireDB(t)
-	poolCfg, err := pgxpool.ParseConfig(testDSN())
+	poolCfg, err := pgxpool.ParseConfig(testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("parse DSN: %v", err)
 	}

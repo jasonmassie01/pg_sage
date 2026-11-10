@@ -19,10 +19,7 @@ import (
 // can never leak into other packages sharing SAGE_TEST_DATABASE_URL.
 func isolatedStopDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn, err := testdb.DesignatedDSN()
-	if err != nil {
-		t.Skipf("%v; restart restore needs PostgreSQL", err)
-	}
+	dsn := testdb.SkipUnlessLive(t)
 	ctx := context.Background()
 	admin, err := pgxpool.New(ctx, dsn)
 	if err != nil {

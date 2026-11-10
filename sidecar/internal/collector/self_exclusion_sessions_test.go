@@ -3,12 +3,12 @@ package collector
 import (
 	"context"
 	"math"
-	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"github.com/pg-sage/sidecar/internal/testsupport/selfload"
 )
 
@@ -24,7 +24,7 @@ import (
 func sageCollector(t *testing.T) (*Collector, *pgxpool.Pool) {
 	t.Helper()
 	testPool(t) // skips when the database is unavailable
-	pool := selfload.SagePool(t, os.Getenv("SAGE_TEST_DATABASE_URL"))
+	pool := selfload.SagePool(t, testdb.SkipUnlessLive(t))
 	var version int
 	if err := pool.QueryRow(context.Background(),
 		"SELECT current_setting('server_version_num')::int").Scan(&version); err != nil {
@@ -35,7 +35,7 @@ func sageCollector(t *testing.T) (*Collector, *pgxpool.Pool) {
 
 func TestSystemStatsCountApplicationSessionsOnly(t *testing.T) {
 	c, _ := sageCollector(t)
-	selfload.Start(t, os.Getenv("SAGE_TEST_DATABASE_URL"))
+	selfload.Start(t, testdb.SkipUnlessLive(t))
 	s, err := c.collectSystem(context.Background())
 	if err != nil {
 		t.Fatalf("collectSystem: %v", err)
@@ -58,7 +58,7 @@ func TestSystemStatsCountApplicationSessionsOnly(t *testing.T) {
 
 func TestLocksSnapshotLeavesOutPgSageSessions(t *testing.T) {
 	c, _ := sageCollector(t)
-	_, app, sage := selfload.Start(t, os.Getenv("SAGE_TEST_DATABASE_URL"))
+	_, app, sage := selfload.Start(t, testdb.SkipUnlessLive(t))
 	locks, _, err := c.collectLocks(context.Background())
 	if err != nil {
 		t.Fatalf("collectLocks: %v", err)
@@ -80,7 +80,7 @@ func TestLocksSnapshotLeavesOutPgSageSessions(t *testing.T) {
 
 func TestConnectionStatesCountApplicationSessionsOnly(t *testing.T) {
 	_, pool := sageCollector(t)
-	selfload.Start(t, os.Getenv("SAGE_TEST_DATABASE_URL"))
+	selfload.Start(t, testdb.SkipUnlessLive(t))
 	cs, err := collectConfigSnapshot(context.Background(), pool)
 	if err != nil {
 		t.Fatalf("collectConfigSnapshot: %v", err)
@@ -99,7 +99,7 @@ func TestConnectionStatesCountApplicationSessionsOnly(t *testing.T) {
 // (its pools reconnect on their own schedule) does not move it.
 func TestConnectionChurnIgnoresPgSageSessions(t *testing.T) {
 	_, pool := sageCollector(t)
-	w := selfload.New(t, os.Getenv("SAGE_TEST_DATABASE_URL"))
+	w := selfload.New(t, testdb.SkipUnlessLive(t))
 	w.StartApp(t)
 	before, err := collectConfigSnapshot(context.Background(), pool)
 	if err != nil {
@@ -124,7 +124,7 @@ func TestConnectionChurnIgnoresPgSageSessions(t *testing.T) {
 // include the 8 this test started.
 func TestCircuitBreakerLoadIgnoresPgSageSessions(t *testing.T) {
 	_, pool := sageCollector(t)
-	w := selfload.New(t, os.Getenv("SAGE_TEST_DATABASE_URL"))
+	w := selfload.New(t, testdb.SkipUnlessLive(t))
 	w.StartApp(t)
 	w.StartSage(t, 6) // 8 active pg_sage sessions: waiter, sleeper, 6 more
 	var counted, raw, sage float64

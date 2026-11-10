@@ -20,6 +20,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // ================================================================
@@ -87,7 +88,7 @@ func TestChaos_PGBackendTerminated(t *testing.T) {
 
 	// Dedicated pool for the collector so we can nuke it without
 	// affecting other tests.
-	victimCfg, err := pgxpool.ParseConfig(smokeDSN())
+	victimCfg, err := pgxpool.ParseConfig(testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("parse config: %v", err)
 	}

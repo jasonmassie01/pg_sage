@@ -1062,7 +1062,7 @@ func buildFindingsWhere(
 		n++
 	}
 	// Source filter — subsystem taxonomy mapping (see §16 of
-	// docs/ui-redesign-v2.md). The mapping is an allowlist-to-SQL
+	// reviews/archive/docs-internal/ui-redesign-v2.md). The mapping is an allowlist-to-SQL
 	// rewrite. Unknown source values are treated as no-filter so the
 	// UI can add new subsystems ahead of backend awareness without
 	// dropping the page.

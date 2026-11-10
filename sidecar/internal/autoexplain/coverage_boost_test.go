@@ -116,43 +116,6 @@ func TestCoverage_RunCancelledImmediately(t *testing.T) {
 	}
 }
 
-func TestCoverage_RunTicksThenCancels(t *testing.T) {
-	// Use a real pool so Collect gets a real error (query on
-	// missing sage schema) rather than panicking on nil pool.
-	pool := acquireTestPool(t)
-
-	cfg := CollectorConfig{
-		CollectIntervalSeconds: 1,
-		MaxPlansPerCycle:       1,
-		LogMinDurationMs:       100,
-	}
-	avail := &Availability{Available: false, Method: "unavailable"}
-
-	var warnings int
-	logFn := func(a, b string, args ...any) {
-		warnings++
-	}
-	c := NewCollector(pool, cfg, avail, logFn)
-
-	ctx, cancel := context.WithTimeout(
-		context.Background(), 1500*time.Millisecond,
-	)
-	defer cancel()
-
-	c.Run(ctx)
-
-	// We expect at least one WARN from the failed Collect call
-	// (sage.explain_cache doesn't exist on plain test DB).
-	if warnings < 1 {
-		// It's possible the ticker didn't fire in time; don't
-		// fail hard, just log it.
-		t.Logf(
-			"expected at least 1 warning, got %d "+
-				"(ticker may not have fired)", warnings,
-		)
-	}
-}
-
 func TestCoverage_ExtractPlanMetrics_NilInput(t *testing.T) {
 	cost, execTime := extractPlanMetrics(nil)
 	if cost != 0 || execTime != 0 {
@@ -735,34 +698,6 @@ func TestCoverage_CaptureOnDemand_BadSQL(t *testing.T) {
 	}
 }
 
-func TestCoverage_Collect_WithSageSchema(t *testing.T) {
-	pool := acquireTestPool(t)
-	bootstrapSageSchema(t, pool)
-	ctx := context.Background()
-
-	// Use a very high threshold so no queries match, exercising
-	// the successful query path with zero candidates.
-	cfg := CollectorConfig{
-		CollectIntervalSeconds: 60,
-		MaxPlansPerCycle:       5,
-		LogMinDurationMs:       999999999,
-	}
-	avail := &Availability{
-		Available: false,
-		Method:    "unavailable",
-	}
-	logFn := func(string, string, ...any) {}
-	c := NewCollector(pool, cfg, avail, logFn)
-
-	err := c.Collect(ctx)
-	if err != nil {
-		// pg_stat_statements may not exist, which is fine.
-		t.Logf(
-			"Collect with sage schema returned: %v", err,
-		)
-	}
-}
-
 func TestCoverage_Collect_WithCandidates(t *testing.T) {
 	pool := acquireTestPool(t)
 	bootstrapSageSchema(t, pool)
@@ -818,48 +753,6 @@ func TestCoverage_Collect_WithCandidates(t *testing.T) {
 	// expected (some queries in pg_stat_statements can't be
 	// explained).
 	t.Logf("warnings during Collect: %d", len(warnings))
-}
-
-func TestCoverage_CaptureOnDemand_WithSessionLoad(t *testing.T) {
-	pool := acquireTestPool(t)
-	bootstrapSageSchema(t, pool)
-	ctx := context.Background()
-
-	// Force session_load availability to exercise the LOAD
-	// branch in captureOnDemand.
-	avail := &Availability{
-		SessionLoad: true,
-		Available:   true,
-		Method:      "session_load",
-	}
-
-	cfg := CollectorConfig{
-		CollectIntervalSeconds: 60,
-		MaxPlansPerCycle:       5,
-		LogMinDurationMs:       100,
-	}
-	logFn := func(string, string, ...any) {}
-	c := NewCollector(pool, cfg, avail, logFn)
-
-	queryID := int64(999999906)
-	cleanup := func() {
-		_, _ = pool.Exec(ctx,
-			"DELETE FROM sage.explain_cache WHERE queryid = $1",
-			queryID,
-		)
-	}
-	cleanup()
-	t.Cleanup(cleanup)
-
-	// This exercises the ConfigureSession path with
-	// session_load method.
-	err := c.captureOnDemand(ctx, queryID, "SELECT 1")
-	if err != nil {
-		// May fail if LOAD is not permitted; that's acceptable.
-		t.Logf(
-			"captureOnDemand with session_load: %v", err,
-		)
-	}
 }
 
 func TestCoverage_CaptureOnDemand_WithSharedPreload(t *testing.T) {
@@ -947,42 +840,6 @@ func TestCoverage_ConfigureTransaction_SessionLoadMethod(t *testing.T) {
 	if analyze != "on" {
 		t.Errorf("log_analyze inside tx = %q, want on", analyze)
 	}
-}
-
-func TestCoverage_Run_CollectErrorLogged(t *testing.T) {
-	pool := acquireTestPool(t)
-
-	cfg := CollectorConfig{
-		CollectIntervalSeconds: 1,
-		MaxPlansPerCycle:       1,
-		LogMinDurationMs:       100,
-	}
-	// Use unavailable so Collect hits the DB query on
-	// sage.explain_cache which may not exist, producing a WARN.
-	avail := &Availability{
-		Available: false,
-		Method:    "unavailable",
-	}
-
-	var warnings []string
-	logFn := func(level, scope string, args ...any) {
-		warnings = append(
-			warnings, fmt.Sprintf("%s:%s", level, scope),
-		)
-	}
-	c := NewCollector(pool, cfg, avail, logFn)
-
-	ctx, cancel := context.WithTimeout(
-		context.Background(), 1200*time.Millisecond,
-	)
-	defer cancel()
-
-	c.Run(ctx)
-
-	// The Run loop should have ticked once and logged a warning
-	// from the failed Collect call (either missing schema or
-	// successful but no candidates).
-	t.Logf("warnings logged during Run: %d", len(warnings))
 }
 
 func TestCoverage_Collect_CancelledContext(t *testing.T) {

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -14,6 +13,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/policy"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // spec §6.2.1 wiring: the decider and the §6.2.7 hold are read at
@@ -80,10 +80,7 @@ func TestFleetRecoveryUnknownDatabaseHasNoPITR(t *testing.T) {
 }
 
 func TestWALArchivedReadsSettings(t *testing.T) {
-	dsn := os.Getenv("SAGE_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("SAGE_TEST_DATABASE_URL not set; real-Postgres recovery posture")
-	}
+	dsn := testdb.SkipUnlessLive(t)
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
 		t.Fatal(err)

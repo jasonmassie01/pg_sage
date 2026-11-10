@@ -2437,20 +2437,6 @@ func TestFunctional_Coverage_Prescribe_ParallelDisabled_Hint(
 // Coverage push: Tune with nil pool panics or returns error
 // ---------------------------------------------------------------------------
 
-func TestFunctional_Coverage_Tune_NilPool(t *testing.T) {
-	tu := New(nil, TunerConfig{MinQueryCalls: 5}, nil, noopLogFn)
-	// Tune requires pool for fetchCandidates. With nil pool it
-	// will panic on pool.Query. Verify this panics.
-	defer func() {
-		r := recover()
-		if r == nil {
-			// If no panic, fetchCandidates returned an error.
-			// That's also acceptable behavior.
-		}
-	}()
-	_, _ = tu.Tune(context.Background(), nil)
-}
-
 // noopLog is a no-op logger alias used by rewrite tests.
 func noopLog(string, string, ...any) {}
 

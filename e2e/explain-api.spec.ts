@@ -30,8 +30,6 @@ test.describe('Explain API', () => {
       query: 'SELECT 1',
       plan_only: true,
     });
-    test.skip(ok.status === 503, 'Explain endpoint disabled locally');
-
     expect(ok.status).toBe(200);
     expect(ok.json.query).toBe('SELECT 1');
     expect(ok.json.plan_json).toBeTruthy();

@@ -115,7 +115,7 @@ func TestCatalog_WraparoundTablesUseTheTableMaximum(t *testing.T) {
 // session never is.
 func TestCatalog_XminHorizonListsHolders(t *testing.T) {
 	pool, ctx := livePool(t)
-	dsn := os.Getenv(testdb.EnvName)
+	dsn := testdb.SkipUnlessLive(t)
 	slot := catalogSlotHolder(t, ctx, pool)
 	pid := sessionHolder(t, ctx, dsn)
 	gid := preparedHolder(t, ctx, pool, dsn)
@@ -330,7 +330,7 @@ func runwayRestrictedPool(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), "DROP ROLE IF EXISTS "+ident)
 	})
-	u, _ := url.Parse(os.Getenv(testdb.EnvName))
+	u, _ := url.Parse(testdb.SkipUnlessLive(t))
 	u.User = url.UserPassword(role, "sre-probe-test")
 	r, err := pgxpool.New(ctx, u.String())
 	if err != nil {

@@ -221,7 +221,7 @@ func TestRetentionRules_EvalRunsAreAgedOut(t *testing.T) {
 // control database: concurrent passes neither fail nor over-delete.
 func TestRun_EvalRunRetentionConcurrentCleaners(t *testing.T) {
 	_, ctx := requireDB(t)
-	shared, err := pgxpool.New(ctx, testDSN())
+	shared, err := pgxpool.New(ctx, testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}

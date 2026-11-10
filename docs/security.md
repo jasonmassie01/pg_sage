@@ -177,7 +177,7 @@ Model-authored SQL never runs through the executor ([Model-authored SQL](#model-
 
 Every place pg_sage's shipped code can write to a database it connects to is
 listed in one inventory,
-[`sidecar/internal/mutationcensus/sinks.tsv`](../sidecar/internal/mutationcensus/sinks.tsv).
+[`sidecar/internal/mutationcensus/sinks.tsv`](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/mutationcensus/sinks.tsv).
 A test (`go test ./internal/mutationcensus/`) parses `internal/` and `cmd/` and
 fails when a write sink is missing from the file, when a row names a function
 that no longer writes, or when a row's class is unknown. A new write path cannot

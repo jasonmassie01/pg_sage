@@ -23,7 +23,7 @@ import (
 func lockAlterSystem(t *testing.T, ctx context.Context, gucs ...string) *pgxpool.Pool {
 	t.Helper()
 	pool, _ := requireDB(t)
-	release, err := testdb.LockCluster(ctx, testDSN(), "alter_system")
+	release, err := testdb.LockCluster(ctx, testdb.SkipUnlessLive(t), "alter_system")
 	if err != nil {
 		t.Fatalf("cluster lock: %v", err)
 	}
@@ -300,7 +300,7 @@ func TestConfigPrepare_DatabaseOverrideRefused(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = base.Exec(context.Background(), "ALTER DATABASE "+quoted+" RESET work_mem")
 	})
-	pool, err := pgxpool.New(ctx, testDSN())
+	pool, err := pgxpool.New(ctx, testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("fresh pool: %v", err)
 	}

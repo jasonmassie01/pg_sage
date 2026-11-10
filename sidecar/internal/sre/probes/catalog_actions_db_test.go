@@ -3,7 +3,6 @@ package probes
 import (
 	"context"
 	"fmt"
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -32,7 +31,7 @@ type activeChain struct {
 
 func startActiveChain(t *testing.T, ctx context.Context, pool *pgxpool.Pool) *activeChain {
 	t.Helper()
-	dsn := os.Getenv(testdb.EnvName)
+	dsn := testdb.SkipUnlessLive(t)
 	ac := &activeChain{table: fmt.Sprintf("sre_active_%d", time.Now().UnixNano())}
 	ident := pgx.Identifier{ac.table}.Sanitize()
 	for _, sql := range []string{"CREATE TABLE " + ident + " (id int)",

@@ -5,7 +5,6 @@ package rca
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"regexp"
 	"sync"
 	"testing"
@@ -15,6 +14,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // ---------------------------------------------------------------------------
@@ -29,11 +29,8 @@ var (
 
 func requireDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
+	dsn := testdb.SkipUnlessLive(t)
 	integPoolOnce.Do(func() {
-		dsn := os.Getenv("SAGE_DATABASE_URL")
-		if dsn == "" {
-			dsn = os.Getenv("SAGE_TEST_DATABASE_URL")
-		}
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()
 

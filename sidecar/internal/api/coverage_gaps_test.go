@@ -13,6 +13,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/rca"
 	"github.com/pg-sage/sidecar/internal/store"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // ================================================================
@@ -303,7 +304,7 @@ func TestPendingCountHandler_WithData(t *testing.T) {
 func TestTestFromConnString_Success(t *testing.T) {
 	_, ctx := phase2RequireDB(t)
 
-	result := testFromConnString(ctx, phase2DSN())
+	result := testFromConnString(ctx, testdb.SkipUnlessLive(t))
 	if result.Status != "ok" {
 		t.Errorf("status: got %q, want ok (err=%q)",
 			result.Status, result.Error)

@@ -13,6 +13,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/planfresh"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // tuning-08: the tuner reads a candidate's plan once per cycle, and only a
@@ -35,7 +36,7 @@ func (c *cacheReads) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEnd
 func countingPool(t *testing.T) (*pgxpool.Pool, *cacheReads) {
 	t.Helper()
 	requireTunerDB(t)
-	cfg, err := pgxpool.ParseConfig(tunerTestDSN())
+	cfg, err := pgxpool.ParseConfig(testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("parse DSN: %v", err)
 	}

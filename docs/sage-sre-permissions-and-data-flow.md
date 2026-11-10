@@ -190,7 +190,7 @@ lists them under **Missing evidence** and concludes "inconclusive" rather than g
 | Provider | How to grant | Verified |
 |---|---|---|
 | Self-managed PostgreSQL 14-18 | as a superuser: `GRANT pg_monitor TO sage_agent;` | yes: the probe catalog and the privilege tests run on PG14-18 |
-| Google Cloud SQL, AlloyDB | as the `postgres` admin user (a `cloudsqlsuperuser` / `alloydbsuperuser` member): `GRANT pg_monitor TO sage_agent;` | the repo's Cloud SQL and AlloyDB setup (`cloudsqltests/`) runs this grant |
+| Google Cloud SQL, AlloyDB | as the `postgres` admin user (a `cloudsqlsuperuser` / `alloydbsuperuser` member): `GRANT pg_monitor TO sage_agent;` | not exercised by a live test in this repository (the v0.8 setup scripts were retired) |
 | Azure Database for PostgreSQL (flexible server) | as the server admin (`azure_pg_admin`): `GRANT pg_monitor TO sage_agent;` | see [Azure](azure.md) (CHECK-AZ-02) |
 | Amazon RDS / Aurora PostgreSQL | as the master user (`rds_superuser`): `GRANT pg_monitor TO sage_agent;` | not exercised by a live test in this repository |
 | Databricks Lakebase | the tested identity had `databricks_superuser` and `pg_monitor`; a new principal needs its own grants | see [Lakebase](lakebase.md) |

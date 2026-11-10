@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"github.com/pg-sage/sidecar/internal/testsupport/pgssepoch"
 )
 
@@ -251,7 +252,7 @@ func TestFetchQueryStats_DBIDScope(t *testing.T) {
 // test ends); the test is skipped when it cannot.
 func template1Pool(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	t.Helper()
-	cfg, err := pgxpool.ParseConfig(replaceDBInDSN(tunerTestDSN(), "template1"))
+	cfg, err := pgxpool.ParseConfig(replaceDBInDSN(testdb.SkipUnlessLive(t), "template1"))
 	if err != nil {
 		t.Fatalf("parse template1 DSN: %v", err)
 	}

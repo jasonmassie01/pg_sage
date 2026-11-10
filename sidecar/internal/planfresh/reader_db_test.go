@@ -33,7 +33,7 @@ func dbPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	pool, err := pgxpool.New(ctx, os.Getenv(testdb.EnvName))
+	pool, err := pgxpool.New(ctx, testdb.SkipUnlessLive(t))
 	if err == nil {
 		err = pool.Ping(ctx)
 	}

@@ -8,6 +8,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/store"
+	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
 // mockProposer records Propose calls for testing.
@@ -137,9 +138,9 @@ func TestSetExecutionMode(t *testing.T) {
 	}
 }
 
+// Manual mode returns before touching the database or the findings, at
+// every trust level: the nil pool would panic on any query.
 func TestManualMode_SkipsRunCycle(t *testing.T) {
-	// Manual mode always returns immediately without checking the database
-	// or processing findings, regardless of trust level.
 	e := &Executor{
 		cfg: &config.Config{
 			Trust: config.TrustConfig{Level: "autonomous"},
@@ -147,12 +148,9 @@ func TestManualMode_SkipsRunCycle(t *testing.T) {
 		recentActions: make(map[string]time.Time),
 		logFn:         func(string, string, ...any) {},
 		execMode:      "manual",
-		// pool is nil — if RunCycle tries to query, it panics
-		pool: nil,
+		pool:          nil,
 	}
-
-	// Should not panic — manual + observation returns early.
-	e.RunCycle(context.Background(), false)
+	require.NotPanics(t, func() { e.RunCycle(context.Background(), false) })
 }
 
 func TestManualMode_AutonomousTrustDoesNotOpenGate(t *testing.T) {

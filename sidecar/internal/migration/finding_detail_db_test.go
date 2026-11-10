@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/pg-sage/sidecar/internal/cases"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // migration-01 integration: VACUUM FULL on an analysed 50k-row table,
@@ -92,7 +92,7 @@ func projectPreflight(
 		Severity: cases.Severity(f.Severity), ObjectType: f.ObjectType,
 		ObjectIdentifier: f.ObjectIdentifier, RuleID: f.RuleID, Title: f.Title,
 		RecommendedSQL: f.RecommendedSQL, Detail: detail, ObservedAt: time.Now(),
-	})
+	}, nil) // nil: every change is a script-only ddl_preflight (cases-04)
 	for _, candidate := range c.ActionCandidates {
 		if candidate.DDLPreflight != nil {
 			return candidate.DDLPreflight
@@ -137,10 +137,7 @@ func holdAndQueueVacuumFull(t *testing.T, ctx context.Context, table string) uin
 
 func connectTest(t *testing.T, ctx context.Context) *pgx.Conn {
 	t.Helper()
-	dsn := os.Getenv("SAGE_DATABASE_URL")
-	if dsn == "" {
-		dsn = os.Getenv("SAGE_TEST_DATABASE_URL")
-	}
+	dsn := testdb.SkipUnlessLive(t)
 	conn, err := pgx.Connect(ctx, dsn)
 	if err != nil {
 		t.Fatalf("connect: %v", err)

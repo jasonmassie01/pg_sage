@@ -2,7 +2,6 @@ package migration
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -11,6 +10,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/testsupport/lockqueue"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // migration-05 (CHECK-23): session A holds ACCESS SHARE on t, B waits in
@@ -20,10 +20,7 @@ import (
 // longer recommends cancelling A.
 func TestLockQueue_PileUpBehindWaitingDDL(t *testing.T) {
 	pool, ctx := requireDB(t)
-	dsn := os.Getenv("SAGE_DATABASE_URL")
-	if dsn == "" {
-		dsn = os.Getenv("SAGE_TEST_DATABASE_URL")
-	}
+	dsn := testdb.SkipUnlessLive(t)
 	s := lockqueue.Start(t, dsn, "public.lq_orders", 3)
 	var version int
 	if err := pool.QueryRow(ctx, "SELECT current_setting('server_version_num')::int").

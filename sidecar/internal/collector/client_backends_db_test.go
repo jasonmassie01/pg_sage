@@ -2,12 +2,12 @@ package collector
 
 import (
 	"context"
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // rca-08: client_backends counts every database's client sessions, the
@@ -68,7 +68,7 @@ func ensureOtherDatabase(t *testing.T, ctx context.Context, pool *pgxpool.Pool) 
 // ends.
 func openOtherDatabase(t *testing.T, ctx context.Context) {
 	t.Helper()
-	cfg, err := pgx.ParseConfig(os.Getenv("SAGE_TEST_DATABASE_URL"))
+	cfg, err := pgx.ParseConfig(testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatal(err)
 	}

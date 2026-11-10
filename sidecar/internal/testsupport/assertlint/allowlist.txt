@@ -1,0 +1,10 @@
+# Hollow tests exempt from the assertlint gate (ci-11). The list is empty:
+# every hollow test that predated the gate was given an assertion or deleted.
+# It may only shrink: TestModuleTestsCanFail fails on any finding not listed
+# here and on any entry that no longer matches. Never add a line; give the
+# test an assertion (require.NotPanics for a nil-safety contract) or delete it.
+#
+# Format: noassert <path from sidecar/> <function>, for a Test function with
+# no failing call. A getenv finding (a test-file read of SAGE_TEST_DATABASE_URL
+# or testdb.EnvName outside internal/testdb) cannot be listed at all: use
+# testdb.SkipUnlessLive(t), so a run without a server skips.

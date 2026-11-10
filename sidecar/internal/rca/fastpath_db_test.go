@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // Integration tests for the M0 lock-chain fast path against a real
@@ -30,7 +30,7 @@ type blockingChain struct {
 
 func dialTest(t *testing.T, ctx context.Context) *pgx.Conn {
 	t.Helper()
-	conn, err := pgx.Connect(ctx, os.Getenv("SAGE_TEST_DATABASE_URL"))
+	conn, err := pgx.Connect(ctx, testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}

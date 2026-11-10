@@ -5,7 +5,6 @@ package store
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -13,14 +12,12 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 func setupConfigTestDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("SAGE_TEST_DATABASE_URL")
-	if dsn == "" {
-		dsn = testDSN()
-	}
+	dsn := testdb.SkipUnlessLive(t)
 	ctx, cancel := context.WithTimeout(
 		context.Background(), 45*time.Second)
 	defer cancel()

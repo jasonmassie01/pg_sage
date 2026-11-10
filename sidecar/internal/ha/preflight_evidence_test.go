@@ -2,7 +2,6 @@ package ha
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
@@ -10,11 +9,12 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/policy"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // No autonomous mutation is executed: this establishes monitor-to-legacy-policy admission only.
 func TestPreflightEvidenceUnknownHAWithholdsPolicyAdmission(t *testing.T) {
-	p, err := pgxpool.New(context.Background(), os.Getenv("SAGE_TEST_DATABASE_URL"))
+	p, err := pgxpool.New(context.Background(), testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatal(err)
 	}

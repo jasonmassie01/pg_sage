@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
@@ -33,7 +32,7 @@ func TestPostgresRehearsalRunnerExecutesExpandOnlyOnCloneDSN(t *testing.T) {
 			return ServerIdentity{Host: "production.invalid", Port: 5432,
 				StartedAt: time.Unix(1, 0), ServerPort: 5432}, nil
 		})
-	measurement, err := runner.Run(ctx, os.Getenv("SAGE_TEST_DATABASE_URL"), planpkg.Plan{
+	measurement, err := runner.Run(ctx, testdb.SkipUnlessLive(t), planpkg.Plan{
 		ExpandSteps: []planpkg.Step{{
 			Kind: planpkg.StepCreateUniqueIndex, RequiresTopLevel: true,
 			SQL: "CREATE UNIQUE INDEX CONCURRENTLY migration_rehearsal_probe_idx ON " +

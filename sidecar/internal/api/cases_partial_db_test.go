@@ -12,6 +12,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/cases"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // queryProjectedCases is the cases of the selected databases and the first
@@ -79,7 +80,7 @@ func TestCasesClosedPoolFleetAnswersPartial(t *testing.T) {
 	pool, ctx := phase2RequireDB(t)
 	resetCaseTables(t, ctx)
 	seedPartialFindings(t, ctx, 3, "warning")
-	closed, err := pgxpool.New(ctx, phase2DSN())
+	closed, err := pgxpool.New(ctx, testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("second pool: %v", err)
 	}

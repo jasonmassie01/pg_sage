@@ -5,7 +5,7 @@
 // body text. Smoke-level coverage — individual field assertions live
 // in the component test suite.
 //
-// Plan reference: docs/plan_v0.8.5.md §7.5.
+// Plan reference: reviews/archive/docs-internal/plan_v0.8.5.md §7.5.
 
 import { test, expect } from '@playwright/test'
 import { mockAllAPIs } from './fixtures'

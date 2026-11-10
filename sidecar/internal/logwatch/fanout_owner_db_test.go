@@ -4,7 +4,6 @@ package logwatch
 
 import (
 	"context"
-	"os"
 	"slices"
 	"sync"
 	"testing"
@@ -17,6 +16,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/rca"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // rca-08 against a real sage.incidents store: a fleet of three databases
@@ -49,10 +49,7 @@ func (d *countingDispatcher) detected() int {
 
 func fleetDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
-	url := os.Getenv("SAGE_TEST_DATABASE_URL")
-	if url == "" {
-		t.Skip("SKIP: SAGE_TEST_DATABASE_URL not set")
-	}
+	url := testdb.SkipUnlessLive(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	t.Cleanup(cancel)
 	pool, err := pgxpool.New(ctx, url)

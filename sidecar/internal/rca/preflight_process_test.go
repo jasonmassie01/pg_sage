@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // A test-process restart exercises production constructors with no shared Go memory.
@@ -58,7 +59,7 @@ func preflightRCAChild(t *testing.T, mode string) {
 		}
 	}
 	cmd.Env = append(cmd.Env, "SAGE_TEST_DATABASE_URL=",
-		"PREFLIGHT_SHARED_RCA_DSN="+os.Getenv("SAGE_TEST_DATABASE_URL"),
+		"PREFLIGHT_SHARED_RCA_DSN="+testdb.SkipUnlessLive(t),
 		"PREFLIGHT_RCA_MODE="+mode)
 	out, err := cmd.CombinedOutput()
 	// Adapted: under `go test -cover -v` the child's own "coverage:" line,

@@ -350,3 +350,20 @@ SAGE_TEST_GCP_PROJECT=my-project SAGE_TEST_CLOUDSQL_INSTANCE=my-test-instance \
 ```
 
 Each prints `CHECK-CLOUD-0n: PASS` lines with the sample and the parameter group or flags.
+
+Cloud SQL and AlloyDB identity and readiness run against the database itself, connected as the
+`sage_agent` role through the Auth Proxy or a private IP. The session is read-only with statement
+and lock timeouts; nothing on the instance changes:
+
+```
+SAGE_TEST_CLOUDSQL_DATABASE_URL=postgres://sage_agent@127.0.0.1:5432/postgres \
+SAGE_TEST_ALLOYDB_DATABASE_URL=postgres://sage_agent@127.0.0.1:5433/postgres \
+  go test -tags cloudlive -count=1 -run TestLiveGoogleManagedIdentityAndReadiness -v \
+  ./cmd/pg_sage_sidecar/
+```
+
+`CHECK-GCP-01` passes only when the product's provider probes name the expected service, so a
+DSN that reaches the wrong server fails. `CHECK-GCP-02` collects readiness without a standing
+policy and passes only when no action family would execute and every family the provider adapter
+refuses is unsupported. A subtest whose variable is unset is skipped and says it was not verified.
+CI compiles this root (and every other tagged suite) but never runs it.

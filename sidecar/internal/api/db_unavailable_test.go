@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -18,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // No concurrency test beyond PoolExhaust: internalError is stateless.
@@ -87,7 +87,7 @@ func TestInternalError_OtherErrorsKeepThe500Body(t *testing.T) {
 func exhaustedPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	surfacePool(t) // skips without a database, bootstraps the schema
-	cfg, err := pgxpool.ParseConfig(os.Getenv("SAGE_TEST_DATABASE_URL"))
+	cfg, err := pgxpool.ParseConfig(testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatal(err)
 	}

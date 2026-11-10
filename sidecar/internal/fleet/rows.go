@@ -38,8 +38,9 @@ type ActionRow struct {
 
 // FindingFilters are query parameters for finding listings.
 // Source is a subsystem filter. Accepted values and their mapping to
-// sage.findings.category are documented in docs/ui-redesign-v2.md
-// §16 and implemented in api.buildSourceClause:
+// sage.findings.category are documented in
+// reviews/archive/docs-internal/ui-redesign-v2.md §16 and implemented in
+// api.buildSourceClause:
 //
 //	""               — no filter
 //	"schema_lint"    — category LIKE 'schema_lint:%'

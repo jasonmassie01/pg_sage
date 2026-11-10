@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/pg-sage/sidecar/internal/crypto"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 var (
@@ -26,7 +27,7 @@ var (
 // can really connect.
 func liveDatabaseInput(t *testing.T, name string) DatabaseInput {
 	t.Helper()
-	u, err := url.Parse(testDSN())
+	u, err := url.Parse(testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("parse test DSN: %v", err)
 	}
