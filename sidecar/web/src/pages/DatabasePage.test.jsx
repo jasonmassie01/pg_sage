@@ -62,6 +62,19 @@ describe('DatabasePage snapshot view', () => {
     expect(consoleError).not.toHaveBeenCalled()
   })
 
+  it('reports a snapshot too large for the engine to stringify', () => {
+    const stringify = JSON.stringify
+    vi.spyOn(JSON, 'stringify').mockImplementation((value, replacer, space) => {
+      if (space === 2) throw new RangeError('Invalid string length')
+      return stringify(value, replacer, space)
+    })
+    useAPI.mockReturnValue(loaded({ tables: 3 }))
+    render(<DatabasePage database="orders" />)
+    expect(screen.getByTestId('snapshot-error'))
+      .toHaveTextContent('Unable to render snapshot: Snapshot is too large to display')
+    expect(screen.queryByText(/"tables"/)).toBeNull()
+  })
+
   it('shows the empty state when the response has no snapshot', () => {
     useAPI.mockReturnValue(loaded(undefined))
     render(<DatabasePage database="orders" />)

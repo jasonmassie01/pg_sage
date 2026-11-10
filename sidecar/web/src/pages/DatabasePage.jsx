@@ -15,8 +15,12 @@ function renderSnapshot(snapshot) {
   try {
     text = JSON.stringify(snapshot, null, 2)
   } catch (err) {
-    // JSON.stringify throws TypeError on a cycle or a BigInt; others are bugs.
+    // JSON.stringify throws TypeError on a cycle or a BigInt, and RangeError
+    // when the text would pass the engine's string limit; others are bugs.
     if (err instanceof TypeError) return { text: null, error: err.message }
+    if (err instanceof RangeError) {
+      return { text: null, error: 'Snapshot is too large to display' }
+    }
     throw err
   }
   if (text.length > MAX_INLINE_CHARS) {
