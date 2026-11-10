@@ -67,7 +67,9 @@ How the stdio transport behaves:
   default 90) is cancelled and answered -32800 "tools/call timed out after ...". A call
   that completed is never reported as timed out.
 - **Cancellation.** `notifications/cancelled` with the call's `requestId` cancels it, and
-  no response is sent for it (as the MCP specification says). Cancelling an id that is not
+  no response is sent for it (as the MCP specification says), unless it had already
+  succeeded: that result is still sent, so ignore it if you no longer want it. Cancelling
+  an id that is not
   in flight does nothing; cancelling a `subscriptions/listen` id ends that subscription.
 - **End of input.** At EOF the sidecar waits for in-flight calls, writes their responses
   and stops serving MCP. A failed write to stdout also ends the stdio session.
