@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 )
 
 var (
-	ErrPolicyUnavailable = errors.New("rollout policy unavailable")
-	ErrInvalidPolicy     = errors.New("invalid rollout policy")
-	ErrPriorRequired     = errors.New("validated prior is required")
+	ErrInvalidPolicy = errors.New("invalid rollout policy")
+	ErrPriorRequired = errors.New("validated prior is required")
 )
 
 type Policy struct {
@@ -18,18 +18,6 @@ type Policy struct {
 	AggregateRegressionLimitPct float64
 	RequireLocalReverification  bool
 	Sources                     []string
-}
-type PolicyPatch struct {
-	CanaryInstances             *int
-	MaxAffectedInstances        *int
-	AggregateRegressionLimitPct *float64
-	RequireLocalReverification  *bool
-}
-type PolicySet struct {
-	FleetDefault      *Policy
-	ClassDefaults     map[string]PolicyPatch
-	TagDefaults       map[string]PolicyPatch
-	InstanceOverrides map[string]PolicyPatch
 }
 type Instance struct {
 	ID, Class string
@@ -77,6 +65,26 @@ type Result struct {
 	// RollbackErrors names the ones that could not be.
 	RolledBack     int
 	RollbackErrors []string
+}
+
+// RunRecord is one sage.rollout_run row: a fleet canary of a validated
+// prior and how far it got.
+type RunRecord struct {
+	EvidenceID             string    `json:"id"`
+	SourceInstance         string    `json:"source_database"`
+	PriorEvidenceID        string    `json:"prior_evidence_id"`
+	Policy                 Policy    `json:"policy"`
+	State                  string    `json:"state"`
+	HaltReason             string    `json:"halt_reason,omitempty"`
+	AppliedInstances       int       `json:"applied_instances"`
+	CanaryInstanceIDs      []string  `json:"canary_databases,omitempty"`
+	AggregateRegressionPct float64   `json:"aggregate_regression_pct"`
+	CreatedAt              time.Time `json:"created_at"`
+	UpdatedAt              time.Time `json:"updated_at"`
+	// Family, Class and StartedBy describe a fleet canary of a remediation.
+	Family    string `json:"family,omitempty"`
+	Class     string `json:"class,omitempty"`
+	StartedBy string `json:"started_by,omitempty"`
 }
 
 // Instance statuses.
