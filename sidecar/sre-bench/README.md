@@ -346,6 +346,20 @@ overrides pass (lower bound 0.806); 15 of 15 do not (0.796); 29 of 30 pass. A mo
 self-reported confidence is never an input. The report is ingested through the same path as
 promotion evidence (signature, build matching, provenance); the ledger reads, per family, the
 newest live measurement for the running build (`GET /api/v1/model-lift`, the Trust page).
+
+**The authority belongs to the model that earned it.** The report's `llm.model` is an
+authority input: a measurement counts only for an investigator whose `llm.model` is the same
+model. Both names are compared trimmed, lowercased and without any provider prefix up to the
+last `/` (`OpenAI/GPT-6` is `gpt-6`); anything else, including a sibling such as `gpt-6-mini`,
+is another model. The ledger prefers, per family, the newest measurement taken with the
+running model, so a newer report from another model never hides it. A report without
+`llm.model`, or an investigator whose model is unknown, grants nothing. The model is read at
+each question, so after a hot reload to another model the next investigation is advisory and
+the hourly bench loop records the loss (`root_authority_revoked`, with the reason
+`measured with "X"; the investigator runs "Y"`). The view shows both as `measured_model` and
+`running_model`. Each database compares with its own LLM client. Reasoning effort and model
+families are not compared, and the endpoint is not identified: the endpoint `llm.endpoint`
+points at is part of what you trust.
 Until a family passes, its model-sourced roots stay advisory (L1): the investigation keeps
 the graph's root and stores the model's as a contest (`model_contest`, `model_disagreed`
 with `authority: advisory`). The bench itself grants no authority, so `M3-LLM-ROOT` still
@@ -367,7 +381,10 @@ a newer report, the deciding report aging past `bench_max_age_days`, another bui
 
 The report schema is `pg_sage.pgincidentbench.v1` with `schema_revision: 2`: additive, so a
 pg_sage 1.9.0 sidecar still ingests and verifies a new report (ignoring the lift), and this
-sidecar reads a 1.9.0 report as revision 1 with no lift.
+sidecar reads a 1.9.0 report as revision 1 with no lift. In revision 2, `llm.model` (at most
+256 bytes, no control characters) is an authority input: the ledger keeps it, normalized, as
+`llm_model` beside the stored lift, and a revision-2 report without it still ingests but
+grants no model-root authority.
 
 ## Nightly live-model arm
 

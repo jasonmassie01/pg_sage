@@ -265,6 +265,7 @@ safety_critical llm.enabled
 safety_critical llm.endpoint
 safety_critical llm.auth
 operator_preference llm.fleet_token_budget_daily
+operator_preference llm.global_token_budget_daily
 safety_critical llm.index_optimizer.enabled
 safety_critical llm.index_optimizer.max_include_columns
 safety_critical llm.index_optimizer.max_indexes_per_table
@@ -298,6 +299,7 @@ derivable llm.optimizer_llm.max_output_tokens
 safety_critical llm.optimizer_llm.model
 derivable llm.optimizer_llm.timeout_seconds
 derivable llm.optimizer_llm.token_budget_daily
+safety_critical llm.redact_numeric_literals
 derivable llm.timeout_seconds
 derivable llm.token_budget_daily
 safety_critical llm.token_parameter

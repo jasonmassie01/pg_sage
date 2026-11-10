@@ -1211,13 +1211,13 @@
   "llm.context_budget_tokens": {
     "type": "int",
     "default": 8192,
-    "doc": "Maximum tokens attached as context (schema, stats, plans) to a single LLM request. Prevents oversized prompts from busting the model context window.",
+    "doc": "Trim target in tokens (~4 bytes each) for prompt context: lowering it shrinks advisor, tuning and explain prompts, each keeping its own cap. 0 turns off this extra trim. Never refuses or caps answers.",
     "class": "derivable"
   },
   "llm.cooldown_seconds": {
     "type": "int",
     "default": 300,
-    "doc": "Per-prompt dedup window and breaker cooldown: an identical request is not re-sent within this many seconds; after 3 provider failures calls pause this long. Not a global rate limit.",
+    "doc": "Dedup window and breaker cooldown: an identical request is not re-sent within this many seconds; after 3 failures in a row (or one 401/403) calls pause this long, then one probe decides.",
     "class": "derivable"
   },
   "llm.enabled": {
@@ -1236,6 +1236,12 @@
     "type": "int",
     "default": 0,
     "doc": "Fleet-wide daily token cap split per database so one noisy database can't drain the whole budget. 0 disables per-database budgeting (fleet mode only).",
+    "class": "operator_preference"
+  },
+  "llm.global_token_budget_daily": {
+    "type": "int",
+    "default": 0,
+    "doc": "Process-wide daily token cap across all LLM clients. 0 derives today's total: the clients' token_budget_daily summed, an active fleet budget standing in for the per-database ones.",
     "class": "operator_preference"
   },
   "llm.index_optimizer.enabled": {
@@ -1392,7 +1398,7 @@
   "llm.optimizer_llm.cooldown_seconds": {
     "type": "int",
     "default": 300,
-    "doc": "Minimum seconds between two optimizer LLM requests.",
+    "doc": "As llm.cooldown_seconds, for the optimizer client: an identical request is not re-sent within this many seconds, and the breaker pauses calls this long after 3 failures. 0 uses llm.cooldown_seconds.",
     "class": "derivable"
   },
   "llm.optimizer_llm.enabled": {
@@ -1437,16 +1443,22 @@
     "doc": "Daily token cap for the optimizer LLM — independent of the general llm.token_budget_daily so reasoning spend can be tracked separately.",
     "class": "derivable"
   },
+  "llm.redact_numeric_literals": {
+    "type": "bool",
+    "default": true,
+    "doc": "Replace compared numbers of 6+ digits (=, \u003c\u003e, \u003c, \u003e, IN, ANY, BETWEEN, Key (c)=(...)) with ? before SQL, plan or log text reaches a model. Short numbers are kept. Default: true.",
+    "class": "safety_critical"
+  },
   "llm.timeout_seconds": {
     "type": "int",
     "default": 30,
-    "doc": "HTTP request timeout for each LLM call. Low values protect the analyzer cycle from slow providers; high values tolerate cold-start latency.",
+    "doc": "Timeout of each LLM request attempt; 429 and 5xx replies are retried, up to 4 attempts. Reasoning models get at least 120 s per attempt. Low values protect the analyzer cycle.",
     "class": "derivable"
   },
   "llm.token_budget_daily": {
     "type": "int",
     "default": 500000,
-    "doc": "Soft daily cap on total tokens (input + output) the sidecar will spend on LLM requests. Once exceeded the LLM is skipped until the next UTC day.",
+    "doc": "Daily token cap (input + output) per LLM client: the shared client and each database's general and optimizer client get their own copy. llm.global_token_budget_daily caps the sum.",
     "class": "derivable"
   },
   "llm.token_parameter": {

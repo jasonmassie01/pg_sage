@@ -80,6 +80,8 @@ llm:
                                 # (current OpenAI models need max_completion_tokens)
   tool_reasoning_effort: auto   # auto | none | low | medium | high | omit
                                 # auto sends "none" with tools once a model needs it
+  redact_numeric_literals: true # replace compared numbers of 6+ digits (card
+                                # numbers, ids) with ? before text reaches a model
   # Cost reduction tips:
   #   - Advisor interval 7200s (2h) instead of 3600s saves ~50% advisor tokens
   #   - Briefing daily (default) vs hourly saves ~23x briefing tokens

@@ -213,22 +213,36 @@ func isTagCont(c byte) bool {
 }
 
 // SanitizeForLLM applies the full pre-LLM sanitization: strip
-// comments (which may contain prompt-injection text) and redact
-// string literals (which may contain PII or secrets).
+// comments (which may contain prompt-injection text), redact string
+// literals (which may contain PII or secrets) and, while
+// llm.redact_numeric_literals is on, numbers of 6 or more digits in
+// comparisons (card numbers, SSNs, account ids; see RedactNumericLiterals).
 //
 // Plan JSON is sanitized per string value: there double quotes delimit
-// JSON strings that hold SQL, not quoted identifiers. Text that only looks
+// JSON strings that hold SQL, not quoted identifiers, and JSON numbers
+// (Plan Rows, Total Cost) are kept byte for byte. Text that only looks
 // like JSON (it fails to parse) is scanned with double quotes as plain
 // bytes, so literals inside its string values are still redacted.
 func SanitizeForLLM(text string) string {
+	numbers := RedactNumericLiteralsEnabled() // read once: one call, one mode
 	trimmed := strings.TrimSpace(text)
 	if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
-		if out, ok := sanitizeJSONStrings(trimmed); ok {
+		if out, ok := sanitizeJSONStrings(trimmed, numbers); ok {
 			return out
 		}
-		return redactLiterals(stripComments(text, false), false)
+		return sanitizeSQL(text, false, numbers)
 	}
-	return RedactSQLLiterals(StripSQLComments(text))
+	return sanitizeSQL(text, true, numbers)
+}
+
+// sanitizeSQL strips comments and redacts literals and, with numbers,
+// long compared numbers; identifiers=false reads double quotes as bytes.
+func sanitizeSQL(text string, identifiers, numbers bool) string {
+	out := redactLiterals(stripComments(text, identifiers), identifiers)
+	if numbers {
+		out = redactNumbers(out, identifiers)
+	}
+	return out
 }
 
 // skipBlockComment advances past a /* ... */ block comment,

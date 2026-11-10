@@ -111,6 +111,8 @@ func newFixtureFor(t *testing.T, deployment, database string) *fixture {
 	if err != nil {
 		t.Fatalf("service: %v", err)
 	}
+	// The investigator runs the model the fixture's lift reports measured.
+	svc.WithRunningModel(func() string { return fixtureModel })
 	return &fixture{t: t, ctx: context.Background(), pool: pool, db: database, store: store,
 		svc: svc, clock: clk}
 }

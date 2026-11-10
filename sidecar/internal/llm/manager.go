@@ -60,6 +60,14 @@ type ClientStatus struct {
 	Exhausted          bool   `json:"budget_exhausted"`
 	CircuitOpen        bool   `json:"circuit_open"`
 	ResetTimestamp     string `json:"resets_at"`
+	// Breaker detail: closed, open or half_open; the class of the last
+	// provider error (errclass.go); when it and the last success happened
+	// (null when never); counted failures in a row.
+	CircuitState        string     `json:"circuit_state"`
+	LastErrorClass      string     `json:"last_error_class"`
+	LastErrorAt         *time.Time `json:"last_error_at"`
+	LastSuccessAt       *time.Time `json:"last_success_at"`
+	ConsecutiveFailures int        `json:"consecutive_failures"`
 }
 
 // TokenStatus returns the token budget status for all clients.
@@ -106,16 +114,22 @@ func clientStatus(c *Client) ClientStatus {
 	tomorrow := time.Date(
 		now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC,
 	)
+	breaker := c.breakerSnapshot()
 	return ClientStatus{
-		Auth:               cfg.Auth,
-		EndpointOrigin:     origin,
-		ConfigurationError: configurationError,
-		Model:              c.Model(),
-		Enabled:            c.IsEnabled(),
-		TokensUsed:         c.TokensUsedToday(),
-		TokenBudget:        c.TokenBudgetDaily(),
-		Exhausted:          c.IsBudgetExhausted(),
-		CircuitOpen:        c.IsCircuitOpen(),
-		ResetTimestamp:     tomorrow.Format(time.RFC3339),
+		CircuitState:        breaker.state,
+		LastErrorClass:      breaker.lastClass,
+		LastErrorAt:         breaker.lastErrorAt,
+		LastSuccessAt:       breaker.lastSuccessAt,
+		ConsecutiveFailures: breaker.failures,
+		Auth:                cfg.Auth,
+		EndpointOrigin:      origin,
+		ConfigurationError:  configurationError,
+		Model:               c.Model(),
+		Enabled:             c.IsEnabled(),
+		TokensUsed:          c.TokensUsedToday(),
+		TokenBudget:         c.EffectiveTokenBudgetDaily(),
+		Exhausted:           c.IsBudgetExhausted(),
+		CircuitOpen:         c.IsCircuitOpen(),
+		ResetTimestamp:      tomorrow.Format(time.RFC3339),
 	}
 }

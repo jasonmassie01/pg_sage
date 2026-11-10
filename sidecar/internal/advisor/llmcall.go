@@ -18,7 +18,8 @@ const advisorMaxTokens = 4096
 const maxSharedBuffersFraction = 0.40
 
 // chatAdvisor sends one sub-advisor prompt. The DB-derived context is
-// truncated on a UTF-8/block boundary and delimited as untrusted data;
+// truncated on a UTF-8/block boundary (to llm.context_budget_tokens when
+// that is below the advisor's own cap) and delimited as untrusted data;
 // the system prompt carries the rule to never follow instructions inside
 // it (G3-B07, G3-B26). trusted is code-authored grounding (e.g. the GUC
 // documentation prior) appended to the system prompt, outside the data.
@@ -32,7 +33,8 @@ func chatAdvisor(
 		sys += "\n\n" + trusted
 	}
 	sys += "\n\n" + llm.UntrustedDataRule
-	user := llm.UntrustedData(label, truncateAdvisorPrompt(data))
+	budget := mgr.ForPurpose("advisor").ContextBudgetBytes()
+	user := llm.UntrustedData(label, truncateAdvisorPrompt(data, budget))
 	if facts := promptFactsFrom(ctx); facts != "" {
 		user += "\n\nOperator-confirmed facts about this database (binding: respect " +
 			"them):\n" + llm.UntrustedData("confirmed_facts", facts)
@@ -44,19 +46,30 @@ func chatAdvisor(
 	return resp, nil
 }
 
-// truncateAdvisorPrompt caps a prompt at maxAdvisorPromptChars bytes
-// without splitting a UTF-8 sequence, preferring to cut at the last
+// advisorPromptLimit is the byte cap of the advisor's data:
+// maxAdvisorPromptChars, or the context budget (llm.context_budget_tokens
+// in bytes) when that is smaller. A budget of 0 adds no trim (llm-05).
+func advisorPromptLimit(budgetBytes int) int {
+	if budgetBytes > 0 && budgetBytes < maxAdvisorPromptChars {
+		return budgetBytes
+	}
+	return maxAdvisorPromptChars
+}
+
+// truncateAdvisorPrompt caps a prompt at advisorPromptLimit(budgetBytes)
+// bytes without splitting a UTF-8 sequence, preferring to cut at the last
 // blank-line (per-object context) boundary in the second half.
-func truncateAdvisorPrompt(prompt string) string {
-	if len(prompt) <= maxAdvisorPromptChars {
+func truncateAdvisorPrompt(prompt string, budgetBytes int) string {
+	limit := advisorPromptLimit(budgetBytes)
+	if len(prompt) <= limit {
 		return prompt
 	}
-	cut := maxAdvisorPromptChars
+	cut := limit
 	for cut > 0 && !utf8.RuneStart(prompt[cut]) {
 		cut--
 	}
 	head := prompt[:cut]
-	if i := strings.LastIndex(head, "\n\n"); i >= maxAdvisorPromptChars/2 {
+	if i := strings.LastIndex(head, "\n\n"); i >= limit/2 {
 		head = head[:i]
 	}
 	return head

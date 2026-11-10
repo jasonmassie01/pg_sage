@@ -96,7 +96,7 @@ func TestInstallGivesTheLedgerTheNotifyPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := registryRootAuthority{registry: ledgers.registry, database: db}
-	got, err := a.ModelRootAuthority(context.Background(), "lock_blocking")
+	got, err := a.ModelRootAuthority(context.Background(), "lock_blocking", "gpt-4o-mini")
 	if err != nil || !got.Granted || len(d.events) != 1 ||
 		d.events[0].Data["database"] != db {
 		t.Fatalf("authority = %+v (%v), told %+v", got, err, d.events)

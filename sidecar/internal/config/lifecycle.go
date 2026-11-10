@@ -126,6 +126,7 @@ func reconfigurationOwner(path string) string {
 		"tuner.revalidation_interval_hours":     "tuner",
 		"schema_lint.scan_interval_minutes":     "schema_lint",
 		"auto_explain.collect_interval_seconds": "auto_explain",
+		"llm.redact_numeric_literals":           LLMRedactionOwner,
 	}
 	if owner := exact[path]; owner != "" {
 		return owner
@@ -149,6 +150,7 @@ func isLLMResourceField(path string) bool {
 		"enabled", "endpoint", "api_key", "model", "auth",
 		"timeout_seconds", "cooldown_seconds",
 		"json_mode", "token_parameter", "tool_reasoning_effort",
+		"global_token_budget_daily",
 	} {
 		if path == "llm."+suffix {
 			return true

@@ -182,6 +182,7 @@
 | `llm.enabled` | `reconfigure` | `llm` | `safety_critical` |
 | `llm.endpoint` | `reconfigure` | `llm` | `safety_critical` |
 | `llm.fleet_token_budget_daily` | `restart` | `-` | `operator_preference` |
+| `llm.global_token_budget_daily` | `reconfigure` | `llm` | `operator_preference` |
 | `llm.index_optimizer.enabled` | `restart` | `-` | `safety_critical` |
 | `llm.index_optimizer.max_include_columns` | `restart` | `-` | `safety_critical` |
 | `llm.index_optimizer.max_indexes_per_table` | `restart` | `-` | `safety_critical` |
@@ -215,6 +216,7 @@
 | `llm.optimizer_llm.model` | `restart` | `-` | `safety_critical` |
 | `llm.optimizer_llm.timeout_seconds` | `restart` | `-` | `derivable` |
 | `llm.optimizer_llm.token_budget_daily` | `restart` | `-` | `derivable` |
+| `llm.redact_numeric_literals` | `reconfigure` | `llm_redaction` | `safety_critical` |
 | `llm.timeout_seconds` | `reconfigure` | `llm` | `derivable` |
 | `llm.token_budget_daily` | `restart` | `-` | `derivable` |
 | `llm.token_parameter` | `reconfigure` | `llm` | `safety_critical` |

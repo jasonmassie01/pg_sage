@@ -204,6 +204,12 @@ type LLMBudgetRegistry interface {
 	ResetBudgets()
 }
 
+// LLMGlobalBudgetReporter is a registry that also enforces one
+// process-wide ceiling across its clients (llm.global_token_budget_daily).
+type LLMGlobalBudgetReporter interface {
+	GlobalBudget() llm.BudgetStatus
+}
+
 // llmBudgetSource prefers the process registry and falls back to the
 // shared manager; nil means no LLM is configured.
 func llmBudgetSource(
@@ -222,6 +228,32 @@ func registerLLMBudgetRoutes(mux *http.ServeMux, budgets LLMBudgetRegistry) {
 	mux.HandleFunc("GET /api/v1/llm/status", llmStatusHandler(budgets))
 	mux.Handle("POST /api/v1/llm/budget/reset", RequireRole("admin")(
 		http.HandlerFunc(llmBudgetResetHandler(budgets))))
+	mux.Handle("POST /api/v1/llm/test", RequireRole("admin")(
+		http.HandlerFunc(llmTestHandler(budgets))))
+}
+
+// LLMProber is a registry that can test its general client's connection
+// (llm.Client.Probe). *llm.Manager and the sidecar registry satisfy it.
+type LLMProber interface {
+	ProbeLLM(ctx context.Context) llm.ProbeResult
+}
+
+// llmTestHandler sends one tiny request through the normal path: charged
+// to the budget and admitted as the circuit breaker's half-open probe, so
+// a fixed provider closes the breaker now. It answers with the error
+// class and latency. Admin-only.
+func llmTestHandler(budgets LLMBudgetRegistry) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		prober, ok := budgets.(LLMProber)
+		if !ok || prober == nil {
+			jsonError(w, "LLM not configured", http.StatusServiceUnavailable)
+			return
+		}
+		res := prober.ProbeLLM(r.Context())
+		slog.Info("LLM connection test", "class", res.Class,
+			"latency_ms", res.LatencyMS, "model", res.Model)
+		jsonResponse(w, res)
+	}
 }
 
 // llmBudgetResetHandler zeroes the daily token counter on all
@@ -263,22 +295,30 @@ func llmStatusHandler(
 			})
 			return
 		}
-		status := mgr.TokenStatus()
-
-		// Compute an aggregate exhaustion flag so the UI can
-		// show a single banner when any client is out of budget.
-		anyExhausted := false
-		for _, s := range status {
-			if s.Exhausted {
-				anyExhausted = true
-				break
-			}
-		}
-
-		jsonResponse(w, map[string]any{
-			"clients":         status,
-			"any_exhausted":   anyExhausted,
-			"databricks_auth": databricksauth.CurrentAuthMetadata(),
-		})
+		jsonResponse(w, llmStatusPayload(mgr))
 	}
+}
+
+// llmStatusPayload reports every client and, when the registry enforces
+// one, the global ceiling. any_exhausted is the UI's single banner flag.
+func llmStatusPayload(mgr LLMBudgetRegistry) map[string]any {
+	status := mgr.TokenStatus()
+	anyExhausted := false
+	for _, s := range status {
+		if s.Exhausted {
+			anyExhausted = true
+			break
+		}
+	}
+	body := map[string]any{
+		"clients":         status,
+		"databricks_auth": databricksauth.CurrentAuthMetadata(),
+	}
+	if reporter, ok := mgr.(LLMGlobalBudgetReporter); ok {
+		global := reporter.GlobalBudget()
+		body["global"] = global
+		anyExhausted = anyExhausted || global.Exhausted
+	}
+	body["any_exhausted"] = anyExhausted
+	return body
 }

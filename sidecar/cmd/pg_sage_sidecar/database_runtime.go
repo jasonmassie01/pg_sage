@@ -271,6 +271,9 @@ func (rt *databaseRuntime) resolveLLM() {
 		)
 		releaseLLMClientsOnDone(rt.ctx, rt.llmManager)
 	}
+	if rt.llmManager != nil {
+		rt.attachPolicyCeiling(rt.llmManager.General, rt.llmManager.Optimizer)
+	}
 	rt.llmOn = rt.generalLLM != nil && rt.generalLLM.IsEnabled()
 }
 

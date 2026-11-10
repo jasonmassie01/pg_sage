@@ -73,7 +73,7 @@ func TestKeepOpen_NonOwnerDefersOpenGUC(t *testing.T) {
 			s.InstanceOwner = func() (string, bool) { return "alpha", tc.isOwner }
 			h := newHarnessWith(t, s)
 			_, cur := threeStatementPair()
-			kept, _ := h.agent.keepOpen(context.Background(), cur,
+			kept, _ := h.agent.keepOpen(context.Background(), cur, nil,
 				[]analyzer.Finding{open}, nil)
 			f, ok := byIdent(kept, open.ObjectIdentifier)
 			if !ok || f.RecommendedSQL != tc.wantSQL {

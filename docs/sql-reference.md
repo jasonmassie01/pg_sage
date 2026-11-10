@@ -184,7 +184,7 @@ Generated health briefings.
 
 | Column | Type | Description |
 |---|---|---|
-| `id` | serial | Primary key |
+| `id` | bigserial | Primary key |
 | `generated_at` | timestamptz | When the briefing was generated |
 | `period_start`, `period_end` | timestamptz | Window the briefing covers |
 | `mode` | text | Briefing mode (`executive`) |
@@ -192,6 +192,7 @@ Generated health briefings.
 | `content_json` | jsonb | The briefing payload: `findings` (id, case_key, category, severity, title, object_identifier, occurrence_count, risk_tier, recommendation, redacted recommended_sql), `total_open`, `system`, `actions` |
 | `llm_used` | boolean | Whether the LLM wrote `content_text` |
 | `token_count` | integer | LLM tokens used |
+| `delivery_status` | jsonb | Reserved for per-channel delivery results; pg_sage leaves it NULL today |
 
 ---
 

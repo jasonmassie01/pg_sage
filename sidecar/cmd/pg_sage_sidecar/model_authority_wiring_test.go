@@ -16,10 +16,8 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/earned"
-	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/sre"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
-	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // Roadmap 2.4 wiring: each database's investigator asks its own trust
@@ -29,13 +27,13 @@ import (
 
 func TestRegistryRootAuthority_NoLedgerIsAdvisory(t *testing.T) {
 	a := registryRootAuthority{registry: earned.NewRegistry(true), database: "orders"}
-	got, err := a.ModelRootAuthority(context.Background(), "lock_blocking")
+	got, err := a.ModelRootAuthority(context.Background(), "lock_blocking", "gpt-4o-mini")
 	if err != nil || got.Granted || !strings.Contains(got.Reason, "no trust ledger") {
 		t.Fatalf("authority = %+v (%v)", got, err)
 	}
 	var nilRegistry registryRootAuthority
 	if got, err := nilRegistry.ModelRootAuthority(context.Background(),
-		"lock_blocking"); err != nil || got.Granted {
+		"lock_blocking", "gpt-4o-mini"); err != nil || got.Granted {
 		t.Fatalf("nil registry = %+v (%v)", got, err)
 	}
 }
@@ -46,7 +44,8 @@ func TestRegistryRootAuthority_NoLedgerIsAdvisory(t *testing.T) {
 // the newest-measurement rule would read the older ingestion.
 func liftJSON(at time.Time, family string, k, n int) []byte {
 	return []byte(fmt.Sprintf(`{"schema": "pg_sage.pgincidentbench.v1",
-		"schema_revision": 2, "generated_at": %q, "llm": {"mode": "live"},
+		"schema_revision": 2, "generated_at": %q,
+		"llm": {"mode": "live", "model": "gpt-4o-mini"},
 		"gated_arms": ["causal-graph", "causal-graph+llm"], "cells": [],
 		"model_lift": [{"arm": "causal-graph+llm", "baseline": "causal-graph",
 			"family": %q, "split": "held_out", "llm_mode": "live", "runs": 40,
@@ -70,6 +69,8 @@ func ledgerWithLift(t *testing.T, pool *pgxpool.Pool, k, n int) *earned.Registry
 		"lock_blocking", k, n), earned.SourceBench, "admin", ""); err != nil {
 		t.Fatalf("ingest: %v", err)
 	}
+	// The investigator runs the model the report measured (llm-01).
+	svc.WithRunningModel(func() string { return "gpt-4o-mini" })
 	reg := earned.NewRegistry(true)
 	reg.Register("orders", earned.RegistryEntry{Service: svc})
 	return reg
@@ -83,7 +84,7 @@ func TestRegistryRootAuthority_ReadsTheDatabaseLedger(t *testing.T) {
 	}{{16, 16, true}, {15, 15, false}} {
 		a := registryRootAuthority{registry: ledgerWithLift(t, pool, c.k, c.n),
 			database: "orders"}
-		got, err := a.ModelRootAuthority(context.Background(), "lock_blocking")
+		got, err := a.ModelRootAuthority(context.Background(), "lock_blocking", "gpt-4o-mini")
 		if err != nil || got.Granted != c.want || got.Reason == "" {
 			t.Errorf("%d/%d: authority = %+v (%v), want granted %v", c.k, c.n, got, err,
 				c.want)
@@ -147,24 +148,18 @@ func reversingModel(t *testing.T) string {
 }
 
 func TestSREInvestigator_AdoptsTheModelRootOnlyWithLedgerAuthority(t *testing.T) {
-	dsn := testdb.SkipUnlessLive(t)
+	pool := autonomyPool(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	t.Cleanup(cancel)
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
-	t.Cleanup(pool.Close)
-	if err := schema.Bootstrap(ctx, pool); err != nil {
-		t.Fatalf("bootstrap: %v", err)
-	}
 	for _, c := range []struct {
-		k, n      int
-		authority string
-	}{{16, 16, sre.ContestAdopted}, {15, 15, sre.ContestAdvisory}} {
+		k, n                    int
+		model, authority, cause string
+	}{{16, 16, liftModel, sre.ContestAdopted, ""},
+		{15, 15, liftModel, sre.ContestAdvisory, "below 0.80"},
+		{16, 16, "m", sre.ContestAdvisory, `the investigator runs "m"`}} {
 		svc, err := newSREInvestigator(sreInvestigatorDeps{control: pool, monitored: pool,
 			runner: twoEdgeRunner{}, name: "w3a_db", settings: reviewSettings(),
-			llm: testLLMClient(reversingModel(t), true), dailyTokens: 500000,
+			llm: liftModelClient(reversingModel(t), c.model), dailyTokens: 500000,
 			notices: &sre.OnceLog{}, runtimeKey: fmt.Sprintf("w3a:%d", time.Now().UnixNano()),
 			logFn: func(string, string, ...any) {},
 			rootAuthority: registryRootAuthority{registry: ledgerWithLift(t, pool, c.k, c.n),
@@ -182,7 +177,7 @@ func TestSREInvestigator_AdoptsTheModelRootOnlyWithLedgerAuthority(t *testing.T)
 			t.Fatal(err)
 		}
 		mc := d.Investigation.Summary.ModelContest
-		if mc == nil || mc.Authority != c.authority {
+		if mc == nil || mc.Authority != c.authority || !strings.Contains(mc.Reason, c.cause) {
 			t.Fatalf("%d/%d: contest = %+v (summary %+v)", c.k, c.n, mc,
 				d.Investigation.Summary)
 		}

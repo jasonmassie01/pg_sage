@@ -99,6 +99,8 @@ func tuningSettings(c *config.Config, cloudEnv, dbName string, hostMem int64) tu
 		HintAbsentCycles: c.Tuner.HintAbsentCycles,
 		HintAdmission: tuning.HintAdmission{MinCalls: c.Tuner.MinQueryCalls,
 			PlanTimeRatio: c.Tuner.PlanTimeRatio},
+		// llm.context_budget_tokens trims the case packet (llm-05).
+		ContextBudgetBytes: llm.ContextBudgetBytes(c.LLM),
 	}
 }
 

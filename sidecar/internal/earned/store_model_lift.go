@@ -4,15 +4,19 @@ import (
 	"context"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/pg-sage/sidecar/internal/modellift"
 )
 
 // Set-based read of the newest model-lift measurement per family
 // (roadmap 2.4): the deployment's newest bench report counting for the
 // running build (the same build rule as promotion evidence) whose model
-// lift has a held-out record of the model arm for the family. A live
+// lift has a held-out record of the model arm for the family. A
+// measurement taken with the running model ($6, normalized) wins, so a
+// newer report from another model never shadows it (llm-01); then a live
 // measurement wins over a fake-model one (the release bench's replay
 // carries a fake-model lift, which never earns authority), then the
-// newest.
+// newest. A row without llm_model (ingested before llm-01) never matches.
 const modelLiftSetSQL = `/* pg_sage */ SELECT r.*, f.family FROM unnest($4::text[]) AS f(family)
 CROSS JOIN LATERAL (` + evalRunSelect + `
 	 WHERE deployment_id = $1 AND source = 'bench' AND model_lift IS NOT NULL
@@ -21,12 +25,14 @@ CROSS JOIN LATERAL (` + evalRunSelect + `
 	   AND ((pg_sage_version = '' AND pg_sage_commit = '')
 	     OR ($2 <> '' AND pg_sage_commit = $2)
 	     OR (($2 = '' OR pg_sage_commit = '') AND $3 <> '' AND pg_sage_version = $3))
-	 ORDER BY (model_lift->>'llm_mode' = 'live') DESC, generated_at DESC, ingested_at DESC
+	 ORDER BY COALESCE(model_lift->>'llm_model' = $6::text AND $6::text <> '', false) DESC,
+	          (model_lift->>'llm_mode' = 'live') DESC, generated_at DESC, ingested_at DESC
 	 LIMIT 1) r`
 
-// modelLiftSet is, per family, its newest measurement (absent: none).
-func (s *PostgresStore) modelLiftSet(ctx context.Context, families []Family) (
-	map[Family]*EvalRun, error) {
+// modelLiftSet is, per family, its measurement for an investigator
+// running runningModel (absent: none).
+func (s *PostgresStore) modelLiftSet(ctx context.Context, families []Family,
+	runningModel string) (map[Family]*EvalRun, error) {
 	names := make([]string, 0, len(families))
 	for _, f := range families {
 		names = append(names, string(f))
@@ -34,7 +40,8 @@ func (s *PostgresStore) modelLiftSet(ctx context.Context, families []Family) (
 	b := s.runningBuild()
 	out := map[Family]*EvalRun{}
 	err := s.queryEach(ctx, "read model lift", modelLiftSetSQL,
-		[]any{s.deployment, b.Commit, b.Version, names, ModelArm}, func(rows pgx.Rows) error {
+		[]any{s.deployment, b.Commit, b.Version, names, ModelArm,
+			modellift.NormalizeModel(runningModel)}, func(rows pgx.Rows) error {
 			var f string
 			run, err := s.scanEvalRun(trailingRow{Row: rows, extra: &f})
 			if err != nil {

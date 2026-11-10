@@ -35,7 +35,9 @@ func systemPrompt(cfg Config, p Protocol) string {
 	} else {
 		fmt.Fprintf(&b, nativeRules, cfg.Final.Name)
 	}
-	b.WriteString("\n" + llm.UntrustedDataRule)
+	if !strings.Contains(cfg.System, llm.UntrustedDataRule) {
+		b.WriteString("\n" + llm.UntrustedDataRule) // once, even if cfg.System has it
+	}
 	return b.String()
 }
 

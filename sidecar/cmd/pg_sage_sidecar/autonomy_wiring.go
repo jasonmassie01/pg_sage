@@ -113,6 +113,9 @@ type autonomyBinding struct {
 	// notifier tells the operator about model-root authority changes;
 	// set before the ledger is registered, so no grant goes untold.
 	notifier earned.RootAuthorityNotifier
+	// runningModel is the model the database's investigator runs (read
+	// at each use); nil: unknown, so model roots stay advisory.
+	runningModel func() string
 }
 
 // failClosedLimiter answers every governed action (incident families and
@@ -170,6 +173,7 @@ func (a *autonomyLedgers) install(ctx context.Context, ex *executor.Executor,
 	if b.notifier != nil {
 		svc.WithRootAuthorityNotifier(b.notifier)
 	}
+	svc.WithRunningModel(b.runningModel)
 	a.registry.Register(b.database, earned.RegistryEntry{Service: svc, Limiter: lim})
 	return nil
 }

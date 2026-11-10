@@ -42,7 +42,7 @@ func (rt *databaseRuntime) installAutonomy(ex *executor.Executor) {
 	err := processAutonomy().install(rt.ctx, ex, autonomyBinding{database: rt.spec.Name,
 		control: control, monitored: rt.spec.Pool, databaseID: databaseID,
 		settings: settings, budget: slobudget.New(rt.sloEngine),
-		notifier: rt.ledgerNotifier()})
+		notifier: rt.ledgerNotifier(), runningModel: llmModelSource(rt.generalLLM)})
 	if err != nil {
 		logError(rt.spec.Scope, "db %q: trust ledger unavailable; self-initiated "+
 			"actions are blocked until it is: %v", rt.spec.Name, err)

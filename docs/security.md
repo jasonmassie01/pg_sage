@@ -254,6 +254,35 @@ What is sent to the LLM:
 
 What is **never** sent: row data, column values, passwords, connection strings, API keys, PII. Query text from `pg_stat_statements` contains parameterized placeholders (`$1`, `$2`), not literal values. Live session text pg_sage stores (the `locks` snapshot, served by `/api/v1/snapshots/latest?metric=locks`) has its string and dollar-quoted literals redacted before it is written and is cut to 256 bytes.
 
+#### Redaction before text reaches a model
+
+Query text, plans, index definitions and log lines that can carry literal
+values go through one sanitizer before they are put in a prompt:
+
+| Redacted | Kept |
+|---|---|
+| Comments (`/* ... */`, `-- ...`): removed | Keywords, operators and identifiers, quoted ones included (`"t123456"`) |
+| String literals (`'...'`, `E'...'`, typed `DATE '...'`): `'?'` | Numbers of 5 digits or fewer (`id = 12345`, `LIMIT 10`) |
+| Dollar-quoted bodies: `$?$` | Numbers outside comparisons (`LIMIT 1000000`, `numeric(12,2)`, function arguments) |
+| Numbers of 6 or more digits that are compared: `?` | `$1`-style parameters |
+| | JSON numbers in plans (`Plan Rows`, `Total Cost`), byte for byte |
+
+A number counts as compared after or before `=`, `<>`, `!=`, `<`, `>`, `<=` or
+`>=`, inside `IN (...)`, `ANY(ARRAY[...])` and `= ARRAY[...]`, as a
+`BETWEEN ... AND ...` bound, and in the log form `Key (pan)=(4111111111111111)`;
+a sign or decimal part is part of the number. So `WHERE pan = 4111111111111111 AND id IN (123456, 7)
+LIMIT 10` reaches the model as `WHERE pan = ? AND id IN (?, 7) LIMIT 10`. In
+plan JSON the SQL inside string values (`Filter`, `Index Cond`) is redacted
+the same way. Log messages (RCA Tier 2) keep `--` as ordinary text rather than
+stripping it as a comment. `llm.redact_numeric_literals: false` keeps numbers as they are
+(string, dollar and comment redaction always apply); the switch is
+process-wide and applies on a config reload without a restart.
+
+Every model call site must also send the shared untrusted-data rule with its
+prompt; a source check (`go test -run CallSite ./internal/llm/`) fails the
+build for a call whose prompt does not carry it and that is not annotated
+`//llm:transport <builder>` or `//llm:no-db-content <reason>`.
+
 ### Model output is data
 
 The configuration advisor's prompts carry query text and table names that any

@@ -84,6 +84,8 @@ func (r *run) loop(ctx, parent context.Context) error {
 }
 
 // step makes one model call and handles its reply; true ends the run.
+//
+//llm:transport internal/agentloop.systemPrompt
 func (r *run) step(ctx, parent context.Context, step int) (bool, error) {
 	// The last step, the last tool call or a token budget that cannot pay
 	// for two more calls: only the final tool is offered. The notice text

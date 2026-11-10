@@ -32,6 +32,10 @@ type llmClientRegistry struct {
 	bound   bool // true once registered as the controller's owner
 	parent  config.LLMConfig
 	entries []llmRegistryEntry
+	// global is the process-wide ceiling every tracked client is charged
+	// to (llm-03); globalLogged marks that its first value was logged.
+	global       *llm.Budget
+	globalLogged bool
 }
 
 var llmClients = &llmClientRegistry{}
@@ -44,6 +48,7 @@ func (r *llmClientRegistry) bind(parent config.LLMConfig) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.bound, r.parent, r.entries = true, parent, nil
+	r.global, r.globalLogged = llm.NewBudget(), false
 }
 
 func (r *llmClientRegistry) parentLocked() config.LLMConfig {
@@ -63,6 +68,8 @@ func (r *llmClientRegistry) add(
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.entries = append(r.entries, llmRegistryEntry{client, role, database, allowed})
+	r.attachGlobalLocked(client)
+	r.refreshGlobalLocked()
 }
 
 // newClient builds and tracks a client from the current parent config.
@@ -75,6 +82,8 @@ func (r *llmClientRegistry) newClient(
 	derived := derivedLLMConfig(r.parentLocked(), role, allowed)
 	client := llm.New(&derived, logStructuredWrapper)
 	r.entries = append(r.entries, llmRegistryEntry{client, role, database, allowed})
+	r.attachGlobalLocked(client)
+	r.refreshGlobalLocked()
 	return client
 }
 
@@ -93,6 +102,7 @@ func (r *llmClientRegistry) remove(clients ...*llm.Client) {
 		}
 	}
 	r.entries = kept
+	r.refreshGlobalLocked()
 }
 
 // releaseLLMClientsOnDone untracks a runtime's clients once its instance
@@ -117,6 +127,7 @@ func (r *llmClientRegistry) reconfigure(parent config.LLMConfig) {
 		derived := derivedLLMConfig(parent, entry.role, entry.allowed)
 		entry.client.Reconfigure(&derived)
 	}
+	r.refreshGlobalLocked()
 }
 
 func (r *llmClientRegistry) Prepare(

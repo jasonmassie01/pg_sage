@@ -81,7 +81,7 @@ func TestEnhanceWithLLM_PromptDelimitsAndRedactsUntrustedText(t *testing.T) {
 
 // Boundary: an empty plan still produces a well-formed, delimited prompt.
 func TestExplainUserPrompt_EmptyPlan(t *testing.T) {
-	prompt := explainUserPrompt(&ExplainResult{Query: "SELECT 1"})
+	prompt := explainUserPrompt(&ExplainResult{Query: "SELECT 1"}, 0)
 	if !strings.Contains(prompt, `<data label="query">`) ||
 		!strings.Contains(prompt, `<data label="plan">`) {
 		t.Fatalf("prompt = %q", prompt)

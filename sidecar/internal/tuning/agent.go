@@ -60,6 +60,9 @@ type Settings struct {
 	HintAbsentCycles int
 	// HintAdmission is the query tuner's admission of a statement.
 	HintAdmission HintAdmission
+	// ContextBudgetBytes is llm.context_budget_tokens in bytes: the case
+	// packet trims to it when it is below maxPacketBytes (0: no trim).
+	ContextBudgetBytes int
 }
 
 // Deps are the agent's collaborators. Model may be nil (the agent then

@@ -40,6 +40,7 @@ func initStandalone() {
 	}
 	llmClient = llm.New(&cfg.LLM, logStructuredWrapper)
 	registerLLMConfigOwner()
+	learnLLMInputLimits()
 	llmMgr = newStandaloneLLMManager(llmClient)
 	rt, err := buildDatabaseRuntime(ctx, databaseRuntimeSpec{
 		Scope: "startup", Name: name, Config: buildDBConfig(name),
@@ -67,6 +68,7 @@ func initFleetMultiDB() {
 	// LLM client + manager (shared across fleet).
 	llmClient = llm.New(&cfg.LLM, logStructuredWrapper)
 	registerLLMConfigOwner()
+	learnLLMInputLimits()
 	llmMgr = llm.NewManager(llmClient, nil, false)
 
 	// Per-database LLM token budget (F5): split a fleet-wide daily cap

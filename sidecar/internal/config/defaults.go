@@ -90,7 +90,8 @@ const (
 	DefaultOptLLMCooldownSeconds = 300
 	DefaultOptLLMMaxOutputTokens = 8192
 
-	DefaultAdvisorEnabled = true
+	DefaultAdvisorEnabled         = true
+	DefaultAdvisorIntervalSeconds = 86400
 
 	DefaultBriefingSchedule = "0 6 * * *"
 
