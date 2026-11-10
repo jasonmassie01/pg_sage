@@ -114,3 +114,23 @@ func TestService_RunCyclePrunesOrphanScopes(t *testing.T) {
 		t.Fatalf("logs = %q, want the prune reported", logs)
 	}
 }
+
+// With election off the prune runs unfenced, and this store's own scope
+// can keep a lease row from an earlier run with election on. However long
+// ago that lease expired, the live scope's rows are never pruned.
+func TestStore_PruneOrphanScopesKeepsOwnScopeWithAStaleLease(t *testing.T) {
+	ctx := context.Background()
+	pool := freshDB(t, "orphan_own_stale")
+	seedScope(t, pool, "live", 40)
+	seedScope(t, pool, "fleet:old", 40)
+	got, err := NewStore(pool, "live").PruneOrphanScopes(ctx, Fence{}, 14*24*time.Hour)
+	if err != nil || len(got) != 1 || got[0] != "fleet:old" {
+		t.Fatalf("pruned = %v err=%v, want [fleet:old]", got, err)
+	}
+	if n := scopeRows(t, pool, "live"); n != [3]int{1, 1, 1} {
+		t.Fatalf("own scope rows (fingerprint, digest, lease) = %v, want kept", n)
+	}
+	if n := scopeRows(t, pool, "fleet:old"); n != [3]int{0, 0, 0} {
+		t.Fatalf("orphan rows = %v, want pruned", n)
+	}
+}
