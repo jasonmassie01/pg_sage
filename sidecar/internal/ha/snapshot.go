@@ -74,3 +74,31 @@ func (s Status) Writable(now time.Time, cooldown time.Duration) bool {
 	}
 	return s.LastChange.IsZero() || now.Sub(s.LastChange) >= cooldown
 }
+
+// DefaultFailoverCooldown is how long after a role or node change the
+// node stays not writable when none is set (earned autonomy's default,
+// sre.autonomy.failover_cooldown_minutes).
+const DefaultFailoverCooldown = 30 * time.Minute
+
+// WithFailoverCooldown sets how long after a role or node change every
+// consumer of the monitor holds autonomous mutations; zero or negative is
+// DefaultFailoverCooldown.
+func (m *Monitor) WithFailoverCooldown(d time.Duration) *Monitor {
+	m.mu.Lock()
+	m.cooldown = d
+	m.mu.Unlock()
+	return m
+}
+
+// FailoverCooldown is the monitor's failover cooldown.
+func (m *Monitor) FailoverCooldown() time.Duration {
+	if m == nil {
+		return DefaultFailoverCooldown
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.cooldown <= 0 {
+		return DefaultFailoverCooldown
+	}
+	return m.cooldown
+}

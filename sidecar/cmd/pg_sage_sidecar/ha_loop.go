@@ -7,7 +7,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
-	"github.com/pg-sage/sidecar/internal/earned"
 	"github.com/pg-sage/sidecar/internal/ha"
 )
 
@@ -21,21 +20,20 @@ import (
 // haCheckTimeout bounds every check of the monitored database.
 const haCheckTimeout = 5 * time.Second
 
-// haFailoverCooldown is how long after a role or node change autonomous
-// mutations stay held: earned autonomy's failover cooldown, applied by
-// every consumer whatever sre.autonomy.enforce says.
-var haFailoverCooldown = earned.DefaultConfig().FailoverCooldown
-
 // newInstanceHAMonitor is the only HA monitor constructor of a database.
 // With a control pool its identity history is persisted there under the
 // database's stable key, so a failover while pg_sage was down opens the
-// cooldown at startup. Without a monitored pool there is no monitor.
+// cooldown at startup. cooldown is earned autonomy's failover cooldown
+// (sre.autonomy.failover_cooldown_minutes), which every consumer applies
+// whatever sre.autonomy.enforce says. Without a monitored pool there is
+// no monitor.
 func newInstanceHAMonitor(monitored, control *pgxpool.Pool, database string,
-	databaseID *int, cadence time.Duration) *ha.Monitor {
+	databaseID *int, cadence, cooldown time.Duration) *ha.Monitor {
 	if monitored == nil {
 		return nil
 	}
-	m := ha.New(monitored, logStructuredWrapper).WithCadence(cadence)
+	m := ha.New(monitored, logStructuredWrapper).WithCadence(cadence).
+		WithFailoverCooldown(cooldown)
 	if control == nil {
 		return m
 	}
@@ -91,10 +89,10 @@ func runHALoop(ctx context.Context, m *ha.Monitor) {
 }
 
 // haNotWritable reads m's snapshot: true unless the node is a confirmed
-// primary, outside safe mode and past the failover cooldown. A missing
+// primary, outside safe mode and past its failover cooldown. A missing
 // monitor, or one the loop stopped checking, is not writable.
 func haNotWritable(m *ha.Monitor) bool {
-	return !m.Snapshot().Writable(time.Now(), haFailoverCooldown)
+	return !m.Snapshot().Writable(time.Now(), m.FailoverCooldown())
 }
 
 // haReplicaGate is the isReplica signal of the router and the runway

@@ -64,7 +64,7 @@ func TestHAOneRoleProbePerCadenceOnLivePostgres(t *testing.T) {
 	control := autonomyPool(t)
 	monitored, tracer := tracedPool(t)
 	m := newInstanceHAMonitor(monitored, control, uniqueHADatabase(t, control), nil,
-		time.Minute)
+		time.Minute, 30*time.Minute)
 	ctx := context.Background()
 	for tick := 0; tick < 3; tick++ {
 		if checkHA(ctx, m) {
@@ -93,7 +93,7 @@ func TestHAStartupTimelineChangeHoldsTheExecutorCycle(t *testing.T) {
 	pool := autonomyPool(t)
 	name := uniqueHADatabase(t, pool)
 	ctx := context.Background()
-	first := newInstanceHAMonitor(pool, pool, name, nil, time.Minute)
+	first := newInstanceHAMonitor(pool, pool, name, nil, time.Minute, 30*time.Minute)
 	exec := &recordingExecutor{}
 	runFleetDBCycle(ctx, fleetCycleDeps{name: name, ha: first, exec: exec})
 	if exec.last(t) {
@@ -104,7 +104,7 @@ func TestHAStartupTimelineChangeHoldsTheExecutorCycle(t *testing.T) {
 	if err != nil || tag.RowsAffected() != 1 {
 		t.Fatalf("simulate a failover while down: rows=%d err=%v", tag.RowsAffected(), err)
 	}
-	restarted := newInstanceHAMonitor(pool, pool, name, nil, time.Minute)
+	restarted := newInstanceHAMonitor(pool, pool, name, nil, time.Minute, 30*time.Minute)
 	exec = &recordingExecutor{}
 	runFleetDBCycle(ctx, fleetCycleDeps{name: name, ha: restarted, exec: exec})
 	if !exec.last(t) {
@@ -123,7 +123,7 @@ func TestHAStartupTimelineChangeHoldsTheExecutorCycle(t *testing.T) {
 // server do not share a history).
 func checkedHAMonitor(t *testing.T, pool *pgxpool.Pool) *ha.Monitor {
 	t.Helper()
-	m := newInstanceHAMonitor(pool, nil, "test", nil, time.Minute)
+	m := newInstanceHAMonitor(pool, nil, "test", nil, time.Minute, 30*time.Minute)
 	if checkHA(context.Background(), m) {
 		t.Fatal("the test database is not a confirmed primary")
 	}

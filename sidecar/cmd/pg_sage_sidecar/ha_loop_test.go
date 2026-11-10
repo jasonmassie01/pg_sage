@@ -151,7 +151,7 @@ func TestHAFailingProbeMakesEveryConsumerNotWritable(t *testing.T) {
 // Nil/empty: a database without a pool has no monitor, and every consumer
 // fails closed.
 func TestHANoPoolHasNoMonitorAndEveryConsumerFailsClosed(t *testing.T) {
-	m := newInstanceHAMonitor(nil, nil, "orders", nil, time.Minute)
+	m := newInstanceHAMonitor(nil, nil, "orders", nil, time.Minute, time.Minute)
 	if m != nil {
 		t.Fatal("a database without a pool got an HA monitor")
 	}
@@ -295,10 +295,26 @@ func TestHACadence(t *testing.T) {
 	}
 }
 
-// The failover cooldown every consumer applies is earned autonomy's.
+// The failover cooldown every consumer applies is earned autonomy's
+// (sre.autonomy.failover_cooldown_minutes, 30 by default): one role
+// change holds the router and the executor cycle until it has passed.
 func TestHAFailoverCooldownIsEarnedAutonomys(t *testing.T) {
-	if haFailoverCooldown != earned.DefaultConfig().FailoverCooldown ||
-		haFailoverCooldown != 30*time.Minute {
-		t.Fatalf("HA cooldown = %v, want earned autonomy's 30m", haFailoverCooldown)
+	if ha.DefaultFailoverCooldown != earned.DefaultConfig().FailoverCooldown ||
+		config.DefaultConfig().SRE.Autonomy.FailoverCooldown() != ha.DefaultFailoverCooldown {
+		t.Fatalf("HA default cooldown %v, earned %v, config %v: want one 30m value",
+			ha.DefaultFailoverCooldown, earned.DefaultConfig().FailoverCooldown,
+			config.DefaultConfig().SRE.Autonomy.FailoverCooldown())
+	}
+	m, _ := scriptedHAMonitor(true, false)
+	m.WithFailoverCooldown(time.Nanosecond)
+	checkHA(context.Background(), m) // replica
+	checkHA(context.Background(), m) // primary: one flip, no safe mode
+	time.Sleep(time.Millisecond)
+	if haNotWritable(m) {
+		t.Fatal("a primary past a 1ns cooldown reads as not writable")
+	}
+	m.WithFailoverCooldown(time.Hour)
+	if !haNotWritable(m) || !haReplicaGate(m)(context.Background()) {
+		t.Fatal("a primary one flip ago, inside a 1h cooldown, reads as writable")
 	}
 }

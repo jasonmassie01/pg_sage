@@ -315,3 +315,25 @@ func TestCheck_ConcurrentChecksAreSerialized(t *testing.T) {
 		t.Fatalf("%d probes ran at once, want 1", got)
 	}
 }
+
+// The failover cooldown consumers apply: the default (30 m) when unset,
+// zero or negative, or on a nil monitor; otherwise what was set.
+func TestFailoverCooldown_DefaultsAndOverride(t *testing.T) {
+	m, _, _ := scriptedMonitor(t, primaryAnswer())
+	if m.FailoverCooldown() != DefaultFailoverCooldown ||
+		DefaultFailoverCooldown != 30*time.Minute {
+		t.Fatalf("unset cooldown = %v, want 30m", m.FailoverCooldown())
+	}
+	for _, d := range []time.Duration{0, -time.Minute} {
+		if got := m.WithFailoverCooldown(d).FailoverCooldown(); got != DefaultFailoverCooldown {
+			t.Fatalf("cooldown after WithFailoverCooldown(%v) = %v, want the default", d, got)
+		}
+	}
+	if got := m.WithFailoverCooldown(45 * time.Minute).FailoverCooldown(); got != 45*time.Minute {
+		t.Fatalf("cooldown = %v, want 45m", got)
+	}
+	var none *Monitor
+	if none.FailoverCooldown() != DefaultFailoverCooldown {
+		t.Fatal("a nil monitor has no default cooldown")
+	}
+}

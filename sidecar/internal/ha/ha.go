@@ -45,6 +45,8 @@ type Monitor struct {
 	// cadence is how often the database's HA loop checks; a snapshot
 	// older than staleCadences of it reads as unknown (snapshot.go).
 	cadence time.Duration
+	// cooldown is how long after a change consumers hold mutations.
+	cooldown time.Duration
 	// checkMu serializes checks, so a slow probe never records an older
 	// answer after a newer one.
 	checkMu sync.Mutex
