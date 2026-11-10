@@ -2,7 +2,6 @@ package forecaster
 
 import (
 	"encoding/json"
-	"math"
 	"strings"
 	"testing"
 	"time"
@@ -15,13 +14,13 @@ import (
 func TestRegression_CachePressureFractionUnits(t *testing.T) {
 	cfg := ForecasterConfig{CacheWarnThreshold: 0.95}
 	healthy := makeSysAggs(10, func(_ int) DaySystemAgg {
-		return DaySystemAgg{AvgCacheHitRatio: 0.99}
+		return DaySystemAgg{CacheHitRatio: 0.99}
 	})
 	if got := forecastCachePressure(healthy, cfg); len(got) != 0 {
 		t.Fatalf("healthy 99%% fraction flagged: %+v", got)
 	}
 	low := makeSysAggs(10, func(_ int) DaySystemAgg {
-		return DaySystemAgg{AvgCacheHitRatio: 0.80}
+		return DaySystemAgg{CacheHitRatio: 0.80}
 	})
 	got := forecastCachePressure(low, cfg)
 	if len(got) == 0 {
@@ -32,9 +31,10 @@ func TestRegression_CachePressureFractionUnits(t *testing.T) {
 	}
 }
 
-// C01: the daily average must normalise mixed legacy percent rows and
-// fraction rows, and ignore the no-data sentinel (-1).
-func TestRegression_SystemAggsNormaliseCacheRatio(t *testing.T) {
+// C01, superseded by forecast-04: the lifetime cache_hit_ratio of a row
+// (percent, fraction or the -1 sentinel) is no longer read. Rows without
+// the interval counters leave the day's cache input unknown, never -1.
+func TestRegression_SystemAggsLegacyCacheRowsAreUnknown(t *testing.T) {
 	pool, ctx := phase2RequireDB(t)
 	cleanupSnapshots(t, pool, ctx, "system")
 	t.Cleanup(func() { cleanupSnapshots(t, pool, ctx, "system") })
@@ -58,8 +58,9 @@ func TestRegression_SystemAggsNormaliseCacheRatio(t *testing.T) {
 	if err != nil {
 		t.Fatalf("QueryDailySystemAggs: %v", err)
 	}
-	if len(aggs) != 1 || math.Abs(aggs[0].AvgCacheHitRatio-0.99) > 1e-9 {
-		t.Fatalf("aggs = %+v, want one day with ratio 0.99", aggs)
+	if len(aggs) != 1 || !aggs[0].CacheUnknown || aggs[0].CacheHitRatio != 0 ||
+		aggs[0].CacheBlocksAccessed != 0 {
+		t.Fatalf("aggs = %+v, want one day with an unknown cache input", aggs)
 	}
 }
 

@@ -124,8 +124,10 @@ func TestAuditForecastNullSizeDayKeepsSystemCategories(t *testing.T) {
 	}
 	cats := f.LastEvaluatedCategories()
 	for _, c := range systemForecastCategories {
-		// forecast-03: legacy rows leave the checkpoint rule unevaluated.
-		if want := c != "forecast_checkpoint_pressure"; hasCategory(cats, c) != want {
+		// forecast-03: legacy rows leave the checkpoint rule unevaluated;
+		// forecast-04: and the cache rule (no interval counters).
+		want := c != "forecast_checkpoint_pressure" && c != "forecast_cache_pressure"
+		if hasCategory(cats, c) != want {
 			t.Errorf("%s evaluated = %v, want %v: %v", c, !want, want, cats)
 		}
 	}

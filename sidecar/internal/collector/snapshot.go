@@ -109,6 +109,11 @@ type TableStats struct {
 	// whose age PostgreSQL reports as 2147483647.
 	XIDAge  int64 `json:"xid_age"`
 	MXIDAge int64 `json:"mxid_age"`
+	// HeapBlksRead is the table's heap blocks read from outside
+	// shared_buffers since its statistics epoch (pg_statio_user_tables.
+	// heap_blks_read). The cache forecast ranks tables by its growth over
+	// a day (forecast-04); rows written before it lack the key.
+	HeapBlksRead int64 `json:"heap_blks_read"`
 	// Reloptions is pg_class.reloptions ("name=value" storage parameters,
 	// nil when none are set), read with the stats on every cycle.
 	Reloptions []string `json:"reloptions"`

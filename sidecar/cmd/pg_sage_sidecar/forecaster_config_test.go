@@ -19,3 +19,15 @@ func TestForecasterConfigCarriesCheckpointThreshold(t *testing.T) {
 		t.Fatalf("threshold = %v, want the configured 4.5", got)
 	}
 }
+
+// forecast-04: the runtime hands the cache day gate to the forecaster.
+func TestForecasterConfigCarriesCacheMinBlocks(t *testing.T) {
+	c := config.DefaultConfig()
+	if got := forecasterConfig(c).CacheMinBlocksPerDay; got != 100_000 {
+		t.Fatalf("default gate = %d, want 100000", got)
+	}
+	c.Forecaster.CacheMinBlocksPerDay = 7
+	if got := forecasterConfig(c).CacheMinBlocksPerDay; got != 7 {
+		t.Fatalf("gate = %d, want the configured 7", got)
+	}
+}
