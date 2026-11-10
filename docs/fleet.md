@@ -262,6 +262,18 @@ listed worst first, and by name among equal scores, so the tiles and the
 `pg_sage_fleet_instance_health` series keep a stable order. The rule is the
 same in every mode and on every provider.
 
+## HA role
+
+Each tile also shows the database's HA role: `primary`, `replica`, or
+`unknown` when the last check failed or is stale. It shows an `HA safe mode`
+badge while role flapping holds autonomous actions; hover the badge to see the
+last role change. `GET /api/v1/fleet` reports the same values as
+`status.ha_role`, `status.ha_safe_mode` and `status.ha_last_change` (the last
+one is absent until a change is seen). Each database has one HA monitor, and
+every part of pg_sage reads it. See
+[HA role checks](configuration.md#ha-role-checks) for the checks and
+`ha.check_interval_seconds`.
+
 ## Recurring across the fleet
 
 The **Fleet** page lists the problems open on several databases at once,

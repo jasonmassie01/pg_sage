@@ -461,6 +461,35 @@ HIGH-risk actions always require manual confirmation regardless of trust level.
 Plain CREATE/DROP/REINDEX and `VACUUM FULL` do not satisfy the typed background
 contracts; concurrent or non-FULL forms are required.
 
+### HA role checks
+
+| Parameter | Default | Description |
+|---|---|---|
+| `ha.check_interval_seconds` | `60` | Seconds between HA role checks of each database, `5`-`600`, at most the executor cycle (`analyzer.interval_seconds` + 5 s). Restart to apply |
+
+Each database has one HA monitor, in standalone, YAML fleet and meta-db mode
+alike. It checks the role (`pg_is_in_recovery()`) and the node identity
+(timeline, system identifier, start time) once at startup, then every
+`ha.check_interval_seconds` with a 5 s timeout, and once more just before each
+executor cycle. Everything else that needs the role reads that monitor's last
+check without probing: continuous custodian proposals, the runway advisor,
+earned autonomy and the fleet status. So they always agree, and the monitored
+database sees one role probe per interval.
+
+Autonomous actions run only on a confirmed primary, outside safe mode, and at
+least `sre.autonomy.failover_cooldown_minutes` (default `30`) after a role or
+node change. This holds whatever `sre.autonomy.enforce` says. Safe mode starts
+after 2 role flips within an hour and ends after 3 stable checks once 30
+minutes have passed since the last flip. The monitor fails closed: a failed
+check, or a last check older than three intervals, reads as role `unknown`.
+
+The node identity is kept in `sage.ha_identity` in the control database. A
+failover while pg_sage was not running is therefore seen at startup: a changed
+role, timeline or system identifier opens the cooldown for every consumer. On
+managed providers that restrict `pg_control_system()`, only the role is
+compared. `GET /api/v1/fleet` shows `ha_role`, `ha_safe_mode` and
+`ha_last_change` for each database, and the Fleet page shows them on each tile.
+
 ### One trust system
 
 Every action class pg_sage runs on its own initiative has one level per database in the
