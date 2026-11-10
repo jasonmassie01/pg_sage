@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/sqlident"
@@ -28,9 +29,10 @@ const maxSequenceSchemas = 200
 // system schemas and pg_sage's sage schema (the first look's user
 // schemas), and whether the role can read every sequence there. Readable
 // is the first look's test: SELECT or USAGE, either of which lets
-// pg_sequence_last_value read it.
+// pg_sequence_last_value read it. has_sequence_privilege is NULL for a
+// sequence dropped while the probe runs; it needs no grant.
 const sequenceSelectSQL = `/* pg_sage grants */ SELECT n.nspname::text,
-  bool_and(pg_catalog.has_sequence_privilege(c.oid, 'SELECT,USAGE'))
+  COALESCE(bool_and(pg_catalog.has_sequence_privilege(c.oid, 'SELECT,USAGE')), true)
 FROM pg_catalog.pg_class c
 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 WHERE c.relkind = 'S'
@@ -46,7 +48,16 @@ func CheckSequenceSelect(ctx context.Context, pool *pgxpool.Pool) (SequenceSelec
 	if pool == nil {
 		return SequenceSelect{}, ErrNoPool
 	}
-	rows, err := pool.Query(ctx, sequenceSelectSQL, maxSequenceSchemas)
+	return readSequenceSelect(ctx, pool)
+}
+
+// querier is what the probe reads through: the pool, or a transaction.
+type querier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
+func readSequenceSelect(ctx context.Context, q querier) (SequenceSelect, error) {
+	rows, err := q.Query(ctx, sequenceSelectSQL, maxSequenceSchemas)
 	if err != nil {
 		return SequenceSelect{}, fmt.Errorf("read sequence SELECT privileges: %w", err)
 	}
