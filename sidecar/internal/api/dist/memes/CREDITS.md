@@ -8,6 +8,8 @@ Fetched 2026-11-02. Source JPEGs were resized to a maximum dimension of 720 px a
 
 Template index / source service: https://imgflip.com/memetemplates .
 
+The bundled copies live in `sidecar/web/src/assets/memes/`. The build gives each one a content-hashed name under `/assets/`; the "Bundled file" names below are the source names.
+
 ## Distracted Boyfriend
 
 - Bundled file: `distracted-boyfriend.jpg`
