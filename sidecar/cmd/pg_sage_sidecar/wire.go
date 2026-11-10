@@ -14,6 +14,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/sre/probes"
 	"github.com/pg-sage/sidecar/internal/store"
 )
 
@@ -276,13 +277,13 @@ func applyMetaDatabaseUpdate(
 	if err != nil {
 		return nil, err
 	}
-	if oldRec.Name != candidate.Name {
-		unregisterFleetBudget(oldRec.Name)
-	}
 	if err := fleet.ShutdownInstance(ctx, retired); err != nil {
 		logWarn("meta-db",
 			"db %q: replacement published; old runtime still draining: %v",
 			candidate.Name, err)
+	}
+	if oldRec.Name != candidate.Name {
+		forgetRemovedDatabase(oldRec.Name)
 	}
 	updateInstanceFindings(context.Background(), candidate)
 	logInfo("meta-db", "db %q: replaced", candidate.Name)
@@ -306,12 +307,12 @@ func applyMetaDatabaseDelete(
 	if err != nil {
 		return err
 	}
-	unregisterFleetBudget(rec.Name)
 	if err := fleet.ShutdownInstance(context.WithoutCancel(ctx), retired); err != nil {
 		logWarn("meta-db",
 			"db %q: delete committed; runtime drain incomplete: %v",
 			rec.Name, err)
 	}
+	forgetRemovedDatabase(rec.Name)
 	return nil
 }
 
@@ -370,12 +371,15 @@ func replaceManagedDatabase(
 	return candidate, retired, err
 }
 
-// unregisterFleetBudget returns a deleted or renamed database's LLM budget
-// share to the remaining databases (G5-B06).
-func unregisterFleetBudget(name string) {
+// forgetRemovedDatabase returns a deleted or renamed database's LLM budget
+// share to the remaining databases (G5-B06) and drops its Sage SRE probe
+// queue series from /metrics (sre-06). Call it once the runtime is shut
+// down, so no late probe records the name again.
+func forgetRemovedDatabase(name string) {
 	if fleetLLMBudget != nil {
 		fleetLLMBudget.Unregister(name)
 	}
+	probes.ForgetQueueStats(name)
 }
 
 func cleanupManagedCandidate(candidate *fleet.DatabaseInstance) error {

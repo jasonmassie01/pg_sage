@@ -97,3 +97,28 @@ func TestHandleMetrics_ExposesSREProbeRefusals(t *testing.T) {
 		t.Fatalf("metrics missing %q:\n%s", want, out)
 	}
 }
+
+// A database removed from the fleet (reload, meta delete or rename) takes
+// its probe queue series off /metrics; the others stay.
+func TestForgetRemovedDatabase_DropsItsProbeSeries(t *testing.T) {
+	preserveValueGlobals(t)
+	cfg, pool, fleetMgr = &config.Config{Mode: "fleet"}, nil, nil
+	for _, name := range []string{"forget_removed_db", "forget_kept_db"} {
+		r := probes.NewRunner(nil, probes.Catalog(), probes.NewLimiter(1))
+		r.SetDatabaseName(name)
+		if err := r.WithSlot(probes.WithCaller(context.Background(), probes.CallerRunway),
+			func(context.Context) error { return nil }); err != nil {
+			t.Fatalf("WithSlot(%s) = %v", name, err)
+		}
+	}
+	forgetRemovedDatabase("forget_removed_db")
+	out := scrapeMetrics(t)
+	if strings.Contains(out, `database="forget_removed_db"`) {
+		t.Fatalf("metrics still carry the removed database:\n%s", out)
+	}
+	want := `pg_sage_sre_probe_queue_wait_seconds_count{database="forget_kept_db",` +
+		`caller="runway",limiter="sidecar"} 1`
+	if !strings.Contains(out, want) {
+		t.Fatalf("metrics lost the kept database's series %q:\n%s", want, out)
+	}
+}

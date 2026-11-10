@@ -76,8 +76,13 @@ var queueStats = struct {
 }{m: map[queueKey]*QueueStat{}}
 
 // observeQueue records one wait at a limiter and whether it was refused.
+// A runner with no database name (an embedder's) is not exported: every
+// series carries the database it belongs to, as the park counters do.
 func observeQueue(database string, c Caller, limiter string, wait time.Duration,
 	refused bool) {
+	if database == "" {
+		return
+	}
 	k := queueKey{database: database, caller: c, limiter: limiter}
 	queueStats.mu.Lock()
 	defer queueStats.mu.Unlock()
@@ -90,6 +95,22 @@ func observeQueue(database string, c Caller, limiter string, wait time.Duration,
 	s.WaitSeconds += wait.Seconds()
 	if refused {
 		s.Refusals++
+	}
+}
+
+// ForgetQueueStats drops every series of a database removed from the
+// fleet, so /metrics stops reporting it; a database added back starts at
+// zero. An empty name changes nothing: it is not a removed database.
+func ForgetQueueStats(database string) {
+	if database == "" {
+		return
+	}
+	queueStats.mu.Lock()
+	defer queueStats.mu.Unlock()
+	for k := range queueStats.m {
+		if k.database == database {
+			delete(queueStats.m, k)
+		}
 	}
 }
 
