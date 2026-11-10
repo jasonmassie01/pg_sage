@@ -75,7 +75,17 @@ func TestCollectorStatusesStandaloneIsNotDoubleCounted(t *testing.T) {
 	if got := collectorStatuses(mgr, coll, "app"); len(got) != 1 {
 		t.Errorf("standalone registered in the manager: %d statuses, want 1", len(got))
 	}
-	got := collectorStatuses(nil, coll, "app")
+	// Dedup is by collector, not by name: an instance renamed away from the
+	// standalone name must not report the same collector twice.
+	got := collectorStatuses(mgr, coll, "postgres")
+	if _, ok := got["app"]; !ok || len(got) != 1 {
+		t.Errorf("standalone under another instance name = %v, want only app", got)
+	}
+	other := newMetricsCollector()
+	if got := collectorStatuses(mgr, other, "solo"); len(got) != 2 {
+		t.Errorf("an unregistered standalone collector = %v, want app and solo", got)
+	}
+	got = collectorStatuses(nil, coll, "app")
 	if _, ok := got["app"]; !ok || len(got) != 1 {
 		t.Errorf("standalone without a manager = %v, want app", got)
 	}
