@@ -45,8 +45,8 @@ func TestSnapshotRows_CategoriesSortedAndUnavailableSkipped(t *testing.T) {
 			t.Errorf("%s: empty document", r.Category)
 		}
 	}
-	want := "config_data,foreign_keys,io,locks,partitions,queries,replication,sequences," +
-		"system,tables"
+	want := "config_data,foreign_keys,io,locks,partitioned_indexes,partitions,queries," +
+		"replication,sequences,system,tables"
 	if got := strings.Join(cats, ","); got != want {
 		t.Fatalf("categories = %s\nwant %s", got, want)
 	}

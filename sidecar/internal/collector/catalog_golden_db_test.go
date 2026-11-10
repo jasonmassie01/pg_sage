@@ -304,6 +304,19 @@ func TestCollectTables_DefaultTopNMeasuresOnlyTheLargest(t *testing.T) {
 	}
 }
 
+// attachedParent checks the rewrite's parent_index_oid, which has no
+// legacy column (rules-03): set exactly on the golden partitions' indexes,
+// which are attached to parted_id. It returns it for the comparison.
+func attachedParent(t *testing.T, cycle int, idx IndexStats) uint32 {
+	t.Helper()
+	attached := idx.SchemaName == "golden_cat" && strings.HasPrefix(idx.RelName, "parted_p")
+	if attached != (idx.ParentIndexOID != 0) {
+		t.Errorf("cycle %d %s.%s parent_index_oid %d, want set only on attached indexes",
+			cycle, idx.SchemaName, idx.IndexRelName, idx.ParentIndexOID)
+	}
+	return idx.ParentIndexOID
+}
+
 func TestCollectIndexes_GoldenAgainstLegacyView(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
@@ -324,7 +337,9 @@ func TestCollectIndexes_GoldenAgainstLegacyView(t *testing.T) {
 			if idx.SchemaName == "golden_cat" {
 				golden++
 			}
-			if w := want[idx.IndexRelID]; asJSON(t, w) != asJSON(t, idx) {
+			w := want[idx.IndexRelID]
+			w.ParentIndexOID = attachedParent(t, cycle, idx)
+			if asJSON(t, w) != asJSON(t, idx) {
 				t.Errorf("cycle %d index %d\n got  %s\n want %s", cycle, idx.IndexRelID,
 					asJSON(t, idx), asJSON(t, w))
 			}

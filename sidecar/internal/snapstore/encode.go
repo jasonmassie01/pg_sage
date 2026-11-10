@@ -32,7 +32,7 @@ var keyFields = map[string][]string{
 	"sequences":    {"schemaname", "sequencename"},
 	"foreign_keys": {"table_name", "constraint_name", "fk_column"},
 	"partitions":   {"child_schema", "child_table"},
-	// rules-03: partitioned (relkind I) indexes
+	// partitioned (relkind I) indexes, absent from pg_stat_user_indexes
 	"partitioned_indexes": {"schemaname", "indexrelname"},
 	"queries":             {"queryid"},
 	"io":                  {"backend_type", "object", "context"},
