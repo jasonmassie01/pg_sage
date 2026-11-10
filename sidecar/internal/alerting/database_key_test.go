@@ -45,7 +45,7 @@ func pdFor(t *testing.T, m *Manager, f AlertFinding, resolved bool) pdEvent {
 	t.Helper()
 	alert := m.newAlert("critical", f)
 	alert.Resolved = resolved
-	raw, err := NewPagerDuty("shared-rk", noop).buildPayload(alert)
+	raw, err := NewPagerDuty("shared-rk", legacyTestClient, noop).buildPayload(alert)
 	if err != nil {
 		t.Fatalf("buildPayload: %v", err)
 	}
@@ -85,7 +85,8 @@ func TestSlackHeaderNamesDatabase(t *testing.T) {
 	for _, resolved := range []bool{false, true} {
 		alert := managerFor("orders").newAlert("critical", f)
 		alert.Resolved = resolved
-		raw, err := NewSlack("https://hooks.slack.com/x", noop).buildPayload(alert)
+		slack := NewSlack("https://hooks.slack.com/x", legacyTestClient, noop)
+		raw, err := slack.buildPayload(alert)
 		if err != nil {
 			t.Fatalf("buildPayload: %v", err)
 		}
@@ -164,7 +165,7 @@ func TestPagerDutyDedupKey_LongIdentityStaysWithinLimit(t *testing.T) {
 
 func TestPagerDutyBuildPayload_NoFindingsStillRejected(t *testing.T) {
 	alert := managerFor("orders").newAlert("critical")
-	if _, err := NewPagerDuty("rk", noop).buildPayload(alert); err == nil {
+	if _, err := NewPagerDuty("rk", legacyTestClient, noop).buildPayload(alert); err == nil {
 		t.Fatal("alert without findings built a PagerDuty payload")
 	}
 }
@@ -202,7 +203,7 @@ func (c *captureTransport) snapshot() []pdEvent {
 
 func capturingPagerDuty() (*PagerDutyChannel, *captureTransport) {
 	tr := &captureTransport{}
-	ch := NewPagerDuty("shared-rk", noop)
+	ch := NewPagerDuty("shared-rk", legacyTestClient, noop)
 	ch.client = &http.Client{Transport: tr}
 	return ch, tr
 }

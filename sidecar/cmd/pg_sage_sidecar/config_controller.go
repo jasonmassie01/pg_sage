@@ -32,6 +32,15 @@ func initializeConfigController(controlPool *pgxpool.Pool) error {
 		}
 		warnInvalidStoredWindows(context.Background(), configStore, logWarn)
 	}
+	// Load checked the file; a dashboard override may have supplied the
+	// Slack URL or PagerDuty key, so the full alerting check runs on the
+	// effective config (alerting-08).
+	if err := cfg.ValidateAlerting(); err != nil {
+		return fmt.Errorf("config validation: %w", err)
+	}
+	if err := validateAlertTargets(cfg); err != nil {
+		return fmt.Errorf("config validation: %w", err)
+	}
 	// After persisted overrides: the notices describe the effective values.
 	noticeWindowMeaningChange(cfg.Trust.MaintenanceWindow, logWarn)
 	warnFastElevation(cfg, logWarn)
@@ -55,6 +64,10 @@ func ensureConfigController() error {
 // applyWatchedConfig publishes a reloaded config.yaml candidate through the
 // controller, persisting the generation when a control database exists.
 func applyWatchedConfig(updated *config.Config) error {
+	// The reloaded file may aim a channel somewhere the policy refuses.
+	if err := validateAlertTargets(updated); err != nil {
+		return fmt.Errorf("config validation: %w", err)
+	}
 	desired := configController.Desired()
 	var result config.ApplyResult
 	var applyErr error

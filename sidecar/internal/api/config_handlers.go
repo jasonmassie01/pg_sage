@@ -199,7 +199,8 @@ func applyControlledGlobalConfig(
 		return
 	}
 	delete(body, "expected_generation")
-	writes, validationErrs := validatedConfigWrites(body)
+	writes, validationErrs := validatedConfigWrites(
+		body, configTargetPolicy(controller.Desired().Config))
 	if len(validationErrs) > 0 {
 		jsonError(w, validationErrs[0], http.StatusBadRequest)
 		return
@@ -504,7 +505,7 @@ func configDBPutHandler(
 			executionMode = &mode
 			delete(body, "execution_mode")
 		}
-		writes, validationErrs := validatedConfigWrites(body)
+		writes, validationErrs := validatedConfigWrites(body, configTargetPolicy(cfg))
 		if len(validationErrs) > 0 {
 			jsonError(w, validationErrs[0], http.StatusBadRequest)
 			return

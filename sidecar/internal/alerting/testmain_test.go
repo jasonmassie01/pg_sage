@@ -8,5 +8,6 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	guardDefaultTransport()
 	os.Exit(testdb.Run(m.Run, "internal/alerting"))
 }

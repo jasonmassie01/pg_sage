@@ -12,6 +12,18 @@ import (
 	"github.com/pg-sage/sidecar/internal/notify"
 )
 
+// HTTPTimeout bounds every alert delivery request.
+const HTTPTimeout = 10 * time.Second
+
+// policyClient returns client, or one under the strict notification target
+// policy when none is given, so no channel connects unchecked (alerting-11).
+func policyClient(client *http.Client) *http.Client {
+	if client != nil {
+		return client
+	}
+	return notify.TargetPolicy{}.HTTPClient(HTTPTimeout)
+}
+
 // statusError is a non-2xx HTTP response.
 type statusError struct {
 	service string

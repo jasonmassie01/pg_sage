@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
 )
 
 // WebhookChannel sends alerts to a generic HTTP endpoint.
@@ -17,17 +16,19 @@ type WebhookChannel struct {
 	logFn   func(string, string, ...any)
 }
 
-// NewWebhook creates a generic webhook channel.
+// NewWebhook creates a generic webhook channel. client should come from the
+// notification target policy; nil applies the strict policy (alerting-11).
 func NewWebhook(
 	name, url string,
 	headers map[string]string,
+	client *http.Client,
 	logFn func(string, string, ...any),
 ) *WebhookChannel {
 	return &WebhookChannel{
 		name:    "webhook:" + name,
 		url:     url,
 		headers: headers,
-		client:  &http.Client{Timeout: 10 * time.Second},
+		client:  policyClient(client),
 		logFn:   logFn,
 	}
 }

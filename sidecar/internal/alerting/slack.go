@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/pg-sage/sidecar/internal/notify"
 )
@@ -23,14 +22,16 @@ type SlackChannel struct {
 	logFn      func(string, string, ...any)
 }
 
-// NewSlack creates a SlackChannel.
+// NewSlack creates a SlackChannel. client should come from the
+// notification target policy; nil applies the strict policy (alerting-11).
 func NewSlack(
 	webhookURL string,
+	client *http.Client,
 	logFn func(string, string, ...any),
 ) *SlackChannel {
 	return &SlackChannel{
 		webhookURL: webhookURL,
-		client:     &http.Client{Timeout: 10 * time.Second},
+		client:     policyClient(client),
 		logFn:      logFn,
 	}
 }

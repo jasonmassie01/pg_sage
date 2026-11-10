@@ -2,10 +2,11 @@ package alerting
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/config"
 )
 
 // Decision is the throttle's verdict for one alert.
@@ -171,32 +172,12 @@ func (t *Throttle) Reset() {
 // parseMinute converts "HH" or "HH:MM" to minute of day; -1 when empty
 // or invalid (invalid values are recorded as warnings).
 func (t *Throttle) parseMinute(field, s string) int {
-	m := parseMinuteOfDay(s)
+	m := config.QuietHourMinute(s)
 	if m < 0 && strings.TrimSpace(s) != "" {
 		t.warnings = append(t.warnings, fmt.Sprintf(
 			"invalid alerting %s %q (want HH:MM); quiet hours disabled", field, s))
 	}
 	return m
-}
-
-func parseMinuteOfDay(s string) int {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return -1
-	}
-	parts := strings.SplitN(s, ":", 2)
-	h, err := strconv.Atoi(parts[0])
-	if err != nil || h < 0 || h > 23 {
-		return -1
-	}
-	minute := 0
-	if len(parts) == 2 {
-		minute, err = strconv.Atoi(parts[1])
-		if err != nil || minute < 0 || minute > 59 {
-			return -1
-		}
-	}
-	return h*60 + minute
 }
 
 func maxDuration(a, b time.Duration) time.Duration {

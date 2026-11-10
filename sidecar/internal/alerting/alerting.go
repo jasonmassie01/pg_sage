@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -134,11 +135,7 @@ func (m *Manager) evaluate(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("query pending alerts: %w", err)
 	}
-	for sev, group := range groupBySeverity(mergeFindings(findings, pending)) {
-		if channels, ok := m.routes[sev]; ok {
-			m.dispatchGroup(ctx, sev, group, channels)
-		}
-	}
+	m.dispatchFindings(ctx, mergeFindings(findings, pending))
 	m.sendResolutions(ctx)
 
 	m.mu.Lock()
@@ -175,14 +172,9 @@ func (m *Manager) scanFindings(
 
 	var results []AlertFinding
 	for rows.Next() {
-		var f AlertFinding
-		if err := rows.Scan(
-			&f.ID, &f.Category, &f.Severity, &f.Title,
-			&f.ObjectType, &f.ObjectIdentifier,
-			&f.OccurrenceCount, &f.Recommendation,
-			&f.FirstSeen, &f.LastSeen,
-		); err != nil {
-			return nil, fmt.Errorf("scan finding row: %w", err)
+		f, err := scanFindingRow(rows)
+		if err != nil {
+			return nil, err
 		}
 		results = append(results, f)
 	}
@@ -190,6 +182,21 @@ func (m *Manager) scanFindings(
 		return nil, fmt.Errorf("iterate findings rows: %w", err)
 	}
 	return results, nil
+}
+
+// scanFindingRow scans the findingColumns of the current row, then extra.
+func scanFindingRow(rows pgx.Rows, extra ...any) (AlertFinding, error) {
+	var f AlertFinding
+	dest := append([]any{
+		&f.ID, &f.Category, &f.Severity, &f.Title,
+		&f.ObjectType, &f.ObjectIdentifier,
+		&f.OccurrenceCount, &f.Recommendation,
+		&f.FirstSeen, &f.LastSeen,
+	}, extra...)
+	if err := rows.Scan(dest...); err != nil {
+		return AlertFinding{}, fmt.Errorf("scan finding row: %w", err)
+	}
+	return f, nil
 }
 
 func (m *Manager) dispatchGroup(

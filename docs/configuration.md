@@ -2398,6 +2398,70 @@ under `sidecar/internal/logwatch/testdata/`. To cover a new major, run
 `python scripts/capture_logwatch_corpus.py --majors <n>` (it needs Docker and a
 `pgvector/pgvector:<version>-pg<n>` image) and then `go test ./internal/logwatch/`.
 
+### Alerting
+
+`alerting.*` sends new findings to Slack, PagerDuty and generic webhooks by severity. When
+`alerting.enabled` is true the block is checked at startup, and a sidecar whose routes would
+send nothing refuses to start with an error naming the key (for example
+`alerting.routes[0].channels[0] "Slack" is not a configured channel ... did you mean "slack"?`).
+The Slack URL and PagerDuty key may instead be saved from the Settings page; they are
+checked once those saved settings are applied, still before the sidecar starts work.
+A disabled block is not checked. In fleet mode the one shared block is checked once.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `alerting.enabled` | `false` | Send alerts. Needs at least one route that reaches a usable channel |
+| `alerting.check_interval_seconds` | `60` | How often new findings are read |
+| `alerting.cooldown_minutes` | `15` | Raises the per-severity cooldown floors: critical 5 min, warning 30 min, info 6 h. A value below a floor leaves that floor |
+| `alerting.quiet_hours_start` / `alerting.quiet_hours_end` | empty | `HH:MM` (00:00-23:59); set both or neither. The window may cross midnight. Warning and info alerts are deferred, never dropped, until it ends; critical alerts bypass it |
+| `alerting.timezone` | `UTC` (empty) | IANA zone for quiet hours, such as `America/Chicago`; an unknown zone refuses startup |
+| `alerting.slack_webhook_url` | empty | Slack incoming webhook; required by a route naming `slack`. Must pass the notification target policy (below) |
+| `alerting.pagerduty_routing_key` | empty | PagerDuty Events v2 routing key; required by a route naming `pagerduty` |
+| `alerting.webhooks[].name` | | Unique, non-empty name a route uses to reach the webhook |
+| `alerting.webhooks[].url` | | Where the JSON alert is posted; required. Must pass the notification target policy (below) |
+| `alerting.webhooks[].headers` | | Extra request headers; use `${NAME}` for secrets |
+| `alerting.routes[].severity` | | `critical`, `warning` or `info` (lower case) |
+| `alerting.routes[].channels` | | `slack`, `pagerduty`, or a webhook as `webhook:<name>` or plain `<name>`. Names are case-sensitive; `slack` and `pagerduty` always mean the built-in channels |
+
+```yaml
+alerting:
+  enabled: true
+  slack_webhook_url: ${SAGE_SLACK_WEBHOOK}
+  webhooks:
+    - name: myapp
+      url: https://hooks.example.com/pg-sage
+  routes:
+    - severity: critical
+      channels: [slack, myapp]      # myapp is the same as webhook:myapp
+    - severity: warning
+      channels: [slack]
+```
+
+A severity with no route is not sent. A hot-reloaded config file is checked the same way, and
+an invalid one is refused while the previous config keeps running. Values changed through the
+settings API are not checked against the routes, so an alerting change there never blocks an
+unrelated setting; if a route channel then has no URL or key, routing logs a warning naming it.
+
+Alerting connects through the notification target policy, like the notification channels
+(`notification_policy.allow_private_targets`). The Slack URL and every webhook URL must be
+`https` on a public host: plain `http`, loopback, RFC 1918, ULA and CGNAT addresses are refused
+unless `notification_policy.allow_private_targets: true` (set it for an on-prem relay), and
+link-local addresses (including the `169.254.169.254` cloud metadata endpoint), metadata host
+names, multicast and unspecified addresses are always refused. When alerting is enabled, a
+refused URL stops startup and a hot-reloaded file with one is refused, with an error naming
+the key but never the URL; a Slack URL saved through the settings API is refused with HTTP 400
+and nothing is stored. Every connection, including PagerDuty's, is checked again at connect
+time and on each redirect, and goes direct: `HTTPS_PROXY` and `HTTP_PROXY` are not used. In
+fleet mode all databases share the one policy.
+
+When an alerted finding resolves, each channel that delivered the alert and is still routed
+for the finding's severity gets one resolve notification (PagerDuty closes its incident),
+tried for up to 24 hours after the resolution. Each channel is tracked on its own in the Alert
+Log (`sage.alert_log`): success writes a `resolved` row; a failure writes a `resolve_error` row
+with the channel's error text, is logged at ERROR, and is retried on the next check, up to 5
+times per channel. After the fifth failure the ERROR log says it gave up; close that alert in the
+channel by hand.
+
 ### Retention
 
 | Parameter | Default | Description |

@@ -20,14 +20,17 @@ type PagerDutyChannel struct {
 	logFn      func(string, string, ...any)
 }
 
-// NewPagerDuty creates a PagerDutyChannel.
+// NewPagerDuty creates a PagerDutyChannel. The fixed Events API endpoint
+// goes through client too, so proxy and redirect handling match the other
+// channels; nil applies the strict target policy (alerting-11).
 func NewPagerDuty(
 	routingKey string,
+	client *http.Client,
 	logFn func(string, string, ...any),
 ) *PagerDutyChannel {
 	return &PagerDutyChannel{
 		routingKey: routingKey,
-		client:     &http.Client{Timeout: 10 * time.Second},
+		client:     policyClient(client),
 		logFn:      logFn,
 	}
 }

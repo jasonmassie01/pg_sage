@@ -127,9 +127,9 @@ func (f *fleetOnboardingReader) MCP(ctx context.Context) (bool, *bool) {
 }
 
 func (f *fleetOnboardingReader) Notifications(ctx context.Context) *bool {
-	a := f.cfg.Alerting
-	if a.Enabled && (a.SlackWebhookURL != "" || a.PagerDutyRoutingKey != "" ||
-		len(a.Webhooks) > 0) {
+	// Configured means alerting is on and a route reaches a usable channel,
+	// not merely that a URL or key is set (alerting-08).
+	if a := f.cfg.Alerting; a.Enabled && a.HasUsableRoute() {
 		yes := true
 		return &yes
 	}

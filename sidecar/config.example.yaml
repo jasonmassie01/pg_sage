@@ -127,6 +127,9 @@ briefing:
   slack_webhook_url: ""
 
 alerting:
+  # When enabled, startup refuses routes that would send nothing: channels
+  # are slack, pagerduty, or a webhook name (bare or "webhook:<name>"),
+  # case-sensitive; severities are critical, warning, info.
   enabled: false
   check_interval_seconds: 60    # How often to check for new findings
   cooldown_minutes: 15          # Min time between repeated alerts
@@ -141,7 +144,9 @@ alerting:
     - severity: warning
       channels: ["slack"]
     # info severity: not routed by default
-  # webhooks:
+    # - severity: info
+    #   channels: ["myapp"]       # same as "webhook:myapp"
+  # webhooks:                    # names must be unique
   #   - name: myapp
   #     url: https://hooks.example.com/pg-sage
   #     headers:

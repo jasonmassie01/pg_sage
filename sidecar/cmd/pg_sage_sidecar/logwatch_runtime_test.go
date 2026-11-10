@@ -79,6 +79,8 @@ func TestLogwatchRuntimeRejectsUnreadableConfiguredPath(t *testing.T) {
 func TestAlertRoutingRetainsOnlyExplicitKnownDestinations(t *testing.T) {
 	c := config.DefaultConfig()
 	c.Alerting.SlackWebhookURL = "http://127.0.0.1:1/slack"
+	// Loopback fixture URLs model an on-prem relay (alerting-11).
+	c.NotificationPolicy.AllowPrivateTargets = true
 	c.Alerting.PagerDutyRoutingKey = "fixture-only"
 	c.Alerting.Webhooks = []config.WebhookConfig{{Name: "local", URL: "http://127.0.0.1:1"}}
 	c.Alerting.Routes = []config.AlertRoute{

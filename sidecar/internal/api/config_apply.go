@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/store"
 )
 
@@ -22,7 +23,7 @@ func applyConfigOverrides(
 	databaseID int,
 	userID int,
 ) []string {
-	overrides, errs := validatedConfigWrites(body)
+	overrides, errs := validatedConfigWrites(body, configTargetPolicy(cfg))
 	if len(errs) > 0 {
 		return errs
 	}
@@ -51,8 +52,10 @@ func applyConfigOverrides(
 	return errs
 }
 
+// validatedConfigWrites checks each key and value, including the target
+// policy for URLs alerting connects to (alerting-11).
 func validatedConfigWrites(
-	body map[string]any,
+	body map[string]any, policy notify.TargetPolicy,
 ) ([]store.ConfigOverrideWrite, []string) {
 	writes := make([]store.ConfigOverrideWrite, 0, len(body))
 	var errs []string
@@ -64,6 +67,10 @@ func validatedConfigWrites(
 		if err := store.ValidateConfigOverride(key, value); err != nil {
 			errs = append(errs, fmt.Sprintf(
 				"%s: %s", key, configErrorMessage(err)))
+			continue
+		}
+		if err := checkConfigTarget(key, value, policy); err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", key, err))
 			continue
 		}
 		writes = append(writes, store.ConfigOverrideWrite{
