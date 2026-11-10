@@ -355,7 +355,10 @@ nothing consumes it (DEAD logic).
   binds it via `rcaEng.SetLogSource(fw)` (`main.go:570`). Fleet uses `LogFanout`
   (`fanout.go:23`) — one `FileWatcher` per host:port cluster fanned out to
   per-database `FanoutSubscriber`s (priority-capped 10000-entry buffers,
-  critical never evicted), bound per-DB at `main.go:1147`.
+  critical never evicted), bound per-DB at `main.go:1147`. A signal without a
+  database (a cluster event) goes only to the cluster owner, the lowest
+  subscriber id, tagged `scope=cluster`; `FanoutSubscriber.Stop` deletes the
+  buffer and moves ownership to the next id (rca-08).
 - **Wiring**: FULLY WIRED (standalone gated on `logwatch.enabled`, `main.go:547`;
   fleet via `startClusterFanout`/`runFanoutDrain`, `main.go:1314`/`:1368`).
 

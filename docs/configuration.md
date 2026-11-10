@@ -1880,7 +1880,11 @@ databases of the cluster do not repeat them. Cluster log signals carry `scope` `
 the next database by name becomes the owner and receives the cluster events it had not yet
 analyzed. A line that names a database still goes only to that database. In single-database
 mode the one database is the owner. `connections_high` counts client backends (not
-background workers) against `max_connections`.
+background workers) against `max_connections`. The cluster is named by the host:port each
+database connects to. Two names for one server (`localhost` and `127.0.0.1`) count as two
+clusters and repeat the cluster events. Databases of several servers reached through one
+pooler host:port count as one cluster, so only the owner's server raises these signals:
+connect each server's databases directly, or through a host:port of their own.
 
 **Managed services.** Their server log files are not reachable from the sidecar. RDS and
 Aurora send logs to CloudWatch Logs, Cloud SQL and AlloyDB to Cloud Logging, and Azure to
