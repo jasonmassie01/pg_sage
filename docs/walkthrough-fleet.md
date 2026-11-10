@@ -182,6 +182,35 @@ curl -b cookies.txt http://localhost:8080/api/v1/actions/pending
 curl -b cookies.txt http://localhost:8080/api/v1/shadow-report
 ```
 
+### The cases response in a fleet
+
+`GET /api/v1/cases` reads every database concurrently (at most 8 at a
+time), each under its own 5-second deadline. One database that is down or
+slow does not hide the others:
+
+- `unavailable` lists each database whose cases could not be read, as
+  `{"database": "pg2", "error_class": "connection"}`. `error_class` is
+  `timeout`, `connection` or `query`; the raw error stays in the sidecar
+  log (`cases read failed for database`). A fleet request (`database=all`
+  or no parameter) still answers `200` with the other databases' cases. A
+  request for one database that cannot be read answers `503` with
+  `error_class`. A database that could not connect when the sidecar
+  started is listed as `connection` too (log line `cases read skipped
+  for database without a pool`).
+- `truncated` names each database whose list was cut at its cap, per
+  source: `{"pg1": {"findings": true, "incidents": false, "query_hints":
+  false}}`. The caps are 500 open findings (most severe first), 100 open
+  incidents and 200 query hints per database.
+- `?case=<case id>` also loads that one case from its database when the
+  capped list does not carry it; `focus` reports `{"case", "found",
+  "loaded"}`. The Cases page uses this for case links.
+- A case whose action history could not be read carries
+  `"actions_unavailable": true`, so an empty `actions` list does not read
+  as "nothing was done".
+
+`GET /api/v1/shadow-report` carries the same `unavailable` list. All of
+these fields are additive; existing fields are unchanged.
+
 Metrics:
 
 ```bash

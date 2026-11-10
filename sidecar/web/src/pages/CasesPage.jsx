@@ -5,6 +5,7 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { SQLBlock } from '../components/SQLBlock'
 import { CaseControls, SuppressedFindings } from './cases/CaseControls'
 import { InvestigationPanel } from './cases/InvestigationPanel'
+import { CasesHealthNotes } from './cases/CasesHealthNotes'
 import { CandidateArtifacts } from './cases/CandidateArtifacts'
 import { FactBadges } from '../components/FactBadges'
 import { FindingFactSections } from './facts/FindingFactSections'
@@ -21,10 +22,14 @@ const SOURCE_FILTERS = [
   { value: 'incident', label: 'Incidents' },
 ]
 
-function dbParam(database) {
-  return database && database !== 'all'
-    ? `?database=${encodeURIComponent(database)}`
-    : ''
+// casesQuery selects the database and, for a focused case, asks the
+// server to load that case even when the capped list does not carry it.
+function casesQuery(database, focusedID) {
+  const params = new URLSearchParams()
+  if (database && database !== 'all') params.set('database', database)
+  if (focusedID) params.set('case', focusedID)
+  const query = params.toString()
+  return query ? `?${query}` : ''
 }
 
 // investigationsByCase keeps each case's newest investigation (the API
@@ -79,7 +84,7 @@ export function CasesPage({ database, initialSource = 'all', user }) {
     return () => window.removeEventListener('hashchange', onHashChange)
   }, [])
   const { data, loading, error, refetch } = useAPI(
-    `/api/v1/cases${dbParam(database)}`,
+    `/api/v1/cases${casesQuery(database, focusedID)}`,
     30000,
   )
   const investigations = useAPI(
@@ -122,6 +127,9 @@ export function CasesPage({ database, initialSource = 'all', user }) {
           describe returned cases; they do not establish collection health or user impact.
         </p>
       </div>
+
+      <CasesHealthNotes unavailable={data?.unavailable}
+        truncated={data?.truncated} />
 
       {focusedID ? (
         <a href={`#/cases${listQuery}`} className="inline-block text-sm underline"
@@ -269,6 +277,9 @@ function CaseCard({ caseRow, user, investigation, onDone, focused, onReview }) {
           <p>Source urgency note: {caseRow.why_now || 'not supplied'}</p>
           {factTarget?.object && <p className="font-mono break-all">Affected object: {factTarget.object}</p>}
           <p>Next: <span>{nextStep(caseRow)}</span></p>
+          {caseRow.actions_unavailable && <p data-testid="case-actions-unavailable">
+            The action history for this case could not be read; it may have
+            actions that are not shown.</p>}
           {candidate && <p>Policy: {policyLabel(candidate)}</p>}
           {caseRow.why && <div><strong>Source recommendation (review applicability before use): </strong>{caseRow.why}</div>}
         </div>
