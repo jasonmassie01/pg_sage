@@ -124,6 +124,9 @@ type Analyzer struct {
 	// unusedClock persists the unused_index zero-scan clock (rules-04);
 	// only touched by the cycle goroutine.
 	unusedClock *unusedClockStore
+
+	// freezeHorizons is the database's freeze sampler (WithFreezeHorizons).
+	freezeHorizons FreezeHorizonSource
 }
 
 // PlanNarrator enriches plan_regression findings with an LLM-generated

@@ -3,27 +3,23 @@ package autonomy
 import (
 	"context"
 	"fmt"
-	"math"
-	"strconv"
-	"strings"
-	"sync"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/custodian/freeze"
 	"github.com/pg-sage/sidecar/internal/policy"
+	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
 type PostgresFreezeCustodian struct {
-	pool         *pgxpool.Pool
-	database     string
-	threshold    freeze.Thresholds
-	mu           sync.Mutex
-	last         freezeCounters
-	lastMxidRate float64
+	pool      *pgxpool.Pool
+	database  string
+	threshold freeze.Thresholds
+	// sampler is the database's one horizon reader and rate state, shared
+	// with the runway advisor and the analyzer (Sampler).
+	sampler *FreezeSampler
 	// bloatMinBytes is the least heap size for a bloat plan;
 	// confirmBounds bound each pgstattuple confirmation, which confirm
 	// runs (pgstattupleApprox unless a test replaces it).
@@ -41,14 +37,29 @@ type PostgresFreezeCustodian struct {
 func NewPostgresFreezeCustodian(
 	pool *pgxpool.Pool, database string, redBufferPct float64,
 ) *PostgresFreezeCustodian {
+	var source txBeginner // a nil pool stays a nil interface: Read then errs
+	if pool != nil {
+		source = pool
+	}
 	c := &PostgresFreezeCustodian{
 		pool: pool, database: database,
 		threshold:     freeze.BufferThresholds(redBufferPct),
 		bloatMinBytes: config.DefaultTableBloatMinBytes,
 		confirmBounds: catalogread.Default(),
+		sampler:       NewFreezeSampler(source, config.DefaultTableBloatMinBytes, 0),
 	}
 	c.confirm = c.pgstattupleApprox
 	c.detail = c.readSessionDetail
+	return c
+}
+
+// Sampler is the custodian's horizon reader, for the runway advisor and
+// the analyzer of the same database.
+func (c *PostgresFreezeCustodian) Sampler() *FreezeSampler { return c.sampler }
+
+// WithSampleTTL lets readers within ttl of a reading share it.
+func (c *PostgresFreezeCustodian) WithSampleTTL(ttl time.Duration) *PostgresFreezeCustodian {
+	c.sampler.ttl = max(ttl, 0)
 	return c
 }
 
@@ -56,7 +67,7 @@ func (c *PostgresFreezeCustodian) Scan(ctx context.Context) ([]Proposal, error) 
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	rates, err := c.transactionRates(ctx)
+	reading, err := c.sampler.Read(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -64,64 +75,37 @@ func (c *PostgresFreezeCustodian) Scan(ctx context.Context) ([]Proposal, error) 
 	if err != nil {
 		return nil, err
 	}
-	holders, horizons, err := c.readAges(ctx)
-	if err != nil {
-		return nil, err
-	}
+	horizons := c.freezeRows(reading.Horizons)
 	c.confirmBloat(ctx, horizons, ext.pgstattuple)
-	return c.plan(ctx, horizons, rates, holders, ext.pgRepack)
+	return c.plan(ctx, horizons, reading.rates, reading.Holders, ext.pgRepack)
 }
 
-// readAges reads the xmin holders and the table horizons in one read-only
-// transaction. age() measures from a reference XID that stays fixed for a
-// transaction, so every holder's age and every table's age share one
-// reference: XIDs the cluster consumes between the two reads cannot make a
-// holder look younger than the tables it pins (and a futile freeze look
-// useful).
+// readAges reads the xmin holders and the table horizons of one sampler
+// reading. age() measures from a reference XID that stays fixed for a
+// transaction, and the sampler reads both in one: XIDs the cluster
+// consumes between the two reads cannot make a holder look younger than
+// the tables it pins (and a futile freeze look useful).
 func (c *PostgresFreezeCustodian) readAges(
 	ctx context.Context,
 ) ([]freeze.XminBlocker, []freezeRow, error) {
-	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
-	if err != nil {
-		return nil, nil, fmt.Errorf("begin freeze age read: %w", err)
-	}
-	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }() // read-only
-	holders, err := c.xminHolders(ctx, tx)
+	reading, err := c.sampler.Read(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
-	horizons, err := c.readHorizons(ctx, tx)
-	if err != nil {
-		return nil, nil, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, nil, fmt.Errorf("end freeze age read: %w", err)
-	}
-	return holders, horizons, nil
+	return reading.Holders, c.freezeRows(reading.Horizons), nil
 }
 
-// readHorizons reads every table's freeze horizon and catalog bloat
-// estimate (the estimate only for heaps at the size floor).
-func (c *PostgresFreezeCustodian) readHorizons(
-	ctx context.Context, q catalogread.Querier,
-) ([]freezeRow, error) {
-	rows, err := q.Query(ctx, freezeHorizonSQL, c.bloatMinBytes)
-	if err != nil {
-		return nil, fmt.Errorf("read freeze horizons: %w", err)
-	}
-	defer rows.Close()
-	var result []freezeRow
-	for rows.Next() {
-		row, err := scanHorizonRow(rows)
-		if err != nil {
-			return nil, err
+// freezeRows are the horizons the custodian answers: pg_sage's own schema
+// is left to autovacuum, as before the shared reader.
+func (c *PostgresFreezeCustodian) freezeRows(horizons []probes.FreezeHorizon) []freezeRow {
+	rows := make([]freezeRow, 0, len(horizons))
+	for _, h := range horizons {
+		if h.Schema == "sage" {
+			continue
 		}
-		result = append(result, row)
+		rows = append(rows, newFreezeRow(h))
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate freeze horizons: %w", err)
-	}
-	return result, nil
+	return rows
 }
 
 // respond answers one table's horizon: the freeze ladder, then a bloat
@@ -138,7 +122,8 @@ func (c *PostgresFreezeCustodian) respond(
 		return Proposal{}, nil, fmt.Errorf("evaluate freeze response: %w", err)
 	}
 	input := freeze.ResponseInput{Schema: sample.Schema, Table: sample.Table,
-		Urgency: assessment.Urgency, XIDAge: sample.XIDAge, DeadTupleRatio: row.deadRatio,
+		Urgency: assessment.Urgency, XIDAge: sample.XIDAge, MultiXactAge: sample.MultiXactAge,
+		Aggressive: sample.Aggressive, DeadTupleRatio: row.deadRatio,
 		BloatRatio: row.bloat, BloatKnown: row.bloatKnown, BloatSource: row.bloatSource,
 		SizeBytes: row.heapBytes, MinBloatBytes: c.bloatMinBytes,
 		PGRepackAvailable: repack}
@@ -220,106 +205,3 @@ func freezePolicyDeadline(proposal freeze.Proposal) *policy.DeadlineContext {
 		HardAt: proposal.Deadline.HardAt,
 	}
 }
-
-// freezeCounters is one sample of the XID and multixact consumption
-// counters. nextXID is the snapshot xmax (it advances only for transactions
-// that were assigned an XID, i.e. the ones that consume wraparound runway).
-type freezeCounters struct {
-	at      time.Time
-	nextXID int64
-	mxidAge int64
-}
-
-type freezeRateSample struct {
-	xid, mxid float64
-	known     bool
-	// failsafeAge is vacuum_failsafe_age (PG14+), 0 when the server does
-	// not report it; deadline evidence only, read with the counters.
-	failsafeAge int64
-}
-
-const minimumFreezeRate = 0.001
-
-// freezeRates derives per-second rates from two samples. The first sample
-// yields no rate; a negative multixact delta (datminmxid advanced) yields an
-// unknown multixact rate (-1).
-func freezeRates(prev, cur freezeCounters) (float64, float64, bool) {
-	if prev.at.IsZero() || !cur.at.After(prev.at) {
-		return 0, 0, false
-	}
-	seconds := cur.at.Sub(prev.at).Seconds()
-	xid := math.Max(float64(cur.nextXID-prev.nextXID)/seconds, minimumFreezeRate)
-	mxid := -1.0
-	if delta := cur.mxidAge - prev.mxidAge; delta >= 0 {
-		mxid = math.Max(float64(delta)/seconds, minimumFreezeRate)
-	}
-	return xid, mxid, true
-}
-
-func (c *PostgresFreezeCustodian) transactionRates(ctx context.Context) (freezeRateSample, error) {
-	var cur freezeCounters
-	var failsafe *string
-	if err := c.pool.QueryRow(ctx, `/* pg_sage */ SELECT
-		pg_snapshot_xmax(pg_current_snapshot())::text::bigint,
-		mxid_age(datminmxid)::bigint,
-		current_setting('vacuum_failsafe_age', true)
-		FROM pg_database WHERE datname=current_database()`).
-		Scan(&cur.nextXID, &cur.mxidAge, &failsafe); err != nil {
-		return freezeRateSample{}, fmt.Errorf("read transaction counters: %w", err)
-	}
-	failsafeAge := parseFailsafeAge(failsafe)
-	cur.at = time.Now()
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	xid, mxid, known := freezeRates(c.last, cur)
-	c.last = cur
-	if mxid > 0 {
-		c.lastMxidRate = mxid
-	} else if c.lastMxidRate > 0 {
-		mxid = c.lastMxidRate
-	}
-	if !known {
-		return freezeRateSample{xid: minimumFreezeRate, mxid: minimumFreezeRate,
-			failsafeAge: failsafeAge}, nil
-	}
-	return freezeRateSample{xid: xid, mxid: math.Max(mxid, minimumFreezeRate), known: true,
-		failsafeAge: failsafeAge}, nil
-}
-
-// parseFailsafeAge reads vacuum_failsafe_age best-effort: a missing
-// setting (PG13 and older, or hidden by a managed provider) or an
-// unparsable or non-positive value is unknown (0).
-func parseFailsafeAge(setting *string) int64 {
-	if setting == nil {
-		return 0
-	}
-	age, err := strconv.ParseInt(strings.TrimSpace(*setting), 10, 64)
-	if err != nil || age <= 0 {
-		return 0
-	}
-	return age
-}
-
-// freezeHorizonSQL reads the catalog only (measured.md M3): the heap size
-// is relpages, and the bloat estimate's pg_stats lookup runs only for heaps
-// at the size floor ($1), so a small table costs one catalog row. The last
-// column marks user catalog tables, which a slot's catalog_xmin holds.
-var freezeHorizonSQL = `/* pg_sage */
-SELECT n.nspname, c.relname, age(c.relfrozenxid)::bigint,
-       current_setting('autovacuum_freeze_max_age')::bigint,
-       mxid_age(c.relminmxid)::bigint,
-       current_setting('autovacuum_multixact_freeze_max_age')::bigint,
-       CASE WHEN t.live + t.dead = 0 THEN 0 ELSE t.dead::float8 / (t.live + t.dead) END,
-       c.oid::bigint, c.relpages::bigint, h.heap_bytes,
-       CASE WHEN h.heap_bytes >= $1 THEN ` + catalogread.HeapExpectedPagesSQL("c", "n") +
-	`::float8 END,
-       EXISTS (SELECT 1 FROM pg_options_to_table(c.reloptions) o
-               WHERE o.option_name = 'user_catalog_table'
-                 AND lower(o.option_value) IN ('true', 'on', 'yes', '1'))
-FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-CROSS JOIN LATERAL (SELECT pg_stat_get_live_tuples(c.oid) AS live,
-                           pg_stat_get_dead_tuples(c.oid) AS dead) t
-CROSS JOIN LATERAL (SELECT c.relpages::bigint
-                           * current_setting('block_size')::bigint AS heap_bytes) h
-WHERE c.relkind IN ('r','m')
-AND n.nspname NOT IN ('pg_catalog','information_schema','pg_toast','sage')`

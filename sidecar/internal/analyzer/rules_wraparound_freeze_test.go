@@ -1,154 +1,124 @@
 package analyzer
 
 import (
-	"math"
 	"strings"
 	"testing"
 
 	"github.com/pg-sage/sidecar/internal/collector"
+	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
-func TestRuleWraparoundFreeze_WarningAndCritical(t *testing.T) {
+// vacuum-08: the analyzer diagnoses wraparound against each table's
+// effective freeze maximum (the shared horizon reader) and never proposes
+// the VACUUM: the freeze custodian is its only producer. No concurrency
+// test: the rule is a pure function of its arguments.
+
+func horizon(schema, table string, age, maxAge int64) probes.FreezeHorizon {
+	return probes.FreezeHorizon{Schema: schema, Table: table, XIDAge: age,
+		XIDMaxAge: maxAge, MultiXactAge: 1, MultiXactMaxAge: 400_000_000}
+}
+
+func freezeExtras(h ...probes.FreezeHorizon) *RuleExtras {
+	return &RuleExtras{FreezeHorizons: h}
+}
+
+func anySnapshot() *collector.Snapshot {
+	return &collector.Snapshot{Tables: []collector.TableStats{
+		{SchemaName: "public", RelName: "t"}}}
+}
+
+func TestRuleWraparoundFreeze_ShareBoundary(t *testing.T) {
 	cfg := testConfig()
-	cfg.Analyzer.WraparoundFreezeXIDAge = 150_000_000
-	snap := &collector.Snapshot{Tables: []collector.TableStats{
-		{SchemaName: "public", RelName: "warm", XIDAge: 160_000_000},
-		{SchemaName: "public", RelName: "hot", XIDAge: 210_000_000},
-		{SchemaName: "public", RelName: "fine", XIDAge: 1_000_000},
-	}}
-	f := ruleWraparoundFreeze(snap, nil, cfg, nil)
-	if len(f) != 2 {
-		t.Fatalf("expected 2 findings, got %d", len(f))
+	below := ruleWraparoundFreeze(anySnapshot(), nil, cfg,
+		freezeExtras(horizon("public", "below", 7_499, 10_000)))
+	if len(below) != 0 {
+		t.Fatalf("share 0.7499 gave %#v, want no finding", below)
 	}
-	bySeverity := map[string]Finding{}
+	at := ruleWraparoundFreeze(anySnapshot(), nil, cfg,
+		freezeExtras(horizon("public", "at", 7_500, 10_000)))
+	if len(at) != 1 || at[0].Severity != "warning" || at[0].ObjectIdentifier != "public.at" ||
+		at[0].Category != "wraparound_freeze" {
+		t.Fatalf("share 0.75 gave %#v, want one warning for public.at", at)
+	}
+}
+
+// The finding is diagnosis only: no statement and no action risk, and its
+// detail points at the custodian's decision.
+func TestRuleWraparoundFreeze_DiagnosisOnly(t *testing.T) {
+	f := ruleWraparoundFreeze(anySnapshot(), nil, testConfig(),
+		freezeExtras(horizon("public", "hot", 210_000_000, 200_000_000)))
+	if len(f) != 1 {
+		t.Fatalf("findings = %#v, want one", f)
+	}
+	got := f[0]
+	if got.RecommendedSQL != "" || got.ActionRisk != "" || got.RollbackSQL != "" {
+		t.Fatalf("finding proposes an action: sql %q risk %q", got.RecommendedSQL,
+			got.ActionRisk)
+	}
+	if got.Severity != "critical" {
+		t.Fatalf("past its maximum: severity %q, want critical", got.Severity)
+	}
+	link, ok := got.Detail["custodian_decision"].(map[string]any)
+	if !ok || link["feature"] != "freeze" || link["target"] != "public.hot" {
+		t.Fatalf("detail does not link the custodian decision: %#v", got.Detail)
+	}
+	if got.Detail["freeze_max_age"] != int64(200_000_000) || got.Detail["xid_age"] !=
+		int64(210_000_000) || !strings.Contains(got.Recommendation, "custodian") {
+		t.Fatalf("detail/recommendation = %#v / %q", got.Detail, got.Recommendation)
+	}
+}
+
+// A DBA's autovacuum_freeze_max_age of 1e9 is respected: 300M is green.
+func TestRuleWraparoundFreeze_RespectsTheTunedMaximum(t *testing.T) {
+	f := ruleWraparoundFreeze(anySnapshot(), nil, testConfig(),
+		freezeExtras(horizon("public", "big", 300_000_000, 1_000_000_000),
+			horizon("public", "tuned", 80_000, 100_000)))
+	if len(f) != 1 || f[0].ObjectIdentifier != "public.tuned" {
+		t.Fatalf("findings = %#v, want public.tuned only", f)
+	}
+}
+
+func TestRuleWraparoundFreeze_MultiXactAndCatalogs(t *testing.T) {
+	mx := horizon("public", "mx", 1, 200_000_000)
+	mx.MultiXactAge, mx.MultiXactMaxAge = 350_000_000, 400_000_000
+	cat := horizon("pg_catalog", "pg_class", 160_000_000, 200_000_000)
+	cat.Catalog = true
+	own := horizon("sage", "findings", 199_000_000, 200_000_000)
+	f := ruleWraparoundFreeze(anySnapshot(), nil, testConfig(), freezeExtras(mx, cat, own))
+	byObject := map[string]Finding{}
 	for _, x := range f {
-		bySeverity[x.Severity] = x
+		byObject[x.ObjectIdentifier] = x
 	}
-	if _, ok := bySeverity["warning"]; !ok {
-		t.Error("expected a warning finding")
+	if len(f) != 2 || byObject["public.mx"].Category == "" ||
+		byObject["pg_catalog.pg_class"].Detail["catalog"] != true {
+		t.Fatalf("findings = %#v, want the multixact table and the catalog", f)
 	}
-	crit, ok := bySeverity["critical"]
-	if !ok {
-		t.Fatal("expected a critical finding for age >= 200M")
-	}
-	if !strings.Contains(crit.RecommendedSQL, `VACUUM (FREEZE) "public"."hot"`) {
-		t.Errorf("RecommendedSQL = %q", crit.RecommendedSQL)
-	}
-	if crit.ActionRisk != "safe" {
-		t.Errorf("ActionRisk = %q", crit.ActionRisk)
+	if _, flagged := byObject["sage.findings"]; flagged {
+		t.Fatal("pg_sage's own schema was diagnosed")
 	}
 }
 
-func TestRuleWraparoundFreeze_NilAndBelowThreshold(t *testing.T) {
+func TestRuleWraparoundFreeze_NilEmptyAndInvalidShare(t *testing.T) {
 	cfg := testConfig()
-	cfg.Analyzer.WraparoundFreezeXIDAge = 150_000_000
-	if got := ruleWraparoundFreeze(nil, nil, cfg, nil); got != nil {
-		t.Errorf("expected nil for nil snapshot")
+	if got := ruleWraparoundFreeze(anySnapshot(), nil, cfg, nil); got != nil {
+		t.Fatalf("nil extras gave %#v", got)
 	}
-	snap := &collector.Snapshot{Tables: []collector.TableStats{
-		{SchemaName: "public", RelName: "young", XIDAge: 100},
-	}}
-	if got := ruleWraparoundFreeze(snap, nil, cfg, nil); len(got) != 0 {
-		t.Errorf("expected 0 findings below threshold, got %d", len(got))
+	if got := ruleWraparoundFreeze(anySnapshot(), nil, cfg, &RuleExtras{}); got != nil {
+		t.Fatalf("no horizons gave %#v", got)
 	}
-}
-
-// vacuum-01: the warning starts at the configured threshold and the
-// critical at 200M, both inclusive.
-func TestRuleWraparoundFreeze_SeverityBoundaries(t *testing.T) {
-	cfg := testConfig()
-	cfg.Analyzer.WraparoundFreezeXIDAge = 150_000_000
-	for _, tc := range []struct {
-		age  int64
-		want string
-	}{
-		{149_999_999, ""}, {150_000_000, "warning"},
-		{199_999_999, "warning"}, {200_000_000, "critical"},
-	} {
-		snap := &collector.Snapshot{Tables: []collector.TableStats{
-			{SchemaName: "public", RelName: "t", Relkind: "r", XIDAge: tc.age},
-		}}
-		got := ruleWraparoundFreeze(snap, nil, cfg, nil)
-		switch {
-		case tc.want == "" && len(got) != 0:
-			t.Errorf("age %d: %d findings, want none", tc.age, len(got))
-		case tc.want != "" && (len(got) != 1 || got[0].Severity != tc.want):
-			t.Errorf("age %d: %+v, want one %s", tc.age, got, tc.want)
-		}
+	unknown := horizon("public", "unknown", 5, 0)
+	unknown.MultiXactMaxAge = 0
+	if got := ruleWraparoundFreeze(nil, nil, cfg, freezeExtras(unknown)); len(got) != 0 {
+		t.Fatalf("unknown maxima gave %#v", got)
+	}
+	cfg.Analyzer.WraparoundFreezeShare = 0 // unset: the shipped 0.75
+	if got := ruleWraparoundFreeze(nil, nil, cfg,
+		freezeExtras(horizon("public", "x", 7_400, 10_000))); len(got) != 0 {
+		t.Fatalf("zero share fell below the default: %#v", got)
+	}
+	cfg.Analyzer.WraparoundFreezeShare = 0.5
+	if got := ruleWraparoundFreeze(nil, nil, cfg,
+		freezeExtras(horizon("public", "x", 5_000, 10_000))); len(got) != 1 {
+		t.Fatalf("configured share 0.5 ignored: %#v", got)
 	}
 }
-
-// vacuum-01: a partitioned parent has no storage of its own (relfrozenxid
-// 0), and a VACUUM of it recurses into every partition. It is never a
-// finding, whatever age it carries; its leaves are assessed individually.
-func TestRuleWraparoundFreeze_PartitionedParentNeverFlagged(t *testing.T) {
-	cfg := testConfig()
-	cfg.Analyzer.WraparoundFreezeXIDAge = 150_000_000
-	snap := &collector.Snapshot{Tables: []collector.TableStats{
-		{SchemaName: "public", RelName: "parent", Relkind: "p", XIDAge: math.MaxInt32},
-		{SchemaName: "public", RelName: "parent2", Relkind: "p", XIDAge: 300_000_000},
-		{SchemaName: "public", RelName: "leaf", Relkind: "r", XIDAge: 210_000_000},
-		{SchemaName: "public", RelName: "mv", Relkind: "m", XIDAge: 160_000_000},
-	}}
-	got := ruleWraparoundFreeze(snap, nil, cfg, nil)
-	if len(got) != 2 {
-		t.Fatalf("findings = %+v, want the leaf and the matview only", got)
-	}
-	idents := map[string]string{}
-	for _, f := range got {
-		idents[f.ObjectIdentifier] = f.Severity
-	}
-	if idents["public.leaf"] != "critical" || idents["public.mv"] != "warning" {
-		t.Fatalf("findings by object = %v", idents)
-	}
-}
-
-// vacuum-01: an unknown age (-1) is never a finding, and neither is the
-// non-normal-XID sentinel 2147483647 from a row without a relkind (a
-// snapshot collected before relkind existed): no real table reaches it,
-// since PostgreSQL stops assigning XIDs well before.
-func TestRuleWraparoundFreeze_UnknownAgeIgnored(t *testing.T) {
-	cfg := testConfig()
-	cfg.Analyzer.WraparoundFreezeXIDAge = 1
-	snap := &collector.Snapshot{Tables: []collector.TableStats{
-		{SchemaName: "public", RelName: "unknown", Relkind: "r", XIDAge: -1},
-		{SchemaName: "public", RelName: "legacy_parent", XIDAge: math.MaxInt32},
-		{SchemaName: "public", RelName: "negative", Relkind: "r", XIDAge: -42},
-	}}
-	if got := ruleWraparoundFreeze(snap, nil, cfg, nil); len(got) != 0 {
-		t.Fatalf("findings = %+v, want none", got)
-	}
-}
-
-func TestRuleWraparoundFreeze_EmptyTablesGiveNil(t *testing.T) {
-	cfg := testConfig()
-	for _, snap := range []*collector.Snapshot{
-		{}, {Tables: []collector.TableStats{}},
-	} {
-		if got := ruleWraparoundFreeze(snap, nil, cfg, nil); got != nil {
-			t.Fatalf("findings = %+v, want nil", got)
-		}
-	}
-}
-
-// vacuum-01: the finding carries the multixact age next to the XID age.
-func TestRuleWraparoundFreeze_DetailCarriesMXIDAge(t *testing.T) {
-	cfg := testConfig()
-	cfg.Analyzer.WraparoundFreezeXIDAge = 150_000_000
-	snap := &collector.Snapshot{Tables: []collector.TableStats{
-		{SchemaName: "public", RelName: "hot", Relkind: "r", XIDAge: 210_000_000,
-			MXIDAge: 12_345},
-	}}
-	got := ruleWraparoundFreeze(snap, nil, cfg, nil)
-	if len(got) != 1 {
-		t.Fatalf("findings = %+v, want one", got)
-	}
-	d := got[0].Detail
-	if d["xid_age"] != int64(210_000_000) || d["mxid_age"] != int64(12_345) ||
-		d["threshold"] != int64(150_000_000) || d["critical_age"] != criticalFreezeXIDAge {
-		t.Fatalf("detail = %v", d)
-	}
-}
-
-// No concurrent access test: ruleWraparoundFreeze is a pure function of its
-// snapshot and shares no state.

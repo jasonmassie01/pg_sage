@@ -135,9 +135,7 @@ func freezeProposal(
 	sample HorizonSample, threat ThreatKind, urgency Urgency, deadline Deadline,
 ) Proposal {
 	return Proposal{Database: sample.Database, Schema: sample.Schema, Table: sample.Table,
-		Threat: threat, Urgency: urgency, Intent: IntentVacuumFreeze,
-		SQL:      "VACUUM (FREEZE) " + quoteIdent(sample.Schema) + "." + quoteIdent(sample.Table),
-		Deadline: deadline, RequiresAuthorization: true}
+		Threat: threat, Urgency: urgency, Intent: IntentVacuumFreeze, Deadline: deadline}
 }
 
 func quoteIdent(value string) string { return `"` + strings.ReplaceAll(value, `"`, `""`) + `"` }

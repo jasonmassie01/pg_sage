@@ -78,7 +78,7 @@
 | `analyzer.table_bloat_min_rows` | `restart` | `-` | `derivable` |
 | `analyzer.unused_index_window_days` | `restart` | `-` | `derivable` |
 | `analyzer.work_mem_promotion_threshold` | `restart` | `-` | `derivable` |
-| `analyzer.wraparound_freeze_xid_age` | `restart` | `-` | `derivable` |
+| `analyzer.wraparound_freeze_share` | `restart` | `-` | `derivable` |
 | `analyzer.xid_wraparound_critical` | `restart` | `-` | `derivable` |
 | `analyzer.xid_wraparound_warning` | `restart` | `-` | `derivable` |
 | `api.listen_addr` | `restart` | `-` | `safety_critical` |
@@ -304,6 +304,7 @@
 | `safety.lock_timeout_ms` | `restart` | `-` | `safety_critical` |
 | `safety.query_timeout_ms` | `restart` | `-` | `derivable` |
 | `safety.reindex_timeout_seconds` | `restart` | `-` | `safety_critical` |
+| `safety.vacuum_stall_minutes` | `restart` | `-` | `safety_critical` |
 | `safety.vacuum_timeout_seconds` | `restart` | `-` | `safety_critical` |
 | `safety.wal_io_ceiling_pct` | `restart` | `-` | `safety_critical` |
 | `schema_lint.disabled_rules` | `restart` | `-` | `operator_preference` |

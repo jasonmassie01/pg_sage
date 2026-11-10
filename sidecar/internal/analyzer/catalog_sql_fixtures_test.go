@@ -62,20 +62,16 @@ func tableCatalogFindings() map[string][]Finding {
 	cfg := testConfig()
 	cfg.Analyzer.AnalyzeStaleMinRows = 10000
 	cfg.Analyzer.AnalyzeStaleDays = 7
-	cfg.Analyzer.WraparoundFreezeXIDAge = 150_000_000
 	now := time.Date(2026, 6, 11, 0, 0, 0, 0, time.UTC)
 	stale := &collector.Snapshot{Tables: []collector.TableStats{
 		{SchemaName: "Sales", RelName: "Events", NLiveTup: 50000, NTupIns: 50000}}}
-	freeze := &collector.Snapshot{Tables: []collector.TableStats{
-		{SchemaName: "public", RelName: "Hot", XIDAge: 210_000_000}}}
 	bloat := &collector.Snapshot{Tables: []collector.TableStats{
 		{SchemaName: "public", RelName: "cache_data", NLiveTup: 5000, NDeadTup: 4000}}}
 	return map[string][]Finding{
 		"rules_autovacuum_tuning.go": ruleAutovacuumTuning(
 			autovacuumSnap("autovacuum_vacuum_scale_factor=0.2"), nil, phase2Config(), nil),
-		"rules_stale_statistics.go":  ruleStaleStatisticsAt(stale, cfg, now),
-		"rules_wraparound_freeze.go": ruleWraparoundFreeze(freeze, nil, cfg, nil),
-		"rules_vacuum.go":            ruleTableBloat(bloat, nil, cfg, nil),
+		"rules_stale_statistics.go": ruleStaleStatisticsAt(stale, cfg, now),
+		"rules_vacuum.go":           ruleTableBloat(bloat, nil, cfg, nil),
 	}
 }
 

@@ -29,6 +29,14 @@ var retiredKeys = []struct {
 			"no longer used and is ignored; remove it from the config file " +
 			"(revalidation runs no EXPLAIN)",
 	}},
+	// vacuum-08: the analyzer's absolute freeze age gave way to a share of
+	// each table's effective freeze maximum.
+	{[]string{"analyzer"}, map[string]string{
+		"wraparound_freeze_xid_age": "analyzer.wraparound_freeze_xid_age " +
+			"is retired and ignored: the analyzer now reports wraparound at " +
+			"analyzer.wraparound_freeze_share of each table's effective freeze maximum " +
+			"(default 0.75) and the freeze custodian decides the VACUUM; remove it",
+	}},
 	// forecast-05: the forecaster's sequence thresholds went with its
 	// sequence rule; the runway forecasts sequences
 	// (sre.runways.sequence_horizon_days and sequence_critical_days).

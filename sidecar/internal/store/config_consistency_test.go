@@ -559,9 +559,11 @@ func TestConfigConsistency_HotReloadCoversAllAllowedKeys(
 		"int_nonneg":        "7",
 		"int_min5":          "15",
 		"int_class_timeout": "7200",
+		"int_vacuum_stall":  "30",
 		"pct":               "50",
 		"pct1_100":          "75",
 		"float01":           "0.5",
+		"float_share":       "0.5",
 		"bool":              "true",
 		"trust_level":       "advisory",
 		"exec_mode":         "auto",
@@ -802,9 +804,11 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 		"int_nonneg":        "0",
 		"int_min5":          "10",
 		"int_class_timeout": "3600",
+		"int_vacuum_stall":  "60",
 		"pct":               "50",
 		"pct1_100":          "50",
 		"float01":           "0.5",
+		"float_share":       "0.5",
 		"bool":              "true",
 		"trust_level":       "advisory",
 		"exec_mode":         "auto",
@@ -849,14 +853,14 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 		// Verify type-specific coercion.
 		switch vtype {
 		case "int_pos", "int_nonneg", "int_min5", "pct",
-			"pct1_100", "int_week_minutes", "int_class_timeout":
+			"pct1_100", "int_week_minutes", "int_class_timeout", "int_vacuum_stall":
 			if _, ok := result.(int); !ok {
 				t.Errorf(
 					"coerceValue(%q, %q) [type %s] = %T, "+
 						"want int",
 					sampleKey, input, vtype, result)
 			}
-		case "float01", "float_pos", "float_nonneg", "float_pct_pos":
+		case "float01", "float_share", "float_pos", "float_nonneg", "float_pct_pos":
 			if _, ok := result.(float64); !ok {
 				t.Errorf(
 					"coerceValue(%q, %q) [type %s] = %T, "+
@@ -886,7 +890,7 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 // fails when someone adds or removes a key without updating the
 // test. Update the expected count when intentionally changing keys.
 func TestConfigConsistency_AllowedKeyCount(t *testing.T) {
-	const expectedCount = 117 // Update when adding/removing keys.
+	const expectedCount = 118 // Update when adding/removing keys.
 
 	actual := len(allowedConfigKeys)
 	if actual != expectedCount {
@@ -915,7 +919,7 @@ func TestConfigConsistency_ConfigToMapKeyCount(t *testing.T) {
 	}
 	m := configToMap(cfg)
 
-	const expectedCount = 117 // Should match allowedConfigKeys.
+	const expectedCount = 118 // Should match allowedConfigKeys.
 
 	actual := len(m)
 	if actual != expectedCount {

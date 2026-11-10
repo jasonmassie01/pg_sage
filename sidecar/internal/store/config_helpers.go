@@ -27,7 +27,7 @@ var allowedConfigKeys = map[string]string{
 	"analyzer.autovacuum_tune_min_rows":   "int_pos",
 	"analyzer.analyze_stale_min_rows":     "int_pos",
 	"analyzer.analyze_stale_days":         "int_pos",
-	"analyzer.wraparound_freeze_xid_age":  "int_pos",
+	"analyzer.wraparound_freeze_share":    "float_share",
 	"analyzer.regression_threshold_pct":   "pct",
 	"analyzer.cache_hit_ratio_warning":    "float01",
 	"trust.level":                         "trust_level",
@@ -46,6 +46,7 @@ var allowedConfigKeys = map[string]string{
 	"safety.index_build_timeout_seconds":  "int_class_timeout",
 	"safety.reindex_timeout_seconds":      "int_class_timeout",
 	"safety.vacuum_timeout_seconds":       "int_class_timeout",
+	"safety.vacuum_stall_minutes":         "int_vacuum_stall",
 	"llm.enabled":                         "bool",
 	"llm.auth":                            "llm_auth",
 	"llm.endpoint":                        "string",
@@ -183,6 +184,7 @@ var intRanges = map[string][2]int{
 	"int_class_timeout": {config.MinClassTimeoutSeconds, config.MaxClassTimeoutSeconds},
 	"pct":               {0, 100},
 	"pct1_100":          {1, 100},
+	"int_vacuum_stall":  {config.MinVacuumStallMinutes, config.MaxVacuumStallMinutes},
 }
 
 func validateByType(vtype, key, value string) error {
@@ -192,6 +194,8 @@ func validateByType(vtype, key, value string) error {
 	switch vtype {
 	case "float01":
 		return validateFloatRange(key, value, 0, 1)
+	case "float_share": // a share of a maximum: (0, 1], as the config file holds it
+		return validateFloatRange(key, value, 0.01, 1)
 	case "float_pos":
 		return validateFloatRange(key, value, 0.001, 1e9)
 	case "float_nonneg":
@@ -513,8 +517,8 @@ func addAnalyzerFields(m map[string]any, a *config.AnalyzerConfig) {
 		a.AnalyzeStaleMinRows, "yaml")
 	addField(m, "analyzer.analyze_stale_days",
 		a.AnalyzeStaleDays, "yaml")
-	addField(m, "analyzer.wraparound_freeze_xid_age",
-		a.WraparoundFreezeXIDAge, "yaml")
+	addField(m, "analyzer.wraparound_freeze_share",
+		a.WraparoundFreezeShare, "yaml")
 	addField(m, "analyzer.regression_threshold_pct",
 		a.RegressionThresholdPct, "yaml")
 	addField(m, "analyzer.cache_hit_ratio_warning",
@@ -562,6 +566,8 @@ func addSafetyFields(m map[string]any, s *config.SafetyConfig) {
 		s.ReindexTimeoutSeconds, "yaml")
 	addField(m, "safety.vacuum_timeout_seconds",
 		s.VacuumTimeoutSeconds, "yaml")
+	addField(m, "safety.vacuum_stall_minutes",
+		s.VacuumStallMinutes, "yaml")
 }
 
 func addLLMFields(m map[string]any, l *config.LLMConfig) {
@@ -759,11 +765,11 @@ func coerceValue(key, value string) any {
 	vtype := allowedConfigKeys[key]
 	switch vtype {
 	case "int_pos", "int_nonneg", "int_min5", "int_week_minutes", "pct", "pct1_100",
-		"int_class_timeout":
+		"int_class_timeout", "int_vacuum_stall":
 		if n, err := strconv.Atoi(value); err == nil {
 			return n
 		}
-	case "float01", "float_pos", "float_nonneg", "float_pct_pos":
+	case "float01", "float_share", "float_pos", "float_nonneg", "float_pct_pos":
 		if f, err := strconv.ParseFloat(value, 64); err == nil {
 			return f
 		}

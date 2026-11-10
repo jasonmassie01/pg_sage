@@ -379,6 +379,7 @@ briefing:
 | `analyzer.inactive_slot_min_minutes` | `5` | Report a replication slot (`inactive_slot`) once it has been inactive this many minutes. A slot whose `wal_status` is `extended`, `unreserved` or `lost` is reported at once. `0` uses the default. Settable through the configuration API without a restart (`1`-`10080` there). `0`-`10080` |
 | `analyzer.self_cost_budget_ms` | `3000` | Raise a `sage_self_cost` finding when pg_sage's own statements (the `pg_stat_statements` entries carrying the `/* pg_sage */` tag after their first keyword) use more than this many milliseconds of database time per collector cycle, measured over each analyzer cycle. `0` disables the finding; the `pg_sage_self_*` Prometheus metrics are exported either way. `0`-`3600000` |
 | `analyzer.table_bloat_min_bytes` | `1073741824` (1 GiB) | Smallest heap (bytes, from `pg_class.relpages`) for which the freeze custodian plans an online bloat rebuild. The plan needs a catalog bloat estimate of at least 50% (`reltuples` times the `pg_stats` row width against `relpages`, at the table's fillfactor); the dead-tuple ratio alone never plans one, because the analyzer's `table_bloat` `VACUUM` covers it, and a table never analyzed has no estimate. When `pgstattuple` is installed, the three largest candidates per cycle are confirmed with `pgstattuple_approx` under `safety.query_timeout_ms` and `safety.lock_timeout_ms`; a timeout or error keeps the estimate (`evidence.bloat_source` is `estimate` or `pgstattuple`). Every plan is recorded once, and its repeats folded into that row, as a parked `bloat_remediation` decision at risk tier `high`; pg_sage never runs it. A `pg_repack` plan is offered only where the extension is installed. `0` uses the default. Restart to change |
+| `analyzer.wraparound_freeze_share` | `0.75` | Share (above 0, at most 1) of a table's effective freeze maximum (the lower of `autovacuum_freeze_max_age` and the table's reloption; XID or multixact) at which the analyzer reports a `wraparound_freeze` finding. Diagnosis only: the freeze custodian decides and proposes the VACUUM. Replaces `analyzer.wraparound_freeze_xid_age`, which is retired (it loads with one warning and is ignored). Restart to change |
 | `self_budget.cpu_ms_per_cycle` | `600` | CPU time the sidecar process may use per collector cycle (all databases it monitors together), in ms; 600 is 1% of one core at the default 60 s interval. Over budget raises `sage_self_budget`. `0` disables. `0`-`3600000` |
 | `self_budget.db_time_ms_per_hour` | `0` | Database time pg_sage's own statements may use per hour on each database, in ms. `0` keeps `analyzer.self_cost_budget_ms` (per collector cycle) as the database-time budget, so one breach never raises two findings. That inherited budget is per cycle of each database's own collector: `analyzer.self_cost_budget_ms` x 3600 / its period in seconds (in fleet mode a database whose collector runs every 120 s inherits half the hourly budget of one at 60 s). `/metrics` exports it per database as `pg_sage_self_budget_database{database,resource="db_time"}` and compares `pg_sage_self_budget_exceeded{database,resource="db_time"}` with it; `pg_sage_self_budget{resource="db_time"}` stays the value at the configured `collector.interval_seconds`. An explicit value applies to every database as-is. `0`-`3600000` |
 | `self_budget.blocks_per_hour` | `18000000` | Shared buffer blocks (8 KB, hit or read) pg_sage's own statements may touch per hour on each database (5,000 a second). `0` disables. `0`-`1000000000000` |
@@ -512,8 +513,29 @@ contracts; concurrent or non-FULL forms are required.
 | `safety.ddl_timeout_seconds` | `300` | `statement_timeout` of every executor statement without a class timeout below (ALTER TABLE, a non-concurrent CREATE INDEX or REINDEX, `VACUUM FULL`, drops). `0` uses the default |
 | `safety.index_build_timeout_seconds` | `14400` | `statement_timeout` of a `CREATE INDEX CONCURRENTLY` (also an index replacement's build), `60`-`86400`. `0` uses the default |
 | `safety.reindex_timeout_seconds` | `14400` | `statement_timeout` of a `REINDEX ... CONCURRENTLY`, `60`-`86400`. `0` uses the default |
-| `safety.vacuum_timeout_seconds` | `14400` | `statement_timeout` of a `VACUUM` that is not `VACUUM FULL`, `60`-`86400`. `0` uses the default |
+| `safety.vacuum_timeout_seconds` | `14400` | Cap on a `VACUUM` that is not `VACUUM FULL`, `60`-`86400`, enforced by its watchdog (outcome `vacuum_cap`). `0` uses the default |
+| `safety.vacuum_stall_minutes` | `15` | Minutes a `VACUUM` heap phase may show no progress before its watchdog cancels it (outcome `vacuum_stalled`), `5`-`240`. `0` uses the default |
 | `safety.lock_timeout_ms` | `30000` | `lock_timeout` of every executor statement; it bounds each lock wait of a long build, whatever its class timeout |
+
+An executor `VACUUM` (not `VACUUM FULL`) runs on its own session with `statement_timeout = 0`
+and the same `lock_timeout`, so a freeze of a large table is not cancelled before it can advance
+`relfrozenxid`. A watchdog reads the session's `pg_stat_progress_vacuum` row every 30 s
+(phase, heap blocks scanned and vacuumed, index vacuum passes, and on PostgreSQL 17+
+`indexes_processed`) and cancels the backend with `pg_cancel_backend` when a heap phase shows
+no progress for `safety.vacuum_stall_minutes` (`vacuum_stalled`), when
+`safety.vacuum_timeout_seconds` ends (`vacuum_cap`), or when the emergency stop is set
+(`emergency_stop`). Index phases have no stall check: before PostgreSQL 17 they have no
+counter, and one large index can take longer than the stall window, so only the cap bounds
+them. If the cancel is refused, pg_sage closes the session.
+
+Before a `VACUUM` runs, pg_sage reads `pg_stat_progress_vacuum` for the table (and its TOAST
+table). When a vacuum, typically autovacuum, is already running there, the action is withheld
+as `vacuum_in_progress` with that backend's pid, phase, blocks scanned and whether it is an
+anti-wraparound autovacuum: a manual `VACUUM` would only wait behind it on `lock_timeout`, or
+cancel an ordinary autovacuum and lose its work. A withheld action writes no failed action
+row, so it never counts toward the custodian backoff. A role without `pg_read_all_stats`
+sees other roles' rows without a table; the action then proceeds and its decision records
+`progress_unknown`.
 
 No class timeout is ever unlimited. The recommendation claim, the change lease and the
 budget hold last at least twice the longest class timeout, so a four-hour build never outlives

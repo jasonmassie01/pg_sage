@@ -115,8 +115,7 @@ func HolderResponse(h XminBlocker, targets []string) (Response, error) {
 	if h.Kind != HolderSession || h.Protected {
 		plan := escalationPlan(h)
 		evidence["plan"] = plan
-		return Response{Kind: ResponseEscalateHolder, Plan: plan, Park: true,
-			Evidence: evidence}, nil
+		return Response{Kind: ResponseEscalateHolder, Plan: plan, Evidence: evidence}, nil
 	}
 	kind, function := ResponseCancelBlocker, "pg_cancel_backend"
 	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(h.State)), "idle in transaction") {

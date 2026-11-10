@@ -36,6 +36,7 @@ func (rt *databaseRuntime) startMonitoring() {
 		logStructuredWrapper,
 	)
 	rt.analyzer.WithFactFilter(rt.factFilter())
+	rt.analyzer.WithFreezeHorizons(rt.freezeCustodian().Sampler())
 	rt.analyzer.WithSupplementalDetector(executor.NewRunawayDetector(
 		rt.spec.Pool, &cfg.Runaway, logStructuredWrapper,
 	))

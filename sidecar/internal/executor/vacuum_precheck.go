@@ -135,6 +135,7 @@ func maintenanceActionType(sql string) string {
 // statement is withheld (capability_missing, with the grant that fixes
 // it), and a precheck that cannot be read withholds too
 // (capability_unverified). Both are recorded on the authorizing decision.
+// A permitted VACUUM then passes the running-vacuum admission (vacuum-05).
 func (e *Executor) admitMaintenance(
 	ctx context.Context, sql string, decision ActionPolicyDecision,
 ) error {
@@ -157,6 +158,8 @@ func (e *Executor) admitMaintenance(
 	case !p.Allowed:
 		return e.withholdMaintenance(ctx, decision, reasonCapabilityMissing, p.Detail,
 			ErrMaintenancePrivilegeMissing)
+	case actionType == "vacuum_table" && p.Exists:
+		return e.admitVacuumProgress(ctx, table, decision)
 	}
 	return nil
 }

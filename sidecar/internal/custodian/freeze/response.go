@@ -22,8 +22,12 @@ type ResponseInput struct {
 	// XIDAge is the table's age(relfrozenxid); Holder is the oldest xmin
 	// holder that applies to the table (PinningCandidate). A red table
 	// attaches the holder only when it pins the table (Pins).
-	XIDAge         int64
-	Holder         *XminBlocker
+	XIDAge int64
+	Holder *XminBlocker
+	// MultiXactAge is mxid_age(relminmxid); with Aggressive it picks a plain
+	// VACUUM over VACUUM (FREEZE) (VacuumSQL).
+	MultiXactAge   int64
+	Aggressive     AggressiveAges
 	DeadTupleRatio float64
 	// BloatRatio is the heap's bloat estimate (or its pgstattuple
 	// measurement, BloatSource); it counts only when BloatKnown. The
@@ -42,7 +46,6 @@ type Response struct {
 	Kind     ResponseKind
 	SQL      string
 	Plan     string
-	Park     bool
 	Evidence map[string]any
 	// PinnedBy is the holder that pins a red table: it gets one holder
 	// proposal per scan (HolderResponse), whether or not the table is
@@ -82,6 +85,9 @@ func validateResponseInput(input ResponseInput) error {
 	if input.XIDAge < 0 {
 		return fmt.Errorf("table XID age %d must not be negative", input.XIDAge)
 	}
+	if input.MultiXactAge < 0 {
+		return fmt.Errorf("table multixact age %d must not be negative", input.MultiXactAge)
+	}
 	if input.Holder != nil {
 		if err := validateHolder(*input.Holder); err != nil {
 			return err
@@ -100,7 +106,7 @@ func validateResponseInput(input ResponseInput) error {
 
 // freezeResponse freezes a red table unless its pinning holder is so old
 // that freezing cannot lower its urgency (at least FreezeStillHelpsShare
-// of the table age): VACUUM (FREEZE) still advances relfrozenxid up to the
+// of the table age): the VACUUM still advances relfrozenxid up to the
 // holder's horizon.
 func freezeResponse(input ResponseInput) Response {
 	holder := input.Holder
@@ -119,11 +125,12 @@ func freezeResponse(input ResponseInput) Response {
 }
 
 func freezeSQL(input ResponseInput) string {
-	return "VACUUM (FREEZE) " + quoteIdent(input.Schema) + "." + quoteIdent(input.Table)
+	return VacuumSQL(input.Schema, input.Table, input.XIDAge, input.MultiXactAge,
+		input.Aggressive)
 }
 
 func bloatResponse(input ResponseInput) Response {
-	response := Response{Park: true, Evidence: responseEvidence(input)}
+	response := Response{Evidence: responseEvidence(input)}
 	if input.PGRepackAvailable {
 		response.Kind = ResponsePlanRepack
 		response.Plan = "Plan pg_repack --table=" + input.Schema + "." + input.Table +

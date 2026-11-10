@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
+	"github.com/pg-sage/sidecar/internal/autonomy"
 	"github.com/pg-sage/sidecar/internal/briefing"
 	"github.com/pg-sage/sidecar/internal/cloudtel"
 	"github.com/pg-sage/sidecar/internal/collector"
@@ -120,6 +121,12 @@ type databaseRuntime struct {
 	lakebaseScope atomic.Value // verified immutable resource/policy pair, read by history
 	cloud         *cloudtel.Runtime
 	cloudResolver managedparam.Resolver
+
+	// freeze is the database's one freeze custodian: its sampler is the
+	// only horizon reader and rate state of the analyzer, the runway
+	// advisor and the autonomy worker (vacuum-08).
+	freeze     *autonomy.PostgresFreezeCustodian
+	freezeOnce sync.Once
 }
 
 // buildDatabaseRuntime is the only per-database runtime constructor. It

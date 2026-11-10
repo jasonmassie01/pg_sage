@@ -221,8 +221,8 @@ func hotReloadAnalyzer(cfg *config.Config, key, v string) {
 		cfg.Analyzer.AnalyzeStaleMinRows = atoi(v)
 	case "analyzer.analyze_stale_days":
 		cfg.Analyzer.AnalyzeStaleDays = atoi(v)
-	case "analyzer.wraparound_freeze_xid_age":
-		cfg.Analyzer.WraparoundFreezeXIDAge = atoi(v)
+	case "analyzer.wraparound_freeze_share":
+		cfg.Analyzer.WraparoundFreezeShare = atof(v)
 	case "analyzer.regression_threshold_pct":
 		cfg.Analyzer.RegressionThresholdPct = atoi(v)
 	case "analyzer.cache_hit_ratio_warning":
@@ -291,6 +291,8 @@ func hotReloadSafety(cfg *config.Config, key, v string) {
 		cfg.Safety.ReindexTimeoutSeconds = atoi(v)
 	case "safety.vacuum_timeout_seconds":
 		cfg.Safety.VacuumTimeoutSeconds = atoi(v)
+	case "safety.vacuum_stall_minutes":
+		cfg.Safety.VacuumStallMinutes = atoi(v)
 	}
 }
 

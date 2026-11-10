@@ -61,16 +61,14 @@ const reloptionSQL = `CASE WHEN %[1]s.reloptions IS NOT NULL THEN (
                SELECT x.option_value FROM pg_catalog.pg_options_to_table(%[1]s.reloptions) x
                WHERE x.option_name = '%[2]s' LIMIT 1) END`
 
-// wraparoundTablesSQL (v2) ranks tables by the share of their effective
-// freeze maximum (the table's reloption when it is lower than the
-// setting) that their XID or multixact age has used. It ranks from
-// pg_class alone and reads statistics, autovacuum_enabled and vacuum
-// progress only for the tables it returns: v1 joined the statistics view
-// for every relation of the catalog to return 50 (measured.md M8: 118 ms,
-// ~78 times an hour on lifeos). Reloption values are cast only when they
-// name the option read.
-var wraparoundTablesSQL = `/* pg_sage sre:wraparound_tables v2 */
-WITH g AS (
+// freezeRankCTE ranks the relations with storage of their own (tables,
+// matviews, TOAST; relfrozenxid <> 0 skips partitioned parents) by the
+// share of their effective freeze maximum (the reloption when it is lower
+// than the setting) their XID or multixact age has used, from pg_class
+// alone: top holds the $1 most advanced. wraparound_tables and the freeze
+// custodian's horizon reader (FreezeHorizonsSQL) share it, so the probe,
+// the custodian and the analyzer judge one horizon.
+var freezeRankCTE = `WITH g AS (
     SELECT pg_catalog.current_setting('autovacuum_freeze_max_age')::int8 AS xid_max,
            pg_catalog.current_setting('autovacuum_multixact_freeze_max_age')::int8
                AS mxid_max
@@ -89,7 +87,18 @@ WITH g AS (
     FROM t
     ORDER BY used DESC NULLS LAST, t.oid
     LIMIT $1
-)
+)`
+
+// wraparoundTablesSQL (v2) ranks tables by the share of their effective
+// freeze maximum (the table's reloption when it is lower than the
+// setting) that their XID or multixact age has used. It ranks from
+// pg_class alone and reads statistics, autovacuum_enabled and vacuum
+// progress only for the tables it returns: v1 joined the statistics view
+// for every relation of the catalog to return 50 (measured.md M8: 118 ms,
+// ~78 times an hour on lifeos). Reloption values are cast only when they
+// name the option read.
+var wraparoundTablesSQL = `/* pg_sage sre:wraparound_tables v2 */
+` + freezeRankCTE + `
 SELECT ` + fmt.Sprintf(relationName, "top.oid") + ` AS relation,
        top.xid_age, top.mxid_age, top.freeze_max_age, top.mxid_freeze_max_age,
        COALESCE(pg_catalog.lower(` + fmt.Sprintf(reloptionSQL, "top",

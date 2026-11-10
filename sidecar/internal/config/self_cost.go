@@ -11,6 +11,15 @@ const DefaultSelfCostBudgetMs = 3000
 // maxSelfCostBudgetMs is one hour of database time per cycle.
 const maxSelfCostBudgetMs = 3_600_000
 
+// validateWraparoundFreezeShare refuses a share outside (0, 1].
+func (a AnalyzerConfig) validateWraparoundFreezeShare() error {
+	if !(a.WraparoundFreezeShare > 0 && a.WraparoundFreezeShare <= 1) {
+		return fmt.Errorf("analyzer.wraparound_freeze_share must be above 0 and at most 1, "+
+			"got %v", a.WraparoundFreezeShare)
+	}
+	return nil
+}
+
 // validateSelfCostBudget refuses a budget outside 0-3600000 (0 disables).
 func (a AnalyzerConfig) validateSelfCostBudget() error {
 	if a.SelfCostBudgetMs < 0 || a.SelfCostBudgetMs > maxSelfCostBudgetMs {

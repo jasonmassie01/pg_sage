@@ -135,16 +135,19 @@ const (
 
 // contractForCustodianResponse types a plan-only custodian response by its
 // kind, never by Evidence["plan"] (every Plan response carries one): bloat
-// plans are high-risk plan_bloat_remediation decisions and holder
-// escalations high-risk diagnose_freeze_blockers ones, which the gate
-// parks (a plan has no SQL to validate) and the ledger folds by
-// fingerprint. A session signal keeps the contract of its SQL.
+// plans are high-risk plan_bloat_remediation decisions, and holder
+// escalations and catalog freeze plans high-risk diagnose_freeze_blockers
+// ones, which the gate parks (a plan has no SQL to validate) and the
+// ledger folds by fingerprint. A session signal keeps the contract of its SQL.
 func contractForCustodianResponse(kind string) (ActionContract, string, bool) {
 	switch freeze.ResponseKind(kind) {
 	case freeze.ResponsePlanRepack, freeze.ResponseParkBloat:
 		return planBloatRemediationContract(), bloatRemediationFeature, true
 	case freeze.ResponseEscalateHolder:
 		return freezeHolderEscalationContract(), freezeBlockerFeature, true
+	case freeze.ResponsePlanCatalogFreeze:
+		// A catalog VACUUM needs MAINTAIN or ownership: an operator plan.
+		return freezeHolderEscalationContract(), string(policy.ChangeFreeze), true
 	}
 	return ActionContract{}, "", false
 }

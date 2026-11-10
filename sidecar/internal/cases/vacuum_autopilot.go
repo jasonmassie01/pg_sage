@@ -11,17 +11,13 @@ func vacuumAutopilotCandidate(f SourceFinding) (ActionCandidate, bool) {
 	switch f.Category {
 	case "table_bloat", "schema_lint:lint_bloated_table":
 		return tableBloatCandidate(f), true
-	case "xid_wraparound", "schema_lint:lint_txid_age",
+	case "xid_wraparound", "wraparound_freeze", "schema_lint:lint_txid_age",
 		"schema_lint:lint_mxid_age":
 		return freezeDiagnosticCandidate(f), true
-	case "vacuum_tuning":
+	case "vacuum_tuning", "autovacuum_tuning":
 		return autovacuumTuningCandidate(f), true
 	case "bloat_remediation":
 		return bloatRemediationCandidate(f), true
-	case "reindex_candidate":
-		return reindexCandidate(f), true
-	case "blocked_vacuum":
-		return blockedVacuumCandidate(f), true
 	default:
 		return ActionCandidate{}, false
 	}
@@ -41,40 +37,6 @@ func bloatRemediationCandidate(f SourceFinding) ActionCandidate {
 	}
 	candidate.ScriptOutput = bloatRemediationScriptOutput(f, candidate)
 	return candidate
-}
-
-func reindexCandidate(f SourceFinding) ActionCandidate {
-	sql := strings.TrimSpace(f.RecommendedSQL)
-	if sql == "" {
-		sql = "REINDEX INDEX CONCURRENTLY " +
-			sanitize.QuoteQualifiedString(f.ObjectIdentifier) + ";"
-	}
-	expires := evidenceTime(f).Add(72 * time.Hour)
-	return ActionCandidate{
-		ActionType:       "reindex_concurrently",
-		RiskTier:         "moderate",
-		Confidence:       0.72,
-		ProposedSQL:      sql,
-		ExpiresAt:        &expires,
-		OutputModes:      []string{"queue_for_approval", "generate_pr_or_script"},
-		RollbackClass:    "unknown",
-		RecoveryDetail:   "Reindexing rebuilds the physical index. No procedure to restore the previous physical state is attached; capture the definition and review a forward recovery plan.",
-		VerificationPlan: verificationPlanForAction("reindex_concurrently"),
-	}
-}
-
-func blockedVacuumCandidate(f SourceFinding) ActionCandidate {
-	expires := evidenceTime(f).Add(30 * time.Minute)
-	return ActionCandidate{
-		ActionType:       "diagnose_vacuum_pressure",
-		RiskTier:         "safe",
-		Confidence:       0.80,
-		ProposedSQL:      diagnoseVacuumPressureSQL(f.ObjectIdentifier),
-		ExpiresAt:        &expires,
-		OutputModes:      []string{"execute", "script"},
-		RollbackClass:    "not_applicable",
-		VerificationPlan: verificationPlanForAction("diagnose_vacuum_pressure"),
-	}
 }
 
 func bloatRemediationScriptOutput(
@@ -152,6 +114,12 @@ func autovacuumTuningCandidate(f SourceFinding) ActionCandidate {
 		VerificationPlan: verificationPlanForAction("set_table_autovacuum"),
 	}
 	candidate.ScriptOutput = scriptOutputFromFinding(f, candidate)
+	if rollback, ok := capturedReloptionRollback(sql, f.RollbackSQL); ok {
+		candidate.RollbackClass = "reversible"
+		candidate.RecoveryDetail = "The finding captured the table's previous storage " +
+			"parameters; the rollback restores them."
+		candidate.ScriptOutput.RollbackSQL = rollback
+	}
 	return candidate
 }
 

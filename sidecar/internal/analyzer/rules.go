@@ -5,6 +5,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
 // RuleExtras carries cross-cycle state for rules that need historical context.
@@ -35,6 +36,9 @@ type RuleExtras struct {
 	// may carry an open finding from before a restart, so its absence is
 	// not proof of clearance and inactive_slot must not resolve.
 	InactiveSlotPending bool
+	// FreezeHorizons is this cycle's reading of the database's freeze
+	// sampler (the custodian's horizon reader); nil when it could not run.
+	FreezeHorizons []probes.FreezeHorizon
 	// Now is the rule clock; nil means time.Now (tests set it).
 	Now func() time.Time
 	// zeroScanSeen records the identities whose zero-scan clock the

@@ -111,7 +111,8 @@ func (rt *databaseRuntime) startInvestigator() {
 		signalProbes = append(signalProbes, poolerSignalsFor(rt.cfg.SRE.Poolers, rt.spec.Name,
 			logStructuredWrapper)...)
 	}
-	rt.runwayAdvisor = newRunwayAdvisorFor(rt.spec.Pool, rt.cfg, rt.spec.Name)
+	rt.runwayAdvisor = newRunwayAdvisorFor(rt.freezeCustodian(), rt.spec.Pool, rt.cfg,
+		rt.spec.Name)
 	specialistCustodian.register(rt.spec.Name, rt.runwayAdvisor)
 	svc, err := newSREInvestigator(sreInvestigatorDeps{control: rt.spec.ControlPool,
 		monitored: rt.spec.Pool, runner: rt.probes, name: rt.spec.Name,

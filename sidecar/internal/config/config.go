@@ -170,7 +170,7 @@ type AnalyzerConfig struct {
 	AutovacuumTuneMinRows        int     `yaml:"autovacuum_tune_min_rows" doc:"Minimum live-row count before the per-table autovacuum tuner recommends a lower scale factor. Tuning small tables is pointless. Default: 1000000."`
 	AnalyzeStaleMinRows          int     `yaml:"analyze_stale_min_rows" doc:"Minimum live rows before recommending ANALYZE on a stale/never-analyzed table. Default: 10000."`
 	AnalyzeStaleDays             int     `yaml:"analyze_stale_days" doc:"A table whose last (auto)analyze is older than this many days, with write activity, is flagged for ANALYZE. Default: 7."`
-	WraparoundFreezeXIDAge       int     `yaml:"wraparound_freeze_xid_age" doc:"Per-table transaction age (age(relfrozenxid)) at which to recommend VACUUM (FREEZE) to prevent XID wraparound. Default: 150000000."`
+	WraparoundFreezeShare        float64 `yaml:"wraparound_freeze_share" doc:"Share (0-1] of a table's effective freeze maximum (setting or lower reloption) at which the analyzer reports wraparound risk; the freeze custodian decides the VACUUM. Default: 0.75."`
 	IdleInTxTimeoutMinutes       int     `yaml:"idle_in_transaction_timeout_minutes" doc:"Report sessions sitting in 'idle in transaction' longer than this. Long idle-in-tx sessions block vacuum and hold locks."`
 	CacheHitRatioWarning         float64 `yaml:"cache_hit_ratio_warning" doc:"Warn when the shared buffers cache hit ratio falls below this fraction (0.0-1.0). Low ratios suggest shared_buffers is under-sized or working set is too large."`
 	XIDWraparoundWarning         int64   `yaml:"xid_wraparound_warning" doc:"Transaction age at which the analyzer emits a wraparound warning. Normally ~200 million."`
@@ -217,7 +217,9 @@ type SafetyConfig struct {
 	// Per-class statement timeouts (executor-05): see ddl_class_timeouts.go.
 	IndexBuildTimeoutSeconds int `yaml:"index_build_timeout_seconds" doc:"statement_timeout of a CREATE INDEX CONCURRENTLY run by the executor (seconds). Other DDL keeps ddl_timeout_seconds. 0 uses the default. Range 60-86400. Default: 14400."`
 	ReindexTimeoutSeconds    int `yaml:"reindex_timeout_seconds" doc:"statement_timeout of a REINDEX CONCURRENTLY run by the executor (seconds). 0 uses the default. Range 60-86400. Default: 14400."`
-	VacuumTimeoutSeconds     int `yaml:"vacuum_timeout_seconds" doc:"statement_timeout of a VACUUM (not VACUUM FULL) run by the executor (seconds). 0 uses the default. Range 60-86400. Default: 14400."`
+	VacuumTimeoutSeconds     int `yaml:"vacuum_timeout_seconds" doc:"Cap on a VACUUM (not VACUUM FULL) run by the executor (seconds), enforced by its watchdog; the VACUUM runs with statement_timeout 0. 0 uses the default. Range 60-86400. Default: 14400."`
+	// VACUUM watchdog (vacuum-05): see vacuum_stall.go.
+	VacuumStallMinutes int `yaml:"vacuum_stall_minutes" doc:"Minutes an executor VACUUM may show no heap-phase progress before its watchdog cancels it (vacuum_stalled). 0 uses the default. Range 5-240. Default: 15."`
 }
 
 type TrustConfig struct {
@@ -785,6 +787,9 @@ func (c *Config) validate() error {
 	if err := c.Analyzer.validateInactiveSlotMinMinutes(); err != nil {
 		return err
 	}
+	if err := c.Analyzer.validateWraparoundFreezeShare(); err != nil {
+		return err
+	}
 	if err := c.Analyzer.validateSelfCostBudget(); err != nil {
 		return err
 	}
@@ -897,7 +902,7 @@ func newDefaults() *Config {
 			AutovacuumTuneMinRows:        DefaultAutovacuumTuneMinRows,
 			AnalyzeStaleMinRows:          DefaultAnalyzeStaleMinRows,
 			AnalyzeStaleDays:             DefaultAnalyzeStaleDays,
-			WraparoundFreezeXIDAge:       DefaultWraparoundFreezeXIDAge,
+			WraparoundFreezeShare:        DefaultWraparoundFreezeShare,
 			IdleInTxTimeoutMinutes:       DefaultIdleInTxTimeoutMinutes,
 			CacheHitRatioWarning:         DefaultCacheHitRatioWarning,
 			XIDWraparoundWarning:         DefaultXIDWraparoundWarning,
@@ -932,6 +937,7 @@ func newDefaults() *Config {
 			IndexBuildTimeoutSeconds: DefaultClassTimeoutSeconds,
 			ReindexTimeoutSeconds:    DefaultClassTimeoutSeconds,
 			VacuumTimeoutSeconds:     DefaultClassTimeoutSeconds,
+			VacuumStallMinutes:       DefaultVacuumStallMinutes,
 		},
 		Trust: TrustConfig{
 			Level:                 DefaultTrustLevel,

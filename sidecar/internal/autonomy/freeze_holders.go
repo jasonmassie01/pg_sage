@@ -40,9 +40,9 @@ func protectedApplication(app string) bool {
 	return false
 }
 
-// xminHolders reads every holder of this database's xmin horizon through
-// q, once per scan. A failed read aborts the scan.
-func (c *PostgresFreezeCustodian) xminHolders(
+// readXminHolders reads every holder of this database's xmin horizon
+// through q, once per sampler reading. A failed read aborts the reading.
+func readXminHolders(
 	ctx context.Context, q catalogread.Querier,
 ) ([]freeze.XminBlocker, error) {
 	rows, err := q.Query(ctx, xminHoldersSQL, xminHolderLimit)
@@ -145,14 +145,22 @@ func (p *holderPins) add(h freeze.XminBlocker, target string, deadline *policy.D
 }
 
 // plan answers every table, then makes one proposal per pinning holder
-// (the root cause first) listing every table it pins.
+// (the root cause first) listing every table it pins, and one plan for
+// the red system catalogs (the custodian never vacuums a catalog).
 func (c *PostgresFreezeCustodian) plan(
 	ctx context.Context, horizons []freezeRow, rates freezeRateSample,
 	holders []freeze.XminBlocker, repack bool,
 ) ([]Proposal, error) {
 	var pins holderPins
+	var catalogs catalogPlan
 	tables := make([]Proposal, 0, len(horizons))
 	for _, row := range horizons {
+		if row.catalog {
+			if err := catalogs.add(c, row, rates); err != nil {
+				return nil, err
+			}
+			continue
+		}
 		proposal, pinnedBy, err := c.respond(row, rates, holders, repack)
 		if err != nil {
 			return nil, err
@@ -167,6 +175,13 @@ func (c *PostgresFreezeCustodian) plan(
 	result, err := c.holderProposals(ctx, pins)
 	if err != nil {
 		return nil, err
+	}
+	proposal, ok, err := catalogs.proposal(c.database)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		result = append(result, proposal)
 	}
 	return append(result, tables...), nil
 }

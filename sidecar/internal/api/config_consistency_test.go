@@ -146,6 +146,10 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 		input:  "1800",
 		reader: func(c *config.Config) string { return itoa(c.Safety.VacuumTimeoutSeconds) },
 	},
+	"safety.vacuum_stall_minutes": {
+		input:  "45",
+		reader: func(c *config.Config) string { return itoa(c.Safety.VacuumStallMinutes) },
+	},
 
 	// --- llm ---
 	"llm.enabled": {
@@ -196,9 +200,9 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 		input:  "14",
 		reader: func(c *config.Config) string { return itoa(c.Analyzer.AnalyzeStaleDays) },
 	},
-	"analyzer.wraparound_freeze_xid_age": {
-		input:  "120000000",
-		reader: func(c *config.Config) string { return itoa(c.Analyzer.WraparoundFreezeXIDAge) },
+	"analyzer.wraparound_freeze_share": {
+		input:  "0.6",
+		reader: func(c *config.Config) string { return ftoa(c.Analyzer.WraparoundFreezeShare) },
 	},
 	"llm.context_budget_tokens": {
 		input:  "8192",

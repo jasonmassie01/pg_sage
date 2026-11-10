@@ -19,7 +19,7 @@ import (
 var relationRules = map[string]bool{
 	"rules_autovacuum_tuning.go": true, "rules_fk_index.go": true, "rules_index.go": true,
 	"rules_stale_statistics.go": true, "rules_unused_index.go": true, "rules_vacuum.go": true,
-	"rules_wraparound_freeze.go": true, "optimizer_mapping.go": true,
+	"optimizer_mapping.go": true,
 }
 
 // executor-08 (CHECK-03): every analyzer source that writes SQL yields a

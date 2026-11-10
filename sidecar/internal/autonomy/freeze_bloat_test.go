@@ -20,7 +20,7 @@ import (
 
 const testGiB = int64(1) << 30
 
-// horizonValues is one freezeHorizonSQL row of a green-urgency table.
+// horizonValues is one probes.FreezeHorizonsSQL row of a green-urgency table.
 func horizonValues(table string, dead float64, oid, pages int64,
 	expected *float64) adapterRow {
 	return adapterRow{values: []any{"public", table, int64(1), int64(100),
@@ -228,7 +228,7 @@ type failingRow struct{ err error }
 
 func (r failingRow) Scan(...any) error { return r.err }
 
-// scanResponseRow scans one freezeHorizonSQL row and answers it, without
+// scanResponseRow scans one probes.FreezeHorizonsSQL row and answers it, without
 // the per-cycle bloat confirmation (unit tests of the response ladder).
 func (c *PostgresFreezeCustodian) scanResponseRow(
 	row interface{ Scan(...any) error }, rates freezeRateSample,

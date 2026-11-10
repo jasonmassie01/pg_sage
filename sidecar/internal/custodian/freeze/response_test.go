@@ -11,7 +11,6 @@ func TestPlanResponseUsesSafeOrderedLadder(t *testing.T) {
 		in   ResponseInput
 		kind ResponseKind
 		sql  string
-		park bool
 	}{
 		{
 			// vacuum-02: a 30-XID snapshot cannot pin a table at 160M, so the
@@ -33,13 +32,13 @@ func TestPlanResponseUsesSafeOrderedLadder(t *testing.T) {
 			in: ResponseInput{Schema: "public", Table: "orders", BloatRatio: 0.6,
 				BloatKnown: true, SizeBytes: 2 << 30, MinBloatBytes: 1 << 30,
 				PGRepackAvailable: true},
-			kind: ResponsePlanRepack, sql: "pg_repack", park: true,
+			kind: ResponsePlanRepack, sql: "pg_repack",
 		},
 		{
 			name: "park bloat without online tool",
 			in: ResponseInput{Schema: "public", Table: "orders", BloatRatio: 0.6,
 				BloatKnown: true, SizeBytes: 2 << 30, MinBloatBytes: 1 << 30},
-			kind: ResponseParkBloat, park: true,
+			kind: ResponseParkBloat,
 		},
 	}
 	for _, test := range tests {
@@ -48,7 +47,7 @@ func TestPlanResponseUsesSafeOrderedLadder(t *testing.T) {
 			if err != nil {
 				t.Fatalf("PlanResponse: %v", err)
 			}
-			if response.Kind != test.kind || response.Park != test.park {
+			if response.Kind != test.kind {
 				t.Fatalf("response = %#v", response)
 			}
 			text := response.SQL + response.Plan

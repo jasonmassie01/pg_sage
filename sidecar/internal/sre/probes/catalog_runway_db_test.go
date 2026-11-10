@@ -22,21 +22,6 @@ import (
 // cancellations, WAL position and directory, sequences against their
 // binding limit, and the regression over sampled runway series.
 
-func burnXIDs(t *testing.T, ctx context.Context, pool *pgxpool.Pool, n int) {
-	t.Helper()
-	conn, err := pool.Acquire(ctx)
-	if err != nil {
-		t.Fatalf("acquire: %v", err)
-	}
-	defer conn.Release()
-	sql := fmt.Sprintf(`DO $$ BEGIN
-		PERFORM set_config('synchronous_commit', 'off', false);
-		FOR i IN 1..%d LOOP PERFORM pg_current_xact_id(); COMMIT; END LOOP; END $$`, n)
-	if _, err := conn.Conn().PgConn().Exec(ctx, sql).ReadAll(); err != nil {
-		t.Fatalf("burn %d xids: %v", n, err)
-	}
-}
-
 // catalogRun runs one catalog probe. A probe has at most 500 ms; on a
 // loaded runner (-race, a busy shared server) a run can exhaust that
 // budget, which these tests do not measure, so such a run is repeated
@@ -63,7 +48,7 @@ func TestCatalog_XIDRunwayCountsConsumption(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first sample: %v", err)
 	}
-	burnXIDs(t, ctx, pool, 2000)
+	testdb.BurnXIDs(t, ctx, pool, 2000)
 	after, err := XIDRunwayOf(catalogRun(t, ctx, pool, XIDRunwayProbe, Args{}))
 	if err != nil {
 		t.Fatalf("second sample: %v", err)
@@ -102,7 +87,7 @@ func TestCatalog_WraparoundTablesUseTheTableMaximum(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "DROP TABLE "+ident) })
-	burnXIDs(t, ctx, pool, 30000)
+	testdb.BurnXIDs(t, ctx, pool, 30000)
 	ts, err := WraparoundTables(catalogRun(t, ctx, pool, WraparoundTablesProbe, Args{}))
 	if err != nil || len(ts) == 0 {
 		t.Fatalf("tables = %+v (%v)", ts, err)
@@ -134,7 +119,7 @@ func TestCatalog_XminHorizonListsHolders(t *testing.T) {
 	slot := catalogSlotHolder(t, ctx, pool)
 	pid := sessionHolder(t, ctx, dsn)
 	gid := preparedHolder(t, ctx, pool, dsn)
-	burnXIDs(t, ctx, pool, 500)
+	testdb.BurnXIDs(t, ctx, pool, 500)
 	hs, err := XminHolders(catalogRun(t, ctx, pool, XminHorizon, Args{}))
 	if err != nil {
 		t.Fatalf("holders: %v", err)

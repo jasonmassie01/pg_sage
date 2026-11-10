@@ -75,8 +75,7 @@ func (a *Analyzer) cycle(ctx context.Context) {
 func (a *Analyzer) loadCycleInputs(ctx context.Context, current *collector.Snapshot) {
 	a.eval.collectedAt = current.CollectedAt
 	a.loadRecentlyCreatedIndexes(ctx)
-	a.loadStatsEpoch(ctx)
-	a.loadIndexBuilds(ctx)
+	a.loadCycleCatalogState(ctx)
 	a.prepareUnusedClock(ctx, current)
 }
 

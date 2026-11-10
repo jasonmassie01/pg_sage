@@ -414,37 +414,40 @@ VACUUM FREEZE public.orders;
 
 ### wraparound_freeze
 
-Detects tables whose own transaction age is past
-`analyzer.wraparound_freeze_xid_age` (default 150,000,000).
+Diagnoses tables that have used `analyzer.wraparound_freeze_share` (default
+0.75) of their effective freeze maximum: the lower of
+`autovacuum_freeze_max_age` and the table's own `autovacuum_freeze_max_age`
+reloption (and likewise for multixacts). A server tuned to
+`autovacuum_freeze_max_age = 1000000000` is judged against that setting, not
+against a fixed 150 million.
 
-**Severity:** warning from the threshold, critical from 200,000,000.
+**Severity:** warning from the share, critical once the table is past its
+maximum (anti-wraparound autovacuum is due).
 
-**What it detects:** The older of `age(relfrozenxid)` of the table and of
-its TOAST table, so a TOAST relation near wraparound is not hidden behind a
-young heap. The detail also carries `mxid_age` (multixact age).
-
-Partitioned parents are never flagged: they have no storage of their own
-(`relfrozenxid` is 0, which PostgreSQL reports as age 2,147,483,647), and a
-VACUUM of a parent recurses into every partition. pg_sage records their age
-as unknown (`xid_age: -1`) and assesses each partition on its own.
+**What it detects:** The horizon the freeze custodian reads (one reader for
+the custodian, the runway advisor and this rule): the most advanced
+relations first, a TOAST relation reported as the table that owns it, and
+system catalogs (`detail.catalog: true`). Partitioned parents have no
+`relfrozenxid` and are never read; each partition is assessed on its own.
+pg_sage's own schema is not diagnosed.
 
 **Example output:**
 
 ```
-Table public.events_2026_10 transaction age is 210000000 — freeze to avoid wraparound
+Table public.events_2026_10 has used 82% of its freeze maximum
 ```
 
-**Recommended action:** Run VACUUM (FREEZE) on the table (safe tier; it can
-run unattended once the class has earned trust).
+**Recommended action:** None from the analyzer. The finding is diagnosis only
+(no SQL, no action risk); `detail.custodian_decision` names the freeze
+custodian's decision for the table. The custodian is the only producer of
+freeze actions: a `VACUUM (FREEZE)` (or a plain `VACUUM` past the freeze
+table age) for a red user table, the pinning xmin holder when one blocks it,
+and a plan-only `plan_catalog_freeze` escalation for red system catalogs
+(a catalog `VACUUM` needs `MAINTAIN` or ownership, which managed providers
+rarely grant).
 
-```sql
-VACUUM (FREEZE) "public"."events_2026_10";
-```
-
-Whatever produced it, a VACUUM whose target is a partitioned table, names no
-single table, or whose target cannot be checked is queued for operator
-approval instead of running unattended. A finding whose table was dropped is
-skipped as stale.
+The retired `analyzer.wraparound_freeze_xid_age` still loads, with one
+warning, and is ignored.
 
 ---
 

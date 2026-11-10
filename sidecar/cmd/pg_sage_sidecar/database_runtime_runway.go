@@ -16,13 +16,22 @@ import (
 // advisor that attaches custodian proposals to pre-incident
 // investigations.
 
-// newFreezeCustodian is the database's freeze custodian, as the
-// continuous autonomy workers and the runway advisor build it.
+// newFreezeCustodian is the database's freeze custodian. A database
+// runtime builds one (freezeCustodian) for its autonomy worker, runway
+// advisor and analyzer, which share its sampler: a reading is reused for
+// half the autonomy interval, so each worker tick takes a fresh one.
 func newFreezeCustodian(pool *pgxpool.Pool, cfg *config.Config,
 	database string) *autonomy.PostgresFreezeCustodian {
 	return autonomy.NewPostgresFreezeCustodian(pool, database,
 		cfg.Custodian.Freeze.RedBufferPct).
-		WithBloatBounds(cfg.Analyzer.BloatPlanMinBytes(), catalogread.FromSafety(cfg.Safety))
+		WithBloatBounds(cfg.Analyzer.BloatPlanMinBytes(), catalogread.FromSafety(cfg.Safety)).
+		WithSampleTTL(autonomyInterval(cfg) / 2)
+}
+
+// freezeCustodian is the runtime's one freeze custodian, built on first use.
+func (rt *databaseRuntime) freezeCustodian() *autonomy.PostgresFreezeCustodian {
+	rt.freezeOnce.Do(func() { rt.freeze = newFreezeCustodian(rt.spec.Pool, rt.cfg, rt.spec.Name) })
+	return rt.freeze
 }
 
 // newWALCustodian is the database's WAL custodian. Drop stays disabled
@@ -38,11 +47,11 @@ func newWALCustodian(pool *pgxpool.Pool, cfg *config.Config,
 }
 
 // newRunwayAdvisorFor builds the advisor over the database's own
-// custodians; the executor is attached once it is built.
-func newRunwayAdvisorFor(pool *pgxpool.Pool, cfg *config.Config,
-	database string) *runwayAdvisor {
-	return newRunwayAdvisor(newFreezeCustodian(pool, cfg, database),
-		newWALCustodian(pool, cfg, database), haReplicaProbe(pool))
+// custodians (the runtime's freeze custodian); the executor is attached
+// once it is built.
+func newRunwayAdvisorFor(freeze *autonomy.PostgresFreezeCustodian, pool *pgxpool.Pool,
+	cfg *config.Config, database string) *runwayAdvisor {
+	return newRunwayAdvisor(freeze, newWALCustodian(pool, cfg, database), haReplicaProbe(pool))
 }
 
 func runwayOptions(cfg *config.Config, database string) runway.Options {
