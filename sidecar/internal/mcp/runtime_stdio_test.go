@@ -36,6 +36,15 @@ func (b *blockingBackend) GetPolicy(ctx context.Context, _ PolicyRequest) (Polic
 		b.ended <- nil
 		return PolicyResult{Version: 7, Profile: "staffed"}, nil
 	case <-ctx.Done():
+		// A release queued before the context ended wins: select picks
+		// at random when both are ready, which would make a test that
+		// releases and then cancels flaky.
+		select {
+		case <-b.release:
+			b.ended <- nil
+			return PolicyResult{Version: 7, Profile: "staffed"}, nil
+		default:
+		}
 		b.ended <- ctx.Err()
 		return PolicyResult{}, ctx.Err()
 	}

@@ -137,6 +137,30 @@ func TestStdioWriteErrorCancelsInFlightCall(t *testing.T) {
 	requireServeEnds(t, done, errStdoutGone)
 }
 
+// Error propagation: at EOF Serve waits for the in-flight call, and when
+// writing that call's answer fails it returns the write error, not nil.
+func TestStdioWriteErrorAfterEOFIsReturned(t *testing.T) {
+	backend := newBlockingBackend()
+	reader, writer := io.Pipe()
+	runtime, err := NewRuntime(config.MCPConfig{Enabled: true, Transport: "stdio"},
+		NewServer(backend), reader, failingWriter{})
+	require.NoError(t, err)
+	done := make(chan error, 1)
+	go func() { done <- runtime.Serve(context.Background()) }()
+	_, err = writer.Write([]byte(callLine("c1") + "\n"))
+	require.NoError(t, err)
+	backend.waitStarted(t)
+	require.NoError(t, writer.Close())
+	select {
+	case err := <-done:
+		t.Fatalf("Serve returned %v before the in-flight call finished", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	backend.release <- struct{}{}
+	require.NoError(t, backend.waitEnded(t))
+	requireServeEnds(t, done, errStdoutGone)
+}
+
 func requireServeEnds(t *testing.T, done <-chan error, want error) {
 	t.Helper()
 	select {
