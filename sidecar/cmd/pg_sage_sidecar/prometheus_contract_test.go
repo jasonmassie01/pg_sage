@@ -22,12 +22,16 @@ import (
 
 // legacyTotalGauges are the gauges that still carry the counter suffix.
 // observability-09 renames or removes them in v2.7.0; until then they must
-// not change (no rename in T1), and no other gauge may join them.
+// not change (no rename in T1), and no new gauge may join them.
+// pg_sage_incidents_avoided_total is no new family: it shipped as a counter
+// and earned-09 made it a gauge (a rollback voids credit, and a falling
+// counter reads as a reset) without renaming it.
 var legacyTotalGauges = map[string]bool{
 	"pg_sage_findings_total":                  true,
 	"pg_sage_optimizer_recommendations_total": true,
 	"pg_sage_fleet_findings_total":            true,
 	"pg_sage_connections_total":               true,
+	"pg_sage_incidents_avoided_total":         true,
 }
 
 // contractStart is when the fixture's databases started their first look.
@@ -94,7 +98,7 @@ func lintScrape(t *testing.T, body string) exposition {
 			}
 			e.kinds[f[2]] = f[3]
 		default:
-			name := sampleFamily(line)
+			name := summaryFamily(sampleFamily(line), e.kinds)
 			if !help[name] || e.kinds[name] == "" {
 				t.Errorf("line %d: sample of %s without HELP and TYPE first", n+1, name)
 			}
@@ -113,6 +117,17 @@ func lintScrape(t *testing.T, body string) exposition {
 		}
 	}
 	return e
+}
+
+// summaryFamily maps a summary's _sum or _count sample name to the family
+// its HELP and TYPE name; any other name is returned unchanged.
+func summaryFamily(name string, kinds map[string]string) string {
+	for _, suffix := range []string{"_sum", "_count"} {
+		if base, ok := strings.CutSuffix(name, suffix); ok && kinds[base] == "summary" {
+			return base
+		}
+	}
+	return name
 }
 
 // sampleFamily is the metric name of a sample line.
@@ -205,8 +220,16 @@ func TestContractGaugeAndCounterSuffixes(t *testing.T) {
 			if !strings.HasSuffix(name, "_total") {
 				t.Errorf("counter %s does not end in _total", name)
 			}
+		case "summary":
+			// sre-06's probe queue wait: only _sum and _count, no quantiles.
+			for _, m := range e.families[name].GetMetric() {
+				if len(m.GetSummary().GetQuantile()) != 0 {
+					t.Errorf("summary %s exports quantiles; want _sum and _count only", name)
+				}
+			}
 		default:
-			t.Errorf("family %s has TYPE %s; /metrics exports gauges and counters", name, kind)
+			t.Errorf("family %s has TYPE %s; /metrics exports gauges, counters and "+
+				"quantile-free summaries", name, kind)
 		}
 	}
 	if counters == 0 {
@@ -349,4 +372,22 @@ func grepLines(body, fragment string) string {
 		}
 	}
 	return strings.Join(out, "\n")
+}
+
+// Boundary: only a summary's own _sum and _count samples map to it; a gauge
+// named like one, or another suffix, keeps its own name.
+func TestSummaryFamilyMapsOnlySummarySamples(t *testing.T) {
+	kinds := map[string]string{"wait_seconds": "summary", "rows": "gauge"}
+	for in, want := range map[string]string{
+		"wait_seconds_sum":   "wait_seconds",
+		"wait_seconds_count": "wait_seconds",
+		"wait_seconds_total": "wait_seconds_total",
+		"rows_count":         "rows_count",
+		"wait_seconds":       "wait_seconds",
+		"":                   "",
+	} {
+		if got := summaryFamily(in, kinds); got != want {
+			t.Errorf("summaryFamily(%q) = %q, want %q", in, got, want)
+		}
+	}
 }
