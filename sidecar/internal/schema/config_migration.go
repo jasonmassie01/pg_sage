@@ -124,23 +124,18 @@ func readConfigKeyIndexState(
 	return st, nil
 }
 
-// addConfigCompositeIndex drops the old single-column primary key on (key)
-// when it exists, so per-database overrides can coexist with global rows,
-// creates idx_config_key_db when it is missing, and fails naming the index
-// unless it is then present, valid and unique (G5-B24: errors were
-// swallowed, and a missing index broke every config upsert).
+// addConfigCompositeIndex creates idx_config_key_db when it is missing,
+// fails naming it unless it is then present, valid and unique (G5-B24:
+// errors were swallowed, and a missing index broke every config upsert),
+// and only then drops the old single-column primary key on (key), so
+// per-database overrides can coexist with global rows and sage.config is
+// never left without a unique key.
 func addConfigCompositeIndex(
 	ctx context.Context, db bootstrapDB,
 ) error {
 	st, err := readConfigKeyIndexState(ctx, db)
 	if err != nil {
 		return err
-	}
-	if st.hasPK {
-		if _, err := db.Exec(ctx,
-			"ALTER TABLE sage.config DROP CONSTRAINT config_pkey"); err != nil {
-			return fmt.Errorf("dropping the old primary key sage.config_pkey: %w", err)
-		}
 	}
 	if !st.exists {
 		if _, err := db.Exec(ctx, ddlConfigKeyIndex); err != nil {
@@ -156,6 +151,12 @@ func addConfigCompositeIndex(
 		return fmt.Errorf("sage.%s is not a valid unique index on sage.config "+
 			"(exists %t, valid %t, unique %t): drop it and restart so bootstrap "+
 			"rebuilds it", configKeyIndex, st.exists, st.valid, st.unique)
+	}
+	if st.hasPK {
+		if _, err := db.Exec(ctx,
+			"ALTER TABLE sage.config DROP CONSTRAINT config_pkey"); err != nil {
+			return fmt.Errorf("dropping the old primary key sage.config_pkey: %w", err)
+		}
 	}
 	return nil
 }

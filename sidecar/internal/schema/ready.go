@@ -15,10 +15,10 @@ var ErrSchemaNotReady = errors.New("sage schema not ready")
 
 // readinessSQL returns the expected tables missing from the sage schema
 // (kind 'table'), and idx_config_key_db (kind 'index') unless it exists and
-// is valid: without it every sage.config upsert fails (config-04). The
-// pg_class lookup is by (relname, relnamespace), an index scan at any
+// is valid and unique: without it every sage.config upsert fails (config-04).
+// The pg_class lookup is by (relname, relnamespace), an index scan at any
 // catalog size.
-const readinessSQL = `/* pg_sage readiness v2 */
+const readinessSQL = `/* pg_sage readiness v3 */
 SELECT 'table', t.name
   FROM unnest($1::text[]) AS t(name)
  WHERE NOT EXISTS (
@@ -33,7 +33,7 @@ SELECT 'index', 'idx_config_key_db'
  WHERE NOT EXISTS (
        SELECT 1 FROM pg_catalog.pg_index i
         WHERE i.indexrelid = pg_catalog.to_regclass('sage.idx_config_key_db')
-          AND i.indisvalid)
+          AND i.indisvalid AND i.indisunique)
  ORDER BY 1 DESC, 2`
 
 // readinessTables lists the tables Bootstrap guarantees, in its order.
@@ -46,8 +46,8 @@ func readinessTables() []string {
 }
 
 // CheckReady returns nil when every table Bootstrap creates exists and the
-// sage.config key index is valid, an error wrapping ErrSchemaNotReady naming
-// what is missing, or the query error.
+// sage.config key index is valid and unique, an error wrapping
+// ErrSchemaNotReady naming what is missing, or the query error.
 func CheckReady(ctx context.Context, pool *pgxpool.Pool) error {
 	if pool == nil {
 		return errors.New("schema readiness requires a PostgreSQL connection pool")
@@ -73,7 +73,7 @@ func CheckReady(ctx context.Context, pool *pgxpool.Pool) error {
 		parts = append(parts, "missing tables "+strings.Join(missing["table"], ", "))
 	}
 	if len(missing["index"]) > 0 {
-		parts = append(parts, "missing or invalid index sage."+
+		parts = append(parts, "missing, invalid or non-unique index sage."+
 			strings.Join(missing["index"], ", sage."))
 	}
 	if len(parts) > 0 {
