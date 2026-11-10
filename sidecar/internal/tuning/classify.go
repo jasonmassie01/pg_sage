@@ -118,7 +118,7 @@ func classifyTable(schema, rel string, confirmed, rejectedFixtures []facts.Fact,
 			return info
 		}
 	}
-	if facts.LooksLikeTestSchema(schema) && len(facts.Matching(rejectedFixtures, name)) == 0 {
+	if facts.IsTestSchemaName(schema) && len(facts.Matching(rejectedFixtures, name)) == 0 {
 		info.Class = ClassTest
 		info.Reason = fmt.Sprintf("schema %s is named like a test schema", schema)
 	}

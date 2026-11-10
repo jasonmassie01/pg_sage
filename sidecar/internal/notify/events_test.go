@@ -77,6 +77,7 @@ func constructorEvents() map[string]Event {
 		"ApprovalOutcomeEvent": ApprovalOutcomeEvent(ApprovalOutcome{
 			Database: "orders", QueueID: 7, Verdict: "verified"}),
 		"FactProposedEvent":      fact,
+		"FactExpiredEvent":       FactExpiredEvent(FactExpiry{Database: "orders", FactID: 3}),
 		"IncidentDetectedEvent":  IncidentDetectedEvent(incident),
 		"IncidentEscalatedEvent": IncidentEscalatedEvent(incident),
 		"IncidentResolvedEvent":  IncidentResolvedEvent(incident),

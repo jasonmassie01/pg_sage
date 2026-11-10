@@ -18,7 +18,8 @@ describe('notification rule defaults', () => {
   it('lists every backend event type', () => {
     for (const ev of ['action_executed', 'action_failed', 'approval_needed',
       'finding_critical', 'query_rewrite_suggested', 'incident_detected',
-      'incident_escalated', 'incident_resolved', 'custodian_escalation']) {
+      'incident_escalated', 'incident_resolved', 'custodian_escalation',
+      'fact_expired']) {
       expect(EVENT_TYPES).toContain(ev)
     }
   })
@@ -29,6 +30,7 @@ describe('notification rule defaults', () => {
     expect(defaultMinSeverity('incident_detected')).toBe('warning')
     expect(defaultMinSeverity('incident_resolved')).toBe('warning')
     expect(defaultMinSeverity('custodian_escalation')).toBe('critical')
+    expect(defaultMinSeverity('fact_expired')).toBe('warning')
     expect(defaultMinSeverity('unknown_event')).toBe('info')
   })
 

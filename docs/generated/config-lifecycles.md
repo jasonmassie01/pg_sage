@@ -141,6 +141,7 @@
 | `explain.enabled` | `restart` | `-` | `operator_preference` |
 | `explain.max_tokens` | `restart` | `-` | `derivable` |
 | `explain.timeout_ms` | `restart` | `-` | `derivable` |
+| `facts.confirmed_absence_days` | `restart` | `-` | `operator_preference` |
 | `fleet_learning.budget_ceiling_pct` | `restart` | `-` | `operator_preference` |
 | `fleet_learning.budget_floor_pct` | `restart` | `-` | `operator_preference` |
 | `fleet_learning.budget_split` | `restart` | `-` | `operator_preference` |

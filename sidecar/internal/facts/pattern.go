@@ -35,7 +35,10 @@ type Pattern struct {
 }
 
 // ObjectRef is an object a request or finding touches. An index may carry
-// its table; KindRelation is a table or an index, unknown which. A slot
+// its table; KindRelation is a table or an index, unknown which. A
+// partition, or an index of one, may carry the root of its declarative
+// partition tree (RootSchema, RootName; facts-10), set from the catalog
+// only when the root is another relation. A slot
 // ref with AllSlots set ("slot:*") touches every slot of the cluster (a
 // cluster-wide WAL bound) and has no name.
 type ObjectRef struct {
@@ -44,6 +47,8 @@ type ObjectRef struct {
 	Name        string
 	TableSchema string
 	TableName   string
+	RootSchema  string
+	RootName    string
 	AllSlots    bool
 }
 
@@ -116,7 +121,9 @@ func (p Pattern) String() string {
 
 // Matches reports whether the pattern covers ref. An unqualified ref
 // matches any schema, and a relation of unknown kind matches both table
-// and index patterns: when unsure, a fact binds (it can only narrow).
+// and index patterns: when unsure, a fact binds (it can only narrow). A
+// table or schema pattern also covers a ref whose partition root it
+// covers: a fact on a partitioned table covers all its partitions.
 func (p Pattern) Matches(ref ObjectRef) bool {
 	switch p.Kind {
 	case KindSlot:
@@ -126,13 +133,15 @@ func (p Pattern) Matches(ref ObjectRef) bool {
 			return false
 		}
 		return p.schemaMatches(ref.Schema) ||
-			(ref.TableName != "" && p.schemaMatches(ref.TableSchema))
+			(ref.TableName != "" && p.schemaMatches(ref.TableSchema)) ||
+			(ref.RootName != "" && p.schemaMatches(ref.RootSchema))
 	case KindTable:
 		if (ref.Kind == KindTable || ref.Kind == KindRelation) &&
 			p.relMatches(ref.Schema, ref.Name) {
 			return true
 		}
-		return ref.TableName != "" && p.relMatches(ref.TableSchema, ref.TableName)
+		return (ref.TableName != "" && p.relMatches(ref.TableSchema, ref.TableName)) ||
+			(ref.RootName != "" && p.relMatches(ref.RootSchema, ref.RootName))
 	case KindIndex:
 		return (ref.Kind == KindIndex || ref.Kind == KindRelation) &&
 			p.relMatches(ref.Schema, ref.Name)

@@ -138,6 +138,8 @@ func classify(r Record) mapping {
 		return queryAuditMapping(r)
 	case auditchain.PGAuditEvents.Chain:
 		return pgauditMapping(r)
+	case auditchain.FactEvents.Chain:
+		return factMapping(r)
 	}
 	return mapping{class: ClassAPIActivity, activity: 99, activityName: "Other",
 		status: statusSuccess, severity: SeverityInformational,
@@ -152,7 +154,7 @@ func chainClass(chain string) int {
 		return ClassDatastoreActivity
 	case auditchain.AuthAudit.Chain:
 		return ClassAuthentication
-	case auditchain.ConfigAudit.Chain:
+	case auditchain.ConfigAudit.Chain, auditchain.FactEvents.Chain:
 		return ClassEntityManagement
 	}
 	return ClassAPIActivity

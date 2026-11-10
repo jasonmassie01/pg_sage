@@ -82,13 +82,26 @@ func matchesAny(patterns []Pattern, schema string) bool {
 // gets one cleanup finding. It returns the categories it evaluated.
 func ApplyFindings(facts []Fact, findings []analyzer.Finding, excluded []string,
 	activity map[string]int64, now time.Time) ([]analyzer.Finding, []string) {
+	return applyFindings(facts, findings, nil, excluded, activity, now)
+}
+
+// applyFindings is ApplyFindings with each finding's refs already resolved
+// (resolved[i] for findings[i]); with resolved nil they are matched as
+// written.
+func applyFindings(facts []Fact, findings []analyzer.Finding, resolved [][]ObjectRef,
+	excluded []string, activity map[string]int64, now time.Time) ([]analyzer.Finding,
+	[]string) {
 	patterns := fixturePatterns(facts, now)
 	out := make([]analyzer.Finding, 0, len(findings)+len(patterns))
-	for _, f := range findings {
+	for i, f := range findings {
 		if f.Category != CategoryTestFixtureCleanup && onFixture(patterns, f) {
 			continue
 		}
-		out = append(out, redirect(facts, f, now))
+		refs := redirectRefs(f)
+		if resolved != nil {
+			refs = resolved[i]
+		}
+		out = append(out, redirect(facts, f, refs, now))
 	}
 	for _, fact := range facts {
 		if fact.Type != TypeTestFixture || !fact.binds(now) {
@@ -111,17 +124,30 @@ func onFixture(patterns []Pattern, f analyzer.Finding) bool {
 	return ok && ref.Kind != KindSlot && ref.Schema != "" && matchesAny(patterns, ref.Schema)
 }
 
-// redirect turns a finding's executable change into a source-fix packet
-// when a confirmed fact binds it (as an operator's own request would be
-// bound: windows and fixtures do not redirect).
-func redirect(facts []Fact, f analyzer.Finding, now time.Time) analyzer.Finding {
+// redirectRequest is the request a finding's executable change is bound
+// as: an operator's own, so windows and fixtures do not redirect.
+func redirectRequest(f analyzer.Finding, now time.Time) Request {
+	return Request{SQL: f.RecommendedSQL, Targets: []string{f.ObjectIdentifier},
+		OperatorApproved: true, Now: now}
+}
+
+// redirectRefs are the objects a finding's executable change touches, as
+// written; nil when it has none.
+func redirectRefs(f analyzer.Finding) []ObjectRef {
+	if strings.TrimSpace(f.RecommendedSQL) == "" {
+		return nil
+	}
+	return withTableHint(ResolveRefs(redirectRequest(f, time.Time{})), f)
+}
+
+// redirect turns a finding's executable change, touching refs, into a
+// source-fix packet when a confirmed fact binds it.
+func redirect(facts []Fact, f analyzer.Finding, refs []ObjectRef,
+	now time.Time) analyzer.Finding {
 	if strings.TrimSpace(f.RecommendedSQL) == "" {
 		return f
 	}
-	req := Request{SQL: f.RecommendedSQL, Targets: []string{f.ObjectIdentifier},
-		OperatorApproved: true, Now: now}
-	refs := withTableHint(ResolveRefs(req), f)
-	bindings := Bind(facts, refs, req)
+	bindings := Bind(facts, refs, redirectRequest(f, now))
 	if len(bindings) == 0 {
 		return f
 	}
@@ -163,6 +189,7 @@ func withTableHint(refs []ObjectRef, f analyzer.Finding) []ObjectRef {
 // (analyzer.FactFilter).
 type FindingFilter struct {
 	source   ConfirmedSource
+	resolver RefResolver
 	activity ActivityReader
 	logFn    func(string, string, ...any)
 	now      func() time.Time
@@ -170,12 +197,12 @@ type FindingFilter struct {
 
 // NewFindingFilter filters with the facts from source; logFn may be nil.
 // Without WithActivity it offers no cleanup batch.
-func NewFindingFilter(source ConfirmedSource, logFn func(string, string, ...any),
-) *FindingFilter {
+func NewFindingFilter(source ConfirmedSource, resolver RefResolver,
+	logFn func(string, string, ...any)) *FindingFilter {
 	if logFn == nil {
 		logFn = func(string, string, ...any) {}
 	}
-	return &FindingFilter{source: source, logFn: logFn, now: time.Now}
+	return &FindingFilter{source: source, resolver: resolver, logFn: logFn, now: time.Now}
 }
 
 // WithActivity reads the fixture schemas' activity baselines a cleanup
@@ -218,7 +245,8 @@ func (f *FindingFilter) ApplyFindings(ctx context.Context, findings []analyzer.F
 		return findings, nil
 	}
 	activity, ok := f.baselines(ctx, excluded)
-	out, evaluated := ApplyFindings(facts, findings, excluded, activity, f.now())
+	out, evaluated := applyFindings(facts, findings, f.resolveRefs(ctx, facts, findings),
+		excluded, activity, f.now())
 	if !ok {
 		evaluated = nil
 	}
@@ -244,4 +272,36 @@ func (f *FindingFilter) baselines(ctx context.Context, excluded []string) (map[s
 		return nil, false
 	}
 	return activity, true
+}
+
+// resolveRefs reads, in one catalog query per cycle, the kinds, index
+// tables and partition roots of every finding's refs, so a fact on a
+// partitioned table redirects findings on its partitions (facts-10).
+// Without facts or a resolver, or on a read error (logged), refs are
+// matched as written (nil): the gate, which fails closed, still binds.
+func (f *FindingFilter) resolveRefs(ctx context.Context, facts []Fact,
+	findings []analyzer.Finding) [][]ObjectRef {
+	if f.resolver == nil || len(facts) == 0 {
+		return nil
+	}
+	per := make([][]ObjectRef, len(findings))
+	var all []ObjectRef
+	for i, fd := range findings {
+		per[i] = redirectRefs(fd)
+		all = append(all, per[i]...)
+	}
+	if !needsResolution(all) {
+		return nil
+	}
+	got, err := resolveCatalog(ctx, f.resolver, all)
+	if err != nil {
+		f.logFn("WARN", "facts: refs of %d findings matched as written (partitions not "+
+			"covered by their parent's facts this cycle): %v", len(findings), err)
+		return nil
+	}
+	for i := range per {
+		n := len(per[i])
+		per[i], got = got[:n:n], got[n:]
+	}
+	return per
 }

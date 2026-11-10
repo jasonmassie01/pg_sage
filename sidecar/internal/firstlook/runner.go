@@ -349,7 +349,10 @@ func operatorLimit(settingMS int, source string) (int, string) {
 }
 
 // fixtureProposals are the idle test schemas the fact store should hear
-// about; the window must be known for "idle" to mean anything.
+// about; the window must be known for "idle" to mean anything. A read cut
+// at maxSchemaRows (in name order) may have left live schemas unread, and
+// in name order they follow the last one read: it counts as live, so no
+// family pattern that would also match the unread schemas is proposed.
 func fixtureProposals(ss []Schema, w StatsWindow, now time.Time) []facts.Proposal {
 	if !w.Known {
 		return nil
@@ -357,6 +360,9 @@ func fixtureProposals(ss []Schema, w StatsWindow, now time.Time) []facts.Proposa
 	acts := make([]facts.SchemaActivity, len(ss))
 	for i, s := range ss {
 		acts[i] = facts.SchemaActivity{Name: s.Name, Tables: s.Tables, Activity: s.Activity}
+	}
+	if len(acts) >= maxSchemaRows {
+		acts[len(acts)-1].Activity = max(acts[len(acts)-1].Activity, 1)
 	}
 	return facts.IdleFixtureProposals(acts, now.Sub(w.Since), now)
 }

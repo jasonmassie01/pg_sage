@@ -125,9 +125,19 @@ var PGAuditEvents = Spec{
 		col("object_name"), col("statement"), col("correlated_by")},
 }
 
+// FactEvents chains the history of fact decisions (facts-07): who
+// proposed, confirmed, rejected, declared or expired a binding fact.
+// Append-only; rejecting or expiring a confirmed fact lifts a guard.
+var FactEvents = Spec{
+	Chain: "fact_events", Table: "sage.fact_events", Version: 1,
+	Sealed: []string{col("id"), col("fact_id"), epochUS("at"), col("actor"), col("verb"),
+		col("from_status"), col("to_status"), col("fact_hash"), col("note")},
+}
+
 // Specs lists the chains the schema migration installs.
 func Specs() []Spec {
-	return []Spec{ActionLog, AuthAudit, ConfigAudit, GuardQueryAudit, PGAuditEvents}
+	return []Spec{ActionLog, AuthAudit, ConfigAudit, GuardQueryAudit, PGAuditEvents,
+		FactEvents}
 }
 
 // SpecFor returns the built-in spec of chain.

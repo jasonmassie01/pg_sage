@@ -15,7 +15,7 @@ would not have done anyway.
 |---|---|---|---|
 | `owned_by_app_migrations` | index, table or schema | The application's schema migrations create and change it | Never creates, drops or alters it. The change becomes a **source-fix packet**: the migration pg_sage recommends, attached to the finding, for you or a coding agent to put in a PR. |
 | `test_fixture` | schema pattern | Schemas left by test runs, not workload | Removes them from findings and from the budgets, takes no action on them by itself, and offers one **cleanup batch** (a reviewed script you run; see [The cleanup batch](#the-cleanup-batch)). pg_sage never drops schemas itself. A family pattern such as `test_*` also covers schemas created after you confirm it; the batch re-checks each schema's activity and locks before dropping it. |
-| `slot_consumer` | replication slot | The slot feeds a named consumer (Debezium, Fivetran, Airbyte...) | Never drops or advances the slot and never bounds WAL in a way that could invalidate it; it alerts instead. `max_slot_wal_keep_size` is cluster-wide, so any finite bound (and `RESET`) is blocked whichever slot it names; only `-1` (unbounded) is allowed. A confirmed slot is also registered in `sage.slot_consumer_registry`, so the WAL custodian escalates instead of acting. |
+| `slot_consumer` | replication slot | The slot feeds a named consumer (Debezium, Fivetran, Airbyte...) | Never drops or advances the slot and never bounds WAL in a way that could invalidate it; it alerts instead. `max_slot_wal_keep_size` is cluster-wide, so any finite bound (and `RESET`) is blocked whichever slot it names; only `-1` (unbounded) is allowed. A confirmed slot is also registered in `sage.slot_consumer_registry`, so the WAL custodian escalates instead of acting; rejecting or expiring the fact yourself unregisters the slot again (owner and last confirmation are kept); an automatic expiry does not (see [Expiry and re-verification](#expiry-and-re-verification)). |
 | `append_only` | table | Rows are only inserted (an archive or a log) | Never deletes its rows, rewrites it (`VACUUM FULL`, bloat plans) or drops its indexes (they look unused because an archive is rarely read). |
 | `table_window` | table | `maintenance` window (act only inside) or `batch` window (never act during) | Holds pg_sage's own work on the table until the window allows it. Your own approvals are not held. |
 
@@ -37,19 +37,40 @@ would not have done anyway.
     EF Core-style `"IX_Orders_CustomerId"` is proposed as `public."IX_Orders_CustomerId"`;
     a drop that named no schema, and an index whose name holds `*`, are not proposed;
   * test-named schemas (`test_*`, `tmp_*`, `*_test`, ...) with no scans or writes for six
-    hours, as one pattern per family of copies;
+    hours: a family of copies with generated suffixes (`test_memory_a1b2`,
+    `test_memory_c3d4`) as one pattern (`test_memory_*`), any other one by name. A family
+    is proposed only once every test-named schema its pattern would match is idle, members
+    or not, so a live `test_memory_live` holds `test_memory_*` back (confirming it would
+    hide live traffic). The first look on a new database proposes the same subjects by the
+    same rule from the statistics window, when that window covers at least six hours (it reads
+    at most 500 test-named schemas in name order; when it hits that cap, the last one read
+    counts as live, so its family waits for the detector, which reads them all);
   * logical replication slots and their consumer;
   * tables with a million inserts and no update or delete.
 * **The model** (when an LLM is configured) proposes facts from a bounded summary of the
-  catalog, at most once a day. Every model proposal must cite the evidence it was shown and
-  passes the same validation as any other; it is only ever a proposal.
+  catalog, at most once a day: schema summaries, logical slots, and indexes pg_sage dropped
+  that came back. Every model proposal must cite the evidence it was shown and passes the
+  same validation as any other; it is only ever a proposal. The cited evidence must also be
+  about the proposal's own subject: a schema fact cites that schema's summary, a slot fact
+  its slot, an index fact its drop history, and a subject with `*` cites at least two
+  distinct objects it matches. The model is shown no table evidence, so it proposes no
+  table facts (`append_only`, `table_window`, or ownership of a table); the detectors and
+  you still can. A proposal that fails this is dropped and logged
+  (`facts: model proposal dropped: ... the cited evidence is not about the subject`).
+* **Ask Sage** (`propose_fact`) can propose one fact per question, citing evidence it read
+  in that run. It has no confirm path; it can list facts (`list_facts`) but not decide them.
+* **MCP clients** can propose with `propose_fact`; the fact stays proposed.
 * **You** can declare a fact directly; your declaration confirms it.
 * What you already declared with the MCP tools `register_consumer` and
-  `declare_table_contract` (append-only) is imported as confirmed facts.
+  `declare_table_contract` (append-only) is imported as confirmed facts, once: a fact about
+  the same subject, whatever its status, is kept, so a rejected fact is never re-confirmed
+  by an import. `register_consumer` can still register a slot after you reject its fact
+  (the WAL custodian then escalates again); the fact stays rejected.
 
-Nothing proposed binds anything until a person confirms it. A rejected fact stays rejected
-when it is proposed again (the proposal count grows); new evidence reopens only an expired
-fact.
+Nothing proposed binds anything until a person confirms it, whichever of these proposed it.
+A rejected fact stays rejected when it is proposed again (the proposal count grows); new
+evidence reopens only an expired fact. Rejected facts are kept as tombstones: retention never
+purges them, so the rejection is remembered for as long as the database is monitored.
 
 ## Confirming and rejecting
 
@@ -66,6 +87,40 @@ fact.
   `POST /api/v1/facts/{id}/confirm|reject|expire`, `GET /api/v1/facts/match?object=...`.
   Viewers read; operators and admins decide.
 * **MCP**: `list_facts`, `propose_fact` (stays proposed), `decide_fact` (operator or admin).
+
+Revoking (Reject) or expiring a confirmed fact lifts a guard, so the Facts page asks first:
+it names the fact and says that pg_sage and operator approvals may then act on its subject
+again. Cancel sends nothing. Confirming or rejecting a proposal is one click.
+
+## History
+
+Every change of a fact's status or decision appends one row to `sage.fact_events`: when, who
+(`actor`), what (`verb`: `proposed`, `declared`, `confirmed`, `rejected`, `expired`,
+`reopened`, `restored` or `baseline`), the status before and after, the fact's hash after the change (the
+one a chat card binds to) and the note or expiry reason. A trigger on `sage.facts` writes it
+in the same transaction as the change, so every path is recorded (the UI and API, chat cards,
+MCP `decide_fact`, re-verification, and agent column classes), and a change whose event cannot
+be written fails. Re-proposing a fact (its proposal count and evidence) and re-verification
+marks (`last_verified_at`, `missing_since`) are not decisions and add no event.
+
+* The row in `sage.facts` keeps only the latest decision; the history keeps every one, so the
+  person who first confirmed a fact can still be read after someone revokes it.
+* Facts that existed before the upgrade get one `baseline` event when the history is first
+  installed: their current status, by their latest decider (or proposer), at the decision
+  time. Who expired an older fact was never recorded, so its actor is `unknown` and the note
+  keeps the decider and the expiry reason.
+* `expired_by` names who expired a fact: the signed-in user for an expiry through the UI or
+  API, `pg_sage:verifier` for re-verification. A restored confirmation is recorded as
+  `pg_sage`'s.
+* The history is append-only (an update is refused) and is an audit chain (`fact_events`):
+  `GET /api/v1/audit/verify` checks it and SIEM export ships it, like `config_audit`.
+* It outlives its fact: retention purges expired facts after `retention.actions_days`, and
+  keeps their events. Events have no age retention.
+
+```sql
+SELECT at, actor, verb, from_status, to_status, note
+FROM sage.fact_events WHERE fact_id = 12 ORDER BY id;
+```
 
 ## How a fact binds
 
@@ -94,8 +149,54 @@ every user schema that has a relation of that name (`test_a.orders` is a test fi
 SQL names stay conservative: an unqualified one that cannot be resolved still matches every
 schema subject. If the catalog cannot be read, the gate fails closed (`facts_unavailable`).
 
-The optimizer, advisor and investigator prompts carry the confirmed facts as bounded context.
-Proposed facts are never presented to the model as true.
+Confirmed facts also reach the model, as bounded context fenced as data (the gate, not the
+model, is what enforces them):
+
+* The **advisor**'s review prompts and the **investigator**'s review turns carry the
+  database's confirmed facts: at most 12 facts and 1,500 characters. When there are more,
+  the facts behind WAL and vacuum advice go first: `slot_consumer`, then `table_window`,
+  `append_only`, `owned_by_app_migrations` and `test_fixture`, by fact id within a type.
+  The last line then says how many were left out (`- 19 more confirmed facts omitted.`);
+  the budget still holds with that line.
+* The **tuning agent**'s case packet carries the confirmed facts about the case's tables
+  (an index fact counts for every table in its schema), one line each of at most 300
+  characters, citable as `F<id>`, within the packet's 12,000-byte budget.
+* **Ask Sage**'s prompt does not carry them; it reads them with its `list_facts` tool.
+
+Proposed, rejected and expired facts are never presented to the model as true. A fact past
+its expiry date stops binding and leaves these prompts at that moment, before
+re-verification marks it expired.
+
+The gate reads the confirmed facts through a cache of at most 10 seconds per database. A
+confirm, reject or expire in the same pg_sage process (UI, API, MCP or a chat card) clears it
+at once, including a read already in flight, so the next action sees the decision. A change
+written by another process is seen within 10 seconds. The advisor's and the investigator's
+prompt context reads through the same cache; the tuning agent reads the facts afresh for each
+run. If the facts cannot be read, a prompt goes without them (logged), while the gate still
+fails closed.
+
+### Partitioned tables
+
+A table fact on a partitioned table covers all its partitions (declarative partitioning;
+legacy inheritance children are not covered). A fact on `public.events` binds work on
+`public.events_2026_11`, on a sub-partition of it, and on a partition's index, as it binds
+work on `public.events` itself: `ALTER TABLE public.events_2026_11 SET (...)`, a
+`VACUUM (FULL)` of a partition, a `VACUUM` of a partition inside the table's batch window, or
+`DROP INDEX` of a partition's index. A schema fact also covers a partition that lives in
+another schema than its partitioned table. The binding names the partition as its object and
+the partitioned table's fact as its subject.
+
+The partition tree is read from the catalog of the database the action runs on
+(`pg_partition_root`, PostgreSQL 12 and later), in one bounded, read-only query per gate
+check, so a partition attached after the fact was confirmed is covered at once. If the
+catalog cannot be read, the gate fails closed (`facts_unavailable`). The analyzer reads it
+once per cycle to turn findings on partitions into source-fix packets; if that read fails,
+the findings keep their SQL for that cycle (logged) and the gate still binds them. A
+partition the action names without a schema is matched by its own name only.
+
+A fact on a partitioned table does not expire while the table exists, even with no
+partitions. A fact on a partition covers that partition alone, not its siblings or its
+partitioned table.
 
 ### Slot facts are cluster facts
 
@@ -158,7 +259,48 @@ withheld for the cycle (logged) and the earlier batch stays open.
 
 ## Expiry and re-verification
 
-Every 15 minutes pg_sage re-checks proposed and confirmed facts. A fact whose subject no
-longer names anything (the schema was dropped, the slot removed) expires after an hour of
-absence; a fact with an expiry date expires on that date. Expired and rejected facts are
-purged after `retention.actions_days`; proposed and confirmed facts are kept.
+Every 15 minutes pg_sage re-checks proposed and confirmed facts. A fact that a detector or the
+model proposes again in the same pass counts as present. When a fact's subject no longer names
+anything (the schema was dropped, the slot removed), pg_sage records when it was first seen
+absent (`missing_since`, kept in `sage.facts`, so a restart does not reset it) and clears it
+when the subject is back. The fact expires once the absence has lasted its grace:
+
+| Fact | Absence grace |
+|---|---|
+| Confirmed, proposed by an operator or the model | `facts.confirmed_absence_days` (default 7, 1-90) |
+| Proposed (not yet decided), or proposed by a detector | 1 hour |
+
+A confirmed fact keeps binding while its subject is absent (it matches nothing until the
+subject is back), so a table rebuilt and swapped in, a blue/green schema swap or a Debezium
+slot recreated after a connector reset keeps its confirmation. The Facts page and the API show
+`missing_since` ("absent since"). When a confirmed fact expires this way, pg_sage logs a
+warning and sends a `fact_expired` notification (warning severity) naming the fact and who
+confirmed it. If the same subject then comes back and a detector or the model proposes the
+same value within `facts.confirmed_absence_days` of the expiry, the confirmation is restored:
+the fact is confirmed again with its original `decided_by` and `decided_at`, the decision note
+gains "subject reappeared; confirmation by ... kept", and no card is sent. A different value,
+a proposal after that window, a fact you expired yourself and a fact whose expiry date passed
+reopen as a proposal for you to decide; a rejected fact never reopens. A confirmed fact whose
+subject no longer parses (after an upgrade changed the subject rules) is reported and kept
+confirmed; one fact that cannot be checked never stops the others being checked. Declaring,
+confirming or rejecting a fact starts any absence of its subject afresh, so a fact you declare
+again while its subject is still absent gets its full grace. A fact with an expiry date
+expires on that date, and stops binding from that moment. Expired facts are purged after
+`retention.actions_days`; proposed, confirmed and rejected facts are kept (a rejected fact is
+the record that you said no). Expiring a slot consumer fact yourself unregisters its slot, and
+so does the expiry date of a fact you confirmed. A slot that is gone keeps its registration
+when its fact expires, so a consumer that recreates it under the same name is still escalated
+until you decide; the same holds for a proposed fact's expiry date.
+
+Slots whose fact was rejected before this release are still registered: pg_sage does not
+unregister them on its own, because that would widen what the WAL custodian may do without a
+fresh decision. Find them, then confirm and reject a rejected fact again (the reject
+unregisters the slot), or unregister the slot yourself with
+`UPDATE sage.slot_consumer_registry SET registered = false WHERE slot_name = '...'`:
+
+```sql
+SELECT f.id, r.slot_name, r.owner_tag
+FROM sage.facts f
+JOIN sage.slot_consumer_registry r ON r.slot_name = f.subject
+WHERE f.fact_type = 'slot_consumer' AND f.status IN ('rejected', 'expired') AND r.registered;
+```

@@ -293,7 +293,7 @@ decides whether a specific database can execute, queue, or only observe.
 
 ### Alerting
 
-Monitors new findings and routes notifications to Slack, PagerDuty, or custom webhooks based on severity. Supports quiet hours, cooldown periods, and per-severity routing rules. Event types: `finding_critical`, `action_executed`, `action_failed`, `approval_needed`, `query_rewrite_suggested`, `incident_detected`, `incident_escalated`, `incident_resolved`, `custodian_escalation` (critical: a red custodian proposal exhausted its failure backoff, raised once per failure streak and recorded as a `custodian_backoff` decision).
+Monitors new findings and routes notifications to Slack, PagerDuty, or custom webhooks based on severity. Supports quiet hours, cooldown periods, and per-severity routing rules. Event types: `finding_critical`, `action_executed`, `action_failed`, `approval_needed`, `query_rewrite_suggested`, `incident_detected`, `incident_escalated`, `incident_resolved`, `custodian_escalation` (critical: a red custodian proposal exhausted its failure backoff, raised once per failure streak and recorded as a `custodian_backoff` decision), `fact_expired` (a confirmed binding fact expired and no longer binds; see [facts](facts.md#expiry-and-re-verification)).
 
 **PagerDuty lifecycle.** Each pg_sage incident is one PagerDuty incident with the
 `dedup_key` `incident:<database>:<incident id>`. `incident_detected` and
