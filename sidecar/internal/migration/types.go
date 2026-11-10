@@ -18,6 +18,9 @@ type DDLClassification struct {
 	// SessionRole is the role running the DDL, whose search_path resolves
 	// an unqualified table ("" when unknown).
 	SessionRole string
+	// SessionPID is the backend running the DDL (0 when unknown), which
+	// the activity read leaves out: the DDL is not load it competes with.
+	SessionPID int
 }
 
 // SQLParser abstracts DDL classification. NewClassifier is the
@@ -38,6 +41,7 @@ type DDLRisk struct {
 	RequiresRewrite bool
 	TableName       string
 	SchemaName      string
+	SessionPID      int // the DDL's own backend, 0 when unknown
 	TableSizeBytes  int64
 	EstimatedRows   int64
 	ActiveQueries   int

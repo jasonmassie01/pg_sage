@@ -91,7 +91,7 @@ func NewAdvisor(
 func (a *Advisor) Analyze(
 	ctx context.Context, sql string,
 ) (*rca.Incident, error) {
-	inc, _, err := a.AnalyzeSessionRisk(ctx, sql, "")
+	inc, _, err := a.AnalyzeSessionRisk(ctx, sql, "", 0)
 	return inc, err
 }
 
@@ -100,7 +100,7 @@ func (a *Advisor) Analyze(
 func (a *Advisor) AnalyzeRisk(
 	ctx context.Context, sql string,
 ) (*rca.Incident, *DDLRisk, error) {
-	return a.AnalyzeSessionRisk(ctx, sql, "")
+	return a.AnalyzeSessionRisk(ctx, sql, "", 0)
 }
 
 // AnalyzeSession is Analyze for DDL run by role, whose search_path
@@ -108,14 +108,15 @@ func (a *Advisor) AnalyzeRisk(
 func (a *Advisor) AnalyzeSession(
 	ctx context.Context, sql, role string,
 ) (*rca.Incident, error) {
-	inc, _, err := a.AnalyzeSessionRisk(ctx, sql, role)
+	inc, _, err := a.AnalyzeSessionRisk(ctx, sql, role, 0)
 	return inc, err
 }
 
 // AnalyzeSessionRisk is AnalyzeSession that also returns the winning
-// assessment. The risk is nil whenever the incident is.
+// assessment, for the DDL running in backend pid (0 when unknown), which
+// the activity read leaves out. The risk is nil whenever the incident is.
 func (a *Advisor) AnalyzeSessionRisk(
-	ctx context.Context, sql, role string,
+	ctx context.Context, sql, role string, pid int,
 ) (*rca.Incident, *DDLRisk, error) {
 	clean := sanitizeDDL(sql)
 	classifications := a.classifier.Classify(clean, a.pgVersion)
@@ -125,6 +126,7 @@ func (a *Advisor) AnalyzeSessionRisk(
 
 	for i := range classifications {
 		classifications[i].SessionRole = role
+		classifications[i].SessionPID = pid
 	}
 	highest, lockTimeout := a.assessHighest(ctx, classifications)
 	if highest == nil || highest.RiskScore <= incidentThreshold {

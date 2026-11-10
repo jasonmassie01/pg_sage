@@ -58,6 +58,7 @@ func (ra *RiskAssessor) Assess(
 		RequiresRewrite: c.RequiresRewrite,
 		TableName:       c.TableName,
 		SchemaName:      c.SchemaName,
+		SessionPID:      c.SessionPID,
 		SafeAlternative: ra.safeAlternative(ctx, c),
 		Description:     c.Description,
 	}

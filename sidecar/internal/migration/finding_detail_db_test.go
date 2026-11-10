@@ -104,8 +104,9 @@ func projectPreflight(
 
 // holdAndQueueVacuumFull holds ACCESS SHARE on table in an open
 // transaction and starts VACUUM FULL behind it, returning once the
-// VACUUM waits for its lock. Both sessions end when the test ends.
-func holdAndQueueVacuumFull(t *testing.T, ctx context.Context, table string) {
+// VACUUM waits for its lock, with the VACUUM's backend pid. Both
+// sessions end when the test ends.
+func holdAndQueueVacuumFull(t *testing.T, ctx context.Context, table string) uint32 {
 	t.Helper()
 	blocker, waiter := connectTest(t, ctx), connectTest(t, ctx)
 	tx, err := blocker.Begin(ctx)
@@ -131,6 +132,7 @@ func holdAndQueueVacuumFull(t *testing.T, ctx context.Context, table string) {
 		_ = blocker.Close(context.Background())
 	})
 	awaitLockWait(t, ctx, blocker, waiter.PgConn().PID())
+	return waiter.PgConn().PID()
 }
 
 func connectTest(t *testing.T, ctx context.Context) *pgx.Conn {
