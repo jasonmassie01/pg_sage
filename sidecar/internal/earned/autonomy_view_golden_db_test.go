@@ -82,8 +82,10 @@ func TestAutonomyViewJSONMatchesThePerPairReads(t *testing.T) {
 			t.Fatalf("%s view JSON differs from the per-pair reads:\n got %s\nwant %s", name,
 				gotJSON, wantJSON)
 		}
+		// Grandfathered levels are self-initiated only, so the Autonomy
+		// page (incident families) shows carried-over and ledger rows.
 		if !bytes.Contains(gotJSON, []byte(`"provenance":"carried_over"`)) ||
-			!bytes.Contains(gotJSON, []byte(`"provenance":"grandfathered"`)) {
+			!bytes.Contains(gotJSON, []byte(`"provenance":"ledger"`)) {
 			t.Fatalf("%s fixture lost its mixed provenances: %s", name, gotJSON)
 		}
 	}

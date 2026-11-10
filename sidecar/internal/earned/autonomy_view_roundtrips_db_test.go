@@ -74,8 +74,11 @@ func TestAutonomyViewTakesAtMostThreeRoundTrips(t *testing.T) {
 			}
 		}
 	}
+	// Grandfathering seeds only self-initiated classes (selfClasses), and
+	// the Autonomy page lists only incident families, so no row there is
+	// grandfathered; the Trust view shows those rows.
 	if rows < 25 || provenances[ProvenanceCarriedOver] == 0 ||
-		provenances[ProvenanceGrandfathered] == 0 {
+		provenances[ProvenanceLedger] == 0 || provenances[ProvenanceGrandfathered] != 0 {
 		t.Fatalf("view lost content: %d rows, provenances %v", rows, provenances)
 	}
 }
