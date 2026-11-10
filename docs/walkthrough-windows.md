@@ -40,7 +40,8 @@ CREATE ROLE sage_agent LOGIN PASSWORD 'YOUR_PASSWORD';
 GRANT pg_monitor TO sage_agent;
 -- pg_sage keeps its own state in the sage schema and writes nowhere else.
 CREATE SCHEMA IF NOT EXISTS sage AUTHORIZATION sage_agent;
--- Sequence runway: lets pg_sage read each sequence's current value.
+-- Sequence runway: lets pg_sage read each sequence's current value. List every
+-- schema holding sequences; "Grant more" names any it still cannot read.
 GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO sage_agent;
 -- Query statistics. Optional: without it the first look tells you how to enable it.
 CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
