@@ -92,3 +92,21 @@ func ScoreCounts() []ScoreCount {
 	})
 	return out
 }
+
+// Prune drops every counter of database. Call it once the database has
+// left the process (removed by a fleet reload, deleted or renamed), so its
+// series stop being exported. A database added again counts from zero.
+func Prune(database string) {
+	counters.mu.Lock()
+	defer counters.mu.Unlock()
+	for k := range counters.decisions {
+		if k.Database == database {
+			delete(counters.decisions, k)
+		}
+	}
+	for k := range counters.scores {
+		if k.Database == database {
+			delete(counters.scores, k)
+		}
+	}
+}

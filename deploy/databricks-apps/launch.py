@@ -77,6 +77,9 @@ def runtime_config(env: dict[str, str], base: dict | None = None) -> dict:
     port = int(env.get("DATABRICKS_APP_PORT", "8000"))
     if not 1 <= port <= 65535:
         raise ValueError("DATABRICKS_APP_PORT must be between 1 and 65535")
+    if env.get("SAGE_PROMETHEUS_ADDR") or env.get("SAGE_PROMETHEUS_PORT"):
+        raise ValueError("Databricks Apps exposes only the API port; /metrics is served there "
+                         "(prometheus.serve_on_api); remove SAGE_PROMETHEUS_ADDR and SAGE_PROMETHEUS_PORT")
     if env.get("SAGE_TLS_CERT") or env.get("SAGE_TLS_KEY"):
         raise ValueError("Databricks Apps terminates TLS; remove SAGE_TLS_CERT and SAGE_TLS_KEY")
     if not env.get("SAGE_LAKEBASE_ENDPOINT"):
@@ -111,6 +114,9 @@ def runtime_config(env: dict[str, str], base: dict | None = None) -> dict:
             raise ValueError("Lakebase history warehouse must match the declared App resource")
         telemetry["warehouse_id"] = env["DATABRICKS_WAREHOUSE_ID"]
     config.setdefault("api", {})["listen_addr"] = f"0.0.0.0:{port}"
+    # Only the API port is reachable: serve /metrics there, behind the
+    # platform identity, and open no separate unauthenticated listener.
+    config.setdefault("prometheus", {}).update({"serve_on_api": True, "listen_addr": ""})
     return config
 
 

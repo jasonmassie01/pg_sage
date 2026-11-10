@@ -194,7 +194,7 @@ func loadStartupConfigOrExit() {
 
 	logInfo("startup", "pg_sage sidecar v%s — mode=%s", version, cfg.Mode)
 	logInfo("startup", "Prometheus=%s API=%s",
-		cfg.Prometheus.ListenAddr, cfg.API.ListenAddr)
+		metricsWhere(cfg.Prometheus), cfg.API.ListenAddr)
 	if !executor.ASTValidationAvailable() {
 		logWarn("startup", "built without cgo: parse-tree SQL validation is "+
 			"unavailable, so unattended changes wait for operator approval")
@@ -263,6 +263,7 @@ func initProcessContext() {
 
 	// Background pool health.
 	go poolHealthCheck()
+	startProcessPoolMetrics(shutdownCtx, cfg, pool) // meta mode's pg_stat series
 
 	// Cloud environment detection.
 	cloudEnvironment = detectCloudEnvironment()

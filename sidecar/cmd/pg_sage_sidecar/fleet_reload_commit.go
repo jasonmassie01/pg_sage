@@ -52,7 +52,8 @@ func (p *preparedFleetReload) Rollback(ctx context.Context) error {
 
 // Drain retires every removed or replaced generation: in-flight actions
 // finish (bounded), then workers, executor and pool stop. A removed
-// database's budget share returns to the rest of the fleet.
+// database's budget share returns to the rest of the fleet, and its
+// /metrics counters are pruned.
 func (p *preparedFleetReload) Drain(ctx context.Context) error {
 	retired := append([]*fleet.DatabaseInstance(nil), p.removals...)
 	for _, candidate := range p.candidates {

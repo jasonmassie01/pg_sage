@@ -141,6 +141,9 @@ type RuntimeDeps struct {
 	// TLSExpiring adds tls_expiring to /ready details; nil when the API
 	// serves plain HTTP.
 	TLSExpiring func() bool
+	// Metrics serves GET /metrics on this listener (prometheus.serve_on_api,
+	// observability-08); nil leaves the path to the dashboard.
+	Metrics *MetricsRoute
 }
 
 // NewRouterFullRuntime creates the API handler with process controllers.
@@ -200,6 +203,7 @@ func NewRouterFullRuntime(
 	}
 	// Readiness (E1): config loaded, control database up, schema migrated.
 	route(root, "/ready", gatePublic, NewReadinessHandler(routerReadiness(cfg, pool, rt)))
+	registerMetricsRoute(root, rt.Metrics, pool, rt.DatabricksAppAuth)
 	if rt.MCPHandler != nil && !rt.DatabricksAppAuth {
 		registerMCPMetadata(root, rt.MCPOAuth)
 	}

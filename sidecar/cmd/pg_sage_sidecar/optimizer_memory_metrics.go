@@ -91,7 +91,7 @@ func writeTuningSeries(b *strings.Builder, typ string, series []tuningSeries, db
 	for _, c := range series {
 		fmt.Fprintf(b, "# HELP %s %s\n# TYPE %s %s\n", c.name, c.help, c.name, typ)
 		for _, db := range dbs {
-			fmt.Fprintf(b, "%s{database=%q} %d\n", c.name, db, c.value(stats[db]))
+			writeSample(b, c.name, dbLabel(db), c.value(stats[db]))
 		}
 	}
 }

@@ -631,6 +631,44 @@ An App RUNNING state alone does not establish useful collection or AI access.
 | Repeated restart exit 42 | Launcher stops after more than five requests in 60 seconds. Inspect the restart-requiring setting and logs rather than masking a restart loop. |
 | Request times out at the platform | Check current proxy limits and use the existing asynchronous investigation/status flow. Do not assume a client timeout proves that a submitted operation did not run. |
 
+## Prometheus metrics
+
+Apps exposes only the App port, so the launcher sets
+`prometheus.serve_on_api: true` and `prometheus.listen_addr: ""` whatever the
+base configuration says, and refuses `SAGE_PROMETHEUS_ADDR` and
+`SAGE_PROMETHEUS_PORT`. `GET /metrics` on the App URL then passes the platform
+ingress like every other request: pg_sage trusts only the forwarded Databricks
+identity, never a bearer token of its own (the proxy may consume the
+`Authorization` header). Any pg_sage role may scrape, so a scraper's identity
+needs only the viewer role that pg_sage gives a new App identity on its first
+request; do not raise it to operator or admin for metrics. An identity outside
+the App audience gets 403, and a missing identity 401, without metric names.
+
+Prometheus authenticates to the App as a service principal that has
+`CAN_USE` on the App, with an OAuth access token from the workspace. A token
+file refreshed by your own job works with `authorization.credentials_file`;
+Prometheus can also fetch the token itself with the client-credentials
+`oauth2` block (the token endpoint and scope below are the usual Databricks
+M2M values; confirm them for your workspace):
+
+```yaml
+scrape_configs:
+  - job_name: pg_sage_app
+    scheme: https
+    metrics_path: /metrics
+    oauth2:
+      client_id: <service-principal-application-id>
+      client_secret_file: /etc/prometheus/pg_sage_app_sp_secret
+      token_url: https://<workspace-host>/oidc/v1/token
+      scopes: [all-apis]
+    static_configs:
+      - targets: ["<app-url-host>"]
+```
+
+Whether the platform forwards a service principal's identity in a form
+pg_sage accepts (an email address) has not been verified on a live App yet:
+check that the first scrape returns 200 before relying on alerts.
+
 ## Retained SRE history
 
 With `lakebase_observability` configured, the investigator's `read_history`
@@ -804,8 +842,9 @@ checks. Record each result and any unproven item explicitly:
   customer-impact claim. These scoped dev.5 checks
   [passed on the dedicated development App](../reviews/2026-10-30-app-slo-acceptance.md);
   overall final deployment acceptance is tracked separately.
-- SIGTERM shuts down cleanly within the platform allowance. The optional
-  secondary Prometheus listener is not exposed by Apps' single public port.
+- SIGTERM shuts down cleanly within the platform allowance. The launcher
+  opens no secondary Prometheus listener; `/metrics` is served on the App
+  port ([Prometheus metrics](#prometheus-metrics)).
 
 The standard test suite includes backend, frontend and local PostgreSQL fixture
 coverage beyond these deployment checks. Passing that suite cannot certify

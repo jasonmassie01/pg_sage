@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/executor"
@@ -17,15 +16,15 @@ func writeParkMetrics(b *strings.Builder, parks []executor.ParkCount,
 		"gate parked, by reason (one per evaluation)\n" +
 		"# TYPE pg_sage_policy_parks_total counter\n")
 	for _, p := range parks {
-		fmt.Fprintf(b, "pg_sage_policy_parks_total{database=%q,reason=%q} %d\n",
-			p.Database, p.Reason, p.Count)
+		writeSample(b, "pg_sage_policy_parks_total",
+			[]labelPair{{"database", p.Database}, {"reason", p.Reason}}, p.Count)
 	}
 	b.WriteString("# HELP pg_sage_verification_wait_releases_total Verification waits " +
 		"that ended without a verdict, by cause (operator_override, hard_deadline)\n" +
 		"# TYPE pg_sage_verification_wait_releases_total counter\n")
 	for _, r := range releases {
-		fmt.Fprintf(b, "pg_sage_verification_wait_releases_total{database=%q,cause=%q} %d\n",
-			r.Database, r.Cause, r.Count)
+		writeSample(b, "pg_sage_verification_wait_releases_total",
+			[]labelPair{{"database", r.Database}, {"cause", r.Cause}}, r.Count)
 	}
 	b.WriteString("\n")
 }
@@ -39,8 +38,8 @@ func writeRecordFailureMetrics(b *strings.Builder, failures []executor.RecordFai
 		"could not be recorded in the decision ledger, by decision reason\n" +
 		"# TYPE pg_sage_policy_record_failures_total counter\n")
 	for _, f := range failures {
-		fmt.Fprintf(b, "pg_sage_policy_record_failures_total{database=%q,reason=%q} %d\n",
-			f.Database, f.Reason, f.Count)
+		writeSample(b, "pg_sage_policy_record_failures_total",
+			[]labelPair{{"database", f.Database}, {"reason", f.Reason}}, f.Count)
 	}
 	b.WriteString("\n")
 }

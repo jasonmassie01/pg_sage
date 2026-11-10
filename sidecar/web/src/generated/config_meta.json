@@ -1857,7 +1857,19 @@
   "prometheus.listen_addr": {
     "type": "string",
     "default": "127.0.0.1:9187",
-    "doc": "",
+    "doc": "Address of the separate, unauthenticated /metrics listener; empty opens none. Requires restart.",
+    "class": "safety_critical"
+  },
+  "prometheus.refresh_interval_seconds": {
+    "type": "int",
+    "default": 0,
+    "doc": "Seconds between re-reads of each database's /metrics values; scrapes render the last read, up to one interval old. 0 means 30; never faster than collector.interval_seconds. Requires restart.",
+    "class": "operator_preference"
+  },
+  "prometheus.serve_on_api": {
+    "type": "bool",
+    "default": false,
+    "doc": "Also serve GET /metrics on the API listener (and its TLS), to a token with the metrics scope or, in a Databricks App, any signed-in pg_sage role. Requires restart.",
     "class": "safety_critical"
   },
   "rca.connection_saturation_pct": {

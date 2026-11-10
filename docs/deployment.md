@@ -344,8 +344,9 @@ curl -b cookies.txt https://pg-sage.example.com/api/v1/cases
 ```
 
 Expose the API/dashboard only on trusted networks or behind your normal
-identity-aware proxy. Prometheus metrics remain on the separate
-`prometheus.listen_addr`.
+identity-aware proxy. Prometheus metrics stay on the separate
+`prometheus.listen_addr` unless you also
+[serve them on the API listener](#scraping-through-the-api-listener).
 
 ---
 
@@ -361,13 +362,66 @@ scrape_configs:
       - targets: ["pg-sage:9187"]
 ```
 
+The separate listener (`prometheus.listen_addr`, default `127.0.0.1:9187`) has
+no authentication and no TLS. Port 9187 is also postgres_exporter's default:
+when both run on one host, move one of them (`SAGE_PROMETHEUS_ADDR=127.0.0.1:9188`,
+say). If pg_sage cannot bind the address it logs an ERROR, keeps running, and
+exports `pg_sage_metrics_listener_up 0` where it still serves `/metrics` (the API
+route below). `prometheus.listen_addr: ""` opens no separate listener.
+
+### Scraping through the API listener
+
+Set `prometheus.serve_on_api: true` to serve `GET /metrics` on the API listener,
+with its TLS and rate limit, behind a token holding the `metrics` scope. Use it
+when only the API port is reachable or when scrapes must be encrypted;
+optionally set `prometheus.listen_addr: ""` to close the separate listener. The
+route needs the control database (pg_sage refuses to start without one) and
+serves the same snapshot as the separate listener, so a scrape adds no
+database load.
+
+An admin creates the scrape token (the secret is shown once). `metrics` must
+be the token's only scope, it covers every database (`"databases":["*"]`:
+`/metrics` cannot be narrowed to one), and it is an operator token owned by an
+operator or admin; it grants no MCP tool, and the MCP endpoint refuses it:
+
+```bash
+curl -b cookies.txt -X POST https://pg-sage.example.com/api/v1/mcp/tokens \
+  -H 'Content-Type: application/json' \
+  --data '{"name":"prometheus","kind":"operator","scopes":["metrics"],
+           "databases":["*"],"expires_in_days":90,"owner_user_id":OWNER_ID}'
+```
+
+Store the `token` value in a file readable only by Prometheus, and rotate it
+before it expires (90 days at most): create the next token, switch the file,
+then revoke the old one with `DELETE /api/v1/mcp/tokens/{id}`.
+
+```yaml
+scrape_configs:
+  - job_name: pg_sage
+    scheme: https
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/pg_sage_metrics_token
+    static_configs:
+      - targets: ["pg-sage.example.com:8080"]
+```
+
+A request without a valid token gets 401, a valid token without the `metrics`
+scope 403, and 503 when tokens cannot be checked; none of these carries metric
+names. Revoking the token, or deactivating its owner, ends its scrapes at once.
+Fleet and meta mode serve one `/metrics` per sidecar, on either listener.
+
 ### Key Metrics to Alert On
 
 | Metric | Alert Condition | Description |
 |---|---|---|
-| `pg_sage_findings_total{severity="critical"}` | > 0 | Critical findings need attention |
-| `pg_sage_connection_up` | == 0 | Database unreachable |
-| `pg_sage_cache_hit_ratio` | < 0.95 | Cache hit ratio below 95% |
+| `pg_sage_findings_open{database,severity="critical"}` | > 0 | Critical findings need attention |
+| `pg_sage_database_up{database}` | == 0 for 5m | A monitored database is unreachable or its status refresh fails |
+| `time() - pg_sage_collector_last_success_timestamp_seconds{database}` | > 3 x collector interval | A database's collector has stalled |
+| `pg_sage_emergency_stopped{database}` | == 1 | The database's emergency stop holds |
+| `pg_sage_connection_up` | == 0 | The sidecar cannot reach its control database |
+| `pg_sage_cache_hit_ratio` | < 0.95 | Control database cache hit ratio below 95% (deprecated, removed in v2.7.0) |
 | `pg_sage_llm_circuit_open` | == 1 | LLM circuit breaker tripped |
 | `pg_sage_executor_actions_total{outcome="failed"}` | rate > 0 | Failed autonomous actions |
 | `pg_sage_sre_probe_refusals_total{caller="investigation"}` | rate > 0 | Investigations losing probe slots |
@@ -378,6 +432,9 @@ scrape_configs:
 | `pg_sage_leader{scope}` | `sum by (scope)` == 0 across sidecars | No sidecar holds the lease: leader-only jobs (fleet learning, SIEM export, governance reconcilers) are not running. 1 = this sidecar leads, 0 = follower |
 | `pg_sage_leader_transitions_total{scope}` | rate > 0 for long | Leadership is flapping; a lapse (renewal overdue past the local deadline) counts and logs one WARN |
 | `pg_sage_leader_last_renew_age_seconds{scope}` | > lease TTL | Seconds since the last successful lease-store round trip (since start when none yet). Each renewal is bounded to a third of the lease, so a stall shows here instead of wedging the elector |
+| `pg_sage_metrics_refresh_success{database,source}` | == 0 for 5m | A database's metrics could not be read (its series are omitted) |
+| `time() - pg_sage_metrics_refresh_timestamp_seconds` | > 3 x refresh interval | A database's exported values are stale |
+| `pg_sage_metrics_listener_up` | == 0 | The separate `/metrics` listener failed to bind (scraped through the API route) |
 
 ### Sage SRE probe slots
 
@@ -410,6 +467,94 @@ recorded as `concurrency_limit` evidence. These metrics show who waits:
   A sustained `caller="investigation"` refusal rate means background
   sampling is crowding out investigations. In fleet mode, compare
   `limiter="sidecar"` refusals across databases.
+
+### Metrics freshness
+
+A scrape never queries a monitored database. Each database has its own refresher that
+reads the values `/metrics` exports (value ledger, SLO state and, in standalone mode,
+optimizer recommendation counts and `pg_stat_activity`/`pg_stat_database`) every
+`prometheus.refresh_interval_seconds` (default 30 s, never faster than the collector), each
+source under a 2 s timeout, with `/* pg_sage */`-tagged statements. Scrapes render the last
+refresh, so values can be up to one refresh interval old, and the load on your databases is
+the same whether Prometheus scrapes every second or every minute. In fleet and meta mode
+each database refreshes independently: one unreachable database reports
+`pg_sage_metrics_refresh_success{source="value"} 0` and `pg_sage_value_metrics_up 0` while
+every other database keeps its series, and the scrape itself stays fast.
+
+- `pg_sage_metrics_refresh_success{database,source}`: 1 if the last refresh of `source`
+  (`value`, `slo`, `optimizer`, `pgstat`) succeeded. A failed source's series are omitted
+  rather than shown stale or zero.
+- `pg_sage_metrics_refresh_timestamp_seconds{database,source}`: Unix time of the last
+  successful refresh of `source`; it keeps its value while refreshes fail.
+- `pg_sage_value_metrics_up{database}`: 1 if the last refresh read the database's value
+  ledger.
+- `pg_sage_connection_up`: the last pool health check (every 30 s) in standalone and meta
+  mode; in YAML fleet mode, 1 if any database's last refresh reached it. Before the first
+  result there is no sample.
+- In meta mode, `pg_sage_connections_total` and `pg_sage_cache_hit_ratio` describe the
+  metadata database, refreshed on the same cadence.
+- A database that failed to connect or prepare has no refresher; it keeps reporting
+  `pg_sage_value_metrics_up 0` and `pg_sage_metrics_refresh_success{source="value"} 0`.
+
+### Per-database health
+
+Since v2.6.0 the same per-database families render in standalone, fleet and meta mode,
+from the sidecar's in-memory status of each monitored database (no query at scrape time).
+In meta mode no sample describes the metadata database: every series names a monitored
+database from `sage.databases`.
+
+| Metric | Meaning |
+|---|---|
+| `pg_sage_database_up{database}` | 1 if the database is connected and its last status refresh succeeded |
+| `pg_sage_collector_last_success_timestamp_seconds{database}` | Unix time of the last collector snapshot; absent until the first one |
+| `pg_sage_analyzer_last_success_timestamp_seconds{database}` | Unix time of the last findings refresh after analysis; absent until the first one |
+| `pg_sage_findings_open{database,severity}` | Open findings (`critical`, `warning`, `info`); the last known counts stay while the database is down |
+| `pg_sage_database_health_score{database}` | 0-100, the dashboard's health score (0 while down or in error) |
+| `pg_sage_emergency_stopped{database}` | 1 while the database's own or the fleet-wide emergency stop holds |
+| `pg_sage_trust_level{database,level}` | One-hot effective trust level (`observation`, `advisory`, `autonomous`); no samples before the database starts |
+| `pg_sage_database_size_bytes{database}` | Size from the collector's last snapshot; absent until measured (gained the `database` label in v2.6.0) |
+
+`pg_sage_connection_up` now means the sidecar's control database: the monitored database in
+standalone, the metadata database in meta mode, and any database in YAML fleet mode. Alert on
+`pg_sage_database_up` for monitored databases. The fleet summary (`pg_sage_fleet_*`) and the
+LLM gauges render in every mode whenever their data exists.
+
+These families are deprecated and keep emitting in v2.6.0; they are removed in v2.7.0:
+
+| Deprecated (removed in v2.7.0) | Use instead |
+|---|---|
+| `pg_sage_findings_total{severity}` | `pg_sage_findings_open{database,severity}` |
+| `pg_sage_collector_last_run_timestamp` | `pg_sage_collector_last_success_timestamp_seconds{database}` |
+| `pg_sage_fleet_instance_findings{database}` | `pg_sage_findings_open{database,severity}` (sum by database) |
+| `pg_sage_fleet_instance_health{database}` | `pg_sage_database_health_score{database}` |
+| `pg_sage_connections_total{state}` | postgres_exporter (`pg_stat_activity_count`) |
+| `pg_sage_cache_hit_ratio` | postgres_exporter (`pg_stat_database_blks_hit` / `blks_read`) |
+
+### Exposition contract
+
+`/metrics` is Prometheus text format 0.0.4 (`text/plain; version=0.0.4; charset=utf-8`).
+Since v2.6.0:
+
+- Label values are escaped as the format requires: only `\\`, `\"` and `\n`. Other
+  characters, a tab or a control character included, are written as they are, and invalid
+  UTF-8 becomes U+FFFD. A database or SLO name with an odd character no longer makes the
+  whole scrape unparseable.
+- `pg_sage_build_info{version,commit} 1` names the running build, and
+  `process_start_time_seconds` is the process start time (Unix seconds), so restarts show as
+  `changes(process_start_time_seconds[1h])`.
+- When a database leaves the sidecar (removed by a fleet reload, deleted or renamed in meta
+  mode) its series disappear, the process-wide counters
+  (`pg_sage_policy_parks_total`, `pg_sage_verification_wait_releases_total`,
+  `pg_sage_policy_record_failures_total`, `pg_sage_shadow_*_total`) included. A database
+  added again under the same name counts from zero, which `rate()` treats as a counter reset.
+- Series are written in the same order on every scrape, and every family has one `HELP` and
+  one `TYPE` line.
+
+Four gauges still carry the counter suffix `_total`: `pg_sage_findings_total`,
+`pg_sage_connections_total`, `pg_sage_fleet_findings_total` and
+`pg_sage_optimizer_recommendations_total`. They keep their names in v2.6.0; v2.7.0 removes
+the first two and renames the others, with `pg_sage_collector_last_run_timestamp`, in one
+coordinated rename release. Do not apply `rate()` or `increase()` to them.
 
 ### Grafana Dashboard
 

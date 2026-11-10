@@ -259,6 +259,9 @@ func warnNonReloadable(current, fresh *Config) {
 			"[WARN] [config-watcher] prometheus.listen_addr changed — restart required",
 		)
 	}
+	if fresh.Prometheus.ServeOnAPI != current.Prometheus.ServeOnAPI {
+		log.Printf("[WARN] [config-watcher] prometheus.serve_on_api changed — restart required")
+	}
 	if fresh.Mode != "" && fresh.Mode != current.Mode {
 		log.Printf("[WARN] [config-watcher] mode changed — restart required")
 	}

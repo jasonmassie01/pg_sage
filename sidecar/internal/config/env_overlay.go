@@ -66,6 +66,13 @@ func parseEnvPort(raw string) (int, error) {
 	return n, nil
 }
 
+func parseEnvListenAddr(raw string) (string, error) {
+	if err := checkListenAddr(raw, 1); err != nil {
+		return "", errors.New("not a host:port address with a port from 1 to 65535")
+	}
+	return raw, nil
+}
+
 // envOverlay collects the parse errors of one overlay pass.
 type envOverlay struct{ errs []string }
 
@@ -157,11 +164,19 @@ func coreSecretAndLLMEnv(cfg *Config) []envString {
 
 // overlayPrometheusPort replaces only the port of the metrics address. The
 // host stays what the YAML (or the loopback default) chose: a port variable
-// never widens the bind to every interface.
+// never widens the bind to every interface. SAGE_PROMETHEUS_ADDR, the whole
+// address, wins when both are set (observability-08).
 func overlayPrometheusPort(o *envOverlay, cfg *Config) {
 	port, ok, err := lookupEnv("SAGE_PROMETHEUS_PORT", parseEnvPort)
 	if err != nil {
 		o.errs = append(o.errs, err.Error())
+	}
+	addr, addrOK, addrErr := lookupEnv("SAGE_PROMETHEUS_ADDR", parseEnvListenAddr)
+	if addrErr != nil {
+		o.errs = append(o.errs, addrErr.Error())
+	}
+	if addrOK {
+		cfg.Prometheus.ListenAddr = addr
 		return
 	}
 	if !ok {

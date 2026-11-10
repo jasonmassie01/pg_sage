@@ -9,7 +9,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/testdb"
-	"github.com/pg-sage/sidecar/internal/value"
 )
 
 // TestWriteValueMetricsEmitsVerifiedToilAndIncidentSeries proves the
@@ -30,8 +29,10 @@ func TestWriteValueMetricsEmitsVerifiedToilAndIncidentSeries(t *testing.T) {
 
 	seedValueMetricsFixture(t, ctx, testPool)
 
+	withMetricsRegistry(t)
+	registerValueRefresher(t, "primary", testPool).refresh(ctx)
 	var b strings.Builder
-	writeValueMetrics(&b, ctx, []value.Source{{Name: "primary", Pool: testPool}})
+	writeValueMetrics(&b, processMetrics.views())
 	output := b.String()
 
 	// D3: the series carries the instance name, never an empty label.
@@ -143,8 +144,10 @@ func TestWriteValueMetricsReportsQueryFailure(t *testing.T) {
 	}
 	closed.Close()
 
+	withMetricsRegistry(t)
+	registerValueRefresher(t, "primary", closed).refresh(ctx)
 	var b strings.Builder
-	writeValueMetrics(&b, ctx, []value.Source{{Name: "primary", Pool: closed}})
+	writeValueMetrics(&b, processMetrics.views())
 	output := b.String()
 	if !strings.Contains(output, `pg_sage_value_metrics_up{database="primary"} 0`) {
 		t.Fatalf("missing failure indicator in:\n%s", output)

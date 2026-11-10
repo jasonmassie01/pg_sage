@@ -105,7 +105,7 @@ func writeSelfDBRates(b *strings.Builder, dbs []string, usages map[string]selfbu
 				fmt.Fprintf(b, "# HELP %s %s\n# TYPE %s gauge\n", g.name, g.help, g.name)
 				header = true
 			}
-			fmt.Fprintf(b, "%s{database=%q} %s\n", g.name, db, formatGauge(g.value(u)))
+			writeSample(b, g.name, dbLabel(db), formatGauge(g.value(u)))
 		}
 	}
 }
@@ -158,16 +158,17 @@ func (s *selfBudgetSeries) addDatabases(r selfResource, dbs []string,
 			continue // period unknown: no inherited budget to compare with
 		}
 		if inherited {
-			fmt.Fprintf(&s.perDB, "pg_sage_self_budget_database{database=%q,"+
-				"resource=%q} %s\n", db, r.name, formatGauge(limit))
+			writeSample(&s.perDB, "pg_sage_self_budget_database",
+				[]labelPair{{"database", db}, {"resource", string(r.name)}},
+				formatGauge(limit))
 		}
 		if used, ok := r.used(u); ok {
 			flag := 0
 			if used > limit {
 				flag = 1
 			}
-			fmt.Fprintf(&s.exceeded, "pg_sage_self_budget_exceeded{database=%q,"+
-				"resource=%q} %d\n", db, r.name, flag)
+			writeSample(&s.exceeded, "pg_sage_self_budget_exceeded",
+				[]labelPair{{"database", db}, {"resource", string(r.name)}}, flag)
 		}
 	}
 }
@@ -179,8 +180,8 @@ func writeSelfBudgets(b *strings.Builder, dbs []string, usages map[string]selfbu
 		if r.limit <= 0 {
 			continue
 		}
-		fmt.Fprintf(&s.limits, "pg_sage_self_budget{resource=%q} %s\n", r.name,
-			formatGauge(r.limit))
+		writeSample(&s.limits, "pg_sage_self_budget",
+			[]labelPair{{"resource", string(r.name)}}, formatGauge(r.limit))
 		s.addDatabases(r, dbs, usages, inheritedMs)
 	}
 	if s.exceeded.Len() == 0 {
@@ -206,12 +207,13 @@ func writeSelfLoops(b *strings.Builder, loops map[string]selfbudget.LoopStat) {
 	b.WriteString("# HELP pg_sage_self_loop_busy_seconds_total Wall time pg_sage's " +
 		"periodic loops spent working\n# TYPE pg_sage_self_loop_busy_seconds_total counter\n")
 	for _, n := range names {
-		fmt.Fprintf(b, "pg_sage_self_loop_busy_seconds_total{loop=%q} %s\n", n,
+		writeSample(b, "pg_sage_self_loop_busy_seconds_total", []labelPair{{"loop", n}},
 			formatGauge(loops[n].Busy.Seconds()))
 	}
 	b.WriteString("# HELP pg_sage_self_loop_runs_total Runs of pg_sage's periodic loops\n" +
 		"# TYPE pg_sage_self_loop_runs_total counter\n")
 	for _, n := range names {
-		fmt.Fprintf(b, "pg_sage_self_loop_runs_total{loop=%q} %d\n", n, loops[n].Runs)
+		writeSample(b, "pg_sage_self_loop_runs_total", []labelPair{{"loop", n}},
+			loops[n].Runs)
 	}
 }

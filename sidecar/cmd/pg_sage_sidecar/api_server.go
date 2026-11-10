@@ -72,6 +72,10 @@ func startAPIServer(rl *RateLimiter) {
 		logError("api", "refusing to start API server: %v", err)
 		os.Exit(1)
 	}
+	if err := checkMetricsOnAPI(cfg, result.AuthPool); err != nil {
+		logError("startup", "%v", err)
+		os.Exit(1)
+	}
 	startAuthPoolServices(result.AuthPool)
 	startTLSExpiryWatch(shutdownCtx, apiTLS, tlsExpiryCheckInterval)
 	serveAPI(addr, result.Handler)

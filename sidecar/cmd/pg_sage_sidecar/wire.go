@@ -14,6 +14,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/shadow"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 	"github.com/pg-sage/sidecar/internal/store"
 )
@@ -50,6 +51,18 @@ type WireResult struct {
 	AuthPool   *pgxpool.Pool
 	ActionDeps *api.ActionDeps
 	DBDeps     *api.DatabaseDeps
+}
+
+// apiRateLimit is the API rate limiter: per platform identity in a
+// Databricks App, per client address elsewhere.
+func apiRateLimit(p WireParams) func(http.Handler) http.Handler {
+	rl := p.RateLimiter
+	return func(next http.Handler) http.Handler {
+		if p.DatabricksAppAuth != nil {
+			return databricksAppRateLimitMiddleware(rl, *p.DatabricksAppAuth, next)
+		}
+		return rateLimitMiddleware(rl, next)
+	}
 }
 
 // wireRouter assembles the HTTP handler from the given params.
@@ -136,14 +149,7 @@ func wireRouter(p WireParams) (WireResult, error) {
 	// so the limiter must be first to run before auth performs a DB lookup.
 	middlewares := make([]func(http.Handler) http.Handler, 0, 2)
 	if p.RateLimiter != nil {
-		rl := p.RateLimiter
-		middlewares = append(middlewares,
-			func(next http.Handler) http.Handler {
-				if p.DatabricksAppAuth != nil {
-					return databricksAppRateLimitMiddleware(rl, *p.DatabricksAppAuth, next)
-				}
-				return rateLimitMiddleware(rl, next)
-			})
+		middlewares = append(middlewares, apiRateLimit(p))
 	}
 	if p.DatabricksAppAuth != nil {
 		middlewares = append(middlewares, api.DatabricksAppAuthMiddleware(authPool, *p.DatabricksAppAuth))
@@ -195,6 +201,8 @@ func wireRouter(p WireParams) (WireResult, error) {
 			AgentGrants: agentGrantAPI(p.Cfg, p.FleetMgr, p.MetaState),
 			// tls_expiring in /ready details when the API serves TLS.
 			TLSExpiring: apiTLSExpiringFunc(apiTLS),
+			// GET /metrics on this listener (prometheus.serve_on_api).
+			Metrics: apiMetricsRoute(p, authPool),
 		},
 		middlewares...,
 	)
@@ -288,7 +296,8 @@ func applyMetaDatabaseUpdate(
 			"db %q: replacement published; old runtime still draining: %v",
 			candidate.Name, err)
 	}
-	if oldRec.Name != candidate.Name {
+	// After the drain: the old runtime's in-flight work may still count.
+	if oldRec.Name != candidate.Name && mgr.GetInstance(oldRec.Name) == nil {
 		forgetRemovedDatabase(oldRec.Name)
 	}
 	updateInstanceFindings(context.Background(), candidate)
@@ -318,7 +327,10 @@ func applyMetaDatabaseDelete(
 			"db %q: delete committed; runtime drain incomplete: %v",
 			rec.Name, err)
 	}
-	forgetRemovedDatabase(rec.Name)
+	// After the drain, unless the name was added back meanwhile.
+	if mgr.GetInstance(rec.Name) == nil {
+		forgetRemovedDatabase(rec.Name)
+	}
 	return nil
 }
 
@@ -377,15 +389,18 @@ func replaceManagedDatabase(
 	return candidate, retired, err
 }
 
-// forgetRemovedDatabase returns a deleted or renamed database's LLM budget
-// share to the remaining databases (G5-B06) and drops its Sage SRE probe
-// queue series from /metrics (sre-06). Call it once the runtime is shut
-// down, so no late probe records the name again.
+// forgetRemovedDatabase releases what the process keeps per database name
+// once that name has left it (deleted, renamed or removed by a reload):
+// the LLM budget share returns to the remaining databases (G5-B06), its
+// Sage SRE probe queue series leave /metrics (sre-06), and the
+// process-wide /metrics counters drop its series (observability-07).
 func forgetRemovedDatabase(name string) {
 	if fleetLLMBudget != nil {
 		fleetLLMBudget.Unregister(name)
 	}
 	probes.ForgetQueueStats(name)
+	executor.PruneCounts(name)
+	shadow.Prune(name)
 }
 
 func cleanupManagedCandidate(candidate *fleet.DatabaseInstance) error {

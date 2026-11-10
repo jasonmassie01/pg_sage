@@ -17,8 +17,11 @@
 - `DatabaseManager` with per-database collector/analyzer/executor goroutines
 - Per-database advisory locks, trust levels, executor toggles
 - Per-database LLM token budget (equal, proportional, or priority-weighted)
-- Database-aware data model (every finding, action, metric carries `database_name`)
-- Prometheus labels: `{database="prod-orders"}`
+- Database-aware data model (every finding and action carries `database_name`)
+- Prometheus labels: `{database="prod-orders"}` on the fleet instance families only; since
+  v2.6.0 every per-database family (`pg_sage_database_up`, `pg_sage_findings_open`, ...)
+  carries `{database}` in every mode, and process-wide families (`pg_sage_info`,
+  `pg_sage_connection_up`, LLM gauges) carry none
 - Graceful per-database failure (one DB down doesn't crash others)
 - REST API: 14 endpoints on `:8080`
 - Fleet overview: `GET /api/v1/databases` with health scores
