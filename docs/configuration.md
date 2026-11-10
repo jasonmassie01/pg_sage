@@ -1707,12 +1707,14 @@ startup and before each new run. A younger `running` row may be another
 sidecar's live run and is left alone. A clone that cannot be destroyed is named in the
 row's `error`, for the operator to remove; with `local_dsn` nothing is destroyed (the
 target stays). Shutdown no longer stops a fault program's recovery: it finishes on a
-2-minute budget of its own, and no further fault program starts. Before any fault
+2-minute budget of its own, no further fault program starts, and the run fails
+without a report (a partial run is never counted as evidence). Before any fault
 program runs, a run also removes what a crashed run left on the target's cluster,
-under the same cluster lock the WAL and checkpoint programs hold: `ALTER SYSTEM` settings a fault program recorded in
-`sage.bench_fixture_state` on the target are reset, inactive `bench_slot_*` replication
-slots are dropped, and bench prepared transactions (`bench_gid_*`, `bench_prepared_*`)
-prepared more than 6 hours ago are rolled back. Nothing a bench did not name or record
+under the same cluster lock the WAL and checkpoint programs hold: `ALTER SYSTEM`
+settings a fault program recorded in `sage.bench_fixture_state` on the target are
+reset, inactive `bench_slot_*` replication slots are dropped, and bench prepared
+transactions (`bench_gid_*`, `bench_prepared_*`) prepared more than 6 hours ago are
+rolled back. Nothing a bench did not name or record
 is touched: an operator's own `ALTER SYSTEM` setting, another slot or an application's
 prepared transaction stays.
 
