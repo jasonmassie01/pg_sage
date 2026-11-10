@@ -2484,6 +2484,136 @@ and age out with `snapshots_days`; nothing is rewritten.
 > configuration fields including `safety`, `alerting`, `auto_explain`,
 > `forecaster`, `tuner`, `advisor`, and `api` sections.
 
+### Audit chain verification
+
+| Parameter | Default | Description |
+|---|---|---|
+| `audit.verify_interval_hours` | `24` | Hours between scheduled verifications of the audit hash chains, on the fleet leader, per database. `0` disables them. 0-168. |
+| `audit.full_verify_interval_hours` | `168` | Hours between full verifications of each chain. The scheduled runs in between are incremental. `0` verifies every chain in full every time. 0-8760. |
+
+Each clean verification stores a checkpoint in `sage.audit_chain_checkpoint`
+of the monitored database: the position and hash of the head it reached.
+The table keeps the newest 100 checkpoints per chain, plus the newest full
+one. It needs no superuser and behaves the same on PostgreSQL 14-18 and on
+managed providers.
+
+- **incremental**: verifies only the links after the newest checkpoint, and
+  the rows they name, in one read-only snapshot. It first checks that the
+  checkpointed link still carries its hash. An edit of a row that was
+  written before the checkpoint, and not changed since, is found by the
+  next full pass, not by this one.
+- **full**: verifies every link from the first, and every chained row, in
+  bounded memory (an ordered pass over the link index, 2000 links at a
+  time). It runs when no checkpoint exists, when the interval has passed,
+  or on demand.
+- **window**: `from_seq`/`to_seq` on the API verifies an explicit range.
+
+`GET /api/v1/audit/verify?database=<name>` (admin) verifies since each
+chain's newest checkpoint, or in full when a chain has none. Add
+`full=true` to verify the whole chain. Both run under a 5 minute timeout
+and answer `504` when they exceed it; verify a large chain in
+`from_seq`/`to_seq` windows then.
+
+`checkpoint_mismatch` is the problem kind for a checkpointed link that is
+gone, rewritten, or past the chain's head. Incremental and full passes
+both report it. A restore of the database takes the checkpoints back with
+the chain, so it never causes one. The `audit_chain_broken` finding stays
+open until the chain verifies against its checkpoint again. Investigate
+first: compare the chain with the SIEM's copy (`audit.siem.sinks`). After
+that, delete the chain's rows from `sage.audit_chain_checkpoint` to
+re-baseline it. The next full pass then stores a new checkpoint.
+
+If a chain cannot be verified at all (a statement timeout, a lock held on
+the audit table, a lost connection), it raises an
+`audit_chain_verification_failed` warning on `audit_trail:<chain>`. Its
+open `audit_chain_broken` finding stays open. The other chains are still
+verified.
+
+### SIEM export delivery
+
+`audit.siem.sinks` ships every audit chain link to each sink as an OCSF
+event (see [security.md](security.md#tamper-evident-chains-and-siem-export)).
+Each sink delivers every chain of every source (each fleet database, plus
+`control`) as its own lane, with its own cursor and backoff:
+
+- One unreachable database, or one failing chain, stops only its own lane.
+  The other sources and chains keep exporting every
+  `audit.siem.interval_seconds`. A failing lane retries after
+  `interval_seconds`, doubled per further failure, at most
+  `audit.siem.max_backoff_seconds`. Only a failed export-leader check (a lost
+  lease, an unreachable control database) backs the whole sink off.
+- A transient failure (a network error, HTTP 401, 403, 404, 429 or 5xx)
+  holds the lane's cursor and retries the batch. Nothing is lost.
+- A permanent refusal (HTTP 400, 413 or 422, OTLP `rejectedLogRecords`, a
+  syslog message over 65507 bytes, an event that cannot be encoded) is
+  narrowed by halving the batch down to the single refused event. That event
+  is replaced by a stub, and the lane moves on. The stub keeps the event's
+  class, type and time, says `status: "Failure"` (severity at least Medium),
+  and carries the link's source, chain, seq, op, row id and hashes. It is
+  labelled `metadata.labels: ["undeliverable"]` and leaves out the row and
+  the query. The event itself stays in the database, and its chain link
+  proves it.
+- Each stub raises a `siem_event_undeliverable` warning on the source
+  database, one per sink and chain (`siem_sink:<sink>/<chain>`), naming the
+  sink, source, chain and seq of the latest stub. It never resolves itself:
+  resolve it once the SIEM holds the content, or the loss is accepted. If
+  the finding cannot be recorded, the cursor holds before the event, and the
+  stub is sent again on the next pass (delivery stays at least once).
+- If the receiver refuses the stub too, the lane holds before the event and
+  shows `poisoned` until the receiver takes one of them.
+
+`GET /api/v1/audit/siem` (admin) lists each sink with `undeliverable` (the
+stubs sent) and `lanes`: per source and chain, `cursor`, `head`, `lag`
+(head minus cursor at the last attempt), `state` (`ok`, `failing`,
+`poisoned`, `regressed`), `consecutive_failures` and `last_error`. A lane
+with an empty `chain` is a source whose chains could not be listed (an
+unreachable database). PostgreSQL 14-18 behave the same.
+
+### SIEM transport security
+
+Each entry of `audit.siem.sinks` takes these transport keys:
+
+| Key | Applies to | Meaning |
+| --- | --- | --- |
+| `ca_file` | `https://` http/otlp, syslog `network: tls` | PEM bundle the receiver's certificate must chain to. It replaces the system roots for this sink only (pinned). Without it the sink uses the system roots, as before, so `SSL_CERT_FILE` still applies where Go reads it. |
+| `client_cert_file`, `client_key_file` | same | PEM client certificate and key for mutual TLS. Set both or neither. |
+| `allow_insecure_http` | `http://` http/otlp | Accept a `token_env` token over plain http. Default `false`. |
+| `chains` | every sink | Chains to export; empty means all. Each must be `action_log`, `auth_audit`, `config_audit`, `guard_query_audit` or `pgaudit_events`. A misspelt name stops the config from loading. |
+
+- The files are read once at start; a missing file or one that holds no
+  PEM turns SIEM export off, and the startup log names the sink and the
+  path. TLS is 1.2 at least. TLS files on `http://`, syslog `tcp` or `udp`
+  are refused, not ignored.
+- A `token_env` token over `http://` without `allow_insecure_http` logs one
+  WARN per sink at start, and `GET /api/v1/audit/siem` lists the sink with
+  `warnings: ["token_over_http"]`. The next minor release refuses this
+  configuration.
+- Delivery is at least once over http, otlp, tcp and tls. Over udp it is
+  best effort: a datagram that was written is not known to have arrived,
+  and a lost one is not retried. A udp sink logs a WARN at start, and
+  every sink's status carries `delivery`: `at_least_once` or
+  `best_effort`.
+- Over TLS 1.3 a syslog receiver checks the client certificate after the
+  handshake. When it asks for one, a new session waits up to 0.5 s (at
+  most `timeout_seconds`) for a refusal before the first message, so a
+  rejected certificate fails the delivery instead of losing the event.
+- In fleet mode only the leader exports. Mount the TLS files on every
+  replica that can become leader.
+
+```yaml
+audit:
+  siem:
+    sinks:
+      - name: soc
+        type: syslog
+        network: tls
+        address: siem.internal:6514
+        ca_file: /etc/pg_sage/siem-ca.pem
+        client_cert_file: /etc/pg_sage/siem-client.pem
+        client_key_file: /etc/pg_sage/siem-client.key
+        chains: [action_log, auth_audit]
+```
+
 ### Postgres-specialist contract
 
 `specialist.*` configures the versioned investigation contract other agents

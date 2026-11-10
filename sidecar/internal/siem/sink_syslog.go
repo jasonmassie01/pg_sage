@@ -15,6 +15,10 @@ import (
 // syslogFacility is "log audit" (RFC 5424 facility 13).
 const syslogFacility = 13
 
+// MaxSyslogBytes bounds one syslog message: the largest UDP datagram
+// payload. A larger one is refused before anything of it is written.
+const MaxSyslogBytes = 65507
+
 type syslogSink struct {
 	name, network, address string
 	timeout                time.Duration
@@ -43,6 +47,10 @@ func NewSyslogSink(name, network, address string, timeout time.Duration,
 
 func (s *syslogSink) Name() string { return s.name }
 
+// BestEffort reports udp: a datagram that was written is not known to have
+// arrived, and a lost one is never retried.
+func (s *syslogSink) BestEffort() bool { return s.network == "udp" }
+
 func (s *syslogSink) Send(ctx context.Context, events []Event) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -52,7 +60,11 @@ func (s *syslogSink) Send(ctx context.Context, events []Event) error {
 		}
 		msg, err := s.format(e)
 		if err != nil {
-			return fmt.Errorf("siem sink %s: encode: %w", s.name, err)
+			return fmt.Errorf("siem sink %s: encode: %w: %w", s.name, ErrPermanent, err)
+		}
+		if len(msg) > MaxSyslogBytes {
+			return fmt.Errorf("siem sink %s: event of %d bytes exceeds the syslog limit "+
+				"of %d: %w", s.name, len(msg), MaxSyslogBytes, ErrPermanent)
 		}
 		if err := s.write(ctx, msg); err != nil {
 			s.closeLocked()
@@ -117,8 +129,7 @@ func (s *syslogSink) dial(ctx context.Context) (net.Conn, error) {
 		if cfg == nil {
 			cfg = &tls.Config{MinVersion: tls.VersionTLS12}
 		}
-		td := &tls.Dialer{NetDialer: d, Config: cfg}
-		return td.DialContext(ctx, "tcp", s.address)
+		return dialTLS(ctx, d, s.address, cfg, min(s.timeout, tlsConfirmWait))
 	case "udp", "tcp":
 		return d.DialContext(ctx, s.network, s.address)
 	}

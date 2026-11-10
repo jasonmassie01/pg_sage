@@ -57,7 +57,9 @@ func linkHashAt(t *testing.T, pool *pgxpool.Pool, seq int64) string {
 }
 
 // restoreTo drops the action_log links after keep together with their rows
-// (a backup or PITR restore): the chain itself still verifies.
+// and the verification checkpoints past them (a backup or PITR restore
+// takes the whole database back, sage.audit_chain_checkpoint included):
+// the chain itself still verifies.
 func restoreTo(t *testing.T, pool *pgxpool.Pool, keep int64) {
 	t.Helper()
 	ctx := context.Background()
@@ -70,7 +72,8 @@ func restoreTo(t *testing.T, pool *pgxpool.Pool, keep int64) {
 		t.Fatalf("replica role: %v", err)
 	}
 	for _, sql := range []string{"DELETE FROM sage.action_log WHERE chain_seq > $1",
-		"DELETE FROM sage.audit_chain_link WHERE chain = 'action_log' AND seq > $1"} {
+		"DELETE FROM sage.audit_chain_link WHERE chain = 'action_log' AND seq > $1",
+		"DELETE FROM sage.audit_chain_checkpoint WHERE chain = 'action_log' AND seq > $1"} {
 		if _, err := tx.Exec(ctx, sql, keep); err != nil {
 			t.Fatalf("%s: %v", sql, err)
 		}

@@ -242,9 +242,11 @@ func (e *Executor) ApplyTimeout() time.Duration { return e.applyTimeoutFor("") }
 // decision: safety.lock_timeout_ms, capped by the policy's
 // lock_duration_ceiling_ms for in-transaction statements (D1). Every
 // statement an intent runs takes it, so the ceiling holds on every path
-// through Apply.
+// through Apply. It also tags the session with the decision (audit-06).
 func (e *Executor) lockOption(sql string, decision ActionPolicyDecision) DDLOption {
-	return WithLockTimeout(e.lockTimeoutMS(sql, decision))
+	lock := WithLockTimeout(e.lockTimeoutMS(sql, decision))
+	tag := WithActionTag(decision.DecisionID)
+	return func(o *ddlOpts) { lock(o); tag(o) }
 }
 
 func (e *Executor) lockTimeoutMS(sql string, decision ActionPolicyDecision) int {

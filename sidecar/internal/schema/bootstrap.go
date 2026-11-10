@@ -119,7 +119,10 @@ func Bootstrap(ctx context.Context, pool *pgxpool.Pool) error {
 			if err := migrateLocksCleanup(ctx, conn); err != nil { // locks_cleanup_migration.go
 				return err
 			}
-			return retireSequenceForecast(ctx, conn) // forecast-05
+			if err := retireSequenceForecast(ctx, conn); err != nil { // forecast-05
+				return err
+			}
+			return migrateAuditCheckpoint(ctx, conn) // audit-03
 		},
 	)
 }
@@ -459,6 +462,7 @@ func migrationStatements() []string {
 		ddlQueryHintsStatusCheck,    // tuning-06: rejected and expired hints
 		ddlAdvisorRuns,              // advisors-02: persisted sub-advisor schedule
 		ddlRolloutInstanceStatus,    // executor-04: canary pending and unverified states
+		ddlPGAuditActionTagIndex,    // audit-06: pgaudit records of tagged action sessions
 		ddlApprovalCardNextCheck,    // policy-06: follow-up queue order
 		ddlActionQueueRevertsAction, // policy-05: withheld reverts reach a person
 		ddlDecisionCandidateKey(),   // policy-02: a withheld verdict is one row per episode

@@ -58,6 +58,13 @@ monitored database                         pg_sage process                      
   characters), client address and per-state counts. `stat_statements` and
   `temp_spill_statements` read `pg_stat_statements` without its text. No probe reads table
   data.
+- **pg_sage's own action sessions carry their decision.** While the executor runs a decided
+  action, its session's `application_name` is `pg_sage action:<decision id>`; it is reset to
+  `pg_sage` before the connection returns to the pool (a connection whose reset fails is
+  closed). In `pg_stat_activity` this tells which decision a running backend executes. The
+  name still contains `pg_sage`, so collectors and probes exclude these sessions as before.
+  pgaudit records from such a session are kept and tied to the decision only when pgaudit
+  logged pg_sage's own login role; the same name set by any other role is ignored.
 - **Evidence** is stored as the typed probe result (`ok`, `empty`, `error`, `no_privilege`,
   `unsupported`) with its SHA-256 hash. A probe that fails is stored as a failure and shown as
   missing evidence. It is never read as "healthy".

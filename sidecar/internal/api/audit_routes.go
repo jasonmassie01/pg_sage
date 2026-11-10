@@ -6,8 +6,10 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -25,8 +27,12 @@ type AuditDeps struct {
 	// Pool resolves a database name ("control" for the control database)
 	// to the pool whose audit chains it reads; nil = unknown.
 	Pool func(name string) *pgxpool.Pool
-	// Control records the evidence exports in sage.auth_audit.
+	// Control records the evidence exports in sage.auth_audit, and holds
+	// the sign-ins, config changes and policy an evidence pack reads.
 	Control *pgxpool.Pool
+	// DatabaseID resolves a database name to its sage.databases id, which
+	// selects its config changes in Control; nil or false = unknown.
+	DatabaseID func(name string) (int, bool)
 	// SIEMStatus reports the sinks' health; nil when export is off.
 	SIEMStatus func() []siem.SinkStatus
 	// SIEMReanchor moves a sink's cursor back after a chain regressed
@@ -48,6 +54,14 @@ func registerAuditRoutes(mux *http.ServeMux, deps AuditDeps) {
 		adminOnly(auditSIEMReanchorHandler(deps)))
 }
 
+// fleetAuditDeps fills the audit routes' database lookups: the fleet's
+// pools and ids, and the control pool.
+func fleetAuditDeps(d AuditDeps, mgr *fleet.DatabaseManager, control *pgxpool.Pool) AuditDeps {
+	d.Pool, d.Control, d.DatabaseID = fleetAuditPool(mgr, control), control,
+		fleetDatabaseID(mgr)
+	return d
+}
+
 // fleetAuditPool resolves audit sources: "control" is the control pool,
 // any other name a fleet database.
 func fleetAuditPool(mgr *fleet.DatabaseManager, control *pgxpool.Pool) func(string) *pgxpool.Pool {
@@ -59,6 +73,21 @@ func fleetAuditPool(mgr *fleet.DatabaseManager, control *pgxpool.Pool) func(stri
 			return nil
 		}
 		return mgr.PoolForDatabase(name)
+	}
+}
+
+// fleetDatabaseID resolves a fleet database's sage.databases id; the
+// control database and unregistered names have none.
+func fleetDatabaseID(mgr *fleet.DatabaseManager) func(string) (int, bool) {
+	return func(name string) (int, bool) {
+		if mgr == nil || name == "" || name == "all" || name == "control" {
+			return 0, false
+		}
+		inst := mgr.GetInstance(name)
+		if inst == nil || inst.DatabaseID <= 0 {
+			return 0, false
+		}
+		return inst.DatabaseID, true
 	}
 }
 
@@ -76,22 +105,37 @@ func (d AuditDeps) pool(w http.ResponseWriter, r *http.Request) (*pgxpool.Pool, 
 	return p, name, true
 }
 
-// policyPool is where the standing policy lives: the control database
-// (fleet and standalone alike), or the audited pool when none is wired.
-func (d AuditDeps) policyPool(audited *pgxpool.Pool) *pgxpool.Pool {
-	if d.Control != nil {
-		return d.Control
+// evidenceSources are the databases a pack of name reads. The control
+// database is a separate source unless it is the audited pool with no
+// database id (standalone, or the control database's own pack), where
+// the pack reads everything, config unfiltered, from the one database.
+func (d AuditDeps) evidenceSources(audited *pgxpool.Pool, name string) evidence.Sources {
+	src := evidence.Sources{DB: audited}
+	if d.DatabaseID != nil {
+		if id, ok := d.DatabaseID(name); ok && id > 0 {
+			src.DatabaseID = id
+		}
 	}
-	return audited
+	if d.Control != nil && (d.Control != audited || src.DatabaseID > 0) {
+		src.Control = d.Control
+	}
+	return src
 }
 
+// auditVerifyTimeout bounds a verification that may read a whole chain
+// (full=true, or the first one before any checkpoint exists).
+const auditVerifyTimeout = 5 * time.Minute
+
+// auditVerifyHandler verifies chains: since each one's newest checkpoint
+// by default (in full when it has none), the whole chain with full=true,
+// or an explicit from_seq/to_seq window.
 func auditVerifyHandler(d AuditDeps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		pool, name, ok := d.pool(w, r)
 		if !ok {
 			return
 		}
-		window, err := seqWindow(r)
+		req, err := parseVerifyRequest(r)
 		if err != nil {
 			jsonError(w, err.Error(), http.StatusBadRequest)
 			return
@@ -101,10 +145,18 @@ func auditVerifyHandler(d AuditDeps) http.HandlerFunc {
 			jsonError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		ctx, cancel := req.context(w, r)
+		defer cancel()
 		reports := []auditchain.Report{}
 		ok = true
 		for _, spec := range specs {
-			rep, err := auditchain.Verify(r.Context(), pool, spec, window)
+			rep, err := req.verify(ctx, pool, spec)
+			if errors.Is(err, context.DeadlineExceeded) {
+				jsonError(w, fmt.Sprintf("verifying %s took longer than %s; verify it "+
+					"in from_seq/to_seq windows", spec.Chain, auditVerifyTimeout),
+					http.StatusGatewayTimeout)
+				return
+			}
 			if err != nil {
 				internalError(w, r, "verify audit chain", err)
 				return
@@ -114,6 +166,56 @@ func auditVerifyHandler(d AuditDeps) http.HandlerFunc {
 		}
 		jsonResponse(w, map[string]any{"database": name, "ok": ok, "reports": reports})
 	}
+}
+
+// verifyRequest is how GET /api/v1/audit/verify was asked to verify.
+type verifyRequest struct {
+	window auditchain.Window
+	full   bool
+}
+
+func parseVerifyRequest(r *http.Request) (verifyRequest, error) {
+	window, err := seqWindow(r)
+	if err != nil {
+		return verifyRequest{}, err
+	}
+	req := verifyRequest{window: window}
+	if raw := r.URL.Query().Get("full"); raw != "" {
+		if req.full, err = strconv.ParseBool(raw); err != nil {
+			return verifyRequest{}, fmt.Errorf("full must be true or false")
+		}
+	}
+	if req.full && req.windowed() {
+		return verifyRequest{}, fmt.Errorf("full=true verifies the whole chain; " +
+			"leave out from_seq and to_seq")
+	}
+	return req, nil
+}
+
+func (q verifyRequest) windowed() bool { return q.window.FromSeq > 0 || q.window.ToSeq > 0 }
+
+// context bounds a verification that may read a whole chain, and lets its
+// response outlive the server's write timeout. A window keeps the request's.
+func (q verifyRequest) context(w http.ResponseWriter, r *http.Request) (context.Context,
+	context.CancelFunc) {
+	if q.windowed() {
+		return r.Context(), func() {}
+	}
+	deadline := time.Now().Add(auditVerifyTimeout + 5*time.Second)
+	if err := http.NewResponseController(w).SetWriteDeadline(deadline); err != nil &&
+		!errors.Is(err, http.ErrNotSupported) {
+		slog.Warn("audit verify: the response may hit the server's write timeout",
+			"error", err)
+	}
+	return context.WithTimeout(r.Context(), auditVerifyTimeout)
+}
+
+func (q verifyRequest) verify(ctx context.Context, pool *pgxpool.Pool,
+	spec auditchain.Spec) (auditchain.Report, error) {
+	if q.windowed() {
+		return auditchain.Verify(ctx, pool, spec, q.window)
+	}
+	return auditchain.VerifyFromCheckpoint(ctx, pool, spec, q.full)
 }
 
 func seqWindow(r *http.Request) (auditchain.Window, error) {
@@ -178,7 +280,7 @@ func auditEvidenceHandler(d AuditDeps) http.HandlerFunc {
 			jsonError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		pack, err := evidence.BuildWithPolicy(r.Context(), pool, d.policyPool(pool), scope,
+		pack, err := evidence.Build(r.Context(), d.evidenceSources(pool, name), scope,
 			d.EvidenceKey, time.Now())
 		switch {
 		case errors.Is(err, evidence.ErrScope):
@@ -224,6 +326,14 @@ func evidenceScope(r *http.Request, database string) (evidence.Scope, error) {
 			*dst = t
 		}
 	}
+	s.File = q.Get("file")
+	if raw := q.Get("after_id"); raw != "" {
+		id, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || id < 0 {
+			return s, fmt.Errorf("after_id must be a non-negative integer")
+		}
+		s.AfterID = id
+	}
 	return s, nil
 }
 
@@ -231,8 +341,12 @@ func evidenceFilename(s evidence.Scope) string {
 	if s.ActionID > 0 {
 		return fmt.Sprintf("pg_sage-evidence-%s-action-%d.tar.gz", s.Database, s.ActionID)
 	}
-	return fmt.Sprintf("pg_sage-evidence-%s-%s.tar.gz", s.Database,
-		s.From.UTC().Format("20060102T150405Z"))
+	page := ""
+	if s.File != "" {
+		page = fmt.Sprintf("-%s-after-%d", strings.TrimSuffix(s.File, ".json"), s.AfterID)
+	}
+	return fmt.Sprintf("pg_sage-evidence-%s-%s%s.tar.gz", s.Database,
+		s.From.UTC().Format("20060102T150405Z"), page)
 }
 
 // recordEvidenceExport audits who exported which evidence.
@@ -246,6 +360,9 @@ func recordEvidenceExport(r *http.Request, control *pgxpool.Pool, s evidence.Sco
 		detail["action_id"] = s.ActionID
 	} else {
 		detail["from"], detail["to"] = s.From.UTC(), s.To.UTC()
+	}
+	if s.File != "" {
+		detail["file"], detail["after_id"] = s.File, s.AfterID
 	}
 	recordAuthEvent(r, control, auth.AuthAuditEvent{Event: auditEvidenceExported,
 		ActorUserID: actor, Detail: detail})

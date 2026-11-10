@@ -28,6 +28,8 @@ func (f *fakeDrainer) Drain() []logwatch.LogEntry {
 	return b
 }
 
+func (f *fakeDrainer) TakeEvicted() int { return 0 }
+
 func (f *fakeDrainer) Stop() {
 	f.mu.Lock()
 	f.stopped = true
@@ -52,8 +54,10 @@ func (f *fakeIngester) Ingest(_ context.Context, e []logwatch.LogEntry) (pgaudit
 	return pgaudit.Stats{Stored: len(e)}, nil
 }
 
-// The loop ingests each non-empty drain, survives an ingest failure, and
-// unsubscribes when the runtime stops.
+func (f *fakeIngester) Pending() int { return 0 }
+
+// The loop ingests each non-empty drain, retries a failed one on the next
+// tick (audit-06), and unsubscribes when the runtime stops.
 func TestRunPGAuditCorrelation(t *testing.T) {
 	entries := []logwatch.LogEntry{{Message: "AUDIT: x"}}
 	d := &fakeDrainer{batches: [][]logwatch.LogEntry{entries, nil, entries, entries}}
@@ -61,7 +65,7 @@ func TestRunPGAuditCorrelation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		runPGAuditCorrelation(ctx, d, ing, 5*time.Millisecond, "test")
+		runPGAuditCorrelation(ctx, d, ing, 5*time.Millisecond, "test", "test")
 		close(done)
 	}()
 	deadline := time.Now().Add(2 * time.Second)
@@ -69,15 +73,15 @@ func TestRunPGAuditCorrelation(t *testing.T) {
 		ing.mu.Lock()
 		calls := ing.calls
 		ing.mu.Unlock()
-		if calls >= 3 {
+		if calls >= 4 {
 			break
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
 	cancel()
 	<-done
-	if ing.calls != 3 {
-		t.Fatalf("ingest calls = %d, want 3 (empty drains skipped, failure survived)",
+	if ing.calls != 4 {
+		t.Fatalf("ingest calls = %d, want 4 (failed batch retried, empty drains skipped)",
 			ing.calls)
 	}
 	if !d.stopped {

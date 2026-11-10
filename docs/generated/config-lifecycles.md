@@ -90,6 +90,7 @@
 | `ask.max_tokens_per_question` | `restart` | `-` | `derivable` |
 | `ask.retention_days` | `restart` | `-` | `operator_preference` |
 | `audit.evidence.signing_key_env` | `restart` | `-` | `safety_critical` |
+| `audit.full_verify_interval_hours` | `restart` | `-` | `operator_preference` |
 | `audit.pgaudit.correlate` | `restart` | `-` | `operator_preference` |
 | `audit.siem.batch_size` | `restart` | `-` | `operator_preference` |
 | `audit.siem.interval_seconds` | `restart` | `-` | `operator_preference` |

@@ -21,37 +21,51 @@ type latestLink struct {
 	state string
 }
 
-// checkRows compares every row the window names with its links.
-func (v *verifier) checkRows(ctx context.Context) error {
+// checkRows compares every row the window names with its links. A row
+// with a link of another payload version is not checked: the current
+// spec's expressions do not describe it (that link is a problem itself).
+// When the window reaches the head, every later link of a row is in it,
+// so a row's last link is the window's; otherwise it is read from the
+// whole chain (rowHistory). Truncations are read after each batch's rows,
+// so a truncate that removed a row is always seen with it.
+func (v *verifier) checkRows(ctx context.Context, toHead bool) error {
 	ids := make([]int64, 0, len(v.rows))
 	for id := range v.rows {
-		ids = append(ids, id)
+		if !v.unknown[id] {
+			ids = append(ids, id)
+		}
 	}
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
-	truncates, err := v.truncateSeqs(ctx)
-	if err != nil {
-		return err
-	}
 	for start := 0; start < len(ids); start += rowBatch {
 		batch := ids[start:min(start+rowBatch, len(ids))]
 		live, err := v.liveRows(ctx, batch)
 		if err != nil {
 			return err
 		}
-		latest, deleted, err := v.rowHistory(ctx, batch)
+		latest, deleted := map[int64]*latestLink{}, map[int64]bool{}
+		if !toHead {
+			if latest, deleted, err = v.rowHistory(ctx, batch); err != nil {
+				return err
+			}
+		}
+		truncates, err := v.truncateSeqs(ctx)
 		if err != nil {
 			return err
 		}
 		for _, id := range batch {
-			v.checkRow(id, live[id], latest[id], deleted[id], truncates)
+			links := v.rows[id]
+			last := latest[id]
+			if toHead {
+				last = links.latest
+			}
+			v.checkRow(id, links, live[id], last, deleted[id], truncates)
 		}
 	}
 	return nil
 }
 
-func (v *verifier) checkRow(id int64, live *liveRow, latest *latestLink, deleted bool,
-	truncates []int64) {
-	links := v.rows[id]
+func (v *verifier) checkRow(id int64, links *rowLinks, live *liveRow, latest *latestLink,
+	deleted bool, truncates []int64) {
 	if live == nil {
 		if deleted || links.deleted || truncatedAfter(truncates, firstSeq(links)) {
 			return
@@ -179,13 +193,17 @@ func (v *verifier) truncateSeqs(ctx context.Context) ([]int64, error) {
 
 // findUnchained reports rows newer than the install boundary that carry no
 // link: written with the triggers disabled or bypassed. A full verification
-// searches every such row; a window searches the id range its inserts span.
+// searches every such row; a window searches the id range its inserts span
+// (open-ended when the window reaches the head).
 func (v *verifier) findUnchained(ctx context.Context, full bool) error {
 	lo, hi := v.legacy+1, int64(1<<62)
 	if !full {
 		lo, hi = v.insertRange()
 		if lo == 0 {
 			return nil
+		}
+		if v.rep.ToSeq == v.rep.HeadSeq {
+			hi = 1 << 62 // nothing chained comes later: any newer row counts
 		}
 	}
 	sql := fmt.Sprintf(`/* pg_sage audit_chain v1 */ SELECT id FROM %s

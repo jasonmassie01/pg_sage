@@ -121,7 +121,7 @@ func writePack(t *testing.T, files map[string][]byte) []byte {
 
 func build(t *testing.T, pool *pgxpool.Pool, scope Scope, key ed25519.PrivateKey) []byte {
 	t.Helper()
-	pack, err := Build(context.Background(), pool, scope, key, time.Now())
+	pack, err := Build(context.Background(), Sources{DB: pool}, scope, key, time.Now())
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestActionPackContents(t *testing.T) {
 	if err := json.Unmarshal(files["manifest.json"], &m); err != nil {
 		t.Fatalf("manifest: %v", err)
 	}
-	if m.Format != FormatV1 || m.Scope.ActionID != id || !m.ChainOK || len(m.Files) < 8 {
+	if m.Format != Format || m.Scope.ActionID != id || !m.ChainOK || len(m.Files) < 8 {
 		t.Fatalf("manifest = %+v", m)
 	}
 	for _, f := range m.Files {
@@ -304,19 +304,19 @@ func TestScopeErrors(t *testing.T) {
 		{From: now.Add(-40 * 24 * time.Hour), To: now},
 		{ActionID: 1, From: now.Add(-time.Hour), To: now}}
 	for i, s := range bad {
-		if _, err := Build(ctx, pool, s, nil, now); !errors.Is(err, ErrScope) {
+		if _, err := Build(ctx, Sources{DB: pool}, s, nil, now); !errors.Is(err, ErrScope) {
 			t.Fatalf("scope %d: err = %v, want ErrScope", i, err)
 		}
 	}
-	if _, err := Build(ctx, pool, Scope{ActionID: 999999}, nil, now); !errors.Is(err,
-		ErrNotFound) {
+	if _, err := Build(ctx, Sources{DB: pool}, Scope{ActionID: 999999}, nil,
+		now); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unknown action: err = %v", err)
 	}
 	empty := readPack(t, build(t, pool, Scope{From: now.Add(-time.Minute), To: now}, nil))
 	if strings.TrimSpace(string(empty["actions.json"])) != "[]" {
 		t.Fatalf("empty window actions = %s", empty["actions.json"])
 	}
-	if _, err := Build(ctx, nil, Scope{ActionID: 1}, nil, now); err == nil {
+	if _, err := Build(ctx, Sources{}, Scope{ActionID: 1}, nil, now); err == nil {
 		t.Fatalf("nil database accepted")
 	}
 }

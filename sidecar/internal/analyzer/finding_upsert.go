@@ -69,6 +69,20 @@ func UpsertFindings(ctx context.Context, pool *pgxpool.Pool, findings []Finding)
 	return err
 }
 
+// UpsertSystemFindings persists findings pg_sage raises about its own
+// machinery (its audit trail, its SIEM export) like UpsertFindings, but
+// without the workload filter: they name pg_sage's sinks and sources by
+// design, and that filter would drop one whose name holds "pg_sage".
+func UpsertSystemFindings(ctx context.Context, pool *pgxpool.Pool,
+	findings []Finding) error {
+	for _, f := range findings {
+		if _, err := upsertOne(ctx, pool, f, Evidence{}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // UpsertFindingsWithResult is UpsertFindingsObserved with an unknown
 // evidence time, assumed unknownEvidenceAge old: a finding an action
 // resolved more recently than that is treated as stale.

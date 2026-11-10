@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/logwatch"
@@ -24,21 +25,41 @@ type Stats struct {
 	Stored   int // correlated and kept
 	Dropped  int // pgaudit records that belong to no principal or action
 	NotAudit int // log entries that are not pgaudit records
+	// Held is how many of pg_sage's untagged records wait for their action
+	// row after this ingest; Unmatched were held longer than holdFor and
+	// dropped; Overflow were the oldest held beyond maxHeld, dropped.
+	Held      int
+	Unmatched int
+	Overflow  int
+}
+
+// querier is what the correlator reads and writes through: a pool.
+type querier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 }
 
 // Correlator keeps the correlated pgaudit records of one database in its
 // sage.guard_pgaudit_events (a hash-chained table).
 type Correlator struct {
-	pool     *pgxpool.Pool
+	q        querier
 	database string
+	now      func() time.Time
 
 	mu      sync.Mutex
 	ownRole string // pg_sage's login role on pool, read once
+
+	ingestMu sync.Mutex   // one ingest at a time; guards held
+	held     []heldRecord // pg_sage's untagged records waiting for their action
 }
 
 // NewCorrelator returns a correlator writing to pool for database.
 func NewCorrelator(pool *pgxpool.Pool, database string) *Correlator {
-	return &Correlator{pool: pool, database: database}
+	return newCorrelator(pool, database)
+}
+
+func newCorrelator(q querier, database string) *Correlator {
+	return &Correlator{q: q, database: database, now: time.Now}
 }
 
 // event is one row of sage.guard_pgaudit_events.
@@ -65,46 +86,48 @@ type event struct {
 // Ingest correlates entries and stores the records that belong to an agent
 // principal, or to one of pg_sage's own actions, and the records that only
 // claim an agent's application_name (unverified, attributed to no one).
-// pg_sage's other statements (its collectors' reads) are dropped: they are
-// pg_sage's own monitoring, already visible in pg_stat_statements.
+// A record of a tagged action session ('pg_sage action:<decision>') is
+// stored at once, before its action row may exist. pg_sage's untagged DDL
+// waits up to holdFor for its action row, retried on every ingest. pg_sage's
+// other statements (its collectors' reads) are dropped: they are pg_sage's
+// own monitoring, already visible in pg_stat_statements. On an error nothing
+// was stored and the held records are as they were, so the caller can retry
+// the same entries.
 func (c *Correlator) Ingest(ctx context.Context, entries []logwatch.LogEntry) (Stats, error) {
-	var st Stats
-	if len(entries) == 0 {
-		return st, nil
+	c.ingestMu.Lock()
+	defer c.ingestMu.Unlock()
+	if len(entries) == 0 && len(c.held) == 0 {
+		return Stats{}, nil
 	}
 	own, err := c.role(ctx)
 	if err != nil {
-		return st, err
+		return Stats{}, err
 	}
-	var rows []event
+	b := &batch{c: c, own: own, now: c.now(), decisions: map[int64]int64{}}
+	if err := b.retryHeld(ctx, c.held); err != nil {
+		return Stats{}, err
+	}
 	for _, e := range entries {
-		rec, ok := Parse(e.Message)
-		if !ok {
-			st.NotAudit++
-			continue
+		if err := b.add(ctx, e); err != nil {
+			return Stats{}, err
 		}
-		a, ok := Attribute(e, own)
-		if ok && a.By == ByPGSage {
-			id, err := c.actionFor(ctx, rec.Statement, e.Timestamp)
-			if err != nil {
-				return st, err
-			}
-			a.By, a.ActionID, ok = ByStatement, id, id > 0
+	}
+	b.capHeld()
+	if len(b.rows) > 0 {
+		if err := c.store(ctx, b.rows); err != nil {
+			return Stats{}, err
 		}
-		if !ok {
-			st.Dropped++
-			continue
-		}
-		rows = append(rows, c.row(e, rec, a))
 	}
-	if len(rows) == 0 {
-		return st, nil
-	}
-	if err := c.store(ctx, rows); err != nil {
-		return st, err
-	}
-	st.Stored = len(rows)
-	return st, nil
+	c.held = b.held
+	b.st.Stored, b.st.Held = len(b.rows), len(c.held)
+	return b.st, nil
+}
+
+// Pending is how many of pg_sage's untagged records wait for their action.
+func (c *Correlator) Pending() int {
+	c.ingestMu.Lock()
+	defer c.ingestMu.Unlock()
+	return len(c.held)
 }
 
 // role is pg_sage's login role on its pool: the user pgaudit logs for
@@ -116,7 +139,7 @@ func (c *Correlator) role(ctx context.Context) (string, error) {
 		return c.ownRole, nil
 	}
 	var role string
-	if err := c.pool.QueryRow(ctx, `/* pg_sage pgaudit v1 */ SELECT session_user`).
+	if err := c.q.QueryRow(ctx, `/* pg_sage pgaudit v1 */ SELECT session_user`).
 		Scan(&role); err != nil {
 		return "", fmt.Errorf("pgaudit: read own role (session_user): %w", err)
 	}
@@ -147,7 +170,7 @@ func (c *Correlator) store(ctx context.Context, rows []event) error {
 	if err != nil {
 		return fmt.Errorf("pgaudit: encode records: %w", err)
 	}
-	_, err = c.pool.Exec(ctx, `/* pg_sage pgaudit v1 */ INSERT INTO sage.guard_pgaudit_events
+	_, err = c.q.Exec(ctx, `/* pg_sage pgaudit v1 */ INSERT INTO sage.guard_pgaudit_events
 		(database_name, logged_at, session_id, pid, db_user, application, principal_id,
 		 action_id, audit_type, statement_id, substatement_id, class, command,
 		 object_type, object_name, statement, correlated_by)
@@ -176,7 +199,7 @@ func (c *Correlator) actionFor(ctx context.Context, statement string, at time.Ti
 	}
 	for _, sql := range candidates {
 		var id int64
-		err := c.pool.QueryRow(ctx, `/* pg_sage pgaudit v1 */ SELECT id FROM sage.action_log
+		err := c.q.QueryRow(ctx, `/* pg_sage pgaudit v1 */ SELECT id FROM sage.action_log
 			WHERE md5(sql_executed) = md5($1) AND executed_at >= $2 AND executed_at <= $3
 			ORDER BY abs(extract(epoch FROM executed_at - $4::timestamptz)) LIMIT 1`,
 			sql, at.Add(-actionWindow), at.Add(actionWindow), at).Scan(&id)

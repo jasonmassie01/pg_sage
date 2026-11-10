@@ -151,7 +151,8 @@ func execTransaction(
 }
 
 // setLocalSessionScope sets the transaction's statement and lock timeouts
-// and pins its search_path; every setting ends with the transaction.
+// and pins its search_path (and names its decision); every setting ends
+// with the transaction.
 func setLocalSessionScope(
 	ctx context.Context, tx pooledExecutor, timeout time.Duration, o ddlOpts,
 ) error {
@@ -170,7 +171,7 @@ func setLocalSessionScope(
 	if _, err := tx.Exec(ctx, "SET LOCAL search_path = "+executorSearchPath); err != nil {
 		return fmt.Errorf("setting search_path: %w", err)
 	}
-	return nil
+	return setActionTag(ctx, tx, "SET LOCAL", o)
 }
 
 // DDLOption configures DDL execution behavior.
@@ -183,6 +184,9 @@ type ddlOpts struct {
 	// onBackendPID receives the server process of a top-level statement
 	// just before it runs (the remnant tracker watches that build).
 	onBackendPID func(uint32)
+	// actionTag is the decision the statement runs for (0: none); its
+	// session's application_name names it (audit-06).
+	actionTag int64
 }
 
 func applyDDLOpts(opts []DDLOption) ddlOpts {
@@ -213,6 +217,17 @@ func reportBackendPID(conn pooledExecutor, o ddlOpts) {
 func WithLockTimeout(ms int) DDLOption {
 	return func(o *ddlOpts) {
 		o.lockTimeoutMs = ms
+	}
+}
+
+// WithActionTag names decisionID in the session's application_name
+// ('pg_sage action:<id>') while the statement runs, so its pgaudit records
+// are tied to the decision. A decision id of 0 or below tags nothing.
+func WithActionTag(decisionID int64) DDLOption {
+	return func(o *ddlOpts) {
+		if decisionID > 0 {
+			o.actionTag = decisionID
+		}
 	}
 }
 
