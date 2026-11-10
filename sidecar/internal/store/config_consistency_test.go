@@ -60,6 +60,9 @@ var excludedExactKeys = map[string]bool{
 	// The rotation key must never be API-settable: it would be stored
 	// next to what it protects.
 	"encryption_key_previous": true,
+	// data_dir holds the generated key file; it is a process setting, never
+	// an API override (security-08).
+	"data_dir": true,
 
 	// Safety fields present in struct but not exposed as overrides.
 	"safety.disk_pressure_threshold_pct": true,

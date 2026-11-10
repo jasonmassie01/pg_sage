@@ -16,10 +16,14 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/egress"
 	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
 	"github.com/pg-sage/sidecar/internal/workload"
 )
+
+// briefingHTTPClient posts briefings through the egress floor.
+var briefingHTTPClient = egress.HTTPClient(0)
 
 // cronSchedule holds pre-parsed bitmasks for each cron field.
 type cronSchedule struct {
@@ -477,7 +481,7 @@ func (w *Worker) sendSlack(ctx context.Context, text string) {
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := briefingHTTPClient.Do(req)
 	if err != nil {
 		w.logFn("WARN", "briefing: slack send error: %v", webhookFailureCause(err))
 		return

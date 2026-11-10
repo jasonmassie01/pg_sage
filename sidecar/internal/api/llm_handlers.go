@@ -11,6 +11,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/databricksauth"
+	"github.com/pg-sage/sidecar/internal/egress"
 	"github.com/pg-sage/sidecar/internal/llm"
 )
 
@@ -22,6 +23,10 @@ func listModelsHandler(
 ) http.HandlerFunc {
 	return listModelsWithDiscovery(cfg, controllers, databricksauth.ListModelServices)
 }
+
+// llmModelsHTTPClient lists models at the configured endpoint through the
+// egress floor; it is shared so its connections are reused.
+var llmModelsHTTPClient = egress.HTTPClient(0)
 
 type gatewayModelLister func(context.Context, string, string) ([]databricksauth.GatewayModel, error)
 
@@ -39,7 +44,7 @@ func listModelsWithDiscovery(cfg *config.LLMConfig, controllers []*config.Config
 			return
 		}
 
-		models, err := modelsForConfig(r.Context(), cfg, http.DefaultClient, discover)
+		models, err := modelsForConfig(r.Context(), cfg, llmModelsHTTPClient, discover)
 		if err != nil {
 			slog.Error("LLM list models failed", "error", err)
 			jsonError(w, "LLM request failed",
@@ -154,7 +159,7 @@ func discoverModelsWithDiscovery(cfg *config.LLMConfig, controllers []*config.Co
 			return
 		}
 
-		httpClient := http.DefaultClient
+		httpClient := llmModelsHTTPClient
 		if endpointSupplied {
 			httpClient = safeLLMDiscoveryHTTPClient()
 		}

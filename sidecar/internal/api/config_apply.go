@@ -23,7 +23,9 @@ func applyConfigOverrides(
 	databaseID int,
 	userID int,
 ) []string {
-	overrides, errs := validatedConfigWrites(body, configTargetPolicy(cfg))
+	config.RLockForHotReload()
+	overrides, errs := boundConfigWrites(body, cfg)
+	config.RUnlockForHotReload()
 	if len(errs) > 0 {
 		return errs
 	}

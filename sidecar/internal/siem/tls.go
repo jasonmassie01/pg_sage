@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/egress"
 )
 
 // TLSFiles names a sink's PEM files: CA pins the receiver's roots to that
@@ -49,15 +51,18 @@ func LoadTLSConfig(f TLSFiles) (*tls.Config, error) {
 	return cfg, nil
 }
 
-// httpClient is a client with the sink's timeout; tlsCfg nil keeps the
-// default transport (system roots, SSL_CERT_FILE where Go honours it).
+// httpClient is a client with the sink's timeout on the egress floor
+// (security-03); tlsCfg nil keeps the default TLS settings (system roots,
+// SSL_CERT_FILE where Go honours it).
 func httpClient(timeout time.Duration, tlsCfg *tls.Config) *http.Client {
+	client := egress.HTTPClient(timeout)
 	if tlsCfg == nil {
-		return &http.Client{Timeout: timeout}
+		return client
 	}
-	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr := egress.Transport(timeout)
 	tr.TLSClientConfig = tlsCfg.Clone()
-	return &http.Client{Timeout: timeout, Transport: tr}
+	client.Transport = tr
+	return client
 }
 
 // tlsConfirmWait bounds how long a new TLS 1.3 syslog session waits for

@@ -15,6 +15,7 @@ import { PostgresMeme } from './PostgresMeme'
 import { pageGuide } from './pageGuide'
 import { MonitoringContext } from './MonitoringContext'
 import { PageErrorBoundary } from './PageErrorBoundary'
+import { SecretsPostureBanner } from './SecretsPostureBanner'
 
 const PendingActionsContext = createContext({ refetch: () => {} })
 
@@ -371,6 +372,7 @@ export function Layout({
         <div className="sage-content p-3 md:p-6">
           {/* A page render error stays here; the header and nav survive. */}
           <PageErrorBoundary resetKey={window.location.hash || '#/'}>
+            <SecretsPostureBanner isAdmin={isAdmin} />
             <MonitoringContext database={selectedDB} fleetData={fleetData}
               error={fleetError} user={user} />
             <PostgresMeme route={hash} guide={pageGuide(hash, { pageTitle, authMode })} />

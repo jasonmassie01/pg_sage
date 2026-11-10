@@ -10,6 +10,7 @@ import { useToast } from '../components/Toast'
 import { ShadowModePage } from './ShadowModePage'
 import { DerivedSettings } from './settings/DerivedSettings'
 import { readPref, writePref } from '../lib/storage'
+import { SETTINGS_SAVED_EVENT } from '../components/SecretsPostureBanner'
 import {
   ShieldAlert, Save, RotateCcw, Check, X,
 } from 'lucide-react'
@@ -242,6 +243,7 @@ export function SettingsPage({ database, databaseId }) {
       setEdits({})
       setShowDiff(false)
       refetch()
+      window.dispatchEvent(new CustomEvent(SETTINGS_SAVED_EVENT))
     } catch (e) {
       toast.error(e.message || 'Save failed')
     } finally {
@@ -577,7 +579,7 @@ function SimpleAIAlertsTab(props) {
           label="Endpoint URL"
           configKey="llm.endpoint"
           type="text"
-          help="The URL of your AI provider. Works with any OpenAI-compatible API (OpenAI, Gemini, Groq, Ollama, etc)."
+          help="The URL of your AI provider. Works with any OpenAI-compatible API (OpenAI, Gemini, Groq, Ollama, etc). Moving it to another host, scheme or port asks for the API key again."
           {...props}
         />
         <ModelField
@@ -588,7 +590,7 @@ function SimpleAIAlertsTab(props) {
           label="API Key"
           configKey="llm.api_key"
           type="password"
-          help="Your AI provider's API key. Stored securely and never logged."
+          help="Your AI provider's API key. Stored securely and never logged. It is only sent to the endpoint it was saved with: re-enter it, or clear it, when the endpoint moves."
           {...props}
         />
       </div>

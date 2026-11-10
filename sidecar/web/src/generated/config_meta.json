@@ -826,6 +826,12 @@
     "doc": "WAL retention limit.",
     "class": "safety_critical"
   },
+  "data_dir": {
+    "type": "string",
+    "default": "",
+    "doc": "Persistent directory owned by pg_sage. Without encryption_key, pg_sage generates data_dir/encryption.key (mode 600) and seals stored secrets with it; back the file up. Also SAGE_DATA_DIR.",
+    "class": "safety_critical"
+  },
   "databases[].analyzer_interval_seconds": {
     "type": "int",
     "default": 0,

@@ -186,6 +186,8 @@ func loadStartupConfigOrExit() {
 		logError("startup", "config: %v", err)
 		os.Exit(1)
 	}
+	// Before any database opens: a generated key must be in place first.
+	resolveEncryptionKeyOrExit()
 	configBase = config.Clone(cfg)
 
 	logInfo("startup", "pg_sage sidecar v%s — mode=%s", version, cfg.Mode)

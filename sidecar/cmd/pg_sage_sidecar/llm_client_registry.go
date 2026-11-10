@@ -217,7 +217,7 @@ func optimizerLLMConfig(parent config.LLMConfig) config.LLMConfig {
 		Auth:             parent.OptimizerAuth(),
 		Enabled:          opt.Enabled,
 		Endpoint:         firstNonEmpty(opt.Endpoint, parent.Endpoint),
-		APIKey:           firstNonEmpty(opt.APIKey, parent.APIKey),
+		APIKey:           llm.OptimizerAPIKey(parent),
 		Model:            firstNonEmpty(opt.Model, parent.Model),
 		TimeoutSeconds:   firstPositive(opt.TimeoutSeconds, parent.TimeoutSeconds),
 		TokenBudgetDaily: firstPositive(opt.TokenBudgetDaily, parent.TokenBudgetDaily),

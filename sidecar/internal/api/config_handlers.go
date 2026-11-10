@@ -199,13 +199,12 @@ func applyControlledGlobalConfig(
 		return
 	}
 	delete(body, "expected_generation")
-	writes, validationErrs := validatedConfigWrites(
-		body, configTargetPolicy(controller.Desired().Config))
+	candidate := controller.Desired().Config
+	writes, validationErrs := boundConfigWrites(body, candidate)
 	if len(validationErrs) > 0 {
 		jsonError(w, validationErrs[0], http.StatusBadRequest)
 		return
 	}
-	candidate := controller.Desired().Config
 	for _, write := range writes {
 		hotReload(candidate, write.Key, write.Value)
 	}
@@ -278,6 +277,9 @@ func configGlobalDeleteHandler(
 			internalError(w, r, "load config base", err)
 			return
 		}
+		if !refuseUnboundDelete(w, r, cs, base, key, cfg, nil) {
+			return
+		}
 		if err := cs.DeleteOverride(r.Context(), key, 0); err != nil {
 			internalError(w, r, "delete global config override", err)
 			return
@@ -309,11 +311,9 @@ func applyControlledGlobalDelete(
 			http.StatusPreconditionRequired)
 		return
 	}
-	candidate, err := globalCandidateWithoutOverride(
-		r.Context(), cs, base, key,
-	)
-	if err != nil {
-		internalError(w, r, "load desired config revision", err)
+	candidate, ok := controlledDeleteCandidate(
+		w, r, cs, base, key, controller.Desired().Config)
+	if !ok {
 		return
 	}
 	result, err := controller.ApplyWithPersistence(

@@ -19,6 +19,7 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/egress"
 )
 
 // OIDCDiscovery holds endpoints from .well-known/openid-configuration.
@@ -76,7 +77,7 @@ func NewOAuthProvider(
 		states:  make(map[string]time.Time),
 		links:   make(map[string]LinkIntent),
 		pending: make(map[string]pendingAuth),
-		client:  &http.Client{Timeout: 15 * time.Second},
+		client:  egress.HTTPClient(15 * time.Second),
 	}
 }
 

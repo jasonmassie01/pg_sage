@@ -15,11 +15,11 @@ import (
 
 func TestOpenSecrets_WrongKeyWrapsSentinelAndNamesKey(t *testing.T) {
 	sealed, err := SealSecrets(map[string]string{"bot_token": "tok-123"},
-		bytes.Repeat([]byte{1}, 32))
+		testKeyring(t, bytes.Repeat([]byte{1}, 32)), 1)
 	if err != nil {
 		t.Fatalf("SealSecrets: %v", err)
 	}
-	opened, err := OpenSecrets(sealed, bytes.Repeat([]byte{2}, 32))
+	opened, err := OpenSecrets(sealed, testKeyring(t, bytes.Repeat([]byte{2}, 32)), 1)
 	if !errors.Is(err, crypto.ErrWrongEncryptionKey) {
 		t.Fatalf("err = %v, want ErrWrongEncryptionKey", err)
 	}
@@ -37,17 +37,17 @@ func TestOpenSecrets_WrongKeyWrapsSentinelAndNamesKey(t *testing.T) {
 }
 
 func TestOpenSecrets_RightKeyRoundTrip(t *testing.T) {
-	key := bytes.Repeat([]byte{3}, 32)
+	key := testKeyring(t, bytes.Repeat([]byte{3}, 32))
 	sealed, err := SealSecrets(map[string]string{
 		"token": "t-1", "channel": "#ops",
-	}, key)
+	}, key, 1)
 	if err != nil {
 		t.Fatalf("SealSecrets: %v", err)
 	}
-	if !strings.HasPrefix(sealed["token"], sealedPrefix) || sealed["channel"] != "#ops" {
+	if !strings.HasPrefix(sealed["token"], crypto.SealedPrefix) || sealed["channel"] != "#ops" {
 		t.Fatalf("sealed = %v", sealed)
 	}
-	opened, err := OpenSecrets(sealed, key)
+	opened, err := OpenSecrets(sealed, key, 1)
 	if err != nil || opened["token"] != "t-1" || opened["channel"] != "#ops" {
 		t.Fatalf("OpenSecrets = %v, %v", opened, err)
 	}
@@ -55,9 +55,9 @@ func TestOpenSecrets_RightKeyRoundTrip(t *testing.T) {
 
 func TestOpenSecrets_TruncatedValueIsNotWrongKey(t *testing.T) {
 	cfg := map[string]string{
-		"api_key": sealedPrefix + base64.StdEncoding.EncodeToString([]byte("x")),
+		"api_key": legacySealedPrefix + base64.StdEncoding.EncodeToString([]byte("x")),
 	}
-	_, err := OpenSecrets(cfg, bytes.Repeat([]byte{3}, 32))
+	_, err := OpenSecrets(cfg, testKeyring(t, bytes.Repeat([]byte{3}, 32)), 1)
 	if err == nil || !strings.Contains(err.Error(), "too short") {
 		t.Fatalf("err = %v, want too short", err)
 	}
@@ -71,11 +71,11 @@ func TestOpenSecrets_TruncatedValueIsNotWrongKey(t *testing.T) {
 
 func TestOpenSecrets_NoKeyIsNotWrongKey(t *testing.T) {
 	sealed, err := SealSecrets(map[string]string{"secret": "s"},
-		bytes.Repeat([]byte{4}, 32))
+		testKeyring(t, bytes.Repeat([]byte{4}, 32)), 1)
 	if err != nil {
 		t.Fatalf("SealSecrets: %v", err)
 	}
-	_, err = OpenSecrets(sealed, nil)
+	_, err = OpenSecrets(sealed, nil, 1)
 	if err == nil || !strings.Contains(err.Error(), "no encryption key") {
 		t.Fatalf("err = %v, want no encryption key", err)
 	}
@@ -85,7 +85,7 @@ func TestOpenSecrets_NoKeyIsNotWrongKey(t *testing.T) {
 }
 
 func TestOpenSecrets_EmptyConfig(t *testing.T) {
-	opened, err := OpenSecrets(map[string]string{}, nil)
+	opened, err := OpenSecrets(map[string]string{}, nil, 1)
 	if err != nil || opened == nil || len(opened) != 0 {
 		t.Fatalf("OpenSecrets(empty) = %v, %v", opened, err)
 	}

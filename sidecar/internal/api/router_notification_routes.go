@@ -11,8 +11,17 @@ import (
 // notificationRouteDeps carries the channel secret key and target policy
 // the runtime dispatchers use, so API writes and runtime reads agree.
 type notificationRouteDeps struct {
-	secretKey []byte
-	policy    notify.TargetPolicy
+	secretKey   []byte
+	previousKey []byte // the previous key of a rotation (security-08)
+	policy      notify.TargetPolicy
+}
+
+func newNotificationRouteDeps(rt RuntimeDeps) notificationRouteDeps {
+	return notificationRouteDeps{
+		secretKey:   rt.NotificationSecretKey,
+		previousKey: rt.NotificationPreviousSecretKey,
+		policy:      rt.NotificationTargetPolicy,
+	}
 }
 
 func registerNotificationRoutes(
@@ -20,7 +29,8 @@ func registerNotificationRoutes(
 ) {
 	d := newDefaultDispatcher(pool, deps)
 	ns := store.NewNotificationStore(pool, d).
-		WithSecretKey(deps.secretKey).WithTargetPolicy(deps.policy)
+		WithSecretKey(deps.secretKey).WithPreviousSecretKey(deps.previousKey).
+		WithTargetPolicy(deps.policy)
 
 	registerNotificationChannelRoutes(mux, ns)
 	registerNotificationRuleRoutes(mux, ns)
@@ -79,7 +89,7 @@ func newDefaultDispatcher(
 ) *notify.Dispatcher {
 	logFn := func(_, _ string, _ ...any) {}
 	d := notify.NewDispatcherWithStore(
-		notify.NewPoolStore(pool, deps.secretKey), logFn,
+		notify.NewPoolStore(pool, deps.secretKey).WithPreviousKey(deps.previousKey), logFn,
 	)
 	d.RegisterSender(notify.NewSlackSenderWithPolicy(deps.policy))
 	d.RegisterSender(notify.NewEmailSenderWithPolicy(deps.policy))

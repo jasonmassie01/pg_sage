@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/chatops"
+	"github.com/pg-sage/sidecar/internal/crypto"
 )
 
 // ChatOps approval requests: a Sage SRE backend cancel is an approval
@@ -200,10 +201,10 @@ func TestChatOpsSecretsAreSealed(t *testing.T) {
 			t.Fatalf("%s is not a secret config key", k)
 		}
 	}
-	key := make([]byte, 32)
+	key := testKeyring(t, make([]byte, 32))
 	sealed, err := SealSecrets(map[string]string{"bot_token": "1:secret",
-		"chat_id": "-1001"}, key)
-	if err != nil || !strings.HasPrefix(sealed["bot_token"], "enc:v1:") ||
+		"chat_id": "-1001"}, key, 1)
+	if err != nil || !strings.HasPrefix(sealed["bot_token"], crypto.SealedPrefix) ||
 		sealed["chat_id"] != "-1001" {
 		t.Fatalf("sealed = %v, %v", sealed, err)
 	}

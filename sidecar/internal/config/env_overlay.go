@@ -142,6 +142,7 @@ func coreSecretAndLLMEnv(cfg *Config) []envString {
 		{"SAGE_META_DB", &cfg.MetaDB},
 		{"SAGE_ENCRYPTION_KEY", &cfg.EncryptionKey},
 		{"SAGE_ENCRYPTION_KEY_PREVIOUS", &cfg.EncryptionKeyPrevious},
+		{"SAGE_DATA_DIR", &cfg.DataDir},
 		{"SAGE_BREAK_GLASS_PASSWORD_HASH", &cfg.OAuth.BreakGlass.PasswordHash},
 		{"SAGE_OPTIMIZER_LLM_API_KEY", &cfg.LLM.OptimizerLLM.APIKey},
 		{"SAGE_OPTIMIZER_LLM_ENDPOINT", &cfg.LLM.OptimizerLLM.Endpoint},

@@ -70,6 +70,9 @@ var envRegistry = []EnvVar{
 		"([secrets at rest](security.md#secrets-at-rest))"},
 	{Name: "SAGE_ENCRYPTION_KEY_PREVIOUS", Default: envNone, File: true,
 		Doc: "The previous passphrase during a key rotation"},
+	{Name: "SAGE_DATA_DIR", Default: envNone, Doc: "Persistent directory; without an " +
+		"encryption key, pg_sage generates `encryption.key` there " +
+		"([secrets at rest](security.md#secrets-at-rest))"},
 	{Name: "SAGE_BREAK_GLASS_PASSWORD_HASH", Default: envNone, File: true, Doc: "bcrypt hash " +
 		"of the [break-glass admin](security.md#break-glass-admin) password"},
 	{Name: "SAGE_BOOTSTRAP_ADMIN_EMAIL", Default: envNone, Doc: "Email of the first admin, " +

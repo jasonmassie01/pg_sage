@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/egress"
 	"github.com/pg-sage/sidecar/internal/notify"
 )
 
@@ -37,6 +38,9 @@ func (e *statusError) Error() string {
 // retryable reports whether another attempt can succeed: network
 // errors, 5xx and 429. Other 4xx responses are permanent (G7-B32).
 func retryable(err error) bool {
+	if errors.Is(err, egress.ErrBlocked) {
+		return false // a destination below the egress floor never becomes reachable
+	}
 	var se *statusError
 	if errors.As(err, &se) {
 		return se.code == http.StatusTooManyRequests || se.code >= 500

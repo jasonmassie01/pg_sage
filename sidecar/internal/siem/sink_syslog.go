@@ -10,6 +10,8 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/egress"
 )
 
 // syslogFacility is "log audit" (RFC 5424 facility 13).
@@ -122,7 +124,7 @@ func (s *syslogSink) write(ctx context.Context, msg []byte) error {
 }
 
 func (s *syslogSink) dial(ctx context.Context) (net.Conn, error) {
-	d := &net.Dialer{Timeout: s.timeout}
+	d := egress.Dialer(s.timeout)
 	switch s.network {
 	case "tls":
 		cfg := s.tlsCfg

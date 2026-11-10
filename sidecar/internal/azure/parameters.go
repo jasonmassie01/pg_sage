@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/egress"
 	"github.com/pg-sage/sidecar/internal/executor"
 )
 
@@ -78,7 +79,7 @@ func NewParameterAdapter(server Server, token TokenSource, opts ...Option) (*Par
 		return nil, errors.New("azure: a token source is required")
 	}
 	adapter := &ParameterAdapter{
-		server: server, token: token, client: &http.Client{Timeout: 30 * time.Second},
+		server: server, token: token, client: egress.HTTPClient(30 * time.Second),
 		baseURL: defaultBaseURL, pollInterval: 2 * time.Second, pollTimeout: 5 * time.Minute,
 	}
 	for _, opt := range opts {

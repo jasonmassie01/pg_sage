@@ -184,6 +184,7 @@ YAML value. Booleans accept `true`/`false`, `1`/`0`, `t`/`f`.
 | `SAGE_SUPERVISED` | (unset) | `1` or `true` declares a supervisor that relaunches the sidecar on exit code 42; only then does the dashboard's restart endpoint work (otherwise it answers 501) |
 | `SAGE_ENCRYPTION_KEY` / `_FILE` | (none) | Passphrase that encrypts stored secrets, including API-set config secrets ([secrets at rest](security.md#secrets-at-rest)) |
 | `SAGE_ENCRYPTION_KEY_PREVIOUS` / `_FILE` | (none) | The previous passphrase during a key rotation |
+| `SAGE_DATA_DIR` | (none) | Persistent directory; without an encryption key, pg_sage generates `encryption.key` there ([secrets at rest](security.md#secrets-at-rest)) |
 | `SAGE_BREAK_GLASS_PASSWORD_HASH` / `_FILE` | (none) | bcrypt hash of the [break-glass admin](security.md#break-glass-admin) password |
 | `SAGE_BOOTSTRAP_ADMIN_EMAIL` | (none) | Email of the first admin, created only when the users table is empty |
 | `SAGE_BOOTSTRAP_ADMIN_PASSWORD` / `_FILE` | (none) | Password of that first admin; its `_FILE` must be mode 600 or 400 |
@@ -321,7 +322,7 @@ llm:
   optimizer_llm:                 # optional second model for optimizer
     endpoint: ""
     model: ""
-    api_key: ${SAGE_OPTIMIZER_LLM_API_KEY}
+    api_key: ${SAGE_OPTIMIZER_LLM_API_KEY}  # needed when endpoint is on another origin
 
 tuning:                          # one case-driven tuning agent per database
   enabled: true
@@ -901,7 +902,7 @@ budget.
 | `llm.optimizer.rejection_memory.row_estimate_ratio` | `2` | Same, for the table's live-row estimate (>1-1000). A target query appearing or disappearing is always a material change |
 | `llm.optimizer.rejection_memory.prompt_max_shapes` | `5` | Most recent rejected shapes per table listed in the tuning agent's case packet as already measured (1-20) |
 | `llm.optimizer.rejection_memory.skip_llm_after` | `3` | After this many consecutive answers about a tuning case were all wasted (every proposal rejected or already measured, or the answer empty or malformed), the agent stops asking the model about the case until it changes materially (its statements, or a call-volume or mean-time change of `call_volume_ratio`/`mean_time_ratio`) or `max_age_days` passes (1-100). A provider failure neither extends nor breaks the streak. Exported as `pg_sage_optimizer_llm_calls_skipped_total{database}`; skipped what-ifs as `pg_sage_optimizer_whatif_skipped_total{database}` |
-| `llm.optimizer_llm.enabled` | `false` | Dedicated optimizer model; adds a second client with its own `token_budget_daily` |
+| `llm.optimizer_llm.enabled` | `false` | Dedicated optimizer model; adds a second client with its own `token_budget_daily`. It inherits `llm.api_key` only when `llm.optimizer_llm.endpoint` is empty or on the same origin as `llm.endpoint`; otherwise set `llm.optimizer_llm.api_key` |
 | `advisor.enabled` | `true` | LLM configuration advisor (WAL, connections, rewrites, bloat). With `advisor.memory_enabled` / `advisor.vacuum_enabled` it also lets the tuning agent propose server settings / table storage parameters. In fleet mode one database per PostgreSQL instance owns the instance settings: only it runs the WAL and connection reviews and proposes `ALTER SYSTEM` or managed parameter changes (see [Several databases on one PostgreSQL instance](walkthrough-fleet.md#several-databases-on-one-postgresql-instance)) |
 | `advisor.interval_seconds` | `86400` | Seconds between model reviews of each configuration sub-advisor (WAL, connections, rewrites, bloat), scheduled per sub-advisor in `sage.advisor_runs` so a restart within the interval makes no model call and concurrent cycles make one. A run counts only on success: a model or token-budget failure retries after 1 h, doubling per consecutive failure, never later than this interval. Every cycle, without the model, open advisor findings are re-checked: a WAL or connection setting resolves once the live `pg_settings` value equals the recommended one (units normalized, `4GB` = `4096MB`), a rewrite once its query has been absent from `pg_stat_statements` for 3 cycles, a bloat finding once its table stays under 10% dead tuples (or 1,000 rows) for 2 cycles. An open finding keeps only its own setting, query or table out of the next review; the rest of its category is still reviewed |
 | `tuner.hint_absent_cycles` | `3` | Analyzer cycles an open `query_tuning` finding's statement must be absent from `pg_stat_statements`, or below the tuner's admission thresholds, before the finding resolves; the wait is N x the analyzer interval. 0 or less means 3 (see [hint verification](hint-verification.md#when-a-query_tuning-finding-resolves)) |

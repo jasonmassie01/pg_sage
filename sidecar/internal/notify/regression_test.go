@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/pg-sage/sidecar/internal/crypto"
 )
 
 // --- G7-B05: dispatcher reads rules through an injectable store -------
@@ -398,17 +400,17 @@ func TestSlackSender_DefaultPolicyBlocksLoopbackAtDial(t *testing.T) {
 // --- G7-B20: channel secrets at rest ------------------------------------
 
 func TestSealOpenSecrets(t *testing.T) {
-	key := bytes.Repeat([]byte{7}, 32)
+	key := testKeyring(t, bytes.Repeat([]byte{7}, 32))
 	plain := map[string]string{
 		"webhook_url": "https://hooks.slack.com/services/T/B/TOKEN",
 		"smtp_pass":   "hunter2", "to": "ops@example.com",
 	}
-	sealed, err := SealSecrets(plain, key)
+	sealed, err := SealSecrets(plain, key, 1)
 	if err != nil {
 		t.Fatalf("SealSecrets: %v", err)
 	}
 	for _, k := range []string{"webhook_url", "smtp_pass"} {
-		if !strings.HasPrefix(sealed[k], sealedPrefix) ||
+		if !strings.HasPrefix(sealed[k], crypto.SealedPrefix) ||
 			strings.Contains(sealed[k], "TOKEN") ||
 			strings.Contains(sealed[k], "hunter2") {
 			t.Fatalf("%s not sealed: %q", k, sealed[k])
@@ -420,15 +422,15 @@ func TestSealOpenSecrets(t *testing.T) {
 	if plain["smtp_pass"] != "hunter2" {
 		t.Fatal("SealSecrets mutated its input")
 	}
-	opened, err := OpenSecrets(sealed, key)
+	opened, err := OpenSecrets(sealed, key, 1)
 	if err != nil || opened["webhook_url"] != plain["webhook_url"] ||
 		opened["smtp_pass"] != "hunter2" {
 		t.Fatalf("OpenSecrets = %v, %v", opened, err)
 	}
-	if _, err := OpenSecrets(sealed, bytes.Repeat([]byte{8}, 32)); err == nil {
+	if _, err := OpenSecrets(sealed, testKeyring(t, bytes.Repeat([]byte{8}, 32)), 1); err == nil {
 		t.Fatal("OpenSecrets with wrong key succeeded")
 	}
-	if _, err := OpenSecrets(sealed, nil); err == nil {
+	if _, err := OpenSecrets(sealed, nil, 1); err == nil {
 		t.Fatal("OpenSecrets without key succeeded on sealed values")
 	}
 	if !HasPlaintextSecrets(plain) || HasPlaintextSecrets(sealed) {

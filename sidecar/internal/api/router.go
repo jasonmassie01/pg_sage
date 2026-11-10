@@ -105,6 +105,12 @@ type RuntimeDeps struct {
 	// NotificationSecretKey seals channel secrets at rest; every runtime
 	// dispatcher must read with the same key (G7-B20). nil = plaintext.
 	NotificationSecretKey []byte
+	// NotificationPreviousSecretKey also opens channel secrets sealed under
+	// the previous key of a rotation (security-08). nil = none.
+	NotificationPreviousSecretKey []byte
+	// SecretsPosture reports how stored secrets are protected for the
+	// admin banner (security-08); nil omits GET /api/v1/security/posture.
+	SecretsPosture func(context.Context) (SecretsPosture, error)
 	// NotificationTargetPolicy validates channel targets on write and at
 	// test-send time (G7-B21).
 	NotificationTargetPolicy notify.TargetPolicy
@@ -278,10 +284,7 @@ func registerControlPoolRoutes(
 		runtimeConfigBase(rt.ConfigBaseLoader, rt.ConfigBase, cfg),
 		rt.DisableConfigWrites,
 	)
-	notifyDeps := notificationRouteDeps{
-		secretKey: rt.NotificationSecretKey,
-		policy:    rt.NotificationTargetPolicy,
-	}
+	notifyDeps := newNotificationRouteDeps(rt)
 	registerNotificationRoutes(apiMux, pool, notifyDeps)
 	if !rt.DatabricksAppAuth {
 		registerBreakGlassRoutes(apiMux, pool, cfg, newDefaultDispatcher(pool, notifyDeps))
@@ -290,6 +293,7 @@ func registerControlPoolRoutes(
 		return cfg != nil && cfg.Agents.SingleOperatorMode
 	})
 	registerDecommissionRoutes(apiMux, pool)
+	registerSecurityPostureRoutes(apiMux, rt.SecretsPosture)
 }
 
 // newRouterOAuthProvider builds the configured OAuth provider, tries

@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/egress"
 )
 
 // The pre-flight size guard (llm-05). A prompt the model must reject is
@@ -141,7 +141,7 @@ func (c *Client) LearnInputLimits(ctx context.Context) {
 	defer cancel()
 	httpClient := c.httpClient
 	if httpClient == nil {
-		httpClient = http.DefaultClient
+		httpClient = egress.HTTPClient(inputLimitListingTimeout)
 	}
 	if _, err := ListModelsWithClient(ctx, cfg.Endpoint, cfg.APIKey, httpClient); err != nil {
 		c.logFn("llm", "model listing for the input limit failed; the prompt "+

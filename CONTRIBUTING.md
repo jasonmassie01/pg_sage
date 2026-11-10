@@ -77,6 +77,11 @@ and the `goreleaser-cross` tag in `.github/workflows/ci.yml`;
 `security` CI job (govulncheck, npm audit, Trivy) must pass before an image or
 release is published.
 
+When a release changes the minor version in `VERSION`, bump the supported row of
+the version table in `SECURITY.md` in the same change;
+`TestSecurityDocsSupportedVersionMatchesVERSION` (`internal/config`) fails until
+it matches.
+
 Databricks Apps packaging (from the repository root, Python standard library only):
 
 ```bash

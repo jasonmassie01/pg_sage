@@ -11,6 +11,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/egress"
 )
 
 // ErrTargetBlocked is returned when a notification target resolves to
@@ -18,8 +20,9 @@ import (
 var ErrTargetBlocked = errors.New("notification target blocked by policy")
 
 // TargetPolicy governs where notification senders may connect.
-// Link-local addresses (including the 169.254.169.254 cloud metadata
-// endpoint), unspecified and multicast addresses are always refused.
+// The egress floor (link-local addresses including the 169.254.169.254
+// cloud metadata endpoint, fd00:ec2::254, unspecified, multicast and
+// broadcast addresses) is always refused.
 // Loopback, RFC 1918 / ULA and CGNAT ranges, "localhost" and plain http
 // are refused unless AllowPrivate is set (e.g. for an on-prem relay).
 type TargetPolicy struct {
@@ -73,12 +76,10 @@ func (p TargetPolicy) ValidateHost(host string) error {
 }
 
 func (p TargetPolicy) checkAddr(addr netip.Addr) error {
-	addr = addr.Unmap()
-	if addr.IsUnspecified() || addr.IsLinkLocalUnicast() ||
-		addr.IsLinkLocalMulticast() || addr.IsMulticast() ||
-		addr.IsInterfaceLocalMulticast() {
-		return fmt.Errorf("%w: address %s", ErrTargetBlocked, addr)
+	if err := egress.CheckAddr(addr); err != nil {
+		return fmt.Errorf("%w: %w", ErrTargetBlocked, err)
 	}
+	addr = addr.Unmap()
 	if p.AllowPrivate {
 		return nil
 	}
@@ -104,28 +105,28 @@ func (p TargetPolicy) dialControl(_, address string, _ syscall.RawConn) error {
 	return p.checkAddr(addr)
 }
 
-// Dialer returns a net.Dialer enforcing the policy.
+// Dialer returns a net.Dialer enforcing the policy on top of the egress
+// floor (checkAddr applies egress.CheckAddr first).
 func (p TargetPolicy) Dialer(timeout time.Duration) *net.Dialer {
-	return &net.Dialer{Timeout: timeout, Control: p.dialControl}
+	dialer := egress.Dialer(timeout)
+	dialer.Control = p.dialControl
+	return dialer
 }
 
 // HTTPClient returns an http.Client whose every connection (including
 // redirects) is checked against the policy.
 func (p TargetPolicy) HTTPClient(timeout time.Duration) *http.Client {
-	dialer := p.Dialer(timeout)
-	transport := &http.Transport{
-		Proxy:                 nil,
-		DialContext:           dialer.DialContext,
-		TLSHandshakeTimeout:   timeout,
-		ResponseHeaderTimeout: timeout,
+	transport := egress.Transport(timeout)
+	transport.Proxy = nil
+	transport.DialContext = p.Dialer(timeout).DialContext
+	transport.TLSHandshakeTimeout = timeout
+	transport.ResponseHeaderTimeout = timeout
+	client := egress.HTTPClient(timeout)
+	client.Transport = transport
+	client.CheckRedirect = func(req *http.Request, _ []*http.Request) error {
+		return p.ValidateURL(req.URL.String())
 	}
-	return &http.Client{
-		Timeout:   timeout,
-		Transport: transport,
-		CheckRedirect: func(req *http.Request, _ []*http.Request) error {
-			return p.ValidateURL(req.URL.String())
-		},
-	}
+	return client
 }
 
 // dialContext is a helper for non-HTTP senders (SMTP).

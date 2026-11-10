@@ -52,6 +52,9 @@ type DatabaseInput struct {
 type DatabaseStore struct {
 	pool       *pgxpool.Pool
 	encryptKey []byte
+	// keyring seals passwords as sage-enc:v1 under encryptKey and opens
+	// values sealed under a previous key during a rotation (security-08).
+	keyring *crypto.Keyring
 	// legacy holds the pre-v0.9 keys, derived once, for lazy migration of
 	// old ciphertext. The zero value disables migration.
 	legacy crypto.LegacyKeys
@@ -61,9 +64,58 @@ type DatabaseStore struct {
 }
 
 // NewDatabaseStore creates a DatabaseStore with the given pool and
-// 32-byte encryption key.
+// 32-byte encryption key. Without a valid key, passwords cannot be stored.
 func NewDatabaseStore(pool *pgxpool.Pool, encryptKey []byte) *DatabaseStore {
-	return &DatabaseStore{pool: pool, encryptKey: encryptKey}
+	s := &DatabaseStore{pool: pool, encryptKey: encryptKey}
+	return s.WithPreviousKey(nil)
+}
+
+// WithPreviousKey lets reads and ResealDatabasePasswords open passwords
+// sealed under previous (the encryption_key_previous of a rotation). An
+// empty previous key opens nothing extra.
+func (s *DatabaseStore) WithPreviousKey(previous []byte) *DatabaseStore {
+	s.keyring = nil
+	if len(s.encryptKey) == 32 {
+		// NewKeyring only fails on a key that is not 32 bytes.
+		if kr, err := crypto.NewKeyring(s.encryptKey, previous); err == nil {
+			s.keyring = kr
+		}
+	}
+	return s
+}
+
+// allocateSealed takes the next sage.databases id and seals password for it.
+func (s *DatabaseStore) allocateSealed(ctx context.Context, password string) (int, []byte, error) {
+	var id int
+	if err := s.pool.QueryRow(ctx, `/* pg_sage */ SELECT
+		nextval(pg_get_serial_sequence('sage.databases', 'id'))::int`,
+	).Scan(&id); err != nil {
+		return 0, nil, fmt.Errorf("allocating database id: %w", err)
+	}
+	enc, err := s.sealPassword(id, password)
+	return id, enc, err
+}
+
+// errNoPasswordKey refuses to store a password nothing can encrypt.
+var errNoPasswordKey = fmt.Errorf("%w: database passwords need an encryption key: "+
+	"set encryption_key, or data_dir so pg_sage can generate one", ErrValidation)
+
+// sealPassword seals a password for row id as sage-enc:v1.
+func (s *DatabaseStore) sealPassword(id int, password string) ([]byte, error) {
+	if s.keyring == nil {
+		return nil, errNoPasswordKey
+	}
+	sealed, err := s.keyring.Seal(password, dbPasswordAAD(id))
+	if err != nil {
+		return nil, fmt.Errorf("encrypting password: %w", err)
+	}
+	return []byte(sealed), nil
+}
+
+// dbPasswordAAD binds a sealed password to its row, so a password_enc
+// copied to another row does not open there.
+func dbPasswordAAD(id int) string {
+	return fmt.Sprintf("sage.databases|%d|password", id)
 }
 
 // WithKeyMigration lets reads decrypt passwords stored by v0.8.x key
@@ -83,10 +135,8 @@ func (s *DatabaseStore) Create(
 	if err := validateInput(input, true); err != nil {
 		return 0, err
 	}
-	if len(s.encryptKey) != 32 {
-		return 0, fmt.Errorf(
-			"%w: encryption_key is required to store database passwords",
-			ErrValidation)
+	if s.keyring == nil {
+		return 0, errNoPasswordKey
 	}
 
 	count, err := s.Count(ctx)
@@ -97,11 +147,6 @@ func (s *DatabaseStore) Create(
 		return 0, fmt.Errorf(
 			"%w: maximum of 50 databases reached", ErrValidation)
 	}
-	enc, err := crypto.Encrypt(input.Password, s.encryptKey)
-	if err != nil {
-		return 0, fmt.Errorf("encrypting password: %w", err)
-	}
-
 	tagsJSON, err := json.Marshal(input.Tags)
 	if err != nil {
 		return 0, fmt.Errorf("marshalling tags: %w", err)
@@ -110,18 +155,21 @@ func (s *DatabaseStore) Create(
 	qctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	var id int
-	err = s.pool.QueryRow(qctx,
+	// The id comes first so the sealed password can be bound to its row.
+	id, enc, err := s.allocateSealed(qctx, input.Password)
+	if err != nil {
+		return 0, err
+	}
+	_, err = s.pool.Exec(qctx,
 		`/* pg_sage */ INSERT INTO sage.databases
-		    (name, host, port, database_name, username, password_enc,
+		    (id, name, host, port, database_name, username, password_enc,
 		     sslmode, max_connections, tags, trust_level,
 		     execution_mode, created_by)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-		 RETURNING id`,
-		input.Name, input.Host, input.Port, input.DatabaseName,
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+		id, input.Name, input.Host, input.Port, input.DatabaseName,
 		input.Username, enc, input.SSLMode, input.MaxConnections,
 		tagsJSON, input.TrustLevel, input.ExecutionMode, createdBy,
-	).Scan(&id)
+	)
 	if err != nil {
 		return 0, fmt.Errorf("inserting database: %w", err)
 	}
@@ -224,14 +272,9 @@ func (s *DatabaseStore) Update(
 
 	var tag pgconn.CommandTag
 	if input.Password != "" {
-		if len(s.encryptKey) != 32 {
-			return fmt.Errorf(
-				"%w: encryption_key is required to update database passwords",
-				ErrValidation)
-		}
-		enc, encErr := crypto.Encrypt(input.Password, s.encryptKey)
+		enc, encErr := s.sealPassword(id, input.Password)
 		if encErr != nil {
-			return fmt.Errorf("encrypting password: %w", encErr)
+			return encErr
 		}
 		tag, err = s.pool.Exec(qctx,
 			`/* pg_sage */ UPDATE sage.databases SET

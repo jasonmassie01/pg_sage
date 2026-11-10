@@ -1,6 +1,6 @@
 # Security
 
-pg_sage is designed to observe and optimize PostgreSQL without accessing user data. This page documents the security model, privacy controls, and operational safeguards.
+pg_sage observes and optimizes PostgreSQL through catalog views, statistics and query plans. This page documents what it can read and change, the security model, privacy controls, and operational safeguards.
 
 For Databricks deployments, also read the
 [native implementation and identity boundaries](databricks-native.md#architecture-and-identity).
@@ -13,15 +13,35 @@ instead of assuming every standalone grant or setting is available.
 
 ## Required Database Grants
 
-pg_sage connects as a regular database user -- no superuser required.
+pg_sage connects as a regular database user -- no superuser required. Connect it
+as a dedicated non-superuser role without `BYPASSRLS`: as a superuser it bypasses
+row-level security and holds every agent role, so startup logs a warning and the
+posture check raises AP-14 ([agent governance](agent-governance.md)). On managed
+services, `rds_superuser`, `cloudsqlsuperuser`, `azure_pg_admin` and the like are
+admin roles to run these grants from, not roles to run pg_sage as. The grants are
+the same on PostgreSQL 14 to 18.
 
 ```sql
 CREATE USER sage_agent WITH PASSWORD 'YOUR_PASSWORD';
 GRANT pg_monitor TO sage_agent;
 GRANT pg_read_all_stats TO sage_agent;
-GRANT CREATE ON SCHEMA public TO sage_agent;    -- CREATE INDEX/STATISTICS; each schema with tables
+GRANT CREATE ON SCHEMA public TO sage_agent;    -- new objects in this schema
+-- CREATE INDEX and CREATE STATISTICS need table ownership; for autonomous index work:
+-- GRANT <table owner role> TO sage_agent;
 GRANT pg_signal_backend TO sage_agent;           -- for query termination
 ```
+
+`CREATE` on a schema lets pg_sage create new objects there; grant it on each
+schema with tables it should index. `CREATE INDEX`, `CREATE STATISTICS` and other
+table DDL also need the privileges of the table's owner, which pg_sage gets as a
+member of the owner role. That membership is the largest grant: it is what makes
+the [SQL boundary](#what-pg_sage-can-change) matter. On PostgreSQL 17+,
+`GRANT pg_maintain TO sage_agent` lets it `VACUUM`, `ANALYZE` and `REINDEX` tables
+it does not own. `GET /api/v1/onboarding/trust` (the dashboard's onboarding guide)
+lists which of these grants the role holds, with the SQL for each missing one.
+Agent governance creates and retires agent roles only when pg_sage's role has
+`CREATEROLE` on PostgreSQL 16+ (`ALTER ROLE sage_agent CREATEROLE`); without it,
+or below 16, agent governance is posture-only ([agent governance](agent-governance.md)).
 
 The sidecar bootstraps the `sage` schema and tables on first connect. Either
 connect with a role that can create that schema, or pre-create it and grant the
@@ -46,9 +66,9 @@ records, per managed provider, whether `pg_signal_backend` can be granted.
 
 ---
 
-## What pg_sage Accesses
+## What pg_sage can read
 
-All data sources are read-only catalog views and statistics:
+Most of what pg_sage reads is catalog views and statistics:
 
 | Source | Purpose |
 |---|---|
@@ -66,13 +86,39 @@ All data sources are read-only catalog views and statistics:
 
 `pg_stat_statements` must be loaded on the target database. Without it, query-level analysis (slow queries, regressions, missing indexes) is unavailable.
 
+Beyond the catalog it reads:
+
+| What | When | What it keeps |
+|---|---|---|
+| `EXPLAIN` plans | Optimizer, query analysis and the EXPLAIN endpoint (`explain.enabled`; REST and MCP need the operator role or the `propose` scope) | The plan; no rows |
+| `EXPLAIN ANALYZE` | When the caller asks for it on the EXPLAIN endpoint, inside a `READ ONLY` transaction with `explain.timeout_ms`, and only for a statement pg_sage proves free of side effects (anything else gets the plan alone, with `analyze_refused`) | Executing the statement reads the rows it touches; pg_sage keeps the plan, timings and row counts, never result rows |
+| Retention row counts | A table whose owner declared a [retention contract](configuration.md#retention-contracts): the dry run counts eligible rows, and each batch reports how many it deleted | Counts only |
+| Live session text | `pg_stat_activity.query` for lock and incident evidence (`pg_read_all_stats`) | Literals redacted, cut to 256 bytes ([LLM data](#llm-configured)) |
+
+Agents get plan-only EXPLAIN under their own database role through agent
+governance (`analyze` is refused), so a plan never describes a table the agent
+cannot read. pg_sage never reads `pg_authid.rolpassword` or password hashes.
+
 ---
 
-## What pg_sage Never Does
+## What pg_sage can change
 
-- **Never reads table row data.** All analysis uses aggregate statistics and catalog metadata. EXPLAIN runs for operators (REST and MCP need the operator role or the `propose` scope, and honour `explain.enabled`); agents get plan-only EXPLAIN under their own database role through agent governance, so a plan never describes a table the agent cannot read.
-- **Never accesses credentials or secrets.** Does not read `pg_authid.rolpassword` or password hashes.
-- **Never modifies user data.** Autonomous actions are limited to maintenance and schema operations such as `ANALYZE`, guarded index DDL, and approved incident actions. Never runs `INSERT`, `UPDATE`, or `DELETE` on user tables.
+Each kind of change has a gate. None of them is free-form SQL run as pg_sage's
+role: the API and MCP expose typed actions and tools
+([MCP tools and scopes](#mcp-tools-and-scopes)).
+
+| Change | What runs | Gate |
+|---|---|---|
+| Executor actions | `CREATE INDEX CONCURRENTLY`, `DROP INDEX`, `REINDEX`, `VACUUM`, `ANALYZE`, `CREATE STATISTICS`, table storage parameters, allowlisted `ALTER SYSTEM` settings, query hints, cancelling or terminating a session | A typed action contract per class with its risk; execution mode, trust level, trust ramp, maintenance window, emergency stop and the standing policy's refusal set ([Trust Model](#trust-model), [One trust system](configuration.md#one-trust-system), [standing policy](configuration.md#agent-native-autonomy)). HIGH-risk actions always need approval |
+| Retention deletes | `DELETE` of application rows older than the declared window, at most 1,000 rows per batch | Only on a table whose owner declared a [retention contract](configuration.md#retention-contracts) with `declare_table_contract` (`approve` scope) naming the column; a dry run at least 24 hours old first; policy consent to the `retention` class; a batch with any row outside the predicate or relation rolls back. Irreversible, so the trust ledger never runs it above L1 |
+| Agent roles | `CREATE ROLE`/`ALTER ROLE` of `sage_agent_*` and `sage_agentb_*` roles and their grants; `NOLOGIN` and session termination on a kill | Typed contracts `guard_role_ensure` and `guard_role_retire` through the executor, operator-approved, and only when pg_sage's role has `CREATEROLE` on PostgreSQL 16+; a kill or freeze only takes access away and needs no approval ([agent governance](agent-governance.md#kill-switch-freeze-and-unfreeze)) |
+| Managed provider settings | RDS, Aurora and Cloud SQL parameter changes through the provider API | Proposed only from tuning findings and for allowlisted settings ([Model output is data](#model-output-is-data)) |
+| The `sage` schema | pg_sage's own tables, functions and audit chains | Created and migrated at startup; pg_sage writes there freely, and retention trims it (`retention.*`) |
+
+Model-authored SQL never runs through the executor ([Model-authored SQL](#model-authored-sql)).
+
+### Safeguards on those changes
+
 - **Never directly executes high-risk DDL.** Rewrite-heavy or forward-fix-only schema changes become migration-safety cases with preflight evidence, generated scripts, verification SQL, and PR/CI metadata for human review.
 - **Never ignores live DDL risk.** Active workload, pending locks, replica lag, large table size, and missing lock-timeout evidence keep DDL in reviewed PR/script mode.
 - **Never resolves its own DDL through `public`.** Every executor DDL session (transactional
@@ -282,6 +328,39 @@ Every model call site must also send the shared untrusted-data rule with its
 prompt; a source check (`go test -run CallSite ./internal/llm/`) fails the
 build for a call whose prompt does not carry it and that is not annotated
 `//llm:transport <builder>` or `//llm:no-db-content <reason>`.
+
+### Egress floor
+
+Every outbound client pg_sage builds (LLM providers and model discovery,
+alerting and notification channels, the briefing webhook, specialist
+notifiers, SIEM sinks, Prometheus, the DLE clone engine, OAuth and MCP OAuth
+identity providers, Azure, Supabase and cloud telemetry) dials through one
+egress floor, `internal/egress`. Right before each connect, the resolved
+address is checked, so a hostname that resolves to a blocked address is
+refused too. Redirects are checked the same way.
+
+The floor always refuses:
+
+- link-local unicast, `169.254.0.0/16` and `fe80::/10`, which hold the cloud
+  instance metadata services (`169.254.169.254`);
+- the AWS IPv6 metadata address `fd00:ec2::254`;
+- unspecified (`0.0.0.0/8`, `::`), multicast and broadcast addresses;
+- the names `metadata.google.internal` and `metadata`, also when an HTTP
+  proxy from `HTTPS_PROXY`/`HTTP_PROXY` would make the connection.
+
+A refused connection fails with `egress: destination blocked` and is not
+retried. Private and loopback addresses stay allowed, so Ollama on
+localhost, an on-prem relay or Prometheus inside the VPC keep working.
+Notification channels keep their stricter default on top of the floor (no
+private addresses unless allowed), and model discovery for an endpoint
+override still requires a public address.
+
+There is one exemption: the GCP metadata token source for cloud telemetry,
+which may reach only the configured metadata host
+(`metadata.google.internal` or `GCE_METADATA_HOST`), with no proxy and no
+redirects. The AWS SDK's own IMDS client is outside pg_sage's code. A
+census test fails the build on any HTTP client, transport or dialer built
+outside `internal/egress`.
 
 ### Model output is data
 
@@ -728,41 +807,116 @@ curl -c cookies.txt -H 'Content-Type: application/json' \
 
 ### Secrets at Rest
 
-Secrets set through the API or UI (`llm.api_key`, `clone.dle_token`,
-`alerting.slack_webhook_url`, `alerting.pagerduty_routing_key`) are stored in
-`sage.config` sealed with AES-256-GCM under a key derived from
-`encryption_key` (argon2id with the deployment's random salt). A stored value
-looks like `sage-enc:v1:<key id>:<ciphertext>`; the key id is a public
-fingerprint of the key. Each value is bound to its key name and scope, so it
-cannot be copied to another key. Audit rows never hold the value or its
-ciphertext.
+pg_sage seals every secret it stores with AES-256-GCM under a key derived
+from the encryption key (argon2id with the database's random salt in
+`sage.crypto_meta`):
 
-- **Key source.** `encryption_key`, `SAGE_ENCRYPTION_KEY`, or
-  `SAGE_ENCRYPTION_KEY_FILE` (a file a secrets manager fills; trailing newline
-  trimmed; setting both the variable and `_FILE` is an error).
-- **Startup migration.** With a key configured, startup seals existing
-  plaintext secret rows and logs how many.
-- **No key.** Secrets stay plaintext, as before, and startup warns once when
-  any are stored.
+- secrets set through the API or UI and stored in `sage.config`
+  (`llm.api_key`, `clone.dle_token`, `alerting.slack_webhook_url`,
+  `alerting.pagerduty_routing_key`);
+- per-database passwords in `sage.databases` (meta-db fleet mode);
+- notification channel secrets (webhook URLs, routing keys, SMTP passwords,
+  bot tokens) in `sage.notification_channels`.
+
+A sealed value looks like `sage-enc:v1:<key id>:<ciphertext>`; the key id is
+a public fingerprint of the key. Each value is bound to where it is stored
+(`sage.config|<key>|<database id>`, `sage.databases|<id>|password`,
+`sage.notification_channels|<id>|<key>`), so a value copied to another row or
+key does not open there. Audit rows never hold a value or its ciphertext.
+YAML and environment secrets are never written to `sage.config`.
+
+- **Key source.** In order: `encryption_key`, `SAGE_ENCRYPTION_KEY`, or
+  `SAGE_ENCRYPTION_KEY_FILE` (a file a secrets manager fills; trailing
+  newline trimmed; setting both the variable and `_FILE` is an error). A
+  configured key always wins; if a generated key file also exists, startup
+  warns that it is ignored.
+- **Generated key (the default in the container image).** Without a
+  configured key and with a writable `data_dir` (`SAGE_DATA_DIR`; the image
+  sets `/var/lib/pg_sage`), startup reads `<data_dir>/encryption.key`, or
+  creates it: 32 random bytes as base64, mode 600, written to a private
+  temporary file, fsynced and linked into place. A key file that is not
+  owner-only, is over 4 KiB or does not hold a 32-byte key stops startup
+  with an error naming the file. The meta database and the standalone
+  control database share this one key; managed providers are unaffected.
+  Databricks Apps still requires `SAGE_ENCRYPTION_KEY`.
+- **Back up the key file.** Sealed secrets cannot be opened without it.
+  Keep `encryption.key` with your backups of the database that holds the
+  secrets, but not inside them. Each database records the id of the
+  generated key in `sage.crypto_meta.generated_key_id`. If that id is
+  recorded and the file is missing, or holds a different key, startup logs
+  an ERROR naming the path and the key id, generates nothing, runs with
+  secrets unsealed, and the dashboard shows a "key missing" banner to
+  admins. Restore the file and restart.
+- **No persistent directory.** Without a key and without a writable
+  `data_dir`, secrets are stored in plaintext, as before. Startup warns on
+  every start, adding a database password is refused (set a key first),
+  and admins see a persistent dashboard banner.
+  `GET /api/v1/security/posture` (admin) returns `secrets_at_rest`
+  (`sealed`, `plaintext` or `key_missing`), `key_source` (`configured`,
+  `generated` or `none`) and `plaintext_rows`.
+- **Startup migration.** With a key, startup seals existing plaintext config
+  and channel secrets, moves older database passwords and channel secrets
+  (sealed without a row binding) to `sage-enc:v1`, and logs the counts. Each
+  write is a compare-and-swap, so a value edited at the same moment is never
+  overwritten. In YAML fleet mode (no meta database) channel secrets are
+  re-sealed when first read instead.
 - **Rotation.** Set the new passphrase as `encryption_key` and the old one as
   `encryption_key_previous` (or `SAGE_ENCRYPTION_KEY_PREVIOUS[_FILE]`) and
-  restart: values sealed under the old key are read and re-sealed under the
-  new one. Then remove `encryption_key_previous`. A value no configured key
-  can open is ignored with an ERROR naming its key and key id. Rotation
-  currently covers config secrets only: per-database passwords and
-  notification channel secrets are still sealed with `encryption_key` alone.
-- **Changed `encryption_key` and database passwords or channel secrets.**
-  After `encryption_key` changes, a stored database password that no longer
-  opens fails that database with `database <id>: encryption key does not open
-  this value`, and startup logs one ERROR per database id ("the stored
-  password does not open with encryption_key; was encryption_key changed?")
-  with `database_id`; reconnects do not repeat it. A sealed channel secret
-  fails with `channel secret <key> does not open with encryption_key`. The
-  failure is fast: no key is derived per read. To recover, either restore the
-  old `encryption_key` and restart, or keep the new one and re-enter each
-  named password and channel secret in the dashboard or through the API.
-  Passwords written by v0.8.x key derivations still open and are re-sealed
-  under the current key on first read.
+  restart: config secrets, database passwords and channel secrets sealed
+  under the old key are opened and re-sealed under the new one, and the
+  counts are logged. Then remove `encryption_key_previous`. A value no
+  configured key opens is left as stored, with an ERROR naming it.
+- **Changed `encryption_key` without `encryption_key_previous`.** A stored
+  database password that no longer opens fails that database with
+  `database <id>: encryption key does not open this value`, and startup logs
+  one ERROR per database id ("the stored password does not open with
+  encryption_key; was encryption_key changed?") with `database_id`;
+  reconnects do not repeat it. A sealed channel secret fails with
+  `channel secret <key> does not open with encryption_key`. The failure is
+  fast: no key is derived per read. To recover, restart with the old key as
+  `encryption_key_previous`, or re-enter each named password and channel
+  secret in the dashboard or through the API. Passwords written by v0.8.x key
+  derivations still open and are re-sealed under the current key.
+- **Upgrading.** The first start of this release seals or re-seals every
+  stored secret (a one-way change: an older release cannot read
+  `sage-enc:v1` database passwords or channel secrets). Installs that never
+  set `encryption_key` now get a generated key when `data_dir` is writable;
+  with the image, mount a persistent volume at `/var/lib/pg_sage` (the
+  bundled `docker-compose.yml` does) or the key is lost with the container.
+  The legacy read paths for unbound values stay for one release.
+
+### Secrets Bound to Their Destination
+
+The API never returns a stored secret, so an edit that moved an endpoint and
+kept its secret would send that secret to the new host. pg_sage refuses
+that:
+
+- A global config write that moves `llm.endpoint` or `clone.dle_endpoint` to
+  another origin (scheme, host or effective port, so `https://h` and
+  `https://h:443` are the same) while `llm.api_key` or `clone.dle_token` is
+  stored returns 400, for example `llm.endpoint moves to a new origin:
+  include llm.api_key, or send it empty to clear it`. Send the secret in the
+  same write, or send it empty to clear it. A masked secret does not count.
+  A path-only change, or an edit with the masked secret on the same origin,
+  needs nothing new. `llm.auth: databricks` is exempt, because it pins the
+  workspace origin and sends no API key. Switching `llm.auth` away from
+  `databricks` while `llm.api_key` is stored asks for the key the same way,
+  since the endpoint may have moved while the exemption applied.
+- Deleting a global override falls back to the config file, so the same
+  rule applies to deletes of `llm.endpoint`, `llm.api_key`, `llm.auth`,
+  `clone.dle_endpoint` and `clone.dle_token`. A secret from the config file
+  is sent only to the config file's endpoint origin: deleting the
+  `llm.api_key` override while `llm.endpoint` points at another origin
+  returns 400 and asks to delete `llm.endpoint` first. Deleting the
+  `llm.endpoint` override keeps an API-set key, which then goes to the
+  config file's endpoint.
+- Updating an email channel's `smtp_host` or `smtp_port` while sending the
+  masked `smtp_pass` or `smtp_password` fails with a validation error asking
+  for the password again; the stored value is unchanged.
+- The optimizer client sends `llm.api_key` only when
+  `llm.optimizer_llm.endpoint` is empty or on the same origin as
+  `llm.endpoint`. On another origin it sends no key and logs one WARN naming
+  `llm.optimizer_llm.api_key`; set that key for the optimizer provider.
 
 ### CSRF and Cross-Origin Requests
 
@@ -830,11 +984,28 @@ break-glass session cookies are always `Secure`.
 Restrict direct access to the API/dashboard listener to trusted networks
 either way.
 
-### Input Validation
+### MCP tools and scopes
 
-- **Table names** are validated against a strict regex. No SQL injection is possible through resource URIs or tool arguments.
-- **Query IDs** are validated as integers only.
-- **Resource URIs** are matched against a known allowlist.
+MCP exposes typed tools, never pg_sage's own SQL connection. The full model is in
+[MCP for coding agents](mcp.md); in short:
+
+- **Credentials.** Over HTTP (`POST /api/v1/mcp`) MCP accepts only MCP bearer tokens,
+  never a session cookie, and a token authenticates nothing but MCP. Only each
+  token's SHA-256 is stored. Over stdio, whatever launched the process is an agent.
+- **Scopes.** Every tool declares one scope: `read`, `propose` or `approve`.
+  `tools/list` shows only the tools the caller may call. Agent tokens can hold
+  `read` and `propose`, never `approve`; an operator token follows its owner's
+  role. A missing scope is refused with `scope_required`, and an agent asking for
+  a person's decision with `approval_reserved_for_humans`.
+- **Databases.** A token names the databases it may use; any other name is refused
+  with `database_not_permitted`, whether that database exists or not.
+- **Arguments.** Every call is checked against the tool's JSON schema
+  (`invalid_arguments` otherwise). Proposals go through the same policy gate and
+  trust levels as pg_sage's own actions.
+- **Agent SQL.** `agent_query` runs one read-only `SELECT` as the agent's own
+  database role, never pg_sage's, with timeouts and row and byte limits;
+  `explain_query` gives agents plan-only EXPLAIN under that role.
+- **Audit.** Every call is recorded with the actor `mcp:token:<id>`.
 
 ### Request Limits
 
