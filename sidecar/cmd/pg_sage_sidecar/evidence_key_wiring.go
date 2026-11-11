@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/api"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/crypto"
 	"github.com/pg-sage/sidecar/internal/evidence"
@@ -21,6 +22,14 @@ const evidenceKeyTimeout = 15 * time.Second
 type evidenceKey struct {
 	key    ed25519.PrivateKey
 	source string
+}
+
+/// auditAPIDeps is the audit routes' dependencies: SIEM status and
+// re-anchoring, and the evidence-signing key resolved from controlPool.
+func auditAPIDeps(c *config.Config, controlPool *pgxpool.Pool) api.AuditDeps {
+	signing := evidenceSigner(c, controlPool)
+	return api.AuditDeps{SIEMStatus: siemStatusFunc(c), SIEMReanchor: siemReanchorFunc(c),
+		EvidenceKey: signing.key, EvidenceKeySource: signing.source}
 }
 
 // evidenceSigner resolves the evidence-signing key for the API, reading

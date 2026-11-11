@@ -158,7 +158,6 @@ func wireRouter(p WireParams) (WireResult, error) {
 	}
 
 	specialistHandler, specialistAudit := specialistAPIDeps(p.Cfg, p.FleetMgr, authPool)
-	evidenceSigning := evidenceSigner(p.Cfg, authPool)
 	// Auth audit retains the client address independently of App identity buckets.
 	api.SetClientIPResolver(clientIP)
 	// X-Forwarded-Proto marks a session cookie Secure only from a trusted proxy.
@@ -182,9 +181,7 @@ func wireRouter(p WireParams) (WireResult, error) {
 				!p.Cfg.HasMetaDB(),
 			MCPHandler: p.MCPHandler,
 			MCPOAuth:   mcpOAuthValidator(p.Cfg, p.FleetMgr, authPool),
-			Audit: api.AuditDeps{SIEMStatus: siemStatusFunc(p.Cfg),
-				SIEMReanchor: siemReanchorFunc(p.Cfg),
-				EvidenceKey:  evidenceSigning.key, EvidenceKeySource: evidenceSigning.source},
+			Audit:      auditAPIDeps(p.Cfg, authPool),
 			Autonomy:   autonomyAPIDeps(p.FleetMgr, authPool),
 			Ask:        askServices(),
 			Specialist: specialistHandler,
