@@ -84,7 +84,7 @@ docker logs pg_sage 2>&1 | grep 'INITIAL ADMIN PASSWORD'
 | **Config Advisors** | 6 LLM advisors: vacuum tuning, WAL/checkpoint, connections, memory, query rewrite, bloat remediation |
 | **Health Briefings** | Periodic LLM summaries of fleet health, findings, and actions. The LLM cites findings by id and cannot add SQL: any statement that is not one of pg_sage's own recommendations is removed. |
 | **Trust-Ramped Executor** | Observation -> Advisory -> Autonomous. Typed actions carry risk tier, guardrails, expiration, rollback/mitigation, and verification state. HIGH-risk actions always require approval. |
-| **Shadow Mode** | Shows avoided toil and proof rows for actions pg_sage would have handled under auto-safe policy before teams turn on autonomous execution |
+| **Shadow Mode** | Below each class's earned trust level, records what pg_sage would have done (SQL, prediction, the verdict had it been trusted) without running it, scores each decision from what happened, and shows the counts and potential toil minutes per class (Settings and Trust pages, `GET /api/v1/shadow-decisions`) |
 | **Fleet Mode** | Monitor N databases from one binary with per-database trust levels, token budgets, and health scores |
 | **Per-Query Tuner** | EXPLAIN plan analysis with `pg_hint_plan` directives for disk sorts, hash spills, bad joins, missed index scans |
 | **Workload Forecaster** | Predicts disk growth, connection saturation, cache pressure, sequence exhaustion, query volume spikes, checkpoint pressure |

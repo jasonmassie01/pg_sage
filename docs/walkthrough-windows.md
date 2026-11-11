@@ -99,7 +99,7 @@ Verify:
 3. **Cases** -- ranked work queue. `#/findings` aliases to Cases.
 4. **Actions** -- pending approval and executed action tabs.
 5. **Fleet** -- database connection management.
-6. **Settings** -- emergency controls and Shadow Mode report.
+6. **Settings** -- emergency controls and Shadow Mode (shadow decisions per class).
 
 ## 4. API and Metrics Checks
 
@@ -109,7 +109,7 @@ curl.exe -c cookies.txt -H "Content-Type: application/json" `
   --data "{\"email\":\"admin@pg-sage.local\",\"password\":\"INITIAL_PASSWORD\"}"
 
 curl.exe -b cookies.txt http://localhost:8080/api/v1/cases
-curl.exe -b cookies.txt http://localhost:8080/api/v1/shadow-report
+curl.exe -b cookies.txt http://localhost:8080/api/v1/shadow-decisions
 curl.exe http://localhost:9187/metrics
 ```
 

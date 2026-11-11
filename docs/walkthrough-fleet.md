@@ -186,7 +186,7 @@ elects its own owner. Single-database mode is unchanged.
 | Actions | Pending Approval and Executed tabs |
 | Fleet | Both managed databases and their status |
 | Header | **Stop all** and **Resume all**, the emergency controls |
-| Settings | Shadow Mode report |
+| Settings | Shadow Mode (shadow decisions per class) |
 
 The old `#/findings` route remains a compatibility alias for **Cases**.
 
@@ -212,7 +212,7 @@ curl -b cookies.txt http://localhost:8080/api/v1/databases
 curl -b cookies.txt http://localhost:8080/api/v1/fleet/readiness
 curl -b cookies.txt http://localhost:8080/api/v1/cases
 curl -b cookies.txt http://localhost:8080/api/v1/actions/pending
-curl -b cookies.txt http://localhost:8080/api/v1/shadow-report
+curl -b cookies.txt http://localhost:8080/api/v1/shadow-decisions
 ```
 
 ### The cases response in a fleet
@@ -241,8 +241,9 @@ slow does not hide the others:
   `"actions_unavailable": true`, so an empty `actions` list does not read
   as "nothing was done".
 
-`GET /api/v1/shadow-report` carries the same `unavailable` list. All of
-these fields are additive; existing fields are unchanged.
+All of these fields are additive; existing fields are unchanged.
+`GET /api/v1/shadow-decisions` serves each database's shadow ledger (see
+[Shadow mode](configuration.md#shadow-mode)).
 
 Fleet routes (sample responses in [Fleet Mode](fleet.md#api-routes)). With
 two databases, pass `min_databases=2`: a fleet finding needs 3 databases by

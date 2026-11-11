@@ -347,7 +347,7 @@ REST API and embedded React SPA on `:8080` (configurable). The v1 UI is
 organized around Overview, Cases, Actions, Fleet, and Settings. The legacy
 `#/findings`, `#/schema-health`, `#/query-hints`, `#/forecasts`, and
 `#/incidents` routes open Cases with the appropriate source context. The API
-includes case projection, shadow report, action queue, provider readiness,
+includes case projection, shadow decisions, action queue, provider readiness,
 findings, snapshots, config, forecasts, query hints, alerts, emergency stop,
 and fleet management. UI and `/api/v1/*` routes are session-authenticated.
 

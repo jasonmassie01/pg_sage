@@ -805,9 +805,17 @@ level; only real regressions, rollbacks and rejections demote.
 
 **Surfaces.** The Trust page shows, per class, the shadow decisions and their scores and, on
 demand, what pg_sage would have done (SQL, prediction, verdict had it been trusted, score and
-source). `GET /api/v1/shadow-decisions?database=&class=&status=&score=&limit=` serves the
-same per-class summary and the newest decisions; `GET /api/v1/trust` carries the summary per
-database as `shadow`. An approval card shows its class's shadow history and whether the
+source). The Shadow Mode page (Settings, General tab; every signed-in role) shows the same
+ledger per database and class: decisions, pending, correct, incorrect, counted, and
+**potential minutes**, the current `sage.toil_model` base minutes of the class times its
+counted correct decisions. Potential minutes are never credited (the Value page prices only
+verified outcomes); a class without a toil model reads "not modelled", never a default. With
+no decisions the page says why: `sre.autonomy.enforce` is off, every class is already at L3,
+or nothing has been recorded yet.
+`GET /api/v1/shadow-decisions?database=&class=&status=&score=&limit=` serves the per-class summary (`potential_minutes` is `null` for an unmodelled class; `class`
+narrows the summary too, and an unknown class is an empty summary) and the newest decisions;
+`GET /api/v1/trust` carries the summary per database as `shadow`. It replaces the removed
+heuristic report over open cases. An approval card shows its class's shadow history and whether the
 proposal itself was a shadow decision (your decision then scores it). Prometheus:
 `pg_sage_shadow_decisions_total{database,class,verdict}` and
 `pg_sage_shadow_scores_total{database,class,score,source}`. Scored decisions age out with
