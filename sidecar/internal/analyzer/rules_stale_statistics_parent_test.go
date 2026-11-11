@@ -124,6 +124,11 @@ func TestRuleStaleStatistics_PartitionedParentNeedsPartitions(t *testing.T) {
 func TestRuleStaleStatistics_PartitionedParentMissingLeafSkipped(t *testing.T) {
 	snap := parentTree(nil, 300, 400)
 	snap.Tables = snap.Tables[:2] // events_b listed but not collected
+	// events_a alone clears the size floor and the threshold, so only the
+	// missing leaf keeps the parent from being judged on a partial sum. The
+	// analyzed leaf is not flagged itself.
+	analyzed := rules10Now.AddDate(0, 0, -1)
+	snap.Tables[1].NLiveTup, snap.Tables[1].LastAnalyze = 20000, &analyzed
 	if got := ruleStaleStatisticsAt(snap, rules10Config(), rules10Now); len(got) != 0 {
 		t.Errorf("parent judged on a partial sum: %+v", got)
 	}
