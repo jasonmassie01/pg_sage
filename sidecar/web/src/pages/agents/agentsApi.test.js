@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  KILL_PHRASE, createBody, errorFrom, killReady, sponsorLabel, tokenBody, tokensFor,
-  unfreezeMessage,
+  KILL_PHRASE, createBody, errorFrom, identityBody, killReady, sponsorLabel, tokenBody,
+  tokensFor, unfreezeMessage,
 } from './agentsApi'
 import { agentToken, coder, frozenBot, otherToken, response, users } from './testStub'
 
@@ -133,5 +133,36 @@ describe('errorFrom', () => {
       json: async () => { throw new SyntaxError('not json') } }, 'load agents')
     expect(bare.message).toBe('Could not load agents (502 Bad Gateway)')
     expect(bare.status).toBe(502)
+  })
+})
+
+describe('identityBody', () => {
+  const issuers = ['https://idp.x.test']
+
+  it('trims the subject and keeps a configured issuer', () => {
+    expect(identityBody({ issuer: 'https://idp.x.test', subject: ' ci ' }, issuers))
+      .toEqual({ issuer: 'https://idp.x.test', subject: 'ci' })
+  })
+
+  it('refuses an issuer that is not configured', () => {
+    expect(identityBody({ issuer: 'https://evil.x.test', subject: 'ci' }, issuers))
+      .toBeNull()
+    expect(identityBody({ issuer: '', subject: 'ci' }, issuers)).toBeNull()
+  })
+
+  it('refuses an empty subject and one over 255 bytes', () => {
+    expect(identityBody({ issuer: issuers[0], subject: '   ' }, issuers)).toBeNull()
+    expect(identityBody({ issuer: issuers[0], subject: 's'.repeat(255) }, issuers))
+      .not.toBeNull()
+    expect(identityBody({ issuer: issuers[0], subject: 's'.repeat(256) }, issuers))
+      .toBeNull()
+    // 128 two-byte characters are 256 bytes.
+    expect(identityBody({ issuer: issuers[0], subject: 'é'.repeat(128) }, issuers))
+      .toBeNull()
+  })
+
+  it('refuses everything without issuers', () => {
+    expect(identityBody({ issuer: 'https://idp.x.test', subject: 'ci' }, undefined))
+      .toBeNull()
   })
 })

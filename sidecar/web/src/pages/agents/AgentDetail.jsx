@@ -1,9 +1,10 @@
 // One agent (spec §8.4 drawer): identity, freeze and unfreeze, tokens,
-// grants with their requests, and activity.
+// OAuth identities, grants with their requests, and activity.
 import { useCallback, useEffect, useState } from 'react'
 import { AgentActivity } from './AgentActivity'
 import { AgentFreeze } from './AgentFreeze'
 import { AgentGrants } from './AgentGrants'
+import { AgentIdentities } from './AgentIdentities'
 import { AgentTokens } from './AgentTokens'
 import { getAgent, sponsorLabel } from './agentsApi'
 import { Button, ErrorBox, card, muted, when } from './ui'
@@ -76,6 +77,7 @@ export function AgentDetail({ agentId, user, databases = [], users = [], onChang
           <Identity agent={agent} users={users} />
           <AgentFreeze agent={agent} user={user} onChanged={changed} />
           <AgentTokens agent={agent} user={user} />
+          <AgentIdentities agent={agent} user={user} />
           <AgentGrants agent={agent} databases={databases} />
           <AgentActivity agent={agent} />
         </>

@@ -49,6 +49,11 @@ export const otherToken = {
   created_at: iso(-100), expires_at: iso(60 * 24 * 20), prefix: 'sage_mcp_Oth',
 }
 
+export const identity = {
+  issuer: 'https://idp.x.test', subject: 'coder-client', principal_id: coder.id,
+  created_by: 'admin@x.test', created_at: iso(-50),
+}
+
 export const activity = {
   principal_id: coder.id,
   items: [{
@@ -117,6 +122,12 @@ export function stubAPI(routes = {}) {
       { items: [], next_cursor: '' }),
     [`GET /api/v1/agents/${frozenBot.id}/grant-requests`]: () => response(200,
       { items: [], next_cursor: '' }),
+    [`GET /api/v1/agents/${coder.id}/identities`]: () => response(200,
+      { items: [identity], truncated: false }),
+    [`GET /api/v1/agents/${frozenBot.id}/identities`]: () => response(200,
+      { items: [], truncated: false }),
+    'GET /api/v1/mcp/oauth/issuers': () => response(200,
+      { enabled: true, issuers: ['https://idp.x.test', 'https://login.x.test'] }),
   }
   const table = { ...defaults, ...routes }
   const mock = vi.fn(async (url, init = {}) => {

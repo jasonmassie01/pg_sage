@@ -69,6 +69,27 @@ export async function listAgentTokens(id) {
   return tokensFor(data?.tokens, id)
 }
 
+const identitiesURL = id => `${agentURL(id)}/identities`
+
+export const listAgentIdentities = id => call(identitiesURL(id), 'load OAuth identities')
+export const bindAgentIdentity = (id, body) =>
+  post(identitiesURL(id), 'bind the identity', body)
+export const unbindAgentIdentity = (id, issuer, subject) => call(
+  `${identitiesURL(id)}?issuer=${encodeURIComponent(issuer)}` +
+  `&subject=${encodeURIComponent(subject)}`, 'unbind the identity', { method: 'DELETE' })
+export const oauthIssuers = () => call('/api/v1/mcp/oauth/issuers', 'load OAuth issuers')
+
+const MAX_SUBJECT_BYTES = 255
+
+// identityBody builds POST /api/v1/agents/{id}/identities: an issuer from
+// the configured list and a trimmed subject of 1 to 255 bytes, or null.
+export function identityBody(form, issuers) {
+  const subject = form.subject.trim()
+  if (!Array.isArray(issuers) || !issuers.includes(form.issuer)) return null
+  if (!subject || new TextEncoder().encode(subject).length > MAX_SUBJECT_BYTES) return null
+  return { issuer: form.issuer, subject }
+}
+
 const dbQuery = database => `?database=${encodeURIComponent(database)}`
 
 export const agentGrants = (id, database) =>

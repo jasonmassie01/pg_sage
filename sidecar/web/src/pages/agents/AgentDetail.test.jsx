@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AgentDetail } from './AgentDetail'
 import {
-  admin, bodiesOf, callsTo, coder, frozenBot, operator, response, stubAPI,
+  admin, bodiesOf, callsTo, coder, frozenBot, iso, operator, response, stubAPI,
 } from './testStub'
 
 // One agent: identity, freeze and unfreeze (two admins after a kill),
@@ -224,5 +224,94 @@ describe('AgentDetail activity', () => {
   it('says when there is no activity', async () => {
     await renderDetail(frozenBot)
     expect(await screen.findByTestId('agent-activity-empty')).toBeInTheDocument()
+  })
+})
+
+describe('AgentDetail OAuth identities', () => {
+  const identitiesPath = `/api/v1/agents/${coder.id}/identities`
+
+  it('lists the bound identities and binds one with a configured issuer', async () => {
+    const { mock } = await renderDetail(coder, admin, {
+      [`POST ${identitiesPath}`]: ({ body }) => response(201, { ...body,
+        principal_id: coder.id, created_by: 'admin@x.test', created_at: iso(0) }),
+    })
+    const row = await screen.findByTestId('agent-identity-0')
+    expect(row).toHaveTextContent('coder-client')
+    expect(row).toHaveTextContent('https://idp.x.test')
+    expect(row).toHaveTextContent('admin@x.test')
+    const issuer = await screen.findByTestId('agent-identity-issuer')
+    expect(within(issuer).getAllByRole('option').map(o => o.value))
+      .toEqual(['https://idp.x.test', 'https://login.x.test'])
+    expect(el('agent-identity-submit')).toBeDisabled()
+    fireEvent.change(issuer, { target: { value: 'https://login.x.test' } })
+    type('agent-identity-subject', '  ci-runner  ')
+    fireEvent.click(el('agent-identity-submit'))
+    await waitFor(() => expect(bodiesOf(mock, 'POST', identitiesPath)).toEqual([
+      { issuer: 'https://login.x.test', subject: 'ci-runner' }]))
+    await waitFor(() => expect(callsTo(mock, 'GET', identitiesPath)).toHaveLength(2))
+    expect(el('agent-identity-subject')).toHaveValue('')
+  })
+
+  it('unbinds after confirmation with the identity in the query', async () => {
+    const { mock } = await renderDetail(coder, admin, {
+      [`DELETE ${identitiesPath}`]: () => response(200, {}),
+    })
+    fireEvent.click(await screen.findByTestId('agent-identity-unbind-0'))
+    await waitFor(() => expect(callsTo(mock, 'DELETE', identitiesPath)).toHaveLength(1))
+    const q = new URL(callsTo(mock, 'DELETE', identitiesPath)[0][0], 'http://x').searchParams
+    expect(q.get('issuer')).toBe('https://idp.x.test')
+    expect(q.get('subject')).toBe('coder-client')
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringMatching(/refused at once/))
+    await waitFor(() => expect(callsTo(mock, 'GET', identitiesPath)).toHaveLength(2))
+  })
+
+  it('keeps the binding when the admin cancels the unbind', async () => {
+    window.confirm.mockReturnValue(false)
+    const { mock } = await renderDetail()
+    fireEvent.click(await screen.findByTestId('agent-identity-unbind-0'))
+    expect(callsTo(mock, 'DELETE', identitiesPath)).toHaveLength(0)
+  })
+
+  it('shows a duplicate identity refusal', async () => {
+    await renderDetail(coder, admin, {
+      [`POST ${identitiesPath}`]: () => response(409, { code: 'identity_bound',
+        error: 'this identity is already bound to an agent principal' }),
+    })
+    await screen.findByTestId('agent-identity-issuer')
+    type('agent-identity-subject', 'coder-client')
+    fireEvent.click(el('agent-identity-submit'))
+    const err = await screen.findByTestId('agent-identity-error')
+    expect(err).toHaveTextContent('already bound')
+    expect(err).toHaveTextContent('identity_bound')
+  })
+
+  it('refuses a subject over 255 bytes before sending it', async () => {
+    const { mock } = await renderDetail()
+    await screen.findByTestId('agent-identity-issuer')
+    type('agent-identity-subject', 'é'.repeat(128))
+    expect(el('agent-identity-submit')).toBeDisabled()
+    expect(callsTo(mock, 'POST', identitiesPath)).toHaveLength(0)
+  })
+
+  it('says OAuth is off and offers no bind form', async () => {
+    await renderDetail(coder, admin, {
+      'GET /api/v1/mcp/oauth/issuers': () => response(200, { enabled: false, issuers: [] }),
+    })
+    expect(await screen.findByTestId('agent-identities-oauth-off'))
+      .toHaveTextContent('mcp.oauth')
+    expect(screen.queryByTestId('agent-identity-submit')).toBeNull()
+  })
+
+  it('offers no bind form for a frozen agent but still lists', async () => {
+    await renderDetail(frozenBot)
+    expect(await screen.findByTestId('agent-identities-empty')).toBeInTheDocument()
+    expect(screen.queryByTestId('agent-identity-submit')).toBeNull()
+  })
+
+  it('hides identities from operators', async () => {
+    const { mock } = await renderDetail(coder, operator)
+    expect(el('agent-identities-admin-only')).toBeInTheDocument()
+    expect(callsTo(mock, 'GET', identitiesPath)).toHaveLength(0)
+    expect(callsTo(mock, 'GET', '/api/v1/mcp/oauth/issuers')).toHaveLength(0)
   })
 })
