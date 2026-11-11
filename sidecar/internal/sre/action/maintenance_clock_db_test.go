@@ -78,8 +78,10 @@ func TestMaintenanceRunBoundsTheSlotWait(t *testing.T) {
 	began := time.Now()
 	ctx, cancel := h.m.boundedRun(context.Background())
 	defer cancel()
+	ended := time.Now()
 	deadline, ok := ctx.Deadline()
-	if !ok || deadline.Sub(began) > apply || deadline.Sub(began) < apply-5*time.Second {
+	// The deadline is one apply timeout after a moment inside [began, ended].
+	if !ok || deadline.Before(began.Add(apply)) || deadline.After(ended.Add(apply)) {
 		t.Fatalf("slot wait deadline %v (set %v) not one apply timeout %v", deadline, ok, apply)
 	}
 	if h.m.strandedAfter() < 2*apply+30*time.Second {
