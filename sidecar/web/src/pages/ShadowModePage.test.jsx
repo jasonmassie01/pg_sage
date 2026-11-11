@@ -14,6 +14,9 @@ vi.mock('../hooks/useAPI', () => ({
   useAPI: vi.fn(url => {
     const path = (url || '').split('?')[0]
     const data = responses[path]
+    if (data === 'loading') {
+      return { data: null, loading: true, error: null, refetch: vi.fn() }
+    }
     if (data instanceof Error) {
       return { data: null, loading: false, error: data.message, refetch: vi.fn() }
     }
@@ -151,6 +154,31 @@ describe('ShadowModePage empty state', () => {
     const empty = screen.getByTestId('shadow-empty')
     expect(empty).toHaveTextContent(/No shadow decisions yet/)
     expect(empty).toHaveTextContent(/trust ledger/)
+  })
+
+  // The trust API serves levels as labels ("L3"), and the gate shadows by
+  // the effective level, so a stored L3 downgraded to L1 is still below it.
+  it('reads the trust API level labels when every class is at L3', () => {
+    responses['/api/v1/trust'] = trust(true, [['index_create', 'L3'], ['vacuum', 'L3']])
+    render(<ShadowModePage database="prod" />)
+    expect(screen.getByTestId('shadow-empty')).toHaveTextContent(/already at L3/)
+  })
+
+  it('does not call a class at L3 when its effective level is lower', () => {
+    responses['/api/v1/trust'] = trust(true, [['index_create', 'L3']])
+    responses['/api/v1/trust'].databases[0].rows[0].effective = 'L1'
+    render(<ShadowModePage database="prod" />)
+    const empty = screen.getByTestId('shadow-empty')
+    expect(empty).not.toHaveTextContent(/already at L3/)
+    expect(empty).toHaveTextContent(/nothing recorded yet/i)
+  })
+
+  it('says it is still checking while the trust ledger loads', () => {
+    responses['/api/v1/trust'] = 'loading'
+    render(<ShadowModePage database="prod" />)
+    const empty = screen.getByTestId('shadow-empty')
+    expect(empty).toHaveTextContent(/No shadow decisions yet/)
+    expect(empty).not.toHaveTextContent(/could not be read/)
   })
 
   it('treats a ledger with no databases as empty', () => {

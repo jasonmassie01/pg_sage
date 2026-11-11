@@ -75,10 +75,21 @@ function DatabaseLedger({ db }) {
   )
 }
 
+// levelOf is a trust row's effective level (the one the gate holds it
+// to), else its stored one. The API serves labels ("L3"); an unreadable
+// level is -1, so it never counts as L3.
+function levelOf(row) {
+  const m = /^L?([0-4])$/i.exec(String(row.effective ?? row.level ?? ''))
+  return m ? Number(m[1]) : -1
+}
+
 // emptyReason says why nothing was shadowed, from the trust ledger: it is
 // not enforced, every self-initiated class is already at L3 (nothing is
 // below its earned level), or nothing has been recorded yet.
 function emptyReason(trust) {
+  if (!trust.data && trust.loading) {
+    return 'Reading the trust ledger for the reason.'
+  }
   if (!trust.data) {
     return `The trust ledger could not be read${trust.error ? ` (${trust.error})` : ''}; `
       + 'pg_sage shadows only classes below their earned level in that ledger.'
@@ -89,7 +100,7 @@ function emptyReason(trust) {
   }
   const rows = (trust.data.databases || []).flatMap(db => db.rows || [])
     .filter(row => row.kind === 'self_initiated')
-  if (rows.length > 0 && rows.every(row => row.level >= 3)) {
+  if (rows.length > 0 && rows.every(row => levelOf(row) >= 3)) {
     return 'Every class is already at L3 (unattended), so none is below its earned '
       + 'level and nothing is shadowed.'
   }
