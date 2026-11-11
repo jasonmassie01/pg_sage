@@ -117,10 +117,12 @@ func (rt *databaseRuntime) forecastCapacity() func(context.Context) forecaster.C
 }
 
 // runwayMonitorOptions are the database's runway options with its
-// provider storage capacity.
+// provider storage capacity and, in fleet mode, the process's cluster
+// owners (forecast-09).
 func (rt *databaseRuntime) runwayMonitorOptions() runway.Options {
 	opts := runwayOptions(rt.cfg, rt.spec.Name)
 	opts.Capacity = rt.runwayCapacity()
+	opts.Owners = rt.runwayOwners()
 	return opts
 }
 
