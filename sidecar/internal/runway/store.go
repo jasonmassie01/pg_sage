@@ -120,7 +120,7 @@ func (m *Monitor) loadLast(ctx context.Context) error {
 // the evaluated categories (a held series is not cleared: its finding is
 // marked stale instead) and starts the investigations.
 func (m *Monitor) report(ctx context.Context, runways []Runway, evaluated []string,
-	held map[string]map[string]string) (int, []string, error) {
+	held map[string]map[string]string, scope clusterScope) (int, []string, error) {
 	findings := make([]analyzer.Finding, 0, len(runways))
 	active := map[string]map[string]bool{}
 	for _, r := range runways {
@@ -136,8 +136,9 @@ func (m *Monitor) report(ctx context.Context, runways []Runway, evaluated []stri
 	var resolved []string
 	var errs []error
 	for _, cat := range evaluated {
-		if err := analyzer.ResolveCleared(ctx, m.pool, keepOpen(active, held, cat),
-			cat); err != nil {
+		keep := keepOpen(active, held, cat)
+		scope.keepCluster(cat, keep)
+		if err := analyzer.ResolveCleared(ctx, m.pool, keep, cat); err != nil {
 			errs = append(errs, fmt.Errorf("resolve cleared %s findings: %w", cat, err))
 			continue
 		}

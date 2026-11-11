@@ -47,11 +47,15 @@ var retiredKeys = []struct {
 	// forecast-05: the forecaster's sequence thresholds went with its
 	// sequence rule; the runway forecasts sequences
 	// (sre.runways.sequence_horizon_days and sequence_critical_days).
+	// forecast-06: min_data_points and alert_horizons fed only the v0.9
+	// growth forecaster, which never ran and is gone.
 	{[]string{"forecaster"}, map[string]string{
 		"sequence_warn_days": retiredSequenceKey("sequence_warn_days",
 			"sequence_horizon_days"),
 		"sequence_critical_days": retiredSequenceKey("sequence_critical_days",
 			"sequence_critical_days"),
+		"min_data_points": retiredGrowthKey("min_data_points"),
+		"alert_horizons":  retiredGrowthKey("alert_horizons"),
 	}},
 	{[]string{"llm", "optimizer"}, map[string]string{
 		"plan_source": "llm.optimizer.plan_source is no longer used and is ignored: the " +
@@ -77,6 +81,13 @@ func retiredSequenceKey(key, replacement string) string {
 	return "forecaster." + key + " is no longer used and is ignored: sequence " +
 		"exhaustion is forecast by the runway monitor (sre.runways." + replacement +
 		"); remove it from the config file"
+}
+
+func retiredGrowthKey(key string) string {
+	return "forecaster." + key + " has no effect and is ignored: disk growth is " +
+		"forecast by forecast_disk_growth (days_until_full against " +
+		"forecaster.disk_capacity_bytes or the provider capacity) and the disk runway; " +
+		"remove it from the config file"
 }
 
 // stripRetiredKeys removes retired keys from raw and returns the YAML to

@@ -85,7 +85,7 @@ type Options struct {
 	// telemetry), preferred over DiskCapacityBytes while it is fresh; nil
 	// without telemetry. ok is false without a fresh bounded value; source
 	// is then CapacityUnbounded for storage that grows without a bound.
-	Capacity func(ctx context.Context) (bytes float64, source string, ok bool)
+	Capacity CapacitySource
 	// WALRetainedLimitBytes is a slot's limit while max_slot_wal_keep_size
 	// is unbounded: the WAL custodian's retained-WAL ceiling.
 	WALRetainedLimitBytes float64
@@ -94,6 +94,10 @@ type Options struct {
 	// monitor keeps its own when SizeInterval is set, else it measures
 	// every tick).
 	Sizes *SizeShare
+	// Owners elects, per cluster, the one runtime of the process that
+	// reports the cluster's series (forecast-09); nil: this monitor
+	// reports them for its database, as a single database does.
+	Owners *ClusterOwners
 }
 
 // ProbeRunner runs one catalog probe (probes.Runner).

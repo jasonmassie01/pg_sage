@@ -166,7 +166,6 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		{table: "query_store", timeCol: "captured_at", days: r.QueryStoreDays,
 			partitioned: &partition.QueryStore},
 		{table: "health_history", timeCol: "recorded_at", days: r.SnapshotsDays},
-		{table: "size_history", timeCol: "collected_at", days: r.SnapshotsDays},
 		// Resolved findings age from their resolution (perf storage phase:
 		// last_seen is refreshed every cycle and may not be indexed).
 		{table: "findings", timeCol: "resolved_at", days: r.FindingsDays,

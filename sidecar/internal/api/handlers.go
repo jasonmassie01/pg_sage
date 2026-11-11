@@ -67,6 +67,7 @@ func findingsListHandler(
 			return
 		}
 		resp["database"] = displayName
+		resp["cluster_refs"] = clusterRefs(r.Context(), mgr, database)
 		jsonResponse(w, resp)
 	}
 }

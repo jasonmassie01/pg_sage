@@ -339,6 +339,7 @@ func (rt *databaseRuntime) instance() *fleet.DatabaseInstance {
 		Quiesce:          rt.executor.Quiesce,
 		InstanceOwner:    rt.instanceOwnership(),
 		FirstLookRecheck: rt.firstLookRecheck(),
+		DiskCapacity:     rt.forecastCapacity(),
 		Status: &fleet.InstanceStatus{
 			Connected:    true,
 			Platform:     rt.provider,

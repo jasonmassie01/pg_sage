@@ -110,6 +110,13 @@ const (
 	CapacityUnbounded         = "capacity_unbounded"
 )
 
+// CapacitySource reads the provider's measured storage capacity (managed-
+// cloud telemetry). ok is false without a fresh bounded value; source is
+// then CapacityUnbounded for storage that grows without a bound. The
+// runway monitor and the forecaster read it on their own goroutines, so an
+// implementation must be safe for concurrent use.
+type CapacitySource func(ctx context.Context) (bytes float64, source string, ok bool)
+
 // DiskCapacity is the disk runway's limit (NaN: unknown) and its source.
 type DiskCapacity struct {
 	Bytes  float64

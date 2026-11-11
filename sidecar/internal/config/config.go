@@ -371,11 +371,8 @@ type ForecasterConfig struct {
 	CacheMinBlocksPerDay       int64   `yaml:"cache_min_blocks_per_day" doc:"Block accesses (blks_hit + blks_read over a closed day) below which the day's cache hit ratio is too thin to judge; forecast_cache_pressure leaves such a day out. At least 1. Default: 100000."`
 	CheckpointRequestedPerHour float64 `yaml:"checkpoint_requested_per_hour" doc:"Requested (WAL-triggered or explicit) checkpoints per hour, as an EWMA over closed days, at which forecast_checkpoint_pressure warns. Timed checkpoints are not counted. 0 < value <= 3600. Default: 2."`
 
-	// v0.9 fields
-	MinDataPoints     int     `yaml:"min_data_points" doc:"Minimum data points required before generating a forecast. Default: 24."`
-	AlertHorizons     []int   `yaml:"alert_horizons" doc:"Days-until-full thresholds that generate findings. Default: [30, 7, 3]."`
-	DiskCapacityBytes int64   `yaml:"disk_capacity_bytes" doc:"Total disk capacity in bytes, for the disk runway and disk-full credit. 0 = undeclared: nothing auto-detects it, so no disk runway or credit. Managed services are never credited."`
-	MinRSquared       float64 `yaml:"min_r_squared" doc:"Minimum R-squared for forecast reliability. Below this, findings are info-only. Default: 0.5."`
+	DiskCapacityBytes int64   `yaml:"disk_capacity_bytes" doc:"Disk capacity in bytes for the disk runway, disk-full credit and days_until_full. 0 = undeclared: never auto-detected self-hosted. Managed: a fresh provider capacity wins; never credited."`
+	MinRSquared       float64 `yaml:"min_r_squared" doc:"Minimum R-squared a disk growth or connection saturation trend needs before it is projected; below it there is no finding. 0 means the default. Default: 0.5."`
 }
 
 // RCAConfig controls the root cause analysis engine (v0.9).
@@ -1071,8 +1068,6 @@ func newDefaults() *Config {
 			CacheWarnThreshold:         DefaultForecasterCacheThreshold,
 			CacheMinBlocksPerDay:       DefaultForecasterCacheMinBlocksPerDay,
 			CheckpointRequestedPerHour: DefaultForecasterCheckpointRequestedPerHour,
-			MinDataPoints:              DefaultForecasterMinDataPoints,
-			AlertHorizons:              []int{30, 7, 3},
 			DiskCapacityBytes:          0,
 			MinRSquared:                DefaultForecasterMinRSquared,
 		},

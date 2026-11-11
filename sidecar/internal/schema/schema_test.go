@@ -76,7 +76,6 @@ func TestExpectedTables_AllPresent(t *testing.T) {
 		"notification_log",
 		"action_queue",
 		"incidents",
-		"size_history",
 		"explain_results",
 		"schema_findings",
 		"crypto_meta",

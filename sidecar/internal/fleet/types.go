@@ -15,6 +15,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/firstlook"
+	"github.com/pg-sage/sidecar/internal/forecaster"
 	"github.com/pg-sage/sidecar/internal/ha"
 	"github.com/pg-sage/sidecar/internal/logwatch"
 	"github.com/pg-sage/sidecar/internal/sre"
@@ -54,6 +55,10 @@ type DatabaseInstance struct {
 	// InstanceOwner reports who manages this database's instance settings
 	// (advisors-08); nil outside fleet mode.
 	InstanceOwner func() InstanceOwnership
+	// DiskCapacity resolves the database's disk capacity for growth
+	// forecasts (forecast-06): the provider's when fresh, else the
+	// declared one. Nil reads as undeclared.
+	DiskCapacity func(context.Context) forecaster.Capacity
 	// CapabilityRefresh asks the runtime's capability refresher for a
 	// prompt recollection without blocking; nil when none runs.
 	CapabilityRefresh func()

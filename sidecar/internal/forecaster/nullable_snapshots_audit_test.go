@@ -61,7 +61,9 @@ func seedNullSizeDay(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 			case i == 6 && h == 11:
 				row["max_connections"] = nil
 			}
-			at := dayStart(7 - i).Add(time.Duration(h) * time.Hour)
+			// The newest day is yesterday: forecast-08 leaves today's
+			// partial day out of the rules.
+			at := dayStart(8 - i).Add(time.Duration(h) * time.Hour)
 			insertSnapshot(t, ctx, pool, at, "system", row)
 		}
 	}

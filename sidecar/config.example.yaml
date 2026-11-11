@@ -170,6 +170,7 @@ forecaster:
   cache_warn_threshold: 0.95    # Warn when the newest day's cache hit ratio is below this
   cache_min_blocks_per_day: 100000  # Leave out days with fewer block accesses
   checkpoint_requested_per_hour: 2  # Warn at this many requested checkpoints/hour
+  # disk_capacity_bytes: 0      # Disk size for days_until_full and the disk runway (0: undeclared)
 
 # Per-query tuner: non-invasive query optimization via pg_hint_plan.
 # Detects plan-level symptoms (disk sorts, hash spills, bad joins) and

@@ -37,6 +37,12 @@ actions. Each row reports the same value as `subsystem`, or `""` for a category 
 registry does not know. An unknown `source` value applies no filter, and
 `migration_advisor` is reserved and returns no rows.
 
+In a fleet, `GET /api/v1/findings?database=<name>` also returns `cluster_refs`: the open
+cluster-scope findings (`detail.scope = "cluster"`) that another database reports as the
+owner of `<name>`'s cluster, each marked `cluster_ref` and `read_only` and named by
+`database_name`. They are references, not part of the page or its `total`; see
+[Cluster runways and forecasts](walkthrough-fleet.md#cluster-runways-and-forecasts).
+
 Each finding row (list and detail) also carries display-only action fields:
 
 | Field | Meaning |
@@ -855,7 +861,6 @@ and config keys are in the [generated catalog](generated/finding-catalog.md).
 | <a id="forecast_query_volume"></a>`forecast_query_volume` | Forecaster | Query volume growing sharply over the lookback. |
 | <a id="forecast_cache_pressure"></a>`forecast_cache_pressure` | Forecaster | The cache hit ratio trending below `forecaster.cache_warn_threshold`. |
 | <a id="forecast_checkpoint_pressure"></a>`forecast_checkpoint_pressure` | Forecaster | Requested checkpoints trending above `forecaster.checkpoint_requested_per_hour`. |
-| <a id="storage_forecast"></a>`storage_forecast` | Forecaster | Storage growth forecast of the v0.9 growth path, kept for rows it wrote. |
 | <a id="forecast_wraparound_runway"></a>`forecast_wraparound_runway` | Runway | Time left before a table or the database reaches transaction ID wraparound. |
 | <a id="forecast_wal_runway"></a>`forecast_wal_runway` | Runway | Time left before retained WAL fills the disk (`forecaster.disk_capacity_bytes`) or a slot's limit. |
 | <a id="forecast_sequence_runway"></a>`forecast_sequence_runway` | Runway | Time left before a sequence runs out of values at its current rate. |

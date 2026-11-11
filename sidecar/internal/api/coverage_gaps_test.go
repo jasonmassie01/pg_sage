@@ -525,31 +525,3 @@ func TestResolveIncident_NotFound(t *testing.T) {
 		t.Errorf("got %v, want ErrIncidentNotFound", err)
 	}
 }
-
-func TestQueryGrowthForecasts(t *testing.T) {
-	pool, ctx := phase2RequireDB(t)
-	_, _ = pool.Exec(ctx, "DELETE FROM sage.size_history")
-
-	// Seed two points for one object (needed for HAVING COUNT >= 2).
-	_, err := pool.Exec(ctx,
-		`INSERT INTO sage.size_history
-		 (collected_at, metric_type, object_name, size_bytes, database_name)
-		 VALUES (now() - interval '2 days', 'table', 'users', 1000, 'db1'),
-		        (now() - interval '1 day',  'table', 'users', 2000, 'db1'),
-		        (now() - interval '1 hour', 'table', 'solo',  500,  'db1')`)
-	if err != nil {
-		t.Fatalf("seed size_history: %v", err)
-	}
-
-	forecasts, err := queryGrowthForecasts(ctx, pool, 7)
-	if err != nil {
-		t.Fatalf("queryGrowthForecasts: %v", err)
-	}
-	// "solo" has only 1 point → excluded by HAVING.
-	if len(forecasts) != 1 {
-		t.Fatalf("forecast count: got %d, want 1", len(forecasts))
-	}
-	if forecasts[0]["object_name"] != "users" {
-		t.Errorf("object_name: got %v", forecasts[0]["object_name"])
-	}
-}

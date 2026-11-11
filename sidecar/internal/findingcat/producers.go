@@ -84,8 +84,6 @@ var forecastEntries = []Category{
 	e("forecast_checkpoint_pressure", "forecaster", "forecaster", sevW,
 		k("forecaster.checkpoint_requested_per_hour"), nil,
 		"Requested checkpoints trending above the hourly limit."),
-	e("storage_forecast", "forecaster", "forecaster", sevIWC, nil, nil,
-		"Storage growth forecast of the v0.9 growth path, kept for rows it wrote."),
 	e("forecast_wraparound_runway", "forecaster", "runway", sevWC, nil, nil,
 		"Time left before a table or the database reaches transaction ID wraparound."),
 	e("forecast_wal_runway", "forecaster", "runway", sevWC,

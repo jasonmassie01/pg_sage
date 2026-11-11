@@ -22,10 +22,13 @@ func TestLastEvaluatedCategories_Success(t *testing.T) {
 	}
 	// forecast-04: forecast_cache_pressure needs 7 days of interval data,
 	// which an empty history lacks; rules_cache_test.go covers it.
-	for _, c := range []string{"forecast_disk_growth", "forecast_query_volume"} {
-		if !got[c] {
-			t.Fatalf("missing %s in %v", c, got)
-		}
+	if !got["forecast_disk_growth"] {
+		t.Fatalf("missing forecast_disk_growth in %v", got)
+	}
+	// forecast-08: query volume needs two complete weeks of closed days,
+	// which an empty history lacks; connection_limit_db_test.go covers it.
+	if got["forecast_query_volume"] {
+		t.Fatalf("forecast_query_volume evaluated without history: %v", got)
 	}
 	// forecast-05: the runway forecasts sequences; the forecaster's rule is
 	// retired and must never again claim (and so resolve) its category.
@@ -79,7 +82,10 @@ func TestLastEvaluatedCategories_MalformedSizeFailsSystemRead(t *testing.T) {
 			t.Errorf("%s claimed after a failed system read: %v", c, got)
 		}
 	}
-	if !hasCategory(got, "forecast_query_volume") {
-		t.Errorf("query volume must stay evaluated: %v", got)
+	// forecast-08: without two complete weeks of query history the query
+	// category is not evaluated either; that the query read still runs
+	// after a failed system read is TestConnectionLimitDB_QueryVolumeSurvivesSystemFailure.
+	if hasCategory(got, "forecast_query_volume") {
+		t.Errorf("query volume evaluated without query history: %v", got)
 	}
 }

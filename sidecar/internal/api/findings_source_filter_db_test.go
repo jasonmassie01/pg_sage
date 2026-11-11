@@ -20,7 +20,7 @@ func sourceFilterSeed() []string {
 	for _, cats := range producerCategories {
 		out = append(out, cats...)
 	}
-	return append(out, "forecast_disk_growth", "storage_forecast",
+	return append(out, "forecast_disk_growth",
 		"schema_lint:lint_missing_pk")
 }
 
@@ -81,7 +81,7 @@ func TestFindingsSourceFiltersReturnTheirProducersRows(t *testing.T) {
 	assertSourceHas(t, h, "query_tuning", ids["stale_statistics"], "rules")
 	assertSourceHas(t, h, "advisor", ids["wal_tuning"], "advisor")
 	assertSourceHas(t, h, "optimizer", ids["missing_index"], "optimizer")
-	assertSourceHas(t, h, "forecaster", ids["storage_forecast"], "forecaster")
+	assertSourceHas(t, h, "forecaster", ids["forecast_disk_growth"], "forecaster")
 }
 
 // assertSourceHas fails unless source lists the row id under subsystem.

@@ -39,10 +39,6 @@ func TestRun_PurgesPreviouslyUnboundedTables(t *testing.T) {
 			`INSERT INTO sage.health_history (database_name, health_score, recorded_at)
 			 VALUES ($1, 90, now() - $2::interval)`,
 			`SELECT count(*) FROM sage.health_history WHERE database_name=$1`},
-		{"size_history",
-			`INSERT INTO sage.size_history (metric_type, object_name, size_bytes,
-			 collected_at) VALUES ('table', $1, 1, now() - $2::interval)`,
-			`SELECT count(*) FROM sage.size_history WHERE object_name=$1`},
 		{"incidents",
 			`INSERT INTO sage.incidents (severity, root_cause, source, detected_at,
 			 last_detected_at, resolved_at) VALUES ('info', $1, 'deterministic',

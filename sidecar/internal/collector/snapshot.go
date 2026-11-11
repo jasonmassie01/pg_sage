@@ -222,13 +222,18 @@ type SystemStats struct {
 	TotalBackends      int     `json:"total_backends"`
 	// ClientBackends counts the cluster's client sessions, the backends
 	// that take max_connections slots (rca-08).
-	ClientBackends   int     `json:"client_backends"`
-	MaxConnections   int     `json:"max_connections"`
-	CacheHitRatio    float64 `json:"cache_hit_ratio"` // fraction 0..1, or CacheHitRatioUnknown
-	Deadlocks        int64   `json:"deadlocks"`
-	BlkReadTime      float64 `json:"blk_read_time"`
-	BlkWriteTime     float64 `json:"blk_write_time"`
-	TotalCheckpoints int64   `json:"total_checkpoints"`
+	ClientBackends int `json:"client_backends"`
+	// ReservedConnections is the slots clients cannot take:
+	// superuser_reserved_connections plus reserved_connections (PG 16+).
+	// The connection forecast projects against max_connections less it
+	// (forecast-08); legacy rows lack it.
+	ReservedConnections int     `json:"reserved_connections"`
+	MaxConnections      int     `json:"max_connections"`
+	CacheHitRatio       float64 `json:"cache_hit_ratio"` // fraction 0..1, or CacheHitRatioUnknown
+	Deadlocks           int64   `json:"deadlocks"`
+	BlkReadTime         float64 `json:"blk_read_time"`
+	BlkWriteTime        float64 `json:"blk_write_time"`
+	TotalCheckpoints    int64   `json:"total_checkpoints"`
 	// The checkpoint counters split (forecast-03): timed ones count every
 	// checkpoint_timeout, skipped or not; requested ones are WAL-triggered
 	// (max_wal_size) or explicit. CheckpointsDone is the performed count,

@@ -47,8 +47,6 @@ func Clone(cfg *Config) *Config {
 			cp.Alerting.Webhooks[i].Headers[k] = v
 		}
 	}
-	cp.Forecaster.AlertHorizons = append(
-		[]int(nil), cfg.Forecaster.AlertHorizons...)
 	cp.Analyzer.LockChain.SafePatterns = append(
 		[]string(nil), cfg.Analyzer.LockChain.SafePatterns...)
 	cp.Runaway.Policies = append(

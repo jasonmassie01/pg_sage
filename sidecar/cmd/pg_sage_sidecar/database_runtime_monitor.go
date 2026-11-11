@@ -146,7 +146,9 @@ func (rt *databaseRuntime) newForecaster() analyzer.WorkloadForecaster {
 		return nil
 	}
 	rt.note("forecaster")
-	return forecaster.New(rt.spec.Pool, forecasterConfig(cfg), logStructuredWrapper)
+	return forecaster.New(rt.spec.Pool, forecasterConfig(cfg), logStructuredWrapper).
+		WithCapacity(rt.runwayCapacity()).
+		WithClusterOwner(rt.forecastClusterOwner())
 }
 
 func forecasterConfig(c *config.Config) forecaster.ForecasterConfig {
@@ -158,10 +160,9 @@ func forecasterConfig(c *config.Config) forecaster.ForecasterConfig {
 		CacheWarnThreshold:         c.Forecaster.CacheWarnThreshold,
 		CacheMinBlocksPerDay:       c.Forecaster.CacheMinBlocksPerDay,
 		CheckpointRequestedPerHour: c.Forecaster.CheckpointRequestedPerHour,
-		MinDataPoints:              c.Forecaster.MinDataPoints,
-		AlertHorizons:              c.Forecaster.AlertHorizons,
 		DiskCapacityBytes:          c.Forecaster.DiskCapacityBytes,
 		MinRSquared:                c.Forecaster.MinRSquared,
+		CollectorInterval:          c.Collector.Interval(),
 	}
 }
 

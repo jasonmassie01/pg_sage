@@ -212,7 +212,6 @@ derivable explain.cache_ttl_minutes
 operator_preference explain.enabled
 derivable explain.max_tokens
 derivable explain.timeout_ms
-derivable forecaster.alert_horizons
 derivable forecaster.cache_min_blocks_per_day
 derivable forecaster.cache_warn_threshold
 derivable forecaster.checkpoint_requested_per_hour
@@ -221,7 +220,6 @@ operator_preference forecaster.disk_capacity_bytes
 derivable forecaster.disk_warn_growth_gb_day
 operator_preference forecaster.enabled
 derivable forecaster.lookback_days
-derivable forecaster.min_data_points
 derivable forecaster.min_r_squared
 derivable logwatch.dedup_window_seconds
 operator_preference logwatch.enabled

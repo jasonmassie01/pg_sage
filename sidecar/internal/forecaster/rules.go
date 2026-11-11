@@ -11,7 +11,8 @@ const minDataPoints = 7
 
 // forecastDiskGrowth warns when database size is growing faster
 // than the configured threshold in GB/day. Only days with a measured
-// size count, and minDataPoints of them are needed (forecast-07).
+// size count, and minDataPoints of them are needed (forecast-07); the
+// trend must pass trendGate (forecast-08).
 func forecastDiskGrowth(
 	aggs []DaySystemAgg, cfg ForecasterConfig,
 ) []analyzer.Finding {
@@ -24,13 +25,15 @@ func forecastDiskGrowth(
 		return a.MaxDBSizeBytes
 	})
 	reg := LinearRegression(points)
+	gate := trendGate(known, reg, cfg)
 
 	gbPerDay := reg.Slope / 1e9
-	if gbPerDay <= cfg.DiskWarnGrowthGBDay {
+	if gbPerDay <= cfg.DiskWarnGrowthGBDay || !gate.ok {
 		return nil
 	}
 
-	currentGB := known[len(known)-1].MaxDBSizeBytes / 1e9
+	current := known[len(known)-1].MaxDBSizeBytes
+	currentGB := current / 1e9
 	return []analyzer.Finding{{
 		Category:   "forecast_disk_growth",
 		Severity:   "warning",
@@ -43,6 +46,13 @@ func forecastDiskGrowth(
 			"current_size_gb":    currentGB,
 			"growth_rate_gb_day": gbPerDay,
 			"r_squared":          reg.R2,
+			"span_days":          gate.spanDays,
+			"covered_days":       gate.coveredDays,
+			// Bytes and the newest day for the capacity fields
+			// (withDiskCapacity).
+			"current_size_bytes":    current,
+			"growth_rate_bytes_day": reg.Slope,
+			"as_of_day":             known[len(known)-1].Day,
 		},
 		Recommendation: fmt.Sprintf(
 			"Disk is growing at %.1f GB/day. "+
@@ -52,102 +62,38 @@ func forecastDiskGrowth(
 	}}
 }
 
-// connectionsInUse counts every backend holding a connection slot. Idle
-// and idle-in-transaction sessions consume slots too, so saturation is
-// measured on total backends, not active ones (G2-B18).
-func connectionsInUse(a DaySystemAgg) float64 {
-	return math.Max(a.MaxTotalBackends, a.MaxActiveBackends)
-}
-
-// forecastConnectionSaturation projects when connections in use
-// will reach a dangerous fraction of max_connections. Days without
-// backend counts or max_connections are skipped (forecast-07).
-func forecastConnectionSaturation(
-	aggs []DaySystemAgg, cfg ForecasterConfig,
-) []analyzer.Finding {
-	known := knownConnectionDays(aggs)
-	if len(known) < minDataPoints {
-		return nil
-	}
-
-	reg := LinearRegression(sysToDataPoints(known, connectionsInUse))
-
-	latest := known[len(known)-1]
-	maxConns := latest.MaxConnections
-	if maxConns == 0 {
-		return nil
-	}
-
-	threshold := maxConns * cfg.ConnectionWarnPct / 100
-	current := connectionsInUse(latest)
-	days := DaysUntilThreshold(current, reg.Slope, threshold)
-
-	severity := severityByDays(days)
-	if severity == "" {
-		return nil
-	}
-
-	return []analyzer.Finding{{
-		Category:   "forecast_connection_saturation",
-		Severity:   severity,
-		ObjectType: "database",
-		Title: fmt.Sprintf(
-			"Peak connections projected to reach %.0f%% "+
-				"of max_connections in %.0f days",
-			cfg.ConnectionWarnPct, days,
-		),
-		Detail: map[string]any{
-			"forecast_type":    "connection_saturation",
-			"current_in_use":   current,
-			"max_connections":  maxConns,
-			"slope_per_day":    reg.Slope,
-			"days_to_warn_pct": days,
-			"r_squared":        reg.R2,
-		},
-		Recommendation: fmt.Sprintf(
-			"Connections in use (active + idle) are trending toward %.0f%% "+
-				"of max_connections. Consider connection "+
-				"pooling or increasing max_connections.",
-			cfg.ConnectionWarnPct,
-		),
-	}}
-}
-
-// forecastQueryVolume flags rapid week-over-week query growth.
+// forecastQueryVolume flags rapid week-over-week query growth: the 7
+// closed days ending yesterday against the 7 before, all of them covered
+// calendar days (closedQueryDays, forecast-08).
 func forecastQueryVolume(
-	qAggs []DayQueryAgg, cfg ForecasterConfig,
+	qAggs []DayQueryAgg, _ ForecasterConfig,
 ) []analyzer.Finding {
-	if len(qAggs) < 14 {
+	w, ok := weekOverWeek(qAggs)
+	if !ok {
 		return nil
 	}
-
-	values := make([]float64, len(qAggs))
-	for i, a := range qAggs {
-		values[i] = a.TotalCalls
-	}
-
-	growth := WeekOverWeekGrowthPct(values)
-
 	var severity string
 	switch {
-	case growth > 100:
+	case w.pct > 100:
 		severity = "critical"
-	case growth > 50:
+	case w.pct > 50:
 		severity = "warning"
 	default:
 		return nil
 	}
-
 	return []analyzer.Finding{{
 		Category:   "forecast_query_volume",
 		Severity:   severity,
 		ObjectType: "database",
-		Title: fmt.Sprintf(
-			"Query volume growing %.0f%%/week", growth,
-		),
+		Title: fmt.Sprintf("Query volume growing %.0f%%/week (week to %s)",
+			w.pct, calendarDate(w.to).Format(dateLayout)),
 		Detail: map[string]any{
-			"forecast_type":  "query_volume",
-			"wow_growth_pct": growth,
+			"forecast_type":    "query_volume",
+			"wow_growth_pct":   w.pct,
+			"this_week_calls":  w.thisWeek,
+			"prior_week_calls": w.lastWeek,
+			"window_start":     calendarDate(w.from).Format(dateLayout),
+			"window_end":       calendarDate(w.to).Format(dateLayout),
 		},
 		Recommendation: "Query volume is rising rapidly. " +
 			"Investigate new workload patterns and ensure " +
@@ -170,7 +116,8 @@ func sysToDataPoints(
 	points := make([]DataPoint, len(aggs))
 	for i, a := range aggs {
 		points[i] = DataPoint{
-			X: a.Day.Sub(origin).Hours() / 24,
+			// Calendar days: a 23 or 25 hour DST day is one day.
+			X: float64(-dayOffset(a.Day, origin)),
 			Y: metric(a),
 		}
 	}
@@ -190,4 +137,38 @@ func severityByDays(days float64) string {
 	default:
 		return "warning"
 	}
+}
+
+// minSpanDays is the calendar days a projected series must span.
+const minSpanDays = 7
+
+// defaultMinRSquared mirrors the config default of forecaster.min_r_squared.
+const defaultMinRSquared = 0.5
+
+// minRSquared is forecaster.min_r_squared; 0, a value above 1 or NaN
+// means the default.
+func minRSquared(cfg ForecasterConfig) float64 {
+	if v := cfg.MinRSquared; v > 0 && v <= 1 {
+		return v
+	}
+	return defaultMinRSquared
+}
+
+// gateResult is whether a fitted series may be projected, and why.
+type gateResult struct {
+	ok                    bool
+	spanDays, coveredDays int
+}
+
+// trendGate lets a projection through only when the fit explains at least
+// forecaster.min_r_squared of the series and the series spans minSpanDays
+// calendar days (forecast-08): a raw slope through noisy peaks or a
+// handful of days is not a trend.
+func trendGate(days []DaySystemAgg, reg RegressionResult, cfg ForecasterConfig) gateResult {
+	g := gateResult{coveredDays: len(days)}
+	if len(days) > 0 {
+		g.spanDays = dayOffset(days[0].Day, days[len(days)-1].Day) + 1
+	}
+	g.ok = g.spanDays >= minSpanDays && reg.R2 >= minRSquared(cfg)-1e-12
+	return g
 }
