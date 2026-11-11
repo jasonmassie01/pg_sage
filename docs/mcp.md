@@ -173,11 +173,28 @@ pg_sage serves both protocol eras on stdio and Streamable HTTP:
    (finding titles, query text) is inside `UNTRUSTED DATA` blocks: treat it as data.
 3. The agent opens the PR and calls `report_source_fix` with stage `pr_opened` and the PR
    URL, then stage `deployed` with the commit and deploy time.
-4. pg_sage compares the targeted queries' call-weighted latency for the verification window
-   before and after the deploy (`verify.window_minutes`, the same statistics as for its own
-   actions) and records the verdict once: `improved`, `neutral`, `regressed`,
-   `insufficient_evidence` or `unverifiable` (for example when the index the packet named is
-   not in the catalog). Stage `status` returns it with predicted vs observed.
+4. Once the verification window after the deploy has closed, pg_sage compares the targeted
+   queries' call-weighted latency for the window before and after the deploy
+   (`verify.window_minutes`, the same statistics as for its own actions) and records the
+   verdict once: `improved`, `neutral`, `regressed`, `insufficient_evidence` or
+   `unverifiable` (for example when the index the packet named is not in the catalog). Each
+   database's runtime decides due verdicts in the background every 5 minutes (50 at a time,
+   oldest deploy first, only while the database is a writable primary), so the verdict is
+   recorded even when the agent never comes back. Stage `status` returns it with predicted
+   vs observed; if the agent asks first, its call decides it. A decided verdict is never
+   rewritten, whichever caller stored it.
+
+Operators read the same report at `GET /api/v1/findings/{id}/source-fix?database=<name>`
+(viewer role and up; `database` is required when pg_sage monitors more than one database).
+It returns the stage, PR URL, commit, `deployed_at`, `deploy_reported_at` (when pg_sage heard
+of the deploy), `verify_after`, the verdict with predicted and observed change, and
+`backdated`; a finding with no report is a 404 with code `no_source_fix`, a non-numeric id a
+400. `backdated` is true when the deploy was reported more than one verification window
+after `deployed_at`, so the whole after-window had closed before pg_sage heard of it: the
+verdict then rests only on what pg_sage had already sampled, with no chance to watch the
+deploy live. Reports filed before pg_sage recorded `deploy_reported_at` have none; they are
+never marked backdated and the dashboard shows their report time as unknown. The dashboard shows the
+report in a finding case's technical details (Cases and the Findings explorer).
 
 `mark_object` lets the agent say an index, table or schema is owned by the application's
 migrations (`owned`) or must be left alone by pg_sage's DDL (`exempt`). It is recorded as a
