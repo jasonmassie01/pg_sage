@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/pg-sage/sidecar/internal/clone"
 )
 
@@ -443,20 +445,28 @@ func TestStoreLegacyRowReadsAsNoSummary(t *testing.T) {
 }
 
 // The status check takes completed_unscored and still refuses an unknown
-// status; the summary must be a JSON object.
+// status; the summary must be a JSON object. Each refusal must come from
+// that constraint (finished_at is set so the running/finished_at check
+// cannot be the one that refuses the row).
 func TestStoreStatusCheckTakesCompletedUnscored(t *testing.T) {
 	f := newGDFixture(t)
 	insertRun(t, f, f.database, "game_day", StatusCompletedUnscored, f.now, "")
 	_, err := f.store.pool.Exec(f.ctx, `INSERT INTO sage.sre_game_days (deployment_id, id,
-		database_name, provider, families, status) VALUES ($1, $2, $3, 'dle', '{}',
-		'unscored')`, f.store.deployment, newUUID(t), f.database)
-	if err == nil {
-		t.Fatal("status 'unscored' was accepted")
-	}
+		database_name, provider, families, status, finished_at) VALUES ($1, $2, $3, 'dle',
+		'{}', 'unscored', now())`, f.store.deployment, newUUID(t), f.database)
+	requireCheckViolation(t, err, "sre_game_days_status_v2_check")
 	_, err = f.store.pool.Exec(f.ctx, `INSERT INTO sage.sre_game_days (deployment_id, id,
 		database_name, provider, families, status, summary) VALUES ($1, $2, $3, 'dle', '{}',
 		'running', '[]')`, f.store.deployment, newUUID(t), f.database)
-	if err == nil {
-		t.Fatal("a summary that is not a JSON object was accepted")
+	requireCheckViolation(t, err, "sre_game_days_summary_object")
+}
+
+// requireCheckViolation fails unless err is a check violation (23514) of
+// the named constraint.
+func requireCheckViolation(t *testing.T, err error, constraint string) {
+	t.Helper()
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23514" || pgErr.ConstraintName != constraint {
+		t.Fatalf("err = %v, want a check violation of %s", err, constraint)
 	}
 }
