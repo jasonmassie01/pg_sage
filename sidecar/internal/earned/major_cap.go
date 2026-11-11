@@ -98,7 +98,10 @@ func (l *Limiter) majorCap(ctx context.Context, st State) majorCheck {
 		return majorCheck{known: true}
 	}
 	if *st.ServerMajor == current {
-		return majorCheck{known: true}
+		// Only a recorded cap reads why: the server went back to the major
+		// the level was granted on.
+		return majorCheck{known: true,
+			why: fmt.Sprintf("cap ended: the server runs PostgreSQL %d again", current)}
 	}
 	capped := majorCheck{note: &majorNote{From: *st.ServerMajor, To: current}, known: true}
 	n, err := l.svc.store.improvedSinceMajorCap(ctx, st.Family, st.Class, current)
