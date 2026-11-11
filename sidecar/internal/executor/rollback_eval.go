@@ -128,6 +128,7 @@ func updateActionOutcome(
 	if err != nil {
 		return fmt.Errorf("record outcome %s for action %d: %w", outcome, actionID, err)
 	}
+	countActionOutcome(ctx, pool, actionID, outcome)
 	return nil
 }
 
@@ -158,7 +159,11 @@ func setMonitoredOutcome(
 		 SET outcome = $1, rollback_reason = $2, measured_at = now()
 		 WHERE id = $3 AND outcome IN `+monitorableOutcomes,
 		outcome, reason, actionID)
-	return err == nil && tag.RowsAffected() == 1
+	if err != nil || tag.RowsAffected() != 1 {
+		return false
+	}
+	countActionOutcome(ctx, pool, actionID, outcome)
+	return true
 }
 
 // updateActionSuccess marks an action whose own post-check verified it (a
@@ -182,6 +187,7 @@ func updateActionSuccess(ctx context.Context, pool *pgxpool.Pool, actionID int64
 	if err != nil || tag.RowsAffected() != 1 {
 		return
 	}
+	countActionOutcome(ctx, pool, actionID, "success")
 	verificationID, err := finalizeActionVerification(
 		ctx, pool, actionID, "success", "post-action checks passed",
 	)
@@ -215,6 +221,9 @@ func finalizeActionVerification(
 		actionID, verdict, reason).Scan(&verificationID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, nil
+	}
+	if err == nil {
+		countActionVerdict(ctx, pool, actionID, verdict)
 	}
 	return verificationID, err
 }

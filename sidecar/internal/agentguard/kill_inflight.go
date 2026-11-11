@@ -8,6 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/executor"
 )
 
 // In-flight agent requests (§6.10 step 4, §6.2.7). The executor (for an
@@ -117,5 +119,6 @@ func recordFallback(ctx context.Context, pool *pgxpool.Pool, e FallbackEntry) er
 	if err != nil {
 		return fmt.Errorf("agentguard: reconciling a kill fallback entry: %w", err)
 	}
+	executor.RecordPoolOutcome(pool, e.ActionType, e.Outcome)
 	return nil
 }

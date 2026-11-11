@@ -65,6 +65,7 @@ func handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	writeShadowMetrics(&b, shadow.DecisionCounts(), shadow.ScoreCounts())
 	writeParkMetrics(&b, executor.ParkCounts(), executor.WaitReleaseCounts())
 	writeRecordFailureMetrics(&b, executor.RecordFailureCounts())
+	writeActionMetrics(&b, executor.OutcomeCounts(), executor.VerdictCounts(), views)
 	writeLogwatchMetrics(&b, runtimeLogFanouts.droppedLines())
 	writeSREProbeMetrics(&b, probes.QueueStats())
 	writeMigrationEnrichMetrics(&b, migration.EnrichDroppedCounts())

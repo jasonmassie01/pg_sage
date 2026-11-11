@@ -109,5 +109,6 @@ func (c correction) execute(ctx context.Context,
 	if err != nil {
 		return 0, err
 	}
+	executor.RecordPoolOutcome(c.db.Pool, executor.ActionTypeGuardRevoke, "success")
 	return id, nil
 }

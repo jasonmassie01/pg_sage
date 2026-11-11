@@ -132,6 +132,7 @@ func (e *Executor) reconcileStuckRollback(ctx context.Context, actionID int64) (
 	if err != nil || !changed {
 		return false, err
 	}
+	countActionOutcome(ctx, e.pool, actionID, outcome)
 	e.logFn("executor", "action %d was stuck in rolling_back; now %s: %s",
 		actionID, outcome, reason)
 	if done {
