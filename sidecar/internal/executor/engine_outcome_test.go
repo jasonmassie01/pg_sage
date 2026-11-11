@@ -7,31 +7,34 @@ import (
 	"github.com/pg-sage/sidecar/internal/verify"
 )
 
-// executor-03: the outcome text of an index verdict says that the write
-// signal is database-wide and advisory, so an operator reading a retained
-// index next to a write surge sees why it was kept.
+// executor-03b: the outcome text of an index verdict names the table-scoped
+// write cost when it rose over write_impact_pct: the cause of a write_impact
+// revert, or evidence beside a query reason that came first.
 // No concurrent-access tests: outcomeReason is a pure function of a verdict.
 
 func signalVerdict(signal map[string]any) verify.Verdict {
-	return verify.Verdict{Retain: true, Status: "success", Evidence: map[string]any{
-		"comparison":   map[string]any{"reason": "gain_confirmed"},
-		"write_signal": signal,
-	}}
+	return verify.Verdict{Revert: true, Status: "reverted", Reason: "write_impact",
+		Evidence: map[string]any{
+			"comparison":   map[string]any{"reason": "gain_confirmed"},
+			"write_signal": signal,
+		}}
 }
 
-func TestOutcomeReasonNamesAdvisoryWriteSurge(t *testing.T) {
+func TestOutcomeReasonNamesTableWriteRegression(t *testing.T) {
 	got := outcomeReason(signalVerdict(map[string]any{
-		"scope": "database", "metric": "blk_write_time", "delta_pct": 50.0,
-		"threshold_pct": 20.0, "exceeds_threshold": true, "decisive": false,
+		"scope": "table", "metric": "wal_bytes_per_tuple", "table": "public.orders",
+		"delta_pct": 50.0, "threshold_pct": 20.0, "exceeds_threshold": true,
+		"decisive": true,
 	}))
-	for _, want := range []string{"gain_confirmed", "database-wide", "advisory",
-		"+50.0%", "20%"} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("reason = %q, want it to contain %q", got, want)
-		}
+	want := "write_impact: gain_confirmed; WAL bytes per tuple written to public.orders " +
+		"+50.0% (over the 20% write_impact_pct)"
+	if got != want {
+		t.Fatalf("reason = %q, want %q", got, want)
 	}
-	if !strings.HasPrefix(got, "gain_confirmed; ") {
-		t.Fatalf("reason = %q, want the query reason first", got)
+	for _, stale := range []string{"database-wide", "advisory"} {
+		if strings.Contains(got, stale) {
+			t.Fatalf("reason = %q still says %q", got, stale)
+		}
 	}
 }
 
@@ -39,13 +42,15 @@ func TestOutcomeReasonOmitsSignalUnderThreshold(t *testing.T) {
 	cases := map[string]map[string]any{
 		"under threshold": {"delta_pct": 10.0, "threshold_pct": 20.0,
 			"exceeds_threshold": false},
-		"read error":   {"error": "read post-action write measurements: boom"},
-		"no baseline":  {"unavailable": "no pre-action write baseline"},
+		"read error":   {"error": "read post-action write cost: boom"},
+		"insufficient": {"insufficient": "no attributable table writes"},
 		"wrong type":   {"exceeds_threshold": "true"},
 		"empty signal": {},
 	}
 	for name, signal := range cases {
-		if got := outcomeReason(signalVerdict(signal)); got != "gain_confirmed" {
+		v := signalVerdict(signal)
+		v.Reason = ""
+		if got := outcomeReason(v); got != "gain_confirmed" {
 			t.Fatalf("%s: reason = %q, want just the query reason", name, got)
 		}
 	}
@@ -55,10 +60,11 @@ func TestOutcomeReasonKeepsRevertReasonAndStatusFallback(t *testing.T) {
 	revert := verify.Verdict{Revert: true, Status: "reverted", Reason: "no_gain",
 		Evidence: map[string]any{"comparison": map[string]any{"reason": "below_gain"},
 			"write_signal": map[string]any{"delta_pct": 80.0, "threshold_pct": 20.0,
-				"exceeds_threshold": true}}}
+				"exceeds_threshold": true, "table": "public.t"}}}
 	got := outcomeReason(revert)
-	if !strings.HasPrefix(got, "no_gain: below_gain; ") || !strings.Contains(got, "advisory") {
-		t.Fatalf("revert reason = %q, want no_gain: below_gain then the advisory note", got)
+	if !strings.HasPrefix(got, "no_gain: below_gain; ") ||
+		!strings.Contains(got, "public.t +80.0%") {
+		t.Fatalf("revert reason = %q, want no_gain: below_gain then the write cost", got)
 	}
 	// Nil evidence (an invalid-index revert) and an empty verdict.
 	if got := outcomeReason(verify.Verdict{Status: "reverted", Reason: "invalid_index"}); got !=

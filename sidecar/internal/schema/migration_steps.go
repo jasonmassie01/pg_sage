@@ -177,5 +177,6 @@ func trancheTwoMigrations() []namedStep {
 		{"ddlDropSizeHistory", ddlDropSizeHistory},                       // forecast-06
 		{"ddlDecisionOpenWithheldIndex", ddlDecisionOpenWithheldIndex()}, // policy-07
 		{"ddlActionQueueSchedule", ddlActionQueueSchedule},               // policy-04
+		{"ddlRolloutRunInterrupted", ddlRolloutRunInterrupted},           // executor-04b
 	}
 }

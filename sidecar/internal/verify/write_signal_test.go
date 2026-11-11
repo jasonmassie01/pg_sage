@@ -9,8 +9,12 @@ import (
 	"time"
 )
 
-// executor-03 phase 1: the database-wide write signal (pg_stat_database
-// blk_write_time) is advisory evidence, never a revert reason.
+// executor-03b: the write signal is table-scoped (WAL bytes per tuple the
+// index's table wrote) and reverts as write_impact above
+// verify.write_impact_pct, only for an index whose queries improved: the
+// query regression and no_gain reasons keep their precedence. Without
+// attributable table samples it is insufficient, never a revert and never a
+// database-wide fallback.
 // No concurrent-access tests here: decide and writeSignal are pure functions
 // of one observation; concurrent Watch and resume are covered in claim_test.
 
@@ -20,11 +24,8 @@ func writeSignalOf(t *testing.T, verdict Verdict) map[string]any {
 	if !ok {
 		t.Fatalf("evidence = %#v, want a write_signal map", verdict.Evidence)
 	}
-	if signal["scope"] != "database" || signal["metric"] != "blk_write_time" {
-		t.Fatalf("write_signal = %#v, want scope database, metric blk_write_time", signal)
-	}
-	if signal["decisive"] != false {
-		t.Fatalf("write_signal = %#v, want decisive=false", signal)
+	if signal["scope"] != "table" || signal["metric"] != "wal_bytes_per_tuple" {
+		t.Fatalf("write_signal = %#v, want scope table, metric wal_bytes_per_tuple", signal)
 	}
 	return signal
 }
@@ -48,59 +49,110 @@ func watchWithWrites(t *testing.T, source *fakeObservationSource, id string) Ver
 	return verdict
 }
 
-// Queries gain 30% (100 -> 70 ms) while database write time rises 50%
-// (10 -> 15 ms), the daytime surge after a night build: the index is kept.
-func TestWatchRetainsQueryGainDespiteDatabaseWriteSurge(t *testing.T) {
+// Queries gain 30% (100 -> 70 ms) but every tuple written to the table now
+// costs 50% more WAL (100 -> 150 bytes): the index reverts as write_impact.
+func TestWatchRevertsTableWriteRegression(t *testing.T) {
 	source := newFakeObservationSource()
-	source.writeAfter = Measurement{Samples: 60, AverageLatency: 15 * time.Millisecond}
-	verdict := watchWithWrites(t, source, "write-surge")
-	if !verdict.Retain || verdict.Revert || verdict.Outcome != OutcomeImproved {
-		t.Fatalf("verdict = %#v, want retained improvement", verdict)
+	source.writeAfter = measuredCost(150)
+	verdict := watchWithWrites(t, source, "table-write-regression")
+	if !verdict.Revert || verdict.Retain || verdict.Status != "reverted" ||
+		verdict.Reason != "write_impact" || verdict.Outcome != OutcomeRegressed {
+		t.Fatalf("verdict = %#v, want a write_impact revert", verdict)
+	}
+	if verdict.ObservedPct == nil || math.Abs(*verdict.ObservedPct+30) > 1e-6 {
+		t.Fatalf("observed = %v, want the queries' -30%%", verdict.ObservedPct)
 	}
 	signal := writeSignalOf(t, verdict)
-	if signal["exceeds_threshold"] != true {
-		t.Fatalf("write_signal = %#v, want exceeds_threshold=true", signal)
+	if signal["outcome"] != writeRegressed || signal["decisive"] != true ||
+		signal["exceeds_threshold"] != true || signal["table"] != "public.orders" {
+		t.Fatalf("write_signal = %#v, want a decisive regression on public.orders", signal)
 	}
-	assertSignalFloat(t, signal, "before_ms", 10)
-	assertSignalFloat(t, signal, "after_ms", 15)
 	assertSignalFloat(t, signal, "delta_pct", 50)
 	assertSignalFloat(t, signal, "threshold_pct", 20)
-	if _, hasErr := signal["error"]; hasErr {
-		t.Fatalf("write_signal = %#v, want no error", signal)
+	before, _ := signal["before"].(map[string]any)
+	after, _ := signal["after"].(map[string]any)
+	if before["bytes_per_tuple"] != 100.0 || after["bytes_per_tuple"] != 150.0 ||
+		after["intervals"] != 6 || after["tuples"] != int64(6000) {
+		t.Fatalf("write_signal sides = %#v / %#v, want the measured costs", before, after)
 	}
 }
 
-// track_io_timing off: blk_write_time stays 0, so there is no baseline and
-// no measured signal (no delta, never over the threshold) and no revert.
-func TestWriteSignalWithoutBaselineIsUnavailable(t *testing.T) {
-	source := newFakeObservationSource()
-	source.writeBefore = Measurement{Samples: 60}
-	source.writeAfter = Measurement{Samples: 60, AverageLatency: 40 * time.Millisecond}
-	verdict := watchWithWrites(t, source, "write-no-baseline")
-	if !verdict.Retain || verdict.Revert {
-		t.Fatalf("verdict = %#v, want retained", verdict)
+// A rise of exactly write_impact_pct does not revert; any more does.
+func TestWatchWriteImpactThresholdBoundary(t *testing.T) {
+	cases := map[string]struct {
+		after  float64
+		revert bool
+	}{
+		"exactly 20%":    {120, false},
+		"just above 20%": {120.0001, true},
+		"cost fell":      {60, false},
 	}
-	signal := writeSignalOf(t, verdict)
-	if _, has := signal["delta_pct"]; has || signal["exceeds_threshold"] != false {
-		t.Fatalf("write_signal = %#v, want no delta and exceeds_threshold=false", signal)
-	}
-	if reason, _ := signal["unavailable"].(string); !strings.Contains(reason, "baseline") {
-		t.Fatalf("write_signal = %#v, want an unavailable reason naming the baseline", signal)
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			source := newFakeObservationSource()
+			source.writeAfter = measuredCost(tc.after)
+			verdict := watchWithWrites(t, source, "write-boundary-"+name)
+			if verdict.Revert != tc.revert || verdict.Retain == tc.revert {
+				t.Fatalf("verdict = %#v, want revert=%v", verdict, tc.revert)
+			}
+			signal := writeSignalOf(t, verdict)
+			if signal["exceeds_threshold"] != tc.revert || signal["decisive"] != tc.revert {
+				t.Fatalf("write_signal = %#v, want exceeds=decisive=%v", signal, tc.revert)
+			}
+			if !tc.revert && (verdict.Status != "success" || signal["outcome"] !=
+				writeWithinThreshold) {
+				t.Fatalf("verdict = %#v, want a retained index within the threshold", verdict)
+			}
+		})
 	}
 }
 
-// A write-history read error is recorded in the evidence; the verdict is
-// still decided by the queries, in both directions.
-func TestWriteMeasurementErrorLeavesVerdictToQueries(t *testing.T) {
+// No attributable table samples (no tables snapshots, or only intervals
+// in which other tables wrote): insufficient, so the queries decide, and
+// no database-wide number stands in for the table.
+func TestWatchWithoutTableSamplesIsInsufficient(t *testing.T) {
+	cases := map[string]WriteCost{
+		"no samples":        {},
+		"other tables only": {Unattributed: 12},
+		"unknown intervals": {Unknown: 12},
+	}
+	for name, after := range cases {
+		t.Run(name, func(t *testing.T) {
+			source := newFakeObservationSource()
+			source.writeAfter = after
+			verdict := watchWithWrites(t, source, "write-insufficient-"+name)
+			if !verdict.Retain || verdict.Revert || verdict.Outcome != OutcomeImproved {
+				t.Fatalf("verdict = %#v, want the improving index retained", verdict)
+			}
+			signal := writeSignalOf(t, verdict)
+			if signal["outcome"] != writeInsufficient || signal["decisive"] != false ||
+				signal["exceeds_threshold"] != false {
+				t.Fatalf("write_signal = %#v, want insufficient and not decisive", signal)
+			}
+			if _, has := signal["delta_pct"]; has {
+				t.Fatalf("write_signal = %#v, want no delta without samples", signal)
+			}
+			if reason, _ := signal["insufficient"].(string); !strings.Contains(reason,
+				"attributable") {
+				t.Fatalf("write_signal = %#v, want a reason naming attributable samples",
+					signal)
+			}
+		})
+	}
+}
+
+// A write-history read error is recorded; the write evidence is then
+// insufficient and the queries decide, in every direction, without pausing
+// the watch (executor-02's observation retries are for the query evidence).
+func TestWriteCostErrorLeavesVerdictToQueries(t *testing.T) {
 	cases := map[string]struct {
 		after      time.Duration
 		wantRetain bool
 		wantReason string
 	}{
-		"query gain is retained":      {70 * time.Millisecond, true, ""},
-		"query regression reverts":    {300 * time.Millisecond, false, "query_regression"},
-		"neutral query is no_gain":    {100 * time.Millisecond, false, "no_gain"},
-		"small gain is still no_gain": {95 * time.Millisecond, false, "no_gain"},
+		"query gain is retained":   {70 * time.Millisecond, true, ""},
+		"query regression reverts": {300 * time.Millisecond, false, "query_regression"},
+		"neutral query is no_gain": {100 * time.Millisecond, false, "no_gain"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -116,94 +168,73 @@ func TestWriteMeasurementErrorLeavesVerdictToQueries(t *testing.T) {
 			signal := writeSignalOf(t, verdict)
 			msg, _ := signal["error"].(string)
 			if !strings.Contains(msg, "snapshots relation is locked") ||
-				!strings.Contains(msg, "write measurements") {
+				!strings.Contains(msg, "write cost") || signal["outcome"] != writeInsufficient {
 				t.Fatalf("write_signal = %#v, want the read error with context", signal)
-			}
-			if signal["exceeds_threshold"] != false {
-				t.Fatalf("write_signal = %#v, want exceeds_threshold=false on error", signal)
 			}
 		})
 	}
 }
 
-// A rise of exactly write_impact_pct does not exceed it; one nanosecond more
-// does. Either way the index is retained.
-func TestWriteSignalThresholdBoundary(t *testing.T) {
+// The query reasons come first: a write regression never turns a query
+// regression or a no_gain into write_impact, and never ends an extended
+// (insufficient-samples) window early.
+func TestQueryReasonsTakePrecedenceOverWriteImpact(t *testing.T) {
 	cases := map[string]struct {
-		after   time.Duration
-		exceeds bool
+		after      Measurement
+		wantStatus string
+		wantReason string
 	}{
-		"exactly 20%":     {12 * time.Millisecond, false},
-		"just above 20%":  {12*time.Millisecond + time.Nanosecond, true},
-		"write time fell": {5 * time.Millisecond, false},
+		"query regression": {Measurement{Samples: 60, AverageLatency: 300 * time.Millisecond,
+			Buckets: 12}, "reverted", "query_regression"},
+		"neutral queries": {Measurement{Samples: 60, AverageLatency: 100 * time.Millisecond,
+			Buckets: 12}, "reverted", "no_gain"},
+		"too few samples": {Measurement{Samples: 5, AverageLatency: 70 * time.Millisecond,
+			Buckets: 12}, "extended", "insufficient_samples"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			source := newFakeObservationSource()
-			source.writeAfter = Measurement{Samples: 60, AverageLatency: tc.after}
-			verdict := watchWithWrites(t, source, "write-boundary-"+name)
-			if !verdict.Retain || verdict.Revert {
-				t.Fatalf("verdict = %#v, want retained", verdict)
+			source.after[42] = tc.after
+			source.writeAfter = measuredCost(400)
+			verdict := watchWithWrites(t, source, "precedence-"+name)
+			if verdict.Status != tc.wantStatus || verdict.Reason != tc.wantReason {
+				t.Fatalf("verdict = %#v, want %s %s", verdict, tc.wantStatus, tc.wantReason)
 			}
 			signal := writeSignalOf(t, verdict)
-			if signal["exceeds_threshold"] != tc.exceeds {
-				t.Fatalf("write_signal = %#v, want exceeds_threshold=%v", signal, tc.exceeds)
+			if signal["decisive"] != false || signal["outcome"] != writeRegressed {
+				t.Fatalf("write_signal = %#v, want a recorded, non-decisive regression",
+					signal)
 			}
 		})
 	}
 }
 
-// A neutral query result with a write surge used to revert as a write
-// regression (that case came first); it is now no_gain, its own reason.
-func TestNeutralQueriesWithWriteSurgeRevertAsNoGain(t *testing.T) {
+// The signal reads the watched table over the pre-action window
+// [executedAt-window, executedAt] and the post-action one [executedAt, now].
+func TestWriteSignalReadsTheWatchedTableWindows(t *testing.T) {
 	source := newFakeObservationSource()
-	source.after[42] = Measurement{Samples: 60, AverageLatency: 100 * time.Millisecond,
-		Buckets: 12}
-	source.writeAfter = Measurement{Samples: 60, AverageLatency: 30 * time.Millisecond}
-	verdict := watchWithWrites(t, source, "neutral-surge")
-	if !verdict.Revert || verdict.Reason != "no_gain" || verdict.Outcome != OutcomeNeutral {
-		t.Fatalf("verdict = %#v, want a no_gain revert with a neutral outcome", verdict)
+	watchWithWrites(t, source, "write-windows")
+	request := successfulWatchRequest("write-windows")
+	want := []writeRead{
+		{table: "public.orders", from: request.ExecutedAt.Add(-2 * time.Hour),
+			to: request.ExecutedAt},
+		{table: "public.orders", from: request.ExecutedAt, to: testVerificationNow()},
 	}
-	if writeSignalOf(t, verdict)["exceeds_threshold"] != true {
-		t.Fatalf("write_signal must still report the surge")
-	}
-}
-
-// Every decided or extended verdict carries the signal, and no revert
-// reason outside the query, validity and sample reasons is ever produced.
-func TestRevertReasonsExcludeTheWriteSignal(t *testing.T) {
-	allowed := map[string]bool{"query_regression": true, "no_gain": true,
-		"invalid_index": true, "insufficient_samples": true}
-	afters := []Measurement{
-		{Samples: 60, AverageLatency: 70 * time.Millisecond, Buckets: 12},
-		{Samples: 60, AverageLatency: 300 * time.Millisecond, Buckets: 12},
-		{Samples: 60, AverageLatency: 100 * time.Millisecond, Buckets: 12},
-		{Samples: 5, AverageLatency: 70 * time.Millisecond, Buckets: 12},
-	}
-	for i, after := range afters {
-		source := newFakeObservationSource()
-		source.after[42] = after
-		source.writeAfter = Measurement{Samples: 60, AverageLatency: time.Second}
-		verdict := watchWithWrites(t, source, "reasons-"+string(rune('a'+i)))
-		if verdict.Revert && !allowed[verdict.Reason] {
-			t.Fatalf("case %d: revert reason %q is not a query/validity/sample reason",
-				i, verdict.Reason)
-		}
-		if verdict.Retain && verdict.Revert {
-			t.Fatalf("case %d: verdict both retains and reverts: %#v", i, verdict)
-		}
-		writeSignalOf(t, verdict)
+	if len(source.writeReads) != 2 || source.writeReads[0] != want[0] ||
+		source.writeReads[1] != want[1] {
+		t.Fatalf("write reads = %#v, want %#v", source.writeReads, want)
 	}
 }
 
-func TestWriteSignalStateTransitionsOnResume(t *testing.T) {
-	// An extended (insufficient-samples) watch carries the signal, and the
-	// later resumed decision is still made by the queries alone.
+// State transition: an extended watch records the signal, and the resumed
+// decision reverts on the table's write regression once the queries have
+// enough samples; the durable state keeps the write_impact reason.
+func TestWriteImpactAfterResume(t *testing.T) {
 	store := newMemoryStateStore()
 	source := newFakeObservationSource()
 	source.after[42] = Measurement{Samples: 10, AverageLatency: 70 * time.Millisecond,
 		Buckets: 12}
-	source.writeAfter = Measurement{Samples: 60, AverageLatency: 50 * time.Millisecond}
+	source.writeAfter = measuredCost(200)
 	first, err := newTestEngine(t, source, store).Watch(context.Background(),
 		successfulWatchRequest("resume-signal"))
 	if err != nil || first.Status != "extended" {
@@ -223,27 +254,23 @@ func TestWriteSignalStateTransitionsOnResume(t *testing.T) {
 		t.Fatalf("ResumeDueResults = %#v, %v", results, err)
 	}
 	got := results[0].Verdict
-	if !got.Retain || got.Revert || writeSignalOf(t, got)["exceeds_threshold"] != true {
-		t.Fatalf("resumed verdict = %#v, want retained with the surge recorded", got)
+	if !got.Revert || got.Reason != "write_impact" || writeSignalOf(t, got)["decisive"] != true {
+		t.Fatalf("resumed verdict = %#v, want a decisive write_impact revert", got)
+	}
+	stored, err := store.Get(context.Background(), "resume-signal")
+	if err != nil || stored.Reason != "write_impact" || stored.Status != "reverted" {
+		t.Fatalf("stored = %#v, %v; want the write_impact revert persisted", stored, err)
 	}
 }
 
 func TestWriteSignalPureFunctionEdges(t *testing.T) {
-	// Zero-value observation and criterion: no baseline, not decisive.
-	signal := writeSignal(Criterion{}, observations{})
-	if signal["decisive"] != false || signal["exceeds_threshold"] != false {
+	// Zero-value criterion and observation: insufficient, not decisive.
+	signal := writeSignal(WatchState{}, observations{}, false)
+	if signal["decisive"] != false || signal["exceeds_threshold"] != false ||
+		signal["outcome"] != writeInsufficient {
 		t.Fatalf("zero signal = %#v", signal)
 	}
 	if _, has := signal["delta_pct"]; has {
 		t.Fatalf("zero signal = %#v, want no delta", signal)
-	}
-	// A negative baseline (a counter reset clamps to 0 in SQL, but never
-	// trust it) is treated as no baseline, not as a huge rise.
-	signal = writeSignal(Criterion{WriteImpactPct: 20}, observations{
-		writeBefore: Measurement{AverageLatency: -time.Millisecond},
-		writeAfter:  Measurement{AverageLatency: time.Millisecond},
-	})
-	if signal["exceeds_threshold"] != false || signal["unavailable"] == nil {
-		t.Fatalf("negative baseline signal = %#v, want unavailable", signal)
 	}
 }

@@ -95,8 +95,11 @@ func createWriteImpactRevert(t *testing.T, f createFixture, outcome string) {
 	if err := verify.NewPostgresStateStore(pool, 30).Create(ctx, state); err != nil {
 		t.Fatalf("create watch: %v", err)
 	}
+	// v2.5.0 stored no write_scope: its write_impact came from the
+	// database-wide signal (executor-03b marks every newer watch).
 	if _, err := pool.Exec(ctx, `UPDATE sage.verification SET verdict='revert',
-		reason='write_impact', next_evaluation_at=now()-interval '1 minute'
+		reason='write_impact', next_evaluation_at=now()-interval '1 minute',
+		baseline = baseline - 'write_scope'
 		WHERE action_log_id=$1`, f.id); err != nil {
 		t.Fatalf("simulate the v2.5.0 revert: %v", err)
 	}

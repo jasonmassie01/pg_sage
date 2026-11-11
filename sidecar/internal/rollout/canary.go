@@ -162,12 +162,14 @@ func (s *CanaryService) List(ctx context.Context, limit int) ([]RunRecord, error
 	return s.runs.List(ctx, limit)
 }
 
-// preparedCanary is a validated, recorded canary ready to run.
+// preparedCanary is a validated, recorded canary ready to run, and the
+// lock its run holds until it ends.
 type preparedCanary struct {
 	record    RunRecord
 	request   Request
 	source    SourceAction
 	approvedB *int
+	lock      *runLock
 }
 
 func (s *CanaryService) prepare(ctx context.Context, req StartRequest) (preparedCanary,
@@ -194,12 +196,19 @@ func (s *CanaryService) prepare(ctx context.Context, req StartRequest) (prepared
 	record := RunRecord{EvidenceID: "canary-" + newRunID(), SourceInstance: req.SourceDatabase,
 		PriorEvidenceID: prior.EvidenceID, Policy: request.Policy, State: "canary",
 		CreatedAt: now, UpdatedAt: now, Family: req.Family, Class: req.Class,
-		StartedBy: req.StartedBy}
+		StartedBy: req.StartedBy, Targets: append([]string(nil), req.Targets...)}
+	// The lock is held before the run is visible in canary, so a sweep
+	// never takes a run that is starting for one nobody runs.
+	lock, err := s.runs.lockRun(ctx, record.EvidenceID)
+	if err != nil {
+		return preparedCanary{}, err
+	}
 	if err := s.runs.Create(ctx, record); err != nil {
+		lock.release()
 		return preparedCanary{}, err
 	}
 	return preparedCanary{record: record, request: request, source: source,
-		approvedB: req.ApprovedBy}, nil
+		approvedB: req.ApprovedBy, lock: lock}, nil
 }
 
 func (s *CanaryService) policyFor(targets int) Policy {
@@ -228,11 +237,15 @@ func (s *CanaryService) verifiedSource(ctx context.Context, req StartRequest) (S
 	return src, nil
 }
 
-// execute runs the engine over the targets and persists the result.
+// execute runs the engine over the targets, recording each target's part
+// as it goes, and persists the result. A run another sidecar marked
+// interrupted meanwhile stays interrupted.
 func (s *CanaryService) execute(ctx context.Context, p preparedCanary) (RunRecord, error) {
+	defer p.lock.release()
 	backend := &canaryBackend{svc: s, source: p.source, approvedBy: p.approvedB,
 		findings: map[string]int{}, actions: map[string]int64{}}
-	result, runErr := NewEngine(backend, backend).Rollout(ctx, p.request)
+	progress := &progressBackend{canaryBackend: backend, runID: p.record.EvidenceID}
+	result, runErr := NewEngine(progress, progress).Rollout(ctx, p.request)
 	record := p.record
 	record.AppliedInstances = result.AppliedInstances
 	record.CanaryInstanceIDs = append([]string(nil), result.CanaryInstanceIDs...)
@@ -247,7 +260,11 @@ func (s *CanaryService) execute(ctx context.Context, p preparedCanary) (RunRecor
 		record.State = "complete"
 	}
 	persistCtx := context.WithoutCancel(ctx)
-	err := errors.Join(runErr, s.runs.Update(persistCtx, record),
+	updateErr := s.runs.Update(persistCtx, record)
+	if errors.Is(updateErr, ErrRunInterrupted) {
+		record.State, record.HaltReason = StateInterrupted, HaltSidecarRestart
+	}
+	err := errors.Join(runErr, updateErr,
 		s.runs.SaveInstances(persistCtx, record.EvidenceID, backend.records(result,
 			record.UpdatedAt)))
 	return record, err

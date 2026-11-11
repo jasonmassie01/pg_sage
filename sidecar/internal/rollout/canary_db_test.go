@@ -169,7 +169,12 @@ type canaryFixture struct {
 
 func newCanaryFixture(t *testing.T, names ...string) *canaryFixture {
 	t.Helper()
-	pool := bootstrappedPool(t)
+	return newCanaryFixtureOn(t, bootstrappedPool(t), names...)
+}
+
+// newCanaryFixtureOn is newCanaryFixture on a database of the caller's.
+func newCanaryFixtureOn(t *testing.T, pool *pgxpool.Pool, names ...string) *canaryFixture {
+	t.Helper()
 	f := &canaryFixture{targets: map[string]*fakeTarget{}, runs: NewPostgresRunStore(pool)}
 	src := newTarget("source", "")
 	src.source[42] = SourceAction{SQL: canarySQL,

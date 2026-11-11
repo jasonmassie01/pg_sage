@@ -79,6 +79,9 @@ func startAPIServer(rl *RateLimiter) {
 		os.Exit(1)
 	}
 	startAuthPoolServices(result.AuthPool)
+	if result.Canary != nil {
+		go recoverInterruptedCanaries(result.Canary, result.AuthPool)
+	}
 	startTLSExpiryWatch(shutdownCtx, apiTLS, tlsExpiryCheckInterval)
 	serveAPI(addr, result.Handler)
 }

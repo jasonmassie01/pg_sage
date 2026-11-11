@@ -57,8 +57,9 @@ func evidenceMean(comparison map[string]any, side string) float64 {
 }
 
 // outcomeReason is the verdict reason, then the comparison's, then the
-// status. A write signal over its threshold is named as database-wide and
-// advisory: it is evidence beside the verdict, never its cause.
+// status. A table write cost over its threshold is named with its table:
+// the cause of a write_impact revert, or evidence beside a query reason
+// that came first (executor-03b).
 func outcomeReason(v verify.Verdict) string {
 	comparison, _ := v.Evidence["comparison"].(map[string]any)
 	reason, _ := comparison["reason"].(string)
@@ -72,7 +73,7 @@ func outcomeReason(v verify.Verdict) string {
 	}
 	delta, _ := signal["delta_pct"].(float64)
 	threshold, _ := signal["threshold_pct"].(float64)
-	return fmt.Sprintf("%s; database-wide write time %+.1f%% (over the %g%% "+
-		"write_impact_pct) is advisory and not attributed to this index", reason, delta,
-		threshold)
+	table, _ := signal["table"].(string)
+	return fmt.Sprintf("%s; WAL bytes per tuple written to %s %+.1f%% (over the %g%% "+
+		"write_impact_pct)", reason, table, delta, threshold)
 }

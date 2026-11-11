@@ -63,9 +63,11 @@ func TestPostgresObservationSourceReadsRealCollectorTables(t *testing.T) {
 		queries[990022].AverageLatency != 10*time.Millisecond {
 		t.Fatalf("QueryMeasurements() = %#v, %v", queries, err)
 	}
-	writes, err := source.WriteMeasurements(ctx, "public.verify_adapter_test", from, to)
-	if err != nil || writes.Samples != 2 || writes.AverageLatency != 30*time.Millisecond {
-		t.Fatalf("WriteMeasurements() = %#v, %v", writes, err)
+	// Two system cycles without WAL positions or tables rows: one interval,
+	// unknown, so no write cost (executor-03b).
+	writes, err := source.WriteCost(ctx, "public.verify_adapter_test", from, to)
+	if err != nil || writes != (WriteCost{Unknown: 1}) {
+		t.Fatalf("WriteCost() = %#v, %v", writes, err)
 	}
 	valid, err := source.IndexValid(ctx, "public.idx_verify_adapter_test")
 	if err != nil || !valid {

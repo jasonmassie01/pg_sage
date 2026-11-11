@@ -85,6 +85,8 @@ type RunRecord struct {
 	Family    string `json:"family,omitempty"`
 	Class     string `json:"class,omitempty"`
 	StartedBy string `json:"started_by,omitempty"`
+	// Targets are the databases the run was asked to change, in order.
+	Targets []string `json:"targets,omitempty"`
 }
 
 // Instance statuses.
@@ -101,7 +103,36 @@ const (
 	// StatusAppliedUnverified: changed, then a rollout error, and the
 	// rollback failed too; the instance keeps a change no verdict judged.
 	StatusAppliedUnverified = "applied_unverified"
+	// StatusApplying: re-verified; the canary is changing the database.
+	StatusApplying = "applying"
+	// StatusAwaitingVerdict: changed; the database's own verdict is open.
+	StatusAwaitingVerdict = "awaiting_verdict"
+	// StatusInterrupted: the run stopped (a sidecar restart) while the
+	// database was being changed or awaited its verdict. Any change it
+	// made stays with that database's own post-action monitor.
+	StatusInterrupted = "interrupted"
 )
+
+// StateInterrupted is a run a stopped sidecar left in canary; it is
+// final and never resumed. HaltSidecarRestart is its halt reason.
+const (
+	StateInterrupted   = "interrupted"
+	HaltSidecarRestart = "sidecar_restart"
+)
+
+// ErrRunInterrupted refuses a write for a run that is no longer in
+// canary: another sidecar marked it interrupted (or it never existed).
+var ErrRunInterrupted = errors.New("the canary run is no longer running")
+
+// InterruptedRun is a run the startup sweep marked interrupted, with the
+// instances it was changing or measuring when it stopped (Changing) and
+// those it had changed with a verdict recorded, which keep the change
+// because an interrupted run rolls nothing back (Kept).
+type InterruptedRun struct {
+	Run      RunRecord
+	Changing []InstanceRecord
+	Kept     []InstanceRecord
+}
 
 // HaltVerificationPending halts a rollout whose instance had no verdict
 // by its deadline; it rolls nothing back.

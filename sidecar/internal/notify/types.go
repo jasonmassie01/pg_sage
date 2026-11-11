@@ -45,6 +45,7 @@ var ValidEventTypes = map[string]bool{
 	"incident_resolved":       true,
 	"custodian_escalation":    true,
 	"fact_expired":            true,
+	"canary_interrupted":      true,
 }
 
 // ValidSeverities lists all supported severity levels with numeric rank.
@@ -64,6 +65,7 @@ var EventSeverity = map[string]string{
 	"query_rewrite_suggested": "warning",
 	"custodian_escalation":    "critical",
 	"fact_expired":            "warning",
+	"canary_interrupted":      "warning",
 }
 
 // DefaultMinSeverity is the min_severity a new rule for event gets when

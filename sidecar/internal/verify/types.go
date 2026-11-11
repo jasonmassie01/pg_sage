@@ -99,7 +99,8 @@ type ObservationSource interface {
 	QueryMeasurements(context.Context, []int64, time.Time, time.Time) (
 		map[int64]Measurement, error,
 	)
-	WriteMeasurements(context.Context, string, time.Time, time.Time) (Measurement, error)
+	// WriteCost is the table-scoped write cost of one window (executor-03b).
+	WriteCost(context.Context, string, time.Time, time.Time) (WriteCost, error)
 	IndexValid(context.Context, string) (bool, error)
 	LoadEvidence(context.Context) (LoadEvidence, error)
 }

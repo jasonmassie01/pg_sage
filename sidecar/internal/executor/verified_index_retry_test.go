@@ -59,10 +59,12 @@ func (s *retrySource) QueryMeasurements(
 	return result, nil
 }
 
-func (s *retrySource) WriteMeasurements(
+// WriteCost reports no attributable table writes: insufficient write
+// evidence, so the queries decide.
+func (s *retrySource) WriteCost(
 	context.Context, string, time.Time, time.Time,
-) (verify.Measurement, error) {
-	return verify.Measurement{Samples: 60, AverageLatency: 10 * time.Millisecond}, nil
+) (verify.WriteCost, error) {
+	return verify.WriteCost{}, nil
 }
 
 func (s *retrySource) IndexValid(context.Context, string) (bool, error) { return true, nil }
