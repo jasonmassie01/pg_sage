@@ -2528,8 +2528,27 @@ or approves. See [Ask Sage](ask-sage.md).
 ### Forecaster
 
 The forecaster (`forecaster.*`, see `sidecar/config.example.yaml`) fits daily trends
-over `lookback_days` of system snapshots and needs 7 days of data for each trend
-(8 closed days for the checkpoint rate, which is a difference between days).
+over the `lookback_days` closed calendar days before today and needs 7 days of data
+for each trend (8 closed days for the checkpoint rate, which is a difference between
+days).
+
+- Closed days only. Every daily rule leaves today's partial day out (the history
+  database's session time zone), so a rule gives the same answer at 00:10 and at
+  23:50, and a daily finding lags by up to a day. The window starts at a day's start,
+  so its oldest day is whole whatever the hour.
+- Coverage. A day counts when its snapshots cover at least 80% of its 24 hours:
+  snapshots x `collector.interval_seconds`, capped by the hours from the day's first
+  to its last snapshot (a burst does not cover a day). The interval used is at least
+  the median spacing of the window's snapshots, so raising the interval does not
+  uncover every day. An uncovered day is unknown to every rule, as a day without a
+  measured input is; a day without any snapshot is missing, and no rate or week spans
+  it silently.
+- Fit and span. `forecast_disk_growth` and `forecast_connection_saturation` project
+  only when the linear fit explains at least `forecaster.min_r_squared` of the series
+  (default `0.5`; `0` means the default) and the series spans at least 7 calendar
+  days. A noisy trend gives no finding (and resolves an open one). Their details carry
+  `r_squared`, `span_days` (calendar days from the first to the newest day) and
+  `covered_days` (the days fitted); their titles carry the projected date.
 
 - Days without a measured database size (`pg_database_size` had not yet succeeded,
   timed out, or is refused by the provider) are left out of the disk growth trend
@@ -2549,7 +2568,24 @@ over `lookback_days` of system snapshots and needs 7 days of data for each trend
   is shorter: the disk runway judges the whole disk. On a managed database the
   detail also names `managed_storage_runway` as the authority inside 7 days.
 - Days without backend counts or `max_connections` are left out of the connection
-  trend.
+  trend. `forecast_connection_saturation` counts client backends (`client_backends`:
+  the cluster's `backend_type = 'client backend'` sessions, so background workers,
+  the checkpointer and autovacuum are not load) against the slots a client can take:
+  `max_connections` less `reserved_connections` in the system snapshot
+  (`superuser_reserved_connections`, plus `reserved_connections` on PG 16+; managed
+  providers expose both). It warns at `forecaster.connection_warn_pct` of those slots.
+  Snapshots written before this version lack both counts, so until 7 days carry them
+  the rule keeps the old basis, every backend against `max_connections`, and the
+  detail says `limit_basis: legacy` (otherwise `client_backends`, with
+  `usable_connections` and `reserved_connections`). In fleet mode each runtime
+  forecasts on its own; the counts are cluster-wide.
+- `forecast_query_volume` compares the calls of the 7 closed days ending yesterday
+  with the 7 before (warning above 50%, critical above 100%). All 14 days must be
+  covered and consecutive, and the earlier week must have calls; otherwise the category
+  is not evaluated, so an outage or a fresh install does not read as growth, and an
+  open finding is neither refreshed nor resolved until two complete weeks exist again.
+  Calls counted across midnight or a collector gap are shared between the days by
+  hours.
 - The checkpoint trend (`forecast_checkpoint_pressure`) counts requested checkpoints
   only: WAL-triggered ones (WAL reached `max_wal_size` before `checkpoint_timeout`) and
   explicit ones (`CHECKPOINT`, base backups). Timed checkpoints are counted by
@@ -2597,7 +2633,8 @@ over `lookback_days` of system snapshots and needs 7 days of data for each trend
   still load, with a warning each, and have no effect; remove them.
 - `forecaster.min_data_points` and `forecaster.alert_horizons` are retired: they fed only
   the v0.9 growth forecaster, which never ran. They still load, with a warning each, and
-  have no effect; remove them. `forecaster.min_r_squared` stays.
+  have no effect; remove them. `forecaster.min_r_squared` stays: it gates the disk
+  growth and connection saturation projections (above).
 
 #### Disk forecasts
 

@@ -1199,7 +1199,7 @@
   "forecaster.min_r_squared": {
     "type": "float64",
     "default": 0.5,
-    "doc": "Minimum R-squared for forecast reliability. Below this, findings are info-only. Default: 0.5.",
+    "doc": "Minimum R-squared a disk growth or connection saturation trend needs before it is projected; below it there is no finding. 0 means the default. Default: 0.5.",
     "class": "derivable"
   },
   "ha.check_interval_seconds": {

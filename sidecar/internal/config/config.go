@@ -370,7 +370,7 @@ type ForecasterConfig struct {
 	CheckpointRequestedPerHour float64 `yaml:"checkpoint_requested_per_hour" doc:"Requested (WAL-triggered or explicit) checkpoints per hour, as an EWMA over closed days, at which forecast_checkpoint_pressure warns. Timed checkpoints are not counted. 0 < value <= 3600. Default: 2."`
 
 	DiskCapacityBytes int64   `yaml:"disk_capacity_bytes" doc:"Disk capacity in bytes for the disk runway, disk-full credit and days_until_full. 0 = undeclared: never auto-detected self-hosted. Managed: a fresh provider capacity wins; never credited."`
-	MinRSquared       float64 `yaml:"min_r_squared" doc:"Minimum R-squared for forecast reliability. Below this, findings are info-only. Default: 0.5."`
+	MinRSquared       float64 `yaml:"min_r_squared" doc:"Minimum R-squared a disk growth or connection saturation trend needs before it is projected; below it there is no finding. 0 means the default. Default: 0.5."`
 }
 
 // RCAConfig controls the root cause analysis engine (v0.9).
