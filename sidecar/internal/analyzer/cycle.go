@@ -164,13 +164,17 @@ func (a *Analyzer) runDatabaseRules(
 }
 
 // runSeqScanWatchdog skips tables already flagged by the missing-FK rule.
+// Without a table-counter interval (no previous snapshot, a moved stats
+// epoch) seq_scan_heavy is not evaluated, so its open findings stay open;
+// tables with no interval of their own are kept open (rules-10).
 func (a *Analyzer) runSeqScanWatchdog(
 	current, previous *collector.Snapshot, prior []Finding,
 ) []Finding {
-	if len(current.Tables) == 0 {
+	if len(current.Tables) == 0 || !hasRelationInterval(current, previous) {
 		a.eval.fail("seq_scan_heavy")
 	}
 	a.eval.evaluated("seq_scan_heavy")
+	a.eval.keep("seq_scan_heavy", seqScanUndecided(current, previous)...)
 	return ruleSeqScanWatchdog(current, previous, a.cfg, missingFKTables(prior))
 }
 

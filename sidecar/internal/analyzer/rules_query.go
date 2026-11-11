@@ -130,56 +130,70 @@ func ruleHighPlanTime(
 	return findings
 }
 
-// ruleSeqScanWatchdog flags tables with excessive sequential scans relative
-// to index scans, when the table is large enough to matter.
+// ruleSeqScanWatchdog flags tables whose sequential scans in the interval
+// since the previous snapshot dwarf their index scans, when the table is
+// large enough to matter (rules-10): more than 100 seq scans in the
+// interval and more than ten times its index scans. Lifetime counters
+// would flag an old storm forever and hide a new one on an index-heavy
+// table. Without an interval (hasRelationInterval) nothing is judged.
 // skipTables is a set of schema.table identifiers already flagged by
 // missing FK index rules (to avoid noisy double-flagging).
 func ruleSeqScanWatchdog(
 	current *collector.Snapshot,
-	_ *collector.Snapshot,
+	previous *collector.Snapshot,
 	cfg *config.Config,
 	skipTables map[string]bool,
 ) []Finding {
+	if !hasRelationInterval(current, previous) {
+		return nil
+	}
 	minRows := int64(cfg.Analyzer.SeqScanMinRows)
+	before := tablesByIdent(previous)
+	seconds := current.CollectedAt.Sub(previous.CollectedAt).Seconds()
 	var findings []Finding
-
 	for _, t := range current.Tables {
 		ident := t.SchemaName + "." + t.RelName
-		if skipTables[ident] {
+		p, seen := before[ident]
+		if skipTables[ident] || !seen || t.NLiveTup < minRows {
 			continue
 		}
-		if t.SeqScan <= 100 || t.NLiveTup < minRows {
+		d, ok := scanDelta(p, t)
+		if !ok || d.seq <= 100 || d.seq <= d.idx*10 {
 			continue
 		}
-		if t.IdxScan > 0 && t.SeqScan <= t.IdxScan*10 {
-			continue
-		}
-
-		rec := "Consider adding indexes for frequent query patterns."
-		detail := map[string]any{
-			"seq_scan":       t.SeqScan,
-			"idx_scan":       t.IdxScan,
-			"n_live_tup":     t.NLiveTup,
-			"relpersistence": t.Relpersistence,
-		}
-		if t.IsUnlogged() {
-			detail["unlogged"] = true
-			rec += " Note: unlogged table — indexes are also " +
-				"unlogged and lost on crash."
-		}
-		findings = append(findings, Finding{
-			Category:         "seq_scan_heavy",
-			Severity:         "warning",
-			ObjectType:       "table",
-			ObjectIdentifier: ident,
-			Title: fmt.Sprintf(
-				"Table %s: %d seq scans vs %d idx scans (%d rows)",
-				ident, t.SeqScan, t.IdxScan, t.NLiveTup,
-			),
-			Detail:         detail,
-			Recommendation: rec,
-			ActionRisk:     "safe",
-		})
+		findings = append(findings, seqScanFinding(t, d, seconds))
 	}
 	return findings
+}
+
+func seqScanFinding(t collector.TableStats, d scanCounts, seconds float64) Finding {
+	ident := t.SchemaName + "." + t.RelName
+	rec := "Consider adding indexes for frequent query patterns."
+	detail := map[string]any{
+		"seq_scan":          t.SeqScan,
+		"idx_scan":          t.IdxScan,
+		"interval_seq_scan": d.seq,
+		"interval_idx_scan": d.idx,
+		"interval_seconds":  seconds,
+		"n_live_tup":        t.NLiveTup,
+		"relpersistence":    t.Relpersistence,
+	}
+	if t.IsUnlogged() {
+		detail["unlogged"] = true
+		rec += " Note: unlogged table — indexes are also " +
+			"unlogged and lost on crash."
+	}
+	return Finding{
+		Category:         "seq_scan_heavy",
+		Severity:         "warning",
+		ObjectType:       "table",
+		ObjectIdentifier: ident,
+		Title: fmt.Sprintf(
+			"Table %s: %d seq scans vs %d idx scans in the last %.0fs (%d rows)",
+			ident, d.seq, d.idx, seconds, t.NLiveTup,
+		),
+		Detail:         detail,
+		Recommendation: rec,
+		ActionRisk:     "safe",
+	}
 }

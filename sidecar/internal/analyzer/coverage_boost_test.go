@@ -1262,7 +1262,7 @@ func TestCoverage_RuleSeqScanWatchdog_HighSeqScans(t *testing.T) {
 		},
 	}
 
-	findings := ruleSeqScanWatchdog(snap, nil, cfg, nil)
+	findings := ruleSeqScanWatchdog(snap, zeroPrevious(snap), cfg, nil)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(findings))
 	}
@@ -1282,7 +1282,7 @@ func TestCoverage_RuleSeqScanWatchdog_SmallTable(t *testing.T) {
 		},
 	}
 
-	findings := ruleSeqScanWatchdog(snap, nil, cfg, nil)
+	findings := ruleSeqScanWatchdog(snap, zeroPrevious(snap), cfg, nil)
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings for small table, got %d", len(findings))
 	}
@@ -1299,7 +1299,7 @@ func TestCoverage_RuleSeqScanWatchdog_LowSeqScans(t *testing.T) {
 		},
 	}
 
-	findings := ruleSeqScanWatchdog(snap, nil, cfg, nil)
+	findings := ruleSeqScanWatchdog(snap, zeroPrevious(snap), cfg, nil)
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings for low seq scans, got %d", len(findings))
 	}
@@ -1317,7 +1317,7 @@ func TestCoverage_RuleSeqScanWatchdog_SkipTables(t *testing.T) {
 	}
 	skip := map[string]bool{"public.fk_table": true}
 
-	findings := ruleSeqScanWatchdog(snap, nil, cfg, skip)
+	findings := ruleSeqScanWatchdog(snap, zeroPrevious(snap), cfg, skip)
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings for skipped table, got %d", len(findings))
 	}
@@ -1334,7 +1334,7 @@ func TestCoverage_RuleSeqScanWatchdog_BalancedRatio(t *testing.T) {
 		},
 	}
 
-	findings := ruleSeqScanWatchdog(snap, nil, cfg, nil)
+	findings := ruleSeqScanWatchdog(snap, zeroPrevious(snap), cfg, nil)
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings for balanced ratio, got %d", len(findings))
 	}
@@ -1352,7 +1352,7 @@ func TestCoverage_RuleSeqScanWatchdog_UnloggedTable(t *testing.T) {
 		},
 	}
 
-	findings := ruleSeqScanWatchdog(snap, nil, cfg, nil)
+	findings := ruleSeqScanWatchdog(snap, zeroPrevious(snap), cfg, nil)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(findings))
 	}
