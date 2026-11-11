@@ -356,9 +356,14 @@ Sequence exhaustion causes `INSERT` failures. Address critical findings immediat
 
 Detects tables with excessive dead tuple accumulation or bloat.
 
-**Severity:** warning (critical for XID wraparound risk)
+**Source:** `rules_vacuum.go`
 
-**What it detects:** Tables with high dead tuple ratios indicating VACUUM is not keeping up.
+**Severity:** warning (SAFE-tier `VACUUM`); info, with no SQL, while IO is saturated
+
+**What it detects:** Tables whose dead tuples exceed
+`analyzer.table_bloat_dead_tuple_pct` (default `20`) percent of their live plus
+dead tuples, on tables with at least `analyzer.table_bloat_min_rows` (default
+`1000`) rows: VACUUM is not keeping up.
 
 **Example output:**
 
@@ -378,7 +383,9 @@ VACUUM (VERBOSE) public.events;
 
 Recommends a per-table `autovacuum_vacuum_scale_factor` for large, write-heavy tables.
 
-**Severity:** warning (SAFE-tier action)
+**Source:** `rules_autovacuum_tuning.go`
+
+**Severity:** warning (`moderate`-tier `set_table_autovacuum` action)
 
 **What it detects:** Tables with at least `analyzer.autovacuum_tune_min_rows` live rows (default 1,000,000) whose lifetime updates plus deletes exceed their live rows. The target scale factor is 0.05, 0.02 from 10M rows, and 0.01 from 50M rows.
 
@@ -398,27 +405,33 @@ This rule is pg_sage's only autovacuum tuner. The freeze custodian does not tune
 
 ### xid_wraparound
 
-Detects tables approaching XID wraparound threshold.
+Detects a database approaching the XID wraparound threshold.
 
-**Severity:** critical
+**Source:** `rules_vacuum.go`
 
-**What it detects:** Tables where the transaction ID age is approaching the wraparound limit, risking database shutdown.
+**Severity:** warning from `analyzer.xid_wraparound_warning` (default
+500,000,000), critical from `analyzer.xid_wraparound_critical` (default
+1,000,000,000)
+
+**What it detects:** The database's `age(datfrozenxid)` approaching the wraparound limit, risking database shutdown.
 
 **Example output:**
 
 ```
-XID age for public.orders approaching wraparound (1.8 billion)
+XID age is 1800000000 (wraparound risk)
 ```
 
-**Recommended action:** Run VACUUM FREEZE immediately.
-
-```sql
-VACUUM FREEZE public.orders;
-```
+**Recommended action:** Find what holds the xmin horizon (long transactions,
+replication slots, orphaned prepared transactions). The finding carries a
+read-only holder query in `detail.diagnostic_sql` and no SQL to run: the freeze
+custodian freezes red tables (see
+[the freeze ladder](configuration.md#vacuum-bloat-and-freeze-autopilot)).
 
 ---
 
 ### wraparound_freeze
+
+**Source:** `rules_wraparound_freeze.go`
 
 Diagnoses tables that have used `analyzer.wraparound_freeze_share` (default
 0.75) of their effective freeze maximum: the lower of
