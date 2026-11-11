@@ -1122,9 +1122,11 @@ snapshot with the earliest `system` or `tables` snapshot inside the window, read
   skips the WAL review for the cycle (it retries like a model error), so nothing is
   recommended from one snapshot.
 - **Verification.** An executed `max_wal_size` or `checkpoint_timeout` change is judged
-  by the requested share of checkpoints over the monitor window against the share before
-  the change: improved under 20% or at half or less, with at least 3 checkpoints in the
-  window. A statistics reset is insufficient evidence; a WAL change is never judged a
+  by the requested share of checkpoints over the monitor window against the lifetime
+  share at apply time (since the checkpoint statistics were last reset): improved under
+  20% or at half or less, with at least 3 checkpoints in the window. A lifetime share
+  already under 20% is insufficient evidence, even if the advisor window's share was
+  higher. A statistics reset is insufficient evidence; a WAL change is never judged a
   regression.
 - **Bloat candidates.** The bloat prompt lists the 50 tables with the most estimated dead
   bytes (data size x dead-tuple share), worst first, and states how many more were
