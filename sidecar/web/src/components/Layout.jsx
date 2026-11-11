@@ -168,6 +168,11 @@ export function Layout({
   const isAdmin = user?.role === 'admin'
   const platformManaged = authMode === 'databricks_app'
   const activeRoute = findRoute(hash)
+  const headerTitle = pageTitle || activeRoute?.title || 'pg_sage'
+  // Each tab names its page for the tab list and screen readers (dashboard-10).
+  useEffect(() => {
+    document.title = headerTitle === 'pg_sage' ? 'pg_sage' : `${headerTitle} · pg_sage`
+  }, [headerTitle])
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const advanced = { open: advancedOpen, onToggle: () => setAdvancedOpen(open => !open) }
@@ -303,7 +308,7 @@ export function Layout({
               <h1
               className="text-base md:text-lg font-semibold truncate"
               style={{ color: 'var(--text-primary)' }}>
-              {pageTitle || activeRoute?.title || 'pg_sage'}
+              {headerTitle}
               </h1>
             </div>
           </div>

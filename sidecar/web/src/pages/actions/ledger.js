@@ -17,10 +17,21 @@ function isAbandonedRevert(row) {
     && String(row.rollback_reason || '').startsWith(abandonedRevertPrefix)
 }
 
-export function canRollBackRow(row) {
-  return row.record_kind === 'executed' && Boolean(row.rollback_sql)
+function isRollbackCandidate(row) {
+  return row.record_kind === 'executed'
     && ['success', 'monitoring', 'pending', ...retryableRollbacks].includes(row.outcome)
     && !isAbandonedRevert(row)
+}
+
+export function canRollBackRow(row) {
+  return isRollbackCandidate(row) && Boolean(row.rollback_sql)
+}
+
+// An executed action that could be rolled back but has no stored rollback SQL
+// shows a disabled Rollback with this reason (dashboard-10).
+export function rollbackUnavailableReason(row) {
+  if (!isRollbackCandidate(row) || row.rollback_sql) return null
+  return 'No rollback SQL was stored for this action, so pg_sage cannot roll it back.'
 }
 
 export function rollbackButtonLabel(row) {

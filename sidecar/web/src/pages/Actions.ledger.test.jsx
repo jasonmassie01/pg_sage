@@ -69,7 +69,6 @@ describe('Action ledger record kinds', () => {
       ok: true, json: async () => ({ ok: true }),
     })
     vi.stubGlobal('fetch', fetch)
-    vi.stubGlobal('confirm', () => true)
     render(<Actions database="all" user={{ role: 'admin' }} />)
     fireEvent.click(screen.getByTestId('actions-tab-executed'))
     fireEvent.click(screen.getAllByLabelText('Expand row')[1])
@@ -77,6 +76,8 @@ describe('Action ledger record kinds', () => {
     expect(buttons).toHaveLength(1)
     expect(screen.getByText('SQL Executed')).toBeInTheDocument()
     fireEvent.click(buttons[0])
+    expect(fetch).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByTestId('confirm-dialog-confirm'))
     await waitFor(() => expect(fetch).toHaveBeenCalled())
     const [url, init] = fetch.mock.calls[0]
     expect(url).toBe('/api/v1/actions/7/rollback')

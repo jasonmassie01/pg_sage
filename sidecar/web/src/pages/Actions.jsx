@@ -14,9 +14,8 @@ import { formatTotal, useCursorPages } from '../lib/listPaging'
 import { LoadMore } from '../components/LoadMore'
 import { QueryState } from '../components/QueryState'
 import { combineQueries } from '../lib/queryState'
-import {
-  canRollBackRow, isQueuedRow, queuedLabels, rollbackButtonLabel, showsRollbackReason,
-} from './actions/ledger'
+import { isQueuedRow, queuedLabels, showsRollbackReason } from './actions/ledger'
+import { RollbackButton, RollbackDialog } from './actions/RollbackControl'
 import { PendingErrors } from './actions/PendingErrors'
 import { IndexAdmissionPanel } from '../components/IndexAdmissionPanel'
 import { VerificationOutcome } from '../components/VerificationOutcome'
@@ -251,6 +250,7 @@ function ExecutedTab({ query, ...props }) {
 function ExecutedList({ data, paging, refetch, user, view, cases, database }) {
   const toast = useToast()
   const canRollback = user?.role === 'admin' || user?.role === 'operator'
+  const [rollbackRow, setRollbackRow] = useState(null)
   const actions = paging.rows
 
   const outcomeStyle = outcome => {
@@ -386,35 +386,10 @@ function ExecutedList({ data, paging, refetch, user, view, cases, database }) {
     },
   ]
 
-  async function handleRollback(row) {
-    if (!window.confirm('Run the stored rollback SQL for this action?')) {
-      return
-    }
-    const dbParam = row.database_name
-      ? `?database=${encodeURIComponent(row.database_name)}` : ''
-    try {
-      const res = await fetch(`/api/v1/actions/${row.id}/rollback${dbParam}`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          reason: 'manual rollback from actions UI',
-          record_kind: row.record_kind,
-        }),
-      })
-      let json = {}
-      try { json = await res.json() } catch { /* non-JSON error body */ }
-      if (!res.ok || !json.ok) {
-        toast.error(json.error || `Rollback failed (${res.status})`)
-        return
-      }
-      toast.success(`Action ${row.id} rolled back`)
-      refetch()
-    } catch (err) {
-      // A destructive rollback must never fail silently — a transport
-      // error here leaves the operator unsure whether the SQL ran.
-      toast.error(err.message || 'Rollback request failed')
-    }
+  function rolledBack(row) {
+    setRollbackRow(null)
+    toast.success(`Action ${row.id} rolled back`)
+    refetch()
   }
 
   if (actions.length === 0) {
@@ -485,21 +460,9 @@ function ExecutedList({ data, paging, refetch, user, view, cases, database }) {
                   Rollback SQL
                 </div>
                 <SQLBlock sql={row.rollback_sql} />
-                {canRollback && canRollBackRow(row) && (
-                  <button
-                    type="button"
-                    data-testid="rollback-action-button"
-                    onClick={() => handleRollback(row)}
-                    className="mt-2 px-2 py-1 rounded text-xs"
-                    style={{
-                      background: 'var(--yellow)',
-                      color: '#111827',
-                    }}>
-                    {rollbackButtonLabel(row)}
-                  </button>
-                )}
               </div>
             )}
+            {canRollback && <RollbackButton row={row} onOpen={setRollbackRow} />}
             <div className="flex gap-4 text-xs" style={{
               color: 'var(--text-secondary)',
             }}>
@@ -517,6 +480,10 @@ function ExecutedList({ data, paging, refetch, user, view, cases, database }) {
           </div>
         )}
       />
+      <RollbackDialog key={rollbackRow ? actionRowKey(rollbackRow) : 'closed'}
+        row={rollbackRow} database={database}
+        riskTier={rollbackRow ? actionRisk(rollbackRow) : undefined}
+        onClose={() => setRollbackRow(null)} onDone={rolledBack} />
       <LoadMore paging={paging} testId="actions-load-more" />
       <div className="text-xs" data-testid="executed-actions-count"
         style={{ color: 'var(--text-secondary)' }}>

@@ -39,7 +39,6 @@ describe('Retry rollback', () => {
   it('offers a retry and shows the reason on a rollback_skipped row', async () => {
     const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) })
     vi.stubGlobal('fetch', fetch)
-    vi.stubGlobal('confirm', () => true)
     render(<Actions database="all" user={{ role: 'admin' }} />)
     fireEvent.click(screen.getByTestId('actions-tab-executed'))
     fireEvent.click(screen.getAllByLabelText('Expand row')[0])
@@ -48,6 +47,8 @@ describe('Retry rollback', () => {
     const button = screen.getByTestId('rollback-action-button')
     expect(button).toHaveTextContent('Retry rollback')
     fireEvent.click(button)
+    expect(fetch).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByTestId('confirm-dialog-confirm'))
     await waitFor(() => expect(fetch).toHaveBeenCalled())
     expect(fetch.mock.calls[0][0]).toBe('/api/v1/actions/9/rollback')
   })
