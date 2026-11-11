@@ -1062,6 +1062,39 @@ budget.
 
 Retired keys: `llm.optimizer.plan_source`, `llm.optimizer.over_indexed_ratio_pct` and `llm.index_optimizer.over_indexed_ratio_pct` had no effect and are no longer read. A config that still sets one loads and prints one startup warning per key; remove them. The optimizer captures no plans (plan_source chose how it once did): the HypoPG what-if plans at most 25 SELECT statements per candidate (writes take no slot; the hottest by total time, always including the proposal's or the case's target statements) under `safety.lock_timeout_ms` capped at 1 s (below its 5 s statement timeout), and a lock timeout leaves the candidate unverified.
 
+### Connection advisor
+
+The connection review (`connection_tuning`, every `advisor.interval_seconds`) sizes
+against the advisor window, not one moment:
+
+- **`max_connections` floor.** The lowest value it lets through is the peak of total
+  backends over the window (read from the `system` snapshots in `sage.snapshots`, or the
+  current count if higher) + `superuser_reserved_connections` + `reserved_connections`
+  (PostgreSQL 16+) + 10. A lower value is refused. Without a readable peak (no history yet,
+  or a history read error, logged with the database name) a decrease is kept as advice
+  without SQL and an increase is kept. A `max_connections` change always needs approval,
+  since it needs a restart.
+- **Scopes.** The prompt states this database's figures (active sessions, connection
+  states, sessions opened) apart from the instance's (total backends, its peak,
+  `max_connections`, reserved slots), which every database shares.
+- **Churn.** Sessions opened is the `pg_stat_database.sessions` delta over the window
+  (PostgreSQL 14+), so connections that already closed count; it is unknown when the
+  statistics were reset in the window. pg_sage's own sessions are included.
+- **Pooler advice and observations** are kept as `info` findings without SQL.
+- **`idle_in_transaction_session_timeout`** runs only at database scope and only with an
+  operator's approval: pg_sage turns the model's `ALTER SYSTEM SET` into
+  `ALTER DATABASE <this database> SET`, between 1 min and 24 h (0, disabled, is never
+  recommended), and the executor refuses it under `ALTER SYSTEM`. It is advice only when
+  pg_sage's role does not own the database. On RDS, Aurora, Cloud SQL, AlloyDB, Azure,
+  Neon, Supabase and Lakebase the same `ALTER DATABASE` form runs (the setting has user
+  context); it never becomes an instance-wide provider parameter change. Rollback restores
+  the database's prior value.
+- **`statement_timeout` and `idle_session_timeout`** are advice only, at every scope.
+
+In fleet mode the floor is instance-wide and the connection review runs once per
+instance, from the database that owns the instance settings; the timeout it proposes is
+for that database.
+
 ### LLM provider errors and the circuit breaker
 
 Each LLM client classifies every provider error and reports the class as

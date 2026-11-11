@@ -714,7 +714,7 @@ These deterministic rules run alongside the categories above.
 | Category | Source | What it reports |
 |----------|--------|-----------------|
 | `wal_tuning` | LLM advisor | WAL and checkpoint settings, such as `max_wal_size` when checkpoints are forced. |
-| `connection_tuning` | LLM advisor | Connection capacity and churn, such as `max_connections` or pooling advice. |
+| `connection_tuning` | LLM advisor | Connection capacity and churn: `max_connections` (never below the window's peak of total backends + reserved slots + 10), `idle_in_transaction_session_timeout` for this database only (`ALTER DATABASE`, approval required), and pooler advice or observations as `info` rows without SQL. |
 | `query_rewrite` | LLM advisor | Rewrites for the slowest queries. Text only, always advisory. |
 | `bloat_remediation` | LLM advisor | Options for removing table and index bloat. |
 | `memory_tuning`, `vacuum_tuning` | Tuning agent | Memory and autovacuum configuration changes. A recommendation without SQL is dropped. |
@@ -750,6 +750,9 @@ finding against the latest snapshot, deterministically.
 | `query_rewrite` | the query has been absent from `pg_stat_statements` for 3 consecutive cycles (a stats reset or an unreadable query list does not count) |
 | `bloat_remediation` | the table has been under 10% dead tuples (or under 1,000 rows) for 2 consecutive cycles |
 | `advisor_degraded` | the LLM is enabled again, or the advisor is disabled on purpose |
+
+A `connection_tuning` `info` row without SQL (pooler advice or an observation) has no
+setting to re-check and stays open until it is dismissed.
 
 A finding that still holds is re-emitted unchanged, and only its own setting,
 query or table is left out of the next model review. Dismissing a finding keeps
