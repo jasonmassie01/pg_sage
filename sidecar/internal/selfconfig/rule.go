@@ -48,11 +48,15 @@ type Bounds struct {
 	Note    string  `json:"note,omitempty"`
 }
 
-// Citation is one number a derivation rests on.
+// Citation is one number a derivation rests on. Source names where a cost
+// measure came from ("probe" or "collector"); Detail adds context, such as
+// the collector step that ran the slowest statement.
 type Citation struct {
-	Name  string  `json:"name"`
-	Value float64 `json:"value"`
-	Unit  string  `json:"unit,omitempty"`
+	Name   string  `json:"name"`
+	Value  float64 `json:"value"`
+	Unit   string  `json:"unit,omitempty"`
+	Source string  `json:"source,omitempty"`
+	Detail string  `json:"detail,omitempty"`
 }
 
 // Derivation is a rule's raw answer before rounding and clamping.

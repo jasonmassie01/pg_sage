@@ -20,8 +20,9 @@ import (
 const derivedSettingsPath = "/api/v1/derived-settings"
 
 const derivedSettingsMeaning = "pg_sage derives these settings per database from " +
-	"evidence (catalog size, scan times, connection limit, temp-file rate, its own " +
-	"cost) when the operator leaves them unset, within bounds that never widen " +
+	"evidence (catalog size, scan times, connection limit, temp-file rate, the " +
+	"collector's measured statement time) when the operator leaves them unset, within " +
+	"bounds that never widen " +
 	"authority or spend. A new value soaks in shadow and is promoted only when its " +
 	"comparison with the active value is not worse; restart-bound keys take effect at " +
 	"the next start. A value the operator set always wins; a pinned value ignores " +

@@ -61,7 +61,12 @@ type Collector struct {
 	dbSizeEvery    time.Duration // pg_database_size cadence
 	indexDefMaxAge time.Duration // full index-definition refresh backstop
 	now            func() time.Time
-	onCatalogQuery catalogHook // tests only
+	// onCatalogQuery runs inside each catalog transaction after its
+	// statement (catalogread Reader.After; nil unless a test sets it).
+	onCatalogQuery catalogHook
+	// meter records what the catalog statements of the last cycles cost
+	// (catalogread Reader.Done, wired by reader for every statement).
+	meter costMeter
 }
 
 // Defaults for the bounded catalog reads.
@@ -157,7 +162,9 @@ func (c *Collector) Run(ctx context.Context) {
 }
 
 func (c *Collector) cycle(ctx context.Context, ticker intervalResetter) {
-	if d := c.breaker.ShouldSkip(ctx, c.loadQuerier()); d.Skip {
+	c.meter.start()
+	if d := c.breaker.ShouldSkip(withStep(ctx, "load"), c.loadQuerier()); d.Skip {
+		c.meter.abandon()
 		c.skipCycle(ticker, d)
 		return
 	}
@@ -167,6 +174,8 @@ func (c *Collector) cycle(ctx context.Context, ticker intervalResetter) {
 	c.syncInterval(ticker)
 
 	snap, err := c.collect(ctx)
+	// A failed collection still spent its statements: it is metered.
+	c.meter.finish(c.clock())
 	if err != nil {
 		c.noteError("collect", err)
 		c.logFn("ERROR", "collection failed: %v", err)
@@ -232,12 +241,12 @@ func (c *Collector) PreviousSnapshot() *Snapshot {
 func (c *Collector) collect(ctx context.Context) (*Snapshot, error) {
 	now := time.Now().UTC()
 	snap := &Snapshot{CollectedAt: now}
-	c.refreshCapabilities(ctx)
+	c.refreshCapabilities(withStep(ctx, "capabilities"))
 
 	// Read the epoch before the counters: a reset in between leaves the
 	// old epoch on reset counters, which the counter-decrease check and
 	// the next cycle's epoch change both expose.
-	snap.StatsEpoch = c.collectStatementsEpoch(ctx)
+	snap.StatsEpoch = c.collectStatementsEpoch(withStep(ctx, "stats_epoch"))
 	c.stmtTexts.observeEpoch(snap.StatsEpoch)
 	retries := 0
 	for _, step := range c.catalogSteps() {
@@ -252,8 +261,9 @@ func (c *Collector) collect(ctx context.Context) (*Snapshot, error) {
 	}
 	c.collectExtras(ctx, snap, &retries)
 	// Collect pg_stat_statements.max for capacity monitoring.
-	snap.System.StatStatementsMax = c.collectStatStatementsMax(ctx)
-	snap.System.StatStatements = c.collectStatStatementsUsage(ctx,
+	usage := withStep(ctx, "statements_usage")
+	snap.System.StatStatementsMax = c.collectStatStatementsMax(usage)
+	snap.System.StatStatements = c.collectStatStatementsUsage(usage,
 		snap.System.StatStatementsMax)
 
 	c.markSystemInterval(snap)
@@ -267,7 +277,7 @@ func (c *Collector) collect(ctx context.Context) (*Snapshot, error) {
 // spend the same cycle retry budget as the catalog steps.
 func (c *Collector) collectExtras(ctx context.Context, snap *Snapshot, retries *int) {
 	var err error
-	if snap.Replication, err = c.collectReplication(ctx); err != nil {
+	if snap.Replication, err = c.collectReplication(withStep(ctx, "replication")); err != nil {
 		c.logFn("WARN", "replication collection failed: %v", err)
 		// Unknown, not "no replicas": unused-index drops depend on it.
 		if snap.Unavailable == nil {
@@ -275,7 +285,7 @@ func (c *Collector) collectExtras(ctx context.Context, snap *Snapshot, retries *
 		}
 		snap.Unavailable["replication"] = err.Error()
 	}
-	c.collectXminHoldersInto(ctx, snap)
+	c.collectXminHoldersInto(withStep(ctx, "xmin_holders"), snap)
 	for _, step := range c.extraSteps() {
 		if err := c.runStep(ctx, step, snap, retries); err != nil {
 			step.reset(snap)

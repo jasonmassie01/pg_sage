@@ -56,7 +56,9 @@ const markdownIntro = "pg_sage derives these keys per database when the operator
 	"leaves them unset. Every other key is never derived: see the self-config class " +
 	"in [configuration field lifecycles](config-lifecycles.md).\n\n" +
 	"- **Evidence and bounds.** A rule reads the database (catalog size, scan " +
-	"times, connection limit, temp-file rate, pg_sage's own cost) and clamps its " +
+	"times, connection limit, temp-file rate) and the collector's measured statement " +
+	"time (each cost citation names its source: `collector` once the collector has " +
+	"run, `probe` before its first cycle), and clamps its " +
 	"value to bounds that never widen authority or spend: past the product default " +
 	"only where a fixed ceiling is justified below.\n" +
 	"- **Shadow first.** A new value is recorded in shadow and soaks for " +
