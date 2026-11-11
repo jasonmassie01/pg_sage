@@ -648,5 +648,5 @@ The `source` dropdown in §5.3 maps to the finding category registry, `sidecar/i
 Notes:
 - `stale_statistics` is emitted by both the analyzer rule and the tuner. It matches both the `rules` and `query_tuning` filters and is shown as `rules`.
 - No producer writes `detail.subsystem`; the filter never reads it. A drift test (`findingcat/registry_test.go`) scans the producers for every category they emit and fails on one the registry lacks.
-- The rules-07 values (`rules`, `advisor`, `optimizer`, `query_tuning`, `incident`, `forecaster`, `schema_lint`) match exactly the categories they matched before the registry; categories no filter matched got their own subsystems (`tuning`, `cloud`, `governance`, `migration`, `facts`).
+- The rules-07 values (`rules`, `advisor`, `optimizer`, `query_tuning`, `incident`, `forecaster`, `schema_lint`) match exactly the categories they matched before the registry; categories no filter matched got their own subsystems (`tuning`, `cloud`, `governance`, `migration`, `sre`, `facts`).
 - The allowlist in `buildFindingsOrder` must remain column-name-only; never accept arbitrary strings from the client.

@@ -129,4 +129,10 @@ var otherEntries = []Category{
 		"A migration safety rule's finding on a DDL statement."),
 	e("test_fixture_cleanup", "facts", "facts", sevI, nil, nil,
 		"A confirmed test-fixture fact's cleanup batch for an operator to review."),
+	e("auth_email_case_duplicates", "governance", "schema", sevC, nil, nil,
+		"User accounts whose emails differ only in case, blocking case-insensitive sign-in."),
+	e("sre_action", "sre", "sre", sevC, nil, act("cancel_backend"),
+		"A backend cancel the SRE agent proposes, held for an operator's approval."),
+	e("sre_maintenance", "sre", "sre", sevW, nil, act("create_statistics"),
+		"Operator-requested extended statistics queued for approval."),
 }

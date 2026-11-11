@@ -28,7 +28,7 @@ The next cycle that reads the category resumes them.
 
 `GET /api/v1/findings?source=<subsystem>` filters by the producer that emitted a finding:
 `rules`, `advisor`, `optimizer`, `query_tuning`, `forecaster`, `incident`, `schema_lint`,
-`tuning`, `cloud`, `governance`, `migration` or `facts`. The categories each value matches are
+`tuning`, `cloud`, `governance`, `migration`, `sre` or `facts`. The categories each value matches are
 in the [generated finding category catalog](generated/finding-catalog.md), and
 `GET /api/v1/findings/categories` (any signed-in role) serves the same registry: each
 subsystem with its categories, and each category's producer, severities, config keys and
@@ -772,7 +772,7 @@ them.
 
 ---
 
-## Tuning, Forecast, Cloud and Governance Categories
+## Tuning, Forecast, Cloud, Governance and SRE Categories
 
 These producers write findings outside the analyzer rules. Their subsystems, severities
 and config keys are in the [generated catalog](generated/finding-catalog.md).
@@ -814,3 +814,6 @@ and config keys are in the [generated catalog](generated/finding-catalog.md).
 | <a id="audit_chain_regressed"></a>`audit_chain_regressed` | Audit job | An audit trail that went back behind its SIEM export. |
 | <a id="audit_chain_verification_failed"></a>`audit_chain_verification_failed` | Audit job | The audit chain verification job could not run. |
 | <a id="siem_event_undeliverable"></a>`siem_event_undeliverable` | Audit job | An audit event a SIEM sink refused. |
+| <a id="auth_email_case_duplicates"></a>`auth_email_case_duplicates` | Schema migration | User accounts whose emails differ only in case, which block case-insensitive sign-in until an admin merges or renames them. |
+| <a id="sre_action"></a>`sre_action` | SRE agent | A backend cancel the SRE agent proposes; it waits for an operator to approve or deny it. |
+| <a id="sre_maintenance"></a>`sre_maintenance` | SRE agent | Operator-requested extended statistics, queued for approval. |

@@ -132,10 +132,19 @@ var (
 		`(?m)^\s*(?:const\s+)?[A-Za-z_]*[Cc]ategory[A-Za-z_]*\s*(?:string\s*)?=\s*"([a-z0-9_]+)"`)
 	ruleCats = regexp.MustCompile(`cats\(([^)]*)\)`)
 	quoted   = regexp.MustCompile(`"([a-z0-9_]+)"`)
+	// findingConstant is a constant naming a finding's category, such as
+	// the users_email_case migration's.
+	findingConstant = regexp.MustCompile(
+		`(?m)^\s*(?:const\s+)?[A-Za-z_]*Finding\s*(?:string\s*)?=\s*"([a-z0-9_]+)"`)
+	// sqlLiteral is a category written as the first VALUES literal of an
+	// INSERT INTO sage.findings inside one SQL string.
+	sqlLiteral = regexp.MustCompile(
+		`(?s)INSERT INTO sage\.findings[^;` + "`" + `]*?VALUES\s*\(\s*'([a-z0-9_]+)'`)
 )
 
 // emittedCategories scans the non-test Go files under internal/ and cmd/
-// for Category: literals, *Category* constants and rule cats(...) lists.
+// for Category: literals, *Category* and *Finding constants, rule cats(...)
+// lists and categories written as SQL literals into sage.findings.
 func emittedCategories(t *testing.T) map[string]string {
 	t.Helper()
 	found := map[string]string{}
@@ -152,8 +161,11 @@ func emittedCategories(t *testing.T) map[string]string {
 			for _, m := range categoryLiteral.FindAllSubmatch(src, -1) {
 				found[string(m[1])] = path
 			}
-			for _, m := range categoryConstant.FindAllSubmatch(src, -1) {
-				found[string(m[1])] = path
+			for _, re := range []*regexp.Regexp{categoryConstant, findingConstant,
+				sqlLiteral} {
+				for _, m := range re.FindAllSubmatch(src, -1) {
+					found[string(m[1])] = path
+				}
 			}
 			for _, m := range ruleCats.FindAllSubmatch(src, -1) {
 				for _, q := range quoted.FindAllSubmatch(m[1], -1) {
@@ -173,7 +185,8 @@ func TestEveryEmittedCategoryIsRegistered(t *testing.T) {
 	found := emittedCategories(t)
 	for _, must := range []string{"missing_index", "sage_self_cost", "sage_self_budget",
 		"sage_footprint", "temp_spill", "clone_schemas", "app_managed_index",
-		"managed_storage_runway", "audit_chain_broken", "forecast_wal_runway"} {
+		"managed_storage_runway", "audit_chain_broken", "forecast_wal_runway",
+		"sre_action", "sre_maintenance", "auth_email_case_duplicates"} {
 		if _, ok := found[must]; !ok {
 			t.Fatalf("the scan missed %q: it is not reading the producers", must)
 		}
