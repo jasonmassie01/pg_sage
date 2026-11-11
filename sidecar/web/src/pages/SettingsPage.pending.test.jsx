@@ -157,6 +157,9 @@ describe('SettingsPage maintenance window (config-09)', () => {
   beforeEach(() => {
     localStorage.setItem('pg_sage_settings_mode', 'advanced')
     configData = baseData()
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true, status: 200, json: async () => ({ valid: true, open_now: false }),
+    })
   })
 
   it('describes the window grammar instead of a cron-only hint', () => {
@@ -225,5 +228,18 @@ describe('SettingsPage maintenance window (config-09)', () => {
     fireEvent.click(screen.getByTestId('maintenance-window-check'))
     await waitFor(() => expect(screen.getByTestId('maintenance-window-preview'))
       .toHaveTextContent(/closed/i))
+  })
+})
+
+describe('formatPendingValue (config-09)', () => {
+  it('formats empty, list, object and scalar values', async () => {
+    const { formatPendingValue } = await import('./settings/PendingRestartPanel')
+    expect(formatPendingValue('')).toBe('(empty)')
+    expect(formatPendingValue(null)).toBe('(empty)')
+    expect(formatPendingValue([])).toBe('(empty)')
+    expect(formatPendingValue(['a', 'b'])).toBe('a, b')
+    expect(formatPendingValue({ a: 1 })).toBe('{"a":1}')
+    expect(formatPendingValue(false)).toBe('false')
+    expect(formatPendingValue(0)).toBe('0')
   })
 })

@@ -42,6 +42,8 @@ vi.mock('../hooks/useAPI', () => ({
         mode: configMode,
         databases: 3,
         desired_generation: 7,
+        // A supervised deployment: the restart tests click Restart now.
+        restart_supported: true,
         masked_by_override: configMasked,
         read_only: configReadOnly,
         write_guidance: configReadOnly ? 'edit the YAML file' : undefined,
