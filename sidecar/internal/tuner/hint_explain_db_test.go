@@ -397,3 +397,31 @@ func TestCompareHint_InstalledHintRowDoesNotPlanPlainSide(t *testing.T) {
 		t.Fatalf("installed row planned the plain side: %+v, %v", cmp.Verdict, err)
 	}
 }
+
+// The deterministic pass: a changing hint passes the gate with its
+// comparison (CHECK-28: its finding carries verdict changed); a hint with no
+// effect is refused and the statement cools down, so it is not planned again
+// next cycle.
+func TestCompareHint_DeterministicGate(t *testing.T) {
+	pool, ctx := hintExplainDB(t)
+	tu := gatedTuner(t, pool)
+	c := candidate{QueryID: 9_050_104, Query: hxJoin}
+	cmp, refused := tu.gateCandidate(ctx, c, "HashJoin(c o)")
+	if refused || cmp == nil || cmp.Verdict != HintChanged {
+		t.Fatalf("changing hint: %+v, refused %t", cmp, refused)
+	}
+	f := tu.buildGatedFinding(ctx, c, nil, "HashJoin(c o)", "t", "r", cmp)
+	if ev, _ := f.Detail["hint_evidence"].(map[string]any); ev["verdict"] != "changed" ||
+		f.RecommendedSQL == "" {
+		t.Fatalf("finding: sql %q detail %v", f.RecommendedSQL, f.Detail)
+	}
+	_, _ = pool.Exec(ctx, `DELETE FROM sage.query_hints WHERE queryid = $1`, c.QueryID)
+	c.QueryID = 9_050_105
+	cmp, refused = tu.gateCandidate(ctx, c, "IndexScan(o idx_missing)")
+	if !refused || cmp != nil {
+		t.Fatalf("no_effect hint passed the gate: %+v", cmp)
+	}
+	if _, cooling := tu.recentlyTuned[c.QueryID]; !cooling {
+		t.Fatal("a refused statement must cool down")
+	}
+}
