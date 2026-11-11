@@ -144,8 +144,9 @@ first admin created — email: admin@pg-sage.local  password: [redacted, see std
 *** INITIAL ADMIN PASSWORD: <copy this value> ***
 ```
 
-Open `http://localhost:8080`, sign in as `admin@pg-sage.local`, and change or
-store that password according to your local policy. API calls under `/api/v1/`
+Open `http://localhost:8080` and sign in as `admin@pg-sage.local` with it.
+pg_sage then asks you to choose your own password (12 to 72 bytes) before
+anything else; see [Passwords](security.md#passwords). API calls under `/api/v1/`
 require the `sage_session` cookie returned by `/api/v1/auth/login`.
 
 ---
