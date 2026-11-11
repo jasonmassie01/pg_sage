@@ -63,12 +63,8 @@ func regressionCandidates(current, previous *collector.Snapshot,
 	before := queriesByID(previous)
 	var out []regressionCandidate
 	for _, q := range adviceQueries(current) {
-		p, ok := before[q.QueryID]
-		if !ok {
-			continue
-		}
-		iv, ok := intervalMean(q, p)
-		if !ok || iv.Calls < minCalls || iv.MeanMs <= q.MeanExecTime*multiplier {
+		iv, ok := measuredInterval(q, before, minCalls)
+		if !ok || iv.MeanMs <= q.MeanExecTime*multiplier {
 			continue
 		}
 		out = append(out, regressionCandidate{q: q, interval: iv})
@@ -134,7 +130,7 @@ func regressionFinding(c regressionCandidate, b regressionBaseline) Finding {
 		Category:         "query_regression",
 		Severity:         severity,
 		ObjectType:       "query",
-		ObjectIdentifier: fmt.Sprintf("queryid:%d", c.q.QueryID),
+		ObjectIdentifier: queryIdent(c.q.QueryID),
 		Title: fmt.Sprintf("Query regression: %.1fms now vs %.1fms hourly median (+%.0f%%)",
 			c.interval.MeanMs, b.MeanMs, pct),
 		Detail: map[string]any{
@@ -163,21 +159,50 @@ func (a *Analyzer) runQueryRegression(ctx context.Context,
 		return nil
 	}
 	cands := regressionCandidates(current, previous, a.cfg)
-	if len(cands) == 0 {
-		return nil
+	baselines := map[int64]regressionBaseline{}
+	if len(cands) > 0 {
+		ids := make([]int64, len(cands))
+		for i, c := range cands {
+			ids[i] = c.q.QueryID
+		}
+		var err error
+		baselines, err = a.regressionBaselines(ctx, ids, current.CollectedAt)
+		if err != nil {
+			a.evalFail("query_regression")
+			a.logFn("ERROR", "analyzer: query_regression baseline read for %d queries: %v",
+				len(ids), err)
+			return nil
+		}
 	}
-	ids := make([]int64, len(cands))
-	for i, c := range cands {
-		ids[i] = c.q.QueryID
-	}
-	baselines, err := a.regressionBaselines(ctx, ids, current.CollectedAt)
-	if err != nil {
-		a.evalFail("query_regression")
-		a.logFn("ERROR", "analyzer: query_regression baseline read for %d queries: %v",
-			len(ids), err)
-		return nil
-	}
+	a.eval.keep("query_regression", unjudgedRegressions(current, previous, a.cfg, cands,
+		baselines)...)
 	return ruleQueryRegression(cands, baselines, a.cfg)
+}
+
+// unjudgedRegressions are the identities of the current statements that
+// query_regression gave no verdict this cycle: those without a measured
+// interval (undecidedQueries), and the candidates without a baseline or
+// past the candidate cap. Their open findings are kept. A statement whose
+// measured interval mean is within the threshold of its cumulative mean,
+// or a candidate compared with its baseline, is judged.
+func unjudgedRegressions(current, previous *collector.Snapshot, cfg *config.Config,
+	cands []regressionCandidate, baselines map[int64]regressionBaseline) []string {
+	minCalls, multiplier := slowQueryMinCalls(cfg), regressionMultiplier(cfg)
+	out := undecidedQueries(current, previous, minCalls)
+	judged := make(map[int64]bool, len(cands))
+	for _, c := range cands {
+		if b, ok := baselines[c.q.QueryID]; ok && b.MeanMs > 0 {
+			judged[c.q.QueryID] = true
+		}
+	}
+	before := queriesByID(previous)
+	for _, q := range adviceQueries(current) {
+		iv, ok := measuredInterval(q, before, minCalls)
+		if ok && iv.MeanMs > q.MeanExecTime*multiplier && !judged[q.QueryID] {
+			out = append(out, queryIdent(q.QueryID))
+		}
+	}
+	return out
 }
 
 // regressionBaselines reads the hourly intervals of ids over the

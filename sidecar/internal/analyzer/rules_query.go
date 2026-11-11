@@ -31,12 +31,8 @@ func ruleSlowQueries(
 	before := queriesByID(previous)
 	var findings []Finding
 	for _, q := range adviceQueries(current) {
-		p, ok := before[q.QueryID]
-		if !ok {
-			continue
-		}
-		iv, ok := intervalMean(q, p)
-		if !ok || iv.Calls < minCalls || iv.MeanMs <= threshold {
+		iv, ok := measuredInterval(q, before, minCalls)
+		if !ok || iv.MeanMs <= threshold {
 			continue
 		}
 		findings = append(findings, slowQueryFinding(q, iv, seconds, threshold))
@@ -57,7 +53,7 @@ func slowQueryFinding(q collector.QueryStats, iv queryInterval, seconds,
 		Category:         "slow_query",
 		Severity:         severity,
 		ObjectType:       "query",
-		ObjectIdentifier: fmt.Sprintf("queryid:%d", q.QueryID),
+		ObjectIdentifier: queryIdent(q.QueryID),
 		Title: fmt.Sprintf(
 			"Slow query (%.1fms mean over %d calls in the last %.0fs, %.1fx threshold)",
 			iv.MeanMs, iv.Calls, seconds, ratio,

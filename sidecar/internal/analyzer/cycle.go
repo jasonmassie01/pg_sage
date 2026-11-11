@@ -121,6 +121,11 @@ func (a *Analyzer) runSnapshotRules(
 		a.eval.evaluated(rule.Categories...)
 		got := rule.Fn(current, previous, a.cfg, a.extras)
 		out = append(out, got...)
+		if rule.Name == "slow_queries" && hasQueryInterval(current, previous) {
+			// An idle or thin interval is no verdict (rules-05).
+			a.eval.keep("slow_query",
+				undecidedQueries(current, previous, slowQueryMinCalls(a.cfg))...)
+		}
 		if rule.Name == "unused_indexes" {
 			// The zero-scan clock's restart warmup and holds (rules-04).
 			a.holdUnusedFindings(current, previous, got)

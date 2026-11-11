@@ -1,6 +1,8 @@
 package analyzer
 
 import (
+	"fmt"
+
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 )
@@ -39,6 +41,45 @@ func intervalMean(cur, prev collector.QueryStats) (queryInterval, bool) {
 	}
 	return queryInterval{Calls: calls, TotalMs: total, MeanMs: total / float64(calls)}, true
 }
+
+// measuredInterval is q's interval against its counters in before, when
+// it is valid and made at least minCalls calls: the only interval whose
+// mean is evidence either way.
+func measuredInterval(q collector.QueryStats, before map[int64]collector.QueryStats,
+	minCalls int64) (queryInterval, bool) {
+	p, ok := before[q.QueryID]
+	if !ok {
+		return queryInterval{}, false
+	}
+	iv, ok := intervalMean(q, p)
+	if !ok || iv.Calls < minCalls {
+		return queryInterval{}, false
+	}
+	return iv, true
+}
+
+// undecidedQueries are the identities of the current statements without a
+// measured interval: idle in the interval, below the call floor, new to
+// the list or evicted and re-entered. The interval rules have no verdict
+// on them, so their open findings are kept (an idle minute is not a
+// recovery, as with temp_spill). A statement that never reached the floor
+// in total is not kept: a finding opened from one ad hoc call resolves.
+func undecidedQueries(current, previous *collector.Snapshot, minCalls int64) []string {
+	before := queriesByID(previous)
+	var out []string
+	for _, q := range adviceQueries(current) {
+		if q.Calls < minCalls {
+			continue
+		}
+		if _, ok := measuredInterval(q, before, minCalls); !ok {
+			out = append(out, queryIdent(q.QueryID))
+		}
+	}
+	return out
+}
+
+// queryIdent is a statement finding's object identifier.
+func queryIdent(id int64) string { return fmt.Sprintf("queryid:%d", id) }
 
 // queriesByID indexes the snapshot's statements by queryid.
 func queriesByID(snap *collector.Snapshot) map[int64]collector.QueryStats {

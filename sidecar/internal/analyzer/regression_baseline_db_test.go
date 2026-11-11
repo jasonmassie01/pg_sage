@@ -109,6 +109,36 @@ func TestRegressionBaselines_LookbackDefault(t *testing.T) {
 	}
 }
 
+// Boundary: the last hour is not baseline. Five hourly buckets older than
+// an hour and a sixth inside the last hour give no baseline (5 < 6).
+func TestRegressionBaselines_ExcludesTheLastHour(t *testing.T) {
+	pool := phase2Pool(t)
+	const qid = int64(8_105_000_021)
+	clearQueryStore(t, pool, qid, qid)
+	now := time.Now().UTC().Truncate(time.Second)
+	epoch := now.Add(-30 * 24 * time.Hour)
+	calls, total := seedHourly(t, pool, qid, now.Add(-70*time.Minute), 5, 600, 2, epoch)
+	if _, err := pool.Exec(context.Background(), `INSERT INTO sage.query_store
+		(queryid, captured_at, calls, total_exec_time, mean_exec_time, rows, stats_epoch)
+		VALUES ($1, $2, $3, $4, 2, 0, $5)`, qid, now.Add(-10*time.Minute), calls+600,
+		total+1200, epoch); err != nil {
+		t.Fatalf("seed last-hour sample: %v", err)
+	}
+	a := New(pool, intervalConfig(), nil, nil, nil, nil, nil, noopLog)
+	got, err := a.regressionBaselines(context.Background(), []int64{qid}, now)
+	if err != nil {
+		t.Fatalf("regressionBaselines: %v", err)
+	}
+	if b, ok := got[qid]; ok {
+		t.Fatalf("a bucket of the last hour counted: baseline %+v", b)
+	}
+	got, err = a.regressionBaselines(context.Background(), []int64{qid},
+		now.Add(time.Hour))
+	if err != nil || got[qid].Buckets != 6 || !near(got[qid].MeanMs, 2, 1e-9) {
+		t.Fatalf("an hour later: %+v, %v; want 2 ms over 6 buckets", got, err)
+	}
+}
+
 // statementCounters reads one statement's pg_stat_statements counters in
 // this database.
 func statementCounters(t *testing.T, conn *pgxpool.Conn, marker string) collector.QueryStats {
