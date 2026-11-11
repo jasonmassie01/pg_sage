@@ -1202,6 +1202,8 @@ unless pruning is turned on.
 | `sage.guard_query_audit` | `agents.query.audit_retention_days` | Default 30, in each monitored database |
 | `sage.config_audit` | never | Kept: the trail of configuration changes |
 | `sage.fact_events` | never | Kept: who lifted a guard outlives the fact |
+| `sage.decision` | `retention.decisions_days` (withheld verdicts), `retention.actions_days` | Decisions behind an action, a verification or an open deadline are kept |
+| `sage.policy_approvals` | never | Deleted only with the policy version it approves |
 | `sage.audit_chain_link` | never | Kept whole, unless `audit.prune_below_signed_checkpoint` is on (see below) |
 
 A row removed by retention leaves a delete link in its chain, so
@@ -1210,9 +1212,31 @@ verification still proves what was there.
 ### Tamper-Evident Chains and SIEM Export
 
 Each audit table (`action_log`, `auth_audit`, `config_audit`,
-`guard_query_audit`, `guard_pgaudit_events`, `fact_events`) is hash-chained: every write
-appends a link to `sage.audit_chain_link`, and every inserted row carries
-its own link. `GET /api/v1/audit/verify?database=<name>` (admin) checks a
+`guard_query_audit`, `guard_pgaudit_events`, `fact_events`, `decision`,
+`policy_approvals`) is hash-chained: every write appends a link to
+`sage.audit_chain_link`, and every inserted row carries its own link.
+
+The `decision` chain records the authority a change ran under. What was
+decided about (database, feature, intent, targets), the risk tier, the
+policy version and document hash, the evidence id and the agent
+provenance are sealed: rewriting the tier is reported as `row_edited`.
+The verdict, reason, evidence, guardrails, deadline, queue and action
+links and resolution are state, which pg_sage legitimately updates (an
+execute the executor turned into a block, a decision linked to its queue
+item); a change to them made behind the chain is `state_edited`.
+`repeat_count` and `last_seen_at` are not chained: they are telemetry,
+and an identical parked repeat appends no link. A repeat of an open
+decision at another risk tier no longer re-tiers it: the open row is
+resolved and the repeat is a new decision. The `policy_approvals` chain
+seals each approval (approver, reason, single-operator flag, time) and
+keeps its post-hoc `review_status` as state; the table gained an `id`
+column for it. In fleet mode decisions are chained in each monitored
+database and approvals in the control database. Rows written before the
+upgrade are legacy (`legacy_max_id`), as for the other chains. SIEM
+sinks see two new `log_name` values: `decision` (OCSF API Activity,
+naming the verdict and tier; an execute at tier high is Medium) and
+`policy_approvals` (Entity Management; a single-operator approval still
+awaiting review is Medium). `GET /api/v1/audit/verify?database=<name>` (admin) checks a
 chain; the scheduled verification (`audit.verify_interval_hours`) raises a
 critical `audit_chain_broken` finding on `audit_trail:<chain>` when one
 fails. A full verification reports, among others, `gap`, `hash_mismatch`,
@@ -1450,7 +1474,13 @@ id or time window.
 one change as a `.tar.gz`: `action.json`, `decision.json`, `policy.json`,
 `queue.json`, `verification.json`, `outcome.json`, `pgaudit.json`, the
 chain proof, a `manifest.json` with every file's SHA-256, and
-`SHA256SUMS`. The manifest is signed with Ed25519 (`manifest.sig`) by the
+`SHA256SUMS`. The chain proof is `chain.json` (the action's links, as
+before) and `chains.json`, which proves the action, its decision rows and
+the approvals of the policy versions they name: a decision or approval
+edited, or an approval deleted, behind the chain sets the manifest's
+`chain_ok` to `false`. The approvals proof verifies the whole
+`policy_approvals` chain, so an approval no query can list any more is
+still reported. The manifest is signed with Ed25519 (`manifest.sig`) by the
 first key that applies:
 
 1. **`audit.evidence.signing_key_env`**, the operator's own PKCS#8 PEM
@@ -1501,8 +1531,11 @@ key in its own manifest.
 `GET /api/v1/audit/evidence?database=<name>&from=<RFC 3339>&to=<RFC 3339>`
 exports a window of at most 31 days: `actions.json`, `auth_audit.json`,
 `config_audit.json`, `pgaudit.json`, `guard_query_audit.json`,
-`decisions.json` and `chains.json`, which verifies each chain over the
-positions of the rows the pack holds.
+`decisions.json`, `policy_approvals.json` (approvals made in the window,
+from the control database in fleet mode: those of the database's own and
+the global policy versions) and `chains.json`, which verifies each chain,
+`decision` and `policy_approvals` included, over the positions of the rows
+the pack holds.
 
 - **Fleet mode.** Sign-ins, user changes, evidence downloads and config
   changes are written to the control database, so `auth_audit.json` (the

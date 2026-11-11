@@ -2939,7 +2939,7 @@ Each entry of `audit.siem.sinks` takes these transport keys:
 | `ca_file` | `https://` http/otlp, syslog `network: tls` | PEM bundle the receiver's certificate must chain to. It replaces the system roots for this sink only (pinned). Without it the sink uses the system roots, as before, so `SSL_CERT_FILE` still applies where Go reads it. |
 | `client_cert_file`, `client_key_file` | same | PEM client certificate and key for mutual TLS. Set both or neither. |
 | `allow_insecure_http` | `http://` http/otlp | Accept a `token_env` token over plain http. Default `false`. |
-| `chains` | every sink | Chains to export; empty means all. Each must be `action_log`, `auth_audit`, `config_audit`, `guard_query_audit` or `pgaudit_events`. A misspelt name stops the config from loading. |
+| `chains` | every sink | Chains to export; empty means all. Each must be `action_log`, `auth_audit`, `config_audit`, `guard_query_audit`, `pgaudit_events`, `fact_events`, `decision` or `policy_approvals`. A misspelt name stops the config from loading. |
 
 - The files are read once at start; a missing file or one that holds no
   PEM turns SIEM export off, and the startup log names the sink and the
