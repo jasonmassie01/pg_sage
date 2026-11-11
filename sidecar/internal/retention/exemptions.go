@@ -31,6 +31,8 @@ var decommissionExemptions = map[string]string{
 
 // coreExemptions are the exempt tables of the sage schema proper.
 var coreExemptions = map[string]string{
+	"advisor_runs": "current state: one row per database and sub-advisor, its " +
+		"backoff clock",
 	"action_outcome":     "deleted with its action (ON DELETE CASCADE, actions_days)",
 	"ask_messages":       "deleted with its conversation (ON DELETE CASCADE)",
 	"chatops_identities": "admin-managed mapping of chat users to accounts, current state",
@@ -44,6 +46,8 @@ var coreExemptions = map[string]string{
 	"databases": "fleet registry, not a time-series",
 	"first_look": "bounded by its writer: firstlook.Store.Save keeps the newest 10 " +
 		"reports per database",
+	"llm_usage": "pruned at startup by the LLM budget ledger (llmUsageRetention, " +
+		"35 days of daily counters)",
 	"onboarding":            "one row per database, current state",
 	"ha_identity":           "HA monitor history, current state, one row per monitor",
 	"incident_avoided":      "value ledger; low volume, kept as evidence",
@@ -74,6 +78,8 @@ var coreExemptions = map[string]string{
 		"game days at most one per interval_hours)",
 	"bench_fixture_state": "on a bench target, the ALTER SYSTEM settings a fault " +
 		"program changed; deleted when reset, at most a few rows",
+	"unused_index_clock": "current state: one row per zero-scan index; the analyzer " +
+		"deletes a row when its index leaves the clock",
 	"trust_ledger_state": "one row per database: when its time-ramp autonomy was " +
 		"grandfathered into the trust ledger, and the reconcile cursors",
 	"trust_shadow_evidence": "shadow-mode promotion evidence, one row per counted " +
