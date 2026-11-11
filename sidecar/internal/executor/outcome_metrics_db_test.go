@@ -135,6 +135,31 @@ func TestOutcomeMetricsDB_LostCompareAndSetCountsNothing(t *testing.T) {
 	}
 }
 
+// A terminal write that changed no row (the action is gone) counts
+// nothing: only an outcome that is in the ledger is exported.
+func TestOutcomeMetricsDB_WriteToAMissingActionCountsNothing(t *testing.T) {
+	db := testDatabase(t)
+	pool, _, ctx := ownMetricsPool(t, db)
+	var missing int64
+	if err := pool.QueryRow(ctx, `SELECT COALESCE(max(id), 0) + 1000000
+		FROM sage.action_log`).Scan(&missing); err != nil {
+		t.Fatalf("pick a missing id: %v", err)
+	}
+	if err := recordActionOutcome(ctx, pool, nopLog, missing, "failed", "gone"); err != nil {
+		t.Fatalf("an update of no row is not an error: %v", err)
+	}
+	if got := seriesOf(db); len(got) != 0 {
+		t.Fatalf("a write that changed no row counted %v", got)
+	}
+	id := insertDecidedIndexAction(t, ctx, pool, "rolling_back", "")
+	if err := recordActionOutcome(ctx, pool, nopLog, id, "rollback_failed", "x"); err != nil {
+		t.Fatalf("record rollback_failed: %v", err)
+	}
+	if got := outcomeCount(db, "index", "failed"); got != 1 {
+		t.Fatalf("index failed = %d, want 1 (%v)", got, seriesOf(db))
+	}
+}
+
 // Error propagation: a failed action_log write records no outcome.
 func TestOutcomeMetrics_FailedWriteCountsNothing(t *testing.T) {
 	db := testDatabase(t)

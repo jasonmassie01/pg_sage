@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
@@ -111,9 +112,10 @@ func updateActionOutcome(
 			outcome, actionID)
 	}
 	var err error
+	var tag pgconn.CommandTag
 	wait := outcomeWriteBackoff
 	for attempt := 1; ; attempt++ {
-		_, err = pool.Exec(ctx, `/* pg_sage */ UPDATE sage.action_log
+		tag, err = pool.Exec(ctx, `/* pg_sage */ UPDATE sage.action_log
 			 SET outcome = $1, rollback_reason = $2, measured_at = now()
 			 WHERE id = $3`, outcome, reason, actionID)
 		if err == nil || attempt == outcomeWriteAttempts || ctx.Err() != nil {
@@ -128,7 +130,9 @@ func updateActionOutcome(
 	if err != nil {
 		return fmt.Errorf("record outcome %s for action %d: %w", outcome, actionID, err)
 	}
-	countActionOutcome(ctx, pool, actionID, outcome)
+	if tag.RowsAffected() > 0 {
+		countActionOutcome(ctx, pool, actionID, outcome)
+	}
 	return nil
 }
 
