@@ -33,6 +33,8 @@ ExecStart=/usr/local/bin/pg_sage --config /etc/pg_sage/config.yaml
 Restart=always
 RestartSec=5
 Environment=SAGE_LLM_API_KEY=YOUR_KEY_HERE
+# systemd relaunches the sidecar, so Settings may offer "Restart now".
+Environment=SAGE_SUPERVISED=1
 
 [Install]
 WantedBy=multi-user.target
@@ -41,6 +43,25 @@ WantedBy=multi-user.target
 ```bash
 sudo systemctl enable --now pg_sage
 ```
+
+### Restarting from Settings (`SAGE_SUPERVISED`)
+
+Fields whose lifecycle is `restart` (see
+[configuration](configuration.md)) are saved at once but take effect at the
+next start. Settings lists them in a "settings wait for restart" panel with
+the running and the saved value, and `GET /api/v1/config/global` returns them
+as `pending` (`key`, `active`, `desired`, `lifecycle`).
+
+`POST /api/v1/restart` (the "Restart now" button) exits the process with code
+42 and relies on a supervisor to start it again. Set `SAGE_SUPERVISED=1` (or
+`true`) only where one does: systemd with `Restart=always`, Docker with
+`--restart unless-stopped`, or Kubernetes, whose default `restartPolicy:
+Always` restarts the container. Without it the route answers `501`, the API
+reports `restart_supported: false`, and Settings tells you to restart through
+your supervisor (`systemctl restart pg_sage`, `kubectl rollout restart
+deployment/pg-sage`) instead of offering a button that would stop the sidecar
+for good. Databricks Apps and other platforms that do not relaunch on exit
+must leave it unset.
 
 ---
 
@@ -220,6 +241,10 @@ spec:
               value: /var/run/tls/tls.crt
             - name: SAGE_TLS_KEY
               value: /var/run/tls/tls.key
+            # The kubelet restarts the container on exit, so "Restart now"
+            # in Settings may apply restart-bound fields.
+            - name: SAGE_SUPERVISED
+              value: "1"
           livenessProbe:          # static: the process answers HTTP
             httpGet: {path: /health, port: api, scheme: HTTPS}
             periodSeconds: 10
