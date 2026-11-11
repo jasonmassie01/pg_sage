@@ -326,6 +326,17 @@ History that leaves the source horizon before it is read still counts as a gap.
 forward lag that keeps growing means the stream needs more than its share of
 the budget: raise `queries_per_poll` or `max_rows`.
 
+Each stream also counts its SQL warehouse reads since `counters_since` (the
+reader's start): `statements` (every statement submitted, including the
+retries of a window halved on the row or byte budget, and failed reads),
+`rows` and `bytes` (from the batches returned) and `read_millis` (wall time
+spent in reads). Every statement spends the poll's query budget, so statements
+per hour across all streams stay at or below
+`queries_per_poll × 3600 / poll_interval_seconds`. The
+administrator deployment status repeats this projection under
+`databricks.telemetry`, next to credential expiry and Gateway outcomes (see
+[Databricks Apps](databricks-apps.md)).
+
 #### Cost and freshness
 
 **Freshness.** A row the provider has committed to its system table is read by
