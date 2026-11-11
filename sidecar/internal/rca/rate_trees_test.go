@@ -282,7 +282,7 @@ func churnSnap(at time.Time, seconds float64, sessions *int64) *collector.Snapsh
 	s := &collector.Snapshot{CollectedAt: at,
 		System: collector.SystemStats{TotalBackends: 90, ClientBackends: 90,
 			MaxConnections: 100, CacheHitRatio: 0.999},
-		ConfigData: &collector.ConfigSnapshot{ConnectionChurn: 3}}
+		ConfigData: &collector.ConfigSnapshot{}}
 	if seconds > 0 {
 		s.System.Interval = &collector.SystemInterval{Seconds: seconds, Sessions: sessions}
 	}

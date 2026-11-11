@@ -77,7 +77,6 @@ func connectionSnapshot() *collector.Snapshot {
 				{State: "active", Count: 12, AvgDurationSeconds: 3.4},
 				{State: "idle in transaction", Count: 2, AvgDurationSeconds: 95.6},
 			},
-			ConnectionChurn: 37,
 		},
 		System: collector.SystemStats{ActiveBackends: 12, TotalBackends: 41,
 			MaxConnections: 200},
@@ -105,10 +104,14 @@ func TestConnectionPrompt_ComputedFacts(t *testing.T) {
 		"idle_in_transaction_session_timeout": "0ms",
 		"active":                              "count=12, avg_duration=3s",
 		"idle in transaction":                 "count=2, avg_duration=96s",
+		"Advisor window":                      "24h0m0s",
 		"Active backends":                     "12",
+		"Sessions opened in the window":       churnUnknown,
 		"Total backends":                      "41",
+		"Peak total backends in the window":   "unknown",
 		"Max connections":                     "200",
-		"Connection churn":                    "7.4/min (new connections)",
+		"Reserved slots":                      "3",
+		"Lowest safe max_connections":         floorUnknown,
 	}
 	if got := promptFacts(p.user); !reflect.DeepEqual(got, want) {
 		t.Errorf("connection facts:\n got %v\nwant %v", got, want)
@@ -132,13 +135,15 @@ func TestConnectionPrompt_PlatformAndDocRangeFacts(t *testing.T) {
 			t.Errorf("%+v: platform %q (%q), want %q (%q)", c.env, f.platform, f.kind,
 				c.platform, c.kind)
 		}
-		if want := map[string]string{"max_connections": "10..10000"}; !reflect.DeepEqual(
-			f.ranges, want) {
+		want := map[string]string{"max_connections": "10..10000",
+			"idle_in_transaction_session_timeout": "60000ms..86400000ms"}
+		if !reflect.DeepEqual(f.ranges, want) {
 			t.Errorf("%+v: doc ranges %v, want %v", c.env, f.ranges, want)
 		}
-		if len(f.units) != 0 || len(f.notes) != 0 {
-			t.Errorf("%+v: max_connections has no base unit or version note: %v %v",
-				c.env, f.units, f.notes)
+		units := map[string]string{"idle_in_transaction_session_timeout": "ms"}
+		if !reflect.DeepEqual(f.units, units) || len(f.notes) != 0 {
+			t.Errorf("%+v: base units %v (want %v), version notes %v (want none)",
+				c.env, f.units, units, f.notes)
 		}
 	}
 }

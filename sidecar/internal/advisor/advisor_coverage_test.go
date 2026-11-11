@@ -963,27 +963,6 @@ func TestCountUnloggedTables_MixedPersistence(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Connection churn calculation (connection.go)
-// ---------------------------------------------------------------------------
-
-func TestConnectionChurn_Rate(t *testing.T) {
-	// ConnectionChurn is raw over 5 minutes.
-	churn := 50
-	rate := float64(churn) / 5.0
-	if rate != 10.0 {
-		t.Fatalf("expected 10.0, got %.1f", rate)
-	}
-}
-
-func TestConnectionChurn_Zero(t *testing.T) {
-	churn := 0
-	rate := float64(churn) / 5.0
-	if rate != 0.0 {
-		t.Fatalf("expected 0.0, got %.1f", rate)
-	}
-}
-
-// ---------------------------------------------------------------------------
 // Vacuum with per-table autovacuum settings in global (vacuum.go)
 // ---------------------------------------------------------------------------
 
@@ -1396,7 +1375,6 @@ func TestAnalyzeConnections_FullPath(t *testing.T) {
 				{State: "idle in transaction", Count: 2,
 					AvgDurationSeconds: 45},
 			},
-			ConnectionChurn: 50,
 		},
 		System: collector.SystemStats{
 			ActiveBackends: 5,

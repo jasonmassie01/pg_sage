@@ -69,10 +69,16 @@ func producerReasons(detail map[string]any) []Reason {
 	return nil
 }
 
-// gucReasons: a server setting that needs a restart or is not on the
-// autonomous allowlist is always a person's decision.
+// gucReasons: a setting, at instance or database scope, that needs a
+// restart or is not on the autonomous allowlist is always a person's
+// decision.
 func gucReasons(sql string) []Reason {
 	stmt, ok := pgconf.ParseAlterSystem(sql)
+	if !ok {
+		// A database-scope change of the same setting (advisors-07).
+		db, isDB := pgconf.ParseAlterDatabase(sql)
+		stmt, ok = db.SystemStmt, isDB
+	}
 	if !ok {
 		return nil
 	}

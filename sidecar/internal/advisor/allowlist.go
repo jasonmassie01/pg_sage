@@ -55,6 +55,9 @@ func gateGUCFinding(f analyzer.Finding, stmt pgconf.SystemStmt) analyzer.Finding
 			"PostgreSQL restart, which pg_sage cannot perform or verify; an operator "+
 			"must approve it and plan the restart", stmt.Name))
 	}
+	if pgconf.DatabaseScopeApprovalOnly(stmt.Name) {
+		return withApprovalRequired(f, databaseScopeReason(stmt.Name))
+	}
 	return f
 }
 

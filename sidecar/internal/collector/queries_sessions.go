@@ -5,7 +5,7 @@ import "github.com/pg-sage/sidecar/internal/selfmonitor"
 // Session-based snapshot inputs (perf v1.8.3, perf-selfexcl). pg_sage's
 // own sessions (application_name pg_sage: its pools, probes, EXPLAINs and
 // index builds) are not the workload: active and idle-in-transaction
-// counts, locks, connection states, churn and the load circuit breaker
+// counts, locks, connection states and the load circuit breaker
 // leave them out with selfmonitor.ActivityExclusionSQL. Connection slots
 // (total_backends, client_backends) are capacity and still count every
 // backend; client_backends counts the cluster's client sessions only, the
@@ -217,11 +217,3 @@ SELECT COALESCE(state,'unknown'), count(*)::int,
  WHERE backend_type = 'client backend'
    AND datname = current_database() AND ` + notSelf + `
  GROUP BY state`
-
-// connectionChurnSQL is this database's client sessions started in the
-// last 5 minutes (pg_sage's pools reconnect on their own schedule).
-var connectionChurnSQL = sageTag + `
-SELECT count(*)::int FROM pg_stat_activity
- WHERE backend_start > now() - interval '5 minutes'
-   AND backend_type = 'client backend'
-   AND datname = current_database() AND ` + notSelf

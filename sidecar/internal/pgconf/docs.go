@@ -136,6 +136,18 @@ var Docs = map[string]GUCDoc{
 		Guidance:    "Prefer a connection pooler over raising this; each backend costs memory.",
 		Unit:        "count", SafeMin: 10, SafeMax: 10000,
 	},
+	// Database scope and approval only (advisors-07): the executor refuses
+	// it under ALTER SYSTEM. 0 (disabled) is not a recommendation.
+	// statement_timeout and idle_session_timeout have no entry on purpose:
+	// they stay advisory at every scope.
+	"idle_in_transaction_session_timeout": {
+		Description: "Ends a session that stays idle inside an open transaction longer " +
+			"than this. pg_sage sets it only for this database, with ALTER DATABASE, " +
+			"and only with an operator's approval.",
+		Guidance: "5-30min releases the locks and snapshots forgotten transactions " +
+			"hold; never recommend 0 (disabled).",
+		Unit: "ms", BaseUnit: "ms", SafeMin: 60_000, SafeMax: 86_400_000,
+	},
 	"autovacuum_max_workers": {
 		Description: "Maximum concurrent autovacuum workers. Requires a restart " +
 			"before PG18.",

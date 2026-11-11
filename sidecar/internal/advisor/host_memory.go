@@ -57,7 +57,7 @@ func GateConfigFindingsHost(findings []analyzer.Finding, host HostMemory,
 	kept = applyWorkMemGuard(kept, host)
 	kept = applyMemoryPressureGuard(kept, host, settings)
 	kept = applyConfigAllowlist(kept)
-	return TransformForCloud(kept, cloudEnv, dbName, settings)
+	return scopeToDatabase(TransformForCloud(kept, cloudEnv, dbName, settings), dbName)
 }
 
 // memorySetting parses an executable ALTER SYSTEM SET of a memory GUC.

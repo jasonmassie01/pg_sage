@@ -189,6 +189,10 @@ func checkAlterSystemParam(upper string) error {
 			ErrDisallowedSQL, param,
 		)
 	}
+	if pgconf.DatabaseScopeApprovalOnly(param) {
+		return fmt.Errorf("%w: %s is changed only per database: use ALTER DATABASE "+
+			"<database> SET, never ALTER SYSTEM", ErrDisallowedSQL, strings.ToLower(param))
+	}
 	return nil
 }
 

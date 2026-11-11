@@ -39,6 +39,7 @@ type Advisor struct {
 	instanceOwner InstanceOwner
 
 	snaps    snapshotSource
+	connHist connHistorySource // nil: the connection history is unknown
 	open     openFindingStore
 	runs     runStore
 	schedule runSchedule
@@ -76,6 +77,7 @@ func New(
 	}
 	if pool != nil {
 		a.open, a.runs = pgOpenFindings{pool}, pgRunStore{pool}
+		a.connHist = pgConnHistory{db: pool}
 	}
 	return a
 }
@@ -116,7 +118,8 @@ func (a *Advisor) subAdvisors(snap, prev *collector.Snapshot) []subAdvisor {
 		}},
 		{"connections", "connection_tuning", c.ConnectionEnabled, func(ctx context.Context) (
 			[]analyzer.Finding, error) {
-			return analyzeConnections(ctx, a.llmMgr, snap, a.cfg, a.logFn)
+			return analyzeConnections(a.connectionContext(ctx), a.llmMgr, snap, a.cfg,
+				a.logFn)
 		}},
 		{"rewrites", "query_rewrite", c.RewriteEnabled, func(ctx context.Context) (
 			[]analyzer.Finding, error) {

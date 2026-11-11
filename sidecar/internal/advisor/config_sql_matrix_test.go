@@ -72,7 +72,10 @@ func assertRefused(t *testing.T, provider, guc string, got analyzer.Finding) {
 	}
 	_, intent := got.Detail[managedparam.DetailKey]
 	_, approval := got.Detail[analyzer.DetailApprovalRequired]
-	if want := managedparam.Supported(provider); intent != want || (intent && !approval) {
+	// A database-scope setting never becomes an instance-wide provider
+	// change (advisors-07).
+	want := managedparam.Supported(provider) && !pgconf.DatabaseScopeApprovalOnly(guc)
+	if intent != want || (intent && !approval) {
 		t.Errorf("%s on %s: managed intent=%v (want %v), approval=%v", guc, provider,
 			intent, want, approval)
 	}

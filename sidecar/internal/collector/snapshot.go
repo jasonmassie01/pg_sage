@@ -357,7 +357,10 @@ type ConfigSnapshot struct {
 	ConnectionStates    []ConnectionState `json:"connection_states"`
 	WALPosition         string            `json:"wal_position"`
 	ExtensionsAvailable []string          `json:"extensions_available"`
-	ConnectionChurn     int               `json:"connection_churn"`
+	// OwnsDatabase: pg_sage's role has the database owner's privileges, so
+	// ALTER DATABASE ... SET can run (advisors-07). Unread (legacy rows),
+	// it is false: database-scope changes stay advisory.
+	OwnsDatabase bool `json:"owns_database,omitempty"`
 }
 
 // PGSetting holds a single row from pg_settings.

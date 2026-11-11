@@ -78,10 +78,13 @@ func TestValidateRejectsSessionSafetyGUCs(t *testing.T) {
 	for _, param := range []string{
 		"statement_timeout", "lock_timeout", "idle_in_transaction_session_timeout",
 	} {
-		for _, sql := range []string{
-			"ALTER SYSTEM SET " + param + " = 100",
-			"ALTER DATABASE app SET " + param + " = 100",
-		} {
+		sqls := []string{"ALTER SYSTEM SET " + param + " = 100"}
+		// advisors-07: idle_in_transaction_session_timeout runs at database
+		// scope, with approval (TestTimeoutScope_RefusedUnderAlterSystem).
+		if param != "idle_in_transaction_session_timeout" {
+			sqls = append(sqls, "ALTER DATABASE app SET "+param+" = 100")
+		}
+		for _, sql := range sqls {
 			err := ValidateExecutorSQL(sql)
 			if err == nil || !strings.Contains(err.Error(), "disallowed") {
 				t.Fatalf("ValidateExecutorSQL(%q) = %v, want disallowed", sql, err)

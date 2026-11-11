@@ -15,7 +15,7 @@ import (
 // Session self-exclusion (perf v1.8.3, perf-selfexcl). pg_sage's own
 // sessions (application_name pg_sage) run its catalog reads, index builds
 // and probes; the session inputs of the snapshot (system stats, locks,
-// connection states and churn, the load circuit breaker) count the
+// connection states, the load circuit breaker) count the
 // application's sessions only. The collector itself runs on a pool
 // configured like pg_sage's, as in production, so its own connections are
 // pg_sage's too.
@@ -95,24 +95,41 @@ func TestConnectionStatesCountApplicationSessionsOnly(t *testing.T) {
 	}
 }
 
-// Churn is the application's new connections: starting pg_sage's sessions
-// (its pools reconnect on their own schedule) does not move it.
-func TestConnectionChurnIgnoresPgSageSessions(t *testing.T) {
+// advisors-07: the churn sample of live sessions is gone (the advisor reads
+// the pg_stat_database.sessions delta instead). The snapshot says whether
+// pg_sage's role owns the database, which ALTER DATABASE ... SET needs: the
+// test role does; a role without ownership does not.
+func TestConfigSnapshotDatabaseOwnership(t *testing.T) {
 	_, pool := sageCollector(t)
-	w := selfload.New(t, testdb.SkipUnlessLive(t))
-	w.StartApp(t)
-	before, err := collectConfigSnapshot(context.Background(), pool)
+	ctx := context.Background()
+	cs, err := collectConfigSnapshot(ctx, pool)
 	if err != nil {
 		t.Fatalf("collectConfigSnapshot: %v", err)
 	}
-	w.StartSage(t, 3)
-	after, err := collectConfigSnapshot(context.Background(), pool)
-	if err != nil {
-		t.Fatalf("collectConfigSnapshot: %v", err)
+	if !cs.OwnsDatabase {
+		t.Fatal("the test role owns (or is superuser on) its database: OwnsDatabase false")
 	}
-	if before.ConnectionChurn < 3 || after.ConnectionChurn != before.ConnectionChurn {
-		t.Fatalf("churn %d -> %d after pg_sage opened 6 sessions, want unchanged (>= 3)",
-			before.ConnectionChurn, after.ConnectionChurn)
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, `DO $$ BEGIN
+		IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sage_not_owner') THEN
+			CREATE ROLE sage_not_owner NOLOGIN;
+		END IF; END $$`); err != nil {
+		t.Fatalf("create role: %v", err)
+	}
+	if _, err := conn.Exec(ctx, "SET ROLE sage_not_owner"); err != nil {
+		t.Fatalf("set role: %v", err)
+	}
+	defer func() { _, _ = conn.Exec(context.Background(), "RESET ROLE") }()
+	notOwner, err := collectConfigSnapshot(ctx, conn)
+	if err != nil {
+		t.Fatalf("collectConfigSnapshot as a non-owner: %v", err)
+	}
+	if notOwner.OwnsDatabase {
+		t.Error("a role that does not own the database: OwnsDatabase true")
 	}
 }
 

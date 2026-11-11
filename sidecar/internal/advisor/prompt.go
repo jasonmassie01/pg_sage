@@ -12,7 +12,8 @@ import (
 const maxAdvisorPromptChars = 16384
 
 // configCategories are sub-advisor categories whose value is the SQL
-// change itself; a recommendation without SQL is dropped.
+// change itself; a recommendation without SQL is dropped, unless its kind
+// is one of infoKinds.
 var configCategories = map[string]bool{
 	"vacuum_tuning": true, "wal_tuning": true,
 	"memory_tuning": true, "connection_tuning": true,
@@ -51,19 +52,16 @@ func recFindings(category string, rec map[string]any,
 		logFn("WARN", "advisor: %s: dropped %d reserved detail key(s) from model "+
 			"output: %q", category, len(dropped), dropped)
 	}
-	objID, _ := rec["object_identifier"].(string)
-	if objID == "" {
-		objID, _ = rec["table"].(string)
-	}
-	if objID == "" {
-		objID = "instance"
-	}
+	objID := recObjectID(rec)
 	severity, _ := rec["severity"].(string)
 	if severity == "" {
 		severity = "info"
 	}
 	rationale, _ := rec["rationale"].(string)
 	recSQL, _ := rec["recommended_sql"].(string)
+	if kind := infoKind(category, rec, rationale, recSQL); kind != "" {
+		return []analyzer.Finding{infoFinding(category, objID, kind, detail, rationale)}
+	}
 
 	stmts, multi := recStatements(category, recSQL)
 	var findings []analyzer.Finding
@@ -92,6 +90,45 @@ func recFindings(category string, rec map[string]any,
 		})
 	}
 	return findings
+}
+
+// infoKinds are the kinds of a config sub-advisor's row that carry advice
+// with no setting change (advisors-07): pooler advice and observations.
+var infoKinds = map[string]bool{"pooler": true, "observation": true}
+
+// infoKind is the row's kind when it is kept as an info finding without
+// SQL: a config category, no statement at all, a rationale, and an info
+// kind. Any other SQL-less config row is a "no change" row and is dropped.
+func infoKind(category string, rec map[string]any, rationale, recSQL string) string {
+	kind, _ := rec["kind"].(string)
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	if !configCategories[category] || !infoKinds[kind] ||
+		strings.TrimSpace(rationale) == "" || rawStatementCount(recSQL) > 0 {
+		return ""
+	}
+	return kind
+}
+
+// recObjectID is the object a recommendation is about: its identifier, its
+// table, else the instance.
+func recObjectID(rec map[string]any) string {
+	if id, _ := rec["object_identifier"].(string); id != "" {
+		return id
+	}
+	if table, _ := rec["table"].(string); table != "" {
+		return table
+	}
+	return "instance"
+}
+
+// infoFinding is a config row kept as advice: info, no SQL, rollback or
+// risk, one open row per kind.
+func infoFinding(category, objID, kind string, detail map[string]any,
+	rationale string) analyzer.Finding {
+	return analyzer.Finding{Category: category, Severity: "info",
+		ObjectType: "configuration", ObjectIdentifier: objID + ":" + kind,
+		Title: fmt.Sprintf("%s: %s advice", category, kind), Detail: detail,
+		Recommendation: rationale}
 }
 
 // recStatements returns the statements a recommendation yields and

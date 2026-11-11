@@ -13,8 +13,8 @@ import (
 // approvalRequiredReason is why a background finding may run only with an
 // operator's approval ("" = it may run unattended when policy allows):
 // the producer marked it (e.g. an index drop while standby index usage is
-// unknown), or it changes a GUC that needs a restart or is not on the
-// autonomous allowlist (G-P0-1, G-P0-12).
+// unknown), or it changes a GUC, at instance or database scope, that needs
+// a restart or is not on the autonomous allowlist (G-P0-1, G-P0-12).
 func approvalRequiredReason(f analyzer.Finding) string {
 	switch v := f.Detail[analyzer.DetailApprovalRequired].(type) {
 	case nil:
@@ -29,7 +29,7 @@ func approvalRequiredReason(f analyzer.Finding) string {
 	default:
 		return fmt.Sprintf("the finding is marked approval_required (%v)", v)
 	}
-	stmt, ok := pgconf.ParseAlterSystem(f.RecommendedSQL)
+	stmt, ok := configStatement(f.RecommendedSQL)
 	switch {
 	case !ok:
 		return ""
@@ -39,6 +39,17 @@ func approvalRequiredReason(f analyzer.Finding) string {
 		return stmt.Name + " is not on the autonomous configuration allowlist"
 	}
 	return ""
+}
+
+// configStatement is the setting an ALTER SYSTEM or ALTER DATABASE changes:
+// a database-scope change of a setting off the autonomous list needs an
+// operator as the instance-scope one does (advisors-07).
+func configStatement(sql string) (pgconf.SystemStmt, bool) {
+	if stmt, ok := pgconf.ParseAlterSystem(sql); ok {
+		return stmt, true
+	}
+	stmt, ok := pgconf.ParseAlterDatabase(normalizeSQLText(sql))
+	return stmt.SystemStmt, ok
 }
 
 // requireApproval adds the approval guardrail to a finding's request when

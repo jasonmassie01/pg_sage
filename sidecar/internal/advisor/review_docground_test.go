@@ -90,6 +90,11 @@ var baseUnitCases = []struct {
 	{"autovacuum_naptime", "1d", false, "above 10min"},
 	{"autovacuum_max_workers", "5", true, "count"},
 	{"autovacuum_max_workers", "100", false, "above 20"},
+	// advisors-07: database scope, approval only; 0 (disabled) is refused.
+	{"idle_in_transaction_session_timeout", "300000", true, "base unit ms"},
+	{"idle_in_transaction_session_timeout", "5min", true, "explicit minutes"},
+	{"idle_in_transaction_session_timeout", "0", false, "disabled"},
+	{"idle_in_transaction_session_timeout", "30s", false, "below 1min"},
 }
 
 func TestValidateGUCValue_BaseUnits(t *testing.T) {

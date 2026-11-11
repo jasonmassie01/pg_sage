@@ -37,7 +37,9 @@ func assertAdvisory(t *testing.T, f analyzer.Finding, mention string) {
 func TestApplyConfigAllowlist_UnknownGUCBecomesAdvisory(t *testing.T) {
 	for _, sql := range []string{
 		"ALTER SYSTEM SET log_statement = 'all';",
-		"ALTER SYSTEM SET idle_in_transaction_session_timeout = '60s';",
+		// idle_in_transaction_session_timeout is documented since advisors-07
+		// (database scope, approval only); statement_timeout is not.
+		"ALTER SYSTEM SET statement_timeout = '60s';",
 		"ALTER SYSTEM RESET fsync;",
 	} {
 		got := applyConfigAllowlist([]analyzer.Finding{configFinding(sql)})

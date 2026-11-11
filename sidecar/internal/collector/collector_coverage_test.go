@@ -155,7 +155,7 @@ func TestSnapshot_JSONRoundTrip_Full(t *testing.T) {
 			},
 			WALPosition:         "0/2000000",
 			ExtensionsAvailable: []string{"pg_repack", "hypopg"},
-			ConnectionChurn:     12,
+			OwnsDatabase:        true,
 		},
 		StatsReset: false,
 	}
@@ -238,9 +238,8 @@ func TestSnapshot_JSONRoundTrip_Full(t *testing.T) {
 	if len(restored.ConfigData.PGSettings) != 1 {
 		t.Errorf("PGSettings not preserved")
 	}
-	if restored.ConfigData.ConnectionChurn != 12 {
-		t.Errorf("ConnectionChurn: got %d, want 12",
-			restored.ConfigData.ConnectionChurn)
+	if !restored.ConfigData.OwnsDatabase {
+		t.Error("OwnsDatabase not preserved")
 	}
 }
 
@@ -829,7 +828,7 @@ func TestConfigSnapshot_JSONRoundTrip(t *testing.T) {
 		},
 		WALPosition:         "0/3000000",
 		ExtensionsAvailable: []string{"pg_repack", "hypopg", "pgstattuple"},
-		ConnectionChurn:     25,
+		OwnsDatabase:        true,
 	}
 
 	data, err := json.Marshal(cs)
@@ -855,9 +854,8 @@ func TestConfigSnapshot_JSONRoundTrip(t *testing.T) {
 		t.Errorf("ExtensionsAvailable len: got %d, want 3",
 			len(restored.ExtensionsAvailable))
 	}
-	if restored.ConnectionChurn != 25 {
-		t.Errorf("ConnectionChurn: got %d, want 25",
-			restored.ConnectionChurn)
+	if !restored.OwnsDatabase {
+		t.Error("OwnsDatabase not preserved")
 	}
 }
 
