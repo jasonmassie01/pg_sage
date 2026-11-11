@@ -543,6 +543,12 @@
     "doc": "Where pgaudit is installed and the server log is readable, keep the pgaudit records of pg_sage actions and agent principals. Default: true.",
     "class": "operator_preference"
   },
+  "audit.prune_below_signed_checkpoint": {
+    "type": "bool",
+    "default": false,
+    "doc": "After a clean full verification, delete chain links below the newest signed checkpoint every SIEM sink received (live rows keep theirs). Needs the evidence key and a sink. Default: false.",
+    "class": "safety_critical"
+  },
   "audit.siem.batch_size": {
     "type": "int",
     "default": 200,

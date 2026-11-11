@@ -29,6 +29,9 @@ func startAuditJobs(ctx context.Context, control *pgxpool.Pool,
 	if cfg == nil {
 		return
 	}
+	signer := checkpointSigner(evidenceSigner(cfg, control))
+	auditSigner.Store(signer)
+	noteCheckpointSigning(signer)
 	sources := auditSources(control, mgr)
 	startSIEMExport(ctx, control, sources)
 	startChainVerification(ctx, sources)
@@ -46,6 +49,7 @@ func auditSources(control *pgxpool.Pool, mgr *fleet.DatabaseManager) func() []au
 			cursors = e
 		}
 		full := fullVerifyHours()
+		signer, prune := auditSigner.Load(), pruneBelowSignedCheckpoint()
 		seen := map[*pgxpool.Pool]bool{}
 		if mgr != nil {
 			instances := mgr.Instances()
@@ -58,13 +62,15 @@ func auditSources(control *pgxpool.Pool, mgr *fleet.DatabaseManager) func() []au
 				if inst := instances[name]; inst != nil && inst.Pool != nil && !seen[inst.Pool] {
 					seen[inst.Pool] = true
 					out = append(out, auditjob.Source{Name: name, Pool: inst.Pool,
-						Cursors: cursors, FullVerifyHours: full})
+						Cursors: cursors, FullVerifyHours: full, Signer: signer,
+						PruneBelowSignedCheckpoint: prune})
 				}
 			}
 		}
 		if control != nil && !seen[control] {
 			out = append(out, auditjob.Source{Name: "control", Pool: control,
-				Cursors: cursors, FullVerifyHours: full})
+				Cursors: cursors, FullVerifyHours: full, Signer: signer,
+				PruneBelowSignedCheckpoint: prune})
 		}
 		return out
 	}

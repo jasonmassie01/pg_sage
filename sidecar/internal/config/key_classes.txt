@@ -555,6 +555,7 @@ operator_preference agents.posture.memory_growth_gb_day
 # a credential; the cadence and correlation switches are the operator's.
 safety_critical audit.siem.sinks
 safety_critical audit.evidence.signing_key_env
+safety_critical audit.prune_below_signed_checkpoint
 operator_preference audit.siem.batch_size
 operator_preference audit.siem.interval_seconds
 operator_preference audit.siem.max_backoff_seconds

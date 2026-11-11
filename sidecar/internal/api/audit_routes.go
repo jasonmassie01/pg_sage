@@ -142,6 +142,7 @@ func auditVerifyHandler(d AuditDeps) http.HandlerFunc {
 			jsonError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		req.window.Key = d.checkpointKey()
 		specs, err := chainsToVerify(r, pool)
 		if err != nil {
 			jsonError(w, err.Error(), http.StatusBadRequest)
@@ -217,7 +218,17 @@ func (q verifyRequest) verify(ctx context.Context, pool *pgxpool.Pool,
 	if q.windowed() {
 		return auditchain.Verify(ctx, pool, spec, q.window)
 	}
-	return auditchain.VerifyFromCheckpoint(ctx, pool, spec, q.full)
+	return auditchain.VerifyFromCheckpointKeyed(ctx, pool, spec, q.full, q.window.Key)
+}
+
+// checkpointKey is the key the chains' signed checkpoint links are
+// verified with: the evidence-signing key's public half (audit-03b).
+func (d AuditDeps) checkpointKey() *auditchain.TrustedKey {
+	if len(d.EvidenceKey) != ed25519.PrivateKeySize {
+		return nil
+	}
+	pub, _ := d.EvidenceKey.Public().(ed25519.PublicKey)
+	return &auditchain.TrustedKey{ID: evidence.KeyID(pub), Public: pub}
 }
 
 func seqWindow(r *http.Request) (auditchain.Window, error) {
