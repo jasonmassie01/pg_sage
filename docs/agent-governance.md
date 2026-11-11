@@ -103,6 +103,8 @@ sponsor (or an operator token's owner).
 | `agent_token_minted` | `POST /api/v1/agents/{id}/tokens` | `token_id`, `name`, `kind`, `scopes`, `databases`, `expires_at`, `principal_id` |
 | `mcp_token_created` | `POST /api/v1/mcp/tokens` | as `agent_token_minted`, with `owner_user_id` |
 | `mcp_token_revoked` | `DELETE /api/v1/mcp/tokens/{id}` (not a repeat on a revoked token) | as `mcp_token_created` |
+| `agent_identity_bound` | `POST /api/v1/agents/{id}/identities` | `principal_id`, `name`, `issuer`, `subject` |
+| `agent_identity_unbound` | `DELETE /api/v1/agents/{id}/identities` | as `agent_identity_bound` |
 
 `before` and `after` are `{"sponsor_user_id", "profile", "env_ceiling"}`. No row carries a token
 secret, its hash or its prefix. An empty `PATCH` changes nothing and writes nothing. Kills and
@@ -219,19 +221,48 @@ https (http only on a loopback host).
   token, because the task is what per-task taint is keyed by.
 - **Identity bindings.** An identity maps to a principal through
   `sage.guard_identity_bindings` in pg_sage's store: one row per `(issuer, subject)`,
-  where the subject is the actor. There is no route for bindings yet; an admin inserts them:
+  where the subject is the actor. An admin binds it on the agent's **OAuth identities**
+  section of the **Agents** page, or through the API. An identity with no binding, or bound
+  to a retired agent, is refused (403 `identity_unbound`).
 
-  ```sql
-  INSERT INTO sage.guard_identity_bindings (issuer, subject, principal_id, created_by)
-  VALUES ('https://idp.example.com', 'agent-client-id', 'agp_...', 'you@example.com');
-  ```
+### Binding an OAuth identity
 
-  An identity with no binding, or bound to a retired agent, is refused (403).
+A binding grants the identity exactly what the agent may do: its profile and ceiling. So,
+like minting a token, it takes one admin and is audited. All four routes are admin only.
+
+| Route | What it does |
+|---|---|
+| `GET /api/v1/mcp/oauth/issuers` | `{"enabled", "issuers"}`: the issuer URLs from `mcp.oauth.issuers` as the server started (no JWKS or algorithms); empty while OAuth is off |
+| `GET /api/v1/agents/{id}/identities` | `{"items", "truncated"}`: the agent's bindings (`issuer`, `subject`, `principal_id`, `created_by`, `created_at`), oldest first, at most 500 |
+| `POST /api/v1/agents/{id}/identities` | `{"issuer", "subject"}` binds one: 201 with the binding |
+| `DELETE /api/v1/agents/{id}/identities?issuer=&subject=` | removes one at once: 200 with the removed binding |
+
+- The issuer must be exactly one of `mcp.oauth.issuers` (the same string, with no trailing
+  slash added or dropped), and https, or http only on a loopback host as `mcp.oauth`
+  allows. While `mcp.oauth.enabled` is off nothing can be bound.
+- The subject is the token's actor (`act.sub` under delegation, else `sub`): 1 to 255 bytes,
+  with no control characters.
+- An unknown issuer, a non-https issuer, an empty subject, one over 255 bytes, or OAuth off
+  answers 422 `invalid_identity`. A body that is not one JSON object, or has an unknown
+  field, answers 400 `invalid_body`.
+- An identity bound already, to this agent or another, answers 409 `identity_bound`: unbind
+  it there first. A retired agent answers 409, and a frozen one 409 `agent_frozen` (unfreeze
+  it first). An unbind of an identity the agent doesn't hold answers 404 `identity_not_bound`.
+- Unbinding narrows, so it works in any status and for an issuer no longer configured. The
+  next request with that identity's tokens is refused.
+- Bindings live in pg_sage's store, so fleet mode has one set for every database. Managed
+  providers are not affected.
+
+```bash
+# admin session cookie in $SAGE_COOKIE
+curl -s -X POST https://pg-sage.example.com:8080/api/v1/agents/<agent id>/identities   -H 'Content-Type: application/json' -b "sage_session=$SAGE_COOKIE"   -d '{"issuer":"https://idp.example.com","subject":"agent-client-id"}'
+curl -s -X DELETE -b "sage_session=$SAGE_COOKIE"   'https://pg-sage.example.com:8080/api/v1/agents/<agent id>/identities?issuer=https%3A%2F%2Fidp.example.com&subject=agent-client-id'
+```
 
 A bad token, audience or issuer answers 401 `invalid_token`, a missing scope 403
 `insufficient_scope`, and an issuer or binding lookup that can't be reached 503. pg_sage can't
 revoke an access token your issuer signed: a kill freezes the agent, which limits its OAuth
-tokens to read tools. Retire the agent, or delete its binding row, to refuse them outright.
+tokens to read tools. Retire the agent, or unbind the identity, to refuse them outright.
 
 ## Grants and activity
 

@@ -30,11 +30,11 @@ const agentGovDoc = "../../../docs/agent-governance.md"
 // agentRouteFiles register the routes the governance doc must cover.
 var agentRouteFiles = []string{"agents_routes.go", "agent_kill_routes.go",
 	"agent_activity_routes.go", "agent_grant_routes.go", "agent_env_routes.go",
-	"mcp_token_routes.go"}
+	"mcp_token_routes.go", "agent_identity_routes.go"}
 
 // minAgentRoutes is the route count of agentRouteFiles today; fewer means
 // the scanner lost registrations, so a pass would prove nothing.
-const minAgentRoutes = 21
+const minAgentRoutes = 25
 
 // readGovernanceDoc reads the doc with LF line endings (checkouts may use
 // CRLF); a missing or empty file is an error.
@@ -232,6 +232,7 @@ func TestAgentRouteScanMatchesMux(t *testing.T) {
 	registerAgentGrantRoutes(mux, nil)
 	registerAgentEnvRoutes(mux, nil)
 	registerMCPTokenRoutes(mux, nil)
+	registerAgentIdentityRoutes(mux, nil, nil)
 	wildcard := regexp.MustCompile(`\{[^}]+\}`)
 	for _, route := range scanAgentRoutes(t) {
 		method, path, ok := strings.Cut(route, " ")

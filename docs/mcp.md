@@ -114,6 +114,39 @@ A bearer token authenticates the MCP endpoint only, never the rest of the API.
 [Agent governance](agent-governance.md#tokens) covers what each kind of token follows, what
 a kill does to agent tokens, legacy tokens and OAuth access tokens.
 
+## OAuth
+
+An agent runtime that holds OAuth access tokens (JWTs) from your identity provider can use
+them on the MCP endpoint instead of a pg_sage token. Turn it on with `mcp.oauth` (it needs
+`mcp.transport: http`; every key is safety-critical and takes effect on restart):
+
+| Key | Meaning |
+|---|---|
+| `mcp.oauth.enabled` | accept access tokens beside pg_sage's own MCP tokens (default off) |
+| `mcp.oauth.resource` | the MCP endpoint's canonical URL, e.g. `https://sage.example.com/api/v1/mcp` |
+| `mcp.oauth.issuers` | the allowed issuers: `[{issuer, jwks_uri, signing_algs}]`; https only (http on loopback) |
+| `mcp.oauth.task_claim` | the claim carrying the runtime's task id (default `task_id`; empty ignores tasks) |
+
+- **Per-database resources.** Each monitored database is its own protected resource,
+  `<resource>/databases/<name>`, served at that path. A token whose audience names one
+  database is refused at another's; at `<resource>` itself the token reaches only the
+  databases its audience also names. Each resource's metadata (RFC 9728) is under
+  `/.well-known/oauth-protected-resource`.
+- **Scopes.** `read` is required, `propose` adds the propose tools, and an OAuth token never
+  gets `approve`.
+- **Task claim.** The `task_id` claim (or the one `task_claim` names) keys per-task taint. A
+  missing claim is fine; a malformed one refuses the token.
+- **Delegation.** Under RFC 8693 `act.sub` is the agent and `sub` whom it acts for. pg_sage
+  binds the actor and records `sub` as on-behalf-of.
+- **Binding.** Each identity, the pair (issuer, actor subject), must be bound to an agent
+  principal by an admin: on the agent's **OAuth identities** section of the **Agents** page,
+  or with `POST /api/v1/agents/{id}/identities` `{"issuer", "subject"}`. The issuer must be
+  exactly one of `mcp.oauth.issuers`. An unbound identity is refused with 403
+  `identity_unbound`; unbinding refuses its tokens at once.
+
+[Agent governance](agent-governance.md#oauth) has the full rules, the binding routes and
+their errors.
+
 ## Databases
 
 Every tool takes a `database` argument (the fleet name; `list_databases` lists the ones the
