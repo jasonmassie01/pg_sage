@@ -213,9 +213,12 @@ already reads (no new SQL; PostgreSQL 14-18 and managed providers alike).
 A restored clone shares the identifier but not the start, so it is its own
 cluster. Without the identifier (the grant above is missing) each database
 reports its cluster runways itself, logged once; the forecasts then also
-stay per database, since an address may front several clusters. As for
-instance settings, separate pg_sage processes on one cluster are not
-coordinated.
+stay per database, since an address may front several clusters. The
+forecasts key the cluster by the system identifier and the address the
+database is reached at, so a restored clone or a promoted standby at
+another address raises its own (one cluster reached at two addresses
+raises them twice, never hides them). As for instance settings, separate
+pg_sage processes on one cluster are not coordinated.
 
 ## 5. Verify the v1 UI
 

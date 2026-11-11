@@ -453,7 +453,7 @@ against its limit. In fleet mode a process-wide `runway.ClusterOwners` elects, p
 (system identifier and postmaster start), the one database runtime that reports the
 cluster-scope series; the others sample them too but report only their own tables and
 sequences, and close their copies once the owner has reported. The forecaster's connection
-and checkpoint forecasts use the same election per instance. See
+and checkpoint forecasts use the same election per system identifier and address. See
 [Cluster runways and forecasts](walkthrough-fleet.md#cluster-runways-and-forecasts).
 
 ### Tuner
