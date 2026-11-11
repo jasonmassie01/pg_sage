@@ -370,7 +370,9 @@ The confirm answers 403 `second_admin_required` for the requester and 403
 closed and must be requested again) and 409 `change_not_pending` once it is applied, expired or
 superseded. An agent has at most one pending change: a newer widening `PATCH` supersedes it.
 Retiring the agent ends it too (409 on confirm). A `PATCH` that retires the agent and widens it
-at once answers 422.
+at once answers 422. pg_sage judges a narrowing `PATCH` again under the agent's row lock: if
+another change landed in between and the patch now widens the agent, it answers 409
+`agent_changed` and applies nothing; read the agent again and resend.
 
 ## Agent posture
 

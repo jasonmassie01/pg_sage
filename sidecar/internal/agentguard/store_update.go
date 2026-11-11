@@ -136,6 +136,20 @@ func (patch Patch) movesSponsor(cur shape) bool {
 // principal has an open freeze. An empty patch changes and records nothing.
 func (s *Store) Update(ctx context.Context, id string, patch Patch,
 	a Audit) (Principal, error) {
+	return s.update(ctx, id, patch, a, false)
+}
+
+// UpdateNarrowing is Update for a patch the caller judged not to widen on
+// an earlier read. Under the row lock it judges the patch again and
+// refuses one that now widens with ErrChangeWidens (agentgov-06), so a
+// change committed in between cannot turn it into an unconfirmed widening.
+func (s *Store) UpdateNarrowing(ctx context.Context, id string, patch Patch,
+	a Audit) (Principal, error) {
+	return s.update(ctx, id, patch, a, true)
+}
+
+func (s *Store) update(ctx context.Context, id string, patch Patch, a Audit,
+	narrowOnly bool) (Principal, error) {
 	if err := patch.validate(); err != nil {
 		return Principal{}, err
 	}
@@ -157,7 +171,7 @@ func (s *Store) Update(ctx context.Context, id string, patch Patch,
 		return p, err
 	}
 	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		return updateInTx(ctx, tx, id, patch, a)
+		return updateInTx(ctx, tx, id, patch, a, narrowOnly)
 	})
 	if err != nil {
 		return Principal{}, err
@@ -165,10 +179,16 @@ func (s *Store) Update(ctx context.Context, id string, patch Patch,
 	return s.Get(ctx, id)
 }
 
-func updateInTx(ctx context.Context, tx pgx.Tx, id string, patch Patch, a Audit) error {
+func updateInTx(ctx context.Context, tx pgx.Tx, id string, patch Patch, a Audit,
+	narrowOnly bool) error {
 	cur, err := lockForChange(ctx, tx, id)
 	if err != nil {
 		return err
+	}
+	locked := Principal{ID: id, Profile: cur.shape.Profile,
+		EnvCeiling: Env(cur.shape.EnvCeiling)}
+	if narrowOnly && patch.Widens(locked) {
+		return fmt.Errorf("%w: principal %s", ErrChangeWidens, id)
 	}
 	return applyLocked(ctx, tx, id, cur, patch, a, nil)
 }

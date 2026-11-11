@@ -167,6 +167,9 @@ func (a *agentRoutes) patch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	patch, audit := body.patch(), governanceAudit(r, body.Reason)
+	// cur is an unlocked read, so the store judges a narrowing again under
+	// the row lock (agentgov-06).
+	update := a.store.UpdateNarrowing
 	if patch.Widens(cur) {
 		if !a.singleOperator {
 			a.requestChange(w, r, cur, patch, body)
@@ -175,9 +178,9 @@ func (a *agentRoutes) patch(w http.ResponseWriter, r *http.Request) {
 		if !allowSingleOperator(w, body.Reason) {
 			return
 		}
-		audit.Event = auth.AuditAgentWidenedSingleOperator
+		audit.Event, update = auth.AuditAgentWidenedSingleOperator, a.store.Update
 	}
-	p, err := a.store.Update(r.Context(), cur.ID, patch, audit)
+	p, err := update(r.Context(), cur.ID, patch, audit)
 	if err == nil && body.Status != nil {
 		// The leader drops the roles after the grace under this admin's approval.
 		err = upkeep.RecordRetiringAdmin(r.Context(), a.pool, cur.ID, sessionUserID(r))

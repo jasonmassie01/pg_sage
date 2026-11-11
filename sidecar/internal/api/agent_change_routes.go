@@ -97,6 +97,7 @@ func changeError(w http.ResponseWriter, err error, msg string) bool {
 		{agentguard.ErrChangeNotPending, "change_not_pending", http.StatusConflict},
 		{agentguard.ErrChangeExpired, "change_expired", http.StatusConflict},
 		{agentguard.ErrChangeMismatch, "change_mismatch", http.StatusConflict},
+		{agentguard.ErrChangeWidens, "agent_changed", http.StatusConflict},
 		{agentguard.ErrSecondAdminRequired, "second_admin_required", http.StatusForbidden},
 		{agentguard.ErrSponsorCannotApprove, "sponsor_cannot_approve", http.StatusForbidden},
 	} {

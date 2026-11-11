@@ -34,6 +34,10 @@ var (
 	// request's (409 change_mismatch).
 	ErrChangeMismatch = errors.New(
 		"agentguard: the confirmed patch differs from the requested one")
+	// ErrChangeWidens is a patch judged narrowing on an earlier read that
+	// widens the principal as it now stands (409 agent_changed).
+	ErrChangeWidens = errors.New("agentguard: the agent changed since it was read and " +
+		"this patch now widens it; read the agent again and resend")
 	// ErrSecondAdminRequired is the requester confirming their own change
 	// (403 second_admin_required).
 	ErrSecondAdminRequired = errors.New(
