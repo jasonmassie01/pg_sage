@@ -29,24 +29,7 @@ func Clone(cfg *Config) *Config {
 	cp.OAuth.RoleMapping = append([]OAuthRoleMapping(nil), cfg.OAuth.RoleMapping...)
 	cp.Briefing.Channels = append(
 		[]string(nil), cfg.Briefing.Channels...)
-	cp.Alerting.Routes = append(
-		[]AlertRoute(nil), cfg.Alerting.Routes...)
-	for i := range cp.Alerting.Routes {
-		cp.Alerting.Routes[i].Channels = append(
-			[]string(nil), cfg.Alerting.Routes[i].Channels...)
-	}
-	cp.Alerting.Webhooks = append(
-		[]WebhookConfig(nil), cfg.Alerting.Webhooks...)
-	for i := range cp.Alerting.Webhooks {
-		if cfg.Alerting.Webhooks[i].Headers == nil {
-			continue
-		}
-		cp.Alerting.Webhooks[i].Headers = make(
-			map[string]string, len(cfg.Alerting.Webhooks[i].Headers))
-		for k, v := range cfg.Alerting.Webhooks[i].Headers {
-			cp.Alerting.Webhooks[i].Headers[k] = v
-		}
-	}
+	cloneAlerting(&cp.Alerting, cfg.Alerting)
 	cp.Forecaster.AlertHorizons = append(
 		[]int(nil), cfg.Forecaster.AlertHorizons...)
 	cp.Analyzer.LockChain.SafePatterns = append(
@@ -66,6 +49,26 @@ func Clone(cfg *Config) *Config {
 	cloneSRESignals(&cp.SRE, cfg.SRE)
 	cloneAuditAndOAuth(&cp, cfg) // audit.go
 	return &cp
+}
+
+// cloneAlerting deep-copies the alerting block's routes, webhooks and
+// repeat intervals into dst.
+func cloneAlerting(dst *AlertingConfig, src AlertingConfig) {
+	dst.Routes = append([]AlertRoute(nil), src.Routes...)
+	for i := range dst.Routes {
+		dst.Routes[i].Channels = append([]string(nil), src.Routes[i].Channels...)
+	}
+	dst.RepeatMinutes = cloneIntMap(src.RepeatMinutes)
+	dst.Webhooks = append([]WebhookConfig(nil), src.Webhooks...)
+	for i := range dst.Webhooks {
+		if src.Webhooks[i].Headers == nil {
+			continue
+		}
+		dst.Webhooks[i].Headers = make(map[string]string, len(src.Webhooks[i].Headers))
+		for k, v := range src.Webhooks[i].Headers {
+			dst.Webhooks[i].Headers[k] = v
+		}
+	}
 }
 
 func cloneBool(value *bool) *bool {

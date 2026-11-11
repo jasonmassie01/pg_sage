@@ -105,13 +105,23 @@ func groupResolveRows(rows []resolveRow) []resolveTarget {
 	return out
 }
 
-// seedQuery restores recent deliveries into the throttle after a
-// restart so every open finding is not re-alerted (G7-B32).
+// seedQuery restores deliveries into the throttle after a restart so
+// every open finding is not re-alerted (G7-B32): the last delivery of
+// each key whose finding is still open, however old, or that was sent
+// within $1 minutes (the longest repeat interval plus an hour), with the
+// first delivery of that finding (alerting-07).
 const seedQuery = `
-SELECT DISTINCT ON (dedup_key) dedup_key, severity, sent_at
-FROM sage.alert_log
-WHERE status = 'sent' AND sent_at > now() - interval '6 hours'
-ORDER BY dedup_key, sent_at DESC`
+SELECT DISTINCT ON (a.dedup_key) a.dedup_key, a.severity,
+       COALESCE(a.finding_id, 0), a.sent_at,
+       COALESCE((SELECT min(b.sent_at) FROM sage.alert_log b
+                  WHERE b.finding_id = a.finding_id AND b.status = 'sent'),
+                a.sent_at)
+FROM sage.alert_log a
+WHERE a.status = 'sent'
+  AND (a.sent_at > now() - make_interval(mins => $1)
+       OR EXISTS (SELECT 1 FROM sage.findings f
+                   WHERE f.id = a.finding_id AND f.status = 'open'))
+ORDER BY a.dedup_key, a.sent_at DESC, a.id DESC`
 
 func (m *Manager) queryPending(ctx context.Context) ([]AlertFinding, error) {
 	return m.scanFindings(ctx, pendingQuery, maxPendingErrorRows)
@@ -205,7 +215,8 @@ func (m *Manager) seedThrottle(ctx context.Context) {
 	if done {
 		return
 	}
-	rows, err := m.pool.Query(ctx, seedQuery)
+	window := int(m.throttle.SeedWindow() / time.Minute)
+	rows, err := m.pool.Query(ctx, seedQuery, window)
 	if err != nil {
 		m.logFn("WARN", "alerting: seed throttle from alert_log: %v", err)
 		return
@@ -213,12 +224,13 @@ func (m *Manager) seedThrottle(ctx context.Context) {
 	defer rows.Close()
 	for rows.Next() {
 		var key, sev string
-		var at time.Time
-		if err := rows.Scan(&key, &sev, &at); err != nil {
+		var episode int64
+		var at, first time.Time
+		if err := rows.Scan(&key, &sev, &episode, &at, &first); err != nil {
 			m.logFn("WARN", "alerting: scan alert_log seed: %v", err)
 			return
 		}
-		m.throttle.RecordAt(key, sev, at)
+		m.throttle.restore(key, sev, episode, first, at)
 	}
 	if err := rows.Err(); err != nil {
 		m.logFn("WARN", "alerting: iterate alert_log seed: %v", err)

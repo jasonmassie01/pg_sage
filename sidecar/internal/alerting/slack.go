@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/notify"
 )
@@ -78,9 +79,14 @@ func (s *SlackChannel) buildPayload(
 	header := fmt.Sprintf("%s pg_sage%s: %d %s finding(s)",
 		severityEmoji(alert.Severity), databaseLabel(alert.Database),
 		len(alert.Findings), alert.Severity)
-	if alert.Resolved {
+	switch {
+	case alert.Resolved:
 		header = fmt.Sprintf("pg_sage%s: resolved %d finding(s)",
 			databaseLabel(alert.Database), len(alert.Findings))
+	case alert.Reminder && len(alert.Findings) > 0:
+		header = fmt.Sprintf("%s pg_sage%s: Still open for %s (seen %d times)",
+			severityEmoji(alert.Severity), databaseLabel(alert.Database),
+			formatOpenFor(alert.OpenFor), alert.Findings[0].OccurrenceCount)
 	}
 	blocks := []map[string]any{{
 		"type": "header",
@@ -106,6 +112,22 @@ func (s *SlackChannel) buildPayload(
 		})
 	}
 	return json.Marshal(map[string]any{"blocks": blocks})
+}
+
+// formatOpenFor renders a reminder's open time in whole minutes: "45m",
+// "3h20m", or "2d3h" from a day on.
+func formatOpenFor(d time.Duration) string {
+	mins := int64(d / time.Minute)
+	if mins < 0 {
+		mins = 0
+	}
+	switch {
+	case mins >= 24*60:
+		return fmt.Sprintf("%dd%dh", mins/(24*60), mins%(24*60)/60)
+	case mins >= 60:
+		return fmt.Sprintf("%dh%dm", mins/60, mins%60)
+	}
+	return fmt.Sprintf("%dm", mins)
 }
 
 func databaseLabel(db string) string {

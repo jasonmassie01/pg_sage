@@ -2718,6 +2718,7 @@ A disabled block is not checked. In fleet mode the one shared block is checked o
 | `alerting.enabled` | `false` | Send alerts. Needs at least one route that reaches a usable channel |
 | `alerting.check_interval_seconds` | `60` | How often new findings are read |
 | `alerting.cooldown_minutes` | `15` | Raises the per-severity cooldown floors: critical 5 min, warning 30 min, info 6 h. A value below a floor leaves that floor |
+| `alerting.repeat_minutes` | `critical: 240`, `warning: 1440`, `info: 0` | Minutes between reminders of a finding that stays open, per severity; `0` never reminds. A missing severity keeps its default. A negative value, an unknown severity, more than `525600` (a year), or a value below that severity's cooldown (above) refuses startup naming the key |
 | `alerting.quiet_hours_start` / `alerting.quiet_hours_end` | empty | `HH:MM` (00:00-23:59); set both or neither. The window may cross midnight. Warning and info alerts are deferred, never dropped, until it ends; critical alerts bypass it |
 | `alerting.timezone` | `UTC` (empty) | IANA zone for quiet hours, such as `America/Chicago`; an unknown zone refuses startup |
 | `alerting.slack_webhook_url` | empty | Slack incoming webhook; required by a route naming `slack`. Must pass the notification target policy (below) |
@@ -2740,6 +2741,25 @@ alerting:
       channels: [slack, myapp]      # myapp is the same as webhook:myapp
     - severity: warning
       channels: [slack]
+```
+
+A finding is alerted once when it opens. While it stays open it is throttled, and a
+reminder goes out each `alerting.repeat_minutes` for its severity: by default every 4 hours
+for critical, once a day for warning, and never for info. Slack heads a reminder "Still open
+for 3h20m (seen 21 times)", webhooks get `"reminder": true` and `open_for_seconds`, and
+PagerDuty re-triggers with the same dedup key, which it folds into the open incident. A
+finding that escalates (warning to critical) is sent at once. A finding that resolves and
+reopens as a new finding waits out the cooldown first, so a flapping check is not re-sent
+every cycle. Reminders are logged in `sage.alert_log` as `sent`, and after a restart the
+throttle reads that log far enough back to keep the schedule. Like the other alerting keys,
+`repeat_minutes` takes effect on restart.
+
+```yaml
+alerting:
+  repeat_minutes:
+    critical: 240                # every 4 hours while open
+    warning: 1440                # once a day
+    info: 0                      # never
 ```
 
 A severity with no route is not sent. A hot-reloaded config file is checked the same way, and

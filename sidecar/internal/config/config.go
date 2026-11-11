@@ -332,6 +332,7 @@ type AlertingConfig struct {
 	Enabled              bool            `yaml:"enabled"`
 	CheckIntervalSeconds int             `yaml:"check_interval_seconds"`
 	CooldownMinutes      int             `yaml:"cooldown_minutes"`
+	RepeatMinutes        map[string]int  `yaml:"repeat_minutes" doc:"Minutes between reminders of a finding that stays open, per severity. A missing key takes its default; 0 never reminds. Default: critical 240, warning 1440, info 0."`
 	QuietHoursStart      string          `yaml:"quiet_hours_start"`
 	QuietHoursEnd        string          `yaml:"quiet_hours_end"`
 	Timezone             string          `yaml:"timezone"`
@@ -1037,6 +1038,7 @@ func newDefaults() *Config {
 			Enabled:              false,
 			CheckIntervalSeconds: DefaultAlertingCheckInterval,
 			CooldownMinutes:      DefaultAlertingCooldown,
+			RepeatMinutes:        ResolveAlertRepeatMinutes(nil),
 			Timezone:             "UTC",
 		},
 		SchemaLint: SchemaLintConfig{

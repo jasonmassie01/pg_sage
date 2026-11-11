@@ -47,6 +47,7 @@
 | `alerting.pagerduty_routing_key` | `restart` | `-` | `safety_critical` |
 | `alerting.quiet_hours_end` | `restart` | `-` | `operator_preference` |
 | `alerting.quiet_hours_start` | `restart` | `-` | `operator_preference` |
+| `alerting.repeat_minutes` | `restart` | `-` | `operator_preference` |
 | `alerting.routes` | `restart` | `-` | `operator_preference` |
 | `alerting.slack_webhook_url` | `restart` | `-` | `safety_critical` |
 | `alerting.timezone` | `restart` | `-` | `operator_preference` |

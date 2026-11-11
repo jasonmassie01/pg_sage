@@ -71,6 +71,7 @@ func New(
 		mcfg.QuietHoursEnd,
 		mcfg.Timezone,
 	)
+	throttle.setRepeat(mcfg.RepeatMinutes)
 	for _, w := range throttle.Warnings() {
 		logFn("WARN", "alerting: %s", w)
 	}
@@ -207,7 +208,8 @@ func (m *Manager) dispatchGroup(
 ) {
 	for _, f := range findings {
 		key := FormatDedupKey(f.Category, f.ObjectIdentifier)
-		switch m.throttle.Decide(key, sev) {
+		decision, openFor := m.throttle.DecideEpisode(key, sev, f.ID)
+		switch decision {
 		case DecisionThrottled:
 			continue
 		case DecisionDefer:
@@ -215,12 +217,14 @@ func (m *Manager) dispatchGroup(
 			continue
 		}
 		alert := m.newAlert(sev, f)
+		alert.Reminder = decision == DecisionRemind
+		alert.OpenFor = openFor
 		// Only record the throttle key when at least one channel
 		// actually delivered. Recording on total failure would suppress
 		// re-firing for the whole cooldown window (H4); the failure is
 		// retried from alert_log instead.
 		if m.dispatch(ctx, channels, alert, f.ID, key) {
-			m.throttle.Record(key, sev)
+			m.throttle.RecordEpisode(key, sev, f.ID)
 		}
 	}
 }
