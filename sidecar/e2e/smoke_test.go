@@ -334,6 +334,7 @@ func login(t *testing.T, env *testEnv) {
 	for _, c := range resp.Cookies() {
 		if c.Name == "sage_session" {
 			env.sessionCookie = c
+			clearForcedPasswordChange(t, env, password, resp.Body)
 			t.Log("authenticated as admin@pg-sage.local")
 			return
 		}

@@ -1,5 +1,8 @@
 // Test helper: resets an admin password for browser test authentication.
 // NOT for production use.
+// The operator chose the password, so it clears must_change_password
+// (apiauth-03): a generated bootstrap password would otherwise still hold
+// the session to the change form.
 //
 //	go run ./cmd/reset_admin_for_test -dsn "$DSN" -email admin@pg-sage.local -password "$PW"
 package main
@@ -94,7 +97,8 @@ func productionResetDeps() resetDeps {
 			ctx context.Context, pool *pgxpool.Pool, hash, email string,
 		) (int64, error) {
 			tag, err := pool.Exec(ctx,
-				"UPDATE sage.users SET password=$1 WHERE email=$2", hash, email)
+				"UPDATE sage.users SET password=$1, must_change_password=false "+
+					"WHERE email=$2", hash, email)
 			return tag.RowsAffected(), err
 		},
 	}
