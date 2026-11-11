@@ -447,6 +447,15 @@ Detects and uses `auto_explain` (if available) to capture EXPLAIN plans for slow
 
 Analyzes historical trends to predict disk growth, connection exhaustion, sequence depletion, and cache ratio degradation. Generates proactive findings before problems occur.
 
+The runway monitor (`internal/runway`) samples the series a hard limit is approached along
+(XID and multixact age, WAL, slots, disk, sequences) on the collector tick and projects each
+against its limit. In fleet mode a process-wide `runway.ClusterOwners` elects, per cluster
+(system identifier and postmaster start), the one database runtime that reports the
+cluster-scope series; the others sample them too but report only their own tables and
+sequences, and close their copies once the owner has reported. The forecaster's connection
+and checkpoint forecasts use the same election per instance. See
+[Cluster runways and forecasts](walkthrough-fleet.md#cluster-runways-and-forecasts).
+
 ### Tuner
 
 Per-query optimization via `pg_hint_plan` (if available). Detects plan-level symptoms (disk sorts, hash spills, bad joins) and applies per-query GUC overrides without modifying application queries. The tuning agent's hints go through it: it validates the pg_hint_plan syntax, clamps `Set(work_mem)`, records the hint and keeps one hint per statement.

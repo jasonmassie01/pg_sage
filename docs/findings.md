@@ -32,6 +32,12 @@ The next cycle that reads the category resumes them.
 the same value as `subsystem`. An unknown `source` value applies no filter, and
 `migration_advisor` is reserved and returns no rows.
 
+In a fleet, `GET /api/v1/findings?database=<name>` also returns `cluster_refs`: the open
+cluster-scope findings (`detail.scope = "cluster"`) that another database reports as the
+owner of `<name>`'s cluster, each marked `cluster_ref` and `read_only` and named by
+`database_name`. They are references, not part of the page or its `total`; see
+[Cluster runways and forecasts](walkthrough-fleet.md#cluster-runways-and-forecasts).
+
 Each finding row (list and detail) also carries display-only action fields:
 
 | Field | Meaning |

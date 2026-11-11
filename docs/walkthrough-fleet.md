@@ -177,6 +177,46 @@ identified (`system_identifier` or `address`). Separate
 pg_sage processes that monitor the same instance are not coordinated: each
 elects its own owner. Single-database mode is unchanged.
 
+#### Cluster runways and forecasts
+
+Some runways and forecasts describe the whole cluster, not one database:
+the XID and multixact age (`forecast_wraparound_runway`, `xid` and `mxid`),
+disk use and every replication slot (`forecast_wal_runway`), connection
+saturation (`forecast_connection_saturation`, which counts every backend)
+and checkpoint pressure (`forecast_checkpoint_pressure`). With several
+databases of one cluster in the fleet, one database reports them: the
+lowest fleet name among the databases whose runway monitor runs (for the
+forecasts, among those whose forecaster runs). Its findings carry
+`detail.scope = "cluster"`, `detail.owner_database` and
+`detail.cluster_databases`, and only it starts the pre-incident
+investigation, so one filling slot opens one finding, one case and one
+investigation instead of one per database. Overdue tables, sequences, disk
+growth, cache pressure and query volume stay per database.
+
+Every database still samples the cluster series, so a new owner has the
+history it needs. The owner re-claims each runway interval; when it stops,
+is removed or misses two intervals, the next database by name takes over
+on its next tick and reports the open runway in its own database. The
+other databases close their own copies (upgrading closes the duplicates
+left from earlier versions) with `detail.cluster_owner` naming the owner,
+but only after the owner has reported a complete evaluation within two
+intervals: an owner that fails to read its trends never makes the
+cluster's runway disappear. `GET /api/v1/findings?database=<name>` for a
+database that is not the owner adds the owner's open cluster findings under
+`cluster_refs`, each marked `cluster_ref` and `read_only` (open the case
+or act on it from the owner's database); they are not part of the page or
+its `total`.
+
+The runway monitor keys the cluster by `pg_control_system()`'s system
+identifier and the postmaster start time, which the WAL runway probe
+already reads (no new SQL; PostgreSQL 14-18 and managed providers alike).
+A restored clone shares the identifier but not the start, so it is its own
+cluster. Without the identifier (the grant above is missing) each database
+reports its cluster runways itself, logged once; the forecasts then also
+stay per database, since an address may front several clusters. As for
+instance settings, separate pg_sage processes on one cluster are not
+coordinated.
+
 ## 5. Verify the v1 UI
 
 | Screen | What to verify |

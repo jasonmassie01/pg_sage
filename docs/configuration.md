@@ -2003,6 +2003,9 @@ finding of a dropped slot or sequence (or one past the 50 kept sequences) resolv
 While the slots cannot be read, an open slot finding without samples is held too.
 When the trends read reaches its row cap, the categories it may have cut are not resolved
 until it fits again (logged once). A standby samples nothing (it is read-only).
+In fleet mode the cluster runways (`xid`, `mxid`, `disk` and every `slot:<name>`) are
+reported by one owner database per cluster, not once per database; see
+[Cluster runways and forecasts](walkthrough-fleet.md#cluster-runways-and-forecasts).
 
 Anti-wraparound autovacuum freezes a table once its age passes `autovacuum_freeze_max_age`,
 which resets the age, so below that setting the XID runway is bounded by freezing however
