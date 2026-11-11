@@ -2544,7 +2544,9 @@ over `lookback_days` of system snapshots and needs 7 days of data for each trend
   detail then names `config_key: forecaster.disk_capacity_bytes`) or `capacity_unbounded`
   (the provider grows the storage itself; a declared value is not used in its place). With
   a known capacity it adds `capacity_bytes` and `days_until_full`
-  (`(capacity - current size) / daily growth`, never below 0). On a managed database the
+  (`(capacity - current size) / daily growth`, never below 0). The size and growth are this
+  database's alone, not other databases' or WAL, so on a shared disk the true time to full
+  is shorter: the disk runway judges the whole disk. On a managed database the
   detail also names `managed_storage_runway` as the authority inside 7 days.
 - Days without backend counts or `max_connections` are left out of the connection
   trend.
