@@ -279,6 +279,32 @@ func snapshotBlockers(obs []causal.Observation) ([]causal.BlockerEvidence, *caus
 	return out, nil
 }
 
+// liveClaims counts the verified claims that cite evidence other than
+// the detection snapshot. A model root, contest or unmodeled cause whose
+// only support is what RCA recorded at detection is uncited: like the
+// graph's, a detection-time root is never conclusive (sre-05).
+func liveClaims(n *Narrative, stored []Evidence) int {
+	if n == nil {
+		return 0
+	}
+	snapshot := map[UUID]bool{}
+	for _, e := range stored {
+		if probes.ID(e.ProbeID) == IncidentSnapshotProbeID {
+			snapshot[e.ID] = true
+		}
+	}
+	kept := 0
+	for _, c := range n.Claims {
+		for _, id := range c.EvidenceIDs {
+			if !snapshot[id] {
+				kept++
+				break
+			}
+		}
+	}
+	return kept
+}
+
 // blockerOfRow decodes one snapshot row through its JSON form, so stored
 // (json.Number, RFC 3339 text) and in-memory rows read the same.
 func blockerOfRow(row probes.Row) (causal.BlockerEvidence, bool) {
