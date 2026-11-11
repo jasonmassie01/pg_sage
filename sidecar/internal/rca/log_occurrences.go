@@ -28,12 +28,23 @@ type LogOccurrences struct {
 	PIDs      []int     `json:"pids"`
 	FirstSeen time.Time `json:"first_seen"`
 	LastSeen  time.Time `json:"last_seen"`
-	// window is the classifier window last counted (its first_seen) and
-	// windowCount the total that window reported. Not stored: after a
-	// restart the classifier starts new windows.
-	window      time.Time
-	windowCount int
+	// windows are the latest classifier windows counted (each one's
+	// first_seen and the total it reported), so a later report of any of
+	// them adds only its growth. Not stored: after a restart the
+	// classifier starts new windows.
+	windows []occWindow
 }
+
+// occWindow is one classifier dedup window as an incident counted it.
+type occWindow struct {
+	start time.Time
+	count int
+}
+
+// maxLogOccurrenceWindows bounds the windows an incident remembers. The
+// classifier reports a window only while it is open or right after it
+// closes, so a few suffice.
+const maxLogOccurrenceWindows = 4
 
 // logOccurrencesFromSignal reads the classifier's occurrence metrics, or
 // returns nil when the signal carries no positive occurrence_count.
@@ -45,9 +56,9 @@ func logOccurrencesFromSignal(s *Signal) *LogOccurrences {
 	if !ok || count <= 0 {
 		return nil
 	}
-	occ := &LogOccurrences{Count: count, windowCount: count,
+	occ := &LogOccurrences{Count: count,
 		FirstSeen: timeMetric(s, "first_seen"), LastSeen: timeMetric(s, "last_seen")}
-	occ.window = occ.FirstSeen
+	occ.windows = []occWindow{{start: occ.FirstSeen, count: count}}
 	if pids, ok := s.Metrics["affected_pids"].([]int); ok {
 		occ.PIDs = unionPIDs(nil, pids)
 	}
@@ -65,9 +76,11 @@ func timeMetric(s *Signal, key string) time.Time {
 }
 
 // mergeLogOccurrences folds b into a and returns the result as a new value.
-// A report of the window a counted last adds only its growth; another
-// window adds its whole count. PIDs are unioned (at most 20), first is the
-// earliest sighting and last the latest.
+// A report of a window a already counted adds only its growth; another
+// window adds its whole count (b may span several windows: one drain can
+// carry a new window's first signal and the closed window's follow-up).
+// PIDs are unioned (at most 20), first is the earliest sighting and last
+// the latest.
 func mergeLogOccurrences(a, b *LogOccurrences) *LogOccurrences {
 	if b == nil {
 		return a
@@ -75,17 +88,16 @@ func mergeLogOccurrences(a, b *LogOccurrences) *LogOccurrences {
 	if a == nil {
 		cp := *b
 		cp.PIDs = slices.Clone(b.PIDs)
+		cp.windows = slices.Clone(b.windows)
 		return &cp
 	}
 	out := *a
-	if !a.window.IsZero() && a.window.Equal(b.window) {
-		if b.windowCount > a.windowCount {
-			out.Count += b.windowCount - a.windowCount
-			out.windowCount = b.windowCount
-		}
-	} else {
-		out.Count += b.windowCount
-		out.window, out.windowCount = b.window, b.windowCount
+	out.windows = slices.Clone(a.windows)
+	if len(b.windows) == 0 {
+		out.Count += b.Count
+	}
+	for _, w := range b.windows {
+		out.Count += out.countWindow(w)
 	}
 	out.PIDs = unionPIDs(a.PIDs, b.PIDs)
 	if b.FirstSeen.Before(out.FirstSeen) {
@@ -95,6 +107,25 @@ func mergeLogOccurrences(a, b *LogOccurrences) *LogOccurrences {
 		out.LastSeen = b.LastSeen
 	}
 	return &out
+}
+
+// countWindow records w and returns how many occurrences it adds: its
+// growth over the count already taken for that window, or all of it for
+// a window not seen (or no longer remembered). Only the newest
+// maxLogOccurrenceWindows windows are kept.
+func (o *LogOccurrences) countWindow(w occWindow) int {
+	i := slices.IndexFunc(o.windows, func(k occWindow) bool { return k.start.Equal(w.start) })
+	if i >= 0 {
+		added := max(w.count-o.windows[i].count, 0)
+		o.windows[i].count = max(w.count, o.windows[i].count)
+		return added
+	}
+	o.windows = append(o.windows, w)
+	slices.SortFunc(o.windows, func(x, y occWindow) int { return x.start.Compare(y.start) })
+	if n := len(o.windows); n > maxLogOccurrenceWindows {
+		o.windows = o.windows[n-maxLogOccurrenceWindows:]
+	}
+	return w.count
 }
 
 // unionPIDs returns the sorted union of a and b, capped at 20 PIDs (the
