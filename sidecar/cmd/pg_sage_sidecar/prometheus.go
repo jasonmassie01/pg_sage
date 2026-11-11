@@ -7,7 +7,6 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/api"
 	"github.com/pg-sage/sidecar/internal/ask"
-	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/migration"
 	"github.com/pg-sage/sidecar/internal/pgaudit"
 	"github.com/pg-sage/sidecar/internal/shadow"
@@ -62,8 +61,7 @@ func handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	writeSelfBudgetFromFleet(&b, fleetMgr)
 	writeOptimizerMemoryFromFleet(&b, fleetMgr)
 	writeShadowMetrics(&b, shadow.DecisionCounts(), shadow.ScoreCounts())
-	writeParkMetrics(&b, executor.ParkCounts(), executor.WaitReleaseCounts())
-	writeRecordFailureMetrics(&b, executor.RecordFailureCounts())
+	writeExecutorMetrics(&b, views)
 	writeLogwatchMetrics(&b, runtimeLogFanouts.droppedLines())
 	writeSREProbeMetrics(&b, probes.QueueStats())
 	writeSREInvestigationMetrics(&b, views)

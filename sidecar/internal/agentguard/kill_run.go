@@ -262,6 +262,7 @@ func (r *clusterRun) record(ctx context.Context, decisionID int64) (int64, error
 		return 0, fmt.Errorf("agentguard: %s ran but recording it failed: %w",
 			r.k.actionType, err)
 	}
+	executor.RecordPoolOutcome(r.targets[0].Pool, r.k.actionType, r.outcome())
 	return id, nil
 }
 

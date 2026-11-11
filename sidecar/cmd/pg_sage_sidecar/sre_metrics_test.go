@@ -217,13 +217,13 @@ func TestRuntimeMetricsRefresherAddsTheSRESource(t *testing.T) {
 	off := &databaseRuntime{spec: databaseRuntimeSpec{Name: "orders", Pool: p,
 		ControlPool: p}, cfg: rtCfg}
 	if got := sourceNames(newRuntimeMetricsRefresher(off).sources); strings.Join(got,
-		",") != "value" {
-		t.Fatalf("sources without SRE = %v, want value only", got)
+		",") != "value,actions" {
+		t.Fatalf("sources without SRE = %v, want value,actions", got)
 	}
 	on := &databaseRuntime{spec: databaseRuntimeSpec{Name: "orders", Pool: p,
 		ControlPool: p}, cfg: rtCfg, sre: coord}
 	if got := sourceNames(newRuntimeMetricsRefresher(on).sources); strings.Join(got,
-		",") != "value,sre" {
-		t.Fatalf("sources with SRE = %v, want value,sre", got)
+		",") != "value,actions,sre" {
+		t.Fatalf("sources with SRE = %v, want value,actions,sre", got)
 	}
 }

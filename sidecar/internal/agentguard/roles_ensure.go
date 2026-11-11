@@ -314,5 +314,6 @@ func recordRoleAction(ctx context.Context, req RoleRequest,
 		return 0, fmt.Errorf("agentguard: %s for %s ran but recording it failed: %w",
 			actionType, req.PrincipalID, err)
 	}
+	executor.RecordPoolOutcome(req.Cluster.Admin, actionType, "success")
 	return id, nil
 }

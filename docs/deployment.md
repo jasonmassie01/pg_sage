@@ -423,7 +423,10 @@ Fleet and meta mode serve one `/metrics` per sidecar, on either listener.
 | `pg_sage_connection_up` | == 0 | The sidecar cannot reach its control database |
 | `pg_sage_cache_hit_ratio` | < 0.95 | Control database cache hit ratio below 95% (deprecated, removed in v2.7.0) |
 | `pg_sage_llm_circuit_open` | == 1 | LLM circuit breaker tripped |
-| `pg_sage_executor_actions_total{outcome="failed"}` | rate > 0 | Failed autonomous actions |
+| `increase(pg_sage_actions_total{outcome="failed"}[15m])` | > 0 | An action failed (or its rollback failed, or it was left partial); see the action log |
+| `increase(pg_sage_actions_total{outcome="rolled_back"}[1h])` | > 0 | An action was rolled back (a regression, or by hand) |
+| `pg_sage_actions_pending_approval{risk="high"}` | > 0 for 24h | A high-risk approval has waited a day for a person |
+| `time() - pg_sage_action_last_failure_timestamp_seconds` | < 900 | A failure was recorded in the last 15 minutes (survives a sidecar restart) |
 | `pg_sage_sre_probe_refusals_total{caller="investigation"}` | rate > 0 | Investigations losing probe slots |
 | `pg_sage_sre_investigation_oldest_open_age_seconds{database}` | > 3600 | A Sage SRE investigation has been open for over an hour (queue stuck or runs waiting in `needs_evidence`) |
 | `pg_sage_sre_investigations{database,state="failed"}` | > 0 | Sage SRE investigations failed in the past 24 hours |
@@ -526,7 +529,7 @@ each database refreshes independently: one unreachable database reports
 every other database keeps its series, and the scrape itself stays fast.
 
 - `pg_sage_metrics_refresh_success{database,source}`: 1 if the last refresh of `source`
-  (`value`, `slo`, `optimizer`, `pgstat`, `sre`) succeeded. A failed source's series are
+  (`value`, `actions`, `slo`, `optimizer`, `pgstat`, `sre`) succeeded. A failed source's series are
   omitted rather than shown stale or zero, except `sre`, which keeps its last sample.
 - `pg_sage_metrics_refresh_timestamp_seconds{database,source}`: Unix time of the last
   successful refresh of `source`; it keeps its value while refreshes fail.
@@ -539,6 +542,32 @@ every other database keeps its series, and the scrape itself stays fast.
   metadata database, refreshed on the same cadence.
 - A database that failed to connect or prepare has no refresher; it keeps reporting
   `pg_sage_value_metrics_up 0` and `pg_sage_metrics_refresh_success{source="value"} 0`.
+
+### Executor outcomes
+
+Since v2.7.0 `/metrics` reports what the executor did, per database (observability-04):
+
+| Metric | Type | Meaning |
+|---|---|---|
+| `pg_sage_actions_total{database,class,outcome}` | counter | Actions that ended. `outcome` is `success`, `failed` (also a failed rollback or a partial change), `rolled_back` (also an index already restored outside pg_sage), `cancelled`, `unverifiable` (also an expired watch) or `other` (a rollback skipped or withheld for a person) |
+| `pg_sage_verification_verdicts_total{database,class,verdict}` | counter | Verifications finalized: `success`, `revert`, `unverifiable`, `failed` or `other` |
+| `pg_sage_actions_pending_approval{database,risk}` | gauge | Approvals a person can act on now (pending, past any cooldown, not expired), by `risk` (`safe`, `moderate`, `high`, `other`) |
+| `pg_sage_action_last_failure_timestamp_seconds{database}` | gauge | When the latest `failed`, `partial` or `rollback_failed` outcome was recorded; no sample if none was |
+
+- `class` is the policy change class of the action (`index`, `vacuum`, `config_guc`,
+  `agent_access` for agent guard contracts, and the other classes a policy document names),
+  or `other`. The label sets are fixed, so these families never grow with your workload.
+- Only outcomes count, once their write has committed: an action still `pending`,
+  `monitoring` or `rolling_back` has not ended, and a write that failed counts nothing. One
+  action can count twice, for example `success` and later `rolled_back` when an operator
+  reverts it.
+- The two counters live in the sidecar's memory: they start at zero when it restarts, as
+  Prometheus counters do. Alert with `increase()` or `rate()`, never on the raw value. The
+  two gauges are read from each database's action ledger by its refresher (source
+  `actions`), so they survive a restart.
+- In HA only the sidecar that executes (the leader) counts; `sum` across replicas.
+- Earlier versions of this guide recommended a failed-action alert on a family that was
+  never exported, so it could not fire; use the `pg_sage_actions_total` rows above.
 
 ### Per-database health
 
@@ -589,7 +618,8 @@ Since v2.6.0:
 - When a database leaves the sidecar (removed by a fleet reload, deleted or renamed in meta
   mode) its series disappear, the process-wide counters
   (`pg_sage_policy_parks_total`, `pg_sage_verification_wait_releases_total`,
-  `pg_sage_policy_record_failures_total`, `pg_sage_shadow_*_total`) included. A database
+  `pg_sage_policy_record_failures_total`, `pg_sage_actions_total`,
+  `pg_sage_verification_verdicts_total`, `pg_sage_shadow_*_total`) included. A database
   added again under the same name counts from zero, which `rate()` treats as a counter reset.
 - Series are written in the same order on every scrape, and every family has one `HELP` and
   one `TYPE` line.
