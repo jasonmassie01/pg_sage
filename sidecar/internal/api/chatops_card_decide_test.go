@@ -213,3 +213,35 @@ func TestApproveRouteOutsideTheWindowSchedules(t *testing.T) {
 		t.Fatalf("status %q, executions %d", status, cf.executions(t))
 	}
 }
+
+func TestPendingListShowsScheduledApprovals(t *testing.T) {
+	cf := newChatCardFixture(t)
+	cf.useModerateItem(t, false)
+	h := cf.router(t, operatorUser())
+	code, body := cardCall(t, h, http.MethodPost,
+		fmt.Sprintf("/api/v1/actions/%d/schedule?database=orders", cf.queueID), nil)
+	if code != http.StatusOK {
+		t.Fatalf("schedule: %d %v", code, body)
+	}
+	code, body = cardCall(t, h, http.MethodGet, "/api/v1/actions/pending?database=orders", nil)
+	if code != http.StatusOK {
+		t.Fatalf("pending: %d %v", code, body)
+	}
+	scheduled, _ := body["scheduled"].([]any)
+	var found map[string]any
+	for _, row := range scheduled {
+		if m, _ := row.(map[string]any); fmt.Sprint(m["id"]) == fmt.Sprint(cf.queueID) {
+			found = m
+		}
+	}
+	if found == nil || found["status"] != "scheduled" || found["run_after"] == nil ||
+		found["database_name"] != "orders" || fmt.Sprint(found["scheduled_by"]) != "2" {
+		t.Fatalf("scheduled = %v, want the scheduled row with its run_after", scheduled)
+	}
+	pending, _ := body["pending"].([]any)
+	for _, row := range pending {
+		if m, _ := row.(map[string]any); fmt.Sprint(m["id"]) == fmt.Sprint(cf.queueID) {
+			t.Fatalf("the scheduled row is also listed as pending: %v", m)
+		}
+	}
+}

@@ -128,3 +128,62 @@ func fleetScheduleRoute(mgr *fleet.DatabaseManager, unschedule bool) http.Handle
 		writeSchedule(w, r, as, inst.Executor, id, user.ID)
 	}
 }
+
+// scheduledActionMaps lists the approvals waiting for their window, for
+// the pending list (the Actions page shows them with Cancel). database
+// names them in fleet mode ("" standalone).
+func scheduledActionMaps(ctx context.Context, as *store.ActionStore,
+	database string) ([]map[string]any, error) {
+	rows, err := as.ListScheduled(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]map[string]any, 0, len(rows))
+	for _, a := range rows {
+		m := queuedActionMap(a)
+		if database != "" {
+			m["database_name"] = database
+		}
+		out = append(out, m)
+	}
+	return out, nil
+}
+
+// addScheduleFields adds an approval's schedule to its JSON map.
+func addScheduleFields(m map[string]any, a store.QueuedAction) {
+	if a.RunAfter != nil {
+		m["run_after"] = a.RunAfter.UTC()
+	}
+	if a.WindowClosesAt != nil {
+		m["window_closes_at"] = a.WindowClosesAt.UTC()
+	}
+	if a.ScheduledBy != nil {
+		m["scheduled_by"] = *a.ScheduledBy
+	}
+	if a.ScheduledAt != nil {
+		m["scheduled_at"] = a.ScheduledAt.UTC()
+	}
+}
+
+// fleetInstancePending lists one database's pending items (with their
+// readiness) and its approvals scheduled for their window, or the read
+// failure.
+func fleetInstancePending(ctx context.Context, inst *fleet.DatabaseInstance) (
+	[]map[string]any, []map[string]any, map[string]string) {
+	as := store.NewActionStore(inst.Pool)
+	actions, err := as.ListPending(ctx, nil)
+	if err != nil {
+		return nil, nil, fleetReadFailure(inst.Name, "list pending actions", err)
+	}
+	pending := make([]map[string]any, 0, len(actions))
+	for _, a := range actions {
+		m := queuedActionMapWithReadiness(a, inst.Executor)
+		m["database_name"] = inst.Name
+		pending = append(pending, m)
+	}
+	scheduled, err := scheduledActionMaps(ctx, as, inst.Name)
+	if err != nil {
+		return nil, nil, fleetReadFailure(inst.Name, "list scheduled actions", err)
+	}
+	return pending, scheduled, nil
+}

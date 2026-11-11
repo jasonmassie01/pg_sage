@@ -44,6 +44,11 @@ function expiresIn(expiresAt, now) {
 // message: executed, approved but not run, or refused (and why).
 export function approvalOutcomeMessage(status, json) {
   const body = json || {}
+  if (status >= 200 && status < 300 && body.status === 'scheduled') {
+    return { ok: true, text: 'Approved. Scheduled for the window opening ' +
+      (body.run_after_label || 'of the next maintenance window') +
+      '; pg_sage checks the policy again then. Cancel it under Pending.' }
+  }
   if (status >= 200 && status < 300 && body.executed) {
     return { ok: true, text: 'Approved and executed; verification: ' +
       (body.verification_status || 'pending') }
@@ -216,7 +221,8 @@ function RollbackSection({ rollback }) {
 
 // facts is an optional node (the binding facts about the card's targets)
 // shown under the why and trust lines.
-export function ApprovalCard({ card, onDecided, facts = null, eligible, blockedReason, mode }) {
+export function ApprovalCard({ card, onDecided, facts = null, eligible, blockedReason, mode,
+  windowOnly = false }) {
   const [now] = useState(() => Date.now())
   return (
     <div data-testid="approval-card" className="rounded p-4 space-y-3"
@@ -260,7 +266,7 @@ export function ApprovalCard({ card, onDecided, facts = null, eligible, blockedR
       </Section>
       <ShadowHistory history={card.shadow_history} />
       <ApprovalActions card={card} onDecided={onDecided}
-        eligible={eligible} blockedReason={blockedReason} mode={mode} />
+        eligible={eligible} blockedReason={blockedReason} mode={mode} windowOnly={windowOnly} />
     </div>
   )
 }
@@ -284,16 +290,21 @@ async function postDecision(card, verb, body) {
   return { status: res.status, json }
 }
 
-function ApprovalActions({ card, onDecided, eligible, blockedReason, mode: executionMode }) {
+function ApprovalActions({ card, onDecided, eligible, blockedReason, mode: executionMode,
+  windowOnly }) {
   const toast = useToast()
   const [busy, setBusy] = useState(false)
   const [mode, setMode] = useState(null)
   const [reason, setReason] = useState('')
   const [hours, setHours] = useState(4)
   const [snoozeReason, setSnoozeReason] = useState('')
+  // policy-04: an approval only the maintenance window withholds is
+  // scheduled for the next opening.
+  const schedules = eligible === false && windowOnly && executionMode !== 'observation'
   const blocked = executionMode === 'observation'
     ? 'Database changes are disabled in Observation mode.'
-    : blockerText(blockedReason) || (eligible === false ? 'This action cannot run yet; eligibility reason unavailable.' : '')
+    : schedules ? 'Outside the maintenance window: approving schedules it for the next opening, and the policy is checked again then.'
+      : blockerText(blockedReason) || (eligible === false ? 'This action cannot run yet; eligibility reason unavailable.' : '')
 
   async function run(verb, body, describe) {
     setBusy(true)
@@ -323,12 +334,13 @@ function ApprovalActions({ card, onDecided, eligible, blockedReason, mode: execu
           {eligible == null && ' Current eligibility is not available in this summary; the server will recheck it.'}
         </p>}
       <div className="flex flex-wrap gap-2">
-        <button data-testid="approval-approve" disabled={busy || eligible === false || executionMode === 'observation'}
+        <button data-testid="approval-approve"
+          disabled={busy || (eligible === false && !schedules) || executionMode === 'observation'}
           onClick={() => run('approve', { card_hash: card.card_hash },
             approvalOutcomeMessage)}
           className="px-3 py-1 rounded text-sm"
           style={{ background: 'var(--green)', color: '#fff', opacity: busy ? 0.5 : 1 }}>
-          Approve and run
+          {schedules ? 'Approve for the next window' : 'Approve and run'}
         </button>
         <button data-testid="approval-reject" disabled={busy}
           onClick={() => setMode(mode === 'reject' ? null : 'reject')}

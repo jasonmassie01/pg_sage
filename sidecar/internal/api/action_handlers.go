@@ -36,9 +36,16 @@ func pendingActionsHandler(
 		for _, a := range actions {
 			result = append(result, queuedActionMapWithReadiness(a, exec))
 		}
+		scheduled, err := scheduledActionMaps(r.Context(), as, "")
+		if err != nil {
+			slog.Error("list scheduled actions failed", "error", err)
+			jsonError(w, "failed to list scheduled actions", 500)
+			return
+		}
 		jsonResponse(w, map[string]any{
-			"pending": result,
-			"total":   len(result),
+			"pending":   result,
+			"total":     len(result),
+			"scheduled": scheduled,
 		})
 	}
 }
@@ -66,6 +73,7 @@ func fleetPendingActionsHandler(
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		allResult := make([]map[string]any, 0)
+		scheduled := make([]map[string]any, 0)
 		failures := make([]map[string]string, 0)
 		dbFilter := r.URL.Query().Get("database")
 		if err := validateDatabaseParam(dbFilter); err != nil {
@@ -83,24 +91,19 @@ func fleetPendingActionsHandler(
 			if inst.Pool == nil {
 				continue
 			}
-			as := store.NewActionStore(inst.Pool)
-			actions, err := as.ListPending(
-				r.Context(), nil)
-			if err != nil {
-				failures = append(failures,
-					fleetReadFailure(inst.Name, "list pending actions", err))
+			pending, waiting, failure := fleetInstancePending(r.Context(), inst)
+			if failure != nil {
+				failures = append(failures, failure)
 				continue
 			}
-			for _, a := range actions {
-				m := queuedActionMapWithReadiness(a, inst.Executor)
-				m["database_name"] = inst.Name
-				allResult = append(allResult, m)
-			}
+			allResult = append(allResult, pending...)
+			scheduled = append(scheduled, waiting...)
 		}
 		jsonResponse(w, map[string]any{
-			"pending": allResult,
-			"total":   len(allResult),
-			"errors":  failures,
+			"pending":   allResult,
+			"total":     len(allResult),
+			"errors":    failures,
+			"scheduled": scheduled,
 		})
 	}
 }
@@ -613,6 +616,7 @@ func queuedActionMap(a store.QueuedAction) map[string]any {
 	}
 	addLifecycleFields(m, a)
 	addRecommendationFields(m, a)
+	addScheduleFields(m, a)
 	return m
 }
 

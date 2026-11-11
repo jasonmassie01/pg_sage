@@ -18,6 +18,7 @@ import {
   canRollBackRow, isQueuedRow, queuedLabels, rollbackButtonLabel, showsRollbackReason,
 } from './actions/ledger'
 import { PendingErrors } from './actions/PendingErrors'
+import { ScheduledApprovals } from './actions/ScheduledApprovals'
 import { IndexAdmissionPanel } from '../components/IndexAdmissionPanel'
 import { VerificationOutcome } from '../components/VerificationOutcome'
 import { verdictLabel } from '../lib/verificationOutcome'
@@ -138,7 +139,8 @@ export function Actions({ database, user, fleetData }) {
     executed: loading || (single && recommendations.loading) ? '…' : error || recommendations.error ? '?'
       : `${historyRows.length + historyRecs.length}${paging.hasMore ? '+' : ''}`,
   }
-  const scopedPending = { ...pending.data, pending: pendingRows }
+  const scopedPending = { ...pending.data, pending: pendingRows,
+    scheduled: (pending.data?.scheduled || []).filter(scoped) }
   const scopedCards = { ...cards, data: { ...cards.data,
     ...(Array.isArray(cards.data?.cards) ? { cards: cards.data.cards.filter(scoped) } : {}) } }
   const refreshAll = () => { refetch(); pending.refetch(); cards.refetch(); recommendations.refetch(); caseData.refetch() }
@@ -545,7 +547,10 @@ function actionRowKey(row) {
 // keeps them, with a strip, when a refresh fails.
 function PendingTab({ query, ...props }) {
   return <QueryState query={query} skeleton={<PendingSkeleton />}>
-    {() => <PendingList refetch={query.refetch} {...props} />}
+    {() => <>
+      <ScheduledApprovals rows={props.data?.scheduled} onChanged={query.refetch} />
+      <PendingList refetch={query.refetch} {...props} />
+    </>}
   </QueryState>
 }
 
@@ -703,10 +708,12 @@ function PendingList({ data, refetch, cards, cases, database, modeForDatabase })
         <div className="space-y-2">
           <div className="flex flex-wrap gap-2">
             <button onClick={() => handleApprove(r)} data-testid="approve-button"
-              disabled={r.eligible === false || modeForDatabase?.(rowDatabase(r, database)) === 'observation'}
+              disabled={(r.eligible === false && r.policy_detail?.window_only !== true) ||
+                modeForDatabase?.(rowDatabase(r, database)) === 'observation'}
               title={r.eligible === false ? (r.defer_reason || r.blocked_reason || 'Action is not eligible') : undefined}
               className="px-2 py-1 rounded text-xs" style={{ background: 'var(--green)', color: '#fff' }}>
-              Approve and run
+              {r.eligible === false && r.policy_detail?.window_only === true
+                ? 'Approve for the next window' : 'Approve and run'}
             </button>
             <button onClick={() => setRejectId(rejectId === actionRowKey(r) ? null : actionRowKey(r))}
               data-testid="reject-button" className="px-2 py-1 rounded text-xs"

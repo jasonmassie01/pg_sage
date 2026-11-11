@@ -201,3 +201,17 @@ func derefInt(value *int) int {
 	}
 	return *value
 }
+
+// ListScheduled returns the approvals waiting for their window, earliest
+// first.
+func (s *ActionStore) ListScheduled(ctx context.Context) ([]QueuedAction, error) {
+	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	rows, err := s.pool.Query(qctx, queuedActionSelectSQL+
+		` WHERE q.status = 'scheduled' ORDER BY q.run_after, q.id`)
+	if err != nil {
+		return nil, fmt.Errorf("listing scheduled actions: %w", err)
+	}
+	defer rows.Close()
+	return scanQueuedActions(rows)
+}
