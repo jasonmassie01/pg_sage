@@ -18,3 +18,16 @@ func TestTunerConfig_PassesHintCostTolerancePct(t *testing.T) {
 		t.Fatalf("hint_cost_tolerance_pct 0 reaching the tuner = %g, want 0", got)
 	}
 }
+
+// tuning-05: the sidecar's only production Tuner has the hinted EXPLAIN
+// gate on, so every hint it or the tuning agent proposes is planned first.
+func TestNewTuner_TurnsHintComparisonOn(t *testing.T) {
+	state, _, _ := metaLifecycleFixture(t)
+	prepareMetaGlobals(t)
+	cfg.Tuner.Enabled = true
+	rt := featureTestRuntime(t, state.Pool, detectPGVersion(state.Pool), false)
+	tu := rt.newTuner()
+	if tu == nil || !tu.HintComparisonEnabled() {
+		t.Fatalf("production tuner %v has no hinted EXPLAIN gate", tu)
+	}
+}
