@@ -7,6 +7,10 @@ import (
 	"github.com/pg-sage/sidecar/internal/recommendation"
 )
 
+// differsSuffix ends the next step of a head whose content the case no
+// longer proposes, so it never reads as the current proposal's history.
+const differsSuffix = "; the current proposal differs"
+
 // recommendationNextStep says, in one line, what happened to the head and
 // what pg_sage does next. differs is set when the case proposes content
 // other than the head's.
@@ -15,11 +19,17 @@ func recommendationNextStep(r CaseRecommendation, differs bool, now time.Time) s
 	if !state.Valid() {
 		return fmt.Sprintf("Recommendation state unknown (%s); review it before acting", r.State)
 	}
-	if differs {
-		if step, ok := earlierContentStep(state, r); ok {
-			return step
-		}
+	if !differs {
+		return stateStep(state, r, now)
 	}
+	if step, ok := earlierContentStep(state, r); ok {
+		return step
+	}
+	return stateStep(state, r, now) + differsSuffix
+}
+
+// stateStep is the next step of a head in a known state.
+func stateStep(state recommendation.State, r CaseRecommendation, now time.Time) string {
 	switch state {
 	case recommendation.StateReverted:
 		return fmt.Sprintf("pg_sage applied this%s and reverted it: %s",
@@ -53,16 +63,15 @@ func recommendationNextStep(r CaseRecommendation, differs bool, now time.Time) s
 // earlierContentStep describes a refused or failed head whose content the
 // case no longer proposes.
 func earlierContentStep(state recommendation.State, r CaseRecommendation) (string, bool) {
-	const differs = "; the current proposal differs"
 	switch state {
 	case recommendation.StateReverted:
 		return fmt.Sprintf("pg_sage reverted an earlier version%s: %s%s",
-			onDate(&r.UpdatedAt), reasonOrNone(r.Reason), differs), true
+			onDate(&r.UpdatedAt), reasonOrNone(r.Reason), differsSuffix), true
 	case recommendation.StateAbandoned:
 		return "An earlier version stopped after " +
-			countOf(r.AttemptCount, "failed attempt") + differs, true
+			countOf(r.AttemptCount, "failed attempt") + differsSuffix, true
 	case recommendation.StateFailed:
-		return "An earlier version failed" + differs, true
+		return "An earlier version failed" + differsSuffix, true
 	default:
 		return "", false
 	}

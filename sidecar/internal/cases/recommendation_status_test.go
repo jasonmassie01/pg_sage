@@ -155,6 +155,24 @@ func TestAttachRecommendation_DifferentContentDoesNotBlock(t *testing.T) {
 	}
 }
 
+// A head of other content in any other known state never claims the
+// current proposal: its next step says the proposal differs (an applied
+// head is held while the analyzer already proposes new SQL).
+func TestAttachRecommendation_OtherContentEveryStateSaysItDiffers(t *testing.T) {
+	for _, state := range recommendation.AllStates() {
+		head := headFor(statusFinding(), state)
+		head.ContentHash = "an-earlier-hash"
+		c := attached(t, head)
+		if c.Recommendation.CurrentContent || c.ActionCandidates[0].BlockedReason != "" {
+			t.Fatalf("%s of other content: %+v / %q", state, c.Recommendation,
+				c.ActionCandidates[0].BlockedReason)
+		}
+		if !strings.HasSuffix(c.Recommendation.NextStep, "; the current proposal differs") {
+			t.Fatalf("%s other-content next step = %q", state, c.Recommendation.NextStep)
+		}
+	}
+}
+
 // A refused head blocks only the candidate that runs its SQL, never a
 // second candidate with other SQL.
 func TestAttachRecommendation_BlocksOnlyTheMatchingCandidate(t *testing.T) {
