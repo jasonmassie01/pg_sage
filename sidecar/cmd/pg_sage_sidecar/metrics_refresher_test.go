@@ -382,8 +382,8 @@ func TestRuntimeMetricsRefresherSources(t *testing.T) {
 	rt.startMetricsRefresher()
 	got := processMetrics.views()
 	if len(got) != 1 || got[0].name != "orders" ||
-		fmt.Sprint(got[0].sources) != "[value]" {
-		t.Fatalf("fleet runtime views = %+v, want orders with [value]", got)
+		fmt.Sprint(got[0].sources) != "[value actions]" {
+		t.Fatalf("fleet runtime views = %+v, want orders with [value actions]", got)
 	}
 	if d := processMetrics.refreshers()[0].interval(); d != 45*time.Second {
 		t.Fatalf("interval = %v, want the 45s collector interval", d)
@@ -396,7 +396,7 @@ func TestRuntimeMetricsRefresherSources(t *testing.T) {
 	shared := &databaseRuntime{spec: databaseRuntimeSpec{Name: "solo", Pool: hungPool(t),
 		Shared: true}, ctx: context.Background(), workers: &sync.WaitGroup{}, cfg: rtCfg}
 	m := newRuntimeMetricsRefresher(shared)
-	if fmt.Sprint(sourceNames(m.sources)) != "[value optimizer pgstat]" {
+	if fmt.Sprint(sourceNames(m.sources)) != "[value actions optimizer pgstat]" {
 		t.Fatalf("standalone sources = %v", sourceNames(m.sources))
 	}
 }

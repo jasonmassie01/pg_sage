@@ -156,6 +156,8 @@ func (r *retentionRun) recordSuccess(ctx context.Context, actionID int64) {
 		                                   'retention_run_id', $3::bigint)
 		WHERE id=$1`, actionID, o.Deleted, o.RunID); err != nil {
 		e.logFn("executor", "record retention action %d success: %v", actionID, err)
+	} else {
+		RecordOutcome(e.databaseName, OutcomeClass("retention_delete", ""), "success")
 	}
 	reason := fmt.Sprintf("retention batch verified: %d rows within the reviewed bound "+
 		"of %d, all inside the declared predicate", o.Deleted, r.maxRows())

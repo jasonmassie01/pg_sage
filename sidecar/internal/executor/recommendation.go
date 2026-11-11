@@ -300,6 +300,8 @@ func (e *Executor) logClaimedAction(
 		e.logFn("executor", "failed to log action for %q: %v", f.Title, err)
 		return 0
 	}
+	RecordOutcome(e.databaseName, OutcomeClass(categorizeAction(f.RecommendedSQL),
+		f.RecommendedSQL), outcome)
 	// Only a successful action marks the finding acted on, so a failed
 	// finding stays retryable (lookupFindingID filters on acted_on_at IS NULL).
 	if outcome != "failed" && findingID > 0 {

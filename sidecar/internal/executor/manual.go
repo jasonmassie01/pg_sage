@@ -421,6 +421,7 @@ func (e *Executor) logManualActionWithDecision(
 		e.logFn("executor", "failed to log manual action: %v", err)
 		return 0
 	}
+	RecordOutcome(e.databaseName, OutcomeClass(categorizeAction(sql), sql), outcome)
 	if outcome != "failed" {
 		e.markFindingActioned(ctx, int64(findingID), actionID)
 	}

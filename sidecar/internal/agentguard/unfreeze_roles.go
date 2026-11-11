@@ -218,5 +218,6 @@ func (e *unfreezeExec) record(ctx context.Context, decisionID int64) (int64, err
 		return 0, fmt.Errorf("agentguard: guard_unfreeze for %s ran but recording it "+
 			"failed: %w", e.u.role.PrincipalID, err)
 	}
+	executor.RecordPoolOutcome(e.u.target.Pool, executor.ActionTypeGuardUnfreeze, "success")
 	return id, nil
 }

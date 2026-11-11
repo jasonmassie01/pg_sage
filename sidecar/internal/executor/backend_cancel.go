@@ -184,6 +184,9 @@ func (r *backendCancelRun) record(ctx context.Context,
 		SET outcome = 'success', measured_at = now() WHERE id = $1`, actionID); err != nil {
 		e.logFn("executor", "cancel of pid %d (action %d) sent; marking it delivered "+
 			"failed: %v", t.PID, actionID, err)
+	} else {
+		sql := cancelSQL(t.PID)
+		RecordOutcome(e.databaseName, OutcomeClass(categorizeAction(sql), sql), "success")
 	}
 	return actionID, nil
 }

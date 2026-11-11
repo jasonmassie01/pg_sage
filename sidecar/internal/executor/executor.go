@@ -258,9 +258,11 @@ func (e *Executor) WithDispatcher(d EventDispatcher) {
 	e.dispatcher = d
 }
 
-// WithDatabaseName sets the database name included in events.
+// WithDatabaseName sets the database name included in events and in
+// /metrics, where it also names the executor's pool (observability-04).
 func (e *Executor) WithDatabaseName(name string) {
 	e.databaseName = name
+	bindMetricsPool(e.pool, name)
 }
 
 // SetTrustLevel overrides the global trust level for this

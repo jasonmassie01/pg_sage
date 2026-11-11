@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/selfbudget"
 	"github.com/pg-sage/sidecar/internal/sre/slo"
 	"github.com/pg-sage/sidecar/internal/value"
@@ -39,6 +40,7 @@ type metricsSnapshot struct {
 	slo       []slo.Status
 	optimizer map[string]int64
 	pgstat    pgStatValues
+	actions   executor.ActionGauges
 	ok        map[string]bool
 	// lastSuccess is each source's last successful refresh; it survives
 	// failed refreshes so staleness stays measurable.
@@ -252,11 +254,13 @@ func (rt *databaseRuntime) startMetricsRefresher() {
 	})
 }
 
-// newRuntimeMetricsRefresher reads the value ledger and, when the
-// database has one, the SLO engine. Standalone also reads the optimizer
-// counts and pg_stat values the process-level families report.
+// newRuntimeMetricsRefresher reads the value ledger, the action gauges
+// (observability-04) and, when the database has one, the SLO engine.
+// Standalone also reads the optimizer counts and pg_stat values the
+// process-level families report.
 func newRuntimeMetricsRefresher(rt *databaseRuntime) *metricsRefresher {
-	sources := []metricsSource{valueMetricsSource(rt.spec.Name, rt.spec.Pool)}
+	sources := []metricsSource{valueMetricsSource(rt.spec.Name, rt.spec.Pool),
+		actionMetricsSource(rt.spec.Pool)}
 	if rt.sloEngine != nil {
 		sources = append(sources, sloMetricsSource(rt.sloEngine))
 	}
