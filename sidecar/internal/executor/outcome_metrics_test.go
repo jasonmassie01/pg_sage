@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+	"weak"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -321,6 +323,62 @@ func TestMetricsDatabaseFor_FollowsTheExecutorName(t *testing.T) {
 	PruneCounts(db)
 	if got := metricsDatabaseFor(pool); got != "" {
 		t.Fatalf("a pruned database's pool still names %q", got)
+	}
+}
+
+// A reload prepares a replacement runtime beside the running one. Naming
+// the replacement's pool must not unbind the running pool: when the
+// replacement is discarded the running runtime still counts, and while
+// the old one drains after a publish it counts too. Pruning the database
+// unbinds both.
+func TestMetricsDatabaseFor_AReplacementKeepsTheRunningPool(t *testing.T) {
+	db := testDatabase(t)
+	running, candidate := closedPool(t), closedPool(t)
+	New(running, resumeExecutorConfig(), time.Time{}, nopLog).WithDatabaseName(db)
+	New(candidate, resumeExecutorConfig(), time.Time{}, nopLog).WithDatabaseName(db)
+	if got := metricsDatabaseFor(running); got != db {
+		t.Fatalf("running pool names %q after a replacement was prepared, want %q", got, db)
+	}
+	if got := metricsDatabaseFor(candidate); got != db {
+		t.Fatalf("replacement pool names %q, want %q", got, db)
+	}
+	PruneCounts(db)
+	for name, p := range map[string]*pgxpool.Pool{"running": running, "candidate": candidate} {
+		if got := metricsDatabaseFor(p); got != "" {
+			t.Fatalf("%s pool of a pruned database still names %q", name, got)
+		}
+	}
+}
+
+// A pool nothing holds any more leaves the bindings once collected, so
+// reloads that replace a database's runtime do not grow them.
+func TestBindMetricsPool_DropsCollectedPools(t *testing.T) {
+	db := testDatabase(t)
+	t.Cleanup(func() { PruneCounts(db) })
+	gone := func() weak.Pointer[pgxpool.Pool] {
+		p := closedPool(t)
+		bindMetricsPool(p, db)
+		return weak.Make(p)
+	}()
+	// A closed pool's background goroutines exit shortly after Close.
+	for i := 0; i < 200 && gone.Value() != nil; i++ {
+		runtime.GC()
+		time.Sleep(10 * time.Millisecond)
+	}
+	if gone.Value() != nil {
+		t.Fatal("a closed, unreferenced pool was not collected within 2s")
+	}
+	keep := closedPool(t)
+	bindMetricsPool(keep, db)
+	metricsPools.mu.RLock()
+	_, stale := metricsPools.byPool[gone]
+	live := metricsPools.byPool[weak.Make(keep)]
+	metricsPools.mu.RUnlock()
+	if stale {
+		t.Fatal("a collected pool is still bound")
+	}
+	if live != db {
+		t.Fatalf("the live pool names %q, want %q", live, db)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"weak"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -17,35 +18,42 @@ import (
 // it is given its database name, so the label is always the database
 // whose sage.action_log holds the row; a pool no executor named (an
 // embedder's, the control database's) counts nothing.
+//
+// A database can have more than one live pool: a reload prepares a
+// replacement runtime beside the running one, and a replacement that is
+// discarded (a failed health check or commit) must not stop the running
+// runtime from counting, nor may the draining one go uncounted. So a
+// binding never evicts another pool of the same name. Pools are held
+// weakly: a pool no runtime holds any more drops out once it is
+// collected, and PruneCounts drops every pool of a database that left.
 
 var metricsPools = struct {
 	mu     sync.RWMutex
-	byPool map[*pgxpool.Pool]string
-}{byPool: map[*pgxpool.Pool]string{}}
+	byPool map[weak.Pointer[pgxpool.Pool]]string
+}{byPool: map[weak.Pointer[pgxpool.Pool]]string{}}
 
-// bindMetricsPool names pool's database for /metrics. A database has one
-// pool: binding a replacement runtime's pool unbinds the old one.
+// bindMetricsPool names pool's database for /metrics.
 func bindMetricsPool(pool *pgxpool.Pool, database string) {
 	if pool == nil || database == "" {
 		return
 	}
 	metricsPools.mu.Lock()
 	defer metricsPools.mu.Unlock()
-	for p, name := range metricsPools.byPool {
-		if name == database {
+	for p := range metricsPools.byPool {
+		if p.Value() == nil {
 			delete(metricsPools.byPool, p)
 		}
 	}
-	metricsPools.byPool[pool] = database
+	metricsPools.byPool[weak.Make(pool)] = database
 }
 
-// unbindMetricsDatabase forgets the pool of a database that left the
+// unbindMetricsDatabase forgets every pool of a database that left the
 // process.
 func unbindMetricsDatabase(database string) {
 	metricsPools.mu.Lock()
 	defer metricsPools.mu.Unlock()
 	for p, name := range metricsPools.byPool {
-		if name == database {
+		if name == database || p.Value() == nil {
 			delete(metricsPools.byPool, p)
 		}
 	}
@@ -58,7 +66,7 @@ func metricsDatabaseFor(pool *pgxpool.Pool) string {
 	}
 	metricsPools.mu.RLock()
 	defer metricsPools.mu.RUnlock()
-	return metricsPools.byPool[pool]
+	return metricsPools.byPool[weak.Make(pool)]
 }
 
 // RecordPoolOutcome counts an outcome written through pool, for writers
