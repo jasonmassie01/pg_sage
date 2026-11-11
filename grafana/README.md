@@ -42,7 +42,7 @@ scrape_configs:
   - job_name: pg_sage
     scrape_interval: 15s
     static_configs:
-      - targets: ['localhost:9187']
+      - targets: ['localhost:8187']
 ```
 
 Adjust the target host and port to match your sidecar configuration. Keep the job name

@@ -39,7 +39,7 @@ pg_sage sidecar (single Go binary)
   │   └── Emergency stop via sage.config
   │
   ├── API + Dashboard  [:8080]  REST API + React SPA (web UI)
-  └── Prometheus       [:9187]  Metrics endpoint
+  └── Prometheus       [:8187]  Metrics endpoint
 ```
 
 ---
@@ -483,7 +483,7 @@ metadata database, each row tagged with the database's meta-db record id.
 
 ### Prometheus Exporter
 
-Metrics endpoint on `:9187`. Exports findings count by severity, the LLM circuit breaker
+Metrics endpoint on `:8187`. Exports findings count by severity, the LLM circuit breaker
 state (`pg_sage_llm_circuit_open`), connection stats, cache hit ratio, database size, and
 LLM usage. Collector health is exported per database (label `database`) in every mode: the
 collector circuit breaker state (`pg_sage_collector_breaker_state`, 0 closed, 1 skipping,

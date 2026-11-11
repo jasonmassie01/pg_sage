@@ -35,14 +35,14 @@ curl -fsSL https://github.com/jasonmassie01/pg_sage/releases/latest/download/pg_
 # Docker
 docker run --name pg_sage \
   -e SAGE_DATABASE_URL="postgres://sage_agent:pw@host:5432/mydb" \
-  -p 8080:8080 -p 9187:9187 ghcr.io/jasonmassie01/pg_sage:latest
+  -p 8080:8080 -p 8187:8187 ghcr.io/jasonmassie01/pg_sage:latest
 ```
 
 From an empty install to the first finding in under a minute: see the
 [five-minute quickstart](docs/quickstart.md) (minimal role, read-only first, what you see
 in minute 1, minute 5 and hour 1).
 
-Dashboard at `http://localhost:8080` -- API and Prometheus metrics at `:8080/api/v1/` and `:9187/metrics`.
+Dashboard at `http://localhost:8080` -- API and Prometheus metrics at `:8080/api/v1/` and `:8187/metrics`.
 
 For bounded, read-only pgvector recall and latency experiments, run
 `pg_sage vector-lab --manifest workload.json` with `SAGE_VECTORLAB_DATABASE_URL`.

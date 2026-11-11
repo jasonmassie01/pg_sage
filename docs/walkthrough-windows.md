@@ -110,7 +110,7 @@ curl.exe -c cookies.txt -H "Content-Type: application/json" `
 
 curl.exe -b cookies.txt http://localhost:8080/api/v1/cases
 curl.exe -b cookies.txt http://localhost:8080/api/v1/shadow-report
-curl.exe http://localhost:9187/metrics
+curl.exe http://localhost:8187/metrics
 ```
 
 ## 5. Clean Up
@@ -126,6 +126,6 @@ docker rm -f pg-test
 - A local PostgreSQL install may already bind port `5432`; use it directly or
   map Docker to another port.
 - Windows Firewall may prompt when pg_sage starts listening on `8080` and
-  `9187`.
+  `8187`.
 - Use `curl.exe` in PowerShell when you need the real curl binary instead of
   PowerShell aliases.

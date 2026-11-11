@@ -40,7 +40,7 @@ func startPrometheusServer(addr string) *http.Server {
 	if err != nil {
 		metricsListenerState.Store(listenerDown)
 		logError("prometheus", "cannot listen on %s: %v; /metrics is not served there. "+
-			"Free the port (9187 is also postgres_exporter's default), set "+
+			"Free the port, set "+
 			"prometheus.listen_addr or SAGE_PROMETHEUS_ADDR to a free address, or set "+
 			"prometheus.serve_on_api: true", addr, err)
 		return nil

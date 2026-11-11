@@ -15,7 +15,7 @@ and sidecar binary, and starts pg_sage on:
 | Service | URL |
 |---|---|
 | Dashboard/API | `http://localhost:8080` |
-| Prometheus metrics | `http://localhost:9187/metrics` |
+| Prometheus metrics | `http://localhost:8187/metrics` |
 | PostgreSQL demo target | `localhost:5433/sage_demo` |
 
 On first start, copy the one-time `INITIAL ADMIN PASSWORD` from the sidecar

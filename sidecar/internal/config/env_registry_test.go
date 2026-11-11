@@ -189,7 +189,7 @@ func TestEnvVarsMarkdownRendersEveryEntry(t *testing.T) {
 			t.Errorf("table lacks row %q", row)
 		}
 	}
-	if !strings.Contains(doc, "| `SAGE_PROMETHEUS_PORT` | `9187` | ") ||
+	if !strings.Contains(doc, "| `SAGE_PROMETHEUS_PORT` | `8187` | ") ||
 		!strings.Contains(doc, "keeps the host") {
 		t.Error("SAGE_PROMETHEUS_PORT row does not say it keeps the host")
 	}

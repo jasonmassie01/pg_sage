@@ -16,7 +16,7 @@ binary, then starts pg_sage:
 | Surface | Address |
 |---|---|
 | UI/API | `http://localhost:8080` |
-| Metrics | `http://localhost:9187/metrics` |
+| Metrics | `http://localhost:8187/metrics` |
 | Demo database | `localhost:5433/sage_demo` |
 
 Copy the one-time `INITIAL ADMIN PASSWORD` from stderr.
@@ -56,7 +56,7 @@ curl -b cookies.txt http://localhost:8080/api/v1/shadow-report
 ## 5. Metrics
 
 ```bash
-curl -s http://localhost:9187/metrics | head
+curl -s http://localhost:8187/metrics | head
 ```
 
 ## 6. Clean Up

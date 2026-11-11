@@ -104,7 +104,7 @@ const (
 	// operator opts in (G7-B21).
 	DefaultNotificationPolicyAllowPrivateTargets = false
 
-	DefaultPrometheusListenAddr = "127.0.0.1:9187"
+	DefaultPrometheusListenAddr = "127.0.0.1:8187"
 
 	DefaultRateLimit = 60
 

@@ -50,7 +50,7 @@ sudo systemctl enable --now pg_sage
 docker run -d --name pg_sage \
   -e SAGE_DATABASE_URL="postgres://sage_agent:YOUR_PASSWORD@host:5432/db" \
   -e SAGE_LLM_API_KEY="YOUR_KEY_HERE" \
-  -p 8080:8080 -p 9187:9187 \
+  -p 8080:8080 -p 8187:8187 \
   ghcr.io/jasonmassie01/pg_sage:latest
 ```
 
@@ -67,7 +67,7 @@ the image `HEALTHCHECK` reads the same `api.listen_addr`:
 docker run -d --name pg_sage \
   -v /path/to/config.yaml:/etc/pg_sage/config.yaml \
   -e SAGE_CONFIG_PATH=/etc/pg_sage/config.yaml \
-  -p 8080:8080 -p 9187:9187 \
+  -p 8080:8080 -p 8187:8187 \
   ghcr.io/jasonmassie01/pg_sage:latest
 ```
 
@@ -124,7 +124,7 @@ llm:
   api_key: ${SAGE_LLM_API_KEY}
 
 prometheus:
-  listen_addr: 0.0.0.0:9187
+  listen_addr: 0.0.0.0:8187
 ```
 
 ```bash
@@ -195,7 +195,7 @@ spec:
         app: pg-sage
       annotations:
         prometheus.io/scrape: "true"
-        prometheus.io/port: "9187"
+        prometheus.io/port: "8187"
     spec:
       securityContext:
         fsGroup: 1000          # the image runs as uid/gid 1000 (sage)
@@ -206,7 +206,7 @@ spec:
           ports:
             - containerPort: 8080
               name: api
-            - containerPort: 9187
+            - containerPort: 8187
               name: metrics
           env:
             # Secrets as files (see "Secrets from files" in configuration.md):
@@ -266,8 +266,8 @@ spec:
     - port: 8080
       targetPort: 8080
       name: api
-    - port: 9187
-      targetPort: 9187
+    - port: 8187
+      targetPort: 8187
       name: metrics
 ```
 
@@ -359,13 +359,15 @@ scrape_configs:
   - job_name: pg_sage
     scrape_interval: 30s
     static_configs:
-      - targets: ["pg-sage:9187"]
+      - targets: ["pg-sage:8187"]
 ```
 
-The separate listener (`prometheus.listen_addr`, default `127.0.0.1:9187`) has
-no authentication and no TLS. Port 9187 is also postgres_exporter's default:
-when both run on one host, move one of them (`SAGE_PROMETHEUS_ADDR=127.0.0.1:9188`,
-say). If pg_sage cannot bind the address it logs an ERROR, keeps running, and
+The separate listener (`prometheus.listen_addr`, default `127.0.0.1:8187`) has
+no authentication and no TLS. Until v2.7.0 the default port was 9187,
+postgres_exporter's default; v2.7.0 moved it to 8187 so both run on one host.
+Update scrape configs and published ports that relied on the old default, or
+keep it with `SAGE_PROMETHEUS_PORT=9187`. If pg_sage cannot bind the address it
+logs an ERROR, keeps running, and
 exports `pg_sage_metrics_listener_up 0` where it still serves `/metrics` (the API
 route below). `prometheus.listen_addr: ""` opens no separate listener.
 

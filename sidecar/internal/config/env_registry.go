@@ -78,7 +78,7 @@ var runtimeEnvVars = []EnvVar{
 		Doc: "Max PostgreSQL connections in the pool (`postgres.max_connections`)"},
 	{Name: "SAGE_META_DB", Default: envNone, File: true,
 		Doc: "Metadata database connection string; selects meta-db fleet mode"},
-	{Name: "SAGE_PROMETHEUS_PORT", Default: envCode(9187), Doc: "Port for Prometheus metrics, " +
+	{Name: "SAGE_PROMETHEUS_PORT", Default: envCode(8187), Doc: "Port for Prometheus metrics, " +
 		"1 to 65535; keeps the host of `prometheus.listen_addr` (default `127.0.0.1`)"},
 	{Name: "SAGE_PROMETHEUS_ADDR", Default: envNone, Doc: "Whole `host:port` of the " +
 		"separate `/metrics` listener (`prometheus.listen_addr`); wins over " +

@@ -205,7 +205,7 @@ go run ./cmd/gen_config_meta -lifecycle-only \
 |---|---|
 | `--pg-url` | PostgreSQL connection string (overrides YAML and env) |
 | `--config` | Path to YAML config file |
-| `--prom-addr` | Prometheus listen address (e.g., `0.0.0.0:9187`) |
+| `--prom-addr` | Prometheus listen address (e.g., `0.0.0.0:8187`) |
 | `--meta-db` | Metadata database connection string (PostgreSQL URL for fleet mode) |
 | `--encryption-key` | Encryption key for sensitive config values |
 
@@ -238,7 +238,7 @@ Variables that only the test suites and benches read (`SAGE_TEST_*`, `SAGE_BENCH
 | `SAGE_PG_SSLMODE` | `prefer` | PostgreSQL sslmode (`postgres.sslmode`) |
 | `SAGE_PG_MAX_CONNS` | `2` | Max PostgreSQL connections in the pool (`postgres.max_connections`) |
 | `SAGE_META_DB` / `_FILE` | (none) | Metadata database connection string; selects meta-db fleet mode |
-| `SAGE_PROMETHEUS_PORT` | `9187` | Port for Prometheus metrics, 1 to 65535; keeps the host of `prometheus.listen_addr` (default `127.0.0.1`) |
+| `SAGE_PROMETHEUS_PORT` | `8187` | Port for Prometheus metrics, 1 to 65535; keeps the host of `prometheus.listen_addr` (default `127.0.0.1`) |
 | `SAGE_PROMETHEUS_ADDR` | (none) | Whole `host:port` of the separate `/metrics` listener (`prometheus.listen_addr`); wins over `SAGE_PROMETHEUS_PORT` when both are set |
 | `SAGE_RATE_LIMIT` | `60` | Max requests per minute per IP on the REST API; zero or negative means the default |
 | `SAGE_API_TRUSTED_ORIGINS` | (none) | Comma-separated `api.trusted_origins`: browser origins allowed to send cross-origin API writes ([CSRF](security.md#csrf-and-cross-origin-requests)) |
@@ -413,7 +413,7 @@ alerting:
       channels: [slack, pagerduty]
 
 prometheus:
-  listen_addr: "0.0.0.0:9187"   # "" = no separate listener
+  listen_addr: "0.0.0.0:8187"   # "" = no separate listener
   serve_on_api: false           # true = also GET /metrics on the API listener (token)
   refresh_interval_seconds: 0   # 0 = 30 s; never faster than collector.interval_seconds
 
@@ -472,9 +472,9 @@ would produce an invalid configuration answers `400` with the key.
 | `analyzer.inactive_slot_min_minutes` | `5` | Report a replication slot (`inactive_slot`) once it has been inactive this many minutes. A slot whose `wal_status` is `extended`, `unreserved` or `lost` is reported at once. `0` uses the default. Settable through the configuration API without a restart (`1`-`10080` there). `0`-`10080` |
 | `analyzer.unused_index_window_days` | `7` | Days an index must show no scans before it is reported unused (the evidence for a drop). `1`-`1073741824`; `0` is rejected, because it would report every eligible index unused |
 | `analyzer.seq_scan_min_rows` | `100000` | Smallest table whose sequential scans are reported. `1`-`1073741824` |
-| `prometheus.listen_addr` | `127.0.0.1:9187` | Address (`host:port`) of the separate, unauthenticated `/metrics` listener. `""` opens none. A value that is not `host:port` with a port up to 65535 is refused at load. The listener binds at startup; if it cannot (port 9187 is also postgres_exporter's default), pg_sage logs an ERROR naming the remedies, keeps running, and exports `pg_sage_metrics_listener_up 0` (served on the API route when `serve_on_api` is on). `SAGE_PROMETHEUS_ADDR` replaces it; `SAGE_PROMETHEUS_PORT` replaces only the port. No TLS: use `serve_on_api` for TLS. Requires restart |
+| `prometheus.listen_addr` | `127.0.0.1:8187` | Address (`host:port`) of the separate, unauthenticated `/metrics` listener. `""` opens none. A value that is not `host:port` with a port up to 65535 is refused at load. The listener binds at startup; if it cannot (the default was 9187, postgres_exporter's, before v2.7.0), pg_sage logs an ERROR naming the remedies, keeps running, and exports `pg_sage_metrics_listener_up 0` (served on the API route when `serve_on_api` is on). `SAGE_PROMETHEUS_ADDR` replaces it; `SAGE_PROMETHEUS_PORT` replaces only the port. No TLS: use `serve_on_api` for TLS. Requires restart |
 | `prometheus.serve_on_api` | `false` | Also serve `GET /metrics` on the API listener, with the API's TLS and rate limit. A scrape needs `Authorization: Bearer` with a token holding the `metrics` scope ([scrape tokens](deployment.md#scraping-through-the-api-listener)); in a Databricks App, the platform identity of any pg_sage role instead. 401 without a valid token, 403 for a token lacking the scope; refusals carry no metric names. Needs a control database (startup refuses without one). The same snapshot is served, so a scrape adds no database load. Requires restart |
-| `prometheus.refresh_interval_seconds` | `0` (30 s) | Seconds between re-reads of each database's `/metrics` values (value ledger, SLO state and, in standalone, optimizer counts and `pg_stat_activity`/`pg_stat_database`). Scrapes never query a database: they render the last refresh, so values can be up to one interval old. `0` means 30; a value below `collector.interval_seconds` is raised to it. Negative is rejected. Requires restart |
+| `prometheus.refresh_interval_seconds` | `0` (30 s) | Seconds between re-reads of each database's `/metrics` values (value ledger, action counts, SLO state, the Sage SRE backlog and, in standalone, optimizer counts). Scrapes never query a database: they render the last refresh, so values can be up to one interval old. `0` means 30; a value below `collector.interval_seconds` is raised to it. Negative is rejected. Requires restart |
 | `analyzer.self_cost_budget_ms` | `3000` | Raise a `sage_self_cost` finding when pg_sage's own statements (the `pg_stat_statements` entries carrying the `/* pg_sage */` tag after their first keyword) use more than this many milliseconds of database time per collector cycle, measured over each analyzer cycle. `0` disables the finding; the `pg_sage_self_*` Prometheus metrics are exported either way. `0`-`3600000` |
 | `analyzer.table_bloat_min_bytes` | `1073741824` (1 GiB) | Smallest heap (bytes, from `pg_class.relpages`) for which the freeze custodian plans an online bloat rebuild. The plan needs a catalog bloat estimate of at least 50% (`reltuples` times the `pg_stats` row width against `relpages`, at the table's fillfactor); the dead-tuple ratio alone never plans one, because the analyzer's `table_bloat` `VACUUM` covers it, and a table never analyzed has no estimate. When `pgstattuple` is installed, the three largest candidates per cycle are confirmed with `pgstattuple_approx` under `safety.query_timeout_ms` and `safety.lock_timeout_ms`; a timeout or error keeps the estimate (`evidence.bloat_source` is `estimate` or `pgstattuple`). Every plan is recorded once, and its repeats folded into that row, as a parked `bloat_remediation` decision at risk tier `high`; pg_sage never runs it. A `pg_repack` plan is offered only where the extension is installed. `0` uses the default. Restart to change |
 | `analyzer.wraparound_freeze_share` | `0.75` | Share (above 0, at most 1) of a table's effective freeze maximum (the lower of `autovacuum_freeze_max_age` and the table's reloption; XID or multixact) at which the analyzer reports a `wraparound_freeze` finding. Diagnosis only: the freeze custodian decides and proposes the VACUUM. Replaces `analyzer.wraparound_freeze_xid_age`, which is retired (it loads with one warning and is ignored). Restart to change |

@@ -72,14 +72,14 @@ services:
       SAGE_RATE_LIMIT: "60"
     # Metrics bind to 127.0.0.1 unless told otherwise; this local stack
     # publishes them, so it widens the bind explicitly (config-08).
-    command: ["--prom-addr", "0.0.0.0:9187"]
+    command: ["--prom-addr", "0.0.0.0:8187"]
     # Holds the generated encryption.key that seals stored secrets
     # (security-08); keep the volume, and back it up.
     volumes:
       - sagedata:/var/lib/pg_sage
     ports:
       - "8080:8080"   # API + Dashboard
-      - "9187:9187"   # Prometheus metrics
+      - "8187:8187"   # Prometheus metrics
 
 volumes:
   pgdata:

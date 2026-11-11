@@ -982,7 +982,7 @@ break-glass session cookies are always `Secure`.
   check follows symlinks, so cert-manager and Kubernetes secret volume swaps
   work. A pair that fails to load is logged and counted, and the current
   certificate keeps serving until the files change again.
-- The Prometheus listener (`:9187`) stays plain HTTP; keep it on a private
+- The Prometheus listener (`:8187`) stays plain HTTP; keep it on a private
   network.
 
 Restrict direct access to the API/dashboard listener to trusted networks
