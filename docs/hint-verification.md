@@ -195,15 +195,51 @@ row counts (auto_explain with `log_analyze`); a plain EXPLAIN plan never trigger
 
 ---
 
-## 6. High Plan Time &rarr; `Set(plan_cache_mode "force_generic_plan")`
+## 6. High Plan Time &rarr; parameterization advice, no hint
 
-**Symptom:** Planning time dominates execution time for repeated queries with different parameters.
+**Symptom:** Planning time dominates execution time for a statement called at
+least `tuner.min_query_calls` times (`mean_plan_time >
+mean_exec_time x tuner.plan_time_ratio`; needs
+`pg_stat_statements.track_planning`), or one statement shape reaches
+pg_stat_statements as many queryids because each call sends a different
+IN-list length.
 
-**Hint:** `/*+ Set(plan_cache_mode "force_generic_plan") */`
+**Hint:** none. pg_sage used to prescribe
+`Set(plan_cache_mode "force_generic_plan")`. pg_hint_plan accepts it, but it
+only has an effect on prepared statements: a simple-protocol statement is
+planned afresh whatever the setting, and on skewed data a forced generic plan
+can be worse than the custom plans it replaces. The tuner no longer installs
+it. A `plan_cache_mode` hint may come back only when a hinted EXPLAIN shows
+that it changes the plan.
 
-The hint is accepted by pg_hint_plan (confirmed via `pg_hint_plan.debug_print`). This forces PostgreSQL to reuse a generic plan instead of re-planning for each parameter set.
+**Finding:** `query_parameterization` (severity `warning`, object type
+`query_shape`, identifier `shape:<16 hex digits of the SHA-256 of the
+collapsed text>`), advice only, with no SQL. Its detail has
+`normalized_query` (the statement with every `IN ($1, ...)` and
+`= ANY (ARRAY[$1, ...])` list of bind parameters collapsed to `(...)`),
+`reason` (`in_list_variants` or `plan_time_share`), `variant_count`,
+`queryids` (at most 20), `calls`, `total_exec_ms`, `plan_time_share` and
+`pg_major`. The case it opens offers a `prepare_parameterized_query` script
+for review in the application's repository: use prepared statements or a
+single array parameter (`= ANY($1)`).
 
-**Verdict:** Hint accepted. Effect is measurable on prepared statements with high planning overhead.
+### When the tuner reports query_parameterization
+
+Two triggers:
+
+- **IN-list variants** (`reason=in_list_variants`): the collector's latest
+  snapshot holds `tuner.param_shape_min_variants` (default 20, 2-1000) or more
+  queryids of one collapsed shape. A subquery (`IN (SELECT ...)`) or a list of
+  literals in an unnormalized utility statement is not a parameter list. The
+  trigger is off on PostgreSQL 18, whose pg_stat_statements squashes lists into
+  one entry.
+- **Plan-time share** (`reason=plan_time_share`): the statement's planning
+  dominates as above. A shape the IN-list trigger already reported in the
+  cycle is not reported twice.
+
+**Upgrade note:** `plan_cache_mode` hints pg_sage installed before this
+change stay `active` until hint revalidation or a rollback removes them; no
+new ones are installed.
 
 ---
 
@@ -536,7 +572,7 @@ are built in (no configuration key).
 | Hash Spill | 16 hash batches | `work_mem=128MB` | Batches: 16 &rarr; 1 |
 | Bad Nested Loop | NL with bad estimate | `HashJoin(c o)` | Nested Loop &rarr; Hash Join |
 | Parallel Off | Serial scan on 500K rows | `max_parallel_workers_per_gather=4` | Seq Scan &rarr; Parallel Seq Scan |
-| High Plan Time | Re-planning overhead | `force_generic_plan` | Reuse cached plan |
+| High Plan Time / IN-list variants | Re-planning overhead | Advice: prepared statements or `= ANY($1)` | None (advisory) |
 | Sort + LIMIT | Full sort for 10 rows | CREATE INDEX (composite) | Sort eliminated |
 | Temp Spill | Aggregation spills 22MB | `work_mem=512MB` | external merge &rarr; quicksort Memory |
 | Missing FK Index | Seq scan on FK join | CREATE INDEX | Seq Scan &rarr; Bitmap Index (53x) |
