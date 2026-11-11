@@ -107,19 +107,36 @@ catalog evidence it rests on, for example `pg_index.indisvalid = false`:
 - pg_stat_statements, HypoPG and auto_explain, if missing, with the exact steps for your
   provider (RDS, Aurora, Cloud SQL, AlloyDB, Azure or self-managed).
 
-The first look reads only the system catalog and the statistics views. It runs once, in
-one read-only transaction, never touches table data, and gives every statement 5 s, or
+The first look reads only the system catalog and the statistics views. It runs when the
+database's runtime starts and again when you re-check it, each time in one read-only
+transaction. It never touches table data, and gives every statement 5 s, or
 less if you set a lower `safety.query_timeout_ms` or a `statement_timeout` on pg_sage's
 role. A check it cannot run (a missing privilege, a timeout) is shown as degraded, with
-the reason and the grant that fixes it; one that timed out is retried once 30 s later.
+the reason and the grant that fixes it; one that timed out is retried once 30 s later
+(2 s later on a re-check).
 Those checks appear under **Catalog checks**, below the findings, with any grant SQL in a
 code block; a first look with degraded checks says how many could not run instead of "No
 problems found", and the checklist's "First look ready" step shows the same count.
 With a model configured (`llm.enabled`, `llm.endpoint`, `llm.api_key`), a short summary
-heads the list. The findings never depend on it.
+heads the list. The findings never depend on it. A first look that finds the same items
+(rule, object and severity) and the same degraded checks as the one before it reuses that
+summary, so a restart with nothing changed makes no model call.
 
-The same data is available from the API at `/api/v1/first-look` and `/api/v1/onboarding`,
-and from Prometheus as `pg_sage_time_to_first_finding_seconds`,
+**Re-check after you follow the steps.** After `CREATE EXTENSION pg_stat_statements`, a
+`GRANT` from a degraded check or a `shared_preload_libraries` change, press **Re-check** on
+the "Extensions" or "First look ready" step, or on the first look itself. pg_sage takes the
+first look again (the same catalog reads, under a 45 s budget), and the checklist updates
+with no pg_sage restart. Operators and admins see the button; viewers do not. Each database
+can be re-checked once a minute ("Try again in N s" until then). A re-check never changes the
+time to first finding, and nothing re-checks on its own.
+
+The same data is available from the API at `/api/v1/first-look` and `/api/v1/onboarding`.
+`POST /api/v1/first-look/recheck?database=<name>` (operator or admin) re-checks one
+database and returns its new `first_look` summary. It answers 400 for `all` or no database,
+404 for an unknown one, 503 while its runtime has no first look, 429 with `Retry-After`
+within a minute of the last re-check, and 502 with an error `class` (`unreachable`,
+`read_failed`) when the first look fails; the previous report then stays the latest.
+Prometheus has `pg_sage_time_to_first_finding_seconds`,
 `pg_sage_first_look_items` and `pg_sage_first_look_duration_seconds` (one series per
 database).
 

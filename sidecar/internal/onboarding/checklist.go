@@ -86,7 +86,8 @@ func extensionsStep(in ChecklistInput) Step {
 	switch {
 	case !s.Done:
 		s.Detail = strings.Join(missing, "; ") + ". The first look lists the exact " +
-			"steps; until then query analysis is off."
+			"steps; once they are done, Re-check updates this step without a restart. " +
+			"Until then query analysis is off."
 	case len(missing) > 0:
 		s.Detail = "pg_stat_statements is ready. Optional: " + strings.Join(missing, "; ") +
 			"."

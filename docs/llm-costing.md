@@ -95,7 +95,7 @@ Ask Sage is also held to its own `ask.*` budgets.
 | Migration review | `internal/migration` | each risky DDL seen (`migration.enabled`): a safer alternative and a script | 2,048 and 4,096 |
 | Schema lint (JSONB) | `internal/schema/lint` | each scan with JSONB findings (`schema_lint.enabled`, hourly by default) | 4,096 |
 | Facts | `internal/facts` | at most once a day per database, to propose facts from catalog evidence | 2,048 |
-| First look | `internal/firstlook` | once, for a database's first-look summary | 400 |
+| First look | `internal/firstlook` | a database's first-look summary, when its items changed since the last first look (start or re-check) | 400 |
 | Agent column classifier | `internal/agentguard/classify` | the daily column classification pass of agent governance | 2,048 |
 
 The scheduled consumers make a handful of calls a day per database: one briefing, up to
