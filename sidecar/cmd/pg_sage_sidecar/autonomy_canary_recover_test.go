@@ -53,3 +53,14 @@ func TestAutonomyDepsBuildTheCanaryWithoutTouchingTheControlDatabase(t *testing.
 		t.Fatal("a canary was built without a fleet and a control database")
 	}
 }
+
+// The databases a run changed with a verdict reach the event as kept.
+func TestCanaryInterruptedEventsNameKeptDatabases(t *testing.T) {
+	events := canaryInterruptedEvents([]rollout.InterruptedRun{{
+		Run:  rollout.RunRecord{EvidenceID: "canary-3", SourceInstance: "src"},
+		Kept: []rollout.InstanceRecord{{InstanceID: "eu", ActionLogID: 5}}}})
+	if len(events) != 1 || !strings.Contains(events[0].Body, "kept") ||
+		!strings.Contains(events[0].Body, "eu (action 5)") {
+		t.Fatalf("events = %+v, want eu (action 5) kept", events)
+	}
+}

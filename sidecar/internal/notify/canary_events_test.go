@@ -57,3 +57,24 @@ func TestCanaryInterruptedIsARoutableWarningEvent(t *testing.T) {
 		t.Fatal("rule severities for canary_interrupted are wrong")
 	}
 }
+
+// An interrupted canary rolls nothing back: the databases it changed with
+// a verdict are named as keeping the change, apart from those in flight.
+func TestCanaryInterruptedEventNamesTheDatabasesThatKeepTheChange(t *testing.T) {
+	evt := CanaryInterruptedEvent(CanaryInterrupted{RunID: "canary-k", Source: "src",
+		Kept: []CanaryTargetAction{{Database: "eu", ActionLogID: 5},
+			{Database: "us", ActionLogID: 6}}})
+	if !strings.Contains(evt.Body, "No database was being changed") ||
+		!strings.Contains(evt.Body, "kept (nothing was rolled back): eu (action 5), "+
+			"us (action 6).") {
+		t.Fatalf("body %q, want nothing in flight and eu, us kept", evt.Body)
+	}
+	kept, ok := evt.Data["kept"].([]string)
+	if !ok || strings.Join(kept, ",") != "eu,us" {
+		t.Fatalf("kept = %#v, want [eu us]", evt.Data["kept"])
+	}
+	none := CanaryInterruptedEvent(CanaryInterrupted{RunID: "canary-n", Source: "src"})
+	if strings.Contains(none.Body, "kept") {
+		t.Fatalf("a run that changed nothing names kept databases: %q", none.Body)
+	}
+}

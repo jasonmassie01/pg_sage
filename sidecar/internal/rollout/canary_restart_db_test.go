@@ -341,3 +341,51 @@ func TestSaveProgressRefusesARunThatIsNotRunning(t *testing.T) {
 		t.Fatalf("progress for an unknown run = %v, want ErrRunInterrupted", err)
 	}
 }
+
+// State transition (DB): an interrupted run rolls nothing back, so the
+// sweep reports the databases it had changed with a verdict as keeping
+// the change, apart from those in flight, and leaves their records.
+func TestCanaryRecoverReportsTheDatabasesThatKeepTheChange(t *testing.T) {
+	pool, _ := freshRunPool(t, "canary kept")
+	runs := NewPostgresRunStore(pool)
+	now := time.Now().UTC()
+	if err := runs.Create(context.Background(), RunRecord{EvidenceID: "canary-kept",
+		SourceInstance: "source", PriorEvidenceID: "action_log:source:42",
+		Policy: Policy{CanaryInstances: 1, MaxAffectedInstances: 3}, State: "canary",
+		Targets: []string{"a", "b", "c"}, CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+	for _, r := range []InstanceRecord{
+		{InstanceID: "b", Ordinal: 2, Status: StatusAwaitingVerdict, ActionLogID: 6},
+		{InstanceID: "a", Ordinal: 1, Status: StatusApplied, ActionLogID: 5},
+		{InstanceID: "c", Ordinal: 3, Status: StatusNotLocallyVerified},
+	} {
+		r.UpdatedAt = now
+		if err := runs.SaveProgress(context.Background(), "canary-kept", r); err != nil {
+			t.Fatalf("record %s: %v", r.InstanceID, err)
+		}
+	}
+	svc, err := NewCanaryService(func(string) (CanaryTarget, error) {
+		return nil, errors.New("no target is touched by a sweep")
+	}, runs, CanaryOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.RecoverInterrupted(context.Background())
+	if err != nil || len(got) != 1 {
+		t.Fatalf("recover = %+v (%v), want one run", got, err)
+	}
+	r := got[0]
+	if len(r.Changing) != 1 || r.Changing[0].InstanceID != "b" ||
+		r.Changing[0].ActionLogID != 6 || len(r.Kept) != 1 || r.Kept[0].InstanceID != "a" ||
+		r.Kept[0].ActionLogID != 5 || r.Kept[0].Status != StatusApplied {
+		t.Fatalf("changing %+v, kept %+v; want b (6) in flight and a (5) kept",
+			r.Changing, r.Kept)
+	}
+	_, instances, err := svc.Get(context.Background(), "canary-kept")
+	if err != nil || len(instances) != 3 || instances[0].Status != StatusApplied ||
+		instances[1].Status != StatusInterrupted ||
+		instances[2].Status != StatusNotLocallyVerified {
+		t.Fatalf("stored instances = %+v (%v)", instances, err)
+	}
+}

@@ -85,8 +85,8 @@ func (s *CanaryService) RecoverInterrupted(ctx context.Context) ([]InterruptedRu
 	}
 	for _, r := range runs {
 		s.opts.Log("rollout: canary %s from %s was interrupted by a sidecar restart "+
-			"with %d database(s) in flight; it is not resumed", r.Run.EvidenceID,
-			r.Run.SourceInstance, len(r.Changing))
+			"with %d database(s) in flight and %d keeping the change; it is not resumed",
+			r.Run.EvidenceID, r.Run.SourceInstance, len(r.Changing), len(r.Kept))
 	}
 	return runs, nil
 }

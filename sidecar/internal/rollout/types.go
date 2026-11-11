@@ -125,10 +125,13 @@ const (
 var ErrRunInterrupted = errors.New("the canary run is no longer running")
 
 // InterruptedRun is a run the startup sweep marked interrupted, with the
-// instances it was changing or measuring when it stopped.
+// instances it was changing or measuring when it stopped (Changing) and
+// those it had changed with a verdict recorded, which keep the change
+// because an interrupted run rolls nothing back (Kept).
 type InterruptedRun struct {
 	Run      RunRecord
 	Changing []InstanceRecord
+	Kept     []InstanceRecord
 }
 
 // HaltVerificationPending halts a rollout whose instance had no verdict

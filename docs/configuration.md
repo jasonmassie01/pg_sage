@@ -2460,7 +2460,9 @@ session advisory lock for that run on the control database, so a stopped sidecar
 At startup the sidecar marks every run left in `canary` that no session holds as
 `interrupted` (halt reason `sidecar_restart`), marks its `applying` and `awaiting_verdict`
 databases `interrupted`, and raises one `canary_interrupted` notification (warning) naming
-the run and those databases with their action ids. An interrupted run is final and never
+the run and those databases with their action ids, and the databases it had already
+changed with a verdict, which keep the change because an interrupted run rolls nothing
+back. An interrupted run is final and never
 resumed: a change already made stays with that database's own post-action monitor, so check
 its action log and keep or roll it back, then start a new canary if the change should still
 roll out. With two sidecars on one control database (HA), a run the other sidecar is still

@@ -184,8 +184,17 @@ func interruptRun(ctx context.Context, tx pgx.Tx, id string, at time.Time) (
 	if err != nil {
 		return InterruptedRun{}, false, err
 	}
-	return InterruptedRun{Run: run, Changing: changing}, true, nil
+	kept, err := keptInstances(ctx, tx, id)
+	if err != nil {
+		return InterruptedRun{}, false, err
+	}
+	return InterruptedRun{Run: run, Changing: changing, Kept: kept}, true, nil
 }
+
+// instanceColumns are the rollout_instance columns scanInstances reads.
+const instanceColumns = `instance_id, ordinal, status, COALESCE(evidence_id, ''),
+	COALESCE(action_log_id, 0), COALESCE(regression_pct, 0),
+	COALESCE(detail, ''), updated_at`
 
 // interruptInstances marks a run's in-flight instances interrupted.
 func interruptInstances(ctx context.Context, tx pgx.Tx, id string, at time.Time) (
@@ -194,12 +203,35 @@ func interruptInstances(ctx context.Context, tx pgx.Tx, id string, at time.Time)
 		SET status = 'interrupted', updated_at = $2,
 		    detail = left(concat_ws('; ', detail, $3::text), 2000)
 		WHERE run_evidence_id = $1 AND status IN ('applying', 'awaiting_verdict')
-		RETURNING instance_id, ordinal, status, COALESCE(evidence_id, ''),
-		  COALESCE(action_log_id, 0), COALESCE(regression_pct, 0),
-		  COALESCE(detail, ''), updated_at`, id, at, interruptedDetail)
+		RETURNING `+instanceColumns, id, at, interruptedDetail)
 	if err != nil {
 		return nil, fmt.Errorf("interrupt the instances of run %s: %w", id, err)
 	}
+	out, err := scanInstances(rows)
+	if err != nil {
+		return nil, fmt.Errorf("interrupt the instances of run %s: %w", id, err)
+	}
+	return out, nil
+}
+
+// keptInstances lists the databases an interrupted run changed and whose
+// verdict it recorded: nothing rolls them back, so they keep the change.
+func keptInstances(ctx context.Context, tx pgx.Tx, id string) ([]InstanceRecord, error) {
+	rows, err := tx.Query(ctx, `SELECT `+instanceColumns+`
+		FROM sage.rollout_instance
+		WHERE run_evidence_id = $1 AND status IN ('applied', 'verification_pending')`, id)
+	if err != nil {
+		return nil, fmt.Errorf("list the changed instances of run %s: %w", id, err)
+	}
+	out, err := scanInstances(rows)
+	if err != nil {
+		return nil, fmt.Errorf("list the changed instances of run %s: %w", id, err)
+	}
+	return out, nil
+}
+
+// scanInstances collects instance rows in rollout order.
+func scanInstances(rows pgx.Rows) ([]InstanceRecord, error) {
 	out, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (InstanceRecord, error) {
 		var r InstanceRecord
 		err := row.Scan(&r.InstanceID, &r.Ordinal, &r.Status, &r.EvidenceID,
@@ -207,7 +239,7 @@ func interruptInstances(ctx context.Context, tx pgx.Tx, id string, at time.Time)
 		return r, err
 	})
 	if err != nil {
-		return nil, fmt.Errorf("interrupt the instances of run %s: %w", id, err)
+		return nil, err
 	}
 	slices.SortFunc(out, func(a, b InstanceRecord) int { return cmp.Compare(a.Ordinal, b.Ordinal) })
 	return out, nil
