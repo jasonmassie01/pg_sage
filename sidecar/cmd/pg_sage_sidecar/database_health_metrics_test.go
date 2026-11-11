@@ -361,35 +361,12 @@ func TestDatabaseHealthFleetSummaryInMetaMode(t *testing.T) {
 	}
 }
 
-// HELP text: connection_up names the control database, and each family
-// observability-09 removes names the one that replaces it and the release.
+// HELP text: connection_up names the control database and points to the
+// per-database family.
 func TestDatabaseHealthHelpNamesReplacements(t *testing.T) {
 	installHealthFleet(t, "standalone",
 		healthInstance("alpha", fleet.InstanceStatus{Connected: true}))
 	body := scrapeMetrics(t)
-	rendered := map[string]string{
-		"pg_sage_findings_total":          helpLine(t, body, "pg_sage_findings_total"),
-		"pg_sage_fleet_instance_findings": helpLine(t, body, "pg_sage_fleet_instance_findings"),
-		"pg_sage_fleet_instance_health":   helpLine(t, body, "pg_sage_fleet_instance_health"),
-		// Rendered only with a collector snapshot or a pg_stat refresh.
-		"pg_sage_collector_last_run_timestamp": helpCollectorLastRun,
-		"pg_sage_connections_total":            helpConnectionsTotal,
-		"pg_sage_cache_hit_ratio":              helpCacheHitRatio,
-	}
-	for family, replacement := range map[string]string{
-		"pg_sage_findings_total":               "pg_sage_findings_open",
-		"pg_sage_fleet_instance_findings":      "pg_sage_findings_open",
-		"pg_sage_fleet_instance_health":        "pg_sage_database_health_score",
-		"pg_sage_collector_last_run_timestamp": "pg_sage_collector_last_success_timestamp_seconds",
-		"pg_sage_connections_total":            "postgres_exporter",
-		"pg_sage_cache_hit_ratio":              "postgres_exporter",
-	} {
-		help := rendered[family]
-		if !strings.HasPrefix(help, "# HELP "+family+" ") ||
-			!strings.Contains(help, replacement) || !strings.Contains(help, "v2.7.0") {
-			t.Errorf("%s HELP = %q, want %s and v2.7.0 named", family, help, replacement)
-		}
-	}
 	if help := helpLine(t, body, "pg_sage_connection_up"); !strings.Contains(help,
 		"control database") || !strings.Contains(help, "pg_sage_database_up") {
 		t.Errorf("connection_up HELP = %q, want the control database and "+
@@ -440,16 +417,5 @@ func TestDatabaseHealthFleetWideStopShowsOnEveryDatabase(t *testing.T) {
 	if got := sampleLines(scrapeMetrics(t), "pg_sage_emergency_stopped"); strings.Join(got,
 		"\n") != strings.Join(want, "\n") {
 		t.Fatalf("resumed: emergency_stopped = %q, want %q", got, want)
-	}
-}
-
-// The deprecated pg_stat families read the control database (the
-// metadata database in meta mode), so their HELP must not imply a
-// monitored database.
-func TestDatabaseHealthPGStatHelpNamesTheControlDatabase(t *testing.T) {
-	for _, help := range []string{helpConnectionsTotal, helpCacheHitRatio} {
-		if !strings.Contains(help, "control database") {
-			t.Errorf("HELP %q does not say it describes the control database", help)
-		}
 	}
 }

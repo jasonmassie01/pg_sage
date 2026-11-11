@@ -6,11 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
-	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // observability-03 review: a database that failed to connect has no
@@ -88,78 +85,3 @@ func TestWithUnrefreshedInstancesNilAndKnown(t *testing.T) {
 }
 
 // Only meta mode has a process pool that no runtime refreshes.
-func TestStartProcessPoolMetricsOnlyInMetaMode(t *testing.T) {
-	withMetricsRegistry(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // the refresher must not outlive the test
-	p := hungPool(t)
-	standalone := config.DefaultConfig()
-	standalone.Mode = "standalone"
-	meta := config.DefaultConfig()
-	meta.Mode = config.ModeMeta
-	for name, tc := range map[string]struct {
-		c *config.Config
-		p *pgxpool.Pool
-	}{"nil config": {nil, p}, "nil pool": {meta, nil}, "standalone": {standalone, p}} {
-		startProcessPoolMetrics(ctx, tc.c, tc.p)
-		if processPoolMetrics.Load() != nil {
-			t.Fatalf("%s started a process pool refresher", name)
-		}
-	}
-	startProcessPoolMetrics(ctx, meta, p)
-	m := processPoolMetrics.Load()
-	if m == nil || m.name != processPoolMetricsName || len(m.sources) != 1 ||
-		m.sources[0].name != metricsSourcePGStat {
-		t.Fatalf("meta mode refresher = %+v, want one pgstat source", m)
-	}
-	meta.Collector.IntervalSeconds = 10
-	if got := m.interval(); got != 30*time.Second {
-		t.Fatalf("meta refresher interval = %v, want the 30 s default", got)
-	}
-	meta.Prometheus.RefreshIntervalSeconds = 90 // read live, like the runtimes'
-	if got := m.interval(); got != 90*time.Second {
-		t.Fatalf("meta refresher interval = %v, want the configured 90 s", got)
-	}
-}
-
-// A meta-mode scrape renders the metadata database's pg_stat series from
-// the process pool refresher, and omits them while its refresh fails.
-func TestMetaModeScrapeRendersProcessPoolPgStat(t *testing.T) {
-	dsn := testdb.SkipUnlessLive(t)
-	preserveMainWiringGlobals(t)
-	preserveValueGlobals(t)
-	cfg = config.DefaultConfig()
-	cfg.Mode = config.ModeMeta
-	live, err := pgxpool.New(context.Background(), dsn)
-	if err != nil {
-		t.Fatalf("open pool: %v", err)
-	}
-	t.Cleanup(live.Close)
-	pool, coll = live, nil
-	fleetMgr = fleet.NewManager(cfg)
-
-	m := newMetricsRefresher(processPoolMetricsName, fixedInterval(time.Hour),
-		pgStatMetricsSource(live))
-	processPoolMetrics.Store(m)
-	if out := scrapeMetrics(t); strings.Contains(out, "pg_sage_connections_total{") {
-		t.Fatalf("pg_stat series before the first refresh:\n%s", out)
-	}
-	m.refresh(context.Background())
-	out := scrapeMetrics(t)
-	if !strings.Contains(out, `pg_sage_connections_total{state="active"} `) ||
-		!strings.Contains(out, "pg_sage_cache_hit_ratio ") {
-		t.Fatalf("meta scrape lacks the metadata database's pg_stat series:\n%s", out)
-	}
-	if strings.Contains(out, `database="metadata"`) {
-		t.Fatalf("the metadata database must not appear as a monitored one:\n%s", out)
-	}
-
-	down := newMetricsRefresher(processPoolMetricsName, fixedInterval(time.Hour),
-		pgStatMetricsSource(hungPool(t)))
-	processPoolMetrics.Store(down)
-	down.refresh(context.Background())
-	if out := scrapeMetrics(t); strings.Contains(out, "pg_sage_connections_total") ||
-		strings.Contains(out, "pg_sage_cache_hit_ratio") {
-		t.Fatalf("a failed refresh must omit the pg_stat series:\n%s", out)
-	}
-}

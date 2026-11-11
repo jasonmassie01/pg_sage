@@ -11,12 +11,12 @@ import (
 )
 
 var instanceHealthLine = regexp.MustCompile(
-	`(?m)^pg_sage_fleet_instance_health\{database="([^"]+)"\} (\d+)$`)
+	`(?m)^pg_sage_database_health_score\{database="([^"]+)"\} (\d+)$`)
 
 func scrapeInstanceHealth(t *testing.T) []string {
 	t.Helper()
 	var b strings.Builder
-	writeFleetMetrics(&b)
+	writeDatabaseHealthMetrics(&b, fleetMgr)
 	var out []string
 	for _, m := range instanceHealthLine.FindAllStringSubmatch(b.String(), -1) {
 		out = append(out, m[1]+"="+m[2])
@@ -24,9 +24,10 @@ func scrapeInstanceHealth(t *testing.T) []string {
 	return out
 }
 
-// CHECK-12: consecutive scrapes list the per-instance health gauge in one
-// order (worst first, then by name), and pg_sage_fleet_healthy excludes a
-// connected database whose score is below 50.
+// CHECK-12: consecutive scrapes list the per-database health score in one
+// order (by name; pg_sage_fleet_instance_health, listed worst first, left
+// in v2.7.0), and pg_sage_fleet_healthy excludes a connected database
+// whose score is below 50.
 func TestFleetMetrics_InstanceHealthOrderIsStable(t *testing.T) {
 	prev := fleetMgr
 	t.Cleanup(func() { fleetMgr = prev })
@@ -43,7 +44,7 @@ func TestFleetMetrics_InstanceHealthOrderIsStable(t *testing.T) {
 			Name: name, Config: config.DatabaseConfig{Name: name}, Status: s,
 		})
 	}
-	want := []string{"charlie=0", "alpha=100", "bravo=100", "delta=100"}
+	want := []string{"alpha=100", "bravo=100", "charlie=0", "delta=100"}
 	for i := 0; i < 20; i++ {
 		got := scrapeInstanceHealth(t)
 		if strings.Join(got, ",") != strings.Join(want, ",") {

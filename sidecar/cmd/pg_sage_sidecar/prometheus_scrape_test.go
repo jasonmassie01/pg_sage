@@ -106,9 +106,8 @@ func TestScrapeIssuesNoDatabaseIO(t *testing.T) {
 		t.Fatalf("10 scrapes issued %d database round trips, want 0", n)
 	}
 	for _, want := range []string{
-		"pg_sage_connection_up 1\n", `pg_sage_connections_total{state=`,
+		"pg_sage_connection_up 1\n",
 		`pg_sage_value_metrics_up{database="solo"} 1`,
-		`pg_sage_metrics_refresh_success{database="solo",source="pgstat"} 1`,
 		`pg_sage_metrics_refresh_success{database="solo",source="optimizer"} 1`,
 	} {
 		if !strings.Contains(out, want) {

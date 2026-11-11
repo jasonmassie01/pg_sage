@@ -396,7 +396,7 @@ func TestRuntimeMetricsRefresherSources(t *testing.T) {
 	shared := &databaseRuntime{spec: databaseRuntimeSpec{Name: "solo", Pool: hungPool(t),
 		Shared: true}, ctx: context.Background(), workers: &sync.WaitGroup{}, cfg: rtCfg}
 	m := newRuntimeMetricsRefresher(shared)
-	if fmt.Sprint(sourceNames(m.sources)) != "[value actions optimizer pgstat]" {
+	if fmt.Sprint(sourceNames(m.sources)) != "[value actions optimizer]" {
 		t.Fatalf("standalone sources = %v", sourceNames(m.sources))
 	}
 }
@@ -420,7 +420,7 @@ func TestValueMetricsRenderFromSnapshots(t *testing.T) {
 				IncidentsByKind:      map[string]int64{"lock_storm": 3}}}},
 		{name: "b", sources: []string{metricsSourceValue}, snap: &metricsSnapshot{
 			ok: map[string]bool{metricsSourceValue: false}}},
-		{name: "c", sources: []string{metricsSourcePGStat}, snap: &metricsSnapshot{}},
+		{name: "c", sources: []string{metricsSourceOptimizer}, snap: &metricsSnapshot{}},
 	}
 	var b strings.Builder
 	writeValueMetrics(&b, views)
@@ -446,8 +446,8 @@ func TestValueMetricsRenderFromSnapshots(t *testing.T) {
 }
 
 // Error propagation for the standalone sources: a pool that cannot answer
-// marks them failed and the scrape omits their samples instead of
-// reporting zero connections or a zero recommendation count.
+// marks it failed and the scrape omits its samples instead of reporting a
+// zero recommendation count.
 func TestStandaloneSourcesFailClosedWithoutADatabase(t *testing.T) {
 	preserveValueGlobals(t)
 	cfg = config.DefaultConfig() // the optimizer gauge reads the process config
@@ -455,32 +455,27 @@ func TestStandaloneSourcesFailClosedWithoutADatabase(t *testing.T) {
 	closed.Close()
 	for _, p := range []*metricsRefresher{
 		newMetricsRefresher("solo", fixedInterval(time.Hour),
-			optimizerMetricsSource(closed), pgStatMetricsSource(closed)),
+			optimizerMetricsSource(closed)),
 		newMetricsRefresher("solo", fixedInterval(time.Hour),
-			optimizerMetricsSource(nil), pgStatMetricsSource(nil)),
+			optimizerMetricsSource(nil)),
 	} {
 		p.refresh(context.Background())
 		snap := p.snapshot()
-		if snap == nil || snap.ok[metricsSourceOptimizer] || snap.ok[metricsSourcePGStat] ||
-			snap.optimizer != nil || snap.pgstat.connectionsByState != nil {
-			t.Fatalf("failed sources = %+v, want both failed with no values", snap)
+		if snap == nil || snap.ok[metricsSourceOptimizer] || snap.optimizer != nil {
+			t.Fatalf("failed source = %+v, want it failed with no values", snap)
 		}
 		views := []metricsView{{name: "solo", snap: snap,
-			sources: []string{metricsSourceOptimizer, metricsSourcePGStat}}}
+			sources: []string{metricsSourceOptimizer}}}
 		var b strings.Builder
 		writeOptimizerMetrics(&b, views)
-		writeDatabaseMetrics(&b, views)
 		writeMetricsRefreshSeries(&b, views)
 		out := b.String()
-		for _, bad := range []string{"pg_sage_optimizer_recommendations_total{",
-			"pg_sage_connections_total", "pg_sage_cache_hit_ratio"} {
-			if strings.Contains(out, bad) {
-				t.Fatalf("failed refresh exported %q:\n%s", bad, out)
-			}
+		if strings.Contains(out, "pg_sage_optimizer_recommendations{") {
+			t.Fatalf("failed refresh exported optimizer samples:\n%s", out)
 		}
 		if !strings.Contains(out, `pg_sage_metrics_refresh_success{database="solo",`+
-			`source="pgstat"} 0`) {
-			t.Fatalf("failed pgstat refresh not reported:\n%s", out)
+			`source="optimizer"} 0`) {
+			t.Fatalf("failed optimizer refresh not reported:\n%s", out)
 		}
 	}
 	if _, err := queryCounts(context.Background(), nil, optimizerCountsSQL); !errors.Is(err,

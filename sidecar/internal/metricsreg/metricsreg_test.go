@@ -140,8 +140,9 @@ func TestValidateEmptyInputs(t *testing.T) {
 // names, each with a registered replacement or a note.
 func TestRetiredListsTheRenameRelease(t *testing.T) {
 	want := map[string]string{
-		"pg_sage_findings_total":                  "pg_sage_findings_open",
-		"pg_sage_collector_last_run_timestamp":    "pg_sage_collector_last_success_timestamp_seconds",
+		"pg_sage_findings_total": "pg_sage_findings_open",
+		"pg_sage_collector_last_run_timestamp": "pg_sage_collector_" +
+			"last_success_timestamp_seconds",
 		"pg_sage_fleet_instance_findings":         "pg_sage_findings_open",
 		"pg_sage_fleet_instance_health":           "pg_sage_database_health_score",
 		"pg_sage_connections_total":               "",
@@ -183,16 +184,20 @@ func TestHeaderUnregisteredName(t *testing.T) {
 	func() {
 		defer func() {
 			r := recover()
-			if r == nil || !strings.Contains(r.(string), `"pg_sage_nope" is not registered`) {
+			msg, _ := r.(string)
+			if !strings.Contains(msg, `"pg_sage_nope" is not registered`) {
 				t.Fatalf("recover() = %v, want a panic naming pg_sage_nope", r)
 			}
 		}()
 		var b strings.Builder
 		Header(&b, "pg_sage_nope")
 	}()
-	old := strict
-	t.Cleanup(func() { strict = old })
-	strict = false
+	if !strict() {
+		t.Fatal("strict() is off under go test")
+	}
+	off := false
+	strictOverride = &off
+	t.Cleanup(func() { strictOverride = nil })
 	var b strings.Builder
 	Header(&b, "pg_sage_nope")
 	if b.String() != "# TYPE pg_sage_nope untyped\n" {

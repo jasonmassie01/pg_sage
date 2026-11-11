@@ -7,9 +7,9 @@
 package metricsreg
 
 import (
+	"flag"
 	"fmt"
 	"strings"
-	"testing"
 )
 
 // Type is a family's Prometheus metric type.
@@ -54,11 +54,21 @@ func (f Family) ModeSpecific() bool { return len(f.Modes) < len(AllModes) }
 var (
 	all    = append(append([]Family(nil), runtimeFamilies...), workFamilies...)
 	byName = indexFamilies(all)
-	// strict makes an unregistered name in Header panic. It is on under
-	// go test, where the contract tests drive every writer; a running
-	// sidecar instead writes the family untyped so one scrape still works.
-	strict = testing.Testing()
+	// strictOverride, when set, replaces strict's detection (tests only).
+	strictOverride *bool
 )
+
+// strict makes an unregistered name in Header panic. It is on under go
+// test (the test binary defines -test.v; the sidecar must not import
+// package testing), where the contract tests drive every writer. A
+// running sidecar instead writes the family untyped so a scrape still
+// parses.
+func strict() bool {
+	if strictOverride != nil {
+		return *strictOverride
+	}
+	return flag.Lookup("test.v") != nil
+}
 
 func indexFamilies(fams []Family) map[string]Family {
 	m := make(map[string]Family, len(fams))
@@ -92,7 +102,7 @@ func Lookup(name string) (Family, bool) {
 func Header(b *strings.Builder, name string) {
 	f, ok := byName[name]
 	if !ok {
-		if strict {
+		if strict() {
 			panic(fmt.Sprintf("metricsreg: family %q is not registered; add it "+
 				"to internal/metricsreg and run go generate ./internal/metricsreg/", name))
 		}

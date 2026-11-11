@@ -26,7 +26,6 @@ const (
 	metricsSourceValue     = "value"
 	metricsSourceSLO       = "slo"
 	metricsSourceOptimizer = "optimizer"
-	metricsSourcePGStat    = "pgstat"
 )
 
 // metricsSourceTimeout bounds every source read of a refresh.
@@ -39,7 +38,6 @@ type metricsSnapshot struct {
 	value     value.MetricsRead
 	slo       []slo.Status
 	optimizer map[string]int64
-	pgstat    pgStatValues
 	actions   executor.ActionGauges
 	// sre is the Sage SRE backlog (sre_metrics.go); nil without SRE.
 	sre *sreBacklog
@@ -272,8 +270,8 @@ func (rt *databaseRuntime) startMetricsRefresher() {
 
 // newRuntimeMetricsRefresher reads the value ledger, the action gauges
 // (observability-04) and, when the database has one, the SLO engine.
-// Standalone also reads the optimizer counts and pg_stat values the
-// process-level families report. A database whose Sage SRE investigator
+// Standalone also reads the optimizer counts the process-level family
+// reports. A database whose Sage SRE investigator
 // runs also reads its investigation backlog.
 func newRuntimeMetricsRefresher(rt *databaseRuntime) *metricsRefresher {
 	sources := []metricsSource{valueMetricsSource(rt.spec.Name, rt.spec.Pool),
@@ -282,8 +280,7 @@ func newRuntimeMetricsRefresher(rt *databaseRuntime) *metricsRefresher {
 		sources = append(sources, sloMetricsSource(rt.sloEngine))
 	}
 	if rt.spec.Shared {
-		sources = append(sources, optimizerMetricsSource(rt.spec.Pool),
-			pgStatMetricsSource(rt.spec.Pool))
+		sources = append(sources, optimizerMetricsSource(rt.spec.Pool))
 	}
 	if rt.sre != nil {
 		key, _ := rt.sreRuntimeKey()
