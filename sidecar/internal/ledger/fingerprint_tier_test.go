@@ -2,6 +2,7 @@ package ledger
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -104,6 +105,7 @@ func TestConcurrentRetieringKeepsOneOpenRow(t *testing.T) {
 	cleanupFingerprint(t, pool, input.Fingerprint)
 	var wg sync.WaitGroup
 	tiers := map[int64]string{}
+	var unexpected []error
 	var mu sync.Mutex
 	for i := 0; i < 8; i++ {
 		wg.Add(1)
@@ -113,15 +115,21 @@ func TestConcurrentRetieringKeepsOneOpenRow(t *testing.T) {
 			in.RiskTier = []string{"moderate", "high"}[i%2]
 			in.EvidenceID = ledgerEvidenceID(fmt.Sprintf("tc%d", i))
 			id, _, err := repo.UpsertDecision(ctx, in)
-			if err != nil { // a re-tier racing another is refused, never merged
-				return
-			}
 			mu.Lock()
 			defer mu.Unlock()
-			tiers[id] = in.RiskTier
+			switch {
+			case errors.Is(err, ErrDecisionRetiered): // refused, never merged
+			case err != nil:
+				unexpected = append(unexpected, err)
+			default:
+				tiers[id] = in.RiskTier
+			}
 		}(i)
 	}
 	wg.Wait()
+	if len(unexpected) > 0 {
+		t.Fatalf("concurrent re-tiering failed other than by refusal: %v", unexpected)
+	}
 	open := 0
 	for _, r := range tierRows(t, pool, input.Fingerprint) {
 		if !r.resolved {
