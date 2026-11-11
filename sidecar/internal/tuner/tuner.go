@@ -343,8 +343,12 @@ func (t *Tuner) processCandidate(
 	// memory); with host memory unknown it needs approval (tuning-03).
 	budget := t.workMemBudget()
 	combined, budgetDetail := budget.capHint(combined)
+	// An operator-rejected hint is not planned again: the cheap read first.
+	if t.rejectedHint(ctx, c.QueryID, combined) {
+		return staleFindings
+	}
 	cmp, refused := t.gateCandidate(ctx, c, combined)
-	if refused || t.rejectedHint(ctx, c.QueryID, combined) {
+	if refused {
 		return staleFindings
 	}
 	finding := t.buildGatedFinding(ctx, c, symptoms, combined, buildTitle(symptoms),
