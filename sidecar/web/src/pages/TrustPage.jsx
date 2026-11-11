@@ -17,13 +17,13 @@ const card = { background: 'var(--bg-card)', borderColor: 'var(--border)' }
 const muted = { color: 'var(--text-secondary)' }
 const strong = { color: 'var(--text-primary)' }
 
-async function approve(database, id) {
+async function postAutonomy(path, database, body) {
   const res = await fetch(
-    `/api/v1/sre/autonomy/proposals/${id}/approve?database=${encodeURIComponent(database)}`,
+    `/api/v1/sre/autonomy/${path}?database=${encodeURIComponent(database)}`,
     {
       method: 'POST', credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ note: 'approved on the Trust page' }),
+      body: JSON.stringify(body),
     })
   if (!res.ok) {
     let message = `${res.status}`
@@ -37,6 +37,14 @@ async function approve(database, id) {
   }
 }
 
+const approve = (database, id) => postAutonomy(`proposals/${id}/approve`, database,
+  { note: 'approved on the Trust page' })
+
+// earned-07: re-approve a self-initiated level capped by a PostgreSQL major
+// upgrade (admin only, like a promotion).
+const revalidate = (database, family, cls) => postAutonomy('revalidate', database,
+  { family, class: cls, note: 're-approved on the Trust page' })
+
 export function TrustPage({ database, user }) {
   const query = database && database !== 'all'
     ? `?database=${encodeURIComponent(database)}` : ''
@@ -47,15 +55,17 @@ export function TrustPage({ database, user }) {
     return <QueryState query={trust} skeleton={<LoadingSpinner />} />
   }
 
-  const onApprove = async (db, id) => {
+  const act = fn => async (...args) => {
     setActionError(null)
     try {
-      await approve(db, id)
+      await fn(...args)
       trust.refetch?.()
     } catch (err) {
       setActionError(err.message)
     }
   }
+  const onApprove = act(approve)
+  const onRevalidate = act(revalidate)
   const databases = trust.data?.databases || []
   return (
     <QueryState query={trust}><section className="space-y-4" data-testid="trust-page">
@@ -83,7 +93,8 @@ export function TrustPage({ database, user }) {
       )}
       {databases.map(view => (
         <DatabaseTrust key={view.database} view={view}
-          isAdmin={user?.role === 'admin'} onApprove={onApprove} />
+          isAdmin={user?.role === 'admin'} onApprove={onApprove}
+          onRevalidate={onRevalidate} />
       ))}
       <ModelLift database={database} />
       <TuningCalibration database={database} />
@@ -91,7 +102,7 @@ export function TrustPage({ database, user }) {
   )
 }
 
-function DatabaseTrust({ view, isAdmin, onApprove }) {
+function DatabaseTrust({ view, isAdmin, onApprove, onRevalidate }) {
   const rows = view.rows || []
   return (
     <div className="rounded border p-3 space-y-3" style={card}
@@ -104,7 +115,7 @@ function DatabaseTrust({ view, isAdmin, onApprove }) {
       {['self_initiated', 'incident'].map(kind => (
         <TrustTable key={kind} database={view.database} kind={kind}
           rows={rows.filter(r => r.kind === kind)} isAdmin={isAdmin}
-          onApprove={onApprove} shadow={view.shadow || []} />
+          onApprove={onApprove} onRevalidate={onRevalidate} shadow={view.shadow || []} />
       ))}
     </div>
   )

@@ -23,7 +23,8 @@ const KIND_NOTE = {
     + '(Advanced > Earned autonomy).',
 }
 
-export function TrustTable({ database, kind, rows, isAdmin, onApprove, shadow = [] }) {
+export function TrustTable({ database, kind, rows, isAdmin, onApprove, onRevalidate,
+  shadow = [] }) {
   if (rows.length === 0) return null
   return (
     <div data-testid={`trust-section-${database}-${kind}`} className="space-y-1">
@@ -45,7 +46,7 @@ export function TrustTable({ database, kind, rows, isAdmin, onApprove, shadow = 
           <tbody>
             {rows.map(row => (
               <TrustRow key={`${row.family}-${row.class}`} database={database}
-                row={row} isAdmin={isAdmin} onApprove={onApprove}
+                row={row} isAdmin={isAdmin} onApprove={onApprove} onRevalidate={onRevalidate}
                 shadow={shadow.find(s => s.family === row.family && s.class === row.class)} />
             ))}
           </tbody>
@@ -55,7 +56,7 @@ export function TrustTable({ database, kind, rows, isAdmin, onApprove, shadow = 
   )
 }
 
-function TrustRow({ database, row, isAdmin, onApprove, shadow }) {
+function TrustRow({ database, row, isAdmin, onApprove, onRevalidate, shadow }) {
   return (
     <tr data-testid={`trust-row-${database}-${row.family}-${row.class}`}
       style={{ borderTop: '1px solid var(--border)' }}>
@@ -66,7 +67,11 @@ function TrustRow({ database, row, isAdmin, onApprove, shadow }) {
         )}
         <div style={muted}>{row.reversibility}</div>
       </td>
-      <td className={cell}><Level row={row} /></td>
+      <td className={cell}>
+        <Level row={row} />
+        <MajorCap database={database} row={row} isAdmin={isAdmin}
+          onRevalidate={onRevalidate} />
+      </td>
       <td className={cell} data-testid="trust-evidence" style={muted}>
         <Evidence counts={row.evidence || {}} />
         {row.bench && <BenchReport bench={row.bench} />}
@@ -170,6 +175,24 @@ function LastChange({ change }) {
       {change.by && <span> by {change.by}</span>}
       {change.reason && <div>{change.reason}</div>}
     </span>
+  )
+}
+
+// earned-07: a self-initiated L3 granted on another PostgreSQL major runs at
+// L2 until improved outcomes on the new major, or an admin, re-validate it.
+function MajorCap({ database, row, isAdmin, onRevalidate }) {
+  if (!row.major_cap) return null
+  return (
+    <div data-testid="trust-major-cap" style={{ color: 'var(--red)' }}>
+      {row.major_cap.text}
+      {isAdmin && onRevalidate && (
+        <button type="button" className="ml-2 rounded px-2 py-0.5"
+          style={{ border: '1px solid var(--green)', color: 'var(--green)' }}
+          onClick={() => onRevalidate(database, row.family, row.class)}>
+          Re-approve
+        </button>
+      )}
+    </div>
   )
 }
 
