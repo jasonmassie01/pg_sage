@@ -121,8 +121,11 @@ func TestWorkflowSkipBudgetStepsAreStrict(t *testing.T) {
 			}
 		}
 	}
-	if calls < 7 {
-		t.Fatalf("found %d skip-budget calls in ci.yml, want at least 7", calls)
+	// One call per gated job since ci-03b (each bench shard is a leg of one
+	// matrix step, not a step of its own): test, integration-matrix,
+	// perfgate, bench, safety-bench and agent-servers.
+	if calls < 6 {
+		t.Fatalf("found %d skip-budget calls in ci.yml, want at least 6", calls)
 	}
 }
 
@@ -133,11 +136,10 @@ func TestWorkflowSelectiveStepsRequireTheirTests(t *testing.T) {
 	want := map[string][]string{
 		"Skip budget (no test may skip on its own servers)": {"TestKill_", "TestRelease_",
 			"TestUnfreeze_", "TestRealPGAuditCorrelation", "TestActivityReports"},
-		"PGIncidentBench (core":        {"sre-bench TestPGIncidentBench"},
-		"PGIncidentBench (M6 reactive": {"sre-bench TestPGIncidentBench"},
-		"PGIncidentBench (M6 runway":   {"sre-bench TestPGIncidentBench"},
-		"AgentSafetyBench\n":           {"safety-bench TestAgentSafetyBench"},
-		"Performance gate\n":           {"TestPerfGate", "TestPerfGateFirstLook"},
+		// ci-03b: one bench step, run by every leg of the pg x shard matrix.
+		"PGIncidentBench (${{ matrix.shard.name }})": {"sre-bench TestPGIncidentBench"},
+		"AgentSafetyBench\n":                         {"safety-bench TestAgentSafetyBench"},
+		"Performance gate\n":                         {"TestPerfGate", "TestPerfGateFirstLook"},
 	}
 	seen := map[string]int{}
 	for _, step := range workflowSteps(t) {

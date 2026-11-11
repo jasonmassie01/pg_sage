@@ -63,7 +63,7 @@ scenarios read live temp files with `pg_ls_tmpdir` (superuser or
 `pg_stat_statements` preloaded. If the server lacks a fixture, that scenario
 is reported as skipped. A skipped scenario is never scored.
 
-CI's image (`scripts/ci/setup-test-postgres.sh`) has every fixture except the archive one, so on tags the manifest allows only the archiver scenario to skip. A new scenario must be added to the manifest for every major, as expected or as an allowed skip with its reason.
+CI's image (`scripts/ci/images/Dockerfile.pg`) has every fixture except the archive one, so on tags the manifest allows only the archiver scenario to skip. A new scenario must be added to the manifest for every major, as expected or as an allowed skip with its reason.
 
 ## What runs
 

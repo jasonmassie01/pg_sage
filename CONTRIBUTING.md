@@ -55,15 +55,17 @@ output), so a plain `go test ./...` reports `ok` while most database tests
 never ran. Never point it at a shared or production server: the fixture
 creates and force-drops databases there.
 
-Start a server configured like CI's (the pgvector image with HypoPG and
-pg_hint_plan installed, `pg_stat_statements` preloaded, logical WAL), from the
-repository root:
+Start CI's own server image (pgvector with HypoPG, pg_hint_plan and pgaudit
+installed, `pg_stat_statements` preloaded, logical WAL; recipe in
+`scripts/ci/images/Dockerfile.pg`), from the repository root. Pull it, or
+build it with the base digest from `.github/workflows/mirror-ci-images.yml`:
 
 ```bash
 docker run -d --name pgsage-test -e POSTGRES_PASSWORD=postgres \
-  -p 127.0.0.1:55432:5432 pgvector/pgvector:0.8.2-pg17
-until docker exec pgsage-test pg_isready -U postgres -h 127.0.0.1; do sleep 1; done
-bash scripts/ci/setup-test-postgres.sh pgsage-test 17
+  -p 127.0.0.1:55432:5432 ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r1
+# or: docker build -f scripts/ci/images/Dockerfile.pg --build-arg PG_MAJOR=17 \
+#   --build-arg BASE_DIGEST=sha256:<pg17 base> -t pgsage-ci:17 scripts/ci/images
+bash scripts/ci/verify-test-postgres.sh pgsage-test 17
 export SAGE_TEST_DATABASE_URL="postgres://postgres:postgres@127.0.0.1:55432/postgres?sslmode=disable"
 ```
 
