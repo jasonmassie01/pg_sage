@@ -4,8 +4,9 @@ package schema
 // sage.managed_change_proposals to AlloyDB (database flags) and Azure
 // flexible server (server parameters), whose findings now become
 // operator-approved proposals. Existing rows already satisfy the wider
-// check; it is added NOT VALID and validated under SHARE UPDATE EXCLUSIVE.
-// Idempotent: a check that already names azure is left alone.
+// check. The drop and re-add take ACCESS EXCLUSIVE in the same
+// transaction (a small table), bounded by lock_timeout. Idempotent: a
+// check that already names azure is left alone.
 const ddlManagedChangeProviders = `
 SET LOCAL lock_timeout = '5s';
 DO $$

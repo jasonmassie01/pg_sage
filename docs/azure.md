@@ -73,7 +73,8 @@ inactive replication slot's retained WAL. Every other change is an operator-appr
 proposal, for example:
 
 ```bash
-az postgres flexible-server parameter set --subscription SUB --resource-group 'RG'   --server-name SERVER --name shared_buffers --value 524288
+az postgres flexible-server parameter set --subscription SUB --resource-group 'RG' \
+  --server-name SERVER --name shared_buffers --value 524288
 az postgres flexible-server restart --subscription SUB --resource-group 'RG' --name SERVER
 ```
 

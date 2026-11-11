@@ -22,7 +22,8 @@ finish_manual() {
 	echo "CHECK-AZ-02: see the provisioning output (refused statements are listed there)"
 	echo "CHECK-AZ-04: MANUAL fleet readiness shows provider azure, log access azure_monitor"
 	echo "CHECK-AZ-05: MANUAL an approved ANALYZE executes and verifies"
-	echo "CHECK-AZ-09: MANUAL a server-parameter proposal's az command (Actions page) runs" 		"and az postgres flexible-server parameter show reads the value back"
+	echo "CHECK-AZ-09: MANUAL a server-parameter proposal's az command (Actions page) runs" \
+		"and az postgres flexible-server parameter show reads the value back"
 }
 check() { # id, pass(0/1), text
 	if [[ "$2" == 0 ]]; then echo "$1: PASS $3"; else echo "$1: FAIL $3"; failures=$((failures + 1)); fi
