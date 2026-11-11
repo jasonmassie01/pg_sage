@@ -100,9 +100,13 @@ describe('agent-native Value routing and navigation', () => {
 
       fireEvent.click(advanced)
       expect(advanced).toHaveAttribute('aria-expanded', 'true')
-      expect(screen.getByRole('link', { name: /findings explorer/i }))
-        .toBeInTheDocument()
-      expect(screen.getByRole('link', { name: /action history/i }))
+      // dashboard-06: Findings explorer and Action history were Cases and
+      // Actions again; their URLs stay as aliases but the nav lists them once.
+      expect(screen.queryByRole('link', { name: /findings explorer/i }))
+        .not.toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: /action history/i }))
+        .not.toBeInTheDocument()
+      expect(screen.getByRole('link', { name: /runbooks/i }))
         .toBeInTheDocument()
       expect(screen.getByRole('link', { name: /snapshot.*metrics/i }))
         .toBeInTheDocument()

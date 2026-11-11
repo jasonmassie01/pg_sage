@@ -1,28 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Layout } from './components/Layout'
-import { Dashboard } from './pages/Dashboard'
-import { CasesPage } from './pages/CasesPage'
-import { Actions } from './pages/Actions'
-import { DatabasePage } from './pages/DatabasePage'
-import { SettingsPage } from './pages/SettingsPage'
-import { AlertLogPage } from './pages/AlertLogPage'
 import { LoginPage } from './pages/LoginPage'
-import { UsersPage } from './pages/UsersPage'
-import { ProfilePage } from './pages/ProfilePage'
 import { LinkSSOPage } from './pages/LinkSSOPage'
-import { NotificationsPage } from './pages/NotificationsPage'
-import { DatabasesPage } from './pages/DatabasesPage'
-import { ValuePage } from './pages/ValuePage'
-import { OnboardingPanel } from './components/onboarding/OnboardingPanel'
-import { FirstLookPanel } from './components/onboarding/FirstLookPanel'
-import { SLOsPage } from './pages/SLOsPage'
-import { RunbooksPage } from './pages/RunbooksPage'
-import { AutonomyPage } from './pages/AutonomyPage'
-import { TrustPage } from './pages/TrustPage'
-import { FactsPage } from './pages/FactsPage'
-import { AskPage } from './pages/AskPage'
-import { MCPTokensPage } from './pages/MCPTokensPage'
-import { AgentsPage } from './pages/AgentsPage'
 import { useAPI } from './hooks/useAPI'
 import { resolveSelectedDB } from './lib/selectedDatabase'
 import { readPref, writePref } from './lib/storage'
@@ -33,50 +12,11 @@ import { isAuthStoreUnavailable } from './lib/authExpiry'
 import { LiveEventsProvider } from './hooks/useLiveEvents'
 import { ToastProvider } from './components/Toast'
 import { PostgresMeme } from './components/PostgresMeme'
+import { renderRoute } from './routeRender'
 
 function getRoute() {
   const hash = window.location.hash || '#/'
   return hash.replace('#', '') || '/'
-}
-
-function AccessDenied() {
-  return (
-    <div data-testid="access-denied" className="rounded p-5"
-      style={{
-        background: 'var(--bg-card)',
-        border: '1px solid var(--border)',
-      }}>
-      <h2 className="text-lg font-semibold mb-2"
-        style={{ color: 'var(--text-primary)' }}>
-        Access denied
-      </h2>
-      <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-        You do not have permission to open this admin page.
-      </p>
-    </div>
-  )
-}
-
-function NotFound() {
-  return (
-    <div data-testid="not-found" className="rounded p-5"
-      style={{
-        background: 'var(--bg-card)',
-        border: '1px solid var(--border)',
-      }}>
-      <h2 className="text-lg font-semibold mb-2"
-        style={{ color: 'var(--text-primary)' }}>
-        Page not found
-      </h2>
-      <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-        This pg_sage route does not exist.
-      </p>
-      <a href="#/" className="inline-block mt-4 text-sm underline"
-        style={{ color: 'var(--accent)' }}>
-        Go to Dashboard
-      </a>
-    </div>
-  )
 }
 
 function PlatformSignInError({ mode, onReload }) {
@@ -95,26 +35,6 @@ function PlatformSignInError({ mode, onReload }) {
         Reload
       </button>
       <PostgresMeme route="#/login" compact />
-    </div>
-  )
-}
-
-function PlatformProtocolUnavailable({ agents = false }) {
-  return (
-    <div data-testid={agents ? 'databricks-agents-unavailable' : 'databricks-mcp-unavailable'} className="rounded p-5"
-      style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-      <h2 className="text-lg font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
-        {agents ? 'Agent governance unavailable' : 'MCP tokens unavailable'}
-      </h2>
-      <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-        Agent governance, MCP connections and separate agent tokens are unavailable
-        in this Databricks-managed deployment. Use Databricks sign-in to access the
-        pg_sage dashboard and authenticated user APIs.
-      </p>
-      <a href="#/" className="inline-block mt-4 text-sm underline"
-        style={{ color: 'var(--accent)' }}>
-        Go to Dashboard
-      </a>
     </div>
   )
 }
@@ -274,110 +194,11 @@ export default function App({ reloadPage = () => window.location.reload() }) {
     ? null
     : databases.find(db => db.name === effectiveDB)
 
-  const isAdmin = user.role === 'admin'
-  const denied = { title: 'Access denied', node: <AccessDenied /> }
-  const pageState = (() => {
-    switch (routePath) {
-      case '/':
-        return { title: 'Value', node: (
-          <div className="space-y-6">
-            <OnboardingPanel database={effectiveDB} authMode={authMode} />
-            <FirstLookPanel database={effectiveDB} />
-            <ValuePage database={effectiveDB} />
-          </div>
-        ) }
-      case '/advanced':
-        return { title: 'Snapshot & metrics',
-          node: <Dashboard database={effectiveDB}
-            onSelectDB={setSelectedDB} user={user} fleet={fleetQuery} /> }
-      case '/advanced/findings':
-        return { title: 'Findings explorer',
-          node: <CasesPage key={route} database={effectiveDB} user={user} /> }
-      case '/advanced/actions':
-        return { title: 'Action history',
-          node: <Actions database={effectiveDB} user={user} fleetData={fleetData} /> }
-      case '/advanced/runbooks':
-        return { title: 'Runbooks',
-          node: <RunbooksPage database={effectiveDB} user={user} /> }
-      case '/trust':
-        return { title: 'Trust',
-          node: <TrustPage database={effectiveDB} user={user} /> }
-      case '/facts':
-        return { title: 'Facts',
-          node: <FactsPage database={effectiveDB} user={user} /> }
-      case '/ask':
-        return { title: 'Ask Sage',
-          node: <AskPage database={effectiveDB} user={user} caseId={linkedCase}
-            databases={databaseInventory} databaseLoading={fleetLoading}
-            databaseError={inventoryError} onRetryDatabase={refetchFleet}
-            onSelectDatabase={selectDatabase} /> }
-      case '/advanced/autonomy':
-        return { title: 'Earned autonomy',
-          node: <AutonomyPage database={effectiveDB} user={user} /> }
-      case '/manage-databases':
-        return isAdmin ? { title: 'Databases', node: <DatabasesPage onSelectDatabase={setSelectedDB} /> }
-          : denied
-      case '/findings':
-      case '/cases':
-        return { title: 'Cases',
-          node: <CasesPage key={route} database={effectiveDB} user={user} /> }
-      case '/actions':
-        return { title: 'Actions',
-          node: <Actions database={effectiveDB} user={user} fleetData={fleetData} /> }
-      case '/database':
-        return { title: 'Database',
-          node: <DatabasePage database={effectiveDB} /> }
-      case '/forecasts':
-        return { title: 'Cases',
-          node: <CasesPage key={route} database={effectiveDB} user={user}
-            initialSource="forecast" /> }
-      case '/query-hints':
-        return { title: 'Cases',
-          node: <CasesPage key={route} database={effectiveDB} user={user}
-            initialSource="query_hint" /> }
-      case '/schema-health':
-        return { title: 'Cases',
-          node: <CasesPage key={route} database={effectiveDB} user={user}
-            initialSource="schema_health" /> }
-      case '/alerts':
-        return { title: 'Alerts',
-          node: <AlertLogPage database={effectiveDB} /> }
-      case '/slos':
-        return { title: 'SLOs', node: <SLOsPage database={effectiveDB} /> }
-      case '/incidents':
-        return { title: 'Cases',
-          node: <CasesPage key={route} database={effectiveDB} user={user}
-            initialSource="incident" /> }
-      case '/settings':
-        return isAdmin ? { title: 'Settings',
-          node: <SettingsPage
-            database={effectiveDB}
-            databaseId={selectedDatabase?.id || selectedDatabase?.database_id}
-          /> } : denied
-      case '/notifications':
-        return isAdmin ? { title: 'Notifications',
-          node: <NotificationsPage /> } : denied
-      // A signed-in user can land on /login from an SSO callback error; the
-      // account page explains the sso_error (D7).
-      case '/login':
-      case '/profile':
-        return { title: 'Account', node: <ProfilePage user={user} authMode={authMode} /> }
-      case '/users':
-        return isAdmin ? { title: 'Users',
-          node: <UsersPage currentUser={user} authMode={authMode} /> } : denied
-      case '/agents':
-        if (platformManaged) return { title: 'Agents', node: <PlatformProtocolUnavailable agents /> }
-        return isAdmin || user.role === 'operator' ? { title: 'Agents',
-          node: <AgentsPage user={user}
-            databases={databases.map(d => d.name)} /> } : denied
-      case '/mcp-tokens':
-        if (platformManaged) return { title: 'MCP tokens', node: <PlatformProtocolUnavailable /> }
-        return isAdmin ? { title: 'MCP tokens', node: <MCPTokensPage /> }
-          : denied
-      default:
-        return { title: 'Not found', node: <NotFound /> }
-    }
-  })()
+  const pageState = renderRoute(routePath, {
+    route, database: effectiveDB, user, authMode, fleetQuery, fleetData, fleetLoading,
+    databases, databaseInventory, inventoryError, refetchFleet, selectDatabase,
+    setSelectedDB, selectedDatabase, linkedCase,
+  })
 
   return (
     <LiveEventsProvider>
@@ -400,6 +221,7 @@ export default function App({ reloadPage = () => window.location.reload() }) {
             selectedDB={effectiveDB}
             onSelectDB={selectDatabase}
             user={user}
+            authMode={authMode}
           />
         </TimeRangeProvider>
       </ToastProvider>

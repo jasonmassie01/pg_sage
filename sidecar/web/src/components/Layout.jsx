@@ -1,10 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useEffect } from 'react'
-import {
-  AlertTriangle, Activity, Settings, Gauge,
-  Home, LogOut, Server, Menu, X, ChevronDown, ShieldCheck, BookCheck, KeyRound,
-  MessageSquare, Bot,
-} from 'lucide-react'
+import { LogOut, Menu, X, ChevronDown } from 'lucide-react'
 import { DatabasePicker } from './DatabasePicker'
 import { EmergencyStopControl } from './EmergencyStopControl'
 import { useAPI } from '../hooks/useAPI'
@@ -18,58 +14,13 @@ import { pageGuide } from './pageGuide'
 import { MonitoringContext } from './MonitoringContext'
 import { PageErrorBoundary } from './PageErrorBoundary'
 import { SecretsPostureBanner } from './SecretsPostureBanner'
+import { findRoute, navGroups, routeHref, routeLabel } from '../routes'
 
 const PendingActionsContext = createContext({ refetch: () => {} })
 
 export function usePendingActionsRefetch() {
   return useContext(PendingActionsContext).refetch
 }
-
-const NAV_GROUPS = [
-  {
-    heading: 'Operate',
-    items: [
-      { path: '#/', icon: Home, label: 'Value',
-        tid: 'nav-value' },
-      { path: '#/cases', icon: AlertTriangle,
-        label: 'Cases', tid: 'nav-cases',
-        aliases: ['#/findings'] },
-      { path: '#/actions', icon: Activity, label: 'Actions',
-        tid: 'nav-actions' },
-      { path: '#/slos', icon: Gauge, label: 'SLOs',
-        tid: 'nav-slos' },
-      { path: '#/trust', icon: ShieldCheck, label: 'Trust',
-        tid: 'nav-trust' },
-      { path: '#/facts', icon: BookCheck, label: 'Facts',
-        tid: 'nav-facts' },
-      { path: '#/ask', icon: MessageSquare, label: 'Ask Sage',
-        tid: 'nav-ask' },
-      { path: '#/manage-databases', icon: Server,
-        label: 'Fleet', admin: true,
-        tid: 'nav-databases' },
-      { path: '#/settings', icon: Settings, label: 'Settings',
-        admin: true, tid: 'nav-settings' },
-      { path: '#/mcp-tokens', icon: KeyRound, label: 'MCP tokens',
-        admin: true, standaloneOnly: true, tid: 'nav-mcp-tokens' },
-      { path: '#/agents', icon: Bot, label: 'Agents',
-        operator: true, standaloneOnly: true, tid: 'nav-agents' },
-    ],
-  },
-]
-
-const ADVANCED_ITEMS = [
-  { path: '#/advanced/findings', label: 'Findings explorer' },
-  { path: '#/advanced/actions', label: 'Action history' },
-  { path: '#/advanced/runbooks', label: 'Runbooks' },
-  { path: '#/advanced/autonomy', label: 'Earned autonomy' },
-  { path: '#/advanced', label: 'Snapshot & metrics' },
-]
-
-/* Flat list of all nav items for header label lookup */
-const ALL_NAV_ITEMS = [
-  ...NAV_GROUPS.flatMap(g => g.items),
-  ...ADVANCED_ITEMS,
-]
 
 function NavHeading({ children }) {
   return (
@@ -106,12 +57,13 @@ function pendingCountURL(selectedDB) {
     ? `${base}?database=${encodeURIComponent(selectedDB)}` : base
 }
 
-function NavLink({ item, active, pending }) {
+function NavLink({ route, active, pending }) {
+  const Icon = route.icon
   return (
     <a
-      href={item.path}
+      href={routeHref(route)}
       aria-current={active ? 'page' : undefined}
-      data-testid={item.tid}
+      data-testid={route.testId}
       className={`sage-nav-link flex items-center gap-2 px-3 py-2 rounded text-sm${active ? ' sage-nav-link-active' : ''}`}
       style={{
         color: active
@@ -119,9 +71,9 @@ function NavLink({ item, active, pending }) {
         background: active
           ? 'var(--bg-hover)' : 'transparent',
       }}>
-      <item.icon size={16} />
-      {item.label}
-      {item.path === '#/actions' && pending && (
+      <Icon size={16} />
+      {routeLabel(route)}
+      {route.id === 'actions' && pending && (
         <span
           title={pending.title}
           className="ml-auto px-1.5 py-0.5 rounded-full text-xs"
@@ -136,6 +88,58 @@ function NavLink({ item, active, pending }) {
       )}
     </a>
   )
+}
+
+// AdvancedNav is the collapsed group of secondary pages. Layout keeps the
+// open state so the desktop sidebar and the mobile drawer share it.
+function AdvancedNav({ routes, activeId, open, onToggle }) {
+  return (
+    <div>
+      <button type="button" aria-expanded={open}
+        aria-controls="advanced-navigation"
+        onClick={onToggle}
+        className="mt-3 flex w-full items-center gap-2 rounded px-3 py-2 text-sm"
+        style={{ color: 'var(--text-secondary)' }}>
+        <ChevronDown size={16} aria-hidden="true"
+          style={{ transform: open ? 'rotate(180deg)' : 'none' }} />
+        Advanced
+      </button>
+      {open && (
+        <div id="advanced-navigation" className="ml-3 border-l pl-2"
+          style={{ borderColor: 'var(--border)' }}>
+          {routes.map(route => (
+            <a key={route.id} href={routeHref(route)} data-testid={route.testId}
+              aria-current={route.id === activeId ? 'page' : undefined}
+              className="block rounded px-3 py-2 text-sm"
+              style={{
+                color: route.id === activeId
+                  ? 'var(--accent)' : 'var(--text-secondary)',
+                background: route.id === activeId
+                  ? 'var(--bg-hover)' : 'transparent',
+              }}>
+              {routeLabel(route)}
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// SidebarNav renders the nav groups this user can see, from the route
+// registry (dashboard-06).
+function SidebarNav({ user, platformManaged, activeId, pending, advanced }) {
+  return navGroups(user, platformManaged).map(group => (group.collapsible
+    ? <AdvancedNav key={group.id} routes={group.routes} activeId={activeId} {...advanced} />
+    : (
+      <div key={group.id}>
+        <NavHeading>{group.heading}</NavHeading>
+        {group.routes.map(route => (
+          <NavLink key={route.id} route={route} active={route.id === activeId}
+            pending={pending} />
+        ))}
+      </div>
+    )))
 }
 
 // App owns the one /api/v1/databases poll: fleetData is its result (null
@@ -163,8 +167,10 @@ export function Layout({
 
   const isAdmin = user?.role === 'admin'
   const platformManaged = authMode === 'databricks_app'
+  const activeRoute = findRoute(hash)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
+  const advanced = { open: advancedOpen, onToggle: () => setAdvancedOpen(open => !open) }
 
   // Close the drawer on navigation. Listen for hashchange so that
   // clicking a link inside the drawer (which is a plain anchor)
@@ -203,55 +209,8 @@ export function Layout({
 
       <div className="sage-sidebar-label"><span className="sage-terminal-prompt" aria-hidden="true">❯</span> database control room</div>
 
-      {NAV_GROUPS.map(group => {
-        const visible = group.items.filter(
-          n => (!n.admin || isAdmin) && (!n.operator || canReviewActions)
-            && (!n.standaloneOnly || !platformManaged),
-        )
-        if (visible.length === 0) return null
-        return (
-          <div key={group.heading}>
-            <NavHeading>{group.heading}</NavHeading>
-            {visible.map(n => (
-              <NavLink
-                key={n.path}
-                item={n}
-                active={hash === n.path || n.aliases?.includes(hash)}
-                pending={pending}
-              />
-            ))}
-          </div>
-        )
-      })}
-
-      <div>
-        <button type="button" aria-expanded={advancedOpen}
-          aria-controls="advanced-navigation"
-          onClick={() => setAdvancedOpen(open => !open)}
-          className="mt-3 flex w-full items-center gap-2 rounded px-3 py-2 text-sm"
-          style={{ color: 'var(--text-secondary)' }}>
-          <ChevronDown size={16} aria-hidden="true"
-            style={{ transform: advancedOpen ? 'rotate(180deg)' : 'none' }} />
-          Advanced
-        </button>
-        {advancedOpen && (
-          <div id="advanced-navigation" className="ml-3 border-l pl-2"
-            style={{ borderColor: 'var(--border)' }}>
-            {ADVANCED_ITEMS.map(item => (
-              <a key={item.path} href={item.path}
-                className="block rounded px-3 py-2 text-sm"
-                style={{
-                  color: hash === item.path
-                    ? 'var(--accent)' : 'var(--text-secondary)',
-                  background: hash === item.path
-                    ? 'var(--bg-hover)' : 'transparent',
-                }}>
-                {item.label}
-              </a>
-            ))}
-          </div>
-        )}
-      </div>
+      <SidebarNav user={user} platformManaged={platformManaged}
+        activeId={activeRoute?.id} pending={pending} advanced={advanced} />
 
       <div
         className="sage-account mt-auto pt-4"
@@ -344,8 +303,7 @@ export function Layout({
               <h1
               className="text-base md:text-lg font-semibold truncate"
               style={{ color: 'var(--text-primary)' }}>
-              {pageTitle || ALL_NAV_ITEMS.find(n => n.path === hash)?.label
-                || 'pg_sage'}
+              {pageTitle || activeRoute?.title || 'pg_sage'}
               </h1>
             </div>
           </div>
