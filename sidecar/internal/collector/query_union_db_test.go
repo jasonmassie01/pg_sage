@@ -249,3 +249,70 @@ func TestCollectQueries_TextReadOnlyForAdmittedRows(t *testing.T) {
 		}
 	}
 }
+
+// admissionOf runs the ranked read for N = 10 with own as the queryids
+// known to be pg_sage's own, and returns how queryid was admitted.
+func admissionOf(t *testing.T, ctx context.Context, c *Collector, queryid int64,
+	own []int64) ([]string, bool) {
+	t.Helper()
+	db := c.statementsDB(timedCatalogQuerier{collector: c})
+	qs, err := readQueryCounters(ctx, db, c.queryCapabilities(ctx),
+		rankedRead{admission: admissionFor(10), own: own})
+	if err != nil {
+		t.Fatalf("ranked read: %v", err)
+	}
+	for _, q := range qs {
+		if q.QueryID == queryid {
+			return q.AdmittedBy, true
+		}
+	}
+	return nil, false
+}
+
+// runSpilling runs sql twice, each in a transaction with a 64 kB work_mem,
+// so its sort writes temp blocks.
+func runSpilling(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string) {
+	t.Helper()
+	for range 2 {
+		err := pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
+			if _, err := tx.Exec(ctx, "SET LOCAL work_mem = '64kB'"); err != nil {
+				return err
+			}
+			_, err := tx.Exec(ctx, sql)
+			return err
+		})
+		if err != nil {
+			t.Fatalf("spilling statement: %v", err)
+		}
+	}
+}
+
+// The io arm admits a statement by its temp blocks written, and on a real
+// server neither the mean nor the io arm admits a queryid the text cache
+// knows as pg_sage's own ($2): the same read without own ids (the control)
+// admits it by both, and the mean arm still takes its row, the next
+// slowest statement.
+func TestReadQueryCounters_OwnIDsLeftOutOfMeanAndIO(t *testing.T) {
+	ctx := context.Background()
+	pool := textTestDB(t, ctx)
+	runSpilling(t, ctx, pool, `SELECT pg_sleep(0.3), count(*) AS heavy_own_marker
+		FROM (SELECT g FROM generate_series(1, 300000) g ORDER BY g DESC) s`)
+	for range 2 {
+		mustExec(t, pool, "SELECT pg_sleep(0.1) AS second_slow_marker")
+	}
+	c := unionCollector(t, pool, 10)
+	heavy := queryIDOf(t, ctx, pool, "heavy_own_marker")
+	second := queryIDOf(t, ctx, pool, "second_slow_marker")
+	if arms, ok := admissionOf(t, ctx, c, heavy, nil); !ok ||
+		!slices.Contains(arms, "mean") || !slices.Contains(arms, "io") {
+		t.Fatalf("control: heavy statement admitted %v (%v); want by mean and io", arms, ok)
+	}
+	if arms, _ := admissionOf(t, ctx, c, heavy, []int64{heavy}); slices.Contains(arms, "mean") ||
+		slices.Contains(arms, "io") {
+		t.Fatalf("own statement admitted by %v; want neither mean nor io", arms)
+	}
+	if arms, ok := admissionOf(t, ctx, c, second, []int64{heavy}); !ok ||
+		!slices.Contains(arms, "mean") {
+		t.Fatalf("next slowest statement admitted %v (%v); want by mean", arms, ok)
+	}
+}
