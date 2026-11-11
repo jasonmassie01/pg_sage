@@ -6,6 +6,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/briefing"
 	"github.com/pg-sage/sidecar/internal/ha"
+	"github.com/pg-sage/sidecar/internal/selfbudget"
 )
 
 // cycleExecutor is the executor cycle the orchestrator drives
@@ -57,27 +58,17 @@ func fleetDBOrchestrator(ctx context.Context, deps fleetCycleDeps) {
 // isReplica on a replica, an unknown role, safe mode or inside the
 // failover cooldown), scheduled
 // briefing, retention (G5-B08: fleet and meta databases used to grow
-// sage.* forever), then status and health history.
+// sage.* forever), then status and health history. Each step is one run
+// of its loop in the process loop tracker (observability-06).
 func runFleetDBCycle(ctx context.Context, deps fleetCycleDeps) {
 	if deps.exec != nil && deps.ha != nil {
-		isReplica := checkHA(ctx, deps.ha)
-		if deps.ha.Snapshot().SafeMode {
-			logWarn("ha", "[%s] safe mode active — "+
-				"suppressing autonomous actions", deps.name)
-		}
-		deps.exec.RunCycle(ctx, isReplica || haNotWritable(deps.ha))
+		runExecutorCycle(ctx, deps)
 	}
 	if deps.brief != nil && deps.brief.ShouldRun(time.Now()) {
-		text, err := deps.brief.Generate(ctx)
-		if err != nil {
-			logWarn("briefing", "[%s] generation failed: %v", deps.name, err)
-		} else {
-			deps.brief.Dispatch(ctx, text)
-			deps.brief.MarkRan()
-		}
+		runBriefing(ctx, deps.name, deps.brief)
 	}
 	if deps.cleaner != nil {
-		deps.cleaner.Run(ctx)
+		runRetention(ctx, deps.cleaner)
 	}
 	if fleetMgr == nil {
 		return
@@ -86,4 +77,37 @@ func runFleetDBCycle(ctx context.Context, deps fleetCycleDeps) {
 		updateInstanceFindings(ctx, inst)
 		fleetMgr.RecordHealthSnapshot(ctx, deps.name)
 	}
+}
+
+// runExecutorCycle runs one HA-gated executor cycle. The executor logs
+// each step's failure and carries on; it has no cycle-level failure.
+func runExecutorCycle(ctx context.Context, deps fleetCycleDeps) {
+	defer selfbudget.Process().Track("executor")()
+	isReplica := checkHA(ctx, deps.ha)
+	if deps.ha.Snapshot().SafeMode {
+		logWarn("ha", "[%s] safe mode active — "+
+			"suppressing autonomous actions", deps.name)
+	}
+	deps.exec.RunCycle(ctx, isReplica || haNotWritable(deps.ha))
+}
+
+// runRetention runs the retention cleaner. It logs and survives each
+// table's failure; it has no cycle-level failure to report.
+func runRetention(ctx context.Context, cleaner retentionRunner) {
+	defer selfbudget.Process().Track("retention")()
+	cleaner.Run(ctx)
+}
+
+// runBriefing generates and dispatches the scheduled briefing; a failed
+// generation is a failed run of the briefing loop.
+func runBriefing(ctx context.Context, name string, brief *briefing.Worker) {
+	done := selfbudget.Process().TrackErr("briefing")
+	text, err := brief.Generate(ctx)
+	if err != nil {
+		logWarn("briefing", "[%s] generation failed: %v", name, err)
+	} else {
+		brief.Dispatch(ctx, text)
+		brief.MarkRan()
+	}
+	done(err)
 }

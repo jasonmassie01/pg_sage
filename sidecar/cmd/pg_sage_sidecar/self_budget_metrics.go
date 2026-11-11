@@ -216,4 +216,35 @@ func writeSelfLoops(b *strings.Builder, loops map[string]selfbudget.LoopStat) {
 		writeSample(b, "pg_sage_self_loop_runs_total", []labelPair{{"loop", n}},
 			loops[n].Runs)
 	}
+	writeSelfLoopHealth(b, names, loops)
+}
+
+// writeSelfLoopHealth exports each loop's failed runs and when its last
+// successful run ended, omitted until it has one (observability-06).
+// These are process-wide: per-database freshness is in each database's
+// *_last_success_timestamp_seconds{database} families.
+func writeSelfLoopHealth(b *strings.Builder, names []string,
+	loops map[string]selfbudget.LoopStat) {
+	b.WriteString("# HELP pg_sage_self_loop_errors_total Runs of pg_sage's periodic " +
+		"loops that failed or produced nothing\n" +
+		"# TYPE pg_sage_self_loop_errors_total counter\n")
+	for _, n := range names {
+		writeSample(b, "pg_sage_self_loop_errors_total", []labelPair{{"loop", n}},
+			loops[n].Errors)
+	}
+	header := false
+	for _, n := range names {
+		at := loops[n].LastSuccess
+		if at.IsZero() {
+			continue
+		}
+		if !header {
+			b.WriteString("# HELP pg_sage_self_loop_last_success_timestamp_seconds Unix " +
+				"time the loop's last successful run ended\n" +
+				"# TYPE pg_sage_self_loop_last_success_timestamp_seconds gauge\n")
+			header = true
+		}
+		writeSample(b, "pg_sage_self_loop_last_success_timestamp_seconds",
+			[]labelPair{{"loop", n}}, at.Unix())
+	}
 }
