@@ -306,3 +306,19 @@ func TestOutcomeResultMapping(t *testing.T) {
 		t.Errorf("Results() = %v, want the 8 llm-02 classes", Results())
 	}
 }
+
+// Boundary: a reply that lands after a Reconfigure is discarded on both
+// paths, and neither counts it: the chat path's error is the disabled
+// sentinel, as the tool path's is, and keeps its message.
+func TestObserverSkipsReplyDiscardedByReconfigure(t *testing.T) {
+	if !errors.Is(errReconfiguredDuringRequest, ErrLLMDisabled) {
+		t.Fatalf("%v does not wrap ErrLLMDisabled", errReconfiguredDuringRequest)
+	}
+	if msg := errReconfiguredDuringRequest.Error(); !strings.HasPrefix(msg,
+		"LLM disabled or reconfigured during request") {
+		t.Errorf("message = %q, want the previous text kept as its prefix", msg)
+	}
+	if result, counted := outcomeResult(errReconfiguredDuringRequest); counted {
+		t.Errorf("discarded reply counted as %q", result)
+	}
+}

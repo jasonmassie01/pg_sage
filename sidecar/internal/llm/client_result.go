@@ -7,6 +7,12 @@ import (
 	"time"
 )
 
+// errReconfiguredDuringRequest discards a reply that arrived after a
+// Reconfigure or disable. It wraps ErrLLMDisabled, as the tool path does,
+// so the observer does not count it as a call (observability-05).
+var errReconfiguredDuringRequest = fmt.Errorf(
+	"LLM disabled or reconfigured during request: %w", ErrLLMDisabled)
+
 // Response is one chat completion with its finish signal.
 type Response struct {
 	Content      string
@@ -75,7 +81,7 @@ func (c *Client) chatResult(
 		return Response{}, err
 	}
 	if !c.generationCurrent(generation) {
-		return Response{}, fmt.Errorf("LLM disabled or reconfigured during request")
+		return Response{}, errReconfiguredDuringRequest
 	}
 	c.recordSuccess()
 	tokens := usageTokens(chatResp, system, user)
