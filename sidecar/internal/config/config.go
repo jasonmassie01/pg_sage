@@ -414,7 +414,7 @@ type LogWatchConfig struct {
 	Format              string   `yaml:"format" doc:"Log format: jsonlog (PG15+) or csvlog. Auto-detected if blank."`
 	PollIntervalMs      int      `yaml:"poll_interval_ms" doc:"Log file poll interval (the tailer only polls). Default: 1000."`
 	DedupWindowS        int      `yaml:"dedup_window_seconds" doc:"Suppress duplicate log signals within this window. Default: 60."`
-	MaxLineLenBytes     int      `yaml:"max_line_len_bytes" doc:"Discard log lines longer than this. Default: 65536."`
+	MaxLineLenBytes     int      `yaml:"max_line_len_bytes" doc:"Drop log records longer than this (an auto_explain plan record may reach 1 MiB); drops are counted as oversized_record. Default: 65536."`
 	TempFileMinBytes    int      `yaml:"temp_file_min_bytes" doc:"Minimum temp file size to trigger log_temp_file_created. Default: 10485760."`
 	MaxLinesPerCycle    int      `yaml:"max_lines_per_cycle" doc:"Stop parsing after this many lines per drain cycle. Default: 10000."`
 	ExcludeApplications []string `yaml:"exclude_applications" doc:"Application names excluded from timeout/deadlock signals. Default: pg_sage."`

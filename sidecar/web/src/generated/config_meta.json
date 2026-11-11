@@ -1633,7 +1633,7 @@
   "logwatch.max_line_len_bytes": {
     "type": "int",
     "default": 65536,
-    "doc": "Discard log lines longer than this. Default: 65536.",
+    "doc": "Drop log records longer than this (an auto_explain plan record may reach 1 MiB); drops are counted as oversized_record. Default: 65536.",
     "class": "derivable"
   },
   "logwatch.max_lines_per_cycle": {

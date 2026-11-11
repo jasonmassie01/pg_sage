@@ -2615,7 +2615,7 @@ loses nothing. Detection only reads `pg_settings` (read-only, bounded by a timeo
 | `logwatch.format` | auto | `jsonlog` or `csvlog`; blank reads `log_destination` |
 | `logwatch.poll_interval_ms` | `1000` | How often the tailer polls the log file (it only polls) |
 | `logwatch.dedup_window_seconds` | `60` | Suppress repeats of one signal within this window |
-| `logwatch.max_line_len_bytes` | `65536` | Discard longer lines |
+| `logwatch.max_line_len_bytes` | `65536` | Drop longer records. An auto_explain plan record (`duration: ... plan:`) may reach 1 MiB, the size its parser accepts. Every drop is counted (`reason="oversized_record"`) |
 | `logwatch.temp_file_min_bytes` | `10485760` | Smallest temporary file that raises `log_temp_file_created` |
 | `logwatch.max_lines_per_cycle` | `10000` | Lines classified per drain; critical lines are never skipped |
 | `logwatch.exclude_applications` | `[pg_sage]` | `application_name` values excluded from timeout and deadlock signals |
@@ -2708,7 +2708,7 @@ graph and lock chain probes investigate deadlocks, connection saturation refused
 the archiver archive failures, the wraparound probe wraparound warnings and the replication
 slot probe removed WAL segments.
 
-When a log storm outruns the watcher, it drops lines before classifying them: the line queue holds 10,000 unread lines, and `logwatch.max_lines_per_cycle` caps the lines classified per drain. Both evict ordinary lines first and never skip a critical one (PANIC or FATAL, or SQLSTATE class 53, 57P or 58, XX001 or XX002); only a queue full of critical lines loses its oldest. A drain that dropped lines emits the `log_watcher_overloaded` signal (a warning incident, "Log watcher overloaded", with `dropped_lines`, `queue_overflow_lines` and `classifier_cap_lines`), and Prometheus counts the losses in `pg_sage_logwatch_dropped_lines_total{cluster,reason}` (`reason` is `queue_overflow` or `classifier_cap`).
+When a log storm outruns the watcher, it drops lines before classifying them: the line queue holds 10,000 unread lines, and `logwatch.max_lines_per_cycle` caps the lines classified per drain. Both evict ordinary lines first and never skip a critical one (PANIC or FATAL, or SQLSTATE class 53, 57P or 58, XX001 or XX002); only a queue full of critical lines loses its oldest. A drain that dropped lines emits the `log_watcher_overloaded` signal (a warning incident, "Log watcher overloaded", with `dropped_lines`, `queue_overflow_lines` and `classifier_cap_lines`), and Prometheus counts the losses in `pg_sage_logwatch_dropped_lines_total{cluster,reason}` (`reason` is `queue_overflow` or `classifier_cap`, or `oversized_record` for a record over its size limit). The source status's `dropped_lines` counts all three.
 
 A client's `RAISE` of the same text does not fire the crash, WAL-gap or slot signals: those
 need the server process that really logs them (`backend_type` in csvlog and jsonlog; without

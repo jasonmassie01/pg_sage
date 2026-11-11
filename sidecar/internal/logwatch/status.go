@@ -79,7 +79,7 @@ func (fw *FileWatcher) Status() SourceStatus {
 	drops := fw.drops.snapshot()
 	st := SourceStatus{State: SourceActive, Format: tailer.format,
 		File: tailer.CurrentPath(), ParseErrors: fw.parseErrors.Load(),
-		DroppedLines: drops.QueueOverflow + drops.ClassifierCap}
+		DroppedLines: drops.Total()}
 	if nanos := fw.lastLine.Load(); nanos != 0 {
 		at := time.Unix(0, nanos)
 		st.LastLineAt = &at

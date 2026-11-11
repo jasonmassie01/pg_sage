@@ -11,19 +11,29 @@ import (
 const (
 	DropReasonQueueOverflow = "queue_overflow"
 	DropReasonClassifierCap = "classifier_cap"
+	// DropReasonOversized is a record over its size limit (rca-04):
+	// logwatch.max_line_len_bytes, or PlanRecordMaxBytes for a plan.
+	DropReasonOversized = "oversized_record"
 )
 
 // DropCounts are the log lines one watcher lost since it started, by
-// reason: evicted from the full line queue, or skipped by
-// logwatch.max_lines_per_cycle.
+// reason: evicted from the full line queue, skipped by
+// logwatch.max_lines_per_cycle, or over their size limit.
 type DropCounts struct {
 	QueueOverflow uint64
 	ClassifierCap uint64
+	Oversized     uint64
+}
+
+// Total is every line lost, whatever the reason.
+func (c DropCounts) Total() uint64 {
+	return c.QueueOverflow + c.ClassifierCap + c.Oversized
 }
 
 type dropCounters struct {
-	queue  atomic.Uint64
-	capped atomic.Uint64
+	queue     atomic.Uint64
+	capped    atomic.Uint64
+	oversized atomic.Uint64
 }
 
 func (d *dropCounters) add(queue, capped int) {
@@ -35,8 +45,15 @@ func (d *dropCounters) add(queue, capped int) {
 	}
 }
 
+func (d *dropCounters) addOversized(n int) {
+	if n > 0 {
+		d.oversized.Add(uint64(n))
+	}
+}
+
 func (d *dropCounters) snapshot() DropCounts {
-	return DropCounts{QueueOverflow: d.queue.Load(), ClassifierCap: d.capped.Load()}
+	return DropCounts{QueueOverflow: d.queue.Load(), ClassifierCap: d.capped.Load(),
+		Oversized: d.oversized.Load()}
 }
 
 // overloadSignal is the cluster-wide warning a lossy drain emits, or nil
