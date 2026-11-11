@@ -9,7 +9,6 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/cases"
-	"github.com/pg-sage/sidecar/internal/forecaster"
 	"github.com/pg-sage/sidecar/internal/runway"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
@@ -125,49 +124,16 @@ func TestUrgency_SlotAndSequenceRunways(t *testing.T) {
 	}
 }
 
-func TestUrgency_StorageGrowthFromTheForecaster(t *testing.T) {
-	fs := forecaster.GrowthFindings([]forecaster.LinearForecast{{
-		DatabaseName: "orders", ObjectName: "orders", Metric: "database_size",
-		CurrentBytes: 9e10, GrowthRateBytes: 3e9, ThresholdBytes: 1e11,
-		DaysUntilFull: 3, R2: 0.94, DataPoints: 30,
-	}}, 0.5)
-	if len(fs) != 1 {
-		t.Fatalf("GrowthFindings = %+v, want one finding", fs)
-	}
-	c := cases.ProjectFinding(asSource(t, fs[0]), nil)
-	wantAssessed(t, c.Urgency, 3*86400, "days_until_full 3 from a 30-point regression, R² 0.94")
-	if !strings.HasPrefix(c.WhyNow, "About 3 days until storage is full (") {
-		t.Fatalf("why now = %q", c.WhyNow)
-	}
-}
-
-// An unreliable regression is not a deadline: the forecaster itself titles
-// it "(forecast unreliable)".
-func TestUrgency_UnreliableStorageRegressionIsUnassessed(t *testing.T) {
-	fs := forecaster.GrowthFindings([]forecaster.LinearForecast{{
-		ObjectName: "orders", Metric: "database_size", DaysUntilFull: 20, R2: 0.2,
-		DataPoints: 9,
-	}}, 0.5)
-	if len(fs) != 1 {
-		t.Fatalf("GrowthFindings = %+v, want one unreliable finding", fs)
-	}
-	c := cases.ProjectFinding(asSource(t, fs[0]), nil)
-	wantUnassessed(t, c.Urgency)
-	if strings.Contains(c.WhyNow, "20") {
-		t.Fatalf("an unreliable projection showed its number: %q", c.WhyNow)
-	}
-}
-
 func storage(detail map[string]any) cases.SourceFinding {
-	return cases.SourceFinding{Category: "storage_forecast", Severity: cases.SeverityWarning,
+	return cases.SourceFinding{Category: "forecast_disk_growth", Severity: cases.SeverityWarning,
 		Detail: detail}
 }
 
 func TestUrgency_ZeroNegativeAndMissingAreUnassessed(t *testing.T) {
 	for name, detail := range map[string]map[string]any{
-		"zero":     {"days_until_full": 0, "r_squared": 0.9, "data_points": 30},
-		"negative": {"days_until_full": -1, "r_squared": 0.9, "data_points": 30},
-		"missing":  {"r_squared": 0.9, "data_points": 30},
+		"zero":     {"days_until_full": 0, "r_squared": 0.9, "covered_days": 30},
+		"negative": {"days_until_full": -1, "r_squared": 0.9, "covered_days": 30},
+		"missing":  {"r_squared": 0.9, "covered_days": 30},
 		"nil map":  nil,
 	} {
 		c := cases.ProjectFinding(storage(detail), nil)
@@ -191,7 +157,7 @@ func TestUrgency_InvalidNumbersAreUnassessed(t *testing.T) {
 		"bool": true, "map": map[string]any{"v": 3},
 	} {
 		u := cases.UrgencyForFinding(storage(map[string]any{"days_until_full": v,
-			"r_squared": 0.9, "data_points": 30}))
+			"r_squared": 0.9, "covered_days": 30}))
 		if u.Assessed || u.TimeToImpactSeconds != nil {
 			t.Errorf("%s days_until_full gave %+v", name, u)
 		}
@@ -216,10 +182,10 @@ func TestUrgency_BoundaryOfThePositiveProjection(t *testing.T) {
 		}
 	}
 	u := cases.UrgencyForFinding(storage(map[string]any{"days_until_full": 1,
-		"r_squared": 0.5, "data_points": 7}))
-	wantAssessed(t, u, 86400, "days_until_full 1 from a 7-point regression, R² 0.50")
+		"r_squared": 0.5, "covered_days": 7}))
+	wantAssessed(t, u, 86400, "days_until_full 1 from a 7-day regression, R² 0.50")
 	u = cases.UrgencyForFinding(storage(map[string]any{"days_until_full": 1,
-		"r_squared": 0.49, "data_points": 7}))
+		"r_squared": 0.49, "covered_days": 7}))
 	wantUnassessed(t, u)
 }
 
@@ -276,9 +242,8 @@ func TestUrgency_FixtureMostlyAssessed(t *testing.T) {
 	} {
 		fs = append(fs, onlyRunway(t, in))
 	}
-	fs = append(fs, forecaster.GrowthFindings([]forecaster.LinearForecast{{
-		ObjectName: "orders", Metric: "database_size", DaysUntilFull: 3, R2: 0.94,
-		DataPoints: 30}}, 0.5)...)
+	fs = append(fs, analyzer.Finding{Category: "forecast_disk_growth", Severity: "warning",
+		Detail: map[string]any{"days_until_full": 3.0, "r_squared": 0.94, "covered_days": 30.0}})
 	fs = append(fs,
 		analyzer.Finding{Category: "xid_wraparound", Severity: "warning", Detail: map[string]any{
 			"xid_age": 1.2e9, "warning_threshold": 5e8, "critical_threshold": 1.6e9}},

@@ -23,7 +23,8 @@ type Urgency struct {
 	LimitReached bool `json:"limit_reached,omitempty"`
 }
 
-// minReliableR2 is the fit the forecaster calls reliable (growthSeverity).
+// minReliableR2 is the default of forecaster.min_r_squared, the fit the
+// forecaster calls reliable.
 const minReliableR2 = 0.5
 
 // urgencyRead is one category's reading: the urgency and its why-now.
@@ -36,7 +37,7 @@ type urgencyRule func(detail map[string]any) urgencyRead
 
 // urgencyRules is the one table of producers whose fields urgency reads.
 var urgencyRules = map[string]urgencyRule{
-	"storage_forecast":               storageUrgency,
+	"forecast_disk_growth":           storageUrgency,
 	"forecast_connection_saturation": connectionUrgency,
 	"forecast_wal_runway":            runwayUrgency,
 	"forecast_sequence_runway":       runwayUrgency,
@@ -85,23 +86,27 @@ func assessed(secs float64, impact, basis string, inputs map[string]any) urgency
 		whyNow: fmt.Sprintf("About %s %s (%s)", HumanDuration(secs), impact, basis)}
 }
 
+// storageUrgency reads forecast_disk_growth as forecast-06 writes it: the
+// days until the database fills its known capacity, from a regression over
+// covered_days closed days.
 func storageUrgency(d map[string]any) urgencyRead {
 	days, ok := positiveField(d, "days_until_full")
 	if !ok {
 		return unassessedOrReached(d, "days_until_full", "is not a positive projection",
-			"days_until_full", "current_bytes", "threshold_bytes")
+			"days_until_full", "current_size_bytes", "capacity_bytes", "capacity_source")
 	}
 	r2, ok := finiteField(d, "r_squared")
 	if !ok || r2 < minReliableR2 {
 		return unassessed("r_squared", "is below the forecaster's reliable fit")
 	}
 	basis := fmt.Sprintf("days_until_full %s from a regression, R² %.2f", plain(days), r2)
-	if points, ok := positiveField(d, "data_points"); ok {
-		basis = fmt.Sprintf("days_until_full %s from a %s-point regression, R² %.2f",
-			plain(days), plain(points), r2)
+	if covered, ok := positiveField(d, "covered_days"); ok {
+		basis = fmt.Sprintf("days_until_full %s from a %s-day regression, R² %.2f",
+			plain(days), plain(covered), r2)
 	}
 	return assessed(days*86400, "until storage is full", basis, pick(d,
-		"days_until_full", "r_squared", "data_points", "projected_date"))
+		"days_until_full", "r_squared", "covered_days", "capacity_source",
+		"capacity_bytes", "projected_full_date"))
 }
 
 func connectionUrgency(d map[string]any) urgencyRead {

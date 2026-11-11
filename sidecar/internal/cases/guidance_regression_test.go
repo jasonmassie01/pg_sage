@@ -96,10 +96,10 @@ func TestUrgencyUsesEvidenceRatherThanSeverity(t *testing.T) {
 		finding SourceFinding
 		want    string
 	}{
-		{SourceFinding{Category: "storage_forecast", Detail: map[string]any{
-			"days_until_full": 3, "r_squared": 0.94, "data_points": 30}},
+		{SourceFinding{Category: "forecast_disk_growth", Detail: map[string]any{
+			"days_until_full": 3, "r_squared": 0.94, "covered_days": 30}},
 			"About 3 days until storage is full " +
-				"(days_until_full 3 from a 30-point regression, R² 0.94)"},
+				"(days_until_full 3 from a 30-day regression, R² 0.94)"},
 		{SourceFinding{Category: "forecast_connection_saturation", Detail: map[string]any{
 			"days_to_warn_pct": 12.0, "r_squared": 0.9}},
 			"About 12 days until connections reach the warning share of max_connections " +

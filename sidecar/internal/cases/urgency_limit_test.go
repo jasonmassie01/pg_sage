@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/cases"
-	"github.com/pg-sage/sidecar/internal/forecaster"
 	"github.com/pg-sage/sidecar/internal/runway"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
@@ -29,21 +28,6 @@ func wantLimitReached(t *testing.T, c cases.Case, field string) {
 	}
 	if strings.ContainsAny(c.WhyNow, "0123456789") {
 		t.Fatalf("why now shows a number: %q", c.WhyNow)
-	}
-}
-
-func TestUrgency_FullStorageFromTheForecasterIsLimitReached(t *testing.T) {
-	fs := forecaster.GrowthFindings([]forecaster.LinearForecast{{
-		ObjectName: "orders", Metric: "database_size", CurrentBytes: 1e11,
-		ThresholdBytes: 1e11, DaysUntilFull: 0, R2: 0.9, DataPoints: 30,
-	}}, 0.5)
-	if len(fs) != 1 {
-		t.Fatalf("GrowthFindings = %+v, want one finding", fs)
-	}
-	c := cases.ProjectFinding(asSource(t, fs[0]), nil)
-	wantLimitReached(t, c, "days_until_full")
-	if c.Urgency.Inputs["days_until_full"] == nil {
-		t.Fatalf("inputs lack the zero the producer wrote: %v", c.Urgency.Inputs)
 	}
 }
 
