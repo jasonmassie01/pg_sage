@@ -491,7 +491,10 @@ collector circuit breaker state (`pg_sage_collector_breaker_state`, 0 closed, 1 
 `pg_sage_collector_last_success_timestamp`,
 `pg_sage_collector_category_unavailable{category}`,
 `pg_sage_collector_persist_failures_total` and
-`pg_sage_collector_query_store_failures_total`.
+`pg_sage_collector_query_store_failures_total`. pg_sage's own database time per hour by
+the component its statement tag names is
+`pg_sage_self_component_db_time_ms_per_hour{database,component}` (see
+[sage_self_cost](findings.md#footprint-api)).
 
 ---
 

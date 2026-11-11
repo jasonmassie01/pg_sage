@@ -575,7 +575,11 @@ status (`default`, `derived`, `shadow`, `pinned`, `operator`), evidence, bounds,
 restart and history; an admin can **pin current** (freeze the value in force) or **unpin**
 (`POST /api/v1/derived-settings/{key}/pin|unpin?database=`). Every step is recorded in
 `sage.config_derivation` (value, previous value, cited evidence, bounds, rule and version,
-time); the startup log prints one `derived settings:` line per database.
+time); the startup log prints one `derived settings:` line per database. The
+**Footprint** section next to it (and `GET /api/v1/self-cost?database=`) shows the cost
+these settings follow: pg_sage's own database time, blocks and rows per hour against
+`self_budget`, split by the component that sent each statement (see
+[sage_self_cost](findings.md#footprint-api)).
 
 ### Trust & Actions
 
