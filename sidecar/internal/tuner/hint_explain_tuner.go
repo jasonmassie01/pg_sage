@@ -107,10 +107,15 @@ func withHintEvidence(f analyzer.Finding, cmp HintComparison, err error,
 }
 
 // gateCandidate runs the gate on a deterministic hint that would be
-// executable; refused is true when the comparison refused it. A refused
-// statement cools down, so it is not planned twice again every cycle.
+// executable; refused is true when an operator rejected the hint (read
+// first, so a rejected hint is never planned) or the comparison refused it.
+// A statement the comparison refused cools down, so it is not planned twice
+// again every cycle.
 func (t *Tuner) gateCandidate(ctx context.Context, c candidate, hint string,
 ) (*HintComparison, bool) {
+	if t.rejectedHint(ctx, c.QueryID, hint) {
+		return nil, true
+	}
 	if !t.HintComparisonEnabled() || strings.TrimSpace(hint) == "" || !t.HintsAvailable() {
 		return nil, false
 	}
