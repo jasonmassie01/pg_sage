@@ -54,6 +54,11 @@ const (
 	AuditAgentTokenMinted   = "agent_token_minted"
 	AuditMCPTokenCreated    = "mcp_token_created"
 	AuditMCPTokenRevoked    = "mcp_token_revoked"
+	// AuditAgentIdentityBound and AuditAgentIdentityUnbound record an OAuth
+	// (issuer, subject) bound to or removed from an agent (agentgov-03);
+	// Detail carries principal_id, name, issuer and subject.
+	AuditAgentIdentityBound   = "agent_identity_bound"
+	AuditAgentIdentityUnbound = "agent_identity_unbound"
 )
 
 // Databricks App identity-pin audit events (databricks-07). Detail carries
