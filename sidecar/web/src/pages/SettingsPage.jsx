@@ -11,6 +11,7 @@ import { ConfigDiff } from '../components/ConfigDiff'
 import { useToast } from '../components/Toast'
 import { ShadowModePage } from './ShadowModePage'
 import { DerivedSettings } from './settings/DerivedSettings'
+import { DatabricksStatusCard } from './settings/DatabricksStatusCard'
 import {
   MaskedBadge, MaskedOverridesContext, SourceBadge, maskedByKey,
 } from './settings/SourceBadge'
@@ -406,6 +407,7 @@ export function SettingsPage({ database, databaseId }) {
           {restarting ? 'Restarting…' : 'Restart now'}
         </button>
       </div>
+      {tab === 'General' && <DatabricksStatusCard />}
       {tab === 'General' && <ShadowModePage database={database} />}
       {tab === 'General' && <DerivedSettings database={database} />}
       {feedback && <FeedbackBanner {...feedback} />}
