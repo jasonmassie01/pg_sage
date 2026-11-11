@@ -241,6 +241,7 @@ var routeProbes = []routeProbe{
 	{"POST", "/api/v1/sre/autonomy/outcomes"},
 	{"POST", "/api/v1/sre/autonomy/proposals/7/approve"},
 	{"POST", "/api/v1/sre/autonomy/proposals/7/reject"},
+	{"POST", "/api/v1/sre/autonomy/revalidate"},
 	{"POST", "/api/v1/sre/autonomy/reviews"},
 	{"POST", "/api/v1/sre/autonomy/rollouts"},
 	{"POST", "/api/v1/sre/change-events"},

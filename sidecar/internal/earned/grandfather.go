@@ -206,11 +206,12 @@ func (s *PostgresStore) seedGrandfathered(ctx context.Context, tx pgx.Tx, f Fami
 	why = truncate(why, 500)
 	st, err := scanState(tx.QueryRow(ctx, `INSERT INTO sage.sre_family_autonomy
 		(deployment_id, database_name, family, action_class, level, changed_by,
-		 change_reason, changed_at, provenance, carried_ref)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'grandfathered', $9)
+		 change_reason, changed_at, provenance, carried_ref, server_major)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'grandfathered', $9, $10)
 		ON CONFLICT (deployment_id, database_name, family, action_class) DO NOTHING
 		RETURNING `+levelColumns, s.deployment, s.database, string(f), string(c),
-		int16(level), ActorPgSage, "grandfathered from the time ramp", at, why))
+		int16(level), ActorPgSage, "grandfathered from the time ramp", at, why,
+		s.majorArg(ctx)))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return State{}, false, nil
 	}

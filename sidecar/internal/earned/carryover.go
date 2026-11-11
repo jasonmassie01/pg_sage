@@ -144,19 +144,19 @@ func (s *PostgresStore) seedCarried(ctx context.Context, co CarryOver, level Lev
 	err = s.withTx(ctx, func(tx pgx.Tx) error {
 		st, err = scanState(tx.QueryRow(ctx, `INSERT INTO sage.sre_family_autonomy
 			(deployment_id, database_name, family, action_class, level, evidence,
-			 changed_by, change_reason, changed_at, provenance, carried_ref)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'carried_over', $10)
+			 changed_by, change_reason, changed_at, provenance, carried_ref, server_major)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'carried_over', $10, $11)
 			ON CONFLICT (deployment_id, database_name, family, action_class) DO NOTHING
 			RETURNING `+levelColumns, s.deployment, s.database, string(co.Family),
 			string(co.Class), int16(level), evidence, ActorPgSage,
-			"carried over from the pre-M7 policy", at, co.Ref))
+			"carried over from the pre-M7 policy", at, co.Ref, s.majorArg(ctx)))
 		if err != nil {
 			return err
 		}
 		return s.appendEvent(ctx, tx, Event{Family: co.Family, Class: co.Class,
 			Type: EventCarriedOver, From: levelPtr(defaultLevel(co.Family)),
 			To: levelPtr(level), Actor: ActorPgSage,
-			Reason: "carried over from the pre-M7 policy: " + co.Ref,
+			Reason:   "carried over from the pre-M7 policy: " + co.Ref,
 			Evidence: evidence, At: at})
 	})
 	if errors.Is(err, pgx.ErrNoRows) {

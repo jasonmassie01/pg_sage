@@ -59,6 +59,11 @@ type TrustRow struct {
 	// expires and which checks expire then (ClassView, earned-06).
 	HoldsUntil     *time.Time `json:"holds_until,omitempty"`
 	ExpiringChecks []string   `json:"expiring_checks,omitempty"`
+	// ServerMajor is the PostgreSQL major the level was granted on;
+	// MajorCap, set by AnnotateTrust, a self-initiated L3 capped at L2
+	// because the server now runs another (earned-07).
+	ServerMajor *int      `json:"server_major,omitempty"`
+	MajorCap    *MajorCap `json:"major_cap,omitempty"`
 }
 
 // TrustView is one database's Trust page. Floor is the observation floor
@@ -155,7 +160,7 @@ func (s *Service) trustRow(st State, ev Evidence, rec ClassRecord, pending *Prop
 	row := TrustRow{Family: f, Kind: KindIncident, Class: c, Level: st.Level,
 		Cap: CapForPair(f, c), Reversibility: spec.Reversibility, Provenance: st.Provenance,
 		ProvenanceRef: st.CarriedRef, Evidence: countsOf(rec), Pending: pending,
-		LastChange: lastChange(st, change)}
+		LastChange: lastChange(st, change), ServerMajor: st.ServerMajor}
 	if IsSelfInitiated(f) {
 		row.Kind, row.OutcomeClass = KindSelfInitiated, OutcomeClassFor(c)
 	} else {
@@ -193,6 +198,7 @@ func lastChange(st State, e Event) TrustChange {
 // level shows L0 where the evidence would bind (fail closed).
 func (l *Limiter) AnnotateTrust(ctx context.Context, v *TrustView) {
 	sig := l.viewSignals(ctx, v.safety, rowFamilies(v.Rows, false))
+	mv := l.majorView(ctx)
 	for i := range v.Rows {
 		row := &v.Rows[i]
 		downs := sig.of(row.Family)
@@ -201,8 +207,11 @@ func (l *Limiter) AnnotateTrust(ctx context.Context, v *TrustView) {
 			supported = *row.Supported
 		}
 		st := State{Family: row.Family, Class: row.Class, Level: row.Level,
-			Provenance: row.Provenance}
+			Provenance: row.Provenance, ServerMajor: row.ServerMajor}
 		level := viewLevel(st, supported, downs)
+		if row.MajorCap = mv.capOf(ctx, st); row.MajorCap != nil {
+			level = MinLevel(level, L2)
+		}
 		if len(downs) > 0 {
 			row.Downgrades = downs
 		}

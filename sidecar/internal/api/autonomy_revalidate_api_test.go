@@ -77,7 +77,7 @@ func TestAutonomyAPI_RevalidateClearsTheMajorCap(t *testing.T) {
 		t.Fatalf("history = %+v, %v", evs, err)
 	}
 	for path, b := range map[string]string{
-		revalidatePath: `{"family":"hygiene","class":"vacuum","bogus":1}`,
+		revalidatePath:          `{"family":"hygiene","class":"vacuum","bogus":1}`,
 		revalidatePath + "&x=1": `{"family":"wraparound_runway","class":"freeze"}`,
 	} {
 		if code, out := autonomyCall(t, admin, "POST", path, b); code != 400 ||

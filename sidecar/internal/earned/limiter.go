@@ -15,6 +15,9 @@ type Binding struct {
 	Budget      BudgetSource
 	HA          HASource
 	Concurrency ConcurrencySource
+	// ServerMajor is the monitored server's PostgreSQL major (a
+	// MajorProbe); nil never caps a level for a major change (earned-07).
+	ServerMajor MajorSource
 }
 
 // Limiter is the ledger as one database's gate sees it
@@ -59,8 +62,10 @@ func (l *Limiter) Limit(ctx context.Context, req policy.ActionRequest) (
 	}
 	out := policy.AutonomyLimit{Granted: int(st.Level), Class: string(c), Family: string(f)}
 	var downs []Downgrade
+	var major majorCheck
 	if st.Level >= L2 {
 		downs = l.requestDowngrades(ctx, req, f)
+		major = l.majorCap(ctx, st)
 	}
 	p := &pairEvidence{svc: l.svc, f: f, c: c}
 	level, err := effectiveLevel(st, contractCap(req), downs, func() (Level, error) {
@@ -70,12 +75,18 @@ func (l *Limiter) Limit(ctx context.Context, req policy.ActionRequest) (
 	if err != nil {
 		return policy.AutonomyLimit{}, err
 	}
+	if major.note != nil {
+		level = MinLevel(level, L2)
+	}
 	if st.Level >= L2 {
-		l.noteLimit(ctx, st, downs, p)
+		l.noteLimit(ctx, st, downs, p, major)
 	}
 	for _, d := range downs {
 		out.Downgraded = true
 		out.Reasons = append(out.Reasons, d.Reason)
+	}
+	if major.note != nil {
+		out.Reasons = append(out.Reasons, major.note.reason())
 	}
 	out.Level = int(level)
 	return out, nil
@@ -270,14 +281,18 @@ func (l *Limiter) Annotate(ctx context.Context, v *View) {
 		families = append(families, string(fam.Family))
 	}
 	sig := l.viewSignals(ctx, v.safety, families)
+	mv := l.majorView(ctx)
 	for i := range v.Families {
 		fam := &v.Families[i]
 		downs := sig.of(fam.Family)
 		for j := range fam.Classes {
 			row := &fam.Classes[j]
 			st := State{Family: fam.Family, Class: row.Class, Level: row.Granted,
-				Provenance: row.Provenance}
+				Provenance: row.Provenance, ServerMajor: row.ServerMajor}
 			level := viewLevel(st, row.Supported, downs)
+			if row.MajorCap = mv.capOf(ctx, st); row.MajorCap != nil {
+				level = MinLevel(level, L2)
+			}
 			if len(downs) > 0 {
 				row.Downgrades = downs
 			}

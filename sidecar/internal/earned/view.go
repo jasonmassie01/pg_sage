@@ -33,6 +33,9 @@ type ClassView struct {
 	// the checks that expire then (earned-06).
 	HoldsUntil     *time.Time `json:"holds_until,omitempty"`
 	ExpiringChecks []string   `json:"expiring_checks,omitempty"`
+	// ServerMajor and MajorCap are as on a Trust row (earned-07).
+	ServerMajor *int      `json:"server_major,omitempty"`
+	MajorCap    *MajorCap `json:"major_cap,omitempty"`
 }
 
 // FamilyView is one family's rows with its shadow record.
@@ -116,7 +119,7 @@ func (s *Service) classView(st State, ev Evidence, pending *Proposal) ClassView 
 		Granted: st.Level, Supported: SupportedLevel(s.cfg.Thresholds, ev),
 		Version: st.Version, ChangedBy: st.ChangedBy, Reason: st.Reason,
 		Pending: pending, Live: ev.Live, Provenance: st.Provenance,
-		CarriedRef: st.CarriedRef}
+		CarriedRef: st.CarriedRef, ServerMajor: st.ServerMajor}
 	if st.Stored {
 		at := st.ChangedAt
 		row.ChangedAt = &at

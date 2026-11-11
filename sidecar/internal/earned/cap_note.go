@@ -13,14 +13,19 @@ import (
 // cap_cleared), not on every authorization. Two sources cap a pair: the
 // CHECK-40 downgrade signals of an authorization (at most L1), and, since
 // earned-06, evidence that no longer supports its earned level (at most
-// the supported level). The last recorded state is kept in memory and,
+// the supported level); since earned-07, a self-initiated L3 granted on
+// another PostgreSQL major (at most L2). The last recorded state is kept in memory and,
 // before any write, compared with the pair's newest stored cap event, so
 // a restart or a second limiter does not record the same cap again.
 
-// capState is what caps a pair: the downgrade signals and the decay.
+// capState is what caps a pair: the downgrade signals, the decay and the
+// major change. by and why are a re-approval's actor and note (they
+// never key a state).
 type capState struct {
-	downs []Downgrade
-	decay *decayNote
+	downs   []Downgrade
+	decay   *decayNote
+	major   *majorNote
+	by, why string
 }
 
 // key is the state's sorted reasons; "" when nothing caps the pair.
@@ -32,6 +37,9 @@ func (s capState) key() string {
 	if s.decay != nil {
 		reasons = append(reasons, s.decay.reason())
 	}
+	if s.major != nil {
+		reasons = append(reasons, s.major.reason())
+	}
 	sort.Strings(reasons)
 	return strings.Join(reasons, ",")
 }
@@ -42,6 +50,7 @@ type capEvidence struct {
 	Granted    *Level      `json:"granted,omitempty"`
 	Supported  *Level      `json:"supported,omitempty"`
 	Failing    []string    `json:"failing_checks,omitempty"`
+	Major      *majorNote  `json:"server_major,omitempty"`
 }
 
 // unreadableCap stands for a stored cap whose evidence cannot be read: it
@@ -54,6 +63,11 @@ func capEvent(f Family, c ActionClass, prev, next capState, at time.Time) Event 
 	e := Event{Family: f, Class: c, Type: EventCapped, Actor: ActorPgSage, At: at}
 	key := next.key()
 	switch {
+	case key == "" && prev.major != nil && len(prev.downs) == 0:
+		e.Type, e.Reason = EventCapCleared, prev.major.clearedText(next.why)
+		if next.by != "" {
+			e.Actor = next.by
+		}
 	case key == "" && prev.decay != nil && len(prev.downs) == 0:
 		e.Type = EventCapCleared
 		e.Reason = fmt.Sprintf("the evidence supports granted %s again", prev.decay.Granted)
@@ -61,11 +75,13 @@ func capEvent(f Family, c ActionClass, prev, next capState, at time.Time) Event 
 		e.Type, e.Reason = EventCapCleared, "downgrade signals cleared"
 	case len(next.downs) > 0:
 		e.Reason = "downgraded to at most L1: " + key
+	case next.major != nil:
+		e.Reason = key
 	default:
 		e.Reason = fmt.Sprintf("the evidence supports %s of granted %s: %s",
 			next.decay.Supported, next.decay.Granted, key)
 	}
-	ev := capEvidence{Downgrades: next.downs}
+	ev := capEvidence{Downgrades: next.downs, Major: next.major}
 	if next.decay != nil {
 		ev.Granted, ev.Supported = &next.decay.Granted, &next.decay.Supported
 		ev.Failing = next.decay.Checks
@@ -88,7 +104,7 @@ func capStateOf(e *Event) capState {
 	if err := json.Unmarshal(e.Evidence, &ev); err != nil {
 		return capState{downs: []Downgrade{{Reason: unreadableCap, Detail: err.Error()}}}
 	}
-	out := capState{downs: ev.Downgrades}
+	out := capState{downs: ev.Downgrades, major: ev.Major}
 	if ev.Granted != nil || len(ev.Failing) > 0 {
 		d := &decayNote{Checks: ev.Failing}
 		if ev.Granted != nil {
@@ -156,11 +172,12 @@ func (p *pairEvidence) get(ctx context.Context) (Level, Evidence, error) {
 	return p.level, p.ev, p.err
 }
 
-// noteLimit records an authorization's cap: its downgrade signals and the
-// pair's decay. When the evidence cannot be read the recorded decay is
-// kept (the gate already failed closed if it needed the level).
+// noteLimit records an authorization's cap: its downgrade signals, the
+// pair's decay and its major cap. When the evidence cannot be read the
+// recorded decay is kept (the gate already failed closed if it needed the
+// level); when the server major cannot be read, the recorded major cap.
 func (l *Limiter) noteLimit(ctx context.Context, st State, downs []Downgrade,
-	p *pairEvidence) {
+	p *pairEvidence, major majorCheck) {
 	var decay *decayNote
 	known := true
 	if st.Provenance != ProvenanceCarriedOver && !IsSelfInitiated(st.Family) {
@@ -172,9 +189,13 @@ func (l *Limiter) noteLimit(ctx context.Context, st State, downs []Downgrade,
 		}
 	}
 	l.noteTransition(ctx, st.Family, st.Class, func(prev capState) capState {
+		next := capState{downs: downs, decay: decay, major: major.note}
 		if !known {
-			return capState{downs: downs, decay: prev.decay}
+			next.decay = prev.decay
 		}
-		return capState{downs: downs, decay: decay}
+		if !major.known {
+			next.major = prev.major
+		}
+		return next
 	})
 }

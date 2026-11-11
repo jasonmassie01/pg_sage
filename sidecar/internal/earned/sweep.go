@@ -15,11 +15,14 @@ const EventEvidenceExpiring EventType = "evidence_expiring"
 
 // SweepResult counts one evidence sweep.
 type SweepResult struct {
-	// Pairs are the earned incident pairs at L2 or more that were swept.
-	Pairs   int `json:"pairs"`
-	Capped  int `json:"capped"`
-	Cleared int `json:"cleared"`
-	Warned  int `json:"warned"`
+	// Pairs are the earned incident pairs at L2 or more that were swept;
+	// SelfPairs the self-initiated L3 pairs whose major was re-checked
+	// (earned-07). Capped and Cleared count both.
+	Pairs     int `json:"pairs"`
+	SelfPairs int `json:"self_pairs"`
+	Capped    int `json:"capped"`
+	Cleared   int `json:"cleared"`
+	Warned    int `json:"warned"`
 }
 
 // ExpiryWarning says an earned level holds only until HoldsUntil unless
@@ -44,7 +47,8 @@ type ExpiryNotifier interface {
 // records a decay as a cap (and its clearing), keeping the recorded
 // downgrade signals, and warns once, ExpiryWarningLead ahead, before a
 // level's evidence expires. Carried-over and self-initiated levels do not
-// decay and are skipped. A pair's failure does not stop the others; the
+// decay; a self-initiated L3 has its PostgreSQL major re-checked instead
+// (earned-07). A pair's failure does not stop the others; the
 // failures are returned joined. n may be nil (recorded only).
 func (l *Limiter) Sweep(ctx context.Context, n ExpiryNotifier) (SweepResult, error) {
 	var res SweepResult
@@ -57,6 +61,11 @@ func (l *Limiter) Sweep(ctx context.Context, n ExpiryNotifier) (SweepResult, err
 	}
 	var errs []error
 	for _, row := range stored {
+		if reValidates(row) {
+			res.SelfPairs++
+			l.sweepMajor(ctx, row, &res)
+			continue
+		}
 		if !decays(row) {
 			continue
 		}
