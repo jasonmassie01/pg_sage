@@ -72,6 +72,32 @@ func TestReconfigureEmptyScheduleDisables(t *testing.T) {
 	}
 }
 
+// Nil/empty at startup: New with an empty schedule is off without a WARN,
+// while an invalid one still warns and never fires.
+func TestNewEmptyScheduleIsOffWithoutWarning(t *testing.T) {
+	var logs []string
+	logFn := func(level, format string, args ...any) {
+		logs = append(logs, level+" "+format)
+	}
+	for _, schedule := range []string{"", "  "} {
+		cfg := config.DefaultConfig()
+		cfg.Briefing.Schedule = schedule
+		w := New(nil, cfg, nil, logFn)
+		if w.ShouldRun(time.Now().Add(48 * time.Hour)) {
+			t.Fatalf("schedule %q fired", schedule)
+		}
+	}
+	if len(logs) != 0 {
+		t.Fatalf("an empty schedule logged %v, want nothing", logs)
+	}
+	cfg := config.DefaultConfig()
+	cfg.Briefing.Schedule = "61 * * * *"
+	New(nil, cfg, nil, logFn)
+	if len(logs) != 1 || !strings.HasPrefix(logs[0], "WARN briefing: invalid schedule") {
+		t.Fatalf("an invalid schedule logged %v, want one WARN", logs)
+	}
+}
+
 // Concurrent access: a reader during reconfiguration sees the old or the new
 // settings whole, never a schedule from one and channels from the other.
 func TestReconfigureIsNeverTorn(t *testing.T) {

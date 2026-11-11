@@ -162,7 +162,8 @@ func New(
 	logFn func(string, string, ...any),
 ) *Worker {
 	sched, err := parseCron(cfg.Briefing.Schedule)
-	if err != nil {
+	// An empty schedule turns briefings off (llm-06); it is not invalid.
+	if err != nil && strings.TrimSpace(cfg.Briefing.Schedule) != "" {
 		logFn("WARN", "briefing: invalid schedule %q: %v", cfg.Briefing.Schedule, err)
 	}
 	w := &Worker{
