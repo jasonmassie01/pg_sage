@@ -93,7 +93,7 @@ WITH l AS MATERIALIZED (
     SELECT row_id, seq, op, v, sealed_hash, state, prev_hash, hash
     FROM sage.audit_chain_link
     WHERE chain = $1 AND (chain, row_id, seq) > ($1, $2::bigint, $3::bigint)
-      AND op <> 'T'
+      AND op NOT IN ('T', 'C', 'P')
     ORDER BY chain, row_id, seq LIMIT $4),
 r AS MATERIALIZED (
     SELECT t.id, t.chain_seq, t.chain_prev_hash, t.chain_hash, %s AS sealed,

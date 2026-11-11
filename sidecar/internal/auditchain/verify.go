@@ -39,10 +39,13 @@ var ErrNotInstalled = errors.New("auditchain: chain not installed")
 
 // Window bounds a verification by position; zero values are open.
 // Anchor, when set, is a checkpoint whose link must still carry its hash.
+// Key, when set, checks the signatures of the checkpoint links it signed;
+// a verification that starts at a prune's floor needs it.
 type Window struct {
 	FromSeq int64       `json:"from_seq"`
 	ToSeq   int64       `json:"to_seq"`
 	Anchor  *Checkpoint `json:"-"`
+	Key     *TrustedKey `json:"-"`
 }
 
 // Problem is one integrity failure.
@@ -55,9 +58,14 @@ type Problem struct {
 
 // Report is the outcome of one verification.
 type Report struct {
-	Chain             string    `json:"chain"`
-	Mode              string    `json:"mode"`
-	CheckpointSeq     int64     `json:"checkpoint_seq,omitempty"`
+	Chain         string `json:"chain"`
+	Mode          string `json:"mode"`
+	CheckpointSeq int64  `json:"checkpoint_seq,omitempty"`
+	// FromCheckpoint is the signed checkpoint a verification of a pruned
+	// chain starts from, and PrunedBelow the lowest link the chain keeps.
+	FromCheckpoint    int64     `json:"from_checkpoint,omitempty"`
+	PrunedBelow       int64     `json:"pruned_below,omitempty"`
+	SignedCheckpoints int       `json:"signed_checkpoints,omitempty"`
 	FromSeq           int64     `json:"from_seq"`
 	ToSeq             int64     `json:"to_seq"`
 	Links             int       `json:"links"`
@@ -104,6 +112,9 @@ type verifier struct {
 	// checked by an ordered pass over the link index (stream.go).
 	stream bool
 	anchor *anchor
+	key    *TrustedKey
+	prune  *pruned
+	marks  []Link // checkpoint links of the batch being walked
 }
 
 // Verify checks chain s within w: every position present, every link
@@ -124,7 +135,7 @@ func Verify(ctx context.Context, q Querier, s Spec, w Window) (Report, error) {
 			w.FromSeq, w.ToSeq)
 	}
 	v := &verifier{q: q, s: s, rows: map[int64]*rowLinks{}, unknown: map[int64]bool{},
-		rep: Report{Chain: s.Chain, VerifiedAt: time.Now().UTC()}}
+		rep: Report{Chain: s.Chain, VerifiedAt: time.Now().UTC()}, key: w.Key}
 	if err := v.run(ctx, w); err != nil {
 		return Report{}, fmt.Errorf("auditchain: verify %s: %w", s.Chain, err)
 	}
@@ -139,12 +150,13 @@ func (v *verifier) run(ctx context.Context, w Window) error {
 		return err
 	}
 	head := v.rep.HeadSeq
-	from, to := max(w.FromSeq, 1), w.ToSeq
+	from, floorStart := v.startsAtFloor(max(w.FromSeq, 1))
+	to := w.ToSeq
 	if to == 0 || to > head {
 		to = head
 	}
 	v.rep.FromSeq, v.rep.ToSeq = from, to
-	full := from == 1 && to == head
+	full := (from == 1 || floorStart) && to == head
 	v.rep.Mode = verifyMode(full, w.Anchor, from, to == head)
 	if err := v.checkAnchor(ctx, w.Anchor); err != nil {
 		return err
@@ -153,6 +165,10 @@ func (v *verifier) run(ctx context.Context, w Window) error {
 		if err := v.checkRange(ctx, from, to, full); err != nil {
 			return err
 		}
+		if err := v.reachAnchor(ctx, to); err != nil {
+			return err
+		}
+		v.checkPruneAnchor()
 	}
 	if err := v.findUnchained(ctx, full); err != nil {
 		return err
@@ -162,7 +178,7 @@ func (v *verifier) run(ctx context.Context, w Window) error {
 			return err
 		}
 	}
-	if from == 1 {
+	if from == 1 || floorStart {
 		return v.countLegacy(ctx)
 	}
 	return nil
@@ -183,7 +199,7 @@ func (v *verifier) readHead(ctx context.Context) error {
 		return err
 	}
 	v.rep.HeadSeq, v.rep.HeadHash = head, hash
-	return nil
+	return v.readPrune(ctx)
 }
 
 func verifyMode(full bool, cp *Checkpoint, from int64, toHead bool) string {
@@ -228,6 +244,9 @@ func (v *verifier) walk(ctx context.Context, from, to int64) error {
 		for i := range links {
 			expected = v.checkLink(&links[i], expected)
 		}
+		if err := v.checkMarks(ctx); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -236,6 +255,10 @@ func (v *verifier) walk(ctx context.Context, from, to int64) error {
 func (v *verifier) start(ctx context.Context, from int64) error {
 	if from == 1 {
 		v.prev, v.prevKnown = Genesis, true
+		return nil
+	}
+	if v.prune != nil && v.prune.floorStart {
+		v.prevKnown = false // pruned: the checkpoint link vouches for the floor
 		return nil
 	}
 	if a := v.anchor; a != nil && a.seq == from-1 {
@@ -272,8 +295,14 @@ func (v *verifier) checkLink(l *Link, expected int64) int64 {
 			Detail: "the link's content was changed after it was written"})
 	}
 	v.prev, v.prevKnown = l.Hash, true
-	if l.Op == "T" {
+	switch l.Op {
+	case "T":
 		v.rep.Truncations++
+		return l.Seq + 1
+	case OpCheckpoint:
+		v.marks = append(v.marks, *l)
+		return l.Seq + 1
+	case OpPrune:
 		return l.Seq + 1
 	}
 	if l.V != v.s.Version {

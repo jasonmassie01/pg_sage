@@ -28,6 +28,13 @@
 // exported. A chain that went back stops for that sink as "regressed"
 // (never skipping the positions new links reuse) and raises
 // audit_chain_regressed until an admin re-anchors the cursor.
+//
+// Two marker links carry no row (audit-03b). A signed checkpoint (C)
+// signs, with the evidence-signing key, the hash of a head a clean
+// verification reached, and reaches the SIEM like any link. A prune (P),
+// opt-in, records that the links below a floor were removed once every
+// sink held a signed checkpoint above them; verification of a pruned chain
+// starts at the floor and rests on that checkpoint's signature.
 package auditchain
 
 import (

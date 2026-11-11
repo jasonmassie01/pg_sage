@@ -172,6 +172,14 @@ func checkpointable(rep Report) error {
 // it verifies the whole chain instead (streaming, with no snapshot held).
 // Either way the checkpointed link must still carry its hash.
 func VerifyFromCheckpoint(ctx context.Context, db DB, s Spec, full bool) (Report, error) {
+	return VerifyFromCheckpointKeyed(ctx, db, s, full, nil)
+}
+
+// VerifyFromCheckpointKeyed is VerifyFromCheckpoint that also checks the
+// chain's signed checkpoint links under key (nil checks none, and fails a
+// pruned chain's full pass: nothing then vouches for its floor).
+func VerifyFromCheckpointKeyed(ctx context.Context, db DB, s Spec, full bool,
+	key *TrustedKey) (Report, error) {
 	if db == nil {
 		return Report{}, fmt.Errorf("auditchain: %s: no database", s.Chain)
 	}
@@ -179,7 +187,7 @@ func VerifyFromCheckpoint(ctx context.Context, db DB, s Spec, full bool) (Report
 	if err != nil {
 		return Report{}, fmt.Errorf("auditchain: verify %s: %w", s.Chain, err)
 	}
-	var w Window
+	w := Window{Key: key}
 	if found {
 		w.Anchor = &cp
 	}

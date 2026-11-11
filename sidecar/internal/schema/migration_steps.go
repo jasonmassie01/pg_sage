@@ -174,6 +174,7 @@ func trancheOneMigrations() []namedStep {
 // trancheTwoMigrations are the steps after trancheOneMigrations, in order.
 func trancheTwoMigrations() []namedStep {
 	return []namedStep{
-		{"ddlEvidenceSigningKey", ddlEvidenceSigningKey}, // audit-10
+		{"ddlEvidenceSigningKey", ddlEvidenceSigningKey},   // audit-10
+		{"ddlAuditChainMarkerOps", ddlAuditChainMarkerOps}, // audit-03b
 	}
 }

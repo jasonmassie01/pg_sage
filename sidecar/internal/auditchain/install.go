@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS sage.audit_chain_link (
     chain       text        NOT NULL,
     seq         bigint      NOT NULL,
     row_id      bigint      NOT NULL,
-    op          text        NOT NULL CHECK (op IN ('I','U','D','T')),
+    op          text        NOT NULL CONSTRAINT audit_chain_link_op_check
+                            CHECK (op IN ('I','U','D','T','C','P')),
     v           integer     NOT NULL,
     sealed_hash text        NOT NULL,
     state       text        NOT NULL,
@@ -30,6 +31,8 @@ CREATE INDEX IF NOT EXISTS audit_chain_link_row
     ON sage.audit_chain_link (chain, row_id, seq);
 CREATE INDEX IF NOT EXISTS audit_chain_link_truncate
     ON sage.audit_chain_link (chain, seq) WHERE op = 'T';
+CREATE INDEX IF NOT EXISTS audit_chain_link_marker
+    ON sage.audit_chain_link (chain, seq) WHERE op IN ('C','P');
 CREATE TABLE IF NOT EXISTS sage.audit_chain_meta (
     chain         text        PRIMARY KEY,
     table_name    text        NOT NULL,
