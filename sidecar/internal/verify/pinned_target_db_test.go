@@ -92,7 +92,7 @@ func TestOpenTargetIDs_MalformedCriterionPinsNothing(t *testing.T) {
 	mixed := openPinWatch(t, ctx, pool, store, []int64{1})
 	for id, criterion := range map[int64]string{
 		scalar: `{"Kind":"per_query_latency","TargetIDs":"9201"}`,
-		mixed:  `{"Kind":"per_query_latency","TargetIDs":["x9202", 9203, 1.5, null,
+		mixed: `{"Kind":"per_query_latency","TargetIDs":["x9202", 9203, 1.5, null,
 			9999999999999999999, -9223372036854775809, "9223372036854775808"]}`,
 	} {
 		mustExec(t, ctx, pool, `UPDATE sage.verification SET criterion = $2::jsonb
