@@ -89,6 +89,22 @@ func nonNil[T any](s []T) []T {
 // Latest returns the newest report of database; found is false when none
 // exists yet.
 func (s *Store) Latest(ctx context.Context, database string) (Report, bool, error) {
+	return s.newest(ctx, database, 0)
+}
+
+// Previous returns the newest report of database saved before report id;
+// found is false when there is none (and for an id that was never saved).
+func (s *Store) Previous(ctx context.Context, database string, id int64) (
+	Report, bool, error) {
+	if id <= 0 {
+		return Report{}, false, s.ready()
+	}
+	return s.newest(ctx, database, id)
+}
+
+// newest reads the newest report of database, below id when id > 0.
+func (s *Store) newest(ctx context.Context, database string, before int64) (
+	Report, bool, error) {
 	if err := s.ready(); err != nil {
 		return Report{}, false, err
 	}
@@ -97,7 +113,8 @@ func (s *Store) Latest(ctx context.Context, database string) (Report, bool, erro
 	err := s.pool.QueryRow(ctx, `SELECT id, database_name, provider, started_at,
 		finished_at, duration_ms, relations, statement_timeout_ms, items, checks,
 		capabilities, summary, summary_model FROM sage.first_look
-		WHERE database_name = $1 ORDER BY id DESC LIMIT 1`, database).Scan(&r.ID,
+		WHERE database_name = $1 AND ($2::bigint <= 0 OR id < $2)
+		ORDER BY id DESC LIMIT 1`, database, before).Scan(&r.ID,
 		&r.Database, &r.Provider, &r.StartedAt, &r.FinishedAt, &r.DurationMS, &r.Relations,
 		&r.StatementTimeoutMS, &items, &checks, &caps, &r.Summary, &r.SummaryModel)
 	if errors.Is(err, pgx.ErrNoRows) {

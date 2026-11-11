@@ -125,11 +125,8 @@ func entryFor(db onboardingDatabase, mcpOn bool, token, notifications *bool) onb
 		in.TTFFSeconds = db.State.TTFFSeconds
 	}
 	if fl := db.FirstLook; fl != nil {
-		finished := fl.FinishedAt
 		n := fl.Checks
-		e.FirstLook = firstLookSummary{Ready: true, Items: fl.Items,
-			FinishedAt: &finished, DurationMS: fl.DurationMS, Summary: fl.Summary,
-			Checks: n.Total, Degraded: n.Degraded, Truncated: n.Truncated}
+		e.FirstLook = firstLookSummaryOf(fl)
 		in.FirstLookReady, in.FirstLookItems = true, fl.Items
 		in.FirstLookChecks, in.FirstLookDegraded = n.Total, n.Degraded
 		in.FirstLookTruncated = n.Truncated
@@ -137,6 +134,15 @@ func entryFor(db onboardingDatabase, mcpOn bool, token, notifications *bool) onb
 	}
 	e.Steps = onboarding.Checklist(in)
 	return e
+}
+
+// firstLookSummaryOf is a stored report's summary as the API shows it.
+func firstLookSummaryOf(fl *firstlook.ReportSummary) firstLookSummary {
+	finished := fl.FinishedAt
+	n := fl.Checks
+	return firstLookSummary{Ready: true, Items: fl.Items, FinishedAt: &finished,
+		DurationMS: fl.DurationMS, Summary: fl.Summary, Checks: n.Total,
+		Degraded: n.Degraded, Truncated: n.Truncated}
 }
 
 type firstLookEntry struct {

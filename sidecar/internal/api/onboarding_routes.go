@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sort"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -19,13 +20,16 @@ import (
 
 // registerOnboardingRoutes serves the first-run checklist, the first look
 // and the trust guide to every signed-in role; which MCP tokens and
-// notification channels exist stays visible to admins only.
+// notification channels exist stays visible to admins only. Operators and
+// admins may re-check a database's first look.
 func registerOnboardingRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
 	cfg *config.Config, control *pgxpool.Pool) {
 	reader := newFleetOnboardingReader(mgr, cfg, control)
 	route(mux, "GET /api/v1/onboarding", gateViewer, onboardingHandler(reader))
 	route(mux, "GET /api/v1/onboarding/trust", gateViewer, trustGuideHandler(reader))
 	route(mux, "GET /api/v1/first-look", gateViewer, firstLookHandler(reader))
+	registerFirstLookRecheck(mux, fleetRecheckSource{mgr: mgr},
+		newRecheckLimiter(firstLookRecheckEvery, time.Now))
 }
 
 // fleetOnboardingReader reads onboarding state from each database's

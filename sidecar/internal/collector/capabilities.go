@@ -122,6 +122,14 @@ func (c *Collector) refreshCapabilities(ctx context.Context) {
 	c.storeCapabilities(key, next, cached)
 }
 
+// ReprobeCapabilities runs the capability probe now, outside the cycle,
+// and returns the capabilities it leaves (the last ones when it fails).
+// The first look re-check calls it so its report and the collector agree.
+func (c *Collector) ReprobeCapabilities(ctx context.Context) Capabilities {
+	c.refreshCapabilities(ctx)
+	return c.Capabilities()
+}
+
 // queryCapabilities are the capabilities for a statements read; a read
 // before any refresh (a direct call) probes first. After a failed refresh
 // it keeps the last capabilities: one timeout per cycle, not two.
