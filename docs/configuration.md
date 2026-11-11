@@ -1427,7 +1427,8 @@ any name, is refused (`target_is_production`), and nothing runs on it.
 #### Freeze custodian: what holds the xmin horizon
 
 A table is red when its remaining XID runway is under
-`custodian.freeze.red_buffer_pct` (default 25%) of `autovacuum_freeze_max_age`.
+`custodian.freeze.red_buffer_pct` (default 25%) of its effective freeze maximum
+(the lower of `autovacuum_freeze_max_age` and the table's reloption).
 Urgency is measured against that freeze maximum; the hard deadline is not. The
 hard deadline is when the table's XID (or multixact) age reaches the server's
 wraparound warn limit, 2^31 - 1 - 40,000,000, at the measured consumption rate
@@ -1737,6 +1738,99 @@ never auto-applied and never counted as routed:
   whole table under `ACCESS EXCLUSIVE` and is shown for reference, not to run.
 - Table contract exemptions and the oscillation limit still park these
   invariants, as they do every other.
+
+### Vacuum, bloat and freeze autopilot
+
+Four analyzer rules and one custodian produce vacuum, bloat and freeze work. Each judges a
+table by its effective settings. A freeze threshold is relative to the table's effective
+freeze maximum, the lower of the server setting and the table's own reloption
+(`LEAST(autovacuum_freeze_max_age, reloption)`, and likewise for multixacts), so a table
+tuned to freeze early is judged early. The catalog entries are in
+[Findings](findings.md#maintenance).
+
+| Producer | Fires at | Proposes | Contract tier |
+|---|---|---|---|
+| Analyzer `table_bloat` | dead tuples above `analyzer.table_bloat_dead_tuple_pct` (`20`) percent, on a table with at least `analyzer.table_bloat_min_rows` (`1000`) rows | `VACUUM`; no SQL while IO is saturated | `safe` |
+| Analyzer `autovacuum_tuning` | at least `analyzer.autovacuum_tune_min_rows` (`1000000`) live rows, and lifetime updates plus deletes above them | `ALTER TABLE ... SET (autovacuum_vacuum_scale_factor = ...)` | `moderate` |
+| Analyzer `xid_wraparound` | the database's `age(datfrozenxid)` at `analyzer.xid_wraparound_warning` (`500000000`), critical at `analyzer.xid_wraparound_critical` (`1000000000`) | a read-only holder query in the detail, no SQL | none |
+| Analyzer `wraparound_freeze` | `analyzer.wraparound_freeze_share` (`0.75`) of the effective freeze maximum | nothing: diagnosis only, naming the custodian's decision | none |
+| Freeze custodian | red: remaining runway at most `custodian.freeze.red_buffer_pct` (`25`) percent of the effective freeze maximum | the ladder below | per step |
+
+`analyzer.wraparound_freeze_xid_age` is retired: it loads with one warning and is ignored.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `custodian.freeze.red_buffer_pct` | `25` | A table is red when its remaining XID (or multixact) runway, its effective freeze maximum minus its age, is at most this percent of that maximum. Amber is twice this, at most 100 percent. Above 0, at most 100; a value of `100` loads, but the custodian then uses `25`. Environment: `SAGE_CUSTODIAN_FREEZE_RED_BUFFER_PCT`. Restart to change |
+
+**The freeze ladder.** The freeze custodian is the single producer of freeze actions: the
+analyzer only diagnoses. It answers each table by its urgency, the worse of the XID and the
+multixact one:
+
+1. **Blocker response.** A red table pinned by an xmin holder gets the holder answered first,
+   with one `freeze_blocker` proposal per holder and scan (see
+   [what holds the xmin horizon](#freeze-custodian-what-holds-the-xmin-horizon)). A client
+   session is canceled, or terminated when idle in a transaction. Like every backend signal,
+   it always waits for an operator's approval. A prepared transaction, a slot, a standby's
+   feedback or a protected session becomes a parked `diagnose_freeze_blockers` plan at risk
+   tier `high`.
+2. **Freeze.** A red user table gets `VACUUM (FREEZE)`, or a plain `VACUUM` once its XID age
+   reaches `vacuum_freeze_table_age` or its multixact age reaches
+   `vacuum_multixact_freeze_table_age` (each capped at 95% of the server's
+   `autovacuum_freeze_max_age` or `autovacuum_multixact_freeze_max_age`, as a manual `VACUUM`
+   caps it), since that `VACUUM` is aggressive already. The freeze is
+   skipped while the pinning holder is at least 0.9 of the table's age, since it could not
+   lower the urgency. The freeze is a `safe` `vacuum_table` action in change class `freeze`
+   and incident family `wraparound_runway`. The policy gate decides whether it runs on its
+   own, through the family's [earned autonomy](#sage-sre-earned-autonomy) or a critical XID
+   deadline the standing policy lets override, or waits. It runs on a dedicated connection
+   under the `VACUUM` watchdog (`safety.vacuum_timeout_seconds`, `14400`;
+   `safety.vacuum_stall_minutes`, `15`). Its post-check fails the action when the table's
+   horizon is older afterwards.
+3. **Catalog freeze plan.** Red system catalogs get one `plan_catalog_freeze` plan per scan,
+   listing every red catalog, at risk tier `high`. It is parked and never run: a catalog
+   `VACUUM` needs `MAINTAIN` or ownership.
+4. **Repack plans.** A table that is not red, with a heap of at least
+   `analyzer.table_bloat_min_bytes` and a bloat estimate of at least 50%, gets a `pg_repack`
+   plan (when the extension is installed) or a parked `bloat_remediation` decision, at risk
+   tier `high`. pg_sage never runs either.
+
+An amber table gets no custodian action, and the custodian has no autovacuum tuning step:
+the analyzer's `autovacuum_tuning` is the only tuner.
+
+**Cadence and timeouts.** Each database's autonomy worker runs the freeze custodian every
+`analyzer.interval_seconds` (default `600`, so every 10 minutes), and never more often than
+once a minute: the cadence is the larger of `analyzer.interval_seconds` and 60 seconds. One
+sample per database (the 500 most advanced relations, at most 20 xmin holders, and the XID
+and multixact consumption rates) is read in one read-only transaction and shared with the
+runway advisor and the analyzer for half that interval. The sample sets no statement or
+lock timeout of its own. The `pgstattuple_approx` confirmations of the three largest bloat
+candidates per scan are bounded by `safety.query_timeout_ms` and `safety.lock_timeout_ms`.
+Until two scans have measured the consumption rate, the custodian claims no deadline.
+
+**Backoff and escalation.** A custodian statement whose runs failed (outcome `failed` or
+`rollback_failed`, the post-check included) in the last 6 hours backs off: after `n`
+failures it waits 2^n minutes from the newest one. At 3 failures it stops until they age out
+of the 6-hour window. For a red proposal, pg_sage then records one `blocked`
+`custodian_backoff` decision and sends one critical `custodian_escalation` notification per
+failure streak. The backoff state is the durable `sage.action_log`, so it survives restarts.
+
+**Reading the custodian's decisions.** Every custodian proposal passes the
+[policy gate](policy-gate.md) and leaves its verdict in the decision ledger
+(`sage.decision`). See [the decision ledger](policy-gate.md#the-decision-ledger) for its
+columns. Filter on `feature`: `freeze` for freezes, session signals and catalog plans,
+`freeze_blocker` for the escalation plans of holders pg_sage never signals, and
+`bloat_remediation` for repack plans. The `evidence` holds the incident family
+(`incident_family`), the counter that set the deadline (`deadline_threat`),
+`vacuum_failsafe_age` when the server reports it, the pinning holder (`xmin_holder`) and,
+on a plan, its contract (`action_type`). `deadline_kind` and `deadline_hard_at` hold the
+XID deadline. A withheld plan repeats into one row (`repeat_count`). The analyzer's
+`wraparound_freeze` finding names the same decision in `detail.custodian_decision`.
+
+**Fleet mode.** Each database has one freeze custodian and one sampler, also in fleet mode.
+Client sessions and prepared transactions are read per database. Replication slots and
+standbys' `hot_standby_feedback` hold the cluster-wide xmin horizon, so the custodian of
+every database in the cluster sees them, and each one parks its own escalation plan for
+them.
 
 ### Load admission for autonomous index builds
 

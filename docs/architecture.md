@@ -347,11 +347,17 @@ capacity changes are treated as forward-fix migrations with script and
 verification output rather than autonomous DDL.
 
 Vacuum, bloat, and freeze autopilot turns maintenance findings into bounded
-actions. Small table-bloat cases can propose guarded `VACUUM`; IO-saturated
-cases are blocked to script/review output; XID wraparound cases diagnose oldest
-`backend_xmin` holders; concurrent reindex handles index-bloat remediation;
-and high-blast-radius table bloat produces reviewed online remediation plans
-instead of `VACUUM FULL` by default.
+actions. The analyzer's `table_bloat` rule proposes a guarded `VACUUM` (none
+while IO is saturated) and its `autovacuum_tuning` rule a per-table scale
+factor; its wraparound rules only diagnose. The freeze custodian is the single
+producer of freeze actions. On each database's autonomy cycle (every
+`analyzer.interval_seconds`, at least a minute apart) it answers a red table
+with a ladder: a response to the xmin holder that pins it (a session signal
+that always waits for approval, or a parked plan), then `VACUUM (FREEZE)`, a
+parked plan for red system catalogs, and reviewed `pg_repack` plans for large
+bloated heaps instead of `VACUUM FULL`. Concurrent reindex handles index-bloat
+remediation. See
+[Vacuum, bloat and freeze autopilot](configuration.md#vacuum-bloat-and-freeze-autopilot).
 
 Query tuning has multiple paths. `pg_hint_plan` remains useful for reversible
 planner experiments, but pg_sage can also generate application-query rewrite
