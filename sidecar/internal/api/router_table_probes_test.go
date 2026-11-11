@@ -40,6 +40,7 @@ var routeProbes = []routeProbe{
 	{"GET", "/api/v1/findings/stats"},
 	{"GET", "/api/v1/findings/7"},
 	{"GET", "/api/v1/findings/7/pending-actions"},
+	{"GET", "/api/v1/findings/7/source-fix"},
 	{"GET", "/api/v1/fleet/findings"},
 	{"GET", "/api/v1/fleet/health"},
 	{"GET", "/api/v1/fleet/leader"},

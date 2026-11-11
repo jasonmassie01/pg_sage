@@ -22,6 +22,7 @@ func registerAPIRoutes(
 	disableConfigWrites bool,
 ) {
 	registerFindingRoutes(mux, mgr)
+	registerSourceFixRoutes(mux, mgr, cfg) // source_fix_routes.go (mcp-06)
 	registerObservabilityRoutes(mux, mgr)
 	registerProcessControlRoutes(mux, mgr, controller, cs, disableConfigWrites)
 	registerLLMModelRoutes(mux, controller)
