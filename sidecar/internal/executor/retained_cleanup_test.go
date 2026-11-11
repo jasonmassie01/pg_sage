@@ -168,14 +168,20 @@ func seedRetainedVerification(t *testing.T, pool *pgxpool.Pool, actionID int64) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = pool.Exec(t.Context(), `INSERT INTO sage.verification
+	// Linked as both verification writers link it: credit reads only the
+	// verification action_log.verification_id names (earned-09).
+	_, err = pool.Exec(t.Context(), `WITH v AS (INSERT INTO sage.verification
  (decision_id,action_log_id,criterion,baseline,minimum_samples,next_evaluation_at,
- hard_deadline_at,verdict,completed_at) VALUES ($1,$2,'{}','{}',1,now(),now(),'success',now())`,
+ hard_deadline_at,verdict,completed_at) VALUES ($1,$2,'{}','{}',1,now(),now(),'success',now())
+ RETURNING id, action_log_id)
+ UPDATE sage.action_log al SET verification_id=v.id FROM v WHERE al.id=v.action_log_id`,
 		decisionID, actionID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `UPDATE sage.action_log
+			SET verification_id=NULL WHERE id=$1`, actionID)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM sage.verification
 			WHERE action_log_id=$1`, actionID)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM sage.decision WHERE id=$1`, decisionID)
