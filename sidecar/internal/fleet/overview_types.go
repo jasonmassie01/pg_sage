@@ -40,4 +40,8 @@ type DatabaseStatus struct {
 	EmergencyStopped   bool       `json:"emergency_stopped"`
 	EmergencyStoppedBy string     `json:"emergency_stopped_by,omitempty"`
 	EmergencyStoppedAt *time.Time `json:"emergency_stopped_at,omitempty"`
+	// LLMBudget is this database's share of the fleet LLM token budget and
+	// its use today; nil (omitted) when no fleet budget is configured or
+	// the database has no share (fleet-06).
+	LLMBudget *BudgetUsage `json:"llm_budget,omitempty"`
 }

@@ -48,6 +48,9 @@ type DatabaseManager struct {
 	readScope      func(context.Context, *DatabaseInstance) (bool, error)
 	persistScope   func(context.Context, *DatabaseInstance, bool, string) error
 	cancelInFlight func(*DatabaseInstance) ([]int64, error)
+	// budget reports the fleet LLM budget per database (fleet-06); nil when
+	// no fleet budget is configured. Guarded by mu.
+	budget BudgetSource
 }
 
 // NewManager creates a fleet manager from config.
@@ -154,9 +157,10 @@ func (m *DatabaseManager) FleetStatus() FleetOverview {
 		Databases: make([]DatabaseStatus, 0, len(m.instances)),
 	}
 	now := time.Now()
+	budgets := m.budgetSnapshotLocked()
 	for _, inst := range m.instances {
 		overview.Databases = append(overview.Databases,
-			m.databaseStatusLocked(inst, now))
+			m.databaseStatusLocked(inst, now, budgets))
 		if inst.Stopped {
 			overview.Summary.EmergencyStoppedCount++
 		}

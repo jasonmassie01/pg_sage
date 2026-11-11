@@ -99,8 +99,12 @@ type BudgetUsage struct {
 	Weight     float64 `json:"weight"`
 }
 
-// Snapshot returns every registered database's allocation and usage.
+// Snapshot returns every registered database's allocation and usage; a nil
+// budget (none configured) returns nil.
 func (b *FleetBudget) Snapshot() map[string]BudgetUsage {
+	if b == nil {
+		return nil
+	}
 	_, out := b.SnapshotDay()
 	return out
 }
