@@ -328,16 +328,20 @@ Table public.events: 1840 seq scans vs 12 idx scans in the last 60s (2500000 row
 
 ### sequence_exhaustion
 
-Detects sequences approaching their maximum value.
+Detects sequences approaching the end of their range.
 
-**Severity:** critical
+**Severity:** warning at 75% consumed, critical at 90%
 
-**What it detects:** Sequences where the current value is a high percentage of the maximum for their data type. Integer sequences (max ~2.1 billion) are flagged earlier than bigint sequences.
+**What it detects:** Sequences that have consumed a high share of their own range, `[MINVALUE, MAXVALUE]`, in the direction they move: ascending sequences toward `MAXVALUE`, descending sequences toward `MINVALUE`. A custom `MINVALUE` or `MAXVALUE` is honoured, so a descending sequence with `MINVALUE -1000` is judged against -1000, not the data type's minimum. Integer sequences get bigint migration advice.
+
+`CYCLE` sequences are skipped: they wrap to the start of their range by design, so reaching the end is not an outage. Open findings on `CYCLE` sequences resolve on the next analyzer cycle.
+
+**Detail:** `current_value`, `min_value`, `max_value`, `increment`, `cycle`, `usage_pct`, `data_type` and `runway_category` (`forecast_sequence_runway`). The time to the limit at the current rate, and the owning column's type limit, are in the `forecast_sequence_runway` finding for the same sequence; this finding reports only how much of the range is used.
 
 **Example output:**
 
 ```
-Sequence public.orders_seq at 93.1% capacity (integer)
+Sequence public.orders_seq is 93.1% consumed (integer)
 ```
 
 **Recommended action:** Alter the sequence to use `bigint`, or reset with a higher ceiling.
