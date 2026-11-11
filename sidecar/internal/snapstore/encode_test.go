@@ -295,8 +295,8 @@ func TestParseCatalog_IdentityIsRawJSON(t *testing.T) {
 // Every delta category pairs its elements by one to three fields, and the
 // set of delta categories is the catalog lists.
 func TestKeyFields_EveryCatalogCategory(t *testing.T) {
-	want := []string{"foreign_keys", "indexes", "io", "partitioned_indexes", "partitions",
-		"prepared_xacts", "queries", "sequences", "tables"}
+	want := []string{"foreign_keys", "index_bloat", "indexes", "io", "partitioned_indexes",
+		"partitions", "prepared_xacts", "queries", "sequences", "tables"}
 	var got []string
 	for cat, fields := range keyFields {
 		got = append(got, cat)

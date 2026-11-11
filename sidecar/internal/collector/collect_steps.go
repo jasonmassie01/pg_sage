@@ -82,7 +82,12 @@ func (c *Collector) extraSteps() []catalogStep {
 			run: func(ctx context.Context, s *Snapshot) (err error) {
 				s.Partitions, err = c.collectPartitions(ctx)
 				return err
-			}, reset: func(s *Snapshot) { s.Partitions = nil }})
+			}, reset: func(s *Snapshot) { s.Partitions = nil }},
+		catalogStep{name: "index_bloat",
+			run: func(ctx context.Context, s *Snapshot) (err error) {
+				s.IndexBloat, s.IndexBloatTruncated, err = c.collectIndexBloat(ctx)
+				return err
+			}, reset: func(s *Snapshot) { s.IndexBloat, s.IndexBloatTruncated = nil, false }})
 	if c.CollectsConfigSnapshots() {
 		steps = append(steps, catalogStep{name: "config_data",
 			run: func(ctx context.Context, s *Snapshot) (err error) {

@@ -72,6 +72,7 @@ var excludedExactKeys = map[string]bool{
 	// Analyzer fields present in struct but not exposed as overrides.
 	"analyzer.table_bloat_min_rows":                true,
 	"analyzer.table_bloat_min_bytes":               true, // read when the custodian is built
+	"analyzer.index_bloat_min_bytes":               true, // rules-13: YAML only, restart-bound
 	"analyzer.idle_in_transaction_timeout_minutes": true,
 	"analyzer.xid_wraparound_warning":              true,
 	"analyzer.xid_wraparound_critical":             true,

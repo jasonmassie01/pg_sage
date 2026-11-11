@@ -44,6 +44,12 @@ type Snapshot struct {
 	// PartitionedIndexes are the partitioned (relkind I) indexes, which
 	// pg_stat_user_indexes leaves out.
 	PartitionedIndexes []PartitionedIndex `json:"partitioned_indexes,omitempty"`
+
+	// IndexBloat is the catalog-statistics bloat estimate of the largest
+	// btree indexes (rules-13); nil when it was not read. Truncated is set
+	// when more indexes were above the size floor than the row cap read.
+	IndexBloat          []IndexBloat `json:"index_bloat,omitempty"`
+	IndexBloatTruncated bool         `json:"-"`
 }
 
 // Available reports whether category was read this cycle.
