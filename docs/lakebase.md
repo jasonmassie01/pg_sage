@@ -332,7 +332,7 @@ retries of a window halved on the row or byte budget, and failed reads),
 `rows` and `bytes` (from the batches returned) and `read_millis` (wall time
 spent in reads). Every statement spends the poll's query budget, so statements
 per hour across all streams stay at or below
-`queries_per_poll × 3600 / poll_interval_seconds`. The
+`queries_per_poll Ã— 3600 / poll_interval_seconds`. The
 administrator deployment status repeats this projection under
 `databricks.telemetry`, next to credential expiry and Gateway outcomes (see
 [Databricks Apps](databricks-apps.md)).
