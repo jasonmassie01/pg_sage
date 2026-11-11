@@ -325,20 +325,24 @@ func TestDatabaseHealthConcurrentScrapesDuringStatusWrites(t *testing.T) {
 	}
 }
 
-// The LLM gauges describe the shared client, so they render in every
-// mode once a client exists (they were standalone-only).
+// The LLM gauges describe every registered client, so they render in
+// every mode once a client exists (they were standalone-only). Since
+// observability-05 each sample carries client and database labels.
 func TestDatabaseHealthLLMGaugesInEveryMode(t *testing.T) {
 	for _, mode := range []string{"standalone", "fleet", config.ModeMeta} {
 		t.Run(mode, func(t *testing.T) {
 			installHealthFleet(t, mode)
-			if body := scrapeMetrics(t); strings.Contains(body, "pg_sage_llm_enabled") {
-				t.Fatalf("%s: LLM gauges without a client:\n%s", mode, body)
+			withLLMHealth(t, "http://127.0.0.1:1", 0)
+			if got := sampleLines(scrapeMetrics(t), "pg_sage_llm_enabled"); len(got) != 0 {
+				t.Fatalf("%s: LLM gauges without a client: %q", mode, got)
 			}
 			cfg.LLM.Enabled, cfg.LLM.TokenBudgetDaily = false, 777
 			llmClient = llm.New(&cfg.LLM, logStructuredWrapper)
+			llmClients.add(llmClient, llmRoleGeneral, "", true) // as registerLLMConfigOwner
 			body := scrapeMetrics(t)
-			for _, want := range []string{"pg_sage_llm_enabled 0\n",
-				"pg_sage_llm_tokens_budget_daily 777\n"} {
+			for _, want := range []string{
+				`pg_sage_llm_enabled{client="general",database=""} 0` + "\n",
+				`pg_sage_llm_tokens_budget_daily{client="general",database=""} 777` + "\n"} {
 				if !strings.Contains(body, want) {
 					t.Errorf("%s scrape lacks %q", mode, want)
 				}

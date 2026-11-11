@@ -96,8 +96,8 @@ const (
 )
 
 // writeProcessMetrics renders the process-wide families: the standalone
-// analyzer and collector (no samples in other modes), the shared LLM
-// client and the optimizer.
+// analyzer and collector (no samples in other modes), every registered
+// LLM client (llm_metrics.go) and the optimizer.
 func writeProcessMetrics(b *strings.Builder, views []metricsView) {
 	// Findings from sage.findings table.
 	b.WriteString(helpFindingsTotal + "# TYPE pg_sage_findings_total gauge\n")
@@ -120,40 +120,9 @@ func writeProcessMetrics(b *strings.Builder, views []metricsView) {
 		}
 	}
 
-	// LLM metrics.
-	if llmClient != nil {
-		writeLLMMetrics(b)
-	}
-
+	writeLLMHealthFromRegistry(b)
 	// Optimizer metrics from sage.findings, as last refreshed.
 	writeOptimizerMetrics(b, views)
-}
-
-// writeLLMMetrics reports the general LLM client's state and token use.
-func writeLLMMetrics(b *strings.Builder) {
-	b.WriteString("# HELP pg_sage_llm_enabled LLM integration enabled\n" +
-		"# TYPE pg_sage_llm_enabled gauge\n")
-	enabled := 0
-	if llmClient.IsEnabled() {
-		enabled = 1
-	}
-	fmt.Fprintf(b, "pg_sage_llm_enabled %d\n\n", enabled)
-
-	b.WriteString("# HELP pg_sage_llm_circuit_open LLM circuit breaker (0=closed, 1=open)\n" +
-		"# TYPE pg_sage_llm_circuit_open gauge\n")
-	circuitVal := 0
-	if llmClient.IsCircuitOpen() {
-		circuitVal = 1
-	}
-	fmt.Fprintf(b, "pg_sage_llm_circuit_open %d\n\n", circuitVal)
-
-	b.WriteString("# HELP pg_sage_llm_tokens_used_today Tokens consumed today\n" +
-		"# TYPE pg_sage_llm_tokens_used_today gauge\n")
-	fmt.Fprintf(b, "pg_sage_llm_tokens_used_today %d\n\n", llmClient.TokensUsedToday())
-
-	b.WriteString("# HELP pg_sage_llm_tokens_budget_daily Daily token budget\n" +
-		"# TYPE pg_sage_llm_tokens_budget_daily gauge\n")
-	fmt.Fprintf(b, "pg_sage_llm_tokens_budget_daily %d\n\n", cfg.LLM.TokenBudgetDaily)
 }
 
 func writeOptimizerMetrics(b *strings.Builder, views []metricsView) {

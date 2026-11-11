@@ -16,6 +16,14 @@ const (
 	llmRoleOptimizer
 )
 
+// String is the role's client label on /metrics.
+func (r llmClientRole) String() string {
+	if r == llmRoleOptimizer {
+		return "optimizer"
+	}
+	return "general"
+}
+
 type llmRegistryEntry struct {
 	client   *llm.Client
 	role     llmClientRole
@@ -87,10 +95,12 @@ func (r *llmClientRegistry) newClient(
 	return client
 }
 
-// trackLocked registers a client with the global ceiling and, once the
-// usage ledger restored, today's persisted usage.
+// trackLocked registers a client with the global ceiling, its /metrics
+// health series (observability-05) and, once the usage ledger restored,
+// today's persisted usage.
 func (r *llmClientRegistry) trackLocked(entry llmRegistryEntry) {
 	r.entries = append(r.entries, entry)
+	entry.client.SetObserver(llmHealth.observer(entry.database, entry.role.String()))
 	r.attachGlobalLocked(entry.client)
 	r.refreshGlobalLocked()
 	if r.restore != nil {

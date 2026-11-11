@@ -422,7 +422,8 @@ Fleet and meta mode serve one `/metrics` per sidecar, on either listener.
 | `pg_sage_emergency_stopped{database}` | == 1 | The database's emergency stop holds |
 | `pg_sage_connection_up` | == 0 | The sidecar cannot reach its control database |
 | `pg_sage_cache_hit_ratio` | < 0.95 | Control database cache hit ratio below 95% (deprecated, removed in v2.7.0) |
-| `pg_sage_llm_circuit_open` | == 1 | LLM circuit breaker tripped |
+| `pg_sage_llm_circuit_open{client,database}` | == 1 | LLM circuit breaker tripped |
+| `sum by (client,database) (rate(pg_sage_llm_requests_total{result=~"error\|timeout\|rate_limited"}[15m])) / sum by (client,database) (rate(pg_sage_llm_requests_total[15m]))` | > 0.2 | The model is failing before the breaker opens |
 | `pg_sage_executor_actions_total{outcome="failed"}` | rate > 0 | Failed autonomous actions |
 | `pg_sage_sre_probe_refusals_total{caller="investigation"}` | rate > 0 | Investigations losing probe slots |
 | `pg_sage_sso_discovery_ready` | == 0 for 10m | SSO is enabled but OIDC discovery has not succeeded; SSO sign-in is unavailable |
@@ -517,7 +518,31 @@ database from `sage.databases`.
 `pg_sage_connection_up` now means the sidecar's control database: the monitored database in
 standalone, the metadata database in meta mode, and any database in YAML fleet mode. Alert on
 `pg_sage_database_up` for monitored databases. The fleet summary (`pg_sage_fleet_*`) and the
-LLM gauges render in every mode whenever their data exists.
+LLM families render in every mode whenever their data exists.
+
+### LLM health
+
+Since v2.7.0 every LLM client the sidecar runs has its own series, labelled `client`
+(`general` or `optimizer`) and `database` (the monitored database; empty for the
+process-wide shared client and for standalone mode). A scrape only reads the clients: it
+never closes or probes a circuit breaker.
+
+| Metric | Meaning |
+|---|---|
+| `pg_sage_llm_requests_total{client,database,result}` | Calls since start; `result` is `ok`, `error`, `timeout`, `rate_limited`, `budget_refused`, `circuit_open`, `empty` or `cancelled` |
+| `pg_sage_llm_request_duration_seconds{client,database}` | Histogram (buckets 0.25 s to 120 s) of calls that reached the provider (`ok`, `error`, `timeout`, `rate_limited`, `empty`) |
+| `pg_sage_llm_tokens_total{client,database,kind}` | Tokens charged since start; `kind` is `prompt`, `completion` or `unattributed` (estimated, or not split by the provider). The spend signal: no prices are applied |
+| `pg_sage_llm_enabled{client,database}` | 1 if the client is enabled |
+| `pg_sage_llm_circuit_open{client,database}` | 1 while the circuit breaker refuses requests |
+| `pg_sage_llm_tokens_used_today{client,database}` | Tokens charged today |
+| `pg_sage_llm_tokens_budget_daily{client,database}` | The client's live `token_budget_daily` (0 is unlimited); follows a config change without a restart |
+
+The four gauges kept their names and gained the two labels, so an unlabelled selector such as
+`pg_sage_llm_circuit_open == 1` still matches (now one series per client). A disabled client
+and the per-work-item request cooldown are not calls and are not counted. The counters keep
+counting when a database's runtime reconnects, and leave `/metrics` with the database.
+`pg_sage_llm_fleet_budget_*` (per-database shares) and `pg_sage_tuning_budget_*` are
+unchanged.
 
 These families are deprecated and keep emitting in v2.6.0; they are removed in v2.7.0:
 

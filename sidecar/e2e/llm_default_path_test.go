@@ -99,9 +99,9 @@ func testLLMHappyPath(t *testing.T, admin *pgxpool.Pool, bin string) {
 		t.Errorf("llm status general = %+v, want enabled, closed, >= 150 tokens "+
 			"(three answered calls at 50)", st)
 	}
-	tokens, _ := r.metric("pg_sage_llm_tokens_used_today")
-	enabled, _ := r.metric("pg_sage_llm_enabled")
-	circuit, okCircuit := r.metric("pg_sage_llm_circuit_open")
+	tokens, _ := r.metric(generalLLMSeries("pg_sage_llm_tokens_used_today"))
+	enabled, _ := r.metric(generalLLMSeries("pg_sage_llm_enabled"))
+	circuit, okCircuit := r.metric(generalLLMSeries("pg_sage_llm_circuit_open"))
 	if tokens < 150 || enabled != 1 || circuit != 0 || !okCircuit {
 		t.Errorf("prometheus tokens=%v enabled=%v circuit=%v(present=%v), "+
 			"want >=150, 1, 0", tokens, enabled, circuit, okCircuit)
@@ -205,7 +205,7 @@ func assertProviderFailureSurfaces(t *testing.T, r *llmRun, cause string) {
 		})
 	r.assertNoLLMFindings(cause)
 	st := r.llmStatus()["general"]
-	tokens, _ := r.metric("pg_sage_llm_tokens_used_today")
+	tokens, _ := r.metric(generalLLMSeries("pg_sage_llm_tokens_used_today"))
 	if st.TokensUsed != 0 || tokens != 0 {
 		t.Errorf("%s: tokens charged without an answer: status=%d gauge=%v",
 			cause, st.TokensUsed, tokens)
@@ -235,7 +235,7 @@ func testLLMTokenBudget(t *testing.T, admin *pgxpool.Pool, bin string) {
 		},
 	}, fmt.Sprintf("  token_budget_daily: %d\n", budget))
 	r.waitFor("tokens_used_today >= the daily budget", func() (bool, string) {
-		used, ok := r.metric("pg_sage_llm_tokens_used_today")
+		used, ok := r.metric(generalLLMSeries("pg_sage_llm_tokens_used_today"))
 		return ok && used >= budget, fmt.Sprintf("tokens_used_today=%v", used)
 	})
 	atCap, refusedAtCap := r.stub.Count(), r.briefingBudgetRefusals()

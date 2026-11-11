@@ -83,6 +83,7 @@ func TestCharHandleMetrics_StandaloneSections(t *testing.T) {
 	pool = openComposedPool(t, ctx, dsn)
 	fleetMgr, coll, anal, llmMgr, fleetLLMBudget = nil, nil, nil, nil, nil
 	llmClient = llm.New(&cfg.LLM, logStructuredWrapper)
+	registerSharedLLMClient(t)
 	var findingID int64
 	if err := pool.QueryRow(ctx, `INSERT INTO sage.findings
 		(category, severity, object_type, object_identifier, title, detail, recommendation)
@@ -101,9 +102,10 @@ func TestCharHandleMetrics_StandaloneSections(t *testing.T) {
 	body := rec.Body.String()
 	for _, want := range []string{
 		`pg_sage_info{version="dev",mode="standalone"} 1`, "pg_sage_connection_up 1",
-		"# TYPE pg_sage_findings_total gauge", "pg_sage_llm_enabled 0",
-		"pg_sage_llm_circuit_open 0", "pg_sage_llm_tokens_used_today 0",
-		"pg_sage_llm_tokens_budget_daily 4321",
+		"# TYPE pg_sage_findings_total gauge", "pg_sage_llm_enabled" + sharedLLM + " 0",
+		"pg_sage_llm_circuit_open" + sharedLLM + " 0",
+		"pg_sage_llm_tokens_used_today" + sharedLLM + " 0",
+		"pg_sage_llm_tokens_budget_daily" + sharedLLM + " 4321",
 		`pg_sage_optimizer_recommendations_total{category="covering_index"} `,
 		"pg_sage_optimizer_enabled 0",
 		`pg_sage_connections_total{state=`,

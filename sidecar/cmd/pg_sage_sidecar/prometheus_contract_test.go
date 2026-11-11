@@ -119,11 +119,16 @@ func lintScrape(t *testing.T, body string) exposition {
 	return e
 }
 
-// summaryFamily maps a summary's _sum or _count sample name to the family
-// its HELP and TYPE name; any other name is returned unchanged.
+// summaryFamily maps a summary's _sum or _count sample name, or a
+// histogram's _bucket, _sum or _count, to the family its HELP and TYPE
+// name; any other name is returned unchanged.
 func summaryFamily(name string, kinds map[string]string) string {
-	for _, suffix := range []string{"_sum", "_count"} {
-		if base, ok := strings.CutSuffix(name, suffix); ok && kinds[base] == "summary" {
+	for _, suffix := range []string{"_sum", "_count", "_bucket"} {
+		base, ok := strings.CutSuffix(name, suffix)
+		if !ok {
+			continue
+		}
+		if kinds[base] == "histogram" || (kinds[base] == "summary" && suffix != "_bucket") {
 			return base
 		}
 	}
@@ -227,9 +232,17 @@ func TestContractGaugeAndCounterSuffixes(t *testing.T) {
 					t.Errorf("summary %s exports quantiles; want _sum and _count only", name)
 				}
 			}
+		case "histogram":
+			// observability-05's LLM request latency: bounded buckets, +Inf last.
+			for _, m := range e.families[name].GetMetric() {
+				buckets := m.GetHistogram().GetBucket()
+				if len(buckets) == 0 || len(buckets) > 8 {
+					t.Errorf("histogram %s has %d buckets; want 1-8", name, len(buckets))
+				}
+			}
 		default:
-			t.Errorf("family %s has TYPE %s; /metrics exports gauges, counters and "+
-				"quantile-free summaries", name, kind)
+			t.Errorf("family %s has TYPE %s; /metrics exports gauges, counters, "+
+				"histograms and quantile-free summaries", name, kind)
 		}
 	}
 	if counters == 0 {

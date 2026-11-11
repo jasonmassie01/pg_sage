@@ -198,8 +198,16 @@ midnight UTC.
   `tokens_used`, `token_budget`, `budget_exhausted`, `circuit_state` and `resets_at`), the
   process-wide `global` ceiling and `any_exhausted`. In fleet mode this is the only view
   of each database's clients. `GET /api/v1/metrics` reports fleet status, not tokens.
-- Prometheus: `pg_sage_llm_tokens_used_today`, `pg_sage_llm_tokens_budget_daily` and
-  `pg_sage_llm_circuit_open` describe the shared general client only.
+- Prometheus: every client has its own series, labelled `client` (`general`, `optimizer`)
+  and `database` (empty for the shared client and in standalone mode), in every mode.
+  `pg_sage_llm_tokens_total{kind}` counts the tokens charged since start, split into
+  `prompt`, `completion` and `unattributed` (estimated, or not split by the provider). It is
+  the spend signal: multiply by your provider's rates, since pg_sage applies none.
+  `pg_sage_llm_requests_total{result}` counts calls by result (`ok`, `error`, `timeout`,
+  `rate_limited`, `budget_refused`, `circuit_open`, `empty`, `cancelled`), and
+  `pg_sage_llm_request_duration_seconds` is their latency. `pg_sage_llm_tokens_used_today`,
+  `pg_sage_llm_tokens_budget_daily` (the live budget) and `pg_sage_llm_circuit_open` are
+  per client too. See [deployment](deployment.md#llm-health).
 - Logs: there is no per-call token log line. The client logs when its circuit breaker
   opens, with the last error class and the pause.
 - Restarts: today's usage is kept in `sage.llm_usage` in the control database and restored
