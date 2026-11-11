@@ -262,6 +262,28 @@ listed worst first, and by name among equal scores, so the tiles and the
 `pg_sage_fleet_instance_health` series keep a stable order. The rule is the
 same in every mode and on every provider.
 
+### Overview summary
+
+The Overview's top banner says "No open critical or warning cases" only
+when every count below is 0 and no database is degraded. Otherwise it lists
+the open work, critical first, with a link to **Cases**, or says that health
+is not established and why. The counts are in `summary` of
+`GET /api/v1/databases`, summed over every database in every mode:
+
+| Field | Counts |
+|---|---|
+| `total_critical`, `total_warning` | open critical and warning findings |
+| `incidents_critical`, `incidents_warning` | unresolved critical and warning incidents |
+| `incidents_unknown` | databases whose incidents could not be read |
+| `stale_collection` | databases with no collector sample for more than 3 intervals |
+| `freshness_unknown` | databases not yet sampled in their first 3 intervals, or with no interval |
+
+Each database row carries its own `status.incidents_critical`,
+`status.incidents_warning` (`-1` while unknown: before the first read or
+after a failed one) and `status.collection_freshness` (`fresh`, `stale` or
+`unknown`). Incidents are read with the findings after each analyzer cycle,
+under a 5 second timeout.
+
 ## HA role
 
 Each tile also shows the database's HA role: `primary`, `replica`, or
