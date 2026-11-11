@@ -1,12 +1,9 @@
 package api
 
 import (
-	"context"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/pg-sage/sidecar/internal/earned"
 )
 
 // llm-01 (CHECK-16): GET /api/v1/model-lift shows, per family, the model
@@ -15,11 +12,8 @@ import (
 
 func TestModelLiftAPI_ShowsTheMeasuredAndRunningModel(t *testing.T) {
 	f := newAutonomyAPIFixture(t)
-	raw := liftReportJSON(f.clock.Now().Add(-time.Hour), "lock_blocking", 16, 16)
-	if _, err := f.ledger.IngestEvalRun(context.Background(), []byte(raw),
-		earned.SourceBench, "admin", ""); err != nil {
-		t.Fatalf("ingest: %v", err)
-	}
+	f.useReleaseBuild()
+	f.ingestSignedLift(liftReportJSON(f.clock.Now().Add(-time.Hour), "lock_blocking", 16, 16))
 	f.ledger.WithRunningModel(func() string { return "Ollama/Llama3 " })
 	code, body := autonomyCall(t, f.router(testViewerUser()), "GET", "/api/v1/model-lift", "")
 	if code != 200 {

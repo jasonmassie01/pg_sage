@@ -38,12 +38,7 @@ func (n *rootNotifier) got() []RootAuthorityChange {
 
 func (f *fixture) ingestLift(at time.Time, recs ...string) EvalRun {
 	f.t.Helper()
-	run, err := f.svc.IngestEvalRun(f.ctx, liftReport(at, "live", false, recs...),
-		SourceBench, "admin", "")
-	if err != nil {
-		f.t.Fatalf("ingest lift report: %v", err)
-	}
-	return run
+	return f.ingestSignedLift(liftReport(at, "live", false, recs...))
 }
 
 // rootEvents is the database's model-root history, oldest first.
@@ -310,6 +305,8 @@ func TestRootAuthorityEvents_PerDatabase(t *testing.T) {
 	dep := newUUID(t)
 	orders := newFixtureFor(t, dep, "orders")
 	billing := newFixtureFor(t, dep, "billing")
+	// One sidecar's databases run one build (the signed lift names it).
+	billing.svc.cfg.Build = buildA
 	orders.ingestLift(fixtureEpoch.Add(-time.Hour), good("lock_blocking", 16, 16))
 	if _, err := orders.svc.ReconcileRootAuthority(orders.ctx); err != nil {
 		t.Fatal(err)

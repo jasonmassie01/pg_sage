@@ -45,6 +45,7 @@ func TestRegistryRootAuthority_AnotherModelIsAdvisory(t *testing.T) {
 }
 
 func TestInstallGivesTheLedgerTheRunningModel(t *testing.T) {
+	asRelease(t) // the signed lift names this build
 	pool := autonomyPool(t)
 	ledgers := newAutonomyLedgers(true)
 	db := uniqueDatabase("model")
@@ -59,11 +60,7 @@ func TestInstallGivesTheLedgerTheRunningModel(t *testing.T) {
 	if !ok {
 		t.Fatal("not registered")
 	}
-	if _, err := entry.Service.IngestEvalRun(context.Background(), liftJSON(
-		time.Now().Add(-time.Hour), "lock_blocking", 16, 16), earned.SourceBench, "admin",
-		""); err != nil {
-		t.Fatal(err)
-	}
+	ingestSignedLift(t, entry.Service, time.Now().Add(-time.Hour), "lock_blocking", 16, 16)
 	v, err := entry.Service.ModelLiftView(context.Background())
 	if err != nil {
 		t.Fatal(err)

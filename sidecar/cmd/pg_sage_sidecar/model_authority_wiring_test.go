@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/benchsig"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/earned"
 	"github.com/pg-sage/sidecar/internal/sre"
@@ -38,7 +39,7 @@ func TestRegistryRootAuthority_NoLedgerIsAdvisory(t *testing.T) {
 	}
 }
 
-// liftJSON is an unstamped operator report with one held-out record. The
+// liftJSON is an unstamped report with one held-out record. The
 // generation time keeps nanoseconds: two reports of the same counts made
 // in one second would otherwise be one report (deduplicated by hash), and
 // the newest-measurement rule would read the older ingestion.
@@ -57,18 +58,35 @@ func liftJSON(at time.Time, family string, k, n int) []byte {
 			"forbidden_actions": 0}]}`, at.UTC().Format(time.RFC3339Nano), family, k, n))
 }
 
+// ingestSignedLift ingests liftJSON stamped with the running build as a
+// signed release report: since benches-09 only a signed or local-run,
+// stamped lift counts. The caller runs asRelease before building svc.
+func ingestSignedLift(t *testing.T, svc *earned.Service, at time.Time, family string,
+	k, n int) {
+	t.Helper()
+	b := runningBuild()
+	raw := strings.Replace(string(liftJSON(at, family, k, n)), `"generated_at"`,
+		fmt.Sprintf(`"pg_sage_version": %q, "pg_sage_commit": %q, "generated_at"`,
+			b.Version, b.Commit), 1)
+	if _, err := svc.IngestBench(context.Background(), []byte(raw), earned.BenchIngest{
+		Origin: earned.OriginSignedRelease, Actor: "release_bench", RequireBuild: true,
+		Signature: &earned.ReportSignature{Identity: "https://github.com/jasonmassie01/" +
+			"pg_sage/.github/workflows/ci.yml@refs/tags/v1.8.5", Issuer: benchsig.GitHubIssuer,
+			Commit: b.Commit, SignedAt: time.Now().UTC()}}); err != nil {
+		t.Fatalf("ingest a signed lift report: %v", err)
+	}
+}
+
 func ledgerWithLift(t *testing.T, pool *pgxpool.Pool, k, n int) *earned.Registry {
 	t.Helper()
+	asRelease(t)
 	ledgers := newAutonomyLedgers(true)
 	svc, err := ledgers.ledgerFor(context.Background(), pool,
 		fmt.Sprintf("w3a_%d", time.Now().UnixNano()), config.DefaultConfig().SRE.Autonomy)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.IngestEvalRun(context.Background(), liftJSON(time.Now().Add(-time.Hour),
-		"lock_blocking", k, n), earned.SourceBench, "admin", ""); err != nil {
-		t.Fatalf("ingest: %v", err)
-	}
+	ingestSignedLift(t, svc, time.Now().Add(-time.Hour), "lock_blocking", k, n)
 	// The investigator runs the model the report measured (llm-01).
 	svc.WithRunningModel(func() string { return "gpt-4o-mini" })
 	reg := earned.NewRegistry(true)

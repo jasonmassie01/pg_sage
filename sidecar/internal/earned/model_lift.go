@@ -115,9 +115,11 @@ type RootAuthority struct {
 	Report        *BenchSummary `json:"report,omitempty"`
 }
 
-// noMeasurement is why a family without a measurement stays advisory.
-const noMeasurement = "no held-out live-model measurement of this family in a bench " +
-	"report for this build"
+// noMeasurement is why a family without a measurement stays advisory:
+// only a signed release or local-run report counts (benches-09).
+const noMeasurement = "no held-out live-model measurement of this family in a signed " +
+	"release or local-run bench report for this build (an unsigned upload never counts; " +
+	"install the release's signed report with pg_sage bench install)"
 
 // rootAuthorityOf decides family's authority from its measured report
 // (nil: none) for an investigator running runningModel.
