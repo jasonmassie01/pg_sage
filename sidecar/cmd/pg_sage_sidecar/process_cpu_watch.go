@@ -11,6 +11,12 @@ import (
 	"github.com/pg-sage/sidecar/internal/selfbudget"
 )
 
+// cpuSinkWriteTimeout bounds each write of the process CPU finding to one
+// database, so a database that hangs (a held lock, a stalled network)
+// cannot stall the one watch that serves every database: the write fails
+// and the watch moves on to the next database.
+var cpuSinkWriteTimeout = 30 * time.Second
+
 // fleetCPUSink keeps the process CPU finding (footprint-07) in the
 // monitored databases' sage.findings: the watch raises it on the
 // lowest-named live database and resolves the copies elsewhere.
@@ -55,6 +61,8 @@ func (s *fleetCPUSink) Raise(ctx context.Context, database string, b selfbudget.
 	if err != nil {
 		return err
 	}
+	ctx, cancel := context.WithTimeout(ctx, cpuSinkWriteTimeout)
+	defer cancel()
 	return analyzer.UpsertFindings(ctx, inst.Pool,
 		[]analyzer.Finding{analyzer.SidecarCPUFinding(b, loops)})
 }
@@ -65,6 +73,8 @@ func (s *fleetCPUSink) Clear(ctx context.Context, database string) error {
 	if err != nil {
 		return err
 	}
+	ctx, cancel := context.WithTimeout(ctx, cpuSinkWriteTimeout)
+	defer cancel()
 	_, err = analyzer.ResolveSidecarSelfBudget(ctx, inst.Pool)
 	return err
 }
@@ -86,20 +96,31 @@ func globalCPUBudget() float64 {
 }
 
 // startProcessCPUWatch starts the one process CPU watch of this sidecar
-// and registers it for /metrics and the footprint API. A failed write is
-// logged when it differs from the previous one, so a refusing database
-// does not log every cycle.
+// and registers it for /metrics and the footprint API.
 func startProcessCPUWatch(ctx context.Context, mgr *fleet.DatabaseManager) {
 	w := selfbudget.NewProcessCPUWatch(selfbudget.WatchOptions{
 		Read: selfbudget.ProcessCPU, Budget: globalCPUBudget,
 		Cycle: globalCollectorInterval, Sink: newFleetCPUSink(mgr),
 		Loops: selfbudget.Process()})
 	selfbudget.SetProcessWatch(w)
+	go w.Run(ctx, cpuWatchReporter(func(err error) {
+		logWarn("self_budget", "process CPU finding: %v", err)
+	}))
+}
+
+// cpuWatchReporter logs a tick's failed writes when they differ from the
+// previous tick's, so a refusing database does not log every cycle; a
+// clean tick forgets them, so the same failure after a recovery logs again.
+func cpuWatchReporter(log func(error)) func(error) {
 	last := ""
-	go w.Run(ctx, func(err error) {
+	return func(err error) {
+		if err == nil {
+			last = ""
+			return
+		}
 		if msg := err.Error(); msg != last {
 			last = msg
-			logWarn("self_budget", "process CPU finding: %v", err)
+			log(err)
 		}
-	})
+	}
 }

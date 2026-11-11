@@ -385,3 +385,31 @@ func TestProcessCPUWatch_RunStopsWithContext(t *testing.T) {
 		t.Fatal("Run did not stop with its context")
 	}
 }
+
+// Run reports every tick, a clean one as nil, so a reporter can tell a
+// recovery from a repeat of the same refusal (review of footprint-07).
+func TestProcessCPUWatch_RunReportsCleanTicks(t *testing.T) {
+	r := newWatchRig(1, "db1")
+	r.watch.cycle = func() time.Duration { return time.Millisecond }
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	results := make(chan error, 64)
+	go r.watch.Run(ctx, func(err error) {
+		select {
+		case results <- err:
+		default:
+		}
+	})
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case err := <-results:
+			if err == nil {
+				return
+			}
+			t.Fatalf("clean sink reported %v", err)
+		case <-deadline:
+			t.Fatal("Run never reported a clean tick")
+		}
+	}
+}

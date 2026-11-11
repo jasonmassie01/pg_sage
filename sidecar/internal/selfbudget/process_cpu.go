@@ -171,7 +171,8 @@ func (w *ProcessCPUWatch) clearExcept(ctx context.Context, dbs []string,
 
 // Run ticks every cycle (re-read each time, so a reloaded
 // collector.interval_seconds applies) until ctx ends, passing each tick's
-// error to report. A cycle of zero or less waits a minute.
+// result to report (nil for a tick without a refused write). A cycle of
+// zero or less waits a minute.
 func (w *ProcessCPUWatch) Run(ctx context.Context, report func(error)) {
 	if w == nil {
 		return
@@ -186,7 +187,7 @@ func (w *ProcessCPUWatch) Run(ctx context.Context, report func(error)) {
 			return
 		case <-time.After(every):
 		}
-		if err := w.Tick(ctx); err != nil && report != nil {
+		if err := w.Tick(ctx); report != nil {
 			report(err)
 		}
 	}
