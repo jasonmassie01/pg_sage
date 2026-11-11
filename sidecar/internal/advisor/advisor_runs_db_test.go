@@ -69,7 +69,7 @@ func TestAdvisorRuns_RestartMakesNoCall_LivePG(t *testing.T) {
 	pool := runsPool(t)
 	ctx := context.Background()
 	first, capture := dbAdvisor(pool, t)
-	first.analyzeSnapshot(ctx, liveSettings(t, pool), nil)
+	first.analyzeSnapshot(ctx, liveSettings(t, pool))
 	if n := len(capture()); n != 1 {
 		t.Fatalf("first run: model calls = %d, want 1", n)
 	}
@@ -89,7 +89,7 @@ func TestAdvisorRuns_RestartMakesNoCall_LivePG(t *testing.T) {
 	if restarted.schedule.get("wal").due(time.Now()) {
 		t.Fatal("restart: wal is due after loading the persisted schedule")
 	}
-	restarted.analyzeSnapshot(ctx, liveSettings(t, pool), nil)
+	restarted.analyzeSnapshot(ctx, liveSettings(t, pool))
 	if n := len(capture2()); n != 0 {
 		t.Fatalf("restart within the interval: model calls = %d, want 0", n)
 	}
@@ -103,7 +103,7 @@ func TestAdvisorRuns_FailurePersisted_LivePG(t *testing.T) {
 	cfg := walOnlyConfig("")
 	cfg.Advisor.IntervalSeconds = 86400
 	a := New(pool, cfg, nil, mgr, noopLog)
-	a.analyzeSnapshot(context.Background(), liveSettings(t, pool), nil)
+	a.analyzeSnapshot(context.Background(), liveSettings(t, pool))
 	var last *time.Time
 	var failures int
 	var backoff float64
@@ -135,7 +135,7 @@ func TestAdvisorRuns_ParallelCyclesOneCall_LivePG(t *testing.T) {
 		go func(a *Advisor) {
 			defer wg.Done()
 			<-start
-			a.analyzeSnapshot(context.Background(), snap, nil)
+			a.analyzeSnapshot(context.Background(), snap)
 		}(advisors[i%2])
 	}
 	close(start)
@@ -169,7 +169,7 @@ func TestAdvisorRuns_ManualAlterSystemResolves_LivePG(t *testing.T) {
 	waitForSetting(t, pool, "max_wal_size", "3072")
 	a, _ := dbAdvisor(pool, t)
 	a.cfg.Advisor.ConnectionEnabled = true
-	out := a.analyzeSnapshot(ctx, liveSettings(t, pool), nil)
+	out := a.analyzeSnapshot(ctx, liveSettings(t, pool))
 	for _, cat := range []string{"wal_tuning", "connection_tuning"} {
 		if !slices.Contains(a.LastEvaluatedCategories(), cat) {
 			t.Fatalf("evaluated = %v, want %s", a.LastEvaluatedCategories(), cat)

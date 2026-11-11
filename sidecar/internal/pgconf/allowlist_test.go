@@ -34,8 +34,8 @@ func TestRequiresRestart(t *testing.T) {
 
 func TestAdvisorAndAutonomousGUCs(t *testing.T) {
 	cases := []struct {
-		name                 string
-		advisor, autonomous  bool
+		name                string
+		advisor, autonomous bool
 	}{
 		{"work_mem", true, true},
 		{"maintenance_work_mem", true, true},
@@ -49,7 +49,8 @@ func TestAdvisorAndAutonomousGUCs(t *testing.T) {
 		{"wal_buffers", true, false},
 		// Not on the list at all: advisory only.
 		{"log_statement", false, false},
-		{"idle_in_transaction_session_timeout", false, false},
+		// Documented (advisors-07) but database-scope and approval only.
+		{"idle_in_transaction_session_timeout", true, false},
 		{"fsync", false, false},
 		{"", false, false},
 		{"WORK_MEM", true, true},

@@ -831,7 +831,7 @@ These deterministic rules run alongside the categories above.
 | Category | Source | What it reports |
 |----------|--------|-----------------|
 | <a id="wal_tuning"></a>`wal_tuning` | LLM advisor | WAL and checkpoint settings, such as `max_wal_size` when checkpoints are forced. |
-| <a id="connection_tuning"></a>`connection_tuning` | LLM advisor | Connection capacity and churn, such as `max_connections` or pooling advice. |
+| <a id="connection_tuning"></a>`connection_tuning` | LLM advisor | Connection capacity and churn: `max_connections` (never below the window's peak of total backends + reserved slots + 10), `idle_in_transaction_session_timeout` for this database only (`ALTER DATABASE`, approval required), and pooler advice or observations as `info` rows without SQL. |
 | <a id="query_rewrite"></a>`query_rewrite` | LLM advisor | Rewrites for the slowest queries. Text only, always advisory. |
 | <a id="bloat_remediation"></a>`bloat_remediation` | LLM advisor | Options for removing table and index bloat. |
 | <a id="memory_tuning"></a><a id="vacuum_tuning"></a>`memory_tuning`, `vacuum_tuning` | Tuning agent | Memory and autovacuum configuration changes. A recommendation without SQL is dropped. |
@@ -885,10 +885,27 @@ finding against the latest snapshot, deterministically.
 | `bloat_remediation` | the table has been under 10% dead tuples (or under 1,000 rows) for 2 consecutive cycles |
 | <a id="advisor_degraded"></a>`advisor_degraded` | the LLM is enabled again, or the advisor is disabled on purpose |
 
+A `connection_tuning` `info` row without SQL (pooler advice or an observation) has no
+setting to re-check and stays open until it is dismissed.
+
 A finding that still holds is re-emitted unchanged, and only its own setting,
 query or table is left out of the next model review. Dismissing a finding keeps
 working as before (it is suppressed). The first cycle after upgrading resolves
 WAL and connection findings a DBA already applied by hand.
+
+`wal_tuning` is grounded in the advisor window's checkpoint and WAL history (see
+[WAL and bloat advisors](configuration.md#wal-and-bloat-advisors)). It is not proposed
+while under 20% of the window's checkpoints are requested. A `max_wal_size` below the
+current value or below the measured floor (1.5 x WAL per `checkpoint_timeout`) is never
+emitted; the floor finding carries `max_wal_size_floor_bytes`,
+`wal_per_checkpoint_timeout_bytes`, `wal_bytes_per_hour`, `checkpoint_timeout_seconds`,
+`window_seconds`, `requested_share`, `current_max_wal_size_bytes` and `arithmetic` in its
+detail. Without the window's history every `wal_tuning` finding is advice without SQL.
+An executed change is verified by the requested share of checkpoints.
+
+`bloat_remediation` lists at most 50 tables per review, those with the most estimated
+dead bytes, and its dead-tuple trend spans the advisor window ("unknown" without a
+window-start snapshot).
 
 A global setting finding whose GUC some tables override (a per-table finding, or
 an explicit storage parameter) is kept, with `detail.overridden_by_tables` naming

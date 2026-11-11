@@ -404,7 +404,7 @@ func TestAnalyzeBloat_NilConfigData(t *testing.T) {
 		ConfigData: nil,
 	}
 	findings, err := analyzeBloat(
-		context.Background(), nil, snap, nil,
+		context.Background(), nil, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -428,7 +428,7 @@ func TestAnalyzeBloat_NoQualifyingTables(t *testing.T) {
 		},
 	}
 	findings, err := analyzeBloat(
-		context.Background(), nil, snap, nil,
+		context.Background(), nil, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -545,7 +545,7 @@ func TestAnalyzeWAL_NilConfigData(t *testing.T) {
 		ConfigData: nil,
 	}
 	findings, err := analyzeWAL(
-		context.Background(), nil, snap, nil,
+		context.Background(), nil, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -963,27 +963,6 @@ func TestCountUnloggedTables_MixedPersistence(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Connection churn calculation (connection.go)
-// ---------------------------------------------------------------------------
-
-func TestConnectionChurn_Rate(t *testing.T) {
-	// ConnectionChurn is raw over 5 minutes.
-	churn := 50
-	rate := float64(churn) / 5.0
-	if rate != 10.0 {
-		t.Fatalf("expected 10.0, got %.1f", rate)
-	}
-}
-
-func TestConnectionChurn_Zero(t *testing.T) {
-	churn := 0
-	rate := float64(churn) / 5.0
-	if rate != 0.0 {
-		t.Fatalf("expected 0.0, got %.1f", rate)
-	}
-}
-
-// ---------------------------------------------------------------------------
 // Vacuum with per-table autovacuum settings in global (vacuum.go)
 // ---------------------------------------------------------------------------
 
@@ -1239,7 +1218,7 @@ func TestAnalyzeBloat_FullPath_WithMockLLM(t *testing.T) {
 	}
 
 	findings, err := analyzeBloat(
-		context.Background(), mgr, snap, nil,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -1268,14 +1247,6 @@ func TestAnalyzeBloat_WithPrevSnapshot(t *testing.T) {
 	defer srv.Close()
 
 	now := time.Now()
-	prev := &collector.Snapshot{
-		CollectedAt: now.Add(-time.Hour),
-		Tables: []collector.TableStats{
-			{SchemaName: "public", RelName: "big",
-				NLiveTup: 7000, NDeadTup: 2000,
-				TableBytes: 50 * 1024 * 1024},
-		},
-	}
 	snap := &collector.Snapshot{
 		CollectedAt: now,
 		ConfigData: &collector.ConfigSnapshot{
@@ -1291,7 +1262,7 @@ func TestAnalyzeBloat_WithPrevSnapshot(t *testing.T) {
 	}
 
 	findings, err := analyzeBloat(
-		context.Background(), mgr, snap, prev,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -1318,7 +1289,7 @@ func TestAnalyzeBloat_LLMError(t *testing.T) {
 	}
 
 	_, err := analyzeBloat(
-		context.Background(), mgr, snap, nil,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err == nil {
@@ -1347,7 +1318,7 @@ func TestAnalyzeBloat_NilLastAutovacuum(t *testing.T) {
 	}
 
 	findings, err := analyzeBloat(
-		context.Background(), mgr, snap, nil,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -1396,7 +1367,6 @@ func TestAnalyzeConnections_FullPath(t *testing.T) {
 				{State: "idle in transaction", Count: 2,
 					AvgDurationSeconds: 45},
 			},
-			ConnectionChurn: 50,
 		},
 		System: collector.SystemStats{
 			ActiveBackends: 5,
@@ -1505,14 +1475,8 @@ func TestAnalyzeWAL_FullPath(t *testing.T) {
 		},
 	}
 
-	prev := &collector.Snapshot{
-		System: collector.SystemStats{
-			TotalCheckpoints: 120,
-		},
-	}
-
 	findings, err := analyzeWAL(
-		context.Background(), mgr, snap, prev,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -1535,7 +1499,7 @@ func TestAnalyzeWAL_LLMError(t *testing.T) {
 	}
 
 	_, err := analyzeWAL(
-		context.Background(), mgr, snap, nil,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err == nil {
@@ -1560,7 +1524,7 @@ func TestAnalyzeWAL_NoPrevSnapshot(t *testing.T) {
 	}
 
 	findings, err := analyzeWAL(
-		context.Background(), mgr, snap, nil,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -1759,7 +1723,7 @@ func TestAnalyzeBloat_MultipleTables_OnlyQualifyingIncluded(t *testing.T) {
 	}
 
 	findings, err := analyzeBloat(
-		context.Background(), mgr, snap, nil,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -1800,7 +1764,7 @@ func TestAnalyzeWAL_WithUnloggedTables(t *testing.T) {
 	}
 
 	findings, err := analyzeWAL(
-		context.Background(), mgr, snap, nil,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {

@@ -12,7 +12,7 @@ import (
 // walFactsSnapshot has every setting shape the WAL prompt renders: a
 // memory setting in 8kB pages with a pending restart, a time, a ratio,
 // an enum, and a setting the WAL advisor does not read.
-func walFactsSnapshot() (*collector.Snapshot, *collector.Snapshot) {
+func walFactsSnapshot() *collector.Snapshot {
 	snap := &collector.Snapshot{
 		ConfigData: &collector.ConfigSnapshot{
 			PGSettings: []collector.PGSetting{
@@ -30,16 +30,15 @@ func walFactsSnapshot() (*collector.Snapshot, *collector.Snapshot) {
 		Tables: []collector.TableStats{{RelName: "cache", Relpersistence: "u"},
 			{RelName: "orders", Relpersistence: "p"}},
 	}
-	prev := &collector.Snapshot{System: collector.SystemStats{TotalCheckpoints: 100}}
-	return snap, prev
+	return snap
 }
 
 func walPrompt(t *testing.T, env promptEnv) capturedPrompt {
 	t.Helper()
 	mgr, capture := capturingManager(t, "[]")
 	ctx := context.WithValue(context.Background(), promptEnvKey{}, env)
-	snap, prev := walFactsSnapshot()
-	if _, err := analyzeWAL(ctx, mgr, snap, prev, config.DefaultConfig(), noopLog); err != nil {
+	snap := walFactsSnapshot()
+	if _, err := analyzeWAL(ctx, mgr, snap, config.DefaultConfig(), noopLog); err != nil {
 		t.Fatalf("analyzeWAL: %v", err)
 	}
 	return onlyPrompt(t, capture())
@@ -54,8 +53,15 @@ func TestWALPrompt_ComputedFacts(t *testing.T) {
 		"checkpoint_completion_target": "0.9",
 		"wal_buffers":                  "4MB (pending_restart=true)",
 		"wal_level":                    "logical",
-		"Total checkpoints":            "400 (delta since last: 300)",
-		"WAL position":                 "0/3000148",
+		// advisors-05: the 60 s "delta since last" is gone; without the
+		// window's history every window fact is stated unknown.
+		"Total checkpoints since the statistics epoch": "400",
+		"Advisor window":            "24h0m0s, unknown (no snapshot history is available)",
+		"Checkpoints in the window": "unknown",
+		"WAL generated":             "unknown",
+		"Lowest max_wal_size":       "unknown (do not recommend a max_wal_size value)",
+		"Highest max_wal_size":      "unknown",
+		"WAL position":              "0/3000148",
 		"Note": "1 unlogged table(s) detected. Unlogged tables do NOT generate WAL, " +
 			"so low WAL activity may be expected if writes target them.",
 	}

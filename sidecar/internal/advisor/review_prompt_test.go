@@ -98,7 +98,7 @@ func TestTruncateAdvisorPrompt_UTF8AndBlockSafe(t *testing.T) {
 func TestAnalyzeBloat_DeadTuplesAreNotBloat(t *testing.T) {
 	mgr, prompts := capturingManager(t, "[]")
 	if _, err := analyzeBloat(context.Background(), mgr,
-		deadTupleSnapshot("orders"), nil, &config.Config{}, noopLog); err != nil {
+		deadTupleSnapshot("orders"), &config.Config{}, noopLog); err != nil {
 		t.Fatalf("analyzeBloat: %v", err)
 	}
 	p := prompts()

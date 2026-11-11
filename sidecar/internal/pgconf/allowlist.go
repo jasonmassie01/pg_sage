@@ -46,6 +46,8 @@ var executableGUCs = map[string]bool{
 	"track_activity_query_size":             true,
 	"jit":                                   true,
 	"max_connections":                       true,
+	// Database scope and approval only (DatabaseScopeApprovalOnly).
+	"idle_in_transaction_session_timeout": true,
 }
 
 func norm(name string) string { return strings.ToLower(strings.TrimSpace(name)) }
@@ -61,9 +63,10 @@ func AdvisorGUC(name string) bool {
 }
 
 // AutonomousGUC reports whether pg_sage may change the setting without an
-// operator: documented, ranged, and live after a reload.
+// operator: documented, ranged, live after a reload, and not a setting
+// changed only per database with approval (advisors-07).
 func AutonomousGUC(name string) bool {
-	return AdvisorGUC(name) && !RequiresRestart(name)
+	return AdvisorGUC(name) && !RequiresRestart(name) && !DatabaseScopeApprovalOnly(name)
 }
 
 // ValidateValue reports whether a proposed value is within the documented

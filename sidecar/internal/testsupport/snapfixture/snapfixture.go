@@ -238,7 +238,6 @@ func (st *state) advance(i int) {
 	st.system.Deadlocks += int64(st.rng.Intn(2))
 	st.wal += int64(st.rng.Intn(1 << 20))
 	st.config.WALPosition = fmt.Sprintf("0/%X", st.wal)
-	st.config.ConnectionChurn += st.rng.Intn(3)
 	for k := range st.config.ConnectionStates {
 		cs := &st.config.ConnectionStates[k]
 		cs.Count = st.rng.Intn(10)

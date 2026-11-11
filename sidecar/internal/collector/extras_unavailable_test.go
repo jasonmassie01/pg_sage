@@ -47,7 +47,7 @@ func goodConfigReads() map[string]fakeRead {
 		"connection_states": {rows: [][]any{{"active", 3, 1.5}}},
 		"wal_position":      {rows: [][]any{{"0/16B3748"}}},
 		"extensions":        {rows: [][]any{{"hypopg"}}},
-		"connection_churn":  {rows: [][]any{{7}}},
+		"database_owner":    {rows: [][]any{{true}}},
 	}
 }
 
@@ -68,8 +68,8 @@ func subReadOf(sql string) string {
 		return "wal_position"
 	case strings.Contains(sql, "pg_available_extensions"):
 		return "extensions"
-	case strings.Contains(sql, "interval '5 minutes'"):
-		return "connection_churn"
+	case strings.Contains(sql, "datdba"):
+		return "database_owner"
 	}
 	return ""
 }
@@ -201,9 +201,9 @@ func TestConfigSnapshot_AllSubReadsFillTheSnapshot(t *testing.T) {
 		cs.ConnectionStates[0].AvgDurationSeconds != 1.5 {
 		t.Fatalf("connection states = %+v", cs.ConnectionStates)
 	}
-	if cs.WALPosition != "0/16B3748" || cs.ConnectionChurn != 7 ||
+	if cs.WALPosition != "0/16B3748" || !cs.OwnsDatabase ||
 		strings.Join(cs.ExtensionsAvailable, ",") != "hypopg" {
-		t.Fatalf("wal %q churn %d extensions %v", cs.WALPosition, cs.ConnectionChurn,
+		t.Fatalf("wal %q owns database %v extensions %v", cs.WALPosition, cs.OwnsDatabase,
 			cs.ExtensionsAvailable)
 	}
 }
@@ -238,7 +238,7 @@ func TestConfigSnapshot_EverySubReadFailureFailsSnapshot(t *testing.T) {
 			if kind == "query" {
 				r.queryErr = errors.New("boom")
 			} else {
-				if name == "wal_position" || name == "connection_churn" {
+				if name == "wal_position" || name == "database_owner" {
 					continue // single-row reads have no row iteration
 				}
 				r.rowsErr = errors.New("connection reset mid-read")
@@ -262,7 +262,7 @@ func TestConfigSnapshot_ScanErrorFailsSnapshot(t *testing.T) {
 		"connection_states": {"active", "three", 1.5},
 		"wal_position":      {12},
 		"extensions":        {true},
-		"connection_churn":  {"seven"},
+		"database_owner":    {"yes"},
 	}
 	for name, row := range bad {
 		q := newFakeConfigQuerier()
@@ -303,7 +303,7 @@ func TestConfigSnapshot_NullWALPositionIsEmpty(t *testing.T) {
 	if err != nil || cs == nil || cs.WALPosition != "" {
 		t.Fatalf("snapshot %+v err %v, want an empty WAL position", cs, err)
 	}
-	if cs.PGSettings == nil || cs.ConnectionChurn != 7 {
+	if cs.PGSettings == nil || !cs.OwnsDatabase {
 		t.Fatalf("the rest of the snapshot was lost: %+v", cs)
 	}
 }

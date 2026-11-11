@@ -785,9 +785,7 @@ func TestAnalyze_ConnectionsHigh_GradualGrowth(t *testing.T) {
 			MaxConnections: 100,
 			CacheHitRatio:  0.999,
 		},
-		ConfigData: &collector.ConfigSnapshot{
-			ConnectionChurn: 10,
-		},
+		ConfigData: &collector.ConfigSnapshot{},
 	}
 	curr := &collector.Snapshot{
 		CollectedAt: time.Now(),
@@ -796,9 +794,7 @@ func TestAnalyze_ConnectionsHigh_GradualGrowth(t *testing.T) {
 			MaxConnections: 100,
 			CacheHitRatio:  0.999,
 		},
-		ConfigData: &collector.ConfigSnapshot{
-			ConnectionChurn: 12, // not 2x of 10
-		},
+		ConfigData: &collector.ConfigSnapshot{},
 	}
 
 	incidents := eng.Analyze(curr, prev, cfg, nil)

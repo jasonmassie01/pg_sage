@@ -63,7 +63,7 @@ var configSubReads = []configSubRead{
 	{"connection_states", readConnectionStates},
 	{"wal_position", readWALPosition},
 	{"extensions", readConfigExtensions},
-	{"connection_churn", readConnectionChurn},
+	{"database_owner", readDatabaseOwner},
 }
 
 // collectConfigSnapshot reads the advisor's configuration snapshot. Every
@@ -149,7 +149,14 @@ func readConfigExtensions(ctx context.Context, q catalogQuerier, cs *ConfigSnaps
 	return err
 }
 
-// readConnectionChurn counts new connections in the last 5 minutes.
-func readConnectionChurn(ctx context.Context, q catalogQuerier, cs *ConfigSnapshot) error {
-	return q.QueryRow(ctx, connectionChurnSQL).Scan(&cs.ConnectionChurn)
+// databaseOwnerSQL says whether the connected role has the privileges of
+// the database's owner (a superuser does), which ALTER DATABASE ... SET
+// needs (advisors-07).
+const databaseOwnerSQL = `/* pg_sage collector */
+		SELECT COALESCE((SELECT pg_has_role(current_user, d.datdba, 'USAGE')
+		  FROM pg_database d WHERE d.datname = current_database()), false)`
+
+// readDatabaseOwner reads whether pg_sage's role owns the database.
+func readDatabaseOwner(ctx context.Context, q catalogQuerier, cs *ConfigSnapshot) error {
+	return q.QueryRow(ctx, databaseOwnerSQL).Scan(&cs.OwnsDatabase)
 }

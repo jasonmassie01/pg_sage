@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/pg-sage/sidecar/internal/analyzer"
+	"github.com/pg-sage/sidecar/internal/pgconf"
 	"github.com/pg-sage/sidecar/internal/sanitize"
 )
 
@@ -63,7 +64,7 @@ func (env *matrixEnv) runEdge(t *testing.T, provider string, e rangeEdge) {
 		env.assertPostgresRefuses(t, provider, e)
 		return
 	}
-	if provider == "self-managed" {
+	if provider == "self-managed" && !pgconf.DatabaseScopeApprovalOnly(e.guc) {
 		env.applySystem(t, e, got, reset)
 		return
 	}
@@ -82,7 +83,14 @@ func (env *matrixEnv) expectExecutable(t *testing.T, provider, guc string) bool 
 func (env *matrixEnv) gate(t *testing.T, provider, sql string) analyzer.Finding {
 	t.Helper()
 	if provider == "self-managed" {
-		return gateMatrix(t, matrixFinding(sql), provider, "", env.adminRows)
+		// A database-scope setting (advisors-07) runs as ALTER DATABASE on
+		// the scratch database even on a self-managed server.
+		db := ""
+		if stmt, ok := pgconf.ParseAlterSystem(sql); ok &&
+			pgconf.DatabaseScopeApprovalOnly(stmt.Name) {
+			db = env.scratch
+		}
+		return gateMatrix(t, matrixFinding(sql), provider, db, env.adminRows)
 	}
 	return gateMatrix(t, matrixFinding(sql), provider, env.scratch, env.tenantRows)
 }

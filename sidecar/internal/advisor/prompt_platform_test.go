@@ -27,9 +27,9 @@ func walOnlyConfig(cfgEnv string) *config.Config {
 
 // reviewOnce runs Analyze's review step and returns the prompts it sent.
 func reviewOnce(t *testing.T, a *Advisor, capture func() []capturedPrompt,
-	snap, prev *collector.Snapshot) []capturedPrompt {
+	snap *collector.Snapshot) []capturedPrompt {
 	t.Helper()
-	if r := a.review(context.Background(), snap, prev); r.budgetErrors != 0 {
+	if r := a.review(context.Background(), snap); r.budgetErrors != 0 {
 		t.Fatalf("budget errors = %d", r.budgetErrors)
 	}
 	return capture()
@@ -48,8 +48,8 @@ func TestPromptPlatform_RDSNamesItsRestrictions(t *testing.T) {
 	a := New(nil, walOnlyConfig(""), nil, mgr, noopLog)
 	a.WithCloudEnv("rds")
 	a.WithPGVersion(170004)
-	snap, prev := walSnapshots()
-	p := onlyPrompt(t, reviewOnce(t, a, capture, snap, prev))
+	snap := walSnapshots()
+	p := onlyPrompt(t, reviewOnce(t, a, capture, snap))
 	for _, want := range []string{
 		"rds (managed service)", "ALTER SYSTEM unavailable", "parameter group",
 		"not through ALTER DATABASE", "max_wal_size, min_wal_size, wal_level",
@@ -73,10 +73,10 @@ func TestPromptPlatform_ConnectionAndBloatCarryPlatformAndDocs(t *testing.T) {
 	a := New(nil, cfg, nil, mgr, noopLog)
 	a.WithCloudEnv("azure")
 	a.WithPGVersion(180001)
-	snap, prev := walSnapshots()
+	snap := walSnapshots()
 	snap.Tables = []collector.TableStats{{SchemaName: "app", RelName: "orders",
 		NLiveTup: 9000, NDeadTup: 3000, TableBytes: 64 << 20}}
-	prompts := reviewOnce(t, a, capture, snap, prev)
+	prompts := reviewOnce(t, a, capture, snap)
 	if len(prompts) != 2 {
 		t.Fatalf("prompts sent = %d, want connection and bloat", len(prompts))
 	}
@@ -116,8 +116,8 @@ func TestPromptPlatform_FallsBackToConfigThenSelfManaged(t *testing.T) {
 			if c.override != "" {
 				a.WithCloudEnv(c.override)
 			}
-			snap, prev := walSnapshots()
-			p := onlyPrompt(t, reviewOnce(t, a, capture, snap, prev))
+			snap := walSnapshots()
+			p := onlyPrompt(t, reviewOnce(t, a, capture, snap))
 			if !strings.Contains(p.system, c.want) {
 				t.Errorf("system prompt lacks %q:\n%s", c.want, p.system)
 			}
@@ -160,8 +160,8 @@ func TestPromptPlatform_ParallelAdvisorsNameTheirOwn(t *testing.T) {
 		go func(r run) {
 			defer wg.Done()
 			for i := 0; i < rounds; i++ {
-				snap, prev := walSnapshots()
-				r.a.review(context.Background(), snap, prev)
+				snap := walSnapshots()
+				r.a.review(context.Background(), snap)
 			}
 		}(r)
 	}
@@ -251,9 +251,10 @@ func TestReview_PromptAndGateShareThePlatform(t *testing.T) {
 		t.Run(c.env, func(t *testing.T) {
 			mgr, capture := capturingManager(t, walAdvice)
 			a := New(nil, walOnlyConfig(""), nil, mgr, noopLog)
+			a.hist = walFixtureHistory{}
 			a.WithCloudEnv(c.env)
-			snap, prev := walSnapshots()
-			r := a.review(context.Background(), snap, prev)
+			snap := walSnapshots()
+			r := a.review(context.Background(), snap)
 			got, budget := r.findings, r.budgetErrors
 			p := onlyPrompt(t, capture())
 			if budget != 0 || !strings.Contains(p.system, c.note) {

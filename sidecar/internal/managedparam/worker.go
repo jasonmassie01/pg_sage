@@ -243,13 +243,19 @@ func ProducerCategories() []string { return append([]string(nil), producerCatego
 
 // intentRefusal says why the worker refuses a finding's intent ("" when
 // it may propose it): the finding must come from a producer category and
-// the parameter must be one the executor allowlists.
+// the parameter must be one the executor allowlists at instance scope.
 func intentRefusal(category string, in Intent) string {
 	if !slices.Contains(producerCategories, category) {
 		return fmt.Sprintf("category %q does not produce managed changes", category)
 	}
 	if !pgconf.ExecutableGUC(in.Parameter) {
 		return fmt.Sprintf("parameter %q is not on the executor's allowlist", in.Parameter)
+	}
+	if pgconf.DatabaseScopeApprovalOnly(in.Parameter) {
+		// advisors-07: a provider change is instance-wide; this setting is
+		// changed only per database (ALTER DATABASE), so it is never proposed.
+		return fmt.Sprintf("parameter %q is changed only per database, never through "+
+			"the provider", in.Parameter)
 	}
 	return ""
 }

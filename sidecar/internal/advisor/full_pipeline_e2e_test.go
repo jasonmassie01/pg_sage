@@ -33,7 +33,7 @@ func TestFullPipeline_AllAdvisorsRun(t *testing.T) {
 	before := mgr.General.TokensUsedToday()
 
 	if walFindings, err := analyzeWAL(
-		context.Background(), mgr, snap, nil, cfg, logFn,
+		context.Background(), mgr, snap, cfg, logFn,
 	); err != nil {
 		t.Errorf("WAL error: %v", err)
 	} else {
@@ -66,7 +66,7 @@ func TestFullPipeline_AllAdvisorsRun(t *testing.T) {
 	before = mgr.General.TokensUsedToday()
 
 	if bloatFindings, err := analyzeBloat(
-		context.Background(), mgr, snap, nil, cfg, logFn,
+		context.Background(), mgr, snap, cfg, logFn,
 	); err != nil {
 		t.Errorf("bloat error: %v", err)
 	} else {

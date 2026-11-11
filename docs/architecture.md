@@ -160,10 +160,10 @@ every text) runs at most hourly, and only when the entry or deallocation count m
 The catalog categories and the extras (`io`, `prepared_xacts`, `partitions`, `config_data`)
 share one retry budget per cycle: a read that hit a statement or lock timeout is read once
 more, and at most two reads are retried per cycle. `config_data` is all or nothing: if any of
-its sub-reads (`pg_settings`, `reloptions`, `connection_states`, `wal_position`, `extensions`,
-`connection_churn`) fails or returns a row that does not scan, the whole category is
-unavailable and the reason names the sub-read. On a hot standby the WAL position is the last
-WAL received (or replayed), since `pg_current_wal_lsn()` fails there.
+its sub-reads (`pg_settings`, `set_privileges`, `reloptions`, `connection_states`,
+`wal_position`, `extensions`, `database_owner`) fails or returns a row that does not
+scan, the whole category is unavailable and the reason names the sub-read. On a hot
+standby the WAL position is the last WAL received (or replayed), since `pg_current_wal_lsn()` fails there.
 
 `prepared_xacts` is stored as changes on a keyframe, paired by `gid`; a database with no
 prepared transaction stores `[]`, which differs from the missing row of an unknown cycle.

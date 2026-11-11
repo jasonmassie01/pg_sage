@@ -1092,6 +1092,82 @@ The floor reads the statements of the tables the `seq_scan_heavy` rule flagged t
 
 With HypoPG installed, a measured candidate below `llm.optimizer.hypopg_min_improvement_pct` is rejected and a verified one carries its `CREATE INDEX CONCURRENTLY`, executed only through the policy gate and trust level. Without HypoPG the finding is advisory: no executable SQL, the DDL in `detail.ddl`, and the note "HypoPG not installed: impact unmeasured". Floor findings carry `detail.source = "deterministic_floor"`.
 
+### Connection advisor
+
+The connection review (`connection_tuning`, every `advisor.interval_seconds`) sizes
+against the advisor window, not one moment:
+
+- **`max_connections` floor.** The lowest value it lets through is the peak of total
+  backends over the window (read from the `system` snapshots in `sage.snapshots`, or the
+  current count if higher) + `superuser_reserved_connections` + `reserved_connections`
+  (PostgreSQL 16+) + 10. A lower value is refused. Without a readable peak (no history yet,
+  or a history read error, logged with the database name) a value below the current total
+  backends + reserved slots + 10 is still refused, any other decrease is kept as advice
+  without SQL, and an increase is kept. A `max_connections` change always needs approval,
+  since it needs a restart.
+- **Scopes.** The prompt states this database's figures (active sessions, connection
+  states, sessions opened) apart from the instance's (total backends, its peak,
+  `max_connections`, reserved slots), which every database shares.
+- **Churn.** Sessions opened is the `pg_stat_database.sessions` delta over the window
+  (PostgreSQL 14+), so connections that already closed count; it is unknown when the
+  statistics were reset in the window. pg_sage's own sessions are included.
+- **Pooler advice and observations** are kept as `info` findings without SQL.
+- **`idle_in_transaction_session_timeout`** runs only at database scope and only with an
+  operator's approval: pg_sage turns the model's `ALTER SYSTEM SET` into
+  `ALTER DATABASE <this database> SET`, between 1 min and 24 h (0, disabled, is never
+  recommended), and the executor refuses it under `ALTER SYSTEM`. It is advice only when
+  pg_sage's role does not own the database. On RDS, Aurora, Cloud SQL, AlloyDB, Azure,
+  Neon, Supabase and Lakebase the same `ALTER DATABASE` form runs (the setting has user
+  context); it never becomes an instance-wide provider parameter change. Rollback restores
+  the database's prior value.
+- **`statement_timeout` and `idle_session_timeout`** are advice only, at every scope.
+
+In fleet mode the floor is instance-wide and the connection review runs once per
+instance, from the database that owns the instance settings; the timeout it proposes is
+for that database.
+
+### WAL and bloat advisors
+
+The WAL review (`wal_tuning`) and the bloat review (`bloat_remediation`) also reason over
+the advisor window (`advisor.interval_seconds`, a day by default). They compare the latest
+snapshot with the earliest `system` or `tables` snapshot inside the window, read from
+`sage.snapshots` through the history store, not with the previous collector snapshot.
+
+- **WAL facts.** The prompt states the window and what was measured over it: requested
+  and timed checkpoints and the requested share, WAL written per hour
+  (`pg_stat_wal.wal_bytes`, or the WAL insert position for snapshots from before
+  pg_sage recorded it) and WAL per `checkpoint_timeout`. A fact whose statistics were
+  reset in the window, or whose counter fell, is stated unknown. The window must span at
+  least 3 x `checkpoint_timeout`; a shorter history, or none, makes every fact unknown.
+- **No model call when checkpoints keep up.** Under a 20% requested share the WAL review
+  makes no model call.
+- **`max_wal_size` floor.** The lowest value pg_sage accepts is 1.5 x the WAL per
+  `checkpoint_timeout`, rounded up to a megabyte and kept within 512MB-64GB. A model value
+  below the current `max_wal_size` or below the floor is dropped; when the floor is a
+  raise, a finding that sets the floor replaces it, with the arithmetic in
+  `detail.arithmetic`. The model may raise the value up to 4 x the floor; above that it is
+  advice without SQL.
+- **Advisory without history.** With no window history (a new install, or retention
+  shorter than the window), every WAL finding is advice without SQL. A history read error
+  skips the WAL review for the cycle (it retries like a model error), so nothing is
+  recommended from one snapshot.
+- **Verification.** An executed `max_wal_size` or `checkpoint_timeout` change is judged
+  by the requested share of checkpoints over the monitor window against the lifetime
+  share at apply time (since the checkpoint statistics were last reset): improved under
+  20% or at half or less, with at least 3 checkpoints in the window. A lifetime share
+  already under 20% is insufficient evidence, even if the advisor window's share was
+  higher. A statistics reset is insufficient evidence; a WAL change is never judged a
+  regression.
+- **Bloat candidates.** The bloat prompt lists the 50 tables with the most estimated dead
+  bytes (data size x dead-tuple share), worst first, and states how many more were
+  omitted. Each table's dead-tuple trend compares with the window-start `tables`
+  snapshot; it is unknown when that snapshot is missing, younger than an hour (or half the
+  window), lacks the table, or cannot be read. Bloat advice stays advisory and never
+  `VACUUM FULL`.
+
+Checkpoints and WAL are cluster-wide: in fleet mode the WAL review runs once per
+instance, from the database that owns the instance settings. Bloat is per database.
+
 ### LLM provider errors and the circuit breaker
 
 Each LLM client classifies every provider error and reports the class as

@@ -106,7 +106,7 @@ var Docs = map[string]GUCDoc{
 		Unit: "bytes", BaseUnit: "MB", SafeMin: 512 << 20, SafeMax: 64 << 30,
 		VersionNotes: []VersionNote{{MinMajor: 17, Text: "On PostgreSQL 17+ checkpoint " +
 			"counts are in pg_stat_checkpointer (num_timed, num_requested), not " +
-			"pg_stat_bgwriter, and buffers_backend moved to pg_stat_io."}},
+			"pg_stat_bgwriter."}},
 	},
 	"min_wal_size": {
 		Description: "WAL kept for reuse instead of removed after a checkpoint.",
@@ -135,6 +135,18 @@ var Docs = map[string]GUCDoc{
 		Description: "Maximum concurrent connections. Requires a restart.",
 		Guidance:    "Prefer a connection pooler over raising this; each backend costs memory.",
 		Unit:        "count", SafeMin: 10, SafeMax: 10000,
+	},
+	// Database scope and approval only (advisors-07): the executor refuses
+	// it under ALTER SYSTEM. 0 (disabled) is not a recommendation.
+	// statement_timeout and idle_session_timeout have no entry on purpose:
+	// they stay advisory at every scope.
+	"idle_in_transaction_session_timeout": {
+		Description: "Ends a session that stays idle inside an open transaction longer " +
+			"than this. pg_sage sets it only for this database, with ALTER DATABASE, " +
+			"and only with an operator's approval.",
+		Guidance: "5-30min releases the locks and snapshots forgotten transactions " +
+			"hold; never recommend 0 (disabled).",
+		Unit: "ms", BaseUnit: "ms", SafeMin: 60_000, SafeMax: 86_400_000,
 	},
 	"autovacuum_max_workers": {
 		Description: "Maximum concurrent autovacuum workers. Requires a restart " +
