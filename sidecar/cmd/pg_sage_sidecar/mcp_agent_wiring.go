@@ -42,6 +42,7 @@ func agentToolOptions(c *config.Config) agenttools.Options {
 	}}
 	if c != nil {
 		opts.Explain = &c.Explain
+		opts.PlanMaxAgeMinutes = c.Tuner.PlanMaxAgeMinutes
 		opts.VerifyWindow = time.Duration(c.Verify.WindowMinutes) * time.Minute
 	}
 	return opts

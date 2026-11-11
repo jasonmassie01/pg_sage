@@ -216,9 +216,9 @@ func ExtractRelations(planJSON []byte) (map[string]bool, error) {
 	return out, nil
 }
 
-// planRelationNames returns the relation names (unqualified, as the
+// PlanRelationNames returns the relation names (unqualified, as the
 // catalog spells them) a plan scans, sorted and without duplicates.
-func planRelationNames(planJSON []byte) ([]string, error) {
+func PlanRelationNames(planJSON []byte) ([]string, error) {
 	root, err := parsePlanRoot(planJSON)
 	if err != nil {
 		return nil, fmt.Errorf("tuner: parse plan: %w", err)
