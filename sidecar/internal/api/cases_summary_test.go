@@ -247,6 +247,9 @@ func TestCasesSummary_EmptyFleetIsAnEmptyArray(t *testing.T) {
 	if un, ok := body["unavailable"].([]any); !ok || len(un) != 0 {
 		t.Fatalf("unavailable = %#v, want []", body["unavailable"])
 	}
+	if body["summary"] != true || body["limit"] != float64(5) {
+		t.Fatalf("summary %v limit %v, want true and 5 echoed", body["summary"], body["limit"])
+	}
 }
 
 // cases-05: one unreachable database is reported, not blanked, and the
@@ -278,6 +281,11 @@ func TestCasesSummaryLimit_UnreachableDatabaseIsReported(t *testing.T) {
 	}
 	if body["total"] != float64(4) {
 		t.Fatalf("total = %v, want the 4 readable cases", body["total"])
+	}
+	for _, row := range rawCaseRows(t, body) {
+		if _, ok := row["evidence"]; ok {
+			t.Fatalf("summary row %v carries evidence", row["id"])
+		}
 	}
 }
 
