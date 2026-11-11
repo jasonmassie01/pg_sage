@@ -309,7 +309,7 @@ func verificationPlanForAction(actionType string) []string {
 	if actionType == "apply_query_hint" {
 		return []string{
 			"verify hint row exists in hint_plan.hints",
-			"compare hinted and unhinted EXPLAIN costs",
+			"review the hinted vs unhinted EXPLAIN in detail.hint_evidence",
 			"monitor latency and plan stability after deployment",
 		}
 	}

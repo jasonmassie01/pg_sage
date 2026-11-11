@@ -456,6 +456,43 @@ On RDS, Aurora and Cloud SQL, `shared_preload_libraries` is set through the para
 database flag; `ALTER DATABASE ... SET pg_hint_plan.enable_hint_table = on` works as the
 database owner. pg_sage only reads these settings.
 
+### Every hint is planned before it is proposed
+
+Syntax alone does not prove a hint works: pg_hint_plan silently ignores an
+unknown alias or index, and a join or scan hint can make the plan worse. So
+before the tuner or the tuning agent proposes a hint, pg_sage plans the
+statement twice in one bounded `READ ONLY` transaction (the tuner's catalog
+`statement_timeout` and `lock_timeout`): once plain, once with `/*+ hint */`
+at the head of the statement. It never runs `ANALYZE`, never writes, and only
+turns comment hints on for that transaction; `hint_plan.hints` is ignored
+there, so a hint already installed for the statement never plans the plain
+side. A parameterized statement is planned with `GENERIC_PLAN` on PostgreSQL
+16 and later. Multi-statement text is refused before any `EXPLAIN`.
+
+The two plans are compared by shape (the plan hash) and root total cost:
+
+| Verdict | When | Result |
+|---|---|---|
+| `changed` | The hint changes the plan, and a join or scan hint keeps the estimated cost within `plain x (1 + tuner.hint_cost_tolerance_pct / 100)` (default 10). A `Set(work_mem)` hint whose plan keeps its shape is `changed` (basis `spill`) when the statement's cached `EXPLAIN ANALYZE` plan spills (a disk sort or more than one hash batch). | Executable hint |
+| `no_effect` | The hinted plan is the plain plan, or (pg_hint_plan 1.4-1.6) it rests on a disabled path because the alias or index is unknown | Refused |
+| `cost_regression` | A join or scan hint raises the estimated cost past the tolerance | Refused |
+| `explain_timeout`, `explain_failed` | An `EXPLAIN` hit its statement or lock timeout, or failed | Refused |
+| `unverifiable` | pg_hint_plan is not loaded in pg_sage's session (not preloaded for its role and `LOAD` not available), the statement is parameterized on PostgreSQL 14 or 15, or a `Set(work_mem)` hint has no spill evidence | The finding stays advisory: no `recommended_sql`, and nothing is recorded as `proposed` |
+
+Every compared finding carries `detail.hint_evidence`: `verdict`, `basis`,
+`reason`, `plain_cost`, `hinted_cost`, `cost_delta_pct`, `plain_plan_hash`,
+`hinted_plan_hash`, `pg_major`, `generic_plan`, `tolerance_pct`, and both plans
+(`plain_plan`, `hinted_plan`, each up to 64 KB) for the approval card. The
+tuning agent can run the same comparison itself with its `hinted_explain` tool
+(at most three per case); a hint it proposes with a `changed` verdict has the
+prediction note "plan cost comparison".
+
+Costs are the planner's estimates. The executor's post-apply verification of
+the query's latency stays the authority on whether a hint helped. On managed
+services pg_hint_plan must be preloaded through the parameter group or flags;
+otherwise hints stay advisory. The check runs per database in fleet mode.
+
+
 ---
 
 ## 11. Merge Join Hint &rarr; `MergeJoin(alias)`
@@ -628,15 +665,19 @@ skipped, `stale_reason`.
 Every hint pg_sage records lives in `sage.query_hints`. Its `status` moves
 through the states below. The revalidation loop (`tuner.verify_after_apply`,
 every `tuner.revalidation_interval_hours`) reads `active` and `dormant` hints.
-It has no counterfactual yet (it does not EXPLAIN the query with and without
-the hint), so it never removes a hint for working or for being old.
+It never removes a hint for working or for being old. A hint due for
+re-verification (`reverify_due`, after `tuner.hint_retirement_days`) is planned
+with and without the hint as above, from its `pg_stat_statements` text; the
+costs go to `before_cost`, `after_cost` and `verified_at`, and a `no_effect`
+verdict retires it (logged with reason `no_effect`). Any other verdict,
+`unverifiable` included, leaves it as it was.
 
 | Status | Meaning | Installed in `hint_plan.hints` |
 |--------|---------|--------------------------------|
 | `proposed` | The tuner recommended the hint; it waits for approval. | no |
 | `active` | The hint is installed and its query ran since the last revalidation. | yes |
 | `dormant` | The hint is installed, but its query has not run since the last revalidation, or its queryid is absent from `pg_stat_statements`. | yes |
-| `retired` | The query case's retire action retired the hint. Revalidation no longer retires. | removed through the `retire_query_hint` action |
+| `retired` | The query case's retire action retired the hint, or re-verification found it no longer changes the plan (`no_effect`). | removed through the `retire_query_hint` action |
 | `broken` | An index the hint names no longer exists. | removed through the `retire_query_hint` action |
 | `rolled_back` | The installed hint of an `active` or `dormant` row was removed (rollback or operator). | no |
 | `rejected` | An operator rejected the approval of the proposal's `query_tuning` finding. | no |
@@ -649,6 +690,7 @@ Transitions:
 | `proposed` | `active` | The executor installed exactly this hint text for the query (reconciled at the start of each tuner cycle). |
 | `active` | `dormant` | A revalidation pass sees no new calls since the last pass, or the queryid is absent from `pg_stat_statements` (an eviction, or a query that stopped running). |
 | `dormant` | `active` | A revalidation pass sees the summed calls advance again. |
+| `active`, `dormant` | `retired` | A revalidation pass of a hint due for re-verification plans the statement the same with and without it (`no_effect`). |
 | `active`, `dormant` | `broken` | A revalidation pass finds an index named in an `IndexScan` / `BitmapScan` directive missing from `pg_class`. |
 | `active`, `dormant` | `rolled_back` | The row for the query no longer holds this hint's text: it was removed, or an operator replaced it with their own hint (reconciled at the start of each tuner cycle). |
 | `proposed` | `rejected` | An operator (`decided_by` set) rejected an approval of the statement's `query_tuning` finding after the proposal was made. A system expiry of the queue item rejects nothing. Reconciled at the start of each tuner cycle, with or without a hint table. |

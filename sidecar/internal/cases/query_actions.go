@@ -117,7 +117,7 @@ func applyQueryHintCandidate(f SourceFinding) ActionCandidate {
 		RollbackClass: "reversible",
 		VerificationPlan: []string{
 			"verify hint row exists in hint_plan.hints",
-			"compare hinted and unhinted EXPLAIN costs",
+			"review the hinted vs unhinted EXPLAIN in detail.hint_evidence",
 			"monitor query latency and error rate after deployment",
 		},
 		BlockedReason: "planner hints require approval and revalidation",
