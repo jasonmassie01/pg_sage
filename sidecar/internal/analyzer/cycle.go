@@ -130,6 +130,10 @@ func (a *Analyzer) runSnapshotRules(
 			// The zero-scan clock's restart warmup and holds (rules-04).
 			a.holdUnusedFindings(current, previous, got)
 		}
+		if rule.Name == "index_bloat" {
+			// An index read without an estimate is no verdict (rules-13).
+			a.eval.keep("index_bloat", current.IndexBloatUnknown...)
+		}
 		if rule.Name == "inactive_slots" && a.extras != nil && a.extras.InactiveSlotPending {
 			a.eval.fail("inactive_slot")
 		}

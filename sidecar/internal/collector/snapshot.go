@@ -47,9 +47,12 @@ type Snapshot struct {
 
 	// IndexBloat is the catalog-statistics bloat estimate of the largest
 	// btree indexes (rules-13); nil when it was not read. Truncated is set
-	// when more indexes were above the size floor than the row cap read.
+	// when more indexes were above the size floor than the row cap read;
+	// Unknown names (schema.index) the indexes read without an estimate (a
+	// key column without statistics). Neither proves that an index shrank.
 	IndexBloat          []IndexBloat `json:"index_bloat,omitempty"`
 	IndexBloatTruncated bool         `json:"-"`
+	IndexBloatUnknown   []string     `json:"-"`
 }
 
 // Available reports whether category was read this cycle.

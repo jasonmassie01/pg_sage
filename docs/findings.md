@@ -275,7 +275,10 @@ largest per cycle. Left out:
 - partitioned indexes (relkind `I`): each leaf partition's index is judged on its own, since a
   `REINDEX CONCURRENTLY` of the parent rebuilds every partition;
 - indexes whose table or index has no `reltuples` (never vacuumed or analyzed), or whose key
-  columns have no `pg_stats` row (never analyzed, or the role cannot read the column);
+  columns have no `pg_stats` row (never analyzed, or the role cannot read the column: the
+  estimate needs `SELECT` on the indexed columns, and for an expression index ownership of the
+  index or `pg_read_all_data`). An open finding on an index read without an estimate is
+  kept, not resolved;
 - the system schemas, `sage`, TOAST and temporary tables.
 
 `relpages` and `reltuples` are as of the last `VACUUM`, `ANALYZE` or rebuild, so rows deleted

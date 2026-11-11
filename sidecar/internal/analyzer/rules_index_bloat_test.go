@@ -184,3 +184,28 @@ func TestIndexBloat_RebuiltIndexResolvesNextCycle(t *testing.T) {
 		t.Fatal("failed read: index_bloat claimed evaluated")
 	}
 }
+
+// Review (rules-13), state: an index read this cycle without an estimate
+// (a key column lost its statistics) is no verdict. The category still
+// resolves, but that index's open finding is kept, while a reading
+// without unknown indexes keeps nothing.
+func TestIndexBloat_UnknownEstimateHoldsOpenFinding(t *testing.T) {
+	cfg := phase2Config()
+	a := New(nil, cfg, nil, nil, nil, nil, nil, noopLog)
+	a.eval = newCycleEval()
+	snap := bloatSnapshot(bloatRow("public", "clean_idx", 2))
+	snap.IndexBloatUnknown = []string{"public.o_idx"}
+	a.runSnapshotRules(snap, nil, true)
+	if !a.eval.resolvable(nil)["index_bloat"] {
+		t.Fatal("index_bloat not evaluated with a complete, untruncated reading")
+	}
+	kept := a.eval.kept("index_bloat")
+	if !kept["public.o_idx"] || kept["public.clean_idx"] || len(kept) != 1 {
+		t.Fatalf("kept = %v, want only public.o_idx held open", kept)
+	}
+	a.eval = newCycleEval()
+	a.runSnapshotRules(bloatSnapshot(bloatRow("public", "clean_idx", 2)), nil, true)
+	if kept := a.eval.kept("index_bloat"); len(kept) != 0 {
+		t.Fatalf("no unknown indexes: kept = %v, want none", kept)
+	}
+}

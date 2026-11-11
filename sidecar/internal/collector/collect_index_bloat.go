@@ -91,43 +91,57 @@ SELECT i.nspname, i.tblname, i.idxname, i.idxoid, i.relpages, i.fillfactor, i.re
   JOIN widths w ON w.idxoid = i.idxoid
  ORDER BY i.relpages DESC, i.idxoid`
 
+// indexBloatGaps is what one index_bloat reading could not judge, so an
+// index missing from its rows is no proof that it shrank: truncated is set
+// when more indexes were above the floor than the row cap read, and
+// unknown names (schema.index) the indexes read whose estimate is unknown
+// (a key column without statistics).
+type indexBloatGaps struct {
+	truncated bool
+	unknown   []string
+}
+
 // collectIndexBloat reads the index_bloat category in one bounded catalog
 // statement. It asks for one row past the cap: when that row exists the
-// reading is truncated, so a missing index is not proof it shrank. An
-// index without complete key statistics is left out. The rows are never
-// nil on success: no index above the floor is an empty reading.
-func (c *Collector) collectIndexBloat(ctx context.Context) ([]IndexBloat, bool, error) {
+// reading is truncated. An index without complete key statistics is left
+// out of the rows and named in the gaps. The rows are never nil on
+// success: no index above the floor is an empty reading.
+func (c *Collector) collectIndexBloat(
+	ctx context.Context,
+) ([]IndexBloat, indexBloatGaps, error) {
+	var gaps indexBloatGaps
 	rows, err := c.catalogQuery(ctx, indexBloatSQL,
 		c.cfg.Analyzer.IndexBloatFloorBytes(), indexBloatRowCap+1)
 	if err != nil {
-		return nil, false, fmt.Errorf("collect index bloat: %w", err)
+		return nil, gaps, fmt.Errorf("collect index bloat: %w", err)
 	}
 	defer rows.Close()
 	out := []IndexBloat{}
-	read, truncated := 0, false
-	for rows.Next() {
-		if read++; read > indexBloatRowCap {
-			truncated = true
+	for read := 1; rows.Next(); read++ {
+		if read > indexBloatRowCap {
+			gaps.truncated = true
 			break
 		}
 		ib, ok, err := scanIndexBloat(rows)
 		if err != nil {
-			return nil, false, fmt.Errorf("collect index bloat: scan: %w", err)
+			return nil, indexBloatGaps{}, fmt.Errorf("collect index bloat: scan: %w", err)
 		}
 		if ok {
 			out = append(out, ib)
+		} else {
+			gaps.unknown = append(gaps.unknown, ib.SchemaName+"."+ib.IndexRelName)
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, false, fmt.Errorf("collect index bloat: %w", err)
+		return nil, indexBloatGaps{}, fmt.Errorf("collect index bloat: %w", err)
 	}
-	return out, truncated, nil
+	return out, gaps, nil
 }
 
 type rowScanner interface{ Scan(dest ...any) error }
 
 // scanIndexBloat reads one row; ok is false when the estimate is unknown
-// (a key column without statistics).
+// (a key column without statistics), and only the names are then set.
 func scanIndexBloat(row rowScanner) (IndexBloat, bool, error) {
 	var ib IndexBloat
 	var blockSize int64
@@ -137,7 +151,7 @@ func scanIndexBloat(row rowScanner) (IndexBloat, bool, error) {
 		return IndexBloat{}, false, err
 	}
 	if est == nil || ib.RelPages <= 0 {
-		return IndexBloat{}, false, nil
+		return IndexBloat{SchemaName: ib.SchemaName, IndexRelName: ib.IndexRelName}, false, nil
 	}
 	ib.EstimatedPages = *est
 	ib.IndexBytes = ib.RelPages * blockSize

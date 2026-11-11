@@ -2,6 +2,7 @@ package collector
 
 import (
 	"context"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -51,7 +52,7 @@ func ibCollector(t *testing.T, pool *pgxpool.Pool, floor int64) *Collector {
 // ibRows reads the category and keeps the test schema's rows by index name.
 func ibRows(t *testing.T, c *Collector) (map[string]IndexBloat, bool) {
 	t.Helper()
-	rows, truncated, err := c.collectIndexBloat(context.Background())
+	rows, gaps, err := c.collectIndexBloat(context.Background())
 	if err != nil {
 		t.Fatalf("collectIndexBloat: %v", err)
 	}
@@ -64,7 +65,7 @@ func ibRows(t *testing.T, c *Collector) (map[string]IndexBloat, bool) {
 			out[r.IndexRelName] = r
 		}
 	}
-	return out, truncated
+	return out, gaps.truncated
 }
 
 func mustRow(t *testing.T, c *Collector, index string) IndexBloat {
@@ -191,10 +192,10 @@ func TestCollectIndexBloat_SkipsInvalidAndUnanalyzed(t *testing.T) {
 // untruncated reading without error.
 func TestCollectIndexBloat_NothingAboveFloor(t *testing.T) {
 	pool := testPool(t)
-	rows, truncated, err := ibCollector(t, pool, 1<<40).collectIndexBloat(context.Background())
-	if err != nil || rows == nil || len(rows) != 0 || truncated {
-		t.Fatalf("1 TiB floor: rows %v (nil %v), truncated %v, err %v; want [] untruncated",
-			rows, rows == nil, truncated, err)
+	rows, gaps, err := ibCollector(t, pool, 1<<40).collectIndexBloat(context.Background())
+	if err != nil || rows == nil || len(rows) != 0 || gaps.truncated || gaps.unknown != nil {
+		t.Fatalf("1 TiB floor: rows %v (nil %v), gaps %+v, err %v; want [] without gaps",
+			rows, rows == nil, gaps, err)
 	}
 }
 
@@ -219,13 +220,13 @@ func TestCollectIndexBloat_RowCapOnThousandIndexes(t *testing.T) {
 	c := ibCollector(t, pool, 1)
 	statements := 0
 	c.onCatalogQuery = func(context.Context, pgx.Tx, string, []any) { statements++ }
-	rows, truncated, err := c.collectIndexBloat(ctx)
+	rows, gaps, err := c.collectIndexBloat(ctx)
 	if err != nil {
 		t.Fatalf("collectIndexBloat: %v", err)
 	}
-	if len(rows) != indexBloatRowCap || indexBloatRowCap != 200 || !truncated {
+	if len(rows) != indexBloatRowCap || indexBloatRowCap != 200 || !gaps.truncated {
 		t.Fatalf("rows = %d (cap %d), truncated %v; want 200, truncated",
-			len(rows), indexBloatRowCap, truncated)
+			len(rows), indexBloatRowCap, gaps.truncated)
 	}
 	if statements != 1 {
 		t.Fatalf("catalog statements = %d, want 1 per reading", statements)
@@ -249,4 +250,54 @@ func TestCollectIndexBloat_ClosedPoolFails(t *testing.T) {
 		t.Fatalf("closed pool: rows %v, err %v; want nil rows and a collect index bloat error",
 			rows, err)
 	}
+}
+
+// Review (rules-13): an index read whose key column has no statistics has
+// no estimate. It is left out of the rows but named in the gaps, so the
+// analyzer can hold its open finding instead of resolving it; the step
+// copies the gaps onto the snapshot.
+func TestCollectIndexBloat_UnknownEstimateNamedInGaps(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	ibFixture(t, ctx, pool)
+	bloatTable(t, ctx, pool, "known", 50000)
+	bloatTable(t, ctx, pool, "nostats", 50000)
+	ibExec(t, ctx, pool, "ANALYZE "+ibSchema+".known")
+	c := ibCollector(t, pool, 8192)
+	rows, gaps, err := c.collectIndexBloat(ctx)
+	if err != nil {
+		t.Fatalf("collectIndexBloat: %v", err)
+	}
+	unknown := map[string]bool{}
+	for _, id := range gaps.unknown {
+		unknown[id] = true
+	}
+	if !unknown[ibSchema+".nostats_id_idx"] || unknown[ibSchema+".known_id_idx"] {
+		t.Fatalf("gaps.unknown = %v, want %s.nostats_id_idx and not known_id_idx",
+			gaps.unknown, ibSchema)
+	}
+	for _, r := range rows {
+		if r.SchemaName == ibSchema && r.IndexRelName == "nostats_id_idx" {
+			t.Fatalf("index without statistics has a row: %+v", r)
+		}
+	}
+	for _, st := range c.extraSteps() {
+		if st.name != "index_bloat" {
+			continue
+		}
+		snap := &Snapshot{}
+		if err := st.run(ctx, snap); err != nil {
+			t.Fatalf("index_bloat step: %v", err)
+		}
+		if !slices.Contains(snap.IndexBloatUnknown, ibSchema+".nostats_id_idx") {
+			t.Fatalf("snapshot unknown = %v, want the index without statistics",
+				snap.IndexBloatUnknown)
+		}
+		st.reset(snap)
+		if snap.IndexBloatUnknown != nil {
+			t.Fatalf("reset kept unknown %v", snap.IndexBloatUnknown)
+		}
+		return
+	}
+	t.Fatal("no index_bloat extra step")
 }
