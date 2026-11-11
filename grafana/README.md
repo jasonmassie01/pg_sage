@@ -6,6 +6,9 @@ Pre-built Grafana dashboard for monitoring pg_sage and PostgreSQL health.
 
 - Grafana 10.0+
 - Prometheus datasource configured and scraping the pg_sage sidecar `/metrics` endpoint
+- postgres_exporter scraping the same database for the Connection & Performance and
+  Database Health rows (pg_sage stopped exporting connection and cache-hit families in
+  v2.7.0)
 
 ## Import Steps
 
@@ -42,4 +45,11 @@ scrape_configs:
       - targets: ['localhost:9187']
 ```
 
-Adjust the target host and port to match your sidecar configuration.
+Adjust the target host and port to match your sidecar configuration. Keep the job name
+`pg_sage`: the alert rules in `deploy/prometheus/pg_sage.rules.yml` match it.
+
+## Metrics and alerts
+
+Every family the dashboard reads is listed, with its labels and meaning, in the
+[metrics reference](../docs/metrics.md), which also lists the families renamed or removed
+in v2.7.0 and the runbook of each shipped alert.

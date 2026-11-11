@@ -836,6 +836,21 @@ jobs:
           version: v2.14.0
           args: --timeout 5m
 
+  # observability-09: the shipped alert rules load and their unit tests
+  # pass, with a pinned promtool (CHECK-23). sidecar/cmd/gen_metrics_doc's
+  # Go tests check the rules against the metrics registry.
+  alert-rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: promtool check and test rules
+        run: |
+          docker run --rm -v "$PWD/deploy/prometheus:/rules:ro" -w /rules \
+            --entrypoint promtool prom/prometheus:v2.55.1 check rules pg_sage.rules.yml
+          docker run --rm -v "$PWD/deploy/prometheus:/rules:ro" -w /rules \
+            --entrypoint promtool prom/prometheus:v2.55.1 test rules pg_sage.rules_test.yml
+
   # vacuum-03: float-to-Duration overflow differs by architecture (amd64
   # wraps to MinInt64, arm64 saturates), so the freeze deadline and the
   # policy checks that consume it also run on arm64. Unit tests only.

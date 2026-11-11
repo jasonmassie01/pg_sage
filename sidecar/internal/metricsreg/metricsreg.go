@@ -6,6 +6,8 @@
 // from Families.
 package metricsreg
 
+//go:generate go run ../../cmd/gen_metrics_doc -out ../../../docs/metrics.md
+
 import (
 	"flag"
 	"fmt"

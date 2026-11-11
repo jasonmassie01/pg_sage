@@ -205,7 +205,7 @@ do that with a single sidecar.
 
 The metrics `pg_sage_leader`, `pg_sage_leader_transitions_total` and
 `pg_sage_leader_last_renew_age_seconds` show the election per scope; see
-[Key Metrics to Alert On](deployment.md#key-metrics-to-alert-on).
+the [metrics reference](metrics.md#process-and-scrape).
 
 ## LLM budget split
 

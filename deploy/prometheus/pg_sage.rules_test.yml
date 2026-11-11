@@ -1,0 +1,226 @@
+# promtool test rules pg_sage.rules_test.yml (observability-09). CI runs
+# this with a pinned promtool; sidecar/cmd/gen_metrics_doc's tests check
+# that every alert in pg_sage.rules.yml is exercised here.
+rule_files:
+  - pg_sage.rules.yml
+
+evaluation_interval: 1m
+
+tests:
+  # Boundary: down for 6 minutes fires, down for 4 does not.
+  - interval: 1m
+    input_series:
+      - series: 'pg_sage_database_up{database="a"}'
+        values: '0x10'
+      - series: 'pg_sage_database_up{database="b"}'
+        values: '1x10'
+      - series: 'pg_sage_database_up{database="c"}'
+        values: '0 0 0 0 1x6'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: PgSageDatabaseDown
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: PgSageDatabaseDown
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              database: a
+            exp_annotations:
+              summary: "pg_sage cannot reach database a"
+              runbook_url: "https://jasonmassie01.github.io/pg_sage/metrics/#pgsagedatabasedown"
+
+  # One failed-action increment fires once, then the alert clears.
+  - interval: 1m
+    input_series:
+      - series: 'pg_sage_actions_total{database="a",class="index",outcome="failed"}'
+        values: '0x5 1x30'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: PgSageActionFailed
+        exp_alerts: []
+      - eval_time: 7m
+        alertname: PgSageActionFailed
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              database: a
+              class: index
+              outcome: failed
+            exp_annotations:
+              summary: "pg_sage recorded a failed action on a"
+              runbook_url: "https://jasonmassie01.github.io/pg_sage/metrics/#pgsageactionfailed"
+      - eval_time: 25m
+        alertname: PgSageActionFailed
+        exp_alerts: []
+
+  # No increment stays silent, and an old failure time does not alert.
+  - interval: 1m
+    input_series:
+      - series: 'pg_sage_actions_total{database="a",class="index",outcome="failed"}'
+        values: '2x30'
+      - series: 'pg_sage_action_last_failure_timestamp_seconds{database="a"}'
+        values: '0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PgSageActionFailed
+        exp_alerts: []
+
+  # A database's first failure: the counter series is new at 1, so only
+  # the persisted failure time can fire; it clears after 15 minutes.
+  - interval: 1m
+    input_series:
+      - series: 'pg_sage_actions_total{database="b",class="vacuum",outcome="failed"}'
+        values: '_x6 1x20'
+      - series: 'pg_sage_action_last_failure_timestamp_seconds{database="b"}'
+        values: '_x6 360x20'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: PgSageActionFailed
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              database: b
+            exp_annotations:
+              summary: "pg_sage recorded a failed action on b"
+              runbook_url: "https://jasonmassie01.github.io/pg_sage/metrics/#pgsageactionfailed"
+      - eval_time: 22m
+        alertname: PgSageActionFailed
+        exp_alerts: []
+
+  # A rollback fires while it is within the hour; a zero series does not.
+  - interval: 1m
+    input_series:
+      - series: 'pg_sage_actions_total{database="a",class="index",outcome="rolled_back"}'
+        values: '0x5 1x80'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: PgSageActionRolledBack
+        exp_alerts: []
+      - eval_time: 7m
+        alertname: PgSageActionRolledBack
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              database: a
+              class: index
+              outcome: rolled_back
+            exp_annotations:
+              summary: "A pg_sage index action was rolled back on a"
+              runbook_url: "https://jasonmassie01.github.io/pg_sage/metrics/#pgsageactionrolledback"
+      - eval_time: 75m
+        alertname: PgSageActionRolledBack
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      - series: 'pg_sage_slo_state{database="a",slo="latency",kind="latency",state="page"}'
+        values: '0 1x5'
+      - series: 'pg_sage_slo_state{database="a",slo="latency",kind="latency",state="ok"}'
+        values: '1 0x5'
+    alert_rule_test:
+      - eval_time: 0m
+        alertname: PgSageSLOPage
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: PgSageSLOPage
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              database: a
+              slo: latency
+              kind: latency
+              state: page
+            exp_annotations:
+              summary: "SLO latency on a burns its error budget fast"
+              runbook_url: "https://jasonmassie01.github.io/pg_sage/metrics/#pgsageslopage"
+
+  # The oldest investigation passes an hour at 11m; the alert fires 10m on.
+  - interval: 1m
+    input_series:
+      - series: 'pg_sage_sre_investigation_oldest_open_age_seconds{database="a"}'
+        values: '3000+60x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PgSageInvestigationBacklogOld
+        exp_alerts: []
+      - eval_time: 22m
+        alertname: PgSageInvestigationBacklogOld
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              database: a
+            exp_annotations:
+              summary: "A Sage SRE investigation on a has been open over an hour"
+              runbook_url: "https://jasonmassie01.github.io/pg_sage/metrics/#pgsageinvestigationbacklogold"
+
+  - interval: 1m
+    input_series:
+      - series: 'up{job="pg_sage",instance="sage:1"}'
+        values: '0x10'
+      - series: 'up{job="pg_sage",instance="sage:2"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: PgSageDown
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              job: pg_sage
+              instance: "sage:1"
+            exp_annotations:
+              summary: "pg_sage target sage:1 is not being scraped"
+              runbook_url: "https://jasonmassie01.github.io/pg_sage/metrics/#pgsagedown"
+
+  # Last success at time 0: stale from 4m (240 s > 180 s), firing 2m on.
+  # Database b collects every minute and never alerts.
+  - interval: 1m
+    input_series:
+      - series: 'pg_sage_collector_last_success_timestamp_seconds{database="a"}'
+        values: '0x20'
+      - series: 'pg_sage_collector_last_success_timestamp_seconds{database="b"}'
+        values: '0+60x20'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: PgSageCollectorStale
+        exp_alerts: []
+      - eval_time: 7m
+        alertname: PgSageCollectorStale
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              database: a
+            exp_annotations:
+              summary: "pg_sage has not collected a snapshot of a in 3 intervals"
+              runbook_url: "https://jasonmassie01.github.io/pg_sage/metrics/#pgsagecollectorstale"
+
+  - interval: 1m
+    input_series:
+      - series: 'pg_sage_llm_circuit_open'
+        values: '1x20'
+      - series: 'pg_sage_self_budget_exceeded{database="a",resource="cpu"}'
+        values: '1x20'
+      - series: 'pg_sage_self_budget_exceeded{database="a",resource="io"}'
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: PgSageLLMCircuitOpen
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: PgSageLLMCircuitOpen
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+            exp_annotations:
+              summary: "pg_sage's LLM circuit breaker has been open for 15 minutes"
+              runbook_url: "https://jasonmassie01.github.io/pg_sage/metrics/#pgsagellmcircuitopen"
+      - eval_time: 16m
+        alertname: PgSageSelfBudgetExceeded
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              database: a
+              resource: cpu
+            exp_annotations:
+              summary: "pg_sage exceeds its cpu budget on a"
+              runbook_url: "https://jasonmassie01.github.io/pg_sage/metrics/#pgsageselfbudgetexceeded"
