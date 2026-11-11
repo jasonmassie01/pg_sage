@@ -10,10 +10,12 @@ import (
 )
 
 // Typed runbooks (AI-SRE-SPEC §7.1, §10 sre_runbooks). A runbook belongs to
-// one database. Each edit appends an immutable version; a version runs
-// only when it is the latest, an admin signed its exact content hash, the
-// stored content still hashes to it, it still validates against today's
-// catalogs and the runbook is not retired.
+// one database. Each edit appends an immutable version. The running
+// version is the newest one an admin signed whose stored content still
+// hashes to the signed hash; it runs while it validates against today's
+// catalogs and the runbook is not retired. A newer unsigned version is a
+// draft staged beside it: it never runs and never inherits a signature
+// until an admin signs it (playbooks-10).
 
 // RunbookStatus is a runbook's state as surfaces show it.
 type RunbookStatus string
@@ -87,22 +89,26 @@ type RunbookVersion struct {
 	contentValid   bool
 }
 
-// Runbook is a runbook with its latest version (and, from GetRunbook,
-// every version newest first).
+// Runbook is a runbook with its latest version, the version that runs
+// (and, from GetRunbook, every version newest first). Status describes
+// the latest version; Runnable and Running describe what runs.
 type Runbook struct {
-	ID            UUID             `json:"id"`
-	Scope         Scope            `json:"-"`
-	LatestVersion int              `json:"latest_version"`
-	Status        RunbookStatus    `json:"status"`
-	Runnable      bool             `json:"runnable"`
-	CreatedBy     string           `json:"created_by"`
-	CreatedAt     time.Time        `json:"created_at"`
-	UpdatedAt     time.Time        `json:"updated_at"`
-	RetiredBy     string           `json:"retired_by,omitempty"`
-	RetiredAt     *time.Time       `json:"retired_at"`
-	Latest        RunbookVersion   `json:"latest"`
-	Versions      []RunbookVersion `json:"versions,omitempty"`
-	Problems      runbook.Problems `json:"problems,omitempty"`
+	ID            UUID          `json:"id"`
+	Scope         Scope         `json:"-"`
+	LatestVersion int           `json:"latest_version"`
+	Status        RunbookStatus `json:"status"`
+	Runnable      bool          `json:"runnable"`
+	// RunningVersion is the version that runs, 0 when none does.
+	RunningVersion int              `json:"running_version"`
+	Running        *RunbookVersion  `json:"running,omitempty"`
+	CreatedBy      string           `json:"created_by"`
+	CreatedAt      time.Time        `json:"created_at"`
+	UpdatedAt      time.Time        `json:"updated_at"`
+	RetiredBy      string           `json:"retired_by,omitempty"`
+	RetiredAt      *time.Time       `json:"retired_at"`
+	Latest         RunbookVersion   `json:"latest"`
+	Versions       []RunbookVersion `json:"versions,omitempty"`
+	Problems       runbook.Problems `json:"problems,omitempty"`
 }
 
 // RunbookInput is the content of a new version.

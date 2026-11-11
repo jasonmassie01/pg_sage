@@ -616,7 +616,7 @@ Scope: `read`
 
 ### `sre_draft_runbook`
 
-Create a runbook draft from a typed definition, or add a draft version (runbook_id and base_version). Drafts never run until an admin signs them in pg_sage.
+Create a runbook draft from a typed definition, or add a draft version (runbook_id and base_version). Drafts never run until an admin signs them in pg_sage; a signed version keeps running until the new draft is signed.
 
 Scope: `propose`
 

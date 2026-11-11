@@ -65,7 +65,8 @@ func runbookTools() []Tool {
 				`["investigation_id"]`)},
 		{Name: "sre_draft_runbook", Description: "Create a runbook draft from a typed " +
 			"definition, or add a draft version (runbook_id and base_version). Drafts " +
-			"never run until an admin signs them in pg_sage",
+			"never run until an admin signs them in pg_sage; a signed version keeps " +
+			"running until the new draft is signed",
 			InputSchema: schema(rb+`,"base_version":{"type":"integer","minimum":1},`+
 				`"definition":{"type":"object"}`, `["definition"]`)},
 		{Name: "sre_compile_runbook", Description: "Compile an English playbook into a " +
