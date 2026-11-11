@@ -3,13 +3,11 @@ package optimizer
 import (
 	"fmt"
 	"hash/fnv"
-	"regexp"
 	"slices"
 	"sort"
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/sqlident"
-	"github.com/pg-sage/sidecar/internal/workload"
 )
 
 // floorMaxSelectivity is the largest equality selectivity (the fraction
@@ -20,79 +18,6 @@ const floorMaxSelectivity = 0.20
 
 // floorMaxEqualityKeys bounds the equality keys of the composite candidate.
 const floorMaxEqualityKeys = 2
-
-var (
-	floorLeadRe   = regexp.MustCompile(`(?i)^\s*(SELECT|UPDATE|DELETE)\b`)
-	floorWhereRe  = regexp.MustCompile(`(?i)\bWHERE\b`)
-	floorSelectRe = regexp.MustCompile(`(?i)\bSELECT\b`)
-	floorOrRe     = regexp.MustCompile(`(?i)\bOR\b`)
-	floorEndRe    = regexp.MustCompile(`(?i)\b(?:GROUP\s+BY|ORDER\s+BY|LIMIT|OFFSET|HAVING|` +
-		`RETURNING|WINDOW|FETCH|FOR\s+(?:UPDATE|SHARE|NO\s+KEY|KEY))\b`)
-	floorRangeRe = regexp.MustCompile(
-		`(?i)(\w+)\s*(?:<=|>=|<|>)\s*\$\d+|(\w+)\s+BETWEEN\s+\$\d+`)
-)
-
-// floorFilter is one statement's filter columns: equality, then range.
-type floorFilter struct {
-	eq, rng []string
-	calls   int64
-}
-
-// parseFloorFilters reads the parameterized equality and range filters
-// of a statement's WHERE clause. Only a plain SELECT, UPDATE or DELETE
-// with one WHERE clause, no subquery, no OR and balanced parentheses
-// counts; anything else contributes no filter (ok false). Literals and
-// comments are blanked first, so neither reads as a filter.
-func parseFloorFilters(text string) (floorFilter, bool) {
-	blank := workload.BlankLiteralsAndComments(text)
-	lead := floorLeadRe.FindStringSubmatch(blank)
-	if lead == nil || !parensBalanced(blank) {
-		return floorFilter{}, false
-	}
-	selects := 0
-	if strings.EqualFold(lead[1], "SELECT") {
-		selects = 1
-	}
-	wheres := floorWhereRe.FindAllStringIndex(blank, -1)
-	if len(wheres) != 1 || len(floorSelectRe.FindAllStringIndex(blank, -1)) != selects {
-		return floorFilter{}, false
-	}
-	seg := blank[wheres[0][1]:]
-	if loc := floorEndRe.FindStringIndex(seg); loc != nil {
-		seg = seg[:loc[0]]
-	}
-	if floorOrRe.MatchString(seg) {
-		return floorFilter{}, false
-	}
-	var f floorFilter
-	for col := range extractWhereFilters(seg) {
-		f.eq = append(f.eq, col)
-	}
-	sort.Strings(f.eq)
-	for _, m := range floorRangeRe.FindAllStringSubmatch(seg, -1) {
-		col := strings.ToLower(m[1] + m[2])
-		if !slices.Contains(f.eq, col) && !slices.Contains(f.rng, col) {
-			f.rng = append(f.rng, col)
-		}
-	}
-	return f, len(f.eq)+len(f.rng) > 0
-}
-
-func parensBalanced(s string) bool {
-	depth := 0
-	for _, r := range s {
-		switch r {
-		case '(':
-			depth++
-		case ')':
-			depth--
-			if depth < 0 {
-				return false
-			}
-		}
-	}
-	return depth == 0
-}
 
 // floorCand is one candidate's keys and the calls of the statements that
 // filter on them.
@@ -112,7 +37,7 @@ type floorWorkload struct {
 func newFloorWorkload(tc TableContext) floorWorkload {
 	w := floorWorkload{eqCalls: map[string]int64{}, rngCalls: map[string]int64{}}
 	for _, q := range tc.Queries {
-		f, ok := parseFloorFilters(q.Text)
+		f, ok := parseFloorFilters(q.Text, tc.Table)
 		if !ok {
 			continue
 		}
@@ -238,16 +163,17 @@ func byCalls(cols []string, calls map[string]int64) {
 	})
 }
 
-// floorSelectivity is the fraction of rows one value of col matches: the
-// most common value's frequency, else one over the distinct count. ok is
-// false without statistics for the column.
+// floorSelectivity is the fraction of rows one value of col (its exact
+// name, as the parser folded it) matches: the most common value's
+// frequency, else one over the distinct count. ok is false without
+// statistics for the column.
 func floorSelectivity(tc TableContext, col string) (float64, bool) {
 	for _, cs := range tc.ColStats {
-		if !strings.EqualFold(cs.Column, col) {
+		if cs.Column != col {
 			continue
 		}
 		if len(cs.MostCommonFreqs) > 0 {
-			return lookupSelectivity(tc.ColStats, col), true
+			return cs.MostCommonFreqs[0], true
 		}
 		distinct := cs.NDistinct
 		if distinct < 0 {
@@ -266,7 +192,7 @@ func floorSelectivity(tc TableContext, col string) (float64, bool) {
 func floorColumnExists(tc TableContext, col string) bool {
 	if tc.ColumnsKnown {
 		return slices.ContainsFunc(tc.Columns, func(c ColumnInfo) bool {
-			return strings.EqualFold(c.Name, col)
+			return c.Name == col
 		})
 	}
 	_, ok := floorSelectivity(tc, col)
