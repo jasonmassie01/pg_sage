@@ -4,7 +4,7 @@
 // change while the agent is frozen is refused (sponsor_change_frozen).
 import { useState } from 'react'
 import {
-  ENVIRONMENTS, editBody, patchAgent, profileNames, sponsorOptions,
+  ENVIRONMENTS, editBody, patchAgent, profileNames, sponsorLabel, sponsorOptions,
 } from './agentsApi'
 import { Button, ErrorBox, Section, TextInput, inputStyle, muted, when } from './ui'
 
@@ -32,14 +32,26 @@ function profileChoices(agent, profiles) {
   return names.includes(agent.profile) ? names : [agent.profile, ...names]
 }
 
+// sponsorChoices are the users who may sponsor, plus the agent's current
+// sponsor when it may no longer (a viewer now, or inactive), so the select
+// never reads "none" for a sponsored agent.
+function sponsorChoices(agent, users) {
+  const choices = sponsorOptions(users).map(u => [String(u.id), `${u.email} (${u.role})`])
+  const current = agent.sponsor_user_id
+  if (current != null && !choices.some(([id]) => id === String(current))) {
+    choices.unshift([String(current), `${sponsorLabel(agent, users)} (current)`])
+  }
+  return choices
+}
+
 function Fields({ agent, form, set, users, profiles }) {
   return (
     <div className="flex flex-wrap gap-3 items-center mb-2">
       <Select testId="agent-edit-sponsor" label="Sponsor" value={form.sponsor}
         onChange={set('sponsor')}>
         <option value="">none (choose a sponsor)</option>
-        {sponsorOptions(users).map(u => (
-          <option key={u.id} value={String(u.id)}>{u.email} ({u.role})</option>))}
+        {sponsorChoices(agent, users).map(([id, text]) => (
+          <option key={id} value={id}>{text}</option>))}
       </Select>
       <Select testId="agent-edit-profile" label="Profile" value={form.profile}
         onChange={set('profile')}>

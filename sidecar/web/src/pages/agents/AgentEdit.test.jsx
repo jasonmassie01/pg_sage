@@ -90,6 +90,23 @@ describe('AgentEdit', () => {
       .toEqual([{ sponsor_user_id: 5 }]))
   })
 
+  it('shows a sponsor who may no longer sponsor as the current one, not none', async () => {
+    // boundary: the sponsor became a viewer; the select must not read "none".
+    const demoted = { ...coder, sponsor_user_id: 6 }
+    const { mock } = await renderDetail(demoted, admin, {
+      [`GET /api/v1/agents/${coder.id}`]: () => response(200, demoted),
+      [`PATCH ${agentPath}`]: () => response(200, { ...demoted, sponsor_user_id: 5 }),
+    })
+    const select = el('agent-edit-sponsor')
+    expect(select).toHaveValue('6')
+    expect(select.selectedOptions[0].textContent).toMatch(/viewer@x\.test.*current/)
+    expect(el('agent-edit-submit')).toBeDisabled()
+    type('agent-edit-sponsor', '5')
+    fireEvent.click(el('agent-edit-submit'))
+    await waitFor(() => expect(bodiesOf(mock, 'PATCH', agentPath))
+      .toEqual([{ sponsor_user_id: 5 }]))
+  })
+
   it('shows a 409 sponsor_change_frozen with the server message', async () => {
     await renderDetail(frozenBot, admin, {
       [`PATCH /api/v1/agents/${frozenBot.id}`]: () => response(409, {
