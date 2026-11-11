@@ -25,7 +25,9 @@ func (b BriefingConfig) validate() error {
 }
 
 // RollsUpBriefings reports whether one process-level message covers every
-// fleet database: fleet mode with fleet_mode rollup (the default).
+// fleet database: a YAML fleet or a meta-db fleet (mode meta, or fleet with
+// meta_db) with fleet_mode rollup (the default).
 func (c *Config) RollsUpBriefings() bool {
-	return c != nil && c.IsFleet() && c.Briefing.FleetMode != BriefingFleetPerDatabase
+	return c != nil && (c.IsFleet() || c.HasMetaDB()) &&
+		c.Briefing.FleetMode != BriefingFleetPerDatabase
 }

@@ -441,11 +441,12 @@ of actions; the structured text names the window ("Recent Actions (7d)").
 Slack receives the briefing as mrkdwn: headings and `**bold**` become `*bold*`,
 and `<`, `>` and `&` are escaped, so text from the model or the database
 cannot ping `<!channel>` or post a link. Each channel's result is stored in
-`sage.briefings.delivery_status`. In fleet mode `briefing.fleet_mode: rollup`
+`sage.briefings.delivery_status`. In fleet mode, YAML or meta-db,
+`briefing.fleet_mode: rollup`
 (the default) posts one message with a section per database; each database
 still stores its own briefing row, and every row records that message's
 result. `per_database` posts one message per database, as before. Changing
-`fleet_mode` needs a restart; it is ignored outside fleet mode.
+`fleet_mode` needs a restart; it is ignored in standalone mode.
 
 ---
 

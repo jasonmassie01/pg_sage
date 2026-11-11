@@ -326,7 +326,7 @@ type BriefingConfig struct {
 	Schedule        string   `yaml:"schedule"`
 	Channels        []string `yaml:"channels"`
 	SlackWebhookURL string   `yaml:"slack_webhook_url"`
-	FleetMode       string   `yaml:"fleet_mode" doc:"Fleet mode only: rollup (default) posts one briefing message covering every database; per_database posts one message per database. Each database still stores its own briefing. Restart to change."`
+	FleetMode       string   `yaml:"fleet_mode" doc:"Fleet and meta-db modes: rollup (default) posts one briefing message covering every database; per_database posts one per database. Each database still stores its own briefing. Restart to change."`
 }
 
 type AlertingConfig struct {

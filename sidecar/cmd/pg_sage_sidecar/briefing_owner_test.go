@@ -116,8 +116,8 @@ func TestBriefingOwnerTrackDropsStoppedWorker(t *testing.T) {
 	}
 }
 
-// Fleet roll-up is the default in fleet mode; per_database and standalone
-// keep one message per database.
+// Fleet roll-up is the default in fleet and meta-db mode; per_database and
+// standalone keep one message per database.
 func TestBriefingRollupSelection(t *testing.T) {
 	w := briefing.New(nil, config.DefaultConfig(), nil, noopBriefingLog)
 	tests := []struct {
@@ -129,10 +129,16 @@ func TestBriefingRollupSelection(t *testing.T) {
 		{"fleet", config.BriefingFleetPerDatabase, false},
 		{"standalone", config.BriefingFleetRollup, false},
 		{"standalone", "", false},
+		// A meta-db fleet is a fleet: mode meta, inferred from meta_db.
+		{config.ModeMeta, "", true},
+		{config.ModeMeta, config.BriefingFleetPerDatabase, false},
 	}
 	for _, tt := range tests {
 		c := config.DefaultConfig()
 		c.Mode, c.Briefing.FleetMode = tt.mode, tt.fleetMode
+		if tt.mode == config.ModeMeta {
+			c.MetaDB = "postgres://meta.invalid/sage"
+		}
 		if got := briefingRollup(c); got != tt.rollup {
 			t.Errorf("%s/%q: briefingRollup = %v, want %v", tt.mode, tt.fleetMode, got, tt.rollup)
 		}
