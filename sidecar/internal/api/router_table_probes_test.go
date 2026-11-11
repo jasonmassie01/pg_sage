@@ -165,6 +165,7 @@ var routeProbes = []routeProbe{
 	{"GET", "/api/v1/debug/pprof/7"},
 	{"GET", "/api/v1/deployment/status"},
 	{"GET", "/api/v1/derived-settings"},
+	{"GET", "/api/v1/self-cost"},
 	{"GET", "/api/v1/facts"},
 	{"GET", "/api/v1/facts/match"},
 	{"GET", "/api/v1/first-look"},

@@ -240,8 +240,7 @@ func registerFleetScopedRoutes(
 	}
 	registerAutonomyRoutes(apiMux, mgr, rt.Autonomy)
 	registerTrustRoutes(apiMux, mgr, rt.Autonomy)
-	registerShadowRoutes(apiMux, mgr)
-	registerDerivedSettingsRoutes(apiMux, mgr)
+	registerSelfAwareRoutes(apiMux, mgr)
 	registerFactRoutes(apiMux, mgr)
 	registerAgentClassRoutes(apiMux, mgr)
 	registerAgentEnvRoutes(apiMux, rt.AgentEnvironments)
