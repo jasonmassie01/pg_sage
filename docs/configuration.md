@@ -2093,6 +2093,26 @@ unverified". Pushed and proxy SLIs measure coverage from their stored samples.
 | `sre.slo.objectives[].coverage_query` | empty | Optional PromQL for the earliest sample time over `$window` (must contain `$window`; Prometheus sources only). Adding it does not reset the SLO's history |
 | `sre.slo.objectives[].stale_after_seconds` | `300` | Pushed samples, and Prometheus samples with `coverage_query`, older than this are stale |
 
+Each SLO status (`GET /api/v1/sre/slos`, and `status` in `GET /api/v1/sre/slos/{name}`) also
+carries `budget_coverage`, the share of the SLO window its data covers, and, for a
+`partial_window` budget only, `budget_spent_so_far`: the covered part's bad over eligible
+events divided by `1 - target` (1 means the whole error budget). `budget_remaining` stays
+null for a partial window: the spent-so-far describes only the covered part and is never
+read as budget left. `budget_coverage` is absent when the budget window was not read
+(no data, stale, a failed query or invalid counts) and for a Prometheus SLI without
+`coverage_query`, whose coverage is only assumed. `budget_spent_so_far` is absent with fewer
+covered eligible events than `min_eligible_events`, as a burn rate from a handful of events
+is noise. Both fields are additive; no migration or configuration is needed.
+
+The SLOs page shows, per row, how long the SLO has been in its state (`state_since`) and,
+while it burns, when the burn started (`burn_started_at`). An unknown budget names its
+reason, with "partial window: N% covered" and the spent-so-far for a partial window. A row
+expands into its state transitions (kept 90 days, newest 50), the recovery verdict since
+the burn started (only while burning) and the newest `slo:<name>` investigation; when none
+was opened for a paging SLO it says so (`sre.slo.open_investigations` off, or
+`sre.automatic_start` off for a database proxy). The expansion reads the detail once per
+open and always names the row's database, so it works in fleet mode and for viewers.
+
 #### Fleet SLOs and `owner_database`
 
 An app objective with no `database` belongs to every database. In standalone mode that is

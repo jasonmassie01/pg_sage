@@ -343,7 +343,7 @@ export default function App({ reloadPage = () => window.location.reload() }) {
         return { title: 'Alerts',
           node: <AlertLogPage database={effectiveDB} /> }
       case '/slos':
-        return { title: 'SLOs', node: <SLOsPage database={effectiveDB} /> }
+        return { title: 'SLOs', node: <SLOsPage database={effectiveDB} user={user} /> }
       case '/incidents':
         return { title: 'Cases',
           node: <CasesPage key={route} database={effectiveDB} user={user}
