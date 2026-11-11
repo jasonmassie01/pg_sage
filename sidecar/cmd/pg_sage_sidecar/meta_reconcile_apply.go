@@ -238,6 +238,9 @@ func failedStoreInstance(rec store.DatabaseRecord, errMsg string) *fleet.Databas
 		Name:       rec.Name,
 		DatabaseID: rec.ID,
 		Config:     storeRecordToDBConfig(rec),
-		Status:     &fleet.InstanceStatus{Error: errMsg, LastSeen: time.Now()},
+		Status: &fleet.InstanceStatus{Error: errMsg, LastSeen: time.Now(),
+			// Never read, so unknown rather than zero (cases-11).
+			IncidentsCritical: fleet.IncidentsUnknown,
+			IncidentsWarning:  fleet.IncidentsUnknown},
 	}
 }

@@ -351,6 +351,9 @@ func (rt *databaseRuntime) instance() *fleet.DatabaseInstance {
 			TrustLevel:   rt.executor.TrustLevel(),
 			DatabaseName: rt.spec.Name,
 			LastSeen:     time.Now(),
+			// Unknown until the first status refresh reads them (cases-11).
+			IncidentsCritical: fleet.IncidentsUnknown,
+			IncidentsWarning:  fleet.IncidentsUnknown,
 			Capabilities: fleet.CollectProviderCapabilities(
 				rt.ctx, rt.spec.Pool, rt.provider,
 				fleet.ExecutorFamilyExplainer(rt.executor),

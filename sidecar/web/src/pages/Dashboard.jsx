@@ -2,8 +2,6 @@
 import { lazy, Suspense, useState } from 'react'
 import { useAPI } from '../hooks/useAPI'
 import { useLiveRefetch } from '../hooks/useLiveEvents'
-import { SeverityBadge } from '../components/SeverityBadge'
-import { ErrorBanner } from '../components/ErrorBanner'
 import { QueryState, StaleStrip } from '../components/QueryState'
 import { hasData, queryStale } from '../lib/queryState'
 import { TokenBudgetBanner } from '../components/TokenBudgetBanner'
@@ -12,9 +10,10 @@ import { ProviderReadinessMatrix } from '../components/ProviderReadinessMatrix'
 import { IndexAdmissionPanel } from '../components/IndexAdmissionPanel'
 import { BriefingCard } from '../components/BriefingCard'
 import { Skeleton } from '../components/Skeleton'
-import {
-  CheckCircle, Clock, ListChecks, Server,
-} from 'lucide-react'
+import { HealthHero } from '../components/HealthHero'
+import { TopCasesPanel } from '../components/TopCasesPanel'
+import { topCasesURL } from '../lib/topCases'
+import { Clock, ListChecks } from 'lucide-react'
 
 // recharts is only needed by this chart, so it loads in its own chunk and the
 // first paint does not download it (dashboard-09).
@@ -44,10 +43,10 @@ const OVERVIEW_TABS = [
       'Cloud provider credentials and policy readiness before live provisioning.',
   },
   {
-    key: 'recent-recos',
-    label: 'Recent Recos',
+    key: 'top-cases',
+    label: 'Top Cases',
     description:
-      'Newest recommendations from pg_sage before they become cases and actions.',
+      'The highest-ranked open cases: severity first, then time to impact.',
   },
 ]
 
@@ -80,86 +79,6 @@ function StatCard({
           {value}
         </div>
       )}
-    </div>
-  )
-}
-
-function HealthHero({ summary }) {
-  const healthy = summary.degraded === 0
-    && summary.total_critical === 0
-
-  if (healthy) {
-    return (
-      <div data-testid="health-hero"
-        className="rounded p-4 flex items-center gap-3"
-        style={{
-          background: 'rgba(34, 197, 94, 0.08)',
-          border: '1px solid rgba(34, 197, 94, 0.3)',
-        }}>
-        <CheckCircle size={28} style={{ color: 'var(--green)' }} />
-        <div>
-          <div className="font-semibold"
-            style={{ color: 'var(--green)' }}>
-            All Systems Healthy
-          </div>
-          <div className="text-sm"
-            style={{ color: 'var(--text-secondary)' }}>
-            pg_sage is monitoring {summary.total_databases}{' '}
-            database(s). No issues detected.
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  const parts = []
-  if (summary.total_critical > 0) {
-    parts.push(
-      `${summary.total_critical} critical finding`
-      + (summary.total_critical > 1 ? 's' : ''),
-    )
-  }
-  if (summary.degraded > 0) {
-    parts.push(
-      `${summary.degraded} degraded database`
-      + (summary.degraded > 1 ? 's' : ''),
-    )
-  }
-  const issueCount = summary.total_critical + summary.degraded
-  const breakdown = parts.length > 0
-    ? parts.join(' across ')
-    : 'Check findings for details.'
-
-  return (
-    <div data-testid="health-hero"
-      className="rounded p-4 flex items-center gap-3"
-      style={{
-        background: summary.total_critical > 0
-          ? 'rgba(239, 68, 68, 0.08)'
-          : 'rgba(245, 158, 11, 0.08)',
-        border: summary.total_critical > 0
-          ? '1px solid rgba(239, 68, 68, 0.3)'
-          : '1px solid rgba(245, 158, 11, 0.3)',
-      }}>
-      <Server size={28}
-        style={{
-          color: summary.total_critical > 0
-            ? 'var(--red)' : 'var(--yellow)',
-        }} />
-      <div>
-        <div className="font-semibold"
-          style={{
-            color: summary.total_critical > 0
-              ? 'var(--red)' : 'var(--yellow)',
-          }}>
-          {issueCount} Issue{issueCount !== 1 ? 's' : ''}{' '}
-          Need Attention
-        </div>
-        <div className="text-sm"
-          style={{ color: 'var(--text-secondary)' }}>
-          {breakdown}
-        </div>
-      </div>
     </div>
   )
 }
@@ -309,48 +228,6 @@ function DatabaseOverviewPanel({
   )
 }
 
-function RecentRecommendationsPanel({ findings, error, onRetry }) {
-  return (
-    <div className="rounded p-4"
-      data-testid="recent-findings"
-      style={{
-        background: 'var(--bg-card)',
-        border: '1px solid var(--border)',
-      }}>
-      <h2 className="text-sm font-medium mb-3"
-        style={{ color: 'var(--text-secondary)' }}>
-        Recent Recommendations
-      </h2>
-      {error ? (
-        <ErrorBanner message={error} onRetry={onRetry} />
-      ) : findings.length > 0 ? (
-        <div className="space-y-2">
-          {findings.slice(0, 5).map((f, i) => (
-            <div key={i}
-              className="flex items-center gap-3 p-2 rounded"
-              style={{ background: 'var(--bg-primary)' }}>
-              <SeverityBadge severity={f.severity} />
-              <span className="flex-1 text-sm">{f.title}</span>
-              <span className="text-xs"
-                style={{ color: 'var(--text-secondary)' }}>
-                {f.database_name}
-              </span>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-          No recent recommendations for the selected scope.
-        </div>
-      )}
-      <a href="#/findings" className="inline-block mt-3 text-sm"
-        style={{ color: 'var(--accent)' }}>
-        View all recommendations
-      </a>
-    </div>
-  )
-}
-
 // FLEET_LOADING stands in for App's fleet query before it is passed.
 const FLEET_LOADING = { data: null, loading: true, error: null, refetch: null }
 
@@ -358,22 +235,20 @@ const FLEET_LOADING = { data: null, loading: true, error: null, refetch: null }
 // result) instead of polling the fleet a second time (dashboard-08).
 export function Dashboard({ database, onSelectDB, user, fleet = FLEET_LOADING }) {
   const [overviewTab, setOverviewTab] = useState('databases')
-  const dbParam = database && database !== 'all'
-    ? `?database=${encodeURIComponent(database)}` : ''
   const { data, loading, refetch } = fleet
-  const sep = dbParam ? '&' : '?'
-  // Newest first: the API default sort is severity (G9-B08).
-  const findings = useAPI(
-    `/api/v1/findings${dbParam}${sep}limit=5&sort=last_seen&order=desc`)
+  // The ranked cases read every selected database, so they load only while
+  // their tab is open (cases-11b).
+  const topCasesOpen = overviewTab === 'top-cases'
+  const topCases = useAPI(topCasesOpen ? topCasesURL(database) : null)
   // The fleet summary covers every database, so any database's event counts.
   useLiveRefetch(['findings', 'health'], refetch)
-  useLiveRefetch(['findings'], findings.refetch, { database })
+  useLiveRefetch(['findings', 'actions'], topCasesOpen ? topCases.refetch : null,
+    { database })
 
   if (fleet.error && !hasData(fleet)) return <QueryState query={fleet} />
 
   const summary = data?.summary
   const databases = data?.databases
-  const recentFindings = findings.data?.findings || []
 
   if (!loading && (!summary || summary.total_databases === 0)) {
     return <OnboardingWelcome />
@@ -383,7 +258,7 @@ export function Dashboard({ database, onSelectDB, user, fleet = FLEET_LOADING })
     <div className="space-y-6">
       {queryStale(fleet) && <StaleStrip query={fleet} />}
       <TokenBudgetBanner canReset={user?.role === 'admin'} />
-      {summary && <HealthHero summary={summary} />}
+      {summary && <HealthHero summary={summary} databases={databases} />}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard label="Databases"
@@ -418,10 +293,7 @@ export function Dashboard({ database, onSelectDB, user, fleet = FLEET_LOADING })
           <IndexAdmissionPanel database={database} />
         </div>
       )}
-      {overviewTab === 'recent-recos' && (
-        <RecentRecommendationsPanel findings={recentFindings}
-          error={findings.error} onRetry={findings.refetch} />
-      )}
+      {topCasesOpen && <TopCasesPanel query={topCases} database={database} />}
     </div>
   )
 }

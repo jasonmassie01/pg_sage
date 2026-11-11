@@ -77,8 +77,8 @@ test('CHECK-09/47/48/49/50/51 Value and advanced metrics render without JS error
     await open(page, 'advanced', 'health-hero');
     await expect(page.getByTestId('stat-databases')).toContainText(String(fixtureTargets.length));
     await expect(page.getByTestId('db-list')).toContainText(target);
-    await page.getByTestId('overview-tab-recent-recos').click();
-    await expect(page.getByTestId('recent-findings')).toBeVisible();
+    await page.getByTestId('overview-tab-top-cases').click();
+    await expect(page.getByTestId('top-cases')).toBeVisible();
     expect(errors).toEqual([]);
   });
 

@@ -20,6 +20,13 @@ export const mockDatabases = {
     healthy: 2,
     degraded: 0,
     total_critical: 0,
+    // Consistent with the rows below: primary has one warning finding.
+    total_warning: 1,
+    incidents_critical: 0,
+    incidents_warning: 0,
+    incidents_unknown: 0,
+    stale_collection: 0,
+    freshness_unknown: 0,
     emergency_stopped: false,
   },
   databases: [

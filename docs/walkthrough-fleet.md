@@ -283,6 +283,14 @@ slow does not hide the others:
 - A case whose action history could not be read carries
   `"actions_unavailable": true`, so an empty `actions` list does not read
   as "nothing was done".
+- `?limit=N` (1 to 100) returns the top N cases of the global rank
+  (severity, then time to impact, then most recent); `total` still counts
+  every case and `limit` echoes N. `?summary=1` returns each case without
+  `evidence`, `action_candidates`, `actions`, `recommendation`,
+  `recurrence`, `why` and `source_ids`, adding `has_action_candidates`,
+  and sets `"summary": true`. Neither combines with `?case=` (`400`). The
+  Overview's **Top Cases** tab uses `?summary=1&limit=5`, names each
+  `unavailable` database, and links each row to its case.
 
 `GET /api/v1/shadow-report` carries the same `unavailable` list. All of
 these fields are additive; existing fields are unchanged.

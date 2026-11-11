@@ -191,6 +191,7 @@ func summarizeFleet(overview *FleetOverview) {
 		overview.Summary.TotalFindings += db.Status.FindingsOpen
 		overview.Summary.TotalCritical += db.Status.FindingsCritical
 		overview.Summary.TotalActions += db.Status.ActionsTotal
+		addCaseCounts(&overview.Summary, db.Status)
 	}
 	overview.Summary.EmergencyStopped = overview.Summary.EmergencyStoppedCount > 0 ||
 		overview.Summary.FleetStopped

@@ -91,6 +91,55 @@ func staleReason(
 	return "collector stale " + formatHealthAge(age)
 }
 
+// Collection freshness values (InstanceStatus.CollectionFreshness).
+const (
+	FreshnessFresh   = "fresh"
+	FreshnessStale   = "stale"
+	FreshnessUnknown = "unknown"
+)
+
+// IncidentsUnknown marks incident counts that could not be read; 0 would
+// claim there are none.
+const IncidentsUnknown = -1
+
+// collectionFreshness judges a database's collection evidence by the same
+// rule as staleReason: stale exactly when staleReason gives a reason. A
+// database still in its first window without a sample, or one with no
+// interval to judge by, is unknown rather than fresh.
+func collectionFreshness(
+	lastRun time.Time, interval time.Duration, registeredAt, now time.Time,
+) string {
+	if interval <= 0 {
+		return FreshnessUnknown
+	}
+	if staleReason(lastRun, interval, registeredAt, now) != "" {
+		return FreshnessStale
+	}
+	if lastRun.IsZero() {
+		return FreshnessUnknown
+	}
+	return FreshnessFresh
+}
+
+// addCaseCounts adds one scored row's open work and evidence gaps to the
+// summary. A row never scored counts as freshness unknown.
+func addCaseCounts(sum *FleetSummary, s *InstanceStatus) {
+	sum.TotalWarning += s.FindingsWarning
+	if s.IncidentsCritical < 0 || s.IncidentsWarning < 0 {
+		sum.IncidentsUnknown++
+	} else {
+		sum.IncidentsCritical += s.IncidentsCritical
+		sum.IncidentsWarning += s.IncidentsWarning
+	}
+	switch s.CollectionFreshness {
+	case FreshnessFresh:
+	case FreshnessStale:
+		sum.StaleCollection++
+	default:
+		sum.FreshnessUnknown++
+	}
+}
+
 func findingReasons(s *InstanceStatus) []string {
 	var out []string
 	switch {
@@ -150,15 +199,18 @@ func (m *DatabaseManager) collectorIntervalLocked(inst *DatabaseInstance) time.D
 	return time.Duration(secs) * time.Second
 }
 
-// scoreLocked fills snap's health score and reasons. Caller holds m.mu.
+// scoreLocked fills snap's health score, reasons and collection
+// freshness. Caller holds m.mu.
 func (m *DatabaseManager) scoreLocked(
 	inst *DatabaseInstance, snap *InstanceStatus, now time.Time,
 ) {
-	score, reasons := healthOf(snap, m.collectorIntervalLocked(inst),
-		inst.RegisteredAt, now)
+	interval := m.collectorIntervalLocked(inst)
+	score, reasons := healthOf(snap, interval, inst.RegisteredAt, now)
 	if inst.Stopped {
 		reasons = append(reasons, stopHealthReason(inst.StoppedBy))
 	}
+	snap.CollectionFreshness = collectionFreshness(snap.CollectorLastRun,
+		interval, inst.RegisteredAt, now)
 	snap.HealthScore = score
 	snap.HealthReasons = reasons
 }
