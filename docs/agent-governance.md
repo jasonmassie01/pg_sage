@@ -45,7 +45,7 @@ superuser or `BYPASSRLS`, hold no dangerous membership and own nothing. pg_sage 
 | `name` | a unique slug: `^[a-z][a-z0-9-]{1,62}$` |
 | `sponsor_user_id` | the accountable person, a pg_sage user id; required at creation |
 | `sponsor_active` | true while the sponsor is an existing, enabled operator or admin |
-| `profile` | the capability profile (see [Profiles](#profiles)); required |
+| `profile` | the capability profile, one of those in [Profiles](#profiles); required |
 | `env_ceiling` | `branch`, `dev`, `stage` or `prod` (default `dev`): the most production-like environment the agent may reach |
 | `tenant` | optional free text, up to 200 characters |
 | `status` | `active`, `frozen` or `retired` |
@@ -55,12 +55,15 @@ superuser or `BYPASSRLS`, hold no dangerous membership and own nothing. pg_sage 
 
 | Request | Who | What it does |
 |---|---|---|
-| `GET /api/v1/agents` `?status=&limit=&cursor=` | operator | Lists principals, 1 to 200 a page |
+| `GET /api/v1/agents` `?status=&limit=&cursor=` | operator | Lists principals, 1 to 200 a page, with `profiles`: the profiles pg_sage ships (`name`, `classes`, `env_ceiling`, `direct_lane`), and `retire_grace_days` |
 | `POST /api/v1/agents` `{"name", "sponsor_user_id", "profile", "env_ceiling", "tenant"}` | admin | Creates one (201) |
 | `GET /api/v1/agents/{id}` | operator | Reads one, with `sponsor_active` and `tainted` |
-| `PATCH /api/v1/agents/{id}` `{"sponsor_user_id", "profile", "env_ceiling", "status", "reason"}` | admin | Changes the sponsor, profile or ceiling, or retires it (`"status": "retired"`) |
+| `PATCH /api/v1/agents/{id}` `{"sponsor_user_id", "profile", "env_ceiling", "status", "reason"}` | admin | Changes the sponsor, profile or ceiling, or retires it (`"status": "retired"`). A widening change answers 202 and waits for a second admin (see [Two-person rules](#two-person-rules)) |
+| `GET /api/v1/agents/{id}/changes` | operator | The agent's pending widening change: `change_id`, `patch`, `requested_by`, `reason`, `expires_at` |
+| `POST /api/v1/agents/{id}/changes/{cid}/confirm` `{"sponsor_user_id", "profile", "env_ceiling", "reason"}` | admin | A second admin applies the pending change (200 with the agent) |
 
-Unknown body fields are refused. A missing or bad field answers 422, an unknown agent 404,
+Unknown body fields are refused. A missing or bad field answers 422, and so does a profile
+pg_sage doesn't ship, on create and on `PATCH`. An unknown agent answers 404,
 and a taken name or a change to a retired agent 409. A sponsor change while the agent has an
 open freeze answers 409 with `code: sponsor_change_frozen`. `status` accepts only `retired`: freeze
 and unfreeze have their own routes (see [the kill switch](#kill-switch-freeze-and-unfreeze)).
@@ -103,6 +106,10 @@ sponsor (or an operator token's owner).
 | `agent_token_minted` | `POST /api/v1/agents/{id}/tokens` | `token_id`, `name`, `kind`, `scopes`, `databases`, `expires_at`, `principal_id` |
 | `mcp_token_created` | `POST /api/v1/mcp/tokens` | as `agent_token_minted`, with `owner_user_id` |
 | `mcp_token_revoked` | `DELETE /api/v1/mcp/tokens/{id}` (not a repeat on a revoked token) | as `mcp_token_created` |
+| `agent_identity_bound` | `POST /api/v1/agents/{id}/identities` | `principal_id`, `name`, `issuer`, `subject` |
+| `agent_identity_unbound` | `DELETE /api/v1/agents/{id}/identities` | as `agent_identity_bound` |
+| `agent_change_requested` | a widening `PATCH` outside single-operator mode | as `agent_updated` (`after` is what the change would make), with `change_id`, `expires_at` and `superseded_change_id` (0 when none) |
+| `agent_change_confirmed` | `POST /api/v1/agents/{id}/changes/{cid}/confirm` | as `agent_updated`, with `change_id` and `requested_by_user`; `reason` is the confirming admin's |
 
 `before` and `after` are `{"sponsor_user_id", "profile", "env_ceiling"}`. No row carries a token
 secret, its hash or its prefix. An empty `PATCH` changes nothing and writes nothing. Kills and
@@ -120,8 +127,11 @@ and its profile's ceiling. A database's environment comes from its verified labe
 
 ### Profiles
 
-pg_sage ships these profiles, fixed in this release. A profile name outside this table is
-accepted, but it allows no class, so every `agent_*` request under it is refused.
+pg_sage ships these profiles, fixed in this release. Creating an agent or changing its
+profile to a name outside this table answers 422, and the Agents page offers only these. An
+agent created before this check with another profile still loads, with a "profile not
+recognised" warning on the Agents page; its profile allows no class, so every `agent_*` request
+under it is refused until an admin sets one of these.
 
 | Profile | Classes | Ceiling |
 |---|---|---|
@@ -219,19 +229,51 @@ https (http only on a loopback host).
   token, because the task is what per-task taint is keyed by.
 - **Identity bindings.** An identity maps to a principal through
   `sage.guard_identity_bindings` in pg_sage's store: one row per `(issuer, subject)`,
-  where the subject is the actor. There is no route for bindings yet; an admin inserts them:
+  where the subject is the actor. An admin binds it on the agent's **OAuth identities**
+  section of the **Agents** page, or through the API. An identity with no binding, or bound
+  to a retired agent, is refused (403 `identity_unbound`).
 
-  ```sql
-  INSERT INTO sage.guard_identity_bindings (issuer, subject, principal_id, created_by)
-  VALUES ('https://idp.example.com', 'agent-client-id', 'agp_...', 'you@example.com');
-  ```
+### Binding an OAuth identity
 
-  An identity with no binding, or bound to a retired agent, is refused (403).
+A binding grants the identity exactly what the agent may do: its profile and ceiling. So,
+like minting a token, it takes one admin and is audited. All four routes are admin only.
+
+| Route | What it does |
+|---|---|
+| `GET /api/v1/mcp/oauth/issuers` | `{"enabled", "issuers"}`: the issuer URLs from `mcp.oauth.issuers` as the server started (no JWKS or algorithms); empty while OAuth is off |
+| `GET /api/v1/agents/{id}/identities` | `{"items", "truncated"}`: the agent's bindings (`issuer`, `subject`, `principal_id`, `created_by`, `created_at`), oldest first, at most 500 |
+| `POST /api/v1/agents/{id}/identities` | `{"issuer", "subject"}` binds one: 201 with the binding |
+| `DELETE /api/v1/agents/{id}/identities?issuer=&subject=` | removes one at once: 200 with the removed binding |
+
+- The issuer must be exactly one of `mcp.oauth.issuers` (the same string, with no trailing
+  slash added or dropped), and https, or http only on a loopback host as `mcp.oauth`
+  allows. While `mcp.oauth.enabled` is off nothing can be bound.
+- The subject is the token's actor (`act.sub` under delegation, else `sub`): 1 to 255 bytes,
+  with no control characters.
+- An unknown issuer, a non-https issuer, an empty subject, one over 255 bytes, or OAuth off
+  answers 422 `invalid_identity`. A body that is not one JSON object, or has an unknown
+  field, answers 400 `invalid_body`.
+- An identity bound already, to this agent or another, answers 409 `identity_bound`: unbind
+  it there first. A retired agent answers 409, and a frozen one 409 `agent_frozen` (unfreeze
+  it first). An unbind of an identity the agent doesn't hold answers 404 `identity_not_bound`.
+- Unbinding narrows, so it works in any status and for an issuer no longer configured. The
+  next request with that identity's tokens is refused.
+- Bindings live in pg_sage's store, so fleet mode has one set for every database. Managed
+  providers are not affected.
+
+```bash
+# admin session cookie in $SAGE_COOKIE
+curl -s -X POST https://pg-sage.example.com:8080/api/v1/agents/<agent id>/identities \
+  -H 'Content-Type: application/json' -b "sage_session=$SAGE_COOKIE" \
+  -d '{"issuer":"https://idp.example.com","subject":"agent-client-id"}'
+curl -s -X DELETE -b "sage_session=$SAGE_COOKIE" \
+  'https://pg-sage.example.com:8080/api/v1/agents/<agent id>/identities?issuer=https%3A%2F%2Fidp.example.com&subject=agent-client-id'
+```
 
 A bad token, audience or issuer answers 401 `invalid_token`, a missing scope 403
 `insufficient_scope`, and an issuer or binding lookup that can't be reached 503. pg_sage can't
 revoke an access token your issuer signed: a kill freezes the agent, which limits its OAuth
-tokens to read tools. Retire the agent, or delete its binding row, to refuse them outright.
+tokens to read tools. Retire the agent, or unbind the identity, to refuse them outright.
 
 ## Grants and activity
 
@@ -286,7 +328,7 @@ reason, which pg_sage records for a review after the fact (a principal's widenin
 
 | Change | Request | Second person | Single-operator mode |
 |---|---|---|---|
-| Widen a principal: a higher `env_ceiling`, or any profile change | `PATCH /api/v1/agents/{id}` | Not available in this release: refused with 403 `two_person_required` | one admin, with a reason |
+| Widen a principal: a higher `env_ceiling`, or a profile that grants more | `PATCH /api/v1/agents/{id}`, then `POST /api/v1/agents/{id}/changes/{cid}/confirm` | another admin within 15 minutes, with the same fields; not the requester, the agent's sponsor or the sponsor the change names | one admin, with a reason |
 | Widen a database's environment label (toward `branch`) | `PUT /api/v1/agent-environments/{database}` | another admin repeats the same label within 24 hours | does not apply |
 | Unfreeze after a kill | `POST /api/v1/agents/{id}/unfreeze` | another admin within 15 minutes, not the agent's sponsor | one admin, with a reason |
 | Unfreeze after an operator freeze | `POST /api/v1/agents/{id}/unfreeze` | none: one admin | does not apply |
@@ -294,9 +336,43 @@ reason, which pg_sage records for a review after the fact (a principal's widenin
 | Ratify an agent's policy proposal that widens the policy | `POST /api/v1/policy/proposals/{id}/ratify` | a second admin; neither may be the agent's sponsor | one admin, with a reason |
 
 Every request in the table is an admin's. The first admin's request waits as pending (202 for
-an unfreeze, a release or a label), and the same admin repeating it doesn't count. Narrowing
-changes (a lower ceiling, a narrower label, a freeze, a kill) need one person and apply at
-once.
+a principal change, an unfreeze, a release or a label), and the same admin repeating it doesn't
+count. Narrowing changes (a lower ceiling, a narrower label, a freeze, a kill) need one person
+and apply at once.
+
+**Widening a principal.** A profile change widens when the new profile adds a capability
+class, reaches a higher effective ceiling (the narrower of the agent's `env_ceiling` and the
+profile's) or adds the direct lane; a move to or from a profile pg_sage doesn't ship always
+widens. So `coding-agent` to `readonly-analyst` on a `stage` agent applies at once, but on a
+`prod` agent it widens, because `readonly-analyst` reads `prod`. Raising `env_ceiling` always
+widens. A sponsor change never does. Outside single-operator mode a widening `PATCH` answers
+202:
+
+```json
+{"status": "pending", "change_id": 7, "expires_at": "2026-11-11T15:15:00Z",
+ "requested_by": "alice@example.com", "patch": {"env_ceiling": "prod"},
+ "superseded_change_id": 0}
+```
+
+The whole patch waits, including any sponsor or narrowing field in it, and nothing applies
+until it is confirmed. Another admin reads it with `GET /api/v1/agents/{id}/changes` and
+confirms it with exactly the same fields:
+
+```sh
+curl -s -X POST https://pg-sage.example.com:8080/api/v1/agents/<agent id>/changes/7/confirm \
+  -H 'Content-Type: application/json' -b "sage_session=$SAGE_COOKIE" \
+  -d '{"env_ceiling": "prod"}'
+```
+
+The confirm answers 403 `second_admin_required` for the requester and 403
+`sponsor_cannot_approve` for the agent's sponsor or the sponsor the change names, 409
+`change_mismatch` for other fields, 409 `change_expired` after 15 minutes (the change is
+closed and must be requested again) and 409 `change_not_pending` once it is applied, expired or
+superseded. An agent has at most one pending change: a newer widening `PATCH` supersedes it.
+Retiring the agent ends it too (409 on confirm). A `PATCH` that retires the agent and widens it
+at once answers 422. pg_sage judges a narrowing `PATCH` again under the agent's row lock: if
+another change landed in between and the patch now widens the agent, it answers 409
+`agent_changed` and applies nothing; read the agent again and resend.
 
 ## Agent posture
 
@@ -496,6 +572,7 @@ and at every `trust.level`, because it only takes access away.
 | `POST /api/v1/agents/{id}/freeze` `{"reason": "..."}` | operator | Like a one-agent kill, but the agent's MCP tokens stay (they get `agent_frozen`) |
 | `POST /api/v1/agents/{id}/unfreeze` `{"reason": "..."}` | admin | Restores the roles' previous attributes and rotates the broker password |
 | `POST /api/v1/agents/kill/release` `{"scope": "all"}` or `{"scope": "database", "database": "orders"}` | admin | Lifts a fleet or database freeze |
+| `GET /api/v1/agents/freezes` | operator | Lists the open fleet, database and agent freezes, fleet first: `scope`, `target`, `reason`, `set_by`, `set_at`, `after_kill` and the live `pending_release` request. At most 200 rows; `truncated: true` says more are open |
 
 A kill, step by step:
 
@@ -540,6 +617,30 @@ request waits up to 15 minutes for a second admin who is not the agent's sponsor
 operator freeze needs one admin. With `agents.single_operator_mode`, one admin can lift a kill
 freeze, but must give a reason. Every unfreeze rotates the broker password, so the old one
 fails. Tokens revoked by a kill stay revoked: mint new ones.
+
+### From the Agents page
+
+The Agents page does all of this without curl:
+
+- **Edit.** An admin opens an agent and changes its sponsor (an operator or admin), profile
+  or ceiling under **Edit**. Only the changed fields are sent. A widening change shows
+  "awaiting a second admin" with its change id: another admin confirms it (see
+  [Two-person rules](#two-person-rules)). A sponsor change while the agent is frozen shows the
+  server's `sponsor_change_frozen` refusal. An upgraded install's legacy agents start without a
+  sponsor: assign one here.
+- **Retire.** **Retire agent** asks for a reason and the agent's name, typed exactly. The dialog
+  shows `agents.roles.retire_grace_days`, the days before the roles are dropped. Once the agent
+  is retired, the drawer no longer offers Edit, Retire, Freeze or new tokens.
+- **Tokens.** Each active token in the drawer has **Revoke**. The MCP Tokens page still lists
+  and revokes every token.
+- **Kill.** **Kill agents** takes a scope: every agent, one agent or one database. Each needs
+  the reason and the typed `KILL AGENTS` phrase; a one-agent or one-database kill also needs
+  its target chosen.
+- **Release.** The banner above the list shows each open fleet and database freeze, with who
+  set it and why. An admin types a reason and presses **Release**. After a kill, the first admin's
+  release shows "pending second admin" and the banner names the request until another admin
+  releases it too. Operators see the banner without **Release**. Unfreeze each agent from its
+  drawer.
 
 ## Manual runbook
 

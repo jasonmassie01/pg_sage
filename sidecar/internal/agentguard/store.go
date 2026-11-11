@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"unicode/utf8"
 
@@ -50,8 +49,6 @@ const (
 	sqlFKViol     = "23503"
 )
 
-var profilePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,99}$`)
-
 // CreateRequest describes a new principal.
 type CreateRequest struct {
 	Name          string
@@ -72,8 +69,8 @@ func (r CreateRequest) normalize() (CreateRequest, error) {
 		return r, invalid("name %q must match ^[a-z][a-z0-9-]{1,62}$", r.Name)
 	case r.SponsorUserID != nil && *r.SponsorUserID <= 0:
 		return r, invalid("sponsor_user_id must be a positive user id")
-	case !profilePattern.MatchString(r.Profile):
-		return r, invalid("profile %q must be a profile name", r.Profile)
+	case !KnownProfile(r.Profile):
+		return r, unknownProfile(r.Profile)
 	case !r.EnvCeiling.Valid():
 		return r, invalid("env_ceiling %q must be branch, dev, stage or prod", r.EnvCeiling)
 	}

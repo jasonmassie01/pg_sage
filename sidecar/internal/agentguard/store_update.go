@@ -74,21 +74,30 @@ type Patch struct {
 	EnvCeiling    *Env
 }
 
-// Widens reports whether applying patch to p widens what p may do: a
-// higher ceiling or another profile (§6.11). A sponsor change does not.
+// Widens reports whether applying patch to p widens what p may do
+// (§6.11): a higher stored ceiling, or a profile that adds a class, a
+// higher effective ceiling or the direct lane (agentgov-06). A sponsor
+// change does not.
 func (patch Patch) Widens(p Principal) bool {
-	if patch.EnvCeiling != nil && patch.EnvCeiling.Rank() > p.EnvCeiling.Rank() {
-		return true
+	ceiling := p.EnvCeiling
+	if patch.EnvCeiling != nil {
+		if patch.EnvCeiling.Rank() > p.EnvCeiling.Rank() {
+			return true
+		}
+		ceiling = *patch.EnvCeiling
 	}
-	return patch.Profile != nil && *patch.Profile != p.Profile
+	if patch.Profile == nil || *patch.Profile == p.Profile {
+		return false
+	}
+	return profileWidens(p.Profile, p.EnvCeiling, *patch.Profile, ceiling)
 }
 
 func (patch Patch) validate() error {
 	switch {
 	case patch.SponsorUserID != nil && *patch.SponsorUserID <= 0:
 		return invalid("sponsor_user_id must be a positive user id")
-	case patch.Profile != nil && !profilePattern.MatchString(*patch.Profile):
-		return invalid("profile %q must be a profile name", *patch.Profile)
+	case patch.Profile != nil && !KnownProfile(*patch.Profile):
+		return unknownProfile(*patch.Profile)
 	case patch.EnvCeiling != nil && !patch.EnvCeiling.Valid():
 		return invalid("env_ceiling %q must be branch, dev, stage or prod", *patch.EnvCeiling)
 	}
@@ -127,6 +136,20 @@ func (patch Patch) movesSponsor(cur shape) bool {
 // principal has an open freeze. An empty patch changes and records nothing.
 func (s *Store) Update(ctx context.Context, id string, patch Patch,
 	a Audit) (Principal, error) {
+	return s.update(ctx, id, patch, a, false)
+}
+
+// UpdateNarrowing is Update for a patch the caller judged not to widen on
+// an earlier read. Under the row lock it judges the patch again and
+// refuses one that now widens with ErrChangeWidens (agentgov-06), so a
+// change committed in between cannot turn it into an unconfirmed widening.
+func (s *Store) UpdateNarrowing(ctx context.Context, id string, patch Patch,
+	a Audit) (Principal, error) {
+	return s.update(ctx, id, patch, a, true)
+}
+
+func (s *Store) update(ctx context.Context, id string, patch Patch, a Audit,
+	narrowOnly bool) (Principal, error) {
 	if err := patch.validate(); err != nil {
 		return Principal{}, err
 	}
@@ -148,7 +171,7 @@ func (s *Store) Update(ctx context.Context, id string, patch Patch,
 		return p, err
 	}
 	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		return updateInTx(ctx, tx, id, patch, a)
+		return updateInTx(ctx, tx, id, patch, a, narrowOnly)
 	})
 	if err != nil {
 		return Principal{}, err
@@ -156,30 +179,54 @@ func (s *Store) Update(ctx context.Context, id string, patch Patch,
 	return s.Get(ctx, id)
 }
 
-func updateInTx(ctx context.Context, tx pgx.Tx, id string, patch Patch, a Audit) error {
+func updateInTx(ctx context.Context, tx pgx.Tx, id string, patch Patch, a Audit,
+	narrowOnly bool) error {
 	cur, err := lockForChange(ctx, tx, id)
 	if err != nil {
 		return err
 	}
-	if patch.movesSponsor(cur.shape) {
-		if err := refuseWhileFrozen(ctx, tx, id); err != nil {
-			return err
-		}
-		if err := checkSponsor(ctx, tx, *patch.SponsorUserID); err != nil {
-			return err
-		}
+	locked := Principal{ID: id, Profile: cur.shape.Profile,
+		EnvCeiling: Env(cur.shape.EnvCeiling)}
+	if narrowOnly && patch.Widens(locked) {
+		return fmt.Errorf("%w: principal %s", ErrChangeWidens, id)
+	}
+	return applyLocked(ctx, tx, id, cur, patch, a, nil)
+}
+
+// checkSponsorMove refuses a new sponsor while the principal is frozen,
+// or one who is not an enabled operator or admin.
+func checkSponsorMove(ctx context.Context, tx pgx.Tx, id string, cur shape,
+	patch Patch) error {
+	if !patch.movesSponsor(cur) {
+		return nil
+	}
+	if err := refuseWhileFrozen(ctx, tx, id); err != nil {
+		return err
+	}
+	return checkSponsor(ctx, tx, *patch.SponsorUserID)
+}
+
+// applyLocked writes patch over the principal tx holds locked and records
+// a.event(agent_updated) with extra merged into its detail.
+func applyLocked(ctx context.Context, tx pgx.Tx, id string, cur lockedPrincipal,
+	patch Patch, a Audit, extra map[string]any) error {
+	if err := checkSponsorMove(ctx, tx, id, cur.shape, patch); err != nil {
+		return err
 	}
 	next := patch.apply(cur.shape)
-	_, err = tx.Exec(ctx, `/* pg_sage guard_principal_update v2 */
+	_, err := tx.Exec(ctx, `/* pg_sage guard_principal_update v2 */
 		UPDATE sage.guard_principals SET sponsor_user_id = $2, profile = $3,
 			env_ceiling = $4, updated_at = now()
 		WHERE id = $1`, id, next.SponsorUserID, next.Profile, next.EnvCeiling)
 	if err != nil {
 		return mapWriteError(err, "updating principal "+id)
 	}
-	return record(ctx, tx, a, a.event(auth.AuditAgentUpdated), next.SponsorUserID,
-		map[string]any{"principal_id": id, "name": cur.name, "before": cur.shape,
-			"after": next, "reason": a.Reason})
+	detail := map[string]any{"principal_id": id, "name": cur.name, "before": cur.shape,
+		"after": next, "reason": a.Reason}
+	for k, v := range extra {
+		detail[k] = v
+	}
+	return record(ctx, tx, a, a.event(auth.AuditAgentUpdated), next.SponsorUserID, detail)
 }
 
 // statusEvent is the event a move to status to records.

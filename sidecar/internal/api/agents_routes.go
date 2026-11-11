@@ -19,7 +19,8 @@ import (
 // Agent principals (agent governance, spec §8.3): operators list
 // and read them; admins create them with an accountable sponsor, change
 // them, retire them and mint their MCP tokens. A widening change (a higher
-// ceiling, another profile) needs a second person unless
+// ceiling, a broader profile) waits as a pending change (202) for a second
+// admin's confirm (agent_change_routes.go, agentgov-06) unless
 // agents.single_operator_mode is on, when one admin applies it with a
 // recorded reason. Every change writes one sage.auth_audit event in the
 // change's own transaction (agentgov-05); a failed audit write fails it.
@@ -29,17 +30,31 @@ type agentRoutes struct {
 	store          *agentguard.Store
 	tokens         *mcptoken.Store
 	singleOperator bool
+	// retireGraceDays is agents.roles.retire_grace_days, which the retire
+	// dialog shows (agentgov-07).
+	retireGraceDays int
+	// changeTTL is how long a widening change waits for the second admin:
+	// the unfreeze approval TTL (15 minutes).
+	changeTTL time.Duration
 }
 
 func registerAgentRoutes(mux *http.ServeMux, pool *pgxpool.Pool, cfg *config.Config) {
 	r := &agentRoutes{pool: pool, store: agentguard.NewStore(pool),
-		tokens:         mcptoken.NewStore(pool),
-		singleOperator: cfg != nil && cfg.Agents.SingleOperatorMode}
+		tokens:          mcptoken.NewStore(pool),
+		singleOperator:  cfg != nil && cfg.Agents.SingleOperatorMode,
+		changeTTL:       agentguard.DefaultKillConfig().ApprovalTTL,
+		retireGraceDays: config.DefaultAgentRetireGraceDays}
+	if cfg != nil {
+		r.retireGraceDays = cfg.Agents.Roles.RetireGraceDays
+	}
 	route(mux, "GET /api/v1/agents", gateOperator, http.HandlerFunc(r.list))
 	route(mux, "POST /api/v1/agents", gateAdmin, http.HandlerFunc(r.create))
 	route(mux, "GET /api/v1/agents/{id}", gateOperator, http.HandlerFunc(r.get))
 	route(mux, "PATCH /api/v1/agents/{id}", gateAdmin, http.HandlerFunc(r.patch))
 	route(mux, "POST /api/v1/agents/{id}/tokens", gateAdmin, http.HandlerFunc(r.mintToken))
+	route(mux, "GET /api/v1/agents/{id}/changes", gateOperator, http.HandlerFunc(r.changes))
+	route(mux, "POST /api/v1/agents/{id}/changes/{cid}/confirm", gateAdmin,
+		http.HandlerFunc(r.confirmChange))
 }
 
 // governanceAudit is the audit of a change the signed-in admin makes.
@@ -76,7 +91,17 @@ func (a *agentRoutes) list(w http.ResponseWriter, r *http.Request) {
 		agentError(w, r, "list agents", err)
 		return
 	}
-	jsonResponse(w, page)
+	jsonResponse(w, agentListPage{Page: page, Profiles: agentguard.ProfileCatalog(),
+		RetireGraceDays: a.retireGraceDays})
+}
+
+// agentListPage is a page of principals with the profiles pg_sage ships,
+// so a client offers only those (agentgov-06), and the days a retired
+// agent's roles are kept (agentgov-07).
+type agentListPage struct {
+	agentguard.Page
+	Profiles        []agentguard.ProfileInfo `json:"profiles"`
+	RetireGraceDays int                      `json:"retire_grace_days"`
 }
 
 type createAgentBody struct {
@@ -152,13 +177,20 @@ func (a *agentRoutes) patch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	patch, audit := body.patch(), governanceAudit(r, body.Reason)
+	// cur is an unlocked read, so the store judges a narrowing again under
+	// the row lock (agentgov-06).
+	update := a.store.UpdateNarrowing
 	if patch.Widens(cur) {
-		if !a.allowWidening(w, body.Reason) {
+		if !a.singleOperator {
+			a.requestChange(w, r, cur, patch, body)
 			return
 		}
-		audit.Event = auth.AuditAgentWidenedSingleOperator
+		if !allowSingleOperator(w, body.Reason) {
+			return
+		}
+		audit.Event, update = auth.AuditAgentWidenedSingleOperator, a.store.Update
 	}
-	p, err := a.store.Update(r.Context(), cur.ID, patch, audit)
+	p, err := update(r.Context(), cur.ID, patch, audit)
 	if err == nil && body.Status != nil {
 		// The leader drops the roles after the grace under this admin's approval.
 		err = upkeep.RecordRetiringAdmin(r.Context(), a.pool, cur.ID, sessionUserID(r))
@@ -174,19 +206,10 @@ func (a *agentRoutes) patch(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, p)
 }
 
-// allowWidening applies the two-person rule (§6.11): a widening change
-// needs a second admin. In single-operator mode one admin may apply it
-// with a reason; the change is recorded as agent_widened_single_operator
-// for the post-hoc review.
-func (a *agentRoutes) allowWidening(w http.ResponseWriter, reason string) bool {
-	if !a.singleOperator {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		_ = json.NewEncoder(w).Encode(map[string]string{"code": "two_person_required",
-			"error": "a higher ceiling or another profile widens what the agent may do " +
-				"and needs a second admin (or agents.single_operator_mode with a reason)"})
-		return false
-	}
+// allowSingleOperator applies the two-person rule's single-operator form
+// (§6.11): one admin may apply a widening change with a reason; it is
+// recorded as agent_widened_single_operator for the post-hoc review.
+func allowSingleOperator(w http.ResponseWriter, reason string) bool {
 	if strings.TrimSpace(reason) == "" {
 		jsonError(w, "a widening change in single-operator mode needs a reason",
 			http.StatusUnprocessableEntity)
@@ -238,6 +261,7 @@ func agentError(w http.ResponseWriter, r *http.Request, op string, err error) {
 		return
 	}
 	switch {
+	case changeError(w, err, msg):
 	case errors.Is(err, agentguard.ErrNotFound):
 		jsonError(w, "agent not found", http.StatusNotFound)
 	case errors.Is(err, agentguard.ErrSponsorChangeFrozen):

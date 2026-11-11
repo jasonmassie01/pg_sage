@@ -183,5 +183,6 @@ func trancheTwoMigrations() []namedStep {
 		{"ddlSREEvidenceRefreshedEvent", ddlSREEvidenceRefreshedEvent},   // playbooks-06
 		{"ddlIncidentsLogOccurrences", ddlIncidentsLogOccurrences},       // rca-07
 		{"ddlExplainEstimateSource", ddlExplainEstimateSource},           // rca-04
+		{"ddlGuardPrincipalChanges", ddlGuardPrincipalChanges},           // agentgov-06
 	}
 }
