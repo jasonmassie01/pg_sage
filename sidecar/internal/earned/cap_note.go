@@ -189,7 +189,7 @@ func (l *Limiter) noteLimit(ctx context.Context, st State, downs []Downgrade,
 		}
 	}
 	l.noteTransition(ctx, st.Family, st.Class, func(prev capState) capState {
-		next := capState{downs: downs, decay: decay, major: major.note}
+		next := capState{downs: downs, decay: decay, major: major.note, why: major.why}
 		if !known {
 			next.decay = prev.decay
 		}
