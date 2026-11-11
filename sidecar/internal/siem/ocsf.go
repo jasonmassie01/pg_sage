@@ -143,6 +143,10 @@ func classify(r Record) mapping {
 		return pgauditMapping(r)
 	case auditchain.FactEvents.Chain:
 		return factMapping(r)
+	case auditchain.DecisionLedger.Chain:
+		return decisionMapping(r)
+	case auditchain.PolicyApprovals.Chain:
+		return approvalMapping(r)
 	}
 	return mapping{class: ClassAPIActivity, activity: 99, activityName: "Other",
 		status: statusSuccess, severity: SeverityInformational,
@@ -157,10 +161,11 @@ func chainClass(chain string) int {
 		return ClassDatastoreActivity
 	case auditchain.AuthAudit.Chain:
 		return ClassAuthentication
-	case auditchain.ConfigAudit.Chain, auditchain.FactEvents.Chain:
+	case auditchain.ConfigAudit.Chain, auditchain.FactEvents.Chain,
+		auditchain.PolicyApprovals.Chain:
 		return ClassEntityManagement
 	}
-	return ClassAPIActivity
+	return ClassAPIActivity // the decision ledger's class, and the fallback
 }
 
 // trailRemoval reports an audit row leaving the trail: pg_sage's own
