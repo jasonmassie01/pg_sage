@@ -47,14 +47,16 @@ function TopCasesBody({ query, database }) {
   const rows = data.cases.slice(0, TOP_CASES_LIMIT)
   const unavailable = Array.isArray(data.unavailable) ? data.unavailable : []
   const total = Number.isInteger(data.total) ? data.total : rows.length
+  // A database cut at its read cap has more open cases than total counts.
+  const cut = Object.keys(data.truncated || {}).length > 0
   return (
     <div className="space-y-2">
-      <CasesHealthNotes unavailable={unavailable} />
+      <CasesHealthNotes unavailable={unavailable} truncated={data.truncated} />
       {rows.length > 0 ? (
         <>
           <p className="text-xs" style={muted}>
-            {total > rows.length
-              ? `Top ${rows.length} of ${total} open cases`
+            {total > rows.length || cut
+              ? `Top ${rows.length} of ${cut ? 'at least ' : ''}${total} open cases`
               : `${rows.length} open ${rows.length === 1 ? 'case' : 'cases'}`}
             , ranked by severity, then time to impact.
           </p>

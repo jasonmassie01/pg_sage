@@ -286,8 +286,9 @@ under a 5 second timeout.
 
 The **Top Cases** tab lists the five highest-ranked open cases of the
 selected scope, each linking to its case, with the basis of its rank. It
-names every database whose cases could not be read and says "No open
-cases" only when every database answered with none. See
+names every database whose cases could not be read or were cut at the
+read cap (the count then reads "at least"), and says "No open cases"
+only when every database answered with none. See
 [the cases response in a fleet](walkthrough-fleet.md#the-cases-response-in-a-fleet).
 
 ## HA role

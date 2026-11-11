@@ -134,6 +134,15 @@ describe('Dashboard top cases', () => {
     expect(all.getAttribute('href')).toBe('#/cases?database=alpha')
   })
 
+  it('says the count is a floor when a database list was cut at its cap', () => {
+    casesQuery = okCases({ cases: RANKED, total: 700, unavailable: [],
+      truncated: { alpha: { findings: true, incidents: false, query_hints: false } } })
+    const panel = openTopCases()
+    expect(panel).toHaveTextContent('Top 5 of at least 700 open cases')
+    expect(within(panel).getByTestId('cases-truncated')).toHaveTextContent('alpha')
+    expect(within(panel).getByTestId('cases-truncated')).toHaveTextContent('findings')
+  })
+
   it('reports an unreachable database instead of blanking the list', () => {
     casesQuery = okCases({ cases: RANKED.filter(c => c.database_name === 'alpha'),
       total: 3, unavailable: [{ database: 'beta', error_class: 'connection' }] })
