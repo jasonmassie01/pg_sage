@@ -21,12 +21,7 @@ func handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	views := processMetrics.views()
 	var b strings.Builder
 
-	// Info metric.
-	b.WriteString("# HELP pg_sage_info pg_sage version\n" +
-		"# TYPE pg_sage_info gauge\n")
-	writeSample(&b, "pg_sage_info", []labelPair{{"version", version}, {"mode", cfg.Mode}}, 1)
-	b.WriteString("\n")
-	writeBuildMetrics(&b)
+	writeBuildMetrics(&b, cfg.Mode)
 
 	writeModeMetric(&b, cfg.Mode)
 	writeMetricsListenerMetric(&b)
@@ -84,28 +79,24 @@ func writeProcessMetrics(b *strings.Builder, views []metricsView) {
 
 // writeLLMMetrics reports the general LLM client's state and token use.
 func writeLLMMetrics(b *strings.Builder) {
-	b.WriteString("# HELP pg_sage_llm_enabled LLM integration enabled\n" +
-		"# TYPE pg_sage_llm_enabled gauge\n")
+	metricsreg.Header(b, "pg_sage_llm_enabled")
 	enabled := 0
 	if llmClient.IsEnabled() {
 		enabled = 1
 	}
 	fmt.Fprintf(b, "pg_sage_llm_enabled %d\n\n", enabled)
 
-	b.WriteString("# HELP pg_sage_llm_circuit_open LLM circuit breaker (0=closed, 1=open)\n" +
-		"# TYPE pg_sage_llm_circuit_open gauge\n")
+	metricsreg.Header(b, "pg_sage_llm_circuit_open")
 	circuitVal := 0
 	if llmClient.IsCircuitOpen() {
 		circuitVal = 1
 	}
 	fmt.Fprintf(b, "pg_sage_llm_circuit_open %d\n\n", circuitVal)
 
-	b.WriteString("# HELP pg_sage_llm_tokens_used_today Tokens consumed today\n" +
-		"# TYPE pg_sage_llm_tokens_used_today gauge\n")
+	metricsreg.Header(b, "pg_sage_llm_tokens_used_today")
 	fmt.Fprintf(b, "pg_sage_llm_tokens_used_today %d\n\n", llmClient.TokensUsedToday())
 
-	b.WriteString("# HELP pg_sage_llm_tokens_budget_daily Daily token budget\n" +
-		"# TYPE pg_sage_llm_tokens_budget_daily gauge\n")
+	metricsreg.Header(b, "pg_sage_llm_tokens_budget_daily")
 	fmt.Fprintf(b, "pg_sage_llm_tokens_budget_daily %d\n\n", cfg.LLM.TokenBudgetDaily)
 }
 
@@ -120,22 +111,18 @@ func writeOptimizerMetrics(b *strings.Builder, views []metricsView) {
 	}
 	b.WriteString("\n")
 
-	b.WriteString("# HELP pg_sage_optimizer_enabled Optimizer v2 enabled " +
-		"with a configured LLM\n")
-	b.WriteString("# TYPE pg_sage_optimizer_enabled gauge\n")
+	metricsreg.Header(b, "pg_sage_optimizer_enabled")
 	fmt.Fprintf(b, "pg_sage_optimizer_enabled %d\n\n", optimizerGaugeValue())
 }
 
 func writeFleetMetrics(b *strings.Builder) {
 	// Fleet totals only; per-database series are the health families.
 	status := fleetMgr.FleetStatus()
-	b.WriteString("# HELP pg_sage_fleet_databases Total fleet databases\n" +
-		"# TYPE pg_sage_fleet_databases gauge\n")
+	metricsreg.Header(b, "pg_sage_fleet_databases")
 	fmt.Fprintf(b, "pg_sage_fleet_databases %d\n\n",
 		status.Summary.TotalDatabases)
 
-	b.WriteString("# HELP pg_sage_fleet_healthy Healthy databases\n" +
-		"# TYPE pg_sage_fleet_healthy gauge\n")
+	metricsreg.Header(b, "pg_sage_fleet_healthy")
 	fmt.Fprintf(b, "pg_sage_fleet_healthy %d\n\n",
 		status.Summary.Healthy)
 
@@ -143,8 +130,7 @@ func writeFleetMetrics(b *strings.Builder) {
 	fmt.Fprintf(b, "pg_sage_fleet_findings_open %d\n\n",
 		status.Summary.TotalFindings)
 
-	b.WriteString("# HELP pg_sage_fleet_findings_critical Total critical findings\n" +
-		"# TYPE pg_sage_fleet_findings_critical gauge\n")
+	metricsreg.Header(b, "pg_sage_fleet_findings_critical")
 	fmt.Fprintf(b, "pg_sage_fleet_findings_critical %d\n\n",
 		status.Summary.TotalCritical)
 }

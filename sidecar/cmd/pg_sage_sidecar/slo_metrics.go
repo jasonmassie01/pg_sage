@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/pg-sage/sidecar/internal/metricsreg"
 	"github.com/pg-sage/sidecar/internal/sre/slo"
 )
 
@@ -32,8 +33,7 @@ func writeSLOStatusMetrics(b *strings.Builder, byDB map[string][]slo.Status) {
 		dbs = append(dbs, db)
 	}
 	sort.Strings(dbs)
-	b.WriteString("# HELP pg_sage_slo_state SLO error-budget state (1 = current)\n" +
-		"# TYPE pg_sage_slo_state gauge\n")
+	metricsreg.Header(b, "pg_sage_slo_state")
 	forEachSLO(dbs, byDB, func(labels []labelPair, st slo.Status) {
 		for _, s := range sloStates {
 			v := 0
@@ -43,16 +43,16 @@ func writeSLOStatusMetrics(b *strings.Builder, byDB map[string][]slo.Status) {
 			writeSample(b, "pg_sage_slo_state", withLabel(labels, "state", string(s)), v)
 		}
 	})
-	b.WriteString("\n# HELP pg_sage_slo_burn_rate SLO burn rate per window " +
-		"(1 spends the budget exactly)\n# TYPE pg_sage_slo_burn_rate gauge\n")
+	b.WriteString("\n")
+	metricsreg.Header(b, "pg_sage_slo_burn_rate")
 	forEachSLO(dbs, byDB, func(labels []labelPair, st slo.Status) {
 		for _, wb := range knownBurnRates(st) {
 			writeSample(b, "pg_sage_slo_burn_rate", withLabel(labels, "window", wb.window),
 				wb.burn)
 		}
 	})
-	b.WriteString("\n# HELP pg_sage_slo_error_budget_remaining Share of the SLO window's " +
-		"error budget left\n# TYPE pg_sage_slo_error_budget_remaining gauge\n")
+	b.WriteString("\n")
+	metricsreg.Header(b, "pg_sage_slo_error_budget_remaining")
 	forEachSLO(dbs, byDB, func(labels []labelPair, st slo.Status) {
 		if st.BudgetRemaining != nil {
 			writeSample(b, "pg_sage_slo_error_budget_remaining", labels,

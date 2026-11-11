@@ -1,11 +1,11 @@
 package main
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/metricsreg"
 	"github.com/pg-sage/sidecar/internal/policy"
 )
 
@@ -14,30 +14,25 @@ import (
 // Standalone registers its one database in the manager too, so all modes
 // share this path; the metadata database is never one of the rows.
 
-// healthFamily is one gauge family; write renders one database's samples.
+// healthFamily is one gauge family (help in internal/metricsreg); write
+// renders one database's samples.
 type healthFamily struct {
-	name, help string
-	write      func(b *strings.Builder, family string, db fleet.DatabaseStatus)
+	name  string
+	write func(b *strings.Builder, family string, db fleet.DatabaseStatus)
 }
 
 var trustLevels = []string{policy.TrustObservation, policy.TrustAdvisory, policy.TrustAutonomous}
 
 var databaseHealthFamilies = []healthFamily{
-	{"pg_sage_database_up", "1 if the monitored database is connected and its last " +
-		"status refresh succeeded", writeDatabaseUp},
-	{"pg_sage_collector_last_success_timestamp_seconds", "Unix time of the " +
-		"database's last completed collector snapshot", writeCollectorSuccess},
-	{"pg_sage_analyzer_last_success_timestamp_seconds", "Unix time of the " +
-		"database's last successful findings refresh after analysis", writeAnalyzerSuccess},
-	{"pg_sage_findings_open", "Open findings by database and severity", writeFindingsOpen},
-	{"pg_sage_database_health_score", "Database health score, 0-100 (0 while " +
-		"disconnected or in error)", writeHealthScore},
-	{"pg_sage_emergency_stopped", "1 while the database's emergency stop holds " +
-		"(its own or the fleet-wide stop)", writeEmergencyStopped},
-	{"pg_sage_trust_level", "Effective trust level of the database (one-hot)",
+	{"pg_sage_database_up", writeDatabaseUp},
+	{"pg_sage_collector_last_success_timestamp_seconds", writeCollectorSuccess},
+	{"pg_sage_analyzer_last_success_timestamp_seconds", writeAnalyzerSuccess},
+	{"pg_sage_findings_open", writeFindingsOpen},
+	{"pg_sage_database_health_score", writeHealthScore},
+	{"pg_sage_emergency_stopped", writeEmergencyStopped},
+	{"pg_sage_trust_level",
 		writeTrustLevel},
-	{"pg_sage_database_size_bytes", "Database size from the collector's last " +
-		"snapshot", writeDatabaseSize},
+	{"pg_sage_database_size_bytes", writeDatabaseSize},
 }
 
 // writeDatabaseHealthMetrics renders every health family; a nil manager or
@@ -45,7 +40,7 @@ var databaseHealthFamilies = []healthFamily{
 func writeDatabaseHealthMetrics(b *strings.Builder, mgr *fleet.DatabaseManager) {
 	rows := databaseHealthRows(mgr)
 	for _, f := range databaseHealthFamilies {
-		fmt.Fprintf(b, "# HELP %s %s\n# TYPE %s gauge\n", f.name, f.help, f.name)
+		metricsreg.Header(b, f.name)
 		for _, db := range rows {
 			f.write(b, f.name, db)
 		}

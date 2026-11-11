@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/api"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/metricsreg"
 )
 
 // States of the separate /metrics listener (observability-08).
@@ -87,9 +88,7 @@ func writeMetricsListenerMetric(b *strings.Builder) {
 	if state == listenerUp {
 		up = 1
 	}
-	b.WriteString("# HELP pg_sage_metrics_listener_up 1 when the separate /metrics " +
-		"listener (prometheus.listen_addr) is serving, 0 when it failed to bind\n" +
-		"# TYPE pg_sage_metrics_listener_up gauge\n")
+	metricsreg.Header(b, "pg_sage_metrics_listener_up")
 	fmt.Fprintf(b, "pg_sage_metrics_listener_up %d\n\n", up)
 }
 

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/metricsreg"
 )
 
 // observability-07: every /metrics sample is written here, so label values
@@ -66,14 +68,17 @@ func writeSample(b *strings.Builder, name string, labels []labelPair, value any)
 	b.WriteByte('\n')
 }
 
-// writeBuildMetrics renders the build identity and the process start time.
-func writeBuildMetrics(b *strings.Builder) {
-	b.WriteString("# HELP pg_sage_build_info pg_sage build: version and commit\n" +
-		"# TYPE pg_sage_build_info gauge\n")
+// writeBuildMetrics renders the version and mode, the build identity and
+// the process start time.
+func writeBuildMetrics(b *strings.Builder, mode string) {
+	metricsreg.Header(b, "pg_sage_info")
+	writeSample(b, "pg_sage_info", []labelPair{{"version", version}, {"mode", mode}}, 1)
+	b.WriteString("\n")
+	metricsreg.Header(b, "pg_sage_build_info")
 	writeSample(b, "pg_sage_build_info",
 		[]labelPair{{"version", version}, {"commit", commit}}, 1)
-	b.WriteString("\n# HELP process_start_time_seconds Start time of the process " +
-		"since the Unix epoch in seconds\n# TYPE process_start_time_seconds gauge\n")
+	b.WriteString("\n")
+	metricsreg.Header(b, "process_start_time_seconds")
 	writeSample(b, "process_start_time_seconds", nil, processStartTime.Unix())
 	b.WriteString("\n")
 }

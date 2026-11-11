@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/executor"
+	"github.com/pg-sage/sidecar/internal/metricsreg"
 )
 
 // observability-04: what the executor did, for alerting. The two counters
@@ -47,16 +48,13 @@ func writeExecutorMetrics(b *strings.Builder, views []metricsView) {
 // each database whose last actions refresh succeeded, its gauges.
 func writeActionMetrics(b *strings.Builder, outcomes []executor.OutcomeCount,
 	verdicts []executor.VerdictCount, views []metricsView) {
-	b.WriteString("# HELP pg_sage_actions_total Actions that ended, by change class " +
-		"and outcome (success, failed, rolled_back, cancelled, unverifiable, other)\n" +
-		"# TYPE pg_sage_actions_total counter\n")
+	metricsreg.Header(b, "pg_sage_actions_total")
 	for _, o := range outcomes {
 		writeSample(b, "pg_sage_actions_total", []labelPair{{"database", o.Database},
 			{"class", o.Class}, {"outcome", o.Outcome}}, o.Count)
 	}
-	b.WriteString("\n# HELP pg_sage_verification_verdicts_total Verifications " +
-		"finalized, by change class and verdict (success, revert, unverifiable, " +
-		"failed, other)\n# TYPE pg_sage_verification_verdicts_total counter\n")
+	b.WriteString("\n")
+	metricsreg.Header(b, "pg_sage_verification_verdicts_total")
 	for _, v := range verdicts {
 		writeSample(b, "pg_sage_verification_verdicts_total",
 			[]labelPair{{"database", v.Database}, {"class", v.Class},
@@ -66,9 +64,8 @@ func writeActionMetrics(b *strings.Builder, outcomes []executor.OutcomeCount,
 }
 
 func writeActionGauges(b *strings.Builder, views []metricsView) {
-	b.WriteString("\n# HELP pg_sage_actions_pending_approval Pending approvals a " +
-		"person can act on now (past cooldown, not expired), by risk\n" +
-		"# TYPE pg_sage_actions_pending_approval gauge\n")
+	b.WriteString("\n")
+	metricsreg.Header(b, "pg_sage_actions_pending_approval")
 	for _, v := range views {
 		if !v.ok(metricsSourceActions) {
 			continue
@@ -84,9 +81,8 @@ func writeActionGauges(b *strings.Builder, views []metricsView) {
 				[]labelPair{{"database", v.name}, {"risk", risk}}, pending[risk])
 		}
 	}
-	b.WriteString("\n# HELP pg_sage_action_last_failure_timestamp_seconds When the " +
-		"latest failed action was recorded (no sample: none has failed)\n" +
-		"# TYPE pg_sage_action_last_failure_timestamp_seconds gauge\n")
+	b.WriteString("\n")
+	metricsreg.Header(b, "pg_sage_action_last_failure_timestamp_seconds")
 	for _, v := range views {
 		if !v.ok(metricsSourceActions) || v.snap.actions.LastFailure.IsZero() {
 			continue

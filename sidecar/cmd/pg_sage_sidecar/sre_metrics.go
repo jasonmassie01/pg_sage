@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/metricsreg"
 	"github.com/pg-sage/sidecar/internal/sre"
 )
 
@@ -160,11 +161,8 @@ func writeSREInvestigationMetrics(b *strings.Builder, views []metricsView) {
 	if ages.Len() == 0 {
 		return
 	}
-	b.WriteString("# HELP pg_sage_sre_investigations Sage SRE investigations by " +
-		"state: every live one, and terminal ones updated in the past 24 hours\n" +
-		"# TYPE pg_sage_sre_investigations gauge\n" + counts.String())
-	b.WriteString("# HELP pg_sage_sre_investigation_oldest_open_age_seconds Age of " +
-		"the oldest live Sage SRE investigation (0 when none is live)\n" +
-		"# TYPE pg_sage_sre_investigation_oldest_open_age_seconds gauge\n" +
-		ages.String() + "\n")
+	metricsreg.Header(b, "pg_sage_sre_investigations")
+	b.WriteString(counts.String())
+	metricsreg.Header(b, "pg_sage_sre_investigation_oldest_open_age_seconds")
+	b.WriteString(ages.String() + "\n")
 }
