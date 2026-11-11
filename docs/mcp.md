@@ -181,7 +181,8 @@ database whose evidence is not known yet, or whose probe failed, keeps every too
 availability changes (Ask Sage switched off, the contract enabled, `CREATE EXTENSION
 pg_stat_statements` seen by the next capability refresh) clients get
 `notifications/tools/list_changed` and should list again. A hidden tool called directly is
-not an unknown tool: it returns its usual -32010 `unavailable` error.
+not an unknown tool: it returns its usual -32010 `unavailable` error (`ask_sage` with
+`ask.enabled` on but no enabled LLM instead answers with status `llm_unavailable`).
 
 ## The source-fix loop
 

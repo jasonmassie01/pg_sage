@@ -30,7 +30,8 @@ func (m onModel) IsEnabled() bool { return m.on }
 
 func askService(t *testing.T, name string, enabled bool, model *onModel) *ask.Service {
 	t.Helper()
-	d := ask.Deps{Database: name, Pool: lazyPool(t, name), Config: config.AskConfig{Enabled: enabled}}
+	d := ask.Deps{Database: name, Pool: lazyPool(t, name),
+		Config: config.AskConfig{Enabled: enabled}}
 	if model != nil {
 		d.Model = *model
 	}
