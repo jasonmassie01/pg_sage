@@ -149,18 +149,21 @@ func (m *MaintenanceService) ForInvestigation(ctx context.Context, id sre.UUID) 
 	}
 	return out, rows.Err()
 }
+
 // reviewable requires a finished investigation (concluded or
 // inconclusive: the request carries the operator's own hypothesis) with
 // retained evidence, an intact event chain and an unchanged read policy
 // that covers the maintenance pool.
-func (m *MaintenanceService) reviewable(ctx context.Context, scope sre.Scope, invID sre.UUID) error {
+func (m *MaintenanceService) reviewable(ctx context.Context, scope sre.Scope,
+	invID sre.UUID) error {
 	inv, err := m.st.Get(ctx, scope, invID)
 	if err != nil {
 		return err
 	}
 	finished := inv.State == sre.StateConcluded || inv.State == sre.StateInconclusive
 	if !finished || !inv.EvidencePurgedAt.IsZero() {
-		return fmt.Errorf("%w: maintenance needs a finished (concluded or inconclusive) investigation with retained evidence", ErrProposalState)
+		return fmt.Errorf("%w: maintenance needs a finished (concluded or inconclusive) "+
+			"investigation with retained evidence", ErrProposalState)
 	}
 	if err = m.st.VerifyEvents(ctx, scope, invID); err != nil {
 		return err
@@ -185,7 +188,8 @@ func evidenceFresh(age, limit time.Duration) bool {
 	return age >= -time.Second && age <= limit
 }
 
-func (m *MaintenanceService) evidence(ctx context.Context, invID sre.UUID, req StatisticsRequest, target *executor.StatisticsTarget) error {
+func (m *MaintenanceService) evidence(ctx context.Context, invID sre.UUID,
+	req StatisticsRequest, target *executor.StatisticsTarget) error {
 	scope, err := m.scope(ctx)
 	if err != nil {
 		return err
@@ -197,7 +201,9 @@ func (m *MaintenanceService) evidence(ctx context.Context, invID sre.UUID, req S
 	if err != nil {
 		return err
 	}
-	if !e.VerifyHash() || hex.EncodeToString(e.SHA256) != req.EvidenceSHA256 || e.ProbeID != string(probes.StatTables) || e.CapabilityState != "available" || !evidenceFresh(time.Since(e.ObservedAt), m.MaxEvidenceAge) {
+	if !e.VerifyHash() || hex.EncodeToString(e.SHA256) != req.EvidenceSHA256 ||
+		e.ProbeID != string(probes.StatTables) || e.CapabilityState != "available" ||
+		!evidenceFresh(time.Since(e.ObservedAt), m.MaxEvidenceAge) {
 		return fmt.Errorf("%w: requires fresh hash-verified stat_tables evidence", sre.ErrInvalidRequest)
 	}
 	rows, err := statTablesRows(e.Payload)
@@ -207,7 +213,8 @@ func (m *MaintenanceService) evidence(ctx context.Context, invID sre.UUID, req S
 	if target == nil {
 		return nil
 	}
-	if hasTableIdentity(rows, target.Relation, float64(target.DatabaseOID), float64(target.TableOID)) {
+	if hasTableIdentity(rows, target.Relation, float64(target.DatabaseOID),
+		float64(target.TableOID)) {
 		return nil
 	}
 	return fmt.Errorf("%w: evidence does not contain the requested physical database and table identity", sre.ErrInvalidRequest)

@@ -76,7 +76,9 @@ func newMaintenanceHarnessWith(t *testing.T, finish maintenanceFinish,
 	for _, fn := range mutate {
 		fn(&res)
 	}
-	stepped, err := h.st.CommitStep(h.ctx, lease, sre.StepResult{IdempotencyKey: "maintenance-table-observation", Results: []probes.Result{res}, NextState: sre.StateEvaluating})
+	stepped, err := h.st.CommitStep(h.ctx, lease, sre.StepResult{
+		IdempotencyKey: "maintenance-table-observation", Results: []probes.Result{res},
+		NextState: sre.StateEvaluating})
 	if err != nil {
 		t.Fatal(err)
 	}
