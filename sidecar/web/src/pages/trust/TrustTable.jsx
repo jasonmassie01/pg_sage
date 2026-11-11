@@ -1,4 +1,5 @@
 import { checkText } from '../autonomy/checkText'
+import { holdsText } from '../autonomy/holdsText'
 import { ShadowDecisions, ShadowSummary } from './ShadowDecisions'
 
 // One database's trust grid for one kind (self-initiated classes or
@@ -98,6 +99,11 @@ function Level({ row }) {
       {row.effective && (
         <div style={muted}>
           now <span data-testid="trust-effective">{row.effective}</span>
+        </div>
+      )}
+      {row.holds_until && (
+        <div data-testid="trust-holds-until" style={muted}>
+          {holdsText(row.level, row.holds_until, row.expiring_checks)}
         </div>
       )}
       {row.provenance && row.provenance !== 'ledger' && (
