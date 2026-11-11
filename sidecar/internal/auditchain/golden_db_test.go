@@ -75,6 +75,10 @@ var goldenFixtures = map[string]goldenFixture{
 		'65f1.2a', 4242, 'sage_agent', 'pg_sage ✓', 'agent:ünï', NULL, 'SESSION', 3, 1,
 		'DDL', 'CREATE INDEX', 'INDEX', 'public.idx_ünï', 'CREATE INDEX "idx_ünï" ON t (c)',
 		'application_name')`},
+	"fact_events": {6006, `INSERT INTO sage.fact_events (id, fact_id, at, actor, verb,
+		from_status, to_status, fact_hash, note) VALUES (6006, 42,
+		'2026-03-04 11:12:13.654321+00', 'admin:ünï', 'confirmed', 'proposed', 'confirmed',
+		'0123456789abcdef0123456789abcdef', E'Ünicode ✓ "quoted" \\ backslash\ttab 東京')`},
 }
 
 var (

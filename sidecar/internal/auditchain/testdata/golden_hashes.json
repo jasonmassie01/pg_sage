@@ -35,6 +35,13 @@
       "sealed_hash": "c4fd50b9a77166bc23ac64176fbe6c7de81392818cff81d771e98d0ceb9f58ed",
       "state": "",
       "link_hash": "dff13687ede15dafaeafaa1e63f4a1c9a2121b6ccb991b592512e7f890fc4d2a"
+    },
+    "fact_events": {
+      "row_id": 6006,
+      "sealed_text": "[6006, 42, 1772622733654321, \"admin:ünï\", \"confirmed\", \"proposed\", \"confirmed\", \"0123456789abcdef0123456789abcdef\", \"Ünicode ✓ \\\"quoted\\\" \\\\ backslash\\ttab 東京\"]",
+      "sealed_hash": "8508d22db4565ecf97f70b3a0476212bb102213ceb67ea00f6bb0e18ab9258d3",
+      "state": "",
+      "link_hash": "32fc1d329ad572a83227ea6ee732bca7533754a2bbbad7094646c5aa04f2f9b6"
     }
   }
 }
