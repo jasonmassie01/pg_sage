@@ -1,6 +1,14 @@
 import { useState } from 'react'
+import { RuntimeCells } from './RuntimeCells'
+import { RUNTIME_HEADERS } from './runtimeStatus'
 
-export function DatabaseTable({ databases, onEdit, onDelete, onError }) {
+// DatabaseTable lists the managed registrations with their runtime state.
+// runtimeFor maps a registration to its GET /api/v1/databases row;
+// runtimeKnown is false when that inventory could not be read.
+export function DatabaseTable({
+  databases, onEdit, onDelete, onError,
+  runtimeFor = () => undefined, runtimeKnown = true, onSelectDatabase,
+}) {
   const [testing, setTesting] = useState(null)
   const [testResult, setTestResult] = useState(null)
 
@@ -39,7 +47,7 @@ export function DatabaseTable({ databases, onEdit, onDelete, onError }) {
   }
 
   return (
-    <div className="rounded-lg overflow-hidden"
+    <div className="rounded-lg overflow-x-auto"
       style={{
         background: 'var(--bg-card)',
         border: '1px solid var(--border)',
@@ -47,9 +55,9 @@ export function DatabaseTable({ databases, onEdit, onDelete, onError }) {
       <table className="w-full text-sm" data-testid="databases-table">
         <thead>
           <tr style={{ borderBottom: '1px solid var(--border)' }}>
-            {['Name', 'Host', 'Trust Level', 'Execution Mode',
-              'Status', ''].map(h => (
-              <th key={h} className="text-left px-4 py-2 text-xs"
+            {['Name', 'Host', 'Trust Level', 'Execution Mode', 'Registration',
+              ...RUNTIME_HEADERS, ''].map(h => (
+              <th key={h} className="text-left px-4 py-2 text-xs whitespace-nowrap"
                 style={{ color: 'var(--text-secondary)' }}>{h}</th>
             ))}
           </tr>
@@ -61,6 +69,8 @@ export function DatabaseTable({ databases, onEdit, onDelete, onError }) {
               onTest={handleTest}
               testing={testing === db.id}
               testResult={testResult?.id === db.id ? testResult : null}
+              runtime={runtimeFor(db)} runtimeKnown={runtimeKnown}
+              onSelectDatabase={onSelectDatabase}
             />
           ))}
         </tbody>
@@ -71,6 +81,7 @@ export function DatabaseTable({ databases, onEdit, onDelete, onError }) {
 
 function DatabaseRow({
   db, onEdit, onDelete, onTest, testing, testResult,
+  runtime, runtimeKnown, onSelectDatabase,
 }) {
   const badge = (text, color) => (
     <span className="px-2 py-0.5 rounded text-xs"
@@ -109,16 +120,14 @@ function DatabaseRow({
       <td className="px-4 py-2">
         {badge(db.execution_mode, modeColors[db.execution_mode] || '#6b7280')}
       </td>
-      <td className="px-4 py-2">
-        {testResult ? (
-          testResult.status === 'ok'
-            ? badge('connected', '#10b981')
-            : badge('error', '#ef4444')
-        ) : (
-          badge(db.enabled ? 'enabled' : 'disabled',
-            db.enabled ? '#3b82f6' : '#6b7280')
-        )}
+      <td className="px-4 py-2 whitespace-nowrap" data-testid="db-registration">
+        {testResult && (testResult.status === 'ok'
+          ? badge('test: connected', '#10b981')
+          : badge('test: error', '#ef4444'))}
+        {!testResult && !db.enabled && badge('disabled', '#6b7280')}
       </td>
+      <RuntimeCells runtime={runtime} runtimeKnown={runtimeKnown}
+        registeredTrust={db.trust_level} onSelectDatabase={onSelectDatabase} />
       <td className="px-4 py-2 text-right">
         <div className="flex gap-2 justify-end">
           <button onClick={() => onTest(db)} disabled={testing}

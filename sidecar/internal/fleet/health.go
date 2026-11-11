@@ -218,7 +218,7 @@ func (m *DatabaseManager) scoreLocked(
 // databaseStatusLocked snapshots and scores one instance, the row both
 // FleetStatus and InstanceStatus return. Caller holds m.mu.
 func (m *DatabaseManager) databaseStatusLocked(
-	inst *DatabaseInstance, now time.Time,
+	inst *DatabaseInstance, now time.Time, budgets map[string]BudgetUsage,
 ) DatabaseStatus {
 	// Snapshot fields under the instance lock so that background writers
 	// (updateInstanceFindings, config_handlers) don't race with the
@@ -235,6 +235,7 @@ func (m *DatabaseManager) databaseStatusLocked(
 		Status:     snap,
 	}
 	applyStopStatus(&ds, inst)
+	ds.LLMBudget = budgetFor(budgets, inst.Name)
 	return ds
 }
 
@@ -247,7 +248,7 @@ func (m *DatabaseManager) InstanceStatus(name string) (DatabaseStatus, bool) {
 	if inst == nil {
 		return DatabaseStatus{}, false
 	}
-	return m.databaseStatusLocked(inst, time.Now()), true
+	return m.databaseStatusLocked(inst, time.Now(), m.budgetSnapshotLocked()), true
 }
 
 // stampRegistered records when a runtime was published, unless the caller

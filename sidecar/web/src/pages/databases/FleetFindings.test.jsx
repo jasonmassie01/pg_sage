@@ -96,4 +96,27 @@ describe('FleetFindings', () => {
     await waitFor(() => expect(screen.getByTestId('fleet-findings-empty'))
       .toBeInTheDocument())
   })
+  // fleet-06: each occurrence opens that database's finding case.
+  it('links each occurrence to its finding in its database', async () => {
+    respond(recurring)
+    const select = vi.fn()
+    render(<FleetFindings onSelectDatabase={select} />)
+    fireEvent.click(await screen.findByTestId('fleet-finding-toggle-0'))
+    const link = screen.getByRole('link', { name: /tenant_b.*finding 12/ })
+    const [path, query] = link.getAttribute('href').split('?')
+    expect(path).toBe('#/cases')
+    expect(new URLSearchParams(query).get('finding')).toBe('12')
+    expect(new URLSearchParams(query).get('database')).toBe('tenant_b')
+    fireEvent.click(link)
+    expect(select).toHaveBeenCalledWith('tenant_b')
+  })
+
+  it('renders an occurrence without an id as plain text', async () => {
+    respond({ ...recurring, findings: [{ ...recurring.findings[0],
+      occurrences: [{ database: 'tenant_a', severity: 'warning' }] }] })
+    render(<FleetFindings />)
+    fireEvent.click(await screen.findByTestId('fleet-finding-toggle-0'))
+    expect(screen.getByText('tenant_a')).toBeInTheDocument()
+    expect(screen.queryByRole('link')).toBeNull()
+  })
 })

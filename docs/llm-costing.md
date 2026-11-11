@@ -198,6 +198,10 @@ midnight UTC.
   `tokens_used`, `token_budget`, `budget_exhausted`, `circuit_state` and `resets_at`), the
   process-wide `global` ceiling and `any_exhausted`. In fleet mode this is the only view
   of each database's clients. `GET /api/v1/metrics` reports fleet status, not tokens.
+- Fleet budget: with `llm.fleet_token_budget_daily` set, every row of
+  `GET /api/v1/databases` carries `llm_budget` (`allocation`, `used`, `weight`), the
+  database's share and today's use; the field is omitted without a fleet budget. The
+  **Fleet** page shows it as used / allocation.
 - Prometheus: every client has its own series, labelled `client` (`general`, `optimizer`)
   and `database` (empty for the shared client and in standalone mode), in every mode.
   `pg_sage_llm_tokens_total{kind}` counts the tokens charged since start, split into
