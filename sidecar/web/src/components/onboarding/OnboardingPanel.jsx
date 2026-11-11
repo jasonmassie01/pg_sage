@@ -3,11 +3,14 @@ import { useAPI } from '../../hooks/useAPI'
 import { entryErrorText } from './entryError'
 import { LoadError } from './LoadError'
 import { GrantMoreDialog } from './GrantMoreDialog'
+import { RecheckButton } from './RecheckButton'
+import { useRecheckedRefetch } from './recheck'
 
 // OnboardingPanel is the first-run checklist on the landing page: live
 // status of the connection, extensions, first look, MCP token, notifications
 // and the read-only → "grant more" step, with the measured time to the
-// first finding.
+// first finding. Operators re-check the Extensions and First look steps
+// after following the steps, with no restart (firstlook-05).
 
 function onboardingURL(database) {
   if (!database || database === 'all') return '/api/v1/onboarding'
@@ -40,7 +43,10 @@ function formatSeconds(s) {
   return `${Math.round(Number(s) * 10) / 10} s`
 }
 
-function StepItem({ step }) {
+// RECHECK_STEPS are the steps a first look re-check updates.
+const RECHECK_STEPS = new Set(['extensions', 'first_look'])
+
+function StepItem({ step, database, user }) {
   const label = step.link
     ? <a href={step.link} className="font-medium underline">{step.label}</a>
     : <span className="font-medium">{step.label}</span>
@@ -52,6 +58,7 @@ function StepItem({ step }) {
       </span>
       <div>
         {label}
+        {RECHECK_STEPS.has(step.id) && <RecheckButton database={database} user={user} />}
         {step.optional && (
           <span className="ml-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
             optional
@@ -63,7 +70,7 @@ function StepItem({ step }) {
   )
 }
 
-function DatabaseChecklist({ entry, onGrant, platformManaged }) {
+function DatabaseChecklist({ entry, onGrant, platformManaged, user }) {
   const steps = visibleSteps(entry, platformManaged)
   const complete = entryComplete(entry, platformManaged)
   const grantStep = steps.find(s => s.id === 'grant_more')
@@ -85,7 +92,9 @@ function DatabaseChecklist({ entry, onGrant, platformManaged }) {
       ) : (
         <>
           <ul aria-label="Setup checklist" className="space-y-2">
-            {steps.map(step => <StepItem key={step.id} step={step} />)}
+            {steps.map(step => (
+              <StepItem key={step.id} step={step} database={entry.database} user={user} />
+            ))}
           </ul>
           {grantStep && !grantStep.done && (
             <button type="button" onClick={() => onGrant(entry.database)}
@@ -100,10 +109,11 @@ function DatabaseChecklist({ entry, onGrant, platformManaged }) {
   )
 }
 
-export function OnboardingPanel({ database, authMode }) {
+export function OnboardingPanel({ database, authMode, user }) {
   const platformManaged = authMode === 'databricks_app'
   const [settled, setSettled] = useState(false)
   const { data, error, refetch } = useAPI(onboardingURL(database), settled ? 0 : POLL_MS)
+  useRecheckedRefetch(refetch)
   // The cadence follows the latest answer (state adjusted during render).
   const allDone = setupComplete(data, platformManaged)
   if (allDone !== settled) setSettled(allDone)
@@ -119,7 +129,7 @@ export function OnboardingPanel({ database, authMode }) {
       <h2 id="getting-started" className="text-lg font-semibold">Getting started</h2>
       {entries.map(entry => (
         <DatabaseChecklist key={entry.database} entry={entry} onGrant={setGranting}
-          platformManaged={platformManaged} />
+          platformManaged={platformManaged} user={user} />
       ))}
       {granting && (
         <GrantMoreDialog database={granting} onClose={() => setGranting(null)}

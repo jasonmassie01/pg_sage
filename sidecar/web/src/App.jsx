@@ -281,8 +281,8 @@ export default function App({ reloadPage = () => window.location.reload() }) {
       case '/':
         return { title: 'Value', node: (
           <div className="space-y-6">
-            <OnboardingPanel database={effectiveDB} authMode={authMode} />
-            <FirstLookPanel database={effectiveDB} />
+            <OnboardingPanel database={effectiveDB} authMode={authMode} user={user} />
+            <FirstLookPanel database={effectiveDB} user={user} />
             <ValuePage database={effectiveDB} />
           </div>
         ) }
