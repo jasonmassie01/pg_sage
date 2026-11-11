@@ -262,7 +262,10 @@ text and record nothing.
 
 **Actions > Decisions** and `GET /api/v1/decisions` list the open withheld decisions: rows
 with a `queue_approval`, `parked`, `blocked` or `observe_only` verdict that no execute has
-resolved and no approval queue item has taken over. Each entry is one candidate (its
+resolved and no approval queue item has taken over. A withheld row recorded outside the gate's
+repeats (a lease conflict's `ddl_conflict` park, a `custodian_backoff` escalation, a schema
+guard verdict) leaves the list once its candidate's next execute is recorded. Each entry is
+one candidate (its
 `candidate_key`; a row written before candidate keys by its fingerprint), with the latest
 row's verdict and reason and every open row's repeats:
 
@@ -278,7 +281,9 @@ row's verdict and reason and every open row's repeats:
 | `queue_id`, `finding_id` | The approval queue item or finding it belongs to, when recorded. |
 
 Parameters, each optional: `database` (a configured database name), `verdict` (one of the
-four withheld verdicts), `reason` (a reason on this page), `since` (RFC 3339; entries last
+four withheld verdicts), `reason` (a reason on this page, an agent reason, or
+`custodian_backoff`; the schema guard records free text, which is not a filter), `since`
+(RFC 3339; entries last
 seen at or after it) and `limit` (1-500, default 100). A bad value is `400` naming the
 parameter. A database that cannot be read is listed in `partial` with its error class
 (`connection`, `timeout`, `query`) and the others are still returned; when every selected
@@ -286,10 +291,11 @@ database fails the status is `503`. `truncated` says the list was cut at `limit`
 
 **Why hasn't this run?** on a finding's case, and
 `GET /api/v1/policy/explain?database=&finding_id=`, ask the gate how it would decide the
-finding's candidates now, through the same path the cases view and the executor use. Each candidate has its `decision`, `blocked_reason`, the
-gate's `detail` and `human_reason`. `status` is `explained`, or `no_candidate` when the
-finding has nothing the executor could run. Explaining records no decision and takes no
-budget slot.
+finding's candidates now, through the same path the cases view and the executor use. Each
+candidate has its `decision`, `blocked_reason`, the gate's `detail` (only when the reason
+is the gate's, not a candidate's own refusal) and `human_reason`. `status` is `explained`,
+or `no_candidate` when the finding has nothing the executor could run. Explaining records
+no decision and takes no budget slot.
 
 ## Approval flow
 
