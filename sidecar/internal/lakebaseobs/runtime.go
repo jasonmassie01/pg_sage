@@ -23,6 +23,14 @@ type StreamStatus struct {
 	ForwardLagSeconds *int64 `json:"forward_lag_seconds,omitempty"`
 	// ReconcileProgress is the share (0-1) of the current deep sweep read.
 	ReconcileProgress float64 `json:"reconcile_progress"`
+	// Warehouse reads since CountersSince: every ReadWindow call, including
+	// ErrBudget halving retries and failed reads. Rows and Bytes come from
+	// the batches returned; ReadMillis is the wall time spent in reads.
+	Statements    int64     `json:"statements"`
+	Rows          int64     `json:"rows"`
+	Bytes         int64     `json:"bytes"`
+	ReadMillis    int64     `json:"read_millis"`
+	CountersSince time.Time `json:"counters_since"`
 }
 type Runtime struct {
 	reader    Reader
@@ -86,8 +94,9 @@ func NewRuntime(reader Reader, store *Store, scope Scope, options Options, consu
 		consumers: consumers, binding: binding, statuses: map[Stream]StreamStatus{},
 		narrowed: map[narrowKey]time.Duration{}, subscribed: subscribed, atCommit: atCommit,
 		deliveries: map[string]DeliveryStatus{}}
+	started := time.Now().UTC()
 	for _, s := range options.Streams {
-		r.statuses[s] = StreamStatus{Stream: s, HistoricalOnly: true}
+		r.statuses[s] = StreamStatus{Stream: s, HistoricalOnly: true, CountersSince: started}
 	}
 	return r, nil
 }
