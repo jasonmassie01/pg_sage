@@ -85,7 +85,8 @@ func TestLogOccurrencesFromSignal_InvalidMetrics(t *testing.T) {
 		"string count":   {"occurrence_count": "3"},
 	}
 	for name, m := range cases {
-		if got := logOccurrencesFromSignal(&Signal{ID: "x", FiredAt: occT0, Metrics: m}); got != nil {
+		got := logOccurrencesFromSignal(&Signal{ID: "x", FiredAt: occT0, Metrics: m})
+		if got != nil {
 			t.Errorf("%s: occurrences = %+v, want nil", name, got)
 		}
 	}
@@ -105,7 +106,8 @@ func TestLogOccurrencesFromSignal_InvalidMetrics(t *testing.T) {
 // at most 20, first is the earliest and last the latest.
 func TestMergeLogOccurrences(t *testing.T) {
 	w1 := logOccurrencesFromSignal(occSignal(1, []int{101}, occT0, occT0))
-	w1b := logOccurrencesFromSignal(occSignal(3, []int{101, 102, 103}, occT0, occT0.Add(time.Second)))
+	w1b := logOccurrencesFromSignal(
+		occSignal(3, []int{101, 102, 103}, occT0, occT0.Add(time.Second)))
 	m := mergeLogOccurrences(w1, w1b)
 	if m.Count != 3 {
 		t.Fatalf("same window count = %d, want 3", m.Count)
@@ -252,14 +254,17 @@ func TestAutoResolve_MetricIncidentStillCountsCycles(t *testing.T) {
 	}
 }
 
-func TestSuppressRecurrence(t *testing.T) {
+// suppressBase is a critical log recurrence detected 2 h after its
+// critical predecessor resolved.
+func suppressBase() (Incident, persistResult) {
 	resolved := occT0
-	base := func() (Incident, persistResult) {
-		return Incident{ID: "new", Source: "log_deterministic", Severity: "critical",
-				DetectedAt: occT0.Add(2 * time.Hour)},
-			persistResult{inserted: true, previousID: "old",
-				prevResolvedAt: &resolved, prevSeverity: "critical"}
-	}
+	return Incident{ID: "new", Source: "log_deterministic", Severity: "critical",
+			DetectedAt: occT0.Add(2 * time.Hour)},
+		persistResult{inserted: true, previousID: "old",
+			prevResolvedAt: &resolved, prevSeverity: "critical"}
+}
+
+func TestSuppressRecurrence(t *testing.T) {
 	tests := []struct {
 		name string
 		mod  func(*Incident, *persistResult)
@@ -293,14 +298,19 @@ func TestSuppressRecurrence(t *testing.T) {
 	}
 	eng := newTestEngine()
 	for _, tc := range tests {
-		inc, r := base()
+		inc, r := suppressBase()
 		tc.mod(&inc, &r)
 		if got := eng.suppressRecurrence(&inc, r); got != tc.want {
 			t.Errorf("%s: suppress = %v, want %v", tc.name, got, tc.want)
 		}
 	}
+}
+
+// Config override: a shorter rca.recurrence_renotify_hours pages sooner.
+func TestSuppressRecurrence_RenotifyHoursOverride(t *testing.T) {
+	eng := newTestEngine()
 	eng.cfg.RecurrenceRenotifyHours = 1
-	inc, r := base()
+	inc, r := suppressBase()
 	if eng.suppressRecurrence(&inc, r) {
 		t.Error("rca.recurrence_renotify_hours = 1 still suppressed a 2h recurrence")
 	}

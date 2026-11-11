@@ -79,12 +79,23 @@ func TestClassifier_FollowUpCountsDeduplicatedRepeats(t *testing.T) {
 	if got := up.Metrics["database"]; got != "testdb" {
 		t.Errorf("follow-up database = %v, want testdb", got)
 	}
-	// State transition: everything counted was reported; nothing repeats.
+}
+
+// State transition: everything counted was reported, so nothing repeats
+// until a new occurrence, whose follow-up carries the window's total.
+func TestClassifier_FollowUpReportsOnlyNewRepeats(t *testing.T) {
+	c := defaultClassifier()
+	for i, pid := range []int{101, 102, 103} {
+		c.Classify(deadlockAt(pid, occBase.Add(time.Duration(i)*time.Second)))
+	}
+	if ups := c.FollowUps(); len(ups) != 1 || ups[0].Metrics["occurrence_count"] != 3 {
+		t.Fatalf("first FollowUps = %+v, want one with count 3", ups)
+	}
 	if again := c.FollowUps(); len(again) != 0 {
 		t.Errorf("second FollowUps = %d signals, want 0", len(again))
 	}
 	c.Classify(deadlockAt(104, occBase.Add(3*time.Second)))
-	ups = c.FollowUps()
+	ups := c.FollowUps()
 	if len(ups) != 1 || ups[0].Metrics["occurrence_count"] != 4 {
 		t.Fatalf("follow-up after a fourth repeat = %+v, want count 4", ups)
 	}
@@ -263,18 +274,7 @@ func TestClassifier_ClassifyRacesDrain(t *testing.T) {
 			}
 		}
 	}
-	done := make(chan struct{})
-	go func() {
-		for {
-			select {
-			case <-done:
-				return
-			default:
-				record(c.FollowUps()...)
-				c.CleanExpiredDedup()
-			}
-		}
-	}()
+	stop := startDrainer(c, record)
 	for w := 0; w < writers; w++ {
 		wg.Add(1)
 		go func(w int) {
@@ -285,7 +285,7 @@ func TestClassifier_ClassifyRacesDrain(t *testing.T) {
 		}(w)
 	}
 	wg.Wait()
-	close(done)
+	stop()
 	record(c.FollowUps()...)
 	maxCount, firsts := 0, 0
 	for _, s := range all {
@@ -303,4 +303,23 @@ func TestClassifier_ClassifyRacesDrain(t *testing.T) {
 	if firsts != 1 {
 		t.Errorf("signals with count 1 = %d, want exactly the immediate one", firsts)
 	}
+}
+
+// startDrainer drains c's follow-ups and cleans its dedup buffer in a loop
+// until the returned stop is called; stop waits for the loop to end.
+func startDrainer(c *Classifier, record func(...*rca.Signal)) (stop func()) {
+	done, ended := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(ended)
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				record(c.FollowUps()...)
+				c.CleanExpiredDedup()
+			}
+		}
+	}()
+	return func() { close(done); <-ended }
 }

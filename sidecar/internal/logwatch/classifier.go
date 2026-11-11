@@ -263,12 +263,25 @@ func (c *Classifier) buildSignal(
 		metrics["backend_type"] = entry.BackendType
 	}
 	applyExtract(pat, entry.Message, metrics)
+	if !c.addSignalMetrics(pat.ID, entry, metrics) {
+		return nil
+	}
+	return &rca.Signal{
+		ID:       pat.ID,
+		FiredAt:  entry.Timestamp,
+		Severity: pat.Severity,
+		Metrics:  metrics,
+	}
+}
 
-	switch pat.ID {
+// addSignalMetrics adds the metrics specific to signal id. It returns
+// false when the signal is suppressed (a temp file below the size floor).
+func (c *Classifier) addSignalMetrics(id string, entry LogEntry, metrics map[string]any) bool {
+	switch id {
 	case signalid.LogTempFileCreated:
 		sz := parseTempFileSize(entry.Message)
 		if sz < c.tempFileMinBytes {
-			return nil
+			return false
 		}
 		metrics["temp_file_bytes"] = sz
 	case signalid.LogStatementTimeout:
@@ -284,11 +297,5 @@ func (c *Classifier) buildSignal(
 			metrics["query"] = Truncate(entry.Query, MaxQueryLen)
 		}
 	}
-
-	return &rca.Signal{
-		ID:       pat.ID,
-		FiredAt:  entry.Timestamp,
-		Severity: pat.Severity,
-		Metrics:  metrics,
-	}
+	return true
 }
