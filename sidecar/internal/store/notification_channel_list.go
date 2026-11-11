@@ -21,14 +21,22 @@ type ChannelListing struct {
 // listChannelsSQL reads each channel's newest log row through a LATERAL
 // probe on idx_notification_log_channel_sent (channel_id, sent_at DESC):
 // one index descent per channel, however long the log is.
+//
+// The channel is matched by a range, not "=", on purpose. With "=" the
+// planner drops channel_id from the ORDER BY as constant and may walk the
+// global sent_at index instead, filtering on channel_id: it assumes every
+// channel's rows are spread evenly, so a quiet or never-delivered channel
+// beside busy ones reads the whole log. Ordering by channel_id first
+// leaves only the per-channel index able to deliver the order.
 const listChannelsSQL = `/* pg_sage */ SELECT c.id, c.name, c.type, c.config, c.enabled,
        COALESCE(l.status, ''), COALESCE(l.error, ''), l.sent_at
   FROM sage.notification_channels c
   LEFT JOIN LATERAL (
        SELECT status, error, sent_at
          FROM sage.notification_log
-        WHERE channel_id = c.id AND sent_at IS NOT NULL
-        ORDER BY sent_at DESC, id DESC
+        WHERE channel_id >= c.id AND channel_id <= c.id
+          AND sent_at IS NOT NULL
+        ORDER BY channel_id, sent_at DESC, id DESC
         LIMIT 1) l ON true
  ORDER BY c.id`
 
