@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useConfirm } from '../../hooks/useConfirm'
 import { cardStyle, DELIVERY_STATUS_COLORS, StatusMessages } from './shared'
 import { ChannelForm } from './ChannelForm'
 import { CallbackInfo } from './CallbackInfo'
@@ -15,6 +16,7 @@ export function ChannelsTab() {
   const [success, setSuccess] = useState(null)
   const [created, setCreated] = useState(null)
   const [editing, setEditing] = useState(null)
+  const { askConfirm, dialog } = useConfirm()
 
   const fetchChannels = useCallback(async () => {
     try {
@@ -43,11 +45,12 @@ export function ChannelsTab() {
     fetchChannels()
   }
 
-  const actions = useChannelActions({ fetchChannels, setError, setSuccess })
+  const actions = useChannelActions({ fetchChannels, setError, setSuccess, askConfirm })
 
   return (
     <div>
       <StatusMessages error={error} success={success} />
+      {dialog}
       <AddChannelCard created={created} onSaved={handleCreated} />
       <ChannelTable channels={channels} onEdit={setEditing} {...actions} />
       {editing && (
@@ -71,7 +74,7 @@ function AddChannelCard({ created, onSaved }) {
   )
 }
 
-function useChannelActions({ fetchChannels, setError, setSuccess }) {
+function useChannelActions({ fetchChannels, setError, setSuccess, askConfirm }) {
   async function call(url, init, failure) {
     setError(null)
     setSuccess(null)
@@ -103,10 +106,14 @@ function useChannelActions({ fetchChannels, setError, setSuccess }) {
       setError(err.message)
     }
   }
-  async function onDelete(id) {
-    if (!confirm('Delete this channel?')) return
+  async function onDelete(ch) {
+    const ok = await askConfirm({
+      title: `Delete channel ${ch.name}`, action: 'Delete',
+      consequence: 'The channel and its delivery settings are removed.',
+    })
+    if (!ok) return
     try {
-      await call(`${CHANNELS_URL}/${id}`, { method: 'DELETE' }, 'Delete failed')
+      await call(`${CHANNELS_URL}/${ch.id}`, { method: 'DELETE' }, 'Delete failed')
       fetchChannels()
     } catch (err) {
       setError(err.message)
@@ -180,7 +187,7 @@ function ChannelRow({ ch, onEdit, onTest, onToggle, onDelete }) {
           className="px-2 py-1 rounded text-xs mr-2" style={{ color: 'var(--accent)' }}>
           Test
         </button>
-        <button onClick={() => onDelete(ch.id)} data-testid="channel-delete-button"
+        <button onClick={() => onDelete(ch)} data-testid="channel-delete-button"
           className="px-2 py-1 rounded text-xs" style={{ color: 'var(--red)' }}>
           Delete
         </button>

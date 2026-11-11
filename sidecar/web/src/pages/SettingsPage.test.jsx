@@ -3,6 +3,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { isMaskedSecret, SettingsPage } from './SettingsPage'
 import { useAPI } from '../hooks/useAPI'
 import { ToastProvider } from '../components/Toast'
+import { answerConfirm } from '../test/confirmDialog'
 
 const refetch = vi.fn()
 let configReadOnly = false
@@ -281,9 +282,10 @@ describe('SettingsPage restart', () => {
       ok: true, status: 202, json: async () => ({ status: 'restarting' }),
     })
     globalThis.fetch = fetchMock
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     render(<SettingsPage database="all" />)
     fireEvent.click(screen.getByTestId('settings-restart-btn'))
+    expect(fetchMock.mock.calls.some(c => c[0] === '/api/v1/restart')).toBe(false)
+    expect(await answerConfirm()).toBe('Restart the pg_sage sidecar now?')
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
       '/api/v1/restart', expect.anything()))
     const init = fetchMock.mock.calls.find(c => c[0] === '/api/v1/restart')[1]

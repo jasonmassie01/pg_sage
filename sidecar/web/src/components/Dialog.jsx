@@ -1,0 +1,70 @@
+import { useEffect, useId, useRef } from 'react'
+
+// Dialog is the dashboard's one modal (dashboard-10). It is a native <dialog>
+// opened with showModal(), so the browser contains focus and makes the page
+// behind it inert. It is named by its title, takes focus on open, returns
+// focus to the element that opened it, and cannot be closed while busy.
+
+const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), '
+  + 'textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
+
+function focusFirst(el) {
+  const target = el.querySelector('[data-autofocus]:not([disabled])')
+    || el.querySelector(FOCUSABLE) || el
+  target.focus()
+}
+
+function useModal(ref, open) {
+  const returnTo = useRef(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!open || !el) return undefined
+    returnTo.current = document.activeElement
+    if (!el.open) el.showModal()
+    focusFirst(el)
+    return () => {
+      if (el.open) el.close()
+      const back = returnTo.current
+      returnTo.current = null
+      if (back?.isConnected && typeof back.focus === 'function') back.focus()
+    }
+  }, [ref, open])
+}
+
+export function Dialog({
+  open, title, onClose, busy = false, testId, children, width = 480,
+}) {
+  const ref = useRef(null)
+  const titleId = useId()
+  useModal(ref, open)
+
+  const requestClose = event => {
+    event.preventDefault()
+    if (!busy) onClose()
+  }
+  const onKeyDown = event => {
+    if (event.key === 'Escape') requestClose(event)
+  }
+
+  return (
+    <dialog ref={ref} aria-modal="true" aria-labelledby={titleId}
+      data-testid={testId} onCancel={requestClose} onKeyDown={onKeyDown}
+      tabIndex={-1} className="rounded-lg p-0 backdrop:bg-black/60"
+      style={{
+        width: `min(${width}px, calc(100vw - 32px))`,
+        background: 'var(--bg-card)',
+        color: 'var(--text-primary)',
+        border: '1px solid var(--border)',
+      }}>
+      {open && (
+        <div className="p-5 space-y-4">
+          <h2 id={titleId} className="text-base font-semibold"
+            style={{ color: 'var(--text-primary)' }}>
+            {title}
+          </h2>
+          {children}
+        </div>
+      )}
+    </dialog>
+  )
+}

@@ -4,6 +4,7 @@
 // (agentgov-01). Admin only: App.jsx gates the route and Layout hides the
 // nav link from other roles.
 import { useCallback, useEffect, useState } from 'react'
+import { useConfirm } from '../hooks/useConfirm'
 import { ExternalAgentRequests } from './mcptokens/ExternalAgentRequests'
 import { SecretNotice } from './mcptokens/SecretNotice'
 import { TokenForm } from './mcptokens/TokenForm'
@@ -69,6 +70,7 @@ function useTokenList() {
 
 function useRevoke(replace, setError) {
   const [revokingIds, setRevokingIds] = useState(() => new Set())
+  const { askConfirm, dialog } = useConfirm()
   const mark = (id, on) => setRevokingIds(prev => {
     const next = new Set(prev)
     if (on) next.add(id)
@@ -77,9 +79,11 @@ function useRevoke(replace, setError) {
   })
   async function revoke(token) {
     if (revokingIds.has(token.id)) return
-    if (!confirm(`Revoke MCP token "${token.name}"? Agents using it lose access now.`)) {
-      return
-    }
+    const ok = await askConfirm({
+      title: `Revoke MCP token "${token.name}"`, action: 'Revoke',
+      consequence: 'Agents using this token lose access now.',
+    })
+    if (!ok) return
     setError(null)
     mark(token.id, true)
     try {
@@ -90,7 +94,7 @@ function useRevoke(replace, setError) {
       mark(token.id, false)
     }
   }
-  return { revokingIds, revoke }
+  return { revokingIds, revoke, dialog }
 }
 
 function useCreate(load) {
@@ -140,7 +144,7 @@ export function MCPTokensPage() {
   const list = useTokenList()
   const owners = useOwners()
   const [actionError, setActionError] = useState(null)
-  const { revokingIds, revoke } = useRevoke(list.replace, setActionError)
+  const { revokingIds, revoke, dialog } = useRevoke(list.replace, setActionError)
   const { created, creating, formError, create, dismiss } = useCreate(list.load)
   return (
     <div data-testid="mcp-tokens-page">
@@ -163,6 +167,7 @@ export function MCPTokensPage() {
       <TokenList list={list} owners={owners.owners} revokingIds={revokingIds}
         onRevoke={revoke} />
       <ExternalAgentRequests />
+      {dialog}
     </div>
   )
 }

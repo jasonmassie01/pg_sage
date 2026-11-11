@@ -1,5 +1,9 @@
 # pg_sage UI Redesign v2 — Design Doc
 
+> Historical. This design describes an earlier information architecture. The
+> current dashboard routes and nav groups are declared in
+> `sidecar/web/src/routes.js`.
+
 **Status:** Proposal
 **Author:** Claude (for jmass)
 **Date:** 2026-04-16

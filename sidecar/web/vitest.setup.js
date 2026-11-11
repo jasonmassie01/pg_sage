@@ -42,3 +42,25 @@ if (!globalThis.DOMRect) {
     }
   }
 }
+
+// dashboard-10: jsdom has HTMLDialogElement but neither showModal nor close.
+// The polyfill sets and clears the open attribute and fires close like a
+// browser. It does not emulate the top layer, inertness or Escape: Dialog
+// handles Escape itself, and focus containment is a MANUAL browser check.
+if (globalThis.HTMLDialogElement
+  && !globalThis.HTMLDialogElement.prototype.showModal) {
+  const proto = globalThis.HTMLDialogElement.prototype
+  proto.showModal = function showModal() {
+    if (!this.isConnected) {
+      throw new DOMException('showModal on a disconnected dialog', 'InvalidStateError')
+    }
+    this.setAttribute('open', '')
+  }
+  proto.show = function show() { this.setAttribute('open', '') }
+  proto.close = function close(returnValue) {
+    if (!this.hasAttribute('open')) return
+    if (returnValue !== undefined) this.returnValue = returnValue
+    this.removeAttribute('open')
+    this.dispatchEvent(new Event('close'))
+  }
+}

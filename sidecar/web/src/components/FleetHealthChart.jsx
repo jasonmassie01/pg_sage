@@ -1,4 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
+import { useCallback } from 'react'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend,
@@ -54,12 +55,15 @@ function formatTick(ms) {
   })
 }
 
+// FleetHealthChart polls the picker's window every 60 s. The window is
+// computed when each request starts (dashboard-07), so the time range's
+// 30 s tick does not refetch the chart between polls.
 export function FleetHealthChart({ database }) {
-  const range = useTimeRange()
+  const { windowAt } = useTimeRange()
   const dbParam = database && database !== 'all'
     ? `?database=${database}` : ''
   const base = `/api/v1/fleet/health${dbParam}`
-  const url = withTimeRange(base, range)
+  const url = useCallback(() => withTimeRange(base, windowAt(Date.now())), [base, windowAt])
   const { data, loading, error } = useAPI(url, 60000)
 
   if (loading && !data) {

@@ -3,6 +3,7 @@ import { SSOGrantNotice, UserSSOCell } from './users/UserSSOControls'
 import { grantLinkURL, issueSSOLinkGrant, unlinkUserSSO } from './users/ssoApi'
 import { DisabledBadge, UserStatusButton } from './users/UserStatusControls'
 import { deleteUser, setUserDisabled } from './users/userAdminApi'
+import { useConfirm } from '../hooks/useConfirm'
 
 export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
   const platformManaged = authMode === 'databricks_app'
@@ -14,6 +15,7 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
   const [creating, setCreating] = useState(false)
   const [ssoOnly, setSSOOnly] = useState(false)
   const [grant, setGrant] = useState(null)
+  const { askConfirm, dialog } = useConfirm()
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -60,8 +62,12 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
   }
 
   async function handleDelete(id, userEmail) {
-    if (!confirm(`Delete user ${userEmail}? Deactivating keeps their history ` +
-      'attributable and can be undone.')) return
+    const ok = await askConfirm({
+      title: `Delete user ${userEmail}`, action: 'Delete',
+      consequence: 'Deleting cannot be undone. Deactivating instead keeps their '
+        + 'history attributable and can be undone.',
+    })
+    if (!ok) return
     setError(null)
     try {
       await deleteUser(id)
@@ -73,8 +79,10 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
 
   async function handleStatus(user) {
     const disable = !user.disabled
-    if (disable && !confirm(`Deactivate ${user.email}? They are signed out ` +
-      'everywhere and their MCP tokens are revoked.')) return
+    if (disable && !await askConfirm({
+      title: `Deactivate ${user.email}`, action: 'Deactivate',
+      consequence: 'They are signed out everywhere and their MCP tokens are revoked.',
+    })) return
     setError(null)
     try {
       await setUserDisabled(user.id, disable)
@@ -103,7 +111,11 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
   }
 
   async function handleUnlink(user) {
-    if (!confirm(`Unlink SSO from ${user.email}? Their sessions end.`)) return
+    const ok = await askConfirm({
+      title: `Unlink SSO from ${user.email}`, action: 'Unlink',
+      consequence: 'Their sessions end.',
+    })
+    if (!ok) return
     setError(null)
     try {
       await unlinkUserSSO(user.id)
@@ -135,6 +147,7 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
 
   return (
     <div>
+      {dialog}
       {error && (
         <div className="text-sm p-3 rounded mb-4"
           style={{
