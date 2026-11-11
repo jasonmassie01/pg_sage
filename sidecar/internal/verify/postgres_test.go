@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,7 +25,7 @@ func TestPostgresAdaptersFailClosedWithoutPool(t *testing.T) {
 			return err
 		}},
 		{"writes", func() error {
-			_, err := source.WriteMeasurements(ctx, "t", time.Time{}, time.Time{})
+			_, err := source.WriteCost(ctx, "t", time.Time{}, time.Time{})
 			return err
 		}},
 		{"index", func() error { _, err := source.IndexValid(ctx, "idx"); return err }},
@@ -107,7 +108,7 @@ func TestPostgresObservationSourceReadsCollectorEvidence(t *testing.T) {
 			9: {{int64(25), 200.0, false}},
 		},
 		rows: []pgx.Row{
-			&valueRow{values: []any{4, float64(30)}},
+			&valueRow{values: []any{"public", "orders"}},
 			&valueRow{values: []any{true}},
 		},
 	}
@@ -120,9 +121,10 @@ func TestPostgresObservationSourceReadsCollectorEvidence(t *testing.T) {
 		queries[7].AverageLatency != 12500*time.Microsecond || queries[7].Buckets != 2 {
 		t.Fatalf("QueryMeasurements() = %#v, %v", queries, err)
 	}
-	writes, err := source.WriteMeasurements(context.Background(), "orders", from, to)
-	if err != nil || writes.Samples != 4 || writes.AverageLatency != 10*time.Millisecond {
-		t.Fatalf("WriteMeasurements() = %#v, %v", writes, err)
+	// The fake history holds no collector cycles: no attributable interval.
+	writes, err := source.WriteCost(context.Background(), "orders", from, to)
+	if err != nil || writes != (WriteCost{}) {
+		t.Fatalf("WriteCost() = %#v, %v", writes, err)
 	}
 	valid, err := source.IndexValid(context.Background(), "idx_orders")
 	if err != nil || !valid {
@@ -232,6 +234,8 @@ func (r *valueRow) Scan(dest ...any) error {
 			*target = value.(float64)
 		case *bool:
 			*target = value.(bool)
+		case *string:
+			*target = value.(string)
 		}
 	}
 	return nil
@@ -253,4 +257,35 @@ func (s *fakeStateScanner) Scan(dest ...any) error {
 	*(dest[6].(*time.Time)) = s.due
 	*(dest[7].(*int)) = s.failures
 	return nil
+}
+
+// executor-03b: the write cost names its table on the monitored database
+// first. A table that no longer resolves, or a failed history read, is an
+// error with context (the engine records it; the write evidence is then
+// insufficient).
+func TestPostgresWriteCostErrorsCarryContext(t *testing.T) {
+	missing := &PostgresObservationSource{queryer: &fakeRowQuerier{
+		rows: []pgx.Row{&valueRow{err: pgx.ErrNoRows}}}}
+	_, err := missing.WriteCost(context.Background(), "public.gone", time.Time{}, time.Now())
+	if err == nil || !strings.Contains(err.Error(), `"public.gone"`) ||
+		!strings.Contains(err.Error(), "not found") {
+		t.Fatalf("missing table error = %v, want it named as not found", err)
+	}
+	want := errors.New("history store unreachable")
+	broken := &PostgresObservationSource{queryer: &fakeRowQuerier{queryErr: want,
+		rows: []pgx.Row{&valueRow{values: []any{"public", "orders"}}}}}
+	_, err = broken.WriteCost(context.Background(), "public.orders", time.Time{}, time.Now())
+	if !errors.Is(err, want) || !strings.Contains(err.Error(), "public.orders") {
+		t.Fatalf("history error = %v, want %v wrapped with the table", err, want)
+	}
+}
+
+// Every stored watch names its write signal's scope, so the startup sweep
+// can tell a table-scoped write_impact revert (a real verdict) from one the
+// database-wide signal left before executor-03b.
+func TestStoredWatchMarksTheTableWriteScope(t *testing.T) {
+	_, baseline, err := marshalState(WatchState{ID: "w", Table: "public.orders"})
+	if err != nil || !strings.Contains(string(baseline), `"write_scope":"table"`) {
+		t.Fatalf("baseline = %s, %v; want write_scope table", baseline, err)
+	}
 }

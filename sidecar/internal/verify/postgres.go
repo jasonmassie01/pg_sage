@@ -19,8 +19,9 @@ type rowQuerier interface {
 }
 
 // PostgresObservationSource reads verification evidence: collector
-// history (query_store intervals, system snapshots) from the database's
-// history store, and the catalog (pg_index) from the monitored database.
+// history (query_store intervals, system and tables snapshots) from the
+// database's history store, and the catalog (pg_index, pg_class) from the
+// monitored database.
 // With history.store: meta those are two databases; the history store is
 // resolved from the monitored pool (histstore.Resolve).
 type PostgresObservationSource struct {
@@ -57,43 +58,6 @@ func (s *PostgresObservationSource) QueryMeasurements(
 		result[id] = measurement
 	}
 	return result, nil
-}
-
-func (s *PostgresObservationSource) WriteMeasurements(
-	ctx context.Context, _ string, from, to time.Time,
-) (Measurement, error) {
-	if s == nil || s.queryer == nil {
-		return Measurement{}, errors.New("verify observation pool is unavailable")
-	}
-	var samples int
-	var elapsedMS float64
-	err := s.historyStore().QueryRow(ctx, `WITH samples AS (
-		SELECT (sn.data->>'blk_write_time')::float8 AS write_ms,
-			row_number() OVER (ORDER BY sn.collected_at) AS first_row,
-			row_number() OVER (ORDER BY sn.collected_at DESC) AS last_row
-		FROM sage.snapshots sn
-		WHERE {db:sn} AND sn.category='system' AND sn.collected_at BETWEEN $1 AND $2
-	), bounds AS (
-		SELECT count(*)::int AS samples,
-			max(write_ms) FILTER (WHERE last_row=1) -
-			max(write_ms) FILTER (WHERE first_row=1) AS elapsed
-		FROM samples
-	)
-	SELECT samples, COALESCE(GREATEST(elapsed, 0), 0) FROM bounds`,
-		from, to).Scan(&samples, &elapsedMS)
-	if err != nil {
-		return Measurement{}, err
-	}
-	denominator := samples - 1
-	if denominator <= 0 {
-		return Measurement{Samples: samples}, nil
-	}
-	return Measurement{
-		Samples: samples,
-		AverageLatency: time.Duration(
-			elapsedMS / float64(denominator) * float64(time.Millisecond),
-		),
-	}, nil
 }
 
 func (s *PostgresObservationSource) IndexValid(
@@ -138,7 +102,13 @@ type persistedWatch struct {
 	Table      string        `json:"table"`
 	IndexName  string        `json:"index_name"`
 	Window     time.Duration `json:"window"`
+	// WriteScope is the write signal the watch is judged by: "table" for
+	// every watch stored since executor-03b. A row without it is older.
+	WriteScope string `json:"write_scope,omitempty"`
 }
+
+// writeScopeTable marks a watch judged by the table-scoped write signal.
+const writeScopeTable = "table"
 
 func (s *PostgresStateStore) Create(ctx context.Context, state WatchState) error {
 	if s == nil || s.pool == nil {
@@ -267,9 +237,11 @@ func (s *PostgresStateStore) Claim(
 // before observation retries existed: an open unverifiable verdict with
 // reason observation_unavailable or context_canceled whose hard deadline is
 // still ahead becomes an extended watch the next resume observes again. An
-// open write_impact revert (from before the write signal became advisory,
-// executor-03) whose drop has not run is reopened too, whatever its
-// deadline: the queries decide it again. Its next evaluation (the claim
+// open write_impact revert that the database-wide signal decided (stored
+// before executor-03b, so without write_scope) whose drop has not run is
+// reopened too, whatever its deadline: it is judged again on the
+// table-scoped signal. A table-scoped write_impact revert is a real verdict
+// and is left alone. Its next evaluation (the claim
 // lease) is kept. A reopened action that its withheld or failed revert left
 // rollback_skipped or rollback_failed is watched again (monitoring), so the
 // next verdict can settle it; an operator's rollback is never touched. It
@@ -286,7 +258,8 @@ func (s *PostgresStateStore) ReopenObservationRetries(ctx context.Context) (int6
 		  (verdict='unverifiable'
 		    AND reason IN ('observation_unavailable', 'context_canceled')
 		    AND hard_deadline_at > now())
-		  OR (verdict='revert' AND reason='write_impact'))
+		  OR (verdict='revert' AND reason='write_impact'
+		    AND baseline->>'write_scope' IS NULL))
 		RETURNING action_log_id
 	), watched AS (
 		UPDATE sage.action_log al SET outcome='monitoring', rollback_reason=NULL
@@ -334,7 +307,7 @@ func marshalState(state WatchState) ([]byte, []byte, error) {
 	}
 	baseline, err := json.Marshal(persistedWatch{
 		WatchID: state.ID, ExecutedAt: state.ExecutedAt, Table: state.Table,
-		IndexName: state.IndexName, Window: state.Window,
+		IndexName: state.IndexName, Window: state.Window, WriteScope: writeScopeTable,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("encode watch identity: %w", err)

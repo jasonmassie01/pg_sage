@@ -164,7 +164,8 @@ var runtimeEnvVars = []EnvVar{
 	{Name: "SAGE_VERIFY_REGRESS_PCT", Default: envCode(DefaultVerifyRegressPct),
 		Doc: "Regression percentage that triggers a revert (`verify.regress_pct`)"},
 	{Name: "SAGE_VERIFY_WRITE_IMPACT_PCT", Default: envCode(DefaultVerifyWriteImpactPct),
-		Doc: "Maximum write-latency increase (`verify.write_impact_pct`)"},
+		Doc: "Maximum rise of the table's WAL bytes per written tuple " +
+			"(`verify.write_impact_pct`)"},
 	{Name: "SAGE_VERIFY_MIN_SAMPLES", Default: envCode(DefaultVerifyMinSamples),
 		Doc: "Minimum verification samples (`verify.min_samples`)"},
 	{Name: "SAGE_CLONE_PROVIDER", Default: envCode(DefaultCloneProvider),

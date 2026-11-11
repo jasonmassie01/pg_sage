@@ -198,33 +198,33 @@ func TestWatchMinimumGainBoundaryCountsAsSuccess(t *testing.T) {
 	}
 }
 
-// executor-03 replaces TestWatchRevertsOnWriteImpact, which asserted the
-// behaviour this item removes: a database-wide write-time rise of 30% after
-// the build (10 -> 13 ms) reverted an index whose queries gained 30%. The
-// signal cannot be charged to the index, so it is advisory evidence only.
-func TestWatchDatabaseWriteSignalIsAdvisory(t *testing.T) {
+// executor-03b restores TestWatchRevertsOnWriteImpact on the table-scoped
+// signal: a 30% rise of the WAL bytes per tuple the index's table wrote
+// (100 -> 130) reverts an index whose queries gained 30%. (executor-03 had
+// made the database-wide blk_write_time signal advisory; that signal is
+// gone.)
+func TestWatchRevertsOnTableWriteImpact(t *testing.T) {
 	source := newFakeObservationSource()
-	source.writeAfter = Measurement{Samples: 60, AverageLatency: 13 * time.Millisecond, Buckets: 12}
+	source.writeAfter = measuredCost(130)
 	verdict, err := newTestEngine(t, source, newMemoryStateStore()).Watch(
 		context.Background(), successfulWatchRequest("write-impact"),
 	)
 	if err != nil {
 		t.Fatalf("Watch: %v", err)
 	}
-	if !verdict.Retain || verdict.Revert || verdict.Status != "success" ||
-		verdict.Reason != "" {
-		t.Fatalf("verdict = %#v, want the improving index retained", verdict)
+	if !verdict.Revert || verdict.Retain || verdict.Reason != "write_impact" {
+		t.Fatalf("verdict = %#v, want a write_impact revert", verdict)
 	}
 	signal := writeSignalOf(t, verdict)
-	if signal["exceeds_threshold"] != true || signal["decisive"] != false {
-		t.Fatalf("write_signal = %#v, want exceeds_threshold=true decisive=false", signal)
+	if signal["exceeds_threshold"] != true || signal["decisive"] != true {
+		t.Fatalf("write_signal = %#v, want exceeds_threshold=true decisive=true", signal)
 	}
 	assertSignalFloat(t, signal, "delta_pct", 30)
 }
 
 func TestWatchWriteImpactBoundaryIsAllowed(t *testing.T) {
 	source := newFakeObservationSource()
-	source.writeAfter = Measurement{Samples: 60, AverageLatency: 12 * time.Millisecond, Buckets: 12}
+	source.writeAfter = measuredCost(120)
 	verdict, err := newTestEngine(t, source, newMemoryStateStore()).Watch(
 		context.Background(), successfulWatchRequest("write-boundary"),
 	)
@@ -322,9 +322,9 @@ func TestWatchRevertsToSafeAtHardMaxWithoutSamples(t *testing.T) {
 // A failed read is not evidence that the index does not help: the watch
 // stays open (observation_retry) and is observed again after a backoff.
 func TestWatchObservationErrorsRetryInsteadOfReverting(t *testing.T) {
-	// A write-history read error no longer pauses the watch (executor-03):
-	// the write signal is advisory, so the queries decide and the error is
-	// recorded in write_signal.error (TestWriteMeasurementErrorLeavesVerdictToQueries).
+	// A write-history read error does not pause the watch (executor-03): the
+	// write evidence is then insufficient, so the queries decide and the error
+	// is recorded in write_signal.error (TestWriteCostErrorLeavesVerdictToQueries).
 	tests := []struct {
 		name   string
 		mutate func(*fakeObservationSource)

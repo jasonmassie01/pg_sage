@@ -5,62 +5,69 @@ import (
 	"fmt"
 )
 
-// The write signal reads pg_stat_database.blk_write_time from the system
-// snapshots: database-wide, cumulative and non-zero only with
-// track_io_timing. It cannot charge any write cost to one index (a night
-// build followed by daytime load moves it whatever the index costs), so it
-// is advisory evidence, never a revert reason, until a table-scoped signal
-// replaces it (executor-03b).
+// The write signal is the index's table's write cost (write_cost.go): WAL
+// bytes per tuple the table wrote, before and after the build. It reverts
+// as write_impact above verify.write_impact_pct, and only an index whose
+// queries improved (the query reasons come first). Without attributable
+// table samples it is insufficient: the queries decide, and no
+// database-wide number stands in for the table (executor-03b).
 const (
-	writeSignalScope  = "database"
-	writeSignalMetric = "blk_write_time"
+	writeSignalScope  = "table"
+	writeSignalMetric = "wal_bytes_per_tuple"
 )
 
-// observeWrites reads the write signal before and after the action. A read
+// observeWrites reads the write cost before and after the action. A read
 // error is returned for the evidence; it never fails the observation.
 func (e *Engine) observeWrites(
 	ctx context.Context, state WatchState,
-) (Measurement, Measurement, error) {
-	before, err := e.source.WriteMeasurements(
+) (WriteCost, WriteCost, error) {
+	before, err := e.source.WriteCost(
 		ctx, state.Table, state.ExecutedAt.Add(-state.Window), state.ExecutedAt,
 	)
 	if err != nil {
-		return Measurement{}, Measurement{},
-			fmt.Errorf("read pre-action write measurements: %w", err)
+		return WriteCost{}, WriteCost{}, fmt.Errorf("read pre-action write cost: %w", err)
 	}
-	after, err := e.source.WriteMeasurements(
-		ctx, state.Table, state.ExecutedAt, e.options.Now(),
-	)
+	after, err := e.source.WriteCost(ctx, state.Table, state.ExecutedAt, e.options.Now())
 	if err != nil {
-		return Measurement{}, Measurement{},
-			fmt.Errorf("read post-action write measurements: %w", err)
+		return WriteCost{}, WriteCost{}, fmt.Errorf("read post-action write cost: %w", err)
 	}
 	return before, after, nil
 }
 
-// writeSignal is the write_signal evidence of a verdict. exceeds_threshold
-// reports a rise above verify.write_impact_pct; decisive is always false.
-// Without a positive baseline (track_io_timing off, or fewer than two
-// snapshots) there is no delta and the signal is unavailable.
-func writeSignal(criterion Criterion, observed observations) map[string]any {
+// judgeObservedWrites judges the observed write cost; a read error is
+// insufficient evidence.
+func judgeObservedWrites(criterion Criterion, observed observations) writeJudgement {
+	if observed.writeErr != nil {
+		return writeJudgement{Outcome: writeInsufficient,
+			Reason: "the table's write cost could not be read"}
+	}
+	return judgeWrites(criterion.WriteImpactPct, observed.writeBefore, observed.writeAfter)
+}
+
+// writeSignal is the write_signal evidence of a verdict; decisive marks
+// the signal that caused a write_impact revert.
+func writeSignal(state WatchState, observed observations, decisive bool) map[string]any {
+	judgement := judgeObservedWrites(state.Criterion, observed)
 	signal := map[string]any{
-		"scope": writeSignalScope, "metric": writeSignalMetric,
-		"threshold_pct": criterion.WriteImpactPct, "exceeds_threshold": false,
-		"decisive": false,
+		"scope": writeSignalScope, "metric": writeSignalMetric, "table": state.Table,
+		"threshold_pct": state.Criterion.WriteImpactPct, "outcome": judgement.Outcome,
+		"exceeds_threshold": judgement.Outcome == writeRegressed, "decisive": decisive,
+		"before": writeCostEvidence(observed.writeBefore),
+		"after":  writeCostEvidence(observed.writeAfter),
 	}
 	if observed.writeErr != nil {
 		signal["error"] = observed.writeErr.Error()
-		return signal
 	}
-	before, after := observed.writeBefore.AverageLatency, observed.writeAfter.AverageLatency
-	signal["before_ms"] = toMs(before)
-	signal["after_ms"] = toMs(after)
-	if before <= 0 {
-		signal["unavailable"] = "no pre-action write baseline " +
-			"(track_io_timing off or fewer than two snapshots)"
-		return signal
+	if judgement.Measured {
+		signal["delta_pct"] = judgement.DeltaPct
+	} else {
+		signal["insufficient"] = judgement.Reason
 	}
-	signal["delta_pct"] = (float64(after) - float64(before)) * 100 / float64(before)
-	signal["exceeds_threshold"] = exceeds(after, before, criterion.WriteImpactPct)
 	return signal
+}
+
+func writeCostEvidence(cost WriteCost) map[string]any {
+	return map[string]any{"intervals": cost.Intervals, "unattributed": cost.Unattributed,
+		"unknown": cost.Unknown, "tuples": cost.Tuples, "wal_bytes": cost.WALBytes,
+		"bytes_per_tuple": cost.BytesPerTuple}
 }

@@ -279,7 +279,7 @@ Variables that only the test suites and benches read (`SAGE_TEST_*`, `SAGE_BENCH
 | `SAGE_VERIFY_WINDOW_MAX_MINUTES` | `4320` | Maximum verification window in minutes (`verify.window_max_minutes`) |
 | `SAGE_VERIFY_MIN_GAIN_PCT` | `20` | Minimum gain to retain a change (`verify.min_gain_pct`); `0` is allowed |
 | `SAGE_VERIFY_REGRESS_PCT` | `15` | Regression percentage that triggers a revert (`verify.regress_pct`) |
-| `SAGE_VERIFY_WRITE_IMPACT_PCT` | `20` | Maximum write-latency increase (`verify.write_impact_pct`) |
+| `SAGE_VERIFY_WRITE_IMPACT_PCT` | `20` | Maximum rise of the table's WAL bytes per written tuple (`verify.write_impact_pct`) |
 | `SAGE_VERIFY_MIN_SAMPLES` | `30` | Minimum verification samples (`verify.min_samples`) |
 | `SAGE_CLONE_PROVIDER` | `none` | Clone provider (`clone.provider`): `none` or `dle` |
 | `SAGE_CLONE_DLE_ENDPOINT` | (none) | Database Lab Engine API endpoint (`clone.dle_endpoint`) |
@@ -849,23 +849,36 @@ earlier version closed after a transient read error or a shutdown (`observation_
 or `context_canceled` with the hard deadline still ahead) is reopened and checked again;
 until that sweep succeeds, no index watch is resumed, so none of those changes is reverted.
 
-Write cost is advisory evidence for now, never a revert reason. The only write signal is
-database-wide (`pg_stat_database.blk_write_time` from the system snapshots, non-zero only
-with `track_io_timing`), so it cannot be charged to one index: an index built in a night
-window would otherwise be dropped by the daytime write load that follows, whatever it
-costs. Each index verdict records it as `write_signal` in the verdict evidence
-(`sage.action_outcome.evidence`): `scope: database`, `metric: blk_write_time`,
-`before_ms`, `after_ms`, `delta_pct`, `threshold_pct`, `exceeds_threshold` (a rise above
-`verify.write_impact_pct`) and `decisive: false`. With no baseline (`track_io_timing` off)
-it carries `unavailable` and no delta; a failed read of the write history is recorded in
-`write_signal.error` and does not pause the watch. When the rise exceeds the threshold, the
-outcome reason says so and that it is advisory. The index is kept or reverted on its
-queries alone (`query_regression`, `no_gain`, `invalid_index`, `insufficient_samples`).
-At startup, an open `write_impact` revert from an earlier version whose drop has not run
-is reopened and checked again on its queries; if that drop was withheld or failed, its
-action (`rollback_skipped` or `rollback_failed`) is watched again (`monitoring`) so the new
-verdict settles it, and an operator's rollback is left as it is. A table-scoped write signal
-that can revert again is planned (executor-03b).
+Write cost is measured on the index's own table. For each window (before the build and
+after it) the verifier reads the collector's cycles from the history store (at most 49 per
+window, spread evenly) and differences them into intervals: the WAL the cluster wrote, and the
+tuples the table wrote (`pg_stat_user_tables` `n_tup_ins + n_tup_upd + n_tup_del`). WAL is
+cluster-wide, so an interval is charged to the table only when the table wrote at least 90%
+of the tuples the database wrote in it and at least 100 tuples; an interval in which other
+tables wrote is `unattributed`, and one whose readings cannot be compared (a statistics reset,
+a standby, a cycle without a tables snapshot) is `unknown`. The window's cost is the median WAL
+bytes per written tuple of its attributable intervals. An index whose queries improved is
+reverted as `write_impact` when the post-build cost is more than `verify.write_impact_pct`
+above the pre-build cost (a rise of exactly the threshold is kept). The query reasons come
+first: a query regression is still `query_regression` and a neutral result still `no_gain`,
+and a window extended for query samples is not ended early. Each window needs 3 attributable
+intervals and 1,000 tuples; with less, or when the write history cannot be read (recorded in
+`write_signal.error`; it does not pause the watch), the write signal is `insufficient` and
+the queries alone decide. There is no database-wide fallback: a batch on another table, or
+the daytime load after a night build, is never charged to the index. Each index verdict
+records the signal as `write_signal` in the verdict evidence (`sage.action_outcome.evidence`):
+`scope: table`, `metric: wal_bytes_per_tuple`, `table`, `outcome` (`regressed`,
+`within_threshold` or `insufficient`), `before` and `after` (`intervals`, `unattributed`,
+`unknown`, `tuples`, `wal_bytes`, `bytes_per_tuple`), `delta_pct` when both windows were
+measured, `threshold_pct`, `exceeds_threshold`, and `decisive` (true when it caused the
+revert). When the cost rose over the threshold, the outcome reason names the table and the
+rise. Other databases of the same cluster also write WAL; the median and the attribution rule
+absorb a burst from them, not a sustained load that only runs after the build.
+At startup, an open `write_impact` revert from a version before the table-scoped signal
+(its watch has no `write_scope`) whose drop has not run is reopened and checked again on the
+table-scoped signal; if that drop was withheld or failed, its action (`rollback_skipped` or
+`rollback_failed`) is watched again (`monitoring`) so the new verdict settles it, and an
+operator's rollback is left as it is. A table-scoped `write_impact` revert is left alone.
 
 An index drop is watched for its business cycle, `verify.drop_window_hours`, and checked
 from the start. Its definition is kept, and the index is re-created as soon as a query on
@@ -961,7 +974,7 @@ outcome ledger (`sage.action_outcome`).
 | `trust.rollback_threshold_pct` | `10` | Regression bar on a target's call-weighted mean. Live, `0`-`100` |
 | `verify.min_samples` | `30` | Calls each window needs |
 | `verify.min_gain_pct` | `20` | Gain bar for `improved` |
-| `verify.write_impact_pct` | `20` | Advisory: rise in database-wide write time reported as `write_signal.exceeds_threshold`. It does not revert an index until a table-scoped signal replaces it (executor-03b) |
+| `verify.write_impact_pct` | `20` | Largest rise of the WAL bytes per tuple written to an index's table, after the build, that keeps the index; above it the index reverts as `write_impact` |
 | `verify.window_max_minutes` | `4320` | Longest a non-drop action is watched for evidence |
 | `verify.drop_window_hours` | `168` | Business cycle an index drop is verified over, `1`-`8760`. See [Fast elevation](#fast-elevation-dogfood-databases) |
 

@@ -9,10 +9,10 @@ import (
 type observations struct {
 	before      map[int64]Measurement
 	after       map[int64]Measurement
-	writeBefore Measurement
-	writeAfter  Measurement
-	// writeErr is a failed write-signal read: recorded in the evidence, it
-	// never fails the observation (the write signal is advisory).
+	writeBefore WriteCost
+	writeAfter  WriteCost
+	// writeErr is a failed write-cost read: recorded in the evidence, it
+	// never fails the observation (the write evidence is then insufficient).
 	writeErr   error
 	indexValid bool
 }
@@ -110,8 +110,9 @@ func (e *Engine) observe(ctx context.Context, state WatchState) (observations, e
 // 1.3): a regression of any target reverts; a neutral result reverts as
 // no_gain (an index that does not help still costs writes); too little
 // evidence extends the window up to its hard maximum; only an improvement
-// is retained. The database-wide write signal is attached as advisory
-// evidence (write_signal) and never decides (executor-03).
+// is retained, unless its table's write cost rose above write_impact_pct
+// (write_impact, executor-03b). The write signal is attached to every
+// decided or extended verdict (write_signal).
 func (e *Engine) decide(state WatchState, observed observations) Verdict {
 	if !observed.indexValid {
 		verdict := revertVerdict(state.Window, 0, "invalid_index")
@@ -134,7 +135,22 @@ func (e *Engine) decide(state WatchState, observed observations) Verdict {
 			Window: state.Window}
 	}
 	verdict = withOutcome(verdict, pooled, per)
-	verdict.Evidence["write_signal"] = writeSignal(state.Criterion, observed)
+	decisive := verdict.Retain &&
+		judgeObservedWrites(state.Criterion, observed).Outcome == writeRegressed
+	if decisive {
+		verdict = writeImpactVerdict(verdict)
+	}
+	verdict.Evidence["write_signal"] = writeSignal(state, observed, decisive)
+	return verdict
+}
+
+// writeImpactVerdict reverts an improving index whose table's writes now
+// cost more than write_impact_pct: the action regressed the workload it
+// shares a table with. ObservedPct stays the queries' change.
+func writeImpactVerdict(retained Verdict) Verdict {
+	verdict := revertVerdict(retained.Window, retained.Samples, "write_impact")
+	verdict.Outcome = OutcomeRegressed
+	verdict.ObservedPct, verdict.Evidence = retained.ObservedPct, retained.Evidence
 	return verdict
 }
 

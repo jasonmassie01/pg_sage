@@ -23,8 +23,9 @@ type fakeObservationSource struct {
 	executedAt   time.Time
 	before       map[int64]Measurement
 	after        map[int64]Measurement
-	writeBefore  Measurement
-	writeAfter   Measurement
+	writeBefore  WriteCost
+	writeAfter   WriteCost
+	writeReads   []writeRead
 	indexValid   bool
 	load         LoadSample
 	queryErr     error
@@ -45,8 +46,8 @@ func newFakeObservationSource() *fakeObservationSource {
 		after: map[int64]Measurement{
 			42: {Samples: 60, AverageLatency: 70 * time.Millisecond, Buckets: 12},
 		},
-		writeBefore: Measurement{Samples: 60, AverageLatency: 10 * time.Millisecond, Buckets: 12},
-		writeAfter:  Measurement{Samples: 60, AverageLatency: 11 * time.Millisecond, Buckets: 12},
+		writeBefore: measuredCost(100),
+		writeAfter:  measuredCost(105),
 		indexValid:  true,
 		load:        LoadSample{CPUPct: 20, DataIOPct: 20, LogIOPct: 20},
 	}
@@ -80,13 +81,20 @@ func (s *fakeObservationSource) QueryMeasurements(
 	return copyMeasurements(s.after, ids), nil
 }
 
-func (s *fakeObservationSource) WriteMeasurements(
-	_ context.Context, _ string, from, to time.Time,
-) (Measurement, error) {
+// writeRead is one WriteCost call: the table and the window it read.
+type writeRead struct {
+	table    string
+	from, to time.Time
+}
+
+func (s *fakeObservationSource) WriteCost(
+	_ context.Context, table string, from, to time.Time,
+) (WriteCost, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.writeReads = append(s.writeReads, writeRead{table: table, from: from, to: to})
 	if s.writeErr != nil {
-		return Measurement{}, s.writeErr
+		return WriteCost{}, s.writeErr
 	}
 	if !to.After(s.executedAt) {
 		return s.writeBefore, nil
