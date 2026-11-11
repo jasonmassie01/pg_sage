@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -86,6 +87,7 @@ func queryProblems(q boardQuery, retired map[string]metricsreg.Retired) []string
 		return []string{fmt.Sprintf("%s: %q queries no pg_sage family", q.where, q.expr)}
 	}
 	var out []string
+	queried := map[string]bool{"job": true, "instance": true}
 	for _, s := range sels {
 		f, ok := boardFamily(s.name)
 		if r, gone := retired[s.name]; !ok && gone {
@@ -98,8 +100,42 @@ func queryProblems(q boardQuery, retired map[string]metricsreg.Retired) []string
 				s.name))
 			continue
 		}
+		for _, l := range f.Labels {
+			queried[l] = true
+		}
 		if q.panel {
 			out = append(out, selectorProblems(q.where, s, f)...)
+		}
+	}
+	if q.panel && len(out) == 0 {
+		out = append(out, groupingProblems(q, queried)...)
+	}
+	return out
+}
+
+var (
+	promGroupingRE = regexp.MustCompile(`\b(?:by|without)\s*\(([^)]*)\)`)
+	legendLabelRE  = regexp.MustCompile(`\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}`)
+)
+
+// groupingProblems checks that every label a panel target groups by, or
+// names in its legend, is one its families carry: a renamed or misspelt
+// label would collapse the panel into one unlabelled series.
+func groupingProblems(q boardQuery, labels map[string]bool) []string {
+	var used []string
+	for _, m := range promGroupingRE.FindAllStringSubmatch(q.expr, -1) {
+		for _, l := range strings.Split(m[1], ",") {
+			used = append(used, strings.TrimSpace(l))
+		}
+	}
+	for _, m := range legendLabelRE.FindAllStringSubmatch(q.legend, -1) {
+		used = append(used, m[1])
+	}
+	var out []string
+	for _, l := range used {
+		if l != "" && !labels[l] {
+			out = append(out, fmt.Sprintf("%s: groups or labels by %q, a label no family "+
+				"of %q carries", q.where, l, q.expr))
 		}
 	}
 	return out
@@ -221,6 +257,8 @@ func TestGrafanaRulesRejectInvalidQueries(t *testing.T) {
 		"bad label": {`pg_sage_llm_enabled{breaker="llm",` + fixtureJobInstance + `}`,
 			`pg_sage_llm_enabled has no label "breaker"`},
 		"no family": {`vector(1)`, "queries no pg_sage family"},
+		"bad grouping label": {`sum by (outcom) (pg_sage_actions_total{` + fixtureJobInstance +
+			`,database=~"$database"})`, `groups or labels by "outcom"`},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -228,6 +266,9 @@ func TestGrafanaRulesRejectInvalidQueries(t *testing.T) {
 			wantOneProblem(t, boardProblems(b), c.want)
 		})
 	}
+	legend := strings.Replace(fixturePanel(1, "stat", `pg_sage_llm_enabled{`+
+		fixtureJobInstance+`}`), `"targets":[{`, `"targets":[{"legendFormat":"{{database}}",`, 1)
+	wantOneProblem(t, boardProblems(fixtureBoard(t, legend)), `labels by "database"`)
 	if _, err := parseGrafanaBoard([]byte(`{"panels":[`)); err == nil ||
 		!strings.Contains(err.Error(), "parse dashboard JSON") {
 		t.Fatalf("broken JSON error = %v", err)

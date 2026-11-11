@@ -63,12 +63,13 @@ func TestGrafanaRulesBoundaries(t *testing.T) {
 	}
 }
 
-// Integration (in-memory fleet): the full contract scrape in fleet and
-// meta mode has at least one sample for every family the board queries,
-// and each of them renders in both modes.
+// Integration (in-memory fleet): the full contract scrape in standalone,
+// fleet and meta mode has at least one sample for every family the board
+// queries, and each of them renders in every mode.
 func TestGrafanaDashboardFamiliesHaveSamples(t *testing.T) {
 	fams := boardFamilyNames(loadGrafanaBoard(t))
-	for _, mode := range []string{metricsreg.ModeFleet, metricsreg.ModeMeta} {
+	modes := []string{metricsreg.ModeStandalone, metricsreg.ModeFleet, metricsreg.ModeMeta}
+	for _, mode := range modes {
 		t.Run(mode, func(t *testing.T) {
 			e := lintScrape(t, grafanaScrape(t, mode))
 			for _, name := range fams {
@@ -156,8 +157,9 @@ func boardDatabaseLabels(t *testing.T, e exposition) map[string]map[string]bool 
 // grafanaUnseeded are board families the in-memory fixture cannot give a
 // sample: they count only through the standing gate's recorded decisions
 // or the shadow store, both on a real database. The scrape must still
-// declare them; their writers are covered by park_metrics_test.go and the
-// shadow contract tests, and the real-Postgres test below seeds shadow.
+// declare them; their writers are covered by park_metrics_test.go and
+// shadow_runtime_test.go, and prometheus_contract_db_test.go seeds shadow
+// decisions on real Postgres.
 var grafanaUnseeded = map[string]bool{
 	"pg_sage_policy_parks_total":               true,
 	"pg_sage_verification_wait_releases_total": true,

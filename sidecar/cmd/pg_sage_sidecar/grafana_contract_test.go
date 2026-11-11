@@ -33,8 +33,9 @@ type grafanaDS struct {
 }
 
 type grafanaTarget struct {
-	Expr       string     `json:"expr"`
-	Datasource *grafanaDS `json:"datasource"`
+	Expr         string     `json:"expr"`
+	LegendFormat string     `json:"legendFormat"`
+	Datasource   *grafanaDS `json:"datasource"`
 }
 
 type grafanaFieldConfig struct {
@@ -125,8 +126,8 @@ func (v grafanaVar) promQL() string {
 
 // boardQuery is one PromQL expression and where the dashboard has it.
 type boardQuery struct {
-	where, expr string
-	panel       bool // a panel target, which must carry the variable filters
+	where, expr, legend string
+	panel               bool // a panel target, which must carry the variable filters
 }
 
 func boardQueries(b grafanaBoard) []boardQuery {
@@ -139,7 +140,7 @@ func boardQueries(b grafanaBoard) []boardQuery {
 	for _, p := range flatPanels(b.Panels) {
 		for _, tg := range p.Targets {
 			out = append(out, boardQuery{where: fmt.Sprintf("panel %q", p.Title),
-				expr: tg.Expr, panel: true})
+				expr: tg.Expr, legend: tg.LegendFormat, panel: true})
 		}
 	}
 	return out
