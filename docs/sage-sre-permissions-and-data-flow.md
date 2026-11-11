@@ -244,9 +244,11 @@ its own.
 
 ### Maintenance: extended statistics (M6)
 
-An operator can propose `CREATE STATISTICS` on one table from a concluded investigation's
-fresh, hash-verified `stat_tables` evidence of that table; the columns are the operator's
-hypothesis. It runs only where the coordination tables and the target are the same database
+An operator can propose `CREATE STATISTICS` on one table from a concluded or inconclusive
+investigation's fresh, hash-verified `stat_tables` evidence of that table; the columns are
+the operator's hypothesis. A refresh (`sre_refresh_table_evidence`) re-reads `stat_tables`
+once under the investigation's read policy and is recorded as `operator_refresh` evidence
+with an `evidence_refreshed` event; it never changes the investigation's state. It runs only where the coordination tables and the target are the same database
 (the colocated topology; with a separate meta database pg_sage logs that maintenance is
 unavailable). After approval the executor takes `SHARE UPDATE EXCLUSIVE` on the table,
 checks that the table, owner and column identities are unchanged and that no object of that
@@ -404,8 +406,8 @@ its one queued item, and the policy gate can still refuse it.
 
 ## Operator maintenance (extended statistics)
 
-An operator can propose `CREATE STATISTICS` from a concluded investigation's retained
-`stat_tables` evidence. It runs only after human approval, only where the coordination
+An operator can propose `CREATE STATISTICS` from a concluded or inconclusive
+investigation's retained `stat_tables` evidence, refreshed if it is older than 15 minutes. It runs only after human approval, only where the coordination
 and target databases are the same database (colocated topology), and a rollback drops only
 the object it created; prior `ANALYZE` statistics cannot be restored.
 

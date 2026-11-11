@@ -1941,6 +1941,32 @@ Routes: `GET .../investigations/{id}/proposals` (any role), and for operators an
 existing `POST /api/v1/actions/{queue_id}/approve` and `/reject`. With MCP enabled, operators
 and admins get `sre_propose_action` and `sre_request_execution`. Neither tool executes.
 
+**Statistics maintenance the morning after.** Extended statistics
+(`CREATE STATISTICS`) can be proposed from a concluded or inconclusive investigation that
+observed the table in `stat_tables` (the columns are your hypothesis; nothing claims they
+cause the incident). The cited evidence must be at most 15 minutes old at propose and at
+request, so a review the next day starts with a refresh. Over MCP:
+
+1. `sre_refresh_table_evidence` with `investigation_id`, `schema` and `table` re-reads
+   `stat_tables` once, under the investigation's read policy, and records it as
+   `operator_refresh` evidence with an `evidence_refreshed` event on the investigation's
+   chain. It is refused when the table's database or table OID changed (start a new
+   investigation), for cancelled, failed or purged investigations, and more than once a
+   minute per investigation.
+2. `sre_propose_statistics` with the table, `columns` (2 to 8), optional `kinds` and a
+   `rationale`. pg_sage cites the newest matching evidence itself; no call carries an
+   evidence id or SHA-256.
+3. `sre_request_statistics` with the `proposal_id` queues one approval item. A person
+   approves it; the executor rechecks the table, owner and column identities under the
+   table lock.
+4. `sre_rollback_statistics` (approve scope, admin people only, like the REST route) drops
+   the object pg_sage created; prior `ANALYZE` statistics are not restored.
+
+Refresh, propose and request need the propose scope; agents never hold approve. One
+proposal per investigation still applies, so refresh, propose and request within the
+15 minutes. The REST routes under `.../investigations/{id}/maintenance` take the evidence
+id and SHA-256 explicitly.
+
 **Approving in Slack or Telegram.** Approval requests are `approval_needed` notifications,
 so add a notification rule for that event to the channel.
 
