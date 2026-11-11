@@ -55,8 +55,17 @@ export const freezeAgent = (id, reason) =>
   post(`${agentURL(id)}/freeze`, 'freeze the agent', { reason })
 export const unfreezeAgent = (id, reason) =>
   post(`${agentURL(id)}/unfreeze`, 'unfreeze the agent', { reason })
-export const killAgents = reason =>
-  post(`${AGENTS_URL}/kill`, 'kill agents', { scope: 'all', reason })
+export const killAgents = body => post(`${AGENTS_URL}/kill`, 'kill agents', body)
+export const patchAgent = (id, body) => call(agentURL(id), 'change the agent', {
+  method: 'PATCH',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(body),
+})
+export const listFreezes = () => call(`${AGENTS_URL}/freezes`, 'load freezes')
+export const releaseFreeze = body =>
+  post(`${AGENTS_URL}/kill/release`, 'release the freeze', body)
+// An agent's token is revoked on the MCP Tokens route, like any token.
+export { revokeToken as revokeAgentToken } from '../mcptokens/tokenApi'
 export const agentActivity = id => call(`${agentURL(id)}/activity`, 'load activity')
 
 export async function listUsers() {
@@ -172,6 +181,80 @@ export function unfreezeMessage(r) {
   return msg
 }
 
-export function killReady(phrase, reason) {
-  return phrase === KILL_PHRASE && reason.trim() !== ''
+export const KILL_SCOPES = ['all', 'principal', 'database']
+
+// killReady: the typed phrase, a reason and, for one agent or one
+// database, its target.
+export function killReady(phrase, reason, scope = 'all', target = '') {
+  if (phrase !== KILL_PHRASE || reason.trim() === '') return false
+  if (!KILL_SCOPES.includes(scope)) return false
+  return scope === 'all' || target !== ''
+}
+
+// killBody builds POST /api/v1/agents/kill: the target is the agent id or
+// the database name, sent as id.
+export function killBody({ scope, target, reason }) {
+  const body = { scope, reason: reason.trim() }
+  return scope === 'all' ? body : { scope, id: target, reason: body.reason }
+}
+
+// sponsorOptions are the users who may sponsor an agent.
+export function sponsorOptions(users) {
+  return Array.isArray(users) ? users.filter(u => u.role === 'operator' ||
+    u.role === 'admin') : []
+}
+
+// editBody builds PATCH /api/v1/agents/{id} from the edit form with only
+// the changed fields (and the reason), or null when nothing valid changed.
+// An empty sponsor choice is no change: the API cannot clear a sponsor.
+export function editBody(agent, form) {
+  if (!agent || !form) return null
+  const body = {}
+  if (form.sponsor !== '') {
+    const id = Number(form.sponsor)
+    if (!Number.isInteger(id) || id <= 0) return null
+    if (id !== agent.sponsor_user_id) body.sponsor_user_id = id
+  }
+  const profile = form.profile.trim()
+  if (!profile || !ENVIRONMENTS.includes(form.ceiling)) return null
+  if (profile !== agent.profile) body.profile = profile
+  if (form.ceiling !== agent.env_ceiling) body.env_ceiling = form.ceiling
+  if (Object.keys(body).length === 0) return null
+  if (form.reason.trim()) body.reason = form.reason.trim()
+  return body
+}
+
+// retireReady: a live agent, its exact name typed and a reason.
+export function retireReady(agent, typed, reason) {
+  return !!agent && agent.status !== 'retired' && typed === agent.name &&
+    reason.trim() !== ''
+}
+
+const RELEASABLE = { fleet: 0, database: 1 }
+
+// freezeItems keeps the fleet and database freezes of GET
+// /api/v1/agents/freezes, fleet first; an agent's freeze is lifted from
+// its drawer.
+export function freezeItems(data) {
+  const list = Array.isArray(data?.freezes) ? data.freezes : []
+  return list.filter(f => f && f.scope in RELEASABLE)
+    .sort((a, b) => RELEASABLE[a.scope] - RELEASABLE[b.scope])
+}
+
+// releaseBody builds POST /api/v1/agents/kill/release for a fleet or
+// database freeze, or null without a reason.
+export function releaseBody(freeze, reason) {
+  const why = reason.trim()
+  if (!why || !(freeze?.scope in RELEASABLE)) return null
+  return freeze.scope === 'fleet' ? { scope: 'all', reason: why }
+    : { scope: 'database', database: freeze.target, reason: why }
+}
+
+// releaseMessage explains a release result.
+export function releaseMessage(r) {
+  if (r.pending) {
+    return `Pending second admin (request #${r.request_id}, started by ` +
+      `${r.requested_by}). Another admin, not an agent's sponsor, releases it too.`
+  }
+  return r.single_operator ? 'Released by one admin in single-operator mode.' : 'Released.'
 }

@@ -618,6 +618,30 @@ operator freeze needs one admin. With `agents.single_operator_mode`, one admin c
 freeze, but must give a reason. Every unfreeze rotates the broker password, so the old one
 fails. Tokens revoked by a kill stay revoked: mint new ones.
 
+### From the Agents page
+
+The Agents page does all of this without curl:
+
+- **Edit.** An admin opens an agent and changes its sponsor (an operator or admin), profile
+  or ceiling under **Edit**. Only the changed fields are sent. A widening change shows
+  "awaiting a second admin" with its change id: another admin confirms it (see
+  [Two-person rules](#two-person-rules)). A sponsor change while the agent is frozen shows the
+  server's `sponsor_change_frozen` refusal. An upgraded install's legacy agents start without a
+  sponsor: assign one here.
+- **Retire.** **Retire agent** asks for a reason and the agent's name, typed exactly. The dialog
+  shows `agents.roles.retire_grace_days`, the days before the roles are dropped. Once the agent
+  is retired, the drawer no longer offers Edit, Retire, Freeze or new tokens.
+- **Tokens.** Each active token in the drawer has **Revoke**. The MCP Tokens page still lists
+  and revokes every token.
+- **Kill.** **Kill agents** takes a scope: every agent, one agent or one database. Each needs
+  the reason and the typed `KILL AGENTS` phrase; a one-agent or one-database kill also needs
+  its target chosen.
+- **Release.** The banner above the list shows each open fleet and database freeze, with who
+  set it and why. An admin types a reason and presses **Release**. After a kill, the first admin's
+  release shows "pending second admin" and the banner names the request until another admin
+  releases it too. Operators see the banner without **Release**. Unfreeze each agent from its
+  drawer.
+
 ## Manual runbook
 
 These are the SQL statements you run yourself when pg_sage is down or you want to check by
