@@ -175,5 +175,6 @@ func trancheOneMigrations() []namedStep {
 func trancheTwoMigrations() []namedStep {
 	return []namedStep{
 		{"ddlSREAutonomyEvidenceExpiring", ddlSREAutonomyEvidenceExpiring}, // earned-06
+		{"ddlSREAutonomyServerMajor", ddlSREAutonomyServerMajor},           // earned-07
 	}
 }
