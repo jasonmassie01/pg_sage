@@ -35,7 +35,9 @@ func TestCollectTables_GoldenReloptions(t *testing.T) {
 	c.WithoutConfigSnapshots()
 	var relQueries int
 	c.onCatalogQuery = func(_ context.Context, _ pgx.Tx, sql string, _ []any) {
-		if strings.Contains(sql, "reloptions") {
+		// The index_bloat read takes index fillfactors from the index
+		// reloptions (rules-13); the table reloptions are counted here.
+		if strings.Contains(sql, "reloptions") && sql != indexBloatSQL {
 			relQueries++
 		}
 	}

@@ -44,9 +44,32 @@ func TestPipelineCoverage_FullBinary(t *testing.T) {
 	cfgPath := writePipelineConfig(t, dsn)
 	stopBinary := startPipelineBinary(t, binPath, cfgPath, dsn)
 	defer stopBinary()
+	stopSlow := runSlowWorkload(t, pool)
+	defer stopSlow()
 
 	waitForBinaryCycles(t, pool)
 	assertBinaryExpectations(t, pool, report)
+}
+
+// runSlowWorkload keeps the A7 slow statement running while the binary
+// collects: slow_query judges the interval mean between two snapshots, with
+// at least analyzer.slow_query_min_calls calls in the interval (rules-05).
+func runSlowWorkload(t *testing.T, pool *pgxpool.Pool) func() {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for ctx.Err() == nil {
+			if _, err := pool.Exec(ctx, "SELECT pg_sleep(0.6)"); err != nil {
+				if ctx.Err() == nil {
+					t.Logf("A7 slow workload stopped: %v", err)
+				}
+				return
+			}
+		}
+	}()
+	return func() { cancel(); <-done }
 }
 
 // --- seeding ----------------------------------------------------------------
@@ -189,6 +212,7 @@ collector:
 analyzer:
   interval_seconds: 6
   slow_query_threshold_ms: 500
+  slow_query_min_calls: 2
   seq_scan_min_rows: 1000000
   unused_index_window_days: 7
   table_bloat_dead_tuple_pct: 10

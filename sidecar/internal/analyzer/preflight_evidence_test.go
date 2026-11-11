@@ -102,6 +102,40 @@ func preflightCapture(t *testing.T, p *pgxpool.Pool, c *collector.Collector,
 	return 0
 }
 
+// preflightInterval runs sql n times and waits until the two newest
+// snapshots differ by at least n calls of qid (a snapshot read in the
+// middle of the run splits it, so the run repeats).
+func preflightInterval(t *testing.T, p *pgxpool.Pool, c *collector.Collector, sql string,
+	qid int64, n int64) {
+	t.Helper()
+	calls := func(s *collector.Snapshot) int64 {
+		if s == nil {
+			return -1
+		}
+		for _, q := range s.Queries {
+			if q.QueryID == qid {
+				return q.Calls
+			}
+		}
+		return -1
+	}
+	for try := 0; try < 10; try++ {
+		before := c.LatestSnapshot()
+		for i := int64(0); i < n; i++ {
+			preflightSQL(t, p, sql)
+		}
+		for deadline := time.Now().Add(5 * time.Second); c.LatestSnapshot() == before &&
+			time.Now().Before(deadline); {
+			time.Sleep(20 * time.Millisecond)
+		}
+		prev, cur := calls(c.PreviousSnapshot()), calls(c.LatestSnapshot())
+		if prev >= 0 && cur-prev >= n {
+			return
+		}
+	}
+	t.Fatalf("no snapshot interval with %d calls of query %d", n, qid)
+}
+
 // preflightWaitFailure waits for the collector to report that it could
 // not read pg_stat_statements. Since dogfood lifeos-1 a failed category
 // no longer fails the snapshot: the snapshot is kept with the queries
@@ -142,6 +176,9 @@ func TestPreflightEvidenceStaleSnapshotDoesNotRefreshFinding(t *testing.T) {
 	var ident string
 	for attempt := 0; ; attempt++ {
 		qid := preflightCapture(t, p, c, "SELECT pg_sleep(0.02)", "pg_sleep")
+		// rules-05: slow_query judges the interval between the two newest
+		// snapshots, so the workload must run in that interval.
+		preflightInterval(t, p, c, "SELECT pg_sleep(0.02)", qid, 5)
 		a.cycle(ctx)
 		ident = fmt.Sprintf("queryid:%d", qid)
 		err := p.QueryRow(ctx, sql, ident).Scan(&beforeCount, &beforeSeen)

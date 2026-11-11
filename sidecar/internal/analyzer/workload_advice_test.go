@@ -53,9 +53,22 @@ func assertOnlyWorkloadQuery(t *testing.T, rule string, findings []Finding) {
 	}
 }
 
+// slowAdvicePair is two snapshots a minute apart in which every statement
+// ran 20,000 times at 6 s in the interval (rules-05: the query rules judge
+// the interval mean); the cumulative mean stays the fixture's 2,352 ms.
+func slowAdvicePair(now time.Time) (*collector.Snapshot, *collector.Snapshot) {
+	prev, cur := adviceSnapshot(now.Add(-time.Minute), 1), adviceSnapshot(now, 2)
+	epoch := now.Add(-24 * time.Hour)
+	prev.StatsEpoch, cur.StatsEpoch = epoch, epoch
+	for i := range cur.Queries {
+		cur.Queries[i].TotalExecTime = prev.Queries[i].TotalExecTime + 20000*6000
+	}
+	return cur, prev
+}
+
 func TestSlowQueriesIgnoresDiagnosticStatements(t *testing.T) {
-	cur := adviceSnapshot(time.Now(), 1)
-	assertOnlyWorkloadQuery(t, "slow_queries", ruleSlowQueries(cur, nil, adviceConfig(), nil))
+	cur, prev := slowAdvicePair(time.Now())
+	assertOnlyWorkloadQuery(t, "slow_queries", ruleSlowQueries(cur, prev, adviceConfig(), nil))
 }
 
 func TestHighPlanTimeIgnoresDiagnosticStatements(t *testing.T) {
@@ -68,14 +81,14 @@ func TestHighPlanTimeIgnoresDiagnosticStatements(t *testing.T) {
 }
 
 func TestQueryRegressionIgnoresDiagnosticStatements(t *testing.T) {
-	now := time.Now()
-	prev, cur := adviceSnapshot(now.Add(-time.Minute), 1), adviceSnapshot(now, 2)
-	hist := map[int64]float64{}
+	cur, prev := slowAdvicePair(time.Now())
+	baselines := map[int64]regressionBaseline{}
 	for _, q := range cur.Queries {
-		hist[q.QueryID] = 10
+		baselines[q.QueryID] = regressionBaseline{MeanMs: 10, Buckets: 24}
 	}
+	cands := regressionCandidates(cur, prev, adviceConfig())
 	assertOnlyWorkloadQuery(t, "query_regression",
-		ruleQueryRegression(cur, prev, hist, adviceConfig()))
+		ruleQueryRegression(cands, baselines, adviceConfig()))
 }
 
 func TestTotalTimeHeavyIgnoresDiagnosticStatements(t *testing.T) {

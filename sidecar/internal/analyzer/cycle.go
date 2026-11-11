@@ -121,9 +121,18 @@ func (a *Analyzer) runSnapshotRules(
 		a.eval.evaluated(rule.Categories...)
 		got := rule.Fn(current, previous, a.cfg, a.extras)
 		out = append(out, got...)
+		if rule.Name == "slow_queries" && hasQueryInterval(current, previous) {
+			// An idle or thin interval is no verdict (rules-05).
+			a.eval.keep("slow_query",
+				undecidedQueries(current, previous, slowQueryMinCalls(a.cfg))...)
+		}
 		if rule.Name == "unused_indexes" {
 			// The zero-scan clock's restart warmup and holds (rules-04).
 			a.holdUnusedFindings(current, previous, got)
+		}
+		if rule.Name == "index_bloat" {
+			// An index read without an estimate is no verdict (rules-13).
+			a.eval.keep("index_bloat", current.IndexBloatUnknown...)
 		}
 		if rule.Name == "inactive_slots" && a.extras != nil && a.extras.InactiveSlotPending {
 			a.eval.fail("inactive_slot")
@@ -146,9 +155,7 @@ func (a *Analyzer) runDatabaseRules(
 		a.eval.fail("query_regression", "sort_without_index", "plan_regression")
 		return out
 	}
-	historicalAvg := a.buildHistoricalAverages(ctx)
-	out = append(out, ruleQueryRegression(
-		current, previous, historicalAvg, a.cfg)...)
+	out = append(out, a.runQueryRegression(ctx, current, previous)...)
 	out = append(out, a.checkSortWithoutIndex(ctx)...)
 	planDiff := a.checkPlanRegression(ctx)
 	// Enrich plan regressions with a plain-English "why did the plan
@@ -161,13 +168,17 @@ func (a *Analyzer) runDatabaseRules(
 }
 
 // runSeqScanWatchdog skips tables already flagged by the missing-FK rule.
+// Without a table-counter interval (no previous snapshot, a moved stats
+// epoch) seq_scan_heavy is not evaluated, so its open findings stay open;
+// tables with no interval of their own are kept open (rules-10).
 func (a *Analyzer) runSeqScanWatchdog(
 	current, previous *collector.Snapshot, prior []Finding,
 ) []Finding {
-	if len(current.Tables) == 0 {
+	if len(current.Tables) == 0 || !hasRelationInterval(current, previous) {
 		a.eval.fail("seq_scan_heavy")
 	}
 	a.eval.evaluated("seq_scan_heavy")
+	a.eval.keep("seq_scan_heavy", seqScanUndecided(current, previous)...)
 	return ruleSeqScanWatchdog(current, previous, a.cfg, missingFKTables(prior))
 }
 

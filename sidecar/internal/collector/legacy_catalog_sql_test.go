@@ -20,6 +20,14 @@ SELECT s.schemaname, s.relname,
        age(c.relfrozenxid) AS xid_age,
        pg_stat_get_blocks_fetched(c.oid) - pg_stat_get_blocks_hit(c.oid)
          AS heap_blks_read, -- forecast-04: not in v1.8.2; pg_statio's definition
+       COALESCE(s.n_mod_since_analyze, 0), -- rules-10: not in v1.8.2
+       COALESCE((SELECT o.option_value::float8 FROM pg_options_to_table(c.reloptions) o
+                  WHERE o.option_name = 'autovacuum_analyze_threshold'),
+                current_setting('autovacuum_analyze_threshold')::float8)
+         + COALESCE((SELECT o.option_value::float8 FROM pg_options_to_table(c.reloptions) o
+                      WHERE o.option_name = 'autovacuum_analyze_scale_factor'),
+                    current_setting('autovacuum_analyze_scale_factor')::float8)
+           * GREATEST(c.reltuples, 0)::float8 AS analyze_threshold, -- rules-10: as above
        c.reloptions, -- rules-02: not in v1.8.2; read beside the verbatim columns
        s.relid
   FROM pg_stat_user_tables s

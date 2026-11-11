@@ -66,7 +66,8 @@ func (c *Collector) collectTableBatch(
 			&t.AnalyzeCount, &t.AutoanalyzeCount,
 			&t.TableBytes, &t.IndexBytes,
 			&t.Relpersistence, &t.Relkind, &t.XIDAge, &t.MXIDAge,
-			&t.HeapBlksRead, &t.Reloptions, &oid,
+			&t.HeapBlksRead, &t.ModSinceAnalyze, &t.AnalyzeThreshold,
+			&t.Reloptions, &oid,
 		); err != nil {
 			return nil, nil, err
 		}

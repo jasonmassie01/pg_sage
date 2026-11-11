@@ -6,21 +6,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/findingcat"
 	"github.com/pg-sage/sidecar/internal/fleet"
 )
 
 // No concurrent access tests: the source clause, the subsystem mapping and
 // the risk fields are pure functions over package-level read-only lists.
 
-// sourceLists names each filterable category list and its subsystem.
+// sourceLists names each filterable category list and its subsystem, as
+// the finding category registry declares them.
 func sourceLists() map[string][]string {
-	return map[string][]string{
-		"rules":        rulesCategories,
-		"advisor":      advisorCategories,
-		"optimizer":    optimizerCategories,
-		"query_tuning": queryTuningCategories,
-		"incident":     incidentCategories,
+	lists := map[string][]string{}
+	for _, s := range []string{"rules", "advisor", "optimizer", "query_tuning", "incident"} {
+		lists[s] = findingcat.Names(findingcat.BySubsystem(s))
 	}
+	return lists
 }
 
 // sharedCategories are emitted by two subsystems; the row's Source is the

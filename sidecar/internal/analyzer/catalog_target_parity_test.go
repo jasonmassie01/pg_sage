@@ -19,6 +19,7 @@ import (
 var relationRules = map[string]bool{
 	"rules_autovacuum_tuning.go": true, "rules_fk_index.go": true, "rules_index.go": true,
 	"rules_stale_statistics.go": true, "rules_unused_index.go": true, "rules_vacuum.go": true,
+	"rules_stale_statistics_parent.go": true, "rules_index_bloat.go": true,
 	"optimizer_mapping.go": true,
 }
 

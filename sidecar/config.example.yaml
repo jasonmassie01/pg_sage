@@ -27,7 +27,8 @@ analyzer:
   inactive_slot_min_minutes: 5  # report a replication slot inactive this long (WAL at risk: at once)
   seq_scan_min_rows: 100000
   unused_index_window_days: 30  # Built-in default is 7; 30 recommended for prod
-  index_bloat_threshold_pct: 30
+  index_bloat_threshold_pct: 30  # index_bloat finding (REINDEX CONCURRENTLY) from this estimate
+  index_bloat_min_bytes: 104857600  # estimate btree indexes of at least 100 MiB
   table_bloat_dead_tuple_pct: 20
   table_bloat_min_rows: 1000         # Skip bloat checks for tiny tables
   idle_in_transaction_timeout_minutes: 30

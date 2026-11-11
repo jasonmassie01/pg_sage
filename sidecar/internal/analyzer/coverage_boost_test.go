@@ -1262,7 +1262,7 @@ func TestCoverage_RuleSeqScanWatchdog_HighSeqScans(t *testing.T) {
 		},
 	}
 
-	findings := ruleSeqScanWatchdog(snap, nil, cfg, nil)
+	findings := ruleSeqScanWatchdog(snap, zeroPrevious(snap), cfg, nil)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(findings))
 	}
@@ -1282,7 +1282,7 @@ func TestCoverage_RuleSeqScanWatchdog_SmallTable(t *testing.T) {
 		},
 	}
 
-	findings := ruleSeqScanWatchdog(snap, nil, cfg, nil)
+	findings := ruleSeqScanWatchdog(snap, zeroPrevious(snap), cfg, nil)
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings for small table, got %d", len(findings))
 	}
@@ -1299,7 +1299,7 @@ func TestCoverage_RuleSeqScanWatchdog_LowSeqScans(t *testing.T) {
 		},
 	}
 
-	findings := ruleSeqScanWatchdog(snap, nil, cfg, nil)
+	findings := ruleSeqScanWatchdog(snap, zeroPrevious(snap), cfg, nil)
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings for low seq scans, got %d", len(findings))
 	}
@@ -1317,7 +1317,7 @@ func TestCoverage_RuleSeqScanWatchdog_SkipTables(t *testing.T) {
 	}
 	skip := map[string]bool{"public.fk_table": true}
 
-	findings := ruleSeqScanWatchdog(snap, nil, cfg, skip)
+	findings := ruleSeqScanWatchdog(snap, zeroPrevious(snap), cfg, skip)
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings for skipped table, got %d", len(findings))
 	}
@@ -1334,7 +1334,7 @@ func TestCoverage_RuleSeqScanWatchdog_BalancedRatio(t *testing.T) {
 		},
 	}
 
-	findings := ruleSeqScanWatchdog(snap, nil, cfg, nil)
+	findings := ruleSeqScanWatchdog(snap, zeroPrevious(snap), cfg, nil)
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings for balanced ratio, got %d", len(findings))
 	}
@@ -1352,7 +1352,7 @@ func TestCoverage_RuleSeqScanWatchdog_UnloggedTable(t *testing.T) {
 		},
 	}
 
-	findings := ruleSeqScanWatchdog(snap, nil, cfg, nil)
+	findings := ruleSeqScanWatchdog(snap, zeroPrevious(snap), cfg, nil)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(findings))
 	}
@@ -1415,78 +1415,6 @@ func TestCoverage_RuleXIDWraparound_ExactWarningThreshold(t *testing.T) {
 // ---------------------------------------------------------------------------
 // rules_query.go: edge cases
 // ---------------------------------------------------------------------------
-
-func TestCoverage_RuleQueryRegression_EmptyHistory(t *testing.T) {
-	cfg := coverageTestConfig()
-	snap := &collector.Snapshot{
-		Queries: []collector.QueryStats{{QueryID: 1, MeanExecTime: 100}},
-	}
-	findings := ruleQueryRegression(snap, nil, nil, cfg)
-	if len(findings) != 0 {
-		t.Errorf("expected 0 findings for nil history, got %d", len(findings))
-	}
-}
-
-func TestCoverage_RuleQueryRegression_EmptyHistoryMap(t *testing.T) {
-	cfg := coverageTestConfig()
-	snap := &collector.Snapshot{
-		Queries: []collector.QueryStats{{QueryID: 1, MeanExecTime: 100}},
-	}
-	findings := ruleQueryRegression(snap, nil, map[int64]float64{}, cfg)
-	if len(findings) != 0 {
-		t.Errorf("expected 0 findings for empty history map, got %d", len(findings))
-	}
-}
-
-func TestCoverage_RuleQueryRegression_CriticalRegression(t *testing.T) {
-	cfg := coverageTestConfig()
-	cur := &collector.Snapshot{
-		Queries: []collector.QueryStats{
-			{QueryID: 1, Calls: 100, MeanExecTime: 400},
-		},
-	}
-	prev := &collector.Snapshot{
-		Queries: []collector.QueryStats{
-			{QueryID: 1, Calls: 90, MeanExecTime: 10},
-		},
-	}
-	hist := map[int64]float64{1: 10.0}
-	findings := ruleQueryRegression(cur, prev, hist, cfg)
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 finding, got %d", len(findings))
-	}
-	if findings[0].Severity != "critical" {
-		t.Errorf("Severity = %q, want critical for 3900%% increase", findings[0].Severity)
-	}
-}
-
-func TestCoverage_RuleQueryRegression_NoPreviousSnapshot(t *testing.T) {
-	cfg := coverageTestConfig()
-	cur := &collector.Snapshot{
-		Queries: []collector.QueryStats{
-			{QueryID: 1, Calls: 100, MeanExecTime: 200},
-		},
-	}
-	hist := map[int64]float64{1: 10.0}
-	findings := ruleQueryRegression(cur, nil, hist, cfg)
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 finding (no prev for reset check), got %d", len(findings))
-	}
-}
-
-func TestCoverage_RuleQueryRegression_ZeroHistoricalAvg(t *testing.T) {
-	cfg := coverageTestConfig()
-	cur := &collector.Snapshot{
-		Queries: []collector.QueryStats{
-			{QueryID: 1, Calls: 100, MeanExecTime: 200},
-		},
-	}
-	hist := map[int64]float64{1: 0.0}
-	findings := ruleQueryRegression(cur, nil, hist, cfg)
-	if len(findings) != 0 {
-		t.Errorf("expected 0 findings for zero avg, got %d", len(findings))
-	}
-}
 
 func TestCoverage_RuleHighPlanTime_CriticalRatio(t *testing.T) {
 	cfg := coverageTestConfig()

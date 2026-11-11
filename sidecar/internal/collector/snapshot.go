@@ -44,6 +44,15 @@ type Snapshot struct {
 	// PartitionedIndexes are the partitioned (relkind I) indexes, which
 	// pg_stat_user_indexes leaves out.
 	PartitionedIndexes []PartitionedIndex `json:"partitioned_indexes,omitempty"`
+
+	// IndexBloat is the catalog-statistics bloat estimate of the largest
+	// btree indexes (rules-13); nil when it was not read. Truncated is set
+	// when more indexes were above the size floor than the row cap read;
+	// Unknown names (schema.index) the indexes read without an estimate (a
+	// key column without statistics). Neither proves that an index shrank.
+	IndexBloat          []IndexBloat `json:"index_bloat,omitempty"`
+	IndexBloatTruncated bool         `json:"-"`
+	IndexBloatUnknown   []string     `json:"-"`
 }
 
 // Available reports whether category was read this cycle.
@@ -121,6 +130,16 @@ type TableStats struct {
 	// heap_blks_read). The cache forecast ranks tables by its growth over
 	// a day (forecast-04); rows written before it lack the key.
 	HeapBlksRead int64 `json:"heap_blks_read"`
+	// ModSinceAnalyze is pg_stat_get_mod_since_analyze: the rows inserted,
+	// updated or deleted since the table was last analyzed, the count
+	// autoanalyze compares with AnalyzeThreshold (rules-10). A partitioned
+	// parent's own count stays 0: autoanalyze never processes it.
+	ModSinceAnalyze int64 `json:"mod_since_analyze"`
+	// AnalyzeThreshold is the autoanalyze trigger point,
+	// autovacuum_analyze_threshold + autovacuum_analyze_scale_factor x
+	// reltuples (0 when never counted), each from the table's reloptions
+	// when set there, else from the server settings.
+	AnalyzeThreshold float64 `json:"analyze_threshold"`
 	// Reloptions is pg_class.reloptions ("name=value" storage parameters,
 	// nil when none are set), read with the stats on every cycle.
 	Reloptions []string `json:"reloptions"`

@@ -175,10 +175,12 @@ type CollectorConfig struct {
 
 type AnalyzerConfig struct {
 	IntervalSeconds              int     `yaml:"interval_seconds" doc:"How often the analyzer runs its rule checks, in seconds. Lower values detect issues faster but add load."`
-	SlowQueryThresholdMs         int     `yaml:"slow_query_threshold_ms" doc:"Queries with mean_exec_time above this are considered slow and become candidates for optimization findings."`
+	SlowQueryThresholdMs         int     `yaml:"slow_query_threshold_ms" doc:"Queries whose mean execution time over the last collector interval is above this are considered slow and become candidates for optimization findings."`
+	SlowQueryMinCalls            int     `yaml:"slow_query_min_calls" doc:"Fewest calls a query must make in one collector interval before its interval mean is judged by slow_query and query_regression. 0 uses the default. Default: 5."`
 	SeqScanMinRows               int     `yaml:"seq_scan_min_rows" doc:"Minimum table row count before a sequential scan is reported as a finding. Below this, a seq scan is usually cheaper than an index lookup."`
 	UnusedIndexWindowDays        int     `yaml:"unused_index_window_days" doc:"An index must be unused (idx_scan=0) for at least this many days before the analyzer suggests dropping it. Default 7 days." warning:"Setting this too low can recommend dropping indexes that support infrequent but critical queries (e.g. monthly reports)."`
-	IndexBloatThresholdPct       int     `yaml:"index_bloat_threshold_pct" doc:"Minimum bloat percentage (0-100) an index must exhibit before it becomes a REINDEX candidate."`
+	IndexBloatThresholdPct       int     `yaml:"index_bloat_threshold_pct" doc:"Estimated btree bloat percentage (0-100) for an index_bloat finding recommending REINDEX INDEX CONCURRENTLY: info from it, warning from twice it. 0 uses the default. Default: 30."`
+	IndexBloatMinBytes           int64   `yaml:"index_bloat_min_bytes" doc:"Smallest btree index (bytes, from pg_class.relpages) whose bloat the collector estimates from planner statistics each cycle, at most the 200 largest. 0 uses the default. Default: 104857600 (100 MiB)."`
 	TableBloatDeadTuplePct       int     `yaml:"table_bloat_dead_tuple_pct" doc:"Dead-tuple percentage threshold for reporting table bloat. Above this the analyzer emits a vacuum or repack finding."`
 	TableBloatMinRows            int     `yaml:"table_bloat_min_rows" doc:"Minimum row count before a table is considered for bloat analysis. Tiny tables are noisy and not worth reporting."`
 	TableBloatMinBytes           int64   `yaml:"table_bloat_min_bytes" doc:"Minimum heap size in bytes before the freeze custodian plans an online bloat rebuild from the catalog bloat estimate. 0 uses the default. Default: 1073741824 (1 GiB)."`
@@ -751,6 +753,10 @@ func (c *Config) validate() error {
 	if c.Analyzer.SlowQueryThresholdMs < 0 {
 		return fmt.Errorf("analyzer.slow_query_threshold_ms must be non-negative")
 	}
+	if c.Analyzer.SlowQueryMinCalls < 0 {
+		return fmt.Errorf("analyzer.slow_query_min_calls must be non-negative, got %d",
+			c.Analyzer.SlowQueryMinCalls)
+	}
 	if err := c.validateAPITypedRanges(); err != nil {
 		return err
 	}
@@ -758,6 +764,9 @@ func (c *Config) validate() error {
 		return err
 	}
 	if err := c.Analyzer.validateTableBloat(); err != nil {
+		return err
+	}
+	if err := c.Analyzer.validateIndexBloat(); err != nil {
 		return err
 	}
 	if err := c.RCA.validate(); err != nil {
@@ -923,9 +932,11 @@ func newDefaults() *Config {
 		Analyzer: AnalyzerConfig{
 			IntervalSeconds:              int(DefaultAnalyzerInterval / time.Second),
 			SlowQueryThresholdMs:         DefaultSlowQueryThresholdMs,
+			SlowQueryMinCalls:            DefaultSlowQueryMinCalls,
 			SeqScanMinRows:               DefaultSeqScanMinRows,
 			UnusedIndexWindowDays:        DefaultUnusedIndexWindowDays,
 			IndexBloatThresholdPct:       DefaultIndexBloatThresholdPct,
+			IndexBloatMinBytes:           DefaultIndexBloatMinBytes,
 			TableBloatDeadTuplePct:       DefaultTableBloatDeadTuplePct,
 			TableBloatMinRows:            DefaultTableBloatMinRows,
 			TableBloatMinBytes:           DefaultTableBloatMinBytes,

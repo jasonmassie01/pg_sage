@@ -39,29 +39,6 @@ func writeQuerySnapshots(t *testing.T, p *histfixture.Pair, start time.Time, n i
 	}
 }
 
-func TestRegressionBaselineIdenticalInBothPlacements(t *testing.T) {
-	p := histfixture.NewPair(t)
-	start := time.Now().Add(-48 * time.Hour)
-	got := map[histstore.Mode]map[int64]float64{}
-	for _, mode := range histfixture.Modes() {
-		p.Switch(t, mode)
-		p.Noise(t, start.Add(90*time.Minute), 501, 502)
-		writeQuerySnapshots(t, p, start, 12)
-		c := phase2Config()
-		c.Analyzer.RegressionLookbackDays = 7
-		a := New(p.Monitored, c, nil, nil, nil, nil, nil, noopLog)
-		got[mode] = a.buildHistoricalAverages(context.Background())
-	}
-	mon, meta := got[histstore.ModeMonitored], got[histstore.ModeMeta]
-	if len(mon) != 2 || mon[502] != 40 {
-		t.Fatalf("fixture baseline = %v, want queries 501 and 502 (502 at 40 ms)", mon)
-	}
-	if len(meta) != len(mon) || meta[501] != mon[501] || meta[502] != mon[502] {
-		t.Fatalf("baselines differ: monitored %v, meta %v (the other database's 10 s "+
-			"means must stay out)", mon, meta)
-	}
-}
-
 func TestFootprintExcludesHistoryKeptInTheStore(t *testing.T) {
 	p := histfixture.NewPair(t)
 	p.Switch(t, histstore.ModeMeta)

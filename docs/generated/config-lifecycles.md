@@ -58,6 +58,7 @@
 | `analyzer.checkpoint_frequency_warning_per_hour` | `restart` | `-` | `derivable` |
 | `analyzer.idle_in_transaction_timeout_minutes` | `restart` | `-` | `derivable` |
 | `analyzer.inactive_slot_min_minutes` | `restart` | `-` | `derivable` |
+| `analyzer.index_bloat_min_bytes` | `restart` | `-` | `derivable` |
 | `analyzer.index_bloat_threshold_pct` | `restart` | `-` | `derivable` |
 | `analyzer.interval_seconds` | `restart` | `-` | `derivable` |
 | `analyzer.lock_chain.active_query_cancel_minutes` | `restart` | `-` | `safety_critical` |
@@ -71,6 +72,7 @@
 | `analyzer.schema_guard_ddl_debounce_seconds` | `restart` | `-` | `derivable` |
 | `analyzer.self_cost_budget_ms` | `restart` | `-` | `derivable` |
 | `analyzer.seq_scan_min_rows` | `restart` | `-` | `derivable` |
+| `analyzer.slow_query_min_calls` | `restart` | `-` | `derivable` |
 | `analyzer.slow_query_threshold_ms` | `restart` | `-` | `derivable` |
 | `analyzer.slow_slot_retained_bytes` | `restart` | `-` | `derivable` |
 | `analyzer.table_bloat_dead_tuple_pct` | `restart` | `-` | `derivable` |

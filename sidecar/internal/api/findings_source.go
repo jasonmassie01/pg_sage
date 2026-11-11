@@ -3,102 +3,73 @@ package api
 import (
 	"fmt"
 	"maps"
-	"slices"
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/executor"
-	"github.com/pg-sage/sidecar/internal/optimizer"
+	"github.com/pg-sage/sidecar/internal/findingcat"
 )
 
+// reservedSource is a source filter value that matches no category yet.
+const reservedSource = "migration_advisor"
+
 // buildSourceClause converts a subsystem filter value into a WHERE
-// fragment + args. Returns ok=false when the value is empty or
-// unrecognised (caller must then emit nothing).
+// fragment + args from the finding category registry: a LIKE per prefix
+// family of the subsystem and one ANY list of its other categories.
+// Returns ok=false when the value is empty or unrecognised (caller must
+// then emit nothing).
 func buildSourceClause(
 	source string, startN int,
 ) (string, []any, bool) {
-	switch source {
-	case "schema_lint":
-		return fmt.Sprintf(" AND category LIKE $%d", startN),
-			[]any{"schema_lint:%"}, true
-	case "forecaster":
-		return fmt.Sprintf(" AND (category LIKE $%d OR category = ANY($%d::text[]))",
-			startN, startN+1), []any{"forecast%", forecasterCategories}, true
-	case "migration_advisor":
+	if source == reservedSource {
 		return " AND 1=0", nil, true // reserved, emits nothing
 	}
-	if cats, ok := sourceCategories[source]; ok {
-		return fmt.Sprintf(" AND category = ANY($%d::text[])", startN),
-			[]any{cats}, true
+	entries := findingcat.BySubsystem(source)
+	if len(entries) == 0 {
+		return "", nil, false
 	}
-	return "", nil, false
+	var prefixes, exact []string
+	for _, c := range entries {
+		if c.Prefix {
+			prefixes = append(prefixes, c.Name)
+		}
+	}
+	for _, c := range entries {
+		if !c.Prefix && !hasAnyPrefix(c.Name, prefixes) {
+			exact = append(exact, c.Name)
+		}
+	}
+	var parts []string
+	var args []any
+	for _, p := range prefixes {
+		parts = append(parts, fmt.Sprintf("category LIKE $%d", startN+len(args)))
+		args = append(args, p+"%")
+	}
+	if len(exact) > 0 {
+		parts = append(parts, fmt.Sprintf("category = ANY($%d::text[])", startN+len(args)))
+		args = append(args, exact)
+	}
+	if len(parts) == 1 {
+		return " AND " + parts[0], args, true
+	}
+	return " AND (" + strings.Join(parts, " OR ") + ")", args, true
 }
 
-var (
-	// rulesCategories is the analyzer Tier-1 allowlist. stale_statistics
-	// is also emitted by the tuner, so query_tuning lists it too.
-	rulesCategories = []string{
-		"index_health", "unused_index", "invalid_index",
-		"duplicate_index", "missing_fk_index", "slow_query",
-		"high_plan_time", "query_regression", "seq_scan_heavy",
-		"high_total_time", "temp_spill", "lock_chain", "connection_leak",
-		"cache_hit_ratio", "checkpoint_pressure",
-		"stat_statements_pressure", "replication_lag",
-		"inactive_slot", "slow_replication_slot",
-		"sequence_exhaustion", "sort_without_index",
-		"work_mem_promotion", "table_bloat", "xid_wraparound",
-		"extension_drift", "plan_regression", "wraparound_freeze",
-		"autovacuum_tuning", "sage_footprint", "sage_self_cost",
-		"sage_self_budget", "clone_schemas", "app_managed_index",
-		"stale_statistics",
+func hasAnyPrefix(name string, prefixes []string) bool {
+	for _, p := range prefixes {
+		if strings.HasPrefix(name, p) {
+			return true
+		}
 	}
-	// advisorCategories are the configuration advisor's sub-advisor
-	// categories (vacuum_tuning and memory_tuning are kept for rows older
-	// advisors wrote) and its degraded-mode notice.
-	advisorCategories = []string{
-		"wal_tuning", "connection_tuning", "query_rewrite",
-		"bloat_remediation", "advisor_degraded", "vacuum_tuning",
-		"memory_tuning",
-	}
-	// optimizerCategories is missing_index plus the pre-v1.8.0 labels.
-	optimizerCategories = optimizer.Categories()
-	// forecasterCategories are the forecaster's categories without the
-	// forecast prefix the filter also matches.
-	forecasterCategories  = []string{"storage_forecast"}
-	queryTuningCategories = []string{
-		"query_tuning", "stale_statistics", "runaway_query",
-	}
-	incidentCategories = []string{
-		"incident", "incident_open", "incident_resolved",
-	}
-	// sourceCategories maps each list-backed source filter to its list.
-	sourceCategories = map[string][]string{
-		"rules":        rulesCategories,
-		"advisor":      advisorCategories,
-		"optimizer":    optimizerCategories,
-		"query_tuning": queryTuningCategories,
-		"incident":     incidentCategories,
-	}
-	// subsystemOrder is the order subsystemFromCategory consults the
-	// lists: a category in two lists (stale_statistics) is shown under
-	// the first, rules.
-	subsystemOrder = []string{"rules", "query_tuning", "incident", "advisor", "optimizer"}
-)
+	return false
+}
 
 // subsystemFromCategory maps a category value to the subsystem the
-// UI shows in the source filter. Kept in lockstep with §16 appendix.
+// source filter shows it under, from the finding category registry; an
+// unregistered category maps to "".
 func subsystemFromCategory(category string) string {
-	if strings.HasPrefix(category, "schema_lint:") {
-		return "schema_lint"
-	}
-	if strings.HasPrefix(category, "forecast") ||
-		slices.Contains(forecasterCategories, category) {
-		return "forecaster"
-	}
-	for _, subsystem := range subsystemOrder {
-		if slices.Contains(sourceCategories[subsystem], category) {
-			return subsystem
-		}
+	if c, ok := findingcat.Lookup(category); ok {
+		return c.Subsystem
 	}
 	return ""
 }

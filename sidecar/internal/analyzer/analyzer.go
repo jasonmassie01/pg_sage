@@ -103,8 +103,6 @@ type Analyzer struct {
 	// cloneTracker remembers clone-family activity across cycles; only
 	// touched by the cycle goroutine.
 	cloneTracker *cloneTracker
-	// history remembers the regression baseline's decoded snapshots.
-	history historyCache
 	// selfCost meters pg_sage's own cost on this database (perf v1.8.3);
 	// read concurrently by /metrics.
 	selfCost *selfcost.Meter

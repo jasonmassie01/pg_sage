@@ -14,7 +14,7 @@ func testConfig() *config.Config {
 		Analyzer: config.AnalyzerConfig{
 			SlowQueryThresholdMs:   1000,
 			TableBloatDeadTuplePct: 20,
-			TableBloatMinRows:     1000,
+			TableBloatMinRows:      1000,
 			RegressionThresholdPct: 50,
 		},
 	}
@@ -131,101 +131,6 @@ func TestRuleHighPlanTime(t *testing.T) {
 	}
 }
 
-func TestRuleQueryRegression_ResetDetection(t *testing.T) {
-	cfg := testConfig()
-	current := &collector.Snapshot{
-		Queries: []collector.QueryStats{
-			{
-				QueryID: 1, Query: "SELECT reset",
-				Calls: 5, MeanExecTime: 100.0, // calls dropped from 1000
-			},
-		},
-	}
-	previous := &collector.Snapshot{
-		Queries: []collector.QueryStats{
-			{
-				QueryID: 1, Query: "SELECT reset",
-				Calls: 1000, MeanExecTime: 2.0,
-			},
-		},
-	}
-
-	historicalAvg := map[int64]float64{1: 2.0}
-
-	findings := ruleQueryRegression(current, previous, historicalAvg, cfg)
-	if len(findings) != 0 {
-		t.Errorf("expected 0 findings (reset detected), got %d", len(findings))
-	}
-}
-
-func TestRuleQueryRegression_RealRegression(t *testing.T) {
-	cfg := testConfig()
-	current := &collector.Snapshot{
-		Queries: []collector.QueryStats{
-			{
-				QueryID: 1, Query: "SELECT slow",
-				Calls: 1100, MeanExecTime: 100.0,
-			},
-		},
-	}
-	previous := &collector.Snapshot{
-		Queries: []collector.QueryStats{
-			{
-				QueryID: 1, Query: "SELECT slow",
-				Calls: 1000, MeanExecTime: 10.0,
-			},
-		},
-	}
-
-	historicalAvg := map[int64]float64{1: 10.0}
-
-	findings := ruleQueryRegression(current, previous, historicalAvg, cfg)
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 regression finding, got %d", len(findings))
-	}
-	if findings[0].Category != "query_regression" {
-		t.Errorf("expected category query_regression, got %s",
-			findings[0].Category)
-	}
-}
-
-func TestRuleSlowQueries(t *testing.T) {
-	cfg := testConfig()
-	snap := &collector.Snapshot{
-		Queries: []collector.QueryStats{
-			{
-				QueryID: 1, Query: "SELECT fast",
-				MeanExecTime: 100.0,
-			},
-			{
-				QueryID: 2, Query: "SELECT slow",
-				MeanExecTime: 5000.0,
-			},
-			{
-				QueryID: 3, Query: "SELECT very slow",
-				MeanExecTime: 15000.0, // 15x threshold
-			},
-		},
-	}
-
-	findings := ruleSlowQueries(snap, nil, cfg, nil)
-	if len(findings) != 2 {
-		t.Fatalf("expected 2 findings, got %d", len(findings))
-	}
-
-	// Check severity: 5x should be warning, 15x should be critical.
-	sevMap := make(map[string]string)
-	for _, f := range findings {
-		sevMap[f.ObjectIdentifier] = f.Severity
-	}
-	if sevMap["queryid:2"] != "warning" {
-		t.Errorf("queryid:2 severity = %s, want warning", sevMap["queryid:2"])
-	}
-	if sevMap["queryid:3"] != "critical" {
-		t.Errorf("queryid:3 severity = %s, want critical", sevMap["queryid:3"])
-	}
-}
-
 func TestRuleStatStatementsCapacity(t *testing.T) {
 	cfg := testConfig()
 
@@ -336,11 +241,12 @@ func TestStatsResetSkipsQueryRules(t *testing.T) {
 			continue
 		}
 		t.Run(rule.Name+"_skipped_on_reset", func(t *testing.T) {
-			// Without the reset guard, these rules would fire.
 			results := rule.Fn(current, previous, cfg, extras)
-			// Confirm they produce findings normally.
-			if rule.Name == "slow_queries" && len(results) == 0 {
-				t.Fatal("slow_queries should fire without reset guard")
+			// rules-05: slow_queries judges the interval between the
+			// snapshots and refuses one across a reset by itself (the
+			// counters fell); the analyzer's skip stays the outer guard.
+			if rule.Name == "slow_queries" && len(results) != 0 {
+				t.Fatalf("slow_queries fired across a statistics reset: %+v", results)
 			}
 
 			// Simulate the analyzer skip: when StatsReset is true,

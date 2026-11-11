@@ -1,6 +1,6 @@
 # Findings Catalog
 
-pg_sage detects issues across more than 35 categories using deterministic rules (Tier 1) plus LLM-powered index optimization (Tier 2). Each finding includes a severity level, human-readable title, detailed description, recommendation, and (where applicable) remediation SQL with rollback SQL.
+pg_sage detects issues using deterministic rules (Tier 1) plus LLM-powered index optimization (Tier 2). Every category it stores, with its subsystem, producer, severities, config keys and executor contract tier, is in the [generated finding category catalog](generated/finding-catalog.md), built from the code's category registry; this page describes them. Each finding includes a severity level, human-readable title, detailed description, recommendation, and (where applicable) remediation SQL with rollback SQL.
 
 Severities: **critical** > **warning** > **info**
 
@@ -15,6 +15,7 @@ that depend on it stay quiet for that cycle instead of reading the absence as a 
 | `replication` | unused-index drops (a standby may use the index) |
 | `prepared_xacts` | the RCA `orphaned_prepared_tx` signal; an open orphaned 2PC incident is held open, not counted as cleared |
 | `partitions` | index recommendations (the tuning agent gets no table context, since any table might be a partitioned parent or a partition) |
+| `index_bloat` | the `index_bloat` rule's resolutions (it also holds them when the reading was truncated at its 200-row cap) |
 | `config_data` | the advisor's config features and the RCA idle-in-transaction signal |
 
 The next cycle that reads the category resumes them.
@@ -27,9 +28,13 @@ The next cycle that reads the category resumes them.
 ## Source filter and risk fields
 
 `GET /api/v1/findings?source=<subsystem>` filters by the producer that emitted a finding:
-`rules`, `advisor`, `optimizer`, `query_tuning`, `forecaster`, `incident` or `schema_lint`
-(see the category table in [ui-redesign-v2.md §16](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/archive/docs-internal/ui-redesign-v2.md)). Each row reports
-the same value as `subsystem`. An unknown `source` value applies no filter, and
+`rules`, `advisor`, `optimizer`, `query_tuning`, `forecaster`, `incident`, `schema_lint`,
+`tuning`, `cloud`, `governance`, `migration`, `sre` or `facts`. The categories each value matches are
+in the [generated finding category catalog](generated/finding-catalog.md), and
+`GET /api/v1/findings/categories` (any signed-in role) serves the same registry: each
+subsystem with its categories, and each category's producer, severities, config keys and
+actions. Each row reports the same value as `subsystem`, or `""` for a category the
+registry does not know. An unknown `source` value applies no filter, and
 `migration_advisor` is reserved and returns no rows.
 
 Each finding row (list and detail) also carries display-only action fields:
@@ -250,6 +255,59 @@ a cycle where the tables, the partition tree or the partitioned indexes could no
 
 ---
 
+### index_bloat
+
+Estimates btree index bloat from planner statistics and recommends an online rebuild.
+
+**Severity:** info from `analyzer.index_bloat_threshold_pct` (default 30), warning from twice it
+
+**What it detects:** The collector's `index_bloat` snapshot category estimates, once per
+cycle, how many leaf pages each btree index needs: its `reltuples` at its fillfactor (default
+90), with each leaf tuple the 8-byte-aligned index tuple header plus the key columns'
+`pg_stats.avg_width` net of `null_frac`, and a 4-byte line pointer (the estimate
+check_postgres and pgsql-bloat-estimation use). The excess of `relpages` over that is the
+bloat. It is a single bounded catalog statement: no relation is opened or `stat()`ed and
+`pgstattuple` is not needed, so it runs on managed providers too. Only valid btree leaf
+indexes of at least `analyzer.index_bloat_min_bytes` (default 100 MiB) are read, the 200
+largest per cycle. Left out:
+
+- invalid indexes (`invalid_index` owns them);
+- partitioned indexes (relkind `I`): each leaf partition's index is judged on its own, since a
+  `REINDEX CONCURRENTLY` of the parent rebuilds every partition;
+- indexes whose table or index has no `reltuples` (never vacuumed or analyzed), or whose key
+  columns have no `pg_stats` row (never analyzed, or the role cannot read the column: the
+  estimate needs `SELECT` on the indexed columns, and for an expression index ownership of the
+  index or `pg_read_all_data`). An open finding on an index read without an estimate is
+  kept, not resolved;
+- the system schemas, `sage`, TOAST and temporary tables.
+
+`relpages` and `reltuples` are as of the last `VACUUM`, `ANALYZE` or rebuild, so rows deleted
+since then show as bloat only after the next vacuum. B-tree deduplication can make an index
+smaller than the estimate; that only under-reports. When more indexes are above the floor than
+the 200 read, the reading is truncated: open `index_bloat` findings are then kept, not
+resolved, until a complete reading (raise `analyzer.index_bloat_min_bytes` if this persists).
+
+**Example output:**
+
+```
+Index public.orders_created_idx is an estimated 70% bloated (164.1 MB of 234.4 MB)
+```
+
+**Recommended action:** Rebuild the index online. The statement runs under the
+`reindex_concurrently` contract (risk tier moderate, approval required, maintenance window
+enforced). The rebuild needs free disk for a second copy of the index while it runs. The
+finding's detail carries `estimated_bloat_pct`, `bloat_bytes`, `index_bytes`, `relpages`,
+`estimated_pages`, `fillfactor`, `reltuples` and `estimate_source` (`catalog_statistics`);
+confirm with `pgstatindex()` where `pgstattuple` is installed.
+
+```sql
+REINDEX INDEX CONCURRENTLY "public"."orders_created_idx";
+```
+
+The rebuild resets `relpages`, so the next cycle's reading resolves the finding.
+
+---
+
 ## Query Performance
 
 Query findings are about application workload only. pg_sage's own statements,
@@ -261,16 +319,16 @@ no index or hint can fix them. A slow `CALL` or `DO` is still reported.
 
 ### slow_query
 
-Detects queries with mean execution time above the threshold.
+Detects queries whose mean execution time over the last collector interval is above the threshold.
 
-**Severity:** warning (critical if extremely slow)
+**Severity:** warning; critical when the interval mean is more than 5x the threshold and the query used at least 1% of the interval's wall time
 
-**What it detects:** Queries from `pg_stat_statements` where `mean_exec_time` exceeds the configured threshold (default 1000ms).
+**What it detects:** For each statement in both of the two newest snapshots, the interval mean: the `total_exec_time` it added between them over the `calls` it added. The finding needs the interval mean above `analyzer.slow_query_threshold_ms` (default 1000ms) and at least `analyzer.slow_query_min_calls` calls in the interval (default 5), so a single ad hoc query is not a finding and never critical. The cumulative `mean_exec_time` since the last `pg_stat_statements` reset is not used: it hides a statement that became slow under a long history of fast calls, and keeps flagging one that was slow long ago. The interval is not judged on the first cycle (no previous snapshot), across a statistics reset or epoch change, or for a statement whose counters fell; the category is then not evaluated and its open findings stay open. A statement without a measured interval in a cycle (idle, below the call floor, new to the snapshot or evicted) has no verdict, so its open finding stays open; it resolves on a measured interval at or below the threshold, when the statement leaves the snapshot, or when it has made fewer calls than the floor in total. The detail carries `interval_mean_ms`, `interval_calls`, `interval_seconds`, `pct_wall_clock` and `cumulative_mean_ms`.
 
 **Example output:**
 
 ```
-Slow query (mean 3500ms, 15000 calls): SELECT * FROM orders WHERE ...
+Slow query (3500.0ms mean over 42 calls in the last 60s, 3.5x threshold)
 ```
 
 **Recommended action:** Examine the query plan, add indexes, or rewrite the query.
@@ -297,16 +355,16 @@ High plan time: 450ms mean_plan_time for query with 50ms mean_exec_time
 
 ### query_regression
 
-Detects queries whose performance has degraded compared to previous snapshots.
+Detects queries whose latency in the last collector interval regressed against their own hourly history.
 
-**Severity:** warning
+**Severity:** warning; critical above +200%
 
-**What it detects:** Queries where `mean_exec_time` has increased significantly between consecutive snapshots, indicating a performance regression.
+**What it detects:** A statement whose interval mean (see `slow_query`, with the same `analyzer.slow_query_min_calls` floor) exceeds its cumulative mean by `analyzer.regression_threshold_pct` (default 50%) is a candidate; at most 50 candidates per cycle, the largest interval time first. For each, pg_sage reads its `sage.query_store` samples over `analyzer.regression_lookback_days` (default 7), excluding the last hour, as hourly buckets. The baseline is the median of the bucket interval means, using buckets with at least the call floor and no statistics reset; it needs at least 6 such buckets. The finding needs the interval mean above the baseline by the threshold. A plan flip from 2 ms to 20 ms on a query with a million earlier calls moves the cumulative mean by about 9%, below the threshold; the interval mean against the hourly median shows +900%. Without a previous snapshot, or when the history read fails, the category is not evaluated and its open findings stay open. A statement without a measured interval, a candidate without a baseline and a candidate past the cap of 50 have no verdict that cycle, so their open findings stay open. Coverage depends on which statements `sage.query_store` samples. The detail carries `interval_mean_ms`, `interval_calls`, `cumulative_mean_ms`, `baseline_ms`, `baseline_method` (`median_hourly_interval`) and `baseline_buckets`.
 
 **Example output:**
 
 ```
-Query regression: mean_exec_time increased 340% (120ms -> 528ms) for queryid 1234567890
+Query regression: 20.0ms now vs 2.0ms hourly median (+900%)
 ```
 
 **Recommended action:** Investigate recent changes -- schema modifications, data volume changes, or configuration updates.
@@ -315,16 +373,16 @@ Query regression: mean_exec_time increased 340% (120ms -> 528ms) for queryid 123
 
 ### seq_scan_heavy
 
-Detects sequential scans on large tables.
+Detects tables that are scanned sequentially far more than through indexes right now.
 
-**Severity:** info (warning if frequent)
+**Severity:** warning
 
-**What it detects:** Tables exceeding the configured row threshold that are accessed primarily via sequential scans rather than index scans.
+**What it detects:** Tables with at least `analyzer.seq_scan_min_rows` live rows whose scans in the interval since the previous snapshot are more than 100 sequential scans and more than ten times their index scans. Only the interval counts: an old seq-scan storm stops being flagged once the scans stop, and a new storm on a table with many lifetime index scans is caught. The rule needs two snapshots in the same statistics epoch: on the first cycle after a start, after `pg_stat_reset()` or a single-table reset, or after a server restart it is not evaluated and open findings stay open. A table whose counters went down, or that is new since the previous snapshot, is judged on the next interval. The finding detail carries the lifetime `seq_scan` and `idx_scan`, and `interval_seq_scan`, `interval_idx_scan` and `interval_seconds`.
 
 **Example output:**
 
 ```
-Sequential scan heavy: public.events (2.5M rows, 95% seq_scan ratio)
+Table public.events: 1840 seq scans vs 12 idx scans in the last 60s (2500000 rows)
 ```
 
 **Recommended action:** Analyze query patterns and add appropriate indexes.
@@ -335,16 +393,20 @@ Sequential scan heavy: public.events (2.5M rows, 95% seq_scan ratio)
 
 ### sequence_exhaustion
 
-Detects sequences approaching their maximum value.
+Detects sequences approaching the end of their range.
 
-**Severity:** critical
+**Severity:** warning at 75% consumed, critical at 90%
 
-**What it detects:** Sequences where the current value is a high percentage of the maximum for their data type. Integer sequences (max ~2.1 billion) are flagged earlier than bigint sequences.
+**What it detects:** Sequences that have consumed a high share of their own range, `[MINVALUE, MAXVALUE]`, in the direction they move: ascending sequences toward `MAXVALUE`, descending sequences toward `MINVALUE`. A custom `MINVALUE` or `MAXVALUE` is honoured, so a descending sequence with `MINVALUE -1000` is judged against -1000, not the data type's minimum. Integer sequences get bigint migration advice.
+
+`CYCLE` sequences are skipped: they wrap to the start of their range by design, so reaching the end is not an outage. Open findings on `CYCLE` sequences resolve on the next analyzer cycle.
+
+**Detail:** `current_value`, `min_value`, `max_value`, `increment`, `cycle`, `usage_pct`, `data_type` and `runway_category` (`forecast_sequence_runway`). The time to the limit at the current rate, and the owning column's type limit, are in the `forecast_sequence_runway` finding for the same sequence; this finding reports only how much of the range is used.
 
 **Example output:**
 
 ```
-Sequence public.orders_seq at 93.1% capacity (integer)
+Sequence public.orders_seq is 93.1% consumed (integer)
 ```
 
 **Recommended action:** Alter the sequence to use `bigint`, or reset with a higher ceiling.
@@ -704,15 +766,15 @@ These deterministic rules run alongside the categories above.
 
 | Category | What it detects |
 |----------|-----------------|
-| `high_total_time` | A query whose total execution time exceeds 10% of the analysis interval, even when each call is fast. |
-| `sort_without_index` | An EXPLAIN plan where a Sort feeding a Limit sorts at least 10x the rows the Limit returns; an index on the sort key avoids the sort. |
-| `plan_regression` | A query whose plan changed and whose estimated cost rose at least 2x, or 1.5x with node changes or new disk spills. |
-| `stale_statistics` | A table with writes and at least 10,000 live rows that was never analyzed or not analyzed in 7 days (`analyzer.analyze_stale_min_rows`, `analyzer.analyze_stale_days`). Recommends `ANALYZE`. |
-| `slow_replication_slot` | An active replication slot retaining at least 1 GB of WAL (critical at 5 GB): a slow consumer. |
-| `lock_chain` | A root blocker and the tree of sessions waiting on it in the monitored database. pg_sage's own sessions and configured safe processes get a finding but never cancel or terminate SQL. |
-| `stat_statements_pressure` | `pg_stat_statements` above 80% of `pg_stat_statements.max` (critical above 95%), where entries start being evicted. |
-| `work_mem_promotion` | A role with `work_mem` hints on five or more queries (`analyzer.work_mem_promotion_threshold`). Recommends one `ALTER ROLE ... SET work_mem`; advisory only. |
-| `extension_drift` | An installed extension whose version lags its default version until `ALTER EXTENSION ... UPDATE` runs. Advisory only. |
+| <a id="high_total_time"></a>`high_total_time` | A query whose total execution time exceeds 10% of the analysis interval, even when each call is fast. |
+| <a id="sort_without_index"></a>`sort_without_index` | An EXPLAIN plan where a Sort feeding a Limit sorts at least 10x the rows the Limit returns; an index on the sort key avoids the sort. |
+| <a id="plan_regression"></a>`plan_regression` | A query whose plan changed and whose estimated cost rose at least 2x, or 1.5x with node changes or new disk spills. |
+| <a id="stale_statistics"></a>`stale_statistics` | A table with at least 10,000 live rows (`analyzer.analyze_stale_min_rows`) that was never analyzed and has changed since, or whose rows changed since its last analyze (`n_mod_since_analyze`) exceed the autoanalyze threshold and whose last analyze is older than 7 days (`analyzer.analyze_stale_days`). The threshold is autoanalyze's own: `autovacuum_analyze_threshold + autovacuum_analyze_scale_factor x reltuples`, each from the table's storage parameters when set there, else from the server settings. A table with no change since its last analyze is never flagged, however old the analyze. Recommends `ANALYZE`; the detail carries `mod_since_analyze` and `analyze_threshold`. A partitioned parent, which autoanalyze never processes, gets an info finding (`partitioned_parent: true`) when it was never analyzed or not within the cutoff and its partitions' changes since their last analyze exceed the parent's threshold; its `ANALYZE` samples every partition (and analyzes each one before PostgreSQL 18's `ANALYZE ONLY`), so it needs an operator's approval. It is skipped when the partition list could not be read. |
+| <a id="slow_replication_slot"></a>`slow_replication_slot` | An active replication slot retaining at least 1 GB of WAL (critical at 5 GB): a slow consumer. |
+| <a id="lock_chain"></a>`lock_chain` | A root blocker and the tree of sessions waiting on it in the monitored database. pg_sage's own sessions and configured safe processes get a finding but never cancel or terminate SQL. |
+| <a id="stat_statements_pressure"></a>`stat_statements_pressure` | `pg_stat_statements` above 80% of `pg_stat_statements.max` (critical above 95%), where entries start being evicted. |
+| <a id="work_mem_promotion"></a>`work_mem_promotion` | A role with `work_mem` hints on five or more queries (`analyzer.work_mem_promotion_threshold`). Recommends one `ALTER ROLE ... SET work_mem`; advisory only. |
+| <a id="extension_drift"></a>`extension_drift` | An installed extension whose version lags its default version until `ALTER EXTENSION ... UPDATE` runs. Advisory only. |
 
 ---
 
@@ -720,18 +782,19 @@ These deterministic rules run alongside the categories above.
 
 | Category | Source | What it reports |
 |----------|--------|-----------------|
-| `wal_tuning` | LLM advisor | WAL and checkpoint settings, such as `max_wal_size` when checkpoints are forced. |
-| `connection_tuning` | LLM advisor | Connection capacity and churn, such as `max_connections` or pooling advice. |
-| `query_rewrite` | LLM advisor | Rewrites for the slowest queries. Text only, always advisory. |
-| `bloat_remediation` | LLM advisor | Options for removing table and index bloat. |
-| `memory_tuning`, `vacuum_tuning` | Tuning agent | Memory and autovacuum configuration changes. A recommendation without SQL is dropped. |
-| `query_tuning` | Query tuner | Per-query hints (for example `Set(work_mem ...)` or an index scan) stored in `sage.query_hints`. |
-| `runaway_query` | Executor | A running query past the configured runaway limits, such as its maximum duration. |
+| <a id="wal_tuning"></a>`wal_tuning` | LLM advisor | WAL and checkpoint settings, such as `max_wal_size` when checkpoints are forced. |
+| <a id="connection_tuning"></a>`connection_tuning` | LLM advisor | Connection capacity and churn, such as `max_connections` or pooling advice. |
+| <a id="query_rewrite"></a>`query_rewrite` | LLM advisor | Rewrites for the slowest queries. Text only, always advisory. |
+| <a id="bloat_remediation"></a>`bloat_remediation` | LLM advisor | Options for removing table and index bloat. |
+| <a id="memory_tuning"></a><a id="vacuum_tuning"></a>`memory_tuning`, `vacuum_tuning` | Tuning agent | Memory and autovacuum configuration changes. A recommendation without SQL is dropped. |
+| <a id="query_tuning"></a>`query_tuning` | Query tuner | Per-query hints (for example `Set(work_mem ...)` or an index scan) stored in `sage.query_hints`. |
+| <a id="runaway_query"></a>`runaway_query` | Executor | A running query past the configured runaway limits, such as its maximum duration. |
 
 ---
 
 ## Tier 2 -- LLM Index Optimizer
 
+<a id="missing_index"></a><a id="covering_index"></a><a id="partial_index"></a><a id="composite_index"></a>
 When LLM is enabled, the optimizer generates additional findings of category `missing_index`; the index kind (missing, covering, partial or composite) is in the `index_category` detail. Releases before v1.8.0 stored the kind as the category (`covering_index`, `partial_index`, `composite_index`). These are consolidated index recommendations that have passed through 8 validators and confidence scoring. Each recommendation includes:
 
 - The CREATE INDEX statement (always uses CONCURRENTLY)
@@ -756,7 +819,7 @@ finding against the latest snapshot, deterministically.
 | `wal_tuning`, `connection_tuning` | the live `pg_settings` value equals the recommended value (from the `ALTER SYSTEM`, the managed `ALTER DATABASE`, or the managed-change intent; units normalized). A setting pending a restart is not live yet |
 | `query_rewrite` | the query has been absent from `pg_stat_statements` for 3 consecutive cycles (a stats reset or an unreadable query list does not count) |
 | `bloat_remediation` | the table has been under 10% dead tuples (or under 1,000 rows) for 2 consecutive cycles |
-| `advisor_degraded` | the LLM is enabled again, or the advisor is disabled on purpose |
+| <a id="advisor_degraded"></a>`advisor_degraded` | the LLM is enabled again, or the advisor is disabled on purpose |
 
 A finding that still holds is re-emitted unchanged, and only its own setting,
 query or table is left out of the next model review. Dismissing a finding keeps
@@ -767,3 +830,51 @@ A global setting finding whose GUC some tables override (a per-table finding, or
 an explicit storage parameter) is kept, with `detail.overridden_by_tables` naming
 those tables: they keep their own setting and the global change does not affect
 them.
+
+---
+
+## Tuning, Forecast, Cloud, Governance and SRE Categories
+
+These producers write findings outside the analyzer rules. Their subsystems, severities
+and config keys are in the [generated catalog](generated/finding-catalog.md).
+
+| Category | Source | What it reports |
+|----------|--------|-----------------|
+| <a id="index_health"></a>`index_health` | Analyzer | Index health roll-up kept for rows older releases wrote; nothing emits it today. |
+| <a id="temp_spill"></a>`temp_spill` | Analyzer | A statement writing temporary files over the interval: `work_mem` is too small for it. |
+| <a id="clone_schemas"></a>`clone_schemas` | Analyzer | A family of schemas cloned from one template, reported once instead of per schema. |
+| <a id="app_managed_index"></a>`app_managed_index` | Analyzer | An index an application or migration tool manages: pg_sage will not drop it. |
+| <a id="query_hint_retirement"></a>`query_hint_retirement` | Query tuner | A plan hint that no longer helps, proposed for removal (`tuner.hint_retirement_days`). |
+| <a id="tuning_index_drop"></a>`tuning_index_drop` | Tuning agent | An index the tuning agent proposes to drop. |
+| <a id="tuning_index_replace"></a>`tuning_index_replace` | Tuning agent | An index the tuning agent proposes to replace with a better one. |
+| <a id="query_create_statistics"></a>`query_create_statistics` | Tuning agent | Extended statistics the tuning agent proposes. |
+| <a id="table_tuning"></a>`table_tuning` | Tuning agent | A per-table storage parameter the tuning agent proposes. |
+| <a id="forecast"></a>`forecast` | Forecaster | Any category starting with `forecast`: a trend projected past a limit. The `forecaster` filter matches the whole family. |
+| <a id="forecast_disk_growth"></a>`forecast_disk_growth` | Forecaster | Database size growing faster than `forecaster.disk_warn_growth_gb_day`. |
+| <a id="forecast_connection_saturation"></a>`forecast_connection_saturation` | Forecaster | Connections trending toward `max_connections`. |
+| <a id="forecast_query_volume"></a>`forecast_query_volume` | Forecaster | Query volume growing sharply over the lookback. |
+| <a id="forecast_cache_pressure"></a>`forecast_cache_pressure` | Forecaster | The cache hit ratio trending below `forecaster.cache_warn_threshold`. |
+| <a id="forecast_checkpoint_pressure"></a>`forecast_checkpoint_pressure` | Forecaster | Requested checkpoints trending above `forecaster.checkpoint_requested_per_hour`. |
+| <a id="storage_forecast"></a>`storage_forecast` | Forecaster | Storage growth forecast of the v0.9 growth path, kept for rows it wrote. |
+| <a id="forecast_wraparound_runway"></a>`forecast_wraparound_runway` | Runway | Time left before a table or the database reaches transaction ID wraparound. |
+| <a id="forecast_wal_runway"></a>`forecast_wal_runway` | Runway | Time left before retained WAL fills the disk (`forecaster.disk_capacity_bytes`) or a slot's limit. |
+| <a id="forecast_sequence_runway"></a>`forecast_sequence_runway` | Runway | Time left before a sequence runs out of values at its current rate. |
+| <a id="managed_parameter_drift"></a>`managed_parameter_drift` | Cloud telemetry | A managed provider parameter that drifts from its resolved target. |
+| <a id="managed_storage_runway"></a>`managed_storage_runway` | Cloud telemetry | Time left before a managed instance's provisioned storage fills. |
+| <a id="incident"></a><a id="incident_open"></a><a id="incident_resolved"></a>`incident` | RCA | Incident-class rows; `incident_open` and `incident_resolved` mark an incident's state. |
+| <a id="migration_safety"></a>`migration_safety` | Migration advisor | A migration safety rule's finding on a DDL statement. |
+| <a id="test_fixture_cleanup"></a>`test_fixture_cleanup` | Facts | A confirmed test-fixture fact's cleanup batch for an operator to review. pg_sage never drops a schema itself. |
+| <a id="schema_lint"></a>`schema_lint` | Schema lint | `schema_lint:<rule id>`: a schema lint rule's finding. |
+| <a id="agent_posture"></a>`agent_posture` | Agent posture | `agent_posture:<detector>`: an agent posture detector's finding. |
+| <a id="agent_environment_binding"></a>`agent_environment_binding` | Agent guard | An agent connected to a database outside its bound environment. |
+| <a id="agent_role_drift"></a>`agent_role_drift` | Agent guard | An agent role whose access differs from what governance recorded. |
+| <a id="agent_backend_violation"></a>`agent_backend_violation` | Agent guard | A connected agent role that breaks the agent role rules. |
+| <a id="agent_role_upkeep"></a>`agent_role_upkeep` | Agent guard | A scheduled agent role job that cannot run. |
+| <a id="autonomy_handoff"></a>`autonomy_handoff` | Executor | A remediation pg_sage earned but holds for an operator's approval. |
+| <a id="audit_chain_broken"></a>`audit_chain_broken` | Audit job | The audit log's hash chain does not verify. |
+| <a id="audit_chain_regressed"></a>`audit_chain_regressed` | Audit job | An audit trail that went back behind its SIEM export. |
+| <a id="audit_chain_verification_failed"></a>`audit_chain_verification_failed` | Audit job | The audit chain verification job could not run. |
+| <a id="siem_event_undeliverable"></a>`siem_event_undeliverable` | Audit job | An audit event a SIEM sink refused. |
+| <a id="auth_email_case_duplicates"></a>`auth_email_case_duplicates` | Schema migration | User accounts whose emails differ only in case, which block case-insensitive sign-in until an admin merges or renames them. |
+| <a id="sre_action"></a>`sre_action` | SRE agent | A backend cancel the SRE agent proposes; it waits for an operator to approve or deny it. |
+| <a id="sre_maintenance"></a>`sre_maintenance` | SRE agent | Operator-requested extended statistics, queued for approval. |
