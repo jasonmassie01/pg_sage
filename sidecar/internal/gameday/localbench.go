@@ -37,6 +37,8 @@ type LocalBenchConfig struct {
 	Now      func() time.Time
 	// Log reports a background run that failed (it is also kept as Last).
 	Log func(format string, args ...any)
+	// Warn reports a run that scored nothing (nil: the standard logger).
+	Warn func(format string, args ...any)
 	// Leases are the shared targets held in this process (nil: the
 	// process-wide table game days share too).
 	Leases *Leases
@@ -59,6 +61,8 @@ type LocalBenchRun struct {
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
 	Error      string     `json:"error,omitempty"`
 	EvalRunID  string     `json:"eval_run_id,omitempty"`
+	// Summary is what the run's report scored, as for a game day.
+	Summary *Summary `json:"summary,omitempty"`
 }
 
 // LocalBench runs one database's local bench runs, one at a time.
@@ -90,6 +94,9 @@ func NewLocalBench(cfg LocalBenchConfig, provider clone.Provider, faults FaultRu
 	}
 	if cfg.Log == nil {
 		cfg.Log = log.Printf
+	}
+	if cfg.Warn == nil {
+		cfg.Warn = defaultWarn
 	}
 	cfg.Leases = leasesOr(cfg.Leases)
 	return &LocalBench{cfg: cfg, provider: provider, faults: faults, ledger: ledger}, nil
@@ -205,6 +212,9 @@ func (b *LocalBench) execute(ctx context.Context, run LocalBenchRun) (LocalBench
 		runErr = b.exercise(ctx, &run, c.DSN)
 	}
 	status, runErr := destroyClone(ctx, b.provider, c, runErr)
+	if status = scoredStatus(status, run.Summary); status == StatusCompletedUnscored {
+		warnUnscored(b.cfg.Warn, "local bench", run.ID, run.Database, run.Summary)
+	}
 	return b.finish(ctx, run, status, runErr)
 }
 
@@ -215,6 +225,8 @@ func (b *LocalBench) exercise(ctx context.Context, run *LocalBenchRun, dsn strin
 	if err != nil {
 		return fmt.Errorf("fault programs: %w", err)
 	}
+	summary := summarize(raw)
+	run.Summary = &summary
 	stored, err := b.ledger.IngestBench(ctx, raw, earned.BenchIngest{
 		Origin: earned.OriginLocalRun, Actor: earned.ActorPgSage})
 	if err != nil {

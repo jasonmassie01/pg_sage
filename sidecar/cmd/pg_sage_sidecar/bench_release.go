@@ -236,7 +236,8 @@ func newLocalBenchFor(database string, svc *earned.Service, s config.SREAutonomy
 	}
 	return gameday.NewLocalBench(gameday.LocalBenchConfig{Database: database, Provider: name,
 		Store: store,
-		Log:   func(format string, args ...any) { logWarn("autonomy", format, args...) }},
+		Log:   func(format string, args ...any) { logWarn("autonomy", format, args...) },
+		Warn:  func(format string, args ...any) { logWarn("autonomy", format, args...) }},
 		provider, faults, svc)
 }
 

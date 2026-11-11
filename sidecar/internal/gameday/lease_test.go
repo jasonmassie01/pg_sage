@@ -106,7 +106,7 @@ func TestLeaseRefusesOtherRunsOnTheSharedTarget(t *testing.T) {
 	held := &fakeFaults{report: report(fa.now, 0), block: make(chan struct{})}
 	a := fa.localRunner(p, held)
 	b := fb.localRunner(p, &fakeFaults{report: report(fb.now, 0)})
-	benchFaults := &fakeFaults{report: []byte(`{}`)}
+	benchFaults := &fakeFaults{report: []byte(scoredReport)}
 	bench := localBenchOn(t, p, benchFaults)
 	done := make(chan error, 1)
 	go func() { _, err := a.Run(fa.ctx); done <- err }()
@@ -145,7 +145,7 @@ func TestLeaseRefusesOtherRunsOnTheSharedTarget(t *testing.T) {
 func TestLeaseHeldByABackgroundLocalBench(t *testing.T) {
 	f := newGDFixture(t)
 	p, _ := sharedLocal(t, 6002)
-	faults := &fakeFaults{report: []byte(`{}`), block: make(chan struct{})}
+	faults := &fakeFaults{report: []byte(scoredReport), block: make(chan struct{})}
 	bench := localBenchOn(t, p, faults)
 	run, err := bench.Start(context.Background(), nil)
 	if err != nil {

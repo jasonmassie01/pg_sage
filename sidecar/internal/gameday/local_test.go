@@ -274,7 +274,7 @@ func TestLocalProviderCreateIsSafeConcurrently(t *testing.T) {
 		return c, nil
 	}
 	b, err := NewLocalBench(LocalBenchConfig{Database: "orders", Provider: "local"}, p,
-		&fakeFaults{report: []byte(`{}`)}, &fakeBenchLedger{})
+		&fakeFaults{report: []byte(scoredReport)}, &fakeBenchLedger{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -319,7 +319,7 @@ func TestLocalBenchRefusedTargetFailsTheRun(t *testing.T) {
 	target := prodCluster()
 	target.marker = marked(TargetMarker)
 	p := mustLocal(t, scratchDSN, target, refusing(prodCluster()))
-	f, l := &fakeFaults{report: []byte(`{}`)}, &fakeBenchLedger{}
+	f, l := &fakeFaults{report: []byte(scoredReport)}, &fakeBenchLedger{}
 	b, err := NewLocalBench(LocalBenchConfig{Database: "orders", Provider: "local"}, p, f, l)
 	if err != nil {
 		t.Fatal(err)

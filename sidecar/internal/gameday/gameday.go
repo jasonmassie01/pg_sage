@@ -33,10 +33,13 @@ var (
 
 // Game-day statuses.
 const (
-	StatusRunning       = "running"
-	StatusCompleted     = "completed"
-	StatusFailed        = "failed"
-	StatusDestroyFailed = "destroy_failed"
+	StatusRunning   = "running"
+	StatusCompleted = "completed"
+	// StatusCompletedUnscored is a run that finished but scored no run
+	// (benches-08): every fault program skipped, or the report had none.
+	StatusCompletedUnscored = "completed_unscored"
+	StatusFailed            = "failed"
+	StatusDestroyFailed     = "destroy_failed"
 )
 
 // FaultRunner runs fault programs against a disposable database and
@@ -65,6 +68,9 @@ type GameDay struct {
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
 	Error      string     `json:"error,omitempty"`
 	EvalRunID  string     `json:"eval_run_id,omitempty"`
+	// Summary is what the run's report scored; nil when there was no
+	// report (the run failed before it, or the row predates benches-08).
+	Summary *Summary `json:"summary,omitempty"`
 }
 
 // Config configures one database's game days.
@@ -78,6 +84,9 @@ type Config struct {
 	Now      func() time.Time
 	// Log reports a background game day that failed (it is also recorded).
 	Log func(format string, args ...any)
+	// Warn reports a game day that scored nothing (nil: the standard
+	// logger).
+	Warn func(format string, args ...any)
 	// Leases are the shared targets held in this process (nil: the
 	// process-wide table every runtime shares).
 	Leases *Leases
@@ -119,6 +128,9 @@ func NewRunner(cfg Config, provider clone.Provider, faults FaultRunner, ledger L
 	}
 	if cfg.Log == nil {
 		cfg.Log = log.Printf
+	}
+	if cfg.Warn == nil {
+		cfg.Warn = defaultWarn
 	}
 	cfg.Leases = leasesOr(cfg.Leases)
 	return &Runner{cfg: cfg, provider: provider, faults: faults, ledger: ledger,
@@ -208,6 +220,9 @@ func (r *Runner) run(ctx context.Context, id string) (GameDay, error) {
 		runErr = r.exercise(ctx, &gd, c.DSN)
 	}
 	status, runErr := destroyClone(ctx, r.provider, c, runErr)
+	if status = scoredStatus(status, gd.Summary); status == StatusCompletedUnscored {
+		warnUnscored(r.cfg.Warn, "game day", gd.ID, gd.Database, gd.Summary)
+	}
 	return r.finish(ctx, gd, status, runErr)
 }
 
@@ -233,6 +248,8 @@ func (r *Runner) exercise(ctx context.Context, gd *GameDay, dsn string) error {
 	if err != nil {
 		return fmt.Errorf("fault programs: %w", err)
 	}
+	summary := summarize(raw)
+	gd.Summary = &summary
 	run, err := r.ledger.IngestEvalRun(ctx, raw, earned.SourceGameDay, earned.ActorPgSage,
 		gd.Database)
 	if err != nil {
