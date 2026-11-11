@@ -105,6 +105,8 @@ var classifyCases = []classifyCase{
 	{"unlisten", "UNLISTEN *", Utility},
 	{"lock after comment", "/* app */ LOCK TABLE t", Utility},
 	{"commit after line comment", "-- tx\nCOMMIT", Utility},
+	// PostgreSQL ends a -- comment at CR as well as LF.
+	{"commit after cr line comment", "-- tx\rCOMMIT", Utility},
 	// Schema changes and privileges.
 	{"alter table", "ALTER TABLE t ADD COLUMN c int", DDL},
 	{"truncate", "TRUNCATE t", DDL},

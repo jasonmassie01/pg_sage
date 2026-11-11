@@ -39,6 +39,10 @@ var plannableCases = []plannableCase{
 	{"   \n\t", false, false},
 	{"SELECT 1; SELECT 2", false, false},
 	{"UPDATE t SET a = 1; DELETE FROM t", false, false},
+	// A -- comment ends at CR (as in the PostgreSQL lexer), so the ; after
+	// it starts a second statement.
+	{"-- c\r; DELETE FROM t\nSELECT 1", false, false},
+	{"-- c\rSELECT 1", true, true},
 	{"/* unterminated SELECT 1", false, false},
 	{"-- only a comment", false, false},
 	{"EXPLAIN SELECT 1", false, false},

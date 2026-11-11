@@ -53,8 +53,9 @@ const (
 // lookaround, POSIX classes only inside brackets. Matched
 // case-insensitively.
 const (
-	// lead skips whitespace and comments before the first keyword.
-	lead = `^(\s|/\*([^*]|\*+[^*/])*\*+/|--[^\n]*(\n|$))*`
+	// lead skips whitespace and comments before the first keyword. A --
+	// comment ends at LF or CR, as in the PostgreSQL lexer.
+	lead = `^(\s|/\*([^*]|\*+[^*/])*\*+/|--[^\n\r]*([\n\r]|$))*`
 	// end is the end of a keyword: not followed by an identifier character.
 	end         = `([^[:alnum:]_$]|$)`
 	explainPart = `EXPLAIN` + end
