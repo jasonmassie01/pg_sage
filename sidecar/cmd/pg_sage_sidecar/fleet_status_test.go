@@ -10,7 +10,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/store"
 )
 
 // cases-11: open incident counts feed the Overview hero. A count that
@@ -140,5 +142,36 @@ func TestApplyIncidentCounts_EmptyResultIsZero(t *testing.T) {
 	if s.IncidentsCritical != 0 || s.IncidentsWarning != 0 {
 		t.Fatalf("no incidents read as critical %d warning %d",
 			s.IncidentsCritical, s.IncidentsWarning)
+	}
+}
+
+// A database that failed to connect or build never read its incidents:
+// its placeholder row reports them unknown, and the summary counts it
+// under incidents_unknown instead of as zero open incidents.
+func TestFailedPlaceholders_IncidentsUnknown(t *testing.T) {
+	placeholders := map[string]*fleet.DatabaseInstance{
+		"config": failedFleetInstance(config.DatabaseConfig{Name: "cfg"},
+			errors.New("connection refused")),
+		"store": failedStoreInstance(store.DatabaseRecord{ID: 7, Name: "st"},
+			"build failed"),
+	}
+	for kind, inst := range placeholders {
+		s := inst.SnapshotStatus()
+		if s.IncidentsCritical != fleet.IncidentsUnknown ||
+			s.IncidentsWarning != fleet.IncidentsUnknown {
+			t.Errorf("%s placeholder incidents critical %d warning %d, want -1",
+				kind, s.IncidentsCritical, s.IncidentsWarning)
+		}
+		if s.Error == "" || s.Connected {
+			t.Errorf("%s placeholder lost its failure: %+v", kind, s)
+		}
+	}
+	mgr := fleet.NewManager(&config.Config{Mode: "fleet"})
+	mgr.RegisterInstance(placeholders["config"])
+	mgr.RegisterInstance(placeholders["store"])
+	sum := mgr.FleetStatus().Summary
+	if sum.IncidentsUnknown != 2 || sum.IncidentsCritical != 0 || sum.Degraded != 2 {
+		t.Fatalf("summary incidents_unknown %d critical %d degraded %d, want 2, 0, 2",
+			sum.IncidentsUnknown, sum.IncidentsCritical, sum.Degraded)
 	}
 }

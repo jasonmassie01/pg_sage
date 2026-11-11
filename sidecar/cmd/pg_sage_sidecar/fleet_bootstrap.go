@@ -132,6 +132,9 @@ func failedFleetInstance(dbCfg config.DatabaseConfig, err error) *fleet.Database
 	return &fleet.DatabaseInstance{
 		Name:   dbCfg.Name,
 		Config: dbCfg,
-		Status: &fleet.InstanceStatus{Error: err.Error(), LastSeen: time.Now()},
+		Status: &fleet.InstanceStatus{Error: err.Error(), LastSeen: time.Now(),
+			// Never read, so unknown rather than zero (cases-11).
+			IncidentsCritical: fleet.IncidentsUnknown,
+			IncidentsWarning:  fleet.IncidentsUnknown},
 	}
 }
