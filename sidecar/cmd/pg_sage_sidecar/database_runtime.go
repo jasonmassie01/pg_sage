@@ -256,6 +256,7 @@ func newDatabaseRuntime(
 	rt.initCloudTelemetry()
 	rt.resolveLLM()
 	rt.dispatcher = sharedNotifyDispatcher(spec.ControlPool)
+	rt.registerFactCards()
 	rt.ha = newInstanceHAMonitor(spec.Pool, spec.ControlPool, spec.Name,
 		rt.recordID(), haCadence(rt.cfg), rt.cfg.SRE.Autonomy.FailoverCooldown())
 	return rt

@@ -49,21 +49,28 @@ type Store struct {
 
 // sharedState is the per-pool cache of confirmed facts, shared by every
 // Store on the pool. gen counts invalidations: a read that started before
-// one is never cached.
+// one is never cached. notifier is the pool's proposal notifier
+// (SetProposalNotifier); notifierGen tells its registrations apart.
 type sharedState struct {
-	mu       sync.Mutex
-	cached   []Fact
-	cachedAt time.Time
-	valid    bool
-	gen      uint64
+	mu          sync.Mutex
+	cached      []Fact
+	cachedAt    time.Time
+	valid       bool
+	gen         uint64
+	notifier    ProposalNotifier
+	notifierGen uint64
 }
 
 var sharedByPool sync.Map // *pgxpool.Pool -> *sharedState
 
+func sharedOf(pool *pgxpool.Pool) *sharedState {
+	state, _ := sharedByPool.LoadOrStore(pool, &sharedState{})
+	return state.(*sharedState)
+}
+
 // NewStore returns the fact store of the database behind pool.
 func NewStore(pool *pgxpool.Pool) *Store {
-	state, _ := sharedByPool.LoadOrStore(pool, &sharedState{})
-	return &Store{pool: pool, catalog: pool, shared: state.(*sharedState), grace: time.Hour,
+	return &Store{pool: pool, catalog: pool, shared: sharedOf(pool), grace: time.Hour,
 		confirmedAbsence: defaultConfirmedAbsence, now: time.Now,
 		logFn: func(string, string, ...any) {}}
 }

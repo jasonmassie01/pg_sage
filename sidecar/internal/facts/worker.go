@@ -21,8 +21,8 @@ type WorkerOptions struct {
 	ModelEvidence func(context.Context) ([]EvidenceItem, error)
 	Interval      time.Duration
 	ModelInterval time.Duration
-	// Notify is told about every new or reopened proposal (a fact card).
-	Notify func(context.Context, Fact)
+	// New and reopened proposals reach the pool's proposal notifier
+	// (SetProposalNotifier), which sends their fact cards.
 	// NotifyExpired is told about every confirmed fact re-verification
 	// expired: a person's decision that no longer binds (facts-08).
 	NotifyExpired func(context.Context, Fact)
@@ -31,7 +31,7 @@ type WorkerOptions struct {
 }
 
 // Worker imports declared contracts, runs the detectors (and the model),
-// records their proposals, notifies the new ones and re-verifies facts.
+// records their proposals and re-verifies facts.
 type Worker struct {
 	store     *Store
 	opts      WorkerOptions
@@ -40,8 +40,8 @@ type Worker struct {
 
 // RunStats is what one pass did.
 type RunStats struct {
-	Imported, Proposed, Notified, Expired int
-	Errors                                []string
+	Imported, Proposed, Expired int
+	Errors                      []string
 }
 
 // NewWorker returns the worker of store's database.
@@ -80,8 +80,8 @@ func (w *Worker) log(s RunStats) {
 		w.opts.LogFn("WARN", "facts: %s", e)
 	}
 	if s.Imported+s.Proposed+s.Expired > 0 {
-		w.opts.LogFn("INFO", "facts: %d imported, %d proposed (%d notified), %d expired",
-			s.Imported, s.Proposed, s.Notified, s.Expired)
+		w.opts.LogFn("INFO", "facts: %d imported, %d proposed, %d expired",
+			s.Imported, s.Proposed, s.Expired)
 	}
 }
 
@@ -171,13 +171,8 @@ func (w *Worker) proposeAll(ctx context.Context, props []Proposal, fresh map[int
 			continue
 		}
 		fresh[f.ID] = true
-		if !created {
-			continue
-		}
-		stats.Proposed++
-		if w.opts.Notify != nil {
-			w.opts.Notify(ctx, f)
-			stats.Notified++
+		if created {
+			stats.Proposed++
 		}
 	}
 }

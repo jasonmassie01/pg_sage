@@ -63,7 +63,8 @@ RETURNING ` + factColumns + `, (xmax = 0), COALESCE((SELECT status FROM prior), 
 // fact's decision. It reopens an expired fact (new evidence), except that
 // the same value proposed for a confirmed fact that expired by absence,
 // within the restore window, restores the confirmation (facts-08). created
-// reports a new or reopened fact, the one an operator must now decide; a
+// reports a new or reopened fact, the one an operator must now decide,
+// and the pool's proposal notifier is told about it (one fact card); a
 // restored fact is not created (no card is sent).
 func (s *Store) Propose(ctx context.Context, p Proposal) (Fact, bool, error) {
 	p, err := Validate(p)
@@ -88,5 +89,9 @@ func (s *Store) Propose(ctx context.Context, p Proposal) (Fact, bool, error) {
 			f.ID, f.Describe(), f.DecidedBy)
 		return f, false, nil
 	}
-	return f, inserted || prior == string(StatusExpired), nil
+	created := inserted || prior == string(StatusExpired)
+	if created {
+		s.notifyProposal(ctx, f)
+	}
+	return f, created, nil
 }

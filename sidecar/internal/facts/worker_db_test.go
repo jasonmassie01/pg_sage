@@ -21,7 +21,8 @@ func (d fakeDetector) Detect(context.Context) ([]Proposal, error) {
 func TestWorkerProposesNotifiesOnceAndKeepsGoing(t *testing.T) {
 	pool, ctx := livePool(t)
 	s := NewStore(pool)
-	var notified []int64
+	// facts-09: the card goes out through the pool's proposal notifier.
+	n := listen(t, pool)
 	chat := &recordingChatter{}
 	now := time.Now()
 	w := NewWorker(s, WorkerOptions{
@@ -36,16 +37,16 @@ func TestWorkerProposesNotifiesOnceAndKeepsGoing(t *testing.T) {
 			return modelEvidence(), nil
 		},
 		ModelInterval: time.Hour,
-		Notify:        func(_ context.Context, f Fact) { notified = append(notified, f.ID) },
 		Now:           func() time.Time { return now },
 	})
 	first := w.RunOnce(ctx)
-	if first.Proposed != 1 || first.Notified != 1 || len(first.Errors) != 1 ||
+	if first.Proposed != 1 || len(n.got()) != 1 || len(first.Errors) != 1 ||
 		chat.calls != 1 {
 		t.Fatalf("first run %+v (model calls %d)", first, chat.calls)
 	}
 	second := w.RunOnce(ctx)
-	if second.Proposed != 0 || second.Notified != 0 || chat.calls != 1 || len(notified) != 1 {
+	notified := n.got()
+	if second.Proposed != 0 || chat.calls != 1 || len(notified) != 1 {
 		t.Fatalf("second run %+v notified %v model calls %d", second, notified, chat.calls)
 	}
 	now = now.Add(2 * time.Hour)
