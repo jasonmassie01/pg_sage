@@ -100,7 +100,17 @@ verification, `CaptureDeltas` for the SLO latency proxy).
 **The workload rule.** The collector keeps every statement. Advice paths (findings, the
 tuning agent, plan capture, verification targets, the briefing) read only application
 workload as `internal/workload` classifies it: pg_sage's own tagged statements,
-`EXPLAIN`, maintenance, statistics resets and backup `COPY ... TO` are not workload.
+`EXPLAIN`, maintenance, statistics resets and backup `COPY ... TO` are not workload, and
+neither are utility statements (transaction control such as `BEGIN`, `COMMIT`,
+`SAVEPOINT`; `SET`, `RESET`, `SHOW`, `DISCARD`, `DEALLOCATE`, `LISTEN`/`NOTIFY`, `LOCK`)
+or DDL and privilege changes (`CREATE` other than `CREATE INDEX`, `ALTER`, `DROP`,
+`TRUNCATE`, `COMMENT`, `GRANT`, `REVOKE`): no index or hint fixes a slow `COMMIT`.
+Procedures (`CALL`, `DO`) stay workload, so a slow one is still reported. Capacity, I/O
+and incident rules (RCA, SRE probes) still see every statement. The one check for what a
+planner may `EXPLAIN` (plan capture, the HypoPG what-if, the perf gate) is
+`workload.Plannable`: one `SELECT`, `VALUES`, `TABLE`, `WITH`, `INSERT`, `UPDATE`,
+`DELETE` or `MERGE` statement after any leading comments; the what-if plans only the
+read-only ones.
 
 Each snapshot holds one row per category: `queries`, `tables`, `indexes`,
 `partitioned_indexes` (the partitioned tables' own indexes, relkind `I`), `foreign_keys`,

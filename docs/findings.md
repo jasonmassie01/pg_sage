@@ -252,6 +252,13 @@ a cycle where the tables, the partition tree or the partitioned indexes could no
 
 ## Query Performance
 
+Query findings are about application workload only. pg_sage's own statements,
+diagnostic tooling (`EXPLAIN`, maintenance, statistics resets, backup `COPY ... TO`),
+utility statements (`BEGIN`, `COMMIT`, `SAVEPOINT`, `SET`, `DISCARD ALL`, `DEALLOCATE`,
+`LOCK`, `LISTEN`/`NOTIFY`) and DDL or privilege changes (`ALTER`, `DROP`, `TRUNCATE`,
+`GRANT`, ...) are never the subject of `slow_query`, `high_total_time` or other advice:
+no index or hint can fix them. A slow `CALL` or `DO` is still reported.
+
 ### slow_query
 
 Detects queries with mean execution time above the threshold.
