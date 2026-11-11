@@ -20,8 +20,9 @@ import (
 // histogram, in seconds; with +Inf it has 8 buckets.
 var llmLatencyBounds = []float64{0.25, 0.5, 1, 2.5, 10, 30, 120}
 
-// llmLatencyResults are the results that timed a provider exchange; the
-// local refusals and cancellations would only add zeros to the latency.
+// llmLatencyResults are the results that time a provider exchange (an
+// error can also be a pre-flight refusal of about 0 s); the budget and
+// breaker refusals and cancellations would only add zeros.
 var llmLatencyResults = map[llm.Result]bool{llm.ResultOK: true,
 	llm.ResultError: true, llm.ResultTimeout: true, llm.ResultRateLimited: true,
 	llm.ResultEmpty: true}
@@ -194,11 +195,12 @@ func writeLLMHealthMetrics(b *strings.Builder, rows []llmHealthRow, gauges []llm
 	writeLLMClientGauges(b, gauges)
 }
 
-// writeLLMLatency renders the duration histogram of provider exchanges.
+// writeLLMLatency renders the duration histogram of the timed results.
 func writeLLMLatency(b *strings.Builder, rows []llmHealthRow) {
 	const name = "pg_sage_llm_request_duration_seconds"
-	b.WriteString("# HELP " + name + " LLM call duration of provider exchanges " +
-		"(not local refusals or cancellations)\n# TYPE " + name + " histogram\n")
+	b.WriteString("# HELP " + name + " LLM call duration for results ok, error, " +
+		"timeout, rate_limited and empty (budget and breaker refusals and " +
+		"cancellations are not timed)\n# TYPE " + name + " histogram\n")
 	for _, row := range rows {
 		labels := row.key.labels()
 		var cumulative uint64
