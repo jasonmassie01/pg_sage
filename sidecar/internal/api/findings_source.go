@@ -60,7 +60,7 @@ var (
 		"memory_tuning",
 	}
 	// optimizerCategories is missing_index plus the pre-v1.8.0 labels.
-	optimizerCategories = optimizer.Categories()
+	optimizerCategories   = optimizer.Categories()
 	queryTuningCategories = []string{
 		"query_tuning", "stale_statistics", "runaway_query",
 	}

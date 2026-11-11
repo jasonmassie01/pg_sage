@@ -4485,6 +4485,7 @@ func TestPhase2_FleetHealthHandler_FiltersAndNilPoolSkip(t *testing.T) {
 		t.Fatalf("invalid database status: got %d, want 400", w.Code)
 	}
 }
+
 // queryActionsPage reads one page of a single database's actions ledger
 // through the list endpoint's query (it replaced queryActions).
 func queryActionsPage(
