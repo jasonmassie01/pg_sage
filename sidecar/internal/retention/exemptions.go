@@ -21,6 +21,8 @@ var agentGuardExemptions = map[string]string{
 		"aged out, and stay as evidence",
 	"guard_public_baseline": "current state: the PUBLIC baseline is replaced " +
 		"whole at each preflight",
+	"guard_principal_changes": "the two-admin record of a widening agent change " +
+		"(agentgov-06), audit evidence; deleted with its principal",
 }
 
 // decommissionExemptions: the operator's acknowledgements of the
@@ -58,6 +60,8 @@ var coreExemptions = map[string]string{
 	"notification_rules":    "configuration",
 	"policy":                "standing policy, versioned configuration",
 	"query_hints":           "active hints, current state",
+	"sre_incident_followup": "one claim per paged incident that keeps its " +
+		"diagnosis follow-up at most once (sre-08); low volume, never aged out",
 	"recommendation_revision": "immutable revisions; deleted with their terminal " +
 		"recommendation (ON DELETE CASCADE, actions_days)",
 	"recommendation_transition": "immutable history; deleted with its terminal " +
