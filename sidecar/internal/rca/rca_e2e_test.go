@@ -122,7 +122,9 @@ func TestAnalyzeE2E_DeadlockEvidence(t *testing.T) {
 	sig := &Signal{
 		ID: "log_deadlock_detected", FiredAt: time.Now(), Severity: "critical",
 		Metrics: map[string]any{
-			"database": "mydb", "pids": "1234,5678", "self_inflicted": true,
+			// rca-07: the classifier's metrics, not an invented "pids".
+			"database": "mydb", "occurrence_count": 1,
+			"affected_pids": []int{1234, 5678}, "self_inflicted": true,
 		},
 	}
 	inc := requireOne(t, analyzeWithLogSignal(t, sig))

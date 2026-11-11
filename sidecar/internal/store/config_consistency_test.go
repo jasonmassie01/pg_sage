@@ -218,6 +218,11 @@ var excludedExactKeys = map[string]bool{
 	// rca-06: the log fast-path period, read once at startup like the
 	// lock-chain fast path and validated at load (0 or 1-3600).
 	"rca.log_fast_path_interval_seconds": true,
+	// rca-07: the log quiet period and the recurrence re-notify window
+	// are validated at load against rca.stale_after_hours (1-max), so
+	// they are YAML-only.
+	"rca.log_quiet_minutes":         true,
+	"rca.recurrence_renotify_hours": true,
 
 	// Dogfood lifeos-1: validated at load against other keys
 	// (rca.dedup_window_minutes; sre.runways.interval_seconds,

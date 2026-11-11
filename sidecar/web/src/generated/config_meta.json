@@ -2035,6 +2035,12 @@
     "doc": "Seconds between log fast-path passes, which open incidents for critical log lines (PANIC, disk full, OOM, wraparound) between analyzer cycles. 0 disables; otherwise 1-3600. Default: 5.",
     "class": "derivable"
   },
+  "rca.log_quiet_minutes": {
+    "type": "int",
+    "default": 0,
+    "doc": "Minutes without a new log line before a log incident auto-resolves (not clear cycles). 0 = rca.dedup_window_minutes; else 1-1440, within stale_after_hours. Default: 0.",
+    "class": "derivable"
+  },
   "rca.narration_enabled": {
     "type": "bool",
     "default": true,
@@ -2046,6 +2052,12 @@
     "default": 30,
     "doc": "Minutes a prepared transaction of this database must be old before it opens orphaned_prepared_tx or is named the vacuum_blocked holder. 1-10080. Default: 30.",
     "class": "safety_critical"
+  },
+  "rca.recurrence_renotify_hours": {
+    "type": "int",
+    "default": 6,
+    "doc": "Hours after a log incident resolves in which a recurrence at no higher severity is linked but not notified again. 1-168. Default: 6.",
+    "class": "operator_preference"
   },
   "rca.replication_lag_threshold_seconds": {
     "type": "int",

@@ -143,7 +143,7 @@ func buildLogIncident(
 ) Incident {
 	inc := buildIncident(at, severity, signalIDs, rootCause,
 		chain, affected, sql, risk)
-	inc.Source = "log_deterministic"
+	inc.Source = logIncidentSource
 	return inc
 }
 

@@ -25,6 +25,7 @@ func (e *Engine) runLogDecisionTrees(signals []*Signal) []Incident {
 	if s := sumOverloadSignals(signals); s != nil {
 		incidents = append(incidents, logTreeWatcherOverloaded(s))
 	}
+	attachLogOccurrences(incidents, signals)
 	return incidents
 }
 
@@ -175,12 +176,15 @@ func logTreeSimple(
 }
 
 // logTreeDeadlock handles log_deadlock_detected with self-inflicted
-// detection and PID extraction.
+// detection and the classifier's participant PIDs and count (rca-07).
 func logTreeDeadlock(s *Signal) Incident {
 	evidence := fmt.Sprintf("database=%s",
 		stringMetric(s, "database"))
-	if pids := stringMetric(s, "pids"); pids != "" {
-		evidence += fmt.Sprintf(", pids=%s", pids)
+	if occ := logOccurrencesFromSignal(s); occ != nil {
+		if len(occ.PIDs) > 0 {
+			evidence += ", pids=" + joinInts(occ.PIDs)
+		}
+		evidence += fmt.Sprintf(", occurrences=%d", occ.Count)
 	}
 	if boolMetric(s, "self_inflicted") {
 		evidence += " [self-inflicted deadlock]"

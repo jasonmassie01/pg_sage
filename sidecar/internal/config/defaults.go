@@ -178,6 +178,9 @@ const (
 	DefaultRCANarrationEnabled         = true
 	// rca-06: critical log lines open incidents within seconds.
 	DefaultRCALogFastPathIntervalSeconds = 5
+	// rca-07: a recurrence of a log incident within this many hours of
+	// its predecessor's resolution is not paged again.
+	DefaultRCARecurrenceRenotifyHours = 6
 
 	// v0.9 — Lock chain defaults.
 	DefaultLockChainMinBlocked        = 3

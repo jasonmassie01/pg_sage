@@ -245,8 +245,10 @@ derivable rca.escalation_cycles
 derivable rca.llm_correlation_threshold
 derivable rca.lock_chain_interval_seconds
 derivable rca.log_fast_path_interval_seconds
+derivable rca.log_quiet_minutes
 operator_preference rca.narration_enabled
 safety_critical rca.prepared_xact_min_age_minutes
+operator_preference rca.recurrence_renotify_hours
 derivable rca.replication_lag_threshold_seconds
 derivable rca.resolution_cycles
 derivable rca.stale_after_hours

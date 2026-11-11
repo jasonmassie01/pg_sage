@@ -31,6 +31,10 @@ type trackState struct {
 	// quiet marks a resolution of an incident last seen longer ago than
 	// the stale window: recorded, not notified.
 	quiet bool
+	// silentRecurrence marks a recurrence whose incident_detected was
+	// suppressed (rca-07): its resolution is not notified either, unless
+	// an escalation was.
+	silentRecurrence bool
 }
 
 // identityString is the stable identity of an incident: two detections
@@ -117,6 +121,8 @@ func refreshOpen(existing, inc *Incident) {
 	if severityRank(inc.Severity) > severityRank(existing.Severity) {
 		existing.Severity = inc.Severity
 	}
+	existing.LogOccurrences = mergeLogOccurrences(existing.LogOccurrences,
+		inc.LogOccurrences)
 	if inc.liveEvidence && len(inc.CausalChain) > 0 {
 		existing.CausalChain = inc.CausalChain
 		existing.RootCause = inc.RootCause
@@ -156,7 +162,7 @@ func (e *Engine) activeCount() int {
 }
 
 func (e *Engine) resolveInMemory(inc *Incident, by, reason string) {
-	now := time.Now()
+	now := e.clock()
 	if now.Sub(lastSeen(inc)) > e.cfg.StaleAfter() {
 		e.trackFor(inc.ID).quiet = true
 	}
@@ -183,6 +189,10 @@ func (e *Engine) autoResolve(firedIDs map[string]bool) {
 		}
 		if anyFired(inc.SignalIDs, firedIDs) {
 			delete(e.clearCounts, inc.ID)
+			continue
+		}
+		if inc.Source == logIncidentSource {
+			e.resolveIfQuiet(inc)
 			continue
 		}
 		e.clearCounts[inc.ID]++

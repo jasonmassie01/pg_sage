@@ -394,6 +394,8 @@ type RCAConfig struct {
 	LockChainIntervalSeconds   int     `yaml:"lock_chain_interval_seconds" doc:"Seconds between lock-chain fast-path checks, which open or update the lock_contention incident between analyzer cycles. 0 disables the fast path; otherwise 10-3600. Default: 60."`
 	NarrationEnabled           bool    `yaml:"narration_enabled" doc:"Add an LLM narrative, citing the incident's evidence and catalog probe results, to incident notifications. Off, no LLM, or any LLM failure uses the deterministic summary. Default: true."`
 	LogFastPathIntervalSeconds int     `yaml:"log_fast_path_interval_seconds" doc:"Seconds between log fast-path passes, which open incidents for critical log lines (PANIC, disk full, OOM, wraparound) between analyzer cycles. 0 disables; otherwise 1-3600. Default: 5."`
+	LogQuietMinutes            int     `yaml:"log_quiet_minutes" doc:"Minutes without a new log line before a log incident auto-resolves (not clear cycles). 0 = rca.dedup_window_minutes; else 1-1440, within stale_after_hours. Default: 0."`
+	RecurrenceRenotifyHours    int     `yaml:"recurrence_renotify_hours" doc:"Hours after a log incident resolves in which a recurrence at no higher severity is linked but not notified again. 1-168. Default: 6."`
 }
 
 // LockChainConfig controls lock chain detection (v0.9).
@@ -1119,6 +1121,7 @@ func newDefaults() *Config {
 			LockChainIntervalSeconds:   DefaultRCALockChainIntervalSeconds,
 			NarrationEnabled:           DefaultRCANarrationEnabled,
 			LogFastPathIntervalSeconds: DefaultRCALogFastPathIntervalSeconds,
+			RecurrenceRenotifyHours:    DefaultRCARecurrenceRenotifyHours,
 		},
 		SRE:        defaultSREConfig(),
 		Specialist: defaultSpecialistConfig(),

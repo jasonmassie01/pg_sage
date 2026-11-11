@@ -35,6 +35,8 @@ type persistedFields struct {
 	RecommendedSQL   string      `json:"q"`
 	RollbackSQL      string      `json:"b"`
 	ActionRisk       string      `json:"a"`
+	// LogOccurrences is written by its own statement (rca-07).
+	LogOccurrences *LogOccurrences `json:"lo,omitempty"`
 }
 
 // storedFingerprint identifies the stored content of an incident.
@@ -47,6 +49,7 @@ func storedFingerprint(inc *Incident) string {
 		ResolvedAt: inc.ResolvedAt, ResolvedBy: inc.ResolvedBy,
 		ResolutionReason: inc.ResolutionReason, RecommendedSQL: inc.RecommendedSQL,
 		RollbackSQL: inc.RollbackSQL, ActionRisk: inc.ActionRisk,
+		LogOccurrences: inc.LogOccurrences,
 	})
 	if err != nil {
 		return "" // never equal to a stored fingerprint: the row is written
