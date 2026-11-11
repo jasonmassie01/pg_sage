@@ -14,6 +14,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/rollout"
 	"github.com/pg-sage/sidecar/internal/shadow"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 	"github.com/pg-sage/sidecar/internal/store"
@@ -51,6 +52,9 @@ type WireResult struct {
 	AuthPool   *pgxpool.Pool
 	ActionDeps *api.ActionDeps
 	DBDeps     *api.DatabaseDeps
+	// Canary is the fleet canary service (nil without a fleet and a
+	// control database); the API server sweeps its interrupted runs.
+	Canary *rollout.CanaryService
 }
 
 // apiRateLimit is the API rate limiter: per platform identity in a
@@ -158,6 +162,7 @@ func wireRouter(p WireParams) (WireResult, error) {
 	}
 
 	specialistHandler, specialistAudit := specialistAPIDeps(p.Cfg, p.FleetMgr, authPool)
+	autonomy := autonomyAPIDeps(p.FleetMgr, authPool)
 	// Auth audit retains the client address independently of App identity buckets.
 	api.SetClientIPResolver(clientIP)
 	// X-Forwarded-Proto marks a session cookie Secure only from a trusted proxy.
@@ -184,7 +189,7 @@ func wireRouter(p WireParams) (WireResult, error) {
 			Audit: api.AuditDeps{SIEMStatus: siemStatusFunc(p.Cfg),
 				SIEMReanchor: siemReanchorFunc(p.Cfg),
 				EvidenceKey:  evidenceSigningKey(p.Cfg)},
-			Autonomy:   autonomyAPIDeps(p.FleetMgr, authPool),
+			Autonomy:   autonomy,
 			Ask:        askServices(),
 			Specialist: specialistHandler,
 			// Look-alikes and leader status (fleet learning).
@@ -214,6 +219,7 @@ func wireRouter(p WireParams) (WireResult, error) {
 		AuthPool:   authPool,
 		ActionDeps: actionDeps,
 		DBDeps:     dbDeps,
+		Canary:     autonomy.Canary,
 	}, nil
 }
 

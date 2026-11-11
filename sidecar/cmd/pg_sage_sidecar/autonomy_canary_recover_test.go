@@ -4,6 +4,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/rollout"
 )
 
@@ -36,5 +39,17 @@ func TestCanaryInterruptedEventsOnePerRun(t *testing.T) {
 func TestCanaryInterruptedEventsNone(t *testing.T) {
 	if got := canaryInterruptedEvents(nil); len(got) != 0 {
 		t.Fatalf("events for no runs = %+v", got)
+	}
+}
+
+// The fleet canary is built during wiring with no database I/O (the
+// pool here would panic on use); the API server sweeps it afterwards.
+func TestAutonomyDepsBuildTheCanaryWithoutTouchingTheControlDatabase(t *testing.T) {
+	deps := autonomyAPIDeps(fleet.NewManager(config.DefaultConfig()), &pgxpool.Pool{})
+	if deps.Canary == nil {
+		t.Fatal("a fleet with a control database has no canary for the startup sweep")
+	}
+	if autonomyAPIDeps(nil, nil).Canary != nil {
+		t.Fatal("a canary was built without a fleet and a control database")
 	}
 }

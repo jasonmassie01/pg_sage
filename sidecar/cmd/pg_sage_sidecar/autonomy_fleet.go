@@ -38,7 +38,6 @@ func autonomyAPIDeps(mgr *fleet.DatabaseManager, control *pgxpool.Pool) *api.Aut
 		logError("rollout", "fleet canary unavailable: %v", err)
 		return deps
 	}
-	recoverInterruptedCanaries(svc, control)
 	deps.Canary = svc
 	return deps
 }

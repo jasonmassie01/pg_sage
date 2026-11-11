@@ -13,8 +13,10 @@ import (
 const canaryRecoverTimeout = 30 * time.Second
 
 // recoverInterruptedCanaries marks the fleet canaries a stopped sidecar
-// left running as interrupted (executor-04b) and notifies each one. No
-// run is resumed. A sweep that fails leaves those runs in canary, where
+// left running as interrupted (executor-04b) and notifies each one. The
+// API server runs it once at startup, after wiring (router construction
+// does no database I/O); a canary started meanwhile holds its run lock,
+// so the sweep leaves it alone. No run is resumed. A sweep that fails leaves those runs in canary, where
 // nothing resumes them either; the next startup sweeps again.
 func recoverInterruptedCanaries(svc *rollout.CanaryService, control *pgxpool.Pool) {
 	ctx, cancel := context.WithTimeout(context.Background(), canaryRecoverTimeout)
