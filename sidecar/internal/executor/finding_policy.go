@@ -147,6 +147,7 @@ func standingPolicyDecision(decision policy.Decision) ActionPolicyDecision {
 			decision.RiskTier == policy.RiskHigh,
 		EvidenceID: decision.EvidenceID, DecisionID: decision.DecisionID,
 		LockCeilingMS: decision.LockCeilingMS, SerializeMode: decision.SerializeMode,
+		WindowOnly: decision.WindowOnly,
 	}
 	switch decision.Verdict {
 	case policy.VerdictExecute:

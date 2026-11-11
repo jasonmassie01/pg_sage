@@ -175,5 +175,6 @@ func trancheOneMigrations() []namedStep {
 func trancheTwoMigrations() []namedStep {
 	return []namedStep{
 		{"ddlDecisionOpenWithheldIndex", ddlDecisionOpenWithheldIndex()}, // policy-07
+		{"ddlActionQueueSchedule", ddlActionQueueSchedule},               // policy-04
 	}
 }

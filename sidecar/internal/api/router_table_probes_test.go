@@ -76,6 +76,8 @@ var routeProbes = []routeProbe{
 	{"POST", "/api/v1/actions/7/approve"},
 	{"POST", "/api/v1/actions/7/reject"},
 	{"POST", "/api/v1/actions/7/rollback"},
+	{"POST", "/api/v1/actions/7/schedule"},
+	{"POST", "/api/v1/actions/7/unschedule"},
 	{"POST", "/api/v1/auth/login"},
 	{"POST", "/api/v1/auth/logout"},
 	{"POST", "/api/v1/chatops/identities"},

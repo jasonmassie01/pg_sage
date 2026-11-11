@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/approvalcard"
@@ -22,7 +23,10 @@ import (
 // token must then name a card sent to this very channel that is unused
 // and unexpired, and the queue item must still have the content the card
 // showed. The token is consumed before the decision, so a card decides at
-// most once; the decision goes through the UI's approval path.
+// most once; the decision goes through the UI's approval path. An Approve
+// is checked for readiness first: one refused for any reason but the
+// maintenance window keeps its token, and a window-only refusal schedules
+// the approval for the next opening (policy-04).
 
 // chatSnooze is how long a chat Snooze defers a card.
 const chatSnooze = 4 * time.Hour
@@ -49,6 +53,10 @@ func (d *chatopsDeps) decideCard(w http.ResponseWriter, r *http.Request, ch noti
 		reply(ch, a, "Not snoozed: a backend signal cannot be snoozed. Approve or reject it.")
 		sreErrorCode(w, "a backend signal cannot be snoozed", "snooze_unavailable",
 			http.StatusConflict)
+		return
+	}
+	if a.Decision == chatops.DecisionApprove && approvalRefusedBeforeConsume(w, r, ch, a, inst,
+		*current) {
 		return
 	}
 	if _, err := d.cards.Consume(r.Context(), a.CardToken, user.ID, a.Decision,
@@ -160,6 +168,11 @@ func approveCardFromChat(r *http.Request, as *store.ActionStore,
 			status: http.StatusConflict}
 	}
 	body["decision"] = "approve"
+	if body["status"] == "scheduled" {
+		return cardOutcome{body: body, status: http.StatusOK, text: fmt.Sprintf(
+			"Approved by %s. Scheduled for the window opening %v; cancel in pg_sage.",
+			user.Email, body["run_after_label"])}
+	}
 	if body["executed"] != true {
 		return cardOutcome{body: body, status: http.StatusOK, text: fmt.Sprintf(
 			"Approved by %s, but the action did not run: %v", user.Email, body["error"])}
@@ -202,4 +215,24 @@ func snoozeCardFromChat(r *http.Request, as *store.ActionStore, card chatops.Car
 		"status": "snoozed", "snoozed_until": until}, status: http.StatusOK,
 		text: fmt.Sprintf("Snoozed by %s until %s; pg_sage will ask again then.",
 			user.Email, until.Format("2006-01-02 15:04 UTC"))}
+}
+
+// approvalRefusedBeforeConsume refuses an Approve the gate would refuse for
+// any reason but the maintenance window, before the card token is used, so
+// the card stays usable once the refusal clears. It writes the refusal and
+// reports true; a ready or window-only approval goes on to Consume.
+func approvalRefusedBeforeConsume(w http.ResponseWriter, r *http.Request, ch notify.Channel,
+	a chatops.Action, inst *fleet.DatabaseInstance, current store.QueuedAction) bool {
+	as := store.NewActionStore(inst.Pool)
+	readiness, ok := approvalReadiness(r.Context(), as, inst.Executor, current)
+	if ok || (readiness.PolicyKnown && readiness.Policy.WindowOnly) {
+		return false
+	}
+	reason := strings.TrimSpace(readiness.DeferReason)
+	if reason == "" {
+		reason = "action is not eligible for approval"
+	}
+	reply(ch, a, "Not approved: "+reason+". The card stays usable.")
+	sreErrorCode(w, "action is not eligible: "+reason, "not_eligible", http.StatusConflict)
+	return true
 }
