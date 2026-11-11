@@ -106,7 +106,7 @@ var Docs = map[string]GUCDoc{
 		Unit: "bytes", BaseUnit: "MB", SafeMin: 512 << 20, SafeMax: 64 << 30,
 		VersionNotes: []VersionNote{{MinMajor: 17, Text: "On PostgreSQL 17+ checkpoint " +
 			"counts are in pg_stat_checkpointer (num_timed, num_requested), not " +
-			"pg_stat_bgwriter, and buffers_backend moved to pg_stat_io."}},
+			"pg_stat_bgwriter."}},
 	},
 	"min_wal_size": {
 		Description: "WAL kept for reuse instead of removed after a checkpoint.",

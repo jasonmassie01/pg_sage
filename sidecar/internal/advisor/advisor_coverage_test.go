@@ -404,7 +404,7 @@ func TestAnalyzeBloat_NilConfigData(t *testing.T) {
 		ConfigData: nil,
 	}
 	findings, err := analyzeBloat(
-		context.Background(), nil, snap, nil,
+		context.Background(), nil, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -428,7 +428,7 @@ func TestAnalyzeBloat_NoQualifyingTables(t *testing.T) {
 		},
 	}
 	findings, err := analyzeBloat(
-		context.Background(), nil, snap, nil,
+		context.Background(), nil, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -545,7 +545,7 @@ func TestAnalyzeWAL_NilConfigData(t *testing.T) {
 		ConfigData: nil,
 	}
 	findings, err := analyzeWAL(
-		context.Background(), nil, snap, nil,
+		context.Background(), nil, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -1218,7 +1218,7 @@ func TestAnalyzeBloat_FullPath_WithMockLLM(t *testing.T) {
 	}
 
 	findings, err := analyzeBloat(
-		context.Background(), mgr, snap, nil,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -1247,14 +1247,6 @@ func TestAnalyzeBloat_WithPrevSnapshot(t *testing.T) {
 	defer srv.Close()
 
 	now := time.Now()
-	prev := &collector.Snapshot{
-		CollectedAt: now.Add(-time.Hour),
-		Tables: []collector.TableStats{
-			{SchemaName: "public", RelName: "big",
-				NLiveTup: 7000, NDeadTup: 2000,
-				TableBytes: 50 * 1024 * 1024},
-		},
-	}
 	snap := &collector.Snapshot{
 		CollectedAt: now,
 		ConfigData: &collector.ConfigSnapshot{
@@ -1270,7 +1262,7 @@ func TestAnalyzeBloat_WithPrevSnapshot(t *testing.T) {
 	}
 
 	findings, err := analyzeBloat(
-		context.Background(), mgr, snap, prev,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -1297,7 +1289,7 @@ func TestAnalyzeBloat_LLMError(t *testing.T) {
 	}
 
 	_, err := analyzeBloat(
-		context.Background(), mgr, snap, nil,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err == nil {
@@ -1326,7 +1318,7 @@ func TestAnalyzeBloat_NilLastAutovacuum(t *testing.T) {
 	}
 
 	findings, err := analyzeBloat(
-		context.Background(), mgr, snap, nil,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -1483,14 +1475,8 @@ func TestAnalyzeWAL_FullPath(t *testing.T) {
 		},
 	}
 
-	prev := &collector.Snapshot{
-		System: collector.SystemStats{
-			TotalCheckpoints: 120,
-		},
-	}
-
 	findings, err := analyzeWAL(
-		context.Background(), mgr, snap, prev,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -1513,7 +1499,7 @@ func TestAnalyzeWAL_LLMError(t *testing.T) {
 	}
 
 	_, err := analyzeWAL(
-		context.Background(), mgr, snap, nil,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err == nil {
@@ -1538,7 +1524,7 @@ func TestAnalyzeWAL_NoPrevSnapshot(t *testing.T) {
 	}
 
 	findings, err := analyzeWAL(
-		context.Background(), mgr, snap, nil,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -1737,7 +1723,7 @@ func TestAnalyzeBloat_MultipleTables_OnlyQualifyingIncluded(t *testing.T) {
 	}
 
 	findings, err := analyzeBloat(
-		context.Background(), mgr, snap, nil,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -1778,7 +1764,7 @@ func TestAnalyzeWAL_WithUnloggedTables(t *testing.T) {
 	}
 
 	findings, err := analyzeWAL(
-		context.Background(), mgr, snap, nil,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {

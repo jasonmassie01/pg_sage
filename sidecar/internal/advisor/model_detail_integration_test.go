@@ -37,7 +37,7 @@ func TestInjectedManagedChange_NeverPersistedOrProposed_LivePG(t *testing.T) {
 	srv, mgr := mockLLMServer(t, `[{"object_identifier":"adv04_bloat","rationale":"r",`+
 		`"recommended_sql":"VACUUM public.orders",`+reservedInjection+`}]`)
 	defer srv.Close()
-	bloat, err := analyzeBloat(ctx, mgr, bloatSnapshot(), nil, &config.Config{}, noopLog)
+	bloat, err := analyzeBloat(ctx, mgr, bloatSnapshot(), &config.Config{}, noopLog)
 	if err != nil || len(bloat) != 1 {
 		t.Fatalf("analyzeBloat = %d findings, %v; want 1", len(bloat), err)
 	}

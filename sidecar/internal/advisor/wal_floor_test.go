@@ -40,7 +40,7 @@ func maxWALTarget(t *testing.T, f analyzer.Finding) (float64, bool) {
 // with its arithmetic, is emitted instead; the floor itself is kept.
 func TestWALFloor_ModelBelowFloorIsReplaced(t *testing.T) {
 	snap := walWindowSnap("1024", "300", walCounters(130, 52, 22<<30))
-	_, got, err := walAdvice(t, walHistory1h(), snap, walModelAnswer("1535MB"))
+	_, got, err := walWindowAdvice(t, walHistory1h(), snap, walModelAnswer("1535MB"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestWALFloor_ModelBelowFloorIsReplaced(t *testing.T) {
 	if math, _ := f.Detail["arithmetic"].(string); !strings.Contains(math, "1.5 x") {
 		t.Errorf("arithmetic = %q, want the floor's formula", math)
 	}
-	_, got, _ = walAdvice(t, walHistory1h(), snap, walModelAnswer("1536MB"))
+	_, got, _ = walWindowAdvice(t, walHistory1h(), snap, walModelAnswer("1536MB"))
 	if len(got) != 1 || got[0].Detail["max_wal_size_floor_bytes"] != nil {
 		t.Errorf("a model value at the floor was not kept as is: %+v", got)
 	}
@@ -78,7 +78,7 @@ func TestWALFloor_ModelBelowFloorIsReplaced(t *testing.T) {
 // raise either.
 func TestWALFloor_BelowCurrentIsDropped(t *testing.T) {
 	snap := walWindowSnap("4096", "300", walCounters(130, 52, 22<<30))
-	_, got, err := walAdvice(t, walHistory1h(), snap, walModelAnswer("2GB"))
+	_, got, err := walWindowAdvice(t, walHistory1h(), snap, walModelAnswer("2GB"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,11 +90,11 @@ func TestWALFloor_BelowCurrentIsDropped(t *testing.T) {
 // The model may raise up to 4 x floor; above that the value is advice only.
 func TestWALFloor_AboveCeilingIsAdvisory(t *testing.T) {
 	snap := walWindowSnap("1024", "300", walCounters(130, 52, 22<<30))
-	_, got, _ := walAdvice(t, walHistory1h(), snap, walModelAnswer("6144MB"))
+	_, got, _ := walWindowAdvice(t, walHistory1h(), snap, walModelAnswer("6144MB"))
 	if len(got) != 1 || got[0].RecommendedSQL == "" {
 		t.Fatalf("4 x floor: findings = %+v, want it executable", got)
 	}
-	_, got, _ = walAdvice(t, walHistory1h(), snap, walModelAnswer("6145MB"))
+	_, got, _ = walWindowAdvice(t, walHistory1h(), snap, walModelAnswer("6145MB"))
 	if len(got) != 1 || got[0].RecommendedSQL != "" ||
 		!strings.Contains(got[0].Recommendation, "4 x") {
 		t.Fatalf("above 4 x floor: findings = %+v, want advice only", got)
@@ -108,7 +108,7 @@ func TestWALFloor_NoHistoryStaysAdvisory(t *testing.T) {
 	answer := `[{"object_identifier":"instance","rationale":"x","recommended_sql":` +
 		`"ALTER SYSTEM SET max_wal_size = '4GB'; ` +
 		`ALTER SYSTEM SET checkpoint_completion_target = 0.9"}]`
-	prompts, got, err := walAdvice(t, &fakeWindowHistory{}, snap, answer)
+	prompts, got, err := walWindowAdvice(t, &fakeWindowHistory{}, snap, answer)
 	if err != nil || len(prompts) != 1 {
 		t.Fatalf("prompts=%d err=%v, want the model asked", len(prompts), err)
 	}

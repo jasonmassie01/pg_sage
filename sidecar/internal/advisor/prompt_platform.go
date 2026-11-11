@@ -52,9 +52,9 @@ func (a *Advisor) reviewContext(ctx context.Context) context.Context {
 // review runs the sub-advisors on one snapshot pair with this review's
 // prompt environment, then gates their findings for the same platform
 // and database.
-func (a *Advisor) review(ctx context.Context, snap, prev *collector.Snapshot) subRun {
+func (a *Advisor) review(ctx context.Context, snap *collector.Snapshot) subRun {
 	cloudEnv, dbName := a.platform(), a.database()
-	r := a.runSubAdvisors(a.reviewContext(ctx), snap, prev)
+	r := a.runSubAdvisors(a.reviewContext(ctx), snap)
 	r.findings = GateConfigFindingsHost(r.findings, a.hostMemory(), cloudEnv, dbName,
 		snap.ConfigData.PGSettings)
 	own := ownershipFrom(ctx)

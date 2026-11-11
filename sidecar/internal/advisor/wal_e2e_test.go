@@ -17,7 +17,7 @@ func TestWALE2E_FullPipeline(t *testing.T) {
 	logFn := e2eAdvisorLog(t)
 
 	findings, err := analyzeWAL(
-		context.Background(), mgr, snap, nil, cfg, logFn,
+		context.Background(), mgr, snap, cfg, logFn,
 	)
 	if err != nil {
 		t.Fatalf("analyzeWAL: %v", err)

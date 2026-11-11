@@ -69,7 +69,8 @@ func TestWindowHistory_LivePG_SystemStart(t *testing.T) {
 func TestWindowHistory_LivePG_TablesStart(t *testing.T) {
 	pool := runsPool(t)
 	ctx := context.Background()
-	if _, err := pool.Exec(ctx, `DELETE FROM sage.snapshots WHERE category = 'tables'`); err != nil {
+	const clear = `DELETE FROM sage.snapshots WHERE category = 'tables'`
+	if _, err := pool.Exec(ctx, clear); err != nil {
 		t.Fatal(err)
 	}
 	hist := pgWindowHistory{db: pool}

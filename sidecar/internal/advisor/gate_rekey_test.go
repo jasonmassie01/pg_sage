@@ -18,7 +18,7 @@ func TestLifecycle_SingleStatementOtherGUCNotSilenced(t *testing.T) {
 		`"recommended_sql":"ALTER SYSTEM SET checkpoint_timeout = '15min';"}]`)
 	f := openWAL("ALTER SYSTEM SET max_wal_size = '4GB';")
 	a := lifecycleAdvisor(walOnlyConfig(""), mgr, &fakeOpen{findings: []analyzer.Finding{f}})
-	got := a.analyzeSnapshot(context.Background(), walSnapAt("2048"), nil)
+	got := a.analyzeSnapshot(context.Background(), walSnapAt("2048"))
 	want := []string{"wal_tuning|instance", "wal_tuning|instance:checkpoint_timeout"}
 	if !slices.Equal(findingIdents(got), want) {
 		t.Fatalf("findings = %v, want %v", findingIdents(got), want)
@@ -39,7 +39,7 @@ func TestLifecycle_SingleStatementSameGUCDropped(t *testing.T) {
 		`"recommended_sql":"ALTER SYSTEM SET max_wal_size = '8GB';"}]`)
 	f := openWAL("ALTER SYSTEM SET max_wal_size = '4GB';")
 	a := lifecycleAdvisor(walOnlyConfig(""), mgr, &fakeOpen{findings: []analyzer.Finding{f}})
-	got := a.analyzeSnapshot(context.Background(), walSnapAt("2048"), nil)
+	got := a.analyzeSnapshot(context.Background(), walSnapAt("2048"))
 	if len(got) != 1 || got[0].RecommendedSQL != f.RecommendedSQL {
 		t.Fatalf("findings = %+v, want only the open max_wal_size row", got)
 	}

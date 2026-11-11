@@ -157,7 +157,7 @@ func TestGateInstanceSettings_NonOwnerStripsManagedIntent(t *testing.T) {
 func TestInstanceOwner_OwnerRunsWAL(t *testing.T) {
 	a, capture := walAndBloatConfigAdvisor(t, walAdvice, &fakeOpen{})
 	a.WithInstanceOwner(ownedBy("alpha", true))
-	got := a.analyzeSnapshot(context.Background(), walSnapAt("1024"), nil)
+	got := a.analyzeSnapshot(context.Background(), walSnapAt("1024"))
 	if !hasPrompt(capture(), "max_wal_size") {
 		t.Fatal("owner sent no WAL prompt")
 	}
@@ -177,7 +177,7 @@ func TestInstanceOwner_NonOwnerSkipsInstanceSubAdvisors(t *testing.T) {
 	a.WithInstanceOwner(ownedBy("alpha", false))
 	snap := walSnapAt("1024")
 	snap.Tables = deadTupleSnapshot("orders").Tables
-	a.analyzeSnapshot(context.Background(), snap, nil)
+	a.analyzeSnapshot(context.Background(), snap)
 	prompts := capture()
 	if len(prompts) != 1 {
 		t.Fatalf("model calls = %d, want 1 (bloat only)", len(prompts))
@@ -203,7 +203,7 @@ func TestInstanceOwner_NonOwnerKeepsOpenInstanceFinding(t *testing.T) {
 	a, capture := walAndBloatConfigAdvisor(t, "[]", open)
 	a.cfg.Advisor.BloatEnabled = false
 	a.WithInstanceOwner(ownedBy("alpha", false))
-	got := a.analyzeSnapshot(context.Background(), walSnapAt("4096"), nil)
+	got := a.analyzeSnapshot(context.Background(), walSnapAt("4096"))
 	if len(capture()) != 0 {
 		t.Fatalf("model calls = %d, want 0", len(capture()))
 	}
@@ -228,9 +228,9 @@ func TestInstanceOwner_NewOwnerReclaimsDeferredFinding(t *testing.T) {
 		a, capture := walAndBloatConfigAdvisor(t, "[]", open)
 		a.cfg.Advisor.BloatEnabled = false
 		a.WithInstanceOwner(ownedBy("beta", true))
-		a.analyzeSnapshot(context.Background(), walSnapAt("1024"), nil) // claims the run
+		a.analyzeSnapshot(context.Background(), walSnapAt("1024")) // claims the run
 		open.findings = []analyzer.Finding{deferred}
-		got := a.analyzeSnapshot(context.Background(), walSnapAt("1024"), nil)
+		got := a.analyzeSnapshot(context.Background(), walSnapAt("1024"))
 		if len(capture()) != 1 {
 			t.Fatalf("model calls = %d, want 1 (the second cycle is not due)", len(capture()))
 		}
@@ -244,7 +244,7 @@ func TestInstanceOwner_NewOwnerReclaimsDeferredFinding(t *testing.T) {
 			findings: []analyzer.Finding{deferred}})
 		a.cfg.Advisor.BloatEnabled = false
 		a.WithInstanceOwner(ownedBy("beta", true))
-		got := a.analyzeSnapshot(context.Background(), walSnapAt("1024"), nil)
+		got := a.analyzeSnapshot(context.Background(), walSnapAt("1024"))
 		if !hasPrompt(capture(), "max_wal_size = 1024") {
 			t.Fatal("the new owner's prompt left out the deferred setting")
 		}
@@ -261,7 +261,7 @@ func TestInstanceOwner_NewOwnerReclaimsDeferredFinding(t *testing.T) {
 			findings: []analyzer.Finding{deferred}})
 		a.cfg.Advisor.BloatEnabled = false
 		a.WithInstanceOwner(ownedBy("beta", true))
-		got := a.analyzeSnapshot(context.Background(), walSnapAt("1024"), nil)
+		got := a.analyzeSnapshot(context.Background(), walSnapAt("1024"))
 		if !hasPrompt(capture(), "max_wal_size = 1024") {
 			t.Fatal("the new owner's prompt left out the deferred setting")
 		}
@@ -287,7 +287,7 @@ func TestInstanceOwner_NewOwnerReviewFailsKeepsDeferred(t *testing.T) {
 	a := lifecycleAdvisor(walOnlyConfig(""), mgr, &fakeOpen{
 		findings: []analyzer.Finding{deferred}})
 	a.WithInstanceOwner(ownedBy("beta", true))
-	got := a.analyzeSnapshot(context.Background(), walSnapAt("1024"), nil)
+	got := a.analyzeSnapshot(context.Background(), walSnapAt("1024"))
 	if len(got) != 1 || got[0].Detail[DetailInstanceOwner] != "alpha" {
 		t.Fatalf("findings = %+v, want the deferred row kept open", got)
 	}
@@ -302,7 +302,7 @@ func TestInstanceOwner_NilOwnerIsPerDatabase(t *testing.T) {
 	a, capture := walAndBloatConfigAdvisor(t, walAdvice, &fakeOpen{})
 	a.cfg.Advisor.BloatEnabled = false
 	a.WithInstanceOwner(nil)
-	got := a.analyzeSnapshot(context.Background(), walSnapAt("1024"), nil)
+	got := a.analyzeSnapshot(context.Background(), walSnapAt("1024"))
 	if len(capture()) != 1 || len(got) != 1 || got[0].RecommendedSQL == "" {
 		t.Fatalf("calls=%d findings=%+v, want the per-database review", len(capture()), got)
 	}
@@ -313,7 +313,7 @@ func TestInstanceOwner_EmptyOwnerIsPerDatabase(t *testing.T) {
 	a, capture := walAndBloatConfigAdvisor(t, walAdvice, &fakeOpen{})
 	a.cfg.Advisor.BloatEnabled = false
 	a.WithInstanceOwner(ownedBy("", false))
-	got := a.analyzeSnapshot(context.Background(), walSnapAt("1024"), nil)
+	got := a.analyzeSnapshot(context.Background(), walSnapAt("1024"))
 	if len(capture()) != 1 || len(got) != 1 || got[0].RecommendedSQL == "" {
 		t.Fatalf("calls=%d findings=%+v, want the per-database review", len(capture()), got)
 	}
@@ -327,12 +327,12 @@ func TestInstanceOwner_OwnershipReadEachCycle(t *testing.T) {
 	a.cfg.Advisor.IntervalSeconds = 1
 	isOwner := false
 	a.WithInstanceOwner(func() (string, bool) { return "alpha", isOwner })
-	a.analyzeSnapshot(context.Background(), walSnapAt("1024"), nil)
+	a.analyzeSnapshot(context.Background(), walSnapAt("1024"))
 	if len(capture()) != 0 {
 		t.Fatalf("non-owner calls = %d", len(capture()))
 	}
 	isOwner = true
-	a.analyzeSnapshot(context.Background(), walSnapAt("1024"), nil)
+	a.analyzeSnapshot(context.Background(), walSnapAt("1024"))
 	if len(capture()) != 1 {
 		t.Fatalf("after taking ownership calls = %d, want 1", len(capture()))
 	}

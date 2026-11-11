@@ -73,7 +73,7 @@ func TestBloatRank_OrderAndTies(t *testing.T) {
 	tables := []collector.TableStats{
 		{SchemaName: "s", RelName: "b", NLiveTup: 900, NDeadTup: 100, TableBytes: 1000},
 		{SchemaName: "s", RelName: "a", NLiveTup: 900, NDeadTup: 100, TableBytes: 1000},
-		{SchemaName: "s", RelName: "big", NLiveTup: 5000, NDeadTup: 5000, TableBytes: 400},
+		{SchemaName: "s", RelName: "big", NLiveTup: 5000, NDeadTup: 5000, TableBytes: 150},
 		{SchemaName: "s", RelName: "tiny", NLiveTup: 10, NDeadTup: 10, TableBytes: 1 << 40},
 		{SchemaName: "s", RelName: "clean", NLiveTup: 10000, NDeadTup: 0, TableBytes: 1 << 40},
 	}

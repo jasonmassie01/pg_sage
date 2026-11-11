@@ -40,6 +40,7 @@ type Advisor struct {
 
 	snaps    snapshotSource
 	connHist connHistorySource // nil: the connection history is unknown
+	hist     windowHistory     // nil: the WAL and bloat window is unknown
 	open     openFindingStore
 	runs     runStore
 	schedule runSchedule
@@ -51,10 +52,11 @@ type Advisor struct {
 	evaluated []string
 }
 
-// snapshotSource is the collector's view the advisor reviews.
+// snapshotSource is the collector's view the advisor reviews. The window
+// it compares with is read from the history store (advisors-05), not the
+// collector's previous snapshot.
 type snapshotSource interface {
 	LatestSnapshot() *collector.Snapshot
-	PreviousSnapshot() *collector.Snapshot
 }
 
 func New(
@@ -78,6 +80,7 @@ func New(
 	if pool != nil {
 		a.open, a.runs = pgOpenFindings{pool}, pgRunStore{pool}
 		a.connHist = pgConnHistory{db: pool}
+		a.hist = pgWindowHistory{db: pool}
 	}
 	return a
 }
@@ -109,12 +112,12 @@ type subAdvisor struct {
 	run            func(context.Context) ([]analyzer.Finding, error)
 }
 
-func (a *Advisor) subAdvisors(snap, prev *collector.Snapshot) []subAdvisor {
+func (a *Advisor) subAdvisors(snap *collector.Snapshot) []subAdvisor {
 	c := a.cfg.Advisor
 	return []subAdvisor{
 		{"wal", "wal_tuning", c.WALEnabled, func(ctx context.Context) (
 			[]analyzer.Finding, error) {
-			return analyzeWAL(ctx, a.llmMgr, snap, prev, a.cfg, a.logFn)
+			return analyzeWAL(a.windowContext(ctx), a.llmMgr, snap, a.cfg, a.logFn)
 		}},
 		{"connections", "connection_tuning", c.ConnectionEnabled, func(ctx context.Context) (
 			[]analyzer.Finding, error) {
@@ -127,7 +130,7 @@ func (a *Advisor) subAdvisors(snap, prev *collector.Snapshot) []subAdvisor {
 		}},
 		{"bloat", "bloat_remediation", c.BloatEnabled, func(ctx context.Context) (
 			[]analyzer.Finding, error) {
-			return analyzeBloat(ctx, a.llmMgr, snap, prev, a.cfg, a.logFn)
+			return analyzeBloat(a.windowContext(ctx), a.llmMgr, snap, a.cfg, a.logFn)
 		}},
 	}
 }
@@ -140,16 +143,16 @@ func (a *Advisor) Analyze(ctx context.Context) ([]analyzer.Finding, error) {
 		a.setEvaluated([]string{"advisor_degraded"})
 		return nil, nil
 	}
-	var snap, prev *collector.Snapshot
+	var snap *collector.Snapshot
 	if a.snaps != nil {
-		snap, prev = a.snaps.LatestSnapshot(), a.snaps.PreviousSnapshot()
+		snap = a.snaps.LatestSnapshot()
 	}
-	return a.analyzeSnapshot(ctx, snap, prev), nil
+	return a.analyzeSnapshot(ctx, snap), nil
 }
 
 // analyzeSnapshot is one advisor cycle on snap. The deterministic re-check
 // runs with the LLM on or off; only the sub-advisors need the model.
-func (a *Advisor) analyzeSnapshot(ctx context.Context, snap, prev *collector.Snapshot,
+func (a *Advisor) analyzeSnapshot(ctx context.Context, snap *collector.Snapshot,
 ) []analyzer.Finding {
 	var out []analyzer.Finding
 	var evaluated []string
@@ -176,7 +179,7 @@ func (a *Advisor) analyzeSnapshot(ctx context.Context, snap, prev *collector.Sna
 	out = append(out, res.kept...)
 	var r subRun
 	if llmOn {
-		r = a.review(withOwnership(withOpenGate(ctx, res.gate), own), snap, prev)
+		r = a.review(withOwnership(withOpenGate(ctx, res.gate), own), snap)
 		for c := range r.failed {
 			res.evaluated[c] = false
 		}
@@ -231,14 +234,14 @@ type subRun struct {
 // A failure (model error, token budget) backs the sub-advisor off and
 // leaves its category unevaluated; new findings about an object that is
 // already open are dropped.
-func (a *Advisor) runSubAdvisors(ctx context.Context, snap, prev *collector.Snapshot,
+func (a *Advisor) runSubAdvisors(ctx context.Context, snap *collector.Snapshot,
 ) subRun {
 	r := subRun{failed: map[string]bool{}, ran: map[string]bool{}}
 	gate := openGateFrom(ctx)
 	now := a.now()
 	a.loadSchedule(ctx)
 	own := ownershipFrom(ctx)
-	for _, sa := range a.subAdvisors(snap, prev) {
+	for _, sa := range a.subAdvisors(snap) {
 		if own.defers() && instanceCategories[sa.category] {
 			a.logFn("DEBUG", "advisor: %s: instance settings are managed from "+
 				"database %s", sa.name, own.owner)

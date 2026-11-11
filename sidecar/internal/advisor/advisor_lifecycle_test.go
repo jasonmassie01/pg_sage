@@ -37,6 +37,7 @@ var lifecycleNow = time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
 func lifecycleAdvisor(cfg *config.Config, mgr *llm.Manager, open *fakeOpen) *Advisor {
 	a := New(nil, cfg, nil, mgr, noopLog)
 	a.open = open
+	a.hist = walFixtureHistory{}
 	a.now = func() time.Time { return lifecycleNow }
 	return a
 }
@@ -49,7 +50,7 @@ func openWAL(sql string) analyzer.Finding {
 }
 
 func walSnapAt(maxWAL string) *collector.Snapshot {
-	snap, _ := walSnapshots()
+	snap := walSnapshots()
 	snap.ConfigData.PGSettings[0].Setting = maxWAL
 	return snap
 }
@@ -68,7 +69,7 @@ func TestLifecycle_AppliedWALSettingResolves(t *testing.T) {
 	open := &fakeOpen{findings: []analyzer.Finding{
 		openWAL("ALTER SYSTEM SET max_wal_size = '4GB';")}}
 	a := lifecycleAdvisor(walOnlyConfig(""), mgr, open)
-	got := a.analyzeSnapshot(context.Background(), walSnapAt("4096"), nil)
+	got := a.analyzeSnapshot(context.Background(), walSnapAt("4096"))
 	if slices.Contains(findingIdents(got), "wal_tuning|instance") {
 		t.Fatalf("applied max_wal_size still emitted: %v", findingIdents(got))
 	}
@@ -88,7 +89,7 @@ func TestLifecycle_UnappliedWALSettingKeptAndGated(t *testing.T) {
 	mgr, capture := capturingManager(t, "[]")
 	f := openWAL("ALTER SYSTEM SET max_wal_size = '4GB';")
 	a := lifecycleAdvisor(walOnlyConfig(""), mgr, &fakeOpen{findings: []analyzer.Finding{f}})
-	got := a.analyzeSnapshot(context.Background(), walSnapAt("2048"), nil)
+	got := a.analyzeSnapshot(context.Background(), walSnapAt("2048"))
 	if len(got) != 1 || got[0].RecommendedSQL != f.RecommendedSQL ||
 		got[0].Title != f.Title || got[0].ActionRisk != "moderate" {
 		t.Fatalf("kept = %+v, want the open finding unchanged", got)
@@ -114,7 +115,7 @@ func TestLifecycle_GatedProposalDropped(t *testing.T) {
 		`ALTER SYSTEM SET checkpoint_timeout = '15min'"}]`)
 	f := openWAL("ALTER SYSTEM SET max_wal_size = '4GB';")
 	a := lifecycleAdvisor(walOnlyConfig(""), mgr, &fakeOpen{findings: []analyzer.Finding{f}})
-	got := findingIdents(a.analyzeSnapshot(context.Background(), walSnapAt("2048"), nil))
+	got := findingIdents(a.analyzeSnapshot(context.Background(), walSnapAt("2048")))
 	want := []string{"wal_tuning|instance", "wal_tuning|instance:checkpoint_timeout"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("findings = %v, want %v", got, want)
@@ -131,7 +132,7 @@ func TestLifecycle_BloatGatePerTable(t *testing.T) {
 		Severity: "info", ObjectIdentifier: "public.t1", Title: "bloat t1",
 		Detail: map[string]any{}}}}
 	a := lifecycleAdvisor(cfg, mgr, open)
-	got := a.analyzeSnapshot(context.Background(), deadTupleSnapshot("t1", "t2"), nil)
+	got := a.analyzeSnapshot(context.Background(), deadTupleSnapshot("t1", "t2"))
 	p := onlyPrompt(t, capture())
 	if !strings.Contains(p.user, "Table: public.t2") {
 		t.Fatalf("prompt lacks the newly bloated t2:\n%s", p.user)
@@ -151,7 +152,7 @@ func TestLifecycle_DegradedResolvesWhenLLMReturns(t *testing.T) {
 	cfg := walOnlyConfig("")
 	cfg.LLM.Enabled = false
 	a := lifecycleAdvisor(cfg, mgr, &fakeOpen{})
-	got := a.analyzeSnapshot(context.Background(), walSnapAt("1024"), nil)
+	got := a.analyzeSnapshot(context.Background(), walSnapAt("1024"))
 	if !slices.Contains(findingIdents(got), "advisor_degraded|llm") {
 		t.Fatalf("LLM off: findings = %v, want advisor_degraded", findingIdents(got))
 	}
@@ -159,7 +160,7 @@ func TestLifecycle_DegradedResolvesWhenLLMReturns(t *testing.T) {
 		t.Fatal("LLM off: advisor_degraded must not be evaluated-and-absent")
 	}
 	cfg.LLM.Enabled = true
-	got = a.analyzeSnapshot(context.Background(), walSnapAt("1024"), nil)
+	got = a.analyzeSnapshot(context.Background(), walSnapAt("1024"))
 	if slices.Contains(findingIdents(got), "advisor_degraded|llm") {
 		t.Fatalf("LLM on: advisor_degraded still emitted")
 	}
@@ -178,7 +179,7 @@ func TestLifecycle_LLMErrorBacksOff(t *testing.T) {
 	cfg := walOnlyConfig("")
 	cfg.Advisor.IntervalSeconds = 3 * 3600
 	a := lifecycleAdvisor(cfg, mgr, &fakeOpen{})
-	a.analyzeSnapshot(context.Background(), walSnapAt("1024"), nil)
+	a.analyzeSnapshot(context.Background(), walSnapAt("1024"))
 	st := a.schedule.get("wal")
 	if !st.LastSuccessAt.IsZero() || st.ConsecutiveFailures != 1 ||
 		!st.NextAttemptAt.Equal(lifecycleNow.Add(time.Hour)) {
@@ -190,7 +191,7 @@ func TestLifecycle_LLMErrorBacksOff(t *testing.T) {
 	}
 	for i, want := range []time.Duration{2 * time.Hour, 3 * time.Hour} {
 		lifecycleClock(a, st.NextAttemptAt)
-		a.analyzeSnapshot(context.Background(), walSnapAt("1024"), nil)
+		a.analyzeSnapshot(context.Background(), walSnapAt("1024"))
 		st = a.schedule.get("wal")
 		if st.ConsecutiveFailures != i+2 || !st.NextAttemptAt.Equal(a.now().Add(want)) {
 			t.Fatalf("failure %d: %+v, want next +%v", i+2, st, want)
@@ -221,7 +222,7 @@ func TestLifecycle_OpenFindingsErrorSkipsSubAdvisors(t *testing.T) {
 	mgr, capture := capturingManager(t, walAdvice)
 	open := &fakeOpen{err: errors.New("connection refused")}
 	a := lifecycleAdvisor(walOnlyConfig(""), mgr, open)
-	got := a.analyzeSnapshot(context.Background(), walSnapAt("1024"), nil)
+	got := a.analyzeSnapshot(context.Background(), walSnapAt("1024"))
 	if len(capture()) != 0 || len(got) != 0 {
 		t.Fatalf("calls = %d, findings = %v; want none", len(capture()), got)
 	}
@@ -248,7 +249,7 @@ func TestLifecycle_ClaimErrorMakesNoCall(t *testing.T) {
 	mgr, capture := capturingManager(t, walAdvice)
 	a := lifecycleAdvisor(walOnlyConfig(""), mgr, &fakeOpen{})
 	a.runs = failingRuns{errors.New("relation sage.advisor_runs does not exist")}
-	a.analyzeSnapshot(context.Background(), walSnapAt("1024"), nil)
+	a.analyzeSnapshot(context.Background(), walSnapAt("1024"))
 	if n := len(capture()); n != 0 {
 		t.Fatalf("model calls = %d, want 0 when the claim fails", n)
 	}
@@ -261,14 +262,14 @@ func TestLifecycle_IntervalExactlyElapsed(t *testing.T) {
 	cfg := walOnlyConfig("")
 	cfg.Advisor.IntervalSeconds = 3600
 	a := lifecycleAdvisor(cfg, mgr, &fakeOpen{})
-	a.analyzeSnapshot(context.Background(), walSnapAt("1024"), nil)
+	a.analyzeSnapshot(context.Background(), walSnapAt("1024"))
 	lifecycleClock(a, lifecycleNow.Add(time.Hour-time.Nanosecond))
-	a.analyzeSnapshot(context.Background(), walSnapAt("1024"), nil)
+	a.analyzeSnapshot(context.Background(), walSnapAt("1024"))
 	if n := len(capture()); n != 1 {
 		t.Fatalf("calls before the interval = %d, want 1", n)
 	}
 	lifecycleClock(a, lifecycleNow.Add(time.Hour))
-	a.analyzeSnapshot(context.Background(), walSnapAt("1024"), nil)
+	a.analyzeSnapshot(context.Background(), walSnapAt("1024"))
 	if n := len(capture()); n != 2 {
 		t.Fatalf("calls at exactly the interval = %d, want 2", n)
 	}
@@ -286,7 +287,7 @@ func TestLifecycle_NilPoolNoSnapshot(t *testing.T) {
 		t.Fatalf("nil pool: open store = %T, want noOpenFindings", a.open)
 	}
 	for _, snap := range []*collector.Snapshot{nil, {}} {
-		if got := a.analyzeSnapshot(context.Background(), snap, nil); len(got) != 0 {
+		if got := a.analyzeSnapshot(context.Background(), snap); len(got) != 0 {
 			t.Fatalf("snapshot %+v: findings = %v, want none", snap, got)
 		}
 		if ev := a.LastEvaluatedCategories(); !slices.Equal(ev, []string{"advisor_degraded"}) {
@@ -317,7 +318,7 @@ func TestLifecycle_ParallelCyclesOneCall(t *testing.T) {
 		go func(adv *Advisor) {
 			defer wg.Done()
 			<-start
-			adv.analyzeSnapshot(context.Background(), walSnapAt("1024"), nil)
+			adv.analyzeSnapshot(context.Background(), walSnapAt("1024"))
 		}(adv)
 	}
 	close(start)

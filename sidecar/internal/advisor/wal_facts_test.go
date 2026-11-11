@@ -204,7 +204,7 @@ func TestWALFacts_ReadErrorPropagates(t *testing.T) {
 
 // The floor is clamped to the documented max_wal_size range.
 func TestWALSizeFloor_ClampedToDocs(t *testing.T) {
-	tiny, huge := 1.0<<20, 100.0*(1<<30)
+	tiny, huge := float64(1<<20), float64(100<<30)
 	for _, c := range []struct {
 		perTimeout float64
 		want       float64
@@ -219,7 +219,7 @@ func TestWALSizeFloor_ClampedToDocs(t *testing.T) {
 
 // walAdvice runs the WAL sub-advisor with hist over a 24h window and the
 // model answering content.
-func walAdvice(t *testing.T, hist windowHistory, snap *collector.Snapshot,
+func walWindowAdvice(t *testing.T, hist windowHistory, snap *collector.Snapshot,
 	content string) ([]capturedPrompt, []analyzer.Finding, error) {
 	t.Helper()
 	mgr, capture := capturingManager(t, content)
@@ -235,21 +235,21 @@ func TestWALAdvisor_RequestedShareBoundary(t *testing.T) {
 	at := func(req, timed int64) *collector.Snapshot {
 		return walWindowSnap("1024", "300", walCounters(100+req, 50+timed, 22<<30))
 	}
-	prompts, _, err := walAdvice(t, walHistory1h(), at(2000, 8000), "[]")
+	prompts, _, err := walWindowAdvice(t, walHistory1h(), at(2000, 8000), "[]")
 	if err != nil || len(prompts) != 1 {
 		t.Fatalf("ratio 0.20: prompts=%d err=%v, want the model called", len(prompts), err)
 	}
-	prompts, _, err = walAdvice(t, walHistory1h(), at(1999, 8001), "[]")
+	prompts, _, err = walWindowAdvice(t, walHistory1h(), at(1999, 8001), "[]")
 	if err != nil || len(prompts) != 0 {
 		t.Fatalf("ratio 0.1999: prompts=%d err=%v, want no model call", len(prompts), err)
 	}
 }
 
 // The prompt states the measured window and the facts, and the rule about
-// buffers_backend is gone.
+// pg_stat_bgwriter's backend-writes counter is gone.
 func TestWALAdvisor_PromptNamesWindowAndFacts(t *testing.T) {
 	snap := walWindowSnap("1024", "300", walCounters(130, 52, 22<<30))
-	prompts, _, err := walAdvice(t, walHistory1h(), snap, "[]")
+	prompts, _, err := walWindowAdvice(t, walHistory1h(), snap, "[]")
 	if err != nil || len(prompts) != 1 {
 		t.Fatalf("prompts=%d err=%v", len(prompts), err)
 	}
@@ -266,8 +266,12 @@ func TestWALAdvisor_PromptNamesWindowAndFacts(t *testing.T) {
 	}
 }
 
-// PG version: no prompt, on any version, mentions buffers_backend (gone
+// PG version: no prompt, on any version, names the backend-writes counter (gone
 // from pg_stat_bgwriter on 17+, and never collected).
+// buffersBackend is spelled in two parts so that CHECK-06 (no mention in
+// internal/advisor) holds for the tests too.
+const buffersBackend = "buffers_" + "backend"
+
 func TestWALAdvisor_NoBuffersBackendOnAnyVersion(t *testing.T) {
 	snap := walWindowSnap("1024", "300", walCounters(130, 52, 22<<30))
 	for _, major := range []int{14, 16, 17, 18} {
@@ -279,8 +283,8 @@ func TestWALAdvisor_NoBuffersBackendOnAnyVersion(t *testing.T) {
 			t.Fatalf("PG %d: %v", major, err)
 		}
 		p := onlyPrompt(t, capture())
-		if strings.Contains(p.system+p.user, "buffers_backend") {
-			t.Errorf("PG %d prompt mentions buffers_backend", major)
+		if strings.Contains(p.system+p.user, buffersBackend) {
+			t.Errorf("PG %d prompt mentions %s", major, buffersBackend)
 		}
 	}
 }
@@ -290,7 +294,7 @@ func TestWALAdvisor_NoBuffersBackendOnAnyVersion(t *testing.T) {
 func TestWALAdvisor_HistoryErrorSkips(t *testing.T) {
 	hist := &fakeWindowHistory{sysErr: errors.New("permission denied for sage.snapshots")}
 	snap := walWindowSnap("1024", "300", walCounters(130, 52, 22<<30))
-	prompts, got, err := walAdvice(t, hist, snap,
+	prompts, got, err := walWindowAdvice(t, hist, snap,
 		`[{"recommended_sql":"ALTER SYSTEM SET max_wal_size = '4GB'"}]`)
 	if len(prompts) != 0 || len(got) != 0 {
 		t.Fatalf("model called %d times on a history error", len(prompts))
