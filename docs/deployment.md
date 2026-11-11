@@ -425,6 +425,9 @@ Fleet and meta mode serve one `/metrics` per sidecar, on either listener.
 | `pg_sage_llm_circuit_open` | == 1 | LLM circuit breaker tripped |
 | `pg_sage_executor_actions_total{outcome="failed"}` | rate > 0 | Failed autonomous actions |
 | `pg_sage_sre_probe_refusals_total{caller="investigation"}` | rate > 0 | Investigations losing probe slots |
+| `pg_sage_sre_investigation_oldest_open_age_seconds{database}` | > 3600 | A Sage SRE investigation has been open for over an hour (queue stuck or runs waiting in `needs_evidence`) |
+| `pg_sage_sre_investigations{database,state="failed"}` | > 0 | Sage SRE investigations failed in the past 24 hours |
+| `time() - pg_sage_self_loop_last_success_timestamp_seconds{loop}` | > 3 x the loop's interval | A periodic loop has not succeeded lately; `pg_sage_self_loop_errors_total{loop}` shows it failing (see Loop health) |
 | `pg_sage_sso_discovery_ready` | == 0 for 10m | SSO is enabled but OIDC discovery has not succeeded; SSO sign-in is unavailable |
 | `pg_sage_sso_discovery_failures_total` | rate > 0 | OIDC discovery attempts failing (IdP outage, DNS, or misconfiguration) |
 | `pg_sage_api_tls_cert_not_after_seconds` | `- time() < 14*86400` | API TLS certificate expires within 14 days; rotate `SAGE_TLS_CERT`/`SAGE_TLS_KEY` (present only when the API serves TLS) |
@@ -468,6 +471,47 @@ recorded as `concurrency_limit` evidence. These metrics show who waits:
   sampling is crowding out investigations. In fleet mode, compare
   `limiter="sidecar"` refusals across databases.
 
+### Sage SRE investigation backlog
+
+Each database whose Sage SRE investigator runs refreshes its investigations from the
+coordination store (the meta database when there is one) on the metrics refresh cadence,
+one bounded read-only query per database (2 s `statement_timeout`).
+
+| Metric | Type | Labels |
+|---|---|---|
+| `pg_sage_sre_investigations` | gauge | `database`, `state` |
+| `pg_sage_sre_investigation_oldest_open_age_seconds` | gauge | `database` |
+
+- `state` is one of the ten investigation states. Every live state (`queued`,
+  `collecting`, `evaluating`, `needs_evidence`, `paused`) is sampled, zero included;
+  a terminal state (`concluded`, `inconclusive`, `cancelled`, `expired`, `failed`) only
+  when an investigation reached it in the past 24 hours (by `updated_at`).
+- The oldest-open age is 0 when no investigation is live. It is computed at scrape time
+  from the last refresh, so it keeps growing between refreshes.
+- A failed backlog read keeps the previous sample, so a slow refresh does not blank the
+  series; `pg_sage_metrics_refresh_success{source="sre"} 0` shows it. Both families are
+  absent, HELP included, when no database runs Sage SRE.
+
+### Loop health
+
+`pg_sage_self_loop_busy_seconds_total{loop}` and `pg_sage_self_loop_runs_total{loop}`
+are joined by:
+
+- `pg_sage_self_loop_errors_total{loop}` (counter): runs that failed or produced nothing.
+  The collector counts a cycle the circuit breaker skipped or whose collection or
+  snapshot persist failed; the analyzer a cycle with no fresh snapshot or whose findings
+  could not be persisted or filtered; `sre` a coordinator tick that could not reach its
+  store, bind the database, read triggers, list pending work or apply retention;
+  `briefing` a failed generation. The executor and retention loops log each step's
+  failure and carry on, so they report runs but no cycle-level errors.
+- `pg_sage_self_loop_last_success_timestamp_seconds{loop}` (gauge): Unix time the loop's
+  last successful run ended, omitted until it has one.
+
+`loop` is one of `analyzer`, `collector`, `executor`, `retention`, `briefing`, `sre` and
+`metrics_refresh`. These are process-wide (in fleet mode every database's collector counts
+as the `collector` loop); per-database freshness is
+`pg_sage_collector_last_success_timestamp_seconds{database}`.
+
 ### Metrics freshness
 
 A scrape never queries a monitored database. Each database has its own refresher that
@@ -482,8 +526,8 @@ each database refreshes independently: one unreachable database reports
 every other database keeps its series, and the scrape itself stays fast.
 
 - `pg_sage_metrics_refresh_success{database,source}`: 1 if the last refresh of `source`
-  (`value`, `slo`, `optimizer`, `pgstat`) succeeded. A failed source's series are omitted
-  rather than shown stale or zero.
+  (`value`, `slo`, `optimizer`, `pgstat`, `sre`) succeeded. A failed source's series are
+  omitted rather than shown stale or zero, except `sre`, which keeps its last sample.
 - `pg_sage_metrics_refresh_timestamp_seconds{database,source}`: Unix time of the last
   successful refresh of `source`; it keeps its value while refreshes fail.
 - `pg_sage_value_metrics_up{database}`: 1 if the last refresh read the database's value
