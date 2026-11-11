@@ -86,28 +86,28 @@ func TestTunerAllHints_DiskSort(t *testing.T) {
 func TestTunerAllHints_HashSpill(t *testing.T) {
 	plan := mustJSON(t, map[string]any{
 		"Plan": map[string]any{
-			"Node Type":       "Hash Join",
-			"Join Type":       "Inner",
-			"Hash Batches":    8,
+			"Node Type":         "Hash Join",
+			"Join Type":         "Inner",
+			"Hash Batches":      8,
 			"Peak Memory Usage": 16384,
-			"Plan Rows":       100000,
+			"Plan Rows":         100000,
 			"Plans": []any{
 				map[string]any{
-					"Node Type":      "Seq Scan",
-					"Relation Name":  "orders",
-					"Alias":          "o",
-					"Plan Rows":      100000,
+					"Node Type":       "Seq Scan",
+					"Relation Name":   "orders",
+					"Alias":           "o",
+					"Plan Rows":       100000,
 					"Workers Planned": 2,
 				},
 				map[string]any{
-					"Node Type":      "Hash",
-					"Plan Rows":      50000,
+					"Node Type": "Hash",
+					"Plan Rows": 50000,
 					"Plans": []any{
 						map[string]any{
-							"Node Type":      "Seq Scan",
-							"Relation Name":  "customers",
-							"Alias":          "c",
-							"Plan Rows":      50000,
+							"Node Type":       "Seq Scan",
+							"Relation Name":   "customers",
+							"Alias":           "c",
+							"Plan Rows":       50000,
 							"Workers Planned": 2,
 						},
 					},
@@ -144,31 +144,34 @@ func TestTunerAllHints_HashSpill(t *testing.T) {
 }
 
 // TestTunerAllHints_BadNestedLoop verifies that a Nested Loop
-// with actual rows > 10x plan rows triggers SymptomBadNestedLoop
-// and produces a HashJoin(alias) hint.
+// with actual rows > 10x plan rows, whose inner side read at least
+// the 10,000-row threshold in total (tuning-09), triggers
+// SymptomBadNestedLoop and produces a HashJoin(alias) hint.
 func TestTunerAllHints_BadNestedLoop(t *testing.T) {
 	actualRows := int64(500000)
 	plan := mustJSON(t, map[string]any{
 		"Plan": map[string]any{
-			"Node Type":   "Nested Loop",
-			"Join Type":   "Inner",
-			"Plan Rows":   100,
-			"Actual Rows": actualRows,
+			"Node Type":    "Nested Loop",
+			"Join Type":    "Inner",
+			"Plan Rows":    100,
+			"Actual Rows":  actualRows,
 			"Actual Loops": int64(1),
-			"Alias":       "o",
+			"Alias":        "o",
 			"Plans": []any{
 				map[string]any{
-					"Node Type":      "Index Scan",
-					"Relation Name":  "orders",
-					"Alias":          "o",
-					"Plan Rows":      100,
+					"Node Type":       "Index Scan",
+					"Relation Name":   "orders",
+					"Alias":           "o",
+					"Plan Rows":       100,
 					"Workers Planned": 1,
 				},
 				map[string]any{
-					"Node Type":      "Index Scan",
-					"Relation Name":  "line_items",
-					"Alias":          "li",
-					"Plan Rows":      1,
+					"Node Type":       "Index Scan",
+					"Relation Name":   "line_items",
+					"Alias":           "li",
+					"Plan Rows":       1,
+					"Actual Rows":     5000,
+					"Actual Loops":    100,
 					"Workers Planned": 1,
 				},
 			},
@@ -211,12 +214,12 @@ func TestTunerAllHints_BadNestedLoop(t *testing.T) {
 func TestTunerAllHints_SeqScanWithIndex(t *testing.T) {
 	plan := mustJSON(t, map[string]any{
 		"Plan": map[string]any{
-			"Node Type":      "Seq Scan",
-			"Relation Name":  "orders",
-			"Schema":         "public",
-			"Alias":          "o",
-			"Plan Rows":      500000,
-			"Filter":         "(status = 'active'::text)",
+			"Node Type":     "Seq Scan",
+			"Relation Name": "orders",
+			"Schema":        "public",
+			"Alias":         "o",
+			"Plan Rows":     500000,
+			"Filter":        "(status = 'active'::text)",
 		},
 	})
 	// Phase 0 item 11: a seq scan is an index candidate only with catalog
@@ -388,10 +391,10 @@ func TestTunerAllHints_SortLimit(t *testing.T) {
 					"Plan Rows":       500000,
 					"Plans": []any{
 						map[string]any{
-							"Node Type":      "Seq Scan",
-							"Relation Name":  "orders",
-							"Alias":          "o",
-							"Plan Rows":      500000,
+							"Node Type":     "Seq Scan",
+							"Relation Name": "orders",
+							"Alias":         "o",
+							"Plan Rows":     500000,
 						},
 					},
 				},
@@ -516,27 +519,27 @@ func TestTunerAllHints_MultipleSymptoms(t *testing.T) {
 					"Plan Rows":       200000,
 					"Plans": []any{
 						map[string]any{
-							"Node Type":      "Hash Join",
-							"Join Type":      "Inner",
-							"Hash Batches":   4,
+							"Node Type":         "Hash Join",
+							"Join Type":         "Inner",
+							"Hash Batches":      4,
 							"Peak Memory Usage": 8192,
-							"Plan Rows":      200000,
+							"Plan Rows":         200000,
 							"Plans": []any{
 								map[string]any{
-									"Node Type": "Seq Scan",
+									"Node Type":     "Seq Scan",
 									"Relation Name": "orders",
-									"Alias":     "o",
-									"Plan Rows": 200000,
+									"Alias":         "o",
+									"Plan Rows":     200000,
 								},
 								map[string]any{
 									"Node Type": "Hash",
 									"Plan Rows": 50000,
 									"Plans": []any{
 										map[string]any{
-											"Node Type": "Seq Scan",
+											"Node Type":     "Seq Scan",
 											"Relation Name": "customers",
-											"Alias":     "c",
-											"Plan Rows": 50000,
+											"Alias":         "c",
+											"Plan Rows":     50000,
 										},
 									},
 								},
