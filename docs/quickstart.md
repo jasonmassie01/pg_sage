@@ -136,9 +136,20 @@ database and returns its new `first_look` summary. It answers 400 for `all` or n
 404 for an unknown one, 503 while its runtime has no first look, 429 with `Retry-After`
 within a minute of the last re-check, and 502 with an error `class` (`unreachable`,
 `read_failed`) when the first look fails; the previous report then stays the latest.
-Prometheus has `pg_sage_time_to_first_finding_seconds`,
-`pg_sage_first_look_items` and `pg_sage_first_look_duration_seconds` (one series per
+Prometheus has `pg_sage_time_to_first_finding_seconds`, `pg_sage_first_look_items`,
+`pg_sage_first_look_findings` and `pg_sage_first_look_duration_seconds` (one series per
 database).
+
+**Time to first finding** is the time from pg_sage's start (or a rebuilt runtime's start)
+to its first *finding* for that database: a warning or critical item of the catalog
+checks, such as a duplicate index or a sequence near its limit. Setup notes (an extension
+pg_sage would like, hidden query text, a server log it cannot read) and the agent posture
+notes are listed in the first look but are not findings, at any severity. When the first
+look has no findings, the time is set by the analyzer's first open finding instead.
+`pg_sage_first_look_items` counts every item and `pg_sage_first_look_findings` only the
+findings. The checklist says the same, for example "3 findings (1 critical), 2 setup notes,
+1 posture note from the catalog.", and `/api/v1/onboarding` gives the counts in
+`first_look` (`items`, `findings`, `critical`, `setup`, `posture`, `notes`).
 
 In a fleet, a database pg_sage cannot read does not hide the others. Getting started and
 First look name it ("pg_sage cannot reach the database ...") and show every other database
