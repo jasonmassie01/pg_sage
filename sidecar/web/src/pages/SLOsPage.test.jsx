@@ -306,6 +306,55 @@ describe('SLOs page: since when, and who is investigating', () => {
   })
 })
 
+// playbooks-09 review: a fleet SLO with an owner_database opens its
+// investigation on the owner only, and an investigator that could not be
+// read never reads as "no investigation opened".
+describe('SLOs page: where the investigation lives', () => {
+  it('looks up the investigation on the owner database of a fleet SLO', () => {
+    const owned = { ...burning, database: 'orders', owner_database: 'billing' }
+    withResponses({
+      '/api/v1/sre/slos/checkout': { data: detail },
+      '/api/v1/investigations': {
+        data: { items: [{ ...investigation, database: 'billing' }], unavailable: [] },
+      },
+    }, [owned])
+    render(<SLOsPage database="all" />)
+    const panel = openRow('checkout')
+    expect(urls).toContain(detailURL)
+    expect(urls).toContain(
+      '/api/v1/investigations?database=billing&case_id=slo%3Acheckout&limit=1')
+    expect(urls.some(u => u?.startsWith('/api/v1/investigations?database=orders')))
+      .toBe(false)
+    expect(within(panel).getByTestId('slo-owner'))
+      .toHaveTextContent('Investigated on billing (owner_database)')
+    expect(within(panel).getByTestId('investigation-panel')).toBeInTheDocument()
+  })
+
+  it('shows no owner line when the SLO is investigated on its own database', () => {
+    withResponses({
+      '/api/v1/sre/slos/checkout': { data: detail },
+      '/api/v1/investigations': { data: { items: [investigation], unavailable: [] } },
+    })
+    render(<SLOsPage database="all" />)
+    const panel = openRow('checkout')
+    expect(within(panel).queryByTestId('slo-owner')).toBeNull()
+    expect(within(panel).getByTestId('investigation-panel')).toBeInTheDocument()
+  })
+
+  it('says an unreadable investigator is unknown, not that none was opened', () => {
+    withResponses({
+      '/api/v1/sre/slos/checkout': { data: detail },
+      '/api/v1/investigations': { data: { items: [], unavailable: ['orders'] } },
+    })
+    render(<SLOsPage database="all" />)
+    const panel = openRow('checkout')
+    expect(within(panel).queryByTestId('slo-no-investigation')).toBeNull()
+    expect(within(panel).getByTestId('slo-investigation-unavailable'))
+      .toHaveTextContent('Investigations of orders unavailable')
+    expect(within(panel).getAllByTestId('slo-transition')).toHaveLength(2)
+  })
+})
+
 describe('SLOs page: why the budget is unknown', () => {
   const budgetOf = slo => {
     withResponses({}, [slo])

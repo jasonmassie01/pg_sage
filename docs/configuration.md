@@ -2102,16 +2102,19 @@ read as budget left. `budget_coverage` is absent when the budget window was not 
 (no data, stale, a failed query or invalid counts) and for a Prometheus SLI without
 `coverage_query`, whose coverage is only assumed. `budget_spent_so_far` is absent with fewer
 covered eligible events than `min_eligible_events`, as a burn rate from a handful of events
-is noise. Both fields are additive; no migration or configuration is needed.
+is noise. A fleet SLO with an `owner_database` also carries `owner_database`, the
+database whose investigator opens its `slo_burn` investigations. These fields are
+additive; no migration or configuration is needed.
 
 The SLOs page shows, per row, how long the SLO has been in its state (`state_since`) and,
 while it burns, when the burn started (`burn_started_at`). An unknown budget names its
 reason, with "partial window: N% covered" and the spent-so-far for a partial window. A row
 expands into its state transitions (kept 90 days, newest 50), the recovery verdict since
-the burn started (only while burning) and the newest `slo:<name>` investigation; when none
-was opened for a paging SLO it says so (`sre.slo.open_investigations` off, or
-`sre.automatic_start` off for a database proxy). The expansion reads the detail once per
-open and always names the row's database, so it works in fleet mode and for viewers.
+the burn started (only while burning) and the newest `slo:<name>` investigation, read from
+the `owner_database` when the SLO has one. When none was opened for a paging SLO it says so
+(`sre.slo.open_investigations` off, or `sre.automatic_start` off for a database proxy);
+when that database's investigator cannot be read it says so instead, never "none opened".
+The expansion reads the detail once per open and always names the row's database, so it works in fleet mode and for viewers.
 
 #### Fleet SLOs and `owner_database`
 

@@ -17,12 +17,19 @@ const NO_INVESTIGATION_PAGE =
   'No investigation opened (sre.slo.open_investigations or automatic_start off)'
 const NO_INVESTIGATION = 'No investigation opened: only a page-level burn opens one.'
 
+// investigationDB is the database whose investigator opens the SLO's
+// slo:<name> investigations: a fleet SLO's owner_database, else its own.
+function investigationDB(slo) {
+  return slo.owner_database || slo.database
+}
+
 function detailURLs(slo) {
   const db = encodeURIComponent(slo.database)
   let detail = `/api/v1/sre/slos/${encodeURIComponent(slo.name)}?database=${db}`
   if (slo.burn_started_at) detail += `&since=${encodeURIComponent(slo.burn_started_at)}`
   const caseID = encodeURIComponent(`slo:${slo.name}`)
-  return { detail, investigations: `/api/v1/investigations?database=${db}` +
+  const owner = encodeURIComponent(investigationDB(slo))
+  return { detail, investigations: `/api/v1/investigations?database=${owner}` +
     `&case_id=${caseID}&limit=1` }
 }
 
@@ -77,14 +84,31 @@ function Investigation({ result, slo, user }) {
   if (error) return <div style={muted}>Investigation lookup failed: {error}</div>
   if (loading && !data) return <div style={muted}>Looking for an investigation...</div>
   if (!data) return null
+  const db = investigationDB(slo)
   const newest = (data.items || [])[0]
-  if (!newest) {
+  // An investigator that could not be read is not "none opened".
+  if (!newest && (data.unavailable || []).includes(db)) {
     return (
-      <div data-testid="slo-no-investigation" style={muted}>
-        {slo.state === 'page' ? NO_INVESTIGATION_PAGE : NO_INVESTIGATION}
+      <div data-testid="slo-investigation-unavailable" style={muted}>
+        Investigations of {db} unavailable: whether one is open is unknown.
       </div>
     )
   }
-  return <InvestigationPanel database={newest.database || slo.database}
-    investigation={newest} user={user} />
+  return (
+    <div>
+      {db !== slo.database && (
+        <div data-testid="slo-owner" style={muted}>
+          Investigated on {db} (owner_database): only the owner opens one.
+        </div>
+      )}
+      {newest ? (
+        <InvestigationPanel database={newest.database || db}
+          investigation={newest} user={user} />
+      ) : (
+        <div data-testid="slo-no-investigation" style={muted}>
+          {slo.state === 'page' ? NO_INVESTIGATION_PAGE : NO_INVESTIGATION}
+        </div>
+      )}
+    </div>
+  )
 }
