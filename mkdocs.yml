@@ -49,6 +49,7 @@ nav:
   - Ask Sage: ask-sage.md
   - Postgres Specialist for Other Agents: specialist.md
   - Hint Verification: hint-verification.md
+  - Natural-language EXPLAIN: explain.md
   - Security: security.md
   - Governance and safety:
       - Agent governance: agent-governance.md
