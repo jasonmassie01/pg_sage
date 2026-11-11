@@ -30,7 +30,8 @@ func forecastDiskGrowth(
 		return nil
 	}
 
-	currentGB := known[len(known)-1].MaxDBSizeBytes / 1e9
+	current := known[len(known)-1].MaxDBSizeBytes
+	currentGB := current / 1e9
 	return []analyzer.Finding{{
 		Category:   "forecast_disk_growth",
 		Severity:   "warning",
@@ -43,6 +44,9 @@ func forecastDiskGrowth(
 			"current_size_gb":    currentGB,
 			"growth_rate_gb_day": gbPerDay,
 			"r_squared":          reg.R2,
+			// Bytes for the capacity fields (withDiskCapacity).
+			"current_size_bytes":    current,
+			"growth_rate_bytes_day": reg.Slope,
 		},
 		Recommendation: fmt.Sprintf(
 			"Disk is growing at %.1f GB/day. "+

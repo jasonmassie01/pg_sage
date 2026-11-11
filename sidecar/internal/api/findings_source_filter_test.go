@@ -215,23 +215,26 @@ func TestBuildFindingMapCarriesRiskFields(t *testing.T) {
 	}
 }
 
-func TestForecasterSourceCoversStorageForecast(t *testing.T) {
-	// forecaster/growth.go emits storage_forecast, which has no forecast
-	// prefix.
-	if got := subsystemFromCategory("storage_forecast"); got != "forecaster" {
-		t.Fatalf("subsystemFromCategory(storage_forecast) = %q, want forecaster", got)
+// forecast-06: storage_forecast came from the retired v0.9 growth
+// forecaster, which never ran; every forecaster category now carries the
+// forecast prefix, so the source filter is that prefix alone.
+func TestForecasterSourceIsTheForecastPrefix(t *testing.T) {
+	if got := subsystemFromCategory("forecast_disk_growth"); got != "forecaster" {
+		t.Fatalf("subsystemFromCategory(forecast_disk_growth) = %q, want forecaster", got)
+	}
+	if got := subsystemFromCategory("storage_forecast"); got == "forecaster" {
+		t.Fatalf("the retired storage_forecast still maps to %q", got)
 	}
 	clause, args, ok := buildSourceClause("forecaster", 2)
-	if !ok || clause != " AND (category LIKE $2 OR category = ANY($3::text[]))" {
+	if !ok || clause != " AND category LIKE $2" {
 		t.Fatalf("forecaster clause = %q (ok %v)", clause, ok)
 	}
-	if len(args) != 2 || args[0] != "forecast%" ||
-		!slices.Contains(args[1].([]string), "storage_forecast") {
+	if len(args) != 1 || args[0] != "forecast%" {
 		t.Fatalf("forecaster args = %v", args)
 	}
 	where, all := buildFindingsWhere(fleet.FindingFilters{Source: "forecaster",
 		ThematicCategory: "indexing"})
-	if !strings.Contains(where, "detail->>'thematic_category' = $3") || len(all) != 3 {
-		t.Fatalf("placeholders after the two forecaster args are off: %q %v", where, all)
+	if !strings.Contains(where, "detail->>'thematic_category' = $2") || len(all) != 2 {
+		t.Fatalf("placeholders after the forecaster arg are off: %q %v", where, all)
 	}
 }

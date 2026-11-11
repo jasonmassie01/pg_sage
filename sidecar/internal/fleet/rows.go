@@ -45,7 +45,7 @@ type ActionRow struct {
 //	""               — no filter
 //	"schema_lint"    — category LIKE 'schema_lint:%'
 //	"rules"          — analyzer Tier-1 rule categories
-//	"forecaster"     — forecast_* / storage_forecast categories
+//	"forecaster"     — forecast_* categories
 //	"query_tuning"   — query_tuning / runaway_query / stale_statistics
 //	"advisor"        — configuration advisor categories (wal_tuning, ...)
 //	"optimizer"      — missing_index and the legacy optimizer categories

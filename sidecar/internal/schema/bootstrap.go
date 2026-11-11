@@ -56,7 +56,6 @@ var expectedTables = []struct {
 	{"notification_log", ddlNotificationLog},
 	{"action_queue", ddlActionQueue},
 	{"incidents", ddlIncidents},
-	{"size_history", ddlSizeHistory},
 	{"explain_results", ddlExplainResults},
 	{"schema_findings", ddlSchemaFindings},
 	{"crypto_meta", ddlCryptoMeta},
@@ -395,7 +394,7 @@ CREATE SCHEMA IF NOT EXISTS sage;
 	ddlNotificationLog + ddlActionQueue +
 	ddlActionLogApprovalCols + ddlUsersOAuth +
 	ddlQueryHintsRewrite + ddlQueryHintsRevalidate +
-	ddlIncidents + ddlSizeHistory + ddlExplainResults +
+	ddlIncidents + ddlExplainResults +
 	ddlSchemaFindings + ddlCryptoMeta + ddlHealthHistory +
 	ddlFleetScaleIndexes + ddlQueryStore + ddlRecommendation +
 	ddlRecommendationRevision + ddlRecommendationTransition
@@ -908,23 +907,6 @@ CREATE TABLE IF NOT EXISTS sage.incidents (
 CREATE INDEX IF NOT EXISTS idx_incidents_active ON sage.incidents (detected_at DESC) WHERE resolved_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_incidents_severity ON sage.incidents (severity) WHERE resolved_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_incidents_database ON sage.incidents (database_name, detected_at DESC);
-`
-
-// v0.9 — Storage growth forecasting history table.
-const ddlSizeHistory = `
-CREATE TABLE IF NOT EXISTS sage.size_history (
-    id              BIGSERIAL PRIMARY KEY,
-    collected_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    metric_type     TEXT NOT NULL CHECK (metric_type IN ('database', 'table', 'wal_slot')),
-    object_name     TEXT NOT NULL,
-    size_bytes      BIGINT NOT NULL,
-    dead_tuple_pct  NUMERIC(5,2),
-    database_name   TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_size_history_lookup
-    ON sage.size_history (metric_type, object_name, collected_at DESC);
-CREATE INDEX IF NOT EXISTS idx_size_history_recent
-    ON sage.size_history (collected_at DESC);
 `
 
 // v0.10 — Schema lint findings table.

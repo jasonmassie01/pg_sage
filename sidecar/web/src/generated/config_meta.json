@@ -1148,12 +1148,6 @@
     "doc": "Days after its leader lease expired that another fleet scope's fingerprints, digests and lease are deleted (a renamed or retired fleet). 1-3650. Default: 14.",
     "class": "operator_preference"
   },
-  "forecaster.alert_horizons": {
-    "type": "[]int",
-    "default": null,
-    "doc": "Days-until-full thresholds that generate findings. Default: [30, 7, 3].",
-    "class": "derivable"
-  },
   "forecaster.cache_min_blocks_per_day": {
     "type": "int64",
     "default": 100000,
@@ -1181,7 +1175,7 @@
   "forecaster.disk_capacity_bytes": {
     "type": "int64",
     "default": 0,
-    "doc": "Total disk capacity in bytes, for the disk runway and disk-full credit. 0 = undeclared: nothing auto-detects it, so no disk runway or credit. Managed services are never credited.",
+    "doc": "Disk capacity in bytes for the disk runway, disk-full credit and days_until_full. 0 = undeclared: never auto-detected self-hosted. Managed: a fresh provider capacity wins; never credited.",
     "class": "operator_preference"
   },
   "forecaster.disk_warn_growth_gb_day": {
@@ -1200,12 +1194,6 @@
     "type": "int",
     "default": 30,
     "doc": "",
-    "class": "derivable"
-  },
-  "forecaster.min_data_points": {
-    "type": "int",
-    "default": 24,
-    "doc": "Minimum data points required before generating a forecast. Default: 24.",
     "class": "derivable"
   },
   "forecaster.min_r_squared": {

@@ -335,6 +335,7 @@ func (rt *databaseRuntime) instance() *fleet.DatabaseInstance {
 		// Removal and replacement let in-flight actions finish first.
 		Quiesce:       rt.executor.Quiesce,
 		InstanceOwner: rt.instanceOwnership(),
+		DiskCapacity:  rt.forecastCapacity(),
 		Status: &fleet.InstanceStatus{
 			Connected:    true,
 			Platform:     rt.provider,

@@ -202,11 +202,6 @@ var historySteps = []seedStep{
 		(ARRAY['success','revert','failed','unverifiable'])[1 + g % 4],
 		` + spread("60 days") + `, ` + spread("60 days") + ` + interval '1 hour'
 		FROM generate_series(1, $1) g, (SELECT min(id) AS first FROM sage.decision) d`},
-	{"size_history", true, `INSERT INTO sage.size_history (collected_at, metric_type,
-		object_name, size_bytes, dead_tuple_pct, database_name)
-		SELECT ` + spread("60 days") + `, (ARRAY['database','table'])[1 + g % 2],
-		'perf_app_000.t_' || lpad((g % 3000)::text, 4, '0'), 8192 * g, 1.5, current_database()
-		FROM generate_series(1, $1) g`},
 	{"health_history", true, `INSERT INTO sage.health_history (recorded_at, database_name,
 		health_score, findings_open) SELECT ` + spread("60 days") + `,
 		CASE WHEN g % 10 < 7 THEN current_database() ELSE 'other_' || g % 5 END, 90, 3

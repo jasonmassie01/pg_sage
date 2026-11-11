@@ -22,8 +22,7 @@ func buildSourceClause(
 		return fmt.Sprintf(" AND category LIKE $%d", startN),
 			[]any{"schema_lint:%"}, true
 	case "forecaster":
-		return fmt.Sprintf(" AND (category LIKE $%d OR category = ANY($%d::text[]))",
-			startN, startN+1), []any{"forecast%", forecasterCategories}, true
+		return fmt.Sprintf(" AND category LIKE $%d", startN), []any{"forecast%"}, true
 	case "migration_advisor":
 		return " AND 1=0", nil, true // reserved, emits nothing
 	}
@@ -62,9 +61,6 @@ var (
 	}
 	// optimizerCategories is missing_index plus the pre-v1.8.0 labels.
 	optimizerCategories = optimizer.Categories()
-	// forecasterCategories are the forecaster's categories without the
-	// forecast prefix the filter also matches.
-	forecasterCategories  = []string{"storage_forecast"}
 	queryTuningCategories = []string{
 		"query_tuning", "stale_statistics", "runaway_query",
 	}
@@ -91,8 +87,7 @@ func subsystemFromCategory(category string) string {
 	if strings.HasPrefix(category, "schema_lint:") {
 		return "schema_lint"
 	}
-	if strings.HasPrefix(category, "forecast") ||
-		slices.Contains(forecasterCategories, category) {
+	if strings.HasPrefix(category, "forecast") {
 		return "forecaster"
 	}
 	for _, subsystem := range subsystemOrder {

@@ -23,9 +23,6 @@ func TestCloneDetachesMutableCollections(t *testing.T) {
 				},
 			}},
 		},
-		Forecaster: ForecasterConfig{
-			AlertHorizons: []int{30, 7, 3},
-		},
 		Analyzer: AnalyzerConfig{
 			LockChain: LockChainConfig{
 				SafePatterns: []string{"pg_sage"},
@@ -56,7 +53,6 @@ func TestCloneDetachesMutableCollections(t *testing.T) {
 	original.Briefing.Channels[0] = "changed"
 	original.Alerting.Routes[0].Channels[0] = "changed"
 	original.Alerting.Webhooks[0].Headers["Authorization"] = "changed"
-	original.Forecaster.AlertHorizons[0] = 1
 	original.Analyzer.LockChain.SafePatterns[0] = "changed"
 	original.Runaway.Policies[0].Name = "changed"
 	original.Runaway.SafePatterns[0] = "changed"
@@ -70,10 +66,6 @@ func TestCloneDetachesMutableCollections(t *testing.T) {
 	assertCloneEqual(t, cloned.Alerting.Routes[0].Channels[0], "pagerduty")
 	assertCloneEqual(
 		t, cloned.Alerting.Webhooks[0].Headers["Authorization"], "secret")
-	if cloned.Forecaster.AlertHorizons[0] != 30 {
-		t.Fatalf("AlertHorizons[0] = %d, want 30",
-			cloned.Forecaster.AlertHorizons[0])
-	}
 	assertCloneEqual(t, cloned.Analyzer.LockChain.SafePatterns[0], "pg_sage")
 	assertCloneEqual(t, cloned.Runaway.Policies[0].Name, "default")
 	assertCloneEqual(t, cloned.Runaway.SafePatterns[0], "pg_dump")

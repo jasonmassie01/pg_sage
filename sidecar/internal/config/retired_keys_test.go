@@ -167,3 +167,57 @@ func TestRetiredKeyDoesNotHideASecondDocument(t *testing.T) {
 
 // No concurrency or state-transition tests: stripping is a pure function of
 // the YAML text, run once per load.
+
+// forecast-06: forecaster.min_data_points and alert_horizons fed only the
+// retired v0.9 growth forecaster. A config that sets them still loads,
+// with one "no effect, remove it" warning per key, and the live
+// forecaster keys beside them keep their values.
+
+func TestRetiredForecasterGrowthKeyLoadsWithOneWarning(t *testing.T) {
+	cfg, out, err := loadWithWarnings(t,
+		"forecaster:\n  alert_horizons: [30]\n  disk_capacity_bytes: 1000\n")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := strings.Count(out, "WARNING:"); got != 1 {
+		t.Fatalf("warnings %q: %d, want exactly one", out, got)
+	}
+	if !strings.Contains(out, "forecaster.alert_horizons") ||
+		!strings.Contains(out, "no effect") || !strings.Contains(out, "remove it") {
+		t.Fatalf("warning %q does not name the key and say it has no effect", out)
+	}
+	if cfg.Forecaster.DiskCapacityBytes != 1000 {
+		t.Fatalf("disk_capacity_bytes = %d, want 1000: the rest of the block must load",
+			cfg.Forecaster.DiskCapacityBytes)
+	}
+}
+
+func TestRetiredForecasterGrowthKeysEachWarnOnce(t *testing.T) {
+	cfg, out, err := loadWithWarnings(t, "forecaster:\n  min_data_points: 0\n"+
+		"  alert_horizons: []\n  min_r_squared: 0.7\n")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if strings.Count(out, "forecaster.min_data_points") != 1 ||
+		strings.Count(out, "forecaster.alert_horizons") != 1 ||
+		strings.Count(out, "WARNING:") != 2 {
+		t.Fatalf("warnings %q, want one per retired key", out)
+	}
+	if cfg.Forecaster.MinRSquared != 0.7 {
+		t.Fatalf("min_r_squared = %v, want 0.7: it is not retired", cfg.Forecaster.MinRSquared)
+	}
+}
+
+func TestLiveForecasterKeysGiveNoGrowthWarning(t *testing.T) {
+	cfg, out, err := loadWithWarnings(t,
+		"forecaster:\n  min_r_squared: 0.6\n  disk_capacity_bytes: 0\n")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if strings.Contains(out, "WARNING:") {
+		t.Fatalf("warnings %q for live forecaster keys", out)
+	}
+	if cfg.Forecaster.MinRSquared != 0.6 || cfg.Forecaster.DiskCapacityBytes != 0 {
+		t.Fatalf("forecaster = %+v, want the values as written", cfg.Forecaster)
+	}
+}

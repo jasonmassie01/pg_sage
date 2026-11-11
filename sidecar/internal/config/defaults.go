@@ -186,8 +186,7 @@ const (
 	DefaultLockChainActiveQueryCancel = 15
 
 	// v0.9 — Forecaster new defaults.
-	DefaultForecasterMinDataPoints = 24
-	DefaultForecasterMinRSquared   = 0.5
+	DefaultForecasterMinRSquared = 0.5
 
 	// v0.9 — Explain defaults.
 	DefaultExplainTimeoutMs       = 10000

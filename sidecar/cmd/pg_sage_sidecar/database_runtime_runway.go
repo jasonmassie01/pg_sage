@@ -12,6 +12,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/cloudtel"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/forecaster"
 	"github.com/pg-sage/sidecar/internal/ha"
 	"github.com/pg-sage/sidecar/internal/runway"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
@@ -86,9 +87,10 @@ func (rt *databaseRuntime) diskCapacity() autonomy.DiskCapacityProvider {
 	return providerDiskCapacity{cloud: rt.cloud}
 }
 
-// runwayCapacity is the runway monitor's provider capacity (nil without
-// managed-cloud telemetry: the declared capacity alone, as before).
-func (rt *databaseRuntime) runwayCapacity() func(context.Context) (float64, string, bool) {
+// runwayCapacity is the provider capacity of the runway monitor and the
+// forecaster (nil without managed-cloud telemetry: the declared capacity
+// alone, as before).
+func (rt *databaseRuntime) runwayCapacity() runway.CapacitySource {
 	disk := rt.diskCapacity()
 	if disk == nil {
 		return nil
@@ -102,6 +104,15 @@ func (rt *databaseRuntime) runwayCapacity() func(context.Context) (float64, stri
 			return 0, "", false
 		}
 		return float64(bytes), runway.CapacityProviderTelemetry, true
+	}
+}
+
+// forecastCapacity is the disk capacity /api/v1/forecasts/growth reports,
+// resolved as forecast_disk_growth resolves it.
+func (rt *databaseRuntime) forecastCapacity() func(context.Context) forecaster.Capacity {
+	declared, src := rt.cfg.Forecaster.DiskCapacityBytes, rt.runwayCapacity()
+	return func(ctx context.Context) forecaster.Capacity {
+		return forecaster.ResolveCapacity(ctx, declared, src)
 	}
 }
 
