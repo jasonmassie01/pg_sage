@@ -11,9 +11,8 @@ import { DatabaseTile } from '../components/DatabaseTile'
 import { ProviderReadinessMatrix } from '../components/ProviderReadinessMatrix'
 import { IndexAdmissionPanel } from '../components/IndexAdmissionPanel'
 import { Skeleton } from '../components/Skeleton'
-import {
-  CheckCircle, Clock, ListChecks, Server,
-} from 'lucide-react'
+import { HealthHero } from '../components/HealthHero'
+import { Clock, ListChecks } from 'lucide-react'
 
 // recharts is only needed by this chart, so it loads in its own chunk and the
 // first paint does not download it (dashboard-09).
@@ -79,86 +78,6 @@ function StatCard({
           {value}
         </div>
       )}
-    </div>
-  )
-}
-
-function HealthHero({ summary }) {
-  const healthy = summary.degraded === 0
-    && summary.total_critical === 0
-
-  if (healthy) {
-    return (
-      <div data-testid="health-hero"
-        className="rounded p-4 flex items-center gap-3"
-        style={{
-          background: 'rgba(34, 197, 94, 0.08)',
-          border: '1px solid rgba(34, 197, 94, 0.3)',
-        }}>
-        <CheckCircle size={28} style={{ color: 'var(--green)' }} />
-        <div>
-          <div className="font-semibold"
-            style={{ color: 'var(--green)' }}>
-            All Systems Healthy
-          </div>
-          <div className="text-sm"
-            style={{ color: 'var(--text-secondary)' }}>
-            pg_sage is monitoring {summary.total_databases}{' '}
-            database(s). No issues detected.
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  const parts = []
-  if (summary.total_critical > 0) {
-    parts.push(
-      `${summary.total_critical} critical finding`
-      + (summary.total_critical > 1 ? 's' : ''),
-    )
-  }
-  if (summary.degraded > 0) {
-    parts.push(
-      `${summary.degraded} degraded database`
-      + (summary.degraded > 1 ? 's' : ''),
-    )
-  }
-  const issueCount = summary.total_critical + summary.degraded
-  const breakdown = parts.length > 0
-    ? parts.join(' across ')
-    : 'Check findings for details.'
-
-  return (
-    <div data-testid="health-hero"
-      className="rounded p-4 flex items-center gap-3"
-      style={{
-        background: summary.total_critical > 0
-          ? 'rgba(239, 68, 68, 0.08)'
-          : 'rgba(245, 158, 11, 0.08)',
-        border: summary.total_critical > 0
-          ? '1px solid rgba(239, 68, 68, 0.3)'
-          : '1px solid rgba(245, 158, 11, 0.3)',
-      }}>
-      <Server size={28}
-        style={{
-          color: summary.total_critical > 0
-            ? 'var(--red)' : 'var(--yellow)',
-        }} />
-      <div>
-        <div className="font-semibold"
-          style={{
-            color: summary.total_critical > 0
-              ? 'var(--red)' : 'var(--yellow)',
-          }}>
-          {issueCount} Issue{issueCount !== 1 ? 's' : ''}{' '}
-          Need Attention
-        </div>
-        <div className="text-sm"
-          style={{ color: 'var(--text-secondary)' }}>
-          {breakdown}
-        </div>
-      </div>
     </div>
   )
 }
@@ -382,7 +301,7 @@ export function Dashboard({ database, onSelectDB, user, fleet = FLEET_LOADING })
     <div className="space-y-6">
       {queryStale(fleet) && <StaleStrip query={fleet} />}
       <TokenBudgetBanner canReset={user?.role === 'admin'} />
-      {summary && <HealthHero summary={summary} />}
+      {summary && <HealthHero summary={summary} databases={databases} />}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard label="Databases"
