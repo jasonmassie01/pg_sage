@@ -32,7 +32,8 @@ type ReportSummary struct {
 func SummaryOf(r Report) ReportSummary {
 	return ReportSummary{ID: r.ID, Database: r.Database, FinishedAt: r.FinishedAt,
 		DurationMS: r.DurationMS, Summary: r.Summary, Items: len(r.Items),
-		Counts: CountItems(r.Items), Checks: CountChecks(r.Checks, ""), Capabilities: r.Capabilities}
+		Counts: CountItems(r.Items), Checks: CountChecks(r.Checks, ""),
+		Capabilities: r.Capabilities}
 }
 
 // latestSummarySQL reads the newest report of $1 with its catalog checks

@@ -72,7 +72,8 @@ func TestFirstLookStepHealthyTextUnchanged(t *testing.T) {
 }
 
 func TestFirstLookStepTruncatedChecksAreNamed(t *testing.T) {
-	s := step(Checklist(ChecklistInput{FirstLookReady: true, FirstLookCounts: firstlook.ItemCounts{Findings: 50},
+	s := step(Checklist(ChecklistInput{FirstLookReady: true,
+		FirstLookCounts: firstlook.ItemCounts{Findings: 50},
 
 		FirstLookChecks: 9, FirstLookTruncated: 1}), StepFirstLook)
 	if !strings.Contains(s.Detail, "50 findings") ||
