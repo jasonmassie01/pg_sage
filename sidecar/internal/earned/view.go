@@ -28,6 +28,11 @@ type ClassView struct {
 	// (CarriedRef names the decision), else ledger.
 	Provenance string `json:"provenance"`
 	CarriedRef string `json:"carried_ref,omitempty"`
+	// HoldsUntil is when the evidence behind an earned level of L2 or more
+	// stops supporting it unless new evidence arrives; ExpiringChecks are
+	// the checks that expire then (earned-06).
+	HoldsUntil     *time.Time `json:"holds_until,omitempty"`
+	ExpiringChecks []string   `json:"expiring_checks,omitempty"`
 }
 
 // FamilyView is one family's rows with its shadow record.
@@ -60,7 +65,8 @@ func (s *Service) View(ctx context.Context) (View, error) {
 		return View{}, err
 	}
 	now, b := s.now(), &readBatch{}
-	in, err := s.queueLedger(ctx, b, viewPairs(), evidenceNeeds{incident: true}, now)
+	in, err := s.queueLedger(ctx, b, viewPairs(),
+		evidenceNeeds{incident: true, expiry: true}, now)
 	if err != nil {
 		return View{}, err
 	}
@@ -92,8 +98,10 @@ func (s *Service) buildView(now time.Time, in *ledgerReads, bench *EvalRun) View
 		for _, c := range ApplicableClasses(f) {
 			ev := s.evidenceOf(e, f, c)
 			fv.Shadow, fv.Bench = ev.Shadow, SummarizeBench(ev.Bench)
-			fv.Classes = append(fv.Classes,
-				s.classView(in.granted(f, c), ev, pending[pairKey{f, c}]))
+			st := in.granted(f, c)
+			row := s.classView(st, ev, pending[pairKey{f, c}])
+			row.HoldsUntil, row.ExpiringChecks = s.holding(st, row.Supported, ev, e.marks[f])
+			fv.Classes = append(fv.Classes, row)
 		}
 		v.Families = append(v.Families, fv)
 	}

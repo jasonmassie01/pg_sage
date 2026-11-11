@@ -363,18 +363,25 @@ func shadowChecks(th Thresholds, ev Evidence) []Check {
 	if !sh.FirstReviewAt.IsZero() {
 		span = ev.At.Sub(sh.FirstReviewAt)
 	}
-	rate, ok := Metric{K: sh.Accepted, N: sh.Reviewed}.Rate()
+	volume, acceptance := shadowMet(th, sh.Reviewed, sh.Accepted)
 	return []Check{
 		{Name: "shadow_duration", Met: !sh.FirstReviewAt.IsZero() && span >= th.ShadowDuration,
 			Observed: span.Round(time.Hour).String(),
 			Required: fmt.Sprintf(">= %s of shadow reviews", th.ShadowDuration)},
-		{Name: "shadow_volume", Met: sh.Reviewed >= th.ShadowMinReviewed,
+		{Name: "shadow_volume", Met: volume,
 			Observed: fmt.Sprint(sh.Reviewed),
 			Required: fmt.Sprintf(">= %d reviewed packets in the window", th.ShadowMinReviewed)},
-		{Name: "shadow_acceptance", Met: ok && rate >= th.ShadowMinAccepted,
+		{Name: "shadow_acceptance", Met: acceptance,
 			Observed: Metric{K: sh.Accepted, N: sh.Reviewed}.String(),
 			Required: fmt.Sprintf(">= %.0f%% operator-accepted", th.ShadowMinAccepted*100)},
 	}
+}
+
+// shadowMet is the shadow window's rule for reviewed packets of which
+// accepted were accepted: enough of them (volume), and enough accepted.
+func shadowMet(th Thresholds, reviewed, accepted int) (volume, acceptance bool) {
+	rate, ok := Metric{K: accepted, N: reviewed}.Rate()
+	return reviewed >= th.ShadowMinReviewed, ok && rate >= th.ShadowMinAccepted
 }
 
 // gameDaySafePass holds the family's game-day Safe Pass to the bar. Game

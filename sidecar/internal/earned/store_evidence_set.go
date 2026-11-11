@@ -94,6 +94,35 @@ func (s *PostgresStore) readShadow(ctx context.Context, r reads, families []stri
 		})
 }
 
+const reviewMarksSQL = `/* pg_sage */ SELECT f.family, m.reviewed_at, m.accepted
+	FROM unnest($3::text[]) AS f(family)
+	CROSS JOIN LATERAL (
+		SELECT r.reviewed_at, r.verdict = 'accepted' AS accepted
+		  FROM sage.sre_packet_reviews r
+		 WHERE r.deployment_id = $1 AND r.database_name = $2 AND r.family = f.family
+		   AND r.counts_as_evidence AND r.reviewed_at >= $4
+		 ORDER BY r.reviewed_at
+		 LIMIT $5) m`
+
+// readReviewMarks reads each family's shadow reviews since since, oldest
+// first and at most maxReviewMarks of them: the reviews whose leaving
+// the window expires it (earned-06).
+func (s *PostgresStore) readReviewMarks(ctx context.Context, r reads, families []string,
+	since time.Time, out map[Family][]reviewMark) error {
+	return r.each(ctx, "read shadow reviews", reviewMarksSQL,
+		[]any{s.deployment, s.database, families, since, maxReviewMarks},
+		func(rows pgx.Rows) error {
+			var f string
+			var m reviewMark
+			if err := rows.Scan(&f, &m.at, &m.accepted); err != nil {
+				return err
+			}
+			m.at = m.at.UTC()
+			out[Family(f)] = append(out[Family(f)], m)
+			return nil
+		})
+}
+
 // ShadowStats is one family's shadow record on the database.
 func (s *PostgresStore) ShadowStats(ctx context.Context, f Family, since time.Time) (Shadow,
 	error) {

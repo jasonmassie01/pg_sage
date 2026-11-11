@@ -55,6 +55,10 @@ type TrustRow struct {
 	// Bench is the report an incident pair's bench checks read (the
 	// newest that counts, whatever its origin), with its provenance.
 	Bench *BenchSummary `json:"bench,omitempty"`
+	// HoldsUntil and ExpiringChecks are when an earned level's evidence
+	// expires and which checks expire then (ClassView, earned-06).
+	HoldsUntil     *time.Time `json:"holds_until,omitempty"`
+	ExpiringChecks []string   `json:"expiring_checks,omitempty"`
 }
 
 // TrustView is one database's Trust page. Floor is the observation floor
@@ -95,7 +99,7 @@ func (s *Service) TrustView(ctx context.Context) (TrustView, error) {
 		func() error { return s.store.readLevels(ctx, b, &in.levels) },
 		func() error {
 			return s.queueEvidence(ctx, b, grid,
-				evidenceNeeds{incident: true, records: true}, in.e)
+				evidenceNeeds{incident: true, records: true, expiry: true}, in.e)
 		},
 		func() error { return s.store.readGrandfather(ctx, b, &in.grand) },
 	} {
@@ -133,8 +137,13 @@ func (s *Service) buildTrustView(grid []pairKey, now time.Time, in trustReads) T
 			}
 			return defaultLevel(p.Family)
 		})
-		v.Rows = append(v.Rows, s.trustRow(st, s.evidenceOf(e, key.family, key.class),
-			e.records[key], byPair[key], changes[key]))
+		ev := s.evidenceOf(e, key.family, key.class)
+		row := s.trustRow(st, ev, e.records[key], byPair[key], changes[key])
+		if row.Supported != nil {
+			row.HoldsUntil, row.ExpiringChecks = s.holding(st, *row.Supported, ev,
+				e.marks[key.family])
+		}
+		v.Rows = append(v.Rows, row)
 	}
 	return v
 }

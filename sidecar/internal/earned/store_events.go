@@ -3,6 +3,7 @@ package earned
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -149,4 +150,30 @@ func scanEvent(row pgx.Row) (Event, error) {
 		e.To = levelPtr(Level(*to))
 	}
 	return e, err
+}
+
+// latestEvent is the pair's newest entry of one of types on this
+// database; nil when there is none.
+func (s *PostgresStore) latestEvent(ctx context.Context, f Family, c ActionClass,
+	types ...EventType) (*Event, error) {
+	names := make([]string, 0, len(types))
+	for _, t := range types {
+		names = append(names, string(t))
+	}
+	e, err := scanEvent(s.pool.QueryRow(ctx, `/* pg_sage */ SELECT id, family,
+		action_class, event_type, from_level, to_level, actor, reason,
+		COALESCE(database_name, ''), COALESCE(proposal_id::text, ''),
+		COALESCE(action_log_id, 0), evidence, created_at
+		FROM sage.sre_autonomy_events
+		WHERE deployment_id = $1 AND database_name = $2 AND family = $3
+		  AND action_class = $4 AND event_type = ANY($5::text[])
+		ORDER BY created_at DESC, id DESC LIMIT 1`, s.deployment, s.database,
+		string(f), string(c), names))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, storeErr("read the last autonomy event", err)
+	}
+	return &e, nil
 }
