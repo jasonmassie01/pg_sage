@@ -371,3 +371,38 @@ func TestLLMMetricsScrapeDoesNotCloseBreaker(t *testing.T) {
 		t.Errorf("requests_total{error} = %v, want 3 (scrapes are not requests)", got)
 	}
 }
+
+// Boundary: a duration on a bucket bound falls in that bucket (le is
+// inclusive), one past 120 s only in +Inf; tokens without a provider split
+// are unattributed, and local refusals are counted but not timed.
+func TestLLMHealthRecordBucketsAndTokenKinds(t *testing.T) {
+	m := newLLMHealthMetrics()
+	observe := m.observer("orders", "general")
+	observe(llm.Outcome{Result: llm.ResultOK, Duration: 250 * time.Millisecond,
+		PromptTokens: 4, CompletionTokens: 1, Tokens: 9})
+	observe(llm.Outcome{Result: llm.ResultTimeout, Duration: 121 * time.Second})
+	observe(llm.Outcome{Result: llm.ResultOK, Duration: 3 * time.Second, Tokens: 6})
+	observe(llm.Outcome{Result: llm.ResultBudgetRefused, Duration: time.Hour})
+	rows := m.snapshot()
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d, want 1", len(rows))
+	}
+	r := rows[0]
+	if fmt.Sprint(r.buckets) != "[1 0 0 0 1 0 0]" || r.count != 3 {
+		t.Errorf("buckets = %v count %d, want [1 0 0 0 1 0 0] and 3", r.buckets, r.count)
+	}
+	if want := 0.25 + 121 + 3; r.sum != want {
+		t.Errorf("sum = %v, want %v (the refusal's hour is not timed)", r.sum, want)
+	}
+	if r.prompt != 4 || r.completion != 1 || r.unattributed != 4+6 {
+		t.Errorf("tokens = %d/%d/%d, want 4/1/10", r.prompt, r.completion, r.unattributed)
+	}
+	if r.results[llm.ResultOK] != 2 || r.results[llm.ResultBudgetRefused] != 1 {
+		t.Errorf("results = %v", r.results)
+	}
+	m.prune("orders")
+	observe(llm.Outcome{Result: llm.ResultOK})
+	if rows := m.snapshot(); len(rows) != 0 {
+		t.Errorf("a pruned database's late call resurrected its series: %+v", rows)
+	}
+}
