@@ -55,6 +55,14 @@ planned improvement and the unplanned queryids (`what_if_measured`,
 re-measures remembered rejections the new minimum would admit and stops listing
 them to the tuning agent as rejected.
 
+The tuning agent sees each column by its type name (`vector`, `geometry`, an
+enum's name) rather than `USER-DEFINED`. A statement is hinted as a vector ANN
+query only when a `<->`, `<=>` or `<#>` operand is a `vector`, `halfvec` or
+`sparsevec` column or is cast to one: the same operators on PostGIS, pg_trgm or
+btree_gist columns are not vector queries, and a column of unknown type gets no
+hint. A filtered ANN query is pointed at measuring its recall (pgvector iterative
+scans or a higher `ef_search`) with `pg_sage vector-lab`.
+
 A table's workload is the application statements that name it after FROM, JOIN,
 UPDATE or INTO (every relation of a comma list, `ONLY` and quoted mixed-case
 names included; literals, comments and CTE names never count), resolved the way

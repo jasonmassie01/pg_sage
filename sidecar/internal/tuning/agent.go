@@ -184,8 +184,10 @@ func (a *Agent) Tune(ctx context.Context, cur, prev *collector.Snapshot) (
 		cy := &cycle{cur: cur, prev: prev, w: w, all: all, confirmed: confirmedOnly(all),
 			open: kept}
 		out.Findings = append(out.Findings, a.askCases(ctx, cy, ask)...)
+		out.ModelUnavailable = cy.modelUnavailable()
 	} else {
 		a.noteCycle(nil, 0, 0)
+		out.ModelUnavailable = len(ask) > 0
 	}
 	out.IndexTables = indexTables(out.Findings)
 	return out, nil

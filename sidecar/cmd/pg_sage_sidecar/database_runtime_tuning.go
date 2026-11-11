@@ -54,6 +54,26 @@ func (rt *databaseRuntime) tuningActive() bool {
 	return primary != nil && primary.IsEnabled()
 }
 
+// indexFloorOn reports whether the deterministic index floor runs
+// (indexes-12): it follows tuning.enabled and llm.optimizer.enabled (the
+// switch for index creates), not the LLM, so missing-index advice works
+// with no model, an open breaker or a spent daily budget.
+func indexFloorOn(c *config.Config) bool {
+	return c != nil && c.Tuning.Enabled && c.LLM.Optimizer.Enabled
+}
+
+// newIndexFloor builds the database's index floor on its own optimizer
+// (validator, rejection memory, HypoPG what-if); nil when it is off.
+func (rt *databaseRuntime) newIndexFloor() *optimizer.Floor {
+	if !indexFloorOn(cfg) {
+		return nil
+	}
+	opt := optimizer.New(rt.spec.Pool, &cfg.LLM.Optimizer, logStructuredWrapper,
+		optimizer.WithCatalogReadTimeouts(catalogread.FromSafety(cfg.Safety)))
+	rt.note("index_floor")
+	return optimizer.NewFloor(opt, logStructuredWrapper)
+}
+
 // tuningModels returns the agent's model (the optimizer-purpose client)
 // and its fallback. The fallback is nil when it would be the primary
 // itself: retrying a failed call on the same client doubles latency and

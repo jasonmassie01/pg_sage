@@ -134,8 +134,12 @@ func fetchColumns(
 	pool catalogread.Querier,
 	schema, table string,
 ) ([]ColumnInfo, error) {
+	// data_type is USER-DEFINED for every extension type (vector,
+	// halfvec, geometry, ...); udt_name names the type itself.
 	rows, err := pool.Query(ctx,
-		`/* pg_sage optimizer */ SELECT column_name, data_type, is_nullable
+		`/* pg_sage optimizer */ SELECT column_name,
+		   CASE WHEN data_type = 'USER-DEFINED' THEN udt_name ELSE data_type END,
+		   is_nullable
 		 FROM information_schema.columns
 		 WHERE table_schema = $1 AND table_name = $2
 		 ORDER BY ordinal_position`, schema, table)

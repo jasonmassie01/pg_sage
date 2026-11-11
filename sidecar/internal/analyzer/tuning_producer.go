@@ -17,13 +17,18 @@ type TuningProducer interface {
 
 // TuningOutput is one tuning cycle: the findings, the categories it fully
 // judged (their open findings may resolve), the categories it could not
-// judge (theirs never resolve this cycle) and the tables it proposes
-// indexes for (the query tuner defers them).
+// judge (theirs never resolve this cycle), the tables it proposes
+// indexes for (the query tuner defers them) and whether its model was
+// unavailable.
 type TuningOutput struct {
 	Findings    []Finding
 	Evaluated   []string
 	Failed      []string
 	IndexTables []string
+	// ModelUnavailable reports a cycle in which the agent had cases but
+	// could not consult its model (daily budget spent or unreadable, every
+	// conversation failing): the deterministic index floor runs instead.
+	ModelUnavailable bool
 }
 
 // TuningStats are the agent's counters since start.

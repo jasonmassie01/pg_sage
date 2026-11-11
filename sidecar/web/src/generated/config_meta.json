@@ -1428,7 +1428,7 @@
   "llm.optimizer.enabled": {
     "type": "bool",
     "default": true,
-    "doc": "Let the tuning agent propose index creates (HypoPG-measured) and drops. Needs a usable LLM; index changes execute only through the policy gate and trust level. Default: true.",
+    "doc": "Allow index creates and drops: the tuning agent (needs an LLM) and, without one, the deterministic index floor. Changes execute only via the policy gate and trust level. Default: true.",
     "class": "safety_critical"
   },
   "llm.optimizer.hypopg_min_improvement_pct": {

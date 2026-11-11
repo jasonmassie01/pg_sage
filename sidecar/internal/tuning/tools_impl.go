@@ -100,7 +100,7 @@ func workloadHints(tc optimizer.TableContext) []string {
 			out = append(out, fmt.Sprintf("queryid %d: JSON %s, consider %s", q.QueryID,
 				c.Shape, c.PrimaryRecommendation))
 		}
-		if c := optimizer.ClassifyVectorWorkload(q); c.Shape != "" {
+		if c := optimizer.ClassifyVectorWorkload(q, tc.Columns); c.Shape != "" {
 			out = append(out, fmt.Sprintf("queryid %d: vector %s, consider %s", q.QueryID,
 				c.Shape, c.PrimaryRecommendation))
 		}

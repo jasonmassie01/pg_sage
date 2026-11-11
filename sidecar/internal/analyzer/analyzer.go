@@ -124,6 +124,12 @@ type Analyzer struct {
 	// only touched by the cycle goroutine.
 	unusedClock *unusedClockStore
 
+	// indexFloor is the deterministic index floor (WithIndexFloor, indexes-12);
+	// floorReader overrides its open-findings source (tests; nil reads the
+	// catalog).
+	indexFloor  IndexFloor
+	floorReader rowsQuerier
+
 	// freezeHorizons is the database's freeze sampler (WithFreezeHorizons).
 	freezeHorizons FreezeHorizonSource
 }

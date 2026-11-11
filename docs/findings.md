@@ -391,7 +391,7 @@ Detects tables that are scanned sequentially far more than through indexes right
 Table public.events: 1840 seq scans vs 12 idx scans in the last 60s (2500000 rows)
 ```
 
-**Recommended action:** Analyze query patterns and add appropriate indexes.
+**Recommended action:** Analyze query patterns and add appropriate indexes. When no tuning agent is active, the deterministic index floor proposes `missing_index` candidates for these tables (see Tier 2 -- LLM Index Optimizer below).
 
 ---
 
@@ -851,7 +851,7 @@ When LLM is enabled, the optimizer generates additional findings of category `mi
 - HypoPG cost reduction (when available)
 - Write impact assessment
 
-Optimizer findings do not appear without an LLM endpoint configured.
+Missing-index advice also works without an LLM. When the tuning agent is inactive (no endpoint, breaker open, daily budget spent), the deterministic index floor proposes `missing_index` findings for tables flagged `seq_scan_heavy`, with `detail.source = "deterministic_floor"`. They pass the same validator, rejection memory and HypoPG what-if; HypoPG measures their impact, and without HypoPG they are advisory with no executable SQL ("HypoPG not installed: impact unmeasured"). See [Missing-index advice without an LLM](configuration.md#missing-index-advice-without-an-llm).
 
 ---
 

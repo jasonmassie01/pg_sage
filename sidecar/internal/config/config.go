@@ -286,7 +286,7 @@ type IndexOptimizerConfig struct {
 
 // OptimizerConfig controls the index optimizer v2 behavior.
 type OptimizerConfig struct {
-	Enabled              bool    `yaml:"enabled" doc:"Let the tuning agent propose index creates (HypoPG-measured) and drops. Needs a usable LLM; index changes execute only through the policy gate and trust level. Default: true."`
+	Enabled              bool    `yaml:"enabled" doc:"Allow index creates and drops: the tuning agent (needs an LLM) and, without one, the deterministic index floor. Changes execute only via the policy gate and trust level. Default: true."`
 	MinQueryCalls        int     `yaml:"min_query_calls"`
 	MaxIndexesPerTable   int     `yaml:"max_indexes_per_table"`
 	MaxNewPerTable       int     `yaml:"max_new_per_table"`
