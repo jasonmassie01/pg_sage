@@ -49,6 +49,20 @@ describe('CasesPage explain', () => {
     expect(JSON.parse(calls[0].init.body)).toEqual({ query_id: '-5191732810777595558' })
   })
 
+  it('offers a viewer no Explain button (the endpoint needs operator)', () => {
+    cases = [queryCase({ type: 'finding', summary: 'slow query', queryid: '77',
+      detail: { query: 'SELECT 1', queryid: 77 } })]
+    render(<CasesPage database="all" user={{ role: 'viewer' }} />)
+    expect(screen.queryByRole('button', { name: 'Explain this query' })).not.toBeInTheDocument()
+  })
+
+  it('offers an admin the Explain button', () => {
+    cases = [queryCase({ type: 'finding', summary: 'slow query', queryid: '77',
+      detail: { query: 'SELECT 1', queryid: 77 } })]
+    render(<CasesPage database="all" user={{ role: 'admin' }} />)
+    expect(screen.getByRole('button', { name: 'Explain this query' })).toBeInTheDocument()
+  })
+
   it('offers no Explain button when the evidence has no exact query id', () => {
     cases = [queryCase({ type: 'finding', summary: 'slow query',
       detail: { query: 'SELECT 1', queryid: Number('-5191732810777595558') } })]
