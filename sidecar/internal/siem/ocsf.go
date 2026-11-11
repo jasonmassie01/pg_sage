@@ -124,6 +124,9 @@ func chainProof(r Record) map[string]any {
 }
 
 func classify(r Record) mapping {
+	if m, ok := markerMapping(r); ok {
+		return m
+	}
 	if r.Link.Op == "D" || r.Link.Op == "T" {
 		return trailRemoval(r)
 	}
