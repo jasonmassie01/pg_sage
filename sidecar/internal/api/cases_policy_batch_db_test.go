@@ -251,7 +251,10 @@ func seedGoldenFixture(t *testing.T, ctx context.Context) {
 // regenerated it: the ALTER SYSTEM case shows alter_system_guc, and the
 // missing-index case the executor's approval_required.
 // The T1 integration regenerated it: the incident diagnostics propose their
-// probes' display SQL (playbooks-04), timestamps are UTC.
+// probes' display SQL (playbooks-04), timestamps are UTC. cases-10
+// regenerated it: the fixture's evidence (January 2026) is past every
+// candidate's expires_at, so each candidate is blocked evidence_expired;
+// the policy's own reason stays in policy_decision.
 func TestCasesHandlerGoldenResponse(t *testing.T) {
 	pool, ctx := phase2RequireDB(t)
 	resetCaseTables(t, ctx)

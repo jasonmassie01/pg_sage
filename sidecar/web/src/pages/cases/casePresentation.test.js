@@ -114,4 +114,137 @@ describe('Case presentation grounded in reported evidence', () => {
       }
     }
   })
+
+  it('states an assessed time to impact with its basis (cases-07)', () => {
+    const summary = casePresentation(finding('storage_forecast', {}, { urgency: {
+      assessed: true, time_to_impact_seconds: 259200, impact: 'until full',
+      basis: 'days_until_full 3 from a 30-point regression, R² 0.94',
+    } }))
+    expect(summary.attention).toBe('About 3 days until full (days_until_full 3 from a 30-point regression, R² 0.94)')
+    const soon = casePresentation(finding('forecast_wal_runway', {}, { urgency: {
+      assessed: true, time_to_impact_seconds: 57600, impact: 'until the disk is full', basis: 'b',
+    } }))
+    expect(soon.attention).toBe('About 16 hours until the disk is full (b)')
+    const minutes = casePresentation(finding('forecast_wal_runway', {}, { urgency: {
+      assessed: true, time_to_impact_seconds: 20, impact: 'until the disk is full', basis: 'b',
+    } }))
+    expect(minutes.attention).toBe('About 1 minute until the disk is full (b)')
+  })
+
+  it('never shows a number for an urgency without a usable time to impact', () => {
+    for (const tti of [0, -5, null, undefined, '3', Number.NaN, Infinity]) {
+      const summary = casePresentation(finding('storage_forecast', {}, {
+        why_now: 'Urgency not assessed', urgency: { assessed: true, time_to_impact_seconds: tti },
+      }))
+      expect(summary.attention).toContain('Urgency not assessed')
+      expect(summary.attention).not.toMatch(/About|\d/)
+    }
+  })
+
+  it('shows measured headroom while saying urgency is not assessed', () => {
+    const summary = casePresentation(finding('xid_wraparound', {}, { urgency: {
+      assessed: false, basis: 'xid_age 1.2B of the 1.6B critical threshold',
+    } }))
+    expect(summary.attention).toContain('Urgency not assessed: xid_age 1.2B of the 1.6B critical threshold.')
+    expect(summary.attention).not.toContain('About')
+  })
+
+  it('says a limit already reached without showing a number', () => {
+    const summary = casePresentation(finding('forecast_wal_runway', {}, {
+      why_now: 'Urgency not assessed: seconds_to_limit is zero, so the producer reports the limit already reached',
+      urgency: { assessed: false, limit_reached: true },
+    }))
+    expect(summary.attention).toBe('Urgency not assessed: seconds_to_limit is zero, so the producer reports the limit already reached')
+    expect(summary.attention).not.toMatch(/About|\d/)
+  })
+
+  it('describes a recurrence with its count and the previous resolution', () => {
+    const row = { id: 'incident:prod:deterministic:c', database_name: 'prod', title: 'x',
+      recurrence: { previous_id: 'b', count: 4, previous_resolved_at: '2026-11-02T10:00:00Z' } }
+    expect(casePresentation(row).recurrence).toBe('4th occurrence; previous resolved 2026-11-02')
+    const ordinals = { 2: '2nd', 3: '3rd', 11: '11th', 12: '12th', 13: '13th', 21: '21st', 22: '22nd', 101: '101st' }
+    for (const [count, word] of Object.entries(ordinals)) {
+      expect(casePresentation({ ...row, recurrence: { ...row.recurrence, count: Number(count) } })
+        .recurrence).toBe(`${word} occurrence; previous resolved 2026-11-02`)
+    }
+    expect(casePresentation({ ...row, recurrence: { previous_id: 'b', count: 2 } }).recurrence)
+      .toBe('2nd occurrence; previous resolution time unknown')
+  })
+
+  it('discloses an unavailable recurrence history rather than a first occurrence', () => {
+    const row = { id: 'incident:prod:x', title: 'x' }
+    expect(casePresentation(row).recurrence).toBeNull()
+    expect(casePresentation({ ...row, recurrence: { previous_id: 'b', history_unavailable: true } })
+      .recurrence).toBe('Recurring incident; occurrence history unavailable')
+    expect(casePresentation({ ...row, recurrence: { previous_id: 'b', count: 'x' } })
+      .recurrence).toBe('Recurring incident; occurrence history unavailable')
+  })
+})
+
+describe('Case next step reflects the recommendation lifecycle (cases-10)', () => {
+  const candidate = (extra = {}) => ({ action_type: 'analyze', risk_tier: 'safe', ...extra })
+  const withRec = (state, nextStep, extra = {}, cand = candidate()) => finding('stale_statistics', {}, {
+    action_candidates: [cand],
+    recommendation: { id: 9, state, revision: 1, next_step: nextStep, current_content: true, ...extra },
+  })
+
+  it('says pg_sage applied and reverted the change instead of calling it attached', () => {
+    const text = 'pg_sage applied this on 2026-11-10 and reverted it: p95 latency rose 40%'
+    const row = withRec('reverted', text, {}, candidate({ blocked_reason: 'recommendation_reverted' }))
+    expect(actionAvailability(row)).toBe(text)
+    expect(actionAvailability(row)).not.toContain('attached')
+  })
+
+  it('shows each known head state with its own next step', () => {
+    const steps = {
+      reverted: 'pg_sage applied this on 2026-11-10 and reverted it: hurt',
+      abandoned: 'Stopped after 3 failed attempts',
+      failed: 'Retrying after 14:05 UTC',
+      superseded: 'Superseded: the analyzer no longer proposes this change',
+      verified: 'pg_sage applied this on 2026-11-10 and verified it',
+    }
+    const seen = new Set()
+    for (const [state, text] of Object.entries(steps)) {
+      const shown = actionAvailability(withRec(state, text))
+      expect(shown).toBe(text)
+      seen.add(shown)
+    }
+    expect(seen.size).toBe(5)
+  })
+
+  it('keeps the attached wording for a proposal awaiting approval', () => {
+    expect(actionAvailability(withRec('proposed', 'Proposed; awaiting approval')))
+      .toContain('A proposed change is attached')
+  })
+
+  it('renders a state from a future version as unknown, never as attached', () => {
+    const shown = actionAvailability(withRec('rolled_forward', 'A future sentence'))
+    expect(shown).toContain('state unknown')
+    expect(shown).not.toContain('attached')
+    expect(shown).not.toContain('A future sentence')
+  })
+
+  it('says evidence expired rather than offering a stale proposal', () => {
+    const row = finding('stale_statistics', {}, {
+      action_candidates: [candidate({ blocked_reason: 'evidence_expired', expires_at: '2026-11-10T09:00:00Z' })],
+    })
+    expect(actionAvailability(row)).toBe('Evidence expired; waiting for a fresh observation')
+  })
+
+  it('discloses an unreadable recommendation history instead of saying none', () => {
+    const row = finding('stale_statistics', {}, {
+      action_candidates: [candidate()], recommendation_unknown: true,
+    })
+    const shown = actionAvailability(row)
+    expect(shown).toContain('could not be read')
+    expect(shown).not.toContain('attached')
+    expect(actionAvailability({ ...row, action_candidates: [] })).toContain('could not be read')
+  })
+
+  it('treats a missing or empty recommendation as no lifecycle', () => {
+    expect(actionAvailability(finding('x', {}, { action_candidates: [candidate()], recommendation: null })))
+      .toContain('A proposed change is attached')
+    expect(actionAvailability(withRec('failed', '')))
+      .toContain('A proposed change is attached')
+  })
 })

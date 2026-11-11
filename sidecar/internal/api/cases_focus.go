@@ -5,25 +5,22 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/cases"
 	"github.com/pg-sage/sidecar/internal/fleet"
-	"github.com/pg-sage/sidecar/internal/store"
 )
 
-// maxCaseIdentityLen bounds ?case=; a finding identity can carry a
-// normalized query, so it is generous.
+// maxCaseIdentityLen bounds ?case=; a finding identity carries an object
+// identifier of any length, so it is generous.
 const maxCaseIdentityLen = 4096
 
 // caseFocusLimit bounds the rows one ?case= lookup reads.
 const caseFocusLimit = 10
 
 // findingObjectKeySQL is the object part of a finding's case identity
-// (cases.IdentityKeyForFinding): the normalized query for a query finding,
-// otherwise the object identifier.
-const findingObjectKeySQL = `CASE WHEN object_type = 'query'
- THEN COALESCE(NULLIF(detail->>'normalized_query', ''), object_identifier, '')
- ELSE COALESCE(object_identifier, '') END`
+// (cases.IdentityKeyForFinding): the object identifier.
+const findingObjectKeySQL = `COALESCE(object_identifier, '')`
 
 // caseFocus reports a ?case= lookup: found says the case is in the
 // response, loaded that it was read separately because the page cut it.
@@ -136,6 +133,7 @@ func lookupCase(
 	if err != nil {
 		return cases.Case{}, false, err
 	}
+	cases.MarkExpiredCandidates(found, time.Now().UTC())
 	for _, c := range found {
 		if c.ID == identity {
 			return c, true, nil
@@ -178,7 +176,7 @@ func lookupFindingCases(
 	}
 	out, findingIDs := projectFindingRows(maps)
 	enrichCasesActionPolicies(ctx, out, mgr.GetInstance(sel.name))
-	enrichCaseActionTimelines(ctx, out, sel, store.NewActionStore(sel.pool), findingIDs)
+	enrichFindingCases(ctx, out, sel, findingIDs)
 	return out, nil
 }
 
@@ -198,6 +196,7 @@ func lookupIncidentCases(
 		return nil, err
 	}
 	out := projectIncidentRows(scanned, sel.name)
+	enrichIncidentRecurrence(ctx, sel.pool, out)
 	enrichCasesActionPolicies(ctx, out, mgr.GetInstance(sel.name))
 	return out, nil
 }

@@ -248,6 +248,10 @@ function CaseCard({ caseRow, user, investigation, onDone, focused, onReview }) {
       <p className="mt-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
         <strong>Reason for attention: </strong>{summary.attention}
       </p>
+      {summary.recurrence && <p className="mt-2 text-xs" data-testid="case-recurrence"
+        style={{ color: 'var(--text-secondary)' }}>
+        <strong>Recurrence: </strong>{summary.recurrence}
+      </p>}
       <p className="mt-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
         <strong>Next step: </strong>{actionAvailability(caseRow)}
       </p>
