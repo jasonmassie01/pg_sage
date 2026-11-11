@@ -99,11 +99,16 @@ func analyzeAndStore(t *testing.T, ctx context.Context, a *advisor.Advisor,
 	}
 }
 
+// walFindings counts the open max_wal_size findings (with SQL, or advisory:
+// advisors-05 keeps WAL advice advisory while the advisor window has no
+// checkpoint history, as on these fresh databases) and the instance-owner
+// deferrals.
 func walFindings(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (executable,
 	deferred int) {
 	t.Helper()
 	err := pool.QueryRow(ctx, `SELECT
-		count(*) FILTER (WHERE recommended_sql ILIKE '%max_wal_size%'),
+		count(*) FILTER (WHERE concat_ws(' ', title, recommendation, recommended_sql)
+			ILIKE '%max_wal_size%' AND NOT detail ? 'instance_owner'),
 		count(*) FILTER (WHERE COALESCE(recommended_sql, '') = ''
 			AND detail ? 'instance_owner')
 		FROM sage.findings WHERE category = 'wal_tuning' AND status = 'open'`).
