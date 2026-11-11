@@ -3,9 +3,7 @@ package providerobs
 import (
 	"context"
 	"errors"
-	"regexp"
 	"sync"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/autoexplain"
@@ -128,37 +126,24 @@ func (s *LogSink) matchingEntries(entries []logwatch.LogEntry) []logwatch.LogEnt
 	return matching
 }
 
+// storePlans stores the batch's executed plans through the shared
+// auto_explain sink (rca-04). A store failure fails the batch, which the
+// provider then delivers again; the store skips duplicate deliveries.
 func (s *LogSink) storePlans(ctx context.Context, entries []logwatch.LogEntry) error {
 	if !s.plansEnabled {
 		return nil
 	}
-	bounded, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	for _, entry := range entries {
-		if !actualPlanHeader.MatchString(entry.Message) {
-			continue
-		}
-		plan, err := autoexplain.ParseObservedPlan(entry, s.database)
-		if errors.Is(err, autoexplain.ErrSelfStatement) {
-			s.rejectPlan("pg_sage_self")
-			continue
-		}
-		if err != nil {
-			s.rejectPlan("invalid_json_plan")
-			continue
-		}
-		if plan.QueryID == 0 {
-			s.rejectPlan("missing_query_identifier")
-			continue
-		}
-		if err := s.store(bounded, plan); err != nil {
-			return &logSinkError{cause: err}
-		}
+	sink := autoexplain.ObservedPlanSink{Database: s.database, Store: s.store,
+		StopOnStoreError: true}
+	res, err := sink.Ingest(ctx, entries)
+	for reason, n := range res.Rejected {
+		s.rejectPlans(reason, n)
+	}
+	if err != nil {
+		return &logSinkError{cause: err}
 	}
 	return nil
 }
-
-var actualPlanHeader = regexp.MustCompile(`^duration:\s+\S+\s+ms\s+plan:\s*`)
 
 func (s *LogSink) SetRejectionReporter(report func(string, uint64)) {
 	s.mu.Lock()
@@ -166,10 +151,10 @@ func (s *LogSink) SetRejectionReporter(report func(string, uint64)) {
 	s.reportRejection = report
 }
 
-func (s *LogSink) rejectPlan(reason string) {
-	s.rejections[reason]++
+func (s *LogSink) rejectPlans(reason string, n int) {
+	s.rejections[reason] += uint64(n)
 	if s.reportRejection != nil {
-		s.reportRejection(reason, 1)
+		s.reportRejection(reason, uint64(n))
 	}
 }
 

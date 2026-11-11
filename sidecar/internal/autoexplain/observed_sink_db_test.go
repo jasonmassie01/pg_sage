@@ -28,6 +28,29 @@ func csvPlanLine(db string, queryID int64) string {
 		`}",,,,,,,,,"psql","client backend",,0` + "\n"
 }
 
+// watchCSVLog writes body to a csvlog file, drains a log watcher over it
+// and returns the entries a plans subscriber of db received.
+func watchCSVLog(t *testing.T, db, body string) []logwatch.LogEntry {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "postgresql.csv")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fw := logwatch.NewFileWatcher(config.LogWatchConfig{LogDirectory: dir, Format: "csvlog",
+		PollIntervalMs: 3600000, MaxLineLenBytes: 65536}, nil)
+	if err := fw.Start(t.Context()); err != nil {
+		t.Fatalf("start watcher: %v", err)
+	}
+	t.Cleanup(fw.Stop)
+	sub := fw.SubscribeEntries("plans:test", db)
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fw.Drain()
+	return sub.Drain()
+}
+
 func TestObservedPlanSink_CSVLogPlanBecomesOneAutoExplainLogRow(t *testing.T) {
 	pool := requireAuditFixturePool(t)
 	bootstrapAuditFixture(t, pool)
@@ -43,25 +66,8 @@ func TestObservedPlanSink_CSVLogPlanBecomesOneAutoExplainLogRow(t *testing.T) {
 	}
 	clean()
 	t.Cleanup(clean)
-	dir := t.TempDir()
-	path := filepath.Join(dir, "postgresql.csv")
-	if err := os.WriteFile(path, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	fw := logwatch.NewFileWatcher(config.LogWatchConfig{LogDirectory: dir, Format: "csvlog",
-		PollIntervalMs: 3600000, MaxLineLenBytes: 65536}, nil)
-	if err := fw.Start(t.Context()); err != nil {
-		t.Fatalf("start watcher: %v", err)
-	}
-	t.Cleanup(fw.Stop)
-	sub := fw.SubscribeEntries("plans:test", db)
 	line := csvPlanLine(db, qid)
-	body := line + csvPlanLine("other_db", qid) + line
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	fw.Drain()
-	entries := sub.Drain()
+	entries := watchCSVLog(t, db, line+csvPlanLine("other_db", qid)+line)
 	if len(entries) != 2 {
 		t.Fatalf("subscription for %s got %d entries, want 2", db, len(entries))
 	}

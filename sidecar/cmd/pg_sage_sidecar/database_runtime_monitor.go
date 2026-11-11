@@ -63,6 +63,7 @@ func (rt *databaseRuntime) startMonitoring() {
 	rt.startSchemaLint()
 	rt.startMigrationAdvisor()
 	rt.startPGAuditCorrelation()
+	rt.startObservedPlans()
 }
 
 // newCollector builds the stats collector. The configuration snapshot is

@@ -147,7 +147,8 @@ func TestStartObservedPlans_Gating(t *testing.T) {
 	for name, rt := range map[string]*databaseRuntime{
 		"nil config":       {},
 		"auto_explain off": {cfg: &config.Config{}},
-		"no log watcher":   {cfg: &config.Config{AutoExplain: config.AutoExplainConfig{Enabled: true}}},
+		"no log watcher": {cfg: &config.Config{
+			AutoExplain: config.AutoExplainConfig{Enabled: true}}},
 	} {
 		if rt.startObservedPlans() {
 			t.Fatalf("%s: plan ingestion started", name)

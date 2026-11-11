@@ -12,7 +12,7 @@ import (
 
 const preferSessionLoadWarning = "auto_explain.prefer_session_load"
 
-func TestPreferSessionLoadLoadsWithOneWarning(t *testing.T) {
+func TestRetiredSessionLoadKeyLoadsWithOneWarning(t *testing.T) {
 	for _, value := range []string{"true", "false", "\"yes please\"", "7"} {
 		cfg, out, err := loadWithWarnings(t, "auto_explain:\n  prefer_session_load: "+
 			value+"\n  max_plans_per_cycle: 4\n")
@@ -35,7 +35,7 @@ func TestPreferSessionLoadLoadsWithOneWarning(t *testing.T) {
 
 // Defaults: with no auto_explain block the defaults hold and no warning
 // mentions the retired key.
-func TestAutoExplainWithoutPreferSessionLoadHasNoWarning(t *testing.T) {
+func TestAutoExplainWithoutRetiredSessionLoadKeyHasNoWarning(t *testing.T) {
 	cfg, out, err := loadWithWarnings(t, "mode: standalone\n")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -50,7 +50,7 @@ func TestAutoExplainWithoutPreferSessionLoadHasNoWarning(t *testing.T) {
 }
 
 // The same key elsewhere is not the retired key: the strict decode rejects it.
-func TestPreferSessionLoadElsewhereIsStillUnknown(t *testing.T) {
+func TestRetiredSessionLoadKeyElsewhereIsStillUnknown(t *testing.T) {
 	_, out, err := loadWithWarnings(t, "analyzer:\n  prefer_session_load: true\n")
 	if err == nil {
 		t.Fatal("analyzer.prefer_session_load was accepted")

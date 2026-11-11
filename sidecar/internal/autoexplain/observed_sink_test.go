@@ -182,13 +182,13 @@ func TestObservedPlanSink_CancelledContext(t *testing.T) {
 
 func TestIsPlanMessage(t *testing.T) {
 	for msg, want := range map[string]bool{
-		"duration: 12.500 ms  plan:\n{}":           true,
-		"duration: 1 ms plan: {}":                  true,
-		`duration: 1 ms  plan:\n{"Query Text"`:     true,
-		"duration: 3 ms  statement: SELECT 1":      false,
+		"duration: 12.500 ms  plan:\n{}":            true,
+		"duration: 1 ms plan: {}":                   true,
+		`duration: 1 ms  plan:\n{"Query Text"`:      true,
+		"duration: 3 ms  statement: SELECT 1":       false,
 		"duration: 3 ms  statement: SELECT 'plan:'": false,
-		"":                                         false,
-		"LOG:  duration: 1 ms  plan:":              false,
+		"":                            false,
+		"LOG:  duration: 1 ms  plan:": false,
 	} {
 		if got := IsPlanMessage(msg); got != want {
 			t.Errorf("IsPlanMessage(%q) = %v, want %v", msg, got, want)

@@ -163,6 +163,14 @@ func hypoPG(e Extensions, provider string) Capability {
 	return c
 }
 
+// autoExplainLogSettings make auto_explain's plans ones pg_sage ingests
+// from a csvlog or jsonlog server log (rca-04): JSON, with the query
+// identifier, which only verbose output prints.
+const autoExplainLogSettings = "ALTER SYSTEM SET auto_explain.log_min_duration = '1s'; " +
+	"ALTER SYSTEM SET auto_explain.log_format = 'json'; " +
+	"ALTER SYSTEM SET auto_explain.log_verbose = on; " +
+	"ALTER SYSTEM SET compute_query_id = on;"
+
 func autoExplain(e Extensions, provider string) Capability {
 	c := Capability{Name: CapAutoExplain, Status: CapabilityOK,
 		Detail: "Slow statements log their plans."}
@@ -191,8 +199,8 @@ func autoExplain(e Extensions, provider string) Capability {
 	default:
 		c.Steps = []string{"As a superuser: ALTER SYSTEM SET session_preload_libraries " +
 			"= " + libraryList(e.SessionPreloadLibraries, "auto_explain") + ";",
-			"ALTER SYSTEM SET auto_explain.log_min_duration = " +
-				"'1s';", "SELECT pg_reload_conf(); -- new sessions load it, no restart"}
+			autoExplainLogSettings,
+			"SELECT pg_reload_conf(); -- new sessions load it, no restart"}
 	}
 	return c
 }
