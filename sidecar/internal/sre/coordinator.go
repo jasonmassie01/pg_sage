@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/selfbudget"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
@@ -182,6 +183,8 @@ type Coordinator struct {
 	triggers   TriggerSource
 	cfg        CoordinatorConfig
 	logFn      func(level, msg string, args ...any)
+	// loops replaces the process-wide loop tracker (tests).
+	loops      *selfbudget.Loops
 	worker     UUID
 	queue      chan UUID
 	durability *Durability
