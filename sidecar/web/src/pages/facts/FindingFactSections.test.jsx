@@ -1,6 +1,8 @@
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
-import { FindingFactSections } from './FindingFactSections'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  FindingFactSections, SourceFixReport, SourceFixReportView,
+} from './FindingFactSections'
 
 // A finding redirected by a confirmed fact carries a source-fix packet:
 // the change for the application's own migrations, which pg_sage never
@@ -82,5 +84,130 @@ describe('FindingFactSections', () => {
       detail: { cleanup_sql: 'DROP SCHEMA IF EXISTS test_a CASCADE;' } }} />)
     expect(screen.getByTestId('cleanup-sql')).toBeInTheDocument()
     expect(screen.queryByTestId('cleanup-schemas')).toBeNull()
+  })
+})
+
+// mcp-06: the source-fix report an agent filed (pull request, deploy) and
+// pg_sage's verdict, read from GET /api/v1/findings/{id}/source-fix.
+
+let apiState = { data: null, loading: false, error: null, errorStatus: null }
+const apiURLs = []
+vi.mock('../../hooks/useAPI', () => ({
+  useAPI: (url, interval) => {
+    apiURLs.push([url, interval])
+    return url ? apiState : { data: null, loading: false, error: null, errorStatus: null }
+  },
+}))
+
+const verified = {
+  finding_id: 41, stage: 'verified', pr_url: 'https://github.com/acme/shop/pull/42',
+  commit: '0123abcdef4567', deployed_at: '2026-11-10T09:00:00Z',
+  deploy_reported_at: '2026-11-10T09:05:00Z', verify_after: '2026-11-10T11:00:00Z',
+  verdict: 'improved', tolerance: 'met', observed_change_pct: -62.5,
+  prediction: { method: 'hypopg', expected_change_pct: -40 }, backdated: false,
+  reason: 'mean latency fell from 8 ms to 3 ms',
+}
+
+describe('SourceFixReportView', () => {
+  it('renders an improved verdict with the PR link and the observed change', () => {
+    render(<SourceFixReportView report={verified} />)
+    const section = screen.getByTestId('source-fix-report')
+    expect(section).toHaveTextContent('Source-fix report')
+    expect(section).toHaveTextContent('Verified')
+    const link = screen.getByRole('link', { name: /pull\/42/ })
+    expect(link).toHaveAttribute('href', verified.pr_url)
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    expect(screen.getByTestId('source-fix-commit')).toHaveTextContent('0123abcdef45')
+    expect(screen.getByTestId('source-fix-deployed')).toHaveTextContent('2026-11-10 09:00 UTC')
+    const verdict = screen.getByTestId('source-fix-verdict')
+    expect(verdict).toHaveTextContent('improved')
+    expect(verdict).toHaveTextContent('predicted -40%')
+    expect(verdict).toHaveTextContent('observed -62.5%')
+    expect(verdict).toHaveTextContent('met')
+    expect(section).toHaveTextContent(verified.reason)
+    expect(screen.queryByTestId('source-fix-backdated')).toBeNull()
+    expect(screen.queryByTestId('source-fix-reported-unknown')).toBeNull()
+  })
+
+  it('flags a backdated deploy', () => {
+    render(<SourceFixReportView report={{ ...verified, backdated: true }} />)
+    expect(screen.getByTestId('source-fix-backdated')).toHaveTextContent('backdated')
+  })
+
+  it('marks the report time unknown for reports from before it was recorded', () => {
+    render(<SourceFixReportView report={{ ...verified, deploy_reported_at: undefined }} />)
+    expect(screen.getByTestId('source-fix-reported-unknown')).toHaveTextContent('unknown')
+    expect(screen.queryByTestId('source-fix-backdated')).toBeNull()
+  })
+
+  it('shows a pending deploy with the time its verdict is due', () => {
+    render(<SourceFixReportView report={{ ...verified, stage: 'deployed',
+      verdict: 'pending', tolerance: undefined, observed_change_pct: undefined,
+      reason: '' }} />)
+    const verdict = screen.getByTestId('source-fix-verdict')
+    expect(verdict).toHaveTextContent('pending')
+    expect(verdict).toHaveTextContent('2026-11-10 11:00 UTC')
+    expect(verdict).not.toHaveTextContent('observed')
+  })
+
+  it('shows a pull request with no deploy yet', () => {
+    render(<SourceFixReportView report={{ finding_id: 41, stage: 'pr_opened',
+      pr_url: verified.pr_url, verdict: 'pending', prediction: {} }} />)
+    expect(screen.getByTestId('source-fix-report')).toHaveTextContent('Pull request opened')
+    expect(screen.queryByTestId('source-fix-deployed')).toBeNull()
+    expect(screen.queryByTestId('source-fix-commit')).toBeNull()
+  })
+
+  it('does not link a PR URL that is not https', () => {
+    render(<SourceFixReportView report={{ ...verified,
+      pr_url: 'javascript:alert(1)' }} />)
+    expect(screen.queryByRole('link')).toBeNull()
+    expect(screen.getByTestId('source-fix-report')).toHaveTextContent('javascript:alert(1)')
+  })
+
+  it('renders nothing without a report', () => {
+    for (const report of [null, undefined, {}, { stage: 7 }, 'oops']) {
+      const { container, unmount } = render(<SourceFixReportView report={report} />)
+      expect(container).toBeEmptyDOMElement()
+      unmount()
+    }
+  })
+})
+
+describe('SourceFixReport', () => {
+  beforeEach(() => {
+    apiURLs.length = 0
+    apiState = { data: verified, loading: false, error: null, errorStatus: null }
+  })
+
+  it('fetches the report of the finding on its database', () => {
+    render(<SourceFixReport findingID="41" database="prod db" enabled />)
+    expect(apiURLs.at(-1)[0]).toBe('/api/v1/findings/41/source-fix?database=prod%20db')
+    expect(apiURLs.at(-1)[1]).toBeGreaterThanOrEqual(60000)
+    expect(screen.getByTestId('source-fix-verdict')).toHaveTextContent('improved')
+  })
+
+  it('does not fetch until enabled', () => {
+    const { container } = render(<SourceFixReport findingID="41" database="prod" />)
+    expect(apiURLs.every(([url]) => url === null)).toBe(true)
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('renders nothing when the finding has no report', () => {
+    apiState = { data: null, loading: false, error: 'no source-fix report', errorStatus: 404 }
+    const { container } = render(<SourceFixReport findingID="41" database="prod" enabled />)
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('says when the report could not be read', () => {
+    apiState = { data: null, loading: false, error: 'database unavailable', errorStatus: 503 }
+    render(<SourceFixReport findingID="41" database="prod" enabled />)
+    expect(screen.getByTestId('source-fix-report-error')).toHaveTextContent(
+      'database unavailable')
+  })
+
+  it('does not fetch without a finding id', () => {
+    render(<SourceFixReport findingID="" database="prod" enabled />)
+    expect(apiURLs.every(([url]) => url === null)).toBe(true)
   })
 })

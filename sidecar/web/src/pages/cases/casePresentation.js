@@ -1,5 +1,8 @@
 // Presentation only: retain the reported measurements and exact source text in
 // technical evidence. Missing evidence is never a reassuring default.
+// FINDING_SOURCES are the case sources whose source id is a sage.findings id.
+export const FINDING_SOURCES = new Set(['finding', 'schema_health', 'forecast'])
+
 export function caseID(row) {
   return row.case_id || row.id
 }

@@ -9,10 +9,12 @@ import { InvestigationPanel } from './cases/InvestigationPanel'
 import { CasesHealthNotes } from './cases/CasesHealthNotes'
 import { CandidateArtifacts } from './cases/CandidateArtifacts'
 import { FactBadges } from '../components/FactBadges'
-import { FindingFactSections } from './facts/FindingFactSections'
+import { FindingFactSections, SourceFixReport } from './facts/FindingFactSections'
 import { caseFactTarget } from '../lib/caseFacts'
 import { canDecideFacts } from '../lib/facts'
-import { actionAvailability, caseID, caseLink, casePresentation } from './cases/casePresentation'
+import {
+  FINDING_SOURCES, actionAvailability, caseID, caseLink, casePresentation,
+} from './cases/casePresentation'
 import {
   focusFromHash, focusedInvestigation, investigationCase, resolveFocus,
 } from './cases/caseFocus'
@@ -214,6 +216,8 @@ function CaseCard({ caseRow, user, investigation, onDone, focused, onReview }) {
   const factTarget = caseFactTarget(caseRow)
   const summary = casePresentation(caseRow)
   const observedAt = formatDate(caseRow.observed_at)
+  const [detailsOpen, setDetailsOpen] = useState(false)
+  const findingID = FINDING_SOURCES.has(caseRow.source_type) ? caseRow.source_ids?.[0] : null
 
   return (
     <article className="rounded border p-3"
@@ -273,7 +277,8 @@ function CaseCard({ caseRow, user, investigation, onDone, focused, onReview }) {
       </div>
       {investigation && <InvestigationPanel database={investigation.database}
         investigation={investigation} user={user} />}
-      <details className="mt-3 text-xs" data-testid="case-technical-details">
+      <details className="mt-3 text-xs" data-testid="case-technical-details"
+        onToggle={e => setDetailsOpen(e.currentTarget.open)}>
         <summary className="cursor-pointer py-1" style={{ color: 'var(--text-secondary)' }}>
           Technical evidence and proposed changes
         </summary>
@@ -290,6 +295,8 @@ function CaseCard({ caseRow, user, investigation, onDone, focused, onReview }) {
           {caseRow.why && <div><strong>Source recommendation (review applicability before use): </strong>{caseRow.why}</div>}
         </div>
       <EvidenceList evidence={caseRow.evidence || []} category={factTarget?.category} />
+      {findingID && <div className="mt-3"><SourceFixReport findingID={findingID}
+        database={caseRow.database_name} enabled={detailsOpen} /></div>}
       {candidateGuardrails.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-1.5"
           aria-label="Action guardrails">
