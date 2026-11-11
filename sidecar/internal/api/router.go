@@ -15,6 +15,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/ask"
 	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/databricksauth"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/llm"
@@ -103,6 +104,9 @@ type RuntimeDeps struct {
 	// TelemetryHistory resolves a registered database to retained normalized
 	// history. It must never run caller-supplied SQL or broaden provider scope.
 	TelemetryHistory func(context.Context, string, string, time.Time, time.Time, int) (any, error)
+	// LakebaseCredentials lists each Lakebase endpoint's credential refresh
+	// state for the admin deployment status; nil reports no endpoints.
+	LakebaseCredentials func() []databricksauth.EndpointCredential
 	// NotificationSecretKey seals channel secrets at rest; every runtime
 	// dispatcher must read with the same key (G7-B20). nil = plaintext.
 	NotificationSecretKey []byte
