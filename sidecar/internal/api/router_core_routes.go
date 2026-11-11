@@ -30,14 +30,12 @@ func registerAPIRoutes(
 	registerEventRoutes(mux, mgr)
 }
 
-// registerFindingRoutes covers findings, cases and the shadow report.
+// registerFindingRoutes covers findings and cases.
 func registerFindingRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
 	route(mux, "GET /api/v1/databases", gateViewer, http.HandlerFunc(databasesHandler(mgr)))
 	route(mux, "GET /api/v1/findings", gateViewer, http.HandlerFunc(findingsListHandler(mgr)))
 	route(mux, "GET /api/v1/findings/{id}", gateViewer, http.HandlerFunc(findingDetailHandler(mgr)))
 	route(mux, "GET /api/v1/cases", gateViewer, http.HandlerFunc(casesHandler(mgr)))
-	route(mux, "GET /api/v1/shadow-report", gateOperator,
-		http.HandlerFunc(shadowReportHandler(mgr)))
 
 	suppressH := http.HandlerFunc(
 		suppressHandler(mgr))

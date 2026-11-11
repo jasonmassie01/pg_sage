@@ -59,24 +59,6 @@ func TestCasesRouteRegistered(t *testing.T) {
 	}
 }
 
-func TestShadowReportHandlerEmptyWhenNoFleet(t *testing.T) {
-	req := httptest.NewRequest("GET", "/api/v1/shadow-report", nil)
-	rr := httptest.NewRecorder()
-
-	shadowReportHandler(nil).ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
-	}
-	var body map[string]any
-	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
-		t.Fatal(err)
-	}
-	if body["total_cases"].(float64) != 0 {
-		t.Fatalf("total_cases = %v, want 0", body["total_cases"])
-	}
-}
-
 // caseGateExecutor is an executor with a real standing gate over an
 // in-memory unattended policy (windows always open) and no emergency stop.
 func caseGateExecutor(cfg *config.Config) *executor.Executor {

@@ -13,16 +13,15 @@ let configMasked = []
 
 vi.mock('../hooks/useAPI', () => ({
   useAPI: vi.fn(url => {
-    if (url?.includes('/shadow-report')) {
+    if (url?.includes('/shadow-decisions')) {
       return {
         data: {
-          summary: {
-            total_cases: 1,
-            would_auto_resolve: 0,
-            needs_approval: 1,
-            avoided_toil_minutes: 30,
-          },
-          proof: [],
+          databases: [{
+            database: 'prod',
+            summary: [{ family: 'tuning', class: 'index_create', total: 1, pending: 1,
+              correct: 0, incorrect: 0, counted: 0, potential_minutes: 0 }],
+            decisions: [],
+          }],
         },
         loading: false,
         error: null,

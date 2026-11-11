@@ -39,33 +39,6 @@ func casesHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
 	}
 }
 
-// shadowReportResponse is the shadow report plus the databases whose
-// cases it could not count.
-type shadowReportResponse struct {
-	cases.ShadowReport
-	Unavailable []casesUnavailable `json:"unavailable"`
-}
-
-func shadowReportHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		database, ok := casesDatabaseSelection(w, r, mgr)
-		if !ok {
-			return
-		}
-		report := emptyCasesReport()
-		if mgr != nil {
-			report = collectCases(r.Context(), mgr, database)
-		}
-		if rejectSingleDatabaseFailure(w, database, report) {
-			return
-		}
-		jsonResponse(w, shadowReportResponse{
-			ShadowReport: cases.BuildShadowReport(report.Cases),
-			Unavailable:  report.Unavailable,
-		})
-	}
-}
-
 // casesDatabaseSelection reads ?database= ("all" when absent) and rejects
 // a malformed or unknown database.
 func casesDatabaseSelection(

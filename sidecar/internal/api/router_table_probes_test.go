@@ -62,7 +62,6 @@ var routeProbes = []routeProbe{
 	{"GET", "/api/v1/query-hints"},
 	{"GET", "/api/v1/recommendations"},
 	{"GET", "/api/v1/recommendations/7"},
-	{"GET", "/api/v1/shadow-report"},
 	{"GET", "/api/v1/snapshots/history"},
 	{"GET", "/api/v1/snapshots/latest"},
 	{"GET", "/api/v1/sre/changes"},
