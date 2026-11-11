@@ -10,7 +10,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/llm"
 )
 
-// Payload is one briefing's data (llm-08). Generate builds it once: it is
+// Payload is one briefing's data (llm-08, llm-06). Generate builds it once: it is
 // the LLM input, it is stored as sage.briefings.content_json, and its
 // recommendations are the only statements the LLM rewrite may repeat.
 type Payload struct {
@@ -18,6 +18,12 @@ type Payload struct {
 	TotalOpen int              `json:"total_open"`
 	System    map[string]any   `json:"system,omitempty"`
 	Actions   []map[string]any `json:"actions"`
+	// Window is the span the briefing covers; Actions are those executed in
+	// it (llm-06).
+	Window Window `json:"window"`
+	// OpenBySeverity counts every open finding by severity, not only the
+	// capped Findings list.
+	OpenBySeverity map[string]int `json:"open_by_severity,omitempty"`
 	// database is the fleet database the case links open on the Cases page.
 	database string
 }

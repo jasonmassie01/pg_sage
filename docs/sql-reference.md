@@ -186,13 +186,13 @@ Generated health briefings.
 |---|---|---|
 | `id` | bigserial | Primary key |
 | `generated_at` | timestamptz | When the briefing was generated |
-| `period_start`, `period_end` | timestamptz | Window the briefing covers |
+| `period_start`, `period_end` | timestamptz | Window the briefing covers: from the previous briefing's `generated_at` (on the first run, the schedule's previous fire time) to `generated_at` |
 | `mode` | text | Briefing mode (`executive`) |
 | `content_text` | text | Briefing text (structured or LLM-generated). In an LLM briefing, statements not among pg_sage's recommendations are replaced and each `#<id>` links to its case |
-| `content_json` | jsonb | The briefing payload: `findings` (id, case_key, category, severity, title, object_identifier, occurrence_count, risk_tier, recommendation, redacted recommended_sql), `total_open`, `system`, `actions` |
+| `content_json` | jsonb | The briefing payload: `findings` (id, case_key, category, severity, title, object_identifier, occurrence_count, risk_tier, recommendation, redacted recommended_sql), `total_open`, `open_by_severity`, `system`, `actions` (executed in the window, newest 100), `window` (`start`, `end`) |
 | `llm_used` | boolean | Whether the LLM wrote `content_text` |
 | `token_count` | integer | LLM tokens used |
-| `delivery_status` | jsonb | Reserved for per-channel delivery results; pg_sage leaves it NULL today |
+| `delivery_status` | jsonb | Per-channel delivery result, for example `{"slack": {"status": "error", "http_status": 500, "error": "slack rejected the briefing: HTTP 500", "at": "..."}}`. `status` is `sent`, `error` or `skipped`; the webhook URL is never stored. In a fleet roll-up every database's row holds the one message's result. NULL when the row could not be dispatched |
 
 ---
 

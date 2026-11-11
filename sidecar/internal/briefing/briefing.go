@@ -3,15 +3,13 @@ package briefing
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"net/http"
-	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -140,6 +138,13 @@ type Worker struct {
 	stdioNotice    sync.Once
 	// database is the fleet database name, part of each finding's case key.
 	database string
+	// live is the current briefing config and schedule, swapped whole by
+	// Reconfigure (llm-06); nil only for workers built without New.
+	live atomic.Pointer[liveSettings]
+	// window is the span of the briefing being generated; lastGenerated is
+	// the generated_at of the last stored briefing, zero if it failed.
+	window        Window
+	lastGenerated time.Time
 }
 
 // WithDatabaseName sets the fleet database the worker briefs, so the
@@ -160,7 +165,7 @@ func New(
 	if err != nil {
 		logFn("WARN", "briefing: invalid schedule %q: %v", cfg.Briefing.Schedule, err)
 	}
-	return &Worker{
+	w := &Worker{
 		pool:      pool,
 		cfg:       cfg,
 		llm:       llmClient,
@@ -170,49 +175,14 @@ func New(
 		stdout:    os.Stdout,
 		stderr:    os.Stderr,
 	}
+	bc := cfg.Briefing
+	bc.Channels = append([]string(nil), bc.Channels...)
+	w.live.Store(&liveSettings{cfg: bc, schedule: sched})
+	return w
 }
 
 // maxBriefingFindings caps findings sent to the LLM prompt.
 const maxBriefingFindings = 50
-
-// Generate creates a briefing from current findings and system state.
-func (w *Worker) Generate(ctx context.Context) (string, error) {
-	// Gather data.
-	findings, totalOpen, err := w.gatherFindings(ctx)
-	if err != nil {
-		return "", fmt.Errorf("gather findings: %w", err)
-	}
-
-	system, err := w.gatherSystem(ctx)
-	if err != nil {
-		return "", fmt.Errorf("gather system: %w", err)
-	}
-
-	actions, err := w.gatherRecentActions(ctx)
-	if err != nil {
-		actions = "[]" // non-fatal
-	}
-
-	payload, err := buildPayload(findings, totalOpen, system, actions, w.database)
-	if err != nil {
-		return "", fmt.Errorf("build briefing payload: %w", err)
-	}
-	structured := w.buildStructured(findings, totalOpen, system, actions)
-
-	// If LLM enabled, rewrite in natural language, grounded in the payload.
-	if w.llm != nil && w.llm.IsEnabled() && !w.llm.IsCircuitOpen() {
-		stored, plain, tokens, err := w.briefWithLLM(ctx, payload)
-		if err != nil {
-			w.logFn("WARN", "briefing: LLM enhancement failed: %v, using structured", err)
-		} else {
-			w.storeBriefing(ctx, stored, true, tokens, payload)
-			return plain, nil
-		}
-	}
-
-	w.storeBriefing(ctx, structured, false, 0, payload)
-	return structured, nil
-}
 
 // openAdviceSQL selects the open findings the briefing may present: none
 // about pg_sage's own statements or diagnostic tooling (internal/workload;
@@ -274,21 +244,50 @@ func (w *Worker) gatherSystem(ctx context.Context) (string, error) {
 	return result, err
 }
 
-func (w *Worker) gatherRecentActions(ctx context.Context) (string, error) {
+// maxBriefingActions caps the actions a long window reports.
+const maxBriefingActions = 100
+
+// gatherRecentActions reads the actions executed in (win.Start, win.End]:
+// consecutive windows neither overlap nor leave a gap (llm-06).
+func (w *Worker) gatherRecentActions(ctx context.Context, win Window) (string, error) {
 	var result string
-	err := w.pool.QueryRow(ctx, `/* pg_sage */ 
+	err := w.pool.QueryRow(ctx, `/* pg_sage */
 		SELECT coalesce(
 			(SELECT json_agg(json_build_object(
 				'action_type', action_type,
 				'outcome', outcome,
 				'executed_at', executed_at
 			) ORDER BY executed_at DESC)
-			FROM sage.action_log
-			WHERE executed_at > now() - interval '24 hours'),
+			FROM (SELECT action_type, outcome, executed_at
+			      FROM sage.action_log
+			      WHERE executed_at > $1 AND executed_at <= $2
+			      ORDER BY executed_at DESC LIMIT $3) a),
 			'[]'::json
 		)::text
-	`).Scan(&result)
+	`, win.Start, win.End, maxBriefingActions).Scan(&result)
 	return result, err
+}
+
+// gatherSeverityTotals counts the open findings the briefing may present,
+// by severity, over all of them rather than the capped list.
+func (w *Worker) gatherSeverityTotals(ctx context.Context) (map[string]int, error) {
+	rows, err := w.pool.Query(ctx, `/* pg_sage */
+		SELECT severity, count(*) FROM sage.findings WHERE `+openAdviceSQL+`
+		GROUP BY severity`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var severity string
+		var n int
+		if err := rows.Scan(&severity, &n); err != nil {
+			return nil, err
+		}
+		out[severity] = n
+	}
+	return out, rows.Err()
 }
 
 func (w *Worker) buildStructured(findings string, totalOpen int, system, actions string) string {
@@ -353,7 +352,7 @@ func (w *Worker) buildStructured(findings string, totalOpen int, system, actions
 	// Recent actions.
 	var actionsList []map[string]any
 	if err := json.Unmarshal([]byte(actions), &actionsList); err == nil && len(actionsList) > 0 {
-		b.WriteString("## Recent Actions (24h)\n")
+		fmt.Fprintf(&b, "## Recent Actions (%s)\n", w.window.label())
 		for _, a := range actionsList {
 			fmt.Fprintf(&b, "- %s → %s\n", a["action_type"], a["outcome"])
 		}
@@ -399,105 +398,4 @@ statement is removed before the briefing is sent.
 		text = withTruncationNote(text)
 	}
 	return text, resp.Tokens, nil
-}
-
-// storeBriefing records the briefing with its payload as content_json.
-func (w *Worker) storeBriefing(
-	ctx context.Context, content string, llmUsed bool, tokens int, payload Payload,
-) {
-	contentJSON, err := json.Marshal(payload)
-	if err != nil {
-		w.logFn("WARN", "briefing: encode content_json: %v; storing {}", err)
-		contentJSON = []byte(`{}`)
-	}
-	now := time.Now()
-	_, err = w.pool.Exec(ctx, `/* pg_sage */
-		INSERT INTO sage.briefings (generated_at, period_start, period_end, mode, content_text, content_json, llm_used, token_count)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, now, now.Add(-24*time.Hour), now, "executive", content,
-		json.RawMessage(contentJSON), llmUsed, tokens)
-	if err != nil {
-		w.logFn("WARN", "briefing: failed to store briefing: %v", err)
-	}
-}
-
-// Dispatch sends the briefing to configured channels. The ctx
-// bounds any outbound network calls (currently Slack) so that
-// graceful shutdown can cancel in-flight dispatches instead of
-// waiting for the full per-call HTTP timeout.
-func (w *Worker) Dispatch(ctx context.Context, briefing string) {
-	for _, ch := range w.cfg.Briefing.Channels {
-		switch ch {
-		case "stdout":
-			w.writeStdoutChannel(briefing)
-		case "slack":
-			if w.cfg.Briefing.SlackWebhookURL != "" {
-				w.sendSlack(ctx, briefing)
-			}
-		}
-	}
-}
-
-// writeStdoutChannel prints the briefing for the "stdout" channel. When
-// the MCP server speaks JSON-RPC over stdio, stdout is that protocol
-// stream and any other line corrupts it, so the briefing goes to stderr
-// and the operator is told once.
-func (w *Worker) writeStdoutChannel(briefing string) {
-	out, errOut := w.streams()
-	mcp := w.cfg.MCP
-	if mcp.Enabled && mcp.Transport == "stdio" {
-		w.stdioNotice.Do(func() {
-			w.logFn("WARN", "briefing: MCP stdio transport owns stdout; "+
-				"the stdout briefing channel is written to stderr instead")
-		})
-		out = errOut
-	}
-	if _, err := fmt.Fprintln(out, briefing); err != nil {
-		w.logFn("WARN", "briefing: write stdout channel: %v", err)
-	}
-}
-
-func (w *Worker) streams() (io.Writer, io.Writer) {
-	out, errOut := w.stdout, w.stderr
-	if out == nil {
-		out = os.Stdout
-	}
-	if errOut == nil {
-		errOut = os.Stderr
-	}
-	return out, errOut
-}
-
-func (w *Worker) sendSlack(ctx context.Context, text string) {
-	payload, _ := json.Marshal(map[string]string{"text": text})
-	// Cap the Slack POST at 10s, but make sure we inherit the
-	// caller's context so process shutdown cancels the request.
-	sendCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(sendCtx, "POST", w.cfg.Briefing.SlackWebhookURL,
-		strings.NewReader(string(payload)))
-	if err != nil {
-		w.logFn("WARN", "briefing: slack request error: %v", webhookFailureCause(err))
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := briefingHTTPClient.Do(req)
-	if err != nil {
-		w.logFn("WARN", "briefing: slack send error: %v", webhookFailureCause(err))
-		return
-	}
-	_ = resp.Body.Close()
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		w.logFn("WARN", "briefing: slack delivery rejected: HTTP %d", resp.StatusCode)
-	}
-}
-
-// A webhook URL contains its credential; url.Error includes that URL in Error().
-// Preserve the underlying failure without copying the credential into logs.
-func webhookFailureCause(err error) error {
-	var urlErr *url.Error
-	if errors.As(err, &urlErr) {
-		return urlErr.Err
-	}
-	return err
 }
