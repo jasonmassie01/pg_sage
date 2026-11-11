@@ -25,7 +25,9 @@ type ledgerExecDB struct {
 	failSQL string // an Exec whose SQL contains it fails
 }
 
-func (f *ledgerExecDB) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+func (f *ledgerExecDB) Exec(
+	ctx context.Context, sql string, args ...any,
+) (pgconn.CommandTag, error) {
 	f.args = append(f.args, args)
 	if f.failSQL != "" && strings.Contains(sql, f.failSQL) {
 		f.execs = append(f.execs, sql)

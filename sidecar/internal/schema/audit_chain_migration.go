@@ -140,7 +140,6 @@ BEGIN
 END $do$;
 `
 
-
 // migrateSIEMCursorAnchor runs ddlSIEMCursorAnchor under lock_timeout, as
 // a ledger step (config-04b).
 func migrateSIEMCursorAnchor(ctx context.Context, db bootstrapDB) error {

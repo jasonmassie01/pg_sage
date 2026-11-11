@@ -84,8 +84,7 @@ func Bootstrap(ctx context.Context, pool *pgxpool.Pool) error {
 	if err := startup.ValidateSessionEndpoint(endpoint.Host, endpoint.Port); err != nil {
 		return err
 	}
-	ledger := &migrationLedger{}
-	ctx = withMigrationLedger(ctx, ledger) // config-04b
+	ctx = withMigrationLedger(ctx, &migrationLedger{}) // config-04b
 	return withBootstrapSession(
 		ctx, pool,
 		func(conn *pgxpool.Conn) error {
@@ -123,7 +122,7 @@ func Bootstrap(ctx context.Context, pool *pgxpool.Pool) error {
 			if err := migrateLateSteps(ctx, conn); err != nil {
 				return err
 			}
-			return ledger.seal(ctx, conn)
+			return ledgerFrom(ctx).seal(ctx, conn)
 		},
 	)
 }

@@ -255,7 +255,8 @@ func TestBootstrap_ParallelBootsRecordEachStepOnce(t *testing.T) {
 	}
 	var rows, ids int
 	if err := pool.QueryRow(ctx, `SELECT count(*), count(DISTINCT id)
-		FROM sage.schema_migrations WHERE id <> $1`, ledgerCatalogID).Scan(&rows, &ids); err != nil {
+		FROM sage.schema_migrations WHERE id <> $1`, ledgerCatalogID).
+		Scan(&rows, &ids); err != nil {
 		t.Fatalf("count the ledger: %v", err)
 	}
 	golden, _ := goldenChecksums(t)
@@ -272,7 +273,8 @@ func TestBootstrap_ParallelBootsRecordEachStepOnce(t *testing.T) {
 func TestBootstrap_RecordedStepRepairsADroppedColumn(t *testing.T) {
 	pool := freshSchemaPool(t, "schema_ledger_drift")
 	ctx := context.Background()
-	if _, err := pool.Exec(ctx, "ALTER TABLE sage.query_hints DROP COLUMN rewrite_rationale"); err != nil {
+	if _, err := pool.Exec(ctx,
+		"ALTER TABLE sage.query_hints DROP COLUMN rewrite_rationale"); err != nil {
 		t.Fatalf("drop the column: %v", err)
 	}
 	if err := Bootstrap(ctx, pool); err != nil {
