@@ -176,5 +176,6 @@ func trancheOneMigrations() []namedStep {
 func trancheTwoMigrations() []namedStep {
 	return []namedStep{
 		{"ddlIncidentsLogOccurrences", ddlIncidentsLogOccurrences}, // rca-07
+		{"ddlExplainEstimateSource", ddlExplainEstimateSource},     // rca-04
 	}
 }

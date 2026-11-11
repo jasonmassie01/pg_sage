@@ -141,7 +141,6 @@ func TestYAMLRoundTrip_AllFieldsSurvive(t *testing.T) {
 			LogMinDurationMs:       500,
 			CollectIntervalSeconds: 120,
 			MaxPlansPerCycle:       50,
-			PreferSessionLoad:      false,
 		},
 		Forecaster: ForecasterConfig{
 			Enabled:             true,
@@ -312,7 +311,6 @@ func TestYAMLRoundTrip_AllFieldsSurvive(t *testing.T) {
 	assertEqualInt(t, "AutoExplain.LogMinDurationMs", roundtripped.AutoExplain.LogMinDurationMs, original.AutoExplain.LogMinDurationMs)
 	assertEqualInt(t, "AutoExplain.CollectIntervalSeconds", roundtripped.AutoExplain.CollectIntervalSeconds, original.AutoExplain.CollectIntervalSeconds)
 	assertEqualInt(t, "AutoExplain.MaxPlansPerCycle", roundtripped.AutoExplain.MaxPlansPerCycle, original.AutoExplain.MaxPlansPerCycle)
-	assertEqualBool(t, "AutoExplain.PreferSessionLoad", roundtripped.AutoExplain.PreferSessionLoad, original.AutoExplain.PreferSessionLoad)
 
 	// --- Forecaster ---
 	assertEqualBool(t, "Forecaster.Enabled", roundtripped.Forecaster.Enabled, original.Forecaster.Enabled)
@@ -830,7 +828,6 @@ auto_explain:
   log_min_duration_ms: 1000
   collect_interval_seconds: 300
   max_plans_per_cycle: 100
-  prefer_session_load: true
 forecaster:
   enabled: true
   lookback_days: 30

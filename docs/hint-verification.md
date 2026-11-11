@@ -520,8 +520,11 @@ only while it still describes the statement. A plan is stale when:
   one of its relations or indexes, such as a `CREATE INDEX` on its table.
 
 A capture at the same instant as one of these events counts as stale, and so
-does a plan whose relation history cannot be read. The newest fresh capture
-among the statement's three newest is used. When none is fresh:
+does a plan whose relation history cannot be read. Of the statement's three
+newest captures, the newest fresh executed plan (one with actual rows, such
+as an `auto_explain_log` plan) is used, else the newest fresh estimate
+(`explain_estimate` or `generic_plan`): an estimate taken after a logged plan
+never hides the plan's actual rows. When none is fresh:
 
 - the tuning agent runs one plain `EXPLAIN` in a bounded read-only
   transaction (`GENERIC_PLAN` on PostgreSQL 16 and later; on 14 and 15 a
@@ -541,8 +544,9 @@ spill and bad nested loop rules, which need `EXPLAIN ANALYZE` output, never
 run on it. pg_sage never runs `EXPLAIN ANALYZE` on this path. The tuner reads
 each candidate's plan once per cycle. The agent's `explain` tool result and
 each `query_tuning` finding (`detail.plan`) carry the plan's `source`,
-`capture`, `captured_at` and `age_seconds`, and, when the cached plan was
-skipped, `stale_reason`.
+`capture` (the cache row's own source: `auto_explain_log`, `explain_estimate`
+or `generic_plan`), `captured_at` and `age_seconds`, and, when the cached plan
+was skipped, `stale_reason`.
 
 ## Hint lifecycle
 

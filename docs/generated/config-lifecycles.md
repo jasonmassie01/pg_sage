@@ -103,7 +103,6 @@
 | `auto_explain.enabled` | `restart` | `-` | `operator_preference` |
 | `auto_explain.log_min_duration_ms` | `restart` | `-` | `derivable` |
 | `auto_explain.max_plans_per_cycle` | `restart` | `-` | `derivable` |
-| `auto_explain.prefer_session_load` | `restart` | `-` | `operator_preference` |
 | `azure.resource_group` | `restart` | `-` | `safety_critical` |
 | `azure.server_name` | `restart` | `-` | `safety_critical` |
 | `azure.subscription_id` | `restart` | `-` | `safety_critical` |

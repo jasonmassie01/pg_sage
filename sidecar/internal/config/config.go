@@ -357,7 +357,6 @@ type AutoExplainConfig struct {
 	LogMinDurationMs       int  `yaml:"log_min_duration_ms"`
 	CollectIntervalSeconds int  `yaml:"collect_interval_seconds"`
 	MaxPlansPerCycle       int  `yaml:"max_plans_per_cycle"`
-	PreferSessionLoad      bool `yaml:"prefer_session_load"`
 }
 
 type ForecasterConfig struct {
@@ -1052,7 +1051,6 @@ func newDefaults() *Config {
 			LogMinDurationMs:       DefaultAutoExplainLogMinDuration,
 			CollectIntervalSeconds: DefaultAutoExplainCollectInterval,
 			MaxPlansPerCycle:       DefaultAutoExplainMaxPlansPerCycle,
-			PreferSessionLoad:      true,
 		},
 		Forecaster: ForecasterConfig{
 			Enabled:                    true,

@@ -159,7 +159,6 @@ auto_explain:
   log_min_duration_ms: 1000   # Minimum query duration to capture plans
   collect_interval_seconds: 300
   max_plans_per_cycle: 100
-  prefer_session_load: true   # Use LOAD 'auto_explain' per-session
 
 forecaster:
   enabled: true

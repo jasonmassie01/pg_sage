@@ -67,6 +67,13 @@ var retiredKeys = []struct {
 			"ignored: a fleet canary waits for each database's own verification verdict; " +
 			"remove it from the config file",
 	}},
+	// rca-04: nothing read it; the on-demand EXPLAIN is never logged by
+	// auto_explain, so loading the module for it did nothing.
+	{[]string{"auto_explain"}, map[string]string{
+		"prefer_session_load": "auto_explain.prefer_session_load is no longer used and " +
+			"is ignored: pg_sage loads no auto_explain settings into its own EXPLAIN " +
+			"(auto_explain never logs an EXPLAIN); remove it from the config file",
+	}},
 	{[]string{"llm", "index_optimizer"}, map[string]string{
 		"over_indexed_ratio_pct": "llm.index_optimizer.over_indexed_ratio_pct is no " +
 			"longer used and is ignored; remove it from the config file",

@@ -78,26 +78,61 @@ WHERE queryid = $1 AND source <> 'lakebase_plan_history'
 ORDER BY captured_at DESC
 LIMIT $2`
 
-// Read returns the newest fresh cached plan of queryID; when every cached
-// plan is stale, one fresh plan of text from Explain. A failing Explain is
-// an error: the stale plan is never returned in its place.
+// Read returns the newest fresh executed plan of queryID, else its newest
+// fresh cached estimate; when every cached plan is stale, one fresh plan of
+// text from Explain. A failing Explain is an error: the stale plan is never
+// returned in its place.
 func (r Reader) Read(ctx context.Context, queryID int64, text string) (Plan, error) {
 	caps, err := r.captures(ctx, queryID)
 	if err != nil {
 		return Plan{}, fmt.Errorf("read explain cache for queryid %d: %w", queryID, err)
 	}
 	now := r.now()
+	p, ok, reason := r.pickFresh(ctx, caps, now)
+	if ok {
+		return p, nil
+	}
+	return r.explainAfresh(ctx, queryID, text, caps, reason, now)
+}
+
+// pickFresh returns the newest fresh capture that carries actual rows (an
+// executed plan beats a newer estimate, rca-04), else the newest fresh
+// one; ok is false when none is fresh, and reason then says why the
+// newest was stale.
+func (r Reader) pickFresh(ctx context.Context, caps []Capture, now time.Time) (Plan, bool,
+	string) {
 	reason := ""
-	for _, c := range caps {
+	var estimate *Capture
+	for i := range caps {
+		c := caps[i]
 		v := r.judge(ctx, c, now)
-		if v.Fresh {
-			return Plan{Source: SourceCache, Capture: c.Source, JSON: c.JSON,
-				CapturedAt: c.CapturedAt, HasActuals: HasActuals(c)}, nil
+		if !v.Fresh {
+			if reason == "" {
+				reason = v.Reason
+			}
+			continue
 		}
-		if reason == "" {
-			reason = v.Reason
+		if HasActuals(c) {
+			return cachedPlan(c), true, ""
+		}
+		if estimate == nil {
+			estimate = &caps[i]
 		}
 	}
+	if estimate != nil {
+		return cachedPlan(*estimate), true, ""
+	}
+	return Plan{}, false, reason
+}
+
+func cachedPlan(c Capture) Plan {
+	return Plan{Source: SourceCache, Capture: c.Source, JSON: c.JSON,
+		CapturedAt: c.CapturedAt, HasActuals: HasActuals(c)}
+}
+
+// explainAfresh is Read's fallback when no cached plan is fresh.
+func (r Reader) explainAfresh(ctx context.Context, queryID int64, text string,
+	caps []Capture, reason string, now time.Time) (Plan, error) {
 	var staleJSON []byte
 	if len(caps) > 0 {
 		staleJSON = caps[0].JSON

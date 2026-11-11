@@ -2,9 +2,11 @@ package autoexplain
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -115,6 +117,17 @@ func checkSessionLoad(
 		return false, nil
 	}
 	return true, nil
+}
+
+// isPermissionDenied checks whether the error is a PG permission
+// denied error (SQLSTATE 42501).
+func isPermissionDenied(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "42501" {
+		return true
+	}
+	// Fallback: check error string for SQLSTATE 42501.
+	return strings.Contains(err.Error(), "42501")
 }
 
 // EnableHint returns a platform-specific instruction for enabling

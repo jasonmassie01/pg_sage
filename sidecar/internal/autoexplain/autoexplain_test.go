@@ -81,36 +81,6 @@ func TestIsExplainable(t *testing.T) {
 	}
 }
 
-func TestDefaultSessionConfig(t *testing.T) {
-	cfg := DefaultSessionConfig(500)
-
-	if cfg.LogMinDurationMs != 500 {
-		t.Errorf(
-			"LogMinDurationMs = %d, want 500",
-			cfg.LogMinDurationMs,
-		)
-	}
-	if !cfg.LogAnalyze {
-		t.Error("LogAnalyze should be true")
-	}
-	if !cfg.LogBuffers {
-		t.Error("LogBuffers should be true")
-	}
-	if !cfg.LogNested {
-		t.Error("LogNested should be true")
-	}
-}
-
-func TestDefaultSessionConfig_ZeroThreshold(t *testing.T) {
-	cfg := DefaultSessionConfig(0)
-	if cfg.LogMinDurationMs != 0 {
-		t.Errorf(
-			"LogMinDurationMs = %d, want 0",
-			cfg.LogMinDurationMs,
-		)
-	}
-}
-
 func TestAvailability_SharedPreload(t *testing.T) {
 	a := Availability{
 		SharedPreload: true,
@@ -163,7 +133,6 @@ func TestCollectorConfig_Defaults(t *testing.T) {
 		CollectIntervalSeconds: 60,
 		MaxPlansPerCycle:       10,
 		LogMinDurationMs:       500,
-		PreferSessionLoad:      false,
 	}
 	if cfg.CollectIntervalSeconds != 60 {
 		t.Errorf(
@@ -182,39 +151,6 @@ func TestCollectorConfig_Defaults(t *testing.T) {
 			"LogMinDurationMs = %d, want 500",
 			cfg.LogMinDurationMs,
 		)
-	}
-}
-
-func TestBuildSetStatements_AllEnabled(t *testing.T) {
-	scfg := SessionConfig{
-		LogMinDurationMs: 200,
-		LogAnalyze:       true,
-		LogBuffers:       true,
-		LogNested:        true,
-	}
-	stmts := buildSetStatements(scfg)
-
-	// 2 base + 3 optional = 5
-	if len(stmts) != 5 {
-		t.Fatalf("got %d statements, want 5", len(stmts))
-	}
-	if stmts[0] != "SET auto_explain.log_min_duration = '200ms'" {
-		t.Errorf("stmts[0] = %q", stmts[0])
-	}
-	if stmts[1] != "SET auto_explain.log_format = 'json'" {
-		t.Errorf("stmts[1] = %q", stmts[1])
-	}
-}
-
-func TestBuildSetStatements_NoneEnabled(t *testing.T) {
-	scfg := SessionConfig{
-		LogMinDurationMs: 1000,
-	}
-	stmts := buildSetStatements(scfg)
-
-	// Only the 2 base statements
-	if len(stmts) != 2 {
-		t.Fatalf("got %d statements, want 2", len(stmts))
 	}
 }
 

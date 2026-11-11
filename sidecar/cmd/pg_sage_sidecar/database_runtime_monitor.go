@@ -108,7 +108,6 @@ func (rt *databaseRuntime) startAutoExplain() {
 		CollectIntervalSeconds: cfg.AutoExplain.CollectIntervalSeconds,
 		MaxPlansPerCycle:       cfg.AutoExplain.MaxPlansPerCycle,
 		LogMinDurationMs:       cfg.AutoExplain.LogMinDurationMs,
-		PreferSessionLoad:      cfg.AutoExplain.PreferSessionLoad,
 	}
 	plans := autoexplain.NewCollector(
 		rt.spec.Pool, collectorCfg, avail, logStructuredWrapper,

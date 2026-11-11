@@ -663,12 +663,6 @@
     "doc": "",
     "class": "derivable"
   },
-  "auto_explain.prefer_session_load": {
-    "type": "bool",
-    "default": true,
-    "doc": "",
-    "class": "operator_preference"
-  },
   "azure.resource_group": {
     "type": "string",
     "default": "",
