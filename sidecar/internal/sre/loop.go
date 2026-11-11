@@ -9,7 +9,8 @@ import (
 // Run is the coordinator loop. Every trigger interval it verifies the
 // store after an outage, binds the scope, starts investigations from
 // triggers (automatic start only), queues pending work (queued, waiting
-// or orphaned by a dead worker) and applies retention when due. It runs
+// or orphaned by a dead worker), sends settled diagnoses of incidents to
+// the engineer who was paged (sre-08) and applies retention when due. It runs
 // queued investigations one at a time, so a database has at most one
 // investigation probing it. It returns when ctx ends.
 func (c *Coordinator) Run(ctx context.Context) {
@@ -49,6 +50,7 @@ func (c *Coordinator) tick(ctx context.Context, lastRetention *time.Time) {
 		c.pollTriggers(ctx)
 	}
 	c.queuePending(ctx, scope)
+	c.notifyConclusions(ctx, scope)
 	if time.Since(*lastRetention) >= c.cfg.RetentionInterval {
 		c.retain(ctx, scope)
 		*lastRetention = time.Now()

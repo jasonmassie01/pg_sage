@@ -69,7 +69,7 @@ func followUpCoordinator(t *testing.T, ctx context.Context, st *PostgresStore,
 	return c, scope
 }
 
-func insertIncident(t *testing.T, ctx context.Context, pool *pgxpool.Pool, db,
+func insertFollowUpIncident(t *testing.T, ctx context.Context, pool *pgxpool.Pool, db,
 	severity string) string {
 	t.Helper()
 	var id string
@@ -79,11 +79,17 @@ func insertIncident(t *testing.T, ctx context.Context, pool *pgxpool.Pool, db,
 		RETURNING id::text`, severity, db).Scan(&id); err != nil {
 		t.Fatalf("insert incident: %v", err)
 	}
+	t.Cleanup(func() { // other packages' trigger tests read every open incident
+		_, _ = pool.Exec(context.Background(), `DELETE FROM sage.incidents
+			WHERE id = $1::uuid`, id)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM sage.sre_incident_followup
+			WHERE incident_id = $1`, id)
+	})
 	return id
 }
 
-// runFor creates a lock investigation of incident and drives it to state.
-func runFor(t *testing.T, ctx context.Context, st *PostgresStore, scope Scope,
+// runOfIncident creates a lock investigation of incident and drives it to state.
+func runOfIncident(t *testing.T, ctx context.Context, st *PostgresStore, scope Scope,
 	incident string, state State, reason string) Investigation {
 	t.Helper()
 	req := lockStart(scope, "run-"+string(NewUUID()))
@@ -143,9 +149,9 @@ func finish(ctx context.Context, st *PostgresStore, lease Lease, ev []Evidence,
 	return Investigation{}, fmt.Errorf("no fixture for state %s", state)
 }
 
-// age moves an investigation's conclusion d into the past (setting one on
+// ageConclusion moves an investigation's conclusion d into the past (setting one on
 // runs that never concluded, so only the state can exclude them).
-func age(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id UUID, d time.Duration) {
+func ageConclusion(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id UUID, d time.Duration) {
 	t.Helper()
 	if _, err := pool.Exec(ctx, `UPDATE sage.sre_investigations
 		SET concluded_at = clock_timestamp() - make_interval(secs => $2)
@@ -154,22 +160,22 @@ func age(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id UUID, d time.
 	}
 }
 
-type claimRow struct {
+type followUpClaim struct {
 	investigation UUID
 	delivered     bool
 }
 
-func claimOf(t *testing.T, ctx context.Context, pool *pgxpool.Pool, incident string) (claimRow,
+func claimOf(t *testing.T, ctx context.Context, pool *pgxpool.Pool, incident string) (followUpClaim,
 	bool) {
 	t.Helper()
-	var r claimRow
+	var r followUpClaim
 	var inv string
 	err := pool.QueryRow(ctx, `SELECT investigation_id::text, delivered_at IS NOT NULL
 		FROM sage.sre_incident_followup WHERE incident_id = $1`, incident).
 		Scan(&inv, &r.delivered)
 	if err != nil {
 		if strings.Contains(err.Error(), "no rows") {
-			return claimRow{}, false
+			return followUpClaim{}, false
 		}
 		t.Fatalf("read claim: %v", err)
 	}
@@ -182,9 +188,9 @@ func TestConclusionNotifier_SendsTheSettledConclusionOnce(t *testing.T) {
 	sink := &recordingSink{}
 	c, scope := followUpCoordinator(t, ctx, st, "test:"+string(NewUUID()), sink,
 		NewPGTriggerSource(pool, "orders"))
-	inc := insertIncident(t, ctx, pool, "orders", "critical")
-	a := runFor(t, ctx, st, scope, inc, StateConcluded, "root blocker pid 7 is idle")
-	age(t, ctx, pool, a.ID, 2*time.Minute)
+	inc := insertFollowUpIncident(t, ctx, pool, "orders", "critical")
+	a := runOfIncident(t, ctx, st, scope, inc, StateConcluded, "root blocker pid 7 is idle")
+	ageConclusion(t, ctx, pool, a.ID, 2*time.Minute)
 	c.notifyConclusions(ctx, scope)
 	c.notifyConclusions(ctx, scope)
 	got := sink.signals()
@@ -203,8 +209,8 @@ func TestConclusionNotifier_SendsTheSettledConclusionOnce(t *testing.T) {
 		t.Fatalf("claim = %+v (%v), want delivered for %s", claim, ok, a.ID)
 	}
 	// A later re-run of the same incident concludes: no second follow-up.
-	b := runFor(t, ctx, st, scope, inc, StateConcluded, "re-run diagnosis")
-	age(t, ctx, pool, b.ID, 2*time.Minute)
+	b := runOfIncident(t, ctx, st, scope, inc, StateConcluded, "re-run diagnosis")
+	ageConclusion(t, ctx, pool, b.ID, 2*time.Minute)
 	c.notifyConclusions(ctx, scope)
 	if n := len(sink.signals()); n != 1 {
 		t.Fatalf("re-run conclusion sent again: %d follow-ups", n)
@@ -216,9 +222,9 @@ func TestConclusionNotifier_InconclusiveIsDelivered(t *testing.T) {
 	sink := &recordingSink{}
 	c, scope := followUpCoordinator(t, ctx, st, "test:"+string(NewUUID()), sink,
 		NewPGTriggerSource(pool, "orders"))
-	inc := insertIncident(t, ctx, pool, "orders", "warning")
-	a := runFor(t, ctx, st, scope, inc, StateInconclusive, "lock graph empty when probed")
-	age(t, ctx, pool, a.ID, 2*time.Minute)
+	inc := insertFollowUpIncident(t, ctx, pool, "orders", "warning")
+	a := runOfIncident(t, ctx, st, scope, inc, StateInconclusive, "lock graph empty when probed")
+	ageConclusion(t, ctx, pool, a.ID, 2*time.Minute)
 	c.notifyConclusions(ctx, scope)
 	got := sink.signals()
 	if len(got) != 1 || got[0].State != StateInconclusive || got[0].RootLabel != "" ||
@@ -232,9 +238,9 @@ func TestConclusionNotifier_WaitsForTheConclusionToSettle(t *testing.T) {
 	sink := &recordingSink{}
 	c, scope := followUpCoordinator(t, ctx, st, "test:"+string(NewUUID()), sink,
 		NewPGTriggerSource(pool, "orders"))
-	inc := insertIncident(t, ctx, pool, "orders", "critical")
-	a := runFor(t, ctx, st, scope, inc, StateConcluded, "fresh")
-	age(t, ctx, pool, a.ID, 50*time.Second)
+	inc := insertFollowUpIncident(t, ctx, pool, "orders", "critical")
+	a := runOfIncident(t, ctx, st, scope, inc, StateConcluded, "fresh")
+	ageConclusion(t, ctx, pool, a.ID, 50*time.Second)
 	c.notifyConclusions(ctx, scope)
 	if n := len(sink.signals()); n != 0 {
 		t.Fatalf("a 50 s old conclusion was sent: %d", n)
@@ -242,7 +248,7 @@ func TestConclusionNotifier_WaitsForTheConclusionToSettle(t *testing.T) {
 	if _, ok := claimOf(t, ctx, pool, inc); ok {
 		t.Fatal("an unsettled conclusion was claimed")
 	}
-	age(t, ctx, pool, a.ID, 61*time.Second)
+	ageConclusion(t, ctx, pool, a.ID, 61*time.Second)
 	c.notifyConclusions(ctx, scope)
 	if n := len(sink.signals()); n != 1 {
 		t.Fatalf("a 61 s old conclusion: %d follow-ups, want 1", n)
@@ -254,14 +260,14 @@ func TestConclusionNotifier_IgnoresConclusionsOlderThanTheWindow(t *testing.T) {
 	sink := &recordingSink{}
 	c, scope := followUpCoordinator(t, ctx, st, "test:"+string(NewUUID()), sink,
 		NewPGTriggerSource(pool, "orders"))
-	inc := insertIncident(t, ctx, pool, "orders", "critical")
-	a := runFor(t, ctx, st, scope, inc, StateConcluded, "old news")
-	age(t, ctx, pool, a.ID, 61*time.Minute)
+	inc := insertFollowUpIncident(t, ctx, pool, "orders", "critical")
+	a := runOfIncident(t, ctx, st, scope, inc, StateConcluded, "old news")
+	ageConclusion(t, ctx, pool, a.ID, 61*time.Minute)
 	c.notifyConclusions(ctx, scope)
 	if n := len(sink.signals()); n != 0 {
 		t.Fatalf("a 61 minute old conclusion was sent: %d", n)
 	}
-	age(t, ctx, pool, a.ID, 59*time.Minute)
+	ageConclusion(t, ctx, pool, a.ID, 59*time.Minute)
 	c.notifyConclusions(ctx, scope)
 	if n := len(sink.signals()); n != 1 {
 		t.Fatalf("a 59 minute old conclusion: %d follow-ups, want 1", n)
@@ -273,16 +279,16 @@ func TestConclusionNotifier_TwoConclusionsSendOnlyTheNewer(t *testing.T) {
 	sink := &recordingSink{}
 	c, scope := followUpCoordinator(t, ctx, st, "test:"+string(NewUUID()), sink,
 		NewPGTriggerSource(pool, "orders"))
-	inc := insertIncident(t, ctx, pool, "orders", "critical")
-	older := runFor(t, ctx, st, scope, inc, StateConcluded, "first diagnosis")
-	newer := runFor(t, ctx, st, scope, inc, StateConcluded, "second diagnosis")
-	age(t, ctx, pool, older.ID, 90*time.Second)
-	age(t, ctx, pool, newer.ID, 30*time.Second)
+	inc := insertFollowUpIncident(t, ctx, pool, "orders", "critical")
+	older := runOfIncident(t, ctx, st, scope, inc, StateConcluded, "first diagnosis")
+	newer := runOfIncident(t, ctx, st, scope, inc, StateConcluded, "second diagnosis")
+	ageConclusion(t, ctx, pool, older.ID, 90*time.Second)
+	ageConclusion(t, ctx, pool, newer.ID, 30*time.Second)
 	c.notifyConclusions(ctx, scope)
 	if n := len(sink.signals()); n != 0 {
 		t.Fatalf("the older conclusion went out while the newer settles: %d", n)
 	}
-	age(t, ctx, pool, newer.ID, 70*time.Second)
+	ageConclusion(t, ctx, pool, newer.ID, 70*time.Second)
 	c.notifyConclusions(ctx, scope)
 	got := sink.signals()
 	if len(got) != 1 || got[0].InvestigationID != newer.ID ||
@@ -296,10 +302,10 @@ func TestConclusionNotifier_WaitsForALiveRunOfTheIncident(t *testing.T) {
 	sink := &recordingSink{}
 	c, scope := followUpCoordinator(t, ctx, st, "test:"+string(NewUUID()), sink,
 		NewPGTriggerSource(pool, "orders"))
-	inc := insertIncident(t, ctx, pool, "orders", "critical")
-	done := runFor(t, ctx, st, scope, inc, StateConcluded, "first")
-	age(t, ctx, pool, done.ID, 2*time.Minute)
-	live := runFor(t, ctx, st, scope, inc, StateQueued, "")
+	inc := insertFollowUpIncident(t, ctx, pool, "orders", "critical")
+	done := runOfIncident(t, ctx, st, scope, inc, StateConcluded, "first")
+	ageConclusion(t, ctx, pool, done.ID, 2*time.Minute)
+	live := runOfIncident(t, ctx, st, scope, inc, StateQueued, "")
 	c.notifyConclusions(ctx, scope)
 	if n := len(sink.signals()); n != 0 {
 		t.Fatalf("sent while a run of the incident is queued: %d", n)
@@ -323,13 +329,13 @@ func TestConclusionNotifier_NoFollowUpForFailedExpiredOrCancelled(t *testing.T) 
 		NewPGTriggerSource(pool, "orders"))
 	var incidents []string
 	for _, state := range []State{StateFailed, StateExpired, StateCancelled} {
-		inc := insertIncident(t, ctx, pool, "orders", "critical")
+		inc := insertFollowUpIncident(t, ctx, pool, "orders", "critical")
 		incidents = append(incidents, inc)
-		inv := runFor(t, ctx, st, scope, inc, state, "did not finish")
+		inv := runOfIncident(t, ctx, st, scope, inc, state, "did not finish")
 		if inv.State != state {
 			t.Fatalf("fixture state = %s, want %s", inv.State, state)
 		}
-		age(t, ctx, pool, inv.ID, 2*time.Minute)
+		ageConclusion(t, ctx, pool, inv.ID, 2*time.Minute)
 	}
 	c.notifyConclusions(ctx, scope)
 	if got := sink.signals(); len(got) != 0 {
@@ -347,14 +353,14 @@ func TestConclusionNotifier_NoIncidentOrUntrackedIncidentSendsNothing(t *testing
 	sink := &recordingSink{}
 	c, scope := followUpCoordinator(t, ctx, st, "test:"+string(NewUUID()), sink,
 		NewPGTriggerSource(pool, "orders"))
-	operator := runFor(t, ctx, st, scope, "", StateConcluded, "operator asked")
+	operator := runOfIncident(t, ctx, st, scope, "", StateConcluded, "operator asked")
 	gone := string(NewUUID()) // never recorded (or purged by retention)
-	elsewhere := insertIncident(t, ctx, pool, "payments", "critical")
+	elsewhere := insertFollowUpIncident(t, ctx, pool, "payments", "critical")
 	runs := []Investigation{operator,
-		runFor(t, ctx, st, scope, gone, StateConcluded, "gone"),
-		runFor(t, ctx, st, scope, elsewhere, StateConcluded, "other database")}
+		runOfIncident(t, ctx, st, scope, gone, StateConcluded, "gone"),
+		runOfIncident(t, ctx, st, scope, elsewhere, StateConcluded, "other database")}
 	for _, r := range runs {
-		age(t, ctx, pool, r.ID, 2*time.Minute)
+		ageConclusion(t, ctx, pool, r.ID, 2*time.Minute)
 	}
 	c.notifyConclusions(ctx, scope)
 	if got := sink.signals(); len(got) != 0 {
@@ -372,9 +378,9 @@ func TestConclusionNotifier_DeliveryFailureKeepsTheClaim(t *testing.T) {
 	sink := &recordingSink{err: errors.New("slack returned status 503")}
 	c, scope := followUpCoordinator(t, ctx, st, "test:"+string(NewUUID()), sink,
 		NewPGTriggerSource(pool, "orders"))
-	inc := insertIncident(t, ctx, pool, "orders", "critical")
-	a := runFor(t, ctx, st, scope, inc, StateConcluded, "root found")
-	age(t, ctx, pool, a.ID, 2*time.Minute)
+	inc := insertFollowUpIncident(t, ctx, pool, "orders", "critical")
+	a := runOfIncident(t, ctx, st, scope, inc, StateConcluded, "root found")
+	ageConclusion(t, ctx, pool, a.ID, 2*time.Minute)
 	for i := 0; i < 3; i++ {
 		c.notifyConclusions(ctx, scope)
 	}
@@ -393,9 +399,9 @@ func TestConclusionNotifier_IncidentReadErrorDefersWithoutClaim(t *testing.T) {
 	sink := &recordingSink{}
 	incidents := &flakyIncidents{base: NewPGTriggerSource(pool, "orders"), broken: true}
 	c, scope := followUpCoordinator(t, ctx, st, "test:"+string(NewUUID()), sink, incidents)
-	inc := insertIncident(t, ctx, pool, "orders", "critical")
-	a := runFor(t, ctx, st, scope, inc, StateConcluded, "root found")
-	age(t, ctx, pool, a.ID, 2*time.Minute)
+	inc := insertFollowUpIncident(t, ctx, pool, "orders", "critical")
+	a := runOfIncident(t, ctx, st, scope, inc, StateConcluded, "root found")
+	ageConclusion(t, ctx, pool, a.ID, 2*time.Minute)
 	c.notifyConclusions(ctx, scope)
 	if _, ok := claimOf(t, ctx, pool, inc); ok || len(sink.signals()) != 0 {
 		t.Fatal("an unreadable incident was claimed or sent")
@@ -429,9 +435,9 @@ func TestConclusionNotifier_TwoSidecarsSendOnce(t *testing.T) {
 	}
 	var incidents []string
 	for i := 0; i < 4; i++ {
-		inc := insertIncident(t, ctx, pool, "orders", "critical")
+		inc := insertFollowUpIncident(t, ctx, pool, "orders", "critical")
 		incidents = append(incidents, inc)
-		age(t, ctx, pool, runFor(t, ctx, st, scope, inc, StateConcluded, "root").ID,
+		ageConclusion(t, ctx, pool, runOfIncident(t, ctx, st, scope, inc, StateConcluded, "root").ID,
 			2*time.Minute)
 	}
 	var wg sync.WaitGroup
@@ -469,10 +475,10 @@ func TestConclusionNotifier_SignalCarriesNoEvidenceOrSQL(t *testing.T) {
 	sink := &recordingSink{}
 	c, scope := followUpCoordinator(t, ctx, st, "test:"+string(NewUUID()), sink,
 		NewPGTriggerSource(pool, "orders"))
-	inc := insertIncident(t, ctx, pool, "orders", "critical")
-	a := runFor(t, ctx, st, scope, inc, StateConcluded,
+	inc := insertFollowUpIncident(t, ctx, pool, "orders", "critical")
+	a := runOfIncident(t, ctx, st, scope, inc, StateConcluded,
 		"pid 7 ran UPDATE accounts SET pin = 'planted-sql-literal' and then idled")
-	age(t, ctx, pool, a.ID, 2*time.Minute)
+	ageConclusion(t, ctx, pool, a.ID, 2*time.Minute)
 	c.notifyConclusions(ctx, scope)
 	got := sink.signals()
 	if len(got) != 1 {
@@ -494,9 +500,9 @@ func TestConclusionNotifier_RunsInTheTriggerTick(t *testing.T) {
 	sink := &recordingSink{}
 	c, scope := followUpCoordinator(t, ctx, st, "test:"+string(NewUUID()), sink,
 		NewPGTriggerSource(pool, "orders"))
-	inc := insertIncident(t, ctx, pool, "orders", "critical")
-	a := runFor(t, ctx, st, scope, inc, StateConcluded, "root found")
-	age(t, ctx, pool, a.ID, 2*time.Minute)
+	inc := insertFollowUpIncident(t, ctx, pool, "orders", "critical")
+	a := runOfIncident(t, ctx, st, scope, inc, StateConcluded, "root found")
+	ageConclusion(t, ctx, pool, a.ID, 2*time.Minute)
 	last := time.Now()
 	c.tick(ctx, &last)
 	if got := sink.signals(); len(got) != 1 || got[0].InvestigationID != a.ID {
@@ -507,9 +513,9 @@ func TestConclusionNotifier_RunsInTheTriggerTick(t *testing.T) {
 func TestConclusionNotifier_WithoutASinkDoesNothing(t *testing.T) {
 	st, pool, ctx := liveStore(t, DefaultLimits())
 	c, scope := followUpCoordinator(t, ctx, st, "test:"+string(NewUUID()), nil, nil)
-	inc := insertIncident(t, ctx, pool, "orders", "critical")
-	a := runFor(t, ctx, st, scope, inc, StateConcluded, "root found")
-	age(t, ctx, pool, a.ID, 2*time.Minute)
+	inc := insertFollowUpIncident(t, ctx, pool, "orders", "critical")
+	a := runOfIncident(t, ctx, st, scope, inc, StateConcluded, "root found")
+	ageConclusion(t, ctx, pool, a.ID, 2*time.Minute)
 	c.notifyConclusions(ctx, scope)
 	if _, ok := claimOf(t, ctx, pool, inc); ok {
 		t.Fatal("a coordinator without follow-ups claimed the incident")
@@ -528,7 +534,7 @@ func TestNewCoordinator_FollowUpsNeedAnIncidentSource(t *testing.T) {
 func TestPGTriggerSource_TrackedIncident(t *testing.T) {
 	_, pool, ctx := liveStore(t, DefaultLimits())
 	src := NewPGTriggerSource(pool, "orders")
-	inc := insertIncident(t, ctx, pool, "orders", "critical")
+	inc := insertFollowUpIncident(t, ctx, pool, "orders", "critical")
 	got, ok, err := src.TrackedIncident(ctx, inc)
 	if err != nil || !ok || got != (TrackedIncident{Database: "orders", Severity: "critical"}) {
 		t.Fatalf("tracked = %+v %v %v", got, ok, err)
@@ -540,7 +546,7 @@ func TestPGTriggerSource_TrackedIncident(t *testing.T) {
 	if _, ok, err := src.TrackedIncident(ctx, inc); err != nil || !ok {
 		t.Fatalf("a resolved incident is still tracked: %v %v", ok, err)
 	}
-	other := insertIncident(t, ctx, pool, "payments", "warning")
+	other := insertFollowUpIncident(t, ctx, pool, "payments", "warning")
 	for _, id := range []string{other, string(NewUUID()), "inc-not-a-uuid", ""} {
 		if got, ok, err := src.TrackedIncident(ctx, id); err != nil || ok {
 			t.Fatalf("incident %q: %+v %v %v, want untracked", id, got, ok, err)

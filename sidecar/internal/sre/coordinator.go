@@ -175,6 +175,11 @@ type CoordinatorDeps struct {
 	// Incidents reads a lock incident's detection-time root blockers for
 	// the first step of its investigation (sre-05); nil records none.
 	Incidents IncidentSnapshotSource
+	// FollowUps delivers each incident's settled diagnosis once (sre-08);
+	// nil sends none. It needs TrackedIncidents and a store that implements
+	// ConclusionStore.
+	FollowUps        ConclusionSink
+	TrackedIncidents ConclusionIncidents
 }
 
 // Coordinator runs one database's investigations.
@@ -202,6 +207,11 @@ type Coordinator struct {
 	invStore     InvestigatorStore
 	// incidents reads the detection snapshot of lock incidents (sre-05).
 	incidents IncidentSnapshotSource
+	// followUps, trackedIncidents and conclusions serve the conclusion
+	// notifier (sre-08); nil followUps sends nothing.
+	followUps        ConclusionSink
+	trackedIncidents ConclusionIncidents
+	conclusions      ConclusionStore
 
 	mu    sync.Mutex
 	scope Scope
@@ -232,6 +242,10 @@ func NewCoordinator(d CoordinatorDeps) (*Coordinator, error) {
 	if err != nil {
 		return nil, err
 	}
+	conclusions, err := conclusionStore(d)
+	if err != nil {
+		return nil, err
+	}
 	logFn := d.LogFn
 	if logFn == nil {
 		logFn = func(string, string, ...any) {}
@@ -254,7 +268,26 @@ func NewCoordinator(d CoordinatorDeps) (*Coordinator, error) {
 		queue: make(chan UUID, d.Config.QueueSize), durability: NewDurability(),
 		sleep: wait, now: time.Now, model: d.Model, notices: notices, advisor: d.Advisor,
 		authority: d.RootAuthority, investigator: d.Investigator, invStore: invStore,
-		incidents: d.Incidents}, nil
+		incidents: d.Incidents, followUps: d.FollowUps, trackedIncidents: d.TrackedIncidents,
+		conclusions: conclusions}, nil
+}
+
+// conclusionStore checks the conclusion notifier's dependencies: none
+// without follow-ups, otherwise an incident source and a claim store.
+func conclusionStore(d CoordinatorDeps) (ConclusionStore, error) {
+	if d.FollowUps == nil {
+		return nil, nil
+	}
+	if d.TrackedIncidents == nil {
+		return nil, fmt.Errorf("%w: conclusion follow-ups need an incident source",
+			ErrInvalidRequest)
+	}
+	st, ok := d.Store.(ConclusionStore)
+	if !ok {
+		return nil, fmt.Errorf("%w: conclusion follow-ups need a store that claims them",
+			ErrInvalidRequest)
+	}
+	return st, nil
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) error {
