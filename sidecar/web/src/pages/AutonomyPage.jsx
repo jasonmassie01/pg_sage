@@ -5,6 +5,7 @@ import { QueryState } from '../components/QueryState'
 import { queryBlocked } from '../lib/queryState'
 import { EvaluateNow } from './autonomy/EvaluateNow'
 import { PathToNextLevel } from './autonomy/PathToNextLevel'
+import { GameDays } from './autonomy/GameDays'
 
 // Sage SRE M7 earned autonomy: the level pg_sage has earned per incident
 // family x action class, the evidence behind it, pending promotions
@@ -100,7 +101,7 @@ export function AutonomyPage({ database, user }) {
           onDowngrade={body => run(`/api/v1/sre/autonomy/downgrade${q}`, body)} />
       ))}
       <History items={history.data?.items || []} />
-      <GameDays data={gameDays.data} />
+      <GameDays data={gameDays.data} families={families} />
       <Rollouts data={rollouts.data} />
     </section></QueryState>
   )
@@ -315,22 +316,6 @@ function History({ items }) {
             <span>by {e.actor}</span>{e.database ? <span> on {e.database}</span> : null}
             <span>: {e.reason}</span>
           </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
-function GameDays({ data }) {
-  const items = data?.items || []
-  return (
-    <div className="rounded border p-3 text-xs" style={card}>
-      <h3 className="text-sm font-semibold" style={strong}>Game days</h3>
-      {!data?.enabled && <div style={muted}>Off: needs sre.autonomy.game_days and a
-        clone provider.</div>}
-      <ul style={muted}>
-        {items.map(g => (
-          <li key={g.id}>{g.started_at} {g.status}{g.error ? `: ${g.error}` : ''}</li>
         ))}
       </ul>
     </div>

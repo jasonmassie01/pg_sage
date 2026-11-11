@@ -4,6 +4,8 @@
 // doing. Reports for another pg_sage build never count, so a family can
 // show none after an upgrade until the new release report is ingested.
 
+import { scoredText, skipReasons } from './gameDayText'
+
 const muted = { color: 'var(--text-secondary)' }
 const strong = { color: 'var(--text-primary)' }
 
@@ -38,6 +40,12 @@ function LocalBenchStatus({ benchRuns }) {
   } else if (benchRuns.running) {
     text = `A local bench run is running (${(last?.families || []).join(', ') ||
       'every family'}) since ${when(last?.started_at)}.`
+  } else if (last?.status === 'completed_unscored') {
+    const skips = skipReasons(last.summary)
+    text = `The last local bench run finished at ${when(last.finished_at)} but scored no ` +
+      `run, so it counts for no family` +
+      (last.summary ? ` (${scoredText(last.summary)}${skips ? `: ${skips}` : ''})` : '') +
+      '.'
   } else if (last?.status === 'completed') {
     text = `The last local bench run completed at ${when(last.finished_at)}; it counts ` +
       'for the families it covered.'
