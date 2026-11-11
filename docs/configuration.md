@@ -1382,6 +1382,14 @@ The standing policy document also carries three safety fields, all enforced:
   included.
   `CONCURRENTLY` builds keep `safety.lock_timeout_ms`, because they wait on
   older transactions by design. `0` means no ceiling.
+- `window_start_margin_minutes` (optional, `0`-`720`, default `0`): a
+  `moderate` or `high` action, operator-approved or self-initiated, is not
+  started when its window closes in less than this many minutes; it blocks
+  with `window_closing` and waits for the next window, so an index build
+  authorized at 04:59 does not start in a window that closes at 05:00. The
+  window is `trust.maintenance_window` (when set) intersected with the
+  policy's `maintenance_windows`. A document without the field keeps its
+  meaning.
 - `serialize_mode`: what happens when another writer holds the DDL lease on
   the same object. `park` (both profiles): a self-initiated action is parked
   with reason `ddl_conflict` and retried next cycle. A park is not a failure:

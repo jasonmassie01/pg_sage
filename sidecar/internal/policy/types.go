@@ -46,14 +46,17 @@ const (
 	ReasonBlastRadiusExceeded      Reason = "blast_radius_exceeded"
 	ReasonRateLimitExceeded        Reason = "rate_limit_exceeded"
 	ReasonOutsideMaintenanceWindow Reason = "outside_maintenance_window"
-	ReasonDeadlineOverride         Reason = "deadline_override"
-	ReasonUnknownRiskTier          Reason = "unknown_risk_tier"
-	ReasonChangeClassNotAllowed    Reason = "change_class_not_allowed"
-	ReasonTrustRampNotSatisfied    Reason = "trust_ramp_not_satisfied"
-	ReasonProviderUnsupported      Reason = "provider_unsupported"
-	ReasonOperatorApproved         Reason = "operator_approved"
-	ReasonUnknownTrustLevel        Reason = "unknown_trust_level"
-	ReasonSQLValidationDegraded    Reason = "sql_validation_degraded"
+	// ReasonWindowClosing withholds a moderate or high action inside its
+	// window when the window closes before window_start_margin_minutes.
+	ReasonWindowClosing         Reason = "window_closing"
+	ReasonDeadlineOverride      Reason = "deadline_override"
+	ReasonUnknownRiskTier       Reason = "unknown_risk_tier"
+	ReasonChangeClassNotAllowed Reason = "change_class_not_allowed"
+	ReasonTrustRampNotSatisfied Reason = "trust_ramp_not_satisfied"
+	ReasonProviderUnsupported   Reason = "provider_unsupported"
+	ReasonOperatorApproved      Reason = "operator_approved"
+	ReasonUnknownTrustLevel     Reason = "unknown_trust_level"
+	ReasonSQLValidationDegraded Reason = "sql_validation_degraded"
 	// ReasonRefusedByPolicy sends a self-initiated action that matches a
 	// refusal_set token to a human; Decision.Detail names the token.
 	ReasonRefusedByPolicy Reason = "refused_by_policy"
@@ -191,6 +194,9 @@ type ActionRequest struct {
 	CapabilityClass string
 	// ArtifactHash is the request-envelope hash (§6.9, §6.13), or "".
 	ArtifactHash string
+	// assumeWindowOpen evaluates the operator path as if the maintenance
+	// windows were open: only Explain sets it, to compute WindowOnly.
+	assumeWindowOpen bool
 }
 
 type Decision struct {
@@ -229,6 +235,11 @@ type Decision struct {
 	// (a hard stop, a failed read) carries 0 and "".
 	PolicyVersion int64
 	PolicySHA256  string
+	// WindowOnly marks an Explain of an operator approval whose only
+	// refusal is the maintenance window (outside it, or closing): with the
+	// window open it would execute, so the approval can be scheduled for
+	// the next opening (policy-04). Authorize never sets it.
+	WindowOnly bool
 }
 
 // RuntimeState is the live authority snapshot for one authorization.
@@ -258,6 +269,10 @@ type RuntimeState struct {
 	// unset window restricts autonomous moderate actions but not operator
 	// approvals.
 	WindowConfigured bool
+	// TrustWindow is the trust.maintenance_window expression ("" when it
+	// is unset or disabled). The start margin and the next-window planner
+	// read when it closes and opens; "" with WindowConfigured never opens.
+	TrustWindow string
 	// SQLValidationDegraded reports a build without the parse-tree SQL
 	// layer (no cgo). Mutations it would run unattended go to approval.
 	SQLValidationDegraded bool

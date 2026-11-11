@@ -20,7 +20,7 @@ var ledgerReasons = []Reason{
 	ReasonEmergencyStop, ReasonReplicaMutation, ReasonPolicyUnavailable,
 	ReasonUnknownGuardrail, ReasonUnknownTrustLevel, ReasonUnknownRiskTier,
 	ReasonChangeClassNotAllowed, ReasonTrustRampNotSatisfied,
-	ReasonOutsideMaintenanceWindow, ReasonProviderUnsupported, ReasonTargetMismatch,
+	ReasonOutsideMaintenanceWindow, ReasonWindowClosing, ReasonProviderUnsupported, ReasonTargetMismatch,
 	ReasonBoundByFact, ReasonFactsUnavailable, ReasonAutonomyUnavailable,
 	ReasonObserveOnly, ReasonAutonomyLevel, ReasonAutonomyDowngraded,
 	ReasonAgentLevel0, ReasonAgentProposalRecorded, ReasonAgentL3Envelope,

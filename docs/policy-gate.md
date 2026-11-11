@@ -85,7 +85,9 @@ withheld verdict into `execute`.
 14. **Restrictions on an execute.** The refusal set queues with `refused_by_policy`; a build
     without parse-tree SQL validation queues with `sql_validation_degraded`; a `moderate` or
     `high` action outside every maintenance window blocks with `outside_maintenance_window`,
-    unless an allowed XID or disk deadline overrides it (`execute` `deadline_override`).
+    and one inside a window that closes within `window_start_margin_minutes` blocks with
+    `window_closing`, unless an allowed XID or disk deadline overrides it (`execute`
+    `deadline_override`).
 15. **Earned autonomy.** For an action class the autonomy ledger governs, the earned level
     restricts an execute or approval verdict: `autonomy_level` and `autonomy_downgraded`
     (observe only), `autonomy_handoff` (approval), `autonomy_l3` (execute, a human is
@@ -165,6 +167,7 @@ operator action (`blocked` `ddl_conflict`); see `serialize_mode` in
 | `change_class_not_allowed` | The change class is not in `allowed_change_classes`. | Adding the class to the standing policy. | Ledger |
 | `trust_ramp_not_satisfied` | `trust.tier3_safe` or `trust.tier3_moderate` is off, or the trust ramp has not elapsed. | The flag on and the ramp elapsed. | Ledger |
 | `outside_maintenance_window` | A `moderate` or `high` action outside every maintenance window. | The next window. | Ledger |
+| `window_closing` | A `moderate` or `high` action inside its window, but the window closes in less than the policy's `window_start_margin_minutes`, so the change would run past it. | The next window. | Ledger |
 | `provider_unsupported` | The action does not support the database's provider; the detail names it. | Nothing on this provider. | Ledger |
 | `target_mismatch` | A self-initiated finding or custodian proposal whose statement changes another relation than the one it names; the detail names both. | Nothing: such a statement never runs unattended (a pg_sage bug or a tampered proposal). | Ledger |
 | `bound_by_fact` | A confirmed fact binds the request; the detail names the fact, who confirmed it and where the work goes instead. | Rejecting or expiring the fact. | Ledger |
