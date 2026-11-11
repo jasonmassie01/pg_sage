@@ -2205,6 +2205,31 @@ can be lowered under `sre.autonomy.promotion` (see
 [Fast elevation](#fast-elevation-dogfood-databases)). The report age (30 days) and the
 minimum bench run counts (10) are fixed.
 
+**Evidence decay.** An earned L2 or L3 holds only while its evidence does. The bench report
+stops counting 30 days after its `generated_at` (a release's shipped report too), and shadow
+reviews leave the 30-day window one by one. The Autonomy and Trust pages show, on every
+earned row, the date the level holds until and the checks that expire then (`holds_until`,
+`expiring_checks` in `GET /api/v1/sre/autonomy` and `GET /api/v1/trust`), for example "L3
+holds until 2026-12-03 09:30 UTC unless a new bench report arrives". The date is the last
+moment the evidence still counts: for the shadow window, the review whose leaving breaks the
+20-review or 95%-accepted bar, not the oldest review. Every evaluate interval
+(`evaluate_interval_minutes`), pg_sage re-reads the evidence of each earned pair without
+waiting for an action:
+
+- When the evidence no longer supports the granted level, the gate allows only the supported
+  level (as before), and the history now records it once as `capped` with the reason
+  `evidence_decayed:<checks>` and the evidence `{granted, supported, failing_checks}`. It
+  records `cap_cleared` once new evidence supports the level again. The granted level is
+  not changed: ingest a new report (or record the reviews) and the level is back. Neither is
+  recorded again after a restart.
+- Once the date is 7 days away or less, pg_sage warns once per pair and date: a history
+  entry `evidence_expiring` and a notification through the rules for failed actions
+  (`action_failed`, severity warning), like a demotion. A new report moves the date and
+  warns again only when the new date comes near.
+
+Carried-over and self-initiated levels do not decay with evidence and are not swept. The
+local bench is not scheduled by this: run it, or ingest a report, before the date.
+
 **Downgrade.** At authorization time, any of the following caps an L2 or L3 pair at L1. The
 change is logged once per transition.
 
