@@ -21,6 +21,10 @@ const (
 	ConclusionWindow  = time.Hour
 	conclusionBatch   = 50
 	conclusionTimeout = 30 * time.Second
+	// conclusionTickBudget bounds the time one tick spends on follow-ups,
+	// so slow channels never hold up new investigations: once it is spent,
+	// the remaining (unclaimed) candidates wait for the next interval.
+	conclusionTickBudget = 30 * time.Second
 )
 
 // ConclusionStore is the store surface the notifier needs.
@@ -45,8 +49,14 @@ func (c *Coordinator) notifyConclusions(ctx context.Context, scope Scope) {
 		c.logFn("WARN", "sre: listing concluded investigations to follow up failed: %v", err)
 		return
 	}
-	for _, cand := range list {
+	start := c.now()
+	for i, cand := range list {
 		if ctx.Err() != nil {
+			return
+		}
+		if c.now().Sub(start) >= conclusionTickBudget {
+			c.logFn("INFO", "sre: %d diagnosis follow-ups wait for the next interval "+
+				"(this interval's %s budget is spent)", len(list)-i, conclusionTickBudget)
 			return
 		}
 		c.followUp(ctx, cand)
