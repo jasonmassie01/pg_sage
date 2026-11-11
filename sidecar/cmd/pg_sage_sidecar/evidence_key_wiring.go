@@ -24,7 +24,7 @@ type evidenceKey struct {
 	source string
 }
 
-/// auditAPIDeps is the audit routes' dependencies: SIEM status and
+// auditAPIDeps is the audit routes' dependencies: SIEM status and
 // re-anchoring, and the evidence-signing key resolved from controlPool.
 func auditAPIDeps(c *config.Config, controlPool *pgxpool.Pool) api.AuditDeps {
 	signing := evidenceSigner(c, controlPool)
