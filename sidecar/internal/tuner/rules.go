@@ -31,6 +31,10 @@ func Prescribe(
 		return prescribeStatTempSpill(symptom)
 	case SymptomStaleStats:
 		return prescribeStaleStats(symptom)
+	case SymptomIndexFilterInefficient:
+		return prescribeIndexFilter(symptom)
+	case SymptomORJoinFilter:
+		return prescribeORJoin(symptom)
 	default:
 		return nil
 	}

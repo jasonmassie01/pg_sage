@@ -24,12 +24,18 @@ type planNode struct {
 	OriginalHashBatches *int64     `json:"Original Hash Batches,omitempty"`
 	PeakMemoryUsage     *int64     `json:"Peak Memory Usage,omitempty"`
 	Filter              *string    `json:"Filter,omitempty"`
-	RowsRemovedByFilter *int64     `json:"Rows Removed by Filter,omitempty"`
+	RowsRemovedByFilter *float64   `json:"Rows Removed by Filter,omitempty"` // per loop
+	IndexCond           *string    `json:"Index Cond,omitempty"`
+	JoinFilter          *string    `json:"Join Filter,omitempty"`
 	WorkersPlanned      *int       `json:"Workers Planned,omitempty"`
 	WorkersLaunched     *int       `json:"Workers Launched,omitempty"`
 	ParallelAware       bool       `json:"Parallel Aware,omitempty"`
 	ParentRelationship  string     `json:"Parent Relationship,omitempty"`
 	Plans               []planNode `json:"Plans,omitempty"`
+
+	// RowsRemovedByJoinFilter is a per-loop average, like Rows Removed by
+	// Filter; both are floats because PG18 may print decimals (market-10).
+	RowsRemovedByJoinFilter *float64 `json:"Rows Removed by Join Filter,omitempty"`
 }
 
 type planWrapper struct {
@@ -108,7 +114,7 @@ func checkNode(node planNode, depth int, underGather bool, sc *scanContext) []Pl
 }
 
 // actualsSymptoms are the rules that read an executed plan: disk sort,
-// hash spill and nested-loop misestimate.
+// hash spill, nested-loop misestimate and the plan anti-patterns (market-10).
 func actualsSymptoms(node planNode, depth int, sc *scanContext) []PlanSymptom {
 	var out []PlanSymptom
 	if s := checkDiskSort(node, depth); s != nil {
@@ -118,6 +124,12 @@ func actualsSymptoms(node planNode, depth int, sc *scanContext) []PlanSymptom {
 		out = append(out, *s)
 	}
 	if s := checkBadNestedLoop(node, depth, sc); s != nil {
+		out = append(out, *s)
+	}
+	if s := checkIndexFilterInefficient(node, depth, sc); s != nil {
+		out = append(out, *s)
+	}
+	if s := checkORJoinFilter(node, depth, sc); s != nil {
 		out = append(out, *s)
 	}
 	return out

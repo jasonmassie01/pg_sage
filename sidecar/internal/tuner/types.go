@@ -15,6 +15,9 @@ const (
 	SymptomSortLimit        SymptomKind = "sort_limit"
 	SymptomStatTempSpill    SymptomKind = "stat_temp_spill"
 	SymptomStaleStats       SymptomKind = "stale_stats"
+	// Advisory plan anti-patterns (market-10): no hint is prescribed.
+	SymptomIndexFilterInefficient SymptomKind = "index_filter_inefficient"
+	SymptomORJoinFilter           SymptomKind = "or_join_filter"
 )
 
 // PlanSymptom is a detected performance issue in an EXPLAIN plan.

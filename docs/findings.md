@@ -718,8 +718,23 @@ These deterministic rules run alongside the categories above.
 | `query_rewrite` | LLM advisor | Rewrites for the slowest queries. Text only, always advisory. |
 | `bloat_remediation` | LLM advisor | Options for removing table and index bloat. |
 | `memory_tuning`, `vacuum_tuning` | Tuning agent | Memory and autovacuum configuration changes. A recommendation without SQL is dropped. |
-| `query_tuning` | Query tuner | Per-query hints (for example `Set(work_mem ...)` or an index scan) stored in `sage.query_hints`. |
+| `query_tuning` | Query tuner | Per-query hints (for example `Set(work_mem ...)` or an index scan) stored in `sage.query_hints`. Plan anti-patterns (`index_filter_inefficient`, `or_join_filter` in `symptoms`) are advice only: no hint and no SQL, with the plan facts in the `plan_antipatterns` detail (see below). |
 | `runaway_query` | Executor | A running query past the configured runaway limits, such as its maximum duration. |
+
+### Plan anti-pattern detail (`query_tuning`)
+
+A `query_tuning` finding whose plan shows an anti-pattern carries
+`plan_antipatterns`, one entry per occurrence. Every entry has `symptom` and
+`rows_removed` (over all loops) and `loops`.
+
+| Symptom | Other keys |
+|---------|------------|
+| `index_filter_inefficient` | `relation` (schema.table), `index_name`, `index_cond`, `filter`, `filter_columns` (columns the filter compares; empty for an OR or an expression), `rows_kept`, `removed_share` (0.9 to 1) |
+| `or_join_filter` | `join_filter`, `arms` (the top-level OR arms), `aliases` (the join aliases the arms reference) |
+
+The recommendation text names the composite index or the UNION rewrite; pg_sage
+does not create the index or rewrite the statement from these findings. See
+section 13 of [Hint verification](hint-verification.md).
 
 ---
 

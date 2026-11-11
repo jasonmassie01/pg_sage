@@ -486,6 +486,47 @@ pg_sage's `CombineHints()` merges multiple prescriptions into a single hint stri
 
 ---
 
+## 13. Plan anti-patterns &rarr; advice only, no hint
+
+Two slow-query causes that no hint fixes. The tuner reports them as informational
+`query_tuning` findings: no `hint_directive`, no `recommended_sql`, and no row in
+`sage.query_hints`. Both need an executed plan (EXPLAIN ANALYZE, for example from
+auto_explain); a plain EXPLAIN never yields them. PostgreSQL 14 to 18.
+
+**`index_filter_inefficient`:** an Index Scan, Index Only Scan or Bitmap Heap Scan
+whose `Filter` discards at least 90% of the rows the index read, and at least
+10,000 rows over all loops (`Rows Removed by Filter` and `Actual Rows` are
+per-loop averages, so both are multiplied by `Actual Loops`; a missing loop count
+is one loop). The index serves only part of the predicate. The advice names a
+composite index: the `Index Cond` columns, then the filter's equality columns.
+
+    Index Scan using ip_a_idx on ip  (actual rows=129 loops=1)
+      Index Cond: (a = 5)
+      Filter: (b = 7)
+      Rows Removed by Filter: 12371
+
+> index ip_a_idx reads 12500 rows per execution and its filter discards 98%; an
+> index on (a, b) would read only the kept rows
+
+**`or_join_filter`:** a Nested Loop whose `Join Filter` is a top-level OR with at
+least two arms that between them reference both join inputs, discarding at least
+10,000 rows over all loops (`Rows Removed by Join Filter` x `Actual Loops`). An OR
+that references only one input is not reported.
+
+    Nested Loop  (actual rows=680 loops=1)
+      Join Filter: ((a.x = b.x) OR (a.y = b.y))
+      Rows Removed by Join Filter: 39320
+
+> the nested loop's join filter discards 39320 rows: the OR across a and b is
+> applied after the join; rewriting as UNION (or UNION ALL with an exclusion
+> predicate) lets each arm use its own index. pg_sage does not rewrite statements
+
+Neither changes the hints of other symptoms in the same plan: a misestimated nested
+loop with an OR join filter still gets `HashJoin(...)`. The 10,000-row thresholds
+are built in (no configuration key).
+
+---
+
 ## Summary
 
 | Case | Symptom | Fix | Plan Change |
@@ -502,6 +543,8 @@ pg_sage's `CombineHints()` merges multiple prescriptions into a single hint stri
 | Hint Table | Transparent hint injection | `hint_plan.hints` INSERT | Bitmap &rarr; Index Scan |
 | Merge Join | Force join strategy | `MergeJoin(o l)` | Hash Join &rarr; Merge Join |
 | Combined Hints | Multiple symptoms | Combined hint string | Hash+Seq &rarr; Merge+Index |
+| Index filter discards most rows | Index reads rows its filter drops | Advice: composite index | None (advisory) |
+| OR join filter | OR applied after the join | Advice: UNION rewrite | None (advisory) |
 
 ---
 

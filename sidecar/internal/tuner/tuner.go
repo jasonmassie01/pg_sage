@@ -332,6 +332,7 @@ func (t *Tuner) processCandidate(
 	title := buildTitle(symptoms)
 	finding := t.buildFinding(ctx, c, symptoms, combined, title, rationale)
 	finding = withSpillSizing(budget.annotate(finding, combined, budgetDetail), symptoms)
+	finding = withAntipatterns(finding, symptoms)
 	return append(staleFindings, finding)
 }
 
