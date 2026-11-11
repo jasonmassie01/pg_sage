@@ -28,6 +28,11 @@ const (
 	// ended and MCP tokens revoked.
 	AuditUserDisabled = "user_disabled"
 	AuditUserEnabled  = "user_enabled"
+	// AuditPasswordChanged and AuditPasswordReset record a user changing
+	// their own password and an admin resetting one (apiauth-03). They
+	// carry the actor and target ids and a count of ended sessions only.
+	AuditPasswordChanged = "password_changed"
+	AuditPasswordReset   = "password_reset"
 )
 
 // Session lifecycle audit events (apiauth-04). Detail may carry a count of

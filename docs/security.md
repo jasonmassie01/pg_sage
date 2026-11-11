@@ -430,7 +430,11 @@ pg_sage has checked it. None of it runs through the executor.
 
 In standalone mode, the web UI and `/api/v1/*` endpoints use session-cookie authentication. On
 first startup against a metadata database with no users, pg_sage creates
-`admin@pg-sage.local` and prints a one-time initial password to stderr.
+`admin@pg-sage.local` and prints a one-time initial password to stderr. The
+first sign-in with that generated password must choose a new one before
+anything else works (see [Passwords](#passwords)). A password supplied with
+`SAGE_BOOTSTRAP_ADMIN_PASSWORD` or `_FILE` is the operator's choice and is
+not forced to change.
 
 API clients log in and reuse the `sage_session` cookie:
 
@@ -483,6 +487,46 @@ again deletes the unhashed sessions and restores the constraint.
 
 `SAGE_API_KEY` is a legacy config field and does not secure the current v1
 web/API path.
+
+### Passwords
+
+Every password a person sets (creating a user, the bootstrap secret, a
+change) must be 12 to 72 bytes (72 is bcrypt's limit) and must not be the
+account email in any case. A refusal answers `400` with the rule; creating a
+user whose email is taken answers `409`. Passwords and emails never appear in
+logs or audit rows. Users created before this release keep their passwords.
+
+- **Change your own password.** The account page (`#/profile`) has a Change
+  password form; API clients call `PUT /api/v1/auth/password` with
+  `{"current_password": "...", "new_password": "..."}`. A wrong current
+  password answers `401` and counts against the same per-email limit as the
+  login form (the sixth try in 15 minutes answers `429`). On success every
+  other session of the user ends; the calling session stays signed in.
+  The new password must differ from the current one (`400`), so a forced
+  change cannot keep the temporary password an admin saw.
+  An SSO-only account has no password to change (`409`).
+- **Reset someone's password (admin).** The Users page has Reset password,
+  or call `POST /api/v1/users/{id}/password-reset`. pg_sage ends all of the
+  user's sessions and answers `{"temporary_password": "..."}` (24 random
+  bytes, base64url) once; it is not stored or shown again, so send it over a
+  trusted channel. Admins change their own password with the form above
+  (`403` on a self-reset); an SSO-only user answers `409`.
+  A reset ends sessions only: MCP tokens the user created keep working.
+  If the account may be compromised, deactivate it instead (see
+  [User Offboarding](#user-offboarding)), which also revokes its MCP tokens.
+- **Forced change.** After a reset, and for a generated bootstrap password,
+  `sage.users.must_change_password` is set. Until the user picks a new
+  password the session reaches only `GET /api/v1/auth/me` (which reports
+  `"must_change_password": true`), `PUT /api/v1/auth/password` and
+  `POST /api/v1/auth/logout`; everything else answers `403`
+  `{"error":"password_change_required"}`, and the dashboard shows only the
+  change form. Starting an SSO link is refused the same way. Upgrading
+  does not force existing accounts.
+- In Databricks Apps mode neither route exists: the workspace owns sign-in.
+
+Each change or reset swaps the hash, sets `password_changed_at` and ends the
+sessions in one transaction, so a failure leaves the old password and
+sessions in place. Break-glass login is unchanged.
 
 ### Route Authorization
 
@@ -745,6 +789,7 @@ client address (`source_ip`, honouring `api.trusted_proxies`):
 | `user_created`, `user_deleted` | Admin user administration |
 | `user_disabled`, `user_enabled` | Deactivation and reactivation (`detail.sessions_ended`, `detail.mcp_tokens_revoked`) |
 | `user_role_changed` | Role changes from the API (`source: api`) or the IdP (`source: idp`) |
+| `password_changed`, `password_reset` | A user changed their own password; an admin reset one (`detail.sessions_ended`). SIEM: Account Change, Password Change / Password Reset |
 | `oidc_linked`, `oidc_unlinked`, `oidc_link_grant_*` | Account linking |
 | `agent_created`, `agent_updated`, `agent_widened_single_operator`, `agent_retired`, `agent_status_changed` | Agent principal changes, in the change's own transaction (see [Agent governance](agent-governance.md#principals)) |
 | `agent_token_minted`, `mcp_token_created`, `mcp_token_revoked` | MCP token issue and revocation, never with the secret or its hash |
@@ -1625,7 +1670,7 @@ each file's hash in `manifest.json` matches (`evidence verify` does).
 5. **Review findings before escalating trust** -- move to `advisory` then `autonomous` only after confirming recommendations are appropriate.
 6. **Set a token budget** -- cap LLM spend with `llm.token_budget_daily`.
 7. **Use a dedicated database role** -- grant only the required privileges listed above.
-8. **Select the deployment's authentication model.** For standalone, capture and rotate the initial admin password, then use named users or OAuth for operators.
+8. **Select the deployment's authentication model.** For standalone, capture the initial admin password and replace it at the first sign-in (pg_sage requires this), then use named users or OAuth for operators.
    With SSO, set `oauth.role_mapping`, and configure a break-glass admin plus a notification channel.
    Offboard people by deactivating their account (see [User Offboarding](#user-offboarding)).
    In Databricks Apps, use platform access controls, the explicit administrator

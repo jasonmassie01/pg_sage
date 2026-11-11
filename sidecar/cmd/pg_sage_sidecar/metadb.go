@@ -138,9 +138,7 @@ func bootstrapAdminUser(
 		return fmt.Errorf("loading admin bootstrap credentials: %w", err)
 	}
 
-	if err := auth.BootstrapAdmin(
-		ctx, pool, credentials.email, credentials.password,
-	); err != nil {
+	if err := createBootstrapAdmin(ctx, pool, credentials); err != nil {
 		return fmt.Errorf("creating admin: %w", err)
 	}
 
@@ -149,7 +147,8 @@ func bootstrapAdminUser(
 		return nil
 	}
 	fmt.Fprintf(os.Stderr,
-		"First admin created: %s\nInitial password: %s\nChange this password immediately.\n",
+		"First admin created: %s\nInitial password: %s\n"+
+			"You must change this password at first sign-in.\n",
 		credentials.email, credentials.password,
 	)
 	return nil

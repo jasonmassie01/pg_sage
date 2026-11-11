@@ -146,9 +146,7 @@ func bootstrapAdminIfEmpty(
 	if err != nil {
 		return fmt.Errorf("loading admin bootstrap credentials: %w", err)
 	}
-	if err := auth.BootstrapAdmin(
-		ctx, p, credentials.email, credentials.password,
-	); err != nil {
+	if err := createBootstrapAdmin(ctx, p, credentials); err != nil {
 		return fmt.Errorf("creating admin: %w", err)
 	}
 	if credentials.supplied {
@@ -159,7 +157,7 @@ func bootstrapAdminIfEmpty(
 		"first admin created — email: %s  password: [redacted, see stderr]",
 		credentials.email)
 	fmt.Fprintf(os.Stderr, "\n*** INITIAL ADMIN PASSWORD: %s ***\n"+
-		"*** Change this password immediately. ***\n\n", credentials.password)
+		"*** You must change this password at first sign-in. ***\n\n", credentials.password)
 	return nil
 }
 

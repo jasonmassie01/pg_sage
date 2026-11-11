@@ -58,6 +58,8 @@ func (g routeGate) String() string {
 var viewerWriteRoutes = map[string]string{
 	"POST /api/v1/auth/logout":     "ends the caller's own session",
 	"DELETE /api/v1/auth/sessions": "signs out the caller's own other sessions",
+	"PUT /api/v1/auth/password": "changes the caller's own password after checking " +
+		"the current one (apiauth-03)",
 	"POST " + askBasePath: "Ask Sage answers from read-only tools and cannot " +
 		"execute or approve anything; the conversation is the caller's own",
 }

@@ -85,6 +85,9 @@ first admin created — email: admin@pg-sage.local  password: [redacted, see std
 *** INITIAL ADMIN PASSWORD: <copy this value> ***
 ```
 
+The first sign-in with it asks you to choose your own password (12 to 72
+bytes) before the dashboard opens.
+
 ## 4. Log In and Walk the UI
 
 Open `http://localhost:8080` and sign in:

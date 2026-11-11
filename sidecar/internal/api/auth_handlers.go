@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/auth"
 )
@@ -63,9 +64,10 @@ func loginHandler(
 			return
 		}
 		jsonResponse(w, map[string]any{
-			"id":    user.ID,
-			"email": user.Email,
-			"role":  user.Role,
+			"id":                   user.ID,
+			"email":                user.Email,
+			"role":                 user.Role,
+			"must_change_password": user.MustChangePassword,
 		})
 	}
 }
@@ -184,9 +186,11 @@ func meHandler() http.HandlerFunc {
 			return
 		}
 		response := map[string]any{
-			"id":    user.ID,
-			"email": user.Email,
-			"role":  user.Role,
+			"id":                   user.ID,
+			"email":                user.Email,
+			"role":                 user.Role,
+			"must_change_password": user.MustChangePassword,
+			"password_login":       user.HasPassword,
 		}
 		if mode, ok := r.Context().Value(authModeContextKey).(string); ok {
 			response["auth_mode"] = mode
@@ -254,10 +258,13 @@ func (req *createUserRequest) validate() string {
 		return "an SSO-only user cannot have a password"
 	case !req.SSOOnly && (req.Email == "" || req.Password == ""):
 		return "email and password required"
-	case !req.SSOOnly && len(req.Password) < 8:
-		return "password must be at least 8 characters"
 	case !auth.IsValidRole(req.Role):
 		return "invalid role"
+	}
+	if !req.SSOOnly {
+		if err := auth.ValidatePassword(req.Email, req.Password); err != nil {
+			return err.Error()
+		}
 	}
 	if _, err := auth.ValidateEmail(req.Email); err != nil {
 		return "invalid email address"
@@ -288,10 +295,7 @@ func createUserHandler(
 				req.Email, req.Password, req.Role)
 		}
 		if err != nil {
-			slog.Error("failed to create user",
-				"email", req.Email, "error", err)
-			jsonError(w, "failed to create user",
-				http.StatusConflict)
+			writeCreateUserError(w, r, err)
 			return
 		}
 		recordAuthEvent(r, pool, auth.AuthAuditEvent{
@@ -306,6 +310,26 @@ func createUserHandler(
 			"sso_only": req.SSOOnly,
 		})
 	}
+}
+
+// writeCreateUserError maps a store refusal: a policy failure is 400, an
+// email already in use 409, anything else 500. Nothing logged carries the
+// email or the password.
+func writeCreateUserError(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, auth.ErrPasswordPolicy):
+		jsonError(w, err.Error(), http.StatusBadRequest)
+	case errors.Is(err, auth.ErrEmailInUse) || isUniqueViolation(err):
+		// A unique violation is a concurrent create of the same email.
+		jsonError(w, "a user with this email already exists", http.StatusConflict)
+	default:
+		internalError(w, r, "create user", err)
+	}
+}
+
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation
 }
 
 func deleteUserHandler(

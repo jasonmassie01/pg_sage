@@ -13,6 +13,7 @@ import { LiveEventsProvider } from './hooks/useLiveEvents'
 import { ToastProvider } from './components/Toast'
 import { PostgresMeme } from './components/PostgresMeme'
 import { renderRoute } from './routeRender'
+import { ForcedPasswordChange } from './pages/users/ForcedPasswordChange'
 
 function getRoute() {
   const hash = window.location.hash || '#/'
@@ -89,7 +90,9 @@ export default function App({ reloadPage = () => window.location.reload() }) {
     return () => { cancelled = true }
   }, [authAttempt])
 
-  const fleetQuery = useAPI(user ? '/api/v1/databases' : null, 30000)
+  // A session whose password must change can reach nothing else (apiauth-03).
+  const appUser = user && !user.must_change_password ? user : null
+  const fleetQuery = useAPI(appUser ? '/api/v1/databases' : null, 30000)
   const { data: fleetData, loading: fleetLoading, error: fleetError,
     refetch: refetchFleet, updatedAt: fleetUpdatedAt } = fleetQuery
 
@@ -162,6 +165,11 @@ export default function App({ reloadPage = () => window.location.reload() }) {
       headers: { 'Content-Type': 'application/json' },
     })
     setUser(null)
+  }
+
+  if (user.must_change_password) {
+    return <ForcedPasswordChange user={user} onLogout={handleLogout}
+      onChanged={() => setUser({ ...user, must_change_password: false })} />
   }
 
   // Go may encode an empty slice as null; keep that distinct from an inventory

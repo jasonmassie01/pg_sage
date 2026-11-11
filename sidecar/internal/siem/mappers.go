@@ -100,6 +100,10 @@ func authMapping(r Record) mapping {
 		m.activity, m.activityName = 6, "Delete"
 	case "user_role_changed":
 		m.activity, m.activityName = 99, "Role Change"
+	case "password_changed":
+		m.activity, m.activityName = 3, "Password Change"
+	case "password_reset":
+		m.activity, m.activityName = 4, "Password Reset"
 	default:
 		m.activity, m.activityName = 99, "Other"
 	}

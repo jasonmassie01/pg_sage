@@ -54,14 +54,25 @@ func CheckPassword(hash, password string) bool {
 	return err == nil
 }
 
-// CreateUser inserts a new user and returns the user ID.
+// CreateUser inserts a new user and returns the user ID. It is the storage
+// primitive: callers that take a password from a person (the users API,
+// bootstrap, change and reset) apply ValidatePassword first. CreateUser
+// itself refuses only what bcrypt cannot store safely (over 72 bytes) and
+// the historical 8-byte floor, both as ErrPasswordPolicy.
 func CreateUser(
 	ctx context.Context, pool *pgxpool.Pool,
 	email, password, role string,
 ) (int, error) {
-	if len(password) < 8 {
-		return 0, fmt.Errorf(
-			"password must be at least 8 characters")
+	return createUser(ctx, pool, email, password, role, false)
+}
+
+func createUser(
+	ctx context.Context, pool *pgxpool.Pool,
+	email, password, role string, mustChange bool,
+) (int, error) {
+	if len(password) < 8 || len(password) > MaxPasswordBytes {
+		return 0, fmt.Errorf("%w: a password must be at least 8 characters "+
+			"and at most %d bytes", ErrPasswordPolicy, MaxPasswordBytes)
 	}
 	if !IsValidRole(role) {
 		return 0, fmt.Errorf("invalid role: %q", role)
@@ -76,9 +87,10 @@ func CreateUser(
 	}
 	var id int
 	err = pool.QueryRow(ctx,
-		"INSERT INTO sage.users (email, password, role) "+
-			"SELECT $1::text, $2::text, $3::text "+newEmailOnlySQL+" RETURNING id",
-		email, hash, role,
+		"INSERT INTO sage.users (email, password, role, must_change_password) "+
+			"SELECT $1::text, $2::text, $3::text, $4::boolean "+newEmailOnlySQL+
+			" RETURNING id",
+		email, hash, role, mustChange,
 	).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, fmt.Errorf("creating user: %w", ErrEmailInUse)
@@ -130,7 +142,7 @@ func passwordAccount(
 ) (*User, string, error) {
 	rows, err := pool.Query(ctx,
 		"SELECT id, email, password, role, created_at, last_login, "+
-			"disabled_at IS NOT NULL FROM sage.users "+
+			"must_change_password, disabled_at IS NOT NULL FROM sage.users "+
 			"WHERE lower(email) = lower($1) ORDER BY id LIMIT 2",
 		NormalizeEmail(email))
 	if err != nil {
@@ -143,7 +155,7 @@ func passwordAccount(
 	for rows.Next() {
 		var u User
 		if err := rows.Scan(&u.ID, &u.Email, &hash, &u.Role,
-			&u.CreatedAt, &u.LastLogin, &disabled); err != nil {
+			&u.CreatedAt, &u.LastLogin, &u.MustChangePassword, &disabled); err != nil {
 			return nil, "", fmt.Errorf("querying user: %w", err)
 		}
 		found = append(found, u)
@@ -157,6 +169,7 @@ func passwordAccount(
 	if len(found) != 1 || hash == nil || disabled {
 		return nil, "", errNoPasswordAccount
 	}
+	found[0].HasPassword = true
 	return &found[0], *hash, nil
 }
 
@@ -185,15 +198,16 @@ func ValidateSession(
 	}
 	var u User
 	err := pool.QueryRow(ctx,
-		"/* pg_sage auth_validate_session v2 */ "+
-			"SELECT u.id, u.email, u.role, u.created_at, u.last_login "+
+		"/* pg_sage auth_validate_session v3 */ "+
+			"SELECT u.id, u.email, u.role, u.created_at, u.last_login, "+
+			"u.password IS NOT NULL, u.must_change_password "+
 			"FROM sage.sessions s "+
 			"JOIN sage.users u ON u.id = s.user_id "+
 			"WHERE s.token_hash = $1 AND s.expires_at > now() "+
 			"AND u.disabled_at IS NULL",
 		hash,
 	).Scan(&u.ID, &u.Email, &u.Role,
-		&u.CreatedAt, &u.LastLogin)
+		&u.CreatedAt, &u.LastLogin, &u.HasPassword, &u.MustChangePassword)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrSessionInvalid
@@ -407,10 +421,28 @@ func UserCount(
 	return count, nil
 }
 
-// BootstrapAdmin creates the first admin if no users exist.
+// BootstrapAdmin creates the first admin, from an operator-supplied secret,
+// if no users exist. The operator chose the password, so it is not forced
+// to change.
 func BootstrapAdmin(
 	ctx context.Context, pool *pgxpool.Pool,
 	email, password string,
+) error {
+	return bootstrapAdmin(ctx, pool, email, password, false)
+}
+
+// BootstrapGeneratedAdmin creates the first admin with a password pg_sage
+// generated and printed; the first sign-in must replace it (apiauth-03).
+func BootstrapGeneratedAdmin(
+	ctx context.Context, pool *pgxpool.Pool,
+	email, password string,
+) error {
+	return bootstrapAdmin(ctx, pool, email, password, true)
+}
+
+func bootstrapAdmin(
+	ctx context.Context, pool *pgxpool.Pool,
+	email, password string, mustChange bool,
 ) error {
 	count, err := UserCount(ctx, pool)
 	if err != nil {
@@ -419,6 +451,6 @@ func BootstrapAdmin(
 	if count > 0 {
 		return fmt.Errorf("admin bootstrap rejected: users already exist")
 	}
-	_, err = CreateUser(ctx, pool, email, password, RoleAdmin)
+	_, err = createUser(ctx, pool, email, password, RoleAdmin, mustChange)
 	return err
 }

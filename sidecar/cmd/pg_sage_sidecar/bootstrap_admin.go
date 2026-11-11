@@ -1,13 +1,16 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/mail"
 	"os"
 	"strings"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/appmode"
+	"github.com/pg-sage/sidecar/internal/auth"
 )
 
 type bootstrapAdminCredentials struct {
@@ -47,12 +50,24 @@ func loadBootstrapAdminCredentials() (bootstrapAdminCredentials, error) {
 			return invalid, err
 		}
 	}
-	// bcrypt accepts at most 72 bytes. Requiring 12 for an explicit bootstrap
-	// secret also catches accidental short/empty secret resource values.
-	if len(password) < 12 || len(password) > 72 {
-		return invalid, fmt.Errorf("bootstrap admin password must contain 12 to 72 bytes")
+	// The account password policy (apiauth-03): 12 to 72 bytes (bcrypt's
+	// limit), not the email. It also catches short or empty secret values.
+	if err := auth.ValidatePassword(email, password); err != nil {
+		return invalid, fmt.Errorf("bootstrap admin password: %w", err)
 	}
 	return bootstrapAdminCredentials{email: email, password: password, supplied: true}, nil
+}
+
+// createBootstrapAdmin creates the first admin. A generated password was
+// printed to stderr, so the account must replace it at first sign-in; an
+// operator-supplied secret is the operator's choice and is not forced.
+func createBootstrapAdmin(
+	ctx context.Context, pool *pgxpool.Pool, c bootstrapAdminCredentials,
+) error {
+	if c.supplied {
+		return auth.BootstrapAdmin(ctx, pool, c.email, c.password)
+	}
+	return auth.BootstrapGeneratedAdmin(ctx, pool, c.email, c.password)
 }
 
 func readBootstrapAdminPassword(path string) (string, error) {
