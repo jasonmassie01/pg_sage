@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/metricsreg"
 )
 
 // observability-05: LLM health per client, in every mode. Each registered
@@ -167,9 +168,7 @@ func writeLLMHealthFromRegistry(b *strings.Builder) {
 }
 
 func writeLLMHealthMetrics(b *strings.Builder, rows []llmHealthRow, gauges []llmClientGauge) {
-	b.WriteString("# HELP pg_sage_llm_requests_total LLM calls since start by client, " +
-		"database and result (ok, error, timeout, rate_limited, budget_refused, " +
-		"circuit_open, empty, cancelled)\n# TYPE pg_sage_llm_requests_total counter\n")
+	metricsreg.Header(b, "pg_sage_llm_requests_total")
 	for _, row := range rows {
 		for _, result := range llm.Results() {
 			writeSample(b, "pg_sage_llm_requests_total",
@@ -178,9 +177,7 @@ func writeLLMHealthMetrics(b *strings.Builder, rows []llmHealthRow, gauges []llm
 	}
 	b.WriteString("\n")
 	writeLLMLatency(b, rows)
-	b.WriteString("# HELP pg_sage_llm_tokens_total LLM tokens charged since start by kind " +
-		"(prompt, completion, unattributed: estimated or not split by the provider); the " +
-		"spend signal, no prices applied\n# TYPE pg_sage_llm_tokens_total counter\n")
+	metricsreg.Header(b, "pg_sage_llm_tokens_total")
 	for _, row := range rows {
 		for _, kind := range []struct {
 			name string
@@ -198,9 +195,7 @@ func writeLLMHealthMetrics(b *strings.Builder, rows []llmHealthRow, gauges []llm
 // writeLLMLatency renders the duration histogram of the timed results.
 func writeLLMLatency(b *strings.Builder, rows []llmHealthRow) {
 	const name = "pg_sage_llm_request_duration_seconds"
-	b.WriteString("# HELP " + name + " LLM call duration for results ok, error, " +
-		"timeout, rate_limited and empty (budget and breaker refusals and " +
-		"cancellations are not timed)\n# TYPE " + name + " histogram\n")
+	metricsreg.Header(b, name)
 	for _, row := range rows {
 		labels := row.key.labels()
 		var cumulative uint64
@@ -218,20 +213,17 @@ func writeLLMLatency(b *strings.Builder, rows []llmHealthRow) {
 
 func writeLLMClientGauges(b *strings.Builder, gauges []llmClientGauge) {
 	families := []struct {
-		name, help string
-		value      func(llmClientGauge) any
+		name  string
+		value func(llmClientGauge) any
 	}{
-		{"pg_sage_llm_enabled", "LLM client enabled (1) or not (0)",
-			func(g llmClientGauge) any { return boolGauge(g.enabled) }},
-		{"pg_sage_llm_circuit_open", "LLM circuit breaker refusing requests (1) or not (0)",
+		{"pg_sage_llm_enabled", func(g llmClientGauge) any { return boolGauge(g.enabled) }},
+		{"pg_sage_llm_circuit_open",
 			func(g llmClientGauge) any { return boolGauge(g.circuitOpen) }},
-		{"pg_sage_llm_tokens_used_today", "LLM tokens charged today (UTC day)",
-			func(g llmClientGauge) any { return g.used }},
-		{"pg_sage_llm_tokens_budget_daily", "Configured daily LLM token budget " +
-			"(0 is unlimited)", func(g llmClientGauge) any { return g.budget }},
+		{"pg_sage_llm_tokens_used_today", func(g llmClientGauge) any { return g.used }},
+		{"pg_sage_llm_tokens_budget_daily", func(g llmClientGauge) any { return g.budget }},
 	}
 	for _, f := range families {
-		b.WriteString("# HELP " + f.name + " " + f.help + "\n# TYPE " + f.name + " gauge\n")
+		metricsreg.Header(b, f.name)
 		for _, g := range gauges {
 			writeSample(b, f.name, g.key.labels(), f.value(g))
 		}

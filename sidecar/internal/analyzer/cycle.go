@@ -16,14 +16,14 @@ var queryRuleNames = map[string]bool{
 	"high_total_time": true,
 }
 
-func (a *Analyzer) cycle(ctx context.Context) {
+func (a *Analyzer) cycle(ctx context.Context) error {
 	latest := a.collector.LatestSnapshot()
 	if latest == nil {
 		a.logFn("DEBUG", "analyzer: no snapshot yet, skipping")
-		return
+		return errNoSnapshot
 	}
 	if !a.claimFreshSnapshot(latest) {
-		return
+		return errStaleSnapshot
 	}
 	current := snapshotForAnalysis(latest)
 	previous := snapshotForAnalysis(a.collector.PreviousSnapshot())
@@ -32,10 +32,8 @@ func (a *Analyzer) cycle(ctx context.Context) {
 		filterSchemaExclusions(previous)
 	}
 	excluded := a.excludeFactSchemas(ctx, current, previous)
-
 	a.eval = newCycleEval()
 	a.loadCycleInputs(ctx, current)
-
 	// Skip query-based rules when pg_stat_statements was reset.
 	skipQueryRules := current.StatsReset
 	if skipQueryRules {
@@ -64,8 +62,9 @@ func (a *Analyzer) cycle(ctx context.Context) {
 	// A bounded query list cannot prove absent queries stopped spilling.
 	// Temp spills clear only on a new, observed, zero-spill execution.
 	a.finishTempSpillCycle(ctx, current, previous, all)
-	a.finalizeCycle(ctx, all, a.eval.resolvable(all))
+	err := a.finalizeCycle(ctx, all, a.eval.resolvable(all))
 	a.saveUnusedClock(ctx)
+	return err
 }
 
 // loadCycleInputs reads the state the rules need besides the snapshot:

@@ -2,6 +2,8 @@ package main
 
 import (
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/metricsreg"
 )
 
 // writeValueMetrics emits the DBA-hours-saved value series for every
@@ -21,21 +23,17 @@ import (
 // sample at all.
 func writeValueMetrics(b *strings.Builder, views []metricsView) {
 	rows := valueRows(views)
-	b.WriteString("# HELP pg_sage_toil_minutes_saved " +
-		"Net verified DBA toil minutes saved (decreases on rollback)\n" +
-		"# TYPE pg_sage_toil_minutes_saved gauge\n")
+	metricsreg.Header(b, "pg_sage_toil_minutes_saved")
 	for _, v := range rows {
 		writeToilSeries(b, v)
 	}
-	b.WriteString("\n# HELP pg_sage_incidents_avoided_total " +
-		"Incidents avoided by kind (decreases on rollback)\n" +
-		"# TYPE pg_sage_incidents_avoided_total gauge\n")
+	b.WriteString("\n")
+	metricsreg.Header(b, "pg_sage_incidents_avoided_total")
 	for _, v := range rows {
 		writeIncidentSeries(b, v)
 	}
-	b.WriteString("\n# HELP pg_sage_value_metrics_up " +
-		"1 if the last metrics refresh read the database's value ledger\n" +
-		"# TYPE pg_sage_value_metrics_up gauge\n")
+	b.WriteString("\n")
+	metricsreg.Header(b, "pg_sage_value_metrics_up")
 	for _, v := range rows {
 		up := 0
 		if v.ok(metricsSourceValue) {

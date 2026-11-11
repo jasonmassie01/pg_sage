@@ -10,6 +10,43 @@
     }
   ],
   "__elements": {},
+  "uid": "pg-sage",
+  "editable": true,
+  "graphTooltip": 1,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m"
+    ]
+  },
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "fiscalYearStartMonth": 0,
+  "liveNow": false,
+  "weekStart": "",
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
   "__requires": [
     {
       "type": "grafana",
@@ -37,37 +74,19 @@
     },
     {
       "type": "panel",
-      "id": "table",
-      "name": "Table",
-      "version": ""
-    },
-    {
-      "type": "panel",
-      "id": "barchart",
-      "name": "Bar chart",
+      "id": "text",
+      "name": "Text",
       "version": ""
     }
   ],
-  "uid": "pg-sage",
   "title": "pg_sage - Agentic Postgres DBA",
-  "description": "Monitoring dashboard for pg_sage, the agentic Postgres DBA",
-  "tags": ["postgresql", "pg_sage", "monitoring"],
-  "editable": true,
-  "style": "dark",
-  "graphTooltip": 1,
-  "time": {
-    "from": "now-6h",
-    "to": "now"
-  },
-  "timepicker": {
-    "refresh_intervals": ["5s", "10s", "30s", "1m", "5m"]
-  },
-  "refresh": "30s",
-  "schemaVersion": 39,
-  "version": 1,
-  "fiscalYearStartMonth": 0,
-  "liveNow": false,
-  "weekStart": "",
+  "description": "pg_sage, the agentic Postgres DBA: the sidecar, its databases, actions, LLM use, SRE and SLOs, and value",
+  "tags": [
+    "postgresql",
+    "pg_sage",
+    "monitoring"
+  ],
+  "version": 2,
   "templating": {
     "list": [
       {
@@ -82,1045 +101,3071 @@
         "refresh": 1,
         "regex": "",
         "skipUrlSync": false
-      }
-    ]
-  },
-  "annotations": {
-    "list": [
+      },
       {
-        "builtIn": 1,
+        "name": "job",
+        "label": "Job",
+        "type": "query",
         "datasource": {
-          "type": "grafana",
-          "uid": "-- Grafana --"
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
         },
-        "enable": true,
-        "hide": true,
-        "iconColor": "rgba(0, 211, 255, 1)",
-        "name": "Annotations & Alerts",
-        "type": "dashboard"
+        "query": {
+          "query": "label_values(pg_sage_info, job)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "definition": "label_values(pg_sage_info, job)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "current": {},
+        "options": [],
+        "regex": "",
+        "sort": 1,
+        "hide": 0,
+        "skipUrlSync": false
+      },
+      {
+        "name": "instance",
+        "label": "Sidecar",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "query": {
+          "query": "label_values(pg_sage_info{job=~\"$job\"}, instance)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "definition": "label_values(pg_sage_info{job=~\"$job\"}, instance)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "current": {},
+        "options": [],
+        "regex": "",
+        "sort": 1,
+        "hide": 0,
+        "skipUrlSync": false
+      },
+      {
+        "name": "database",
+        "label": "Database",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "query": {
+          "query": "label_values(pg_sage_database_up{job=~\"$job\",instance=~\"$instance\"}, database)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "definition": "label_values(pg_sage_database_up{job=~\"$job\",instance=~\"$instance\"}, database)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "current": {},
+        "options": [],
+        "regex": "",
+        "sort": 1,
+        "hide": 0,
+        "skipUrlSync": false
       }
     ]
   },
   "panels": [
     {
-      "type": "row",
-      "id": 100,
-      "title": "Overview",
-      "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
-      "panels": []
-    },
-    {
       "id": 1,
-      "type": "stat",
-      "title": "pg_sage Version",
-      "description": "Current pg_sage version from pg_sage_info metric",
-      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+      "type": "row",
+      "title": "Sidecar",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
       },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "pg_sage_info",
-          "legendFormat": "{{version}}",
-          "instant": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null }
-            ]
-          },
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "blue"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "values": false,
-          "calcs": ["lastNotNull"],
-          "fields": ""
-        },
-        "orientation": "auto",
-        "textMode": "name",
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "auto"
-      }
+      "panels": []
     },
     {
       "id": 2,
       "type": "stat",
-      "title": "Critical Findings",
-      "description": "Open findings with critical severity",
-      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "title": "Version",
+      "description": "pg_sage version and operating mode (pg_sage_info).",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 1
+      },
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "pg_sage_info{job=~\"$job\",instance=~\"$instance\"}",
+          "legendFormat": "{{version}} ({{mode}})",
           "refId": "A",
-          "expr": "pg_sage_findings_total{severity=\"critical\"}",
-          "legendFormat": "Critical",
           "instant": true
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "mappings": [],
+          "unit": "short",
+          "noValue": "no data: sidecar not scraped",
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "red", "value": 1 }
+              {
+                "color": "green",
+                "value": null
+              }
             ]
-          }
+          },
+          "mappings": []
         },
         "overrides": []
       },
       "options": {
         "reduceOptions": {
-          "values": false,
-          "calcs": ["lastNotNull"],
-          "fields": ""
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
         },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "background",
+        "colorMode": "value",
         "graphMode": "none",
-        "justifyMode": "auto"
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "name"
       }
     },
     {
       "id": 3,
       "type": "stat",
-      "title": "Warning Findings",
-      "description": "Open findings with warning severity",
-      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "title": "Build",
+      "description": "Release and commit of the running binary (pg_sage_build_info).",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 1
+      },
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "pg_sage_build_info{job=~\"$job\",instance=~\"$instance\"}",
+          "legendFormat": "{{version}} {{commit}}",
           "refId": "A",
-          "expr": "pg_sage_findings_total{severity=\"warning\"}",
-          "legendFormat": "Warning",
           "instant": true
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "mappings": [],
+          "unit": "short",
+          "noValue": "no data: sidecar not scraped",
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 1 },
-              { "color": "orange", "value": 5 }
+              {
+                "color": "green",
+                "value": null
+              }
             ]
-          }
+          },
+          "mappings": []
         },
         "overrides": []
       },
       "options": {
         "reduceOptions": {
-          "values": false,
-          "calcs": ["lastNotNull"],
-          "fields": ""
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
         },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "background",
+        "colorMode": "value",
         "graphMode": "none",
-        "justifyMode": "auto"
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "name"
       }
     },
     {
       "id": 4,
       "type": "stat",
-      "title": "Info Findings",
-      "description": "Open findings with info severity",
-      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+      "title": "Uptime",
+      "description": "Time since the sidecar process started.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 1
+      },
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "time() - process_start_time_seconds{job=~\"$job\",instance=~\"$instance\"}",
+          "legendFormat": "",
           "refId": "A",
-          "expr": "pg_sage_findings_total{severity=\"info\"}",
-          "legendFormat": "Info",
           "instant": true
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "mappings": [],
+          "unit": "s",
+          "noValue": "no data: sidecar not scraped",
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "blue", "value": 1 }
+              {
+                "color": "green",
+                "value": null
+              }
             ]
-          }
+          },
+          "mappings": []
         },
         "overrides": []
       },
       "options": {
         "reduceOptions": {
-          "values": false,
-          "calcs": ["lastNotNull"],
-          "fields": ""
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
         },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "background",
+        "colorMode": "value",
         "graphMode": "none",
-        "justifyMode": "auto"
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
       }
     },
     {
       "id": 5,
       "type": "stat",
-      "title": "Circuit Breaker - DB",
-      "description": "Database circuit breaker state (0=closed/healthy, 1=open/tripped)",
-      "gridPos": { "h": 4, "w": 3, "x": 16, "y": 1 },
+      "title": "Control database",
+      "description": "Whether the sidecar reaches its control database.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 1
+      },
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "pg_sage_connection_up{job=~\"$job\",instance=~\"$instance\"}",
+          "legendFormat": "",
           "refId": "A",
-          "expr": "pg_sage_circuit_breaker_state{breaker=\"db\"}",
-          "legendFormat": "DB",
           "instant": true
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "mappings": [
-            { "type": "value", "options": { "0": { "text": "CLOSED", "color": "green", "index": 0 } } },
-            { "type": "value", "options": { "1": { "text": "OPEN", "color": "red", "index": 1 } } }
-          ],
+          "unit": "short",
+          "noValue": "no data: sidecar not scraped",
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "red", "value": 1 }
+              {
+                "color": "green",
+                "value": null
+              }
             ]
-          }
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "down",
+                  "color": "red",
+                  "index": 0
+                },
+                "1": {
+                  "text": "up",
+                  "color": "green",
+                  "index": 1
+                }
+              }
+            }
+          ]
         },
         "overrides": []
       },
       "options": {
         "reduceOptions": {
-          "values": false,
-          "calcs": ["lastNotNull"],
-          "fields": ""
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
         },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "background",
+        "colorMode": "value",
         "graphMode": "none",
-        "justifyMode": "auto"
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
       }
     },
     {
       "id": 6,
       "type": "stat",
-      "title": "Circuit Breaker - LLM",
-      "description": "LLM circuit breaker state (0=closed/healthy, 1=open/tripped)",
-      "gridPos": { "h": 4, "w": 3, "x": 19, "y": 1 },
+      "title": "Leader",
+      "description": "Whether this sidecar holds each lease scope (HA).",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 1
+      },
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "pg_sage_leader{job=~\"$job\",instance=~\"$instance\"}",
+          "legendFormat": "{{scope}}",
           "refId": "A",
-          "expr": "pg_sage_circuit_breaker_state{breaker=\"llm\"}",
-          "legendFormat": "LLM",
           "instant": true
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "mappings": [
-            { "type": "value", "options": { "0": { "text": "CLOSED", "color": "green", "index": 0 } } },
-            { "type": "value", "options": { "1": { "text": "OPEN", "color": "red", "index": 1 } } }
-          ],
+          "unit": "short",
+          "noValue": "no data: leader election off",
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "red", "value": 1 }
+              {
+                "color": "green",
+                "value": null
+              }
             ]
-          }
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "follower",
+                  "color": "text",
+                  "index": 0
+                },
+                "1": {
+                  "text": "leader",
+                  "color": "green",
+                  "index": 1
+                }
+              }
+            }
+          ]
         },
         "overrides": []
       },
       "options": {
         "reduceOptions": {
-          "values": false,
-          "calcs": ["lastNotNull"],
-          "fields": ""
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
         },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "background",
+        "colorMode": "value",
         "graphMode": "none",
-        "justifyMode": "auto"
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
       }
     },
     {
       "id": 7,
       "type": "stat",
-      "title": "Database Size",
-      "description": "Current database size",
-      "gridPos": { "h": 4, "w": 2, "x": 22, "y": 1 },
+      "title": "API certificate expires in",
+      "description": "Time left on the API TLS certificate served.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 1
+      },
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "pg_sage_api_tls_cert_not_after_seconds{job=~\"$job\",instance=~\"$instance\"} - time()",
+          "legendFormat": "",
           "refId": "A",
-          "expr": "pg_sage_database_size_bytes",
-          "legendFormat": "Size",
           "instant": true
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "decbytes",
-          "mappings": [],
+          "unit": "s",
+          "noValue": "no data: API TLS off",
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 1073741824 },
-              { "color": "red", "value": 10737418240 }
+              {
+                "color": "green",
+                "value": null
+              }
             ]
-          }
+          },
+          "mappings": []
         },
         "overrides": []
       },
       "options": {
         "reduceOptions": {
-          "values": false,
-          "calcs": ["lastNotNull"],
-          "fields": ""
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
         },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "background",
+        "colorMode": "value",
         "graphMode": "none",
-        "justifyMode": "auto"
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
       }
     },
     {
-      "type": "row",
-      "id": 101,
-      "title": "Connection & Performance",
-      "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
-      "panels": []
+      "id": 8,
+      "type": "timeseries",
+      "title": "Loop runs and errors",
+      "description": "Runs and failed runs of the periodic loops.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (loop) (rate(pg_sage_self_loop_runs_total{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"}[$__rate_interval]))",
+          "legendFormat": "{{loop}} runs",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (loop) (rate(pg_sage_self_loop_errors_total{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"}[$__rate_interval]))",
+          "legendFormat": "{{loop}} errors",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "no data: no loop has run",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Loop last success age",
+      "description": "Time since each loop's last successful run.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "time() - pg_sage_self_loop_last_success_timestamp_seconds{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"}",
+          "legendFormat": "{{loop}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "no data: no loop has succeeded",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
     },
     {
       "id": 10,
       "type": "timeseries",
-      "title": "Active Connections Over Time",
-      "description": "Number of connections by state from pg_stat_activity",
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 6 },
+      "title": "Metrics refresh age",
+      "description": "Time since each database's metrics source last refreshed. A rising line means /metrics serves stale values.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 5
+      },
       "targets": [
         {
-          "refId": "A",
-          "expr": "pg_sage_connections_total{state=\"active\"}",
-          "legendFormat": "Active"
-        },
-        {
-          "refId": "B",
-          "expr": "pg_sage_connections_total{state=\"idle\"}",
-          "legendFormat": "Idle"
-        },
-        {
-          "refId": "C",
-          "expr": "pg_sage_connections_total{state=\"idle in transaction\"}",
-          "legendFormat": "Idle in Transaction"
-        },
-        {
-          "refId": "D",
-          "expr": "pg_sage_max_connections",
-          "legendFormat": "Max Connections"
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "time() - pg_sage_metrics_refresh_timestamp_seconds{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"}",
+          "legendFormat": "{{database}} {{source}}",
+          "refId": "A"
         }
       ],
       "fieldConfig": {
         "defaults": {
+          "unit": "s",
+          "noValue": "no data: no database registered",
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
+            "lineWidth": 1,
             "fillOpacity": 10,
-            "gradientMode": "none",
-            "spanNulls": false,
-            "showPoints": "auto",
-            "pointSize": 5,
-            "stacking": { "mode": "none" },
-            "axisPlacement": "auto",
-            "thresholdsStyle": { "mode": "off" }
-          },
-          "color": { "mode": "palette-classic" },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null }
-            ]
+            "showPoints": "never",
+            "spanNulls": false
           }
         },
-        "overrides": [
-          {
-            "matcher": { "id": "byName", "options": "Max Connections" },
-            "properties": [
-              { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 10] } },
-              { "id": "custom.fillOpacity", "value": 0 },
-              { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "options": {
-        "tooltip": { "mode": "multi", "sort": "desc" },
-        "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] }
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       }
     },
     {
       "id": 11,
-      "type": "timeseries",
-      "title": "Cache Hit Ratio Over Time",
-      "description": "Buffer cache hit ratio (higher is better, target > 0.99)",
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 6 },
+      "type": "row",
+      "title": "Databases",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 13
+      },
+      "panels": []
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Databases up",
+      "description": "Monitored databases connected with a fresh status.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 14
+      },
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum(pg_sage_database_up{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"})",
+          "legendFormat": "",
           "refId": "A",
-          "expr": "pg_sage_cache_hit_ratio",
-          "legendFormat": "Cache Hit Ratio"
+          "instant": true
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "percentunit",
-          "min": 0,
-          "max": 1,
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "fillOpacity": 20,
-            "gradientMode": "scheme",
-            "spanNulls": false,
-            "showPoints": "auto",
-            "pointSize": 5,
-            "stacking": { "mode": "none" },
-            "axisPlacement": "auto",
-            "thresholdsStyle": { "mode": "area" }
+          "unit": "short",
+          "noValue": "no data: no database registered",
+          "color": {
+            "mode": "thresholds"
           },
-          "color": { "mode": "continuous-GrYlRd" },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red", "value": null },
-              { "color": "yellow", "value": 0.9 },
-              { "color": "green", "value": 0.99 }
+              {
+                "color": "green",
+                "value": null
+              }
             ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Databases down",
+      "description": "Monitored databases not connected or not refreshing.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 14
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "count(pg_sage_database_up{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"} == 0) or vector(0)",
+          "legendFormat": "",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data: no database registered",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "Emergency stop",
+      "description": "Databases held by an emergency stop (own or fleet-wide).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 14
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "pg_sage_emergency_stopped{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"}",
+          "legendFormat": "{{database}}",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data: no database registered",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "running",
+                  "color": "green",
+                  "index": 0
+                },
+                "1": {
+                  "text": "STOPPED",
+                  "color": "red",
+                  "index": 1
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "Trust level",
+      "description": "Effective trust level of each database.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 14
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "pg_sage_trust_level{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"} == 1",
+          "legendFormat": "{{database}}: {{level}}",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data: no database registered",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "name"
+      }
+    },
+    {
+      "id": 16,
+      "type": "stat",
+      "title": "Collector breaker",
+      "description": "Collector circuit breaker of each database.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 14
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "pg_sage_collector_breaker_state{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"}",
+          "legendFormat": "{{database}}",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data: no database registered",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "closed",
+                  "color": "green",
+                  "index": 0
+                },
+                "1": {
+                  "text": "skipping",
+                  "color": "orange",
+                  "index": 1
+                },
+                "2": {
+                  "text": "dormant",
+                  "color": "red",
+                  "index": 2
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Open findings by severity",
+      "description": "Open findings of the selected databases.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 18
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (severity) (pg_sage_findings_open{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"})",
+          "legendFormat": "{{severity}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data: no database registered",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
           }
         },
         "overrides": []
       },
       "options": {
-        "tooltip": { "mode": "single", "sort": "none" },
-        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["lastNotNull", "min"] }
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       }
     },
     {
-      "id": 12,
+      "id": 18,
       "type": "timeseries",
-      "title": "Transactions Per Second",
-      "description": "Rate of committed and rolled back transactions",
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 6 },
+      "title": "Collector and analyzer age",
+      "description": "Time since each database's last collector snapshot and analysis.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 18
+      },
       "targets": [
         {
-          "refId": "A",
-          "expr": "rate(pg_sage_xact_commit_total[5m])",
-          "legendFormat": "Commits/s"
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "time() - pg_sage_collector_last_success_timestamp_seconds{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"}",
+          "legendFormat": "collector {{database}}",
+          "refId": "A"
         },
         {
-          "refId": "B",
-          "expr": "rate(pg_sage_xact_rollback_total[5m])",
-          "legendFormat": "Rollbacks/s"
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "time() - pg_sage_analyzer_last_success_timestamp_seconds{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"}",
+          "legendFormat": "analyzer {{database}}",
+          "refId": "B"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "ops",
+          "unit": "s",
+          "noValue": "no data: no cycle has completed",
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "fillOpacity": 15,
-            "gradientMode": "none",
-            "spanNulls": false,
-            "showPoints": "auto",
-            "pointSize": 5,
-            "stacking": { "mode": "none" },
-            "axisPlacement": "auto",
-            "thresholdsStyle": { "mode": "off" }
-          },
-          "color": { "mode": "palette-classic" },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null }
-            ]
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
           }
         },
-        "overrides": [
-          {
-            "matcher": { "id": "byName", "options": "Rollbacks/s" },
-            "properties": [
-              { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "options": {
-        "tooltip": { "mode": "multi", "sort": "desc" },
-        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["mean", "max"] }
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       }
     },
     {
-      "type": "row",
-      "id": 102,
-      "title": "Findings",
-      "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 },
-      "panels": []
+      "id": 19,
+      "type": "timeseries",
+      "title": "Health score",
+      "description": "Database health score, 0-100.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 18
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "pg_sage_database_health_score{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"}",
+          "legendFormat": "{{database}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data: no database registered",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "min": 0,
+          "max": 100
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
     },
     {
       "id": 20,
-      "type": "table",
-      "title": "Current Findings by Severity",
-      "description": "Table of open findings grouped by severity",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 15 },
+      "type": "timeseries",
+      "title": "Database size",
+      "description": "Database size from the collector's last snapshot.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 26
+      },
       "targets": [
         {
-          "refId": "A",
-          "expr": "pg_sage_findings_total",
-          "legendFormat": "{{severity}}",
-          "instant": true,
-          "format": "table"
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "pg_sage_database_size_bytes{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"}",
+          "legendFormat": "{{database}}",
+          "refId": "A"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "custom": {
-            "align": "auto",
-            "cellOptions": { "type": "auto" },
-            "inspect": false
+          "unit": "bytes",
+          "noValue": "no data: no snapshot yet",
+          "color": {
+            "mode": "palette-classic"
           },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 1 },
-              { "color": "red", "value": 5 }
-            ]
-          }
-        },
-        "overrides": [
-          {
-            "matcher": { "id": "byName", "options": "severity" },
-            "properties": [
-              { "id": "custom.width", "value": 150 }
-            ]
-          },
-          {
-            "matcher": { "id": "byName", "options": "Value" },
-            "properties": [
-              { "id": "displayName", "value": "Count" },
-              { "id": "custom.cellOptions", "value": { "type": "color-background" } },
-              { "id": "thresholds", "value": {
-                "mode": "absolute",
-                "steps": [
-                  { "color": "green", "value": null },
-                  { "color": "yellow", "value": 1 },
-                  { "color": "orange", "value": 3 },
-                  { "color": "red", "value": 5 }
-                ]
-              }}
-            ]
-          }
-        ]
-      },
-      "options": {
-        "showHeader": true,
-        "cellHeight": "sm",
-        "footer": {
-          "show": true,
-          "reducer": ["sum"],
-          "countRows": false,
-          "fields": ["Value"]
-        }
-      },
-      "transformations": [
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Time": true,
-              "__name__": true,
-              "instance": true,
-              "job": true
-            },
-            "renameByName": {
-              "severity": "Severity",
-              "Value": "Count"
-            }
-          }
-        }
-      ]
-    },
-    {
-      "id": 21,
-      "type": "barchart",
-      "title": "Findings by Severity",
-      "description": "Bar chart showing distribution of open findings by severity",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 15 },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "pg_sage_findings_total{severity=\"critical\"}",
-          "legendFormat": "Critical",
-          "instant": true
-        },
-        {
-          "refId": "B",
-          "expr": "pg_sage_findings_total{severity=\"warning\"}",
-          "legendFormat": "Warning",
-          "instant": true
-        },
-        {
-          "refId": "C",
-          "expr": "pg_sage_findings_total{severity=\"info\"}",
-          "legendFormat": "Info",
-          "instant": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "palette-classic" },
           "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisPlacement": "auto",
-            "fillOpacity": 80,
-            "gradientMode": "none",
+            "drawStyle": "line",
             "lineWidth": 1,
-            "scaleDistribution": { "type": "linear" },
-            "thresholdsStyle": { "mode": "off" }
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null }
-            ]
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
           }
         },
-        "overrides": [
-          {
-            "matcher": { "id": "byName", "options": "Critical" },
-            "properties": [
-              { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }
-            ]
-          },
-          {
-            "matcher": { "id": "byName", "options": "Warning" },
-            "properties": [
-              { "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }
-            ]
-          },
-          {
-            "matcher": { "id": "byName", "options": "Info" },
-            "properties": [
-              { "id": "color", "value": { "mode": "fixed", "fixedColor": "blue" } }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "options": {
-        "barRadius": 0.05,
-        "barWidth": 0.5,
-        "fullHighlight": false,
-        "groupWidth": 0.7,
-        "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] },
-        "orientation": "horizontal",
-        "showValue": "always",
-        "stacking": "none",
-        "tooltip": { "mode": "single", "sort": "none" },
-        "xTickLabelRotation": 0
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       }
     },
     {
+      "id": 21,
+      "type": "stat",
+      "title": "Time to first finding",
+      "description": "From start to each database's first finding.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 26
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "pg_sage_time_to_first_finding_seconds{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"}",
+          "legendFormat": "{{database}}",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "no data: no finding yet",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 22,
+      "type": "stat",
+      "title": "First look findings",
+      "description": "Findings of each database's catalog-only first look.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 26
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "pg_sage_first_look_items{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"}",
+          "legendFormat": "{{database}}",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data: first look not run",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 23,
       "type": "row",
-      "id": 103,
-      "title": "Database Health",
+      "title": "Executor and trust",
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 34
+      },
       "panels": []
+    },
+    {
+      "id": 24,
+      "type": "timeseries",
+      "title": "Action outcomes",
+      "description": "Actions that ended, by outcome.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 35
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (outcome) (increase(pg_sage_actions_total{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"}[$__rate_interval]))",
+          "legendFormat": "{{outcome}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data: no action has ended",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 25,
+      "type": "stat",
+      "title": "Pending approvals",
+      "description": "Approvals a person can act on now, by risk.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 35
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (risk) (pg_sage_actions_pending_approval{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"})",
+          "legendFormat": "{{risk}}",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data: no database registered",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 26,
+      "type": "stat",
+      "title": "Since last failed action",
+      "description": "Time since the latest failed action.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 35
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "time() - max(pg_sage_action_last_failure_timestamp_seconds{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"})",
+          "legendFormat": "",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "no data: no action has failed",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 27,
+      "type": "timeseries",
+      "title": "Verification verdicts",
+      "description": "Verifications finalized, by verdict.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 35
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (verdict) (increase(pg_sage_verification_verdicts_total{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"}[$__rate_interval]))",
+          "legendFormat": "{{verdict}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data: nothing verified",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 28,
+      "type": "timeseries",
+      "title": "Policy parks",
+      "description": "Self-initiated changes the policy gate parked, by reason.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 43
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (reason) (increase(pg_sage_policy_parks_total{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"}[$__rate_interval]))",
+          "legendFormat": "{{reason}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data: nothing parked",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 29,
+      "type": "timeseries",
+      "title": "Verification wait releases",
+      "description": "Verification waits that ended without a verdict, by cause.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 43
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (cause) (increase(pg_sage_verification_wait_releases_total{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"}[$__rate_interval]))",
+          "legendFormat": "{{cause}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data: no wait released",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
     },
     {
       "id": 30,
       "type": "timeseries",
-      "title": "Dead Tuples Over Time",
-      "description": "Dead tuples from pg_sage_status metrics (requires extension). In sidecar-only mode, this data comes from table-level stats.",
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 24 },
+      "title": "Shadow verdicts",
+      "description": "What the gate would have decided for classes below their earned trust.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 43
+      },
       "targets": [
         {
-          "refId": "A",
-          "expr": "pg_sage_status_n_dead_tup",
-          "legendFormat": "Dead Tuples"
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (class, verdict) (increase(pg_sage_shadow_decisions_total{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"}[$__rate_interval]))",
+          "legendFormat": "{{class}} {{verdict}}",
+          "refId": "A"
         }
       ],
       "fieldConfig": {
         "defaults": {
+          "unit": "short",
+          "noValue": "no data: feature off (no shadow class)",
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "fillOpacity": 15,
-            "gradientMode": "scheme",
-            "spanNulls": false,
-            "showPoints": "auto",
-            "pointSize": 5,
-            "stacking": { "mode": "none" },
-            "axisPlacement": "auto",
-            "thresholdsStyle": { "mode": "line+area" }
-          },
-          "color": { "mode": "continuous-YlRd" },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "red", "value": 100000 }
-            ]
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
           }
         },
         "overrides": []
       },
       "options": {
-        "tooltip": { "mode": "single", "sort": "none" },
-        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["lastNotNull", "max"] }
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       }
     },
     {
       "id": 31,
-      "type": "timeseries",
-      "title": "Disk Blocks Read vs Cache Hits",
-      "description": "Rate of physical disk block reads vs shared buffer cache hits",
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 24 },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+      "type": "row",
+      "title": "LLM",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 51
       },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "rate(pg_sage_blks_read_total[5m])",
-          "legendFormat": "Disk Reads/s"
-        },
-        {
-          "refId": "B",
-          "expr": "rate(pg_sage_blks_hit_total[5m])",
-          "legendFormat": "Cache Hits/s"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "ops",
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "fillOpacity": 15,
-            "gradientMode": "none",
-            "spanNulls": false,
-            "showPoints": "auto",
-            "pointSize": 5,
-            "stacking": { "mode": "none" },
-            "axisPlacement": "auto",
-            "thresholdsStyle": { "mode": "off" }
-          },
-          "color": { "mode": "palette-classic" },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null }
-            ]
-          }
-        },
-        "overrides": [
-          {
-            "matcher": { "id": "byName", "options": "Disk Reads/s" },
-            "properties": [
-              { "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }
-            ]
-          },
-          {
-            "matcher": { "id": "byName", "options": "Cache Hits/s" },
-            "properties": [
-              { "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "tooltip": { "mode": "multi", "sort": "desc" },
-        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["mean", "max"] }
-      }
+      "panels": []
     },
     {
       "id": 32,
       "type": "timeseries",
-      "title": "Deadlocks Over Time",
-      "description": "Rate of deadlocks detected in the database",
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 24 },
+      "title": "Tokens today vs budget",
+      "description": "LLM tokens used today against the daily budget.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 52
+      },
       "targets": [
         {
-          "refId": "A",
-          "expr": "rate(pg_sage_deadlocks_total[5m])",
-          "legendFormat": "Deadlocks/s"
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "pg_sage_llm_tokens_used_today{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"}",
+          "legendFormat": "used",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "pg_sage_llm_tokens_budget_daily{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"}",
+          "legendFormat": "budget",
+          "refId": "B"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "ops",
+          "unit": "short",
+          "noValue": "no data: feature off (LLM)",
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "fillOpacity": 15,
-            "gradientMode": "scheme",
-            "spanNulls": false,
-            "showPoints": "always",
-            "pointSize": 5,
-            "stacking": { "mode": "none" },
-            "axisPlacement": "auto",
-            "thresholdsStyle": { "mode": "line+area" }
-          },
-          "color": { "mode": "continuous-YlRd" },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "red", "value": 0.01 }
-            ]
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
           }
         },
         "overrides": []
       },
       "options": {
-        "tooltip": { "mode": "single", "sort": "none" },
-        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["lastNotNull", "max"] }
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       }
     },
     {
+      "id": 33,
+      "type": "stat",
+      "title": "LLM circuit",
+      "description": "LLM circuit breaker.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 52
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "pg_sage_llm_circuit_open{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"}",
+          "legendFormat": "",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data: feature off (LLM)",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "closed",
+                  "color": "green",
+                  "index": 0
+                },
+                "1": {
+                  "text": "OPEN",
+                  "color": "red",
+                  "index": 1
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 34,
+      "type": "stat",
+      "title": "LLM enabled",
+      "description": "Whether the LLM integration is enabled.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 52
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "pg_sage_llm_enabled{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"}",
+          "legendFormat": "",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data: sidecar not scraped",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "off",
+                  "color": "text",
+                  "index": 0
+                },
+                "1": {
+                  "text": "on",
+                  "color": "green",
+                  "index": 1
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 35,
+      "type": "timeseries",
+      "title": "Fleet budget by database",
+      "description": "Fleet LLM tokens used against each allocation.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 52
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "pg_sage_llm_fleet_budget_used_tokens{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"}",
+          "legendFormat": "{{database}} used",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "pg_sage_llm_fleet_budget_allocation_tokens{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"}",
+          "legendFormat": "{{database}} allocation",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data: feature off (fleet budget)",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 36,
+      "type": "timeseries",
+      "title": "Tuning agent tokens today",
+      "description": "Tuning agent tokens charged today and its cap.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 60
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "pg_sage_tuning_budget_day_tokens_used{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"}",
+          "legendFormat": "{{database}} used",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "pg_sage_tuning_budget_day_tokens_limit{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"}",
+          "legendFormat": "{{database}} cap",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data: feature off (tuning agent)",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 37,
+      "type": "timeseries",
+      "title": "Tuning cases deferred",
+      "description": "Workload cases the last cycle left for later.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 60
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "pg_sage_tuning_cases_deferred{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"}",
+          "legendFormat": "{{database}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data: feature off (tuning agent)",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 38,
       "type": "row",
-      "id": 104,
-      "title": "Sidecar Health",
+      "title": "SRE and SLO",
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 32 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 68
+      },
       "panels": []
+    },
+    {
+      "id": 39,
+      "type": "stat",
+      "title": "SLO state",
+      "description": "Current error-budget state of each SLO.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 69
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "pg_sage_slo_state{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"} == 1",
+          "legendFormat": "{{database}}/{{slo}}: {{state}}",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data: feature off (no SLO)",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "name"
+      }
     },
     {
       "id": 40,
       "type": "timeseries",
-      "title": "PostgreSQL Uptime",
-      "description": "PostgreSQL server uptime in hours",
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 33 },
+      "title": "SLO burn rate",
+      "description": "Burn rate per window; 1 spends the budget exactly.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 69
+      },
       "targets": [
         {
-          "refId": "A",
-          "expr": "pg_sage_uptime_seconds / 3600",
-          "legendFormat": "Uptime (hours)"
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "pg_sage_slo_burn_rate{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"}",
+          "legendFormat": "{{database}}/{{slo}} {{window}}",
+          "refId": "A"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "h",
+          "unit": "short",
+          "noValue": "no data: feature off (no SLO)",
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
+            "lineWidth": 1,
             "fillOpacity": 10,
-            "gradientMode": "none",
-            "spanNulls": false,
             "showPoints": "never",
-            "stacking": { "mode": "none" },
-            "axisPlacement": "auto",
-            "thresholdsStyle": { "mode": "off" }
-          },
-          "color": { "mode": "fixed", "fixedColor": "green" },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null }
-            ]
+            "spanNulls": false
           }
         },
         "overrides": []
       },
       "options": {
-        "tooltip": { "mode": "single", "sort": "none" },
-        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["lastNotNull"] }
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       }
     },
     {
       "id": 41,
       "type": "timeseries",
-      "title": "Transaction Throughput (Commit + Rollback)",
-      "description": "Combined transaction rate showing overall database activity",
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 33 },
+      "title": "Error budget left",
+      "description": "Share of each SLO window's error budget left.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 69
+      },
       "targets": [
         {
-          "refId": "A",
-          "expr": "rate(pg_sage_xact_commit_total[5m]) + rate(pg_sage_xact_rollback_total[5m])",
-          "legendFormat": "Total TPS"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "ops",
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "fillOpacity": 20,
-            "gradientMode": "scheme",
-            "spanNulls": false,
-            "showPoints": "auto",
-            "pointSize": 5,
-            "stacking": { "mode": "none" },
-            "axisPlacement": "auto",
-            "thresholdsStyle": { "mode": "off" }
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
           },
-          "color": { "mode": "continuous-GrYlRd" },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "tooltip": { "mode": "single", "sort": "none" },
-        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["mean", "max", "lastNotNull"] }
-      }
-    },
-    {
-      "id": 42,
-      "type": "stat",
-      "title": "Rollback Ratio",
-      "description": "Ratio of rolled back transactions to total transactions (lower is better)",
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 33 },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "rate(pg_sage_xact_rollback_total[5m]) / (rate(pg_sage_xact_commit_total[5m]) + rate(pg_sage_xact_rollback_total[5m]))",
-          "legendFormat": "Rollback Ratio"
+          "expr": "pg_sage_slo_error_budget_remaining{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"}",
+          "legendFormat": "{{database}}/{{slo}}",
+          "refId": "A"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
+          "noValue": "no data: feature off (no SLO)",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
           "min": 0,
-          "max": 1,
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 0.01 },
-              { "color": "red", "value": 0.05 }
-            ]
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 42,
+      "type": "timeseries",
+      "title": "Investigations by state",
+      "description": "Sage SRE investigations by state.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 77
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (state) (pg_sage_sre_investigations{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"})",
+          "legendFormat": "{{state}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data: feature off (Sage SRE)",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
           }
         },
         "overrides": []
       },
       "options": {
-        "reduceOptions": {
-          "values": false,
-          "calcs": ["lastNotNull"],
-          "fields": ""
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
         },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 43,
+      "type": "stat",
+      "title": "Oldest open investigation",
+      "description": "Age of the oldest live investigation.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 77
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max(pg_sage_sre_investigation_oldest_open_age_seconds{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"})",
+          "legendFormat": "",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "no data: feature off (Sage SRE)",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
         "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "auto"
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 44,
+      "type": "timeseries",
+      "title": "Probe slot wait",
+      "description": "Mean time probes waited for a probe slot.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 77
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (limiter) (rate(pg_sage_sre_probe_queue_wait_seconds_sum{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"}[$__rate_interval])) / sum by (limiter) (rate(pg_sage_sre_probe_queue_wait_seconds_count{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"}[$__rate_interval]))",
+          "legendFormat": "{{limiter}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "no data: feature off (Sage SRE)",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 45,
+      "type": "timeseries",
+      "title": "Probe refusals",
+      "description": "Probes refused a slot within the queue wait.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 77
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (limiter) (increase(pg_sage_sre_probe_refusals_total{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"}[$__rate_interval]))",
+          "legendFormat": "{{limiter}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data: no probe refused",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 46,
+      "type": "row",
+      "title": "Value and footprint",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 85
+      },
+      "panels": []
+    },
+    {
+      "id": 47,
+      "type": "stat",
+      "title": "Toil saved",
+      "description": "Net verified DBA toil saved.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 86
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum(pg_sage_toil_minutes_saved{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"})",
+          "legendFormat": "",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "m",
+          "noValue": "no data: feature off (value ledger)",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 48,
+      "type": "stat",
+      "title": "Incidents avoided",
+      "description": "Incidents avoided, by kind.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 86
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (kind) (pg_sage_incidents_avoided_total{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"})",
+          "legendFormat": "{{kind}}",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data: feature off (value ledger)",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 49,
+      "type": "stat",
+      "title": "Self budget exceeded",
+      "description": "Whether pg_sage used more than its own budget.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 12,
+        "y": 86
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max by (resource) (pg_sage_self_budget_exceeded{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"})",
+          "legendFormat": "{{resource}}",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data: feature off (self budget)",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "within",
+                  "color": "green",
+                  "index": 0
+                },
+                "1": {
+                  "text": "EXCEEDED",
+                  "color": "red",
+                  "index": 1
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 50,
+      "type": "timeseries",
+      "title": "pg_sage database time per hour",
+      "description": "Database time of pg_sage's own statements against the budget.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 90
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "pg_sage_self_db_time_ms_per_hour{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"}",
+          "legendFormat": "{{database}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "pg_sage_self_budget{job=~\"$job\",instance=~\"$instance\",resource=\"db_time\"}",
+          "legendFormat": "budget",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "noValue": "no data: feature off (self budget)",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 51,
+      "type": "timeseries",
+      "title": "pg_sage CPU per cycle",
+      "description": "CPU time of the sidecar per collector cycle.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 90
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "pg_sage_self_cpu_ms_per_cycle{job=~\"$job\",instance=~\"$instance\"}",
+          "legendFormat": "cpu",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "pg_sage_self_budget{job=~\"$job\",instance=~\"$instance\",resource=\"cpu\"}",
+          "legendFormat": "budget",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "noValue": "no data: feature off (self budget)",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 52,
+      "type": "timeseries",
+      "title": "sage schema size",
+      "description": "Size of the sage schema in each database.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 90
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "pg_sage_self_schema_bytes{job=~\"$job\",instance=~\"$instance\",database=~\"$database\"}",
+          "legendFormat": "{{database}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "pg_sage_self_budget{job=~\"$job\",instance=~\"$instance\",resource=\"storage\"}",
+          "legendFormat": "budget",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "noValue": "no data: feature off (self cost)",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 53,
+      "type": "row",
+      "title": "PostgreSQL internals",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 98
+      },
+      "panels": []
+    },
+    {
+      "id": 54,
+      "type": "text",
+      "title": "Where the PostgreSQL panels went",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 99
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "pg_sage charts the sidecar and its work, not PostgreSQL internals. For connections, cache hits, transactions, dead tuples and deadlocks, scrape [postgres_exporter](https://github.com/prometheus-community/postgres_exporter) and import the community [PostgreSQL Database dashboard](https://grafana.com/grafana/dashboards/9628)."
       }
     }
   ]

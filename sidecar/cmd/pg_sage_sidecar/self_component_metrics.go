@@ -1,9 +1,9 @@
 package main
 
 import (
-	"fmt"
 	"strings"
 
+	"github.com/pg-sage/sidecar/internal/metricsreg"
 	"github.com/pg-sage/sidecar/internal/selfcost"
 )
 
@@ -36,9 +36,7 @@ func writeSelfComponentMetrics(b *strings.Builder, comps map[string][]selfcost.C
 	if body.Len() == 0 {
 		return
 	}
-	fmt.Fprintf(b, "# HELP %s Database time of pg_sage's own statements per hour by the "+
-		"component their tag names (ms)\n# TYPE %s gauge\n", selfComponentMetric,
-		selfComponentMetric)
+	metricsreg.Header(b, selfComponentMetric)
 	b.WriteString(body.String())
 	b.WriteString("\n")
 }

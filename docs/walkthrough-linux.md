@@ -100,7 +100,7 @@ curl -c cookies.txt -H 'Content-Type: application/json' \
 
 curl -b cookies.txt http://localhost:8080/api/v1/cases
 curl -b cookies.txt http://localhost:8080/api/v1/shadow-report
-curl -s http://localhost:9187/metrics | head
+curl -s http://localhost:8187/metrics | head
 ```
 
 ## 5. Clean Up

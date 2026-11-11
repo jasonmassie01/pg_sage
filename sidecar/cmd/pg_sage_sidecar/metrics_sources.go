@@ -65,41 +65,6 @@ func optimizerMetricsSource(p *pgxpool.Pool) metricsSource {
 		}}
 }
 
-// pgStatValues are the standalone pg_stat_activity/pg_stat_database reads.
-type pgStatValues struct {
-	connectionsByState map[string]int64
-	blksHit, blksRead  int64
-}
-
-const connectionsByStateSQL = `/* pg_sage */ SELECT coalesce(state, 'unknown'), count(*)
-	FROM pg_stat_activity GROUP BY state`
-
-const cacheBlocksSQL = `/* pg_sage */ SELECT blks_hit, blks_read FROM pg_stat_database
-	WHERE datname = current_database()`
-
-// pgStatMetricsSource reads connections by state and the buffer cache
-// counters of the monitored database.
-func pgStatMetricsSource(p *pgxpool.Pool) metricsSource {
-	return metricsSource{name: metricsSourcePGStat,
-		read: func(ctx context.Context, s *metricsSnapshot) error {
-			if p == nil {
-				return errNoMetricsPool
-			}
-			conns, err := queryCounts(ctx, p, connectionsByStateSQL)
-			if err != nil {
-				return fmt.Errorf("read pg_stat_activity: %w", err)
-			}
-			var v pgStatValues
-			if err := p.QueryRow(ctx, cacheBlocksSQL).Scan(&v.blksHit,
-				&v.blksRead); err != nil {
-				return fmt.Errorf("read pg_stat_database: %w", err)
-			}
-			v.connectionsByState = conns
-			s.pgstat = v
-			return nil
-		}}
-}
-
 var errNoMetricsPool = errors.New("database has no connection pool")
 
 // queryCounts reads (label, count) rows into a map.

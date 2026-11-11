@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/pg-sage/sidecar/internal/metricsreg"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
@@ -14,17 +15,13 @@ import (
 // refused; a refusal is a probe that never ran. Investigation refusals
 // show investigations losing their slot to background sampling (sre-06).
 func writeSREProbeMetrics(b *strings.Builder, stats []probes.QueueStat) {
-	b.WriteString("# HELP pg_sage_sre_probe_queue_wait_seconds Time Sage SRE probes " +
-		"waited for a probe slot, by caller class and limiter\n" +
-		"# TYPE pg_sage_sre_probe_queue_wait_seconds summary\n")
+	metricsreg.Header(b, "pg_sage_sre_probe_queue_wait_seconds")
 	for _, s := range stats {
 		l := sreProbeLabels(s)
 		fmt.Fprintf(b, "pg_sage_sre_probe_queue_wait_seconds_sum{%s} %g\n", l, s.WaitSeconds)
 		fmt.Fprintf(b, "pg_sage_sre_probe_queue_wait_seconds_count{%s} %d\n", l, s.Waits)
 	}
-	b.WriteString("# HELP pg_sage_sre_probe_refusals_total Sage SRE probes refused a " +
-		"probe slot within the queue wait (never run), by caller class and limiter\n" +
-		"# TYPE pg_sage_sre_probe_refusals_total counter\n")
+	metricsreg.Header(b, "pg_sage_sre_probe_refusals_total")
 	for _, s := range stats {
 		fmt.Fprintf(b, "pg_sage_sre_probe_refusals_total{%s} %d\n", sreProbeLabels(s),
 			s.Refusals)

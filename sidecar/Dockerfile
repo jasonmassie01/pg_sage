@@ -42,7 +42,7 @@ USER sage
 # the sealed secrets.
 ENV SAGE_DATA_DIR=/var/lib/pg_sage
 VOLUME /var/lib/pg_sage
-EXPOSE 8080 9187
+EXPOSE 8080 8187
 # ci-06: the sidecar probes its own /health, following api.listen_addr
 # (SAGE_CONFIG_PATH or ./config.yaml) and HTTPS when SAGE_TLS_CERT and
 # SAGE_TLS_KEY are set. A config passed as --config in the container

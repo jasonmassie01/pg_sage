@@ -734,8 +734,10 @@ figures are exported as `pg_sage_self_cpu_ms_per_cycle`,
 CPU `pg_sage_self_budget_exceeded{resource="cpu"}`, without a database),
 `pg_sage_self_loop_busy_seconds_total{loop,database}` and
 `pg_sage_self_loop_runs_total{loop,database}` (`loop` is the component, `database` is
-absent on a process loop, so `sum by (loop)` adds every database). A database's per-cycle
-figures are per cycle of its own collector (its period in fleet mode, which self-configuration may lengthen).
+absent on a process loop, so `sum by (loop)` adds every database), with each loop's
+failed runs and last success under the same labels (see deployment.md, Loop health).
+A database's per-cycle figures are per cycle of its own collector (its period in fleet
+mode, which self-configuration may lengthen).
 When the database-time budget is inherited from `analyzer.self_cost_budget_ms`, each database
 inherits it at its own collector period, exported as
 `pg_sage_self_budget_database{database,resource="db_time"}`, and that database's `db_time`

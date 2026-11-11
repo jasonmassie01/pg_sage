@@ -102,7 +102,7 @@ advisor:
 
 # Prometheus metrics endpoint
 prometheus:
-  listen_addr: "0.0.0.0:9187"
+  listen_addr: "0.0.0.0:8187"
 
 # REST API + Dashboard (web UI)
 api:

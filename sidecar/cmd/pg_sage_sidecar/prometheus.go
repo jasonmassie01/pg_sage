@@ -7,6 +7,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/api"
 	"github.com/pg-sage/sidecar/internal/ask"
+	"github.com/pg-sage/sidecar/internal/metricsreg"
 	"github.com/pg-sage/sidecar/internal/migration"
 	"github.com/pg-sage/sidecar/internal/shadow"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
@@ -19,12 +20,7 @@ func handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	views := processMetrics.views()
 	var b strings.Builder
 
-	// Info metric.
-	b.WriteString("# HELP pg_sage_info pg_sage version\n" +
-		"# TYPE pg_sage_info gauge\n")
-	writeSample(&b, "pg_sage_info", []labelPair{{"version", version}, {"mode", cfg.Mode}}, 1)
-	b.WriteString("\n")
-	writeBuildMetrics(&b)
+	writeBuildMetrics(&b, cfg.Mode)
 
 	writeModeMetric(&b, cfg.Mode)
 	writeMetricsListenerMetric(&b)
@@ -32,7 +28,6 @@ func handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	writeTLSMetrics(&b, apiTLS)
 	writeSSODiscoveryMetrics(&b, api.CurrentSSODiscoveryStatus())
 	writeFirstLookMetrics(&b, firstLookTracker.Snapshot())
-
 	writeConnectionMetric(&b, views)
 
 	// Every family renders whenever its data exists, in every mode
@@ -46,10 +41,6 @@ func handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	writeCollectorMetrics(&b, collectorStatuses(fleetMgr, coll, resolveDBName()))
 	writeLeaderMetrics(&b, fleetLeader, governanceElector.Load())
 
-	// pg_stat metrics of the process database (only when it exists).
-	if pool != nil {
-		writeDatabaseMetrics(&b, views)
-	}
 	// Value lives in each monitored database (D3), so every database
 	// runtime refreshes its own ledger, never the meta pool's.
 	// A database that failed to connect has no runtime; it still shows.
@@ -64,6 +55,7 @@ func handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	writeExecutorMetrics(&b, views)
 	writeLogwatchMetrics(&b, runtimeLogFanouts.droppedLines())
 	writeSREProbeMetrics(&b, probes.QueueStats())
+	writeSREInvestigationMetrics(&b, views)
 	writeMigrationEnrichMetrics(&b, migration.EnrichDroppedCounts())
 	writeAuditHealthFamilies(&b)
 	writeAskMetrics(&b, ask.AnswerCounts())
@@ -74,134 +66,45 @@ func handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
-// Help text of the families observability-09 removes in v2.7.0; each
-// names the family that replaces it.
-const (
-	helpFindingsTotal = "# HELP pg_sage_findings_total Open findings by severity " +
-		"(deprecated, removed in v2.7.0: use pg_sage_findings_open)\n"
-	helpCollectorLastRun = "# HELP pg_sage_collector_last_run_timestamp Last " +
-		"collector run (deprecated, removed in v2.7.0: use " +
-		"pg_sage_collector_last_success_timestamp_seconds)\n"
-	helpConnectionsTotal = "# HELP pg_sage_connections_total Connections by state on " +
-		"the control database (deprecated, removed in v2.7.0: use postgres_exporter)\n"
-	helpCacheHitRatio = "# HELP pg_sage_cache_hit_ratio Buffer cache hit ratio of " +
-		"the control database (deprecated, removed in v2.7.0: use postgres_exporter)\n"
-	helpFleetInstanceFindings = "# HELP pg_sage_fleet_instance_findings Per-instance " +
-		"open findings (deprecated, removed in v2.7.0: use pg_sage_findings_open)\n"
-	helpFleetInstanceHealth = "# HELP pg_sage_fleet_instance_health Per-instance " +
-		"health score (deprecated, removed in v2.7.0: use pg_sage_database_health_score)\n"
-)
-
-// writeProcessMetrics renders the process-wide families: the standalone
-// analyzer and collector (no samples in other modes), every registered
-// LLM client (llm_metrics.go) and the optimizer.
+// writeProcessMetrics renders the process-wide families: every
+// registered LLM client (llm_metrics.go) and the optimizer.
 func writeProcessMetrics(b *strings.Builder, views []metricsView) {
-	// Findings from sage.findings table.
-	b.WriteString(helpFindingsTotal + "# TYPE pg_sage_findings_total gauge\n")
-	if anal != nil {
-		counts := anal.OpenFindingsCount()
-		for _, sev := range []string{"critical", "warning", "info"} {
-			writeSample(b, "pg_sage_findings_total", []labelPair{{"severity", sev}},
-				counts[sev])
-		}
-	}
-	b.WriteString("\n")
-
-	// Collector metrics.
-	if coll != nil {
-		snap := coll.LatestSnapshot()
-		if snap != nil {
-			b.WriteString(helpCollectorLastRun +
-				"# TYPE pg_sage_collector_last_run_timestamp gauge\n")
-			fmt.Fprintf(b, "pg_sage_collector_last_run_timestamp %d\n\n", snap.CollectedAt.Unix())
-		}
-	}
-
 	writeLLMHealthFromRegistry(b)
 	// Optimizer metrics from sage.findings, as last refreshed.
 	writeOptimizerMetrics(b, views)
 }
 
 func writeOptimizerMetrics(b *strings.Builder, views []metricsView) {
-	b.WriteString("# HELP pg_sage_optimizer_recommendations_total Index recommendations by category\n")
-	b.WriteString("# TYPE pg_sage_optimizer_recommendations_total gauge\n")
+	metricsreg.Header(b, "pg_sage_optimizer_recommendations")
 	if v, found := sourceView(views, metricsSourceOptimizer); found &&
 		v.ok(metricsSourceOptimizer) {
 		for _, cat := range sortedKeys(v.snap.optimizer) {
-			writeSample(b, "pg_sage_optimizer_recommendations_total",
+			writeSample(b, "pg_sage_optimizer_recommendations",
 				[]labelPair{{"category", cat}}, v.snap.optimizer[cat])
 		}
 	}
 	b.WriteString("\n")
 
-	b.WriteString("# HELP pg_sage_optimizer_enabled Optimizer v2 enabled " +
-		"with a configured LLM\n")
-	b.WriteString("# TYPE pg_sage_optimizer_enabled gauge\n")
+	metricsreg.Header(b, "pg_sage_optimizer_enabled")
 	fmt.Fprintf(b, "pg_sage_optimizer_enabled %d\n\n", optimizerGaugeValue())
 }
 
 func writeFleetMetrics(b *strings.Builder) {
-	// FleetStatus lists databases worst first, then by name (fleet-07): a
-	// stable order, so the exposition never reorders series between
-	// scrapes (observability-07).
+	// Fleet totals only; per-database series are the health families.
 	status := fleetMgr.FleetStatus()
-	b.WriteString("# HELP pg_sage_fleet_databases Total fleet databases\n" +
-		"# TYPE pg_sage_fleet_databases gauge\n")
+	metricsreg.Header(b, "pg_sage_fleet_databases")
 	fmt.Fprintf(b, "pg_sage_fleet_databases %d\n\n",
 		status.Summary.TotalDatabases)
 
-	b.WriteString("# HELP pg_sage_fleet_healthy Healthy databases\n" +
-		"# TYPE pg_sage_fleet_healthy gauge\n")
+	metricsreg.Header(b, "pg_sage_fleet_healthy")
 	fmt.Fprintf(b, "pg_sage_fleet_healthy %d\n\n",
 		status.Summary.Healthy)
 
-	b.WriteString("# HELP pg_sage_fleet_findings_total Total open findings\n" +
-		"# TYPE pg_sage_fleet_findings_total gauge\n")
-	fmt.Fprintf(b, "pg_sage_fleet_findings_total %d\n\n",
+	metricsreg.Header(b, "pg_sage_fleet_findings_open")
+	fmt.Fprintf(b, "pg_sage_fleet_findings_open %d\n\n",
 		status.Summary.TotalFindings)
 
-	b.WriteString("# HELP pg_sage_fleet_findings_critical Total critical findings\n" +
-		"# TYPE pg_sage_fleet_findings_critical gauge\n")
+	metricsreg.Header(b, "pg_sage_fleet_findings_critical")
 	fmt.Fprintf(b, "pg_sage_fleet_findings_critical %d\n\n",
 		status.Summary.TotalCritical)
-
-	b.WriteString(helpFleetInstanceFindings +
-		"# TYPE pg_sage_fleet_instance_findings gauge\n")
-	for _, db := range status.Databases {
-		writeSample(b, "pg_sage_fleet_instance_findings",
-			[]labelPair{{"database", db.Name}}, db.Status.FindingsOpen)
-	}
-	b.WriteString("\n")
-
-	b.WriteString(helpFleetInstanceHealth +
-		"# TYPE pg_sage_fleet_instance_health gauge\n")
-	for _, db := range status.Databases {
-		writeSample(b, "pg_sage_fleet_instance_health",
-			[]labelPair{{"database", db.Name}}, db.Status.HealthScore)
-	}
-	b.WriteString("\n")
-}
-
-// writeDatabaseMetrics renders the process database's last pg_stat
-// refresh (the monitored database, or the metadata database in meta mode);
-// a failed refresh omits them. The size is per database, with the health
-// families (database_health_metrics.go).
-func writeDatabaseMetrics(b *strings.Builder, views []metricsView) {
-	v, found := pgStatView(views)
-	if !found || !v.ok(metricsSourcePGStat) {
-		return
-	}
-	stat := v.snap.pgstat
-	b.WriteString(helpConnectionsTotal + "# TYPE pg_sage_connections_total gauge\n")
-	for _, state := range sortedKeys(stat.connectionsByState) {
-		writeSample(b, "pg_sage_connections_total", []labelPair{{"state", state}},
-			stat.connectionsByState[state])
-	}
-	b.WriteString("\n")
-
-	if stat.blksHit+stat.blksRead > 0 {
-		ratio := float64(stat.blksHit) / float64(stat.blksHit+stat.blksRead)
-		b.WriteString(helpCacheHitRatio + "# TYPE pg_sage_cache_hit_ratio gauge\n")
-		fmt.Fprintf(b, "pg_sage_cache_hit_ratio %g\n\n", ratio)
-	}
 }

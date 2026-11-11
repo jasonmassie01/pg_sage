@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/logwatch"
+	"github.com/pg-sage/sidecar/internal/metricsreg"
 )
 
 // clusterLogDrops is one cluster's log watcher loss since it started.
@@ -34,10 +35,7 @@ func (s *logFanoutSet) droppedLines() []clusterLogDrops {
 // first), skipped by logwatch.max_lines_per_cycle, or over their size
 // limit (rca-04). Any rise means log-based detection may have missed events.
 func writeLogwatchMetrics(b *strings.Builder, drops []clusterLogDrops) {
-	b.WriteString("# HELP pg_sage_logwatch_dropped_lines_total PostgreSQL log lines " +
-		"the log watcher dropped before classification, by cluster and reason " +
-		"(queue_overflow, classifier_cap, oversized_record)\n" +
-		"# TYPE pg_sage_logwatch_dropped_lines_total counter\n")
+	metricsreg.Header(b, "pg_sage_logwatch_dropped_lines_total")
 	for _, d := range drops {
 		fmt.Fprintf(b, "pg_sage_logwatch_dropped_lines_total{cluster=%q,reason=%q} %d\n",
 			d.Cluster, logwatch.DropReasonQueueOverflow, d.Counts.QueueOverflow)

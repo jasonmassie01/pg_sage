@@ -23,14 +23,11 @@ func withMetricsRegistry(t *testing.T) *metricsRegistry {
 	t.Helper()
 	old := processMetrics
 	oldHealth := poolHealth.load()
-	oldProcessPool := processPoolMetrics.Load()
 	processMetrics = newMetricsRegistry()
 	poolHealth.reset()
-	processPoolMetrics.Store(nil)
 	t.Cleanup(func() {
 		processMetrics = old
 		poolHealth.restore(oldHealth)
-		processPoolMetrics.Store(oldProcessPool)
 	})
 	return processMetrics
 }
@@ -54,7 +51,7 @@ func registerStandaloneMetrics(t *testing.T, name string, p *pgxpool.Pool) {
 	defer cancel()
 	checkPoolHealth(ctx, p)
 	m := newMetricsRefresher(name, fixedInterval(time.Hour),
-		valueMetricsSource(name, p), optimizerMetricsSource(p), pgStatMetricsSource(p))
+		valueMetricsSource(name, p), optimizerMetricsSource(p))
 	processMetrics.register(m)
 	t.Cleanup(func() { processMetrics.unregister(m) })
 	m.refresh(ctx)

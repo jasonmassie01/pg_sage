@@ -25,9 +25,9 @@ func (w *Worker) Generate(ctx context.Context) (string, error) {
 
 // GenerateBriefing creates a briefing over the window since the previous
 // one (llm-06), stores it, and returns it.
-func (w *Worker) GenerateBriefing(ctx context.Context) (Result, error) {
-	ctx, done := selfbudget.Process().TrackFor(ctx, "briefing")
-	defer done()
+func (w *Worker) GenerateBriefing(ctx context.Context) (res Result, err error) {
+	ctx, done := selfbudget.Process().TrackForErr(ctx, "briefing")
+	defer func() { done(err) }()
 	w.lastGenerated = time.Time{}
 	// sage.briefings keeps microseconds; the window must round-trip exactly.
 	w.window = w.windowFor(time.Now().Truncate(time.Microsecond))

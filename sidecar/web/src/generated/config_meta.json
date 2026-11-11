@@ -1989,7 +1989,7 @@
   },
   "prometheus.listen_addr": {
     "type": "string",
-    "default": "127.0.0.1:9187",
+    "default": "127.0.0.1:8187",
     "doc": "Address of the separate, unauthenticated /metrics listener; empty opens none. Requires restart.",
     "class": "safety_critical"
   },

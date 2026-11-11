@@ -265,7 +265,7 @@ self_config:
   soak_hours: 24
 
 prometheus:
-  listen_addr: "0.0.0.0:9187"
+  listen_addr: "0.0.0.0:8187"
 
 # OAuth/OIDC SSO (optional)
 # Allows team login via Google Workspace, GitHub, Azure AD, or any OIDC provider.

@@ -50,7 +50,7 @@ sudo systemctl enable --now pg_sage
 docker run -d --name pg_sage \
   -e SAGE_DATABASE_URL="postgres://sage_agent:YOUR_PASSWORD@host:5432/db" \
   -e SAGE_LLM_API_KEY="YOUR_KEY_HERE" \
-  -p 8080:8080 -p 9187:9187 \
+  -p 8080:8080 -p 8187:8187 \
   ghcr.io/jasonmassie01/pg_sage:latest
 ```
 
@@ -67,7 +67,7 @@ the image `HEALTHCHECK` reads the same `api.listen_addr`:
 docker run -d --name pg_sage \
   -v /path/to/config.yaml:/etc/pg_sage/config.yaml \
   -e SAGE_CONFIG_PATH=/etc/pg_sage/config.yaml \
-  -p 8080:8080 -p 9187:9187 \
+  -p 8080:8080 -p 8187:8187 \
   ghcr.io/jasonmassie01/pg_sage:latest
 ```
 
@@ -124,7 +124,7 @@ llm:
   api_key: ${SAGE_LLM_API_KEY}
 
 prometheus:
-  listen_addr: 0.0.0.0:9187
+  listen_addr: 0.0.0.0:8187
 ```
 
 ```bash
@@ -195,7 +195,7 @@ spec:
         app: pg-sage
       annotations:
         prometheus.io/scrape: "true"
-        prometheus.io/port: "9187"
+        prometheus.io/port: "8187"
     spec:
       securityContext:
         fsGroup: 1000          # the image runs as uid/gid 1000 (sage)
@@ -206,7 +206,7 @@ spec:
           ports:
             - containerPort: 8080
               name: api
-            - containerPort: 9187
+            - containerPort: 8187
               name: metrics
           env:
             # Secrets as files (see "Secrets from files" in configuration.md):
@@ -266,8 +266,8 @@ spec:
     - port: 8080
       targetPort: 8080
       name: api
-    - port: 9187
-      targetPort: 9187
+    - port: 8187
+      targetPort: 8187
       name: metrics
 ```
 
@@ -359,13 +359,15 @@ scrape_configs:
   - job_name: pg_sage
     scrape_interval: 30s
     static_configs:
-      - targets: ["pg-sage:9187"]
+      - targets: ["pg-sage:8187"]
 ```
 
-The separate listener (`prometheus.listen_addr`, default `127.0.0.1:9187`) has
-no authentication and no TLS. Port 9187 is also postgres_exporter's default:
-when both run on one host, move one of them (`SAGE_PROMETHEUS_ADDR=127.0.0.1:9188`,
-say). If pg_sage cannot bind the address it logs an ERROR, keeps running, and
+The separate listener (`prometheus.listen_addr`, default `127.0.0.1:8187`) has
+no authentication and no TLS. Until v2.7.0 the default port was 9187,
+postgres_exporter's default; v2.7.0 moved it to 8187 so both run on one host.
+Update scrape configs and published ports that relied on the old default, or
+keep it with `SAGE_PROMETHEUS_PORT=9187`. If pg_sage cannot bind the address it
+logs an ERROR, keeps running, and
 exports `pg_sage_metrics_listener_up 0` where it still serves `/metrics` (the API
 route below). `prometheus.listen_addr: ""` opens no separate listener.
 
@@ -412,36 +414,37 @@ scope 403, and 503 when tokens cannot be checked; none of these carries metric
 names. Revoking the token, or deactivating its owner, ends its scrapes at once.
 Fleet and meta mode serve one `/metrics` per sidecar, on either listener.
 
-### Key Metrics to Alert On
+### Alert rules and the metrics reference
 
-| Metric | Alert Condition | Description |
-|---|---|---|
-| `pg_sage_findings_open{database,severity="critical"}` | > 0 | Critical findings need attention |
-| `pg_sage_database_up{database}` | == 0 for 5m | A monitored database is unreachable or its status refresh fails |
-| `time() - pg_sage_collector_last_success_timestamp_seconds{database}` | > 3 x collector interval | A database's collector has stalled |
-| `pg_sage_emergency_stopped{database}` | == 1 | The database's emergency stop holds |
-| `pg_sage_connection_up` | == 0 | The sidecar cannot reach its control database |
-| `pg_sage_cache_hit_ratio` | < 0.95 | Control database cache hit ratio below 95% (deprecated, removed in v2.7.0) |
-| `pg_sage_llm_circuit_open{client,database}` | == 1 | LLM circuit breaker tripped |
-| `sum by (client,database) (rate(pg_sage_llm_requests_total{result=~"error\|timeout\|rate_limited"}[15m])) / sum by (client,database) (rate(pg_sage_llm_requests_total[15m]))` | > 0.2 | The model is failing before the breaker opens |
-| `increase(pg_sage_actions_total{outcome="failed"}[15m])` | > 0 | An action failed (or its rollback failed, or it was left partial); see the action log |
-| `increase(pg_sage_actions_total{outcome="rolled_back"}[1h])` | > 0 | An action was rolled back (a regression, or by hand) |
-| `pg_sage_actions_pending_approval{risk="high"}` | > 0 for 24h | A high-risk approval has waited a day for a person |
-| `time() - pg_sage_action_last_failure_timestamp_seconds` | < 900 | A failure was recorded in the last 15 minutes (survives a sidecar restart) |
-| `pg_sage_sre_probe_refusals_total{caller="investigation"}` | rate > 0 | Investigations losing probe slots |
-| `pg_sage_sso_discovery_ready` | == 0 for 10m | SSO is enabled but OIDC discovery has not succeeded; SSO sign-in is unavailable |
-| `pg_sage_sso_discovery_failures_total` | rate > 0 | OIDC discovery attempts failing (IdP outage, DNS, or misconfiguration) |
-| `pg_sage_api_tls_cert_not_after_seconds` | `- time() < 14*86400` | API TLS certificate expires within 14 days; rotate `SAGE_TLS_CERT`/`SAGE_TLS_KEY` (present only when the API serves TLS) |
-| `pg_sage_audit_chain_ok{database,chain}` | == 0 | An audit chain fails its scheduled verification (fleet: the leader's series) |
-| `time() - pg_sage_audit_chain_verified_timestamp_seconds` | > 2 x `audit.verify_interval_hours` | Audit chain verification has stopped finishing; see `pg_sage_audit_chain_verify_errors_total` |
-| `pg_sage_siem_lag_links{sink,source,chain}` | grows for 30m | A SIEM sink is falling behind; `pg_sage_siem_consecutive_failures{sink}` > 0 says it is failing |
-| `pg_sage_api_tls_reload_failures_total` | increase > 0 | A rotated TLS pair failed to load; the old certificate is still serving |
-| `pg_sage_leader{scope}` | `sum by (scope)` == 0 across sidecars | No sidecar holds the lease: leader-only jobs (fleet learning, SIEM export, governance reconcilers) are not running. 1 = this sidecar leads, 0 = follower |
-| `pg_sage_leader_transitions_total{scope}` | rate > 0 for long | Leadership is flapping; a lapse (renewal overdue past the local deadline) counts and logs one WARN |
-| `pg_sage_leader_last_renew_age_seconds{scope}` | > lease TTL | Seconds since the last successful lease-store round trip (since start when none yet). Each renewal is bounded to a third of the lease, so a stall shows here instead of wedging the elector |
-| `pg_sage_metrics_refresh_success{database,source}` | == 0 for 5m | A database's metrics could not be read (its series are omitted) |
-| `time() - pg_sage_metrics_refresh_timestamp_seconds` | > 3 x refresh interval | A database's exported values are stale |
-| `pg_sage_metrics_listener_up` | == 0 | The separate `/metrics` listener failed to bind (scraped through the API route) |
+[Metrics reference](metrics.md) lists every family with its type, labels, the
+modes that render it and its meaning; it is generated from the registry the
+sidecar renders `/metrics` from, so it cannot name a family that does not
+exist. Alert rules ship in
+[`deploy/prometheus/pg_sage.rules.yml`](https://github.com/jasonmassie01/pg_sage/blob/master/deploy/prometheus/pg_sage.rules.yml)
+(database down, collector stale, LLM circuit open, failed and rolled-back
+actions, self-budget exceeded, SLO paging, old Sage SRE investigations), with
+`promtool test rules` tests beside them. Load the file with `rule_files:`; each
+alert's `runbook_url` opens its runbook in the reference.
+
+### Metric renames in v2.7.0
+
+v2.7.0 is the one release that removes and renames metric families. Update
+dashboards, recording rules and alerts from the old name to its replacement:
+
+<!-- metrics-renames:start -->
+
+| Old name | Use instead | Note | Release |
+|---|---|---|---|
+| `pg_sage_findings_total` | `pg_sage_findings_open` | per database and severity | v2.7.0 |
+| `pg_sage_collector_last_run_timestamp` | `pg_sage_collector_last_success_timestamp_seconds` | per database | v2.7.0 |
+| `pg_sage_fleet_instance_findings` | `pg_sage_findings_open` | sum by database | v2.7.0 |
+| `pg_sage_fleet_instance_health` | `pg_sage_database_health_score` | - | v2.7.0 |
+| `pg_sage_connections_total` | - | use postgres_exporter's pg_stat_activity_count | v2.7.0 |
+| `pg_sage_cache_hit_ratio` | - | use postgres_exporter's pg_stat_database_blks_hit and pg_stat_database_blks_read | v2.7.0 |
+| `pg_sage_optimizer_recommendations_total` | `pg_sage_optimizer_recommendations` | renamed: a gauge, not a counter | v2.7.0 |
+| `pg_sage_fleet_findings_total` | `pg_sage_fleet_findings_open` | renamed: a gauge, not a counter | v2.7.0 |
+
+<!-- metrics-renames:end -->
 
 ### Sage SRE probe slots
 
@@ -475,6 +478,47 @@ recorded as `concurrency_limit` evidence. These metrics show who waits:
   sampling is crowding out investigations. In fleet mode, compare
   `limiter="sidecar"` refusals across databases.
 
+### Sage SRE investigation backlog
+
+Each database whose Sage SRE investigator runs refreshes its investigations from the
+coordination store (the meta database when there is one) on the metrics refresh cadence,
+one bounded read-only query per database (2 s `statement_timeout`).
+
+| Metric | Type | Labels |
+|---|---|---|
+| `pg_sage_sre_investigations` | gauge | `database`, `state` |
+| `pg_sage_sre_investigation_oldest_open_age_seconds` | gauge | `database` |
+
+- `state` is one of the ten investigation states. Every live state (`queued`,
+  `collecting`, `evaluating`, `needs_evidence`, `paused`) is sampled, zero included;
+  a terminal state (`concluded`, `inconclusive`, `cancelled`, `expired`, `failed`) only
+  when an investigation reached it in the past 24 hours (by `updated_at`).
+- The oldest-open age is 0 when no investigation is live. It is computed at scrape time
+  from the last refresh, so it keeps growing between refreshes.
+- A failed backlog read keeps the previous sample, so a slow refresh does not blank the
+  series; `pg_sage_metrics_refresh_success{source="sre"} 0` shows it. Both families are
+  absent, HELP included, when no database runs Sage SRE.
+
+### Loop health
+
+`pg_sage_self_loop_busy_seconds_total{loop}` and `pg_sage_self_loop_runs_total{loop}`
+are joined by:
+
+- `pg_sage_self_loop_errors_total{loop}` (counter): runs that failed or produced nothing.
+  The collector counts a cycle the circuit breaker skipped or whose collection or
+  snapshot persist failed; the analyzer a cycle with no fresh snapshot or whose findings
+  could not be persisted or filtered; `sre` a coordinator tick that could not reach its
+  store, bind the database, read triggers, list pending work or apply retention;
+  `briefing` a failed generation. The executor and retention loops log each step's
+  failure and carry on, so they report runs but no cycle-level errors.
+- `pg_sage_self_loop_last_success_timestamp_seconds{loop}` (gauge): Unix time the loop's
+  last successful run ended, omitted until it has one.
+
+`loop` is one of `analyzer`, `collector`, `executor`, `retention`, `briefing`, `sre` and
+`metrics_refresh`. These are process-wide (in fleet mode every database's collector counts
+as the `collector` loop); per-database freshness is
+`pg_sage_collector_last_success_timestamp_seconds{database}`.
+
 ### Metrics freshness
 
 A scrape never queries a monitored database. Each database has its own refresher that
@@ -489,8 +533,8 @@ each database refreshes independently: one unreachable database reports
 every other database keeps its series, and the scrape itself stays fast.
 
 - `pg_sage_metrics_refresh_success{database,source}`: 1 if the last refresh of `source`
-  (`value`, `actions`, `slo`, `optimizer`, `pgstat`) succeeded. A failed source's series are omitted
-  rather than shown stale or zero.
+  (`value`, `actions`, `slo`, `optimizer`, `sre`) succeeded. A failed source's series are
+  omitted rather than shown stale or zero, except `sre`, which keeps its last sample.
 - `pg_sage_metrics_refresh_timestamp_seconds{database,source}`: Unix time of the last
   successful refresh of `source`; it keeps its value while refreshes fail.
 - `pg_sage_value_metrics_up{database}`: 1 if the last refresh read the database's value
@@ -498,8 +542,6 @@ every other database keeps its series, and the scrape itself stays fast.
 - `pg_sage_connection_up`: the last pool health check (every 30 s) in standalone and meta
   mode; in YAML fleet mode, 1 if any database's last refresh reached it. Before the first
   result there is no sample.
-- In meta mode, `pg_sage_connections_total` and `pg_sage_cache_hit_ratio` describe the
-  metadata database, refreshed on the same cadence.
 - A database that failed to connect or prepare has no refresher; it keeps reporting
   `pg_sage_value_metrics_up 0` and `pg_sage_metrics_refresh_success{source="value"} 0`.
 
@@ -587,16 +629,7 @@ only) is listed in [security.md](security.md#monitoring-audit-health):
 `pg_sage_siem_lag_links`, `pg_sage_siem_consecutive_failures` and
 `pg_sage_siem_delivered_total`.
 
-These families are deprecated and keep emitting in v2.6.0; they are removed in v2.7.0:
-
-| Deprecated (removed in v2.7.0) | Use instead |
-|---|---|
-| `pg_sage_findings_total{severity}` | `pg_sage_findings_open{database,severity}` |
-| `pg_sage_collector_last_run_timestamp` | `pg_sage_collector_last_success_timestamp_seconds{database}` |
-| `pg_sage_fleet_instance_findings{database}` | `pg_sage_findings_open{database,severity}` (sum by database) |
-| `pg_sage_fleet_instance_health{database}` | `pg_sage_database_health_score{database}` |
-| `pg_sage_connections_total{state}` | postgres_exporter (`pg_stat_activity_count`) |
-| `pg_sage_cache_hit_ratio` | postgres_exporter (`pg_stat_database_blks_hit` / `blks_read`) |
+The families removed in v2.7.0 are listed in [Metric renames in v2.7.0](#metric-renames-in-v270).
 
 ### Exposition contract
 
@@ -619,15 +652,18 @@ Since v2.6.0:
 - Series are written in the same order on every scrape, and every family has one `HELP` and
   one `TYPE` line.
 
-Four gauges still carry the counter suffix `_total`: `pg_sage_findings_total`,
-`pg_sage_connections_total`, `pg_sage_fleet_findings_total` and
-`pg_sage_optimizer_recommendations_total`. They keep their names in v2.6.0; v2.7.0 removes
-the first two and renames the others, with `pg_sage_collector_last_run_timestamp`, in one
-coordinated rename release. Do not apply `rate()` or `increase()` to them.
+One gauge still carries the counter suffix `_total`:
+`pg_sage_incidents_avoided_total`, which falls when a rollback voids credit. Do not apply
+`rate()` or `increase()` to it.
 
 ### Grafana Dashboard
 
-Import the included dashboard from `grafana/pg_sage_dashboard.json`.
+Import the included dashboard from `grafana/pg_sage_dashboard.json`. Its `job`, `instance`
+and `database` variables keep two sidecars, or the databases of a fleet, apart. Its rows
+cover the sidecar, the monitored databases, the executor and trust, LLM use, Sage SRE and
+SLOs, and value and footprint; [grafana/README.md](../grafana/README.md) lists every panel.
+It charts no PostgreSQL internals: use postgres_exporter and its community dashboard for
+those.
 
 ---
 

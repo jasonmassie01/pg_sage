@@ -19,12 +19,12 @@ type trackedTick struct {
 }
 
 var trackedTicks = []trackedTick{
-	{"../../internal/collector", "Collector", "cycle", "collector"},
+	{"../../internal/collector", "Collector", "trackedCycle", "collector"},
 	{"../../internal/analyzer", "Analyzer", "trackedCycle", "analyzer"},
 	{"../../internal/executor", "Executor", "RunCycle", "executor"},
 	{"../../internal/tuner", "Tuner", "Tune", "tuner"},
 	{"../../internal/runway", "Monitor", "Tick", "runways"},
-	{"../../internal/sre", "Coordinator", "tick", "sre"},
+	{"../../internal/sre", "Coordinator", "trackedTick", "sre"},
 	{"../../internal/briefing", "Worker", "GenerateBriefing", "briefing"},
 	{"../../internal/autoexplain", "Collector", "Collect", "auto_explain"},
 	{"../../internal/facts", "Worker", "RunOnce", "facts"},
@@ -85,7 +85,8 @@ func trackForComponent(stmt ast.Stmt) string {
 			return true
 		}
 		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok || sel.Sel.Name != "TrackFor" || len(call.Args) != 2 {
+		if !ok || (sel.Sel.Name != "TrackFor" && sel.Sel.Name != "TrackForErr") ||
+			len(call.Args) != 2 {
 			return true
 		}
 		if lit, ok := call.Args[1].(*ast.BasicLit); ok && lit.Kind == token.STRING {

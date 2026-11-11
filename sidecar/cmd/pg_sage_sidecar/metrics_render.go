@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/metricsreg"
 )
 
 // sourceView is the first database that refreshes source (standalone has
@@ -23,9 +25,7 @@ func sourceView(views []metricsView, source string) (metricsView, bool) {
 // is sampled while neither has a result yet, so startup never reports a
 // false 0. Per-database reachability is pg_sage_database_up.
 func writeConnectionMetric(b *strings.Builder, views []metricsView) {
-	b.WriteString("# HELP pg_sage_connection_up 1 if the sidecar reaches its control " +
-		"database (YAML fleet: any database); per database see pg_sage_database_up\n" +
-		"# TYPE pg_sage_connection_up gauge\n")
+	metricsreg.Header(b, "pg_sage_connection_up")
 	if up, known := connectionState(views); known {
 		fmt.Fprintf(b, "pg_sage_connection_up %d\n", up)
 	}
@@ -56,9 +56,7 @@ func connectionState(views []metricsView) (int, bool) {
 // last refresh succeeded and when the source last refreshed successfully.
 // Values are as old as time() - pg_sage_metrics_refresh_timestamp_seconds.
 func writeMetricsRefreshSeries(b *strings.Builder, views []metricsView) {
-	b.WriteString("# HELP pg_sage_metrics_refresh_success " +
-		"1 if the database's last metrics refresh of the source succeeded\n" +
-		"# TYPE pg_sage_metrics_refresh_success gauge\n")
+	metricsreg.Header(b, "pg_sage_metrics_refresh_success")
 	for _, v := range views {
 		if v.snap == nil {
 			continue
@@ -72,9 +70,8 @@ func writeMetricsRefreshSeries(b *strings.Builder, views []metricsView) {
 				[]labelPair{{"database", v.name}, {"source", source}}, ok)
 		}
 	}
-	b.WriteString("\n# HELP pg_sage_metrics_refresh_timestamp_seconds " +
-		"Unix time of the source's last successful metrics refresh\n" +
-		"# TYPE pg_sage_metrics_refresh_timestamp_seconds gauge\n")
+	b.WriteString("\n")
+	metricsreg.Header(b, "pg_sage_metrics_refresh_timestamp_seconds")
 	for _, v := range views {
 		if v.snap == nil {
 			continue

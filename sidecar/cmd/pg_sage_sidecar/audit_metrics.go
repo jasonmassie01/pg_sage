@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/auditjob"
+	"github.com/pg-sage/sidecar/internal/metricsreg"
 	"github.com/pg-sage/sidecar/internal/pgaudit"
 	"github.com/pg-sage/sidecar/internal/siem"
 )
@@ -39,9 +40,7 @@ func writeAuditMetrics(b *strings.Builder, h auditjob.HealthSnapshot, sinks []si
 }
 
 func writeAuditChainMetrics(b *strings.Builder, h auditjob.HealthSnapshot) {
-	b.WriteString("# HELP pg_sage_audit_chain_ok 1 if the audit chain's last scheduled " +
-		"verification found no problem, 0 if it fails verification\n" +
-		"# TYPE pg_sage_audit_chain_ok gauge\n")
+	metricsreg.Header(b, "pg_sage_audit_chain_ok")
 	for _, c := range h.Chains {
 		ok := 0
 		if c.OK {
@@ -49,16 +48,14 @@ func writeAuditChainMetrics(b *strings.Builder, h auditjob.HealthSnapshot) {
 		}
 		writeSample(b, "pg_sage_audit_chain_ok", chainLabels(c), ok)
 	}
-	b.WriteString("\n# HELP pg_sage_audit_chain_verified_timestamp_seconds Unix time of " +
-		"the audit chain's last finished verification\n" +
-		"# TYPE pg_sage_audit_chain_verified_timestamp_seconds gauge\n")
+	b.WriteString("\n")
+	metricsreg.Header(b, "pg_sage_audit_chain_verified_timestamp_seconds")
 	for _, c := range h.Chains {
 		writeSample(b, "pg_sage_audit_chain_verified_timestamp_seconds", chainLabels(c),
 			c.VerifiedAt.Unix())
 	}
-	b.WriteString("\n# HELP pg_sage_audit_chain_problems Problems the audit chain's last " +
-		"verification reported, by kind (a failing chain only)\n" +
-		"# TYPE pg_sage_audit_chain_problems gauge\n")
+	b.WriteString("\n")
+	metricsreg.Header(b, "pg_sage_audit_chain_problems")
 	for _, c := range h.Chains {
 		for _, kind := range sortedKeys(c.Problems) {
 			writeSample(b, "pg_sage_audit_chain_problems",
@@ -77,9 +74,7 @@ func chainLabels(c auditjob.ChainHealth) []labelPair {
 // they finished, per database; a database that verified and never failed
 // reports 0, so rate() works from its first failure.
 func writeVerifyErrorMetrics(b *strings.Builder, h auditjob.HealthSnapshot) {
-	b.WriteString("# HELP pg_sage_audit_chain_verify_errors_total Scheduled audit " +
-		"chain verifications that failed before they finished (the chains keep their " +
-		"previous result)\n# TYPE pg_sage_audit_chain_verify_errors_total counter\n")
+	metricsreg.Header(b, "pg_sage_audit_chain_verify_errors_total")
 	counts := map[string]int64{}
 	for _, c := range h.Chains {
 		counts[c.Database] += 0
@@ -98,9 +93,7 @@ func writeVerifyErrorMetrics(b *strings.Builder, h auditjob.HealthSnapshot) {
 // events since start. A lane without a chain (a source whose chains could
 // not be listed) has no lag to report.
 func writeSIEMMetrics(b *strings.Builder, sinks []siem.SinkStatus) {
-	b.WriteString("# HELP pg_sage_siem_lag_links Audit chain links not yet exported to " +
-		"the SIEM sink: chain head minus the sink's cursor\n" +
-		"# TYPE pg_sage_siem_lag_links gauge\n")
+	metricsreg.Header(b, "pg_sage_siem_lag_links")
 	for _, s := range sinks {
 		for _, l := range s.Lanes {
 			if l.Chain == "" {
@@ -110,15 +103,14 @@ func writeSIEMMetrics(b *strings.Builder, sinks []siem.SinkStatus) {
 				{"source", l.Source}, {"chain", l.Chain}}, l.Lag)
 		}
 	}
-	b.WriteString("\n# HELP pg_sage_siem_consecutive_failures Failed export passes of the " +
-		"SIEM sink in a row (0 after a clean pass)\n" +
-		"# TYPE pg_sage_siem_consecutive_failures gauge\n")
+	b.WriteString("\n")
+	metricsreg.Header(b, "pg_sage_siem_consecutive_failures")
 	for _, s := range sinks {
 		writeSample(b, "pg_sage_siem_consecutive_failures", sinkLabel(s.Name),
 			s.ConsecutiveFailures)
 	}
-	b.WriteString("\n# HELP pg_sage_siem_delivered_total Audit events the SIEM sink " +
-		"confirmed since the exporter started\n# TYPE pg_sage_siem_delivered_total counter\n")
+	b.WriteString("\n")
+	metricsreg.Header(b, "pg_sage_siem_delivered_total")
 	for _, s := range sinks {
 		writeSample(b, "pg_sage_siem_delivered_total", sinkLabel(s.Name), s.Delivered)
 	}

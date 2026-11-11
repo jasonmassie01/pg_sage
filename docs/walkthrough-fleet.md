@@ -11,7 +11,7 @@ election and the fleet routes.
 - Go 1.26+
 - Node.js 22+ and npm
 - `openssl`, to generate the encryption key
-- Ports `5433`, `5434`, `8080`, and `9187` available
+- Ports `5433`, `5434`, `8080`, and `8187` available
 
 ## 1. Start Two PostgreSQL Targets
 
@@ -77,7 +77,7 @@ api:
   listen_addr: "0.0.0.0:8080"
 
 prometheus:
-  listen_addr: "0.0.0.0:9187"
+  listen_addr: "0.0.0.0:8187"
 ```
 
 `mode: fleet` with a `meta_db` runs a meta-db fleet: the databases come from
@@ -316,7 +316,7 @@ sidecar refused to lead. A second sidecar for this fleet must use the same
 Metrics:
 
 ```bash
-curl -s http://localhost:9187/metrics | head
+curl -s http://localhost:8187/metrics | head
 ```
 
 ## 7. Clean Up

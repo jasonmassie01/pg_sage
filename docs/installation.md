@@ -32,7 +32,7 @@ Windows users should currently build from source with Go 1.26+ and Node.js
 ```bash
 docker run --name pg_sage \
   -e SAGE_DATABASE_URL="postgres://sage_agent:YOUR_PASSWORD@host:5432/db" \
-  -p 8080:8080 -p 9187:9187 \
+  -p 8080:8080 -p 8187:8187 \
   ghcr.io/jasonmassie01/pg_sage:latest
 ```
 
@@ -134,7 +134,7 @@ The simplest way to start -- observation mode, no LLM:
 ```
 
 This starts the collector, analyzer, authenticated API+dashboard on `:8080`,
-and Prometheus metrics on `:9187`.
+and Prometheus metrics on `:8187`.
 
 On first start, pg_sage creates the first admin user and prints the initial
 password to stderr:
@@ -185,7 +185,7 @@ llm:
     enabled: true
 
 prometheus:
-  listen_addr: "0.0.0.0:9187"
+  listen_addr: "0.0.0.0:8187"
 ```
 
 ```bash
@@ -223,7 +223,7 @@ After starting pg_sage, verify it is running:
 
 ```bash
 # Check Prometheus metrics
-curl -s http://localhost:9187/metrics | head -10
+curl -s http://localhost:8187/metrics | head -10
 
 # Check web UI
 curl -I http://localhost:8080

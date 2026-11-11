@@ -205,7 +205,7 @@ do that with a single sidecar.
 
 The metrics `pg_sage_leader`, `pg_sage_leader_transitions_total` and
 `pg_sage_leader_last_renew_age_seconds` show the election per scope; see
-[Key Metrics to Alert On](deployment.md#key-metrics-to-alert-on).
+the [metrics reference](metrics.md#process-and-scrape).
 
 ## LLM budget split
 
@@ -258,8 +258,9 @@ The score never goes below 0.
 A database counts as **healthy** (`summary.healthy` and the
 `pg_sage_fleet_healthy` gauge) when it is connected, has no error and
 scores at least 50; every other database counts as degraded. Databases are
-listed worst first, and by name among equal scores, so the tiles and the
-`pg_sage_fleet_instance_health` series keep a stable order. The rule is the
+listed worst first, and by name among equal scores, so the tiles keep a
+stable order; the `pg_sage_database_health_score` series are listed by
+database name. The rule is the
 same in every mode and on every provider.
 
 ### Overview summary

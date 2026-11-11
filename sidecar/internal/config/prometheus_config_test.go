@@ -20,8 +20,8 @@ func TestPrometheusConfigDefaultsKeepTheSeparateListener(t *testing.T) {
 	if cfg.Prometheus.ServeOnAPI {
 		t.Error("prometheus.serve_on_api defaults to true, want false")
 	}
-	if cfg.Prometheus.ListenAddr != "127.0.0.1:9187" {
-		t.Errorf("prometheus.listen_addr = %q, want the unchanged default 127.0.0.1:9187",
+	if cfg.Prometheus.ListenAddr != "127.0.0.1:8187" {
+		t.Errorf("prometheus.listen_addr = %q, want the default 127.0.0.1:8187",
 			cfg.Prometheus.ListenAddr)
 	}
 }

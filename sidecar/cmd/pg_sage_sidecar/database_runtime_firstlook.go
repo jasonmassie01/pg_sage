@@ -13,6 +13,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/facts"
 	"github.com/pg-sage/sidecar/internal/firstlook"
+	"github.com/pg-sage/sidecar/internal/metricsreg"
 	"github.com/pg-sage/sidecar/internal/onboarding"
 )
 
@@ -387,24 +388,21 @@ func (f *firstLookRun) awaitFirstFinding(ctx context.Context, poll time.Duration
 // first finding; a value appears once it is known.
 func writeFirstLookMetrics(b *strings.Builder, metrics []onboarding.Metrics) {
 	type series struct {
-		name, help string
-		value      func(onboarding.Metrics) (float64, bool)
+		name  string
+		value func(onboarding.Metrics) (float64, bool)
 	}
 	all := []series{
-		{"pg_sage_time_to_first_finding_seconds", "Seconds from start to the first " +
-			"finding (first look or analyzer).", func(m onboarding.Metrics) (float64, bool) {
+		{"pg_sage_time_to_first_finding_seconds", func(m onboarding.Metrics) (float64, bool) {
 			return m.TTFF.Seconds(), m.HasTTFF
 		}},
-		{"pg_sage_first_look_items", "Items in the catalog-only first look (findings, " +
-			"setup and posture notes).", func(m onboarding.Metrics) (float64, bool) {
+		{"pg_sage_first_look_items", func(m onboarding.Metrics) (float64, bool) {
 			return float64(m.FirstLookItems), m.FirstLookDone
 		}},
-		{"pg_sage_first_look_findings", "Findings in the catalog-only first look: " +
-			"warning or critical catalog items, without setup or posture notes.",
+		{"pg_sage_first_look_findings",
 			func(m onboarding.Metrics) (float64, bool) {
 				return float64(m.FirstLookFindings), m.FirstLookDone
 			}},
-		{"pg_sage_first_look_duration_seconds", "Duration of the first look.",
+		{"pg_sage_first_look_duration_seconds",
 			func(m onboarding.Metrics) (float64, bool) {
 				return m.FirstLookDuration.Seconds(), m.FirstLookDone
 			}},
@@ -422,7 +420,7 @@ func writeFirstLookMetrics(b *strings.Builder, metrics []onboarding.Metrics) {
 		if len(lines) == 0 {
 			continue
 		}
-		fmt.Fprintf(b, "# HELP %s %s\n# TYPE %s gauge\n", s.name, s.help, s.name)
+		metricsreg.Header(b, s.name)
 		b.WriteString(strings.Join(lines, "") + "\n")
 	}
 }

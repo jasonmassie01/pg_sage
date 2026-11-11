@@ -8,6 +8,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/metricsreg"
 	"github.com/pg-sage/sidecar/internal/selfbudget"
 )
 
@@ -81,20 +82,19 @@ func writeSelfCPU(b *strings.Builder, proc selfbudget.CPUReading) {
 	if !proc.Known {
 		return
 	}
-	fmt.Fprintf(b, "# HELP pg_sage_self_cpu_ms_per_cycle CPU time of the pg_sage "+
-		"process per collector cycle (ms)\n# TYPE pg_sage_self_cpu_ms_per_cycle gauge\n"+
-		"pg_sage_self_cpu_ms_per_cycle %s\n", formatGauge(proc.MsPerCycle))
+	metricsreg.Header(b, "pg_sage_self_cpu_ms_per_cycle")
+	fmt.Fprintf(b, "pg_sage_self_cpu_ms_per_cycle %s\n", formatGauge(proc.MsPerCycle))
 }
 
 func writeSelfDBRates(b *strings.Builder, dbs []string, usages map[string]selfbudget.Usage) {
 	for _, g := range []struct {
-		name, help string
-		value      func(selfbudget.Usage) float64
+		name  string
+		value func(selfbudget.Usage) float64
 	}{
-		{"pg_sage_self_db_time_ms_per_hour", "Database time of pg_sage's own statements " +
-			"per hour (ms)", func(u selfbudget.Usage) float64 { return u.DBTimeMsPerHour }},
-		{"pg_sage_self_blocks_per_hour", "Shared blocks hit or read by pg_sage's own " +
-			"statements per hour", func(u selfbudget.Usage) float64 { return u.BlocksPerHour }},
+		{"pg_sage_self_db_time_ms_per_hour",
+			func(u selfbudget.Usage) float64 { return u.DBTimeMsPerHour }},
+		{"pg_sage_self_blocks_per_hour",
+			func(u selfbudget.Usage) float64 { return u.BlocksPerHour }},
 	} {
 		header := false
 		for _, db := range dbs {
@@ -103,7 +103,7 @@ func writeSelfDBRates(b *strings.Builder, dbs []string, usages map[string]selfbu
 				continue
 			}
 			if !header {
-				fmt.Fprintf(b, "# HELP %s %s\n# TYPE %s gauge\n", g.name, g.help, g.name)
+				metricsreg.Header(b, g.name)
 				header = true
 			}
 			writeSample(b, g.name, dbLabel(db), formatGauge(g.value(u)))
@@ -207,16 +207,14 @@ func writeSelfBudgets(b *strings.Builder, dbs []string, usages map[string]selfbu
 	if s.exceeded.Len() == 0 {
 		return // nothing measured: no budget series without usage
 	}
-	b.WriteString("# HELP pg_sage_self_budget pg_sage's declared budget for itself " +
-		"(self_budget)\n# TYPE pg_sage_self_budget gauge\n" + s.limits.String())
+	metricsreg.Header(b, "pg_sage_self_budget")
+	b.WriteString(s.limits.String())
 	if s.perDB.Len() > 0 {
-		b.WriteString("# HELP pg_sage_self_budget_database Budget a database inherits " +
-			"from analyzer.self_cost_budget_ms at its own collector period\n" +
-			"# TYPE pg_sage_self_budget_database gauge\n" + s.perDB.String())
+		metricsreg.Header(b, "pg_sage_self_budget_database")
+		b.WriteString(s.perDB.String())
 	}
-	b.WriteString("# HELP pg_sage_self_budget_exceeded 1 when pg_sage used more than its " +
-		"budget of the resource\n# TYPE pg_sage_self_budget_exceeded gauge\n" +
-		s.exceeded.String())
+	metricsreg.Header(b, "pg_sage_self_budget_exceeded")
+	b.WriteString(s.exceeded.String())
 }
 
 func writeSelfLoops(b *strings.Builder, loops map[string]selfbudget.LoopStat) {
@@ -224,17 +222,39 @@ func writeSelfLoops(b *strings.Builder, loops map[string]selfbudget.LoopStat) {
 		return
 	}
 	names := sortedKeys(loops)
-	b.WriteString("# HELP pg_sage_self_loop_busy_seconds_total Wall time pg_sage's " +
-		"periodic loops spent working, LLM waits excluded (loop=\"llm_wait\" is the " +
-		"wait)\n# TYPE pg_sage_self_loop_busy_seconds_total counter\n")
+	metricsreg.Header(b, "pg_sage_self_loop_busy_seconds_total")
 	for _, n := range names {
 		writeSample(b, "pg_sage_self_loop_busy_seconds_total", loopLabels(n),
 			formatGauge(loops[n].Busy.Seconds()))
 	}
-	b.WriteString("# HELP pg_sage_self_loop_runs_total Runs of pg_sage's periodic loops\n" +
-		"# TYPE pg_sage_self_loop_runs_total counter\n")
+	metricsreg.Header(b, "pg_sage_self_loop_runs_total")
 	for _, n := range names {
 		writeSample(b, "pg_sage_self_loop_runs_total", loopLabels(n), loops[n].Runs)
+	}
+	writeSelfLoopHealth(b, names, loops)
+}
+
+// writeSelfLoopHealth exports each loop's failed runs and when its last
+// successful run ended, omitted until it has one (observability-06), with
+// the loop and database labels of the busy time (footprint-07).
+func writeSelfLoopHealth(b *strings.Builder, names []string,
+	loops map[string]selfbudget.LoopStat) {
+	metricsreg.Header(b, "pg_sage_self_loop_errors_total")
+	for _, n := range names {
+		writeSample(b, "pg_sage_self_loop_errors_total", loopLabels(n), loops[n].Errors)
+	}
+	header := false
+	for _, n := range names {
+		at := loops[n].LastSuccess
+		if at.IsZero() {
+			continue
+		}
+		if !header {
+			metricsreg.Header(b, "pg_sage_self_loop_last_success_timestamp_seconds")
+			header = true
+		}
+		writeSample(b, "pg_sage_self_loop_last_success_timestamp_seconds",
+			loopLabels(n), at.Unix())
 	}
 }
 

@@ -21,17 +21,12 @@ import (
 // is covered by their own packages' tests.
 
 // legacyTotalGauges are the gauges that still carry the counter suffix.
-// observability-09 renames or removes them in v2.7.0; until then they must
-// not change (no rename in T1), and no new gauge may join them.
-// pg_sage_incidents_avoided_total is no new family: it shipped as a counter
-// and earned-09 made it a gauge (a rollback voids credit, and a falling
-// counter reads as a reset) without renaming it.
+// observability-09 renamed or removed the others in v2.7.0, and no new
+// gauge may join. pg_sage_incidents_avoided_total is no new family: it
+// shipped as a counter and earned-09 made it a gauge (a rollback voids
+// credit, and a falling counter reads as a reset) without renaming it.
 var legacyTotalGauges = map[string]bool{
-	"pg_sage_findings_total":                  true,
-	"pg_sage_optimizer_recommendations_total": true,
-	"pg_sage_fleet_findings_total":            true,
-	"pg_sage_connections_total":               true,
-	"pg_sage_incidents_avoided_total":         true,
+	"pg_sage_incidents_avoided_total": true,
 }
 
 // contractStart is when the fixture's databases started their first look.
@@ -54,6 +49,7 @@ func installContractFleet(t *testing.T, mode string, names ...string) {
 	installHealthFleet(t, mode, insts...)
 	cfg.LLM.TokenBudgetDaily = 1000
 	llmClient = llm.New(&cfg.LLM, logStructuredWrapper)
+	registerSharedLLMClient(t) // the LLM families come from the client registry
 	fleetLLMBudget = fleet.NewBudget(1000, names)
 	oldTracker := firstLookTracker
 	t.Cleanup(func() { firstLookTracker = oldTracker })
@@ -166,7 +162,7 @@ func TestContractHostileDatabaseNamesParse(t *testing.T) {
 			installContractFleet(t, mode, hostileNames...)
 			e := lintScrape(t, scrapeMetrics(t))
 			for _, family := range []string{"pg_sage_database_up",
-				"pg_sage_fleet_instance_health", "pg_sage_llm_fleet_budget_used_tokens",
+				"pg_sage_database_health_score", "pg_sage_llm_fleet_budget_used_tokens",
 				"pg_sage_first_look_items"} {
 				got := map[string]bool{}
 				for _, v := range e.labelValues(family, "database") {
@@ -209,8 +205,7 @@ func TestContractScrapeParsesInEveryMode(t *testing.T) {
 }
 
 // Boundary: no gauge outside the pinned legacy set ends in _total, the
-// legacy set keeps its names and type (renames are observability-09), and
-// every counter ends in _total.
+// legacy gauge keeps its name and type, and every counter ends in _total.
 func TestContractGaugeAndCounterSuffixes(t *testing.T) {
 	installContractFleet(t, "fleet", "alpha", "beta")
 	e := lintScrape(t, scrapeMetrics(t))
@@ -250,12 +245,8 @@ func TestContractGaugeAndCounterSuffixes(t *testing.T) {
 		t.Fatal("no counter family in the scrape; the boundary check is vacuous")
 	}
 	for name := range legacyTotalGauges {
-		if name == "pg_sage_findings_total" || name == "pg_sage_connections_total" {
-			continue // standalone-only families: no analyzer or pool here
-		}
 		if e.kinds[name] != "gauge" {
-			t.Errorf("legacy family %s has TYPE %q, want gauge until v2.7.0",
-				name, e.kinds[name])
+			t.Errorf("legacy family %s has TYPE %q, want gauge", name, e.kinds[name])
 		}
 	}
 }

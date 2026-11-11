@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/metricsreg"
 	"github.com/pg-sage/sidecar/internal/servertls"
 )
 
@@ -102,12 +103,8 @@ func writeTLSMetrics(b *strings.Builder, reloader *servertls.Reloader) {
 	if reloader == nil {
 		return
 	}
-	b.WriteString("# HELP pg_sage_api_tls_cert_not_after_seconds Expiry of the " +
-		"API TLS certificate being served, as a Unix time\n" +
-		"# TYPE pg_sage_api_tls_cert_not_after_seconds gauge\n")
+	metricsreg.Header(b, "pg_sage_api_tls_cert_not_after_seconds")
 	fmt.Fprintf(b, "pg_sage_api_tls_cert_not_after_seconds %d\n\n", reloader.NotAfter().Unix())
-	b.WriteString("# HELP pg_sage_api_tls_reload_failures_total API TLS reloads " +
-		"that failed and kept the current certificate\n" +
-		"# TYPE pg_sage_api_tls_reload_failures_total counter\n")
+	metricsreg.Header(b, "pg_sage_api_tls_reload_failures_total")
 	fmt.Fprintf(b, "pg_sage_api_tls_reload_failures_total %d\n\n", reloader.ReloadFailures())
 }

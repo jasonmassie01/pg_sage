@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/metricsreg"
 	"github.com/pg-sage/sidecar/internal/shadow"
 	"github.com/pg-sage/sidecar/internal/verify"
 )
@@ -64,15 +65,12 @@ func (rt *databaseRuntime) startShadowScoring() {
 // writeShadowMetrics renders the shadow counters.
 func writeShadowMetrics(b *strings.Builder, decisions []shadow.DecisionCount,
 	scores []shadow.ScoreCount) {
-	b.WriteString("# HELP pg_sage_shadow_decisions_total Shadow decisions recorded below " +
-		"an action class's earned trust level, by the gate's verdict had it been trusted\n" +
-		"# TYPE pg_sage_shadow_decisions_total counter\n")
+	metricsreg.Header(b, "pg_sage_shadow_decisions_total")
 	for _, d := range decisions {
 		writeSample(b, "pg_sage_shadow_decisions_total", []labelPair{{"database", d.Database},
 			{"class", d.Class}, {"verdict", d.Verdict}}, d.Count)
 	}
-	b.WriteString("# HELP pg_sage_shadow_scores_total Shadow decisions scored, by score " +
-		"and evidence source\n# TYPE pg_sage_shadow_scores_total counter\n")
+	metricsreg.Header(b, "pg_sage_shadow_scores_total")
 	for _, s := range scores {
 		writeSample(b, "pg_sage_shadow_scores_total", []labelPair{{"database", s.Database},
 			{"class", s.Class}, {"score", s.Score}, {"source", s.Source}}, s.Count)

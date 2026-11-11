@@ -39,7 +39,7 @@ pg_sage sidecar (single Go binary)
   │   └── Emergency stop via sage.config
   │
   ├── API + Dashboard  [:8080]  REST API + React SPA (web UI)
-  └── Prometheus       [:9187]  Metrics endpoint
+  └── Prometheus       [:8187]  Metrics endpoint
 ```
 
 ---
@@ -594,7 +594,7 @@ metadata database, each row tagged with the database's meta-db record id.
 
 ### Prometheus Exporter
 
-Metrics endpoint on `:9187`. Exports findings count by severity, the LLM circuit breaker
+Metrics endpoint on `:8187`. Exports findings count by severity, the LLM circuit breaker
 state (`pg_sage_llm_circuit_open`), connection stats, cache hit ratio, database size, and
 LLM usage. Collector health is exported per database (label `database`) in every mode: the
 collector circuit breaker state (`pg_sage_collector_breaker_state`, 0 closed, 1 skipping,
@@ -695,6 +695,8 @@ noted:
 | `pg_sage_self_budget_exceeded{resource}` | 1 when pg_sage used more than its budget of the resource (`cpu` has no `database` label) |
 | `pg_sage_self_loop_busy_seconds_total{loop}` | wall time of pg_sage's loops, LLM waits excluded (counter; `database` only on a per-database loop) |
 | `pg_sage_self_loop_runs_total{loop}` | runs of pg_sage's periodic loops (counter; `database` only on a per-database loop) |
+| `pg_sage_self_loop_errors_total{loop}` | runs that failed or produced nothing, such as a skipped or failed collection (counter, 0 included; `database` only on a per-database loop) |
+| `pg_sage_self_loop_last_success_timestamp_seconds{loop}` | Unix time the loop's last successful run ended (gauge, absent until the first success; `database` only on a per-database loop) |
 
 [sage_self_cost](findings.md#sage_self_cost) and
 [sage_self_budget](findings.md#sage_self_budget) describe the windows and labels in full.

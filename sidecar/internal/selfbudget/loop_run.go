@@ -76,30 +76,40 @@ func runOf(ctx context.Context) *run {
 
 // TrackFor starts a run of component on the database ctx carries and
 // returns the ctx the run's work must use (it carries the run's LLM wait)
-// and the function that ends the run. The run's busy time is its wall
-// time minus its LLM wait and minus the runs nested inside it, never
-// below zero; the wait is recorded under llm_wait:<database>. Ending a
-// run twice counts it once.
+// and the function that ends the run as a success. The run's busy time is
+// its wall time minus its LLM wait and minus the runs nested inside it,
+// never below zero; the wait is recorded under llm_wait:<database>.
+// Ending a run twice counts it once.
 func (l *Loops) TrackFor(ctx context.Context, component string) (context.Context, func()) {
+	ctx, done := l.TrackForErr(ctx, component)
+	return ctx, func() { done(nil) }
+}
+
+// TrackForErr is TrackFor for a loop whose run can fail: the result ends
+// the run with its error, nil a success and anything else a failed run of
+// the loop (observability-06).
+func (l *Loops) TrackForErr(
+	ctx context.Context, component string,
+) (context.Context, func(error)) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if l == nil {
-		return ctx, func() {}
+		return ctx, func(error) {}
 	}
 	database, parent := DatabaseOf(ctx), runOf(ctx)
 	r := &run{}
-	start := l.now()
+	start := l.clock()
 	var once sync.Once
-	return context.WithValue(ctx, runKey, r), func() {
+	return context.WithValue(ctx, runKey, r), func(err error) {
 		once.Do(func() {
-			wall := l.now().Sub(start)
+			wall := l.clock().Sub(start)
 			wait := time.Duration(r.wait.Load())
 			busy := wall - wait - time.Duration(r.nested.Load())
 			if busy < 0 {
 				busy = 0
 			}
-			l.Add(LoopName(component, database), busy)
+			l.record(LoopName(component, database), busy, err)
 			if wait > 0 {
 				l.Add(LoopName(LLMWaitLoop, database), wait)
 			}

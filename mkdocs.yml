@@ -57,6 +57,7 @@ nav:
       - Policy Gate: policy-gate.md
   - "Sage SRE: permissions and data flow": sage-sre-permissions-and-data-flow.md
   - Deployment: deployment.md
+  - Metrics reference: metrics.md
   - Azure: azure.md
   - Databricks:
       - Overview: databricks-native.md

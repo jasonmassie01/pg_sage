@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 
 	"github.com/pg-sage/sidecar/internal/leader"
+	"github.com/pg-sage/sidecar/internal/metricsreg"
 )
 
 // governanceElector is the governance jobs' own elector when they run on a
@@ -36,20 +37,16 @@ func writeLeaderMetrics(b *strings.Builder, electors ...*leader.Elector) {
 	if len(rows) == 0 {
 		return
 	}
-	b.WriteString("# HELP pg_sage_leader Whether this sidecar holds the scope's lease " +
-		"and may run leader-only jobs (1) or follows (0)\n# TYPE pg_sage_leader gauge\n")
+	metricsreg.Header(b, "pg_sage_leader")
 	for _, r := range rows {
 		fmt.Fprintf(b, "pg_sage_leader{scope=%q} %d\n", r.s.Scope, boolMetric(r.s.Leader))
 	}
-	b.WriteString("# HELP pg_sage_leader_transitions_total Leader/follower changes of " +
-		"this sidecar, lapses included\n# TYPE pg_sage_leader_transitions_total counter\n")
+	metricsreg.Header(b, "pg_sage_leader_transitions_total")
 	for _, r := range rows {
 		fmt.Fprintf(b, "pg_sage_leader_transitions_total{scope=%q} %d\n",
 			r.s.Scope, r.s.Transitions)
 	}
-	b.WriteString("# HELP pg_sage_leader_last_renew_age_seconds Seconds since the last " +
-		"successful lease store round trip (since start when none yet)\n" +
-		"# TYPE pg_sage_leader_last_renew_age_seconds gauge\n")
+	metricsreg.Header(b, "pg_sage_leader_last_renew_age_seconds")
 	for _, r := range rows {
 		fmt.Fprintf(b, "pg_sage_leader_last_renew_age_seconds{scope=%q} %.3f\n",
 			r.s.Scope, r.age)

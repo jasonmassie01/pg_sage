@@ -6,6 +6,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/metricsreg"
 )
 
 // collectorStatuses is every collector's health by database: each fleet
@@ -35,15 +36,13 @@ func collectorStatuses(
 // series carries the database label, in every mode.
 func writeCollectorMetrics(b *strings.Builder, statuses map[string]collector.Status) {
 	dbs := sortedKeys(statuses)
-	b.WriteString("# HELP pg_sage_collector_breaker_state Collector circuit breaker " +
-		"(0=closed, 1=skipping, 2=dormant)\n# TYPE pg_sage_collector_breaker_state gauge\n")
+	metricsreg.Header(b, "pg_sage_collector_breaker_state")
 	for _, db := range dbs {
 		fmt.Fprintf(b, "pg_sage_collector_breaker_state{database=%q} %d\n", db,
 			statuses[db].BreakerState.Code())
 	}
-	b.WriteString("\n# HELP pg_sage_collector_breaker_skips_total Collector cycles " +
-		"skipped by the breaker, by reason (load, load_query_error)\n" +
-		"# TYPE pg_sage_collector_breaker_skips_total counter\n")
+	b.WriteString("\n")
+	metricsreg.Header(b, "pg_sage_collector_breaker_skips_total")
 	for _, db := range dbs {
 		for _, reason := range []string{collector.SkipReasonLoad,
 			collector.SkipReasonLoadQueryError} {
@@ -51,8 +50,8 @@ func writeCollectorMetrics(b *strings.Builder, statuses map[string]collector.Sta
 				db, reason, statuses[db].SkipsTotal[reason])
 		}
 	}
-	b.WriteString("\n# HELP pg_sage_collector_last_success_timestamp Last collected " +
-		"snapshot (unix seconds)\n# TYPE pg_sage_collector_last_success_timestamp gauge\n")
+	b.WriteString("\n")
+	metricsreg.Header(b, "pg_sage_collector_last_success_timestamp")
 	for _, db := range dbs {
 		if at := statuses[db].LastSuccess; !at.IsZero() {
 			fmt.Fprintf(b, "pg_sage_collector_last_success_timestamp{database=%q} %d\n",
@@ -61,10 +60,10 @@ func writeCollectorMetrics(b *strings.Builder, statuses map[string]collector.Sta
 	}
 	writeCollectorUnavailable(b, dbs, statuses)
 	writeCollectorFailureCounter(b, dbs, "pg_sage_collector_persist_failures_total",
-		"Snapshots that could not be stored in sage.snapshots", statuses,
+		statuses,
 		func(s collector.Status) int64 { return s.PersistFailures })
 	writeCollectorFailureCounter(b, dbs, "pg_sage_collector_query_store_failures_total",
-		"Failed sage.query_store writes", statuses,
+		statuses,
 		func(s collector.Status) int64 { return s.QueryStoreFailures })
 }
 
@@ -72,8 +71,8 @@ func writeCollectorMetrics(b *strings.Builder, statuses map[string]collector.Sta
 // could not read (unknown, not empty).
 func writeCollectorUnavailable(b *strings.Builder, dbs []string,
 	statuses map[string]collector.Status) {
-	b.WriteString("\n# HELP pg_sage_collector_category_unavailable Category the latest " +
-		"snapshot could not read\n# TYPE pg_sage_collector_category_unavailable gauge\n")
+	b.WriteString("\n")
+	metricsreg.Header(b, "pg_sage_collector_category_unavailable")
 	for _, db := range dbs {
 		for _, category := range sortedKeys(statuses[db].Unavailable) {
 			fmt.Fprintf(b,
@@ -83,9 +82,10 @@ func writeCollectorUnavailable(b *strings.Builder, dbs []string,
 	}
 }
 
-func writeCollectorFailureCounter(b *strings.Builder, dbs []string, name, help string,
+func writeCollectorFailureCounter(b *strings.Builder, dbs []string, name string,
 	statuses map[string]collector.Status, value func(collector.Status) int64) {
-	fmt.Fprintf(b, "\n# HELP %s %s\n# TYPE %s counter\n", name, help, name)
+	b.WriteString("\n")
+	metricsreg.Header(b, name)
 	for _, db := range dbs {
 		fmt.Fprintf(b, "%s{database=%q} %d\n", name, db, value(statuses[db]))
 	}
