@@ -283,3 +283,32 @@ func TestFindingCases_OneRecommendationQueryPerDatabase(t *testing.T) {
 		t.Fatalf("cases with their head = %d, want 500", withHead)
 	}
 }
+
+// A ?case= lookup of a case the page cut carries the same lifecycle as
+// the list: its recommendation head, and evidence_expired once its
+// evidence is past expires_at (real PG).
+func TestCaseFocusLookupCarriesRecommendationAndExpiry(t *testing.T) {
+	pool, _, ctx := tracedCasePool(t)
+	resetRecommendationCases(t, ctx)
+	seedRecHead(t, ctx, recStates[0])
+	stale := seedRecHead(t, ctx, recHead{object: "public.rec_stale"})
+	if _, err := pool.Exec(ctx, `UPDATE sage.findings
+		SET last_seen = now() - interval '25 hours' WHERE id = $1`, stale); err != nil {
+		t.Fatalf("age finding: %v", err)
+	}
+	mgr := dbCaseManager(t, ctx, pool)
+	sel := namedPool{name: "prod", pool: pool}
+	reverted, ok, err := lookupCase(ctx, mgr, sel,
+		"finding:prod:stale_statistics:table:public.rec_reverted")
+	if err != nil || !ok || reverted.Recommendation == nil ||
+		reverted.Recommendation.State != "reverted" {
+		t.Fatalf("lookupCase reverted = %+v, %v, %v", reverted.Recommendation, ok, err)
+	}
+	wantRecCandidate(t, reverted, cases.ReasonRecommendationReverted, false)
+	expired, ok, err := lookupCase(ctx, mgr, sel,
+		"finding:prod:stale_statistics:table:public.rec_stale")
+	if err != nil || !ok || expired.Recommendation != nil {
+		t.Fatalf("lookupCase stale = %+v, %v, %v", expired.Recommendation, ok, err)
+	}
+	wantRecCandidate(t, expired, cases.ReasonEvidenceExpired, false)
+}

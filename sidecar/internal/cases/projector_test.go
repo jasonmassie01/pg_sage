@@ -23,7 +23,8 @@ func TestIdentityKeyFindingUsesStableProblemFields(t *testing.T) {
 }
 
 // A query finding's identity is its object identifier (cases-10); the
-// api's cases_identity_test.go shows a planted detail key is ignored.
+// api's cases_query_identity_db_test.go shows a planted detail key is
+// ignored.
 func TestIdentityKeyQueryUsesObjectIdentifier(t *testing.T) {
 	f := SourceFinding{
 		DatabaseName:     "prod",
