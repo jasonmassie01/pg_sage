@@ -2145,6 +2145,29 @@ waiting for evidence.
 With MCP enabled, agents get the read-only tools `sre_list_incidents`,
 `sre_get_investigation` and `sre_get_evidence`.
 
+### Sage SRE runbooks
+
+A runbook belongs to one database and is a list of immutable versions. The version that
+runs inside matching investigations is the newest one an admin signed whose stored
+content still hashes to the signed hash and still validates against today's probe
+catalog. A version whose content was changed behind the store never runs.
+
+An edit (`POST /api/v1/databases/{db}/runbooks/{id}/versions` with `base_version`, the
+Revise button on the Runbooks page, or the MCP tool `sre_draft_runbook`) stages an
+unsigned draft. The signed version keeps running until an admin signs the draft, so an
+edit made during an incident never takes a signed runbook offline. A draft never
+inherits a signature, and an unsigned version never runs. Signing the draft makes it
+the running version in the same transaction. `base_version` must name the latest
+version, or the edit is refused with `409 version_conflict`. The response and
+`GET .../runbooks/{id}` carry `running_version` (0 when nothing runs) and `running`
+beside `latest`.
+
+Before signing, the Runbooks page shows a structural diff of the draft against the
+newest signed version (nodes added, removed or changed, by node id), then the full
+content hash. Retiring (`POST .../runbooks/{id}/retire`) is permanent and stops every
+version, so it needs the admin role, and the page asks for the runbook's name to be
+typed first.
+
 ### Sage SRE approved actions
 
 When an investigation concludes that one active backend is the root of a lock or
@@ -2200,6 +2223,32 @@ Routes: `GET .../investigations/{id}/proposals` (any role), and for operators an
 `POST .../investigations/{id}/proposals/{proposal_id}/request`. Approval and denial use the
 existing `POST /api/v1/actions/{queue_id}/approve` and `/reject`. With MCP enabled, operators
 and admins get `sre_propose_action` and `sre_request_execution`. Neither tool executes.
+
+**Statistics maintenance the morning after.** Extended statistics
+(`CREATE STATISTICS`) can be proposed from a concluded or inconclusive investigation that
+observed the table in `stat_tables` (the columns are your hypothesis; nothing claims they
+cause the incident). The cited evidence must be at most 15 minutes old at propose and at
+request, so a review the next day starts with a refresh. Over MCP:
+
+1. `sre_refresh_table_evidence` with `investigation_id`, `schema` and `table` re-reads
+   `stat_tables` once, under the investigation's read policy, and records it as
+   `operator_refresh` evidence with an `evidence_refreshed` event on the investigation's
+   chain. It is refused when the table's database or table OID changed (start a new
+   investigation), for cancelled, failed or purged investigations, and more than once a
+   minute per investigation (a call refused as too soon reads nothing on the database).
+2. `sre_propose_statistics` with the table, `columns` (2 to 8), optional `kinds` and a
+   `rationale`. pg_sage cites the newest matching evidence itself; no call carries an
+   evidence id or SHA-256.
+3. `sre_request_statistics` with the `proposal_id` queues one approval item. A person
+   approves it; the executor rechecks the table, owner and column identities under the
+   table lock.
+4. `sre_rollback_statistics` (approve scope, admin people only, like the REST route) drops
+   the object pg_sage created; prior `ANALYZE` statistics are not restored.
+
+Refresh, propose and request need the propose scope; agents never hold approve. One
+proposal per investigation still applies, so refresh, propose and request within the
+15 minutes. The REST routes under `.../investigations/{id}/maintenance` take the evidence
+id and SHA-256 explicitly.
 
 **Approving in Slack or Telegram.** Approval requests are `approval_needed` notifications,
 so add a notification rule for that event to the channel.
@@ -2378,6 +2427,30 @@ unverified". Pushed and proxy SLIs measure coverage from their stored samples.
 |---|---|---|
 | `sre.slo.objectives[].coverage_query` | empty | Optional PromQL for the earliest sample time over `$window` (must contain `$window`; Prometheus sources only). Adding it does not reset the SLO's history |
 | `sre.slo.objectives[].stale_after_seconds` | `300` | Pushed samples, and Prometheus samples with `coverage_query`, older than this are stale |
+
+Each SLO status (`GET /api/v1/sre/slos`, and `status` in `GET /api/v1/sre/slos/{name}`) also
+carries `budget_coverage`, the share of the SLO window its data covers, and, for a
+`partial_window` budget only, `budget_spent_so_far`: the covered part's bad over eligible
+events divided by `1 - target` (1 means the whole error budget). `budget_remaining` stays
+null for a partial window: the spent-so-far describes only the covered part and is never
+read as budget left. `budget_coverage` is absent when the budget window was not read
+(no data, stale, a failed query or invalid counts) and for a Prometheus SLI without
+`coverage_query`, whose coverage is only assumed. `budget_spent_so_far` is absent with fewer
+covered eligible events than `min_eligible_events`, as a burn rate from a handful of events
+is noise. A fleet SLO with an `owner_database` also carries `owner_database`, the
+database whose investigator opens its `slo_burn` investigations. These fields are
+additive; no migration or configuration is needed.
+
+The SLOs page shows, per row, how long the SLO has been in its state (`state_since`) and,
+while it burns, when the burn started (`burn_started_at`). An unknown budget names its
+reason, with "partial window: N% covered" and the spent-so-far for a partial window. A row
+expands into its state transitions (kept 90 days, newest 50), the recovery verdict since
+the burn started (only while burning) and the newest `slo:<name>` investigation, read from
+the `owner_database` when the SLO has one. When none was opened for a paging SLO it says so
+(`sre.slo.open_investigations` off, or `sre.automatic_start` off for a database proxy);
+when that database's investigator cannot be read it says so instead, never "none opened".
+The expansion reads the detail once per open and always names the row's database, so it
+works in fleet mode and for viewers.
 
 #### Fleet SLOs and `owner_database`
 

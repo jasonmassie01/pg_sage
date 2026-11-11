@@ -180,5 +180,6 @@ func trancheTwoMigrations() []namedStep {
 		{"ddlRolloutRunInterrupted", ddlRolloutRunInterrupted},           // executor-04b
 		{"ddlNotificationLogRefs", ddlNotificationLogRefs},               // sre-08: page lookup
 		{"ddlSREIncidentFollowup", ddlSREIncidentFollowup},               // sre-08: one claim each
+		{"ddlSREEvidenceRefreshedEvent", ddlSREEvidenceRefreshedEvent},   // playbooks-06
 	}
 }

@@ -36,6 +36,9 @@ var toolClasses = map[string]toolClass{
 	// pg_sage's own maintenance candidates, attributed to the agent.
 	"sre_propose_action":             propose(CapMaint),
 	"sre_request_execution":          propose(CapMaint),
+	"sre_refresh_table_evidence":     propose(CapMaint),
+	"sre_propose_statistics":         propose(CapMaint),
+	"sre_request_statistics":         propose(CapMaint),
 	"specialist_request_remediation": propose(CapMaint),
 	// Policy proposals: always a person, two when widening.
 	"set_maintenance_policy": propose(CapPolicyProposal),
@@ -48,7 +51,7 @@ var toolClasses = map[string]toolClass{
 	// Approve scope: out of an agent's reach.
 	"decide_fact": approve(), "declare_table_contract": approve(),
 	"register_consumer": approve(), "sre_downgrade_autonomy": approve(),
-	"sre_review_investigation": approve(),
+	"sre_review_investigation": approve(), "sre_rollback_statistics": approve(),
 	// Read tools.
 	"ask_sage": read(), "explain_query": read(), "fleet_findings": read(),
 	"get_guarantee_status": read(), "get_ledger": read(), "get_policy": read(),

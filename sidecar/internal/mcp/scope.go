@@ -13,7 +13,7 @@ import (
 // slot consumers), reviews and autonomy downgrades. Agents never hold it.
 var approveScopeTools = map[string]bool{"decide_fact": true, "declare_table_contract": true,
 	"register_consumer": true, "sre_downgrade_autonomy": true,
-	"sre_review_investigation": true}
+	"sre_review_investigation": true, "sre_rollback_statistics": true}
 
 // proposeScopeTools ask pg_sage to do or record something; pg_sage still
 // decides through policy.Gate or a person's approval.
@@ -23,7 +23,8 @@ var proposeScopeTools = map[string]bool{"propose_policy_change": true, "request_
 	"sre_request_execution": true, "sre_draft_runbook": true, "sre_compile_runbook": true,
 	"sre_evaluate_autonomy": true, "propose_fact": true, "mark_object": true,
 	"report_source_fix": true, "specialist_request_remediation": true,
-	"agent_request_capability": true}
+	"agent_request_capability": true, "sre_refresh_table_evidence": true,
+	"sre_propose_statistics": true, "sre_request_statistics": true}
 
 var (
 	knownToolsOnce sync.Once

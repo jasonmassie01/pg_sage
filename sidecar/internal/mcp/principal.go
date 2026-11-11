@@ -37,6 +37,8 @@ type Principal struct {
 	// Databases are the databases the principal may use; nil is all.
 	Databases []string
 	TokenID   string
+	// OwnerUserID is the user an operator token belongs to (0: none).
+	OwnerUserID int
 	// Name is the token's name (the external system it belongs to).
 	Name string
 	// PrincipalID is the agent principal an agent token acts for ("agp_…");

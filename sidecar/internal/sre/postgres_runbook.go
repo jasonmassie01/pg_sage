@@ -12,7 +12,8 @@ import (
 
 // Runbook writes. Every write locks the runbook row, so edits, signatures
 // and retirement of one runbook are serialized: a signature can only bind
-// the latest version, and an edit always leaves an unsigned latest version.
+// the latest version, and an edit always leaves an unsigned latest version
+// staged beside the signed version that keeps running.
 
 // runbookErr keeps the runbook sentinels and classifies everything else
 // like every store error.
@@ -92,8 +93,10 @@ func lockRunbook(ctx context.Context, tx pgx.Tx, scope Scope, id UUID) (lockedRu
 }
 
 // ReviseRunbook appends an unsigned draft version on top of baseVersion,
-// which must be the latest (optimistic concurrency). Editing invalidates
-// the signature: the runbook does not run until the new version is signed.
+// which must be the latest (optimistic concurrency). The draft never
+// inherits a signature: the signed version keeps running until this draft
+// is signed, and signing it makes it the running version in the same
+// transaction.
 func (s *PostgresStore) ReviseRunbook(ctx context.Context, scope Scope, id UUID,
 	baseVersion int, d RunbookInput) (Runbook, error) {
 	if err := validateIDs(scope, id); err != nil {
@@ -212,8 +215,8 @@ func signable(v RunbookVersion, reviewed string) error {
 	return nil
 }
 
-// RetireRunbook stops a runbook for good: it never runs again and cannot
-// be edited or signed.
+// RetireRunbook stops a runbook for good: no version of it runs again,
+// and it cannot be edited or signed.
 func (s *PostgresStore) RetireRunbook(ctx context.Context, scope Scope, id UUID,
 	actor string) (Runbook, error) {
 	if err := validateIDs(scope, id); err != nil {

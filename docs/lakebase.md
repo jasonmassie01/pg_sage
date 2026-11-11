@@ -692,8 +692,10 @@ deduplication.
 ## Operator-requested statistics maintenance
 
 The typed SRE maintenance bridge adds one explicit `create_statistics` request
-to a concluded investigation with retained, hash-verified `stat_tables` v3
-evidence. An operator/admin supplies the schema, table, columns, supported
+to a concluded or inconclusive investigation with retained, hash-verified
+`stat_tables` v3 evidence (an operator can refresh it with
+`sre_refresh_table_evidence`; see the Sage SRE section of the configuration
+reference). An operator/admin supplies the schema, table, columns, supported
 statistics kinds, evidence ID/SHA-256 and rationale. The evidence must identify
 the same physical database/table OIDs; table counters establish observation
 scope, not column correlation or a predicted benefit. The bridge excludes the

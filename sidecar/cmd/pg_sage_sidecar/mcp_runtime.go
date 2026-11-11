@@ -72,6 +72,9 @@ func mcpDependencies() mcp.ProductionDependencies {
 		// Sage SRE action tools (sre_propose_action, sre_request_execution)
 		// propose and queue; they never execute.
 		Actions: access,
+		// Statistics maintenance (playbooks-06): refresh, propose and queue;
+		// rollback is an admin person's.
+		Maintenance: access,
 		// Earned autonomy: read; operator downgrade/review/evaluate (never approval).
 		Autonomy: autonomyMCPBackend{registry: processAutonomy().registry, manager: fleetMgr},
 		// Binding facts: read, propose (stays proposed), decide (a person).
