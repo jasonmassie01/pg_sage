@@ -108,7 +108,7 @@ func explainFinding(
 
 func explainedFrom(candidate cases.ActionCandidate, detail string) explainedCandidate {
 	out := explainedCandidate{ActionType: candidate.ActionType, RiskTier: candidate.RiskTier,
-		BlockedReason: candidate.BlockedReason, Detail: detail, Guardrails: []string{}}
+		BlockedReason: candidate.BlockedReason, Guardrails: []string{}}
 	if decision := candidate.PolicyDecision; decision != nil {
 		out.Decision, out.RiskTier = decision.Decision, decision.RiskTier
 		out.RequiresApproval = decision.RequiresApproval
@@ -118,10 +118,13 @@ func explainedFrom(candidate cases.ActionCandidate, detail string) explainedCand
 		if out.BlockedReason == "" { // an unknown type or provider refusal wins
 			out.BlockedReason = decision.BlockedReason
 		}
+		if out.BlockedReason == decision.BlockedReason { // the detail is the gate's
+			out.Detail = detail
+		}
 	}
 	if out.Decision == "" {
 		out.Decision = executor.PolicyDecisionBlocked
 	}
-	out.HumanReason = executor.HumanDecisionReason(out.BlockedReason, detail)
+	out.HumanReason = executor.HumanDecisionReason(out.BlockedReason, out.Detail)
 	return out
 }
