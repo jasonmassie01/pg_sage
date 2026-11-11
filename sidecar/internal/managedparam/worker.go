@@ -180,7 +180,8 @@ func (w *Worker) propose(ctx context.Context, fi findingIntent, target Target, n
 		p.Notes = append(p.Notes, note)
 	}
 	keep[p.Fingerprint] = true
-	live := running != nil && !running.PendingRestart && sameValue(p.Value, running.Setting)
+	live := running != nil && !running.PendingRestart &&
+		sameValue(runningForm(p), running.Setting)
 	if live {
 		done, err := w.store.appliedExists(ctx, p.Fingerprint)
 		if err != nil || done {

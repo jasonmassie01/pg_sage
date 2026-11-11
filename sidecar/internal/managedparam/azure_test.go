@@ -103,12 +103,29 @@ func TestBuildAzureUsesTheReportedUnit(t *testing.T) {
 	if p.Value != "4194304" || p.Unit != "KB" {
 		t.Fatalf("value = %q %q, want 4194304 KB", p.Value, p.Unit)
 	}
+	// The running value is compared in PostgreSQL's unit, not Azure's.
+	if got := runningForm(p); got != "4096" {
+		t.Fatalf("runningForm = %q, want 4096 (MB, as pg_settings shows it)", got)
+	}
 	// Without a description the base unit (MB) is used.
 	delete(target.Params, "max_wal_size")
 	target.Known = false
 	p, err = Build(intent(t, "azure", "max_wal_size", "4GB"), target, nil)
 	if err != nil || p.Value != "4096" || p.Unit != "MB" {
 		t.Fatalf("undescribed value = %q %q, %v; want 4096 MB", p.Value, p.Unit, err)
+	}
+}
+
+// Other mechanisms already carry pg_settings' form.
+func TestRunningFormKeepsNonAzureValues(t *testing.T) {
+	p := Proposal{Provider: "rds", Mechanism: MechanismParameterGroup,
+		Parameter: "max_wal_size", Value: "4096", PGValue: "4GB"}
+	if got := runningForm(p); got != "4096" {
+		t.Fatalf("runningForm = %q, want the proposal value", got)
+	}
+	p.Value, p.PGValue = "8", "not a value!" // never re-derived off Azure
+	if got := runningForm(p); got != "8" {
+		t.Fatalf("runningForm = %q, want 8", got)
 	}
 }
 

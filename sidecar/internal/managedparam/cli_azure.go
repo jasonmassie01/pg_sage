@@ -120,6 +120,19 @@ func azureRollback(set, parameter, method string, gp GroupParam,
 		CLI: set + " --value " + shellQuote(gp.Default) + " --source system-default"}, ""
 }
 
+// runningForm is the value pg_settings shows once p runs. Azure may report
+// a parameter in another unit than pg_settings.unit (max_wal_size in KB,
+// not MB), so an Azure proposal compares its PostgreSQL base-unit value.
+func runningForm(p Proposal) string {
+	if p.Mechanism != MechanismServerParameter {
+		return p.Value
+	}
+	if v, _, err := ProviderValue(p.Provider, p.Parameter, p.PGValue); err == nil {
+		return v
+	}
+	return p.Value
+}
+
 // fillIn turns every line of a command into a comment to complete.
 func fillIn(cli string) string {
 	lines := strings.Split(cli, "\n")

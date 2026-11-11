@@ -123,6 +123,33 @@ func TestWorkerAzureForbiddenSurfacesInTargetError(t *testing.T) {
 	}
 }
 
+// Azure may describe a parameter in another unit than pg_settings: the
+// worker still sees the running value as the proposed one and marks it
+// applied (max_wal_size 1GB runs by default; Azure reports it in KB).
+func TestWorkerAzureMarksAppliedAcrossUnits(t *testing.T) {
+	pool, ctx := testPool(t)
+	target := azureTarget()
+	target.Params["max_wal_size"] = GroupParam{Value: "1048576", Default: "1048576",
+		Source: "system", Unit: "KB", ApplyType: "dynamic", Modifiable: true}
+	w := newAzureWorker(t, pool, &fakeParamResolver{target: target})
+	var running string
+	if err := pool.QueryRow(ctx, `SELECT setting FROM pg_settings
+		WHERE name = 'max_wal_size'`).Scan(&running); err != nil || running != "1024" {
+		t.Fatalf("needs the default max_wal_size of 1024 MB, got %q (%v)", running, err)
+	}
+	insertIntentFinding(t, pool, "instance:max_wal_size",
+		intent(t, "azure", "max_wal_size", "1GB"))
+	res, err := w.Cycle(ctx)
+	if err != nil || res.Proposed != 1 || res.Applied != 1 {
+		t.Fatalf("cycle = %+v, %v; want one proposal marked applied", res, err)
+	}
+	recs, err := w.store.List(ctx, nil, 10)
+	if err != nil || len(recs) != 1 || recs[0].Status != StatusApplied ||
+		recs[0].Proposal.Value != "1048576" {
+		t.Fatalf("records = %+v, %v", recs, err)
+	}
+}
+
 // No intents: a parameter resolver is asked for nothing at all.
 func TestWorkerAzureWithoutIntentsAsksNothing(t *testing.T) {
 	pool, ctx := testPool(t)
