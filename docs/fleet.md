@@ -284,6 +284,12 @@ after a failed one) and `status.collection_freshness` (`fresh`, `stale` or
 `unknown`). Incidents are read with the findings after each analyzer cycle,
 under a 5 second timeout.
 
+The **Top Cases** tab lists the five highest-ranked open cases of the
+selected scope, each linking to its case, with the basis of its rank. It
+names every database whose cases could not be read and says "No open
+cases" only when every database answered with none. See
+[the cases response in a fleet](walkthrough-fleet.md#the-cases-response-in-a-fleet).
+
 ## HA role
 
 Each tile also shows the database's HA role: `primary`, `replica`, or
