@@ -141,38 +141,6 @@ func (s *NotificationStore) encodeConfig(config map[string]string, id int) ([]by
 	return cfgJSON, nil
 }
 
-// ListChannels returns all notification channels.
-func (s *NotificationStore) ListChannels(
-	ctx context.Context,
-) ([]notify.Channel, error) {
-	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	rows, err := s.pool.Query(qctx,
-		`/* pg_sage */ SELECT id, name, type, config, enabled
-		 FROM sage.notification_channels ORDER BY id`)
-	if err != nil {
-		return nil, fmt.Errorf("listing channels: %w", err)
-	}
-	defer rows.Close()
-
-	var result []notify.Channel
-	for rows.Next() {
-		var ch notify.Channel
-		var cfgJSON []byte
-		if err := rows.Scan(
-			&ch.ID, &ch.Name, &ch.Type, &cfgJSON, &ch.Enabled,
-		); err != nil {
-			return nil, fmt.Errorf("scanning channel: %w", err)
-		}
-		if ch.Config, err = s.decodeConfig(cfgJSON, ch.ID); err != nil {
-			return nil, fmt.Errorf("channel %d: %w", ch.ID, err)
-		}
-		result = append(result, ch)
-	}
-	return result, rows.Err()
-}
-
 func (s *NotificationStore) decodeConfig(
 	cfgJSON []byte, id int,
 ) (map[string]string, error) {

@@ -21,7 +21,7 @@ func listChannelsHandler(
 			return
 		}
 		if channels == nil {
-			channels = []notify.Channel{}
+			channels = []store.ChannelListing{}
 		}
 		for i := range channels {
 			maskChannelSecrets(channels[i].Config)
