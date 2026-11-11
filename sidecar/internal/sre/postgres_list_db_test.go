@@ -211,3 +211,25 @@ func TestLatestPerCase_IsOneIndexProbePerCase(t *testing.T) {
 		t.Fatalf("100 case probes read %v investigations:\n%s", read, plan)
 	}
 }
+
+// A case named twice (a repeated case_id) is one probe and one row.
+func TestLatestPerCase_ListsARepeatedCaseOnce(t *testing.T) {
+	st, pool, ctx := liveStore(t, DefaultLimits())
+	scope := testScope(t, ctx, st)
+	seedLatestPerCase(t, pool, scope)
+	want := newestByCase(t, pool, scope)
+	page, err := st.List(ctx, scope, ListFilter{CaseIDs: []string{"case:latest:5",
+		"case:tie", "case:latest:5"}})
+	if err != nil {
+		t.Fatalf("List(repeated CaseIDs): %v", err)
+	}
+	got := map[string]string{}
+	for _, inv := range page.Items {
+		got[inv.CaseID] = string(inv.ID)
+	}
+	if len(page.Items) != 2 || got["case:latest:5"] != want["case:latest:5"] ||
+		got["case:tie"] != want["case:tie"] {
+		t.Fatalf("repeated ids = %d items %v, want case:latest:5 and case:tie once each",
+			len(page.Items), got)
+	}
+}
