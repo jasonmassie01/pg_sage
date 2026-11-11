@@ -320,7 +320,8 @@ func (t *Tuner) processCandidate(
 	combined := t.combinedHint(prescriptions)
 	rationale := buildRationale(prescriptions)
 	if c.foreignHint && combined != "" {
-		return append(staleFindings, operatorHintFinding(c, symptoms, combined, rationale))
+		f := operatorHintFinding(c, symptoms, combined, rationale)
+		return append(staleFindings, withAntipatterns(f, symptoms))
 	}
 	// Every work_mem hint stays within min(work_mem_max_mb, 5% of host
 	// memory); with host memory unknown it needs approval (tuning-03).

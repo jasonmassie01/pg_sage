@@ -220,3 +220,23 @@ func TestAntipatterns_DetailAbsentForOtherSymptoms(t *testing.T) {
 		t.Fatalf("disk-sort finding must not carry plan_antipatterns: %v", got[0].Detail)
 	}
 }
+
+// An operator-owned hint turns the finding into the operator-hint notice;
+// it still carries the anti-pattern facts its recommendation cites.
+func TestAntipatterns_OperatorHintFindingCarriesDetail(t *testing.T) {
+	tu := New(nil, TunerConfig{WorkMemMaxMB: 512}, nil, noopLogFn)
+	sort := map[string]any{"Node Type": "Sort", "Sort Space Type": "Disk",
+		"Sort Space Used": 9000, "Plan Rows": 10, "Actual Rows": 10.0,
+		"Plans": []map[string]any{idxScan(99_000, 1_000, nil).node()}}
+	tu.plans = map[int64]planfresh.Plan{8: {JSON: planOf(t, sort), HasActuals: true}}
+	got := tu.processCandidate(context.Background(),
+		candidate{QueryID: 8, Calls: 9, foreignHint: true})
+	if len(got) != 1 || got[0].Detail["operator_hint_present"] != true {
+		t.Fatalf("findings = %+v, want one operator-hint finding", got)
+	}
+	aps, ok := got[0].Detail["plan_antipatterns"].([]map[string]any)
+	if !ok || len(aps) != 1 || aps[0]["symptom"] != "index_filter_inefficient" ||
+		!strings.Contains(got[0].Recommendation, "discards 99%") {
+		t.Fatalf("operator-hint finding = %+v", got[0])
+	}
+}
