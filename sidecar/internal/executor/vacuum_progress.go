@@ -54,7 +54,7 @@ func (p vacuumProgress) String() string {
 // vacuumProgressSQL reads one backend's row. indexes_processed is read
 // through to_jsonb, so the statement is the same on every version (NULL
 // before PostgreSQL 17).
-const vacuumProgressSQL = `/* pg_sage */ SELECT p.phase, p.heap_blks_total,
+const vacuumProgressSQL = `/* pg_sage executor */ SELECT p.phase, p.heap_blks_total,
 	p.heap_blks_scanned, p.heap_blks_vacuumed, p.index_vacuum_count,
 	(to_jsonb(p) ->> 'indexes_processed')::bigint
 	FROM pg_stat_progress_vacuum p WHERE p.pid = $1`

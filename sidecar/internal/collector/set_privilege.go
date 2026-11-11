@@ -23,7 +23,7 @@ func markSetPrivileges(ctx context.Context, pool catalogQuerier, settings []PGSe
 	}
 	var super bool
 	var version int
-	if err := pool.QueryRow(ctx, `/* pg_sage */ SELECT r.rolsuper,
+	if err := pool.QueryRow(ctx, `/* pg_sage collector */ SELECT r.rolsuper,
 		current_setting('server_version_num')::int
 		FROM pg_catalog.pg_roles r WHERE r.rolname = current_user`).
 		Scan(&super, &version); err != nil {
@@ -49,7 +49,7 @@ func markSetPrivileges(ctx context.Context, pool catalogQuerier, settings []PGSe
 
 func grantedParameters(ctx context.Context, pool catalogQuerier, names []string,
 	granted map[string]bool) error {
-	rows, err := pool.Query(ctx, `/* pg_sage */ SELECT n FROM unnest($1::text[]) AS n
+	rows, err := pool.Query(ctx, `/* pg_sage collector */ SELECT n FROM unnest($1::text[]) AS n
 		WHERE pg_catalog.has_parameter_privilege(n, 'SET')`, names)
 	if err != nil {
 		return fmt.Errorf("SET privilege: has_parameter_privilege: %w", err)

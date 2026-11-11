@@ -69,7 +69,7 @@ func isSafeProcess(appName string, pid int, ownPID int, patterns []string) bool 
 // pg_sage session waiting for a lock is not a blocked application session
 // (it waits under lock_timeout) and starts no chain; pg_sage as a blocker
 // stays visible (isSafeProcess keeps it from kill SQL).
-var lockChainQuery = `/* pg_sage */
+var lockChainQuery = `/* pg_sage analyzer */
 WITH RECURSIVE lock_chain AS (
     SELECT
         sa.pid              AS blocked_pid,
@@ -132,7 +132,7 @@ ORDER BY total_blocked DESC`
 // lockedRelationQuery finds relations a root blocker holds locks on,
 // limited to 5 to avoid noise when migrations lock hundreds of tables.
 // Also returns the total count so the UI can show "and N more".
-const lockedRelationQuery = `/* pg_sage */
+const lockedRelationQuery = `/* pg_sage analyzer */
 WITH rel_locks AS (
     SELECT DISTINCT l.relation::regclass::text AS locked_relation, l.mode
     FROM pg_locks l

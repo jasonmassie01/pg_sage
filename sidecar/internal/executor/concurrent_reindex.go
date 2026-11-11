@@ -66,16 +66,17 @@ func snapshotReindex(ctx context.Context, pool *pgxpool.Pool, sql string) (
 	if err != nil {
 		return reindexSnapshot{}, err
 	}
-	query := `/* pg_sage */ SELECT c.oid::bigint FROM pg_class c WHERE c.oid = to_regclass($1)`
+	query := `/* pg_sage executor */ SELECT c.oid::bigint FROM pg_class c
+WHERE c.oid = to_regclass($1)`
 	if kind == "INDEX" {
-		query = `/* pg_sage */ SELECT i.indrelid::bigint FROM pg_index i
+		query = `/* pg_sage executor */ SELECT i.indrelid::bigint FROM pg_index i
 			WHERE i.indexrelid = to_regclass($1)`
 	}
 	snap := reindexSnapshot{Names: map[string]bool{}}
 	if err := pool.QueryRow(ctx, query, target).Scan(&snap.TableOID); err != nil {
 		return reindexSnapshot{}, fmt.Errorf("resolve the reindexed table of %s: %w", target, err)
 	}
-	rows, err := pool.Query(ctx, `/* pg_sage */ SELECT c.relname FROM pg_index i
+	rows, err := pool.Query(ctx, `/* pg_sage executor */ SELECT c.relname FROM pg_index i
 		JOIN pg_class c ON c.oid = i.indexrelid WHERE i.indrelid = $1`, snap.TableOID)
 	if err != nil {
 		return reindexSnapshot{}, fmt.Errorf("list the indexes of %s: %w", target, err)
@@ -94,7 +95,7 @@ func snapshotReindex(ctx context.Context, pool *pgxpool.Pool, sql string) (
 // the failed statement added, derived from a name the table had.
 func (s reindexSnapshot) remnants(ctx context.Context, pool *pgxpool.Pool) (
 	[]remnantCandidate, error) {
-	rows, err := pool.Query(ctx, `/* pg_sage */ SELECT n.nspname, c.relname, c.oid::bigint
+	rows, err := pool.Query(ctx, `/* pg_sage executor */ SELECT n.nspname, c.relname, c.oid::bigint
 		FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
 		JOIN pg_namespace n ON n.oid = c.relnamespace
 		WHERE i.indrelid = $1 AND NOT i.indisvalid ORDER BY c.oid`, s.TableOID)

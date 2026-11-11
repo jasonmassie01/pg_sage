@@ -43,7 +43,7 @@ const dropNamePattern = `(?:"(?:[^"]|"")+"|[^\s;."]+)(?:\.(?:"(?:[^"]|"")+"|[^\s
 // whose index exists again: the drop's target text, the index and its
 // table as the catalog names them, and the index's current definition.
 // Drops pg_sage rolled back itself are not the application's doing.
-const appManagedSQL = `/* pg_sage */
+const appManagedSQL = `/* pg_sage analyzer */
 SELECT m[3], ix.nspname, ix.relname, ix.tablename, al.rollback_sql, al.executed_at,
        ix.def
 FROM sage.action_log al,

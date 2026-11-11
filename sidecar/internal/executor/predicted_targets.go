@@ -19,7 +19,7 @@ const verifyTargetLimit = 10
 // tableStatementsSQL is the most-called statements naming a table ($1, a
 // word-boundary regex); pg_stat_statements is shared memory, not a sage
 // table, and is read once per action.
-var tableStatementsSQL = `/* pg_sage */ SELECT s.queryid FROM pg_stat_statements s
+var tableStatementsSQL = `/* pg_sage executor */ SELECT s.queryid FROM pg_stat_statements s
 	WHERE s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
 	  AND s.query ~* $1 AND ` + workload.AdviceSQL("s.query") + `
 	GROUP BY s.queryid ORDER BY sum(s.calls) DESC LIMIT $2`
@@ -27,7 +27,7 @@ var tableStatementsSQL = `/* pg_sage */ SELECT s.queryid FROM pg_stat_statements
 // workloadStatementsSQL is the statements a server setting is likely to
 // move: those that spilled to temp files for work_mem ($1 true), the
 // costliest otherwise.
-var workloadStatementsSQL = `/* pg_sage */ SELECT s.queryid FROM pg_stat_statements s
+var workloadStatementsSQL = `/* pg_sage executor */ SELECT s.queryid FROM pg_stat_statements s
 	WHERE s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
 	  AND (NOT $1 OR s.temp_blks_written > 0) AND ` +
 	workload.AdviceSQL("s.query") + `
@@ -38,12 +38,12 @@ var workloadStatementsSQL = `/* pg_sage */ SELECT s.queryid FROM pg_stat_stateme
 
 // planReferencedSQL is the targets whose latest captured plans name the
 // index: one index range of idx_explain_queryid per target.
-const planReferencedSQL = `/* pg_sage */ SELECT q.id FROM unnest($1::bigint[]) AS q(id)
+const planReferencedSQL = `/* pg_sage executor */ SELECT q.id FROM unnest($1::bigint[]) AS q(id)
 	WHERE EXISTS (SELECT 1 FROM (SELECT e.plan_json FROM sage.explain_cache e
 	                WHERE e.queryid = q.id AND e.source <> 'lakebase_plan_history' ORDER BY e.captured_at DESC LIMIT 3) p
 	              WHERE strpos(p.plan_json::text, $2) > 0)`
 
-const droppedIndexTableSQL = `/* pg_sage */ SELECT c.relname, ic.relname
+const droppedIndexTableSQL = `/* pg_sage executor */ SELECT c.relname, ic.relname
 	FROM pg_index i JOIN pg_class c ON c.oid = i.indrelid
 	JOIN pg_class ic ON ic.oid = i.indexrelid WHERE i.indexrelid = to_regclass($1)`
 

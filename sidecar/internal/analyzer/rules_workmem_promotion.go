@@ -127,7 +127,7 @@ func quoteRoleIdentifier(name string) string {
 // query IDs, because pg_stat_statements keys on (userid, dbid, queryid,
 // toplevel): without that, hints were inflated by other databases' and
 // nested-statement rows (G2-B28).
-const workMemPromotionSQL = `/* pg_sage */
+const workMemPromotionSQL = `/* pg_sage analyzer */
 SELECT
     r.rolname AS role_name,
     count(DISTINCT h.queryid) AS hint_count,

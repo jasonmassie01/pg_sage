@@ -54,7 +54,7 @@ func scopeHintRollback(
 	}
 	var executed string
 	var recorded []string
-	err := pool.QueryRow(ctx, `/* pg_sage */ SELECT a.sql_executed,
+	err := pool.QueryRow(ctx, `/* pg_sage executor */ SELECT a.sql_executed,
        COALESCE((SELECT array_agg(DISTINCT q.hint_text) FROM sage.query_hints q
                   WHERE q.queryid = $2), '{}')
   FROM sage.action_log a WHERE a.id = $1`, actionID, qid).Scan(&executed, &recorded)

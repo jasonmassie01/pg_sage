@@ -31,7 +31,7 @@ func (s *Store) Decide(ctx context.Context, id int64, d Decision) (Fact, error) 
 		return Fact{}, fmt.Errorf("decide fact %d: %w", id, err)
 	}
 	defer rollbackQuietly(ctx, tx)
-	cur, err := scanFact(tx.QueryRow(ctx, `/* pg_sage */ SELECT `+factColumns+`
+	cur, err := scanFact(tx.QueryRow(ctx, `/* pg_sage facts */ SELECT `+factColumns+`
 		FROM sage.facts WHERE id = $1 AND `+ownTypes+` FOR UPDATE`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Fact{}, ErrNotFound
@@ -49,7 +49,7 @@ func (s *Store) Decide(ctx context.Context, id int64, d Decision) (Fact, error) 
 	if d.Confirm {
 		next = StatusConfirmed
 	}
-	f, err := scanFact(tx.QueryRow(ctx, `/* pg_sage */ UPDATE sage.facts SET status = $2,
+	f, err := scanFact(tx.QueryRow(ctx, `/* pg_sage facts */ UPDATE sage.facts SET status = $2,
 		decided_by = $3, decided_at = now(), decision_note = $4, updated_at = now(),
 		missing_since = NULL WHERE id = $1 RETURNING `+factColumns, id, next, actor,
 		clip(cleanText(d.Note), 1000)))
@@ -100,7 +100,7 @@ func (s *Store) expire(ctx context.Context, id int64, actor, reason string,
 		return Fact{}, fmt.Errorf("expire fact %d: %w", id, err)
 	}
 	defer rollbackQuietly(ctx, tx)
-	f, err := scanFact(tx.QueryRow(ctx, `/* pg_sage */ UPDATE sage.facts
+	f, err := scanFact(tx.QueryRow(ctx, `/* pg_sage facts */ UPDATE sage.facts
 		SET status = 'expired', expired_reason = $2, expired_by = $4, updated_at = now(),
 		    missing_since = CASE WHEN $3::boolean THEN missing_since END
 		WHERE id = $1 AND `+ownTypes+` AND status IN ('proposed', 'confirmed')
@@ -128,7 +128,7 @@ func (s *Store) expire(ctx context.Context, id int64, actor, reason string,
 // expireRefusal says why fact id could not expire. It reads through tx, so
 // it needs no second connection while the transaction holds one.
 func expireRefusal(ctx context.Context, tx pgx.Tx, id int64) error {
-	cur, err := scanFact(tx.QueryRow(ctx, `/* pg_sage */ SELECT `+factColumns+`
+	cur, err := scanFact(tx.QueryRow(ctx, `/* pg_sage facts */ SELECT `+factColumns+`
 		FROM sage.facts WHERE id = $1 AND `+ownTypes, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
@@ -151,7 +151,7 @@ func syncSlotRegistry(ctx context.Context, tx pgx.Tx, f Fact) error {
 	}
 	switch f.Status {
 	case StatusConfirmed:
-		_, err := tx.Exec(ctx, `/* pg_sage */ INSERT INTO sage.slot_consumer_registry
+		_, err := tx.Exec(ctx, `/* pg_sage facts */ INSERT INTO sage.slot_consumer_registry
 			(slot_name, owner_tag, registered) VALUES ($1, $2, true)
 			ON CONFLICT (slot_name) DO UPDATE SET owner_tag = EXCLUDED.owner_tag,
 			registered = true, last_confirmed_at = now(), updated_at = now()`,
@@ -160,7 +160,7 @@ func syncSlotRegistry(ctx context.Context, tx pgx.Tx, f Fact) error {
 			return fmt.Errorf("register slot consumer %q of fact %d: %w", f.Subject, f.ID, err)
 		}
 	case StatusRejected, StatusExpired:
-		_, err := tx.Exec(ctx, `/* pg_sage */ UPDATE sage.slot_consumer_registry
+		_, err := tx.Exec(ctx, `/* pg_sage facts */ UPDATE sage.slot_consumer_registry
 			SET registered = false, updated_at = now()
 			WHERE slot_name = $1 AND registered`, f.Subject)
 		if err != nil {
@@ -192,7 +192,7 @@ func (s *Store) ImportDeclared(ctx context.Context) (int, error) {
 		if err != nil {
 			return imported, err
 		}
-		tag, err := s.pool.Exec(ctx, `/* pg_sage */ INSERT INTO sage.facts (fact_type,
+		tag, err := s.pool.Exec(ctx, `/* pg_sage facts */ INSERT INTO sage.facts (fact_type,
 			subject_kind, subject, value, source, proposed_by, evidence, status,
 			decided_by, decided_at, decision_note) VALUES ($1, $2, $3, $4, 'operator', $5,
 			$6, 'confirmed', $5, now(), 'imported from an earlier declaration')
@@ -215,7 +215,7 @@ type declared struct {
 }
 
 func (s *Store) declaredContracts(ctx context.Context) ([]declared, error) {
-	rows, err := s.pool.Query(ctx, `/* pg_sage */
+	rows, err := s.pool.Query(ctx, `/* pg_sage facts */
 		SELECT 'slot', slot_name, '', owner_tag FROM sage.slot_consumer_registry
 		WHERE registered
 		UNION ALL

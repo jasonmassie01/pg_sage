@@ -37,7 +37,7 @@ func (t *Tuner) upsertQueryHint(
 		return
 	}
 	tag, err := t.pool.Exec(ctx,
-		`/* pg_sage */ UPDATE sage.query_hints
+		`/* pg_sage tuner */ UPDATE sage.query_hints
 		 SET hint_text = $2, symptom = $3,
 		     suggested_rewrite = '', rewrite_rationale = ''
 		 WHERE queryid = $1 AND status = 'proposed'`,
@@ -51,7 +51,7 @@ func (t *Tuner) upsertQueryHint(
 		return
 	}
 	_, err = t.pool.Exec(ctx,
-		`/* pg_sage */ INSERT INTO sage.query_hints
+		`/* pg_sage tuner */ INSERT INTO sage.query_hints
 			(queryid, hint_text, symptom,
 			 suggested_rewrite, rewrite_rationale, status)
 		 VALUES ($1, $2, $3, '', '', 'proposed')`,
@@ -64,7 +64,7 @@ func (t *Tuner) upsertQueryHint(
 
 // hintAppliedSQL marks a proposal active once exactly its hint text is
 // installed for the query.
-const hintAppliedSQL = `/* pg_sage */ UPDATE sage.query_hints q
+const hintAppliedSQL = `/* pg_sage tuner */ UPDATE sage.query_hints q
    SET status = 'active'
  WHERE q.status = 'proposed'
    AND EXISTS (SELECT 1 FROM hint_plan.hints h
@@ -74,7 +74,7 @@ const hintAppliedSQL = `/* pg_sage */ UPDATE sage.query_hints q
 // hintRolledBackSQL marks an active or dormant hint rolled back once its
 // own text is no longer installed for the query: a row an operator replaced
 // with their own hint no longer carries pg_sage's (tuning-02a).
-const hintRolledBackSQL = `/* pg_sage */ UPDATE sage.query_hints q
+const hintRolledBackSQL = `/* pg_sage tuner */ UPDATE sage.query_hints q
    SET status = 'rolled_back', rolled_back_at = now()
  WHERE q.status IN ('active', 'dormant')
    AND NOT EXISTS (SELECT 1 FROM hint_plan.hints h
@@ -88,7 +88,7 @@ const proposalExpiry = 30 * 24 * time.Hour
 // hintRejectedSQL marks a proposal rejected once an operator rejected the
 // approval of its statement's query_tuning finding after it was proposed
 // (a system expiry has no decided_by and rejects nothing).
-const hintRejectedSQL = `/* pg_sage */ UPDATE sage.query_hints q
+const hintRejectedSQL = `/* pg_sage tuner */ UPDATE sage.query_hints q
    SET status = 'rejected'
  WHERE q.status = 'proposed'
    AND EXISTS (SELECT 1 FROM sage.action_queue a
@@ -99,7 +99,7 @@ const hintRejectedSQL = `/* pg_sage */ UPDATE sage.query_hints q
                   AND f.object_identifier = 'queryid:' || q.queryid)`
 
 // hintExpiredSQL expires the proposals older than $1 seconds.
-const hintExpiredSQL = `/* pg_sage */ UPDATE sage.query_hints
+const hintExpiredSQL = `/* pg_sage tuner */ UPDATE sage.query_hints
    SET status = 'expired'
  WHERE status = 'proposed'
    AND created_at < now() - make_interval(secs => $1::double precision)`
@@ -150,7 +150,7 @@ func (t *Tuner) reconcileStep(ctx context.Context, name, sql string, args ...any
 // from the operator's decision: a proposal answered on its 29th day binds
 // for 30 more days, not one. The proposal's own age still counts when the
 // decision row is gone (a rejection is never older than its proposal).
-const hintRejectedRecentlySQL = `/* pg_sage */
+const hintRejectedRecentlySQL = `/* pg_sage tuner */
 SELECT EXISTS (
     SELECT 1 FROM sage.query_hints q
      WHERE q.queryid = $1 AND q.hint_text = $2 AND q.status = 'rejected'

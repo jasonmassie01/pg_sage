@@ -30,7 +30,7 @@ type keyDefaultRow struct {
 // the default operator classes that could apply to it: one for its own
 // type (a domain's base type), one it is binary coercible to, or a
 // polymorphic one (anyarray, anyenum, anyrange) that matches it.
-const keyDefaultsSQL = `/* pg_sage */ WITH cols AS (
+const keyDefaultsSQL = `/* pg_sage optimizer */ WITH cols AS (
 	SELECT a.attname, a.attcollation, b.oid AS typ, b.typtype, b.typcategory
 	FROM pg_catalog.pg_attribute a
 	JOIN pg_catalog.pg_class c ON c.oid = a.attrelid

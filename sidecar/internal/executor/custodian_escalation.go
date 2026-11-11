@@ -83,12 +83,12 @@ func (e *Executor) recordCustodianEscalation(
 		return 0, fmt.Errorf("begin custodian escalation: %w", err)
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
-	if _, err := tx.Exec(ctx, `/* pg_sage */ SELECT pg_advisory_xact_lock(
+	if _, err := tx.Exec(ctx, `/* pg_sage executor */ SELECT pg_advisory_xact_lock(
 		hashtextextended('custodian_backoff:' || $1, 0))`, sha); err != nil {
 		return 0, fmt.Errorf("lock custodian escalation: %w", err)
 	}
 	var escalated bool
-	if err := tx.QueryRow(ctx, `/* pg_sage */ SELECT EXISTS (SELECT 1 FROM sage.decision
+	if err := tx.QueryRow(ctx, `/* pg_sage executor */ SELECT EXISTS (SELECT 1 FROM sage.decision
 		WHERE reason = $1 AND evidence->>'sql_sha256' = $2 AND created_at >= $3)`,
 		reasonCustodianBackoff, sha, backoff.last).Scan(&escalated); err != nil {
 		return 0, fmt.Errorf("read custodian escalation: %w", err)

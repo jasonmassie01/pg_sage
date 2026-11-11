@@ -351,7 +351,7 @@ func TestProbeHintReadiness_ReadOnlyAndBounded(t *testing.T) {
 	}
 	for i, sql := range db.sqls {
 		upper := strings.ToUpper(sql)
-		if !strings.HasPrefix(sql, "/* pg_sage */") ||
+		if !strings.HasPrefix(sql, "/* pg_sage tuner */") ||
 			!strings.Contains(upper, "SELECT") {
 			t.Errorf("statement %d is not a tagged read: %q", i, sql)
 		}

@@ -182,7 +182,7 @@ func fanOutIssue(key string, group []Finding) Finding {
 // relation locks in, and the statement text of its client sessions.
 // pg_sage's own sessions are left out (its collector locks every sequence
 // it reads, clone schemas' included).
-var cloneSessionsSQL = `/* pg_sage */
+var cloneSessionsSQL = `/* pg_sage analyzer */
 SELECT DISTINCT n.nspname, NULL::text
   FROM pg_catalog.pg_locks l
   JOIN pg_catalog.pg_class c ON c.oid = l.relation

@@ -12,7 +12,7 @@ import (
 // plan of the window, detoasting each plan_json (static audit A_snapshots
 // P5). Plans captured without a query text, cost or execution time
 // (nullable columns) read as empty and zero instead of failing the pass.
-const planPairsSQL = `/* pg_sage */
+const planPairsSQL = `/* pg_sage analyzer */
 WITH q AS (
     SELECT DISTINCT e.queryid FROM sage.explain_cache e
      WHERE e.source <> 'lakebase_plan_history' AND e.captured_at > now() - interval '7 days'

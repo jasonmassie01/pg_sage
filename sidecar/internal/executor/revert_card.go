@@ -83,7 +83,7 @@ func (e *Executor) revertedActionContext(
 	}
 	var findingID int
 	if e.pool != nil {
-		_ = e.pool.QueryRow(ctx, `/* pg_sage */ SELECT COALESCE(finding_id, 0)::int
+		_ = e.pool.QueryRow(ctx, `/* pg_sage executor */ SELECT COALESCE(finding_id, 0)::int
 			FROM sage.action_log WHERE id = $1`, actionID).Scan(&findingID)
 	}
 	return findingID, risk
@@ -95,7 +95,8 @@ func (e *Executor) revertState(ctx context.Context, actionID int64) (string, str
 		return "", "", errors.New("no database to read the reverted action from")
 	}
 	var outcome, reason string
-	err := e.pool.QueryRow(ctx, `/* pg_sage */ SELECT outcome, COALESCE(rollback_reason, '')
+	err := e.pool.QueryRow(ctx, `/* pg_sage executor */
+SELECT outcome, COALESCE(rollback_reason, '')
 		FROM sage.action_log WHERE id = $1`, actionID).Scan(&outcome, &reason)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", "", fmt.Errorf("action %d not found", actionID)
@@ -165,7 +166,7 @@ func (e *Executor) runApprovedRevert(
 
 // supersedeSettledRevertsSQL closes revert items whose action is no longer
 // withheld (rolled back by hand, or settled another way).
-const supersedeSettledRevertsSQL = `/* pg_sage */ UPDATE sage.action_queue q
+const supersedeSettledRevertsSQL = `/* pg_sage executor */ UPDATE sage.action_queue q
 	SET status = 'superseded',
 	    reason = 'superseded: action ' || al.id || ' is ' || al.outcome ||
 	             '; its revert is no longer withheld'

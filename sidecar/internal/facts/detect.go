@@ -94,7 +94,7 @@ func NewSlotConsumerDetector(pool *pgxpool.Pool) Detector {
 
 func (slotConsumerDetector) Name() string { return "slot_consumer" }
 
-const logicalSlotsSQL = `/* pg_sage */
+const logicalSlotsSQL = `/* pg_sage facts */
 SELECT s.slot_name::text, COALESCE(s.plugin::text, ''), s.active,
        COALESCE(r.application_name, '')
 FROM pg_catalog.pg_replication_slots s
@@ -159,7 +159,7 @@ func NewAppendOnlyDetector(pool *pgxpool.Pool, minInserts int64) Detector {
 
 func (appendOnlyDetector) Name() string { return "append_only" }
 
-const insertOnlySQL = `/* pg_sage */
+const insertOnlySQL = `/* pg_sage facts */
 SELECT schemaname::text, relname::text, n_tup_ins
 FROM pg_catalog.pg_stat_user_tables
 WHERE n_tup_upd = 0 AND n_tup_del = 0 AND n_tup_hot_upd = 0 AND n_tup_ins >= $1

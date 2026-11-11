@@ -42,7 +42,7 @@ func queryRowPinned(
 // pinned DDL session resolves it; "" when no such index exists.
 func pinnedIndexDefinition(ctx context.Context, pool *pgxpool.Pool, index string) (string, error) {
 	var def string
-	err := queryRowPinned(ctx, pool, `/* pg_sage */ SELECT COALESCE(
+	err := queryRowPinned(ctx, pool, `/* pg_sage executor */ SELECT COALESCE(
 		pg_catalog.pg_get_indexdef(pg_catalog.to_regclass($1)), '')`, []any{index}, &def)
 	if err != nil {
 		return "", fmt.Errorf("render index %s under the pinned search_path: %w", index, err)

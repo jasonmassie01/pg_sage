@@ -34,14 +34,14 @@ const defaultRegressionLookbackDays = 7
 // pool's history store (histstore.Resolve).
 
 // historyListSQL lists the window's first $2 non-empty snapshots.
-var historyListSQL = `/* pg_sage */
+var historyListSQL = `/* pg_sage analyzer */
 SELECT s.id FROM sage.snapshots s
  WHERE {db:s} AND s.category = 'queries' AND s.collected_at > $1
    AND ` + snapstore.NonEmptySQL("s") + `
  ORDER BY s.collected_at, s.id LIMIT $2`
 
 // historyBucketsSQL picks the first non-empty snapshot of each bucket.
-var historyBucketsSQL = `/* pg_sage */
+var historyBucketsSQL = `/* pg_sage analyzer */
 SELECT p.id
   FROM unnest($2::timestamptz[], $3::timestamptz[]) AS b(lo, hi)
  CROSS JOIN LATERAL (
@@ -57,7 +57,7 @@ SELECT p.id
 // keyframe is gone reads NULL). Documents that are not arrays and
 // elements without an integer queryid and a numeric mean_exec_time are
 // skipped.
-var historyDecodeSQL = `/* pg_sage */
+var historyDecodeSQL = `/* pg_sage analyzer */
 WITH d AS MATERIALIZED (
     SELECT s.id, ` + snapstore.DataSQL("s") + ` AS doc
       FROM sage.snapshots s WHERE {db:s} AND s.id = ANY($1::int8[])

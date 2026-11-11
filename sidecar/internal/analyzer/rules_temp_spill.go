@@ -49,7 +49,7 @@ func (a *Analyzer) resolveClearedTempSpills(ctx context.Context, cur, prev *coll
 	if len(clear) == 0 {
 		return
 	}
-	if _, err := a.pool.Exec(ctx, `/* pg_sage */ UPDATE sage.findings SET status='resolved', resolved_at=now()
+	if _, err := a.pool.Exec(ctx, `/* pg_sage analyzer */ UPDATE sage.findings SET status='resolved', resolved_at=now()
 	 WHERE category='temp_spill' AND status='open' AND object_identifier=ANY($1::text[])`, clear); err != nil {
 		a.logFn("ERROR", "analyzer: resolve observed zero-spill queries: %v", err)
 	}

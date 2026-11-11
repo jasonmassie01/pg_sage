@@ -135,7 +135,7 @@ func fetchColumns(
 	schema, table string,
 ) ([]ColumnInfo, error) {
 	rows, err := pool.Query(ctx,
-		`/* pg_sage */ SELECT column_name, data_type, is_nullable
+		`/* pg_sage optimizer */ SELECT column_name, data_type, is_nullable
 		 FROM information_schema.columns
 		 WHERE table_schema = $1 AND table_name = $2
 		 ORDER BY ordinal_position`, schema, table)
@@ -178,7 +178,7 @@ func fetchColStats(
 	var err error
 	if len(cols) > 0 {
 		rows, err = pool.Query(ctx,
-			`/* pg_sage */ SELECT attname, n_distinct, correlation,
+			`/* pg_sage optimizer */ SELECT attname, n_distinct, correlation,
 			        most_common_vals::text, most_common_freqs::text
 			 FROM pg_stats
 			 WHERE schemaname = $1 AND tablename = $2
@@ -187,7 +187,7 @@ func fetchColStats(
 		// No column names extracted: return the most skewed
 		// columns to cap prompt size.
 		rows, err = pool.Query(ctx,
-			`/* pg_sage */ SELECT attname, n_distinct, correlation,
+			`/* pg_sage optimizer */ SELECT attname, n_distinct, correlation,
 			        most_common_vals::text, most_common_freqs::text
 			 FROM pg_stats
 			 WHERE schemaname = $1 AND tablename = $2

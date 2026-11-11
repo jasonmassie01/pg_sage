@@ -235,7 +235,7 @@ func (t *Tuner) cooldownCycles() int {
 	return 3
 }
 
-var candidateSQL = `/* pg_sage */
+var candidateSQL = `/* pg_sage tuner */
 SELECT queryid, query, calls, mean_exec_time,
        mean_plan_time, temp_blks_read, temp_blks_written, userid::int8
 FROM pg_stat_statements

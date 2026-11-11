@@ -21,7 +21,7 @@ const spillSettingsTimeout = 5 * time.Second
 // role has no work_mem setting here and passed none as a startup option.
 // Otherwise the server default is unknown (NULL; boot_val would ignore
 // postgresql.conf and could size a hint below the role's real work_mem).
-const spillSettingsSQL = `/* pg_sage */
+const spillSettingsSQL = `/* pg_sage tuner */
 WITH db AS (
     SELECT oid FROM pg_catalog.pg_database WHERE datname = current_database()
 ), cfg AS (

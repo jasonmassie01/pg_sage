@@ -141,7 +141,7 @@ func encodeProposal(p Proposal) ([]byte, []byte, error) {
 	return value, evidence, nil
 }
 
-const declareSQL = `/* pg_sage */
+const declareSQL = `/* pg_sage facts */
 INSERT INTO sage.facts AS f (fact_type, subject_kind, subject, value, source, proposed_by,
                              evidence, rationale, expires_at, status, decided_by,
                              decided_at, decision_note)
@@ -208,7 +208,7 @@ func rollbackQuietly(ctx context.Context, tx pgx.Tx) {
 
 // Get returns one fact.
 func (s *Store) Get(ctx context.Context, id int64) (Fact, error) {
-	f, err := scanFact(s.pool.QueryRow(ctx, `/* pg_sage */ SELECT `+factColumns+`
+	f, err := scanFact(s.pool.QueryRow(ctx, `/* pg_sage facts */ SELECT `+factColumns+`
 		FROM sage.facts WHERE id = $1 AND `+ownTypes, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Fact{}, ErrNotFound
@@ -237,7 +237,7 @@ func (s *Store) List(ctx context.Context, filter Filter) ([]Fact, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 1000
 	}
-	rows, err := s.pool.Query(ctx, `/* pg_sage */ SELECT `+factColumns+`
+	rows, err := s.pool.Query(ctx, `/* pg_sage facts */ SELECT `+factColumns+`
 		FROM sage.facts WHERE `+ownTypes+`
 		  AND (cardinality($1::text[]) = 0 OR status = ANY($1))
 		  AND ($2 = '' OR fact_type = $2) ORDER BY id DESC LIMIT $3`,
@@ -277,7 +277,7 @@ func (s *Store) Confirmed(ctx context.Context) ([]Fact, error) {
 	}
 	gen := st.gen
 	st.mu.Unlock()
-	rows, err := s.pool.Query(ctx, `/* pg_sage */ SELECT `+factColumns+`
+	rows, err := s.pool.Query(ctx, `/* pg_sage facts */ SELECT `+factColumns+`
 		FROM sage.facts WHERE `+ownTypes+` AND status = 'confirmed'
 		  AND (expires_at IS NULL OR expires_at > now()) ORDER BY id`)
 	if err != nil {

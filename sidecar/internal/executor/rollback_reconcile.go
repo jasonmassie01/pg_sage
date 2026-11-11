@@ -86,7 +86,7 @@ func (e *Executor) reconcileStuckRollbacks(ctx context.Context) (int, error) {
 }
 
 func (e *Executor) stuckRollbackIDs(ctx context.Context) ([]int64, error) {
-	rows, err := e.pool.Query(ctx, `/* pg_sage */ SELECT id FROM sage.action_log
+	rows, err := e.pool.Query(ctx, `/* pg_sage executor */ SELECT id FROM sage.action_log
 		WHERE `+stuckRollbackFilter+` ORDER BY id`, e.stuckRollbackGrace().Seconds())
 	if err != nil {
 		return nil, fmt.Errorf("list stuck rollbacks: %w", err)
@@ -149,7 +149,7 @@ func lockStuckRollback(
 	ctx context.Context, tx pgx.Tx, actionID int64, grace time.Duration,
 ) (string, bool, error) {
 	var locked bool
-	err := tx.QueryRow(ctx, `/* pg_sage */ SELECT pg_try_advisory_xact_lock(
+	err := tx.QueryRow(ctx, `/* pg_sage executor */ SELECT pg_try_advisory_xact_lock(
 		hashtextextended('sage.rollback:' || $1::bigint::text, 0))`, actionID).Scan(&locked)
 	if err != nil {
 		return "", false, fmt.Errorf("lock stuck rollback of action %d: %w", actionID, err)
@@ -158,7 +158,7 @@ func lockStuckRollback(
 		return "", false, nil
 	}
 	var rollbackSQL string
-	err = tx.QueryRow(ctx, `/* pg_sage */ SELECT COALESCE(rollback_sql, '')
+	err = tx.QueryRow(ctx, `/* pg_sage executor */ SELECT COALESCE(rollback_sql, '')
 		FROM sage.action_log WHERE id = $2 AND `+stuckRollbackFilter,
 		grace.Seconds(), actionID).Scan(&rollbackSQL)
 	switch {
@@ -173,7 +173,7 @@ func lockStuckRollback(
 func settleStuckRow(
 	ctx context.Context, tx pgx.Tx, actionID int64, outcome, reason string,
 ) (bool, error) {
-	tag, err := tx.Exec(ctx, `/* pg_sage */ UPDATE sage.action_log
+	tag, err := tx.Exec(ctx, `/* pg_sage executor */ UPDATE sage.action_log
 		SET outcome = $1, rollback_reason = $2, measured_at = now()
 		WHERE id = $3 AND outcome = 'rolling_back'`, outcome, reason, actionID)
 	if err != nil {
@@ -255,7 +255,7 @@ func probeDroppedIndex(
 ) (bool, string, error) {
 	var present bool
 	// Resolved on the executor's pinned path, like the rollback DDL.
-	if err := queryRowPinned(ctx, pool, `/* pg_sage */ SELECT
+	if err := queryRowPinned(ctx, pool, `/* pg_sage executor */ SELECT
 		pg_catalog.to_regclass($1) IS NOT NULL`, []any{target}, &present); err != nil {
 		return false, "", err
 	}

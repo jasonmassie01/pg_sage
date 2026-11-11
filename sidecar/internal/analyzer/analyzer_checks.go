@@ -16,7 +16,7 @@ func (a *Analyzer) loadRecentlyCreatedIndexes(ctx context.Context) {
 		windowDays = 7
 	}
 	rows, err := a.catalog().Query(ctx,
-		`/* pg_sage */ SELECT sql_executed, executed_at FROM sage.action_log
+		`/* pg_sage analyzer */ SELECT sql_executed, executed_at FROM sage.action_log
 		 WHERE sql_executed ILIKE 'CREATE INDEX%'
 		   AND outcome = 'success'
 		   AND executed_at > now() - make_interval(days => $1)`,
@@ -46,7 +46,7 @@ func (a *Analyzer) loadRecentlyCreatedIndexes(ctx context.Context) {
 func (a *Analyzer) checkXIDWraparound(ctx context.Context) []Finding {
 	var xidAge int64
 	err := a.catalog().QueryRow(ctx,
-		`/* pg_sage */ SELECT age(datfrozenxid) FROM pg_database
+		`/* pg_sage analyzer */ SELECT age(datfrozenxid) FROM pg_database
 		 WHERE datname = current_database()`,
 	).Scan(&xidAge)
 	if err != nil {
@@ -59,7 +59,7 @@ func (a *Analyzer) checkXIDWraparound(ctx context.Context) []Finding {
 
 func (a *Analyzer) checkConnectionLeaks(ctx context.Context) []Finding {
 	rows, err := a.catalog().Query(ctx,
-		`/* pg_sage */ SELECT pid, usename, application_name, state,
+		`/* pg_sage analyzer */ SELECT pid, usename, application_name, state,
 		        (now() - state_change)::text AS idle_duration
 		 FROM pg_stat_activity
 		 WHERE state = 'idle in transaction'
@@ -167,7 +167,7 @@ func canonicalTable(ref string) string {
 // the other two) lets idx_findings_category_status, which holds only
 // open findings, serve it instead of a scan of every finding ever
 // recorded (performance gate).
-const openIndexFindingsSQL = `/* pg_sage */ SELECT DISTINCT object_identifier
+const openIndexFindingsSQL = `/* pg_sage analyzer */ SELECT DISTINCT object_identifier
 	FROM sage.findings
 	WHERE category ILIKE '%index%' AND status = 'open'`
 
@@ -209,7 +209,7 @@ func (a *Analyzer) openIndexRecommendationTables(
 // statsEpochSQL returns the instant since which cumulative index counters
 // have been accumulating: the later of the last pg_stat_reset for this
 // database and the postmaster start (crash recovery discards stats).
-const statsEpochSQL = `/* pg_sage */ SELECT GREATEST(
+const statsEpochSQL = `/* pg_sage analyzer */ SELECT GREATEST(
     COALESCE(d.stats_reset, '-infinity'::timestamptz),
     pg_postmaster_start_time())
   FROM pg_stat_database d

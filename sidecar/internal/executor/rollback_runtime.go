@@ -100,7 +100,7 @@ func (e *Executor) resumeOrphanedMonitors(ctx context.Context) error {
 	if e.pool == nil {
 		return nil
 	}
-	rows, err := e.pool.Query(ctx, `/* pg_sage */ SELECT al.id,
+	rows, err := e.pool.Query(ctx, `/* pg_sage executor */ SELECT al.id,
 		COALESCE(al.rollback_sql, ''), al.sql_executed,
 		al.executed_at
 		FROM sage.action_log al

@@ -165,7 +165,7 @@ func buildSortFinding(
 func (a *Analyzer) checkSortWithoutIndex(
 	ctx context.Context,
 ) []Finding {
-	rows, err := a.catalog().Query(ctx, `/* pg_sage */ 
+	rows, err := a.catalog().Query(ctx, `/* pg_sage analyzer */ 
 		SELECT DISTINCT ON (queryid)
 			queryid, query_text, plan_json
 		FROM sage.explain_cache

@@ -42,7 +42,7 @@ func normalizeIndexDef(sql string) string {
 	return strings.ReplaceAll(s, "( ", "(")
 }
 
-const existingIndexDefSQL = `/* pg_sage */
+const existingIndexDefSQL = `/* pg_sage executor */
 SELECT pg_catalog.pg_get_indexdef(i.oid), COALESCE(x.indisvalid, true)
 FROM pg_catalog.pg_class i
 JOIN pg_catalog.pg_class t ON t.oid = pg_catalog.to_regclass($1)

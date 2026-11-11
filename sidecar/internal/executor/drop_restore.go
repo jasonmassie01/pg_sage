@@ -85,7 +85,7 @@ func (e *Executor) loadDropRecord(ctx context.Context, actionID int64) (dropReco
 	if e.pool == nil {
 		return rec, errors.New("no database to read the drop from")
 	}
-	err := e.pool.QueryRow(ctx, `/* pg_sage */ SELECT sql_executed,
+	err := e.pool.QueryRow(ctx, `/* pg_sage executor */ SELECT sql_executed,
 		COALESCE(rollback_sql, ''), outcome, COALESCE(finding_id, 0)
 		FROM sage.action_log WHERE id = $1`, actionID).
 		Scan(&rec.sql, &rec.rollbackSQL, &rec.outcome, &rec.findingID)

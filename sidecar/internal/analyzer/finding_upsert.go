@@ -193,7 +193,7 @@ func lookupOpenFinding(
 	var r openRow
 	var persisted *int64
 	err := pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT id, severity,
+		`/* pg_sage analyzer */ SELECT id, severity,
 		        CASE WHEN jsonb_typeof(detail->'persisted_after_action') = 'number'
 		              AND detail->>'persisted_after_action' ~ '^[0-9]{1,18}$'
 		             THEN (detail->>'persisted_after_action')::bigint END
@@ -231,7 +231,7 @@ func suppressionActive(
 ) (bool, error) {
 	var active bool
 	err := pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT EXISTS (
+		`/* pg_sage analyzer */ SELECT EXISTS (
 		    SELECT 1 FROM sage.findings
 		     WHERE category = $1 AND object_identifier = $2
 		       AND status = 'suppressed'
@@ -273,7 +273,7 @@ func refreshOpenFinding(
 	id string, f Finding, detailJSON []byte,
 ) error {
 	_, err := pool.Exec(ctx,
-		`/* pg_sage */ UPDATE sage.findings SET `+findingRefreshSet+`
+		`/* pg_sage analyzer */ UPDATE sage.findings SET `+findingRefreshSet+`
 		 WHERE id = $9`,
 		append(refreshArgs(f, detailJSON), id)...,
 	)
@@ -296,7 +296,7 @@ func insertFinding(
 		impactScore = f.ImpactScore
 	}
 	tag, err := pool.Exec(ctx,
-		`/* pg_sage */ INSERT INTO sage.findings
+		`/* pg_sage analyzer */ INSERT INTO sage.findings
 		 (category, severity, object_type, object_identifier,
 		  title, detail, recommendation, recommended_sql,
 		  rollback_sql, status, last_seen, occurrence_count,

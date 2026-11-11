@@ -24,7 +24,7 @@ const restoredNote = `left(CASE WHEN f.decision_note = '' THEN '' ELSE
 	left(f.decision_note, greatest(0, 997 - length(f.decided_by) - 43)) || ' | ' END
 	|| 'subject reappeared; confirmation by ' || f.decided_by || ' kept', 1000)`
 
-const proposeSQL = `/* pg_sage */
+const proposeSQL = `/* pg_sage facts */
 WITH prior AS (SELECT status FROM sage.facts
                WHERE fact_type = $1 AND subject_kind = $2 AND subject = $3)
 INSERT INTO sage.facts AS f (fact_type, subject_kind, subject, value, source, proposed_by,

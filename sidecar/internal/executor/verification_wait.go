@@ -93,7 +93,7 @@ type inFlight struct {
 //     younger than the hold horizon whose action has not been recorded and
 //     that were not released (idx_decision_created). An operator's change
 //     runs at once and holds its object through its action row.
-const inFlightSQL = `/* pg_sage */
+const inFlightSQL = `/* pg_sage executor */
 SELECT al.id, 0::bigint, al.sql_executed, COALESCE(al.rollback_sql, ''),
        '{}'::text[], al.executed_at
   FROM sage.action_log al

@@ -20,7 +20,7 @@ import (
 
 // vacuumRelkindSQL reads the relkind of the relation a name resolves to;
 // no row when it no longer exists. to_regclass takes no lock.
-const vacuumRelkindSQL = `/* pg_sage */ SELECT c.relkind::text
+const vacuumRelkindSQL = `/* pg_sage executor */ SELECT c.relkind::text
   FROM pg_catalog.pg_class c WHERE c.oid = pg_catalog.to_regclass($1)`
 
 // vacuumRelkindTimeout bounds the one catalog read per candidate.

@@ -241,7 +241,7 @@ func (e *Executor) estimateRowsRewritten(ctx context.Context, sql string) (int64
 // rowsRewrittenSQL sums the leaves of the rewritten table: every leaf
 // partition of a partitioned table (pg_partition_tree), or the table itself
 // (pg_partition_tree returns nothing for a table outside a hierarchy).
-const rowsRewrittenSQL = `/* pg_sage */
+const rowsRewrittenSQL = `/* pg_sage executor */
 WITH rel AS (
 	SELECT to_regclass($1) AS oid
 ), tbl AS (

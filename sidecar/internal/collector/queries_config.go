@@ -10,7 +10,7 @@ import (
 // configSettingsSQL reads the pg_settings rows the advisors reason about,
 // with each row's context: the managed-cloud rewrite routes on it, so every
 // GUC the advisor may change must be listed here.
-const configSettingsSQL = `/* pg_sage */
+const configSettingsSQL = `/* pg_sage collector */
 		SELECT name, setting, COALESCE(unit,''), source,
 		       COALESCE(pending_restart, false), context
 		FROM pg_settings
@@ -30,7 +30,7 @@ const configSettingsSQL = `/* pg_sage */
 
 // configReloptionsSQL lists the tables with per-table storage options
 // (autovacuum overrides), temporary tables left out (collection-03).
-var configReloptionsSQL = `/* pg_sage */
+var configReloptionsSQL = `/* pg_sage collector */
 		SELECT n.nspname, c.relname, c.reloptions::text
 		FROM pg_class c
 		JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -42,11 +42,11 @@ var configReloptionsSQL = `/* pg_sage */
 // walPositionSQL reads the WAL position on a primary and on a standby,
 // where pg_current_wal_lsn() fails: the last WAL received, else replayed.
 // NULL (a standby that has neither yet) is an empty position.
-const walPositionSQL = `/* pg_sage */ SELECT (CASE WHEN pg_is_in_recovery()
+const walPositionSQL = `/* pg_sage collector */ SELECT (CASE WHEN pg_is_in_recovery()
 		THEN COALESCE(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn())
 		ELSE pg_current_wal_lsn() END)::text`
 
-const configExtensionsSQL = `/* pg_sage */
+const configExtensionsSQL = `/* pg_sage collector */
 		SELECT name FROM pg_available_extensions
 		WHERE name IN ('pg_repack','pg_buffercache','pgstattuple','hypopg')`
 

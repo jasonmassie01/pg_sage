@@ -68,7 +68,7 @@ func (e *Executor) readCustodianFailures(
 ) (int, *time.Time, error) {
 	var failures int
 	var last *time.Time
-	err := e.pool.QueryRow(ctx, `/* pg_sage */ SELECT count(*), max(executed_at)
+	err := e.pool.QueryRow(ctx, `/* pg_sage executor */ SELECT count(*), max(executed_at)
 		FROM sage.action_log
 		WHERE sql_executed = $1 AND outcome IN ('failed', 'rollback_failed')
 		  AND executed_at > now() - make_interval(secs => $2)`,

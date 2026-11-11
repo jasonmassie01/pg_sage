@@ -36,7 +36,7 @@ func (e *Executor) engineOutcome(
 	}
 	var executedAt time.Time
 	var predicted []byte
-	err := e.pool.QueryRow(ctx, `/* pg_sage */ SELECT executed_at,
+	err := e.pool.QueryRow(ctx, `/* pg_sage executor */ SELECT executed_at,
 		before_state->'predicted_effect' FROM sage.action_log WHERE id = $1`, actionID).
 		Scan(&executedAt, &predicted)
 	if err != nil {

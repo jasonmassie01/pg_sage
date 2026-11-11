@@ -25,7 +25,7 @@ func (t *Tuner) hintRemovalFindings(ctx context.Context) []analyzer.Finding {
 	if h := t.hints(); t.pool == nil || h == nil || !h.HintTableReady {
 		return nil
 	}
-	rows, err := t.pool.Query(ctx, `/* pg_sage */
+	rows, err := t.pool.Query(ctx, `/* pg_sage tuner */
 SELECT DISTINCT h.query_id, h.hints,
        (SELECT q.status FROM sage.query_hints q
          WHERE q.queryid = h.query_id AND q.hint_text = h.hints

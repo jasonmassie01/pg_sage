@@ -17,7 +17,7 @@ func (e *Executor) MonitorDeadline(ctx context.Context, actionID int64) (time.Ti
 	}
 	var sql string
 	var executedAt time.Time
-	err := e.pool.QueryRow(ctx, `/* pg_sage */ SELECT sql_executed, executed_at
+	err := e.pool.QueryRow(ctx, `/* pg_sage executor */ SELECT sql_executed, executed_at
 		FROM sage.action_log WHERE id = $1`, actionID).Scan(&sql, &executedAt)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("read action %d for its monitor deadline: %w",

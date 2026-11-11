@@ -183,7 +183,7 @@ func (e *Executor) insertReplace(ctx context.Context, r *indexReplaceRecord) err
 	if err != nil {
 		return fmt.Errorf("encode replace before_state: %w", err)
 	}
-	return e.pool.QueryRow(ctx, `/* pg_sage */ INSERT INTO sage.index_replace
+	return e.pool.QueryRow(ctx, `/* pg_sage executor */ INSERT INTO sage.index_replace
 		(database_id, finding_id, decision_id, approved_by, table_name, new_index,
 		 create_sql, drop_sql, old_index, old_index_oid, old_definition, rollback_sql,
 		 state, before_state)
@@ -200,7 +200,7 @@ var errReplaceStateMoved = errors.New("index replace: another worker moved the r
 // set), with the error text when not empty.
 func (e *Executor) moveReplace(ctx context.Context, r *indexReplaceRecord, to, errText string,
 	from ...string) error {
-	tag, err := e.pool.Exec(ctx, `/* pg_sage */ UPDATE sage.index_replace
+	tag, err := e.pool.Exec(ctx, `/* pg_sage executor */ UPDATE sage.index_replace
 		SET state = $2, error = COALESCE(NULLIF($3, ''), error), updated_at = now()
 		WHERE id = $1 AND state = ANY($4)`, r.ID, to, errText, from)
 	if err != nil {
@@ -218,7 +218,7 @@ func (e *Executor) moveReplace(ctx context.Context, r *indexReplaceRecord, to, e
 
 // setReplaceFields records the new index's OID, the action and the phase.
 func (e *Executor) setReplaceFields(ctx context.Context, r indexReplaceRecord) error {
-	_, err := e.pool.Exec(ctx, `/* pg_sage */ UPDATE sage.index_replace
+	_, err := e.pool.Exec(ctx, `/* pg_sage executor */ UPDATE sage.index_replace
 		SET new_index_oid = NULLIF($2, 0), action_log_id = NULLIF($3, 0),
 		    verify_phase = $4, updated_at = now() WHERE id = $1`,
 		r.ID, r.NewOID, r.ActionLogID, r.Phase)
@@ -230,14 +230,14 @@ func (e *Executor) setReplaceFields(ctx context.Context, r indexReplaceRecord) e
 
 func (e *Executor) loadReplaceByAction(ctx context.Context, actionID int64) (
 	indexReplaceRecord, error) {
-	return scanReplace(e.pool.QueryRow(ctx, `/* pg_sage */ SELECT `+replaceColumns+`
+	return scanReplace(e.pool.QueryRow(ctx, `/* pg_sage executor */ SELECT `+replaceColumns+`
 		FROM sage.index_replace WHERE action_log_id = $1 ORDER BY id DESC LIMIT 1`,
 		actionID))
 }
 
 // loadOpenReplaces reads the replacements with a step or a watch to resume.
 func (e *Executor) loadOpenReplaces(ctx context.Context) ([]indexReplaceRecord, error) {
-	rows, err := e.pool.Query(ctx, `/* pg_sage */ SELECT `+replaceColumns+`
+	rows, err := e.pool.Query(ctx, `/* pg_sage executor */ SELECT `+replaceColumns+`
 		FROM sage.index_replace
 		WHERE state IN ('creating', 'created', 'dropping', 'rollback_recreating',
 		      'rollback_dropping', 'old_restoring')

@@ -293,7 +293,7 @@ func (r *replaceRun) verify(ctx context.Context, actionID int64) error {
 // isReplaceAction reports whether an action_log row is a replacement.
 func (e *Executor) isReplaceAction(ctx context.Context, actionID int64) bool {
 	var actionType string
-	err := e.pool.QueryRow(ctx, `/* pg_sage */ SELECT action_type FROM sage.action_log
+	err := e.pool.QueryRow(ctx, `/* pg_sage executor */ SELECT action_type FROM sage.action_log
 		WHERE id = $1`, actionID).Scan(&actionType)
 	return err == nil && strings.EqualFold(actionType, ActionTypeReplaceIndex)
 }

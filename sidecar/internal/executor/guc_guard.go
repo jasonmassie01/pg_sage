@@ -55,7 +55,7 @@ func (e *Executor) checkGUCValueSafety(ctx context.Context, sql string) error {
 		return err
 	}
 	var retained int64
-	if err := e.pool.QueryRow(ctx, `/* pg_sage */ SELECT COALESCE(max(
+	if err := e.pool.QueryRow(ctx, `/* pg_sage executor */ SELECT COALESCE(max(
 		pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)), 0)::bigint
 		FROM pg_replication_slots`).Scan(&retained); err != nil {
 		return fmt.Errorf("%w: cannot read retained WAL: %v", ErrUnsafeGUCValue, err)
@@ -110,7 +110,7 @@ func databaseSettable(ctx context.Context, pool *pgxpool.Pool, name string) (boo
 	var settingContext string
 	var super bool
 	var version int
-	if err := pool.QueryRow(ctx, `/* pg_sage */ SELECT s.context, r.rolsuper,
+	if err := pool.QueryRow(ctx, `/* pg_sage executor */ SELECT s.context, r.rolsuper,
 		current_setting('server_version_num')::int
 		FROM pg_catalog.pg_settings s, pg_catalog.pg_roles r
 		WHERE s.name = $1 AND r.rolname = current_user`, name).
@@ -128,7 +128,7 @@ func databaseSettable(ctx context.Context, pool *pgxpool.Pool, name string) (boo
 		return false, settingContext, nil // no parameter privileges before PostgreSQL 15
 	}
 	var granted bool
-	if err := pool.QueryRow(ctx, `/* pg_sage */ SELECT
+	if err := pool.QueryRow(ctx, `/* pg_sage executor */ SELECT
 		pg_catalog.has_parameter_privilege($1, 'SET')`, name).Scan(&granted); err != nil {
 		return false, settingContext, fmt.Errorf("SET privilege on %s: %w", name, err)
 	}

@@ -157,7 +157,7 @@ func (e *Executor) runApprovedDropRestore(
 
 // supersedeSettledRestoresSQL closes restore cards whose action is no
 // longer withheld (rolled back by hand, or restored outside pg_sage).
-const supersedeSettledRestoresSQL = `/* pg_sage */ UPDATE sage.action_queue q
+const supersedeSettledRestoresSQL = `/* pg_sage executor */ UPDATE sage.action_queue q
 	SET status = 'superseded',
 	    reason = 'superseded: action ' || al.id || ' is ' || al.outcome ||
 	             '; its restore is no longer withheld'

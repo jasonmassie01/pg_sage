@@ -76,7 +76,7 @@ func (e *Executor) parkedWithhold(ctx context.Context, f analyzer.Finding, findi
 		return false
 	}
 	var parked bool
-	err := e.pool.QueryRow(ctx, `/* pg_sage */ SELECT EXISTS (
+	err := e.pool.QueryRow(ctx, `/* pg_sage executor */ SELECT EXISTS (
 		SELECT 1 FROM sage.action_log
 		 WHERE finding_id = $1 AND outcome = 'failed'
 		   AND before_state->>'`+withheldContentKey+`' = $2

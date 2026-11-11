@@ -18,7 +18,7 @@ func newPGRejectionStore(pool *pgxpool.Pool) *pgRejectionStore {
 }
 
 // The unique key's leading columns serve the lookup.
-const recentRejectionsSQL = `/* pg_sage */
+const recentRejectionsSQL = `/* pg_sage optimizer */
 SELECT method, key_cols, predicate, include_cols, ddl, improvement_pct,
        min_improvement_pct, reason, workload, row_estimate, measure_count, measured_at
 FROM sage.optimizer_rejection
@@ -60,7 +60,7 @@ func (s *pgRejectionStore) recent(ctx context.Context, schema, table string,
 
 // A repeated measurement of the same shape replaces the evidence and
 // counts the measurement; concurrent cycles serialize on the unique key.
-const recordRejectionSQL = `/* pg_sage */
+const recordRejectionSQL = `/* pg_sage optimizer */
 INSERT INTO sage.optimizer_rejection (schema_name, table_name, shape_hash, method,
     key_cols, predicate, include_cols, ddl, improvement_pct, min_improvement_pct,
     reason, workload, row_estimate)

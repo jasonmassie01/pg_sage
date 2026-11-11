@@ -72,17 +72,17 @@ func vacuumKnob(name string) bool {
 
 // outcomeQueries read each metric's counters; $1 is the table, if any.
 var outcomeQueries = map[string]string{
-	metricTempSpills: `/* pg_sage */ SELECT temp_files::float8, temp_files::float8 /
+	metricTempSpills: `/* pg_sage executor */ SELECT temp_files::float8, temp_files::float8 /
 		GREATEST(EXTRACT(EPOCH FROM now() - COALESCE(stats_reset,
 		pg_postmaster_start_time())), 1)::float8
 		FROM pg_stat_database WHERE datname = current_database()`,
-	metricDeadTuples + ":table": `/* pg_sage */ SELECT n_dead_tup::float8,
+	metricDeadTuples + ":table": `/* pg_sage executor */ SELECT n_dead_tup::float8,
 		n_live_tup::float8, autovacuum_count::float8
 		FROM pg_stat_user_tables WHERE relid = to_regclass($1)`,
-	metricDeadTuples: `/* pg_sage */ SELECT COALESCE(sum(n_dead_tup), 0)::float8,
+	metricDeadTuples: `/* pg_sage executor */ SELECT COALESCE(sum(n_dead_tup), 0)::float8,
 		COALESCE(sum(n_live_tup), 0)::float8, COALESCE(sum(autovacuum_count), 0)::float8
 		FROM pg_stat_user_tables`,
-	metricHotUpdates + ":table": `/* pg_sage */ SELECT n_tup_upd::float8,
+	metricHotUpdates + ":table": `/* pg_sage executor */ SELECT n_tup_upd::float8,
 		n_tup_hot_upd::float8 FROM pg_stat_user_tables WHERE relid = to_regclass($1)`,
 }
 

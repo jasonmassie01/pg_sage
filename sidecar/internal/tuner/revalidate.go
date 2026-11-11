@@ -142,7 +142,7 @@ func (t *Tuner) decideHintFate(
 func (t *Tuner) loadHintsForRevalidation(
 	ctx context.Context,
 ) ([]hintRow, error) {
-	rows, err := t.pool.Query(ctx, `/* pg_sage */
+	rows, err := t.pool.Query(ctx, `/* pg_sage tuner */
 SELECT id, queryid, status, COALESCE(hint_text, ''), created_at,
        last_revalidated_at, calls_at_last_check, pgss_reset_at, reverify_due
 FROM sage.query_hints
@@ -172,7 +172,7 @@ ORDER BY last_revalidated_at NULLS FIRST, id`)
 // toplevel), so one row (the old LIMIT 1) could change between passes when
 // two roles run the statement. The same queryid hash can also appear in
 // other databases, hence the dbid scope. A NULL sum means not found.
-const queryStatsSQL = `/* pg_sage */
+const queryStatsSQL = `/* pg_sage tuner */
 SELECT (SELECT stats_reset FROM pg_stat_statements_info),
        sum(calls)::bigint,
        sum(total_exec_time) / NULLIF(sum(calls), 0)
@@ -255,7 +255,7 @@ func (t *Tuner) indexExists(
 	ctx context.Context, idxName string,
 ) (bool, error) {
 	var n int
-	err := t.pool.QueryRow(ctx, `/* pg_sage */ 
+	err := t.pool.QueryRow(ctx, `/* pg_sage tuner */ 
 SELECT count(*)
 FROM pg_class
 WHERE relname = $1
@@ -268,7 +268,7 @@ WHERE relname = $1
 
 // recordRevalidationSQL writes one decision. Only live (active or dormant)
 // rows are written, so a hint reconciled to rolled_back meanwhile stays so.
-const recordRevalidationSQL = `/* pg_sage */
+const recordRevalidationSQL = `/* pg_sage tuner */
 UPDATE sage.query_hints
 SET status = $2,
     rolled_back_at = CASE WHEN $2 = 'broken' THEN now() ELSE rolled_back_at END,
