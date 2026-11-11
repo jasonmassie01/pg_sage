@@ -254,6 +254,43 @@ long candidates wait. A park that fails to record is answered `blocked`
 `policy_unavailable` and counted in `pg_sage_policy_record_failures_total` instead; any
 series there above zero means the ledger is missing decisions.
 
+## Reading decisions
+
+"Why hasn't this run?" is answered from the ledger, not by SQL. Both routes need the
+operator or admin role, read one database at a time (all of them by default), return no SQL
+text and record nothing.
+
+**Actions > Decisions** and `GET /api/v1/decisions` list the open withheld decisions: rows
+with a `queue_approval`, `parked`, `blocked` or `observe_only` verdict that no execute has
+resolved and no approval queue item has taken over. Each entry is one candidate (its
+`candidate_key`; a row written before candidate keys by its fingerprint), with the latest
+row's verdict and reason and every open row's repeats:
+
+| Field | Holds |
+|---|---|
+| `database` | The monitored database the entry was read from. |
+| `verdict`, `reason`, `human_reason` | The latest verdict and reason, and the reason as the approval card words it, with the budget or verification-wait detail. |
+| `repeat_count`, `open_rows`, `first_seen`, `last_seen_at` | How many evaluations withheld it, in how many open rows (one per verdict and policy version), since when and most recently. |
+| `budget_detail` | For a budget park, which budget is full and when it next frees. |
+| `verification_wait`, `verification_wait_detail` | The changes in flight it waits on, and until when. |
+| `deadline_kind`, `deadline_hard_at` | The XID or disk deadline behind it, if any. |
+| `policy_version`, `policy_doc_sha256` | The standing policy it was decided under. |
+| `queue_id`, `finding_id` | The approval queue item or finding it belongs to, when recorded. |
+
+Parameters, each optional: `database` (a configured database name), `verdict` (one of the
+four withheld verdicts), `reason` (a reason on this page), `since` (RFC 3339; entries last
+seen at or after it) and `limit` (1-500, default 100). A bad value is `400` naming the
+parameter. A database that cannot be read is listed in `partial` with its error class
+(`connection`, `timeout`, `query`) and the others are still returned; when every selected
+database fails the status is `503`. `truncated` says the list was cut at `limit`.
+
+**Why hasn't this run?** on a finding's case, and
+`GET /api/v1/policy/explain?database=&finding_id=`, ask the gate how it would decide the
+finding's candidates now, through the same path the cases view and the executor use. Each candidate has its `decision`, `blocked_reason`, the
+gate's `detail` and `human_reason`. `status` is `explained`, or `no_candidate` when the
+finding has nothing the executor could run. Explaining records no decision and takes no
+budget slot.
+
 ## Approval flow
 
 1. A `queue_approval` verdict creates one item in the database's approval queue. Its

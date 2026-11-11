@@ -1458,7 +1458,9 @@ max_changes_per_window}`); `hygiene` is optional and defaults per field.
   tables and rows, `rate_limit_exceeded` for changes) and retried next cycle.
   The decision's `evidence.budget_detail` says which budget is full and when it
   next frees, for example `hygiene budget full: 11 of 10 tables in the 24h
-  window; next frees at 2026-10-04T18:00:02Z`.
+  window; next frees at 2026-10-04T18:00:02Z`. Actions > Decisions and
+  `GET /api/v1/decisions?verdict=parked` show it per candidate
+  ([Reading decisions](policy-gate.md#reading-decisions)).
 - **Concurrent candidates.** An authorized change holds its slot from the
   authorization until it has run (at most twice the DDL timeout plus a
   minute, if the sidecar dies in between), so two candidates can never both

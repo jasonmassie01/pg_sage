@@ -499,6 +499,16 @@ router refuses a route that declares none:
 | Operator | Operators and admins |
 | Admin | Admins only |
 
+The decision ledger is operator data. These read routes are Operator, not
+Viewer, so a viewer gets `403` and no decision data; an MCP agent token is not
+a session, so they answer it `401`. Neither returns SQL text or records
+anything ([Reading decisions](policy-gate.md#reading-decisions)):
+
+| Route | Gate | Returns |
+|---|---|---|
+| `GET /api/v1/decisions` | Operator | The open withheld decisions, one entry per candidate |
+| `GET /api/v1/policy/explain` | Operator | How the gate would decide a finding's candidates now |
+
 A signed-in user whose role is none of admin, operator or viewer is refused
 everywhere except public and self-authenticating routes. The gate sits on the
 route itself, not only in front of the router, so a route answers `401`
