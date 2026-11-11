@@ -73,6 +73,7 @@ func (o *ClusterOwners) Claim(key, database string, ttl time.Duration) (string, 
 		c = &ownerCluster{members: map[string]ownerBeat{}}
 		o.clusters[key] = c
 	}
+	o.ownerLocked(c) // a claim past its own ttl rejoins without its record
 	c.members[database] = ownerBeat{at: o.now(), ttl: ttl}
 	owner := o.ownerLocked(c)
 	return owner, owner == database
@@ -84,7 +85,7 @@ func (o *ClusterOwners) ownerLocked(c *ownerCluster) string {
 	owner := ""
 	for name, b := range c.members {
 		if now.Sub(b.at) > b.ttl {
-			delete(c.members, name)
+			c.drop(name)
 			continue
 		}
 		if owner == "" || name < owner {
@@ -92,6 +93,15 @@ func (o *ClusterOwners) ownerLocked(c *ownerCluster) string {
 		}
 	}
 	return owner
+}
+
+// drop removes a member and its evaluation record: an owner that left or
+// expired and comes back counts only once it has evaluated again.
+func (c *ownerCluster) drop(name string) {
+	delete(c.members, name)
+	if c.evaluatedBy == name {
+		c.evaluatedBy, c.evaluatedAt = "", time.Time{}
+	}
 }
 
 // Leave removes database from key (its runtime ended, or its cluster
@@ -106,7 +116,7 @@ func (o *ClusterOwners) Leave(key, database string) {
 	if c == nil {
 		return
 	}
-	delete(c.members, database)
+	c.drop(database)
 	if len(c.members) == 0 {
 		delete(o.clusters, key)
 	}

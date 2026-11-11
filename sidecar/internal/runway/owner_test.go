@@ -150,6 +150,39 @@ func TestOwner_OwnerEvaluatedNeedsTheCurrentOwnersRecentReport(t *testing.T) {
 	}
 }
 
+// State transition: an evaluation recorded while not the owner, or by an
+// owner that left or missed its ttl and came back, never counts until the
+// owner evaluates again in its new term.
+func TestOwner_AReturningOwnerCountsOnlyAfterEvaluatingAgain(t *testing.T) {
+	o, clock := newOwnersAt(t)
+	o.Claim("k", "alpha", time.Minute)
+	o.Claim("k", "beta", time.Minute)
+	o.Evaluated("k", "beta") // a non-owner: nothing recorded
+	o.Leave("k", "alpha")
+	if owner, ok := o.Claim("k", "beta", time.Minute); owner != "beta" || !ok {
+		t.Fatalf("after alpha left owner = %q %v", owner, ok)
+	}
+	if o.OwnerEvaluated("k", "beta", time.Hour) {
+		t.Fatal("beta's report from before it owned counted")
+	}
+	o.Claim("k", "alpha", time.Minute)
+	o.Evaluated("k", "alpha")
+	o.Leave("k", "alpha")
+	o.Claim("k", "alpha", time.Minute) // a restarted runtime rejoins at once
+	if o.OwnerEvaluated("k", "alpha", time.Hour) {
+		t.Fatal("alpha's report from before it left counted for its new term")
+	}
+	o.Evaluated("k", "alpha")
+	if !o.OwnerEvaluated("k", "alpha", time.Hour) {
+		t.Fatal("alpha's report in its new term did not count")
+	}
+	clock.add(time.Minute + time.Second) // alpha missed its ttl, nobody noticed
+	o.Claim("k", "alpha", time.Minute)
+	if o.OwnerEvaluated("k", "alpha", time.Hour) {
+		t.Fatal("alpha's report from before it expired counted")
+	}
+}
+
 // Boundary and nil: an empty key or nil set is per-database; a restored
 // clone (same system id, another start) is its own cluster; the role is
 // not part of the key.
