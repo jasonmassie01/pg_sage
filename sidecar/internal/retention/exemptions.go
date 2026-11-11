@@ -66,6 +66,8 @@ var coreExemptions = map[string]string{
 	"runway_samples": "runway series; the runway monitor prunes them on every pass " +
 		"(sre.runways.sample_retention_hours)",
 	"rollout_instance": "per-database steps of a rollout run; low volume",
+	"schema_migrations": "migration ledger (config-04b): one row per migration " +
+		"step and one catalog fingerprint; purging it would replay every step",
 	// Sage SRE M7: earned-autonomy evidence. Purging by age would quietly
 	// lower or erase the evidence promotions rest on ("no harmful outcome
 	// ever"), so these are kept like the other evidence ledgers.
