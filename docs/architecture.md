@@ -516,7 +516,34 @@ incident must be closed by hand.
 
 ### AutoExplain Collector
 
-Detects and uses `auto_explain` (if available) to capture EXPLAIN plans for slow queries. Stores plans for optimizer and diagnostic use.
+Stores plans for slow statements in `sage.explain_cache`, each with its true
+`source`:
+
+- `explain_estimate`: an on-demand plain `EXPLAIN` (never `ANALYZE`) in a
+  read-only, rolled-back transaction bounded by a 5 s statement timeout and
+  the probe lock timeout. It is an estimate, with no execution time.
+  Parameterized statements are planned with `GENERIC_PLAN` on PostgreSQL 16+
+  (`generic_plan`) and skipped on older servers. A statement that already has
+  a plan from the last day is not explained again.
+- `auto_explain_log`: the plan of a statement that ran, as `auto_explain`
+  wrote it to the server log (with actual rows and timing only when
+  `auto_explain.log_analyze` is on, which adds overhead to every statement), where pg_sage reads that log: the
+  Supabase log sink, and on self-managed servers the cluster's log watcher
+  (`logwatch.enabled` with RCA or migration log detection on), where each
+  database subscribes to its own records. A plan needs
+  `auto_explain.log_format = 'json'` and a query identifier
+  (`compute_query_id = on` and `auto_explain.log_verbose = on`: only verbose
+  output prints it). The log watcher stores at most
+  `auto_explain.max_plans_per_cycle` plans per poll and keeps plan records of
+  up to 1 MiB. Records
+  that are not stored are counted by reason (`invalid_json_plan`,
+  `missing_query_identifier`, `pg_sage_self`, `other_database`,
+  `over_cycle_cap`, `store_failed`) and logged with the setting to change.
+- `lakebase_plan_history`: Lakebase Advanced Telemetry plans, kept apart.
+
+Readers that choose between cached plans prefer an executed plan over a newer
+estimate. Rows stored as `auto_explain` by versions before rca-04 were
+estimates and are renamed to `explain_estimate` on upgrade.
 
 ### Forecaster
 

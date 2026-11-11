@@ -26,7 +26,7 @@ func MaxAge(minutes int) time.Duration {
 // Capture is one sage.explain_cache row.
 type Capture struct {
 	JSON       []byte
-	Source     string // the row's source (auto_explain, generic_plan, ...)
+	Source     string // the row's source (explain_estimate, auto_explain_log, ...)
 	CapturedAt time.Time
 	// AnalyzeEnabled is the provider's flag; nil means unknown.
 	AnalyzeEnabled *bool

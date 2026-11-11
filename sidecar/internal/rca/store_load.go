@@ -28,7 +28,7 @@ SELECT id::text, detected_at, COALESCE(last_detected_at, detected_at),
        COALESCE(recommended_sql, ''), COALESCE(rollback_sql, ''),
        COALESCE(action_risk, ''), source, confidence::float8,
        COALESCE(database_name, ''), occurrence_count, escalated_at,
-       COALESCE(previous_incident_id::text, '')
+       COALESCE(previous_incident_id::text, ''), log_occurrences
 FROM sage.incidents
 WHERE resolved_at IS NULL
   AND (database_name = $1 OR database_name IS NULL OR database_name = '')
@@ -122,15 +122,18 @@ func loadOpenIncidents(
 
 func scanHydratedIncident(rows pgx.Rows) (Incident, error) {
 	var inc Incident
-	var chain []byte
+	var chain, occurrences []byte
 	err := rows.Scan(&inc.ID, &inc.DetectedAt, &inc.LastDetectedAt,
 		&inc.Severity, &inc.RootCause, &chain, &inc.AffectedObjects,
 		&inc.SignalIDs, &inc.RecommendedSQL, &inc.RollbackSQL,
 		&inc.ActionRisk, &inc.Source, &inc.Confidence,
 		&inc.DatabaseName, &inc.OccurrenceCount, &inc.EscalatedAt,
-		&inc.PreviousIncidentID)
+		&inc.PreviousIncidentID, &occurrences)
 	if err != nil {
 		return inc, fmt.Errorf("rca: hydrate scan: %w", err)
+	}
+	if err := hydrateLogOccurrences(&inc, occurrences); err != nil {
+		return inc, err
 	}
 	if len(chain) > 0 {
 		if err := json.Unmarshal(chain, &inc.CausalChain); err != nil {

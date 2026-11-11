@@ -58,15 +58,21 @@ func (e *Engine) applyOne(inc *Incident, r persistResult) []pendingEvent {
 	}
 	var events []notify.Event
 	if ts.notifyDetected && r.inserted {
-		events = append(events, notify.IncidentDetectedEvent(incidentInfo(inc)))
+		if e.suppressRecurrence(inc, r) {
+			e.logSuppressed(inc, r)
+			ts.silentRecurrence = true
+		} else {
+			events = append(events, notify.IncidentDetectedEvent(incidentInfo(inc)))
+		}
 		ts.notifyDetected = false
 	}
 	if ts.notifyEscalated {
 		events = append(events,
 			notify.IncidentEscalatedEvent(incidentInfo(inc)))
 		ts.notifyEscalated = false
+		ts.silentRecurrence = false
 	}
-	if r.resolved && !ts.quiet {
+	if r.resolved && !ts.quiet && !ts.silentRecurrence {
 		events = append(events, notify.IncidentResolvedEvent(incidentInfo(inc)))
 	}
 	pending := make([]pendingEvent, 0, len(events))

@@ -104,7 +104,8 @@ func (fw *FileWatcher) Start(ctx context.Context) error {
 
 // Drain reads all new lines from the tailer, parses and classifies
 // each one, and returns the resulting signals. It also resets the
-// classifier cycle counter and cleans expired dedup entries. When lines
+// classifier cycle counter, reports the repeats the dedup windows counted
+// (one follow-up per window) and cleans expired dedup entries. When lines
 // were lost since the last drain (queue overflow or the per-cycle cap) it
 // counts them and appends a log_watcher_overloaded signal (rca-06).
 func (fw *FileWatcher) Drain() []*rca.Signal {
@@ -116,7 +117,11 @@ func (fw *FileWatcher) Drain() []*rca.Signal {
 		fw.lastLine.Store(time.Now().UnixNano())
 	}
 	queueDropped := fw.tailer.TakeDropped()
+	fw.countOversized(fw.tailer.TakeOversized())
 	signals := fw.classifyLines(lines)
+	// After the drain's own signals, so the counted follow-up is the last
+	// of its id (rca-07).
+	signals = append(signals, fw.classifier.FollowUps()...)
 	capped := fw.classifier.ResetCycle()
 	fw.classifier.CleanExpiredDedup()
 	fw.drops.add(queueDropped, capped)
@@ -127,6 +132,19 @@ func (fw *FileWatcher) Drain() []*rca.Signal {
 		signals = append(signals, sig)
 	}
 	return signals
+}
+
+// countOversized counts and reports the records the tailer dropped for
+// their size: a plan over PlanRecordMaxBytes, or any other record over
+// logwatch.max_line_len_bytes (rca-04).
+func (fw *FileWatcher) countOversized(n int) {
+	if n <= 0 {
+		return
+	}
+	fw.drops.addOversized(n)
+	fw.log("warn", "log watcher dropped %d oversized log records (over "+
+		"logwatch.max_line_len_bytes, or %d bytes for an auto_explain plan)", n,
+		PlanRecordMaxBytes)
 }
 
 // DroppedLines reports the lines this watcher lost since it started.

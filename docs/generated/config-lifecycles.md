@@ -105,7 +105,6 @@
 | `auto_explain.enabled` | `restart` | `-` | `operator_preference` |
 | `auto_explain.log_min_duration_ms` | `restart` | `-` | `derivable` |
 | `auto_explain.max_plans_per_cycle` | `restart` | `-` | `derivable` |
-| `auto_explain.prefer_session_load` | `restart` | `-` | `operator_preference` |
 | `azure.resource_group` | `restart` | `-` | `safety_critical` |
 | `azure.server_name` | `restart` | `-` | `safety_critical` |
 | `azure.subscription_id` | `restart` | `-` | `safety_critical` |
@@ -299,8 +298,10 @@
 | `rca.llm_correlation_threshold` | `restart` | `-` | `derivable` |
 | `rca.lock_chain_interval_seconds` | `restart` | `-` | `derivable` |
 | `rca.log_fast_path_interval_seconds` | `restart` | `-` | `derivable` |
+| `rca.log_quiet_minutes` | `restart` | `-` | `derivable` |
 | `rca.narration_enabled` | `restart` | `-` | `operator_preference` |
 | `rca.prepared_xact_min_age_minutes` | `restart` | `-` | `safety_critical` |
+| `rca.recurrence_renotify_hours` | `restart` | `-` | `operator_preference` |
 | `rca.replication_lag_threshold_seconds` | `restart` | `-` | `derivable` |
 | `rca.resolution_cycles` | `restart` | `-` | `derivable` |
 | `rca.stale_after_hours` | `restart` | `-` | `derivable` |

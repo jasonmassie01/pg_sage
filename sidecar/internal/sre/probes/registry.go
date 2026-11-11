@@ -165,6 +165,12 @@ var signalProbes = map[string][]ID{
 	signalid.LogCheckpointTooFrequent: {CheckpointActivity},
 	signalid.LogTempFileCreated:       {TempFileActivity, TempFileHolders, TempSpillStatements},
 	signalid.LogReplicationConflict:   {StandbyReplayState, ReplicationLag},
+	// rca-07 log incidents.
+	signalid.LogDeadlockDetected:      {LockGraph, LockChains},
+	signalid.LogConnectionRefused:     {ConnectionSaturation},
+	signalid.LogArchiveFailed:         {Archiver},
+	signalid.LogTxidWraparoundWarning: {AutovacuumWraparound},
+	signalid.LogWALSegmentRemoved:     {ReplicationSlots},
 }
 
 // ForSignal returns the probes that investigate an RCA signal (nil for

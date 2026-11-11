@@ -43,6 +43,9 @@ type Incident struct {
 	// RecommendedSQLSource says who wrote RecommendedSQL: "deterministic"
 	// for pg_sage's own templates. A migration finding copies only those.
 	RecommendedSQLSource string `json:"recommended_sql_source,omitempty"`
+	// LogOccurrences is the log evidence of a log incident: how often the
+	// line occurred, the PIDs and the first and last sighting (rca-07).
+	LogOccurrences *LogOccurrences `json:"log_occurrences,omitempty"`
 	// liveEvidence marks detections whose root cause and chain describe
 	// the current state (lock chains): merging one into an open incident
 	// refreshes that incident's evidence instead of keeping the first.
@@ -136,6 +139,8 @@ type Engine struct {
 	// clusterNonOwner is set on a fleet engine that does not own its
 	// cluster's cluster-wide signals (rca-08); the zero value owns them.
 	clusterNonOwner atomic.Bool
+	// now is the engine clock for resolutions (tests inject one).
+	now func() time.Time
 }
 
 // defaultLogReplayGrace tolerates clock skew between the PostgreSQL
@@ -229,7 +234,16 @@ func NewEngine(
 		gracePeriodLeft: cfg.ResolutionCycles + 1,
 		logFn:           logFn,
 		logReplayCutoff: time.Now().Add(-defaultLogReplayGrace),
+		now:             time.Now,
 	}
+}
+
+// clock returns the engine's current time.
+func (e *Engine) clock() time.Time {
+	if e.now == nil {
+		return time.Now()
+	}
+	return e.now()
 }
 
 // Analyze runs one RCA cycle without a caller context. Prefer

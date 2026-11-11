@@ -63,6 +63,7 @@ func (rt *databaseRuntime) startMonitoring() {
 	rt.startSchemaLint()
 	rt.startMigrationAdvisor()
 	rt.startPGAuditCorrelation()
+	rt.startObservedPlans()
 }
 
 // attachAnalyzerInputs gives the analyzer the index floor (when on), the
@@ -122,7 +123,6 @@ func (rt *databaseRuntime) startAutoExplain() {
 		CollectIntervalSeconds: cfg.AutoExplain.CollectIntervalSeconds,
 		MaxPlansPerCycle:       cfg.AutoExplain.MaxPlansPerCycle,
 		LogMinDurationMs:       cfg.AutoExplain.LogMinDurationMs,
-		PreferSessionLoad:      cfg.AutoExplain.PreferSessionLoad,
 	}
 	plans := autoexplain.NewCollector(
 		rt.spec.Pool, collectorCfg, avail, logStructuredWrapper,

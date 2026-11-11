@@ -31,18 +31,20 @@ func (s *logFanoutSet) droppedLines() []clusterLogDrops {
 
 // writeLogwatchMetrics emits the log lines each cluster's watcher lost
 // (rca-06): evicted from the full line queue (critical lines are kept
-// first) or skipped by logwatch.max_lines_per_cycle. Any rise means
-// log-based detection may have missed events.
+// first), skipped by logwatch.max_lines_per_cycle, or over their size
+// limit (rca-04). Any rise means log-based detection may have missed events.
 func writeLogwatchMetrics(b *strings.Builder, drops []clusterLogDrops) {
 	b.WriteString("# HELP pg_sage_logwatch_dropped_lines_total PostgreSQL log lines " +
 		"the log watcher dropped before classification, by cluster and reason " +
-		"(queue_overflow, classifier_cap)\n" +
+		"(queue_overflow, classifier_cap, oversized_record)\n" +
 		"# TYPE pg_sage_logwatch_dropped_lines_total counter\n")
 	for _, d := range drops {
 		fmt.Fprintf(b, "pg_sage_logwatch_dropped_lines_total{cluster=%q,reason=%q} %d\n",
 			d.Cluster, logwatch.DropReasonQueueOverflow, d.Counts.QueueOverflow)
 		fmt.Fprintf(b, "pg_sage_logwatch_dropped_lines_total{cluster=%q,reason=%q} %d\n",
 			d.Cluster, logwatch.DropReasonClassifierCap, d.Counts.ClassifierCap)
+		fmt.Fprintf(b, "pg_sage_logwatch_dropped_lines_total{cluster=%q,reason=%q} %d\n",
+			d.Cluster, logwatch.DropReasonOversized, d.Counts.Oversized)
 	}
 	b.WriteString("\n")
 }

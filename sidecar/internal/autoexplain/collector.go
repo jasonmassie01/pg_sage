@@ -26,7 +26,6 @@ type CollectorConfig struct {
 	CollectIntervalSeconds int
 	MaxPlansPerCycle       int
 	LogMinDurationMs       int
-	PreferSessionLoad      bool
 }
 
 // Collector ingests auto_explain plans and stores them in
@@ -188,7 +187,7 @@ func (c *Collector) captureOnDemand(
 	if err := sanitize.RejectMultiStatement(query); err != nil {
 		return fmt.Errorf("unsafe query text: %w", err)
 	}
-	source := "auto_explain"
+	source := estimateSource
 	generic := parameterCount(query) > 0
 	if generic {
 		version, err := c.serverVersion(ctx)
@@ -209,6 +208,12 @@ func (c *Collector) captureOnDemand(
 	totalCost, execTime := extractPlanMetrics(planJSON)
 	return c.storePlan(ctx, queryID, query, planJSON, source, totalCost, execTime)
 }
+
+// estimateSource labels an on-demand plain EXPLAIN: an estimate, never
+// an executed plan. auto_explain logs only executed statements, so the
+// capture is not an auto_explain plan (rca-04); the auto_explain log's own
+// plans are stored as auto_explain_log.
+const estimateSource = "explain_estimate"
 
 // sqlStateLockNotAvailable is the SQLSTATE of a lock_timeout.
 const sqlStateLockNotAvailable = "55P03"
@@ -238,9 +243,10 @@ var (
 	explainIdleTimeoutSQL = "SET LOCAL idle_in_transaction_session_timeout = '10s'"
 )
 
-// explainReadOnly returns the EXPLAIN JSON for query. auto_explain
-// settings and the bounds are applied with SET LOCAL so they end with the
-// transaction instead of leaking into the pooled session (G1-B15). The
+// explainReadOnly returns the EXPLAIN JSON for query. The bounds are
+// applied with SET LOCAL so they end with the transaction instead of
+// leaking into the pooled session (G1-B15). No auto_explain setting is
+// sent: auto_explain never logs an EXPLAIN statement (rca-04). The
 // connection is released before the plan is stored.
 func (c *Collector) explainReadOnly(
 	ctx context.Context, query string, generic bool,
@@ -268,13 +274,6 @@ func (c *Collector) explainReadOnly(
 	}
 	if _, err := tx.Exec(ctx, explainIdleTimeoutSQL); err != nil {
 		return nil, fmt.Errorf("set idle_in_transaction_session_timeout: %w", err)
-	}
-	if c.avail != nil && (c.avail.SessionLoad || c.avail.SharedPreload ||
-		c.avail.AlreadyLoaded) {
-		scfg := DefaultSessionConfig(c.cfg.LogMinDurationMs)
-		if err := ConfigureTransaction(ctx, tx, c.avail, scfg); err != nil {
-			return nil, fmt.Errorf("configure auto_explain: %w", err)
-		}
 	}
 	explain := "EXPLAIN (FORMAT JSON) "
 	if generic {

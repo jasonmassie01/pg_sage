@@ -181,5 +181,7 @@ func trancheTwoMigrations() []namedStep {
 		{"ddlNotificationLogRefs", ddlNotificationLogRefs},               // sre-08: page lookup
 		{"ddlSREIncidentFollowup", ddlSREIncidentFollowup},               // sre-08: one claim each
 		{"ddlSREEvidenceRefreshedEvent", ddlSREEvidenceRefreshedEvent},   // playbooks-06
+		{"ddlIncidentsLogOccurrences", ddlIncidentsLogOccurrences},       // rca-07
+		{"ddlExplainEstimateSource", ddlExplainEstimateSource},           // rca-04
 	}
 }

@@ -111,7 +111,7 @@ func (e *Engine) commitCycle(plan cyclePlan, actions sageActions) []Incident {
 		e.applySelfActionCorrelation(plan, actions)
 	}
 	e.autoResolve(withHeld(e.consumeFastFired(plan.firedIDs), plan.heldIDs))
-	e.resolveStale(time.Now())
+	e.resolveStale(e.clock())
 	e.escalate()
 	e.trimResolvedOverflow()
 	return e.activeIncidents()

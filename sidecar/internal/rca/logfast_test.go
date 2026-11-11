@@ -144,9 +144,13 @@ func TestObserveLogSignalsFiltersReplayAndForeign(t *testing.T) {
 }
 
 // State transition: a fast-path incident counts as firing in the next
-// analyzer cycle, then auto-resolves after resolution_cycles clear cycles.
+// analyzer cycle; clear cycles do not resolve a log incident (rca-07), the
+// quiet period (rca.log_quiet_minutes, default the 30 min dedup window)
+// does.
 func TestFastPathLogIncidentAutoResolves(t *testing.T) {
 	eng := testEngine() // resolution_cycles = 2
+	now := time.Now()
+	eng.now = func() time.Time { return now }
 	cfg := testConfig()
 	for i := 0; i < 4; i++ { // burn the grace period on quiet cycles
 		eng.Analyze(quietSnapshot(), quietSnapshot(), cfg, nil)
@@ -165,8 +169,13 @@ func TestFastPathLogIncidentAutoResolves(t *testing.T) {
 		t.Fatal("resolved after 1 clear cycle, want 2")
 	}
 	eng.Analyze(quietSnapshot(), quietSnapshot(), cfg, nil) // clear 2
+	if !isOpen(eng, id) {
+		t.Fatal("log incident resolved by clear cycles, want the quiet period")
+	}
+	now = now.Add(31 * time.Minute)
+	eng.Analyze(quietSnapshot(), quietSnapshot(), cfg, nil)
 	if isOpen(eng, id) {
-		t.Fatal("still open after resolution_cycles clear cycles")
+		t.Fatal("still open after the quiet period")
 	}
 	for _, inc := range eng.incidents {
 		if inc.ID == id && inc.ResolvedBy != ResolvedByAuto {

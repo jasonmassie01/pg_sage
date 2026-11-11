@@ -100,7 +100,6 @@ auto_explain:
   log_min_duration_ms: 500
   collect_interval_seconds: 30
   max_plans_per_cycle: 50
-  prefer_session_load: true
 
 forecaster:
   enabled: true

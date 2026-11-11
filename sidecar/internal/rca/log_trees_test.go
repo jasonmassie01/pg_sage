@@ -248,9 +248,12 @@ func TestLogTreeDeadlock_WithPIDs(t *testing.T) {
 		ID:       "log_deadlock_detected",
 		FiredAt:  time.Now(),
 		Severity: "critical",
+		// rca-07: the classifier's affected_pids, not the "pids" string
+		// this test used to invent (no writer ever set it).
 		Metrics: map[string]any{
-			"database": "mydb",
-			"pids":     "1234,5678",
+			"database":         "mydb",
+			"occurrence_count": 1,
+			"affected_pids":    []int{1234, 5678},
 		},
 	}
 	inc := logTreeDeadlock(sig)

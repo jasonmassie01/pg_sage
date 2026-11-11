@@ -105,6 +105,10 @@ var patterns = []signalPattern{
 		MinLevel:   "LOG"},
 	{ID: signalid.LogLockTimeout, Severity: "warning",
 		SQLStates: []string{"55P03"}, MinLevel: "ERROR"},
+	// rca-07: 57014 is also a pg_cancel_backend or client cancel; that is
+	// info and opens no incident. Without English text it stays a timeout.
+	{ID: signalid.LogStatementCancelled, Severity: "info",
+		SQLStates: []string{"57014"}, MinLevel: "ERROR"},
 	{ID: signalid.LogStatementTimeout, Severity: "warning",
 		SQLStates: []string{"57014"}, MinLevel: "ERROR"},
 	{ID: signalid.LogReplicationConflict, Severity: "warning",
@@ -134,6 +138,13 @@ func matchesEntry(pat signalPattern, entry LogEntry, lower string) bool {
 		return strings.HasPrefix(entry.SQLState, "XX") && entry.SQLState != "XX000"
 	case "log_authentication_failure":
 		return strings.HasPrefix(entry.SQLState, "28")
+	case "log_statement_cancelled":
+		return entry.SQLState == "57014" && strings.Contains(lower, "due to user request")
+	case "log_statement_timeout":
+		// An autovacuum worker cancelled for a lock logs 57014 at ERROR; the
+		// autovacuum-cancel rule below takes it.
+		return entry.SQLState == "57014" &&
+			!strings.Contains(lower, "canceling autovacuum task")
 	}
 	if pat.Regex != nil {
 		return originAllows(pat.Origin, entry) &&

@@ -192,7 +192,9 @@ func TestExplainLockBusyReturnsWithinOneSecond(t *testing.T) {
 	f.assertBoundsRolledBack(t)
 }
 
-func TestExplainWithoutLockStoresAutoExplainPlan(t *testing.T) {
+// rca-04: the capture is a plain EXPLAIN, so its source is explain_estimate
+// (it was mislabelled auto_explain).
+func TestExplainWithoutLockStoresAnEstimate(t *testing.T) {
 	f := newLockFixture(t)
 	const qid = int64(991200502)
 	f.cleanPlans(t, qid)
@@ -202,8 +204,8 @@ func TestExplainWithoutLockStoresAutoExplainPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("capture without a lock: %v", err)
 	}
-	if got := f.storedPlans(t, qid); got[qid] != "auto_explain" {
-		t.Fatalf("stored plans = %v, want source auto_explain", got)
+	if got := f.storedPlans(t, qid); got[qid] != estimateSource {
+		t.Fatalf("stored plans = %v, want source %s", got, estimateSource)
 	}
 	for _, sql := range []string{"SET TRANSACTION READ ONLY",
 		"SET LOCAL statement_timeout = '5s'",
@@ -233,8 +235,8 @@ func TestExplainLockReleasedWithinTimeoutStillCaptures(t *testing.T) {
 	if err != nil {
 		t.Fatalf("capture after a ~50ms lock wait: %v", err)
 	}
-	if got := f.storedPlans(t, qid); got[qid] != "auto_explain" {
-		t.Fatalf("stored plans = %v, want source auto_explain", got)
+	if got := f.storedPlans(t, qid); got[qid] != estimateSource {
+		t.Fatalf("stored plans = %v, want source %s", got, estimateSource)
 	}
 }
 

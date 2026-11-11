@@ -1,8 +1,8 @@
 package autoexplain
 
 import (
-	"github.com/pg-sage/sidecar/internal/testdb"
 	"context"
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"strings"
 	"testing"
 	"time"
@@ -93,8 +93,10 @@ func TestCaptureOnDemand_ParameterizedPrePG16NotStored(t *testing.T) {
 	}
 }
 
-// G1-B15: auto_explain settings used for capture must be transaction-local
-// and must not leak into the pooled session used by other sidecar work.
+// G1-B15: auto_explain settings must not leak into the pooled session used
+// by other sidecar work. Since rca-04 the capture sets none and loads no
+// module, so on the session the settings are either unregistered (NULL
+// with missing_ok) or at their defaults.
 func TestCaptureOnDemand_DoesNotLeakAutoExplainSettings(t *testing.T) {
 	dsn := requireAuditFixturePool(t).Config().ConnString()
 	cfg, err := pgxpool.ParseConfig(dsn)
@@ -120,13 +122,14 @@ func TestCaptureOnDemand_DoesNotLeakAutoExplainSettings(t *testing.T) {
 	if err := c.captureOnDemand(captureCtx, queryID, "SELECT 1"); err != nil {
 		t.Fatalf("capture: %v", err)
 	}
-	var minDuration, analyze string
-	if err := pool.QueryRow(ctx, `SELECT current_setting('auto_explain.log_min_duration'),
-		current_setting('auto_explain.log_analyze')`).Scan(&minDuration, &analyze); err != nil {
+	var minDuration, analyze *string
+	if err := pool.QueryRow(ctx, `SELECT current_setting('auto_explain.log_min_duration', true),
+		current_setting('auto_explain.log_analyze', true)`).Scan(&minDuration,
+		&analyze); err != nil {
 		t.Fatalf("read session settings: %v", err)
 	}
-	if minDuration != "-1" || analyze != "off" {
-		t.Fatalf("auto_explain leaked into pooled session: log_min_duration=%s log_analyze=%s",
+	if (minDuration != nil && *minDuration != "-1") || (analyze != nil && *analyze != "off") {
+		t.Fatalf("auto_explain leaked into pooled session: log_min_duration=%v log_analyze=%v",
 			minDuration, analyze)
 	}
 }

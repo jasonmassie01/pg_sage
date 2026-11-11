@@ -359,7 +359,6 @@ type AutoExplainConfig struct {
 	LogMinDurationMs       int  `yaml:"log_min_duration_ms"`
 	CollectIntervalSeconds int  `yaml:"collect_interval_seconds"`
 	MaxPlansPerCycle       int  `yaml:"max_plans_per_cycle"`
-	PreferSessionLoad      bool `yaml:"prefer_session_load"`
 }
 
 type ForecasterConfig struct {
@@ -393,6 +392,8 @@ type RCAConfig struct {
 	LockChainIntervalSeconds   int     `yaml:"lock_chain_interval_seconds" doc:"Seconds between lock-chain fast-path checks, which open or update the lock_contention incident between analyzer cycles. 0 disables the fast path; otherwise 10-3600. Default: 60."`
 	NarrationEnabled           bool    `yaml:"narration_enabled" doc:"Add an LLM narrative, citing the incident's evidence and catalog probe results, to incident notifications. Off, no LLM, or any LLM failure uses the deterministic summary. Default: true."`
 	LogFastPathIntervalSeconds int     `yaml:"log_fast_path_interval_seconds" doc:"Seconds between log fast-path passes, which open incidents for critical log lines (PANIC, disk full, OOM, wraparound) between analyzer cycles. 0 disables; otherwise 1-3600. Default: 5."`
+	LogQuietMinutes            int     `yaml:"log_quiet_minutes" doc:"Minutes without a new log line before a log incident auto-resolves (not clear cycles). 0 = rca.dedup_window_minutes; else 1-1440, within stale_after_hours. Default: 0."`
+	RecurrenceRenotifyHours    int     `yaml:"recurrence_renotify_hours" doc:"Hours after a log incident resolves in which a recurrence at no higher severity is linked but not notified again. 1-168. Default: 6."`
 }
 
 // LockChainConfig controls lock chain detection (v0.9).
@@ -412,7 +413,7 @@ type LogWatchConfig struct {
 	Format              string   `yaml:"format" doc:"Log format: jsonlog (PG15+) or csvlog. Auto-detected if blank."`
 	PollIntervalMs      int      `yaml:"poll_interval_ms" doc:"Log file poll interval (the tailer only polls). Default: 1000."`
 	DedupWindowS        int      `yaml:"dedup_window_seconds" doc:"Suppress duplicate log signals within this window. Default: 60."`
-	MaxLineLenBytes     int      `yaml:"max_line_len_bytes" doc:"Discard log lines longer than this. Default: 65536."`
+	MaxLineLenBytes     int      `yaml:"max_line_len_bytes" doc:"Drop log records longer than this (an auto_explain plan record may reach 1 MiB); drops are counted as oversized_record. Default: 65536."`
 	TempFileMinBytes    int      `yaml:"temp_file_min_bytes" doc:"Minimum temp file size to trigger log_temp_file_created. Default: 10485760."`
 	MaxLinesPerCycle    int      `yaml:"max_lines_per_cycle" doc:"Stop parsing after this many lines per drain cycle. Default: 10000."`
 	ExcludeApplications []string `yaml:"exclude_applications" doc:"Application names excluded from timeout/deadlock signals. Default: pg_sage."`
@@ -1068,7 +1069,6 @@ func newDefaults() *Config {
 			LogMinDurationMs:       DefaultAutoExplainLogMinDuration,
 			CollectIntervalSeconds: DefaultAutoExplainCollectInterval,
 			MaxPlansPerCycle:       DefaultAutoExplainMaxPlansPerCycle,
-			PreferSessionLoad:      true,
 		},
 		Forecaster: ForecasterConfig{
 			Enabled:                    true,
@@ -1137,6 +1137,7 @@ func newDefaults() *Config {
 			LockChainIntervalSeconds:   DefaultRCALockChainIntervalSeconds,
 			NarrationEnabled:           DefaultRCANarrationEnabled,
 			LogFastPathIntervalSeconds: DefaultRCALogFastPathIntervalSeconds,
+			RecurrenceRenotifyHours:    DefaultRCARecurrenceRenotifyHours,
 		},
 		SRE:        defaultSREConfig(),
 		Specialist: defaultSpecialistConfig(),
