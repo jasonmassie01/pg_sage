@@ -302,3 +302,45 @@ func TestListOpenWithheldConcurrentWithRecording(t *testing.T) {
 			writers*repeats)
 	}
 }
+
+// State transition: a withheld row recorded without a fingerprint (a
+// lease conflict's park, a custodian escalation, a schema-guard verdict)
+// is never resolved by the execute that follows, which resolves only
+// fingerprinted rows. Its candidate's later execute still takes it off
+// the list: the change has run (policy-07 review).
+func TestListOpenWithheldDropsAnUnfingerprintedRowOnceItsCandidateExecutes(t *testing.T) {
+	pool, ctx := requireLedgerPostgres(t)
+	databaseID := ledgerDatabaseID()
+	cleanupDatabaseDecisions(t, pool, databaseID)
+	repo := NewPostgresRepository(pool)
+	blocked, other := budgetPark("one_off", databaseID), budgetPark("one_off_waits", databaseID)
+	blocked.Verdict, blocked.Reason, blocked.Fingerprint = VerdictBlocked, "ddl_conflict", ""
+	other.Fingerprint = ""
+	for _, input := range []DecisionInput{blocked, other} {
+		input.EvidenceID = NewEvidenceID()
+		if _, err := repo.InsertDecision(ctx, input); err != nil {
+			t.Fatalf("insert unfingerprinted withheld row: %v", err)
+		}
+	}
+	before, _, err := ListOpenWithheld(ctx, pool, withheldFilterFor(databaseID))
+	if err != nil || len(before) != 2 {
+		t.Fatalf("before = %+v (%v), want both one-off rows", before, err)
+	}
+	if _, err := NewService(repo).RecordDecision(ctx, asExecute(blocked)); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	after, _, err := ListOpenWithheld(ctx, pool, withheldFilterFor(databaseID))
+	if err != nil || len(after) != 1 || after[0].CandidateKey != CandidateKey(other) {
+		t.Fatalf("after = %+v (%v), want only the candidate that has not run", after, err)
+	}
+	// A withheld row recorded after the execute is open again.
+	blocked.EvidenceID = NewEvidenceID()
+	if _, err := repo.InsertDecision(ctx, blocked); err != nil {
+		t.Fatalf("insert the next withheld row: %v", err)
+	}
+	again, _, err := ListOpenWithheld(ctx, pool, withheldFilterFor(databaseID))
+	if err != nil || len(again) != 2 || again[0].CandidateKey != CandidateKey(blocked) ||
+		again[0].Reason != "ddl_conflict" || again[0].OpenRows != 1 {
+		t.Fatalf("again = %+v (%v), want the new withheld row listed alone", again, err)
+	}
+}

@@ -6,6 +6,13 @@ package ledger
 // a row with neither stands alone) and keeps each group's latest row with
 // the group's repeats. Filters apply to that latest row. $5 is one past
 // the limit, so the caller can say the list was cut. No SQL text is read.
+//
+// An execute resolves only its candidate's fingerprinted rows (policy-02).
+// A withheld row recorded without a fingerprint (a lease conflict's park,
+// a custodian escalation, a schema-guard verdict) stays unresolved, so it
+// is left out once an execute of its candidate was recorded after it: the
+// change has run. Execute rows are never resolved, so the anti-join reads
+// idx_decision_candidate_open.
 const withheldSQL = `/* pg_sage */ WITH withheld AS (
 	SELECT d.id, d.verdict, d.reason, d.risk_tier, d.feature, d.intent, d.target_objects,
 	       d.repeat_count, d.created_at, COALESCE(d.last_seen_at, d.created_at) AS seen_at,
@@ -18,6 +25,10 @@ const withheldSQL = `/* pg_sage */ WITH withheld AS (
 	  FROM sage.decision d
 	 WHERE d.resolved_at IS NULL AND d.verdict <> 'execute'
 	   AND ($1::bigint IS NULL OR d.database_id = $1)
+	   AND (d.fingerprint IS NOT NULL OR d.candidate_key IS NULL OR NOT EXISTS (
+	        SELECT 1 FROM sage.decision e
+	         WHERE e.candidate_key = d.candidate_key AND e.resolved_at IS NULL
+	           AND e.verdict = 'execute' AND e.id > d.id))
 ), ranked AS (
 	SELECT w.*, sum(w.repeat_count) OVER candidate AS repeats,
 	       count(*) OVER candidate AS open_rows, min(w.created_at) OVER candidate AS first_seen,
