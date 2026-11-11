@@ -26,6 +26,8 @@ import { revisionPin } from './actions/recommendation'
 import { ApprovalCardDetail, PendingCardsView } from './actions/ApprovalCards'
 import { ManagedChanges } from './actions/ManagedChanges'
 import { approvalOutcomeMessage } from './actions/ApprovalCard'
+import { actionFocusID, isFocusedAction } from './actions/actionFocus'
+import { ActionFocusNotice } from './actions/ActionFocusNotice'
 import { actionLabel, awaitingReview, blockerText, caseHref, caseID, inProgress, proposedChanges, relatedCase, riskLabel, rowDatabase } from './actions/workflow'
 
 function actionStatus(row) {
@@ -72,16 +74,16 @@ function actionCaseScope() {
 }
 
 export function Actions({ database, user, fleetData }) {
-  const [tab, setTab] = useState('recommendations')
+  const [tab, setTab] = useState(() => (actionFocusID() ? null : 'recommendations'))
   const [caseScope, setCaseScope] = useState(actionCaseScope)
+  const [actionFocus, setActionFocus] = useState(actionFocusID)
   useEffect(() => {
-    const changed = () => setCaseScope(actionCaseScope())
+    const changed = () => { setCaseScope(actionCaseScope()); setActionFocus(actionFocusID()) }
     window.addEventListener('hashchange', changed)
     return () => window.removeEventListener('hashchange', changed)
   }, [])
   const range = useTimeRange()
   const canReview = user?.role === 'admin' || user?.role === 'operator'
-  const activeTab = canReview || tab !== 'pending' ? tab : 'recommendations'
   const single = database && database !== 'all'
   const dbParam = single ? `?database=${encodeURIComponent(database)}` : ''
   const actionsURL = withTimeRange(`/api/v1/actions${dbParam}`, range)
@@ -106,7 +108,11 @@ export function Actions({ database, user, fleetData }) {
   const scopedCases = caseScope ? cases.filter(c => String(caseID(c)) === caseScope) : cases
   const recs = (recommendations.data?.recommendations || []).filter(scoped)
   const pendingRows = (pending.data?.pending || []).filter(scoped)
-  const ledger = paging.rows.filter(scoped)
+  const focused = r => !actionFocus || isFocusedAction(r, actionFocus)
+  const ledger = paging.rows.filter(r => scoped(r) && focused(r))
+  const focusRow = actionFocus ? ledger[0] : null
+  const chosenTab = tab ?? (focusRow && inProgress(focusRow) ? 'progress' : 'executed')
+  const activeTab = canReview || chosenTab !== 'pending' ? chosenTab : 'recommendations'
   const modeForDatabase = db => fleetData?.databases?.find(d => d.name === db)?.status?.trust_level || null
   const pendingFor = row => pendingRows.find(a => rowDatabase(a, database) === rowDatabase(row, database)
     && String(a.recommendation_id) === String(row.id))
@@ -115,11 +121,13 @@ export function Actions({ database, user, fleetData }) {
   const activeRecs = recs.filter(r => ['approved', 'applying', 'applied', 'verifying'].includes(r.state))
     .map(r => ({ ...r, linkedCase: relatedCase(r, cases, database) }))
   const progressRows = ledger.filter(inProgress)
-  const progressRecs = activeRecs.filter(r => !r.action_log_id || !progressRows.some(a =>
+  const progressRecs = actionFocus ? [] : activeRecs.filter(r => !r.action_log_id ||
+    !progressRows.some(a =>
     rowDatabase(a, database) === rowDatabase(r, database) && !isQueuedRow(a)
     && String(a.id) === String(r.action_log_id)))
   const historyRows = ledger.filter(r => !inProgress(r) && !awaitingReview(r))
-  const historyRecs = recs.filter(r => !['proposed', 'approved', 'applying', 'applied', 'verifying'].includes(r.state)
+  const historyRecs = actionFocus ? [] : recs.filter(r =>
+    !['proposed', 'approved', 'applying', 'applied', 'verifying'].includes(r.state)
     && !r.action_log_id).map(r => ({ ...r, linkedCase: relatedCase(r, cases, database) }))
   const scopedManaged = (managed.data?.databases || []).map(d => ({ ...d,
     proposals: (d.proposals || []).filter(r => scoped({ ...r, database: d.database })) }))
@@ -148,6 +156,9 @@ export function Actions({ database, user, fleetData }) {
         Review proposed database changes, decide which requests to approve, and track results.
         Cases explain the evidence behind a change. Approval, execution, and a verified improvement are separate steps.
       </p>
+      {actionFocus && <ActionFocusNotice id={actionFocus} found={Boolean(focusRow)}
+        allHref={`#/actions${dbParam}`}
+        onClear={() => { setActionFocus(''); setTab('executed') }} />}
       {caseScope && <div className="rounded border p-3 text-sm space-y-1" data-testid="actions-case-context"
         style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
         <p>{selectedCase ? `Changes for case: ${selectedCase.title}`

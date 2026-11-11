@@ -1,4 +1,4 @@
-import { citationNumbers, statusLabel } from '../../lib/ask'
+import { citationKey, citationNumbers, statementRefs, statusLabel } from '../../lib/ask'
 import { CitationList, CitationMarkers } from './Citations'
 import { AnswerActions } from './AnswerActions'
 
@@ -19,7 +19,7 @@ const STATUS_COLORS = {
 export function Answer({ answer }) {
   const citations = list(answer.citations)
   const numbers = citationNumbers(citations)
-  const byId = new Map(citations.map(c => [c.id, c]))
+  const byKey = new Map(citations.map(c => [citationKey(c), c]))
   return (
     <article data-testid={`ask-answer-${answer.id}`} className="rounded p-4 space-y-3"
       style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
@@ -40,13 +40,14 @@ export function Answer({ answer }) {
       {list(answer.statements).map((s, i) => (
         <p key={i} data-testid="ask-statement" className="text-sm" style={strong}>
           {s.text}
-          <CitationMarkers ids={s.citations} numbers={numbers} byId={byId} />
+          <CitationMarkers ids={statementRefs(s)} numbers={numbers} byId={byKey}
+            database={answer.database} />
         </p>
       ))}
       <NotVerified items={list(answer.not_verified)} />
       <Dropped items={list(answer.dropped)} />
       <AnswerActions actions={list(answer.actions)} />
-      <CitationList citations={citations} />
+      <CitationList citations={citations} database={answer.database} />
     </article>
   )
 }
