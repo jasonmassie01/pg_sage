@@ -35,13 +35,15 @@ var runbooks = []runbook{
 		"An action failed in the last 15 minutes: its outcome counter rose, or " +
 			"the database's first failure was recorded.",
 		"Read the action log in the dashboard (Actions) for the error and what " +
-			"was rolled back. pg_sage does not retry a failed change on its own."},
+			"was rolled back. pg_sage tries the change again on later cycles " +
+			"until it has failed three times for that object, so fix the cause " +
+			"or hold it with the emergency stop."},
 	{"PgSageActionRolledBack", "ticket",
 		"An action was rolled back in the last hour, by verification (a " +
 			"regression) or by hand. A Prometheus with no history of the last hour " +
 			"also reports earlier rollbacks once.",
-		"Read the verification verdict in the action log. Repeated rollbacks of a " +
-			"class lower its earned trust."},
+		"Read the verification verdict in the action log. A rolled-back finding " +
+			"is not applied again for `trust.rollback_cooldown_days` (7 by default)."},
 	{"PgSageSelfBudgetExceeded", "ticket",
 		"pg_sage has used more than its declared budget of a resource for 15 " +
 			"minutes (`self_budget`).",

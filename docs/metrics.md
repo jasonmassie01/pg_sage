@@ -253,13 +253,13 @@ These names are no longer exported. Update dashboards and alerts to the replacem
 
 **Severity:** page. **Fires when:** An action failed in the last 15 minutes: its outcome counter rose, or the database's first failure was recorded.
 
-**What to do:** Read the action log in the dashboard (Actions) for the error and what was rolled back. pg_sage does not retry a failed change on its own.
+**What to do:** Read the action log in the dashboard (Actions) for the error and what was rolled back. pg_sage tries the change again on later cycles until it has failed three times for that object, so fix the cause or hold it with the emergency stop.
 
 ### PgSageActionRolledBack
 
 **Severity:** ticket. **Fires when:** An action was rolled back in the last hour, by verification (a regression) or by hand. A Prometheus with no history of the last hour also reports earlier rollbacks once.
 
-**What to do:** Read the verification verdict in the action log. Repeated rollbacks of a class lower its earned trust.
+**What to do:** Read the verification verdict in the action log. A rolled-back finding is not applied again for `trust.rollback_cooldown_days` (7 by default).
 
 ### PgSageSelfBudgetExceeded
 
