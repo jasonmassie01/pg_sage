@@ -39,7 +39,9 @@ type metricsSnapshot struct {
 	slo       []slo.Status
 	optimizer map[string]int64
 	pgstat    pgStatValues
-	ok        map[string]bool
+	// sre is the Sage SRE backlog (sre_metrics.go); nil without SRE.
+	sre *sreBacklog
+	ok  map[string]bool
 	// lastSuccess is each source's last successful refresh; it survives
 	// failed refreshes so staleness stays measurable.
 	lastSuccess map[string]time.Time
@@ -56,10 +58,14 @@ func (s *metricsSnapshot) reachable() bool {
 }
 
 // metricsSource reads one source into the snapshot being built. It sets
-// its snapshot fields only when it returns nil.
+// its snapshot fields only when it returns nil. carry, when set, copies
+// the previous snapshot's sample into the new one after a failed read: the
+// source exports its last known value (staleness shows in the refresh
+// series) instead of none.
 type metricsSource struct {
-	name string
-	read func(ctx context.Context, s *metricsSnapshot) error
+	name  string
+	read  func(ctx context.Context, s *metricsSnapshot) error
+	carry func(prev, next *metricsSnapshot)
 }
 
 // metricsRefresher refreshes one database's metrics snapshot.
@@ -113,12 +119,23 @@ func (m *metricsRefresher) refresh(ctx context.Context) {
 		next.ok[src.name] = err == nil
 		if err == nil {
 			next.lastSuccess[src.name] = time.Now()
-		} else if prev != nil && !prev.lastSuccess[src.name].IsZero() {
-			next.lastSuccess[src.name] = prev.lastSuccess[src.name]
+		} else if prev != nil {
+			m.keepPrevious(src, prev, next)
 		}
 		m.logTransition(src.name, prev, err)
 	}
 	m.snap.Store(next)
+}
+
+// keepPrevious carries a failed source's last success and, for a source
+// that keeps its sample, its previous values into next.
+func (m *metricsRefresher) keepPrevious(src metricsSource, prev, next *metricsSnapshot) {
+	if at := prev.lastSuccess[src.name]; !at.IsZero() {
+		next.lastSuccess[src.name] = at
+	}
+	if src.carry != nil {
+		src.carry(prev, next)
+	}
 }
 
 func (m *metricsRefresher) readSource(
@@ -253,7 +270,8 @@ func (rt *databaseRuntime) startMetricsRefresher() {
 
 // newRuntimeMetricsRefresher reads the value ledger and, when the
 // database has one, the SLO engine. Standalone also reads the optimizer
-// counts and pg_stat values the process-level families report.
+// counts and pg_stat values the process-level families report. A database
+// whose Sage SRE investigator runs also reads its investigation backlog.
 func newRuntimeMetricsRefresher(rt *databaseRuntime) *metricsRefresher {
 	sources := []metricsSource{valueMetricsSource(rt.spec.Name, rt.spec.Pool)}
 	if rt.sloEngine != nil {
@@ -262,6 +280,11 @@ func newRuntimeMetricsRefresher(rt *databaseRuntime) *metricsRefresher {
 	if rt.spec.Shared {
 		sources = append(sources, optimizerMetricsSource(rt.spec.Pool),
 			pgStatMetricsSource(rt.spec.Pool))
+	}
+	if rt.sre != nil {
+		key, _ := rt.sreRuntimeKey()
+		sources = append(sources,
+			sreMetricsSource(controlBacklogReader(rt.spec.ControlPool, key)))
 	}
 	runtimeCfg := rt.cfg
 	interval := func() time.Duration {

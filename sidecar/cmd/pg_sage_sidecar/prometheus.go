@@ -34,7 +34,6 @@ func handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	writeTLSMetrics(&b, apiTLS)
 	writeSSODiscoveryMetrics(&b, api.CurrentSSODiscoveryStatus())
 	writeFirstLookMetrics(&b, firstLookTracker.Snapshot())
-
 	writeConnectionMetric(&b, views)
 
 	// Every family renders whenever its data exists, in every mode
@@ -67,6 +66,7 @@ func handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	writeRecordFailureMetrics(&b, executor.RecordFailureCounts())
 	writeLogwatchMetrics(&b, runtimeLogFanouts.droppedLines())
 	writeSREProbeMetrics(&b, probes.QueueStats())
+	writeSREInvestigationMetrics(&b, views)
 	writeMigrationEnrichMetrics(&b, migration.EnrichDroppedCounts())
 	writePGAuditMetrics(&b, pgaudit.RecordCounts())
 	writeAskMetrics(&b, ask.AnswerCounts())
