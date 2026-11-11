@@ -3,6 +3,8 @@ import { SSOGrantNotice, UserSSOCell } from './users/UserSSOControls'
 import { grantLinkURL, issueSSOLinkGrant, unlinkUserSSO } from './users/ssoApi'
 import { DisabledBadge, UserStatusButton } from './users/UserStatusControls'
 import { deleteUser, setUserDisabled } from './users/userAdminApi'
+import { ResetPasswordButton, TempPasswordNotice } from './users/UserPasswordReset'
+import { resetUserPassword } from './users/passwordApi'
 
 export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
   const platformManaged = authMode === 'databricks_app'
@@ -14,6 +16,7 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
   const [creating, setCreating] = useState(false)
   const [ssoOnly, setSSOOnly] = useState(false)
   const [grant, setGrant] = useState(null)
+  const [reset, setReset] = useState(null)
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -113,6 +116,19 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
     }
   }
 
+  async function handleReset(user) {
+    if (!confirm(`Reset the password of ${user.email}? They are signed out ` +
+      'everywhere and must choose a new password at their next sign-in.')) return
+    setError(null)
+    setReset(null)
+    try {
+      const data = await resetUserPassword(user.id)
+      setReset({ email: user.email, password: data.temporary_password })
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
   async function handleGrant(user) {
     setError(null)
     setGrant(null)
@@ -147,6 +163,7 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
       )}
 
       {!platformManaged && <SSOGrantNotice grant={grant} onDismiss={() => setGrant(null)} />}
+      {!platformManaged && <TempPasswordNotice reset={reset} onDismiss={() => setReset(null)} />}
 
       {platformManaged && (
         <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
@@ -304,6 +321,8 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
                       ? 'You cannot deactivate your own account'
                       : 'At least one enabled admin must remain'}
                     onToggle={handleStatus} />
+                  <ResetPasswordButton user={u} isCurrentUser={isCurrentUser}
+                    onReset={handleReset} />
                   <button
                     onClick={() => handleDelete(u.id, u.email)}
                     disabled={isCurrentUser || isLastAdmin}
