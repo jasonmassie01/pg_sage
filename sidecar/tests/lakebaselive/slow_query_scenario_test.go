@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
@@ -17,7 +19,12 @@ import (
 )
 
 // TestLakebaseDefaultSlowQuery uses one constant-result, sleeping statement.
-// It performs no workload table scan, CPU load, or statistics reset. A harmless
+// It performs no workload table scan, CPU load, or statistics reset. The
+// slow_query rule judges the interval mean with at least
+// analyzer.slow_query_min_calls (default 5) calls in a collector interval
+// (rules-05), so a few connections repeat the statement until the finding
+// opens, then repeat its zero-sleep form until a measured fast interval
+// resolves it. A harmless
 // constant-expression shape makes its queryID fresh without relying on aliases,
 // which PostgreSQL ignores when calculating a queryID.
 func TestLakebaseDefaultSlowQuery(t *testing.T) {
@@ -36,8 +43,12 @@ func TestLakebaseDefaultSlowQuery(t *testing.T) {
 	if cfg.Analyzer.SlowQueryThresholdMs != 1000 {
 		t.Fatalf("expected production default1000ms, got%d", cfg.Analyzer.SlowQueryThresholdMs)
 	}
-	cfg.Collector.IntervalSeconds = 2
-	cfg.Analyzer.IntervalSeconds = 2
+	if cfg.Analyzer.SlowQueryMinCalls != 5 {
+		t.Fatalf("expected production default call floor 5, got %d",
+			cfg.Analyzer.SlowQueryMinCalls)
+	}
+	cfg.Collector.IntervalSeconds = 4
+	cfg.Analyzer.IntervalSeconds = 4
 	cfg.Advisor.Enabled = false
 	cfg.Safety.QueryTimeoutMs = 10000
 	shape := "0"
@@ -117,24 +128,32 @@ func TestLakebaseDefaultSlowQuery(t *testing.T) {
 	go func() { defer wg.Done(); c.Run(runCtx) }()
 	go func() { defer wg.Done(); a.Run(runCtx) }()
 	defer func() { cancel(); wg.Wait() }()
+	// Three sleeping connections finish about ten calls per 4 s interval.
+	stopSlow := repeatStatement(runCtx, p, query, 3, 0)
 	var findingID int64
 	var queryText string
 	deadline := time.Now().Add(70 * time.Second)
 	for time.Now().Before(deadline) {
 		err := p.QueryRow(ctx, `SELECT id,detail->>'query' FROM sage.findings
 	 WHERE category='slow_query' AND status='open' AND object_identifier=$1
-	 AND (detail->>'threshold_ms')::float8=1000 AND (detail->>'mean_exec_ms')::float8>1000`, ident).Scan(&findingID, &queryText)
+	 AND (detail->>'threshold_ms')::float8=1000 AND (detail->>'interval_mean_ms')::float8>1000
+	 AND (detail->>'interval_calls')::int8>=5`, ident).Scan(&findingID, &queryText)
 		if err == nil {
 			break
 		}
 		time.Sleep(time.Second)
 	}
+	if err := stopSlow(); err != nil {
+		t.Fatalf("slow fixture workload: %v", err)
+	}
 	if findingID == 0 || !strings.Contains(queryText, label) {
 		t.Fatalf("default slow-query durable finding absent for exact fixture%d", id)
 	}
-	// One zero-sleep execution of the same normalized statement also proves
-	// ordinary cumulative-mean recovery without any statistics reset.
-	exec(t, p, ctx, strings.Replace(query, "pg_sleep(1.2)", "pg_sleep(0.0)", 1))
+	// Zero-sleep executions of the same normalized statement give a measured
+	// fast interval, which resolves the finding without any statistics
+	// reset; an idle interval would not (it is no verdict).
+	stopFast := repeatStatement(runCtx, p,
+		strings.Replace(query, "pg_sleep(1.2)", "pg_sleep(0.0)", 1), 2, 100*time.Millisecond)
 	deadline = time.Now().Add(60 * time.Second)
 	var resolved bool
 	for time.Now().Before(deadline) {
@@ -143,8 +162,49 @@ func TestLakebaseDefaultSlowQuery(t *testing.T) {
 		}
 		time.Sleep(time.Second)
 	}
-	if !resolved {
-		t.Fatal("default slow query did not resolve after new zero-sleep execution")
+	if err := stopFast(); err != nil {
+		t.Fatalf("zero-sleep fixture workload: %v", err)
 	}
-	t.Logf("default threshold 1000ms; queryid=%d finding_id=%d first_calls=1 first_mean_ms=%.2f elapsed_ms=%d; recovered after one zero-sleep call; no table scans or resets; exact fixture finding/sample cleanup, non-slow provider counters retained", id, findingID, mean, elapsed.Milliseconds())
+	if !resolved {
+		t.Fatal("default slow query did not resolve after a measured zero-sleep interval")
+	}
+	t.Logf("default threshold 1000ms, call floor 5; queryid=%d finding_id=%d first_calls=1 first_mean_ms=%.2f elapsed_ms=%d; recovered on a measured zero-sleep interval; no table scans or resets; exact fixture finding/sample cleanup, non-slow provider counters retained", id, findingID, mean, elapsed.Milliseconds())
+}
+
+// repeatStatement runs sql on workers connections, pausing pause after each
+// call, until ctx ends or the returned stop is called; stop waits for the
+// workers and returns the first error that was not the stop itself.
+func repeatStatement(ctx context.Context, p *pgxpool.Pool, sql string, workers int,
+	pause time.Duration) func() error {
+	ctx, cancel := context.WithCancel(ctx)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var first error
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for ctx.Err() == nil {
+				if _, err := p.Exec(ctx, sql); err != nil {
+					if ctx.Err() == nil {
+						mu.Lock()
+						if first == nil {
+							first = fmt.Errorf("%s: %w", sql, err)
+						}
+						mu.Unlock()
+					}
+					return
+				}
+				select {
+				case <-ctx.Done():
+				case <-time.After(pause):
+				}
+			}
+		}()
+	}
+	return func() error {
+		cancel()
+		wg.Wait()
+		return first
+	}
 }
