@@ -1667,8 +1667,11 @@ multixact one:
    it always waits for an operator's approval. A prepared transaction, a slot, a standby's
    feedback or a protected session becomes a parked `diagnose_freeze_blockers` plan at risk
    tier `high`.
-2. **Freeze.** A red user table gets `VACUUM (FREEZE)`, or a plain `VACUUM` once its age is
-   past its `vacuum_freeze_table_age` (that `VACUUM` is aggressive already). The freeze is
+2. **Freeze.** A red user table gets `VACUUM (FREEZE)`, or a plain `VACUUM` once its XID age
+   reaches `vacuum_freeze_table_age` or its multixact age reaches
+   `vacuum_multixact_freeze_table_age` (each capped at 95% of the server's
+   `autovacuum_freeze_max_age` or `autovacuum_multixact_freeze_max_age`, as a manual `VACUUM`
+   caps it), since that `VACUUM` is aggressive already. The freeze is
    skipped while the pinning holder is at least 0.9 of the table's age, since it could not
    lower the urgency. The freeze is a `safe` `vacuum_table` action in change class `freeze`
    and incident family `wraparound_runway`. The policy gate decides whether it runs on its
