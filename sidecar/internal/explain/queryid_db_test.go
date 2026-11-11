@@ -231,8 +231,10 @@ func TestQueryID_PrefersCapturedPlanWithActuals(t *testing.T) {
 			t.Fatalf("plan_source=%q capture=%q, want the auto_explain capture",
 				res.PlanSource, res.PlanCapture)
 		}
-		if res.PlanAgeS == nil || *res.PlanAgeS < 89 || *res.PlanAgeS > 150 {
-			t.Errorf("plan_age_s = %v, want about 90", res.PlanAgeS)
+		// The capture time is the server's clock and the age the sidecar's,
+		// so allow a few seconds of clock skew between them.
+		if res.PlanAgeS == nil || *res.PlanAgeS < 80 || *res.PlanAgeS > 150 {
+			t.Errorf("plan_age_s = %s, want about 90", fmtAge(res.PlanAgeS))
 		}
 		if res.Query != sql || res.ActualTimeMs == nil || *res.ActualTimeMs != 41.5 {
 			t.Errorf("query=%q actual=%v, want the statement and the capture's 41.5 ms",
@@ -364,4 +366,12 @@ func TestExplain_ConcurrentCallsOnOneExplainer(t *testing.T) {
 				i, results[i].Query, results[i].PlanSource, q)
 		}
 	}
+}
+
+// fmtAge prints an optional age for a failure message.
+func fmtAge(age *int64) string {
+	if age == nil {
+		return "nil"
+	}
+	return fmt.Sprint(*age)
 }
