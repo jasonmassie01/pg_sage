@@ -376,6 +376,28 @@ read in one batched lookup per database, shown as "4th occurrence; previous
 resolved 2026-11-02". When that lookup fails the case says the history is
 unavailable rather than calling it a first occurrence.
 
+**Cases and the recommendation lifecycle.** A finding case carries
+`recommendation`, the newest `sage.recommendation` head of its finding (read
+in one query per database over the `recommendation_finding` index): its id,
+state, revision, verdict, reason, attempt count, `next_attempt_at`, when it
+was applied, `current_content` (the head carries the content hash the case
+proposes now), a one-line `next_step` and `url`
+(`/api/v1/recommendations/{id}?database=...`). The case's next step follows
+the head: "pg_sage applied this on 2026-11-10 and reverted it: <reason>",
+"Stopped after 3 failed attempts", "Retrying after 14:05 UTC" and so on. A
+reverted or abandoned head of the same content blocks the candidate as
+`recommendation_reverted` or `recommendation_abandoned` (the store never
+re-proposes that content); a failed head in backoff sets the candidate's
+`retrying_after`. A head of other content blocks nothing and says the current
+proposal differs. When the heads cannot be read, every finding case of that
+database is marked `recommendation_unknown`, never "no recommendation", and
+the response is still 200. A candidate past its `expires_at` is blocked as
+`evidence_expired` ("Evidence expired; waiting for a fresh observation"),
+replacing any other restriction except a recommendation refusal; the policy's
+own reason stays in `policy_decision`. Each candidate shows how long its
+evidence is valid. A head state the dashboard does not know is shown as
+"state unknown", never as an attached change.
+
 **Header and context strip.** The header says which database you are looking
 at, its mode and what pg_sage may do there right now. With one database
 selected, the trust badge shows its level, and its tooltip lists the action

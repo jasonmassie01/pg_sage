@@ -75,6 +75,12 @@ type Case struct {
 	// Recurrence links a recurring incident to its predecessor; nil for a
 	// first occurrence and for every non-incident case.
 	Recurrence *Recurrence `json:"recurrence,omitempty"`
+	// Recommendation is the newest recommendation head of the case's
+	// finding (cases-10); nil when the finding has none.
+	Recommendation *CaseRecommendation `json:"recommendation,omitempty"`
+	// RecommendationUnknown is set when the heads could not be read, so a
+	// nil Recommendation does not read as "never proposed".
+	RecommendationUnknown bool `json:"recommendation_unknown,omitempty"`
 }
 
 // Recurrence is an incident's place in its chain of recurrences
@@ -105,6 +111,9 @@ type ActionCandidate struct {
 	PolicyDecision            *ActionPolicyDecision `json:"policy_decision,omitempty"`
 	RequiresApproval          bool                  `json:"requires_approval,omitempty"`
 	RequiresMaintenanceWindow bool                  `json:"requires_maintenance_window,omitempty"`
+	// RetryingAfter is when a failed attempt of this content is retried,
+	// while its recommendation is in backoff (cases-10).
+	RetryingAfter *time.Time `json:"retrying_after,omitempty"`
 	// Source is the finding the candidate was projected from, so its
 	// policy verdict is explained as the executor would authorize that
 	// finding (cases-04). Nil for incident and query-hint candidates.
