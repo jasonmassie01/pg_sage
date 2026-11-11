@@ -24,13 +24,30 @@ export function focusFromHash(hash = window.location.hash) {
 
 const sameDatabase = (focus, name) => !focus.database || !name || name === focus.database
 
-// investigationCase is the case id of the focused investigation, if the
-// investigations list holds it.
-export function investigationCase(focus, investigations) {
+// Case id kinds the cases API accepts as a focus (caseIdentityKinds in
+// internal/api/cases_focus.go). An investigation Ask Sage opened has a
+// synthetic ask:<digest> case id that names no case.
+const CASE_ID_KINDS = new Set(['finding', 'incident', 'query_hint'])
+
+function isCaseID(id) {
+  if (typeof id !== 'string') return false
+  const at = id.indexOf(':')
+  return at > 0 && at < id.length - 1 && CASE_ID_KINDS.has(id.slice(0, at))
+}
+
+// focusedInvestigation is the focused investigation, if the
+// investigations list holds it for the focused database.
+export function focusedInvestigation(focus, investigations) {
   if (focus?.kind !== 'investigation') return null
-  const inv = (investigations || []).find(i => String(i.id) === focus.id &&
-    sameDatabase(focus, i.database))
-  return inv?.case_id || null
+  return (investigations || []).find(i => String(i.id) === focus.id &&
+    sameDatabase(focus, i.database)) || null
+}
+
+// investigationCase is the case id of the focused investigation, if the
+// investigations list holds it and it belongs to a case.
+export function investigationCase(focus, investigations) {
+  const caseID = focusedInvestigation(focus, investigations)?.case_id
+  return isCaseID(caseID) ? caseID : null
 }
 
 // resolveFocus is the case id to focus, or null when nothing matches.

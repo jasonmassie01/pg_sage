@@ -13,7 +13,9 @@ import { FindingFactSections } from './facts/FindingFactSections'
 import { caseFactTarget } from '../lib/caseFacts'
 import { canDecideFacts } from '../lib/facts'
 import { actionAvailability, caseID, caseLink, casePresentation } from './cases/casePresentation'
-import { focusFromHash, investigationCase, resolveFocus } from './cases/caseFocus'
+import {
+  focusFromHash, focusedInvestigation, investigationCase, resolveFocus,
+} from './cases/caseFocus'
 import { FocusMissing } from './cases/FocusMissing'
 
 const SOURCE_FILTERS = [
@@ -180,7 +182,7 @@ export function CasesPage({ database, initialSource = 'all', user }) {
       </div>}
 
       {visibleCases.length === 0 && focus && focus.kind !== 'case' && (
-        <FocusMissing focus={focus} />
+        <FocusMissing focus={focus} investigation={focusedInvestigation(focus, invItems)} />
       )}
       {visibleCases.length === 0 && (!focus || focus.kind === 'case') && (
         <div className="rounded border p-4 text-sm" style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>

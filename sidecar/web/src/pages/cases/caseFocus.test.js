@@ -45,11 +45,23 @@ describe('resolveFocus', () => {
   })
 
   it('never borrows another database investigation', () => {
-    const invs = [{ id: 'x', case_id: 'c-9', database: 'billing' }]
+    const invs = [{ id: 'x', case_id: 'finding:billing:a', database: 'billing' }]
     expect(investigationCase({ kind: 'investigation', id: 'x', database: 'orders' }, invs))
       .toBeNull()
     expect(investigationCase({ kind: 'investigation', id: 'x', database: 'billing' }, invs))
-      .toBe('c-9')
+      .toBe('finding:billing:a')
+  })
+})
+
+describe('investigationCase', () => {
+  it('returns only a case id the cases API can focus', () => {
+    const focus = { kind: 'investigation', id: 'x', database: '' }
+    for (const caseID of ['ask:0123456789abcdef', '', 'nokind', 'finding:', null]) {
+      expect(investigationCase(focus, [{ id: 'x', case_id: caseID }])).toBeNull()
+    }
+    for (const caseID of ['finding:orders:a', 'incident:orders:b', 'query_hint:orders:7']) {
+      expect(investigationCase(focus, [{ id: 'x', case_id: caseID }])).toBe(caseID)
+    }
   })
 })
 

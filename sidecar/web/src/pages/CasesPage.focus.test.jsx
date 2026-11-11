@@ -122,6 +122,22 @@ describe('Cases focus from an Ask Sage citation', () => {
     expect(screen.getByTestId('cases-focus-missing')).toHaveTextContent('investigation gone')
   })
 
+  it('never asks the server for the ask: case of an investigation Ask Sage opened', () => {
+    // An investigation Ask Sage starts has a synthetic ask:<digest> case id
+    // that names no case; the cases API rejects it as a focus (400), which
+    // would blank the page instead of saying what happened.
+    investigations = [{ id: '6f1c', case_id: 'ask:0123456789abcdef', database: 'orders' }]
+    go('#/cases?investigation=6f1c&database=orders')
+    render(<CasesPage database="orders" />)
+    expect(urls.some(u => u.startsWith('/api/v1/cases') && u.includes('case='))).toBe(false)
+    expect(screen.queryByRole('article')).toBeNull()
+    const notice = screen.getByTestId('cases-focus-missing')
+    expect(notice).toHaveTextContent(/investigation 6f1c/i)
+    expect(notice).toHaveTextContent(/no case/)
+    expect(within(notice).getByRole('link', { name: /investigation record/i }))
+      .toHaveAttribute('href', '/api/v1/databases/orders/investigations/6f1c')
+  })
+
   it('follows a hash change from a finding focus back to the list', () => {
     go('#/cases?finding=42&database=orders')
     render(<CasesPage database="orders" />)
