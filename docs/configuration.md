@@ -1919,21 +1919,41 @@ existing `POST /api/v1/actions/{queue_id}/approve` and `/reject`. With MCP enabl
 and admins get `sre_propose_action` and `sre_request_execution`. Neither tool executes.
 
 **Approving in Slack or Telegram.** Approval requests are `approval_needed` notifications,
-so add a notification rule for that event to the channel.
+so add a notification rule for that event to the channel. An admin sets this up in the
+dashboard under **Notifications > Channels**:
 
-- *Slack*: in the channel's config, set `interactive: "true"` and the Slack app's
-  `signing_secret`, plus `team_id` to accept only your workspace. Set the app's
-  Interactivity Request URL to `https://<sidecar>/api/v1/chatops/slack/<channel id>`.
-  Requests are verified with Slack's v0 signature within
-  `sre.actions.chatops_tolerance_seconds`.
-- *Telegram*: create a channel of type `telegram` with `bot_token`, a numeric `chat_id` and a
-  `webhook_secret` (letters, digits, `_` and `-`). Register the webhook with
-  `setWebhook?url=https://<sidecar>/api/v1/chatops/telegram/<channel id>&secret_token=<webhook_secret>`.
-  Only button presses from that chat are accepted.
+- *Slack*: add a Slack channel with its incoming webhook URL, tick **Interactive
+  approvals**, and enter the Slack app's signing secret, plus the team id to accept only
+  your workspace. After saving, the tab shows the callback URL
+  (`https://<sidecar>/api/v1/chatops/slack/<channel id>`) with a copy button: set it as
+  the app's Interactivity Request URL. Requests are verified with Slack's v0 signature
+  within `sre.actions.chatops_tolerance_seconds`.
+- *Telegram*: add a Telegram channel with the bot token, a numeric chat id and a webhook
+  secret (**Generate** makes a random 32-character one). After saving, the tab shows the
+  callback URL and the `setWebhook` URL to open once, with the bot token and secret left
+  as placeholders for you to fill in. Without a webhook secret the channel notifies but
+  cannot approve, and an `@channel` name notifies only. Only button presses from that
+  chat are accepted.
 
-A chat user can decide only after an admin maps them to a pg_sage user:
-`POST /api/v1/chatops/identities` with `{"provider": "slack", "team_id": "T...",
-"external_user_id": "U...", "user_id": 7}` (Telegram: the numeric user id, no `team_id`).
+The callback URL must be reachable from Slack or Telegram over HTTPS. Each channel's
+**Edit** dialog changes its settings: secrets show masked and are kept unless you type a
+new one, and a refused change shows the server's message. The channel list shows each
+channel's last delivery (status, time and error), or *never delivered*.
+
+A chat user can decide only after an admin links them to a pg_sage user in the **Chat
+identities** panel on the same tab: provider, the Slack team id (Telegram has none), the
+chat user id (Slack `U...`, Telegram's numeric user id) and the pg_sage user.
+
+The API remains the alternative. Create a channel with `POST /api/v1/notifications/channels`
+and `{"name": "ops", "type": "slack", "config": {"webhook_url": "https://hooks.slack.com/...",
+"interactive": "true", "signing_secret": "...", "team_id": "T..."}}` (Telegram:
+`{"bot_token": "...", "chat_id": "-100...", "webhook_secret": "..."}`), register the webhook
+with `setWebhook?url=https://<sidecar>/api/v1/chatops/telegram/<channel id>&secret_token=<webhook_secret>`,
+and map a chat user with `POST /api/v1/chatops/identities` and `{"provider": "slack",
+"team_id": "T...", "external_user_id": "U...", "user_id": 7}` (Telegram: the numeric user
+id, no `team_id`). `GET /api/v1/notifications/channels` returns each channel with masked
+secrets and `last_status`, `last_error` and `last_sent_at` (null when never delivered).
+In fleet mode channels are global, kept in the sidecar's metadata store.
 The pg_sage user's current role must be operator or admin. Each callback is processed once,
 and the decision goes through the same approval as the browser, attributed to the mapped
 user. Bot tokens, signing secrets and webhook secrets are sealed at rest like other channel
