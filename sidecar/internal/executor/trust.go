@@ -14,6 +14,17 @@ func inMaintenanceWindow(expression string) bool {
 	return inMaintenanceWindowAt(expression, time.Now())
 }
 
+// trustWindowExpression is trust.maintenance_window as the gate's window
+// planner reads it: "" when unset or disabled ("never"), which with a
+// configured window never opens.
+func trustWindowExpression(expression string) string {
+	expression = strings.TrimSpace(expression)
+	if config.MaintenanceWindowDisabled(expression) {
+		return ""
+	}
+	return expression
+}
+
 // inMaintenanceWindowAt evaluates trust.maintenance_window with the single
 // window engine, policy.ParseWindow. Unset and the config-only "never"
 // aliases are closed. A value that does not parse (possible only for an

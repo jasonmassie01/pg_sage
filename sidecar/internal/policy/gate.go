@@ -25,6 +25,7 @@ func (gate *authorizationGate) Authorize(
 	req ActionRequest,
 ) Decision {
 	req.ExplainFamily = false // only Explain may skip SQL validation
+	req.assumeWindowOpen = false
 	req = withContextPrincipal(ctx, req)
 	if !spendsBudget(req) || req.Principal != nil { // agent requests read no usage
 		return gate.finish(ctx, req, gate.evaluate(ctx, req))
@@ -40,7 +41,10 @@ func (gate *authorizationGate) Authorize(
 // Explain runs the same evaluation as Authorize and records nothing.
 func (gate *authorizationGate) Explain(ctx context.Context, req ActionRequest) Decision {
 	req = withContextPrincipal(ctx, req)
-	return decisionForRequest(req, gate.evaluate(ctx, req))
+	req.assumeWindowOpen = false
+	decision := decisionForRequest(req, gate.evaluate(ctx, req))
+	decision.WindowOnly = gate.windowOnly(ctx, req, decision)
+	return decision
 }
 
 // evaluateRequest is evaluate without the policy provenance stamp.
@@ -293,17 +297,11 @@ func (gate *authorizationGate) windowDecision(
 		gate.config.WindowObserved()
 	}
 	now := gate.now()
-	configured := req.Contract.RiskTier != RiskModerate || runtime.InConfiguredWindow
-	if configured && inAnyWindow(doc.MaintenanceWindows, now) {
-		return Decision{}, false
-	}
-	if validDeadlineOverride(doc, req.Deadline, now) {
-		decision := gate.decision(req, VerdictExecute, ReasonDeadlineOverride)
-		decision.OffWindowOK = true
-		return decision, true
-	}
-	return gate.decision(
-		req, VerdictBlocked, ReasonOutsideMaintenanceWindow), true
+	trustBinds := req.Contract.RiskTier == RiskModerate
+	configured := !trustBinds || runtime.InConfiguredWindow
+	inWindow := configured && inAnyWindow(doc.MaintenanceWindows, now)
+	return gate.windowVerdict(doc, req, inWindow,
+		inWindow && gate.windowClosing(doc, runtime, trustBinds, now))
 }
 
 func inAnyWindow(expressions []string, now time.Time) bool {

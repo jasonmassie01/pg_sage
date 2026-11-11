@@ -87,6 +87,13 @@ func humanPolicyReason(decision ActionPolicyDecision) string {
 	return reason + " (" + decision.Detail + ")"
 }
 
+// HumanDecisionReason renders a recorded decision's reason and detail as
+// the operator surfaces show a verdict ("rate limit exceeded (next frees
+// at 18:00)"), for readers of the ledger (policy-07).
+func HumanDecisionReason(reason, detail string) string {
+	return humanPolicyReason(ActionPolicyDecision{BlockedReason: reason, Detail: detail})
+}
+
 // humanReason renders a gate reason code for operators
 // ("outside_maintenance_window" -> "outside maintenance window").
 func humanReason(reason string) string {

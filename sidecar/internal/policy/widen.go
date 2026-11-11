@@ -17,7 +17,8 @@ func Widens(base, next Document) bool {
 		overridesWiden(base.DeadlineOverrides, next.DeadlineOverrides) ||
 		!subsetStrings(base.RefusalSet, next.RefusalSet) ||
 		base.UnknownClassification != next.UnknownClassification ||
-		base.SerializeMode != next.SerializeMode
+		base.SerializeMode != next.SerializeMode ||
+		next.WindowStartMarginMinutes < base.WindowStartMarginMinutes
 }
 
 // WidensJSON compares two stored documents. A next document that does not

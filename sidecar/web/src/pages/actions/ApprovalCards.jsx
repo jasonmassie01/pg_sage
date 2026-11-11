@@ -51,6 +51,7 @@ export function PendingCardsView({ cards, errors, onShowTable, onDecided, pendin
           </p>
           <ApprovalCard card={card} onDecided={onDecided} eligible={readiness?.eligible}
             blockedReason={readiness?.defer_reason || readiness?.blocked_reason}
+            windowOnly={readiness?.policy_detail?.window_only === true}
             mode={modeForDatabase?.(card.database)}
             facts={<CardFacts card={card} onDecided={onDecided} />} />
         </div>
@@ -70,6 +71,7 @@ export function ApprovalCardDetail({ action, onDecided, mode }) {
       <ApprovalCard card={data.card} onDecided={onDecided} mode={mode}
         eligible={data.eligible ?? action.eligible}
         blockedReason={data.defer_reason || action.defer_reason || action.blocked_reason}
+        windowOnly={(data.policy_detail ?? action.policy_detail)?.window_only === true}
         facts={<CardFacts card={data.card} onDecided={onDecided} />} />
     </div>
   )

@@ -89,6 +89,9 @@ type Document struct {
 	RefusalSet              []string
 	UnknownClassification   string
 	SerializeMode           string
+	// WindowStartMarginMinutes withholds a moderate or high action whose
+	// window closes within this many minutes (0-720, default 0: none).
+	WindowStartMarginMinutes int64
 	// Version and SHA256 name the stored policy row the document was read
 	// from: its version and the SHA-256 of its stored jsonb text
 	// (DocumentFromPolicy). Both are zero for a document read from nowhere.
@@ -108,6 +111,7 @@ type documentWire struct {
 	RefusalSet              []string        `json:"refusal_set"`
 	UnknownClassification   string          `json:"unknown_classification"`
 	SerializeMode           string          `json:"serialize_mode"`
+	WindowStartMargin       int64           `json:"window_start_margin_minutes,omitempty"`
 }
 
 type budgetWire struct {
@@ -155,6 +159,10 @@ func MarshalDocument(doc Document) ([]byte, error) {
 		"refusal_set":            doc.RefusalSet,
 		"unknown_classification": doc.UnknownClassification,
 		"serialize_mode":         doc.SerializeMode,
+	}
+	if doc.WindowStartMarginMinutes != 0 {
+		// Written only when set: documents without it keep their bytes.
+		wire["window_start_margin_minutes"] = doc.WindowStartMarginMinutes
 	}
 	return json.Marshal(wire)
 }
@@ -225,19 +233,23 @@ func documentFromWire(wire documentWire, budgets Budgets) (Document, error) {
 		overrides[DeadlineKind(kind)] = enabled
 	}
 	return Document{
-		AllowedChangeClasses:    wire.AllowedChangeClasses,
-		ApprovalRequiredClasses: wire.ApprovalRequiredClasses,
-		MaintenanceWindows:      wire.MaintenanceWindows,
-		LockDurationCeilingMS:   wire.LockDurationCeilingMS,
-		BlastRadius:             radius,
-		Budgets:                 budgets,
-		RateLimits:              rates,
-		DeadlineOverrides:       overrides,
-		RefusalSet:              wire.RefusalSet,
-		UnknownClassification:   wire.UnknownClassification,
-		SerializeMode:           wire.SerializeMode,
+		AllowedChangeClasses:     wire.AllowedChangeClasses,
+		ApprovalRequiredClasses:  wire.ApprovalRequiredClasses,
+		MaintenanceWindows:       wire.MaintenanceWindows,
+		LockDurationCeilingMS:    wire.LockDurationCeilingMS,
+		BlastRadius:              radius,
+		Budgets:                  budgets,
+		RateLimits:               rates,
+		DeadlineOverrides:        overrides,
+		RefusalSet:               wire.RefusalSet,
+		UnknownClassification:    wire.UnknownClassification,
+		SerializeMode:            wire.SerializeMode,
+		WindowStartMarginMinutes: wire.WindowStartMargin,
 	}, nil
 }
+
+// maxWindowStartMargin is the largest window_start_margin_minutes: 12 hours.
+const maxWindowStartMargin = 720
 
 func ValidateDocument(doc Document) error {
 	if doc.UnknownClassification != "fail_closed" {
@@ -248,6 +260,10 @@ func ValidateDocument(doc Document) error {
 	}
 	if doc.LockDurationCeilingMS < 0 {
 		return fmt.Errorf("lock_duration_ceiling_ms cannot be negative")
+	}
+	if doc.WindowStartMarginMinutes < 0 || doc.WindowStartMarginMinutes > maxWindowStartMargin {
+		return fmt.Errorf("window_start_margin_minutes %d must be 0-%d",
+			doc.WindowStartMarginMinutes, maxWindowStartMargin)
 	}
 	if err := validateRefusalSet(doc.RefusalSet); err != nil {
 		return err

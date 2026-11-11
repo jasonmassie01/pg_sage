@@ -73,6 +73,11 @@ func registerExecutorActionRoutes(
 	execH := http.HandlerFunc(
 		manualExecuteHandler(deps.Executor))
 	route(mux, "POST /api/v1/actions/execute", gateOperator, execH)
+
+	route(mux, "POST /api/v1/actions/{id}/schedule", gateOperator,
+		scheduleRoute(deps.Store, deps.Executor, false))
+	route(mux, "POST /api/v1/actions/{id}/unschedule", gateOperator,
+		scheduleRoute(deps.Store, deps.Executor, true))
 }
 
 func registerFleetActionRoutes(
@@ -93,6 +98,11 @@ func registerFleetActionRoutes(
 	execH := http.HandlerFunc(
 		fleetManualExecuteHandler(deps.Fleet))
 	route(mux, "POST /api/v1/actions/execute", gateOperator, execH)
+
+	route(mux, "POST /api/v1/actions/{id}/schedule", gateOperator,
+		fleetScheduleRoute(deps.Fleet, false))
+	route(mux, "POST /api/v1/actions/{id}/unschedule", gateOperator,
+		fleetScheduleRoute(deps.Fleet, true))
 }
 
 func registerUnavailableActionRoutes(mux *http.ServeMux) {
@@ -106,4 +116,6 @@ func registerUnavailableActionRoutes(mux *http.ServeMux) {
 	route(mux, "POST /api/v1/actions/{id}/reject", gateOperator, notImpl)
 	route(mux, "POST /api/v1/actions/{id}/rollback", gateOperator, notImpl)
 	route(mux, "POST /api/v1/actions/execute", gateOperator, notImpl)
+	route(mux, "POST /api/v1/actions/{id}/schedule", gateOperator, notImpl)
+	route(mux, "POST /api/v1/actions/{id}/unschedule", gateOperator, notImpl)
 }

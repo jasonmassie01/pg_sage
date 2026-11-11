@@ -85,7 +85,9 @@ withheld verdict into `execute`.
 14. **Restrictions on an execute.** The refusal set queues with `refused_by_policy`; a build
     without parse-tree SQL validation queues with `sql_validation_degraded`; a `moderate` or
     `high` action outside every maintenance window blocks with `outside_maintenance_window`,
-    unless an allowed XID or disk deadline overrides it (`execute` `deadline_override`).
+    and one inside a window that closes within `window_start_margin_minutes` blocks with
+    `window_closing`, unless an allowed XID or disk deadline overrides it (`execute`
+    `deadline_override`).
 15. **Earned autonomy.** For an action class the autonomy ledger governs, the earned level
     restricts an execute or approval verdict: `autonomy_level` and `autonomy_downgraded`
     (observe only), `autonomy_handoff` (approval), `autonomy_l3` (execute, a human is
@@ -165,6 +167,7 @@ operator action (`blocked` `ddl_conflict`); see `serialize_mode` in
 | `change_class_not_allowed` | The change class is not in `allowed_change_classes`. | Adding the class to the standing policy. | Ledger |
 | `trust_ramp_not_satisfied` | `trust.tier3_safe` or `trust.tier3_moderate` is off, or the trust ramp has not elapsed. | The flag on and the ramp elapsed. | Ledger |
 | `outside_maintenance_window` | A `moderate` or `high` action outside every maintenance window. | The next window. | Ledger |
+| `window_closing` | A `moderate` or `high` action inside its window, but the window closes in less than the policy's `window_start_margin_minutes`, so the change would run past it. | The next window. | Ledger |
 | `provider_unsupported` | The action does not support the database's provider; the detail names it. | Nothing on this provider. | Ledger |
 | `target_mismatch` | A self-initiated finding or custodian proposal whose statement changes another relation than the one it names; the detail names both. | Nothing: such a statement never runs unattended (a pg_sage bug or a tampered proposal). | Ledger |
 | `bound_by_fact` | A confirmed fact binds the request; the detail names the fact, who confirmed it and where the work goes instead. | Rejecting or expiring the fact. | Ledger |
@@ -254,6 +257,49 @@ long candidates wait. A park that fails to record is answered `blocked`
 `policy_unavailable` and counted in `pg_sage_policy_record_failures_total` instead; any
 series there above zero means the ledger is missing decisions.
 
+## Reading decisions
+
+"Why hasn't this run?" is answered from the ledger, not by SQL. Both routes need the
+operator or admin role, read one database at a time (all of them by default), return no SQL
+text and record nothing.
+
+**Actions > Decisions** and `GET /api/v1/decisions` list the open withheld decisions: rows
+with a `queue_approval`, `parked`, `blocked` or `observe_only` verdict that no execute has
+resolved and no approval queue item has taken over. A withheld row recorded outside the gate's
+repeats (a lease conflict's `ddl_conflict` park, a `custodian_backoff` escalation, a schema
+guard verdict) leaves the list once its candidate's next execute is recorded. Each entry is
+one candidate (its
+`candidate_key`; a row written before candidate keys by its fingerprint), with the latest
+row's verdict and reason and every open row's repeats:
+
+| Field | Holds |
+|---|---|
+| `database` | The monitored database the entry was read from. |
+| `verdict`, `reason`, `human_reason` | The latest verdict and reason, and the reason as the approval card words it, with the budget or verification-wait detail. |
+| `repeat_count`, `open_rows`, `first_seen`, `last_seen_at` | How many evaluations withheld it, in how many open rows (one per verdict and policy version), since when and most recently. |
+| `budget_detail` | For a budget park, which budget is full and when it next frees. |
+| `verification_wait`, `verification_wait_detail` | The changes in flight it waits on, and until when. |
+| `deadline_kind`, `deadline_hard_at` | The XID or disk deadline behind it, if any. |
+| `policy_version`, `policy_doc_sha256` | The standing policy it was decided under. |
+| `queue_id`, `finding_id` | The approval queue item or finding it belongs to, when recorded. |
+
+Parameters, each optional: `database` (a configured database name), `verdict` (one of the
+four withheld verdicts), `reason` (a reason on this page, an agent reason, or
+`custodian_backoff`; the schema guard records free text, which is not a filter), `since`
+(RFC 3339; entries last
+seen at or after it) and `limit` (1-500, default 100). A bad value is `400` naming the
+parameter. A database that cannot be read is listed in `partial` with its error class
+(`connection`, `timeout`, `query`) and the others are still returned; when every selected
+database fails the status is `503`. `truncated` says the list was cut at `limit`.
+
+**Why hasn't this run?** on a finding's case, and
+`GET /api/v1/policy/explain?database=&finding_id=`, ask the gate how it would decide the
+finding's candidates now, through the same path the cases view and the executor use. Each
+candidate has its `decision`, `blocked_reason`, the gate's `detail` (only when the reason
+is the gate's, not a candidate's own refusal) and `human_reason`. `status` is `explained`,
+or `no_candidate` when the finding has nothing the executor could run. Explaining records
+no decision and takes no budget slot.
+
 ## Approval flow
 
 1. A `queue_approval` verdict creates one item in the database's approval queue. Its
@@ -264,8 +310,18 @@ series there above zero means the ledger is missing decisions.
    the card's content: an item whose SQL changed since the card was shown is not approved.
 3. The executor asks the gate again with the approval (step 9 of the evaluation order).
    Trust, the change-class allowlist and the maintenance windows still bind, so an approved
-   action can still be `blocked` `outside_maintenance_window` until the window opens.
-   Approved incident mitigations (a Sage SRE cancel, a revert) are not held by windows.
+   action can still be `blocked` `outside_maintenance_window` (or `window_closing`) until
+   the window opens. Approved incident mitigations (a Sage SRE cancel, a revert) are not
+   held by windows.
+   When the window is the only refusal (the gate re-runs the operator path with the window
+   treated as open), the approval is scheduled instead of refused: the item becomes
+   `scheduled` with the next opening (`run_after`) and that window's close. Each executor
+   cycle asks the gate again about each due item under the policy then in force, then
+   claims it (one sidecar wins) and runs it. A stop, a narrowed policy, a revised
+   recommendation, a resolved finding or a missed window returns the item to `pending`
+   with the reason, before its recommendation is approved, and sends a new approval
+   request. A schedule covers one window only; a failed run is recorded as
+   `failed` and never rescheduled.
 4. The executor takes the change lease and runs the action. An operator action that cannot
    get the lease is refused (`blocked` `ddl_conflict`) rather than parked: a person is
    waiting on it.

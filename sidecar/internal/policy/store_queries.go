@@ -168,17 +168,6 @@ func validateProposal(request ProposalRequest) error {
 	return nil
 }
 
-func profileDocument(profile string) ([]byte, error) {
-	switch profile {
-	case "staffed":
-		return MarshalDocument(StaffedProfile())
-	case "unattended":
-		return MarshalDocument(UnattendedProfile())
-	default:
-		return nil, ErrInvalidDocument
-	}
-}
-
 func scopeName(scope Scope) string {
 	if scope.DatabaseID == nil {
 		return "global"

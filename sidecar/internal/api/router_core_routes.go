@@ -134,7 +134,8 @@ func registerIncidentRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
 	route(mux, "POST /api/v1/incidents/{id}/resolve", gateOperator, resolveH)
 }
 
-// registerAnalysisRoutes covers explain, growth forecasts and finding stats.
+// registerAnalysisRoutes covers explain, growth forecasts, finding stats
+// and the decision ledger (decisions, policy explain).
 func registerAnalysisRoutes(
 	mux *http.ServeMux,
 	mgr *fleet.DatabaseManager,
@@ -160,6 +161,7 @@ func registerAnalysisRoutes(
 	// callers pass source=schema_lint to filter to that subsystem.
 	route(mux, "GET /api/v1/findings/stats", gateViewer,
 		http.HandlerFunc(findingsStatsHandler(mgr)))
+	registerDecisionRoutes(mux, mgr) // policy-07
 }
 
 // registerEventRoutes registers the SSE live-update stream. The broker

@@ -1019,6 +1019,32 @@ reloaded or saved.
 `never`, `off`, `none` and `disabled` are accepted only for
 `trust.maintenance_window`; a policy always names at least one window.
 
+A `moderate` or `high` action may start only inside the effective window:
+`trust.maintenance_window` (when set) intersected with any of the policy's
+`maintenance_windows`, with at least the policy's `window_start_margin_minutes`
+left before it closes. Name a zone in policy windows: one without a zone is
+read on the process clock (UTC in the container), so the staffed profile's
+`weekdays 01:00-05:00` opens at 01:00 UTC; startup logs each such window. A
+new staffed policy takes its zone from `trust.maintenance_window` when that
+names one.
+
+**Approve now, run in the next window.** Approving an action that only the
+window withholds (on the Actions page, with `POST
+/api/v1/actions/{id}/approve`, or with a chat card's Approve) schedules it:
+the item becomes `scheduled`, the response (and the chat reply) names the
+opening, for example "Scheduled for the window opening Tue 2026-11-17 01:00
+America/Chicago", and the Actions page lists it as "Scheduled for <time>"
+with Cancel. `POST /api/v1/actions/{id}/schedule` schedules explicitly (409
+when anything but the window refuses, or the action could run now) and `POST
+/api/v1/actions/{id}/unschedule` cancels (operator role, `?database=` in
+fleet mode). When the window opens, the executor asks the policy gate again
+under the policy then in force, so an emergency stop, a narrowed policy or a
+revised recommendation withholds it and returns it to pending with the
+reason. A schedule covers one window: if the sidecar misses the window, the
+item returns to pending. A chat Approve refused for any other reason leaves
+the card usable. The next opening is searched for 8 days; a window that does
+not open (with room for the margin) in that time is refused as before.
+
 ### LLM
 
 LLM features are on by default, but they call a provider only once `llm.endpoint` and
@@ -1489,6 +1515,14 @@ The standing policy document also carries three safety fields, all enforced:
   included.
   `CONCURRENTLY` builds keep `safety.lock_timeout_ms`, because they wait on
   older transactions by design. `0` means no ceiling.
+- `window_start_margin_minutes` (optional, `0`-`720`, default `0`): a
+  `moderate` or `high` action, operator-approved or self-initiated, is not
+  started when its window closes in less than this many minutes; it blocks
+  with `window_closing` and waits for the next window, so an index build
+  authorized at 04:59 does not start in a window that closes at 05:00. The
+  window is `trust.maintenance_window` (when set) intersected with the
+  policy's `maintenance_windows`. A document without the field keeps its
+  meaning. Lowering or removing the margin widens the policy.
 - `serialize_mode`: what happens when another writer holds the DDL lease on
   the same object. `park` (both profiles): a self-initiated action is parked
   with reason `ddl_conflict` and retried next cycle. A park is not a failure:
@@ -1565,7 +1599,9 @@ max_changes_per_window}`); `hygiene` is optional and defaults per field.
   tables and rows, `rate_limit_exceeded` for changes) and retried next cycle.
   The decision's `evidence.budget_detail` says which budget is full and when it
   next frees, for example `hygiene budget full: 11 of 10 tables in the 24h
-  window; next frees at 2026-10-04T18:00:02Z`.
+  window; next frees at 2026-10-04T18:00:02Z`. Actions > Decisions and
+  `GET /api/v1/decisions?verdict=parked` show it per candidate
+  ([Reading decisions](policy-gate.md#reading-decisions)).
 - **Concurrent candidates.** An authorized change holds its slot from the
   authorization until it has run (at most twice the DDL timeout plus a
   minute, if the sidecar dies in between), so two candidates can never both

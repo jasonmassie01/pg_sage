@@ -18,10 +18,12 @@ import {
   canRollBackRow, isQueuedRow, queuedLabels, rollbackButtonLabel, showsRollbackReason,
 } from './actions/ledger'
 import { PendingErrors } from './actions/PendingErrors'
+import { ScheduledApprovals } from './actions/ScheduledApprovals'
 import { IndexAdmissionPanel } from '../components/IndexAdmissionPanel'
 import { VerificationOutcome } from '../components/VerificationOutcome'
 import { verdictLabel } from '../lib/verificationOutcome'
 import { RecommendationsTab } from './actions/RecommendationsTab'
+import { DecisionsTab } from './actions/DecisionsTab'
 import { revisionPin } from './actions/recommendation'
 import { ApprovalCardDetail, PendingCardsView } from './actions/ApprovalCards'
 import { ManagedChanges } from './actions/ManagedChanges'
@@ -81,7 +83,8 @@ export function Actions({ database, user, fleetData }) {
   }, [])
   const range = useTimeRange()
   const canReview = user?.role === 'admin' || user?.role === 'operator'
-  const activeTab = canReview || tab !== 'pending' ? tab : 'recommendations'
+  const activeTab = canReview || (tab !== 'pending' && tab !== 'decisions')
+    ? tab : 'recommendations'
   const single = database && database !== 'all'
   const dbParam = single ? `?database=${encodeURIComponent(database)}` : ''
   const actionsURL = withTimeRange(`/api/v1/actions${dbParam}`, range)
@@ -136,7 +139,8 @@ export function Actions({ database, user, fleetData }) {
     executed: loading || (single && recommendations.loading) ? '…' : error || recommendations.error ? '?'
       : `${historyRows.length + historyRecs.length}${paging.hasMore ? '+' : ''}`,
   }
-  const scopedPending = { ...pending.data, pending: pendingRows }
+  const scopedPending = { ...pending.data, pending: pendingRows,
+    scheduled: (pending.data?.scheduled || []).filter(scoped) }
   const scopedCards = { ...cards, data: { ...cards.data,
     ...(Array.isArray(cards.data?.cards) ? { cards: cards.data.cards.filter(scoped) } : {}) } }
   const refreshAll = () => { refetch(); pending.refetch(); cards.refetch(); recommendations.refetch(); caseData.refetch() }
@@ -201,6 +205,7 @@ export function Actions({ database, user, fleetData }) {
           paging={{ ...paging, rows: historyRows }} user={user} view="history"
           cases={cases} database={database} />
       </>}
+      {activeTab === 'decisions' && <DecisionsTab database={database} />}
       <details className="rounded border p-3 text-sm" data-testid="actions-safety-details"
         style={{ borderColor: 'var(--border)' }}>
         <summary className="cursor-pointer">Index-build safety conditions</summary>
@@ -218,13 +223,15 @@ function TabBar({ tab, setTab, counts, canReview }) {
   const tabs = [{ key: 'recommendations', label: 'Proposed changes' }]
   if (canReview) tabs.push({ key: 'pending', label: 'Needs your review' })
   tabs.push({ key: 'progress', label: 'In progress' }, { key: 'executed', label: 'History' })
+  if (canReview) tabs.push({ key: 'decisions', label: 'Decisions' })
   return <div className="flex flex-wrap gap-2" role="tablist" aria-label="Change tasks">
     {tabs.map(t => <button key={t.key} type="button" role="tab" aria-selected={tab === t.key}
       onClick={() => setTab(t.key)} data-testid={`actions-tab-${t.key}`}
       className="px-3 py-1.5 rounded text-sm" style={{
         background: tab === t.key ? 'var(--accent)' : 'var(--bg-card)',
         color: tab === t.key ? '#fff' : 'var(--text-secondary)', border: '1px solid var(--border)' }}>
-      {t.label} <span className="ml-1.5" aria-label={`${counts[t.key]} loaded items`}>({counts[t.key]})</span>
+      {t.label} {counts[t.key] !== undefined && <span className="ml-1.5"
+        aria-label={`${counts[t.key]} loaded items`}>({counts[t.key]})</span>}
     </button>)}
   </div>
 }
@@ -540,7 +547,10 @@ function actionRowKey(row) {
 // keeps them, with a strip, when a refresh fails.
 function PendingTab({ query, ...props }) {
   return <QueryState query={query} skeleton={<PendingSkeleton />}>
-    {() => <PendingList refetch={query.refetch} {...props} />}
+    {() => <>
+      <ScheduledApprovals rows={props.data?.scheduled} onChanged={query.refetch} />
+      <PendingList refetch={query.refetch} {...props} />
+    </>}
   </QueryState>
 }
 
@@ -698,10 +708,12 @@ function PendingList({ data, refetch, cards, cases, database, modeForDatabase })
         <div className="space-y-2">
           <div className="flex flex-wrap gap-2">
             <button onClick={() => handleApprove(r)} data-testid="approve-button"
-              disabled={r.eligible === false || modeForDatabase?.(rowDatabase(r, database)) === 'observation'}
+              disabled={(r.eligible === false && r.policy_detail?.window_only !== true) ||
+                modeForDatabase?.(rowDatabase(r, database)) === 'observation'}
               title={r.eligible === false ? (r.defer_reason || r.blocked_reason || 'Action is not eligible') : undefined}
               className="px-2 py-1 rounded text-xs" style={{ background: 'var(--green)', color: '#fff' }}>
-              Approve and run
+              {r.eligible === false && r.policy_detail?.window_only === true
+                ? 'Approve for the next window' : 'Approve and run'}
             </button>
             <button onClick={() => setRejectId(rejectId === actionRowKey(r) ? null : actionRowKey(r))}
               data-testid="reject-button" className="px-2 py-1 rounded text-xs"

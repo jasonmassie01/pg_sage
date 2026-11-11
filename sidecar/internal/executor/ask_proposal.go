@@ -119,6 +119,7 @@ var approvalLifts = map[string]bool{
 	string(policy.ReasonRateLimitExceeded):        true,
 	string(policy.ReasonRefusedByPolicy):          true,
 	string(policy.ReasonOutsideMaintenanceWindow): true,
+	string(policy.ReasonWindowClosing):            true,
 	string(policy.ReasonAutonomyLevel):            true,
 	string(policy.ReasonAutonomyHandoff):          true,
 	string(policy.ReasonAutonomyDowngraded):       true,

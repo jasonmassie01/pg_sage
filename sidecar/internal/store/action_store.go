@@ -21,7 +21,7 @@ type QueuedAction struct {
 	ProposedSQL            string
 	RollbackSQL            string
 	ActionRisk             string
-	Status                 string // pending, approved, rejected, expired
+	Status                 string // pending, scheduled, approved, rejected, expired, ...
 	ProposedAt             time.Time
 	DecidedBy              *int
 	DecidedAt              *time.Time
@@ -52,6 +52,14 @@ type QueuedAction struct {
 	// RevertsActionID is the action a "Revert action N" item reverts: an
 	// automatic rollback the policy withheld (policy-05). nil otherwise.
 	RevertsActionID *int64
+	// ScheduledBy, ScheduledAt, RunAfter and WindowClosesAt describe an
+	// approval scheduled for the next maintenance window (policy-04): who
+	// approved it and when, when it may start and when that window closes
+	// (nil: the window stays open past the planning scan). Nil otherwise.
+	ScheduledBy    *int
+	ScheduledAt    *time.Time
+	RunAfter       *time.Time
+	WindowClosesAt *time.Time
 }
 
 type ActionProposalMetadata struct {
@@ -286,7 +294,8 @@ const queuedActionColumns = `q.id, q.database_id, q.finding_id,
  COALESCE(q.shadow_toil_minutes, 0), q.action_log_id,
  q.recommendation_id, q.recommendation_revision, COALESCE(q.content_hash, ''),
  COALESCE(q.proposed_via, ''), COALESCE(q.proposed_by, ''),
- COALESCE(q.principal_id, ''), q.reverts_action_id`
+ COALESCE(q.principal_id, ''), q.reverts_action_id,
+ q.scheduled_by, q.scheduled_at, q.run_after, q.window_closes_at`
 
 // listPendingBaseSQL lists pending items of open findings. A revert item
 // (reverts_action_id) is listed whatever its finding's state: the finding
@@ -603,7 +612,7 @@ func (s *ActionStore) PendingCount(
 }
 
 // HasPendingForFinding checks if a finding already has a pending
-// action in the queue.
+// action in the queue. An approval scheduled for its window counts.
 func (s *ActionStore) HasPendingForFinding(
 	ctx context.Context, findingID int,
 ) (bool, error) {
@@ -616,8 +625,8 @@ func (s *ActionStore) HasPendingForFinding(
 		   FROM sage.action_queue q
 		   JOIN sage.findings f ON f.id = q.finding_id
 		  WHERE q.finding_id = $1
-		    AND q.status = 'pending'
-		    AND q.expires_at > now()
+		    AND ((q.status = 'pending' AND q.expires_at > now())
+		         OR q.status = 'scheduled')
 		    AND f.status = 'open'
 		    AND f.acted_on_at IS NULL
 		    AND f.resolved_at IS NULL
@@ -647,8 +656,8 @@ func (s *ActionStore) HasPendingForSQL(
 		   FROM sage.action_queue q
 		   JOIN sage.findings f ON f.id = q.finding_id
 		  WHERE q.proposed_sql = $1
-		    AND q.status = 'pending'
-		    AND q.expires_at > now()
+		    AND ((q.status = 'pending' AND q.expires_at > now())
+		         OR q.status = 'scheduled')
 		    AND f.status = 'open'
 		    AND f.acted_on_at IS NULL
 		    AND f.resolved_at IS NULL

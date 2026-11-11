@@ -174,6 +174,8 @@ func trancheOneMigrations() []namedStep {
 // trancheTwoMigrations are the T2 steps, in landing order.
 func trancheTwoMigrations() []namedStep {
 	return []namedStep{
-		{"ddlDropSizeHistory", ddlDropSizeHistory}, // forecast-06
+		{"ddlDropSizeHistory", ddlDropSizeHistory},                       // forecast-06
+		{"ddlDecisionOpenWithheldIndex", ddlDecisionOpenWithheldIndex()}, // policy-07
+		{"ddlActionQueueSchedule", ddlActionQueueSchedule},               // policy-04
 	}
 }

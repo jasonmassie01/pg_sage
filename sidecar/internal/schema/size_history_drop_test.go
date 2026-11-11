@@ -40,11 +40,18 @@ func sizeHistoryExists(t *testing.T, ctx context.Context, pool *pgxpool.Pool) bo
 	return exists
 }
 
-func TestSizeHistoryDrop_IsTheLastStepAndIdempotentSQL(t *testing.T) {
+// The drop is a T2 step (after every T1 step); later T2 steps follow it.
+func TestSizeHistoryDrop_IsATrancheTwoStepAndIdempotentSQL(t *testing.T) {
 	steps := migrationSteps()
-	last := steps[len(steps)-1]
+	firstT2 := len(steps) - len(trancheTwoMigrations())
+	var last migrationStep
+	for _, s := range steps[firstT2:] {
+		if s.name == "ddlDropSizeHistory" {
+			last = s
+		}
+	}
 	if last.name != "ddlDropSizeHistory" {
-		t.Fatalf("last step = %s, want ddlDropSizeHistory", last.name)
+		t.Fatal("ddlDropSizeHistory is not a T2 step (after every T1 step)")
 	}
 	if !strings.Contains(last.sql, "DROP TABLE IF EXISTS sage.size_history") ||
 		!strings.Contains(last.sql, "lock_timeout") {

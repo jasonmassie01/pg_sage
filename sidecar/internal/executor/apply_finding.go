@@ -42,6 +42,11 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 	} else if n > 0 {
 		e.logFn("executor", "superseded %d queued proposal(s) whose reason is gone", n)
 	}
+	// Scheduled approvals are people's decisions: they run in every mode,
+	// and the gate re-checks each one (executor-disabled included).
+	if !isReplica {
+		e.RunScheduledApprovals(ctx)
+	}
 	// Manual mode and executor-disabled are hard background-action stops.
 	if e.effectiveExecMode() == "manual" || !e.ExecutorEnabled() {
 		return

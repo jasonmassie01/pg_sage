@@ -19,10 +19,12 @@ const reasonUnknownActionType = "unknown action type"
 // one call, against one policy snapshot per database. Unknown types are
 // blocked without being sent. No instance or executor, a stopped instance,
 // or a cancelled ctx fails closed. Provider applicability is applied per
-// case afterwards.
+// case afterwards. It returns each candidate's gate detail (details[i][j]
+// for candidate j of case i; "" for an unknown type), which the case view
+// does not carry and the policy explain route shows (policy-07).
 func enrichCasesActionPolicies(
 	ctx context.Context, all []cases.Case, inst *fleet.DatabaseInstance,
-) {
+) (details [][]string) {
 	isReplica, provider := false, ""
 	if inst != nil {
 		capabilities := inst.SnapshotStatus().Capabilities
@@ -33,7 +35,9 @@ func enrichCasesActionPolicies(
 	if len(requests) > 0 {
 		decisions = fleet.InstanceActionExplainer(inst)(ctx, requests, isReplica)
 	}
+	details = make([][]string, len(all))
 	for i := range all {
+		details[i] = make([]string, len(all[i].ActionCandidates))
 		for j := range all[i].ActionCandidates {
 			candidate := &all[i].ActionCandidates[j]
 			slot := slots[i][j]
@@ -42,9 +46,11 @@ func enrichCasesActionPolicies(
 				continue
 			}
 			applyCandidatePolicy(candidate, decisions[slot])
+			details[i][j] = decisions[slot].Detail
 		}
 		cases.ApplyProviderApplicability(&all[i], provider)
 	}
+	return details
 }
 
 // caseExplainRequests lists the explanations the cases need: one per
