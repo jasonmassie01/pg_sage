@@ -48,7 +48,7 @@ type ReportRequest struct {
 // Report is where a source fix stands and, once decided, pg_sage's verdict:
 // observed against predicted change of the target queries. Verdict is
 // "pending" until decided; a decided verdict never changes.
-// DeployReportedAt is when pg_sage heard of the deploy (unset for reports
+// DeployReportedAt is when pg_sage first heard of the deploy (unset for reports
 // filed before it was recorded); Backdated means the deploy was reported
 // after its whole verify window had closed.
 type Report struct {
@@ -209,13 +209,17 @@ func (t *Tools) reportPROpened(ctx context.Context, req ReportRequest, actor str
 }
 
 // deployedSQL records a deploy and when it was reported ($9, the tools'
-// clock, the same clock deployed_at is bounded by).
+// clock, the same clock deployed_at is bounded by). Re-reporting the same
+// deploy (same deployed_at) keeps the time pg_sage first heard of it, so a
+// live deploy re-reported late is never marked backdated.
 const deployedSQL = `/* pg_sage */ INSERT INTO sage.source_fix AS s (finding_id, packet_hash,
     stage, pr_url, commit_sha, reported_by, prediction, target_queryids, deployed_at,
     deploy_reported_at)
 VALUES ($1, $2, 'deployed', $3, $4, $5, $6, $7, $8, $9)
 ON CONFLICT (finding_id) DO UPDATE SET stage = 'deployed',
-    deployed_at = EXCLUDED.deployed_at, deploy_reported_at = EXCLUDED.deploy_reported_at,
+    deployed_at = EXCLUDED.deployed_at,
+    deploy_reported_at = CASE WHEN s.deployed_at = EXCLUDED.deployed_at
+        THEN s.deploy_reported_at ELSE EXCLUDED.deploy_reported_at END,
     pr_url = COALESCE(EXCLUDED.pr_url, s.pr_url),
     commit_sha = COALESCE(EXCLUDED.commit_sha, s.commit_sha),
     packet_hash = EXCLUDED.packet_hash, reported_by = EXCLUDED.reported_by,

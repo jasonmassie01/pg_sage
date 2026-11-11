@@ -355,3 +355,38 @@ func TestPROpenedReportIsNotBackdated(t *testing.T) {
 	require.Nil(t, rep.DeployReportedAt)
 	require.Equal(t, prURL, rep.PRURL)
 }
+
+// State transition: re-reporting the same deploy after its window closed
+// keeps the time pg_sage first heard of it, so a live deploy is not turned
+// into a backdated one; a deploy with a new deployed_at is a new report.
+func TestReReportedDeployKeepsItsFirstReportTime(t *testing.T) {
+	f := newFixture(t)
+	sourceTable(f)
+	first := time.Now().UTC().Truncate(time.Second)
+	now := first
+	tools := New(f.pool, Options{Now: func() time.Time { return now },
+		VerifyWindow: 2 * time.Hour})
+	id := indexFinding(t, f, randomQueryID(t))
+	deployed := first.Add(-time.Minute)
+	deployAt(t, f, tools, id, deployed)
+
+	now = first.Add(3 * time.Hour)
+	rep := deployAt(t, f, tools, id, deployed)
+	require.NotNil(t, rep.DeployReportedAt)
+	require.True(t, rep.DeployReportedAt.Equal(first), "deploy_reported_at %s, want %s",
+		rep.DeployReportedAt, first)
+	require.False(t, rep.Backdated, "a live deploy re-reported late is not backdated")
+
+	moved := now.Add(-time.Minute)
+	rep = deployAt(t, f, tools, id, moved)
+	require.NotNil(t, rep.DeployReportedAt)
+	require.True(t, rep.DeployReportedAt.Equal(now), "a new deploy time is a new report")
+	require.True(t, rep.DeployedAt.Equal(moved))
+	require.False(t, rep.Backdated)
+
+	f.execArgs("UPDATE sage.source_fix SET deploy_reported_at = NULL WHERE finding_id = $1",
+		id)
+	rep = deployAt(t, f, tools, id, moved)
+	require.Nil(t, rep.DeployReportedAt, "an unknown report time stays unknown")
+	require.False(t, rep.Backdated)
+}

@@ -186,15 +186,16 @@ pg_sage serves both protocol eras on stdio and Streamable HTTP:
 
 Operators read the same report at `GET /api/v1/findings/{id}/source-fix?database=<name>`
 (viewer role and up; `database` is required when pg_sage monitors more than one database).
-It returns the stage, PR URL, commit, `deployed_at`, `deploy_reported_at` (when pg_sage heard
-of the deploy), `verify_after`, the verdict with predicted and observed change, and
+It returns the stage, PR URL, commit, `deployed_at`, `deploy_reported_at` (when pg_sage first
+heard of that deploy; re-reporting the same `deployed_at` keeps it), `verify_after`, the
+verdict with predicted and observed change, and
 `backdated`; a finding with no report is a 404 with code `no_source_fix`, a non-numeric id a
 400. `backdated` is true when the deploy was reported more than one verification window
 after `deployed_at`, so the whole after-window had closed before pg_sage heard of it: the
 verdict then rests only on what pg_sage had already sampled, with no chance to watch the
 deploy live. Reports filed before pg_sage recorded `deploy_reported_at` have none; they are
-never marked backdated and the dashboard shows their report time as unknown. The dashboard shows the
-report in a finding case's technical details (Cases and the Findings explorer).
+never marked backdated and the dashboard shows their report time as unknown. The dashboard
+shows the report in a finding case's technical details (Cases and the Findings explorer).
 
 `mark_object` lets the agent say an index, table or schema is owned by the application's
 migrations (`owned`) or must be left alone by pg_sage's DDL (`exempt`). It is recorded as a
