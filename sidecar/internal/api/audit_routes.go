@@ -40,6 +40,9 @@ type AuditDeps struct {
 	SIEMReanchor func(context.Context, siem.ReanchorRequest) (siem.ReanchorResult, error)
 	// EvidenceKey signs evidence manifests; nil leaves packs hashed only.
 	EvidenceKey ed25519.PrivateKey
+	// EvidenceKeySource is where EvidenceKey came from: evidence.KeySourceEnv
+	// or evidence.KeySourceGenerated ("" is reported as env).
+	EvidenceKeySource string
 }
 
 // auditEvidenceExported is the auth_audit event of an evidence download.
@@ -48,6 +51,7 @@ const auditEvidenceExported = "evidence_exported"
 func registerAuditRoutes(mux *http.ServeMux, deps AuditDeps) {
 	route(mux, "GET /api/v1/audit/verify", gateAdmin, auditVerifyHandler(deps))
 	route(mux, "GET /api/v1/audit/evidence", gateAdmin, auditEvidenceHandler(deps))
+	route(mux, "GET /api/v1/audit/evidence/key", gateAdmin, auditEvidenceKeyHandler(deps))
 	route(mux, "GET /api/v1/audit/siem", gateAdmin, auditSIEMHandler(deps))
 	route(mux, "POST /api/v1/audit/siem/{sink}/reanchor", gateAdmin, auditSIEMReanchorHandler(deps))
 }
