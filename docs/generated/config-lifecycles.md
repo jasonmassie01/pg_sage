@@ -97,6 +97,7 @@
 | `audit.evidence.signing_key_env` | `restart` | `-` | `safety_critical` |
 | `audit.full_verify_interval_hours` | `restart` | `-` | `operator_preference` |
 | `audit.pgaudit.correlate` | `restart` | `-` | `operator_preference` |
+| `audit.prune_below_signed_checkpoint` | `restart` | `-` | `safety_critical` |
 | `audit.siem.batch_size` | `restart` | `-` | `operator_preference` |
 | `audit.siem.interval_seconds` | `restart` | `-` | `operator_preference` |
 | `audit.siem.max_backoff_seconds` | `restart` | `-` | `operator_preference` |

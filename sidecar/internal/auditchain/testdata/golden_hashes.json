@@ -42,6 +42,20 @@
       "sealed_hash": "8508d22db4565ecf97f70b3a0476212bb102213ceb67ea00f6bb0e18ab9258d3",
       "state": "",
       "link_hash": "32fc1d329ad572a83227ea6ee732bca7533754a2bbbad7094646c5aa04f2f9b6"
+    },
+    "decision": {
+      "row_id": 7007,
+      "sealed_text": "[7007, 41, \"index\", \"create_index\", [\"public.ünï\", \"public.orders\"], 3, \"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\", \"high\", \"ev-golden-東京\", \"fp_0123456789abcdef\", \"agp_ünï\", \"task-7\", \"sha256:0f1e\", 1772625600000001]",
+      "sealed_hash": "3b4d829afa5f6378760976e4956021884e28a3bfd99beb52a1cbe52bc1849a02",
+      "state": "[\"queue_approval\", \"blast radius ✓ \\\"quoted\\\" \\\\ tab\\t\", {\"a\": \"é\", \"z\": {\"a\": null, \"b\": [1, 2.50]}}, [\"budget\", \"window\"], true, \"soft\", 1772626394500000, null, null, null, \"ck_0123456789abcdef\"]",
+      "link_hash": "fd97bfd9d37cfdca992da102bb10d9fc80fae9bee64e56b36835da057d2a1b05"
+    },
+    "policy_approvals": {
+      "row_id": 8008,
+      "sealed_text": "[8008, 8000, \"ünï@example.com\", 7, \"Ünicode ✓ \\\"quoted\\\" \\\\ backslash\\ttab\", true, 1772630055123456]",
+      "sealed_hash": "0fc12ea83f1408dc7f1e33562c310c32c694cd0ae7a94666757cd018f3f02c1a",
+      "state": "[\"pending\"]",
+      "link_hash": "aec913404a4ddd73d9832c05f836db64e779a07e015e15ba0d7b97bc7bf54b22"
     }
   }
 }

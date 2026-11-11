@@ -79,6 +79,25 @@ var goldenFixtures = map[string]goldenFixture{
 		from_status, to_status, fact_hash, note) VALUES (6006, 42,
 		'2026-03-04 11:12:13.654321+00', 'admin:ünï', 'confirmed', 'proposed', 'confirmed',
 		'0123456789abcdef0123456789abcdef', E'Ünicode ✓ "quoted" \\ backslash\ttab 東京')`},
+	// audit-11's decision ledger and policy approval chains.
+	"decision": {7007, `INSERT INTO sage.decision (id, database_id, feature, intent,
+		target_objects, policy_version, policy_doc_sha256, verdict, risk_tier, reason,
+		guardrails, off_window_ok, deadline_kind, deadline_hard_at, evidence, evidence_id,
+		fingerprint, principal_id, task_id, artifact_hash, candidate_key, created_at,
+		resolved_at) VALUES (7007, 41, 'index', 'create_index',
+		'["public.ünï", "public.orders"]', 3,
+		'0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef', 'queue_approval',
+		'high', E'blast radius ✓ "quoted" \\ tab\t', '["budget", "window"]', true, 'soft',
+		'2026-03-04 12:13:14.5+00', '{"z": {"b": [1, 2.50], "a": null}, "a": "é"}',
+		'ev-golden-東京', 'fp_0123456789abcdef', 'agp_ünï', 'task-7', 'sha256:0f1e',
+		'ck_0123456789abcdef', '2026-03-04 12:00:00.000001+00', NULL)`},
+	"policy_approvals": {8008, `WITH p AS (INSERT INTO sage.policy (id, database_id, version,
+		doc, status, proposed_by) VALUES (8000, 41, 9, '{"b": 1, "a": [2.50]}', 'proposed',
+		'agent:ünï') RETURNING id)
+		INSERT INTO sage.policy_approvals (id, policy_id, approver, approver_user_id, reason,
+		single_operator, review_status, decided_at) OVERRIDING SYSTEM VALUE
+		SELECT 8008, p.id, 'ünï@example.com', 7, E'Ünicode ✓ "quoted" \\ backslash\ttab',
+		true, 'pending', '2026-03-04 13:14:15.123456+00' FROM p`},
 }
 
 var (

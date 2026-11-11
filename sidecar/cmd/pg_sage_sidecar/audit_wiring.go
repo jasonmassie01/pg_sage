@@ -29,6 +29,9 @@ func startAuditJobs(ctx context.Context, control *pgxpool.Pool,
 	if cfg == nil {
 		return
 	}
+	signer := checkpointSigner(evidenceSigner(cfg, control))
+	auditSigner.Store(signer)
+	noteCheckpointSigning(signer)
 	sources := auditSources(control, mgr)
 	startSIEMExport(ctx, control, sources)
 	startChainVerification(ctx, sources)
@@ -46,6 +49,7 @@ func auditSources(control *pgxpool.Pool, mgr *fleet.DatabaseManager) func() []au
 			cursors = e
 		}
 		full := fullVerifyHours()
+		signer, prune := auditSigner.Load(), pruneBelowSignedCheckpoint()
 		seen := map[*pgxpool.Pool]bool{}
 		if mgr != nil {
 			instances := mgr.Instances()
@@ -58,13 +62,15 @@ func auditSources(control *pgxpool.Pool, mgr *fleet.DatabaseManager) func() []au
 				if inst := instances[name]; inst != nil && inst.Pool != nil && !seen[inst.Pool] {
 					seen[inst.Pool] = true
 					out = append(out, auditjob.Source{Name: name, Pool: inst.Pool,
-						Cursors: cursors, FullVerifyHours: full})
+						Cursors: cursors, FullVerifyHours: full, Signer: signer,
+						PruneBelowSignedCheckpoint: prune})
 				}
 			}
 		}
 		if control != nil && !seen[control] {
 			out = append(out, auditjob.Source{Name: "control", Pool: control,
-				Cursors: cursors, FullVerifyHours: full})
+				Cursors: cursors, FullVerifyHours: full, Signer: signer,
+				PruneBelowSignedCheckpoint: prune})
 		}
 		return out
 	}
@@ -226,12 +232,23 @@ func startChainVerification(ctx context.Context, sources func() []auditjob.Sourc
 
 // runChainVerification verifies every source's chains on the leader; a
 // failing trail raises a critical finding (auditjob) and an error line.
+// Each run is recorded in auditjob.DefaultHealth for /metrics and the
+// status route (audit-12): a follower drops what it recorded as leader,
+// and a database no longer among the sources drops out.
 func runChainVerification(ctx context.Context, sources []auditjob.Source) {
-	if len(sources) == 0 || !fleetLeaderAllows("audit chain verification") {
+	health := auditjob.DefaultHealth()
+	if !fleetLeaderAllows("audit chain verification") {
+		health.Reset()
 		return
 	}
+	names := make([]string, 0, len(sources))
+	for _, src := range sources {
+		names = append(names, src.Name)
+	}
+	health.Retain(names)
 	for _, src := range sources {
 		reports, err := auditjob.Run(ctx, src)
+		health.Record(src.Name, reports, err, time.Now())
 		if err != nil {
 			logWarn("audit", "audit chain verification of %s failed: %v", src.Name, err)
 			continue

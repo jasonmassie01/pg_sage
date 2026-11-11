@@ -13,6 +13,7 @@ import { ShadowModePage } from './ShadowModePage'
 import { DerivedSettings } from './settings/DerivedSettings'
 import { Footprint } from './settings/Footprint'
 import { POLICY_GATE_DOC, StandingPolicy } from './settings/StandingPolicy'
+import { AuditCard } from './settings/AuditCard'
 import {
   MaskedBadge, MaskedOverridesContext, SourceBadge, maskedByKey,
 } from './settings/SourceBadge'
@@ -414,6 +415,7 @@ export function SettingsPage({ database, databaseId }) {
       {tab === 'General' && <Footprint database={database} />}
       {tab === 'Trust & Safety' && <StandingPolicy
         databaseId={isDatabaseScope ? numericDatabaseId : undefined} />}
+      {tab === 'General' && <AuditCard database={database} />}
       {feedback && <FeedbackBanner {...feedback} />}
       <div className="rounded p-5"
         style={{

@@ -2,8 +2,8 @@
 // an exportable .tar.gz holding everything pg_sage recorded about one
 // change, or about a time window, with each file's SHA-256 in a manifest
 // and a SHA256SUMS file (sha256sum -c), the hash-chain proof of the audit
-// rows it contains and, when a signing key is configured, an Ed25519
-// signature over the manifest.
+// rows it contains and, when a signing key is configured or generated
+// (key.go), an Ed25519 signature over the manifest.
 package evidence
 
 import (
@@ -124,7 +124,15 @@ type Manifest struct {
 	PolicyHashMatch *bool       `json:"policy_hash_match,omitempty"`
 	Files           []FileEntry `json:"files"`
 	Signer          *Signer     `json:"signer,omitempty"`
+	// Signed is whether manifest.sig signs this manifest (audit-10). An
+	// unsigned pack's Integrity is IntegrityHashOnly: anyone who edits a
+	// file can regenerate its hashes, so they catch accidents, not forgery.
+	Signed    bool   `json:"signed"`
+	Integrity string `json:"integrity,omitempty"`
 }
+
+// IntegrityHashOnly is the Integrity of an unsigned manifest.
+const IntegrityHashOnly = "accidental-corruption-only"
 
 // File is one named file of a pack.
 type File struct {
@@ -188,11 +196,14 @@ func (p *Pack) seal() {
 			LastID: meta.lastID, Note: meta.note})
 		p.Manifest.Truncated = p.Manifest.Truncated || meta.truncated
 	}
-	if p.key != nil {
-		pub := p.key.Public().(ed25519.PublicKey)
-		p.Manifest.Signer = &Signer{Alg: "Ed25519", KeyID: KeyID(pub),
-			PublicKey: hex.EncodeToString(pub)}
+	p.Manifest.Signed = p.key != nil
+	if p.key == nil {
+		p.Manifest.Integrity = IntegrityHashOnly
+		return
 	}
+	pub := p.key.Public().(ed25519.PublicKey)
+	p.Manifest.Signer = &Signer{Alg: "Ed25519", KeyID: KeyID(pub),
+		PublicKey: hex.EncodeToString(pub)}
 }
 
 // Source names in a manifest.
@@ -228,6 +239,9 @@ type builder struct {
 	databaseID  int
 	scope       Scope
 	pack        *Pack
+	// policyIDs are the policy versions in an action pack's policy.json;
+	// approvalIDs their approvals' ids (nil: no approvals table).
+	policyIDs, approvalIDs []int64
 }
 
 func newBuilder(src Sources, scope Scope, key ed25519.PrivateKey, now time.Time) *builder {

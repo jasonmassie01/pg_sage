@@ -55,6 +55,22 @@ var SealedColumnTypes = map[SpecKey]map[string]string{
 		"id": "bigint", "fact_id": "bigint", "at": tstz, "actor": "text", "verb": "text",
 		"from_status": "text", "to_status": "text", "fact_hash": "text", "note": "text",
 	},
+	// audit-11's decision ledger and policy approval chains.
+	{Chain: "decision", Version: 1}: {
+		"id": "bigint", "database_id": "bigint", "feature": "text", "intent": "text",
+		"target_objects": "jsonb", "policy_version": "integer", "policy_doc_sha256": "text",
+		"risk_tier": "text", "evidence_id": "text", "fingerprint": "text",
+		"principal_id": "text", "task_id": "text", "artifact_hash": "text",
+		"created_at": tstz, "verdict": "text", "reason": "text", "evidence": "jsonb",
+		"guardrails": "jsonb", "off_window_ok": "boolean", "deadline_kind": "text",
+		"deadline_hard_at": tstz, "queue_id": "integer", "action_log_id": "bigint",
+		"resolved_at": tstz, "candidate_key": "text",
+	},
+	{Chain: "policy_approvals", Version: 1}: {
+		"id": "bigint", "policy_id": "bigint", "approver": "text",
+		"approver_user_id": "integer", "reason": "text", "single_operator": "boolean",
+		"decided_at": tstz, "review_status": "text",
+	},
 }
 
 var columnRef = regexp.MustCompile(`%\[1\]s\.([a-z_][a-z0-9_]*)`)

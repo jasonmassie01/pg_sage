@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/auditchain"
+	"github.com/pg-sage/sidecar/internal/auditjob"
 	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/evidence"
 	"github.com/pg-sage/sidecar/internal/fleet"
@@ -40,6 +41,17 @@ type AuditDeps struct {
 	SIEMReanchor func(context.Context, siem.ReanchorRequest) (siem.ReanchorResult, error)
 	// EvidenceKey signs evidence manifests; nil leaves packs hashed only.
 	EvidenceKey ed25519.PrivateKey
+	// EvidenceKeySource is where EvidenceKey came from: evidence.KeySourceEnv
+	// or evidence.KeySourceGenerated ("" is reported as env).
+	EvidenceKeySource string
+	// PruneBelowSignedCheckpoint is audit.prune_below_signed_checkpoint:
+	// only then may /audit/verify start a pruned chain at its floor.
+	PruneBelowSignedCheckpoint bool
+	// Health is the scheduled verification's registry
+	// (auditjob.DefaultHealth().Snapshot); nil reports nothing verified.
+	Health func() auditjob.HealthSnapshot
+	// VerifyIntervalHours is audit.verify_interval_hours (0: no schedule).
+	VerifyIntervalHours int
 }
 
 // auditEvidenceExported is the auth_audit event of an evidence download.
@@ -48,7 +60,9 @@ const auditEvidenceExported = "evidence_exported"
 func registerAuditRoutes(mux *http.ServeMux, deps AuditDeps) {
 	route(mux, "GET /api/v1/audit/verify", gateAdmin, auditVerifyHandler(deps))
 	route(mux, "GET /api/v1/audit/evidence", gateAdmin, auditEvidenceHandler(deps))
+	route(mux, "GET /api/v1/audit/evidence/key", gateAdmin, auditEvidenceKeyHandler(deps))
 	route(mux, "GET /api/v1/audit/siem", gateAdmin, auditSIEMHandler(deps))
+	route(mux, "GET /api/v1/audit/status", gateAdmin, auditStatusHandler(deps))
 	route(mux, "POST /api/v1/audit/siem/{sink}/reanchor", gateAdmin, auditSIEMReanchorHandler(deps))
 }
 
@@ -138,6 +152,8 @@ func auditVerifyHandler(d AuditDeps) http.HandlerFunc {
 			jsonError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		req.window.Key = d.checkpointKey()
+		req.window.Pruning = d.PruneBelowSignedCheckpoint
 		specs, err := chainsToVerify(r, pool)
 		if err != nil {
 			jsonError(w, err.Error(), http.StatusBadRequest)
@@ -213,7 +229,18 @@ func (q verifyRequest) verify(ctx context.Context, pool *pgxpool.Pool,
 	if q.windowed() {
 		return auditchain.Verify(ctx, pool, spec, q.window)
 	}
-	return auditchain.VerifyFromCheckpoint(ctx, pool, spec, q.full)
+	return auditchain.VerifyFromCheckpointKeyed(ctx, pool, spec, q.full, q.window.Key,
+		q.window.Pruning)
+}
+
+// checkpointKey is the key the chains' signed checkpoint links are
+// verified with: the evidence-signing key's public half (audit-03b).
+func (d AuditDeps) checkpointKey() *auditchain.TrustedKey {
+	if len(d.EvidenceKey) != ed25519.PrivateKeySize {
+		return nil
+	}
+	pub, _ := d.EvidenceKey.Public().(ed25519.PublicKey)
+	return &auditchain.TrustedKey{ID: evidence.KeyID(pub), Public: pub}
 }
 
 func seqWindow(r *http.Request) (auditchain.Window, error) {

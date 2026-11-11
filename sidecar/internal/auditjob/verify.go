@@ -36,6 +36,14 @@ type Source struct {
 	// full verifications, incremental from the newest checkpoint between
 	// them. 0 verifies every chain in full on every run.
 	FullVerifyHours int
+	// Signer, when set, signs each clean head into its chain as a
+	// checkpoint link (the evidence-signing key) and verifies the chains'
+	// checkpoint links with it.
+	Signer *auditchain.CheckpointSigner
+	// PruneBelowSignedCheckpoint is audit.prune_below_signed_checkpoint:
+	// after a clean full pass, remove the links below the newest signed
+	// checkpoint every SIEM sink has received. Needs Signer and Cursors.
+	PruneBelowSignedCheckpoint bool
 }
 
 // Run verifies every chain installed on src, from its newest checkpoint
@@ -100,6 +108,10 @@ func verifyAll(ctx context.Context, src Source, chains []string) pass {
 		}
 		if err := auditchain.StoreCheckpoint(ctx, src.Pool, rep); err != nil {
 			p.errs = append(p.errs, fmt.Errorf("auditjob: %s: %w", src.Name, err))
+			continue
+		}
+		if err := signAndPrune(ctx, src, spec, rep); err != nil {
+			p.errs = append(p.errs, err)
 		}
 	}
 	return p
@@ -113,7 +125,8 @@ func verifyChain(ctx context.Context, src Source, spec auditchain.Spec) (
 	if err != nil {
 		return auditchain.Report{}, err
 	}
-	return auditchain.VerifyFromCheckpoint(ctx, src.Pool, spec, full)
+	return auditchain.VerifyFromCheckpointKeyed(ctx, src.Pool, spec, full, src.trustedKey(),
+		src.PruneBelowSignedCheckpoint)
 }
 
 // record upserts one category's failing findings and resolves the rest.

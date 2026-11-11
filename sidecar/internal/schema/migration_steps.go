@@ -185,5 +185,8 @@ func trancheTwoMigrations() []namedStep {
 		{"ddlExplainEstimateSource", ddlExplainEstimateSource},           // rca-04
 		{"ddlGuardPrincipalChanges", ddlGuardPrincipalChanges},           // agentgov-06
 		{"ddlSourceFixDeployReportedAt", ddlSourceFixDeployReportedAt},   // mcp-06
+		{"ddlEvidenceSigningKey", ddlEvidenceSigningKey},                 // audit-10
+		{"ddlAuditChainMarkerOps", ddlAuditChainMarkerOps},               // audit-03b
+		{"ddlPolicyApprovalsID", ddlPolicyApprovalsID},                   // audit-11
 	}
 }

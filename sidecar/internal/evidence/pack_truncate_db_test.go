@@ -125,15 +125,17 @@ func TestWindowPackTruncationBoundary(t *testing.T) {
 	}
 }
 
-// A continuation of a file with no chain (decisions.json) holds an empty
-// chains.json.
-func TestWindowPackContinuationWithoutChain(t *testing.T) {
+// A continuation of decisions.json holds the decisions' chain proof
+// (audit-11: decisions were an unproven dump, and chains.json was empty).
+func TestWindowPackContinuationProvesDecisions(t *testing.T) {
 	pool := freshDB(t, "evidence_truncate_decisions")
 	seedAction(t, pool)
 	page := lastHour()
 	page.File = "decisions.json"
 	m, files := buildFrom(t, Sources{DB: pool}, page)
-	if len(m.Files) != 2 || strings.TrimSpace(string(files["chains.json"])) != "[]" {
+	p := proofOf(t, files, "decision")
+	if len(m.Files) != 2 || p.Verification == nil || p.Verification.Links != 1 ||
+		len(p.Verification.Problems) != 0 {
 		t.Fatalf("decisions continuation = %+v chains %s", m.Files, files["chains.json"])
 	}
 	if e := entry(t, m, "decisions.json"); e.Rows == nil || *e.Rows != 1 {

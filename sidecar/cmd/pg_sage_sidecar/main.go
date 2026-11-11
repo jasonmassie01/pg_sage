@@ -146,8 +146,9 @@ func main() {
 	shutdownProcess(sig, promServer)
 }
 
-// runSubcommandAndExit handles the vector-lab, bench, history and healthcheck
-// subcommands and --version, which exit without starting the sidecar.
+// runSubcommandAndExit handles the vector-lab, bench, history, evidence and
+// healthcheck subcommands and --version, which exit without starting the
+// sidecar.
 func runSubcommandAndExit() {
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
 		os.Exit(runHealthcheck(os.Args[2:], os.Stdout, os.Stderr))
@@ -166,6 +167,9 @@ func runSubcommandAndExit() {
 		}
 		os.Exit(runHistoryCommand(context.Background(), os.Args[2:], getenv, os.Stdout,
 			os.Stderr))
+	}
+	if len(os.Args) > 1 && os.Args[1] == evidenceSubcommand {
+		os.Exit(runEvidenceCommand(os.Args[2:], os.Stdout, os.Stderr))
 	}
 	if len(os.Args) > 1 && os.Args[1] == "--version" {
 		fmt.Println(versionLine())

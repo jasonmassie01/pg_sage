@@ -21,6 +21,9 @@ type AuditConfig struct {
 	// FullVerifyIntervalHours spaces the full passes; the verifications in
 	// between read only the links after the newest checkpoint.
 	FullVerifyIntervalHours int `yaml:"full_verify_interval_hours" doc:"Hours between full verifications of each audit chain; runs in between check only the links written since the last clean one. 0: always full. 0-8760. Default: 168."`
+	// PruneBelowSignedCheckpoint removes chain links already held by every
+	// SIEM sink (audit-03b); off by default.
+	PruneBelowSignedCheckpoint bool `yaml:"prune_below_signed_checkpoint" doc:"After a clean full verification, delete chain links below the newest signed checkpoint every SIEM sink received (live rows keep theirs). Needs the evidence key and a sink. Default: false."`
 }
 
 // AuditSIEMConfig ships every audit chain link to SIEM sinks as OCSF.
@@ -56,7 +59,7 @@ const SIEMWarningTokenOverHTTP = "token_over_http"
 
 // AuditEvidenceConfig configures evidence packs.
 type AuditEvidenceConfig struct {
-	SigningKeyEnv string `yaml:"signing_key_env" doc:"Environment variable (or its _FILE twin) holding an Ed25519 private key (PKCS#8 PEM) that signs evidence-pack manifests. Empty: packs are hashed (SHA256SUMS), not signed."`
+	SigningKeyEnv string `yaml:"signing_key_env" doc:"Env variable (or _FILE twin) holding an Ed25519 PKCS#8 PEM key that signs evidence packs. Empty: a key the sidecar generates and seals under encryption_key; no encryption_key: unsigned."`
 }
 
 // AuditPGAuditConfig configures pgaudit correlation.

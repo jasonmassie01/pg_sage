@@ -1199,14 +1199,54 @@ never logged; successful reads are not logged. Set `api.access_log: false`
 (restart to change) to turn it off; the auth, config and action tables
 above keep their own records either way.
 
-Both tables are subject to retention policies (configurable via `retention.actions_days`).
+### Retention
+
+Each audit table ages out on its own key; the hash chain is kept whole
+unless pruning is turned on.
+
+| Table | Ages out on | Notes |
+|---|---|---|
+| `sage.action_log` | `retention.actions_days` | Kept longer: successful actions that saved toil, and actions an avoided incident, an applied recommendation or an SRE maintenance proposal still refers to |
+| `sage.auth_audit` | `retention.auth_audit_days` | Default 365; 0 keeps it forever |
+| `sage.guard_pgaudit_events` | `retention.actions_days` | Correlated pgaudit records, in each monitored database |
+| `sage.guard_query_audit` | `agents.query.audit_retention_days` | Default 30, in each monitored database |
+| `sage.config_audit` | never | Kept: the trail of configuration changes |
+| `sage.fact_events` | never | Kept: who lifted a guard outlives the fact |
+| `sage.decision` | `retention.decisions_days` (withheld verdicts), `retention.actions_days` | Decisions behind an action, a verification or an open deadline are kept |
+| `sage.policy_approvals` | never | Deleted only with the policy version it approves |
+| `sage.audit_chain_link` | never | Kept whole, unless `audit.prune_below_signed_checkpoint` is on (see below) |
+
+A row removed by retention leaves a delete link in its chain, so
+verification still proves what was there.
 
 ### Tamper-Evident Chains and SIEM Export
 
 Each audit table (`action_log`, `auth_audit`, `config_audit`,
-`guard_query_audit`, `guard_pgaudit_events`, `fact_events`) is hash-chained: every write
-appends a link to `sage.audit_chain_link`, and every inserted row carries
-its own link. `GET /api/v1/audit/verify?database=<name>` (admin) checks a
+`guard_query_audit`, `guard_pgaudit_events`, `fact_events`, `decision`,
+`policy_approvals`) is hash-chained: every write appends a link to
+`sage.audit_chain_link`, and every inserted row carries its own link.
+
+The `decision` chain records the authority a change ran under. What was
+decided about (database, feature, intent, targets), the risk tier, the
+policy version and document hash, the evidence id and the agent
+provenance are sealed: rewriting the tier is reported as `row_edited`.
+The verdict, reason, evidence, guardrails, deadline, queue and action
+links and resolution are state, which pg_sage legitimately updates (an
+execute the executor turned into a block, a decision linked to its queue
+item); a change to them made behind the chain is `state_edited`.
+`repeat_count` and `last_seen_at` are not chained: they are telemetry,
+and an identical parked repeat appends no link. A repeat of an open
+decision at another risk tier no longer re-tiers it: the open row is
+resolved and the repeat is a new decision. The `policy_approvals` chain
+seals each approval (approver, reason, single-operator flag, time) and
+keeps its post-hoc `review_status` as state; the table gained an `id`
+column for it. In fleet mode decisions are chained in each monitored
+database and approvals in the control database. Rows written before the
+upgrade are legacy (`legacy_max_id`), as for the other chains. SIEM
+sinks see two new `log_name` values: `decision` (OCSF API Activity,
+naming the verdict and tier; an execute at tier high is Medium) and
+`policy_approvals` (Entity Management; a single-operator approval still
+awaiting review is Medium). `GET /api/v1/audit/verify?database=<name>` (admin) checks a
 chain; the scheduled verification (`audit.verify_interval_hours`) raises a
 critical `audit_chain_broken` finding on `audit_trail:<chain>` when one
 fails. A full verification reports, among others, `gap`, `hash_mismatch`,
@@ -1227,6 +1267,17 @@ links after it. A rewritten, deleted or cut-off checkpoint link is a
 pass. A chain that cannot be verified raises an
 `audit_chain_verification_failed` warning, and its open findings stay
 open. See [Audit chain verification](configuration.md#audit-chain-verification).
+
+With an evidence-signing key, each clean verification also signs the head
+it reached into the chain as a checkpoint link, which the SIEM receives
+like any link. A pruned chain (opt-in, `audit.prune_below_signed_checkpoint`)
+keeps only the links from a floor below a signed checkpoint that every sink
+has received, and verification starts there on the strength of that
+signature. A generated key proves that this deployment signed the
+checkpoint, not that its operator is independent: auditors who need that
+should set `audit.evidence.signing_key_env` and compare the SIEM's
+checkpoint events with `GET /api/v1/audit/evidence/key`. See
+[Signed checkpoints and pruning](configuration.md#signed-checkpoints-and-pruning).
 
 The canonical text a link hashes is pinned by golden hashes in CI on
 PostgreSQL 14-18 and under non-default `TimeZone`, `DateStyle`,
@@ -1345,14 +1396,132 @@ The database role a session logged in as decides.
   providers pg_sage's role is the configured user, including IAM and
   OAuth users.
 
+### Threat model
+
+Verification proves that every row of a chained table is the row its link
+sealed, that no link was removed or reordered, and that no row was written
+with the chain triggers bypassed. It proves this against the chain in the
+same database, so its strength depends on who can rewrite that chain:
+
+- **A writer with ordinary grants** (an application role, an agent, an
+  operator using the API) cannot edit an audit row unseen: the next full
+  verification reports `row_edited`, `row_missing` or `unchained_row`.
+- **The owner of the `sage.*` schema** (pg_sage's own role, or a
+  superuser) can disable the triggers and rewrite a whole chain, links
+  and rows together, so that it verifies clean. Only a copy kept off the
+  database catches that: the SIEM's copy (`audit.siem.sinks`), whose
+  events carry each link's hash, or signed checkpoints, whose signature
+  the database owner cannot forge without the evidence-signing key. Run
+  pg_sage with a role that owns nothing else, keep superuser access
+  separate, and export to a SIEM.
+- **A restore or PITR** moves a chain back; the SIEM cursor check reports
+  it as `audit_chain_regressed` (see above).
+- **Between full passes**, an edit of a row older than the newest
+  checkpoint is found by the next full pass
+  (`audit.full_verify_interval_hours`), not the next incremental one.
+
+### pgaudit records
+
+With `audit.pgaudit.correlate` on (the default), each monitored database
+where `pgaudit` is in `shared_preload_libraries` has the pgaudit records
+of pg_sage's actions and agent principals kept in
+`sage.guard_pgaudit_events`. pg_sage reads them from the server log, so
+log access must be configured (`logwatch.enabled`, which needs
+`rca.enabled`); without it the sidecar logs once that pgaudit is loaded
+but unread. pgaudit's own settings (`pgaudit.log`, `pgaudit.role`) are
+the operator's; pg_sage keeps only the records it can attribute (see
+[Attribution](#attribution-trusts-the-role-not-application_name)) and
+counts every record in
+`pg_sage_pgaudit_records_total{database,outcome}` (stored, dropped,
+evicted, requeued, unmatched).
+
+### Monitoring audit health
+
+Scheduled verification (`audit.verify_interval_hours`) keeps its last
+result per database and chain in the sidecar, which `/metrics` exports
+and `GET /api/v1/audit/status` (admin) serves. Neither verifies on
+demand; `GET /api/v1/audit/verify` does.
+
+| Series | Meaning |
+|---|---|
+| `pg_sage_audit_chain_ok{database,chain}` | 1 if the chain's last scheduled verification found no problem, 0 if it fails |
+| `pg_sage_audit_chain_verified_timestamp_seconds{database,chain}` | Unix time of the chain's last finished verification |
+| `pg_sage_audit_chain_problems{database,chain,kind}` | Problems that verification reported, by kind (`row_edited`, `gap`, ...); failing chains only |
+| `pg_sage_audit_chain_verify_errors_total{database}` | Runs that failed before they finished (a timeout, a lost connection); the chains keep their previous result |
+| `pg_sage_siem_lag_links{sink,source,chain}` | Links not yet exported to the sink: chain head minus the sink's cursor at its last attempt |
+| `pg_sage_siem_consecutive_failures{sink}` | Failed export passes in a row |
+| `pg_sage_siem_delivered_total{sink}` | Events the sink confirmed since the exporter started |
+
+Series carry database, chain, sink and problem-kind names only, never row
+content. Cardinality is databases x chains for the chain series and sinks
+x sources x chains for lag. Nothing is sampled before the first
+verification, and `GET /api/v1/audit/status` then answers
+`"verified_at": null`.
+
+In fleet mode verification and export run on the fleet leader only, so
+only the leader exports chain and SIEM series; a follower renders the
+families without samples and drops what it recorded while it led. Alert
+on the leader's series:
+
+```yaml
+- alert: PgSageAuditChainBroken
+  expr: pg_sage_audit_chain_ok == 0
+- alert: PgSageAuditVerificationStale
+  expr: time() - pg_sage_audit_chain_verified_timestamp_seconds > 2 * 24 * 3600
+- alert: PgSageSIEMBehind
+  expr: pg_sage_siem_lag_links > 1000 or pg_sage_siem_consecutive_failures > 5
+```
+
+(the stale threshold is twice the default `audit.verify_interval_hours` of
+24). The Settings page shows the same status to admins in its **Audit
+trail** card: each chain's state and last verification, SIEM failures and
+lag, whether evidence packs are signed, and an evidence download by action
+id or time window.
+
 ### Evidence Packs
 
 `GET /api/v1/audit/evidence?database=<name>&action_id=<id>` (admin) exports
 one change as a `.tar.gz`: `action.json`, `decision.json`, `policy.json`,
 `queue.json`, `verification.json`, `outcome.json`, `pgaudit.json`, the
 chain proof, a `manifest.json` with every file's SHA-256, and
-`SHA256SUMS`. With `audit.evidence.signing_key_env` set, the manifest is
-signed with Ed25519.
+`SHA256SUMS`. The chain proof is `chain.json` (the action's links, as
+before) and `chains.json`, which proves the action, its decision rows and
+the approvals of the policy versions they name: a decision or approval
+edited, or an approval deleted, behind the chain sets the manifest's
+`chain_ok` to `false`. The approvals proof verifies the whole
+`policy_approvals` chain, so an approval no query can list any more is
+still reported. The manifest is signed with Ed25519 (`manifest.sig`) by the
+first key that applies:
+
+1. **`audit.evidence.signing_key_env`**, the operator's own PKCS#8 PEM
+   key. When it is set it always wins; if it does not load, packs are
+   unsigned and an ERROR names the variable (the sidecar never falls back
+   to a key the operator did not pick).
+2. **The generated key**, when `encryption_key` is set (or generated).
+   On first use the sidecar creates one Ed25519 key and stores it in the
+   control database (the meta database in fleet mode) as the single row
+   of `sage.evidence_signing_key`, sealed under the encryption key like
+   notification secrets. Replicas share the row, restarts reuse it, and
+   an encryption-key rotation re-seals it. A row the encryption key cannot
+   open logs an ERROR and leaves packs unsigned; it is never replaced.
+3. **None.** Without either, packs are hashed only. Their manifest says
+   `"signed": false` and `"integrity": "accidental-corruption-only"`:
+   anyone who edits a file can regenerate `SHA256SUMS` and the manifest,
+   so the hashes catch accidents, not forgery. The download also carries
+   `X-Evidence-Signed: false`.
+
+A generated key proves that this pg_sage deployment wrote the pack. It
+does not prove the operator is independent of it: whoever runs the
+sidecar holds the key. Auditors who need that independence should have
+the key generated and held outside the deployment and supplied through
+`signing_key_env`.
+
+`GET /api/v1/audit/evidence/key` (admin) serves the public key:
+`{key_id, alg, public_key_pem, public_key, source}`, where `source` is
+`env` or `generated` and `public_key` is the hex form a manifest's
+`signer.public_key` holds. It returns 404 when packs are unsigned. Fetch
+it once, out of band, and keep it: a forged pack would name its forger's
+key in its own manifest.
 
 - **`policy.json`** holds the standing-policy version each of the action's
   decisions was made under, read by database scope and version from the
@@ -1372,8 +1541,11 @@ signed with Ed25519.
 `GET /api/v1/audit/evidence?database=<name>&from=<RFC 3339>&to=<RFC 3339>`
 exports a window of at most 31 days: `actions.json`, `auth_audit.json`,
 `config_audit.json`, `pgaudit.json`, `guard_query_audit.json`,
-`decisions.json` and `chains.json`, which verifies each chain over the
-positions of the rows the pack holds.
+`decisions.json`, `policy_approvals.json` (approvals made in the window,
+from the control database in fleet mode: those of the database's own and
+the global policy versions) and `chains.json`, which verifies each chain,
+`decision` and `policy_approvals` included, over the positions of the rows
+the pack holds.
 
 - **Fleet mode.** Sign-ins, user changes, evidence downloads and config
   changes are written to the control database, so `auth_audit.json` (the
@@ -1409,6 +1581,38 @@ negative `after_id` or a name that is not a window file is refused with
 400. Every download, continuations included, is recorded in
 `sage.auth_audit` as `evidence_exported`. Consumers that check `format`
 must accept `pg_sage-evidence/2`.
+
+#### Verifying a pack
+
+With the binary (`sage-sidecar` in the container image), offline:
+
+```bash
+curl -s -H "Cookie: $SESSION" https://sage.example.com/api/v1/audit/evidence/key | jq -r .public_key_pem > evidence-key.pem
+pg_sage_sidecar evidence verify pack.tar.gz --public-key evidence-key.pem
+```
+
+`pg_sage_sidecar evidence verify <pack> [--public-key <file>]` checks
+every file against `SHA256SUMS` and the manifest and, with `--public-key`
+(a PEM public key or its 64 hex characters), the signature and that the
+manifest names that key. Exit codes: `0` the pack verifies; `1` a file
+was altered or the signature does not verify; `2` usage, an unreadable
+file or a key that is not Ed25519 (the message names its type); `3` the
+pack is unsigned but a key was given. Without `--public-key` it checks the
+hashes only and says whether the pack is signed.
+
+With standard tools only:
+
+```bash
+mkdir pack && tar -xzf pack.tar.gz -C pack && cd pack
+sha256sum -c SHA256SUMS
+base64 -d manifest.sig > manifest.sig.bin
+openssl pkeyutl -verify -pubin -inkey ../evidence-key.pem -rawin -in manifest.json -sigfile manifest.sig.bin
+```
+
+`sha256sum -c SHA256SUMS` proves the files match the sums;
+`openssl pkeyutl -verify -rawin` (OpenSSL 3) proves the manifest, which
+lists every file's SHA-256, was signed by the trusted key. Also check that
+each file's hash in `manifest.json` matches (`evidence verify` does).
 
 ---
 

@@ -546,7 +546,7 @@
   "audit.evidence.signing_key_env": {
     "type": "string",
     "default": "",
-    "doc": "Environment variable (or its _FILE twin) holding an Ed25519 private key (PKCS#8 PEM) that signs evidence-pack manifests. Empty: packs are hashed (SHA256SUMS), not signed.",
+    "doc": "Env variable (or _FILE twin) holding an Ed25519 PKCS#8 PEM key that signs evidence packs. Empty: a key the sidecar generates and seals under encryption_key; no encryption_key: unsigned.",
     "class": "safety_critical"
   },
   "audit.full_verify_interval_hours": {
@@ -560,6 +560,12 @@
     "default": true,
     "doc": "Where pgaudit is installed and the server log is readable, keep the pgaudit records of pg_sage actions and agent principals. Default: true.",
     "class": "operator_preference"
+  },
+  "audit.prune_below_signed_checkpoint": {
+    "type": "bool",
+    "default": false,
+    "doc": "After a clean full verification, delete chain links below the newest signed checkpoint every SIEM sink received (live rows keep theirs). Needs the evidence key and a sink. Default: false.",
+    "class": "safety_critical"
   },
   "audit.siem.batch_size": {
     "type": "int",

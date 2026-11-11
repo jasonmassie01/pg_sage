@@ -3333,6 +3333,7 @@ and age out with `snapshots_days`; nothing is rewritten.
 |---|---|---|
 | `audit.verify_interval_hours` | `24` | Hours between scheduled verifications of the audit hash chains, on the fleet leader, per database. `0` disables them. 0-168. |
 | `audit.full_verify_interval_hours` | `168` | Hours between full verifications of each chain. The scheduled runs in between are incremental. `0` verifies every chain in full every time. 0-8760. |
+| `audit.prune_below_signed_checkpoint` | `false` | After a clean full verification, delete the chain links below the newest signed checkpoint that every SIEM sink has received. See [Signed checkpoints and pruning](#signed-checkpoints-and-pruning). |
 
 Each clean verification stores a checkpoint in `sage.audit_chain_checkpoint`
 of the monitored database: the position and hash of the head it reached.
@@ -3350,6 +3351,11 @@ managed providers.
   time). It runs when no checkpoint exists, when the interval has passed,
   or on demand.
 - **window**: `from_seq`/`to_seq` on the API verifies an explicit range.
+
+Each scheduled run's result is exported as `pg_sage_audit_chain_ok`,
+`pg_sage_audit_chain_verified_timestamp_seconds` and
+`pg_sage_audit_chain_problems`, and served by `GET /api/v1/audit/status`
+(admin); see [Monitoring audit health](security.md#monitoring-audit-health).
 
 `GET /api/v1/audit/verify?database=<name>` (admin) verifies since each
 chain's newest checkpoint, or in full when a chain has none. Add
@@ -3371,6 +3377,56 @@ the audit table, a lost connection), it raises an
 `audit_chain_verification_failed` warning on `audit_trail:<chain>`. Its
 open `audit_chain_broken` finding stays open. The other chains are still
 verified.
+
+#### Signed checkpoints and pruning
+
+When pg_sage has an evidence-signing key (`encryption_key` set, or
+`audit.evidence.signing_key_env`; see
+[security.md](security.md#evidence-packs)), each clean scheduled
+verification also signs the head it reached and appends that signature to
+the chain as a **checkpoint link** (op `C`, no row). The signature is
+Ed25519 over `pg_sage audit checkpoint v1|<chain>|<seq>|<hash>`, under the
+evidence key's id. A head that is itself a checkpoint link is not signed
+again, so an idle chain gains no links. The SIEM export sends each
+checkpoint link as an `Audit Checkpoint Signed` event, so the SIEM holds a
+signed statement of the chain's hash at that position. Full passes, and
+`GET /api/v1/audit/verify`, check every checkpoint link signed by the
+current key: a bad signature, or a signed link that is gone or rewritten,
+is the problem kind `signed_checkpoint`. Checkpoint links signed by another
+key id (a rotated key) are skipped.
+
+`audit.prune_below_signed_checkpoint` (default `false`) bounds the link
+table, whose links outlive the audit rows retention deletes. After a clean
+**full** verification of a chain, pg_sage finds the newest checkpoint link
+that every SIEM sink of that chain has received (each sink's cursor is at
+or past it), checks its signature and the link it signed, and deletes the
+links below the floor. It then appends a **prune link** (op `P`), which the
+SIEM receives as `Audit Trail Pruned` (medium severity). The floor is the
+signed position, or the first link of a row still in the table when that
+is lower, so every row still present keeps all its links and is verified
+as before. Nothing is pruned without an evidence-signing key, without a
+SIEM sink, or before every sink holds the checkpoint link. A row inserted
+below the floor that is gone without a delete or truncate link refuses the
+prune (the next full pass reports it as `row_missing`).
+
+A full verification of a pruned chain starts at the floor and reports
+`from_checkpoint` (the signed position) and `pruned_below` (the floor). It
+rests on the checkpoint's signature, so it needs the key: without it, or
+under another key, the chain reports `signed_checkpoint`. Links below the
+floor are no longer in the database; their copy is the SIEM's. A full
+verification that runs while a prune commits may report a gap at the old
+lowest links; the next run is clean.
+
+A prune link is honoured only while `audit.prune_below_signed_checkpoint`
+is on, for the scheduled verifications and `GET /api/v1/audit/verify`
+alike. With the switch off, a full pass of a chain that holds one starts at
+link 1, reports the removed links as a `gap` and the prune link as
+`signed_checkpoint`: anyone able to append a link could otherwise write a
+prune link and erase signed history without a trace. Turning the switch
+off after a prune therefore fails the chain's full passes until it is
+turned back on. Changing the evidence-signing key after a prune has the
+same effect (the anchoring checkpoint is signed by the old key), so keep
+the key, or restore it, for as long as a chain rests on its checkpoints.
 
 ### SIEM export delivery
 
@@ -3421,7 +3477,7 @@ Each entry of `audit.siem.sinks` takes these transport keys:
 | `ca_file` | `https://` http/otlp, syslog `network: tls` | PEM bundle the receiver's certificate must chain to. It replaces the system roots for this sink only (pinned). Without it the sink uses the system roots, as before, so `SSL_CERT_FILE` still applies where Go reads it. |
 | `client_cert_file`, `client_key_file` | same | PEM client certificate and key for mutual TLS. Set both or neither. |
 | `allow_insecure_http` | `http://` http/otlp | Accept a `token_env` token over plain http. Default `false`. |
-| `chains` | every sink | Chains to export; empty means all. Each must be `action_log`, `auth_audit`, `config_audit`, `guard_query_audit` or `pgaudit_events`. A misspelt name stops the config from loading. |
+| `chains` | every sink | Chains to export; empty means all. Each must be `action_log`, `auth_audit`, `config_audit`, `guard_query_audit`, `pgaudit_events`, `fact_events`, `decision` or `policy_approvals`. A misspelt name stops the config from loading. |
 
 - The files are read once at start; a missing file or one that holds no
   PEM turns SIEM export off, and the startup log names the sink and the

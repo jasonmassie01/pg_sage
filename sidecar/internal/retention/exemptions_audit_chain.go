@@ -12,4 +12,6 @@ var auditChainExemptions = map[string]string{
 	"guard_identity_bindings": "external identity to principal bindings, current " +
 		"state (deleted with the principal)",
 	"siem_cursor": "one row per SIEM sink, source and chain: its export position",
+	"evidence_signing_key": "one row: the sealed key that signs evidence packs; " +
+		"deleting it would stop packs from verifying under the published key",
 }
