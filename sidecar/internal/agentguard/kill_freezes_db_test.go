@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
@@ -156,17 +157,25 @@ func TestOpenFreezes_AtMostTheLimit(t *testing.T) {
 }
 
 func TestOpenFreezes_ExactlyTheLimitIsNotTruncated(t *testing.T) {
+	// boundary: exactly MaxListedFreezes open rows. One REPEATABLE READ
+	// snapshot, so a freeze another package's test commits meanwhile on the
+	// shared server cannot push the count past the limit; rolled back.
 	pool := livePool(t)
-	sw := freezeSwitch(t, pool)
 	ctx := context.Background()
+	tx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback(ctx) }()
 	var open int
-	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM sage.guard_freezes
+	require.NoError(t, tx.QueryRow(ctx, `SELECT count(*) FROM sage.guard_freezes
 		WHERE cleared_at IS NULL`).Scan(&open))
+	require.True(t, open <= MaxListedFreezes, "already %d open freezes", open)
 	prefix := uniqName("fz-edge")
 	for i := open; i < MaxListedFreezes; i++ {
-		openFlag(t, pool, "database", fmt.Sprintf("%s-%03d", prefix, i), false)
+		_, err = tx.Exec(ctx, `INSERT INTO sage.guard_freezes (scope, target, reason,
+			set_by) VALUES ('database', $1, 'edge', 'a@x')`, fmt.Sprintf("%s-%03d", prefix, i))
+		require.NoError(t, err)
 	}
-	list, err := sw.OpenFreezes(ctx)
+	list, err := listFreezes(ctx, tx)
 	require.NoError(t, err)
 	require.Equal(t, MaxListedFreezes, len(list.Items))
 	require.False(t, list.Truncated, "exactly the limit is the whole list")
