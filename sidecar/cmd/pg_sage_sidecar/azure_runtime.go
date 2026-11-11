@@ -14,6 +14,11 @@ import (
 // newAzureTokenSource builds the ARM credential; a variable for tests.
 var newAzureTokenSource = azure.DefaultTokenSource
 
+// azureNoARM prefixes why a flexible server has no ARM adapter: proposals
+// stay fill-in templates and the WAL-slot cap stays guidance-only.
+const azureNoARM = "azure server parameters are not read over ARM (proposals are fill-in " +
+	"templates; the WAL-slot cap is guidance-only): "
+
 // azureManagedConfig returns the Azure server-parameter adapter for an
 // Azure target, or nil with a note explaining why server parameters stay
 // guidance-only. It returns nil and "" for other providers. The server name
@@ -40,22 +45,21 @@ func azureManagedConfig(
 	}
 	switch {
 	case cfg.Azure.SubscriptionID == "" || cfg.Azure.ResourceGroup == "":
-		return nil, "azure server parameters are guidance-only: set " +
-			"azure.subscription_id and azure.resource_group to apply them"
+		return nil, azureNoARM + "set azure.subscription_id and azure.resource_group"
 	case server == "":
-		return nil, "azure server parameters are guidance-only: host " + host +
+		return nil, azureNoARM + "host " + host +
 			" does not name the server; set azure.server_name"
 	}
 	token, err := newAzureTokenSource()
 	if err != nil {
-		return nil, "azure server parameters are guidance-only: " + err.Error()
+		return nil, azureNoARM + err.Error()
 	}
 	adapter, err := azure.NewParameterAdapter(azure.Server{
 		SubscriptionID: cfg.Azure.SubscriptionID,
 		ResourceGroup:  cfg.Azure.ResourceGroup, Name: server,
 	}, token)
 	if err != nil {
-		return nil, "azure server parameters are guidance-only: " + err.Error()
+		return nil, azureNoARM + err.Error()
 	}
 	return adapter, fmt.Sprintf("azure server %s: the WAL-slot cap (max_slot_wal_keep_size) "+
 		"applies through ARM; other server parameters become operator-approved proposals "+

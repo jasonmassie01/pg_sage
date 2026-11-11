@@ -48,6 +48,30 @@ func TestAzureStartupNoteNamesOnlyTheWALSlotCap(t *testing.T) {
 	}
 }
 
+// Without the ARM adapter the note says what is lost (the parameter reads
+// for proposals and the WAL-slot cap) and never that pg_sage would apply
+// server parameters once the azure: section is set.
+func TestAzureNoAdapterNotesDoNotPromiseParameterWrites(t *testing.T) {
+	stubAzureToken(t, nil)
+	for _, tc := range []struct{ sub, rg, host, want string }{
+		{"", "", "srv-1.postgres.database.azure.com", "azure.subscription_id"},
+		{"s", "rg", "10.0.0.5", "azure.server_name"},
+	} {
+		adapter, note := azureManagedConfig(azureCfg(tc.sub, tc.rg, ""), "azure", tc.host)
+		if adapter != nil {
+			t.Fatalf("%s: adapter = %T, want none", tc.want, adapter)
+		}
+		for _, want := range []string{tc.want, "fill-in templates", "WAL-slot cap"} {
+			if !strings.Contains(note, want) {
+				t.Fatalf("note %q lacks %q", note, want)
+			}
+		}
+		if strings.Contains(note, "apply them") {
+			t.Fatalf("stale promise that pg_sage applies parameters: %q", note)
+		}
+	}
+}
+
 func TestManagedChangeResolverPrefersTelemetryThenAzure(t *testing.T) {
 	stubAzureToken(t, nil)
 	adapter, _ := azureManagedConfig(azureCfg("s", "rg", ""), "azure",
