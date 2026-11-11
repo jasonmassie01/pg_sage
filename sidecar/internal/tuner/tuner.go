@@ -326,7 +326,8 @@ func (t *Tuner) processCandidate(
 	// (roadmap 2.2); this pass is the deterministic rules only.
 	prescriptions := t.prescribeAll(symptoms)
 	if len(prescriptions) == 0 {
-		return nil
+		// The advice and ANALYZE findings split off above still stand.
+		return staleFindings
 	}
 
 	combined := t.combinedHint(prescriptions)
