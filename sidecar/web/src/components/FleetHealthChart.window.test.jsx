@@ -4,7 +4,7 @@ import { FleetHealthChart } from './FleetHealthChart'
 import { TimeRangePicker } from './TimeRangePicker'
 import { TimeRangeProvider } from '../context/TimeRangeContext'
 import { stubFetch } from '../test/fetchStub'
-import { resetVisibility } from '../test/visibility'
+import { hideTab, resetVisibility, showTab } from '../test/visibility'
 
 // dashboard-07: the #/advanced health chart asks for the picker's window,
 // computed when it fetches. The 30 s time tick must not refetch it between
@@ -114,6 +114,22 @@ describe('FleetHealthChart window', () => {
     const fetch = renderChart()
     await advance(0)
     expectWindowAt(windowOf(fetch, 0), NOW, 24 * HOUR)
+  })
+
+  it('fetches once with a fresh window when a hidden tab is shown', async () => {
+    const fetch = renderChart()
+    await advance(0)
+    act(() => hideTab())
+    await advance(90000)
+    expect(fetch).toHaveBeenCalledTimes(1)
+    act(() => showTab())
+    await advance(0)
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expectWindowAt(windowOf(fetch, 1), NOW + 90000, 24 * HOUR)
+    await advance(59999)
+    expect(fetch).toHaveBeenCalledTimes(2)
+    await advance(1)
+    expect(fetch).toHaveBeenCalledTimes(3)
   })
 
   it('ends a window that starts on a minute boundary at that minute', async () => {
