@@ -112,13 +112,62 @@ export function casePresentation(row) {
     consequence = 'This may delay requests that use the query. The affected applications and cause have not been established.'
   }
 
-  const whyNow = row.why_now?.trim()
-  const assessed = whyNow && !/^(not urgent|critical severity requires immediate review)$/i.test(whyNow)
   return {
     title, observed, consequence, glossary,
-    attention: assessed ? whyNow : 'Urgency not assessed. Severity is the analyzer’s classification; it does not establish a deadline or user impact.',
+    attention: urgencyAttention(row), recurrence: recurrenceLine(row.recurrence),
     category,
   }
+}
+
+const SEVERITY_NOTE = 'Severity is the analyzer’s classification; it does not establish a deadline or user impact.'
+
+function plural(n, unit) {
+  return `${n} ${unit}${n === 1 ? '' : 's'}`
+}
+
+// Same wording as the API's cases.HumanDuration.
+function humanDuration(seconds) {
+  if (seconds < 3600) return plural(Math.max(1, Math.round(seconds / 60)), 'minute')
+  if (seconds < 2 * 86400) return plural(Math.round(seconds / 3600), 'hour')
+  return plural(Math.round(seconds / 86400), 'day')
+}
+
+// The producer's time to impact with its basis (cases-07). A missing,
+// non-positive or non-finite number is never shown as a deadline.
+function urgencyAttention(row) {
+  const urgency = row.urgency
+  const seconds = measurement(urgency?.time_to_impact_seconds)
+  if (urgency?.assessed && seconds !== null && seconds > 0) {
+    const basis = urgency.basis ? ` (${urgency.basis})` : ''
+    return `About ${humanDuration(seconds)} ${urgency.impact || 'until impact'}${basis}`
+  }
+  if (urgency && !urgency.assessed && urgency.basis) {
+    return `Urgency not assessed: ${urgency.basis}. ${SEVERITY_NOTE}`
+  }
+  const whyNow = row.why_now?.trim()
+  const legacy = whyNow && !urgency?.assessed &&
+    !/^(not urgent|critical severity requires immediate review)$/i.test(whyNow)
+  return legacy ? whyNow : `Urgency not assessed. ${SEVERITY_NOTE}`
+}
+
+function ordinal(n) {
+  const tens = n % 100
+  if (tens >= 11 && tens <= 13) return `${n}th`
+  return `${n}${{ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th'}`
+}
+
+// "4th occurrence; previous resolved 2026-11-02" for a recurring incident.
+function recurrenceLine(recurrence) {
+  if (!recurrence) return null
+  const count = recurrence.count
+  if (recurrence.history_unavailable || !Number.isInteger(count) || count < 2) {
+    return 'Recurring incident; occurrence history unavailable'
+  }
+  const resolved = recurrence.previous_resolved_at ? new Date(recurrence.previous_resolved_at) : null
+  const when = resolved && !Number.isNaN(resolved.getTime())
+    ? `previous resolved ${resolved.toISOString().slice(0, 10)}`
+    : 'previous resolution time unknown'
+  return `${ordinal(count)} occurrence; ${when}`
 }
 
 export function actionAvailability(row) {
