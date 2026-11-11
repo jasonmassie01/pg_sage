@@ -9,6 +9,11 @@ type User struct {
 	Role      string // "admin", "operator", "viewer"
 	CreatedAt time.Time
 	LastLogin *time.Time
+	// HasPassword is false for an SSO-only account (no password hash).
+	HasPassword bool
+	// MustChangePassword holds the session to the password change form
+	// (an admin reset or a generated bootstrap password, apiauth-03).
+	MustChangePassword bool
 }
 
 // Session represents an active login session.

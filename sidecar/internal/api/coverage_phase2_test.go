@@ -2164,7 +2164,7 @@ func TestPhase2_CreateUserHandler_RealDB(t *testing.T) {
 	phase2CleanTables(t, pool, ctx)
 
 	handler := createUserHandler(pool)
-	body := `{"email":"new@test.com","password":"password","role":"viewer"}`
+	body := `{"email":"new@test.com","password":"password-twelve","role":"viewer"}`
 	req := httptest.NewRequest("POST",
 		"/api/v1/users", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -2196,7 +2196,7 @@ func TestPhase2_CreateUserHandler_DuplicateEmail(
 	}
 
 	handler := createUserHandler(pool)
-	body := `{"email":"dup@test.com","password":"password","role":"viewer"}`
+	body := `{"email":"dup@test.com","password":"password-twelve","role":"viewer"}`
 	req := httptest.NewRequest("POST",
 		"/api/v1/users", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")

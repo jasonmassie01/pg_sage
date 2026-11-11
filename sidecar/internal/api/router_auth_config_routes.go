@@ -22,6 +22,8 @@ func registerAuthRoutes(
 	route(mux, "GET /api/v1/auth/me", gateViewer, http.HandlerFunc(meHandler()))
 	route(mux, "DELETE /api/v1/auth/sessions", gateViewerWrite,
 		http.HandlerFunc(signOutOtherSessionsHandler(pool)))
+	route(mux, "PUT /api/v1/auth/password", gateViewerWrite,
+		http.HandlerFunc(changePasswordHandler(pool)))
 
 	// OAuth routes (always registered; return disabled if not configured).
 	route(mux, "GET /api/v1/auth/oauth/config", gatePublic,
@@ -63,6 +65,9 @@ func registerUserRoutes(
 	statusH := http.HandlerFunc(
 		setUserStatusHandler(pool))
 	route(mux, "PUT /api/v1/users/{id}/status", gateAdmin, statusH)
+
+	route(mux, "POST /api/v1/users/{id}/password-reset", gateAdmin,
+		http.HandlerFunc(resetPasswordHandler(pool)))
 }
 
 func registerConfigRoutesRuntime(

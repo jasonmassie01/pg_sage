@@ -127,6 +127,8 @@ var routeProbes = []routeProbe{
 	// (added with the registry; TestRouterTable_ProbesCoverRegistry keeps
 	// the list complete).
 	{"DELETE", "/api/v1/auth/sessions"},
+	{"PUT", "/api/v1/auth/password"},           // apiauth-03
+	{"POST", "/api/v1/users/7/password-reset"}, // apiauth-03
 	{"DELETE", "/api/v1/mcp/tokens/7"},
 	{"GET", "/api/v1/action-outcomes"},
 	{"GET", "/api/v1/agent-classifications/7"},

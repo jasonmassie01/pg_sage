@@ -17,7 +17,8 @@ const userContextKey contextKey = "sage_user"
 
 // SessionAuthMiddleware validates the sage_session cookie and sets the
 // user in the request context. Skips auth for login, health, and
-// static file paths.
+// static file paths. A user whose password must change reaches only the
+// change form, /auth/me and logout (apiauth-03).
 func SessionAuthMiddleware(
 	pool *pgxpool.Pool,
 ) func(http.Handler) http.Handler {
@@ -57,7 +58,7 @@ func SessionAuthMiddleware(
 			ctx := context.WithValue(
 				r.Context(), userContextKey, user,
 			)
-			next.ServeHTTP(w, r.WithContext(ctx))
+			requirePasswordChanged(next).ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }

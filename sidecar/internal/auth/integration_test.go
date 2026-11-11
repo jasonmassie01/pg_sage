@@ -44,7 +44,9 @@ func setupTestPool(t *testing.T) *pgxpool.Pool {
 		ADD COLUMN IF NOT EXISTS oauth_provider TEXT DEFAULT '',
 		ADD COLUMN IF NOT EXISTS oauth_issuer TEXT,
 		ADD COLUMN IF NOT EXISTS oauth_subject TEXT,
-		ADD COLUMN IF NOT EXISTS disabled_at TIMESTAMPTZ;
+		ADD COLUMN IF NOT EXISTS disabled_at TIMESTAMPTZ,
+		ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT false,
+		ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMPTZ;
 		ALTER TABLE sage.users ALTER COLUMN password DROP NOT NULL`)
 	if err != nil {
 		t.Fatalf("adding OAuth identity fields: %v", err)

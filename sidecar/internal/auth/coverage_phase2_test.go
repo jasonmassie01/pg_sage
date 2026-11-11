@@ -101,6 +101,10 @@ func setupPhase2Pool(t *testing.T) *pgxpool.Pool {
 			ADD COLUMN IF NOT EXISTS oauth_subject TEXT;
 		ALTER TABLE sage.users
 			ADD COLUMN IF NOT EXISTS disabled_at TIMESTAMPTZ;
+		ALTER TABLE sage.users
+			ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT false;
+		ALTER TABLE sage.users
+			ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMPTZ;
 		CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oauth_identity
 			ON sage.users (oauth_issuer, oauth_subject)
 			WHERE oauth_issuer IS NOT NULL;

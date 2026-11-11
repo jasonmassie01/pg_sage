@@ -12,8 +12,11 @@ import (
 	"github.com/pg-sage/sidecar/internal/auth"
 )
 
-// pgForeignKeyViolation is SQLSTATE foreign_key_violation.
-const pgForeignKeyViolation = "23503"
+// pgForeignKeyViolation and pgUniqueViolation are SQLSTATEs.
+const (
+	pgForeignKeyViolation = "23503"
+	pgUniqueViolation     = "23505"
+)
 
 // userIDParam reads the {id} path value; it reports false after a 400.
 func userIDParam(w http.ResponseWriter, r *http.Request) (int, bool) {

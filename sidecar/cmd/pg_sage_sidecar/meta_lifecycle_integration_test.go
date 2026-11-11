@@ -55,6 +55,13 @@ func metaLifecycleFixture(t *testing.T) (*metaDBState, store.DatabaseInput, int)
 		Scan(&userID); err != nil {
 		t.Fatal(err)
 	}
+	// An earlier test may have created this admin through the generated
+	// bootstrap path, which forces a password change (apiauth-03); these
+	// tests need an admin who has already changed it.
+	if _, err := p.Exec(ctx, "UPDATE sage.users SET must_change_password = false "+
+		"WHERE id = $1", userID); err != nil {
+		t.Fatal(err)
+	}
 	conn := p.Config().ConnConfig
 	input := store.DatabaseInput{Name: "managed-a", Host: conn.Host, Port: int(conn.Port),
 		DatabaseName: conn.Database, Username: conn.User, Password: conn.Password,
