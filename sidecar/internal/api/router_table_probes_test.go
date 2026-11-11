@@ -166,6 +166,7 @@ var routeProbes = []routeProbe{
 	{"GET", "/api/v1/deployment/status"},
 	{"GET", "/api/v1/derived-settings"},
 	{"GET", "/api/v1/facts"},
+	{"GET", "/api/v1/facts/coverage"},
 	{"GET", "/api/v1/facts/match"},
 	{"GET", "/api/v1/first-look"},
 	{"GET", "/api/v1/lakebase-observability/history"},

@@ -17,7 +17,9 @@ import (
 // (?status=a,b, ?type=); POST /api/v1/facts declares an operator's fact,
 // confirmed by the declaration; POST /api/v1/facts/{id}/confirm|reject|
 // expire decides one; GET /api/v1/facts/match?object=... answers which
-// facts are about given objects (findings, approval cards). Every
+// facts are about given objects (findings, approval cards); GET
+// /api/v1/facts/coverage?kind=&subject= answers which objects a subject
+// matches today (facts-09), before anyone confirms or declares it. Every
 // signed-in role reads; operators and admins decide. Confirmed facts only
 // narrow or redirect what pg_sage does.
 
@@ -32,6 +34,7 @@ func registerFactRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
 	h := factHandlers{mgr: mgr}
 	route(mux, "GET /api/v1/facts", gateViewer, http.HandlerFunc(h.list))
 	route(mux, "GET /api/v1/facts/match", gateViewer, http.HandlerFunc(h.match))
+	route(mux, "GET /api/v1/facts/coverage", gateViewer, http.HandlerFunc(h.coverage))
 	route(mux, "POST /api/v1/facts", gateOperator, http.HandlerFunc(h.declare))
 	for _, verb := range []string{"confirm", "reject", "expire"} {
 		route(mux, "POST /api/v1/facts/{id}/"+verb, gateOperator, h.decide(verb))
@@ -222,6 +225,24 @@ func (h factHandlers) match(w http.ResponseWriter, r *http.Request) {
 		out[object] = entry
 	}
 	jsonResponse(w, map[string]any{"database": inst.Name, "objects": out})
+}
+
+// coverage lists the objects ?kind= and ?subject= match on one database:
+// at most facts.CoverageLimit names and whether there were more.
+func (h factHandlers) coverage(w http.ResponseWriter, r *http.Request) {
+	inst, ok := h.target(w, r)
+	if !ok {
+		return
+	}
+	q := r.URL.Query()
+	got, err := facts.CoverageOf(r.Context(), inst.Pool, facts.Kind(q.Get("kind")),
+		q.Get("subject"))
+	if err != nil {
+		writeFactError(w, r, err)
+		return
+	}
+	jsonResponse(w, map[string]any{"database": inst.Name, "objects": got.Objects,
+		"truncated": got.Truncated})
 }
 
 func writeFactError(w http.ResponseWriter, r *http.Request, err error) {

@@ -3,6 +3,7 @@ import {
   FACT_TYPES, KINDS_BY_TYPE, SUBJECT_PLACEHOLDERS, WINDOW_KINDS,
   declareBody, declareFact, declareReady,
 } from '../../lib/facts'
+import { FactCoverage } from './FactCoverage'
 
 // DeclareFactForm lets an operator or admin state a fact about one
 // database. A declared fact is confirmed by the declaration, so it binds
@@ -109,6 +110,9 @@ export function DeclareFactForm({ database, onDeclared }) {
         </p>
       )}
       <DeclareFields form={form} set={set} setType={setType} />
+      <FactCoverage database={oneDatabase ? database : ''} kind={form.kind}
+        subject={form.subject} testId="declare-coverage"
+        key={`${form.kind}:${form.subject.trim()}`} />
       <DeclareFooter busy={busy} ready={oneDatabase && declareReady(form)}
         error={error} declared={declared} />
     </form>
