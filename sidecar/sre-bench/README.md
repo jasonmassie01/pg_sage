@@ -444,7 +444,8 @@ binary's commit (`--commit SHA` names another sidecar's), and copies both, atomi
 bundle first, into `sre.autonomy.bench_results_path` from the config file (exit 2 when it
 is not set). The hourly ingest then stores the report as a signed release report. An
 admin can instead upload both to `POST /api/v1/sre/autonomy/bench-results` as
-`multipart/form-data` parts `report` and `bundle` (1 MiB each).
+`multipart/form-data` parts `report` and `bundle` (at most 1 MiB together; install
+larger reports with `bench install`).
 
 Model-root authority (the per-family lift above) counts only a signed release or
 local-run report stamped with the running build. A report uploaded without its bundle,

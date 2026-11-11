@@ -23,7 +23,8 @@ type BenchVerifier interface {
 	Verify(report, bundle []byte) (benchsig.Signature, error)
 }
 
-// maxBenchPart bounds each part of a signed upload.
+// maxBenchPart bounds a signed upload, both parts together, as the API's
+// 1 MiB request limit (maxBodyMiddleware) does.
 const maxBenchPart = 1 << 20
 
 // benchParts are a signed upload's report and bundle.
@@ -47,7 +48,7 @@ func (h autonomyHandlers) benchUploadSigned(w http.ResponseWriter, r *http.Reque
 			"signature_unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 2*maxBenchPart+64<<10)
+	r.Body = http.MaxBytesReader(w, r.Body, maxBenchPart)
 	parts, err := readBenchParts(r)
 	if err != nil {
 		sreErrorCode(w, err.Error(), "invalid_request", http.StatusBadRequest)
@@ -72,7 +73,7 @@ func (h autonomyHandlers) benchUploadSigned(w http.ResponseWriter, r *http.Reque
 }
 
 // readBenchParts reads exactly one report and one bundle part, each at
-// most maxBenchPart bytes.
+// most maxBenchPart bytes (so is the whole upload).
 func readBenchParts(r *http.Request) (benchParts, error) {
 	mr, err := r.MultipartReader()
 	if err != nil {

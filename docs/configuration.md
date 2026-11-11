@@ -2425,8 +2425,8 @@ L2 needs a PGIncidentBench report for the family. You do not have to copy CI art
   atomically, into `bench_results_path` (it exits 2 when that is not set), where the
   hourly ingest stores it as a signed release report. An admin can instead upload both
   to `POST /api/v1/sre/autonomy/bench-results` as `multipart/form-data` parts `report`
-  and `bundle` (1 MiB each); a JSON body stays unsigned. Each database's ledger in a
-  fleet ingests from the shared path.
+  and `bundle` (at most 1 MiB together); a JSON body stays unsigned. Each database's
+  ledger in a fleet ingests from the shared path.
 
 The Path to next level panel shows each family's report and where it came from. To check
 a downloaded report by hand: `pg_sage bench verify --commit <sha> pgincidentbench.json`
