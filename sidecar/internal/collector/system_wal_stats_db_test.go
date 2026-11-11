@@ -3,6 +3,7 @@ package collector
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 // advisors-05 on real PostgreSQL (14+): pg_stat_wal and the checkpointer
@@ -20,10 +21,15 @@ func TestSystemWALStatsDB_CheckpointAndWriteBurst(t *testing.T) {
 	if _, err := pool.Exec(ctx, `CHECKPOINT`); err != nil {
 		t.Fatalf("checkpoint: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `SELECT pg_stat_force_next_flush()`); err != nil {
-		t.Logf("pg_stat_force_next_flush unavailable (PG14 flushes itself): %v", err)
-	}
+	// Backends report their WAL usage asynchronously (PG14's collector
+	// every 500 ms; PG15+ at most once a second, or 10 s once idle), so the
+	// burst shows up in pg_stat_wal a little later: collect until it does.
 	second := collectAndPublish(t, c)
+	for deadline := time.Now().Add(20 * time.Second); second.System.WALBytes-
+		first.System.WALBytes < 3000*1000 && time.Now().Before(deadline); {
+		time.Sleep(500 * time.Millisecond)
+		second = collectAndPublish(t, c)
+	}
 	f, s := first.System, second.System
 	if f.WALStatsEpoch.IsZero() || !f.WALStatsEpoch.Equal(s.WALStatsEpoch) {
 		t.Fatalf("WAL stats epoch %v -> %v, want known and unchanged", f.WALStatsEpoch,
