@@ -538,6 +538,58 @@ Scope: `propose`
 | `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
 | `proposal_id` | string | yes | format uuid |
 
+### `sre_refresh_table_evidence`
+
+Re-read stat_tables once for a table a concluded or inconclusive investigation observed, so a statistics proposal can cite evidence under 15 minutes old. Refused when the table's database or table OID changed; at most once a minute per investigation. Never executes a change.
+
+Scope: `propose`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
+| `investigation_id` | string | yes | format uuid |
+| `schema` | string | yes |  |
+| `table` | string | yes |  |
+
+### `sre_propose_statistics`
+
+Propose CREATE STATISTICS on columns of a table the investigation observed, as your explicit hypothesis, with its repair contract and policy verdict. pg_sage cites the newest matching stat_tables evidence itself. Never executes.
+
+Scope: `propose`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `columns` | array of string | yes | at most 8 items |
+| `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
+| `investigation_id` | string | yes | format uuid |
+| `kinds` | array of string | no |  |
+| `rationale` | string | yes | the operator's correlation hypothesis, 10 to 2048 characters |
+| `schema` | string | yes |  |
+| `table` | string | yes |  |
+
+### `sre_request_statistics`
+
+Queue exactly one approval item for a statistics proposal. Never executes: a person approves, then pg_sage rechecks the table and column identities under the table lock.
+
+Scope: `propose`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
+| `proposal_id` | string | yes | format uuid |
+
+### `sre_rollback_statistics`
+
+Drop the statistics object a statistics proposal created, after rechecking it is that object. Prior ANALYZE statistics are not restored. Admin people only.
+
+Scope: `approve`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
+| `proposal_id` | string | yes | format uuid |
+| `reason` | string | yes |  |
+
 ### `sre_list_slos`
 
 List SLO error-budget states: ok, ticket, page or unknown (with why), burn rates per window, budget left; app SLIs claim customer impact, database proxies never do.

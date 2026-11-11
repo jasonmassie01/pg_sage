@@ -57,6 +57,8 @@ type ProductionDependencies struct {
 	Signals SignalBackend
 	// Actions serves the Sage SRE action tools; optional.
 	Actions SREActionBackend
+	// Maintenance serves the statistics maintenance tools; optional.
+	Maintenance SREMaintenanceBackend
 	// Autonomy serves the earned-autonomy tools; optional.
 	Autonomy AutonomyBackend
 	// Facts serves the binding-fact tools (roadmap 2.3); optional.

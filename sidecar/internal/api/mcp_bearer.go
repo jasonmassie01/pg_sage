@@ -79,7 +79,7 @@ func tokenPrincipal(
 	p := mcp.Principal{
 		Actor: "token:" + grant.TokenID, Role: grant.OwnerRole, Kind: kind, Name: grant.Name,
 		Scopes: scopes, Databases: grant.Databases, TokenID: grant.TokenID,
-		PrincipalID: grant.PrincipalID,
+		PrincipalID: grant.PrincipalID, OwnerUserID: grant.OwnerUserID,
 	}
 	if !isAgent {
 		return p, nil, nil

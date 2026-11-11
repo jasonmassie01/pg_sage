@@ -22,6 +22,7 @@ const databaseDescription = "Monitored database name (see list_databases). Requi
 // `database` argument and annotations applied.
 func toolDefinitions() []Tool {
 	tools := append(append(intentTools(), sreTools()...), sreActionTools()...)
+	tools = append(tools, sreMaintenanceTools()...)
 	tools = append(append(tools, signalTools()...), runbookTools()...)
 	tools = append(append(tools, autonomyTools()...), factTools()...)
 	tools = append(append(append(tools, agentTools()...), specialistTools()...),
