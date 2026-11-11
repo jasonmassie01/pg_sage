@@ -87,6 +87,7 @@ var routeProbes = []routeProbe{
 	{"POST", "/api/v1/chatops/identities"},
 	{"POST", "/api/v1/chatops/slack/7"},
 	{"POST", "/api/v1/chatops/telegram/7"},
+	{"POST", "/api/v1/config/validate-window"},
 	{"POST", "/api/v1/databases/managed"},
 	{"POST", "/api/v1/databases/managed/import"},
 	{"POST", "/api/v1/databases/managed/test-connection"},

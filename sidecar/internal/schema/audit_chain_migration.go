@@ -140,27 +140,13 @@ BEGIN
 END $do$;
 `
 
-// siemCursorLockTimeoutSQL bounds the wait for the cursor table's lock:
-// the exporter holds it only for one short upsert.
-const siemCursorLockTimeoutSQL = "SET LOCAL lock_timeout = '5s'"
-
-// migrateSIEMCursorAnchor runs ddlSIEMCursorAnchor under lock_timeout.
+// migrateSIEMCursorAnchor runs ddlSIEMCursorAnchor under lock_timeout, as
+// a ledger step (config-04b).
 func migrateSIEMCursorAnchor(ctx context.Context, db bootstrapDB) error {
-	qctx, cancel := context.WithTimeout(ctx, migrationBatchTimeout)
-	defer cancel()
-	tx, err := db.Begin(qctx)
-	if err != nil {
-		return fmt.Errorf("siem cursor migration: begin: %w", err)
-	}
-	defer func() { _ = tx.Rollback(qctx) }()
-	if _, err := tx.Exec(qctx, siemCursorLockTimeoutSQL); err != nil {
-		return fmt.Errorf("siem cursor migration: set lock_timeout: %w", err)
-	}
-	if _, err := tx.Exec(qctx, ddlSIEMCursorAnchor); err != nil {
+	if _, err := runMigrationStep(ctx, db, migrationStep{
+		name: "ddlSIEMCursorAnchor", sql: stepLockTimeoutSQL + ";" + ddlSIEMCursorAnchor,
+	}); err != nil {
 		return fmt.Errorf("siem cursor migration: %w", err)
-	}
-	if err := tx.Commit(qctx); err != nil {
-		return fmt.Errorf("siem cursor migration: commit: %w", err)
 	}
 	return nil
 }

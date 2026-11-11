@@ -34,6 +34,8 @@ func configGlobalGetHandler(
 			"desired_generation": desired.Generation,
 			"active_generation":  controller.Active().Generation,
 			"pending_restart":    controller.PendingRestart(),
+			"pending":            pendingEntries(controller),
+			"restart_supported":  restartSupported(),
 			"last_resync_at":     lastResyncValue(controller),
 		}
 		merged, err := cs.GetMergedConfig(r.Context(), responseCfg, 0)
@@ -65,6 +67,8 @@ func configReadOnlyGlobalGetHandler(
 			"desired_generation": desired,
 			"active_generation":  active,
 			"pending_restart":    pending,
+			"pending":            pendingEntries(controller),
+			"restart_supported":  restartSupported(),
 			"read_only":          true,
 			"write_guidance":     "edit the YAML file",
 			"masked_by_override": maskedResponse(responseCfg),
@@ -122,6 +126,7 @@ func configReadOnlyDBGetHandler(
 			"desired_generation": desired,
 			"active_generation":  active,
 			"pending_restart":    pending,
+			"restart_supported":  restartSupported(),
 			"read_only":          true,
 			"write_guidance":     "edit the YAML file",
 		})
@@ -377,6 +382,7 @@ func configDBGetHandler(
 			"config":             merged,
 			"desired_generation": generation,
 			"active_generation":  generation,
+			"restart_supported":  restartSupported(),
 		})
 	}
 }

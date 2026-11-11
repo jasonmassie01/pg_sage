@@ -98,7 +98,7 @@ func TestExplainEstimateSource_EmptyCache(t *testing.T) {
 	}
 }
 
-// The step is bounded and is the last tranche-two step.
+// The step is bounded and is a tranche-two step.
 func TestExplainEstimateSource_IsBoundedAndRegistered(t *testing.T) {
 	if !strings.Contains(ddlExplainEstimateSource, "SET LOCAL lock_timeout") {
 		t.Fatal("the rename must run under a lock_timeout")
@@ -106,8 +106,17 @@ func TestExplainEstimateSource_IsBoundedAndRegistered(t *testing.T) {
 	if !strings.Contains(ddlExplainEstimateSource, "source = 'auto_explain'") {
 		t.Fatal("the rename must touch only source = 'auto_explain' rows")
 	}
-	steps := trancheTwoMigrations()
-	if steps[len(steps)-1][0] != "ddlExplainEstimateSource" {
-		t.Fatalf("last tranche-two step = %s", steps[len(steps)-1][0])
+	if !isTrancheTwoStep("ddlExplainEstimateSource") {
+		t.Fatalf("ddlExplainEstimateSource is not a tranche-two step: %v", trancheTwoMigrations())
 	}
+}
+
+// isTrancheTwoStep reports whether name is one of trancheTwoMigrations.
+func isTrancheTwoStep(name string) bool {
+	for _, s := range trancheTwoMigrations() {
+		if s[0] == name {
+			return true
+		}
+	}
+	return false
 }

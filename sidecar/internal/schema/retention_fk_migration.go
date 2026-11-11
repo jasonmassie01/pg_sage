@@ -66,7 +66,9 @@ END $$;`
 
 // migrateRetentionForeignKeys applies retentionFKSQL.
 func migrateRetentionForeignKeys(ctx context.Context, db bootstrapDB) error {
-	if _, err := db.Exec(ctx, retentionFKSQL); err != nil {
+	if _, err := runMigrationStep(ctx, db, migrationStep{
+		name: "retentionFKSQL", sql: retentionFKSQL,
+	}); err != nil {
 		return fmt.Errorf("retention foreign keys: %w", err)
 	}
 	return nil

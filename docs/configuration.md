@@ -47,6 +47,10 @@ briefing schedule that does not parse is rejected when it is applied, naming
 including `alerting.*`, `briefing.fleet_mode` and the collector, analyzer, tuner,
 `schema_lint` and `auto_explain` intervals, is `restart`: a change made from
 Settings, the API or the YAML file is saved and reported as pending restart.
+Settings badges each field `live` or `restart`, lists the pending fields with
+their running and saved values, and offers Restart now only under a declared
+supervisor (`SAGE_SUPERVISED=1`, see
+[deployment](deployment.md#restarting-from-settings-sage_supervised)).
 A derived `collector.interval_seconds` is the exception on the derivation side:
 the collector re-reads it every cycle, so a promoted value applies live (see
 [derived settings](generated/derived-settings.md)).
@@ -1100,6 +1104,14 @@ reason. A schedule covers one window: if the sidecar misses the window, the
 item returns to pending. A chat Approve refused for any other reason leaves
 the card usable. The next opening is searched for 8 days; a window that does
 not open (with room for the margin) in that time is refused as before.
+
+To check a value before saving it, use Check window under the field in
+Settings, or `POST /api/v1/config/validate-window` (admin) with
+`{"expression": "weeknights America/Chicago"}`. It validates the value as a
+save would (`400` with the parser's message when it does not parse) and
+answers `open_now`, `closes_at`, `next_open` and `next_close` (RFC 3339, in the
+window's zone, `null` when nothing happens within `horizon_hours`, 192). Unset
+and the `never` aliases answer `disabled: true`. It reads and writes nothing.
 
 ### LLM
 

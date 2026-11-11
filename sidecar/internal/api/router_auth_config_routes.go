@@ -3,6 +3,7 @@ package api
 import (
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/auth"
@@ -79,6 +80,10 @@ func registerConfigRoutesRuntime(
 	base configBaseSource,
 	disableWrites bool,
 ) {
+	// A window preview reads and writes nothing, so YAML fleet mode serves
+	// it too (config-09).
+	route(mux, "POST /api/v1/config/validate-window", gateAdmin,
+		validateWindowHandler(time.Now))
 	if disableWrites {
 		registerReadOnlyConfigRoutes(mux, fm, controller)
 		return

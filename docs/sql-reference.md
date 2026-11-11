@@ -178,6 +178,28 @@ fleet-wide stop; see [Fleet-wide stop](security.md#fleet-wide-stop).
 
 ---
 
+### `sage.schema_migrations`
+
+The migration ledger (config-04b): one row per migration step startup ran, in
+every database pg_sage bootstraps (monitored, managed and metadata databases).
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | text | Step name, e.g. `ddlUsersOAuth`; the row `catalog fingerprint` holds the md5 of the `sage` catalog the last complete start left |
+| `checksum` | text | SHA-256 (hex) of the step's SQL |
+| `applied_at` | timestamptz | When the step was first recorded |
+| `pg_sage_version` | text | The pg_sage version that recorded it (`dev` for local builds) |
+
+A start skips the recorded steps while the catalog matches the fingerprint,
+and runs every step through its catalog checks otherwise. A step recorded with
+another checksum stops startup; deleting its row makes the next start re-run
+it. See [How startup migrations behave](deployment.md#how-startup-migrations-behave).
+
+Retention never purges it: it holds one row per step, and an emptied ledger
+makes the next start run every step through its catalog checks.
+
+---
+
 ### `sage.briefings`
 
 Generated health briefings.

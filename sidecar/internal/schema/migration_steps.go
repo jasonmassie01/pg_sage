@@ -189,5 +189,6 @@ func trancheTwoMigrations() []namedStep {
 		{"ddlAuditChainMarkerOps", ddlAuditChainMarkerOps},               // audit-03b
 		{"ddlPolicyApprovalsID", ddlPolicyApprovalsID},                   // audit-11
 		{"ddlUsersPasswordLifecycle", ddlUsersPasswordLifecycle},         // apiauth-03
+		{"ddlSchemaMigrations", ddlSchemaMigrations},                     // config-04b: the migration ledger
 	}
 }

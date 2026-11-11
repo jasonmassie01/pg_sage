@@ -43,14 +43,16 @@ func TestSourceFixDeployReportedAtMigration(t *testing.T) {
 }
 
 func TestSourceFixDeployReportedAtIsATrancheTwoStep(t *testing.T) {
-	steps := trancheTwoMigrations()
-	if len(steps) == 0 || steps[len(steps)-1][0] != "ddlSourceFixDeployReportedAt" {
-		t.Fatalf("tranche two steps = %v, want ddlSourceFixDeployReportedAt last", steps)
+	if !isTrancheTwoStep("ddlSourceFixDeployReportedAt") {
+		t.Fatalf("tranche two steps = %v, want ddlSourceFixDeployReportedAt among them",
+			trancheTwoMigrations())
 	}
-	all := migrationSteps()
-	if all[len(all)-1].name != "ddlSourceFixDeployReportedAt" {
-		t.Fatalf("last migration step = %s, want ddlSourceFixDeployReportedAt",
-			all[len(all)-1].name)
+	found := false
+	for _, s := range migrationSteps() {
+		found = found || s.name == "ddlSourceFixDeployReportedAt"
+	}
+	if !found {
+		t.Fatal("migrationSteps does not run ddlSourceFixDeployReportedAt")
 	}
 }
 

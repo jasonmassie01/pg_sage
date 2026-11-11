@@ -17,7 +17,6 @@ const (
 	bootstrapAdvisoryLockKey = "pg_sage"
 	bootstrapLockTimeout     = 30 * time.Second
 	bootstrapUnlockTimeout   = 5 * time.Second
-	migrationBatchTimeout    = 30 * time.Second
 )
 
 type bootstrapDB interface {
@@ -84,6 +83,7 @@ func Bootstrap(ctx context.Context, pool *pgxpool.Pool) error {
 	if err := startup.ValidateSessionEndpoint(endpoint.Host, endpoint.Port); err != nil {
 		return err
 	}
+	ctx = withMigrationLedger(ctx, &migrationLedger{}) // config-04b
 	return withBootstrapSession(
 		ctx, pool,
 		func(conn *pgxpool.Conn) error {
@@ -118,7 +118,10 @@ func Bootstrap(ctx context.Context, pool *pgxpool.Pool) error {
 			if err := migrateSIEMCursorAnchor(ctx, conn); err != nil { // audit-01
 				return err
 			}
-			return migrateLateSteps(ctx, conn)
+			if err := migrateLateSteps(ctx, conn); err != nil {
+				return err
+			}
+			return ledgerFrom(ctx).seal(ctx, conn)
 		},
 	)
 }

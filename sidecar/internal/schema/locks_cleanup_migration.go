@@ -143,7 +143,9 @@ func markLocksCleanupDone(ctx context.Context, db bootstrapDB) error {
 // locksCleanupMarker records the cleanup's cutoff on its first run and
 // returns it, and whether the cleanup already finished.
 func locksCleanupMarker(ctx context.Context, db bootstrapDB) (time.Time, bool, error) {
-	if _, err := db.Exec(ctx, ddlDataCleanup); err != nil {
+	if _, err := runMigrationStep(ctx, db, migrationStep{
+		name: "ddlDataCleanup", sql: ddlDataCleanup,
+	}); err != nil {
 		return time.Time{}, false, fmt.Errorf("create sage.data_cleanup: %w", err)
 	}
 	if _, err := db.Exec(ctx, `INSERT INTO sage.data_cleanup (name, cutoff)

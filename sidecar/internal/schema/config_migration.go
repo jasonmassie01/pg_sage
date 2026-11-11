@@ -32,9 +32,17 @@ CREATE INDEX IF NOT EXISTS idx_config_audit_db
 // updated_by_user_id columns (if missing), drops the old text
 // unique constraint on key, adds a composite unique on
 // (key, database_id), and creates sage.config_audit.
+//
+// Its steps consult the migration ledger as Bootstrap's do, so a call
+// after Bootstrap (the meta database makes one) issues no DDL (config-04b).
+// It never seals the catalog fingerprint: only Bootstrap, which checks
+// every step, may.
 func MigrateConfigSchema(
 	ctx context.Context, pool *pgxpool.Pool,
 ) error {
+	if ledgerFrom(ctx) == nil {
+		ctx = withMigrationLedger(ctx, &migrationLedger{})
+	}
 	return migrateConfigSchema(ctx, pool)
 }
 
@@ -58,10 +66,14 @@ func migrateConfigSchema(ctx context.Context, db bootstrapDB) error {
 func migrateConfigUserKeys(ctx context.Context, db bootstrapDB) error {
 	qctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	if _, err := db.Exec(qctx, ddlConfigUserKeys); err != nil {
+	if _, err := runMigrationStep(qctx, db, migrationStep{
+		name: "ddlConfigUserKeys", sql: ddlConfigUserKeys,
+	}); err != nil {
 		return fmt.Errorf("reshaping config user foreign keys: %w", err)
 	}
-	if _, err := db.Exec(qctx, ddlConfigUserKeyValidate); err != nil {
+	if _, err := runMigrationStep(qctx, db, migrationStep{
+		name: "ddlConfigUserKeyValidate", sql: ddlConfigUserKeyValidate,
+	}); err != nil {
 		return fmt.Errorf("validating sage.config updater foreign key: %w", err)
 	}
 	return nil

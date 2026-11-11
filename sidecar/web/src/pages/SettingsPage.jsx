@@ -18,6 +18,9 @@ import { AuditCard } from './settings/AuditCard'
 import {
   MaskedBadge, MaskedOverridesContext, SourceBadge, maskedByKey,
 } from './settings/SourceBadge'
+import { LifecycleBadge } from './settings/LifecycleBadge'
+import { MaintenanceWindowPreview } from './settings/MaintenanceWindowPreview'
+import { PendingRestartPanel, RestartControl } from './settings/PendingRestartPanel'
 import { readPref, writePref } from '../lib/storage'
 import { SETTINGS_SAVED_EVENT } from '../components/SecretsPostureBanner'
 import {
@@ -192,7 +195,7 @@ export function SettingsPage({ database, databaseId }) {
 		const result = await res.json().catch(() => ({}))
 		if (result.pending_restart?.length) {
 		  setFeedback({
-			type: 'error',
+			type: 'info',
 			msg: `Pending restart: ${result.pending_restart.join(', ')}`,
 		  })
 		} else if (result.warnings?.length) {
@@ -245,7 +248,7 @@ export function SettingsPage({ database, databaseId }) {
 	  const result = await res.json().catch(() => ({}))
 	  if (result.pending_restart?.length) {
 		setFeedback({
-		  type: 'error',
+		  type: 'info',
 		  msg: `Pending restart: ${result.pending_restart.join(', ')}`,
 		})
 	  } else if (result.warnings?.length) {
@@ -402,18 +405,11 @@ export function SettingsPage({ database, databaseId }) {
           ceilings apply live; every other field is reported as pending
           restart.
         </span>
-        <button
-          data-testid="settings-restart-btn"
-          onClick={restartNow}
-          disabled={restarting}
-          className="text-xs px-3 py-1 rounded whitespace-nowrap inline-flex items-center gap-1"
-          style={{ color: 'var(--text)', border: '1px solid var(--border)' }}
-        >
-          <RotateCcw size={13} />
-          {restarting ? 'Restarting…' : 'Restart now'}
-        </button>
+        <RestartControl supported={data?.restart_supported === true}
+          restarting={restarting} onRestart={restartNow} />
         {restartDialog}
       </div>
+      <PendingRestartPanel pending={data?.pending} />
       {tab === 'General' && <ShadowModePage database={database} />}
       {tab === 'General' && <DerivedSettings database={database} />}
       {tab === 'General' && <Footprint database={database} />}
@@ -766,15 +762,21 @@ function TrustLevelConfirm({ from, to, onConfirm, onCancel }) {
   )
 }
 
+// A pending restart is a successful save (config-09): info-styled like the
+// pending panel, never the red failure tone.
+const FEEDBACK_TONES = {
+  success: { color: 'var(--green)', background: '#0f2640', Icon: Check },
+  info: { color: 'var(--accent)', background: 'var(--bg-card)', Icon: RotateCcw },
+  error: { color: 'var(--red)', background: '#3b1111', Icon: X },
+}
+
 function FeedbackBanner({ type, msg }) {
-  const color = type === 'success' ? 'var(--green)' : 'var(--red)'
-  const Icon = type === 'success' ? Check : X
+  const tone = FEEDBACK_TONES[type] ? type : 'error'
+  const { color, background, Icon } = FEEDBACK_TONES[tone]
   return (
-    <div className="flex items-center gap-2 px-4 py-2 rounded text-sm"
-      style={{
-        background: type === 'success' ? '#0f2640' : '#3b1111',
-        color,
-      }}>
+    <div data-testid="settings-feedback" data-tone={tone}
+      className="flex items-center gap-2 px-4 py-2 rounded text-sm"
+      style={{ background, color }}>
       <Icon size={16} /> {msg}
     </div>
   )
@@ -782,7 +784,7 @@ function FeedbackBanner({ type, msg }) {
 
 function Field({
   label, configKey, type, getVal, setVal, getSource,
-  resetField, options, help, readOnly = false,
+  resetField, options, help, readOnly = false, isDatabaseScope = false,
 }) {
   const value = getVal(configKey)
   const source = getSource(configKey)
@@ -799,6 +801,8 @@ function Field({
           </ConfigTooltip>
           <SourceBadge source={source} />
           <MaskedBadge configKey={configKey} />
+          <LifecycleBadge configKey={configKey}
+            isDatabaseScope={isDatabaseScope} />
         </label>
         {help && (
           <div className="text-[11px] mt-0.5"
@@ -1026,9 +1030,10 @@ function TrustSafetyTab(props) {
           type="toggle" {...props} />
         <Field label="Tier 3: Moderate" configKey="trust.tier3_moderate"
           type="toggle" {...props} />
-        <Field label="Maintenance Window (cron)"
-          configKey="trust.maintenance_window" type="text"
-          help="Cron expression, e.g. 0 2 * * 0" {...props} />
+        <Field label="Maintenance Window"
+          configKey="trust.maintenance_window" type="text" {...props} />
+        <MaintenanceWindowPreview
+          expression={props.getVal('trust.maintenance_window')} />
       </div>
       <div>
         <h3 className="text-sm font-medium mb-3"
