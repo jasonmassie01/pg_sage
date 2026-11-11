@@ -126,3 +126,23 @@ func (m *Meter) ByComponent() []ComponentCost {
 	}
 	return append([]ComponentCost(nil), m.components...)
 }
+
+// Window is the latest cost with its costliest statements and its cost
+// per component, read under one lock so all three come from the same
+// window (three separate reads could straddle an Observe).
+func (m *Meter) Window() (Cost, []StatementCost, []ComponentCost) {
+	if m == nil {
+		return Cost{}, nil, nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var top []StatementCost
+	if m.top != nil {
+		top = append([]StatementCost(nil), m.top...)
+	}
+	var comps []ComponentCost
+	if m.components != nil {
+		comps = append([]ComponentCost(nil), m.components...)
+	}
+	return m.last, top, comps
+}

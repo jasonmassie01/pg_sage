@@ -27,8 +27,8 @@ func (a *Analyzer) SelfFootprint() SelfFootprint {
 		return SelfFootprint{}
 	}
 	usage, loops := a.selfBudget.lastWithLoops()
-	return SelfFootprint{Cost: a.selfCost.Last(), Usage: usage, Top: a.selfCost.Top(),
-		ByComponent: a.selfCost.ByComponent(), Loops: loops}
+	cost, top, comps := a.selfCost.Window()
+	return SelfFootprint{Cost: cost, Usage: usage, Top: top, ByComponent: comps, Loops: loops}
 }
 
 // WithSelfCostMeter makes the analyzer meter its own cost into m (shared
