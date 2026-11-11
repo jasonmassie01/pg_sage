@@ -16,19 +16,23 @@ func TestMain(m *testing.M) {
 }
 
 // Bench budgets: one scenario (every live arm) in one pass, so the pass
-// budget grows with the scenarios selected (SAGE_BENCH_FAMILIES); the
+// budget grows with the scenarios selected (SAGE_BENCH_FAMILIES); a fixed
+// allowance for set-up, recovery and the report, which every shard had
+// before benches-11 and which a shard of slow families (checkpoint storms
+// average over 30 s a scenario) needs to finish its last scenario; the
 // replay corpus (only with SAGE_BENCH_REPLAY=1); and the extra time a
 // live model may take (up to 2 turns of 50 s per investigation, though
 // real replies take seconds).
 const (
 	scenarioBudget  = 30 * time.Second
+	harnessBudget   = 3 * time.Minute
 	replayBudget    = 3 * time.Minute
 	liveModelBudget = 60 * time.Minute
 )
 
 // benchBudget bounds the whole bench run; replay adds the corpus replay.
 func benchBudget(repeats, scenarios int, llm LLMConfig, replay bool) time.Duration {
-	d := time.Duration(repeats*scenarios) * scenarioBudget
+	d := time.Duration(repeats*scenarios)*scenarioBudget + harnessBudget
 	if replay {
 		d += replayBudget
 	}

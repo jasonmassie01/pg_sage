@@ -177,12 +177,12 @@ func TestBenchBudget_ReplayOnlyWhenAsked(t *testing.T) {
 		replay             bool
 		want               time.Duration
 	}{
-		{1, 4, fake, false, 2 * time.Minute},
-		{1, 4, fake, true, 2*time.Minute + replayBudget},
-		{0, 0, fake, false, 0},
-		{0, 0, fake, true, replayBudget},
-		{2, 3, live, false, 3*time.Minute + liveModelBudget},
-		{2, 3, live, true, 3*time.Minute + replayBudget + liveModelBudget},
+		{1, 4, fake, false, 2*time.Minute + harnessBudget},
+		{1, 4, fake, true, 2*time.Minute + harnessBudget + replayBudget},
+		{0, 0, fake, false, harnessBudget},
+		{0, 0, fake, true, harnessBudget + replayBudget},
+		{2, 3, live, false, 3*time.Minute + harnessBudget + liveModelBudget},
+		{2, 3, live, true, 3*time.Minute + harnessBudget + replayBudget + liveModelBudget},
 	} {
 		if got := benchBudget(c.repeats, c.scenarios, c.llm, c.replay); got != c.want {
 			t.Errorf("benchBudget(%d, %d, %s, %v) = %s, want %s", c.repeats, c.scenarios,
@@ -312,25 +312,28 @@ func TestWorstCaseRepeats(t *testing.T) {
 	}
 }
 
-// The bench budget's edge at 4 repeats: a shard that replays the corpus
-// (core part A, benches-11) fits 18 fake-model scenarios in the 2400 s
-// step and not 19; a shard without the replay fits 19 and not 20.
+// The bench budget's edge at 4 repeats, with the fixed harness allowance
+// every shard has: a shard that replays the corpus (core part A,
+// benches-11) fits 16 fake-model scenarios in the 2400 s step and not 17;
+// a shard without the replay fits 18 and not 19.
 func TestBenchBudgetEdgeAtFourRepeats(t *testing.T) {
 	fake := LLMConfig{Mode: LLMFake}
-	if b := benchBudget(4, 18, fake, true); b != 2340*time.Second || b >= benchTimeout {
-		t.Fatalf("benchBudget(4, 18, replay) = %s, want 39m0s, under %s", b, benchTimeout)
+	for _, c := range []struct {
+		scenarios int
+		replay    bool
+		fits      bool
+	}{{16, true, true}, {17, true, false}, {18, false, true}, {19, false, false}} {
+		if b := benchBudget(4, c.scenarios, fake, c.replay); (b < benchTimeout) != c.fits {
+			t.Errorf("benchBudget(4, %d, replay=%v) = %s: fits under %s = %v, want %v",
+				c.scenarios, c.replay, b, benchTimeout, b < benchTimeout, c.fits)
+		}
 	}
-	if b := benchBudget(4, 19, fake, true); b < benchTimeout {
-		t.Fatalf("benchBudget(4, 19, replay) = %s, want at least %s", b, benchTimeout)
+	if b := benchBudget(4, 18, fake, false); b != 2340*time.Second {
+		t.Fatalf("benchBudget(4, 18) = %s, want 39m0s", b)
 	}
-	if b := benchBudget(4, 19, fake, false); b >= benchTimeout {
-		t.Fatalf("benchBudget(4, 19) = %s, want under %s", b, benchTimeout)
-	}
-	if b := benchBudget(4, 20, fake, false); b < benchTimeout {
-		t.Fatalf("benchBudget(4, 20) = %s, want at least %s", b, benchTimeout)
-	}
-	if b := benchBudget(4, 0, fake, true); b != replayBudget {
-		t.Fatalf("benchBudget(4, 0, replay) = %s, want the replay budget %s", b, replayBudget)
+	if b := benchBudget(4, 0, fake, true); b != harnessBudget+replayBudget {
+		t.Fatalf("benchBudget(4, 0, replay) = %s, want the harness and replay budgets %s",
+			b, harnessBudget+replayBudget)
 	}
 }
 

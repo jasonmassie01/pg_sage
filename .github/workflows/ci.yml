@@ -221,8 +221,9 @@ jobs:
       # timeout. Every bench family must be in exactly one shard, and every
       # shard must fit its 2400 s timeout at the repeats a tag's
       # SAGE_BENCH_MIN_RUNS_PER_FAMILY=10 sizes (4 for a family of 3 scored
-      # scenarios): at most 18 scenarios (sre-bench/ci_split_test.go). The
-      # later shards run even when an earlier shard failed.
+      # scenarios): at most 18 scenarios, 16 in the shard that replays the corpus
+      # (sre-bench/ci_split_test.go). The later shards run even when an earlier
+      # shard failed.
       - name: PGIncidentBench (core families, part A)
         id: bench-core-a
         working-directory: sidecar
