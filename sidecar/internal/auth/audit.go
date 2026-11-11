@@ -59,6 +59,13 @@ const (
 	// Detail carries principal_id, name, issuer and subject.
 	AuditAgentIdentityBound   = "agent_identity_bound"
 	AuditAgentIdentityUnbound = "agent_identity_unbound"
+	// AuditAgentChangeRequested records a widening principal change waiting
+	// for a second admin, and AuditAgentChangeConfirmed the second admin
+	// applying it (agentgov-06). Detail carries principal_id, name,
+	// change_id, before, after and reason; a confirm also carries
+	// requested_by_user, a request expires_at and superseded_change_id.
+	AuditAgentChangeRequested = "agent_change_requested"
+	AuditAgentChangeConfirmed = "agent_change_confirmed"
 )
 
 // Databricks App identity-pin audit events (databricks-07). Detail carries

@@ -154,14 +154,16 @@ func TestAgentRoutes_PatchNarrowingAndTwoPersonRule(t *testing.T) {
 	got := decodeObject(t, body)
 	require.Equal(t, "dev", got["env_ceiling"])
 	require.Equal(t, float64(other.ID), got["sponsor_user_id"])
+	// agentgov-06: a widening change waits for a second admin (202).
 	for _, widen := range []string{`{"env_ceiling":"prod"}`, `{"profile":"coding-agent"}`} {
 		code, body = tokenCall(t, h, http.MethodPatch, path, widen)
-		require.Equal(t, http.StatusForbidden, code, body)
-		require.Contains(t, body, "two_person_required")
+		require.Equal(t, http.StatusAccepted, code, body)
+		require.Contains(t, body, "change_id")
 	}
 	p, err := agentguard.NewStore(pool).Get(context.Background(), id)
 	require.NoError(t, err)
-	require.Equal(t, agentguard.EnvDev, p.EnvCeiling, "a refused widening changes nothing")
+	require.Equal(t, agentguard.EnvDev, p.EnvCeiling, "a pending widening changes nothing")
+	require.Equal(t, "readonly-analyst", p.Profile, "a pending widening changes nothing")
 	single := agentRouter(t, pool, admin, true)
 	code, _ = tokenCall(t, single, http.MethodPatch, path, `{"env_ceiling":"prod"}`)
 	require.Equal(t, http.StatusUnprocessableEntity, code, "single operator needs a reason")
