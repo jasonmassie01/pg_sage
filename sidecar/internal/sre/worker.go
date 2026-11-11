@@ -175,6 +175,9 @@ func (c *Coordinator) collect(ctx context.Context, lease Lease, inv Investigatio
 		if results, lease, err = c.runStepHeld(ctx, lease, st); err != nil {
 			return lease, err
 		}
+		if i == 0 {
+			results = append(c.incidentSnapshot(ctx, inv), results...)
+		}
 		committed, err := c.store.CommitStep(ctx, lease, StepResult{IdempotencyKey: key,
 			Results: results, NextState: next})
 		if err != nil {

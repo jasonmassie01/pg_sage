@@ -172,6 +172,9 @@ type CoordinatorDeps struct {
 	// investigator (roadmap 2.1); nil keeps the M3 review turn. It needs
 	// a store that implements InvestigatorStore.
 	Investigator *InvestigatorConfig
+	// Incidents reads a lock incident's detection-time root blockers for
+	// the first step of its investigation (sre-05); nil records none.
+	Incidents IncidentSnapshotSource
 }
 
 // Coordinator runs one database's investigations.
@@ -197,6 +200,8 @@ type Coordinator struct {
 	// invStore its durable token budget; nil keeps the review turn.
 	investigator *InvestigatorConfig
 	invStore     InvestigatorStore
+	// incidents reads the detection snapshot of lock incidents (sre-05).
+	incidents IncidentSnapshotSource
 
 	mu    sync.Mutex
 	scope Scope
@@ -248,7 +253,8 @@ func NewCoordinator(d CoordinatorDeps) (*Coordinator, error) {
 		cfg: d.Config, logFn: logFn, worker: NewUUID(),
 		queue: make(chan UUID, d.Config.QueueSize), durability: NewDurability(),
 		sleep: wait, now: time.Now, model: d.Model, notices: notices, advisor: d.Advisor,
-		authority: d.RootAuthority, investigator: d.Investigator, invStore: invStore}, nil
+		authority: d.RootAuthority, investigator: d.Investigator, invStore: invStore,
+		incidents: d.Incidents}, nil
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) error {

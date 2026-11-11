@@ -327,3 +327,44 @@ func hasTag(tags []string, tag string) bool {
 	}
 	return false
 }
+
+// sre-05: the detection snapshot is no catalog probe a replay can serve.
+// The export leaves it out and still validates, and a live non-empty
+// graph keeps its top-1 whether or not a snapshot was recorded.
+func TestBuildReplayCase_DetectionSnapshotIsNotExported(t *testing.T) {
+	inv, ev := contestedIdle(t)
+	base, err := BuildReplayCase(inv, ev, refuted("ddl_lock_queue"),
+		ReplayExportOptions{salt: fixedSalt})
+	if err != nil {
+		t.Fatalf("export without a snapshot: %v", err)
+	}
+	other := strings.ReplaceAll(snapChain, "4242", "9999")
+	snap := fixtureEvidence(t, snapshotEvidence(t, other,
+		ev[0].ObservedAt.Add(-time.Second)))[0]
+	withSnap := append([]Evidence{snap}, ev...)
+	d := diagnoseEvidence(t, inv, withSnap)
+	if !d.Conclusive || d.Root == nil || d.Root.Node != "idle_in_tx_holder" ||
+		d.Subject != "pid 4242" || strings.Contains(d.Reason, "9999") {
+		t.Fatalf("diagnosis with a snapshot = %+v, want the graph's root on pid 4242", d)
+	}
+	exp, err := BuildReplayCase(inv, withSnap, refuted("ddl_lock_queue"),
+		ReplayExportOptions{salt: fixedSalt})
+	if err != nil {
+		t.Fatalf("export with a snapshot: %v", err)
+	}
+	c, want := validCase(t, exp), validCase(t, base)
+	if len(c.Observations) != len(ev) {
+		t.Fatalf("%d observations, want %d (the snapshot left out)", len(c.Observations),
+			len(ev))
+	}
+	for _, o := range c.Observations {
+		if o.Probe == IncidentSnapshotProbeID {
+			t.Fatal("the detection snapshot was exported as a replay observation")
+		}
+	}
+	if c.Gold.Root != want.Gold.Root || !exp.GraphRootPreserved ||
+		exp.Contest.GraphRoot != "idle_in_tx_holder" {
+		t.Fatalf("gold %+v contest %+v preserved %v, want %+v", c.Gold, exp.Contest,
+			exp.GraphRootPreserved, want.Gold)
+	}
+}

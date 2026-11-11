@@ -91,7 +91,7 @@ func newSREInvestigator(d sreInvestigatorDeps) (*sre.Service, error) {
 	coord, err := sre.NewCoordinator(sre.CoordinatorDeps{Store: store, Runner: d.runner,
 		Triggers: triggers, Config: cc, LogFn: d.logFn, Model: model, Notices: notices,
 		Signals: d.signals, Advisor: d.advisor, RootAuthority: d.rootAuthority,
-		Investigator: icfg})
+		Investigator: icfg, Incidents: sreIncidents(d)})
 	if err != nil {
 		return nil, fmt.Errorf("sre coordinator: %w", err)
 	}
@@ -102,6 +102,16 @@ func newSREInvestigator(d sreInvestigatorDeps) (*sre.Service, error) {
 			"(retried by the investigator loop): %v", d.name, err)
 	}
 	return sre.NewService(d.name, coord, store), nil
+}
+
+// sreIncidents reads a lock incident's detection-time root blockers from
+// the monitored database's sage.incidents, in the trigger adapter's
+// database scope (sre-05); nil without a monitored pool.
+func sreIncidents(d sreInvestigatorDeps) sre.IncidentSnapshotSource {
+	if d.monitored == nil {
+		return nil
+	}
+	return sre.NewPGTriggerSource(d.monitored, d.name)
 }
 
 // statementTexts is the collector's in-memory statement texts for the
