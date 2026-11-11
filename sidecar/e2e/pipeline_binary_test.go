@@ -61,7 +61,12 @@ func runSlowWorkload(t *testing.T, pool *pgxpool.Pool) func() {
 	go func() {
 		defer close(done)
 		for ctx.Err() == nil {
-			_, _ = pool.Exec(ctx, "SELECT pg_sleep(0.6)")
+			if _, err := pool.Exec(ctx, "SELECT pg_sleep(0.6)"); err != nil {
+				if ctx.Err() == nil {
+					t.Logf("A7 slow workload stopped: %v", err)
+				}
+				return
+			}
 		}
 	}()
 	return func() { cancel(); <-done }
