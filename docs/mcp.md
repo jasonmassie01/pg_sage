@@ -149,8 +149,9 @@ malformed params or an unsupported protocol version are JSON-RPC errors.
 pg_sage serves both protocol eras on stdio and Streamable HTTP:
 
 * **Handshake era** (`2025-03-26`, `2025-06-18`, `2025-11-25`): `initialize` negotiates the
-  version and advertises `tools.listChanged`; `ping`; `notifications/tools/list_changed`
-  is sent on stdio when the tool list changes (a database joins or leaves the fleet).
+  version and advertises `tools.listChanged` and `resources`; `ping`;
+  `notifications/tools/list_changed` is sent on stdio when the tool list changes (a
+  database joins or leaves the fleet).
 * **Stateless** (`2026-07-28`): `server/discover`, the protocol version in every request's
   `_meta`, `resultType` on every result, and `subscriptions/listen` for list changes (on
   HTTP an SSE stream that pg_sage closes gracefully before the API's request deadline;
@@ -158,6 +159,19 @@ pg_sage serves both protocol eras on stdio and Streamable HTTP:
   `Mcp-Name` headers.
 
 `tools/list` shows only the tools the caller may call, with the databases it may name.
+
+## Resources
+
+pg_sage also serves one MCP resource per monitored database: its latest health briefing.
+`resources/list` lists `pgsage://databases/{database}/briefings/latest` for every database the
+caller may use (`pgsage://briefings/latest` names the only database of a single-database
+sidecar), and `resources/read` returns the stored briefing as JSON (`application/json`): its
+`generated_at` and window, `content_text`, `content_json` (the briefing's data, exactly as
+stored: open findings and `open_by_severity`, actions, window) and `delivery_status` per
+channel. Reading needs the `read` scope, which every signed-in role has; an agent token
+without it is refused with -32001 and sees no resources. A database the token may not use
+gets -32003, and a database with no briefing yet gets -32002 with the reason. On Streamable
+HTTP, `Mcp-Name` carries the resource URI.
 
 ## The source-fix loop
 

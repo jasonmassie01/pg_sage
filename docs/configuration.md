@@ -448,6 +448,16 @@ still stores its own briefing row, and every row records that message's
 result. `per_database` posts one message per database, as before. Changing
 `fleet_mode` needs a restart; it is ignored in standalone mode.
 
+Stored briefings are readable by every signed-in role:
+`GET /api/v1/briefings?database=<name|all>&limit=<1-100, default 20>` lists them newest first,
+and `GET /api/v1/briefings/latest?database=<name|all>` returns each database's latest one
+(`without_briefing` names the databases that have none yet). Both return `content_json` and
+`delivery_status` exactly as stored; in a fleet, a database whose read fails is listed under
+`unavailable` while the others answer. When no database has a briefing yet, `latest` answers
+404 with the reason. The Overview page shows the latest briefing in a card, and MCP clients
+read it as the resource `pgsage://databases/{database}/briefings/latest`
+([MCP resources](mcp.md#resources)).
+
 ---
 
 ## Key Settings Reference
