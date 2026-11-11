@@ -245,6 +245,12 @@ type SystemStats struct {
 	// (pg_stat_bgwriter before 17, pg_stat_checkpointer from 17) and the
 	// postmaster start. Zero when unknown (legacy rows).
 	CheckpointStatsEpoch time.Time `json:"checkpoint_stats_epoch,omitzero"`
+	// WALBytes is pg_stat_wal.wal_bytes, the WAL the cluster generated
+	// since WALStatsEpoch, the later of pg_stat_wal.stats_reset and the
+	// postmaster start (advisors-05). Both are zero when unread (legacy
+	// rows, or pg_stat_wal unreadable this cycle).
+	WALBytes      int64     `json:"cluster_wal_bytes,omitempty"`
+	WALStatsEpoch time.Time `json:"wal_stats_epoch,omitzero"`
 	// Interval is what the counters did since the previous snapshot; nil
 	// on the first snapshot after a start and on legacy rows.
 	Interval *SystemInterval `json:"interval,omitempty"`

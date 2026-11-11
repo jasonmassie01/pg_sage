@@ -22,6 +22,7 @@ func (c *Collector) collectSystem(ctx context.Context) (SystemStats, error) {
 	if err == nil {
 		s.DBSizeBytes = c.databaseSize(ctx)
 		c.readWALPosition(ctx, &s)
+		c.readWALStats(ctx, &s)
 	}
 	return s, err
 }
@@ -49,6 +50,27 @@ func (c *Collector) readWALPosition(ctx context.Context, s *SystemStats) {
 	}
 	end := time.Now().UTC()
 	s.WALLSN, s.WALReadAt = *lsn, start.Add(end.Sub(start)/2)
+}
+
+// walStatsSQL is the cluster's WAL generated since the epoch of
+// pg_stat_wal (PG 14+): the later of its stats_reset and the postmaster
+// start, as the checkpoint epoch is.
+const walStatsSQL = sageTag + `SELECT wal_bytes::bigint,
+  GREATEST(COALESCE(stats_reset, '-infinity'::timestamptz), pg_postmaster_start_time())
+  FROM pg_stat_wal`
+
+// readWALStats sets the WAL counter and its epoch (advisors-05). Like the
+// WAL position it never fails the system stats: an unreadable counter
+// stays zero, an unknown WAL volume for this cycle.
+func (c *Collector) readWALStats(ctx context.Context, s *SystemStats) {
+	var bytes int64
+	var epoch time.Time
+	if err := c.catalogQueryRow(ctx, walStatsSQL).Scan(&bytes, &epoch); err != nil {
+		c.logFn("WARN", "collector: pg_stat_wal unavailable this cycle "+
+			"(the WAL advisor falls back to the WAL position): %v", err)
+		return
+	}
+	s.WALBytes, s.WALStatsEpoch = bytes, epoch.UTC()
 }
 
 // systemStatsFallback is the other version's read to retry when a server
