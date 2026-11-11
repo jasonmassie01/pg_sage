@@ -11,14 +11,25 @@ import (
 // audit-12: audit health on /metrics, from the scheduled verification's
 // registry (auditjob.DefaultHealth) and the running SIEM exporter's
 // status. Samples carry names and counts only, never row content.
-// Verification runs on the fleet leader only, so a follower exports the
-// families' HELP and TYPE with no chain samples.
+// Verification and export run on the fleet leader only, so a follower
+// exports the families' HELP and TYPE with no samples.
 
 // writeAuditHealthFamilies renders the process's pgaudit, chain and SIEM
 // health on the scrape.
 func writeAuditHealthFamilies(b *strings.Builder) {
 	writePGAuditMetrics(b, pgaudit.RecordCounts())
-	writeAuditMetrics(b, auditjob.DefaultHealth().Snapshot(), siemSinkStatuses())
+	writeAuditMetrics(b, auditHealthSnapshot(), siemSinkStatuses())
+}
+
+// auditHealthSnapshot is the chain health this sidecar may report: none
+// on a fleet follower. A sidecar that lost the lease keeps what it
+// recorded as leader until its next scheduled run drops it, up to
+// audit.verify_interval_hours later; until then it is going stale.
+func auditHealthSnapshot() auditjob.HealthSnapshot {
+	if !fleetLeader.IsLeader() {
+		return auditjob.HealthSnapshot{}
+	}
+	return auditjob.DefaultHealth().Snapshot()
 }
 
 // writeAuditMetrics renders the chain and SIEM health families.
@@ -116,8 +127,13 @@ func writeSIEMMetrics(b *strings.Builder, sinks []siem.SinkStatus) {
 
 func sinkLabel(name string) []labelPair { return []labelPair{{"sink", name}} }
 
-// siemSinkStatuses is the running exporter's sink health; nil without one.
+// siemSinkStatuses is the running exporter's sink health; nil without
+// one, and on a fleet follower, whose exporter does not pass and keeps
+// the lanes of its last pass as leader.
 func siemSinkStatuses() []siem.SinkStatus {
+	if !fleetLeader.IsLeader() {
+		return nil
+	}
 	if e := auditExport.Load(); e != nil {
 		return e.Status()
 	}

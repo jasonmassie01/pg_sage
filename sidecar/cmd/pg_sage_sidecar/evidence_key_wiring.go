@@ -8,7 +8,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/api"
-	"github.com/pg-sage/sidecar/internal/auditjob"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/crypto"
 	"github.com/pg-sage/sidecar/internal/evidence"
@@ -31,7 +30,7 @@ func auditAPIDeps(c *config.Config, controlPool *pgxpool.Pool) api.AuditDeps {
 	signing := evidenceSigner(c, controlPool)
 	d := api.AuditDeps{SIEMStatus: siemStatusFunc(c), SIEMReanchor: siemReanchorFunc(c),
 		EvidenceKey: signing.key, EvidenceKeySource: signing.source,
-		Health: auditjob.DefaultHealth().Snapshot}
+		Health: auditHealthSnapshot}
 	if c != nil {
 		d.PruneBelowSignedCheckpoint = c.Audit.PruneBelowSignedCheckpoint
 		d.VerifyIntervalHours = c.Audit.VerifyIntervalHours
