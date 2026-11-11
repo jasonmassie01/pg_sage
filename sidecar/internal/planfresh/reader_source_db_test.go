@@ -70,3 +70,24 @@ func TestReader_NewestOfTwoExecutedPlansWins(t *testing.T) {
 		t.Fatalf("two executed plans = %+v, %v; want the newest (7 rows)", p, err)
 	}
 }
+
+// auto_explain logs actual rows only with log_analyze on, which First Look
+// does not ask for (its overhead hits every statement). A logged plan
+// without actuals is still the plan that ran, with the real parameters, so
+// it beats a newer on-demand estimate too; it reports no actuals.
+func TestReader_LoggedPlanWithoutActualsWinsOverANewerEstimate(t *testing.T) {
+	pool := dbPool(t)
+	s, qid := fixture(t, pool)
+	logged := strings.Replace(planOn(s), `"Seq Scan"`, `"Index Scan"`, 1)
+	if logged == planOn(s) {
+		t.Fatal("fixture plan has no Seq Scan node to tell the two plans apart")
+	}
+	cache(t, pool, qid, "0 seconds", logged, "auto_explain_log")
+	cache(t, pool, qid, "-1 second", planOn(s), "explain_estimate") // newer
+	p, err := reader(pool).Read(context.Background(), qid, "")
+	if err != nil || p.Capture != "auto_explain_log" || p.HasActuals ||
+		!strings.Contains(string(p.JSON), "Index Scan") {
+		t.Fatalf("logged plan without actuals + newer estimate = %+v, %v; "+
+			"want the auto_explain_log plan, no actuals", p, err)
+	}
+}

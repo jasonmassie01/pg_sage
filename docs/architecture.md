@@ -450,8 +450,9 @@ Stores plans for slow statements in `sage.explain_cache`, each with its true
   Parameterized statements are planned with `GENERIC_PLAN` on PostgreSQL 16+
   (`generic_plan`) and skipped on older servers. A statement that already has
   a plan from the last day is not explained again.
-- `auto_explain_log`: an executed plan (actual rows and timing) that
-  `auto_explain` wrote to the server log, where pg_sage reads that log: the
+- `auto_explain_log`: the plan of a statement that ran, as `auto_explain`
+  wrote it to the server log (with actual rows and timing only when
+  `auto_explain.log_analyze` is on, which adds overhead to every statement), where pg_sage reads that log: the
   Supabase log sink, and on self-managed servers the cluster's log watcher
   (`logwatch.enabled` with RCA or migration log detection on), where each
   database subscribes to its own records. A plan needs

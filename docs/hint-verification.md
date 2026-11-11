@@ -521,8 +521,8 @@ only while it still describes the statement. A plan is stale when:
 
 A capture at the same instant as one of these events counts as stale, and so
 does a plan whose relation history cannot be read. Of the statement's three
-newest captures, the newest fresh executed plan (one with actual rows, such
-as an `auto_explain_log` plan) is used, else the newest fresh estimate
+newest captures, the newest fresh executed plan (an `auto_explain_log` plan,
+or any plan with actual rows) is used, else the newest fresh estimate
 (`explain_estimate` or `generic_plan`): an estimate taken after a logged plan
 never hides the plan's actual rows. When none is fresh:
 

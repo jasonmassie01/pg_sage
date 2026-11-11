@@ -95,10 +95,9 @@ func (r Reader) Read(ctx context.Context, queryID int64, text string) (Plan, err
 	return r.explainAfresh(ctx, queryID, text, caps, reason, now)
 }
 
-// pickFresh returns the newest fresh capture that carries actual rows (an
-// executed plan beats a newer estimate, rca-04), else the newest fresh
-// one; ok is false when none is fresh, and reason then says why the
-// newest was stale.
+// pickFresh returns the newest fresh executed plan (an executed plan beats
+// a newer estimate, rca-04), else the newest fresh one; ok is false when
+// none is fresh, and reason then says why the newest was stale.
 func (r Reader) pickFresh(ctx context.Context, caps []Capture, now time.Time) (Plan, bool,
 	string) {
 	reason := ""
@@ -112,7 +111,7 @@ func (r Reader) pickFresh(ctx context.Context, caps []Capture, now time.Time) (P
 			}
 			continue
 		}
-		if HasActuals(c) {
+		if executed(c) {
 			return cachedPlan(c), true, ""
 		}
 		if estimate == nil {
@@ -123,6 +122,16 @@ func (r Reader) pickFresh(ctx context.Context, caps []Capture, now time.Time) (P
 		return cachedPlan(*estimate), true, ""
 	}
 	return Plan{}, false, reason
+}
+
+// SourceAutoExplainLog is the cache source of a plan auto_explain logged.
+const SourceAutoExplainLog = "auto_explain_log"
+
+// executed reports whether c is a plan that ran: one with actual rows, or
+// one auto_explain logged, which has actuals only with log_analyze on but
+// is still the plan the statement used, with its real parameters.
+func executed(c Capture) bool {
+	return HasActuals(c) || c.Source == SourceAutoExplainLog
 }
 
 func cachedPlan(c Capture) Plan {
