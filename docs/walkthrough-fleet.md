@@ -184,7 +184,7 @@ elects its own owner. Single-database mode is unchanged.
 | Overview | Two database tiles, Provider Readiness matrix, fleet summary |
 | Cases | Cases from both databases, sorted by urgency/actionability |
 | Actions | Pending Approval and Executed tabs |
-| Fleet | Both managed databases and their status |
+| Fleet | Both managed databases with their runtime state (columns below) |
 | Header | **Stop all** and **Resume all**, the emergency controls |
 | Settings | Shadow Mode report |
 
@@ -200,6 +200,36 @@ Each database tile shows a health score and the reasons behind it; see
 open on several databases at once, 3 by default, so it stays empty with
 this walkthrough's two databases; see
 [Recurring across the fleet](fleet.md#recurring-across-the-fleet).
+
+### Fleet page columns
+
+Each managed database row shows its registration (**Name**, **Host**,
+**Trust Level**, **Execution Mode**, and **Registration**, which says
+`disabled` or the last **Test** result) and then what the running
+sidecar reports for it, from `GET /api/v1/databases`:
+
+| Column | Shows |
+|---|---|
+| Connection | `connected`, `disconnected` or `unknown`, plus the HA role when known; `not running` when the sidecar has no runtime for the registration |
+| Findings | Open and critical findings |
+| Health | The health score and its reasons |
+| Effective trust | The trust level in force, marked `override` when it differs from the registered one |
+| Emergency stop | `stopped by <actor> at <time>`, or `not stopped` |
+| LLM budget | Tokens used today / this database's share of `llm.fleet_token_budget_daily`, marked `exhausted` when spent; `—` without a fleet budget |
+| Explore | **Inspect database** opens the Database page |
+
+A registration joins its runtime row on the database id, or on the name
+when either side has no id. Databases from the config file get the same
+columns. The header shows `leader` or `follower of <holder>` while fleet
+learning runs leader election.
+
+The **Database** page leads with a summary card: connection, platform and
+version, health, last collector and analyzer runs, effective trust,
+emergency stop, LLM budget and the database's fleet look-alikes with their
+similarity ("Fleet learning is not running" when it is off). The raw
+snapshot is in the collapsed **Raw snapshot** section below it. On the
+**Fleet** page, each database under a recurring problem links to that
+database's case on the **Cases** page.
 
 ## 6. API Checks
 
