@@ -143,6 +143,7 @@ var routeProbes = []routeProbe{
 	{"GET", "/api/v1/audit/evidence"},
 	{"GET", "/api/v1/audit/evidence/key"},
 	{"GET", "/api/v1/audit/siem"},
+	{"GET", "/api/v1/audit/status"},
 	{"GET", "/api/v1/audit/verify"},
 	{"GET", "/api/v1/auth/mode"},
 	{"GET", "/api/v1/cloud-telemetry"},

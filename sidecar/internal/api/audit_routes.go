@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/auditchain"
+	"github.com/pg-sage/sidecar/internal/auditjob"
 	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/evidence"
 	"github.com/pg-sage/sidecar/internal/fleet"
@@ -46,6 +47,11 @@ type AuditDeps struct {
 	// PruneBelowSignedCheckpoint is audit.prune_below_signed_checkpoint:
 	// only then may /audit/verify start a pruned chain at its floor.
 	PruneBelowSignedCheckpoint bool
+	// Health is the scheduled verification's registry
+	// (auditjob.DefaultHealth().Snapshot); nil reports nothing verified.
+	Health func() auditjob.HealthSnapshot
+	// VerifyIntervalHours is audit.verify_interval_hours (0: no schedule).
+	VerifyIntervalHours int
 }
 
 // auditEvidenceExported is the auth_audit event of an evidence download.
@@ -56,6 +62,7 @@ func registerAuditRoutes(mux *http.ServeMux, deps AuditDeps) {
 	route(mux, "GET /api/v1/audit/evidence", gateAdmin, auditEvidenceHandler(deps))
 	route(mux, "GET /api/v1/audit/evidence/key", gateAdmin, auditEvidenceKeyHandler(deps))
 	route(mux, "GET /api/v1/audit/siem", gateAdmin, auditSIEMHandler(deps))
+	route(mux, "GET /api/v1/audit/status", gateAdmin, auditStatusHandler(deps))
 	route(mux, "POST /api/v1/audit/siem/{sink}/reanchor", gateAdmin, auditSIEMReanchorHandler(deps))
 }
 

@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/api"
+	"github.com/pg-sage/sidecar/internal/auditjob"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/crypto"
 	"github.com/pg-sage/sidecar/internal/evidence"
@@ -28,9 +29,14 @@ type evidenceKey struct {
 // re-anchoring, and the evidence-signing key resolved from controlPool.
 func auditAPIDeps(c *config.Config, controlPool *pgxpool.Pool) api.AuditDeps {
 	signing := evidenceSigner(c, controlPool)
-	return api.AuditDeps{SIEMStatus: siemStatusFunc(c), SIEMReanchor: siemReanchorFunc(c),
+	d := api.AuditDeps{SIEMStatus: siemStatusFunc(c), SIEMReanchor: siemReanchorFunc(c),
 		EvidenceKey: signing.key, EvidenceKeySource: signing.source,
-		PruneBelowSignedCheckpoint: c != nil && c.Audit.PruneBelowSignedCheckpoint}
+		Health: auditjob.DefaultHealth().Snapshot}
+	if c != nil {
+		d.PruneBelowSignedCheckpoint = c.Audit.PruneBelowSignedCheckpoint
+		d.VerifyIntervalHours = c.Audit.VerifyIntervalHours
+	}
+	return d
 }
 
 // evidenceSigner resolves the evidence-signing key for the API, reading

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/pgaudit"
@@ -16,8 +15,8 @@ func writePGAuditMetrics(b *strings.Builder, counts []pgaudit.RecordCount) {
 		"by outcome (stored, dropped, evicted, requeued, unmatched)\n" +
 		"# TYPE pg_sage_pgaudit_records_total counter\n")
 	for _, c := range counts {
-		fmt.Fprintf(b, "pg_sage_pgaudit_records_total{database=%q,outcome=%q} %d\n",
-			c.Database, c.Outcome, c.Count)
+		writeSample(b, "pg_sage_pgaudit_records_total",
+			withLabel(dbLabel(c.Database), "outcome", c.Outcome), c.Count)
 	}
 	b.WriteString("\n")
 }

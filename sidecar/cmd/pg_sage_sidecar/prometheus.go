@@ -9,7 +9,6 @@ import (
 	"github.com/pg-sage/sidecar/internal/ask"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/migration"
-	"github.com/pg-sage/sidecar/internal/pgaudit"
 	"github.com/pg-sage/sidecar/internal/shadow"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
@@ -68,7 +67,7 @@ func handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	writeLogwatchMetrics(&b, runtimeLogFanouts.droppedLines())
 	writeSREProbeMetrics(&b, probes.QueueStats())
 	writeMigrationEnrichMetrics(&b, migration.EnrichDroppedCounts())
-	writePGAuditMetrics(&b, pgaudit.RecordCounts())
+	writeAuditHealthFamilies(&b)
 	writeAskMetrics(&b, ask.AnswerCounts())
 
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
