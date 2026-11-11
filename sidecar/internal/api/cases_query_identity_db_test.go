@@ -8,10 +8,10 @@ import (
 	"github.com/pg-sage/sidecar/internal/executor"
 )
 
-// A query finding's case identity and its parameterization script name
-// the query by object identifier (cases-10). No producer writes
-// detail.normalized_query, so a value planted there is ignored by the Go
-// identity, the script, and the SQL mirror the ?case= lookup uses.
+// A query finding's case identity names the query by object identifier
+// (cases-10): a detail.normalized_query value is ignored by the Go identity
+// and the SQL mirror the ?case= lookup uses. The parameterization script
+// shows the shape the tuner writes there (tuning-11), every line commented.
 
 const plantedQueryKey = "normalized_query"
 
@@ -36,8 +36,13 @@ func TestQueryFindingIdentityIgnoresPlantedNormalizedQuery(t *testing.T) {
 		t.Fatalf("candidates = %+v, want one with a script", got.ActionCandidates)
 	}
 	script := got.ActionCandidates[0].ScriptOutput.MigrationSQL
-	if !strings.Contains(script, "-- queryid:88\n") || strings.Contains(script, "planted") {
-		t.Fatalf("migration script = %q, want the object identifier only", script)
+	if !strings.Contains(script, "-- select * from planted where id = ?\n") {
+		t.Fatalf("migration script = %q, want the commented shape text", script)
+	}
+	for _, line := range strings.Split(strings.TrimSuffix(script, "\n"), "\n") {
+		if !strings.HasPrefix(line, "--") {
+			t.Fatalf("migration script line %q is not commented: %q", line, script)
+		}
 	}
 }
 
