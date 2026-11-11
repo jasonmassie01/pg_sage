@@ -1,0 +1,132 @@
+package findingcat
+
+// e declares one category outside the analyzer rules.
+func e(name, subsystem, producer string, sev, keys, actions []string,
+	summary string) Category {
+	return Category{Name: name, Subsystem: subsystem, Producer: producer,
+		Severities: sev, ConfigKeys: keys, Actions: actions, Summary: summary}
+}
+
+// family declares a prefix family of categories.
+func family(prefix, subsystem, producer string, sev []string, summary string) Category {
+	return Category{Name: prefix, Prefix: true, Subsystem: subsystem, Producer: producer,
+		Severities: sev, Summary: summary}
+}
+
+var advisorEntries = []Category{
+	e("wal_tuning", "advisor", "advisor", sevIW, k("advisor.wal_enabled"),
+		act("alter_system_guc", "alter_database_guc"),
+		"WAL and checkpoint settings, such as max_wal_size when checkpoints are forced."),
+	e("connection_tuning", "advisor", "advisor", sevIW, k("advisor.connection_enabled"),
+		act("alter_system_guc", "alter_database_guc"),
+		"Connection capacity and churn, such as max_connections or pooling advice."),
+	e("query_rewrite", "advisor", "advisor", sevIW, k("advisor.rewrite_enabled"), nil,
+		"A rewrite for one of the slowest queries. Text only, always advisory."),
+	e("bloat_remediation", "advisor", "advisor", sevIW, k("advisor.bloat_enabled"), nil,
+		"Options for removing table and index bloat. Advisory."),
+	e("advisor_degraded", "advisor", "advisor", sevW, k("advisor.enabled"), nil,
+		"The advisor is enabled but has no usable LLM, so it proposes nothing."),
+	e("vacuum_tuning", "advisor", "advisor", sevIW, k("advisor.vacuum_enabled"),
+		act("alter_system_guc", "set_table_autovacuum"),
+		"Autovacuum configuration changes (the advisor, and the tuning agent)."),
+	e("memory_tuning", "advisor", "advisor", sevIW, k("advisor.memory_enabled"),
+		act("alter_system_guc"),
+		"Memory configuration changes (the advisor, and the tuning agent)."),
+}
+
+var optimizerEntries = []Category{
+	e("missing_index", "optimizer", "optimizer", sevIW,
+		k("llm.optimizer.enabled", "llm.optimizer.min_query_calls",
+			"llm.optimizer.confidence_threshold"), act("create_index_concurrently"),
+		"An index recommendation that passed the validators; the kind is in index_category."),
+	e("covering_index", "optimizer", "optimizer", sevIW, nil, nil,
+		"Covering-index advice as releases before v1.8.0 stored it (now missing_index)."),
+	e("partial_index", "optimizer", "optimizer", sevIW, nil, nil,
+		"Partial-index advice as releases before v1.8.0 stored it (now missing_index)."),
+	e("composite_index", "optimizer", "optimizer", sevIW, nil, nil,
+		"Composite-index advice as releases before v1.8.0 stored it (now missing_index)."),
+}
+
+var tuningEntries = []Category{
+	e("query_tuning", "query_tuning", "tuner", sevIW,
+		k("tuner.enabled", "tuner.min_query_calls", "tuner.work_mem_max_mb"),
+		act("apply_query_hint"), "A per-query plan hint stored in sage.query_hints."),
+	e("runaway_query", "query_tuning", "executor", sevWC, k("runaway.policies"),
+		act("cancel_backend", "terminate_backend"),
+		"A running query past the limits of a runaway policy."),
+	e("query_hint_retirement", "tuning", "tuner", sevI, k("tuner.hint_retirement_days"),
+		act("retire_query_hint"), "A plan hint that no longer helps, proposed for removal."),
+	e("tuning_index_drop", "tuning", "tuning_agent", sevI, nil, act("drop_unused_index"),
+		"An index the tuning agent proposes to drop."),
+	e("tuning_index_replace", "tuning", "tuning_agent", sevI, nil, act("replace_index"),
+		"An index the tuning agent proposes to replace with a better one."),
+	e("query_create_statistics", "tuning", "tuning_agent", sevI, nil,
+		act("create_statistics"), "Extended statistics the tuning agent proposes."),
+	e("table_tuning", "tuning", "tuning_agent", sevI, nil,
+		act("set_table_autovacuum", "alter_table"),
+		"A per-table storage parameter the tuning agent proposes."),
+}
+
+var forecastEntries = []Category{
+	family("forecast", "forecaster", "forecaster", sevIWC,
+		"Any category starting with forecast: a trend projected past a limit."),
+	e("forecast_disk_growth", "forecaster", "forecaster", sevWC,
+		k("forecaster.disk_warn_growth_gb_day", "forecaster.lookback_days"), nil,
+		"Database size growing faster than the daily warning rate."),
+	e("forecast_connection_saturation", "forecaster", "forecaster", sevWC,
+		k("forecaster.connection_warn_pct"), nil,
+		"Connections trending toward max_connections."),
+	e("forecast_query_volume", "forecaster", "forecaster", sevWC, nil, nil,
+		"Query volume growing sharply over the lookback."),
+	e("forecast_cache_pressure", "forecaster", "forecaster", sevW,
+		k("forecaster.cache_warn_threshold", "forecaster.cache_min_blocks_per_day"), nil,
+		"The cache hit ratio trending below the warning threshold."),
+	e("forecast_checkpoint_pressure", "forecaster", "forecaster", sevW,
+		k("forecaster.checkpoint_requested_per_hour"), nil,
+		"Requested checkpoints trending above the hourly limit."),
+	e("storage_forecast", "forecaster", "forecaster", sevIWC, nil, nil,
+		"Storage growth forecast of the v0.9 growth path, kept for rows it wrote."),
+	e("forecast_wraparound_runway", "forecaster", "runway", sevWC, nil, nil,
+		"Time left before a table or the database reaches transaction ID wraparound."),
+	e("forecast_wal_runway", "forecaster", "runway", sevWC,
+		k("forecaster.disk_capacity_bytes"), nil,
+		"Time left before retained WAL fills the disk or a slot's limit."),
+	e("forecast_sequence_runway", "forecaster", "runway", sevWC, nil, nil,
+		"Time left before a sequence runs out of values at its current rate."),
+}
+
+var otherEntries = []Category{
+	family("schema_lint:", "schema_lint", "schema_lint", sevIWC,
+		"A schema lint rule's finding: schema_lint:<rule id>."),
+	family("agent_posture:", "governance", "agentposture", sevIWC,
+		"An agent posture detector's finding: agent_posture:<detector>."),
+	e("incident", "incident", "rca", sevIWC, nil, nil, "An incident-class row."),
+	e("incident_open", "incident", "rca", sevIWC, nil, nil, "An open incident."),
+	e("incident_resolved", "incident", "rca", sevIWC, nil, nil, "A resolved incident."),
+	e("managed_parameter_drift", "cloud", "cloud_telemetry", sevIWC, nil, nil,
+		"A managed provider parameter that drifts from its resolved target."),
+	e("managed_storage_runway", "cloud", "cloud_telemetry", sevIWC, nil, nil,
+		"Time left before a managed instance's provisioned storage fills."),
+	e("agent_environment_binding", "governance", "agentguard", sevC, nil, nil,
+		"An agent connected to a database outside its bound environment."),
+	e("agent_role_drift", "governance", "agentguard", sevWC, nil, nil,
+		"An agent role whose access differs from what governance recorded."),
+	e("agent_backend_violation", "governance", "agentguard", sevC, nil, nil,
+		"A connected agent role that breaks the agent role rules."),
+	e("agent_role_upkeep", "governance", "agentguard", sevW, nil, nil,
+		"A scheduled agent role job that cannot run."),
+	e("autonomy_handoff", "governance", "executor", sevW, nil, nil,
+		"A remediation pg_sage earned but holds for an operator's approval."),
+	e("audit_chain_broken", "governance", "auditjob", sevC, nil, nil,
+		"The audit log's hash chain does not verify."),
+	e("audit_chain_regressed", "governance", "auditjob", sevC, nil, nil,
+		"An audit trail that went back behind its SIEM export."),
+	e("audit_chain_verification_failed", "governance", "auditjob", sevW, nil, nil,
+		"The audit chain verification job could not run."),
+	e("siem_event_undeliverable", "governance", "auditjob", sevW, nil, nil,
+		"An audit event a SIEM sink refused."),
+	e("migration_safety", "migration", "migration", sevWC, nil, nil,
+		"A migration safety rule's finding on a DDL statement."),
+	e("test_fixture_cleanup", "facts", "facts", sevI, nil, nil,
+		"A confirmed test-fixture fact's cleanup batch for an operator to review."),
+}
