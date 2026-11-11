@@ -54,7 +54,8 @@ func watchWriteFixture(
 		t.Fatal(err)
 	}
 	verdict, err := engine.Watch(ctx, WatchRequest{
-		ID: "write-signal-" + index + executedAt.Format("-20060102"), ActionID: actionID, ExecutedAt: executedAt,
+		ID:       "write-signal-" + index + executedAt.Format("-20060102"),
+		ActionID: actionID, ExecutedAt: executedAt,
 		Table: table, IndexName: index,
 		Criterion: Criterion{Kind: "per_query_latency",
 			TargetIDs: []int64{writeSignalQueryID}, MinGainPct: 20, RegressPct: 15,

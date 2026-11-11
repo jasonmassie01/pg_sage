@@ -42,14 +42,15 @@ const (
 // attributable intervals, Unattributed the readable ones the table did not
 // dominate (or barely wrote in), Unknown those whose readings cannot be
 // compared (a statistics reset, no WAL position, no tables snapshot).
-// Tuples and WALBytes sum the attributable intervals; BytesPerTuple is
-// their median WAL bytes per written tuple.
+// Tuples, WALBytes and Seconds sum the attributable intervals;
+// BytesPerTuple is their median WAL bytes per written tuple.
 type WriteCost struct {
 	Intervals     int     `json:"intervals"`
 	Unattributed  int     `json:"unattributed"`
 	Unknown       int     `json:"unknown"`
 	Tuples        int64   `json:"tuples"`
 	WALBytes      int64   `json:"wal_bytes"`
+	Seconds       float64 `json:"seconds"`
 	BytesPerTuple float64 `json:"bytes_per_tuple"`
 }
 
@@ -80,6 +81,7 @@ func summarizeWriteCycles(cycles []writeCycle) WriteCost {
 			cost.Intervals++
 			cost.Tuples += table
 			cost.WALBytes += wal
+			cost.Seconds += cycles[i].At.Sub(cycles[i-1].At).Seconds()
 			perTuple = append(perTuple, float64(wal)/float64(table))
 		}
 	}
@@ -143,12 +145,40 @@ func judgeWrites(thresholdPct float64, before, after WriteCost) writeJudgement {
 		return writeJudgement{Outcome: writeInsufficient,
 			Reason: "pre-action window has no attributable WAL per written tuple"}
 	}
+	if reason := writeRateIncomparable(thresholdPct, before, after); reason != "" {
+		return writeJudgement{Outcome: writeInsufficient, Reason: reason}
+	}
 	judgement := writeJudgement{Outcome: writeWithinThreshold, Measured: true,
 		DeltaPct: (after.BytesPerTuple - before.BytesPerTuple) * 100 / before.BytesPerTuple}
 	if after.BytesPerTuple*100 > before.BytesPerTuple*(100+thresholdPct) {
 		judgement.Outcome = writeRegressed
 	}
 	return judgement
+}
+
+// writeRateIncomparable is why the two windows' WAL per tuple cannot be
+// compared, or "". Part of the WAL is paid per unit of time, not per tuple:
+// full-page images after each checkpoint, the collector's own history
+// writes. When the table writes more slowly after the action, that part
+// spreads over fewer tuples and the per-tuple cost rises with no index cost
+// at all. A post-action rate of at least 100/(100+thresholdPct) of the
+// pre-action rate cannot by itself raise the cost above thresholdPct, even
+// if all pre-action WAL were time-paid; a slower one is insufficient.
+func writeRateIncomparable(thresholdPct float64, before, after WriteCost) string {
+	if before.Seconds <= 0 || after.Seconds <= 0 {
+		return "a window's attributable intervals have no duration"
+	}
+	// afterRate*(100+pct) >= beforeRate*100, without dividing.
+	if float64(after.Tuples)*before.Seconds*(100+thresholdPct) >=
+		float64(before.Tuples)*after.Seconds*100 {
+		return ""
+	}
+	beforeRate := float64(before.Tuples) / before.Seconds
+	afterRate := float64(after.Tuples) / after.Seconds
+	return fmt.Sprintf("the table wrote %.1f tuples/s after the action and %.1f before; "+
+		"at a rate that much lower the time-paid WAL (checkpoint full-page images, the "+
+		"collector's writes) alone can raise the per-tuple cost over the threshold",
+		afterRate, beforeRate)
 }
 
 // WriteCost reads the write cost of table over [from, to]: the table is

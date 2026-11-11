@@ -11,8 +11,9 @@ import (
 
 // history.store: meta. The observation source reads its history
 // (query_store intervals, system and tables snapshots) from the store and
-// its catalog (pg_index, the watched table's name) from the monitored database: the two halves of what used to
-// be one database. Results must equal monitored mode's on the same fixture.
+// its catalog (pg_index, the watched table's name) from the monitored
+// database: the two halves of what used to be one database. Results must
+// equal monitored mode's on the same fixture.
 
 func seedVerifyHistory(t *testing.T, p *histfixture.Pair, from time.Time) {
 	t.Helper()

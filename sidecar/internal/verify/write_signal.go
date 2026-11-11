@@ -69,5 +69,5 @@ func writeSignal(state WatchState, observed observations, decisive bool) map[str
 func writeCostEvidence(cost WriteCost) map[string]any {
 	return map[string]any{"intervals": cost.Intervals, "unattributed": cost.Unattributed,
 		"unknown": cost.Unknown, "tuples": cost.Tuples, "wal_bytes": cost.WALBytes,
-		"bytes_per_tuple": cost.BytesPerTuple}
+		"seconds": cost.Seconds, "bytes_per_tuple": cost.BytesPerTuple}
 }

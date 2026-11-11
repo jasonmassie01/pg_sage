@@ -862,18 +862,29 @@ reverted as `write_impact` when the post-build cost is more than `verify.write_i
 above the pre-build cost (a rise of exactly the threshold is kept). The query reasons come
 first: a query regression is still `query_regression` and a neutral result still `no_gain`,
 and a window extended for query samples is not ended early. Each window needs 3 attributable
-intervals and 1,000 tuples; with less, or when the write history cannot be read (recorded in
+intervals and 1,000 tuples. Part of the WAL is paid per unit of time rather than per tuple
+(full-page images after each checkpoint, the collector's own history writes), so a table that
+writes more slowly after the build pays more per tuple with no index cost at all; the windows
+are compared only when the table's post-build write rate (tuples per second over its
+attributable intervals) is at least 100/(100 + `verify.write_impact_pct`) of the pre-build
+rate, the slowest rate that cannot by itself raise the cost over the threshold. With less
+evidence, a slower post-build rate, or when the write history cannot be read (recorded in
 `write_signal.error`; it does not pause the watch), the write signal is `insufficient` and
 the queries alone decide. There is no database-wide fallback: a batch on another table, or
 the daytime load after a night build, is never charged to the index. Each index verdict
 records the signal as `write_signal` in the verdict evidence (`sage.action_outcome.evidence`):
 `scope: table`, `metric: wal_bytes_per_tuple`, `table`, `outcome` (`regressed`,
 `within_threshold` or `insufficient`), `before` and `after` (`intervals`, `unattributed`,
-`unknown`, `tuples`, `wal_bytes`, `bytes_per_tuple`), `delta_pct` when both windows were
-measured, `threshold_pct`, `exceeds_threshold`, and `decisive` (true when it caused the
+`unknown`, `tuples`, `wal_bytes`, `seconds`, `bytes_per_tuple`), `delta_pct` when both
+windows were measured, `threshold_pct`, `exceeds_threshold`, and `decisive` (true when it caused the
 revert). When the cost rose over the threshold, the outcome reason names the table and the
 rise. Other databases of the same cluster also write WAL; the median and the attribution rule
 absorb a burst from them, not a sustained load that only runs after the build.
+Every B-tree index logs its own entry for each inserted row (and for each update that is
+not HOT), so on an insert-heavy table that dominates the database's writes one more index
+can raise the WAL per tuple by tens of percent (the integration test measures +100% on a table
+with no other index). Raise `verify.write_impact_pct` where read gains on such tables matter
+more than their WAL volume.
 At startup, an open `write_impact` revert from a version before the table-scoped signal
 (its watch has no `write_scope`) whose drop has not run is reopened and checked again on the
 table-scoped signal; if that drop was withheld or failed, its action (`rollback_skipped` or

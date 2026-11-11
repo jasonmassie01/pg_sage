@@ -2,6 +2,7 @@ package verify
 
 import (
 	"math"
+	"strings"
 	"testing"
 	"time"
 )
@@ -27,7 +28,8 @@ func TestSummarizeWriteCyclesMeasuresTableDominatedIntervals(t *testing.T) {
 		cyc(0, 0, 0, 0), cyc(1, 100_000, 1000, 1000), cyc(2, 200_000, 2000, 2000),
 		cyc(3, 330_000, 3000, 3000),
 	})
-	want := WriteCost{Intervals: 3, Tuples: 3000, WALBytes: 330_000, BytesPerTuple: 100}
+	want := WriteCost{Intervals: 3, Tuples: 3000, WALBytes: 330_000, Seconds: 180,
+		BytesPerTuple: 100}
 	if got != want {
 		t.Fatalf("summary = %+v, want %+v", got, want)
 	}
@@ -118,7 +120,7 @@ func TestSummarizeWriteCyclesEmptyInputs(t *testing.T) {
 
 func measuredCost(bytesPerTuple float64) WriteCost {
 	return WriteCost{Intervals: 6, Tuples: 6000, WALBytes: int64(bytesPerTuple * 6000),
-		BytesPerTuple: bytesPerTuple}
+		Seconds: 3600, BytesPerTuple: bytesPerTuple}
 }
 
 func TestJudgeWritesThresholdBoundary(t *testing.T) {
@@ -184,5 +186,66 @@ func TestJudgeWritesZeroThreshold(t *testing.T) {
 	if got := judgeWrites(0, measuredCost(100), measuredCost(101)); got.Outcome !=
 		writeRegressed {
 		t.Fatalf("1%% rise at 0%% = %+v, want regressed", got)
+	}
+}
+
+// Seconds sums the attributable intervals only: an interval another table
+// dominated or an incomparable one adds no duration.
+func TestSummarizeWriteCyclesSumsAttributableSeconds(t *testing.T) {
+	reset, after := cyc(3, 330_000, 3000, 3000), cyc(5, 530_000, 5000, 5000)
+	reset.Epoch, after.Epoch = "e2", "e2"
+	got := summarizeWriteCycles([]writeCycle{
+		cyc(0, 0, 0, 0), cyc(1, 100_000, 1000, 1000), cyc(2, 200_000, 1000, 9000),
+		reset, after,
+	})
+	if got.Intervals != 2 || got.Unattributed != 1 || got.Unknown != 1 ||
+		got.Seconds != 180 || got.Tuples != 3000 {
+		t.Fatalf("summary = %+v, want 2 attributable intervals over 180 s", got)
+	}
+}
+
+// executor-03b review: part of the WAL is paid per unit of time (checkpoint
+// full-page images, the collector's writes), so a table that writes more
+// slowly after the build pays more per tuple with no index cost at all. A
+// post-action rate of at least 100/(100+pct) of the pre-action one is
+// compared; a slower one is insufficient, never a regression.
+func TestJudgeWritesRateBoundary(t *testing.T) {
+	cases := map[string]struct {
+		afterSeconds float64
+		outcome      string
+	}{
+		"same rate":                     {3600, writeRegressed},
+		"faster after":                  {1800, writeRegressed},
+		"exactly 100/120 of the rate":   {4320, writeRegressed},
+		"just under 100/120 of it":      {4320.01, writeInsufficient},
+		"a tenth of the rate":           {36_000, writeInsufficient},
+		"post-action without duration":  {0, writeInsufficient},
+		"negative post-action duration": {-1, writeInsufficient},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			after := measuredCost(300)
+			after.Seconds = tc.afterSeconds
+			got := judgeWrites(20, measuredCost(100), after)
+			if got.Outcome != tc.outcome {
+				t.Fatalf("judgement = %+v, want %s", got, tc.outcome)
+			}
+			if tc.outcome == writeInsufficient && (got.Measured || got.DeltaPct != 0 ||
+				got.Reason == "") {
+				t.Fatalf("judgement = %+v, want unmeasured with a reason", got)
+			}
+		})
+	}
+	before := measuredCost(100)
+	before.Seconds = 0
+	if got := judgeWrites(20, before, measuredCost(300)); got.Outcome != writeInsufficient ||
+		!strings.Contains(got.Reason, "duration") {
+		t.Fatalf("pre-action without duration = %+v, want insufficient", got)
+	}
+	slow := measuredCost(300)
+	slow.Seconds = 36_000
+	if got := judgeWrites(20, measuredCost(100), slow); !strings.Contains(got.Reason,
+		"0.2 tuples/s after the action and 1.7 before") {
+		t.Fatalf("reason = %q, want both rates", got.Reason)
 	}
 }
