@@ -428,6 +428,9 @@ Fleet and meta mode serve one `/metrics` per sidecar, on either listener.
 | `pg_sage_sso_discovery_ready` | == 0 for 10m | SSO is enabled but OIDC discovery has not succeeded; SSO sign-in is unavailable |
 | `pg_sage_sso_discovery_failures_total` | rate > 0 | OIDC discovery attempts failing (IdP outage, DNS, or misconfiguration) |
 | `pg_sage_api_tls_cert_not_after_seconds` | `- time() < 14*86400` | API TLS certificate expires within 14 days; rotate `SAGE_TLS_CERT`/`SAGE_TLS_KEY` (present only when the API serves TLS) |
+| `pg_sage_audit_chain_ok{database,chain}` | == 0 | An audit chain fails its scheduled verification (fleet: the leader's series) |
+| `time() - pg_sage_audit_chain_verified_timestamp_seconds` | > 2 x `audit.verify_interval_hours` | Audit chain verification has stopped finishing; see `pg_sage_audit_chain_verify_errors_total` |
+| `pg_sage_siem_lag_links{sink,source,chain}` | grows for 30m | A SIEM sink is falling behind; `pg_sage_siem_consecutive_failures{sink}` > 0 says it is failing |
 | `pg_sage_api_tls_reload_failures_total` | increase > 0 | A rotated TLS pair failed to load; the old certificate is still serving |
 | `pg_sage_leader{scope}` | `sum by (scope)` == 0 across sidecars | No sidecar holds the lease: leader-only jobs (fleet learning, SIEM export, governance reconcilers) are not running. 1 = this sidecar leads, 0 = follower |
 | `pg_sage_leader_transitions_total{scope}` | rate > 0 for long | Leadership is flapping; a lapse (renewal overdue past the local deadline) counts and logs one WARN |
@@ -518,6 +521,13 @@ database from `sage.databases`.
 standalone, the metadata database in meta mode, and any database in YAML fleet mode. Alert on
 `pg_sage_database_up` for monitored databases. The fleet summary (`pg_sage_fleet_*`) and the
 LLM gauges render in every mode whenever their data exists.
+
+Audit health (scheduled chain verification and SIEM export, which run on the fleet leader
+only) is listed in [security.md](security.md#monitoring-audit-health):
+`pg_sage_audit_chain_ok`, `pg_sage_audit_chain_verified_timestamp_seconds`,
+`pg_sage_audit_chain_problems`, `pg_sage_audit_chain_verify_errors_total`,
+`pg_sage_siem_lag_links`, `pg_sage_siem_consecutive_failures` and
+`pg_sage_siem_delivered_total`.
 
 These families are deprecated and keep emitting in v2.6.0; they are removed in v2.7.0:
 

@@ -2814,6 +2814,11 @@ managed providers.
   or on demand.
 - **window**: `from_seq`/`to_seq` on the API verifies an explicit range.
 
+Each scheduled run's result is exported as `pg_sage_audit_chain_ok`,
+`pg_sage_audit_chain_verified_timestamp_seconds` and
+`pg_sage_audit_chain_problems`, and served by `GET /api/v1/audit/status`
+(admin); see [Monitoring audit health](security.md#monitoring-audit-health).
+
 `GET /api/v1/audit/verify?database=<name>` (admin) verifies since each
 chain's newest checkpoint, or in full when a chain has none. Add
 `full=true` to verify the whole chain. Both run under a 5 minute timeout

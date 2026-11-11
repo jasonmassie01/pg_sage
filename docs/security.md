@@ -1189,7 +1189,23 @@ never logged; successful reads are not logged. Set `api.access_log: false`
 (restart to change) to turn it off; the auth, config and action tables
 above keep their own records either way.
 
-Both tables are subject to retention policies (configurable via `retention.actions_days`).
+### Retention
+
+Each audit table ages out on its own key; the hash chain is kept whole
+unless pruning is turned on.
+
+| Table | Ages out on | Notes |
+|---|---|---|
+| `sage.action_log` | `retention.actions_days` | Kept longer: successful actions that saved toil, and actions an avoided incident, an applied recommendation or an SRE maintenance proposal still refers to |
+| `sage.auth_audit` | `retention.auth_audit_days` | Default 365; 0 keeps it forever |
+| `sage.guard_pgaudit_events` | `retention.actions_days` | Correlated pgaudit records, in each monitored database |
+| `sage.guard_query_audit` | `agents.query.audit_retention_days` | Default 30, in each monitored database |
+| `sage.config_audit` | never | Kept: the trail of configuration changes |
+| `sage.fact_events` | never | Kept: who lifted a guard outlives the fact |
+| `sage.audit_chain_link` | never | Kept whole, unless `audit.prune_below_signed_checkpoint` is on (see below) |
+
+A row removed by retention leaves a delete link in its chain, so
+verification still proves what was there.
 
 ### Tamper-Evident Chains and SIEM Export
 
@@ -1345,6 +1361,88 @@ The database role a session logged in as decides.
   application name it set; a truncate is always High. On managed
   providers pg_sage's role is the configured user, including IAM and
   OAuth users.
+
+### Threat model
+
+Verification proves that every row of a chained table is the row its link
+sealed, that no link was removed or reordered, and that no row was written
+with the chain triggers bypassed. It proves this against the chain in the
+same database, so its strength depends on who can rewrite that chain:
+
+- **A writer with ordinary grants** (an application role, an agent, an
+  operator using the API) cannot edit an audit row unseen: the next full
+  verification reports `row_edited`, `row_missing` or `unchained_row`.
+- **The owner of the `sage.*` schema** (pg_sage's own role, or a
+  superuser) can disable the triggers and rewrite a whole chain, links
+  and rows together, so that it verifies clean. Only a copy kept off the
+  database catches that: the SIEM's copy (`audit.siem.sinks`), whose
+  events carry each link's hash, or signed checkpoints, whose signature
+  the database owner cannot forge without the evidence-signing key. Run
+  pg_sage with a role that owns nothing else, keep superuser access
+  separate, and export to a SIEM.
+- **A restore or PITR** moves a chain back; the SIEM cursor check reports
+  it as `audit_chain_regressed` (see above).
+- **Between full passes**, an edit of a row older than the newest
+  checkpoint is found by the next full pass
+  (`audit.full_verify_interval_hours`), not the next incremental one.
+
+### pgaudit records
+
+With `audit.pgaudit.correlate` on (the default), each monitored database
+where `pgaudit` is in `shared_preload_libraries` has the pgaudit records
+of pg_sage's actions and agent principals kept in
+`sage.guard_pgaudit_events`. pg_sage reads them from the server log, so
+log access must be configured (`logwatch.enabled`, which needs
+`rca.enabled`); without it the sidecar logs once that pgaudit is loaded
+but unread. pgaudit's own settings (`pgaudit.log`, `pgaudit.role`) are
+the operator's; pg_sage keeps only the records it can attribute (see
+[Attribution](#attribution-trusts-the-role-not-application_name)) and
+counts every record in
+`pg_sage_pgaudit_records_total{database,outcome}` (stored, dropped,
+evicted, requeued, unmatched).
+
+### Monitoring audit health
+
+Scheduled verification (`audit.verify_interval_hours`) keeps its last
+result per database and chain in the sidecar, which `/metrics` exports
+and `GET /api/v1/audit/status` (admin) serves. Neither verifies on
+demand; `GET /api/v1/audit/verify` does.
+
+| Series | Meaning |
+|---|---|
+| `pg_sage_audit_chain_ok{database,chain}` | 1 if the chain's last scheduled verification found no problem, 0 if it fails |
+| `pg_sage_audit_chain_verified_timestamp_seconds{database,chain}` | Unix time of the chain's last finished verification |
+| `pg_sage_audit_chain_problems{database,chain,kind}` | Problems that verification reported, by kind (`row_edited`, `gap`, ...); failing chains only |
+| `pg_sage_audit_chain_verify_errors_total{database}` | Runs that failed before they finished (a timeout, a lost connection); the chains keep their previous result |
+| `pg_sage_siem_lag_links{sink,source,chain}` | Links not yet exported to the sink: chain head minus the sink's cursor at its last attempt |
+| `pg_sage_siem_consecutive_failures{sink}` | Failed export passes in a row |
+| `pg_sage_siem_delivered_total{sink}` | Events the sink confirmed since the exporter started |
+
+Series carry database, chain, sink and problem-kind names only, never row
+content. Cardinality is databases x chains for the chain series and sinks
+x sources x chains for lag. Nothing is sampled before the first
+verification, and `GET /api/v1/audit/status` then answers
+`"verified_at": null`.
+
+In fleet mode verification and export run on the fleet leader only, so
+only the leader exports chain and SIEM series; a follower renders the
+families without samples and drops what it recorded while it led. Alert
+on the leader's series:
+
+```yaml
+- alert: PgSageAuditChainBroken
+  expr: pg_sage_audit_chain_ok == 0
+- alert: PgSageAuditVerificationStale
+  expr: time() - pg_sage_audit_chain_verified_timestamp_seconds > 2 * 24 * 3600
+- alert: PgSageSIEMBehind
+  expr: pg_sage_siem_lag_links > 1000 or pg_sage_siem_consecutive_failures > 5
+```
+
+(the stale threshold is twice the default `audit.verify_interval_hours` of
+24). The Settings page shows the same status to admins in its **Audit
+trail** card: each chain's state and last verification, SIEM failures and
+lag, whether evidence packs are signed, and an evidence download by action
+id or time window.
 
 ### Evidence Packs
 
