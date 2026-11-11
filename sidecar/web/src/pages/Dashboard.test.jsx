@@ -21,14 +21,17 @@ vi.mock('../components/TokenBudgetBanner', () => ({
 
 vi.mock('../hooks/useAPI', () => ({
   useAPI: url => {
-    if (url.startsWith('/api/v1/findings')) {
+    if (url && url.startsWith('/api/v1/cases')) {
       return {
         data: {
-          findings: [{
+          cases: [{
+            id: 'finding:prod:gin',
             title: 'Add GIN index for JSON containment query',
             severity: 'warning',
             database_name: 'prod',
           }],
+          total: 1,
+          unavailable: [],
         },
         loading: false,
         error: null,
@@ -84,9 +87,9 @@ describe('Dashboard', () => {
       .toBeInTheDocument()
     expect(screen.queryByTestId('db-list')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByTestId('overview-tab-recent-recos'))
+    fireEvent.click(screen.getByTestId('overview-tab-top-cases'))
     expect(screen.getByTestId('overview-tab-description'))
-      .toHaveTextContent('Newest recommendations')
-    expect(screen.getByTestId('recent-findings')).toBeInTheDocument()
+      .toHaveTextContent(/highest-ranked open cases/i)
+    expect(screen.getByTestId('top-cases')).toBeInTheDocument()
   })
 })

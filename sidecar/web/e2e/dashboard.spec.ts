@@ -100,14 +100,16 @@ test.describe('Dashboard page', () => {
       .toBeVisible()
   })
 
-  test('recent findings section appears with data', async ({ page }) => {
+  test('top cases section appears with data', async ({ page }) => {
     await page.goto('/#/advanced')
-    await page.locator('[data-testid="overview-tab-recent-recos"]').click()
+    await page.locator('[data-testid="overview-tab-top-cases"]').click()
 
-    const findings = page.locator('[data-testid="recent-findings"]')
-    await expect(findings).toBeVisible()
-    await expect(findings).toContainText('Recent Recommendations')
-    await expect(findings).toContainText('Unused index')
+    const topCases = page.locator('[data-testid="top-cases"]')
+    await expect(topCases).toBeVisible()
+    await expect(topCases).toContainText('Top Cases')
+    await expect(topCases).toContainText('Stats are stale')
+    await expect(topCases.locator('[data-testid="top-case-link"]').first())
+      .toHaveAttribute('href', /^#\/cases\?case=/)
   })
 
   test('health hero shows issues when data has degraded dbs',

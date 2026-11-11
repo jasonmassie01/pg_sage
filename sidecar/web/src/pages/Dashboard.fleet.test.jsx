@@ -31,7 +31,7 @@ const fleetQuery = (extra = {}) => ({
 let fetch
 beforeEach(() => {
   vi.useFakeTimers()
-  fetch = stubFetch({ '/api/v1/findings': { json: { findings: [] } } })
+  fetch = stubFetch({ '/api/v1/cases': { json: { cases: [], total: 0, unavailable: [] } } })
 })
 afterEach(() => {
   vi.useRealTimers()
@@ -47,8 +47,9 @@ describe('Dashboard fleet', () => {
     await advance(60000)
     expect(screen.getByTestId('stat-databases')).toHaveTextContent('2')
     expect(screen.getByTestId('stat-healthy')).toHaveTextContent('1')
-    expect(fetchedPaths()).toContain('/api/v1/findings')
     expect(fetchedPaths()).not.toContain('/api/v1/databases')
+    // cases-11b: the ranked cases load with their tab, not with the page.
+    expect(fetchedPaths()).not.toContain('/api/v1/cases')
   })
 
   it('shows the fleet error when App has no fleet data', async () => {
@@ -89,16 +90,18 @@ describe('Dashboard fleet', () => {
     act(() => source.emit('health', { type: 'health', database: 'analytics' }))
     await advance(2000)
     expect(fleet.refetch).toHaveBeenCalledTimes(1)
-    // A health event refetches the fleet only, not the findings list.
+    // A health event refetches the fleet only, not the cases list.
     expect(fetch.mock.calls.length).toBe(before)
   })
 
-  it('refetches the scoped findings only for the selected database', async () => {
+  it('refetches the scoped top cases only for the selected database', async () => {
     render(
       <LiveEventsProvider>
         <Dashboard database="prod" onSelectDB={vi.fn()} fleet={fleetQuery()} />
       </LiveEventsProvider>,
     )
+    await advance(0)
+    act(() => screen.getByTestId('overview-tab-top-cases').click())
     await advance(0)
     const source = FakeEventSource.instances.at(-1)
     act(() => source.open())
@@ -110,5 +113,6 @@ describe('Dashboard fleet', () => {
     await advance(2000)
     expect(fetch.mock.calls.length).toBe(before + 1)
     expect(fetch.mock.calls.at(-1)[0]).toContain('database=prod')
+    expect(String(fetch.mock.calls.at(-1)[0])).toMatch(/^\/api\/v1\/cases\?/)
   })
 })
