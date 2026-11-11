@@ -1415,7 +1415,7 @@ The standing policy document also carries three safety fields, all enforced:
   authorized at 04:59 does not start in a window that closes at 05:00. The
   window is `trust.maintenance_window` (when set) intersected with the
   policy's `maintenance_windows`. A document without the field keeps its
-  meaning.
+  meaning. Lowering or removing the margin widens the policy.
 - `serialize_mode`: what happens when another writer holds the DDL lease on
   the same object. `park` (both profiles): a self-initiated action is parked
   with reason `ddl_conflict` and retried next cycle. A park is not a failure:
