@@ -62,6 +62,9 @@ type Status struct {
 	// spent: its bad/eligible over (1 - target). It is not the budget
 	// remaining, which stays unknown.
 	BudgetSpentSoFar *float64 `json:"budget_spent_so_far,omitempty"`
+	// OwnerDatabase, for a fleet SLO, is the database whose investigator
+	// opens its slo_burn investigations (empty: this database).
+	OwnerDatabase string `json:"owner_database,omitempty"`
 }
 
 // Burning reports whether any rule fires (page or ticket).
@@ -78,7 +81,7 @@ func Evaluate(o Objective, rules []Rule, windows map[time.Duration]Window, budge
 	st := Status{Name: o.Name, Database: o.Database, Kind: o.Kind, Source: o.Source,
 		Description: o.Description, Owner: o.Owner, Target: o.Target,
 		Window: FormatWindow(o.Window), EvaluatedAt: now, Unknown: []string{},
-		DefinitionHash: o.Hash()}
+		DefinitionHash: o.Hash(), OwnerDatabase: o.OwnerDatabase}
 	reasons := map[string]bool{}
 	page, ticket, unknown := false, false, false
 	for _, r := range rules {
