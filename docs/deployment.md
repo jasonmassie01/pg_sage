@@ -645,11 +645,25 @@ Every start runs the `sage` schema migrations under a PostgreSQL advisory lock,
 in every database pg_sage bootstraps (the monitored database in standalone
 mode, each managed database in fleet mode, and the metadata database).
 
-- **A second start changes nothing.** Before each migration step runs, pg_sage
-  reads the catalog: a column, index or table that already exists is not
-  touched, so a restart takes no DDL lock on its tables. Steps whose effect the
-  catalog cannot show (`DO` blocks, function definitions, small backfills) run
-  every time and are written to check the catalog themselves.
+- **A second start runs no DDL.** pg_sage records every migration step it ran
+  in `sage.schema_migrations` (step name, SHA-256 of its SQL, when, and the
+  pg_sage version), together with a fingerprint of the `sage` catalog the last
+  complete start left. While the catalog still matches that fingerprint, a
+  start skips every recorded step; only their data statements (small
+  backfills of rows an older pg_sage may have written) run again. When the
+  catalog differs (the first start of a version with the ledger, a start that
+  was cut off, an older pg_sage or a person having changed the schema, an
+  `INVALID` index), the start trusts nothing: before each step it reads the
+  catalog, a column, index or table that already exists is not touched, and
+  missing objects are created again. An `INVALID` index (left by a killed
+  `CREATE INDEX CONCURRENTLY`) is dropped and rebuilt by the step that owns it.
+- **A changed step stops the start.** A released migration step never
+  changes. If the step recorded in `sage.schema_migrations` has another
+  checksum than this build's, startup fails naming the step, for example
+  `migration step changed since it was applied: ddlUsersOAuth was recorded with checksum ...`.
+  This means the build is not a release (or the ledger was edited). To run
+  the step again through its catalog checks, delete its row and restart:
+  `DELETE FROM sage.schema_migrations WHERE id = 'ddlUsersOAuth';`.
 - **Lock waits are bounded.** The bootstrap session waits at most 2 seconds for
   any table lock (`lock_timeout = 2s`, reset before the session goes back to
   the pool). A step that cannot get its lock is retried after about 0.5, 1, 2
@@ -669,8 +683,10 @@ mode, each managed database in fleet mode, and the metadata database).
 - **One summary line per boot** is logged at INFO, for example
   `schema: 89 steps, 0 applied, 42 rerun, 47 skipped, 95 ms; slowest ddlSREAutonomy 4 ms`.
   `applied` steps created something that was missing, `rerun` steps ran only
-  their self-checking statements, and `skipped` steps found everything in
-  place. Each applied step is also logged at DEBUG with its duration.
+  their self-checking or data statements, `skipped` steps found everything in
+  place, and `N recorded` (when present) counts the steps the ledger skipped
+  without reading the catalog. Each applied step is also logged at DEBUG with
+  its duration.
 
 If a start fails on a lock, find the holder with
 `SELECT pid, mode, query FROM pg_locks JOIN pg_stat_activity USING (pid) WHERE relation::regclass::text LIKE 'sage.%';`
