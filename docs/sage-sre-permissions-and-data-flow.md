@@ -237,10 +237,10 @@ reached.
 Runbooks are operator-written step graphs over catalog probes, predicates and the causal
 graph. A runbook runs only after an admin signs its version. An edit stages an unsigned
 draft, and the signed version keeps running until an admin signs that draft. Its probe
-steps are catalog
-probes with the same bounds and privileges as any probe, and it ends in a proposal: an
-operator step, an action type for the policy gate to judge when someone requests it, or an
-escalation. A runbook never executes an action and never runs SQL of its own.
+steps are catalog probes with the same bounds and privileges as any probe, and it ends in
+a proposal: an operator step, an action type for the policy gate to judge when someone
+requests it, or an escalation. A runbook never executes an action and never runs SQL of
+its own.
 
 ### Maintenance: extended statistics (M6)
 
