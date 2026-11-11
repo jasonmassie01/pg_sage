@@ -24,9 +24,11 @@ const maxActor = 200
 // (pg_sage then hands changes to it over as source fixes instead of
 // running DDL) or exempt from pg_sage's changes.
 type MarkRequest struct {
-	Kind     string `json:"subject_kind"`
-	Subject  string `json:"subject"`
-	Mark     string `json:"mark"`
+	Kind    string `json:"subject_kind"`
+	Subject string `json:"subject"`
+	Mark    string `json:"mark"`
+	// Repo and Path say where the migration lives; they are recorded with
+	// the mark's evidence (they are not fact value keys).
 	Repo     string `json:"repo,omitempty"`
 	Path     string `json:"path,omitempty"`
 	Evidence string `json:"evidence"`
@@ -86,11 +88,6 @@ func markProposal(req MarkRequest, actor string, now func() time.Time) (facts.Pr
 			req.Kind)
 	}
 	value := map[string]string{}
-	for k, v := range map[string]string{"repo": req.Repo, "path": req.Path} {
-		if v = strings.TrimSpace(v); v != "" {
-			value[k] = v
-		}
-	}
 	switch req.Mark {
 	case MarkOwned:
 	case MarkExempt:
@@ -100,8 +97,23 @@ func markProposal(req MarkRequest, actor string, now func() time.Time) (facts.Pr
 	}
 	return facts.Proposal{Type: facts.TypeAppMigrations, Kind: kind, Subject: req.Subject,
 		Value: value, Source: facts.SourceOperator, ProposedBy: actor, Rationale: evidence,
-		Evidence: []facts.Citation{{Kind: "agent_mark", Ref: actor, Detail: evidence,
-			ObservedAt: now()}}}, nil
+		Evidence: []facts.Citation{{Kind: "agent_mark", Ref: actor,
+			Detail: markDetail(evidence, req.Repo, req.Path), ObservedAt: now()}}}, nil
+}
+
+// markDetail is the mark's evidence with where its migration lives.
+func markDetail(evidence, repo, path string) string {
+	var where []string
+	if repo = strings.TrimSpace(repo); repo != "" {
+		where = append(where, "repo "+repo)
+	}
+	if path = strings.TrimSpace(path); path != "" {
+		where = append(where, "path "+path)
+	}
+	if len(where) == 0 {
+		return evidence
+	}
+	return evidence + " (" + strings.Join(where, ", ") + ")"
 }
 
 const objectKindSQL = `/* pg_sage */ SELECT c.relkind::text FROM pg_class c
