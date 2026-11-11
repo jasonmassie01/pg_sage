@@ -55,7 +55,7 @@ superuser or `BYPASSRLS`, hold no dangerous membership and own nothing. pg_sage 
 
 | Request | Who | What it does |
 |---|---|---|
-| `GET /api/v1/agents` `?status=&limit=&cursor=` | operator | Lists principals, 1 to 200 a page, with `profiles`: the profiles pg_sage ships (`name`, `classes`, `env_ceiling`, `direct_lane`) |
+| `GET /api/v1/agents` `?status=&limit=&cursor=` | operator | Lists principals, 1 to 200 a page, with `profiles`: the profiles pg_sage ships (`name`, `classes`, `env_ceiling`, `direct_lane`), and `retire_grace_days` |
 | `POST /api/v1/agents` `{"name", "sponsor_user_id", "profile", "env_ceiling", "tenant"}` | admin | Creates one (201) |
 | `GET /api/v1/agents/{id}` | operator | Reads one, with `sponsor_active` and `tainted` |
 | `PATCH /api/v1/agents/{id}` `{"sponsor_user_id", "profile", "env_ceiling", "status", "reason"}` | admin | Changes the sponsor, profile or ceiling, or retires it (`"status": "retired"`). A widening change answers 202 and waits for a second admin (see [Two-person rules](#two-person-rules)) |
@@ -572,6 +572,7 @@ and at every `trust.level`, because it only takes access away.
 | `POST /api/v1/agents/{id}/freeze` `{"reason": "..."}` | operator | Like a one-agent kill, but the agent's MCP tokens stay (they get `agent_frozen`) |
 | `POST /api/v1/agents/{id}/unfreeze` `{"reason": "..."}` | admin | Restores the roles' previous attributes and rotates the broker password |
 | `POST /api/v1/agents/kill/release` `{"scope": "all"}` or `{"scope": "database", "database": "orders"}` | admin | Lifts a fleet or database freeze |
+| `GET /api/v1/agents/freezes` | operator | Lists the open fleet, database and agent freezes, fleet first: `scope`, `target`, `reason`, `set_by`, `set_at`, `after_kill` and the live `pending_release` request. At most 200 rows; `truncated: true` says more are open |
 
 A kill, step by step:
 

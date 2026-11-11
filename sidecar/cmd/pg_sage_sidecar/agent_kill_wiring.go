@@ -209,3 +209,11 @@ func (l lateKillSwitch) Release(ctx context.Context, r agentguard.ReleaseRequest
 	}
 	return sw.Release(ctx, r)
 }
+
+func (l lateKillSwitch) OpenFreezes(ctx context.Context) (agentguard.FreezeList, error) {
+	sw, err := l.sw()
+	if err != nil {
+		return agentguard.FreezeList{}, err
+	}
+	return sw.OpenFreezes(ctx)
+}

@@ -30,6 +30,9 @@ type agentRoutes struct {
 	store          *agentguard.Store
 	tokens         *mcptoken.Store
 	singleOperator bool
+	// retireGraceDays is agents.roles.retire_grace_days, which the retire
+	// dialog shows (agentgov-07).
+	retireGraceDays int
 	// changeTTL is how long a widening change waits for the second admin:
 	// the unfreeze approval TTL (15 minutes).
 	changeTTL time.Duration
@@ -37,9 +40,13 @@ type agentRoutes struct {
 
 func registerAgentRoutes(mux *http.ServeMux, pool *pgxpool.Pool, cfg *config.Config) {
 	r := &agentRoutes{pool: pool, store: agentguard.NewStore(pool),
-		tokens:         mcptoken.NewStore(pool),
-		singleOperator: cfg != nil && cfg.Agents.SingleOperatorMode,
-		changeTTL:      agentguard.DefaultKillConfig().ApprovalTTL}
+		tokens:          mcptoken.NewStore(pool),
+		singleOperator:  cfg != nil && cfg.Agents.SingleOperatorMode,
+		changeTTL:       agentguard.DefaultKillConfig().ApprovalTTL,
+		retireGraceDays: config.DefaultAgentRetireGraceDays}
+	if cfg != nil {
+		r.retireGraceDays = cfg.Agents.Roles.RetireGraceDays
+	}
 	route(mux, "GET /api/v1/agents", gateOperator, http.HandlerFunc(r.list))
 	route(mux, "POST /api/v1/agents", gateAdmin, http.HandlerFunc(r.create))
 	route(mux, "GET /api/v1/agents/{id}", gateOperator, http.HandlerFunc(r.get))
@@ -84,14 +91,17 @@ func (a *agentRoutes) list(w http.ResponseWriter, r *http.Request) {
 		agentError(w, r, "list agents", err)
 		return
 	}
-	jsonResponse(w, agentListPage{Page: page, Profiles: agentguard.ProfileCatalog()})
+	jsonResponse(w, agentListPage{Page: page, Profiles: agentguard.ProfileCatalog(),
+		RetireGraceDays: a.retireGraceDays})
 }
 
 // agentListPage is a page of principals with the profiles pg_sage ships,
-// so a client offers only those (agentgov-06).
+// so a client offers only those (agentgov-06), and the days a retired
+// agent's roles are kept (agentgov-07).
 type agentListPage struct {
 	agentguard.Page
-	Profiles []agentguard.ProfileInfo `json:"profiles"`
+	Profiles        []agentguard.ProfileInfo `json:"profiles"`
+	RetireGraceDays int                      `json:"retire_grace_days"`
 }
 
 type createAgentBody struct {

@@ -28,6 +28,9 @@ type fakeKillSwitch struct {
 	releases  []agentguard.ReleaseRequest
 	err       error
 	unfreeze  agentguard.UnfreezeResult
+	// freezeList and listErr answer OpenFreezes (agent_freezes_routes_test.go).
+	freezeList agentguard.FreezeList
+	listErr    error
 }
 
 func (f *fakeKillSwitch) Kill(_ context.Context, r agentguard.KillRequest) (
