@@ -11,7 +11,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/sre"
 	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
@@ -163,4 +165,58 @@ func TestSREBacklogReadCancelled(t *testing.T) {
 		!strings.Contains(err.Error(), "context canceled") {
 		t.Fatalf("cancelled read = %v, want context canceled", err)
 	}
+}
+
+// Integration and state transition: a runtime whose investigator runs
+// reads its own binding (the runtime key from its database id) from its
+// control pool, not from the monitored database.
+func TestRuntimeMetricsRefresherReadsTheRuntimesBacklog(t *testing.T) {
+	withMetricsRegistry(t)
+	control, ctx := sreMetricsPool(t)
+	monitored, err := pgxpool.New(ctx,
+		"postgres://nobody@127.0.0.1:1/none?sslmode=disable&connect_timeout=1")
+	if err != nil {
+		t.Fatalf("pool config: %v", err)
+	}
+	t.Cleanup(monitored.Close)
+	id := int(time.Now().UnixNano()%1_000_000_000) + 1_000_000_000
+	key, dep, db := bindSREDatabase(t, ctx, control)
+	if _, err := control.Exec(ctx, `UPDATE sage.sre_database_bindings
+		SET runtime_key = $1 WHERE runtime_key = $2`, fmt.Sprintf("db:%d", id),
+		key); err != nil {
+		t.Fatalf("rekey binding: %v", err)
+	}
+	seedInvestigation(t, ctx, control, dep, db, "queued", "10 minutes", "10 minutes")
+	seedInvestigation(t, ctx, control, dep, db, "collecting", "5 minutes", "1 minute")
+	rt := &databaseRuntime{spec: databaseRuntimeSpec{Name: "orders", Pool: monitored,
+		ControlPool: control, DatabaseID: id}, cfg: config.DefaultConfig(),
+		sre: liveTestCoordinator(t, control, fmt.Sprintf("db:%d", id))}
+	m := newRuntimeMetricsRefresher(rt)
+	m.refresh(ctx)
+	s := m.snapshot()
+	if !s.ok[metricsSourceSRE] || s.sre == nil {
+		t.Fatalf("SRE source ok=%v sre=%+v, want a backlog read", s.ok[metricsSourceSRE],
+			s.sre)
+	}
+	if s.sre.byState["queued"] != 1 || s.sre.byState["collecting"] != 1 ||
+		len(s.sre.byState) != 2 {
+		t.Fatalf("backlog = %v, want this runtime's queued 1 and collecting 1",
+			s.sre.byState)
+	}
+}
+
+// liveTestCoordinator is a coordinator on the live control store; the
+// refresher only needs it to exist.
+func liveTestCoordinator(t *testing.T, p *pgxpool.Pool, key string) *sre.Coordinator {
+	t.Helper()
+	store, err := sre.NewPostgresStore(p, sre.DefaultLimits())
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	coord, err := sre.NewCoordinator(sre.CoordinatorDeps{Store: store, Runner: chainRunner{},
+		Config: sre.DefaultCoordinatorConfig(key), LogFn: func(string, string, ...any) {}})
+	if err != nil {
+		t.Fatalf("coordinator: %v", err)
+	}
+	return coord
 }
