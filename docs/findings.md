@@ -308,16 +308,16 @@ Query regression: 20.0ms now vs 2.0ms hourly median (+900%)
 
 ### seq_scan_heavy
 
-Detects sequential scans on large tables.
+Detects tables that are scanned sequentially far more than through indexes right now.
 
-**Severity:** info (warning if frequent)
+**Severity:** warning
 
-**What it detects:** Tables exceeding the configured row threshold that are accessed primarily via sequential scans rather than index scans.
+**What it detects:** Tables with at least `analyzer.seq_scan_min_rows` live rows whose scans in the interval since the previous snapshot are more than 100 sequential scans and more than ten times their index scans. Only the interval counts: an old seq-scan storm stops being flagged once the scans stop, and a new storm on a table with many lifetime index scans is caught. The rule needs two snapshots in the same statistics epoch: on the first cycle after a start, after `pg_stat_reset()` or a single-table reset, or after a server restart it is not evaluated and open findings stay open. A table whose counters went down, or that is new since the previous snapshot, is judged on the next interval. The finding detail carries the lifetime `seq_scan` and `idx_scan`, and `interval_seq_scan`, `interval_idx_scan` and `interval_seconds`.
 
 **Example output:**
 
 ```
-Sequential scan heavy: public.events (2.5M rows, 95% seq_scan ratio)
+Table public.events: 1840 seq scans vs 12 idx scans in the last 60s (2500000 rows)
 ```
 
 **Recommended action:** Analyze query patterns and add appropriate indexes.
@@ -700,7 +700,7 @@ These deterministic rules run alongside the categories above.
 | `high_total_time` | A query whose total execution time exceeds 10% of the analysis interval, even when each call is fast. |
 | `sort_without_index` | An EXPLAIN plan where a Sort feeding a Limit sorts at least 10x the rows the Limit returns; an index on the sort key avoids the sort. |
 | `plan_regression` | A query whose plan changed and whose estimated cost rose at least 2x, or 1.5x with node changes or new disk spills. |
-| `stale_statistics` | A table with writes and at least 10,000 live rows that was never analyzed or not analyzed in 7 days (`analyzer.analyze_stale_min_rows`, `analyzer.analyze_stale_days`). Recommends `ANALYZE`. |
+| `stale_statistics` | A table with at least 10,000 live rows (`analyzer.analyze_stale_min_rows`) that was never analyzed and has changed since, or whose rows changed since its last analyze (`n_mod_since_analyze`) exceed the autoanalyze threshold and whose last analyze is older than 7 days (`analyzer.analyze_stale_days`). The threshold is autoanalyze's own: `autovacuum_analyze_threshold + autovacuum_analyze_scale_factor x reltuples`, each from the table's storage parameters when set there, else from the server settings. A table with no change since its last analyze is never flagged, however old the analyze. Recommends `ANALYZE`; the detail carries `mod_since_analyze` and `analyze_threshold`. A partitioned parent, which autoanalyze never processes, gets an info finding (`partitioned_parent: true`) when it was never analyzed or not within the cutoff and its partitions' changes since their last analyze exceed the parent's threshold; its `ANALYZE` samples every partition (and analyzes each one before PostgreSQL 18's `ANALYZE ONLY`), so it needs an operator's approval. It is skipped when the partition list could not be read. |
 | `slow_replication_slot` | An active replication slot retaining at least 1 GB of WAL (critical at 5 GB): a slow consumer. |
 | `lock_chain` | A root blocker and the tree of sessions waiting on it in the monitored database. pg_sage's own sessions and configured safe processes get a finding but never cancel or terminate SQL. |
 | `stat_statements_pressure` | `pg_stat_statements` above 80% of `pg_stat_statements.max` (critical above 95%), where entries start being evicted. |
