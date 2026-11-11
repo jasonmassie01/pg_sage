@@ -240,7 +240,7 @@ func seedGoldenFixture(t *testing.T, ctx context.Context) {
 		 'SELECT pg_terminate_backend(12345)', 'high_risk', 0.8),
 		('00000000-0000-0000-0000-000000009102', '2026-01-02T07:00:00Z',
 		 '2026-01-02T07:00:00Z', 'critical', 'Connections near max_connections',
-		 'deterministic', 'prod', '{connection_exhaustion}', '{}', NULL, NULL, 0.9)`)
+		 'deterministic', 'prod', '{connections_high}', '{}', NULL, NULL, 0.9)`)
 	if err != nil {
 		t.Fatalf("seed golden incidents: %v", err)
 	}
@@ -250,6 +250,8 @@ func seedGoldenFixture(t *testing.T, ctx context.Context) {
 // recorded response (SAGE_UPDATE_CASES_GOLDEN=1 regenerates it). cases-04
 // regenerated it: the ALTER SYSTEM case shows alter_system_guc, and the
 // missing-index case the executor's approval_required.
+// The T1 integration regenerated it: the incident diagnostics propose their
+// probes' display SQL (playbooks-04), timestamps are UTC.
 func TestCasesHandlerGoldenResponse(t *testing.T) {
 	pool, ctx := phase2RequireDB(t)
 	resetCaseTables(t, ctx)
@@ -265,7 +267,8 @@ func TestCasesHandlerGoldenResponse(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", rr.Code, rr.Body.String())
 	}
-	got := rr.Body.Bytes()
+	// Instants in UTC: the response renders them in the host's zone.
+	got := utcTimestamps(t, rr.Body.Bytes())
 	if os.Getenv("SAGE_UPDATE_CASES_GOLDEN") == "1" {
 		if err := os.MkdirAll(filepath.Dir(casesGoldenPath), 0o755); err != nil {
 			t.Fatal(err)
@@ -279,7 +282,7 @@ func TestCasesHandlerGoldenResponse(t *testing.T) {
 		t.Fatalf("read golden %s: %v", casesGoldenPath, err)
 	}
 	// Trimmed: a CRLF checkout must not turn the trailing newline into a diff.
-	if !bytes.Equal(bytes.TrimSpace(got), bytes.TrimSpace(want)) {
+	if !bytes.Equal(bytes.TrimSpace(got), bytes.TrimSpace(utcTimestamps(t, want))) {
 		t.Fatalf("cases JSON changed:\n got %s\nwant %s", got, want)
 	}
 	if !bytes.Contains(got, []byte(`"total":8`)) {
