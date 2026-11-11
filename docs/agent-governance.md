@@ -255,8 +255,11 @@ like minting a token, it takes one admin and is audited. All four routes are adm
 
 ```bash
 # admin session cookie in $SAGE_COOKIE
-curl -s -X POST https://pg-sage.example.com:8080/api/v1/agents/<agent id>/identities   -H 'Content-Type: application/json' -b "sage_session=$SAGE_COOKIE"   -d '{"issuer":"https://idp.example.com","subject":"agent-client-id"}'
-curl -s -X DELETE -b "sage_session=$SAGE_COOKIE"   'https://pg-sage.example.com:8080/api/v1/agents/<agent id>/identities?issuer=https%3A%2F%2Fidp.example.com&subject=agent-client-id'
+curl -s -X POST https://pg-sage.example.com:8080/api/v1/agents/<agent id>/identities \
+  -H 'Content-Type: application/json' -b "sage_session=$SAGE_COOKIE" \
+  -d '{"issuer":"https://idp.example.com","subject":"agent-client-id"}'
+curl -s -X DELETE -b "sage_session=$SAGE_COOKIE" \
+  'https://pg-sage.example.com:8080/api/v1/agents/<agent id>/identities?issuer=https%3A%2F%2Fidp.example.com&subject=agent-client-id'
 ```
 
 A bad token, audience or issuer answers 401 `invalid_token`, a missing scope 403
