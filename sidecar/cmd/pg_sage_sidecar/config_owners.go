@@ -7,12 +7,13 @@ import (
 )
 
 // ownersForMode names the reconfiguration owners a mode registers: the trust
-// policy, the LLM connection and the LLM redaction switch (llm-09) in every
-// mode, and the YAML fleet's database list only in fleet mode without a meta
-// database (meta mode reads its databases from sage.databases). Every other
-// field is restart-bound.
+// policy, the LLM connection, the LLM redaction switch (llm-09) and the
+// briefing settings (llm-06) in every mode, and the YAML fleet's database
+// list only in fleet mode without a meta database (meta mode reads its
+// databases from sage.databases). Every other field is restart-bound.
 func ownersForMode(c *config.Config) []string {
-	owners := []string{config.TrustPolicyOwner, config.LLMOwner, config.LLMRedactionOwner}
+	owners := []string{config.TrustPolicyOwner, config.LLMOwner, config.LLMRedactionOwner,
+		config.BriefingOwner}
 	if c != nil && c.IsFleet() && !c.HasMetaDB() {
 		owners = append(owners, config.FleetDatabasesOwner)
 	}

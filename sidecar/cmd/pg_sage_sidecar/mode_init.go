@@ -70,6 +70,7 @@ func initFleetMultiDB() {
 	// LLM client + manager (shared across fleet).
 	llmClient = llm.New(&cfg.LLM, logStructuredWrapper)
 	registerLLMConfigOwner()
+	startBriefingRollup()
 	learnLLMInputLimits()
 	llmMgr = llm.NewManager(llmClient, nil, false)
 

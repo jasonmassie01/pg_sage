@@ -127,6 +127,7 @@ briefing:
   schedule: "0 6 * * *"
   channels: ["stdout"]          # stdout, slack
   slack_webhook_url: ""
+  fleet_mode: rollup            # fleet only: rollup (one message) or per_database
 
 alerting:
   # When enabled, startup refuses routes that would send nothing: channels

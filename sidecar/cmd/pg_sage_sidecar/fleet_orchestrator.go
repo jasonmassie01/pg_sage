@@ -68,12 +68,8 @@ func runFleetDBCycle(ctx context.Context, deps fleetCycleDeps) {
 		deps.exec.RunCycle(ctx, isReplica || haNotWritable(deps.ha))
 	}
 	if deps.brief != nil && deps.brief.ShouldRun(time.Now()) {
-		text, err := deps.brief.Generate(ctx)
-		if err != nil {
+		if err := deps.brief.Run(ctx); err != nil {
 			logWarn("briefing", "[%s] generation failed: %v", deps.name, err)
-		} else {
-			deps.brief.Dispatch(ctx, text)
-			deps.brief.MarkRan()
 		}
 	}
 	if deps.cleaner != nil {

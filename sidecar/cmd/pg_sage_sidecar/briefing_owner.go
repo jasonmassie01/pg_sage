@@ -1,0 +1,164 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/pg-sage/sidecar/internal/briefing"
+	"github.com/pg-sage/sidecar/internal/config"
+)
+
+// briefingOwner is the "briefing" reconfiguration owner (llm-06). It tracks
+// every database runtime's briefing worker, as llmClients tracks LLM
+// clients, and swaps their schedule, channels and webhook on a live change.
+type briefingOwner struct {
+	mu      sync.Mutex
+	set     map[*briefing.Worker]struct{}
+	current *config.BriefingConfig
+}
+
+// briefingWorkers is the process's briefing owner.
+var briefingWorkers = newBriefingOwner()
+
+func newBriefingOwner() *briefingOwner {
+	return &briefingOwner{set: map[*briefing.Worker]struct{}{}}
+}
+
+func (o *briefingOwner) Name() string { return config.BriefingOwner }
+
+// Prepare refuses an invalid schedule, so the change is rejected at apply
+// time with the field named and no worker changes.
+func (o *briefingOwner) Prepare(
+	_ context.Context, active, desired config.ConfigSnapshot,
+) (config.PreparedReconfiguration, error) {
+	if desired.Config == nil {
+		return nil, fmt.Errorf("briefing: desired config is nil")
+	}
+	next := desired.Config.Briefing
+	if err := briefing.ValidateSchedule(next.Schedule); err != nil {
+		return nil, fmt.Errorf("briefing.schedule %q: %w", next.Schedule, err)
+	}
+	prev := next
+	if active.Config != nil {
+		prev = active.Config.Briefing
+	}
+	return preparedBriefing{owner: o, prev: prev, next: next}, nil
+}
+
+// add tracks w and gives it the settings of the last live change, so a
+// database added after the change follows the active config.
+func (o *briefingOwner) add(w *briefing.Worker) {
+	if w == nil {
+		return
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.set[w] = struct{}{}
+	if o.current != nil {
+		if err := w.Reconfigure(*o.current); err != nil {
+			logWarn("briefing", "apply live settings to a new worker: %v", err)
+		}
+	}
+}
+
+func (o *briefingOwner) remove(w *briefing.Worker) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	delete(o.set, w)
+}
+
+// track adds w until ctx ends; the returned channel closes once w is gone.
+func (o *briefingOwner) track(ctx context.Context, w *briefing.Worker) <-chan struct{} {
+	o.add(w)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		<-ctx.Done()
+		o.remove(w)
+	}()
+	return done
+}
+
+// workers is a snapshot of the tracked workers; RunRollup orders them.
+func (o *briefingOwner) workers() []*briefing.Worker {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	out := make([]*briefing.Worker, 0, len(o.set))
+	for w := range o.set {
+		out = append(out, w)
+	}
+	return out
+}
+
+// apply swaps every worker's settings; bc was validated by Prepare.
+func (o *briefingOwner) apply(bc config.BriefingConfig) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	for w := range o.set {
+		if err := w.Reconfigure(bc); err != nil {
+			return fmt.Errorf("briefing.schedule %q: %w", bc.Schedule, err)
+		}
+	}
+	o.current = &bc
+	return nil
+}
+
+type preparedBriefing struct {
+	owner      *briefingOwner
+	prev, next config.BriefingConfig
+}
+
+func (p preparedBriefing) Commit(context.Context) error   { return p.owner.apply(p.next) }
+func (p preparedBriefing) Rollback(context.Context) error { return p.owner.apply(p.prev) }
+func (preparedBriefing) Drain(context.Context) error      { return nil }
+
+// registerBriefingOwner registers the briefing owner in every mode.
+func registerBriefingOwner() {
+	if configController == nil {
+		return
+	}
+	if err := configController.RegisterOwner(briefingWorkers); err != nil {
+		logWarn("config", "briefing reconfiguration owner: %v", err)
+	}
+}
+
+// briefingRollup reports whether one process-level message covers every
+// fleet database (briefing.fleet_mode rollup, the fleet default).
+func briefingRollup(c *config.Config) bool { return c.RollsUpBriefings() }
+
+// cycleBriefing is the worker a database's orchestrator cycle runs: none in
+// roll-up mode, where the process-level roll-up runs every worker.
+func cycleBriefing(c *config.Config, w *briefing.Worker) *briefing.Worker {
+	if briefingRollup(c) {
+		return nil
+	}
+	return w
+}
+
+// startBriefingRollup runs the fleet roll-up on the orchestrator cadence
+// until shutdown, when the mode rolls briefings up.
+func startBriefingRollup() {
+	if !briefingRollup(cfg) {
+		return
+	}
+	ctx := shutdownCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	interval := orchestratorInterval(cfg)
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				briefing.RunRollup(ctx, briefingWorkers.workers(), time.Now())
+			}
+		}
+	}()
+	logInfo("briefing", "fleet roll-up on: one briefing message covers every database")
+}

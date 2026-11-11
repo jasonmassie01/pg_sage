@@ -2,7 +2,7 @@
 
 > Generated from `internal/config` by `cmd/gen_config_meta`; do not edit manually.
 
-`live_policy` swaps an immutable policy snapshot. `reconfigure` tears down and rebuilds the named owner. `restart` is rejected during reload. A `reconfigure` or `live_policy` field whose owner is not running in the current mode is treated as `restart`. The owners are `trust_policy` and `llm` in every mode and `fleet_databases` in YAML fleet mode. The self-config class says whether pg_sage may derive the key (`derivable`) or never does (`safety_critical`, `operator_preference`); see [derived settings](derived-settings.md).
+`live_policy` swaps an immutable policy snapshot. `reconfigure` tears down and rebuilds the named owner. `restart` is rejected during reload. A `reconfigure` or `live_policy` field whose owner is not running in the current mode is treated as `restart`. The owners are `trust_policy`, `llm`, `llm_redaction` and `briefing` in every mode and `fleet_databases` in YAML fleet mode. The self-config class says whether pg_sage may derive the key (`derivable`) or never does (`safety_critical`, `operator_preference`); see [derived settings](derived-settings.md).
 
 | Field | Lifecycle | Runtime owner | Self-config class |
 | --- | --- | --- | --- |
@@ -107,9 +107,10 @@
 | `azure.resource_group` | `restart` | `-` | `safety_critical` |
 | `azure.server_name` | `restart` | `-` | `safety_critical` |
 | `azure.subscription_id` | `restart` | `-` | `safety_critical` |
-| `briefing.channels` | `restart` | `-` | `operator_preference` |
-| `briefing.schedule` | `restart` | `-` | `operator_preference` |
-| `briefing.slack_webhook_url` | `restart` | `-` | `safety_critical` |
+| `briefing.channels` | `reconfigure` | `briefing` | `operator_preference` |
+| `briefing.fleet_mode` | `restart` | `-` | `operator_preference` |
+| `briefing.schedule` | `reconfigure` | `briefing` | `operator_preference` |
+| `briefing.slack_webhook_url` | `reconfigure` | `briefing` | `safety_critical` |
 | `clone.dle_endpoint` | `restart` | `-` | `safety_critical` |
 | `clone.dle_token` | `restart` | `-` | `safety_critical` |
 | `clone.max_clone_age_minutes` | `restart` | `-` | `operator_preference` |

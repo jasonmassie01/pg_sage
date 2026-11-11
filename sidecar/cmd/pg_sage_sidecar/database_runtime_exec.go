@@ -52,9 +52,11 @@ func (rt *databaseRuntime) startExecution() {
 	})
 	rt.brief = briefing.New(rt.spec.Pool, cfg, rt.generalLLM, logStructuredWrapper).
 		WithDatabaseName(rt.spec.Name)
+	briefingWorkers.track(rt.ctx, rt.brief) // live briefing.* changes (llm-06)
 	deps := fleetCycleDeps{
 		name: rt.spec.Name, ha: rt.ha, exec: rt.executor,
-		brief: rt.brief, cleaner: retention.New(rt.spec.Pool, cfg, logStructuredWrapper).
+		brief: cycleBriefing(cfg, rt.brief),
+		cleaner: retention.New(rt.spec.Pool, cfg, logStructuredWrapper).
 			WithControlPool(rt.spec.ControlPool),
 		interval: orchestratorInterval(cfg),
 	}
