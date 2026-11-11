@@ -192,17 +192,19 @@ func TestResourcesReadNoBriefingYet(t *testing.T) {
 func TestResourcesReadInvalidInput(t *testing.T) {
 	server, fake := briefingServer("orders", "billing")
 	ctx := context.Background()
+	const read = `{"jsonrpc":"2.0","id":5,"method":"resources/read"`
+	at := func(path string) string { return readRequest("pgsage://" + path) }
 	cases := map[string]int{
-		`{"jsonrpc":"2.0","id":5,"method":"resources/read"}`:                    codeInvalidParams,
-		`{"jsonrpc":"2.0","id":5,"method":"resources/read","params":{}}`:        codeInvalidParams,
-		`{"jsonrpc":"2.0","id":5,"method":"resources/read","params":[1]}`:       codeInvalidParams,
-		`{"jsonrpc":"2.0","id":5,"method":"resources/read","params":{"uri":7}}`: codeInvalidParams,
-		readRequest("pgsage://databases/nope/briefings/latest"):                 codeUnknownDatabase,
-		readRequest("pgsage://databases//briefings/latest"):                     codeResourceNotFound,
-		readRequest("pgsage://databases/orders/briefings/2"):                    codeResourceNotFound,
-		readRequest("pgsage://databases/a/b/briefings/latest"):                  codeResourceNotFound,
-		readRequest("https://example.com/briefings/latest"):                     codeResourceNotFound,
-		readRequest("pgsage://briefings/latest?x=1"):                            codeResourceNotFound,
+		read + `}`:                                          codeInvalidParams,
+		read + `,"params":{}}`:                              codeInvalidParams,
+		read + `,"params":[1]}`:                             codeInvalidParams,
+		read + `,"params":{"uri":7}}`:                       codeInvalidParams,
+		at("databases/nope/briefings/latest"):               codeUnknownDatabase,
+		at("databases//briefings/latest"):                   codeResourceNotFound,
+		at("databases/orders/briefings/2"):                  codeResourceNotFound,
+		at("databases/a/b/briefings/latest"):                codeResourceNotFound,
+		at("briefings/latest?x=1"):                          codeResourceNotFound,
+		readRequest("https://example.com/briefings/latest"): codeResourceNotFound,
 	}
 	for request, want := range cases {
 		response := invoke(t, server, ctx, request)

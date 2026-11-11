@@ -196,7 +196,8 @@ func TestBriefingsNoConnectedDatabase(t *testing.T) {
 	for _, path := range []string{"/api/v1/briefings", "/api/v1/briefings/latest"} {
 		code, body, _ := callBriefings(t, deps, path, viewerUser())
 		msg, _ := body["error"].(string)
-		if code != http.StatusServiceUnavailable || !strings.Contains(msg, "no connected database") {
+		if code != http.StatusServiceUnavailable ||
+			!strings.Contains(msg, "no connected database") {
 			t.Fatalf("%s: status %d error %q, want 503 no connected database", path, code, msg)
 		}
 	}

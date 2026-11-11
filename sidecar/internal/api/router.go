@@ -259,10 +259,9 @@ func registerFleetScopedRoutes(
 		registerMCPRoutes(apiMux, rt.MCPHandler, mcpTokenStore(pool), rt.MCPOAuth,
 			agentguard.NewStore(pool))
 	}
-	// Value is read from every monitored database in all modes (D3), so
-	// it depends on the fleet, not on the control pool.
+	// Value and briefings (llm-06b) are read from every monitored database in
+	// all modes (D3), so they depend on the fleet, not on the control pool.
 	route(apiMux, "GET /api/v1/value", gateViewer, valueHandler(fleetValueReader(mgr)))
-	// Briefings live in each monitored database's sage schema (llm-06b).
 	registerBriefingRoutes(apiMux, mgr)
 	registerOnboardingRoutes(apiMux, mgr, cfg, pool)
 }
