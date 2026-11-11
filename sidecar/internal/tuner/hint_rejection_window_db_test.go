@@ -12,7 +12,7 @@ func TestHintStatus_RejectionWindowRunsFromTheDecision(t *testing.T) {
 	pool, ctx := hintScopeDB(t, qid)
 	lifecycleDB(t, qid)
 	tu := ownershipTuner(pool)
-	if fs, err := tuneLocked(ctx, tu, planTimeCandidate(qid)); err != nil ||
+	if fs, err := tuneLocked(ctx, tu, spillHintCandidate(tu, qid)); err != nil ||
 		len(findingFor(fs, qid)) != 1 {
 		t.Fatalf("first proposal: %+v, %v", fs, err)
 	}
@@ -23,7 +23,7 @@ func TestHintStatus_RejectionWindowRunsFromTheDecision(t *testing.T) {
 	}
 	ageHint(t, pool, qid, "31 days")
 	tu.recentlyTuned = map[int64]int{}
-	if fs, err := tuneLocked(ctx, tu, planTimeCandidate(qid)); err != nil ||
+	if fs, err := tuneLocked(ctx, tu, spillHintCandidate(tu, qid)); err != nil ||
 		len(findingFor(fs, qid)) != 0 {
 		t.Fatalf("a hint rejected a day ago was proposed again: %+v, %v", fs, err)
 	}
@@ -33,7 +33,7 @@ func TestHintStatus_RejectionWindowRunsFromTheDecision(t *testing.T) {
 		t.Fatal(err)
 	}
 	tu.recentlyTuned = map[int64]int{}
-	if fs, err := tuneLocked(ctx, tu, planTimeCandidate(qid)); err != nil ||
+	if fs, err := tuneLocked(ctx, tu, spillHintCandidate(tu, qid)); err != nil ||
 		len(findingFor(fs, qid)) != 1 {
 		t.Fatalf("a rejection decided 30 days ago still binds: %+v, %v", fs, err)
 	}

@@ -3268,6 +3268,12 @@
     "doc": "Threshold for suggesting parallel-enable hints on large sequential scans. Tables smaller than this are assumed not to benefit from parallelism.",
     "class": "derivable"
   },
+  "tuner.param_shape_min_variants": {
+    "type": "int",
+    "default": 20,
+    "doc": "Queryids of one statement shape, its IN and ANY(ARRAY[...]) parameter lists collapsed, before a query_parameterization finding. Off on PG18 (lists squashed). 2-1000. Default 20.",
+    "class": "derivable"
+  },
   "tuner.plan_max_age_minutes": {
     "type": "int",
     "default": 1440,
@@ -3277,7 +3283,7 @@
   "tuner.plan_time_ratio": {
     "type": "float64",
     "default": 3,
-    "doc": "When plan_time / exec_time exceeds this ratio, the tuner flags the query as plan-time-dominated and considers prepared-statement hints.",
+    "doc": "When plan_time / exec_time exceeds this ratio, the tuner flags the query as plan-time-dominated and reports query_parameterization advice (prepared statements); it prescribes no hint.",
     "class": "derivable"
   },
   "tuner.revalidation_interval_hours": {

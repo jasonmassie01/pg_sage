@@ -19,8 +19,8 @@ func Describe(s PlanSymptom) (because, recommend string) {
 		return describeHashSpill(s)
 	case SymptomHighPlanTime:
 		return "planning takes a large share of the statement's time",
-			"use a prepared statement, or a generic plan (plan_cache_mode = " +
-				"force_generic_plan), so the plan is reused"
+			"use prepared statements or a single array parameter (= ANY($1)), " +
+				"so the plan is reused"
 	case SymptomBadNestedLoop:
 		return describeNestedLoop(s)
 	case SymptomSeqScanWithIndex:

@@ -61,6 +61,13 @@ type Tuner struct {
 	// plans memoizes each candidate's plan for one tuneCandidates pass;
 	// nil outside it. Guarded by mu.
 	plans map[int64]planfresh.Plan
+
+	// querySource is the collector's snapshot the parameterization detector
+	// reads, and pgMajor the server's major version (tuning-11); paramEmitted
+	// holds the shapes reported this cycle, guarded by mu.
+	querySource  QuerySource
+	pgMajor      int
+	paramEmitted map[string]bool
 }
 
 // New creates a Tuner with the given dependencies.
@@ -132,6 +139,7 @@ func (t *Tuner) Tune(
 	t.reconcileHintStatuses(ctx)
 
 	t.tickCooldowns()
+	paramFindings := t.parameterizationFindings()
 	candidates, err := t.fetchCandidates(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("tuner: fetch candidates: %w", err)
@@ -142,6 +150,7 @@ func (t *Tuner) Tune(
 	if err != nil {
 		return nil, err
 	}
+	findings = append(paramFindings, findings...)
 	// C11: remove installed hints whose metadata was retired/broken.
 	findings = append(findings, t.hintRemovalFindings(ctx)...)
 	return findings, nil
@@ -305,6 +314,9 @@ func (t *Tuner) processCandidate(
 	// ANALYZE findings so they bypass the query-hint flow.
 	var staleFindings []analyzer.Finding
 	symptoms, staleFindings = t.extractStaleStats(symptoms)
+	// High planning time is parameterization advice, never a hint (tuning-11).
+	symptoms, paramFindings := t.extractPlanTime(c, symptoms)
+	staleFindings = append(staleFindings, paramFindings...)
 
 	if len(symptoms) == 0 {
 		return staleFindings

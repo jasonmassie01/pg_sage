@@ -91,6 +91,9 @@ type TunerConfig struct {
 	// PlanMaxAgeMinutes: a cached plan this old is stale (tuning-08);
 	// 0 or less means 1440.
 	PlanMaxAgeMinutes int `yaml:"plan_max_age_minutes"`
+	// ParamShapeMinVariants: queryids of one collapsed IN-list shape before
+	// it gets parameterization advice (tuning-11); 0 or less means 20.
+	ParamShapeMinVariants int `yaml:"param_shape_min_variants"`
 
 	// Feature 1 — Hint revalidation loop (v0.8.5).
 	HintRetirementDays        int `yaml:"hint_retirement_days"`

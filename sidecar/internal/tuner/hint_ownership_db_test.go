@@ -30,12 +30,21 @@ func ownershipHint(qid int64, hint string) HintProposal {
 		Hint: hint, Rationale: "the planner prefers a sequential scan"}
 }
 
-// planTimeCandidate is a statement whose planning time dominates, so the
-// deterministic rules prescribe Set(plan_cache_mode ...) for it without a
-// cached plan.
-func planTimeCandidate(qid int64) candidate {
-	return candidate{QueryID: qid, Query: "SELECT * FROM t WHERE a = $1",
-		Calls: 100, MeanExecTime: 1, MeanPlanTime: 10}
+// spillHintCandidate is a statement the deterministic rules prescribe a
+// hint for without a cached plan: this cycle sized a stat-based temp spill
+// for it, so it gets Set(work_mem ...). Until tuning-11 these tests used a
+// planning-time-dominated statement and its Set(plan_cache_mode ...) hint;
+// that rule now gives parameterization advice and no hint.
+func spillHintCandidate(tu *Tuner, qid int64) candidate {
+	c := candidate{QueryID: qid, Query: "SELECT * FROM t WHERE a = $1",
+		Calls: 100, MeanExecTime: 1}
+	if tu.spill.needs == nil {
+		tu.spill.needs = map[spillKey]spillSizing{}
+	}
+	tu.spill.needs[keyOf(c)] = spillSizing{DeltaCalls: 100, DeltaBlocks: 800,
+		BlockSize: 8192, PerCallKB: 64, BaselineKB: 4096, NeedMB: 64, CeilingMB: 256,
+		HintMB: 64}
+	return c
 }
 
 // tuneLocked runs the deterministic per-candidate pass the way Tune does,
@@ -161,7 +170,7 @@ func TestHintOwnership_OperatorHintRefused(t *testing.T) {
 				ErrForeignHint) {
 				t.Fatalf("RecordHint over an operator hint = %v, want ErrForeignHint", err)
 			}
-			fs, err := tuneLocked(ctx, tu, planTimeCandidate(qid))
+			fs, err := tuneLocked(ctx, tu, spillHintCandidate(tu, qid))
 			if err != nil {
 				t.Fatalf("tuneCandidates: %v", err)
 			}
@@ -202,7 +211,7 @@ func TestHintOwnership_TuneProposesOncePerStatement(t *testing.T) {
 	const qid = int64(9_230_021)
 	pool, ctx := hintScopeDB(t, qid)
 	tu := ownershipTuner(pool)
-	fs, err := tuneLocked(ctx, tu, planTimeCandidate(qid))
+	fs, err := tuneLocked(ctx, tu, spillHintCandidate(tu, qid))
 	if err != nil {
 		t.Fatalf("first pass: %v", err)
 	}
@@ -215,7 +224,7 @@ func TestHintOwnership_TuneProposesOncePerStatement(t *testing.T) {
 		t.Fatalf("after proposal = %v, want [proposed]", s)
 	}
 	delete(tu.recentlyTuned, qid) // the cooldown expires
-	if _, err := tuneLocked(ctx, tu, planTimeCandidate(qid)); err != nil {
+	if _, err := tuneLocked(ctx, tu, spillHintCandidate(tu, qid)); err != nil {
 		t.Fatalf("refresh pass: %v", err)
 	}
 	if s := sageHintStatuses(t, pool, qid); len(s) != 1 || s[0] != "proposed" {
@@ -226,7 +235,7 @@ func TestHintOwnership_TuneProposesOncePerStatement(t *testing.T) {
 	}
 	tu.reconcileHintStatuses(ctx)
 	delete(tu.recentlyTuned, qid)
-	fs, err = tuneLocked(ctx, tu, planTimeCandidate(qid))
+	fs, err = tuneLocked(ctx, tu, spillHintCandidate(tu, qid))
 	if err != nil {
 		t.Fatalf("pass after install: %v", err)
 	}
@@ -283,7 +292,7 @@ func TestHintOwnership_NoHintTable(t *testing.T) {
 	if states[qid] != hintProposed || states[qid+1] != hintNone {
 		t.Fatalf("states = %v, want %d proposed and %d none", states, qid, qid+1)
 	}
-	fs, err := tuneLocked(ctx, tu, planTimeCandidate(qid+1))
+	fs, err := tuneLocked(ctx, tu, spillHintCandidate(tu, qid+1))
 	if err != nil {
 		t.Fatalf("tuneCandidates without a hint table: %v", err)
 	}
@@ -334,7 +343,7 @@ func TestHintOwnership_LookupErrorFailsClosed(t *testing.T) {
 		!strings.Contains(err.Error(), "hint state") {
 		t.Fatalf("CheckHint with a failed lookup = %v, want a hint state error", err)
 	}
-	if _, err := tuneLocked(ctx, tu, planTimeCandidate(qid)); err == nil ||
+	if _, err := tuneLocked(ctx, tu, spillHintCandidate(tu, qid)); err == nil ||
 		!strings.Contains(err.Error(), "hint_plan.hints") {
 		t.Fatalf("tuneCandidates with a failed lookup = %v, want the cause", err)
 	}
@@ -353,6 +362,7 @@ func TestHintOwnership_ConcurrentRecordAndTune(t *testing.T) {
 		var wg sync.WaitGroup
 		start := make(chan struct{})
 		var recErr, tuneErr error
+		c := spillHintCandidate(tu, qid)
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
@@ -362,7 +372,7 @@ func TestHintOwnership_ConcurrentRecordAndTune(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			_, tuneErr = tuneLocked(ctx, tu, planTimeCandidate(qid))
+			_, tuneErr = tuneLocked(ctx, tu, c)
 		}()
 		close(start)
 		wg.Wait()
