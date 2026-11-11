@@ -83,6 +83,8 @@ func constructorEvents() map[string]Event {
 		"IncidentResolvedEvent":  IncidentResolvedEvent(incident),
 		"CustodianEscalationEvent": CustodianEscalationEvent(CustodianEscalation{
 			Database: "orders", Target: "public.t", SQLSHA256: "ab", Failures: 3}),
+		"CanaryInterruptedEvent": CanaryInterruptedEvent(CanaryInterrupted{
+			RunID: "canary-1", Source: "orders"}),
 	}
 }
 
