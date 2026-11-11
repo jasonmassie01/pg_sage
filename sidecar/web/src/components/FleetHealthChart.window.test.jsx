@@ -123,3 +123,26 @@ describe('FleetHealthChart window', () => {
     expect(new Date(windowOf(fetch, 0).to).toISOString()).toBe('2026-11-09T10:00:00.000Z')
   })
 })
+
+describe('FleetHealthChart answers', () => {
+  function renderWith(reply) {
+    stubFetch({ '/api/v1/fleet/health': reply })
+    render(<TimeRangeProvider><FleetHealthChart database="all" /></TimeRangeProvider>)
+  }
+
+  it('shows the server error and no chart when the request fails', async () => {
+    renderWith({ status: 503, json: { error: 'history store offline' } })
+    await advance(0)
+    expect(screen.getByText(/Health history unavailable: history store offline \(503\)/))
+      .toBeInTheDocument()
+    expect(screen.queryByTestId('fleet-health-chart')).toBeNull()
+  })
+
+  it('shows a skeleton until the first answer, then the chart', async () => {
+    renderWith({ json: { databases: { orders: [{ t: '2026-11-09T09:00:00Z', health: 90 }] } } })
+    expect(screen.getByTestId('fleet-health-chart-skeleton')).toBeInTheDocument()
+    await advance(0)
+    expect(screen.getByTestId('fleet-health-chart')).toHaveTextContent('Fleet Health Over Time')
+    expect(screen.queryByTestId('fleet-health-chart-skeleton')).toBeNull()
+  })
+})
