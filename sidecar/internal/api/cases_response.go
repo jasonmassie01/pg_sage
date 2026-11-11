@@ -11,7 +11,8 @@ import (
 // casesHandler serves the selected databases' cases. A fleet request that
 // cannot read some databases still answers 200 with the others' cases and
 // names the missing databases in "unavailable"; a single-database request
-// that fails answers 503 (cases-05).
+// that fails answers 503 (cases-05). ?limit= and ?summary=1 return the top
+// of the global rank without evidence payloads (cases-11b).
 func casesHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		database, ok := casesDatabaseSelection(w, r, mgr)
@@ -21,6 +22,11 @@ func casesHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
 		focus := r.URL.Query().Get("case")
 		if focus != "" && !validCaseIdentity(focus) {
 			jsonError(w, "invalid case parameter", http.StatusBadRequest)
+			return
+		}
+		opts, err := parseCasesListOptions(r.URL.Query())
+		if err != nil {
+			jsonError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		report := emptyCasesReport()
@@ -35,6 +41,7 @@ func casesHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
 			body["focus"] = addFocusedCase(r.Context(), mgr, database, &report, focus)
 			body["cases"], body["total"] = report.Cases, len(report.Cases)
 		}
+		applyCasesListOptions(body, report.Cases, opts)
 		jsonResponse(w, body)
 	}
 }
