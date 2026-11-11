@@ -61,6 +61,9 @@ type Client struct {
 	throttleMu sync.Mutex
 	activeKeys map[string]struct{}
 	lastCalls  map[string]time.Time
+
+	// observer receives one Outcome per call (observer.go); nil is none.
+	observer atomic.Pointer[func(Outcome)]
 }
 
 // Budgeter is an optional token budget supplied by the caller — used to
@@ -107,7 +110,9 @@ type ChatResponse struct {
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
 	Usage struct {
-		TotalTokens int `json:"total_tokens"`
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+		TotalTokens      int `json:"total_tokens"`
 	} `json:"usage"`
 }
 
@@ -157,7 +162,7 @@ func (c *Client) checkAvailable(
 	ctx context.Context, cfg config.LLMConfig,
 ) (probe bool, err error) {
 	if !configEnabled(cfg) {
-		return false, fmt.Errorf("LLM not enabled")
+		return false, ErrLLMDisabled
 	}
 	return c.admit(forcedProbe(ctx))
 }

@@ -317,7 +317,14 @@ func decodeLLMClients(body []byte) (map[string]llm.ClientStatus, error) {
 	return clients, nil
 }
 
-// metric returns an unlabelled Prometheus sample; ok is false if absent.
+// generalLLMSeries is the standalone shared client's series of an LLM
+// gauge; since observability-05 they are labelled per client.
+func generalLLMSeries(name string) string {
+	return name + `{client="general",database=""}`
+}
+
+// metric returns the Prometheus sample whose name and labels are exactly
+// name (a bare name for an unlabelled one); ok is false if absent.
 func (r *llmRun) metric(name string) (float64, bool) {
 	r.t.Helper()
 	code, body := httpGet(r.t, r.env, r.env.promBase+"/metrics")
@@ -343,7 +350,7 @@ func (r *llmRun) metric(name string) (float64, bool) {
 // general client's breaker open.
 func (r *llmRun) circuitOpen() (bool, string) {
 	st := r.llmStatus()["general"]
-	gauge, ok := r.metric("pg_sage_llm_circuit_open")
+	gauge, ok := r.metric(generalLLMSeries("pg_sage_llm_circuit_open"))
 	return st.CircuitOpen && ok && gauge == 1,
 		fmt.Sprintf("status.circuit_open=%v gauge=%v(present=%v)", st.CircuitOpen, gauge, ok)
 }

@@ -4,13 +4,23 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 )
+
+// errReconfiguredDuringRequest discards a reply that arrived after a
+// Reconfigure or disable. It wraps ErrLLMDisabled, as the tool path does,
+// so the observer does not count it as a call (observability-05).
+var errReconfiguredDuringRequest = fmt.Errorf(
+	"LLM disabled or reconfigured during request: %w", ErrLLMDisabled)
 
 // Response is one chat completion with its finish signal.
 type Response struct {
 	Content      string
 	Tokens       int
 	FinishReason string
+	// The provider's usage breakdown, as reported (0 when not reported).
+	PromptTokens     int
+	CompletionTokens int
 	// Truncated reports a provider stop at the output token limit
 	// (finish_reason "length" or "max_tokens"): the content is cut.
 	Truncated bool
@@ -24,8 +34,18 @@ type Response struct {
 // provider failure by the circuit breaker. A truncated JSON answer (the
 // system prompt asks for JSON, or the answer is a JSON document) is
 // repaired; truncated prose is returned byte-identical. Either way the
-// Response says it was cut, so prose callers can tell the reader.
+// Response says it was cut, so prose callers can tell the reader. Each
+// call reports one Outcome to the client's observer.
 func (c *Client) ChatResult(
+	ctx context.Context, system, user string, maxTokens int,
+) (Response, error) {
+	start := time.Now()
+	r, err := c.chatResult(ctx, system, user, maxTokens)
+	c.observe(start, err, r.PromptTokens, r.CompletionTokens, r.Tokens)
+	return r, err
+}
+
+func (c *Client) chatResult(
 	ctx context.Context, system, user string, maxTokens int,
 ) (Response, error) {
 	requestCtx, cfg, generation, finish := c.beginRequest(ctx)
@@ -61,7 +81,7 @@ func (c *Client) ChatResult(
 		return Response{}, err
 	}
 	if !c.generationCurrent(generation) {
-		return Response{}, fmt.Errorf("LLM disabled or reconfigured during request")
+		return Response{}, errReconfiguredDuringRequest
 	}
 	c.recordSuccess()
 	tokens := usageTokens(chatResp, system, user)
@@ -82,10 +102,12 @@ func (c *Client) ChatResult(
 func newResponse(resp *ChatResponse, tokens int) (Response, error) {
 	reason := resp.Choices[0].FinishReason
 	r := Response{
-		Content:      resp.Choices[0].Message.Content,
-		Tokens:       tokens,
-		FinishReason: reason,
-		Truncated:    reason == "length" || reason == "max_tokens",
+		Content:          resp.Choices[0].Message.Content,
+		Tokens:           tokens,
+		FinishReason:     reason,
+		Truncated:        reason == "length" || reason == "max_tokens",
+		PromptTokens:     resp.Usage.PromptTokens,
+		CompletionTokens: resp.Usage.CompletionTokens,
 	}
 	if strings.TrimSpace(r.Content) == "" {
 		r.Content = ""

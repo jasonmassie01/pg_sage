@@ -399,7 +399,8 @@ func replaceManagedDatabase(
 // once that name has left it (deleted, renamed or removed by a reload):
 // the LLM budget share returns to the remaining databases (G5-B06), its
 // Sage SRE probe queue series leave /metrics (sre-06), and the
-// process-wide /metrics counters drop its series (observability-07).
+// process-wide /metrics counters drop its series (observability-07), the
+// LLM health counters included (observability-05).
 func forgetRemovedDatabase(name string) {
 	if fleetLLMBudget != nil {
 		fleetLLMBudget.Unregister(name)
@@ -407,6 +408,7 @@ func forgetRemovedDatabase(name string) {
 	probes.ForgetQueueStats(name)
 	executor.PruneCounts(name)
 	shadow.Prune(name)
+	llmHealth.prune(name)
 }
 
 func cleanupManagedCandidate(candidate *fleet.DatabaseInstance) error {
