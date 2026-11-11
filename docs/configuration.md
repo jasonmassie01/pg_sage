@@ -1071,8 +1071,9 @@ against the advisor window, not one moment:
   backends over the window (read from the `system` snapshots in `sage.snapshots`, or the
   current count if higher) + `superuser_reserved_connections` + `reserved_connections`
   (PostgreSQL 16+) + 10. A lower value is refused. Without a readable peak (no history yet,
-  or a history read error, logged with the database name) a decrease is kept as advice
-  without SQL and an increase is kept. A `max_connections` change always needs approval,
+  or a history read error, logged with the database name) a value below the current total
+  backends + reserved slots + 10 is still refused, any other decrease is kept as advice
+  without SQL, and an increase is kept. A `max_connections` change always needs approval,
   since it needs a restart.
 - **Scopes.** The prompt states this database's figures (active sessions, connection
   states, sessions opened) apart from the instance's (total backends, its peak,
