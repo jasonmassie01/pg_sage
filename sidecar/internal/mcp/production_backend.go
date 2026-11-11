@@ -76,6 +76,9 @@ type ProductionDependencies struct {
 	Specialist SpecialistBackend
 	// Grants serves agent_request_capability (agent governance); optional.
 	Grants GrantToolBackend
+	// Availability says where the gated tool families can be served
+	// (tools/list hides the rest); optional, nil lists them everywhere.
+	Availability Availability
 }
 
 type ProductionBackend struct {

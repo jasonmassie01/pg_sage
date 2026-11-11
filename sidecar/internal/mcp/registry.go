@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -80,8 +81,8 @@ func withDatabaseEnum(tool Tool, names []string) Tool {
 }
 
 // Fingerprint identifies the tool list as an unrestricted caller sees it;
-// it changes when tools or the monitored databases change, which is when
-// clients are told the list changed.
+// it changes when tools, the monitored databases or where each tool can be
+// served change, which is when clients are told the list changed.
 func (s *Server) Fingerprint() string {
 	var names []string
 	if s.directory != nil {
@@ -90,10 +91,7 @@ func (s *Server) Fingerprint() string {
 			names = append(names, ref.Name)
 		}
 	}
-	tools := make([]Tool, 0, len(s.tools))
-	for _, tool := range s.tools {
-		tools = append(tools, withDatabaseEnum(tool, sortedCopy(names)))
-	}
+	tools := s.listedTools(context.Background(), sortedCopy(names), nil)
 	raw, _ := json.Marshal(tools)
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])

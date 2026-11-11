@@ -91,6 +91,8 @@ func mcpDependencies() mcp.ProductionDependencies {
 		Specialist: processSpecialistMCP{},
 		// agent_request_capability (agent_grants_wiring.go).
 		Grants: agentGrantMCP(cfg, fleetMgr, globalMetaState),
+		// tools/list hides a tool family where it cannot be served (mcp-09).
+		Availability: newMCPAvailability(fleetMgr),
 	}
 }
 

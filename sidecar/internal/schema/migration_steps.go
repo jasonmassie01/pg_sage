@@ -184,5 +184,6 @@ func trancheTwoMigrations() []namedStep {
 		{"ddlIncidentsLogOccurrences", ddlIncidentsLogOccurrences},       // rca-07
 		{"ddlExplainEstimateSource", ddlExplainEstimateSource},           // rca-04
 		{"ddlGuardPrincipalChanges", ddlGuardPrincipalChanges},           // agentgov-06
+		{"ddlSourceFixDeployReportedAt", ddlSourceFixDeployReportedAt},   // mcp-06
 	}
 }

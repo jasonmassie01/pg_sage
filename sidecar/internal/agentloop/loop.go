@@ -42,6 +42,10 @@ func Run(ctx context.Context, m Model, cfg Config) (Result, error) {
 	defer cancel()
 	err := r.loop(runCtx, ctx)
 	r.res.Transcript.Protocol = r.protocol
+	r.res.Evidence = make(map[string]Evidence, len(r.aliases))
+	for alias, ev := range r.aliases {
+		r.res.Evidence[alias] = ev
+	}
 	return r.res, err
 }
 

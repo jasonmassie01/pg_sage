@@ -170,17 +170,12 @@ func (s *Server) modernResult(result map[string]any) map[string]any {
 	return result
 }
 
-// toolsList lists the tools the caller may call, each with the databases
-// it may name, in registration order.
+// toolsList lists the tools the caller may call that can be served, each
+// with the databases it may name where it can be, in registration order.
 func (s *Server) toolsList(ctx context.Context, modern bool) map[string]any {
-	names := s.permittedDatabaseNames(ctx)
-	tools := make([]Tool, 0, len(s.tools))
-	for _, tool := range s.tools {
-		if !mayCall(ctx, scopeFor(ctx, tool.Name, nil)) {
-			continue
-		}
-		tools = append(tools, withDatabaseEnum(tool, names))
-	}
+	tools := s.listedTools(ctx, s.permittedDatabaseNames(ctx), func(tool string) bool {
+		return mayCall(ctx, scopeFor(ctx, tool, nil))
+	})
 	result := map[string]any{"tools": tools}
 	if modern {
 		result["ttlMs"], result["cacheScope"] = listTTLMillis, "private"

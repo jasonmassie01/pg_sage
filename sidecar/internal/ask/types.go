@@ -115,17 +115,22 @@ type Request struct {
 }
 
 // Statement is one verified sentence of an answer with the evidence ids
-// it cites.
+// it cites (each once) and the aliases of the reads it cites (each once;
+// they key Citation.Alias). Answers stored before aliases have no Aliases.
 type Statement struct {
 	Text      string   `json:"text"`
 	Citations []string `json:"citations"`
+	Aliases   []string `json:"aliases,omitempty"`
 }
 
-// Citation is one piece of evidence an answer cites: its id
-// ("finding:42"), kind and reference, the label and digest of exactly
-// what the model was shown, and the API path that serves the object.
+// Citation is one read an answer cites: its id ("finding:42"), the alias
+// the run showed it under (E1, E2, ...; two reads of one id are two
+// citations), kind and reference, the label and digest of exactly what
+// the model was shown, and the API path that serves the object. Answers
+// stored before aliases existed have none.
 type Citation struct {
 	ID      string `json:"id"`
+	Alias   string `json:"alias,omitempty"`
 	Kind    string `json:"kind"`
 	Ref     string `json:"ref"`
 	Label   string `json:"label"`

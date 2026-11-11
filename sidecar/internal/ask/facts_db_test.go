@@ -113,7 +113,7 @@ func TestFact_ProtectedAndRejectedSubjectsAreRefused(t *testing.T) {
 			t.Fatal(err)
 		}
 		out, err := runSessionTool(t, ss, "propose_fact", args)
-		_, acts := ss.snapshot()
+		acts := ss.actionsTaken()
 		if err != nil || out.Evidence != nil || len(acts) != 1 ||
 			acts[0].Status != ActionRefused {
 			t.Errorf("%s: out %+v err %v actions %+v", name, out, err, acts)

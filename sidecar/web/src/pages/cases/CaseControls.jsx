@@ -1,12 +1,11 @@
 import { useState } from 'react'
 import { useAPI } from '../../hooks/useAPI'
 import { useToast } from '../../components/Toast'
+import { FINDING_SOURCES } from './casePresentation'
 
 // Operator workflows restored from the legacy Findings and Incidents
 // pages (SURF-10): suppress/unsuppress findings and resolve incidents,
 // always against the case's own database.
-
-const FINDING_SOURCES = new Set(['finding', 'schema_health', 'forecast'])
 
 function canActOnCases(user) {
   return user?.role === 'admin' || user?.role === 'operator'

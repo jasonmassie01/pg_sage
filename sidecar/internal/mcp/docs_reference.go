@@ -30,10 +30,12 @@ type schemaProperty struct {
 }
 
 // ToolReferenceMarkdown renders the tool reference from the tool schemas:
-// one section per tool with its scope and an argument table.
+// a summary of each tool's scope and when it is listed, then one section
+// per tool with its scope and an argument table.
 func ToolReferenceMarkdown(tools []Tool) string {
 	var b strings.Builder
 	b.WriteString("\n")
+	writeAvailabilityTable(&b, tools)
 	for _, tool := range tools {
 		scope, _ := RequiredScope(tool.Name, nil)
 		fmt.Fprintf(&b, "### `%s`\n\n%s.\n\nScope: `%s`", tool.Name,
@@ -50,6 +52,18 @@ func ToolReferenceMarkdown(tools []Tool) string {
 		writeArguments(&b, tool.InputSchema)
 	}
 	return b.String()
+}
+
+// writeAvailabilityTable is the summary: every tool, its scope and when
+// tools/list shows it.
+func writeAvailabilityTable(b *strings.Builder, tools []Tool) {
+	b.WriteString("| Tool | Scope | Available when |\n|---|---|---|\n")
+	for _, tool := range tools {
+		scope, _ := RequiredScope(tool.Name, nil)
+		fmt.Fprintf(b, "| [`%s`](#%s) | `%s` | %s |\n", tool.Name, tool.Name, scope,
+			AvailableWhen(tool.Name))
+	}
+	b.WriteString("\n")
 }
 
 func writeArguments(b *strings.Builder, raw json.RawMessage) {
