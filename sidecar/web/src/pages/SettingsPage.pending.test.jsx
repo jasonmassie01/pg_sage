@@ -243,3 +243,42 @@ describe('formatPendingValue (config-09)', () => {
     expect(formatPendingValue(0)).toBe('0')
   })
 })
+
+// A restart-bound save succeeded: its notice is info-styled like the panel,
+// not the red failure banner; a real warning stays an error.
+describe('SettingsPage save notice tone (config-09)', () => {
+  beforeEach(() => {
+    localStorage.setItem('pg_sage_settings_mode', 'advanced')
+    configData = baseData({ pending: [], pending_restart: [] })
+  })
+
+  async function saveSnapshotsDays(response) {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true, status: 200, json: async () => response,
+    })
+    render(<SettingsPage database="all" />)
+    fireEvent.click(screen.getByTestId('settings-tab-retention'))
+    fireEvent.change(screen.getByTestId('setting-retention.snapshots_days'), {
+      target: { value: '21' },
+    })
+    fireEvent.click(screen.getByTestId('settings-save'))
+    fireEvent.click(screen.getByTestId('config-diff-confirm'))
+    return waitFor(() => screen.getByTestId('settings-feedback'))
+  }
+
+  it('styles a pending-restart save as info', async () => {
+    const notice = await saveSnapshotsDays({
+      status: 'updated', pending_restart: ['retention.snapshots_days'],
+    })
+    expect(notice).toHaveAttribute('data-tone', 'info')
+    expect(notice.textContent).toMatch(/retention\.snapshots_days/)
+  })
+
+  it('keeps a save warning as an error', async () => {
+    const notice = await saveSnapshotsDays({
+      status: 'updated', warnings: ['window never opens'],
+    })
+    expect(notice).toHaveAttribute('data-tone', 'error')
+    expect(notice.textContent).toMatch(/window never opens/)
+  })
+})

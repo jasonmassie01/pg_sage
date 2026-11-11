@@ -190,7 +190,7 @@ export function SettingsPage({ database, databaseId }) {
 		const result = await res.json().catch(() => ({}))
 		if (result.pending_restart?.length) {
 		  setFeedback({
-			type: 'error',
+			type: 'info',
 			msg: `Pending restart: ${result.pending_restart.join(', ')}`,
 		  })
 		} else if (result.warnings?.length) {
@@ -243,7 +243,7 @@ export function SettingsPage({ database, databaseId }) {
 	  const result = await res.json().catch(() => ({}))
 	  if (result.pending_restart?.length) {
 		setFeedback({
-		  type: 'error',
+		  type: 'info',
 		  msg: `Pending restart: ${result.pending_restart.join(', ')}`,
 		})
 	  } else if (result.warnings?.length) {
@@ -748,15 +748,21 @@ function TrustLevelConfirm({ from, to, onConfirm, onCancel }) {
   )
 }
 
+// A pending restart is a successful save (config-09): info-styled like the
+// pending panel, never the red failure tone.
+const FEEDBACK_TONES = {
+  success: { color: 'var(--green)', background: '#0f2640', Icon: Check },
+  info: { color: 'var(--accent)', background: 'var(--bg-card)', Icon: RotateCcw },
+  error: { color: 'var(--red)', background: '#3b1111', Icon: X },
+}
+
 function FeedbackBanner({ type, msg }) {
-  const color = type === 'success' ? 'var(--green)' : 'var(--red)'
-  const Icon = type === 'success' ? Check : X
+  const tone = FEEDBACK_TONES[type] ? type : 'error'
+  const { color, background, Icon } = FEEDBACK_TONES[tone]
   return (
-    <div className="flex items-center gap-2 px-4 py-2 rounded text-sm"
-      style={{
-        background: type === 'success' ? '#0f2640' : '#3b1111',
-        color,
-      }}>
+    <div data-testid="settings-feedback" data-tone={tone}
+      className="flex items-center gap-2 px-4 py-2 rounded text-sm"
+      style={{ background, color }}>
       <Icon size={16} /> {msg}
     </div>
   )
