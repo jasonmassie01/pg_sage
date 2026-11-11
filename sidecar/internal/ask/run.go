@@ -40,6 +40,13 @@ func finalTool() agentloop.Final {
 // enabler is a model that can say it is switched off (*llm.Client).
 type enabler interface{ IsEnabled() bool }
 
+// Available reports whether the service can answer a question: Ask Sage
+// is enabled (ask.enabled) and an enabled model is configured. MCP lists
+// ask_sage only where this holds.
+func (s *Service) Available() bool {
+	return s != nil && s.d.Config.Enabled && s.modelOn()
+}
+
 func (s *Service) modelOn() bool {
 	if s.d.Model == nil {
 		return false

@@ -150,7 +150,8 @@ pg_sage serves both protocol eras on stdio and Streamable HTTP:
 
 * **Handshake era** (`2025-03-26`, `2025-06-18`, `2025-11-25`): `initialize` negotiates the
   version and advertises `tools.listChanged`; `ping`; `notifications/tools/list_changed`
-  is sent on stdio when the tool list changes (a database joins or leaves the fleet).
+  is sent on stdio when the tool list changes (a database joins or leaves the fleet, or a
+  tool becomes available or unavailable).
 * **Stateless** (`2026-07-28`): `server/discover`, the protocol version in every request's
   `_meta`, `resultType` on every result, and `subscriptions/listen` for list changes (on
   HTTP an SSE stream that pg_sage closes gracefully before the API's request deadline;
@@ -158,6 +159,29 @@ pg_sage serves both protocol eras on stdio and Streamable HTTP:
   `Mcp-Name` headers.
 
 `tools/list` shows only the tools the caller may call, with the databases it may name.
+
+### Tool availability
+
+`tools/list` also leaves out a tool that cannot be served, so an agent does not pick a tool
+that can only answer `unavailable`. A tool that works on some databases only is listed with
+a `database` enum of just those. The rules (the "Available when" column of the
+[tool reference](#tool-reference)):
+
+* `ask_sage`: Ask Sage is enabled for the database (`ask.enabled`) and an enabled LLM is
+  configured.
+* `specialist_*` (all five): the Postgres-specialist contract is enabled.
+* `top_queries` and `whatif_index`: the database has `pg_stat_statements` (`whatif_index`
+  measures the queries its `query_ids` name, which come from there). `whatif_index` is not
+  hidden without HypoPG: it says so in its result. `explain_query` (with query text) and
+  `query_sources` (it samples `pg_stat_activity`) need no extension.
+* Every other tool is always listed.
+
+Extension evidence is the database's capability probe (`GET /api/v1/fleet/readiness`); a
+database whose evidence is not known yet, or whose probe failed, keeps every tool. When
+availability changes (Ask Sage switched off, the contract enabled, `CREATE EXTENSION
+pg_stat_statements` seen by the next capability refresh) clients get
+`notifications/tools/list_changed` and should list again. A hidden tool called directly is
+not an unknown tool: it returns its usual -32010 `unavailable` error.
 
 ## The source-fix loop
 
@@ -332,6 +356,62 @@ application's database driver (most ORMs have a plugin) for reliable attribution
 ## Tool reference
 
 <!-- BEGIN GENERATED MCP TOOL REFERENCE: regenerate with `go test ./internal/mcp -run TestToolReferenceDocsMatchSchemas -update-docs` -->
+
+| Tool | Scope | Available when |
+|---|---|---|
+| [`get_policy`](#get_policy) | `read` | always |
+| [`propose_policy_change`](#propose_policy_change) | `propose` | always |
+| [`request_change`](#request_change) | `propose` | always |
+| [`optimize_query`](#optimize_query) | `propose` | always |
+| [`apply_migration`](#apply_migration) | `propose` | always |
+| [`ensure_fk_indexes`](#ensure_fk_indexes) | `propose` | always |
+| [`declare_table_contract`](#declare_table_contract) | `approve` | always |
+| [`register_consumer`](#register_consumer) | `approve` | always |
+| [`set_maintenance_policy`](#set_maintenance_policy) | `propose` | always |
+| [`get_guarantee_status`](#get_guarantee_status) | `read` | always |
+| [`get_value`](#get_value) | `read` | always |
+| [`get_ledger`](#get_ledger) | `read` | always |
+| [`sre_list_incidents`](#sre_list_incidents) | `read` | always |
+| [`sre_get_investigation`](#sre_get_investigation) | `read` | always |
+| [`sre_get_evidence`](#sre_get_evidence) | `read` | always |
+| [`sre_get_transcript`](#sre_get_transcript) | `read` | always |
+| [`sre_propose_action`](#sre_propose_action) | `propose` | always |
+| [`sre_request_execution`](#sre_request_execution) | `propose` | always |
+| [`sre_list_slos`](#sre_list_slos) | `read` | always |
+| [`sre_get_slo`](#sre_get_slo) | `read` | always |
+| [`sre_list_changes`](#sre_list_changes) | `read` | always |
+| [`sre_list_runbooks`](#sre_list_runbooks) | `read` | always |
+| [`sre_get_runbook`](#sre_get_runbook) | `read` | always |
+| [`sre_runbook_runs`](#sre_runbook_runs) | `read` | always |
+| [`sre_similar_incidents`](#sre_similar_incidents) | `read` | always |
+| [`sre_draft_runbook`](#sre_draft_runbook) | `propose` | always |
+| [`sre_compile_runbook`](#sre_compile_runbook) | `propose` | always |
+| [`sre_get_autonomy`](#sre_get_autonomy) | `read` | always |
+| [`sre_downgrade_autonomy`](#sre_downgrade_autonomy) | `approve` | always |
+| [`sre_review_investigation`](#sre_review_investigation) | `approve` | always |
+| [`sre_evaluate_autonomy`](#sre_evaluate_autonomy) | `propose` | always |
+| [`list_facts`](#list_facts) | `read` | always |
+| [`propose_fact`](#propose_fact) | `propose` | always |
+| [`decide_fact`](#decide_fact) | `approve` | always |
+| [`list_databases`](#list_databases) | `read` | always |
+| [`top_queries`](#top_queries) | `read` | the database has the `pg_stat_statements` extension |
+| [`explain_query`](#explain_query) | `propose` | always |
+| [`whatif_index`](#whatif_index) | `read` | the database has the `pg_stat_statements` extension |
+| [`lint_migration`](#lint_migration) | `read` | always |
+| [`query_sources`](#query_sources) | `read` | always |
+| [`mark_object`](#mark_object) | `propose` | always |
+| [`get_source_fix_packet`](#get_source_fix_packet) | `read` | always |
+| [`report_source_fix`](#report_source_fix) | `propose` | always |
+| [`specialist_open_investigation`](#specialist_open_investigation) | `read` | the Postgres-specialist contract is enabled |
+| [`specialist_investigation_status`](#specialist_investigation_status) | `read` | the Postgres-specialist contract is enabled |
+| [`specialist_investigation_result`](#specialist_investigation_result) | `read` | the Postgres-specialist contract is enabled |
+| [`specialist_investigation_transcript`](#specialist_investigation_transcript) | `read` | the Postgres-specialist contract is enabled |
+| [`specialist_request_remediation`](#specialist_request_remediation) | `propose` | the Postgres-specialist contract is enabled |
+| [`ask_sage`](#ask_sage) | `read` | Ask Sage is enabled for the database (`ask.enabled`) with an enabled LLM |
+| [`fleet_findings`](#fleet_findings) | `read` | always |
+| [`agent_query`](#agent_query) | `read` | always |
+| [`agent_whoami`](#agent_whoami) | `read` | always |
+| [`agent_request_capability`](#agent_request_capability) | `propose` | always |
 
 ### `get_policy`
 
