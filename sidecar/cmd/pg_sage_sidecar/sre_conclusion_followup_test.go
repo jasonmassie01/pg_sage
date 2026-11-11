@@ -153,6 +153,25 @@ func plantIdleSession(t *testing.T, ctx context.Context, dsn string) {
 	}
 }
 
+// insertComposedIncident records an open lock incident of fu_db.
+func insertComposedIncident(t *testing.T, ctx context.Context, pool *pgxpool.Pool) string {
+	t.Helper()
+	var inc string
+	if err := pool.QueryRow(ctx, `INSERT INTO sage.incidents
+		(severity, root_cause, signal_ids, source, database_name)
+		VALUES ('critical', 'lock contention', ARRAY['lock_contention'], 'deterministic',
+		        'fu_db') RETURNING id::text`).Scan(&inc); err != nil {
+		t.Fatalf("insert incident: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM sage.incidents
+			WHERE id = $1::uuid`, inc)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM sage.sre_incident_followup
+			WHERE incident_id = $1`, inc)
+	})
+	return inc
+}
+
 func TestSREConclusionFollowUp_Composed(t *testing.T) {
 	dsn := testdb.SkipUnlessLive(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
@@ -168,20 +187,7 @@ func TestSREConclusionFollowUp_Composed(t *testing.T) {
 	d.RegisterSender(notify.NewSlackSenderWithPolicy(notify.TargetPolicy{AllowPrivate: true}))
 	tg := &threadSender{}
 	d.RegisterSender(tg)
-
-	var inc string
-	if err := pool.QueryRow(ctx, `INSERT INTO sage.incidents
-		(severity, root_cause, signal_ids, source, database_name)
-		VALUES ('critical', 'lock contention', ARRAY['lock_contention'], 'deterministic',
-		        'fu_db') RETURNING id::text`).Scan(&inc); err != nil {
-		t.Fatalf("insert incident: %v", err)
-	}
-	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `DELETE FROM sage.incidents
-			WHERE id = $1::uuid`, inc)
-		_, _ = pool.Exec(context.Background(), `DELETE FROM sage.sre_incident_followup
-			WHERE incident_id = $1`, inc)
-	})
+	inc := insertComposedIncident(t, ctx, pool)
 	if err := d.Dispatch(ctx, notify.IncidentDetectedEvent(notify.IncidentInfo{ID: inc,
 		Database: "fu_db", Severity: "critical", RootCause: "lock contention"})); err != nil {
 		t.Fatalf("page: %v", err)

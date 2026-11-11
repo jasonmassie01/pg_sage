@@ -220,22 +220,7 @@ type Coordinator struct {
 
 // NewCoordinator validates its dependencies and configuration.
 func NewCoordinator(d CoordinatorDeps) (*Coordinator, error) {
-	if d.ReadPolicy == nil {
-		if r, ok := d.Runner.(interface{ ReadPolicy() *probes.ReadPolicy }); ok {
-			d.ReadPolicy = r.ReadPolicy()
-		}
-	}
-	if err := d.ReadPolicy.Validate(); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
-	}
-	if d.Store == nil || d.Runner == nil {
-		return nil, fmt.Errorf("%w: coordinator needs a store and a probe runner",
-			ErrInvalidRequest)
-	}
-	if err := d.Config.validate(d.Triggers != nil); err != nil {
-		return nil, err
-	}
-	if err := validateSignals(d.Signals); err != nil {
+	if err := validateCoordinatorDeps(&d); err != nil {
 		return nil, err
 	}
 	invStore, err := investigatorStore(d)
@@ -270,6 +255,27 @@ func NewCoordinator(d CoordinatorDeps) (*Coordinator, error) {
 		authority: d.RootAuthority, investigator: d.Investigator, invStore: invStore,
 		incidents: d.Incidents, followUps: d.FollowUps, trackedIncidents: d.TrackedIncidents,
 		conclusions: conclusions}, nil
+}
+
+// validateCoordinatorDeps checks the required dependencies, defaulting the
+// read policy to the runner's.
+func validateCoordinatorDeps(d *CoordinatorDeps) error {
+	if d.ReadPolicy == nil {
+		if r, ok := d.Runner.(interface{ ReadPolicy() *probes.ReadPolicy }); ok {
+			d.ReadPolicy = r.ReadPolicy()
+		}
+	}
+	if err := d.ReadPolicy.Validate(); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidRequest, err)
+	}
+	if d.Store == nil || d.Runner == nil {
+		return fmt.Errorf("%w: coordinator needs a store and a probe runner",
+			ErrInvalidRequest)
+	}
+	if err := d.Config.validate(d.Triggers != nil); err != nil {
+		return err
+	}
+	return validateSignals(d.Signals)
 }
 
 // conclusionStore checks the conclusion notifier's dependencies: none

@@ -32,7 +32,8 @@ func TestInvestigationConcludedEvent_Body(t *testing.T) {
 	if EventInvestigationConcluded != "investigation_concluded" {
 		t.Fatalf("event type = %q", EventInvestigationConcluded)
 	}
-	if evt.Type != EventInvestigationConcluded || evt.Severity != "critical" || evt.RefID != "inc-1" || evt.Subject == "" ||
+	if evt.Type != EventInvestigationConcluded || evt.Severity != "critical" ||
+		evt.RefID != "inc-1" || evt.Subject == "" ||
 		evt.Data["incident_id"] != "inc-1" || evt.Data["investigation_id"] != "inv-1" {
 		t.Fatalf("event = %+v", evt)
 	}
