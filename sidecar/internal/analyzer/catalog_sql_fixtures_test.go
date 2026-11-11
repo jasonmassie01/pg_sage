@@ -64,14 +64,17 @@ func tableCatalogFindings() map[string][]Finding {
 	cfg.Analyzer.AnalyzeStaleDays = 7
 	now := time.Date(2026, 6, 11, 0, 0, 0, 0, time.UTC)
 	stale := &collector.Snapshot{Tables: []collector.TableStats{
-		{SchemaName: "Sales", RelName: "Events", NLiveTup: 50000, NTupIns: 50000}}}
+		{SchemaName: "Sales", RelName: "Events", NLiveTup: 50000, NTupIns: 50000,
+			ModSinceAnalyze: 50000, AnalyzeThreshold: 50}}}
 	bloat := &collector.Snapshot{Tables: []collector.TableStats{
 		{SchemaName: "public", RelName: "cache_data", NLiveTup: 5000, NDeadTup: 4000}}}
 	return map[string][]Finding{
 		"rules_autovacuum_tuning.go": ruleAutovacuumTuning(
 			autovacuumSnap("autovacuum_vacuum_scale_factor=0.2"), nil, phase2Config(), nil),
 		"rules_stale_statistics.go": ruleStaleStatisticsAt(stale, cfg, now),
-		"rules_vacuum.go":           ruleTableBloat(bloat, nil, cfg, nil),
+		"rules_stale_statistics_parent.go": staleParentFindings(staleParentFixture(),
+			newStaleWindow(cfg, now)),
+		"rules_vacuum.go": ruleTableBloat(bloat, nil, cfg, nil),
 	}
 }
 
@@ -91,5 +94,18 @@ func sessionCatalogFindings() map[string][]Finding {
 		"rules_replication.go":       ruleInactiveSlots(slots, nil, nil, nil),
 		"rules_system.go":            ruleConnectionLeaks([]LeakedConn{{PID: 42}}),
 		"rules_workmem_promotion.go": {buildWorkMemPromotionFinding("app_worker", 5, 256, 5)},
+	}
+}
+
+// staleParentFixture is a mixed-case partitioned parent whose partitions
+// changed past its threshold (rules-10).
+func staleParentFixture() *collector.Snapshot {
+	return &collector.Snapshot{
+		Tables: []collector.TableStats{
+			{SchemaName: "Sales", RelName: "Events", Relkind: "p", AnalyzeThreshold: 50},
+			{SchemaName: "Sales", RelName: "Events_1", Relkind: "r", NLiveTup: 20000,
+				ModSinceAnalyze: 900, AnalyzeThreshold: 2050}},
+		Partitions: []collector.PartitionInfo{{ChildSchema: "Sales", ChildTable: "Events_1",
+			ParentSchema: "Sales", ParentTable: "Events"}},
 	}
 }

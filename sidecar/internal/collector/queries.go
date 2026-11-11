@@ -92,6 +92,10 @@ const queryStatsWithWALAndPlanTimeSQL = queryStatsSelect + queryStatsWALColumns 
 // reloptions rides on the same page: the deterministic rules need each
 // table's own storage parameters whether or not the advisor's
 // configuration snapshot runs (rules-02).
+// mod_since_analyze and analyze_threshold are what autoanalyze compares:
+// the rows changed since the last analyze, and autovacuum_analyze_threshold
+// + autovacuum_analyze_scale_factor x reltuples (a never-counted -1 as 0),
+// each taken from the table's reloptions when set there (rules-10).
 var tableStatsSQL = sageTag + `
 SELECT n.nspname, c.relname,
        pg_stat_get_numscans(c.oid), pg_stat_get_tuples_returned(c.oid),
@@ -115,10 +119,20 @@ SELECT n.nspname, c.relname,
        COALESCE(CASE WHEN c.relminmxid <> '0'::xid THEN mxid_age(c.relminmxid) END,
          -1)::int8 AS mxid_age,
        pg_stat_get_blocks_fetched(c.oid) - pg_stat_get_blocks_hit(c.oid) AS heap_blks_read,
+       pg_stat_get_mod_since_analyze(c.oid) AS mod_since_analyze,
+       COALESCE(ao.threshold, current_setting('autovacuum_analyze_threshold')::float8)
+         + COALESCE(ao.scale_factor, current_setting('autovacuum_analyze_scale_factor')::float8)
+           * GREATEST(c.reltuples, 0)::float8 AS analyze_threshold,
        c.reloptions, c.oid
   FROM pg_class c
   JOIN pg_namespace n ON n.oid = c.relnamespace
   LEFT JOIN pg_class t ON t.oid = c.reltoastrelid
+  LEFT JOIN LATERAL (
+       SELECT max(o.option_value) FILTER (
+                WHERE o.option_name = 'autovacuum_analyze_threshold')::float8 AS threshold,
+              max(o.option_value) FILTER (
+                WHERE o.option_name = 'autovacuum_analyze_scale_factor')::float8 AS scale_factor
+         FROM pg_options_to_table(c.reloptions) o) ao ON true
   LEFT JOIN LATERAL (
        SELECT sum(pg_stat_get_numscans(i.indexrelid))::int8 AS idx_scan,
               sum(pg_stat_get_tuples_fetched(i.indexrelid))::int8 AS idx_tup_fetch,
