@@ -4,6 +4,7 @@ import { LoadingSpinner } from '../components/LoadingSpinner'
 import { QueryState } from '../components/QueryState'
 import { queryBlocked } from '../lib/queryState'
 import { EmptyState } from '../components/EmptyState'
+import { DatabaseSummary } from './databases/DatabaseSummary'
 
 const MAX_INLINE_CHARS = 500000
 
@@ -87,27 +88,34 @@ export function DatabasePage({ database }) {
   if (!db) {
     return <EmptyState message="Select a database from the picker above" />
   }
-  if (queryBlocked(snapshot)) {
-    return <QueryState query={snapshot} skeleton={<LoadingSpinner />} />
-  }
 
+  // fleet-06: the runtime summary leads; the raw snapshot stays collapsed.
   return (
-    <QueryState query={snapshot}><div className="space-y-6">
-      <div className="rounded p-4"
-        style={{
-          background: 'var(--bg-card)',
-          border: '1px solid var(--border)',
-        }}>
-        <h2 className="text-sm font-medium mb-3"
-          style={{ color: 'var(--text-secondary)' }}>
-          Database: {db}
-        </h2>
-        {data?.snapshot ? (
-          <SnapshotView snapshot={data.snapshot} />
-        ) : (
-          <EmptyState message="No snapshot data available yet" />
-        )}
-      </div>
-    </div></QueryState>
+    <div className="space-y-6">
+      <DatabaseSummary database={db} />
+      {queryBlocked(snapshot) ? (
+        <QueryState query={snapshot} skeleton={<LoadingSpinner />} />
+      ) : (
+        <QueryState query={snapshot}>
+          <details data-testid="raw-snapshot" className="rounded p-4"
+            style={{
+              background: 'var(--bg-card)',
+              border: '1px solid var(--border)',
+            }}>
+            <summary className="text-sm font-medium cursor-pointer"
+              style={{ color: 'var(--text-secondary)' }}>
+              Raw snapshot
+            </summary>
+            <div className="mt-3">
+              {data?.snapshot ? (
+                <SnapshotView snapshot={data.snapshot} />
+              ) : (
+                <EmptyState message="No snapshot data available yet" />
+              )}
+            </div>
+          </details>
+        </QueryState>
+      )}
+    </div>
   )
 }
