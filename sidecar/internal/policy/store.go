@@ -20,6 +20,14 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 func (s *Store) Bootstrap(
 	ctx context.Context, scope Scope, profile, actor string,
 ) (Policy, error) {
+	return s.BootstrapIn(ctx, scope, profile, "", actor)
+}
+
+// BootstrapIn is Bootstrap with the staffed profile's window written in
+// zone ("" for none): the zone of trust.maintenance_window (policy-04).
+func (s *Store) BootstrapIn(
+	ctx context.Context, scope Scope, profile, zone, actor string,
+) (Policy, error) {
 	current, err := s.Current(ctx, scope)
 	if err == nil {
 		return current, nil
@@ -27,7 +35,7 @@ func (s *Store) Bootstrap(
 	if !errors.Is(err, ErrNotFound) {
 		return Policy{}, err
 	}
-	document, err := profileDocument(profile)
+	document, err := profileDocumentIn(profile, zone)
 	if err != nil {
 		return Policy{}, err
 	}

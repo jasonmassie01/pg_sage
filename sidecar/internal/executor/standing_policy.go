@@ -43,12 +43,33 @@ func (e *Executor) EnableStandingPolicyWithStore(
 	e.databaseID = databaseID
 	e.policyMu.Unlock()
 	e.WithPolicyGate(e.newStandingPolicyGate(policyStore, scope))
-	current, err := policyStore.Bootstrap(ctx, scope, profile, "system-bootstrap")
+	cfg, _, _ := e.policySnapshot()
+	zone := ""
+	if cfg != nil {
+		zone = policy.WindowZone(trustWindowExpression(cfg.Trust.MaintenanceWindow))
+	}
+	current, err := policyStore.BootstrapIn(ctx, scope, profile, zone, "system-bootstrap")
 	if err != nil {
 		return fmt.Errorf("bootstrap standing policy: %w", err)
 	}
 	e.warnInvalidStoredPolicy(current)
+	e.warnUnzonedPolicyWindows(current)
 	return nil
+}
+
+// warnUnzonedPolicyWindows logs policy windows that name no time zone:
+// they are evaluated on the process clock (UTC in the container), so a
+// staffed "weekdays 01:00-05:00" opens at 01:00 UTC (policy-04).
+func (e *Executor) warnUnzonedPolicyWindows(current policy.Policy) {
+	doc, err := policy.ParseDocument(current.Document)
+	if err != nil {
+		return // warnInvalidStoredPolicy reports it
+	}
+	for _, window := range policy.UnzonedWindows(doc) {
+		e.logFn("executor", "standing policy v%d window %q names no time zone; it is "+
+			"evaluated on the process clock (%s); add a zone such as America/Chicago",
+			current.Version, window, time.Local.String())
+	}
 }
 
 // warnInvalidStoredPolicy logs a stored policy that no longer validates
