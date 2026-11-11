@@ -21,7 +21,8 @@ coding agent with the MCP tool `ask_sage`.
   (`statements[].aliases`; `statements[].citations` keeps the ids). In the UI a `finding:`
   citation opens that finding's case on the Cases page (or says no case holds it, for
   example once it is resolved, and links to the finding record), an `investigation:`
-  citation opens the case it investigates, and an `action:` citation opens that change
+  citation opens the case it investigates (or links to the record of one Ask Sage opened,
+  which has no case), and an `action:` citation opens that change
   record on the Actions page. List citations (`findings:`, `actions:`, `facts:`,
   `trust:`, ...) open their page; `table:`, `config:`, `queries:` and `doc:` citations are
   plain text. Answers stored before citations carried aliases still render by id.
