@@ -85,10 +85,16 @@ function ChannelBadge({ channel }) {
   )
 }
 
+const OUTCOMES = [
+  ['delivered', 'Delivered', 'var(--green)'],
+  ['failed', 'Failed', 'var(--red)'],
+  ['deferred', 'Deferred', 'var(--yellow)'],
+]
+
 // Summary counts delivery outcomes. Deferred rows are not deliveries, so
 // they stay out of the severity and channel tiles.
 function Summary({ alerts }) {
-  const byKind = { delivered: 0, failed: 0, deferred: 0 }
+  const byKind = Object.fromEntries(OUTCOMES.map(([kind]) => [kind, 0]))
   const byChannel = {}
   const bySeverity = {}
   for (const a of alerts) {
@@ -98,14 +104,9 @@ function Summary({ alerts }) {
     byChannel[a.channel] = (byChannel[a.channel] || 0) + 1
     bySeverity[a.severity] = (bySeverity[a.severity] || 0) + 1
   }
-  const outcomes = [
-    ['delivered', 'Delivered', 'var(--green)'],
-    ['failed', 'Failed', 'var(--red)'],
-    ['deferred', 'Deferred', 'var(--yellow)'],
-  ]
   return (
     <div className="flex gap-4 mb-6 flex-wrap" data-testid="alert-log-summary">
-      {outcomes.map(([kind, label, color]) => (
+      {OUTCOMES.map(([kind, label, color]) => (
         <Tile key={kind} testId={`alert-count-${kind}`} count={byKind[kind]}>
           <OutcomeLabel color={color}>{label}</OutcomeLabel>
         </Tile>
