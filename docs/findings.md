@@ -1,6 +1,6 @@
 # Findings Catalog
 
-pg_sage detects issues across more than 35 categories using deterministic rules (Tier 1) plus LLM-powered index optimization (Tier 2). Each finding includes a severity level, human-readable title, detailed description, recommendation, and (where applicable) remediation SQL with rollback SQL.
+pg_sage detects issues using deterministic rules (Tier 1) plus LLM-powered index optimization (Tier 2). Every category it stores, with its subsystem, producer, severities, config keys and executor contract tier, is in the [generated finding category catalog](generated/finding-catalog.md), built from the code's category registry; this page describes them. Each finding includes a severity level, human-readable title, detailed description, recommendation, and (where applicable) remediation SQL with rollback SQL.
 
 Severities: **critical** > **warning** > **info**
 
@@ -27,9 +27,13 @@ The next cycle that reads the category resumes them.
 ## Source filter and risk fields
 
 `GET /api/v1/findings?source=<subsystem>` filters by the producer that emitted a finding:
-`rules`, `advisor`, `optimizer`, `query_tuning`, `forecaster`, `incident` or `schema_lint`
-(see the category table in [ui-redesign-v2.md §16](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/archive/docs-internal/ui-redesign-v2.md)). Each row reports
-the same value as `subsystem`. An unknown `source` value applies no filter, and
+`rules`, `advisor`, `optimizer`, `query_tuning`, `forecaster`, `incident`, `schema_lint`,
+`tuning`, `cloud`, `governance`, `migration` or `facts`. The categories each value matches are
+in the [generated finding category catalog](generated/finding-catalog.md), and
+`GET /api/v1/findings/categories` (any signed-in role) serves the same registry: each
+subsystem with its categories, and each category's producer, severities, config keys and
+actions. Each row reports the same value as `subsystem`, or `""` for a category the
+registry does not know. An unknown `source` value applies no filter, and
 `migration_advisor` is reserved and returns no rows.
 
 Each finding row (list and detail) also carries display-only action fields:
@@ -701,15 +705,15 @@ These deterministic rules run alongside the categories above.
 
 | Category | What it detects |
 |----------|-----------------|
-| `high_total_time` | A query whose total execution time exceeds 10% of the analysis interval, even when each call is fast. |
-| `sort_without_index` | An EXPLAIN plan where a Sort feeding a Limit sorts at least 10x the rows the Limit returns; an index on the sort key avoids the sort. |
-| `plan_regression` | A query whose plan changed and whose estimated cost rose at least 2x, or 1.5x with node changes or new disk spills. |
-| `stale_statistics` | A table with at least 10,000 live rows (`analyzer.analyze_stale_min_rows`) that was never analyzed and has changed since, or whose rows changed since its last analyze (`n_mod_since_analyze`) exceed the autoanalyze threshold and whose last analyze is older than 7 days (`analyzer.analyze_stale_days`). The threshold is autoanalyze's own: `autovacuum_analyze_threshold + autovacuum_analyze_scale_factor x reltuples`, each from the table's storage parameters when set there, else from the server settings. A table with no change since its last analyze is never flagged, however old the analyze. Recommends `ANALYZE`; the detail carries `mod_since_analyze` and `analyze_threshold`. A partitioned parent, which autoanalyze never processes, gets an info finding (`partitioned_parent: true`) when it was never analyzed or not within the cutoff and its partitions' changes since their last analyze exceed the parent's threshold; its `ANALYZE` samples every partition (and analyzes each one before PostgreSQL 18's `ANALYZE ONLY`), so it needs an operator's approval. It is skipped when the partition list could not be read. |
-| `slow_replication_slot` | An active replication slot retaining at least 1 GB of WAL (critical at 5 GB): a slow consumer. |
-| `lock_chain` | A root blocker and the tree of sessions waiting on it in the monitored database. pg_sage's own sessions and configured safe processes get a finding but never cancel or terminate SQL. |
-| `stat_statements_pressure` | `pg_stat_statements` above 80% of `pg_stat_statements.max` (critical above 95%), where entries start being evicted. |
-| `work_mem_promotion` | A role with `work_mem` hints on five or more queries (`analyzer.work_mem_promotion_threshold`). Recommends one `ALTER ROLE ... SET work_mem`; advisory only. |
-| `extension_drift` | An installed extension whose version lags its default version until `ALTER EXTENSION ... UPDATE` runs. Advisory only. |
+| <a id="high_total_time"></a>`high_total_time` | A query whose total execution time exceeds 10% of the analysis interval, even when each call is fast. |
+| <a id="sort_without_index"></a>`sort_without_index` | An EXPLAIN plan where a Sort feeding a Limit sorts at least 10x the rows the Limit returns; an index on the sort key avoids the sort. |
+| <a id="plan_regression"></a>`plan_regression` | A query whose plan changed and whose estimated cost rose at least 2x, or 1.5x with node changes or new disk spills. |
+| <a id="stale_statistics"></a>`stale_statistics` | A table with at least 10,000 live rows (`analyzer.analyze_stale_min_rows`) that was never analyzed and has changed since, or whose rows changed since its last analyze (`n_mod_since_analyze`) exceed the autoanalyze threshold and whose last analyze is older than 7 days (`analyzer.analyze_stale_days`). The threshold is autoanalyze's own: `autovacuum_analyze_threshold + autovacuum_analyze_scale_factor x reltuples`, each from the table's storage parameters when set there, else from the server settings. A table with no change since its last analyze is never flagged, however old the analyze. Recommends `ANALYZE`; the detail carries `mod_since_analyze` and `analyze_threshold`. A partitioned parent, which autoanalyze never processes, gets an info finding (`partitioned_parent: true`) when it was never analyzed or not within the cutoff and its partitions' changes since their last analyze exceed the parent's threshold; its `ANALYZE` samples every partition (and analyzes each one before PostgreSQL 18's `ANALYZE ONLY`), so it needs an operator's approval. It is skipped when the partition list could not be read. |
+| <a id="slow_replication_slot"></a>`slow_replication_slot` | An active replication slot retaining at least 1 GB of WAL (critical at 5 GB): a slow consumer. |
+| <a id="lock_chain"></a>`lock_chain` | A root blocker and the tree of sessions waiting on it in the monitored database. pg_sage's own sessions and configured safe processes get a finding but never cancel or terminate SQL. |
+| <a id="stat_statements_pressure"></a>`stat_statements_pressure` | `pg_stat_statements` above 80% of `pg_stat_statements.max` (critical above 95%), where entries start being evicted. |
+| <a id="work_mem_promotion"></a>`work_mem_promotion` | A role with `work_mem` hints on five or more queries (`analyzer.work_mem_promotion_threshold`). Recommends one `ALTER ROLE ... SET work_mem`; advisory only. |
+| <a id="extension_drift"></a>`extension_drift` | An installed extension whose version lags its default version until `ALTER EXTENSION ... UPDATE` runs. Advisory only. |
 
 ---
 
@@ -717,18 +721,19 @@ These deterministic rules run alongside the categories above.
 
 | Category | Source | What it reports |
 |----------|--------|-----------------|
-| `wal_tuning` | LLM advisor | WAL and checkpoint settings, such as `max_wal_size` when checkpoints are forced. |
-| `connection_tuning` | LLM advisor | Connection capacity and churn, such as `max_connections` or pooling advice. |
-| `query_rewrite` | LLM advisor | Rewrites for the slowest queries. Text only, always advisory. |
-| `bloat_remediation` | LLM advisor | Options for removing table and index bloat. |
-| `memory_tuning`, `vacuum_tuning` | Tuning agent | Memory and autovacuum configuration changes. A recommendation without SQL is dropped. |
-| `query_tuning` | Query tuner | Per-query hints (for example `Set(work_mem ...)` or an index scan) stored in `sage.query_hints`. |
-| `runaway_query` | Executor | A running query past the configured runaway limits, such as its maximum duration. |
+| <a id="wal_tuning"></a>`wal_tuning` | LLM advisor | WAL and checkpoint settings, such as `max_wal_size` when checkpoints are forced. |
+| <a id="connection_tuning"></a>`connection_tuning` | LLM advisor | Connection capacity and churn, such as `max_connections` or pooling advice. |
+| <a id="query_rewrite"></a>`query_rewrite` | LLM advisor | Rewrites for the slowest queries. Text only, always advisory. |
+| <a id="bloat_remediation"></a>`bloat_remediation` | LLM advisor | Options for removing table and index bloat. |
+| <a id="memory_tuning"></a><a id="vacuum_tuning"></a>`memory_tuning`, `vacuum_tuning` | Tuning agent | Memory and autovacuum configuration changes. A recommendation without SQL is dropped. |
+| <a id="query_tuning"></a>`query_tuning` | Query tuner | Per-query hints (for example `Set(work_mem ...)` or an index scan) stored in `sage.query_hints`. |
+| <a id="runaway_query"></a>`runaway_query` | Executor | A running query past the configured runaway limits, such as its maximum duration. |
 
 ---
 
 ## Tier 2 -- LLM Index Optimizer
 
+<a id="missing_index"></a><a id="covering_index"></a><a id="partial_index"></a><a id="composite_index"></a>
 When LLM is enabled, the optimizer generates additional findings of category `missing_index`; the index kind (missing, covering, partial or composite) is in the `index_category` detail. Releases before v1.8.0 stored the kind as the category (`covering_index`, `partial_index`, `composite_index`). These are consolidated index recommendations that have passed through 8 validators and confidence scoring. Each recommendation includes:
 
 - The CREATE INDEX statement (always uses CONCURRENTLY)
@@ -753,7 +758,7 @@ finding against the latest snapshot, deterministically.
 | `wal_tuning`, `connection_tuning` | the live `pg_settings` value equals the recommended value (from the `ALTER SYSTEM`, the managed `ALTER DATABASE`, or the managed-change intent; units normalized). A setting pending a restart is not live yet |
 | `query_rewrite` | the query has been absent from `pg_stat_statements` for 3 consecutive cycles (a stats reset or an unreadable query list does not count) |
 | `bloat_remediation` | the table has been under 10% dead tuples (or under 1,000 rows) for 2 consecutive cycles |
-| `advisor_degraded` | the LLM is enabled again, or the advisor is disabled on purpose |
+| <a id="advisor_degraded"></a>`advisor_degraded` | the LLM is enabled again, or the advisor is disabled on purpose |
 
 A finding that still holds is re-emitted unchanged, and only its own setting,
 query or table is left out of the next model review. Dismissing a finding keeps
@@ -764,3 +769,48 @@ A global setting finding whose GUC some tables override (a per-table finding, or
 an explicit storage parameter) is kept, with `detail.overridden_by_tables` naming
 those tables: they keep their own setting and the global change does not affect
 them.
+
+---
+
+## Tuning, Forecast, Cloud and Governance Categories
+
+These producers write findings outside the analyzer rules. Their subsystems, severities
+and config keys are in the [generated catalog](generated/finding-catalog.md).
+
+| Category | Source | What it reports |
+|----------|--------|-----------------|
+| <a id="index_health"></a>`index_health` | Analyzer | Index health roll-up kept for rows older releases wrote; nothing emits it today. |
+| <a id="temp_spill"></a>`temp_spill` | Analyzer | A statement writing temporary files over the interval: `work_mem` is too small for it. |
+| <a id="clone_schemas"></a>`clone_schemas` | Analyzer | A family of schemas cloned from one template, reported once instead of per schema. |
+| <a id="app_managed_index"></a>`app_managed_index` | Analyzer | An index an application or migration tool manages: pg_sage will not drop it. |
+| <a id="query_hint_retirement"></a>`query_hint_retirement` | Query tuner | A plan hint that no longer helps, proposed for removal (`tuner.hint_retirement_days`). |
+| <a id="tuning_index_drop"></a>`tuning_index_drop` | Tuning agent | An index the tuning agent proposes to drop. |
+| <a id="tuning_index_replace"></a>`tuning_index_replace` | Tuning agent | An index the tuning agent proposes to replace with a better one. |
+| <a id="query_create_statistics"></a>`query_create_statistics` | Tuning agent | Extended statistics the tuning agent proposes. |
+| <a id="table_tuning"></a>`table_tuning` | Tuning agent | A per-table storage parameter the tuning agent proposes. |
+| <a id="forecast"></a>`forecast` | Forecaster | Any category starting with `forecast`: a trend projected past a limit. The `forecaster` filter matches the whole family. |
+| <a id="forecast_disk_growth"></a>`forecast_disk_growth` | Forecaster | Database size growing faster than `forecaster.disk_warn_growth_gb_day`. |
+| <a id="forecast_connection_saturation"></a>`forecast_connection_saturation` | Forecaster | Connections trending toward `max_connections`. |
+| <a id="forecast_query_volume"></a>`forecast_query_volume` | Forecaster | Query volume growing sharply over the lookback. |
+| <a id="forecast_cache_pressure"></a>`forecast_cache_pressure` | Forecaster | The cache hit ratio trending below `forecaster.cache_warn_threshold`. |
+| <a id="forecast_checkpoint_pressure"></a>`forecast_checkpoint_pressure` | Forecaster | Requested checkpoints trending above `forecaster.checkpoint_requested_per_hour`. |
+| <a id="storage_forecast"></a>`storage_forecast` | Forecaster | Storage growth forecast of the v0.9 growth path, kept for rows it wrote. |
+| <a id="forecast_wraparound_runway"></a>`forecast_wraparound_runway` | Runway | Time left before a table or the database reaches transaction ID wraparound. |
+| <a id="forecast_wal_runway"></a>`forecast_wal_runway` | Runway | Time left before retained WAL fills the disk (`forecaster.disk_capacity_bytes`) or a slot's limit. |
+| <a id="forecast_sequence_runway"></a>`forecast_sequence_runway` | Runway | Time left before a sequence runs out of values at its current rate. |
+| <a id="managed_parameter_drift"></a>`managed_parameter_drift` | Cloud telemetry | A managed provider parameter that drifts from its resolved target. |
+| <a id="managed_storage_runway"></a>`managed_storage_runway` | Cloud telemetry | Time left before a managed instance's provisioned storage fills. |
+| <a id="incident"></a><a id="incident_open"></a><a id="incident_resolved"></a>`incident` | RCA | Incident-class rows; `incident_open` and `incident_resolved` mark an incident's state. |
+| <a id="migration_safety"></a>`migration_safety` | Migration advisor | A migration safety rule's finding on a DDL statement. |
+| <a id="test_fixture_cleanup"></a>`test_fixture_cleanup` | Facts | A confirmed test-fixture fact's cleanup batch for an operator to review. pg_sage never drops a schema itself. |
+| <a id="schema_lint"></a>`schema_lint` | Schema lint | `schema_lint:<rule id>`: a schema lint rule's finding. |
+| <a id="agent_posture"></a>`agent_posture` | Agent posture | `agent_posture:<detector>`: an agent posture detector's finding. |
+| <a id="agent_environment_binding"></a>`agent_environment_binding` | Agent guard | An agent connected to a database outside its bound environment. |
+| <a id="agent_role_drift"></a>`agent_role_drift` | Agent guard | An agent role whose access differs from what governance recorded. |
+| <a id="agent_backend_violation"></a>`agent_backend_violation` | Agent guard | A connected agent role that breaks the agent role rules. |
+| <a id="agent_role_upkeep"></a>`agent_role_upkeep` | Agent guard | A scheduled agent role job that cannot run. |
+| <a id="autonomy_handoff"></a>`autonomy_handoff` | Executor | A remediation pg_sage earned but holds for an operator's approval. |
+| <a id="audit_chain_broken"></a>`audit_chain_broken` | Audit job | The audit log's hash chain does not verify. |
+| <a id="audit_chain_regressed"></a>`audit_chain_regressed` | Audit job | An audit trail that went back behind its SIEM export. |
+| <a id="audit_chain_verification_failed"></a>`audit_chain_verification_failed` | Audit job | The audit chain verification job could not run. |
+| <a id="siem_event_undeliverable"></a>`siem_event_undeliverable` | Audit job | An audit event a SIEM sink refused. |

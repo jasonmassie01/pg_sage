@@ -641,21 +641,12 @@ Honest list:
 
 ## 16. Appendix — category → subsystem taxonomy
 
-The `source` dropdown in §5.3 maps to this table. The mapping is an allowlist-to-SQL rewrite (`category = ANY($n)` over a named list, or a prefix match) in `api/findings_source.go`; each list row reports the same subsystem as `subsystem`. An unknown `source` means no filter.
+The `source` dropdown in §5.3 maps to the finding category registry, `sidecar/internal/findingcat` (rules-12). The table of every category, its subsystem (the `?source=` value), producer, severities, config keys and executor contract tier is generated from that registry: [docs/generated/finding-catalog.md](../../../docs/generated/finding-catalog.md), refreshed with `go run ./cmd/gen_finding_catalog` from `sidecar/` (its test fails on drift). `GET /api/v1/findings/categories` serves the same registry to clients.
 
-| Subsystem (`?source=`) | Matches `category` values | Emitted by |
-|---|---|---|
-| `rules` | `index_health`, `unused_index`, `invalid_index`, `duplicate_index`, `missing_fk_index`, `slow_query`, `high_plan_time`, `query_regression`, `seq_scan_heavy`, `high_total_time`, `temp_spill`, `lock_chain`, `connection_leak`, `cache_hit_ratio`, `checkpoint_pressure`, `stat_statements_pressure`, `replication_lag`, `inactive_slot`, `slow_replication_slot`, `sequence_exhaustion`, `sort_without_index`, `work_mem_promotion`, `table_bloat`, `xid_wraparound`, `extension_drift`, `plan_regression`, `wraparound_freeze`, `autovacuum_tuning`, `sage_footprint`, `sage_self_cost`, `sage_self_budget`, `clone_schemas`, `app_managed_index`, `stale_statistics` | `internal/analyzer/*` |
-| `forecaster` | any `category` with prefix `forecast` (`forecast_disk_growth`, `forecast_connection_saturation`, `forecast_cache_pressure`, `forecast_sequence_exhaustion`, `forecast_query_volume`, `forecast_checkpoint_pressure`, …) | `internal/forecaster/*` |
-| `query_tuning` | `query_tuning`, `stale_statistics`, `runaway_query` | `internal/tuner/*`, `internal/executor/runaway.go` |
-| `advisor` | `wal_tuning`, `connection_tuning`, `query_rewrite`, `bloat_remediation`, `advisor_degraded`, and the older `vacuum_tuning`, `memory_tuning` | `internal/advisor/*` |
-| `optimizer` | `missing_index`, and the pre-v1.8.0 `covering_index`, `partial_index`, `composite_index` (`optimizer.Categories()`) | `internal/optimizer/*` via `internal/analyzer/optimizer_mapping.go` |
-| `incident` | `incident`, `incident_open`, `incident_resolved` | incident projection |
-| `schema_lint` | any `category` with prefix `schema_lint:` (28+ rule IDs: `missing_pk`, `duplicate_index`, `invalid_index`, `fk_type_mismatch`, `jsonb_in_joins`, `low_cardinality_index`, `missing_fk_index`, `mxid_age`, `nullable_unique`, `overlapping_index`, `sequence_overflow`, `serial_usage`, `timestamp_no_tz`, `toast_heavy`, `txid_age`, `unused_index`, `varchar_255`, `char_usage`, `bloated_table`, `int_pk`, `wide_table`, …) | `internal/schema/lint/rule_*.go` |
-| `migration_advisor` | (not yet emitted; reserved for the planned migration advisor workstream; always returns no rows) | — |
+`api/findings_source.go` turns a subsystem into `category LIKE` per prefix family (`schema_lint:`, `agent_posture:`, `forecast`) and one `category = ANY($n)` over its other categories; each row reports its registry subsystem as `subsystem` (`""` for an unregistered category). An unknown `source` means no filter, and `migration_advisor` stays reserved: it always returns no rows.
 
 Notes:
 - `stale_statistics` is emitted by both the analyzer rule and the tuner. It matches both the `rules` and `query_tuning` filters and is shown as `rules`.
-- No producer writes `detail.subsystem`; the filter never reads it. The lists are kept in lockstep with the producers by a unit test (`api/findings_source_filter_test.go`) until rules-12 replaces them with an analyzer-owned registry.
-- `optimizer` index advice and analyzer index rules use different categories (`missing_index` vs `unused_index`/`duplicate_index`), so they no longer overlap. A physical `sage.findings.subsystem` column remains the durable answer if a category is ever shared.
+- No producer writes `detail.subsystem`; the filter never reads it. A drift test (`findingcat/registry_test.go`) scans the producers for every category they emit and fails on one the registry lacks.
+- The rules-07 values (`rules`, `advisor`, `optimizer`, `query_tuning`, `incident`, `forecaster`, `schema_lint`) match exactly the categories they matched before the registry; categories no filter matched got their own subsystems (`tuning`, `cloud`, `governance`, `migration`, `facts`).
 - The allowlist in `buildFindingsOrder` must remain column-name-only; never accept arbitrary strings from the client.
