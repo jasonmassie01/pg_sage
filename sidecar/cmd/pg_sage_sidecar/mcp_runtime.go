@@ -88,6 +88,8 @@ func mcpDependencies() mcp.ProductionDependencies {
 		Specialist: processSpecialistMCP{},
 		// agent_request_capability (agent_grants_wiring.go).
 		Grants: agentGrantMCP(cfg, fleetMgr, globalMetaState),
+		// The latest-briefing resource of each database (llm-06b).
+		Briefings: fleetBriefingsMCP{manager: fleetMgr},
 	}
 }
 

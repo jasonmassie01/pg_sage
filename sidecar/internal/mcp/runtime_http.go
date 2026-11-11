@@ -15,7 +15,7 @@ import (
 // subscriptions/listen. Handshake-era clients (2025-03-26..2025-11-25) are
 // served as before; a request carrying a protocol version in _meta must
 // also carry the matching MCP-Protocol-Version, Mcp-Method and (for
-// tools/call) Mcp-Name headers.
+// tools/call, the tool name; for resources/read, the uri) Mcp-Name headers.
 
 const maxHTTPBody = 4 << 20
 
@@ -106,16 +106,21 @@ func modernHeaderMismatch(request *http.Request, message envelope, meta requestM
 	if request.Header.Get("Mcp-Method") != message.Method {
 		return mismatch("Mcp-Method must equal the request method")
 	}
-	if message.Method != "tools/call" {
+	if message.Method != "tools/call" && message.Method != "resources/read" {
 		return nil
 	}
 	name, ok := decodeHeaderValue(request.Header.Get("Mcp-Name"))
 	var params struct {
 		Name string `json:"name"`
+		URI  string `json:"uri"`
 	}
 	_ = json.Unmarshal(message.Params, &params)
-	if !ok || name == "" || name != params.Name {
-		return mismatch("Mcp-Name must equal the tool name")
+	want, what := params.Name, "the tool name"
+	if message.Method == "resources/read" {
+		want, what = params.URI, "the resource uri"
+	}
+	if !ok || name == "" || name != want {
+		return mismatch("Mcp-Name must equal " + what)
 	}
 	return nil
 }

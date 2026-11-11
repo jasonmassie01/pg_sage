@@ -168,8 +168,8 @@ func TestHTTPModernUnsupportedVersionAndUnknownMethod(t *testing.T) {
 		"MCP-Protocol-Version": "2030-01-01", "Mcp-Method": "tools/list"})
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	require.Equal(t, float64(-32022), errorCode(t, body))
-	unknown := `{"jsonrpc":"2.0","id":2,"method":"resources/list","params":{` + modernMeta + `}}`
-	resp, body = post(t, ts.URL, unknown, modernHeaders("resources/list", ""))
+	unknown := `{"jsonrpc":"2.0","id":2,"method":"prompts/list","params":{` + modernMeta + `}}`
+	resp, body = post(t, ts.URL, unknown, modernHeaders("prompts/list", ""))
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 	require.Equal(t, float64(-32601), errorCode(t, body))
 }

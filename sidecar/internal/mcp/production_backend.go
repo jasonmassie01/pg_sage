@@ -74,6 +74,8 @@ type ProductionDependencies struct {
 	Specialist SpecialistBackend
 	// Grants serves agent_request_capability (agent governance); optional.
 	Grants GrantToolBackend
+	// Briefings serves the latest-briefing resource (llm-06b); optional.
+	Briefings BriefingBackend
 }
 
 type ProductionBackend struct {
