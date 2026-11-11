@@ -38,6 +38,13 @@ export function defaultMinSeverity(event) {
 
 export const SEVERITIES = ['info', 'warning', 'critical']
 
+// Delivery status colours come from the theme tokens (alerting-09); an
+// unknown status keeps the secondary colour instead of reading as failed.
+export const DELIVERY_STATUS_COLORS = {
+  sent: 'var(--green)',
+  error: 'var(--red)',
+}
+
 export function FormField({ label, children }) {
   return (
     <div>

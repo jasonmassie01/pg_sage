@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { ErrorBanner } from '../../components/ErrorBanner'
-import { cardStyle } from './shared'
+import { cardStyle, DELIVERY_STATUS_COLORS as STATUS_COLORS } from './shared'
 
 export function LogTab() {
   const [entries, setEntries] = useState([])
@@ -14,6 +14,7 @@ export function LogTab() {
       if (!res.ok) throw new Error('Failed to load log')
       const data = await res.json()
       setEntries(data.log || [])
+      setError(null)
     } catch (err) {
       setError(err.message)
     }
@@ -71,9 +72,9 @@ export function LogTab() {
                     {e.subject}
                   </td>
                   <td className="px-4 py-2">
-                    <span style={{
-                      color: e.status === 'sent'
-                        ? '#22c55e' : '#ef4444',
+                    <span data-testid={`notify-status-${e.id}`} style={{
+                      color: STATUS_COLORS[e.status]
+                        || 'var(--text-secondary)',
                     }}>
                       {e.status}
                     </span>

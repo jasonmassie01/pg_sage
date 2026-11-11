@@ -105,13 +105,35 @@ func groupResolveRows(rows []resolveRow) []resolveTarget {
 	return out
 }
 
-// seedQuery restores recent deliveries into the throttle after a
-// restart so every open finding is not re-alerted (G7-B32).
+// seedQuery restores deliveries into the throttle after a restart so
+// every open finding is not re-alerted (G7-B32): the last delivery of
+// each key whose finding is still open, however old, or that was sent
+// within $1 minutes (the longest repeat interval plus an hour), with the
+// first delivery of that finding since its last resolve (alerting-07).
+// A resolve logged after the last delivery ends the episode (-1), so a
+// row reopened with the same id is alerted as new.
 const seedQuery = `
-SELECT DISTINCT ON (dedup_key) dedup_key, severity, sent_at
-FROM sage.alert_log
-WHERE status = 'sent' AND sent_at > now() - interval '6 hours'
-ORDER BY dedup_key, sent_at DESC`
+SELECT DISTINCT ON (a.dedup_key) a.dedup_key, a.severity,
+       CASE WHEN r.ended_at IS NOT NULL THEN -1
+            ELSE COALESCE(a.finding_id, 0) END,
+       a.sent_at,
+       COALESCE((SELECT min(b.sent_at) FROM sage.alert_log b
+                  WHERE b.finding_id = a.finding_id AND b.status = 'sent'
+                    AND b.sent_at > COALESCE(r.began_after, '-infinity')),
+                a.sent_at)
+FROM sage.alert_log a
+CROSS JOIN LATERAL (
+    SELECT max(x.sent_at) FILTER (WHERE x.sent_at > a.sent_at) AS ended_at,
+           max(x.sent_at) FILTER (WHERE x.sent_at <= a.sent_at) AS began_after
+    FROM sage.alert_log x
+    WHERE x.finding_id = a.finding_id
+      AND x.status IN ('resolved', 'resolve_error')
+) r
+WHERE a.status = 'sent'
+  AND (a.sent_at > now() - make_interval(mins => $1)
+       OR EXISTS (SELECT 1 FROM sage.findings f
+                   WHERE f.id = a.finding_id AND f.status = 'open'))
+ORDER BY a.dedup_key, a.sent_at DESC, a.id DESC`
 
 func (m *Manager) queryPending(ctx context.Context) ([]AlertFinding, error) {
 	return m.scanFindings(ctx, pendingQuery, maxPendingErrorRows)
@@ -171,6 +193,7 @@ func (m *Manager) resolveFinding(ctx context.Context, target resolveTarget) {
 	alert := m.newAlert(f.Severity, f)
 	alert.Resolved = true
 	key := FormatDedupKey(f.Category, f.ObjectIdentifier)
+	m.throttle.endEpisode(key, f.ID)
 	for _, ch := range m.routes[f.Severity] {
 		name := ch.Name()
 		if !target.channels[name] {
@@ -205,7 +228,8 @@ func (m *Manager) seedThrottle(ctx context.Context) {
 	if done {
 		return
 	}
-	rows, err := m.pool.Query(ctx, seedQuery)
+	window := int(m.throttle.SeedWindow() / time.Minute)
+	rows, err := m.pool.Query(ctx, seedQuery, window)
 	if err != nil {
 		m.logFn("WARN", "alerting: seed throttle from alert_log: %v", err)
 		return
@@ -213,12 +237,13 @@ func (m *Manager) seedThrottle(ctx context.Context) {
 	defer rows.Close()
 	for rows.Next() {
 		var key, sev string
-		var at time.Time
-		if err := rows.Scan(&key, &sev, &at); err != nil {
+		var episode int64
+		var at, first time.Time
+		if err := rows.Scan(&key, &sev, &episode, &at, &first); err != nil {
 			m.logFn("WARN", "alerting: scan alert_log seed: %v", err)
 			return
 		}
-		m.throttle.RecordAt(key, sev, at)
+		m.throttle.restore(key, sev, episode, first, at)
 	}
 	if err := rows.Err(); err != nil {
 		m.logFn("WARN", "alerting: iterate alert_log seed: %v", err)

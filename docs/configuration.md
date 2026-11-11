@@ -2283,21 +2283,41 @@ proposal per investigation still applies, so refresh, propose and request within
 id and SHA-256 explicitly.
 
 **Approving in Slack or Telegram.** Approval requests are `approval_needed` notifications,
-so add a notification rule for that event to the channel.
+so add a notification rule for that event to the channel. An admin sets this up in the
+dashboard under **Notifications > Channels**:
 
-- *Slack*: in the channel's config, set `interactive: "true"` and the Slack app's
-  `signing_secret`, plus `team_id` to accept only your workspace. Set the app's
-  Interactivity Request URL to `https://<sidecar>/api/v1/chatops/slack/<channel id>`.
-  Requests are verified with Slack's v0 signature within
-  `sre.actions.chatops_tolerance_seconds`.
-- *Telegram*: create a channel of type `telegram` with `bot_token`, a numeric `chat_id` and a
-  `webhook_secret` (letters, digits, `_` and `-`). Register the webhook with
-  `setWebhook?url=https://<sidecar>/api/v1/chatops/telegram/<channel id>&secret_token=<webhook_secret>`.
-  Only button presses from that chat are accepted.
+- *Slack*: add a Slack channel with its incoming webhook URL, tick **Interactive
+  approvals**, and enter the Slack app's signing secret, plus the team id to accept only
+  your workspace. After saving, the tab shows the callback URL
+  (`https://<sidecar>/api/v1/chatops/slack/<channel id>`) with a copy button: set it as
+  the app's Interactivity Request URL. Requests are verified with Slack's v0 signature
+  within `sre.actions.chatops_tolerance_seconds`.
+- *Telegram*: add a Telegram channel with the bot token, a numeric chat id and a webhook
+  secret (**Generate** makes a random 32-character one). After saving, the tab shows the
+  callback URL and the `setWebhook` URL to open once, with the bot token and secret left
+  as placeholders for you to fill in. Without a webhook secret the channel notifies but
+  cannot approve, and an `@channel` name notifies only. Only button presses from that
+  chat are accepted.
 
-A chat user can decide only after an admin maps them to a pg_sage user:
-`POST /api/v1/chatops/identities` with `{"provider": "slack", "team_id": "T...",
-"external_user_id": "U...", "user_id": 7}` (Telegram: the numeric user id, no `team_id`).
+The callback URL must be reachable from Slack or Telegram over HTTPS. Each channel's
+**Edit** dialog changes its settings: secrets show masked and are kept unless you type a
+new one, and a refused change shows the server's message. The channel list shows each
+channel's last delivery (status, time and error), or *never delivered*.
+
+A chat user can decide only after an admin links them to a pg_sage user in the **Chat
+identities** panel on the same tab: provider, the Slack team id (Telegram has none), the
+chat user id (Slack `U...`, Telegram's numeric user id) and the pg_sage user.
+
+The API remains the alternative. Create a channel with `POST /api/v1/notifications/channels`
+and `{"name": "ops", "type": "slack", "config": {"webhook_url": "https://hooks.slack.com/...",
+"interactive": "true", "signing_secret": "...", "team_id": "T..."}}` (Telegram:
+`{"bot_token": "...", "chat_id": "-100...", "webhook_secret": "..."}`), register the webhook
+with `setWebhook?url=https://<sidecar>/api/v1/chatops/telegram/<channel id>&secret_token=<webhook_secret>`,
+and map a chat user with `POST /api/v1/chatops/identities` and `{"provider": "slack",
+"team_id": "T...", "external_user_id": "U...", "user_id": 7}` (Telegram: the numeric user
+id, no `team_id`). `GET /api/v1/notifications/channels` returns each channel with masked
+secrets and `last_status`, `last_error` and `last_sent_at` (null when never delivered).
+In fleet mode channels are global, kept in the sidecar's metadata store.
 The pg_sage user's current role must be operator or admin. Each callback is processed once,
 and the decision goes through the same approval as the browser, attributed to the mapped
 user. Bot tokens, signing secrets and webhook secrets are sealed at rest like other channel
@@ -3209,6 +3229,7 @@ A disabled block is not checked. In fleet mode the one shared block is checked o
 | `alerting.enabled` | `false` | Send alerts. Needs at least one route that reaches a usable channel |
 | `alerting.check_interval_seconds` | `60` | How often new findings are read |
 | `alerting.cooldown_minutes` | `15` | Raises the per-severity cooldown floors: critical 5 min, warning 30 min, info 6 h. A value below a floor leaves that floor |
+| `alerting.repeat_minutes` | `critical: 240`, `warning: 1440`, `info: 0` | Minutes between reminders of a finding that stays open, per severity; `0` never reminds. A missing severity keeps its default. A negative value, an unknown severity, more than `525600` (a year), or a value below that severity's cooldown (above) refuses startup naming the key |
 | `alerting.quiet_hours_start` / `alerting.quiet_hours_end` | empty | `HH:MM` (00:00-23:59); set both or neither. The window may cross midnight. Warning and info alerts are deferred, never dropped, until it ends; critical alerts bypass it |
 | `alerting.timezone` | `UTC` (empty) | IANA zone for quiet hours, such as `America/Chicago`; an unknown zone refuses startup |
 | `alerting.slack_webhook_url` | empty | Slack incoming webhook; required by a route naming `slack`. Must pass the notification target policy (below) |
@@ -3231,6 +3252,25 @@ alerting:
       channels: [slack, myapp]      # myapp is the same as webhook:myapp
     - severity: warning
       channels: [slack]
+```
+
+A finding is alerted once when it opens. While it stays open it is throttled, and a
+reminder goes out each `alerting.repeat_minutes` for its severity: by default every 4 hours
+for critical, once a day for warning, and never for info. Slack heads a reminder "Still open
+for 3h20m (seen 21 times)", webhooks get `"reminder": true` and `open_for_seconds`, and
+PagerDuty re-triggers with the same dedup key, which it folds into the open incident. A
+finding that escalates (warning to critical) is sent at once. A finding that resolves and
+reopens, as a new finding or as the same one when an action did not fix it, is alerted again
+once the cooldown has passed, so a flapping check is not re-sent every cycle. Reminders are logged in `sage.alert_log` as `sent`, and after a restart the
+throttle reads that log far enough back to keep the schedule. Like the other alerting keys,
+`repeat_minutes` takes effect on restart.
+
+```yaml
+alerting:
+  repeat_minutes:
+    critical: 240                # every 4 hours while open
+    warning: 1440                # once a day
+    info: 0                      # never
 ```
 
 A severity with no route is not sent. A hot-reloaded config file is checked the same way, and
@@ -3257,6 +3297,13 @@ Log (`sage.alert_log`): success writes a `resolved` row; a failure writes a `res
 with the channel's error text, is logged at ERROR, and is retried on the next check, up to 5
 times per channel. After the fifth failure the ERROR log says it gave up; close that alert in the
 channel by hand.
+
+The Alert Log page shows each row's status as written: `sent` and `resolved` (green), `error` and
+`resolve_error` (red, with the channel's error text in the Error column) and `deferred` (amber,
+held by quiet hours, channel `quiet_hours`). In the fleet view, a database whose alert log
+cannot be read is named in a banner (`failed_databases` in `GET /api/v1/alert-log`) while the
+other databases' rows still show; the API answers 503 only when no selected database can be
+read. The date range filters the newest 100 rows per database.
 
 ### Retention
 

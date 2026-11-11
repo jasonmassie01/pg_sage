@@ -114,6 +114,11 @@ const (
 	// Alerting defaults.
 	DefaultAlertingCheckInterval = 60
 	DefaultAlertingCooldown      = 15
+	// Minutes between reminders of a still-open finding (alerting-07);
+	// 0 = never remind.
+	DefaultAlertingRepeatCriticalMinutes = 240
+	DefaultAlertingRepeatWarningMinutes  = 1440
+	DefaultAlertingRepeatInfoMinutes     = 0
 
 	// Schema lint and DDL-safety polling (the runners' own fallbacks).
 	DefaultSchemaLintScanIntervalMinutes = 60

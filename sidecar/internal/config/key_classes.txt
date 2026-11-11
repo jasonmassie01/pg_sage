@@ -341,6 +341,7 @@ operator_preference alerting.enabled
 safety_critical alerting.pagerduty_routing_key
 operator_preference alerting.quiet_hours_end
 operator_preference alerting.quiet_hours_start
+operator_preference alerting.repeat_minutes
 operator_preference alerting.routes
 safety_critical alerting.slack_webhook_url
 operator_preference alerting.timezone

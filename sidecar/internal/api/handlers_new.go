@@ -136,6 +136,10 @@ func queryHintsHandler(
 	}
 }
 
+// alertLogHandler serves the alert log of the selected databases. A
+// database whose log cannot be read is named in failed_databases and the
+// rows of the others are still returned (alerting-09); only when every
+// selected database fails is the reply a 503.
 func alertLogHandler(
 	mgr *fleet.DatabaseManager,
 ) http.HandlerFunc {
@@ -150,41 +154,51 @@ func alertLogHandler(
 		if rejectUnknownDatabase(w, mgr, database) {
 			return
 		}
-		displayName := responseDatabaseName(database)
 		pools := poolsForDatabaseSelection(mgr, database)
-		if len(pools) == 0 {
-			jsonResponse(w, map[string]any{
-				"database": displayName,
-				"alerts":   []any{},
+		alerts, failed := collectAlertLogs(r.Context(), pools)
+		if len(pools) > 0 && len(failed) == len(pools) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			json.NewEncoder(w).Encode(map[string]any{
+				"error": "alert log could not be read from any " +
+					"selected database; check the sidecar log",
+				"failed_databases": failed,
 			})
 			return
 		}
-		var alerts []map[string]any
-		for _, selected := range pools {
-			dbAlerts, err := queryAlertLog(r.Context(), selected.pool)
-			if err != nil {
-				slog.Error("query alert log failed",
-					"database", selected.name, "error", err)
-				jsonError(w, "failed to query alerts", 500)
-				return
-			}
-			for _, alert := range dbAlerts {
-				alert["database_name"] = selected.name
-				alerts = append(alerts, alert)
-			}
-		}
-		sort.SliceStable(alerts, func(i, j int) bool {
-			return timeFromMap(alerts[i], "sent_at").After(
-				timeFromMap(alerts[j], "sent_at"))
-		})
-		if alerts == nil {
-			alerts = []map[string]any{}
-		}
 		jsonResponse(w, map[string]any{
-			"database": displayName,
-			"alerts":   alerts,
+			"database":         responseDatabaseName(database),
+			"alerts":           alerts,
+			"failed_databases": failed,
 		})
 	}
+}
+
+// collectAlertLogs reads every pool's alert log, newest first, and returns
+// the rows that loaded with the names of the databases that failed.
+func collectAlertLogs(
+	ctx context.Context, pools []namedPool,
+) ([]map[string]any, []string) {
+	alerts := []map[string]any{}
+	failed := []string{}
+	for _, selected := range pools {
+		dbAlerts, err := queryAlertLog(ctx, selected.pool)
+		if err != nil {
+			slog.Error("query alert log failed",
+				"database", selected.name, "error", err)
+			failed = append(failed, selected.name)
+			continue
+		}
+		for _, alert := range dbAlerts {
+			alert["database_name"] = selected.name
+			alerts = append(alerts, alert)
+		}
+	}
+	sort.SliceStable(alerts, func(i, j int) bool {
+		return timeFromMap(alerts[i], "sent_at").After(
+			timeFromMap(alerts[j], "sent_at"))
+	})
+	return alerts, failed
 }
 
 // --- Query helpers ---
@@ -399,6 +413,11 @@ func scanAlertLogRows(rows pgx.Rows) ([]map[string]any, error) {
 			"category":      category,
 			"title":         title,
 		})
+	}
+	// pgx reports an error raised while the query runs (permission
+	// denied, statement timeout, a dropped connection) only here.
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read alert log rows: %w", err)
 	}
 	if results == nil {
 		results = []map[string]any{}

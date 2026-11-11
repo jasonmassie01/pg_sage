@@ -117,6 +117,7 @@ func newInstanceAlertManager(pool *pgxpool.Pool, name string) *alerting.Manager 
 	return alerting.New(pool, alerting.ManagerConfig{
 		CheckIntervalSeconds: cfg.Alerting.CheckIntervalSeconds,
 		CooldownMinutes:      cfg.Alerting.CooldownMinutes,
+		RepeatMinutes:        cfg.Alerting.RepeatMinutes,
 		QuietHoursStart:      cfg.Alerting.QuietHoursStart,
 		QuietHoursEnd:        cfg.Alerting.QuietHoursEnd,
 		Timezone:             cfg.Alerting.Timezone,

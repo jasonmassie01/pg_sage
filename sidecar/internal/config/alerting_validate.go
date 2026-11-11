@@ -119,6 +119,9 @@ func (a *AlertingConfig) validateBlock(requireSecrets bool) error {
 	if err := a.validateRoutes(requireSecrets); err != nil {
 		return err
 	}
+	if err := a.validateRepeat(); err != nil {
+		return err
+	}
 	return a.validateSchedule()
 }
 
