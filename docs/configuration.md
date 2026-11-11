@@ -1952,7 +1952,7 @@ request, so a review the next day starts with a refresh. Over MCP:
    `operator_refresh` evidence with an `evidence_refreshed` event on the investigation's
    chain. It is refused when the table's database or table OID changed (start a new
    investigation), for cancelled, failed or purged investigations, and more than once a
-   minute per investigation.
+   minute per investigation (a call refused as too soon reads nothing on the database).
 2. `sre_propose_statistics` with the table, `columns` (2 to 8), optional `kinds` and a
    `rationale`. pg_sage cites the newest matching evidence itself; no call carries an
    evidence id or SHA-256.

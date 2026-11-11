@@ -104,20 +104,7 @@ func TestRefresh_AppendsOneStepEvidenceAndEvent(t *testing.T) {
 		t.Fatalf("refresh step = %s/%s/%d/fence %d, want operator_refresh/concluded/1/%d",
 			kind, next, probeCount, fence, inv.Fence)
 	}
-	events, err := st.Events(ctx, scope, inv.ID)
-	if err != nil {
-		t.Fatalf("events: %v", err)
-	}
-	last := events[len(events)-1]
-	var payload map[string]any
-	_ = json.Unmarshal(last.Payload, &payload)
-	if last.Type != EventEvidenceRefreshed || last.Actor != "user:1" ||
-		payload["evidence_id"] != string(got.ID) ||
-		payload["source_evidence_id"] != string(lockOf(ev)) ||
-		payload["sha256"] != hex.EncodeToString(got.SHA256) ||
-		payload["step_key"] != got.StepKey {
-		t.Fatalf("refresh event = %s %s %v", last.Type, last.Actor, payload)
-	}
+	checkRefreshEvent(t, ctx, st, scope, inv.ID, got, lockOf(ev))
 	if err := st.VerifyEvents(ctx, scope, inv.ID); err != nil {
 		t.Fatalf("verify after refresh: %v", err)
 	}
@@ -129,6 +116,26 @@ func TestRefresh_AppendsOneStepEvidenceAndEvent(t *testing.T) {
 	all, err := st.Evidence(ctx, scope, inv.ID)
 	if err != nil || len(all) != 3 || all[2].ID != got.ID || lockOf(ev) == "" {
 		t.Fatalf("evidence after refresh = %d rows (%v), want the refresh last", len(all), err)
+	}
+}
+
+// checkRefreshEvent requires the chain's last event to attest to got.
+func checkRefreshEvent(t *testing.T, ctx context.Context, st *PostgresStore, scope Scope,
+	id UUID, got Evidence, source UUID) {
+	t.Helper()
+	events, err := st.Events(ctx, scope, id)
+	if err != nil {
+		t.Fatalf("events: %v", err)
+	}
+	last := events[len(events)-1]
+	var payload map[string]any
+	_ = json.Unmarshal(last.Payload, &payload)
+	if last.Type != EventEvidenceRefreshed || last.Actor != "user:1" ||
+		payload["evidence_id"] != string(got.ID) ||
+		payload["source_evidence_id"] != string(source) ||
+		payload["sha256"] != hex.EncodeToString(got.SHA256) ||
+		payload["step_key"] != got.StepKey {
+		t.Fatalf("refresh event = %s %s %v", last.Type, last.Actor, payload)
 	}
 }
 
@@ -347,5 +354,46 @@ func TestRefresh_ConcurrentRefreshesKeepTheChain(t *testing.T) {
 	}
 	if err := st.VerifyEvents(ctx, scope, inv.ID); err != nil {
 		t.Fatalf("verify: %v", err)
+	}
+}
+
+// RefreshAllowed is the lock-free precheck callers run before the refresh
+// probe; a refused refresh is a rate limit, never a metadata outage, and
+// the limit is per investigation.
+func TestRefresh_AllowedPrecheckIsTheSameLimit(t *testing.T) {
+	st, _, ctx := liveStore(t, DefaultLimits())
+	scope := testScope(t, ctx, st)
+	inv, ev := finishedRun(t, ctx, st, scope, "pid 71")
+	other, _ := finishedRun(t, ctx, st, scope, "pid 72")
+	if err := st.RefreshAllowed(ctx, scope, inv.ID, time.Minute); err != nil {
+		t.Fatalf("never refreshed = %v, want allowed", err)
+	}
+	req := lockRefresh(lockOf(ev), 1)
+	req.MinInterval = time.Minute
+	if _, err := st.AppendRefreshEvidence(ctx, scope, inv.ID, "user:1", req); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	err := st.RefreshAllowed(ctx, scope, inv.ID, time.Minute)
+	if !errors.Is(err, ErrRefreshTooSoon) || errors.Is(err, ErrMetadataUnavailable) {
+		t.Fatalf("precheck after a refresh = %v, want only ErrRefreshTooSoon", err)
+	}
+	_, err = st.AppendRefreshEvidence(ctx, scope, inv.ID, "user:1", req)
+	if !errors.Is(err, ErrRefreshTooSoon) || errors.Is(err, ErrMetadataUnavailable) {
+		t.Fatalf("locked check = %v, want only ErrRefreshTooSoon", err)
+	}
+	if err := st.RefreshAllowed(ctx, scope, other.ID, time.Minute); err != nil {
+		t.Fatalf("another investigation = %v, want allowed", err)
+	}
+	if err := st.RefreshAllowed(ctx, scope, inv.ID, 0); err != nil {
+		t.Fatalf("zero interval = %v, want no limit", err)
+	}
+	for name, got := range map[string]error{
+		"negative interval": st.RefreshAllowed(ctx, scope, inv.ID, -time.Second),
+		"malformed id":      st.RefreshAllowed(ctx, scope, "x", time.Minute),
+		"empty scope":       st.RefreshAllowed(ctx, Scope{}, inv.ID, time.Minute),
+	} {
+		if !errors.Is(got, ErrInvalidRequest) {
+			t.Errorf("%s = %v, want ErrInvalidRequest", name, got)
+		}
 	}
 }

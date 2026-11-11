@@ -79,6 +79,10 @@ func (s *PostgresStore) AppendRefreshEvidence(ctx context.Context, scope Scope, 
 		evidenceID, err = insertRefresh(ctx, tx, scope, id, actor, state, fence, req)
 		return err
 	})
+	if errors.Is(err, ErrRefreshTooSoon) { // a rate limit, not a metadata outage
+		return Evidence{}, fmt.Errorf("%w: one refresh per investigation per %s",
+			ErrRefreshTooSoon, req.MinInterval)
+	}
 	if err != nil {
 		return Evidence{}, err
 	}
@@ -135,14 +139,39 @@ func checkRefreshSource(ctx context.Context, tx pgx.Tx, scope Scope, id UUID,
 	return nil
 }
 
+// RefreshAllowed refuses, with ErrRefreshTooSoon, a refresh within
+// interval of the investigation's last one. It takes no lock: a caller
+// checks it before running the refresh probe, so a rate-limited call
+// reads nothing on the monitored database; AppendRefreshEvidence checks
+// again under the investigation lock.
+func (s *PostgresStore) RefreshAllowed(ctx context.Context, scope Scope, id UUID,
+	interval time.Duration) error {
+	if err := validateIDs(scope, id); err != nil {
+		return err
+	}
+	if interval < 0 {
+		return fmt.Errorf("%w: refresh interval %s is negative", ErrInvalidRequest, interval)
+	}
+	err := checkRefreshInterval(ctx, s.pool, scope, id, interval)
+	if err == nil || errors.Is(err, ErrRefreshTooSoon) {
+		return err
+	}
+	return storeErr(ctx, "refresh interval", err)
+}
+
+// rowQuerier is a transaction or a pool.
+type rowQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
 // checkRefreshInterval refuses a refresh within interval of the last one.
-func checkRefreshInterval(ctx context.Context, tx pgx.Tx, scope Scope, id UUID,
+func checkRefreshInterval(ctx context.Context, q rowQuerier, scope Scope, id UUID,
 	interval time.Duration) error {
 	if interval == 0 {
 		return nil
 	}
 	var recent bool
-	err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM sage.sre_evidence
+	err := q.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM sage.sre_evidence
 		WHERE deployment_id = $1 AND database_id = $2 AND investigation_id = $3
 		  AND source_kind = $4
 		  AND collected_at > clock_timestamp() - make_interval(secs => $5))`,

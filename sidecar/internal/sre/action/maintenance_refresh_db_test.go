@@ -381,3 +381,24 @@ func TestMaintenanceRefresh_TableCallsResolveTheNewestEvidence(t *testing.T) {
 		t.Fatalf("second, different proposal = %v, want a refusal", err)
 	}
 }
+
+// The rate limit is checked before the probe: a refresh inside the minute
+// is refused as too soon even when the table was since recreated, which
+// the probe would have reported, and writes nothing.
+func TestMaintenanceRefresh_RateLimitPrecedesTheProbe(t *testing.T) {
+	h := newMaintenanceHarness(t)
+	h.refresh(t, h.req.EvidenceID)
+	if _, err := h.pool.Exec(h.ctx, "DROP TABLE public."+h.table+"; CREATE TABLE public."+
+		h.table+"(a int,b int)"); err != nil {
+		t.Fatal(err)
+	}
+	req := TableRefresh{EvidenceID: h.req.EvidenceID, Schema: "public", Table: h.table}
+	_, err := h.m.RefreshTableEvidence(h.ctx, h.inv.ID, req, "user:1")
+	if !errors.Is(err, sre.ErrRefreshTooSoon) || errors.Is(err, sre.ErrInvalidRequest) {
+		t.Fatalf("refresh inside the minute = %v, want only ErrRefreshTooSoon", err)
+	}
+	all, err := h.st.Evidence(h.ctx, h.inv.Scope, h.inv.ID)
+	if err != nil || len(all) != 2 {
+		t.Fatalf("evidence after a limited refresh = %d rows (%v), want 2", len(all), err)
+	}
+}

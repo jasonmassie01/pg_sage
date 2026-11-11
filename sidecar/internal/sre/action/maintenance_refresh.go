@@ -69,6 +69,10 @@ func (m *MaintenanceService) RefreshTableEvidence(ctx context.Context, invID sre
 	if err != nil {
 		return sre.Evidence{}, err
 	}
+	// A rate-limited call reads nothing on the monitored database.
+	if err = m.st.RefreshAllowed(ctx, scope, invID, RefreshInterval); err != nil {
+		return sre.Evidence{}, err
+	}
 	fresh := m.Service.Coordinator().ReadProbe(ctx, probes.StatTables, probes.Args{})
 	if fresh.ProbeID != probes.StatTables || fresh.Status != probes.StatusOK {
 		return sre.Evidence{}, fmt.Errorf("%w: stat_tables refresh returned %s %s",
