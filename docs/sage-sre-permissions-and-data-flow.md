@@ -286,9 +286,10 @@ pg_sage's checks, so grant it only where you want approved cancels.
 | Cases panel, REST API, MCP read tools (`sre_list_incidents`, `sre_get_investigation`, `sre_get_evidence`), export | the stored records, **redacted on every read** | when a signed-in user or MCP principal asks; export needs the operator role |
 | LLM endpoint (`llm.endpoint`) | the investigator's messages and the results of the reads it asks for, or the review turn's prompt (below); a runbook draft to compile | only with an LLM configured and `sre.llm.enabled: true` (default); compiling only when an operator asks |
 | Slack and Telegram channels with an `approval_needed` rule | a cancel proposal's approval card: the database, the target (pid, backend start, user), how many sessions it blocks, the cancel SQL and its expiry; never query text. The buttons carry only a single-use card token | when a cancel proposal is queued for approval |
+| The Slack, Telegram and email channels an incident's page was sent to | the diagnosis follow-up (`investigation_concluded`): incident id, database, family, the root cause's label (or "inconclusive"), one line of the diagnosis reason, redacted like every read (credentials, connection URIs, bearer tokens, SQL literals) and clipped to 200 characters, and the case id. Never SQL, query text, application or user names, or evidence | once per incident, when its newest conclusion has settled for 60 s; never to PagerDuty or to a channel the page did not reach |
 
-Nothing else leaves: investigations send no notifications of their own, and the probes make no
-network calls.
+Nothing else leaves: investigations send no other notifications of their own, and the probes
+make no network calls.
 
 ### Deciding a cancel from chat
 

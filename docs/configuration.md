@@ -1708,6 +1708,22 @@ graph and stores the result: the likely explanation, contributing factors, alter
 ruled-out explanations, each citing its evidence, the evidence that could not be collected,
 and an operator step. Nothing is executed. "Inconclusive" is a normal outcome.
 
+**Diagnosis follow-up.** When an investigation of an incident ends `concluded` or
+`inconclusive`, the engineer who was paged gets the diagnosis on the same channels: a
+notification of event type `investigation_concluded` reading "Diagnosis for incident
+`<id>` on `<database>`: `<family>` - `<root cause or 'inconclusive'>`: `<reason>`. Case
+`<case id>`." It goes only to the channels whose `incident_detected` or `incident_escalated`
+page for that incident was sent (`sage.notification_log`), with the incident's severity. On
+Telegram it replies to the page; Slack and email get one message titled "Re: `<page
+subject>`"; PagerDuty gets none (Events v2 has no note). There is no rule or setting for it:
+`investigation_concluded` cannot be chosen in a notification rule, and an incident whose page
+was never sent gets no follow-up. Each incident gets at most one follow-up, from any number of
+sidecars: the newest conclusion is sent once it is 60 s old and no run of the incident is
+queued or running, within an hour of concluding. A later re-run of the incident does not
+notify again, and a failed delivery is logged (`status` `error` in the notification log) and
+not retried. Failed, expired and cancelled runs and investigations without an incident
+(operator-started) send nothing.
+
 Four more families are investigated the same way: **checkpoint storms**, **temp-file
 explosions**, **replication lag** and **LWLock contention**. Their triggers are the RCA
 incidents for "checkpoints are occurring too frequently", temp files, replication conflicts and
