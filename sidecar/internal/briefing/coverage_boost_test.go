@@ -44,7 +44,9 @@ func fakeLLMServer(t *testing.T, responseContent string, statusCode int) *httpte
 				},
 			},
 			Usage: struct {
-				TotalTokens int `json:"total_tokens"`
+				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens int `json:"completion_tokens"`
+				TotalTokens      int `json:"total_tokens"`
 			}{TotalTokens: 42},
 		}
 		w.Header().Set("Content-Type", "application/json")

@@ -99,13 +99,23 @@ var toolNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 // ChatWithTools sends one tool-calling chat turn. It never retries a
 // failure: a rate limit returns ErrRateLimited at once so callers can fall
 // back inside their own deadline. Only a request-shape rejection in auto
-// mode is re-sent, once per kind (wire_compat.go).
+// mode is re-sent, once per kind (wire_compat.go). Each call reports one
+// Outcome to the client's observer.
 func (c *Client) ChatWithTools(
 	ctx context.Context, msgs []Message, tools []ToolSpec, opts ToolOptions,
 ) (ToolResult, error) {
 	if c == nil {
 		return ToolResult{}, ErrLLMDisabled
 	}
+	start := time.Now()
+	res, err := c.chatWithTools(ctx, msgs, tools, opts)
+	c.observe(start, err, res.PromptTokens, res.CompletionTokens, res.Tokens)
+	return res, err
+}
+
+func (c *Client) chatWithTools(
+	ctx context.Context, msgs []Message, tools []ToolSpec, opts ToolOptions,
+) (ToolResult, error) {
 	if err := validateToolRequest(msgs, tools, opts); err != nil {
 		return ToolResult{}, err
 	}
