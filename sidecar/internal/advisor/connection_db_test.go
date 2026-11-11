@@ -19,10 +19,16 @@ import (
 // already closed, which the old live-session sample never did.
 
 // oldLiveSessionSample is the deleted connectionChurnSQL: sessions still
-// connected that started in the last 5 minutes.
+// connected that started in the last 5 minutes. It is narrowed to the
+// test's own sessions ($1, their application_name): other tests' pools
+// open connections at any time, which made a whole-database count flaky.
 const oldLiveSessionSample = `SELECT count(*)::int FROM pg_stat_activity
  WHERE backend_start > now() - interval '5 minutes'
-   AND backend_type = 'client backend' AND datname = current_database()`
+   AND backend_type = 'client backend' AND datname = current_database()
+   AND application_name = $1`
+
+// churnTestApp names the connect-and-close sessions.
+const churnTestApp = "advisors07_churn_test"
 
 type sessionCounter struct {
 	sessions int64
@@ -65,9 +71,13 @@ func insertSystemRow(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 
 func connectAndClose(t *testing.T, ctx context.Context, n int) {
 	t.Helper()
-	dsn := os.Getenv("SAGE_DATABASE_URL")
+	cfg, err := pgx.ParseConfig(os.Getenv("SAGE_DATABASE_URL"))
+	if err != nil {
+		t.Fatalf("parse SAGE_DATABASE_URL: %v", err)
+	}
+	cfg.RuntimeParams["application_name"] = churnTestApp
 	for i := 0; i < n; i++ {
-		conn, err := pgx.Connect(ctx, dsn)
+		conn, err := pgx.ConnectConfig(ctx, cfg)
 		if err != nil {
 			t.Fatalf("connect %d: %v", i, err)
 		}
@@ -90,15 +100,19 @@ func TestConnectionHistory_LivePG_PeakAndChurn(t *testing.T) {
 	insertSystemRow(t, ctx, pool, collector.SystemStats{TotalBackends: 900}, 3*time.Hour)
 
 	var oldBefore int
-	if err := pool.QueryRow(ctx, oldLiveSessionSample).Scan(&oldBefore); err != nil {
+	if err := pool.QueryRow(ctx, oldLiveSessionSample, churnTestApp).Scan(
+		&oldBefore); err != nil {
 		t.Fatal(err)
 	}
 	connectAndClose(t, ctx, 100)
+	// Wait for the counter first: by then the closed backends have exited,
+	// so none lingers in pg_stat_activity for the old sample.
+	after := waitSessions(t, ctx, pool, before.sessions+100)
 	var oldAfter int
-	if err := pool.QueryRow(ctx, oldLiveSessionSample).Scan(&oldAfter); err != nil {
+	if err := pool.QueryRow(ctx, oldLiveSessionSample, churnTestApp).Scan(
+		&oldAfter); err != nil {
 		t.Fatal(err)
 	}
-	after := waitSessions(t, ctx, pool, before.sessions+100)
 
 	w, err := pgConnHistory{db: pool}.readConnWindow(ctx, time.Hour)
 	if err != nil {
@@ -116,7 +130,7 @@ func TestConnectionHistory_LivePG_PeakAndChurn(t *testing.T) {
 		t.Errorf("churn = %d (%.1f/min, known %v), want at least 100 opened", opened,
 			perMin, ok)
 	}
-	if oldAfter-oldBefore != 0 {
+	if oldBefore != 0 || oldAfter != 0 {
 		t.Errorf("old live-session sample moved %d -> %d; it never saw closed sessions",
 			oldBefore, oldAfter)
 	}
