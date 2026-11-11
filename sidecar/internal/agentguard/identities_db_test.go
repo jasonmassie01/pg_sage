@@ -117,6 +117,27 @@ func TestIdentities_DuplicateIsErrIdentityBound(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// An unbind names the principal: an identity bound to one principal cannot
+// be removed through another's id, and the refusal writes nothing.
+func TestIdentities_UnbindThroughAnotherPrincipalIsNotBound(t *testing.T) {
+	pool := livePool(t)
+	s := NewStore(pool)
+	ctx := context.Background()
+	actor := createUser(t, pool, "admin")
+	holder, other := newPrincipal(t, s, &actor), newPrincipal(t, s, &actor)
+	subject := uniqName("held")
+	_, err := s.BindIdentity(ctx, holder.ID, bindReq(subject, actor))
+	require.NoError(t, err)
+	_, err = s.UnbindIdentity(ctx, other.ID, testIssuer, subject, Audit{ActorUserID: actor})
+	require.True(t, errors.Is(err, ErrIdentityNotBound), "through another principal: %v", err)
+	require.Equal(t, 1, bindingCount(t, s, testIssuer, subject), "the binding stays")
+	require.Len(t, govEvents(t, pool, other.ID), 1, "a refused unbind writes no event")
+	list, err := s.ListIdentities(ctx, holder.ID)
+	require.NoError(t, err)
+	require.Len(t, list.Items, 1)
+	require.Equal(t, holder.ID, list.Items[0].PrincipalID)
+}
+
 // Two admins bind one identity to two principals at once: exactly one
 // wins, the other is ErrIdentityBound, and the row names the winner.
 func TestIdentities_ConcurrentBindOneWins(t *testing.T) {
