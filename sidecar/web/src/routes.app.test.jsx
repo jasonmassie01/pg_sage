@@ -100,6 +100,13 @@ describe('App routes from the registry', () => {
     expect(title()).toHaveTextContent('Alerts')
   })
 
+  it('denies a viewer the alert log on a direct hash', async () => {
+    await open('#/alerts', 'viewer')
+    expect(screen.getByTestId('access-denied')).toBeInTheDocument()
+    expect(screen.queryByTestId('alert-log-page')).toBeNull()
+    expect(title()).toHaveTextContent('Access denied')
+  })
+
   it('renders Cases for the old findings explorer URL', async () => {
     await open('#/advanced/findings')
     expect(screen.getByTestId('cases-page')).toHaveTextContent('all')
