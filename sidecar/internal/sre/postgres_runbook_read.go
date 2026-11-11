@@ -134,13 +134,19 @@ func scanRunbook(row pgx.Row, scope Scope) (Runbook, error) {
 }
 
 // GetRunbook returns one runbook of this database with every version,
-// newest first.
+// newest first, read from one snapshot.
 func (s *PostgresStore) GetRunbook(ctx context.Context, scope Scope, id UUID) (Runbook,
 	error) {
 	if err := validateIDs(scope, id); err != nil {
 		return Runbook{}, err
 	}
-	rb, err := scanRunbook(s.pool.QueryRow(ctx, `SELECT `+runbookColumns+`, `+
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead,
+		AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return Runbook{}, storeErr(ctx, "get runbook", err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	rb, err := scanRunbook(tx.QueryRow(ctx, `SELECT `+runbookColumns+`, `+
 		versionCols("v.")+`
 		FROM sage.sre_runbooks r
 		JOIN sage.sre_runbook_versions v ON v.deployment_id = r.deployment_id
@@ -154,7 +160,7 @@ func (s *PostgresStore) GetRunbook(ctx context.Context, scope Scope, id UUID) (R
 	if err != nil {
 		return Runbook{}, storeErr(ctx, "get runbook", err)
 	}
-	rows, err := s.pool.Query(ctx, `SELECT `+versionColumns+`
+	rows, err := tx.Query(ctx, `SELECT `+versionColumns+`
 		FROM sage.sre_runbook_versions
 		WHERE deployment_id = $1 AND database_id = $2 AND runbook_id = $3
 		ORDER BY version DESC`,
@@ -198,14 +204,42 @@ func (s *PostgresStore) RunnableRunbooks(ctx context.Context, scope Scope) ([]Ru
 	return out, nil
 }
 
-// listRunbooks reads runbooks with their latest version; extra is a
-// constant SQL predicate.
+// listRunbooks reads runbooks with their latest and running versions;
+// extra is a constant SQL predicate. Both reads share one snapshot, so a
+// sign or retire committing between them never leaves a retired runbook
+// running or a running version newer than the latest.
 func (s *PostgresStore) listRunbooks(ctx context.Context, scope Scope,
 	extra string) ([]Runbook, error) {
 	if err := scope.Validate(); err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, `SELECT `+runbookColumns+`, `+
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead,
+		AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return nil, storeErr(ctx, "list runbooks", err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	out, err := latestRunbooks(ctx, tx, scope, extra)
+	if err != nil {
+		return nil, err
+	}
+	signed, err := signedVersions(ctx, tx, scope, out)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].settle(signed[out[i].ID])
+	}
+	if out == nil {
+		out = []Runbook{}
+	}
+	return out, nil
+}
+
+// latestRunbooks reads runbooks with their latest version.
+func latestRunbooks(ctx context.Context, tx pgx.Tx, scope Scope,
+	extra string) ([]Runbook, error) {
+	rows, err := tx.Query(ctx, `SELECT `+runbookColumns+`, `+
 		versionCols("v.")+`
 		FROM sage.sre_runbooks r
 		JOIN sage.sre_runbook_versions v ON v.deployment_id = r.deployment_id
@@ -223,22 +257,12 @@ func (s *PostgresStore) listRunbooks(ctx context.Context, scope Scope,
 	if err != nil {
 		return nil, storeErr(ctx, "list runbooks", err)
 	}
-	signed, err := s.signedVersions(ctx, scope, out)
-	if err != nil {
-		return nil, err
-	}
-	for i := range out {
-		out[i].settle(signed[out[i].ID])
-	}
-	if out == nil {
-		out = []Runbook{}
-	}
 	return out, nil
 }
 
 // signedVersions reads the signed versions of the listed, unretired
 // runbooks, newest first per runbook, to find each one's running version.
-func (s *PostgresStore) signedVersions(ctx context.Context, scope Scope,
+func signedVersions(ctx context.Context, tx pgx.Tx, scope Scope,
 	rbs []Runbook) (map[UUID][]RunbookVersion, error) {
 	ids := []string{}
 	for _, rb := range rbs {
@@ -250,7 +274,7 @@ func (s *PostgresStore) signedVersions(ctx context.Context, scope Scope,
 	if len(ids) == 0 {
 		return out, nil
 	}
-	rows, err := s.pool.Query(ctx, `SELECT runbook_id::text, `+versionColumns+`
+	rows, err := tx.Query(ctx, `SELECT runbook_id::text, `+versionColumns+`
 		FROM sage.sre_runbook_versions
 		WHERE deployment_id = $1 AND database_id = $2 AND runbook_id = ANY($3::uuid[])
 		  AND signed_at IS NOT NULL
