@@ -319,7 +319,9 @@ export function Layout({
               onChanged={onFleetChanged}
             />
             <HeaderTrustBadge rows={fleetData?.databases} selectedDB={selectedDB} />
-            <TimeRangePicker />
+            {activeRoute?.usesTimeRange && (
+              <TimeRangePicker label={activeRoute.timeRangeLabel} />
+            )}
             {databases && databases.length > 0 && (
               <DatabasePicker
                 data-testid="database-picker"

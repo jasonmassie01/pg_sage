@@ -9,6 +9,9 @@
 // unavailable when the platform manages sign-in (Databricks Apps).
 // signedOutOnly routes render before sign-in and are never matched for a
 // signed-in user. The UI gate is cosmetic: the API enforces every role.
+// usesTimeRange routes are the pages the header time picker drives; the
+// header shows the picker only there, captioned with timeRangeLabel
+// (dashboard-07).
 import {
   Activity, AlertTriangle, Bell, BookCheck, Bot, Gauge, Home, KeyRound,
   MessageSquare, ScrollText, Server, Settings, ShieldCheck, Users,
@@ -46,6 +49,7 @@ export const ROUTES = Object.freeze([
   { id: 'actions', path: '/actions', aliases: ['/advanced/actions'], title: 'Actions',
     navGroup: 'operate', testId: 'nav-actions', icon: Activity,
     hint: 'Executed + pending timeline',
+    usesTimeRange: true, timeRangeLabel: 'Ledger window',
     guide: 'Follow proposed database changes through review, approval and outcome '
       + 'checks. The execution mode determines whether a change can run.' },
   { id: 'slos', path: '/slos', title: 'SLOs', navGroup: 'operate', testId: 'nav-slos',
@@ -107,6 +111,7 @@ export const ROUTES = Object.freeze([
       + 'Administrators approve proposed increases in autonomy.' },
   { id: 'snapshot', path: '/advanced', title: 'Snapshot & metrics', navGroup: 'advanced',
     testId: 'nav-snapshot', hint: 'Collected health and performance metrics',
+    usesTimeRange: true, timeRangeLabel: 'Health chart window',
     guide: 'Survey collected database health, performance metrics and recent '
       + 'recommendations. Provider readiness shows supported capabilities and blockers.' },
   { id: 'database', path: '/database', title: 'Database',

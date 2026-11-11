@@ -173,6 +173,7 @@ export function Actions({ database, user, fleetData }) {
         Database changes are disabled in Observation mode. Review Cases and proposed changes; no database changes will run in this mode.
       </p>}
       <TabBar tab={activeTab} setTab={setTab} counts={counts} canReview={canReview} />
+      {(activeTab === 'recommendations' || activeTab === 'pending') && <NotTimeScoped />}
       {activeTab === 'recommendations' && <RecommendationsTab database={database} items={proposals}
         query={combineQueries([caseData, single ? recommendations : null],
           () => { caseData.refetch(); recommendations.refetch() })}
@@ -212,6 +213,13 @@ export function Actions({ database, user, fleetData }) {
       </details>
     </div>
   )
+}
+
+// NotTimeScoped captions the lists the header time picker does not filter
+// (dashboard-07): proposals and approval requests are current state.
+function NotTimeScoped() {
+  return <p className="text-xs" data-testid="actions-not-time-scoped"
+    style={{ color: 'var(--text-secondary)' }}>Current state, not time-scoped.</p>
 }
 
 function TabBar({ tab, setTab, counts, canReview }) {

@@ -19,20 +19,29 @@ export { resourceKey }
 // document.hidden is skipped and the hook fetches once when the tab is
 // shown again; failures in a row back off (usePolling). refetch() always
 // fetches at once.
+//
+// url may also be a function returning the url (or null), called when each
+// request starts and on render for the resource key (dashboard-07): a
+// windowed url is then computed at fetch time instead of moving, and
+// refetching, on a render. Pass a function whose identity changes only when
+// the resource or window length does.
 export function useAPI(url, interval = 30000) {
-  const key = resourceKey(url)
+  const resolveURL = useCallback(() => (typeof url === 'function' ? url() : url), [url])
+  const renderURL = resolveURL()
+  const key = resourceKey(renderURL)
   const [state, setState] = useState(EMPTY)
   const [inFlight, setInFlight] = useState(false)
   const abortRef = useRef(null)
   const poll = useRef(idlePoll())
 
   const fetchData = useCallback(async () => {
-    if (!url) {
+    const target = resolveURL()
+    if (!target) {
       setState(EMPTY)
       setInFlight(false)
       return
     }
-    const requestKey = resourceKey(url)
+    const requestKey = resourceKey(target)
     if (abortRef.current) abortRef.current.abort()
     const ctrl = new AbortController()
     abortRef.current = ctrl
@@ -40,7 +49,7 @@ export function useAPI(url, interval = 30000) {
     try {
       // 401s are turned into sage:auth-expired by the global fetch
       // interceptor (lib/authExpiry.js).
-      const json = await apiGet(url, { signal: ctrl.signal })
+      const json = await apiGet(target, { signal: ctrl.signal })
       poll.current.failures = 0
       setState({ ...EMPTY, key: requestKey, data: json, updatedAt: Date.now() })
     } catch (err) {
@@ -55,13 +64,13 @@ export function useAPI(url, interval = 30000) {
     }
     // The next poll counts from this answer, with any backoff it earned.
     poll.current.schedule?.()
-  }, [url])
+  }, [resolveURL])
 
   usePolling(poll, fetchData, {
-    key, interval, active: interval > 0 && Boolean(url), abortRef,
+    key, interval, active: interval > 0 && Boolean(renderURL), abortRef,
   })
 
-  return { ...visibleState(state, key, url, inFlight), refetch: fetchData }
+  return { ...visibleState(state, key, renderURL, inFlight), refetch: fetchData }
 }
 
 const EMPTY = {

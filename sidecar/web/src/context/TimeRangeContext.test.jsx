@@ -85,3 +85,52 @@ describe('TimeRangeProvider tick', () => {
     removed.mockRestore()
   })
 })
+
+// dashboard-07: windowAt(ms) is the window a fetch asks for at that time,
+// ending at the next minute boundary so the newest row is never cut off.
+// Its identity changes only with the range, never with the 30 s tick.
+describe('TimeRangeProvider windowAt', () => {
+  afterEach(() => localStorage.clear())
+
+  it('ends the window at the next minute and spans the range', () => {
+    const { result } = renderHook(() => useTimeRange(), { wrapper })
+    const win = result.current.windowAt(Date.parse('2026-11-09T10:00:20Z'))
+    expect(win.toISO).toBe('2026-11-09T10:01:00.000Z')
+    expect(win.fromISO).toBe('2026-11-08T10:01:00.000Z')
+    expect(win.to.getTime() - win.from.getTime()).toBe(24 * 60 * 60 * 1000)
+  })
+
+  it('keeps a time on a minute boundary as the window end', () => {
+    const { result } = renderHook(() => useTimeRange(), { wrapper })
+    const win = result.current.windowAt(Date.parse('2026-11-09T10:00:00Z'))
+    expect(win.toISO).toBe('2026-11-09T10:00:00.000Z')
+  })
+
+  it('keeps its identity across ticks and changes it with the range', () => {
+    const { result } = renderHook(() => useTimeRange(), { wrapper })
+    const first = result.current.windowAt
+    advance(30000)
+    expect(result.current.toISO).toBe('2026-11-09T10:00:30.000Z')
+    expect(result.current.windowAt).toBe(first)
+    act(() => result.current.setRangeKey('1h'))
+    expect(result.current.windowAt).not.toBe(first)
+    const win = result.current.windowAt(Date.parse('2026-11-09T10:00:00Z'))
+    expect(win.fromISO).toBe('2026-11-09T09:00:00.000Z')
+  })
+
+  it('reads an unknown stored key as 24h', () => {
+    localStorage.setItem('pg_sage_range', 'bogus')
+    const { result } = renderHook(() => useTimeRange(), { wrapper })
+    expect(result.current.rangeKey).toBe('24h')
+    expect(result.current.range.key).toBe('24h')
+    expect(result.current.toISO).toBe('2026-11-09T10:00:00.000Z')
+    expect(result.current.fromISO).toBe('2026-11-08T10:00:00.000Z')
+  })
+
+  it('gives a 24h windowAt without a provider', () => {
+    const { result } = renderHook(() => useTimeRange())
+    const win = result.current.windowAt(Date.parse('2026-11-09T10:00:20Z'))
+    expect(win.toISO).toBe('2026-11-09T10:01:00.000Z')
+    expect(win.fromISO).toBe('2026-11-08T10:01:00.000Z')
+  })
+})
