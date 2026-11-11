@@ -6,6 +6,7 @@ import { queryBlocked } from '../lib/queryState'
 import { SQLBlock } from '../components/SQLBlock'
 import { CaseControls, SuppressedFindings } from './cases/CaseControls'
 import { InvestigationPanel } from './cases/InvestigationPanel'
+import { WhyNotRun } from './cases/WhyNotRun'
 import { CasesHealthNotes } from './cases/CasesHealthNotes'
 import { CandidateArtifacts } from './cases/CandidateArtifacts'
 import { FactBadges } from '../components/FactBadges'
@@ -281,6 +282,7 @@ function CaseCard({ caseRow, user, investigation, onDone, focused, onReview }) {
             The action history for this case could not be read; it may have
             actions that are not shown.</p>}
           {candidate && <p>Policy: {policyLabel(candidate)}</p>}
+          <WhyNotRun caseRow={caseRow} user={user} />
           {caseRow.why && <div><strong>Source recommendation (review applicability before use): </strong>{caseRow.why}</div>}
         </div>
       <EvidenceList evidence={caseRow.evidence || []} category={factTarget?.category} />

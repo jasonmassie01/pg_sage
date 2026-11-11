@@ -11,6 +11,7 @@ import { ConfigDiff } from '../components/ConfigDiff'
 import { useToast } from '../components/Toast'
 import { ShadowModePage } from './ShadowModePage'
 import { DerivedSettings } from './settings/DerivedSettings'
+import { POLICY_GATE_DOC, StandingPolicy } from './settings/StandingPolicy'
 import {
   MaskedBadge, MaskedOverridesContext, SourceBadge, maskedByKey,
 } from './settings/SourceBadge'
@@ -24,8 +25,9 @@ const TRUST_LEVEL_EXPLAIN = {
   observation:
     'Observation: pg_sage only monitors and surfaces findings.'
     + ' No automated actions will run.',
-  // Copy mirrors executor.EvaluateActionPolicy (G9-B12): nothing runs
-  // automatically unless execution_mode is auto for the database.
+  // A summary of the standing policy gate; the dialog links the full
+  // rules (docs/policy-gate.md). Nothing runs automatically unless
+  // execution_mode is auto for the database.
   advisory:
     'Advisory: when execution_mode is auto, Tier 3 Safe is on and the'
     + ' 8-day trust ramp has passed, pg_sage may execute SAFE actions'
@@ -408,6 +410,8 @@ export function SettingsPage({ database, databaseId }) {
       </div>
       {tab === 'General' && <ShadowModePage database={database} />}
       {tab === 'General' && <DerivedSettings database={database} />}
+      {tab === 'Trust & Safety' && <StandingPolicy
+        databaseId={isDatabaseScope ? numericDatabaseId : undefined} />}
       {feedback && <FeedbackBanner {...feedback} />}
       <div className="rounded p-5"
         style={{
@@ -728,6 +732,8 @@ function TrustLevelConfirm({ from, to, onConfirm, onCancel }) {
         <p className="text-xs mb-4"
           style={{ color: 'var(--text-secondary)' }}>
           {TRUST_LEVEL_EXPLAIN[to] || 'Unknown trust level.'}
+          {' '}<a href={POLICY_GATE_DOC} className="underline" data-testid="trust-level-policy-doc"
+            style={{ color: 'var(--accent)' }}>How the policy gate decides</a>
         </p>
         <div className="flex gap-2 justify-end">
           <button onClick={onCancel}
