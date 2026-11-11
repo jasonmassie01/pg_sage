@@ -243,24 +243,6 @@ func TestCoverage_BuildSetStatements_ZeroDuration(t *testing.T) {
 	}
 }
 
-func TestCoverage_IsExplainable_TabPrefixed(t *testing.T) {
-	if !isExplainable("\tSELECT 1") {
-		t.Error("tab-prefixed SELECT should be explainable")
-	}
-}
-
-func TestCoverage_IsExplainable_NewlinePrefixed(t *testing.T) {
-	if !isExplainable("\nSELECT 1") {
-		t.Error("newline-prefixed SELECT should be explainable")
-	}
-}
-
-func TestCoverage_IsExplainable_MixedCaseWith(t *testing.T) {
-	if !isExplainable("With cte AS (SELECT 1) SELECT * FROM cte") {
-		t.Error("mixed-case WITH should be explainable")
-	}
-}
-
 // --- Integration tests (require local Postgres) ---
 
 func TestCoverage_Detect(t *testing.T) {

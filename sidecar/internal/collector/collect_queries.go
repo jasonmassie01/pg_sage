@@ -1,8 +1,10 @@
 package collector
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/querystore"
@@ -52,8 +54,9 @@ func queryStatsTemplate(hasWAL, hasPlan bool) string {
 	return queryStatsSQL
 }
 
-// collectQueries reads the top MaxQueries application statements of this
-// database: counters first, texts from the cache (statements_text.go).
+// collectQueries reads the MaxQueries application statements of this
+// database the ranked read admits: counters first, texts from the cache
+// (statements_text.go).
 func (c *Collector) collectQueries(ctx context.Context) ([]QueryStats, error) {
 	return c.collectQueriesVia(ctx, timedCatalogQuerier{collector: c})
 }
@@ -64,8 +67,10 @@ func (c *Collector) collectQueriesVia(ctx context.Context,
 	db catalogQuerier) ([]QueryStats, error) {
 	db = c.statementsDB(db)
 	caps := c.queryCapabilities(ctx)
-	limit := c.maxQueries()
-	candidates, err := readQueryCounters(ctx, db, caps, limit)
+	admission := admissionFor(c.maxQueries())
+	read := rankedRead{admission: admission,
+		pins: c.pinnedQueryIDs(ctx, admission.pinCap), own: c.stmtTexts.ownIDs()}
+	candidates, err := readQueryCounters(ctx, db, caps, read)
 	if err != nil {
 		return nil, fmt.Errorf("read pg_stat_statements counters: %w", err)
 	}
@@ -74,11 +79,11 @@ func (c *Collector) collectQueriesVia(ctx context.Context,
 		ids[i] = q.QueryID
 	}
 	texts, err := c.stmtTexts.resolve(ctx, db, ids, c.clock(),
-		stmtTextEntriesPerQuery*limit)
+		stmtTextEntriesPerQuery*admission.limit)
 	if err != nil {
 		return nil, err
 	}
-	return applicationQueries(candidates, texts, limit), nil
+	return applicationQueries(candidates, texts, admission.limit), nil
 }
 
 // maxQueries is collector.max_queries, 500 when unset or invalid.
@@ -89,18 +94,28 @@ func (c *Collector) maxQueries() int {
 	return 500
 }
 
-// candidateHeadroom x MaxQueries statements are ranked, so that MaxQueries
+// candidateHeadroom x MaxQueries statements are read, so that MaxQueries
 // remain once pg_sage's own are left out.
 const candidateHeadroom = 2
 
-// readQueryCounters reads the top candidateHeadroom x limit queryids by total time, with
-// their counters and without their texts.
+// rankedRead is one cycle's admission: the arm sizes, the pinned queryids
+// and the queryids known to be pg_sage's own (left out of the mean and io
+// arms). Both lists are sent as arrays, empty rather than NULL.
+type rankedRead struct {
+	admission queryAdmission
+	pins, own []int64
+}
+
+// readQueryCounters reads the admitted queryids (queryStatsFrom), pinned
+// first, with their counters and admission and without their texts.
 func readQueryCounters(ctx context.Context, db catalogQuerier, caps Capabilities,
-	limit int) ([]QueryStats, error) {
+	read rankedRead) ([]QueryStats, error) {
 	hasWAL, hasPlan := caps.WALColumns, caps.PlanTimeColumns
+	pins, own := nonNil(read.pins), nonNil(read.own)
+	a := read.admission
 	sql := fmt.Sprintf(queryStatsTemplate(hasWAL, hasPlan), caps.blk.read, caps.blk.write,
-		candidateHeadroom*limit)
-	rows, err := db.Query(ctx, sql)
+		a.total(len(pins)), a.perArm, a.candidates(len(pins)))
+	rows, err := db.Query(ctx, sql, pins, own)
 	if err != nil {
 		return nil, err
 	}
@@ -108,12 +123,22 @@ func readQueryCounters(ctx context.Context, db catalogQuerier, caps Capabilities
 	var result []QueryStats
 	for rows.Next() {
 		var q QueryStats
-		if err := rows.Scan(queryCounterDest(&q, hasWAL, hasPlan)...); err != nil {
+		dest := append(queryCounterDest(&q, hasWAL, hasPlan), &q.AdmittedBy)
+		if err := rows.Scan(dest...); err != nil {
 			return nil, err
 		}
 		result = append(result, q)
 	}
 	return result, rows.Err()
+}
+
+// nonNil is ids, or an empty slice for nil: pgx sends nil as NULL, and
+// "queryid <> ALL(NULL)" is never true.
+func nonNil(ids []int64) []int64 {
+	if ids == nil {
+		return []int64{}
+	}
+	return ids
 }
 
 // queryCounterDest is the scan targets of one queryStatsSelect row.
@@ -136,11 +161,12 @@ func queryCounterDest(q *QueryStats, hasWAL, hasPlan bool) []any {
 	return dest
 }
 
-// applicationQueries keeps, in rank order, the first limit candidates whose
-// text is known and not pg_sage's own (selfmonitor.IsStatementText, the
-// StatementExclusionSQL predicate). A candidate without a text cannot be
-// attributed and is left out. The result is empty, not nil, when none
-// remains.
+// applicationQueries keeps, in admission order (pinned, then the other
+// arms, then by total time), the first limit candidates whose text is
+// known and not pg_sage's own (selfmonitor.IsStatementText, the
+// StatementExclusionSQL predicate), and returns them by total time, as
+// before collection-07. A candidate without a text cannot be attributed
+// and is left out. The result is empty, not nil, when none remains.
 func applicationQueries(candidates []QueryStats, texts map[int64]string,
 	limit int) []QueryStats {
 	out := make([]QueryStats, 0, min(len(candidates), limit))
@@ -155,5 +181,8 @@ func applicationQueries(candidates []QueryStats, texts map[int64]string,
 			break
 		}
 	}
+	slices.SortStableFunc(out, func(a, b QueryStats) int {
+		return cmp.Compare(b.TotalExecTime, a.TotalExecTime)
+	})
 	return out
 }

@@ -76,6 +76,9 @@ type QueryStats struct {
 	WALBytes          int64   `json:"wal_bytes,omitempty"`
 	TotalPlanTime     float64 `json:"total_plan_time,omitempty"`
 	MeanPlanTime      float64 `json:"mean_plan_time,omitempty"`
+	// AdmittedBy names the arms of the ranked read that admitted the query
+	// (collection-07): pinned, mean, io, total.
+	AdmittedBy []string `json:"admitted_by,omitempty"`
 }
 
 // TableStats mirrors pg_stat_user_tables + size info.

@@ -7,6 +7,8 @@ import (
 	"slices"
 	"sync"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
 )
 
 // pg_stat_statements(true) loads the whole query-text file, whatever rows
@@ -42,12 +44,14 @@ SELECT queryid, (array_agg(query ORDER BY calls DESC))[1]
    AND queryid = ANY($1)
  GROUP BY queryid`
 
-// stmtText is one cached text: when it was read and the last cycle its
-// queryid was a candidate (for least-recently-seen eviction).
+// stmtText is one cached text: when it was read, the last cycle its
+// queryid was a candidate (for least-recently-seen eviction), and whether
+// it is pg_sage's own statement (selfmonitor.IsStatementText).
 type stmtText struct {
 	text   string
 	readAt time.Time
 	seen   uint64
+	own    bool
 }
 
 // stmtTextCache is a collector's cache of statement texts by queryid.
@@ -120,6 +124,21 @@ func (s *stmtTextCache) lookup(ids []int64, now time.Time) (map[int64]string, []
 	return texts, missing
 }
 
+// ownIDs is the cached queryids whose text is pg_sage's own, sorted: the
+// ranked read keeps them out of its mean and io arms (collection-07).
+func (s *stmtTextCache) ownIDs() []int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ids := []int64{}
+	for id, e := range s.entries {
+		if e.own {
+			ids = append(ids, id)
+		}
+	}
+	slices.Sort(ids)
+	return ids
+}
+
 // store caches texts read at now, then evicts the least recently seen
 // entries past maxEntries or the byte cap.
 func (s *stmtTextCache) store(texts map[int64]string, now time.Time, maxEntries int) {
@@ -129,7 +148,8 @@ func (s *stmtTextCache) store(texts map[int64]string, now time.Time, maxEntries 
 		if old, ok := s.entries[id]; ok {
 			s.bytes -= len(old.text)
 		}
-		s.entries[id] = &stmtText{text: text, readAt: now, seen: s.cycle}
+		s.entries[id] = &stmtText{text: text, readAt: now, seen: s.cycle,
+			own: selfmonitor.IsStatementText(text)}
 		s.bytes += len(text)
 	}
 	if len(s.entries) <= maxEntries && s.bytes <= s.maxBytes {

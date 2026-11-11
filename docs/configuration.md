@@ -849,6 +849,17 @@ earlier version closed after a transient read error or a shutdown (`observation_
 or `context_canceled` with the hard deadline still ahead) is reopened and checked again;
 until that sweep succeeds, no index watch is resumed, so none of those changes is reverted.
 
+A watch's target queries are sampled whatever their rank. An index that works makes its
+query cheaper, and a query with less total time can fall out of the collector's top
+`collector.max_queries` statements; without samples the watch would extend to its hard
+deadline and revert the index as `insufficient_samples`. The collector therefore pins the
+target queryids of every open watch (`sage.verification` rows with `completed_at` NULL,
+read once a cycle, so the pins survive a restart): they are sampled into `sage.query_store`
+every cycle, marked `admitted_by: ["pinned"]` in the `queries` snapshot, until the watch
+completes. At most 64 queryids are pinned per database and cycle, oldest watch first. A
+failed read of the open watches logs one WARN per failure streak and pins nothing until it
+recovers; the rest of the queries step goes on.
+
 Write cost is advisory evidence for now, never a revert reason. The only write signal is
 database-wide (`pg_stat_database.blk_write_time` from the system snapshots, non-zero only
 with `track_io_timing`), so it cannot be charged to one index: an index built in a night

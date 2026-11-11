@@ -499,34 +499,6 @@ func TestPhase2_HypoPG_IsAvailable_CachesResult(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// isExplainable — additional edge cases
-// ---------------------------------------------------------------------------
-
-func TestPhase2_IsExplainable_SelectVariants(t *testing.T) {
-	tests := []struct {
-		query string
-		want  bool
-	}{
-		{"SELECT 1", true},
-		{"  select * from t", true},
-		{"WITH cte AS (SELECT 1) SELECT * FROM cte", true},
-		{"INSERT INTO t VALUES (1)", false},
-		{"UPDATE t SET a = 1", false},
-		{"DELETE FROM t WHERE id = 1", false},
-		{"CREATE TABLE t (id int)", false},
-		{"", false},
-		{"   ", false},
-	}
-	for _, tt := range tests {
-		got := isExplainable(tt.query)
-		if got != tt.want {
-			t.Errorf("isExplainable(%q) = %v, want %v",
-				tt.query, got, tt.want)
-		}
-	}
-}
-
-// ---------------------------------------------------------------------------
 // extractTotalCost — additional cases
 // ---------------------------------------------------------------------------
 

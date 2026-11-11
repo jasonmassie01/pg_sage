@@ -80,6 +80,57 @@ var classifyCases = []classifyCase{
 	{"copy query to", "COPY (SELECT * FROM orders) TO STDOUT WITH (FORMAT csv)", Backup},
 	{"copy quoted", `COPY "Weird ""Name""".t TO STDOUT`, Backup},
 	{"copy binary", "COPY BINARY orders TO stdout", Backup},
+	// collection-10: statements no index or hint can fix are not advice
+	// subjects. Transaction control and session utility statements.
+	{"commit", "COMMIT", Utility},
+	{"begin lower", "begin", Utility},
+	{"begin isolation", "BEGIN ISOLATION LEVEL REPEATABLE READ", Utility},
+	{"start transaction", "START TRANSACTION READ ONLY", Utility},
+	{"end", "END", Utility},
+	{"rollback", "ROLLBACK", Utility},
+	{"rollback to savepoint", "ROLLBACK TO SAVEPOINT a", Utility},
+	{"abort", "abort", Utility},
+	{"savepoint", "SAVEPOINT a", Utility},
+	{"release", "RELEASE SAVEPOINT a", Utility},
+	{"prepare transaction", "PREPARE TRANSACTION 'tx1'", Utility},
+	{"commit prepared", "COMMIT PREPARED 'tx1'", Utility},
+	{"set", "SET work_mem = $1", Utility},
+	{"set local", "SET LOCAL lock_timeout = $1", Utility},
+	{"reset", "RESET work_mem", Utility},
+	{"show", "SHOW work_mem", Utility},
+	{"discard all", "DISCARD ALL", Utility},
+	{"deallocate", "DEALLOCATE pdo_stmt_00000001", Utility},
+	{"listen", "LISTEN jobs", Utility},
+	{"notify", "NOTIFY jobs, 'x'", Utility},
+	{"unlisten", "UNLISTEN *", Utility},
+	{"lock after comment", "/* app */ LOCK TABLE t", Utility},
+	{"commit after line comment", "-- tx\nCOMMIT", Utility},
+	// PostgreSQL ends a -- comment at CR as well as LF.
+	{"commit after cr line comment", "-- tx\rCOMMIT", Utility},
+	// Schema changes and privileges.
+	{"alter table", "ALTER TABLE t ADD COLUMN c int", DDL},
+	{"truncate", "TRUNCATE t", DDL},
+	{"grant", "GRANT SELECT ON t TO r", DDL},
+	{"revoke", "revoke all on t from r", DDL},
+	{"drop index", "DROP INDEX idx_o", DDL},
+	{"drop table", "DROP TABLE IF EXISTS t", DDL},
+	{"create table", "CREATE TABLE t (id int)", DDL},
+	{"create matview", "CREATE MATERIALIZED VIEW m AS SELECT 1", DDL},
+	{"comment on", "COMMENT ON TABLE t IS 'x'", DDL},
+	{"alter system", "ALTER SYSTEM SET work_mem = '8MB'", DDL},
+	// Workload that only looks like one of them (negatives).
+	{"commit column", "SELECT commit_ts FROM t", Workload},
+	{"cte update", "WITH x AS (SELECT 1) UPDATE t SET a = 1", Workload},
+	{"settings identifier", "settings_table_select", Workload},
+	{"update set", "UPDATE t SET a = $1", Workload},
+	{"select for update", "SELECT * FROM t WHERE id = $1 FOR UPDATE", Workload},
+	{"begins table", "SELECT * FROM begin_log", Workload},
+	{"lock word inside", "SELECT * FROM lock_waits WHERE t = 'LOCK'", Workload},
+	{"show column", "SELECT shown, ended FROM sessions", Workload},
+	{"alter word inside", "SELECT alter_ts FROM ddl_log", Workload},
+	{"delete", "DELETE FROM t WHERE id = $1", Workload},
+	{"merge", "MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN DELETE", Workload},
+	{"values", "VALUES ($1), ($2)", Workload},
 	// pg_sage's own statements.
 	{"tagged", "/* pg_sage */ SELECT 1", Self},
 	{"tagged explain", "EXPLAIN /* pg_sage */ (GENERIC_PLAN, FORMAT JSON) SELECT 1", Self},
@@ -98,6 +149,56 @@ func TestClassify(t *testing.T) {
 				t.Fatalf("Excluded(%q) = %v, want %v", tc.query, got, tc.want != Workload)
 			}
 		})
+	}
+}
+
+// proceduralCases (collection-10) are CALL and DO: a slow procedure is
+// workload worth a finding, but no planner can EXPLAIN it. Shared with
+// the real-Postgres parity test.
+var proceduralCases = []classifyCase{
+	{"call", "CALL p($1)", Procedural},
+	{"call qualified lower", "call app.refresh_totals()", Procedural},
+	{"do block", "DO $$ BEGIN END $$", Procedural},
+	{"do after comment", "/* job */ DO LANGUAGE plpgsql $$ BEGIN END $$", Procedural},
+}
+
+func TestClassify_ProceduralIsKeptButNotDiagnostic(t *testing.T) {
+	for _, tc := range proceduralCases {
+		if got := Classify(tc.query); got != Procedural {
+			t.Errorf("%s: Classify(%q) = %q, want %q", tc.name, tc.query, got, Procedural)
+		}
+		if Excluded(tc.query) {
+			t.Errorf("%s: Excluded(%q) = true; a slow procedure stays workload",
+				tc.name, tc.query)
+		}
+		if IsDiagnostic(tc.query) {
+			t.Errorf("%s: IsDiagnostic(%q) = true, want false", tc.name, tc.query)
+		}
+	}
+	for _, q := range []string{"SELECT call_id FROM calls", "SELECT * FROM todo", "docs"} {
+		if got := Classify(q); got != Workload {
+			t.Errorf("Classify(%q) = %q, want workload", q, got)
+		}
+	}
+}
+
+func TestQueriesDropsUtilityAndDDLKeepsProcedures(t *testing.T) {
+	in := []collector.QueryStats{
+		{QueryID: 1, Query: "COMMIT"},
+		{QueryID: 2, Query: "SELECT * FROM orders"},
+		{QueryID: 3, Query: "ALTER TABLE t ADD COLUMN c int"},
+		{QueryID: 4, Query: "CALL p($1)"},
+		{QueryID: 5, Query: "SET work_mem = $1"},
+	}
+	got := Queries(in)
+	if len(got) != 2 || got[0].QueryID != 2 || got[1].QueryID != 4 {
+		t.Fatalf("Queries kept %+v, want queryids 2 and 4 in order", got)
+	}
+	if !FindingExcluded(map[string]any{"query": "DISCARD ALL"}) {
+		t.Fatal("a finding about DISCARD ALL is kept")
+	}
+	if FindingExcluded(map[string]any{"query": "CALL p($1)"}) {
+		t.Fatal("a finding about a slow CALL is dropped")
 	}
 }
 
