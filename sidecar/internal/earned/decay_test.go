@@ -281,3 +281,28 @@ func TestDecayCapReasons(t *testing.T) {
 		t.Fatalf("CHECK-40 clear reason changed: %q", e.Reason)
 	}
 }
+
+// A warning holds for its expiry and for one that moves later by up to
+// the warning lead (a shadow window renewed review by review, a report a
+// little newer); an earlier expiry or one renewed further is told again.
+func TestDecaySameWarningAcrossAMovingExpiry(t *testing.T) {
+	warned := decayT0.Add(30 * day)
+	for _, tc := range []struct {
+		name string
+		next time.Time
+		want bool
+	}{
+		{"same expiry", warned, true},
+		{"a review later", warned.Add(36 * time.Hour), true},
+		{"exactly the lead later", warned.Add(ExpiryWarningLead), true},
+		{"past the lead", warned.Add(ExpiryWarningLead + time.Minute), false},
+		{"renewed by a new report", warned.Add(30 * day), false},
+		{"earlier", warned.Add(-time.Minute), false},
+		{"zero", time.Time{}, false},
+	} {
+		if got := sameWarning(warned, tc.next); got != tc.want {
+			t.Errorf("%s: sameWarning(%v, %v) = %v, want %v", tc.name, warned, tc.next,
+				got, tc.want)
+		}
+	}
+}

@@ -122,20 +122,30 @@ func (l *Limiter) sweepPair(ctx context.Context, st State, n ExpiryNotifier,
 }
 
 // expiryEvidence is what a warning records; HoldsUntil keys it, so one
-// expiry is warned about once.
+// expiry is warned about once (sameWarning).
 type expiryEvidence struct {
 	HoldsUntil time.Time `json:"holds_until"`
 	Checks     []string  `json:"checks"`
 	Granted    Level     `json:"granted"`
 }
 
-// recordWarning records w unless the pair's newest warning is for the
-// same expiry; false when it already was.
+// sameWarning reports whether a warning already sent for warned tells an
+// expiry at next too: the same expiry, or one that moved later by at most
+// ExpiryWarningLead. A shadow window renewed review by review, or a report
+// only a little newer, moves the date on every sweep; telling each move
+// would repeat one lapse. An earlier expiry, or one renewed past the lead,
+// is new.
+func sameWarning(warned, next time.Time) bool {
+	return !next.Before(warned) && next.Sub(warned) <= ExpiryWarningLead
+}
+
+// recordWarning records w unless the pair's newest warning already tells
+// it (sameWarning); false when it does.
 func (l *Limiter) recordWarning(ctx context.Context, w ExpiryWarning) (bool, error) {
 	key := pairKey{w.Family, w.Class}
 	l.noteMu.Lock()
 	defer l.noteMu.Unlock()
-	if last, ok := l.warned[key]; ok && last.Equal(w.HoldsUntil) {
+	if last, ok := l.warned[key]; ok && sameWarning(last, w.HoldsUntil) {
 		return false, nil
 	}
 	stored, err := l.svc.store.latestEvent(ctx, w.Family, w.Class, EventEvidenceExpiring)
@@ -144,8 +154,9 @@ func (l *Limiter) recordWarning(ctx context.Context, w ExpiryWarning) (bool, err
 	}
 	if stored != nil {
 		var prev expiryEvidence
-		if json.Unmarshal(stored.Evidence, &prev) == nil && prev.HoldsUntil.Equal(w.HoldsUntil) {
-			l.warned[key] = w.HoldsUntil
+		if json.Unmarshal(stored.Evidence, &prev) == nil &&
+			sameWarning(prev.HoldsUntil, w.HoldsUntil) {
+			l.warned[key] = prev.HoldsUntil
 			return false, nil
 		}
 	}

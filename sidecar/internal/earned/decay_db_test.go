@@ -418,3 +418,37 @@ func TestDecayViewsShowHoldsUntil(t *testing.T) {
 		t.Fatal("no trust row for wraparound/freeze")
 	}
 }
+
+// An expiry that a slightly newer report moves later is the warning
+// already sent; a report that renews it past the lead is warned again
+// when its own date comes near.
+func TestDecayWarningIsNotRepeatedForAMovingExpiry(t *testing.T) {
+	lf := newDecayFixture(t)
+	n := &expiryRecorder{}
+	lf.clock.Set(decayGenerated.Add(23*day + time.Minute))
+	lf.sweep(n)
+	ingest := func(generated time.Time) {
+		t.Helper()
+		if _, err := lf.svc.IngestEvalRun(lf.ctx, benchReport(generated, FamilyWraparound),
+			SourceBench, "user:1:admin@example.com", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lf.clock.Set(decayGenerated.Add(24*day + time.Minute))
+	ingest(decayGenerated.Add(day))
+	if res := lf.sweep(n); res.Warned != 0 || n.count() != 1 {
+		t.Fatalf("a day later expiry: %+v, %d warnings, want the first only", res, n.count())
+	}
+	ingest(decayGenerated.Add(9 * day))
+	lf.clock.Set(decayGenerated.Add(32*day + time.Minute))
+	if res := lf.sweep(n); res.Warned != 1 || n.count() != 2 {
+		t.Fatalf("a renewed expiry: %+v, %d warnings, want a second", res, n.count())
+	}
+	if w := n.warns[1]; !w.HoldsUntil.Equal(decayGenerated.Add(39*day)) ||
+		!slices.Equal(w.Checks, []string{"bench_fresh"}) {
+		t.Fatalf("second warning = %+v", w)
+	}
+	if evs := lf.pairEvents(EventEvidenceExpiring); len(evs) != 2 {
+		t.Fatalf("expiry events = %d, want 2", len(evs))
+	}
+}

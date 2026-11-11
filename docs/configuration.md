@@ -2224,8 +2224,10 @@ waiting for an action:
   recorded again after a restart.
 - Once the date is 7 days away or less, pg_sage warns once per pair and date: a history
   entry `evidence_expiring` and a notification through the rules for failed actions
-  (`action_failed`, severity warning), like a demotion. A new report moves the date and
-  warns again only when the new date comes near.
+  (`action_failed`, severity warning), like a demotion. A date that moves later by 7 days
+  or less (a shadow window renewed review by review, a report only a little newer) is the
+  same warning and is not sent again. A date that moves earlier, or a report that renews
+  the level by more than 7 days, warns again once the new date comes near.
 
 Carried-over and self-initiated levels do not decay with evidence and are not swept. The
 local bench is not scheduled by this: run it, or ingest a report, before the date.
