@@ -2114,7 +2114,8 @@ the burn started (only while burning) and the newest `slo:<name>` investigation,
 the `owner_database` when the SLO has one. When none was opened for a paging SLO it says so
 (`sre.slo.open_investigations` off, or `sre.automatic_start` off for a database proxy);
 when that database's investigator cannot be read it says so instead, never "none opened".
-The expansion reads the detail once per open and always names the row's database, so it works in fleet mode and for viewers.
+The expansion reads the detail once per open and always names the row's database, so it
+works in fleet mode and for viewers.
 
 #### Fleet SLOs and `owner_database`
 
