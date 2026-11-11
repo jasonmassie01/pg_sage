@@ -551,7 +551,7 @@ left out, never reported as `0`.
 | [`sage_self_cost`](findings.md#sage_self_cost) | database time of pg_sage's statements | `analyzer.self_cost_budget_ms` (3000, 5% of one core at a 60 s cycle) | ms per collector cycle |
 | [`sage_self_budget`](findings.md#sage_self_budget) | database time | `self_budget.db_time_ms_per_hour` (0: inherit `analyzer.self_cost_budget_ms` at the database's collector period) | ms per hour |
 | | shared blocks hit or read | `self_budget.blocks_per_hour` (18,000,000) | 8 KB blocks per hour |
-| | size of the `sage` schema | `self_budget.storage_mb` (10240) | MB |
+| | size of the `sage` schema, plus the database's share of a separate history store | `self_budget.storage_mb` (10240) | MB |
 | | sidecar process CPU, once for all databases | `self_budget.cpu_ms_per_cycle` (600, 1% of one core at 60 s) | ms per global collector cycle |
 | [`sage_footprint`](findings.md#sage_footprint) | `sage` schema's share of the database | `retention.sage_size_warning_pct` (10, and at least 256 MB) | percent |
 
@@ -581,9 +581,9 @@ noted:
 | `pg_sage_self_cpu_ms_per_cycle` | sidecar CPU per global collector cycle (ms), no label |
 | `pg_sage_self_budget{resource}` | declared `self_budget` per resource, no `database` label |
 | `pg_sage_self_budget_database{resource}` | budget a database inherits (`db_time` at its own collector period) |
-| `pg_sage_self_budget_exceeded{resource}` | 1 when pg_sage used more than its budget of the resource |
-| `pg_sage_self_loop_busy_seconds_total{loop}` | wall time of pg_sage's loops, LLM waits excluded (counter) |
-| `pg_sage_self_loop_runs_total{loop}` | runs of pg_sage's periodic loops (counter) |
+| `pg_sage_self_budget_exceeded{resource}` | 1 when pg_sage used more than its budget of the resource (`cpu` has no `database` label) |
+| `pg_sage_self_loop_busy_seconds_total{loop}` | wall time of pg_sage's loops, LLM waits excluded (counter; `database` only on a per-database loop) |
+| `pg_sage_self_loop_runs_total{loop}` | runs of pg_sage's periodic loops (counter; `database` only on a per-database loop) |
 
 [sage_self_cost](findings.md#sage_self_cost) and
 [sage_self_budget](findings.md#sage_self_budget) describe the windows and labels in full.

@@ -66,6 +66,19 @@ func TestDocsClaims_MarkdownCitesOnlyEvidenceTheRulesRead(t *testing.T) {
 	}
 }
 
+// The intro is checked on its own: the rules' evidence lines name the
+// collector's measured statement time, so a check of the whole Markdown
+// would not catch an intro that drops it or goes back to "own cost".
+func TestDocsClaims_IntroCitesOnlyEvidenceTheRulesRead(t *testing.T) {
+	cited := citesCollectorMeasure(Rules())
+	if p := costClaimProblems(markdownIntro, cited); len(p) != 0 {
+		t.Fatalf("derived-settings intro: %v: %q", p, markdownIntro)
+	}
+	if strings.Contains(strings.ToLower(markdownIntro), "own cost") {
+		t.Fatalf("derived-settings intro claims pg_sage's own cost: %q", markdownIntro)
+	}
+}
+
 func TestDocsClaims_NoCollectorRuleMeansNoCollectorClaim(t *testing.T) {
 	var probeOnly []Rule
 	for _, r := range Rules() {
