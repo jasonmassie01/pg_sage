@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
@@ -385,5 +387,29 @@ func TestBuildGatedFinding_UnverifiableIsAdvisory(t *testing.T) {
 	if f.RecommendedSQL == "" || f.Detail["hint_evidence"].(map[string]any)["verdict"] !=
 		"changed" {
 		t.Fatalf("changed finding: sql %q detail %v", f.RecommendedSQL, f.Detail)
+	}
+}
+
+// Error propagation: a statement timeout, a lock timeout and the caller's
+// deadline are explain_timeout; any other EXPLAIN error is explain_failed.
+// Both refuse and keep the comparison's server major.
+func TestRefuseExplain_ClassifiesTimeouts(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want HintVerdict
+	}{
+		{"statement_timeout", &pgconn.PgError{Code: "57014"}, HintExplainTimeout},
+		{"lock_timeout", &pgconn.PgError{Code: "55P03"}, HintExplainTimeout},
+		{"deadline", fmt.Errorf("read: %w", context.DeadlineExceeded), HintExplainTimeout},
+		{"syntax_error", &pgconn.PgError{Code: "42601"}, HintExplainFailed},
+		{"conn_closed", errors.New("conn closed"), HintExplainFailed},
+	}
+	for _, tc := range cases {
+		cmp, err := refuseExplain(HintComparison{PGMajor: 17}, "hinted", tc.err)
+		if cmp.Verdict != tc.want || !errors.Is(err, ErrHintRefused) || cmp.PGMajor != 17 ||
+			!strings.HasPrefix(cmp.Reason, "hinted EXPLAIN: ") {
+			t.Errorf("%s: %+v, %v, want %s", tc.name, cmp, err, tc.want)
+		}
 	}
 }

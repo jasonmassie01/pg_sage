@@ -425,3 +425,36 @@ func TestCompareHint_DeterministicGate(t *testing.T) {
 		t.Fatal("a refused statement must cool down")
 	}
 }
+
+// Both sides plan with the session's own max_parallel_workers_per_gather,
+// not catalogread's 0: with parallel plans free for this session, the plain
+// count(*) is parallel and Set(max_parallel_workers_per_gather "0") changes
+// it. Planned with 0 workers, the plain side would match the hinted one and
+// the hint would be refused as no_effect.
+func TestCompareHint_PlainSideKeepsSessionParallelWorkers(t *testing.T) {
+	base, ctx := hintExplainDB(t)
+	cfg, err := pgxpool.ParseConfig(base.Config().ConnString())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for k, v := range map[string]string{"max_parallel_workers_per_gather": "2",
+		"parallel_setup_cost": "0", "parallel_tuple_cost": "0",
+		"min_parallel_table_scan_size": "0"} {
+		cfg.ConnConfig.RuntimeParams[k] = v
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	cmp, err := CompareHint(ctx, pool, `SELECT count(*) FROM hx.orders o`,
+		`Set(max_parallel_workers_per_gather "0")`, 0, hxOpts)
+	if err != nil || cmp.Verdict != HintChanged || cmp.Basis != "plan" {
+		t.Fatalf("parallel workers hint: %+v, %v, want changed", cmp, err)
+	}
+	if !strings.Contains(string(cmp.PlainPlan), `"Gather`) ||
+		strings.Contains(string(cmp.HintedPlan), `"Gather`) {
+		t.Fatalf("plain plan should be parallel and hinted not:\n%s\n%s",
+			cmp.PlainPlan, cmp.HintedPlan)
+	}
+}
