@@ -10,18 +10,22 @@ import (
 )
 
 // writeSelfCostFromFleet exports what pg_sage itself costs each database
-// (perf v1.8.3), as measured by each instance's analyzer.
+// (perf v1.8.3) and its database time by component (footprint-08), as
+// measured by each instance's analyzer.
 func writeSelfCostFromFleet(b *strings.Builder, mgr *fleet.DatabaseManager) {
 	if mgr == nil || cfg == nil {
 		return
 	}
 	costs := map[string]selfcost.Cost{}
+	comps := map[string][]selfcost.ComponentCost{}
 	for name, inst := range mgr.Instances() {
 		if inst != nil && inst.Analyzer != nil {
-			costs[name] = inst.Analyzer.SelfCost()
+			fp := inst.Analyzer.SelfFootprint()
+			costs[name], comps[name] = fp.Cost, fp.ByComponent
 		}
 	}
 	writeSelfCostMetrics(b, costs, cfg.Analyzer.SelfCostBudgetMs)
+	writeSelfComponentMetrics(b, comps)
 }
 
 // selfCostGauge is one per-database self-cost series.
