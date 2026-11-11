@@ -104,7 +104,8 @@ func (fw *FileWatcher) Start(ctx context.Context) error {
 
 // Drain reads all new lines from the tailer, parses and classifies
 // each one, and returns the resulting signals. It also resets the
-// classifier cycle counter and cleans expired dedup entries. When lines
+// classifier cycle counter, reports the repeats the dedup windows counted
+// (one follow-up per window) and cleans expired dedup entries. When lines
 // were lost since the last drain (queue overflow or the per-cycle cap) it
 // counts them and appends a log_watcher_overloaded signal (rca-06).
 func (fw *FileWatcher) Drain() []*rca.Signal {
@@ -117,6 +118,9 @@ func (fw *FileWatcher) Drain() []*rca.Signal {
 	}
 	queueDropped := fw.tailer.TakeDropped()
 	signals := fw.classifyLines(lines)
+	// After the drain's own signals, so the counted follow-up is the last
+	// of its id (rca-07).
+	signals = append(signals, fw.classifier.FollowUps()...)
 	capped := fw.classifier.ResetCycle()
 	fw.classifier.CleanExpiredDedup()
 	fw.drops.add(queueDropped, capped)

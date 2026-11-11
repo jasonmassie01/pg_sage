@@ -105,6 +105,10 @@ func (s *LogSink) Handle(ctx context.Context, entries []logwatch.LogEntry) error
 		return nil
 	}
 	s.classifier.ResetCycle()
+	// Handle is the sink's cycle boundary: the repeats the previous batches
+	// counted are reported before their windows are cleaned (rca-07). The
+	// queue may exceed its cap by these few, one per (signal, database).
+	s.signals = append(s.signals, s.classifier.FollowUps()...)
 	s.classifier.CleanExpiredDedup()
 	for _, entry := range matching {
 		if signal := s.classifier.Classify(entry); signal != nil {

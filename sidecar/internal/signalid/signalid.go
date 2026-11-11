@@ -76,6 +76,9 @@ const (
 	LogWraparoundOutage           = "log_wraparound_outage"
 	LogMultiXactWraparoundWarning = "log_multixact_wraparound_warning"
 	LogMultiXactWraparoundOutage  = "log_multixact_wraparound_outage"
+	// rca-07: a statement cancelled by pg_cancel_backend or a client
+	// cancel request. Info only: it never becomes an incident.
+	LogStatementCancelled = "log_statement_cancelled"
 )
 
 // Detector signals (sre/detect_incident.go).
@@ -128,6 +131,15 @@ var all = []Info{
 	{SRECheckpointStorm, FamilyDetector, KindCheckpoint},
 	{SRETempFileExplosion, FamilyDetector, KindTempFiles},
 	{SRELWLockContention, FamilyDetector, KindLocks},
+}
+
+// classifierOnly are log ids the classifier emits that no incident carries.
+var classifierOnly = []string{LogStatementCancelled}
+
+// ClassifierOnly returns the log signal ids logwatch classifies that never
+// become an incident (so they are not in All). The slice is a copy.
+func ClassifierOnly() []string {
+	return append([]string(nil), classifierOnly...)
 }
 
 // All returns every signal id an incident can carry, in a fixed order

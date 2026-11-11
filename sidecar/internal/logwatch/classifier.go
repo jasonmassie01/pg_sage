@@ -85,11 +85,16 @@ type ClassifierConfig struct {
 	MaxLinesPerCycle int   // 0 = unlimited
 }
 
-// dedupEntry tracks repeated occurrences of (signalID, database).
+// dedupEntry tracks repeated occurrences of (signalID, database) within
+// one dedup window. emitted is how many of them a signal already reported
+// (rca-07); sig is the window's first signal, the template of follow-ups.
 type dedupEntry struct {
 	firstSeen time.Time
+	lastSeen  time.Time
 	count     int
+	emitted   int
 	pids      map[int]bool
+	sig       *rca.Signal
 }
 
 // Classifier matches LogEntry values against the signal pattern table and
@@ -102,7 +107,10 @@ type Classifier struct {
 	maxLinesPerCycle int
 	logFn            func(string, string, ...any)
 
-	dedupBuf       map[string]*dedupEntry
+	dedupBuf map[string]*dedupEntry
+	// pending holds follow-ups of windows closed before a drain reported
+	// them (rca-07).
+	pending        []*rca.Signal
 	linesThisCycle int
 	// cappedThisCycle counts lines skipped by maxLinesPerCycle (rca-06).
 	cappedThisCycle int
@@ -166,7 +174,8 @@ func (c *Classifier) Classify(entry LogEntry) *rca.Signal {
 		return nil
 	}
 
-	if c.isDuplicate(pat.ID, entry.Database, entry.PID, entry.Timestamp) {
+	key := pat.ID + "\x00" + entry.Database
+	if c.recordOccurrence(key, occurrencePIDs(pat.ID, entry), entry.Timestamp, sig) {
 		return nil
 	}
 	return sig
@@ -182,13 +191,15 @@ func (c *Classifier) ResetCycle() int {
 	return capped
 }
 
-// CleanExpiredDedup removes dedup entries older than dedupWindow.
+// CleanExpiredDedup removes dedup entries whose window has closed. An
+// entry with repeats no signal reported yet leaves a pending follow-up.
 func (c *Classifier) CleanExpiredDedup() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	now := time.Now()
 	for k, de := range c.dedupBuf {
-		if now.Sub(de.firstSeen) > c.dedupWindow {
+		if now.Sub(de.firstSeen) >= c.dedupWindow {
+			c.closeEntry(de)
 			delete(c.dedupBuf, k)
 		}
 	}
@@ -260,6 +271,12 @@ func (c *Classifier) buildSignal(
 			return nil
 		}
 		metrics["temp_file_bytes"] = sz
+	case signalid.LogStatementTimeout:
+		// 57014 without the English text (lc_messages): a timeout or a
+		// cancel, which the classifier cannot tell apart (rca-07).
+		if !strings.Contains(strings.ToLower(entry.Message), "statement timeout") {
+			metrics["message_unclassified"] = true
+		}
 	case signalid.LogSlowQuery:
 		dur := parseSlowQueryDuration(entry.Message)
 		metrics["duration_ms"] = dur
@@ -274,39 +291,4 @@ func (c *Classifier) buildSignal(
 		Severity: pat.Severity,
 		Metrics:  metrics,
 	}
-}
-
-// ---------------------------------------------------------------------------
-// Dedup
-// ---------------------------------------------------------------------------
-
-// isDuplicate returns true if (signalID, database) was already seen within
-// the dedup window. On first occurrence it records the entry and returns false.
-func (c *Classifier) isDuplicate(
-	signalID, database string, pid int, ts time.Time,
-) bool {
-	key := signalID + "\x00" + database
-	de, exists := c.dedupBuf[key]
-	if !exists {
-		c.dedupBuf[key] = &dedupEntry{
-			firstSeen: ts,
-			count:     1,
-			pids:      map[int]bool{pid: true},
-		}
-		return false
-	}
-	if ts.Sub(de.firstSeen) > c.dedupWindow {
-		// Window expired — start a new entry.
-		c.dedupBuf[key] = &dedupEntry{
-			firstSeen: ts,
-			count:     1,
-			pids:      map[int]bool{pid: true},
-		}
-		return false
-	}
-	de.count++
-	if len(de.pids) < MaxAffectedPIDs {
-		de.pids[pid] = true
-	}
-	return true
 }
