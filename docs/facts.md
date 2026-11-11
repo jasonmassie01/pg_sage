@@ -28,6 +28,18 @@ would not have done anyway.
   is a wildcard.
 * A subject that could match pg_sage's own `sage` schema or a system schema (`*`, `s*`,
   `pg_*`, `*.orders`) is refused.
+* To see what a subject matches today, use **Check what it matches** on a proposed fact or
+  in the declare form, or `GET /api/v1/facts/coverage?database=...&kind=...&subject=...`
+  (any signed-in role). It lists at most 50 matching objects in name order and says
+  `truncated` when there are more; the form shows the first 10 and "50+" for a cut list.
+  It uses the same patterns re-verification checks, as a read-only catalog query under a
+  2 s statement timeout. An invalid subject gives `400 invalid_fact`, one that could match a
+  protected schema `400 protected_subject`, and no match an empty list.
+* Values: `slot_consumer` names its `consumer`, `table_window` its `kind` and `window`;
+  the other types take an optional `note`. `owned_by_app_migrations` no longer takes `repo`
+  or `path` (nothing read them): a new proposal with either is refused, while facts stored
+  with them keep loading and binding. MCP `mark_object` still accepts `repo` and `path` and
+  records them in the mark's evidence, where the person deciding sees them.
 
 ## Where facts come from
 
@@ -68,14 +80,22 @@ would not have done anyway.
   (the WAL custodian then escalates again); the fact stays rejected.
 
 Nothing proposed binds anything until a person confirms it, whichever of these proposed it.
+Every new proposal, from any of these paths (the detectors and the model, the first look,
+Ask Sage, MCP `propose_fact` and `mark_object`), sends one fact card to the channels that
+receive approval requests (see [Confirming and rejecting](#confirming-and-rejecting)).
+Proposing the same fact again sends no second card; an expired fact that a proposal reopens
+sends a new one. A card that cannot be sent is logged (`db "...": fact card N not sent`) and
+the proposal stands; it can still be decided on the Facts page. In a fleet each database's
+runtime sends the cards of its own database.
 A rejected fact stays rejected when it is proposed again (the proposal count grows); new
 evidence reopens only an expired fact. Rejected facts are kept as tombstones: retention never
 purges them, so the rejection is remembered for as long as the database is monitored.
 
 ## Confirming and rejecting
 
-* **Facts page** in the UI: proposed facts with their evidence, Confirm / Reject, and
-  Reject or Expire for confirmed facts. A form declares a new fact.
+* **Facts page** in the UI: proposed facts with their evidence, what their subject matches
+  today, Confirm / Reject, and Reject or Expire for confirmed facts. A form declares a new
+  fact and previews what its subject matches before you declare it.
 * **Inline** on findings and approval cards: the facts that bind the object, and proposed
   facts about it with Confirm / Reject. A finding redirected by a fact shows its source-fix
   packet; a cleanup finding shows its batch.
@@ -84,7 +104,8 @@ purges them, so the rejection is remembered for as long as the database is monit
   single-use token bound to the channel, signed callbacks, a mapped operator or admin, and
   the fact unchanged since the card was sent.
 * **API**: `GET /api/v1/facts`, `POST /api/v1/facts` (declare),
-  `POST /api/v1/facts/{id}/confirm|reject|expire`, `GET /api/v1/facts/match?object=...`.
+  `POST /api/v1/facts/{id}/confirm|reject|expire`, `GET /api/v1/facts/match?object=...`,
+  `GET /api/v1/facts/coverage?kind=...&subject=...`.
   Viewers read; operators and admins decide.
 * **MCP**: `list_facts`, `propose_fact` (stays proposed), `decide_fact` (operator or admin).
 

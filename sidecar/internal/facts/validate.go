@@ -30,9 +30,11 @@ var typeKinds = map[Type][]Kind{
 }
 
 // valueKeys are the value fields each fact type accepts; required ones
-// are checked by validateValue.
+// are checked by validateValue. Only new proposals are checked: a stored
+// value with a key retired since (owned_by_app_migrations' repo and path,
+// facts-09) still loads and binds.
 var valueKeys = map[Type]map[string]bool{
-	TypeAppMigrations: {"repo": true, "path": true, "note": true},
+	TypeAppMigrations: {"note": true},
 	TypeTestFixture:   {"note": true},
 	TypeSlotConsumer:  {"consumer": true},
 	TypeAppendOnly:    {"note": true},

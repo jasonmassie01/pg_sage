@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { decideFact, formatFactDate } from '../../lib/facts'
+import { FactCoverage } from './FactCoverage'
 
 // FactCard shows one binding fact: the fact in words, what it is about,
 // who proposed it from what evidence, its decision and provenance, and,
@@ -42,6 +43,11 @@ export function FactCard({ fact, canDecide, onDecided }) {
         <p className="text-sm" style={strong}>Rationale: {fact.rationale}</p>
       )}
       <FactDecisionInfo fact={fact} />
+      {fact.status === 'proposed' && (
+        <FactCoverage database={fact.database} kind={fact.subject_kind}
+          subject={fact.subject || ''} testId={`fact-coverage-${fact.id}`}
+          key={`${fact.subject_kind}:${fact.subject}`} />
+      )}
       {canDecide && DECISIONS[fact.status] && (
         <FactDecision fact={fact} onDecided={onDecided} />
       )}

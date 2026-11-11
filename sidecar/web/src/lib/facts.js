@@ -46,6 +46,31 @@ export function factsMatchURL(database, objects) {
   return `/api/v1/facts/match${dbQuery(database)}${params}`
 }
 
+// factCoverageURL asks which objects a subject of kind matches on one
+// database today (facts-09).
+export function factCoverageURL(database, kind, subject) {
+  return `/api/v1/facts/coverage${dbQuery(database)}&kind=${encodeURIComponent(kind)}`
+    + `&subject=${encodeURIComponent(subject)}`
+}
+
+// fetchFactCoverage returns { objects, truncated }; a refusal or a reply
+// without an object list is an error, never "no match".
+export async function fetchFactCoverage(database, kind, subject) {
+  const res = await fetch(factCoverageURL(database, kind, subject),
+    { credentials: 'include' })
+  let json = {}
+  try {
+    json = await res.json()
+  } catch (err) {
+    json = { error: `unreadable response (${res.status}: ${err.message})` }
+  }
+  if (!res.ok) throw new Error(factErrorMessage(res.status, json))
+  if (!Array.isArray(json.objects)) {
+    throw new Error(`unreadable coverage response (${res.status})`)
+  }
+  return { objects: json.objects.map(String), truncated: json.truncated === true }
+}
+
 // factErrorMessage turns a refused fact request into words a person can
 // act on.
 export function factErrorMessage(status, json) {

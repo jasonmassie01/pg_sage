@@ -92,7 +92,6 @@ type firstLookRun struct {
 	started        time.Time
 	tracker        *onboarding.Tracker
 	facts          *facts.Store
-	notify         func(context.Context, facts.Fact)
 	summarizer     *firstlook.Summarizer
 	model          string
 	opts           firstlook.Options
@@ -112,7 +111,7 @@ type firstLookRun struct {
 func (rt *databaseRuntime) startFirstLook() {
 	run := &firstLookRun{name: rt.spec.Name, provider: rt.provider, pool: rt.spec.Pool,
 		started: measureFrom(rt.spec.Name, time.Now()), tracker: firstLookTracker,
-		facts: rt.facts, notify: rt.notifyFact, logf: logStructuredWrapper,
+		facts: rt.facts, logf: logStructuredWrapper,
 		opts: rt.resolveFirstLookOptions(rt.ctx), life: rt.ctx,
 		reprobe: rt.reprobeCapabilities}
 	if rt.llmOn {
@@ -310,20 +309,16 @@ func (f *firstLookRun) recordFirstFinding(ctx context.Context, at time.Time,
 }
 
 // proposeFacts records the first look's fact proposals; an operator
-// confirms them, so nothing binds yet.
+// confirms them, so nothing binds yet. Each new one sends its card through
+// the pool's proposal notifier (registerFactCards).
 func (f *firstLookRun) proposeFacts(ctx context.Context, props []facts.Proposal) {
 	if f.facts == nil {
 		return
 	}
 	for _, p := range props {
-		fact, created, err := f.facts.Propose(ctx, p)
-		if err != nil {
+		if _, _, err := f.facts.Propose(ctx, p); err != nil {
 			f.logf("WARN", "first look of %q: propose %s %q: %v", f.name, p.Type,
 				p.Subject, err)
-			continue
-		}
-		if created && f.notify != nil {
-			f.notify(ctx, fact)
 		}
 	}
 }
