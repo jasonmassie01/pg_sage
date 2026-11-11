@@ -159,6 +159,13 @@ func TestCIImageBuildNeverOverwritesARevision(t *testing.T) {
 	if job.Steps[check].ID != "published" {
 		t.Errorf("the existence check has id %q, want published", job.Steps[check].ID)
 	}
+	// Fail closed: only a registry "not found" means unpublished. Any other
+	// error (auth, rate limit, outage) fails the build instead of
+	// rebuilding and overwriting a published revision.
+	if run := job.Steps[check].Run; !strings.Contains(run, "no such manifest") ||
+		!strings.Contains(run, "exit 1") {
+		t.Errorf("the existence check treats every error as unpublished: %q", run)
+	}
 	gate := "steps.published.outputs.exists != 'true'"
 	for i := check + 1; i < len(job.Steps); i++ {
 		if !strings.Contains(expr(job.Steps[i].If), gate) {

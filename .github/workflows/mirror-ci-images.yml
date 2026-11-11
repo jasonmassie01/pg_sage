@@ -59,12 +59,18 @@ jobs:
 
       - name: Skip a revision that is already published
         id: published
+        # Only the registry's "not found" means unpublished: on any other
+        # error (auth, rate limit, outage) a rebuild could overwrite a
+        # published revision, so the build fails instead.
         run: |
-          if docker manifest inspect "$TAG" >/dev/null 2>&1; then
+          if out=$(docker manifest inspect "$TAG" 2>&1); then
             echo "::notice title=CI image unchanged::$TAG is published; images are immutable, bump REVISION to change it."
             echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
+          elif grep -qiE 'no such manifest|manifest unknown' <<<"$out"; then
             echo "exists=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error title=CI image check failed::cannot tell whether $TAG is published: $out"
+            exit 1
           fi
 
       - uses: actions/checkout@v4
