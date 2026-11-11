@@ -15,7 +15,8 @@ import (
 // pending row an operator approved outside its window becomes 'scheduled'
 // with run_after (the opening) and window_closes_at. The executor claims
 // due rows (status 'approved', decided by the scheduler), so one sidecar
-// wins; every other outcome returns the row to 'pending' with the reason.
+// wins. The runner asks the gate before it claims, so a schedule the gate
+// withholds returns to 'pending' without approving its recommendation.
 
 var (
 	// ErrNotSchedulable: the row is not a pending, unexpired approval of an
@@ -86,11 +87,12 @@ func (s *ActionStore) Unschedule(ctx context.Context, queueID, userID int) (
 	return s.returnToPending(ctx, queueID, "scheduled", reason, true)
 }
 
-// ReturnClaimedToPending returns a claimed schedule (status 'approved')
-// that the runner did not run to pending with the reason.
-func (s *ActionStore) ReturnClaimedToPending(ctx context.Context, queueID int,
+// ReturnScheduledToPending returns a schedule the gate withholds at its
+// opening to pending with the reason. Who scheduled it stays as history;
+// ErrNotScheduled means another sidecar claimed or settled it first.
+func (s *ActionStore) ReturnScheduledToPending(ctx context.Context, queueID int,
 	reason string) (*QueuedAction, error) {
-	return s.returnToPending(ctx, queueID, "approved", reason, false)
+	return s.returnToPending(ctx, queueID, "scheduled", reason, false)
 }
 
 func (s *ActionStore) returnToPending(ctx context.Context, queueID int, from,
@@ -146,31 +148,54 @@ func (s *ActionStore) ReturnStaleSchedules(ctx context.Context) ([]QueuedAction,
 	return scanQueuedActions(rows)
 }
 
-// claimDueSQL claims the earliest due schedule still inside its window:
-// it becomes an approval decided by the person who scheduled it.
+// dueScheduleWhere is a schedule that may start now: due and still inside
+// the window it was planned for.
+const dueScheduleWhere = ` q.status = 'scheduled' AND q.run_after <= now()
+	   AND (q.window_closes_at IS NULL OR q.window_closes_at > now())`
+
+// NextDueSchedule reads, without claiming, the earliest schedule that may
+// start now, so the runner can ask the gate before it claims it; none is
+// ErrNoDueSchedule.
+func (s *ActionStore) NextDueSchedule(ctx context.Context) (*QueuedAction, error) {
+	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	a, err := scanQueuedAction(s.pool.QueryRow(qctx, queuedActionSelectSQL+
+		` WHERE`+dueScheduleWhere+` ORDER BY q.run_after, q.id LIMIT 1`))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNoDueSchedule
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reading the next due schedule: %w", err)
+	}
+	return &a, nil
+}
+
+// claimDueSQL claims schedule $1 while it may start now: it becomes an
+// approval decided by the person who scheduled it. A row another sidecar
+// holds is skipped, and the status is checked again under the row lock.
 const claimDueSQL = `/* pg_sage */ UPDATE sage.action_queue q
 	 SET status = 'approved', decided_by = q.scheduled_by, decided_at = now(),
 	     run_after = NULL, window_closes_at = NULL
 	 WHERE q.id = (
-	     SELECT id FROM sage.action_queue
-	      WHERE status = 'scheduled' AND run_after <= now()
-	        AND (window_closes_at IS NULL OR window_closes_at > now())
-	      ORDER BY run_after, id
-	      LIMIT 1
+	     SELECT q.id FROM sage.action_queue q
+	      WHERE q.id = $1 AND` + dueScheduleWhere + `
 	      FOR UPDATE SKIP LOCKED)
 	   AND q.status = 'scheduled'
 	 RETURNING ` + queuedActionColumns
 
-// ClaimDueSchedule claims one due schedule. A schedule whose
-// recommendation was revised since is returned to pending and reported as
-// ErrScheduleRevised with the row; no due row is ErrNoDueSchedule.
-func (s *ActionStore) ClaimDueSchedule(ctx context.Context) (*QueuedAction, error) {
+// ClaimDueSchedule claims schedule queueID and approves its recommendation
+// in one transaction. A schedule whose recommendation was revised since
+// is returned to pending and reported as ErrScheduleRevised with the row;
+// one that is not (or no longer) due, or that another sidecar holds, is
+// ErrNoDueSchedule.
+func (s *ActionStore) ClaimDueSchedule(ctx context.Context, queueID int) (
+	*QueuedAction, error) {
 	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	var a QueuedAction
 	err := pgx.BeginFunc(qctx, s.pool, func(tx pgx.Tx) error {
 		var err error
-		a, err = scanQueuedAction(tx.QueryRow(qctx, claimDueSQL))
+		a, err = scanQueuedAction(tx.QueryRow(qctx, claimDueSQL, queueID))
 		if err != nil || a.RecommendationID == nil {
 			return err
 		}

@@ -316,10 +316,11 @@ no decision and takes no budget slot.
    When the window is the only refusal (the gate re-runs the operator path with the window
    treated as open), the approval is scheduled instead of refused: the item becomes
    `scheduled` with the next opening (`run_after`) and that window's close. Each executor
-   cycle claims due items (one sidecar wins), asks the gate again under the policy then in
-   force and runs them. A stop, a narrowed policy, a revised recommendation, a resolved
-   finding or a missed window returns the item to `pending` with the reason and sends a new
-   approval request. A schedule covers one window only; a failed run is recorded as
+   cycle asks the gate again about each due item under the policy then in force, then
+   claims it (one sidecar wins) and runs it. A stop, a narrowed policy, a revised
+   recommendation, a resolved finding or a missed window returns the item to `pending`
+   with the reason, before its recommendation is approved, and sends a new approval
+   request. A schedule covers one window only; a failed run is recorded as
    `failed` and never rescheduled.
 4. The executor takes the change lease and runs the action. An operator action that cannot
    get the lease is refused (`blocked` `ddl_conflict`) rather than parked: a person is

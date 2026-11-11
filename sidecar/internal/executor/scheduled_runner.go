@@ -14,10 +14,13 @@ import (
 
 // Approve now, run in the next window (policy-04). An operator approval
 // that only the maintenance window withholds is scheduled for the next
-// opening. Each cycle the runner claims due rows (one sidecar wins), asks
-// the gate again under the current policy (stops, trust, narrowed classes
-// and the start margin all bind), and runs them through RunApprovedAction.
-// Any other outcome returns the row to pending and tells the approver.
+// opening. Each cycle the runner asks the gate again about each due row
+// under the current policy (stops, trust, narrowed classes and the start
+// margin all bind), then claims it (one sidecar wins) and runs it through
+// RunApprovedAction. A withheld row returns to pending before it is
+// claimed, so its recommendation is never left approved: the executor
+// cycle would run an approved recommendation on its own. The approver is
+// told whenever a row returns to pending.
 
 // maxScheduledRunsPerCycle bounds the approvals one cycle starts.
 const maxScheduledRunsPerCycle = 8
@@ -95,8 +98,8 @@ func (e *Executor) NextApprovalWindow(ctx context.Context, sql string) (
 }
 
 // RunScheduledApprovals settles scheduled approvals and returns how many
-// it ran: stale schedules return to pending, then due ones are claimed and
-// run one at a time.
+// it ran: stale schedules return to pending, then due ones are checked,
+// claimed and run one at a time.
 func (e *Executor) RunScheduledApprovals(ctx context.Context) int {
 	if e == nil || e.pool == nil {
 		return 0
@@ -105,22 +108,63 @@ func (e *Executor) RunScheduledApprovals(ctx context.Context) int {
 	e.returnStaleSchedules(ctx, as)
 	ran := 0
 	for range maxScheduledRunsPerCycle {
-		action, err := as.ClaimDueSchedule(ctx)
-		switch {
-		case errors.Is(err, store.ErrNoDueSchedule):
-			return ran
-		case errors.Is(err, store.ErrScheduleRevised) && action != nil:
-			e.notifyScheduleReturned(ctx, *action)
-			continue
-		case err != nil:
-			e.logFn("executor", "claim scheduled approval: %v", err)
+		due, err := as.NextDueSchedule(ctx)
+		if errors.Is(err, store.ErrNoDueSchedule) {
 			return ran
 		}
-		if e.runClaimedSchedule(ctx, as, *action) {
+		if err != nil {
+			e.logFn("executor", "read due scheduled approvals: %v", err)
+			return ran
+		}
+		executed, err := e.runDueSchedule(ctx, as, *due)
+		if err != nil {
+			e.logFn("executor", "scheduled approval %d: %v", due.ID, err)
+			return ran
+		}
+		if executed {
 			ran++
 		}
 	}
 	return ran
+}
+
+// runDueSchedule asks the gate about one due schedule, then claims and
+// runs it. It reports whether the action ran, and an error that should end
+// this cycle's pass (a failed queue write, not a refusal or a lost race).
+func (e *Executor) runDueSchedule(ctx context.Context, as *store.ActionStore,
+	due store.QueuedAction) (bool, error) {
+	preview := e.explainOperatorAction(ctx, due.ProposedSQL)
+	if preview.Decision != PolicyDecisionExecute {
+		return false, e.withholdSchedule(ctx, as, due, preview)
+	}
+	action, err := as.ClaimDueSchedule(ctx, due.ID)
+	switch {
+	case errors.Is(err, store.ErrNoDueSchedule):
+		return false, nil // another sidecar claimed or settled it
+	case errors.Is(err, store.ErrScheduleRevised) && action != nil:
+		e.notifyScheduleReturned(ctx, *action)
+		return false, nil
+	case err != nil:
+		return false, fmt.Errorf("claim: %w", err)
+	}
+	return e.runClaimedSchedule(ctx, as, *action), nil
+}
+
+// withholdSchedule returns a schedule the gate refuses at its opening to
+// pending, unclaimed, and tells the approver why.
+func (e *Executor) withholdSchedule(ctx context.Context, as *store.ActionStore,
+	due store.QueuedAction, preview ActionPolicyDecision) error {
+	reason := "scheduled approval withheld at the window opening: " +
+		humanPolicyReason(preview)
+	returned, err := as.ReturnScheduledToPending(ctx, due.ID, reason)
+	if errors.Is(err, store.ErrNotScheduled) {
+		return nil // another sidecar claimed or settled it first
+	}
+	if err != nil {
+		return fmt.Errorf("return to pending: %w", err)
+	}
+	e.notifyScheduleReturned(ctx, *returned)
+	return nil
 }
 
 func (e *Executor) returnStaleSchedules(ctx context.Context, as *store.ActionStore) {
@@ -133,24 +177,13 @@ func (e *Executor) returnStaleSchedules(ctx context.Context, as *store.ActionSto
 	}
 }
 
-// runClaimedSchedule re-authorizes and runs one claimed schedule.
+// runClaimedSchedule runs one claimed schedule; RunApprovedAction
+// authorizes it again as the approver's operator approval.
 func (e *Executor) runClaimedSchedule(ctx context.Context, as *store.ActionStore,
 	action store.QueuedAction) bool {
 	approver := 0
 	if action.DecidedBy != nil {
 		approver = *action.DecidedBy
-	}
-	preview := e.explainOperatorAction(ctx, action.ProposedSQL)
-	if preview.Decision != PolicyDecisionExecute {
-		reason := "scheduled approval withheld at the window opening: " +
-			humanPolicyReason(preview)
-		returned, err := as.ReturnClaimedToPending(ctx, action.ID, reason)
-		if err != nil {
-			e.logFn("executor", "return scheduled approval %d: %v", action.ID, err)
-			return false
-		}
-		e.notifyScheduleReturned(ctx, *returned)
-		return false
 	}
 	run, err := e.RunApprovedAction(ctx, action, approver)
 	if err != nil {
