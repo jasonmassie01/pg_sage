@@ -2451,6 +2451,21 @@ with the rollback error. Instance records are `applied`, `not_locally_verified`,
 `verification_pending`, `rolled_back`, `rollback_failed` (after a halt),
 `applied_unverified` (after an error), `rollback_unavailable` or `failed` (not changed).
 
+A run is recorded as it goes, in `sage.rollout_run` and `sage.rollout_instance` on the
+control database: the run's ordered `targets`, then each database's part as it happens,
+`applying` before the change, `awaiting_verdict` with the action id once changed, and then
+its verdict. A database's record that cannot be written stops the canary before it touches
+another database, and rolls back what it changed. A sidecar that runs a canary holds a
+session advisory lock for that run on the control database, so a stopped sidecar releases it.
+At startup the sidecar marks every run left in `canary` that no session holds as
+`interrupted` (halt reason `sidecar_restart`), marks its `applying` and `awaiting_verdict`
+databases `interrupted`, and raises one `canary_interrupted` notification (warning) naming
+the run and those databases with their action ids. An interrupted run is final and never
+resumed: a change already made stays with that database's own post-action monitor, so check
+its action log and keep or roll it back, then start a new canary if the change should still
+roll out. With two sidecars on one control database (HA), a run the other sidecar is still
+running is left alone, and two sidecars starting at once interrupt each run once.
+
 API, under `/api/v1/sre/autonomy`. Every route takes `?database=<name>`.
 
 The ledger is per database: each database earns its own levels from its own shadow reviews,
