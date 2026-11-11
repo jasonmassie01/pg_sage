@@ -2367,6 +2367,26 @@ rolled back. Nothing a bench did not name or record
 is touched: an operator's own `ALTER SYSTEM` setting, another slot or an application's
 prepared transaction stays.
 
+Each game day and local bench run ends in one status, shown on the Autonomy page and in
+`GET /api/v1/sre/autonomy/game-days` (`status`):
+
+| Status | Meaning |
+|---|---|
+| `running` | In progress |
+| `completed` | The fault programs ran, the report was ingested and at least one run scored |
+| `completed_unscored` | The fault programs ran and the report was ingested, but no run scored: every fault program skipped on the clone (for example a snapshot clone without superuser skips the checkpoint, WAL-slot, temp-file and archiver programs, and `max_prepared_transactions = 0` skips the prepared-transaction programs), or the report had no runs. It is no safety signal: fix the clone and run again |
+| `failed` | The clone, the fault programs or the ingest failed (`error` says which) |
+| `destroy_failed` | The run finished but its clone could not be destroyed (`error` names it) |
+| `abandoned` | Its sidecar never finished it (see above) |
+
+Every finished run also records `summary` (`sage.sre_game_days.summary`): the count of
+`scored`, `skipped` and `errored` runs and `top_skips`, the five most frequent skip
+reasons with their counts. A `completed_unscored` run logs one WARN naming them. A run
+that failed before it had a report, and a row written before this release, has no
+`summary`. Game-day Safe Pass evidence is unchanged: a `completed_unscored` report adds
+nothing to a family's `game_day_safe_pass` check, so that check still reads "none"
+until a game day scores a run of the family.
+
 #### Bench evidence: signed release reports and local runs
 
 L2 needs a PGIncidentBench report for the family. You do not have to copy CI artifacts:
