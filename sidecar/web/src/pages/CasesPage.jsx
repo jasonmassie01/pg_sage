@@ -79,8 +79,12 @@ export function CasesPage({ database, initialSource = 'all', user }) {
   const [sourceFilter, setSourceFilter] = useState(initialSource)
   const [showSuppressed, setShowSuppressed] = useState(false)
   const [focusedID, setFocusedID] = useState(() => focusedCaseID())
+  const [findingLink, setFindingLink] = useState(() => linkedFinding())
   useEffect(() => {
-    const onHashChange = () => setFocusedID(focusedCaseID())
+    const onHashChange = () => {
+      setFocusedID(focusedCaseID())
+      setFindingLink(linkedFinding())
+    }
     window.addEventListener('hashchange', onHashChange)
     return () => window.removeEventListener('hashchange', onHashChange)
   }, [])
@@ -100,8 +104,10 @@ export function CasesPage({ database, initialSource = 'all', user }) {
   const filteredCases = sourceFilter === 'all'
     ? cases
     : cases.filter(c => c.source_type === sourceFilter)
-  const focusedCase = cases.find(c => caseID(c) === focusedID)
-  const visibleCases = focusedID ? (focusedCase ? [focusedCase] : []) : filteredCases
+  const focusedCase = focusedID ? cases.find(c => caseID(c) === focusedID)
+    : findingLink ? cases.find(c => isFindingCase(c, findingLink)) : undefined
+  const focused = Boolean(focusedID || findingLink)
+  const visibleCases = focused ? (focusedCase ? [focusedCase] : []) : filteredCases
   const criticalCount = cases.filter(c => c.severity === 'critical').length
   const investigationCount = cases.filter(c => !c.action_candidates?.length).length
   const listQuery = database && database !== 'all'
@@ -131,9 +137,10 @@ export function CasesPage({ database, initialSource = 'all', user }) {
       <CasesHealthNotes unavailable={data?.unavailable}
         truncated={data?.truncated} />
 
-      {focusedID ? (
+      {focused ? (
         <a href={`#/cases${listQuery}`} className="inline-block text-sm underline"
-          style={{ color: 'var(--accent)' }} onClick={() => setFocusedID(null)}>
+          style={{ color: 'var(--accent)' }}
+          onClick={() => { setFocusedID(null); setFindingLink(null) }}>
           Back to all cases
         </a>
       ) : <div className="flex flex-wrap gap-2" aria-label="Case source filters">
@@ -156,7 +163,7 @@ export function CasesPage({ database, initialSource = 'all', user }) {
         ))}
       </div>}
 
-      {!focusedID && <div>
+      {!focused && <div>
         <button type="button" data-testid="cases-show-suppressed"
           aria-pressed={showSuppressed}
           onClick={() => setShowSuppressed(v => !v)}
@@ -176,11 +183,11 @@ export function CasesPage({ database, initialSource = 'all', user }) {
 
       {visibleCases.length === 0 && (
         <div className="rounded border p-4 text-sm" style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
-          {focusedID
+          {focused
             ? 'This case is unavailable in the selected database. Return to the case list or check the database selection.'
             : cases.length > 0 ? 'No cases match this filter.'
               : 'No cases were returned for this database. This alone does not confirm a healthy database; check collection status.'}
-          {!focusedID && cases.length > 0 && <button type="button" className="ml-2 underline"
+          {!focused && cases.length > 0 && <button type="button" className="ml-2 underline"
             onClick={() => setSourceFilter('all')}>Show all cases</button>}
         </div>
       )}
@@ -188,7 +195,7 @@ export function CasesPage({ database, initialSource = 'all', user }) {
       <div className="space-y-2">
         {visibleCases.map(c => (
           <CaseCard key={caseID(c)} caseRow={c} user={user}
-            focused={Boolean(focusedID)} onReview={() => setFocusedID(caseID(c))}
+            focused={focused} onReview={() => setFocusedID(caseID(c))}
             investigation={byCase.get(`${c.database_name}|${caseID(c)}`)}
             onDone={refetch} />
         ))}
@@ -200,6 +207,25 @@ export function CasesPage({ database, initialSource = 'all', user }) {
 function focusedCaseID() {
   const [path, query = ''] = window.location.hash.split('?')
   return path === '#/cases' ? new URLSearchParams(query).get('case') : null
+}
+
+// linkedFinding is the finding a fleet-finding link opens (fleet-06):
+// #/cases?database=<db>&finding=<id>, or null without a numeric id.
+function linkedFinding() {
+  const [path, query = ''] = window.location.hash.split('?')
+  if (path !== '#/cases') return null
+  const params = new URLSearchParams(query)
+  const id = params.get('finding')
+  if (!id || !/^[1-9][0-9]*$/.test(id)) return null
+  return { id, database: params.get('database') || '' }
+}
+
+// isFindingCase reports whether a case projects the linked finding of the
+// linked database; incidents and query hints carry other id spaces.
+function isFindingCase(row, link) {
+  if (row.source_type === 'incident' || row.source_type === 'query_hint') return false
+  if (link.database && row.database_name !== link.database) return false
+  return Array.isArray(row.source_ids) && row.source_ids.includes(link.id)
 }
 
 function CaseCard({ caseRow, user, investigation, onDone, focused, onReview }) {

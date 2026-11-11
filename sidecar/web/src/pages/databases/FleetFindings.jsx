@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 
 // FleetFindings lists the problems open on several fleet databases at once
-// (fleet learning), each once with a drill-down to the databases it affects.
-export function FleetFindings() {
+// (fleet learning), each once with a drill-down to the databases it affects;
+// each occurrence links to that database's finding case (fleet-06).
+export function FleetFindings({ onSelectDatabase }) {
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
   const [open, setOpen] = useState({})
@@ -67,7 +68,7 @@ export function FleetFindings() {
         }}>
           {findings.map((f, i) => (
             <FleetFindingRow key={f.key || i} finding={f} index={i}
-              open={!!open[i]}
+              open={!!open[i]} onSelectDatabase={onSelectDatabase}
               onToggle={() => setOpen(o => ({ ...o, [i]: !o[i] }))} />
           ))}
         </div>
@@ -76,7 +77,15 @@ export function FleetFindings() {
   )
 }
 
-function FleetFindingRow({ finding, index, open, onToggle }) {
+// findingLink opens one database's finding on the Cases page.
+function findingLink(occurrence) {
+  const query = new URLSearchParams({
+    database: occurrence.database, finding: String(occurrence.id),
+  })
+  return `#/cases?${query}`
+}
+
+function FleetFindingRow({ finding, index, open, onToggle, onSelectDatabase }) {
   const occurrences = Array.isArray(finding.occurrences)
     ? finding.occurrences : []
   return (
@@ -102,9 +111,20 @@ function FleetFindingRow({ finding, index, open, onToggle }) {
           {occurrences.map(o => (
             <li key={`${o.database}-${o.id}`}
               style={{ color: 'var(--text-secondary)' }}>
-              <span>{o.database}</span>
-              {o.severity ? ` · ${o.severity}` : ''}
-              {o.id ? ` · finding ${o.id}` : ''}
+              {Number.isInteger(o.id) && o.id > 0 ? (
+                <a href={findingLink(o)} className="underline"
+                  style={{ color: 'var(--accent)' }}
+                  onClick={() => onSelectDatabase?.(o.database)}>
+                  <span>{o.database}</span>
+                  {o.severity ? ` · ${o.severity}` : ''}
+                  {` · finding ${o.id}`}
+                </a>
+              ) : (
+                <>
+                  <span>{o.database}</span>
+                  {o.severity ? ` · ${o.severity}` : ''}
+                </>
+              )}
             </li>
           ))}
         </ul>
