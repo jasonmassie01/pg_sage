@@ -48,9 +48,20 @@ func (v *verifier) readPrune(ctx context.Context) error {
 }
 
 // startsAtFloor clamps a verification that would start below a prune's
-// floor to the floor itself.
+// floor to the floor itself, when pruning is enabled. Otherwise the walk
+// starts where it was asked to and reports the pruned links missing, and
+// the prune link is a problem: with the switch off nothing pg_sage did
+// wrote it, and honouring it would let anyone able to append a link erase
+// history below a signed checkpoint without a trace.
 func (v *verifier) startsAtFloor(from int64) (int64, bool) {
 	if v.prune == nil || from > v.prune.mark.Floor {
+		return from, false
+	}
+	if !v.pruning {
+		v.rep.add(Problem{Kind: KindSignedCheckpoint, Seq: v.prune.seq,
+			Detail: fmt.Sprintf("the chain holds a prune link (links below %d removed), "+
+				"but audit.prune_below_signed_checkpoint is off, so the removed links "+
+				"are reported missing", v.prune.mark.Floor)})
 		return from, false
 	}
 	v.prune.floorStart = true

@@ -19,7 +19,7 @@ func signHead(t *testing.T, pool *pgxpool.Pool, s auditchain.CheckpointSigner) i
 	ctx := context.Background()
 	key := s.Trusted()
 	rep, err := auditchain.VerifyFromCheckpointKeyed(ctx, pool, auditchain.ActionLog, true,
-		&key)
+		&key, true)
 	if err != nil || !rep.OK() {
 		t.Fatalf("full verify before signing: %+v, %v", rep.Problems, err)
 	}
@@ -52,7 +52,7 @@ func verifyKeyed(t *testing.T, pool *pgxpool.Pool, s auditchain.CheckpointSigner
 	t.Helper()
 	key := s.Trusted()
 	rep, err := auditchain.VerifyFromCheckpointKeyed(context.Background(), pool,
-		auditchain.ActionLog, full, &key)
+		auditchain.ActionLog, full, &key, true)
 	if err != nil {
 		t.Fatalf("verify (full=%v): %v", full, err)
 	}
@@ -159,7 +159,7 @@ func TestCheckpointPruneThenVerifyReportsFromCheckpoint(t *testing.T) {
 	}
 	key := s.Trusted()
 	win := verify(t, pool, auditchain.ActionLog, auditchain.Window{FromSeq: 1, ToSeq: 6,
-		Key: &key})
+		Key: &key, Pruning: true})
 	if !win.OK() || win.FromSeq != 4 || win.ToSeq != 6 || win.PrunedBelow != 4 {
 		t.Fatalf("window from 1 after the prune: %+v", win)
 	}
@@ -176,12 +176,12 @@ func TestCheckpointPruneVerifyNeedsTrustedKey(t *testing.T) {
 	if _, err := prune(t, pool, s, cpLink); err != nil {
 		t.Fatalf("prune: %v", err)
 	}
-	rep := verify(t, pool, auditchain.ActionLog, auditchain.Window{})
+	rep := verify(t, pool, auditchain.ActionLog, auditchain.Window{Pruning: true})
 	if rep.OK() || !hasKind(rep, auditchain.KindSignedCheckpoint) || rep.PrunedBelow != 4 {
 		t.Fatalf("pruned chain verified without a key: %+v", rep)
 	}
 	other := testSigner(t, "k2").Trusted()
-	rep = verify(t, pool, auditchain.ActionLog, auditchain.Window{Key: &other})
+	rep = verify(t, pool, auditchain.ActionLog, auditchain.Window{Key: &other, Pruning: true})
 	if rep.OK() || !hasKind(rep, auditchain.KindSignedCheckpoint) {
 		t.Fatalf("pruned chain verified under another key: %+v", rep)
 	}
@@ -355,5 +355,39 @@ func TestCheckpointPruneTwice(t *testing.T) {
 	rep := verifyKeyed(t, pool, s, true)
 	if !rep.OK() || rep.FromSeq != 15 || rep.FromCheckpoint != 15 || rep.RowsChecked != 1 {
 		t.Fatalf("full verify after the second prune: %+v", rep)
+	}
+}
+
+// Fail closed: with pruning off, a prune link proves nothing. Anyone able
+// to append a link could otherwise write one and erase signed history; a
+// full pass then reports the removed links missing. Verifications that
+// start above the floor are unaffected.
+func TestCheckpointPruneLinkIgnoredWhenPruningOff(t *testing.T) {
+	pool, s, cpLink := prunableChain(t, "chain_prune_off")
+	if _, err := prune(t, pool, s, cpLink); err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+	key := s.Trusted()
+	rep, err := auditchain.VerifyFromCheckpointKeyed(context.Background(), pool,
+		auditchain.ActionLog, true, &key, false)
+	if err != nil {
+		t.Fatalf("full verify with pruning off: %v", err)
+	}
+	if rep.OK() || rep.FromSeq != 1 || rep.PrunedBelow != 0 || rep.FromCheckpoint != 0 ||
+		!hasKind(rep, auditchain.KindGap) || !hasKind(rep, auditchain.KindSignedCheckpoint) {
+		t.Fatalf("full verify of a pruned chain with pruning off: %+v", rep)
+	}
+	for _, p := range rep.Problems {
+		if p.Kind == auditchain.KindGap && p.Seq != 1 {
+			t.Errorf("gap at %d, want the removed links 1-3 reported from 1: %+v", p.Seq, p)
+		}
+		if p.Kind == auditchain.KindSignedCheckpoint && p.Seq != 11 {
+			t.Errorf("signed_checkpoint at %d, want the prune link 11: %+v", p.Seq, p)
+		}
+	}
+	win := verify(t, pool, auditchain.ActionLog, auditchain.Window{FromSeq: 5, ToSeq: 6,
+		Key: &key})
+	if !win.OK() || win.FromSeq != 5 || win.PrunedBelow != 0 {
+		t.Fatalf("window above the floor with pruning off: %+v", win)
 	}
 }

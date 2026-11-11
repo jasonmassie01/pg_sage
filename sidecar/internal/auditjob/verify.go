@@ -125,7 +125,8 @@ func verifyChain(ctx context.Context, src Source, spec auditchain.Spec) (
 	if err != nil {
 		return auditchain.Report{}, err
 	}
-	return auditchain.VerifyFromCheckpointKeyed(ctx, src.Pool, spec, full, src.trustedKey())
+	return auditchain.VerifyFromCheckpointKeyed(ctx, src.Pool, spec, full, src.trustedKey(),
+		src.PruneBelowSignedCheckpoint)
 }
 
 // record upserts one category's failing findings and resolves the rest.

@@ -29,7 +29,8 @@ type evidenceKey struct {
 func auditAPIDeps(c *config.Config, controlPool *pgxpool.Pool) api.AuditDeps {
 	signing := evidenceSigner(c, controlPool)
 	return api.AuditDeps{SIEMStatus: siemStatusFunc(c), SIEMReanchor: siemReanchorFunc(c),
-		EvidenceKey: signing.key, EvidenceKeySource: signing.source}
+		EvidenceKey: signing.key, EvidenceKeySource: signing.source,
+		PruneBelowSignedCheckpoint: c != nil && c.Audit.PruneBelowSignedCheckpoint}
 }
 
 // evidenceSigner resolves the evidence-signing key for the API, reading

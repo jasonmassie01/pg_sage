@@ -43,6 +43,9 @@ type AuditDeps struct {
 	// EvidenceKeySource is where EvidenceKey came from: evidence.KeySourceEnv
 	// or evidence.KeySourceGenerated ("" is reported as env).
 	EvidenceKeySource string
+	// PruneBelowSignedCheckpoint is audit.prune_below_signed_checkpoint:
+	// only then may /audit/verify start a pruned chain at its floor.
+	PruneBelowSignedCheckpoint bool
 }
 
 // auditEvidenceExported is the auth_audit event of an evidence download.
@@ -143,6 +146,7 @@ func auditVerifyHandler(d AuditDeps) http.HandlerFunc {
 			return
 		}
 		req.window.Key = d.checkpointKey()
+		req.window.Pruning = d.PruneBelowSignedCheckpoint
 		specs, err := chainsToVerify(r, pool)
 		if err != nil {
 			jsonError(w, err.Error(), http.StatusBadRequest)
@@ -218,7 +222,8 @@ func (q verifyRequest) verify(ctx context.Context, pool *pgxpool.Pool,
 	if q.windowed() {
 		return auditchain.Verify(ctx, pool, spec, q.window)
 	}
-	return auditchain.VerifyFromCheckpointKeyed(ctx, pool, spec, q.full, q.window.Key)
+	return auditchain.VerifyFromCheckpointKeyed(ctx, pool, spec, q.full, q.window.Key,
+		q.window.Pruning)
 }
 
 // checkpointKey is the key the chains' signed checkpoint links are

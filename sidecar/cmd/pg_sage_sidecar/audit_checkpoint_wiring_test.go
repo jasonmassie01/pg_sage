@@ -54,3 +54,20 @@ func TestAuditSourcesCarryTheSignerAndPruneSwitch(t *testing.T) {
 		t.Fatalf("no config and no key: %+v", got[0])
 	}
 }
+
+// The audit routes carry the prune switch too, so /audit/verify starts a
+// pruned chain at its floor only when pruning is on (off by default and
+// without a config).
+func TestAuditAPIDepsCarryThePruneSwitch(t *testing.T) {
+	if auditAPIDeps(nil, nil).PruneBelowSignedCheckpoint {
+		t.Fatal("no config: the audit routes have pruning on")
+	}
+	c := config.DefaultConfig()
+	if auditAPIDeps(c, nil).PruneBelowSignedCheckpoint {
+		t.Fatal("default config: the audit routes have pruning on")
+	}
+	c.Audit.PruneBelowSignedCheckpoint = true
+	if !auditAPIDeps(c, nil).PruneBelowSignedCheckpoint {
+		t.Fatal("prune switch on: the audit routes do not carry it")
+	}
+}

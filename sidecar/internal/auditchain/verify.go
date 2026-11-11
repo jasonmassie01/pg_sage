@@ -40,12 +40,17 @@ var ErrNotInstalled = errors.New("auditchain: chain not installed")
 // Window bounds a verification by position; zero values are open.
 // Anchor, when set, is a checkpoint whose link must still carry its hash.
 // Key, when set, checks the signatures of the checkpoint links it signed;
-// a verification that starts at a prune's floor needs it.
+// a verification that starts at a prune's floor needs it. Pruning says
+// pruning is enabled (audit.prune_below_signed_checkpoint): only then may
+// a verification start at a prune link's floor. Unset, the pruned links
+// are reported missing, since a prune link the operator never enabled
+// proves nothing.
 type Window struct {
 	FromSeq int64       `json:"from_seq"`
 	ToSeq   int64       `json:"to_seq"`
 	Anchor  *Checkpoint `json:"-"`
 	Key     *TrustedKey `json:"-"`
+	Pruning bool        `json:"-"`
 }
 
 // Problem is one integrity failure.
@@ -110,11 +115,12 @@ type verifier struct {
 	legacy    int64
 	// stream: a full pass keeps no per-row state in the walk; rows are
 	// checked by an ordered pass over the link index (stream.go).
-	stream bool
-	anchor *anchor
-	key    *TrustedKey
-	prune  *pruned
-	marks  []Link // checkpoint links of the batch being walked
+	stream  bool
+	anchor  *anchor
+	key     *TrustedKey
+	pruning bool // a prune link's floor may start the verification
+	prune   *pruned
+	marks   []Link // checkpoint links of the batch being walked
 }
 
 // Verify checks chain s within w: every position present, every link
@@ -135,7 +141,8 @@ func Verify(ctx context.Context, q Querier, s Spec, w Window) (Report, error) {
 			w.FromSeq, w.ToSeq)
 	}
 	v := &verifier{q: q, s: s, rows: map[int64]*rowLinks{}, unknown: map[int64]bool{},
-		rep: Report{Chain: s.Chain, VerifiedAt: time.Now().UTC()}, key: w.Key}
+		rep: Report{Chain: s.Chain, VerifiedAt: time.Now().UTC()}, key: w.Key,
+		pruning: w.Pruning}
 	if err := v.run(ctx, w); err != nil {
 		return Report{}, fmt.Errorf("auditchain: verify %s: %w", s.Chain, err)
 	}

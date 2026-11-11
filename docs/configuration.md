@@ -2874,6 +2874,17 @@ floor are no longer in the database; their copy is the SIEM's. A full
 verification that runs while a prune commits may report a gap at the old
 lowest links; the next run is clean.
 
+A prune link is honoured only while `audit.prune_below_signed_checkpoint`
+is on, for the scheduled verifications and `GET /api/v1/audit/verify`
+alike. With the switch off, a full pass of a chain that holds one starts at
+link 1, reports the removed links as a `gap` and the prune link as
+`signed_checkpoint`: anyone able to append a link could otherwise write a
+prune link and erase signed history without a trace. Turning the switch
+off after a prune therefore fails the chain's full passes until it is
+turned back on. Changing the evidence-signing key after a prune has the
+same effect (the anchoring checkpoint is signed by the old key), so keep
+the key, or restore it, for as long as a chain rests on its checkpoints.
+
 ### SIEM export delivery
 
 `audit.siem.sinks` ships every audit chain link to each sink as an OCSF
