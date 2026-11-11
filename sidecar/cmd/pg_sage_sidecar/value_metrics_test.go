@@ -18,7 +18,10 @@ import (
 func TestWriteValueMetricsEmitsVerifiedToilAndIncidentSeries(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	t.Cleanup(cancel)
-	testPool, err := pgxpool.New(ctx, testdb.SkipUnlessLive(t))
+	// A database of its own: the exact sums below must not count the real
+	// credits other tests here earn (the freeze route tests credit
+	// xid_wraparound near-misses in the package database).
+	testPool, err := pgxpool.New(ctx, testdb.CreateDatabase(t, "value_metrics"))
 	if err != nil {
 		t.Fatalf("connect test database: %v", err)
 	}
