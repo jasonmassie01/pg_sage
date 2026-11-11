@@ -19,7 +19,7 @@ import (
 )
 
 // benches-09: an admin uploads a signed release report as multipart/form-
-// data with a "report" and a "bundle" part (1 MiB each). The bundle is
+// data with a "report" and a "bundle" part (1 MiB together). The bundle is
 // verified against the release identity and the report is stored as a
 // signed release report that must name the running build; a body-only
 // upload stays an unsigned operator report.
@@ -207,3 +207,57 @@ func TestBenchUploadAPI_WithoutAVerifierIsUnavailable(t *testing.T) {
 // No concurrent-access test: the handler holds no state of its own; the
 // ledger's concurrent ingest is covered by
 // earned.TestModelLift_ConcurrentDuplicateIngestStoresOnce.
+
+// multipartBench is a signed-upload-shaped multipart POST to path.
+func multipartBench(t *testing.T, path, fetchSite string) *http.Request {
+	t.Helper()
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	for _, name := range []string{"report", "bundle"} {
+		part, err := mw.CreateFormFile(name, name+".json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = part.Write([]byte(`{}`))
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "http://sage.example"+path, &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.AddCookie(&http.Cookie{Name: "sage_session", Value: "admin-session"})
+	if fetchSite != "" {
+		req.Header.Set("Sec-Fetch-Site", fetchSite)
+		req.Header.Set("Origin", "https://sibling.sage.example")
+	}
+	return req
+}
+
+// The multipart exemption from the JSON content-type check is exact: the
+// cross-origin check still refuses a same-site form posting a signed upload
+// (apiauth-10), and other write routes still refuse multipart.
+func TestBenchUploadAPI_MultipartExemptionKeepsTheCrossOriginCheck(t *testing.T) {
+	const benchPath = "/api/v1/sre/autonomy/bench-results"
+	for _, site := range []string{"same-site", "cross-site"} {
+		h, reached := csrfRouter(t, config.DefaultConfig(), nil)
+		rec := serveCSRF(h, multipartBench(t, benchPath, site))
+		if rec.Code != http.StatusForbidden || *reached {
+			t.Fatalf("%s signed upload = %d reached=%v, want 403 unreached", site, rec.Code,
+				*reached)
+		}
+	}
+	h, reached := csrfRouter(t, config.DefaultConfig(), nil)
+	if rec := serveCSRF(h, multipartBench(t, benchPath, "same-origin")); rec.Code !=
+		http.StatusAccepted || !*reached {
+		t.Fatalf("same-origin signed upload = %d reached=%v, want 202 reached", rec.Code,
+			*reached)
+	}
+	for _, path := range []string{"/api/v1/emergency-stop", benchPath + "/x"} {
+		h, reached = csrfRouter(t, config.DefaultConfig(), nil)
+		if rec := serveCSRF(h, multipartBench(t, path, "")); rec.Code !=
+			http.StatusUnsupportedMediaType || *reached {
+			t.Fatalf("multipart POST to %s = %d reached=%v, want 415 unreached", path,
+				rec.Code, *reached)
+		}
+	}
+}
