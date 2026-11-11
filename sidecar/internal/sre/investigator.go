@@ -128,10 +128,7 @@ func (s *investigatorSession) finish(ctx context.Context, prior causal.Diagnosis
 		return s.lease, d, out, s.noConclusion(ctx, run)
 	}
 	narrative := verifiedNarrative(res.Claims, stored)
-	kept := 0
-	if narrative != nil {
-		kept = len(narrative.Claims)
-	}
+	kept := liveClaims(narrative, stored)
 	r := inconclusive(DowngradeInvalidOutcome)
 	if f, ferr := decodeFinal(res.Final); ferr == nil {
 		r = resolveOutcome(d, f, kept)

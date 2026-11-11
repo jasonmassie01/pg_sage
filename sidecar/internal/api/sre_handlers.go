@@ -110,9 +110,20 @@ func investigationService(
 	return inst.Investigations, true
 }
 
+// listFilter reads cursor, limit and case_id. One case_id pages that
+// case's investigations; two or more (at most sre.MaxListCaseIDs) ask for
+// the newest investigation of each, in one page. The filter is checked
+// here because the fleet list reports a failing database as unavailable.
 func listFilter(r *http.Request) (sre.ListFilter, error) {
 	q := r.URL.Query()
-	f := sre.ListFilter{Cursor: q.Get("cursor"), CaseID: q.Get("case_id")}
+	f := sre.ListFilter{Cursor: q.Get("cursor")}
+	switch ids := q["case_id"]; len(ids) {
+	case 0:
+	case 1:
+		f.CaseID = ids[0]
+	default:
+		f.CaseIDs = ids
+	}
 	if raw := q.Get("limit"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 1 {
@@ -121,7 +132,7 @@ func listFilter(r *http.Request) (sre.ListFilter, error) {
 		}
 		f.Limit = n
 	}
-	return f, nil
+	return f, f.Check()
 }
 
 func investigationListHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {

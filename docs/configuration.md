@@ -1968,6 +1968,22 @@ graph and stores the result: the likely explanation, contributing factors, alter
 ruled-out explanations, each citing its evidence, the evidence that could not be collected,
 and an operator step. Nothing is executed. "Inconclusive" is a normal outcome.
 
+**Diagnosis follow-up.** When an investigation of an incident ends `concluded` or
+`inconclusive`, the engineer who was paged gets the diagnosis on the same channels: a
+notification of event type `investigation_concluded` reading "Diagnosis for incident
+`<id>` on `<database>`: `<family>` - `<root cause or 'inconclusive'>`: `<reason>`. Case
+`<case id>`." It goes only to the channels whose `incident_detected` or `incident_escalated`
+page for that incident was sent (`sage.notification_log`), with the incident's severity. On
+Telegram it replies to the page; Slack and email get one message titled "Re: `<page
+subject>`"; PagerDuty gets none (Events v2 has no note). There is no rule or setting for it:
+`investigation_concluded` cannot be chosen in a notification rule, and an incident whose page
+was never sent gets no follow-up. Each incident gets at most one follow-up, from any number of
+sidecars: the newest conclusion is sent once it is 60 s old and no run of the incident is
+queued or running, within an hour of concluding. A later re-run of the incident does not
+notify again, and a failed delivery is logged (`status` `error` in the notification log) and
+not retried. Failed, expired and cancelled runs and investigations without an incident
+(operator-started) send nothing.
+
 Four more families are investigated the same way: **checkpoint storms**, **temp-file
 explosions**, **replication lag** and **LWLock contention**. Their triggers are the RCA
 incidents for "checkpoints are occurring too frequently", temp files, replication conflicts and
@@ -2119,6 +2135,13 @@ Reading investigations (any signed-in role):
 `GET /api/v1/databases/{db}/investigations`, `.../{id}`, `.../{id}/events`,
 `.../{id}/evidence/{evidence_id}`. Operators and admins can also
 `GET .../{id}/export` (JSON, or `?format=markdown`) and `POST .../{id}/pin` or `/unpin`.
+Both lists page newest first (`limit`, `cursor`); one `case_id` pages that case's
+investigations. Two or more `case_id` values (`?case_id=a&case_id=b`, at most 100, each at
+most 256 characters) return the newest investigation of each named case in one page, however
+old, with no cursor; more than 100 ids, or ids together with `cursor`, is a 400
+`invalid_request`. The Cases page reads its visible cases this way, 100 ids per request, and
+refreshes an open investigation every 5 s while it is queued, collecting, evaluating or
+waiting for evidence.
 With MCP enabled, agents get the read-only tools `sre_list_incidents`,
 `sre_get_investigation` and `sre_get_evidence`.
 

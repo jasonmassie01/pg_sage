@@ -82,6 +82,7 @@ func incidentEvent(typ, verb, severity string, info IncidentInfo) Event {
 		Subject:  fmt.Sprintf("%s: %s", verb, info.RootCause),
 		Body:     body,
 		DedupKey: incidentDedupKey(info),
+		RefID:    info.ID,
 		Data: map[string]any{
 			"incident_id":          info.ID,
 			"database":             info.Database,

@@ -84,7 +84,7 @@ func diagnose(inv Investigation, obs []causal.Observation) causal.Diagnosis {
 	var d causal.Diagnosis
 	switch inv.TriggerKind {
 	case TriggerLock:
-		d = causal.DiagnoseLock(obs, nil)
+		d = diagnoseLock(obs)
 	case TriggerConnections:
 		d = causal.DiagnoseConnections(obs)
 	case TriggerWAL:

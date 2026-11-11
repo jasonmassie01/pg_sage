@@ -85,6 +85,9 @@ func constructorEvents() map[string]Event {
 			Database: "orders", Target: "public.t", SQLSHA256: "ab", Failures: 3}),
 		"CanaryInterruptedEvent": CanaryInterruptedEvent(CanaryInterrupted{
 			RunID: "canary-1", Source: "orders"}),
+		"InvestigationConcludedEvent": InvestigationConcludedEvent(ConclusionInfo{
+			IncidentID: "i1", Database: "orders", State: "inconclusive",
+			Severity: "warning"}),
 	}
 }
 

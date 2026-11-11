@@ -117,6 +117,7 @@ Every read an investigation can make, and what the role pg_sage connects as need
 | `xid_runway`, `xmin_horizon` (M6) | `pg_database`, `pg_stat_activity` (busy autovacuum workers, xmin holders), `pg_prepared_xacts`, `pg_replication_slots` | `pg_read_all_stats` |
 | `wraparound_tables` (M6) | `pg_class`, table `reloptions`, `pg_stat_get_*` vacuum counters, `pg_stat_progress_vacuum` | none beyond `CONNECT` |
 | `autovacuum_cancellations` (M6) | `sage.incidents` (log-derived autovacuum cancellations) | `SELECT` on pg_sage's own schema |
+| `incident_snapshot` (lock investigations) | `sage.incidents` (the triggering incident's recorded root blockers: pid, `backend_start`, state, sessions blocked, chain depth and the query's hash, at most 5), read once on the first step in a read-only transaction with a 2 s statement and 500 ms lock timeout, in the investigation's own database scope | `SELECT` on pg_sage's own schema. Committed as evidence observed when RCA last recorded the chain: when the live lock graph is empty it names the blocker as it was at detection, as a contributing hypothesis only, never a conclusive root; more than 5 minutes older than the probes it is `stale_evidence` and not used |
 | `wal_runway` (M6) | WAL positions, `pg_control_system()`, size settings | none beyond `CONNECT` |
 | `wal_directory` (M6) | `pg_ls_waldir()`, `pg_ls_archive_statusdir()` | `pg_monitor` (`no_privilege` without it) |
 | `cluster_database_size` (M6) | `pg_database_size()` of every database the role may connect to | `CONNECT` on each database; the others are counted, not sized |
@@ -285,9 +286,10 @@ pg_sage's checks, so grant it only where you want approved cancels.
 | Cases panel, REST API, MCP read tools (`sre_list_incidents`, `sre_get_investigation`, `sre_get_evidence`), export | the stored records, **redacted on every read** | when a signed-in user or MCP principal asks; export needs the operator role |
 | LLM endpoint (`llm.endpoint`) | the investigator's messages and the results of the reads it asks for, or the review turn's prompt (below); a runbook draft to compile | only with an LLM configured and `sre.llm.enabled: true` (default); compiling only when an operator asks |
 | Slack and Telegram channels with an `approval_needed` rule | a cancel proposal's approval card: the database, the target (pid, backend start, user), how many sessions it blocks, the cancel SQL and its expiry; never query text. The buttons carry only a single-use card token | when a cancel proposal is queued for approval |
+| The Slack, Telegram and email channels an incident's page was sent to | the diagnosis follow-up (`investigation_concluded`): incident id, database, family, the root cause's label (or "inconclusive"), one line of the diagnosis reason, redacted like every read (credentials, connection URIs, bearer tokens, SQL literals) and clipped to 200 characters, and the case id. Never SQL, query text, application or user names, or evidence | once per incident, when its newest conclusion has settled for 60 s; never to PagerDuty or to a channel the page did not reach |
 
-Nothing else leaves: investigations send no notifications of their own, and the probes make no
-network calls.
+Nothing else leaves: investigations send no other notifications of their own, and the probes
+make no network calls.
 
 ### Deciding a cancel from chat
 

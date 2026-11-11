@@ -283,8 +283,8 @@ func (r redactor) observations(detected time.Time, ev []Evidence) ([]ReplayObser
 	}
 	out := make([]ReplayObservation, 0, len(ev))
 	for _, e := range ev {
-		if probes.ID(e.ProbeID) == ExplainProbeID {
-			continue // a plan-only EXPLAIN is no catalog probe a replay can serve
+		if id := probes.ID(e.ProbeID); id == ExplainProbeID || id == IncidentSnapshotProbeID {
+			continue // a plan-only EXPLAIN or a detection snapshot is no catalog probe
 		}
 		o, err := r.observation(detected, e)
 		if err != nil {

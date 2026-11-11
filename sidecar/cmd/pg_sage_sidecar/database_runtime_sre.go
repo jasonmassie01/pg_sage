@@ -54,6 +54,9 @@ type sreInvestigatorDeps struct {
 	// texts serves the plan-only EXPLAIN the collector's in-memory
 	// statement texts; nil leaves every statement text_not_cached.
 	texts sre.StatementTexts
+	// followUps delivers each incident's settled diagnosis where its page
+	// went (sre-08); nil sends none.
+	followUps sre.ConclusionSink
 }
 
 // newSREInvestigator builds one database's investigator (coordinator,
@@ -91,7 +94,8 @@ func newSREInvestigator(d sreInvestigatorDeps) (*sre.Service, error) {
 	coord, err := sre.NewCoordinator(sre.CoordinatorDeps{Store: store, Runner: d.runner,
 		Triggers: triggers, Config: cc, LogFn: d.logFn, Model: model, Notices: notices,
 		Signals: d.signals, Advisor: d.advisor, RootAuthority: d.rootAuthority,
-		Investigator: icfg})
+		Investigator: icfg, Incidents: sreIncidents(d), FollowUps: sreFollowUps(d),
+		TrackedIncidents: sreTrackedIncidents(d)})
 	if err != nil {
 		return nil, fmt.Errorf("sre coordinator: %w", err)
 	}
@@ -102,6 +106,34 @@ func newSREInvestigator(d sreInvestigatorDeps) (*sre.Service, error) {
 			"(retried by the investigator loop): %v", d.name, err)
 	}
 	return sre.NewService(d.name, coord, store), nil
+}
+
+// sreIncidents reads a lock incident's detection-time root blockers from
+// the monitored database's sage.incidents, in the trigger adapter's
+// database scope (sre-05); nil without a monitored pool.
+func sreIncidents(d sreInvestigatorDeps) sre.IncidentSnapshotSource {
+	if d.monitored == nil {
+		return nil
+	}
+	return sre.NewPGTriggerSource(d.monitored, d.name)
+}
+
+// sreFollowUps is the diagnosis follow-up sink: none without one or
+// without the monitored database whose incidents it answers.
+func sreFollowUps(d sreInvestigatorDeps) sre.ConclusionSink {
+	if d.followUps == nil || d.monitored == nil {
+		return nil
+	}
+	return d.followUps
+}
+
+// sreTrackedIncidents reads the incidents conclusions answer from the
+// monitored database's sage.incidents (sre-08); nil without one.
+func sreTrackedIncidents(d sreInvestigatorDeps) sre.ConclusionIncidents {
+	if d.monitored == nil {
+		return nil
+	}
+	return sre.NewPGTriggerSource(d.monitored, d.name)
 }
 
 // statementTexts is the collector's in-memory statement texts for the
@@ -136,6 +168,7 @@ func (rt *databaseRuntime) startInvestigator() {
 		dailyTokens: rt.cfg.LLM.TokenBudgetDaily, signals: signalProbes,
 		advisor: rt.runwayAdvisor, episodes: rt.detectorIncidents(),
 		history: rt.sreHistorySource(), texts: rt.statementTexts(),
+		followUps:  newConclusionSink(rt.dispatcher),
 		onDetector: func(d *sre.ReactiveDetector) { rt.tempDetector = d },
 		rootAuthority: registryRootAuthority{registry: processAutonomy().registry,
 			database: rt.spec.Name}})

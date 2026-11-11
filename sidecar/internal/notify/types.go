@@ -31,6 +31,10 @@ type Event struct {
 	// Resolve marks a recovery notification for an earlier trigger with
 	// the same DedupKey (PagerDuty "resolve", G7-B14).
 	Resolve bool
+	// RefID is the incident a delivery belongs to, recorded in
+	// sage.notification_log.ref_id so a later follow-up finds the channels
+	// the page reached (sre-08). Empty for events of no incident.
+	RefID string
 }
 
 // ValidEventTypes lists all supported event types.

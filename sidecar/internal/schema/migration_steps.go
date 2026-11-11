@@ -178,5 +178,7 @@ func trancheTwoMigrations() []namedStep {
 		{"ddlDecisionOpenWithheldIndex", ddlDecisionOpenWithheldIndex()}, // policy-07
 		{"ddlActionQueueSchedule", ddlActionQueueSchedule},               // policy-04
 		{"ddlRolloutRunInterrupted", ddlRolloutRunInterrupted},           // executor-04b
+		{"ddlNotificationLogRefs", ddlNotificationLogRefs},               // sre-08: page lookup
+		{"ddlSREIncidentFollowup", ddlSREIncidentFollowup},               // sre-08: one claim each
 	}
 }

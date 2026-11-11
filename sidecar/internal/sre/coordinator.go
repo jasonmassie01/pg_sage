@@ -172,6 +172,14 @@ type CoordinatorDeps struct {
 	// investigator (roadmap 2.1); nil keeps the M3 review turn. It needs
 	// a store that implements InvestigatorStore.
 	Investigator *InvestigatorConfig
+	// Incidents reads a lock incident's detection-time root blockers for
+	// the first step of its investigation (sre-05); nil records none.
+	Incidents IncidentSnapshotSource
+	// FollowUps delivers each incident's settled diagnosis once (sre-08);
+	// nil sends none. It needs TrackedIncidents and a store that implements
+	// ConclusionStore.
+	FollowUps        ConclusionSink
+	TrackedIncidents ConclusionIncidents
 }
 
 // Coordinator runs one database's investigations.
@@ -197,6 +205,13 @@ type Coordinator struct {
 	// invStore its durable token budget; nil keeps the review turn.
 	investigator *InvestigatorConfig
 	invStore     InvestigatorStore
+	// incidents reads the detection snapshot of lock incidents (sre-05).
+	incidents IncidentSnapshotSource
+	// followUps, trackedIncidents and conclusions serve the conclusion
+	// notifier (sre-08); nil followUps sends nothing.
+	followUps        ConclusionSink
+	trackedIncidents ConclusionIncidents
+	conclusions      ConclusionStore
 
 	mu    sync.Mutex
 	scope Scope
@@ -205,25 +220,14 @@ type Coordinator struct {
 
 // NewCoordinator validates its dependencies and configuration.
 func NewCoordinator(d CoordinatorDeps) (*Coordinator, error) {
-	if d.ReadPolicy == nil {
-		if r, ok := d.Runner.(interface{ ReadPolicy() *probes.ReadPolicy }); ok {
-			d.ReadPolicy = r.ReadPolicy()
-		}
-	}
-	if err := d.ReadPolicy.Validate(); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
-	}
-	if d.Store == nil || d.Runner == nil {
-		return nil, fmt.Errorf("%w: coordinator needs a store and a probe runner",
-			ErrInvalidRequest)
-	}
-	if err := d.Config.validate(d.Triggers != nil); err != nil {
-		return nil, err
-	}
-	if err := validateSignals(d.Signals); err != nil {
+	if err := validateCoordinatorDeps(&d); err != nil {
 		return nil, err
 	}
 	invStore, err := investigatorStore(d)
+	if err != nil {
+		return nil, err
+	}
+	conclusions, err := conclusionStore(d)
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +252,48 @@ func NewCoordinator(d CoordinatorDeps) (*Coordinator, error) {
 		cfg: d.Config, logFn: logFn, worker: NewUUID(),
 		queue: make(chan UUID, d.Config.QueueSize), durability: NewDurability(),
 		sleep: wait, now: time.Now, model: d.Model, notices: notices, advisor: d.Advisor,
-		authority: d.RootAuthority, investigator: d.Investigator, invStore: invStore}, nil
+		authority: d.RootAuthority, investigator: d.Investigator, invStore: invStore,
+		incidents: d.Incidents, followUps: d.FollowUps, trackedIncidents: d.TrackedIncidents,
+		conclusions: conclusions}, nil
+}
+
+// validateCoordinatorDeps checks the required dependencies, defaulting the
+// read policy to the runner's.
+func validateCoordinatorDeps(d *CoordinatorDeps) error {
+	if d.ReadPolicy == nil {
+		if r, ok := d.Runner.(interface{ ReadPolicy() *probes.ReadPolicy }); ok {
+			d.ReadPolicy = r.ReadPolicy()
+		}
+	}
+	if err := d.ReadPolicy.Validate(); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidRequest, err)
+	}
+	if d.Store == nil || d.Runner == nil {
+		return fmt.Errorf("%w: coordinator needs a store and a probe runner",
+			ErrInvalidRequest)
+	}
+	if err := d.Config.validate(d.Triggers != nil); err != nil {
+		return err
+	}
+	return validateSignals(d.Signals)
+}
+
+// conclusionStore checks the conclusion notifier's dependencies: none
+// without follow-ups, otherwise an incident source and a claim store.
+func conclusionStore(d CoordinatorDeps) (ConclusionStore, error) {
+	if d.FollowUps == nil {
+		return nil, nil
+	}
+	if d.TrackedIncidents == nil {
+		return nil, fmt.Errorf("%w: conclusion follow-ups need an incident source",
+			ErrInvalidRequest)
+	}
+	st, ok := d.Store.(ConclusionStore)
+	if !ok {
+		return nil, fmt.Errorf("%w: conclusion follow-ups need a store that claims them",
+			ErrInvalidRequest)
+	}
+	return st, nil
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) error {

@@ -8,6 +8,9 @@ import { ExplainQueryButton } from '../components/ExplainPanel'
 import { CaseControls, SuppressedFindings } from './cases/CaseControls'
 import { InvestigationPanel } from './cases/InvestigationPanel'
 import { WhyNotRun } from './cases/WhyNotRun'
+import {
+  caseChunks, investigationsByCase, investigationsURL,
+} from './cases/caseInvestigations'
 import { CasesHealthNotes } from './cases/CasesHealthNotes'
 import { CandidateArtifacts } from './cases/CandidateArtifacts'
 import { FactBadges } from '../components/FactBadges'
@@ -33,19 +36,6 @@ function casesQuery(database, focusedID) {
   if (focusedID) params.set('case', focusedID)
   const query = params.toString()
   return query ? `?${query}` : ''
-}
-
-// investigationsByCase keeps each case's newest investigation (the API
-// lists newest first), keyed by database and case id ("|" never appears
-// in a database name), so a same-named case of another database never
-// borrows it.
-function investigationsByCase(items) {
-  const out = new Map()
-  for (const inv of items || []) {
-    const key = `${inv.database}|${inv.case_id}`
-    if (!out.has(key)) out.set(key, inv)
-  }
-  return out
 }
 
 function nextStep(caseRow) {
@@ -88,12 +78,6 @@ export function CasesPage({ database, initialSource = 'all', user }) {
   }, [])
   const casesResult = useAPI(`/api/v1/cases${casesQuery(database, focusedID)}`, 30000)
   const { data, refetch } = casesResult
-  const investigations = useAPI(
-    `/api/v1/investigations?database=${encodeURIComponent(database || 'all')}`,
-    30000,
-  )
-  const byCase = investigationsByCase(investigations.data?.items)
-
   if (queryBlocked(casesResult)) {
     return <QueryState query={casesResult} skeleton={<LoadingSpinner />} />
   }
@@ -188,15 +172,33 @@ export function CasesPage({ database, initialSource = 'all', user }) {
       )}
 
       <div className="space-y-2">
-        {visibleCases.map(c => (
-          <CaseCard key={caseID(c)} caseRow={c} user={user}
-            focused={Boolean(focusedID)} onReview={() => setFocusedID(caseID(c))}
-            investigation={byCase.get(`${c.database_name}|${caseID(c)}`)}
+        {caseChunks(visibleCases).map((chunk, i) => (
+          <CaseChunk key={i} chunk={chunk} database={database} user={user}
+            focused={Boolean(focusedID)} onReview={c => setFocusedID(caseID(c))}
             onDone={refetch} />
         ))}
       </div>
     </div></QueryState>
   )
+}
+
+// CaseChunk renders up to 100 cases with the newest investigation of each,
+// asked for by case id (sre-09): a list of the database's newest
+// investigations missed a case whose investigation was older. A changed
+// case set is a new request; until it answers, the last answer stays
+// (keyed by database and case), so an open panel does not unmount.
+function CaseChunk({ chunk, database, user, focused, onReview, onDone }) {
+  const investigations = useAPI(investigationsURL(database, chunk.ids), 30000)
+  const [kept, setKept] = useState({ at: null, items: null })
+  const { data, updatedAt } = investigations
+  if (data?.items && updatedAt !== kept.at) setKept({ at: updatedAt, items: data.items })
+  const byCase = investigationsByCase(data?.items || kept.items)
+  return chunk.cases.map(c => (
+    <CaseCard key={`${c.database_name}|${caseID(c)}`} caseRow={c} user={user}
+      focused={focused} onReview={() => onReview(c)}
+      investigation={byCase.get(`${c.database_name}|${caseID(c)}`)}
+      onDone={onDone} />
+  ))
 }
 
 function focusedCaseID() {

@@ -123,21 +123,8 @@ func (s *PoolStore) Channel(ctx context.Context, id int) (*Channel, error) {
 func (s *PoolStore) LogDelivery(
 	ctx context.Context, channelID int, event Event, status, errMsg string,
 ) error {
-	if s.pool == nil {
-		return nil
-	}
-	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	_, err := s.pool.Exec(qctx,
-		`/* pg_sage */ INSERT INTO sage.notification_log
-		    (channel_id, event, subject, body, status, error)
-		 VALUES ($1, $2, $3, $4, $5, $6)`,
-		channelID, event.Type, event.Subject,
-		event.Body, status, RedactURLs(errMsg))
-	if err != nil {
-		return fmt.Errorf("insert notification_log: %w", err)
-	}
-	return nil
+	return s.RecordDelivery(ctx, Delivery{ChannelID: channelID, Event: event,
+		Status: status, Error: errMsg})
 }
 
 var _ RuleStore = (*PoolStore)(nil)

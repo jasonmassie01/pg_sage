@@ -183,13 +183,13 @@ func section(doc, heading string) string {
 }
 
 // readIDs are every read an investigation can make: the catalog, the
-// plan-only EXPLAIN and the historical reads.
+// plan-only EXPLAIN, the historical reads and the detection snapshot.
 func readIDs() []string {
 	var out []string
 	for _, id := range probes.Catalog().IDs() {
 		out = append(out, string(id))
 	}
-	return append(out, string(ExplainProbeID), ToolHistory)
+	return append(out, string(ExplainProbeID), ToolHistory, string(IncidentSnapshotProbeID))
 }
 
 // actionIDs are the approved actions and the reads made around them.

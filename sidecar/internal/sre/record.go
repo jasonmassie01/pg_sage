@@ -151,6 +151,10 @@ type ListFilter struct {
 	Cursor string
 	// CaseID, when set, lists only the investigations of that case.
 	CaseID string
+	// CaseIDs, when set, lists the newest investigation of each named
+	// case (at most MaxListCaseIDs), newest first, in one page. It is not
+	// combined with Cursor or CaseID.
+	CaseIDs []string
 }
 
 // Page is one page of investigations.
