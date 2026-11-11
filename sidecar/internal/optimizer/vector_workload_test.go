@@ -228,3 +228,48 @@ func containsString(items []string, want string) bool {
 	}
 	return false
 }
+
+// Text inside string literals and comments is not SQL: an operator or a
+// LIMIT/WHERE there says nothing about the statement, even when it names a
+// vector column. A function named like a vector column is not that column.
+func TestClassifyVectorWorkload_LiteralsCommentsAndCallsAreNotOperands(t *testing.T) {
+	cols := []ColumnInfo{{Name: "embedding", Type: "vector"}, {Name: "name", Type: "text"}}
+	for name, text := range map[string]string{
+		"operator in a literal": "SELECT id FROM d WHERE note = 'embedding <-> $1' LIMIT 5",
+		"operator in a block comment": "/* ORDER BY embedding <=> $1 */ " +
+			"SELECT id FROM d ORDER BY name <-> $1 LIMIT 5",
+		"operator in a line comment": "SELECT id FROM d -- embedding <=> $1\n" +
+			"ORDER BY name <-> $1 LIMIT 5",
+		"call named like the column": "SELECT id FROM d ORDER BY name <-> embedding($1) LIMIT 5",
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := ClassifyVectorWorkload(QueryInfo{Text: text}, cols)
+			if got.Shape != "" || got.Evidence != nil {
+				t.Fatalf("got %+v, want an empty classification", got)
+			}
+		})
+	}
+}
+
+func TestClassifyVectorWorkload_LimitOrWhereOnlyInLiteralOrComment(t *testing.T) {
+	text := "SELECT id /* where tenant_id = $3 limit 1 */ FROM d " +
+		"ORDER BY embedding <=> $1 -- limit 10\n, note = 'where x limit 2'"
+	got := ClassifyVectorWorkload(QueryInfo{Text: text}, docsCols)
+
+	if got.Shape != VectorShapeANN {
+		t.Fatalf("Shape = %q, want %q (%+v)", got.Shape, VectorShapeANN, got)
+	}
+	if !containsString(got.Warnings, VectorWarningMissingLimit) {
+		t.Fatalf("Warnings = %v, want %q", got.Warnings, VectorWarningMissingLimit)
+	}
+}
+
+// A literal keeps its cast after its text is blanked.
+func TestClassifyVectorWorkload_CastLiteralWithQuoteInside(t *testing.T) {
+	text := "SELECT 1 FROM t ORDER BY x <-> 'it''s <-> [1]'::sparsevec LIMIT 3"
+	got := ClassifyVectorWorkload(QueryInfo{Text: text}, nil)
+
+	if got.Shape != VectorShapeANN || !containsString(got.Evidence, "cast to sparsevec") {
+		t.Fatalf("got %+v, want ANN by the sparsevec cast", got)
+	}
+}

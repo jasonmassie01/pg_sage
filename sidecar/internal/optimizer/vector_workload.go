@@ -39,6 +39,9 @@ var (
 		`\s*(?:<->|<=>|<#>)\s*` + distanceOperand + `(\s*\()?`)
 	limitWordRe = regexp.MustCompile(`\blimit\b|\bfetch (?:first|next)\b`)
 	whereWordRe = regexp.MustCompile(`\bwhere\b`)
+	// literalOrCommentRe finds, left to right, a string literal or a
+	// comment, so a "--" or "/*" inside a literal stays in the literal.
+	literalOrCommentRe = regexp.MustCompile(`'(?:[^']|'')*'|--[^\n]*|(?s:/\*.*?\*/)`)
 )
 
 // vectorTypes are pgvector's types; a distance operator is a vector
@@ -51,7 +54,8 @@ var vectorTypes = map[string]bool{"vector": true, "halfvec": true, "sparsevec": 
 // vector, halfvec or sparsevec in cols, or is cast to one. A column whose
 // type is unknown is not vector: no hint rather than a wrong one.
 func ClassifyVectorWorkload(q QueryInfo, cols []ColumnInfo) VectorWorkloadClassification {
-	text := strings.Join(strings.Fields(strings.ToLower(q.Text)), " ")
+	text := strings.Join(strings.Fields(blankLiteralsAndComments(
+		strings.ToLower(q.Text))), " ")
 	evidence := vectorOperands(text, cols)
 	if len(evidence) == 0 {
 		return VectorWorkloadClassification{}
@@ -116,4 +120,16 @@ func lastIdentPart(ident string) string {
 		ident = ident[i+1:]
 	}
 	return strings.Trim(ident, `"`)
+}
+
+// blankLiteralsAndComments empties every string literal (an empty literal
+// keeps its cast an operand) and drops every comment, so neither an
+// operator nor a LIMIT or WHERE written inside one is read as SQL.
+func blankLiteralsAndComments(text string) string {
+	return literalOrCommentRe.ReplaceAllStringFunc(text, func(m string) string {
+		if strings.HasPrefix(m, "'") {
+			return "''"
+		}
+		return " "
+	})
 }
