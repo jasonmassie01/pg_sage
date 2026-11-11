@@ -29,6 +29,9 @@ type fieldMeta struct {
 	DocsURL string      `json:"docs_url,omitempty"`
 	Secret  bool        `json:"secret,omitempty"`
 	Class   string      `json:"class,omitempty"`
+	// Lifecycle is how a saved value takes effect (config-09): live_policy,
+	// reconfigure or restart; see lifecycleFor.
+	Lifecycle string `json:"lifecycle"`
 }
 
 // sensitiveSuffixes lists yaml-key terminal components that require
@@ -185,13 +188,22 @@ func writeLifecycleReference(path string) error {
 }
 
 // Generate walks cfg via reflection and returns a keyed map of
-// {dot.path: fieldMeta}. When strict is true, any yaml-tagged field
-// lacking a doc tag produces an error.
+// {dot.path: fieldMeta}, each with its lifecycle. When strict is true, any
+// yaml-tagged field lacking a doc tag produces an error; a key without a
+// lifecycle always does.
 func Generate(cfg *config.Config, strict bool) (map[string]fieldMeta, error) {
 	out := make(map[string]fieldMeta)
 	v := reflect.ValueOf(cfg).Elem()
 	if err := walkStruct(v, "", out, strict); err != nil {
 		return nil, err
+	}
+	for key, meta := range out {
+		lifecycle, err := lifecycleFor(key)
+		if err != nil {
+			return nil, err
+		}
+		meta.Lifecycle = lifecycle
+		out[key] = meta
 	}
 	return out, nil
 }
