@@ -125,10 +125,17 @@ func isAskQuestion(r *http.Request) bool {
 	return ok && db != "" && !strings.Contains(db, "/")
 }
 
+// multipartExempt are the routes that take a multipart/form-data upload.
+var multipartExempt = map[string]bool{
+	"/api/v1/databases/managed/import":   true,
+	"/api/v1/sre/autonomy/bench-results": true,
+}
+
 // requireJSONMiddleware rejects POST/PUT/PATCH requests
 // that do not send Content-Type: application/json. The multipart CSV
-// import is exempt; the cross-origin check, not this one, is what keeps a
-// same-site HTML form from reaching it (apiauth-10).
+// import and the signed bench upload (benches-09) are exempt; the
+// cross-origin check, not this one, is what keeps a same-site HTML form
+// from reaching them (apiauth-10).
 func requireJSONMiddleware(
 	next http.Handler,
 ) http.Handler {
@@ -139,7 +146,7 @@ func requireJSONMiddleware(
 		case http.MethodPost, http.MethodPut,
 			http.MethodPatch:
 			ct := r.Header.Get("Content-Type")
-			if r.URL.Path == "/api/v1/databases/managed/import" &&
+			if multipartExempt[r.URL.Path] &&
 				strings.HasPrefix(ct, "multipart/form-data") {
 				break
 			}

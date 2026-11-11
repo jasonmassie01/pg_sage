@@ -34,6 +34,9 @@ type AutonomyDeps struct {
 	// FastElevation is every trust-elevation setting below the spec (the
 	// config is restart-bound, so it is fixed for the process).
 	FastElevation []config.LoweredSetting
+	// BenchVerifier verifies a signed bench upload's Sigstore bundle
+	// (benches-09); without one a signed upload is refused (503).
+	BenchVerifier BenchVerifier
 }
 
 const autonomyPath = "/api/v1/sre/autonomy"
