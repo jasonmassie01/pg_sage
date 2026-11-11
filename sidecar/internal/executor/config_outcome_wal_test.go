@@ -41,6 +41,8 @@ func ckpt(req, timed, epoch float64) map[string]float64 {
 }
 
 func TestJudgeRequestedCheckpoints(t *testing.T) {
+	// Terminal marks only an insufficient verdict more time cannot change
+	// (metricJudgement); a decided verdict leaves it false.
 	cases := []struct {
 		name          string
 		before, after map[string]float64
@@ -49,13 +51,13 @@ func TestJudgeRequestedCheckpoints(t *testing.T) {
 		reason        string
 	}{
 		// Lifetime share 0.9; the window has 0 of 3: improved.
-		{"pressure gone", ckpt(90, 10, 1), ckpt(90, 13, 1), verify.OutcomeImproved, true,
+		{"pressure gone", ckpt(90, 10, 1), ckpt(90, 13, 1), verify.OutcomeImproved, false,
 			"fell"},
 		// Window share 0.45 is exactly half of 0.9: improved.
-		{"halved boundary", ckpt(90, 10, 1), ckpt(99, 21, 1), verify.OutcomeImproved, true,
+		{"halved boundary", ckpt(90, 10, 1), ckpt(99, 21, 1), verify.OutcomeImproved, false,
 			"fell"},
 		// 10 of 20 is 0.5 > 0.45 and not under 0.20: neutral.
-		{"not enough", ckpt(90, 10, 1), ckpt(100, 20, 1), verify.OutcomeNeutral, true,
+		{"not enough", ckpt(90, 10, 1), ckpt(100, 20, 1), verify.OutcomeNeutral, false,
 			"did not fall"},
 		{"too few checkpoints", ckpt(90, 10, 1), ckpt(91, 11, 1),
 			verify.OutcomeInsufficient, false, "too few"},
