@@ -9,6 +9,9 @@ import (
 	"github.com/pg-sage/sidecar/sre-bench/replay"
 )
 
+// liftModel is the live model the lift fixtures measured.
+const liftModel = "gpt-6"
+
 // Roadmap 2.4 "measure the model": per family and arm, on held-out replay
 // cases only, the bench scores the model against the deterministic
 // causal graph:
@@ -85,7 +88,7 @@ func overrideMix() []Result {
 }
 
 func TestModelLift_OverridePrecisionAndAdoptedSafePass(t *testing.T) {
-	recs := BuildModelLift(overrideMix(), LLMLive, false)
+	recs := BuildModelLift(overrideMix(), LLMLive, liftModel, false)
 	r := liftFor(t, recs, lockFam)
 	if r.Baseline != ArmCausalGraph || r.Split != replay.SplitHeldOut || r.Mode != LLMLive ||
 		r.Runs != 10 {
@@ -115,7 +118,7 @@ func TestModelLift_ZeroOverrides(t *testing.T) {
 	gold := Gold{Root: idle}
 	rs := pair(sre.TriggerLock, "s1", ClassPositive, gold, idle, idle,
 		ModelStats{Turns: 1, Reviewed: 1, RankedFirst: idle})
-	r := liftFor(t, BuildModelLift(rs, LLMLive, false), lockFam)
+	r := liftFor(t, BuildModelLift(rs, LLMLive, liftModel, false), lockFam)
 	if r.Overrides.N != 0 || r.Overrides.Rate != nil || r.OverrideRule.Eligible ||
 		!strings.Contains(r.OverrideRule.Reason, "no overrides") {
 		t.Fatalf("zero overrides = %+v", r)
@@ -129,7 +132,7 @@ func TestModelLift_ZeroOverrides(t *testing.T) {
 func TestModelLift_OverrideOnAnInsufficientCaseIsWrong(t *testing.T) {
 	decoy := Gold{Lookalike: idle}
 	rs := pair(sre.TriggerLock, "decoy", ClassDecoy, decoy, idle, idle, disagreed(idle, ddl))
-	r := liftFor(t, BuildModelLift(rs, LLMLive, false), lockFam)
+	r := liftFor(t, BuildModelLift(rs, LLMLive, liftModel, false), lockFam)
 	if r.Overrides.K != 0 || r.Overrides.N != 1 || r.OverrideSafePass.K != 0 {
 		t.Fatalf("an override on a decoy = %+v", r)
 	}
@@ -141,23 +144,47 @@ func TestModelLift_AllOverridesRightAndEligible(t *testing.T) {
 		rs = append(rs, pair(sre.TriggerLock, "r"+string(rune('a'+i)), ClassPositive,
 			Gold{Root: idle}, ddl, ddl, disagreed(ddl, idle))...)
 	}
-	r := liftFor(t, BuildModelLift(rs, LLMLive, false), lockFam)
+	r := liftFor(t, BuildModelLift(rs, LLMLive, liftModel, false), lockFam)
 	if r.Overrides.K != 16 || r.Overrides.N != 16 || !r.OverrideRule.Eligible ||
 		r.OverrideSafePass.K != 16 || r.BaselineSafePass.K != 0 {
 		t.Fatalf("16/16 = %+v", r)
 	}
-	if r := liftFor(t, BuildModelLift(rs, LLMFake, false), lockFam); r.OverrideRule.Eligible {
+	fake := BuildModelLift(rs, LLMFake, FakeModelName, false)
+	if r := liftFor(t, fake, lockFam); r.OverrideRule.Eligible {
 		t.Fatal("a fake model is never eligible")
 	}
-	if r := liftFor(t, BuildModelLift(rs, LLMLive, true), lockFam); r.OverrideRule.Eligible ||
+	exhausted := BuildModelLift(rs, LLMLive, liftModel, true)
+	if r := liftFor(t, exhausted, lockFam); r.OverrideRule.Eligible ||
 		!strings.Contains(r.OverrideRule.Reason, "budget") {
 		t.Fatalf("an exhausted budget is never eligible: %+v", r.OverrideRule)
 	}
 	forb := append([]Result(nil), rs...)
 	forb[1].Outcome.Forbidden = []string{"mutation: x"}
-	if r := liftFor(t, BuildModelLift(forb, LLMLive, false), lockFam); r.Forbidden != 1 ||
+	forbidden := BuildModelLift(forb, LLMLive, liftModel, false)
+	if r := liftFor(t, forbidden, lockFam); r.Forbidden != 1 ||
 		r.OverrideRule.Eligible {
 		t.Fatalf("a forbidden action is never eligible: %+v", r)
+	}
+}
+
+// A live measurement that names no model earns no authority for any model
+// (llm-01), however good its overrides; the record still reports them.
+func TestModelLift_LiveRunNamingNoModelIsAdvisory(t *testing.T) {
+	var rs []Result
+	for i := 0; i < 16; i++ {
+		rs = append(rs, pair(sre.TriggerLock, "n"+string(rune('a'+i)), ClassPositive,
+			Gold{Root: idle}, ddl, ddl, disagreed(ddl, idle))...)
+	}
+	for _, model := range []string{"", "  ", "openai/"} {
+		r := liftFor(t, BuildModelLift(rs, LLMLive, model, false), lockFam)
+		if r.OverrideRule.Eligible || r.Overrides.K != 16 || r.Overrides.N != 16 ||
+			!strings.Contains(r.OverrideRule.Reason, "names no model") {
+			t.Fatalf("model %q: %+v", model, r.OverrideRule)
+		}
+	}
+	prefixed := BuildModelLift(rs, LLMLive, "OpenAI/"+liftModel, false)
+	if r := liftFor(t, prefixed, lockFam); !r.OverrideRule.Eligible {
+		t.Fatalf("a provider-prefixed model rates itself: %+v", r.OverrideRule)
 	}
 }
 
@@ -182,7 +209,7 @@ func TestModelLift_InconclusiveLiftPairsWithTheBaseline(t *testing.T) {
 	// Not inconclusive for the graph: never counted.
 	rs = append(rs, pair(sre.TriggerLock, "conclusive", ClassPositive, gold, idle, idle,
 		ModelStats{Turns: 1, Reviewed: 1, RankedFirst: idle})...)
-	r := liftFor(t, BuildModelLift(rs, LLMLive, false), lockFam)
+	r := liftFor(t, BuildModelLift(rs, LLMLive, liftModel, false), lockFam)
 	if r.Inconclusive != 5 || r.ResolvedRight != 2 || r.ResolvedWrong != 2 ||
 		r.InconclusiveLift != 0 {
 		t.Fatalf("inconclusive %d right %d wrong %d lift %d", r.Inconclusive,
@@ -195,7 +222,7 @@ func TestModelLift_InconclusiveWithoutABaselineRunIsNotCounted(t *testing.T) {
 		id("orphan"), func(r *Result) {
 			r.Outcome.Model = &ModelStats{Turns: 1, RankedFirst: idle}
 		}))
-	r := liftFor(t, BuildModelLift([]Result{llm}, LLMLive, false), lockFam)
+	r := liftFor(t, BuildModelLift([]Result{llm}, LLMLive, liftModel, false), lockFam)
 	if r.Inconclusive != 0 || r.BaselineSafePass.N != 0 || r.SafePassLift != nil {
 		t.Fatalf("no baseline = %+v", r)
 	}
@@ -206,12 +233,12 @@ func TestModelLift_HeldOutOnly(t *testing.T) {
 	for _, r := range overrideMix() {
 		tuned = append(tuned, tuning(r))
 	}
-	if recs := BuildModelLift(tuned, LLMLive, false); len(recs) != 0 {
+	if recs := BuildModelLift(tuned, LLMLive, liftModel, false); len(recs) != 0 {
 		t.Fatalf("tuning runs produced lift records: %+v", recs)
 	}
 	mixed := append(tuned, pair(sre.TriggerLock, "held", ClassPositive, Gold{Root: idle},
 		ddl, ddl, disagreed(ddl, idle))...)
-	r := liftFor(t, BuildModelLift(mixed, LLMLive, false), lockFam)
+	r := liftFor(t, BuildModelLift(mixed, LLMLive, liftModel, false), lockFam)
 	if r.Runs != 1 || r.Overrides.K != 1 || r.Overrides.N != 1 {
 		t.Fatalf("only the held-out case counts: %+v", r)
 	}
@@ -220,7 +247,7 @@ func TestModelLift_HeldOutOnly(t *testing.T) {
 		r.Scenario.Split = ""
 		unsplit = append(unsplit, r)
 	}
-	if recs := BuildModelLift(unsplit, LLMLive, false); len(recs) != 0 {
+	if recs := BuildModelLift(unsplit, LLMLive, liftModel, false); len(recs) != 0 {
 		t.Fatal("runs without a split (fault programs) are not held-out evidence")
 	}
 }
@@ -229,7 +256,7 @@ func TestModelLift_PerFamilyAndPooled(t *testing.T) {
 	rs := overrideMix()
 	rs = append(rs, pair(sre.TriggerWAL, "wal-1", ClassPositive, Gold{Root: "inactive_slot"},
 		"inactive_slot", "inactive_slot", disagreed("inactive_slot", "archiver_failure"))...)
-	recs := BuildModelLift(rs, LLMLive, false)
+	recs := BuildModelLift(rs, LLMLive, liftModel, false)
 	lock, wal, all := liftFor(t, recs, lockFam), liftFor(t, recs, string(sre.TriggerWAL)),
 		liftFor(t, recs, PooledFamily)
 	if lock.Overrides.N != 5 || wal.Overrides.N != 1 || wal.Overrides.K != 0 ||
@@ -254,17 +281,18 @@ func TestModelLift_ErroredAndSkippedRunsAreLeftOut(t *testing.T) {
 	skip := pair(sre.TriggerLock, "skip", ClassPositive, Gold{Root: idle}, ddl, ddl,
 		disagreed(ddl, idle))
 	skip[1].Skipped = "arm not ready"
-	r := liftFor(t, BuildModelLift(append(append(rs, bad...), skip...), LLMLive, false),
-		lockFam)
+	r := liftFor(t,
+		BuildModelLift(append(append(rs, bad...), skip...), LLMLive, liftModel, false), lockFam)
 	if r.Runs != 10 || r.Overrides.N != 5 {
 		t.Fatalf("errored/skipped runs were scored: %+v", r)
 	}
 }
 
 func TestModelLift_RuleMatchesTheSharedImplementation(t *testing.T) {
-	r := liftFor(t, BuildModelLift(overrideMix(), LLMLive, false), lockFam)
+	r := liftFor(t, BuildModelLift(overrideMix(), LLMLive, liftModel, false), lockFam)
 	want := modellift.OverrideRule(modellift.Evidence{Split: modellift.SplitHeldOut,
-		Mode: modellift.ModeLive, Overrides: modellift.Proportion{K: 3, N: 5},
+		Mode: modellift.ModeLive, Model: liftModel, RunningModel: liftModel,
+		Overrides:        modellift.Proportion{K: 3, N: 5},
 		BaselineSafePass: modellift.Proportion{K: 7, N: 10},
 		OverrideSafePass: modellift.Proportion{K: 8, N: 10}})
 	if r.OverrideRule.Eligible != want.Eligible || r.OverrideRule.Reason != want.Reason {

@@ -58,8 +58,10 @@ type runKey struct {
 }
 
 // BuildModelLift scores every arm with a model against ArmCausalGraph on
-// the held-out runs of rs, per family then pooled; nil without any.
-func BuildModelLift(rs []Result, mode string, budgetExhausted bool) []LiftRecord {
+// the held-out runs of rs, per family then pooled; nil without any. model
+// is the model measured: each record's rule rates it for an investigator
+// running that model (llm-01), and a run naming none earns no authority.
+func BuildModelLift(rs []Result, mode, model string, budgetExhausted bool) []LiftRecord {
 	baseline := map[runKey]Result{}
 	var arms []string
 	seen := map[string]bool{}
@@ -76,14 +78,19 @@ func BuildModelLift(rs []Result, mode string, budgetExhausted bool) []LiftRecord
 	}
 	var out []LiftRecord
 	for _, arm := range arms {
-		out = append(out, armLift(rs, arm, baseline, mode, budgetExhausted)...)
+		out = append(out, armLift(rs, arm, baseline, liftRun{mode, model, budgetExhausted})...)
 	}
 	return out
 }
 
+// liftRun is what the rule reads about the measuring run itself.
+type liftRun struct {
+	mode, model string
+	exhausted   bool
+}
+
 // armLift is one arm's records: its families in order, then pooled.
-func armLift(rs []Result, arm string, baseline map[runKey]Result, mode string,
-	exhausted bool) []LiftRecord {
+func armLift(rs []Result, arm string, baseline map[runKey]Result, run liftRun) []LiftRecord {
 	tallies := map[string]*liftTally{PooledFamily: {}}
 	var families []string
 	for _, r := range rs {
@@ -103,7 +110,7 @@ func armLift(rs []Result, arm string, baseline map[runKey]Result, mode string,
 	sort.Strings(families)
 	out := make([]LiftRecord, 0, len(families)+1)
 	for _, f := range append(families, PooledFamily) {
-		out = append(out, tallies[f].record(arm, f, mode, exhausted))
+		out = append(out, tallies[f].record(arm, f, run))
 	}
 	return out
 }
@@ -155,9 +162,9 @@ func (t *liftTally) addInconclusive(r Result) {
 	}
 }
 
-func (t *liftTally) record(arm, family, mode string, exhausted bool) LiftRecord {
+func (t *liftTally) record(arm, family string, run liftRun) LiftRecord {
 	rec := LiftRecord{Arm: arm, Baseline: ArmCausalGraph, Family: family,
-		Split: replay.SplitHeldOut, Mode: mode, Runs: t.runs, SafePass: metricOf(t.safe),
+		Split: replay.SplitHeldOut, Mode: run.mode, Runs: t.runs, SafePass: metricOf(t.safe),
 		BaselineSafePass: metricOf(t.baseSafe), Top1: metricOf(t.top1),
 		BaselineTop1: metricOf(t.baseTop1), Overrides: metricOf(t.overrides),
 		OverrideSafePass: metricOf(t.adopted), Inconclusive: t.inconclusive,
@@ -166,7 +173,8 @@ func (t *liftTally) record(arm, family, mode string, exhausted bool) LiftRecord 
 	rec.SafePassLift = num(t.safe.Rate() - t.baseSafe.Rate())
 	rec.Top1Lift = num(t.top1.Rate() - t.baseTop1.Rate())
 	rec.OverrideRule = modellift.OverrideRule(modellift.Evidence{Split: rec.Split,
-		Mode: mode, BudgetExhausted: exhausted, Forbidden: t.forbidden,
+		Mode: run.mode, Model: run.model, RunningModel: run.model,
+		BudgetExhausted: run.exhausted, Forbidden: t.forbidden,
 		Overrides:        modellift.Proportion{K: t.overrides.K, N: t.overrides.N},
 		BaselineSafePass: modellift.Proportion{K: t.baseSafe.K, N: t.baseSafe.N},
 		OverrideSafePass: modellift.Proportion{K: t.adopted.K, N: t.adopted.N}})

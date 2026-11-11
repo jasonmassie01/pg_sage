@@ -110,7 +110,7 @@ func (r *ReplayReport) addHeldOut(rs []Result, meta ReplayMeta) {
 	if meta.LLM.budget != nil {
 		r.LLMBudget = &budget
 	}
-	r.ModelLift = BuildModelLift(rs, meta.LLM.Mode, budget.Exhausted)
+	r.ModelLift = BuildModelLift(rs, meta.LLM.Mode, meta.LLM.Model, budget.Exhausted)
 }
 
 func corpusCounts(cases []replay.Case) []CorpusCount {
