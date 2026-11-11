@@ -180,7 +180,7 @@ func (r *backendCancelRun) record(ctx context.Context,
 	if actionID <= 0 {
 		return 0, fmt.Errorf("the cancel of pid %d was sent but could not be recorded", t.PID)
 	}
-	if _, err := e.pool.Exec(ctx, `/* pg_sage */ UPDATE sage.action_log
+	if _, err := e.pool.Exec(ctx, `/* pg_sage executor */ UPDATE sage.action_log
 		SET outcome = 'success', measured_at = now() WHERE id = $1`, actionID); err != nil {
 		e.logFn("executor", "cancel of pid %d (action %d) sent; marking it delivered "+
 			"failed: %v", t.PID, actionID, err)
@@ -234,7 +234,7 @@ func cancelPolicyRequest(req BackendCancel) policy.ActionRequest {
 // cancelBackendIdentitySQL cancels exactly one statement: every identity
 // column must still match, the backend must be an active client backend
 // of this database, and protected backends never match.
-const cancelBackendIdentitySQL = `/* pg_sage */
+const cancelBackendIdentitySQL = `/* pg_sage executor */
 SELECT pg_catalog.pg_cancel_backend(a.pid)
   FROM pg_catalog.pg_stat_activity AS a
  WHERE a.pid = $1

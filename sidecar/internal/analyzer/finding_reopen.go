@@ -133,7 +133,7 @@ func lastActionResolution(
 ) (actionResolution, bool, error) {
 	var r actionResolution
 	err := pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT id, action_log_id, resolved_at, now()
+		`/* pg_sage analyzer */ SELECT id, action_log_id, resolved_at, now()
 		   FROM sage.findings
 		  WHERE category = $1 AND object_identifier = $2
 		    AND status = 'resolved'
@@ -163,7 +163,7 @@ func reopenAfterAction(
 		return outcomeSkipped, fmt.Errorf("marshal detail: %w", err)
 	}
 	tag, err := pool.Exec(ctx,
-		`/* pg_sage */ UPDATE sage.findings SET `+findingRefreshSet+`,
+		`/* pg_sage analyzer */ UPDATE sage.findings SET `+findingRefreshSet+`,
 		     status = 'open', resolved_at = NULL, acted_on_at = NULL,
 		     action_log_id = NULL
 		 WHERE id = $9 AND status = 'resolved'`,

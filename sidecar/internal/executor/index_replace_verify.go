@@ -209,7 +209,7 @@ func (e *Executor) replaceInput(ctx context.Context, rec indexReplaceRecord,
 	plan monitorPlan, cfg RollbackMonitorConfig, now time.Time) (replaceJudgeInput,
 	map[string]any, error) {
 	var raw []byte
-	if err := e.pool.QueryRow(ctx, `/* pg_sage */ SELECT COALESCE(before_state,
+	if err := e.pool.QueryRow(ctx, `/* pg_sage executor */ SELECT COALESCE(before_state,
 		'{}'::jsonb) FROM sage.action_log WHERE id = $1`, rec.ActionLogID).
 		Scan(&raw); err != nil {
 		return replaceJudgeInput{}, nil, fmt.Errorf("read action %d: %w", rec.ActionLogID, err)

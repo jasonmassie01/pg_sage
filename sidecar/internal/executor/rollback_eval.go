@@ -16,14 +16,14 @@ import (
 // Context probes recorded in before_state (not verification: Phase 1.3
 // judges the targeted queries), scoped to the connected database so another
 // database's workload never shows up in them (Codex C17).
-const cacheHitRatioSQL = `/* pg_sage */ SELECT coalesce(
+const cacheHitRatioSQL = `/* pg_sage executor */ SELECT coalesce(
 	blks_hit::float / nullif(blks_hit + blks_read, 0), 1.0)
 	FROM pg_stat_database WHERE datname = current_database()`
 
 // writeLatencySQL is the application's write latency: pg_sage's own
-// statements are tagged after their first keyword ("INSERT /* pg_sage */
+// statements are tagged after their first keyword ("INSERT /* pg_sage executor */
 // INTO sage.action_log ...") and matched 'INSERT%' too (perf-selfexcl).
-var writeLatencySQL = `/* pg_sage */ SELECT coalesce(avg(mean_exec_time), 0)
+var writeLatencySQL = `/* pg_sage executor */ SELECT coalesce(avg(mean_exec_time), 0)
 	FROM pg_stat_statements
 	WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
 	  AND (query LIKE 'INSERT%' OR query LIKE 'UPDATE%')
@@ -41,7 +41,7 @@ func CheckHysteresis(
 	ctx context.Context, pool *pgxpool.Pool, findingID int64, cooldownDays int,
 ) bool {
 	var one int
-	err := pool.QueryRow(ctx, `/* pg_sage */ SELECT 1 FROM sage.action_log al
+	err := pool.QueryRow(ctx, `/* pg_sage executor */ SELECT 1 FROM sage.action_log al
 		 LEFT JOIN sage.findings prev ON prev.id = al.finding_id
 		 WHERE al.outcome IN ('rolled_back', 'rollback_failed', 'rollback_skipped',
 		                      'rollback_withheld')
@@ -113,7 +113,7 @@ func updateActionOutcome(
 	var err error
 	wait := outcomeWriteBackoff
 	for attempt := 1; ; attempt++ {
-		_, err = pool.Exec(ctx, `/* pg_sage */ UPDATE sage.action_log
+		_, err = pool.Exec(ctx, `/* pg_sage executor */ UPDATE sage.action_log
 			 SET outcome = $1, rollback_reason = $2, measured_at = now()
 			 WHERE id = $3`, outcome, reason, actionID)
 		if err == nil || attempt == outcomeWriteAttempts || ctx.Err() != nil {
@@ -154,7 +154,7 @@ func setMonitoredOutcome(
 	if pool == nil {
 		return false
 	}
-	tag, err := pool.Exec(ctx, `/* pg_sage */ UPDATE sage.action_log
+	tag, err := pool.Exec(ctx, `/* pg_sage executor */ UPDATE sage.action_log
 		 SET outcome = $1, rollback_reason = $2, measured_at = now()
 		 WHERE id = $3 AND outcome IN `+monitorableOutcomes,
 		outcome, reason, actionID)
@@ -170,7 +170,7 @@ func updateActionSuccess(ctx context.Context, pool *pgxpool.Pool, actionID int64
 	var cacheHit float64
 	_ = pool.QueryRow(ctx, cacheHitRatioSQL).Scan(&cacheHit)
 	tag, err := pool.Exec(ctx,
-		`/* pg_sage */ UPDATE sage.action_log
+		`/* pg_sage executor */ UPDATE sage.action_log
 		 SET outcome = 'success',
 		     after_state = jsonb_build_object('cache_hit_ratio', $1::float8),
 		     measured_at = now()

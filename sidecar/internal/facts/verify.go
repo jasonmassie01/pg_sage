@@ -12,15 +12,15 @@ import (
 // existsSQL checks that a fact's subject still names something, by kind.
 // Patterns become LIKE patterns ('*' is '%', LIKE metacharacters escaped).
 var existsSQL = map[Kind]string{
-	KindSchema: `/* pg_sage */ SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_namespace
+	KindSchema: `/* pg_sage facts */ SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_namespace
 		WHERE nspname LIKE $1 AND $2 = '')`,
-	KindTable: `/* pg_sage */ SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_class c
+	KindTable: `/* pg_sage facts */ SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_class c
 		JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 		WHERE n.nspname LIKE $1 AND c.relname LIKE $2 AND c.relkind IN ('r','p','m','f'))`,
-	KindIndex: `/* pg_sage */ SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_class c
+	KindIndex: `/* pg_sage facts */ SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_class c
 		JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 		WHERE n.nspname LIKE $1 AND c.relname LIKE $2 AND c.relkind IN ('i','I'))`,
-	KindSlot: `/* pg_sage */ SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_replication_slots
+	KindSlot: `/* pg_sage facts */ SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_replication_slots
 		WHERE slot_name LIKE $2 AND $1 = '')`,
 }
 
@@ -68,7 +68,7 @@ func (s *Store) Reverify(ctx context.Context, now time.Time, fresh ...int64) ([]
 		}
 	}
 	if len(verified) > 0 {
-		if _, err := s.pool.Exec(ctx, `/* pg_sage */ UPDATE sage.facts
+		if _, err := s.pool.Exec(ctx, `/* pg_sage facts */ UPDATE sage.facts
 			SET last_verified_at = $2, missing_since = NULL
 			WHERE id = ANY($1) AND status IN ('proposed', 'confirmed')`,
 			verified, now); err != nil {
@@ -145,7 +145,7 @@ func (s *Store) markMissing(ctx context.Context, f Fact, now time.Time) (time.Ti
 		return *f.MissingSince, true, nil
 	}
 	var since time.Time
-	err := s.pool.QueryRow(ctx, `/* pg_sage */ UPDATE sage.facts
+	err := s.pool.QueryRow(ctx, `/* pg_sage facts */ UPDATE sage.facts
 		SET missing_since = COALESCE(missing_since, $2)
 		WHERE id = $1 AND status IN ('proposed', 'confirmed')
 		RETURNING missing_since`, f.ID, now).Scan(&since)

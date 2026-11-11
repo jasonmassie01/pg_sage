@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/selfbudget"
 	"github.com/pg-sage/sidecar/internal/sre"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
@@ -115,6 +116,8 @@ func (m *Monitor) Run(ctx context.Context) {
 // investigations. It reports the first problem met; what could be done
 // is done.
 func (m *Monitor) Tick(ctx context.Context) (TickResult, error) {
+	ctx, done := selfbudget.Process().TrackFor(ctx, "runways")
+	defer done()
 	var res TickResult
 	snap, problems := m.read(ctx)
 	res.Standby = snap.WAL != nil && snap.WAL.InRecovery

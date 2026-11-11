@@ -27,6 +27,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/providerobs"
 	"github.com/pg-sage/sidecar/internal/rca"
+	"github.com/pg-sage/sidecar/internal/selfbudget"
 	"github.com/pg-sage/sidecar/internal/sre"
 	sreaction "github.com/pg-sage/sidecar/internal/sre/action"
 	"github.com/pg-sage/sidecar/internal/sre/changefeed"
@@ -245,6 +246,8 @@ func newDatabaseRuntime(
 	if parent == nil {
 		parent = context.Background()
 	}
+	// Every worker's loop is tracked under this database (footprint-07).
+	parent = selfbudget.WithDatabase(parent, spec.Name)
 	if spec.ControlPool == nil {
 		spec.ControlPool = spec.Pool
 	}

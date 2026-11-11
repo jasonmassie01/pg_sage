@@ -60,7 +60,7 @@ func (c *Collector) collectStatStatementsMax(
 	var val int
 	err := c.catalogQueryRow(
 		ctx,
-		`/* pg_sage */ SELECT setting::int FROM pg_settings
+		`/* pg_sage collector */ SELECT setting::int FROM pg_settings
 		 WHERE name = 'pg_stat_statements.max'`,
 	).Scan(&val)
 	if err != nil {

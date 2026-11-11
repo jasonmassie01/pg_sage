@@ -151,7 +151,7 @@ func finishRegressed(
 	}
 	rollbackRegressedAction(ctx, pool, plan.actionID, plan.rollbackSQL, cfg, logFn)
 	var outcome string
-	err := pool.QueryRow(ctx, `/* pg_sage */ SELECT outcome FROM sage.action_log
+	err := pool.QueryRow(ctx, `/* pg_sage executor */ SELECT outcome FROM sage.action_log
 		WHERE id = $1`, plan.actionID).Scan(&outcome)
 	restored := err == nil && (outcome == "rolled_back" || outcome == "already_restored")
 	o.Evidence["rollback"] = map[string]any{"outcome": outcome, "restored": restored}

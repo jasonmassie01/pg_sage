@@ -108,7 +108,7 @@ func loadMonitorPlan(
 	p := monitorPlan{actionID: actionID}
 	var raw []byte
 	var sql, outcome string
-	err := pool.QueryRow(ctx, `/* pg_sage */ SELECT sql_executed, executed_at,
+	err := pool.QueryRow(ctx, `/* pg_sage executor */ SELECT sql_executed, executed_at,
 		COALESCE(before_state, '{}'::jsonb), outcome, COALESCE(rollback_sql, '')
 		FROM sage.action_log WHERE id = $1`, actionID).
 		Scan(&sql, &p.executedAt, &raw, &outcome, &p.rollbackSQL)

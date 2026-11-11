@@ -170,7 +170,7 @@ func lockRemnant(ctx context.Context, pool *pgxpool.Pool, oid int64) (func(), bo
 		_ = tx.Rollback(releaseCtx)
 	}
 	var held bool
-	if err := tx.QueryRow(ctx, `/* pg_sage */ SELECT pg_try_advisory_xact_lock($1)`,
+	if err := tx.QueryRow(ctx, `/* pg_sage executor */ SELECT pg_try_advisory_xact_lock($1)`,
 		remnantLockNamespace<<32|oid).Scan(&held); err != nil {
 		release()
 		return nil, false, fmt.Errorf("take remnant lock on OID %d: %w", oid, err)
@@ -186,7 +186,7 @@ func remnantVerdict(ctx context.Context, pool *pgxpool.Pool, c remnantCandidate)
 	defer cancel()
 	var oid, tableOID int64
 	var valid, building bool
-	err := pool.QueryRow(readCtx, `/* pg_sage */ SELECT
+	err := pool.QueryRow(readCtx, `/* pg_sage executor */ SELECT
 		COALESCE(i.indexrelid::bigint, 0), COALESCE(i.indisvalid, false),
 		COALESCE(i.indrelid::bigint, 0), EXISTS (SELECT 1
 		  FROM pg_stat_progress_create_index p WHERE p.index_relid = i.indexrelid)

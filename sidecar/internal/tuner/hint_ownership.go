@@ -30,7 +30,7 @@ const (
 // pg_sage's only for the empty application_name (the only one pg_sage
 // writes) and text pg_sage recorded for the statement; any other row is
 // foreign.
-const hintStateSQL = `/* pg_sage */
+const hintStateSQL = `/* pg_sage tuner */
 SELECT ids.qid,
        EXISTS (SELECT 1 FROM hint_plan.hints h
                 WHERE h.query_id = ids.qid
@@ -46,7 +46,7 @@ FROM unnest($1::bigint[]) AS ids(qid)`
 
 // hintStateNoTableSQL is hintStateSQL without a hint table: nothing can be
 // installed, so only pg_sage's own records count.
-const hintStateNoTableSQL = `/* pg_sage */
+const hintStateNoTableSQL = `/* pg_sage tuner */
 SELECT ids.qid, false,
        EXISTS (SELECT 1 FROM sage.query_hints q WHERE q.queryid = ids.qid
                 AND q.status IN ('active', 'dormant')),

@@ -12,7 +12,7 @@ import (
 // recordReplaceBuildOID persists the OID the replacement's build
 // registered while the row is still creating.
 func (e *Executor) recordReplaceBuildOID(ctx context.Context, id, oid int64) {
-	if _, err := e.pool.Exec(ctx, `/* pg_sage */ UPDATE sage.index_replace
+	if _, err := e.pool.Exec(ctx, `/* pg_sage executor */ UPDATE sage.index_replace
 		SET new_index_oid = $2, updated_at = now()
 		WHERE id = $1 AND state = 'creating'`, id, oid); err != nil {
 		e.logFn("executor", "record the build OID %d of replacement %d: %v", oid, id, err)

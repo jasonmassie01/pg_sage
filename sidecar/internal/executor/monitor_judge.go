@@ -177,7 +177,7 @@ func (p monitorPlan) softDropMiss(
 		return ""
 	}
 	var named bool
-	err := pool.QueryRow(ctx, `/* pg_sage */ SELECT EXISTS (SELECT 1 FROM sage.query_hints
+	err := pool.QueryRow(ctx, `/* pg_sage executor */ SELECT EXISTS (SELECT 1 FROM sage.query_hints
 		WHERE status IN ('active', 'dormant') AND strpos(hint_text, $1) > 0)`,
 		p.index).Scan(&named)
 	if err == nil && named {

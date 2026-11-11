@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/selfbudget"
 )
 
 // Run is the coordinator loop. Every trigger interval it verifies the
@@ -30,6 +32,8 @@ func (c *Coordinator) Run(ctx context.Context) {
 }
 
 func (c *Coordinator) tick(ctx context.Context, lastRetention *time.Time) {
+	ctx, done := selfbudget.Process().TrackFor(ctx, "sre")
+	defer done()
 	if ctx.Err() != nil {
 		return
 	}

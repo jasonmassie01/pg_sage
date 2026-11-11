@@ -7,7 +7,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/selfbudget"
 	"github.com/pg-sage/sidecar/internal/selfconfig"
 	"github.com/pg-sage/sidecar/internal/store"
 )
@@ -36,9 +38,12 @@ type selfConfigRunner struct {
 	// tempPeak takes the reactive detector's largest temp-file window
 	// since the previous pass (nil: no detector).
 	tempPeak func() (float64, bool)
-	prev     selfconfig.Evidence
-	logInfo  func(component, msg string, args ...any)
-	logWarn  func(component, msg string, args ...any)
+	// collectorCost reads what this database's collector measured over its
+	// last cycles (nil: no collector, as in the startup pass).
+	collectorCost func() (selfconfig.CollectorCost, bool)
+	prev          selfconfig.Evidence
+	logInfo       func(component, msg string, args ...any)
+	logWarn       func(component, msg string, args ...any)
 }
 
 func (rt *databaseRuntime) newSelfConfigRunner() *selfConfigRunner {
@@ -56,7 +61,20 @@ func (rt *databaseRuntime) newSelfConfigRunner() *selfConfigRunner {
 	if rt.tempDetector != nil {
 		r.tempPeak = rt.tempDetector.TakeTempPeak
 	}
+	if c := rt.collector; c != nil {
+		r.collectorCost = func() (selfconfig.CollectorCost, bool) {
+			cost, ok := c.CycleCost()
+			return selfConfigCost(cost), ok
+		}
+	}
 	return r
+}
+
+// selfConfigCost hands the collector's measured window to self-config: the
+// p90 cycle and slowest statement, the window's slowest step and timeouts.
+func selfConfigCost(c collector.CycleCost) selfconfig.CollectorCost {
+	return selfconfig.CollectorCost{Cycles: c.Cycles, CycleMs: c.P90CycleMs,
+		SlowestMs: c.P90SlowestMs, SlowestStep: c.SlowestStep, Timeouts: c.Timeouts}
 }
 
 // desiredOperatorConfig is the configuration as the operator declared it
@@ -136,6 +154,8 @@ func (s *selfConfigRunner) logEvents(results []selfconfig.Result) {
 // read; evidence that fails to read is logged and the rest is used.
 func (s *selfConfigRunner) pass(ctx context.Context,
 	phase selfconfig.Phase) ([]selfconfig.Result, error) {
+	ctx, done := selfbudget.Process().TrackFor(ctx, "self_config")
+	defer done()
 	set, err := s.operatorSet(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("read which keys the operator set: %w", err)
@@ -159,11 +179,12 @@ func (s *selfConfigRunner) pass(ctx context.Context,
 }
 
 // evidence is this pass's evidence: what was gathered (with the read
-// errors), the temp-file rate since the previous pass and the detector's
-// peak window since then.
+// errors), the temp-file rate since the previous pass, the detector's peak
+// window since then and what the collector's statements measured.
 func (s *selfConfigRunner) evidence(ctx context.Context) (selfconfig.Evidence, error) {
 	ev, err := s.gather(ctx)
-	return ev.WithTempRateSince(s.prev).WithTempPeak(s.tempPeak), err
+	return ev.WithTempRateSince(s.prev).WithTempPeak(s.tempPeak).
+		WithCollectorCost(s.collectorCost), err
 }
 
 // operatorSet is every key the operator set for this database.

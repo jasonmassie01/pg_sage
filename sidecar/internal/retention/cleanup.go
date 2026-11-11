@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/rca"
+	"github.com/pg-sage/sidecar/internal/selfbudget"
 )
 
 // batchSize is the default number of rows one purge statement deletes.
@@ -134,6 +135,8 @@ func (c *Cleaner) Run(ctx context.Context) {
 // previous run stopped (deferFrom), until done or the run's budget is
 // spent. A failing table is logged at ERROR and does not stop the others.
 func (c *Cleaner) RunOnce(ctx context.Context) RunStats {
+	ctx, done := selfbudget.Process().TrackFor(ctx, "retention")
+	defer done()
 	start := time.Now()
 	stats := newRunStats()
 	deadline := start.Add(c.budget)

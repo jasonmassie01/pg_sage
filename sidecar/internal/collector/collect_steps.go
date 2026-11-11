@@ -134,6 +134,7 @@ const (
 // relation, a permission) is never retried.
 func (c *Collector) runStep(ctx context.Context, st catalogStep, snap *Snapshot,
 	retries *int) error {
+	ctx = withStep(ctx, st.name)
 	err := st.run(ctx, snap)
 	for attempt := 1; err != nil && attempt < stepAttempts; attempt++ {
 		if *retries >= maxCycleRetries || ctx.Err() != nil || !catalogread.Retryable(err) {

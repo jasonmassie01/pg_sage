@@ -59,7 +59,7 @@ func (a *Analyzer) checkSelfCostBudget(cost selfcost.Cost) []Finding {
 		return nil
 	}
 	a.eval.evaluated(categorySelfCost)
-	return ruleSelfCost(cost, budget)
+	return ruleSelfCost(cost, budget, a.selfCost.ByComponent()...)
 }
 
 // SelfCost is the latest measured cost of pg_sage on this database.
@@ -79,14 +79,16 @@ func (a *Analyzer) collectorPeriod() time.Duration {
 }
 
 // ruleSelfCost raises a warning when the known DB time per collector
-// cycle exceeds budgetMs. The finding is about pg_sage's bill on the
-// database, keyed by the database name; the self-monitoring filter exempts
-// its category, so it may name pg_sage (and a database named sage).
-func ruleSelfCost(c selfcost.Cost, budgetMs int) []Finding {
+// cycle exceeds budgetMs; comps (the window's cost per component, may be
+// empty) name the costliest component in the advice. The finding is
+// about pg_sage's bill on the database, keyed by the database name; the
+// self-monitoring filter exempts its category, so it may name pg_sage
+// (and a database named sage).
+func ruleSelfCost(c selfcost.Cost, budgetMs int, comps ...selfcost.ComponentCost) []Finding {
 	if !selfcost.OverBudget(c, budgetMs) {
 		return nil
 	}
-	return []Finding{{
+	f := Finding{
 		Category:         categorySelfCost,
 		Severity:         "warning",
 		ObjectType:       "database",
@@ -104,10 +106,11 @@ func ruleSelfCost(c selfcost.Cost, budgetMs int) []Finding {
 			"rows_written_per_cycle": c.RowsWrittenPerCycle,
 			"schema_bytes":           c.SchemaBytes,
 		},
-		Recommendation: "Its statements are the pg_stat_statements entries that contain " +
-			"the /* pg_sage */ tag; sort them by total_exec_time to see which " +
-			"component costs most. Lengthen collector.interval_seconds or " +
-			"analyzer.interval_seconds to spend less, or raise " +
-			"analyzer.self_cost_budget_ms if this cost is expected.",
-	}}
+		Recommendation: selfCostAdvice(c.Database, comps),
+	}
+	if top, _ := topComponent(comps); top != nil {
+		f.Detail["top_component"] = top.Component
+		f.Detail["top_component_db_time_ms_per_hour"] = top.DBTimeMsPerHour
+	}
+	return []Finding{f}
 }

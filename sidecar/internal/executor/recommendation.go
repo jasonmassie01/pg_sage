@@ -285,7 +285,7 @@ func (e *Executor) logClaimedAction(
 		func(q actionLogWriter) (int64, error) {
 			var id int64
 			err := q.QueryRow(ctx,
-				`/* pg_sage */ INSERT INTO sage.action_log
+				`/* pg_sage executor */ INSERT INTO sage.action_log
 				 (action_type, finding_id, sql_executed, rollback_sql,
 				  before_state, outcome, rollback_reason, decision_id, database_id)
 				 VALUES ($1, NULLIF($2, 0), $3, $4, $5, $6, $7, NULLIF($8, 0), $9::bigint)

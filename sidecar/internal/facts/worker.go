@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/selfbudget"
 )
 
 // Worker defaults.
@@ -88,6 +90,8 @@ func (w *Worker) log(s RunStats) {
 // RunOnce is one pass. A failing detector or model is recorded and the
 // pass goes on.
 func (w *Worker) RunOnce(ctx context.Context) RunStats {
+	ctx, done := selfbudget.Process().TrackFor(ctx, "facts")
+	defer done()
 	var stats RunStats
 	fail := func(format string, args ...any) {
 		stats.Errors = append(stats.Errors, fmt.Sprintf(format, args...))

@@ -20,7 +20,7 @@ func (e *Executor) refuseUnboundRemnant(ctx context.Context, sql string) error {
 	}
 	qualified := pgx.Identifier{schemaName, name}.Sanitize()
 	var invalid bool
-	err := e.pool.QueryRow(ctx, `/* pg_sage */ SELECT EXISTS (
+	err := e.pool.QueryRow(ctx, `/* pg_sage executor */ SELECT EXISTS (
 		SELECT 1 FROM pg_index i WHERE i.indexrelid = to_regclass($1)
 		   AND NOT i.indisvalid)`, qualified).Scan(&invalid)
 	if err != nil {

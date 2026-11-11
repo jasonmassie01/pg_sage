@@ -57,7 +57,7 @@ func (e *Executor) prepareConfigChange(ctx context.Context, sql string) (*config
 			return nil, fmt.Errorf("%w: database pool unavailable", ErrConfigPrior)
 		}
 		var currentDatabase string
-		if err := e.pool.QueryRow(ctx, "/* pg_sage */ SELECT current_database()").Scan(&currentDatabase); err != nil {
+		if err := e.pool.QueryRow(ctx, "/* pg_sage executor */ SELECT current_database()").Scan(&currentDatabase); err != nil {
 			return nil, fmt.Errorf("%w: current database: %v", ErrConfigPrior, err)
 		}
 		if databaseName(stmt) != currentDatabase {
@@ -145,7 +145,7 @@ func mergeAfterState(
 	if err != nil {
 		return fmt.Errorf("encode %s: %w", key, err)
 	}
-	_, err = pool.Exec(ctx, `/* pg_sage */ UPDATE sage.action_log
+	_, err = pool.Exec(ctx, `/* pg_sage executor */ UPDATE sage.action_log
 		SET after_state = COALESCE(after_state, '{}'::jsonb) || $1::jsonb WHERE id = $2`,
 		raw, actionID)
 	return err

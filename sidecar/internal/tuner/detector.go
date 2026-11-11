@@ -125,7 +125,7 @@ func readHintTable(
 // cannot coexist); whether pg_sage can read it (USAGE on the schema and
 // SELECT); and whether it can write it (INSERT and DELETE, each checked on
 // its own: has_table_privilege with a list is true when any one is held).
-const hintTableSQL = `/* pg_sage */
+const hintTableSQL = `/* pg_sage tuner */
 WITH h AS (
   SELECT c.oid, n.oid AS nsp FROM pg_catalog.pg_class c
     JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace

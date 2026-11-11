@@ -23,7 +23,7 @@ func NewCatalogResolver(pool *pgxpool.Pool) *CatalogResolver {
 // table's) declarative partition tree. pg_partition_root (PG 12+) is NULL
 // for a plain table and a legacy inheritance child; the root is returned
 // only when it is another relation, so a root never names itself.
-const resolveCatalogSQL = `/* pg_sage */
+const resolveCatalogSQL = `/* pg_sage facts */
 SELECT w.n, c.relkind::text, COALESCE(tn.nspname, ''), COALESCE(t.relname, ''),
        COALESCE(rn.nspname, ''), COALESCE(rc.relname, '')
 FROM unnest($1::text[], $2::text[]) WITH ORDINALITY AS w(s, r, n)

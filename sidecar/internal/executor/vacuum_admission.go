@@ -37,7 +37,7 @@ type runningVacuum struct {
 
 // runningVacuumSQL reads the vacuums of $1 and its TOAST table, plus every
 // vacuum in this database whose table is hidden from the role.
-const runningVacuumSQL = `/* pg_sage */ SELECT p.pid, p.relid IS NOT NULL,
+const runningVacuumSQL = `/* pg_sage executor */ SELECT p.pid, p.relid IS NOT NULL,
 	COALESCE(p.phase, ''), COALESCE(p.heap_blks_scanned, 0), COALESCE(p.heap_blks_total, 0),
 	COALESCE(a.backend_type = 'autovacuum worker', false),
 	COALESCE(a.query LIKE '%(to prevent wraparound)%', false)
@@ -151,7 +151,7 @@ func (e *Executor) recordVacuumProgress(
 	if e.pool == nil || decisionID <= 0 {
 		return
 	}
-	if _, err := e.pool.Exec(ctx, `/* pg_sage */ UPDATE sage.decision
+	if _, err := e.pool.Exec(ctx, `/* pg_sage executor */ UPDATE sage.decision
 		SET verdict = CASE WHEN $2 THEN 'blocked' ELSE verdict END,
 		    reason = CASE WHEN $2 THEN $3 ELSE reason END,
 		    evidence = evidence || jsonb_build_object('vacuum_progress', $4::jsonb)

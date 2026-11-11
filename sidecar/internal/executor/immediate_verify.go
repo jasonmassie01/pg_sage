@@ -71,7 +71,7 @@ func loadImmediate(
 	var sql string
 	var raw []byte
 	var executedAt time.Time
-	err := pool.QueryRow(ctx, `/* pg_sage */ SELECT sql_executed, executed_at,
+	err := pool.QueryRow(ctx, `/* pg_sage executor */ SELECT sql_executed, executed_at,
 		COALESCE(before_state, '{}'::jsonb) FROM sage.action_log WHERE id = $1`, actionID).
 		Scan(&sql, &executedAt, &raw)
 	if err != nil {
@@ -115,13 +115,13 @@ func settledMaintenanceMetric(
 
 // maintenanceMetricSQL reads each maintenance metric of a table ($1).
 var maintenanceMetricSQL = map[string]string{
-	verify.MetricDeadTuples: `/* pg_sage */ SELECT n_dead_tup::float8
+	verify.MetricDeadTuples: `/* pg_sage executor */ SELECT n_dead_tup::float8
 		FROM pg_stat_user_tables WHERE relid = to_regclass($1)`,
-	verify.MetricModsSinceAnalyze: `/* pg_sage */ SELECT n_mod_since_analyze::float8
+	verify.MetricModsSinceAnalyze: `/* pg_sage executor */ SELECT n_mod_since_analyze::float8
 		FROM pg_stat_user_tables WHERE relid = to_regclass($1)`,
-	verify.MetricFrozenXIDAge: `/* pg_sage */ SELECT age(relfrozenxid)::float8
+	verify.MetricFrozenXIDAge: `/* pg_sage executor */ SELECT age(relfrozenxid)::float8
 		FROM pg_class WHERE oid = to_regclass($1)`,
-	metricVacuumCount: `/* pg_sage */ SELECT COALESCE(vacuum_count, 0)::float8
+	metricVacuumCount: `/* pg_sage executor */ SELECT COALESCE(vacuum_count, 0)::float8
 		FROM pg_stat_user_tables WHERE relid = to_regclass($1)`,
 }
 

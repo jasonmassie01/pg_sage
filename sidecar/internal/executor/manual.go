@@ -276,7 +276,7 @@ func (e *Executor) verifyManualFinding(
 	var recommendedSQL *string
 	var f manualFinding
 	err := e.pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT recommended_sql, detail, category, object_identifier
+		`/* pg_sage executor */ SELECT recommended_sql, detail, category, object_identifier
 		   FROM sage.findings
 		  WHERE id = $1
 		    AND status = 'open'
@@ -324,7 +324,7 @@ func (e *Executor) manualAnalyzeFinding(
 ) (analyzer.Finding, error) {
 	var objectIdentifier string
 	err := e.pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT COALESCE(object_identifier, '')
+		`/* pg_sage executor */ SELECT COALESCE(object_identifier, '')
 		   FROM sage.findings
 		  WHERE id = $1`,
 		findingID,
@@ -404,7 +404,7 @@ func (e *Executor) logManualActionWithDecision(
 		func(q actionLogWriter) (int64, error) {
 			var id int64
 			err := q.QueryRow(ctx,
-				`/* pg_sage */ INSERT INTO sage.action_log
+				`/* pg_sage executor */ INSERT INTO sage.action_log
 				 (action_type, finding_id, sql_executed, rollback_sql,
 				  before_state, outcome, approved_by, approved_at, decision_id, database_id)
 				 VALUES ($1, $2, $3, $4, $5, $6, $7::int,

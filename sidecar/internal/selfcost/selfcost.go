@@ -3,7 +3,8 @@
 // they touch, rows read and written in the sage schema, and the schema's
 // size. pg_sage no longer hides from pg_stat_statements; every statement
 // it sends carries the /* pg_sage */ tag, which is how its own entries are
-// found.
+// found, and the tag may name the component that sent it
+// (/* pg_sage collector */), which is how the cost is attributed.
 package selfcost
 
 import (
@@ -117,13 +118,10 @@ func (s *Sampler) Sample(ctx context.Context, q Querier, sc Schema) Reading {
 func statementDelta(prev, cur map[StatementKey]StatementCounters) StatementCounters {
 	var d StatementCounters
 	for k, c := range cur {
-		p, ok := prev[k]
-		if !ok || c.Calls < p.Calls || c.TimeMs < p.TimeMs || c.Blocks < p.Blocks {
-			p = StatementCounters{}
-		}
-		d.TimeMs += c.TimeMs - p.TimeMs
-		d.Calls += c.Calls - p.Calls
-		d.Blocks += c.Blocks - p.Blocks
+		e := entryDelta(prev, k, c)
+		d.TimeMs += e.TimeMs
+		d.Calls += e.Calls
+		d.Blocks += e.Blocks
 	}
 	return d
 }
@@ -176,13 +174,15 @@ func OverBudget(c Cost, budgetMs int) bool {
 	return budgetMs > 0 && c.Known && c.DBTimeKnown && c.DBTimeMsPerCycle > float64(budgetMs)
 }
 
-// Meter keeps the previous reading and the latest cost. Safe for
-// concurrent use (the analyzer observes, /metrics reads).
+// Meter keeps the previous reading and the latest cost, its costliest
+// statements and its cost per component. Safe for concurrent use (the
+// analyzer observes, /metrics and the API read).
 type Meter struct {
-	mu   sync.Mutex
-	prev Reading
-	last Cost
-	top  []StatementCost
+	mu         sync.Mutex
+	prev       Reading
+	last       Cost
+	top        []StatementCost
+	components []ComponentCost
 }
 
 // NewMeter returns an empty meter.
@@ -196,9 +196,10 @@ func (m *Meter) Observe(r Reading, cycle time.Duration) Cost {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	c := Between(m.prev, r, cycle)
-	m.top = nil
+	m.top, m.components = nil, nil
 	if c.DBTimeKnown {
 		m.top = TopStatements(m.prev.Statements, r.Statements, TopN)
+		m.components = ByComponent(m.prev.Statements, r.Statements, c.WindowSeconds)
 	}
 	m.prev, m.last = r, c
 	return c

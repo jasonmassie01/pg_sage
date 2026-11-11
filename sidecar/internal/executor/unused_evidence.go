@@ -27,7 +27,7 @@ type unusedEvidence struct {
 // unusedEvidenceSQL reads, for one "schema.index", the index's scans and
 // the relation stats epoch: the later of pg_stat_database.stats_reset
 // (moved by every pg_stat_reset*) and the postmaster start.
-const unusedEvidenceSQL = `/* pg_sage */ SELECT
+const unusedEvidenceSQL = `/* pg_sage executor */ SELECT
   (SELECT count(*) FROM pg_stat_all_indexes s
     WHERE s.schemaname || '.' || s.indexrelname = $1),
   (SELECT COALESCE(max(s.idx_scan), 0) FROM pg_stat_all_indexes s

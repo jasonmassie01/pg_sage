@@ -69,7 +69,7 @@ func (e *Executor) justifyAndStore(
 	// json_mode wraps prose in a JSON object; store plain text (C4).
 	note = llm.UnwrapText(note)
 	if _, err := e.pool.Exec(jctx,
-		`/* pg_sage */ UPDATE sage.action_log SET justification = $1 WHERE id = $2`,
+		`/* pg_sage executor */ UPDATE sage.action_log SET justification = $1 WHERE id = $2`,
 		note, actionID,
 	); err != nil {
 		e.logFn("executor", "store justification for action %d: %v",

@@ -100,7 +100,7 @@ func ResolveClearedFindings(
 		}
 		var c ClearedFinding
 		err := pool.QueryRow(ctx,
-			`/* pg_sage */ UPDATE sage.findings
+			`/* pg_sage analyzer */ UPDATE sage.findings
 			 SET status = 'resolved', resolved_at = now()
 			 WHERE id = $1 AND status = 'open'
 			 RETURNING category, COALESCE(object_identifier, ''),
@@ -133,7 +133,7 @@ func clearedFindingIDs(
 	category string,
 ) ([]string, error) {
 	rows, err := pool.Query(ctx,
-		`/* pg_sage */ SELECT id, object_identifier FROM sage.findings
+		`/* pg_sage analyzer */ SELECT id, object_identifier FROM sage.findings
 		 WHERE category = $1 AND status = 'open'
 		 ORDER BY id`,
 		category,

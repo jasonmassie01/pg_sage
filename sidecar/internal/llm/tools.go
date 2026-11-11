@@ -106,6 +106,7 @@ func (c *Client) ChatWithTools(
 	if c == nil {
 		return ToolResult{}, ErrLLMDisabled
 	}
+	defer recordWait(ctx, time.Now())
 	if err := validateToolRequest(msgs, tools, opts); err != nil {
 		return ToolResult{}, err
 	}

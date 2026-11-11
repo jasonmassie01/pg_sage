@@ -11,6 +11,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/planfresh"
+	"github.com/pg-sage/sidecar/internal/selfbudget"
 	"github.com/pg-sage/sidecar/internal/workload"
 )
 
@@ -116,6 +117,8 @@ func (t *Tuner) Tune(
 	ctx context.Context,
 	deferredTables map[string]bool,
 ) ([]analyzer.Finding, error) {
+	ctx, done := selfbudget.Process().TrackFor(ctx, "tuner")
+	defer done()
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -235,7 +238,7 @@ func (t *Tuner) cooldownCycles() int {
 	return 3
 }
 
-var candidateSQL = `/* pg_sage */
+var candidateSQL = `/* pg_sage tuner */
 SELECT queryid, query, calls, mean_exec_time,
        mean_plan_time, temp_blks_read, temp_blks_written, userid::int8
 FROM pg_stat_statements

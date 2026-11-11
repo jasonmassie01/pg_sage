@@ -74,7 +74,7 @@ func unqualifiedNames(refs []ObjectRef) []string {
 
 // targetSchemasSQL finds every user schema with a relation of each name;
 // pg_sage's own and the system schemas are not targets.
-const targetSchemasSQL = `/* pg_sage */
+const targetSchemasSQL = `/* pg_sage facts */
 SELECT c.relname::text, n.nspname::text
 FROM pg_catalog.pg_class c
 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace

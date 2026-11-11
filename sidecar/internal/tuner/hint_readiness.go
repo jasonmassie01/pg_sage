@@ -115,7 +115,7 @@ func readHintSettings(ctx context.Context, q HintQuerier) (hintSettings, error) 
 // pg_sage's own session, so a value whose source is pg_sage's database, role
 // or session is not taken as the server's; those settings come from
 // pg_db_role_setting.
-const hintSettingsSQL = `/* pg_sage */
+const hintSettingsSQL = `/* pg_sage tuner */
 SELECT
   (SELECT setting FROM pg_catalog.pg_settings WHERE name = 'shared_preload_libraries'),
   coalesce((SELECT setting FROM pg_catalog.pg_settings

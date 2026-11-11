@@ -11,7 +11,7 @@ import (
 // lc_collate GUC was removed in PostgreSQL 16. The locale provider and
 // ICU/builtin locale columns differ by version, so they are read through
 // to_jsonb (absent columns are NULL instead of an error).
-const collationSQL = `/* pg_sage */ SELECT datcollate,
+const collationSQL = `/* pg_sage optimizer */ SELECT datcollate,
        COALESCE(to_jsonb(d)->>'datlocprovider', 'c'),
        COALESCE(to_jsonb(d)->>'datlocale', to_jsonb(d)->>'daticulocale', '')
   FROM pg_catalog.pg_database d WHERE datname = current_database()`

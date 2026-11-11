@@ -97,7 +97,7 @@ func (d *RunawayDetector) loadBlockerCounts(
 	return counts, nil
 }
 
-const activeRunawayQueriesSQL = `/* pg_sage */
+const activeRunawayQueriesSQL = `/* pg_sage executor */
 SELECT pid,
        query_start,
        COALESCE(query_id, 0),
@@ -116,7 +116,7 @@ SELECT pid,
 
 // runawayBlockersSQL counts the sessions each backend blocks; a pg_sage
 // session queued behind a lock is not a victim to terminate a query for.
-var runawayBlockersSQL = `/* pg_sage */
+var runawayBlockersSQL = `/* pg_sage executor */
 SELECT blocker_pid, count(*)::integer
   FROM pg_stat_activity AS blocked
  CROSS JOIN LATERAL unnest(pg_blocking_pids(blocked.pid)) AS blocker_pid

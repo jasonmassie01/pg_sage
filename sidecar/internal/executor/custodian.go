@@ -327,7 +327,7 @@ func (e *Executor) verifyXminBlocker(
 			pid, text, err)
 	}
 	var holds bool
-	err = e.pool.QueryRow(ctx, `/* pg_sage */ SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+	err = e.pool.QueryRow(ctx, `/* pg_sage executor */ SELECT EXISTS(SELECT 1 FROM pg_stat_activity
 		WHERE pid = $1 AND backend_start = $2
 		  AND (backend_xmin IS NOT NULL OR backend_xid IS NOT NULL))`, pid, start).Scan(&holds)
 	if err != nil {

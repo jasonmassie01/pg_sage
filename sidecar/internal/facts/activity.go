@@ -21,7 +21,7 @@ const activityReadTimeout = 10 * time.Second
 
 // activityBoundsSQL bounds the read's transaction: it is read-only and
 // gives up rather than wait on a lock or a slow catalog.
-const activityBoundsSQL = `/* pg_sage */ SELECT
+const activityBoundsSQL = `/* pg_sage facts */ SELECT
   pg_catalog.set_config('statement_timeout', '5s', true),
   pg_catalog.set_config('lock_timeout', '1s', true)`
 

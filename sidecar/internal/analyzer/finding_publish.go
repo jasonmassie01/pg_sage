@@ -53,7 +53,7 @@ func activeSuppressions(
 		cats[i], objs[i] = f.Category, f.ObjectIdentifier
 	}
 	rows, err := q.Query(ctx,
-		`/* pg_sage */ SELECT DISTINCT f.category, f.object_identifier
+		`/* pg_sage analyzer */ SELECT DISTINCT f.category, f.object_identifier
 		   FROM sage.findings f
 		   JOIN unnest($1::text[], $2::text[]) AS c(category, object_identifier)
 		     ON f.category = c.category

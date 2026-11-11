@@ -13,7 +13,7 @@ import (
 
 // schemaSummarySQL summarizes the largest user schemas: tables, activity
 // and size. pg_sage's own and the system schemas are never shown.
-const schemaSummarySQL = `/* pg_sage */
+const schemaSummarySQL = `/* pg_sage facts */
 SELECT n.nspname::text, count(c.oid)::int,
        COALESCE(sum(COALESCE(s.seq_scan, 0) + COALESCE(s.idx_scan, 0) +
                     COALESCE(s.n_tup_ins, 0) + COALESCE(s.n_tup_upd, 0) +

@@ -481,8 +481,8 @@ would produce an invalid configuration answers `400` with the key.
 | `analyzer.index_bloat_threshold_pct` | `30` | Estimated btree bloat (percent of `relpages`) at which an `index_bloat` finding recommends `REINDEX INDEX CONCURRENTLY` (under the `reindex_concurrently` contract: moderate, approval required): info from this value, warning from twice it. The estimate comes from planner statistics, not a page scan ([findings](findings.md#index_bloat)). `0` uses the default. API-settable (`0`-`100`) |
 | `analyzer.index_bloat_min_bytes` | `104857600` (100 MiB) | Smallest btree index (bytes, from `pg_class.relpages`) whose bloat the collector estimates each cycle, at most the 200 largest in one bounded catalog statement. More than 200 above the floor truncates the reading, and open `index_bloat` findings are then held, not resolved. `0` uses the default; a negative value is refused. Restart to change |
 | `analyzer.wraparound_freeze_share` | `0.75` | Share (above 0, at most 1) of a table's effective freeze maximum (the lower of `autovacuum_freeze_max_age` and the table's reloption; XID or multixact) at which the analyzer reports a `wraparound_freeze` finding. Diagnosis only: the freeze custodian decides and proposes the VACUUM. Replaces `analyzer.wraparound_freeze_xid_age`, which is retired (it loads with one warning and is ignored). Restart to change |
-| `self_budget.cpu_ms_per_cycle` | `600` | CPU time the sidecar process may use per collector cycle (all databases it monitors together), in ms; 600 is 1% of one core at the default 60 s interval. Over budget raises `sage_self_budget`. `0` disables. `0`-`3600000` |
-| `self_budget.db_time_ms_per_hour` | `0` | Database time pg_sage's own statements may use per hour on each database, in ms. `0` keeps `analyzer.self_cost_budget_ms` (per collector cycle) as the database-time budget, so one breach never raises two findings. That inherited budget is per cycle of each database's own collector: `analyzer.self_cost_budget_ms` x 3600 / its period in seconds (in fleet mode a database whose collector runs every 120 s inherits half the hourly budget of one at 60 s). `/metrics` exports it per database as `pg_sage_self_budget_database{database,resource="db_time"}` and compares `pg_sage_self_budget_exceeded{database,resource="db_time"}` with it; `pg_sage_self_budget{resource="db_time"}` stays the value at the configured `collector.interval_seconds`. An explicit value applies to every database as-is. `0`-`3600000` |
+| `self_budget.cpu_ms_per_cycle` | `600` | CPU time the sidecar process may use per collector cycle (all databases it monitors together), in ms; 600 is 1% of one core at the default 60 s interval. The cycle is the global `collector.interval_seconds`, not a database's own collector period. One process watch measures it once for the sidecar: over budget raises one `sage_self_budget` finding on the `sidecar` object, kept on the lowest-named connected database (the next one when that database refuses the write), never one per database. `0` disables. `0`-`3600000` |
+| `self_budget.db_time_ms_per_hour` | `0` | Database time pg_sage's own statements may use per hour on each database, in ms. `0` keeps `analyzer.self_cost_budget_ms` (per collector cycle) as the database-time budget, so one breach never raises two findings. That inherited budget is per cycle of each database's own collector: `analyzer.self_cost_budget_ms` x 3600 / its period in seconds (in fleet mode a database whose collector runs every 120 s inherits half the hourly budget of one at 60 s). `/metrics` exports it per database as `pg_sage_self_budget_database{database,resource="db_time"}` and compares `pg_sage_self_budget_exceeded{database,resource="db_time"}` with it; `pg_sage_self_budget{resource="db_time"}` stays the value at the configured `collector.interval_seconds`. An explicit value applies to every database as-is; when it is below 1% of one backend (36000 ms/h) it also tightens the budget the derived `collector.interval_seconds` is sized to. `0`-`3600000` |
 | `self_budget.blocks_per_hour` | `18000000` | Shared buffer blocks (8 KB, hit or read) pg_sage's own statements may touch per hour on each database (5,000 a second). `0` disables. `0`-`1000000000000` |
 | `self_budget.storage_mb` | `10240` | Size the `sage` schema (tables, TOAST, indexes) may reach on each database, in MB; complements the relative `retention.sage_size_warning_pct`. `0` disables. `0`-`10485760` |
 | `rca.lock_chain_interval_seconds` | `60` | Seconds between lock-chain fast-path checks. Each check opens or updates the `lock_contention` incident (with the root blocker's pid, `backend_start` and query identity) and sends `incident_detected` without waiting for the analyzer cycle. `0` disables the fast path; otherwise `10`-`3600`. Escalation and auto-resolution still count analyzer cycles. Restart to change |
@@ -508,9 +508,10 @@ major upgrade, report the statement figures (`pg_sage_self_db_time_ms_per_cycle`
 schema counters are still measured, and pg_sage logs once per database: run
 `ALTER EXTENSION pg_stat_statements UPDATE` in that database.
 
-The per-cycle figures (`pg_sage_self_*_per_cycle`, `pg_sage_self_cpu_ms_per_cycle`, the
-`sage_self_cost` budget and `self_budget.cpu_ms_per_cycle`) are per cycle of that database's
-collector at the period it actually runs: in fleet mode a database's collector can run at its
+The per-database per-cycle figures (`pg_sage_self_*_per_cycle` and the `sage_self_cost`
+budget) are per cycle of that database's collector at the period it actually runs (the
+process CPU, `pg_sage_self_cpu_ms_per_cycle` against `self_budget.cpu_ms_per_cycle`, is per
+global `collector.interval_seconds`, once for the sidecar): in fleet mode a database's collector can run at its
 own, self-configured `collector.interval_seconds`, and the finding's `cycle_seconds` names that
 period. Until a database's collector has started there is no cycle to normalize to: the
 per-cycle and per-hour figures stay unknown (an open finding stays open) and only the `sage`
@@ -546,7 +547,8 @@ database from evidence when you leave the key unset:
 
 The derived keys, their evidence, bounds and shadow comparisons are listed in
 [derived settings](generated/derived-settings.md): the collector interval and catalog read
-timeout (sized to the measured catalog and statements scans), sequence runway sampling
+timeout (sized to the statement time the collector measures over its last 60 cycles, or to
+the timed catalog and statements probes before its first cycle), sequence runway sampling
 (sized to the measured sequence scan), and the temp-file and LWLock incident thresholds
 (sized to this database's temp traffic and connection limit). A derivation never spends
 more or widens authority than the default (the catalog read timeout alone may grow, to at
@@ -577,7 +579,11 @@ status (`default`, `derived`, `shadow`, `pinned`, `operator`), evidence, bounds,
 restart and history; an admin can **pin current** (freeze the value in force) or **unpin**
 (`POST /api/v1/derived-settings/{key}/pin|unpin?database=`). Every step is recorded in
 `sage.config_derivation` (value, previous value, cited evidence, bounds, rule and version,
-time); the startup log prints one `derived settings:` line per database.
+time); the startup log prints one `derived settings:` line per database. The
+**Footprint** section next to it (and `GET /api/v1/self-cost?database=`) shows the cost
+these settings follow: pg_sage's own database time, blocks and rows per hour against
+`self_budget`, split by the component that sent each statement (see
+[sage_self_cost](findings.md#footprint-api)).
 
 ### Trust & Actions
 

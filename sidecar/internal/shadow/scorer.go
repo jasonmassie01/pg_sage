@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/optimizer"
+	"github.com/pg-sage/sidecar/internal/selfbudget"
 )
 
 // Scorer scores one monitored database's pending shadow decisions from
@@ -47,6 +48,8 @@ type pendingDecision struct {
 // RunOnce scores what it can of the oldest and the newest pending
 // decisions (half a batch each).
 func (s *Scorer) RunOnce(ctx context.Context) (Result, error) {
+	ctx, done := selfbudget.Process().TrackFor(ctx, "shadow_mode")
+	defer done()
 	res := Result{Scored: map[string]int{}}
 	if s == nil || s.pool == nil {
 		return res, ErrUnavailable

@@ -1,6 +1,6 @@
 # Architecture
 
-pg_sage is a Go sidecar that connects to any PostgreSQL 14-17 over the network. The former C extension was removed (see the `c-extension-final` tag).
+pg_sage is a Go sidecar that connects to any PostgreSQL 14-18 over the network. The former C extension was removed (see the `c-extension-final` tag).
 
 ## Why a Sidecar
 
@@ -522,7 +522,146 @@ collector circuit breaker state (`pg_sage_collector_breaker_state`, 0 closed, 1 
 `pg_sage_collector_last_success_timestamp`,
 `pg_sage_collector_category_unavailable{category}`,
 `pg_sage_collector_persist_failures_total` and
-`pg_sage_collector_query_store_failures_total`.
+`pg_sage_collector_query_store_failures_total`. pg_sage's own database time per hour by
+the component its statement tag names is
+`pg_sage_self_component_db_time_ms_per_hour{database,component}` (see
+[sage_self_cost](findings.md#footprint-api)). Every `pg_sage_self_*` family (what pg_sage
+itself costs, and its budgets) is listed under
+[pg_sage's own metrics](#pg_sages-own-metrics).
+
+---
+
+## Own Footprint and Self-Configuration
+
+pg_sage runs on the database it guards, so it meters what it costs, holds itself to declared
+budgets, and sizes its own cadences and deadlines from what it measures. Code:
+`internal/selfmonitor` (tag and exclusion), `internal/selfcost` (meter),
+`internal/selfbudget` (budgets and the process watch), `internal/selfconfig` (derived
+settings).
+
+### The statement tag
+
+Every pool and connection pg_sage opens goes through `selfmonitor.ConfigurePool` (or
+`ConfigureConn`): it sets `application_name` to `pg_sage` (`pg_sage action:<decision id>`
+for an executor action's session) and wraps the network connection with
+`selfmonitor.TagConn`. The wrapper rewrites the protocol's Query and Parse messages, so
+every statement from every code path, pgx's own included, carries the tag:
+
+- The tag sits right after the statement's first keyword (`SELECT /* pg_sage */ ...`),
+  or after the opening parenthesis of a parenthesized query, because PostgreSQL 18's
+  `pg_stat_statements` drops comments in front of the first token. Each statement of a
+  multi-statement Query gets its own tag; a leading pg_sage comment is moved there.
+- The tag names the component that sent the statement (`/* pg_sage collector */`,
+  `/* pg_sage sre:probe v1 */`), so the meter can charge each component.
+- pg_sage does not hide from `pg_stat_statements`: a DBA sees and prices its work there.
+
+pg_sage's own readers leave that work out of the workload they analyze with one rule in
+SQL and in Go. `selfmonitor.StatementExclusionSQL` keeps a statement whose text has no
+`pg_sage` tag (`NOT ILIKE '%pg_sage%'`) and no reference to the `sage` schema
+(`selfmonitor.IsStatementText` is the Go twin); `selfmonitor.ActivityExclusionSQL` keeps
+a `pg_stat_activity` session whose `application_name` is not pg_sage's
+(`selfmonitor.IsApplicationName`). Reading a statistics view is not pg_sage's signature:
+another monitoring agent's `SELECT ... FROM pg_stat_statements` stays in the workload.
+Findings about pg_sage's objects are left out of advice; the three findings about its
+cost (`sage_self_cost`, `sage_self_budget`, `sage_footprint`) are always kept. See
+[which statements and findings are pg_sage's own](configuration.md#collection--analysis).
+
+### The meter, the budgets and the three findings
+
+Each analyzer cycle reads the tagged `pg_stat_statements` entries of its database through
+the bounded catalog reader (`safety.query_timeout_ms` and `safety.lock_timeout_ms`) and turns the
+change since the previous cycle into a rate per cycle of that database's own collector
+(`selfcost.Cost`): database time (execution plus planning), calls and shared blocks,
+rows read and written in `sage` tables, the `sage` schema's size, and the time per
+component the tag names. The first cycle after a start, a statistics reset or a missing
+`pg_stat_statements` leave a figure unknown: an open finding stays open and a metric is
+left out, never reported as `0`.
+
+| Finding | Measures | Budget (default) | Unit |
+| --- | --- | --- | --- |
+| [`sage_self_cost`](findings.md#sage_self_cost) | database time of pg_sage's statements | `analyzer.self_cost_budget_ms` (3000, 5% of one core at a 60 s cycle) | ms per collector cycle |
+| [`sage_self_budget`](findings.md#sage_self_budget) | database time | `self_budget.db_time_ms_per_hour` (0: inherit `analyzer.self_cost_budget_ms` at the database's collector period) | ms per hour |
+| | shared blocks hit or read | `self_budget.blocks_per_hour` (18,000,000) | 8 KB blocks per hour |
+| | size of the `sage` schema, plus the database's share of a separate history store | `self_budget.storage_mb` (10240) | MB |
+| | sidecar process CPU, once for all databases | `self_budget.cpu_ms_per_cycle` (600, 1% of one core at 60 s) | ms per global collector cycle |
+| [`sage_footprint`](findings.md#sage_footprint) | `sage` schema's share of the database | `retention.sage_size_warning_pct` (10, and at least 256 MB) | percent |
+
+`0` disables a budget. `sage_self_budget` names the top consumers: the five costliest
+statements of the window and the busiest loops (`component:database`, busy time without
+LLM waits). `GET /api/v1/self-cost` serves the same footprint per database
+([Footprint API](findings.md#footprint-api)) and **Settings > General > Footprint** shows
+it.
+
+### pg_sage's own metrics
+
+`/metrics` exports the meter and the budgets per database (label `database`) unless
+noted:
+
+| Family | Meaning |
+| --- | --- |
+| `pg_sage_self_db_time_ms_per_cycle` | database time of pg_sage's statements per collector cycle (ms) |
+| `pg_sage_self_statements_per_cycle` | statement executions per collector cycle |
+| `pg_sage_self_blocks_per_cycle` | shared blocks hit or read per collector cycle |
+| `pg_sage_self_rows_read_per_cycle` | rows read from `sage` tables per collector cycle |
+| `pg_sage_self_rows_written_per_cycle` | rows inserted, updated or deleted in `sage` tables per collector cycle |
+| `pg_sage_self_schema_bytes` | size of the `sage` schema (tables, TOAST, indexes) in bytes |
+| `pg_sage_self_db_time_budget_ms` | `analyzer.self_cost_budget_ms`, no label (absent when `0`) |
+| `pg_sage_self_db_time_ms_per_hour` | database time per hour (ms) |
+| `pg_sage_self_blocks_per_hour` | shared blocks per hour |
+| `pg_sage_self_component_db_time_ms_per_hour{component}` | database time per hour by the component the tag names |
+| `pg_sage_self_cpu_ms_per_cycle` | sidecar CPU per global collector cycle (ms), no label |
+| `pg_sage_self_budget{resource}` | declared `self_budget` per resource, no `database` label |
+| `pg_sage_self_budget_database{resource}` | budget a database inherits (`db_time` at its own collector period) |
+| `pg_sage_self_budget_exceeded{resource}` | 1 when pg_sage used more than its budget of the resource (`cpu` has no `database` label) |
+| `pg_sage_self_loop_busy_seconds_total{loop}` | wall time of pg_sage's loops, LLM waits excluded (counter; `database` only on a per-database loop) |
+| `pg_sage_self_loop_runs_total{loop}` | runs of pg_sage's periodic loops (counter; `database` only on a per-database loop) |
+
+[sage_self_cost](findings.md#sage_self_cost) and
+[sage_self_budget](findings.md#sage_self_budget) describe the windows and labels in full.
+
+### Derived settings (self-configuration)
+
+For a few `derivable` keys the operator leaves unset, pg_sage derives a value per database
+(`internal/selfconfig`, run at startup before any worker reads the key and then every
+hour):
+
+- **Keys.** `collector.interval_seconds` (live: its reader re-reads it every cycle),
+  `safety.query_timeout_ms`, `sre.runways.sequence_interval_seconds`,
+  `sre.detectors.temp_file_mb` and `sre.detectors.lwlock_waiters` (restart-bound: a value
+  promoted while running is reported as pending restart and applies at the next start).
+- **Evidence.** The cost rules read the collector's measured statement time (p90 of its
+  cycles' statement time and of their slowest statement, and the statements a deadline
+  cut off), cited with source `collector`; before the collector's first cycle they read
+  timed probes of the catalog and `pg_stat_statements`, cited with source `probe`. The
+  other rules read the sequence scan time, the temp-file rate and `max_connections`.
+- **Bounds.** A value never goes past the product default in the direction that spends
+  more or widens authority, except where a fixed ceiling is recorded with its reason.
+- **Shadow and soak.** A new value is recorded in shadow and soaks for
+  `self_config.soak_hours` (default 24); it is promoted only when the comparison with the
+  active value's measured outcome is not worse.
+- **The operator wins.** A key set in YAML, a fleet field or an API override is never
+  derived; an admin can pin or unpin a derived value. Every derivation, promotion, hold
+  and pin is recorded in `sage.config_derivation`. `self_config.enabled: false` turns it
+  off.
+
+The rules, their bounds and evidence are generated in
+[derived settings](generated/derived-settings.md); `GET /api/v1/derived-settings` and the
+Configuration page show each database's values.
+
+### The performance gate
+
+`TestPerfGate` (build tag `perfgate`, `cmd/pg_sage_sidecar`) runs the real runtime, every
+component once per cycle, against a large synthetic catalog with pre-seeded `sage`
+history, and fails the build on any offender. Its limits live in
+`internal/testsupport/perfgate/budgets.go`: (A) no sequential scan of a `sage` table over
+5,000 rows; (B) a 100 ms mean per statement and 3000 ms of pg_sage database time per
+cycle; (C) at most 250 rows written per `sage` table per cycle; (D) 500 ms for the slowest
+catalog statement, and none cut off by a timeout; (E) 1000 ms per API list endpoint; (F) at
+least 50% HOT updates on a `sage` table updated 5 times or more; (G) 600 ms of sidecar CPU
+per cycle; (H) the product meter within 10% (at least 5 ms) of the database time the gate
+measures, and its cycle within 10% of the collector period. Pull requests run the small
+scale and the nightly run the large one (`PG_SAGE_PERF_SCALE`). `TestPerfGateFirstLook`
+times the catalog-only first look.
 
 ---
 

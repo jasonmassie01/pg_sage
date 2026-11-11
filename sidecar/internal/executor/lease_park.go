@@ -99,7 +99,7 @@ func leaseEvidence(err error) map[string]any {
 // derived from the execute decision it replaces, linked through
 // evidence.<parked|refused>_decision_id. It keeps that decision's policy
 // version and hash, guardrails and deadline override (policy-03).
-const recordLeaseVerdictSQL = `/* pg_sage */
+const recordLeaseVerdictSQL = `/* pg_sage executor */
 INSERT INTO sage.decision
     (database_id, feature, intent, target_objects, policy_version, policy_doc_sha256,
      verdict, risk_tier, reason, guardrails, off_window_ok, evidence, evidence_id)

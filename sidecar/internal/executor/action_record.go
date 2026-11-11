@@ -30,7 +30,7 @@ func (e *Executor) snapshotBeforeState(
 
 	var activeBackends int
 	err = e.pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT count(*) FROM pg_stat_activity
+		`/* pg_sage executor */ SELECT count(*) FROM pg_stat_activity
 		 WHERE state = 'active' AND datname = current_database()
 		   AND backend_type = 'client backend'
 		   AND `+selfmonitor.ActivityExclusionSQL(""),

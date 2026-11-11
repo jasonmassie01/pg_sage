@@ -8,6 +8,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/recommendation"
+	"github.com/pg-sage/sidecar/internal/selfbudget"
 )
 
 // RunCycle is called after each analyzer cycle. It acts on the durable
@@ -15,6 +16,8 @@ import (
 // cycle are never the source, so a recommendation proposed earlier stays
 // eligible when policy, trust or the window later permits it.
 func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
+	ctx, done := selfbudget.Process().TrackFor(ctx, "executor")
+	defer done()
 	e.resumeOnce.Do(func() {
 		if err := e.resumeOrphanedMonitors(ctx); err != nil {
 			e.logFn("executor", "resume rollback monitors: %v", err)

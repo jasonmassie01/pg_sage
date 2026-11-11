@@ -79,7 +79,7 @@ func applyConfigChangeWithin(
 		return configApplyOutcome{State: readbackUnconfirmed,
 			Note: "cannot parse the ALTER SYSTEM statement to read it back"}
 	}
-	if _, err := pool.Exec(ctx, "/* pg_sage */ SELECT pg_reload_conf()"); err != nil {
+	if _, err := pool.Exec(ctx, "/* pg_sage executor */ SELECT pg_reload_conf()"); err != nil {
 		if logFn != nil {
 			logFn("executor", "pg_reload_conf after %s failed: %v", param, err)
 		}

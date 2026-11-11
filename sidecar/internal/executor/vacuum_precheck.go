@@ -45,7 +45,7 @@ type maintenancePrivilege struct {
 // maintenanceBaseSQL reads every check below PostgreSQL 17 in one catalog
 // read: table owner (membership counts), superuser, database owner, the
 // server version and the role. The table is $1.
-const maintenanceBaseSQL = `/* pg_sage */ SELECT c.oid IS NOT NULL,
+const maintenanceBaseSQL = `/* pg_sage executor */ SELECT c.oid IS NOT NULL,
 	COALESCE(pg_has_role(current_user, c.relowner, 'USAGE'), false),
 	r.rolsuper, pg_has_role(current_user, d.datdba, 'USAGE'),
 	current_setting('server_version_num')::int, current_user::text
@@ -56,7 +56,7 @@ const maintenanceBaseSQL = `/* pg_sage */ SELECT c.oid IS NOT NULL,
 
 // maintainSQL reads the PostgreSQL 17+ VACUUM privilege: MAINTAIN on the
 // table or membership of pg_maintain. It is issued on 17+ only.
-const maintainSQL = `/* pg_sage */ SELECT has_table_privilege(to_regclass($1), 'MAINTAIN')
+const maintainSQL = `/* pg_sage executor */ SELECT has_table_privilege(to_regclass($1), 'MAINTAIN')
 	OR pg_has_role('pg_maintain', 'USAGE')`
 
 // readMaintenancePrivilege decides whether the connected role may run
@@ -199,7 +199,7 @@ func (e *Executor) recordMaintenanceWithheld(
 	if e.pool == nil || decisionID <= 0 {
 		return
 	}
-	if _, err := e.pool.Exec(ctx, `/* pg_sage */ UPDATE sage.decision
+	if _, err := e.pool.Exec(ctx, `/* pg_sage executor */ UPDATE sage.decision
 		SET verdict = 'blocked', reason = $2,
 		    evidence = evidence || jsonb_build_object('maintenance_privilege',
 		        jsonb_build_object('reason', $2::text, 'detail', $3::text,

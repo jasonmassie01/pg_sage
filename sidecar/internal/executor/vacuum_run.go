@@ -257,7 +257,7 @@ func (w *vacuumWatch) end(
 // signal its own sessions on every provider without a grant.
 func (e *Executor) cancelVacuumBackend(ctx context.Context, pid uint32) error {
 	var cancelled bool
-	if err := e.pool.QueryRow(ctx, "/* pg_sage */ SELECT pg_cancel_backend($1)",
+	if err := e.pool.QueryRow(ctx, "/* pg_sage executor */ SELECT pg_cancel_backend($1)",
 		int32(pid)).Scan(&cancelled); err != nil {
 		return fmt.Errorf("pg_cancel_backend(%d): %w", pid, err)
 	}

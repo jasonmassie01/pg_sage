@@ -20,6 +20,8 @@ func initFleetAndAPI() {
 	// fleet-09: follow stops and resumes made in SQL (sage.emergency_stop)
 	// and retry stops that could not be saved.
 	go fleetMgr.RunStopReconcile(shutdownCtx, fleet.StopReconcileInterval)
+	// footprint-07: the process CPU budget is checked once, not per database.
+	startProcessCPUWatch(shutdownCtx, fleetMgr)
 
 	// Every mode's init registered its database runtimes.
 	startMCPRuntime()

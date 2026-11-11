@@ -31,7 +31,7 @@ type functionLookup func(ctx context.Context, schema, name string) (functionCand
 // one pg_depend ties (deptype 'e') to an extension installed in the
 // function's own schema; creating one takes a superuser or a trusted
 // extension, so another role cannot plant one.
-const functionCandidatesSQL = `/* pg_sage */ SELECT
+const functionCandidatesSQL = `/* pg_sage executor */ SELECT
   COALESCE(bool_or(n.nspname = 'pg_catalog'), false),
   count(*) FILTER (WHERE n.nspname = $2),
   COALESCE(bool_and(EXISTS (

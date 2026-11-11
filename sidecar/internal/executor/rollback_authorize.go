@@ -86,7 +86,7 @@ func (e *Executor) forwardSQL(ctx context.Context, actionID int64) string {
 		return ""
 	}
 	var sql string
-	if err := e.pool.QueryRow(ctx, `/* pg_sage */ SELECT sql_executed
+	if err := e.pool.QueryRow(ctx, `/* pg_sage executor */ SELECT sql_executed
 		FROM sage.action_log WHERE id = $1`, actionID).Scan(&sql); err != nil {
 		e.logFn("rollback", "read the statement of action %d: %v", actionID, err)
 		return ""

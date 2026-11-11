@@ -36,12 +36,25 @@ function StatusBadge({ status }) {
   )
 }
 
-function Evidence({ evidence }) {
+// citation is one piece of evidence; cost evidence names where it came
+// from (probe or collector) and, for the slowest read, the collector step.
+function citation(e) {
+  const origin = [e.source, e.detail].filter(Boolean).join(', ')
+  return `${e.name} ${e.value}${e.unit ? ` ${e.unit}` : ''}${origin ? ` (${origin})` : ''}`
+}
+
+function Evidence({ settingKey, evidence }) {
   if (!evidence || evidence.length === 0) return null
+  const timeouts = evidence.some(e => e.name === 'timeouts_seen')
   return (
     <div className="text-xs" style={muted}>
-      Evidence:{' '}
-      {evidence.map(e => `${e.name} ${e.value}${e.unit ? ` ${e.unit}` : ''}`).join(', ')}
+      {timeouts && (
+        <span data-testid={`timeouts-seen-${settingKey}`} className="font-medium"
+          style={{ color: 'var(--warning, #b45309)' }}>
+          timeouts seen: raised after collector reads hit the deadline.{' '}
+        </span>
+      )}
+      Evidence: {evidence.map(citation).join(', ')}
     </div>
   )
 }
@@ -114,7 +127,7 @@ function SettingRow({ setting: s, onPin, busy }) {
       {stateLine(s).map(line => (
         <div key={line} className="text-xs" style={muted}>{line}</div>
       ))}
-      <Evidence evidence={s.evidence} />
+      <Evidence settingKey={s.key} evidence={s.evidence} />
       {open && <History history={s.history} unit={s.unit} />}
     </div>
   )
@@ -163,7 +176,8 @@ export function DerivedSettings({ database }) {
   const databases = Array.isArray(data?.databases) ? data.databases : []
   return (
     <QueryState query={derived} message={message}>
-    <section data-testid="derived-settings" data-url={url} className="rounded p-4 space-y-2"
+    <section id="derived-settings" data-testid="derived-settings" data-url={url}
+      className="rounded p-4 space-y-2"
       style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
       <h2 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
         Derived settings

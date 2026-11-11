@@ -45,7 +45,7 @@ const typeMember = `EXISTS (SELECT 1 FROM pg_catalog.pg_depend m
 // cast function outside them. An application's own enum (state =
 // 'open'::public.state, as pg_get_indexdef prints it under the pin) passes;
 // a domain whose CHECK calls a planted function does not.
-var typeCandidatesSQL = `/* pg_sage */ WITH RECURSIVE chain AS (
+var typeCandidatesSQL = `/* pg_sage executor */ WITH RECURSIVE chain AS (
   SELECT o.oid, 0 AS depth FROM pg_catalog.pg_type o
   JOIN pg_catalog.pg_namespace n ON n.oid = o.typnamespace
   WHERE n.nspname = $1 AND o.typname = $2
@@ -72,7 +72,7 @@ FROM chain c JOIN pg_catalog.pg_type o ON o.oid = c.oid`
 // operatorCandidatesSQL counts a qualified operator's definitions and
 // checks that each is an extension's member or runs a pg_catalog function
 // (oprcode), the code an index evaluates.
-const operatorCandidatesSQL = `/* pg_sage */ SELECT count(*), COALESCE(bool_and(
+const operatorCandidatesSQL = `/* pg_sage executor */ SELECT count(*), COALESCE(bool_and(
     f.pronamespace = 'pg_catalog'::pg_catalog.regnamespace OR EXISTS (
       SELECT 1 FROM pg_catalog.pg_depend m
       WHERE m.classid = 'pg_catalog.pg_operator'::pg_catalog.regclass AND m.objid = o.oid

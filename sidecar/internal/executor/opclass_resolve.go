@@ -33,7 +33,7 @@ type opclassLookup func(ctx context.Context, name, method string) (opclassCandid
 // method lives. A class counts as an extension's when it is a member
 // (pg_depend, deptype 'e') in that extension's own schema, the rule the
 // optimizer's expression check applies to functions.
-const opclassCandidatesSQL = `/* pg_sage */ SELECT
+const opclassCandidatesSQL = `/* pg_sage executor */ SELECT
   COALESCE(bool_or(n.nspname = 'pg_catalog'), false),
   COALESCE(array_agg(n.nspname::text ORDER BY n.nspname)
     FILTER (WHERE n.nspname <> 'pg_catalog' AND x.member), '{}'::text[]),

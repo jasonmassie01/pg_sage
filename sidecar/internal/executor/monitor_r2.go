@@ -57,7 +57,7 @@ func (p monitorPlan) judgeR2(
 
 // statisticsBuiltSQL is when the table was last analyzed: extended
 // statistics are empty until then.
-const statisticsBuiltSQL = `/* pg_sage */ SELECT GREATEST(last_analyze, last_autoanalyze)
+const statisticsBuiltSQL = `/* pg_sage executor */ SELECT GREATEST(last_analyze, last_autoanalyze)
 	FROM pg_stat_user_tables WHERE relid = to_regclass($1)`
 
 // judgeEstimates compares the targets' row-estimate error before the

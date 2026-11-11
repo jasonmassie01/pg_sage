@@ -10,7 +10,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/schemaguard"
 )
 
-const testSchemasSQL = `/* pg_sage */
+const testSchemasSQL = `/* pg_sage facts */
 SELECT n.nspname::text,
        ` + schemaActivityExpr + `,
        count(c.oid)::int

@@ -45,7 +45,7 @@ func (e *Executor) serializeBudget(
 		return ctx, nil, fmt.Errorf("begin the budget transaction: %w", err)
 	}
 	namespace, database := e.budgetLockKeys()
-	if _, err := tx.Exec(ctx, `/* pg_sage */ SELECT pg_advisory_xact_lock($1, $2)`,
+	if _, err := tx.Exec(ctx, `/* pg_sage executor */ SELECT pg_advisory_xact_lock($1, $2)`,
 		namespace, database); err != nil {
 		if rollbackErr := tx.Rollback(context.WithoutCancel(ctx)); rollbackErr != nil {
 			e.logFn("executor", "roll back the budget transaction: %v", rollbackErr)

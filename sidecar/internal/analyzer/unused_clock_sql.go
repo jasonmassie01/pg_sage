@@ -30,18 +30,18 @@ func newPGUnusedClockDB(pool *pgxpool.Pool) unusedClockDB {
 	return &pgUnusedClockDB{pool: pool}
 }
 
-const unusedClockLoadSQL = `/* pg_sage */
+const unusedClockLoadSQL = `/* pg_sage analyzer */
 SELECT ident, indexrelid::int8, zero_since FROM sage.unused_index_clock`
 
 // Legacy rows without usage_evidence are zero-scan findings.
-const unusedOpenZeroScanSQL = `/* pg_sage */
+const unusedOpenZeroScanSQL = `/* pg_sage analyzer */
 SELECT DISTINCT object_identifier FROM sage.findings
  WHERE category = 'unused_index' AND status = 'open'
    AND object_identifier IS NOT NULL
    AND COALESCE(detail->>'usage_evidence', 'zero_scans') = 'zero_scans'`
 
 // unusedClockSaveSQL deletes $4 and upserts ($1, $2, $3) in one statement.
-const unusedClockSaveSQL = `/* pg_sage */
+const unusedClockSaveSQL = `/* pg_sage analyzer */
 WITH gone AS (
     DELETE FROM sage.unused_index_clock WHERE ident = ANY($4::text[])
 )
@@ -54,7 +54,7 @@ ON CONFLICT (ident) DO UPDATE
 
 // unusedHistoryPicksSQL picks the first non-empty 'indexes' snapshot of
 // each day starting at $1, newest first.
-var unusedHistoryPicksSQL = `/* pg_sage */
+var unusedHistoryPicksSQL = `/* pg_sage analyzer */
 SELECT p.id, p.collected_at
   FROM unnest($1::timestamptz[]) AS b(lo)
  CROSS JOIN LATERAL (
@@ -67,7 +67,7 @@ SELECT p.id, p.collected_at
 
 // unusedHistoryDecodeSQL reads idents $2 from the snapshots $1. Elements
 // without an integer oid and scan count are skipped (no evidence).
-var unusedHistoryDecodeSQL = `/* pg_sage */
+var unusedHistoryDecodeSQL = `/* pg_sage analyzer */
 WITH d AS MATERIALIZED (
     SELECT s.id, ` + snapstore.DataSQL("s") + ` AS doc
       FROM sage.snapshots s WHERE {db:s} AND s.id = ANY($1::int8[])

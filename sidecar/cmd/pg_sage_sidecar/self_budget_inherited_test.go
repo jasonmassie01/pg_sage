@@ -19,7 +19,7 @@ func TestInheritedBudget_ExceededFollowsEachDatabasesCycleSeconds(t *testing.T) 
 	writeSelfBudgetMetrics(&b, map[string]selfbudget.Usage{
 		"fast": {DBKnown: true, DBTimeMsPerHour: 120_000, CycleSeconds: 60},
 		"slow": {DBKnown: true, DBTimeMsPerHour: 120_000, CycleSeconds: 120},
-	}, selfbudget.Budget{DBTimeMsPerHour: 180_000}, 3000, nil)
+	}, selfbudget.CPUReading{}, selfbudget.Budget{DBTimeMsPerHour: 180_000}, 3000, nil)
 	out := b.String()
 	for _, want := range []string{
 		`pg_sage_self_budget{resource="db_time"} 180000`,
@@ -42,7 +42,7 @@ func TestInheritedBudget_ExplicitValueHasNoPerDatabaseSeries(t *testing.T) {
 	writeSelfBudgetMetrics(&b, map[string]selfbudget.Usage{
 		"fast": {DBKnown: true, DBTimeMsPerHour: 120_000, CycleSeconds: 60},
 		"slow": {DBKnown: true, DBTimeMsPerHour: 120_000, CycleSeconds: 120},
-	}, selfbudget.Budget{DBTimeMsPerHour: 100_000}, 0, nil)
+	}, selfbudget.CPUReading{}, selfbudget.Budget{DBTimeMsPerHour: 100_000}, 0, nil)
 	out := b.String()
 	if strings.Contains(out, "pg_sage_self_budget_database") {
 		t.Fatalf("explicit budget exported a per-database budget:\n%s", out)
@@ -65,7 +65,8 @@ func TestInheritedBudget_BoundaryAndUnknownPeriod(t *testing.T) {
 	writeSelfBudgetMetrics(&b, map[string]selfbudget.Usage{
 		"edge":    {DBKnown: true, DBTimeMsPerHour: 90_000, CycleSeconds: 120},
 		"unknown": {StorageKnown: true, StorageBytes: 4096},
-	}, selfbudget.Budget{DBTimeMsPerHour: 180_000, StorageBytes: 1 << 30}, 3000, nil)
+	}, selfbudget.CPUReading{},
+		selfbudget.Budget{DBTimeMsPerHour: 180_000, StorageBytes: 1 << 30}, 3000, nil)
 	out := b.String()
 	for _, want := range []string{
 		`pg_sage_self_budget_database{database="edge",resource="db_time"} 90000`,

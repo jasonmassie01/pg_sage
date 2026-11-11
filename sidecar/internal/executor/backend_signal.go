@@ -98,7 +98,7 @@ func (e *Executor) signalMatchingBackend(
 const protectedBackendPredicate = `
    AND a.backend_start = $6` + backendguard.ProtectedPredicate
 
-const cancelMatchingBackendSQL = `/* pg_sage */
+const cancelMatchingBackendSQL = `/* pg_sage executor */
 SELECT pg_cancel_backend(a.pid)
   FROM pg_stat_activity AS a
  WHERE a.pid = $1
@@ -108,7 +108,7 @@ SELECT pg_cancel_backend(a.pid)
    AND LEFT(a.query, 200) = $5
    AND a.state = 'active'` + protectedBackendPredicate
 
-const terminateMatchingBackendSQL = `/* pg_sage */
+const terminateMatchingBackendSQL = `/* pg_sage executor */
 SELECT pg_terminate_backend(a.pid)
   FROM pg_stat_activity AS a` + backendguard.TerminateJoin + `
  WHERE a.pid = $1

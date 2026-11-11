@@ -141,7 +141,7 @@ func isSpatialType(typ string) bool {
 }
 
 // installedExtensionsSQL reads which of the named extensions exist.
-const installedExtensionsSQL = `/* pg_sage */ SELECT extname::text
+const installedExtensionsSQL = `/* pg_sage optimizer */ SELECT extname::text
 FROM pg_catalog.pg_extension WHERE extname = ANY($1::text[])`
 
 // installedExtensions reports which of names are installed, in one

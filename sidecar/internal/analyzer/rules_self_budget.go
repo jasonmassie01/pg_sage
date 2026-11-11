@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/selfbudget"
@@ -13,60 +12,73 @@ import (
 )
 
 // categorySelfBudget is the finding raised when pg_sage exceeds its
-// declared budget for itself (self_budget: sidecar CPU per cycle,
-// database time and blocks per hour, sage schema size).
+// declared budget for itself (self_budget: database time and blocks per
+// hour and sage schema size per database; the sidecar's CPU per cycle
+// once for the process, on the SidecarObject).
 const categorySelfBudget = "sage_self_budget"
+
+// SidecarObject is the object type and identifier of the process CPU
+// finding the process watch raises (footprint-07): the sidecar, not a
+// database.
+const SidecarObject = "sidecar"
 
 // topConsumers is how many statements and loops a finding names.
 const topConsumers = 5
 
-// selfBudgetMeter keeps the sidecar CPU meter, the loops' previous
-// counters and the latest usage. The cycle goroutine writes it; /metrics
-// reads the usage concurrently.
+// selfBudgetMeter keeps the loops' previous counters and the latest
+// usage. The cycle goroutine writes it; /metrics reads the usage
+// concurrently. The process CPU is not a database's: the process watch
+// measures it (footprint-07).
 type selfBudgetMeter struct {
-	cpu *selfbudget.CPUMeter
-
 	mu        sync.Mutex
 	loopsPrev map[string]selfbudget.LoopStat
 	usage     selfbudget.Usage
+	loops     []selfbudget.LoopCost
 }
 
-func newSelfBudgetMeter() *selfBudgetMeter {
-	return &selfBudgetMeter{cpu: selfbudget.NewCPUMeter(selfbudget.ProcessCPU, time.Now)}
-}
+func newSelfBudgetMeter() *selfBudgetMeter { return &selfBudgetMeter{} }
 
-// observe records the cycle's usage (the database side measured from the
-// self-cost reading, plus the history store's share in history.store:
-// meta) and returns it with the loops that were busiest since the previous
-// cycle.
-func (m *selfBudgetMeter) observe(u selfbudget.Usage, cycle time.Duration) (
+// observe records the cycle's usage (measured from the self-cost reading,
+// plus the history store's share in history.store: meta) and returns it
+// with database's loops of local work that were busiest since the
+// previous cycle.
+func (m *selfBudgetMeter) observe(u selfbudget.Usage, database string) (
 	selfbudget.Usage, []selfbudget.LoopCost) {
 	if m == nil {
 		return u, nil
 	}
-	u.CPUMsPerCycle, u.CPUKnown = m.cpu.Observe(cycle)
-	cur := selfbudget.Process().Snapshot()
+	cur := selfbudget.ForDatabase(selfbudget.LocalWork(selfbudget.Process().Snapshot()),
+		database)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	loops := selfbudget.TopLoops(m.loopsPrev, cur, topConsumers)
-	m.loopsPrev, m.usage = cur, u
+	m.loopsPrev, m.usage, m.loops = cur, u, loops
 	return u, loops
 }
 
 func (m *selfBudgetMeter) last() selfbudget.Usage {
+	u, _ := m.lastWithLoops()
+	return u
+}
+
+// lastWithLoops is the latest usage and a copy of the busiest loops.
+func (m *selfBudgetMeter) lastWithLoops() (selfbudget.Usage, []selfbudget.LoopCost) {
 	if m == nil {
-		return selfbudget.Usage{}
+		return selfbudget.Usage{}, nil
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.usage
+	if m.loops == nil {
+		return m.usage, nil
+	}
+	return m.usage, append([]selfbudget.LoopCost(nil), m.loops...)
 }
 
 // trackedCycle runs a cycle and records its busy time for the budget.
 func (a *Analyzer) trackedCycle(ctx context.Context) {
-	done := selfbudget.Process().Track("analyzer")
+	ctx, done := selfbudget.Process().TrackFor(ctx, "analyzer")
+	defer done()
 	a.cycle(ctx)
-	done()
 }
 
 // SelfBudgetUsage is pg_sage's latest measured usage on this database.
@@ -74,13 +86,14 @@ func (a *Analyzer) SelfBudgetUsage() selfbudget.Usage {
 	return a.selfBudget.last()
 }
 
-// selfBudgetFor is the budget the analyzer checks. Database time is only
-// checked when self_budget sets it: inherited from
-// analyzer.self_cost_budget_ms it is the sage_self_cost finding's.
+// selfBudgetFor is the budget the analyzer checks on its database. The
+// process CPU is not in it: the process watch checks it once for every
+// database. Database time is only checked when self_budget sets it:
+// inherited from analyzer.self_cost_budget_ms it is the sage_self_cost
+// finding's.
 func selfBudgetFor(cfg *config.Config) selfbudget.Budget {
-	b := selfbudget.Budget{CPUMsPerCycle: float64(cfg.SelfBudget.CPUMsPerCycle),
-		BlocksPerHour: float64(cfg.SelfBudget.BlocksPerHour),
-		StorageBytes:  int64(cfg.SelfBudget.StorageMB) << 20}
+	b := selfbudget.Budget{BlocksPerHour: float64(cfg.SelfBudget.BlocksPerHour),
+		StorageBytes: int64(cfg.SelfBudget.StorageMB) << 20}
 	if perHour, explicit := cfg.EffectiveSelfDBTimeMsPerHour(); explicit {
 		b.DBTimeMsPerHour = perHour
 	}
@@ -88,8 +101,10 @@ func selfBudgetFor(cfg *config.Config) selfbudget.Budget {
 }
 
 // checkSelfBudget measures the cycle's usage and raises the finding when
-// pg_sage is over budget. The first cycle after a start knows no CPU or
-// DB window: the category stays unknown so an open finding stays open.
+// pg_sage is over budget. The first cycle after a start knows no DB
+// window: the category stays unknown so an open finding stays open. An
+// evaluated cycle keeps the process watch's sidecar finding open: its
+// absence from this database's findings is no evidence about the CPU.
 func (a *Analyzer) checkSelfBudget(ctx context.Context, cost selfcost.Cost) []Finding {
 	b := selfBudgetFor(a.cfg)
 	hist, err := a.historyStorage(ctx)
@@ -98,19 +113,30 @@ func (a *Analyzer) checkSelfBudget(ctx context.Context, cost selfcost.Cost) []Fi
 			err)
 	}
 	u, loops := a.selfBudget.observe(withHistoryStorage(selfbudget.FromCost(cost), hist, err),
-		a.collectorPeriod())
+		loopDatabase(ctx, cost))
 	if !budgetDecidable(b, u) {
 		a.evalFail(categorySelfBudget)
 		return nil
 	}
 	a.eval.evaluated(categorySelfBudget)
+	a.eval.keep(categorySelfBudget, SidecarObject)
 	return ruleSelfBudget(cost.Database, selfbudget.Check(b, u), a.selfCost.Top(), loops)
 }
 
-// budgetDecidable is true when every enabled resource was measured.
+// loopDatabase is the name this database's loops are tracked under: the
+// runtime's (fleet) name its ctx carries, else the database the cost was
+// read from.
+func loopDatabase(ctx context.Context, cost selfcost.Cost) string {
+	if db := selfbudget.DatabaseOf(ctx); db != "" {
+		return db
+	}
+	return cost.Database
+}
+
+// budgetDecidable is true when every enabled database resource was
+// measured.
 func budgetDecidable(b selfbudget.Budget, u selfbudget.Usage) bool {
-	return (b.CPUMsPerCycle <= 0 || u.CPUKnown) &&
-		((b.DBTimeMsPerHour <= 0 && b.BlocksPerHour <= 0) || u.DBKnown) &&
+	return ((b.DBTimeMsPerHour <= 0 && b.BlocksPerHour <= 0) || u.DBKnown) &&
 		(b.StorageBytes <= 0 || u.StorageKnown)
 }
 
@@ -144,7 +170,7 @@ func ruleSelfBudget(database string, breaches []selfbudget.Breach,
 func statementRows(top []selfcost.StatementCost) []map[string]any {
 	out := make([]map[string]any, 0, len(top))
 	for _, s := range top {
-		out = append(out, map[string]any{"text": s.Text,
+		out = append(out, map[string]any{"text": s.Text, "component": s.Component,
 			"db_time_ms": s.TimeMs, "calls": s.Calls, "blocks": s.Blocks})
 	}
 	return out

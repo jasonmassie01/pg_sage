@@ -85,7 +85,7 @@ func (e *Executor) loadRollbackSQL(ctx context.Context, actionID int64) (string,
 	var outcome string
 	var category, reason string
 	err := e.pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT a.rollback_sql, a.outcome, COALESCE(f.category,''),
+		`/* pg_sage executor */ SELECT a.rollback_sql, a.outcome, COALESCE(f.category,''),
        COALESCE(a.rollback_reason, '')
  FROM sage.action_log a LEFT JOIN sage.findings f ON f.id=a.finding_id WHERE a.id = $1`,
 		actionID,
@@ -115,7 +115,7 @@ func (e *Executor) loadRollbackSQL(ctx context.Context, actionID int64) (string,
 }
 
 func (e *Executor) claimRollback(ctx context.Context, actionID int64) bool {
-	tag, err := e.pool.Exec(ctx, `/* pg_sage */ UPDATE sage.action_log
+	tag, err := e.pool.Exec(ctx, `/* pg_sage executor */ UPDATE sage.action_log
 		SET outcome = 'rolling_back', measured_at = now()
 		WHERE id = $1 AND outcome NOT IN ('rolled_back', 'rolling_back')`, actionID)
 	return err == nil && tag.RowsAffected() == 1

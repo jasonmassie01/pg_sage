@@ -12,7 +12,8 @@ import (
 )
 
 // writeSelfBudgetFromFleet exports pg_sage's declared self-budget and its
-// usage (roadmap phase 3) as measured by each instance's analyzer.
+// usage (roadmap phase 3): each database's as its analyzer measured it,
+// the process CPU as the process watch did (footprint-07).
 func writeSelfBudgetFromFleet(b *strings.Builder, mgr *fleet.DatabaseManager) {
 	if mgr == nil || cfg == nil {
 		return
@@ -24,7 +25,8 @@ func writeSelfBudgetFromFleet(b *strings.Builder, mgr *fleet.DatabaseManager) {
 		}
 	}
 	budget, inheritedMs := selfBudgetFromConfig(cfg)
-	writeSelfBudgetMetrics(b, usages, budget, inheritedMs, selfbudget.Process().Snapshot())
+	writeSelfBudgetMetrics(b, usages, selfbudget.ProcessWatch().Reading(), budget,
+		inheritedMs, selfbudget.Process().Snapshot())
 }
 
 // selfBudgetFromConfig is the declared budget at the configured collector
@@ -45,16 +47,17 @@ func selfBudgetFromConfig(c *config.Config) (selfbudget.Budget, int) {
 
 // writeSelfBudgetMetrics writes the usage (known values only), the
 // budgets of enabled resources, an exceeded flag per database and known
-// resource, and each loop's busy time and runs. inheritedMs (0: none) is
-// the per-cycle database-time budget each database inherits at its own
-// collector period.
+// resource (once for the process CPU), and each loop's busy time and
+// runs. inheritedMs (0: none) is the per-cycle database-time budget each
+// database inherits at its own collector period.
 func writeSelfBudgetMetrics(b *strings.Builder, usages map[string]selfbudget.Usage,
-	budget selfbudget.Budget, inheritedMs int, loops map[string]selfbudget.LoopStat) {
+	proc selfbudget.CPUReading, budget selfbudget.Budget, inheritedMs int,
+	loops map[string]selfbudget.LoopStat) {
 	dbs := sortedKeys(usages)
 	var body strings.Builder
-	writeSelfCPU(&body, dbs, usages)
+	writeSelfCPU(&body, proc)
 	writeSelfDBRates(&body, dbs, usages)
-	writeSelfBudgets(&body, dbs, usages, budget, inheritedMs)
+	writeSelfBudgets(&body, dbs, usages, proc, budget, inheritedMs)
 	writeSelfLoops(&body, loops)
 	if body.Len() == 0 {
 		return
@@ -72,17 +75,15 @@ func sortedKeys[V any](m map[string]V) []string {
 	return out
 }
 
-// writeSelfCPU exports the sidecar process's CPU per cycle once: it is a
-// process figure, the same for every database.
-func writeSelfCPU(b *strings.Builder, dbs []string, usages map[string]selfbudget.Usage) {
-	for _, db := range dbs {
-		if u := usages[db]; u.CPUKnown {
-			fmt.Fprintf(b, "# HELP pg_sage_self_cpu_ms_per_cycle CPU time of the pg_sage "+
-				"process per collector cycle (ms)\n# TYPE pg_sage_self_cpu_ms_per_cycle gauge\n"+
-				"pg_sage_self_cpu_ms_per_cycle %s\n", formatGauge(u.CPUMsPerCycle))
-			return
-		}
+// writeSelfCPU exports the sidecar process's CPU per cycle once, as the
+// process watch measured it: a process figure for every database.
+func writeSelfCPU(b *strings.Builder, proc selfbudget.CPUReading) {
+	if !proc.Known {
+		return
 	}
+	fmt.Fprintf(b, "# HELP pg_sage_self_cpu_ms_per_cycle CPU time of the pg_sage "+
+		"process per collector cycle (ms)\n# TYPE pg_sage_self_cpu_ms_per_cycle gauge\n"+
+		"pg_sage_self_cpu_ms_per_cycle %s\n", formatGauge(proc.MsPerCycle))
 }
 
 func writeSelfDBRates(b *strings.Builder, dbs []string, usages map[string]selfbudget.Usage) {
@@ -117,10 +118,10 @@ type selfResource struct {
 	used  func(selfbudget.Usage) (float64, bool)
 }
 
+// selfResources are the per-database resources; the process CPU is
+// flagged once (addProcessCPU).
 func selfResources(budget selfbudget.Budget) []selfResource {
 	return []selfResource{
-		{selfbudget.ResourceCPU, budget.CPUMsPerCycle,
-			func(u selfbudget.Usage) (float64, bool) { return u.CPUMsPerCycle, u.CPUKnown }},
 		{selfbudget.ResourceDBTime, budget.DBTimeMsPerHour,
 			func(u selfbudget.Usage) (float64, bool) { return u.DBTimeMsPerHour, u.DBKnown }},
 		{selfbudget.ResourceIO, budget.BlocksPerHour,
@@ -173,9 +174,28 @@ func (s *selfBudgetSeries) addDatabases(r selfResource, dbs []string,
 	}
 }
 
+// addProcessCPU writes the CPU budget and, once measured, the process's
+// exceeded flag (no database label: the budget is the process's).
+func (s *selfBudgetSeries) addProcessCPU(proc selfbudget.CPUReading, limit float64) {
+	if limit <= 0 {
+		return
+	}
+	cpu := []labelPair{{"resource", string(selfbudget.ResourceCPU)}}
+	writeSample(&s.limits, "pg_sage_self_budget", cpu, formatGauge(limit))
+	if !proc.Known {
+		return
+	}
+	flag := 0
+	if proc.MsPerCycle > limit {
+		flag = 1
+	}
+	writeSample(&s.exceeded, "pg_sage_self_budget_exceeded", cpu, flag)
+}
+
 func writeSelfBudgets(b *strings.Builder, dbs []string, usages map[string]selfbudget.Usage,
-	budget selfbudget.Budget, inheritedMs int) {
+	proc selfbudget.CPUReading, budget selfbudget.Budget, inheritedMs int) {
 	var s selfBudgetSeries
+	s.addProcessCPU(proc, budget.CPUMsPerCycle)
 	for _, r := range selfResources(budget) {
 		if r.limit <= 0 {
 			continue
@@ -205,15 +225,26 @@ func writeSelfLoops(b *strings.Builder, loops map[string]selfbudget.LoopStat) {
 	}
 	names := sortedKeys(loops)
 	b.WriteString("# HELP pg_sage_self_loop_busy_seconds_total Wall time pg_sage's " +
-		"periodic loops spent working\n# TYPE pg_sage_self_loop_busy_seconds_total counter\n")
+		"periodic loops spent working, LLM waits excluded (loop=\"llm_wait\" is the " +
+		"wait)\n# TYPE pg_sage_self_loop_busy_seconds_total counter\n")
 	for _, n := range names {
-		writeSample(b, "pg_sage_self_loop_busy_seconds_total", []labelPair{{"loop", n}},
+		writeSample(b, "pg_sage_self_loop_busy_seconds_total", loopLabels(n),
 			formatGauge(loops[n].Busy.Seconds()))
 	}
 	b.WriteString("# HELP pg_sage_self_loop_runs_total Runs of pg_sage's periodic loops\n" +
 		"# TYPE pg_sage_self_loop_runs_total counter\n")
 	for _, n := range names {
-		writeSample(b, "pg_sage_self_loop_runs_total", []labelPair{{"loop", n}},
-			loops[n].Runs)
+		writeSample(b, "pg_sage_self_loop_runs_total", loopLabels(n), loops[n].Runs)
 	}
+}
+
+// loopLabels are a loop's labels: loop is the component (so sum by (loop)
+// adds up every database) and database the database it worked for,
+// absent on a process loop (footprint-07).
+func loopLabels(name string) []labelPair {
+	component, database := selfbudget.SplitLoopName(name)
+	if database == "" {
+		return []labelPair{{"loop", component}}
+	}
+	return []labelPair{{"loop", component}, {"database", database}}
 }

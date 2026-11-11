@@ -74,7 +74,7 @@ func (r remnantRun) cleanBuild(
 			{Index: target.Index, OID: oid, TableOID: target.TableOID}})
 	}
 	var exists bool
-	if err := r.pool.QueryRow(ctx, `/* pg_sage */ SELECT to_regclass($1) IS NOT NULL`,
+	if err := r.pool.QueryRow(ctx, `/* pg_sage executor */ SELECT to_regclass($1) IS NOT NULL`,
 		target.Index).Scan(&exists); err == nil && !exists {
 		return &remnantCleanup{Outcome: remnantNothingToDrop,
 			Reason: "the build failed before it registered its index"}
@@ -97,7 +97,7 @@ func resolveBuildTarget(ctx context.Context, pool *pgxpool.Pool, sql string) (
 	}
 	var t buildTarget
 	var nsp, rel string
-	err := pool.QueryRow(ctx, `/* pg_sage */ SELECT c.oid::bigint, n.nspname, c.relname,
+	err := pool.QueryRow(ctx, `/* pg_sage executor */ SELECT c.oid::bigint, n.nspname, c.relname,
 		to_regclass(quote_ident(n.nspname) || '.' || quote_ident($2)) IS NULL
 		FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 		WHERE c.oid = to_regclass($1)`,
@@ -197,7 +197,7 @@ func (w *buildWatch) poll(ctx context.Context, read func(context.Context) int64,
 	}
 }
 
-const buildOIDQuery = `/* pg_sage */ SELECT COALESCE(max(index_relid::bigint), 0)
+const buildOIDQuery = `/* pg_sage executor */ SELECT COALESCE(max(index_relid::bigint), 0)
 		FROM pg_stat_progress_create_index
 		WHERE pid = $1 AND command = 'CREATE INDEX CONCURRENTLY'`
 
@@ -215,7 +215,8 @@ func buildIndexOID(ctx context.Context, pool *pgxpool.Pool, pid uint32) int64 {
 // progress views are snapshotted once per transaction, so the snapshot is
 // cleared before each read.
 func gateIndexOID(ctx context.Context, gate pgx.Tx, pid uint32) int64 {
-	if _, err := gate.Exec(ctx, `/* pg_sage */ SELECT pg_stat_clear_snapshot()`); err != nil {
+	const clearSnapshot = `/* pg_sage executor */ SELECT pg_stat_clear_snapshot()`
+	if _, err := gate.Exec(ctx, clearSnapshot); err != nil {
 		return 0
 	}
 	var oid int64
@@ -232,7 +233,7 @@ func holdBuildGate(ctx context.Context, pool *pgxpool.Pool, table string) pgx.Tx
 	if err != nil {
 		return nil
 	}
-	if _, err := tx.Exec(ctx, "/* pg_sage */ LOCK TABLE "+table+
+	if _, err := tx.Exec(ctx, "/* pg_sage executor */ LOCK TABLE "+table+
 		" IN ROW EXCLUSIVE MODE NOWAIT"); err != nil {
 		gateRelease(tx)()
 		return nil

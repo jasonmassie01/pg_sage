@@ -33,7 +33,7 @@ LEFT JOIN pg_catalog.pg_stat_all_tables s ON s.relid = c.oid`
 
 // schemaActivitySQL reads the named schemas' activity counters (a schema
 // missing from the result no longer exists).
-const schemaActivitySQL = `/* pg_sage */
+const schemaActivitySQL = `/* pg_sage facts */
 SELECT n.nspname::text, ` + schemaActivityExpr + `
 ` + schemaActivityFrom + `
 WHERE n.nspname = ANY($1)

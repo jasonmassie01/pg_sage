@@ -181,6 +181,7 @@ func (c *Client) sendChat(
 	system, user string,
 	maxTokens int,
 ) (*ChatResponse, error) {
+	defer recordWait(ctx, time.Now())
 	var out *ChatResponse
 	err := c.withAdaptation(cfg, requestShape(cfg, false), func(shape wireShape) error {
 		req := buildChatRequest(cfg, system, user, maxTokens, shape)

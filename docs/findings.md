@@ -644,16 +644,48 @@ cycle and the sage schema's size. Without `pg_stat_statements`, after a statisti
 and on the first cycle after a start, the open finding is kept, not resolved; `0`
 disables it. The same figures are exported as `pg_sage_self_*` Prometheus metrics.
 
+The tag names the component that sent the statement (`/* pg_sage collector */`,
+`/* pg_sage sre:probe v1 */`): the collector, analyzer, executor, facts, tuner and
+optimizer name their package, Sage SRE names its probe. When the window's cost has a
+component breakdown, the finding's `top_component` and
+`top_component_db_time_ms_per_hour` detail and its advice name the costliest one. An
+entry whose text `pg_stat_statements` first saw under a bare `/* pg_sage */` tag (before
+an upgrade that named its component) counts as `unattributed` until the entry is evicted
+or the statistics are reset; that share is shown, not hidden.
+
 **Example output:**
 
 ```
 pg_sage monitoring used 4200 ms of database time per collector cycle on lifeos (budget 3000 ms)
 ```
 
-**Recommended action:** Look at the `pg_stat_statements` entries that contain
-`/* pg_sage */`, sorted by `total_exec_time`, to see which component costs most; lengthen
-`collector.interval_seconds` or `analyzer.interval_seconds`, or raise
-`analyzer.self_cost_budget_ms` if the cost is expected.
+**Recommended action:** Open **Settings > General > Footprint** (or
+`GET /api/v1/self-cost?database=<name>`, see [Footprint API](#footprint-api)) to see
+which component costs most; lengthen `collector.interval_seconds` or
+`analyzer.interval_seconds`, or raise `analyzer.self_cost_budget_ms` if the cost is
+expected.
+
+#### Footprint API
+
+`GET /api/v1/self-cost` (every signed-in role; `?database=<name>` for one database,
+404 for an unknown one) answers what pg_sage costs each database over the analyzer's
+latest window. Per database it returns `db_time_ms_per_hour`, `calls_per_hour`,
+`blocks_per_hour`, `rows_read_per_hour` and `rows_written_per_hour` (sage tables),
+`schema_bytes`, `window_seconds` and `cycle_seconds` (the database's own collector
+period); the budgets `db_time_budget_ms_per_hour` (with `db_time_budget_source`:
+`self_budget.db_time_ms_per_hour`, `analyzer.self_cost_budget_ms` at that period, or
+`none`), `blocks_budget_per_hour` and `storage_budget_bytes`; `top_statements` (text
+without the tag, `component`, `db_time_ms`, `calls`, `blocks`); `by_component` (per
+hour, with each component's `share` of the database time) and `unattributed_share`; and
+`known` flags (`window`, `statements`, `storage`). `process` gives the sidecar's CPU per
+collector cycle against `self_budget.cpu_ms_per_cycle` and its busiest loops of local work
+(`component:database`, LLM waits excluded), once for all databases, as the process watch
+measured them. A figure not measured yet (first cycle after a start, no
+`pg_stat_statements`) is `null`, never `0`; a budget that is not set is `null`. The
+database time per component is also exported as
+`pg_sage_self_component_db_time_ms_per_hour{database,component}`, with the component
+folded into `analyzer`, `collector`, `executor`, `facts`, `optimizer`, `sre`, `tuner`,
+`unattributed` or `other` (a component counts under the part before `:`).
 
 ---
 
@@ -663,25 +695,34 @@ Detects pg_sage exceeding the budget it declares for itself.
 
 **Severity:** warning
 
-**What it detects:** pg_sage used more than its `self_budget` of one or more resources
-on this database: the sidecar process's CPU per collector cycle
-(`self_budget.cpu_ms_per_cycle`, default 600 ms, 1% of one core at the default 60 s
-interval), its own statements' database time per hour
+**What it detects:** pg_sage used more than its `self_budget` of one or more resources.
+On a database (object type `database`): its own statements' database time per hour
 (`self_budget.db_time_ms_per_hour`, off by default because
 `analyzer.self_cost_budget_ms` already budgets it per cycle), the shared blocks they
 touch per hour (`self_budget.blocks_per_hour`, default 18,000,000) and the size of the
 `sage` schema (`self_budget.storage_mb`, default 10240). One finding lists every
 resource over budget with what it used, and names the top consumers: pg_sage's five
-costliest statements of the window (database time, calls, blocks; text shown without
-the tag) and its busiest loops (collector and analyzer busy time). CPU is a process
-figure: when one sidecar monitors several databases, each database's finding reports
-the same process CPU. A resource that could not be measured (first cycle after a
-start, no `pg_stat_statements`) keeps the open finding open; `0` disables a resource.
-The same figures are exported as `pg_sage_self_cpu_ms_per_cycle`,
+costliest statements of the window (database time, calls, blocks, the component the tag
+names; text shown without the tag) and that database's busiest loops. For the process
+(object type and identifier `sidecar`): the sidecar's CPU per global collector cycle
+(`self_budget.cpu_ms_per_cycle`, default 600 ms, 1% of one core at the default 60 s
+interval). CPU is a process figure, so one process watch checks it once for every
+database the sidecar monitors and raises one finding, kept on the lowest-named connected
+database (the next one when that database refuses the write; a copy left elsewhere is
+resolved); its `top_loops` are the busiest loops across the process. A loop is named
+`component:database` (`collector:app`), or the component alone for a process loop; its
+busy time is wall time minus the time it waited on the LLM provider and minus the loops
+it ran inside it, and that wait is recorded as `llm_wait:<database>`, which never ranks
+in `top_loops`. A resource that could not be measured (first cycle after a start, no
+`pg_stat_statements`) keeps the open finding open; `0` disables a resource. The same
+figures are exported as `pg_sage_self_cpu_ms_per_cycle`,
 `pg_sage_self_db_time_ms_per_hour`, `pg_sage_self_blocks_per_hour`,
-`pg_sage_self_budget{resource}`, `pg_sage_self_budget_exceeded{database,resource}` and
-`pg_sage_self_loop_busy_seconds_total{loop}`. Per-cycle figures are per cycle of the
-database's own collector (its period in fleet mode, which self-configuration may lengthen).
+`pg_sage_self_budget{resource}`, `pg_sage_self_budget_exceeded{database,resource}` (for
+CPU `pg_sage_self_budget_exceeded{resource="cpu"}`, without a database),
+`pg_sage_self_loop_busy_seconds_total{loop,database}` and
+`pg_sage_self_loop_runs_total{loop,database}` (`loop` is the component, `database` is
+absent on a process loop, so `sum by (loop)` adds every database). A database's per-cycle
+figures are per cycle of its own collector (its period in fleet mode, which self-configuration may lengthen).
 When the database-time budget is inherited from `analyzer.self_cost_budget_ms`, each database
 inherits it at its own collector period, exported as
 `pg_sage_self_budget_database{database,resource="db_time"}`, and that database's `db_time`
@@ -690,7 +731,8 @@ exceeded flag compares with it.
 **Example output:**
 
 ```
-pg_sage monitoring exceeded its own cpu, storage budget on lifeos
+pg_sage monitoring exceeded its own storage budget on lifeos
+pg_sage process exceeded its own cpu budget (all monitored databases together)
 ```
 
 **Recommended action:** Start with the top statements and loops in the finding.

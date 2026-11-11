@@ -19,7 +19,7 @@ func notTempRel(alias string) string {
 // the marker they leak into pg_stat_statements and surface as findings.
 // The comment survives pg_stat_statements normalization (verified), so a
 // query carrying it matches the filter's `ILIKE '%pg_sage%'`.
-const sageTag = "/* pg_sage */ "
+const sageTag = "/* pg_sage collector */ "
 
 // queryStatsSelect aggregates pg_stat_statements to ONE row per queryid
 // (agg). pg_stat_statements keys rows by (userid, dbid, queryid, toplevel),

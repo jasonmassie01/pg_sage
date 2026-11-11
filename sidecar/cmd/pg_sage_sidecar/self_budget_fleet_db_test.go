@@ -124,7 +124,7 @@ func assertExceededUsesEachRuntimesBudget(t *testing.T, fast, slow *databaseRunt
 	}
 	budget, inherited := selfBudgetFromConfig(cfg)
 	var b strings.Builder
-	writeSelfBudgetMetrics(&b, usages, budget, inherited, nil)
+	writeSelfBudgetMetrics(&b, usages, selfbudget.CPUReading{}, budget, inherited, nil)
 	out := b.String()
 	for name, flag := range map[string]int{"fast": 0, "slow": 1} {
 		want := fmt.Sprintf("pg_sage_self_budget_exceeded{database=%q,resource=\"db_time\"} %d",
