@@ -103,14 +103,16 @@ func (d *Dispatcher) deliver(
 ) error {
 	event, revoke := d.withCardToken(ctx, ch, event)
 	event, revokeFact := d.withFactToken(ctx, ch, event)
-	sendErr := RedactError(sender.Send(ctx, ch, event))
-	status, errMsg := "sent", ""
+	messageID, sendErr := send(ctx, sender, ch, event)
+	sendErr = RedactError(sendErr)
+	rec := Delivery{ChannelID: ch.ID, Event: event, Status: "sent",
+		ProviderMessageID: messageID}
 	if sendErr != nil {
 		revoke()
 		revokeFact()
-		status, errMsg = "error", sendErr.Error()
+		rec.Status, rec.Error, rec.ProviderMessageID = "error", sendErr.Error(), ""
 	}
-	return d.logDelivery(ctx, ch.ID, event, status, errMsg)
+	return d.recordDelivery(ctx, rec)
 }
 
 func (d *Dispatcher) loadMatchingRules(
@@ -130,11 +132,24 @@ func (d *Dispatcher) logDelivery(
 	channelID int, event Event,
 	status, errMsg string,
 ) error {
-	if err := d.store.LogDelivery(ctx, channelID, event, status, errMsg); err != nil {
+	return d.recordDelivery(ctx, Delivery{ChannelID: channelID, Event: event,
+		Status: status, Error: errMsg})
+}
+
+// recordDelivery records one attempt, with the provider's message id when
+// the store keeps it, and returns the send failure.
+func (d *Dispatcher) recordDelivery(ctx context.Context, rec Delivery) error {
+	var err error
+	if r, ok := d.store.(DeliveryRecorder); ok {
+		err = r.RecordDelivery(ctx, rec)
+	} else {
+		err = d.store.LogDelivery(ctx, rec.ChannelID, rec.Event, rec.Status, rec.Error)
+	}
+	if err != nil {
 		d.logFn("ERROR", "%v", err)
 	}
-	if errMsg != "" {
-		return fmt.Errorf("send failed: %s", errMsg)
+	if rec.Error != "" {
+		return fmt.Errorf("send failed: %s", rec.Error)
 	}
 	return nil
 }
