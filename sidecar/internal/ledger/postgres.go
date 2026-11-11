@@ -12,11 +12,12 @@ import (
 )
 
 // querier is what the repository runs statements on: a pool, or a
-// transaction (NewTxRepository).
+// transaction (NewTxRepository), where Begin opens a savepoint.
 type querier interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Begin(ctx context.Context) (pgx.Tx, error)
 }
 
 type PostgresRepository struct{ pool querier }
