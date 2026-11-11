@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Footprint } from './Footprint'
 
@@ -109,8 +109,22 @@ describe('Footprint', () => {
     render(<Footprint database="orders" />)
     expect(screen.getByTestId('footprint').getAttribute('data-url'))
       .toBe('/api/v1/self-cost?database=orders')
-    expect(screen.getByTestId('footprint-derived-link').getAttribute('href'))
-      .toBe('#derived-settings')
+  })
+
+  // The dashboard routes on the hash: the link must scroll to the panel,
+  // not set location.hash (that would open "Page not found").
+  it('scrolls to derived settings without changing the route', () => {
+    window.location.hash = '#/settings'
+    const target = document.createElement('section')
+    target.id = 'derived-settings'
+    target.scrollIntoView = vi.fn()
+    document.body.appendChild(target)
+    render(<Footprint database="orders" />)
+    fireEvent.click(screen.getByTestId('footprint-derived-link'))
+    expect(target.scrollIntoView).toHaveBeenCalledTimes(1)
+    expect(window.location.hash).toBe('#/settings')
+    expect(screen.getByTestId('footprint-derived-link').getAttribute('href')).toBeNull()
+    target.remove()
   })
 
   it('renders loading, error and empty states', () => {

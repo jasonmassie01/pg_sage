@@ -37,6 +37,13 @@ function bytes(value) {
   return i === 0 ? `${v} B` : `${v.toFixed(1)} ${units[i]}`
 }
 
+// showDerivedSettings scrolls to the Derived settings panel. It is not an
+// href="#derived-settings": the dashboard routes on the hash, so that link
+// would leave Settings for "Page not found".
+function showDerivedSettings() {
+  document.getElementById('derived-settings')?.scrollIntoView({ behavior: 'smooth' })
+}
+
 function percent(share) {
   return `${Math.round(share * 100)}%`
 }
@@ -175,8 +182,9 @@ export function Footprint({ database }) {
       <p className="text-xs" style={muted}>
         {data?.meaning} The collector cadence and read deadline that follow from this cost
         are under{' '}
-        <a href="#derived-settings" data-testid="footprint-derived-link"
-          style={{ color: 'var(--accent)' }}>derived settings</a>.
+        <button type="button" data-testid="footprint-derived-link"
+          onClick={showDerivedSettings} className="underline"
+          style={{ color: 'var(--accent)' }}>derived settings</button>.
       </p>
       <ProcessCPU process={data?.process} />
       {databases.length === 0 && (
