@@ -502,6 +502,8 @@ logs or audit rows. Users created before this release keep their passwords.
   password answers `401` and counts against the same per-email limit as the
   login form (the sixth try in 15 minutes answers `429`). On success every
   other session of the user ends; the calling session stays signed in.
+  The new password must differ from the current one (`400`), so a forced
+  change cannot keep the temporary password an admin saw.
   An SSO-only account has no password to change (`409`).
 - **Reset someone's password (admin).** The Users page has Reset password,
   or call `POST /api/v1/users/{id}/password-reset`. pg_sage ends all of the
@@ -509,13 +511,17 @@ logs or audit rows. Users created before this release keep their passwords.
   bytes, base64url) once; it is not stored or shown again, so send it over a
   trusted channel. Admins change their own password with the form above
   (`403` on a self-reset); an SSO-only user answers `409`.
+  A reset ends sessions only: MCP tokens the user created keep working.
+  If the account may be compromised, deactivate it instead (see
+  [User Offboarding](#user-offboarding)), which also revokes its MCP tokens.
 - **Forced change.** After a reset, and for a generated bootstrap password,
   `sage.users.must_change_password` is set. Until the user picks a new
   password the session reaches only `GET /api/v1/auth/me` (which reports
   `"must_change_password": true`), `PUT /api/v1/auth/password` and
   `POST /api/v1/auth/logout`; everything else answers `403`
   `{"error":"password_change_required"}`, and the dashboard shows only the
-  change form. Upgrading does not force existing accounts.
+  change form. Starting an SSO link is refused the same way. Upgrading
+  does not force existing accounts.
 - In Databricks Apps mode neither route exists: the workspace owns sign-in.
 
 Each change or reset swaps the hash, sets `password_changed_at` and ends the
