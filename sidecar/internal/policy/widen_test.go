@@ -158,3 +158,44 @@ func withoutClass(classes []ChangeClass, drop ChangeClass) []ChangeClass {
 	}
 	return out
 }
+
+// policy-04: window_start_margin_minutes withholds starts near a window's
+// close, so lowering or removing it grants starts the base refused.
+func TestWidensWindowStartMargin(t *testing.T) {
+	base := StaffedProfile()
+	base.WindowStartMarginMinutes = 60
+	cases := []struct {
+		name   string
+		margin int64
+		widens bool
+	}{
+		{"same margin", 60, false},
+		{"raise margin", 61, false},
+		{"lower margin by one", 59, true},
+		{"remove margin", 0, true},
+	}
+	for _, tc := range cases {
+		next := base
+		next.WindowStartMarginMinutes = tc.margin
+		if got := Widens(base, next); got != tc.widens {
+			t.Errorf("%s (60 -> %d): Widens = %v, want %v", tc.name, tc.margin, got,
+				tc.widens)
+		}
+	}
+	raw, err := MarshalDocument(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	none := base
+	none.WindowStartMarginMinutes = 0
+	noneRaw, err := MarshalDocument(none)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := WidensJSON(raw, noneRaw); err != nil || !got {
+		t.Fatalf("WidensJSON(60 -> none) = %v, %v; want true", got, err)
+	}
+	if got, err := WidensJSON(noneRaw, raw); err != nil || got {
+		t.Fatalf("WidensJSON(none -> 60) = %v, %v; want false", got, err)
+	}
+}
