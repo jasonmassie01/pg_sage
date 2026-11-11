@@ -149,6 +149,23 @@ func TestPinnedQueryIDs_DurableFirstDeduplicated(t *testing.T) {
 	}
 }
 
+// A source that hands out a slice of its own state keeps it: the watches
+// are not appended into the spare capacity of the source's slice.
+func TestPinnedQueryIDs_LeavesTheSourceSliceAlone(t *testing.T) {
+	c, clock := textCollector(500)
+	backing := []int64{1, 2, 0, 0}
+	c.WithPinSource(PinSourceFunc(func(context.Context) ([]int64, error) {
+		return backing[:2], nil
+	}))
+	c.Watch(9, clock.Add(time.Hour))
+	if got := c.pinnedQueryIDs(context.Background(), 64); !slices.Equal(got, []int64{1, 2, 9}) {
+		t.Fatalf("pins = %v, want [1 2 9]", got)
+	}
+	if !slices.Equal(backing, []int64{1, 2, 0, 0}) {
+		t.Fatalf("the source's slice was written to: %v", backing)
+	}
+}
+
 // State transition: a watch admits its queryid until it expires (fake
 // clock), then never again; re-watching extends it and keeps its age.
 func TestWatch_ExpiresOnTheClock(t *testing.T) {

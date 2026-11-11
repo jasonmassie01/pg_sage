@@ -87,7 +87,7 @@ func (c *Collector) pinnedQueryIDs(ctx context.Context, limit int) []int64 {
 	if limit <= 0 {
 		return pins
 	}
-	for _, id := range append(c.sourcePins(ctx), c.activeWatches()...) {
+	for _, id := range slices.Concat(c.sourcePins(ctx), c.activeWatches()) {
 		if id != 0 && !slices.Contains(pins, id) {
 			pins = append(pins, id)
 		}
