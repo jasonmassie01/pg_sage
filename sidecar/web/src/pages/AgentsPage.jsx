@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { AgentDetail } from './agents/AgentDetail'
 import { CreateAgentForm } from './agents/CreateAgentForm'
 import { KillSwitch } from './agents/KillSwitch'
-import { listAgents, listUsers, sponsorLabel } from './agents/agentsApi'
+import { listAgents, listUsers, sponsorLabel, unknownProfile } from './agents/agentsApi'
 import { Button, ErrorBox, card, muted } from './agents/ui'
 
 function Explainer() {
@@ -28,13 +28,15 @@ function Explainer() {
 }
 
 function useAgentList() {
-  const [state, setState] = useState({ items: [], next: '', loaded: false, error: null })
+  const [state, setState] = useState({ items: [], next: '', loaded: false, error: null,
+    profiles: null })
   const load = useCallback(async (cursor = '') => {
     try {
       const page = await listAgents(cursor)
       const items = Array.isArray(page?.items) ? page.items : []
       setState(prev => ({ items: cursor ? [...prev.items, ...items] : items,
-        next: page?.next_cursor || '', loaded: true, error: null }))
+        next: page?.next_cursor || '', loaded: true, error: null,
+        profiles: Array.isArray(page?.profiles) ? page.profiles : prev.profiles }))
     } catch (err) {
       setState(prev => ({ ...prev, loaded: true, error: err }))
     }
@@ -53,7 +55,7 @@ function useUsers() {
   return users
 }
 
-function AgentRow({ agent, users, onOpen }) {
+function AgentRow({ agent, users, profiles, onOpen }) {
   const n = agent.name
   return (
     <tr data-testid={`agent-row-${n}`} style={{ borderTop: '1px solid var(--border)' }}>
@@ -71,7 +73,16 @@ function AgentRow({ agent, users, onOpen }) {
       <td data-testid={`agent-taint-${n}`} className="pr-3">
         {agent.tainted ? 'tainted' : '—'}
       </td>
-      <td className="pr-3" style={muted}>{agent.profile}</td>
+      <td className="pr-3" style={muted}>
+        {agent.profile}
+        {unknownProfile(agent, profiles) && (
+          <span data-testid={`agent-profile-warning-${n}`} className="ml-2 text-xs"
+            title="Every agent_* request is refused until an admin sets a shipped profile"
+            style={{ color: 'var(--yellow)' }}>
+            profile not recognised
+          </span>
+        )}
+      </td>
     </tr>
   )
 }
@@ -99,7 +110,7 @@ function AgentTable({ list, users, onOpen }) {
         </thead>
         <tbody>
           {list.items.map(a => <AgentRow key={a.id} agent={a} users={users}
-            onOpen={onOpen} />)}
+            profiles={list.profiles} onOpen={onOpen} />)}
         </tbody>
       </table>
       {list.next && (
@@ -120,7 +131,8 @@ export function AgentsPage({ user, databases = [] }) {
     <div data-testid="agents-page">
       <Explainer />
       {isAdmin && <KillSwitch onKilled={list.reload} />}
-      {isAdmin && <CreateAgentForm users={users} onCreated={list.reload} />}
+      {isAdmin && <CreateAgentForm users={users} profiles={list.profiles}
+        onCreated={list.reload} />}
       <AgentTable list={list} users={users} onOpen={setOpen} />
       {open && (
         <AgentDetail key={open.id} agentId={open.id} user={user} databases={databases}

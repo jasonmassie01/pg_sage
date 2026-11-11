@@ -115,6 +115,23 @@ export function sponsorLabel(agent, users) {
   return u ? u.email : `user #${agent.sponsor_user_id}`
 }
 
+// profileNames are the names of the profiles GET /api/v1/agents serves
+// (agentgov-06), skipping malformed entries; without a list, only the
+// default profile is offered.
+export function profileNames(profiles) {
+  if (!Array.isArray(profiles)) return [DEFAULT_PROFILE]
+  const names = profiles.filter(p => p && typeof p.name === 'string' && p.name)
+    .map(p => p.name)
+  return names.length ? names : [DEFAULT_PROFILE]
+}
+
+// unknownProfile reports an agent whose profile is not in the served list;
+// without a list nothing is known to be wrong.
+export function unknownProfile(agent, profiles) {
+  if (!Array.isArray(profiles) || profiles.length === 0) return false
+  return !profileNames(profiles).includes(agent?.profile)
+}
+
 // createBody builds POST /api/v1/agents from the form, or null.
 export function createBody(form) {
   const name = form.name.trim()
