@@ -69,7 +69,7 @@ func TestStartupAcceptsSlackURLFromPersistedOverride(t *testing.T) {
 	configs := store.NewConfigStore(pool)
 	const url = "https://hooks.slack.example.com/persisted"
 	if err := configs.SetOverride(ctx, "alerting.slack_webhook_url", url, 0,
-		overrideAuthor(t, pool)); err != nil {
+		fixtureAdminID(t, pool)); err != nil {
 		t.Fatalf("persist slack URL: %v", err)
 	}
 	t.Cleanup(func() {
