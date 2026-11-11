@@ -1218,6 +1218,17 @@ pass. A chain that cannot be verified raises an
 `audit_chain_verification_failed` warning, and its open findings stay
 open. See [Audit chain verification](configuration.md#audit-chain-verification).
 
+With an evidence-signing key, each clean verification also signs the head
+it reached into the chain as a checkpoint link, which the SIEM receives
+like any link. A pruned chain (opt-in, `audit.prune_below_signed_checkpoint`)
+keeps only the links from a floor below a signed checkpoint that every sink
+has received, and verification starts there on the strength of that
+signature. A generated key proves that this deployment signed the
+checkpoint, not that its operator is independent: auditors who need that
+should set `audit.evidence.signing_key_env` and compare the SIEM's
+checkpoint events with `GET /api/v1/audit/evidence/key`. See
+[Signed checkpoints and pruning](configuration.md#signed-checkpoints-and-pruning).
+
 The canonical text a link hashes is pinned by golden hashes in CI on
 PostgreSQL 14-18 and under non-default `TimeZone`, `DateStyle`,
 `extra_float_digits`, `IntervalStyle` and `bytea_output`, and the types of
