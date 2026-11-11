@@ -80,7 +80,9 @@ func TestOpenTargetIDs_OpenWatchesOldestFirst(t *testing.T) {
 }
 
 // Nil/empty and invalid input: a watch with no targets, a null or scalar
-// TargetIDs and non-numeric elements pin nothing and do not fail the read.
+// TargetIDs, non-numeric elements and integers outside int8 (19 digits,
+// past 9223372036854775807) pin nothing and do not fail the read: one bad
+// row must not drop every other watch's pins.
 func TestOpenTargetIDs_MalformedCriterionPinsNothing(t *testing.T) {
 	pool := verifyIntegrationPool(t)
 	ctx := t.Context()
@@ -90,7 +92,8 @@ func TestOpenTargetIDs_MalformedCriterionPinsNothing(t *testing.T) {
 	mixed := openPinWatch(t, ctx, pool, store, []int64{1})
 	for id, criterion := range map[int64]string{
 		scalar: `{"Kind":"per_query_latency","TargetIDs":"9201"}`,
-		mixed:  `{"Kind":"per_query_latency","TargetIDs":["x9202", 9203, 1.5, null]}`,
+		mixed:  `{"Kind":"per_query_latency","TargetIDs":["x9202", 9203, 1.5, null,
+			9999999999999999999, -9223372036854775809, "9223372036854775808"]}`,
 	} {
 		mustExec(t, ctx, pool, `UPDATE sage.verification SET criterion = $2::jsonb
 			WHERE action_log_id = $1`, id, criterion)

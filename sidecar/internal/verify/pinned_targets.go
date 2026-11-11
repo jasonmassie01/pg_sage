@@ -12,8 +12,10 @@ const maxOpenTargetIDs = 256
 
 // openTargetIDsSQL lists the target queryids of the verifications still
 // open, oldest verification first, each once. A criterion whose TargetIDs
-// is not an array, and elements that are not integers, are skipped rather
-// than failing the read.
+// is not an array, and elements that are not int8 integers (a number past
+// the int8 range included), are skipped rather than failing the read: one
+// bad row must not drop every other watch's pins. The CASE keeps the
+// numeric cast behind the pattern, whatever order the quals run in.
 const openTargetIDsSQL = `SELECT t.queryid FROM (
 	SELECT e.value::int8 AS queryid, min(v.id) AS first_watch
 	  FROM sage.verification v
@@ -21,7 +23,9 @@ const openTargetIDsSQL = `SELECT t.queryid FROM (
 	       CASE WHEN jsonb_typeof(v.criterion->'TargetIDs') = 'array'
 	            THEN v.criterion->'TargetIDs' ELSE '[]'::jsonb END) AS e(value)
 	 WHERE v.completed_at IS NULL
-	   AND e.value ~ '^-?[0-9]{1,19}$'
+	   AND CASE WHEN e.value ~ '^-?[0-9]{1,19}$'
+	            THEN e.value::numeric BETWEEN -9223372036854775808 AND 9223372036854775807
+	            ELSE false END
 	 GROUP BY 1) t
  ORDER BY t.first_watch, t.queryid
  LIMIT $1`
