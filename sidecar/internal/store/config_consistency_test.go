@@ -70,12 +70,14 @@ var excludedExactKeys = map[string]bool{
 	"safety.dormant_interval_seconds":    true,
 
 	// Analyzer fields present in struct but not exposed as overrides.
-	"analyzer.table_bloat_min_rows":                  true,
-	"analyzer.table_bloat_min_bytes":                 true, // read when the custodian is built
-	"analyzer.idle_in_transaction_timeout_minutes":   true,
-	"analyzer.xid_wraparound_warning":                true,
-	"analyzer.xid_wraparound_critical":               true,
-	"analyzer.regression_lookback_days":              true,
+	"analyzer.table_bloat_min_rows":                true,
+	"analyzer.table_bloat_min_bytes":               true, // read when the custodian is built
+	"analyzer.idle_in_transaction_timeout_minutes": true,
+	"analyzer.xid_wraparound_warning":              true,
+	"analyzer.xid_wraparound_critical":             true,
+	"analyzer.regression_lookback_days":            true,
+	// rules-05: the interval call floor is YAML only and restart-bound.
+	"analyzer.slow_query_min_calls":                  true,
 	"analyzer.checkpoint_frequency_warning_per_hour": true,
 	// v0.8.5 Feature 3 — work_mem promotion advisor threshold.
 	// Read once per cycle from YAML; not exposed as a runtime override.

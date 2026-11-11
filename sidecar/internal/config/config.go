@@ -175,7 +175,8 @@ type CollectorConfig struct {
 
 type AnalyzerConfig struct {
 	IntervalSeconds              int     `yaml:"interval_seconds" doc:"How often the analyzer runs its rule checks, in seconds. Lower values detect issues faster but add load."`
-	SlowQueryThresholdMs         int     `yaml:"slow_query_threshold_ms" doc:"Queries with mean_exec_time above this are considered slow and become candidates for optimization findings."`
+	SlowQueryThresholdMs         int     `yaml:"slow_query_threshold_ms" doc:"Queries whose mean execution time over the last collector interval is above this are considered slow and become candidates for optimization findings."`
+	SlowQueryMinCalls            int     `yaml:"slow_query_min_calls" doc:"Fewest calls a query must make in one collector interval before its interval mean is judged by slow_query and query_regression. 0 uses the default. Default: 5."`
 	SeqScanMinRows               int     `yaml:"seq_scan_min_rows" doc:"Minimum table row count before a sequential scan is reported as a finding. Below this, a seq scan is usually cheaper than an index lookup."`
 	UnusedIndexWindowDays        int     `yaml:"unused_index_window_days" doc:"An index must be unused (idx_scan=0) for at least this many days before the analyzer suggests dropping it. Default 7 days." warning:"Setting this too low can recommend dropping indexes that support infrequent but critical queries (e.g. monthly reports)."`
 	IndexBloatThresholdPct       int     `yaml:"index_bloat_threshold_pct" doc:"Minimum bloat percentage (0-100) an index must exhibit before it becomes a REINDEX candidate."`
@@ -751,6 +752,10 @@ func (c *Config) validate() error {
 	if c.Analyzer.SlowQueryThresholdMs < 0 {
 		return fmt.Errorf("analyzer.slow_query_threshold_ms must be non-negative")
 	}
+	if c.Analyzer.SlowQueryMinCalls < 0 {
+		return fmt.Errorf("analyzer.slow_query_min_calls must be non-negative, got %d",
+			c.Analyzer.SlowQueryMinCalls)
+	}
 	if err := c.validateAPITypedRanges(); err != nil {
 		return err
 	}
@@ -923,6 +928,7 @@ func newDefaults() *Config {
 		Analyzer: AnalyzerConfig{
 			IntervalSeconds:              int(DefaultAnalyzerInterval / time.Second),
 			SlowQueryThresholdMs:         DefaultSlowQueryThresholdMs,
+			SlowQueryMinCalls:            DefaultSlowQueryMinCalls,
 			SeqScanMinRows:               DefaultSeqScanMinRows,
 			UnusedIndexWindowDays:        DefaultUnusedIndexWindowDays,
 			IndexBloatThresholdPct:       DefaultIndexBloatThresholdPct,

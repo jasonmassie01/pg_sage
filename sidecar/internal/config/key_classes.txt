@@ -183,6 +183,7 @@ derivable analyzer.regression_threshold_pct
 derivable analyzer.schema_guard_ddl_debounce_seconds
 derivable analyzer.self_cost_budget_ms
 derivable analyzer.seq_scan_min_rows
+derivable analyzer.slow_query_min_calls
 derivable analyzer.slow_query_threshold_ms
 derivable analyzer.slow_slot_retained_bytes
 derivable analyzer.table_bloat_dead_tuple_pct

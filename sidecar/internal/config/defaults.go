@@ -20,6 +20,7 @@ const (
 
 	DefaultAnalyzerInterval             = 600 * time.Second
 	DefaultSlowQueryThresholdMs         = 1000
+	DefaultSlowQueryMinCalls            = 5
 	DefaultSeqScanMinRows               = 100000
 	DefaultUnusedIndexWindowDays        = 7
 	DefaultIndexBloatThresholdPct       = 30

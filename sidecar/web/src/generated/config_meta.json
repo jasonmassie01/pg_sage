@@ -407,10 +407,16 @@
     "doc": "Minimum table row count before a sequential scan is reported as a finding. Below this, a seq scan is usually cheaper than an index lookup.",
     "class": "derivable"
   },
+  "analyzer.slow_query_min_calls": {
+    "type": "int",
+    "default": 5,
+    "doc": "Fewest calls a query must make in one collector interval before its interval mean is judged by slow_query and query_regression. 0 uses the default. Default: 5.",
+    "class": "derivable"
+  },
   "analyzer.slow_query_threshold_ms": {
     "type": "int",
     "default": 1000,
-    "doc": "Queries with mean_exec_time above this are considered slow and become candidates for optimization findings.",
+    "doc": "Queries whose mean execution time over the last collector interval is above this are considered slow and become candidates for optimization findings.",
     "class": "derivable"
   },
   "analyzer.slow_slot_retained_bytes": {

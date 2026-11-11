@@ -67,8 +67,8 @@ type RuleSpec struct {
 }
 
 // AllRules is the registry of all snapshot-based rules.
-// Rules that need extra parameters (XID, leaked connections, regression
-// history) are called separately in the analyzer loop.
+// Rules that need extra parameters (XID, leaked connections, the
+// regression baseline) are called separately in the analyzer loop.
 var AllRules = []RuleSpec{
 	// Index rules
 	{"unused_indexes", ruleUnusedIndexes, cats("unused_index"), hasIndexes},
@@ -83,7 +83,7 @@ var AllRules = []RuleSpec{
 	{"wraparound_freeze", ruleWraparoundFreeze, cats("wraparound_freeze"), hasTables},
 
 	// Query rules
-	{"slow_queries", ruleSlowQueries, cats("slow_query"), hasQueries},
+	{"slow_queries", ruleSlowQueries, cats("slow_query"), hasQueryInterval},
 	{"high_plan_time", ruleHighPlanTime, cats("high_plan_time"), hasQueries},
 	{"temp_spills", ruleTempSpills, cats("temp_spill"), hasTempSpillWindow},
 

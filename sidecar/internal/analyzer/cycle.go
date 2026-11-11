@@ -146,9 +146,7 @@ func (a *Analyzer) runDatabaseRules(
 		a.eval.fail("query_regression", "sort_without_index", "plan_regression")
 		return out
 	}
-	historicalAvg := a.buildHistoricalAverages(ctx)
-	out = append(out, ruleQueryRegression(
-		current, previous, historicalAvg, a.cfg)...)
+	out = append(out, a.runQueryRegression(ctx, current, previous)...)
 	out = append(out, a.checkSortWithoutIndex(ctx)...)
 	planDiff := a.checkPlanRegression(ctx)
 	// Enrich plan regressions with a plain-English "why did the plan

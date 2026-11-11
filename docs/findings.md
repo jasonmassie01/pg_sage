@@ -254,16 +254,16 @@ a cycle where the tables, the partition tree or the partitioned indexes could no
 
 ### slow_query
 
-Detects queries with mean execution time above the threshold.
+Detects queries whose mean execution time over the last collector interval is above the threshold.
 
-**Severity:** warning (critical if extremely slow)
+**Severity:** warning; critical when the interval mean is more than 5x the threshold and the query used at least 1% of the interval's wall time
 
-**What it detects:** Queries from `pg_stat_statements` where `mean_exec_time` exceeds the configured threshold (default 1000ms).
+**What it detects:** For each statement in both of the two newest snapshots, the interval mean: the `total_exec_time` it added between them over the `calls` it added. The finding needs the interval mean above `analyzer.slow_query_threshold_ms` (default 1000ms) and at least `analyzer.slow_query_min_calls` calls in the interval (default 5), so a single ad hoc query is not a finding and never critical. The cumulative `mean_exec_time` since the last `pg_stat_statements` reset is not used: it hides a statement that became slow under a long history of fast calls, and keeps flagging one that was slow long ago. The interval is not judged on the first cycle (no previous snapshot), across a statistics reset or epoch change, or for a statement whose counters fell; the category is then not evaluated and its open findings stay open. The detail carries `interval_mean_ms`, `interval_calls`, `interval_seconds`, `pct_wall_clock` and `cumulative_mean_ms`.
 
 **Example output:**
 
 ```
-Slow query (mean 3500ms, 15000 calls): SELECT * FROM orders WHERE ...
+Slow query (3500.0ms mean over 42 calls in the last 60s, 3.5x threshold)
 ```
 
 **Recommended action:** Examine the query plan, add indexes, or rewrite the query.
@@ -290,16 +290,16 @@ High plan time: 450ms mean_plan_time for query with 50ms mean_exec_time
 
 ### query_regression
 
-Detects queries whose performance has degraded compared to previous snapshots.
+Detects queries whose latency in the last collector interval regressed against their own hourly history.
 
-**Severity:** warning
+**Severity:** warning; critical above +200%
 
-**What it detects:** Queries where `mean_exec_time` has increased significantly between consecutive snapshots, indicating a performance regression.
+**What it detects:** A statement whose interval mean (see `slow_query`, with the same `analyzer.slow_query_min_calls` floor) exceeds its cumulative mean by `analyzer.regression_threshold_pct` (default 50%) is a candidate; at most 50 candidates per cycle, the largest interval time first. For each, pg_sage reads its `sage.query_store` samples over `analyzer.regression_lookback_days` (default 7), excluding the last hour, as hourly buckets. The baseline is the median of the bucket interval means, using buckets with at least the call floor and no statistics reset; it needs at least 6 such buckets. The finding needs the interval mean above the baseline by the threshold. A plan flip from 2 ms to 20 ms on a query with a million earlier calls moves the cumulative mean by about 9%, below the threshold; the interval mean against the hourly median shows +900%. Without a previous snapshot, or when the history read fails, the category is not evaluated and its open findings stay open. Coverage depends on which statements `sage.query_store` samples. The detail carries `interval_mean_ms`, `interval_calls`, `cumulative_mean_ms`, `baseline_ms`, `baseline_method` (`median_hourly_interval`) and `baseline_buckets`.
 
 **Example output:**
 
 ```
-Query regression: mean_exec_time increased 340% (120ms -> 528ms) for queryid 1234567890
+Query regression: 20.0ms now vs 2.0ms hourly median (+900%)
 ```
 
 **Recommended action:** Investigate recent changes -- schema modifications, data volume changes, or configuration updates.

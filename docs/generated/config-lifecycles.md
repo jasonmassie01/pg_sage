@@ -71,6 +71,7 @@
 | `analyzer.schema_guard_ddl_debounce_seconds` | `restart` | `-` | `derivable` |
 | `analyzer.self_cost_budget_ms` | `restart` | `-` | `derivable` |
 | `analyzer.seq_scan_min_rows` | `restart` | `-` | `derivable` |
+| `analyzer.slow_query_min_calls` | `restart` | `-` | `derivable` |
 | `analyzer.slow_query_threshold_ms` | `restart` | `-` | `derivable` |
 | `analyzer.slow_slot_retained_bytes` | `restart` | `-` | `derivable` |
 | `analyzer.table_bloat_dead_tuple_pct` | `restart` | `-` | `derivable` |
