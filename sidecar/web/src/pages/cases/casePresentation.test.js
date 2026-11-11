@@ -180,3 +180,71 @@ describe('Case presentation grounded in reported evidence', () => {
       .recurrence).toBe('Recurring incident; occurrence history unavailable')
   })
 })
+
+describe('Case next step reflects the recommendation lifecycle (cases-10)', () => {
+  const candidate = (extra = {}) => ({ action_type: 'analyze', risk_tier: 'safe', ...extra })
+  const withRec = (state, nextStep, extra = {}, cand = candidate()) => finding('stale_statistics', {}, {
+    action_candidates: [cand],
+    recommendation: { id: 9, state, revision: 1, next_step: nextStep, current_content: true, ...extra },
+  })
+
+  it('says pg_sage applied and reverted the change instead of calling it attached', () => {
+    const text = 'pg_sage applied this on 2026-11-10 and reverted it: p95 latency rose 40%'
+    const row = withRec('reverted', text, {}, candidate({ blocked_reason: 'recommendation_reverted' }))
+    expect(actionAvailability(row)).toBe(text)
+    expect(actionAvailability(row)).not.toContain('attached')
+  })
+
+  it('shows each known head state with its own next step', () => {
+    const steps = {
+      reverted: 'pg_sage applied this on 2026-11-10 and reverted it: hurt',
+      abandoned: 'Stopped after 3 failed attempts',
+      failed: 'Retrying after 14:05 UTC',
+      superseded: 'Superseded: the analyzer no longer proposes this change',
+      verified: 'pg_sage applied this on 2026-11-10 and verified it',
+    }
+    const seen = new Set()
+    for (const [state, text] of Object.entries(steps)) {
+      const shown = actionAvailability(withRec(state, text))
+      expect(shown).toBe(text)
+      seen.add(shown)
+    }
+    expect(seen.size).toBe(5)
+  })
+
+  it('keeps the attached wording for a proposal awaiting approval', () => {
+    expect(actionAvailability(withRec('proposed', 'Proposed; awaiting approval')))
+      .toContain('A proposed change is attached')
+  })
+
+  it('renders a state from a future version as unknown, never as attached', () => {
+    const shown = actionAvailability(withRec('rolled_forward', 'A future sentence'))
+    expect(shown).toContain('state unknown')
+    expect(shown).not.toContain('attached')
+    expect(shown).not.toContain('A future sentence')
+  })
+
+  it('says evidence expired rather than offering a stale proposal', () => {
+    const row = finding('stale_statistics', {}, {
+      action_candidates: [candidate({ blocked_reason: 'evidence_expired', expires_at: '2026-11-10T09:00:00Z' })],
+    })
+    expect(actionAvailability(row)).toBe('Evidence expired; waiting for a fresh observation')
+  })
+
+  it('discloses an unreadable recommendation history instead of saying none', () => {
+    const row = finding('stale_statistics', {}, {
+      action_candidates: [candidate()], recommendation_unknown: true,
+    })
+    const shown = actionAvailability(row)
+    expect(shown).toContain('could not be read')
+    expect(shown).not.toContain('attached')
+    expect(actionAvailability({ ...row, action_candidates: [] })).toContain('could not be read')
+  })
+
+  it('treats a missing or empty recommendation as no lifecycle', () => {
+    expect(actionAvailability(finding('x', {}, { action_candidates: [candidate()], recommendation: null })))
+      .toContain('A proposed change is attached')
+    expect(actionAvailability(withRec('failed', '')))
+      .toContain('A proposed change is attached')
+  })
+})

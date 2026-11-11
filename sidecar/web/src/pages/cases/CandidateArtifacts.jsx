@@ -61,6 +61,31 @@ function PreflightMeasurement({ preflight }) {
   )
 }
 
+// utcMinute is "2026-11-12 09:00 UTC", or null for a missing, invalid or
+// Go zero time.
+function utcMinute(value) {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime()) || date.getUTCFullYear() < 1971) return null
+  return `${date.toISOString().slice(0, 16).replace('T', ' ')} UTC`
+}
+
+// CandidateTiming says how long the candidate's evidence is good for and
+// when a failed attempt is retried (cases-10).
+function CandidateTiming({ candidate }) {
+  const expires = utcMinute(candidate.expires_at)
+  const retry = utcMinute(candidate.retrying_after)
+  const expired = candidate.blocked_reason === 'evidence_expired'
+  return (
+    <>
+      {expires && <p data-testid="candidate-expiry">
+        {expired ? `Evidence expired at ${expires}` : `Evidence valid until ${expires}`}
+      </p>}
+      {retry && <p data-testid="candidate-retry">Retrying after {retry}</p>}
+    </>
+  )
+}
+
 export function CandidateArtifacts({ candidate }) {
   const preflight = candidate.ddl_preflight
   const script = candidate.script_output
@@ -69,6 +94,7 @@ export function CandidateArtifacts({ candidate }) {
       <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
         Proposed action: {candidate.action_type} · Risk: {candidate.risk_tier || 'unknown'}
         {candidate.blocked_reason && <p>Recorded restriction: {candidate.blocked_reason}</p>}
+        <CandidateTiming candidate={candidate} />
         <p>Recovery classification: {candidate.rollback_class || 'unknown'}</p>
         {candidate.recovery_detail && <p>Recovery: {candidate.recovery_detail}</p>}
       </div>

@@ -170,10 +170,32 @@ function recurrenceLine(recurrence) {
   return `${ordinal(count)} occurrence; ${when}`
 }
 
+// Recommendation head states this dashboard knows (cases-10). A state
+// from a newer server is reported as unknown, never as an attached change.
+const RECOMMENDATION_STATES = new Set(['proposed', 'approved', 'applying', 'applied',
+  'verifying', 'verified', 'reverted', 'inconclusive', 'superseded', 'failed', 'abandoned'])
+
+// What pg_sage already did with this proposal, or null when the case has
+// no recommendation lifecycle to report.
+function recommendationStep(row) {
+  if (row.recommendation_unknown) {
+    return 'Whether pg_sage already tried this change could not be read. Review its history in Actions before acting.'
+  }
+  const rec = row.recommendation
+  if (!rec) return null
+  if (!RECOMMENDATION_STATES.has(rec.state)) {
+    return 'Recommendation state unknown. Review it in Actions before acting.'
+  }
+  return rec.state !== 'proposed' && rec.next_step ? rec.next_step : null
+}
+
 export function actionAvailability(row) {
   const candidate = row.action_candidates?.[0]
+  const reason = candidate?.blocked_reason || candidate?.policy_decision?.blocked_reason || ''
+  if (reason === 'evidence_expired') return 'Evidence expired; waiting for a fresh observation'
+  const lifecycle = recommendationStep(row)
+  if (lifecycle) return lifecycle
   if (!candidate) return 'No proposed change is attached. Review the evidence or ask Sage to explain what needs investigation.'
-  const reason = candidate.blocked_reason || candidate.policy_decision?.blocked_reason || ''
   if (/observation/i.test(reason)) return 'Database changes are disabled in Observation mode. You can review this proposal in Actions.'
   if (/provider_unsupported|provider unsupported/i.test(reason)) return 'pg_sage cannot run this proposed action for this connection. Review the proposal and available procedure in Actions.'
   if (/permission|privilege/i.test(reason)) return 'This connection lacks permission for the proposed change. Review the required authority in Actions.'
