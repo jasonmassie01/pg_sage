@@ -27,7 +27,8 @@ var rules07Lists = map[string][]string{
 		"extension_drift", "plan_regression", "wraparound_freeze",
 		"autovacuum_tuning", "sage_footprint", "sage_self_cost",
 		"sage_self_budget", "clone_schemas", "app_managed_index",
-		"stale_statistics"},
+		"stale_statistics",
+		"index_bloat"}, // rules-13 added index_bloat to the rules subsystem
 	"advisor": {"wal_tuning", "connection_tuning", "query_rewrite",
 		"bloat_remediation", "advisor_degraded", "vacuum_tuning", "memory_tuning"},
 	"optimizer":    {"missing_index", "covering_index", "partial_index", "composite_index"},

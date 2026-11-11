@@ -15,6 +15,7 @@ that depend on it stay quiet for that cycle instead of reading the absence as a 
 | `replication` | unused-index drops (a standby may use the index) |
 | `prepared_xacts` | the RCA `orphaned_prepared_tx` signal; an open orphaned 2PC incident is held open, not counted as cleared |
 | `partitions` | index recommendations (the tuning agent gets no table context, since any table might be a partitioned parent or a partition) |
+| `index_bloat` | the `index_bloat` rule's resolutions (it also holds them when the reading was truncated at its 200-row cap) |
 | `config_data` | the advisor's config features and the RCA idle-in-transaction signal |
 
 The next cycle that reads the category resumes them.
@@ -251,6 +252,56 @@ is attached. A parent with sub-partitioned partitions gets the note only. The co
 the key that PostgreSQL clones onto each partition are covered by that one finding; a key
 declared on a partition alone is evaluated as on a plain table. The rule does not run in
 a cycle where the tables, the partition tree or the partitioned indexes could not be read.
+
+---
+
+### index_bloat
+
+Estimates btree index bloat from planner statistics and recommends an online rebuild.
+
+**Severity:** info from `analyzer.index_bloat_threshold_pct` (default 30), warning from twice it
+
+**What it detects:** The collector's `index_bloat` snapshot category estimates, once per
+cycle, how many leaf pages each btree index needs: its `reltuples` at its fillfactor (default
+90), with each leaf tuple the 8-byte-aligned index tuple header plus the key columns'
+`pg_stats.avg_width` net of `null_frac`, and a 4-byte line pointer (the estimate
+check_postgres and pgsql-bloat-estimation use). The excess of `relpages` over that is the
+bloat. It is a single bounded catalog statement: no relation is opened or `stat()`ed and
+`pgstattuple` is not needed, so it runs on managed providers too. Only valid btree leaf
+indexes of at least `analyzer.index_bloat_min_bytes` (default 100 MiB) are read, the 200
+largest per cycle. Left out:
+
+- invalid indexes (`invalid_index` owns them);
+- partitioned indexes (relkind `I`): each leaf partition's index is judged on its own, since a
+  `REINDEX CONCURRENTLY` of the parent rebuilds every partition;
+- indexes whose table or index has no `reltuples` (never vacuumed or analyzed), or whose key
+  columns have no `pg_stats` row (never analyzed, or the role cannot read the column);
+- the system schemas, `sage`, TOAST and temporary tables.
+
+`relpages` and `reltuples` are as of the last `VACUUM`, `ANALYZE` or rebuild, so rows deleted
+since then show as bloat only after the next vacuum. B-tree deduplication can make an index
+smaller than the estimate; that only under-reports. When more indexes are above the floor than
+the 200 read, the reading is truncated: open `index_bloat` findings are then kept, not
+resolved, until a complete reading (raise `analyzer.index_bloat_min_bytes` if this persists).
+
+**Example output:**
+
+```
+Index public.orders_created_idx is an estimated 70% bloated (164.1 MB of 234.4 MB)
+```
+
+**Recommended action:** Rebuild the index online. The statement runs under the
+`reindex_concurrently` contract (risk tier moderate, approval required, maintenance window
+enforced). The rebuild needs free disk for a second copy of the index while it runs. The
+finding's detail carries `estimated_bloat_pct`, `bloat_bytes`, `index_bytes`, `relpages`,
+`estimated_pages`, `fillfactor`, `reltuples` and `estimate_source` (`catalog_statistics`);
+confirm with `pgstatindex()` where `pgstattuple` is installed.
+
+```sql
+REINDEX INDEX CONCURRENTLY "public"."orders_created_idx";
+```
+
+The rebuild resets `relpages`, so the next cycle's reading resolves the finding.
 
 ---
 

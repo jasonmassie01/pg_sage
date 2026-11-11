@@ -68,13 +68,17 @@ func tableCatalogFindings() map[string][]Finding {
 			ModSinceAnalyze: 50000, AnalyzeThreshold: 50}}}
 	bloat := &collector.Snapshot{Tables: []collector.TableStats{
 		{SchemaName: "public", RelName: "cache_data", NLiveTup: 5000, NDeadTup: 4000}}}
+	indexBloat := &collector.Snapshot{IndexBloat: []collector.IndexBloat{
+		{SchemaName: "Sales", RelName: "Events", IndexRelName: "Events_ts_idx",
+			RelPages: 1000, EstimatedPages: 300, BloatPct: 70}}}
 	return map[string][]Finding{
 		"rules_autovacuum_tuning.go": ruleAutovacuumTuning(
 			autovacuumSnap("autovacuum_vacuum_scale_factor=0.2"), nil, phase2Config(), nil),
 		"rules_stale_statistics.go": ruleStaleStatisticsAt(stale, cfg, now),
 		"rules_stale_statistics_parent.go": staleParentFindings(staleParentFixture(),
 			newStaleWindow(cfg, now)),
-		"rules_vacuum.go": ruleTableBloat(bloat, nil, cfg, nil),
+		"rules_vacuum.go":      ruleTableBloat(bloat, nil, cfg, nil),
+		"rules_index_bloat.go": ruleIndexBloat(indexBloat, nil, cfg, nil),
 	}
 }
 

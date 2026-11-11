@@ -75,6 +75,7 @@ var AllRules = []RuleSpec{
 	{"invalid_indexes", ruleInvalidIndexes, cats("invalid_index"), hasIndexList},
 	{"duplicate_indexes", ruleDuplicateIndexes, cats("duplicate_index"), hasIndexList},
 	{"missing_fk_indexes", ruleMissingFKIndexes, cats("missing_fk_index"), hasForeignKeys},
+	{"index_bloat", ruleIndexBloat, cats("index_bloat"), hasIndexBloat},
 
 	// Vacuum / bloat rules
 	{"table_bloat", ruleTableBloat, cats("table_bloat"), hasTables},
