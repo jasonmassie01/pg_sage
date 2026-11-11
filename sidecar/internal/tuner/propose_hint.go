@@ -54,7 +54,10 @@ func (t *Tuner) HintsAvailable() bool {
 // work_mem clamp, the host-memory budget (ErrHintMemory above 5% of host
 // RAM, approval_required when host memory is unknown), and one hint per
 // statement (proposed or installed hints, an operator's hint, and the
-// cooldown). It has no side
+// cooldown). With the hinted EXPLAIN gate on (WithHintComparison) the hint
+// must change the plan within the cost tolerance (ErrHintRefused
+// otherwise); an unverifiable hint keeps its finding without SQL, with the
+// reason in detail.hint_evidence. It has no side
 // effects: the agent records only the hints it keeps after its per-cycle
 // cap, through RecordHint.
 func (t *Tuner) CheckHint(ctx context.Context, p HintProposal) (analyzer.Finding, error) {
@@ -63,11 +66,17 @@ func (t *Tuner) CheckHint(ctx context.Context, p HintProposal) (analyzer.Finding
 		return analyzer.Finding{}, err
 	}
 	t.mu.Lock()
-	defer t.mu.Unlock()
-	if err := t.coolingErr(ctx, p.QueryID); err != nil {
+	err = t.coolingErr(ctx, p.QueryID)
+	var f analyzer.Finding
+	if err == nil {
+		f = t.workMemBudget().annotate(agentHintFinding(p, hint), hint, nil)
+	}
+	t.mu.Unlock()
+	if err != nil {
 		return analyzer.Finding{}, err
 	}
-	return t.workMemBudget().annotate(agentHintFinding(p, hint), hint, nil), nil
+	// The hinted EXPLAIN runs outside t.mu: it may take its timeouts.
+	return t.gateFinding(ctx, f, p.QueryID, p.Query, hint, t.spillPlanFor(ctx, p, hint))
 }
 
 // RecordHint records a checked hint in sage.query_hints and cools the

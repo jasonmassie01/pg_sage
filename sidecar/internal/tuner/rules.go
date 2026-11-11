@@ -31,6 +31,10 @@ func Prescribe(
 		return prescribeStatTempSpill(symptom)
 	case SymptomStaleStats:
 		return prescribeStaleStats(symptom)
+	case SymptomIndexFilterInefficient:
+		return prescribeIndexFilter(symptom)
+	case SymptomORJoinFilter:
+		return prescribeORJoin(symptom)
 	default:
 		return nil
 	}
@@ -87,11 +91,15 @@ func prescribeHashSpill(
 	}
 }
 
+// prescribeHighPlanTime prescribes no hint (tuning-11): a forced generic
+// plan does nothing for simple-protocol statements and can be worse on
+// skewed data, so the statement gets query_parameterization advice. A
+// plan_cache_mode hint may return only when a hinted EXPLAIN shows it
+// changes the plan.
 func prescribeHighPlanTime() *Prescription {
 	return &Prescription{
-		Symptom:       SymptomHighPlanTime,
-		HintDirective: `Set(plan_cache_mode "force_generic_plan")`,
-		Rationale:     "planning time exceeds threshold",
+		Symptom:   SymptomHighPlanTime,
+		Rationale: "planning time exceeds threshold",
 	}
 }
 

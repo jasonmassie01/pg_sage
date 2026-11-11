@@ -55,6 +55,10 @@ func singleSymptomTitle(kind SymptomKind) string {
 	case SymptomStatTempSpill:
 		return "Per-query tuning: increase work_mem " +
 			"for temp-spilling query"
+	case SymptomIndexFilterInefficient:
+		return "Per-query tuning: index filter discards most rows read"
+	case SymptomORJoinFilter:
+		return "Per-query tuning: OR join filter could be a UNION"
 	default:
 		return "Per-query tuning recommendation"
 	}
@@ -83,6 +87,12 @@ func multiSymptomTitle(symptoms []PlanSymptom) string {
 	}
 	if kinds[SymptomStatTempSpill] {
 		parts = append(parts, "work_mem")
+	}
+	if kinds[SymptomIndexFilterInefficient] {
+		parts = append(parts, "index filter")
+	}
+	if kinds[SymptomORJoinFilter] {
+		parts = append(parts, "OR join rewrite")
 	}
 	if len(parts) == 0 {
 		return "Per-query tuning recommendation"

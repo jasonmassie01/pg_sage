@@ -75,37 +75,9 @@ func TestExplain_EmptyQueryAndZeroQueryID(t *testing.T) {
 	}
 }
 
-func TestExplain_QueryIDNotImplemented(t *testing.T) {
-	ex := New(nil, &config.ExplainConfig{}, noopLogFn)
-	_, err := ex.Explain(context.Background(), ExplainRequest{
-		Query:   "",
-		QueryID: 12345,
-	})
-	if err == nil {
-		t.Fatal("expected error for query_id lookup, got nil")
-	}
-	if !strings.Contains(err.Error(), "not yet implemented") {
-		t.Errorf("error = %q, want it to contain %q",
-			err.Error(), "not yet implemented")
-	}
-}
-
-func TestExplain_QueryIDWithQuery(t *testing.T) {
-	// When both query and query_id are provided, query_id takes precedence
-	// and returns the not-implemented error.
-	ex := New(nil, &config.ExplainConfig{}, noopLogFn)
-	_, err := ex.Explain(context.Background(), ExplainRequest{
-		Query:   "SELECT 1",
-		QueryID: 99,
-	})
-	if err == nil {
-		t.Fatal("expected error when query_id is set, got nil")
-	}
-	if !strings.Contains(err.Error(), "not yet implemented") {
-		t.Errorf("error = %q, want it to contain %q",
-			err.Error(), "not yet implemented")
-	}
-}
+// tuning-10 replaced the "query_id lookup not yet implemented" refusal:
+// query_id now resolves (queryid_unit_test.go, queryid_db_test.go), and
+// query plus query_id together is refused as "not both".
 
 func TestExplain_DDLStatements(t *testing.T) {
 	ex := New(nil, &config.ExplainConfig{}, noopLogFn)
@@ -289,8 +261,9 @@ func TestBuildResult_ZeroCostPlan(t *testing.T) {
 
 // ---------- extractNodes edge cases ----------
 
-func TestExtractNodes_NoWarningAtExactly10x(t *testing.T) {
-	// Boundary: ratio must be > 10 to trigger warning, not >= 10.
+func TestExtractNodes_WarningAtExactly10x(t *testing.T) {
+	// Boundary (tuning-10): a misestimate of 10x or more warns, so exactly
+	// 10x now warns.
 	planJSON := json.RawMessage(`[{
 		"Plan": {
 			"Node Type": "Seq Scan",
@@ -309,10 +282,9 @@ func TestExtractNodes_NoWarningAtExactly10x(t *testing.T) {
 	if len(nodes) != 1 {
 		t.Fatalf("expected 1 node, got %d", len(nodes))
 	}
-	// 1000/100 = 10.0 exactly — should NOT trigger warning (> 10, not >= 10).
-	if nodes[0].Warning != "" {
-		t.Errorf("Warning = %q, want empty for exactly 10x ratio",
-			nodes[0].Warning)
+	// 1000/100 = 10.0 exactly — warns (>= 10).
+	if nodes[0].Warning == "" {
+		t.Error("Warning is empty, want a warning for exactly 10x ratio")
 	}
 }
 
@@ -353,8 +325,9 @@ func TestExtractNodes_WarningAt11x(t *testing.T) {
 	}
 }
 
-func TestExtractNodes_NoWarningWhenPlanRowsZero(t *testing.T) {
-	// When PlanRows is 0, no ratio can be computed — no warning.
+func TestExtractNodes_WarningWhenPlanRowsZero(t *testing.T) {
+	// tuning-10: an estimate of 0 counts as 1, so 1000 actual rows are a
+	// 1000x underestimate and warn (the old rule skipped PlanRows 0).
 	planJSON := json.RawMessage(`[{
 		"Plan": {
 			"Node Type": "Seq Scan",
@@ -373,9 +346,8 @@ func TestExtractNodes_NoWarningWhenPlanRowsZero(t *testing.T) {
 	if len(nodes) != 1 {
 		t.Fatalf("expected 1 node, got %d", len(nodes))
 	}
-	// PlanRows=0 means the ratio guard (n.PlanRows > 0) prevents warning.
-	if nodes[0].Warning != "" {
-		t.Errorf("Warning = %q, want empty when PlanRows is 0",
+	if !strings.Contains(nodes[0].Warning, "1000x") {
+		t.Errorf("Warning = %q, want a 1000x warning when PlanRows is 0",
 			nodes[0].Warning)
 	}
 }
@@ -485,8 +457,9 @@ func TestExtractNodes_DeeplyNestedPlan(t *testing.T) {
 }
 
 func TestExtractNodes_ActualRowsZero(t *testing.T) {
-	// Actual Rows = 0 means the node returned nothing. No warning
-	// because ratio is 0 / PlanRows which is < 10.
+	// Actual Rows = 0 means the node returned nothing. tuning-10: 0 counts
+	// as 1, so an estimate of 100 is a 100x overestimate and warns (the
+	// old rule only warned on underestimates).
 	planJSON := json.RawMessage(`[{
 		"Plan": {
 			"Node Type": "Index Scan",
@@ -508,8 +481,8 @@ func TestExtractNodes_ActualRowsZero(t *testing.T) {
 	if nodes[0].Rows != 0 {
 		t.Errorf("Rows = %d, want 0", nodes[0].Rows)
 	}
-	if nodes[0].Warning != "" {
-		t.Errorf("Warning = %q, want empty for 0 actual rows",
+	if !strings.Contains(nodes[0].Warning, "100x") {
+		t.Errorf("Warning = %q, want a 100x warning for 0 actual rows",
 			nodes[0].Warning)
 	}
 }
@@ -822,8 +795,9 @@ func TestBuildResult_RealisticAnalyzePlan(t *testing.T) {
 	if result.ActualTimeMs == nil {
 		t.Fatal("ActualTimeMs is nil for analyzed plan")
 	}
-	if *result.ActualTimeMs != 15.2 {
-		t.Errorf("ActualTimeMs = %f, want 15.2", *result.ActualTimeMs)
+	// tuning-10: the statement's Execution Time, not the root node's 15.2.
+	if *result.ActualTimeMs != 15.5 {
+		t.Errorf("ActualTimeMs = %f, want 15.5", *result.ActualTimeMs)
 	}
 	if result.PlanningTimeMs == nil {
 		t.Fatal("PlanningTimeMs is nil, expected from Planning Time in JSON")

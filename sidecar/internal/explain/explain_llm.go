@@ -99,9 +99,10 @@ type llmExplainResponse struct {
 	Recommendations []string `json:"recommendations"`
 }
 
-// applyLLMResponse parses the raw LLM output and updates result
-// fields. On parse failure it logs, keeps the original values and
-// reports false.
+// applyLLMResponse parses the raw LLM output: a non-empty summary replaces
+// the rules summary, and its entries are added after the rule entries,
+// tagged llm and deduplicated; a rule entry is never removed (tuning-10).
+// On parse failure it logs, keeps the original values and reports false.
 func (ex *Explainer) applyLLMResponse(
 	raw string, result *ExplainResult,
 ) bool {
@@ -117,11 +118,11 @@ func (ex *Explainer) applyLLMResponse(
 	if resp.Summary != "" {
 		result.Summary = resp.Summary
 	}
-	if len(resp.SlowBecause) > 0 {
-		result.SlowBecause = resp.SlowBecause
+	for _, reason := range resp.SlowBecause {
+		result.addEntry(InsightSlowBecause, reason, SourceLLM, "")
 	}
-	if len(resp.Recommendations) > 0 {
-		result.Recommendations = resp.Recommendations
+	for _, rec := range resp.Recommendations {
+		result.addEntry(InsightRecommendation, rec, SourceLLM, "")
 	}
 	return true
 }

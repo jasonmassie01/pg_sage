@@ -349,6 +349,8 @@ func applyQueryHintContract() ActionContract {
 		Prechecks: []string{
 			"query still appears in pg_stat_statements",
 			"hint syntax validates",
+			"hinted EXPLAIN changed the plan within tuner.hint_cost_tolerance_pct " +
+				"(detail.hint_evidence.verdict changed)",
 			"rollback SQL is available",
 			"recent rejected hint cooldown has elapsed",
 		},
@@ -361,7 +363,7 @@ func applyQueryHintContract() ActionContract {
 		ExecutionPlan: []string{"insert reviewed hint into hint_plan.hints"},
 		SuccessCriteria: []string{
 			"hint row exists",
-			"hinted EXPLAIN does not regress versus unhinted plan",
+			"query latency does not regress (post-apply verification)",
 		},
 		PostChecks: []string{
 			"run hint revalidation loop",

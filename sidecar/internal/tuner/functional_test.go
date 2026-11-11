@@ -568,9 +568,9 @@ func TestFunctional_Prescribe_HighPlanTime(t *testing.T) {
 	if p == nil {
 		t.Fatal("expected prescription, got nil")
 	}
-	want := `Set(plan_cache_mode "force_generic_plan")`
-	if p.HintDirective != want {
-		t.Errorf("directive = %q, want %q", p.HintDirective, want)
+	// tuning-11: no plan_cache_mode hint (this pinned force_generic_plan before).
+	if p.HintDirective != "" {
+		t.Errorf("directive = %q, want none", p.HintDirective)
 	}
 }
 

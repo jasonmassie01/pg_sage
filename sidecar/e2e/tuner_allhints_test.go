@@ -296,8 +296,9 @@ func TestTunerAllHints_SeqScanWithIndexName(t *testing.T) {
 }
 
 // TestTunerAllHints_HighPlanTime verifies that high planning
-// time triggers SymptomHighPlanTime and produces
-// Set(plan_cache_mode "force_generic_plan").
+// time prescribes no hint (tuning-11): the statement gets
+// query_parameterization advice instead of the
+// Set(plan_cache_mode "force_generic_plan") this test expected before.
 //
 // Note: HighPlanTime is detected in tuner.go's isHighPlanTime()
 // using pg_stat_statements data, not from the EXPLAIN plan. We
@@ -313,16 +314,9 @@ func TestTunerAllHints_HighPlanTime(t *testing.T) {
 		t.Fatal("Prescribe returned nil for high_plan_time")
 	}
 
-	expected := `Set(plan_cache_mode "force_generic_plan")`
-	if rx.HintDirective != expected {
-		t.Errorf(
-			"expected %q, got %q", expected, rx.HintDirective,
-		)
+	if rx.HintDirective != "" {
+		t.Errorf("expected no hint, got %q", rx.HintDirective)
 	}
-	t.Logf(
-		"HighPlanTime hint: %s (%s)",
-		rx.HintDirective, rx.Rationale,
-	)
 }
 
 // TestTunerAllHints_ParallelDisabled verifies that a Scan node

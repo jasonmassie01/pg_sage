@@ -141,6 +141,12 @@ const (
 	// DefaultTunerPlanMaxAgeMinutes: age at which a cached plan is stale
 	// (tuning-08).
 	DefaultTunerPlanMaxAgeMinutes = 1440
+	// DefaultTunerParamShapeMinVariants: queryids of one IN-list shape
+	// before parameterization advice (tuning-11).
+	DefaultTunerParamShapeMinVariants = 20
+	// DefaultTunerHintCostTolerancePct: the estimated cost rise a join or
+	// scan hint may cause in the hinted EXPLAIN (tuning-05).
+	DefaultTunerHintCostTolerancePct = 10
 
 	// Tuner v0.8.5 — Stale-stats detection + ANALYZE (Feature 2).
 	DefaultTunerStaleStatsEstimateSkew = 10.0

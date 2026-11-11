@@ -255,8 +255,9 @@ func TestBuildResult(t *testing.T) {
 		if result.ActualTimeMs == nil {
 			t.Fatal("ActualTimeMs is nil, expected populated")
 		}
-		if *result.ActualTimeMs != 8.3 {
-			t.Errorf("ActualTimeMs = %f, want 8.3", *result.ActualTimeMs)
+		// tuning-10: the statement's Execution Time, not the root node's.
+		if *result.ActualTimeMs != 8.72 {
+			t.Errorf("ActualTimeMs = %f, want 8.72", *result.ActualTimeMs)
 		}
 		if result.PlanningTimeMs == nil {
 			t.Fatal("PlanningTimeMs is nil, expected populated")

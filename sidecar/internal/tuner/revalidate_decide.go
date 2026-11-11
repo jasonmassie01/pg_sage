@@ -2,11 +2,11 @@ package tuner
 
 import "time"
 
-// Hint revalidation decisions (tuning-01). Revalidation has no
-// counterfactual yet (tuning-05): it cannot tell whether a hint still helps,
-// so it never retires a hint for working or for being old. It only marks a
-// hint broken when a referenced index is gone, dormant while its query does
-// not run, and due for re-verification past HintRetirementDays.
+// Hint revalidation decisions (tuning-01). Revalidation never retires a
+// hint for working or for being old. It marks a hint broken when a
+// referenced index is gone, dormant while its query does not run, and due
+// for re-verification past HintRetirementDays; at re-verification the
+// hinted EXPLAIN (tuning-05) retires a hint that no longer changes the plan.
 
 type hintAction int
 
@@ -23,6 +23,9 @@ const (
 	hintActionBroken
 	// hintActionError: the statistics could not be read; nothing changes.
 	hintActionError
+	// hintActionRetire: due for re-verification, the hinted EXPLAIN plans
+	// the statement as without the hint (no_effect, tuning-05).
+	hintActionRetire
 )
 
 // pgssObservation is one revalidation read of pg_stat_statements for a
@@ -56,6 +59,8 @@ func (d hintDecision) nextStatus(h hintRow) string {
 		return "dormant"
 	case hintActionBroken:
 		return "broken"
+	case hintActionRetire:
+		return "retired"
 	default: // reset and error keep the current status
 		return h.Status
 	}

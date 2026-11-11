@@ -199,7 +199,7 @@ func (t *Tuner) cycleFacts(ctx context.Context, planJSON []byte) *CatalogFacts {
 	if t.facts == nil {
 		t.facts = newCatalogFacts()
 	}
-	names, err := planRelationNames(planJSON)
+	names, err := PlanRelationNames(planJSON)
 	if err == nil {
 		err = t.facts.ensure(ctx, t.pool, names)
 	}

@@ -468,7 +468,7 @@ type TunerConfig struct {
 	Enabled                bool    `yaml:"enabled" doc:"Master switch for the per-query tuner. When false, no hints are written and Tune() is a no-op — the analyzer still runs."`
 	LLMEnabled             bool    `yaml:"llm_enabled" doc:"Let the tuning agent propose per-query pg_hint_plan hints for its cases; the tuner validates, clamps and records them. The tuner's deterministic hint rules run either way. Default: true."`
 	WorkMemMaxMB           int     `yaml:"work_mem_max_mb" doc:"Maximum per-query work_mem (MB) the tuner is allowed to prescribe via Set(work_mem) hints. Ceiling prevents runaway memory suggestions."`
-	PlanTimeRatio          float64 `yaml:"plan_time_ratio" doc:"When plan_time / exec_time exceeds this ratio, the tuner flags the query as plan-time-dominated and considers prepared-statement hints."`
+	PlanTimeRatio          float64 `yaml:"plan_time_ratio" doc:"When plan_time / exec_time exceeds this ratio, the tuner flags the query as plan-time-dominated and reports query_parameterization advice (prepared statements); it prescribes no hint."`
 	NestedLoopRowThreshold int64   `yaml:"nested_loop_row_threshold" doc:"Total rows (Actual Rows x Actual Loops) a misestimated (>10x) nested loop's inner side must read before the tuner prescribes HashJoin or ANALYZE. 0 or less means 10000."`
 	ParallelMinTableRows   int64   `yaml:"parallel_min_table_rows" doc:"Threshold for suggesting parallel-enable hints on large sequential scans. Tables smaller than this are assumed not to benefit from parallelism."`
 	MinQueryCalls          int     `yaml:"min_query_calls" doc:"Require at least this many pg_stat_statements.calls before the tuner will act on a query. Filters out one-offs."`
@@ -479,6 +479,10 @@ type TunerConfig struct {
 	RevalidationIntervalHours int `yaml:"revalidation_interval_hours" doc:"How often the hint revalidation loop runs. Set to 0 to disable the loop entirely. Default 24 hours."`
 	// tuning-08: cached plans have an age limit.
 	PlanMaxAgeMinutes int `yaml:"plan_max_age_minutes" doc:"A cached plan this many minutes old is stale, as is one older than its tables' last ANALYZE or a pg_sage action on them; stale plans never drive hints. 0 or less means 1440 (default)."`
+	// tuning-11: parameterization advice for IN-list shapes.
+	ParamShapeMinVariants int `yaml:"param_shape_min_variants" doc:"Queryids of one statement shape, its IN and ANY(ARRAY[...]) parameter lists collapsed, before a query_parameterization finding. Off on PG18 (lists squashed). 2-1000. Default 20."`
+	// tuning-05: hinted EXPLAIN gate.
+	HintCostTolerancePct float64 `yaml:"hint_cost_tolerance_pct" doc:"Percent a join or scan hint may raise the estimated plan cost in the hinted EXPLAIN before it is refused (cost_regression); an unchanged plan is refused (no_effect). 0-100. Default 10."`
 	// tuning-06: open query_tuning findings resolve.
 	HintAbsentCycles int `yaml:"hint_absent_cycles" doc:"Analyzer cycles a query_tuning finding's statement must be absent from pg_stat_statements, or below the tuner's admission thresholds, before it resolves. 0 or less means 3. Default 3."`
 
@@ -835,6 +839,12 @@ func (c *Config) validate() error {
 	if err := c.Tuning.validate(); err != nil {
 		return err
 	}
+	if err := c.Tuner.validateParamShapeMinVariants(); err != nil {
+		return err
+	}
+	if err := c.Tuner.validateHintCostTolerancePct(); err != nil {
+		return err
+	}
 	if err := c.Retention.validateDecisionsDays(); err != nil {
 		return err
 	}
@@ -1097,6 +1107,8 @@ func newDefaults() *Config {
 			RevalidationIntervalHours: DefaultTunerRevalidationIntervalHours,
 			HintAbsentCycles:          DefaultTunerHintAbsentCycles,
 			PlanMaxAgeMinutes:         DefaultTunerPlanMaxAgeMinutes,
+			ParamShapeMinVariants:     DefaultTunerParamShapeMinVariants,
+			HintCostTolerancePct:      DefaultTunerHintCostTolerancePct,
 
 			// Feature 2 — Stale-stats detection + ANALYZE.
 			StaleStatsEstimateSkew: DefaultTunerStaleStatsEstimateSkew,

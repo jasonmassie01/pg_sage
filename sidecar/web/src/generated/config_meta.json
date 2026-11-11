@@ -3232,6 +3232,12 @@
     "doc": "Analyzer cycles a query_tuning finding's statement must be absent from pg_stat_statements, or below the tuner's admission thresholds, before it resolves. 0 or less means 3. Default 3.",
     "class": "derivable"
   },
+  "tuner.hint_cost_tolerance_pct": {
+    "type": "float64",
+    "default": 10,
+    "doc": "Percent a join or scan hint may raise the estimated plan cost in the hinted EXPLAIN before it is refused (cost_regression); an unchanged plan is refused (no_effect). 0-100. Default 10.",
+    "class": "safety_critical"
+  },
   "tuner.hint_retirement_days": {
     "type": "int",
     "default": 14,
@@ -3268,6 +3274,12 @@
     "doc": "Threshold for suggesting parallel-enable hints on large sequential scans. Tables smaller than this are assumed not to benefit from parallelism.",
     "class": "derivable"
   },
+  "tuner.param_shape_min_variants": {
+    "type": "int",
+    "default": 20,
+    "doc": "Queryids of one statement shape, its IN and ANY(ARRAY[...]) parameter lists collapsed, before a query_parameterization finding. Off on PG18 (lists squashed). 2-1000. Default 20.",
+    "class": "derivable"
+  },
   "tuner.plan_max_age_minutes": {
     "type": "int",
     "default": 1440,
@@ -3277,7 +3289,7 @@
   "tuner.plan_time_ratio": {
     "type": "float64",
     "default": 3,
-    "doc": "When plan_time / exec_time exceeds this ratio, the tuner flags the query as plan-time-dominated and considers prepared-statement hints.",
+    "doc": "When plan_time / exec_time exceeds this ratio, the tuner flags the query as plan-time-dominated and reports query_parameterization advice (prepared statements); it prescribes no hint.",
     "class": "derivable"
   },
   "tuner.revalidation_interval_hours": {

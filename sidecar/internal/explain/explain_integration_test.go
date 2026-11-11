@@ -5,6 +5,7 @@ package explain
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -306,22 +307,18 @@ func TestExplain_InvalidSQL(t *testing.T) {
 	}
 }
 
-func TestExplain_QueryIDNotImplemented_LivePool(t *testing.T) {
+// tuning-10: an id with no statement in this database is a client error
+// (HTTP 400), whether or not pg_stat_statements is installed.
+func TestExplain_UnknownQueryIDIsInvalid_LivePool(t *testing.T) {
 	pool, ctx := requireDB(t)
 
 	ex := New(pool, testExplainConfig(), noopLog)
-	_, err := ex.Explain(ctx, ExplainRequest{
-		Query:   "",
-		QueryID: 12345,
-	})
-	if err == nil {
-		t.Fatal("expected error for query_id lookup, got nil")
+	_, err := ex.Explain(ctx, ExplainRequest{QueryID: 12345})
+	if !errors.Is(err, ErrExplainInvalidRequest) {
+		t.Fatalf("err = %v, want ErrExplainInvalidRequest", err)
 	}
-	if !strings.Contains(err.Error(), "not yet implemented") {
-		t.Errorf(
-			"error = %q, want it to contain %q",
-			err.Error(), "not yet implemented",
-		)
+	if strings.Contains(err.Error(), "not yet implemented") {
+		t.Errorf("err = %v, the lookup is implemented now", err)
 	}
 }
 

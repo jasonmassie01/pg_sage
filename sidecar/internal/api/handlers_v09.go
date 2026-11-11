@@ -271,8 +271,7 @@ func explainHandler(
 
 		var req explain.ExplainRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			jsonError(w, "invalid request body",
-				http.StatusBadRequest)
+			jsonError(w, "invalid request body", http.StatusBadRequest)
 			return
 		}
 
@@ -295,12 +294,12 @@ func explainHandler(
 		logFn := func(level, msg string, args ...any) {
 			slog.Log(r.Context(), slog.LevelInfo, msg, args...)
 		}
-		ex := explain.NewWithLLM(pool, &cfg.Explain, llmClient, logFn)
+		ex := explain.NewWithLLM(pool, &cfg.Explain, llmClient, logFn).
+			WithPlanMaxAge(cfg.Tuner.PlanMaxAgeMinutes)
 		result, err := ex.Explain(r.Context(), req)
 		if err != nil {
 			if errors.Is(err, explain.ErrExplainInvalidRequest) {
-				jsonError(w, err.Error(),
-					http.StatusBadRequest)
+				jsonError(w, err.Error(), http.StatusBadRequest)
 				return
 			}
 			internalError(w, r, "explain query", err)

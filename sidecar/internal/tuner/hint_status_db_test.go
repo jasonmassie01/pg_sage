@@ -85,7 +85,7 @@ func TestHintStatus_NoHintTableRecordsNoProposal(t *testing.T) {
 			}
 			tu := New(pool, TunerConfig{WorkMemMaxMB: 256, MinQueryCalls: 1,
 				PlanTimeRatio: 0.5}, avail, noopLog2)
-			fs, err := tuneLocked(ctx, tu, planTimeCandidate(qid))
+			fs, err := tuneLocked(ctx, tu, spillHintCandidate(tu, qid))
 			if err != nil {
 				t.Fatalf("tuneCandidates: %v", err)
 			}
@@ -202,7 +202,7 @@ func TestHintStatus_TuneExpiresAndReproposes(t *testing.T) {
 	ageHint(t, pool, qid, "31 days")
 	tu := ownershipTuner(pool)
 	tu.reconcileHintStatuses(ctx)
-	fs, err := tuneLocked(ctx, tu, planTimeCandidate(qid))
+	fs, err := tuneLocked(ctx, tu, spillHintCandidate(tu, qid))
 	if err != nil {
 		t.Fatalf("tuneCandidates: %v", err)
 	}
@@ -222,7 +222,7 @@ func TestHintStatus_RejectedHintIsNotReproposed(t *testing.T) {
 	pool, ctx := hintScopeDB(t, qid)
 	lifecycleDB(t, qid)
 	tu := ownershipTuner(pool)
-	if fs, err := tuneLocked(ctx, tu, planTimeCandidate(qid)); err != nil ||
+	if fs, err := tuneLocked(ctx, tu, spillHintCandidate(tu, qid)); err != nil ||
 		len(findingFor(fs, qid)) != 1 {
 		t.Fatalf("first proposal: %+v, %v", fs, err)
 	}
@@ -231,7 +231,7 @@ func TestHintStatus_RejectedHintIsNotReproposed(t *testing.T) {
 		t.Fatal(err)
 	}
 	tu.recentlyTuned = map[int64]int{}
-	fs, err := tuneLocked(ctx, tu, planTimeCandidate(qid))
+	fs, err := tuneLocked(ctx, tu, spillHintCandidate(tu, qid))
 	if err != nil || len(findingFor(fs, qid)) != 0 {
 		t.Fatalf("the rejected hint was proposed again: %+v, %v", fs, err)
 	}
@@ -240,7 +240,7 @@ func TestHintStatus_RejectedHintIsNotReproposed(t *testing.T) {
 	}
 	ageHint(t, pool, qid, "31 days")
 	tu.recentlyTuned = map[int64]int{}
-	if fs, err := tuneLocked(ctx, tu, planTimeCandidate(qid)); err != nil ||
+	if fs, err := tuneLocked(ctx, tu, spillHintCandidate(tu, qid)); err != nil ||
 		len(findingFor(fs, qid)) != 1 {
 		t.Fatalf("a rejection older than 30 days still binds: %+v, %v", fs, err)
 	}

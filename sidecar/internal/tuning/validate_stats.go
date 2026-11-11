@@ -189,7 +189,22 @@ func (v *validator) judgeHint(ctx context.Context, c Case, p Proposal) Judged {
 	pred := verify.Prediction{Class: verify.ClassQueryHint, Method: verify.MethodModel,
 		Metric: verify.MetricMeanExecTime, ExpectedChangePct: p.ExpectedChangePct,
 		TargetQueryIDs: []int64{qid}, Source: PredictionSource,
-		Note: "the model's estimate"}
-	return Judged{Proposal: p, Verdict: VerdictAdmitted, Finding: &f, Tables: c.Tables,
+		Note: hintPredictionNote(f)}
+	j := Judged{Proposal: p, Verdict: VerdictAdmitted, Finding: &f, Tables: c.Tables,
 		Class: verify.ClassQueryHint, Prediction: pred, Hint: &hp}
+	if f.RecommendedSQL == "" {
+		// Advisory (hinted EXPLAIN unverifiable): nothing to record.
+		j.Hint = nil
+	}
+	return j
+}
+
+// hintPredictionNote names what the prediction rests on: the hinted EXPLAIN
+// when it proved the plan changes (tuning-05), else the model's estimate.
+func hintPredictionNote(f analyzer.Finding) string {
+	if ev, ok := f.Detail["hint_evidence"].(map[string]any); ok &&
+		ev["verdict"] == string(tuner.HintChanged) {
+		return "plan cost comparison"
+	}
+	return "the model's estimate"
 }

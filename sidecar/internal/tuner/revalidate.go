@@ -16,6 +16,7 @@ type RevalidateReport struct {
 	Reset       int
 	ReverifyDue int
 	Broken      int
+	Retired     int
 	Errors      int
 	Duration    time.Duration
 }
@@ -56,7 +57,7 @@ func (t *Tuner) Revalidate(ctx context.Context) (RevalidateReport, error) {
 		t.cfg.HintRetirementDays) * 24 * time.Hour
 
 	for _, h := range hints {
-		decision := t.decideHintFate(ctx, h, retentionCutoff)
+		decision := t.reverifyHint(ctx, h, t.decideHintFate(ctx, h, retentionCutoff))
 		if err := t.recordRevalidation(ctx, h, decision); err != nil {
 			decision = hintDecision{action: hintActionError, reason: fmt.Sprintf(
 				"record %s: %v", decision.nextStatus(h), err)}
@@ -78,6 +79,8 @@ func (r *RevalidateReport) count(d hintDecision) {
 		r.Reset++
 	case hintActionBroken:
 		r.Broken++
+	case hintActionRetire:
+		r.Retired++
 	case hintActionError:
 		r.Errors++
 		return
@@ -340,7 +343,7 @@ func (t *Tuner) revalidateAndLog(ctx context.Context, label string) {
 	}
 	t.logFn("INFO",
 		"revalidate: %s checked=%d kept=%d dormant=%d reset=%d "+
-			"reverify_due=%d broken=%d errors=%d in %s",
+			"reverify_due=%d broken=%d retired=%d errors=%d in %s",
 		label, rpt.Checked, rpt.Kept, rpt.Dormant, rpt.Reset,
-		rpt.ReverifyDue, rpt.Broken, rpt.Errors, rpt.Duration)
+		rpt.ReverifyDue, rpt.Broken, rpt.Retired, rpt.Errors, rpt.Duration)
 }

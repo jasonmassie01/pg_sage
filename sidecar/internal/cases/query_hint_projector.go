@@ -2,6 +2,7 @@ package cases
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 )
 
@@ -136,5 +137,6 @@ func queryHintEvidence(h SourceQueryHint) []Evidence {
 		Type:    "query_hint",
 		Summary: queryHintWhy(h),
 		Detail:  detail,
+		QueryID: strconv.FormatInt(h.QueryID, 10),
 	}}
 }

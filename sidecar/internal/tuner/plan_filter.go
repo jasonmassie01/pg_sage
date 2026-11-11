@@ -18,21 +18,41 @@ var filterIdent = regexp.MustCompile(`^(?:[a-z_][a-z0-9_$]*|"(?:[^"]|"")+")$`)
 // yields none.
 func filterColumns(filter string) map[string]bool {
 	cols := map[string]bool{}
-	expr := unwrapParens(strings.TrimSpace(filter))
-	if expr == "" || len(topLevelSplit(expr, " OR ")) > 1 {
-		return cols
-	}
-	for _, conjunct := range topLevelSplit(expr, " AND ") {
-		if col := comparedColumn(unwrapParens(conjunct)); col != "" {
-			cols[col] = true
-		}
+	list, _ := conjunctColumns(filter)
+	for _, col := range list {
+		cols[col] = true
 	}
 	return cols
 }
 
+// conjunctColumns is filterColumns in conjunct order without duplicates;
+// equality holds the columns compared with = or = ANY.
+func conjunctColumns(filter string) (cols []string, equality map[string]bool) {
+	equality = map[string]bool{}
+	expr := unwrapParens(strings.TrimSpace(filter))
+	if expr == "" || len(topLevelSplit(expr, " OR ")) > 1 {
+		return nil, equality
+	}
+	seen := map[string]bool{}
+	for _, conjunct := range topLevelSplit(expr, " AND ") {
+		col, op := comparedColumn(unwrapParens(conjunct))
+		if col == "" {
+			continue
+		}
+		if !seen[col] {
+			seen[col] = true
+			cols = append(cols, col)
+		}
+		if op == " = " || op == " = ANY " {
+			equality[col] = true
+		}
+	}
+	return cols, equality
+}
+
 // comparedColumn returns the plain column on the left of the first
-// top-level btree comparison in conjunct, or "".
-func comparedColumn(conjunct string) string {
+// top-level btree comparison in conjunct and that operator, or "".
+func comparedColumn(conjunct string) (col, op string) {
 	for _, op := range btreeOperators {
 		parts := topLevelSplit(conjunct, op)
 		if len(parts) < 2 {
@@ -43,11 +63,11 @@ func comparedColumn(conjunct string) string {
 			lhs = lhs[i+1:] // alias-qualified: o.customer_id
 		}
 		if !filterIdent.MatchString(lhs) {
-			return ""
+			return "", ""
 		}
-		return strings.ReplaceAll(strings.Trim(lhs, `"`), `""`, `"`)
+		return strings.ReplaceAll(strings.Trim(lhs, `"`), `""`, `"`), op
 	}
-	return ""
+	return "", ""
 }
 
 var trailingCast = regexp.MustCompile(`::[a-z_ ]+(\[\])?$`)

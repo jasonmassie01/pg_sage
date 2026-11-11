@@ -195,15 +195,51 @@ row counts (auto_explain with `log_analyze`); a plain EXPLAIN plan never trigger
 
 ---
 
-## 6. High Plan Time &rarr; `Set(plan_cache_mode "force_generic_plan")`
+## 6. High Plan Time &rarr; parameterization advice, no hint
 
-**Symptom:** Planning time dominates execution time for repeated queries with different parameters.
+**Symptom:** Planning time dominates execution time for a statement called at
+least `tuner.min_query_calls` times (`mean_plan_time >
+mean_exec_time x tuner.plan_time_ratio`; needs
+`pg_stat_statements.track_planning`), or one statement shape reaches
+pg_stat_statements as many queryids because each call sends a different
+IN-list length.
 
-**Hint:** `/*+ Set(plan_cache_mode "force_generic_plan") */`
+**Hint:** none. pg_sage used to prescribe
+`Set(plan_cache_mode "force_generic_plan")`. pg_hint_plan accepts it, but it
+only has an effect on prepared statements: a simple-protocol statement is
+planned afresh whatever the setting, and on skewed data a forced generic plan
+can be worse than the custom plans it replaces. The tuner no longer installs
+it. A `plan_cache_mode` hint may come back only when a hinted EXPLAIN shows
+that it changes the plan.
 
-The hint is accepted by pg_hint_plan (confirmed via `pg_hint_plan.debug_print`). This forces PostgreSQL to reuse a generic plan instead of re-planning for each parameter set.
+**Finding:** `query_parameterization` (severity `warning`, object type
+`query_shape`, identifier `shape:<16 hex digits of the SHA-256 of the
+collapsed text>`), advice only, with no SQL. Its detail has
+`normalized_query` (the statement with every `IN ($1, ...)` and
+`= ANY (ARRAY[$1, ...])` list of bind parameters collapsed to `(...)`),
+`reason` (`in_list_variants` or `plan_time_share`), `variant_count`,
+`queryids` (at most 20), `calls`, `total_exec_ms`, `plan_time_share` and
+`pg_major`. The case it opens offers a `prepare_parameterized_query` script
+for review in the application's repository: use prepared statements or a
+single array parameter (`= ANY($1)`).
 
-**Verdict:** Hint accepted. Effect is measurable on prepared statements with high planning overhead.
+### When the tuner reports query_parameterization
+
+Two triggers:
+
+- **IN-list variants** (`reason=in_list_variants`): the collector's latest
+  snapshot holds `tuner.param_shape_min_variants` (default 20, 2-1000) or more
+  queryids of one collapsed shape. A subquery (`IN (SELECT ...)`) or a list of
+  literals in an unnormalized utility statement is not a parameter list. The
+  trigger is off on PostgreSQL 18, whose pg_stat_statements squashes lists into
+  one entry.
+- **Plan-time share** (`reason=plan_time_share`): the statement's planning
+  dominates as above. A shape the IN-list trigger already reported in the
+  cycle is not reported twice.
+
+**Upgrade note:** `plan_cache_mode` hints pg_sage installed before this
+change stay `active` until hint revalidation or a rollback removes them; no
+new ones are installed.
 
 ---
 
@@ -420,6 +456,43 @@ On RDS, Aurora and Cloud SQL, `shared_preload_libraries` is set through the para
 database flag; `ALTER DATABASE ... SET pg_hint_plan.enable_hint_table = on` works as the
 database owner. pg_sage only reads these settings.
 
+### Every hint is planned before it is proposed
+
+Syntax alone does not prove a hint works: pg_hint_plan silently ignores an
+unknown alias or index, and a join or scan hint can make the plan worse. So
+before the tuner or the tuning agent proposes a hint, pg_sage plans the
+statement twice in one bounded `READ ONLY` transaction (the tuner's catalog
+`statement_timeout` and `lock_timeout`): once plain, once with `/*+ hint */`
+at the head of the statement. It never runs `ANALYZE`, never writes, and only
+turns comment hints on for that transaction; `hint_plan.hints` is ignored
+there, so a hint already installed for the statement never plans the plain
+side. A parameterized statement is planned with `GENERIC_PLAN` on PostgreSQL
+16 and later. Multi-statement text is refused before any `EXPLAIN`.
+
+The two plans are compared by shape (the plan hash) and root total cost:
+
+| Verdict | When | Result |
+|---|---|---|
+| `changed` | The hint changes the plan, and a join or scan hint keeps the estimated cost within `plain x (1 + tuner.hint_cost_tolerance_pct / 100)` (default 10). A `Set(work_mem)` hint whose plan keeps its shape is `changed` (basis `spill`) when the statement's cached `EXPLAIN ANALYZE` plan spills (a disk sort or more than one hash batch). | Executable hint |
+| `no_effect` | The hinted plan is the plain plan, or (pg_hint_plan 1.4-1.6) it rests on a disabled path because the alias or index is unknown | Refused |
+| `cost_regression` | A join or scan hint raises the estimated cost past the tolerance | Refused |
+| `explain_timeout`, `explain_failed` | An `EXPLAIN` hit its statement or lock timeout, or failed | Refused |
+| `unverifiable` | pg_hint_plan is not loaded in pg_sage's session (not preloaded for its role and `LOAD` not available), the statement is parameterized on PostgreSQL 14 or 15, or a `Set(work_mem)` hint has no spill evidence | The finding stays advisory: no `recommended_sql`, and nothing is recorded as `proposed` |
+
+Every compared finding carries `detail.hint_evidence`: `verdict`, `basis`,
+`reason`, `plain_cost`, `hinted_cost`, `cost_delta_pct`, `plain_plan_hash`,
+`hinted_plan_hash`, `pg_major`, `generic_plan`, `tolerance_pct`, and both plans
+(`plain_plan`, `hinted_plan`, each up to 64 KB) for the approval card. The
+tuning agent can run the same comparison itself with its `hinted_explain` tool
+(at most three per case); a hint it proposes with a `changed` verdict has the
+prediction note "plan cost comparison".
+
+Costs are the planner's estimates. The executor's post-apply verification of
+the query's latency stays the authority on whether a hint helped. On managed
+services pg_hint_plan must be preloaded through the parameter group or flags;
+otherwise hints stay advisory. The check runs per database in fleet mode.
+
+
 ---
 
 ## 11. Merge Join Hint &rarr; `MergeJoin(alias)`
@@ -486,6 +559,47 @@ pg_sage's `CombineHints()` merges multiple prescriptions into a single hint stri
 
 ---
 
+## 13. Plan anti-patterns &rarr; advice only, no hint
+
+Two slow-query causes that no hint fixes. The tuner reports them as informational
+`query_tuning` findings: no `hint_directive`, no `recommended_sql`, and no row in
+`sage.query_hints`. Both need an executed plan (EXPLAIN ANALYZE, for example from
+auto_explain); a plain EXPLAIN never yields them. PostgreSQL 14 to 18.
+
+**`index_filter_inefficient`:** an Index Scan, Index Only Scan or Bitmap Heap Scan
+whose `Filter` discards at least 90% of the rows the index read, and at least
+10,000 rows over all loops (`Rows Removed by Filter` and `Actual Rows` are
+per-loop averages, so both are multiplied by `Actual Loops`; a missing loop count
+is one loop). The index serves only part of the predicate. The advice names a
+composite index: the `Index Cond` columns, then the filter's equality columns.
+
+    Index Scan using ip_a_idx on ip  (actual rows=129 loops=1)
+      Index Cond: (a = 5)
+      Filter: (b = 7)
+      Rows Removed by Filter: 12371
+
+> index ip_a_idx reads 12500 rows per execution and its filter discards 98%; an
+> index on (a, b) would read only the kept rows
+
+**`or_join_filter`:** a Nested Loop whose `Join Filter` is a top-level OR with at
+least two arms that between them reference both join inputs, discarding at least
+10,000 rows over all loops (`Rows Removed by Join Filter` x `Actual Loops`). An OR
+that references only one input is not reported.
+
+    Nested Loop  (actual rows=680 loops=1)
+      Join Filter: ((a.x = b.x) OR (a.y = b.y))
+      Rows Removed by Join Filter: 39320
+
+> the nested loop's join filter discards 39320 rows: the OR across a and b is
+> applied after the join; rewriting as UNION (or UNION ALL with an exclusion
+> predicate) lets each arm use its own index. pg_sage does not rewrite statements
+
+Neither changes the hints of other symptoms in the same plan: a misestimated nested
+loop with an OR join filter still gets `HashJoin(...)`. The 10,000-row thresholds
+are built in (no configuration key).
+
+---
+
 ## Summary
 
 | Case | Symptom | Fix | Plan Change |
@@ -495,13 +609,15 @@ pg_sage's `CombineHints()` merges multiple prescriptions into a single hint stri
 | Hash Spill | 16 hash batches | `work_mem=128MB` | Batches: 16 &rarr; 1 |
 | Bad Nested Loop | NL with bad estimate | `HashJoin(c o)` | Nested Loop &rarr; Hash Join |
 | Parallel Off | Serial scan on 500K rows | `max_parallel_workers_per_gather=4` | Seq Scan &rarr; Parallel Seq Scan |
-| High Plan Time | Re-planning overhead | `force_generic_plan` | Reuse cached plan |
+| High Plan Time / IN-list variants | Re-planning overhead | Advice: prepared statements or `= ANY($1)` | None (advisory) |
 | Sort + LIMIT | Full sort for 10 rows | CREATE INDEX (composite) | Sort eliminated |
 | Temp Spill | Aggregation spills 22MB | `work_mem=512MB` | external merge &rarr; quicksort Memory |
 | Missing FK Index | Seq scan on FK join | CREATE INDEX | Seq Scan &rarr; Bitmap Index (53x) |
 | Hint Table | Transparent hint injection | `hint_plan.hints` INSERT | Bitmap &rarr; Index Scan |
 | Merge Join | Force join strategy | `MergeJoin(o l)` | Hash Join &rarr; Merge Join |
 | Combined Hints | Multiple symptoms | Combined hint string | Hash+Seq &rarr; Merge+Index |
+| Index filter discards most rows | Index reads rows its filter drops | Advice: composite index | None (advisory) |
+| OR join filter | OR applied after the join | Advice: UNION rewrite | None (advisory) |
 
 ---
 
@@ -549,15 +665,19 @@ skipped, `stale_reason`.
 Every hint pg_sage records lives in `sage.query_hints`. Its `status` moves
 through the states below. The revalidation loop (`tuner.verify_after_apply`,
 every `tuner.revalidation_interval_hours`) reads `active` and `dormant` hints.
-It has no counterfactual yet (it does not EXPLAIN the query with and without
-the hint), so it never removes a hint for working or for being old.
+It never removes a hint for working or for being old. A hint due for
+re-verification (`reverify_due`, after `tuner.hint_retirement_days`) is planned
+with and without the hint as above, from its `pg_stat_statements` text; the
+costs go to `before_cost`, `after_cost` and `verified_at`, and a `no_effect`
+verdict retires it (logged with reason `no_effect`). Any other verdict,
+`unverifiable` included, leaves it as it was.
 
 | Status | Meaning | Installed in `hint_plan.hints` |
 |--------|---------|--------------------------------|
 | `proposed` | The tuner recommended the hint; it waits for approval. | no |
 | `active` | The hint is installed and its query ran since the last revalidation. | yes |
 | `dormant` | The hint is installed, but its query has not run since the last revalidation, or its queryid is absent from `pg_stat_statements`. | yes |
-| `retired` | The query case's retire action retired the hint. Revalidation no longer retires. | removed through the `retire_query_hint` action |
+| `retired` | The query case's retire action retired the hint, or re-verification found it no longer changes the plan (`no_effect`). | removed through the `retire_query_hint` action |
 | `broken` | An index the hint names no longer exists. | removed through the `retire_query_hint` action |
 | `rolled_back` | The installed hint of an `active` or `dormant` row was removed (rollback or operator). | no |
 | `rejected` | An operator rejected the approval of the proposal's `query_tuning` finding. | no |
@@ -570,6 +690,7 @@ Transitions:
 | `proposed` | `active` | The executor installed exactly this hint text for the query (reconciled at the start of each tuner cycle). |
 | `active` | `dormant` | A revalidation pass sees no new calls since the last pass, or the queryid is absent from `pg_stat_statements` (an eviction, or a query that stopped running). |
 | `dormant` | `active` | A revalidation pass sees the summed calls advance again. |
+| `active`, `dormant` | `retired` | A revalidation pass of a hint due for re-verification plans the statement the same with and without it (`no_effect`). |
 | `active`, `dormant` | `broken` | A revalidation pass finds an index named in an `IndexScan` / `BitmapScan` directive missing from `pg_class`. |
 | `active`, `dormant` | `rolled_back` | The row for the query no longer holds this hint's text: it was removed, or an operator replaced it with their own hint (reconciled at the start of each tuner cycle). |
 | `proposed` | `rejected` | An operator (`decided_by` set) rejected an approval of the statement's `query_tuning` finding after the proposal was made. A system expiry of the queue item rejects nothing. Reconciled at the start of each tuner cycle, with or without a hint table. |

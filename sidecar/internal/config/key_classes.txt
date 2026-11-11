@@ -267,12 +267,14 @@ safety_critical tuner.analyze_max_table_mb
 derivable tuner.analyze_timeout_ms
 safety_critical tuner.enabled
 derivable tuner.hint_absent_cycles
+safety_critical tuner.hint_cost_tolerance_pct
 derivable tuner.hint_retirement_days
 safety_critical tuner.llm_enabled
 safety_critical tuner.max_concurrent_analyze
 derivable tuner.min_query_calls
 derivable tuner.nested_loop_row_threshold
 derivable tuner.parallel_min_table_rows
+derivable tuner.param_shape_min_variants
 derivable tuner.plan_max_age_minutes
 derivable tuner.plan_time_ratio
 derivable tuner.revalidation_interval_hours

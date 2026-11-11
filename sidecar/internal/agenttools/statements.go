@@ -57,20 +57,6 @@ func (t *Tools) statementsByID(ctx context.Context, ids []int64,
 	return out, nil
 }
 
-// statementByID reads one statement or fails with ErrNotFound.
-func (t *Tools) statementByID(ctx context.Context, id QueryID) (statement, error) {
-	found, err := t.statementsByID(ctx, []int64{int64(id)})
-	if err != nil {
-		return statement{}, err
-	}
-	s, ok := found[int64(id)]
-	if !ok {
-		return statement{}, fmt.Errorf("%w: no pg_stat_statements entry %d in this database",
-			ErrNotFound, int64(id))
-	}
-	return s, nil
-}
-
 // statementsError maps a missing or unloaded pg_stat_statements to
 // ErrUnavailable.
 func statementsError(err error) error {

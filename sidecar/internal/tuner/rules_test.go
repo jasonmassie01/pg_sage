@@ -46,16 +46,29 @@ func TestPrescribe_HashSpill(t *testing.T) {
 	}
 }
 
+// tuning-11: high planning time prescribes no hint. A forced generic plan
+// does nothing for simple-protocol statements and can be worse on skewed
+// data; the statement gets query_parameterization advice instead. (This
+// test pinned Set(plan_cache_mode "force_generic_plan") before tuning-11.)
 func TestPrescribe_HighPlanTime(t *testing.T) {
 	s := PlanSymptom{Kind: SymptomHighPlanTime}
 	p := Prescribe(s, defaultCfg)
 	if p == nil {
 		t.Fatal("expected prescription, got nil")
 	}
-	want := "force_generic_plan"
-	if !strings.Contains(p.HintDirective, want) {
-		t.Errorf("directive = %q, want %q",
-			p.HintDirective, want)
+	if p.Symptom != SymptomHighPlanTime || p.HintDirective != "" || p.Rationale == "" {
+		t.Errorf("prescription = %+v, want high_plan_time, no directive, a rationale", p)
+	}
+}
+
+// Other symptoms keep their hints when combined with high planning time.
+func TestPrescribe_HighPlanTimeLeavesOtherHints(t *testing.T) {
+	tu := &Tuner{cfg: defaultCfg}
+	ps := tu.prescribeAll([]PlanSymptom{{Kind: SymptomHighPlanTime},
+		{Kind: SymptomDiskSort, Detail: map[string]any{"sort_space_kb": int64(65536)}}})
+	got := CombineHints(ps)
+	if got != `Set(work_mem "128MB")` {
+		t.Errorf("combined = %q, want only the work_mem hint", got)
 	}
 }
 

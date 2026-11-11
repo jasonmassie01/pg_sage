@@ -38,6 +38,9 @@ const DefaultVerifyWindow = 2 * time.Hour
 type Options struct {
 	// Explain bounds EXPLAIN (timeout, cache TTL); nil means defaults.
 	Explain *config.ExplainConfig
+	// PlanMaxAgeMinutes is tuner.plan_max_age_minutes: a captured plan this
+	// old is not used for a query_id (0 or less means the default).
+	PlanMaxAgeMinutes int
 	// VerifyWindow is the window on each side of a deploy; 0 means 2h.
 	VerifyWindow time.Duration
 	// Now is the clock; nil means time.Now.

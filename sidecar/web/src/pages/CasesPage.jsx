@@ -4,6 +4,7 @@ import { LoadingSpinner } from '../components/LoadingSpinner'
 import { QueryState } from '../components/QueryState'
 import { queryBlocked } from '../lib/queryState'
 import { SQLBlock } from '../components/SQLBlock'
+import { ExplainQueryButton } from '../components/ExplainPanel'
 import { CaseControls, SuppressedFindings } from './cases/CaseControls'
 import { InvestigationPanel } from './cases/InvestigationPanel'
 import { CasesHealthNotes } from './cases/CasesHealthNotes'
@@ -283,7 +284,8 @@ function CaseCard({ caseRow, user, investigation, onDone, focused, onReview }) {
           {candidate && <p>Policy: {policyLabel(candidate)}</p>}
           {caseRow.why && <div><strong>Source recommendation (review applicability before use): </strong>{caseRow.why}</div>}
         </div>
-      <EvidenceList evidence={caseRow.evidence || []} category={factTarget?.category} />
+      <EvidenceList evidence={caseRow.evidence || []} category={factTarget?.category}
+        database={caseRow.database_name} canExplain={canExplain(user)} />
       {candidateGuardrails.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-1.5"
           aria-label="Action guardrails">
@@ -330,7 +332,13 @@ function CaseFacts({ target, user, onDone }) {
   )
 }
 
-function EvidenceList({ evidence, category }) {
+// canExplain: POST /api/v1/explain needs the operator or admin role, so a
+// viewer is not offered a button that can only fail.
+function canExplain(user) {
+  return user?.role === 'admin' || user?.role === 'operator'
+}
+
+function EvidenceList({ evidence, category, database, canExplain }) {
   const visibleEvidence = evidence.filter(item =>
     item?.summary || Object.keys(item?.detail || {}).length > 0,
   )
@@ -342,6 +350,8 @@ function EvidenceList({ evidence, category }) {
           key={`${item.type || 'evidence'}-${index}`}
           evidence={item}
           category={category}
+          database={database}
+          canExplain={canExplain}
         />
       ))}
     </div>
@@ -351,7 +361,7 @@ function EvidenceList({ evidence, category }) {
 // Keys rendered by their own section, not as key/value chips.
 const SECTION_KEYS = new Set(['query', 'normalized_query', 'sample_query', 'cleanup_sql'])
 
-function EvidenceItem({ evidence, category }) {
+function EvidenceItem({ evidence, category, database, canExplain }) {
   const detail = evidence.detail || {}
   const query = detail.query || detail.normalized_query || detail.sample_query
   const scalarEntries = Object.entries(detail)
@@ -386,6 +396,7 @@ function EvidenceItem({ evidence, category }) {
           <SQLBlock sql={String(query)} />
         </div>
       )}
+      {canExplain && <ExplainQueryButton database={database} queryid={evidence.queryid} />}
       <FindingFactSections row={{ category, detail }} />
       <details className="mt-2">
         <summary className="cursor-pointer">Complete evidence payload</summary>

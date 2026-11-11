@@ -470,12 +470,14 @@
 | `tuner.analyze_timeout_ms` | `restart` | `-` | `derivable` |
 | `tuner.enabled` | `restart` | `-` | `safety_critical` |
 | `tuner.hint_absent_cycles` | `restart` | `-` | `derivable` |
+| `tuner.hint_cost_tolerance_pct` | `restart` | `-` | `safety_critical` |
 | `tuner.hint_retirement_days` | `restart` | `-` | `derivable` |
 | `tuner.llm_enabled` | `restart` | `-` | `safety_critical` |
 | `tuner.max_concurrent_analyze` | `restart` | `-` | `safety_critical` |
 | `tuner.min_query_calls` | `restart` | `-` | `derivable` |
 | `tuner.nested_loop_row_threshold` | `restart` | `-` | `derivable` |
 | `tuner.parallel_min_table_rows` | `restart` | `-` | `derivable` |
+| `tuner.param_shape_min_variants` | `restart` | `-` | `derivable` |
 | `tuner.plan_max_age_minutes` | `restart` | `-` | `derivable` |
 | `tuner.plan_time_ratio` | `restart` | `-` | `derivable` |
 | `tuner.revalidation_interval_hours` | `restart` | `-` | `derivable` |

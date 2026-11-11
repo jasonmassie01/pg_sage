@@ -28,6 +28,10 @@ type scanContext struct {
 	facts             *CatalogFacts
 	parallelMinRows   int64
 	nestedLoopMinRows int64
+	// indexFilterMinRemoved and orJoinMinRemoved: the market-10 thresholds;
+	// 0 or less means defaultAntipatternMinRemoved.
+	indexFilterMinRemoved int64
+	orJoinMinRemoved      int64
 	// estimatesOnly: the plan has no actuals (plain EXPLAIN), so the
 	// rules that need an executed plan are skipped (tuning-08).
 	estimatesOnly bool

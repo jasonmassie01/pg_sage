@@ -15,6 +15,9 @@ const (
 	SymptomSortLimit        SymptomKind = "sort_limit"
 	SymptomStatTempSpill    SymptomKind = "stat_temp_spill"
 	SymptomStaleStats       SymptomKind = "stale_stats"
+	// Advisory plan anti-patterns (market-10): no hint is prescribed.
+	SymptomIndexFilterInefficient SymptomKind = "index_filter_inefficient"
+	SymptomORJoinFilter           SymptomKind = "or_join_filter"
 )
 
 // PlanSymptom is a detected performance issue in an EXPLAIN plan.
@@ -88,6 +91,13 @@ type TunerConfig struct {
 	// PlanMaxAgeMinutes: a cached plan this old is stale (tuning-08);
 	// 0 or less means 1440.
 	PlanMaxAgeMinutes int `yaml:"plan_max_age_minutes"`
+	// ParamShapeMinVariants: queryids of one collapsed IN-list shape before
+	// it gets parameterization advice (tuning-11); 0 or less means 20.
+	ParamShapeMinVariants int `yaml:"param_shape_min_variants"`
+	// HintCostTolerancePct: the estimated cost rise a join or scan hint may
+	// cause in the hinted EXPLAIN before it is refused (tuning-05). Taken
+	// as given: 0 refuses any rise.
+	HintCostTolerancePct float64 `yaml:"hint_cost_tolerance_pct"`
 
 	// Feature 1 — Hint revalidation loop (v0.8.5).
 	HintRetirementDays        int `yaml:"hint_retirement_days"`

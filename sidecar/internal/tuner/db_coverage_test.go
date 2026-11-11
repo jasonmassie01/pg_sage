@@ -235,7 +235,9 @@ func TestFunctional_Coverage_DB_ProcessCandidate_NoSymptoms(
 }
 
 // TestFunctional_Coverage_DB_ProcessCandidate_WithSymptom tests
-// processCandidate finds a high_plan_time issue.
+// processCandidate finds a high_plan_time issue. Since tuning-11 it is
+// parameterization advice, not a query_tuning hint (this test expected
+// query_tuning before).
 func TestFunctional_Coverage_DB_ProcessCandidate_WithSymptom(
 	t *testing.T,
 ) {
@@ -263,8 +265,9 @@ func TestFunctional_Coverage_DB_ProcessCandidate_WithSymptom(
 		t.Fatalf("expected 1 finding, got %d", len(findings))
 	}
 	f := findings[0]
-	if f.Category != "query_tuning" {
-		t.Errorf("expected category=query_tuning, got %s", f.Category)
+	if f.Category != "query_parameterization" || f.Detail["reason"] != "plan_time_share" {
+		t.Errorf("expected query_parameterization/plan_time_share, got %s/%v",
+			f.Category, f.Detail["reason"])
 	}
 }
 

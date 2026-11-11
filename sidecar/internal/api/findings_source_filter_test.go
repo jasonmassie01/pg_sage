@@ -54,8 +54,9 @@ var producerCategories = map[string][]string{
 	"rules": {"wraparound_freeze", "autovacuum_tuning", "sage_footprint",
 		"sage_self_cost", "sage_self_budget", "clone_schemas",
 		"app_managed_index", "stale_statistics", "temp_spill", "duplicate_index"},
-	"query_tuning": {"query_tuning", "stale_statistics", "runaway_query"},
-	"incident":     {"incident_open"},
+	"query_tuning": {"query_tuning", "stale_statistics", "runaway_query",
+		"query_parameterization"},
+	"incident": {"incident_open"},
 }
 
 func TestSourceListsHoldTheProducersCategories(t *testing.T) {
@@ -72,20 +73,21 @@ func TestSourceListsHoldTheProducersCategories(t *testing.T) {
 
 func TestSubsystemFromCategoryHappyAndUnknown(t *testing.T) {
 	cases := map[string]string{
-		"wraparound_freeze":     "rules",
-		"wal_tuning":            "advisor",
-		"advisor_degraded":      "advisor",
-		"missing_index":         "optimizer",
-		"composite_index":       "optimizer",
-		"stale_statistics":      "rules",
-		"runaway_query":         "query_tuning",
-		"forecast_disk":         "forecaster",
-		"schema_lint:lint_x":    "schema_lint",
-		"incident_open":         "incident",
-		"":                      "",
-		"advisor":               "",
-		"optimizer":             "",
-		"no_such_category_ever": "",
+		"wraparound_freeze":      "rules",
+		"wal_tuning":             "advisor",
+		"advisor_degraded":       "advisor",
+		"missing_index":          "optimizer",
+		"composite_index":        "optimizer",
+		"stale_statistics":       "rules",
+		"runaway_query":          "query_tuning",
+		"query_parameterization": "query_tuning",
+		"forecast_disk":          "forecaster",
+		"schema_lint:lint_x":     "schema_lint",
+		"incident_open":          "incident",
+		"":                       "",
+		"advisor":                "",
+		"optimizer":              "",
+		"no_such_category_ever":  "",
 	}
 	for c, want := range cases {
 		if got := subsystemFromCategory(c); got != want {
