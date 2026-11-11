@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -294,4 +295,28 @@ func TestResourcesConcurrentReads(t *testing.T) {
 		t.Fatalf("concurrent read failed: %s", failure)
 	}
 	require.Len(t, fake.asked, 16)
+}
+
+// Error propagation: an unexpected backend failure is logged with its
+// database and cause, so the operator can act on it, while the caller only
+// sees "internal error".
+func TestResourcesReadLogsAnUnexpectedFailure(t *testing.T) {
+	var logged strings.Builder
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	server, fake := briefingServer("orders")
+	fake.err = errors.New("relation sage.briefings does not exist")
+	response := invoke(t, server, context.Background(),
+		readRequest("pgsage://databases/orders/briefings/latest"))
+	require.Equal(t, codeInternal, response.Error.Code)
+	require.NotContains(t, response.Error.Message, "sage.briefings")
+	require.Contains(t, logged.String(), "database=orders")
+	require.Contains(t, logged.String(), "relation sage.briefings does not exist")
+	logged.Reset()
+	fake.err = nil
+	response = invoke(t, server, context.Background(),
+		readRequest("pgsage://databases/orders/briefings/latest"))
+	require.Empty(t, response.Error.Code, response.Error.Message)
+	require.Empty(t, logged.String(), "a successful read was logged as a failure")
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 )
@@ -137,5 +138,6 @@ func (s *Server) readLatestBriefing(ctx context.Context, database string) (json.
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		return nil, failure(codeCancelled, "request cancelled")
 	}
+	slog.Error("mcp: read the latest briefing", "database", database, "error", err)
 	return nil, failure(codeInternal, "internal error")
 }
