@@ -623,7 +623,12 @@ One gauge still carries the counter suffix `_total`:
 
 ### Grafana Dashboard
 
-Import the included dashboard from `grafana/pg_sage_dashboard.json`.
+Import the included dashboard from `grafana/pg_sage_dashboard.json`. Its `job`, `instance`
+and `database` variables keep two sidecars, or the databases of a fleet, apart. Its rows
+cover the sidecar, the monitored databases, the executor and trust, LLM use, Sage SRE and
+SLOs, and value and footprint; [grafana/README.md](../grafana/README.md) lists every panel.
+It charts no PostgreSQL internals: use postgres_exporter and its community dashboard for
+those.
 
 ---
 

@@ -37,6 +37,13 @@ var registryModes = []string{metricsreg.ModeStandalone, metricsreg.ModeFleet,
 func fullScrape(t *testing.T, mode string) string {
 	t.Helper()
 	installContractFleet(t, mode, "zeta", "alpha")
+	return renderFullScrape(t)
+}
+
+// renderFullScrape scrapes the installed contract fleet and appends the
+// families fullScrape describes.
+func renderFullScrape(t *testing.T) string {
+	t.Helper()
 	old := metricsListenerState.Load()
 	t.Cleanup(func() { metricsListenerState.Store(old) })
 	metricsListenerState.Store(listenerUp)
