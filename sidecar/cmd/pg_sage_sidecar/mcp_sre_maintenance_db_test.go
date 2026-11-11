@@ -60,16 +60,7 @@ func newMaintenanceMCPFixture(t *testing.T) *maintenanceMCPFixture {
 	cfg.CloudEnvironment, cfg.Trust.Level, cfg.Safety.QueryTimeoutMs = "lakebase", "advisory", 10000
 	e := executor.New(pool, cfg, time.Time{}, func(string, string, ...any) {})
 	e.WithDatabaseName(name)
-	// Its own policy scope: other tests in this package bootstrap the
-	// unscoped policy as "staffed", whose maintenance window refuses this.
-	policyID := 870000 + int(time.Now().UnixNano()%100000)
-	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), "DELETE FROM sage.policy WHERE database_id=$1",
-			policyID)
-	})
-	if err = e.EnableStandingPolicy(ctx, "unattended", &policyID); err != nil {
-		t.Fatal(err)
-	}
+	enableOwnPolicy(t, ctx, pool, e)
 	t.Cleanup(func() { e.Shutdown(context.Background()) })
 	actions, err := newSREActions(sreActionDeps{readPolicy: policy, service: svc,
 		monitored: pool, executor: e, name: name, settings: cfg.SRE.Actions})
@@ -82,6 +73,22 @@ func newMaintenanceMCPFixture(t *testing.T) *maintenanceMCPFixture {
 		Status: &fleet.InstanceStatus{}, Investigations: svc, Actions: actions})
 	return &maintenanceMCPFixture{access: &fleetMCPAccess{manager: mgr, fallback: pool},
 		inv: inv, table: table, ctx: ctx}
+}
+
+// enableOwnPolicy gives the executor an "unattended" policy of its own
+// scope: other tests in this package bootstrap the unscoped policy as
+// "staffed", whose maintenance window would refuse the request step.
+func enableOwnPolicy(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	e *executor.Executor) {
+	t.Helper()
+	policyID := 870000 + int(time.Now().UnixNano()%100000)
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), "DELETE FROM sage.policy WHERE database_id=$1",
+			policyID)
+	})
+	if err := e.EnableStandingPolicy(ctx, "unattended", &policyID); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // createStatsTable is an analyzed table with two correlated columns.
