@@ -154,18 +154,25 @@ func TestMaintenanceRefresh_InvalidInputIsRefused(t *testing.T) {
 	}
 	t.Cleanup(func() { h.pool.Exec(context.Background(), "DROP TABLE IF EXISTS public."+other) })
 	base := TableRefresh{EvidenceID: h.req.EvidenceID, Schema: "public", Table: h.table}
+	with := func(fn func(*TableRefresh)) TableRefresh {
+		r := base
+		fn(&r)
+		return r
+	}
 	for name, tc := range map[string]struct {
 		req   TableRefresh
 		actor string
 	}{
-		"table missing from the evidence": {TableRefresh{EvidenceID: base.EvidenceID,
-			Schema: "public", Table: other}, "user:1"},
-		"unknown evidence":  {TableRefresh{EvidenceID: sre.NewUUID(), Schema: "public", Table: h.table}, "user:1"},
-		"malformed id":      {TableRefresh{EvidenceID: "x", Schema: "public", Table: h.table}, "user:1"},
-		"blank schema":      {TableRefresh{EvidenceID: base.EvidenceID, Table: h.table}, "user:1"},
-		"blank table":       {TableRefresh{EvidenceID: base.EvidenceID, Schema: "public"}, "user:1"},
-		"blank actor":       {base, ""},
-		"injection in name": {TableRefresh{EvidenceID: base.EvidenceID, Schema: "public", Table: h.table + "; DROP TABLE x"}, "user:1"},
+		"table missing from the evidence": {with(func(r *TableRefresh) { r.Table = other }),
+			"user:1"},
+		"unknown evidence": {with(func(r *TableRefresh) { r.EvidenceID = sre.NewUUID() }),
+			"user:1"},
+		"malformed id": {with(func(r *TableRefresh) { r.EvidenceID = "x" }), "user:1"},
+		"blank schema": {with(func(r *TableRefresh) { r.Schema = "" }), "user:1"},
+		"blank table":  {with(func(r *TableRefresh) { r.Table = "" }), "user:1"},
+		"blank actor":  {base, ""},
+		"injection in name": {with(func(r *TableRefresh) { r.Table += "; DROP TABLE x" }),
+			"user:1"},
 	} {
 		if _, err := h.m.RefreshTableEvidence(h.ctx, h.inv.ID, tc.req, tc.actor); err == nil {
 			t.Errorf("%s accepted", name)
@@ -190,7 +197,9 @@ func TestMaintenanceRefresh_InvalidInputIsRefused(t *testing.T) {
 
 func TestMaintenanceRefresh_NonStatTablesAndPurgedRefused(t *testing.T) {
 	t.Run("non-stat_tables evidence", func(t *testing.T) {
-		h := newMaintenanceHarness(t, func(res *probes.Result) { res.ProbeID = probes.StatDatabase })
+		h := newMaintenanceHarness(t, func(res *probes.Result) {
+			res.ProbeID = probes.StatDatabase
+		})
 		if _, err := h.m.RefreshTableEvidence(h.ctx, h.inv.ID, TableRefresh{
 			EvidenceID: h.req.EvidenceID, Schema: "public", Table: h.table},
 			"user:1"); !errors.Is(err, sre.ErrInvalidRequest) {
@@ -200,7 +209,8 @@ func TestMaintenanceRefresh_NonStatTablesAndPurgedRefused(t *testing.T) {
 	t.Run("purged evidence", func(t *testing.T) {
 		h := newMaintenanceHarness(t)
 		if _, err := h.pool.Exec(h.ctx, `UPDATE sage.sre_investigations
-			SET evidence_purged_at = clock_timestamp() WHERE id = $1`, string(h.inv.ID)); err != nil {
+			SET evidence_purged_at = clock_timestamp() WHERE id = $1`,
+			string(h.inv.ID)); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := h.m.RefreshTableEvidence(h.ctx, h.inv.ID, TableRefresh{

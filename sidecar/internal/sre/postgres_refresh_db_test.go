@@ -208,17 +208,18 @@ func TestRefresh_InvalidInputIsRefused(t *testing.T) {
 		actor string
 		req   RefreshRequest
 	}{
-		"blank actor":         {"", lockRefresh(lockOf(ev), 1)},
-		"long actor":          {strings.Repeat("a", 129), lockRefresh(lockOf(ev), 1)},
-		"malformed source":    {"user:1", lockRefresh("not-a-uuid", 1)},
-		"unknown source":      {"user:1", lockRefresh(NewUUID(), 1)},
-		"foreign source":      {"user:1", lockRefresh(foreign[0].ID, 1)},
-		"other probe":         {"user:1", wrongProbe},
-		"negative interval":   {"user:1", negative},
-		"empty probe result":  {"user:1", RefreshRequest{SourceEvidenceID: ev[0].ID}},
-		"zero source id":      {"user:1", lockRefresh("", 1)},
-		"sql-looking actor":   {"user:1'; DROP TABLE sage.sre_events; --", lockRefresh(NewUUID(), 1)},
-		"all-zero source":     {"user:1", lockRefresh(UUID(strings.Repeat("0", 36)), 1)},
+		"blank actor":        {"", lockRefresh(lockOf(ev), 1)},
+		"long actor":         {strings.Repeat("a", 129), lockRefresh(lockOf(ev), 1)},
+		"malformed source":   {"user:1", lockRefresh("not-a-uuid", 1)},
+		"unknown source":     {"user:1", lockRefresh(NewUUID(), 1)},
+		"foreign source":     {"user:1", lockRefresh(foreign[0].ID, 1)},
+		"other probe":        {"user:1", wrongProbe},
+		"negative interval":  {"user:1", negative},
+		"empty probe result": {"user:1", RefreshRequest{SourceEvidenceID: ev[0].ID}},
+		"zero source id":     {"user:1", lockRefresh("", 1)},
+		"sql-looking actor": {"user:1'; DROP TABLE sage.sre_events; --",
+			lockRefresh(NewUUID(), 1)},
+		"all-zero source": {"user:1", lockRefresh(UUID(strings.Repeat("0", 36)), 1)},
 	} {
 		if _, err := st.AppendRefreshEvidence(ctx, scope, inv.ID, tc.actor,
 			tc.req); !errors.Is(err, ErrInvalidRequest) && !errors.Is(err, ErrNotFound) {
