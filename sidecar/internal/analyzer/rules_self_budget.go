@@ -29,6 +29,7 @@ type selfBudgetMeter struct {
 	mu        sync.Mutex
 	loopsPrev map[string]selfbudget.LoopStat
 	usage     selfbudget.Usage
+	loops     []selfbudget.LoopCost
 }
 
 func newSelfBudgetMeter() *selfBudgetMeter {
@@ -49,17 +50,26 @@ func (m *selfBudgetMeter) observe(u selfbudget.Usage, cycle time.Duration) (
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	loops := selfbudget.TopLoops(m.loopsPrev, cur, topConsumers)
-	m.loopsPrev, m.usage = cur, u
+	m.loopsPrev, m.usage, m.loops = cur, u, loops
 	return u, loops
 }
 
 func (m *selfBudgetMeter) last() selfbudget.Usage {
+	u, _ := m.lastWithLoops()
+	return u
+}
+
+// lastWithLoops is the latest usage and a copy of the busiest loops.
+func (m *selfBudgetMeter) lastWithLoops() (selfbudget.Usage, []selfbudget.LoopCost) {
 	if m == nil {
-		return selfbudget.Usage{}
+		return selfbudget.Usage{}, nil
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.usage
+	if m.loops == nil {
+		return m.usage, nil
+	}
+	return m.usage, append([]selfbudget.LoopCost(nil), m.loops...)
 }
 
 // trackedCycle runs a cycle and records its busy time for the budget.
@@ -144,7 +154,7 @@ func ruleSelfBudget(database string, breaches []selfbudget.Breach,
 func statementRows(top []selfcost.StatementCost) []map[string]any {
 	out := make([]map[string]any, 0, len(top))
 	for _, s := range top {
-		out = append(out, map[string]any{"text": s.Text,
+		out = append(out, map[string]any{"text": s.Text, "component": s.Component,
 			"db_time_ms": s.TimeMs, "calls": s.Calls, "blocks": s.Blocks})
 	}
 	return out
