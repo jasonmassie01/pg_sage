@@ -33,7 +33,9 @@ var incidentCheckSpecs = []incidentCheck{
 func migrateIncidentConstraints(
 	ctx context.Context, db bootstrapDB,
 ) error {
-	if _, err := db.Exec(ctx, ddlIncidentChecks()); err != nil {
+	if _, err := runMigrationStep(ctx, db, migrationStep{
+		name: "ddlIncidentChecks", sql: ddlIncidentChecks(),
+	}); err != nil {
 		return err
 	}
 	return migrateIncidentLifecycle(ctx, db)

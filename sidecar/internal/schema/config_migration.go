@@ -58,10 +58,14 @@ func migrateConfigSchema(ctx context.Context, db bootstrapDB) error {
 func migrateConfigUserKeys(ctx context.Context, db bootstrapDB) error {
 	qctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	if _, err := db.Exec(qctx, ddlConfigUserKeys); err != nil {
+	if _, err := runMigrationStep(qctx, db, migrationStep{
+		name: "ddlConfigUserKeys", sql: ddlConfigUserKeys,
+	}); err != nil {
 		return fmt.Errorf("reshaping config user foreign keys: %w", err)
 	}
-	if _, err := db.Exec(qctx, ddlConfigUserKeyValidate); err != nil {
+	if _, err := runMigrationStep(qctx, db, migrationStep{
+		name: "ddlConfigUserKeyValidate", sql: ddlConfigUserKeyValidate,
+	}); err != nil {
 		return fmt.Errorf("validating sage.config updater foreign key: %w", err)
 	}
 	return nil

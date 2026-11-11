@@ -18,6 +18,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/store"
 )
 
@@ -193,6 +194,7 @@ func loadStartupConfigOrExit() {
 	configBase = config.Clone(cfg)
 
 	logInfo("startup", "pg_sage sidecar v%s — mode=%s", version, cfg.Mode)
+	schema.SetBuildVersion(version) // recorded in sage.schema_migrations (config-04b)
 	logInfo("startup", "Prometheus=%s API=%s",
 		metricsWhere(cfg.Prometheus), cfg.API.ListenAddr)
 	if !executor.ASTValidationAvailable() {

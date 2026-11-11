@@ -25,6 +25,12 @@ const (
 	sqlLockNotAvailable  = "55P03"
 )
 
+// stepLockTimeoutSQL bounds a step's lock waits when it may run on a
+// session other than the bootstrap's (which sets lock_timeout itself); it
+// is migrationLockTimeout, which the retry budget assumes (config-04b).
+var stepLockTimeoutSQL = fmt.Sprintf("SET LOCAL lock_timeout = '%dms'",
+	migrationLockTimeout.Milliseconds())
+
 // migrationLockBackoff is the wait before each retry of a step that hit
 // lock_timeout; each wait is jittered by +-25%.
 var migrationLockBackoff = []time.Duration{
@@ -34,6 +40,7 @@ var migrationLockBackoff = []time.Duration{
 // migrationReport sums up one boot's migration steps for the INFO line.
 type migrationReport struct {
 	steps, applied, rerun, skipped int
+	recorded                       int // skipped by the ledger (config-04b)
 	elapsed                        time.Duration
 	slowest                        string
 	slowestTook                    time.Duration
@@ -42,6 +49,9 @@ type migrationReport struct {
 func (r migrationReport) String() string {
 	s := fmt.Sprintf("schema: %d steps, %d applied, %d rerun, %d skipped, %d ms",
 		r.steps, r.applied, r.rerun, r.skipped, r.elapsed.Milliseconds())
+	if r.recorded > 0 {
+		s += fmt.Sprintf("; %d recorded", r.recorded)
+	}
 	if r.slowest != "" {
 		s += fmt.Sprintf("; slowest %s %d ms", r.slowest, r.slowestTook.Milliseconds())
 	}
@@ -52,6 +62,9 @@ func (r migrationReport) String() string {
 // slowest; applied steps are logged at DEBUG.
 func (r *migrationReport) count(name string, outcome stepOutcome, took time.Duration) {
 	switch outcome {
+	case stepLedgered:
+		r.recorded++
+		return
 	case stepSkipped:
 		r.skipped++
 		return
@@ -116,11 +129,49 @@ const (
 	stepRerun
 	// stepApplied: a statement the catalog lacked, or of unknown shape, ran.
 	stepApplied
+	// stepLedgered: sage.schema_migrations records the step; nothing ran.
+	stepLedgered
 )
 
-// runMigrationStep runs the statements of step the catalog does not show
-// done, in one transaction, retrying lock_timeout failures.
+// runMigrationStep runs step unless the bootstrap's migration ledger
+// records it and trusts the catalog (config-04b), then records it.
+// Outside a bootstrap (no ledger in ctx) it is runCheckedStep.
 func runMigrationStep(
+	ctx context.Context, db bootstrapDB, step migrationStep,
+) (stepOutcome, error) {
+	l := ledgerFrom(ctx)
+	if err := l.load(ctx, db); err != nil {
+		return stepSkipped, err
+	}
+	skip, err := l.decide(step)
+	if err != nil {
+		return stepSkipped, err
+	}
+	if skip {
+		return runDataStatements(ctx, db, step)
+	}
+	outcome, err := runCheckedStep(ctx, db, step)
+	if err != nil {
+		return outcome, err
+	}
+	return outcome, l.record(ctx, db, step)
+}
+
+// runDataStatements runs only the data statements of a step the ledger
+// skips (config-04b); a step without one runs nothing.
+func runDataStatements(
+	ctx context.Context, db bootstrapDB, step migrationStep,
+) (stepOutcome, error) {
+	data := dataStatements(step)
+	if data == "" {
+		return stepLedgered, nil
+	}
+	return runCheckedStep(ctx, db, migrationStep{name: step.name, sql: data})
+}
+
+// runCheckedStep runs the statements of step the catalog does not show
+// done, in one transaction, retrying lock_timeout failures.
+func runCheckedStep(
 	ctx context.Context, db bootstrapDB, step migrationStep,
 ) (stepOutcome, error) {
 	sctx, cancel := context.WithTimeout(ctx, migrationStepTimeout)
@@ -182,6 +233,9 @@ func applyStep(ctx context.Context, tx bootstrapDB, stmts []migrationStmt) (step
 		if s.done {
 			continue
 		}
+		if s.shape == shapeIndex {
+			batch = append(batch, dropInvalidIndexSQL(s.checks[0].rel))
+		}
 		batch = append(batch, s.sql)
 		if s.shape == shapeSetting {
 			continue
@@ -206,6 +260,18 @@ func applyStep(ctx context.Context, tx bootstrapDB, stmts []migrationStmt) (step
 		}
 	}
 	return outcome, nil
+}
+
+// dropInvalidIndexSQL drops index rel (sage.name, a plain identifier the
+// classifier matched) when it is INVALID (config-04b): a killed CREATE
+// INDEX CONCURRENTLY leaves one, and CREATE INDEX IF NOT EXISTS keeps it.
+func dropInvalidIndexSQL(rel string) string {
+	return fmt.Sprintf(`DO $invalid_index$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_index
+                WHERE indexrelid = pg_catalog.to_regclass('%[1]s') AND NOT indisvalid) THEN
+        DROP INDEX %[1]s;
+    END IF;
+END $invalid_index$`, rel)
 }
 
 func statementOutcome(shape stmtShape) stepOutcome {

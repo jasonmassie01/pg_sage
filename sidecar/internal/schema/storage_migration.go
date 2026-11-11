@@ -107,7 +107,9 @@ func migrateStorage(ctx context.Context, db partition.DB) error {
 			return err
 		}
 	}
-	if _, err := db.Exec(ctx, ddlSnapshotDataAt); err != nil {
+	if _, err := runMigrationStep(ctx, db, migrationStep{
+		name: "ddlSnapshotDataAt", sql: ddlSnapshotDataAt,
+	}); err != nil {
 		return fmt.Errorf("snapshot accessor: %w", err)
 	}
 	if err := migrateStorageIndexes(ctx, db); err != nil {

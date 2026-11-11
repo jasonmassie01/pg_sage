@@ -12,3 +12,8 @@ How it was made (PostgreSQL 14, so the dump restores on 14 to 18):
 2. `pg_dump -d v240 --schema=sage --inserts --no-owner --no-privileges
    --no-comments > v2.4.0_sage_dump.sql`, then the `\restrict` /
    `\unrestrict` psql lines removed.
+
+`migration_checksums.txt` pins the SHA-256 of every migration step's SQL
+as `sage.schema_migrations` records it (config-04b). A released step must
+never change: every install's next boot would fail on the checksum. Add a
+new step instead, and append its line (the failing test prints it).
