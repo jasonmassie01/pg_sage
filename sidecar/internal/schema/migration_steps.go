@@ -176,5 +176,6 @@ func trancheTwoMigrations() []namedStep {
 	return []namedStep{
 		{"ddlEvidenceSigningKey", ddlEvidenceSigningKey},   // audit-10
 		{"ddlAuditChainMarkerOps", ddlAuditChainMarkerOps}, // audit-03b
+		{"ddlPolicyApprovalsID", ddlPolicyApprovalsID},     // audit-11
 	}
 }

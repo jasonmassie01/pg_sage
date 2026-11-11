@@ -141,10 +141,41 @@ var FactEvents = Spec{
 		col("from_status"), col("to_status"), col("fact_hash"), col("note")},
 }
 
-// Specs lists the chains the schema migration installs.
+// DecisionLedger chains the policy gate's decisions (audit-11): the
+// authority a change ran under. What was decided about, at which tier and
+// under which policy is sealed. The verdict is state, with the reason,
+// evidence and links pg_sage updates later: the executor legitimately
+// turns an execute into the block it became (vacuum admission, the
+// maintenance precheck). repeat_count and last_seen_at are telemetry and
+// stay unchained, so a parked repeat appends nothing.
+var DecisionLedger = Spec{
+	Chain: "decision", Table: "sage.decision", Version: 1,
+	Sealed: []string{col("id"), col("database_id"), col("feature"), col("intent"),
+		col("target_objects"), col("policy_version"), col("policy_doc_sha256"),
+		col("risk_tier"), col("evidence_id"), col("fingerprint"), col("principal_id"),
+		col("task_id"), col("artifact_hash"), epochUS("created_at")},
+	State: []string{col("verdict"), col("reason"), col("evidence"), col("guardrails"),
+		col("off_window_ok"), col("deadline_kind"), epochUS("deadline_hard_at"),
+		col("queue_id"), col("action_log_id"), epochUS("resolved_at"), col("candidate_key")},
+	Optional: true,
+}
+
+// PolicyApprovals chains each person's approval of a policy version
+// (audit-11). The approval is sealed; its post-hoc review is state. The
+// table lives where the policy does (the control database in fleet mode).
+var PolicyApprovals = Spec{
+	Chain: "policy_approvals", Table: "sage.policy_approvals", Version: 1,
+	Sealed: []string{col("id"), col("policy_id"), col("approver"), col("approver_user_id"),
+		col("reason"), col("single_operator"), epochUS("decided_at")},
+	State:    []string{col("review_status")},
+	Optional: true,
+}
+
+// Specs lists the chains the schema migration installs. New chains are
+// appended: the order is the install order.
 func Specs() []Spec {
 	return []Spec{ActionLog, AuthAudit, ConfigAudit, GuardQueryAudit, PGAuditEvents,
-		FactEvents}
+		FactEvents, DecisionLedger, PolicyApprovals}
 }
 
 // SpecFor returns the built-in spec of chain.
