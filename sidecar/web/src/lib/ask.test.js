@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
-  MAX_QUESTION_LENGTH, askURL, budgetURL, citationHref, citationNumbers,
+  MAX_QUESTION_LENGTH, askURL, budgetURL, citationHref, citationKey, citationNumbers,
   conversationURL, conversationsURL, describeAskError, isSingleDatabase,
-  shortDigest, statusLabel,
+  shortDigest, statementRefs, statusLabel,
 } from './ask'
 
 // lib/ask.js holds the pure helpers behind the Ask Sage page: the API URL
@@ -39,22 +39,60 @@ describe('isSingleDatabase', () => {
 })
 
 describe('citationHref', () => {
+  // List and page kinds link to their page; the singular kinds below
+  // deep-link to the object (mcp-05).
   it.each([
-    ['finding', '#/cases'], ['findings', '#/cases'],
-    ['investigation', '#/cases'], ['investigations', '#/cases'],
-    ['incidents', '#/cases'],
-    ['action', '#/actions'], ['actions', '#/actions'],
-    ['approvals', '#/actions'], ['proposal', '#/actions'],
-    ['trust', '#/trust'], ['facts', '#/facts'],
+    ['findings', '#/cases'], ['investigations', '#/cases'], ['incidents', '#/cases'],
+    ['actions', '#/actions'], ['approvals', '#/actions'], ['proposal', '#/actions'],
+    ['trust', '#/trust'], ['facts', '#/facts'], ['fact', '#/facts'],
   ])('links %s evidence to %s', (kind, href) => {
-    expect(citationHref(kind)).toBe(href)
+    expect(citationHref({ kind, ref: 'open' }, 'orders')).toBe(href)
   })
+
+  it.each([
+    ['finding', '42', '#/cases?finding=42&database=orders'],
+    ['investigation', '9b2e', '#/cases?investigation=9b2e&database=orders'],
+    ['action', '7', '#/actions?action=7&database=orders'],
+  ])('deep-links %s:%s to the object, not the page root', (kind, ref, href) => {
+    expect(citationHref({ id: `${kind}:${ref}`, kind, ref }, 'orders')).toBe(href)
+  })
+
+  it('omits the database when none or the fleet is selected', () => {
+    expect(citationHref({ kind: 'finding', ref: '42' }, 'all')).toBe('#/cases?finding=42')
+    expect(citationHref({ kind: 'finding', ref: '42' })).toBe('#/cases?finding=42')
+  })
+
+  it('takes the reference from the id when a stored citation has no ref', () => {
+    expect(citationHref({ id: 'action:7', kind: 'action' }, 'orders'))
+      .toBe('#/actions?action=7&database=orders')
+  })
+
+  it('falls back to the page root when a singular citation has no reference', () => {
+    expect(citationHref({ id: 'finding', kind: 'finding', ref: '' }, 'orders'))
+      .toBe('#/cases')
+  })
+
+  it.each([['a&case=evil', 'a%26case%3Devil'], ['x#/trust', 'x%23%2Ftrust'],
+    ['__proto__', '__proto__'], ['1?b=2', '1%3Fb%3D2']])(
+    'encodes the reference %j and keeps the route', (ref, encoded) => {
+      const href = citationHref({ kind: 'finding', ref }, 'or&ders')
+      expect(href).toBe(`#/cases?finding=${encoded}&database=or%26ders`)
+      const [path, query] = href.split('?')
+      expect(path).toBe('#/cases')
+      const params = new URLSearchParams(query)
+      expect([...params.keys()]).toEqual(['finding', 'database'])
+      expect(params.get('finding')).toBe(ref)
+    })
 
   it.each([['config'], ['doc'], ['table'], ['queries'], ['bogus'], [''],
     [null], [undefined], ['__proto__'], ['constructor'], ['javascript:alert(1)']])(
     'has no link for %j', kind => {
-      expect(citationHref(kind)).toBeNull()
+      expect(citationHref({ kind, ref: '1' }, 'orders')).toBeNull()
     })
+
+  it.each([[null], [undefined], ['finding'], [42]])('has no link for citation %j', c => {
+    expect(citationHref(c, 'orders')).toBeNull()
+  })
 })
 
 describe('statusLabel', () => {
@@ -111,6 +149,30 @@ describe('citationNumbers', () => {
 
   it('does not inherit numbers for prototype keys', () => {
     expect(citationNumbers([{ id: 'a' }]).toString).toBeUndefined()
+  })
+
+  it('numbers two reads of one id by their aliases (mcp-05)', () => {
+    expect(citationNumbers([{ id: 'findings:open', alias: 'E1' },
+      { id: 'findings:open', alias: 'E3' }])).toEqual({ E1: 1, E3: 2 })
+  })
+})
+
+describe('citationKey', () => {
+  it('keys a citation by its alias, else by its id (stored answers)', () => {
+    expect(citationKey({ id: 'finding:1', alias: 'E2' })).toBe('E2')
+    expect(citationKey({ id: 'finding:1' })).toBe('finding:1')
+    expect(citationKey({ id: 'finding:1', alias: '' })).toBe('finding:1')
+  })
+})
+
+describe('statementRefs', () => {
+  it('uses the aliases a statement cites, else its ids', () => {
+    expect(statementRefs({ citations: ['finding:1'], aliases: ['E1', 'E2'] }))
+      .toEqual(['E1', 'E2'])
+    expect(statementRefs({ citations: ['finding:1'] })).toEqual(['finding:1'])
+    expect(statementRefs({ citations: ['finding:1'], aliases: [] })).toEqual(['finding:1'])
+    expect(statementRefs({})).toEqual([])
+    expect(statementRefs(null)).toEqual([])
   })
 })
 

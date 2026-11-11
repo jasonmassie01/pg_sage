@@ -59,7 +59,7 @@ func (s *Service) answer(ctx context.Context, c Caller, question string,
 	history []Answer) (Answer, error) {
 	if !s.modelOn() {
 		return compose(s.d.Database, agentloop.Result{Transcript: agentloop.Transcript{
-			Stop: agentloop.StopDisabled}}, nil, nil), nil
+			Stop: agentloop.StopDisabled}}, nil), nil
 	}
 	ss := s.newSession(c)
 	cfg := agentloop.Config{System: systemPrompt(s.d.Database, c),
@@ -68,11 +68,11 @@ func (s *Service) answer(ctx context.Context, c Caller, question string,
 		MaxClaims: MaxClaims, Now: s.d.Now}
 	model := budgetedModel{inner: s.d.Model, budget: s.budget, actor: c.Actor, log: s.d.Log}
 	res, err := agentloop.Run(ctx, model, cfg)
-	ev, acts := ss.snapshot()
+	acts := ss.actionsTaken()
 	if err != nil {
 		return s.cutOff(ctx, res, acts, err)
 	}
-	a := compose(s.d.Database, res, ev, acts)
+	a := compose(s.d.Database, res, acts)
 	a.Transcript = &res.Transcript
 	return a, nil
 }
@@ -97,7 +97,7 @@ func (s *Service) cutOff(ctx context.Context, res agentloop.Result, acts []Actio
 	}
 	res.Transcript.Stop = agentloop.StopCancelled
 	res.Transcript.StopDetail = clip(detail, MaxNoteRunes)
-	a := compose(s.d.Database, res, nil, acts)
+	a := compose(s.d.Database, res, acts)
 	a.Transcript = &res.Transcript
 	return a, err
 }

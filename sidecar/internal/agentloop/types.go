@@ -140,10 +140,13 @@ type Config struct {
 }
 
 // Claim is one statement of the final answer: aliases in, durable ids
-// out.
+// out. A surviving claim also keeps the aliases it cited (each once, in
+// order), because two reads may share a durable id (the same list read
+// with another limit) and only the alias names the read it rests on.
 type Claim struct {
 	Text        string   `json:"text"`
 	EvidenceIDs []string `json:"evidence_ids"`
+	Aliases     []string `json:"aliases,omitempty"`
 }
 
 // DroppedClaim is a claim the citation filter removed, and why.
@@ -244,10 +247,14 @@ type Transcript struct {
 }
 
 // Result is a finished run. Final is nil unless the model concluded.
+// Evidence is every alias the run issued (seed and tool results) with
+// the evidence it names: a claim's Aliases resolve here to exactly what
+// the model was shown under each alias.
 type Result struct {
 	Final      json.RawMessage
 	Claims     []Claim
 	Dropped    []DroppedClaim
+	Evidence   map[string]Evidence
 	Transcript Transcript
 }
 
