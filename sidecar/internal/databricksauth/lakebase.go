@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/databricks/databricks-sdk-go/apierr"
 	"github.com/databricks/databricks-sdk-go/service/postgres"
@@ -103,7 +104,7 @@ func ConfigurePool(ctx context.Context, cfg *pgxpool.Config) error {
 		// workspace() caches its outcome for the process: a retry repeats it.
 		return permanent(fmt.Errorf("configure Lakebase unified authentication: %w", err))
 	}
-	hosts, err := resolveEndpointHosts(ctx, api, endpoint)
+	status, err := resolveEndpointStatus(ctx, api, endpoint)
 	if err != nil {
 		return err
 	}
@@ -111,7 +112,13 @@ func ConfigurePool(ctx context.Context, cfg *pgxpool.Config) error {
 		return api.GenerateDatabaseCredential(ctx,
 			postgres.GenerateDatabaseCredentialRequest{Endpoint: endpoint})
 	}
-	return permanent(configureEndpointPool(cfg, hosts, mint, trackedAs(endpoint)))
+	if err := configureEndpointPool(cfg, status.Hosts, mint, trackedAs(endpoint)); err != nil {
+		return permanent(err)
+	}
+	// databricks-04: keep the suspend timeout and state the same call
+	// returned, only once the pool is configured, so a refusal stores nothing.
+	recordEndpointInfo(endpoint, endpointInfoFrom(status, time.Now()))
+	return nil
 }
 
 // endpointForHost returns the endpoint resource configured for host, or ""
@@ -120,12 +127,12 @@ func endpointForHost(host string) (string, error) {
 	return lakebaseid.EndpointForHost(os.Getenv, host)
 }
 
-// resolveEndpointHosts reads the endpoint's connection hosts. Permission and
-// not-found errors are permanent; throttling, outages and network errors are
-// left retryable for the caller's startup loop.
-func resolveEndpointHosts(
+// resolveEndpointStatus reads the endpoint's status, which always carries
+// connection hosts. Permission and not-found errors are permanent; throttling,
+// outages and network errors are left retryable for the caller's startup loop.
+func resolveEndpointStatus(
 	ctx context.Context, api endpointAPI, endpoint string,
-) (*postgres.EndpointHosts, error) {
+) (*postgres.EndpointStatus, error) {
 	ep, err := api.GetEndpoint(ctx, postgres.GetEndpointRequest{Name: endpoint})
 	if err != nil {
 		err = fmt.Errorf("resolve Lakebase endpoint %s: %w", endpoint, err)
@@ -137,7 +144,7 @@ func resolveEndpointHosts(
 	if ep == nil || ep.Status == nil || ep.Status.Hosts == nil {
 		return nil, fmt.Errorf("lakebase endpoint %s has no connection hosts", endpoint)
 	}
-	return ep.Status.Hosts, nil
+	return ep.Status, nil
 }
 
 type mintCredential func(context.Context) (*postgres.DatabaseCredential, error)

@@ -174,7 +174,8 @@ func wireRouter(p WireParams) (WireResult, error) {
 			TelemetryStatus:   lakebaseTelemetryStatuses,
 			TelemetryHistory:  lakebaseTelemetryHistory,
 			// Expiry times and failure classes only; never tokens (databricks-06).
-			LakebaseCredentials: databricksauth.CredentialStatuses,
+			LakebaseCredentials:  databricksauth.CredentialStatuses,
+			LakebaseEndpointInfo: databricksauth.EndpointInfoFor,
 			// Same key and policy as the runtime dispatchers (G7-B20/B21).
 			NotificationSecretKey:         notificationSecretKey(authPool),
 			NotificationPreviousSecretKey: notificationPreviousSecretKey(authPool),

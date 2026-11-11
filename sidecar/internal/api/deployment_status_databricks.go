@@ -18,7 +18,9 @@ func databricksStatus(cfg *config.Config, rt RuntimeDeps) map[string]any {
 	endpoints := []map[string]any{}
 	if rt.LakebaseCredentials != nil {
 		for _, ep := range rt.LakebaseCredentials() {
-			endpoints = append(endpoints, endpointCredentialStatus(ep))
+			row := endpointCredentialStatus(ep)
+			addScaleToZeroStatus(row, ep.Endpoint, rt.LakebaseEndpointInfo)
+			endpoints = append(endpoints, row)
 		}
 	}
 	var telemetry any = map[string]any{}
@@ -53,6 +55,38 @@ func endpointCredentialStatus(ep databricksauth.EndpointCredential) map[string]a
 		"expires_at":                optionalTime(ep.State.ExpiresAt),
 		"consecutive_mint_failures": ep.State.ConsecutiveFailures,
 		"last_error_class":          ep.State.LastErrorClass,
+	}
+}
+
+// addScaleToZeroStatus adds what pg_sage knows about the endpoint's
+// scale-to-zero. Unobserved fields are null rather than false or 0: pg_sage
+// cannot say whether it keeps a compute active it has not read.
+func addScaleToZeroStatus(
+	row map[string]any, endpoint string,
+	lookup func(string) (databricksauth.EndpointInfo, bool),
+) {
+	row["suspend_timeout_seconds"] = nil
+	row["compute_state"] = nil
+	row["compute_observed_at"] = nil
+	row["keeps_compute_active"] = nil
+	row["scale_to_zero_blockers"] = []string{}
+	if lookup == nil {
+		return
+	}
+	info, ok := lookup(endpoint)
+	if !ok {
+		return
+	}
+	if info.SuspendTimeout > 0 {
+		row["suspend_timeout_seconds"] = int64(info.SuspendTimeout / time.Second)
+	}
+	if info.State != "" {
+		row["compute_state"] = info.State
+	}
+	row["compute_observed_at"] = optionalTime(info.ObservedAt)
+	row["keeps_compute_active"] = len(info.Blockers) > 0
+	if len(info.Blockers) > 0 {
+		row["scale_to_zero_blockers"] = info.Blockers
 	}
 }
 

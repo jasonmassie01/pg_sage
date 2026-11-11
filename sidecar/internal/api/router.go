@@ -107,6 +107,10 @@ type RuntimeDeps struct {
 	// LakebaseCredentials lists each Lakebase endpoint's credential refresh
 	// state for the admin deployment status; nil reports no endpoints.
 	LakebaseCredentials func() []databricksauth.EndpointCredential
+	// LakebaseEndpointInfo reports an endpoint's suspend timeout, compute
+	// state and the pg_sage cadences that may keep it active (databricks-04);
+	// nil reports them as unknown.
+	LakebaseEndpointInfo func(string) (databricksauth.EndpointInfo, bool)
 	// NotificationSecretKey seals channel secrets at rest; every runtime
 	// dispatcher must read with the same key (G7-B20). nil = plaintext.
 	NotificationSecretKey []byte

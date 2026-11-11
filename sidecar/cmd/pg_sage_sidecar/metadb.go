@@ -47,7 +47,7 @@ func connectMetaDB(dsn string) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("parsing meta-db DSN: %w", err)
 	}
 	base.MaxConns = 5
-	return retryStartup(context.Background(), "meta-db", startupAttempts,
+	p, err := retryStartup(context.Background(), "meta-db", startupAttempts,
 		func(ctx context.Context) (*pgxpool.Pool, error) {
 			return openStartupPool(ctx, base, func(poolCfg *pgxpool.Config) {
 				poolCfg.MinConns = 1
@@ -59,6 +59,8 @@ func connectMetaDB(dsn string) (*pgxpool.Pool, error) {
 				selfmonitor.ConfigurePool(poolCfg)
 			})
 		})
+	warnLakebaseScaleToZero("meta-db", p, 0) // no collector reads the meta-db
+	return p, err
 }
 
 // initMetaDB bootstraps the meta database: schema, admin user,
@@ -205,10 +207,12 @@ func connectMonitoredDBContext(
 		return nil, fmt.Errorf("invalid DSN: %w", err)
 	}
 	base.MaxConns = int32(maxConns)
-	return retryStartup(ctx, "connect", startupAttempts,
+	p, err := retryStartup(ctx, "connect", startupAttempts,
 		func(ctx context.Context) (*pgxpool.Pool, error) {
 			return openStartupPool(ctx, base, tuneMonitoredPool)
 		})
+	warnLakebaseScaleToZero("connect", p, monitoredCollectorInterval())
+	return p, err
 }
 
 func tuneMonitoredPool(poolCfg *pgxpool.Config) {
