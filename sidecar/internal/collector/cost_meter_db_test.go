@@ -74,6 +74,24 @@ func asSelfConfigCost(c CycleCost) func() (selfconfig.CollectorCost, bool) {
 	}
 }
 
+// fastestProbe is the quickest of three evidence passes: the probe at its
+// best, so a load spike on the shared test machine during one probe does
+// not decide the comparison (one run measured 30 ms against a usual 8 ms).
+func fastestProbe(t *testing.T, ctx context.Context, pool *pgxpool.Pool) selfconfig.Evidence {
+	t.Helper()
+	var best selfconfig.Evidence
+	for i := 0; i < 3; i++ {
+		ev, err := selfconfig.Gather(ctx, pool)
+		if err != nil || !ev.CatalogScanMs.Known || !ev.CollectorCycleMs.Known {
+			t.Fatalf("probe: %+v (%v)", ev, err)
+		}
+		if i == 0 || ev.CatalogScanMs.Value < best.CatalogScanMs.Value {
+			best = ev
+		}
+	}
+	return best
+}
+
 func TestCostMeter_SlowestStatementExceedsTheProbe(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
@@ -84,12 +102,16 @@ func TestCostMeter_SlowestStatementExceedsTheProbe(t *testing.T) {
 	if !ok || cost.Cycles != 1 || cost.Timeouts != 0 {
 		t.Fatalf("cost after one cycle = %+v (%v), want one clean cycle", cost, ok)
 	}
-	probe, err := selfconfig.Gather(ctx, pool)
-	if err != nil || !probe.CatalogScanMs.Known {
-		t.Fatalf("probe: %+v (%v)", probe.CatalogScanMs, err)
+	probe := fastestProbe(t, ctx, pool)
+	t.Logf("slowest collector statement %.1f ms (%s), cycle %.1f ms; probe scan %.1f ms, "+
+		"probe cycle estimate %.1f ms", cost.SlowestMs, cost.SlowestStep, cost.P90CycleMs,
+		probe.CatalogScanMs.Value, probe.CollectorCycleMs.Value)
+	// The interval rule's proxy: the probes' cycle estimate is a small
+	// fraction of what a cycle's statements really spend.
+	if cost.P90CycleMs <= 5*probe.CollectorCycleMs.Value {
+		t.Fatalf("measured cycle %.1f ms <= 5x the probe estimate %.1f ms", cost.P90CycleMs,
+			probe.CollectorCycleMs.Value)
 	}
-	t.Logf("slowest collector statement %.1f ms (%s), cycle %.1f ms; probe scan %.1f ms",
-		cost.SlowestMs, cost.SlowestStep, cost.P90CycleMs, probe.CatalogScanMs.Value)
 	if cost.SlowestMs <= probe.CatalogScanMs.Value {
 		t.Fatalf("slowest statement %.1f ms (%s) <= probe scan %.1f ms: the probe "+
 			"would size the deadline from a cheaper read than the collector makes",
