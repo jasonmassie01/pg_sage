@@ -9,7 +9,8 @@ import (
 // query rules read adviceQueries, and a finding whose detail names
 // pg_sage's own statement, diagnostic tooling (EXPLAIN, maintenance, a
 // statistics reset, a backup COPY), a utility statement or DDL is dropped
-// before RCA, persistence and recommendations. Rules about capacity and I/O read every statement.
+// before RCA, persistence and recommendations. Rules about capacity and
+// I/O read every statement.
 
 // adviceQueries are the snapshot's workload statements (nil-safe).
 func adviceQueries(snap *collector.Snapshot) []collector.QueryStats {
