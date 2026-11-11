@@ -33,6 +33,11 @@ const STATE_TONES = {
   paused: { label: 'Paused', tone: 'stopped', color: 'var(--text-secondary)' },
 }
 
+// A run in these states still changes: its open detail is fetched again
+// every LIVE_POLL_MS until it reaches a terminal state (sre-09).
+const LIVE_STATES = new Set(['queued', 'collecting', 'evaluating', 'needs_evidence'])
+const LIVE_POLL_MS = 5000
+
 function stateTone(state) {
   return STATE_TONES[state] ||
     { label: 'Running', tone: 'running', color: 'var(--accent)' }
@@ -87,17 +92,29 @@ export function InvestigationPanel({ database, investigation, user }) {
       </div>
       {open && (
         <InvestigationDetail database={database} id={shownID} user={user}
-          onOpenAttempt={openAttempt} />
+          onOpenAttempt={openAttempt} liveHint={LIVE_STATES.has(investigation.state)} />
       )}
     </section>
   )
 }
 
-function InvestigationDetail({ database, id, user, onOpenAttempt }) {
-  const { data, loading, error, refetch } = useAPI(basePath(database, id), 0)
+// useLiveDetail fetches an investigation's detail, again every
+// LIVE_POLL_MS while its latest answer (or, before one, the list's state)
+// is live, and never again once it is terminal.
+function useLiveDetail(database, id, liveHint) {
+  const [live, setLive] = useState(Boolean(liveHint))
+  const result = useAPI(basePath(database, id), live ? LIVE_POLL_MS : 0)
+  // The cadence follows the latest answer (state adjusted during render).
+  const nowLive = result.data ? LIVE_STATES.has(result.data.investigation?.state) : live
+  if (nowLive !== live) setLive(nowLive)
+  return result
+}
+
+function InvestigationDetail({ database, id, user, onOpenAttempt, liveHint }) {
+  const { data, loading, error, refetch } = useLiveDetail(database, id, liveHint)
   const [openEvidence, setOpenEvidence] = useState(null)
   if (loading) return <div style={muted}>Loading investigation...</div>
-  if (error) return <div style={muted}>Investigation unavailable: {error}</div>
+  if (error && !data) return <div style={muted}>Investigation unavailable: {error}</div>
   if (!data) return null
   const hs = data.hypotheses || []
   const byStatus = s => hs.filter(h => h.status === s)
@@ -108,6 +125,9 @@ function InvestigationDetail({ database, id, user, onOpenAttempt }) {
     : summary.reason || 'No supported explanation.'
   return (
     <div className="mt-2 space-y-2" data-testid="investigation-detail">
+      {error && <div data-testid="investigation-refresh-failed" style={muted}>
+        Refresh failed ({error}); showing the last answer.
+      </div>}
       <Warnings data={data} />
       <AttemptNotice investigation={data.investigation} onOpen={onOpenAttempt} />
       <EvidenceAge investigation={data.investigation} />
@@ -266,8 +286,6 @@ function EvidenceList({ evidence, openID }) {
     </div>
   )
 }
-
-const LIVE_STATES = new Set(['queued', 'collecting', 'evaluating', 'needs_evidence'])
 
 function OperatorControls({ database, investigation, onDone }) {
   const toast = useToast()

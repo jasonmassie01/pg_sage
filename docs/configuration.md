@@ -1875,6 +1875,13 @@ Reading investigations (any signed-in role):
 `GET /api/v1/databases/{db}/investigations`, `.../{id}`, `.../{id}/events`,
 `.../{id}/evidence/{evidence_id}`. Operators and admins can also
 `GET .../{id}/export` (JSON, or `?format=markdown`) and `POST .../{id}/pin` or `/unpin`.
+Both lists page newest first (`limit`, `cursor`); one `case_id` pages that case's
+investigations. Two or more `case_id` values (`?case_id=a&case_id=b`, at most 100, each at
+most 256 characters) return the newest investigation of each named case in one page, however
+old, with no cursor; more than 100 ids, or ids together with `cursor`, is a 400
+`invalid_request`. The Cases page reads its visible cases this way, 100 ids per request, and
+refreshes an open investigation every 5 s while it is queued, collecting, evaluating or
+waiting for evidence.
 With MCP enabled, agents get the read-only tools `sre_list_incidents`,
 `sre_get_investigation` and `sre_get_evidence`.
 
