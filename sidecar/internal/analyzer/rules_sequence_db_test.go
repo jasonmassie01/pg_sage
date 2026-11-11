@@ -16,23 +16,7 @@ import (
 // sequence, and the rule judges each by the collector's pct_used.
 func TestSequenceExhaustion_RealCatalog(t *testing.T) {
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, testdb.CreateDatabase(t, "rules11_seq"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(pool.Close)
-	if err := schema.Bootstrap(ctx, pool); err != nil {
-		t.Fatalf("bootstrap: %v", err)
-	}
-	if _, err := pool.Exec(ctx, `
-		CREATE SEQUENCE public.r11_down INCREMENT -1 MINVALUE -1000 MAXVALUE -1 START -1;
-		SELECT setval('public.r11_down', -950);
-		CREATE SEQUENCE public.r11_cycle AS integer MINVALUE 1 MAXVALUE 100 CYCLE;
-		SELECT setval('public.r11_cycle', 96);
-		CREATE SEQUENCE public.r11_up AS integer MINVALUE 1 MAXVALUE 1000;
-		SELECT setval('public.r11_up', 910);`); err != nil {
-		t.Fatalf("create sequences: %v", err)
-	}
+	pool := sequenceFixturePool(t, ctx)
 	var version int
 	if err := pool.QueryRow(ctx,
 		`SELECT current_setting('server_version_num')::int`).Scan(&version); err != nil {
@@ -68,6 +52,30 @@ func TestSequenceExhaustion_RealCatalog(t *testing.T) {
 				"the runway category", ident, f.Detail, pct)
 		}
 	}
+}
+
+// sequenceFixturePool is a bootstrapped database holding the three
+// rules-11 sequences: descending with a custom MINVALUE, CYCLE, ascending.
+func sequenceFixturePool(t *testing.T, ctx context.Context) *pgxpool.Pool {
+	t.Helper()
+	pool, err := pgxpool.New(ctx, testdb.CreateDatabase(t, "rules11_seq"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	if err := schema.Bootstrap(ctx, pool); err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		CREATE SEQUENCE public.r11_down INCREMENT -1 MINVALUE -1000 MAXVALUE -1 START -1;
+		SELECT setval('public.r11_down', -950);
+		CREATE SEQUENCE public.r11_cycle AS integer MINVALUE 1 MAXVALUE 100 CYCLE;
+		SELECT setval('public.r11_cycle', 96);
+		CREATE SEQUENCE public.r11_up AS integer MINVALUE 1 MAXVALUE 1000;
+		SELECT setval('public.r11_up', 910);`); err != nil {
+		t.Fatalf("create sequences: %v", err)
+	}
+	return pool
 }
 
 func assertCollected(
