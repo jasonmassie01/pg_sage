@@ -3,6 +3,7 @@ package analyzer
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/notify"
@@ -66,11 +67,12 @@ func (a *Analyzer) dispatchRewriteFindings(
 // read, nothing is published, recorded or resolved this cycle (rules-06).
 func (a *Analyzer) finalizeCycle(
 	ctx context.Context, findings []Finding, evaluated map[string]bool,
-) {
-	res, err := UpsertFindingsObserved(ctx, a.pool, findings, a.cycleEvidence())
-	if err != nil {
+) error {
+	res, upsertErr := UpsertFindingsObserved(ctx, a.pool, findings, a.cycleEvidence())
+	if upsertErr != nil {
 		a.logFn("ERROR", "analyzer: %d of %d findings not persisted: %v",
-			len(res.Failed), len(findings), err)
+			len(res.Failed), len(findings), upsertErr)
+		upsertErr = fmt.Errorf("persist findings: %w", upsertErr)
 	}
 	// Notify only on new information: newly opened, reopened after an
 	// action or severity-escalated findings, subject to a per-identity
@@ -86,7 +88,7 @@ func (a *Analyzer) finalizeCycle(
 		a.logFn("ERROR", "analyzer: %v; keeping the previous %d findings, "+
 			"skipping recommendations and resolving nothing this cycle",
 			err, len(a.LatestFindings()))
-		return
+		return fmt.Errorf("filter suppressed findings: %w", err)
 	}
 	a.mu.Lock()
 	a.findings = published
@@ -94,6 +96,7 @@ func (a *Analyzer) finalizeCycle(
 	a.recordRecommendations(ctx, published, evaluated)
 	a.resolveCleared(ctx, published, evaluated)
 	a.logFn("INFO", "analyzer cycle: %d findings", len(published))
+	return upsertErr
 }
 
 // cycleEvidence is when this cycle's snapshot was collected and how long

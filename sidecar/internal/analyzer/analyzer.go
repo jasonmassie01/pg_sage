@@ -12,6 +12,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/recommendation"
+	"github.com/pg-sage/sidecar/internal/selfbudget"
 	"github.com/pg-sage/sidecar/internal/selfcost"
 )
 
@@ -117,6 +118,8 @@ type Analyzer struct {
 	// selfBudget meters the declared self-budget (CPU, loops); read
 	// concurrently by /metrics.
 	selfBudget *selfBudgetMeter
+	// loops replaces the process-wide loop tracker (tests).
+	loops *selfbudget.Loops
 	// historyBytes caches this database's share of the meta database's
 	// history store (history.store: meta), for the storage self-budget.
 	historyBytes historyStorageCache

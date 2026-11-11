@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -62,12 +63,28 @@ func (m *selfBudgetMeter) last() selfbudget.Usage {
 	return m.usage
 }
 
-// trackedCycle runs a cycle and records its busy time for the budget.
+// trackedCycle runs a cycle as one run of the analyzer loop: its busy
+// time for the budget and, when it analyzed nothing or could not publish,
+// a failed run (observability-06).
 func (a *Analyzer) trackedCycle(ctx context.Context) {
-	done := selfbudget.Process().Track("analyzer")
-	a.cycle(ctx)
-	done()
+	done := a.loopTracker().TrackErr("analyzer")
+	done(a.cycle(ctx))
 }
+
+// loopTracker is the process-wide loop tracker unless a test replaced it.
+func (a *Analyzer) loopTracker() *selfbudget.Loops {
+	if a.loops != nil {
+		return a.loops
+	}
+	return selfbudget.Process()
+}
+
+// errNoSnapshot and errStaleSnapshot are cycles with no fresh evidence:
+// the collector has no snapshot yet, or none since the last cycle.
+var (
+	errNoSnapshot    = errors.New("analyzer cycle skipped: no collector snapshot yet")
+	errStaleSnapshot = errors.New("analyzer cycle skipped: no fresh collector snapshot")
+)
 
 // SelfBudgetUsage is pg_sage's latest measured usage on this database.
 func (a *Analyzer) SelfBudgetUsage() selfbudget.Usage {
