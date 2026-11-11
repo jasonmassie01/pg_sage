@@ -67,6 +67,24 @@ type Case struct {
 	// ActionsUnavailable is set when the action history could not be read,
 	// so an empty Actions does not read as "nothing was done" (cases-05).
 	ActionsUnavailable bool `json:"actions_unavailable,omitempty"`
+	// Urgency is the time to impact the producer measured, with its basis
+	// (cases-07); unassessed when it measured none.
+	Urgency Urgency `json:"urgency"`
+	// RankBasis says why the case ranks where it does in the global list.
+	RankBasis string `json:"rank_basis,omitempty"`
+	// Recurrence links a recurring incident to its predecessor; nil for a
+	// first occurrence and for every non-incident case.
+	Recurrence *Recurrence `json:"recurrence,omitempty"`
+}
+
+// Recurrence is an incident's place in its chain of recurrences
+// (sage.incidents.previous_incident_id). Count includes this incident and
+// is 0 when the history could not be read (HistoryUnavailable).
+type Recurrence struct {
+	PreviousID         string     `json:"previous_id"`
+	Count              int        `json:"count,omitempty"`
+	PreviousResolvedAt *time.Time `json:"previous_resolved_at,omitempty"`
+	HistoryUnavailable bool       `json:"history_unavailable,omitempty"`
 }
 
 type ActionCandidate struct {

@@ -74,8 +74,8 @@ func TestProjectFindingCreatesActionableCase(t *testing.T) {
 		Recommendation:   "Run ANALYZE on public.orders",
 		RecommendedSQL:   "ANALYZE public.orders",
 		Detail: map[string]any{
-			"n_mod_since_analyze": float64(200000),
-			"last_analyze_age":    "72h",
+			"writes":           float64(200000),
+			"last_analyze_age": "72h",
 		},
 	}
 
@@ -259,7 +259,7 @@ func TestProjectFindingClassifiesForecastAsForecastCase(t *testing.T) {
 		Title:            "Connection pool exhaustion forecast",
 		Recommendation:   "Review pool limits before saturation.",
 		Detail: map[string]any{
-			"projected_at": "2026-04-29T12:00:00Z",
+			"forecast_type": "connection_exhaustion",
 		},
 	}
 

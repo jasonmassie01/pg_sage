@@ -96,8 +96,14 @@ func TestUrgencyUsesEvidenceRatherThanSeverity(t *testing.T) {
 		finding SourceFinding
 		want    string
 	}{
-		{SourceFinding{Detail: map[string]any{"n_mod_since_analyze": 1200}}, "table changed since last analyze: 1200 rows"},
-		{SourceFinding{Detail: map[string]any{"projected_at": "2026-11-01T00:00:00Z"}}, "forecast threshold projected at 2026-11-01T00:00:00Z"},
+		{SourceFinding{Category: "storage_forecast", Detail: map[string]any{
+			"days_until_full": 3, "r_squared": 0.94, "data_points": 30}},
+			"About 3 days until storage is full " +
+				"(days_until_full 3 from a 30-point regression, R² 0.94)"},
+		{SourceFinding{Category: "forecast_connection_saturation", Detail: map[string]any{
+			"days_to_warn_pct": 12.0, "r_squared": 0.9}},
+			"About 12 days until connections reach the warning share of max_connections " +
+				"(days_to_warn_pct 12 from a daily regression, R² 0.90)"},
 	} {
 		if got := projectFinding(test.finding).WhyNow; got != test.want {
 			t.Fatalf("measured rationale = %q, want %q", got, test.want)

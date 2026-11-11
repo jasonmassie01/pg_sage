@@ -351,6 +351,29 @@ includes case projection, shadow report, action queue, provider readiness,
 findings, snapshots, config, forecasts, query hints, alerts, emergency stop,
 and fleet management. UI and `/api/v1/*` routes are session-authenticated.
 
+**Cases ranking and urgency.** Cases from every database are ranked by
+severity first; no warning ever outranks a critical. Within a severity, a case
+with an assessed time to impact comes first, the nearest impact first, then
+cases without one, then the most recent observation, then database and id.
+Each case carries `rank_basis`, for example "severity warning; time to impact
+about 3 days". The time to impact (`urgency`) is read only from the fields the
+producer wrote, never computed by Cases: `days_until_full` with `r_squared` and
+`data_points` (storage growth), `days_to_warn_pct` with `r_squared` (connection
+saturation) and `seconds_to_limit` with `rate_per_s`, `samples`, `span_s` and
+`r2` (disk, WAL slot, sequence and wraparound runways). The case shows the
+formula as its basis sentence, for example "About 3 days until the disk is
+full (seconds_to_limit 259200 from 48 samples over 6 h, R² 0.97)". A missing,
+non-numeric, non-finite or non-positive value, a zero rate, or a storage or
+connection regression fit below R² 0.5 leaves the case "Urgency not assessed";
+it never shows a reassuring number. XID wraparound and sequence exhaustion
+findings that carry no rate show their headroom instead ("xid_age 1.2B of
+the 1.6B critical threshold") and stay unassessed. A recurring incident (one with
+`previous_incident_id`) carries `recurrence`: the previous incident, the
+number of occurrences in its chain and when the previous one was resolved,
+read in one batched lookup per database, shown as "4th occurrence; previous
+resolved 2026-11-02". When that lookup fails the case says the history is
+unavailable rather than calling it a first occurrence.
+
 **Header and context strip.** The header says which database you are looking
 at, its mode and what pg_sage may do there right now. With one database
 selected, the trust badge shows its level, and its tooltip lists the action

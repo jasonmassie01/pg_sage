@@ -198,6 +198,7 @@ func lookupIncidentCases(
 		return nil, err
 	}
 	out := projectIncidentRows(scanned, sel.name)
+	enrichIncidentRecurrence(ctx, sel.pool, out)
 	enrichCasesActionPolicies(ctx, out, mgr.GetInstance(sel.name))
 	return out, nil
 }

@@ -114,4 +114,60 @@ describe('Case presentation grounded in reported evidence', () => {
       }
     }
   })
+
+  it('states an assessed time to impact with its basis (cases-07)', () => {
+    const summary = casePresentation(finding('storage_forecast', {}, { urgency: {
+      assessed: true, time_to_impact_seconds: 259200, impact: 'until full',
+      basis: 'days_until_full 3 from a 30-point regression, R² 0.94',
+    } }))
+    expect(summary.attention).toBe('About 3 days until full (days_until_full 3 from a 30-point regression, R² 0.94)')
+    const soon = casePresentation(finding('forecast_wal_runway', {}, { urgency: {
+      assessed: true, time_to_impact_seconds: 57600, impact: 'until the disk is full', basis: 'b',
+    } }))
+    expect(soon.attention).toBe('About 16 hours until the disk is full (b)')
+    const minutes = casePresentation(finding('forecast_wal_runway', {}, { urgency: {
+      assessed: true, time_to_impact_seconds: 20, impact: 'until the disk is full', basis: 'b',
+    } }))
+    expect(minutes.attention).toBe('About 1 minute until the disk is full (b)')
+  })
+
+  it('never shows a number for an urgency without a usable time to impact', () => {
+    for (const tti of [0, -5, null, undefined, '3', Number.NaN, Infinity]) {
+      const summary = casePresentation(finding('storage_forecast', {}, {
+        why_now: 'Urgency not assessed', urgency: { assessed: true, time_to_impact_seconds: tti },
+      }))
+      expect(summary.attention).toContain('Urgency not assessed')
+      expect(summary.attention).not.toMatch(/About|\d/)
+    }
+  })
+
+  it('shows measured headroom while saying urgency is not assessed', () => {
+    const summary = casePresentation(finding('xid_wraparound', {}, { urgency: {
+      assessed: false, basis: 'xid_age 1.2B of the 1.6B critical threshold',
+    } }))
+    expect(summary.attention).toContain('Urgency not assessed: xid_age 1.2B of the 1.6B critical threshold.')
+    expect(summary.attention).not.toContain('About')
+  })
+
+  it('describes a recurrence with its count and the previous resolution', () => {
+    const row = { id: 'incident:prod:deterministic:c', database_name: 'prod', title: 'x',
+      recurrence: { previous_id: 'b', count: 4, previous_resolved_at: '2026-11-02T10:00:00Z' } }
+    expect(casePresentation(row).recurrence).toBe('4th occurrence; previous resolved 2026-11-02')
+    const ordinals = { 2: '2nd', 3: '3rd', 11: '11th', 12: '12th', 13: '13th', 21: '21st', 22: '22nd', 101: '101st' }
+    for (const [count, word] of Object.entries(ordinals)) {
+      expect(casePresentation({ ...row, recurrence: { ...row.recurrence, count: Number(count) } })
+        .recurrence).toBe(`${word} occurrence; previous resolved 2026-11-02`)
+    }
+    expect(casePresentation({ ...row, recurrence: { previous_id: 'b', count: 2 } }).recurrence)
+      .toBe('2nd occurrence; previous resolution time unknown')
+  })
+
+  it('discloses an unavailable recurrence history rather than a first occurrence', () => {
+    const row = { id: 'incident:prod:x', title: 'x' }
+    expect(casePresentation(row).recurrence).toBeNull()
+    expect(casePresentation({ ...row, recurrence: { previous_id: 'b', history_unavailable: true } })
+      .recurrence).toBe('Recurring incident; occurrence history unavailable')
+    expect(casePresentation({ ...row, recurrence: { previous_id: 'b', count: 'x' } })
+      .recurrence).toBe('Recurring incident; occurrence history unavailable')
+  })
 })

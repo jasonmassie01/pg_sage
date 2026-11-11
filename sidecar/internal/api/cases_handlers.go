@@ -121,7 +121,9 @@ func queryIncidentCases(
 	if cut {
 		rows = rows[:caseIncidentsCap]
 	}
-	return projectIncidentRows(rows, selected.name), cut, nil
+	out := projectIncidentRows(rows, selected.name)
+	enrichIncidentRecurrence(ctx, selected.pool, out)
+	return out, cut, nil
 }
 
 func projectIncidentRows(rows []map[string]any, database string) []cases.Case {
@@ -496,6 +498,8 @@ func sourceIncidentFromMap(row map[string]any) cases.SourceIncident {
 		LastDetectedAt:  timeFromMap(row, "last_detected_at"),
 		ResolvedAt:      timePtrFromMap(row, "resolved_at"),
 		OccurrenceCount: int(floatValue(row["occurrence_count"])),
+
+		PreviousIncidentID: stringValue(row["previous_incident_id"]),
 	}
 }
 

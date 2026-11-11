@@ -1,7 +1,6 @@
 package cases
 
 import (
-	"fmt"
 	"strings"
 	"time"
 )
@@ -24,7 +23,8 @@ func ProjectFinding(f SourceFinding, classify SQLClassifier) Case {
 	for i := range candidates {
 		candidates[i].Source = &source
 	}
-	return NewCase(CaseInput{
+	urgency := readUrgency(f)
+	c := NewCase(CaseInput{
 		SourceType:       sourceTypeForFinding(f),
 		SourceID:         f.ID,
 		DatabaseName:     f.DatabaseName,
@@ -32,11 +32,13 @@ func ProjectFinding(f SourceFinding, classify SQLClassifier) Case {
 		Title:            f.Title,
 		Severity:         f.Severity,
 		Why:              f.Recommendation,
-		WhyNow:           whyNowForFinding(f),
+		WhyNow:           urgency.whyNow,
 		Evidence:         evidenceForFinding(f),
 		ActionCandidates: candidates,
 		ObservedAt:       f.ObservedAt,
 	})
+	c.Urgency = urgency.urgency
+	return c
 }
 
 // evidenceTime is when the source finding was last observed, falling back
@@ -357,19 +359,4 @@ func verificationPlanForAction(actionType string) []string {
 		}
 	}
 	return []string{"rerun analyzer and verify case state"}
-}
-
-func whyNowForFinding(f SourceFinding) string {
-	if f.Detail != nil {
-		if v, ok := f.Detail["n_mod_since_analyze"]; ok {
-			return fmt.Sprintf("table changed since last analyze: %v rows", v)
-		}
-		if v, ok := f.Detail["projected_at"]; ok {
-			return fmt.Sprintf("forecast threshold projected at %v", v)
-		}
-	}
-	if f.Category == "sequence_exhaustion" {
-		return "The observed sequence is near its configured limit; time to exhaustion and application impact have not been established."
-	}
-	return "Urgency not assessed"
 }
