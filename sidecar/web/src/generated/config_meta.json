@@ -699,6 +699,12 @@
     "doc": "",
     "class": "operator_preference"
   },
+  "briefing.fleet_mode": {
+    "type": "string",
+    "default": "rollup",
+    "doc": "Fleet and meta-db modes: rollup (default) posts one briefing message covering every database; per_database posts one per database. Each database still stores its own briefing. Restart to change.",
+    "class": "operator_preference"
+  },
   "briefing.schedule": {
     "type": "string",
     "default": "0 6 * * *",

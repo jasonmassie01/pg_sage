@@ -26,6 +26,8 @@ var routeProbes = []routeProbe{
 	{"GET", "/api/v1/auth/oauth/callback"},
 	{"GET", "/api/v1/auth/oauth/config"},
 	{"GET", "/api/v1/auth/sso"},
+	{"GET", "/api/v1/briefings"},
+	{"GET", "/api/v1/briefings/latest"},
 	{"GET", "/api/v1/cases"},
 	{"GET", "/api/v1/chatops/identities"},
 	{"GET", "/api/v1/config"},

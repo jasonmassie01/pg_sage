@@ -79,6 +79,8 @@ type ProductionDependencies struct {
 	// Availability says where the gated tool families can be served
 	// (tools/list hides the rest); optional, nil lists them everywhere.
 	Availability Availability
+	// Briefings serves the latest-briefing resource (llm-06b); optional.
+	Briefings BriefingBackend
 }
 
 type ProductionBackend struct {

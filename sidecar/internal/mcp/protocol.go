@@ -33,7 +33,7 @@ const serverInstructions = "pg_sage is an AI DBA for PostgreSQL. Name the monito
 // knownMethods are the request methods the server answers.
 var knownMethods = map[string]bool{"ping": true, "initialize": true,
 	"server/discover": true, "tools/list": true, "tools/call": true,
-	"subscriptions/listen": true}
+	"subscriptions/listen": true, "resources/list": true, "resources/read": true}
 
 func supportedVersion(version string) bool {
 	for _, v := range SupportedVersions {
@@ -122,6 +122,10 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 		return s.toolsList(ctx, meta.modern), nil
 	case "tools/call":
 		return s.callTool(ctx, params)
+	case "resources/list":
+		return s.resourcesList(ctx), nil
+	case "resources/read":
+		return s.resourcesRead(ctx, params)
 	case "subscriptions/listen":
 		return nil, failure(codeMethodNotFound, "subscriptions/listen needs a streaming "+
 			"transport (stdio or Streamable HTTP)")
@@ -134,7 +138,8 @@ func (s *Server) serverInfo() map[string]string {
 }
 
 func (s *Server) capabilities() map[string]any {
-	return map[string]any{"tools": map[string]any{"listChanged": true}}
+	return map[string]any{"tools": map[string]any{"listChanged": true},
+		"resources": map[string]any{}}
 }
 
 func (s *Server) initializeResult(params json.RawMessage) map[string]any {

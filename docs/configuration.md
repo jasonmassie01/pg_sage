@@ -36,11 +36,15 @@ snapshot, `reconfigure` tears down and rebuilds its named runtime owner, and
 `live_policy` field whose owner does not run in the current mode is treated
 as `restart`. In-flight work keeps its original snapshot.
 
-**Three owners rebuild in place.** The sidecar registers `trust_policy` and
+**Five owners rebuild in place.** The sidecar registers `trust_policy`,
 `llm` (the LLM connection: `llm.enabled`, `llm.endpoint`, `llm.api_key`,
-`llm.model`, `llm.auth` and its timeouts) in every mode, and `fleet_databases`
-(`databases` and `defaults.*`) in YAML fleet mode. Every other field,
-including `alerting.*`, `briefing.*` and the collector, analyzer, tuner,
+`llm.model`, `llm.auth` and its timeouts), `llm_redaction`
+(`llm.redact_numeric_literals`) and `briefing` (`briefing.schedule`,
+`briefing.channels`, `briefing.slack_webhook_url`) in every mode, and
+`fleet_databases` (`databases` and `defaults.*`) in YAML fleet mode. A
+briefing schedule that does not parse is rejected when it is applied, naming
+`briefing.schedule`, and the workers keep the old one. Every other field,
+including `alerting.*`, `briefing.fleet_mode` and the collector, analyzer, tuner,
 `schema_lint` and `auto_explain` intervals, is `restart`: a change made from
 Settings, the API or the YAML file is saved and reported as pending restart.
 A derived `collector.interval_seconds` is the exception on the derivation side:
@@ -425,8 +429,34 @@ retention:
   sage_size_warning_pct: 10
 
 briefing:
-  schedule: "0 6 * * *"         # cron expression
+  schedule: "0 6 * * *"         # cron expression; "" turns briefings off
+  channels: ["stdout"]          # stdout, slack
+  slack_webhook_url: ""
+  fleet_mode: rollup            # fleet only: rollup (one message) or per_database
 ```
+
+A briefing covers the time since the previous briefing (on the first run,
+since the schedule's previous fire time), so a weekly schedule reports a week
+of actions; the structured text names the window ("Recent Actions (7d)").
+Slack receives the briefing as mrkdwn: headings and `**bold**` become `*bold*`,
+and `<`, `>` and `&` are escaped, so text from the model or the database
+cannot ping `<!channel>` or post a link. Each channel's result is stored in
+`sage.briefings.delivery_status`. In fleet mode, YAML or meta-db,
+`briefing.fleet_mode: rollup`
+(the default) posts one message with a section per database; each database
+still stores its own briefing row, and every row records that message's
+result. `per_database` posts one message per database, as before. Changing
+`fleet_mode` needs a restart; it is ignored in standalone mode.
+
+Stored briefings are readable by every signed-in role:
+`GET /api/v1/briefings?database=<name|all>&limit=<1-100, default 20>` lists them newest first,
+and `GET /api/v1/briefings/latest?database=<name|all>` returns each database's latest one
+(`without_briefing` names the databases that have none yet). Both return `content_json` and
+`delivery_status` exactly as stored; in a fleet, a database whose read fails is listed under
+`unavailable` while the others answer. When no database has a briefing yet, `latest` answers
+404 with the reason. The Overview page shows the latest briefing in a card, and MCP clients
+read it as the resource `pgsage://databases/{database}/briefings/latest`
+([MCP resources](mcp.md#resources)).
 
 ---
 

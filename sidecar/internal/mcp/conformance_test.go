@@ -39,7 +39,7 @@ func TestNotificationsGetNoResponse(t *testing.T) {
 // A request with an id that is not a notification still gets an error.
 func TestUnknownMethodWithIDStillFails(t *testing.T) {
 	response := invoke(t, NewServer(&recordingBackend{}), context.Background(),
-		`{"jsonrpc":"2.0","id":4,"method":"resources/list"}`)
+		`{"jsonrpc":"2.0","id":4,"method":"prompts/list"}`)
 	require.Equal(t, -32601, response.Error.Code)
 	require.Equal(t, json.Number("4"), response.ID)
 }

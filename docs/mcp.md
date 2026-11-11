@@ -182,9 +182,9 @@ malformed params or an unsupported protocol version are JSON-RPC errors.
 pg_sage serves both protocol eras on stdio and Streamable HTTP:
 
 * **Handshake era** (`2025-03-26`, `2025-06-18`, `2025-11-25`): `initialize` negotiates the
-  version and advertises `tools.listChanged`; `ping`; `notifications/tools/list_changed`
-  is sent on stdio when the tool list changes (a database joins or leaves the fleet, or a
-  tool becomes available or unavailable).
+  version and advertises `tools.listChanged` and `resources`; `ping`;
+  `notifications/tools/list_changed` is sent on stdio when the tool list changes (a
+  database joins or leaves the fleet, or a tool becomes available or unavailable).
 * **Stateless** (`2026-07-28`): `server/discover`, the protocol version in every request's
   `_meta`, `resultType` on every result, and `subscriptions/listen` for list changes (on
   HTTP an SSE stream that pg_sage closes gracefully before the API's request deadline;
@@ -216,6 +216,19 @@ pg_stat_statements` seen by the next capability refresh) clients get
 `notifications/tools/list_changed` and should list again. A hidden tool called directly is
 not an unknown tool: it returns its usual -32010 `unavailable` error (`ask_sage` with
 `ask.enabled` on but no enabled LLM instead answers with status `llm_unavailable`).
+
+## Resources
+
+pg_sage also serves one MCP resource per monitored database: its latest health briefing.
+`resources/list` lists `pgsage://databases/{database}/briefings/latest` for every database the
+caller may use (`pgsage://briefings/latest` names the only database of a single-database
+sidecar), and `resources/read` returns the stored briefing as JSON (`application/json`): its
+`generated_at` and window, `content_text`, `content_json` (the briefing's data, exactly as
+stored: open findings and `open_by_severity`, actions, window) and `delivery_status` per
+channel. Reading needs the `read` scope, which every signed-in role has; an agent token
+without it is refused with -32001 and sees no resources. A database the token may not use
+gets -32003, and a database with no briefing yet gets -32002 with the reason. On Streamable
+HTTP, `Mcp-Name` carries the resource URI.
 
 ## The source-fix loop
 
@@ -411,6 +424,10 @@ application's database driver (most ORMs have a plugin) for reliable attribution
 | [`sre_get_transcript`](#sre_get_transcript) | `read` | always |
 | [`sre_propose_action`](#sre_propose_action) | `propose` | always |
 | [`sre_request_execution`](#sre_request_execution) | `propose` | always |
+| [`sre_refresh_table_evidence`](#sre_refresh_table_evidence) | `propose` | always |
+| [`sre_propose_statistics`](#sre_propose_statistics) | `propose` | always |
+| [`sre_request_statistics`](#sre_request_statistics) | `propose` | always |
+| [`sre_rollback_statistics`](#sre_rollback_statistics) | `approve` | always |
 | [`sre_list_slos`](#sre_list_slos) | `read` | always |
 | [`sre_get_slo`](#sre_get_slo) | `read` | always |
 | [`sre_list_changes`](#sre_list_changes) | `read` | always |

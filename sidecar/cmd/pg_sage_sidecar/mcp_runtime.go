@@ -93,6 +93,8 @@ func mcpDependencies() mcp.ProductionDependencies {
 		Grants: agentGrantMCP(cfg, fleetMgr, globalMetaState),
 		// tools/list hides a tool family where it cannot be served (mcp-09).
 		Availability: newMCPAvailability(fleetMgr),
+		// The latest-briefing resource of each database (llm-06b).
+		Briefings: fleetBriefingsMCP{manager: fleetMgr},
 	}
 }
 

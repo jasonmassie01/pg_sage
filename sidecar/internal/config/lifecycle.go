@@ -24,10 +24,11 @@ const (
 )
 
 // ProductionOwners returns every reconfiguration owner the sidecar registers
-// in some mode: trust_policy, llm and llm_redaction in every mode,
+// in some mode: trust_policy, llm, llm_redaction and briefing in every mode,
 // fleet_databases in YAML fleet mode. The result is a fresh copy.
 func ProductionOwners() []string {
-	return []string{TrustPolicyOwner, LLMOwner, LLMRedactionOwner, FleetDatabasesOwner}
+	return []string{TrustPolicyOwner, LLMOwner, LLMRedactionOwner, BriefingOwner,
+		FleetDatabasesOwner}
 }
 
 // FieldLifecycle is the canonical lifecycle metadata for one YAML field.
@@ -135,13 +136,17 @@ func isRestartField(path string) bool {
 }
 
 // reconfigurationOwner names the production owner that rebuilds a field in
-// place. Only the LLM connection and the LLM redaction switch have one: a
-// field whose owner production never registers would be labelled
-// reconfigure yet wait for a restart in every mode (config-07), so it stays
-// restart-bound until an owner exists.
+// place: the LLM connection, the LLM redaction switch and the briefing
+// schedule and channels. A field whose owner production never registers
+// would be labelled reconfigure yet wait for a restart in every mode
+// (config-07), so it stays restart-bound until an owner exists.
 func reconfigurationOwner(path string) string {
 	if path == "llm.redact_numeric_literals" {
 		return LLMRedactionOwner // llm-09: process-wide, registered in every mode
+	}
+	switch path {
+	case "briefing.schedule", "briefing.channels", "briefing.slack_webhook_url":
+		return BriefingOwner // llm-06: briefing.fleet_mode stays restart-bound
 	}
 	if strings.HasPrefix(path, "llm.") && isLLMResourceField(path) {
 		return LLMOwner

@@ -25,7 +25,7 @@ var trackedTicks = []trackedTick{
 	{"../../internal/tuner", "Tuner", "Tune", "tuner"},
 	{"../../internal/runway", "Monitor", "Tick", "runways"},
 	{"../../internal/sre", "Coordinator", "tick", "sre"},
-	{"../../internal/briefing", "Worker", "Generate", "briefing"},
+	{"../../internal/briefing", "Worker", "GenerateBriefing", "briefing"},
 	{"../../internal/autoexplain", "Collector", "Collect", "auto_explain"},
 	{"../../internal/facts", "Worker", "RunOnce", "facts"},
 	{"../../internal/retention", "Cleaner", "RunOnce", "retention"},
