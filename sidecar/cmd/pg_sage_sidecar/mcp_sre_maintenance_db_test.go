@@ -60,7 +60,14 @@ func newMaintenanceMCPFixture(t *testing.T) *maintenanceMCPFixture {
 	cfg.CloudEnvironment, cfg.Trust.Level, cfg.Safety.QueryTimeoutMs = "lakebase", "advisory", 10000
 	e := executor.New(pool, cfg, time.Time{}, func(string, string, ...any) {})
 	e.WithDatabaseName(name)
-	if err = e.EnableStandingPolicy(ctx, "unattended", nil); err != nil {
+	// Its own policy scope: other tests in this package bootstrap the
+	// unscoped policy as "staffed", whose maintenance window refuses this.
+	policyID := 870000 + int(time.Now().UnixNano()%100000)
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), "DELETE FROM sage.policy WHERE database_id=$1",
+			policyID)
+	})
+	if err = e.EnableStandingPolicy(ctx, "unattended", &policyID); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { e.Shutdown(context.Background()) })
