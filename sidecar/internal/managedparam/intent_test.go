@@ -51,7 +51,9 @@ func TestNewIntentValidates(t *testing.T) {
 		provider, parameter, value string
 		want                       error
 	}{
-		{"azure", "work_mem", "4MB", ErrUnsupportedProvider},
+		{"azure-cosmos", "work_mem", "4MB", ErrUnsupportedProvider},
+		{"azure-single", "work_mem", "4MB", ErrUnsupportedProvider},
+		{"azure", "work_mem", "4MB; reboot", ErrInvalidValue},
 		{"", "work_mem", "4MB", ErrUnsupportedProvider},
 		{"rds", "", "4MB", ErrInvalidParameter},
 		{"rds", "work_mem;", "4MB", ErrInvalidParameter},
@@ -68,10 +70,15 @@ func TestNewIntentValidates(t *testing.T) {
 	}
 }
 
+// advisors-03: AlloyDB and Azure flexible server became supported (the
+// rows pinned "" while their findings stayed guidance text); Cosmos DB for
+// PostgreSQL and the retired single server stay unsupported.
 func TestNormalizeProvider(t *testing.T) {
 	cases := map[string]string{"rds": "rds", "RDS": "rds", "aws": "rds",
 		"aurora": "aurora", "cloud-sql": "cloud-sql", "cloudsql": "cloud-sql",
-		"gcp": "cloud-sql", "alloydb": "", "azure": "", "neon": "", "": ""}
+		"gcp": "cloud-sql", "alloydb": "alloydb", "AlloyDB": "alloydb", "azure": "azure",
+		"azure-flexible": "azure", "azure-cosmos": "", "azure-single": "",
+		" Azure-Single ": "", "neon": "", "": ""}
 	for in, want := range cases {
 		if got := NormalizeProvider(in); got != want {
 			t.Errorf("NormalizeProvider(%q) = %q, want %q", in, got, want)

@@ -10,9 +10,11 @@ import (
 	"github.com/pg-sage/sidecar/internal/pgconf"
 )
 
-// RDS parameter groups and Cloud SQL flags take a setting in its
-// PostgreSQL base unit (pg_settings.unit) without a suffix: shared_buffers
-// in 8kB pages, work_mem in kB, autovacuum_naptime in seconds.
+// RDS parameter groups, Cloud SQL and AlloyDB flags and Azure server
+// parameters take a setting in its PostgreSQL base unit (pg_settings.unit)
+// without a suffix: shared_buffers in 8kB pages, work_mem in kB,
+// autovacuum_naptime in seconds. Azure reports each parameter's unit, and
+// a described unit wins (azureValue).
 
 var (
 	plainNumber = regexp.MustCompile(`^[0-9]+(\.[0-9]+)?$`)
@@ -20,7 +22,7 @@ var (
 )
 
 // booleanParams are boolean settings whose value is respelled per
-// provider (RDS uses 1/0, Cloud SQL on/off).
+// provider (RDS and Aurora use 1/0; Cloud SQL, AlloyDB and Azure on/off).
 var booleanParams = map[string]bool{
 	"jit": true, "autovacuum": true, "track_io_timing": true, "log_lock_waits": true,
 	"log_temp_files_enabled": true, "track_activities": true, "track_counts": true,
@@ -69,7 +71,7 @@ func providerBool(provider, value string) (string, error) {
 	default:
 		return "", fmt.Errorf("%w: %q is not a boolean", ErrInvalidValue, value)
 	}
-	if provider == "cloud-sql" {
+	if provider == "cloud-sql" || provider == "alloydb" || provider == "azure" {
 		if on {
 			return "on", nil
 		}

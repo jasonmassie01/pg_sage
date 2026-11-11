@@ -34,7 +34,8 @@ func gateOne(t *testing.T, sql, cloud string, host HostMemory) analyzer.Finding 
 
 func TestSharedBuffersOnManagedBecomesManagedProposal(t *testing.T) {
 	host := HostMemory{TotalBytes: 16 << 30, AvailableBytes: 8 << 30}
-	for _, cloud := range []string{"rds", "aurora", "cloud-sql"} {
+	// advisors-03 added AlloyDB (database flags) and Azure (server parameters).
+	for _, cloud := range []string{"rds", "aurora", "cloud-sql", "alloydb", "azure"} {
 		f := gateOne(t, "ALTER SYSTEM SET shared_buffers = '4GB'", cloud, host)
 		if f.RecommendedSQL != "" || f.RollbackSQL != "" {
 			t.Fatalf("%s: managed shared_buffers must not be SQL: %q", cloud, f.RecommendedSQL)
@@ -67,10 +68,11 @@ func TestSharedBuffersAboveFractionRefusedEvenWithTelemetry(t *testing.T) {
 	}
 }
 
-// Other managed providers keep their own forms: no managed intent.
+// Other managed providers keep their own forms: no managed intent. Until
+// advisors-03 this list held alloydb and azure, which now get proposals.
 func TestManagedIntentOnlyForSupportedProviders(t *testing.T) {
 	host := HostMemory{TotalBytes: 16 << 30}
-	for _, cloud := range []string{"", "self-managed", "alloydb", "azure"} {
+	for _, cloud := range []string{"", "self-managed", "azure-cosmos", "neon", "lakebase"} {
 		f := gateOne(t, "ALTER SYSTEM SET shared_buffers = '4GB'", cloud, host)
 		if _, ok := managedparam.IntentFromDetail(f.Detail); ok {
 			t.Fatalf("%q must not carry a managed intent: %v", cloud, f.Detail)

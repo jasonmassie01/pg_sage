@@ -50,10 +50,11 @@ func defaultCloudDeps() cloudDeps {
 }
 
 // cloudTelemetryFor builds the database's telemetry runtime and the
-// managed-change resolver: nil for providers without telemetry or when it
-// is disabled; an unavailable runtime (with the reason) when the resource
-// or credentials cannot be established. A host that names the resource
-// always wins over the configured resource.
+// managed-change resolver: nil for providers without telemetry (AlloyDB
+// and Azure included) or when it is disabled; an unavailable runtime
+// (with the reason) when the resource or credentials cannot be
+// established. A host that names the resource always wins over the
+// configured resource.
 func cloudTelemetryFor(ctx context.Context, c *config.Config, provider, host,
 	database string, standalone bool, resource config.CloudResourceConfig,
 	deps cloudDeps) (*cloudtel.Runtime, managedparam.Resolver) {
@@ -66,11 +67,14 @@ func cloudTelemetryFor(ctx context.Context, c *config.Config, provider, host,
 		managedparam.Resolver
 	}
 	var err error
-	if provider == "cloud-sql" {
+	switch provider {
+	case "cloud-sql":
 		src, err = gcpSourceFor(ctx, c.CloudTelemetry, resource.GCP, host, standalone, deps)
-	} else {
+	case "rds", "aurora":
 		src, err = awsSourceFor(ctx, c.CloudTelemetry, resource.AWS, provider, host,
 			standalone, deps)
+	default: // AlloyDB and Azure have managed changes but no telemetry source
+		return nil, nil
 	}
 	if err != nil {
 		return cloudtel.Unavailable(database, provider, err.Error()), nil

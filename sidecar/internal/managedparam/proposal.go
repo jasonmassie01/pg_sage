@@ -14,8 +14,10 @@ import (
 const (
 	MechanismParameterGroup = "parameter_group"
 	MechanismDatabaseFlag   = "database_flag"
-	ApplyImmediate          = "immediate"
-	ApplyPendingReboot      = "pending-reboot"
+	// MechanismServerParameter is an Azure flexible-server parameter.
+	MechanismServerParameter = "server_parameter"
+	ApplyImmediate           = "immediate"
+	ApplyPendingReboot       = "pending-reboot"
 )
 
 // AutoApplyWithheld is why no managed change is applied by pg_sage in this
@@ -32,6 +34,15 @@ var (
 	instanceNamePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,97}$`)
 	projectPattern      = regexp.MustCompile(`^[a-z][a-z0-9-]{4,28}[a-z0-9]$`)
 	regionPattern       = regexp.MustCompile(`^[a-z]{2}(-gov)?-[a-z]+-[0-9]$`)
+	// gcpRegionPattern is a Google Cloud region (us-central1, europe-west4).
+	gcpRegionPattern = regexp.MustCompile(`^[a-z]+-[a-z]+[0-9]{1,2}$`)
+	// Azure names: a flexible server is 3-63 lower-case letters, digits
+	// and hyphens; a resource group may also hold . _ ( ) (it is always
+	// single-quoted), not ending in a period; a subscription is a GUID
+	// (other ARM-safe identifiers are accepted, unquoted only when safe).
+	azureServerPattern   = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$`)
+	resourceGroupPattern = regexp.MustCompile(`^[A-Za-z0-9._()-]{0,89}[A-Za-z0-9_()-]$`)
+	subscriptionPattern  = regexp.MustCompile(`^[A-Za-z0-9-]{1,64}$`)
 )
 
 // InstanceRole values: an Aurora instance's role in its cluster, when
@@ -48,11 +59,13 @@ type Target struct {
 	Provider                string                `json:"provider"`
 	Region                  string                `json:"region,omitempty"`
 	Project                 string                `json:"project,omitempty"`
+	Subscription            string                `json:"subscription,omitempty"`   // Azure
+	ResourceGroup           string                `json:"resource_group,omitempty"` // Azure
 	InstanceID              string                `json:"instance_id,omitempty"`
 	ParameterGroup          string                `json:"parameter_group,omitempty"`
 	ParameterGroupIsDefault bool                  `json:"parameter_group_is_default"`
 	ParameterGroupStatus    string                `json:"parameter_group_status,omitempty"`
-	Cluster                 string                `json:"cluster,omitempty"` // Aurora
+	Cluster                 string                `json:"cluster,omitempty"` // Aurora, AlloyDB
 	InstanceRole            string                `json:"instance_role,omitempty"`
 	Params                  map[string]GroupParam `json:"-"`
 	Flags                   map[string]string     `json:"-"`
@@ -61,10 +74,13 @@ type Target struct {
 	Unresolved              string                `json:"unresolved,omitempty"`
 }
 
-// GroupParam is one parameter of an RDS/Aurora parameter group.
+// GroupParam is one parameter of an RDS/Aurora parameter group or an
+// Azure server (Default and Unit are Azure's).
 type GroupParam struct {
 	Value      string `json:"value"`
-	Source     string `json:"source"`     // user | engine-default | system
+	Default    string `json:"default,omitempty"`
+	Source     string `json:"source"` // user | engine-default | system
+	Unit       string `json:"unit,omitempty"`
 	ApplyType  string `json:"apply_type"` // static | dynamic
 	Modifiable bool   `json:"modifiable"`
 }
@@ -84,6 +100,8 @@ type Proposal struct {
 	Target            string   `json:"target"`
 	Region            string   `json:"region,omitempty"`
 	Project           string   `json:"project,omitempty"`
+	ResourceGroup     string   `json:"resource_group,omitempty"`
+	Cluster           string   `json:"cluster,omitempty"`
 	Instance          string   `json:"instance,omitempty"`
 	ParameterGroup    string   `json:"parameter_group,omitempty"`
 	Parameter         string   `json:"parameter"`
@@ -117,7 +135,7 @@ func Build(intent Intent, target Target, running *collector.PGSetting) (Proposal
 		return Proposal{}, fmt.Errorf("%w: intent for %s, target on %q", ErrUnsupportedProvider,
 			provider, target.Provider)
 	}
-	if err := validateTarget(target); err != nil {
+	if err := validateTarget(provider, target); err != nil {
 		return Proposal{}, err
 	}
 	value, unit, err := ProviderValue(provider, intent.Parameter, intent.Value)
@@ -130,9 +148,14 @@ func Build(intent Intent, target Target, running *collector.PGSetting) (Proposal
 	if running != nil {
 		p.RunningValue = running.Setting
 	}
-	if provider == "cloud-sql" {
+	switch provider {
+	case "cloud-sql":
 		err = buildCloudSQL(&p, target)
-	} else {
+	case "alloydb":
+		err = buildAlloyDB(&p, target)
+	case "azure":
+		err = buildAzure(&p, target)
+	default:
 		err = buildRDS(&p, target)
 	}
 	if err != nil {
@@ -142,17 +165,32 @@ func Build(intent Intent, target Target, running *collector.PGSetting) (Proposal
 	return p, nil
 }
 
-func validateTarget(t Target) error {
+// validateTarget checks every name a command may carry, with the
+// provider's own instance and region forms.
+func validateTarget(provider string, t Target) error {
 	bad := func(what, v string) error { return fmt.Errorf("%w: %s %q", ErrInvalidTarget, what, v) }
+	instance, region := instanceNamePattern, regionPattern
+	switch provider {
+	case "azure":
+		instance = azureServerPattern
+	case "alloydb":
+		region = gcpRegionPattern
+	}
 	switch {
 	case t.ParameterGroup != "" && !groupNamePattern.MatchString(t.ParameterGroup):
 		return bad("parameter group", t.ParameterGroup)
-	case t.InstanceID != "" && !instanceNamePattern.MatchString(t.InstanceID):
+	case t.InstanceID != "" && !instance.MatchString(t.InstanceID):
 		return bad("instance", t.InstanceID)
 	case t.Project != "" && !projectPattern.MatchString(t.Project):
 		return bad("project", t.Project)
-	case t.Region != "" && !regionPattern.MatchString(t.Region):
+	case t.Region != "" && !region.MatchString(t.Region):
 		return bad("region", t.Region)
+	case provider == "alloydb" && t.Cluster != "" && !instanceNamePattern.MatchString(t.Cluster):
+		return bad("cluster", t.Cluster)
+	case t.ResourceGroup != "" && !resourceGroupPattern.MatchString(t.ResourceGroup):
+		return bad("resource group", t.ResourceGroup)
+	case t.Subscription != "" && !subscriptionPattern.MatchString(t.Subscription):
+		return bad("subscription", t.Subscription)
 	}
 	return nil
 }

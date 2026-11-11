@@ -48,7 +48,8 @@ func migrationSteps() []migrationStep {
 	// class split (version 2).
 	steps = append(steps, namedSteps(laterMigrations())...)
 	steps = append(steps, namedSteps(latestMigrations())...)
-	return append(steps, namedSteps(trancheOneMigrations())...)
+	steps = append(steps, namedSteps(trancheOneMigrations())...)
+	return append(steps, namedSteps(trancheTwoMigrations())...)
 }
 
 // namedStep pairs a constant's name with its SQL for laterMigrations.
@@ -167,5 +168,12 @@ func trancheOneMigrations() []namedStep {
 		{"ddlTrustLedgerIncidentCursors", ddlTrustLedgerIncidentCursors}, // earned-02: after ddlTrustLedger()
 		{"ddlIncidentAvoidedRevert", ddlIncidentAvoidedRevert},           // earned-09: after ddlAgentNativeValue
 		{"ddlBenchCrashRecovery", ddlBenchCrashRecovery},                 // benches-03: after ddlSREAutonomy (sre_game_days)
+	}
+}
+
+// trancheTwoMigrations are the T2 improvement items' steps, in order.
+func trancheTwoMigrations() []namedStep {
+	return []namedStep{
+		{"ddlManagedChangeProviders", ddlManagedChangeProviders}, // advisors-03
 	}
 }

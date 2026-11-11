@@ -7,6 +7,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/azure"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
+	"github.com/pg-sage/sidecar/internal/managedparam"
 	prov "github.com/pg-sage/sidecar/internal/provider"
 )
 
@@ -56,7 +57,9 @@ func azureManagedConfig(
 	if err != nil {
 		return nil, "azure server parameters are guidance-only: " + err.Error()
 	}
-	return adapter, fmt.Sprintf("azure server parameters apply through ARM for server %s", server)
+	return adapter, fmt.Sprintf("azure server %s: the WAL-slot cap (max_slot_wal_keep_size) "+
+		"applies through ARM; other server parameters become operator-approved proposals "+
+		"with the az command", server)
 }
 
 // azureTargetConfig is the config azureManagedConfig reads for one database:
@@ -70,16 +73,33 @@ func azureTargetConfig(process *config.Config, r config.CloudResourceAzure) *con
 		ResourceGroup: r.ResourceGroup, ServerName: r.Server}}
 }
 
-// installAzureManagedConfig attaches the adapter to exec and logs the outcome.
+// installAzureManagedConfig attaches the adapter to exec, logs the outcome
+// and returns the adapter (nil when there is none) for the managed-change
+// worker, which only reads server parameters through it.
 func installAzureManagedConfig(
 	exec *executor.Executor, cfg *config.Config, provider, host, scope string,
-) {
+) executor.ManagedConfigAdapter {
 	adapter, note := azureManagedConfig(cfg, provider, host)
 	if note == "" {
-		return
+		return nil
 	}
 	if adapter != nil {
 		exec.WithManagedConfigAdapter(adapter)
 	}
 	logInfo(scope, "%s", note)
+	return adapter
+}
+
+// managedChangeResolver is the managed-change worker's target: the cloud
+// telemetry resolver (RDS, Aurora, Cloud SQL), else the Azure ARM adapter
+// when it can describe server parameters, else nil (placeholders).
+func managedChangeResolver(cloud managedparam.Resolver,
+	adapter executor.ManagedConfigAdapter) managedparam.Resolver {
+	if cloud != nil {
+		return cloud
+	}
+	if r, ok := adapter.(managedparam.Resolver); ok {
+		return r
+	}
+	return nil
 }

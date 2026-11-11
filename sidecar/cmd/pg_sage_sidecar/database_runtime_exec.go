@@ -74,8 +74,8 @@ func (rt *databaseRuntime) buildExecutor() {
 	}
 	ex := executor.New(rt.spec.Pool, rt.cfg, rampStart, logStructuredWrapper)
 	ex.WithAnalyzeSemaphore(ensureAnalyzeSemaphore())
-	installAzureManagedConfig(ex, azureTargetConfig(cfg, rt.spec.Config.CloudResource.Azure),
-		rt.provider,
+	rt.azureParams = installAzureManagedConfig(ex,
+		azureTargetConfig(cfg, rt.spec.Config.CloudResource.Azure), rt.provider,
 		rt.spec.Pool.Config().ConnConfig.Host, rt.spec.Scope)
 	rt.actions = store.NewActionStore(rt.spec.Pool)
 	ex.WithActionStore(rt.actions, rt.spec.ExecMode)
