@@ -101,7 +101,13 @@ func markProposal(req MarkRequest, actor string, now func() time.Time) (facts.Pr
 			Detail: markDetail(evidence, req.Repo, req.Path), ObservedAt: now()}}}, nil
 }
 
-// markDetail is the mark's evidence with where its migration lives.
+// markDetailLimit is the fact store's citation detail limit in bytes; a
+// longer detail is cut from its end, so the evidence is shortened instead
+// to keep where the migration lives.
+const markDetailLimit = 500
+
+// markDetail is the mark's evidence with where its migration lives; the
+// full evidence is the proposal's rationale.
 func markDetail(evidence, repo, path string) string {
 	var where []string
 	if repo = strings.TrimSpace(repo); repo != "" {
@@ -113,7 +119,8 @@ func markDetail(evidence, repo, path string) string {
 	if len(where) == 0 {
 		return evidence
 	}
-	return evidence + " (" + strings.Join(where, ", ") + ")"
+	suffix := " (" + strings.Join(where, ", ") + ")"
+	return clipBytes(evidence, max(0, markDetailLimit-len(suffix))) + suffix
 }
 
 const objectKindSQL = `/* pg_sage */ SELECT c.relkind::text FROM pg_class c
