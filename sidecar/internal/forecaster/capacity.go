@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/runway"
@@ -108,8 +109,22 @@ func withDiskCapacity(findings []analyzer.Finding, c Capacity) []analyzer.Findin
 		rate, _ := f.Detail["growth_rate_bytes_day"].(float64)
 		c.AddTo(f.Detail, current, rate)
 		f.Recommendation += capacityAdvice(f.Detail)
+		f.Title += projectedFull(f.Detail)
 	}
 	return findings
+}
+
+// projectedFull is the title's projected full date (forecast-08): the
+// newest measured day plus days_until_full, when both are known.
+func projectedFull(detail map[string]any) string {
+	days, ok := detail["days_until_full"].(float64)
+	asOf, dated := detail["as_of_day"].(time.Time)
+	if !ok || !dated {
+		return ""
+	}
+	date := asOf.Add(time.Duration(days * float64(24*time.Hour))).Format(dateLayout)
+	detail["projected_full_date"] = date
+	return fmt.Sprintf(", full by %s", date)
 }
 
 // capacityAdvice is the recommendation's sentence on the capacity.

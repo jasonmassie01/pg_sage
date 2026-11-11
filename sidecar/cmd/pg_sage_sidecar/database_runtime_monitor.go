@@ -156,6 +156,7 @@ func forecasterConfig(c *config.Config) forecaster.ForecasterConfig {
 		CheckpointRequestedPerHour: c.Forecaster.CheckpointRequestedPerHour,
 		DiskCapacityBytes:          c.Forecaster.DiskCapacityBytes,
 		MinRSquared:                c.Forecaster.MinRSquared,
+		CollectorInterval:          c.Collector.Interval(),
 	}
 }
 

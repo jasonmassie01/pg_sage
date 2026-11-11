@@ -2,10 +2,13 @@ package forecaster
 
 import (
 	"context"
+	"fmt"
 	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/analyzer"
+	"github.com/pg-sage/sidecar/internal/histstore"
 	"github.com/pg-sage/sidecar/internal/runway"
 )
 
@@ -25,7 +28,13 @@ type ForecasterConfig struct {
 	// DiskCapacityBytes is the declared disk capacity
 	// (forecaster.disk_capacity_bytes; 0: undeclared).
 	DiskCapacityBytes int64
-	MinRSquared       float64
+	// MinRSquared is the fit a disk growth or connection saturation trend
+	// needs before it is projected (forecast-08); 0 means 0.5.
+	MinRSquared float64
+	// CollectorInterval is collector.interval_seconds: a day counts when
+	// its snapshots cover 80% of its hours (forecast-08). 0 measures no
+	// coverage (callers without a collector).
+	CollectorInterval time.Duration
 }
 
 // Forecaster produces capacity forecast findings from historical
@@ -75,7 +84,8 @@ var (
 	queryForecastCategories = []string{"forecast_query_volume"}
 )
 
-// Forecast runs all forecast rules and returns findings. A data source
+// Forecast runs all forecast rules on closed calendar days and returns
+// findings (forecast-08: today's partial day is left out). A data source
 // that fails is logged and skipped; LastEvaluatedCategories then omits
 // its categories so their open findings are not resolved (G2-B02).
 func (f *Forecaster) Forecast(
@@ -83,31 +93,84 @@ func (f *Forecaster) Forecast(
 ) ([]analyzer.Finding, error) {
 	var all []analyzer.Finding
 	var evaluated []string
-
-	if sysAggs, err := QueryDailySystemAggs(ctx, f.pool, f.cfg.LookbackDays); err != nil {
-		f.logFn("WARN", "forecaster: system aggs: %v", err)
+	// Today is read before the history: a day that ends between the two
+	// reads is then left out once more, never read as closed while open.
+	today, err := sessionToday(ctx, f.pool)
+	if err != nil {
+		f.logFn("WARN", "forecaster: %v", err)
 	} else {
-		gateCacheDays(sysAggs, cacheMinBlocks(f.cfg))
-		cache := forecastCachePressure(sysAggs, f.cfg)
-		f.addCacheEvidence(ctx, cache)
-		all = append(all, withDiskCapacity(forecastDiskGrowth(sysAggs, f.cfg),
-			f.diskCapacity(ctx))...)
-		all = append(all, forecastConnectionSaturation(sysAggs, f.cfg)...)
-		all = append(all, cache...)
-		all = append(all, forecastCheckpointPressure(sysAggs, f.cfg)...)
-		evaluated = append(evaluated, evaluatedSystemCategories(sysAggs)...)
+		all, evaluated = f.systemForecast(ctx, today)
+		q, qEvaluated := f.queryForecast(ctx, today)
+		all, evaluated = append(all, q...), append(evaluated, qEvaluated...)
 	}
-	if qAggs, err := f.dailyQueryAggs(ctx); err != nil {
-		f.logFn("WARN", "forecaster: query aggs: %v", err)
-	} else {
-		all = append(all, forecastQueryVolume(qAggs, f.cfg)...)
-		evaluated = append(evaluated, queryForecastCategories...)
-	}
-
 	f.mu.Lock()
 	f.lastEvaluated = evaluated
 	f.mu.Unlock()
 	return all, nil
+}
+
+// sessionTodaySQL is the start of the history store session's current day.
+const sessionTodaySQL = `/* pg_sage */ SELECT date_trunc('day', now())`
+
+func sessionToday(ctx context.Context, pool *pgxpool.Pool) (time.Time, error) {
+	var today time.Time
+	if err := histstore.Resolve(pool).QueryRow(ctx, sessionTodaySQL).Scan(&today); err != nil {
+		return time.Time{}, fmt.Errorf("read the session's current day: %w", err)
+	}
+	return today, nil
+}
+
+// systemForecast runs the four system rules on the closed days.
+func (f *Forecaster) systemForecast(ctx context.Context,
+	today time.Time) ([]analyzer.Finding, []string) {
+	raw, err := QueryDailySystemAggs(ctx, f.pool, f.cfg.LookbackDays)
+	if err != nil {
+		f.logFn("WARN", "forecaster: system aggs: %v", err)
+		return nil, nil
+	}
+	r := systemFindings(closedSystemDays(raw, today, f.cfg.CollectorInterval), f.cfg)
+	f.addCacheEvidence(ctx, r.cache)
+	all := withDiskCapacity(r.disk, f.diskCapacity(ctx))
+	all = append(all, r.connection...)
+	all = append(all, r.cache...)
+	all = append(all, r.checkpoint...)
+	return all, r.evaluated
+}
+
+// queryForecast runs the query volume rule on the closed days; the
+// category is evaluated only with two complete weeks (forecast-08).
+func (f *Forecaster) queryForecast(ctx context.Context,
+	today time.Time) ([]analyzer.Finding, []string) {
+	raw, err := f.dailyQueryAggs(ctx)
+	if err != nil {
+		f.logFn("WARN", "forecaster: query aggs: %v", err)
+		return nil, nil
+	}
+	days := closedQueryDays(raw, today, f.cfg.CollectorInterval)
+	if _, ok := weekOverWeek(days); !ok {
+		return nil, nil
+	}
+	return forecastQueryVolume(days, f.cfg), queryForecastCategories
+}
+
+// systemResult is what the system rules found on closed days.
+type systemResult struct {
+	disk, connection, cache, checkpoint []analyzer.Finding
+	evaluated                           []string
+}
+
+// systemFindings runs the system rules on closed days (closedSystemDays).
+// The disk capacity and the cache evidence need reads: Forecast adds them.
+func systemFindings(days []DaySystemAgg, cfg ForecasterConfig) systemResult {
+	days = append([]DaySystemAgg(nil), days...)
+	gateCacheDays(days, cacheMinBlocks(cfg))
+	return systemResult{
+		disk:       forecastDiskGrowth(days, cfg),
+		connection: forecastConnectionSaturation(days, cfg),
+		cache:      forecastCachePressure(days, cfg),
+		checkpoint: forecastCheckpointPressure(days, cfg),
+		evaluated:  evaluatedSystemCategories(days),
+	}
 }
 
 // evaluatedSystemCategories lists the system categories a read of aggs
