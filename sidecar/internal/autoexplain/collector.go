@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -125,7 +124,7 @@ type candidate struct {
 func (c *Collector) captureCandidates(ctx context.Context, candidates []candidate) {
 	skipped := 0
 	for _, cand := range candidates {
-		if !isExplainable(cand.query) {
+		if ok, _ := workload.Plannable(cand.query); !ok {
 			continue
 		}
 		if c.reportCapture(cand.queryID, c.captureOnDemand(ctx, cand.queryID, cand.query)) {
@@ -384,29 +383,4 @@ func extractPlanMetrics(planJSON []byte) (float64, float64) {
 		return 0, 0
 	}
 	return wrapper[0].Plan.TotalCost, wrapper[0].ExecutionTime
-}
-
-// isExplainable returns true if the query is a DML statement that
-// can be wrapped in EXPLAIN. Utility commands (SET, VACUUM, COPY,
-// DDL) are filtered out.
-func isExplainable(query string) bool {
-	q := strings.TrimSpace(query)
-	if q == "" {
-		return false
-	}
-	upper := strings.ToUpper(q)
-	for _, prefix := range explainablePrefixes {
-		if strings.HasPrefix(upper, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
-var explainablePrefixes = []string{
-	"SELECT",
-	"INSERT",
-	"UPDATE",
-	"DELETE",
-	"WITH",
 }

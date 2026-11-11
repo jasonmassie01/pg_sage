@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/sanitize"
+	"github.com/pg-sage/sidecar/internal/workload"
 )
 
 // hypopgStatementTimeout bounds each statement of a what-if session. The
@@ -217,7 +218,7 @@ func (s *hypopgSession) measureCosts(ctx context.Context, queries []QueryInfo,
 ) (measurement, error) {
 	m := measurement{costs: make(map[int64]float64), uses: make(map[int64]bool)}
 	for _, query := range queries {
-		if !isExplainable(query.Text) {
+		if ok, readOnly := workload.Plannable(query.Text); !ok || !readOnly {
 			continue
 		}
 		if err := sanitize.RejectMultiStatement(query.Text); err != nil {

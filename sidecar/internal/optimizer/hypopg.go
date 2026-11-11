@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/catalogread"
+	"github.com/pg-sage/sidecar/internal/workload"
 )
 
 // hypopgRecheck is how long a probe that found HypoPG absent stands: an
@@ -136,20 +136,16 @@ func extractTotalCost(planJSON []byte) float64 {
 	return wrapper[0].Plan.TotalCost
 }
 
-// explainableQueries are the statements the what-if can plan (SELECT and
-// WITH). A table's writes are never planned, so they take none of the
-// what-if's statement slots. queries is not modified.
+// explainableQueries are the statements the what-if can plan: the
+// read-only ones workload.Plannable accepts. A table's writes are never
+// planned, so they take none of the what-if's statement slots. queries
+// is not modified.
 func explainableQueries(queries []QueryInfo) []QueryInfo {
 	var out []QueryInfo
 	for _, q := range queries {
-		if isExplainable(q.Text) {
+		if ok, readOnly := workload.Plannable(q.Text); ok && readOnly {
 			out = append(out, q)
 		}
 	}
 	return out
-}
-
-func isExplainable(query string) bool {
-	upper := strings.TrimSpace(strings.ToUpper(query))
-	return strings.HasPrefix(upper, "SELECT") || strings.HasPrefix(upper, "WITH")
 }
