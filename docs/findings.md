@@ -719,6 +719,7 @@ These deterministic rules run alongside the categories above.
 | `bloat_remediation` | LLM advisor | Options for removing table and index bloat. |
 | `memory_tuning`, `vacuum_tuning` | Tuning agent | Memory and autovacuum configuration changes. A recommendation without SQL is dropped. |
 | `query_tuning` | Query tuner | Per-query hints (for example `Set(work_mem ...)` or an index scan) stored in `sage.query_hints`. Plan anti-patterns (`index_filter_inefficient`, `or_join_filter` in `symptoms`) are advice only: no hint and no SQL, with the plan facts in the `plan_antipatterns` detail (see below). |
+| `query_parameterization` | Query tuner | A statement shape sent with many IN-list lengths (at least `tuner.param_shape_min_variants` queryids, before PostgreSQL 18), or a statement whose planning time dominates. Advice only, no SQL and no hint: use prepared statements or one array parameter (`= ANY($1)`). Its case offers a `prepare_parameterized_query` script (see [hint verification](hint-verification.md#when-the-tuner-reports-query_parameterization)). |
 | `runaway_query` | Executor | A running query past the configured runaway limits, such as its maximum duration. |
 
 ### Plan anti-pattern detail (`query_tuning`)

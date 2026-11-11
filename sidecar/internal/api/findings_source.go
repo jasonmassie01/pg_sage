@@ -66,7 +66,7 @@ var (
 	// forecast prefix the filter also matches.
 	forecasterCategories  = []string{"storage_forecast"}
 	queryTuningCategories = []string{
-		"query_tuning", "stale_statistics", "runaway_query",
+		"query_tuning", "stale_statistics", "runaway_query", "query_parameterization",
 	}
 	incidentCategories = []string{
 		"incident", "incident_open", "incident_resolved",
