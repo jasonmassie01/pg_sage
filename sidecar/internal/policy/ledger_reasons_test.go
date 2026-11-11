@@ -13,6 +13,11 @@ import (
 // source (doc_coverage_test.go's collector), so a new reason cannot ship
 // without being filterable, and a removed one cannot linger.
 
+// executorLedgerReasons are the reasons the executor records itself,
+// outside the gate. The executor imports this package, so its test
+// (custodian_escalation_reason_test.go) pins each one to its constant.
+var executorLedgerReasons = []string{"custodian_backoff"}
+
 func TestLedgerReasonsAreEveryRecordedReason(t *testing.T) {
 	gate, err := collectPolicyConsts(".")
 	if err != nil {
@@ -23,8 +28,8 @@ func TestLedgerReasonsAreEveryRecordedReason(t *testing.T) {
 		t.Fatalf("collect agent decider constants: %v", err)
 	}
 	want := map[string]bool{}
-	for _, reason := range append(append(gate.Reasons, decide.Reasons...),
-		agentAccessReasons...) {
+	for _, reason := range append(append(append(gate.Reasons, decide.Reasons...),
+		agentAccessReasons...), executorLedgerReasons...) {
 		want[reason] = true
 	}
 	got := map[string]bool{}
@@ -57,6 +62,7 @@ func TestIsLedgerReason(t *testing.T) {
 		"agent_no_pitr":              true,
 		"agent_frozen":               true,
 		"ddl_conflict":               true,
+		"custodian_backoff":          true,
 		"bar":                        false,
 		"":                           false,
 		"Budget_Exceeded":            false,

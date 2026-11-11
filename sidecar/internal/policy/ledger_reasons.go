@@ -3,9 +3,12 @@ package policy
 // ledgerReasons are the reasons a decision can be recorded with in
 // sage.decision: the gate's own (this package), the agent decider's steps
 // D1-D10 (agentguard/decide) and the core agent reasons D1 and D2 record
-// (agentguard). The decide package imports this one, so its values are
-// listed, not referenced; ledger_reasons_test.go pins the list against
-// every declared constant, so it cannot drift (policy-07).
+// (agentguard), and the executor's own escalation. The decide package and
+// the executor import this one, so their values are listed, not
+// referenced; ledger_reasons_test.go and the executor's
+// custodian_escalation_reason_test.go pin the list against every declared
+// constant, so it cannot drift (policy-07). The schema guard records free
+// text, not a reason code, so its rows cannot be filtered by reason.
 var ledgerReasons = []Reason{
 	// The standing gate.
 	ReasonAuthorized, ReasonOperatorApproved, ReasonDeadlineOverride, ReasonNarrowing,
@@ -25,6 +28,8 @@ var ledgerReasons = []Reason{
 	"agent_frozen", "agent_unsponsored", "agent_retired", "agent_env_ceiling",
 	"agent_capability", "agent_classification", "agent_change_freeze", "agent_no_pitr",
 	"agent_rate", "agent_budget", "agent_lease_expired", "agent_governance_unavailable",
+	// The executor's escalation of an exhausted custodian backoff.
+	"custodian_backoff",
 }
 
 var ledgerReasonSet = func() map[Reason]bool {
