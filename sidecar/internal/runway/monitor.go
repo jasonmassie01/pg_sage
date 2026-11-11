@@ -48,6 +48,12 @@ type Monitor struct {
 	staleMu   sync.Mutex
 	stale     map[string]bool
 	truncated bool
+	// ownMu guards ownKey, the cluster key this monitor claims in
+	// opts.Owners, and noOwnerKey, whether its system identifier was
+	// unreadable at the last reading (logged once).
+	ownMu      sync.Mutex
+	ownKey     string
+	noOwnerKey bool
 }
 
 // TickResult is what one tick did.
@@ -57,6 +63,11 @@ type TickResult struct {
 	Started  int
 	Standby  bool
 	Resolved []string // categories whose cleared findings were resolved
+	// ClusterOwner is the database reporting the cluster series ("" when
+	// this monitor reports them on its own); Duplicates counts the
+	// cluster findings this non-owner resolved because the owner did.
+	ClusterOwner string
+	Duplicates   int
 }
 
 // NewMonitor validates its dependencies. starter may be nil (findings
@@ -85,6 +96,7 @@ func NewMonitor(pool *pgxpool.Pool, runner ProbeRunner, starter Starter, opts Op
 func (m *Monitor) Run(ctx context.Context) {
 	t := time.NewTicker(m.opts.Interval)
 	defer t.Stop()
+	defer m.leaveCluster()
 	for {
 		if _, err := m.Tick(ctx); err != nil && ctx.Err() == nil {
 			m.logFn("WARN", "runway: db %q: %v", m.opts.Database, err)
@@ -106,7 +118,9 @@ func (m *Monitor) Tick(ctx context.Context) (TickResult, error) {
 	var res TickResult
 	snap, problems := m.read(ctx)
 	res.Standby = snap.WAL != nil && snap.WAL.InRecovery
-	if !res.Standby {
+	if res.Standby {
+		m.claimCluster(snap) // a standby drops its claim
+	} else {
 		n, err := m.sample(ctx, snap)
 		res.Sampled, problems = n, append(problems, err)
 	}
@@ -128,13 +142,34 @@ func (m *Monitor) Tick(ctx context.Context) (TickResult, error) {
 	if openErr != nil { // fail closed: a slot without samples may still exist
 		problems, evaluated = append(problems, openErr), without(evaluated, CategoryWAL)
 	}
-	res.Runways = runways
 	if !res.Standby {
-		res.Started, res.Resolved, err = m.report(ctx, runways, evaluated,
-			Holds(in, m.opts))
-		problems = append(problems, err)
+		problems = append(problems, m.reportScoped(ctx, &res, in, runways, evaluated,
+			m.claimCluster(snap), openErr == nil))
+	} else {
+		res.Runways = runways
 	}
 	return res, errors.Join(problems...)
+}
+
+// reportScoped narrows the tick to the monitor's cluster scope, reports
+// it, records a complete owner report and resolves a non-owner's
+// duplicates once the owner has reported.
+func (m *Monitor) reportScoped(ctx context.Context, res *TickResult, in EvalInput,
+	runways []Runway, evaluated []string, scope clusterScope, slotsKnown bool) error {
+	runways, evaluated, held := scope.apply(runways, evaluated, Holds(in, m.opts))
+	res.Runways = runways
+	if scope.shared {
+		res.ClusterOwner = scope.owner
+	}
+	var err error
+	res.Started, res.Resolved, err = m.report(ctx, runways, evaluated, held, scope)
+	if err == nil && scope.shared && scope.isOwner && slotsKnown &&
+		clusterEvaluated(in) {
+		m.opts.Owners.Evaluated(scope.key, m.opts.Database)
+	}
+	n, dupErr := m.resolveDuplicates(ctx, scope)
+	res.Duplicates = n
+	return errors.Join(err, dupErr)
 }
 
 // read runs the current-state probes; an unreadable one is reported and

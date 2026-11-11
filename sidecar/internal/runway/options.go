@@ -94,6 +94,10 @@ type Options struct {
 	// monitor keeps its own when SizeInterval is set, else it measures
 	// every tick).
 	Sizes *SizeShare
+	// Owners elects, per cluster, the one runtime of the process that
+	// reports the cluster's series (forecast-09); nil: this monitor
+	// reports them for its database, as a single database does.
+	Owners *ClusterOwners
 }
 
 // ProbeRunner runs one catalog probe (probes.Runner).

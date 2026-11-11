@@ -46,6 +46,9 @@ type Forecaster struct {
 	// capacity is the provider's storage capacity (nil without
 	// managed-cloud telemetry); set before the analyzer starts.
 	capacity runway.CapacitySource
+	// owner elects the fleet database that raises the cluster-wide
+	// forecasts (nil: this one does); set before the analyzer starts.
+	owner ClusterOwner
 
 	mu            sync.Mutex
 	lastEvaluated []string
@@ -103,6 +106,7 @@ func (f *Forecaster) Forecast(
 		q, qEvaluated := f.queryForecast(ctx, today)
 		all, evaluated = append(all, q...), append(evaluated, qEvaluated...)
 	}
+	all, evaluated = f.scopeCluster(all, evaluated)
 	f.mu.Lock()
 	f.lastEvaluated = evaluated
 	f.mu.Unlock()
