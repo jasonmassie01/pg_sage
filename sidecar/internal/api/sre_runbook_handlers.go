@@ -17,10 +17,12 @@ import (
 // Typed runbook and incident memory routes (AI-SRE-SPEC §7.1, §9). Viewers
 // list and read runbooks, their run history and an investigation's
 // similar past incidents. Operators write drafts (JSON or English compiled
-// by the model), retire runbooks and record investigation outcomes. Only
-// admins sign, and a signature names the version and the content hash the
-// signer reviewed. Every route is scoped to the named database. Nothing
-// here runs a runbook or executes a proposal.
+// by the model), revise them and record investigation outcomes; a revision
+// stages a draft while the signed version keeps running. Only admins sign,
+// and a signature names the version and the content hash the signer
+// reviewed; only admins retire, since retirement is permanent. Every route
+// is scoped to the named database. Nothing here runs a runbook or executes
+// a proposal.
 
 const runbooksPath = "/api/v1/databases/{db}/runbooks"
 
@@ -36,7 +38,7 @@ func registerRunbookRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
 	route(mux, "GET "+one, gateViewer, runbookGetHandler(mgr))
 	route(mux, "GET "+one+"/runs", gateViewer, runbookRunsHandler(mgr))
 	route(mux, "POST "+one+"/versions", gateOperator, runbookReviseHandler(mgr))
-	route(mux, "POST "+one+"/retire", gateOperator, runbookRetireHandler(mgr))
+	route(mux, "POST "+one+"/retire", gateAdmin, runbookRetireHandler(mgr))
 	route(mux, "POST "+one+"/sign", gateAdmin, runbookSignHandler(mgr))
 	route(mux, "GET "+sreInvestigationsPath+"/{id}/similar", gateViewer,
 		similarIncidentsHandler(mgr))
