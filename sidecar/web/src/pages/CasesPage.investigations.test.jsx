@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CasesPage } from './CasesPage'
 
@@ -32,6 +32,10 @@ let cases = [lockCase, otherCase]
 // API, with the newest of each requested case id, or the newest 100 when
 // no case id is named.
 let serverInvestigations = defaultInvestigations
+// While pending, an investigations URL not asked before has no answer yet
+// (its request is in flight), as useAPI reports a new resource.
+let pending = false
+let answered = new Set()
 
 function requestedCaseIDs(url) {
   return new URLSearchParams(url.split('?')[1] || '').getAll('case_id')
@@ -42,6 +46,10 @@ vi.mock('../hooks/useAPI', () => ({
     urls.push(url)
     let data = null
     if (url?.startsWith('/api/v1/investigations')) {
+      if (pending && !answered.has(url)) {
+        return { data: null, loading: true, error: null, refetch: vi.fn() }
+      }
+      answered.add(url)
       const ids = requestedCaseIDs(url)
       data = { items: ids.length === 0 ? serverInvestigations.slice(0, 100)
         : serverInvestigations.filter(inv => ids.includes(inv.case_id)) }
@@ -56,6 +64,8 @@ afterEach(() => {
   urls = []
   cases = [lockCase, otherCase]
   serverInvestigations = defaultInvestigations
+  pending = false
+  answered = new Set()
 })
 
 const investigationURLs = () =>
@@ -130,5 +140,23 @@ describe('Cases linked to investigations', () => {
     const asked = [...new Set(investigationURLs())]
     expect(asked).toHaveLength(1)
     expect(requestedCaseIDs(asked[0])).toEqual([slo.id])
+  })
+
+  it('keeps an open investigation while a changed case set is fetched', () => {
+    // A new case changes the visible ids, so the chunk asks again; until
+    // that answer lands the open panel must not unmount (and collapse).
+    const { rerender } = render(<CasesPage database="orders" user={{ role: 'viewer' }} />)
+    const lockBefore = screen.getByText('Lock storm').closest('article')
+    fireEvent.click(within(lockBefore).getByTestId('investigation-toggle'))
+    pending = true
+    cases = [{ ...otherCase, id: 'finding:orders:new', title: 'New finding' },
+      lockCase, otherCase]
+    rerender(<CasesPage database="orders" user={{ role: 'viewer' }} />)
+    expect(screen.getByText('New finding')).toBeInTheDocument()
+    const lock = screen.getByText('Lock storm').closest('article')
+    expect(within(lock).getByTestId('investigation-toggle'))
+      .toHaveTextContent('Hide investigation')
+    expect(within(lock).getByTestId('investigation-state'))
+      .toHaveTextContent('Concluded')
   })
 })

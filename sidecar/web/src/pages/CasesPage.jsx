@@ -182,10 +182,15 @@ export function CasesPage({ database, initialSource = 'all', user }) {
 
 // CaseChunk renders up to 100 cases with the newest investigation of each,
 // asked for by case id (sre-09): a list of the database's newest
-// investigations missed a case whose investigation was older.
+// investigations missed a case whose investigation was older. A changed
+// case set is a new request; until it answers, the last answer stays
+// (keyed by database and case), so an open panel does not unmount.
 function CaseChunk({ chunk, database, user, focused, onReview, onDone }) {
   const investigations = useAPI(investigationsURL(database, chunk.ids), 30000)
-  const byCase = investigationsByCase(investigations.data?.items)
+  const [kept, setKept] = useState({ at: null, items: null })
+  const { data, updatedAt } = investigations
+  if (data?.items && updatedAt !== kept.at) setKept({ at: updatedAt, items: data.items })
+  const byCase = investigationsByCase(data?.items || kept.items)
   return chunk.cases.map(c => (
     <CaseCard key={`${c.database_name}|${caseID(c)}`} caseRow={c} user={user}
       focused={focused} onReview={() => onReview(c)}
