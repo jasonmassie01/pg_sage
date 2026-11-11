@@ -31,12 +31,13 @@ var docMetricToken = regexp.MustCompile(`\bpg_sage_[a-z0-9_]+`)
 // docNonMetricTokens are pg_sage_ names in the docs that are not metrics:
 // the binary and its release archives, the Grafana dashboard file, secret
 // and file names in the deployment guides, and the auto_explain log
-// rejection reason pg_sage_self (rca-04).
+// rejection reason pg_sage_self (rca-04), and the migration ledger column
+// pg_sage_version (config-04b).
 var docNonMetricTokens = map[string]bool{
 	"pg_sage_sidecar": true, "pg_sage_linux_amd64": true, "pg_sage_darwin_arm64": true,
 	"pg_sage_dashboard": true, "pg_sage_metrics_token": true,
 	"pg_sage_break_glass_hash": true, "pg_sage_app_sp_secret": true, "pg_sage_app": true,
-	"pg_sage_self": true,
+	"pg_sage_self": true, "pg_sage_version": true,
 }
 
 // docTokenProblem says why token is not a registered metric name, or "".
