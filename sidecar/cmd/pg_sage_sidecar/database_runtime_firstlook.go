@@ -20,8 +20,9 @@ import (
 // runtime records its install kind (new or existing) before it collects,
 // then takes a catalog-only first look at once, stores it, proposes test
 // schemas as facts, measures the time to the first finding and, with a
-// model configured, adds a short summary. An empty first look waits for
-// the analyzer's first finding instead.
+// model configured, adds a short summary. A first look with no findings
+// (only setup or posture notes, or nothing) waits for the analyzer's first
+// finding instead.
 
 const (
 	firstFindingPoll        = 15 * time.Second
@@ -168,7 +169,7 @@ func (f *firstLookRun) runOnce(ctx context.Context) {
 	if !ok {
 		return
 	}
-	if len(report.Items) == 0 {
+	if firstlook.CountItems(report.Items).Findings == 0 {
 		wctx, cancel := context.WithTimeout(ctx, firstFindingWait)
 		defer cancel()
 		f.awaitFirstFinding(wctx, firstFindingPoll)
@@ -219,13 +220,10 @@ func (f *firstLookRun) catalogPass(ctx context.Context, tracker *onboarding.Trac
 		f.logf("WARN", "first look of %q: record: %v", f.name, err)
 	}
 	took := time.Duration(report.DurationMS) * time.Millisecond
-	if ttff, first := tracker.FirstLook(f.name, report.FinishedAt, len(report.Items),
-		took); first {
-		f.recordFirstFinding(ctx, report.FinishedAt, ttff, "first_look")
-	}
+	f.measure(ctx, tracker, report, report.FinishedAt, took)
 	f.proposeFacts(ctx, report.FactProposals)
-	f.logf("INFO", "first look of %q: %d findings over %d relations in %s%s", f.name,
-		len(report.Items), report.Relations, took, degradedNote(report.Checks))
+	f.logf("INFO", "first look of %q: %s over %d relations in %s%s", f.name,
+		itemsNote(report.Items), report.Relations, took, degradedNote(report.Checks))
 	return report, nil
 }
 
@@ -263,15 +261,29 @@ func (f *firstLookRun) retryWith(ctx context.Context, report firstlook.Report,
 	if err := firstlook.NewStore(f.pool).Update(ctx, retried); err != nil {
 		f.logf("WARN", "first look of %q: record the retry: %v", f.name, err)
 	}
-	at := time.Now()
 	took := time.Duration(retried.DurationMS) * time.Millisecond
-	if ttff, first := tracker.FirstLook(f.name, at, len(retried.Items), took); first {
+	f.measure(ctx, tracker, retried, time.Now(), took)
+	f.proposeFacts(ctx, retried.FactProposals)
+	f.logf("INFO", "first look of %q: after one retry, %s%s", f.name,
+		itemsNote(retried.Items), degradedNote(retried.Checks))
+	return retried
+}
+
+// measure records report, finished at, in tracker (nil for a re-check);
+// only its findings, not its setup or posture notes, are a first finding.
+func (f *firstLookRun) measure(ctx context.Context, tracker *onboarding.Tracker,
+	report firstlook.Report, at time.Time, took time.Duration) {
+	findings := firstlook.CountItems(report.Items).Findings
+	if ttff, first := tracker.FirstLook(f.name, at, len(report.Items), findings,
+		took); first {
 		f.recordFirstFinding(ctx, at, ttff, "first_look")
 	}
-	f.proposeFacts(ctx, retried.FactProposals)
-	f.logf("INFO", "first look of %q: after one retry, %d findings%s", f.name,
-		len(retried.Items), degradedNote(retried.Checks))
-	return retried
+}
+
+// itemsNote is "2 findings, 5 items" for the log.
+func itemsNote(items []firstlook.Item) string {
+	return fmt.Sprintf("%d findings, %d items", firstlook.CountItems(items).Findings,
+		len(items))
 }
 
 func degradedNote(checks []firstlook.Check) string {
@@ -348,8 +360,8 @@ func (f *firstLookRun) summarize(ctx context.Context,
 	return report
 }
 
-// awaitFirstFinding polls for the analyzer's first open finding after an
-// empty first look; it reports whether one was seen before ctx ended.
+// awaitFirstFinding polls for the analyzer's first open finding after a
+// first look with no findings; it reports whether one was seen before ctx ended.
 func (f *firstLookRun) awaitFirstFinding(ctx context.Context, poll time.Duration) bool {
 	ticker := time.NewTicker(poll)
 	defer ticker.Stop()
@@ -388,9 +400,14 @@ func writeFirstLookMetrics(b *strings.Builder, metrics []onboarding.Metrics) {
 			"finding (first look or analyzer).", func(m onboarding.Metrics) (float64, bool) {
 			return m.TTFF.Seconds(), m.HasTTFF
 		}},
-		{"pg_sage_first_look_items", "Findings in the catalog-only first look.",
+		{"pg_sage_first_look_items", "Items in the catalog-only first look (findings, " +
+			"setup and posture notes).", func(m onboarding.Metrics) (float64, bool) {
+			return float64(m.FirstLookItems), m.FirstLookDone
+		}},
+		{"pg_sage_first_look_findings", "Findings in the catalog-only first look: " +
+			"warning or critical catalog items, without setup or posture notes.",
 			func(m onboarding.Metrics) (float64, bool) {
-				return float64(m.FirstLookItems), m.FirstLookDone
+				return float64(m.FirstLookFindings), m.FirstLookDone
 			}},
 		{"pg_sage_first_look_duration_seconds", "Duration of the first look.",
 			func(m onboarding.Metrics) (float64, bool) {

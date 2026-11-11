@@ -33,7 +33,9 @@ type ChecklistInput struct {
 	Connected      bool
 	Capabilities   []firstlook.Capability
 	FirstLookReady bool
-	FirstLookItems int
+	// FirstLookCounts sorts the first look's items: findings, setup notes,
+	// posture notes and other notes.
+	FirstLookCounts firstlook.ItemCounts
 	// FirstLookChecks, FirstLookDegraded and FirstLookTruncated count the
 	// catalog checks: all of them, those that could not run, and those that
 	// found more than the report shows.
@@ -121,15 +123,18 @@ func firstLookStep(in ChecklistInput) Step {
 
 func firstLookDetail(in ChecklistInput) string {
 	var d string
+	n := in.FirstLookCounts
+	notes := itemNotes(n)
 	switch ran := in.FirstLookChecks - in.FirstLookDegraded; {
-	case in.FirstLookItems > 0:
-		d = fmt.Sprintf("%d findings from the catalog.", in.FirstLookItems)
+	case n.Findings > 0:
+		d = strings.Join(append([]string{findingsText(n)}, notes...), ", ") +
+			" from the catalog."
 	case in.FirstLookDegraded > 0:
 		d = fmt.Sprintf("No problems found in the %d %s that ran.", ran,
-			plural(ran, "check", "checks"))
+			plural(ran, "check", "checks")) + alsoLists(notes)
 	default:
-		d = "No problems found in the catalog. Query findings follow as statistics " +
-			"accumulate."
+		d = "No problems found in the catalog." + alsoLists(notes) +
+			" Query findings follow as statistics accumulate."
 	}
 	if in.FirstLookDegraded > 0 {
 		d = fmt.Sprintf("First look partial: %d of %d checks could not run. %s",
@@ -140,6 +145,38 @@ func firstLookDetail(in ChecklistInput) string {
 			plural(n, "check shows", "checks show"), plural(n, "its", "their"))
 	}
 	return d
+}
+
+// findingsText is "3 findings (1 critical)".
+func findingsText(n firstlook.ItemCounts) string {
+	s := fmt.Sprintf("%d %s", n.Findings, plural(n.Findings, "finding", "findings"))
+	if n.Critical > 0 {
+		s += fmt.Sprintf(" (%d critical)", n.Critical)
+	}
+	return s
+}
+
+// itemNotes names the items that are not findings, by kind.
+func itemNotes(n firstlook.ItemCounts) []string {
+	var out []string
+	for _, k := range []struct {
+		n         int
+		one, many string
+	}{{n.Notes, "informational item", "informational items"},
+		{n.Setup, "setup note", "setup notes"},
+		{n.Posture, "posture note", "posture notes"}} {
+		if k.n > 0 {
+			out = append(out, fmt.Sprintf("%d %s", k.n, plural(k.n, k.one, k.many)))
+		}
+	}
+	return out
+}
+
+func alsoLists(notes []string) string {
+	if len(notes) == 0 {
+		return ""
+	}
+	return " The first look also lists " + strings.Join(notes, ", ") + "."
 }
 
 func plural(n int, one, many string) string {

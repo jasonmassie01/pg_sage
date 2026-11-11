@@ -51,7 +51,8 @@ func TestChecklistOrderAndIDs(t *testing.T) {
 
 func TestChecklistAllDone(t *testing.T) {
 	in := ChecklistInput{Connected: true, Capabilities: readyCaps(), FirstLookReady: true,
-		FirstLookItems: 4, MCPEnabled: true, MCPToken: bp(true), Notifications: bp(true),
+		FirstLookCounts: firstlook.ItemCounts{Findings: 4},
+		MCPEnabled:      true, MCPToken: bp(true), Notifications: bp(true),
 		TrustLevel: "advisory", TTFFSeconds: fp(11)}
 	for _, s := range Checklist(in) {
 		if !s.Done {

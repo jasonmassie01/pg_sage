@@ -98,7 +98,7 @@ func TestFirstLookAwaitsAnAnalyzerFindingWhenEmpty(t *testing.T) {
 	tr := onboarding.NewTracker()
 	started := time.Now()
 	tr.Start("app", started)
-	tr.FirstLook("app", started, 0, time.Millisecond)
+	tr.FirstLook("app", started, 0, 0, time.Millisecond)
 	run := &firstLookRun{name: "app", pool: p, started: started, tracker: tr,
 		logf: func(string, string, ...any) {}}
 	go func() {

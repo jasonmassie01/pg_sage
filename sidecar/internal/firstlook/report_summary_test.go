@@ -30,6 +30,7 @@ func TestSummaryOfCountsCatalogChecksOnly(t *testing.T) {
 	got := SummaryOf(r)
 	want := ReportSummary{ID: 7, Database: "app", FinishedAt: r.FinishedAt,
 		DurationMS: 812, Summary: "Two findings.", Items: 2,
+		Counts:       ItemCounts{Findings: 2, Critical: 1},
 		Checks:       CheckCounts{Total: 3, Degraded: 1, Truncated: 1},
 		Capabilities: r.Capabilities}
 	if !reflect.DeepEqual(got, want) {

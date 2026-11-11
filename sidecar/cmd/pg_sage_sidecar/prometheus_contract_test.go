@@ -60,7 +60,8 @@ func installContractFleet(t *testing.T, mode string, names ...string) {
 	firstLookTracker = onboarding.NewTracker()
 	for _, n := range names {
 		firstLookTracker.Start(n, contractStart)
-		firstLookTracker.FirstLook(n, contractStart.Add(2*time.Second), 3, time.Second)
+		firstLookTracker.FirstLook(n, contractStart.Add(2*time.Second), 3, 3,
+			time.Second)
 	}
 }
 

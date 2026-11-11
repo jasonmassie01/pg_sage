@@ -132,8 +132,8 @@ func (f *firstLookRun) recheckPass(pctx context.Context) (firstlook.Report, erro
 		return firstlook.Report{}, fmt.Errorf("first look of %q: %w", f.name, err)
 	}
 	report = f.retryWith(pctx, report, firstLookRecheckRetryDelay, nil)
-	f.logf("INFO", "first look of %q: re-checked on request, %d findings", f.name,
-		len(report.Items))
+	f.logf("INFO", "first look of %q: re-checked on request, %s", f.name,
+		itemsNote(report.Items))
 	return f.summarize(pctx, report), nil
 }
 
