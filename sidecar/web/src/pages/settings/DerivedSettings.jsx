@@ -176,7 +176,8 @@ export function DerivedSettings({ database }) {
   const databases = Array.isArray(data?.databases) ? data.databases : []
   return (
     <QueryState query={derived} message={message}>
-    <section data-testid="derived-settings" data-url={url} className="rounded p-4 space-y-2"
+    <section id="derived-settings" data-testid="derived-settings" data-url={url}
+      className="rounded p-4 space-y-2"
       style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
       <h2 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
         Derived settings
