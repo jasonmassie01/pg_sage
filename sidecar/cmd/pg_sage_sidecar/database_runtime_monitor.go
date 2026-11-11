@@ -37,8 +37,7 @@ func (rt *databaseRuntime) startMonitoring() {
 		rt.newAdvisor(), rt.newForecaster(), queryTuner,
 		logStructuredWrapper,
 	)
-	rt.analyzer.WithFactFilter(rt.factFilter())
-	rt.analyzer.WithFreezeHorizons(rt.freezeCustodian().Sampler())
+	rt.attachAnalyzerInputs()
 	rt.analyzer.WithSupplementalDetector(executor.NewRunawayDetector(
 		rt.spec.Pool, &cfg.Runaway, logStructuredWrapper,
 	))
@@ -63,6 +62,16 @@ func (rt *databaseRuntime) startMonitoring() {
 	rt.startSchemaLint()
 	rt.startMigrationAdvisor()
 	rt.startPGAuditCorrelation()
+}
+
+// attachAnalyzerInputs gives the analyzer the index floor (when on), the
+// fact filter and the freeze sampler.
+func (rt *databaseRuntime) attachAnalyzerInputs() {
+	if floor := rt.newIndexFloor(); floor != nil {
+		rt.analyzer.WithIndexFloor(floor)
+	}
+	rt.analyzer.WithFactFilter(rt.factFilter())
+	rt.analyzer.WithFreezeHorizons(rt.freezeCustodian().Sampler())
 }
 
 // newCollector builds the stats collector. The configuration snapshot is

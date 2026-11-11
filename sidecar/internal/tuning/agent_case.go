@@ -34,6 +34,16 @@ type cycle struct {
 	cal       Calibration
 	day       dayBudget
 	open      []analyzer.Finding // the open findings kept this cycle
+	// dayClosed: the daily budget let no model call; answered and failed
+	// count the conversations that got an answer and those that failed.
+	dayClosed        bool
+	answered, failed int
+}
+
+// modelUnavailable reports a cycle whose model could not be consulted: the
+// day was closed, or every conversation it held failed (indexes-12).
+func (cy *cycle) modelUnavailable() bool {
+	return cy.dayClosed || (cy.answered == 0 && cy.failed > 0)
 }
 
 // askCases asks the model about the cases, within the cycle's case cap,
@@ -45,6 +55,7 @@ func (a *Agent) askCases(ctx context.Context, cy *cycle, cases []Case) []analyze
 	t := a.settings.Tuning
 	tokens, ok := a.openDay(ctx, cy)
 	if !ok {
+		cy.dayClosed = true
 		a.deferAll(cy, cases)
 		return nil
 	}
@@ -131,8 +142,10 @@ func (a *Agent) runCase(ctx context.Context, cy *cycle, c Case) ([]Judged, bool)
 		tr, err = a.deps.Loop.Run(ctx, a.deps.Fallback, conv)
 	}
 	if err != nil {
+		cy.failed++
 		return nil, a.caseFailed(c, err)
 	}
+	cy.answered++
 	answer, err := ParseAnswer(tr.Final)
 	if err != nil {
 		a.logFn("WARN", "tuning: case %s: unusable answer: %v", c.ID, err)

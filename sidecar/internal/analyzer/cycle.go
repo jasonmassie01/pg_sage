@@ -160,7 +160,8 @@ func (a *Analyzer) runDatabaseRules(
 	return append(out, planDiff...)
 }
 
-// runSeqScanWatchdog skips tables already flagged by the missing-FK rule.
+// runSeqScanWatchdog skips tables already flagged by the missing-FK rule
+// and records the flagged tables for the index floor.
 func (a *Analyzer) runSeqScanWatchdog(
 	current, previous *collector.Snapshot, prior []Finding,
 ) []Finding {
@@ -168,7 +169,9 @@ func (a *Analyzer) runSeqScanWatchdog(
 		a.eval.fail("seq_scan_heavy")
 	}
 	a.eval.evaluated("seq_scan_heavy")
-	return ruleSeqScanWatchdog(current, previous, a.cfg, missingFKTables(prior))
+	out := ruleSeqScanWatchdog(current, previous, a.cfg, missingFKTables(prior))
+	a.eval.seqHeavy = seqHeavyTables(current, out) // the index floor's tables
+	return out
 }
 
 // missingFKTables returns the identifiers already flagged by the missing
@@ -186,7 +189,8 @@ func missingFKTables(findings []Finding) map[string]bool {
 	return out
 }
 
-// runProducers runs the tuning agent, advisor, forecaster and tuner.
+// runProducers runs the tuning agent (or, when it is inactive, the index
+// floor), advisor, forecaster and tuner.
 // Tables with fresh or still-open index recommendations are deferred so
 // the tuner does not install a hint that a pending index would obsolete.
 func (a *Analyzer) runProducers(
@@ -194,8 +198,9 @@ func (a *Analyzer) runProducers(
 ) []Finding {
 	deferredTables := make(map[string]bool)
 	tuned := a.runTuning(ctx, current, previous)
-	out := tuned.Findings
-	for _, t := range tuned.IndexTables {
+	floor := a.runIndexFloor(ctx, current, tuned)
+	out := append(tuned.Findings, floor...)
+	for _, t := range append(tuned.IndexTables, findingTables(floor)...) {
 		if c := canonicalTable(t); c != "" {
 			deferredTables[c] = true
 		}

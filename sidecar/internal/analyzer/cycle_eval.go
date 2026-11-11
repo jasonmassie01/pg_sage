@@ -17,6 +17,9 @@ type cycleEval struct {
 	// collectedAt is when this cycle's snapshot was collected: the
 	// evidence time findings are judged by after an action (rules-06).
 	collectedAt time.Time
+	// seqHeavy are this cycle's seq_scan_heavy tables (quoted, most
+	// sequential scans first), the index floor's work (indexes-12).
+	seqHeavy []string
 }
 
 // evidenceAt returns when this cycle's evidence was collected, zero when
