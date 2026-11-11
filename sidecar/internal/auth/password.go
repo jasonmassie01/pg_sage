@@ -56,9 +56,10 @@ func ValidatePassword(email, pw string) error {
 // ChangePassword replaces userID's password after checking the current one
 // and ends the user's other sessions (all but keepSessionHash, the stored
 // hash of the calling session; empty ends them all). It clears
-// must_change_password. The row lock makes concurrent changes with the same
-// current password serialize: the second sees the new hash and gets
-// ErrCurrentPasswordWrong. It returns how many sessions it ended.
+// must_change_password and refuses keeping the current password. The row
+// lock makes concurrent changes with the same current password serialize:
+// the second sees the new hash and gets ErrCurrentPasswordWrong. It
+// returns how many sessions it ended.
 func ChangePassword(
 	ctx context.Context, pool *pgxpool.Pool,
 	userID int, current, next, keepSessionHash string,
@@ -76,6 +77,12 @@ func ChangePassword(
 		}
 		if !CheckPassword(hash, current) {
 			return ErrCurrentPasswordWrong
+		}
+		// current matched the hash, so next == current is the same password:
+		// a forced change must not keep the temporary one the admin saw.
+		if next == current {
+			return fmt.Errorf("%w: choose a password different from the current password",
+				ErrPasswordPolicy)
 		}
 		var err error
 		ended, err = setPasswordTx(ctx, tx, userID, next, false, keepSessionHash)

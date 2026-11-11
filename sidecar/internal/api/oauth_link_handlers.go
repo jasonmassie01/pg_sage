@@ -58,6 +58,11 @@ func oauthAuthorizeRouter(
 			writeSessionStoreUnavailable(w, r, err)
 			return
 		}
+		// The middleware gate does not see this public route (apiauth-03).
+		if user.MustChangePassword {
+			jsonError(w, passwordChangeRequiredCode, http.StatusForbidden)
+			return
+		}
 		if ssoNotReady(w, provider) {
 			return
 		}
