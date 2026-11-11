@@ -744,6 +744,27 @@ grandfathered. `sre.autonomy.enforce: false` keeps the legacy behaviour (the ram
 and is logged as a warning. Rollbacks of pg_sage's own changes and owner-declared retention
 deletes are never withheld by the ledger.
 
+**Re-validation on a PostgreSQL major upgrade.** Planner, statistics and GUC semantics change
+between majors, so every level records the major of the monitored server it was granted on
+(`server_major`, read from `server_version_num`, which needs no privileges on any provider;
+pg_sage re-reads it at most every 5 minutes). A self-initiated L3 granted on another major
+than the server runs now (for example earned on 16, the server now on 17) is capped at L2:
+its actions go to one-click approval, and the history records `capped` once, with the reason
+`server_major_changed:16->17`. The Trust page shows "capped at L2: PostgreSQL 16→17; 1 of
+3 improved outcomes, or re-approve" on the row (`major_cap` on the rows of
+`GET /api/v1/trust` and `GET /api/v1/sre/autonomy`, whose effective level is L2). The cap clears,
+recorded as `cap_cleared`, after 3 `improved` outcomes of the pair recorded after the cap
+event (the L2 promotion count, `class_min_successes_l2`), or at once when an admin
+re-approves the pair (**Re-approve** on the Trust page, or `POST
+/api/v1/sre/autonomy/revalidate?database=` with `{"family", "class", "note"}`; other roles
+get 403, a pair that is not capped 409 `not_capped`). Either way the level is restamped
+with the new major. A minor upgrade (17.0 to 17.2) changes nothing. A level stored before
+this release has no major and is stamped with the current one, without a cap. When the
+version cannot be read, nothing is capped or stamped (the last major read is kept). L2 and
+lower levels, incident families and carried-over levels are not re-validated, and the
+demerit rule is unchanged. The cap is per database: each database's ledger compares its own
+server.
+
 The **Trust** page (and `GET /api/v1/trust?database=`) shows every database x family x class
 with its level, effective level, evidence counts, last change and why, and the path to the
 next level; an incident row also carries `bench`, the report its bench checks read (id,
