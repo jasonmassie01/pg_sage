@@ -199,6 +199,25 @@ func (t *Throttle) classify(
 
 func sameEpisode(a, b int64) bool { return a == 0 || b == 0 || a == b }
 
+// endedEpisode marks a record whose finding resolved: no finding id
+// matches it, so the same row reopened is alerted as new.
+const endedEpisode int64 = -1
+
+// endEpisode records that episode (a finding id) of key resolved. A row
+// an action resolved can reopen with the same id when the condition
+// persists; it is then alerted again once the cooldown has passed, not
+// left silent until the next reminder. Another episode's record is kept.
+func (t *Throttle) endEpisode(key string, episode int64) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	rec, ok := t.sent[key]
+	if !ok || episode == 0 || !sameEpisode(rec.episode, episode) {
+		return
+	}
+	rec.episode = endedEpisode
+	t.sent[key] = rec
+}
+
 // ShouldAlert returns true if the key should fire an alert or a
 // reminder now.
 func (t *Throttle) ShouldAlert(key, severity string) bool {

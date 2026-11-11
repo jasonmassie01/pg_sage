@@ -109,14 +109,26 @@ func groupResolveRows(rows []resolveRow) []resolveTarget {
 // every open finding is not re-alerted (G7-B32): the last delivery of
 // each key whose finding is still open, however old, or that was sent
 // within $1 minutes (the longest repeat interval plus an hour), with the
-// first delivery of that finding (alerting-07).
+// first delivery of that finding since its last resolve (alerting-07).
+// A resolve logged after the last delivery ends the episode (-1), so a
+// row reopened with the same id is alerted as new.
 const seedQuery = `
 SELECT DISTINCT ON (a.dedup_key) a.dedup_key, a.severity,
-       COALESCE(a.finding_id, 0), a.sent_at,
+       CASE WHEN r.ended_at IS NOT NULL THEN -1
+            ELSE COALESCE(a.finding_id, 0) END,
+       a.sent_at,
        COALESCE((SELECT min(b.sent_at) FROM sage.alert_log b
-                  WHERE b.finding_id = a.finding_id AND b.status = 'sent'),
+                  WHERE b.finding_id = a.finding_id AND b.status = 'sent'
+                    AND b.sent_at > COALESCE(r.began_after, '-infinity')),
                 a.sent_at)
 FROM sage.alert_log a
+CROSS JOIN LATERAL (
+    SELECT max(x.sent_at) FILTER (WHERE x.sent_at > a.sent_at) AS ended_at,
+           max(x.sent_at) FILTER (WHERE x.sent_at <= a.sent_at) AS began_after
+    FROM sage.alert_log x
+    WHERE x.finding_id = a.finding_id
+      AND x.status IN ('resolved', 'resolve_error')
+) r
 WHERE a.status = 'sent'
   AND (a.sent_at > now() - make_interval(mins => $1)
        OR EXISTS (SELECT 1 FROM sage.findings f
@@ -181,6 +193,7 @@ func (m *Manager) resolveFinding(ctx context.Context, target resolveTarget) {
 	alert := m.newAlert(f.Severity, f)
 	alert.Resolved = true
 	key := FormatDedupKey(f.Category, f.ObjectIdentifier)
+	m.throttle.endEpisode(key, f.ID)
 	for _, ch := range m.routes[f.Severity] {
 		name := ch.Name()
 		if !target.channels[name] {

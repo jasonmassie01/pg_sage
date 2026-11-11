@@ -2749,8 +2749,8 @@ for critical, once a day for warning, and never for info. Slack heads a reminder
 for 3h20m (seen 21 times)", webhooks get `"reminder": true` and `open_for_seconds`, and
 PagerDuty re-triggers with the same dedup key, which it folds into the open incident. A
 finding that escalates (warning to critical) is sent at once. A finding that resolves and
-reopens as a new finding waits out the cooldown first, so a flapping check is not re-sent
-every cycle. Reminders are logged in `sage.alert_log` as `sent`, and after a restart the
+reopens, as a new finding or as the same one when an action did not fix it, is alerted again
+once the cooldown has passed, so a flapping check is not re-sent every cycle. Reminders are logged in `sage.alert_log` as `sent`, and after a restart the
 throttle reads that log far enough back to keep the schedule. Like the other alerting keys,
 `repeat_minutes` takes effect on restart.
 

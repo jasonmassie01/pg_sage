@@ -214,3 +214,53 @@ func TestEvaluate_ReminderLogsAsSent(t *testing.T) {
 		t.Errorf("finding %d sent again on the next cycle", id)
 	}
 }
+
+// logResolved writes a resolve notification row at an explicit time.
+func logResolved(t *testing.T, pool *pgxpool.Pool, id int64, key string, at time.Time) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(), `INSERT INTO sage.alert_log
+		(finding_id, severity, channel, dedup_key, status, error_message, sent_at)
+		VALUES ($1, 'critical', 'slack', $2, 'resolved', '', $3)`, id, key, at); err != nil {
+		t.Fatalf("insert resolved alert_log row for %d: %v", id, err)
+	}
+}
+
+// A row an action resolved can reopen with the same id. A resolve logged
+// after the last send ends that episode across a restart, so the reopened
+// finding is alerted again instead of waiting for the next reminder.
+func TestSeed_ResolveAfterLastSendEndsEpisode(t *testing.T) {
+	pool := alertTestPool(t)
+	base := dbNow(t, pool)
+	ident := repeatIdent("reopened")
+	key := FormatDedupKey("repeat07", ident)
+	id := repeatFinding(t, pool, "critical", ident, "open")
+	logSent(t, pool, id, "critical", key, base.Add(-time.Hour))
+	logResolved(t, pool, id, key, base.Add(-30*time.Minute))
+
+	m, _ := restarted(t, pool, base)
+	d, openFor := m.throttle.DecideEpisode(key, "critical", id)
+	wantDecision(t, "reopened 30m after its resolve", d, DecisionSend)
+	if openFor != 0 {
+		t.Errorf("openFor = %v, want 0 for a first alert", openFor)
+	}
+}
+
+// After a resolve and a new send of the same row, first counts from the
+// send after the resolve, not from the earlier episode.
+func TestSeed_FirstCountsFromTheLastResolve(t *testing.T) {
+	pool := alertTestPool(t)
+	base := dbNow(t, pool)
+	ident := repeatIdent("reepisode")
+	key := FormatDedupKey("repeat07", ident)
+	id := repeatFinding(t, pool, "critical", ident, "open")
+	logSent(t, pool, id, "critical", key, base.Add(-6*time.Hour))
+	logResolved(t, pool, id, key, base.Add(-5*time.Hour))
+	logSent(t, pool, id, "critical", key, base.Add(-270*time.Minute))
+
+	m, _ := restarted(t, pool, base)
+	d, openFor := m.throttle.DecideEpisode(key, "critical", id)
+	wantDecision(t, "4h30m after the send that followed the resolve", d, DecisionRemind)
+	if openFor != 270*time.Minute {
+		t.Errorf("openFor = %v, want 4h30m from the send after the resolve", openFor)
+	}
+}
