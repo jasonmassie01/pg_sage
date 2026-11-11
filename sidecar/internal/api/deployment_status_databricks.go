@@ -84,8 +84,11 @@ func addScaleToZeroStatus(
 		row["compute_state"] = info.State
 	}
 	row["compute_observed_at"] = optionalTime(info.ObservedAt)
-	row["keeps_compute_active"] = len(info.Blockers) > 0
-	if len(info.Blockers) > 0 {
+	// Blockers come from pool settings noted earlier; with the latest
+	// observation showing scale-to-zero off there is nothing for them to block.
+	active := info.SuspendTimeout > 0 && len(info.Blockers) > 0
+	row["keeps_compute_active"] = active
+	if active {
 		row["scale_to_zero_blockers"] = info.Blockers
 	}
 }

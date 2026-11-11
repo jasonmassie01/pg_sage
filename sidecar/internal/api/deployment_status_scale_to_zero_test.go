@@ -82,3 +82,16 @@ func TestDeploymentStatusScaleToZeroUnobserved(t *testing.T) {
 		t.Fatalf("no lookup wired: keeps_compute_active = %v (present %v)", v, present)
 	}
 }
+
+// State transition: blockers noted while scale-to-zero was on are not
+// reported once a later observation shows it off (suspend timeout 0).
+func TestDeploymentStatusScaleToZeroTurnedOffDropsStaleBlockers(t *testing.T) {
+	row, body := scaleStatusRow(t, &databricksauth.EndpointInfo{State: "ACTIVE",
+		ObservedAt: time.Now(), Blockers: []string{"collector every 1m0s"}})
+	if row["suspend_timeout_seconds"] != nil || row["keeps_compute_active"] != false {
+		t.Fatalf("scale-to-zero off with stale blockers: row = %v", row)
+	}
+	if !strings.Contains(body, `"scale_to_zero_blockers":[]`) {
+		t.Fatalf("stale blockers reported: %s", body)
+	}
+}
