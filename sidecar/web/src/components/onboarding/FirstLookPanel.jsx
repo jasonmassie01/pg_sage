@@ -1,6 +1,8 @@
 import { useAPI } from '../../hooks/useAPI'
 import { entryErrorText } from './entryError'
 import { LoadError } from './LoadError'
+import { RecheckButton } from './RecheckButton'
+import { useRecheckedRefetch } from './recheck'
 
 // FirstLookPanel shows the catalog-only first look: what a DBA would flag
 // on day one, each finding with the catalog evidence it rests on. Suggested
@@ -166,7 +168,7 @@ function emptyText(checks) {
   return `No problems found in the ${ran} ${that}; ${degraded} could not run.`
 }
 
-function Report({ entry }) {
+function Report({ entry, user }) {
   const report = entry.report
   if (entry.error) {
     return (
@@ -189,6 +191,7 @@ function Report({ entry }) {
       <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
         {entry.database}: {Number(report.relations || 0).toLocaleString('en-US')} relations
         read in {report.duration_ms} ms, catalog only.
+        <RecheckButton database={entry.database} user={user} />
       </p>
       {report.summary && <p className="text-sm font-medium">{report.summary}</p>}
       {items.length === 0 ? (
@@ -202,8 +205,9 @@ function Report({ entry }) {
   )
 }
 
-export function FirstLookPanel({ database }) {
+export function FirstLookPanel({ database, user }) {
   const { data, error, refetch } = useAPI(firstLookURL(database), 30000)
+  useRecheckedRefetch(refetch)
   if (error && !data) {
     return (
       <section className="space-y-3" aria-labelledby="first-look-heading">
@@ -217,7 +221,7 @@ export function FirstLookPanel({ database }) {
   return (
     <section className="space-y-3" aria-labelledby="first-look-heading">
       <h2 id="first-look-heading" className="text-lg font-semibold">First look</h2>
-      {entries.map(entry => <Report key={entry.database} entry={entry} />)}
+      {entries.map(entry => <Report key={entry.database} entry={entry} user={user} />)}
     </section>
   )
 }

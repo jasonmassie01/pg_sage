@@ -46,8 +46,15 @@ type onboardingReader interface {
 }
 
 type firstLookSummary struct {
-	Ready      bool       `json:"ready"`
+	Ready bool `json:"ready"`
+	// Items counts every item; Findings, Setup, Posture and Notes sort them
+	// (firstlook.CountItems), and Critical counts the critical findings.
 	Items      int        `json:"items"`
+	Findings   int        `json:"findings"`
+	Critical   int        `json:"critical"`
+	Setup      int        `json:"setup"`
+	Posture    int        `json:"posture"`
+	Notes      int        `json:"notes"`
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
 	DurationMS int64      `json:"duration_ms"`
 	Summary    string     `json:"summary,omitempty"`
@@ -125,18 +132,25 @@ func entryFor(db onboardingDatabase, mcpOn bool, token, notifications *bool) onb
 		in.TTFFSeconds = db.State.TTFFSeconds
 	}
 	if fl := db.FirstLook; fl != nil {
-		finished := fl.FinishedAt
 		n := fl.Checks
-		e.FirstLook = firstLookSummary{Ready: true, Items: fl.Items,
-			FinishedAt: &finished, DurationMS: fl.DurationMS, Summary: fl.Summary,
-			Checks: n.Total, Degraded: n.Degraded, Truncated: n.Truncated}
-		in.FirstLookReady, in.FirstLookItems = true, fl.Items
+		e.FirstLook = firstLookSummaryOf(fl)
+		in.FirstLookReady, in.FirstLookCounts = true, fl.Counts
 		in.FirstLookChecks, in.FirstLookDegraded = n.Total, n.Degraded
 		in.FirstLookTruncated = n.Truncated
 		in.Capabilities = fl.Capabilities
 	}
 	e.Steps = onboarding.Checklist(in)
 	return e
+}
+
+// firstLookSummaryOf is a stored report's summary as the API shows it.
+func firstLookSummaryOf(fl *firstlook.ReportSummary) firstLookSummary {
+	finished := fl.FinishedAt
+	n, c := fl.Checks, fl.Counts
+	return firstLookSummary{Ready: true, Items: fl.Items, Findings: c.Findings,
+		Critical: c.Critical, Setup: c.Setup, Posture: c.Posture, Notes: c.Notes,
+		FinishedAt: &finished, DurationMS: fl.DurationMS, Summary: fl.Summary,
+		Checks: n.Total, Degraded: n.Degraded, Truncated: n.Truncated}
 }
 
 type firstLookEntry struct {

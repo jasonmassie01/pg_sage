@@ -14,6 +14,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
+	"github.com/pg-sage/sidecar/internal/firstlook"
 	"github.com/pg-sage/sidecar/internal/ha"
 	"github.com/pg-sage/sidecar/internal/logwatch"
 	"github.com/pg-sage/sidecar/internal/sre"
@@ -56,7 +57,9 @@ type DatabaseInstance struct {
 	// CapabilityRefresh asks the runtime's capability refresher for a
 	// prompt recollection without blocking; nil when none runs.
 	CapabilityRefresh func()
-	Stopped           bool
+	// FirstLookRecheck re-runs the first look on request; nil without one.
+	FirstLookRecheck func(context.Context) (firstlook.Report, error)
+	Stopped          bool
 	// StoppedBy and StoppedAt attribute the active emergency stop. Like
 	// Stopped, they are guarded by the manager lock.
 	StoppedBy string

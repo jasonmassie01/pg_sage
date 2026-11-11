@@ -8,9 +8,12 @@ import (
 
 // Metrics is one database's first-run measurement for this process.
 type Metrics struct {
-	Database          string
-	FirstLookDone     bool
-	FirstLookItems    int
+	Database       string
+	FirstLookDone  bool
+	FirstLookItems int
+	// FirstLookFindings counts the first look's findings (firstlook
+	// Item.IsFinding), without its setup and posture notes.
+	FirstLookFindings int
 	FirstLookDuration time.Duration
 	HasTTFF           bool
 	TTFF              time.Duration
@@ -43,9 +46,10 @@ func (t *Tracker) Start(database string, at time.Time) {
 	t.runs[database] = &run{started: at, m: Metrics{Database: database}}
 }
 
-// FirstLook records a finished first look; one with items is the first
-// finding. It returns the time to first finding when this call set it.
-func (t *Tracker) FirstLook(database string, at time.Time, items int,
+// FirstLook records a finished first look of items, findings of them; one
+// with findings is the first finding (setup and posture notes are not). It
+// returns the time to first finding when this call set it.
+func (t *Tracker) FirstLook(database string, at time.Time, items, findings int,
 	took time.Duration) (time.Duration, bool) {
 	if t == nil {
 		return 0, false
@@ -57,7 +61,8 @@ func (t *Tracker) FirstLook(database string, at time.Time, items int,
 		return 0, false
 	}
 	r.m.FirstLookDone, r.m.FirstLookItems, r.m.FirstLookDuration = true, items, took
-	if items == 0 {
+	r.m.FirstLookFindings = findings
+	if findings <= 0 {
 		return 0, false
 	}
 	return r.first(at)

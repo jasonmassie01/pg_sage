@@ -3,6 +3,8 @@ package onboarding
 import (
 	"strings"
 	"testing"
+
+	"github.com/pg-sage/sidecar/internal/firstlook"
 )
 
 // No concurrent access tests: firstLookStep is a pure function of its input.
@@ -37,8 +39,8 @@ func TestFirstLookStepEveryCheckDegradedIsNotDone(t *testing.T) {
 
 func TestFirstLookStepDegradedWithFindings(t *testing.T) {
 	s := step(Checklist(ChecklistInput{Connected: true, FirstLookReady: true,
-		FirstLookItems: 3, FirstLookChecks: 9, FirstLookDegraded: 1,
-		TTFFSeconds: fp(4)}), StepFirstLook)
+		FirstLookCounts: firstlook.ItemCounts{Findings: 3}, FirstLookChecks: 9,
+		FirstLookDegraded: 1, TTFFSeconds: fp(4)}), StepFirstLook)
 	for _, want := range []string{"1 of 9 checks could not run", "3 findings", "4 s"} {
 		if !strings.Contains(s.Detail, want) {
 			t.Fatalf("detail %q lacks %q", s.Detail, want)
@@ -52,8 +54,9 @@ func TestFirstLookStepDegradedWithFindings(t *testing.T) {
 func TestFirstLookStepHealthyTextUnchanged(t *testing.T) {
 	// Happy path: no degraded checks keeps today's text, with or without counts.
 	for _, in := range []ChecklistInput{
-		{FirstLookReady: true, FirstLookItems: 3, FirstLookChecks: 9},
-		{FirstLookReady: true, FirstLookItems: 3},
+		{FirstLookReady: true, FirstLookCounts: firstlook.ItemCounts{Findings: 3},
+			FirstLookChecks: 9},
+		{FirstLookReady: true, FirstLookCounts: firstlook.ItemCounts{Findings: 3}},
 	} {
 		s := step(Checklist(in), StepFirstLook)
 		if !s.Done || s.Detail != "3 findings from the catalog." {
@@ -68,7 +71,8 @@ func TestFirstLookStepHealthyTextUnchanged(t *testing.T) {
 }
 
 func TestFirstLookStepTruncatedChecksAreNamed(t *testing.T) {
-	s := step(Checklist(ChecklistInput{FirstLookReady: true, FirstLookItems: 50,
+	s := step(Checklist(ChecklistInput{FirstLookReady: true,
+		FirstLookCounts: firstlook.ItemCounts{Findings: 50},
 		FirstLookChecks: 9, FirstLookTruncated: 1}), StepFirstLook)
 	if !strings.Contains(s.Detail, "50 findings") ||
 		!strings.Contains(s.Detail, "1 check shows only its first findings") {

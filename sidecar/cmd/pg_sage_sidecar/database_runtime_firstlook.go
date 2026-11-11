@@ -20,8 +20,9 @@ import (
 // runtime records its install kind (new or existing) before it collects,
 // then takes a catalog-only first look at once, stores it, proposes test
 // schemas as facts, measures the time to the first finding and, with a
-// model configured, adds a short summary. An empty first look waits for
-// the analyzer's first finding instead.
+// model configured, adds a short summary. A first look with no findings
+// (only setup or posture notes, or nothing) waits for the analyzer's first
+// finding instead.
 
 const (
 	firstFindingPoll        = 15 * time.Second
@@ -96,6 +97,15 @@ type firstLookRun struct {
 	model          string
 	opts           firstlook.Options
 	logf           func(level, format string, args ...any)
+	// life is the runtime's context: a re-check ends with the runtime.
+	// reprobe asks the collector to re-probe its capabilities before a
+	// re-check (nil: no collector). gate admits one pass at a time (the
+	// startup first look or a re-check); flight shares a re-check's pass
+	// among the operators who asked at once (firstlook-05).
+	life    context.Context
+	reprobe func(context.Context)
+	gate    passGate
+	flight  recheckFlight
 }
 
 // startFirstLook runs the first look on the instance worker group.
@@ -103,12 +113,14 @@ func (rt *databaseRuntime) startFirstLook() {
 	run := &firstLookRun{name: rt.spec.Name, provider: rt.provider, pool: rt.spec.Pool,
 		started: measureFrom(rt.spec.Name, time.Now()), tracker: firstLookTracker,
 		facts: rt.facts, notify: rt.notifyFact, logf: logStructuredWrapper,
-		opts: rt.resolveFirstLookOptions(rt.ctx)}
+		opts: rt.resolveFirstLookOptions(rt.ctx), life: rt.ctx,
+		reprobe: rt.reprobeCapabilities}
 	if rt.llmOn {
 		run.summarizer = firstlook.NewSummarizer(rt.generalLLM)
 		run.model = rt.generalLLM.Model()
 	}
 	run.tracker.Start(run.name, run.started)
+	rt.firstLook = run
 	rt.start(func() {
 		run.runOnce(rt.ctx)
 		<-rt.ctx.Done()
@@ -153,26 +165,48 @@ func firstLookOptions(c *config.Config, operatorSet map[string]bool) firstlook.O
 }
 
 func (f *firstLookRun) runOnce(ctx context.Context) {
-	report, err := f.execute(ctx)
-	if err != nil {
-		f.logf("WARN", "first look of %q: %v", f.name, err)
+	report, ok := f.startupPass(ctx)
+	if !ok {
 		return
 	}
-	report = f.retryDegraded(ctx, report, firstLookRetryDelay)
-	if ctx.Err() != nil {
-		return
-	}
-	f.summarize(ctx, report)
-	if len(report.Items) == 0 {
+	if firstlook.CountItems(report.Items).Findings == 0 {
 		wctx, cancel := context.WithTimeout(ctx, firstFindingWait)
 		defer cancel()
 		f.awaitFirstFinding(wctx, firstFindingPoll)
 	}
 }
 
-// execute takes the first look, stores it, records the first finding and
-// proposes the idle test schemas as facts.
+// startupPass is the startup first look, its retry and its summary; a
+// re-check that arrives meanwhile waits for it. ok is false when it failed
+// or ctx ended.
+func (f *firstLookRun) startupPass(ctx context.Context) (firstlook.Report, bool) {
+	if err := f.gate.acquire(ctx); err != nil {
+		return firstlook.Report{}, false
+	}
+	defer f.gate.release()
+	report, err := f.execute(ctx)
+	if err != nil {
+		f.logf("WARN", "first look of %q: %v", f.name, err)
+		return firstlook.Report{}, false
+	}
+	report = f.retryDegraded(ctx, report, firstLookRetryDelay)
+	if ctx.Err() != nil {
+		return firstlook.Report{}, false
+	}
+	return f.summarize(ctx, report), true
+}
+
+// execute takes the startup first look: catalogPass measured by the
+// time-to-first-finding tracker.
 func (f *firstLookRun) execute(ctx context.Context) (firstlook.Report, error) {
+	return f.catalogPass(ctx, f.tracker)
+}
+
+// catalogPass takes the first look, stores it, records the first finding
+// in tracker (nil for a re-check, which never sets it) and proposes the
+// idle test schemas as facts.
+func (f *firstLookRun) catalogPass(ctx context.Context, tracker *onboarding.Tracker) (
+	firstlook.Report, error) {
 	opts := f.opts
 	opts.Database, opts.Provider = f.name, f.provider
 	report, err := firstlook.Run(ctx, f.pool, opts)
@@ -186,13 +220,10 @@ func (f *firstLookRun) execute(ctx context.Context) (firstlook.Report, error) {
 		f.logf("WARN", "first look of %q: record: %v", f.name, err)
 	}
 	took := time.Duration(report.DurationMS) * time.Millisecond
-	if ttff, first := f.tracker.FirstLook(f.name, report.FinishedAt, len(report.Items),
-		took); first {
-		f.recordFirstFinding(ctx, report.FinishedAt, ttff, "first_look")
-	}
+	f.measure(ctx, tracker, report, report.FinishedAt, took)
 	f.proposeFacts(ctx, report.FactProposals)
-	f.logf("INFO", "first look of %q: %d findings over %d relations in %s%s", f.name,
-		len(report.Items), report.Relations, took, degradedNote(report.Checks))
+	f.logf("INFO", "first look of %q: %s over %d relations in %s%s", f.name,
+		itemsNote(report.Items), report.Relations, took, degradedNote(report.Checks))
 	return report, nil
 }
 
@@ -202,6 +233,12 @@ func (f *firstLookRun) execute(ctx context.Context) (firstlook.Report, error) {
 // the retry fails.
 func (f *firstLookRun) retryDegraded(ctx context.Context, report firstlook.Report,
 	delay time.Duration) firstlook.Report {
+	return f.retryWith(ctx, report, delay, f.tracker)
+}
+
+// retryWith is retryDegraded measured by tracker (nil for a re-check).
+func (f *firstLookRun) retryWith(ctx context.Context, report firstlook.Report,
+	delay time.Duration, tracker *onboarding.Tracker) firstlook.Report {
 	if len(report.Retryable) == 0 {
 		return report
 	}
@@ -224,15 +261,29 @@ func (f *firstLookRun) retryDegraded(ctx context.Context, report firstlook.Repor
 	if err := firstlook.NewStore(f.pool).Update(ctx, retried); err != nil {
 		f.logf("WARN", "first look of %q: record the retry: %v", f.name, err)
 	}
-	at := time.Now()
 	took := time.Duration(retried.DurationMS) * time.Millisecond
-	if ttff, first := f.tracker.FirstLook(f.name, at, len(retried.Items), took); first {
+	f.measure(ctx, tracker, retried, time.Now(), took)
+	f.proposeFacts(ctx, retried.FactProposals)
+	f.logf("INFO", "first look of %q: after one retry, %s%s", f.name,
+		itemsNote(retried.Items), degradedNote(retried.Checks))
+	return retried
+}
+
+// measure records report, finished at, in tracker (nil for a re-check);
+// only its findings, not its setup or posture notes, are a first finding.
+func (f *firstLookRun) measure(ctx context.Context, tracker *onboarding.Tracker,
+	report firstlook.Report, at time.Time, took time.Duration) {
+	findings := firstlook.CountItems(report.Items).Findings
+	if ttff, first := tracker.FirstLook(f.name, at, len(report.Items), findings,
+		took); first {
 		f.recordFirstFinding(ctx, at, ttff, "first_look")
 	}
-	f.proposeFacts(ctx, retried.FactProposals)
-	f.logf("INFO", "first look of %q: after one retry, %d findings%s", f.name,
-		len(retried.Items), degradedNote(retried.Checks))
-	return retried
+}
+
+// itemsNote is "2 findings, 5 items" for the log.
+func itemsNote(items []firstlook.Item) string {
+	return fmt.Sprintf("%d findings, %d items", firstlook.CountItems(items).Findings,
+		len(items))
 }
 
 func degradedNote(checks []firstlook.Check) string {
@@ -277,31 +328,40 @@ func (f *firstLookRun) proposeFacts(ctx context.Context, props []facts.Proposal)
 	}
 }
 
-// summarize asks the model for a summary; the findings stand without it.
-// The summarizer decides whether there is anything to summarize (findings or
-// checks that could not run); an empty summary is not saved.
-func (f *firstLookRun) summarize(ctx context.Context, report firstlook.Report) {
+// summarize asks the model for a summary and returns report with it; the
+// findings stand without it. An unchanged first look reuses the previous
+// report's summary with no model call (reuseSummary). The summarizer
+// decides whether there is anything to summarize (findings or checks that
+// could not run); an empty summary is not saved.
+func (f *firstLookRun) summarize(ctx context.Context,
+	report firstlook.Report) firstlook.Report {
 	if f.summarizer == nil {
-		return
+		return report
+	}
+	if reused, ok := f.reuseSummary(ctx, report); ok {
+		return reused
 	}
 	sctx, cancel := context.WithTimeout(ctx, firstLookSummaryTimeout)
 	defer cancel()
 	summary, err := f.summarizer.Summarize(sctx, report)
 	if err != nil {
 		f.logf("WARN", "first look of %q: model summary skipped: %v", f.name, err)
-		return
+		return report
 	}
 	if summary == "" {
-		return
+		return report
 	}
 	if err := firstlook.NewStore(f.pool).SetSummary(ctx, report.ID, summary,
 		f.model); err != nil {
 		f.logf("WARN", "first look of %q: save summary: %v", f.name, err)
+		return report
 	}
+	report.Summary, report.SummaryModel = summary, f.model
+	return report
 }
 
-// awaitFirstFinding polls for the analyzer's first open finding after an
-// empty first look; it reports whether one was seen before ctx ended.
+// awaitFirstFinding polls for the analyzer's first open finding after a
+// first look with no findings; it reports whether one was seen before ctx ended.
 func (f *firstLookRun) awaitFirstFinding(ctx context.Context, poll time.Duration) bool {
 	ticker := time.NewTicker(poll)
 	defer ticker.Stop()
@@ -340,9 +400,14 @@ func writeFirstLookMetrics(b *strings.Builder, metrics []onboarding.Metrics) {
 			"finding (first look or analyzer).", func(m onboarding.Metrics) (float64, bool) {
 			return m.TTFF.Seconds(), m.HasTTFF
 		}},
-		{"pg_sage_first_look_items", "Findings in the catalog-only first look.",
+		{"pg_sage_first_look_items", "Items in the catalog-only first look (findings, " +
+			"setup and posture notes).", func(m onboarding.Metrics) (float64, bool) {
+			return float64(m.FirstLookItems), m.FirstLookDone
+		}},
+		{"pg_sage_first_look_findings", "Findings in the catalog-only first look: " +
+			"warning or critical catalog items, without setup or posture notes.",
 			func(m onboarding.Metrics) (float64, bool) {
-				return float64(m.FirstLookItems), m.FirstLookDone
+				return float64(m.FirstLookFindings), m.FirstLookDone
 			}},
 		{"pg_sage_first_look_duration_seconds", "Duration of the first look.",
 			func(m onboarding.Metrics) (float64, bool) {

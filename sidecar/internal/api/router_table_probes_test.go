@@ -232,6 +232,7 @@ var routeProbes = []routeProbe{
 	{"POST", "/api/v1/facts/7/confirm"},
 	{"POST", "/api/v1/facts/7/expire"},
 	{"POST", "/api/v1/facts/7/reject"},
+	{"POST", "/api/v1/first-look/recheck"},
 	{"POST", "/api/v1/managed-changes/7/approve"},
 	{"POST", "/api/v1/managed-changes/7/reject"},
 	{"POST", "/api/v1/mcp/databases/7"},

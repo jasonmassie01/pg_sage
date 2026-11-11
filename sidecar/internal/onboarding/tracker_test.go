@@ -11,7 +11,7 @@ func TestTrackerFirstLookWithFindingsRecordsTTFF(t *testing.T) {
 	tr := NewTracker()
 	t0 := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
 	tr.Start("app", t0)
-	ttff, recorded := tr.FirstLook("app", t0.Add(9*time.Second), 3, 1500*time.Millisecond)
+	ttff, recorded := tr.FirstLook("app", t0.Add(9*time.Second), 3, 3, 1500*time.Millisecond)
 	if !recorded || ttff != 9*time.Second {
 		t.Fatalf("ttff = %s recorded=%v, want 9s", ttff, recorded)
 	}
@@ -34,7 +34,7 @@ func TestTrackerEmptyFirstLookWaitsForAFinding(t *testing.T) {
 	tr := NewTracker()
 	t0 := time.Now()
 	tr.Start("app", t0)
-	if _, recorded := tr.FirstLook("app", t0.Add(time.Second), 0, time.Second); recorded {
+	if _, recorded := tr.FirstLook("app", t0.Add(time.Second), 0, 0, time.Second); recorded {
 		t.Fatal("an empty first look recorded a first finding")
 	}
 	if m := tr.Snapshot()[0]; m.HasTTFF || !m.FirstLookDone || m.FirstLookItems != 0 {
@@ -48,7 +48,7 @@ func TestTrackerEmptyFirstLookWaitsForAFinding(t *testing.T) {
 
 func TestTrackerUnknownDatabaseAndRestart(t *testing.T) {
 	tr := NewTracker()
-	if _, ok := tr.FirstLook("ghost", time.Now(), 2, time.Second); ok {
+	if _, ok := tr.FirstLook("ghost", time.Now(), 2, 2, time.Second); ok {
 		t.Fatal("a database that never started recorded a finding")
 	}
 	if _, ok := tr.FirstFinding("ghost", time.Now()); ok {
@@ -59,7 +59,7 @@ func TestTrackerUnknownDatabaseAndRestart(t *testing.T) {
 	}
 	t0 := time.Now()
 	tr.Start("app", t0)
-	tr.FirstLook("app", t0.Add(time.Second), 1, time.Second)
+	tr.FirstLook("app", t0.Add(time.Second), 1, 1, time.Second)
 	// A new runtime generation (reload, restart) measures again.
 	tr.Start("app", t0.Add(time.Hour))
 	if m := tr.Snapshot()[0]; m.HasTTFF || m.FirstLookDone {

@@ -121,6 +121,9 @@ type databaseRuntime struct {
 	brief        *briefing.Worker
 	features     []string
 	inst         *fleet.DatabaseInstance
+	// firstLook is the database's first look, kept for operator re-checks
+	// (firstlook-05).
+	firstLook *firstLookRun
 	// facts is the database's fact store (roadmap 2.3); factCluster is its
 	// place among the process's databases of the same cluster (facts-02).
 	facts       *facts.Store
@@ -333,8 +336,9 @@ func (rt *databaseRuntime) instance() *fleet.DatabaseInstance {
 		Cancel:         rt.cancel, Workers: rt.workers,
 		ExecutorShutdown: rt.executor.Shutdown,
 		// Removal and replacement let in-flight actions finish first.
-		Quiesce:       rt.executor.Quiesce,
-		InstanceOwner: rt.instanceOwnership(),
+		Quiesce:          rt.executor.Quiesce,
+		InstanceOwner:    rt.instanceOwnership(),
+		FirstLookRecheck: rt.firstLookRecheck(),
 		Status: &fleet.InstanceStatus{
 			Connected:    true,
 			Platform:     rt.provider,
