@@ -4,6 +4,9 @@ import { DatabaseTable } from './databases/DatabaseTable'
 import { CSVImport } from './databases/CSVImport'
 import { DeleteConfirm } from './databases/DeleteConfirm'
 import { FleetFindings } from './databases/FleetFindings'
+import { RuntimeCells } from './databases/RuntimeCells'
+import { LeaderBadge } from './databases/LeaderBadge'
+import { RUNTIME_HEADERS, joinRuntime } from './databases/runtimeStatus'
 
 export function DatabasesPage({ onSelectDatabase }) {
   const [databases, setDatabases] = useState([])
@@ -51,7 +54,8 @@ export function DatabasesPage({ onSelectDatabase }) {
       setWriteGuidance(config?.write_guidance || 'edit the YAML file')
       setDatabases(canManage ? managed : running)
       const names = new Set(managed.map(db => db.name))
-      setConfigFileDBs(canManage ? running.filter(db => !names.has(db.name)) : [])
+      const { unjoined } = joinRuntime(managed, running)
+      setConfigFileDBs(canManage ? unjoined.filter(db => !names.has(db.name)) : [])
       setInventoryComplete(errors.length === 0)
       setError(errors.length ? errors.join('. ') : null)
     } catch (err) {
@@ -82,13 +86,14 @@ export function DatabasesPage({ onSelectDatabase }) {
   const inventory = [...new Map([...databases, ...configFileDBs]
     .map(db => [db.name, db])).values()]
   const connected = runtimeDBs.filter(db => db.status?.connected === true).length
+  const { runtimeFor } = joinRuntime(readOnly ? [] : databases, runtimeDBs)
 
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-sm font-semibold"
+        <h2 className="text-sm font-semibold flex items-center gap-2"
           style={{ color: 'var(--text-primary)' }}>
-          Fleet
+          Fleet <LeaderBadge />
         </h2>
         <p className="text-sm" data-testid="fleet-page-description"
           style={{ color: 'var(--text-secondary)' }}>
@@ -213,7 +218,9 @@ export function DatabasesPage({ onSelectDatabase }) {
         <DatabaseTable databases={databases}
           onEdit={handleEdit}
           onDelete={setDeleteTarget}
-          onError={setError} />
+          onError={setError}
+          runtimeFor={runtimeFor} runtimeKnown={runtimeAvailable}
+          onSelectDatabase={onSelectDatabase} />
       ) : null)}
 
       {!loading && inventoryComplete && inventory.length === 0 && (
@@ -226,7 +233,7 @@ export function DatabasesPage({ onSelectDatabase }) {
         </div>
       )}
 
-      {!loading && <FleetFindings />}
+      {!loading && <FleetFindings onSelectDatabase={onSelectDatabase} />}
     </div>
   )
 }
@@ -271,29 +278,21 @@ function ReadOnlyFleet({ databases, testId = 'yaml-fleet-list', onSelectDatabase
       }}>
       <table className="w-full text-sm">
         <thead><tr style={{ borderBottom: '1px solid var(--border)' }}>
-          {['Database', 'Platform / Postgres', 'Connection', 'Trust', 'Open findings', 'Explore'].map(label => (
+          {['Database', 'Platform / Postgres', ...RUNTIME_HEADERS].map(label => (
             <th key={label} className="text-left px-4 py-3 text-xs whitespace-nowrap"
               style={{ color: 'var(--text-secondary)' }}>{label}</th>
           ))}
         </tr></thead>
         <tbody>{databases.map(database => {
           const status = database.status || {}
-          const connection = status.connected === true ? 'connected'
-            : status.connected === false ? 'disconnected' : 'unknown'
           return (
             <tr key={database.name} style={{ borderBottom: '1px solid var(--border)' }}>
-              <td className="px-4 py-4 font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>{database.name}</td>
+              <td className="px-4 py-4 font-mono font-semibold"
+                style={{ color: 'var(--text-primary)' }}>{database.name}</td>
               <td className="px-4 py-4" style={{ color: 'var(--text-secondary)' }}>
                 {status.platform || 'Postgres'}{status.pg_version ? ` / ${status.pg_version}` : ''}
               </td>
-              <td className="px-4 py-4"><span className="inline-flex items-center gap-2"
-                style={{ color: connection === 'connected' ? 'var(--green)' : connection === 'disconnected' ? 'var(--red)' : 'var(--text-secondary)' }}>
-                <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full" style={{ background: 'currentColor' }} />{connection}
-              </span></td>
-              <td className="px-4 py-4" style={{ color: 'var(--text-secondary)' }}>{status.trust_level || 'unknown'}</td>
-              <td className="px-4 py-4 font-mono" style={{ color: 'var(--text-primary)' }}>{status.findings_open ?? '—'}</td>
-              <td className="px-4 py-4"><a href="#/database" onClick={() => onSelectDatabase?.(database.name)}
-                className="underline whitespace-nowrap" style={{ color: 'var(--accent)' }}>Inspect database</a></td>
+              <RuntimeCells runtime={database} onSelectDatabase={onSelectDatabase} />
             </tr>
           )
         })}</tbody>
