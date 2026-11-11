@@ -32,6 +32,9 @@ type Evidence struct {
 	Type    string         `json:"type"`
 	Summary string         `json:"summary"`
 	Detail  map[string]any `json:"detail,omitempty"`
+	// QueryID is the evidence's verified pg_stat_statements id as a decimal
+	// string, so a browser never rounds it (tuning-10: the Explain panel).
+	QueryID string `json:"queryid,omitempty"`
 }
 
 type CaseInput struct {

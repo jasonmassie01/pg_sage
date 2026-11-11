@@ -54,6 +54,7 @@ func evidenceForFinding(f SourceFinding) []Evidence {
 		Type:    evidenceTypeForFinding(f),
 		Summary: f.Title,
 		Detail:  f.Detail,
+		QueryID: detailQueryID(f),
 	}}
 }
 

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ExplainPanel, ExplainQueryButton, exactQueryID, planSourceLabel } from './ExplainPanel'
+import { ExplainPanel, ExplainQueryButton } from './ExplainPanel'
+import { exactQueryID, planSourceLabel } from '../lib/explain'
 
 // tuning-10: the Explain panel shows the deterministic rule entries (and
 // the model's, when an LLM is configured) labelled by source, the node
@@ -157,10 +158,11 @@ describe('exactQueryID', () => {
   it('keeps decimal strings and safe integers, drops anything rounded or odd', () => {
     expect(exactQueryID('-5191732810777595558')).toBe('-5191732810777595558')
     expect(exactQueryID(42)).toBe('42')
-    expect(exactQueryID(-5191732810777595558)).toBe('')
+    expect(exactQueryID(Number('-5191732810777595558'))).toBe('')
     expect(exactQueryID(42.5)).toBe('')
     expect(exactQueryID('42; DROP TABLE x')).toBe('')
     expect(exactQueryID('0042')).toBe('')
+    expect(exactQueryID('-0')).toBe('')
     expect(exactQueryID(null)).toBe('')
     expect(exactQueryID(undefined)).toBe('')
   })
