@@ -131,7 +131,7 @@ describe('AlertLogPage fleet view', () => {
     await renderLog({ alerts: [row()], failed_databases: ['b', 'c'] })
     const banner = screen.getByTestId('alert-log-failed-databases')
     expect(banner).toHaveTextContent('b, c')
-    expect(banner).toHaveAttribute('role', 'alert')
+    expect(within(banner).getByRole('alert')).toHaveTextContent('b, c')
   })
 
   it('shows the failure banner even when no database returned rows', async () => {

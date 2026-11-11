@@ -2787,6 +2787,13 @@ with the channel's error text, is logged at ERROR, and is retried on the next ch
 times per channel. After the fifth failure the ERROR log says it gave up; close that alert in the
 channel by hand.
 
+The Alert Log page shows each row's status as written: `sent` and `resolved` (green), `error` and
+`resolve_error` (red, with the channel's error text in the Error column) and `deferred` (amber,
+held by quiet hours, channel `quiet_hours`). In the fleet view, a database whose alert log
+cannot be read is named in a banner (`failed_databases` in `GET /api/v1/alert-log`) while the
+other databases' rows still show; the API answers 503 only when no selected database can be
+read. The date range filters the newest 100 rows per database.
+
 ### Retention
 
 | Parameter | Default | Description |
