@@ -1862,6 +1862,29 @@ Reading investigations (any signed-in role):
 With MCP enabled, agents get the read-only tools `sre_list_incidents`,
 `sre_get_investigation` and `sre_get_evidence`.
 
+### Sage SRE runbooks
+
+A runbook belongs to one database and is a list of immutable versions. The version that
+runs inside matching investigations is the newest one an admin signed whose stored
+content still hashes to the signed hash and still validates against today's probe
+catalog. A version whose content was changed behind the store never runs.
+
+An edit (`POST /api/v1/databases/{db}/runbooks/{id}/versions` with `base_version`, the
+Revise button on the Runbooks page, or the MCP tool `sre_draft_runbook`) stages an
+unsigned draft. The signed version keeps running until an admin signs the draft, so an
+edit made during an incident never takes a signed runbook offline. A draft never
+inherits a signature, and an unsigned version never runs. Signing the draft makes it
+the running version in the same transaction. `base_version` must name the latest
+version, or the edit is refused with `409 version_conflict`. The response and
+`GET .../runbooks/{id}` carry `running_version` (0 when nothing runs) and `running`
+beside `latest`.
+
+Before signing, the Runbooks page shows a structural diff of the draft against the
+newest signed version (nodes added, removed or changed, by node id), then the full
+content hash. Retiring (`POST .../runbooks/{id}/retire`) is permanent and stops every
+version, so it needs the admin role, and the page asks for the runbook's name to be
+typed first.
+
 ### Sage SRE approved actions
 
 When an investigation concludes that one active backend is the root of a lock or
