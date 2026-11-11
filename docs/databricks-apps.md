@@ -165,7 +165,7 @@ reports runtime health, and other readers still need separate checks:
 | Field | Meaning |
 |---|---|
 | `databricks.active` | `true` in App mode, with a Lakebase OAuth endpoint, Lakebase telemetry, or Gateway LLM auth |
-| `databricks.endpoints[]` | Per Lakebase endpoint: `endpoint`, `last_minted_at`, `expires_at`, `consecutive_mint_failures`, `last_error_class`. Expiry times only, never tokens. `[]` when there is none |
+| `databricks.endpoints[]` | Per Lakebase endpoint: `endpoint`, `last_minted_at`, `expires_at`, `consecutive_mint_failures`, `last_error_class`, and scale-to-zero: `suspend_timeout_seconds`, `compute_state`, `compute_observed_at`, `keeps_compute_active`, `scale_to_zero_blockers` (null when not yet observed; see the [cost model](lakebase.md#cost-model)). Expiry times only, never tokens. `[]` when there is none |
 | `databricks.gateway` | `authentication_observed`, `last_auth_success_at`, `last_auth_failure_at`, `last_failure_class` |
 | `databricks.telemetry` | The per-binding telemetry projection from `/api/v1/lakebase-observability/status`; `{}` when no reader runs |
 

@@ -1277,7 +1277,7 @@
   "lakebase_observability.poll_interval_seconds": {
     "type": "int",
     "default": 0,
-    "doc": "Seconds between bounded polls; 0=60, range 30-3600. Queries consume warehouse capacity.",
+    "doc": "Seconds between bounded polls; 0=60, range 30-3600. Queries consume warehouse capacity; the warehouse auto-stops only if this exceeds its idle time (docs/lakebase.md#cost-model).",
     "class": "safety_critical"
   },
   "lakebase_observability.queries_per_poll": {
