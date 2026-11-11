@@ -75,11 +75,16 @@ const systemCountersSQL = `
 // checkpointEpochSQL is the checkpoint counters' epoch over the view the
 // variant reads (alias v): the later of its stats_reset and the postmaster
 // start (a crash discards the counters without touching stats_reset). Then
-// the replica flag and the cluster's client sessions, every database's, as
+// the slots reserved from clients (forecast-08: superuser_reserved_connections
+// plus reserved_connections, PG 16+, absent and so 0 before), the replica
+// flag and the cluster's client sessions, every database's, as
 // total_backends counts (client_backends, rca-08).
 const checkpointEpochSQL = `
   GREATEST(COALESCE(v.stats_reset, '-infinity'::timestamptz),
     pg_postmaster_start_time()) AS checkpoint_stats_epoch,
+  current_setting('superuser_reserved_connections')::int
+    + COALESCE(current_setting('reserved_connections', true)::int, 0)
+    AS reserved_connections,
   pg_is_in_recovery() AS is_replica,
   (SELECT count(*) FROM pg_stat_activity
     WHERE pid <> pg_backend_pid()
