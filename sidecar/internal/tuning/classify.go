@@ -172,7 +172,7 @@ func classifyStatement(q collector.QueryStats, known map[string][]string,
 	tables map[string]TableInfo, families map[string]string) StatementInfo {
 	s := StatementInfo{QueryID: q.QueryID, Class: ClassApp}
 	switch reason := workload.Classify(q.Query); reason {
-	case workload.Workload:
+	case workload.Workload, workload.Procedural:
 	case workload.Self:
 		s.Class, s.Reason = ClassSage, "pg_sage's own statement"
 		return s
