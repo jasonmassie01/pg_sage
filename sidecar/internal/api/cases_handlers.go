@@ -18,8 +18,8 @@ import (
 
 // queryDatabaseCases projects one database's open findings, active
 // incidents and query hints, each read one row past its cap so the cut is
-// reported. The finding and incident candidates share one standing-policy
-// explanation for the database.
+// reported. The finding, incident and query-hint candidates share one
+// standing-policy explanation for the database.
 func queryDatabaseCases(
 	ctx context.Context,
 	mgr *fleet.DatabaseManager,
@@ -36,18 +36,18 @@ func queryDatabaseCases(
 		return res, err
 	}
 	res.truncated.Incidents = cut
-	out := append(findingCases, incidentCases...)
-	enrichCasesActionPolicies(ctx, out, mgr.GetInstance(selected.name))
-	enrichCaseActionTimelines(
-		ctx, out[:len(findingCases)], selected,
-		store.NewActionStore(selected.pool), findingIDs,
-	)
 	hintCases, cut, err := queryHintCases(ctx, selected)
 	if err != nil {
 		return res, err
 	}
 	res.truncated.QueryHints = cut
-	res.cases = append(out, hintCases...)
+	out := append(append(findingCases, incidentCases...), hintCases...)
+	enrichCasesActionPolicies(ctx, out, mgr.GetInstance(selected.name))
+	enrichCaseActionTimelines(
+		ctx, out[:len(findingCases)], selected,
+		store.NewActionStore(selected.pool), findingIDs,
+	)
+	res.cases = out
 	return res, nil
 }
 
