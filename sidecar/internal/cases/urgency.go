@@ -17,6 +17,10 @@ type Urgency struct {
 	// of an unassessed case; it is always shown, never hidden.
 	Basis  string         `json:"basis,omitempty"`
 	Inputs map[string]any `json:"inputs,omitempty"`
+	// LimitReached is set when the producer reports a zero time to its
+	// limit: nothing is left to project, so the case stays unassessed and
+	// shows no number, yet it ranks before every projection.
+	LimitReached bool `json:"limit_reached,omitempty"`
 }
 
 // minReliableR2 is the fit the forecaster calls reliable (growthSeverity).
@@ -62,6 +66,17 @@ func unassessed(field, why string) urgencyRead {
 	return urgencyRead{whyNow: fmt.Sprintf("%s: %s %s", notAssessed, field, why)}
 }
 
+// unassessedOrReached is the reading of a field that gave no positive
+// projection: a producer-written zero means the limit is already reached.
+func unassessedOrReached(d map[string]any, field, why string, keys ...string) urgencyRead {
+	if v, ok := finiteField(d, field); !ok || v != 0 {
+		return unassessed(field, why)
+	}
+	return urgencyRead{urgency: Urgency{LimitReached: true, Inputs: pick(d, keys...)},
+		whyNow: fmt.Sprintf("%s: %s is zero, so the producer reports the limit "+
+			"already reached", notAssessed, field)}
+}
+
 // assessed is a reading with a positive, finite time to impact.
 func assessed(secs float64, impact, basis string, inputs map[string]any) urgencyRead {
 	u := Urgency{Assessed: true, TimeToImpactSeconds: &secs, Impact: impact,
@@ -73,7 +88,8 @@ func assessed(secs float64, impact, basis string, inputs map[string]any) urgency
 func storageUrgency(d map[string]any) urgencyRead {
 	days, ok := positiveField(d, "days_until_full")
 	if !ok {
-		return unassessed("days_until_full", "is not a positive projection")
+		return unassessedOrReached(d, "days_until_full", "is not a positive projection",
+			"days_until_full", "current_bytes", "threshold_bytes")
 	}
 	r2, ok := finiteField(d, "r_squared")
 	if !ok || r2 < minReliableR2 {
@@ -91,7 +107,8 @@ func storageUrgency(d map[string]any) urgencyRead {
 func connectionUrgency(d map[string]any) urgencyRead {
 	days, ok := positiveField(d, "days_to_warn_pct")
 	if !ok {
-		return unassessed("days_to_warn_pct", "is not a positive projection")
+		return unassessedOrReached(d, "days_to_warn_pct", "is not a positive projection",
+			"days_to_warn_pct", "current_in_use", "max_connections")
 	}
 	r2, ok := finiteField(d, "r_squared")
 	if !ok || r2 < minReliableR2 {
@@ -117,7 +134,8 @@ func runwayUrgency(d map[string]any) urgencyRead {
 	}
 	secs, ok := positiveField(d, "seconds_to_limit")
 	if !ok {
-		return unassessed("seconds_to_limit", "is not a positive projection")
+		return unassessedOrReached(d, "seconds_to_limit", "is not a positive projection",
+			"seconds_to_limit", "limit", "last_value")
 	}
 	if _, ok := positiveField(d, "rate_per_s"); !ok {
 		return unassessed("rate_per_s", "is not a positive measured rate")

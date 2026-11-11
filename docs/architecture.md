@@ -353,7 +353,9 @@ and fleet management. UI and `/api/v1/*` routes are session-authenticated.
 
 **Cases ranking and urgency.** Cases from every database are ranked by
 severity first; no warning ever outranks a critical. Within a severity, a case
-with an assessed time to impact comes first, the nearest impact first, then
+whose producer reports its limit already reached (a zero `days_until_full`,
+`days_to_warn_pct` or `seconds_to_limit`) comes first, still showing no number;
+then a case with an assessed time to impact, the nearest impact first, then
 cases without one, then the most recent observation, then database and id.
 Each case carries `rank_basis`, for example "severity warning; time to impact
 about 3 days". The time to impact (`urgency`) is read only from the fields the

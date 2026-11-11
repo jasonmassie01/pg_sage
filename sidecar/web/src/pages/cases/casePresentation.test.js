@@ -149,6 +149,15 @@ describe('Case presentation grounded in reported evidence', () => {
     expect(summary.attention).not.toContain('About')
   })
 
+  it('says a limit already reached without showing a number', () => {
+    const summary = casePresentation(finding('forecast_wal_runway', {}, {
+      why_now: 'Urgency not assessed: seconds_to_limit is zero, so the producer reports the limit already reached',
+      urgency: { assessed: false, limit_reached: true },
+    }))
+    expect(summary.attention).toBe('Urgency not assessed: seconds_to_limit is zero, so the producer reports the limit already reached')
+    expect(summary.attention).not.toMatch(/About|\d/)
+  })
+
   it('describes a recurrence with its count and the previous resolution', () => {
     const row = { id: 'incident:prod:deterministic:c', database_name: 'prod', title: 'x',
       recurrence: { previous_id: 'b', count: 4, previous_resolved_at: '2026-11-02T10:00:00Z' } }

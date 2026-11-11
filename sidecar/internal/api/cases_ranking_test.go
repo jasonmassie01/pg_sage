@@ -115,3 +115,24 @@ func TestSortCases_EmptyAndNil(t *testing.T) {
 		t.Fatalf("empty list grew: %v", empty)
 	}
 }
+
+// A case whose producer reports the limit already reached ranks before
+// every projection of its severity, but never above a higher severity.
+func TestSortCases_LimitReachedRanksFirstWithinItsSeverity(t *testing.T) {
+	full := rankCase("full", cases.SeverityCritical, 2*time.Hour, 0)
+	full.Urgency = cases.Urgency{LimitReached: true}
+	fullWarn := rankCase("full-warn", cases.SeverityWarning, 0, 0)
+	fullWarn.Urgency = cases.Urgency{LimitReached: true}
+	list := []cases.Case{
+		rankCase("c2h", cases.SeverityCritical, 0, 7200),
+		fullWarn, full,
+		rankCase("c", cases.SeverityCritical, 0, 0),
+	}
+	sortCasesGlobally(list)
+	if got := rankedIDs(list); got != "full,c2h,c,full-warn" {
+		t.Fatalf("order = %s, want full,c2h,c,full-warn", got)
+	}
+	if list[0].RankBasis != "severity critical; limit already reached" {
+		t.Fatalf("rank basis = %q", list[0].RankBasis)
+	}
+}

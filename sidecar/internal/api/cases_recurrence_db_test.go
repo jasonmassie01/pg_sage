@@ -129,3 +129,38 @@ func TestIncidentCases_RecurrenceLookupFailureIsDisclosed(t *testing.T) {
 		t.Fatalf("recurrence after failed lookup = %+v", r)
 	}
 }
+
+// A predecessor row that is gone leaves a chain of one: the case keeps
+// its link and says the history is unavailable, never a first occurrence.
+// The foreign key normally prevents this, so the fixture bypasses it.
+func TestIncidentCases_RecurrenceMissingPredecessorIsDisclosed(t *testing.T) {
+	pool, _, ctx := tracedCasePool(t)
+	resetCaseTables(t, ctx)
+	seedRecurrenceChain(t, ctx)
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SET LOCAL session_replication_role = replica`); err != nil {
+		t.Fatalf("bypass the foreign key: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE sage.incidents SET previous_incident_id = $1
+		WHERE id = $2`, "00000000-0000-0000-0000-00000000c7ff", recurLone); err != nil {
+		t.Fatalf("point at a missing predecessor: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	list, _, err := queryIncidentCases(ctx, namedPool{name: "prod", pool: pool})
+	if err != nil {
+		t.Fatalf("queryIncidentCases: %v", err)
+	}
+	got := casesBySource(list)
+	r := got[recurLone].Recurrence
+	if r == nil || r.PreviousID != "00000000-0000-0000-0000-00000000c7ff" ||
+		!r.HistoryUnavailable || r.Count != 0 || r.PreviousResolvedAt != nil {
+		t.Fatalf("recurrence with a missing predecessor = %+v", r)
+	}
+	wantRecurrence(t, got[recurThird], recurSecond, 3, "2026-11-02T00:00:00Z")
+}
