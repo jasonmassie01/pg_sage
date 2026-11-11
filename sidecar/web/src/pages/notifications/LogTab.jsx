@@ -1,13 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { ErrorBanner } from '../../components/ErrorBanner'
-import { cardStyle } from './shared'
-
-// Delivery status colours come from the theme tokens (alerting-09); an
-// unknown status keeps the secondary colour instead of reading as failed.
-const STATUS_COLORS = {
-  sent: 'var(--green)',
-  error: 'var(--red)',
-}
+import { cardStyle, DELIVERY_STATUS_COLORS as STATUS_COLORS } from './shared'
 
 export function LogTab() {
   const [entries, setEntries] = useState([])
