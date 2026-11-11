@@ -16,6 +16,7 @@ type planNode struct {
 	IndexName           string     `json:"Index Name,omitempty"`
 	PlanRows            int64      `json:"Plan Rows"`
 	TotalCost           float64    `json:"Total Cost"`
+	Disabled            bool       `json:"Disabled,omitempty"`    // PG18
 	ActualRows          *float64   `json:"Actual Rows,omitempty"` // PG18: 2 decimals
 	ActualLoops         *int64     `json:"Actual Loops,omitempty"`
 	SortMethod          *string    `json:"Sort Method,omitempty"`

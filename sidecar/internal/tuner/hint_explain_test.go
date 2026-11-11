@@ -76,6 +76,35 @@ func TestJudgeHint_SamePlanIsNoEffect(t *testing.T) {
 	}
 }
 
+// Invalid input (PG14, pg_hint_plan 1.4): an unknown index forces a
+// disabled path; that hint has no effect, not a cost regression.
+func TestJudgeHint_DisabledPathIsNoEffect(t *testing.T) {
+	plain := planSummary{hash: "v2u:a", cost: 268}
+	hinted := planSummary{hash: "v2u:b", cost: 1.0e10 + 2049, disabled: true}
+	if got, _, reason := judgeHint(plain, hinted, "IndexScan(o idx_missing)", 10,
+		false); got != HintNoEffect || !strings.Contains(reason, "disabled") {
+		t.Fatalf("disabled hinted path: %q (%s), want no_effect", got, reason)
+	}
+	plain.disabled, plain.cost = true, 1.0e10+2000
+	if got, _, _ := judgeHint(plain, hinted, "SeqScan(o)", 10, false); got !=
+		HintChanged {
+		t.Fatalf("both sides disabled is judged by cost: %q, want changed", got)
+	}
+	for plan, want := range map[string]bool{
+		`[{"Plan":{"Node Type":"Seq Scan","Total Cost":10000000123.5}}]`:      true,
+		`[{"Plan":{"Node Type":"Seq Scan","Total Cost":12,"Disabled":true}}]`: true,
+		`[{"Plan":{"Node Type":"Hash","Total Cost":12,"Plans":[{"Node Type":"Seq` +
+			` Scan","Disabled":true}]}}]`: true,
+		`[{"Plan":{"Node Type":"Seq Scan","Total Cost":12}}]`: false,
+	} {
+		s, err := summarizePlan([]byte(plan))
+		if err != nil || s.disabled != want {
+			t.Errorf("summarizePlan(%s).disabled = %t (%v), want %t", plan, s.disabled, err,
+				want)
+		}
+	}
+}
+
 // Set(work_mem): an unchanged shape is admitted only on a spilling ANALYZE
 // plan (basis spill), otherwise advisory; a Set-only hint is never a cost
 // regression; a work_mem hint joined with a scan hint is judged as a scan.

@@ -51,18 +51,36 @@ func readHintRow(t *testing.T, pool *pgxpool.Pool, qid int64) hintRowState {
 	return s
 }
 
+const hxItemsHint = "IndexScan(i hx_items_b_idx)"
+
+// dueItemsHint records an active pg_sage hint for the items statement, due
+// for re-verification (after the tuner fixture, which clears qid's rows).
+func dueItemsHint(t *testing.T, pool *pgxpool.Pool, qid int64) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(), `INSERT INTO sage.query_hints
+		(queryid, hint_text, symptom, status, reverify_due) VALUES ($1, $2, 's', 'active',
+		now())`, qid, hxItemsHint); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// replaceItemsIndex recreates hx_items_b_idx on another column: the name the
+// hint references stays, but it no longer serves the statement.
+func replaceItemsIndex(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	for _, stmt := range []string{`DROP INDEX hx.hx_items_b_idx`,
+		`CREATE INDEX hx_items_b_idx ON hx.items (a)`} {
+		if _, err := pool.Exec(context.Background(), stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestHintExplainRevalidate_RetiresHintWithNoEffect(t *testing.T) {
 	pool, ctx := hintExplainDB(t)
 	qid := hxItemsQueryID(t, pool)
 	tu := gatedTuner(t, pool, qid)
-	const hint = "IndexScan(i hx_items_b_idx)"
-	if _, err := pool.Exec(ctx, `INSERT INTO sage.query_hints
-		(queryid, hint_text, symptom, status, reverify_due) VALUES ($1, $2, 's', 'active',
-		now())`, qid, hint); err != nil {
-		t.Fatal(err)
-	}
-	installHintRow(t, pool, qid, "", hint)
-
+	dueItemsHint(t, pool, qid)
 	rpt, err := tu.Revalidate(ctx)
 	if err != nil || rpt.Retired != 0 || rpt.Errors != 0 {
 		t.Fatalf("first pass: %+v, %v", rpt, err)
@@ -72,13 +90,7 @@ func TestHintExplainRevalidate_RetiresHintWithNoEffect(t *testing.T) {
 		s.after == nil || *s.after == *s.before {
 		t.Fatalf("a working hint must stay live with its costs: %+v", s)
 	}
-
-	for _, stmt := range []string{`DROP INDEX hx.hx_items_b_idx`,
-		`CREATE INDEX hx_items_b_idx ON hx.items (a)`} {
-		if _, err := pool.Exec(ctx, stmt); err != nil {
-			t.Fatal(err)
-		}
-	}
+	replaceItemsIndex(t, pool)
 	rpt, err = tu.Revalidate(ctx)
 	if err != nil || rpt.Retired != 1 || rpt.Broken != 0 {
 		t.Fatalf("after the index was replaced: %+v, %v", rpt, err)
@@ -86,10 +98,25 @@ func TestHintExplainRevalidate_RetiresHintWithNoEffect(t *testing.T) {
 	if s := readHintRow(t, pool, qid); s.status != "retired" {
 		t.Fatalf("status %q, want retired", s.status)
 	}
+}
+
+// The retired hint, still installed in pg_hint_plan 1.7's table, gets the
+// removal finding that takes it out.
+func TestHintExplainRevalidate_RetiredHintGetsRemovalFinding(t *testing.T) {
+	pool, ctx := hintExplainDB(t)
+	qid := hxItemsQueryID(t, pool)
+	tu := hintTableTuner(t, pool, qid)
+	dueItemsHint(t, pool, qid)
+	installHintRow(t, pool, qid, "", hxItemsHint)
+	replaceItemsIndex(t, pool)
+	if rpt, err := tu.Revalidate(ctx); err != nil || rpt.Retired != 1 {
+		t.Fatalf("revalidate: %+v, %v", rpt, err)
+	}
 	var found bool
 	for _, f := range tu.hintRemovalFindings(ctx) {
 		if f.ObjectIdentifier == "queryid:"+strconv.FormatInt(qid, 10) &&
-			f.Detail["hint_status"] == "retired" && f.RecommendedSQL != "" {
+			f.Detail["hint_status"] == "retired" &&
+			f.RecommendedSQL == BuildDeleteSQL(qid, hxItemsHint) {
 			found = true
 		}
 	}
@@ -106,8 +133,8 @@ func TestHintExplainRevalidate_OnlyDueHintsAndGateOn(t *testing.T) {
 	tu := gatedTuner(t, pool, qid)
 	tu.cfg.HintRetirementDays = 0
 	if _, err := pool.Exec(ctx, `INSERT INTO sage.query_hints
-		(queryid, hint_text, symptom, status) VALUES ($1, 'IndexScan(i hx_items_b_idx)', 's',
-		'active')`, qid); err != nil {
+		(queryid, hint_text, symptom, status) VALUES ($1, $2, 's', 'active')`, qid,
+		hxItemsHint); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tu.Revalidate(ctx); err != nil {

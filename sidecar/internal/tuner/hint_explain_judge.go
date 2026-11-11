@@ -65,11 +65,17 @@ func hasBindParam(body string) bool {
 	return bindParamRe.MatchString(workload.BlankLiteralsAndComments(body))
 }
 
-// planSummary is a plan's shape fingerprint and root total cost.
+// planSummary is a plan's shape fingerprint and root total cost; disabled
+// is set when the plan rests on a path the planner had disabled.
 type planSummary struct {
-	hash string
-	cost float64
+	hash     string
+	cost     float64
+	disabled bool
 }
+
+// disableCost is the cost PostgreSQL 17 and older add to a disabled path;
+// PostgreSQL 18 marks the node "Disabled" instead.
+const disableCost = 1.0e10
 
 func summarizePlan(planJSON []byte) (planSummary, error) {
 	hash, err := planhash.Compute(planJSON)
@@ -83,7 +89,20 @@ func summarizePlan(planJSON []byte) (planSummary, error) {
 	if root.NodeType == "" || math.IsNaN(root.TotalCost) {
 		return planSummary{}, fmt.Errorf("plan without a root node")
 	}
-	return planSummary{hash: hash, cost: root.TotalCost}, nil
+	return planSummary{hash: hash, cost: root.TotalCost,
+		disabled: root.TotalCost >= disableCost || nodeDisabled(root)}, nil
+}
+
+func nodeDisabled(n planNode) bool {
+	if n.Disabled {
+		return true
+	}
+	for _, c := range n.Plans {
+		if nodeDisabled(c) {
+			return true
+		}
+	}
+	return false
 }
 
 // judged summarizes both plans and judges the hint.
@@ -110,6 +129,7 @@ func judged(cmp HintComparison, plain, hinted []byte, hint string,
 }
 
 // judgeHint is the verdict of two planned sides (pure).
+//   - a hinted plan on a disabled path (and a plain one not) has no effect.
 //   - same shape: a hint of Set() directives with Set(work_mem) is admitted
 //     (basis spill) when the cached ANALYZE plan spills, else unverifiable;
 //     any other hint has no effect.
@@ -118,6 +138,12 @@ func judged(cmp HintComparison, plain, hinted []byte, hint string,
 func judgeHint(plain, hinted planSummary, hint string, tolerancePct float64,
 	spill bool) (HintVerdict, string, string) {
 	setOnly, workMem := hintDirectiveKinds(hint)
+	if hinted.disabled && !plain.disabled {
+		// pg_hint_plan 1.4-1.6 disable the other paths for an unknown index
+		// or alias and the planner falls back to a disabled one.
+		return HintNoEffect, "", "pg_hint_plan could not apply the hint: the hinted " +
+			"plan rests on a disabled path (an unknown alias or index)"
+	}
 	if plain.hash == hinted.hash {
 		if setOnly && workMem {
 			if spill {

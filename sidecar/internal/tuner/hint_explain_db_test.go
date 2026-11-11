@@ -103,8 +103,13 @@ func TestCompareHint_UnknownIndexIsNoEffect(t *testing.T) {
 	if !errors.Is(err, ErrHintRefused) || cmp.Verdict != HintNoEffect {
 		t.Fatalf("unknown index: %q, %v, want no_effect refused", cmp.Verdict, err)
 	}
-	if cmp.PlainHash == "" || cmp.PlainHash != cmp.HintedHash || cmp.PGMajor < 14 {
-		t.Fatalf("no_effect needs equal hashes and the server major: %+v", cmp)
+	// pg_hint_plan 1.7 plans the same; 1.4-1.6 (PG14-16) fall back to a
+	// disabled path. Both are no effect, for different evidence.
+	sameOrDisabled := cmp.PlainHash == cmp.HintedHash ||
+		strings.Contains(cmp.Reason, "disabled path")
+	if cmp.PlainHash == "" || !sameOrDisabled || cmp.PGMajor < 14 {
+		t.Fatalf("no_effect evidence: %s, %s -> %s, PG%d", cmp.Reason, cmp.PlainHash,
+			cmp.HintedHash, cmp.PGMajor)
 	}
 }
 
@@ -228,8 +233,16 @@ func TestCompareHint_ModuleNotLoadedIsUnverifiable(t *testing.T) {
 			t.Fatalf("session load %t: %+v, %v, want unverifiable", load, cmp, err)
 		}
 	}
-	tu := gatedTuner(t, pool)
+}
+
+// The same through CheckHint: the finding is kept without recommended_sql.
+func TestCheckHint_ModuleNotLoadedKeepsFindingAdvisory(t *testing.T) {
+	pool, ctx := hintExplainDB(t)
 	const qid = 9_050_101
+	tu := hintTableTuner(t, pool, qid)
+	saved := hintModuleGUC
+	hintModuleGUC = "pg_hint_plan_absent.enable_hint"
+	t.Cleanup(func() { hintModuleGUC = saved })
 	f, err := tu.CheckHint(ctx, HintProposal{QueryID: qid, Query: hxJoin, Hint: "HashJoin(c o)"})
 	ev, _ := f.Detail["hint_evidence"].(map[string]any)
 	if err != nil || f.RecommendedSQL != "" || f.RollbackSQL != "" ||
@@ -239,11 +252,11 @@ func TestCompareHint_ModuleNotLoadedIsUnverifiable(t *testing.T) {
 	}
 }
 
-// gatedTuner is a tuner with ready hint facts, the hint tables and the gate.
+// gatedTuner is a tuner with ready hint facts and the gate; its
+// sage.query_hints rows (and hint_plan.hints rows, where the 1.7 table is)
+// for ids are removed after the test.
 func gatedTuner(t *testing.T, pool *pgxpool.Pool, ids ...int64) *Tuner {
 	t.Helper()
-	requireQueryIDHintTable(t, pool)
-	prepareHintTables(t, pool, ids)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(),
 			`DELETE FROM hint_plan.hints WHERE query_id = ANY($1)`, ids)
@@ -257,12 +270,22 @@ func gatedTuner(t *testing.T, pool *pgxpool.Pool, ids ...int64) *Tuner {
 	return tu.WithHintComparison(0, catalogread.Default())
 }
 
+// hintTableTuner is gatedTuner over pg_hint_plan 1.7's query_id hint table,
+// which CheckHint reads; pg_hint_plan 1.4-1.6 (PG14-16) has none, and there
+// hints stay advisory before any comparison.
+func hintTableTuner(t *testing.T, pool *pgxpool.Pool, ids ...int64) *Tuner {
+	t.Helper()
+	requireQueryIDHintTable(t, pool)
+	prepareHintTables(t, pool, ids)
+	return gatedTuner(t, pool, ids...)
+}
+
 // CheckHint (the agent's path): a hint with no effect is refused with no
 // finding; a changing hint keeps its SQL and verdict changed (CHECK-28).
 func TestCheckHint_GateRefusesAndAdmits(t *testing.T) {
 	pool, ctx := hintExplainDB(t)
 	const qid = 9_050_102
-	tu := gatedTuner(t, pool, qid)
+	tu := hintTableTuner(t, pool, qid)
 	f, err := tu.CheckHint(ctx, HintProposal{QueryID: qid, Query: hxJoin,
 		Hint: "IndexScan(o idx_missing)"})
 	if !errors.Is(err, ErrHintRefused) || f.Category != "" || f.RecommendedSQL != "" {
