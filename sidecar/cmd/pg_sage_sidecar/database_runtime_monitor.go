@@ -11,6 +11,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/forecaster"
 	"github.com/pg-sage/sidecar/internal/tuner"
 	"github.com/pg-sage/sidecar/internal/tuning"
+	"github.com/pg-sage/sidecar/internal/verify"
 )
 
 // startMonitoring builds and starts the collector and analyzer with every
@@ -67,11 +68,15 @@ func (rt *databaseRuntime) startMonitoring() {
 
 // newCollector builds the stats collector. The configuration snapshot is
 // skipped when neither the advisor nor the tuning agent will consume it:
-// both default on, but run only with a usable LLM.
+// both default on, but run only with a usable LLM. The open index
+// verifications' targets are pinned (collection-07): sampled whatever
+// their rank, so an index that made its query cheap is still measured.
 func (rt *databaseRuntime) newCollector() *collector.Collector {
 	result := collector.New(
 		rt.spec.Pool, rt.cfg, rt.pgVersion(), logStructuredWrapper,
 	)
+	verifications := verify.NewPostgresStateStore(rt.spec.Pool, 1)
+	result.WithPinSource(collector.PinSourceFunc(verifications.OpenTargetIDs))
 	if !rt.advisorActive() && !rt.tuningActive() {
 		result.WithoutConfigSnapshots()
 	}

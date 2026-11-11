@@ -118,8 +118,19 @@ The `tables`, `indexes`, `foreign_keys`, `partitions` and reloptions reads leave
 relations (`relpersistence = 't'`: other sessions' and pg_sage's own), which no other session
 can vacuum, analyze or index; unlogged tables are still collected.
 
-`queries` ranks this database's top 2 x `collector.max_queries` statements on their
-`pg_stat_statements(false)` counters, without texts. `pg_stat_statements(true)` loads the
+`queries` admits 2 x `collector.max_queries` (N) statements of this database on their
+`pg_stat_statements(false)` counters, without texts, through four arms, each recorded in the
+statement's `admitted_by`: `total`, the top statements by total time; `mean`, the K slowest
+by mean time with two calls or more (a 20 s report run 50 times a day ranks below hundreds
+of OLTP statements by total time); `io`, the K heaviest by blocks read plus temp blocks
+written; and `pinned`, the queryids something depends on: the targets of open index
+verifications and in-memory watches, at most 64 a cycle, oldest first. K is N/10, at least 1
+and at most 50; the total arm keeps 2N - 2K - pins rows, never fewer than N, so the row
+count, and the text read after it, stay at 2N. The mean and io arms leave out the queryids
+the text cache already knows as pg_sage's own. Pinned rows, then the other arms' rows, are
+kept first when the list is cut to N, and the list is published by total time. An N below 2
+uses the total arm alone. These bounds are internal constants, not configuration.
+`pg_stat_statements(true)` loads the
 whole query-text file whatever rows are kept, so each collector keeps the texts in a cache
 of its own, keyed by `queryid` of its own database (no sharing between databases, also in
 fleet mode). The cache is bounded at 4 x `collector.max_queries` entries and 32 MiB of text

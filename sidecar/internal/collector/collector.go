@@ -39,6 +39,8 @@ type Collector struct {
 	// partitions creates the day partitions the writes land in.
 	queries    *querystore.Recorder
 	partitions *partition.Keeper
+	// pins are the queryids sampled whatever their rank (watch.go).
+	pins pinRegistry
 
 	// skipConfigSnapshots is set before Run when no advisor will consume
 	// the configuration snapshot.

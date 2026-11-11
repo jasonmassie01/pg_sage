@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"reflect"
 	"slices"
 	"strings"
@@ -75,7 +74,9 @@ func (a *armStatements) last(t *testing.T) (string, []any) {
 
 // armRow is a counters row admitted by arms.
 func armRow(id int64, total float64, arms ...string) []any {
-	return append(counterRow(id, total), arms)
+	row := counterRow(id, total)
+	row[len(row)-1] = arms
+	return row
 }
 
 func newArmStatements(rows [][]any, ids ...int64) *armStatements {

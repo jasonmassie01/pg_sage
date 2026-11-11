@@ -78,10 +78,13 @@ func (f *fakeStatements) candidates(ids ...int64) {
 	}
 }
 
-// counterRow is one row of the base counters read (no WAL, no plan time).
+// counterRow is one row of the base counters read (no WAL, no plan time),
+// admitted by the total ranking (collection-07 added the admitted_by
+// column).
 func counterRow(id int64, total float64) []any {
 	return []any{id, int64(10), total, total / 10, 0.5, total / 2, 1.5, int64(7),
-		int64(1), int64(2), int64(3), int64(4), int64(5), int64(6), 0.75, 0.25}
+		int64(1), int64(2), int64(3), int64(4), int64(5), int64(6), 0.75, 0.25,
+		[]string{"total"}}
 }
 
 func newFakeStatements(texts map[int64]any) *fakeStatements {

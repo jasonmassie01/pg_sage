@@ -21,22 +21,23 @@ func notTempRel(alias string) string {
 // query carrying it matches the filter's `ILIKE '%pg_sage%'`.
 const sageTag = "/* pg_sage */ "
 
-// queryStatsSelect aggregates pg_stat_statements to ONE row per queryid.
-// pg_stat_statements keys rows by (userid, dbid, queryid, toplevel), so the
-// same statement run by two roles (or top-level and nested) would otherwise
-// produce duplicate query_store samples with one captured_at (G1-B05).
-// Means and the population stddev are recombined from per-row calls.
-// The %[1]s and %[2]s verbs are the block read/write time expressions
-// chosen by the capability probe (blockTimeFor) (PG17 renamed blk_*_time to
-// shared_/local_blk_*_time); the final %d is the candidate count.
+// queryStatsSelect aggregates pg_stat_statements to ONE row per queryid
+// (agg). pg_stat_statements keys rows by (userid, dbid, queryid, toplevel),
+// so the same statement run by two roles (or top-level and nested) would
+// otherwise produce duplicate query_store samples with one captured_at
+// (G1-B05). Means and the population stddev are recombined from per-row
+// calls. The %[1]s and %[2]s verbs are the block read/write time
+// expressions chosen by the capability probe (blockTimeFor) (PG17 renamed
+// blk_*_time to shared_/local_blk_*_time).
 //
 // It reads the counters only (showtext false): pg_stat_statements(true)
 // loads the whole query-text file whatever rows are kept (14 MB on
 // lifeos), so texts come from the collector's cache and are read only for
-// the candidates it lacks (statementTextsSQL, collection-11). It ranks
-// candidateHeadroom x MaxQueries: room for pg_sage's own statements, which
-// are left out in Go once their texts are known (IsStatementText).
+// the candidates it lacks (statementTextsSQL, collection-11). pg_sage's own
+// statements are left out in Go once their texts are known
+// (IsStatementText).
 const queryStatsSelect = sageTag + `
+WITH agg AS (
 SELECT COALESCE(queryid, 0) AS queryid,
        sum(calls)::bigint AS calls,
        sum(total_exec_time)::float8 AS total_exec_time,
@@ -48,26 +49,60 @@ SELECT COALESCE(queryid, 0) AS queryid,
          - (sum(total_exec_time) / NULLIF(sum(calls), 0)) ^ 2, 0)), 0)::float8
          AS stddev_exec_time,
        sum(rows)::bigint AS rows,
-       sum(shared_blks_hit)::bigint, sum(shared_blks_read)::bigint,
-       sum(shared_blks_dirtied)::bigint, sum(shared_blks_written)::bigint,
-       sum(temp_blks_read)::bigint, sum(temp_blks_written)::bigint,
+       sum(shared_blks_hit)::bigint AS shared_blks_hit,
+       sum(shared_blks_read)::bigint AS shared_blks_read,
+       sum(shared_blks_dirtied)::bigint AS shared_blks_dirtied,
+       sum(shared_blks_written)::bigint AS shared_blks_written,
+       sum(temp_blks_read)::bigint AS temp_blks_read,
+       sum(temp_blks_written)::bigint AS temp_blks_written,
        COALESCE(sum(%[1]s), 0)::float8 AS blk_read_time,
        COALESCE(sum(%[2]s), 0)::float8 AS blk_write_time`
 
 const queryStatsWALColumns = `,
-       sum(wal_records)::bigint, sum(wal_fpi)::bigint, sum(wal_bytes)::bigint`
+       sum(wal_records)::bigint AS wal_records, sum(wal_fpi)::bigint AS wal_fpi,
+       sum(wal_bytes)::bigint AS wal_bytes`
 
 const queryStatsPlanColumns = `,
        COALESCE(sum(total_plan_time), 0)::float8 AS total_plan_time,
        COALESCE(sum(total_plan_time) / NULLIF(sum(plans), 0), 0)::float8
          AS mean_plan_time`
 
+// queryStatsFrom admits the candidates (collection-07): the bounded union
+// of four arms over agg, each row tagged with the arms that admitted it.
+// total is the top %[3]d by total time (the ranking before collection-07);
+// mean and io are the top %[4]d by mean time (two calls or more) and by
+// blocks read plus temp blocks written, both without the queryids known
+// to be pg_sage's own ($2); pinned is every row of $1 (open verification
+// targets and watches). Pinned rows come first, then the other rows the
+// total ranking would not have admitted, then the rest by total time, so
+// the Go cut at max_queries keeps them; the final %d is the row bound.
 const queryStatsFrom = `
   FROM pg_stat_statements(false)
  WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
    AND queryid IS NOT NULL
  GROUP BY queryid
- ORDER BY sum(total_exec_time) DESC
+), arms AS (
+  (SELECT queryid, 4 AS arm_rank, 'total' AS arm FROM agg
+    ORDER BY total_exec_time DESC, queryid LIMIT %[3]d)
+  UNION ALL
+  (SELECT queryid, 2, 'mean' FROM agg
+    WHERE calls >= 2 AND mean_exec_time > 0 AND queryid <> ALL($2::int8[])
+    ORDER BY mean_exec_time DESC, queryid LIMIT %[4]d)
+  UNION ALL
+  (SELECT queryid, 3, 'io' FROM agg
+    WHERE shared_blks_read + temp_blks_written > 0 AND queryid <> ALL($2::int8[])
+    ORDER BY shared_blks_read + temp_blks_written DESC, queryid LIMIT %[4]d)
+  UNION ALL
+  SELECT queryid, 1, 'pinned' FROM agg WHERE queryid = ANY($1::int8[])
+), admitted AS (
+  SELECT queryid, min(arm_rank) AS first_rank,
+         array_agg(arm ORDER BY arm_rank) AS admitted_by
+    FROM arms GROUP BY queryid
+)
+SELECT agg.*, admitted.admitted_by
+  FROM agg JOIN admitted USING (queryid)
+ ORDER BY CASE admitted.first_rank WHEN 1 THEN 0 WHEN 4 THEN 2 ELSE 1 END,
+          agg.total_exec_time DESC, agg.queryid
  LIMIT %d`
 
 const queryStatsSQL = queryStatsSelect + queryStatsFrom

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -208,7 +209,9 @@ func TestCollect_TenSteadyCyclesReadTextsAtMostOnce(t *testing.T) {
 // its order, with its counters (golden), with room to spare and when the
 // limit cuts. The collector's pool is tagged as in production: its own
 // statements (transaction control included), which run between the two
-// reads, are left out by both, so only the workload is compared.
+// reads, are left out by both, so only the workload is compared. Since
+// collection-07 the mean and io arms may admit up to 2K rows the total
+// ranking did not: the golden covers the rows the total ranking admitted.
 func TestCollectQueries_MatchesLegacySingleRead(t *testing.T) {
 	ctx := context.Background()
 	pool := textTestDB(t, ctx)
@@ -225,9 +228,45 @@ func TestCollectQueries_MatchesLegacySingleRead(t *testing.T) {
 			if limit == 3 && len(want) != 3 {
 				return []string{fmt.Sprintf("legacy read gave %d queries, want 3", len(want))}
 			}
-			return diffQueries(limit, got, want)
+			byTotal, extra := splitAdmitted(got)
+			if problems := extraAdmissions(limit, extra, want); problems != nil {
+				return problems
+			}
+			return diffQueries(limit, byTotal, want[:min(len(want), len(byTotal))])
 		})
 	}
+}
+
+// splitAdmitted separates the queries the total ranking admitted from those
+// only the mean, io or pinned arms did (collection-07).
+func splitAdmitted(qs []QueryStats) (byTotal, extra []QueryStats) {
+	for _, q := range qs {
+		if slices.Contains(q.AdmittedBy, "total") {
+			byTotal = append(byTotal, q)
+		} else {
+			extra = append(extra, q)
+		}
+	}
+	return byTotal, extra
+}
+
+// extraAdmissions checks the rows only collection-07's arms admitted: at
+// most 2K of them, none in the old read's top-N (which they would have
+// been admitted by), and room left for the total ranking.
+func extraAdmissions(limit int, extra, want []QueryStats) []string {
+	if len(extra) > 2*admissionFor(limit).perArm {
+		return []string{fmt.Sprintf("limit %d: %d rows beyond the total ranking", limit,
+			len(extra))}
+	}
+	for _, q := range extra {
+		for _, w := range want {
+			if w.QueryID == q.QueryID {
+				return []string{fmt.Sprintf("limit %d: query %d is in the top-N by total "+
+					"but admitted only by %v", limit, q.QueryID, q.AdmittedBy)}
+			}
+		}
+	}
+	return nil
 }
 
 // taggedPool is a pool on pool's database configured as pg_sage's own

@@ -74,7 +74,12 @@ func unionCollector(t *testing.T, pool *pgxpool.Pool, n int) *Collector {
 	t.Helper()
 	cfg := testConfig()
 	cfg.Collector.MaxQueries = n
-	return New(pool, cfg, serverVersion(t, pool), noopLog)
+	logs := func(level, msg string, args ...any) {
+		if level == "WARN" || level == "ERROR" {
+			t.Logf(level+" "+msg, args...)
+		}
+	}
+	return New(pool, cfg, serverVersion(t, pool), logs)
 }
 
 func bootstrapSage(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
@@ -97,10 +102,16 @@ func storeRowsAt(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	return n
 }
 
-// recordCycle runs the queries step at the fake time at and records its
-// query_store samples, as a cycle does.
+// recordCycle runs the queries step at the fake time at (a future time)
+// and records its query_store samples, as a cycle does. query_store stamps
+// captured_at with the server's now(), so the cycle's rows are moved to at
+// afterwards: the cycles of a verification window run in seconds.
 func recordCycle(t *testing.T, ctx context.Context, c *Collector, at time.Time) []QueryStats {
 	t.Helper()
+	var started time.Time
+	if err := c.pool.QueryRow(ctx, "SELECT clock_timestamp()").Scan(&started); err != nil {
+		t.Fatalf("server clock: %v", err)
+	}
 	c.now = func() time.Time { return at }
 	qs := textCycle(t, ctx, c)
 	if len(qs) > c.maxQueries() {
@@ -109,6 +120,11 @@ func recordCycle(t *testing.T, ctx context.Context, c *Collector, at time.Time) 
 	snap := &Snapshot{CollectedAt: at, Queries: qs,
 		StatsEpoch: c.collectStatementsEpoch(ctx)}
 	c.recordQueryStore(ctx, snap)
+	_, err := c.pool.Exec(ctx, `UPDATE sage.query_store SET captured_at = $1
+		WHERE captured_at >= $2 AND captured_at <= clock_timestamp()`, at, started)
+	if err != nil {
+		t.Fatalf("move the cycle's samples to %s: %v", at, err)
+	}
 	return qs
 }
 
@@ -141,7 +157,7 @@ func TestCollectQueries_SlowRareStatementAdmittedByMean(t *testing.T) {
 		t.Fatalf("legacy read: %v", err)
 	}
 	if _, ok := queryWith(legacy, "rare_report_marker"); ok {
-		t.Fatal("control: the top-N by total time holds the slow statement; the test proves nothing")
+		t.Fatal("control: the top-N by total holds the slow statement; the test proves nothing")
 	}
 }
 
@@ -156,7 +172,7 @@ func TestCollectQueries_WatchedQueryRecordedUntilExpiry(t *testing.T) {
 	mustExec(t, pool, target)
 	id := queryIDOf(t, ctx, pool, "watched_target_marker")
 	c := unionCollector(t, pool, 10)
-	start := time.Now().UTC().Truncate(time.Second)
+	start := time.Now().UTC().Add(time.Hour).Truncate(time.Second)
 	steps := []struct {
 		at     time.Duration
 		pinned bool
