@@ -205,7 +205,9 @@ func TestWindowPackWithoutControlKeepsTodaysFiles(t *testing.T) {
 		{"config_audit.json", "database", 3, false},
 		{"decisions.json", "database", 1, false},
 		{"guard_query_audit.json", "database", 0, false},
-		{"pgaudit.json", "database", 1, false}}
+		{"pgaudit.json", "database", 1, false},
+		// audit-11 adds the window's policy approvals.
+		{"policy_approvals.json", "database", 0, false}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("manifest files =\n%+v\nwant\n%+v", got, want)
 	}
@@ -215,7 +217,8 @@ func TestWindowPackWithoutControlKeepsTodaysFiles(t *testing.T) {
 	}
 	sort.Strings(names)
 	if strings.Join(names, ",") != "SHA256SUMS,actions.json,auth_audit.json,chains.json,"+
-		"config_audit.json,decisions.json,guard_query_audit.json,manifest.json,pgaudit.json" {
+		"config_audit.json,decisions.json,guard_query_audit.json,manifest.json,pgaudit.json,"+
+		"policy_approvals.json" {
 		t.Fatalf("pack files = %v", names)
 	}
 	if m.Truncated || !m.ChainOK || entry(t, m, "actions.json").LastID == nil {

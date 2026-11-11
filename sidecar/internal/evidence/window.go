@@ -9,7 +9,7 @@ import (
 )
 
 // windowFile is one file of a window pack: its table and time column, the
-// chain that proves it (nil: none) and whether the control database holds
+// chain that proves it and whether the control database holds
 // it (sign-ins and config changes are written there in fleet mode).
 type windowFile struct {
 	name    string
@@ -29,13 +29,29 @@ var windowFiles = []windowFile{
 		&auditchain.PGAuditEvents, false},
 	{"guard_query_audit.json", auditchain.GuardQueryAudit.Table, "at",
 		&auditchain.GuardQueryAudit, false},
-	{"decisions.json", "sage.decision", "created_at", nil, false},
+	{"decisions.json", auditchain.DecisionLedger.Table, "created_at",
+		&auditchain.DecisionLedger, false},
+	{"policy_approvals.json", auditchain.PolicyApprovals.Table, "decided_at",
+		&auditchain.PolicyApprovals, true},
 }
 
 // noDatabaseIDNote marks a fleet config_audit.json read without the
 // database's id: it holds the global changes only.
 const noDatabaseIDNote = "the database's id is unknown: only global config changes " +
 	"(database_id NULL) are included"
+
+// noDatabaseIDApprovalsNote is noDatabaseIDNote for policy_approvals.json.
+const noDatabaseIDApprovalsNote = "the database's id is unknown: only approvals of " +
+	"global policy versions (database_id NULL) are included"
+
+// approvalsOfDatabase selects the approvals of the policy versions of
+// database $3 and the global ones.
+const approvalsOfDatabase = " AND t.policy_id IN (SELECT p.id FROM sage.policy p " +
+	"WHERE p.database_id = $3 OR p.database_id IS NULL)"
+
+// approvalsGlobal selects the approvals of the global policy versions.
+const approvalsGlobal = " AND t.policy_id IN (SELECT p.id FROM sage.policy p " +
+	"WHERE p.database_id IS NULL)"
 
 // window collects the audit of [from, to): the rows of every audit table
 // and decision in it, and each chain verified over the positions of the
@@ -50,9 +66,6 @@ func (b *builder) window(ctx context.Context, from, to time.Time) error {
 		meta, exists, err := b.rows(ctx, q)
 		if err != nil {
 			return err
-		}
-		if f.spec == nil {
-			continue
 		}
 		proof, err := b.windowChain(ctx, *f.spec, q, meta, exists)
 		if err != nil {
@@ -71,20 +84,34 @@ func (b *builder) windowQuery(f windowFile, from, to time.Time) rowQuery {
 	if f.control {
 		q.src = b.control
 	}
-	if f.spec == &auditchain.ConfigAudit && b.fleet() {
-		if b.databaseID > 0 {
-			q.args = append(q.args, b.databaseID)
-			q.where += " AND (t.database_id = $3 OR t.database_id IS NULL)"
-		} else {
-			q.where += " AND t.database_id IS NULL"
-			q.note = noDatabaseIDNote
-		}
+	if b.fleet() {
+		b.fleetFilter(f, &q)
 	}
 	if b.scope.AfterID > 0 {
 		q.args = append(q.args, b.scope.AfterID)
 		q.where += fmt.Sprintf(" AND t.id > $%d", len(q.args))
 	}
 	return q
+}
+
+// fleetFilter narrows a control database file to the requested database's
+// rows and the global ones: its config changes, and the approvals of its
+// policy versions.
+func (b *builder) fleetFilter(f windowFile, q *rowQuery) {
+	switch {
+	case f.spec == &auditchain.ConfigAudit && b.databaseID > 0:
+		q.args = append(q.args, b.databaseID)
+		q.where += " AND (t.database_id = $3 OR t.database_id IS NULL)"
+	case f.spec == &auditchain.ConfigAudit:
+		q.where += " AND t.database_id IS NULL"
+		q.note = noDatabaseIDNote
+	case f.spec == &auditchain.PolicyApprovals && b.databaseID > 0:
+		q.args = append(q.args, b.databaseID)
+		q.where += approvalsOfDatabase
+	case f.spec == &auditchain.PolicyApprovals:
+		q.where += approvalsGlobal
+		q.note = noDatabaseIDApprovalsNote
+	}
 }
 
 // windowChain verifies a chain, in the database the file was read from,

@@ -239,6 +239,9 @@ type builder struct {
 	databaseID  int
 	scope       Scope
 	pack        *Pack
+	// policyIDs are the policy versions in an action pack's policy.json;
+	// approvalIDs their approvals' ids (nil: no approvals table).
+	policyIDs, approvalIDs []int64
 }
 
 func newBuilder(src Sources, scope Scope, key ed25519.PrivateKey, now time.Time) *builder {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/pg-sage/sidecar/internal/auditchain"
 )
@@ -25,26 +26,105 @@ type head struct {
 	Hash string `json:"hash"`
 }
 
-// actionChain proves the action row: its links, verified end to end.
+// actionChain proves the action row in chain.json, as before, and in
+// chains.json the action, its decisions and the approvals of the policy
+// versions they name (audit-11): the authority the change ran under.
 func (b *builder) actionChain(ctx context.Context, id int64) error {
-	spec := auditchain.ActionLog
-	links, err := auditchain.LinksForRow(ctx, b.db.q, spec.Chain, id)
+	action, err := b.rowsProof(ctx, b.db, auditchain.ActionLog, []int64{id},
+		"the action predates the audit chain (no links)")
 	if err != nil {
-		return fmt.Errorf("evidence: chain of action %d: %w", id, err)
+		return err
 	}
-	proof := chainProof{Chain: spec.Chain, Source: b.db.name, Links: links}
-	if len(links) == 0 {
-		proof.Note = "the action predates the audit chain (no links)"
-	} else {
-		w := auditchain.Window{FromSeq: links[0].Seq, ToSeq: links[len(links)-1].Seq}
-		if err := b.verify(ctx, b.db, spec, w, &proof); err != nil {
+	if err := b.add("chain.json", fileMeta{source: b.db.name}, action); err != nil {
+		return err
+	}
+	decisions, err := b.decisionIDs(ctx, id)
+	if err != nil {
+		return err
+	}
+	decision := chainProof{Chain: auditchain.DecisionLedger.Chain, Source: b.db.name,
+		Note: "the action names no decision"}
+	if len(decisions) > 0 {
+		decision, err = b.rowsProof(ctx, b.db, auditchain.DecisionLedger, decisions,
+			"the decisions predate the audit chain (no links)")
+		if err != nil {
 			return err
 		}
 	}
-	if err := b.head(ctx, b.db, spec.Chain, &proof); err != nil {
+	approvals, err := b.approvalsProof(ctx)
+	if err != nil {
 		return err
 	}
-	return b.add("chain.json", fileMeta{source: b.db.name}, proof)
+	return b.add("chains.json", fileMeta{}, []chainProof{action, decision, approvals})
+}
+
+// rowsProof proves rows ids of spec in src: their links, verified over the
+// positions from the first to the last.
+func (b *builder) rowsProof(ctx context.Context, src source, spec auditchain.Spec,
+	ids []int64, noLinks string) (chainProof, error) {
+	proof := chainProof{Chain: spec.Chain, Source: src.name}
+	for _, id := range ids {
+		links, err := auditchain.LinksForRow(ctx, src.q, spec.Chain, id)
+		if err != nil {
+			return proof, fmt.Errorf("evidence: chain of %s %d in %s: %w", spec.Chain, id,
+				src.describe(), err)
+		}
+		proof.Links = append(proof.Links, links...)
+	}
+	sort.Slice(proof.Links, func(i, j int) bool { return proof.Links[i].Seq < proof.Links[j].Seq })
+	if len(proof.Links) == 0 {
+		proof.Note = noLinks
+	} else {
+		w := auditchain.Window{FromSeq: proof.Links[0].Seq,
+			ToSeq: proof.Links[len(proof.Links)-1].Seq}
+		if err := b.verify(ctx, src, spec, w, &proof); err != nil {
+			return proof, err
+		}
+	}
+	return proof, b.head(ctx, src, spec.Chain, &proof)
+}
+
+// decisionIDs lists the decisions of action id.
+func (b *builder) decisionIDs(ctx context.Context, id int64) ([]int64, error) {
+	var ids []int64
+	err := b.db.q.QueryRow(ctx, `/* pg_sage evidence v1 */ SELECT coalesce(array_agg(t.id
+		ORDER BY t.id), '{}') FROM sage.decision t WHERE `+decisionFilter("t"),
+		id).Scan(&ids)
+	if err != nil {
+		return nil, fmt.Errorf("evidence: decisions of action %d: %w", id, err)
+	}
+	return ids, nil
+}
+
+// approvalsProof proves the approvals of the policy versions in
+// policy.json, in the database the policy lives in: their links, and a
+// verification of the whole approvals chain, so an approval deleted
+// behind the chain (which no query can list any more) is still reported.
+// Approvals are rare human acts; the chain is small.
+func (b *builder) approvalsProof(ctx context.Context) (chainProof, error) {
+	spec := auditchain.PolicyApprovals
+	proof := chainProof{Chain: spec.Chain, Source: b.control.name}
+	if len(b.policyIDs) == 0 {
+		proof.Note = "the decisions name no stored policy version"
+		return proof, nil
+	}
+	if b.approvalIDs == nil {
+		proof.Note = "table not installed"
+		return proof, nil
+	}
+	for _, id := range b.approvalIDs {
+		links, err := auditchain.LinksForRow(ctx, b.control.q, spec.Chain, id)
+		if err != nil {
+			return proof, fmt.Errorf("evidence: chain of approval %d in %s: %w", id,
+				b.control.describe(), err)
+		}
+		proof.Links = append(proof.Links, links...)
+	}
+	sort.Slice(proof.Links, func(i, j int) bool { return proof.Links[i].Seq < proof.Links[j].Seq })
+	if err := b.verify(ctx, b.control, spec, auditchain.Window{}, &proof); err != nil {
+		return proof, err
+	}
+	return proof, b.head(ctx, b.control, spec.Chain, &proof)
 }
 
 func (b *builder) verify(ctx context.Context, src source, spec auditchain.Spec,

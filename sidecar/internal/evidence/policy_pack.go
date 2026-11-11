@@ -55,6 +55,7 @@ func (b *builder) policies(ctx context.Context, actionID int64) error {
 		list); err != nil {
 		return err
 	}
+	b.policyIDs = ids
 	return b.policyApprovals(ctx, ids)
 }
 
@@ -125,7 +126,8 @@ func (b *builder) policyRow(ctx context.Context, ref policyRef) (storedPolicy, b
 
 // policyApprovals adds policy_approvals.json: each person's approval of
 // the policy versions in policy.json, from the control database, in
-// (policy, approver) order and at most maxWindowRows of them.
+// (policy, approver) order and at most maxWindowRows of them. It keeps
+// their ids for the chain proof (nil when the table does not exist).
 func (b *builder) policyApprovals(ctx context.Context, policyIDs []int64) error {
 	meta := fileMeta{source: b.control.name}
 	fail := func(err error) error {
@@ -138,13 +140,17 @@ func (b *builder) policyApprovals(ctx context.Context, policyIDs []int64) error 
 		return fail(err)
 	}
 	list := []any{}
+	if exists {
+		b.approvalIDs = []int64{}
+	}
 	if exists && len(policyIDs) > 0 {
 		var raw []byte
 		err := b.control.q.QueryRow(ctx, fmt.Sprintf(`/* pg_sage evidence v1 */ SELECT
-			coalesce(jsonb_agg(to_jsonb(t) ORDER BY t.policy_id, t.approver), '[]'::jsonb)
+			coalesce(jsonb_agg(to_jsonb(t) ORDER BY t.policy_id, t.approver), '[]'::jsonb),
+			coalesce(array_agg(t.id ORDER BY t.id), '{}')
 			FROM (SELECT * FROM sage.policy_approvals WHERE policy_id = ANY($1)
 			ORDER BY policy_id, approver LIMIT %d) t`, maxWindowRows+1),
-			policyIDs).Scan(&raw)
+			policyIDs).Scan(&raw, &b.approvalIDs)
 		if err != nil {
 			return fail(err)
 		}
