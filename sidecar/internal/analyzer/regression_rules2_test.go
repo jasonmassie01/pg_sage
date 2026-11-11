@@ -114,11 +114,14 @@ func assertSQL(t *testing.T, ff []Finding, want string) {
 }
 
 // C18/G1-B35: a descending sequence approaching its minimum must be
-// reported even though the collector's pct_used is 0 for it.
+// reported. The collector's pct_used is the share consumed in the
+// direction of travel over [min_value, max_value] (sequencePageSQL), so
+// the fixture carries what it reports for this sequence (rules-11).
 func TestRegression_DescendingSequenceExhaustion(t *testing.T) {
 	snap := &collector.Snapshot{Sequences: []collector.SequenceStats{{
 		SchemaName: "public", SequenceName: "down_seq", DataType: "integer",
-		LastValue: -2_000_000_000, MaxValue: -1, IncrementBy: -1, PctUsed: 0,
+		LastValue: -2_000_000_000, MinValue: -2_147_483_648, MaxValue: -1,
+		IncrementBy: -1, PctUsed: 93.13,
 	}}}
 	got := ruleSequenceExhaustion(snap, nil, nil, nil)
 	if len(got) != 1 || got[0].Severity != "critical" {
