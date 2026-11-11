@@ -110,6 +110,34 @@ func TestConnectionLimitDB_ForecastLeavesTodayOut(t *testing.T) {
 	}
 }
 
+// Today stays out on the calendar alone: with no collector interval every
+// day with a row is covered, today's single 199-client row included, and
+// the projection still ends on yesterday's 73. Its date is yesterday's
+// session date plus 28 whole days ((157.6 - 73) / 3 = 28.2), whatever Go's
+// Local zone (pgx reads the session's midnights in it).
+func TestConnectionLimitDB_TodayOutWithoutCoverageGate(t *testing.T) {
+	pool, ctx := phase2RequireDB(t)
+	seedConnectionDays(t, ctx, pool)
+	cleanupSnapshots(t, pool, ctx, "queries")
+	f := New(pool, ForecasterConfig{LookbackDays: 30, ConnectionWarnPct: 80,
+		DiskWarnGrowthGBDay: 5, CacheWarnThreshold: 0.5}, func(string, string, ...any) {})
+	findings, err := f.Forecast(ctx)
+	if err != nil {
+		t.Fatalf("Forecast: %v", err)
+	}
+	conn := findingOf(findings, "forecast_connection_saturation")
+	if conn == nil {
+		t.Fatalf("no connection finding: %+v", findings)
+	}
+	if conn.Detail["current_in_use"] != 73.0 {
+		t.Errorf("current_in_use = %v, want yesterday's 73", conn.Detail["current_in_use"])
+	}
+	want := dayStart(1).AddDate(0, 0, 28).Format(dateLayout)
+	if conn.Detail["projected_date"] != want {
+		t.Errorf("projected_date = %v, want %s", conn.Detail["projected_date"], want)
+	}
+}
+
 // seedQueryWeeks writes hourly query snapshots for 15 closed days and
 // today's midnight: one query at 100 calls an hour, 160 in the last week.
 func seedQueryWeeks(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {

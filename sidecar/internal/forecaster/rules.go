@@ -9,9 +9,6 @@ import (
 
 const minDataPoints = 7
 
-// dateLayout formats the calendar dates of finding titles and details.
-const dateLayout = "2006-01-02"
-
 // forecastDiskGrowth warns when database size is growing faster
 // than the configured threshold in GB/day. Only days with a measured
 // size count, and minDataPoints of them are needed (forecast-07); the
@@ -89,14 +86,14 @@ func forecastQueryVolume(
 		Severity:   severity,
 		ObjectType: "database",
 		Title: fmt.Sprintf("Query volume growing %.0f%%/week (week to %s)",
-			w.pct, w.to.Format(dateLayout)),
+			w.pct, calendarDate(w.to).Format(dateLayout)),
 		Detail: map[string]any{
 			"forecast_type":    "query_volume",
 			"wow_growth_pct":   w.pct,
 			"this_week_calls":  w.thisWeek,
 			"prior_week_calls": w.lastWeek,
-			"window_start":     w.from.Format(dateLayout),
-			"window_end":       w.to.Format(dateLayout),
+			"window_start":     calendarDate(w.from).Format(dateLayout),
+			"window_end":       calendarDate(w.to).Format(dateLayout),
 		},
 		Recommendation: "Query volume is rising rapidly. " +
 			"Investigate new workload patterns and ensure " +

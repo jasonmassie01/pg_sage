@@ -3,7 +3,6 @@ package forecaster
 import (
 	"fmt"
 	"math"
-	"time"
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
 )
@@ -74,10 +73,10 @@ func forecastConnectionSaturation(
 	current := s.inUse(latest)
 	days := DaysUntilThreshold(current, reg.Slope, usable*cfg.ConnectionWarnPct/100)
 	severity := severityByDays(days)
-	if severity == "" {
+	date, dated := projectedDate(latest.Day, days)
+	if severity == "" || !dated {
 		return nil
 	}
-	date := latest.Day.Add(time.Duration(days * float64(24*time.Hour))).Format(dateLayout)
 	return []analyzer.Finding{connectionFinding(cfg, severity, date, days, map[string]any{
 		"forecast_type":        "connection_saturation",
 		"current_in_use":       current,

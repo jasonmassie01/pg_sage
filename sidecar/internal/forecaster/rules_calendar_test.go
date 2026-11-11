@@ -2,9 +2,7 @@ package forecaster
 
 import (
 	"math"
-	"strings"
 	"testing"
-	"time"
 )
 
 // forecast-08: the projection rules gate on the fit and the span of the
@@ -130,28 +128,8 @@ func TestProjectionGate_SpanCountsCalendarDays(t *testing.T) {
 	}
 }
 
-// The connection title carries the projected date.
-func TestConnectionTitle_CarriesTheProjectedDate(t *testing.T) {
-	aggs := makeSysAggs(14, func(i int) DaySystemAgg {
-		return DaySystemAgg{MaxTotalBackends: float64(100 + 2*i), MaxConnections: 200}
-	})
-	f := forecastConnectionSaturation(aggs, ForecasterConfig{ConnectionWarnPct: 80})
-	if len(f) != 1 {
-		t.Fatalf("findings = %d, want 1", len(f))
-	}
-	// Latest 126 of a 160 limit at 2/day: 17 days after the newest day.
-	days := f[0].Detail["days_to_warn_pct"].(float64)
-	if math.Abs(days-17) > 1e-6 {
-		t.Fatalf("days_to_warn_pct = %v, want 17", days)
-	}
-	want := aggs[13].Day.Add(17 * 24 * time.Hour).Format("2006-01-02")
-	if !strings.Contains(f[0].Title, want) {
-		t.Errorf("title %q lacks the projected date %s", f[0].Title, want)
-	}
-	if f[0].Detail["projected_date"] != want {
-		t.Errorf("projected_date = %v, want %s", f[0].Detail["projected_date"], want)
-	}
-}
+// The connection title's projected date: dates_test.go
+// (TestConnectionTitle_ProjectedDateIsTheSessionDate).
 
 // Boundary (index-based WoW): an outage removes day 9 of 16; the array
 // shifts by one, so the old "last 7 entries vs the 7 before" read a week

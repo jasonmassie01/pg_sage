@@ -2548,7 +2548,8 @@ days).
   (default `0.5`; `0` means the default) and the series spans at least 7 calendar
   days. A noisy trend gives no finding (and resolves an open one). Their details carry
   `r_squared`, `span_days` (calendar days from the first to the newest day) and
-  `covered_days` (the days fitted); their titles carry the projected date.
+  `covered_days` (the days fitted); their titles carry the projected date, a calendar
+  date of the session time zone (none past about a century).
 
 - Days without a measured database size (`pg_database_size` had not yet succeeded,
   timed out, or is refused by the provider) are left out of the disk growth trend

@@ -115,14 +115,18 @@ func withDiskCapacity(findings []analyzer.Finding, c Capacity) []analyzer.Findin
 }
 
 // projectedFull is the title's projected full date (forecast-08): the
-// newest measured day plus days_until_full, when both are known.
+// newest measured day's date plus days_until_full, when both are known
+// and the date is within maxProjectedDays.
 func projectedFull(detail map[string]any) string {
 	days, ok := detail["days_until_full"].(float64)
 	asOf, dated := detail["as_of_day"].(time.Time)
 	if !ok || !dated {
 		return ""
 	}
-	date := asOf.Add(time.Duration(days * float64(24*time.Hour))).Format(dateLayout)
+	date, ok := projectedDate(asOf, days)
+	if !ok {
+		return ""
+	}
 	detail["projected_full_date"] = date
 	return fmt.Sprintf(", full by %s", date)
 }
