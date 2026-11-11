@@ -100,9 +100,14 @@ func checkProviderConsumers(t *testing.T, name string) {
 		t.Errorf("%s: adapter log access %q, profile %q", name, adapter.LogAccess,
 			profile.LogAccess)
 	}
-	paramSupported := profile.ConfigMechanism == provider.ConfigParameterGroup ||
+	// advisors-03 added AlloyDB flags and Azure server parameters; the
+	// retired azure-single alias of the Azure profile stays unsupported.
+	paramSupported := (profile.ConfigMechanism == provider.ConfigParameterGroup ||
 		profile.ConfigMechanism == provider.ConfigClusterParameterGroup ||
-		profile.ConfigMechanism == provider.ConfigCloudSQLFlags
+		profile.ConfigMechanism == provider.ConfigCloudSQLFlags ||
+		profile.ConfigMechanism == provider.ConfigAlloyDBFlags ||
+		profile.ConfigMechanism == provider.ConfigServerParameters) &&
+		!strings.EqualFold(name, "azure-single")
 	if managedparam.Supported(name) != paramSupported {
 		t.Errorf("%s: managedparam.Supported %v, mechanism %q", name,
 			managedparam.Supported(name), profile.ConfigMechanism)
