@@ -28,8 +28,9 @@ type Collector struct {
 	// (guarded by mu); probeDB replaces the probe's querier (tests).
 	caps       capState
 	probeDB    catalogQuerier
-	loadDB     catalogQuerier // replaces the breaker's load querier (tests)
-	health     health         // outcome record behind Status (status.go)
+	loadDB     catalogQuerier    // replaces the breaker's load querier (tests)
+	loops      *selfbudget.Loops // replaces the process loop tracker (tests)
+	health     health            // outcome record behind Status (status.go)
 	logFn      func(string, string, ...any)
 	snapWriter *snapstore.Writer
 	// period is the ticker's period in nanoseconds (0 before Run); only
@@ -140,7 +141,7 @@ func (c *Collector) Run(ctx context.Context) {
 	// the analyzer's first cycle within the first minute (five-minute time
 	// to value).
 	if ctx.Err() == nil {
-		c.cycle(ctx, ticker)
+		c.trackedCycle(ctx, ticker)
 	}
 
 	for {
@@ -149,17 +150,18 @@ func (c *Collector) Run(ctx context.Context) {
 			c.logFn("INFO", "collector stopped")
 			return
 		case <-ticker.C:
-			done := selfbudget.Process().Track("collector")
-			c.cycle(ctx, ticker)
-			done()
+			c.trackedCycle(ctx, ticker)
 		}
 	}
 }
 
-func (c *Collector) cycle(ctx context.Context, ticker intervalResetter) {
+// cycle collects and persists one snapshot. It returns why the cycle
+// produced no stored snapshot (skipped, collection or persist failed),
+// each already logged, so the loop tracker counts it (observability-06).
+func (c *Collector) cycle(ctx context.Context, ticker intervalResetter) error {
 	if d := c.breaker.ShouldSkip(ctx, c.loadQuerier()); d.Skip {
 		c.skipCycle(ticker, d)
-		return
+		return fmt.Errorf("%w: %s", ErrCycleSkipped, d.cause())
 	}
 
 	// Between cycles: follow a changed collector.interval_seconds, and
@@ -170,7 +172,7 @@ func (c *Collector) cycle(ctx context.Context, ticker intervalResetter) {
 	if err != nil {
 		c.noteError("collect", err)
 		c.logFn("ERROR", "collection failed: %v", err)
-		return
+		return fmt.Errorf("collect: %w", err)
 	}
 
 	c.mu.Lock()
@@ -181,12 +183,15 @@ func (c *Collector) cycle(ctx context.Context, ticker intervalResetter) {
 	c.breaker.RecordSuccess()
 	c.noteSuccess()
 
-	if err := c.persist(ctx, snap); err != nil {
-		c.notePersistFailure(err)
-		c.logFn("ERROR", "snapshot persist failed: %v", err)
+	persistErr := c.persist(ctx, snap)
+	if persistErr != nil {
+		c.notePersistFailure(persistErr)
+		c.logFn("ERROR", "snapshot persist failed: %v", persistErr)
+		persistErr = fmt.Errorf("persist snapshot: %w", persistErr)
 	}
 
 	c.recordQueryStore(ctx, snap)
+	return persistErr
 }
 
 // skipCycle logs why the breaker skipped this cycle (load, or a failed
