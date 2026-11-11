@@ -9,6 +9,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/selfbudget"
 	"github.com/pg-sage/sidecar/internal/selfconfig"
 	"github.com/pg-sage/sidecar/internal/store"
 )
@@ -153,6 +154,8 @@ func (s *selfConfigRunner) logEvents(results []selfconfig.Result) {
 // read; evidence that fails to read is logged and the rest is used.
 func (s *selfConfigRunner) pass(ctx context.Context,
 	phase selfconfig.Phase) ([]selfconfig.Result, error) {
+	ctx, done := selfbudget.Process().TrackFor(ctx, "self_config")
+	defer done()
 	set, err := s.operatorSet(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("read which keys the operator set: %w", err)

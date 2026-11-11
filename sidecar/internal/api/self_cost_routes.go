@@ -8,6 +8,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/selfbudget"
 	"github.com/pg-sage/sidecar/internal/selfcost"
 )
 
@@ -112,7 +113,8 @@ func selfCostHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
 			views = append(views, footprintView(name, footprints[name], cfg))
 		}
 		jsonResponse(w, map[string]any{"databases": views,
-			"process": processView(names, footprints, cfg), "meaning": selfCostMeaning})
+			"process": processView(selfbudget.ProcessWatch().Reading(), cfg),
+			"meaning": selfCostMeaning})
 	}
 }
 
@@ -240,23 +242,18 @@ func footprintComponents(comps []selfcost.ComponentCost, ok bool) ([]footprintCo
 }
 
 // processView is the sidecar process's CPU per cycle against its budget
-// and its busiest loops, once for all databases: the lowest-named
-// database whose analyzer measured the CPU (as /metrics does).
-func processView(names []string, fps map[string]analyzer.SelfFootprint,
-	cfg *config.Config) footprintProcessView {
+// and its busiest loops of local work, once for all databases, as the
+// process watch measured them (footprint-07).
+func processView(r selfbudget.CPUReading, cfg *config.Config) footprintProcessView {
 	budget := float64(cfg.SelfBudget.CPUMsPerCycle)
 	v := footprintProcessView{TopLoops: []footprintLoop{}, CPUBudget: known(budget, budget > 0)}
-	for _, name := range names {
-		fp := fps[name]
-		if !fp.Usage.CPUKnown {
-			continue
-		}
-		v.Known, v.CPUMs = true, known(fp.Usage.CPUMsPerCycle, true)
-		for _, l := range fp.Loops {
-			v.TopLoops = append(v.TopLoops, footprintLoop{Loop: l.Name, BusyMs: l.BusyMs,
-				Runs: l.Runs})
-		}
-		break
+	if !r.Known {
+		return v
+	}
+	v.Known, v.CPUMs = true, known(r.MsPerCycle, true)
+	for _, l := range r.Loops {
+		v.TopLoops = append(v.TopLoops, footprintLoop{Loop: l.Name, BusyMs: l.BusyMs,
+			Runs: l.Runs})
 	}
 	return v
 }

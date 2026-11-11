@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -347,29 +348,47 @@ func TestSelfCostRoute_ConcurrentWithCycles(t *testing.T) {
 	wg.Wait()
 }
 
-// The process CPU comes from the lowest-named database that measured it,
-// once, with that analyzer's busiest loops; a disabled budget is null.
-func TestSelfCostProcessView_CPUOnceFromFirstMeasured(t *testing.T) {
+// The process CPU comes from the process watch (footprint-07), once for
+// every database, with the busiest loops across the process; a disabled
+// budget is null and an unknown reading has no figure.
+func TestSelfCostProcessView_FromTheProcessWatch(t *testing.T) {
 	cfg := footprintConfig()
-	fps := map[string]analyzer.SelfFootprint{
-		"a": {},
-		"b": {Usage: selfbudget.Usage{CPUKnown: true, CPUMsPerCycle: 42},
-			Loops: []selfbudget.LoopCost{{Name: "collector", BusyMs: 900, Runs: 3}}},
-		"c": {Usage: selfbudget.Usage{CPUKnown: true, CPUMsPerCycle: 99}},
-	}
-	v := processView([]string{"a", "b", "c"}, fps, cfg)
+	r := selfbudget.CPUReading{Known: true, MsPerCycle: 42, BudgetMs: 600,
+		Loops: []selfbudget.LoopCost{{Name: "collector:b", BusyMs: 900, Runs: 3}}}
+	v := processView(r, cfg)
 	if !v.Known || v.CPUMs == nil || *v.CPUMs != 42 || v.CPUBudget == nil ||
 		*v.CPUBudget != 600 {
-		t.Fatalf("process = %+v, want b's 42 ms against 600", v)
+		t.Fatalf("process = %+v, want 42 ms against 600", v)
 	}
-	if len(v.TopLoops) != 1 || v.TopLoops[0] != (footprintLoop{Loop: "collector",
+	if len(v.TopLoops) != 1 || v.TopLoops[0] != (footprintLoop{Loop: "collector:b",
 		BusyMs: 900, Runs: 3}) {
 		t.Fatalf("loops = %+v", v.TopLoops)
 	}
 	cfg.SelfBudget.CPUMsPerCycle = 0
-	v = processView([]string{"a"}, fps, cfg)
-	if v.Known || v.CPUMs != nil || v.CPUBudget != nil || len(v.TopLoops) != 0 {
+	v = processView(selfbudget.CPUReading{}, cfg)
+	if v.Known || v.CPUMs != nil || v.CPUBudget != nil || v.TopLoops == nil ||
+		len(v.TopLoops) != 0 {
 		t.Fatalf("unmeasured, no budget = %+v", v)
+	}
+}
+
+// The registered process watch is what the handler reads.
+func TestSelfCostProcessView_ReadsTheRegisteredWatch(t *testing.T) {
+	prev := selfbudget.ProcessWatch()
+	t.Cleanup(func() { selfbudget.SetProcessWatch(prev) })
+	clock, cpu := time.Now(), time.Minute
+	w := selfbudget.NewProcessCPUWatch(selfbudget.WatchOptions{
+		Read:   func() (time.Duration, bool) { return cpu, true },
+		Now:    func() time.Time { return clock },
+		Budget: func() float64 { return 600 },
+		Cycle:  func() time.Duration { return time.Minute }})
+	_ = w.Tick(context.Background())
+	clock, cpu = clock.Add(time.Minute), cpu+700*time.Millisecond
+	_ = w.Tick(context.Background())
+	selfbudget.SetProcessWatch(w)
+	if got := processView(selfbudget.ProcessWatch().Reading(), footprintConfig()); !got.Known ||
+		got.CPUMs == nil || *got.CPUMs != 700 {
+		t.Fatalf("process = %+v, want the watch's 700 ms", got)
 	}
 }
 

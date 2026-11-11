@@ -154,14 +154,14 @@ func (c *Collector) Run(ctx context.Context) {
 			c.logFn("INFO", "collector stopped")
 			return
 		case <-ticker.C:
-			done := selfbudget.Process().Track("collector")
 			c.cycle(ctx, ticker)
-			done()
 		}
 	}
 }
 
 func (c *Collector) cycle(ctx context.Context, ticker intervalResetter) {
+	ctx, done := selfbudget.Process().TrackFor(ctx, "collector")
+	defer done()
 	c.meter.start()
 	if d := c.breaker.ShouldSkip(withStep(ctx, "load"), c.loadQuerier()); d.Skip {
 		c.meter.abandon()

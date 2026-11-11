@@ -99,9 +99,10 @@ func (m *metricsRefresher) run(ctx context.Context) {
 // refresh reads every source and publishes the new snapshot. A refresh
 // cut short by ctx (shutdown or removal) publishes nothing.
 func (m *metricsRefresher) refresh(ctx context.Context) {
+	ctx, done := selfbudget.Process().TrackFor(ctx, "metrics_refresh")
+	defer done()
 	m.refreshMu.Lock()
 	defer m.refreshMu.Unlock()
-	defer selfbudget.Process().Track("metrics_refresh")()
 	prev := m.snap.Load()
 	next := &metricsSnapshot{ok: map[string]bool{},
 		lastSuccess: make(map[string]time.Time, len(m.sources))}

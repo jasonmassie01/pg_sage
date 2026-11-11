@@ -9,8 +9,12 @@ import (
 // Loops accumulates the busy (wall) time and runs of pg_sage's periodic
 // loops, so a budget breach can name the loops that worked most. Busy
 // time is wall time, not CPU: Go does not attribute CPU to goroutines.
-// Safe for concurrent use.
+// A loop is keyed component:database (component alone for a process
+// loop); the time a run waited on the LLM, and the time of runs nested
+// inside it, are not its busy time (footprint-07). Safe for concurrent
+// use.
 type Loops struct {
+	now   func() time.Time
 	mu    sync.Mutex
 	stats map[string]LoopStat
 }
@@ -28,8 +32,17 @@ type LoopCost struct {
 	Runs   int64
 }
 
-// NewLoops returns an empty tracker.
-func NewLoops() *Loops { return &Loops{stats: map[string]LoopStat{}} }
+// NewLoops returns an empty tracker on the wall clock.
+func NewLoops() *Loops { return NewLoopsWithClock(time.Now) }
+
+// NewLoopsWithClock returns an empty tracker that reads time with now
+// (time.Now when nil).
+func NewLoopsWithClock(now func() time.Time) *Loops {
+	if now == nil {
+		now = time.Now
+	}
+	return &Loops{now: now, stats: map[string]LoopStat{}}
+}
 
 var process = NewLoops()
 
@@ -47,12 +60,6 @@ func (l *Loops) Add(name string, d time.Duration) {
 	s.Busy += d
 	s.Runs++
 	l.stats[name] = s
-}
-
-// Track starts a run of name; calling the result ends it.
-func (l *Loops) Track(name string) func() {
-	start := time.Now()
-	return func() { l.Add(name, time.Since(start)) }
 }
 
 // Snapshot copies every loop's counters.

@@ -16,6 +16,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/planhash"
 	"github.com/pg-sage/sidecar/internal/sanitize"
+	"github.com/pg-sage/sidecar/internal/selfbudget"
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
 	"github.com/pg-sage/sidecar/internal/workload"
 )
@@ -85,6 +86,8 @@ func (c *Collector) Run(ctx context.Context) {
 // Collect finds slow queries without recent plans and captures
 // execution plans for them on-demand.
 func (c *Collector) Collect(ctx context.Context) error {
+	ctx, done := selfbudget.Process().TrackFor(ctx, "auto_explain")
+	defer done()
 	rows, err := c.pool.Query(ctx, candidateSQL,
 		float64(c.cfg.LogMinDurationMs),
 		c.cfg.MaxPlansPerCycle,

@@ -18,6 +18,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/egress"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/selfbudget"
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
 	"github.com/pg-sage/sidecar/internal/workload"
 )
@@ -177,6 +178,8 @@ const maxBriefingFindings = 50
 
 // Generate creates a briefing from current findings and system state.
 func (w *Worker) Generate(ctx context.Context) (string, error) {
+	ctx, done := selfbudget.Process().TrackFor(ctx, "briefing")
+	defer done()
 	// Gather data.
 	findings, totalOpen, err := w.gatherFindings(ctx)
 	if err != nil {
