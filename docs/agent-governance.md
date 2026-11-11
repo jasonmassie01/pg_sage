@@ -45,7 +45,7 @@ superuser or `BYPASSRLS`, hold no dangerous membership and own nothing. pg_sage 
 | `name` | a unique slug: `^[a-z][a-z0-9-]{1,62}$` |
 | `sponsor_user_id` | the accountable person, a pg_sage user id; required at creation |
 | `sponsor_active` | true while the sponsor is an existing, enabled operator or admin |
-| `profile` | the capability profile (see [Profiles](#profiles)); required |
+| `profile` | the capability profile, one of those in [Profiles](#profiles); required |
 | `env_ceiling` | `branch`, `dev`, `stage` or `prod` (default `dev`): the most production-like environment the agent may reach |
 | `tenant` | optional free text, up to 200 characters |
 | `status` | `active`, `frozen` or `retired` |
@@ -55,12 +55,15 @@ superuser or `BYPASSRLS`, hold no dangerous membership and own nothing. pg_sage 
 
 | Request | Who | What it does |
 |---|---|---|
-| `GET /api/v1/agents` `?status=&limit=&cursor=` | operator | Lists principals, 1 to 200 a page |
+| `GET /api/v1/agents` `?status=&limit=&cursor=` | operator | Lists principals, 1 to 200 a page, with `profiles`: the profiles pg_sage ships (`name`, `classes`, `env_ceiling`, `direct_lane`) |
 | `POST /api/v1/agents` `{"name", "sponsor_user_id", "profile", "env_ceiling", "tenant"}` | admin | Creates one (201) |
 | `GET /api/v1/agents/{id}` | operator | Reads one, with `sponsor_active` and `tainted` |
-| `PATCH /api/v1/agents/{id}` `{"sponsor_user_id", "profile", "env_ceiling", "status", "reason"}` | admin | Changes the sponsor, profile or ceiling, or retires it (`"status": "retired"`) |
+| `PATCH /api/v1/agents/{id}` `{"sponsor_user_id", "profile", "env_ceiling", "status", "reason"}` | admin | Changes the sponsor, profile or ceiling, or retires it (`"status": "retired"`). A widening change answers 202 and waits for a second admin (see [Two-person rules](#two-person-rules)) |
+| `GET /api/v1/agents/{id}/changes` | operator | The agent's pending widening change: `change_id`, `patch`, `requested_by`, `reason`, `expires_at` |
+| `POST /api/v1/agents/{id}/changes/{cid}/confirm` `{"sponsor_user_id", "profile", "env_ceiling", "reason"}` | admin | A second admin applies the pending change (200 with the agent) |
 
-Unknown body fields are refused. A missing or bad field answers 422, an unknown agent 404,
+Unknown body fields are refused. A missing or bad field answers 422, and so does a profile
+pg_sage doesn't ship, on create and on `PATCH`. An unknown agent answers 404,
 and a taken name or a change to a retired agent 409. A sponsor change while the agent has an
 open freeze answers 409 with `code: sponsor_change_frozen`. `status` accepts only `retired`: freeze
 and unfreeze have their own routes (see [the kill switch](#kill-switch-freeze-and-unfreeze)).
@@ -105,6 +108,8 @@ sponsor (or an operator token's owner).
 | `mcp_token_revoked` | `DELETE /api/v1/mcp/tokens/{id}` (not a repeat on a revoked token) | as `mcp_token_created` |
 | `agent_identity_bound` | `POST /api/v1/agents/{id}/identities` | `principal_id`, `name`, `issuer`, `subject` |
 | `agent_identity_unbound` | `DELETE /api/v1/agents/{id}/identities` | as `agent_identity_bound` |
+| `agent_change_requested` | a widening `PATCH` outside single-operator mode | as `agent_updated` (`after` is what the change would make), with `change_id`, `expires_at` and `superseded_change_id` (0 when none) |
+| `agent_change_confirmed` | `POST /api/v1/agents/{id}/changes/{cid}/confirm` | as `agent_updated`, with `change_id` and `requested_by_user`; `reason` is the confirming admin's |
 
 `before` and `after` are `{"sponsor_user_id", "profile", "env_ceiling"}`. No row carries a token
 secret, its hash or its prefix. An empty `PATCH` changes nothing and writes nothing. Kills and
@@ -122,8 +127,11 @@ and its profile's ceiling. A database's environment comes from its verified labe
 
 ### Profiles
 
-pg_sage ships these profiles, fixed in this release. A profile name outside this table is
-accepted, but it allows no class, so every `agent_*` request under it is refused.
+pg_sage ships these profiles, fixed in this release. Creating an agent or changing its
+profile to a name outside this table answers 422, and the Agents page offers only these. An
+agent created before this check with another profile still loads, with a "profile not
+recognised" warning on the Agents page; its profile allows no class, so every `agent_*` request
+under it is refused until an admin sets one of these.
 
 | Profile | Classes | Ceiling |
 |---|---|---|
@@ -320,7 +328,7 @@ reason, which pg_sage records for a review after the fact (a principal's widenin
 
 | Change | Request | Second person | Single-operator mode |
 |---|---|---|---|
-| Widen a principal: a higher `env_ceiling`, or any profile change | `PATCH /api/v1/agents/{id}` | Not available in this release: refused with 403 `two_person_required` | one admin, with a reason |
+| Widen a principal: a higher `env_ceiling`, or a profile that grants more | `PATCH /api/v1/agents/{id}`, then `POST /api/v1/agents/{id}/changes/{cid}/confirm` | another admin within 15 minutes, with the same fields; not the requester, the agent's sponsor or the sponsor the change names | one admin, with a reason |
 | Widen a database's environment label (toward `branch`) | `PUT /api/v1/agent-environments/{database}` | another admin repeats the same label within 24 hours | does not apply |
 | Unfreeze after a kill | `POST /api/v1/agents/{id}/unfreeze` | another admin within 15 minutes, not the agent's sponsor | one admin, with a reason |
 | Unfreeze after an operator freeze | `POST /api/v1/agents/{id}/unfreeze` | none: one admin | does not apply |
@@ -328,9 +336,41 @@ reason, which pg_sage records for a review after the fact (a principal's widenin
 | Ratify an agent's policy proposal that widens the policy | `POST /api/v1/policy/proposals/{id}/ratify` | a second admin; neither may be the agent's sponsor | one admin, with a reason |
 
 Every request in the table is an admin's. The first admin's request waits as pending (202 for
-an unfreeze, a release or a label), and the same admin repeating it doesn't count. Narrowing
-changes (a lower ceiling, a narrower label, a freeze, a kill) need one person and apply at
-once.
+a principal change, an unfreeze, a release or a label), and the same admin repeating it doesn't
+count. Narrowing changes (a lower ceiling, a narrower label, a freeze, a kill) need one person
+and apply at once.
+
+**Widening a principal.** A profile change widens when the new profile adds a capability
+class, reaches a higher effective ceiling (the narrower of the agent's `env_ceiling` and the
+profile's) or adds the direct lane; a move to or from a profile pg_sage doesn't ship always
+widens. So `coding-agent` to `readonly-analyst` on a `stage` agent applies at once, but on a
+`prod` agent it widens, because `readonly-analyst` reads `prod`. Raising `env_ceiling` always
+widens. A sponsor change never does. Outside single-operator mode a widening `PATCH` answers
+202:
+
+```json
+{"status": "pending", "change_id": 7, "expires_at": "2026-11-11T15:15:00Z",
+ "requested_by": "alice@example.com", "patch": {"env_ceiling": "prod"},
+ "superseded_change_id": 0}
+```
+
+The whole patch waits, including any sponsor or narrowing field in it, and nothing applies
+until it is confirmed. Another admin reads it with `GET /api/v1/agents/{id}/changes` and
+confirms it with exactly the same fields:
+
+```sh
+curl -s -X POST https://pg-sage.example.com:8080/api/v1/agents/<agent id>/changes/7/confirm \
+  -H 'Content-Type: application/json' -b "sage_session=$SAGE_COOKIE" \
+  -d '{"env_ceiling": "prod"}'
+```
+
+The confirm answers 403 `second_admin_required` for the requester and 403
+`sponsor_cannot_approve` for the agent's sponsor or the sponsor the change names, 409
+`change_mismatch` for other fields, 409 `change_expired` after 15 minutes (the change is
+closed and must be requested again) and 409 `change_not_pending` once it is applied, expired or
+superseded. An agent has at most one pending change: a newer widening `PATCH` supersedes it.
+Retiring the agent ends it too (409 on confirm). A `PATCH` that retires the agent and widens it
+at once answers 422.
 
 ## Agent posture
 
