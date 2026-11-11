@@ -22,6 +22,7 @@ finish_manual() {
 	echo "CHECK-AZ-02: see the provisioning output (refused statements are listed there)"
 	echo "CHECK-AZ-04: MANUAL fleet readiness shows provider azure, log access azure_monitor"
 	echo "CHECK-AZ-05: MANUAL an approved ANALYZE executes and verifies"
+	echo "CHECK-AZ-09: MANUAL a server-parameter proposal's az command (Actions page) runs" 		"and az postgres flexible-server parameter show reads the value back"
 }
 check() { # id, pass(0/1), text
 	if [[ "$2" == 0 ]]; then echo "$1: PASS $3"; else echo "$1: FAIL $3"; failures=$((failures + 1)); fi
@@ -67,8 +68,8 @@ if [[ "${SAGE_AZURE_KIND:-flexible}" == cosmos ]]; then
 	finish_manual
 	exit "$failures"
 fi
-grep -q "azure server parameters apply through ARM" "$WORK/sidecar.log"
-check CHECK-AZ-06 $? "startup reports ARM parameter application"
+grep -q "max_slot_wal_keep_size) applies through ARM" "$WORK/sidecar.log"
+check CHECK-AZ-06 $? "startup reports the WAL-slot cap's ARM path (other parameters are proposals)"
 
 live() { PG_SAGE_LIVE_AZURE=1 go test -count=1 -v -run "$1" ./internal/azure 2>&1; }
 out="$(live '^TestAzureLiveServerParameter$')"

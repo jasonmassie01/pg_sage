@@ -8,6 +8,11 @@ turns setting changes that SQL cannot make into proposals with the exact provide
 | Amazon RDS for PostgreSQL | CloudWatch (CPU, freeable memory, free storage, IOPS, throughput, connections, replica lag), Performance Insights (DB load by wait type, OS memory total) | DB parameter group |
 | Amazon Aurora PostgreSQL | CloudWatch (as RDS; `AuroraReplicaLagMaximum`), Performance Insights | DB parameter group of the writer |
 | Google Cloud SQL for PostgreSQL | Cloud Monitoring (CPU, memory quota/usage, disk quota/usage, disk ops, backends, replica lag) | Database flags |
+| Google AlloyDB for PostgreSQL | None yet | Database flags: a fill-in template until pg_sage reads the instance's flags |
+| Azure Database for PostgreSQL flexible server | None (Azure Monitor log access only) | Server parameters, read over ARM when the `azure:` section is set ([Azure](azure.md)) |
+
+Cosmos DB for PostgreSQL (`azure-cosmos`) and the retired Azure single server stay
+guidance-only: their findings name the command, with no proposal.
 
 ## Provider detection
 
@@ -94,7 +99,7 @@ cycle, whether `ALTER DATABASE <db> SET` can carry the change:
 |---|---|
 | `user` (`work_mem`, `random_page_cost`, `maintenance_work_mem`, ...) | `ALTER DATABASE <db> SET ...`; the executor captures the prior database setting and rolls back to it |
 | `superuser` | `ALTER DATABASE <db> SET ...` only when the connected role is a superuser or, on PostgreSQL 15+, holds `SET` on the parameter (`has_parameter_privilege`); otherwise no SQL. PostgreSQL 14 has no parameter privileges |
-| `sighup` (`max_wal_size`, `min_wal_size`, `checkpoint_*`, the `autovacuum_*` instance knobs) and `postmaster` | No SQL: PostgreSQL refuses `ALTER DATABASE SET` for these. A managed proposal on RDS, Aurora and Cloud SQL; guidance naming the server parameters or flags on AlloyDB and Azure |
+| `sighup` (`max_wal_size`, `min_wal_size`, `checkpoint_*`, the `autovacuum_*` instance knobs) and `postmaster` | No SQL: PostgreSQL refuses `ALTER DATABASE SET` for these. A managed proposal on RDS, Aurora, Cloud SQL, AlloyDB and Azure flexible server; guidance on Cosmos DB for PostgreSQL |
 | Not collected or any other context | No SQL (fail closed), plus the managed proposal where the provider has one |
 
 Before any `ALTER DATABASE ... SET` runs on a managed provider, the executor re-reads the
@@ -118,6 +123,15 @@ pg_sage never applies these changes in this release. Approve one when you will r
 marks it applied once PostgreSQL runs the new value. A default parameter group (`default.*`)
 cannot be modified, and a Cloud SQL `--database-flags` command replaces the whole flag list:
 the proposal says so and carries the current flags.
+
+On Azure flexible server the proposal (mechanism `server_parameter`) is an
+`az postgres flexible-server parameter set` command, plus `az postgres flexible-server restart`
+when the parameter is static. pg_sage reads the parameter over ARM for its unit, read-only flag,
+restart need and prior value; a read-only parameter gives no proposal, and without the
+`azure:` section the command is a fill-in template with a blocker. On AlloyDB the proposal is a
+`gcloud alloydb instances update ... --database-flags=` change; pg_sage does not read AlloyDB
+flags yet, so it is always a fill-in template with a blocker (the flag list is replaced
+whole).
 
 ### Command and blocker rules
 
