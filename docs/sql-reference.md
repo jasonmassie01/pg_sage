@@ -195,6 +195,9 @@ and runs every step through its catalog checks otherwise. A step recorded with
 another checksum stops startup; deleting its row makes the next start re-run
 it. See [How startup migrations behave](deployment.md#how-startup-migrations-behave).
 
+Retention never purges it: it holds one row per step, and an emptied ledger
+makes the next start run every step through its catalog checks.
+
 ---
 
 ### `sage.briefings`
