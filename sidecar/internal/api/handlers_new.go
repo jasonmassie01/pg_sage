@@ -414,6 +414,11 @@ func scanAlertLogRows(rows pgx.Rows) ([]map[string]any, error) {
 			"title":         title,
 		})
 	}
+	// pgx reports an error raised while the query runs (permission
+	// denied, statement timeout, a dropped connection) only here.
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read alert log rows: %w", err)
+	}
 	if results == nil {
 		results = []map[string]any{}
 	}
