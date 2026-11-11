@@ -1,0 +1,235 @@
+package collector
+
+import (
+	"context"
+	"fmt"
+	"slices"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/schema"
+)
+
+// collection-07 on a real server: a fresh database per test (textTestDB),
+// so its pg_stat_statements rows are this test's alone.
+
+// runCompetitors runs n distinct statements calls times each, every call
+// sleeping sleep seconds, concurrently: a high total time at a modest mean.
+// The statements differ by their number of output columns, so each has
+// its own queryid.
+func runCompetitors(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	n, calls int, sleep string) {
+	t.Helper()
+	var wg sync.WaitGroup
+	errs := make(chan error, n)
+	for i := 1; i <= n; i++ {
+		sql := "SELECT pg_sleep(" + sleep + ") AS competitor" + strings.Repeat(", 1", i)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range calls {
+				if _, err := pool.Exec(ctx, sql); err != nil {
+					errs <- fmt.Errorf("%s: %w", sql, err)
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("competitor workload: %v", err)
+	}
+}
+
+// queryIDOf is the queryid of this database's statement whose text holds
+// marker.
+func queryIDOf(t *testing.T, ctx context.Context, pool *pgxpool.Pool, marker string) int64 {
+	t.Helper()
+	var id int64
+	err := pool.QueryRow(ctx, `SELECT queryid FROM pg_stat_statements
+		WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+		  AND strpos(query, $1) > 0 LIMIT 1`, marker).Scan(&id)
+	if err != nil {
+		t.Fatalf("queryid of %q: %v", marker, err)
+	}
+	return id
+}
+
+func queryWith(qs []QueryStats, marker string) (QueryStats, bool) {
+	for _, q := range qs {
+		if strings.Contains(q.Query, marker) {
+			return q, true
+		}
+	}
+	return QueryStats{}, false
+}
+
+func unionCollector(t *testing.T, pool *pgxpool.Pool, n int) *Collector {
+	t.Helper()
+	cfg := testConfig()
+	cfg.Collector.MaxQueries = n
+	return New(pool, cfg, serverVersion(t, pool), noopLog)
+}
+
+func bootstrapSage(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	if err := schema.Bootstrap(ctx, pool); err != nil {
+		t.Fatalf("bootstrap sage schema: %v", err)
+	}
+}
+
+// storeRowsAt counts the query_store rows of queryid captured at at.
+func storeRowsAt(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	queryid int64, at time.Time) int {
+	t.Helper()
+	var n int
+	err := pool.QueryRow(ctx, `SELECT count(*) FROM sage.query_store
+		WHERE queryid = $1 AND captured_at = $2`, queryid, at).Scan(&n)
+	if err != nil {
+		t.Fatalf("count query_store rows: %v", err)
+	}
+	return n
+}
+
+// recordCycle runs the queries step at the fake time at and records its
+// query_store samples, as a cycle does.
+func recordCycle(t *testing.T, ctx context.Context, c *Collector, at time.Time) []QueryStats {
+	t.Helper()
+	c.now = func() time.Time { return at }
+	qs := textCycle(t, ctx, c)
+	if len(qs) > c.maxQueries() {
+		t.Fatalf("%d queries published, over max_queries %d", len(qs), c.maxQueries())
+	}
+	snap := &Snapshot{CollectedAt: at, Queries: qs,
+		StatsEpoch: c.collectStatementsEpoch(ctx)}
+	c.recordQueryStore(ctx, snap)
+	return qs
+}
+
+// CHECK-01, happy path: 22 statements with more total time each than a
+// two-call 200 ms report push it past the 2N - 2K = 18 rows of the total
+// ranking (N = 10), as hundreds of OLTP statements do in production. It
+// is still collected, admitted by its mean alone; the old read missed it.
+func TestCollectQueries_SlowRareStatementAdmittedByMean(t *testing.T) {
+	ctx := context.Background()
+	pool := textTestDB(t, ctx)
+	runCompetitors(t, ctx, pool, 22, 6, "0.08")
+	for range 2 {
+		mustExec(t, pool, "SELECT pg_sleep(0.2) AS rare_report_marker")
+	}
+	c := unionCollector(t, pool, 10)
+	qs := textCycle(t, ctx, c)
+	if len(qs) > 10 {
+		t.Fatalf("%d queries published, want at most N = 10", len(qs))
+	}
+	q, ok := queryWith(qs, "rare_report_marker")
+	if !ok {
+		t.Fatalf("the slow two-call statement was not collected: %v", idsOf(qs))
+	}
+	if !slices.Equal(q.AdmittedBy, []string{"mean"}) || q.Calls != 2 || q.MeanExecTime < 190 {
+		t.Fatalf("slow statement: admitted_by %v calls %d mean %.1f ms; want [mean], 2, >= 190",
+			q.AdmittedBy, q.Calls, q.MeanExecTime)
+	}
+	legacy, err := legacyQueries(ctx, c)
+	if err != nil {
+		t.Fatalf("legacy read: %v", err)
+	}
+	if _, ok := queryWith(legacy, "rare_report_marker"); ok {
+		t.Fatal("control: the top-N by total time holds the slow statement; the test proves nothing")
+	}
+}
+
+// State transition: a watched queryid outside the top-N gets query_store
+// rows every cycle until its watch expires (fake clock), then none.
+func TestCollectQueries_WatchedQueryRecordedUntilExpiry(t *testing.T) {
+	ctx := context.Background()
+	pool := textTestDB(t, ctx)
+	bootstrapSage(t, ctx, pool)
+	runCompetitors(t, ctx, pool, 22, 6, "0.08")
+	const target = "SELECT pg_sleep(0.001) AS watched_target_marker"
+	mustExec(t, pool, target)
+	id := queryIDOf(t, ctx, pool, "watched_target_marker")
+	c := unionCollector(t, pool, 10)
+	start := time.Now().UTC().Truncate(time.Second)
+	steps := []struct {
+		at     time.Duration
+		pinned bool
+	}{{time.Minute, false}, {5 * time.Minute, true}, {15 * time.Minute, true},
+		{25 * time.Minute, false}, {35 * time.Minute, false}}
+	for i, step := range steps {
+		if i == 1 {
+			c.Watch(id, start.Add(25*time.Minute))
+		}
+		for range 3 {
+			mustExec(t, pool, target)
+		}
+		at := start.Add(step.at)
+		q, in := queryWith(recordCycle(t, ctx, c, at), "watched_target_marker")
+		rows := storeRowsAt(t, ctx, pool, id, at)
+		want := 0
+		if step.pinned {
+			want = 1
+		}
+		if in != step.pinned || rows != want {
+			t.Fatalf("+%s: collected %v, %d query_store rows; want %v and %d",
+				step.at, in, rows, step.pinned, want)
+		}
+		if in && !slices.Equal(q.AdmittedBy, []string{"pinned"}) {
+			t.Fatalf("+%s: admitted_by %v, want [pinned]", step.at, q.AdmittedBy)
+		}
+	}
+}
+
+// CHECK-03: pg_stat_statements(true) is read only for the admitted rows:
+// one text read, for at most 2N queryids, while the database holds more;
+// the ranking itself reads no text and runs once.
+func TestCollectQueries_TextReadOnlyForAdmittedRows(t *testing.T) {
+	ctx := context.Background()
+	pool := textTestDB(t, ctx)
+	runCompetitors(t, ctx, pool, 40, 2, "0.001")
+	mustExec(t, pool, "SELECT pg_sleep(0.001) AS text_read_watch_marker")
+	c := unionCollector(t, pool, 10)
+	c.Watch(queryIDOf(t, ctx, pool, "text_read_watch_marker"), time.Now().Add(time.Hour))
+	var mu sync.Mutex
+	var texts [][]int64
+	counters := 0
+	c.onCatalogQuery = func(_ context.Context, _ pgx.Tx, sql string, args []any) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch {
+		case strings.Contains(sql, "pg_stat_statements(true)"):
+			ids, _ := args[0].([]int64)
+			texts = append(texts, ids)
+		case strings.Contains(sql, "pg_stat_statements(false)") &&
+			strings.Contains(sql, "admitted_by"):
+			counters++
+		}
+	}
+	qs := textCycle(t, ctx, c)
+	var entries int
+	if err := pool.QueryRow(ctx, `SELECT count(DISTINCT queryid) FROM pg_stat_statements
+		WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())`).
+		Scan(&entries); err != nil {
+		t.Fatalf("count entries: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if counters != 1 || len(texts) != 1 {
+		t.Fatalf("%d ranked reads and %d text reads, want 1 each", counters, len(texts))
+	}
+	if len(texts[0]) > 20 || entries <= 20 {
+		t.Fatalf("text read for %d queryids of %d; want at most 2N = 20 of more",
+			len(texts[0]), entries)
+	}
+	for _, q := range qs {
+		if !slices.Contains(texts[0], q.QueryID) {
+			t.Errorf("query %d published without being in the text read", q.QueryID)
+		}
+	}
+}
