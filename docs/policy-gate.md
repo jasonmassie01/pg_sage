@@ -310,8 +310,17 @@ no decision and takes no budget slot.
    the card's content: an item whose SQL changed since the card was shown is not approved.
 3. The executor asks the gate again with the approval (step 9 of the evaluation order).
    Trust, the change-class allowlist and the maintenance windows still bind, so an approved
-   action can still be `blocked` `outside_maintenance_window` until the window opens.
-   Approved incident mitigations (a Sage SRE cancel, a revert) are not held by windows.
+   action can still be `blocked` `outside_maintenance_window` (or `window_closing`) until
+   the window opens. Approved incident mitigations (a Sage SRE cancel, a revert) are not
+   held by windows.
+   When the window is the only refusal (the gate re-runs the operator path with the window
+   treated as open), the approval is scheduled instead of refused: the item becomes
+   `scheduled` with the next opening (`run_after`) and that window's close. Each executor
+   cycle claims due items (one sidecar wins), asks the gate again under the policy then in
+   force and runs them. A stop, a narrowed policy, a revised recommendation, a resolved
+   finding or a missed window returns the item to `pending` with the reason and sends a new
+   approval request. A schedule covers one window only; a failed run is recorded as
+   `failed` and never rescheduled.
 4. The executor takes the change lease and runs the action. An operator action that cannot
    get the lease is refused (`blocked` `ddl_conflict`) rather than parked: a person is
    waiting on it.
