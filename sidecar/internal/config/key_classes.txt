@@ -267,6 +267,7 @@ safety_critical tuner.analyze_max_table_mb
 derivable tuner.analyze_timeout_ms
 safety_critical tuner.enabled
 derivable tuner.hint_absent_cycles
+safety_critical tuner.hint_cost_tolerance_pct
 derivable tuner.hint_retirement_days
 safety_critical tuner.llm_enabled
 safety_critical tuner.max_concurrent_analyze

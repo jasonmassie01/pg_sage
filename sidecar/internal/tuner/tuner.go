@@ -68,6 +68,9 @@ type Tuner struct {
 	querySource  QuerySource
 	pgMajor      int
 	paramEmitted map[string]bool
+
+	// compare configures the hinted EXPLAIN gate (tuning-05); nil: off.
+	compare *hintCompare
 }
 
 // New creates a Tuner with the given dependencies.
@@ -340,11 +343,12 @@ func (t *Tuner) processCandidate(
 	// memory); with host memory unknown it needs approval (tuning-03).
 	budget := t.workMemBudget()
 	combined, budgetDetail := budget.capHint(combined)
-	if t.rejectedHint(ctx, c.QueryID, combined) {
+	cmp, refused := t.gateCandidate(ctx, c, combined)
+	if refused || t.rejectedHint(ctx, c.QueryID, combined) {
 		return staleFindings
 	}
-	title := buildTitle(symptoms)
-	finding := t.buildFinding(ctx, c, symptoms, combined, title, rationale)
+	finding := t.buildGatedFinding(ctx, c, symptoms, combined, buildTitle(symptoms),
+		rationale, cmp)
 	finding = withSpillSizing(budget.annotate(finding, combined, budgetDetail), symptoms)
 	finding = withAntipatterns(finding, symptoms)
 	return append(staleFindings, finding)
@@ -428,6 +432,19 @@ func (t *Tuner) buildFinding(
 	symptoms []PlanSymptom,
 	combinedHint, title, rationale string,
 ) analyzer.Finding {
+	return t.buildGatedFinding(ctx, c, symptoms, combinedHint, title, rationale, nil)
+}
+
+// buildGatedFinding builds the query_tuning finding; cmp is the hinted
+// EXPLAIN comparison (nil: the gate did not run). An unverifiable hint
+// stays advisory and is not recorded as proposed (tuning-05).
+func (t *Tuner) buildGatedFinding(
+	ctx context.Context,
+	c candidate,
+	symptoms []PlanSymptom,
+	combinedHint, title, rationale string,
+	cmp *HintComparison,
+) analyzer.Finding {
 	names := symptomNames(symptoms)
 	detail := map[string]any{
 		"queryid":        c.QueryID,
@@ -458,6 +475,12 @@ func (t *Tuner) buildFinding(
 	if !t.HintsAvailable() {
 		detail["hint_readiness"] = t.hints().Readiness()
 		return f
+	}
+	if cmp != nil {
+		detail["hint_evidence"] = cmp.Evidence()
+		if cmp.Verdict == HintUnverifiable {
+			return f
+		}
 	}
 	f.RecommendedSQL = BuildInsertSQL(c.QueryID, combinedHint)
 	f.RollbackSQL = BuildDeleteSQL(c.QueryID, combinedHint)

@@ -94,6 +94,10 @@ type TunerConfig struct {
 	// ParamShapeMinVariants: queryids of one collapsed IN-list shape before
 	// it gets parameterization advice (tuning-11); 0 or less means 20.
 	ParamShapeMinVariants int `yaml:"param_shape_min_variants"`
+	// HintCostTolerancePct: the estimated cost rise a join or scan hint may
+	// cause in the hinted EXPLAIN before it is refused (tuning-05). Taken
+	// as given: 0 refuses any rise.
+	HintCostTolerancePct float64 `yaml:"hint_cost_tolerance_pct"`
 
 	// Feature 1 — Hint revalidation loop (v0.8.5).
 	HintRetirementDays        int `yaml:"hint_retirement_days"`

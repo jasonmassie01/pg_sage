@@ -3232,6 +3232,12 @@
     "doc": "Analyzer cycles a query_tuning finding's statement must be absent from pg_stat_statements, or below the tuner's admission thresholds, before it resolves. 0 or less means 3. Default 3.",
     "class": "derivable"
   },
+  "tuner.hint_cost_tolerance_pct": {
+    "type": "float64",
+    "default": 10,
+    "doc": "Percent a join or scan hint may raise the estimated plan cost in the hinted EXPLAIN before it is refused (cost_regression); an unchanged plan is refused (no_effect). 0-100. Default 10.",
+    "class": "safety_critical"
+  },
   "tuner.hint_retirement_days": {
     "type": "int",
     "default": 14,

@@ -470,6 +470,7 @@
 | `tuner.analyze_timeout_ms` | `restart` | `-` | `derivable` |
 | `tuner.enabled` | `restart` | `-` | `safety_critical` |
 | `tuner.hint_absent_cycles` | `restart` | `-` | `derivable` |
+| `tuner.hint_cost_tolerance_pct` | `restart` | `-` | `safety_critical` |
 | `tuner.hint_retirement_days` | `restart` | `-` | `derivable` |
 | `tuner.llm_enabled` | `restart` | `-` | `safety_critical` |
 | `tuner.max_concurrent_analyze` | `restart` | `-` | `safety_critical` |

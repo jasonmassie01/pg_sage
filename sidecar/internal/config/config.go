@@ -482,6 +482,8 @@ type TunerConfig struct {
 	PlanMaxAgeMinutes int `yaml:"plan_max_age_minutes" doc:"A cached plan this many minutes old is stale, as is one older than its tables' last ANALYZE or a pg_sage action on them; stale plans never drive hints. 0 or less means 1440 (default)."`
 	// tuning-11: parameterization advice for IN-list shapes.
 	ParamShapeMinVariants int `yaml:"param_shape_min_variants" doc:"Queryids of one statement shape, its IN and ANY(ARRAY[...]) parameter lists collapsed, before a query_parameterization finding. Off on PG18 (lists squashed). 2-1000. Default 20."`
+	// tuning-05: hinted EXPLAIN gate.
+	HintCostTolerancePct float64 `yaml:"hint_cost_tolerance_pct" doc:"Percent a join or scan hint may raise the estimated plan cost in the hinted EXPLAIN before it is refused (cost_regression); an unchanged plan is refused (no_effect). 0-100. Default 10."`
 	// tuning-06: open query_tuning findings resolve.
 	HintAbsentCycles int `yaml:"hint_absent_cycles" doc:"Analyzer cycles a query_tuning finding's statement must be absent from pg_stat_statements, or below the tuner's admission thresholds, before it resolves. 0 or less means 3. Default 3."`
 
@@ -834,6 +836,9 @@ func (c *Config) validate() error {
 	if err := c.Tuner.validateParamShapeMinVariants(); err != nil {
 		return err
 	}
+	if err := c.Tuner.validateHintCostTolerancePct(); err != nil {
+		return err
+	}
 	if err := c.Retention.validateDecisionsDays(); err != nil {
 		return err
 	}
@@ -1097,6 +1102,7 @@ func newDefaults() *Config {
 			HintAbsentCycles:          DefaultTunerHintAbsentCycles,
 			PlanMaxAgeMinutes:         DefaultTunerPlanMaxAgeMinutes,
 			ParamShapeMinVariants:     DefaultTunerParamShapeMinVariants,
+			HintCostTolerancePct:      DefaultTunerHintCostTolerancePct,
 
 			// Feature 2 — Stale-stats detection + ANALYZE.
 			StaleStatsEstimateSkew: DefaultTunerStaleStatsEstimateSkew,

@@ -180,6 +180,8 @@ func (rt *databaseRuntime) newTuner() *tuner.Tuner {
 	result.WithHostMemory(rt.hostMemory)
 	timeouts := catalogread.FromSafety(cfg.Safety)
 	result.WithPlanSource(tuning.PlanExplainer(rt.spec.Pool, rt.pgVersion(), timeouts), timeouts)
+	// Every hint is planned plain and hinted before it is proposed (tuning-05).
+	result.WithHintComparison(rt.pgVersion(), timeouts)
 	if rt.collector != nil {
 		result.WithQuerySource(rt.collector, rt.pgVersion())
 	}
@@ -202,6 +204,7 @@ func tunerConfig(c *config.Config) tuner.TunerConfig {
 		CascadeCooldownCycles:     c.Trust.CascadeCooldownCycles,
 		PlanMaxAgeMinutes:         c.Tuner.PlanMaxAgeMinutes,
 		ParamShapeMinVariants:     c.Tuner.ParamShapeMinVariants,
+		HintCostTolerancePct:      c.Tuner.HintCostTolerancePct,
 		HintRetirementDays:        c.Tuner.HintRetirementDays,
 		RevalidationIntervalHours: c.Tuner.RevalidationIntervalHours,
 		StaleStatsEstimateSkew:    c.Tuner.StaleStatsEstimateSkew,
