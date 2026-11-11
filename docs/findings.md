@@ -759,6 +759,20 @@ query or table is left out of the next model review. Dismissing a finding keeps
 working as before (it is suppressed). The first cycle after upgrading resolves
 WAL and connection findings a DBA already applied by hand.
 
+`wal_tuning` is grounded in the advisor window's checkpoint and WAL history (see
+[WAL and bloat advisors](configuration.md#wal-and-bloat-advisors)). It is not proposed
+while under 20% of the window's checkpoints are requested. A `max_wal_size` below the
+current value or below the measured floor (1.5 x WAL per `checkpoint_timeout`) is never
+emitted; the floor finding carries `max_wal_size_floor_bytes`,
+`wal_per_checkpoint_timeout_bytes`, `wal_bytes_per_hour`, `checkpoint_timeout_seconds`,
+`window_seconds`, `requested_share`, `current_max_wal_size_bytes` and `arithmetic` in its
+detail. Without the window's history every `wal_tuning` finding is advice without SQL.
+An executed change is verified by the requested share of checkpoints.
+
+`bloat_remediation` lists at most 50 tables per review, those with the most estimated
+dead bytes, and its dead-tuple trend spans the advisor window ("unknown" without a
+window-start snapshot).
+
 A global setting finding whose GUC some tables override (a per-table finding, or
 an explicit storage parameter) is kept, with `detail.overridden_by_tables` naming
 those tables: they keep their own setting and the global change does not affect
