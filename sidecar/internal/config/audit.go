@@ -56,7 +56,7 @@ const SIEMWarningTokenOverHTTP = "token_over_http"
 
 // AuditEvidenceConfig configures evidence packs.
 type AuditEvidenceConfig struct {
-	SigningKeyEnv string `yaml:"signing_key_env" doc:"Environment variable (or its _FILE twin) holding an Ed25519 private key (PKCS#8 PEM) that signs evidence-pack manifests. Empty: packs are hashed (SHA256SUMS), not signed."`
+	SigningKeyEnv string `yaml:"signing_key_env" doc:"Env variable (or _FILE twin) holding an Ed25519 PKCS#8 PEM key that signs evidence packs. Empty: a key the sidecar generates and seals under encryption_key; no encryption_key: unsigned."`
 }
 
 // AuditPGAuditConfig configures pgaudit correlation.

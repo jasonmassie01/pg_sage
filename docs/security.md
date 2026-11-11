@@ -1341,8 +1341,38 @@ The database role a session logged in as decides.
 one change as a `.tar.gz`: `action.json`, `decision.json`, `policy.json`,
 `queue.json`, `verification.json`, `outcome.json`, `pgaudit.json`, the
 chain proof, a `manifest.json` with every file's SHA-256, and
-`SHA256SUMS`. With `audit.evidence.signing_key_env` set, the manifest is
-signed with Ed25519.
+`SHA256SUMS`. The manifest is signed with Ed25519 (`manifest.sig`) by the
+first key that applies:
+
+1. **`audit.evidence.signing_key_env`**, the operator's own PKCS#8 PEM
+   key. When it is set it always wins; if it does not load, packs are
+   unsigned and an ERROR names the variable (the sidecar never falls back
+   to a key the operator did not pick).
+2. **The generated key**, when `encryption_key` is set (or generated).
+   On first use the sidecar creates one Ed25519 key and stores it in the
+   control database (the meta database in fleet mode) as the single row
+   of `sage.evidence_signing_key`, sealed under the encryption key like
+   notification secrets. Replicas share the row, restarts reuse it, and
+   an encryption-key rotation re-seals it. A row the encryption key cannot
+   open logs an ERROR and leaves packs unsigned; it is never replaced.
+3. **None.** Without either, packs are hashed only. Their manifest says
+   `"signed": false` and `"integrity": "accidental-corruption-only"`:
+   anyone who edits a file can regenerate `SHA256SUMS` and the manifest,
+   so the hashes catch accidents, not forgery. The download also carries
+   `X-Evidence-Signed: false`.
+
+A generated key proves that this pg_sage deployment wrote the pack. It
+does not prove the operator is independent of it: whoever runs the
+sidecar holds the key. Auditors who need that independence should have
+the key generated and held outside the deployment and supplied through
+`signing_key_env`.
+
+`GET /api/v1/audit/evidence/key` (admin) serves the public key:
+`{key_id, alg, public_key_pem, public_key, source}`, where `source` is
+`env` or `generated` and `public_key` is the hex form a manifest's
+`signer.public_key` holds. It returns 404 when packs are unsigned. Fetch
+it once, out of band, and keep it: a forged pack would name its forger's
+key in its own manifest.
 
 - **`policy.json`** holds the standing-policy version each of the action's
   decisions was made under, read by database scope and version from the
@@ -1399,6 +1429,38 @@ negative `after_id` or a name that is not a window file is refused with
 400. Every download, continuations included, is recorded in
 `sage.auth_audit` as `evidence_exported`. Consumers that check `format`
 must accept `pg_sage-evidence/2`.
+
+#### Verifying a pack
+
+With the binary (`sage-sidecar` in the container image), offline:
+
+```bash
+curl -s -H "Cookie: $SESSION" https://sage.example.com/api/v1/audit/evidence/key | jq -r .public_key_pem > evidence-key.pem
+pg_sage_sidecar evidence verify pack.tar.gz --public-key evidence-key.pem
+```
+
+`pg_sage_sidecar evidence verify <pack> [--public-key <file>]` checks
+every file against `SHA256SUMS` and the manifest and, with `--public-key`
+(a PEM public key or its 64 hex characters), the signature and that the
+manifest names that key. Exit codes: `0` the pack verifies; `1` a file
+was altered or the signature does not verify; `2` usage, an unreadable
+file or a key that is not Ed25519 (the message names its type); `3` the
+pack is unsigned but a key was given. Without `--public-key` it checks the
+hashes only and says whether the pack is signed.
+
+With standard tools only:
+
+```bash
+mkdir pack && tar -xzf pack.tar.gz -C pack && cd pack
+sha256sum -c SHA256SUMS
+base64 -d manifest.sig > manifest.sig.bin
+openssl pkeyutl -verify -pubin -inkey ../evidence-key.pem -rawin -in manifest.json -sigfile manifest.sig.bin
+```
+
+`sha256sum -c SHA256SUMS` proves the files match the sums;
+`openssl pkeyutl -verify -rawin` (OpenSSL 3) proves the manifest, which
+lists every file's SHA-256, was signed by the trusted key. Also check that
+each file's hash in `manifest.json` matches (`evidence verify` does).
 
 ---
 
