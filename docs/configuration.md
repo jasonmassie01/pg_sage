@@ -1975,7 +1975,7 @@ each series and projects when the series reaches its limit:
 |---|---|---|---|
 | XID or multixact age, only at or past the cluster's `autovacuum_freeze_max_age` (`autovacuum_multixact_freeze_max_age`) | the wraparound warning limit (2^31 - 1 - 40,000,000) | `forecast_wraparound_runway` (`xid`, `mxid`) | wraparound runway |
 | A table 1.25 times past its freeze maximum | its effective `autovacuum_freeze_max_age` (the table's own setting when lower) | `forecast_wraparound_runway` (the table) | wraparound runway |
-| Disk usage | `forecaster.disk_capacity_bytes` (only when you declare it; `0`, the default, means undeclared: nothing auto-detects capacity, so there is no disk runway and no disk-full credit) | `forecast_wal_runway` (`disk`) | disk/WAL runway |
+| Disk usage | `forecaster.disk_capacity_bytes` (only when you declare it; `0`, the default, means undeclared: nothing auto-detects capacity on a self-hosted server, so there is no disk runway, no disk-full credit and no `days_until_full`) | `forecast_wal_runway` (`disk`) | disk/WAL runway |
 | WAL a slot retains | `max_slot_wal_keep_size` when it is set, else the WAL custodian's 10 GiB ceiling | `forecast_wal_runway` (`slot:<name>`) | disk/WAL runway |
 | A sequence's last value | ascending: the lower of its maximum and its owning integer column's maximum; descending: the higher of its minimum and the column's minimum (a `CYCLE` sequence wraps and is never projected) | `forecast_sequence_runway` (the sequence) | sequence runway |
 
@@ -2537,6 +2537,15 @@ over `lookback_days` of system snapshots and needs 7 days of data for each trend
   history but fewer than 7 measured sizes, the disk trend is not evaluated: no disk
   finding opens, and an open one is neither refreshed nor resolved until 7 measured
   days exist again. The connection, cache and checkpoint trends still run.
+- `forecast_disk_growth` warns when the database grows faster than
+  `forecaster.disk_warn_growth_gb_day` (default `5`). Its detail carries the disk capacity
+  it was judged against: `capacity_source` is `provider_telemetry` (a fresh managed-cloud
+  measurement), `declared` (`forecaster.disk_capacity_bytes`), `undeclared` (neither; the
+  detail then names `config_key: forecaster.disk_capacity_bytes`) or `capacity_unbounded`
+  (the provider grows the storage itself; a declared value is not used in its place). With
+  a known capacity it adds `capacity_bytes` and `days_until_full`
+  (`(capacity - current size) / daily growth`, never below 0). On a managed database the
+  detail also names `managed_storage_runway` as the authority inside 7 days.
 - Days without backend counts or `max_connections` are left out of the connection
   trend.
 - The checkpoint trend (`forecast_checkpoint_pressure`) counts requested checkpoints
@@ -2584,6 +2593,25 @@ over `lookback_days` of system snapshots and needs 7 days of data for each trend
   [Runways and pre-incident investigations](#runways-and-pre-incident-investigations)).
   The retired `forecaster.sequence_warn_days` and `forecaster.sequence_critical_days`
   still load, with a warning each, and have no effect; remove them.
+- `forecaster.min_data_points` and `forecaster.alert_horizons` are retired: they fed only
+  the v0.9 growth forecaster, which never ran. They still load, with a warning each, and
+  have no effect; remove them. `forecaster.min_r_squared` stays.
+
+#### Disk forecasts
+
+Three forecasts look at disk; each answers a different question.
+
+| Forecast | Answers | Series | Capacity | Where |
+|---|---|---|---|---|
+| `forecast_disk_growth` | Is this database growing unusually fast, and when is the disk full at that rate? | daily `pg_database_size` of the database (snapshots) | provider, else `forecaster.disk_capacity_bytes`; none gives `undeclared` | finding; `GET /api/v1/forecasts/growth` (cluster database bytes from the runway samples, with `growth_rate_bytes_day`, `r2`, the same capacity fields) |
+| Disk runway (`forecast_wal_runway`, `disk`) | When do databases plus WAL reach the capacity, early enough to investigate? | runway samples (`disk_used`) | provider, else `forecaster.disk_capacity_bytes`; none: no disk runway | finding and pre-incident investigation ([Runways](#runways-and-pre-incident-investigations)) |
+| `managed_storage_runway` | Does managed storage run out within a week? | the provider's free-storage trend | the provider's | finding on managed clouds; the authority inside 7 days |
+
+`GET /api/v1/forecasts/growth?database=<name>&days=<1-365>` fits the newest epoch of each
+database's runway `database_bytes` series (`regr_slope`, `regr_r2`) over the window
+(default 90 days) and returns nothing for a database with fewer than two samples. It used
+to read `sage.size_history`, which nothing wrote, so it always returned `[]`; that table is
+dropped on upgrade.
 
 ### Log-based RCA
 

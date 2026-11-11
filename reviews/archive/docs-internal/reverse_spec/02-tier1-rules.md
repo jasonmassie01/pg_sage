@@ -180,8 +180,9 @@ tests** — never called from the analyzer cycle. Effectively dead code.
 ### 2.3 Forecaster findings (wired via analyzer)
 
 `forecastDiskGrowth`, `…ConnectionSaturation`, `…CachePressure`, `…SequenceExhaustion`,
-`…QueryVolume`, `…CheckpointPressure` (see §3) plus `GrowthFindings`/`storage_forecast`. These
-flow into `allFindings` through the `forecaster` interface (`analyzer.go:326`).
+`…QueryVolume`, `…CheckpointPressure` (see §3). These flow into `allFindings` through the
+`forecaster` interface (`analyzer.go:326`). The v0.9 `GrowthFindings`/`storage_forecast` path
+(`growth.go`, `sage.size_history`) never had a caller and was removed in forecast-06.
 
 ---
 
@@ -242,15 +243,15 @@ checkpoint needs 8). Findings (`rules.go`):
 
 | Forecast | Trigger / severity | Config |
 |---|---|---|
-| `forecast_disk_growth` | slope > `DiskWarnGrowthGBDay` (default **5.0** GB/day) → warning | `DiskWarnGrowthGBDay` |
+| `forecast_disk_growth` | slope > `DiskWarnGrowthGBDay` (default **5.0** GB/day) → warning; detail adds `capacity_source` (`provider_telemetry`, `declared`, `undeclared`, `capacity_unbounded`), `capacity_bytes` and `days_until_full` when the capacity is known | `DiskWarnGrowthGBDay`, `DiskCapacityBytes` |
 | `forecast_connection_saturation` | days-to-`ConnectionWarnPct` (**80%**) via `severityByDays`: <30 critical, 30–90 warning, ≥90 none | `ConnectionWarnPct` |
 | `forecast_cache_pressure` | EWMA < `CacheWarnThreshold` (**0.95**) OR declining slope with R²>0.5 → warning | `CacheWarnThreshold` |
 | `forecast_sequence_exhaustion` | days-to-100% ≤ `SequenceCriticalDays` (**30**) crit / ≤ `SequenceWarnDays` (**90**) warn | per-sequence |
 | `forecast_query_volume` | WoW growth >100% critical / >50% warning | needs 14 days |
 | `forecast_checkpoint_pressure` | EWMA of requested checkpoints/hr over closed days ≥ threshold → warning (timed checkpoints not counted) | `forecaster.checkpoint_requested_per_hour` (**2**) |
-| `storage_forecast` (`growth.go:231`) | `days_until_full`: ≤3 & R²≥0.8 critical, ≤7 & R²≥0.5 warning, ≤30 & R²≥0.5 info; R²<`MinRSquared` → info "unreliable" | `DiskCapacityBytes`, `MinDataPoints` (**24**), `MinRSquared` (**0.5**) |
 
-Defaults: `defaults.go:133-158`. `ForecastGrowth` is no-op unless `MinDataPoints>0` (v0.9 fields configured).
+Defaults: `defaults.go:133-158`. `forecaster.min_data_points` and `alert_horizons` are retired
+(forecast-06): they load with a warning and have no effect.
 
 ---
 

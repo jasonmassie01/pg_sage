@@ -158,7 +158,6 @@
 | `fleet_learning.lookalike_min_similarity` | `restart` | `-` | `operator_preference` |
 | `fleet_learning.min_prior_outcomes` | `restart` | `-` | `operator_preference` |
 | `fleet_learning.orphan_scope_days` | `restart` | `-` | `operator_preference` |
-| `forecaster.alert_horizons` | `restart` | `-` | `derivable` |
 | `forecaster.cache_min_blocks_per_day` | `restart` | `-` | `derivable` |
 | `forecaster.cache_warn_threshold` | `restart` | `-` | `derivable` |
 | `forecaster.checkpoint_requested_per_hour` | `restart` | `-` | `derivable` |
@@ -167,7 +166,6 @@
 | `forecaster.disk_warn_growth_gb_day` | `restart` | `-` | `derivable` |
 | `forecaster.enabled` | `restart` | `-` | `operator_preference` |
 | `forecaster.lookback_days` | `restart` | `-` | `derivable` |
-| `forecaster.min_data_points` | `restart` | `-` | `derivable` |
 | `forecaster.min_r_squared` | `restart` | `-` | `derivable` |
 | `ha.check_interval_seconds` | `restart` | `-` | `operator_preference` |
 | `history.store` | `restart` | `-` | `operator_preference` |
