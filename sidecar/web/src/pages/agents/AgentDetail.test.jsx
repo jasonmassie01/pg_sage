@@ -1,9 +1,10 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AgentDetail } from './AgentDetail'
 import {
   admin, bodiesOf, callsTo, coder, frozenBot, operator, response, stubAPI,
 } from './testStub'
+import { answerConfirm } from '../../test/confirmDialog'
 
 // One agent: identity, freeze and unfreeze (two admins after a kill),
 // tokens (admins), grants and grant requests per database (operators
@@ -11,10 +12,6 @@ import {
 
 const el = id => screen.getByTestId(id)
 const type = (id, value) => fireEvent.change(el(id), { target: { value } })
-
-beforeEach(() => {
-  vi.spyOn(window, 'confirm').mockReturnValue(true)
-})
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -164,6 +161,8 @@ describe('AgentDetail grants', () => {
       `/api/v1/agents/${coder.id}/grant-requests/12/deny`)).toEqual([
       { database: 'orders' }]))
     fireEvent.click(await screen.findByTestId('agent-grant-revoke-31'))
+    expect(screen.getByTestId('confirm-dialog-database')).toHaveTextContent('orders')
+    expect(await answerConfirm()).toBe('Revoke grant #31 on public.orders')
     await waitFor(() => expect(bodiesOf(mock, 'POST',
       `/api/v1/agents/${coder.id}/grants/31/revoke`)).toEqual([{ database: 'orders' }]))
   })
@@ -182,9 +181,10 @@ describe('AgentDetail grants', () => {
   })
 
   it('keeps a revoke when the operator cancels the confirmation', async () => {
-    window.confirm.mockReturnValue(false)
     const { mock } = await renderDetail()
     fireEvent.click(await screen.findByTestId('agent-grant-revoke-31'))
+    await answerConfirm('cancel')
+    expect(screen.queryByRole('dialog')).toBeNull()
     expect(callsTo(mock, 'POST', `/api/v1/agents/${coder.id}/grants/31/revoke`))
       .toHaveLength(0)
   })

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { UsersPage } from './UsersPage'
+import { answerConfirm } from '../test/confirmDialog'
 
 // apiauth-01: deactivation is the default offboarding step. Delete stays
 // available, and both show the server's own error text.
@@ -36,7 +37,6 @@ describe('UsersPage deactivation', () => {
       if (url === '/api/v1/users') return Promise.resolve(ok({ users }))
       return Promise.resolve(ok({ status: 'disabled', changed: true }))
     })
-    globalThis.confirm = vi.fn(() => true)
   })
   afterEach(() => {
     vi.restoreAllMocks()
@@ -48,21 +48,22 @@ describe('UsersPage deactivation', () => {
     const button = within(rowFor('op@x.test')).getByTestId('user-status-button')
     expect(button).toHaveTextContent('Deactivate')
     fireEvent.click(button)
+    expect(calls('PUT')).toHaveLength(0)
+    expect(await answerConfirm()).toBe('Deactivate op@x.test')
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
       '/api/v1/users/5/status',
       expect.objectContaining({ method: 'PUT', body: '{"disabled":true}',
         credentials: 'include' }),
     ))
-    expect(globalThis.confirm).toHaveBeenCalledWith(expect.stringContaining('op@x.test'))
     await waitFor(() => expect(globalThis.fetch.mock.calls
       .filter(call => call[0] === '/api/v1/users')).toHaveLength(2))
   })
 
   it('does nothing when the admin cancels deactivation', async () => {
-    globalThis.confirm = vi.fn(() => false)
     render(<UsersPage currentUser={{ id: 1, role: 'admin' }} />)
     await screen.findByText('op@x.test')
     fireEvent.click(within(rowFor('op@x.test')).getByTestId('user-status-button'))
+    await answerConfirm('cancel')
     expect(calls('PUT')).toHaveLength(0)
   })
 
@@ -106,6 +107,7 @@ describe('UsersPage deactivation', () => {
     render(<UsersPage currentUser={{ id: 1, role: 'admin' }} />)
     await screen.findByText('op@x.test')
     fireEvent.click(within(rowFor('op@x.test')).getByTestId('user-status-button'))
+    await answerConfirm()
     expect(await screen.findByText('cannot deactivate the last enabled admin'))
       .toBeInTheDocument()
   })
@@ -119,6 +121,7 @@ describe('UsersPage deactivation', () => {
     render(<UsersPage currentUser={{ id: 1, role: 'admin' }} />)
     await screen.findByText('op@x.test')
     fireEvent.click(within(rowFor('op@x.test')).getByTestId('user-delete-button'))
+    expect(await answerConfirm()).toBe('Delete user op@x.test')
     expect(await screen.findByText(message)).toBeInTheDocument()
     expect(screen.queryByText('Failed to delete user')).toBeNull()
   })

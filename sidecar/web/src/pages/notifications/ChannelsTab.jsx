@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useConfirm } from '../../hooks/useConfirm'
 import {
   inputStyle, cardStyle, FormField, StatusMessages,
 } from './shared'
@@ -11,6 +12,7 @@ export function ChannelsTab() {
   const [type, setType] = useState('slack')
   const [config, setConfig] = useState({ webhook_url: '' })
   const [creating, setCreating] = useState(false)
+  const { askConfirm, dialog } = useConfirm()
 
   const fetchChannels = useCallback(async () => {
     try {
@@ -111,8 +113,13 @@ export function ChannelsTab() {
     }
   }
 
-  async function handleDelete(id) {
-    if (!confirm('Delete this channel?')) return
+  async function handleDelete(ch) {
+    const ok = await askConfirm({
+      title: `Delete channel ${ch.name}`, action: 'Delete',
+      consequence: 'The channel and its delivery settings are removed.',
+    })
+    if (!ok) return
+    const id = ch.id
     try {
       const res = await fetch(
         `/api/v1/notifications/channels/${id}`, {
@@ -127,6 +134,7 @@ export function ChannelsTab() {
   return (
     <div>
       <StatusMessages error={error} success={success} />
+      {dialog}
       <div className="rounded-lg p-4 mb-6" style={cardStyle}>
         <h2 className="text-sm font-semibold mb-3"
           style={{ color: 'var(--text-primary)' }}>
@@ -324,7 +332,7 @@ function ChannelTable({
                   style={{ color: 'var(--accent)' }}>
                   Test
                 </button>
-                <button onClick={() => onDelete(ch.id)}
+                <button onClick={() => onDelete(ch)}
                   data-testid="channel-delete-button"
                   className="px-2 py-1 rounded text-xs"
                   style={{ color: '#ef4444' }}>

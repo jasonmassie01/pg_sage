@@ -9,6 +9,7 @@ import { TokenBudgetBanner } from '../components/TokenBudgetBanner'
 import { ConfigTooltip } from '../components/ConfigTooltip'
 import { ConfigDiff } from '../components/ConfigDiff'
 import { useToast } from '../components/Toast'
+import { useConfirm } from '../hooks/useConfirm'
 import { ShadowModePage } from './ShadowModePage'
 import { DerivedSettings } from './settings/DerivedSettings'
 import {
@@ -264,12 +265,14 @@ export function SettingsPage({ database, databaseId }) {
     }
   }
 
+  const { askConfirm, dialog: restartDialog } = useConfirm()
   const restartNow = async () => {
-    if (!window.confirm(
-      'Restart the pg_sage sidecar now? It will be unavailable for a few '
-      + 'seconds while startup-only settings take effect.')) {
-      return
-    }
+    const ok = await askConfirm({
+      title: 'Restart the pg_sage sidecar now?', action: 'Restart',
+      consequence: 'pg_sage is unavailable for a few seconds while startup-only '
+        + 'settings take effect.',
+    })
+    if (!ok) return
     setRestarting(true)
     try {
       const res = await fetch('/api/v1/restart', {
@@ -405,6 +408,7 @@ export function SettingsPage({ database, databaseId }) {
           <RotateCcw size={13} />
           {restarting ? 'Restarting…' : 'Restart now'}
         </button>
+        {restartDialog}
       </div>
       {tab === 'General' && <ShadowModePage database={database} />}
       {tab === 'General' && <DerivedSettings database={database} />}

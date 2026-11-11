@@ -202,9 +202,9 @@ describe('Dialog', () => {
 })
 
 function ConfirmUser({ onResult }) {
-  const { confirm, dialog } = useConfirm()
+  const { askConfirm, dialog } = useConfirm()
   async function ask(title) {
-    onResult(title, await confirm({ title, action: 'Delete' }))
+    onResult(title, await askConfirm({ title, action: 'Delete' }))
   }
   return (
     <>

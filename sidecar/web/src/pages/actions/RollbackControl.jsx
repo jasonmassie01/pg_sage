@@ -57,7 +57,7 @@ async function postRollback(row) {
 export function RollbackDialog({ row, database, riskTier, onClose, onDone }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
-  async function confirm() {
+  async function runRollback() {
     setBusy(true)
     setError(null)
     try {
@@ -78,6 +78,6 @@ export function RollbackDialog({ row, database, riskTier, onClose, onDone }) {
       database={target} riskTier={riskTier} sql={row?.rollback_sql}
       confirmPhrase={target || (row ? `action ${row.id}` : '')}
       consequence="pg_sage runs the stored rollback SQL below on this database now."
-      busy={busy} error={error} onConfirm={confirm} onCancel={onClose} />
+      busy={busy} error={error} onConfirm={runRollback} onCancel={onClose} />
   )
 }

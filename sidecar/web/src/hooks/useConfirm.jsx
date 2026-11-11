@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 
 // useConfirm replaces window.confirm with the shared ConfirmDialog
-// (dashboard-10). confirm(options) opens the dialog and resolves true on
+// (dashboard-10). askConfirm(options) opens the dialog and resolves true on
 // Confirm, false on Cancel, Escape, a newer request or unmount. Render
 // `dialog` once in the owning component. options are ConfirmDialog props.
 export function useConfirm() {
@@ -16,7 +16,7 @@ export function useConfirm() {
     if (resolve) resolve(value)
   }, [])
 
-  const confirm = useCallback(next => new Promise(resolve => {
+  const askConfirm = useCallback(next => new Promise(resolve => {
     if (pending.current) pending.current(false)
     pending.current = resolve
     // A new id remounts the dialog, so a replaced request leaves no typed text.
@@ -33,5 +33,5 @@ export function useConfirm() {
     <ConfirmDialog key={id} {...(options || {})} open={Boolean(options)}
       onConfirm={() => settle(true)} onCancel={() => settle(false)} />
   )
-  return { confirm, dialog }
+  return { askConfirm, dialog }
 }
