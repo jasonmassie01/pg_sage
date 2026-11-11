@@ -34,6 +34,15 @@ func actionMetricsSource(p *pgxpool.Pool) metricsSource {
 		}}
 }
 
+// writeExecutorMetrics renders the executor's process-wide counters
+// (parks, wait releases, record failures, outcomes and verdicts) and
+// each database's action gauges.
+func writeExecutorMetrics(b *strings.Builder, views []metricsView) {
+	writeParkMetrics(b, executor.ParkCounts(), executor.WaitReleaseCounts())
+	writeRecordFailureMetrics(b, executor.RecordFailureCounts())
+	writeActionMetrics(b, executor.OutcomeCounts(), executor.VerdictCounts(), views)
+}
+
 // writeActionMetrics renders the outcome and verdict counters and, for
 // each database whose last actions refresh succeeded, its gauges.
 func writeActionMetrics(b *strings.Builder, outcomes []executor.OutcomeCount,
