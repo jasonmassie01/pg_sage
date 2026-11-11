@@ -491,9 +491,13 @@ type InstanceStatus struct {
 	FindingsCritical int       `json:"findings_critical"`
 	FindingsWarning  int       `json:"findings_warning"`
 	FindingsInfo     int       `json:"findings_info"`
-	ActionsTotal     int       `json:"actions_total"`
-	LLMTokensUsed    int       `json:"llm_tokens_used"`
-	HealthScore      int       `json:"health_score"`
+	// Unresolved incidents; IncidentsUnknown (-1) when unread (cases-11).
+	IncidentsCritical   int    `json:"incidents_critical"`
+	IncidentsWarning    int    `json:"incidents_warning"`
+	CollectionFreshness string `json:"collection_freshness"` // fresh, stale or unknown
+	ActionsTotal        int    `json:"actions_total"`
+	LLMTokensUsed       int    `json:"llm_tokens_used"`
+	HealthScore         int    `json:"health_score"`
 	// HealthReasons explains HealthScore ("collector stale 42m",
 	// "2 critical findings"); set only on scored snapshots.
 	HealthReasons []string             `json:"health_reasons"`
