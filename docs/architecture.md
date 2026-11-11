@@ -351,6 +351,53 @@ includes case projection, shadow report, action queue, provider readiness,
 findings, snapshots, config, forecasts, query hints, alerts, emergency stop,
 and fleet management. UI and `/api/v1/*` routes are session-authenticated.
 
+**Cases ranking and urgency.** Cases from every database are ranked by
+severity first; no warning ever outranks a critical. Within a severity, a case
+whose producer reports its limit already reached (a zero `days_until_full`,
+`days_to_warn_pct` or `seconds_to_limit`) comes first, still showing no number;
+then a case with an assessed time to impact, the nearest impact first, then
+cases without one, then the most recent observation, then database and id.
+Each case carries `rank_basis`, for example "severity warning; time to impact
+about 3 days". The time to impact (`urgency`) is read only from the fields the
+producer wrote, never computed by Cases: `days_until_full` with `r_squared` and
+`data_points` (storage growth), `days_to_warn_pct` with `r_squared` (connection
+saturation) and `seconds_to_limit` with `rate_per_s`, `samples`, `span_s` and
+`r2` (disk, WAL slot, sequence and wraparound runways). The case shows the
+formula as its basis sentence, for example "About 3 days until the disk is
+full (seconds_to_limit 259200 from 48 samples over 6 h, R² 0.97)". A missing,
+non-numeric, non-finite or non-positive value, a zero rate, or a storage or
+connection regression fit below R² 0.5 leaves the case "Urgency not assessed";
+it never shows a reassuring number. XID wraparound and sequence exhaustion
+findings that carry no rate show their headroom instead ("xid_age 1.2B of
+the 1.6B critical threshold") and stay unassessed. A recurring incident (one with
+`previous_incident_id`) carries `recurrence`: the previous incident, the
+number of occurrences in its chain and when the previous one was resolved,
+read in one batched lookup per database, shown as "4th occurrence; previous
+resolved 2026-11-02". When that lookup fails the case says the history is
+unavailable rather than calling it a first occurrence.
+
+**Cases and the recommendation lifecycle.** A finding case carries
+`recommendation`, the newest `sage.recommendation` head of its finding (read
+in one query per database over the `recommendation_finding` index): its id,
+state, revision, verdict, reason, attempt count, `next_attempt_at`, when it
+was applied, `current_content` (the head carries the content hash the case
+proposes now), a one-line `next_step` and `url`
+(`/api/v1/recommendations/{id}?database=...`). The case's next step follows
+the head: "pg_sage applied this on 2026-11-10 and reverted it: <reason>",
+"Stopped after 3 failed attempts", "Retrying after 14:05 UTC" and so on. A
+reverted or abandoned head of the same content blocks the candidate as
+`recommendation_reverted` or `recommendation_abandoned` (the store never
+re-proposes that content); a failed head in backoff sets the candidate's
+`retrying_after`. A head of other content blocks nothing and says the current
+proposal differs. When the heads cannot be read, every finding case of that
+database is marked `recommendation_unknown`, never "no recommendation", and
+the response is still 200. A candidate past its `expires_at` is blocked as
+`evidence_expired` ("Evidence expired; waiting for a fresh observation"),
+replacing any other restriction except a recommendation refusal; the policy's
+own reason stays in `policy_decision`. Each candidate shows how long its
+evidence is valid. A head state the dashboard does not know is shown as
+"state unknown", never as an attached change.
+
 **Header and context strip.** The header says which database you are looking
 at, its mode and what pg_sage may do there right now. With one database
 selected, the trust badge shows its level, and its tooltip lists the action

@@ -22,21 +22,25 @@ func TestIdentityKeyFindingUsesStableProblemFields(t *testing.T) {
 	}
 }
 
-func TestIdentityKeyQueryPrefersNormalizedFingerprint(t *testing.T) {
+// A query finding's identity is its object identifier (cases-10); the
+// api's cases_identity_test.go shows a planted detail key is ignored.
+func TestIdentityKeyQueryUsesObjectIdentifier(t *testing.T) {
 	f := SourceFinding{
 		DatabaseName:     "prod",
 		Category:         "query_tuning",
 		ObjectType:       "query",
 		ObjectIdentifier: "query_id:123",
-		Detail: map[string]any{
-			"normalized_query": "select * from orders where id = ?",
-		},
+		Detail:           map[string]any{"calls": float64(10)},
 	}
 
 	got := IdentityKeyForFinding(f)
-	want := "finding:prod:query_tuning:query:select * from orders where id = ?"
+	want := "finding:prod:query_tuning:query:query_id:123"
 	if got != want {
 		t.Fatalf("identity key = %q, want %q", got, want)
+	}
+	f.Detail = nil
+	if again := IdentityKeyForFinding(f); again != want {
+		t.Fatalf("identity key without detail = %q, want %q", again, want)
 	}
 }
 
@@ -74,8 +78,8 @@ func TestProjectFindingCreatesActionableCase(t *testing.T) {
 		Recommendation:   "Run ANALYZE on public.orders",
 		RecommendedSQL:   "ANALYZE public.orders",
 		Detail: map[string]any{
-			"n_mod_since_analyze": float64(200000),
-			"last_analyze_age":    "72h",
+			"writes":           float64(200000),
+			"last_analyze_age": "72h",
 		},
 	}
 
@@ -259,7 +263,7 @@ func TestProjectFindingClassifiesForecastAsForecastCase(t *testing.T) {
 		Title:            "Connection pool exhaustion forecast",
 		Recommendation:   "Review pool limits before saturation.",
 		Detail: map[string]any{
-			"projected_at": "2026-04-29T12:00:00Z",
+			"forecast_type": "connection_exhaustion",
 		},
 	}
 
@@ -887,8 +891,7 @@ func TestProjectFindingParameterizedQueryAddsExperimentAction(t *testing.T) {
 		Title:            "Literal-heavy query should be parameterized",
 		Recommendation:   "Parameterize literal query shapes in application code.",
 		Detail: map[string]any{
-			"normalized_query": "select * from orders where id = ?",
-			"literal_count":    float64(1200),
+			"literal_count": float64(1200),
 		},
 	}
 

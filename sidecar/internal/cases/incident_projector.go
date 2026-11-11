@@ -37,6 +37,9 @@ type SourceIncident struct {
 	LastDetectedAt  time.Time
 	ResolvedAt      *time.Time
 	OccurrenceCount int
+	// PreviousIncidentID is the resolved incident this one recurs
+	// (sage.incidents.previous_incident_id); empty for a first occurrence.
+	PreviousIncidentID string
 }
 
 func ProjectIncident(i SourceIncident) Case {
@@ -53,6 +56,9 @@ func ProjectIncident(i SourceIncident) Case {
 		ActionCandidates: actionCandidatesForIncident(i),
 		ObservedAt:       incidentObservedAt(i),
 	})
+	if i.PreviousIncidentID != "" {
+		c.Recurrence = &Recurrence{PreviousID: i.PreviousIncidentID}
+	}
 	if i.ResolvedAt != nil {
 		c.State = StateResolved
 		c.ActionCandidates = nil

@@ -19,7 +19,8 @@ import (
 // queryDatabaseCases projects one database's open findings, active
 // incidents and query hints, each read one row past its cap so the cut is
 // reported. The finding and incident candidates share one standing-policy
-// explanation for the database.
+// explanation for the database; a candidate past its expires_at is
+// blocked as evidence_expired.
 func queryDatabaseCases(
 	ctx context.Context,
 	mgr *fleet.DatabaseManager,
@@ -38,16 +39,14 @@ func queryDatabaseCases(
 	res.truncated.Incidents = cut
 	out := append(findingCases, incidentCases...)
 	enrichCasesActionPolicies(ctx, out, mgr.GetInstance(selected.name))
-	enrichCaseActionTimelines(
-		ctx, out[:len(findingCases)], selected,
-		store.NewActionStore(selected.pool), findingIDs,
-	)
+	enrichFindingCases(ctx, out[:len(findingCases)], selected, findingIDs)
 	hintCases, cut, err := queryHintCases(ctx, selected)
 	if err != nil {
 		return res, err
 	}
 	res.truncated.QueryHints = cut
 	res.cases = append(out, hintCases...)
+	cases.MarkExpiredCandidates(res.cases, time.Now().UTC())
 	return res, nil
 }
 
@@ -121,7 +120,9 @@ func queryIncidentCases(
 	if cut {
 		rows = rows[:caseIncidentsCap]
 	}
-	return projectIncidentRows(rows, selected.name), cut, nil
+	out := projectIncidentRows(rows, selected.name)
+	enrichIncidentRecurrence(ctx, selected.pool, out)
+	return out, cut, nil
 }
 
 func projectIncidentRows(rows []map[string]any, database string) []cases.Case {
@@ -496,6 +497,8 @@ func sourceIncidentFromMap(row map[string]any) cases.SourceIncident {
 		LastDetectedAt:  timeFromMap(row, "last_detected_at"),
 		ResolvedAt:      timePtrFromMap(row, "resolved_at"),
 		OccurrenceCount: int(floatValue(row["occurrence_count"])),
+
+		PreviousIncidentID: stringValue(row["previous_incident_id"]),
 	}
 }
 
