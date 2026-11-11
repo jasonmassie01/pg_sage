@@ -45,16 +45,24 @@ func normalizeSpace(s string) string {
 }
 
 // docSection returns the text under heading up to the next heading of the
-// same or a higher level ("" when the heading is missing).
+// same or a higher level ("" when the heading is missing). A "# " line in a
+// code fence (a shell or YAML comment) is not a heading.
 func docSection(doc, heading string) string {
 	level := strings.Index(heading, " ")
 	start := -1
+	inFence := false
 	lines := strings.Split(doc, "\n")
 	for i, line := range lines {
 		if start < 0 {
 			if strings.TrimSpace(line) == heading {
 				start = i + 1
 			}
+			continue
+		}
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			inFence = !inFence
+		}
+		if inFence {
 			continue
 		}
 		hashes := len(line) - len(strings.TrimLeft(line, "#"))
@@ -66,6 +74,17 @@ func docSection(doc, heading string) string {
 		return ""
 	}
 	return strings.Join(lines[start:], "\n")
+}
+
+func TestVacuumDocs_SectionSpansCodeFenceComments(t *testing.T) {
+	doc := "### a\nfirst\n```sh\n# a shell comment\n```\nSAFE-tier\n### b\nsecond\n"
+	got := docSection(doc, "### a")
+	if !strings.Contains(got, "SAFE-tier") || strings.Contains(got, "second") {
+		t.Fatalf("section = %q, want it to run past the fenced comment and stop at ### b", got)
+	}
+	if got := docSection(doc, "### missing"); got != "" {
+		t.Fatalf("missing heading returned %q, want empty", got)
+	}
 }
 
 func vacuumSection(t *testing.T) string {
