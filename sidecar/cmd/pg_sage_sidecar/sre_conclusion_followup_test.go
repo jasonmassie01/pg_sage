@@ -20,9 +20,9 @@ import (
 
 // sre-08 composed: an incident paged to Slack and Telegram, then
 // investigated by the real coordinator, gets one diagnosis follow-up per
-// paged channel; the Telegram one replies to the page, and nothing from
-// the evidence (a planted application name) reaches a delivered body or
-// sage.notification_log.
+// paged channel; the Telegram one replies to the page, and a planted
+// application name (in the trigger subject and an idle session the probes
+// see) reaches neither a delivered body nor sage.notification_log.
 
 const plantedFollowUpApp = "billing-planted-app password=planted-app-secret"
 
@@ -176,6 +176,12 @@ func TestSREConclusionFollowUp_Composed(t *testing.T) {
 		        'fu_db') RETURNING id::text`).Scan(&inc); err != nil {
 		t.Fatalf("insert incident: %v", err)
 	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM sage.incidents
+			WHERE id = $1::uuid`, inc)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM sage.sre_incident_followup
+			WHERE incident_id = $1`, inc)
+	})
 	if err := d.Dispatch(ctx, notify.IncidentDetectedEvent(notify.IncidentInfo{ID: inc,
 		Database: "fu_db", Severity: "critical", RootCause: "lock contention"})); err != nil {
 		t.Fatalf("page: %v", err)
@@ -183,7 +189,7 @@ func TestSREConclusionFollowUp_Composed(t *testing.T) {
 	plantIdleSession(t, ctx, dsn)
 	svc := followUpInvestigator(t, pool, d)
 	inv, _, err := svc.Coordinator().Start(ctx, sre.Trigger{CaseID: "case:" + tag,
-		IncidentID: inc, Kind: sre.TriggerLock, Subject: "incident " + tag,
+		IncidentID: inc, Kind: sre.TriggerLock, Subject: "incident " + plantedFollowUpApp,
 		IdempotencyKey: "incident:" + inc})
 	if err != nil {
 		t.Fatalf("start: %v", err)
@@ -249,10 +255,13 @@ func checkComposedFollowUp(t *testing.T, ctx context.Context, pool *pgxpool.Pool
 	if n := len(hook.matching("Diagnosis for incident " + inc)); n != 1 {
 		t.Fatalf("slack got %d follow-ups, want 1", n)
 	}
-	var evidence int
-	_ = pool.QueryRow(ctx, `SELECT count(*) FROM sage.sre_evidence
-		WHERE payload::text LIKE '%billing-planted-app%'`).Scan(&evidence)
-	t.Logf("evidence rows naming the planted session: %d", evidence)
+	var planted int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sage.sre_investigations
+		WHERE source_incident_id = $1 AND subject LIKE '%billing-planted-app%'`, inc).
+		Scan(&planted); err != nil || planted != 1 {
+		t.Fatalf("the investigation subject does not hold the planted name (%d, %v)",
+			planted, err)
+	}
 	for _, b := range append(hook.matching(inc), tgEvents[1].Body) {
 		if strings.Contains(b, "billing-planted-app") || strings.Contains(b, "planted-app-secret") {
 			t.Fatalf("CHECK-36: a delivered body leaks the planted session: %s", b)
