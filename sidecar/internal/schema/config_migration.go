@@ -32,9 +32,17 @@ CREATE INDEX IF NOT EXISTS idx_config_audit_db
 // updated_by_user_id columns (if missing), drops the old text
 // unique constraint on key, adds a composite unique on
 // (key, database_id), and creates sage.config_audit.
+//
+// Its steps consult the migration ledger as Bootstrap's do, so a call
+// after Bootstrap (the meta database makes one) issues no DDL (config-04b).
+// It never seals the catalog fingerprint: only Bootstrap, which checks
+// every step, may.
 func MigrateConfigSchema(
 	ctx context.Context, pool *pgxpool.Pool,
 ) error {
+	if ledgerFrom(ctx) == nil {
+		ctx = withMigrationLedger(ctx, &migrationLedger{})
+	}
 	return migrateConfigSchema(ctx, pool)
 }
 

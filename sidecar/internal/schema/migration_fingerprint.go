@@ -4,8 +4,9 @@ import "strings"
 
 // catalogFingerprintSQL is the md5 of what the migration steps shape in the
 // sage schema (config-04b): relations, columns, indexes with their
-// validity, constraints with their validation, triggers, functions and
-// view rules. It reads raw catalog columns only: the deparse functions
+// validity and column options, constraints with their validation,
+// triggers, functions with their settings (a pinned search_path) and view
+// rules. It reads raw catalog columns only: the deparse functions
 // (pg_get_expr, pg_get_viewdef) lock the relations they describe, and the
 // ledger read must not wait behind a session holding a table lock. Day
 // partitions are left out (retention adds and drops them every day);
@@ -29,6 +30,7 @@ SELECT md5(COALESCE(string_agg(line, E'\n' ORDER BY line), '')) FROM (
     UNION ALL
     SELECT 'index ' || i.relname || ' ON ' || c.relname || ' ' || x.indisunique::text ||
            ' ' || x.indisvalid::text || ' ' || x.indkey::text || ' ' || x.indclass::text ||
+           ' ' || x.indoption::text ||
            ' ' || i.relam::text || ' ' || COALESCE(md5(x.indexprs::text), '-') ||
            ' ' || COALESCE(md5(x.indpred::text), '-')
       FROM pg_catalog.pg_index x
@@ -55,7 +57,7 @@ SELECT md5(COALESCE(string_agg(line, E'\n' ORDER BY line), '')) FROM (
     UNION ALL
     SELECT 'function ' || p.oid::pg_catalog.regprocedure::text || ' ' ||
            md5(COALESCE(p.prosrc, '')) || ' ' || p.provolatile::text || ' ' ||
-           p.prosecdef::text
+           p.prosecdef::text || ' ' || COALESCE(p.proconfig::text, '-')
       FROM pg_catalog.pg_proc p
      WHERE p.pronamespace = 'sage'::regnamespace
     UNION ALL
