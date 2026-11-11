@@ -109,7 +109,8 @@ func insertStep(ctx context.Context, tx pgx.Tx, lease Lease, step StepResult) er
 		return err
 	}
 	for _, res := range step.Results {
-		if err := insertEvidence(ctx, tx, lease, stepID, res); err != nil {
+		if _, _, err := insertEvidence(ctx, tx, lease.Scope, lease.InvestigationID, stepID,
+			sourceProbe, res); err != nil {
 			return err
 		}
 	}
@@ -130,11 +131,20 @@ func capabilityState(st probes.Status) string {
 	}
 }
 
-func insertEvidence(ctx context.Context, tx pgx.Tx, lease Lease, stepID UUID,
-	res probes.Result) error {
+// Evidence source kinds: a lease-bound probe step, or an operator's
+// re-read of a finished investigation (AppendRefreshEvidence).
+const (
+	sourceProbe           = "probe"
+	SourceOperatorRefresh = "operator_refresh"
+)
+
+// insertEvidence writes one evidence row of a step and returns its id and
+// payload hash.
+func insertEvidence(ctx context.Context, tx pgx.Tx, sc Scope, invID, stepID UUID,
+	source string, res probes.Result) (UUID, []byte, error) {
 	payload, err := canonicalPayload(res)
 	if err != nil {
-		return fmt.Errorf("%w: evidence payload: %v", ErrInvalidRequest, err)
+		return "", nil, fmt.Errorf("%w: evidence payload: %v", ErrInvalidRequest, err)
 	}
 	sum := sha256.Sum256(payload)
 	reason := res.Reason
@@ -150,17 +160,17 @@ func insertEvidence(ctx context.Context, tx pgx.Tx, lease Lease, stepID UUID,
 	if version == "" {
 		version = "unknown"
 	}
-	sc := lease.Scope
+	id := NewUUID()
 	_, err = tx.Exec(ctx, `INSERT INTO sage.sre_evidence
 		(deployment_id, database_id, investigation_id, id, step_id, source_kind,
 		 probe_id, probe_version, observed_at, capability_state, reason_code,
 		 payload_version, classification, payload, sha256)
-		VALUES ($1, $2, $3, $4, $5, 'probe', $6, $7, $8, $9, NULLIF($10, ''), 1,
+		VALUES ($1, $2, $3, $4, $5, $13, $6, $7, $8, $9, NULLIF($10, ''), 1,
 		        'redacted', $11, $12)`,
-		string(sc.DeploymentID), string(sc.DatabaseID), string(lease.InvestigationID),
-		string(NewUUID()), string(stepID), string(res.ProbeID), version, observed,
-		capability, reason, payload, sum[:])
-	return err
+		string(sc.DeploymentID), string(sc.DatabaseID), string(invID),
+		string(id), string(stepID), string(res.ProbeID), version, observed,
+		capability, reason, payload, sum[:], source)
+	return id, sum[:], err
 }
 
 // Evidence lists an investigation's evidence in step order.
