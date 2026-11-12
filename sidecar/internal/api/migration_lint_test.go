@@ -249,3 +249,45 @@ func TestMigrationLintRouteGate(t *testing.T) {
 		t.Fatalf("no fleet, live lint: %d %s", rec.Code, rec.Body)
 	}
 }
+
+// stallCatalog blocks every read until its context ends, as a database
+// that stopped answering would.
+type stallCatalog struct{}
+
+func (stallCatalog) Query(context.Context, string, ...any) (pgx.Rows, error) {
+	return nil, errors.New("stallCatalog: Query not supported")
+}
+
+func (stallCatalog) QueryRow(ctx context.Context, _ string, _ ...any) pgx.Row {
+	<-ctx.Done()
+	return stallRow{err: ctx.Err()}
+}
+
+type stallRow struct{ err error }
+
+func (r stallRow) Scan(...any) error { return r.err }
+
+// Boundary: a review that outlives the request budget is 503 naming the
+// budget, never a verdict, and gives its slot back.
+func TestMigrationLintBudgetIs503(t *testing.T) {
+	d := lintDeps(&lintCatalog{}, 30)
+	d.querier = func(string) (catalogread.Querier, error) { return stallCatalog{}, nil }
+	d.budget = 50 * time.Millisecond
+	h := migrationLintHandler(d)
+	start := time.Now()
+	rec := postLint(t, h, testViewerUser(), `{"sql":"CREATE INDEX x ON app.t (c)"}`)
+	if rec.Code != http.StatusServiceUnavailable ||
+		!strings.Contains(rec.Body.String(), "budget") ||
+		strings.Contains(rec.Body.String(), "verdict") {
+		t.Fatalf("status %d body %s", rec.Code, rec.Body)
+	}
+	if took := time.Since(start); took > 5*time.Second {
+		t.Fatalf("the budget did not bound the review: %v", took)
+	}
+	if n := len(d.slots); n != 0 {
+		t.Fatalf("%d slots still held", n)
+	}
+	if got := (migrationLintDeps{}).reviewBudget(); got != migrationLintBudget {
+		t.Fatalf("zero budget is %v, want the default %v", got, migrationLintBudget)
+	}
+}

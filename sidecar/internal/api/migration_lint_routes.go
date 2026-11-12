@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,6 +32,10 @@ const (
 	migrationLintSlots = 4
 	// migrationLintMaxBody leaves room for JSON escaping of a 100 kB SQL.
 	migrationLintMaxBody = 2*migration.MaxReviewBytes + 4096
+	// migrationLintBudget bounds one whole review: each catalog read has
+	// its own 2 s bound, but a long migration makes many, and a slot is
+	// held for all of them.
+	migrationLintBudget = 30 * time.Second
 )
 
 var migrationLintTimeouts = catalogread.Timeouts{Statement: 2 * time.Second, Lock: time.Second}
@@ -56,6 +61,15 @@ type migrationLintDeps struct {
 	rowThreshold int64
 	limiter      *lintLimiter
 	slots        chan struct{}
+	// budget bounds one review; 0 is migrationLintBudget.
+	budget time.Duration
+}
+
+func (d migrationLintDeps) reviewBudget() time.Duration {
+	if d.budget <= 0 {
+		return migrationLintBudget
+	}
+	return d.budget
 }
 
 func registerMigrationLintRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
@@ -128,8 +142,14 @@ func migrationLintHandler(d migrationLintDeps) http.Handler {
 				http.StatusServiceUnavailable)
 			return
 		}
-		rep, err := migration.Review(r.Context(), q, req.SQL, migration.ReviewOptions{
+		ctx, cancel := context.WithTimeout(r.Context(), d.reviewBudget())
+		defer cancel()
+		rep, err := migration.Review(ctx, q, req.SQL, migration.ReviewOptions{
 			PGVersion: req.PGVersion, RowThreshold: d.rowThreshold, Static: req.Static})
+		if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			err = fmt.Errorf("the review took longer than its %s budget: %w",
+				d.reviewBudget(), err)
+		}
 		writeMigrationLint(w, rep, err)
 	})
 }
