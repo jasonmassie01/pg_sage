@@ -263,7 +263,9 @@ is added with the member's role, one connection, trust `observation`,
 execution `approval`, the source's `owner` and an `expires_at` of now plus
 `ttl_hours`. Lakebase and RDS candidates stay candidates; add them by hand
 when you want them. A database that is already a member is never
-enrolled twice.
+enrolled twice. At most 5 candidates per source enrol each cycle; one
+whose enrolment fails (a role without CONNECT, say) goes back to
+`candidate` with its error and is retried after the untried ones.
 
 A discovered member is not trusted further by being found. Until an owner
 adopts it, a trigger on `sage.databases` rejects any trust-level or
