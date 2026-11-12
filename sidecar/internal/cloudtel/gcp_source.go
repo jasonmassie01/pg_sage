@@ -44,6 +44,8 @@ type GCPSource struct {
 	opts GCPOptions
 	mu   sync.Mutex
 	name string // resolved instance name
+	// backupRuns is the last backup runs read (gcp_backup.go).
+	backupRuns *backupRunsResult
 }
 
 // NewGCPSource validates the identity; it makes no network call.
@@ -153,6 +155,10 @@ func (s *GCPSource) Collect(ctx context.Context, now time.Time) (Sample, error) 
 	}
 	applyCloudSQLStorage(&sample, inst, now)
 	sample.Backup = inst.Settings.BackupConfiguration.posture(inst.Settings.DeletionProtection)
+	s.applyBackupFreshness(ctx, &sample, inst.Name, now)
+	if err := ctx.Err(); err != nil {
+		return Sample{}, err
+	}
 	if sample.MemoryTotalBytes == nil {
 		if mem := tierMemoryBytes(inst.Settings.Tier); mem > 0 {
 			sample.MemoryTotalBytes = &Point{Value: mem, At: now}
