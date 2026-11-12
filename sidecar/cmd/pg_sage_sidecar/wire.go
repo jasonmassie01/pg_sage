@@ -106,8 +106,9 @@ func wireRouter(p WireParams) (WireResult, error) {
 	if p.MetaState != nil && p.MetaState.Store != nil {
 		metaState := p.MetaState
 		dbDeps = &api.DatabaseDeps{
-			Store: metaState.Store,
-			Fleet: p.FleetMgr,
+			Store:     metaState.Store,
+			Fleet:     p.FleetMgr,
+			Discovery: store.NewDiscoveryStore(metaState.Pool),
 			ApplyCreate: func(
 				ctx context.Context, input store.DatabaseInput, createdBy int,
 			) (*store.DatabaseRecord, error) {
@@ -234,14 +235,29 @@ func applyMetaDatabaseCreate(
 	input store.DatabaseInput,
 	createdBy int,
 ) (*store.DatabaseRecord, error) {
+	return applyMetaDatabaseCreateWith(ctx, mgr, state, input.Name,
+		func(ctx context.Context) (int, error) {
+			return state.Store.Create(ctx, input, createdBy)
+		})
+}
+
+// applyMetaDatabaseCreateWith registers the member create inserts as name:
+// the row is deleted again when its runtime cannot be published.
+func applyMetaDatabaseCreateWith(
+	ctx context.Context,
+	mgr *fleet.DatabaseManager,
+	state *metaDBState,
+	name string,
+	create func(context.Context) (int, error),
+) (*store.DatabaseRecord, error) {
 	var id int
 	var rec *store.DatabaseRecord
 	var candidate *fleet.DatabaseInstance
 	err := mgr.WithLifecycle(ctx, func(op *fleet.LifecycleMutation) (resultErr error) {
-		if err := op.ValidateRegistration(input.Name); err != nil {
+		if err := op.ValidateRegistration(name); err != nil {
 			return err
 		}
-		id, resultErr = state.Store.Create(ctx, input, createdBy)
+		id, resultErr = create(ctx)
 		if resultErr != nil {
 			return resultErr
 		}

@@ -32,6 +32,9 @@ type DatabaseDeps struct {
 		context.Context, store.DatabaseRecord, store.DatabaseRecord,
 	) error
 	ApplyDelete func(context.Context, int, store.DatabaseRecord) error
+	// Discovery serves the Discovered tab (market-06); nil leaves its
+	// routes unregistered.
+	Discovery *store.DiscoveryStore
 }
 
 // registerDatabaseRoutes registers /api/v1/databases/managed
@@ -70,6 +73,9 @@ func registerDatabaseRoutes(
 	testPreview := http.HandlerFunc(
 		testConnectionPreviewHandler())
 	route(mux, "POST /api/v1/databases/managed/test-connection", gateAdmin, testPreview)
+	if deps.Discovery != nil {
+		registerDiscoveredRoutes(mux, deps)
+	}
 }
 
 func listManagedDBHandler(
@@ -653,5 +659,10 @@ func dbRecordToMap(rec store.DatabaseRecord) map[string]any {
 		"execution_mode":  rec.ExecutionMode,
 		"created_at":      rec.CreatedAt,
 		"updated_at":      rec.UpdatedAt,
+		// market-06: empty for manual and CSV members.
+		"discovered_source": rec.DiscoveredSource,
+		"owner":             rec.Owner,
+		"expires_at":        rec.ExpiresAt,
+		"adopted_at":        rec.AdoptedAt,
 	}
 }

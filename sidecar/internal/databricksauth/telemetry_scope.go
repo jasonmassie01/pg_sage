@@ -67,3 +67,13 @@ func resolveTelemetryResource(ctx context.Context, api telemetryResourceAPI, ori
 	}
 	return TelemetryResource{Workspace: origin, ProjectID: p.Uid, BranchID: b.Uid, EndpointID: ep.Uid}, nil
 }
+
+// PostgresAPI is the workspace's Lakebase Postgres API, for listing a
+// project's branches and endpoints (fleet discovery, market-06).
+func PostgresAPI() (postgres.PostgresInterface, error) {
+	w, err := workspace()
+	if err != nil {
+		return nil, err
+	}
+	return w.Postgres, nil
+}

@@ -293,6 +293,7 @@ func initProcessContext() {
 // initModeRuntime runs the mode-specific initialization, then makes sure a
 // config controller exists.
 func initModeRuntime(metaState *metaDBState) {
+	warnDiscoveryOutsideMetaDB() // market-06: discovery enrols into sage.databases
 	if cfg.HasMetaDB() && metaState != nil {
 		initMetaDBFleet(metaState)
 	} else if cfg.IsStandalone() {
