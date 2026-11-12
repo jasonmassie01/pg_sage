@@ -91,7 +91,7 @@ func TestIsDataStatement(t *testing.T) {
 	}{
 		{"UPDATE sage.findings SET x = 1", true},
 		{"/* c */ INSERT INTO sage.toil_model VALUES (1)", true},
-		{"DELETE FROM sage.config WHERE key LIKE 'agentdb.%'", true},
+		{"DELETE FROM sage.config WHERE key LIKE 'retired.%'", true},
 		{"WITH r AS (SELECT 1) DELETE FROM sage.t USING r", true},
 		{"DO $d$ BEGIN UPDATE sage.findings SET x = 1; EXCEPTION WHEN " +
 			"lock_not_available THEN RAISE NOTICE 'later'; END $d$", true},
