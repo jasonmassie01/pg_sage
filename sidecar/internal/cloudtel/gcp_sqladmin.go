@@ -145,6 +145,9 @@ func tierMemoryBytes(tier string) float64 {
 	return 0
 }
 
+// TierMemoryBytes is the RAM of a Cloud SQL machine tier (0: unknown).
+func TierMemoryBytes(tier string) float64 { return tierMemoryBytes(tier) }
+
 // TierVCPUs is the vCPU count of a Cloud SQL machine tier (0: unknown,
 // including the shared-core tiers, which have a fraction of one).
 func TierVCPUs(tier string) int {

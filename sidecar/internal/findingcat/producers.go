@@ -108,6 +108,8 @@ var otherEntries = []Category{
 		"A managed provider parameter that drifts from its resolved target."),
 	e("managed_storage_runway", "cloud", "cloud_telemetry", sevIWC, nil, nil,
 		"Time left before a managed instance's provisioned storage fills."),
+	e("instance_rightsize", "cloud", "cost", sevI, k("cost.rates"), nil,
+		"An instance that is over or under its size on 14 days of host usage (advisory)."),
 	e("agent_environment_binding", "governance", "agentguard", sevC, nil, nil,
 		"An agent connected to a database outside its bound environment."),
 	e("agent_role_drift", "governance", "agentguard", sevWC, nil, nil,
