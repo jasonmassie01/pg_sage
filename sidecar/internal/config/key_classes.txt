@@ -25,6 +25,7 @@ safety_critical encryption_key_previous
 safety_critical data_dir
 safety_critical postgres.database
 safety_critical postgres.database_url
+safety_critical postgres.action_dsn
 safety_critical postgres.host
 safety_critical postgres.max_connections
 safety_critical postgres.password
@@ -89,6 +90,7 @@ safety_critical databases[].llm_enabled
 safety_critical databases[].max_connections
 safety_critical databases[].name
 safety_critical databases[].password
+safety_critical databases[].action_dsn
 safety_critical databases[].port
 safety_critical databases[].sslmode
 operator_preference databases[].tags

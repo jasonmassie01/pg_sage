@@ -274,6 +274,7 @@
 | `oauth.role_mapping` | `restart` | `-` | `safety_critical` |
 | `oauth.unmapped_users` | `restart` | `-` | `safety_critical` |
 | `policy.profile` | `restart` | `-` | `safety_critical` |
+| `postgres.action_dsn` | `restart` | `-` | `safety_critical` |
 | `postgres.cloud_resource.aws.cluster_identifier` | `restart` | `-` | `safety_critical` |
 | `postgres.cloud_resource.aws.db_instance_identifier` | `restart` | `-` | `safety_critical` |
 | `postgres.cloud_resource.aws.region` | `restart` | `-` | `safety_critical` |
@@ -517,6 +518,7 @@ In YAML fleet mode the `fleet_databases` owner reconciles the list: an added ent
 
 | Field | Lifecycle | Runtime owner | Self-config class |
 | --- | --- | --- | --- |
+| `databases[].action_dsn` | `reconfigure` | `fleet_databases` | `safety_critical` |
 | `databases[].analyzer_interval_seconds` | `reconfigure` | `fleet_databases` | `operator_preference` |
 | `databases[].cloud_resource.aws.cluster_identifier` | `reconfigure` | `fleet_databases` | `safety_critical` |
 | `databases[].cloud_resource.aws.db_instance_identifier` | `reconfigure` | `fleet_databases` | `safety_critical` |

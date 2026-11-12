@@ -17,6 +17,7 @@ type DatabaseConfig struct {
 	Password                 string   `yaml:"password" doc:"Password for the login role. Encrypted at rest using encryption_key when persisted to the meta database." mode:"fleet-only" secret:"true"`
 	Database                 string   `yaml:"database" doc:"Database name on the target instance." mode:"fleet-only"`
 	SSLMode                  string   `yaml:"sslmode" doc:"libpq sslmode for this connection (disable, prefer, require, verify-ca, verify-full)." mode:"fleet-only"`
+	ActionDSN                string   `yaml:"action_dsn" doc:"Optional DSN of a second role on the same database. Only executor actions and backend cancel/terminate use it (pool of 2); the main role only observes. Empty: one role." mode:"fleet-only" secret:"true"`
 	MaxConnections           int      `yaml:"max_connections" doc:"Maximum connections the sidecar pgx pool opens to this database. Falls back to defaults.max_connections when zero." mode:"fleet-only"`
 	Tags                     []string `yaml:"tags" doc:"Free-form tags used to group databases for fleet operations (e.g. tier=prod, team=payments)." mode:"fleet-only"`
 	TrustLevel               string   `yaml:"trust_level" doc:"Per-database override of the global trust.level. Useful for running a pilot database in autonomous while the fleet stays in advisory." mode:"fleet-only"`
@@ -196,6 +197,7 @@ func (c *Config) standaloneDatabase() DatabaseConfig {
 		MaxConnections: c.Postgres.MaxConnections,
 		Provider:       c.Postgres.Provider,
 		CloudResource:  c.Postgres.CloudResource,
+		ActionDSN:      c.Postgres.ActionDSN,
 	}
 	applyDatabaseURL(&db, c.Postgres.DatabaseURL)
 	db.Name = db.Database
