@@ -31,14 +31,6 @@ const (
 var topOrderParams = map[string]bool{querystore.OrderLoad: true, querystore.OrderCalls: true,
 	querystore.OrderMean: true, querystore.OrderRows: true}
 
-// registerWorkloadRoutes registers the workload explorer's routes.
-func registerWorkloadRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
-	route(mux, "GET /api/v1/queries/top", gateViewer, http.HandlerFunc(queriesTopHandler(mgr)))
-	route(mux, "GET /api/v1/queries/{queryid}", gateViewer,
-		http.HandlerFunc(queryDetailHandler(mgr)))
-	route(mux, "GET /api/v1/wait-load", gateViewer, http.HandlerFunc(waitLoadHandler(mgr)))
-}
-
 // parseWindow reads since and until (RFC 3339): until defaults to now and
 // since to def before until. The window must be non-empty and at most
 // maxWorkloadWindow long.
