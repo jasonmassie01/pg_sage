@@ -604,3 +604,6 @@ safety_critical lakebase_observability.streams
 safety_critical lakebase_observability.bindings
 safety_critical sre.read_policy.scope
 safety_critical sre.read_policy.allowed_sources
+
+# Cost attribution (market-04): operator-declared prices
+operator_preference cost.rates

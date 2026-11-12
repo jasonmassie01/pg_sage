@@ -110,6 +110,8 @@ type Config struct {
 	// CloudTelemetry is managed-cloud host telemetry (cloud_telemetry.go).
 	CloudTelemetry        CloudTelemetryConfig        `yaml:"cloud_telemetry"`
 	LakebaseObservability LakebaseObservabilityConfig `yaml:"lakebase_observability"`
+	// Cost is operator-supplied pricing (cost.go, market-04).
+	Cost CostConfig `yaml:"cost"`
 	// Agents is agent posture (agents.go).
 	Agents AgentsConfig `yaml:"agents"`
 	// Audit is the audit export and evidence of E2 (audit.go).
@@ -819,6 +821,9 @@ func (c *Config) validate() error {
 		return err
 	}
 	if err := c.validateCloudTelemetry(); err != nil {
+		return err
+	}
+	if err := c.validateCost(); err != nil {
 		return err
 	}
 	if err := c.Retention.validateSageFootprint(); err != nil {

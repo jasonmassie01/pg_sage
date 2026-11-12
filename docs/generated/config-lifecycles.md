@@ -132,6 +132,7 @@
 | `collector.batch_size` | `restart` | `-` | `derivable` |
 | `collector.interval_seconds` | `restart` | `-` | `derivable` |
 | `collector.max_queries` | `restart` | `-` | `derivable` |
+| `cost.rates` | `restart` | `-` | `operator_preference` |
 | `custodian.freeze.red_buffer_pct` | `restart` | `-` | `safety_critical` |
 | `custodian.wal.abandon_after_minutes` | `restart` | `-` | `safety_critical` |
 | `custodian.wal.retained_wal_disk_pct_ceiling` | `restart` | `-` | `safety_critical` |
