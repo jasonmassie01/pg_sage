@@ -232,6 +232,7 @@ func registerLLMBudgetRoutes(mux *http.ServeMux, budgets LLMBudgetRegistry) {
 	route(mux, "POST /api/v1/llm/budget/reset", gateAdmin,
 		http.HandlerFunc(llmBudgetResetHandler(budgets)))
 	route(mux, "POST /api/v1/llm/test", gateAdmin, http.HandlerFunc(llmTestHandler(budgets)))
+	route(mux, "GET /api/v1/llm/usage", gateViewer, http.HandlerFunc(llmUsageHandler(budgets)))
 }
 
 // LLMProber is a registry that can test its general client's connection

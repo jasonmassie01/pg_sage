@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/store"
 )
 
@@ -22,13 +23,18 @@ func startLLMUsageLedger(control *pgxpool.Pool) {
 	if control == nil {
 		return
 	}
-	ledger := newLLMUsageLedger(store.NewLLMUsageStore(control), llmClients,
-		fleetLLMBudget, llmUsageIDs)
+	st := store.NewLLMUsageStore(control)
+	ledger := newLLMUsageLedger(st, llmClients, fleetLLMBudget, llmUsageIDs)
 	ctx := context.Background()
 	_ = ledger.restore(ctx) // a failure is logged; the first tick retries
 	ledger.prune(ctx)
 	activeLLMUsageLedger.Store(ledger)
 	go ledger.run(shutdownCtx)
+	var pricing map[string]config.LLMPrice
+	if cfg != nil {
+		pricing = cfg.LLM.Pricing
+	}
+	startLLMAttribution(st, pricing) // llm-04
 }
 
 // flushLLMUsageOnShutdown saves the last minute of usage after the
@@ -43,6 +49,9 @@ func flushLLMUsageOnShutdown() {
 	if err := ledger.flush(ctx); err != nil {
 		logWarn("shutdown", "final LLM usage flush: %v", err)
 	}
+	actx, acancel := context.WithTimeout(context.Background(), store.LLMUsageTimeout)
+	defer acancel()
+	flushLLMAttributionOnShutdown(actx)
 }
 
 // UsageLedgerStatus reports when today's usage was restored and last

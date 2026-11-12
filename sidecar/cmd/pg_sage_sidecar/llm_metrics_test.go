@@ -394,8 +394,10 @@ func TestLLMHealthRecordBucketsAndTokenKinds(t *testing.T) {
 	if want := 0.25 + 121 + 3; r.sum != want {
 		t.Errorf("sum = %v, want %v (the refusal's hour is not timed)", r.sum, want)
 	}
-	if r.prompt != 4 || r.completion != 1 || r.unattributed != 4+6 {
-		t.Errorf("tokens = %d/%d/%d, want 4/1/10", r.prompt, r.completion, r.unattributed)
+	// llm-04 keys the token counters by purpose; these calls have none.
+	tk := r.tokens[llm.PurposeUnlabeled]
+	if tk.prompt != 4 || tk.completion != 1 || tk.unattributed != 4+6 {
+		t.Errorf("tokens = %d/%d/%d, want 4/1/10", tk.prompt, tk.completion, tk.unattributed)
 	}
 	if r.results[llm.ResultOK] != 2 || r.results[llm.ResultBudgetRefused] != 1 {
 		t.Errorf("results = %v", r.results)

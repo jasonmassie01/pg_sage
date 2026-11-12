@@ -19,7 +19,8 @@ import (
 
 const llmUsageFlushInterval = 60 * time.Second
 
-// llmUsageRetention is how many days of rows the ledger keeps.
+// llmUsageRetention is how many days of budget counters the ledger keeps
+// (the attributed usage of llm-04 keeps llmAttributionRetention).
 const llmUsageRetention = 35 * 24 * time.Hour
 
 const (

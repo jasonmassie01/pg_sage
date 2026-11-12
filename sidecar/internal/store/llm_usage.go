@@ -42,7 +42,7 @@ const flushLLMUsageSQL = `
 INSERT INTO sage.llm_usage (day, database_key, role, tokens, updated_at)
 SELECT $1::date, u.database_key, u.role, u.tokens, now()
   FROM unnest($2::text[], $3::text[], $4::bigint[]) AS u(database_key, role, tokens)
-ON CONFLICT (day, database_key, role) DO UPDATE
+ON CONFLICT (day, database_key, role, purpose, model) DO UPDATE
    SET tokens = GREATEST(sage.llm_usage.tokens, EXCLUDED.tokens),
        updated_at = now()
  WHERE EXCLUDED.tokens > sage.llm_usage.tokens`
@@ -76,7 +76,7 @@ func (s *LLMUsageStore) Flush(ctx context.Context, day time.Time, rows []LLMUsag
 	return nil
 }
 
-// Load returns every counter recorded for day.
+// Load returns every budget counter (purpose '_total') recorded for day.
 func (s *LLMUsageStore) Load(ctx context.Context, day time.Time) ([]LLMUsageRow, error) {
 	if s.pool == nil {
 		return nil, errNoControlPool
@@ -84,7 +84,7 @@ func (s *LLMUsageStore) Load(ctx context.Context, day time.Time) ([]LLMUsageRow,
 	qctx, cancel := context.WithTimeout(ctx, LLMUsageTimeout)
 	defer cancel()
 	rows, err := s.pool.Query(qctx, `SELECT database_key, role, tokens
-		FROM sage.llm_usage WHERE day = $1::date`, utcDate(day))
+		FROM sage.llm_usage WHERE day = $1::date AND purpose = '_total'`, utcDate(day))
 	if err != nil {
 		return nil, fmt.Errorf("load LLM usage for %s: %w",
 			utcDate(day).Format(time.DateOnly), err)
@@ -105,14 +105,16 @@ func (s *LLMUsageStore) Load(ctx context.Context, day time.Time) ([]LLMUsageRow,
 	return out, nil
 }
 
-// Clear deletes day's counters (an admin budget reset).
+// Clear deletes day's budget counters (an admin budget reset); the
+// attributed usage of llm-04 is history and stays.
 func (s *LLMUsageStore) Clear(ctx context.Context, day time.Time) error {
 	if s.pool == nil {
 		return errNoControlPool
 	}
 	qctx, cancel := context.WithTimeout(ctx, LLMUsageTimeout)
 	defer cancel()
-	if _, err := s.pool.Exec(qctx, `DELETE FROM sage.llm_usage WHERE day = $1::date`,
+	if _, err := s.pool.Exec(qctx, `DELETE FROM sage.llm_usage
+		WHERE day = $1::date AND purpose = '_total'`,
 		utcDate(day)); err != nil {
 		return fmt.Errorf("clear LLM usage for %s: %w",
 			utcDate(day).Format(time.DateOnly), err)
@@ -120,14 +122,16 @@ func (s *LLMUsageStore) Clear(ctx context.Context, day time.Time) error {
 	return nil
 }
 
-// Prune deletes the counters of days before cutoff and returns how many.
+// Prune deletes the budget counters of days before cutoff and returns how
+// many; PruneAttribution keeps the attributed usage on its own retention.
 func (s *LLMUsageStore) Prune(ctx context.Context, cutoff time.Time) (int64, error) {
 	if s.pool == nil {
 		return 0, errNoControlPool
 	}
 	qctx, cancel := context.WithTimeout(ctx, LLMUsageTimeout)
 	defer cancel()
-	tag, err := s.pool.Exec(qctx, `DELETE FROM sage.llm_usage WHERE day < $1::date`,
+	tag, err := s.pool.Exec(qctx, `DELETE FROM sage.llm_usage
+		WHERE day < $1::date AND purpose = '_total'`,
 		utcDate(cutoff))
 	if err != nil {
 		return 0, fmt.Errorf("prune LLM usage before %s: %w",

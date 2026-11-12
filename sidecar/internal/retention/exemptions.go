@@ -48,8 +48,9 @@ var coreExemptions = map[string]string{
 	"databases": "fleet registry, not a time-series",
 	"first_look": "bounded by its writer: firstlook.Store.Save keeps the newest 10 " +
 		"reports per database",
-	"llm_usage": "pruned at startup by the LLM budget ledger (llmUsageRetention, " +
-		"35 days of daily counters)",
+	"llm_usage": "control-database ledger pruned at startup by its writer: budget " +
+		"counters after 35 days (llmUsageRetention), attributed usage after 400 days " +
+		"(llmAttributionRetention, llm-04)",
 	"onboarding":            "one row per database, current state",
 	"ha_identity":           "HA monitor history, current state, one row per monitor",
 	"incident_avoided":      "value ledger; low volume, kept as evidence",

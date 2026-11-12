@@ -1848,6 +1848,13 @@
     "class": "derivable",
     "lifecycle": "restart"
   },
+  "llm.pricing": {
+    "type": "map[string]struct",
+    "default": null,
+    "doc": "Optional USD prices per million tokens by model id: {model: {input_per_m, output_per_m, reasoning_per_m}}. Empty by default; an unpriced model gets a NULL cost, never a guess.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
   "llm.redact_numeric_literals": {
     "type": "bool",
     "default": true,

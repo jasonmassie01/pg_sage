@@ -39,6 +39,23 @@ type Outcome struct {
 	PromptTokens     int
 	CompletionTokens int
 	Tokens           int
+	// llm-04 attribution: the provider's reasoning tokens (part of the
+	// completion), the context's purpose (PurposeOf) and the client's
+	// model. Estimated: the provider split no tokens, so Tokens is split
+	// as EstimatedPromptTokens of prompt and the rest completion.
+	ReasoningTokens       int
+	Purpose               string
+	Model                 string
+	Estimated             bool
+	EstimatedPromptTokens int
+}
+
+// callUsage is what one call charged, for its Outcome.
+type callUsage struct {
+	prompt, completion, reasoning, tokens int
+	// estimatedPrompt is the request's own token estimate, used when the
+	// provider reported no split.
+	estimatedPrompt int
 }
 
 // SetObserver sets the function every counted call reports to; nil
@@ -54,7 +71,7 @@ func (c *Client) SetObserver(observe func(Outcome)) {
 
 // observe reports one finished call. A disabled client and the per-work
 // item cooldown are not requests and report nothing.
-func (c *Client) observe(start time.Time, err error, prompt, completion, tokens int) {
+func (c *Client) observe(ctx context.Context, start time.Time, err error, u callUsage) {
 	observe := c.observer.Load()
 	if observe == nil {
 		return
@@ -63,8 +80,14 @@ func (c *Client) observe(start time.Time, err error, prompt, completion, tokens 
 	if !counted {
 		return
 	}
-	(*observe)(Outcome{Result: result, Duration: time.Since(start),
-		PromptTokens: prompt, CompletionTokens: completion, Tokens: tokens})
+	cfg, _ := c.configSnapshot()
+	o := Outcome{Result: result, Duration: time.Since(start),
+		PromptTokens: u.prompt, CompletionTokens: u.completion, Tokens: u.tokens,
+		ReasoningTokens: u.reasoning, Purpose: PurposeOf(ctx), Model: cfg.Model}
+	if u.tokens > 0 && u.prompt+u.completion == 0 {
+		o.Estimated, o.EstimatedPromptTokens = true, min(u.estimatedPrompt, u.tokens)
+	}
+	(*observe)(o)
 }
 
 // outcomeResult classifies a call's error. counted is false for the

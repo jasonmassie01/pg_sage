@@ -103,7 +103,7 @@ Every LLM client's calls, latency, tokens, state and daily token use, by client 
 | `pg_sage_llm_request_duration_seconds` | histogram | `client`, `database` | seconds | all | v2.7.0 | LLM call duration for results ok, error, timeout, rate_limited and empty (budget and breaker refusals and cancellations are not timed) |
 | `pg_sage_llm_requests_total` | counter | `client`, `database`, `result` | - | all | v2.7.0 | LLM calls since start by client, database and result (ok, error, timeout, rate_limited, budget_refused, circuit_open, empty, cancelled) |
 | `pg_sage_llm_tokens_budget_daily` | gauge | `client`, `database` | tokens | all | v0.7.0 | Configured daily LLM token budget (0 is unlimited) |
-| `pg_sage_llm_tokens_total` | counter | `client`, `database`, `kind` | tokens | all | v2.7.0 | LLM tokens charged since start by kind (prompt, completion, unattributed: estimated or not split by the provider); the spend signal, no prices applied |
+| `pg_sage_llm_tokens_total` | counter | `client`, `database`, `purpose`, `kind` | tokens | all | v2.7.0 | LLM tokens charged since start by purpose and kind (prompt, completion, unattributed: estimated or not split by the provider); the spend signal |
 | `pg_sage_llm_tokens_used_today` | gauge | `client`, `database` | tokens | all | v0.7.0 | LLM tokens charged today (UTC day) |
 
 ## Optimizer and tuning agent
