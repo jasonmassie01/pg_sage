@@ -566,6 +566,59 @@ Only a canonical path can skip session authentication. A path with `.` or
 or self-authenticating route; the router redirects `..` paths to their clean
 form first, and that form is checked again.
 
+### Per-database Authorization
+
+In fleet and meta-db modes an admin can limit a user to some databases
+(apiauth-08). Grants are edited on the **Users** page (**Databases** on a user
+row) or through `GET`, `PUT` and `DELETE /api/v1/users/{id}/database-grants/{database}`
+(admin only, body `{"role": "viewer" | "operator"}`). A grant must name a
+database pg_sage monitors; anything else is `400 unknown_database`.
+
+Grants are enforced only when `api.database_grants: true` (default `false`,
+restart to change). Standalone mode ignores the switch: it has one database.
+
+| User | Role on a database |
+|---|---|
+| No grants | Their global role, on every database (today's behaviour) |
+| One or more grants | The lower of their global role and the grant on a granted database; viewer everywhere else |
+| Admin | Admin everywhere: admins are never limited |
+
+A global viewer with an operator grant is still a viewer. Removing a user's
+last grant returns them to their global role on every database; the Users page
+warns before that.
+
+What is enforced (phase 1, writes). Every operator write declares how it finds
+its database, and the registry test fails on one that does not:
+
+- Routes that act on one database need operator there: approve, reject, roll
+  back, execute, schedule and unschedule actions; approval cards; managed-change
+  decisions; agent grants and capability requests; per-database emergency stop
+  and resume; finding suppression; incident resolution; explain; facts; SRE
+  investigations, proposals, maintenance and runbooks; agent column
+  classification. The database is read exactly where the handler reads it
+  (`?database=`, the `database` field of the JSON body, or the path).
+- Routes that span databases need an operator with no grants: the fleet-wide
+  emergency stop (`POST /api/v1/emergency-stop` without `?database=`), agent
+  freeze, the first-look re-check and standing policy proposals. The list and
+  its reasons are in `internal/api/route_scopes.go`; the generated table
+  `internal/api/testdata/route_scopes.golden` shows each route's scope.
+- ChatOps approval-card and fact-card decisions check the mapped user the same
+  way. A refusal is written to `sage.auth_audit` (`database_forbidden`, with the
+  database and `surface: chatops`), answered in the chat, and leaves the card
+  unused so someone with the grant can still decide it.
+
+A refused request is `403 {"code": "database_forbidden"}` naming the database.
+If the grants cannot be read the request is refused with
+`503 grant_store_unavailable`; it is never allowed. Every grant change is
+written to `sage.auth_audit` (`database_grant_set`, `database_grant_revoked`,
+with the database, role and previous role) in the same transaction, so the
+audit chain seals it.
+
+Not scoped yet (phase 2, for a multi-team fleet): reads. A limited user still
+sees every database's findings, actions, `?database=all` aggregates, event
+streams, MCP read tools and Ask Sage context. MCP and agent tokens keep their
+own database lists (agent governance) and are not affected by user grants.
+
 ### User Offboarding
 
 Deactivate a user rather than deleting them: **Deactivate** on the Users page,
@@ -1225,8 +1278,9 @@ Every autonomous action is recorded with:
 
 ### Authentication Log (`sage.auth_audit`)
 
-Logins, break-glass use, user and role changes, and agent and MCP token
-governance, with actor, time and client address; see
+Logins, break-glass use, user and role changes, database grants and their
+refusals, and agent and MCP token governance, with actor, time and client
+address; see
 [Authentication Audit](#authentication-audit).
 
 ### API Access Log
