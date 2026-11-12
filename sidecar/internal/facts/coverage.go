@@ -20,17 +20,19 @@ const (
 // coverageSQL lists what a subject names, by kind, with the verifier's
 // LIKE patterns (existsSQL): $1 the schema, $2 the name, $3 the limit.
 var coverageSQL = map[Kind]string{
-	KindSchema: `/* pg_sage */ SELECT nspname::text FROM pg_catalog.pg_namespace
+	KindSchema: `/* pg_sage facts */ SELECT nspname::text FROM pg_catalog.pg_namespace
 		WHERE nspname LIKE $1 AND $2 = '' ORDER BY 1 LIMIT $3`,
-	KindTable: `/* pg_sage */ SELECT n.nspname || '.' || c.relname FROM pg_catalog.pg_class c
+	KindTable: `/* pg_sage facts */ SELECT n.nspname || '.' || c.relname
+		FROM pg_catalog.pg_class c
 		JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 		WHERE n.nspname LIKE $1 AND c.relname LIKE $2 AND c.relkind IN ('r','p','m','f')
 		ORDER BY n.nspname, c.relname LIMIT $3`,
-	KindIndex: `/* pg_sage */ SELECT n.nspname || '.' || c.relname FROM pg_catalog.pg_class c
+	KindIndex: `/* pg_sage facts */ SELECT n.nspname || '.' || c.relname
+		FROM pg_catalog.pg_class c
 		JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 		WHERE n.nspname LIKE $1 AND c.relname LIKE $2 AND c.relkind IN ('i','I')
 		ORDER BY n.nspname, c.relname LIMIT $3`,
-	KindSlot: `/* pg_sage */ SELECT slot_name::text FROM pg_catalog.pg_replication_slots
+	KindSlot: `/* pg_sage facts */ SELECT slot_name::text FROM pg_catalog.pg_replication_slots
 		WHERE slot_name LIKE $2 AND $1 = '' ORDER BY 1 LIMIT $3`,
 }
 
@@ -88,7 +90,7 @@ func boundedRead(ctx context.Context, db txBeginner, fn func(pgx.Tx) error) erro
 		return err
 	}
 	defer rollbackQuietly(ctx, tx)
-	if _, err := tx.Exec(ctx, `/* pg_sage */ SELECT set_config('statement_timeout', $1, true),
+	if _, err := tx.Exec(ctx, `/* pg_sage facts */ SELECT set_config('statement_timeout', $1, true),
 		set_config('lock_timeout', $2, true)`, coverageStatementTimeout,
 		coverageLockTimeout); err != nil {
 		return fmt.Errorf("bound the read: %w", err)
