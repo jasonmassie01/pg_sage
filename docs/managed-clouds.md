@@ -10,6 +10,7 @@ turns setting changes that SQL cannot make into proposals with the exact provide
 | Google Cloud SQL for PostgreSQL | Cloud Monitoring (CPU, memory quota/usage, disk quota/usage, disk ops, backends, replica lag) | Database flags |
 | Google AlloyDB for PostgreSQL | None yet | Database flags: a fill-in template until pg_sage reads the instance's flags |
 | Azure Database for PostgreSQL flexible server | None (Azure Monitor log access only) | Server parameters, read over ARM when the `azure:` section is set ([Azure](azure.md)) |
+| CloudNativePG Cluster (`cnpg`) | None | `spec.postgresql.parameters`, read from the Cluster when `cnpg:` names it ([CloudNativePG](#cloudnativepg)) |
 
 Cosmos DB for PostgreSQL (`azure-cosmos`) and the retired Azure single server stay
 guidance-only: their findings name the command, with no proposal.
@@ -99,7 +100,7 @@ cycle, whether `ALTER DATABASE <db> SET` can carry the change:
 |---|---|
 | `user` (`work_mem`, `random_page_cost`, `maintenance_work_mem`, ...) | `ALTER DATABASE <db> SET ...`; the executor captures the prior database setting and rolls back to it |
 | `superuser` | `ALTER DATABASE <db> SET ...` only when the connected role is a superuser or, on PostgreSQL 15+, holds `SET` on the parameter (`has_parameter_privilege`); otherwise no SQL. PostgreSQL 14 has no parameter privileges |
-| `sighup` (`max_wal_size`, `min_wal_size`, `checkpoint_*`, the `autovacuum_*` instance knobs) and `postmaster` | No SQL: PostgreSQL refuses `ALTER DATABASE SET` for these. A managed proposal on RDS, Aurora, Cloud SQL, AlloyDB and Azure flexible server; guidance on Cosmos DB for PostgreSQL |
+| `sighup` (`max_wal_size`, `min_wal_size`, `checkpoint_*`, the `autovacuum_*` instance knobs) and `postmaster` | No SQL: PostgreSQL refuses `ALTER DATABASE SET` for these. A managed proposal on RDS, Aurora, Cloud SQL, AlloyDB, Azure flexible server and CloudNativePG; guidance on Cosmos DB for PostgreSQL |
 | Not collected or any other context | No SQL (fail closed), plus the managed proposal where the provider has one |
 
 Before any `ALTER DATABASE ... SET` runs on a managed provider, the executor re-reads the
@@ -189,6 +190,63 @@ approval, its note and a rejection all survive a change of target and a failed l
 Upgrading from v2.5.1 or earlier recomputes the stored identities once; open proposals keep
 their ids, status and decisions. Duplicates left by earlier outages (the same change open
 twice under different targets) collapse to one, keeping the approved one, else the newest.
+
+## CloudNativePG
+
+A [CloudNativePG](https://cloudnative-pg.io) Cluster runs ordinary PostgreSQL, so detection
+calls it `self-managed`. But the operator writes `postgresql.conf` from the Cluster's
+`spec.postgresql.parameters` and disables `ALTER SYSTEM` (on PostgreSQL 17 and later it
+shows as `allow_alter_system = off`), so a change pg_sage made the self-managed way would
+fail or be lost on the next reconcile. Name the Cluster:
+
+```yaml
+postgres:              # standalone; in fleet mode set databases[].cnpg
+  cnpg:
+    cluster: pg-main   # the Cluster's metadata.name
+    namespace: db      # its namespace
+```
+
+With the block the provider is `cnpg`: a refinement of `self-managed` (or of a not yet
+known provider), never of a detected cloud. If detection names RDS, Cloud SQL or another
+cloud, pg_sage keeps it, ignores the block and logs a warning. `cnpg` cannot be combined
+with `provider:` (other than `self-managed`) or `cloud_resource`.
+
+On a `cnpg` database:
+
+- `ALTER SYSTEM` is never issued. `user` and `superuser` settings keep the
+  `ALTER DATABASE <db> SET` rewrite (see [Which settings run as SQL](#which-settings-run-as-sql));
+  `sighup` and `postmaster` settings become a managed proposal (mechanism `cluster_spec`).
+- The proposal is a merge patch of the one parameter, in PostgreSQL's form, for example
+  `kubectl patch cluster pg-main -n db --type merge -p '{"spec":{"postgresql":{"parameters":{"work_mem":"64MB"}}}}'`.
+  Its rollback restores the prior value, or patches the key to `null` when the Cluster did not
+  set it. It also carries the same change as a Cluster manifest fragment (`gitops`) for a pull
+  request: when Argo CD or Flux owns the Cluster, commit that instead, or the next sync reverts
+  the patch.
+- A setting that needs a restart (`shared_buffers`, `max_connections`) makes the operator
+  restart the replicas one at a time and then the primary. Under
+  `primaryUpdateStrategy: unsupervised` (the default) it does so at once, restarting the
+  primary in place or switching over to a replica (`primaryUpdateMethod`): a short write
+  outage. Under `supervised` it waits for you. The proposal notes which strategy the Cluster
+  uses.
+- Parameters the operator owns (`listen_addresses`, `port`, `archive_command`,
+  `full_page_writes`, `hot_standby`, `wal_log_hints`, the `ssl*`, logging-collector and
+  recovery settings, and `shared_preload_libraries` and `synchronous_standby_names`, which
+  have their own Cluster fields) give no proposal.
+- pg_sage never patches the Cluster. It reads it: a GET of the one named Cluster with the
+  pod's service-account token, bounded at 5 seconds, which fills the current values, the
+  rollback, the "now running" check and [drift](#proposal-identity-outages-and-rejections).
+  The [Helm chart](deployment.md#kubernetes) creates a Role that grants only `get` on the named
+  `clusters.postgresql.cnpg.io`. Without it (a 403), or outside a pod, proposals carry
+  `<cluster>`/`<namespace>` placeholders and a fill-in rollback, and no drift is reported.
+- Databases of one fleet on the same Cluster share it: a change one of them holds is not
+  proposed again by the others, and two different values for one parameter are both shown,
+  each with a blocker that names the other database's value.
+
+Without a `cnpg` block, a self-managed database whose `archive_command` runs the
+CloudNativePG instance manager (`/controller/manager`), or whose `allow_alter_system` is
+`off`, opens the finding `cnpg_target_unconfigured`; on PostgreSQL 16 and earlier
+`allow_alter_system` does not exist and `archive_command` alone decides. The finding
+resolves once the block names the Cluster.
 
 ## Maintenance privileges (VACUUM and autovacuum settings)
 

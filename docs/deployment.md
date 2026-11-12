@@ -200,108 +200,50 @@ postgres:
 
 ## Kubernetes
 
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: pg-sage
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: pg-sage
-  template:
-    metadata:
-      labels:
-        app: pg-sage
-      annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/port: "8187"
-    spec:
-      securityContext:
-        fsGroup: 1000          # the image runs as uid/gid 1000 (sage)
-      containers:
-        - name: pg-sage
-          image: ghcr.io/jasonmassie01/pg_sage:latest
-          args: ["--config", "/etc/pg_sage/config.yaml"]
-          ports:
-            - containerPort: 8080
-              name: api
-            - containerPort: 8187
-              name: metrics
-          env:
-            # Secrets as files (see "Secrets from files" in configuration.md):
-            # they stay out of the process environment and rotate in place.
-            - name: SAGE_DATABASE_URL_FILE
-              value: /var/run/secrets/pg-sage/database-url
-            - name: SAGE_LLM_API_KEY_FILE
-              value: /var/run/secrets/pg-sage/gemini-api-key
-            # Optional: serve HTTPS from a cert-manager or other TLS secret.
-            - name: SAGE_TLS_CERT
-              value: /var/run/tls/tls.crt
-            - name: SAGE_TLS_KEY
-              value: /var/run/tls/tls.key
-            # The kubelet restarts the container on exit, so "Restart now"
-            # in Settings may apply restart-bound fields.
-            - name: SAGE_SUPERVISED
-              value: "1"
-          livenessProbe:          # static: the process answers HTTP
-            httpGet: {path: /health, port: api, scheme: HTTPS}
-            periodSeconds: 10
-            failureThreshold: 3
-          readinessProbe:         # config loaded, control DB up, schema migrated
-            httpGet: {path: /ready, port: api, scheme: HTTPS}
-            periodSeconds: 10
-            timeoutSeconds: 2
-            failureThreshold: 3
-          startupProbe:           # first start bootstraps the sage schema
-            httpGet: {path: /health, port: api, scheme: HTTPS}
-            periodSeconds: 5
-            failureThreshold: 60
-          volumeMounts:
-            - name: config
-              mountPath: /etc/pg_sage
-            - name: secrets
-              mountPath: /var/run/secrets/pg-sage
-              readOnly: true
-            - name: tls
-              mountPath: /var/run/tls
-              readOnly: true
-      volumes:
-        - name: config
-          configMap:
-            name: pg-sage-config
-        - name: secrets
-          secret:
-            secretName: pg-sage-secrets
-            defaultMode: 0440   # group-readable by fsGroup below
-        - name: tls
-          secret:
-            secretName: pg-sage-tls
-            defaultMode: 0440   # group-readable by fsGroup below
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: pg-sage
-spec:
-  selector:
-    app: pg-sage
-  ports:
-    - port: 8080
-      targetPort: 8080
-      name: api
-    - port: 8187
-      targetPort: 8187
-      name: metrics
+Install with the Helm chart in [`deploy/helm/pg-sage`](https://github.com/jasonmassie01/pg_sage/tree/master/deploy/helm/pg-sage)
+(each release also attaches it as `pg-sage-<version>.tgz`). Create the Secret first; the
+chart never creates one, and mounts its keys as files (`SAGE_*_FILE`) so they stay out of
+the process environment and rotate in place:
+
+```sh
+kubectl create secret generic pg-sage-secrets \
+  --from-file=database-url=./database-url \
+  --from-file=llm-api-key=./llm-api-key \
+  --from-file=encryption-key=./encryption-key
+helm install sage deploy/helm/pg-sage \
+  --set secrets.existingSecret=pg-sage-secrets \
+  --set secrets.llmAPIKeyKey=llm-api-key \
+  --set secrets.encryptionKeyKey=encryption-key
 ```
 
-Without `SAGE_TLS_CERT`/`SAGE_TLS_KEY`, drop them and use `scheme: HTTP` in the
-probes.
+The chart renders:
+
+- a Deployment with `replicas: 1` and `strategy: Recreate`, fixed so that two sidecars
+  never run executors together, and the image tag pinned to the chart `appVersion` (never
+  `latest`; `image.tag: latest` fails the render);
+- a non-root pod (uid/gid 1000) with a read-only root filesystem, no privilege escalation,
+  all capabilities dropped and the `RuntimeDefault` seccomp profile; `/tmp` and `data_dir`
+  (`/var/lib/pg_sage`, an emptyDir unless `persistence.existingClaim` names a claim) are the
+  only writable paths;
+- the liveness, readiness and startup probes below (HTTPS when `tls.existingSecret` names a
+  TLS Secret), and `SAGE_SUPERVISED=1`, so "Restart now" in Settings may apply
+  restart-bound fields;
+- the `config` value as `config.yaml` in a ConfigMap mounted as a directory, a Service
+  (8080 `api`, 8187 `metrics`), and optionally a ServiceMonitor and a NetworkPolicy;
+- with `cnpg.cluster` (or `cnpg.rbac.clusters`), a Role that grants only `get` on the named
+  `clusters.postgresql.cnpg.io` and binds it to the chart's service account; the token is
+  mounted only then. See [CloudNativePG](managed-clouds.md#cloudnativepg).
+
+Without `secrets.encryptionKeyKey` pg_sage generates `data_dir/encryption.key`; on the
+default emptyDir a pod restart loses it and the secrets sealed under it, so set an
+encryption key or a persistent claim. Every value is listed in the chart's
+[README](https://github.com/jasonmassie01/pg_sage/blob/master/deploy/helm/pg-sage/README.md).
+To deploy without Helm, `helm template sage deploy/helm/pg-sage -f my-values.yaml` prints
+plain manifests.
 
 ### ConfigMap edits and hot reload
 
-An edit to the `pg-sage-config` ConfigMap hot-reloads without a restart. The
+An edit to the chart's ConfigMap (`<release>-pg-sage-config`) hot-reloads without a restart. The
 kubelet publishes it after its sync delay, about 60 s plus its ConfigMap cache
 TTL, by swapping the volume's `..data` symlink. The sidecar watches the mount
 directory, waits 300 ms for the swap to settle (at most 2 s while other files

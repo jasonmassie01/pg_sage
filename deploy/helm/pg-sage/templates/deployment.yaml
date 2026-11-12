@@ -1,0 +1,152 @@
+{{- $scheme := include "pg-sage.scheme" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "pg-sage.fullname" . }}
+  labels:
+    {{- include "pg-sage.labels" . | nindent 4 }}
+spec:
+  # One sidecar per database set: two would run executors together. Not a
+  # value on purpose; Recreate stops the old pod before the new one starts.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "pg-sage.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "pg-sage.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "pg-sage.serviceAccountName" . }}
+      # The token is mounted only for the CloudNativePG adapter's Cluster read.
+      automountServiceAccountToken: {{ ternary "true" "false" (eq (include "pg-sage.cnpgEnabled" .) "true") }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: pg-sage
+          image: "{{ .Values.image.repository }}:{{ include "pg-sage.imageTag" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["--config", "/etc/pg_sage/config.yaml"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: api
+              containerPort: 8080
+            - name: metrics
+              containerPort: 8187
+          env:
+            - name: SAGE_DATABASE_URL_FILE
+              value: /var/run/secrets/pg-sage/{{ .Values.secrets.databaseURLKey }}
+            {{- with .Values.secrets.llmAPIKeyKey }}
+            - name: SAGE_LLM_API_KEY_FILE
+              value: /var/run/secrets/pg-sage/{{ . }}
+            {{- end }}
+            {{- with .Values.secrets.encryptionKeyKey }}
+            - name: SAGE_ENCRYPTION_KEY_FILE
+              value: /var/run/secrets/pg-sage/{{ . }}
+            {{- end }}
+            - name: SAGE_DATA_DIR
+              value: /var/lib/pg_sage
+            {{- if .Values.tls.existingSecret }}
+            - name: SAGE_TLS_CERT
+              value: /var/run/tls/tls.crt
+            - name: SAGE_TLS_KEY
+              value: /var/run/tls/tls.key
+            {{- end }}
+            # The kubelet restarts the container on exit, so "Restart now"
+            # in Settings may apply restart-bound fields.
+            - name: SAGE_SUPERVISED
+              value: "1"
+          livenessProbe:
+            httpGet: {path: /health, port: api, scheme: {{ $scheme }}}
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: {path: /ready, port: api, scheme: {{ $scheme }}}
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          startupProbe:
+            httpGet: {path: /health, port: api, scheme: {{ $scheme }}}
+            periodSeconds: 5
+            failureThreshold: 60
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            # A directory mount (no subPath), so ConfigMap edits hot-reload.
+            - name: config
+              mountPath: /etc/pg_sage
+            - name: secrets
+              mountPath: /var/run/secrets/pg-sage
+              readOnly: true
+            {{- if .Values.tls.existingSecret }}
+            - name: tls
+              mountPath: /var/run/tls
+              readOnly: true
+            {{- end }}
+            - name: data
+              mountPath: /var/lib/pg_sage
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "pg-sage.fullname" . }}-config
+        - name: secrets
+          secret:
+            secretName: {{ include "pg-sage.secretName" . }}
+            defaultMode: 0440
+        {{- if .Values.tls.existingSecret }}
+        - name: tls
+          secret:
+            secretName: {{ .Values.tls.existingSecret }}
+            defaultMode: 0440
+        {{- end }}
+        - name: data
+          {{- if .Values.persistence.existingClaim }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

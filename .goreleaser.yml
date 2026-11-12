@@ -101,7 +101,8 @@ release:
   github:
     owner: jasonmassie01
     name: pg_sage
-  # The signed bench reports and their Sigstore bundles, per shard.
+  # The signed bench reports and their Sigstore bundles, per shard, and
+  # the packaged Helm chart (pg-sage-<version>.tgz, market-12).
   extra_files:
     - glob: ./release-assets/*
   name_template: "v{{.Version}}"

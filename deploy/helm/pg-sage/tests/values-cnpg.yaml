@@ -1,0 +1,6 @@
+# CI renders the chart with each values file here (helm template) and
+# validates the output with kubeconform; see .github/workflows/ci.yml.
+cnpg:
+  cluster: pg-main
+  rbac:
+    clusters: [pg-reports]
