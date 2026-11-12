@@ -14,6 +14,7 @@ export const CHANNEL_TYPES = [
   ['teams', 'Microsoft Teams'],
   ['opsgenie', 'Opsgenie'],
   ['incidentio', 'incident.io'],
+  ['jira', 'Jira (case tickets)'],
 ]
 
 // The keys the backend reads for a channel that approves from chat; a
@@ -34,6 +35,8 @@ export function defaultConfig(type) {
       return { api_key: '', region: 'us' }
     case 'incidentio':
       return { alert_source_config_id: '', token: '' }
+    case 'jira':
+      return { base_url: '', email: '', api_token: '', project_key: '', issue_type: '' }
     case 'email':
       return { smtp_host: '', smtp_port: '587', smtp_user: '', smtp_pass: '', from: '', to: '' }
     default:

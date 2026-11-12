@@ -36,12 +36,25 @@ func registerCaseTicketRoutes(
 	tickets := cases.NewTicketStore(pool)
 	svc := cases.TicketService{Store: tickets, Tracker: jiraTrackerFor(ns, deps.policy)}
 	route(mux, "GET /api/v1/case-tickets", gateViewer,
-		http.HandlerFunc(listCaseTicketsHandler(tickets)))
+		http.HandlerFunc(listCaseTicketsHandler(tickets, ns)))
 	route(mux, "POST /api/v1/case-tickets", gateOperator,
 		http.HandlerFunc(createCaseTicketHandler(mgr, ns, svc)))
 }
 
-func listCaseTicketsHandler(tickets cases.TicketStore) http.HandlerFunc {
+// ticketLister lists the created case tickets of a database.
+type ticketLister interface {
+	List(ctx context.Context, database string) ([]cases.Ticket, error)
+}
+
+// channelLister lists the notification channels (the Jira integrations).
+type channelLister interface {
+	ListChannels(ctx context.Context) ([]store.ChannelListing, error)
+}
+
+// listCaseTicketsHandler answers the tickets and whether a Jira
+// integration is enabled, so the dashboard offers "Create ticket" only
+// when it can work.
+func listCaseTicketsHandler(tickets ticketLister, chans channelLister) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		database, ok := readDatabaseParam(w, r)
 		if !ok {
@@ -53,7 +66,8 @@ func listCaseTicketsHandler(tickets cases.TicketStore) http.HandlerFunc {
 			jsonError(w, "could not read case tickets", http.StatusInternalServerError)
 			return
 		}
-		jsonResponse(w, map[string]any{"tickets": list})
+		jsonResponse(w, map[string]any{"tickets": list, "jira_enabled": jiraEnabled(r.Context(),
+			chans)})
 	}
 }
 
@@ -221,6 +235,18 @@ func jiraTrackerFor(chans channelGetter, policy notify.TargetPolicy) cases.Track
 			ProjectKey: ch.Config["project_key"], IssueType: ch.Config["issue_type"]},
 			policy.HTTPClient(10*time.Second))
 	}
+}
+
+// jiraEnabled reports whether at least one Jira integration is enabled;
+// a failed read reports none.
+func jiraEnabled(ctx context.Context, chans channelLister) bool {
+	listing, err := chans.ListChannels(ctx)
+	if err != nil {
+		slog.Warn("listing ticket integrations", "error", err)
+		return false
+	}
+	_, err = pickJiraChannel(listing)
+	return !errors.Is(err, cases.ErrTicketIntegrationMissing)
 }
 
 // pickJiraChannel is the one enabled Jira integration; with several the

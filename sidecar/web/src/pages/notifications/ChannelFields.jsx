@@ -45,6 +45,17 @@ const FIELDS = {
       placeholder: '01H...' },
     { key: 'token', label: 'API token', required: true, secret: true, wide: true },
   ],
+  // A case ticket integration, not an alert destination: no rule routes
+  // events to it; operators create tickets from cases.
+  jira: [
+    { key: 'base_url', label: 'Jira site URL', required: true, wide: true,
+      placeholder: 'https://acme.atlassian.net' },
+    { key: 'email', label: 'Account email', required: true },
+    { key: 'api_token', label: 'API token', required: true, secret: true, wide: true },
+    { key: 'project_key', label: 'Project key', required: true, narrow: true,
+      placeholder: 'OPS' },
+    { key: 'issue_type', label: 'Issue type', placeholder: 'Task' },
+  ],
   telegram: [
     { key: 'bot_token', label: 'Bot token', required: true, secret: true, wide: true,
       placeholder: '123456:ABC...' },

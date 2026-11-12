@@ -71,3 +71,20 @@ describe('ChannelForm new destinations', () => {
     expect(body.config).toEqual({ alert_source_config_id: '01HX', token: 't' })
   })
 })
+
+describe('ChannelForm Jira integration', () => {
+  it('posts a Jira integration with a secret token', async () => {
+    render(<ChannelForm onSaved={vi.fn()} />)
+    fireEvent.change(screen.getByTestId('add-channel-type'), { target: { value: 'jira' } })
+    expect(screen.getByTestId('add-channel-api-token')).toHaveAttribute('type', 'password')
+  })
+
+  it('sends the Jira settings', async () => {
+    const body = await create('jira', {
+      'base-url': 'https://acme.atlassian.net', email: 'bot@example.com',
+      'api-token': 'tok', 'project-key': 'OPS',
+    })
+    expect(body.config).toEqual({ base_url: 'https://acme.atlassian.net',
+      email: 'bot@example.com', api_token: 'tok', project_key: 'OPS' })
+  })
+})

@@ -24,6 +24,7 @@ import {
   focusFromHash, focusedInvestigation, investigationCase, resolveFocus,
 } from './cases/caseFocus'
 import { FocusMissing } from './cases/FocusMissing'
+import { CaseTicket } from './cases/CaseTicket'
 
 const SOURCE_FILTERS = [
   { value: 'all', label: 'All' },
@@ -222,15 +223,26 @@ function CaseChunk({ chunk, database, user, focused, onReview, onDone }) {
   const { data, updatedAt } = investigations
   if (data?.items && updatedAt !== kept.at) setKept({ at: updatedAt, items: data.items })
   const byCase = investigationsByCase(data?.items || kept.items)
+  const tickets = useAPI(ticketsURL(database), 60000)
   return chunk.cases.map(c => (
     <CaseCard key={`${c.database_name}|${caseID(c)}`} caseRow={c} user={user}
       focused={focused} onReview={() => onReview(c)}
       investigation={byCase.get(`${c.database_name}|${caseID(c)}`)}
+      tickets={tickets.data} onTicket={tickets.refetch}
       onDone={onDone} />
   ))
 }
 
-function CaseCard({ caseRow, user, investigation, onDone, focused, onReview }) {
+// ticketsURL lists the Jira tickets of the database's cases (market-14).
+function ticketsURL(database) {
+  return database && database !== 'all'
+    ? `/api/v1/case-tickets?database=${encodeURIComponent(database)}`
+    : '/api/v1/case-tickets'
+}
+
+function CaseCard({
+  caseRow, user, investigation, onDone, focused, onReview, tickets, onTicket,
+}) {
   const candidate = caseRow.action_candidates?.[0]
   const candidateGuardrails = guardrails(candidate)
   const factTarget = caseFactTarget(caseRow)
@@ -353,6 +365,8 @@ function CaseCard({ caseRow, user, investigation, onDone, focused, onReview }) {
         </div>
       )}
       </details>
+      <CaseTicket caseRow={caseRow} user={user} tickets={tickets?.tickets}
+        jiraEnabled={Boolean(tickets?.jira_enabled)} onCreated={onTicket} />
       <CaseControls caseRow={caseRow} user={user} onDone={onDone} />
     </article>
   )

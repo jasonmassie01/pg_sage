@@ -3461,6 +3461,7 @@ target policy (`notification_policy.allow_private_targets`).
 | `webhook` | `webhook_url` (secret), `headers` (secret, JSON object) | JSON post of every event |
 | `teams` | `webhook_url` (secret, a Teams Workflows "When a Teams webhook request is received" URL, https only); `dashboard_url` (optional link on the card) | Adaptive Card. A card over 27 KB keeps the longest body that fits and ends with "truncated; see pg_sage for the full text". Office 365 connector URLs are retired by Microsoft; use a Workflows URL. |
 | `opsgenie` | `api_key` (secret, an API integration key); `region` `us` (default) or `eu` | Alert API v2. The alias is the dedup key (cut to 512 characters plus a hash when longer), so a resolve closes the alert by alias. Priority: critical P1, warning P3, info P5. |
+| `jira` | `base_url` (the Jira Cloud site, https, no path), `email`, `api_token` (secret), `project_key`, `issue_type` (default `Task`) | Not an alert destination: a case ticket integration (below). No rule can route events to it, broadcasts skip it, and its Test button answers that it is checked by creating a ticket. |
 | `incidentio` | `alert_source_config_id` (the HTTP alert source's id: letters, digits, `_`, `-`); `token` (secret, the source's bearer token) | HTTP alert source event with `deduplication_key` set to the dedup key and `status` `firing` or `resolved`. |
 
 A Teams, Opsgenie or incident.io channel with a missing credential, a bad region, a malformed
@@ -3468,6 +3469,25 @@ source id or a non-https Teams URL is refused when it is saved. For one alert th
 resolves on Opsgenie or incident.io, give the channel rules for the opening event and for its
 resolve (for example `finding_opened` and `finding_resolved`, or `incident_detected`,
 `incident_escalated` and `incident_resolved`).
+
+#### Case tickets (Jira)
+
+With one enabled `jira` integration, an operator's case card offers **Create Jira ticket**. It
+creates one issue in `project_key` (summary `[pg_sage] <database>: <case title>`, the case's
+why and why-now, and a link back to the case, labelled `pg_sage`) and stores the link in
+`sage.case_tickets` on the control database, keyed by database, case identity and system, so
+two operators clicking at once make one issue. A failed create keeps no link and can be
+retried. With several enabled Jira integrations the request must name one (`channel_id`).
+
+Every 15 minutes a worker reads back the status of at most 50 tickets (oldest read first) and
+shows it on the case. A failed read shows as `ticket_sync: unauthorized` (Jira refused the
+token), `not_found`, `integration_missing` (the integration was deleted or disabled; the link
+is kept) or `unreachable`, and keeps the last status read. When the case is no longer open
+the worker adds one comment to the issue; that comment is the only change pg_sage makes to it.
+Ticket status is read-only evidence: closing the issue never resolves the case, approves an
+action or changes trust. API: `GET /api/v1/case-tickets?database=` (viewer) lists the links;
+`POST /api/v1/case-tickets` (operator) with `database`, `case_id` and optional `case_url` and
+`channel_id` creates one. ServiceNow is not supported.
 
 ### Retention
 

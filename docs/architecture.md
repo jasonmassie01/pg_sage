@@ -517,6 +517,10 @@ finding's own severity, with the dedup key `finding:<database>:<category>:<objec
 | `opsgenie` | Alert API v2 (`us` or `eu`) | create with `alias` = dedup key, close by alias |
 | `incidentio` | HTTP alert source | `status` `firing`, then `resolved`, on one `deduplication_key` |
 
+Jira is not a destination but a case link: a `jira` channel holds the sealed credentials,
+`sage.case_tickets` links one case to one issue, and a bounded worker reads the issue status
+back as evidence ([case tickets](configuration.md#case-tickets-jira)).
+
 A `Retry-After` on a 429 or 5xx answer holds the next attempt back by that long, at most an
 hour ([configuration](configuration.md#notification-channel-types)).
 

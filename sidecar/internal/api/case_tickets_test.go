@@ -168,3 +168,52 @@ func TestCaseStateCache_KeepsAnswersForTTLAndUnknownOnError(t *testing.T) {
 		t.Fatal("no fleet reported a known state")
 	}
 }
+
+type fakeLister struct {
+	listing []store.ChannelListing
+	err     error
+}
+
+func (f fakeLister) ListChannels(context.Context) ([]store.ChannelListing, error) {
+	return f.listing, f.err
+}
+
+type fakeTicketList struct {
+	tickets []cases.Ticket
+	err     error
+}
+
+func (f fakeTicketList) List(context.Context, string) ([]cases.Ticket, error) {
+	return f.tickets, f.err
+}
+
+func TestListCaseTicketsHandler(t *testing.T) {
+	two := []store.ChannelListing{{Channel: *jiraChannel(5, true)},
+		{Channel: *jiraChannel(6, true)}}
+	tcs := map[string]struct {
+		lister fakeLister
+		want   string
+	}{
+		"one jira":    {fakeLister{listing: two[:1]}, `"jira_enabled":true`},
+		"two jira":    {fakeLister{listing: two}, `"jira_enabled":true`},
+		"none":        {fakeLister{}, `"jira_enabled":false`},
+		"list failed": {fakeLister{err: errors.New("boom")}, `"jira_enabled":false`},
+	}
+	for name, tc := range tcs {
+		h := listCaseTicketsHandler(fakeTicketList{tickets: []cases.Ticket{}}, tc.lister)
+		rec := httptest.NewRecorder()
+		h(rec, httptest.NewRequest(http.MethodGet, "/api/v1/case-tickets?database=db1", nil))
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), tc.want) ||
+			!strings.Contains(rec.Body.String(), `"tickets":[]`) {
+			t.Errorf("%s: %d %s, want %s and an empty list", name, rec.Code, rec.Body, tc.want)
+		}
+	}
+	h := listCaseTicketsHandler(fakeTicketList{err: errors.New("relation does not exist")},
+		fakeLister{})
+	rec := httptest.NewRecorder()
+	h(rec, httptest.NewRequest(http.MethodGet, "/api/v1/case-tickets", nil))
+	if rec.Code != http.StatusInternalServerError ||
+		strings.Contains(rec.Body.String(), "relation") {
+		t.Fatalf("store failure = %d %s, want 500 without the raw error", rec.Code, rec.Body)
+	}
+}
