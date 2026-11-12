@@ -32,16 +32,16 @@ func (s *Store) Record(ctx context.Context, day time.Time, tallies []Tally) erro
 	batch := &pgx.Batch{}
 	for _, t := range tallies {
 		batch.Queue(`/* pg_sage budget */
-INSERT INTO sage.budget_shadow (database_name, budget, day, would_cancel, would_reject,
-    protected_cancels, worst_ms)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-ON CONFLICT (database_name, budget, day) DO UPDATE SET
+INSERT INTO sage.budget_shadow (database_name, budget, definition, day, would_cancel,
+    would_reject, protected_cancels, worst_ms)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+ON CONFLICT (database_name, budget, definition, day) DO UPDATE SET
     would_cancel = sage.budget_shadow.would_cancel + EXCLUDED.would_cancel,
     would_reject = GREATEST(sage.budget_shadow.would_reject, EXCLUDED.would_reject),
     protected_cancels = sage.budget_shadow.protected_cancels + EXCLUDED.protected_cancels,
     worst_ms = GREATEST(sage.budget_shadow.worst_ms, EXCLUDED.worst_ms),
-    updated_at = now()`, s.database, t.Budget, day, t.WouldCancel, t.WouldReject,
-			t.ProtectedCancels, t.WorstMs)
+    updated_at = now()`, s.database, t.Budget, t.Definition, day, t.WouldCancel,
+			t.WouldReject, t.ProtectedCancels, t.WorstMs)
 	}
 	return s.pool.SendBatch(ctx, batch).Close()
 }
@@ -71,14 +71,14 @@ ON CONFLICT (database_name, role_name, day) DO UPDATE SET
 	return s.pool.SendBatch(ctx, batch).Close()
 }
 
-// History is a budget's ledger rows since since, oldest first.
-func (s *Store) History(ctx context.Context, budget string, since time.Time) ([]ShadowDay,
-	error) {
+// History is a budget definition's ledger rows since since, oldest first.
+func (s *Store) History(ctx context.Context, budget, definition string,
+	since time.Time) ([]ShadowDay, error) {
 	rows, err := s.pool.Query(ctx, `/* pg_sage budget */
 SELECT day, first_seen, would_cancel, would_reject, protected_cancels, worst_ms
   FROM sage.budget_shadow
- WHERE database_name = $1 AND budget = $2 AND day >= $3::date
- ORDER BY day`, s.database, budget, since.UTC())
+ WHERE database_name = $1 AND budget = $2 AND definition = $3 AND day >= $4::date
+ ORDER BY day`, s.database, budget, definition, since.UTC())
 	if err != nil {
 		return nil, fmt.Errorf("query sage.budget_shadow: %w", err)
 	}

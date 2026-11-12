@@ -59,6 +59,16 @@ func (b Budget) Enforceable() bool {
 	return b.Mode == ModeEnforce && b.Match.Role != ""
 }
 
+// Definition is what the budget measures: its match and its limits (not
+// its mode or its advisory pool size). The shadow ledger is kept per
+// definition, so a changed match or limit starts the promotion window
+// again: shadow data of a looser budget never promotes a tighter one.
+func (b Budget) Definition() string {
+	return fmt.Sprintf("%s statement_timeout=%dms idle_in_transaction_session_timeout=%dms "+
+		"connection_limit=%d", matchText(b.Match), b.StatementTimeoutMs,
+		b.IdleInTransactionTimeoutMs, b.ConnectionLimit)
+}
+
 // FromConfig converts the configured budgets; config.Validate has checked
 // them, so an error here is a configuration that skipped validation.
 func FromConfig(cfgs []config.BudgetConfig) ([]Budget, error) {
@@ -131,29 +141,50 @@ type ShadowDay struct {
 }
 
 // CanPromote reports whether the shadow ledger allows enforce mode to
-// act at now: the ledger must reach back PromotionWindow and record no
-// would-cancel of a protected application. why explains a refusal.
+// act at now: the ledger must reach back PromotionWindow with a row for
+// every UTC day since (a day pg_sage did not measure is a day nobody knows
+// what the budget would have cancelled) and record no would-cancel of a
+// protected application. why explains a refusal.
 func CanPromote(history []ShadowDay, now time.Time) (ok bool, why string) {
 	if len(history) == 0 {
 		return false, "no shadow data yet; enforce mode needs 7 days of warn-mode data"
 	}
 	first := history[0].FirstSeen
 	protected := 0
+	days := map[time.Time]bool{}
 	for _, d := range history {
 		if d.FirstSeen.Before(first) {
 			first = d.FirstSeen
 		}
 		protected += d.ProtectedCancels
+		days[utcDay(d.Day)] = true
 	}
 	if span := now.Sub(first); span < PromotionWindow {
 		return false, fmt.Sprintf("only %s of shadow data; enforce mode needs 7 days",
 			spanText(span))
+	}
+	if gap, ok := missingDay(days, utcDay(first), utcDay(now)); ok {
+		return false, fmt.Sprintf("no shadow data on %s; enforce mode needs 7 days of "+
+			"continuous warn-mode data", gap.Format(time.DateOnly))
 	}
 	if protected > 0 {
 		return false, fmt.Sprintf("%d would-cancel(s) of a protected application in the "+
 			"shadow window; enforce mode never cancels protected applications", protected)
 	}
 	return true, ""
+}
+
+func utcDay(t time.Time) time.Time { return t.UTC().Truncate(24 * time.Hour) }
+
+// missingDay is the first UTC day from from through to without a ledger
+// row.
+func missingDay(days map[time.Time]bool, from, to time.Time) (time.Time, bool) {
+	for d := from; !d.After(to); d = d.Add(24 * time.Hour) {
+		if !days[d] {
+			return d, true
+		}
+	}
+	return time.Time{}, false
 }
 
 // spanText renders a span as "6 days 23 hours".

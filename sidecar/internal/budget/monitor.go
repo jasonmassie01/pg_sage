@@ -46,7 +46,9 @@ type RoleEvidence struct {
 type Ledger interface {
 	Record(ctx context.Context, day time.Time, tallies []Tally) error
 	RecordRoles(ctx context.Context, day time.Time, roles []collector.WorkloadRoleStats) error
-	History(ctx context.Context, budget string, since time.Time) ([]ShadowDay, error)
+	// History is the rows of one budget definition (Budget.Definition).
+	History(ctx context.Context, budget, definition string, since time.Time) ([]ShadowDay,
+		error)
 	RoleEvidence(ctx context.Context, since time.Time) (map[string]RoleEvidence, error)
 }
 
@@ -162,7 +164,8 @@ func (m *Monitor) budgetFindings(ctx context.Context, budgets []Budget,
 	ws *collector.WorkloadSessions, now time.Time) ([]analyzer.Finding, error) {
 	var out []analyzer.Finding
 	for _, b := range budgets {
-		history, err := m.ledger.History(ctx, b.Name, now.Add(-PromotionWindow-24*time.Hour))
+		history, err := m.ledger.History(ctx, b.Name, b.Definition(),
+			now.Add(-PromotionWindow-24*time.Hour))
 		if err != nil {
 			return nil, fmt.Errorf("read the shadow ledger of budget %q: %w", b.Name, err)
 		}

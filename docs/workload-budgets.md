@@ -62,7 +62,12 @@ and read-only.
 ## Warn mode
 
 Each analyzer cycle counts, per budget, into `sage.budget_shadow` (per
-database, budget and UTC day):
+database, budget, budget definition and UTC day). The definition is the
+budget's match and limits (`definition`, for example `role=app
+statement_timeout=6000ms idle_in_transaction_session_timeout=0ms
+connection_limit=0`): changing a budget's match or limits starts a new
+ledger, so shadow data of a looser budget never promotes a tighter one.
+Changing only `mode` or `pool_size` keeps the ledger. Each row counts:
 
 - `would_cancel`: statements (or idle in transaction waits) strictly past
   the budget's timeout. A statement of exactly 6 s under a 6 s budget
@@ -96,8 +101,9 @@ warn mode.
 ## Enforce mode
 
 A role budget with `mode: enforce` acts only when its ledger reaches back
-7 days (6 days 23 hours is not enough) and records no would-cancel of a
-protected application. Then, for each setting the role does not already
+7 days (6 days 23 hours is not enough), has a row for every UTC day since
+(a day pg_sage did not run is a gap, and the window starts again after
+it) and records no would-cancel of a protected application. Then, for each setting the role does not already
 have, pg_sage raises a
 [`workload_budget_enforce`](findings.md#workload_budget_enforce) action:
 

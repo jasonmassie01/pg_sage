@@ -2,8 +2,9 @@ package schema
 
 // ddlBudgetShadow (market-08) creates the workload budget tables:
 //
-//   - sage.budget_shadow, the warn-mode ledger: per database, budget and
-//     UTC day, the statements a budget would have cancelled (each counted
+//   - sage.budget_shadow, the warn-mode ledger: per database, budget,
+//     budget definition (its match and limits: a changed budget starts a
+//     new ledger) and UTC day, the statements a budget would have cancelled (each counted
 //     once), the most connections it would have rejected at once, the
 //     would-cancels of protected applications, the longest matching
 //     statement and when the budget was first measured that day
@@ -19,6 +20,7 @@ SET LOCAL lock_timeout = '5s';
 CREATE TABLE IF NOT EXISTS sage.budget_shadow (
     database_name     text NOT NULL,
     budget            text NOT NULL,
+    definition        text NOT NULL DEFAULT '',
     day               date NOT NULL,
     would_cancel      bigint NOT NULL DEFAULT 0 CHECK (would_cancel >= 0),
     would_reject      integer NOT NULL DEFAULT 0 CHECK (would_reject >= 0),
@@ -26,7 +28,7 @@ CREATE TABLE IF NOT EXISTS sage.budget_shadow (
     worst_ms          double precision NOT NULL DEFAULT 0 CHECK (worst_ms >= 0),
     first_seen        timestamptz NOT NULL DEFAULT now(),
     updated_at        timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (database_name, budget, day)
+    PRIMARY KEY (database_name, budget, definition, day)
 );
 CREATE INDEX IF NOT EXISTS budget_shadow_updated_at_idx
     ON sage.budget_shadow (updated_at);

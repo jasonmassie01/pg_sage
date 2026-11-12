@@ -24,8 +24,11 @@ type fakeLedger struct {
 	recorded []Tally
 	roles    []collector.WorkloadRoleStats
 	history  map[string][]ShadowDay
-	evidence map[string]RoleEvidence
-	err      error
+	// definitions, when set, is the one definition per budget whose rows
+	// history holds; another definition reads no rows.
+	definitions map[string]string
+	evidence    map[string]RoleEvidence
+	err         error
 }
 
 func (l *fakeLedger) Record(_ context.Context, _ time.Time, ts []Tally) error {
@@ -39,8 +42,11 @@ func (l *fakeLedger) RecordRoles(_ context.Context, _ time.Time,
 	return l.err
 }
 
-func (l *fakeLedger) History(_ context.Context, budget string, _ time.Time) ([]ShadowDay,
-	error) {
+func (l *fakeLedger) History(_ context.Context, budget, definition string,
+	_ time.Time) ([]ShadowDay, error) {
+	if want, ok := l.definitions[budget]; ok && want != definition {
+		return nil, l.err
+	}
 	return l.history[budget], l.err
 }
 
@@ -164,7 +170,7 @@ func enforceCfg() *config.Config {
 }
 
 func sevenDays() map[string][]ShadowDay {
-	return map[string][]ShadowDay{"app-6s": {{FirstSeen: t0.Add(-8 * 24 * time.Hour)}}}
+	return map[string][]ShadowDay{"app-6s": ledgerDays(8, -1)}
 }
 
 // State transition: enforce mode with 7 days of clean shadow data raises
@@ -308,5 +314,30 @@ func TestMonitor_LedgerErrorPropagates(t *testing.T) {
 	}
 	if len(fs) != 0 {
 		t.Fatalf("findings after a failed cycle: %+v", fs)
+	}
+}
+
+// State: a budget whose limits changed (60 s in warn mode, now 6 s in
+// enforce mode) starts a new ledger: the looser budget's 7 days never
+// promote the tighter one.
+func TestMonitor_ChangedBudgetStartsANewLedger(t *testing.T) {
+	loose := roleBudget("app-6s", "app", 60000).Definition()
+	c := fakeCatalog{self: "sage", facts: map[string]RoleFact{"app": {}}}
+	l := &fakeLedger{history: sevenDays(), definitions: map[string]string{"app-6s": loose}}
+	fs, err := newTestMonitor(enforceCfg(), snapWith(), l, c).Detect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := findingsOf(fs, CategoryEnforce); len(got) != 0 {
+		t.Fatalf("the 60 s budget's ledger promoted the 6 s budget: %+v", got)
+	}
+	tight := roleBudget("app-6s", "app", 6000).Definition()
+	if len(l.recorded) != 1 || l.recorded[0].Definition != tight {
+		t.Fatalf("recorded %+v, want the 6 s definition", l.recorded)
+	}
+	l = &fakeLedger{history: sevenDays(), definitions: map[string]string{"app-6s": tight}}
+	fs, _ = newTestMonitor(enforceCfg(), snapWith(), l, c).Detect(context.Background())
+	if got := findingsOf(fs, CategoryEnforce); len(got) != 1 {
+		t.Fatalf("its own ledger: enforce findings = %+v, want one", got)
 	}
 }

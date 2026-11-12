@@ -53,7 +53,7 @@ func TestStore_RecordUpsertsPerDay(t *testing.T) {
 	if err := other.Record(ctx, day, []Tally{{Budget: "app", WouldCancel: 50}}); err != nil {
 		t.Fatal(err)
 	}
-	h, err := s.History(ctx, "app", day.Add(-24*time.Hour))
+	h, err := s.History(ctx, "app", "", day.Add(-24*time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,9 +68,28 @@ func TestStore_RecordUpsertsPerDay(t *testing.T) {
 	if h[1].WouldCancel != 0 || h[1].FirstSeen.Before(d.FirstSeen) {
 		t.Fatalf("day two = %+v", h[1])
 	}
-	since, _ := s.History(ctx, "app", day.Add(24*time.Hour))
+	since, _ := s.History(ctx, "app", "", day.Add(24*time.Hour))
 	if len(since) != 1 {
 		t.Fatalf("history since day two = %+v, want one row", since)
+	}
+	assertDefinitionsApart(t, s, day)
+}
+
+// A changed budget definition is a separate ledger on the same day.
+func assertDefinitionsApart(t *testing.T, s *Store, day time.Time) {
+	t.Helper()
+	ctx := context.Background()
+	if err := s.Record(ctx, day, []Tally{{Budget: "app", Definition: "tight",
+		WouldCancel: 9}}); err != nil {
+		t.Fatalf("record the tight definition: %v", err)
+	}
+	tight, err := s.History(ctx, "app", "tight", day.Add(-24*time.Hour))
+	if err != nil || len(tight) != 1 || tight[0].WouldCancel != 9 {
+		t.Fatalf("tight history = %+v, %v, want its own row of 9", tight, err)
+	}
+	loose, _ := s.History(ctx, "app", "", day)
+	if len(loose) != 2 || loose[0].WouldCancel != 3 {
+		t.Fatalf("loose history = %+v, want its two rows unchanged", loose)
 	}
 }
 

@@ -190,6 +190,22 @@ func TestEvaluate_NewDayForgetsSeenStatements(t *testing.T) {
 	}
 }
 
+// ledgerDays is one ledger row per UTC day from back days before t0
+// through t0's day, the first measured back*24 hours before t0; the row
+// at index protectedOn (-1: none) records a protected would-cancel.
+func ledgerDays(back, protectedOn int) []ShadowDay {
+	var out []ShadowDay
+	for i := back; i >= 0; i-- {
+		at := t0.Add(-time.Duration(i) * 24 * time.Hour)
+		d := ShadowDay{Day: at.Truncate(24 * time.Hour), FirstSeen: at}
+		if len(out) == protectedOn {
+			d.ProtectedCancels = 1
+		}
+		out = append(out, d)
+	}
+	return out
+}
+
 // Boundary: 6 days 23 hours of shadow data cannot promote; 7 days can;
 // a protected would-cancel blocks promotion.
 func TestCanPromote_SevenDayWindow(t *testing.T) {
@@ -198,11 +214,11 @@ func TestCanPromote_SevenDayWindow(t *testing.T) {
 	if ok || !strings.Contains(why, "6 days 23 hours") {
 		t.Fatalf("6d23h: ok=%v why=%q, want refused with the window", ok, why)
 	}
-	ok, why = CanPromote([]ShadowDay{{FirstSeen: first}, {FirstSeen: t0.Add(-time.Hour)}}, t0)
+	ok, why = CanPromote(ledgerDays(7, -1), t0)
 	if !ok {
 		t.Fatalf("7 days: refused (%s)", why)
 	}
-	ok, why = CanPromote([]ShadowDay{{FirstSeen: first, ProtectedCancels: 1}}, t0)
+	ok, why = CanPromote(ledgerDays(7, 3), t0)
 	if ok || !strings.Contains(why, "protected") {
 		t.Fatalf("protected cancel: ok=%v why=%q, want refused", ok, why)
 	}
@@ -258,4 +274,53 @@ func byName(ts []Tally) map[string]Tally {
 		out[t.Budget] = t
 	}
 	return out
+}
+
+// Boundary: a day without a ledger row inside the window (pg_sage did not
+// run) refuses promotion, however far back the ledger reaches.
+func TestCanPromote_GapInTheWindowRefuses(t *testing.T) {
+	days := ledgerDays(8, -1)
+	gap := days[4].Day
+	withGap := append(append([]ShadowDay{}, days[:4]...), days[5:]...)
+	ok, why := CanPromote(withGap, t0)
+	if ok || !strings.Contains(why, gap.Format(time.DateOnly)) ||
+		!strings.Contains(why, "continuous") {
+		t.Fatalf("gap on %s: ok=%v why=%q, want refused naming the day", gap, ok, why)
+	}
+	ends := []ShadowDay{days[0], days[len(days)-1]}
+	if ok, _ := CanPromote(ends, t0); ok {
+		t.Fatal("a row 8 days ago and one today promoted")
+	}
+	if ok, why := CanPromote(days, t0); !ok {
+		t.Fatalf("continuous 8 days: refused (%s)", why)
+	}
+}
+
+// The ledger key: a budget's match and limits, not its mode or pool size.
+func TestBudget_Definition(t *testing.T) {
+	warn := roleBudget("b", "app", 6000)
+	enforce := warn
+	enforce.Mode, enforce.PoolSize = ModeEnforce, 20
+	if warn.Definition() != enforce.Definition() {
+		t.Fatalf("mode or pool size changed the definition: %q vs %q", warn.Definition(),
+			enforce.Definition())
+	}
+	want := "role=app statement_timeout=6000ms idle_in_transaction_session_timeout=0ms " +
+		"connection_limit=0"
+	if warn.Definition() != want {
+		t.Fatalf("definition = %q, want %q", warn.Definition(), want)
+	}
+	for name, other := range map[string]Budget{
+		"timeout": roleBudget("b", "app", 1000), "role": roleBudget("b", "web", 6000),
+		"limit": {Name: "b", Match: Match{Role: "app"}, StatementTimeoutMs: 6000,
+			ConnectionLimit: 5},
+	} {
+		if other.Definition() == warn.Definition() {
+			t.Errorf("%s change kept the definition %q", name, warn.Definition())
+		}
+	}
+	got := NewEvaluator().Evaluate([]Budget{warn}, nil, nil, t0)
+	if len(got) != 1 || got[0].Definition != want {
+		t.Fatalf("tally = %+v, want the definition", got)
+	}
 }

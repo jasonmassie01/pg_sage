@@ -19,7 +19,9 @@ import (
 //     (runaway.safe_patterns), which block promotion to enforce.
 //   - WorstMs: the longest matching statement or wait seen this cycle.
 type Tally struct {
-	Budget           string
+	Budget string
+	// Definition is the budget's Definition: the ledger key with Budget.
+	Definition       string
 	WouldCancel      int
 	WouldReject      int
 	ProtectedCancels int
@@ -29,6 +31,7 @@ type Tally struct {
 // seenKey identifies one statement (or one idle wait) of one budget.
 type seenKey struct {
 	budget string
+	def    string
 	pid    int
 	start  time.Time
 	state  string
@@ -58,7 +61,7 @@ func (e *Evaluator) Evaluate(budgets []Budget, ws *collector.WorkloadSessions,
 	e.rollDay(now)
 	out := make([]Tally, 0, len(budgets))
 	for _, b := range budgets {
-		t := Tally{Budget: b.Name}
+		t := Tally{Budget: b.Name, Definition: b.Definition()}
 		if ws != nil {
 			e.tallySessions(&t, b, ws.Long, protected)
 			t.WouldReject = wouldReject(b, ws.Roles)
@@ -92,7 +95,8 @@ func (e *Evaluator) tallySessions(t *Tally, b Budget, long []collector.WorkloadL
 		if limit <= 0 || ageMs <= float64(limit) {
 			continue
 		}
-		key := seenKey{budget: b.Name, pid: s.PID, start: s.QueryStart, state: s.State}
+		key := seenKey{budget: b.Name, def: t.Definition, pid: s.PID, start: s.QueryStart,
+			state: s.State}
 		if e.seen[key] {
 			continue
 		}
