@@ -194,25 +194,55 @@ midnight UTC.
 
 ## Monitoring Token Usage
 
+- Usage ledger: `GET /api/v1/llm/usage?days=30` (viewer; `days` 1-400, default 30) answers
+  "what spent the tokens, and what did it cost". Each row is one UTC `day`, database
+  (`database_key`, and `database` when the key still names one), `llm_role` (`general` or
+  `optimizer`), `purpose` and `model`, with `prompt_tokens`, `completion_tokens`,
+  `reasoning_tokens` (the reasoning share of the completion), `calls`, `failures` and
+  `est_cost_usd`. Every client adds to it, per database in fleet mode; it is flushed to
+  `sage.llm_usage` in the control database every 60 s and on shutdown, and kept 400 days.
+  A failed flush keeps the counts for the next one and logs once; a call never fails
+  because of it. `source` is `estimate` when the provider reported no usage and pg_sage
+  split its own estimate.
+- Purposes: `advisor`, `agent_guard`, `ask`, `briefing`, `explain`, `facts`, `first_look`,
+  `justification`, `migration_advice`, `migration_script`, `plan_narrative`, `probe`
+  (the connection test), `query_tuning`, `rca_narration`, `rca_tier2`, `runbook_compile`,
+  `schema_lint`, `sre` / `sre_investigation`, and `agent_loop` for an agent conversation
+  no feature labelled. `unlabeled` should never appear; `overflow` appears only past
+  10,000 distinct keys between two flushes.
+- Cost: set `llm.pricing` to your provider's rates, in USD per million tokens:
+
+  ```yaml
+  llm:
+    pricing:
+      gpt-4o-mini: {input_per_m: 0.15, output_per_m: 0.60}
+      o3-mini: {input_per_m: 1.10, output_per_m: 4.40, reasoning_per_m: 4.40}
+  ```
+
+  The key is the model id exactly as configured. `est_cost_usd` is prompt x input plus
+  completion x output (the reasoning share at `reasoning_per_m` when set). pg_sage ships
+  no prices and never guesses one: a model without an entry, or a day with calls made
+  before its price was set, has a `null` cost. A negative or missing price, or an
+  unknown price kind, fails at load; a price change applies at restart.
 - REST API: `GET /api/v1/llm/status` lists every client (`clients`, each with
   `tokens_used`, `token_budget`, `budget_exhausted`, `circuit_state` and `resets_at`), the
-  process-wide `global` ceiling and `any_exhausted`. In fleet mode this is the only view
-  of each database's clients. `GET /api/v1/metrics` reports fleet status, not tokens.
+  process-wide `global` ceiling and `any_exhausted`. `GET /api/v1/metrics` reports fleet
+  status, not tokens.
 - Fleet budget: with `llm.fleet_token_budget_daily` set, every row of
   `GET /api/v1/databases` carries `llm_budget` (`allocation`, `used`, `weight`), the
   database's share and today's use; the field is omitted without a fleet budget. The
   **Fleet** page shows it as used / allocation.
 - Prometheus: every client has its own series, labelled `client` (`general`, `optimizer`)
   and `database` (empty for the shared client and in standalone mode), in every mode.
-  `pg_sage_llm_tokens_total{kind}` counts the tokens charged since start, split into
-  `prompt`, `completion` and `unattributed` (estimated, or not split by the provider). It is
-  the spend signal: multiply by your provider's rates, since pg_sage applies none.
+  `pg_sage_llm_tokens_total{purpose,kind}` counts the tokens charged since start by
+  purpose, split into `prompt`, `completion` and `unattributed` (estimated, or not split by
+  the provider); costs are in the usage ledger, not on `/metrics`.
   `pg_sage_llm_requests_total{result}` counts calls by result (`ok`, `error`, `timeout`,
   `rate_limited`, `budget_refused`, `circuit_open`, `empty`, `cancelled`), and
   `pg_sage_llm_request_duration_seconds` is their latency. `pg_sage_llm_tokens_used_today`,
   `pg_sage_llm_tokens_budget_daily` (the live budget) and `pg_sage_llm_circuit_open` are
   per client too. See [deployment](deployment.md#llm-health).
-- Logs: there is no per-call token log line. The client logs when its circuit breaker
-  opens, with the last error class and the pause.
+- Logs: there is no per-call token log line; the usage ledger is the per-call record. The
+  client logs when its circuit breaker opens, with the last error class and the pause.
 - Restarts: today's usage is kept in `sage.llm_usage` in the control database and restored
   at startup; `GET /api/v1/llm/status` reports `usage_restored_at` and `ledger_last_flush_at`
