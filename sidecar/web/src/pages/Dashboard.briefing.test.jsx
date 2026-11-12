@@ -16,7 +16,7 @@ const urls = vi.hoisted(() => [])
 vi.mock('../hooks/useAPI', () => ({
   useAPI: url => {
     urls.push(url)
-    if (url.startsWith('/api/v1/briefings/latest')) {
+    if (url?.startsWith('/api/v1/briefings/latest')) {
       return {
         data: null, loading: false, error: 'no briefing yet: none is stored',
         errorStatus: 404, refetch: vi.fn(),

@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AgentDetail } from './AgentDetail'
 import {
   admin, bodiesOf, callsTo, coder, frozenBot, iso, operator, response, stubAPI,
@@ -229,6 +229,12 @@ describe('AgentDetail activity', () => {
 
 describe('AgentDetail OAuth identities', () => {
   const identitiesPath = `/api/v1/agents/${coder.id}/identities`
+
+  // The identity unbind (agentgov-03) still asks with window.confirm; the
+  // grant and token controls above moved to the dialog (dashboard-10).
+  beforeEach(() => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+  })
 
   it('lists the bound identities and binds one with a configured issuer', async () => {
     const { mock } = await renderDetail(coder, admin, {

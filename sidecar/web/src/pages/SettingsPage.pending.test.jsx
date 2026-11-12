@@ -8,9 +8,11 @@ let configData = {}
 
 vi.mock('../hooks/useAPI', () => ({
   useAPI: vi.fn(url => {
-    if (url?.includes('/shadow-report')) {
+    // earned-04 replaced /shadow-report with the shadow ledger, which the
+    // Shadow Mode panel reads with the trust levels.
+    if (url?.includes('/shadow-decisions') || url?.includes('/api/v1/trust')) {
       return {
-        data: { summary: {}, proof: [] }, loading: false, error: null,
+        data: { databases: [] }, loading: false, error: null,
         refetch: vi.fn(),
       }
     }
