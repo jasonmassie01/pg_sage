@@ -242,3 +242,22 @@ func TestGameDayAdapterRunsTheCustomerProgram(t *testing.T) {
 		}
 	}
 }
+
+// Invalid input: a binding whose name is a view on the clone (not the
+// ordinary table it was on the monitored database) is skipped, unlocked.
+func TestCustomerBindingToAViewIsSkipped(t *testing.T) {
+	ctx, e := liveEnv(t)
+	if _, err := e.Pool.Exec(ctx,
+		`CREATE OR REPLACE VIEW bench_customer_view AS SELECT 1 AS one`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = e.Pool.Exec(context.Background(), `DROP VIEW IF EXISTS bench_customer_view`)
+	})
+	b := gameday.Binding{Program: gameday.ProgramCustomerHotTable, Schema: "public",
+		Table: "bench_customer_view"}
+	r := e.attempt(ctx, customerScenario(t, b), CausalGraph{})
+	if !strings.Contains(r.Skipped, "not an ordinary table") || r.Err != nil {
+		t.Fatalf("skipped %q err %v, want the not-a-table skip", r.Skipped, r.Err)
+	}
+}

@@ -84,6 +84,24 @@ func TestGameDayBindsTheHotTableAndRecordsWhatItExercised(t *testing.T) {
 	if got := stored.Exercised.Scenarios[1]; got != x.Scenarios[1] {
 		t.Fatalf("stored customer scenario = %+v, want %+v", got, x.Scenarios[1])
 	}
+	// CHECK-01, scoped to this test's database.
+	if got := checkScenarios(f); !strings.Contains(got, `"id": "lock_customer_hot_table"`) ||
+		!strings.Contains(got, `"binding": "\"public\".\"orders\""`) {
+		t.Fatalf("exercised->'scenarios' = %s, want the bound customer program", got)
+	}
+}
+
+// checkScenarios runs the acceptance query on f's database's newest game
+// day.
+func checkScenarios(f *gdFixture) string {
+	f.t.Helper()
+	var got string
+	if err := testPool(f.t).QueryRow(f.ctx, `SELECT (exercised->'scenarios')::text
+		FROM sage.sre_game_days WHERE database_name = $1
+		ORDER BY started_at DESC LIMIT 1`, f.database).Scan(&got); err != nil {
+		f.t.Fatalf("acceptance query: %v", err)
+	}
+	return got
 }
 
 // The local provider, customer programs switched off, or no snapshot: the
@@ -125,6 +143,11 @@ func TestGameDayCustomerSkipFinishesUnscored(t *testing.T) {
 			sc := gd.Exercised.Scenarios[1]
 			if sc.Skip != tc.want || sc.Binding != "" {
 				t.Fatalf("customer scenario = %+v, want skip %q", sc, tc.want)
+			}
+			// CHECK-02, scoped to this test's database.
+			if got := checkScenarios(f); !strings.Contains(got, tc.want) ||
+				strings.Contains(got, "orders") {
+				t.Fatalf("exercised->'scenarios' = %s, want skip %q", got, tc.want)
 			}
 			if gd.Exercised.CustomerObjects != (tc.provider != "local") {
 				t.Fatalf("customer_objects = %v on %s", gd.Exercised.CustomerObjects,
