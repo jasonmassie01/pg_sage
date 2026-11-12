@@ -84,6 +84,12 @@ type Sample struct {
 	DBLoad                *Point             `json:"db_load,omitempty"`
 	DBLoadByWait          map[string]float64 `json:"db_load_by_wait,omitempty"`
 	MemoryTotalSource     string             `json:"memory_total_source,omitempty"`
+	// InstanceClass is the provider's size name (RDS DB instance class,
+	// Cloud SQL tier); VCPUs its documented vCPU count (0: unknown, never a
+	// guess). Serverless capacity scales, so it has no fixed size.
+	InstanceClass string `json:"instance_class,omitempty"`
+	VCPUs         int    `json:"vcpus,omitempty"`
+	Serverless    bool   `json:"serverless,omitempty"`
 	// StorageAutoGrows: the provider grows storage without a bound pg_sage
 	// knows (Aurora's cluster volume, unlimited Cloud SQL auto-resize).
 	StorageAutoGrows bool     `json:"storage_auto_grows"`

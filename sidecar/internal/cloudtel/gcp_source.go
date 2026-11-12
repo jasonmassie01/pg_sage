@@ -146,7 +146,8 @@ func (s *GCPSource) Collect(ctx context.Context, now time.Time) (Sample, error) 
 	if err != nil {
 		return Sample{}, err
 	}
-	sample := Sample{Provider: "cloud-sql", Resource: "cloud-sql:" + primary, CollectedAt: now}
+	sample := Sample{Provider: "cloud-sql", Resource: "cloud-sql:" + primary, CollectedAt: now,
+		InstanceClass: inst.Settings.Tier, VCPUs: TierVCPUs(inst.Settings.Tier)}
 	if err := applyMonitoring(&sample, series, primary, len(inst.ReplicaNames) > 0,
 		now); err != nil {
 		return Sample{}, err

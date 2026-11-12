@@ -212,7 +212,9 @@ func (s *AWSSource) Collect(ctx context.Context, now time.Time) (Sample, error) 
 	aurora := s.opts.ClusterID != "" || strings.HasPrefix(inst.Engine, "aurora")
 	provider := s.providerFor(ident.engine)
 	sample := Sample{Provider: provider, CollectedAt: now,
-		Resource: provider + ":" + s.opts.Region + "/" + inst.ID}
+		Resource: provider + ":" + s.opts.Region + "/" + inst.ID,
+		InstanceClass: inst.Class, VCPUs: InstanceClassVCPUs(inst.Class),
+		Serverless: strings.EqualFold(inst.Class, "db.serverless")}
 	queries, fields := cloudWatchQueries(inst, aurora)
 	points, err := s.client.getMetricData(ctx, s.opts.CloudWatchEndpoint, queries, now)
 	if err != nil {
