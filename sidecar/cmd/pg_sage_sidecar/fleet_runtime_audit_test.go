@@ -115,10 +115,10 @@ func preserveFleetRuntimeGlobals(t *testing.T) {
 	oldSemaphore := analyzeSem
 	oldBudget := fleetLLMBudget
 	oldController := configController
-	oldRegistry := llmClients
-	llmClients = &llmClientRegistry{}
+	oldRegistry, oldHealth := llmClients, llmHealth
+	llmClients, llmHealth = &llmClientRegistry{}, newLLMHealthMetrics()
 	t.Cleanup(func() {
-		llmClients = oldRegistry
+		llmClients, llmHealth = oldRegistry, oldHealth
 		cfg = oldCfg
 		fleetMgr = oldManager
 		llmClient = oldClient
