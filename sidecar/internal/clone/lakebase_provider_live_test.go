@@ -28,8 +28,7 @@ func TestLakebaseLive_BranchRehearsalRoundTrip(t *testing.T) {
 	}
 	endpoint := os.Getenv("SAGE_LAKEBASE_ENDPOINT")
 	dsn := os.Getenv("SAGE_LAKEBASE_LIVE_DATABASE_URL")
-	project, branch, _, err := lakebaseid.Parse(endpoint)
-	if err != nil || dsn == "" {
+	if _, _, _, err := lakebaseid.Parse(endpoint); err != nil || dsn == "" {
 		t.Fatal("live branch rehearsal needs SAGE_LAKEBASE_ENDPOINT and " +
 			"SAGE_LAKEBASE_LIVE_DATABASE_URL")
 	}
@@ -43,19 +42,7 @@ func TestLakebaseLive_BranchRehearsalRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := NewLakebaseBranchProvider(LakebaseConfig{Project: project, TTL: time.Hour,
-		EndpointMaxCU: 1, API: func() (LakebaseBranchAPI, error) {
-			return NewLakebaseSDKAPI(pg), nil
-		},
-		Production: func(ctx context.Context) (LakebaseProduction, error) {
-			res, err := databricksauth.ResolveTelemetryResource(ctx, conn.Host, endpoint)
-			return LakebaseProduction{BranchName: "projects/" + project + "/branches/" +
-				branch, BranchUID: res.BranchID, Host: conn.Host, User: conn.User,
-				Database: conn.Database}, err
-		}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	p := liveLakebaseProvider(t, pg, endpoint, conn)
 	c, err := p.Create(ctx, CloneSpec{IncludeData: true})
 	if err != nil {
 		t.Fatal(err)
@@ -75,6 +62,31 @@ func TestLakebaseLive_BranchRehearsalRoundTrip(t *testing.T) {
 	if !errors.Is(err, apierr.ErrNotFound) {
 		t.Fatalf("branch %s after destroy: %v, want not found", c.ID, err)
 	}
+}
+
+// liveLakebaseProvider branches from the endpoint's branch, with
+// production's identity read from live metadata as the sidecar does.
+func liveLakebaseProvider(t *testing.T, pg postgres.PostgresInterface, endpoint string,
+	conn *pgx.ConnConfig) *LakebaseBranchProvider {
+	t.Helper()
+	project, branch, _, err := lakebaseid.Parse(endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := NewLakebaseBranchProvider(LakebaseConfig{Project: project, TTL: time.Hour,
+		EndpointMaxCU: 1, API: func() (LakebaseBranchAPI, error) {
+			return NewLakebaseSDKAPI(pg), nil
+		},
+		Production: func(ctx context.Context) (LakebaseProduction, error) {
+			res, err := databricksauth.ResolveTelemetryResource(ctx, conn.Host, endpoint)
+			return LakebaseProduction{BranchName: "projects/" + project + "/branches/" +
+				branch, BranchUID: res.BranchID, Host: conn.Host, User: conn.User,
+				Database: conn.Database}, err
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
 }
 
 // rehearseOnLiveBranch runs an expand-only migration on the branch.

@@ -436,16 +436,18 @@ func TestLakebase_NoProductionSourceIsUnavailable(t *testing.T) {
 
 func TestNewLakebaseBranchProvider_Invalid(t *testing.T) {
 	cases := map[string]func(*LakebaseConfig){
-		"no project":              func(c *LakebaseConfig) { c.Project = "" },
-		"uppercase project":       func(c *LakebaseConfig) { c.Project = "Shop" },
-		"ttl zero":                func(c *LakebaseConfig) { c.TTL = 0 },
-		"ttl over a day":          func(c *LakebaseConfig) { c.TTL = 24*time.Hour + time.Minute },
-		"ttl negative":            func(c *LakebaseConfig) { c.TTL = -time.Minute },
-		"max cu zero":             func(c *LakebaseConfig) { c.EndpointMaxCU = 0 },
-		"max cu negative":         func(c *LakebaseConfig) { c.EndpointMaxCU = -1 },
-		"no api":                  func(c *LakebaseConfig) { c.API = nil },
-		"source in other project": func(c *LakebaseConfig) { c.SourceBranch = "projects/x/branches/main" },
-		"uppercase source":        func(c *LakebaseConfig) { c.SourceBranch = "Main" },
+		"no project":        func(c *LakebaseConfig) { c.Project = "" },
+		"uppercase project": func(c *LakebaseConfig) { c.Project = "Shop" },
+		"ttl zero":          func(c *LakebaseConfig) { c.TTL = 0 },
+		"ttl over a day":    func(c *LakebaseConfig) { c.TTL = 24*time.Hour + time.Minute },
+		"ttl negative":      func(c *LakebaseConfig) { c.TTL = -time.Minute },
+		"max cu zero":       func(c *LakebaseConfig) { c.EndpointMaxCU = 0 },
+		"max cu negative":   func(c *LakebaseConfig) { c.EndpointMaxCU = -1 },
+		"no api":            func(c *LakebaseConfig) { c.API = nil },
+		"source in other project": func(c *LakebaseConfig) {
+			c.SourceBranch = "projects/x/branches/main"
+		},
+		"uppercase source": func(c *LakebaseConfig) { c.SourceBranch = "Main" },
 		"source with endpoint": func(c *LakebaseConfig) {
 			c.SourceBranch = "projects/shop/branches/main/endpoints/e"
 		},
