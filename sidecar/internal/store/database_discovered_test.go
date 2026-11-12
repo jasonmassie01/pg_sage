@@ -435,3 +435,57 @@ func TestDiscoveryStore_ClaimPrefersUntriedOverFailed(t *testing.T) {
 			second[0].ExternalID, second[1].ExternalID)
 	}
 }
+
+// Concurrency: sidecars listing the same rows in different orders while
+// others claim and mark gone never deadlock (40P01); discoveryLock orders
+// every multi-row write.
+func TestDiscoveryStore_ConcurrentWritesNeverDeadlock(t *testing.T) {
+	pool, ctx := requireDiscoveryDB(t)
+	var asc, desc []DiscoveredCandidate
+	for i := range 30 {
+		c := DiscoveredCandidate{ExternalID: fmt.Sprintf("r%02d", i), Host: "h", Port: 1,
+			DBName: fmt.Sprintf("r%02d", i)}
+		asc = append(asc, c)
+		desc = append([]DiscoveredCandidate{c}, desc...)
+	}
+	var wg sync.WaitGroup
+	errs := make(chan error, 200)
+	work := func(i int) error {
+		d := NewDiscoveryStore(pool)
+		switch i % 4 {
+		case 0:
+			_, err := d.Upsert(ctx, "s", "o", asc, time.Now())
+			return err
+		case 1:
+			_, err := d.Upsert(ctx, "s", "o", desc, time.Now())
+			return err
+		case 2:
+			_, err := d.Claim(ctx, "s", 5, 50, time.Now())
+			return err
+		default:
+			_, err := d.MarkGone(ctx, "s", time.Now().Add(-time.Hour))
+			return err
+		}
+	}
+	for g := range 8 {
+		wg.Add(1)
+		go func(g int) {
+			defer wg.Done()
+			for round := range 15 {
+				if err := work(g + round); err != nil {
+					errs <- err
+				}
+			}
+		}(g)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("concurrent discovery write: %v", err)
+	}
+	var n int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sage.discovered_databases
+		WHERE source = 's'`).Scan(&n); err != nil || n != 30 {
+		t.Fatalf("rows = %d (%v), want 30", n, err)
+	}
+}

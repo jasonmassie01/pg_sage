@@ -25,9 +25,24 @@ const (
 // another cycle (or sidecar) may claim the row again.
 const staleClaim = 10 * time.Minute
 
-// discoveryClaimLock serialises claims across sidecars so max_enrolled
-// holds between them (pg_advisory_xact_lock key "SGDS").
-const discoveryClaimLock = int64(0x53474453)
+// discoveryLock serialises the multi-row writes of every sidecar (Upsert,
+// MarkGone and Claim): max_enrolled holds between sidecars, and their row
+// locks cannot deadlock (pg_advisory_xact_lock key "SGDS").
+const discoveryLock = int64(0x53474453)
+
+// beginLocked opens a transaction holding discoveryLock.
+func (s *DiscoveryStore) beginLocked(ctx context.Context, what string) (pgx.Tx, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin %s: %w", what, err)
+	}
+	if _, err := tx.Exec(ctx, `/* pg_sage */ SELECT pg_advisory_xact_lock($1)`,
+		discoveryLock); err != nil {
+		_ = tx.Rollback(ctx)
+		return nil, fmt.Errorf("lock %s: %w", what, err)
+	}
+	return tx, nil
+}
 
 // DiscoveredCandidate is one database a source reported.
 type DiscoveredCandidate struct {
@@ -110,7 +125,9 @@ func (s *DiscoveryStore) Upsert(ctx context.Context, source, owner string,
 	}
 	qctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
+	// A batch is one implicit transaction, so the lock is held to its end.
 	batch := &pgx.Batch{}
+	batch.Queue(`/* pg_sage */ SELECT pg_advisory_xact_lock($1)`, discoveryLock)
 	for _, c := range cands {
 		batch.Queue(`/* pg_sage */ INSERT INTO sage.discovered_databases
 			    (source, external_id, host, port, dbname, owner, first_seen, last_seen)
@@ -124,6 +141,9 @@ func (s *DiscoveryStore) Upsert(ctx context.Context, source, owner string,
 	}
 	br := s.pool.SendBatch(qctx, batch)
 	defer func() { _ = br.Close() }()
+	if _, err := br.Exec(); err != nil {
+		return 0, fmt.Errorf("lock discovered databases of %s: %w", source, err)
+	}
 	added := 0
 	for range cands {
 		var inserted bool
@@ -143,7 +163,12 @@ func (s *DiscoveryStore) MarkGone(ctx context.Context, source string,
 	seenBefore time.Time) ([]DiscoveredRow, error) {
 	qctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	rows, err := s.pool.Query(qctx, `/* pg_sage */ WITH gone AS (
+	tx, err := s.beginLocked(qctx, "marking gone databases of "+source)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(qctx) }()
+	rows, err := tx.Query(qctx, `/* pg_sage */ WITH gone AS (
 		    UPDATE sage.discovered_databases SET status = 'gone', status_changed_at = now()
 		     WHERE source = $1 AND last_seen < $2 AND status NOT IN ('gone', 'ignored')
 		    RETURNING *)
@@ -154,6 +179,9 @@ func (s *DiscoveryStore) MarkGone(ctx context.Context, source string,
 	gone, err := scanDiscovered(rows)
 	if err != nil {
 		return nil, err
+	}
+	if err := tx.Commit(qctx); err != nil {
+		return nil, fmt.Errorf("commit gone databases of %s: %w", source, err)
 	}
 	for _, g := range gone {
 		if err := s.audit(ctx, "fleet.discovery.gone", g, 0); err != nil {
@@ -219,15 +247,11 @@ func (s *DiscoveryStore) Claim(ctx context.Context, source string, limit, maxLiv
 	now time.Time) ([]DiscoveredRow, error) {
 	qctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	tx, err := s.pool.Begin(qctx)
+	tx, err := s.beginLocked(qctx, "discovery claim")
 	if err != nil {
-		return nil, fmt.Errorf("begin discovery claim: %w", err)
+		return nil, err
 	}
 	defer func() { _ = tx.Rollback(qctx) }()
-	if _, err := tx.Exec(qctx, `/* pg_sage */ SELECT pg_advisory_xact_lock($1)`,
-		discoveryClaimLock); err != nil {
-		return nil, fmt.Errorf("lock discovery claim: %w", err)
-	}
 	stale := now.Add(-staleClaim)
 	var live int
 	if err := tx.QueryRow(qctx, `/* pg_sage */ SELECT count(*)
