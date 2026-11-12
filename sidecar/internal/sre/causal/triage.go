@@ -33,6 +33,19 @@ func DiagnoseOperator(obs []Observation, subject string) Diagnosis {
 		"PostgreSQL or in a mechanism the graph does not model", what))
 }
 
+// FamilyAnomaly is a workload anomaly against its hour-of-week baseline
+// (market-02).
+const FamilyAnomaly Family = "workload_anomaly"
+
+// DiagnoseAnomaly triages a workload anomaly across the same mechanisms
+// as an SLO burn; subject names the metric and its key.
+func DiagnoseAnomaly(obs []Observation, subject string) Diagnosis {
+	return triage(obs, subject, FamilyAnomaly, fmt.Sprintf("%s is far above its usual "+
+		"value for this hour of the week, but the lock, connection and plan evidence "+
+		"shows no database mechanism: the cause may be a traffic or data change, or "+
+		"outside PostgreSQL", subject))
+}
+
 // triage picks the most confident conclusive mechanism of the lock,
 // connection and plan families as the root; noneReason is the reason
 // when none concludes.

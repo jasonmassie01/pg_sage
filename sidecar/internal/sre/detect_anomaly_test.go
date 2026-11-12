@@ -49,7 +49,7 @@ func TestTriggerAnomaly_IsAKnownKindWithTheTriagePlan(t *testing.T) {
 }
 
 func TestAnomalyTrigger_KeysTheEpisode(t *testing.T) {
-	tr, ok := anomalyTrigger(77, "workload", "query_mean_ms:queryid:101", anomalyDetail,
+	tr, ok := anomalyTrigger("workload", "query_mean_ms:queryid:101", anomalyDetail,
 		"orders")
 	if !ok {
 		t.Fatal("valid detail gave no trigger")
@@ -62,14 +62,14 @@ func TestAnomalyTrigger_KeysTheEpisode(t *testing.T) {
 	// Invalid input: no episode, no metric, malformed JSON, empty.
 	for _, bad := range []string{`{"metric": "m", "key": "k"}`,
 		`{"key": "k", "episode_start": "2026-11-10T09:00:00Z"}`, `{not json`, ""} {
-		if _, ok := anomalyTrigger(1, "workload", "x", bad, "orders"); ok {
+		if _, ok := anomalyTrigger("workload", "x", bad, "orders"); ok {
 			t.Errorf("detail %q gave a trigger", bad)
 		}
 	}
 	// Boundary: an oversized key is clipped to the request's 160 runes.
 	long := `{"metric": "m", "key": "` + strings.Repeat("k", 300) +
 		`", "episode_start": "2026-11-10T09:00:00Z"}`
-	tr, ok = anomalyTrigger(1, "workload", "x", long, "orders")
+	tr, ok = anomalyTrigger("workload", "x", long, "orders")
 	if !ok || utf8.RuneCountInString(tr.IdempotencyKey) > 160 ||
 		utf8.RuneCountInString(tr.Subject) > 256 {
 		t.Fatalf("long key = %d runes (%v), want at most 160",

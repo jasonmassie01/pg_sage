@@ -75,11 +75,18 @@ func TestTriggers_CriticalAnomalyStartsOneInvestigationPerEpisode(t *testing.T) 
 		t.Fatalf("created %d, first %+v, want exactly one workload_anomaly investigation",
 			created, first)
 	}
-	if err := c.Investigate(ctx, first.ID); err != nil {
+	requireAnomalyTriage(t, ctx, c, first.ID)
+}
+
+// requireAnomalyTriage runs the investigation and wants the inconclusive
+// workload_anomaly triage the scripted (empty) probes give.
+func requireAnomalyTriage(t *testing.T, ctx context.Context, c *Coordinator, id UUID) {
+	t.Helper()
+	if err := c.Investigate(ctx, id); err != nil {
 		t.Fatalf("investigate: %v", err)
 	}
 	scope, _ := c.Scope()
-	done, err := c.store.Get(ctx, scope, first.ID)
+	done, err := c.store.Get(ctx, scope, id)
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
