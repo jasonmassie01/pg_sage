@@ -115,13 +115,29 @@ func configuredMCPMigrationRuntime(
 		WithProduction(runtimepkg.PoolIdentity(pool))
 	rehearser := rehearsalpkg.NewOrchestrator(provider, runner, rehearsalpkg.Options{
 		MaxCloneAge: maxAge, RegressionPct: 15,
-		MaxDuration: rehearsalpkg.DefaultMaxDuration,
+		MaxDuration: rehearsalMaxDuration(cloneConfig),
 	})
 	return runtimepkg.NewOrchestrator(
 		planpkg.NewPlanner(), recommendOnlyOnCloneFailure{rehearser}, gate,
 		runtimepkg.NewPostgresApplier(pool, 5*time.Second, 10*time.Minute),
 		runtimepkg.NewPostgresRecorder(pool),
 	), nil
+}
+
+// rehearsalMaxDuration bounds one rehearsal, clone creation included. A
+// lakebase_branch branch expires on the server ttl_minutes after its create
+// starts, so the rehearsal ends by then (market-03): never later than the
+// branch, and never zero (the orchestrator's default), at least a minute.
+func rehearsalMaxDuration(cloneConfig config.CloneProviderConfig) time.Duration {
+	bound := rehearsalpkg.DefaultMaxDuration
+	if cloneConfig.Provider != clonepkg.LakebaseAdapter {
+		return bound
+	}
+	ttl := time.Duration(cloneConfig.Lakebase.TTLMinutes) * time.Minute
+	if ttl < time.Minute {
+		ttl = time.Minute
+	}
+	return min(bound, ttl)
 }
 
 type recommendOnlyOnCloneFailure struct {

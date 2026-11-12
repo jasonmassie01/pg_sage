@@ -692,7 +692,8 @@ production data, so:
 
 - Every branch is created with an expiry `ttl_minutes` ahead. If pg_sage stops,
   or cannot delete the branch, Lakebase deletes it then. The default, 60 minutes,
-  is the rehearsal bound.
+  is the rehearsal bound. A shorter `ttl_minutes` shortens the rehearsal bound to
+  match, so a rehearsal never outlives its branch.
 - If a later step fails (endpoint, credential), pg_sage deletes what it made
   before it reports the failure. A create that timed out, or whose cleanup
   failed, leaves its receipt `create_uncertain` and is logged for an operator.
@@ -712,7 +713,9 @@ and endpoints, and the monitored role must exist on the source branch (a branch
 copies its roles). The minted credential expires after about an hour, which
 covers the one-hour rehearsal bound. Game days and local bench runs use the same
 adapter when `clone.provider` is `lakebase_branch`; their clones are tracked by
-the game-day store and the branch expiry, not by rehearsal receipts.
+the game-day store and the branch expiry, not by rehearsal receipts. A game
+day can run for hours, and Lakebase deletes its branch at the expiry, so set
+`ttl_minutes` above the longest game day you run on this adapter.
 
 This adapter is for Lakebase only. Other providers and self-managed PostgreSQL
 use `dle`. In fleet mode one clone provider serves the deployment: each
