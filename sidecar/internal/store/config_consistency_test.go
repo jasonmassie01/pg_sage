@@ -103,6 +103,11 @@ var excludedExactKeys = map[string]bool{
 	"mcp.call_timeout_seconds": true,
 	// The HA role check interval (fleet-04) is YAML only and restart-bound.
 	"ha.check_interval_seconds": true,
+	// The backup freshness policy (market-07) is YAML only and
+	// restart-bound, like the HA cadence.
+	"backup.max_age_hours":           true,
+	"backup.max_archive_gap_minutes": true,
+	"backup.min_retention_days":      true,
 
 	// Trust ramp_start — written in YAML but not overridable.
 	"trust.ramp_start": true,
