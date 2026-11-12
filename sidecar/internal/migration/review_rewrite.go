@@ -32,6 +32,7 @@ var (
 	reAddColExtra = regexp.MustCompile(
 		`(?i)\b(?:NOT\s+NULL|PRIMARY|UNIQUE|REFERENCES|CHECK|GENERATED|COLLATE|IDENTITY)\b|,`)
 	reIdentUnsafe = regexp.MustCompile(`[^a-z0-9_]+`)
+	reCascade     = regexp.MustCompile(`(?i)\sCASCADE$`)
 )
 
 // guardedRewrite returns the statement's deterministic safer form and the
@@ -86,12 +87,28 @@ func ruleRewrite(rule, stmt string) string {
 		return concurrently(reRewriteRefresh, stmt,
 			"-- CONCURRENTLY needs a unique index on the materialized view.")
 	case "ddl_drop_index_not_concurrent":
+		// DROP INDEX CONCURRENTLY takes one index and no CASCADE.
+		if hasTopLevelComma(stmt) || reCascade.MatchString(stmt) {
+			return ""
+		}
 		return concurrently(reRewriteDropIndex, stmt,
 			"-- CONCURRENTLY cannot run inside a transaction block.")
 	case "ddl_detach_partition_not_concurrent":
 		if reRewriteDetach.MatchString(stmt) {
 			return stmt + " CONCURRENTLY;\n-- CONCURRENTLY cannot run inside a transaction block."
 		}
+	}
+	return alterTableRewrite(rule, stmt)
+}
+
+// alterTableRewrite is the ALTER TABLE rules' transformation. A statement
+// with several subcommands is not rewritten: the rewrite would make only
+// one of them safe and present the rest, which still scan, as guarded.
+func alterTableRewrite(rule, stmt string) string {
+	if hasTopLevelComma(stmt) {
+		return ""
+	}
+	switch rule {
 	case "ddl_constraint_not_valid", "ddl_fk_not_valid":
 		return notValidRewrite(stmt)
 	case "ddl_set_not_null":
@@ -100,6 +117,27 @@ func ruleRewrite(rule, stmt string) string {
 		return splitAddColumn(stmt)
 	}
 	return ""
+}
+
+// hasTopLevelComma reports a ',' outside parentheses and double-quoted
+// identifiers: one statement listing several subcommands or objects. The
+// text is sanitized, so string literals are already '***'.
+func hasTopLevelComma(s string) bool {
+	depth, quoted := 0, false
+	for _, c := range s {
+		switch {
+		case c == '"':
+			quoted = !quoted
+		case quoted:
+		case c == '(':
+			depth++
+		case c == ')':
+			depth = max(depth-1, 0)
+		case c == ',' && depth == 0:
+			return true
+		}
+	}
+	return false
 }
 
 func concurrently(re *regexp.Regexp, stmt, comment string) string {
