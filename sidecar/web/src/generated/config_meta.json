@@ -1279,6 +1279,90 @@
     "class": "operator_preference",
     "lifecycle": "restart"
   },
+  "fleet.discovery.enabled": {
+    "type": "bool",
+    "default": false,
+    "doc": "List the configured sources every 10 minutes and record the databases they report as candidates. Meta-db fleets only. Default: false.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "fleet.discovery.max_enrolled": {
+    "type": "int",
+    "default": 10,
+    "doc": "Most discovered members enrolled at once, adopted ones included. 0-50; 0 records candidates only. Default: 10.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "fleet.discovery.sources[].member": {
+    "type": "string",
+    "default": "",
+    "doc": "cluster: the existing member whose server is listed.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "fleet.discovery.sources[].name": {
+    "type": "string",
+    "default": "",
+    "doc": "Source name: lower-case letters, digits, - and _, at most 32. Prefixes the names of the members it enrols.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "fleet.discovery.sources[].owner": {
+    "type": "string",
+    "default": "",
+    "doc": "Who answers for what this source finds (a team or person). Required; copied to every enrolled member.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "fleet.discovery.sources[].project": {
+    "type": "string",
+    "default": "",
+    "doc": "lakebase: the project id whose branch endpoints are listed.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "fleet.discovery.sources[].region": {
+    "type": "string",
+    "default": "",
+    "doc": "rds: the AWS region listed.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "fleet.discovery.sources[].reuse_credentials": {
+    "type": "bool",
+    "default": false,
+    "doc": "cluster: enrol candidates with the member's role and password. Off: candidates are only recorded. Default: false.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "fleet.discovery.sources[].tag_key": {
+    "type": "string",
+    "default": "",
+    "doc": "rds: only instances carrying this tag are candidates.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "fleet.discovery.sources[].tag_value": {
+    "type": "string",
+    "default": "",
+    "doc": "rds: the tag's value; empty matches any value.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "fleet.discovery.sources[].type": {
+    "type": "string",
+    "default": "",
+    "doc": "cluster, lakebase or rds.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "fleet.discovery.ttl_hours": {
+    "type": "int",
+    "default": 72,
+    "doc": "Hours an enrolled member runs before it is disabled unless an owner adopts it. 1-720. Default: 72.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
   "fleet_learning.budget_ceiling_pct": {
     "type": "int",
     "default": 300,

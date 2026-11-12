@@ -41,6 +41,8 @@ var excludedPrefixes = []string{
 	"self_config.",            // derivation switch and soak: YAML only, safety-critical, restart-bound
 	// fleet learning and leader election: YAML only, restart-bound
 	"fleet_learning.",
+	// fleet auto-discovery (market-06): YAML only, restart-bound, safety-critical
+	"fleet.discovery.",
 	// agent posture: YAML only, restart-bound; exposed_roles is safety-critical
 	"agents.",
 	// E2 audit export and the MCP OAuth resource server: YAML only,

@@ -105,6 +105,8 @@ type Config struct {
 	Specialist SpecialistConfig `yaml:"specialist"`
 	// FleetLearning is fleet learning and leader election (fleet_learning.go).
 	FleetLearning FleetLearningConfig `yaml:"fleet_learning"`
+	// Fleet holds fleet auto-discovery (fleet_discovery.go, market-06).
+	Fleet FleetConfig `yaml:"fleet"`
 	// HA is each database's HA monitor cadence (ha.go).
 	HA HAConfig `yaml:"ha"`
 	// CloudTelemetry is managed-cloud host telemetry (cloud_telemetry.go).
@@ -866,6 +868,9 @@ func (c *Config) validate() error {
 	if err := c.validateFleetLearning(); err != nil {
 		return err
 	}
+	if err := c.Fleet.Discovery.Validate(); err != nil {
+		return err
+	}
 	if err := c.HA.validate(); err != nil {
 		return err
 	}
@@ -1221,6 +1226,7 @@ func newDefaults() *Config {
 		},
 		SelfConfig:    defaultSelfConfigConfig(),
 		FleetLearning: defaultFleetLearningConfig(),
+		Fleet:         defaultFleetConfig(),
 		HA:            defaultHAConfig(),
 		Agents:        defaultAgentsConfig(),
 		Audit:         defaultAuditConfig(),

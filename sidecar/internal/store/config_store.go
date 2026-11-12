@@ -255,7 +255,7 @@ func (s *ConfigStore) SetDatabaseOverridesCAS(
 			 WHERE id = $3`, executionMode, trustLevel, databaseID,
 		)
 		if err != nil {
-			return 0, fmt.Errorf("update database policy: %w", err)
+			return 0, fmt.Errorf("update database policy: %w", DiscoveredTrustError(err))
 		}
 		if executionMode != nil {
 			if err := insertAudit(qctx, tx, "execution_mode",

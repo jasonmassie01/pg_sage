@@ -49,7 +49,8 @@ func migrationSteps() []migrationStep {
 	steps = append(steps, namedSteps(laterMigrations())...)
 	steps = append(steps, namedSteps(latestMigrations())...)
 	steps = append(steps, namedSteps(trancheOneMigrations())...)
-	return append(steps, namedSteps(trancheTwoMigrations())...)
+	steps = append(steps, namedSteps(trancheTwoMigrations())...)
+	return append(steps, namedSteps(trancheThreeMigrations())...)
 }
 
 // namedStep pairs a constant's name with its SQL for laterMigrations.
@@ -195,5 +196,13 @@ func trancheTwoMigrations() []namedStep {
 		{"ddlSREAutonomyEvidenceExpiring", ddlSREAutonomyEvidenceExpiring}, // earned-06
 		{"ddlSREAutonomyServerMajor", ddlSREAutonomyServerMajor},           // earned-07
 		{"ddlGameDaySummary", ddlGameDaySummary},                           // benches-08
+	}
+}
+
+// trancheThreeMigrations are the T3 steps, appended after tranche two.
+func trancheThreeMigrations() []namedStep {
+	return []namedStep{
+		{"ddlDatabasesDiscovered", ddlDatabasesDiscovered}, // market-06
+		{"ddlDiscoveredDatabases", ddlDiscoveredDatabases}, // market-06
 	}
 }

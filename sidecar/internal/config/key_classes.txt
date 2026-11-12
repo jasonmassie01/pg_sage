@@ -522,6 +522,12 @@ operator_preference self_budget.storage_mb
 
 # Fleet learning (v2.3.0): evidence and coordination the operator declares;
 # none widens authority or spend (the split never exceeds the fleet cap).
+# market-06: discovery widens what pg_sage connects to and which credentials
+# it reuses, so its switches are never derived.
+safety_critical fleet.discovery.enabled
+safety_critical fleet.discovery.max_enrolled
+safety_critical fleet.discovery.sources
+operator_preference fleet.discovery.ttl_hours
 operator_preference fleet_learning.budget_ceiling_pct
 operator_preference fleet_learning.budget_floor_pct
 operator_preference fleet_learning.budget_split
