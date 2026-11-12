@@ -11,10 +11,9 @@ import (
 // formerOrphanFields named owners that production never registers
 // (config-07): they are restart-bound in every mode and must say so.
 var formerOrphanFields = []string{
-	"alerting.check_interval_seconds", "alerting.cooldown_minutes",
+	"alerting.check_interval_seconds",
 	"alerting.enabled", "alerting.pagerduty_routing_key",
-	"alerting.quiet_hours_end", "alerting.quiet_hours_start",
-	"alerting.routes", "alerting.slack_webhook_url", "alerting.timezone",
+	"alerting.routes", "alerting.slack_webhook_url",
 	"alerting.webhooks",
 	"collector.interval_seconds", "analyzer.interval_seconds",
 	"auto_explain.collect_interval_seconds",
@@ -59,7 +58,7 @@ func TestReconfigureOwnersAreProductionOwners(t *testing.T) {
 func TestProductionOwnersAreTheRegisteredOwners(t *testing.T) {
 	got := ProductionOwners()
 	want := []string{TrustPolicyOwner, LLMOwner, LLMRedactionOwner, BriefingOwner,
-		FleetDatabasesOwner}
+		AlertingOwner, FleetDatabasesOwner}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("ProductionOwners() = %v, want %v", got, want)
 	}
@@ -73,8 +72,9 @@ func TestProductionOwnersAreTheRegisteredOwners(t *testing.T) {
 	}
 }
 
-// Boundary: the 15 former orphans that still have no owner are restart
-// (briefing.* left the list when llm-06 gave it an owner); the llm
+// Boundary: the 11 former orphans that still have no owner are restart
+// (briefing.* left the list when llm-06 gave it an owner, and the alerting
+// cooldown, quiet hours and timezone when alerting-06 did); the llm
 // resource fields and trust ceilings keep their owners.
 func TestFormerOrphanFieldsAreRestartWithoutOwner(t *testing.T) {
 	for _, path := range formerOrphanFields {

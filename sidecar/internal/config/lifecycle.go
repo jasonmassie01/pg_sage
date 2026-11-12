@@ -24,11 +24,12 @@ const (
 )
 
 // ProductionOwners returns every reconfiguration owner the sidecar registers
-// in some mode: trust_policy, llm, llm_redaction and briefing in every mode,
+// in some mode: trust_policy, llm, llm_redaction, briefing and alerting in
+// every mode,
 // fleet_databases in YAML fleet mode. The result is a fresh copy.
 func ProductionOwners() []string {
 	return []string{TrustPolicyOwner, LLMOwner, LLMRedactionOwner, BriefingOwner,
-		FleetDatabasesOwner}
+		AlertingOwner, FleetDatabasesOwner}
 }
 
 // FieldLifecycle is the canonical lifecycle metadata for one YAML field.
@@ -147,6 +148,9 @@ func reconfigurationOwner(path string) string {
 	switch path {
 	case "briefing.schedule", "briefing.channels", "briefing.slack_webhook_url":
 		return BriefingOwner // llm-06: briefing.fleet_mode stays restart-bound
+	case "alerting.cooldown_minutes", "alerting.quiet_hours_start",
+		"alerting.quiet_hours_end", "alerting.timezone", "alerting.repeat_minutes":
+		return AlertingOwner // alerting-06: routes and channels stay restart-bound
 	}
 	if strings.HasPrefix(path, "llm.") && isLLMResourceField(path) {
 		return LLMOwner

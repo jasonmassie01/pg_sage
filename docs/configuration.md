@@ -3361,8 +3361,13 @@ PagerDuty re-triggers with the same dedup key, which it folds into the open inci
 finding that escalates (warning to critical) is sent at once. A finding that resolves and
 reopens, as a new finding or as the same one when an action did not fix it, is alerted again
 once the cooldown has passed, so a flapping check is not re-sent every cycle. Reminders are logged in `sage.alert_log` as `sent`, and after a restart the
-throttle reads that log far enough back to keep the schedule. Like the other alerting keys,
-`repeat_minutes` takes effect on restart.
+throttle reads that log far enough back to keep the schedule. `repeat_minutes`,
+`cooldown_minutes`, `quiet_hours_start`, `quiet_hours_end` and `timezone` apply without a
+restart when changed through the settings API: the next decision of every alerting manager
+and of the notification outbox uses them, and alerts already open stay throttled. An unknown
+timezone or an invalid quiet-hours value is refused with an error naming the key. The other
+alerting keys (routes, channels, URLs, `enabled`, `check_interval_seconds`) take effect on
+restart.
 
 ```yaml
 alerting:
@@ -3436,9 +3441,9 @@ The finding events (`finding_critical`, `finding_opened`, `finding_resolved`) fo
 Other events (incidents, actions, approvals) are queued and retried, without cooldown or
 quiet hours. `finding_opened` uses the key `finding:<database>:<category>:<object>`, and
 `finding_critical` keeps `finding_critical:<database>:<category>:<object>`: give a PagerDuty
-channel rules for one of the two, not both, or a critical finding opens two incidents. The
-alerting values take effect on restart. Delivered entries and closed states are deleted after
-7 days.
+channel rules for one of the two, not both, or a critical finding opens two incidents. A
+change of those alerting values through the settings API applies to the next decision without a
+restart. Delivered entries and closed states are deleted after 7 days.
 
 ### Retention
 

@@ -115,7 +115,7 @@ func newInstanceAlertManager(pool *pgxpool.Pool, name string) *alerting.Manager 
 		return nil
 	}
 	routes := buildAlertRoutes(cfg, logStructuredWrapper)
-	return alerting.New(pool, alerting.ManagerConfig{
+	m := alerting.New(pool, alerting.ManagerConfig{
 		CheckIntervalSeconds: cfg.Alerting.CheckIntervalSeconds,
 		CooldownMinutes:      cfg.Alerting.CooldownMinutes,
 		RepeatMinutes:        cfg.Alerting.RepeatMinutes,
@@ -124,6 +124,8 @@ func newInstanceAlertManager(pool *pgxpool.Pool, name string) *alerting.Manager 
 		Timezone:             cfg.Alerting.Timezone,
 		DatabaseName:         name,
 	}, routes, logStructuredWrapper)
+	alertingRuntime.addThrottle(m.Throttle())
+	return m
 }
 
 // notifyOutboxInterval is how often the outbox is drained.
@@ -140,6 +142,7 @@ func startNotifyOutbox(d *notify.Dispatcher, store *notify.PoolStore) {
 	}
 	d.UseOutbox(store)
 	d.SetAlertPolicy(notifyAlertPolicy(cfg))
+	alertingRuntime.addDispatcher(d)
 	go d.RunOutbox(shutdownCtx, notifyOutboxInterval)
 }
 
@@ -150,9 +153,7 @@ func notifyAlertPolicy(c *config.Config) notify.AlertPolicy {
 		p, _ := notify.NewAlertPolicy(0, nil, "", "", "")
 		return p
 	}
-	a := c.Alerting
-	p, warns := notify.NewAlertPolicy(a.CooldownMinutes, a.RepeatMinutes,
-		a.QuietHoursStart, a.QuietHoursEnd, a.Timezone)
+	p, warns := alertPolicyOf(c.Alerting)
 	for _, w := range warns {
 		logWarn("notify", "%s", w)
 	}

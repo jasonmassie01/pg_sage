@@ -2,8 +2,6 @@ package notify
 
 import (
 	"fmt"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
@@ -82,18 +80,10 @@ func NewAlertPolicy(
 	return p, warns
 }
 
-// parseClock reads HH:MM as a minute of the day.
+// parseClock reads HH:MM (or HH) like the YAML stack's quiet hours.
 func parseClock(s string) (int, bool) {
-	h, m, ok := strings.Cut(strings.TrimSpace(s), ":")
-	if !ok {
-		return 0, false
-	}
-	hh, errH := strconv.Atoi(h)
-	mm, errM := strconv.Atoi(m)
-	if errH != nil || errM != nil || hh < 0 || hh > 23 || mm < 0 || mm > 59 {
-		return 0, false
-	}
-	return hh*60 + mm, true
+	m := config.QuietHourMinute(s)
+	return m, m >= 0
 }
 
 func (p AlertPolicy) cooldownFor(sev string) time.Duration {
