@@ -28,9 +28,9 @@ func TestWindowBucket_MondayMidnightIsZeroInTheConfiguredZone(t *testing.T) {
 		at   time.Time
 		want int
 	}{
-		{time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC), 0},     // Monday
-		{time.Date(2026, 11, 9, 9, 30, 0, 0, time.UTC), 9},    // Monday 09:30
-		{time.Date(2026, 11, 10, 9, 0, 0, 0, time.UTC), 33},   // Tuesday 09:00
+		{time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC), 0},      // Monday
+		{time.Date(2026, 11, 9, 9, 30, 0, 0, time.UTC), 9},     // Monday 09:30
+		{time.Date(2026, 11, 10, 9, 0, 0, 0, time.UTC), 33},    // Tuesday 09:00
 		{time.Date(2026, 11, 15, 23, 59, 0, 0, time.UTC), 167}, // Sunday 23:59
 	}
 	for _, c := range cases {

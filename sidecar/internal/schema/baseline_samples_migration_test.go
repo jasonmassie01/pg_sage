@@ -3,6 +3,8 @@ package schema
 import (
 	"context"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // market-02: sage.baseline_samples holds the hour-of-week baselines.
@@ -12,37 +14,7 @@ func TestBaselineSamplesMigration(t *testing.T) {
 	pool, ctx := requireDB(t)
 	bootstrapWithRetry(t, ctx, pool)
 	bootstrapWithRetry(t, ctx, pool)
-	want := map[string]string{
-		"database": "text", "metric": "text", "key": "text", "how": "text",
-		"week_start": "date", "bucket": "smallint", "n": "bigint",
-		"value": "double precision", "updated_at": "timestamp with time zone",
-	}
-	rows, err := pool.Query(ctx, `SELECT column_name, data_type, is_nullable
-		FROM information_schema.columns
-		WHERE table_schema = 'sage' AND table_name = 'baseline_samples'`)
-	if err != nil {
-		t.Fatalf("columns: %v", err)
-	}
-	got := map[string]string{}
-	for rows.Next() {
-		var name, typ, nullable string
-		if err := rows.Scan(&name, &typ, &nullable); err != nil {
-			t.Fatalf("scan column: %v", err)
-		}
-		if nullable != "NO" {
-			t.Errorf("column %s is nullable", name)
-		}
-		got[name] = typ
-	}
-	rows.Close()
-	for name, typ := range want {
-		if got[name] != typ {
-			t.Errorf("column %s = %q, want %q", name, got[name], typ)
-		}
-	}
-	if len(got) != len(want) {
-		t.Errorf("columns = %v, want %v", got, want)
-	}
+	requireBaselineColumns(t, ctx, pool)
 	const probe = "market02.migration_probe"
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(),
@@ -63,5 +35,40 @@ func TestBaselineSamplesMigration(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sage.baseline_samples
 		WHERE database = $1`, probe).Scan(&n); err != nil || n != 1 {
 		t.Fatalf("re-run kept %d probe rows (%v), want 1", n, err)
+	}
+}
+
+func requireBaselineColumns(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	want := map[string]string{
+		"database": "text", "metric": "text", "key": "text", "how": "text",
+		"week_start": "date", "bucket": "smallint", "n": "bigint",
+		"value": "double precision", "updated_at": "timestamp with time zone",
+	}
+	rows, err := pool.Query(ctx, `SELECT column_name, data_type, is_nullable
+		FROM information_schema.columns
+		WHERE table_schema = 'sage' AND table_name = 'baseline_samples'`)
+	if err != nil {
+		t.Fatalf("columns: %v", err)
+	}
+	defer rows.Close()
+	got := map[string]string{}
+	for rows.Next() {
+		var name, typ, nullable string
+		if err := rows.Scan(&name, &typ, &nullable); err != nil {
+			t.Fatalf("scan column: %v", err)
+		}
+		if nullable != "NO" {
+			t.Errorf("column %s is nullable", name)
+		}
+		got[name] = typ
+	}
+	for name, typ := range want {
+		if got[name] != typ {
+			t.Errorf("column %s = %q, want %q", name, got[name], typ)
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("columns = %v, want %v", got, want)
 	}
 }
