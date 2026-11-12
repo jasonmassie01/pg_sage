@@ -311,9 +311,9 @@ func TestLakebase_CallerCancelStopsTheWait(t *testing.T) {
 
 func TestLakebase_IdentityGuardRefusesProductionEndpoint(t *testing.T) {
 	for name, api := range map[string]*fakeBranchAPI{
-		"endpoint host":            {endpointHost: "ep-prod.lakebase.invalid"},
-		"endpoint host, any case":  {endpointHost: "EP-PROD.lakebase.invalid."},
-		"branch uid":               {branchUID: "uid-production"},
+		"endpoint host":           {endpointHost: "ep-prod.lakebase.invalid"},
+		"endpoint host, any case": {endpointHost: "EP-PROD.lakebase.invalid."},
+		"branch uid":              {branchUID: "uid-production"},
 	} {
 		p := newLakebaseForTest(t, testLakebaseConfig(api))
 		c, err := p.Create(context.Background(), CloneSpec{})

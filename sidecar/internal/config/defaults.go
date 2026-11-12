@@ -215,30 +215,30 @@ const (
 	DefaultLogWatchTempFileMinBytes = 10485760 // 10MB
 	DefaultLogWatchMaxLinesPerCycle = 10000
 
-	DefaultPolicyProfile             = "unattended"
-	DefaultToilModelVersion          = 1
-	DefaultVerifyWindowMinutes       = 120
-	DefaultVerifyWindowMaxMinutes    = 4320
-	DefaultVerifyMinGainPct          = 20.0
-	DefaultVerifyRegressPct          = 15.0
-	DefaultVerifyWriteImpactPct      = 20.0
-	DefaultVerifyMinSamples          = 30
-	DefaultIOBaselineDays            = 7
-	DefaultIOSampleRetentionDays     = 14
-	DefaultDataIOCeilingPct          = 70
-	DefaultWALIOCeilingPct           = 70
-	DefaultCloneProvider             = "none"
-	DefaultCloneMaxAgeMinutes        = 1440
+	DefaultPolicyProfile          = "unattended"
+	DefaultToilModelVersion       = 1
+	DefaultVerifyWindowMinutes    = 120
+	DefaultVerifyWindowMaxMinutes = 4320
+	DefaultVerifyMinGainPct       = 20.0
+	DefaultVerifyRegressPct       = 15.0
+	DefaultVerifyWriteImpactPct   = 20.0
+	DefaultVerifyMinSamples       = 30
+	DefaultIOBaselineDays         = 7
+	DefaultIOSampleRetentionDays  = 14
+	DefaultDataIOCeilingPct       = 70
+	DefaultWALIOCeilingPct        = 70
+	DefaultCloneProvider          = "none"
+	DefaultCloneMaxAgeMinutes     = 1440
 	// DefaultCloneLakebaseTTLMinutes is clone.lakebase.ttl_minutes: the
 	// rehearsal bound (1 h), so a leaked branch lives no longer than one.
 	DefaultCloneLakebaseTTLMinutes = 60
 	// DefaultCloneLakebaseEndpointMaxCU is clone.lakebase.endpoint_max_cu.
 	DefaultCloneLakebaseEndpointMaxCU = 1.0
-	DefaultFreezeRedBufferPct        = 25.0
-	DefaultWALAbandonAfterMinutes    = 1440
-	DefaultWALRetainedDiskPctCeiling = 10.0
-	DefaultMCPEnabled                = true
-	DefaultMCPTransport              = "http"
+	DefaultFreezeRedBufferPct         = 25.0
+	DefaultWALAbandonAfterMinutes     = 1440
+	DefaultWALRetainedDiskPctCeiling  = 10.0
+	DefaultMCPEnabled                 = true
+	DefaultMCPTransport               = "http"
 	// mcp.call_timeout_seconds: default and accepted range.
 	DefaultMCPCallTimeoutSeconds = 90
 	MinMCPCallTimeoutSeconds     = 5

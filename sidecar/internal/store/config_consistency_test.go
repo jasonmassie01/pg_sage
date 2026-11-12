@@ -40,8 +40,8 @@ var excludedPrefixes = []string{
 	// market-03: the Lakebase project rehearsal branches are made in and
 	// their limits: YAML only, restart-bound, the project safety-critical
 	"clone.lakebase.",
-	"sre.read_policy.",        // trusted observation boundary; never a model-derived grant
-	"self_config.",            // derivation switch and soak: YAML only, safety-critical, restart-bound
+	"sre.read_policy.", // trusted observation boundary; never a model-derived grant
+	"self_config.",     // derivation switch and soak: YAML only, safety-critical, restart-bound
 	// fleet learning and leader election: YAML only, restart-bound
 	"fleet_learning.",
 	// agent posture: YAML only, restart-bound; exposed_roles is safety-critical
