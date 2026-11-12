@@ -865,7 +865,8 @@ jobs:
 
       - name: kubeconform
         run: |
-          docker run --rm -v "$PWD/rendered:/r:ro" ghcr.io/yannh/kubeconform:v0.6.7             -strict -summary -ignore-missing-schemas /r
+          docker run --rm -v "$PWD/rendered:/r:ro" ghcr.io/yannh/kubeconform:v0.6.7 \
+            -strict -summary -ignore-missing-schemas /r
 
   # vacuum-03: float-to-Duration overflow differs by architecture (amd64
   # wraps to MinInt64, arm64 saturates), so the freeze deadline and the
@@ -1575,7 +1576,8 @@ jobs:
         run: |
           set -euo pipefail
           v="${GITHUB_REF_NAME#v}"
-          docker run --rm -v "$PWD:/w" -w /w alpine/helm:3.16.2 package             deploy/helm/pg-sage --version "$v" --app-version "$v" -d release-assets
+          docker run --rm -v "$PWD:/w" -w /w alpine/helm:3.16.2 package \
+            deploy/helm/pg-sage --version "$v" --app-version "$v" -d release-assets
 
       # ci-05: goreleaser runs cosign (signs checksums.txt) and syft (an
       # SBOM per archive) inside the goreleaser-cross container. cosign is
