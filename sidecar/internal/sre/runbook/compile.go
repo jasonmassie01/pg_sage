@@ -158,7 +158,8 @@ func attempt(ctx context.Context, m Model, req CompileRequest, repair string,
 	if tools {
 		specs = compileTools()
 	}
-	res, err := m.ChatWithTools(ctx, compileMessages(req, repair, tools), specs,
+	pctx := llm.WithPurpose(ctx, "runbook_compile") // llm-04: usage ledger label
+	res, err := m.ChatWithTools(pctx, compileMessages(req, repair, tools), specs,
 		llm.ToolOptions{Timeout: req.Timeout, MaxTokens: compileMaxTokens})
 	if err != nil {
 		if ctx.Err() != nil {

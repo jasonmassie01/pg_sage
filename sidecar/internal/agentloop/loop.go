@@ -113,7 +113,8 @@ func (r *run) step(ctx, parent context.Context, step int) (bool, error) {
 		return true, nil
 	}
 	r.res.Transcript.ModelCalls++
-	res, err := r.model.ChatWithTools(ctx, r.msgs, tools, opts)
+	pctx := llm.WithDefaultPurpose(ctx, "agent_loop") // llm-04: usage ledger label
+	res, err := r.model.ChatWithTools(pctx, r.msgs, tools, opts)
 	if res.Tokens > 0 {
 		r.res.Transcript.Tokens += res.Tokens
 	} else {

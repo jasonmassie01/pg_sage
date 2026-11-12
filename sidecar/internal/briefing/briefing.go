@@ -386,7 +386,8 @@ statement is removed before the briefing is sent.
 	// JSON-wrapped prose answer is unwrapped before grounding (G3-B11).
 	// The system prompt must not say "JSON": that turns on json_object mode.
 	// An answer cut at the token limit is kept and marked as cut (llm-07).
-	resp, err := w.llm.ChatResult(ctx, system,
+	pctx := llm.WithPurpose(ctx, "briefing") // llm-04: usage ledger label
+	resp, err := w.llm.ChatResult(pctx, system,
 		llm.UntrustedData("briefing_data", structured), briefingMaxTokens)
 	if err != nil {
 		return "", resp.Tokens, err

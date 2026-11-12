@@ -147,7 +147,8 @@ func (e *Engine) runTier2(ctx context.Context, req *tier2Request) []Incident {
 	defer cancel()
 
 	user := buildTier2UserPrompt(req.candidates, req.context)
-	raw, _, err := req.client.Chat(cctx, buildTier2SystemPrompt(), user, 2048)
+	pctx := llm.WithPurpose(cctx, "rca_tier2") // llm-04: usage ledger label
+	raw, _, err := req.client.Chat(pctx, buildTier2SystemPrompt(), user, 2048)
 	if err != nil {
 		e.logFn("warn", "rca: tier2 LLM call failed: %v", err)
 		return nil

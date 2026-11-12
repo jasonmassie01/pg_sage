@@ -118,7 +118,8 @@ func (s *investigatorSession) reservedCall(ctx context.Context, msgs []llm.Messa
 	budget := NewCallBudget(res)
 	opts.Budget, opts.MaxTokens = budget, int(res.Output)
 	opts.ReasoningTokens = int(res.Reasoning)
-	result, callErr := s.c.model.ChatWithTools(ctx, msgs, tools, opts)
+	pctx := llm.WithPurpose(ctx, "sre_investigation") // llm-04: usage ledger label
+	result, callErr := s.c.model.ChatWithTools(pctx, msgs, tools, opts)
 	_, settleErr := s.c.store.SettleModel(context.WithoutCancel(ctx), s.lease.Scope, res,
 		usageOf(budget, result, callErr, res))
 	return result, errors.Join(callErr, settleErr)

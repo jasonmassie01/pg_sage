@@ -46,7 +46,8 @@ func (s *Summarizer) Summarize(ctx context.Context, r Report) (string, error) {
 	if len(r.Items) == 0 && len(degradedChecks(r.Checks)) == 0 {
 		return "", nil
 	}
-	reply, _, err := s.client.Chat(ctx, summarySystemPrompt, summaryPrompt(r),
+	pctx := llm.WithPurpose(ctx, "first_look") // llm-04: usage ledger label
+	reply, _, err := s.client.Chat(pctx, summarySystemPrompt, summaryPrompt(r),
 		summaryMaxTokens)
 	if err != nil {
 		return "", fmt.Errorf("first look summary: %w", err)

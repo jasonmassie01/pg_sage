@@ -40,7 +40,8 @@ func (ex *Explainer) enhanceWithLLM(
 	}
 
 	user := explainUserPrompt(result, ex.llmClient.ContextBudgetBytes())
-	raw, _, err := ex.llmClient.Chat(ctx, explainSystemPrompt, user, maxTokens)
+	pctx := llm.WithPurpose(ctx, "explain") // llm-04: usage ledger label
+	raw, _, err := ex.llmClient.Chat(pctx, explainSystemPrompt, user, maxTokens)
 	if err != nil {
 		ex.logFn(
 			"WARN", "explain: LLM enhancement failed: %v", err,
