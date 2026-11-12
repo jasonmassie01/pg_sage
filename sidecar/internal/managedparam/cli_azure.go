@@ -124,6 +124,9 @@ func azureRollback(set, parameter, method string, gp GroupParam,
 // a parameter in another unit than pg_settings.unit (max_wal_size in KB,
 // not MB), so an Azure proposal compares its PostgreSQL base-unit value.
 func runningForm(p Proposal) string {
+	if p.Mechanism == MechanismClusterSpec {
+		return cnpgRunningForm(p.Parameter, p.Value)
+	}
 	if p.Mechanism != MechanismServerParameter {
 		return p.Value
 	}

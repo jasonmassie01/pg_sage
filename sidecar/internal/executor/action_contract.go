@@ -853,7 +853,7 @@ func prepareParameterizedQueryContract() ActionContract {
 
 func portableActionProviders() []string {
 	return []string{prov.Postgres, prov.RDS, prov.Aurora, prov.CloudSQL, prov.AlloyDB,
-		prov.Neon, prov.Supabase, prov.Azure, prov.AzureCosmos}
+		prov.Neon, prov.Supabase, prov.Azure, prov.AzureCosmos, prov.CNPG}
 }
 
 // databaseGUCProviders run ALTER DATABASE ... SET: not Cosmos DB for

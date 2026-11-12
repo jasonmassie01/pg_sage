@@ -56,7 +56,7 @@ func (e *Executor) applyManagedCustodianConfig(
 	if err != nil {
 		return ManagedConfigResult{}, true, err
 	}
-	if provider == "neon" || provider == "lakebase" {
+	if provider == "neon" || provider == "lakebase" || prov.Canonical(provider) == prov.CNPG {
 		return ManagedConfigResult{}, true, fmt.Errorf("%w: %s",
 			ErrManagedConfigUnsupported, managedConfigGuidance(provider, change.Parameter))
 	}
@@ -125,7 +125,7 @@ func parseManagedConfigValue(raw string) (string, error) {
 func managedConfigMechanism(provider string) ManagedConfigMechanism {
 	profile, _ := prov.Lookup(provider)
 	switch profile.ConfigMechanism {
-	case prov.ConfigTenant:
+	case prov.ConfigTenant, prov.ConfigClusterSpec:
 		return ManagedProviderConfig
 	case prov.ConfigCloudSQLFlags, prov.ConfigAlloyDBFlags:
 		return ManagedDatabaseFlag
@@ -153,6 +153,13 @@ func managedConfigGuidance(provider, parameter string) string {
 		return "Azure Cosmos DB for PostgreSQL: set " + parameter + " with `az cosmosdb " +
 			"postgres configuration coordinator update --name " + parameter +
 			" --value <value>`; ALTER SYSTEM is unavailable"
+	case prov.CNPG:
+		return "CloudNativePG: set " + parameter + " in the Cluster's " +
+			"spec.postgresql.parameters (`kubectl patch cluster <cluster> -n <namespace> " +
+			"--type merge`, or the GitOps repository that owns the Cluster); the operator " +
+			"owns postgresql.conf and ALTER SYSTEM is disabled. pg_sage records it as a " +
+			"managed-change proposal an operator approves and applies; it never patches " +
+			"the Cluster"
 	case prov.Azure:
 		return "Azure Database for PostgreSQL: set " + parameter + " with `az postgres " +
 			"flexible-server parameter set --resource-group <resource-group> --server-name " +

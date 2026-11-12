@@ -165,6 +165,8 @@ type PostgresConfig struct {
 	Provider       string `yaml:"provider" doc:"Optional provider override, e.g. rds, cloud-sql, neon or self-managed. Used only while detection cannot tell; a disagreement with detection keeps the detected provider and warns."`
 	// CloudResource names the provider resource when the host does not.
 	CloudResource CloudResourceConfig `yaml:"cloud_resource"`
+	// CNPG names the CloudNativePG Cluster behind the database (market-12).
+	CNPG CNPGConfig `yaml:"cnpg"`
 }
 
 type CollectorConfig struct {

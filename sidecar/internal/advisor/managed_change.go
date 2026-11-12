@@ -42,6 +42,8 @@ func mechanismLabel(platform string) string {
 		return "database flag"
 	case "azure":
 		return "server parameter"
+	case "cnpg":
+		return "Cluster spec parameter"
 	}
 	return "parameter group"
 }

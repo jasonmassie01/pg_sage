@@ -154,6 +154,7 @@ func (w *Worker) upsert(ctx context.Context, p Proposal, findingID int64,
 			res.HeldByPeer++
 			return Record{}, false, true, nil
 		}
+		w.markConflicts(ctx, &p)
 	}
 	rec, created, err = w.store.Upsert(ctx, p, findingID)
 	return rec, created, false, err
@@ -208,4 +209,49 @@ func (w *Worker) notePeerError(res *CycleResult) {
 	case res.peerErr == "" && res.peerReads > 0:
 		w.peerErr = ""
 	}
+}
+
+// markConflicts shows on p every other value a peer database of the same
+// resource holds open for the parameter (market-12): the resource has one
+// value, so the operator decides between them. A peer that cannot be read
+// is skipped; heldByPeer already reports peer read failures.
+func (w *Worker) markConflicts(ctx context.Context, p *Proposal) {
+	for _, o := range otherPeers(w.opts.Resource, w.opts.Database) {
+		peerCtx, cancel := context.WithTimeout(ctx, peerReadTimeout)
+		values, err := o.store.openValues(peerCtx, p.Provider, p.Parameter, p.Fingerprint)
+		cancel()
+		if err != nil {
+			continue
+		}
+		for _, v := range values {
+			p.Conflicts = append(p.Conflicts, Conflict{Database: o.database, Value: v})
+			p.Blockers = append(p.Blockers, fmt.Sprintf("in conflict: database %q of the "+
+				"same %s resource proposes %s = %s; the resource runs one value, so decide "+
+				"between them before applying either", o.database, p.Provider, p.Parameter, v))
+		}
+	}
+}
+
+// openValues are the values of the store's open proposals for the
+// parameter other than the fingerprint's.
+func (s *Store) openValues(ctx context.Context, provider, parameter,
+	fingerprint string) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `/* pg_sage */ SELECT value
+		FROM sage.managed_change_proposals
+		WHERE provider = $1 AND parameter = $2 AND fingerprint <> $3
+		  AND status IN ('pending', 'approved')
+		ORDER BY value`, provider, parameter, fingerprint)
+	if err != nil {
+		return nil, fmt.Errorf("read peer managed changes: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			return nil, fmt.Errorf("scan peer managed change: %w", err)
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
 }

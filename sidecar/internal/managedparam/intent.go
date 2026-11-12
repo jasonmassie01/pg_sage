@@ -1,9 +1,9 @@
 // Package managedparam turns a setting change that SQL cannot make on a
 // managed PostgreSQL service (a restart-required or provider-restricted
-// parameter on RDS, Aurora, Cloud SQL, AlloyDB or Azure flexible server)
-// into a typed proposal: the exact parameter-group, database-flag or
-// server-parameter change, whether it needs a reboot, its rollback and the
-// CLI command an operator runs. pg_sage never applies these changes
+// parameter on RDS, Aurora, Cloud SQL, AlloyDB, Azure flexible server or a
+// CloudNativePG Cluster) into a typed proposal: the exact parameter-group,
+// database-flag, server-parameter or Cluster-spec change, whether it needs
+// a reboot, its rollback and the CLI command an operator runs. pg_sage never applies these changes
 // itself; it records the operator's decision, observes when the new value
 // is running and reports parameter drift.
 package managedparam
@@ -61,7 +61,7 @@ const retiredProvider = "azure-single"
 // NormalizeProvider maps the cloud environment names pg_sage detects to
 // the providers this package supports ("" when unsupported): those whose
 // settings change through a parameter group, Cloud SQL or AlloyDB database
-// flags, or Azure flexible-server parameters.
+// flags, Azure flexible-server parameters or a CloudNativePG Cluster spec.
 func NormalizeProvider(provider string) string {
 	if strings.EqualFold(strings.TrimSpace(provider), retiredProvider) {
 		return ""
@@ -69,7 +69,8 @@ func NormalizeProvider(provider string) string {
 	profile, _ := prov.Lookup(provider)
 	switch profile.ConfigMechanism {
 	case prov.ConfigParameterGroup, prov.ConfigClusterParameterGroup,
-		prov.ConfigCloudSQLFlags, prov.ConfigAlloyDBFlags, prov.ConfigServerParameters:
+		prov.ConfigCloudSQLFlags, prov.ConfigAlloyDBFlags, prov.ConfigServerParameters,
+		prov.ConfigClusterSpec:
 		return profile.Name
 	}
 	return ""
