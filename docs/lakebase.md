@@ -669,6 +669,60 @@ epochs, visible counter decreases and small continuing spills stay unknown/open.
 Unseen selective reset/eviction followed by regrowth between samples can escape
 those guards; complete per-entry lineage is not established.
 
+## Branch rehearsal
+
+pg_sage can rehearse a migration on an instant Lakebase branch of production
+instead of a Database Lab clone. Set:
+
+```yaml
+clone:
+  provider: lakebase_branch
+  lakebase:
+    project: <project>          # required
+    # source_branch: <branch>   # default: the monitored endpoint's branch
+    # ttl_minutes: 60           # 1-1440, server-side expiry of each branch
+    # endpoint_max_cu: 1        # autoscaling maximum of the branch endpoint
+```
+
+Each rehearsal creates branch `sage-rh-<8 hex>` of the source branch, a
+read-write endpoint on it and a database credential for the monitored role, and
+connects with `sslmode=verify-full`. The rehearsal runs the expand steps only, as
+with any clone, then deletes the endpoint and the branch. A branch is a copy of
+production data, so:
+
+- Every branch is created with an expiry `ttl_minutes` ahead. If pg_sage stops,
+  or cannot delete the branch, Lakebase deletes it then. The default, 60 minutes,
+  is the rehearsal bound.
+- If a later step fails (endpoint, credential), pg_sage deletes what it made
+  before it reports the failure. A create that timed out, or whose cleanup
+  failed, leaves its receipt `create_uncertain` and is logged for an operator.
+- Every branch is receipted in `sage.clone_instances` (adapter
+  `lakebase_branch`, scope `projects/<project>`), and the fleet leader's reaper
+  deletes the branch of an expired receipt. pg_sage deletes only
+  `sage-rh-<8 hex>` branches of the configured project.
+- A branch with production's branch uid, or an endpoint on production's host, is
+  refused (`target_is_production`) before any credential is minted. Production's
+  identity is read from live metadata, as for telemetry scope, using
+  `SAGE_LAKEBASE_ENDPOINT` (or `SAGE_LAKEBASE_ENDPOINTS`).
+
+Without Databricks unified auth, or when the monitored database is not a
+Lakebase endpoint, the rehearsal is recommendation-only (`clone_unavailable`).
+The principal needs **CAN_MANAGE** on the project to create and delete branches
+and endpoints, and the monitored role must exist on the source branch (a branch
+copies its roles). The minted credential expires after about an hour, which
+covers the one-hour rehearsal bound. Game days and local bench runs use the same
+adapter when `clone.provider` is `lakebase_branch`; their clones are tracked by
+the game-day store and the branch expiry, not by rehearsal receipts.
+
+This adapter is for Lakebase only. Other providers and self-managed PostgreSQL
+use `dle`. In fleet mode one clone provider serves the deployment: each
+database's rehearsal branches from its own endpoint's branch, and a database
+whose endpoint is in another project is recommendation-only.
+
+To check that a live run left nothing behind, list the project's branches
+(`databricks postgres list-branches projects/<project>`); no `sage-rh-*` branch
+should remain after a rehearsal ends.
+
 ## Managed-service limits
 
 | Feature | Verified behavior / limitation |
