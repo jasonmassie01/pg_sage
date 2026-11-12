@@ -25,6 +25,11 @@ func TestSourceIncidentFromMap_KeepsThePreviousIncident(t *testing.T) {
 func TestEnrichIncidentRecurrence_NoLinksRunsNoQuery(t *testing.T) {
 	// A nil pool would panic if a lookup were attempted.
 	enrichIncidentRecurrence(t.Context(), nil, nil)
-	enrichIncidentRecurrence(t.Context(), nil,
-		[]cases.Case{{ID: "finding:prod:x"}, {ID: "incident:prod:y"}})
+	list := []cases.Case{{ID: "finding:prod:x"}, {ID: "incident:prod:y"}}
+	enrichIncidentRecurrence(t.Context(), nil, list)
+	for _, c := range list {
+		if c.Recurrence != nil {
+			t.Fatalf("case %s gained recurrence %+v without a link", c.ID, c.Recurrence)
+		}
+	}
 }

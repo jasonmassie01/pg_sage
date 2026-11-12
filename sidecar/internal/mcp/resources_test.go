@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/stretchr/testify/require"
+	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
 // llm-06b: the briefing MCP resource. resources/list names one latest

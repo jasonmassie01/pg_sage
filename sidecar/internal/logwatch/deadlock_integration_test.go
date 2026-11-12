@@ -22,6 +22,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // rca-07 on real PostgreSQL: a deadlock between two sessions becomes an
@@ -133,10 +134,7 @@ func bootstrapPool(ctx context.Context, t *testing.T, url string) *pgxpool.Pool 
 // CHECK-04: a real deadlock's csvlog record opens one incident whose stored
 // evidence names both PIDs and whose log_occurrences count is at least 1.
 func TestIntegration_RealDeadlockStoresParticipantsAndCount(t *testing.T) {
-	url := os.Getenv("SAGE_TEST_DATABASE_URL")
-	if url == "" {
-		t.Skip("SAGE_TEST_DATABASE_URL not set: needs a PostgreSQL server")
-	}
+	url := testdb.SkipUnlessLive(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	pool := bootstrapPool(ctx, t, url)
