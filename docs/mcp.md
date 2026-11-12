@@ -343,6 +343,16 @@ unterminated literal, quoted identifier or comment.
 * `lint_migration` returns `safe` only when every statement is known. It returns
   `review`, never `safe`, for an unrecognized statement (on a build without the parser:
   one outside the allowlist that no rule matched), and its `note` says how many there are.
+* `lint_migration` is a thin wrapper over the shared pre-merge review that the
+  `lint-migration` CI gate and `POST /api/v1/migrations/lint` also call
+  ([Migration review in CI](migration-ci.md)), and that scores exactly as the migration
+  advisor does: it applies `migration.ddl_row_threshold`, marks a binary-coercible
+  `ALTER COLUMN ... TYPE` (`varchar(20)` to `text`) as no rewrite, and lists
+  `ddl_missing_lock_timeout` as an unscored annotation (`"annotation": true`,
+  `risk_score` 0) instead of a hazard. Items also carry `statement_index`, `verdict` and
+  `guarded_rewrite`; the result carries `pg_version`, `row_threshold` and the full
+  per-statement `review`. A catalog read that fails or times out is an error, never a
+  verdict.
 
 ### What `apply_migration` can plan
 

@@ -15,7 +15,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/migration"
 )
 
-// pg_sage_sidecar lint-migration (migration-11): the CI gate. It reviews
+// pg_sage lint-migration (migration-11): the CI gate. It reviews
 // one migration file with the same engine as MCP lint_migration and the
 // advisor, prints JSON, GitHub annotations or SARIF, and exits 0 safe,
 // 1 review, 2 risky or 3 on a tool error (unreadable file, no connection,
@@ -35,7 +35,7 @@ var lintReadTimeouts = catalogread.Timeouts{Statement: 2 * time.Second, Lock: ti
 
 const lintConnectTimeout = 10 * time.Second
 
-const lintMigrationUsage = `usage: pg_sage_sidecar lint-migration --file x.sql [--static]
+const lintMigrationUsage = `usage: pg_sage lint-migration --file x.sql [--static]
            [--pg-version 14-18] [--row-threshold N] [--format json|github|sarif]
 The monitored database's DSN comes from SAGE_LINT_DATABASE_URL (or
 SAGE_LINT_DATABASE_URL_FILE); --static reads no database. Exit codes:

@@ -78,7 +78,7 @@ docker logs pg_sage 2>&1 | grep 'INITIAL ADMIN PASSWORD'
 | **Vacuum/Bloat/Freeze Autopilot** | Table bloat, dead tuples, XID runway, freeze blockers, and per-table autovacuum tuning produce guarded candidates with verification plans |
 | **Query Tuning Beyond Hints** | Query rewrites, broken-hint retirement, `CREATE STATISTICS`, parameterization, and repeated role-level work_mem patterns become reviewable actions with verification steps |
 | **Provider Capability Adapters** | Lakebase, Cloud SQL, AlloyDB, RDS, Aurora, and self-managed Postgres expose provider-specific extension paths, log access, limitations, and action readiness |
-| **DDL Safety + PR/CI Output** | Migration-risk cases include lock/rewrite/live-risk preflight, guarded migration SQL, rollback or forward-fix guidance, verification SQL, and PR-ready metadata |
+| **DDL Safety + PR/CI Output** | Review a migration before it merges: `pg_sage lint-migration` in CI (exit 0 safe, 1 review, 2 risky; GitHub annotations or SARIF), `POST /api/v1/migrations/lint` and MCP `lint_migration` share the advisor's lock/rewrite/live-size scoring and print a guarded rewrite ([Migration review in CI](docs/migration-ci.md)). DDL that already ran becomes a migration-risk case with forward-fix guidance |
 | **Rules Engine** | 20+ deterministic checks: duplicate/unused/missing indexes, slow queries, regressions, seq scans, vacuum & bloat, dead tuples, sequence exhaustion, replication lag, security audit, config drift |
 | **Index Optimizer** | LLM-powered recommendations validated through 8 checks + HypoPG cost estimation, confidence scored 0.0--1.0 |
 | **Config Advisors** | 6 LLM advisors: vacuum tuning, WAL/checkpoint, connections, memory, query rewrite, bloat remediation |

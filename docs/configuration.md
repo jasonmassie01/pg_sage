@@ -1498,6 +1498,21 @@ api:
   access_log: true
 ```
 
+#### Migration lint rate
+
+`api.migration_lint_rate_per_minute` (default `30`, restart to change) is how
+many requests each signed-in user may send to `POST /api/v1/migrations/lint` in
+any minute; the next one gets 429 with `Retry-After`. 0 or less means the
+default. Each request reads catalog statistics on the monitored database under a
+2 s `statement_timeout`, and at most 4 run at once. The CLI gate
+(`pg_sage lint-migration`) is not rate limited: it uses its own
+connection ([Migration review in CI](migration-ci.md)).
+
+```yaml
+api:
+  migration_lint_rate_per_minute: 30
+```
+
 #### Profiling the sidecar
 
 `debug.pprof_enabled: true` (default `false`, restart to change) serves Go's profiler
