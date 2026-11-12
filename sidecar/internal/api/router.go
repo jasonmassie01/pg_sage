@@ -180,8 +180,7 @@ func NewRouterFullRuntime(
 	if pool != nil {
 		registerControlPoolRoutes(apiMux, mgr, cfg, pool, rt)
 	}
-	if actions != nil && (actions.Store != nil ||
-		actions.Fleet != nil) {
+	if actions != nil && (actions.Store != nil || actions.Fleet != nil) {
 		registerActionRoutes(apiMux, actions)
 	}
 	if mgr != nil {
