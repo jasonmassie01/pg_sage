@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/pg-sage/sidecar/internal/provider"
 	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
@@ -25,8 +26,7 @@ func (ap08) Spec() Spec {
 }
 
 // providerAdminRoles are managed-service administration logins.
-const providerAdminRoles = `^(rdsadmin|rdsrepladmin|rds_|cloudsqladmin|cloudsqlreplica|` +
-	`azure_superuser|azuresu|alloydbadmin|alloydbreplica)`
+const providerAdminRoles = provider.AdminRolePattern
 
 // ap08SQL reports, per candidate role, whether each timeout is covered.
 var ap08SQL = Statement("AP-08", `WITH db AS (

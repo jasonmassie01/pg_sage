@@ -81,6 +81,8 @@ type Config struct {
 	RCA         RCAConfig           `yaml:"rca"`
 	SRE         SREConfig           `yaml:"sre"`
 	Runaway     RunawayConfig       `yaml:"runaway"`
+	// Budgets are the workload budgets (workload_budgets.go, market-08).
+	Budgets []BudgetConfig `yaml:"budgets" doc:"Workload budgets per role, application_name or sqlcommenter tag: warn mode (default) counts would-be violations; enforce (role budgets) proposes ALTER ROLE settings. Default: none."`
 	Explain     ExplainConfig       `yaml:"explain"`
 	LogWatch    LogWatchConfig      `yaml:"logwatch"`
 	SchemaLint  SchemaLintConfig    `yaml:"schema_lint"`
@@ -322,6 +324,7 @@ type AdvisorConfig struct {
 	MemoryEnabled     bool `yaml:"memory_enabled" doc:"Let the tuning agent propose server settings (work_mem and other memory, planner and autovacuum settings) for its cases. Needs advisor.enabled. Default: true."`
 	RewriteEnabled    bool `yaml:"rewrite_enabled"`
 	BloatEnabled      bool `yaml:"bloat_enabled"`
+	BudgetProposals   bool `yaml:"budget_proposals" doc:"Propose a workload budget statement_timeout per role from its statement time (3x the 14-day p99, rounded up, never below the observed maximum) as info findings. Default: true."`
 }
 
 type BriefingConfig struct {
@@ -773,6 +776,9 @@ func (c *Config) validate() error {
 	if err := c.Analyzer.validateIndexBloat(); err != nil {
 		return err
 	}
+	if err := validateBudgets(c.Budgets); err != nil {
+		return err
+	}
 	if err := c.Briefing.validate(); err != nil {
 		return err
 	}
@@ -1050,6 +1056,7 @@ func newDefaults() *Config {
 			WALEnabled:        true,
 			ConnectionEnabled: true,
 			MemoryEnabled:     true,
+			BudgetProposals:   true,
 			RewriteEnabled:    true,
 			BloatEnabled:      true,
 		},

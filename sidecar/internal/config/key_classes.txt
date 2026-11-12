@@ -147,6 +147,7 @@ safety_critical verify.write_impact_pct
 safety_critical runaway.enabled
 safety_critical runaway.policies
 safety_critical runaway.safe_patterns
+safety_critical budgets
 safety_critical custodian.freeze.red_buffer_pct
 safety_critical custodian.wal.abandon_after_minutes
 safety_critical custodian.wal.retained_wal_disk_pct_ceiling
@@ -196,6 +197,7 @@ derivable analyzer.wraparound_freeze_share
 derivable analyzer.xid_wraparound_critical
 derivable analyzer.xid_wraparound_warning
 operator_preference advisor.bloat_enabled
+operator_preference advisor.budget_proposals
 operator_preference advisor.connection_enabled
 operator_preference advisor.enabled
 derivable advisor.interval_seconds

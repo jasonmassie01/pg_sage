@@ -7,6 +7,7 @@
 | Field | Lifecycle | Runtime owner | Self-config class |
 | --- | --- | --- | --- |
 | `advisor.bloat_enabled` | `restart` | `-` | `operator_preference` |
+| `advisor.budget_proposals` | `restart` | `-` | `operator_preference` |
 | `advisor.connection_enabled` | `restart` | `-` | `operator_preference` |
 | `advisor.enabled` | `restart` | `-` | `operator_preference` |
 | `advisor.interval_seconds` | `restart` | `-` | `derivable` |
@@ -114,6 +115,7 @@
 | `briefing.fleet_mode` | `restart` | `-` | `operator_preference` |
 | `briefing.schedule` | `reconfigure` | `briefing` | `operator_preference` |
 | `briefing.slack_webhook_url` | `reconfigure` | `briefing` | `safety_critical` |
+| `budgets` | `restart` | `-` | `safety_critical` |
 | `clone.dle_endpoint` | `restart` | `-` | `safety_critical` |
 | `clone.dle_token` | `restart` | `-` | `safety_critical` |
 | `clone.max_clone_age_minutes` | `restart` | `-` | `operator_preference` |
