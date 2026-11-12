@@ -16,7 +16,8 @@ func TestNewDefaultDispatcher_RegistersEveryBuiltInSender(t *testing.T) {
 		got = append(got, typ)
 	}
 	sort.Strings(got)
-	want := []string{"email", "pagerduty", "slack", "telegram", "webhook"}
+	want := []string{"email", "incidentio", "opsgenie", "pagerduty", "slack", "teams",
+		"telegram", "webhook"}
 	if len(got) != len(want) {
 		t.Fatalf("senders = %v, want %v", got, want)
 	}

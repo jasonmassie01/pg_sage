@@ -2,6 +2,7 @@ package notify
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -65,7 +66,7 @@ func (d *Dispatcher) finish(
 		o.LastError = RedactError(err).Error()
 		o.Status = "failed"
 		if Retryable(err) && o.Attempts < outboxMaxAttempts {
-			o.Status, o.NextAttemptAt = "pending", now.Add(outboxBackoff(o.Attempts))
+			o.Status, o.NextAttemptAt = "pending", now.Add(retryDelay(err, o.Attempts))
 		}
 	}
 	if ferr := d.outbox.FinishAttempt(ctx, e.ID, o); ferr != nil {
@@ -76,6 +77,21 @@ func (d *Dispatcher) finish(
 			e.ChannelID, e.Event, e.DedupKey, o.Attempts, o.LastError)
 	}
 	return o.Status
+}
+
+// outboxMaxRetryAfter bounds how long a Retry-After hint can hold an
+// entry back, so a destination cannot park an alert for a day.
+const outboxMaxRetryAfter = time.Hour
+
+// retryDelay is the wait before attempt n+1: the backoff, or the
+// destination's Retry-After hint when it is longer (market-14).
+func retryDelay(err error, n int) time.Duration {
+	d := outboxBackoff(n)
+	var se *HTTPStatusError
+	if errors.As(err, &se) && se.RetryAfter > d {
+		d = min(se.RetryAfter, outboxMaxRetryAfter)
+	}
+	return d
 }
 
 // queueReminders queues one reminder for each open alert whose repeat

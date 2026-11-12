@@ -115,16 +115,21 @@ func buildPagerDutyPayload(
 // rejects a longer key, so the page would never be delivered.
 const pdMaxDedupKey = 255
 
-// BoundPagerDutyDedupKey keeps key within pdMaxDedupKey. A longer key keeps its
+// BoundPagerDutyDedupKey keeps key within pdMaxDedupKey (boundDedupKey).
+func BoundPagerDutyDedupKey(key string) string {
+	return boundDedupKey(key, pdMaxDedupKey)
+}
+
+// boundDedupKey keeps key within limit bytes. A longer key keeps its
 // readable head, cut on a rune boundary, plus a hash of the whole key, so
 // the trigger and the resolve of one identity still share it.
-func BoundPagerDutyDedupKey(key string) string {
-	if len(key) <= pdMaxDedupKey {
+func boundDedupKey(key string, limit int) string {
+	if len(key) <= limit {
 		return key
 	}
 	sum := sha256.Sum256([]byte(key))
 	tail := ":" + hex.EncodeToString(sum[:8])
-	cut := pdMaxDedupKey - len(tail)
+	cut := limit - len(tail)
 	for cut > 0 && !utf8.RuneStart(key[cut]) {
 		cut--
 	}

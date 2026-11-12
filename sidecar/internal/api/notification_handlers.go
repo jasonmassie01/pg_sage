@@ -350,11 +350,9 @@ func defaultRuleSeverity(event, requested string) string {
 // than 8 characters are partially shown (first 4 + last 4); shorter
 // values are fully masked.
 func maskChannelSecrets(config map[string]string) {
-	sensitiveKeys := []string{
-		"webhook_url", "routing_key", "smtp_pass",
-		"smtp_password", "api_key", "token", "secret",
-		"signing_secret", "bot_token", "webhook_secret",
-	}
+	// Every key the store seals, so a new channel type's credential is
+	// masked too (market-14: webhook headers were returned in full).
+	sensitiveKeys := notify.SecretConfigKeys
 	for _, key := range sensitiveKeys {
 		if v, ok := config[key]; ok && len(v) > 8 {
 			config[key] = v[:4] + "****" + v[len(v)-4:]

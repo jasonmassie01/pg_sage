@@ -3416,7 +3416,8 @@ database, `sage.notification_outbox`; in fleet and meta-database mode it is the 
 as the rules. Each matching rule queues one entry, and the sidecar delivers due entries every
 5 seconds, each channel on its own so one slow endpoint does not hold up the others. A network
 error, a 5xx or a 429 is retried after 30 s, 1 min, 2 min, 4 min and 8 min (6 attempts, at
-most 15 min apart); another 4xx, a target the notification policy refuses and a disabled or
+most 15 min apart). When the answer carries `Retry-After`, the next attempt waits that long
+if it is longer than the backoff, at most 1 hour; another 4xx, a target the notification policy refuses and a disabled or
 deleted channel are not retried. Every failed attempt is in the Log tab, as `retrying` while
 attempts are left and as `error` on the last. Sidecars sharing a control database never
 deliver an entry twice. Approval cards, fact cards and Telegram follow-ups are still sent at
@@ -3444,6 +3445,29 @@ quiet hours. `finding_opened` uses the key `finding:<database>:<category>:<objec
 channel rules for one of the two, not both, or a critical finding opens two incidents. A
 change of those alerting values through the settings API applies to the next decision without a
 restart. Delivered entries and closed states are deleted after 7 days.
+
+### Notification channel types
+
+A channel's credentials are sealed at rest with `encryption_key`, never read back in full by
+the API, and redacted from errors. Every HTTP destination connects through the notification
+target policy (`notification_policy.allow_private_targets`).
+
+| Type | Settings | Delivery |
+|---|---|---|
+| `slack` | `webhook_url` (secret); `interactive`, `signing_secret`, `team_id` for approvals | Incoming webhook message |
+| `pagerduty` | `routing_key` (secret); `source`, `component`, `dedup_key_prefix` | Events API v2 trigger and resolve on the dedup key |
+| `email` | `smtp_host`, `smtp_port`, `smtp_user`, `smtp_pass` (secret), `from`, `to` | SMTP |
+| `telegram` | `bot_token` (secret), `chat_id`, `webhook_secret` (secret) | Bot API message |
+| `webhook` | `webhook_url` (secret), `headers` (secret, JSON object) | JSON post of every event |
+| `teams` | `webhook_url` (secret, a Teams Workflows "When a Teams webhook request is received" URL, https only); `dashboard_url` (optional link on the card) | Adaptive Card. A card over 27 KB keeps the longest body that fits and ends with "truncated; see pg_sage for the full text". Office 365 connector URLs are retired by Microsoft; use a Workflows URL. |
+| `opsgenie` | `api_key` (secret, an API integration key); `region` `us` (default) or `eu` | Alert API v2. The alias is the dedup key (cut to 512 characters plus a hash when longer), so a resolve closes the alert by alias. Priority: critical P1, warning P3, info P5. |
+| `incidentio` | `alert_source_config_id` (the HTTP alert source's id: letters, digits, `_`, `-`); `token` (secret, the source's bearer token) | HTTP alert source event with `deduplication_key` set to the dedup key and `status` `firing` or `resolved`. |
+
+A Teams, Opsgenie or incident.io channel with a missing credential, a bad region, a malformed
+source id or a non-https Teams URL is refused when it is saved. For one alert that opens and
+resolves on Opsgenie or incident.io, give the channel rules for the opening event and for its
+resolve (for example `finding_opened` and `finding_resolved`, or `incident_detected`,
+`incident_escalated` and `incident_resolved`).
 
 ### Retention
 

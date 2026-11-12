@@ -488,7 +488,7 @@ finding posts twice and opens two PagerDuty incidents, because their dedup keys 
 | | Notifications (channels and rules) | Config alerting (`alerting:` block) |
 |---|---|---|
 | Configured in | the Notifications page, stored in `sage.notification_channels` and `sage.notification_rules` (the control database) | the config file's `alerting:` block |
-| Destinations | Slack, PagerDuty, email, Telegram, webhooks | Slack, PagerDuty, webhooks |
+| Destinations | Slack, PagerDuty, email, Telegram, webhooks, Microsoft Teams, Opsgenie, incident.io | Slack, PagerDuty, webhooks |
 | Triggers | the event types below, each rule with a `min_severity` | every new finding at or above the route's severity, polled per database |
 | Retries | queued in `sage.notification_outbox`, up to 6 attempts | up to 3 attempts within one check |
 | Cooldown, quiet hours, reminders | the `alerting.*` values, for the finding events `finding_critical`, `finding_opened` and `finding_resolved` ([notification delivery](configuration.md#notification-delivery)) | `cooldown_minutes`, `quiet_hours_*`, `repeat_minutes` |
@@ -504,6 +504,21 @@ the notification target policy when the channel is saved and again at connect ti
 `finding_resolved` (any finding that opens, reopens or escalates, and its resolution, at the
 finding's own severity, with the dedup key `finding:<database>:<category>:<object>`),
 `finding_critical`, `action_executed`, `action_failed`, `approval_needed`, `query_rewrite_suggested`, `incident_detected`, `incident_escalated`, `incident_resolved`, `custodian_escalation` (critical: a red custodian proposal exhausted its failure backoff, raised once per failure streak and recorded as a `custodian_backoff` decision), `fact_expired` (a confirmed binding fact expired and no longer binds; see [facts](facts.md#expiry-and-re-verification)), `canary_interrupted` (warning: a sidecar restart interrupted a fleet canary, which is not resumed; see [configuration](configuration.md)). A Sage SRE diagnosis is not a rule event: `investigation_concluded` goes only to the channels an incident's page reached, once per incident (threaded under the Telegram page, never to PagerDuty; see [configuration](configuration.md#sage-sre-investigations)).
+
+**Destinations.** Every channel type is a `notify.Sender`, registered once in
+`notify.NewDefaultDispatcher`, and delivered through the outbox with its retries:
+
+| Type | Protocol | Open and resolve |
+|---|---|---|
+| `slack`, `telegram`, `email` | incoming webhook, Bot API, SMTP | a resolve is an ordinary message |
+| `webhook` | JSON post | `resolve: true` with the same `dedup_key` |
+| `pagerduty` | Events API v2 | trigger and resolve on the dedup key |
+| `teams` | Workflows webhook, Adaptive Card | a resolve is a green "Resolved:" card |
+| `opsgenie` | Alert API v2 (`us` or `eu`) | create with `alias` = dedup key, close by alias |
+| `incidentio` | HTTP alert source | `status` `firing`, then `resolved`, on one `deduplication_key` |
+
+A `Retry-After` on a 429 or 5xx answer holds the next attempt back by that long, at most an
+hour ([configuration](configuration.md#notification-channel-types)).
 
 **PagerDuty lifecycle.** Each pg_sage incident is one PagerDuty incident with the
 `dedup_key` `incident:<database>:<incident id>`. `incident_detected` and

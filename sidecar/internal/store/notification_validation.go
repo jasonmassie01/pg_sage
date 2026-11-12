@@ -13,6 +13,10 @@ var validChannelTypes = map[string]bool{
 	"pagerduty": true,
 	"telegram":  true,
 	"webhook":   true,
+	// market-14
+	"teams":      true,
+	"opsgenie":   true,
+	"incidentio": true,
 }
 
 var notificationSecretKeys = notify.SecretConfigKeys
@@ -20,8 +24,8 @@ var notificationSecretKeys = notify.SecretConfigKeys
 func validateChannelType(typ string) error {
 	if !validChannelTypes[typ] {
 		return fmt.Errorf(
-			"%w: type must be slack, email, "+
-				"pagerduty, telegram or webhook, got %q", ErrValidation, typ)
+			"%w: type must be slack, email, pagerduty, teams, opsgenie, "+
+				"incidentio, telegram or webhook, got %q", ErrValidation, typ)
 	}
 	return nil
 }
@@ -63,6 +67,8 @@ func validateChannelConfig(
 		}
 	case "webhook":
 		return validateWebhookConfig(config)
+	case "teams", "opsgenie", "incidentio":
+		return validateDestinationConfig(typ, config)
 	}
 	return nil
 }
@@ -112,7 +118,7 @@ func validateChannelTargets(
 ) error {
 	var err error
 	switch typ {
-	case "slack", "webhook":
+	case "slack", "webhook", "teams":
 		err = policy.ValidateURL(config["webhook_url"])
 	case "email":
 		err = policy.ValidateHost(config["smtp_host"])

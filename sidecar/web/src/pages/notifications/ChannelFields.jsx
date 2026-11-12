@@ -28,6 +28,23 @@ const FIELDS = {
     { key: 'headers', label: 'Headers (JSON object)', secret: true, wide: true,
       placeholder: '{"Authorization": "Bearer ..."}' },
   ],
+  // market-14: Teams Workflows webhook, Opsgenie Alert API, incident.io
+  // HTTP alert source.
+  teams: [
+    { key: 'webhook_url', label: 'Workflows webhook URL', required: true, secret: true,
+      wide: true, placeholder: 'https://prod-00.westus.logic.azure.com/workflows/...' },
+    { key: 'dashboard_url', label: 'pg_sage link (optional)', wide: true,
+      placeholder: 'https://pg-sage.example.com' },
+  ],
+  opsgenie: [
+    { key: 'api_key', label: 'API key', required: true, secret: true, wide: true },
+    { key: 'region', label: 'Region', options: [['us', 'US'], ['eu', 'EU']] },
+  ],
+  incidentio: [
+    { key: 'alert_source_config_id', label: 'Alert source config ID', required: true,
+      placeholder: '01H...' },
+    { key: 'token', label: 'API token', required: true, secret: true, wide: true },
+  ],
   telegram: [
     { key: 'bot_token', label: 'Bot token', required: true, secret: true, wide: true,
       placeholder: '123456:ABC...' },
@@ -49,7 +66,25 @@ function widthClass(f) {
   return f.narrow ? 'w-20' : ''
 }
 
+function ConfigSelect({ prefix, field, config, upd }) {
+  return (
+    <FormField label={field.label}>
+      <select value={config[field.key] || field.options[0][0]} aria-label={field.label}
+        data-testid={testId(prefix, field.key)}
+        onChange={e => upd(field.key, e.target.value)}
+        className="px-3 py-1.5 rounded text-sm" style={inputStyle}>
+        {field.options.map(([value, label]) => (
+          <option key={value} value={value}>{label}</option>
+        ))}
+      </select>
+    </FormField>
+  )
+}
+
 function ConfigInput({ prefix, field, config, upd }) {
+  if (field.options) {
+    return <ConfigSelect prefix={prefix} field={field} config={config} upd={upd} />
+  }
   return (
     <FormField label={field.label}>
       <input value={config[field.key] ?? ''} required={field.required}

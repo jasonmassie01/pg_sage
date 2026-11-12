@@ -11,6 +11,9 @@ export const CHANNEL_TYPES = [
   ['email', 'Email'],
   ['pagerduty', 'PagerDuty'],
   ['webhook', 'Webhook'],
+  ['teams', 'Microsoft Teams'],
+  ['opsgenie', 'Opsgenie'],
+  ['incidentio', 'incident.io'],
 ]
 
 // The keys the backend reads for a channel that approves from chat; a
@@ -25,6 +28,12 @@ export function defaultConfig(type) {
       return { routing_key: '' }
     case 'webhook':
       return { webhook_url: '', headers: '' }
+    case 'teams':
+      return { webhook_url: '', dashboard_url: '' }
+    case 'opsgenie':
+      return { api_key: '', region: 'us' }
+    case 'incidentio':
+      return { alert_source_config_id: '', token: '' }
     case 'email':
       return { smtp_host: '', smtp_port: '587', smtp_user: '', smtp_pass: '', from: '', to: '' }
     default:

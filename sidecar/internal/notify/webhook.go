@@ -1,12 +1,10 @@
 package notify
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -102,30 +100,15 @@ func postWebhook(
 	ctx context.Context, client *http.Client, url string, body []byte,
 	headers map[string]string,
 ) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("create webhook request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("webhook http post: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return &HTTPStatusError{Service: "webhook", Code: resp.StatusCode}
-	}
-	return nil
+	return postJSON(ctx, client, "webhook", url, body, headers)
 }
 
 // HTTPStatusError is a non-2xx answer from a notification endpoint.
 type HTTPStatusError struct {
 	Service string
 	Code    int
+	// RetryAfter is the endpoint's Retry-After hint; 0 when it sent none.
+	RetryAfter time.Duration
 }
 
 func (e *HTTPStatusError) Error() string {

@@ -17,6 +17,9 @@ func NewDefaultDispatcher(
 		NewPagerDutySender(),
 		NewTelegramSenderWithPolicy(policy),
 		NewWebhookSenderWithPolicy(policy),
+		NewTeamsSenderWithPolicy(policy),
+		NewOpsgenieSenderWithPolicy(policy),
+		NewIncidentIOSenderWithPolicy(policy),
 	} {
 		d.RegisterSender(s)
 	}
