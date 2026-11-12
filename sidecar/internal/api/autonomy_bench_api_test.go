@@ -37,7 +37,8 @@ type benchFaults struct {
 	release  chan struct{}
 }
 
-func (f *benchFaults) Run(ctx context.Context, _ string, families []string) ([]byte, error) {
+func (f *benchFaults) Run(ctx context.Context, _ string, families []string,
+	_ []gameday.Binding) ([]byte, error) {
 	f.mu.Lock()
 	f.families = append(f.families, families)
 	f.mu.Unlock()

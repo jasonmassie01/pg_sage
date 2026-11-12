@@ -390,6 +390,7 @@ safety_critical sre.autonomy.enforce
 safety_critical sre.autonomy.evaluate_interval_minutes
 safety_critical sre.autonomy.failover_cooldown_minutes
 safety_critical sre.autonomy.game_days.enabled
+safety_critical sre.autonomy.game_days.customer_programs
 safety_critical sre.autonomy.game_days.families
 safety_critical sre.autonomy.game_days.interval_hours
 safety_critical sre.autonomy.game_days.local_dsn

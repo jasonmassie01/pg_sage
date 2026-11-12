@@ -90,7 +90,7 @@ func TestRunGameDayProducesAnIngestibleReport(t *testing.T) {
 
 func TestGameDayFaultsAdapter(t *testing.T) {
 	f := GameDayFaults{Scenarios: []string{"lock-hot-row"}}
-	if _, err := f.Run(context.Background(), "", []string{"lock_blocking"}); err == nil {
+	if _, err := f.Run(context.Background(), "", []string{"lock_blocking"}, nil); err == nil {
 		t.Fatal("the adapter accepted an empty DSN")
 	}
 }

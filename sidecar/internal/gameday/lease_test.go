@@ -177,7 +177,7 @@ type countingFaults struct {
 	runs         atomic.Int32
 }
 
-func (f *countingFaults) Run(context.Context, string, []string) ([]byte, error) {
+func (f *countingFaults) Run(context.Context, string, []string, []Binding) ([]byte, error) {
 	n := f.active.Add(1)
 	defer f.active.Add(-1)
 	for {

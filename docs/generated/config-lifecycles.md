@@ -390,6 +390,7 @@
 | `sre.autonomy.enforce` | `restart` | `-` | `safety_critical` |
 | `sre.autonomy.evaluate_interval_minutes` | `restart` | `-` | `safety_critical` |
 | `sre.autonomy.failover_cooldown_minutes` | `restart` | `-` | `safety_critical` |
+| `sre.autonomy.game_days.customer_programs` | `restart` | `-` | `safety_critical` |
 | `sre.autonomy.game_days.enabled` | `restart` | `-` | `safety_critical` |
 | `sre.autonomy.game_days.families` | `restart` | `-` | `safety_critical` |
 | `sre.autonomy.game_days.interval_hours` | `restart` | `-` | `safety_critical` |

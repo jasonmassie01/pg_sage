@@ -137,7 +137,8 @@ func (rt *databaseRuntime) startGameDays(svc *earned.Service, s config.SREAutono
 		runner, err = gameday.NewRunner(gameday.Config{Database: rt.spec.Name, Provider: name,
 			Families: trimmedFamilies(s.GameDays.Families),
 			Interval: time.Duration(s.GameDays.IntervalHours) * time.Hour,
-			Warn:     func(format string, args ...any) { logWarn("autonomy", format, args...) }},
+			Warn:     gameDayWarn, CustomerPrograms: s.GameDays.CustomerPrograms,
+			Snapshots: rt.tableSnapshots()},
 			provider, srebench.GameDayFaults{}, svc, store)
 		if err == nil {
 			processAutonomy().gameDays.Register(rt.spec.Name, runner)
@@ -150,6 +151,19 @@ func (rt *databaseRuntime) startGameDays(svc *earned.Service, s config.SREAutono
 	if err != nil {
 		logError("autonomy", "db %q: game days off: %v", rt.spec.Name, err)
 	}
+}
+
+// gameDayWarn logs a game day that scored nothing.
+func gameDayWarn(format string, args ...any) { logWarn("autonomy", format, args...) }
+
+// tableSnapshots is this database's collector, which a game day's
+// customer programs pick their table from (benches-12: bindings are per
+// database); nil before the collector exists, so they skip.
+func (rt *databaseRuntime) tableSnapshots() gameday.TableSnapshots {
+	if rt.collector == nil {
+		return nil
+	}
+	return rt.collector
 }
 
 // gameDayTick first abandons game days a stopped process left running

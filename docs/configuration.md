@@ -2796,6 +2796,7 @@ literals always removed.
 | `sre.autonomy.game_days.interval_hours` | `168` | Hours between scheduled game days, `24`-`2160` |
 | `sre.autonomy.game_days.local_dsn` | `""` | Development fallback when `clone.provider` is `none`, for game days and local bench runs. It must be its own cluster, marked (see below). A database on the cluster of a monitored or the metadata database is refused |
 | `sre.autonomy.game_days.families` | `[]` | Families to exercise. Empty: every family the bench covers |
+| `sre.autonomy.game_days.customer_programs` | unset | Run the customer programs, which exercise the monitored database's own hottest table on the clone (see below). Unset: on when the clone provider copies the database (`dle`, `lakebase_branch`); `local_dsn` never runs them |
 | `sre.autonomy.canary.canary_instances` | `1` | Databases changed and verified before a fleet rollout widens, `1`-`10` |
 | `sre.autonomy.canary.regression_limit_pct` | `10` | Regression that halts and rolls back a rollout, `0`-`100` |
 | `sre.autonomy.canary.settle_seconds` | removed | Removed in executor-04: a canary now waits for each database's own verification verdict instead of a fixed settle time. A config that still sets it loads and prints one startup warning that the key is ignored; remove the key, which a later release rejects |
@@ -2879,6 +2880,42 @@ that failed before it had a report, and a row written before this release, has n
 `summary`. Game-day Safe Pass evidence is unchanged: a `completed_unscored` report adds
 nothing to a family's `game_day_safe_pass` check, so that check still reads "none"
 until a game day scores a run of the family.
+
+**Customer programs.** The fault programs above create their own `bench_*` tables, so on
+their own a game day says nothing about the customer's database. A game day therefore
+also runs the customer program `lock_customer_hot_table` on the clone. Before the clone
+is created it picks the monitored database's hottest table from the collector's two most
+recent snapshots: the permanent ordinary table (not in `sage`, `pg_*` or
+`information_schema`) with the largest increase of `n_tup_ins + n_tup_upd + n_tup_del +
+idx_scan` between them (lifetime counters are not used; ties go to the larger table, then
+the name). On the clone it checks the table exists (`to_regclass`), then one session holds
+`ROW EXCLUSIVE` on it while it sleeps for 60 seconds, a `SHARE ROW EXCLUSIVE` request queues
+behind it and two `ROW EXCLUSIVE` requests queue behind that one (each with
+`lock_timeout = '90s'`, each rolled back). No row is read or written, so the work does not
+depend on the table's size, and the table is never altered or dropped. The investigator
+is graded as for the other lock programs (the DDL lock queue, with the holder as its root
+blocker); recovery ends only the program's `bench_*` sessions and checks no lock wait is
+left. Bindings are per database, so in fleet mode each database's game day uses its own
+hottest table. On a managed database it runs only on a branch or snapshot clone.
+
+The program is skipped, with the reason recorded, when the provider is `local_dsn` (its
+target holds no customer objects), `customer_programs` is `false`, the collector has fewer
+than two snapshots or no table had activity between them, or the clone lacks the table
+(`relation not in clone`). A game day whose customer program ran and scored nothing
+finishes `completed_unscored` (it says nothing about this database), and a customer
+program that failed (for example `SQLSTATE 42501`, the clone's role may not lock the
+table) fails the game day. Local bench runs do not run customer programs.
+
+Each game day records what it exercised in `sage.sre_game_days.exercised` (and
+`exercised` in the game-days API): `provider`, `customer_objects` (whether the clone is a
+copy of the database), and `scenarios`, each with its `id`, `runs`, `scored`, the first
+`skip` or `error`, and for a customer program its `binding` (the quoted table name) and
+`binding_hash`. The table name stays in this row; the bench report ingested as evidence
+names only the program and the hash.
+
+```sql
+SELECT exercised->'scenarios' FROM sage.sre_game_days ORDER BY started_at DESC LIMIT 1;
+```
 
 #### Bench evidence: signed release reports and local runs
 
