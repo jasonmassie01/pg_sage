@@ -91,7 +91,13 @@ func (c *Collector) extraSteps() []catalogStep {
 				return err
 			}, reset: func(s *Snapshot) {
 				s.IndexBloat, s.IndexBloatTruncated, s.IndexBloatUnknown = nil, false, nil
-			}})
+			}},
+		// One aggregate of the active sessions by wait class (market-01).
+		catalogStep{name: "wait_events",
+			run: func(ctx context.Context, s *Snapshot) (err error) {
+				s.WaitEvents, err = c.collectWaitEvents(ctx)
+				return err
+			}, reset: func(s *Snapshot) { s.WaitEvents = nil }})
 	if c.CollectsConfigSnapshots() {
 		steps = append(steps, catalogStep{name: "config_data",
 			run: func(ctx context.Context, s *Snapshot) (err error) {

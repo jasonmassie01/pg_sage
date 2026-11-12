@@ -222,3 +222,21 @@ SELECT COALESCE(state,'unknown'), count(*)::int,
  WHERE backend_type = 'client backend'
    AND datname = current_database() AND ` + notSelf + `
  GROUP BY state`
+
+// waitLoadTag names the wait-load read in pg_stat_statements (one per
+// cycle, market-01).
+const waitLoadTag = "/* pg_sage collector wait_load */ "
+
+// activeByWaitSQL is this database's active client sessions by wait class
+// and event (market-01): COALESCE(wait_event_type, 'CPU') counts a session
+// with no wait event as running. One aggregate per cycle, sampled each
+// collector cycle (not active session history); it reads no query text
+// and no pid, and pg_sage's own sessions are not the workload.
+var activeByWaitSQL = waitLoadTag + `
+SELECT COALESCE(wait_event_type, 'CPU'), COALESCE(wait_event, ''), count(*)::int
+  FROM pg_stat_activity
+ WHERE state = 'active' AND backend_type = 'client backend'
+   AND pid <> pg_backend_pid()
+   AND datname = current_database() AND ` + notSelf + `
+ GROUP BY 1, 2
+ ORDER BY 3 DESC, 1, 2`

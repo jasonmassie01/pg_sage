@@ -11,6 +11,8 @@ var fullCategories = map[string]string{
 		"or open transactions",
 	"replication": "a few replicas and slots whose LSNs move every cycle; a delta " +
 		"would carry almost the whole document",
+	"wait_events": "a few rows (active sessions by wait class) that change every cycle; " +
+		"an idle database is an empty list",
 }
 
 // Coverage reports how the store keeps category: delta is true for a

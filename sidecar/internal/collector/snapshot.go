@@ -53,6 +53,10 @@ type Snapshot struct {
 	IndexBloat          []IndexBloat `json:"index_bloat,omitempty"`
 	IndexBloatTruncated bool         `json:"-"`
 	IndexBloatUnknown   []string     `json:"-"`
+
+	// WaitEvents are the active client sessions by wait class this cycle
+	// (market-01); nil when they were not read.
+	WaitEvents []WaitEventLoad `json:"wait_events,omitempty"`
 }
 
 // Available reports whether category was read this cycle.

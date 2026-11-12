@@ -53,7 +53,8 @@ circuit breaker that skips cycles while the database is in trouble (active clien
 over `max_connections` above `safety.cpu_ceiling_pct`). A cycle reads the catalog categories
 in order (`catalogSteps`: `queries`, `tables`, `indexes`, `partitioned_indexes`,
 `foreign_keys`, `system`, `locks`, `sequences`), then `replication` and the extra categories
-(`extraSteps`: `io`, `prepared_xacts`, `partitions`, `index_bloat`, `config_data`).
+(`extraSteps`: `io`, `prepared_xacts`, `partitions`, `index_bloat`, `wait_events`,
+`config_data`).
 
 **Health.** A skipped cycle is logged with its cause: `load ratio 0.93 > ceiling 0.90
 (active sessions / max_connections)`, or `load query failed: <error>` when the load query
@@ -116,8 +117,12 @@ Each snapshot holds one row per category: `queries`, `tables`, `indexes`,
 `partitioned_indexes` (the partitioned tables' own indexes, relkind `I`), `foreign_keys`,
 `system`, `locks`, `sequences`, `replication`, `io` (PostgreSQL 16 and later), `partitions`,
 `prepared_xacts` (this database's two-phase-commit transactions from `pg_prepared_xacts`),
-`index_bloat` (the largest btree indexes' bloat estimated from planner statistics, at most 200)
-and `config_data` (the advisor's settings, reloptions, connection and WAL snapshot, collected only
+`index_bloat` (the largest btree indexes' bloat estimated from planner statistics, at most 200),
+`wait_events` (this database's active client sessions grouped by wait class and event, a
+session without a wait event counted as `CPU`: one aggregate of `pg_stat_activity` per
+cycle, with no query text and no pid, and without pg_sage's own sessions; it is sampled
+each collector cycle, not active session history, and is the workload explorer's wait-load
+chart) and `config_data` (the advisor's settings, reloptions, connection and WAL snapshot, collected only
 when an advisor will consume it). A category that could not be read in a cycle is
 **unknown, not empty**: it is listed in the snapshot's `unavailable` map with the error, no
 row is written for it, and rules that would read its absence as a fact stay quiet for that

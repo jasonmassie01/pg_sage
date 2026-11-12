@@ -348,8 +348,8 @@ func TestSnapshotRows_UnavailableExtrasLeaveNoRow(t *testing.T) {
 		if _, ok := got[cat]; ok {
 			t.Errorf("%s unavailable: a row was persisted (%s)", cat, got[cat])
 		}
-		if _, ok := got["system"]; !ok || len(got) != 13 {
-			t.Errorf("%s unavailable: rows %v, want the 13 other categories", cat, keys(got))
+		if _, ok := got["system"]; !ok || len(got) != 14 {
+			t.Errorf("%s unavailable: rows %v, want the 14 other categories", cat, keys(got))
 		}
 	}
 }
@@ -409,10 +409,10 @@ func TestExtraSteps_GatedByVersionAndConsumer(t *testing.T) {
 		noConfig bool
 		want     string
 	}{
-		{159999, false, "prepared_xacts,partitions,index_bloat,config_data"},
-		{160000, false, "io,prepared_xacts,partitions,index_bloat,config_data"},
-		{170000, true, "io,prepared_xacts,partitions,index_bloat"},
-		{0, true, "prepared_xacts,partitions,index_bloat"},
+		{159999, false, "prepared_xacts,partitions,index_bloat,wait_events,config_data"},
+		{160000, false, "io,prepared_xacts,partitions,index_bloat,wait_events,config_data"},
+		{170000, true, "io,prepared_xacts,partitions,index_bloat,wait_events"},
+		{0, true, "prepared_xacts,partitions,index_bloat,wait_events"},
 	}
 	for _, tc := range cases {
 		c := New(nil, cfg, tc.version, noopLog)

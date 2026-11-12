@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/pg-sage/sidecar/internal/querystore"
 	"github.com/pg-sage/sidecar/internal/schema"
@@ -29,15 +30,18 @@ func waitTotal(rows []WaitEventLoad) (int, map[string]int) {
 	return total, byType
 }
 
-// otherDatabaseSleeper runs pg_sleep on the postgres database until the
-// test ends: a session of another database the read must not count.
+// otherDatabaseSleeper runs pg_sleep on another database of the server
+// (created once) until the test ends: a session the read must not count.
 func otherDatabaseSleeper(t *testing.T, dsn string) {
 	t.Helper()
-	if cfg, err := pgx.ParseConfig(dsn); err != nil || cfg.Database == "postgres" {
-		t.Fatalf("the other-database check needs a test database other than postgres "+
-			"(%v)", err)
+	const other = "market01_other"
+	admin := appSession(t, dsn, "postgres_same")
+	_, err := admin.Exec(context.Background(), "CREATE DATABASE "+other)
+	var pgErr *pgconn.PgError
+	if err != nil && !(errors.As(err, &pgErr) && pgErr.Code == "42P04") {
+		t.Fatalf("create %s: %v", other, err)
 	}
-	conn := appSession(t, dsn, "postgres")
+	conn := appSession(t, dsn, other)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
@@ -81,7 +85,7 @@ func TestWaitEvents_RunningSessionIsCPU(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_, _ = busy.Exec(ctx, "SELECT count(*) AS cpu_busy FROM generate_series(1, 2000000000)")
+		_, _ = busy.Exec(ctx, "DO $$BEGIN LOOP PERFORM 1; END LOOP; END$$")
 	}()
 	defer func() { cancel(); <-done }()
 	time.Sleep(500 * time.Millisecond)
@@ -212,18 +216,24 @@ func TestWorkloadExplorer_TwoCyclesRankTheWorkloadFirst(t *testing.T) {
 		t.Fatalf("bootstrap: %v", err)
 	}
 	c := New(pool, testConfig(), serverVersion(t, pool), noopLog)
+	runWorkload := func(n int) {
+		for range n {
+			if _, err := pool.Exec(ctx,
+				"SELECT pg_sleep(0.05) AS explorer_workload_market01"); err != nil {
+				t.Fatalf("workload: %v", err)
+			}
+		}
+	}
+	// The workload runs before the first cycle too, as a running
+	// application does: a query's first sample has nothing to differ from.
+	runWorkload(2)
 	if err := c.cycle(ctx, &fakeTicker{}); err != nil {
 		t.Fatalf("first cycle: %v", err)
 	}
 	// The first cycle's samples are the anchors: work done before it
 	// (earlier tests) is not this window's.
 	from := time.Now()
-	for range 30 {
-		if _, err := pool.Exec(ctx,
-			"SELECT pg_sleep(0.05) AS explorer_workload_market01"); err != nil {
-			t.Fatalf("workload: %v", err)
-		}
-	}
+	runWorkload(30)
 	if err := c.cycle(ctx, &fakeTicker{}); err != nil {
 		t.Fatalf("second cycle: %v", err)
 	}
