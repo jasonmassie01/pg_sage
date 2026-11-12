@@ -268,7 +268,7 @@ func registerFleetScopedRoutes(
 	}
 	// Value and briefings (llm-06b) are read from every monitored database in
 	// all modes (D3), so they depend on the fleet, not on the control pool.
-	route(apiMux, "GET /api/v1/value", gateViewer, valueHandler(fleetValueReader(mgr)))
+	route(apiMux, "GET /api/v1/value", gateViewer, valueHandler(fleetValueReader(mgr, cfg)))
 	registerBriefingRoutes(apiMux, mgr)
 	registerOnboardingRoutes(apiMux, mgr, cfg, pool)
 }

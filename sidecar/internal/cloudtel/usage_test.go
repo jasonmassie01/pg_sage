@@ -168,6 +168,9 @@ func TestUsageWriteFailureIsReportedAndPollSucceeds(t *testing.T) {
 		"orders|rds:us-east-1/orders|relation sage.host_usage_hourly does not exist" {
 		t.Fatalf("reported = %q, want the database, resource and error", reported)
 	}
+	if r.Resource() != "rds:us-east-1/orders" {
+		t.Fatalf("Resource = %q after a good poll", r.Resource())
+	}
 	if cpu, err := r.CurrentCPU(context.Background()); err != nil || cpu != 30 {
 		t.Fatalf("CurrentCPU = %v, %v: a failed usage write must not fail the poll", cpu, err)
 	}
