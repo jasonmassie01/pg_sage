@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/apppath"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/planfresh"
@@ -351,7 +352,9 @@ func hasUnboundParam(n int, params []string) bool {
 	return false
 }
 
-// prepareConn opens a read-only transaction with statement_timeout.
+// prepareConn opens a read-only transaction with statement_timeout, on
+// the application's search_path (apppath.Pin), never pg_sage's own: the
+// analyze guard and the plan resolve the statement's names on it.
 func (ex *Explainer) prepareConn(
 	ctx context.Context, conn *pgxpool.Conn,
 ) error {
@@ -366,7 +369,7 @@ func (ex *Explainer) prepareConn(
 	); err != nil {
 		return fmt.Errorf("set transaction_read_only: %w", err)
 	}
-	return nil
+	return apppath.Pin(ctx, conn)
 }
 
 func explainSQL(query string, analyze bool) string {

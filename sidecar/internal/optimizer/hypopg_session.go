@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/apppath"
 	"github.com/pg-sage/sidecar/internal/sanitize"
 	"github.com/pg-sage/sidecar/internal/workload"
 )
@@ -80,7 +81,9 @@ func openHypoPGSession(ctx context.Context, pool *pgxpool.Pool, lockTimeout time
 // and the lock timeout, so an EXPLAIN queued behind an ACCESS EXCLUSIVE
 // lock fails with 55P03 instead of holding the connection. The lock
 // timeout is the configured one, at most maxHypoPGLockWait; one below 1 ms
-// (unset) takes the cap: a what-if never waits unbounded.
+// (unset) takes the cap: a what-if never waits unbounded. The workload
+// and the candidate DDL resolve on the application's search_path
+// (apppath.Pin), never on pg_sage's session path.
 func boundSession(ctx context.Context, tx pgx.Tx, lockTimeout time.Duration) error {
 	if lockTimeout < time.Millisecond || lockTimeout > maxHypoPGLockWait {
 		lockTimeout = maxHypoPGLockWait
@@ -88,7 +91,10 @@ func boundSession(ctx context.Context, tx pgx.Tx, lockTimeout time.Duration) err
 	_, err := tx.Exec(ctx, `SELECT set_config('statement_timeout', $1, true),
 		set_config('lock_timeout', $2, true)`, hypopgStatementTimeout,
 		fmt.Sprintf("%dms", lockTimeout.Milliseconds()))
-	return err
+	if err != nil {
+		return err
+	}
+	return apppath.Pin(ctx, tx)
 }
 
 func (s *hypopgSession) function(name string) string {
