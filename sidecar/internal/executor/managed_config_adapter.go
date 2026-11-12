@@ -155,8 +155,10 @@ func managedConfigGuidance(provider, parameter string) string {
 			" --value <value>`; ALTER SYSTEM is unavailable"
 	case prov.Azure:
 		return "Azure Database for PostgreSQL: set " + parameter + " with `az postgres " +
-			"flexible-server parameter set --name " + parameter + " --value <value>` " +
-			"(or configure the azure: section so pg_sage applies it); ALTER SYSTEM is unavailable"
+			"flexible-server parameter set --resource-group <resource-group> --server-name " +
+			"<server> --name " + parameter + " --value <value>`; pg_sage records it as a " +
+			"managed-change proposal an operator approves and runs (it writes only the " +
+			"WAL-slot cap over ARM); ALTER SYSTEM is unavailable"
 	default:
 		return "managed provider (" + provider + "): apply " + parameter +
 			" via the provider parameter group / database flags; ALTER SYSTEM is unavailable"

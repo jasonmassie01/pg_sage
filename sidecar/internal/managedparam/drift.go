@@ -32,7 +32,8 @@ type Drift struct {
 }
 
 // DetectDrift compares the operator-set parameters of a resolved target
-// (RDS "user" parameters, Cloud SQL flags) with pg_settings. Formulas,
+// (RDS and Azure "user" parameters, Cloud SQL and AlloyDB flags) with
+// pg_settings. Formulas,
 // engine defaults and parameters PostgreSQL does not expose are skipped.
 func DetectDrift(target Target, settings []collector.PGSetting) []Drift {
 	if !target.Known {
@@ -56,7 +57,7 @@ func DetectDrift(target Target, settings []collector.PGSetting) []Drift {
 
 func configuredValues(t Target) map[string]string {
 	out := map[string]string{}
-	if NormalizeProvider(t.Provider) == "cloud-sql" {
+	if p := NormalizeProvider(t.Provider); p == "cloud-sql" || p == "alloydb" {
 		if t.FlagsKnown {
 			for k, v := range t.Flags {
 				out[k] = v

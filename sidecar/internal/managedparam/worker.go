@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,6 +20,14 @@ import (
 // parameter group and parameters, or its database flags).
 type Resolver interface {
 	Target(ctx context.Context) (Target, error)
+}
+
+// ParameterResolver is a Resolver that reads parameters one at a time (an
+// Azure server's configurations): the worker asks it for exactly the
+// parameters its intents name, and caches the answer per parameter set.
+type ParameterResolver interface {
+	Resolver
+	TargetFor(ctx context.Context, parameters []string) (Target, error)
 }
 
 // WorkerOptions configure one database's managed-change worker.
@@ -66,9 +75,11 @@ type Worker struct {
 	mu sync.Mutex
 	// target is the last successfully resolved target and targetAt when
 	// (zero: never); targetErr is the latest attempt's error, if it failed.
+	// targetKey names the parameters a ParameterResolver described.
 	target    Target
 	targetAt  time.Time
 	targetErr string
+	targetKey string
 	drift     []Drift
 	peerErr   string // the peer read failure last reported
 }
@@ -121,7 +132,7 @@ func (w *Worker) Cycle(ctx context.Context) (CycleResult, error) {
 	}
 	res.Skipped += len(refused)
 	res.BuildErrors = append(res.BuildErrors, refused...)
-	target, note := w.resolve(ctx, &res)
+	target, note := w.resolve(ctx, &res, intentParameters(intents))
 	settings, err := w.readSettings(ctx, settingNames(intents, target))
 	if err != nil {
 		return res, err
@@ -169,7 +180,8 @@ func (w *Worker) propose(ctx context.Context, fi findingIntent, target Target, n
 		p.Notes = append(p.Notes, note)
 	}
 	keep[p.Fingerprint] = true
-	live := running != nil && !running.PendingRestart && sameValue(p.Value, running.Setting)
+	live := running != nil && !running.PendingRestart &&
+		sameValue(runningForm(p), running.Setting)
 	if live {
 		done, err := w.store.appliedExists(ctx, p.Fingerprint)
 		if err != nil || done {
@@ -198,24 +210,27 @@ func (w *Worker) propose(ctx context.Context, fi findingIntent, target Target, n
 // freshly resolved one. When the resolver fails it returns the last
 // resolved target with a note naming the error, or, when nothing was ever
 // resolved, an unresolved target that says why.
-func (w *Worker) resolve(ctx context.Context, res *CycleResult) (Target, string) {
+func (w *Worker) resolve(ctx context.Context, res *CycleResult, names []string) (Target,
+	string) {
 	unresolved := Target{Provider: w.provider}
 	if w.opts.Resolver == nil {
 		unresolved.Unresolved = "cloud telemetry is not configured"
 		res.TargetError = unresolved.Unresolved
 		return unresolved, ""
 	}
+	key := w.parameterKey(names)
 	w.mu.Lock()
-	cached, at, cachedErr := w.target, w.targetAt, w.targetErr
+	cached, at, cachedErr, cachedKey := w.target, w.targetAt, w.targetErr, w.targetKey
 	w.mu.Unlock()
-	if !at.IsZero() && w.opts.Now().Sub(at) < w.opts.TargetTTL && cachedErr == "" {
+	if !at.IsZero() && w.opts.Now().Sub(at) < w.opts.TargetTTL && cachedErr == "" &&
+		cachedKey == key {
 		return cached, ""
 	}
-	t, err := w.opts.Resolver.Target(ctx)
+	t, err := w.lookup(ctx, names)
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if err == nil {
-		w.target, w.targetAt, w.targetErr = t, w.opts.Now(), ""
+		w.target, w.targetAt, w.targetErr, w.targetKey = t, w.opts.Now(), "", key
 		return t, ""
 	}
 	res.TargetError = err.Error()
@@ -228,6 +243,34 @@ func (w *Worker) resolve(ctx context.Context, res *CycleResult) (Target, string)
 		"proposal uses the target last resolved at %s. Check that it is still the "+
 		"instance's before running the command.", res.TargetError,
 		w.targetAt.UTC().Format(time.RFC3339))
+}
+
+// parameterKey names the parameters a ParameterResolver describes ("" for
+// a resolver that resolves the whole target at once).
+func (w *Worker) parameterKey(names []string) string {
+	if _, ok := w.opts.Resolver.(ParameterResolver); ok {
+		return strings.Join(names, ",")
+	}
+	return ""
+}
+
+// lookup resolves the target, through TargetFor when the resolver reads
+// parameters one at a time.
+func (w *Worker) lookup(ctx context.Context, names []string) (Target, error) {
+	if pr, ok := w.opts.Resolver.(ParameterResolver); ok {
+		return pr.TargetFor(ctx, names)
+	}
+	return w.opts.Resolver.Target(ctx)
+}
+
+// intentParameters are the distinct parameters the intents name, sorted.
+func intentParameters(intents []findingIntent) []string {
+	names := make([]string, 0, len(intents))
+	for _, fi := range intents {
+		names = append(names, fi.intent.Parameter)
+	}
+	slices.Sort(names)
+	return slices.Compact(names)
 }
 
 // producerCategories are the finding categories whose managed intents

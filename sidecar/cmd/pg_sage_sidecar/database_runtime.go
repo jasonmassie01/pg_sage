@@ -137,6 +137,10 @@ type databaseRuntime struct {
 	lakebaseScope atomic.Value // verified immutable resource/policy pair, read by history
 	cloud         *cloudtel.Runtime
 	cloudResolver managedparam.Resolver
+	// azureParams is the database's Azure ARM adapter (nil off Azure or
+	// without the azure: identity): the managed-change worker reads server
+	// parameters through it.
+	azureParams executor.ManagedConfigAdapter
 
 	// freeze is the database's one freeze custodian: its sampler is the
 	// only horizon reader and rate state of the analyzer, the runway

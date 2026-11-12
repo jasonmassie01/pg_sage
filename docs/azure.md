@@ -35,8 +35,9 @@ created, so this path is covered by unit tests only.
 | Detection | `<name>.postgres.database.azure.com` (including `privatelink`) hosts, or the `azure.extensions` server parameter, mark the target as `azure` |
 | Portable actions | ANALYZE, VACUUM, CREATE/DROP/REINDEX INDEX CONCURRENTLY, per-table autovacuum settings, `ALTER DATABASE ... SET`, backend cancel/terminate, reviewed `ALTER TABLE` run as SQL through the standing policy gate like any provider |
 | Database-scope settings | `ALTER DATABASE ... SET` is proposed only for settings whose `pg_settings.context` is `user`, or `superuser` when the role holds `SET` on the parameter (PostgreSQL 15+). `sighup` settings such as `max_wal_size`, `checkpoint_completion_target` and the `autovacuum_*` instance knobs, and `postmaster` settings, become advisory findings naming the server parameter; the executor refuses a stale `ALTER DATABASE` for them before it reaches PostgreSQL |
-| Instance parameters | `ALTER SYSTEM` is unavailable. Configuration changes use Azure **server parameters** through Azure Resource Manager when the `azure:` section is set; otherwise pg_sage reports the exact `az` command to run |
-| Restart-bound parameters | Applied through ARM and reported as `applied_pending_restart` until the server restarts |
+| Instance parameters | `ALTER SYSTEM` is unavailable. A setting SQL cannot change becomes a managed-change **proposal** (mechanism `server_parameter`) on the Actions page: the value in Azure's unit, whether a restart is needed, the rollback and the `az postgres flexible-server parameter set` command. An operator approves and runs it; pg_sage never writes these parameters |
+| Restart-bound parameters | The proposal is marked `reboot_required` and adds `az postgres flexible-server restart`; pg_sage observes the running value afterwards and reports drift |
+| ARM writes | Only the WAL-slot custodian's `max_slot_wal_keep_size` cap is written through Azure Resource Manager, and only when the `azure:` section is set |
 | Readiness | The fleet overview shows `azure_monitor` log access. The `azure.extensions` allow-list requirement for HypoPG, pg_hint_plan and auto_explain appears as a separate `extension_hints` field (shown as "hint:" in the dashboard); the `extensions` field is what the catalog shows is installed. ANALYZE permission is `ok` for members of `azure_pg_admin`, otherwise `limited` (checked per table at execution). Capabilities are recollected every 15 minutes and after a config reload |
 
 ## Database setup
@@ -63,7 +64,24 @@ az postgres flexible-server parameter set -g RG -s SERVER --name shared_preload_
 az postgres flexible-server restart -g RG -n SERVER
 ```
 
-## Letting pg_sage apply server parameters
+## Server parameters: proposals and the WAL-slot cap
+
+pg_sage reads server parameters over Azure Resource Manager to fill each proposal (unit,
+read-only flag, whether a restart is needed, the prior value for the rollback). The only
+parameter it writes is `max_slot_wal_keep_size`, which the WAL-slot custodian sets to cap an
+inactive replication slot's retained WAL. Every other change is an operator-approved
+proposal, for example:
+
+```bash
+az postgres flexible-server parameter set --subscription SUB --resource-group 'RG' \
+  --server-name SERVER --name shared_buffers --value 524288
+az postgres flexible-server restart --subscription SUB --resource-group 'RG' --name SERVER
+```
+
+The rollback restores a user-set prior value, or returns the parameter to its default with
+`--source system-default`. A read-only parameter gives no proposal. Without the `azure:`
+section (or `cloud_resource.azure` for a fleet database) the proposal is a fill-in template
+with `<resource-group>` and `<server>` placeholders and a blocker, never a runnable command.
 
 ```yaml
 azure:
@@ -74,16 +92,19 @@ azure:
 
 The same values can come from `SAGE_AZURE_SUBSCRIPTION_ID`, `SAGE_AZURE_RESOURCE_GROUP`
 and `SAGE_AZURE_SERVER_NAME`. The server name from each database's host always wins, so a
-fleet never applies one server's parameters to another.
+fleet never reads or writes one server's parameters for another.
 
 Credentials are never read from the config file. pg_sage uses the Azure identity chain:
 service-principal environment variables (`AZURE_TENANT_ID`, `AZURE_CLIENT_ID`,
 `AZURE_CLIENT_SECRET`), workload identity, managed identity, then an `az login` session.
-The identity needs `Microsoft.DBforPostgreSQL/flexibleServers/configurations/read` and
-`.../write` on the server; the built-in Contributor role scoped to the server grants both.
+Proposals need only `Microsoft.DBforPostgreSQL/flexibleServers/configurations/read` (the
+Reader role grants it); a 403 names that permission in the managed-change worker's target
+error. The WAL-slot cap also needs `.../configurations/write`; the built-in Contributor role
+scoped to the server grants both.
 
-At startup pg_sage logs either `azure server parameters apply through ARM for server NAME`
-or why they stay guidance-only.
+At startup pg_sage logs either `azure server NAME: the WAL-slot cap (max_slot_wal_keep_size)
+applies through ARM; other server parameters become operator-approved proposals with the az
+command`, or why the cap stays guidance-only.
 
 ## Test server (live checklist)
 
@@ -109,7 +130,8 @@ CHECK-AZ-02: the documented setup SQL runs as the server admin (record any refus
 CHECK-AZ-03: first collector snapshot appears in sage.snapshots within 2 minutes
 CHECK-AZ-04: fleet readiness shows provider azure, log access azure_monitor
 CHECK-AZ-05: an approved ANALYZE executes and verifies
-CHECK-AZ-06: startup logs "azure server parameters apply through ARM" with azure: set
+CHECK-AZ-06: startup logs "the WAL-slot cap (max_slot_wal_keep_size) applies through ARM" with azure: set
 CHECK-AZ-07: PG_SAGE_LIVE_AZURE=1 go test ./internal/azure -run Live passes (sets and restores work_mem)
 CHECK-AZ-08: PG_SAGE_LIVE_AZURE=1 go test ./internal/azure -run RestartBound passes (pending restart reported)
+CHECK-AZ-09: MANUAL a server-parameter proposal's az command runs and parameter show reads the value back
 ```

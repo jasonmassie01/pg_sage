@@ -91,7 +91,8 @@ func (rt *databaseRuntime) startCloudTelemetry() {
 	resource, store := rt.cloudShareKey(), managedparam.NewStore(rt.spec.Pool)
 	worker, err := managedparam.NewWorker(managedparam.WorkerOptions{Database: rt.spec.Name,
 		Provider: rt.provider, Pool: rt.spec.Pool, Store: store,
-		Resolver: rt.cloudResolver, Resource: resource})
+		Resolver: managedChangeResolver(rt.cloudResolver, rt.azureParams),
+		Resource: resource})
 	if err != nil {
 		logWarn(rt.spec.Scope, "db %q: managed changes unavailable: %v", rt.spec.Name, err)
 		return
