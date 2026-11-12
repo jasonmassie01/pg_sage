@@ -189,3 +189,27 @@ func TestRoleBudgetRollback(t *testing.T) {
 		t.Fatalf("prior 1d: %q, %v, want no faithful rollback", got, err)
 	}
 }
+
+// State: a connection limit is cluster-wide, so only the fleet leader
+// applies it; a timeout (per database) runs on any process.
+func TestRoleBudget_ConnectionLimitNeedsTheLeader(t *testing.T) {
+	e := &Executor{}
+	facts := roleFacts{exists: true, self: "sage", database: "shop", sessions: 3}
+	conn, _ := parseRoleBudgetSQL(roleConnSQL)
+	timeout, _ := parseRoleBudgetSQL(roleTimeoutSQL)
+	if err := e.checkRoleBudget(conn, facts); err != nil {
+		t.Fatalf("single process (no leader check): %v", err)
+	}
+	e.WithLeaderCheck(func() bool { return false })
+	if err := e.checkRoleBudget(conn, facts); !errors.Is(err, ErrRoleBudgetRefused) ||
+		!strings.Contains(err.Error(), "leader") {
+		t.Fatalf("follower: %v, want refused off the leader", err)
+	}
+	if err := e.checkRoleBudget(timeout, facts); err != nil {
+		t.Fatalf("follower timeout: %v", err)
+	}
+	e.WithLeaderCheck(func() bool { return true })
+	if err := e.checkRoleBudget(conn, facts); err != nil {
+		t.Fatalf("leader: %v", err)
+	}
+}

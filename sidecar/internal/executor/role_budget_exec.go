@@ -231,3 +231,7 @@ func (e *Executor) readRoleBudget(ctx context.Context, c *configChange) (readbac
 	detail["state"] = state
 	return state, note, detail
 }
+
+// WithLeaderCheck gates cluster-wide role changes (a connection limit)
+// on the fleet leader; without one the process is its own leader.
+func (e *Executor) WithLeaderCheck(isLeader func() bool) { e.isLeader = isLeader }
