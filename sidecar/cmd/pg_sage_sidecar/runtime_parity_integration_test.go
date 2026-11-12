@@ -322,6 +322,7 @@ func parityDatabaseConfig(base *config.Config, name string) config.DatabaseConfi
 func preserveParityGlobals(t *testing.T, base *config.Config) {
 	t.Helper()
 	preserveFleetRuntimeGlobals(t)
+	stubCloudTelemetryOffline(t) // azure fixtures must never poll ARM
 	oldPool, oldCtx, oldCancel := pool, shutdownCtx, shutdownCancel
 	oldMeta, oldCloud, oldRamp := globalMetaState, cloudEnvironment, configRampStart
 	oldColl, oldAnal, oldExec, oldActions := coll, anal, exec, actionStore
