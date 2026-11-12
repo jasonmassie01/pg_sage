@@ -29,11 +29,15 @@ var waitClasses = []string{"Activity", "BufferPin", "Client", "Extension", "IO",
 	"Lock", "LWLock", "Timeout"}
 
 // cycleSamples are one cycle's samples, with each statement's share of
-// the interval's DB time and its counters.
+// the interval's DB time and its counters. queriesRead reports a
+// statement interval this cycle, and present the identities of all its
+// statements (sampled or not).
 type cycleSamples struct {
-	samples []baseline.Sample
-	share   map[baseline.Key]float64
-	queries map[baseline.Key]collector.QueryStats
+	samples     []baseline.Sample
+	share       map[baseline.Key]float64
+	queries     map[baseline.Key]collector.QueryStats
+	queriesRead bool
+	present     map[string]bool
 }
 
 // workloadSamples is the cycle's samples: the interval means of at most
@@ -43,7 +47,7 @@ type cycleSamples struct {
 func workloadSamples(cur, prev *collector.Snapshot, minCalls int64,
 	maxKeys int) cycleSamples {
 	cs := cycleSamples{share: map[baseline.Key]float64{},
-		queries: map[baseline.Key]collector.QueryStats{}}
+		queries: map[baseline.Key]collector.QueryStats{}, present: map[string]bool{}}
 	cs.addQueries(cur, prev, minCalls, maxKeys)
 	if cur.Available("system") {
 		cs.add(MetricActiveBackends, "database", "gauge", float64(cur.System.ActiveBackends))
@@ -70,7 +74,14 @@ func (cs *cycleSamples) add(metric, key, how string, v float64) {
 // rules-05 call floor; a reset or an evicted entry has none).
 func (cs *cycleSamples) addQueries(cur, prev *collector.Snapshot, minCalls int64,
 	maxKeys int) {
-	if maxKeys <= 0 || !hasQueryInterval(cur, prev) {
+	if !hasQueryInterval(cur, prev) {
+		return
+	}
+	cs.queriesRead = true
+	for _, q := range adviceQueries(cur) {
+		cs.present[queryIdent(q.QueryID)] = true
+	}
+	if maxKeys <= 0 {
 		return
 	}
 	before := queriesByID(prev)

@@ -3,6 +3,7 @@ package analyzer
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -124,12 +125,30 @@ func (a *Analyzer) scoreAnomalies(cs cycleSamples, hist map[baseline.Key][]float
 			findings = append(findings, anomalyFinding(s, score, level, episode, cs))
 		}
 	}
+	return findings, append(kept, a.unseenAnomalies(cs, seen)...)
+}
+
+// unseenAnomalies ends the tracked series without a sample this cycle and
+// returns those kept open. A statement gone from a snapshot whose
+// statements were read is never judged again, so its finding resolves;
+// any other series (a category not read, a statement past the key cap or
+// idle) is kept open.
+func (a *Analyzer) unseenAnomalies(cs cycleSamples, seen map[string]bool) []string {
+	var kept []string
 	for ident := range a.anomalies {
-		if !seen[ident] && a.anomalies.unjudged(ident) {
+		if seen[ident] {
+			continue
+		}
+		key, isQuery := strings.CutPrefix(ident, MetricQueryMean+":")
+		if isQuery && cs.queriesRead && !cs.present[key] {
+			delete(a.anomalies, ident)
+			continue
+		}
+		if a.anomalies.unjudged(ident) {
 			kept = append(kept, ident)
 		}
 	}
-	return findings, kept
+	return kept
 }
 
 // anomalyFloor is the metric's absolute delta floor.

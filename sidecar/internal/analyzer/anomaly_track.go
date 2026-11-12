@@ -24,7 +24,9 @@ const (
 
 // judged records a cycle with a verdict on ident. emit reports that the
 // finding is (still) open with the given episode; keep that an open
-// finding is kept open on its first normal cycle.
+// finding is kept open: on its first normal cycle, and on an anomalous
+// cycle that does not open one yet (after a restart the tracker is empty
+// while sage.findings still holds the open finding).
 func (t anomalyTracker) judged(ident string, anomalous bool,
 	at time.Time) (emit, keep bool, episode time.Time) {
 	st := t[ident]
@@ -49,7 +51,7 @@ func (t anomalyTracker) judged(ident string, anomalous bool,
 		st.open = true
 		return true, false, st.episode
 	}
-	return false, false, time.Time{}
+	return false, true, time.Time{}
 }
 
 // unjudged records a cycle without a verdict on ident (a learning bucket,
