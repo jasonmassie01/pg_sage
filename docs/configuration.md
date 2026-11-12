@@ -708,6 +708,19 @@ ended the run) or `remnant_cleanup_failed` (the drop itself failed, for example 
 CREATE INDEX over an INVALID index of the same name is refused with the command that clears it.
 A build withheld because its index name exists is parked until that name is gone, then retried.
 
+### Backup freshness
+
+| Parameter | Default | Description |
+|---|---|---|
+| `backup.max_age_hours` | `26` | Hours the provider's last good backup may age before `backup_stale` opens (critical at twice the age), `1`-`8760`. RDS and Aurora: the latest restorable time; Cloud SQL: the last successful backup run. Restart to apply |
+| `backup.max_archive_gap_minutes` | `15` | Minutes completed WAL may wait since the last successful archive before `wal_archive_stale` opens (critical at four times the gap), `1`-`10080`. Restart to apply |
+| `backup.min_retention_days` | `7` | Backup retention the provider must keep; less opens `backup_retention_below_policy`. `0` turns the check off; a negative value is refused at startup. `0`-`35`. Restart to apply |
+
+These keys only open and close findings (see
+[Backups and WAL archiving](findings.md#backups-and-wal-archiving)); they never change what
+pg_sage may do. They are YAML only. A self-managed server's backup tool leaves no evidence
+in the catalog, so there its backup freshness is unknown and only the WAL archiver is judged.
+
 ### HA role checks
 
 | Parameter | Default | Description |

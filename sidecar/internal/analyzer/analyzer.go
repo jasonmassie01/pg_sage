@@ -135,6 +135,9 @@ type Analyzer struct {
 
 	// freezeHorizons is the database's freeze sampler (WithFreezeHorizons).
 	freezeHorizons FreezeHorizonSource
+	// instanceOwner names the fleet database that owns this database's
+	// instance (WithInstanceOwner); nil reports cluster-wide findings here.
+	instanceOwner func() (owner string, isOwner bool)
 }
 
 // PlanNarrator enriches plan_regression findings with an LLM-generated

@@ -137,6 +137,8 @@ type databaseRuntime struct {
 	lakebaseScope atomic.Value // verified immutable resource/policy pair, read by history
 	cloud         *cloudtel.Runtime
 	cloudResolver managedparam.Resolver
+	// backupNote logs a withheld backup freshness once per reason.
+	backupNote reasonLatch
 	// azureParams is the database's Azure ARM adapter (nil off Azure or
 	// without the azure: identity): the managed-change worker reads server
 	// parameters through it.

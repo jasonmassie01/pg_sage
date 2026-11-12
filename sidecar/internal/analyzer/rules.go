@@ -39,6 +39,9 @@ type RuleExtras struct {
 	// FreezeHorizons is this cycle's reading of the database's freeze
 	// sampler (the custodian's horizon reader); nil when it could not run.
 	FreezeHorizons []probes.FreezeHorizon
+	// ArchiverOwner is the fleet database the cluster-wide archiver
+	// findings are left to this cycle; "" when this database reports them.
+	ArchiverOwner string
 	// Now is the rule clock; nil means time.Now (tests set it).
 	Now func() time.Time
 	// zeroScanSeen records the identities whose zero-scan clock the
@@ -108,6 +111,11 @@ var AllRules = []RuleSpec{
 	{"replication_lag", ruleReplicationLag, cats("replication_lag"), hasReplication},
 	{"inactive_slots", ruleInactiveSlots,
 		cats("inactive_slot", "slow_replication_slot"), hasReplication},
+
+	// WAL archiver rules (market-07, rules_backup.go)
+	{"wal_archive_failing", ruleWALArchiveFailing, cats(categoryWALArchiveFailing),
+		hasArchiverInterval},
+	{"wal_archive_stale", ruleWALArchiveStale, cats(categoryWALArchiveStale), hasArchiver},
 }
 
 func cats(c ...string) []string { return c }

@@ -136,6 +136,11 @@ func (a *Analyzer) runSnapshotRules(
 		if rule.Name == "inactive_slots" && a.extras != nil && a.extras.InactiveSlotPending {
 			a.eval.fail("inactive_slot")
 		}
+		if rule.Name == "wal_archive_failing" && !archiverDeferred(a.extras) &&
+			archiverStillFailing(current) {
+			// No success since the last failure: no verdict of recovery.
+			a.eval.keep(categoryWALArchiveFailing, archiverIdentity)
+		}
 	}
 	return out
 }

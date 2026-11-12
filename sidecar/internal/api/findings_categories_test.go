@@ -28,7 +28,9 @@ var rules07Lists = map[string][]string{
 		"autovacuum_tuning", "sage_footprint", "sage_self_cost",
 		"sage_self_budget", "clone_schemas", "app_managed_index",
 		"stale_statistics",
-		"index_bloat"}, // rules-13 added index_bloat to the rules subsystem
+		"index_bloat", // rules-13 added index_bloat to the rules subsystem
+		// market-07 added the WAL archiver rules.
+		"wal_archive_failing", "wal_archive_stale"},
 	"advisor": {"wal_tuning", "connection_tuning", "query_rewrite",
 		"bloat_remediation", "advisor_degraded", "vacuum_tuning", "memory_tuning"},
 	"optimizer": {"missing_index", "covering_index", "partial_index", "composite_index"},
@@ -68,7 +70,8 @@ func TestNewSubsystemsFilterTheirCategories(t *testing.T) {
 	}
 	_, args, ok = buildSourceClause("cloud", 1)
 	if !ok || !slices.Equal(args[0].([]string),
-		[]string{"managed_parameter_drift", "managed_storage_runway"}) {
+		[]string{"backup_retention_below_policy", "backup_stale", // market-07
+			"managed_parameter_drift", "managed_storage_runway"}) {
 		t.Errorf("cloud = (%v, %v), want the managed categories", args, ok)
 	}
 }

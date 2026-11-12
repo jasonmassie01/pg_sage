@@ -823,6 +823,89 @@ SELECT pg_drop_replication_slot('old_subscriber');
 
 ---
 
+## Backups and WAL Archiving
+
+AP-11 (agent posture) reports backup *configuration*: archiving or point-in-time
+recovery off, retention 0. These categories report backup *results*: whether WAL
+is archived and whether the provider holds a recent good backup. pg_sage never
+treats missing evidence as healthy: a self-managed server's backup tool
+(pgBackRest, Barman, WAL-G, `pg_basebackup` cron jobs) leaves nothing in the catalog,
+so its backup freshness is **unknown**, never "ok"; only the WAL archiver is
+watched there. Archiving is cluster-wide: in fleet mode the database that owns
+its instance (the one that also owns the instance's WAL and connection advice)
+reports it, once. The archiver rules live in `rules_backup.go`; the provider
+reads are in the `cloudtel` package.
+
+### wal_archive_failing
+
+**Severity:** warning, or critical once the archiver has failed for 30 minutes
+or more without a successful archive
+
+**What it detects:** `archive_mode` is `on` or `always`, `pg_stat_archiver.failed_count`
+rose since the previous snapshot, and `last_failed_time` is after
+`last_archived_time`. The streak is measured on the server's clock, from the last
+successful archive (or the statistics reset when nothing was archived since) to the
+last failure; with neither known the finding is a warning marked
+`streak_known: false`. Between the archiver's retries `failed_count` can stay flat
+for a cycle: while nothing has been archived since the last failure the open
+finding stays open; it resolves after the first successful archive or when
+archiving is turned off (AP-11 then reports that).
+
+**Detail:** `archive_mode`, `failed_count`, `archived_count`, `failed_since_last_cycle`,
+`last_archived_wal`, `last_archived_time`, `last_failed_time`, `streak_known` and
+`streak_minutes`.
+
+**Recommended action:** Read the server log for the `archive_command` or
+`archive_library` error (destination full, credentials, network) and fix it.
+Point-in-time recovery stops at the last archived WAL, and `pg_wal` grows until
+archiving recovers. Advisory only: pg_sage runs nothing.
+
+### wal_archive_stale
+
+**Severity:** warning, or critical at four times the gap
+
+**What it detects:** archiving is on, at least one completed WAL segment waits
+after `last_archived_wal` (from the current WAL file and `wal_segment_size`), and
+the last successful archive is older than `backup.max_archive_gap_minutes`
+(default 15). An idle server, whose only unarchived WAL is the segment being
+written, is never stale however old its last archive. A failing archiver is
+`wal_archive_failing`'s, and a standby (no current WAL position) is not judged.
+This catches an `archive_command` that hangs or falls behind without reporting a
+failure.
+
+**Detail:** the archiver fields above, `pending_segments`, `archived_age_minutes`
+and `max_archive_gap_minutes`.
+
+### backup_stale
+
+**Severity:** warning, or critical at twice the age
+
+**What it detects:** the provider's last good backup is older than
+`backup.max_age_hours` (default 26; exactly the limit does not fire). On RDS it is
+the instance's `LatestRestorableTime`, on Aurora the cluster's (both in the
+descriptions pg_sage already reads); on Cloud SQL the end of the latest successful
+run among the 5 newest `backupRuns.list` entries, read at most every 15 minutes.
+Five newest runs with failures and no success also fire (`source: backup_runs`,
+no age). No reading (a response without the field, a denied `backupRuns.list`, a
+time in the future) leaves the category unevaluated, so an open finding stays
+open; a denied read is logged once per reason.
+
+**Detail:** `source` (`latest_restorable_time`, `last_successful_backup` or
+`backup_runs`), `age_hours`, `max_age_hours`, `last_good` and `resource`.
+
+### backup_retention_below_policy
+
+**Severity:** warning
+
+**What it detects:** the provider keeps backups for fewer days than
+`backup.min_retention_days` (default 7; 0 turns the check off). On RDS and Aurora it
+is the backup retention period, on Cloud SQL the transaction log retention days.
+Retention 0 is AP-11's "backups off" case and is left to it.
+
+**Detail:** `retention_days`, `min_retention_days` and `resource`.
+
+---
+
 ## More Tier 1 Categories
 
 These deterministic rules run alongside the categories above.
