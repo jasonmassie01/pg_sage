@@ -178,8 +178,8 @@ func trancheTwoMigrations() []namedStep {
 		{"ddlDecisionOpenWithheldIndex", ddlDecisionOpenWithheldIndex()},   // policy-07
 		{"ddlActionQueueSchedule", ddlActionQueueSchedule},                 // policy-04
 		{"ddlRolloutRunInterrupted", ddlRolloutRunInterrupted},             // executor-04b
-		{"ddlNotificationLogRefs", ddlNotificationLogRefs},                 // sre-08: page lookup
-		{"ddlSREIncidentFollowup", ddlSREIncidentFollowup},                 // sre-08: one claim each
+		{"ddlNotificationLogRefs", ddlNotificationLogRefs},                 // sre-08
+		{"ddlSREIncidentFollowup", ddlSREIncidentFollowup},                 // sre-08
 		{"ddlSREEvidenceRefreshedEvent", ddlSREEvidenceRefreshedEvent},     // playbooks-06
 		{"ddlIncidentsLogOccurrences", ddlIncidentsLogOccurrences},         // rca-07
 		{"ddlExplainEstimateSource", ddlExplainEstimateSource},             // rca-04
@@ -189,11 +189,11 @@ func trancheTwoMigrations() []namedStep {
 		{"ddlAuditChainMarkerOps", ddlAuditChainMarkerOps},                 // audit-03b
 		{"ddlPolicyApprovalsID", ddlPolicyApprovalsID},                     // audit-11
 		{"ddlUsersPasswordLifecycle", ddlUsersPasswordLifecycle},           // apiauth-03
-		{"ddlSchemaMigrations", ddlSchemaMigrations},                       // config-04b: the migration ledger
-		{"ddlAuditChainOpCheckValidated", ddlAuditChainOpCheckValidated},   // audit-03b: upgrade check
+		{"ddlSchemaMigrations", ddlSchemaMigrations},                       // config-04b: ledger
+		{"ddlAuditChainOpCheckValidated", ddlAuditChainOpCheckValidated},   // audit-03b
 		{"ddlManagedChangeProviders", ddlManagedChangeProviders},           // advisors-03
 		{"ddlSREAutonomyEvidenceExpiring", ddlSREAutonomyEvidenceExpiring}, // earned-06
 		{"ddlSREAutonomyServerMajor", ddlSREAutonomyServerMajor},           // earned-07
-		{"ddlGameDaySummary", ddlGameDaySummary},                           // benches-08: after ddlBenchCrashRecovery
+		{"ddlGameDaySummary", ddlGameDaySummary},                           // benches-08
 	}
 }

@@ -68,7 +68,8 @@ func renderFullScrape(t *testing.T) string {
 	writeSelfBudgetMetrics(&b, map[string]selfbudget.Usage{"alpha": {CPUKnown: true,
 		CPUMsPerCycle: 900, DBKnown: true, DBTimeMsPerHour: 5000, BlocksPerHour: 70_000,
 		CycleSeconds: 60, StorageKnown: true, StorageBytes: 2 << 30}},
-		selfbudget.CPUReading{Known: true, MsPerCycle: 900}, selfbudget.Budget{CPUMsPerCycle: 600, DBTimeMsPerHour: 180_000,
+		selfbudget.CPUReading{Known: true, MsPerCycle: 900},
+		selfbudget.Budget{CPUMsPerCycle: 600, DBTimeMsPerHour: 180_000,
 			BlocksPerHour: 18_000_000, StorageBytes: 1 << 30}, 100, loops)
 	writeOptimizerMemoryMetrics(&b, map[string]analyzer.TuningStats{"alpha": {
 		WhatIfSkipped: 1, TokensUsed: 10, TokenLimit: 100}})
