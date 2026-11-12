@@ -46,7 +46,7 @@ func (rt *databaseRuntime) initCloudTelemetry() {
 		<-rt.ctx.Done()
 		release()
 	})
-	if st := rt.cloud.Status(); !st.Available && rt.cloudResolver == nil {
+	if st := rt.cloud.Status(); !st.Available && !rt.cloud.HasSource() {
 		logWarn(rt.spec.Scope, "db %q: managed-cloud telemetry %s", rt.spec.Name, st.Reason)
 	}
 }
@@ -79,7 +79,7 @@ func (rt *databaseRuntime) hostMemory() advisor.HostMemory {
 // untouched. The worker joins its instance's peers, so a change another
 // database of the instance holds is not proposed twice.
 func (rt *databaseRuntime) startCloudTelemetry() {
-	if rt.cloud != nil && rt.cloudResolver != nil {
+	if rt.cloud.HasSource() {
 		if rt.executor != nil {
 			rt.executor.WithHostCPUReader(rt.cloud)
 		}

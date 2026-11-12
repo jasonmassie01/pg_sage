@@ -8,6 +8,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 
+	"github.com/pg-sage/sidecar/internal/azure"
 	"github.com/pg-sage/sidecar/internal/cloudtel"
 	"github.com/pg-sage/sidecar/internal/config"
 )
@@ -24,6 +25,9 @@ func testCloudDeps() cloudDeps {
 		},
 		gcpToken: func(context.Context) (gcpTokenSource, error) {
 			return fakeGCPToken{project: "proj-adc"}, nil
+		},
+		azureToken: func() (azure.TokenSource, error) {
+			return func(context.Context) (string, error) { return "eyJ.x", nil }, nil
 		},
 	}
 }
@@ -45,8 +49,23 @@ type cloudCase struct {
 func cloudTelemetryCases() []cloudCase {
 	return []cloudCase{
 		{name: "self-managed has none", provider: "self-managed", host: "db", wantNil: true},
-		{name: "azure has none", provider: "azure", host: "x.postgres.database.azure.com",
-			wantNil: true},
+		{name: "azure from host", provider: "azure", host: "orders.postgres.database.azure.com",
+			wantProvider: "azure", mutate: func(c *config.Config) {
+				c.Azure.SubscriptionID = "0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0"
+				c.Azure.ResourceGroup = "rg-shop"
+			}},
+		{name: "azure without a subscription", provider: "azure",
+			host: "orders.postgres.database.azure.com", wantProvider: "azure",
+			wantAvailableReason: "azure.subscription_id"},
+		{name: "alloydb standalone named", provider: "alloydb", host: "10.30.0.5",
+			standalone: true, wantProvider: "alloydb", mutate: func(c *config.Config) {
+				c.CloudTelemetry.AlloyDB.Cluster = "orders"
+				c.CloudTelemetry.AlloyDB.Instance = "orders-primary"
+			}},
+		{name: "alloydb without a name", provider: "alloydb", host: "10.30.0.5",
+			wantProvider: "alloydb", wantAvailableReason: "cloud_resource.gcp.cluster"},
+		{name: "azure cosmos has none", provider: "azure-cosmos",
+			host: "c-x.postgres.cosmos.azure.com", wantNil: true},
 		{name: "disabled", provider: "rds",
 			host:    "orders.c9akciq32.us-east-1.rds.amazonaws.com",
 			mutate:  func(c *config.Config) { f := false; c.CloudTelemetry.Enabled = &f },

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/pg-sage/sidecar/internal/azure"
 	"github.com/pg-sage/sidecar/internal/cloudtel"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/managedparam"
@@ -171,11 +172,24 @@ func cloudShareKey(provider, host string, port uint16, r config.CloudResourceCon
 // configuredCloudResource is the configured resource that names the
 // instance ("" when the host names it, or none is configured).
 func configuredCloudResource(provider, host string, r config.CloudResourceConfig) string {
-	if provider == "cloud-sql" {
+	switch provider {
+	case "cloud-sql":
 		if _, ok := cloudtel.ParseCloudSQLSocket(host); ok || r.GCP.Instance == "" {
 			return ""
 		}
 		return strings.ToLower("gcp=" + r.GCP.Project + "/" + r.GCP.Instance)
+	case "alloydb":
+		if r.GCP.Cluster == "" {
+			return ""
+		}
+		return strings.ToLower("alloydb=" + r.GCP.Project + "/" + r.GCP.Cluster + "/" +
+			r.GCP.Instance)
+	case "azure":
+		if azure.ServerNameFromHost(host) != "" || r.Azure.Server == "" {
+			return ""
+		}
+		return strings.ToLower("azure=" + r.Azure.Subscription + "/" + r.Azure.ResourceGroup +
+			"/" + r.Azure.Server)
 	}
 	if _, ok := cloudtel.ParseRDSHost(host); ok {
 		return ""
