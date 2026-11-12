@@ -75,7 +75,8 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
       }
       const image = meme.getByRole('img')
       await expect(image).toHaveCount(1)
-      await expect(image).toHaveAttribute('src', /^\/memes\/[^/]+\.jpg$/)
+      // dashboard-09: memes are Vite-hashed bundle assets served from /assets/.
+      await expect(image).toHaveAttribute('src', /^\/assets\/[^/]+-[\w-]+\.jpg$/)
       await expect.poll(() => image.evaluate((element: HTMLImageElement) =>
         element.complete && element.naturalWidth > 0 && element.naturalHeight > 0
           && new URL(element.currentSrc).origin === window.location.origin
