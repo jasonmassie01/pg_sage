@@ -11,6 +11,8 @@ var fullCategories = map[string]string{
 		"or open transactions",
 	"replication": "a few replicas and slots whose LSNs move every cycle; a delta " +
 		"would carry almost the whole document",
+	"archiver": "the server's one pg_stat_archiver row (a few hundred bytes) whose " +
+		"archive age and current WAL file move every cycle",
 }
 
 // Coverage reports how the store keeps category: delta is true for a

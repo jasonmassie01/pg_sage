@@ -53,7 +53,8 @@ circuit breaker that skips cycles while the database is in trouble (active clien
 over `max_connections` above `safety.cpu_ceiling_pct`). A cycle reads the catalog categories
 in order (`catalogSteps`: `queries`, `tables`, `indexes`, `partitioned_indexes`,
 `foreign_keys`, `system`, `locks`, `sequences`), then `replication` and the extra categories
-(`extraSteps`: `io`, `prepared_xacts`, `partitions`, `index_bloat`, `config_data`).
+(`extraSteps`: `io`, `prepared_xacts`, `archiver`, `partitions`, `index_bloat`,
+`config_data`).
 
 **Health.** A skipped cycle is logged with its cause: `load ratio 0.93 > ceiling 0.90
 (active sessions / max_connections)`, or `load query failed: <error>` when the load query
@@ -116,6 +117,8 @@ Each snapshot holds one row per category: `queries`, `tables`, `indexes`,
 `partitioned_indexes` (the partitioned tables' own indexes, relkind `I`), `foreign_keys`,
 `system`, `locks`, `sequences`, `replication`, `io` (PostgreSQL 16 and later), `partitions`,
 `prepared_xacts` (this database's two-phase-commit transactions from `pg_prepared_xacts`),
+`archiver` (the server's one `pg_stat_archiver` row with the current WAL file and
+`wal_segment_size`, for the WAL archiver findings),
 `index_bloat` (the largest btree indexes' bloat estimated from planner statistics, at most 200)
 and `config_data` (the advisor's settings, reloptions, connection and WAL snapshot, collected only
 when an advisor will consume it). A category that could not be read in a cycle is
@@ -157,9 +160,9 @@ unavailable: its counters are never published without their texts. Near
 `pg_stat_statements.max`, the utility and `COPY ... TO STDOUT` classification (which reads
 every text) runs at most hourly, and only when the entry or deallocation count moved.
 
-The catalog categories and the extras (`io`, `prepared_xacts`, `partitions`, `config_data`)
-share one retry budget per cycle: a read that hit a statement or lock timeout is read once
-more, and at most two reads are retried per cycle. `config_data` is all or nothing: if any of
+The catalog categories and the extras (`io`, `prepared_xacts`, `archiver`, `partitions`,
+`config_data`) share one retry budget per cycle: a read that hit a statement or lock timeout
+is read once more, and at most two reads are retried per cycle. `config_data` is all or nothing: if any of
 its sub-reads (`pg_settings`, `set_privileges`, `reloptions`, `connection_states`,
 `wal_position`, `extensions`, `database_owner`) fails or returns a row that does not
 scan, the whole category is unavailable and the reason names the sub-read. On a hot

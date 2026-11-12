@@ -29,6 +29,9 @@ type Snapshot struct {
 	// StatsEpoch is the pg_stat_statements statistics epoch the query
 	// counters belong to; zero when it could not be read.
 	StatsEpoch time.Time `json:"stats_epoch,omitzero"`
+	// Archiver is the server's WAL archiver row (market-07); nil when the
+	// read failed.
+	Archiver *ArchiverStats `json:"archiver,omitempty"`
 	// Unavailable names the catalog categories that could not be read this
 	// cycle, with why (dogfood lifeos-1). Such a category is unknown, not
 	// empty: rules that would read its absence as a fact do not run.

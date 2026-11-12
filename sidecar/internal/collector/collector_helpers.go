@@ -106,6 +106,7 @@ func snapshotRows(snap *Snapshot) ([]snapstore.Row, error) {
 		"locks":               snap.Locks,
 		"sequences":           snap.Sequences,
 		"replication":         snap.Replication,
+		"archiver":            snap.Archiver,
 		"io":                  snap.IO,
 		"partitions":          snap.Partitions,
 		"prepared_xacts":      snap.PreparedXacts,
