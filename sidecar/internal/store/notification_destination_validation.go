@@ -3,6 +3,7 @@ package store
 import (
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/notify"
@@ -30,6 +31,45 @@ func validateDestinationConfig(typ string, config map[string]string) error {
 			return fmt.Errorf("%w: incidentio channel requires alert_source_config_id "+
 				"(1-64 letters, digits, '_' or '-')", ErrValidation)
 		}
+	case "jira":
+		return validateJiraConfig(config)
+	}
+	return nil
+}
+
+var jiraProjectKey = regexp.MustCompile(`^[A-Z][A-Z0-9_]{1,19}$`)
+
+// validateJiraConfig checks a Jira Cloud ticket integration: an https
+// site URL with no path or query, the account email and API token, a
+// project key and an optional issue type (default Task).
+func validateJiraConfig(config map[string]string) error {
+	u, err := url.Parse(config["base_url"])
+	if err != nil || u.Scheme != "https" || u.Host == "" || strings.Trim(u.Path, "/") != "" ||
+		u.RawQuery != "" {
+		return fmt.Errorf("%w: jira base_url must be an https site URL such as "+
+			"https://acme.atlassian.net", ErrValidation)
+	}
+	for _, key := range []string{"email", "api_token"} {
+		if config[key] == "" {
+			return fmt.Errorf("%w: jira integration requires %s", ErrValidation, key)
+		}
+	}
+	if !jiraProjectKey.MatchString(config["project_key"]) {
+		return fmt.Errorf("%w: jira project_key must be 2-20 capital letters, digits "+
+			"or '_', starting with a letter", ErrValidation)
+	}
+	if len(config["issue_type"]) > 60 {
+		return fmt.Errorf("%w: jira issue_type is at most 60 characters", ErrValidation)
+	}
+	return nil
+}
+
+// validateRuleChannel refuses a rule on a ticket integration: Jira links
+// cases, it does not receive events (market-14).
+func validateRuleChannel(ch *notify.Channel) error {
+	if notify.IsTicketIntegration(ch.Type) {
+		return fmt.Errorf("%w: channel %d is a %s ticket integration; tickets are created "+
+			"from a case, not by notification rules", ErrValidation, ch.ID, ch.Type)
 	}
 	return nil
 }

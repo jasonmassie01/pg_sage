@@ -13,7 +13,8 @@ import (
 var SecretConfigKeys = []string{
 	"webhook_url", "routing_key", "smtp_pass", "smtp_password",
 	"api_key", "token", "secret", "signing_secret", "bot_token", "webhook_secret",
-	"headers", // webhook headers carry bearer tokens (alerting-06)
+	"headers",   // webhook headers carry bearer tokens (alerting-06)
+	"api_token", // a Jira ticket integration's API token (market-14)
 }
 
 // legacySealedPrefix marks a pre-security-08 value: crypto.Encrypt output

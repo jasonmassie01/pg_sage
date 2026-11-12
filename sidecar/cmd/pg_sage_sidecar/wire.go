@@ -187,6 +187,7 @@ func wireRouter(p WireParams) (WireResult, error) {
 			NotificationSecretKey:         notificationSecretKey(authPool),
 			NotificationPreviousSecretKey: notificationPreviousSecretKey(authPool),
 			NotificationTargetPolicy:      notificationTargetPolicy(),
+			CaseTicketSync:                true, // market-14
 			SecretsPosture:                secretsPostureSource(authPool),
 			DisableConfigWrites: p.Cfg != nil && p.Cfg.IsFleet() &&
 				!p.Cfg.HasMetaDB(),

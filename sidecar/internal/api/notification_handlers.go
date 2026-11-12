@@ -181,6 +181,10 @@ func testChannelHandler(
 				jsonError(w, "channel not found", http.StatusNotFound)
 				return
 			}
+			if errors.Is(err, store.ErrValidation) {
+				jsonError(w, err.Error(), http.StatusBadRequest)
+				return
+			}
 			// Never echo raw delivery errors: they can carry webhook
 			// secrets and act as an SSRF/port-scan oracle (G7-B10/B21).
 			jsonError(w, store.ErrTestDeliveryFailed.Error(),

@@ -27,7 +27,11 @@ func (s *NotificationStore) CreateRule(
 			"min_severity %q would never fire", ErrValidation, event,
 			notify.EventSeverity[event], minSeverity)
 	}
-	if _, err := s.GetChannel(ctx, channelID); err != nil {
+	ch, err := s.GetChannel(ctx, channelID)
+	if err != nil {
+		return 0, err
+	}
+	if err := validateRuleChannel(ch); err != nil {
 		return 0, err
 	}
 
@@ -35,7 +39,7 @@ func (s *NotificationStore) CreateRule(
 	defer cancel()
 
 	var id int
-	err := s.pool.QueryRow(qctx,
+	err = s.pool.QueryRow(qctx,
 		`/* pg_sage */ INSERT INTO sage.notification_rules
 		    (channel_id, event, min_severity)
 		 VALUES ($1, $2, $3) RETURNING id`,

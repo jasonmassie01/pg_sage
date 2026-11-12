@@ -123,6 +123,9 @@ type RuntimeDeps struct {
 	// NotificationTargetPolicy validates channel targets on write and at
 	// test-send time (G7-B21).
 	NotificationTargetPolicy notify.TargetPolicy
+	// CaseTicketSync starts the case ticket sync worker on the shutdown
+	// context (market-14); tests leave it off.
+	CaseTicketSync bool
 	// Autonomy serves the Sage SRE earned-autonomy routes (M7); nil omits.
 	Autonomy *AutonomyDeps
 	// Ask serves the Ask Sage routes (roadmap phase 3); nil omits them.
@@ -300,7 +303,11 @@ func registerControlPoolRoutes(
 		rt.DisableConfigWrites,
 	)
 	notifyDeps := newNotificationRouteDeps(rt)
-	registerNotificationRoutes(apiMux, pool, notifyDeps)
+	ns := registerNotificationRoutes(apiMux, pool, notifyDeps)
+	registerCaseTicketRoutes(apiMux, mgr, pool, ns, notifyDeps)
+	if rt.CaseTicketSync {
+		startCaseTicketSync(mgr, pool, ns, notifyDeps)
+	}
 	if !rt.DatabricksAppAuth {
 		registerBreakGlassRoutes(apiMux, pool, cfg, newDefaultDispatcher(pool, notifyDeps))
 	}

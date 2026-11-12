@@ -203,5 +203,6 @@ func trancheTwoMigrations() []namedStep {
 func trancheThreeMigrations() []namedStep {
 	return []namedStep{
 		{"ddlNotificationOutbox", ddlNotificationOutbox}, // alerting-06
+		{"ddlCaseTickets", ddlCaseTickets},               // market-14
 	}
 }

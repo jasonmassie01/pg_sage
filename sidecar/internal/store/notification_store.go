@@ -283,6 +283,10 @@ func (s *NotificationStore) TestChannel(
 	if s.dispatcher == nil {
 		return fmt.Errorf("dispatcher not configured")
 	}
+	if notify.IsTicketIntegration(ch.Type) {
+		return fmt.Errorf("%w: a %s integration is checked when a ticket is created "+
+			"from a case", ErrValidation, ch.Type)
+	}
 
 	testEvt := notify.Event{
 		Type:     "test",

@@ -24,9 +24,11 @@ func newNotificationRouteDeps(rt RuntimeDeps) notificationRouteDeps {
 	}
 }
 
+// registerNotificationRoutes returns the channel store the routes use, so
+// the case ticket routes read the Jira integration through it.
 func registerNotificationRoutes(
 	mux *http.ServeMux, pool *pgxpool.Pool, deps notificationRouteDeps,
-) {
+) *store.NotificationStore {
 	d := newDefaultDispatcher(pool, deps)
 	ns := store.NewNotificationStore(pool, d).
 		WithSecretKey(deps.secretKey).WithPreviousSecretKey(deps.previousKey).
@@ -38,6 +40,7 @@ func registerNotificationRoutes(
 	logList := http.HandlerFunc(
 		listNotificationLogHandler(ns))
 	route(mux, "GET /api/v1/notifications/log", gateAdmin, logList)
+	return ns
 }
 
 func registerNotificationChannelRoutes(
