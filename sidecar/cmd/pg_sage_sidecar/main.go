@@ -147,9 +147,9 @@ func main() {
 	shutdownProcess(sig, promServer)
 }
 
-// runSubcommandAndExit handles the vector-lab, bench, history, evidence and
-// healthcheck subcommands and --version, which exit without starting the
-// sidecar.
+// runSubcommandAndExit handles the vector-lab, bench, history, evidence,
+// lint-migration and healthcheck subcommands and --version, which exit
+// without starting the sidecar.
 func runSubcommandAndExit() {
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
 		os.Exit(runHealthcheck(os.Args[2:], os.Stdout, os.Stderr))
@@ -167,6 +167,15 @@ func runSubcommandAndExit() {
 			os.Exit(2)
 		}
 		os.Exit(runHistoryCommand(context.Background(), os.Args[2:], getenv, os.Stdout,
+			os.Stderr))
+	}
+	if len(os.Args) > 1 && os.Args[1] == lintMigrationSubcommand {
+		getenv, err := secretGetenv(lintDSNEnv)
+		if err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "lint-migration: %v\n", err)
+			os.Exit(lintExitToolError)
+		}
+		os.Exit(runLintMigration(context.Background(), os.Args[2:], getenv, os.Stdout,
 			os.Stderr))
 	}
 	if len(os.Args) > 1 && os.Args[1] == evidenceSubcommand {
