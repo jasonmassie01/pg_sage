@@ -244,7 +244,7 @@ func (c *Collector) workloadRoles(ctx context.Context) ([]WorkloadRoleStats, err
 }
 
 func (c *Collector) workloadRoleTime(ctx context.Context) ([]WorkloadRoleStats, error) {
-	rows, err := c.catalogQuery(ctx, workloadRolesSQL)
+	rows, err := c.catalogQuery(ctx, c.statementsSQL(workloadRolesSQL))
 	if err != nil {
 		return nil, err
 	}
