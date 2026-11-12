@@ -121,7 +121,9 @@ It captures the prior value: the rollback sets back a prior
 none (a connection limit rollback restores the prior `rolconnlimit`).
 Execution takes a cluster-wide role lock (an advisory lock in the
 server's `postgres` database), so two databases or sidecars changing one
-role take turns; it re-reads the prior value in its transaction and
+role take turns. When pg_sage cannot connect to that database (a managed
+service that hides it), every role budget change is refused rather than
+run unserialized. It re-reads the prior value in its transaction and
 refuses when it changed. The read-back checks the catalog. A new setting
 applies to sessions opened afterwards.
 
