@@ -46,8 +46,11 @@ Dashboard at `http://localhost:8080` -- API and Prometheus metrics at `:8080/api
 
 For bounded, read-only pgvector recall and latency experiments, run
 `pg_sage vector-lab --manifest workload.json` with `SAGE_VECTORLAB_DATABASE_URL`.
-See the [Vector Evidence Lab guide](research/2026-09-04-product/README.md) for
-the manifest, explicit budgets, report format, and supported query shapes.
+It measures `vector` and `halfvec` HNSW indexes (up to 4000 dimensions with
+halfvec), `ef_search`, all three iterative-scan modes, `max_scan_tuples` and
+`scan_mem_multiplier`, and scores ties at the k-th distance fairly. See the
+[Vector Evidence Lab guide](docs/vector-lab.md) for the manifest fields and ranges,
+the tie rule and the report format (pgvector 0.8.0 or later).
 
 Automatic index builds require verified host CPU and data/log I/O utilization.
 The catalog-only PostgreSQL adapter cannot supply those metrics, so it withholds

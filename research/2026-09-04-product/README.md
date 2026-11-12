@@ -46,7 +46,9 @@ Exact search can still consume I/O and temporarily retain a snapshot. Each
 candidate also has a nonexecuting EXPLAIN; measured-query count excludes EXPLAIN
 and transaction-control statements. The total deadline covers all of them.
 
-This release supports ordinary tables with a valid single-column non-null unique
+The current contract (halfvec, relaxed_order, scan limits, tie-aware recall,
+report format 2) is in [docs/vector-lab.md](../../docs/vector-lab.md); this
+section records the first slice. This release supports ordinary tables with a valid single-column non-null unique
 identity, pgvector `vector` columns, L2/cosine/inner-product distance and equality
 filters. RLS follows the connected role. Empty truth, ties at the kth boundary,
 missing HNSW plans or a failed cohort produce no recommendation. Partition roots,
