@@ -167,6 +167,7 @@ derivable analyzer.analyze_stale_days
 derivable analyzer.analyze_stale_min_rows
 derivable analyzer.autovacuum_tune_min_rows
 derivable analyzer.cache_hit_ratio_warning
+derivable analyzer.cdc_stall_minutes
 derivable analyzer.checkpoint_frequency_warning_per_hour
 derivable analyzer.idle_in_transaction_timeout_minutes
 derivable analyzer.inactive_slot_min_minutes
@@ -187,6 +188,7 @@ derivable analyzer.seq_scan_min_rows
 derivable analyzer.slow_query_min_calls
 derivable analyzer.slow_query_threshold_ms
 derivable analyzer.slow_slot_retained_bytes
+derivable analyzer.subscription_lag_minutes
 derivable analyzer.table_bloat_dead_tuple_pct
 derivable analyzer.table_bloat_min_bytes
 derivable analyzer.table_bloat_min_rows
@@ -615,3 +617,7 @@ safety_critical lakebase_observability.streams
 safety_critical lakebase_observability.bindings
 safety_critical sre.read_policy.scope
 safety_critical sre.read_policy.allowed_sources
+
+# Replication health (market-13): the operator declares which heartbeat
+# tables a CDC connector writes; pg_sage only reads them.
+operator_preference replication.cdc_heartbeats

@@ -115,6 +115,8 @@ type Config struct {
 	Agents AgentsConfig `yaml:"agents"`
 	// Audit is the audit export and evidence of E2 (audit.go).
 	Audit AuditConfig `yaml:"audit"`
+	// Replication is CDC consumer health (replication.go, market-13).
+	Replication ReplicationConfig `yaml:"replication"`
 
 	// NotificationPolicy governs notification channel targets (G7-B21). The
 	// top-level "notifications" key is retired (see rejectRetiredTopLevelConfig).
@@ -207,6 +209,10 @@ type AnalyzerConfig struct {
 
 	// InactiveSlotMinMinutes: see inactive_slot.go.
 	InactiveSlotMinMinutes int `yaml:"inactive_slot_min_minutes" doc:"Report a replication slot once it has been inactive this many minutes (wal_status extended, unreserved or lost reports it at once). 0 uses the default. Range 0-10080. Default: 5."`
+
+	// Subscriber and CDC health thresholds: see replication.go (market-13).
+	SubscriptionLagMinutes int `yaml:"subscription_lag_minutes" doc:"Raise subscription_lag when a subscription's last report to its publisher (pg_stat_subscription.latest_end_time) is this many minutes old. 0 uses the default. Range 0-10080. Default: 5."`
+	CDCStallMinutes        int `yaml:"cdc_stall_minutes" doc:"Raise cdc_consumer_stalled when WAL advanced but an active logical slot's confirmed_flush_lsn did not move for this many minutes. 0 uses the default. Range 0-10080. Default: 10."`
 
 	// v0.9 — Lock chain detection.
 	LockChain LockChainConfig `yaml:"lock_chain"`
@@ -828,6 +834,12 @@ func (c *Config) validate() error {
 	if err := c.Analyzer.validateInactiveSlotMinMinutes(); err != nil {
 		return err
 	}
+	if err := c.Analyzer.validateReplicationMinutes(); err != nil {
+		return err
+	}
+	if err := c.Replication.validate(); err != nil {
+		return err
+	}
 	if err := c.Analyzer.validateWraparoundFreezeShare(); err != nil {
 		return err
 	}
@@ -973,6 +985,8 @@ func newDefaults() *Config {
 			SchemaGuardDDLDebounceSeconds: DefaultSchemaGuardDDLDebounceSeconds,
 			SelfCostBudgetMs:              DefaultSelfCostBudgetMs,
 			InactiveSlotMinMinutes:        DefaultInactiveSlotMinMinutes,
+			SubscriptionLagMinutes:        DefaultSubscriptionLagMinutes,
+			CDCStallMinutes:               DefaultCDCStallMinutes,
 			LockChain: LockChainConfig{
 				Enabled:                  true,
 				MinBlockedThreshold:      DefaultLockChainMinBlocked,

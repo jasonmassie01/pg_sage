@@ -136,6 +136,9 @@ func (a *Analyzer) runSnapshotRules(
 		if rule.Name == "inactive_slots" && a.extras != nil && a.extras.InactiveSlotPending {
 			a.eval.fail("inactive_slot")
 		}
+		for category, idents := range a.extras.takeUndecided() {
+			a.eval.keep(category, idents...)
+		}
 	}
 	return out
 }

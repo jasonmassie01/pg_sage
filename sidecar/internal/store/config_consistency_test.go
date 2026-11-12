@@ -53,6 +53,9 @@ var excludedPrefixes = []string{
 // struct but are intentionally excluded from the config override
 // registries.
 var excludedExactKeys = map[string]bool{
+	// Subscriber and CDC thresholds (market-13): YAML only, restart-bound.
+	"analyzer.subscription_lag_minutes": true,
+	"analyzer.cdc_stall_minutes":        true,
 	// Top-level mode/meta fields — not overridable via API.
 	"mode":           true,
 	"meta_db":        true,

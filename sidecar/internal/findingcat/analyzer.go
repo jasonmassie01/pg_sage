@@ -80,6 +80,17 @@ var analyzerEntries = []Category{
 		"A replication slot inactive past the threshold, retaining WAL."),
 	a("slow_replication_slot", sevWC, k("analyzer.slow_slot_retained_bytes"), nil,
 		"An active replication slot retaining at least 1 GB of WAL: a slow consumer."),
+	a("subscription_errors", sevWC, nil, nil,
+		"A subscription whose apply or sync workers keep failing, or that is disabled "+
+			"after errors."),
+	a("subscription_lag", sevW, k("analyzer.subscription_lag_minutes"), nil,
+		"An enabled subscription that has not reported to its publisher recently, "+
+			"or has no apply worker."),
+	a("cdc_consumer_stalled", sevW, k("analyzer.cdc_stall_minutes"), nil,
+		"An active logical slot whose confirmed_flush_lsn stood still while WAL "+
+			"advanced."),
+	a("cdc_heartbeat_stale", sevW, k("replication.cdc_heartbeats"), nil,
+		"A configured CDC heartbeat table not written within its max age."),
 	a("sequence_exhaustion", sevWC, nil, act("prepare_sequence_capacity_migration"),
 		"A sequence that has used most of its range."),
 	a("sort_without_index", sevW, nil, nil,

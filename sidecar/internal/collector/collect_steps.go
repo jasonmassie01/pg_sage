@@ -60,8 +60,9 @@ func (c *Collector) catalogSteps() []catalogStep {
 // extraSteps lists the categories read after the catalog. They share the
 // cycle's retry budget; one that fails is unknown, not empty: its field is
 // cleared, it is marked unavailable and the snapshot goes on (collection-05).
-// io is read from PG16 (pg_stat_io) on and config_data only for an advisor
-// consumer: a category not read is not collected, which is not failed.
+// io is read from PG16 (pg_stat_io) on, cdc_heartbeats only when some are
+// configured and config_data only for an advisor consumer: a category not
+// read is not collected, which is not failed.
 func (c *Collector) extraSteps() []catalogStep {
 	var steps []catalogStep
 	if c.Capabilities().PGVersionNum >= 160000 {
@@ -92,6 +93,7 @@ func (c *Collector) extraSteps() []catalogStep {
 			}, reset: func(s *Snapshot) {
 				s.IndexBloat, s.IndexBloatTruncated, s.IndexBloatUnknown = nil, false, nil
 			}})
+	steps = append(steps, c.replicationHealthSteps()...)
 	if c.CollectsConfigSnapshots() {
 		steps = append(steps, catalogStep{name: "config_data",
 			run: func(ctx context.Context, s *Snapshot) (err error) {

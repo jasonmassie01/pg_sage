@@ -56,6 +56,7 @@
 | `analyzer.analyze_stale_min_rows` | `restart` | `-` | `derivable` |
 | `analyzer.autovacuum_tune_min_rows` | `restart` | `-` | `derivable` |
 | `analyzer.cache_hit_ratio_warning` | `restart` | `-` | `derivable` |
+| `analyzer.cdc_stall_minutes` | `restart` | `-` | `derivable` |
 | `analyzer.checkpoint_frequency_warning_per_hour` | `restart` | `-` | `derivable` |
 | `analyzer.idle_in_transaction_timeout_minutes` | `restart` | `-` | `derivable` |
 | `analyzer.inactive_slot_min_minutes` | `restart` | `-` | `derivable` |
@@ -76,6 +77,7 @@
 | `analyzer.slow_query_min_calls` | `restart` | `-` | `derivable` |
 | `analyzer.slow_query_threshold_ms` | `restart` | `-` | `derivable` |
 | `analyzer.slow_slot_retained_bytes` | `restart` | `-` | `derivable` |
+| `analyzer.subscription_lag_minutes` | `restart` | `-` | `derivable` |
 | `analyzer.table_bloat_dead_tuple_pct` | `restart` | `-` | `derivable` |
 | `analyzer.table_bloat_min_bytes` | `restart` | `-` | `derivable` |
 | `analyzer.table_bloat_min_rows` | `restart` | `-` | `derivable` |
@@ -319,6 +321,7 @@
 | `rca.vacuum_min_table_mb` | `restart` | `-` | `derivable` |
 | `rca.wal_spike_multiplier` | `restart` | `-` | `derivable` |
 | `rca.xmin_holder_min_minutes` | `restart` | `-` | `safety_critical` |
+| `replication.cdc_heartbeats` | `restart` | `-` | `operator_preference` |
 | `retention.actions_days` | `restart` | `-` | `operator_preference` |
 | `retention.auth_audit_days` | `restart` | `-` | `operator_preference` |
 | `retention.decisions_days` | `restart` | `-` | `operator_preference` |

@@ -841,6 +841,70 @@ SELECT pg_drop_replication_slot('old_subscriber');
 
 ---
 
+### subscription_errors
+
+Detects a logical replication subscriber whose apply or table synchronization workers keep failing.
+
+**Severity:** warning (the error counters rose since the analyzer last read them), or critical (the subscription is disabled and has errors, as `disable_on_error` leaves it)
+
+**What it detects:** On a subscriber, an apply worker that fails on a unique violation or a missing row exits and is restarted every few seconds, so changes stop arriving while the subscription still looks enabled. pg_sage reads `apply_error_count` and `sync_error_count` from `pg_stat_subscription_stats` (PostgreSQL 15 and later; PostgreSQL 14 has no error counters, so this category never fires there) for this database's subscriptions (`pg_subscription.subdbid`, so fleet mode reads one set per database). The comparison is with the counters the previous analyzer cycle read, kept in memory: after a restart the first cycle only records them, and an open finding stays open. A stats reset counts the errors since the reset. On PostgreSQL 18 the conflict counters (`confl_*`) are added to the detail.
+
+**Identity:** `subscription:<name>`.
+
+**Detail:** `enabled`, `worker_running`, `apply_error_count`, `sync_error_count`, `error_count`, `error_count_delta`, `conflicts` (PostgreSQL 18), `latest_end_lsn`, `latest_end_time`, `manual_sql` and `approval_required`.
+
+**Recommended action:** Find the failing transaction in the subscriber's log and fix the conflicting row on the subscriber. The finding is `high_risk` and carries no executable SQL: `detail.manual_sql` holds `ALTER SUBSCRIPTION ... SKIP (lsn = '...')` with a placeholder for the finish LSN from the log (skipping loses that transaction's changes on the subscriber), or `ALTER SUBSCRIPTION ... ENABLE` for a disabled subscription. pg_sage never runs subscription DDL.
+
+---
+
+### subscription_lag
+
+Detects an enabled subscription that stopped reporting to its publisher.
+
+**Severity:** warning
+
+**What it detects:** An enabled subscription whose apply worker last reported to the publisher (`pg_stat_subscription.latest_end_time`, refreshed by keepalives even when the publisher is idle) at least `analyzer.subscription_lag_minutes` (default 5) ago, or that had no apply worker in two consecutive snapshots (the launcher restarts a failed worker within seconds, so one snapshot without one is not evidence). A disabled subscription is left to `subscription_errors`.
+
+**Identity:** `subscription:<name>`.
+
+**Detail:** `enabled`, `worker_running`, `lag_seconds` (when a worker reports), `latest_end_lsn`, `latest_end_time`.
+
+**Recommended action:** Check the network path to the publisher, the publisher's walsender, `max_logical_replication_workers` and `max_worker_processes`, and the subscriber's log. Advisory only.
+
+---
+
+### cdc_consumer_stalled
+
+Detects a CDC consumer that holds its logical slot but no longer confirms progress.
+
+**Severity:** warning
+
+**What it detects:** A Debezium (or other CDC) slot can stay `active` while its `confirmed_flush_lsn` stands still, so it retains WAL and holds the xmin horizon without ever looking inactive. pg_sage reads each logical slot's `confirmed_flush_lsn` and how far the server's WAL is past it, and keeps an in-memory clock per active, permanent logical slot: the finding fires when WAL advanced (the lag grew) but `confirmed_flush_lsn` did not move for `analyzer.cdc_stall_minutes` (default 10). It resolves as soon as the position moves. An idle server whose WAL does not move raises nothing. Inactive slots are `inactive_slot`'s. After a restart the clock starts again, and an open finding stays open while it catches up. pg_replication_slots lists the whole cluster, so in fleet mode every database on a cluster reports the slot, as for `inactive_slot`.
+
+**Identity:** `slot:<name>`.
+
+**Detail:** `confirmed_flush_lsn`, `confirmed_flush_lag_bytes`, `retained_bytes`, `stalled_seconds`.
+
+**Recommended action:** Check the connector's health and committed offsets. A connector that only captures tables with little traffic needs a heartbeat (Debezium `heartbeat.interval.ms`) to advance its slot. Advisory only.
+
+---
+
+### cdc_heartbeat_stale
+
+Detects a CDC heartbeat table that stopped being written.
+
+**Severity:** warning
+
+**What it detects:** For each entry of `replication.cdc_heartbeats` whose slot is a logical slot of the monitored database, pg_sage runs one `SELECT max(column)` on the heartbeat table under a 2-second statement timeout and raises this finding when the newest value is at least `max_age_minutes` old, or when the table has no row. With nothing configured, nothing runs. A heartbeat that could not be read (a missing table, a permission, a timeout) raises nothing and keeps an open finding open.
+
+**Identity:** `cdc_heartbeat:<slot>`.
+
+**Detail:** `slot_name`, `table`, `column`, `max_age_seconds`, `age_seconds` and `latest`, or `no_rows`.
+
+**Recommended action:** The connector on that slot is down, stuck or disconnected: check it and its heartbeat setting before the slot's WAL retention grows. Advisory only.
+
+---
+
 ## More Tier 1 Categories
 
 These deterministic rules run alongside the categories above.

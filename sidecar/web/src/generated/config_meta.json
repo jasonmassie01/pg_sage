@@ -370,6 +370,13 @@
     "class": "derivable",
     "lifecycle": "restart"
   },
+  "analyzer.cdc_stall_minutes": {
+    "type": "int",
+    "default": 10,
+    "doc": "Raise cdc_consumer_stalled when WAL advanced but an active logical slot's confirmed_flush_lsn did not move for this many minutes. 0 uses the default. Range 0-10080. Default: 10.",
+    "class": "derivable",
+    "lifecycle": "restart"
+  },
   "analyzer.checkpoint_frequency_warning_per_hour": {
     "type": "int",
     "default": 12,
@@ -507,6 +514,13 @@
     "type": "int64",
     "default": 0,
     "doc": "Active slots retaining more WAL than this (bytes) are flagged as slow consumers. Default 1 GB. Slow consumers hold xmin, blocking vacuum.",
+    "class": "derivable",
+    "lifecycle": "restart"
+  },
+  "analyzer.subscription_lag_minutes": {
+    "type": "int",
+    "default": 5,
+    "doc": "Raise subscription_lag when a subscription's last report to its publisher (pg_stat_subscription.latest_end_time) is this many minutes old. 0 uses the default. Range 0-10080. Default: 5.",
     "class": "derivable",
     "lifecycle": "restart"
   },
@@ -2507,6 +2521,34 @@
     "default": 5,
     "doc": "Minutes a session's transaction must be open before the vacuum_blocked incident names it as the holder of the oldest xmin. 1-1440. Default: 5.",
     "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "replication.cdc_heartbeats[].column": {
+    "type": "string",
+    "default": "",
+    "doc": "",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "replication.cdc_heartbeats[].max_age_minutes": {
+    "type": "int",
+    "default": 0,
+    "doc": "",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "replication.cdc_heartbeats[].slot": {
+    "type": "string",
+    "default": "",
+    "doc": "",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "replication.cdc_heartbeats[].table": {
+    "type": "string",
+    "default": "",
+    "doc": "",
+    "class": "operator_preference",
     "lifecycle": "restart"
   },
   "retention.actions_days": {

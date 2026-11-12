@@ -64,6 +64,7 @@ func scanSlotRows(rows pgx.Rows) ([]SlotInfo, error) {
 			&s.SlotName, &s.SlotType, &s.Active, &s.RetainedBytes,
 			&s.WALStatus, &s.SafeWALSize, &s.Temporary,
 			&s.InactiveSince, &s.Synced, &s.InvalidationReason,
+			&s.ConfirmedFlushLSN, &s.ConfirmedFlushLagBytes, &s.InCurrentDatabase,
 		); err != nil {
 			return nil, err
 		}

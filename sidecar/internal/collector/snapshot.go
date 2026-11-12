@@ -53,6 +53,13 @@ type Snapshot struct {
 	IndexBloat          []IndexBloat `json:"index_bloat,omitempty"`
 	IndexBloatTruncated bool         `json:"-"`
 	IndexBloatUnknown   []string     `json:"-"`
+
+	// Subscriptions are this database's logical replication subscriptions
+	// (market-13): empty when there are none, nil when not read.
+	Subscriptions []SubscriptionInfo `json:"subscriptions,omitempty"`
+	// CDCHeartbeats are this cycle's replication.cdc_heartbeats readings
+	// for the logical slots of this database. Not persisted.
+	CDCHeartbeats []CDCHeartbeatReading `json:"-"`
 }
 
 // Available reports whether category was read this cycle.
@@ -437,6 +444,14 @@ type SlotInfo struct {
 	InactiveSince      *time.Time `json:"inactive_since,omitempty"`
 	Synced             bool       `json:"synced"`
 	InvalidationReason *string    `json:"invalidation_reason,omitempty"`
+	// ConfirmedFlushLSN is a logical slot's confirmed_flush_lsn and
+	// ConfirmedFlushLagBytes how far the server's WAL is past it; nil for
+	// a physical slot (market-13).
+	ConfirmedFlushLSN      *string `json:"confirmed_flush_lsn,omitempty"`
+	ConfirmedFlushLagBytes *int64  `json:"confirmed_flush_lag_bytes,omitempty"`
+	// InCurrentDatabase: a logical slot of the database this collector
+	// reads (pg_replication_slots lists the whole cluster's slots).
+	InCurrentDatabase bool `json:"in_current_database,omitempty"`
 }
 
 // PreparedTransaction describes a two-phase commit transaction from
