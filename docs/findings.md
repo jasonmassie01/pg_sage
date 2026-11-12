@@ -365,7 +365,7 @@ Detects queries whose latency in the last collector interval regressed against t
 
 **Severity:** warning; critical above +200%
 
-**What it detects:** A statement whose interval mean (see `slow_query`, with the same `analyzer.slow_query_min_calls` floor) exceeds its cumulative mean by `analyzer.regression_threshold_pct` (default 50%) is a candidate; at most 50 candidates per cycle, the largest interval time first. For each, pg_sage reads its `sage.query_store` samples over `analyzer.regression_lookback_days` (default 7), excluding the last hour, as hourly buckets. The baseline is the median of the bucket interval means, using buckets with at least the call floor and no statistics reset; it needs at least 6 such buckets. The finding needs the interval mean above the baseline by the threshold. A plan flip from 2 ms to 20 ms on a query with a million earlier calls moves the cumulative mean by about 9%, below the threshold; the interval mean against the hourly median shows +900%. Without a previous snapshot, or when the history read fails, the category is not evaluated and its open findings stay open. A statement without a measured interval, a candidate without a baseline and a candidate past the cap of 50 have no verdict that cycle, so their open findings stay open. Coverage depends on which statements `sage.query_store` samples. The detail carries `interval_mean_ms`, `interval_calls`, `cumulative_mean_ms`, `baseline_ms`, `baseline_method` (`median_hourly_interval`) and `baseline_buckets`.
+**What it detects:** A statement whose interval mean (see `slow_query`, with the same `analyzer.slow_query_min_calls` floor) exceeds its cumulative mean by `analyzer.regression_threshold_pct` (default 50%) is a candidate; at most 50 candidates per cycle, the largest interval time first. For each, pg_sage reads its `sage.query_store` samples over `analyzer.regression_lookback_days` (default 7), excluding the last hour, as hourly buckets. The baseline is the median of the bucket interval means, using buckets with at least the call floor and no statistics reset; it needs at least 6 such buckets. The finding needs the interval mean above the baseline by the threshold. A plan flip from 2 ms to 20 ms on a query with a million earlier calls moves the cumulative mean by about 9%, below the threshold; the interval mean against the hourly median shows +900%. Without a previous snapshot, or when the history read fails, the category is not evaluated and its open findings stay open. A statement without a measured interval, a candidate without a baseline and a candidate past the cap of 50 have no verdict that cycle, so their open findings stay open. Coverage depends on which statements `sage.query_store` samples. When `baseline.enabled` is on and the statement's hour-of-week bucket is active (data from at least 3 of the last `baseline.weeks` weeks, see `workload_anomaly`), the baseline is that bucket's median instead: a report that is 10x slower every Monday at 09:00 is judged against earlier Mondays at 09:00, so it neither fires every week nor hides a real slowdown. The detail carries `interval_mean_ms`, `interval_calls`, `cumulative_mean_ms`, `baseline_ms`, `baseline_method` (`hour_of_week` for the bucket median, `median_hourly_interval` for the flat one) and `baseline_buckets` (weeks for `hour_of_week`, hourly buckets otherwise).
 
 **Example output:**
 
@@ -374,6 +374,24 @@ Query regression: 20.0ms now vs 2.0ms hourly median (+900%)
 ```
 
 **Recommended action:** Investigate recent changes -- schema modifications, data volume changes, or configuration updates.
+
+---
+
+### workload_anomaly
+
+Detects workload that is far above its usual value for this hour of the week ("slower than usual").
+
+**Severity:** warning; critical at `baseline.z_critical`
+
+**What it detects:** Every cycle, pg_sage folds what it already collected into one of 168 hour-of-week buckets (Monday 00:00 is bucket 0, in `baseline.timezone`, by the local wall clock across daylight-saving shifts) of `sage.baseline_samples`, one mean per database, metric, key, week and bucket. The metrics are each statement's interval mean (`query_mean_ms`, the same interval and `analyzer.slow_query_min_calls` floor as `slow_query`, for at most `baseline.max_query_keys` statements, the largest interval time first; needs `pg_stat_statements`), active and total backends (`active_backends`, `total_backends`), the cluster's WAL bytes per second (`wal_bytes_per_s`) and the lock-graph sessions per wait class (`wait_sessions`). No new query reaches the monitored database. A value is scored against the same bucket in the previous `baseline.weeks` weeks with a robust z, (value - median) / (1.4826 x MAD), the MAD floored at 5% of the median. A bucket with data from fewer than 3 weeks is learning and never fires. The value must also rise over the median by an absolute floor: `baseline.min_delta_ms` for statements, 5 sessions for backends, 1 MiB/s for WAL, 3 sessions for a wait class. A warning needs z at or above `baseline.z_warning` (default 4) for 2 consecutive cycles; critical needs `baseline.z_critical` (default 6), and for a statement at least 10% of the interval's DB time. An open finding resolves after 2 consecutive normal cycles; a cycle without a verdict (an idle statement, a learning bucket) keeps it open, and when the baseline cannot be read the category is not evaluated and open findings stay open. A `pg_stat_statements` reset or a statement evicted and re-entered adds nothing to its bucket. In fleet mode every database keeps its own baselines. Detection is deterministic and uses no LLM; the fixed-threshold rules stay in place. A critical anomaly starts one Sage SRE investigation per episode (trigger `workload_anomaly`, idempotency key `anomaly:<metric>:<key>:<episode_start>`), which triages the lock, connection and plan mechanisms read-only. The detail carries `metric`, `key`, `how`, `observed`, `baseline_median`, `mad`, `z`, `weeks`, `method` (`hour_of_week_mad`) and `episode_start`, and for a statement `queryid`, `query` and `db_time_share`.
+
+**Example output:**
+
+```
+Workload anomaly: query_mean_ms of queryid:4711 is 50.0, usually 5.0 at this hour of the week (z 60.7 over 4 weeks)
+```
+
+**Recommended action:** Compare with the same hour in earlier weeks: look for a new plan, a data or traffic change, or a deploy since the last normal cycle.
 
 ---
 

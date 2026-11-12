@@ -6,6 +6,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/baseline"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/querystore"
@@ -38,11 +39,38 @@ type regressionCandidate struct {
 	interval queryInterval
 }
 
-// regressionBaseline is the median hourly interval mean and how many
-// buckets it is the median of.
+// regressionBaseline is the baseline mean, how many buckets it is the
+// median of and how it was built (empty: regressionMethodFlat).
 type regressionBaseline struct {
 	MeanMs  float64
 	Buckets int
+	Method  string
+}
+
+// Baseline methods: the flat median of the hourly interval means over the
+// lookback, or the median of the same hour of the week in earlier weeks
+// when that bucket is active (market-02, baseline.weeks).
+const (
+	regressionMethodFlat       = "median_hourly_interval"
+	regressionMethodHourOfWeek = "hour_of_week"
+)
+
+// seasonalBaselines is flat with each active hour-of-week bucket in
+// seasonal taking the place of its statement's flat baseline: a weekly
+// peak is judged against earlier weeks' peaks, not the week's median.
+func seasonalBaselines(flat map[int64]regressionBaseline,
+	seasonal map[int64]baseline.Score) map[int64]regressionBaseline {
+	out := make(map[int64]regressionBaseline, len(flat)+len(seasonal))
+	for id, b := range flat {
+		out[id] = b
+	}
+	for id, s := range seasonal {
+		if !s.Learning() && s.Median > 0 {
+			out[id] = regressionBaseline{MeanMs: s.Median, Buckets: s.Weeks,
+				Method: regressionMethodHourOfWeek}
+		}
+	}
+	return out
 }
 
 // regressionMultiplier is 1 + regression_threshold_pct / 100.
@@ -122,6 +150,12 @@ func ruleQueryRegression(cands []regressionCandidate,
 // regressionFinding is the query_regression finding for c against b.
 func regressionFinding(c regressionCandidate, b regressionBaseline) Finding {
 	pct := (c.interval.MeanMs - b.MeanMs) / b.MeanMs * 100.0
+	method, against := b.Method, "hourly median"
+	if method == regressionMethodHourOfWeek {
+		against = "median at this hour of the week"
+	} else {
+		method = regressionMethodFlat
+	}
 	severity := "warning"
 	if pct > 200 {
 		severity = "critical"
@@ -131,8 +165,8 @@ func regressionFinding(c regressionCandidate, b regressionBaseline) Finding {
 		Severity:         severity,
 		ObjectType:       "query",
 		ObjectIdentifier: queryIdent(c.q.QueryID),
-		Title: fmt.Sprintf("Query regression: %.1fms now vs %.1fms hourly median (+%.0f%%)",
-			c.interval.MeanMs, b.MeanMs, pct),
+		Title: fmt.Sprintf("Query regression: %.1fms now vs %.1fms %s (+%.0f%%)",
+			c.interval.MeanMs, b.MeanMs, against, pct),
 		Detail: map[string]any{
 			"queryid":            c.q.QueryID,
 			"query":              c.q.Query,
@@ -140,7 +174,7 @@ func regressionFinding(c regressionCandidate, b regressionBaseline) Finding {
 			"interval_calls":     c.interval.Calls,
 			"cumulative_mean_ms": c.q.MeanExecTime,
 			"baseline_ms":        b.MeanMs,
-			"baseline_method":    "median_hourly_interval",
+			"baseline_method":    method,
 			"baseline_buckets":   b.Buckets,
 			"pct_increase":       pct,
 		},
@@ -174,6 +208,7 @@ func (a *Analyzer) runQueryRegression(ctx context.Context,
 			return nil
 		}
 	}
+	baselines = seasonalBaselines(baselines, a.seasonal)
 	a.eval.keep("query_regression", unjudgedRegressions(current, previous, a.cfg, cands,
 		baselines)...)
 	return ruleQueryRegression(cands, baselines, a.cfg)

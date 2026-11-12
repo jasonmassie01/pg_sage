@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/pg-sage/sidecar/internal/baseline"
 )
 
@@ -27,26 +29,9 @@ func TestWorkloadAnomaly_IntegrationSlowSleepPerDatabase(t *testing.T) {
 	st := baseline.NewStore(pool)
 	w := baseline.Window{Loc: time.UTC, Weeks: 4}
 	at := time.Now().UTC().Truncate(time.Hour).Add(10 * time.Minute)
-	for i := 1; i <= 3; i++ {
-		past := at.Add(-time.Duration(i) * 7 * 24 * time.Hour)
-		for db, ms := range map[string]float64{orders: 5, billing: 400} {
-			if err := st.Accumulate(ctx, db, w, past, []baseline.Sample{{Key: qkey(reportQ),
-				How: "interval_mean", Value: ms}}); err != nil {
-				t.Fatalf("backfill %s week -%d: %v", db, i, err)
-			}
-		}
-	}
+	backfillWeeks(t, st, w, at, map[string]float64{orders: 5, billing: 400})
 	const calls = 5
-	start := time.Now()
-	for i := 0; i < calls; i++ {
-		if _, err := pool.Exec(ctx, `SELECT pg_sleep(0.04)`); err != nil {
-			t.Fatalf("pg_sleep: %v", err)
-		}
-	}
-	meanMs := float64(time.Since(start).Milliseconds()) / calls
-	if meanMs < 40 {
-		t.Fatalf("pg_sleep(0.04) mean %.1f ms, want at least 40", meanMs)
-	}
+	meanMs := sleepMeanMs(t, pool, calls)
 	run := func(db string) []Finding {
 		a := anomalyAnalyzer(t, st)
 		a.WithDatabaseName(db)
@@ -74,5 +59,39 @@ func TestWorkloadAnomaly_IntegrationSlowSleepPerDatabase(t *testing.T) {
 		WHERE database = $1 AND metric = 'query_mean_ms' AND key = 'queryid:101'
 		  AND week_start = $2::date`, orders, w.WeekStart(at)).Scan(&n); err != nil || n != 2 {
 		t.Fatalf("this week's bucket n = %d (%v), want the 2 cycles accumulated", n, err)
+	}
+}
+
+// sleepMeanMs runs pg_sleep(0.04) calls times and returns the mean
+// round trip in ms.
+func sleepMeanMs(t *testing.T, pool *pgxpool.Pool, calls int) float64 {
+	t.Helper()
+	start := time.Now()
+	for i := 0; i < calls; i++ {
+		if _, err := pool.Exec(context.Background(), `SELECT pg_sleep(0.04)`); err != nil {
+			t.Fatalf("pg_sleep: %v", err)
+		}
+	}
+	meanMs := float64(time.Since(start).Milliseconds()) / float64(calls)
+	if meanMs < 40 {
+		t.Fatalf("pg_sleep(0.04) mean %.1f ms, want at least 40", meanMs)
+	}
+	return meanMs
+}
+
+// backfillWeeks writes 3 earlier weeks of at's bucket for each database,
+// at its value in ms.
+func backfillWeeks(t *testing.T, st *baseline.Store, w baseline.Window, at time.Time,
+	values map[string]float64) {
+	t.Helper()
+	for i := 1; i <= 3; i++ {
+		past := at.Add(-time.Duration(i) * 7 * 24 * time.Hour)
+		for db, ms := range values {
+			if err := st.Accumulate(context.Background(), db, w, past,
+				[]baseline.Sample{{Key: qkey(reportQ), How: "interval_mean",
+					Value: ms}}); err != nil {
+				t.Fatalf("backfill %s week -%d: %v", db, i, err)
+			}
+		}
 	}
 }

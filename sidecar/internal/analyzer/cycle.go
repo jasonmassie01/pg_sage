@@ -147,7 +147,9 @@ func (a *Analyzer) runDatabaseRules(
 	current, previous *collector.Snapshot,
 	skipQueryRules bool,
 ) []Finding {
-	out := a.checkXIDWraparound(ctx)
+	// Before query_regression, which reads the active statement buckets.
+	out := a.runWorkloadAnomaly(ctx, current, previous)
+	out = append(out, a.checkXIDWraparound(ctx)...)
 	out = append(out, a.checkConnectionLeaks(ctx)...)
 	a.eval.evaluated("xid_wraparound", "connection_leak")
 	if skipQueryRules {
