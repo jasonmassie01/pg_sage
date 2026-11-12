@@ -79,7 +79,8 @@ func runWorkload(t *testing.T, ctx context.Context, pool *pgxpool.Pool, n int) {
 			20_000+i).Scan(&v); err != nil {
 			t.Fatalf("workload: %v", err)
 		}
-		if _, err := pool.Exec(ctx, `SELECT md5(g::text) FROM generate_series(1, 5000) g`); err != nil {
+		const md5SQL = `SELECT md5(g::text) FROM generate_series(1, 5000) g`
+		if _, err := pool.Exec(ctx, md5SQL); err != nil {
 			t.Fatalf("workload: %v", err)
 		}
 	}
