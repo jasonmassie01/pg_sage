@@ -19,8 +19,9 @@ import (
 func registerSREActionRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
 	base := sreInvestigationsPath + "/{id}/proposals"
 	route(mux, "GET "+base, gateViewer, proposalListHandler(mgr))
-	route(mux, "POST "+base, gateOperator, proposeHandler(mgr))
-	route(mux, "POST "+base+"/{pid}/request", gateOperator, requestExecutionHandler(mgr))
+	routeDB(mux, "POST "+base, gateOperator, pathDB, proposeHandler(mgr))
+	routeDB(mux, "POST "+base+"/{pid}/request", gateOperator, pathDB,
+		requestExecutionHandler(mgr))
 }
 
 // actionService resolves {db} to its action service.

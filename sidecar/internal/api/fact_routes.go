@@ -32,12 +32,14 @@ type factHandlers struct{ mgr *fleet.DatabaseManager }
 
 func registerFactRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
 	h := factHandlers{mgr: mgr}
+	// Facts resolve their database like approval cards (factHandlers.target).
+	factDB := approvalCardDatabase(mgr)
 	route(mux, "GET /api/v1/facts", gateViewer, http.HandlerFunc(h.list))
 	route(mux, "GET /api/v1/facts/match", gateViewer, http.HandlerFunc(h.match))
 	route(mux, "GET /api/v1/facts/coverage", gateViewer, http.HandlerFunc(h.coverage))
-	route(mux, "POST /api/v1/facts", gateOperator, http.HandlerFunc(h.declare))
+	routeDB(mux, "POST /api/v1/facts", gateOperator, factDB, http.HandlerFunc(h.declare))
 	for _, verb := range []string{"confirm", "reject", "expire"} {
-		route(mux, "POST /api/v1/facts/{id}/"+verb, gateOperator, h.decide(verb))
+		routeDB(mux, "POST /api/v1/facts/{id}/"+verb, gateOperator, factDB, h.decide(verb))
 	}
 }
 

@@ -33,16 +33,17 @@ func registerRunbookRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
 	ledgers *earned.Registry) {
 	one := runbooksPath + "/{id}"
 	route(mux, "GET "+runbooksPath, gateViewer, runbookListHandler(mgr))
-	route(mux, "POST "+runbooksPath, gateOperator, runbookCreateHandler(mgr))
-	route(mux, "POST "+runbooksPath+"/compile", gateOperator, runbookCompileHandler(mgr))
+	routeDB(mux, "POST "+runbooksPath, gateOperator, pathDB, runbookCreateHandler(mgr))
+	routeDB(mux, "POST "+runbooksPath+"/compile", gateOperator, pathDB,
+		runbookCompileHandler(mgr))
 	route(mux, "GET "+one, gateViewer, runbookGetHandler(mgr))
 	route(mux, "GET "+one+"/runs", gateViewer, runbookRunsHandler(mgr))
-	route(mux, "POST "+one+"/versions", gateOperator, runbookReviseHandler(mgr))
+	routeDB(mux, "POST "+one+"/versions", gateOperator, pathDB, runbookReviseHandler(mgr))
 	route(mux, "POST "+one+"/retire", gateAdmin, runbookRetireHandler(mgr))
 	route(mux, "POST "+one+"/sign", gateAdmin, runbookSignHandler(mgr))
 	route(mux, "GET "+sreInvestigationsPath+"/{id}/similar", gateViewer,
 		similarIncidentsHandler(mgr))
-	route(mux, "POST "+sreInvestigationsPath+"/{id}/outcome", gateOperator,
+	routeDB(mux, "POST "+sreInvestigationsPath+"/{id}/outcome", gateOperator, pathDB,
 		outcomeHandler(mgr, ledgers))
 }
 

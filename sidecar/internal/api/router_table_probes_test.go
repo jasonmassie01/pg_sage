@@ -282,4 +282,8 @@ var routeProbes = []routeProbe{
 	{"POST", "/api/v1/facts/7/"},
 	{"POST", "/api/v1/facts/7/confirm/"},
 	{"GET", "/api/v1/databases/7"},
+	// The database grant editor (apiauth-08).
+	{"GET", "/api/v1/users/7/database-grants"},
+	{"PUT", "/api/v1/users/7/database-grants/7"},
+	{"DELETE", "/api/v1/users/7/database-grants/7"},
 }

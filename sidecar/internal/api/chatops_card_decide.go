@@ -45,7 +45,7 @@ type cardOutcome struct {
 func (d *chatopsDeps) decideCard(w http.ResponseWriter, r *http.Request, ch notify.Channel,
 	a chatops.Action, user auth.User) {
 	card, inst, current, ok := d.checkCard(w, r, ch, a)
-	if !ok {
+	if !ok || !d.allowChatDatabase(w, r, ch, a, user, card.Database) {
 		return
 	}
 	if a.Decision == chatops.DecisionSnooze && approvalcard.SignalsBackend(*current) {

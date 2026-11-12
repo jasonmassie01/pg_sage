@@ -50,13 +50,15 @@ func perDatabaseSREMux(mgr *fleet.DatabaseManager, ledgers *earned.Registry) *ht
 	route(mux, "GET "+base+"/{id}/evidence/{evidence}", gateViewer,
 		investigationEvidenceHandler(mgr))
 	route(mux, "GET "+base+"/{id}/export", gateOperator, investigationExportHandler(mgr))
-	route(mux, "POST "+base+"/{id}/pin", gateOperator, investigationPinHandler(mgr, true))
-	route(mux, "POST "+base+"/{id}/unpin", gateOperator, investigationPinHandler(mgr, false))
-	route(mux, "POST "+base, gateOperator, investigationStartHandler(mgr))
-	route(mux, "POST "+base+"/{id}/stop", gateOperator, investigationTransitionHandler(mgr,
-		false))
-	route(mux, "POST "+base+"/{id}/resume", gateOperator, investigationTransitionHandler(mgr,
-		true))
+	routeDB(mux, "POST "+base+"/{id}/pin", gateOperator, pathDB,
+		investigationPinHandler(mgr, true))
+	routeDB(mux, "POST "+base+"/{id}/unpin", gateOperator, pathDB,
+		investigationPinHandler(mgr, false))
+	routeDB(mux, "POST "+base, gateOperator, pathDB, investigationStartHandler(mgr))
+	routeDB(mux, "POST "+base+"/{id}/stop", gateOperator, pathDB,
+		investigationTransitionHandler(mgr, false))
+	routeDB(mux, "POST "+base+"/{id}/resume", gateOperator, pathDB,
+		investigationTransitionHandler(mgr, true))
 	registerSREActionRoutes(mux, mgr)
 	registerSREMaintenanceRoutes(mux, mgr)
 	registerRunbookRoutes(mux, mgr, ledgers)

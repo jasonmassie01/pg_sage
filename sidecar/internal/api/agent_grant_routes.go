@@ -47,13 +47,14 @@ func registerAgentGrantRoutes(mux *http.ServeMux, svc AgentGrantService) {
 	h := agentGrantHandlers{svc: svc}
 	const base = "/api/v1/agents/{id}"
 	route(mux, "GET "+base+"/grants", gateOperator, http.HandlerFunc(h.list))
-	route(mux, "POST "+base+"/grants", gateOperator, http.HandlerFunc(h.grant))
-	route(mux, "POST "+base+"/grants/{grant}/revoke", gateOperator, http.HandlerFunc(h.revoke))
+	routeDB(mux, "POST "+base+"/grants", gateOperator, bodyDatabase, http.HandlerFunc(h.grant))
+	routeDB(mux, "POST "+base+"/grants/{grant}/revoke", gateOperator, bodyDatabase,
+		http.HandlerFunc(h.revoke))
 	route(mux, "GET "+base+"/grant-requests", gateOperator, http.HandlerFunc(h.requests))
-	route(mux, "POST "+base+"/grant-requests/{request}/approve", gateOperator,
-		http.HandlerFunc(h.approve))
-	route(mux, "POST "+base+"/grant-requests/{request}/deny", gateOperator,
-		http.HandlerFunc(h.deny))
+	routeDB(mux, "POST "+base+"/grant-requests/{request}/approve", gateOperator,
+		bodyDatabase, http.HandlerFunc(h.approve))
+	routeDB(mux, "POST "+base+"/grant-requests/{request}/deny", gateOperator,
+		bodyDatabase, http.HandlerFunc(h.deny))
 }
 
 type agentGrantHandlers struct{ svc AgentGrantService }

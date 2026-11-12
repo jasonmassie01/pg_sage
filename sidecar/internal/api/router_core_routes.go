@@ -42,11 +42,12 @@ func registerFindingRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
 
 	suppressH := http.HandlerFunc(
 		suppressHandler(mgr))
-	route(mux, "POST /api/v1/findings/{id}/suppress", gateOperator, suppressH)
+	routeDB(mux, "POST /api/v1/findings/{id}/suppress", gateOperator, queryDatabase, suppressH)
 
 	unsuppressH := http.HandlerFunc(
 		unsuppressHandler(mgr))
-	route(mux, "POST /api/v1/findings/{id}/unsuppress", gateOperator, unsuppressH)
+	routeDB(mux, "POST /api/v1/findings/{id}/unsuppress", gateOperator, queryDatabase,
+		unsuppressH)
 }
 
 // registerObservabilityRoutes covers read-only fleet state: actions,
@@ -98,11 +99,11 @@ func registerProcessControlRoutes(
 
 	stopH := http.HandlerFunc(
 		emergencyStopHandler(mgr))
-	route(mux, "POST /api/v1/emergency-stop", gateOperator, stopH)
+	routeDB(mux, "POST /api/v1/emergency-stop", gateOperator, queryDatabase, stopH)
 
 	resumeH := http.HandlerFunc(
 		resumeHandler(mgr))
-	route(mux, "POST /api/v1/resume", gateOperator, resumeH)
+	routeDB(mux, "POST /api/v1/resume", gateOperator, queryDatabase, resumeH)
 
 	// Restart the sidecar process so startup-only settings (trust tiers,
 	// maintenance window, execution mode, intervals) take effect. Requires
@@ -130,7 +131,8 @@ func registerIncidentRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
 		http.HandlerFunc(incidentDetailHandler(mgr)))
 	resolveH := http.HandlerFunc(
 		incidentResolveHandler(mgr))
-	route(mux, "POST /api/v1/incidents/{id}/resolve", gateOperator, resolveH)
+	routeDB(mux, "POST /api/v1/incidents/{id}/resolve", gateOperator, queryDatabase,
+		resolveH)
 }
 
 // registerAnalysisRoutes covers explain, growth forecasts, finding stats
@@ -148,7 +150,7 @@ func registerAnalysisRoutes(
 	}
 	explainH := http.HandlerFunc(
 		explainHandler(mgr, cfg, explainLLM))
-	route(mux, "POST /api/v1/explain", gateOperator, explainH)
+	routeDB(mux, "POST /api/v1/explain", gateOperator, queryDatabase, explainH)
 
 	// v0.9 — Growth forecast endpoint
 	route(mux, "GET /api/v1/forecasts/growth", gateViewer,

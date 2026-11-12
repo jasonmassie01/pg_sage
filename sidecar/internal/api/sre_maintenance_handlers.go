@@ -14,8 +14,9 @@ import (
 func registerSREMaintenanceRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
 	base := sreInvestigationsPath + "/{id}/maintenance"
 	route(mux, "GET "+base, gateViewer, maintenanceListHandler(mgr))
-	route(mux, "POST "+base, gateOperator, maintenanceProposeHandler(mgr))
-	route(mux, "POST "+base+"/{pid}/request", gateOperator, maintenanceMutationHandler(mgr, false))
+	routeDB(mux, "POST "+base, gateOperator, pathDB, maintenanceProposeHandler(mgr))
+	routeDB(mux, "POST "+base+"/{pid}/request", gateOperator, pathDB,
+		maintenanceMutationHandler(mgr, false))
 	route(mux, "POST "+base+"/{pid}/rollback", gateAdmin, maintenanceMutationHandler(mgr, true))
 }
 

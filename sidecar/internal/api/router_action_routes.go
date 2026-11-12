@@ -60,23 +60,23 @@ func registerExecutorActionRoutes(
 	approveH := http.HandlerFunc(
 		approveActionHandler(
 			deps.Store, deps.Executor))
-	route(mux, "POST /api/v1/actions/{id}/approve", gateOperator, approveH)
+	routeDB(mux, "POST /api/v1/actions/{id}/approve", gateOperator, queryDatabase, approveH)
 
 	rejectH := http.HandlerFunc(
 		rejectActionHandler(deps.Store))
-	route(mux, "POST /api/v1/actions/{id}/reject", gateOperator, rejectH)
+	routeDB(mux, "POST /api/v1/actions/{id}/reject", gateOperator, queryDatabase, rejectH)
 
 	rollbackH := http.HandlerFunc(
 		rollbackActionHandler(deps.Executor))
-	route(mux, "POST /api/v1/actions/{id}/rollback", gateOperator, rollbackH)
+	routeDB(mux, "POST /api/v1/actions/{id}/rollback", gateOperator, queryDatabase, rollbackH)
 
 	execH := http.HandlerFunc(
 		manualExecuteHandler(deps.Executor))
-	route(mux, "POST /api/v1/actions/execute", gateOperator, execH)
+	routeDB(mux, "POST /api/v1/actions/execute", gateOperator, bodyDatabase, execH)
 
-	route(mux, "POST /api/v1/actions/{id}/schedule", gateOperator,
+	routeDB(mux, "POST /api/v1/actions/{id}/schedule", gateOperator, queryDatabase,
 		scheduleRoute(deps.Store, deps.Executor, false))
-	route(mux, "POST /api/v1/actions/{id}/unschedule", gateOperator,
+	routeDB(mux, "POST /api/v1/actions/{id}/unschedule", gateOperator, queryDatabase,
 		scheduleRoute(deps.Store, deps.Executor, true))
 }
 
@@ -85,23 +85,23 @@ func registerFleetActionRoutes(
 ) {
 	approveH := http.HandlerFunc(
 		fleetApproveActionHandler(deps.Fleet))
-	route(mux, "POST /api/v1/actions/{id}/approve", gateOperator, approveH)
+	routeDB(mux, "POST /api/v1/actions/{id}/approve", gateOperator, queryDatabase, approveH)
 
 	rejectH := http.HandlerFunc(
 		fleetRejectActionHandler(deps.Fleet))
-	route(mux, "POST /api/v1/actions/{id}/reject", gateOperator, rejectH)
+	routeDB(mux, "POST /api/v1/actions/{id}/reject", gateOperator, queryDatabase, rejectH)
 
 	rollbackH := http.HandlerFunc(
 		fleetRollbackActionHandler(deps.Fleet))
-	route(mux, "POST /api/v1/actions/{id}/rollback", gateOperator, rollbackH)
+	routeDB(mux, "POST /api/v1/actions/{id}/rollback", gateOperator, queryDatabase, rollbackH)
 
 	execH := http.HandlerFunc(
 		fleetManualExecuteHandler(deps.Fleet))
-	route(mux, "POST /api/v1/actions/execute", gateOperator, execH)
+	routeDB(mux, "POST /api/v1/actions/execute", gateOperator, bodyDatabase, execH)
 
-	route(mux, "POST /api/v1/actions/{id}/schedule", gateOperator,
+	routeDB(mux, "POST /api/v1/actions/{id}/schedule", gateOperator, queryDatabase,
 		fleetScheduleRoute(deps.Fleet, false))
-	route(mux, "POST /api/v1/actions/{id}/unschedule", gateOperator,
+	routeDB(mux, "POST /api/v1/actions/{id}/unschedule", gateOperator, queryDatabase,
 		fleetScheduleRoute(deps.Fleet, true))
 }
 
@@ -112,10 +112,10 @@ func registerUnavailableActionRoutes(mux *http.ServeMux) {
 				"action approval not available",
 				http.StatusNotImplemented)
 		})
-	route(mux, "POST /api/v1/actions/{id}/approve", gateOperator, notImpl)
-	route(mux, "POST /api/v1/actions/{id}/reject", gateOperator, notImpl)
-	route(mux, "POST /api/v1/actions/{id}/rollback", gateOperator, notImpl)
-	route(mux, "POST /api/v1/actions/execute", gateOperator, notImpl)
-	route(mux, "POST /api/v1/actions/{id}/schedule", gateOperator, notImpl)
-	route(mux, "POST /api/v1/actions/{id}/unschedule", gateOperator, notImpl)
+	routeDB(mux, "POST /api/v1/actions/{id}/approve", gateOperator, queryDatabase, notImpl)
+	routeDB(mux, "POST /api/v1/actions/{id}/reject", gateOperator, queryDatabase, notImpl)
+	routeDB(mux, "POST /api/v1/actions/{id}/rollback", gateOperator, queryDatabase, notImpl)
+	routeDB(mux, "POST /api/v1/actions/execute", gateOperator, bodyDatabase, notImpl)
+	routeDB(mux, "POST /api/v1/actions/{id}/schedule", gateOperator, queryDatabase, notImpl)
+	routeDB(mux, "POST /api/v1/actions/{id}/unschedule", gateOperator, queryDatabase, notImpl)
 }
