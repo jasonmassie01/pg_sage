@@ -192,6 +192,8 @@ row per constraint, with an empty schema.
 
 Each rule produces findings with severity (critical/warning/info), recommended SQL, and rollback SQL.
 
+**Seasonal baselines (`internal/baseline`).** Fixed thresholds cannot tell a report that is slow every Monday at 09:00 from a real slowdown. Each cycle the analyzer folds what the collector already read (statement interval means, active and total backends, WAL bytes per second, lock-graph sessions per wait class) into one of 168 hour-of-week buckets per week in `sage.baseline_samples`, keyed by database, and scores the new value against the same bucket in the previous `baseline.weeks` weeks with a robust z over the median and MAD. `workload_anomaly` opens after 2 consecutive anomalous cycles and resolves after 2 normal ones; a bucket with fewer than 3 weeks is learning. `query_regression` judges against the bucket median when it is active. Scoring is deterministic (no LLM) and adds no query on the monitored database; the fixed-threshold rules remain the floor. A critical anomaly is a Sage SRE trigger (`workload_anomaly`), one read-only investigation per episode.
+
 ### Tuning agent (Tier 2)
 
 Lives in `internal/tuning/` (roadmap 2.2). One agent per database replaces the former
