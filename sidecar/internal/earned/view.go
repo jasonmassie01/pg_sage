@@ -28,6 +28,14 @@ type ClassView struct {
 	// (CarriedRef names the decision), else ledger.
 	Provenance string `json:"provenance"`
 	CarriedRef string `json:"carried_ref,omitempty"`
+	// HoldsUntil is when the evidence behind an earned level of L2 or more
+	// stops supporting it unless new evidence arrives; ExpiringChecks are
+	// the checks that expire then (earned-06).
+	HoldsUntil     *time.Time `json:"holds_until,omitempty"`
+	ExpiringChecks []string   `json:"expiring_checks,omitempty"`
+	// ServerMajor and MajorCap are as on a Trust row (earned-07).
+	ServerMajor *int      `json:"server_major,omitempty"`
+	MajorCap    *MajorCap `json:"major_cap,omitempty"`
 }
 
 // FamilyView is one family's rows with its shadow record.
@@ -60,7 +68,8 @@ func (s *Service) View(ctx context.Context) (View, error) {
 		return View{}, err
 	}
 	now, b := s.now(), &readBatch{}
-	in, err := s.queueLedger(ctx, b, viewPairs(), evidenceNeeds{incident: true}, now)
+	in, err := s.queueLedger(ctx, b, viewPairs(),
+		evidenceNeeds{incident: true, expiry: true}, now)
 	if err != nil {
 		return View{}, err
 	}
@@ -92,8 +101,10 @@ func (s *Service) buildView(now time.Time, in *ledgerReads, bench *EvalRun) View
 		for _, c := range ApplicableClasses(f) {
 			ev := s.evidenceOf(e, f, c)
 			fv.Shadow, fv.Bench = ev.Shadow, SummarizeBench(ev.Bench)
-			fv.Classes = append(fv.Classes,
-				s.classView(in.granted(f, c), ev, pending[pairKey{f, c}]))
+			st := in.granted(f, c)
+			row := s.classView(st, ev, pending[pairKey{f, c}])
+			row.HoldsUntil, row.ExpiringChecks = s.holding(st, row.Supported, ev, e.marks[f])
+			fv.Classes = append(fv.Classes, row)
 		}
 		v.Families = append(v.Families, fv)
 	}
@@ -108,7 +119,7 @@ func (s *Service) classView(st State, ev Evidence, pending *Proposal) ClassView 
 		Granted: st.Level, Supported: SupportedLevel(s.cfg.Thresholds, ev),
 		Version: st.Version, ChangedBy: st.ChangedBy, Reason: st.Reason,
 		Pending: pending, Live: ev.Live, Provenance: st.Provenance,
-		CarriedRef: st.CarriedRef}
+		CarriedRef: st.CarriedRef, ServerMajor: st.ServerMajor}
 	if st.Stored {
 		at := st.ChangedAt
 		row.ChangedAt = &at

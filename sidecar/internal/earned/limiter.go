@@ -2,10 +2,7 @@ package earned
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -18,6 +15,9 @@ type Binding struct {
 	Budget      BudgetSource
 	HA          HASource
 	Concurrency ConcurrencySource
+	// ServerMajor is the monitored server's PostgreSQL major (a
+	// MajorProbe); nil never caps a level for a major change (earned-07).
+	ServerMajor MajorSource
 }
 
 // Limiter is the ledger as one database's gate sees it
@@ -26,8 +26,12 @@ type Limiter struct {
 	svc *Service
 	b   Binding
 
-	mu   sync.Mutex
-	last map[pairKey]string
+	mu sync.Mutex
+	// noteMu serializes cap and expiry records: last is each pair's
+	// recorded cap, warned the expiry last warned about.
+	noteMu sync.Mutex
+	last   map[pairKey]capState
+	warned map[pairKey]time.Time
 	// overrides are the mandatory deadline overrides already recorded,
 	// by pair, targets and deadline, until the deadline passes.
 	overrides map[string]time.Time
@@ -36,8 +40,8 @@ type Limiter struct {
 // Limiter binds the ledger to its database's signals; a binding that
 // names another database fails every authorization closed.
 func (s *Service) Limiter(b Binding) *Limiter {
-	return &Limiter{svc: s, b: b, last: map[pairKey]string{},
-		overrides: map[string]time.Time{}}
+	return &Limiter{svc: s, b: b, last: map[pairKey]capState{},
+		warned: map[pairKey]time.Time{}, overrides: map[string]time.Time{}}
 }
 
 var _ policy.AutonomyLimiter = (*Limiter)(nil)
@@ -58,21 +62,31 @@ func (l *Limiter) Limit(ctx context.Context, req policy.ActionRequest) (
 	}
 	out := policy.AutonomyLimit{Granted: int(st.Level), Class: string(c), Family: string(f)}
 	var downs []Downgrade
+	var major majorCheck
 	if st.Level >= L2 {
 		downs = l.requestDowngrades(ctx, req, f)
+		major = l.majorCap(ctx, st)
 	}
+	p := &pairEvidence{svc: l.svc, f: f, c: c}
 	level, err := effectiveLevel(st, contractCap(req), downs, func() (Level, error) {
-		return l.svc.supportedLevel(ctx, f, c)
+		supported, _, err := p.get(ctx)
+		return supported, err
 	})
 	if err != nil {
 		return policy.AutonomyLimit{}, err
 	}
+	if major.note != nil {
+		level = MinLevel(level, L2)
+	}
 	if st.Level >= L2 {
-		l.noteTransition(ctx, f, c, downs)
+		l.noteLimit(ctx, st, downs, p, major)
 	}
 	for _, d := range downs {
 		out.Downgraded = true
 		out.Reasons = append(out.Reasons, d.Reason)
+	}
+	if major.note != nil {
+		out.Reasons = append(out.Reasons, major.note.reason())
 	}
 	out.Level = int(level)
 	return out, nil
@@ -254,38 +268,6 @@ func safetyDowngrades(n int, err error) []Downgrade {
 	return nil
 }
 
-// noteTransition logs a cap when its reasons change for this database and
-// pair (capped / cap_cleared), not on every authorization.
-func (l *Limiter) noteTransition(ctx context.Context, f Family, c ActionClass,
-	downs []Downgrade) {
-	reasons := make([]string, 0, len(downs))
-	for _, d := range downs {
-		reasons = append(reasons, d.Reason)
-	}
-	sort.Strings(reasons)
-	key, joined := pairKey{f, c}, strings.Join(reasons, ",")
-	l.mu.Lock()
-	previous, seen := l.last[key]
-	l.mu.Unlock()
-	if (seen && previous == joined) || (!seen && joined == "") {
-		return
-	}
-	e := Event{Family: f, Class: c, Type: EventCapped, Actor: ActorPgSage,
-		Reason: "downgraded to at most L1: " + joined, At: l.svc.now()}
-	if joined == "" {
-		e.Type, e.Reason = EventCapCleared, "downgrade signals cleared"
-	}
-	e.Evidence, _ = json.Marshal(map[string]any{"downgrades": downs})
-	if err := l.svc.store.appendEvent(ctx, l.svc.store.pool, e); err != nil {
-		l.svc.cfg.logf("autonomy: record %s for %s/%s on %s: %v", e.Type, f, c,
-			l.b.Database, err)
-		return
-	}
-	l.mu.Lock()
-	l.last[key] = joined
-	l.mu.Unlock()
-}
-
 // Annotate fills each row's effective level and database-wide downgrades
 // for this limiter's database: the error budget and HA role read once,
 // the families' safety record reused from the view (read in one
@@ -299,14 +281,18 @@ func (l *Limiter) Annotate(ctx context.Context, v *View) {
 		families = append(families, string(fam.Family))
 	}
 	sig := l.viewSignals(ctx, v.safety, families)
+	mv := l.majorView(ctx)
 	for i := range v.Families {
 		fam := &v.Families[i]
 		downs := sig.of(fam.Family)
 		for j := range fam.Classes {
 			row := &fam.Classes[j]
 			st := State{Family: fam.Family, Class: row.Class, Level: row.Granted,
-				Provenance: row.Provenance}
+				Provenance: row.Provenance, ServerMajor: row.ServerMajor}
 			level := viewLevel(st, row.Supported, downs)
+			if row.MajorCap = mv.capOf(ctx, st); row.MajorCap != nil {
+				level = MinLevel(level, L2)
+			}
 			if len(downs) > 0 {
 				row.Downgrades = downs
 			}

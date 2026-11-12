@@ -174,23 +174,25 @@ func trancheOneMigrations() []namedStep {
 // trancheTwoMigrations are the T2 steps, in landing order.
 func trancheTwoMigrations() []namedStep {
 	return []namedStep{
-		{"ddlDropSizeHistory", ddlDropSizeHistory},                       // forecast-06
-		{"ddlDecisionOpenWithheldIndex", ddlDecisionOpenWithheldIndex()}, // policy-07
-		{"ddlActionQueueSchedule", ddlActionQueueSchedule},               // policy-04
-		{"ddlRolloutRunInterrupted", ddlRolloutRunInterrupted},           // executor-04b
-		{"ddlNotificationLogRefs", ddlNotificationLogRefs},               // sre-08: page lookup
-		{"ddlSREIncidentFollowup", ddlSREIncidentFollowup},               // sre-08: one claim each
-		{"ddlSREEvidenceRefreshedEvent", ddlSREEvidenceRefreshedEvent},   // playbooks-06
-		{"ddlIncidentsLogOccurrences", ddlIncidentsLogOccurrences},       // rca-07
-		{"ddlExplainEstimateSource", ddlExplainEstimateSource},           // rca-04
-		{"ddlGuardPrincipalChanges", ddlGuardPrincipalChanges},           // agentgov-06
-		{"ddlSourceFixDeployReportedAt", ddlSourceFixDeployReportedAt},   // mcp-06
-		{"ddlEvidenceSigningKey", ddlEvidenceSigningKey},                 // audit-10
-		{"ddlAuditChainMarkerOps", ddlAuditChainMarkerOps},               // audit-03b
-		{"ddlPolicyApprovalsID", ddlPolicyApprovalsID},                   // audit-11
-		{"ddlUsersPasswordLifecycle", ddlUsersPasswordLifecycle},         // apiauth-03
-		{"ddlSchemaMigrations", ddlSchemaMigrations},                     // config-04b: the migration ledger
-		{"ddlAuditChainOpCheckValidated", ddlAuditChainOpCheckValidated}, // audit-03b: upgrade check
-		{"ddlManagedChangeProviders", ddlManagedChangeProviders},         // advisors-03
+		{"ddlDropSizeHistory", ddlDropSizeHistory},                         // forecast-06
+		{"ddlDecisionOpenWithheldIndex", ddlDecisionOpenWithheldIndex()},   // policy-07
+		{"ddlActionQueueSchedule", ddlActionQueueSchedule},                 // policy-04
+		{"ddlRolloutRunInterrupted", ddlRolloutRunInterrupted},             // executor-04b
+		{"ddlNotificationLogRefs", ddlNotificationLogRefs},                 // sre-08: page lookup
+		{"ddlSREIncidentFollowup", ddlSREIncidentFollowup},                 // sre-08: one claim each
+		{"ddlSREEvidenceRefreshedEvent", ddlSREEvidenceRefreshedEvent},     // playbooks-06
+		{"ddlIncidentsLogOccurrences", ddlIncidentsLogOccurrences},         // rca-07
+		{"ddlExplainEstimateSource", ddlExplainEstimateSource},             // rca-04
+		{"ddlGuardPrincipalChanges", ddlGuardPrincipalChanges},             // agentgov-06
+		{"ddlSourceFixDeployReportedAt", ddlSourceFixDeployReportedAt},     // mcp-06
+		{"ddlEvidenceSigningKey", ddlEvidenceSigningKey},                   // audit-10
+		{"ddlAuditChainMarkerOps", ddlAuditChainMarkerOps},                 // audit-03b
+		{"ddlPolicyApprovalsID", ddlPolicyApprovalsID},                     // audit-11
+		{"ddlUsersPasswordLifecycle", ddlUsersPasswordLifecycle},           // apiauth-03
+		{"ddlSchemaMigrations", ddlSchemaMigrations},                       // config-04b: the migration ledger
+		{"ddlAuditChainOpCheckValidated", ddlAuditChainOpCheckValidated},   // audit-03b: upgrade check
+		{"ddlManagedChangeProviders", ddlManagedChangeProviders},           // advisors-03
+		{"ddlSREAutonomyEvidenceExpiring", ddlSREAutonomyEvidenceExpiring}, // earned-06
+		{"ddlSREAutonomyServerMajor", ddlSREAutonomyServerMajor},           // earned-07
 	}
 }

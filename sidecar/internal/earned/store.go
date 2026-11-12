@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -68,6 +69,9 @@ type State struct {
 	// says what granted it), else ProvenanceLedger.
 	Provenance string `json:"provenance"`
 	CarriedRef string `json:"carried_ref,omitempty"`
+	// ServerMajor is the PostgreSQL major the level was granted on (nil
+	// before earned-07 or when it was unreadable; major_cap.go).
+	ServerMajor *int `json:"server_major,omitempty"`
 }
 
 // Level provenances. A grandfathered level is the autonomy the time ramp
@@ -91,6 +95,9 @@ type PostgresStore struct {
 	// build is the running pg_sage build (the service's); bench reports
 	// stamped for another build never count. Nil: none counts.
 	build func() Build
+	// major is the monitored server's major, recorded with every level
+	// write (Service.WithServerMajor); nil records none.
+	major atomic.Pointer[MajorSource]
 }
 
 var uuidPattern = regexp.MustCompile(
@@ -184,17 +191,37 @@ func storeErr(what string, err error) error {
 }
 
 const levelColumns = `family, action_class, level, version, evidence, changed_by,
-	change_reason, changed_at, provenance, COALESCE(carried_ref, '')`
+	change_reason, changed_at, provenance, COALESCE(carried_ref, ''), server_major`
 
 func scanState(row pgx.Row) (State, error) {
 	var st State
 	var family, class string
 	var level int16
+	var major *int16
 	err := row.Scan(&family, &class, &level, &st.Version, &st.Evidence, &st.ChangedBy,
-		&st.Reason, &st.ChangedAt, &st.Provenance, &st.CarriedRef)
+		&st.Reason, &st.ChangedAt, &st.Provenance, &st.CarriedRef, &major)
 	st.Family, st.Class, st.Level, st.Stored = Family(family), ActionClass(class),
 		Level(level), err == nil
+	if major != nil {
+		m := int(*major)
+		st.ServerMajor = &m
+	}
 	return st, err
+}
+
+// majorArg is the major a level write records: the source's current one,
+// or NULL without a source or when it cannot answer (an update then keeps
+// the stored major).
+func (s *PostgresStore) majorArg(ctx context.Context) any {
+	src := s.major.Load()
+	if src == nil || *src == nil {
+		return nil
+	}
+	m, err := (*src)(ctx)
+	if err != nil || m <= 0 || m > 999 {
+		return nil
+	}
+	return int16(m)
 }
 
 // readLevel is the stored state of a pair; found is false without a row.
@@ -256,21 +283,23 @@ func (s *PostgresStore) writeLevel(ctx context.Context, q querier, ch levelChang
 	if ch.ExpectVersion == 0 {
 		row = q.QueryRow(ctx, `INSERT INTO sage.sre_family_autonomy
 			(deployment_id, database_name, family, action_class, level, evidence,
-			 changed_by, change_reason, changed_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			 changed_by, change_reason, changed_at, server_major)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 			ON CONFLICT (deployment_id, database_name, family, action_class) DO NOTHING
 			RETURNING `+levelColumns, s.deployment, s.database, string(ch.Family),
-			string(ch.Class), int16(ch.To), ch.Evidence, ch.Actor, ch.Reason, ch.At)
+			string(ch.Class), int16(ch.To), ch.Evidence, ch.Actor, ch.Reason, ch.At,
+			s.majorArg(ctx))
 	} else {
 		row = q.QueryRow(ctx, `UPDATE sage.sre_family_autonomy
 			SET level = $5, version = version + 1, evidence = $6, changed_by = $7,
 			    change_reason = $8, changed_at = $9, provenance = 'ledger',
-			    carried_ref = NULL
+			    carried_ref = NULL,
+			    server_major = COALESCE($11::smallint, server_major)
 			WHERE deployment_id = $1 AND database_name = $2 AND family = $3
 			  AND action_class = $4 AND version = $10
 			RETURNING `+levelColumns, s.deployment, s.database, string(ch.Family),
 			string(ch.Class), int16(ch.To), ch.Evidence, ch.Actor, ch.Reason, ch.At,
-			ch.ExpectVersion)
+			ch.ExpectVersion, s.majorArg(ctx))
 	}
 	st, err := scanState(row)
 	if errors.Is(err, pgx.ErrNoRows) {

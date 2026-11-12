@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/earned"
@@ -95,4 +96,30 @@ func (n autonomyNotifier) NotifyDemotion(ctx context.Context, d earned.Demotion)
 			"cause": d.Cause, "action_log_id": d.ActionLogID, "queue_id": d.QueueID},
 		DedupKey: fmt.Sprintf("trust-demotion:%s:%s:%s:%d:%d", d.Database, d.Family,
 			d.Class, d.ActionLogID, d.QueueID)})
+}
+
+// NotifyEvidenceExpiring tells an operator, through the database's
+// notification rules for failed actions (like demotions), that an earned
+// level holds only until its evidence expires (earned-06). The warning is
+// recorded once per pair and expiry, so it is sent once.
+func (n autonomyNotifier) NotifyEvidenceExpiring(ctx context.Context,
+	w earned.ExpiryWarning) error {
+	holds := earned.ExpiryText(w.Level, w.HoldsUntil, w.Checks)
+	subject := fmt.Sprintf("pg_sage trust expiring: %s/%s on %s %s", w.Family, w.Class,
+		w.Database, holds)
+	logWarn("autonomy", "%s (expiring: %s)", subject, strings.Join(w.Checks, ", "))
+	if n.dispatcher == nil {
+		return nil
+	}
+	until := w.HoldsUntil.UTC().Format(time.RFC3339)
+	return n.dispatcher.Dispatch(ctx, notify.Event{Type: "action_failed",
+		Severity: "warning", Subject: subject,
+		Body: fmt.Sprintf("Database: %s\nClass: %s/%s\nEarned level: %s\n%s.\n"+
+			"Expiring evidence: %s", w.Database, w.Family, w.Class, w.Level, holds,
+			strings.Join(w.Checks, ", ")),
+		Data: map[string]any{"database": w.Database, "family": string(w.Family),
+			"class": string(w.Class), "level": w.Level.String(), "holds_until": until,
+			"expiring_checks": w.Checks},
+		DedupKey: fmt.Sprintf("trust-expiring:%s:%s:%s:%s", w.Database, w.Family, w.Class,
+			until)})
 }

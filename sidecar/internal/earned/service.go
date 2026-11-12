@@ -74,6 +74,7 @@ type pairKey struct {
 
 type cachedLevel struct {
 	level Level
+	ev    Evidence
 	at    time.Time
 }
 
@@ -180,24 +181,32 @@ func defaultState(f Family, c ActionClass) State {
 // cached for EvidenceCacheTTL.
 func (s *Service) supportedLevel(ctx context.Context, f Family, c ActionClass) (Level,
 	error) {
+	level, _, err := s.supportedEvidence(ctx, f, c)
+	return level, err
+}
+
+// supportedEvidence is the pair's current evidence and the level it
+// supports, cached together for EvidenceCacheTTL.
+func (s *Service) supportedEvidence(ctx context.Context, f Family, c ActionClass) (Level,
+	Evidence, error) {
 	key, now := pairKey{f, c}, s.now()
 	if s.cfg.EvidenceCacheTTL > 0 {
 		s.mu.Lock()
 		hit, ok := s.cache[key]
 		s.mu.Unlock()
 		if ok && now.Sub(hit.at) < s.cfg.EvidenceCacheTTL {
-			return hit.level, nil
+			return hit.level, hit.ev, nil
 		}
 	}
 	ev, err := s.Evidence(ctx, f, c)
 	if err != nil {
-		return L0, err
+		return L0, Evidence{}, err
 	}
 	level := SupportedLevel(s.cfg.Thresholds, ev)
 	s.mu.Lock()
-	s.cache[key] = cachedLevel{level: level, at: now}
+	s.cache[key] = cachedLevel{level: level, ev: ev, at: now}
 	s.mu.Unlock()
-	return level, nil
+	return level, ev, nil
 }
 
 // invalidate drops cached evidence (after outcomes, reviews, ingestion).

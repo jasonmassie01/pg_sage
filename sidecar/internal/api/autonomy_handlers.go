@@ -21,8 +21,9 @@ import (
 // signed-in role reads the ledger, its evidence and history. Operators
 // review packets, flag harm, ask for an evaluation, reject proposals and
 // downgrade: restricting autonomy is always allowed. Only an admin
-// approves a promotion (the human trust step, recorded with the
-// approver) or uploads benchmark evidence.
+// approves a promotion or re-approves a level a PostgreSQL major upgrade
+// capped (the human trust step, recorded with the approver) or uploads
+// benchmark evidence.
 
 // AutonomyDeps wires the autonomy routes.
 type AutonomyDeps struct {
@@ -53,6 +54,7 @@ func registerAutonomyRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
 	route(mux, "POST "+autonomyPath+"/proposals/{id}/reject", gateOperator,
 		http.HandlerFunc(h.reject))
 	route(mux, "POST "+autonomyPath+"/downgrade", gateOperator, http.HandlerFunc(h.downgrade))
+	route(mux, "POST "+autonomyPath+"/revalidate", gateAdmin, http.HandlerFunc(h.revalidate))
 	route(mux, "POST "+autonomyPath+"/reviews", gateOperator, http.HandlerFunc(h.review))
 	route(mux, "POST "+autonomyPath+"/outcomes", gateOperator, http.HandlerFunc(h.outcome))
 	route(mux, "POST "+autonomyPath+"/bench-results", gateAdmin, http.HandlerFunc(h.bench))
@@ -111,6 +113,8 @@ func autonomyError(w http.ResponseWriter, r *http.Request, err error) {
 		sreErrorCode(w, err.Error(), "human_approval_required", http.StatusForbidden)
 	case errors.Is(err, earned.ErrNotADowngrade):
 		sreErrorCode(w, err.Error(), "not_a_downgrade", http.StatusConflict)
+	case errors.Is(err, earned.ErrNotCapped):
+		sreErrorCode(w, err.Error(), "not_capped", http.StatusConflict)
 	case errors.Is(err, earned.ErrNotPending), errors.Is(err, earned.ErrProposalExpired),
 		errors.Is(err, earned.ErrConflict):
 		sreErrorCode(w, err.Error(), "conflict", http.StatusConflict)

@@ -789,6 +789,27 @@ grandfathered. `sre.autonomy.enforce: false` keeps the legacy behaviour (the ram
 and is logged as a warning. Rollbacks of pg_sage's own changes and owner-declared retention
 deletes are never withheld by the ledger.
 
+**Re-validation on a PostgreSQL major upgrade.** Planner, statistics and GUC semantics change
+between majors, so every level records the major of the monitored server it was granted on
+(`server_major`, read from `server_version_num`, which needs no privileges on any provider;
+pg_sage re-reads it at most every 5 minutes). A self-initiated L3 granted on another major
+than the server runs now (for example earned on 16, the server now on 17) is capped at L2:
+its actions go to one-click approval, and the history records `capped` once, with the reason
+`server_major_changed:16->17`. The Trust page shows "capped at L2: PostgreSQL 16→17; 1 of
+3 improved outcomes, or re-approve" on the row (`major_cap` on the rows of
+`GET /api/v1/trust` and `GET /api/v1/sre/autonomy`, whose effective level is L2). The cap clears,
+recorded as `cap_cleared`, after 3 `improved` outcomes of the pair recorded after the cap
+event (the L2 promotion count, `class_min_successes_l2`), or at once when an admin
+re-approves the pair (**Re-approve** on the Trust page, or `POST
+/api/v1/sre/autonomy/revalidate?database=` with `{"family", "class", "note"}`; other roles
+get 403, a pair that is not capped 409 `not_capped`). Either way the level is restamped
+with the new major. A minor upgrade (17.0 to 17.2) changes nothing. A level stored before
+this release has no major and is stamped with the current one, without a cap. When the
+version cannot be read, nothing is capped or stamped (the last major read is kept). L2 and
+lower levels, incident families and carried-over levels are not re-validated, and the
+demerit rule is unchanged. The cap is per database: each database's ledger compares its own
+server.
+
 The **Trust** page (and `GET /api/v1/trust?database=`) shows every database x family x class
 with its level, effective level, evidence counts, last change and why, and the path to the
 next level; an incident row also carries `bench`, the report its bench checks read (id,
@@ -850,9 +871,17 @@ level; only real regressions, rollbacks and rejections demote.
 
 **Surfaces.** The Trust page shows, per class, the shadow decisions and their scores and, on
 demand, what pg_sage would have done (SQL, prediction, verdict had it been trusted, score and
-source). `GET /api/v1/shadow-decisions?database=&class=&status=&score=&limit=` serves the
-same per-class summary and the newest decisions; `GET /api/v1/trust` carries the summary per
-database as `shadow`. An approval card shows its class's shadow history and whether the
+source). The Shadow Mode page (Settings, General tab; every signed-in role) shows the same
+ledger per database and class: decisions, pending, correct, incorrect, counted, and
+**potential minutes**, the current `sage.toil_model` base minutes of the class times its
+counted correct decisions. Potential minutes are never credited (the Value page prices only
+verified outcomes); a class without a toil model reads "not modelled", never a default. With
+no decisions the page says why: `sre.autonomy.enforce` is off, every class is already at L3,
+or nothing has been recorded yet.
+`GET /api/v1/shadow-decisions?database=&class=&status=&score=&limit=` serves the per-class summary (`potential_minutes` is `null` for an unmodelled class; `class`
+narrows the summary too, and an unknown class is an empty summary) and the newest decisions;
+`GET /api/v1/trust` carries the summary per database as `shadow`. It replaces the removed
+heuristic report over open cases. An approval card shows its class's shadow history and whether the
 proposal itself was a shadow decision (your decision then scores it). Prometheus:
 `pg_sage_shadow_decisions_total{database,class,verdict}` and
 `pg_sage_shadow_scores_total{database,class,score,source}`. Scored decisions age out with
@@ -2619,6 +2648,33 @@ These are the spec's thresholds and the defaults; the timing, volume and accurac
 can be lowered under `sre.autonomy.promotion` (see
 [Fast elevation](#fast-elevation-dogfood-databases)). The report age (30 days) and the
 minimum bench run counts (10) are fixed.
+
+**Evidence decay.** An earned L2 or L3 holds only while its evidence does. The bench report
+stops counting 30 days after its `generated_at` (a release's shipped report too), and shadow
+reviews leave the 30-day window one by one. The Autonomy and Trust pages show, on every
+earned row, the date the level holds until and the checks that expire then (`holds_until`,
+`expiring_checks` in `GET /api/v1/sre/autonomy` and `GET /api/v1/trust`), for example "L3
+holds until 2026-12-03 09:30 UTC unless a new bench report arrives". The date is the last
+moment the evidence still counts: for the shadow window, the review whose leaving breaks the
+20-review or 95%-accepted bar, not the oldest review. Every evaluate interval
+(`evaluate_interval_minutes`), pg_sage re-reads the evidence of each earned pair without
+waiting for an action:
+
+- When the evidence no longer supports the granted level, the gate allows only the supported
+  level (as before), and the history now records it once as `capped` with the reason
+  `evidence_decayed:<checks>` and the evidence `{granted, supported, failing_checks}`. It
+  records `cap_cleared` once new evidence supports the level again. The granted level is
+  not changed: ingest a new report (or record the reviews) and the level is back. Neither is
+  recorded again after a restart.
+- Once the date is 7 days away or less, pg_sage warns once per pair and date: a history
+  entry `evidence_expiring` and a notification through the rules for failed actions
+  (`action_failed`, severity warning), like a demotion. A date that moves later by 7 days
+  or less (a shadow window renewed review by review, a report only a little newer) is the
+  same warning and is not sent again. A date that moves earlier, or a report that renews
+  the level by more than 7 days, warns again once the new date comes near.
+
+Carried-over and self-initiated levels do not decay with evidence and are not swept. The
+local bench is not scheduled by this: run it, or ingest a report, before the date.
 
 **Downgrade.** At authorization time, any of the following caps an L2 or L3 pair at L1. The
 change is logged once per transition.

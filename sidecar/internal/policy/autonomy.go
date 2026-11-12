@@ -31,7 +31,8 @@ type AutonomyLimit struct {
 	Level int
 	// Granted is the human-approved level of the family x class pair.
 	Granted int
-	// Downgraded reports an active downgrade signal; Reasons names them.
+	// Downgraded reports an active downgrade signal; Reasons names them
+	// and any cap that is not one (a PostgreSQL major change, earned-07).
 	Downgraded bool
 	Reasons    []string
 	// Class is the action class the ledger resolved.
@@ -208,8 +209,12 @@ func autonomyNote(level int, limit AutonomyLimit, base Decision) string {
 	if base.Detail != "" {
 		note += " (" + base.Detail + ")"
 	}
-	if limit.Downgraded {
+	switch {
+	case limit.Downgraded:
 		note += "; downgraded: " + strings.Join(limit.Reasons, ",")
+	case len(limit.Reasons) > 0:
+		// A cap that is not a downgrade signal (a PostgreSQL major change).
+		note += "; capped: " + strings.Join(limit.Reasons, ",")
 	}
 	return note
 }

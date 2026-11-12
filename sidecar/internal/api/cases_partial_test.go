@@ -345,38 +345,6 @@ func TestCasesRecoveredDatabaseLeavesUnavailable(t *testing.T) {
 	}
 }
 
-func TestShadowReportCarriesUnavailable(t *testing.T) {
-	mgr := seamManager(t, "alpha", "beta")
-	stubDatabaseCases(t, func(_ context.Context, sel namedPool) (databaseCases, error) {
-		if sel.name == "beta" {
-			return databaseCases{}, context.DeadlineExceeded
-		}
-		return databaseCases{cases: []cases.Case{seamCase("alpha", "a")}}, nil
-	})
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/cases/shadow-report", nil)
-	rec := httptest.NewRecorder()
-	shadowReportHandler(mgr).ServeHTTP(rec, req)
-	var body struct {
-		TotalCases  int                `json:"total_cases"`
-		Unavailable []casesUnavailable `json:"unavailable"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	want := casesUnavailable{Database: "beta", ErrorClass: caseErrorTimeout}
-	if rec.Code != http.StatusOK || body.TotalCases != 1 ||
-		len(body.Unavailable) != 1 || body.Unavailable[0] != want {
-		t.Fatalf("shadow = %d %+v, want 200, 1 case, beta timeout", rec.Code, body)
-	}
-
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/cases/shadow-report?database=beta", nil)
-	rec = httptest.NewRecorder()
-	shadowReportHandler(mgr).ServeHTTP(rec, req)
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("single-database shadow status = %d, want 503", rec.Code)
-	}
-}
-
 func TestClassifyCasesError(t *testing.T) {
 	opErr := &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("refused")}
 	cases := []struct {

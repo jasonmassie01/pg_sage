@@ -14,8 +14,9 @@ traditional observability dashboard:
 - **Actions** separates proposed changes, needs your review, in progress and
   history. Approval, completed SQL and verified outcomes remain separate states.
 - **Fleet** manages database connections and per-database runtime state.
-- **Settings** includes system configuration, emergency controls, and the
-  Shadow Mode report proving what auto-safe policy would have handled.
+- **Settings** includes system configuration, emergency controls, and Shadow
+  Mode: per action class, what pg_sage would have done below its earned trust
+  level, how those decisions scored, and their potential toil minutes.
 
 The web UI and JSON API are authenticated by default. On first standalone start, pg_sage
 prints a one-time password for `admin@pg-sage.local`; API clients authenticate

@@ -143,7 +143,9 @@ func (l failClosedLimiter) Governs(req policy.ActionRequest) bool {
 func (a *autonomyLedgers) install(ctx context.Context, ex *executor.Executor,
 	b autonomyBinding) error {
 	svc, err := a.ledgerFor(ctx, b.control, b.database, b.settings)
+	major := majorProbeFor(b)
 	if err == nil {
+		svc.WithServerMajor(major.Major)
 		// Levels stored before the ledger was per database apply to this
 		// database at their level, unless it has its own (P0-5 decision).
 		_, err = svc.AdoptLegacy(ctx)
@@ -170,7 +172,8 @@ func (a *autonomyLedgers) install(ctx context.Context, ex *executor.Executor,
 	}
 	lim := svc.Limiter(earned.Binding{Database: b.database, Budget: b.budget,
 		HA:          hasource.FromSnapshot(b.ha),
-		Concurrency: earned.NewPostgresConcurrency(b.monitored, b.databaseID)})
+		Concurrency: earned.NewPostgresConcurrency(b.monitored, b.databaseID),
+		ServerMajor: major.Major})
 	if b.settings.Enforce {
 		ex.WithAutonomy(lim)
 	}
@@ -180,6 +183,15 @@ func (a *autonomyLedgers) install(ctx context.Context, ex *executor.Executor,
 	svc.WithRunningModel(b.runningModel)
 	a.registry.Register(b.database, earned.RegistryEntry{Service: svc, Limiter: lim})
 	return nil
+}
+
+// majorProbeFor reads the monitored server's PostgreSQL major: every
+// level write records it, and a self-initiated L3 re-validates after a
+// major upgrade (earned-07).
+func majorProbeFor(b autonomyBinding) *earned.MajorProbe {
+	return earned.NewMajorProbe(b.monitored, func(format string, args ...any) {
+		logWarn("autonomy", "db %q: "+format, append([]any{b.database}, args...)...)
+	})
 }
 
 // autonomyNotifier tells a human about an L3 auto-execution through the

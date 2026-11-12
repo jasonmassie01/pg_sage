@@ -235,7 +235,7 @@ curl -c cookies.txt -H 'Content-Type: application/json' \
 
 curl -b cookies.txt http://localhost:8080/api/v1/databases
 curl -b cookies.txt http://localhost:8080/api/v1/cases
-curl -b cookies.txt http://localhost:8080/api/v1/shadow-report
+curl -b cookies.txt http://localhost:8080/api/v1/shadow-decisions
 ```
 
 Connect to your database and check the sage schema:

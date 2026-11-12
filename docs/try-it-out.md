@@ -110,7 +110,7 @@ Verify these screens:
 | Provider readiness | Overview shows provider-specific extension paths, log access, limitations, and action-family readiness |
 | Actions | Executed and Pending Approval tabs; expanded rows show SQL, expiration, rollback, verification state, and generated script output for DDL |
 | Fleet | Managed databases table and connection-test/edit controls |
-| Settings | System info, emergency controls, Shadow Mode report |
+| Settings | System info, emergency controls, Shadow Mode (shadow decisions per class) |
 
 ## 5. API Smoke Checks
 
@@ -125,7 +125,7 @@ curl -b cookies.txt http://localhost:8080/api/v1/databases
 curl -b cookies.txt http://localhost:8080/api/v1/cases
 curl -b cookies.txt http://localhost:8080/api/v1/actions/pending
 curl -b cookies.txt http://localhost:8080/api/v1/fleet/readiness
-curl -b cookies.txt http://localhost:8080/api/v1/shadow-report
+curl -b cookies.txt http://localhost:8080/api/v1/shadow-decisions
 ```
 
 Prometheus remains unauthenticated on the metrics listener:

@@ -89,7 +89,7 @@ Walk through:
    here for compatibility.
 4. **Actions** -- pending approval and executed action history.
 5. **Fleet** -- managed database connections and runtime status.
-6. **Settings** -- system info, emergency stop/resume, and Shadow Mode proof.
+6. **Settings** -- system info, emergency stop/resume, and Shadow Mode (shadow decisions per class).
 
 ## 4. API and Metrics Checks
 
@@ -99,7 +99,7 @@ curl -c cookies.txt -H 'Content-Type: application/json' \
   --data '{"email":"admin@pg-sage.local","password":"INITIAL_PASSWORD"}'
 
 curl -b cookies.txt http://localhost:8080/api/v1/cases
-curl -b cookies.txt http://localhost:8080/api/v1/shadow-report
+curl -b cookies.txt http://localhost:8080/api/v1/shadow-decisions
 curl -s http://localhost:8187/metrics | head
 ```
 

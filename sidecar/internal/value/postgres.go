@@ -29,27 +29,39 @@ func (r *PostgresRepository) CreditCandidate(
 	var item CreditCandidate
 	err := r.pool.QueryRow(ctx, `SELECT al.id, al.action_type, al.outcome,
 		CASE WHEN v.verdict='success' AND v.completed_at IS NOT NULL
-			THEN 'verified' ELSE COALESCE(v.verdict, 'missing') END,
-		COALESCE(tm.base_minutes, 0), COALESCE(tm.model_version, 0)
+			THEN 'verified' ELSE COALESCE(v.verdict, 'missing') END
 		FROM sage.action_log al
-		`+linkedVerification+`
-		LEFT JOIN sage.toil_model tm ON tm.action_type=CASE al.action_type
-			WHEN 'create_index' THEN 'create_index_concurrently'
-			WHEN 'drop_index' THEN 'drop_unused_index'
-			WHEN 'reindex' THEN 'reindex_concurrently'
-			WHEN 'vacuum' THEN 'vacuum_table'
-			WHEN 'analyze' THEN 'analyze_table'
-			ELSE al.action_type END
-			AND tm.effective_to IS NULL WHERE al.id=$1`, actionID).Scan(
-		&item.ActionID, &item.ActionType, &item.Outcome, &item.VerificationState,
-		&item.ModelMinutes, &item.ModelVersion)
+		`+linkedVerification+` WHERE al.id=$1`, actionID).Scan(
+		&item.ActionID, &item.ActionType, &item.Outcome, &item.VerificationState)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return CreditCandidate{}, fmt.Errorf("action %d not found", actionID)
 	}
 	if err != nil {
 		return CreditCandidate{}, fmt.Errorf("load action credit candidate: %w", err)
 	}
+	item.ModelMinutes, item.ModelVersion, err = r.currentToilModel(ctx,
+		ToilActionType(item.ActionType))
+	if err != nil {
+		return CreditCandidate{}, fmt.Errorf("load toil model of action %d: %w",
+			actionID, err)
+	}
 	return item, nil
+}
+
+// currentToilModel reads the active model of a toil action type; an
+// action type without one is priced 0 at version 0 (no credit).
+func (r *PostgresRepository) currentToilModel(
+	ctx context.Context, toilActionType string,
+) (float64, int, error) {
+	var minutes float64
+	var version int
+	err := r.pool.QueryRow(ctx, `SELECT base_minutes::float8, model_version
+		FROM sage.toil_model WHERE action_type=$1 AND effective_to IS NULL`,
+		toilActionType).Scan(&minutes, &version)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, 0, nil
+	}
+	return minutes, version, err
 }
 
 // StampCredit writes the credit once, only while the action succeeded and

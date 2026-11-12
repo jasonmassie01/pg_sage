@@ -65,7 +65,9 @@ func (rt *databaseRuntime) startAutonomyLoops() {
 			}
 		})
 	})
-	rt.start(func() { every(rt.ctx, settings.EvaluateInterval(), evaluator(entry.Service)) })
+	rt.start(func() {
+		every(rt.ctx, settings.EvaluateInterval(), evaluator(entry, notifier))
+	})
 	rt.start(func() { every(rt.ctx, benchIngestInterval, benchIngester(entry.Service, settings)) })
 	rt.startLocalBench(entry.Service, settings)
 	rt.startGameDays(entry.Service, settings)
@@ -87,16 +89,32 @@ func (rt *databaseRuntime) ledgerNotifier() autonomyNotifier {
 	return n
 }
 
-func evaluator(svc *earned.Service) func(context.Context) {
+// evaluator proposes the promotions the evidence supports, then sweeps
+// the earned levels whose evidence decays (earned-06): a decay is
+// recorded as a cap without waiting for an action, and an expiry a week
+// away is warned about once.
+func evaluator(entry earned.RegistryEntry, n earned.ExpiryNotifier) func(context.Context) {
 	return func(ctx context.Context) {
-		created, err := svc.ProposePromotions(ctx)
+		created, err := entry.Service.ProposePromotions(ctx)
 		if err != nil {
 			logWarn("autonomy", "evaluate promotions: %v", err)
-			return
 		}
 		for _, p := range created {
 			logInfo("autonomy", "proposed %s/%s %s -> %s: an admin must approve it",
 				p.Family, p.Class, p.From, p.To)
+		}
+		if entry.Limiter == nil {
+			return
+		}
+		res, err := entry.Limiter.Sweep(ctx, n)
+		if err != nil {
+			logWarn("autonomy", "db %q: sweep decaying evidence: %v",
+				entry.Service.Database(), err)
+		}
+		if res.Capped+res.Cleared+res.Warned > 0 {
+			logInfo("autonomy", "db %q: evidence sweep of %d pairs: %d capped, %d cleared, "+
+				"%d expiry warnings", entry.Service.Database(), res.Pairs, res.Capped,
+				res.Cleared, res.Warned)
 		}
 	}
 }

@@ -17,14 +17,18 @@ type evidenceSet struct {
 	live     map[pairKey]Live
 	safety   map[Family]familySafetyRow
 	records  map[pairKey]ClassRecord
+	// marks are each family's shadow reviews in the window, read only for
+	// a page's expiry dates (evidenceNeeds.expiry).
+	marks map[Family][]reviewMark
 	// safetyRead is true when safety holds every incident family's record.
 	safetyRead bool
 }
 
 // evidenceNeeds says which reads a scope needs: the incident evidence
-// (bench, game days, shadow reviews, live record, family safety) and the
-// class records (verdict counts, the self-initiated evidence).
-type evidenceNeeds struct{ incident, records bool }
+// (bench, game days, shadow reviews, live record, family safety), the
+// class records (verdict counts, the self-initiated evidence) and the
+// shadow reviews behind the incident evidence's expiry (earned-06).
+type evidenceNeeds struct{ incident, records, expiry bool }
 
 // loadEvidence reads the evidence of pairs at now: the class records of
 // every pair, the incident evidence of the incident pairs.
@@ -40,7 +44,7 @@ func (s *Service) loadEvidence(ctx context.Context, pairs []pairKey, need eviden
 func newEvidenceSet(now time.Time) *evidenceSet {
 	return &evidenceSet{at: now, bench: map[Family]*EvalRun{}, shadow: map[Family]Shadow{},
 		live: map[pairKey]Live{}, safety: map[Family]familySafetyRow{},
-		records: map[pairKey]ClassRecord{}}
+		records: map[pairKey]ClassRecord{}, marks: map[Family][]reviewMark{}}
 }
 
 // queueEvidence runs (or queues on r) every read of pairs' evidence into
@@ -80,7 +84,10 @@ func (s *Service) queueEvidence(ctx context.Context, r reads, pairs []pairKey,
 			return err
 		}
 	}
-	return nil
+	if !need.expiry {
+		return nil
+	}
+	return s.store.readReviewMarks(ctx, r, names, e.at.Add(-th.ShadowDuration), e.marks)
 }
 
 // evidence is one pair's evidence from the set.
