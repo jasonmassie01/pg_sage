@@ -192,9 +192,29 @@ func (s *DiscoveryStore) RecordSourceRun(ctx context.Context, source string, cou
 	return nil
 }
 
+// claimDiscoveredSQL moves up to $2 claimable candidates of source $1 to
+// enrolling at $3; an enrolling claim older than $4 is stale and claimable.
+const claimDiscoveredSQL = `/* pg_sage */ WITH claimed AS (
+		    UPDATE sage.discovered_databases SET status = 'enrolling',
+		           status_changed_at = $3
+		     WHERE id IN (SELECT c.id FROM sage.discovered_databases c
+		                   WHERE c.source = $1 AND (c.status = 'candidate'
+		                      OR (c.status = 'enrolling' AND c.status_changed_at < $4))
+		                     AND NOT EXISTS (SELECT 1 FROM sage.databases m
+		                          WHERE m.host = c.host AND m.port = c.port
+		                            AND m.database_name = c.dbname)
+		                   ORDER BY (c.last_error <> ''),
+		                         CASE WHEN c.last_error <> '' THEN c.status_changed_at END,
+		                         c.first_seen, c.id
+		                   LIMIT $2)
+		    RETURNING *)
+		 SELECT `+discoveredColumns+` FROM claimed d ORDER BY d.id`
+
 // Claim takes up to limit candidates of source for enrolment, keeping the
 // live discovered members (enrolling, enrolled, adopted) at or under
 // maxLive across every sidecar. Rows already managed by hand are skipped.
+// Rows whose last enrolment failed go after untried ones, longest-waiting
+// first, so a database the role cannot connect to never starves the rest.
 func (s *DiscoveryStore) Claim(ctx context.Context, source string, limit, maxLive int,
 	now time.Time) ([]DiscoveredRow, error) {
 	qctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -220,19 +240,7 @@ func (s *DiscoveryStore) Claim(ctx context.Context, source string, limit, maxLiv
 	if room <= 0 {
 		return nil, nil
 	}
-	rows, err := tx.Query(qctx, `/* pg_sage */ WITH claimed AS (
-		    UPDATE sage.discovered_databases SET status = 'enrolling',
-		           status_changed_at = $3
-		     WHERE id IN (SELECT c.id FROM sage.discovered_databases c
-		                   WHERE c.source = $1 AND (c.status = 'candidate'
-		                      OR (c.status = 'enrolling' AND c.status_changed_at < $4))
-		                     AND NOT EXISTS (SELECT 1 FROM sage.databases m
-		                          WHERE m.host = c.host AND m.port = c.port
-		                            AND m.database_name = c.dbname)
-		                   ORDER BY c.first_seen, c.id LIMIT $2)
-		    RETURNING *)
-		 SELECT `+discoveredColumns+` FROM claimed d ORDER BY d.id`,
-		source, room, now, stale)
+	rows, err := tx.Query(qctx, claimDiscoveredSQL, source, room, now, stale)
 	if err != nil {
 		return nil, fmt.Errorf("claim discovered databases of %s: %w", source, err)
 	}

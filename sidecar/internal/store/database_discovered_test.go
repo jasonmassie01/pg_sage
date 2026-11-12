@@ -401,3 +401,37 @@ func TestDiscoveryStore_IgnoreCandidate(t *testing.T) {
 		t.Fatalf("ignored row marked gone: %+v", gone)
 	}
 }
+
+// Boundary: five candidates whose enrolment keeps failing do not starve a
+// sixth that was never tried; failed rows retry longest-waiting first.
+func TestDiscoveryStore_ClaimPrefersUntriedOverFailed(t *testing.T) {
+	pool, ctx := requireDiscoveryDB(t)
+	d := NewDiscoveryStore(pool)
+	now := time.Now()
+	for i := range 6 {
+		c := []DiscoveredCandidate{{ExternalID: fmt.Sprintf("f%d", i), Host: "h",
+			Port: 1, DBName: fmt.Sprintf("f%d", i)}}
+		seen := now.Add(time.Duration(i) * time.Second)
+		if _, err := d.Upsert(ctx, "s", "o", c, seen); err != nil {
+			t.Fatalf("upsert %d: %v", i, err)
+		}
+	}
+	first, err := d.Claim(ctx, "s", 5, 10, now)
+	if err != nil || len(first) != 5 || first[0].ExternalID != "f0" {
+		t.Fatalf("first claim = %+v %v, want f0-f4", first, err)
+	}
+	for _, r := range first {
+		if err := d.Release(ctx, r.ID, "permission denied for database"); err != nil {
+			t.Fatalf("release %s: %v", r.ExternalID, err)
+		}
+	}
+	second, err := d.Claim(ctx, "s", 2, 10, now)
+	if err != nil || len(second) != 2 {
+		t.Fatalf("second claim = %+v %v", second, err)
+	}
+	if second[0].ExternalID != "f0" && second[1].ExternalID != "f0" ||
+		second[0].ExternalID != "f5" && second[1].ExternalID != "f5" {
+		t.Fatalf("second claim = %s, %s; want the untried f5 and the oldest failure f0",
+			second[0].ExternalID, second[1].ExternalID)
+	}
+}
