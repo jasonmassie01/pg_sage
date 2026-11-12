@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/migration"
 )
 
@@ -143,5 +144,18 @@ func TestLintMigrationCLIGitHubFormat(t *testing.T) {
 	}
 	if got := githubEscape("a:b,c%\n", true); got != "a%3Ab%2Cc%25%0A" {
 		t.Fatalf("escape %q", got)
+	}
+}
+
+// MCP lint_migration applies migration.ddl_row_threshold, as the advisor
+// does (migration-11); unset stays 0, which the review reads as 10000.
+func TestAgentToolOptionsCarryTheRowThreshold(t *testing.T) {
+	c := &config.Config{}
+	c.Migration.DDLRowThreshold = 777
+	if got := agentToolOptions(c).DDLRowThreshold; got != 777 {
+		t.Fatalf("DDLRowThreshold = %d, want 777", got)
+	}
+	if got := agentToolOptions(nil).DDLRowThreshold; got != 0 {
+		t.Fatalf("no config: DDLRowThreshold = %d, want 0 (the default)", got)
 	}
 }
