@@ -2,6 +2,7 @@ package selfmonitor
 
 import (
 	"encoding/json"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -21,6 +22,13 @@ var sageSchemaRef = regexp.MustCompile(`(?i)(^|[^a-z0-9_])("?sage"?)[[:space:]]*
 // pg_sage's subject on purpose, keyed by the database name, and may name
 // pg_sage, so the self-monitoring filters never drop them.
 var SelfFindingCategories = []string{"sage_self_cost", "sage_self_budget", "sage_footprint"}
+
+// ExplanationDetailKeys are finding detail keys whose value is pg_sage's
+// own explanation to the operator, such as why a change waits for approval
+// (analyzer.DetailApprovalRequired). Such prose may name pg_sage ("pg_sage
+// cannot verify it"), which says nothing about the finding's subject, so the
+// detail scan of IsFinding skips them.
+var ExplanationDetailKeys = []string{"approval_required"}
 
 // FindingFields are the parts of a finding that tell whether it is about
 // pg_sage itself.
@@ -128,11 +136,21 @@ func detailHasSelfQuery(detail map[string]any) bool {
 			return true
 		}
 	}
-	b, err := json.Marshal(detail)
+	b, err := json.Marshal(withoutExplanations(detail))
 	if err != nil {
 		return false
 	}
 	return strings.Contains(strings.ToLower(string(b)), ApplicationName)
+}
+
+// withoutExplanations is a copy of detail without its
+// ExplanationDetailKeys.
+func withoutExplanations(detail map[string]any) map[string]any {
+	out := maps.Clone(detail)
+	for _, key := range ExplanationDetailKeys {
+		delete(out, key)
+	}
+	return out
 }
 
 func stringFromAny(value any) string {
