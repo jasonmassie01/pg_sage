@@ -94,14 +94,14 @@ func RefusedRole(role, selfRole string, superuser bool) error {
 	switch {
 	case role == "":
 		return fmt.Errorf("a role budget needs a role")
+	case role == selfRole:
+		return fmt.Errorf("role %s is refused: it is pg_sage's own role", role)
 	case role == "postgres":
 		return fmt.Errorf("role postgres is refused: the bootstrap superuser is never budgeted")
 	case adminRoles.MatchString(role):
 		return fmt.Errorf("role %s is refused: it is a provider administration role", role)
 	case strings.HasPrefix(role, "pg_"):
 		return fmt.Errorf("role %s is refused: pg_ roles are reserved", role)
-	case role == selfRole:
-		return fmt.Errorf("role %s is refused: it is pg_sage's own role", role)
 	case superuser:
 		return fmt.Errorf("role %s is refused: a superuser is never budgeted", role)
 	}

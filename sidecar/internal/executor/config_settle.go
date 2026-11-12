@@ -54,6 +54,9 @@ func (e *Executor) readBackConfig(
 	if c.kind == configKindDatabaseGUC {
 		return readDatabaseSetting(ctx, e.pool, c.database)
 	}
+	if c.kind == configKindRoleBudget {
+		return e.readRoleBudget(ctx, c)
+	}
 	if c.kind == configKindGUC {
 		out := applyConfigChangeWithin(ctx, e.pool, c.sql, e.cfg.CloudEnvironment,
 			e.logFn, e.readbackWait())

@@ -12,6 +12,7 @@ import (
 var executorASTRules = sqlast.Rules{
 	SystemParam:     pgconf.ExecutableGUC,
 	DatabaseParam:   pgconf.ExecutableGUC,
+	RoleParam:       isRoleBudgetSetting,
 	ProtectedSchema: isProtectedExecutorSchema,
 	Reloption: func(key, value string, reset bool) bool {
 		opt := pgconf.Reloption{Key: key, Value: value}

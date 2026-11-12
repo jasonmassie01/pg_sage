@@ -30,6 +30,8 @@ type configChange struct {
 	priorDatabase databaseSettingPrior
 	priorMain     map[string]string
 	priorToast    map[string]string
+	role          roleBudgetStmt
+	priorRole     roleBudgetPrior
 	rollbackSQL   string
 	outcome       *outcomeBaseline
 }
@@ -95,6 +97,11 @@ func (e *Executor) prepareConfigChange(ctx context.Context, sql string) (*config
 		if c.rollbackSQL, err = reloptionRollbackSQL(stmt, main, toast); err != nil {
 			return nil, err
 		}
+	} else if stmt, ok := parseRoleBudgetSQL(sql); ok {
+		if err := e.prepareRoleBudget(ctx, c, stmt); err != nil {
+			return nil, err
+		}
+		return c, nil // no outcome metric
 	} else {
 		return nil, nil
 	}
@@ -121,6 +128,8 @@ func (c *configChange) record(state map[string]any) {
 			c.priorGUC
 	case configKindDatabaseGUC:
 		change["database"], change["name"], change["requested"], change["prior"] = c.priorDatabase.Database, c.guc.Name, c.guc.Value, c.priorDatabase
+	case configKindRoleBudget:
+		change["role"], change["prior"] = c.role.Role, c.priorRole
 	default:
 		change["table"] = c.table.Table
 		change["prior"] = map[string]any{"table": c.priorMain, "toast": c.priorToast}

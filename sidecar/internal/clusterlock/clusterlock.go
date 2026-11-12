@@ -41,6 +41,32 @@ func Lock(ctx context.Context, dsn, name string) (func(), error) {
 	return releaser(conn), nil
 }
 
+// LockConfig is Lock for a connection configuration (a pool's, with its
+// authentication hooks), not a DSN: the lock's session copies cfg and
+// connects to the maintenance database.
+func LockConfig(ctx context.Context, cfg *pgx.ConnConfig, name string) (func(), error) {
+	if strings.TrimSpace(name) == "" {
+		return nil, errors.New("cluster lock: empty lock name")
+	}
+	if cfg == nil {
+		return nil, errors.New("cluster lock: no connection configuration")
+	}
+	c := cfg.Copy()
+	c.Database = MaintenanceDatabase
+	c.RuntimeParams["application_name"] = "pg_sage cluster lock"
+	conn, err := pgx.ConnectConfig(ctx, c)
+	if err != nil {
+		return nil, fmt.Errorf("cluster lock %q: connect maintenance database %s on %s:%d: %w",
+			name, MaintenanceDatabase, c.Host, c.Port, err)
+	}
+	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock(hashtext($1))",
+		keyPrefix+name); err != nil {
+		closeConn(conn)
+		return nil, fmt.Errorf("cluster lock %q: %w", name, err)
+	}
+	return releaser(conn), nil
+}
+
 // TryLock takes the cluster lock name without waiting: ok is false (and
 // err nil) when another session holds it.
 func TryLock(ctx context.Context, dsn, name string) (release func(), ok bool, err error) {

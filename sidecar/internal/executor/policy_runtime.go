@@ -36,7 +36,8 @@ func changeClassForActionType(actionType string) string {
 		return string(policy.ChangeVacuum)
 	case "set_table_autovacuum":
 		return string(policy.ChangeAutovacuumTuning)
-	case "alter_system_guc", "alter_database_guc":
+	case "alter_system_guc", "alter_database_guc", ActionTypeSetRoleTimeout,
+		ActionTypeSetRoleConnectionLimit:
 		return string(policy.ChangeConfigGUC)
 	case "cancel_backend", "terminate_backend":
 		return string(policy.ChangeBackendSignal)

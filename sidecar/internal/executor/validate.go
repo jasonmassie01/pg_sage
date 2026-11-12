@@ -31,6 +31,7 @@ var allowedPrefixes = []string{
 	"DELETE FROM HINT_PLAN.HINTS",
 	"CREATE STATISTICS",
 	"DROP STATISTICS",
+	"ALTER ROLE ",
 }
 
 var backendSignalPattern = regexp.MustCompile(
@@ -126,6 +127,8 @@ func checkSecondary(upper, prefix string) error {
 		return checkSelectPattern(upper)
 	case "ALTER TABLE":
 		return checkAlterTableSubcmd(upper)
+	case "ALTER ROLE ":
+		return checkRoleBudgetSQL(upper)
 	}
 	return nil
 }
