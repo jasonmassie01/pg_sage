@@ -644,7 +644,7 @@ a `pg_stat_activity` session whose `application_name` is not pg_sage's
 another monitoring agent's `SELECT ... FROM pg_stat_statements` stays in the workload.
 Findings about pg_sage's objects are left out of advice; the three findings about its
 cost (`sage_self_cost`, `sage_self_budget`, `sage_footprint`) are always kept. See
-[which statements and findings are pg_sage's own](configuration.md#collection--analysis).
+[which statements and findings are pg_sage's own](configuration.md#collection-analysis).
 
 ### The meter, the budgets and the three findings
 
