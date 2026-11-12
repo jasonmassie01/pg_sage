@@ -520,6 +520,17 @@ operator_preference self_budget.cpu_ms_per_cycle
 operator_preference self_budget.db_time_ms_per_hour
 operator_preference self_budget.storage_mb
 
+# Seasonal baselines (market-02): detection tuning the operator declares. A
+# critical anomaly opens a read-only investigation; no key widens what pg_sage
+# may do, and none is derived.
+operator_preference baseline.enabled
+operator_preference baseline.max_query_keys
+operator_preference baseline.min_delta_ms
+operator_preference baseline.timezone
+operator_preference baseline.weeks
+operator_preference baseline.z_critical
+operator_preference baseline.z_warning
+
 # Fleet learning (v2.3.0): evidence and coordination the operator declares;
 # none widens authority or spend (the split never exceeds the fleet cap).
 operator_preference fleet_learning.budget_ceiling_pct

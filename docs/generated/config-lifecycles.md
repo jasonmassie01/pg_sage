@@ -110,6 +110,13 @@
 | `azure.resource_group` | `restart` | `-` | `safety_critical` |
 | `azure.server_name` | `restart` | `-` | `safety_critical` |
 | `azure.subscription_id` | `restart` | `-` | `safety_critical` |
+| `baseline.enabled` | `restart` | `-` | `operator_preference` |
+| `baseline.max_query_keys` | `restart` | `-` | `operator_preference` |
+| `baseline.min_delta_ms` | `restart` | `-` | `operator_preference` |
+| `baseline.timezone` | `restart` | `-` | `operator_preference` |
+| `baseline.weeks` | `restart` | `-` | `operator_preference` |
+| `baseline.z_critical` | `restart` | `-` | `operator_preference` |
+| `baseline.z_warning` | `restart` | `-` | `operator_preference` |
 | `briefing.channels` | `reconfigure` | `briefing` | `operator_preference` |
 | `briefing.fleet_mode` | `restart` | `-` | `operator_preference` |
 | `briefing.schedule` | `reconfigure` | `briefing` | `operator_preference` |

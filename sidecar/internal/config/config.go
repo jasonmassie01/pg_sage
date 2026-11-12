@@ -98,6 +98,7 @@ type Config struct {
 	Ask         AskConfig           `yaml:"ask"`
 	Facts       FactsConfig         `yaml:"facts"`
 	SelfBudget  SelfBudgetConfig    `yaml:"self_budget"`
+	Baseline    BaselineConfig      `yaml:"baseline"`
 	History     HistoryConfig       `yaml:"history"`
 	Debug       DebugConfig         `yaml:"debug"`
 	SelfConfig  SelfConfigConfig    `yaml:"self_config"`
@@ -836,6 +837,9 @@ func (c *Config) validate() error {
 	if err := c.SelfBudget.validate(); err != nil {
 		return err
 	}
+	if err := c.Baseline.validate(); err != nil {
+		return err
+	}
 	if err := c.validateHistory(); err != nil {
 		return err
 	}
@@ -1213,6 +1217,7 @@ func newDefaults() *Config {
 		Ask:        defaultAskConfig(),
 		Facts:      defaultFactsConfig(),
 		SelfBudget: DefaultSelfBudget(),
+		Baseline:   DefaultBaseline(),
 		History:    DefaultHistory(),
 		OAuth: OAuthConfig{
 			DefaultRole:   "viewer",

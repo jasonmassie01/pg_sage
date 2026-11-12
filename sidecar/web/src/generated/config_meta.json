@@ -822,6 +822,55 @@
     "class": "safety_critical",
     "lifecycle": "restart"
   },
+  "baseline.enabled": {
+    "type": "bool",
+    "default": true,
+    "doc": "Score each cycle's workload against the same hour of the week in earlier weeks and raise workload_anomaly when it is far above usual. Default: true.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "baseline.max_query_keys": {
+    "type": "int",
+    "default": 500,
+    "doc": "Statements per database given a baseline each cycle, the largest interval time first. 0 keeps only the backend, WAL and wait baselines. Range 0-5000. Default: 500.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "baseline.min_delta_ms": {
+    "type": "float64",
+    "default": 5,
+    "doc": "Smallest rise over the bucket median, in ms, a statement's interval mean needs before it can be an anomaly, so quiet buckets do not alarm. 0 or more. Default: 5.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "baseline.timezone": {
+    "type": "string",
+    "default": "UTC",
+    "doc": "IANA time zone the hour-of-week buckets follow (Monday 00:00 is bucket 0), e.g. America/Chicago. An unknown zone fails the config load. Default: UTC.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "baseline.weeks": {
+    "type": "int",
+    "default": 4,
+    "doc": "Earlier weeks each hour-of-week bucket is scored against; a bucket with data from fewer than 3 weeks is learning and never fires. sage.baseline_samples keeps weeks + 1 weeks. Range 3-52. Default: 4.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "baseline.z_critical": {
+    "type": "float64",
+    "default": 6,
+    "doc": "Robust z for a critical anomaly; a statement also needs at least 10% of the interval's DB time. At least z_warning. Default: 6.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "baseline.z_warning": {
+    "type": "float64",
+    "default": 4,
+    "doc": "Robust z, (value - bucket median) / (1.4826 x MAD), at or above which two consecutive cycles raise a warning. Above 0. Default: 4.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
   "briefing.channels": {
     "type": "[]string",
     "default": null,
