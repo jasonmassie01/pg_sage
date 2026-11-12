@@ -83,6 +83,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the diff below needs the base branch
       - name: Install pg_sage
         run: |
           curl -fsSL -o pg_sage.tar.gz \
@@ -91,17 +93,22 @@ jobs:
       - name: Review changed migrations
         env:
           SAGE_LINT_DATABASE_URL: ${{ secrets.STAGING_READONLY_DSN }}
+          BASE_REF: ${{ github.base_ref }}
         run: |
+          # A failed diff fails the step (bash -e): it never reads as "no migrations".
+          files=$(git diff --name-only --diff-filter=d "origin/$BASE_REF..." -- 'migrations/*.sql')
           status=0
-          for f in $(git diff --name-only origin/${{ github.base_ref }}... -- 'migrations/*.sql'); do
+          for f in $files; do
+            rc=0
             ./pg_sage lint-migration --file "$f" --format github || rc=$?
-            rc=${rc:-0}
             # 3 is a tool error: fail. 2 is risky: fail. 1 is review: annotate only.
             if [ "$rc" -ge 2 ]; then status=1; fi
-            unset rc
           done
           exit $status
 ```
+
+The checkout needs `fetch-depth: 0`: a shallow clone has no `origin/<base>`, and a gate
+that cannot list the changed files must fail rather than pass with nothing reviewed.
 
 Without a staging DSN, drop the `env:` block and pass `--static --pg-version 17`. To
 upload SARIF instead, run with `--format sarif > lint.sarif` and add
