@@ -11,10 +11,6 @@ import (
 	"github.com/pg-sage/sidecar/internal/verify"
 )
 
-// maintenanceGainShare is the share of the baseline VACUUM/ANALYZE must
-// remove to be an improvement.
-const maintenanceGainShare = 0.5
-
 // statsSettle bounds how long the post-action read waits for the
 // statistics to show the action (PG14 reports through the collector).
 const statsSettle = 3 * time.Second
@@ -152,33 +148,11 @@ func judgeMaintenance(class string, before, after float64) metricJudgement {
 }
 
 // judgeMaintenanceMetric decides VACUUM/ANALYZE from the metric before
-// and after: improved when at least half of it went, neutral when less did
-// (an old snapshot holding dead tuples back), insufficient when there was
-// nothing to remove.
+// and after, by the bar shadow mode shares (verify.JudgeMaintenanceMetric).
 func judgeMaintenanceMetric(class, metric string, before, after float64) metricJudgement {
-	j := metricJudgement{Before: before, After: after, Metric: metric}
-	switch {
-	case class != verify.ClassVacuum && class != verify.ClassAnalyze:
-		j.Verdict, j.Reason = verify.OutcomeUnverifiable, "no maintenance metric for "+class
-		return j
-	case before < 0 || after < 0:
-		j.Verdict, j.Reason = verify.OutcomeUnverifiable, metric+" could not be read"
-		return j
-	case before < 1:
-		j.Verdict, j.Reason = verify.OutcomeInsufficient, "nothing to remove before the "+
-			"action ("+metric+" was 0)"
-		return j
-	}
-	change := (after - before) * 100 / before
-	j.ObservedPct = &change
-	if after <= before*(1-maintenanceGainShare) {
-		j.Verdict = verify.OutcomeImproved
-		j.Reason = fmt.Sprintf("%s fell from %.0f to %.0f", metric, before, after)
-		return j
-	}
-	j.Verdict = verify.OutcomeNeutral
-	j.Reason = fmt.Sprintf("%s barely moved (%.0f -> %.0f)", metric, before, after)
-	return j
+	j := verify.JudgeMaintenanceMetric(class, metric, before, after)
+	return metricJudgement{Verdict: j.Verdict, ObservedPct: j.ObservedPct, Reason: j.Reason,
+		Metric: j.Metric, Before: j.Before, After: j.After}
 }
 
 // retentionVerdict judges a retention batch: improved when the verified
