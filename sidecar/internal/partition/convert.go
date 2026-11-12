@@ -156,7 +156,8 @@ func withConvertLock(ctx context.Context, s DB, t Table,
 	defer cancel()
 	defer func() { err = errors.Join(err, restore(bg)) }()
 	var got bool
-	if err := s.QueryRow(ctx, "SELECT pg_catalog.pg_try_advisory_lock(pg_catalog.hashtext($1))",
+	if err := s.QueryRow(ctx,
+		"/* pg_sage */ SELECT pg_catalog.pg_try_advisory_lock(pg_catalog.hashtext($1))",
 		t.convertLockKey()).Scan(&got); err != nil {
 		return Result{}, fmt.Errorf("partition: convert %s: advisory lock: %w", t.regclass(), err)
 	}
@@ -164,7 +165,8 @@ func withConvertLock(ctx context.Context, s DB, t Table,
 		return Result{}, fmt.Errorf("%w: %s", ErrBusy, t.regclass())
 	}
 	defer func() {
-		_, uerr := s.Exec(bg, "SELECT pg_catalog.pg_advisory_unlock(pg_catalog.hashtext($1))",
+		_, uerr := s.Exec(bg,
+			"/* pg_sage */ SELECT pg_catalog.pg_advisory_unlock(pg_catalog.hashtext($1))",
 			t.convertLockKey())
 		err = errors.Join(err, uerr)
 	}()
@@ -178,7 +180,7 @@ func setSession(ctx context.Context, s DB, lock, stmt time.Duration) (
 	// One statement reads the old values and sets the new ones: a session
 	// left with a tiny statement timeout runs as little as possible under it.
 	var oldLock, oldStmt string
-	if err := s.QueryRow(ctx, `SELECT pg_catalog.current_setting('lock_timeout'),
+	if err := s.QueryRow(ctx, `/* pg_sage */ SELECT pg_catalog.current_setting('lock_timeout'),
 		pg_catalog.current_setting('statement_timeout'),
 		pg_catalog.set_config('lock_timeout', $1, false),
 		pg_catalog.set_config('statement_timeout', $2, false)`, ms(lock), ms(stmt)).
@@ -186,7 +188,7 @@ func setSession(ctx context.Context, s DB, lock, stmt time.Duration) (
 		return nil, fmt.Errorf("set session timeouts: %w", err)
 	}
 	set := func(ctx context.Context, lock, stmt string) error {
-		_, err := s.Exec(ctx, `SELECT pg_catalog.set_config('lock_timeout', $1, false),
+		_, err := s.Exec(ctx, `/* pg_sage */ SELECT pg_catalog.set_config('lock_timeout', $1, false),
 			pg_catalog.set_config('statement_timeout', $2, false)`, lock, stmt)
 		return err
 	}
@@ -235,7 +237,7 @@ func firstLine(s string) string {
 
 func readPlan(ctx context.Context, tx pgx.Tx, t Table, cut time.Time) (convertPlan, error) {
 	p := convertPlan{cutover: cut, sequences: map[string]string{}}
-	if err := tx.QueryRow(ctx, `SELECT pg_catalog.pg_get_userbyid(relowner)::text
+	if err := tx.QueryRow(ctx, `/* pg_sage */ SELECT pg_catalog.pg_get_userbyid(relowner)::text
 		FROM pg_catalog.pg_class WHERE oid = pg_catalog.to_regclass($1)`, t.regclass()).
 		Scan(&p.owner); err != nil {
 		return p, fmt.Errorf("read owner: %w", err)
@@ -253,7 +255,8 @@ func readPlan(ctx context.Context, tx pgx.Tx, t Table, cut time.Time) (convertPl
 
 // readIndexes reads the plain table's indexes but the pre-built key.
 func readIndexes(ctx context.Context, tx pgx.Tx, t Table) ([]tableIndex, error) {
-	rows, err := tx.Query(ctx, `SELECT c.relname::text, pg_catalog.pg_get_indexdef(i.indexrelid),
+	rows, err := tx.Query(ctx, `/* pg_sage */ SELECT c.relname::text,
+		pg_catalog.pg_get_indexdef(i.indexrelid),
 		i.indisunique, i.indisprimary, COALESCE(con.conname::text, '')
 		FROM pg_catalog.pg_index i JOIN pg_catalog.pg_class c ON c.oid = i.indexrelid
 		LEFT JOIN pg_catalog.pg_constraint con
@@ -281,7 +284,7 @@ func readIndexes(ctx context.Context, tx pgx.Tx, t Table) ([]tableIndex, error) 
 }
 
 func readSequences(ctx context.Context, tx pgx.Tx, t Table) (map[string]string, error) {
-	rows, err := tx.Query(ctx, `SELECT a.attname::text,
+	rows, err := tx.Query(ctx, `/* pg_sage */ SELECT a.attname::text,
 		pg_catalog.pg_get_serial_sequence($1, a.attname)
 		FROM pg_catalog.pg_attribute a
 		WHERE a.attrelid = pg_catalog.to_regclass($1) AND a.attnum > 0 AND NOT a.attisdropped
@@ -303,7 +306,7 @@ func readSequences(ctx context.Context, tx pgx.Tx, t Table) (map[string]string, 
 }
 
 func readGrants(ctx context.Context, tx pgx.Tx, t Table, owner string) ([]grant, error) {
-	rows, err := tx.Query(ctx, `SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC'
+	rows, err := tx.Query(ctx, `/* pg_sage */ SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC'
 		ELSE pg_catalog.pg_get_userbyid(a.grantee)::text END, a.privilege_type, a.is_grantable
 		FROM pg_catalog.pg_class c, pg_catalog.aclexplode(c.relacl) a
 		WHERE c.oid = pg_catalog.to_regclass($1)`, t.regclass())

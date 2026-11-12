@@ -66,7 +66,7 @@ func createDay(ctx context.Context, db DB, t Table, d time.Time, hasDefault bool
 		return false, fmt.Errorf("partition: create %s: %w", name, err)
 	}
 	var exists bool
-	if err := tx.QueryRow(ctx, `SELECT pg_catalog.to_regclass($1) IS NOT NULL`,
+	if err := tx.QueryRow(ctx, `/* pg_sage */ SELECT pg_catalog.to_regclass($1) IS NOT NULL`,
 		"sage."+name).Scan(&exists); err != nil {
 		return false, fmt.Errorf("partition: create %s: check: %w", name, err)
 	}
@@ -92,7 +92,7 @@ func attachDay(ctx context.Context, tx pgx.Tx, t Table, name string, d time.Time
 	stmts := []string{fmt.Sprintf(`CREATE TABLE %s (LIKE %s INCLUDING DEFAULTS
 		INCLUDING CONSTRAINTS INCLUDING STORAGE)`, child(name), t.ident())}
 	if hasDefault {
-		stmts = append(stmts, fmt.Sprintf(`WITH moved AS (DELETE FROM ONLY %s
+		stmts = append(stmts, fmt.Sprintf(`/* pg_sage */ WITH moved AS (DELETE FROM ONLY %s
 			WHERE %s >= %s AND %s < %s RETURNING *) INSERT INTO %s SELECT * FROM moved`,
 			child(t.DefaultName()), pgx.Identifier{t.Column}.Sanitize(), literal(d),
 			pgx.Identifier{t.Column}.Sanitize(), literal(d.Add(day)), child(name)))
@@ -114,7 +114,7 @@ func lockedSession(ctx context.Context, tx pgx.Tx, key string, wait time.Duratio
 		wait.Milliseconds())); err != nil {
 		return fmt.Errorf("set lock_timeout: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `SELECT pg_catalog.pg_advisory_xact_lock(
+	if _, err := tx.Exec(ctx, `/* pg_sage */ SELECT pg_catalog.pg_advisory_xact_lock(
 		pg_catalog.hashtext($1))`, key); err != nil {
 		return fmt.Errorf("advisory lock: %w", err)
 	}
@@ -148,7 +148,7 @@ func DropHistory(ctx context.Context, db DB, t Table, p Partition, keepFrom time
 			return false, err
 		}
 		var keep bool
-		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM %s
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`/* pg_sage */ SELECT EXISTS (SELECT 1 FROM %s
 			WHERE %s >= $1)`, child(p.Name), pgx.Identifier{t.Column}.Sanitize()),
 			keepFrom).Scan(&keep); err != nil || keep {
 			return false, err
@@ -200,7 +200,7 @@ func onPartition(ctx context.Context, db DB, t Table, p Partition,
 func Size(ctx context.Context, db DB, t Table) (int64, error) {
 	var n *int64
 	// pg_partition_tree lists nothing for a plain table.
-	err := db.QueryRow(ctx, `SELECT CASE
+	err := db.QueryRow(ctx, `/* pg_sage */ SELECT CASE
 		WHEN pg_catalog.to_regclass($1) IS NULL THEN NULL
 		WHEN (SELECT relkind FROM pg_catalog.pg_class
 		      WHERE oid = pg_catalog.to_regclass($1)) <> 'p'

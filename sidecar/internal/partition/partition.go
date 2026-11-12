@@ -115,7 +115,7 @@ var ErrNoTable = errors.New("partition: table does not exist")
 // Partitioned reports whether t is a partitioned table.
 func Partitioned(ctx context.Context, db DB, t Table) (bool, error) {
 	var kind *string
-	err := db.QueryRow(ctx, `SELECT (SELECT relkind::text FROM pg_catalog.pg_class
+	err := db.QueryRow(ctx, `/* pg_sage */ SELECT (SELECT relkind::text FROM pg_catalog.pg_class
 		WHERE oid = pg_catalog.to_regclass($1))`, t.regclass()).Scan(&kind)
 	if err != nil {
 		return false, fmt.Errorf("partition: read the kind of %s: %w", t.regclass(), err)
@@ -126,7 +126,7 @@ func Partitioned(ctx context.Context, db DB, t Table) (bool, error) {
 	return *kind == "p", nil
 }
 
-const listSQL = `SELECT c.relname::text, pg_catalog.pg_get_expr(c.relpartbound, c.oid)
+const listSQL = `/* pg_sage */ SELECT c.relname::text, pg_catalog.pg_get_expr(c.relpartbound, c.oid)
 FROM pg_catalog.pg_inherits i JOIN pg_catalog.pg_class c ON c.oid = i.inhrelid
 WHERE i.inhparent = pg_catalog.to_regclass($1)`
 
