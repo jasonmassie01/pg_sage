@@ -220,6 +220,67 @@ another address raises its own (one cluster reached at two addresses
 raises them twice, never hides them). As for instance settings, separate
 pg_sage processes on one cluster are not coordinated.
 
+### Discover databases automatically
+
+A meta-db fleet can find members instead of waiting for them to be added
+by hand (manual, CSV and config-file enrolment are unchanged). Discovery
+is off by default:
+
+```yaml
+fleet:
+  discovery:
+    enabled: true
+    max_enrolled: 10   # live discovered members, adopted ones included; 0 = candidates only
+    ttl_hours: 72      # an unadopted member is disabled at its expiry
+    sources:
+      - name: prod-cluster
+        type: cluster          # other databases on this member's server
+        member: managed-a
+        owner: team-db         # required: who answers for what it finds
+        reuse_credentials: true
+      - name: lakebase-dev
+        type: lakebase         # endpoints of every branch of the project
+        project: my-project
+        owner: data-platform
+      - name: aws
+        type: rds              # PostgreSQL instances carrying the tag
+        region: us-east-1
+        tag_key: pg_sage
+        tag_value: discover
+        owner: platform
+```
+
+Every 10 minutes each source lists at most 200 candidates. A cluster
+source runs one read-only, timeout-bounded
+`SELECT datname FROM pg_catalog.pg_database WHERE NOT datistemplate AND
+datallowconn` on the member's pool; templates and the member's own
+database are left out. What a source reports is kept in
+`sage.discovered_databases` (one row per source and external id, so two
+sidecars on one meta database make no duplicates).
+
+Only a cluster source with `reuse_credentials: true` enrols: the candidate
+is added with the member's role, one connection, trust `observation`,
+execution `approval`, the source's `owner` and an `expires_at` of now plus
+`ttl_hours`. Lakebase and RDS candidates stay candidates; add them by hand
+when you want them. A database that is already a member is never
+enrolled twice.
+
+A discovered member is not trusted further by being found. Until an owner
+adopts it, a trigger on `sage.databases` rejects any trust-level or
+execution-mode change (`PUT /api/v1/config/databases/{id}` answers 409
+Conflict, the store `ErrDiscoveredTrust`); discovery
+itself has no path that changes either. In the fleet page's **Discovered**
+tab an admin can **Adopt** an enrolled member (its expiry is cleared and
+its trust can then be raised the usual way), **Extend 24h**, or **Ignore**
+a candidate. An unadopted member is disabled at `expires_at` exactly; one
+its source stops reporting is disabled and marked `gone` (never on the
+source's first listing in a process, a failed listing or one cut at the
+cap). A failing source (an RDS 403, say) keeps its previous candidates and
+shows its error on the tab. Every enrolment, adoption, extension, ignore,
+expiry and gone is recorded in `sage.config_audit` under
+`fleet.discovery.*`. Standalone and YAML fleets ignore the setting and log
+that they do.
+
 ## 5. Verify the v1 UI
 
 | Screen | What to verify |

@@ -318,6 +318,21 @@ line when telemetry recovers, not one per poll.
 database. A failed poll still drops the previous sample, so the guards never use stale
 evidence.
 
+## Instance discovery (RDS and Aurora)
+
+A meta-db fleet can list tagged PostgreSQL instances with an `rds` source
+under `fleet.discovery.sources` (see
+[the fleet walkthrough](walkthrough-fleet.md#discover-databases-automatically)).
+It pages `DescribeDBInstances` filtered to the `postgres` and
+`aurora-postgresql` engines (at most 200 instances and 20 pages a cycle;
+a repeated marker stops the walk) and keeps the instances carrying
+`tag_key` (with `tag_value` when set), keyed by `DbiResourceId`. The AWS
+credentials come from the default chain for `region` and need
+`rds:DescribeDBInstances` only. RDS candidates are never enrolled
+automatically (there is no IAM database authentication path); add the
+ones you want by hand. An access-denied or other listing error keeps the
+previous candidates and is shown on the fleet page's Discovered tab.
+
 ## Configuration
 
 ```yaml

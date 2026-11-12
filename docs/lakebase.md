@@ -669,6 +669,19 @@ epochs, visible counter decreases and small continuing spills stay unknown/open.
 Unseen selective reset/eviction followed by regrowth between samples can escape
 those guards; complete per-entry lineage is not established.
 
+## Branch discovery
+
+A meta-db fleet can list the endpoints of every branch of a Lakebase
+project with a `lakebase` source under `fleet.discovery.sources` (see
+[the fleet walkthrough](walkthrough-fleet.md#discover-databases-automatically)).
+The listing uses the workspace's Postgres API (`ListBranches`, then
+`ListEndpoints` per branch), stops at 200 endpoints a cycle, and records
+each endpoint with a host as a candidate keyed by its uid, database
+`databricks_postgres`. Lakebase candidates are not enrolled automatically:
+a store-managed member has no OAuth credential path yet, so add the ones
+you want by hand. An endpoint the project no longer reports is marked
+`gone`; a failed listing keeps the previous candidates.
+
 ## Managed-service limits
 
 | Feature | Verified behavior / limitation |
