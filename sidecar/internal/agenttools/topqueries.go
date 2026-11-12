@@ -5,13 +5,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/pg-sage/sidecar/internal/workload"
 )
 
 // Bounds of a top-queries request.
 const (
 	defaultTopLimit = 10
 	maxTopLimit     = 50
-	// maxTopScan is how many statements are read before exclusion.
+	// maxTopScan is how many statements are read before a custom exclusion.
 	maxTopScan = 500
 )
 
@@ -52,16 +55,33 @@ type CachedPlan struct {
 
 var topOrders = map[string]bool{"total_time": true, "mean_time": true, "calls": true}
 
-const topQueriesSQL = `/* pg_sage */ SELECT ` + statementColumns + `
-FROM pg_stat_statements
-WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-  AND queryid IS NOT NULL
-GROUP BY queryid
-ORDER BY CASE $1
-    WHEN 'calls' THEN sum(calls)::float8
-    WHEN 'mean_time' THEN sum(total_exec_time) / NULLIF(sum(calls), 0)
-    ELSE sum(total_exec_time) END DESC NULLS LAST, queryid
-LIMIT $2`
+// topQueriesSQL reads the heaviest statements of the current database.
+// With $3 true the workload rule (workload.AdviceSQL) is applied before
+// the LIMIT and the statements it leaves out are only counted: pg_sage's
+// own statements (its schema bootstrap alone is hundreds) must not fill
+// the bounded scan and hide the workload. The first column is that count;
+// the query columns are NULL when no statement is listed.
+var topQueriesSQL = `/* pg_sage */ WITH s AS (
+    SELECT queryid, min(query) AS query, sum(calls)::bigint AS calls,
+        sum(total_exec_time)::float8 AS total_ms, sum(rows)::bigint AS nrows
+    FROM pg_stat_statements
+    WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+      AND queryid IS NOT NULL
+    GROUP BY queryid),
+w AS (SELECT s.*, (NOT $3::boolean OR (` + workload.AdviceSQL("s.query") + `)) AS listed
+    FROM s),
+q AS (SELECT * FROM w WHERE listed
+    ORDER BY ` + topOrderSQL + `, queryid LIMIT $2)
+SELECT (SELECT count(*) FROM w WHERE NOT listed)::bigint,
+    q.queryid, q.query, q.calls, q.total_ms, q.nrows
+FROM (SELECT 1) one LEFT JOIN q ON true
+ORDER BY ` + topOrderSQL + `, q.queryid`
+
+// topOrderSQL is the ORDER BY key of $1 (an order from topOrders).
+const topOrderSQL = `CASE $1
+    WHEN 'calls' THEN calls::float8
+    WHEN 'mean_time' THEN total_ms / NULLIF(calls, 0)
+    ELSE total_ms END DESC NULLS LAST`
 
 // TopQueries returns the heaviest statements of the current database by
 // total time (default), mean time or calls, without excluded statements.
@@ -105,16 +125,20 @@ func topRequest(req TopQueriesRequest) (int, string, error) {
 
 func (t *Tools) readTop(ctx context.Context, order string, limit int,
 ) (TopQueriesResult, error) {
-	rows, err := t.pool.Query(ctx, topQueriesSQL, order, maxTopScan)
+	rows, err := t.pool.Query(ctx, topQueriesSQL, order, maxTopScan, t.sqlWorkload)
 	if err != nil {
 		return TopQueriesResult{}, statementsError(err)
 	}
 	defer rows.Close()
 	res := TopQueriesResult{Queries: []TopQuery{}, Source: "pg_stat_statements"}
+	var sqlExcluded int
 	for rows.Next() {
-		var s statement
-		if err := rows.Scan(&s.ID, &s.Text, &s.Calls, &s.TotalTimeMs, &s.Rows); err != nil {
-			return TopQueriesResult{}, fmt.Errorf("scan pg_stat_statements: %w", err)
+		s, listed, err := scanTopRow(rows, &sqlExcluded)
+		if err != nil {
+			return TopQueriesResult{}, err
+		}
+		if !listed {
+			continue
 		}
 		if t.opts.Excluded(s.Text) {
 			res.ExcludedCount++
@@ -127,7 +151,30 @@ func (t *Tools) readTop(ctx context.Context, order string, limit int,
 	if err := rows.Err(); err != nil {
 		return TopQueriesResult{}, statementsError(err)
 	}
+	res.ExcludedCount += sqlExcluded
 	return res, nil
+}
+
+// scanTopRow reads one topQueriesSQL row: it stores the count of
+// statements the SQL left out and reports whether the row has a statement.
+func scanTopRow(rows pgx.Rows, sqlExcluded *int) (statement, bool, error) {
+	var (
+		excluded int64
+		id       *int64
+		text     *string
+		calls    *int64
+		total    *float64
+		n        *int64
+	)
+	if err := rows.Scan(&excluded, &id, &text, &calls, &total, &n); err != nil {
+		return statement{}, false, fmt.Errorf("scan pg_stat_statements: %w", err)
+	}
+	*sqlExcluded = int(excluded)
+	if id == nil || text == nil || calls == nil || total == nil || n == nil {
+		return statement{}, false, nil
+	}
+	return statement{ID: *id, Text: *text, Calls: *calls, TotalTimeMs: *total,
+		Rows: *n}, true, nil
 }
 
 func topQuery(s statement) TopQuery {
