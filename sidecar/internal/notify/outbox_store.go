@@ -53,8 +53,11 @@ type OutboxStore interface {
 	ClaimDue(ctx context.Context, now time.Time, limit int) ([]OutboxEntry, error)
 	// FinishAttempt records one attempt's outcome and ends the lease.
 	FinishAttempt(ctx context.Context, id int64, o AttemptOutcome) error
-	// DueReminders lists open states last delivered at or before before.
-	DueReminders(ctx context.Context, before time.Time, limit int) ([]NotifyState, error)
+	// DueReminders lists, oldest first, the open states whose severity has
+	// a cutoff and that were last delivered at or before it. A severity
+	// without a cutoff never reminds, so its states are not listed.
+	DueReminders(ctx context.Context, cutoffs map[string]time.Time,
+		limit int) ([]NotifyState, error)
 	// PurgeOutbox deletes finished entries and closed states older than before.
 	PurgeOutbox(ctx context.Context, before time.Time) error
 }

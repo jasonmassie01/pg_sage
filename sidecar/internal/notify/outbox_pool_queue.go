@@ -95,19 +95,30 @@ func (s *PoolStore) FinishAttempt(ctx context.Context, id int64, o AttemptOutcom
 	return nil
 }
 
-// DueReminders lists open alert states last delivered at or before before.
+// DueReminders lists, oldest first, the open alert states last delivered
+// at or before their severity's cutoff; severities without one are skipped.
 func (s *PoolStore) DueReminders(
-	ctx context.Context, before time.Time, limit int,
+	ctx context.Context, cutoffs map[string]time.Time, limit int,
 ) ([]NotifyState, error) {
 	if s.pool == nil {
 		return nil, fmt.Errorf("list due reminders: notification pool is nil")
+	}
+	if len(cutoffs) == 0 {
+		return nil, nil
+	}
+	sevs := make([]string, 0, len(cutoffs))
+	ats := make([]time.Time, 0, len(cutoffs))
+	for sev, at := range cutoffs {
+		sevs, ats = append(sevs, sev), append(ats, at)
 	}
 	qctx, cancel := s.withTimeout(ctx)
 	defer cancel()
 	rows, err := s.pool.Query(qctx, `/* pg_sage */ SELECT `+stateColumns+`
 		FROM sage.notification_state
-		WHERE open AND last_sent_at <= $1
-		ORDER BY last_sent_at LIMIT $2`, before, limit)
+		JOIN unnest($1::text[], $2::timestamptz[]) AS c(sev, cutoff)
+		  ON severity = c.sev AND last_sent_at <= c.cutoff
+		WHERE open
+		ORDER BY last_sent_at LIMIT $3`, sevs, ats, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list due reminders: %w", err)
 	}

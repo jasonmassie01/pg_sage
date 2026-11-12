@@ -209,17 +209,23 @@ func (m *MemoryStore) FinishAttempt(_ context.Context, id int64, o AttemptOutcom
 	return fmt.Errorf("outbox entry %d not found", id)
 }
 
-// DueReminders lists open states last delivered at or before before.
-func (m *MemoryStore) DueReminders(_ context.Context, before time.Time, limit int) (
-	[]NotifyState, error,
-) {
+// DueReminders lists, oldest first, the open states past their
+// severity's cutoff, like the pool store.
+func (m *MemoryStore) DueReminders(
+	_ context.Context, cutoffs map[string]time.Time, limit int,
+) ([]NotifyState, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var out []NotifyState
 	for _, st := range m.states {
-		if st.Open && !st.LastSentAt.After(before) && len(out) < limit {
+		cutoff, ok := cutoffs[st.Severity]
+		if st.Open && ok && !st.LastSentAt.After(cutoff) {
 			out = append(out, st)
 		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].LastSentAt.Before(out[j].LastSentAt) })
+	if len(out) > limit {
+		out = out[:limit]
 	}
 	return out, nil
 }

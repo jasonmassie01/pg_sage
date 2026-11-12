@@ -129,13 +129,14 @@ func (p AlertPolicy) quietUntil(t time.Time) time.Time {
 	return end.UTC()
 }
 
-// shortestRepeat is the smallest positive repeat interval, 0 when no
-// severity reminds.
-func (p AlertPolicy) shortestRepeat() time.Duration {
-	var out time.Duration
+// reminderCutoffs maps each severity that reminds to the latest last
+// delivery whose reminder is due at now. Severities that never remind are
+// left out, so their open alerts cannot fill the bounded reminder scan.
+func (p AlertPolicy) reminderCutoffs(now time.Time) map[string]time.Time {
+	out := map[string]time.Time{}
 	for _, sev := range []string{"critical", "warning", "info"} {
-		if d := p.repeatFor(sev); d > 0 && (out == 0 || d < out) {
-			out = d
+		if d := p.repeatFor(sev); d > 0 {
+			out[sev] = now.Add(-d)
 		}
 	}
 	return out

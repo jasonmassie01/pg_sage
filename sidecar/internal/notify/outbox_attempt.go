@@ -82,11 +82,11 @@ func (d *Dispatcher) finish(
 // interval has passed, and returns how many it queued.
 func (d *Dispatcher) queueReminders(ctx context.Context, now time.Time) (int, error) {
 	policy := d.alertPolicy()
-	shortest := policy.shortestRepeat()
-	if shortest <= 0 {
+	cutoffs := policy.reminderCutoffs(now)
+	if len(cutoffs) == 0 {
 		return 0, nil
 	}
-	due, err := d.outbox.DueReminders(ctx, now.Add(-shortest), reminderScanLimit)
+	due, err := d.outbox.DueReminders(ctx, cutoffs, reminderScanLimit)
 	if err != nil {
 		return 0, fmt.Errorf("list due reminders: %w", err)
 	}
