@@ -62,8 +62,9 @@ func (t *Tools) reportStatus(ctx context.Context, findingID int64) (Report, erro
 	if err != nil {
 		return Report{}, err
 	}
+	reason := sqlast.ClipBytes(d.reason, 2000)
 	stored, err := scanReport(t.pool.QueryRow(ctx, decideSQL, findingID, d.verdict,
-		d.tolerance, observed, evidence, sqlast.ClipBytes(d.reason, 2000), t.now(), *row.DeployedAt))
+		d.tolerance, observed, evidence, reason, t.now(), *row.DeployedAt))
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Another caller decided first (or the deploy was re-reported).
 		return t.reportAfterRace(ctx, findingID)
