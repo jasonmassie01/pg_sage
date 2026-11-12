@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/alerting"
+	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/notify"
 )
 
@@ -39,11 +41,11 @@ func sharedNotifyDispatcher(controlPool *pgxpool.Pool) *notify.Dispatcher {
 	if dispatcher := notifyDispatchers[controlPool]; dispatcher != nil {
 		return dispatcher
 	}
-	dispatcher := notify.NewDefaultDispatcher(
-		notify.NewPoolStore(controlPool, notificationSecretKey(controlPool)).
-			WithPreviousKey(notificationPreviousSecretKey(controlPool)),
-		notificationTargetPolicy(), logStructuredWrapper,
-	)
+	store := notify.NewPoolStore(controlPool, notificationSecretKey(controlPool)).
+		WithPreviousKey(notificationPreviousSecretKey(controlPool))
+	dispatcher := notify.NewDefaultDispatcher(store, notificationTargetPolicy(),
+		logStructuredWrapper)
+	startNotifyOutbox(dispatcher, store)
 	withApprovalCardTokens(dispatcher, controlPool)
 	withFactCardTokens(dispatcher, controlPool)
 	notifyDispatchers[controlPool] = dispatcher
@@ -122,4 +124,37 @@ func newInstanceAlertManager(pool *pgxpool.Pool, name string) *alerting.Manager 
 		Timezone:             cfg.Alerting.Timezone,
 		DatabaseName:         name,
 	}, routes, logStructuredWrapper)
+}
+
+// notifyOutboxInterval is how often the outbox is drained.
+const notifyOutboxInterval = 5 * time.Second
+
+// startNotifyOutbox queues the dispatcher's rule deliveries in the control
+// database's outbox, under the alerting.* cooldown, quiet hours and repeat
+// intervals, and drains it until shutdown (alerting-06). The outbox needs
+// the process's lifetime to drain: before the sidecar has one (unit tests
+// of this package) the dispatcher keeps delivering at once.
+func startNotifyOutbox(d *notify.Dispatcher, store *notify.PoolStore) {
+	if shutdownCtx == nil {
+		return
+	}
+	d.UseOutbox(store)
+	d.SetAlertPolicy(notifyAlertPolicy(cfg))
+	go d.RunOutbox(shutdownCtx, notifyOutboxInterval)
+}
+
+// notifyAlertPolicy is the alert policy of c's alerting block; invalid
+// values (refused at startup when alerting is enabled) are logged.
+func notifyAlertPolicy(c *config.Config) notify.AlertPolicy {
+	if c == nil {
+		p, _ := notify.NewAlertPolicy(0, nil, "", "", "")
+		return p
+	}
+	a := c.Alerting
+	p, warns := notify.NewAlertPolicy(a.CooldownMinutes, a.RepeatMinutes,
+		a.QuietHoursStart, a.QuietHoursEnd, a.Timezone)
+	for _, w := range warns {
+		logWarn("notify", "%s", w)
+	}
+	return p
 }

@@ -163,8 +163,7 @@ func postPagerDuty(
 
 	// PagerDuty Events API v2 returns 202 Accepted on success.
 	if resp.StatusCode != http.StatusAccepted {
-		return fmt.Errorf("pagerduty returned status %d",
-			resp.StatusCode)
+		return &HTTPStatusError{Service: "pagerduty", Code: resp.StatusCode}
 	}
 	return nil
 }

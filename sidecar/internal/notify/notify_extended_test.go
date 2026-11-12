@@ -349,6 +349,8 @@ func TestValidEventTypes_Completeness(t *testing.T) {
 		"action_failed":           true,
 		"approval_needed":         true,
 		"finding_critical":        true,
+		"finding_opened":          true, // alerting-06
+		"finding_resolved":        true, // alerting-06
 		"query_rewrite_suggested": true,
 		"incident_detected":       true,
 		"incident_escalated":      true,

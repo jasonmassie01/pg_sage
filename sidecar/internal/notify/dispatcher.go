@@ -3,6 +3,8 @@ package notify
 import (
 	"context"
 	"fmt"
+	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -22,6 +24,12 @@ type Dispatcher struct {
 	cards CardTokenIssuer
 	// factCards mints fact-card tokens (roadmap 2.3); nil: no buttons.
 	factCards FactTokenIssuer
+	// outbox queues rule deliveries for DrainOutbox; nil delivers at
+	// once (alerting-06). policy governs finding alerts in the outbox.
+	outbox   OutboxStore
+	policyMu sync.RWMutex
+	policy   *AlertPolicy
+	now      func() time.Time
 }
 
 // NewDispatcher creates a Dispatcher that reads rules and channels from
@@ -52,49 +60,89 @@ func (d *Dispatcher) RegisterSender(s Sender) {
 }
 
 // Dispatch sends a notification event to all matching channels/rules.
+// Only a failure to load the rules is returned; per-rule failures are
+// logged.
 func (d *Dispatcher) Dispatch(
 	ctx context.Context, event Event,
 ) error {
+	_, err := d.Submit(ctx, event)
+	return err
+}
+
+// Submit routes event to every matching rule and says what happened to
+// each: queued in the outbox (when UseOutbox was called and the event
+// can wait), delivered at once, refused or suppressed by the alert state.
+func (d *Dispatcher) Submit(ctx context.Context, event Event) (DispatchResult, error) {
+	var res DispatchResult
 	rules, err := d.loadMatchingRules(ctx, event.Type)
 	if err != nil {
-		return fmt.Errorf("loading rules: %w", err)
+		return res, fmt.Errorf("loading rules: %w", err)
 	}
-
 	for _, rule := range rules {
-		if err := d.processRule(ctx, rule, event); err != nil {
-			d.logFn("ERROR", "rule %d dispatch: %v",
-				rule.ID, err)
-		}
+		d.submitRule(ctx, rule, event, &res)
 	}
-	return nil
+	return res, nil
+}
+
+func (d *Dispatcher) submitRule(
+	ctx context.Context, rule Rule, event Event, res *DispatchResult,
+) {
+	ch, sender, err := d.ruleTarget(ctx, rule, event)
+	switch {
+	case err != nil:
+		d.logFn("ERROR", "rule %d dispatch: %v", rule.ID, err)
+		res.Refused++
+		return
+	case ch == nil:
+		return
+	case d.outbox != nil && queueable(event):
+		d.enqueue(ctx, *ch, event, res)
+		return
+	}
+	if err := d.deliver(ctx, sender, *ch, event); err != nil {
+		d.logFn("ERROR", "rule %d dispatch: %v", rule.ID, err)
+		res.Failed++
+		return
+	}
+	res.Delivered++
 }
 
 func (d *Dispatcher) processRule(
 	ctx context.Context, rule Rule, event Event,
 ) error {
+	ch, sender, err := d.ruleTarget(ctx, rule, event)
+	if err != nil || ch == nil {
+		return err
+	}
+	return d.deliver(ctx, sender, *ch, event)
+}
+
+// ruleTarget is the channel and sender a rule delivers event to; a nil
+// channel means the rule does not fire (severity below min, disabled).
+func (d *Dispatcher) ruleTarget(
+	ctx context.Context, rule Rule, event Event,
+) (*Channel, Sender, error) {
 	if !SeverityMeetsMin(event.Severity, rule.MinSeverity) {
 		// A debug line, not a log row: filtered events recur every cycle
 		// and would flood notification_log (alerting-03).
 		d.logFn("DEBUG", "rule %d skipped %s event: severity %s below min_severity %s",
 			rule.ID, event.Type, event.Severity, rule.MinSeverity)
-		return nil
+		return nil, nil, nil
 	}
-
 	ch, err := d.loadChannel(ctx, rule.ChannelID)
 	if err != nil {
-		return fmt.Errorf("loading channel %d: %w",
+		return nil, nil, fmt.Errorf("loading channel %d: %w",
 			rule.ChannelID, err)
 	}
 	if !ch.Enabled {
-		return nil
+		return nil, nil, nil
 	}
-
 	sender, ok := d.senders[ch.Type]
 	if !ok {
-		return d.logDelivery(ctx, ch.ID, event, "error",
+		return nil, nil, d.logDelivery(ctx, ch.ID, event, "error",
 			fmt.Sprintf("no sender for type %q", ch.Type))
 	}
-	return d.deliver(ctx, sender, *ch, event)
+	return ch, sender, nil
 }
 
 // deliver sends and records the attempt with a redacted error string.

@@ -43,6 +43,8 @@ var ValidEventTypes = map[string]bool{
 	"action_failed":           true,
 	"approval_needed":         true,
 	"finding_critical":        true,
+	"finding_opened":          true,
+	"finding_resolved":        true,
 	"query_rewrite_suggested": true,
 	"incident_detected":       true,
 	"incident_escalated":      true,
@@ -91,6 +93,8 @@ var variableSeverityEvents = map[string]string{
 	"incident_detected":  "critical",
 	"incident_escalated": "critical",
 	"incident_resolved":  "critical",
+	"finding_opened":     "critical",
+	"finding_resolved":   "critical",
 }
 
 // maxEventSeverity returns the highest severity an event type can carry.

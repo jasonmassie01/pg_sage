@@ -3404,6 +3404,42 @@ cannot be read is named in a banner (`failed_databases` in `GET /api/v1/alert-lo
 other databases' rows still show; the API answers 503 only when no selected database can be
 read. The date range filters the newest 100 rows per database.
 
+### Notification delivery
+
+Notification rules (the Notifications page) are delivered through an outbox in the control
+database, `sage.notification_outbox`; in fleet and meta-database mode it is the same database
+as the rules. Each matching rule queues one entry, and the sidecar delivers due entries every
+5 seconds, each channel on its own so one slow endpoint does not hold up the others. A network
+error, a 5xx or a 429 is retried after 30 s, 1 min, 2 min, 4 min and 8 min (6 attempts, at
+most 15 min apart); another 4xx, a target the notification policy refuses and a disabled or
+deleted channel are not retried. Every failed attempt is in the Log tab, as `retrying` while
+attempts are left and as `error` on the last. Sidecars sharing a control database never
+deliver an entry twice. Approval cards, fact cards and Telegram follow-ups are still sent at
+once, because their buttons and reply ids are minted at send time.
+
+The finding events (`finding_critical`, `finding_opened`, `finding_resolved`) follow the
+`alerting.*` cooldown, quiet hours and repeat intervals, per database, dedup key and channel
+(`sage.notification_state`), whether or not `alerting.enabled` is set:
+
+- the first alert of a finding is sent at once; while it stays open it is not sent again,
+  except when it escalates (sent at once) or when its `alerting.repeat_minutes` interval has
+  passed (one reminder, headed "Still open for ..."; `0` never reminds). A finding that
+  resolves and reopens is alerted again once the cooldown since the last alert has passed;
+  until then it waits, it is not dropped;
+- during `alerting.quiet_hours_*` a warning or info alert waits until the window ends and is
+  then sent once; a critical alert is sent at once. A resolve of an alert that is still
+  waiting cancels both;
+- a resolve goes only to a channel whose alert is open. A `finding_critical` resolve with no
+  state (a page sent before this release) is still sent, so PagerDuty closes it under the key
+  it was opened with.
+
+Other events (incidents, actions, approvals) are queued and retried, without cooldown or
+quiet hours. `finding_opened` uses the key `finding:<database>:<category>:<object>`, and
+`finding_critical` keeps `finding_critical:<database>:<category>:<object>`: give a PagerDuty
+channel rules for one of the two, not both, or a critical finding opens two incidents. The
+alerting values take effect on restart. Delivered entries and closed states are deleted after
+7 days.
+
 ### Retention
 
 | Parameter | Default | Description |

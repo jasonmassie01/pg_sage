@@ -133,8 +133,7 @@ func postSlackWebhook(
 	_, _ = io.Copy(io.Discard, resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("slack returned status %d",
-			resp.StatusCode)
+		return &HTTPStatusError{Service: "slack", Code: resp.StatusCode}
 	}
 	return nil
 }
