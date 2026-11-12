@@ -126,7 +126,7 @@ func fillQueryDetail(ctx context.Context, pool *pgxpool.Pool, id int64,
 	if p := plans[id]; p != nil {
 		body["plan"] = queryPlanJSON{Source: p.Source, CapturedAt: p.CapturedAt,
 			TotalCost: p.TotalCost, PlanHash: p.PlanHash, NodeTypes: p.NodeTypes,
-			PlanJSON: p.JSON}
+			PlanJSON: redactPlanJSON(p.JSON)}
 	}
 	return fillQueryLinks(ctx, pool, id, body)
 }

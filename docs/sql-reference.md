@@ -60,7 +60,9 @@ statements of a window come from `sage.query_store` through
 `GET /api/v1/queries/top?database=<name|all>&since=&until=&order=load|calls|mean|rows&limit=`
 (load is the window's execution seconds per wall-clock second; a statistics reset splits
 the window), and one statement's history, plan changes, latest plan and links through
-`GET /api/v1/queries/<queryid>?database=<name>`.
+`GET /api/v1/queries/<queryid>?database=<name>`. That page is a viewer read, so the
+captured plan's string literals are redacted to `'?'` (an `auto_explain` plan carries the
+logged statement's real parameter values).
 
 ---
 
