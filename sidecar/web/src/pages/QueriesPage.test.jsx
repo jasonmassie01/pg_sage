@@ -1,9 +1,11 @@
 import { render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { QueriesPage } from './QueriesPage'
-import { QueryDetailPage, queryDetailParams } from './QueryDetailPage'
-import { StackedAreaChart, stackSeries } from '../components/StackedAreaChart'
+import { QueryDetailPage } from './QueryDetailPage'
+import { StackedAreaChart } from '../components/StackedAreaChart'
+import { queryDetailParams, stackSeries } from '../lib/workload'
 import { stubFetch } from '../test/fetchStub'
+import { QueryPageLink } from './cases/QueryPageLink'
 
 // market-01: the workload explorer. The top table ranks the window's
 // statements by load, the chart stacks the sampled wait classes, and a
@@ -160,5 +162,20 @@ describe('StackedAreaChart', () => {
   it('renders nothing to stack as an empty state, not an empty chart', () => {
     render(<StackedAreaChart series={[]} classes={[]} />)
     expect(screen.getByTestId('stacked-empty')).toBeInTheDocument()
+  })
+})
+
+describe('QueryPageLink', () => {
+  it('opens the query page of the evidence queryid in its database', () => {
+    render(<QueryPageLink queryid="-42" database="shop" />)
+    expect(screen.getByTestId('case-query-link'))
+      .toHaveAttribute('href', '#/query?queryid=-42&database=shop')
+  })
+
+  it('renders nothing without a numeric queryid', () => {
+    const { container } = render(<QueryPageLink queryid="abc" database="shop" />)
+    expect(container).toBeEmptyDOMElement()
+    render(<QueryPageLink database="shop" />)
+    expect(screen.queryByTestId('case-query-link')).toBeNull()
   })
 })

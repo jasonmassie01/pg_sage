@@ -13,7 +13,7 @@
 // header shows the picker only there, captioned with timeRangeLabel
 // (dashboard-07).
 import {
-  Activity, AlertTriangle, Bell, BookCheck, Bot, Gauge, Home, KeyRound,
+  Activity, AlertTriangle, BarChart3, Bell, BookCheck, Bot, Gauge, Home, KeyRound,
   MessageSquare, ScrollText, Server, Settings, ShieldCheck, Users,
 } from 'lucide-react'
 
@@ -52,6 +52,10 @@ export const ROUTES = Object.freeze([
     usesTimeRange: true, timeRangeLabel: 'Ledger window',
     guide: 'Follow proposed database changes through review, approval and outcome '
       + 'checks. The execution mode determines whether a change can run.' },
+  { id: 'queries', path: '/queries', title: 'Workload', navGroup: 'operate',
+    testId: 'nav-queries', icon: BarChart3, hint: 'Top statements and wait-class load',
+    guide: 'See which statements carry the load and what active sessions wait on. '
+      + 'Open a statement for its history, plan changes and related cases.' },
   { id: 'slos', path: '/slos', title: 'SLOs', navGroup: 'operate', testId: 'nav-slos',
     icon: Gauge, hint: 'Reliability targets and error budgets',
     guide: 'Check reliability targets, remaining error budgets and how quickly failures '
@@ -117,6 +121,9 @@ export const ROUTES = Object.freeze([
   { id: 'database', path: '/database', title: 'Database',
     guide: 'Inspect the latest collected snapshot for one database, including the '
       + 'measurements and raw details used for analysis.' },
+  { id: 'query', path: '/query', title: 'Query',
+    guide: 'Inspect one statement: its history from the query store, plan changes, the '
+      + 'newest captured plan, and the cases, hints and actions about it.' },
   caseView('forecasts', '/forecasts', 'Forecasts', 'Review cases based on forecasts, '
     + 'including predicted capacity risks and the evidence behind them.'),
   caseView('query-hints', '/query-hints', 'Query hints', 'Review cases about query-plan '

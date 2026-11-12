@@ -20,6 +20,8 @@ import { FactsPage } from './pages/FactsPage'
 import { AskPage } from './pages/AskPage'
 import { MCPTokensPage } from './pages/MCPTokensPage'
 import { AgentsPage } from './pages/AgentsPage'
+import { QueriesPage } from './pages/QueriesPage'
+import { QueryDetailPage } from './pages/QueryDetailPage'
 import { allowsRole, findRoute } from './routes'
 
 // routeRender.jsx renders the page for a route of the registry in routes.js
@@ -108,6 +110,8 @@ export const RENDERERS = Object.freeze({
   ),
   cases: ctx => cases(ctx),
   actions,
+  queries: ctx => <QueriesPage database={ctx.database} />,
+  query: ctx => <QueryDetailPage route={ctx.route} database={ctx.database} />,
   slos: ctx => <SLOsPage database={ctx.database} user={ctx.user} />,
   trust: ctx => <TrustPage database={ctx.database} user={ctx.user} />,
   facts: ctx => <FactsPage database={ctx.database} user={ctx.user} />,
