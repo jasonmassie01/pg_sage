@@ -32,7 +32,9 @@ var rules07Lists = map[string][]string{
 	"advisor": {"wal_tuning", "connection_tuning", "query_rewrite",
 		"bloat_remediation", "advisor_degraded", "vacuum_tuning", "memory_tuning"},
 	"optimizer":    {"missing_index", "covering_index", "partial_index", "composite_index"},
-	"query_tuning": {"query_tuning", "stale_statistics", "runaway_query"},
+	// tuning-11 added query_parameterization to the query_tuning subsystem.
+	"query_tuning": {"query_tuning", "stale_statistics", "runaway_query",
+		"query_parameterization"},
 	"incident":     {"incident", "incident_open", "incident_resolved"},
 }
 
