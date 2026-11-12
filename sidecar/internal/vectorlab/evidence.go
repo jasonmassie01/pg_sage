@@ -13,12 +13,21 @@ import (
 
 type source interface {
 	observe(context.Context, Query, *Variant) (observation, error)
+	boundary(context.Context, Query, float64) ([]row, error)
 }
 
 type experiment struct {
 	report         Report
 	latencies      [][]float64
 	exactLatencies []float64
+	tiedQueries    map[int]bool
+}
+
+// truth is the exact answer for one query: the k+1 nearest rows and, when the
+// k-th distance is tied, every row at or nearer than it (bounded at 2k).
+type truth struct {
+	observation
+	tieSet []row
 }
 
 func runExperiment(ctx context.Context, s source, m Manifest) (Report, error) {
@@ -31,41 +40,80 @@ func runExperiment(ctx context.Context, s source, m Manifest) (Report, error) {
 			if err := ctx.Err(); err != nil {
 				return Report{}, err
 			}
-			truth, err := s.observe(ctx, q, nil)
+			exact, err := measureTruth(ctx, s, m, q)
 			if err != nil {
 				return Report{}, fmt.Errorf("exact query %d: %w", qi, err)
 			}
-			if err := checkRows(truth.rows); err != nil {
-				return Report{}, err
+			x.exactLatencies = append(x.exactLatencies, milliseconds(exact.observation))
+			if exact.tieSet != nil {
+				x.tiedQueries[qi] = true
 			}
-			x.exactLatencies = append(x.exactLatencies, milliseconds(truth))
 			for offset := range m.Variants {
 				vi := (qi + repeat + offset) % len(m.Variants)
 				if err := ctx.Err(); err != nil {
 					return Report{}, err
 				}
-				observed, err := s.observe(ctx, q, &m.Variants[vi])
+				observed, err := measureCandidate(ctx, s, q, &m.Variants[vi])
 				if err != nil {
 					return Report{}, fmt.Errorf("candidate query %d: %w", qi, err)
 				}
-				if err := checkRows(observed.rows); err != nil {
-					return Report{}, err
-				}
-				x.record(m, qi, vi, truth, observed)
+				x.record(m, qi, vi, exact, observed)
 			}
 		}
 	}
 	return x.finish(m), nil
 }
 
+func measureTruth(ctx context.Context, s source, m Manifest, q Query) (truth, error) {
+	exact, err := s.observe(ctx, q, nil)
+	if err != nil {
+		return truth{}, err
+	}
+	if err := checkRows(exact.rows); err != nil {
+		return truth{}, err
+	}
+	result := truth{observation: exact}
+	if len(exact.rows) <= m.K || exact.rows[m.K-1].distance != exact.rows[m.K].distance {
+		return result, nil
+	}
+	bound := exact.rows[m.K-1].distance
+	result.tieSet, err = s.boundary(ctx, q, bound)
+	if err != nil {
+		return truth{}, fmt.Errorf("boundary tie rows: %w", err)
+	}
+	if err := checkTieSet(result.tieSet, m.K, bound); err != nil {
+		return truth{}, err
+	}
+	return result, nil
+}
+
+// measureCandidate runs one variant. relaxed_order may return rows out of
+// distance order by design, so they are re-sorted before the order check.
+func measureCandidate(
+	ctx context.Context, s source, q Query, v *Variant,
+) (observation, error) {
+	observed, err := s.observe(ctx, q, v)
+	if err != nil {
+		return observation{}, err
+	}
+	if v.IterativeScan == "relaxed_order" {
+		observed.rows = append([]row(nil), observed.rows...)
+		sort.SliceStable(observed.rows, func(i, j int) bool {
+			return observed.rows[i].distance < observed.rows[j].distance
+		})
+	}
+	return observed, checkRows(observed.rows)
+}
+
 func newExperiment(m Manifest) *experiment {
 	raw, _ := json.Marshal(m) // Validation precedes this; no nonfinite numbers remain.
 	sum := sha256.Sum256(raw)
 	x := &experiment{
-		report: Report{FormatVersion: 1, ManifestSHA256: hex.EncodeToString(sum[:]),
+		report: Report{FormatVersion: 2, ManifestSHA256: hex.EncodeToString(sum[:]),
 			QueryCount: len(m.Queries), Repeats: m.Repeats,
 			Scope: "advisory warm-cache experiment; sample evidence, not production certification"},
-		latencies: make([][]float64, len(m.Variants)),
+		latencies:   make([][]float64, len(m.Variants)),
+		tiedQueries: make(map[int]bool),
 	}
 	for _, v := range m.Variants {
 		result := VariantResult{Variant: v, MinRecall: 1, Reasons: []string{}}
@@ -77,24 +125,23 @@ func newExperiment(m Manifest) *experiment {
 	return x
 }
 
-func (x *experiment) record(m Manifest, qi, vi int, truth, observed observation) {
+func (x *experiment) record(m Manifest, qi, vi int, exact truth, observed observation) {
 	result := &x.report.Variants[vi]
 	q := &result.Queries[qi]
-	count := min(m.K, len(truth.rows))
+	count := min(m.K, len(exact.rows))
 	q.TruthCount = count
-	q.Ambiguous = len(truth.rows) > m.K &&
-		truth.rows[m.K-1].distance == truth.rows[m.K].distance
+	q.Ambiguous = q.Ambiguous || exact.tieSet != nil
 	if count == 0 {
 		addReason(result, "empty_ground_truth")
-	}
-	if q.Ambiguous {
-		addReason(result, "ambiguous_boundary_tie")
 	}
 	if len(observed.rows) < count {
 		q.Underfilled++
 		addReason(result, "underfilled")
 	}
-	recall := recallAtK(truth.rows[:count], observed.rows)
+	recall := recallAgainst(exact.rows[:count], observed.rows, count)
+	if exact.tieSet != nil {
+		recall = recallAgainst(exact.tieSet, observed.rows, m.K)
+	}
 	q.MinRecall = min(q.MinRecall, recall)
 	result.MinRecall = min(result.MinRecall, recall)
 	if recall < m.MinRecall {
@@ -114,6 +161,7 @@ func (x *experiment) record(m Manifest, qi, vi int, truth, observed observation)
 
 func (x *experiment) finish(m Manifest) Report {
 	x.report.ExactP95MS = percentile95(x.exactLatencies)
+	x.report.AmbiguousBoundaryTies = len(x.tiedQueries)
 	best := -1
 	for i := range x.report.Variants {
 		v := &x.report.Variants[i]
@@ -147,12 +195,27 @@ func checkRows(rows []row) error {
 	return nil
 }
 
-func recallAtK(truth, candidate []row) float64 {
-	if len(truth) == 0 {
+// checkTieSet verifies the boundary rows agree with the exact baseline: valid
+// rows, none beyond the k-th distance, and at least the k+1 already seen.
+func checkTieSet(rows []row, k int, bound float64) error {
+	if err := checkRows(rows); err != nil {
+		return err
+	}
+	if len(rows) <= k || rows[len(rows)-1].distance > bound {
+		return errors.New("invalid boundary tie rows: disagree with the exact baseline")
+	}
+	return nil
+}
+
+// recallAgainst is the share of k answers found in the accepted truth rows.
+// With a tie at k, truth holds every tied row, so it may exceed k rows;
+// recall is capped at 1.
+func recallAgainst(accepted, candidate []row, k int) float64 {
+	if k == 0 {
 		return 0
 	}
-	ids := make(map[string]bool, len(truth))
-	for _, r := range truth {
+	ids := make(map[string]bool, len(accepted))
+	for _, r := range accepted {
 		ids[r.id] = true
 	}
 	matches := 0
@@ -162,7 +225,7 @@ func recallAtK(truth, candidate []row) float64 {
 			delete(ids, r.id)
 		}
 	}
-	return float64(matches) / float64(len(truth))
+	return min(1, float64(matches)/float64(k))
 }
 
 func percentile95(values []float64) float64 {

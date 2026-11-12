@@ -20,10 +20,33 @@ type Manifest struct {
 	Queries            []Query   `json:"queries"`
 }
 
+// Variant is one set of HNSW scan settings. The scan knobs are optional so a
+// manifest without them reads, hashes and reports exactly as before.
 type Variant struct {
-	Name          string `json:"name"`
-	EFSearch      int    `json:"ef_search"`
-	IterativeScan string `json:"iterative_scan"`
+	Name              string   `json:"name"`
+	EFSearch          int      `json:"ef_search"`
+	IterativeScan     string   `json:"iterative_scan"`
+	MaxScanTuples     *int     `json:"max_scan_tuples,omitempty"`
+	ScanMemMultiplier *float64 `json:"scan_mem_multiplier,omitempty"`
+}
+
+const (
+	defaultMaxScanTuples     = 20000
+	defaultScanMemMultiplier = 1.0
+)
+
+func (v Variant) maxScanTuples() int {
+	if v.MaxScanTuples == nil {
+		return defaultMaxScanTuples
+	}
+	return *v.MaxScanTuples
+}
+
+func (v Variant) scanMemMultiplier() float64 {
+	if v.ScanMemMultiplier == nil {
+		return defaultScanMemMultiplier
+	}
+	return *v.ScanMemMultiplier
 }
 
 type Query struct {
@@ -39,13 +62,17 @@ type Report struct {
 	PostgresVersion string          `json:"postgres_version"`
 	VectorVersion   string          `json:"vector_version"`
 	Snapshot        string          `json:"snapshot"`
+	VectorType      string          `json:"vector_type,omitempty"`
 	QueryCount      int             `json:"query_count"`
 	Repeats         int             `json:"repeats"`
 	ExactP95MS      float64         `json:"exact_p95_ms"`
 	Variants        []VariantResult `json:"variants"`
-	Recommendation  string          `json:"recommendation,omitempty"`
-	AutoApply       bool            `json:"auto_apply"`
-	Scope           string          `json:"scope"`
+	// AmbiguousBoundaryTies counts queries whose exact top k ends in a
+	// distance tie; recall then accepts any of the tied rows.
+	AmbiguousBoundaryTies int    `json:"ambiguous_boundary_ties,omitempty"`
+	Recommendation        string `json:"recommendation,omitempty"`
+	AutoApply             bool   `json:"auto_apply"`
+	Scope                 string `json:"scope"`
 }
 
 type VariantResult struct {

@@ -16,6 +16,7 @@ type postgresSource struct {
 	tx              pgx.Tx
 	manifest        Manifest
 	extensionSchema string
+	vectorType      string
 	hnswIndexes     map[string]bool
 }
 
@@ -46,6 +47,7 @@ func Run(ctx context.Context, pool *pgxpool.Pool, m Manifest) (Report, error) {
 	}
 	report.StartedAt, report.PostgresVersion = started, metadata.PostgresVersion
 	report.VectorVersion, report.Snapshot = metadata.VectorVersion, metadata.Snapshot
+	report.VectorType = s.vectorType
 	return report, nil
 }
 
@@ -88,10 +90,10 @@ func (s *postgresSource) prepare(ctx context.Context) (Report, error) {
 	if err != nil {
 		return Report{}, safeError("inspect pgvector capabilities", err)
 	}
-	if !supportsIterative(metadata.VectorVersion) {
-		return Report{}, errors.New("pgvector >=0.8.0 is required for explicit iterative-scan controls")
+	if err := requireVectorVersion(metadata.VectorVersion, s.manifest); err != nil {
+		return Report{}, err
 	}
-	if err := s.validateTarget(ctx); err != nil {
+	if s.vectorType, err = s.validateTarget(ctx); err != nil {
 		return Report{}, err
 	}
 	s.hnswIndexes, err = s.loadIndexes(ctx)
@@ -112,7 +114,7 @@ func (s *postgresSource) observe(
 	if err := s.configureScan(ctx, variant); err != nil {
 		return observation{}, err
 	}
-	sql, args := buildSQL(s.manifest, s.extensionSchema, q, variant == nil)
+	sql, args := buildSQL(s.manifest, s.extensionSchema, s.vectorType, q, variant == nil)
 	var indexes []string
 	if variant != nil {
 		var err error
@@ -122,43 +124,65 @@ func (s *postgresSource) observe(
 		}
 	}
 	started := time.Now()
+	rows, err := s.fetch(ctx, sql, args)
+	if err != nil {
+		return observation{}, err
+	}
+	return observation{rows: rows, indexes: indexes, elapsed: time.Since(started)}, nil
+}
+
+// boundary reads the exact rows at or nearer than distance (the k-th exact
+// distance), with index scans off like the exact baseline.
+func (s *postgresSource) boundary(
+	ctx context.Context, q Query, distance float64,
+) ([]row, error) {
+	if err := s.configureScan(ctx, nil); err != nil {
+		return nil, err
+	}
+	sql, args := buildBoundarySQL(s.manifest, s.extensionSchema, s.vectorType, q, distance)
+	return s.fetch(ctx, sql, args)
+}
+
+func (s *postgresSource) fetch(ctx context.Context, sql string, args []any) ([]row, error) {
 	rows, err := s.tx.Query(ctx, sql, args...)
 	if err != nil {
-		return observation{}, safeError("execute vector search", err)
+		return nil, safeError("execute vector search", err)
 	}
 	defer rows.Close()
-	result := observation{indexes: indexes}
+	var result []row
 	for rows.Next() {
 		var r row
 		if err := rows.Scan(&r.id, &r.distance); err != nil {
-			return observation{}, safeError("read vector result: ID must be non-null scalar", err)
+			return nil, safeError("read vector result: ID must be non-null scalar", err)
 		}
-		result.rows = append(result.rows, r)
+		result = append(result, r)
 	}
 	if err := rows.Err(); err != nil {
-		return observation{}, safeError("read vector results", err)
+		return nil, safeError("read vector results", err)
 	}
-	result.elapsed = time.Since(started)
 	return result, nil
 }
 
 func (s *postgresSource) configureScan(ctx context.Context, v *Variant) error {
-	indexScan := "off"
-	if v != nil {
-		indexScan = "on"
-	}
-	settings := [][2]string{{"enable_indexscan", indexScan}, {"enable_indexonlyscan", indexScan}}
-	if v != nil {
-		settings = append(settings, [2]string{"hnsw.ef_search", strconv.Itoa(v.EFSearch)},
-			[2]string{"hnsw.iterative_scan", v.IterativeScan},
-			[2]string{"hnsw.max_scan_tuples", "20000"}, [2]string{"hnsw.scan_mem_multiplier", "1"})
-	}
-	for _, setting := range settings {
+	for _, setting := range scanSettings(v) {
 		if err := s.setLocal(ctx, setting[0], setting[1]); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// scanSettings are the SET LOCAL values for one measurement: index scans off
+// for the exact baseline (nil), or the variant's HNSW knobs with defaults.
+func scanSettings(v *Variant) [][2]string {
+	if v == nil {
+		return [][2]string{{"enable_indexscan", "off"}, {"enable_indexonlyscan", "off"}}
+	}
+	return [][2]string{{"enable_indexscan", "on"}, {"enable_indexonlyscan", "on"},
+		{"hnsw.ef_search", strconv.Itoa(v.EFSearch)},
+		{"hnsw.iterative_scan", v.IterativeScan},
+		{"hnsw.max_scan_tuples", strconv.Itoa(v.maxScanTuples())},
+		{"hnsw.scan_mem_multiplier", strconv.FormatFloat(v.scanMemMultiplier(), 'g', -1, 64)}}
 }
 
 func safeError(operation string, err error) error {
@@ -174,6 +198,21 @@ func safeError(operation string, err error) error {
 	}
 	return fmt.Errorf("%s: database operation failed; check connectivity, privileges, and schema",
 		operation)
+}
+
+// requireVectorVersion refuses pgvector before 0.8.0, which lacks the
+// iterative-scan settings every variant sets (relaxed_order among them).
+func requireVectorVersion(version string, m Manifest) error {
+	if supportsIterative(version) {
+		return nil
+	}
+	for _, v := range m.Variants {
+		if v.IterativeScan == "relaxed_order" {
+			return fmt.Errorf("relaxed_order requires pgvector >= 0.8.0 (found %q)", version)
+		}
+	}
+	return fmt.Errorf("pgvector >=0.8.0 is required for explicit iterative-scan controls "+
+		"(found %q)", version)
 }
 
 func supportsIterative(version string) bool {
