@@ -11,6 +11,9 @@ var fullCategories = map[string]string{
 		"or open transactions",
 	"replication": "a few replicas and slots whose LSNs move every cycle; a delta " +
 		"would carry almost the whole document",
+	"workload_sessions": "session groups whose ages move every cycle and long sessions " +
+		"keyed by a reused pid, bounded at 200 groups, 50 sessions (tags only, no " +
+		"statement text) and 200 roles (market-08)",
 }
 
 // Coverage reports how the store keeps category: delta is true for a

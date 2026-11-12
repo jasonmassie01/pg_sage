@@ -91,7 +91,12 @@ func (c *Collector) extraSteps() []catalogStep {
 				return err
 			}, reset: func(s *Snapshot) {
 				s.IndexBloat, s.IndexBloatTruncated, s.IndexBloatUnknown = nil, false, nil
-			}})
+			}},
+		catalogStep{name: "workload_sessions",
+			run: func(ctx context.Context, s *Snapshot) (err error) {
+				s.WorkloadSessions, err = c.collectWorkloadSessions(ctx)
+				return err
+			}, reset: func(s *Snapshot) { s.WorkloadSessions = nil }})
 	if c.CollectsConfigSnapshots() {
 		steps = append(steps, catalogStep{name: "config_data",
 			run: func(ctx context.Context, s *Snapshot) (err error) {

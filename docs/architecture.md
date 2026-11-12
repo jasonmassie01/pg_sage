@@ -53,7 +53,8 @@ circuit breaker that skips cycles while the database is in trouble (active clien
 over `max_connections` above `safety.cpu_ceiling_pct`). A cycle reads the catalog categories
 in order (`catalogSteps`: `queries`, `tables`, `indexes`, `partitioned_indexes`,
 `foreign_keys`, `system`, `locks`, `sequences`), then `replication` and the extra categories
-(`extraSteps`: `io`, `prepared_xacts`, `partitions`, `index_bloat`, `config_data`).
+(`extraSteps`: `io`, `prepared_xacts`, `partitions`, `index_bloat`, `workload_sessions`,
+`config_data`).
 
 **Health.** A skipped cycle is logged with its cause: `load ratio 0.93 > ceiling 0.90
 (active sessions / max_connections)`, or `load query failed: <error>` when the load query
@@ -116,7 +117,10 @@ Each snapshot holds one row per category: `queries`, `tables`, `indexes`,
 `partitioned_indexes` (the partitioned tables' own indexes, relkind `I`), `foreign_keys`,
 `system`, `locks`, `sequences`, `replication`, `io` (PostgreSQL 16 and later), `partitions`,
 `prepared_xacts` (this database's two-phase-commit transactions from `pg_prepared_xacts`),
-`index_bloat` (the largest btree indexes' bloat estimated from planner statistics, at most 200)
+`index_bloat` (the largest btree indexes' bloat estimated from planner statistics, at most 200),
+`workload_sessions` (this database's client sessions by role, application and state, at most
+200 groups, its 50 longest-running sessions with their sqlcommenter tags, and per-role
+statement time and cluster-wide session counts, which workload budgets read)
 and `config_data` (the advisor's settings, reloptions, connection and WAL snapshot, collected only
 when an advisor will consume it). A category that could not be read in a cycle is
 **unknown, not empty**: it is listed in the snapshot's `unavailable` map with the error, no
