@@ -140,3 +140,47 @@ func TestPinKeepsQuotedSchemaNames(t *testing.T) {
 		t.Fatalf("schemas = %q, want %q", schemas, want)
 	}
 }
+
+// pg_sage on a managed cloud is no superuser: the path read must work for
+// a plain login role, which can read pg_db_role_setting, pg_roles and
+// pg_settings but holds no privilege beyond USAGE on the schema.
+func TestPinWorksForAPlainLoginRole(t *testing.T) {
+	_, admin, db := pinnedPool(t)
+	ident := pgx.Identifier{db}.Sanitize()
+	adminExec(t, admin, "CREATE SCHEMA app",
+		"ALTER DATABASE "+ident+" SET search_path = app, public",
+		"CREATE ROLE apppath_plain LOGIN PASSWORD 'apppath_plain'",
+		"GRANT USAGE ON SCHEMA app TO apppath_plain")
+	t.Cleanup(func() {
+		ctx := context.Background()
+		_, _ = admin.Exec(ctx, "DROP OWNED BY apppath_plain")
+		_, _ = admin.Exec(ctx, "DROP ROLE apppath_plain")
+	})
+	cfg, err := pgxpool.ParseConfig(admin.Config().ConnString())
+	if err != nil {
+		t.Fatalf("parse DSN: %v", err)
+	}
+	cfg.MaxConns = 1
+	cfg.ConnConfig.User, cfg.ConnConfig.Password = "apppath_plain", "apppath_plain"
+	cfg.ConnConfig.AfterConnect = func(ctx context.Context, pc *pgconn.PgConn) error {
+		return pc.Exec(ctx, "SET search_path = pg_catalog, pg_temp").Close()
+	}
+	plain, err := pgxpool.NewWithConfig(t.Context(), cfg)
+	if err != nil {
+		t.Fatalf("plain role pool: %v", err)
+	}
+	t.Cleanup(plain.Close)
+	var super bool
+	if err := plain.QueryRow(t.Context(),
+		"SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = current_user",
+	).Scan(&super); err != nil || super {
+		t.Fatalf("plain role: superuser=%v err=%v, want a plain role", super, err)
+	}
+	schemas, after := pinnedSchemas(t, plain)
+	if want := []string{"app", "public"}; !reflect.DeepEqual(schemas, want) {
+		t.Fatalf("schemas = %q, want the database setting %q", schemas, want)
+	}
+	if after != "pg_catalog, pg_temp" {
+		t.Fatalf("search_path after the transaction = %q, want the session pin back", after)
+	}
+}
