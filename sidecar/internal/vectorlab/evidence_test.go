@@ -185,6 +185,19 @@ func TestEvidenceTieRecallCountsMissesAndCapsAtOne(t *testing.T) {
 	}
 }
 
+// Tied rows fill only the places left after the strictly nearer rows: two
+// rows tied at the k-th distance cannot stand in for a missed nearest row.
+func TestEvidenceTieRecallRequiresTheNearerRows(t *testing.T) {
+	s := tiedSource()
+	s.ann = []row{{"row-2", 2}, {"row-3", 2}}
+	r, err := runExperiment(t.Context(), s, validManifest())
+	v := r.Variants[0]
+	if err != nil || r.Recommendation != "" || v.MinRecall != .5 ||
+		!contains(v.Reasons, "recall_below_target") {
+		t.Fatalf("missing the nearest row scored as full recall: %#v %v", r, err)
+	}
+}
+
 func TestEvidenceTieBoundaryFailuresAbort(t *testing.T) {
 	s := tiedSource()
 	s.tieFailure = context.DeadlineExceeded
@@ -196,6 +209,7 @@ func TestEvidenceTieBoundaryFailuresAbort(t *testing.T) {
 		"short":     {{"row-1", 1}},
 		"duplicate": {{"row-1", 1}, {"row-1", 2}, {"row-3", 2}},
 		"beyond":    {{"row-1", 1}, {"row-2", 2}, {"row-9", 3}},
+		"nearer":    {{"row-1", 1}, {"row-2", 1.5}, {"row-3", 2}},
 	} {
 		s := tiedSource()
 		s.ties = ties

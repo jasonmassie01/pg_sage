@@ -68,9 +68,14 @@ order still abort the experiment as invalid.
 The exact baseline runs with index scans off and fetches k+1 rows. When the k-th
 and (k+1)-th exact distances are equal, any of the tied rows is a correct k-th
 answer. The lab then fetches every exact row at or nearer than the k-th distance
-(at most 2k rows) and counts a candidate row as a match when its ID is in that
-set: recall = min(1, matches / k). If more than 2k rows tie, the set is cut at 2k,
-which can only lower recall, never raise it.
+(at most 2k rows). Rows strictly nearer than the k-th distance belong in every
+correct answer; the tied rows may fill only the places left after them. So a
+candidate row matches when it is a nearer row, or a tied row while tied places
+remain: recall = (nearer matches + min(tied matches, k - nearer rows)) / k. A tied
+row can stand in for another tied row, never for a missed nearer one. If more than
+2k rows tie, the set is cut at 2k, which can only lower recall, never raise it. The boundary
+query runs once per tied query and repeat under the same statement timeout and
+whole-run deadline; it is not counted in the measured-query limit or exact latency.
 
 A tie is information, not a failure: the query shows
 `"ambiguous_boundary_tie": true` and the report counts tied queries in

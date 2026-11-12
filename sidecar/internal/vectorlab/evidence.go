@@ -24,10 +24,11 @@ type experiment struct {
 }
 
 // truth is the exact answer for one query: the k+1 nearest rows and, when the
-// k-th distance is tied, every row at or nearer than it (bounded at 2k).
+// k-th distance (bound) is tied, every row at or nearer than it (at most 2k).
 type truth struct {
 	observation
 	tieSet []row
+	bound  float64
 }
 
 func runExperiment(ctx context.Context, s source, m Manifest) (Report, error) {
@@ -76,12 +77,12 @@ func measureTruth(ctx context.Context, s source, m Manifest, q Query) (truth, er
 	if len(exact.rows) <= m.K || exact.rows[m.K-1].distance != exact.rows[m.K].distance {
 		return result, nil
 	}
-	bound := exact.rows[m.K-1].distance
-	result.tieSet, err = s.boundary(ctx, q, bound)
+	result.bound = exact.rows[m.K-1].distance
+	result.tieSet, err = s.boundary(ctx, q, result.bound)
 	if err != nil {
 		return truth{}, fmt.Errorf("boundary tie rows: %w", err)
 	}
-	if err := checkTieSet(result.tieSet, m.K, bound); err != nil {
+	if err := checkTieSet(result.tieSet, m.K, result.bound); err != nil {
 		return truth{}, err
 	}
 	return result, nil
@@ -140,7 +141,7 @@ func (x *experiment) record(m Manifest, qi, vi int, exact truth, observed observ
 	}
 	recall := recallAgainst(exact.rows[:count], observed.rows, count)
 	if exact.tieSet != nil {
-		recall = recallAgainst(exact.tieSet, observed.rows, m.K)
+		recall = tieRecall(exact.tieSet, observed.rows, m.K, exact.bound)
 	}
 	q.MinRecall = min(q.MinRecall, recall)
 	result.MinRecall = min(result.MinRecall, recall)
@@ -196,20 +197,45 @@ func checkRows(rows []row) error {
 }
 
 // checkTieSet verifies the boundary rows agree with the exact baseline: valid
-// rows, none beyond the k-th distance, and at least the k+1 already seen.
+// rows, none beyond the k-th distance, fewer than k strictly nearer, and at
+// least the k+1 already seen.
 func checkTieSet(rows []row, k int, bound float64) error {
 	if err := checkRows(rows); err != nil {
 		return err
 	}
-	if len(rows) <= k || rows[len(rows)-1].distance > bound {
+	if len(rows) <= k || rows[len(rows)-1].distance > bound || rows[k-1].distance != bound {
 		return errors.New("invalid boundary tie rows: disagree with the exact baseline")
 	}
 	return nil
 }
 
-// recallAgainst is the share of k answers found in the accepted truth rows.
-// With a tie at k, truth holds every tied row, so it may exceed k rows;
-// recall is capped at 1.
+// tieRecall scores a candidate against a tie at the k-th distance. Every row
+// strictly nearer than bound belongs in any correct top k; the tied rows may
+// fill only the places left after them. So a tied row can stand in for
+// another tied row, never for a missed nearer one.
+func tieRecall(ties, candidate []row, k int, bound float64) float64 {
+	nearer, tied := make(map[string]bool), make(map[string]bool)
+	for _, r := range ties {
+		if r.distance < bound {
+			nearer[r.id] = true
+		} else {
+			tied[r.id] = true
+		}
+	}
+	nearerHits, tiedHits := 0, 0
+	for _, r := range candidate {
+		switch {
+		case nearer[r.id]:
+			nearerHits++
+		case tied[r.id]:
+			tiedHits++
+		}
+	}
+	matches := nearerHits + min(tiedHits, k-len(nearer))
+	return min(1, float64(matches)/float64(k))
+}
+
+// recallAgainst is the share of k answers found in the truth rows.
 func recallAgainst(accepted, candidate []row, k int) float64 {
 	if k == 0 {
 		return 0
