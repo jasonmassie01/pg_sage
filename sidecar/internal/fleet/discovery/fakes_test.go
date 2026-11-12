@@ -60,6 +60,7 @@ type fakeStore struct {
 	upserts  int
 	goneRuns int
 	claimErr error
+	markErr  error
 }
 
 func newFakeStore() *fakeStore {
@@ -144,6 +145,9 @@ func (s *fakeStore) Claim(_ context.Context, source string, limit, maxLive int,
 }
 
 func (s *fakeStore) MarkEnrolled(_ context.Context, rowID int64, databaseID int) error {
+	if s.markErr != nil {
+		return s.markErr
+	}
 	return s.update(rowID, func(r *store.DiscoveredRow) error {
 		if r.Status != store.DiscoveryEnrolling {
 			return fmt.Errorf("row %d is %s", rowID, r.Status)

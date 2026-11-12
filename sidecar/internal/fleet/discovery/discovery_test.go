@@ -356,3 +356,22 @@ func TestRun_StopsWhenContextEnds(t *testing.T) {
 		t.Fatalf("Run listed %d times before the first interval, want 1", src.callCount())
 	}
 }
+
+// Error propagation: a member whose enrolment cannot be recorded is
+// disabled again, so no unlinked member outlives its TTL.
+func TestRunner_MarkEnrolledFailureDisablesTheMember(t *testing.T) {
+	src := &fakeSource{name: "c", results: [][]Candidate{{cand("a")}}}
+	st, m := newFakeStore(), &fakeMembers{}
+	st.markErr = errors.New("discovered database 1 is not enrolling")
+	r := mustRunner(t, enabledCfg(), []Binding{{Source: src, Owner: "o", EnrolFrom: "m"}},
+		st, m, newClock(t0))
+	rep := r.Cycle(context.Background())
+	if rep.Enrolled != 0 || len(rep.Errors) != 1 ||
+		!strings.Contains(rep.Errors[0].Error(), "member 1 disabled again") {
+		t.Fatalf("report = %+v", rep)
+	}
+	if len(m.enrolled) != 1 || len(m.disabled) != 1 || m.disabled[0] != 1 {
+		t.Fatalf("enrolled %v, disabled %v; want member 1 enrolled then disabled",
+			m.enrolled, m.disabled)
+	}
+}

@@ -239,7 +239,7 @@ func (r *Runner) enrol(ctx context.Context, b Binding, now time.Time, rep *Repor
 	for _, row := range rows {
 		id, err := r.members.Enrol(ctx, b.EnrolFrom, row, expires)
 		if err == nil {
-			err = r.store.MarkEnrolled(ctx, row.ID, id)
+			err = r.recordEnrolled(ctx, row, id)
 		} else if relErr := r.store.Release(ctx, row.ID, err.Error()); relErr != nil {
 			err = errors.Join(err, relErr)
 		}
@@ -250,6 +250,22 @@ func (r *Runner) enrol(ctx context.Context, b Binding, now time.Time, rep *Repor
 		}
 		rep.Enrolled++
 	}
+}
+
+// recordEnrolled links row to its new member. When the link cannot be
+// written (the meta-db failed, or another sidecar marked the row gone) the
+// member is disabled again: an unlinked member would never expire.
+func (r *Runner) recordEnrolled(ctx context.Context, row store.DiscoveredRow,
+	databaseID int) error {
+	err := r.store.MarkEnrolled(ctx, row.ID, databaseID)
+	if err == nil {
+		return nil
+	}
+	if disErr := r.members.Disable(ctx, databaseID); disErr != nil {
+		return errors.Join(err, fmt.Errorf("disabling unlinked member %d: %w",
+			databaseID, disErr))
+	}
+	return fmt.Errorf("%w (member %d disabled again)", err, databaseID)
 }
 
 // expire disables every enrolled member whose TTL lapsed unadopted.
