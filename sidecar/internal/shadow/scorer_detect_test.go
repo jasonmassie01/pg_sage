@@ -221,3 +221,39 @@ func TestJudgeUnscorableEvidenceWaitsThenNamesWhy(t *testing.T) {
 		t.Fatalf("at the horizon: %+v", j)
 	}
 }
+
+// The maintained table is read from the decision's SQL as PostgreSQL
+// reads it (quoted names keep their quotes, spaces and case), so a name
+// that needs quotes still resolves; a statement with no trailing table
+// falls back to the object.
+func TestMaintenanceTableReadsTheQuotedName(t *testing.T) {
+	cases := []struct{ sql, object, want string }{
+		{`VACUUM "public"."orders";`, "public.orders", "public.orders"},
+		{`ANALYZE "public"."my t";`, "public.my t", `public."my t"`},
+		{`VACUUM "Sales Data"."Big ""Q"" Table"`, "x", `"Sales Data"."Big ""Q"" Table"`},
+		{`VACUUM (ANALYZE) Public.Orders ;`, "x", "public.orders"},
+		{`VACUUM t`, "x", "t"},
+		{`ANALYZE public.t (a, b)`, " public.t ", "public.t"},
+		{`VACUUM`, "public.o", "public.o"},
+		{``, "", ""},
+	}
+	for _, c := range cases {
+		if got := maintenanceTable(Decision{SQL: c.sql, Object: c.object}); got != c.want {
+			t.Errorf("maintenanceTable(%q, %q) = %q, want %q", c.sql, c.object, got, c.want)
+		}
+	}
+}
+
+// A relation name the server cannot even parse (PostgreSQL 14 and 15
+// raise it from to_regclass) never resolves for this decision: it is
+// unscorable, never an error that stops every later pass.
+func TestUnscorableReasonOfAnUnparsableName(t *testing.T) {
+	for _, code := range []string{"42602", "42601", "0A000"} {
+		err := fmt.Errorf("read: %w", &pgconn.PgError{Code: code, Message: "invalid name syntax"})
+		reason, ok := unscorableReason(err)
+		if !ok || !strings.Contains(reason, code) ||
+			!strings.Contains(reason, "relation name does not resolve") {
+			t.Errorf("%s: %q %v", code, reason, ok)
+		}
+	}
+}

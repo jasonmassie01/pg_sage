@@ -383,3 +383,25 @@ func TestDetectUnscoredClassesEndWithNone(t *testing.T) {
 		}
 	}
 }
+
+// pg_sage quotes every name of its VACUUM (finding SQL), while the object
+// is schema.name unquoted: a table whose name needs quotes is still found
+// (on PG14 the unquoted object is a syntax error that stopped every pass).
+func TestDetectVacuumOfAQuotedNameIsCountedExternal(t *testing.T) {
+	pool, _ := testPool(t)
+	mustExec(t, pool, `DROP TABLE IF EXISTS public."shadow mnt sp"`)
+	mustExec(t, pool, `CREATE TABLE public."shadow mnt sp" (a int)
+		WITH (autovacuum_enabled = false)`)
+	t.Cleanup(func() { mustExec(t, pool, `DROP TABLE IF EXISTS public."shadow mnt sp"`) })
+	mustExec(t, pool, `INSERT INTO public."shadow mnt sp" SELECT generate_series(1, 300)`)
+	mustExec(t, pool, `DELETE FROM public."shadow mnt sp" WHERE a <= 200`)
+	waitCounter(t, pool, `public."shadow mnt sp"`, "n_tup_del", 200)
+	s := NewStore(pool)
+	d := mntShadow(t, s, pool, "vacuum", "public.shadow mnt sp", ptr(200), justNow)
+	mustExec(t, pool, `UPDATE sage.shadow_decision SET sql = $2 WHERE id = $1`, d.ID,
+		`VACUUM "public"."shadow mnt sp";`)
+	mustExec(t, pool, `VACUUM public."shadow mnt sp"`)
+	waitStat(t, pool, `public."shadow mnt sp"`, "last_vacuum")
+	runOnce(t, settled(pool, fastOptions()))
+	assertScore(t, s, d.ID, ScoreCorrect, SourceExternal, true)
+}

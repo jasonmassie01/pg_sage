@@ -62,7 +62,8 @@ func (s *Scorer) external(ctx context.Context, p pendingDecision) (*verifiedFact
 }
 
 // unscorableReason names a catalog read that can never succeed for this
-// decision (a permission pg_sage lacks, a relation gone): the decision is
+// decision (a permission pg_sage lacks, a relation gone, a name that does
+// not parse): the decision is
 // left to the horizon with that reason, never an error of the pass.
 func unscorableReason(err error) (string, bool) {
 	var pg *pgconn.PgError
@@ -74,6 +75,9 @@ func unscorableReason(err error) (string, bool) {
 		return fmt.Sprintf("permission denied (SQLSTATE 42501): %s", pg.Message), true
 	case "42P01", "3F000":
 		return fmt.Sprintf("relation gone (SQLSTATE %s): %s", pg.Code, pg.Message), true
+	case "42602", "42601", "0A000": // to_regclass of a malformed name, PG14 and 15
+		return fmt.Sprintf("the decision's relation name does not resolve (SQLSTATE %s): %s",
+			pg.Code, pg.Message), true
 	}
 	return "", false
 }

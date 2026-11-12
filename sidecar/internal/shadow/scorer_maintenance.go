@@ -73,17 +73,23 @@ func (s *Scorer) maintenanceExternal(ctx context.Context, p pendingDecision) (*v
 	return maintenanceFact(p.Decision, sig.metric), false, nil
 }
 
-// maintenanceTable is the table d maintains: the relation its SQL names
-// (as quoted there), else its object.
+// maintenanceTable is the table d maintains: the [schema.]name its SQL
+// ends with, read as PostgreSQL reads it (a quoted name keeps its quotes),
+// else its object.
 func maintenanceTable(d Decision) string {
-	fields := strings.Fields(strings.TrimSuffix(strings.TrimSpace(d.SQL), ";"))
-	if n := len(fields); n >= 2 {
-		last := fields[n-1]
-		if !strings.ContainsAny(last, "()") && strings.Count(last, `"`)%2 == 0 {
-			return last
-		}
+	toks := tokenize(d.SQL)
+	for len(toks) > 0 && toks[len(toks)-1].text == ";" {
+		toks = toks[:len(toks)-1]
 	}
-	return strings.TrimSpace(d.Object)
+	n := len(toks)
+	if n < 2 || toks[n-1].punct {
+		return strings.TrimSpace(d.Object)
+	}
+	start := n - 1
+	if n >= 4 && toks[n-2].punct && toks[n-2].text == "." && !toks[n-3].punct {
+		start = n - 3
+	}
+	return join(toks[start:])
 }
 
 // maintenanceFact judges a run found outside pg_sage: final at once, by
