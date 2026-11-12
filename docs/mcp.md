@@ -281,7 +281,8 @@ constraints, `CONCURRENTLY` and `NOT VALID`, with the version the server runs (o
 `pg_version` given). A statement holds the strongest lock of its subcommands. Each
 statement is either *known* (a rule below matched, or it is a form proven safe, such as
 `CREATE INDEX CONCURRENTLY`, `ADD CONSTRAINT ... NOT VALID`, `VALIDATE CONSTRAINT`,
-`DETACH PARTITION ... CONCURRENTLY` or a plain `VACUUM`) or *unrecognized* (no rule
+`DETACH PARTITION ... CONCURRENTLY`, a plain `VACUUM`, a new `CREATE FUNCTION` or
+`ALTER SEQUENCE ... AS / OWNED BY`) or *unrecognized* (no rule
 matched and the form is not proven safe, or it did not parse).
 
 | Rule | Form | Lock | Rewrite |
@@ -304,6 +305,9 @@ matched and the form is not proven safe, or it did not parse).
 | `ddl_detach_partition_not_concurrent` | `DETACH PARTITION` without `CONCURRENTLY` | ACCESS EXCLUSIVE | no |
 | `ddl_rename` | `RENAME` of a table, column, constraint or index | ACCESS EXCLUSIVE (SHARE UPDATE EXCLUSIVE for an index) | no |
 | `ddl_create_trigger` | `CREATE TRIGGER` | SHARE ROW EXCLUSIVE | no |
+| `ddl_drop_trigger` | `DROP TRIGGER` | ACCESS EXCLUSIVE | no |
+| `ddl_drop_function` | `DROP FUNCTION` (the lock is on the function, not a table) | ACCESS EXCLUSIVE | no |
+| `ddl_lock_table` | `LOCK TABLE` | the mode it names | no |
 | `ddl_reindex_not_concurrent` | `REINDEX` without `CONCURRENTLY` | ACCESS EXCLUSIVE | no |
 | `ddl_vacuum_full` | `VACUUM FULL` | ACCESS EXCLUSIVE | yes |
 | `ddl_refresh_not_concurrent` | `REFRESH MATERIALIZED VIEW` without `CONCURRENTLY` | ACCESS EXCLUSIVE | yes |
