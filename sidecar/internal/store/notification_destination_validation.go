@@ -74,6 +74,21 @@ func validateRuleChannel(ch *notify.Channel) error {
 	return nil
 }
 
+// validateDestinationTarget checks the URL a Teams channel posts to and
+// a Jira integration's site against the target policy; Opsgenie and
+// incident.io post only to their fixed public APIs.
+func validateDestinationTarget(
+	policy notify.TargetPolicy, typ string, config map[string]string,
+) error {
+	switch typ {
+	case "teams":
+		return policy.ValidateURL(config["webhook_url"])
+	case "jira":
+		return policy.ValidateURL(config["base_url"])
+	}
+	return nil
+}
+
 // validateTeamsConfig needs an https Workflows webhook URL (Teams issues
 // no other kind) and, when set, an absolute http(s) dashboard_url for
 // the card's link.

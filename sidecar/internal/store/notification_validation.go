@@ -68,7 +68,7 @@ func validateChannelConfig(
 		}
 	case "webhook":
 		return validateWebhookConfig(config)
-	case "teams", "opsgenie", "incidentio", "jira":
+	default:
 		return validateDestinationConfig(typ, config)
 	}
 	return nil
@@ -119,12 +119,12 @@ func validateChannelTargets(
 ) error {
 	var err error
 	switch typ {
-	case "slack", "webhook", "teams":
+	case "slack", "webhook":
 		err = policy.ValidateURL(config["webhook_url"])
-	case "jira":
-		err = policy.ValidateURL(config["base_url"])
 	case "email":
 		err = policy.ValidateHost(config["smtp_host"])
+	default:
+		err = validateDestinationTarget(policy, typ, config)
 	}
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrValidation, err)
