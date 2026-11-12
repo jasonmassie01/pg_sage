@@ -15,7 +15,8 @@ import (
 var azureBurstableGiB = map[string]float64{"b1ms": 2, "b2s": 4, "b2ms": 8, "b4ms": 16,
 	"b8ms": 32, "b12ms": 48, "b16ms": 64, "b20ms": 80}
 
-var azureSKUPattern = regexp.MustCompile(`^standard_([de])(\d+)(s_v3|ds_v4|ds_v5|ads_v5|ds_v6|ads_v6)$`)
+var azureSKUPattern = regexp.MustCompile(
+	`^standard_([de])(\d+)(s_v3|ds_v4|ds_v5|ads_v5|ds_v6|ads_v6)$`)
 
 // azureVCores lists the vCore counts each series offers.
 var azureVCores = map[string][]int{

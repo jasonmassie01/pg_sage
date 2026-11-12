@@ -55,7 +55,8 @@ func newFakeARM(t *testing.T) *fakeARM {
 func (f *fakeARM) healthy() *fakeARM {
 	f.replicas = []string{"orders-ro1"}
 	f.metrics["orders"] = map[string][]agoPoint{
-		"cpu_percent":        {{value: 31.5, ago: 2 * time.Minute}, {value: 20, ago: 5 * time.Minute}},
+		"cpu_percent": {{value: 31.5, ago: 2 * time.Minute},
+			{value: 20, ago: 5 * time.Minute}},
 		"memory_percent":     {{value: 75, ago: 2 * time.Minute}},
 		"storage_used":       {{value: 96 * gibF, ago: 3 * time.Minute}},
 		"storage_free":       {{value: 32 * gibF, ago: 3 * time.Minute}},

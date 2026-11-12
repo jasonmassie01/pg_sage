@@ -47,25 +47,8 @@ type cloudCase struct {
 }
 
 func cloudTelemetryCases() []cloudCase {
-	return []cloudCase{
+	return append(azureAlloyDBCloudCases(), []cloudCase{
 		{name: "self-managed has none", provider: "self-managed", host: "db", wantNil: true},
-		{name: "azure from host", provider: "azure", host: "orders.postgres.database.azure.com",
-			wantProvider: "azure", mutate: func(c *config.Config) {
-				c.Azure.SubscriptionID = "0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0"
-				c.Azure.ResourceGroup = "rg-shop"
-			}},
-		{name: "azure without a subscription", provider: "azure",
-			host: "orders.postgres.database.azure.com", wantProvider: "azure",
-			wantAvailableReason: "azure.subscription_id"},
-		{name: "alloydb standalone named", provider: "alloydb", host: "10.30.0.5",
-			standalone: true, wantProvider: "alloydb", mutate: func(c *config.Config) {
-				c.CloudTelemetry.AlloyDB.Cluster = "orders"
-				c.CloudTelemetry.AlloyDB.Instance = "orders-primary"
-			}},
-		{name: "alloydb without a name", provider: "alloydb", host: "10.30.0.5",
-			wantProvider: "alloydb", wantAvailableReason: "cloud_resource.gcp.cluster"},
-		{name: "azure cosmos has none", provider: "azure-cosmos",
-			host: "c-x.postgres.cosmos.azure.com", wantNil: true},
 		{name: "disabled", provider: "rds",
 			host:    "orders.c9akciq32.us-east-1.rds.amazonaws.com",
 			mutate:  func(c *config.Config) { f := false; c.CloudTelemetry.Enabled = &f },
@@ -102,6 +85,30 @@ func cloudTelemetryCases() []cloudCase {
 		{name: "cloud sql by hostname cannot be matched", provider: "cloud-sql",
 			host: "db.internal.example", wantProvider: "cloud-sql",
 			wantAvailableReason: "cloud_telemetry.gcp.instance"},
+	}...)
+}
+
+// azureAlloyDBCloudCases are the clouds-09 providers: Azure flexible server
+// and AlloyDB get a runtime; Cosmos DB for PostgreSQL has none.
+func azureAlloyDBCloudCases() []cloudCase {
+	return []cloudCase{
+		{name: "azure from host", provider: "azure", host: "orders.postgres.database.azure.com",
+			wantProvider: "azure", mutate: func(c *config.Config) {
+				c.Azure.SubscriptionID = "0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0"
+				c.Azure.ResourceGroup = "rg-shop"
+			}},
+		{name: "azure without a subscription", provider: "azure",
+			host: "orders.postgres.database.azure.com", wantProvider: "azure",
+			wantAvailableReason: "azure.subscription_id"},
+		{name: "alloydb standalone named", provider: "alloydb", host: "10.30.0.5",
+			standalone: true, wantProvider: "alloydb", mutate: func(c *config.Config) {
+				c.CloudTelemetry.AlloyDB.Cluster = "orders"
+				c.CloudTelemetry.AlloyDB.Instance = "orders-primary"
+			}},
+		{name: "alloydb without a name", provider: "alloydb", host: "10.30.0.5",
+			wantProvider: "alloydb", wantAvailableReason: "cloud_resource.gcp.cluster"},
+		{name: "azure cosmos has none", provider: "azure-cosmos",
+			host: "c-x.postgres.cosmos.azure.com", wantNil: true},
 	}
 }
 
