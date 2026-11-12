@@ -192,6 +192,50 @@ The App dashboard hides MCP-token and agent-governance navigation; direct links
 explain their unavailable status without calling those protocols. This does not
 remove the backend's existing authorization or explicit unsupported responses.
 
+PostgreSQL stores pg_sage's metadata, accounts, sessions, findings, and history.
+The binary and generated listen-address config live in ephemeral temporary
+storage; they can be recreated from the deployment package. The encryption key
+must remain stable across restarts and deployments: supply it from an existing
+Databricks secret resource. No database password or workspace token belongs in
+the package.
+
+Use a **dedicated Lakebase test branch/database** for the first deployment.
+The app service principal needs an OAuth PostgreSQL role and database/schema
+permissions. The bundle template attaches the current `postgres` resource with
+`CAN_CONNECT_AND_CREATE`; check additional permissions needed for monitoring,
+statistics and optional features. Let the app principal create and own the
+`sage` schema on its first run. Existing user-owned `sage` objects require a
+reviewed ownership/access migration; do not drop them to fix an access error.
+Database-level configuration actions additionally require database ownership
+and a supported, user-settable parameter; attaching the resource alone does
+not establish those capabilities. Transfer ownership only for the dedicated
+pg_sage database when that behavior is wanted. An App principal without
+`CREATEROLE` runs agent governance in posture-only mode; monitoring and the
+native Gateway integration do not require granting that privilege.
+
+The launcher maps `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, and `PGSSLMODE` to
+pg_sage's existing connection settings. Lakebase OAuth requires
+`sslmode=verify-full`: an injected `PGSSLMODE=require` is raised to
+`verify-full` (strictly stronger, logged once on stderr), an absent
+`PGSSLMODE` defaults to `verify-full`, and any other weaker mode, or an
+explicit `SAGE_PG_SSLMODE` below `verify-full`, stops the launcher before
+pg_sage starts. pg_sage itself sees `PGSSLMODE=verify-full`, so a
+`SAGE_DATABASE_URL` without `sslmode` also verifies the endpoint. `PGUSER` defaults to the injected
+`DATABRICKS_CLIENT_ID`. `SAGE_LAKEBASE_ENDPOINT` is the full endpoint resource
+path (`projects/.../branches/.../endpoints/...`); `LAKEBASE_ENDPOINT` and
+`ENDPOINT_NAME` are accepted launcher aliases. Native Go unified authentication
+uses the app's injected service principal credentials, and obtains Lakebase
+credentials for new physical connections. The native pool caches a valid
+database credential and remints when fewer than two minutes remain before its
+reported expiry; no password is retained in the pool's bootstrap configuration.
+The endpoint API's direct host and TLS binding are checked before connecting;
+pooled endpoint hosts are refused. Existing connections can outlive a token,
+so successful pooled queries alone do not establish refresh. Local runs can use an explicitly
+selected Databricks CLI profile instead. A single `SAGE_LAKEBASE_ENDPOINT` applies
+to every pool in the process, including a separate metadata database. For
+different endpoint hosts, use the native `SAGE_LAKEBASE_ENDPOINTS` hostname-to-
+resource JSON map in a custom deployment instead of the single-endpoint launcher.
+
 ### Service principals and MCP
 
 Agents cannot reach pg_sage inside an App yet. `/mcp`, `/api/v1/mcp`, the
@@ -240,50 +284,6 @@ date, cloud and CLI version and the captures, with real emails and IDs
 replaced by placeholders, in Q7 of
 [the Lakebase gap-closure review](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-29-lakebase-gap-closure-plan.md),
 then delete the spike App.
-
-PostgreSQL stores pg_sage's metadata, accounts, sessions, findings, and history.
-The binary and generated listen-address config live in ephemeral temporary
-storage; they can be recreated from the deployment package. The encryption key
-must remain stable across restarts and deployments: supply it from an existing
-Databricks secret resource. No database password or workspace token belongs in
-the package.
-
-Use a **dedicated Lakebase test branch/database** for the first deployment.
-The app service principal needs an OAuth PostgreSQL role and database/schema
-permissions. The bundle template attaches the current `postgres` resource with
-`CAN_CONNECT_AND_CREATE`; check additional permissions needed for monitoring,
-statistics and optional features. Let the app principal create and own the
-`sage` schema on its first run. Existing user-owned `sage` objects require a
-reviewed ownership/access migration; do not drop them to fix an access error.
-Database-level configuration actions additionally require database ownership
-and a supported, user-settable parameter; attaching the resource alone does
-not establish those capabilities. Transfer ownership only for the dedicated
-pg_sage database when that behavior is wanted. An App principal without
-`CREATEROLE` runs agent governance in posture-only mode; monitoring and the
-native Gateway integration do not require granting that privilege.
-
-The launcher maps `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, and `PGSSLMODE` to
-pg_sage's existing connection settings. Lakebase OAuth requires
-`sslmode=verify-full`: an injected `PGSSLMODE=require` is raised to
-`verify-full` (strictly stronger, logged once on stderr), an absent
-`PGSSLMODE` defaults to `verify-full`, and any other weaker mode, or an
-explicit `SAGE_PG_SSLMODE` below `verify-full`, stops the launcher before
-pg_sage starts. pg_sage itself sees `PGSSLMODE=verify-full`, so a
-`SAGE_DATABASE_URL` without `sslmode` also verifies the endpoint. `PGUSER` defaults to the injected
-`DATABRICKS_CLIENT_ID`. `SAGE_LAKEBASE_ENDPOINT` is the full endpoint resource
-path (`projects/.../branches/.../endpoints/...`); `LAKEBASE_ENDPOINT` and
-`ENDPOINT_NAME` are accepted launcher aliases. Native Go unified authentication
-uses the app's injected service principal credentials, and obtains Lakebase
-credentials for new physical connections. The native pool caches a valid
-database credential and remints when fewer than two minutes remain before its
-reported expiry; no password is retained in the pool's bootstrap configuration.
-The endpoint API's direct host and TLS binding are checked before connecting;
-pooled endpoint hosts are refused. Existing connections can outlive a token,
-so successful pooled queries alone do not establish refresh. Local runs can use an explicitly
-selected Databricks CLI profile instead. A single `SAGE_LAKEBASE_ENDPOINT` applies
-to every pool in the process, including a separate metadata database. For
-different endpoint hosts, use the native `SAGE_LAKEBASE_ENDPOINTS` hostname-to-
-resource JSON map in a custom deployment instead of the single-endpoint launcher.
 
 ## Establish the operator inputs
 
