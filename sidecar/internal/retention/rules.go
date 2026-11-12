@@ -250,8 +250,7 @@ func purgeRules(cfg *config.Config) []purgeRule {
 			sweepCol: "at"},
 		// Used or expired SSO link grants are dead weight once old (D7).
 		{table: "user_oidc_link_grants", timeCol: "expires_at", days: r.ActionsDays},
-		// Hour-of-week baselines (market-02) keep baseline.weeks + 1 weeks
-		// and baselineSlackDays.
+		// Hour-of-week baselines (market-02): baseline.weeks + 1 weeks + slack.
 		{table: "baseline_samples", timeCol: "week_start", days: baselineDays(cfg)},
 		{table: "sre_eval_runs", timeCol: "ingested_at",
 			days: cfg.SRE.Autonomy.ReportRetentionDays, extra: keepEvalRun},

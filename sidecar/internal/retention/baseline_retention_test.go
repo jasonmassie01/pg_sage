@@ -13,7 +13,8 @@ import (
 // hour-of-week buckets, so scoring never depends on the 14-day
 // query_store retention. Two more days cover a week_start (a local
 // Monday date) that lags UTC by up to 12 hours in a western zone, read as
-// midnight of a session TimeZone up to 14 hours ahead of UTC. No concurrency tests: the rule is a value in a list.
+// midnight of a session TimeZone up to 14 hours ahead of UTC.
+// No concurrency tests: the rule is a value in a list.
 
 func baselineRule(t *testing.T, cfg *config.Config) purgeRule {
 	t.Helper()
@@ -30,7 +31,8 @@ func TestPurgeRules_BaselineSamplesKeepWeeksPlusOne(t *testing.T) {
 	cfg := config.DefaultConfig()
 	r := baselineRule(t, cfg)
 	if r.timeCol != "week_start" || r.days != 37 || r.extra != "" {
-		t.Fatalf("rule = %+v, want week_start, 37 days (4 + 1 weeks and 2 days), no keep predicate", r)
+		t.Fatalf("rule = %+v, want week_start, 37 days (4 + 1 weeks and 2 days), "+
+			"no keep predicate", r)
 	}
 	cfg.Baseline.Weeks = 8
 	if r := baselineRule(t, cfg); r.days != 65 {
