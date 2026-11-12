@@ -504,6 +504,9 @@ func configDBPutHandler(
 				jsonError(w, err.Error(), http.StatusConflict)
 			case errors.Is(err, store.ErrConfigDatabaseNotFound):
 				jsonError(w, "database not found", http.StatusNotFound)
+			case errors.Is(err, store.ErrDiscoveredTrust):
+				// market-06: adopt the discovered member first.
+				jsonError(w, err.Error(), http.StatusConflict)
 			default:
 				internalError(w, r, "persist database config revision", err)
 			}

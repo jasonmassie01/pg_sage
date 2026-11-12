@@ -12,6 +12,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/auth"
+	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/store"
 )
 
@@ -170,4 +173,42 @@ func postDiscovered(t *testing.T, h http.HandlerFunc, id, body string) int {
 	w := httptest.NewRecorder()
 	h(w, withUser(req, testAdminUser()))
 	return w.Code
+}
+
+// CHECK-02 through the API: raising an unadopted discovered member's trust
+// is refused with 409 and the row keeps observation.
+func TestConfigDBPut_DiscoveredMemberTrustIsConflict(t *testing.T) {
+	pool, ctx := phase2RequireDB(t)
+	const databaseID = 9911
+	user := &auth.User{ID: phase2EnsureUser(t, pool, ctx), Role: auth.RoleAdmin}
+	resetWave2DatabaseConfig(t, ctx, pool, databaseID)
+	if _, err := pool.Exec(ctx, `INSERT INTO sage.databases
+		(id, name, host, port, database_name, username, password_enc, sslmode,
+		 trust_level, execution_mode, discovered_source, owner, expires_at)
+		VALUES ($1, 'disc-api-guard', 'localhost', 5432, 'postgres', 'postgres', '\x00',
+		 'disable', 'observation', 'approval', 'cluster', 'team', now() + interval '1h')`,
+		databaseID); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	mgr := fleet.NewManager(config.DefaultConfig())
+	mgr.RegisterInstance(&fleet.DatabaseInstance{Name: "disc-api-guard",
+		DatabaseID: databaseID, Config: config.DatabaseConfig{Name: "disc-api-guard",
+			TrustLevel: "observation", TrustLevelExplicit: true},
+		Status: &fleet.InstanceStatus{TrustLevel: "observation"}})
+	mux := http.NewServeMux()
+	mux.HandleFunc("PUT /api/v1/config/databases/{id}",
+		configDBPutHandler(store.NewConfigStore(pool), config.DefaultConfig(), pool, mgr))
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/config/databases/9911",
+		strings.NewReader(`{"expected_generation":1,"trust.level":"advisory"}`))
+	mux.ServeHTTP(w, withUser(req, user))
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "adopt") {
+		t.Fatalf("status = %d body=%s, want 409 naming adoption", w.Code, w.Body.String())
+	}
+	var trust string
+	_ = pool.QueryRow(ctx, `SELECT trust_level FROM sage.databases WHERE id = $1`,
+		databaseID).Scan(&trust)
+	if trust != "observation" {
+		t.Fatalf("trust = %q after a refused raise", trust)
+	}
 }
