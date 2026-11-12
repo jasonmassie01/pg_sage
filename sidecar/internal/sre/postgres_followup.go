@@ -27,7 +27,7 @@ const conclusionCandidatesSQL = `WITH newest AS (
      WHERE i.deployment_id = $1 AND i.database_id = $2
        AND i.source_incident_id IS NOT NULL AND i.source_incident_id <> ''
        AND i.state IN ('concluded', 'inconclusive')
-       AND i.concluded_at > clock_timestamp() - make_interval(secs => $4)
+       AND i.concluded_at > now() - make_interval(secs => $4)
      ORDER BY i.source_incident_id, i.concluded_at DESC, i.id)
 SELECT n.id::text, n.source_incident_id, n.source_case_id, n.trigger_kind, n.state,
        n.concluded_at, n.family, n.root, n.reason,
@@ -36,7 +36,7 @@ SELECT n.id::text, n.source_incident_id, n.source_case_id, n.trigger_kind, n.sta
                     AND h.investigation_id = n.id AND h.status = 'root_cause'
                   ORDER BY h.revision DESC, h.ordinal LIMIT 1), '')
   FROM newest n
- WHERE n.concluded_at <= clock_timestamp() - make_interval(secs => $3)
+ WHERE n.concluded_at <= now() - make_interval(secs => $3)
    AND NOT EXISTS (SELECT 1 FROM sage.sre_incident_followup f
                     WHERE f.incident_id = n.source_incident_id)
    AND NOT EXISTS (SELECT 1 FROM sage.sre_investigations l

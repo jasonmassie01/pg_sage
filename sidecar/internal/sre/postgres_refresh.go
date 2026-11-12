@@ -174,7 +174,7 @@ func checkRefreshInterval(ctx context.Context, q rowQuerier, scope Scope, id UUI
 	err := q.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM sage.sre_evidence
 		WHERE deployment_id = $1 AND database_id = $2 AND investigation_id = $3
 		  AND source_kind = $4
-		  AND collected_at > clock_timestamp() - make_interval(secs => $5))`,
+		  AND collected_at > now() - make_interval(secs => $5))`,
 		string(scope.DeploymentID), string(scope.DatabaseID), string(id),
 		SourceOperatorRefresh, interval.Seconds()).Scan(&recent)
 	if err != nil {
