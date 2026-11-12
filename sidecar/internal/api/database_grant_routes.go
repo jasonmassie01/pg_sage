@@ -64,16 +64,18 @@ func (h databaseGrantHandlers) list(w http.ResponseWriter, r *http.Request) {
 		"enforced": h.enforced, "scoped": len(grants) > 0})
 }
 
-// change reads the user id and a monitored {database}.
-func (h databaseGrantHandlers) change(w http.ResponseWriter, r *http.Request) (
-	auth.GrantChange, bool) {
+// change reads the user id and the {database}. A new grant must name a
+// monitored database; a revoke need not, so a grant on a database that
+// has left the fleet (which keeps its user scoped) can still be removed.
+func (h databaseGrantHandlers) change(w http.ResponseWriter, r *http.Request,
+	monitored bool) (auth.GrantChange, bool) {
 	id, ok := grantUserID(w, r)
 	if !ok {
 		return auth.GrantChange{}, false
 	}
 	db := r.PathValue("database")
-	if db == "all" || validateDatabaseParam(db) != nil || h.mgr == nil ||
-		h.mgr.GetInstance(db) == nil {
+	known := h.mgr != nil && h.mgr.GetInstance(db) != nil
+	if db == "all" || validateDatabaseParam(db) != nil || (monitored && !known) {
 		sreErrorCode(w, "unknown database: a grant must name a database pg_sage monitors",
 			"unknown_database", http.StatusBadRequest)
 		return auth.GrantChange{}, false
@@ -83,7 +85,7 @@ func (h databaseGrantHandlers) change(w http.ResponseWriter, r *http.Request) (
 }
 
 func (h databaseGrantHandlers) set(w http.ResponseWriter, r *http.Request) {
-	c, ok := h.change(w, r)
+	c, ok := h.change(w, r, true)
 	if !ok {
 		return
 	}
@@ -104,7 +106,7 @@ func (h databaseGrantHandlers) set(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h databaseGrantHandlers) revoke(w http.ResponseWriter, r *http.Request) {
-	c, ok := h.change(w, r)
+	c, ok := h.change(w, r, false)
 	if !ok {
 		return
 	}

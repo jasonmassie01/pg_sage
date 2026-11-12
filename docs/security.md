@@ -572,7 +572,9 @@ In fleet and meta-db modes an admin can limit a user to some databases
 (apiauth-08). Grants are edited on the **Users** page (**Databases** on a user
 row) or through `GET`, `PUT` and `DELETE /api/v1/users/{id}/database-grants/{database}`
 (admin only, body `{"role": "viewer" | "operator"}`). A grant must name a
-database pg_sage monitors; anything else is `400 unknown_database`.
+database pg_sage monitors; anything else is `400 unknown_database`. A grant on
+a database that has since left the fleet still limits its user, and can still
+be removed.
 
 Grants are enforced only when `api.database_grants: true` (default `false`,
 restart to change). Standalone mode ignores the switch: it has one database.
@@ -584,8 +586,8 @@ restart to change). Standalone mode ignores the switch: it has one database.
 | Admin | Admin everywhere: admins are never limited |
 
 A global viewer with an operator grant is still a viewer. Removing a user's
-last grant returns them to their global role on every database; the Users page
-warns before that.
+last grant returns them to their global role on every database; the Remove
+button of a last grant says so.
 
 What is enforced (phase 1, writes). Every operator write declares how it finds
 its database, and the registry test fails on one that does not:

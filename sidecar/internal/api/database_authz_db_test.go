@@ -239,3 +239,36 @@ func requireChatRefusalAudited(t *testing.T, cf *chatCardFixture) {
 		t.Fatalf("chat reply %q does not explain the refusal", got)
 	}
 }
+
+// A database leaves the fleet while a user still holds a grant on it: the
+// admin must still be able to revoke that grant (it keeps the user
+// scoped), though a new grant on it is refused.
+func TestDatabaseAuthzDB_RevokeGrantOnRemovedDatabase(t *testing.T) {
+	pool, ctx := phase2RequireDB(t)
+	admin := &auth.User{ID: phase2EnsureUser(t, pool, ctx), Role: auth.RoleAdmin}
+	op, _ := statusTestUser(t, ctx, pool, auth.RoleOperator)
+	base := fmt.Sprintf("/api/v1/users/%d/database-grants", op)
+	code, body := serveGrants(pool, grantsFleet("orders", "billing"), "PUT",
+		base+"/orders", `{"role":"operator"}`, admin)
+	if code != http.StatusOK {
+		t.Fatalf("grant orders: %d %v", code, body)
+	}
+	shrunk := grantsFleet("billing")
+	code, body = serveGrants(pool, shrunk, "PUT", base+"/orders", `{"role":"viewer"}`, admin)
+	if code != http.StatusBadRequest || body["code"] != "unknown_database" {
+		t.Fatalf("grant on a removed database: %d %v, want 400 unknown_database", code, body)
+	}
+	code, body = serveGrants(pool, shrunk, "DELETE", base+"/orders", "", admin)
+	if code != http.StatusOK || body["revoked"] != true {
+		t.Fatalf("revoke on a removed database: %d %v, want 200", code, body)
+	}
+	code, body = serveGrants(pool, shrunk, "GET", base, "", admin)
+	if grants, _ := body["grants"].([]any); code != http.StatusOK || len(grants) != 0 ||
+		body["scoped"] != false {
+		t.Fatalf("after revoke: %d %v, want no grants", code, body)
+	}
+	code, body = serveGrants(pool, shrunk, "DELETE", base+"/all", "", admin)
+	if code != http.StatusBadRequest || body["code"] != "unknown_database" {
+		t.Fatalf("revoke all: %d %v, want 400 unknown_database", code, body)
+	}
+}
