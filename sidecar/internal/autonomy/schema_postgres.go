@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/ledger"
 	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/schemaguard"
@@ -57,7 +58,9 @@ func NewPostgresSchemaGuard(
 				pool: pool, batchLimit: 1000, pipeline: retentionPipeline,
 			},
 		},
-		schemaDecisionRecorder{recorder}, policyConfig,
+		onlineSwapRecorder{ledger: recorder,
+			swap: readerSwapEvidence(catalogread.New(pool, catalogread.Default()))},
+		policyConfig,
 	), nil
 }
 
@@ -112,10 +115,17 @@ type schemaDecisionRecorder struct{ ledger *ledger.Service }
 func (r schemaDecisionRecorder) Record(
 	ctx context.Context, record schemaguard.DecisionRecord,
 ) error {
+	return recordSchemaDecision(ctx, r.ledger, record, schemaDecisionEvidence(record))
+}
+
+func recordSchemaDecision(
+	ctx context.Context, recorder *ledger.Service, record schemaguard.DecisionRecord,
+	evidence map[string]any,
+) error {
 	item := record.Remediation
-	_, err := r.ledger.RecordDecision(ctx, ledger.DecisionInput{
+	_, err := recorder.RecordDecision(ctx, ledger.DecisionInput{
 		Feature: "schema_guard", Intent: string(item.Invariant.Kind),
-		Evidence:    schemaDecisionEvidence(record),
+		Evidence:    evidence,
 		ProposedSQL: item.Invariant.ProposedSQL,
 		Verdict:     schemaLedgerVerdict(item.Decision.Disposition),
 		Reason:      schemaDecisionReason(item.Decision),
