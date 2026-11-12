@@ -1199,6 +1199,8 @@ func newDefaults() *Config {
 		Clone: CloneProviderConfig{
 			Provider:           DefaultCloneProvider,
 			MaxCloneAgeMinutes: DefaultCloneMaxAgeMinutes,
+			Lakebase: CloneLakebaseConfig{TTLMinutes: DefaultCloneLakebaseTTLMinutes,
+				EndpointMaxCU: DefaultCloneLakebaseEndpointMaxCU},
 		},
 		Custodian: CustodianConfig{
 			Freeze: FreezeCustodianConfig{RedBufferPct: DefaultFreezeRedBufferPct},

@@ -202,8 +202,8 @@ func ingestBenchSources(ctx context.Context, svc *earned.Service,
 // control databases.
 func localBenchProvider(s config.SREAutonomyConfig, cloneCfg config.CloneProviderConfig,
 	guard localTargetGuard) (clone.Provider, string, error) {
-	if cloneCfg.Provider == "dle" {
-		p, err := configuredMCPCloneProvider(cloneCfg)
+	if cloneCfg.Provider == "dle" || cloneCfg.Provider == clone.LakebaseAdapter {
+		p, err := cloneProviderFor(cloneCfg, guard.own)
 		return p, cloneCfg.Provider, err
 	}
 	if s.GameDays.LocalDSN == "" {

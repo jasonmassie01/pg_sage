@@ -38,10 +38,21 @@ type IOCapacityConfig struct {
 }
 
 type CloneProviderConfig struct {
-	Provider           string `yaml:"provider" doc:"Clone provider: none or dle (Database Lab)."`
+	Provider           string `yaml:"provider" doc:"Clone provider: none, dle (Database Lab) or lakebase_branch (a Lakebase branch per rehearsal)."`
 	DLEEndpoint        string `yaml:"dle_endpoint" doc:"Database Lab Engine API endpoint."`
 	DLEToken           string `yaml:"dle_token" doc:"Database Lab bearer token." secret:"true"`
 	MaxCloneAgeMinutes int    `yaml:"max_clone_age_minutes" doc:"Maximum source snapshot age."`
+	// Lakebase configures clone.provider lakebase_branch (market-03).
+	Lakebase CloneLakebaseConfig `yaml:"lakebase"`
+}
+
+// CloneLakebaseConfig is the Lakebase project rehearsal branches are made
+// in (clone.provider lakebase_branch).
+type CloneLakebaseConfig struct {
+	Project       string  `yaml:"project" doc:"Lakebase project id rehearsal branches are created in; the principal needs CAN_MANAGE on it."`
+	SourceBranch  string  `yaml:"source_branch" doc:"Branch id (or projects/<project>/branches/<id>) a rehearsal branches from. Default: the monitored endpoint's branch."`
+	TTLMinutes    int     `yaml:"ttl_minutes" doc:"Server-side expiry of every rehearsal branch, in minutes, 1 to 1440: the backstop if pg_sage cannot delete it. Default: 60."`
+	EndpointMaxCU float64 `yaml:"endpoint_max_cu" doc:"Autoscaling maximum, in compute units, of the read-write endpoint on a rehearsal branch. Default: 1."`
 }
 
 type CustodianConfig struct {
@@ -100,18 +111,8 @@ func (c *Config) validateAgentNative() error {
 		c.Verify.WriteImpactPct < 0 {
 		return fmt.Errorf("verify percentages must be non-negative")
 	}
-	if c.Clone.Provider == "snapshot" {
-		return fmt.Errorf("clone.provider snapshot has no adapter in this build: " +
-			"use dle or none")
-	}
-	if c.Clone.Provider != "none" && c.Clone.Provider != "dle" {
-		return fmt.Errorf("clone.provider must be none or dle")
-	}
-	if c.Clone.Provider == "dle" && c.Clone.DLEEndpoint == "" {
-		return fmt.Errorf("clone.dle_endpoint is required for dle provider")
-	}
-	if c.Clone.MaxCloneAgeMinutes <= 0 {
-		return fmt.Errorf("clone.max_clone_age_minutes must be positive")
+	if err := c.Clone.validate(); err != nil {
+		return err
 	}
 	if c.Custodian.Freeze.RedBufferPct <= 0 ||
 		c.Custodian.Freeze.RedBufferPct > 100 {

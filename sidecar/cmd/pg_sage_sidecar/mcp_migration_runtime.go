@@ -29,10 +29,19 @@ type mcpMigrationFactory func(
 const rehearsalReceiptTTL = rehearsalpkg.DefaultMaxDuration + 15*time.Minute
 
 // configuredMCPCloneProvider is the clone adapter clone.provider names, or
-// nil for none. Database Lab is the only adapter in this build.
+// nil for none, with no production database: a lakebase_branch adapter
+// built here destroys (the reaper) but refuses every create.
 func configuredMCPCloneProvider(
 	cloneConfig config.CloneProviderConfig,
 ) (clonepkg.Provider, error) {
+	return cloneProviderFor(cloneConfig, nil)
+}
+
+// cloneProviderFor is the clone adapter clone.provider names, cloning the
+// database monitored connects to (used by lakebase_branch to find and
+// guard production's branch), or nil for none.
+func cloneProviderFor(cloneConfig config.CloneProviderConfig,
+	monitored *pgxpool.Pool) (clonepkg.Provider, error) {
 	switch cloneConfig.Provider {
 	case "none", "":
 		return nil, nil
@@ -40,15 +49,21 @@ func configuredMCPCloneProvider(
 		return clonepkg.NewDLEProvider(clonepkg.DLEConfig{
 			Endpoint: cloneConfig.DLEEndpoint, Token: cloneConfig.DLEToken,
 		})
+	case clonepkg.LakebaseAdapter:
+		return lakebaseCloneProvider(cloneConfig, monitored)
 	default:
 		return nil, errors.New("unsupported clone provider " + cloneConfig.Provider +
-			" (this build has none or dle)")
+			" (this build has none, dle or lakebase_branch)")
 	}
 }
 
 // cloneReceiptScope is the provider scope receipts are written under: the
-// adapter's endpoint without credentials or a trailing slash.
+// Lakebase project, or the adapter's endpoint without credentials or a
+// trailing slash.
 func cloneReceiptScope(cloneConfig config.CloneProviderConfig) string {
+	if cloneConfig.Provider == clonepkg.LakebaseAdapter {
+		return "projects/" + cloneConfig.Lakebase.Project
+	}
 	parsed, err := url.Parse(cloneConfig.DLEEndpoint)
 	if err != nil || parsed.Host == "" {
 		return cloneConfig.Provider
@@ -83,7 +98,7 @@ func receiptingRehearsalProvider(adapter clonepkg.Provider, receiptPool *pgxpool
 func configuredMCPMigrationRuntime(
 	pool *pgxpool.Pool, gate policy.Gate, cloneConfig config.CloneProviderConfig,
 ) (mcp.MigrationRuntime, error) {
-	adapter, err := configuredMCPCloneProvider(cloneConfig)
+	adapter, err := cloneProviderFor(cloneConfig, pool)
 	if err != nil || adapter == nil {
 		return nil, err
 	}
@@ -137,7 +152,8 @@ func rehearsalFailureReason(err error) rehearsalpkg.Reason {
 	switch {
 	case errors.Is(err, clonepkg.ErrNoReceiptStore):
 		return rehearsalpkg.ReasonNoReceiptStore
-	case errors.Is(err, rehearsalpkg.ErrTargetIsProduction):
+	case errors.Is(err, rehearsalpkg.ErrTargetIsProduction),
+		errors.Is(err, clonepkg.ErrCloneIsProduction):
 		return rehearsalpkg.ReasonTargetIsProduction
 	case errors.Is(err, rehearsalpkg.ErrTargetUnverified):
 		return rehearsalpkg.ReasonTargetUnverified

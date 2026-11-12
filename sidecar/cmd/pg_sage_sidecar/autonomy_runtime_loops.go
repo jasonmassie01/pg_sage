@@ -178,8 +178,8 @@ func gameDayProvider(s config.SREGameDaysConfig, cloneCfg config.CloneProviderCo
 	if !s.Enabled {
 		return nil, "", nil
 	}
-	if cloneCfg.Provider == "dle" {
-		p, err := configuredMCPCloneProvider(cloneCfg)
+	if cloneCfg.Provider == "dle" || cloneCfg.Provider == clone.LakebaseAdapter {
+		p, err := cloneProviderFor(cloneCfg, guard.own)
 		return p, cloneCfg.Provider, err
 	}
 	if s.LocalDSN != "" {

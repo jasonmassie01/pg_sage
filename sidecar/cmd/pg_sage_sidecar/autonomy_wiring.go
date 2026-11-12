@@ -221,6 +221,8 @@ func (n autonomyNotifier) NotifyAutonomous(ctx context.Context, a earned.AutoExe
 type localTargetGuard struct {
 	dsns  []string
 	pools gameday.RefusedFunc
+	// own is the monitored database a lakebase_branch clone branches from.
+	own *pgxpool.Pool
 }
 
 // localTargetGuardFor refuses the database's own pool, the control
@@ -240,7 +242,7 @@ func localTargetGuardFor(own, meta *pgxpool.Pool) localTargetGuard {
 			dsns = append(dsns, p.Config().ConnString())
 		}
 	}
-	return localTargetGuard{dsns: dsns,
+	return localTargetGuard{dsns: dsns, own: own,
 		pools: func(context.Context) ([]gameday.Querier, error) {
 			var out []gameday.Querier
 			for _, p := range current() {

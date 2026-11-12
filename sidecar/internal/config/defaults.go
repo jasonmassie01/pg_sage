@@ -229,6 +229,11 @@ const (
 	DefaultWALIOCeilingPct           = 70
 	DefaultCloneProvider             = "none"
 	DefaultCloneMaxAgeMinutes        = 1440
+	// DefaultCloneLakebaseTTLMinutes is clone.lakebase.ttl_minutes: the
+	// rehearsal bound (1 h), so a leaked branch lives no longer than one.
+	DefaultCloneLakebaseTTLMinutes = 60
+	// DefaultCloneLakebaseEndpointMaxCU is clone.lakebase.endpoint_max_cu.
+	DefaultCloneLakebaseEndpointMaxCU = 1.0
 	DefaultFreezeRedBufferPct        = 25.0
 	DefaultWALAbandonAfterMinutes    = 1440
 	DefaultWALRetainedDiskPctCeiling = 10.0

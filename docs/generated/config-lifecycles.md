@@ -116,6 +116,10 @@
 | `briefing.slack_webhook_url` | `reconfigure` | `briefing` | `safety_critical` |
 | `clone.dle_endpoint` | `restart` | `-` | `safety_critical` |
 | `clone.dle_token` | `restart` | `-` | `safety_critical` |
+| `clone.lakebase.endpoint_max_cu` | `restart` | `-` | `operator_preference` |
+| `clone.lakebase.project` | `restart` | `-` | `safety_critical` |
+| `clone.lakebase.source_branch` | `restart` | `-` | `safety_critical` |
+| `clone.lakebase.ttl_minutes` | `restart` | `-` | `operator_preference` |
 | `clone.max_clone_age_minutes` | `restart` | `-` | `operator_preference` |
 | `clone.provider` | `restart` | `-` | `safety_critical` |
 | `cloud_telemetry.aws.db_cluster_identifier` | `restart` | `-` | `safety_critical` |
