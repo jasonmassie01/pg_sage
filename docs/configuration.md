@@ -1249,6 +1249,16 @@ In fleet mode the floor is instance-wide and the connection review runs once per
 instance, from the database that owns the instance settings; the timeout it proposes is
 for that database.
 
+### Workload budgets
+
+`budgets` (default: none) declares per-role, `application_name` or sqlcommenter-tag
+limits (`statement_timeout`, `idle_in_transaction_session_timeout`, `connection_limit`,
+`pool_size`, `mode: warn|enforce`). Warn mode, the default, only counts would-be
+violations into `sage.budget_shadow`; a role budget in `enforce` mode becomes
+`ALTER ROLE` actions after 7 days of clean shadow data, the connection limit always with
+approval. `advisor.budget_proposals` (default `true`) proposes a `statement_timeout` per
+role from its statement time. See [workload budgets](workload-budgets.md).
+
 ### WAL and bloat advisors
 
 The WAL review (`wal_tuning`) and the bloat review (`bloat_remediation`) also reason over
