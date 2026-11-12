@@ -100,3 +100,21 @@ func TestWorkloadAnomaly_UnreadStatementsKeepTheFinding(t *testing.T) {
 		})
 	}
 }
+
+// Boundary: a statement needs the rules-05 call floor (Δcalls >= k) in
+// the interval before its mean is a sample; one call under it adds
+// nothing to the bucket, so a rarely run statement cannot alarm.
+func TestWorkloadSamples_StatementCallFloor(t *testing.T) {
+	const k = 5
+	cur, prev := snapPair(tuesday0900, qspec{1, 40, k - 1}, qspec{2, 40, k})
+	var got []string
+	for _, s := range workloadSamples(cur, prev, k, 500).samples {
+		if s.Key.Metric == MetricQueryMean {
+			got = append(got, s.Key.Key)
+		}
+	}
+	if len(got) != 1 || got[0] != "queryid:2" {
+		t.Fatalf("sampled statements = %v, want only queryid:2 (at the floor of %d calls)",
+			got, k)
+	}
+}
