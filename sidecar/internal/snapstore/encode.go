@@ -35,10 +35,10 @@ var keyFields = map[string][]string{
 	// partitioned (relkind I) indexes, absent from pg_stat_user_indexes
 	"partitioned_indexes": {"schemaname", "indexrelname"},
 	// btree bloat estimates (rules-13)
-	"index_bloat": {"schemaname", "indexrelname"},
-	"queries":             {"queryid"},
-	"io":                  {"backend_type", "object", "context"},
-	"prepared_xacts":      {"gid"},
+	"index_bloat":    {"schemaname", "indexrelname"},
+	"queries":        {"queryid"},
+	"io":             {"backend_type", "object", "context"},
+	"prepared_xacts": {"gid"},
 }
 
 // objectCategories are object documents that are mostly static members
