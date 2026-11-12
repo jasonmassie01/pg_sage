@@ -157,7 +157,11 @@ Model-authored SQL never runs through the executor ([Model-authored SQL](#model-
   rollback still runs; index replacement reads the old index the same way. The session's
   settings are reset before the connection returns to the pool; a connection whose reset
   fails is closed instead.
-  Workload `EXPLAIN` and HypoPG what-if sessions keep the application's `search_path`.
+  Workload `EXPLAIN` and HypoPG what-if sessions plan on the application's `search_path`,
+  set for their transaction only: the database's setting (`ALTER DATABASE ... SET
+  search_path`), else `ALTER ROLE ALL SET search_path`, else the server's value, else
+  `"$user", public`, always without `"$user"`. A `search_path` set on pg_sage's own role is
+  never used for them, since it is not the application's.
 - **Never drops replication slots or changes sequence capacity autonomously.** WAL/replication playbooks are read-only diagnostics, and sequence-exhaustion remediation is generated as a reviewed forward-fix migration script that pg_sage never runs. Step 1 is a read-only runway query over `pg_sequences` and the type of the column that takes the sequence's values; it reports whether the sequence or the column is the binding limit and how many values remain (toward `min_value` for descending sequences). Step 2 is `ALTER SEQUENCE ... AS bigint` under `lock_timeout`, behind a guard that refuses while a `smallint` or `integer` column taking the values would overflow at or before the sequence's own bound, since widening the sequence would not help; a sequence with no column found passes the guard, so the script asks the reviewer to check application code that calls `nextval`. Step 3, as comments for the reviewer, is the online column widening: a new `bigint` column, a copy trigger and batched backfill, a `NOT VALID` check then `VALIDATE`, and a swap under `lock_timeout`; an in-place `ALTER COLUMN ... TYPE` rewrites the table under an ACCESS EXCLUSIVE lock. A finding that names no sequence yields a blocked candidate with no script.
 - **Never runs maintenance during known IO saturation.** Bloat autopilot blocks autonomous `VACUUM` candidates when IO pressure evidence is present and emits script/review output instead.
 - **Never rewrites application queries autonomously.** Query rewrites are generated as reviewable PR/script artifacts with semantic and plan verification steps.
