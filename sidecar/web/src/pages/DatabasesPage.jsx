@@ -4,6 +4,7 @@ import { DatabaseTable } from './databases/DatabaseTable'
 import { CSVImport } from './databases/CSVImport'
 import { DeleteConfirm } from './databases/DeleteConfirm'
 import { FleetFindings } from './databases/FleetFindings'
+import { DiscoveredDatabases } from './databases/DiscoveredDatabases'
 import { RuntimeCells } from './databases/RuntimeCells'
 import { LeaderBadge } from './databases/LeaderBadge'
 import { RUNTIME_HEADERS, joinRuntime } from './databases/runtimeStatus'
@@ -23,6 +24,7 @@ export function DatabasesPage({ onSelectDatabase }) {
   const [runtimeAvailable, setRuntimeAvailable] = useState(false)
   const [readOnlySource, setReadOnlySource] = useState(null)
   const [inventoryComplete, setInventoryComplete] = useState(false)
+  const [tab, setTab] = useState('databases')
 
   const fetchDatabases = useCallback(async () => {
     setLoading(true)
@@ -212,7 +214,11 @@ export function DatabasesPage({ onSelectDatabase }) {
         </div>
       )}
 
-      {!loading && (readOnly ? (
+      {!loading && !readOnly && <FleetTabs tab={tab} onChange={setTab} />}
+
+      {!loading && !readOnly && tab === 'discovered' && <DiscoveredDatabases />}
+
+      {!loading && (readOnly || tab === 'databases') && (readOnly ? (
         <ReadOnlyFleet databases={databases} onSelectDatabase={onSelectDatabase} />
       ) : databases.length > 0 ? (
         <DatabaseTable databases={databases}
@@ -255,6 +261,26 @@ async function fetchInventory(url, label) {
     throw new Error(`Invalid ${label} response`)
   }
   return data.databases
+}
+
+// FleetTabs switches between registered databases and the Discovered tab
+// (market-06, fleet auto-discovery).
+function FleetTabs({ tab, onChange }) {
+  const tabs = [['databases', 'Databases'], ['discovered', 'Discovered']]
+  return (
+    <div className="flex gap-2" role="tablist" data-testid="fleet-tabs">
+      {tabs.map(([key, label]) => (
+        <button key={key} role="tab" aria-selected={tab === key}
+          data-testid={`fleet-tab-${key}`} onClick={() => onChange(key)}
+          className="px-3 py-1 rounded text-sm"
+          style={{
+            background: tab === key ? 'var(--accent)' : 'var(--bg-card)',
+            color: tab === key ? '#fff' : 'var(--text-primary)',
+            border: '1px solid var(--border)',
+          }}>{label}</button>
+      ))}
+    </div>
+  )
 }
 
 function InventoryMetric({ label, value, detail }) {
