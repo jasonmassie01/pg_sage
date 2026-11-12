@@ -18,8 +18,11 @@ import (
 )
 
 // CI runs PGIncidentBench in shards (SAGE_BENCH_FAMILIES) so that no
-// bench step exceeds about 20 minutes. This contract keeps the split
-// honest: in every job that runs the bench, the shards are disjoint,
+// bench step exceeds about 20 minutes. Since ci-03b each shard is a leg
+// of the bench job's pg x shard matrix; the contract expands the matrix
+// the way GitHub does and checks every major's legs as one set (one
+// "job" per major below). This contract keeps the split
+// honest: on every major, the shards are disjoint,
 // together cover every bench family (a new family cannot be forgotten),
 // each shard is gated by SAGE_BENCH_RUN=1 and runs under a 2400 s go test
 // timeout that its own bench budget fits in, and each writes its report
@@ -35,12 +38,20 @@ type ciStep struct {
 	TimeoutMinutes int               `yaml:"timeout-minutes"`
 }
 
+type ciJob struct {
+	Env      map[string]string `yaml:"env"`
+	Strategy struct {
+		Matrix struct {
+			PG    []string            `yaml:"pg"`
+			Shard []map[string]string `yaml:"shard"`
+		} `yaml:"matrix"`
+	} `yaml:"strategy"`
+	Steps []ciStep `yaml:"steps"`
+}
+
 type ciWorkflow struct {
 	Env  map[string]string `yaml:"env"`
-	Jobs map[string]struct {
-		Env   map[string]string `yaml:"env"`
-		Steps []ciStep          `yaml:"steps"`
-	} `yaml:"jobs"`
+	Jobs map[string]ciJob  `yaml:"jobs"`
 }
 
 func readCIWorkflow(t *testing.T) ciWorkflow {
@@ -56,15 +67,94 @@ func readCIWorkflow(t *testing.T) ciWorkflow {
 	return wf
 }
 
-// benchSteps returns a job's steps that run TestPGIncidentBench.
-func benchSteps(wf ciWorkflow, job string) []ciStep {
-	var out []ciStep
-	for _, st := range wf.Jobs[job].Steps {
-		if strings.Contains(st.Run, "TestPGIncidentBench") {
-			out = append(out, st)
+// benchJob is the job whose matrix legs run the bench shards.
+const benchJob = "bench"
+
+// matrixRef is a whole ${{ matrix.<key> }} expression.
+var matrixRef = regexp.MustCompile(`\$\{\{\s*matrix\.([a-z_.]+)\s*\}\}`)
+
+// expandMatrix substitutes every whole ${{ matrix.<key> }} in v with the
+// leg's value ("" for a key the leg lacks, as GitHub does). matrix values
+// inside a larger expression are left as they are.
+func expandMatrix(v string, leg map[string]string) string {
+	return matrixRef.ReplaceAllStringFunc(v, func(ref string) string {
+		return leg[matrixRef.FindStringSubmatch(ref)[1]]
+	})
+}
+
+// legEnv is a step's env for one leg. A variable that is one matrix value
+// the leg lacks is dropped: GitHub sets it empty, which the bench reads
+// as unset.
+func legEnv(env, leg map[string]string) map[string]string {
+	out := map[string]string{}
+	for k, v := range env {
+		got := expandMatrix(v, leg)
+		whole := strings.TrimSpace(v)
+		if got == "" && matrixRef.FindString(whole) == whole {
+			continue
+		}
+		out[k] = got
+	}
+	return out
+}
+
+// benchLegs expands the bench job's matrix: for every major ("bench
+// pgNN"), one step per shard, with the leg's matrix values substituted.
+func benchLegs(wf ciWorkflow) map[string][]ciStep {
+	job := wf.Jobs[benchJob]
+	out := map[string][]ciStep{}
+	for _, pg := range job.Strategy.Matrix.PG {
+		for _, shard := range job.Strategy.Matrix.Shard {
+			leg := map[string]string{"pg": pg}
+			for k, v := range shard {
+				leg["shard."+k] = v
+			}
+			for _, st := range job.Steps {
+				if !strings.Contains(st.Run, "TestPGIncidentBench") {
+					continue
+				}
+				st.Name = expandMatrix(st.Name, leg)
+				st.Run = expandMatrix(st.Run, leg)
+				st.Env = legEnv(st.Env, leg)
+				name := benchJob + " pg" + pg
+				out[name] = append(out[name], st)
+			}
 		}
 	}
 	return out
+}
+
+func sortedLegs(legs map[string][]ciStep) []string {
+	var out []string
+	for name := range legs {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func TestExpandMatrix(t *testing.T) {
+	leg := map[string]string{"pg": "17", "shard.name": "core-a"}
+	for in, want := range map[string]string{
+		"x/${{ matrix.shard.name }}":              "x/core-a",
+		"${{matrix.pg}}-${{ matrix.shard.name }}": "17-core-a",
+		"${{ matrix.shard.replay }}":              "",
+		"${{ matrix.pg == 17 && '10' || '' }}":    "${{ matrix.pg == 17 && '10' || '' }}",
+		"plain":                                   "plain",
+	} {
+		if got := expandMatrix(in, leg); got != want {
+			t.Errorf("expandMatrix(%q) = %q, want %q", in, got, want)
+		}
+	}
+	env := legEnv(map[string]string{"A": "${{ matrix.shard.replay }}", "B": "1",
+		"C": "${{ matrix.pg }}"}, leg)
+	if _, set := env["A"]; set || env["B"] != "1" || env["C"] != "17" || len(env) != 2 {
+		t.Fatalf("legEnv = %v, want A dropped, B=1, C=17", env)
+	}
+	wf := ciWorkflow{Jobs: map[string]ciJob{}}
+	if got := benchLegs(wf); len(got) != 0 {
+		t.Fatalf("benchLegs of a workflow without a bench job = %v, want none", got)
+	}
 }
 
 func allBenchFamilies() []string {
@@ -83,8 +173,12 @@ func allBenchFamilies() []string {
 func TestCISplit_ShardsCoverEveryFamilyOnce(t *testing.T) {
 	wf := readCIWorkflow(t)
 	all := allBenchFamilies()
-	for _, job := range []string{"test", "integration-matrix"} {
-		steps := benchSteps(wf, job)
+	legs := benchLegs(wf)
+	if got := sortedLegs(legs); len(got) != 5 {
+		t.Fatalf("bench legs by major %q, want PostgreSQL 14-18", got)
+	}
+	for _, job := range sortedLegs(legs) {
+		steps := legs[job]
 		if len(steps) < 2 {
 			t.Fatalf("%s: %d bench steps, want the bench split in shards", job, len(steps))
 		}
@@ -111,10 +205,13 @@ func TestCISplit_ShardsCoverEveryFamilyOnce(t *testing.T) {
 }
 
 func TestCISplit_EveryShardIsGatedAndBounded(t *testing.T) {
-	wf := readCIWorkflow(t)
-	for _, job := range []string{"test", "integration-matrix"} {
+	legs := benchLegs(readCIWorkflow(t))
+	if len(legs) == 0 {
+		t.Fatal("ci.yml has no bench legs")
+	}
+	for _, job := range sortedLegs(legs) {
 		dirs := map[string]bool{}
-		for _, st := range benchSteps(wf, job) {
+		for _, st := range legs[job] {
 			if !BenchRunRequested(func(k string) string { return st.Env[k] }) {
 				t.Errorf("%s / %s does not set %s=1", job, st.Name, EnvRun)
 			}
@@ -126,7 +223,7 @@ func TestCISplit_EveryShardIsGatedAndBounded(t *testing.T) {
 					st.TimeoutMinutes)
 			}
 			dir := st.Env[EnvReportDir]
-			if job == "test" && (dir == "" || dirs[dir]) {
+			if dir == "" || dirs[dir] {
 				t.Errorf("%s / %s: report dir %q is missing or shared", job, st.Name, dir)
 			}
 			dirs[dir] = true
@@ -142,19 +239,23 @@ func TestCISplit_EveryShardIsGatedAndBounded(t *testing.T) {
 }
 
 // benches-11: the replay corpus is the same in every shard, so exactly one
-// shard per job (core) replays it, and no workflow or job env turns it on
-// for all of them.
+// shard per major (core part A) replays it, and no workflow or job env
+// turns it on for all of them.
 func TestCISplit_OneShardPerJobReplays(t *testing.T) {
 	wf := readCIWorkflow(t)
 	if v, set := wf.Env[EnvReplay]; set {
 		t.Errorf("ci.yml sets %s=%q for every job", EnvReplay, v)
 	}
-	for _, job := range []string{"test", "integration-matrix"} {
-		if v, set := wf.Jobs[job].Env[EnvReplay]; set {
-			t.Errorf("%s sets %s=%q for every shard", job, EnvReplay, v)
-		}
+	if v, set := wf.Jobs[benchJob].Env[EnvReplay]; set {
+		t.Errorf("%s sets %s=%q for every shard", benchJob, EnvReplay, v)
+	}
+	legs := benchLegs(wf)
+	if len(legs) == 0 {
+		t.Fatal("ci.yml has no bench legs")
+	}
+	for _, job := range sortedLegs(legs) {
 		var replaying []string
-		for _, st := range benchSteps(wf, job) {
+		for _, st := range legs[job] {
 			if v, set := st.Env[EnvReplay]; set && strings.TrimSpace(v) != "1" {
 				t.Errorf("%s / %s: %s=%q, want 1 or unset", job, st.Name, EnvReplay, v)
 			}
@@ -361,10 +462,14 @@ func shardRepeats(env map[string]string, scenarios []Scenario) (int, error) {
 // single pass of a pull request (ci-03).
 func TestBenchShardsFitTheirTimeoutOnTags(t *testing.T) {
 	wf := readCIWorkflow(t)
-	for _, job := range []string{"test", "integration-matrix"} {
-		for _, st := range benchSteps(wf, job) {
+	legs := benchLegs(wf)
+	if len(legs) == 0 {
+		t.Fatal("ci.yml has no bench legs")
+	}
+	for _, job := range sortedLegs(legs) {
+		for _, st := range legs[job] {
 			env := map[string]string{}
-			for k, v := range wf.Jobs[job].Env {
+			for k, v := range wf.Jobs[benchJob].Env {
 				env[k] = v
 			}
 			for k, v := range st.Env {

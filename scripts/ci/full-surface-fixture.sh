@@ -94,7 +94,7 @@ psql_in() {
 
 start_postgres() {
   local major=$1
-  local image=${PG_SAGE_E2E_IMAGE:-ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg$major}
+  local image=${PG_SAGE_E2E_IMAGE:-ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg$major-r1}
   docker run -d --name "$container" -e POSTGRES_PASSWORD=postgres \
     -p "127.0.0.1:$pg_port:5432" "$image" >/dev/null
   local ready=0
@@ -104,7 +104,9 @@ start_postgres() {
   done
   ((ready)) || die "PostgreSQL in container '$container' did not accept connections" \
     "within 60s (image $image); see 'docker logs $container'"
-  bash "$root/scripts/ci/setup-test-postgres.sh" "$container" "$major" >/dev/null
+  # CI's image has the test server baked in (ci-03b); a PG_SAGE_E2E_IMAGE must
+  # too (scripts/ci/images/Dockerfile.pg), or the check names what is missing.
+  bash "$root/scripts/ci/verify-test-postgres.sh" "$container" "$major" >/dev/null
   psql_in -c "CREATE DATABASE e2e_meta" -c "CREATE DATABASE e2e_standalone"
   local entry
   for entry in "${targets[@]}"; do

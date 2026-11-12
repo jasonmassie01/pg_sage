@@ -399,19 +399,20 @@ var (
 	shardLoop   = regexp.MustCompile(`for shard in ([a-z0-9 -]+); do`)
 )
 
-// benchShards returns the report directory names of the test job's
-// PGIncidentBench shards.
-func benchShards(t *testing.T, wf pipeWorkflow) []string {
+// benchShards returns the report directory names of the PG17 bench legs:
+// since ci-03b each shard of the bench job's pg x shard matrix writes
+// pgincidentbench/<shard> (the steps of the test job did before).
+func benchShards(t *testing.T) []string {
 	t.Helper()
+	bench := mxJobNamed(t, loadMatrixJobs(t), "bench")
+	steps := mxSteps(bench, "TestPGIncidentBench")
+	if len(steps) != 1 || !strings.HasSuffix(steps[0].Env["SAGE_BENCH_REPORT_DIR"],
+		"/${{ matrix.shard.name }}") {
+		t.Fatalf("bench job bench steps %v, want one writing its shard's directory", steps)
+	}
 	var out []string
-	for _, st := range wf.Jobs["test"].Steps {
-		if strings.Contains(st.Run, "TestPGIncidentBench") {
-			dir := st.Env["SAGE_BENCH_REPORT_DIR"]
-			if dir == "" {
-				t.Fatalf("test / %s writes no SAGE_BENCH_REPORT_DIR", st.Name)
-			}
-			out = append(out, dir[strings.LastIndex(dir, "/")+1:])
-		}
+	for _, sh := range bench.Strategy.Matrix.Shard {
+		out = append(out, sh.Name)
 	}
 	sort.Strings(out)
 	return out
@@ -431,18 +432,18 @@ func stepMatch(job pipeJob, re *regexp.Regexp) string {
 // every shard's report, so a new shard cannot ship unsigned or unlisted.
 func TestBenchSignCountsEveryShard(t *testing.T) {
 	wf := loadCIPipeline(t)
-	shards := benchShards(t, wf)
+	shards := benchShards(t)
 	if len(shards) < 2 {
-		t.Fatalf("test job bench shards %q, want the bench split in shards", shards)
+		t.Fatalf("bench matrix shards %q, want the bench split in shards", shards)
 	}
 	n, err := strconv.Atoi(stepMatch(wf.Jobs["bench-sign"], reportCount))
 	if err != nil || n != len(shards) {
-		t.Errorf("bench-sign expects %d reports (err %v), the test job writes %d: %q",
+		t.Errorf("bench-sign expects %d reports (err %v), the bench matrix writes %d: %q",
 			n, err, len(shards), shards)
 	}
 	staged := strings.Fields(stepMatch(wf.Jobs["release"], shardLoop))
 	sort.Strings(staged)
 	if !slices.Equal(staged, shards) {
-		t.Errorf("release stages shards %q, the test job writes %q", staged, shards)
+		t.Errorf("release stages shards %q, the bench matrix writes %q", staged, shards)
 	}
 }

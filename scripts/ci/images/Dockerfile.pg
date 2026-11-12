@@ -1,0 +1,28 @@
+# CI's PostgreSQL test server (ci-03b): pgvector 0.8.2 on a base pinned by
+# digest, with HypoPG, pg_hint_plan and pgaudit installed and the test
+# server settings in the conf sample initdb copies, so a CI job starts a
+# ready server: no apt-get, no ALTER SYSTEM, no restarts.
+# Built and published by .github/workflows/mirror-ci-images.yml, once per
+# revision; scripts/ci/verify-test-postgres.sh checks every image it pushes.
+ARG PG_MAJOR
+ARG BASE_DIGEST
+FROM pgvector/pgvector:0.8.2-pg${PG_MAJOR}@${BASE_DIGEST}
+ARG PG_MAJOR
+
+# The installed versions are printed in the build log (dpkg-query).
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+      "postgresql-${PG_MAJOR}-hypopg" \
+      "postgresql-${PG_MAJOR}-pg-hint-plan" \
+      "postgresql-${PG_MAJOR}-pgaudit"; \
+    dpkg-query -W "postgresql-${PG_MAJOR}-*"; \
+    rm -rf /var/lib/apt/lists/*
+
+# initdb copies /usr/share/postgresql/postgresql.conf.sample (every
+# major's share directory links to it, PostgreSQL 18 included), so the
+# settings are in every new data directory.
+COPY postgresql.ci.conf /usr/share/postgresql/postgresql.ci.conf
+RUN cat /usr/share/postgresql/postgresql.ci.conf >> /usr/share/postgresql/postgresql.conf.sample
+
+COPY initdb-ci.sql /docker-entrypoint-initdb.d/10-ci.sql

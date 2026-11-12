@@ -1,5 +1,5 @@
 {
-  "description": "benches-06: the PGIncidentBench scenarios a release run must score on CI's image (scripts/ci/setup-test-postgres.sh), per PostgreSQL major. Every scenario is either expected or an allowed skip with its reason; SAGE_BENCH_EXPECTED names this file.",
+  "description": "benches-06: the PGIncidentBench scenarios a release run must score on CI's image (scripts/ci/images/Dockerfile.pg), per PostgreSQL major. Every scenario is either expected or an allowed skip with its reason; SAGE_BENCH_EXPECTED names this file.",
   "majors": {
     "14": {
       "expected": [
@@ -79,7 +79,7 @@
         "seq-far-from-limit"
       ],
       "allowed_skips": {
-        "wal-archiver-failure": "CI's image has no archive fixture: archive_mode is off (scripts/ci/setup-test-postgres.sh does not configure archiving)"
+        "wal-archiver-failure": "CI's image has no archive fixture: archive_mode is off (scripts/ci/images/postgresql.ci.conf does not configure archiving)"
       }
     },
     "15": {
@@ -160,7 +160,7 @@
         "seq-far-from-limit"
       ],
       "allowed_skips": {
-        "wal-archiver-failure": "CI's image has no archive fixture: archive_mode is off (scripts/ci/setup-test-postgres.sh does not configure archiving)"
+        "wal-archiver-failure": "CI's image has no archive fixture: archive_mode is off (scripts/ci/images/postgresql.ci.conf does not configure archiving)"
       }
     },
     "16": {
@@ -241,7 +241,7 @@
         "seq-far-from-limit"
       ],
       "allowed_skips": {
-        "wal-archiver-failure": "CI's image has no archive fixture: archive_mode is off (scripts/ci/setup-test-postgres.sh does not configure archiving)"
+        "wal-archiver-failure": "CI's image has no archive fixture: archive_mode is off (scripts/ci/images/postgresql.ci.conf does not configure archiving)"
       }
     },
     "17": {
@@ -322,7 +322,7 @@
         "seq-far-from-limit"
       ],
       "allowed_skips": {
-        "wal-archiver-failure": "CI's image has no archive fixture: archive_mode is off (scripts/ci/setup-test-postgres.sh does not configure archiving)"
+        "wal-archiver-failure": "CI's image has no archive fixture: archive_mode is off (scripts/ci/images/postgresql.ci.conf does not configure archiving)"
       }
     },
     "18": {
@@ -403,7 +403,7 @@
         "seq-far-from-limit"
       ],
       "allowed_skips": {
-        "wal-archiver-failure": "CI's image has no archive fixture: archive_mode is off (scripts/ci/setup-test-postgres.sh does not configure archiving)"
+        "wal-archiver-failure": "CI's image has no archive fixture: archive_mode is off (scripts/ci/images/postgresql.ci.conf does not configure archiving)"
       }
     }
   }

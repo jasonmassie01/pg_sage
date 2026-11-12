@@ -235,9 +235,10 @@ func TestCIReleaseMinRunsMatchesThePromotionBar(t *testing.T) {
 	bar := earned.DefaultThresholds().MinTop1N
 	wf := readCIWorkflow(t)
 	tagValue := regexp.MustCompile(`startsWith\(github\.ref, 'refs/tags/v'\) && '([^']+)'`)
-	steps := benchSteps(wf, "test")
+	// The signed release report is PG17's (ci-03b: the bench matrix legs).
+	steps := benchLegs(wf)[benchJob+" pg17"]
 	if len(steps) == 0 {
-		t.Fatal("no bench steps in the test job")
+		t.Fatal("no PG17 legs in the bench matrix")
 	}
 	for _, st := range steps {
 		if v, ok := st.Env[EnvRepeats]; ok {
