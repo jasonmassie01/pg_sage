@@ -568,6 +568,14 @@
     "class": "derivable",
     "lifecycle": "restart"
   },
+  "api.database_grants": {
+    "type": "bool",
+    "default": false,
+    "doc": "Fleet and meta-db modes: enforce per-database grants on operator writes. A user with no grants keeps their global role; one with grants operates only where granted. Default false.",
+    "warning": "While off, grants are stored but not enforced.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
   "api.listen_addr": {
     "type": "string",
     "default": "0.0.0.0:8080",

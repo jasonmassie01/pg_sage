@@ -125,6 +125,10 @@ type APIConfig struct {
 	// AccessLog writes one line per mutating API request and per 401/403
 	// (apiauth-12); nil means enabled.
 	AccessLog *bool `yaml:"access_log" doc:"Log one structured line per mutating API request and per 401/403 response: method, route pattern, user id, role, status and latency, never bodies or query strings. Default true." warning:"Turning this off removes the record of who changed what through the API."`
+
+	// DatabaseGrants turns on per-database authorization in fleet and
+	// meta-db modes (apiauth-08); standalone ignores it.
+	DatabaseGrants bool `yaml:"database_grants" doc:"Fleet and meta-db modes: enforce per-database grants on operator writes. A user with no grants keeps their global role; one with grants operates only where granted. Default false." warning:"While off, grants are stored but not enforced."`
 }
 
 // AccessLogEnabled reports whether the API access log is on (default: on).
