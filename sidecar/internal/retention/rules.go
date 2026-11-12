@@ -250,7 +250,8 @@ func purgeRules(cfg *config.Config) []purgeRule {
 			sweepCol: "at"},
 		// Used or expired SSO link grants are dead weight once old (D7).
 		{table: "user_oidc_link_grants", timeCol: "expires_at", days: r.ActionsDays},
-		// Hour-of-week baselines (market-02) keep baseline.weeks + 1 weeks.
+		// Hour-of-week baselines (market-02) keep baseline.weeks + 1 weeks
+		// and baselineSlackDays.
 		{table: "baseline_samples", timeCol: "week_start", days: baselineDays(cfg)},
 		{table: "sre_eval_runs", timeCol: "ingested_at",
 			days: cfg.SRE.Autonomy.ReportRetentionDays, extra: keepEvalRun},
@@ -258,15 +259,21 @@ func purgeRules(cfg *config.Config) []purgeRule {
 	return rules
 }
 
-// baselineDays is baseline.weeks + 1 weeks; a zero (literal) config keeps
-// the default window.
+// baselineDays is baseline.weeks + 1 weeks and baselineSlackDays; a zero
+// (literal) config keeps the default window.
 func baselineDays(cfg *config.Config) int {
 	weeks := cfg.Baseline.Weeks
 	if weeks <= 0 {
 		weeks = config.DefaultBaselineWeeks
 	}
-	return (weeks + 1) * 7
+	return (weeks+1)*7 + baselineSlackDays
 }
+
+// baselineSlackDays keeps the oldest scored week through the last hours of
+// the week: week_start is a local Monday date, up to 12 hours behind UTC
+// in a western zone, and the purge reads it as midnight of the session
+// TimeZone, up to 14 hours ahead of UTC.
+const baselineSlackDays = 2
 
 // explainResultsGrace is one day, or 0 (off) with explain retention off.
 func explainResultsGrace(r config.RetentionConfig) int {
