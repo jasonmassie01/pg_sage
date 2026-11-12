@@ -309,3 +309,28 @@ func TestMemberName_UniqueBoundedAndSafe(t *testing.T) {
 		t.Fatalf("unsafe characters kept: %q", got)
 	}
 }
+
+// Invalid input: an endless page of endpoints without a host adds no
+// candidate, and the walk still stops at the cap.
+func TestLakebase_HostlessEndpointLoopStopsAtCap(t *testing.T) {
+	api := &fakeLakebase{
+		branches: func(postgres.ListBranchesRequest) listing.Iterator[postgres.Branch] {
+			return &sliceIter[postgres.Branch]{items: []postgres.Branch{
+				{Name: "projects/p1/branches/main"}}}
+		},
+	}
+	var eps *loopIter[postgres.Endpoint]
+	api.endpoints = func(r postgres.ListEndpointsRequest) listing.Iterator[postgres.Endpoint] {
+		eps = &loopIter[postgres.Endpoint]{next: func(i int) postgres.Endpoint {
+			return postgres.Endpoint{Name: r.Parent + "/endpoints/pending"}
+		}}
+		return eps
+	}
+	got, err := NewLakebaseSource("lb", "p1", api, 7).List(context.Background())
+	if err != nil || len(got) != 0 {
+		t.Fatalf("List = %+v, %v; want no candidates", got, err)
+	}
+	if eps.n != 7 {
+		t.Fatalf("walked %d endpoints, want the cap 7", eps.n)
+	}
+}

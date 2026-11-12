@@ -113,7 +113,8 @@ func (l *LakebaseSource) List(ctx context.Context) ([]Candidate, error) {
 				l.name, parent, err)
 		}
 		eps := l.api.ListEndpoints(ctx, postgres.ListEndpointsRequest{Parent: b.Name})
-		for len(out) < l.cap && eps.HasNext(ctx) {
+		// Endpoints without a host add no candidate, so the walk counts too.
+		for seen := 0; seen < l.cap && len(out) < l.cap && eps.HasNext(ctx); seen++ {
 			ep, err := eps.Next(ctx)
 			if err != nil {
 				return nil, fmt.Errorf("lakebase source %s: list endpoints of %s: %w",
