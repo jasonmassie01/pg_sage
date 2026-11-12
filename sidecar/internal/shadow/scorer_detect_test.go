@@ -257,3 +257,19 @@ func TestUnscorableReasonOfAnUnparsableName(t *testing.T) {
 		}
 	}
 }
+
+// An object that covers expressions is another object, even when its
+// kinds and plain columns are the decision's: pg_sage proposes columns only.
+func TestStatisticsMatchRefusesExpressions(t *testing.T) {
+	c, err := extstats.ParseCreate(`CREATE STATISTICS public.sage_stx_t ON a, b FROM public.t`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds, columns := []string{"d", "f", "m"}, []string{"a", "b"}
+	if !statisticsMatch(c, kinds, columns, false) {
+		t.Fatal("the same columns and kinds without expressions must match")
+	}
+	if statisticsMatch(c, kinds, columns, true) {
+		t.Fatal("an object covering expressions matched a plain-column decision")
+	}
+}
