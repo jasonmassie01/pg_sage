@@ -22,7 +22,7 @@ func chicago(t *testing.T) *time.Location {
 
 // Monday 00:00 is bucket 0 and Sunday 23:00 bucket 167, in the window's
 // time zone, not UTC.
-func TestWindowBucket_MondayMidnightIsZeroInTheConfiguredZone(t *testing.T) {
+func TestBaselineWindowBucket_MondayMidnightIsZeroInTheConfiguredZone(t *testing.T) {
 	utc := Window{Loc: time.UTC, Weeks: 4}
 	cases := []struct {
 		at   time.Time
@@ -48,7 +48,7 @@ func TestWindowBucket_MondayMidnightIsZeroInTheConfiguredZone(t *testing.T) {
 // State transition (DST): 09:00 Monday local is bucket 9 on both sides of
 // the 2026-03-08 spring-forward in America/Chicago, although its UTC hour
 // moves from 15:00 to 14:00. The week starts on the local Monday.
-func TestWindowBucket_DSTShiftKeepsLocalWallClockBucket(t *testing.T) {
+func TestBaselineWindowBucket_DSTShiftKeepsLocalWallClockBucket(t *testing.T) {
 	w := Window{Loc: chicago(t), Weeks: 4}
 	before := time.Date(2026, 3, 2, 15, 0, 0, 0, time.UTC) // CST: 09:00
 	after := time.Date(2026, 3, 9, 14, 0, 0, 0, time.UTC)  // CDT: 09:00
@@ -77,7 +77,7 @@ func TestWindowBucket_DSTShiftKeepsLocalWallClockBucket(t *testing.T) {
 
 // Nil/zero: a window without a zone is UTC and without weeks uses
 // DefaultWeeks.
-func TestWindow_ZeroValueIsUTCAndDefaultWeeks(t *testing.T) {
+func TestBaselineWindow_ZeroValueIsUTCAndDefaultWeeks(t *testing.T) {
 	var w Window
 	at := time.Date(2026, 11, 10, 9, 0, 0, 0, time.FixedZone("x", 5*3600))
 	if got := w.Bucket(at); got != 24+4 {
@@ -89,7 +89,7 @@ func TestWindow_ZeroValueIsUTCAndDefaultWeeks(t *testing.T) {
 }
 
 // Boundary: 2 weeks of history is learning, 3 is active.
-func TestJudge_LearningUntilThreeWeeks(t *testing.T) {
+func TestBaselineJudge_LearningUntilThreeWeeks(t *testing.T) {
 	two := Judge([]float64{10, 10}, 100, 5)
 	if !two.Learning() || two.Weeks != 2 || two.Z != 0 {
 		t.Fatalf("2 weeks = %+v, want learning with z 0", two)
@@ -108,7 +108,7 @@ func TestJudge_LearningUntilThreeWeeks(t *testing.T) {
 }
 
 // Nil/empty: no history is learning with zero weeks and no z.
-func TestJudge_EmptyHistory(t *testing.T) {
+func TestBaselineJudge_EmptyHistory(t *testing.T) {
 	for _, h := range [][]float64{nil, {}} {
 		s := Judge(h, 42, 5)
 		if !s.Learning() || s.Weeks != 0 || s.Z != 0 || s.Observed != 42 {
@@ -119,7 +119,7 @@ func TestJudge_EmptyHistory(t *testing.T) {
 
 // MAD = 0 on a constant series: the 5%-of-median floor applies, so z is
 // finite and no division by zero happens.
-func TestJudge_ConstantSeriesUsesTheMADFloor(t *testing.T) {
+func TestBaselineJudge_ConstantSeriesUsesTheMADFloor(t *testing.T) {
 	s := Judge([]float64{20, 20, 20, 20}, 30, 5)
 	if s.MAD != 0 || s.Median != 20 {
 		t.Fatalf("score = %+v, want median 20, MAD 0", s)
@@ -141,7 +141,7 @@ func TestJudge_ConstantSeriesUsesTheMADFloor(t *testing.T) {
 
 // Invalid input: NaN and infinite history weeks are dropped before the
 // week count, so they cannot make a bucket active or poison the median.
-func TestJudge_DropsNaNHistory(t *testing.T) {
+func TestBaselineJudge_DropsNaNHistory(t *testing.T) {
 	s := Judge([]float64{math.NaN(), 10, math.Inf(1), 10}, 10, 5)
 	if s.Weeks != 2 || !s.Learning() {
 		t.Fatalf("score = %+v, want 2 usable weeks (learning)", s)
@@ -154,7 +154,7 @@ func TestJudge_DropsNaNHistory(t *testing.T) {
 
 // Boundary: Exceeds needs z at or above the threshold and the absolute
 // delta floor, and never fires while learning.
-func TestScoreExceeds_ZAndDeltaFloors(t *testing.T) {
+func TestBaselineScoreExceeds_ZAndDeltaFloors(t *testing.T) {
 	cases := []struct {
 		name  string
 		s     Score
@@ -177,7 +177,7 @@ func TestScoreExceeds_ZAndDeltaFloors(t *testing.T) {
 
 // Invalid input: Clean drops NaN, infinite and negative values and keeps
 // the last sample of a repeated key, so one statement upserts one row.
-func TestClean_DropsInvalidValuesAndDuplicateKeys(t *testing.T) {
+func TestBaselineClean_DropsInvalidValuesAndDuplicateKeys(t *testing.T) {
 	k := Key{Metric: "query_mean_ms", Key: "queryid:1"}
 	in := []Sample{
 		{Key: k, How: "interval_mean", Value: 3},

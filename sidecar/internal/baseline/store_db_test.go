@@ -48,7 +48,7 @@ func sample(k Key, v float64) []Sample {
 
 // Happy path: three cycles in one hour fold into one row, n = 3, value
 // the mean.
-func TestStoreAccumulate_FoldsAnHourIntoOneRow(t *testing.T) {
+func TestBaselineStoreAccumulate_FoldsAnHourIntoOneRow(t *testing.T) {
 	st, pool, ctx := liveStore(t)
 	w := Window{Loc: time.UTC, Weeks: 4}
 	for i, v := range []float64{10, 20, 60} {
@@ -76,7 +76,7 @@ func TestStoreAccumulate_FoldsAnHourIntoOneRow(t *testing.T) {
 
 // Boundary: History returns the bucket's previous `weeks` weeks, oldest
 // first: not the current week, not an older week, not another bucket.
-func TestStoreHistory_ReadsThePreviousWeeksOfTheBucket(t *testing.T) {
+func TestBaselineStoreHistory_ReadsThePreviousWeeksOfTheBucket(t *testing.T) {
 	st, _, ctx := liveStore(t)
 	w := Window{Loc: time.UTC, Weeks: 4}
 	week := 7 * 24 * time.Hour
@@ -114,7 +114,7 @@ func TestStoreHistory_ReadsThePreviousWeeksOfTheBucket(t *testing.T) {
 
 // Integration (fleet): two databases keep separate baselines for the
 // same key.
-func TestStoreHistory_FleetDatabasesAreSeparate(t *testing.T) {
+func TestBaselineStoreHistory_FleetDatabasesAreSeparate(t *testing.T) {
 	st, _, ctx := liveStore(t)
 	w := Window{Loc: time.UTC, Weeks: 4}
 	for i := 1; i <= 3; i++ {
@@ -144,7 +144,7 @@ func TestStoreHistory_FleetDatabasesAreSeparate(t *testing.T) {
 // Concurrent access: accumulation from several goroutines while History
 // reads loses no sample: n is the number of writes and the value their
 // mean.
-func TestStoreAccumulate_ConcurrentWritersAndReaders(t *testing.T) {
+func TestBaselineStoreAccumulate_ConcurrentWritersAndReaders(t *testing.T) {
 	st, pool, ctx := liveStore(t)
 	w := Window{Loc: time.UTC, Weeks: 4}
 	const writers, each = 6, 20
@@ -184,7 +184,7 @@ func TestStoreAccumulate_ConcurrentWritersAndReaders(t *testing.T) {
 }
 
 // Nil/empty: no samples writes nothing; no keys reads nothing.
-func TestStore_EmptyInputsAreNoOps(t *testing.T) {
+func TestBaselineStore_EmptyInputsAreNoOps(t *testing.T) {
 	st, pool, ctx := liveStore(t)
 	w := Window{Loc: time.UTC, Weeks: 4}
 	if err := st.Accumulate(ctx, "orders", w, monday9, nil); err != nil {
@@ -212,7 +212,7 @@ func TestStore_EmptyInputsAreNoOps(t *testing.T) {
 
 // Error propagation: a store without a pool and a database without the
 // sage schema return errors that name what failed.
-func TestStore_ErrorsNameTheTable(t *testing.T) {
+func TestBaselineStore_ErrorsNameTheTable(t *testing.T) {
 	ctx := context.Background()
 	w := Window{Loc: time.UTC, Weeks: 4}
 	var nilStore *Store
