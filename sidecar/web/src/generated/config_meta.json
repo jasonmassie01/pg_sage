@@ -879,6 +879,27 @@
     "class": "safety_critical",
     "lifecycle": "restart"
   },
+  "cloud_telemetry.alloydb.cluster": {
+    "type": "string",
+    "default": "",
+    "doc": "AlloyDB cluster ID (set with instance). Standalone mode only.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "cloud_telemetry.alloydb.instance": {
+    "type": "string",
+    "default": "",
+    "doc": "AlloyDB instance ID within cluster (the primary, or a read pool). Standalone mode only.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "cloud_telemetry.alloydb.project": {
+    "type": "string",
+    "default": "",
+    "doc": "Google Cloud project of the AlloyDB instance. Empty: the project of the Application Default Credentials. Standalone mode only.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
   "cloud_telemetry.aws.db_cluster_identifier": {
     "type": "string",
     "default": "",
@@ -1048,17 +1069,24 @@
     "class": "safety_critical",
     "lifecycle": "reconfigure"
   },
+  "databases[].cloud_resource.gcp.cluster": {
+    "type": "string",
+    "default": "",
+    "doc": "AlloyDB cluster ID of this database (set with instance). AlloyDB hosts never name the instance, so its host telemetry needs both.",
+    "class": "safety_critical",
+    "lifecycle": "reconfigure"
+  },
   "databases[].cloud_resource.gcp.instance": {
     "type": "string",
     "default": "",
-    "doc": "Cloud SQL instance name when the host does not name it (Auth Proxy on 127.0.0.1, custom DNS). With it set the instance is read directly, never listed.",
+    "doc": "Cloud SQL instance name when the host does not name it (Auth Proxy on 127.0.0.1, custom DNS). With it set the instance is read directly, never listed. For AlloyDB: the instance ID within cluster.",
     "class": "safety_critical",
     "lifecycle": "reconfigure"
   },
   "databases[].cloud_resource.gcp.project": {
     "type": "string",
     "default": "",
-    "doc": "Google Cloud project of the Cloud SQL instance. Empty: the project of a /cloudsql/\u003cproject\u003e:\u003cregion\u003e:\u003cinstance\u003e socket host, else of the Application Default Credentials.",
+    "doc": "Google Cloud project of the Cloud SQL or AlloyDB instance. Empty: the project of a /cloudsql/\u003cproject\u003e:\u003cregion\u003e:\u003cinstance\u003e socket host, else of the Application Default Credentials.",
     "class": "safety_critical",
     "lifecycle": "reconfigure"
   },
@@ -2235,17 +2263,24 @@
     "class": "safety_critical",
     "lifecycle": "restart"
   },
+  "postgres.cloud_resource.gcp.cluster": {
+    "type": "string",
+    "default": "",
+    "doc": "AlloyDB cluster ID of this database (set with instance). AlloyDB hosts never name the instance, so its host telemetry needs both.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
   "postgres.cloud_resource.gcp.instance": {
     "type": "string",
     "default": "",
-    "doc": "Cloud SQL instance name when the host does not name it (Auth Proxy on 127.0.0.1, custom DNS). With it set the instance is read directly, never listed.",
+    "doc": "Cloud SQL instance name when the host does not name it (Auth Proxy on 127.0.0.1, custom DNS). With it set the instance is read directly, never listed. For AlloyDB: the instance ID within cluster.",
     "class": "safety_critical",
     "lifecycle": "restart"
   },
   "postgres.cloud_resource.gcp.project": {
     "type": "string",
     "default": "",
-    "doc": "Google Cloud project of the Cloud SQL instance. Empty: the project of a /cloudsql/\u003cproject\u003e:\u003cregion\u003e:\u003cinstance\u003e socket host, else of the Application Default Credentials.",
+    "doc": "Google Cloud project of the Cloud SQL or AlloyDB instance. Empty: the project of a /cloudsql/\u003cproject\u003e:\u003cregion\u003e:\u003cinstance\u003e socket host, else of the Application Default Credentials.",
     "class": "safety_critical",
     "lifecycle": "restart"
   },

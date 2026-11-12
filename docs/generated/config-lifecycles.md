@@ -118,6 +118,9 @@
 | `clone.dle_token` | `restart` | `-` | `safety_critical` |
 | `clone.max_clone_age_minutes` | `restart` | `-` | `operator_preference` |
 | `clone.provider` | `restart` | `-` | `safety_critical` |
+| `cloud_telemetry.alloydb.cluster` | `restart` | `-` | `safety_critical` |
+| `cloud_telemetry.alloydb.instance` | `restart` | `-` | `safety_critical` |
+| `cloud_telemetry.alloydb.project` | `restart` | `-` | `safety_critical` |
 | `cloud_telemetry.aws.db_cluster_identifier` | `restart` | `-` | `safety_critical` |
 | `cloud_telemetry.aws.db_instance_identifier` | `restart` | `-` | `safety_critical` |
 | `cloud_telemetry.aws.region` | `restart` | `-` | `safety_critical` |
@@ -280,6 +283,7 @@
 | `postgres.cloud_resource.azure.resource_group` | `restart` | `-` | `safety_critical` |
 | `postgres.cloud_resource.azure.server` | `restart` | `-` | `safety_critical` |
 | `postgres.cloud_resource.azure.subscription` | `restart` | `-` | `safety_critical` |
+| `postgres.cloud_resource.gcp.cluster` | `restart` | `-` | `safety_critical` |
 | `postgres.cloud_resource.gcp.instance` | `restart` | `-` | `safety_critical` |
 | `postgres.cloud_resource.gcp.project` | `restart` | `-` | `safety_critical` |
 | `postgres.database` | `restart` | `-` | `safety_critical` |
@@ -524,6 +528,7 @@ In YAML fleet mode the `fleet_databases` owner reconciles the list: an added ent
 | `databases[].cloud_resource.azure.resource_group` | `reconfigure` | `fleet_databases` | `safety_critical` |
 | `databases[].cloud_resource.azure.server` | `reconfigure` | `fleet_databases` | `safety_critical` |
 | `databases[].cloud_resource.azure.subscription` | `reconfigure` | `fleet_databases` | `safety_critical` |
+| `databases[].cloud_resource.gcp.cluster` | `reconfigure` | `fleet_databases` | `safety_critical` |
 | `databases[].cloud_resource.gcp.instance` | `reconfigure` | `fleet_databases` | `safety_critical` |
 | `databases[].cloud_resource.gcp.project` | `reconfigure` | `fleet_databases` | `safety_critical` |
 | `databases[].collector_interval_seconds` | `reconfigure` | `fleet_databases` | `operator_preference` |
