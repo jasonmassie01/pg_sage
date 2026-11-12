@@ -871,7 +871,10 @@ the last successful archive is older than `backup.max_archive_gap_minutes`
 written, is never stale however old its last archive. A failing archiver is
 `wal_archive_failing`'s, and a standby (no current WAL position) is not judged.
 This catches an `archive_command` that hangs or falls behind without reporting a
-failure.
+failure. It needs one successful archive to measure from: with nothing archived
+since the statistics reset (no `last_archived_wal`, for example `archive_mode = on`
+with an empty `archive_command`, which keeps WAL without archiving it) the pending
+count is unknown and the rule does not judge.
 
 **Detail:** the archiver fields above, `pending_segments`, `archived_age_minutes`
 and `max_archive_gap_minutes`.
