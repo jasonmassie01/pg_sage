@@ -1,6 +1,11 @@
 package migration
 
-import "time"
+import (
+	"errors"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+)
 
 // DDLClassification is the result of classifying a DDL statement against
 // the rule catalog. Each matched rule produces one classification.
@@ -65,6 +70,9 @@ type DDLRisk struct {
 	// MeasuredAt is when the live reads ran; zero without a pool or when
 	// every read failed.
 	MeasuredAt time.Time
+	// readErr joins the live reads that failed (a missing row is not a
+	// failure: the table does not exist yet).
+	readErr error
 }
 
 // DDLMeasured flags the live reads of one assessment that succeeded.
@@ -78,4 +86,13 @@ type DDLMeasured struct {
 // any reports whether at least one live read succeeded.
 func (m DDLMeasured) any() bool {
 	return m.TableStats || m.Activity || m.PendingLocks || m.ReplicationLag
+}
+
+// noteReadErr keeps a failed live read; pgx.ErrNoRows (no such table) is
+// an answer, not a failure.
+func (r *DDLRisk) noteReadErr(err error) {
+	if err == nil || errors.Is(err, pgx.ErrNoRows) {
+		return
+	}
+	r.readErr = errors.Join(r.readErr, err)
 }

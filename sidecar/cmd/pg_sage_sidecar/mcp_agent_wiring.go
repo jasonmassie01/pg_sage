@@ -44,6 +44,7 @@ func agentToolOptions(c *config.Config) agenttools.Options {
 		opts.Explain = &c.Explain
 		opts.PlanMaxAgeMinutes = c.Tuner.PlanMaxAgeMinutes
 		opts.VerifyWindow = time.Duration(c.Verify.WindowMinutes) * time.Minute
+		opts.DDLRowThreshold = c.Migration.DDLRowThreshold
 	}
 	return opts
 }

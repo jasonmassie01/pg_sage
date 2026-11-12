@@ -144,28 +144,20 @@ func (a *Advisor) AnalyzeSessionRisk(
 	return incident, highest, nil
 }
 
-// assessHighest scores every classification except the lock_timeout
-// annotation (which has no intrinsic hazard of its own, G7-B33) and
-// returns the highest-risk one plus the annotation, if present.
+// assessHighest scores every classification with Review's path
+// (scoreClassifications: the lock_timeout annotation is not scored,
+// G7-B33) and returns the highest-risk one plus the annotation, if
+// present.
 func (a *Advisor) assessHighest(
 	ctx context.Context, classifications []DDLClassification,
 ) (*DDLRisk, *DDLClassification) {
+	refine := func(c *DDLClassification) { a.refineAlterType(ctx, c) }
+	risks, lockTimeout, err := scoreClassifications(ctx, a.assessor, classifications, refine)
+	if err != nil {
+		a.logFn("warn", "migration: %v", err)
+	}
 	var highest *DDLRisk
-	var lockTimeout *DDLClassification
-	for i := range classifications {
-		c := classifications[i]
-		if c.RuleID == "ddl_missing_lock_timeout" {
-			lockTimeout = &classifications[i]
-			continue
-		}
-		a.refineAlterType(ctx, &c)
-		risk, err := a.assessor.Assess(ctx, c)
-		if err != nil {
-			a.logFn("warn",
-				"migration: risk assessment failed for %s: %v",
-				c.RuleID, err)
-			continue
-		}
+	for _, risk := range risks {
 		if highest == nil || risk.RiskScore > highest.RiskScore {
 			highest = risk
 		}

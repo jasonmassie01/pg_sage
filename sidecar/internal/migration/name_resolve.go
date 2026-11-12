@@ -43,6 +43,7 @@ func (ra *RiskAssessor) resolveTableSchema(
 ) {
 	candidates, err := ra.candidateSchemas(ctx, risk.TableName)
 	if err != nil {
+		risk.noteReadErr(err)
 		ra.logFn("debug", "migration: schema lookup failed for %s: %v",
 			risk.TableName, err)
 		return

@@ -17,6 +17,9 @@ type RiskAssessor struct {
 	rowThreshold int64
 	timeouts     catalogread.Timeouts // bounds each live-metric read
 	repack       *repackCache         // nil without a pool: never named
+	// reader, when set, runs the live-metric reads instead of the pool
+	// (Review: the caller's bounded querier).
+	reader catalogread.Querier
 }
 
 // NewRiskAssessor creates a RiskAssessor backed by the given pool.
@@ -40,14 +43,34 @@ func NewRiskAssessor(
 // the risk is scored from what is known.
 func (ra *RiskAssessor) SetCatalogReadTimeouts(t catalogread.Timeouts) { ra.timeouts = t }
 
-// catalog is the bounded reader over the assessor's pool.
-func (ra *RiskAssessor) catalog() catalogread.Reader {
+// newQuerierAssessor is a RiskAssessor whose live-metric reads run on q
+// (already bounded by the caller); nil q scores intrinsic hazards only.
+func newQuerierAssessor(
+	q catalogread.Querier, rowThreshold int64, logFn func(string, string, ...any),
+) *RiskAssessor {
+	ra := &RiskAssessor{logFn: logFn, rowThreshold: rowThreshold, reader: q}
+	if q != nil {
+		ra.repack = newRepackCache(ra.probeRepack)
+	}
+	return ra
+}
+
+// live reports whether the assessor reads live metrics.
+func (ra *RiskAssessor) live() bool { return ra.pool != nil || ra.reader != nil }
+
+// catalog is the bounded reader over the assessor's pool, or its querier.
+func (ra *RiskAssessor) catalog() catalogread.Querier {
+	if ra.reader != nil {
+		return ra.reader
+	}
 	return catalogread.New(ra.pool, ra.timeouts)
 }
 
 // Assess queries live database metrics and computes a risk score for
 // the given DDL classification. Without a pool only the intrinsic rule
-// hazard is scored.
+// hazard is scored. A failed live read is logged and scored as unknown;
+// it is also kept on the risk (readErr) for callers that must not score a
+// migration they could not measure (Review).
 func (ra *RiskAssessor) Assess(
 	ctx context.Context, c DDLClassification,
 ) (*DDLRisk, error) {
@@ -63,7 +86,7 @@ func (ra *RiskAssessor) Assess(
 		Description:     c.Description,
 	}
 
-	if ra.pool != nil {
+	if ra.live() {
 		at := time.Now().UTC()
 		if c.TableName != "" && c.SchemaName == "" {
 			ra.resolveTableSchema(ctx, risk, c.SessionRole)
