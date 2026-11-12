@@ -81,8 +81,6 @@ type Config struct {
 	RCA         RCAConfig           `yaml:"rca"`
 	SRE         SREConfig           `yaml:"sre"`
 	Runaway     RunawayConfig       `yaml:"runaway"`
-	// Budgets are the workload budgets (workload_budgets.go, market-08).
-	Budgets []BudgetConfig `yaml:"budgets" doc:"Workload budgets per role, application_name or sqlcommenter tag: warn mode (default) counts would-be violations; enforce (role budgets) proposes ALTER ROLE settings. Default: none."`
 	Explain     ExplainConfig       `yaml:"explain"`
 	LogWatch    LogWatchConfig      `yaml:"logwatch"`
 	SchemaLint  SchemaLintConfig    `yaml:"schema_lint"`
@@ -105,6 +103,8 @@ type Config struct {
 	SelfConfig  SelfConfigConfig    `yaml:"self_config"`
 	// Specialist is the Postgres-specialist contract other agents call.
 	Specialist SpecialistConfig `yaml:"specialist"`
+	// Budgets are the workload budgets (workload_budgets.go, market-08).
+	Budgets []BudgetConfig `yaml:"budgets" doc:"Workload budgets per role, application_name or sqlcommenter tag: warn mode (default) counts would-be violations; enforce (role budgets) proposes ALTER ROLE settings. Default: none."`
 	// FleetLearning is fleet learning and leader election (fleet_learning.go).
 	FleetLearning FleetLearningConfig `yaml:"fleet_learning"`
 	// HA is each database's HA monitor cadence (ha.go).

@@ -43,15 +43,18 @@ func TestParseBudgetDuration(t *testing.T) {
 // name and the field in the message.
 func TestValidateBudgets_Refusals(t *testing.T) {
 	cases := map[string]func(*BudgetConfig){
-		"name is required":        func(b *BudgetConfig) { b.Name = "" },
-		"exactly one of":          func(b *BudgetConfig) { b.Match.ApplicationName = "web" },
-		"match must set":          func(b *BudgetConfig) { b.Match.Role = "" },
-		"negative":                func(b *BudgetConfig) { b.StatementTimeout = "-6s" },
-		"connection_limit":        func(b *BudgetConfig) { b.ConnectionLimit = -1 },
-		"pool_size":               func(b *BudgetConfig) { b.PoolSize = -2 },
-		"mode":                    func(b *BudgetConfig) { b.Mode = "block" },
-		"sets no limit":           func(b *BudgetConfig) { b.StatementTimeout = "" },
-		"warn-only":               func(b *BudgetConfig) { b.Match = BudgetMatch{ApplicationName: "web"}; b.Mode = "enforce" },
+		"name is required": func(b *BudgetConfig) { b.Name = "" },
+		"exactly one of":   func(b *BudgetConfig) { b.Match.ApplicationName = "web" },
+		"match must set":   func(b *BudgetConfig) { b.Match.Role = "" },
+		"negative":         func(b *BudgetConfig) { b.StatementTimeout = "-6s" },
+		"connection_limit": func(b *BudgetConfig) { b.ConnectionLimit = -1 },
+		"pool_size":        func(b *BudgetConfig) { b.PoolSize = -2 },
+		"mode":             func(b *BudgetConfig) { b.Mode = "block" },
+		"sets no limit":    func(b *BudgetConfig) { b.StatementTimeout = "" },
+		"warn-only": func(b *BudgetConfig) {
+			b.Match = BudgetMatch{ApplicationName: "web"}
+			b.Mode = "enforce"
+		},
 		"key=value":               func(b *BudgetConfig) { b.Match = BudgetMatch{Tag: "route"} },
 		"refused":                 func(b *BudgetConfig) { b.Match.Role = "postgres" },
 		"provider administration": func(b *BudgetConfig) { b.Match.Role = "rdsadmin" },
