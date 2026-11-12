@@ -46,7 +46,11 @@ func (p AlertPolicy) Decide(st *NotifyState, evt Event, now time.Time) Decision 
 		return p.at(evt.Severity, maxTime(now, st.LastSentAt.Add(p.cooldownFor(evt.Severity))))
 	}
 	if severityRank(evt.Severity) > severityRank(st.Severity) {
-		return p.at(evt.Severity, now)
+		// An escalation supersedes a lower trigger still waiting in the
+		// outbox (quiet hours): the channel gets the new severity only.
+		d := p.at(evt.Severity, now)
+		d.CancelPending = true
+		return d
 	}
 	return suppressed("already alerted; still open")
 }
