@@ -1081,6 +1081,8 @@ hours saved, read from each monitored database's own ledger. Days are UTC. `sinc
 are both inclusive: `until` covers its whole day (the bound is the next midnight, exclusive), so
 `since=2026-08-01&until=2026-08-01` is the report for 1 August. An `until` before `since` is a
 400.
+The response also carries a `cost` section; see
+[Cost attribution and right-sizing](#cost-attribution-and-right-sizing-cost).
 
 Only an action whose current verification (the row `sage.action_log.verification_id` links)
 is a completed success earns toil credit; an older success never outweighs a newer revert.
@@ -1089,6 +1091,69 @@ Rolling an action back zeroes its toil credit and, in the same statement, stamps
 `pg_sage_incidents_avoided_total` stop counting it. Both value series on `/metrics` are gauges,
 since both go down on a rollback, and are read at most once a minute (a read in which any
 database failed is retried on the next scrape).
+
+#### Cost attribution and right-sizing (`cost`)
+
+The value report's `cost` section answers what an instance costs, which queries drive it and
+whether it is the right size. pg_sage ships no price tables: every figure comes from the rates
+you set, and the section and the Value page show `rate_source` and `as_of` beside it. Without
+`cost.rates` the section is `available: false` with `reason: "rates not configured"` and no
+figure appears anywhere. The block is optional and read at startup (restart after changing it).
+There are no environment variables for it: rates are a list.
+
+```yaml
+cost:
+  rates:
+    - resource: "rds:us-east-1/orders"   # as cloud telemetry status names it
+      currency: USD
+      as_of: "2026-11-01"                # when you read the prices
+      compute_per_hour: 0.504
+      storage_gb_month: 0.115
+    - database: reporting                # self-managed: the pg_sage database name
+      currency: EUR
+      as_of: "2026-10-15"
+      compute_per_hour: 0.30
+      vcpus: 8                           # telemetry cannot tell; used for idle share
+    - database: lakebase-main
+      currency: USD
+      as_of: "2026-11-01"
+      cu_per_hour: 0.40
+      compute_units: 4
+```
+
+| Key | Meaning |
+|---|---|
+| `resource` / `database` | Exactly one: the provider resource (`rds:<region>/<instance>`, `aurora:<region>/<instance>`, `cloud-sql:<project>:<instance>`) or the pg_sage database name. A resource entry wins over a database entry. |
+| `currency` | ISO 4217 code of every price in the entry (USD, EUR, GBP, JPY, ...). An unknown code fails the load. |
+| `as_of` | `YYYY-MM-DD` the prices were read; required, not in the future. |
+| `compute_per_hour` | Instance compute price per hour, as you pay it (on-demand, reserved, negotiated). |
+| `dbu_per_hour`, `cu_per_hour` + `compute_units` | Instead of `compute_per_hour`: a DBU or capacity-unit price times the fixed units the instance runs at. Exactly one compute price is allowed. |
+| `storage_gb_month` | Per GB-month of the allocated storage cloud telemetry reports (unknown without telemetry). |
+| `iops_month` + `provisioned_iops` | Per provisioned IOPS-month. |
+| `vcpus` | vCPUs when telemetry cannot tell (self-managed); 0 uses telemetry. |
+
+A negative, NaN or infinite price, a missing date or two compute prices fail the load.
+
+**Attribution.** Over the window (the report's `since`/`until`, default the last 7 days, at most
+35), compute cost = `compute_per_hour` x hours, counted once per instance however many of its
+databases pg_sage monitors. Each query's cost is the compute cost x its share of the recorded
+execution time: the change of `total_exec_time` between consecutive `sage.query_store` samples
+of one statistics epoch. A pair across a `pg_stat_statements` reset or eviction is dropped and
+counted in `dropped_pairs`, never differenced into a negative delta. `idle_share` = 1 - recorded
+execution time / (window x vCPUs), so you can see how much of the instance no query used; it is
+null when the vCPU count is unknown. The section lists the top 20 queries by cost and, per
+resource, compute, storage, IOPS and total; instances priced in different currencies have no
+fleet total (`currency: "mixed"`). Databases with no matching rate are named in `unpriced`.
+
+**Host usage history.** Cloud telemetry (RDS, Aurora provisioned, Cloud SQL) rolls each poll into
+`sage.host_usage_hourly` in every member database: CPU p50/p95/max, minimum available memory, DB
+load p95, peak connections, the instance class and its vCPUs, 35 days kept. A resize starts a new
+row. A failed write is logged with the resource (at most hourly while unchanged) and never fails
+the poll. The hourly
+[`instance_rightsize`](findings.md#instance-right-sizing) rule reads it: advisory only, info
+severity, no SQL, and pg_sage never resizes an instance. AlloyDB and Azure have no host
+telemetry yet, so they get attribution from configured rates but no right-sizing; Lakebase is
+priced with `cu_per_hour` and its autoscaling is never right-sized.
 
 ### Maintenance windows
 
