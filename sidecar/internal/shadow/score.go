@@ -95,12 +95,15 @@ type actionFact struct {
 }
 
 // verifiedFact is the verification of a change applied outside pg_sage;
-// Final once the verdict can no longer change.
+// Final once the verdict can no longer change. Unscorable, when set, says
+// why the catalog cannot tell (a gone relation, a statistics reset, a
+// permission denied): the decision waits and is unscored at the horizon.
 type verifiedFact struct {
-	Verdict  string
-	Final    bool
-	Reason   string
-	Evidence map[string]any
+	Verdict    string
+	Final      bool
+	Reason     string
+	Evidence   map[string]any
+	Unscorable string
 }
 
 // hypoFact is a what-if evaluation of an index create.
@@ -140,7 +143,7 @@ func judge(d Decision, ev facts, age time.Duration, o Options) judgement {
 		j.RefActionLogID = a.ID
 		return waitCapped(j, age, o)
 	}
-	if x := ev.external; x != nil {
+	if x := ev.external; x != nil && x.Unscorable == "" {
 		return waitCapped(fromExternal(d, x), age, o)
 	}
 	if h := ev.hypo; h != nil && d.Class == "index_create" && age >= o.ScoreAfter {
@@ -152,8 +155,11 @@ func judge(d Decision, ev facts, age time.Duration, o Options) judgement {
 		}
 	}
 	if age >= o.Horizon {
-		return judgement{Score: ScoreUnscored, Source: SourceNone,
-			Reason: "no operator decision, applied change or what-if before the horizon"}
+		reason := "no operator decision, applied change or what-if before the horizon"
+		if x := ev.external; x != nil {
+			reason = "not scored from the catalog: " + x.Unscorable
+		}
+		return judgement{Score: ScoreUnscored, Source: SourceNone, Reason: reason}
 	}
 	return judgement{Wait: true}
 }

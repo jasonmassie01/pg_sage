@@ -31,6 +31,28 @@ func mntTable(t *testing.T, pool *pgxpool.Pool, name string, rows int) {
 	mustExec(t, pool, `INSERT INTO public.`+name+` SELECT g, g % 7
 		FROM generate_series(1, $1) g`, rows)
 	t.Cleanup(func() { mustExec(t, pool, `DROP TABLE IF EXISTS public.`+name) })
+	waitCounter(t, pool, "public."+name, "n_tup_ins", rows)
+}
+
+// waitCounter waits until counter of table reached n: PG14's collector
+// may otherwise count the writes after a VACUUM or ANALYZE that follows.
+func waitCounter(t *testing.T, pool *pgxpool.Pool, table, counter string, n int) {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		var got int
+		if err := pool.QueryRow(context.Background(), `SELECT COALESCE(`+counter+`, 0)
+			FROM pg_stat_user_tables WHERE relid = to_regclass($1)`, table).Scan(&got); err != nil {
+			t.Fatalf("read %s of %s: %v", counter, table, err)
+		}
+		if got >= n {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s of %s is %d, never reached %d", counter, table, got, n)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 // mntShadow records a class (vacuum or analyze) decision on object with
@@ -73,6 +95,12 @@ func waitStat(t *testing.T, pool *pgxpool.Pool, table, column string) time.Time 
 	}
 }
 
+// justNow records a maintenance decision now: on PG14 a database's
+// statistics start (pg_stat_database.stats_reset) when its first backend
+// reports, so a decision dated before the fixture database existed would
+// predate its statistics and be unscorable.
+const justNow = time.Duration(0)
+
 // settled is a scorer that takes a maintenance run as soon as it shows.
 func settled(pool *pgxpool.Pool, o Options) *Scorer {
 	sc := newScorer(pool, o)
@@ -86,7 +114,7 @@ func TestDetectAnalyzeOutsideIsCountedExternal(t *testing.T) {
 	pool, _ := testPool(t)
 	mntTable(t, pool, "shadow_mnt_an", 5000)
 	s := NewStore(pool)
-	d := mntShadow(t, s, pool, "analyze", "public.shadow_mnt_an", ptr(5000), 2*time.Hour)
+	d := mntShadow(t, s, pool, "analyze", "public.shadow_mnt_an", ptr(5000), justNow)
 	sc := settled(pool, fastOptions())
 	runOnce(t, sc)
 	assertPending(t, s, d.ID)
@@ -110,8 +138,9 @@ func TestDetectVacuumOutsideIsCountedExternal(t *testing.T) {
 	pool, _ := testPool(t)
 	mntTable(t, pool, "shadow_mnt_vac", 2000)
 	mustExec(t, pool, `DELETE FROM public.shadow_mnt_vac WHERE a <= 1500`)
+	waitCounter(t, pool, "public.shadow_mnt_vac", "n_tup_del", 1500)
 	s := NewStore(pool)
-	d := mntShadow(t, s, pool, "vacuum", "public.shadow_mnt_vac", ptr(1500), 2*time.Hour)
+	d := mntShadow(t, s, pool, "vacuum", "public.shadow_mnt_vac", ptr(1500), justNow)
 	mustExec(t, pool, `VACUUM public.shadow_mnt_vac`)
 	waitStat(t, pool, "public.shadow_mnt_vac", "last_vacuum")
 	runOnce(t, settled(pool, fastOptions()))
@@ -127,7 +156,7 @@ func TestDetectWaitsOutTheSettleDelay(t *testing.T) {
 	pool, _ := testPool(t)
 	mntTable(t, pool, "shadow_mnt_settle", 100)
 	s := NewStore(pool)
-	d := mntShadow(t, s, pool, "analyze", "public.shadow_mnt_settle", ptr(100), time.Hour)
+	d := mntShadow(t, s, pool, "analyze", "public.shadow_mnt_settle", ptr(100), justNow)
 	mustExec(t, pool, `ANALYZE public.shadow_mnt_settle`)
 	waitStat(t, pool, "public.shadow_mnt_settle", "last_analyze")
 	runOnce(t, newScorer(pool, fastOptions()))
@@ -153,7 +182,7 @@ func TestDetectWithoutBaselineIsNeverCounted(t *testing.T) {
 	pool, _ := testPool(t)
 	mntTable(t, pool, "shadow_mnt_nobase", 100)
 	s := NewStore(pool)
-	d := mntShadow(t, s, pool, "analyze", "public.shadow_mnt_nobase", nil, time.Hour)
+	d := mntShadow(t, s, pool, "analyze", "public.shadow_mnt_nobase", nil, justNow)
 	mustExec(t, pool, `ANALYZE public.shadow_mnt_nobase`)
 	waitStat(t, pool, "public.shadow_mnt_nobase", "last_analyze")
 	runOnce(t, settled(pool, fastOptions()))
@@ -167,7 +196,7 @@ func TestDetectOwnMaintenanceIsNotExternal(t *testing.T) {
 	mntTable(t, pool, "shadow_mnt_own", 500)
 	s := NewStore(pool)
 	o := fastOptions()
-	d := mntShadow(t, s, pool, "vacuum", "public.shadow_mnt_own", ptr(500), time.Hour)
+	d := mntShadow(t, s, pool, "vacuum", "public.shadow_mnt_own", ptr(500), justNow)
 	mustExec(t, pool, `VACUUM public.shadow_mnt_own`) // pg_sage's executor
 	waitStat(t, pool, "public.shadow_mnt_own", "last_vacuum")
 	executedAction(t, pool, "vacuum", `VACUUM (VERBOSE) public.shadow_mnt_own`, "success",
@@ -184,7 +213,7 @@ func TestDetectOwnSameShapeIsApplied(t *testing.T) {
 	pool, _ := testPool(t)
 	mntTable(t, pool, "shadow_mnt_same", 500)
 	s := NewStore(pool)
-	d := mntShadow(t, s, pool, "vacuum", "public.shadow_mnt_same", ptr(500), time.Hour)
+	d := mntShadow(t, s, pool, "vacuum", "public.shadow_mnt_same", ptr(500), justNow)
 	mustExec(t, pool, `VACUUM public.shadow_mnt_same`)
 	waitStat(t, pool, "public.shadow_mnt_same", "last_vacuum")
 	act := executedAction(t, pool, "vacuum", `VACUUM public.shadow_mnt_same`, "success",
@@ -223,7 +252,7 @@ func TestDetectPermissionDeniedIsUnscoredAndThePassGoesOn(t *testing.T) {
 	o := fastOptions()
 	denied := mntShadow(t, s, pool, "analyze", "public.shadow_mnt_denied", ptr(100),
 		o.Horizon+time.Hour)
-	ok := mntShadow(t, s, pool, "analyze", "public.shadow_mnt_ok", ptr(100), time.Hour)
+	ok := mntShadow(t, s, pool, "analyze", "public.shadow_mnt_ok", ptr(100), justNow)
 	mustExec(t, pool, `ANALYZE public.shadow_mnt_ok`)
 	waitStat(t, pool, "public.shadow_mnt_ok", "last_analyze")
 	sc := settled(pool, o)
@@ -278,7 +307,7 @@ func TestDetectStatisticsResetIsUnscored(t *testing.T) {
 	mntTable(t, pool, "shadow_mnt_reset", 100)
 	s := NewStore(pool)
 	o := fastOptions()
-	d := mntShadow(t, s, pool, "analyze", "public.shadow_mnt_reset", ptr(100), time.Hour)
+	d := mntShadow(t, s, pool, "analyze", "public.shadow_mnt_reset", ptr(100), justNow)
 	mustExec(t, pool, `SELECT pg_stat_reset()`)
 	mustExec(t, pool, `ANALYZE public.shadow_mnt_reset`)
 	waitStat(t, pool, "public.shadow_mnt_reset", "last_analyze")
@@ -298,7 +327,7 @@ func TestDetectConcurrentPassesScoreOnce(t *testing.T) {
 	pool, _ := testPool(t)
 	mntTable(t, pool, "shadow_mnt_race", 100)
 	s := NewStore(pool)
-	d := mntShadow(t, s, pool, "analyze", "public.shadow_mnt_race", ptr(100), time.Hour)
+	d := mntShadow(t, s, pool, "analyze", "public.shadow_mnt_race", ptr(100), justNow)
 	mustExec(t, pool, `ANALYZE public.shadow_mnt_race`)
 	waitStat(t, pool, "public.shadow_mnt_race", "last_analyze")
 	before := scoreCount("orders", "analyze", ScoreCorrect, SourceExternal)

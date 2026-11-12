@@ -842,9 +842,30 @@ available, in this order (never from model text):
 |---|---|---|
 | `operator` | an operator decided the same proposal after it was recorded | rejected: incorrect; approved: by the executed action's verdict |
 | `applied` | the same change (matched by normalized SQL) ran later through pg_sage | by its verification verdict |
-| `external` | an index create or drop pg_sage wanted shows up in the catalog (a migration, psql) and no pg_sage index action since the decision made it; a dropped index counts only while its table still exists | verified like pg_sage's own actions: call-weighted before/after windows around when it appeared (`verify.*`; drops over `verify.drop_window_hours`) |
+| `external` | the change pg_sage wanted shows up in the catalog (a migration, psql) and no pg_sage action since the decision made it; the signal per class is in the next table | by the class's verification, as for pg_sage's own actions (next table) |
 | `hypopg` | an index create, after a day without the above, whose targeted queries still ran | the optimizer's what-if bar (`optimizer.hypopg_min_improvement_pct`): verified is correct, rejected incorrect |
 | `none` | nothing applied within 7 days | unscored |
+
+The classes scored `external`, and the catalog signal of each:
+
+| Class | Applied outside pg_sage when | Verification |
+|---|---|---|
+| `index_create` | a valid index of the same shape is on the table | call-weighted before/after windows of the targeted queries around when it appeared (`verify.*`) |
+| `index_drop` | the index is gone while its table still exists | the same windows over `verify.drop_window_hours` |
+| `vacuum`, `analyze` | `pg_stat_user_tables.last_vacuum` / `last_analyze` of the table is later than the decision and at least a minute old (pg_sage logs its own runs once they end); autovacuum's runs (`last_autovacuum`, `last_autoanalyze`) never count | the decision's recorded baseline (dead tuples, rows modified since analyze, or relfrozenxid age) against the same metric read in the pass that first sees the run: improved when at least half of it went, as for pg_sage's own maintenance; a decision without a baseline is never counted |
+| `autovacuum_tuning` | `pg_class.reloptions` holds exactly every proposed `key=value` of the decision's `ALTER TABLE ... SET (...)` (another value, or a value written differently, is no match) | the targeted queries' windows, as an index create |
+| `statistics` | an extended statistics object of any name on the table covers the same columns and exactly the same kinds (all three when the decision names none), without expressions | the targeted queries' windows combined with their row-estimate error before and after (as pg_sage's own statistics) |
+
+`config_guc`, `query_hint` and `reindex` are never scored from the catalog: settings change
+for unrelated reasons, and a check from pass to pass misses a change reverted in between. Any
+pg_sage action (not failed) that names the table since the decision rules a VACUUM, ANALYZE,
+reloption or statistics change out as external evidence. A decision whose table is gone, whose
+database statistics were reset since it was recorded (`pg_stat_reset()`, or on PostgreSQL 14 a
+crash that dropped them), or whose catalog row pg_sage may not read (SQLSTATE 42501) waits and
+is unscored at the horizon with that reason; it is never an error of the pass and never
+counted. The reads are bounded catalog and statistics reads (`pg_class`, `pg_stat_user_tables`,
+`pg_stat_database`, `pg_statistic_ext`, visible to `pg_monitor`) on each database's own pool,
+on PostgreSQL 14 to 18.
 
 Verdicts map by the family's rule: `improved` is correct (hygiene: a `neutral` that held is
 correct too), `regressed` or an operator's rollback is incorrect, a tuning `neutral` is
