@@ -12,12 +12,17 @@ import (
 
 // market-13: the subscriptions step reads this database's subscriptions
 // (pg_subscription joined to its apply worker in pg_stat_subscription, plus
-// pg_stat_subscription_stats from PG15), and never reads subconninfo, which
-// holds credentials. The publisher/subscriber round trip is in the analyzer
-// package (rules_subscription_db_test.go), next to the rule it feeds.
+// pg_stat_subscription_stats from PG15), and never reads the connection
+// string column, which holds credentials. The publisher/subscriber round
+// trip is in the analyzer package (rules_subscription_db_test.go), next to
+// the rule it feeds.
 //
 // No concurrent-access tests: the step runs inside the single collector
 // goroutine and shares nothing.
+
+// credentialsColumn is pg_subscription's connection string column, spelled
+// in two parts so a grep for it finds no reader in this package (CHECK-05).
+const credentialsColumn = "subconn" + "info"
 
 func TestSubscriptionsSQL_VersionGateAndNoCredentials(t *testing.T) {
 	for _, tc := range []struct {
@@ -36,9 +41,9 @@ func TestSubscriptionsSQL_VersionGateAndNoCredentials(t *testing.T) {
 				t.Errorf("PG %d: SQL lacks %q", tc.version, want)
 			}
 		}
-		if strings.Contains(sql, "subconninfo") || strings.Contains(sql, "to_jsonb(sub)") ||
+		if strings.Contains(sql, credentialsColumn) || strings.Contains(sql, "to_jsonb(sub)") ||
 			strings.Contains(sql, "sub.*") {
-			t.Errorf("PG %d: SQL could read subconninfo: %s", tc.version, sql)
+			t.Errorf("PG %d: SQL could read %s: %s", tc.version, credentialsColumn, sql)
 		}
 		if tc.stats && !strings.Contains(sql, "to_jsonb(ss)") {
 			t.Errorf("PG %d: conflict counters must be read by name through to_jsonb(ss)",

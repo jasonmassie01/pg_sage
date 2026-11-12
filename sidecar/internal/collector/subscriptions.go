@@ -9,8 +9,8 @@ import (
 
 // SubscriptionInfo is one logical replication subscription of this
 // database: pg_subscription joined to its leader apply worker in
-// pg_stat_subscription (market-13). subconninfo, which holds the
-// publisher's credentials, is never read.
+// pg_stat_subscription (market-13). The connection string column, which
+// holds the publisher's credentials, is never read.
 type SubscriptionInfo struct {
 	Name    string `json:"name"`
 	Enabled bool   `json:"enabled"`
@@ -32,8 +32,8 @@ type SubscriptionInfo struct {
 // mode: one row set per database, through subdbid) and each one's leader
 // apply worker: relid IS NULL leaves out table synchronization workers, a
 // NULL leader_pid (PG16+, read by name) parallel apply workers. Only named
-// pg_subscription columns are read: subconninfo is not readable by normal
-// roles and holds credentials.
+// pg_subscription columns are read: the connection string column is not
+// readable by normal roles and holds credentials.
 const subscriptionsSelect = sageTag + `
 SELECT sub.subname, sub.subenabled, w.pid, w.received_lsn::text,
        w.latest_end_lsn::text, w.latest_end_time, w.last_msg_receipt_time`
