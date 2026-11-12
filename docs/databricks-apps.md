@@ -192,6 +192,55 @@ The App dashboard hides MCP-token and agent-governance navigation; direct links
 explain their unavailable status without calling those protocols. This does not
 remove the backend's existing authorization or explicit unsupported responses.
 
+### Service principals and MCP
+
+Agents cannot reach pg_sage inside an App yet. `/mcp`, `/api/v1/mcp`, the
+specialist API, signed ingestion and agent-token issuance return
+`501 databricks_app_protocol_unsupported` after platform authentication, even
+when MCP is enabled in the configuration. A request whose `X-Forwarded-Email`
+is not an email address (for example a service principal's application ID)
+gets HTTP 401, so a service principal never becomes a pg_sage user account by
+accident. No other forwarded header, bearer token or forwarded access token
+selects an identity.
+
+Opening MCP to service principals waits on a spike (databricks-09): nobody has
+yet recorded which headers the Apps proxy sets for a caller with an OAuth M2M
+token, or whether it removes client-supplied copies. The planned build maps a
+platform-verified application ID to an administrator-created agent principal
+through `sage.guard_identity_bindings` under the issuer
+`<workspace>/databricks-apps-sp` (never the user namespace, never
+auto-provisioned), serves read-only MCP tools first and sends action tools
+through the existing approvals. It ships only after the spike says go.
+
+To run the spike in a test workspace, deploy
+[`deploy/databricks-apps/header-spike`](https://github.com/jasonmassie01/pg_sage/blob/master/deploy/databricks-apps/header-spike/app.py)
+as its own temporary App (never beside pg_sage) and give a test service
+principal `CAN_USE` on it. The App answers every path with the headers it
+received; credential headers show only their length and a fixed set of JWT
+identity claims (`sub`, `iss`, `aud`, `azp`, `client_id`, `email`, `scope`,
+`exp`, `iat`), never the token. Make these calls and keep each JSON response:
+
+| Call | How |
+|---|---|
+| U1 | A workspace user opens `https://<app-url>/whoami` in the browser. |
+| S1 | `curl -H "Authorization: Bearer $SP_TOKEN" https://<app-url>/mcp`, with an M2M token from `https://<workspace-host>/oidc/v1/token`. |
+| S2 | S1 plus forged `X-Forwarded-Email: forged-spike@example.invalid`, `X-Forwarded-User: forged-spike`, `X-Forwarded-Preferred-Username: forged-spike` and `X-Forwarded-Access-Token: forged.forged.forged`. |
+| S3 | S1 again with a newly minted token. |
+| S4 | S1 again after redeploying the spike App. |
+| S5 | U1 and S1 with user authorization scopes configured on the App, to see whether `X-Forwarded-Access-Token` appears. |
+
+The answer is **go** only when S2 shows every forged header removed or
+replaced (one value, not the forged one) and either one forwarded header
+carries the service principal's application ID, distinct from any user
+email and identical across S1, S3 and S4, or the forwarded access token is a
+JWT issued by the workspace whose `sub` or `client_id` is the application ID
+(the build then verifies that token's signature instead of trusting a
+header). Anything else is **no-go**, and agent transports stay 501. Record the
+date, cloud and CLI version and the captures, with real emails and IDs
+replaced by placeholders, in Q7 of
+[the Lakebase gap-closure review](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-29-lakebase-gap-closure-plan.md),
+then delete the spike App.
+
 PostgreSQL stores pg_sage's metadata, accounts, sessions, findings, and history.
 The binary and generated listen-address config live in ephemeral temporary
 storage; they can be recreated from the deployment package. The encryption key

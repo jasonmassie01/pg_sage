@@ -24,6 +24,7 @@ a custom runtime container.
 | `config.json` | Native pg_sage configuration template. |
 | `databricks.yml` | Declarative bundle template; installed-CLI schema caveats are documented in the runbook. |
 | `test_package.py` | Local packaging, rendering and launcher regression tests. |
+| `header-spike/` | Temporary header-capture App for the service-principal spike (databricks-09); never packaged with pg_sage. `test_header_spike.py` tests it. |
 
 After building the Linux executable using the runbook, run these commands from
 the repository root. Set `PG_SAGE_PACKAGE` to a fresh absolute output directory
