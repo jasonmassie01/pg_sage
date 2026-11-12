@@ -11,6 +11,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/api"
 	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/databricksauth"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/llm"
@@ -177,6 +178,9 @@ func wireRouter(p WireParams) (WireResult, error) {
 			LLMBudgets:        p.LLMBudgets,
 			TelemetryStatus:   lakebaseTelemetryStatuses,
 			TelemetryHistory:  lakebaseTelemetryHistory,
+			// Expiry times and failure classes only; never tokens (databricks-06).
+			LakebaseCredentials:  databricksauth.CredentialStatuses,
+			LakebaseEndpointInfo: databricksauth.EndpointInfoFor,
 			// Same key and policy as the runtime dispatchers (G7-B20/B21).
 			NotificationSecretKey:         notificationSecretKey(authPool),
 			NotificationPreviousSecretKey: notificationPreviousSecretKey(authPool),

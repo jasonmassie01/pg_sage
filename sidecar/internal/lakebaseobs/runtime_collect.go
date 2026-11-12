@@ -25,6 +25,20 @@ type streamPoll struct {
 	cursor Cursor
 	loaded bool
 	err    error
+	reads  readCounters
+}
+
+// readCounters are one poll's warehouse reads for a stream.
+type readCounters struct {
+	statements, rows, bytes int64
+	elapsed                 time.Duration
+}
+
+func (c *readCounters) add(b Batch, elapsed time.Duration) {
+	c.statements++
+	c.rows += int64(len(b.Events))
+	c.bytes += int64(b.Bytes)
+	c.elapsed += elapsed
 }
 
 // collect spends at most QueriesPerPoll reads: first forward for every
@@ -207,7 +221,9 @@ func (r *Runtime) read(
 			return Batch{}, w, ErrBudget
 		}
 		*budget--
+		started := time.Now()
 		b, err := r.reader.ReadWindow(ctx, sp.stream, r.scope, w)
+		sp.reads.add(b, time.Since(started))
 		if !errors.Is(err, ErrBudget) {
 			return b, w, err
 		}
@@ -240,6 +256,10 @@ func (r *Runtime) publish(polls []*streamPoll, now time.Time) []error {
 	defer r.mu.Unlock()
 	for _, sp := range polls {
 		st := r.statuses[sp.stream]
+		st.Statements += sp.reads.statements
+		st.Rows += sp.reads.rows
+		st.Bytes += sp.reads.bytes
+		st.ReadMillis += sp.reads.elapsed.Milliseconds()
 		st.LastError = ""
 		if sp.err != nil {
 			st.LastError = safeError(sp.err)

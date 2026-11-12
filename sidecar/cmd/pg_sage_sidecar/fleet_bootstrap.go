@@ -107,7 +107,7 @@ func openFleetPoolAttempts(dbCfg config.DatabaseConfig, attempts int) (*pgxpool.
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return retryStartup(ctx, "fleet db "+dbCfg.Name, attempts,
+	p, err := retryStartup(ctx, "fleet db "+dbCfg.Name, attempts,
 		func(ctx context.Context) (*pgxpool.Pool, error) {
 			return openStartupPool(ctx, base, func(poolCfg *pgxpool.Config) {
 				poolCfg.MinConns = 1
@@ -120,6 +120,8 @@ func openFleetPoolAttempts(dbCfg config.DatabaseConfig, attempts int) (*pgxpool.
 				selfmonitor.ConfigurePool(poolCfg)
 			})
 		})
+	warnLakebaseScaleToZero("fleet db "+dbCfg.Name, p, monitoredCollectorInterval())
+	return p, err
 }
 
 func registerFailedFleetDatabase(dbCfg config.DatabaseConfig, err error) {

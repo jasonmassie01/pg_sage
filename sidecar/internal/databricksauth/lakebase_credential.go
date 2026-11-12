@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"sync"
 	"time"
 
+	"github.com/databricks/databricks-sdk-go/apierr"
 	"github.com/databricks/databricks-sdk-go/service/postgres"
 )
 
@@ -32,12 +34,20 @@ var (
 var errBadCredential = errors.New("lakebase returned an empty or expired database credential")
 
 // CredentialState is a read-only snapshot of an endpoint's database
-// credential refresh. It never contains a token.
+// credential refresh. It never contains a token. LastError is the mint error
+// text for logs; status projections use LastErrorClass instead.
 type CredentialState struct {
 	LastMintAt          time.Time
 	ExpiresAt           time.Time
 	ConsecutiveFailures int
 	LastError           string
+	LastErrorClass      string
+}
+
+// EndpointCredential is one tracked endpoint's credential refresh state.
+type EndpointCredential struct {
+	Endpoint string
+	State    CredentialState
 }
 
 var credentialStates sync.Map // endpoint resource path -> CredentialState
@@ -50,6 +60,18 @@ func CredentialStatus(endpoint string) (state CredentialState, ok bool) {
 		return CredentialState{}, false
 	}
 	return v.(CredentialState), true
+}
+
+// CredentialStatuses lists every tracked endpoint's latest refresh outcome,
+// sorted by endpoint. It is empty before any tracked pool attempts a mint.
+func CredentialStatuses() []EndpointCredential {
+	out := []EndpointCredential{}
+	credentialStates.Range(func(k, v any) bool {
+		out = append(out, EndpointCredential{Endpoint: k.(string), State: v.(CredentialState)})
+		return true
+	})
+	sort.Slice(out, func(i, j int) bool { return out[i].Endpoint < out[j].Endpoint })
+	return out
 }
 
 type mintFlight struct {
@@ -151,6 +173,7 @@ func (c *credentialCache) recordLocked(next *postgres.DatabaseCredential, err er
 	} else {
 		c.state.ConsecutiveFailures++
 		c.state.LastError = err.Error()
+		c.state.LastErrorClass = mintErrorClass(err)
 	}
 	if c.endpoint != "" {
 		credentialStates.Store(c.endpoint, c.state)
@@ -174,4 +197,29 @@ func (c *credentialCache) offerLocked(mintErr error) (string, error) {
 			"cached_valid_for", left.Round(time.Second).String(), "error", mintErr.Error())
 	}
 	return c.cached.Token, nil
+}
+
+// mintErrorClass names a mint failure for status pages. It never carries the
+// error text, which can hold request details.
+func mintErrorClass(err error) string {
+	switch {
+	case errors.Is(err, errBadCredential):
+		return "bad_credential"
+	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, apierr.ErrDeadlineExceeded):
+		return "timeout"
+	case errors.Is(err, context.Canceled), errors.Is(err, apierr.ErrCancelled):
+		return "canceled"
+	case errors.Is(err, apierr.ErrUnauthenticated):
+		return "unauthenticated"
+	case errors.Is(err, apierr.ErrPermissionDenied):
+		return "permission_denied"
+	case errors.Is(err, apierr.ErrNotFound):
+		return "not_found"
+	case errors.Is(err, apierr.ErrTooManyRequests):
+		return "throttled"
+	case errors.Is(err, apierr.ErrTemporarilyUnavailable), errors.Is(err, apierr.ErrInternalError):
+		return "unavailable"
+	default:
+		return "mint_error"
+	}
 }

@@ -15,6 +15,7 @@ import { DerivedSettings } from './settings/DerivedSettings'
 import { Footprint } from './settings/Footprint'
 import { POLICY_GATE_DOC, StandingPolicy } from './settings/StandingPolicy'
 import { AuditCard } from './settings/AuditCard'
+import { DatabricksStatusCard } from './settings/DatabricksStatusCard'
 import {
   MaskedBadge, MaskedOverridesContext, SourceBadge, maskedByKey,
 } from './settings/SourceBadge'
@@ -410,6 +411,7 @@ export function SettingsPage({ database, databaseId }) {
         {restartDialog}
       </div>
       <PendingRestartPanel pending={data?.pending} />
+      {tab === 'General' && <DatabricksStatusCard />}
       {tab === 'General' && <ShadowModePage database={database} />}
       {tab === 'General' && <DerivedSettings database={database} />}
       {tab === 'General' && <Footprint database={database} />}

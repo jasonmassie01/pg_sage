@@ -16,7 +16,7 @@ type LakebaseObservabilityConfig struct {
 	Enabled              bool                           `yaml:"enabled" doc:"Read explicitly bound Lakebase system-table history through a SQL warehouse. Default off; never authorizes live host admission."`
 	WarehouseID          string                         `yaml:"warehouse_id" doc:"Existing SQL warehouse for bounded system-table reads. Uses Databricks unified authentication, never an inline credential."`
 	AllowPayload         bool                           `yaml:"allow_payload" doc:"Permit approved resource-scoped query/plan/log payload reads. Default metadata-only; does not grant UC or unmasking privileges."`
-	PollIntervalSeconds  int                            `yaml:"poll_interval_seconds" doc:"Seconds between bounded polls; 0=60, range 30-3600. Queries consume warehouse capacity."`
+	PollIntervalSeconds  int                            `yaml:"poll_interval_seconds" doc:"Seconds between bounded polls; 0=60, range 30-3600. Queries consume warehouse capacity; the warehouse auto-stops only if this exceeds its idle time (docs/lakebase.md#cost-model)."`
 	QueryTimeoutSeconds  int                            `yaml:"query_timeout_seconds" doc:"Per-query deadline; 0=30, range 1-120."`
 	MaxRows              int                            `yaml:"max_rows" doc:"Maximum rows per read window; 0=500, range 1-10000. Full windows split rather than silently truncate."`
 	MaxBytes             int                            `yaml:"max_bytes" doc:"Maximum result bytes per read; 0=4194304, range 1024-16777216."`

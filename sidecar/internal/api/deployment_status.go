@@ -70,8 +70,9 @@ func telemetryHistoryHandler(rt RuntimeDeps) http.Handler {
 }
 
 // This is deliberately an allowlist, not Config serialization/redaction. It
-// describes global configuration; runtime liveness and per-database overrides
-// must be checked separately before asserting that a reader is running/stopped.
+// describes global configuration plus the Databricks runtime signals in the
+// databricks block (runtime_liveness "partial"); other readers' liveness and
+// per-database overrides must be checked separately.
 func deploymentStatusHandler(fallback *config.Config, rt RuntimeDeps, clients LLMBudgetRegistry) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		var cfg *config.Config
@@ -100,7 +101,7 @@ func deploymentStatusHandler(fallback *config.Config, rt RuntimeDeps, clients LL
 		}
 		result := map[string]any{
 			"scope": "global_configuration", "source": source, "generation": generation,
-			"runtime_liveness": "not_reported", "per_database_overrides": "not_included",
+			"runtime_liveness": "partial", "per_database_overrides": "not_included",
 			"auth_mode": mode, "databricks_auth": databricksauth.CurrentAuthMetadata(),
 			"ai": map[string]any{
 				"general":     map[string]any{"enabled": llm.Enabled, "auth": llm.Auth, "endpoint_origin": statusOrigin(llm.Endpoint), "model": llm.Model, "api_key_configured": llm.APIKey != ""},
@@ -121,6 +122,7 @@ func deploymentStatusHandler(fallback *config.Config, rt RuntimeDeps, clients LL
 			"readers":            map[string]any{"cloud_telemetry_enabled": cfg.CloudTelemetry.IsEnabled(), "logwatch_enabled": cfg.LogWatch.Enabled, "auto_explain_enabled": cfg.AutoExplain.Enabled, "lakebase_observability_enabled": cfg.LakebaseObservability.Enabled, "lakebase_observability_allow_payload": cfg.LakebaseObservability.AllowPayload, "lakebase_observability_binding_count": len(cfg.LakebaseObservability.Bindings)},
 			"optional_protocols": map[string]any{"mcp_configured": cfg.MCP.Enabled, "mcp_transport": cfg.MCP.Transport, "specialist_configured": cfg.Specialist.Enabled, "supported_in_app": false, "refused_in_current_profile": rt.DatabricksAppAuth},
 			"trust_level":        cfg.Trust.Level,
+			"databricks":         databricksStatus(cfg, rt),
 		}
 		if clients != nil {
 			result["registered_ai_clients"] = clients.TokenStatus()

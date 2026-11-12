@@ -147,18 +147,35 @@ provider choices remain available outside Apps.
 
 `/api/v1/llm/status` reports each client's auth mode and endpoint origin, plus
 safe SDK provider/workspace/principal metadata. `authentication_observed` means
-the adapter previously authenticated a workspace HTTP request; it does not
-promise that a cached token is currently valid. Credentials and token expiry
-values are not exposed. The cached workspace/provider configuration requires
-a process restart to change.
+the last workspace HTTP request the adapter authenticated succeeded, and no
+later one failed; it does not promise that a cached token is currently valid.
+`last_auth_success_at`, `last_auth_failure_at` and `last_failure_class`
+(`config`, `origin` or `authenticate`, never the error text) give the times
+behind it. Credentials are never exposed, and `/api/v1/llm/status` reports no
+expiry. The cached workspace/provider configuration requires a process restart
+to change.
 
 Administrators can retrieve `/api/v1/deployment/status` for an allowlisted
 snapshot of the active global AI/SRE/source/action configuration after persisted
 overrides. It includes configuration generation and safe flags, never the
-configuration's secrets, DSNs or raw provider payloads. The response explicitly
-excludes per-database overrides and runtime liveness; those require separate
-runtime checks. `/api/v1/lakebase-observability/status` reports the telemetry
-runtime's sanitized state to authenticated viewers without returning events.
+configuration's secrets, DSNs or raw provider payloads. It excludes
+per-database overrides. `runtime_liveness` is `partial`: the `databricks` block
+reports runtime health, and other readers still need separate checks:
+
+| Field | Meaning |
+|---|---|
+| `databricks.active` | `true` in App mode, with a Lakebase OAuth endpoint, Lakebase telemetry, or Gateway LLM auth |
+| `databricks.endpoints[]` | Per Lakebase endpoint: `endpoint`, `last_minted_at`, `expires_at`, `consecutive_mint_failures`, `last_error_class`, and scale-to-zero: `suspend_timeout_seconds`, `compute_state`, `compute_observed_at`, `keeps_compute_active`, `scale_to_zero_blockers` (null when not yet observed; see the [cost model](lakebase.md#cost-model)). Expiry times only, never tokens. `[]` when there is none |
+| `databricks.gateway` | `authentication_observed`, `last_auth_success_at`, `last_auth_failure_at`, `last_failure_class` |
+| `databricks.telemetry` | The per-binding telemetry projection from `/api/v1/lakebase-observability/status`; `{}` when no reader runs |
+
+`last_error_class` is one of `bad_credential`, `timeout`, `canceled`,
+`unauthenticated`, `permission_denied`, `not_found`, `throttled`, `unavailable`
+or `mint_error`. The Settings General tab shows this block to administrators
+as the Databricks runtime card, which warns on mint failures, an expired
+credential or a failing Gateway. `/api/v1/lakebase-observability/status`
+reports the telemetry runtime's sanitized state to authenticated viewers
+without returning events.
 
 Optional MCP, specialist, legacy signed SLI/change-event ingestion and local token
 issuance return `501 databricks_app_protocol_unsupported` after platform

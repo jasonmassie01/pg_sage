@@ -326,6 +326,17 @@ History that leaves the source horizon before it is read still counts as a gap.
 forward lag that keeps growing means the stream needs more than its share of
 the budget: raise `queries_per_poll` or `max_rows`.
 
+Each stream also counts its SQL warehouse reads since `counters_since` (the
+reader's start): `statements` (every statement submitted, including the
+retries of a window halved on the row or byte budget, and failed reads),
+`rows` and `bytes` (from the batches returned) and `read_millis` (wall time
+spent in reads). Every statement spends the poll's query budget, so statements
+per hour across all streams stay at or below
+`queries_per_poll × 3600 / poll_interval_seconds`. The
+administrator deployment status repeats this projection under
+`databricks.telemetry`, next to credential expiry and Gateway outcomes (see
+[Databricks Apps](databricks-apps.md)).
+
 #### Cost and freshness
 
 **Freshness.** A row the provider has committed to its system table is read by
@@ -351,22 +362,75 @@ narrow when a window hits `max_rows` or `max_bytes` and widen back up to this
 cap; a stream that stays sparse at the full width reconciles up to four windows
 per read. The first forward read of a new stream starts this far back.
 
-**Warehouse cost.** Every read is a SQL statement on the bound warehouse. A
+#### Cost model
+
+pg_sage keeps two Databricks resources busy, and each is billed while it runs:
+the SQL warehouse the history reader queries, and the Lakebase compute pg_sage
+monitors. Neither default changes on its own; this section says what the
+defaults cost and which settings bring each resource back to zero.
+
+**SQL warehouse.** Every read is a SQL statement on the bound warehouse. A
 poll spends at most `queries_per_poll` statements (default 16 for six
 streams), so the default schedule can issue up to 23,040 statements a day; most
-polls spend fewer once reconcile sweeps finish. The warehouse is billed while it
-runs. If `poll_interval_seconds` is shorter than the warehouse's auto-stop idle
-time, the warehouse never stops. To cut cost, raise `poll_interval_seconds`,
-lower `queries_per_poll`, select fewer `streams`, or share a warehouse that
-already runs for other work.
+polls spend fewer once reconcile sweeps finish. The warehouse stops only when
+`poll_interval_seconds` exceeds its auto-stop idle time: with the default
+60-second poll and any auto-stop setting of a minute or more, it never stops.
 
-**Scale-to-zero.** The history reader queries system tables through the SQL
-warehouse and opens no connection to the Lakebase endpoint. The sidecar's own
-collectors do connect: they query the monitored database every
-`collector.interval_seconds`, so an endpoint with scale-to-zero enabled stays
-active while pg_sage monitors it. Budget its compute accordingly. Activity
-around a scale-to-zero or resume, such as DDL, can be missing from provider
-capture (see [Platform capture and access](#platform-capture-and-access)).
+Estimate the warehouse's monthly use as:
+
+```text
+DBU per month = hours the warehouse runs per month × the size's DBU per hour
+```
+
+Worked example: a warehouse that never stops runs about 720 hours a month, so a
+size rated 4 DBU per hour uses 2,880 DBU a month. The 4 DBU/hour rating is an
+example only; check the size's rating and the DBU price against the current
+Databricks rate card for your cloud, region and warehouse type before
+budgeting. A poll interval longer than the auto-stop time lets the warehouse
+stop between polls, but it then cold-starts for each poll.
+
+To cut warehouse cost, raise `poll_interval_seconds` above the auto-stop time,
+lower `queries_per_poll`, select fewer `streams`, or share a warehouse that
+already runs for other work. Each of these delays findings: see
+[Read cadence and query budget](#read-cadence-and-query-budget) and the
+freshness notes above.
+
+**The monitored Lakebase compute.** The history reader opens no connection to
+the Lakebase endpoint, but the sidecar's own pools do:
+
+| pg_sage cadence | Default | Pools |
+| --- | --- | --- |
+| Collector query | every `collector.interval_seconds` (60) | monitored and fleet databases |
+| Pool health check | every 30 seconds (monitored), 1 minute (fleet, meta-db) | every pool that keeps a connection |
+| `MinConns = 1` | one connection always open | monitored, fleet and meta-db pools |
+
+An endpoint with scale-to-zero suspends its compute after its suspend timeout
+of inactivity. Each cadence above that is shorter than the suspend timeout can
+keep the compute active, so with the defaults an endpoint pg_sage monitors
+stays up, and is billed, around the clock. pg_sage does not claim which of
+these Lakebase counts as activity; it names every one that could.
+
+At startup pg_sage reads the endpoint's suspend timeout and state from the
+same endpoint lookup it already makes for OAuth (no extra API call). When
+scale-to-zero is on and any cadence is shorter, it logs one warning per
+endpoint naming them, for example:
+
+```text
+[WARN] [connect] Lakebase endpoint projects/p/branches/b/endpoints/primary suspends after
+5m0s of inactivity, but pg_sage runs collector every 1m0s, health check every 30s,
+min_conns=1 keeps a connection open; the compute may never scale to zero ...
+```
+
+The administrator deployment status reports the same per endpoint under
+`databricks.endpoints[]`: `suspend_timeout_seconds`, `compute_state`,
+`compute_observed_at`, `keeps_compute_active` and `scale_to_zero_blockers`
+(see [Databricks Apps](databricks-apps.md)). A suspend timeout that is missing,
+0 (scale-to-zero off) or negative gives no warning. pg_sage keeps collecting
+while the endpoint is IDLE: monitoring is the point of running it, so it never
+skips collection to let the compute sleep. Budget the compute as always on, or
+monitor a branch or endpoint whose cost you accept running continuously.
+Activity around a scale-to-zero or resume, such as DDL, can be missing from
+provider capture (see [Platform capture and access](#platform-capture-and-access)).
 
 #### Delivery, retries and backlog
 
