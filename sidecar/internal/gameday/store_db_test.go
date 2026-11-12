@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/pg-sage/sidecar/internal/clone"
 )
@@ -379,5 +382,91 @@ func TestGameDayDestroysACloneItCannotRecord(t *testing.T) {
 	}
 	if len(f.faults.dsns) != 0 {
 		t.Fatalf("fault programs ran on an unrecorded clone: %v", f.faults.dsns)
+	}
+}
+
+// benches-08 (real PostgreSQL): a run's summary is stored with its row
+// and read back unchanged by List and Latest.
+func TestStoreSummaryRoundTrips(t *testing.T) {
+	f := newGDFixture(t)
+	at := f.now.Add(time.Minute)
+	gd := GameDay{ID: newUUID(t), Database: f.database, Provider: "dle",
+		Families: []string{}, Status: StatusRunning, StartedAt: f.now}
+	if err := f.store.start(f.ctx, gd, rowGameDay); err != nil {
+		t.Fatal(err)
+	}
+	gd.Status, gd.FinishedAt = StatusCompletedUnscored, &at
+	gd.Summary = &Summary{Scored: 0, Skipped: 2, Errored: 1, TopSkips: []SkipCount{
+		{Reason: "needs superuser", Count: 2}}}
+	if err := f.store.finish(f.ctx, gd); err != nil {
+		t.Fatal(err)
+	}
+	list, err := f.store.List(f.ctx, f.database, 10)
+	if err != nil || len(list) != 1 || !reflect.DeepEqual(list[0].Summary, gd.Summary) ||
+		list[0].Status != StatusCompletedUnscored {
+		t.Fatalf("list = %+v (%v), want summary %+v", list, err, gd.Summary)
+	}
+	latest, err := f.store.Latest(f.ctx, f.database)
+	if err != nil || latest == nil || !reflect.DeepEqual(latest.Summary, gd.Summary) {
+		t.Fatalf("latest = %+v (%v)", latest, err)
+	}
+}
+
+// A row written before benches-08 (or a run that failed before any
+// report) holds '{}' and reads as no summary, not as "scored 0".
+func TestStoreLegacyRowReadsAsNoSummary(t *testing.T) {
+	f := newGDFixture(t)
+	id := insertRun(t, f, f.database, "game_day", StatusCompleted, f.now, "")
+	var raw string
+	if err := f.store.pool.QueryRow(f.ctx, `SELECT summary::text FROM sage.sre_game_days
+		WHERE deployment_id = $1 AND id = $2`, f.store.deployment, id).Scan(&raw); err != nil ||
+		raw != "{}" {
+		t.Fatalf("legacy summary = %q (%v), want {}", raw, err)
+	}
+	list, err := f.store.List(f.ctx, f.database, 10)
+	if err != nil || len(list) != 1 || list[0].Summary != nil {
+		t.Fatalf("list = %+v (%v), want no summary", list, err)
+	}
+	failed := GameDay{ID: newUUID(t), Database: "other-" + f.database, Provider: "dle",
+		Families: []string{}, Status: StatusRunning, StartedAt: f.now}
+	if err := f.store.start(f.ctx, failed, rowGameDay); err != nil {
+		t.Fatal(err)
+	}
+	at := f.now.Add(time.Minute)
+	failed.Status, failed.Error, failed.FinishedAt = StatusFailed, "create clone: no snapshot",
+		&at
+	if err := f.store.finish(f.ctx, failed); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := f.store.Latest(f.ctx, failed.Database); err != nil || got == nil ||
+		got.Summary != nil || got.Status != StatusFailed {
+		t.Fatalf("failed run = %+v (%v), want no summary", got, err)
+	}
+}
+
+// The status check takes completed_unscored and still refuses an unknown
+// status; the summary must be a JSON object. Each refusal must come from
+// that constraint (finished_at is set so the running/finished_at check
+// cannot be the one that refuses the row).
+func TestStoreStatusCheckTakesCompletedUnscored(t *testing.T) {
+	f := newGDFixture(t)
+	insertRun(t, f, f.database, "game_day", StatusCompletedUnscored, f.now, "")
+	_, err := f.store.pool.Exec(f.ctx, `INSERT INTO sage.sre_game_days (deployment_id, id,
+		database_name, provider, families, status, finished_at) VALUES ($1, $2, $3, 'dle',
+		'{}', 'unscored', now())`, f.store.deployment, newUUID(t), f.database)
+	requireCheckViolation(t, err, "sre_game_days_status_v2_check")
+	_, err = f.store.pool.Exec(f.ctx, `INSERT INTO sage.sre_game_days (deployment_id, id,
+		database_name, provider, families, status, summary) VALUES ($1, $2, $3, 'dle', '{}',
+		'running', '[]')`, f.store.deployment, newUUID(t), f.database)
+	requireCheckViolation(t, err, "sre_game_days_summary_object")
+}
+
+// requireCheckViolation fails unless err is a check violation (23514) of
+// the named constraint.
+func requireCheckViolation(t *testing.T, err error, constraint string) {
+	t.Helper()
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23514" || pgErr.ConstraintName != constraint {
+		t.Fatalf("err = %v, want a check violation of %s", err, constraint)
 	}
 }

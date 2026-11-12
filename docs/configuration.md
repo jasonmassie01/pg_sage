@@ -2762,7 +2762,7 @@ literals always removed.
 | Parameter | Default | Description |
 |---|---|---|
 | `sre.autonomy.enforce` | `true` | The ledger restricts self-initiated incident-family actions. `false` returns them to the trust ramp; the sidecar warns at startup |
-| `sre.autonomy.bench_results_path` | `""` | PGIncidentBench JSON report, or a directory searched three levels deep, ingested at startup and hourly. Point it at the CI `pgincidentbench/` artifact to read the shard reports (`core-a`, `core-b`, `reactive-a`, `reactive-b`, `runway-a`, `runway-b`; its replay corpus report, `pgincidentbench-replay.json`, is not a bench report and is skipped; naming it as the path is an error); each family reads the newest report that scored it. A `<report>.sigstore.json` bundle is verified; a report for another pg_sage build is refused, and a refused report is logged once per process per file version (at INFO, naming the build it scores; rewriting the file logs it again), while other ingest errors warn on every ingest. Not needed for the reports a release ships. Empty: upload through the API |
+| `sre.autonomy.bench_results_path` | `""` | PGIncidentBench JSON report, or a directory searched three levels deep, ingested at startup and hourly. Point it at the CI `pgincidentbench/` artifact to read the shard reports (`core-a`, `core-b`, `reactive-a`, `reactive-b`, `runway-a`, `runway-b`; its replay corpus report, `pgincidentbench-replay.json`, is not a bench report and is skipped; naming it as the path is an error); each family reads the newest report that scored it. A `<report>.sigstore.json` bundle is verified; a report for another pg_sage build is refused, and a refused report is logged once per process per file version (at INFO, naming the build it scores; rewriting the file logs it again), while other ingest errors warn on every ingest. Not needed for the reports a release ships. `pg_sage bench install` copies a release's signed live-model report and its bundle here after verifying them; only a signed, stamped report earns model-root authority. Empty: upload through the API |
 | `sre.autonomy.evaluate_interval_minutes` | `60` | Minutes between promotion evaluations, `5`-`1440` |
 | `sre.autonomy.reconcile_interval_seconds` | `60` | Seconds between recording live outcomes, `10`-`3600` |
 | `sre.autonomy.max_evidence_age_seconds` | `300` | Older evidence caps an action at L1, `5`-`3600` |
@@ -2846,6 +2846,26 @@ rolled back. Nothing a bench did not name or record
 is touched: an operator's own `ALTER SYSTEM` setting, another slot or an application's
 prepared transaction stays.
 
+Each game day and local bench run ends in one status, shown on the Autonomy page and in
+`GET /api/v1/sre/autonomy/game-days` (`status`):
+
+| Status | Meaning |
+|---|---|
+| `running` | In progress |
+| `completed` | The fault programs ran, the report was ingested and at least one run scored |
+| `completed_unscored` | The fault programs ran and the report was ingested, but no run scored: every fault program skipped on the clone (for example a snapshot clone without superuser skips the checkpoint, WAL-slot, temp-file and archiver programs, and `max_prepared_transactions = 0` skips the prepared-transaction programs), or the report had no runs. It is no safety signal: fix the clone and run again |
+| `failed` | The clone, the fault programs or the ingest failed (`error` says which) |
+| `destroy_failed` | The run finished but its clone could not be destroyed (`error` names it) |
+| `abandoned` | Its sidecar never finished it (see above) |
+
+Every finished run also records `summary` (`sage.sre_game_days.summary`): the count of
+`scored`, `skipped` and `errored` runs and `top_skips`, the five most frequent skip
+reasons with their counts. A `completed_unscored` run logs one WARN naming them. A run
+that failed before it had a report, and a row written before this release, has no
+`summary`. Game-day Safe Pass evidence is unchanged: a `completed_unscored` report adds
+nothing to a family's `game_day_safe_pass` check, so that check still reads "none"
+until a game day scores a run of the family.
+
 #### Bench evidence: signed release reports and local runs
 
 L2 needs a PGIncidentBench report for the family. You do not have to copy CI artifacts:
@@ -2872,9 +2892,20 @@ L2 needs a PGIncidentBench report for the family. You do not have to copy CI art
   families it covered, marked "local run", and repeats every scenario until each family
   has the promotion bar's sample size (`n >= 10`).
 - **Operator reports.** A report uploaded through the API or found under
-  `bench_results_path` without a bundle works as before, marked "unsigned
-  (operator-provided)". With a `<report>.sigstore.json` bundle next to it, it is
-  verified, and a bundle that does not verify refuses the report.
+  `bench_results_path` without a bundle works as before for promotions, marked
+  "unsigned (operator-provided)". With a `<report>.sigstore.json` bundle next to it, it
+  is verified, and a bundle that does not verify refuses the report.
+- **Model-root authority needs a signed report.** A family's model lift counts only
+  from a signed release or local-run report stamped with the running build. An
+  unsigned upload, or a report with no `pg_sage_version`/`pg_sage_commit`, never grants
+  it. Install the release's signed live-model report with
+  `pg_sage bench install [--config FILE] [--commit SHA] pgincidentbench-live.json`: it
+  verifies the bundle for this binary's commit and copies the report and bundle,
+  atomically, into `bench_results_path` (it exits 2 when that is not set), where the
+  hourly ingest stores it as a signed release report. An admin can instead upload both
+  to `POST /api/v1/sre/autonomy/bench-results` as `multipart/form-data` parts `report`
+  and `bundle` (at most 1 MiB together); a JSON body stays unsigned. Each database's
+  ledger in a fleet ingests from the shared path.
 
 The Path to next level panel shows each family's report and where it came from. To check
 a downloaded report by hand: `pg_sage bench verify --commit <sha> pgincidentbench.json`

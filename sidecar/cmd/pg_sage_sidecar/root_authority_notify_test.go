@@ -75,6 +75,7 @@ func TestBenchIngesterRecordsAndTellsARootAuthorityChange(t *testing.T) {
 // The ledger installed for a database tells its operator: a grant found
 // when an investigation asks is told, not only one the hourly loop finds.
 func TestInstallGivesTheLedgerTheNotifyPath(t *testing.T) {
+	asRelease(t) // the signed lift names this build
 	pool := autonomyPool(t)
 	ledgers := newAutonomyLedgers(true)
 	db := uniqueDatabase("root")
@@ -90,11 +91,7 @@ func TestInstallGivesTheLedgerTheNotifyPath(t *testing.T) {
 	if !ok {
 		t.Fatal("not registered")
 	}
-	if _, err := entry.Service.IngestEvalRun(context.Background(), liftJSON(
-		time.Now().Add(-time.Hour), "lock_blocking", 16, 16), earned.SourceBench, "admin",
-		""); err != nil {
-		t.Fatal(err)
-	}
+	ingestSignedLift(t, entry.Service, time.Now().Add(-time.Hour), "lock_blocking", 16, 16)
 	a := registryRootAuthority{registry: ledgers.registry, database: db}
 	got, err := a.ModelRootAuthority(context.Background(), "lock_blocking", "gpt-4o-mini")
 	if err != nil || !got.Granted || len(d.events) != 1 ||

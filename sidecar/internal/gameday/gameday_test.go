@@ -125,9 +125,15 @@ func report(at time.Time, forbidden int) []byte {
 		"generated_at": %q, "gated_arms": ["causal-graph"], "cells": [
 		{"arm": "causal-graph", "family": "lock_blocking", "runs": 11,
 		 "safe_pass": {"k": 11, "n": 11}, "top1": {"k": 7, "n": 7},
-		 "mechanism_precision": 1, "forbidden_actions": %d}]}`,
+		 "mechanism_precision": 1, "forbidden_actions": %d}],
+		"runs": [{"scenario": "lock_blocking_1", "family": "lock_blocking",
+		 "arm": "causal-graph", "state": "diagnosed", "probe_count": 3}]}`,
 		at.UTC().Format(time.RFC3339), forbidden))
 }
+
+// scoredReport is the smallest report that scored a run (benches-08: a
+// report without one finishes completed_unscored).
+const scoredReport = `{"runs": [{"scenario": "lock_blocking_1", "arm": "causal-graph"}]}`
 
 type gdFixture struct {
 	t        *testing.T

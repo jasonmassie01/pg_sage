@@ -51,6 +51,8 @@ type autonomyAPIFixture struct {
 	ledger     *earned.Service
 	reg        *earned.Registry
 	clock      *autonomyClock
+	// build is the pg_sage build the ledgers run (none unless set).
+	build earned.Build
 }
 
 func apiUUID(t *testing.T) string {
@@ -83,7 +85,7 @@ func (f *autonomyAPIFixture) register(database string) *earned.Service {
 		f.t.Fatal(err)
 	}
 	cfg := earned.DefaultConfig()
-	cfg.Now, cfg.EvidenceCacheTTL = f.clock.Now, 0
+	cfg.Now, cfg.EvidenceCacheTTL, cfg.Build = f.clock.Now, 0, f.build
 	ledger, err := earned.NewService(store, cfg)
 	if err != nil {
 		f.t.Fatal(err)

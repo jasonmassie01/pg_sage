@@ -428,9 +428,29 @@ On a tag, the job `bench-live-release-assets` waits for the live run and the rel
 when the live report was signed, attaches it to the GitHub release as
 `pgincidentbench-live.json`, `pgincidentbench-live.json.sigstore.json` and
 `pgincidentbench-live.md`. Neither `release` nor `docker` waits for the live arm: a release
-ships without it when the arm fails, is skipped or is still running. The sidecar does not
-fetch these assets yet (download them into `bench_results_path`); ingesting them is a
-follow-up.
+ships without it when the arm fails, is skipped or is still running. The same job adds
+the two asset URLs and the install command to the release notes.
+
+The sidecar never fetches these assets itself. Download the report and its bundle, then
+install them next to the sidecar:
+
+```bash
+pg_sage bench install --config config.yaml pgincidentbench-live.json
+```
+
+`bench install` verifies `pgincidentbench-live.json.sigstore.json` offline against the
+embedded Sigstore trusted root, checks that the report and the signature name this
+binary's commit (`--commit SHA` names another sidecar's), and copies both, atomically and
+bundle first, into `sre.autonomy.bench_results_path` from the config file (exit 2 when it
+is not set). The hourly ingest then stores the report as a signed release report. An
+admin can instead upload both to `POST /api/v1/sre/autonomy/bench-results` as
+`multipart/form-data` parts `report` and `bundle` (at most 1 MiB together; install
+larger reports with `bench install`).
+
+Model-root authority (the per-family lift above) counts only a signed release or
+local-run report stamped with the running build. A report uploaded without its bundle,
+or one with no `pg_sage_version`/`pg_sage_commit`, is stored as unsigned evidence and
+never grants it.
 
 **The model.** pg_sage has no default LLM model setting (`llm.model` is empty until an
 operator sets it), so the workflow names no model: the repository variable

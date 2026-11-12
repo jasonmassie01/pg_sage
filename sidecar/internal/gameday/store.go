@@ -2,6 +2,7 @@ package gameday
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -61,11 +62,19 @@ func (s *Store) attachClone(ctx context.Context, id, cloneID string) error {
 }
 
 func (s *Store) finish(ctx context.Context, gd GameDay) error {
+	summary := []byte("{}")
+	if gd.Summary != nil {
+		var err error
+		if summary, err = json.Marshal(gd.Summary); err != nil {
+			return fmt.Errorf("encode game day %s summary: %w", gd.ID, err)
+		}
+	}
 	tag, err := s.pool.Exec(ctx, `UPDATE sage.sre_game_days
 		SET status = $3, finished_at = $4, error = NULLIF($5, ''),
-		    clone_id = NULLIF($6, ''), eval_run_id = NULLIF($7, '')::uuid
+		    clone_id = NULLIF($6, ''), eval_run_id = NULLIF($7, '')::uuid,
+		    summary = $8::jsonb
 		WHERE deployment_id = $1 AND id = $2`, s.deployment, gd.ID, gd.Status,
-		gd.FinishedAt, gd.Error, gd.CloneID, gd.EvalRunID)
+		gd.FinishedAt, gd.Error, gd.CloneID, gd.EvalRunID, string(summary))
 	if err != nil {
 		return fmt.Errorf("record game day result: %w", err)
 	}
@@ -77,16 +86,40 @@ func (s *Store) finish(ctx context.Context, gd GameDay) error {
 
 const gameDaySelect = `SELECT id::text, database_name, provider, COALESCE(clone_id, ''),
 	families, status, started_at, finished_at, COALESCE(error, ''),
-	COALESCE(eval_run_id::text, '') FROM sage.sre_game_days`
+	COALESCE(eval_run_id::text, ''), summary::text FROM sage.sre_game_days`
 
 func scanGameDay(row pgx.Row) (GameDay, error) {
 	var gd GameDay
+	var summary string
 	err := row.Scan(&gd.ID, &gd.Database, &gd.Provider, &gd.CloneID, &gd.Families,
-		&gd.Status, &gd.StartedAt, &gd.FinishedAt, &gd.Error, &gd.EvalRunID)
+		&gd.Status, &gd.StartedAt, &gd.FinishedAt, &gd.Error, &gd.EvalRunID, &summary)
 	if gd.Families == nil {
 		gd.Families = []string{}
 	}
+	if err != nil {
+		return gd, err
+	}
+	gd.Summary, err = decodeSummary(summary)
+	if err != nil {
+		err = fmt.Errorf("game day %s: %w", gd.ID, err)
+	}
 	return gd, err
+}
+
+// decodeSummary reads a stored summary; '{}' (a row written before
+// benches-08, or a run without a report) is no summary.
+func decodeSummary(raw string) (*Summary, error) {
+	if raw == "" || raw == "{}" {
+		return nil, nil
+	}
+	var s Summary
+	if err := json.Unmarshal([]byte(raw), &s); err != nil {
+		return nil, fmt.Errorf("decode summary: %w", err)
+	}
+	if s.TopSkips == nil {
+		s.TopSkips = []SkipCount{}
+	}
+	return &s, nil
 }
 
 // List lists a database's game days (not its local bench runs), newest first.

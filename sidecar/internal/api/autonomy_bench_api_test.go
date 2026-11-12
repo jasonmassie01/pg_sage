@@ -44,7 +44,9 @@ func (f *benchFaults) Run(ctx context.Context, _ string, families []string) ([]b
 	if f.release != nil {
 		<-f.release
 	}
-	return []byte(`{}`), nil
+	// One scored run: a report without one finishes completed_unscored
+	// (benches-08).
+	return []byte(`{"runs": [{"scenario": "lock_blocking_1", "arm": "causal-graph"}]}`), nil
 }
 
 type benchLedger struct{}

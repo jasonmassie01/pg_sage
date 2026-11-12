@@ -1,6 +1,7 @@
 package earned
 
 import (
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -15,12 +16,7 @@ import (
 // ingestModelLift ingests a live lift report measured with model.
 func (f *fixture) ingestModelLift(at time.Time, model string, recs ...string) EvalRun {
 	f.t.Helper()
-	run, err := f.svc.IngestEvalRun(f.ctx, liftReportModel(at, model, recs...),
-		SourceBench, "admin", "")
-	if err != nil {
-		f.t.Fatalf("ingest %q lift report: %v", model, err)
-	}
-	return run
+	return f.ingestSignedLift(liftReportModel(at, model, recs...))
 }
 
 // runningModel is a running-model source the test can switch.
@@ -194,4 +190,127 @@ func TestModelLiftStore_LegacyRowWithoutTheKeyNeverShadowsAMatchingOne(t *testin
 		!strings.Contains(got.Reason, "names no model") {
 		t.Fatalf("unmatched model: %+v (%v), want the newest, legacy report advisory", got, err)
 	}
+}
+
+// benches-09 (security): only a signed release or local-run measurement
+// stamped with the running build grants model-root authority. An unsigned
+// operator upload with a winning model_lift, stamped or not, and a signed
+// row without a build stamp (a legacy row) leave ReconcileRootAuthority
+// unchanged; a signed, stamped one grants.
+
+// winningLift is a stamped (when b is known) live lift that passes the bar.
+func winningLift(b Build) []byte {
+	raw := liftReport(fixtureEpoch.Add(-time.Hour), "live", false, good("lock_blocking", 16, 16))
+	if b.Known() {
+		return stampLift(raw, b)
+	}
+	return raw
+}
+
+// assertNoGrant fails when reconciling grants, or the family reads granted.
+func (f *fixture) assertNoGrant(what string) {
+	f.t.Helper()
+	changes, err := f.svc.ReconcileRootAuthority(f.ctx)
+	if err != nil {
+		f.t.Fatalf("%s: reconcile: %v", what, err)
+	}
+	for _, c := range changes {
+		if c.Granted {
+			f.t.Fatalf("%s granted model-root authority: %+v", what, c)
+		}
+	}
+	got, err := f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking, fixtureModel)
+	if err != nil || got.Granted || got.Report != nil {
+		f.t.Fatalf("%s: authority %+v (%v), want advisory with no deciding report", what,
+			got, err)
+	}
+	for _, ev := range f.rootEvents(FamilyLockBlocking) {
+		if ev.Type == EventRootAuthorityGranted {
+			f.t.Fatalf("%s recorded a grant: %+v", what, ev)
+		}
+	}
+}
+
+func TestModelLiftStore_UnsignedOperatorUploadNeverGrants(t *testing.T) {
+	for name, b := range map[string]Build{"stamped": buildA, "unstamped": {}} {
+		f := newBuildFixture(t, newUUID(t), buildA)
+		run, err := f.svc.IngestEvalRun(f.ctx, winningLift(b), SourceBench, "admin", "")
+		if err != nil || run.Origin != OriginOperator || run.ModelLift == nil {
+			t.Fatalf("%s operator upload = %+v (%v)", name, run, err)
+		}
+		f.assertNoGrant(name + " unsigned operator upload")
+	}
+}
+
+func TestModelLiftStore_SignedButUnstampedRowNeverGrants(t *testing.T) {
+	f := newBuildFixture(t, newUUID(t), buildA)
+	if _, err := f.ingestSigned(winningLift(Build{}), commitA); !errors.Is(err,
+		ErrBuildMismatch) {
+		t.Fatalf("a signed unstamped report = %v, want it refused (ErrBuildMismatch)", err)
+	}
+	run, err := f.ingestSigned(winningLift(buildA), commitA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A row stored without a stamp (an older writer) is what the dropped
+	// branch of the lift query used to accept.
+	tag, err := f.pool.Exec(f.ctx, `UPDATE sage.sre_eval_runs
+		SET pg_sage_version = '', pg_sage_commit = '' WHERE id = $1`, run.ID)
+	if err != nil || tag.RowsAffected() != 1 {
+		t.Fatalf("unstamp %s: %v (%d rows)", run.ID, err, tag.RowsAffected())
+	}
+	f.assertNoGrant("a signed unstamped row")
+}
+
+func TestModelLiftStore_SignedStampedAndLocalRunGrant(t *testing.T) {
+	for _, origin := range []string{OriginSignedRelease, OriginLocalRun} {
+		f := newBuildFixture(t, newUUID(t), buildA)
+		in := BenchIngest{Origin: origin, Actor: "release_bench", RequireBuild: true}
+		if origin == OriginSignedRelease {
+			in.Signature = signatureFor(commitA)
+		}
+		run, err := f.svc.IngestBench(f.ctx, winningLift(buildA), in)
+		if err != nil {
+			t.Fatalf("%s: ingest: %v", origin, err)
+		}
+		changes, err := f.svc.ReconcileRootAuthority(f.ctx)
+		if err != nil || len(changes) != 1 || !changes[0].Granted ||
+			changes[0].ReportID != run.ID || changes[0].Family != FamilyLockBlocking {
+			t.Fatalf("%s: reconcile = %+v (%v), want one grant by %s", origin, changes, err,
+				run.ID)
+		}
+		got, err := f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking, fixtureModel)
+		if err != nil || !got.Granted || got.Report == nil || got.Report.Origin != origin {
+			t.Fatalf("%s: authority %+v (%v)", origin, got, err)
+		}
+	}
+}
+
+// An unsigned upload newer than a signed measurement never shadows it.
+func TestModelLiftStore_NewerUnsignedUploadDoesNotShadowASignedOne(t *testing.T) {
+	f := newBuildFixture(t, newUUID(t), buildA)
+	signed, err := f.ingestSigned(stampLift(liftReport(fixtureEpoch.Add(-3*time.Hour), "live",
+		false, good("lock_blocking", 16, 16)), buildA), commitA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.IngestEvalRun(f.ctx, stampLift(liftReport(fixtureEpoch.Add(-time.Hour),
+		"live", false, good("lock_blocking", 1, 20)), buildA), SourceBench, "admin",
+		""); err != nil {
+		t.Fatal(err)
+	}
+	got, err := f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking, fixtureModel)
+	if err != nil || !got.Granted || got.Report == nil || got.Report.ID != signed.ID {
+		t.Fatalf("authority %+v (%v), want the signed report %s", got, err, signed.ID)
+	}
+}
+
+// The running build is unstamped (a dev build): no lift row matches it.
+func TestModelLiftStore_UnstampedRunningBuildNeverGrants(t *testing.T) {
+	f := newFixture(t)
+	if _, err := f.svc.IngestBench(f.ctx, winningLift(Build{}), BenchIngest{
+		Origin: OriginOperator, Actor: "admin"}); err != nil {
+		t.Fatal(err)
+	}
+	f.assertNoGrant("an unstamped report on an unstamped build")
 }

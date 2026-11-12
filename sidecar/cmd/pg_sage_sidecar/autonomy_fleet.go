@@ -22,7 +22,8 @@ import (
 func autonomyAPIDeps(mgr *fleet.DatabaseManager, control *pgxpool.Pool) *api.AutonomyDeps {
 	ledgers := processAutonomy()
 	deps := &api.AutonomyDeps{Ledgers: ledgers.registry, GameDays: ledgers.gameDays,
-		LocalBench: ledgers.localBenches, FastElevation: cfg.LoweredElevation()}
+		LocalBench: ledgers.localBenches, FastElevation: cfg.LoweredElevation(),
+		BenchVerifier: uploadBenchVerifier()}
 	if mgr == nil || control == nil {
 		return deps
 	}
@@ -40,6 +41,18 @@ func autonomyAPIDeps(mgr *fleet.DatabaseManager, control *pgxpool.Pool) *api.Aut
 	}
 	deps.Canary = svc
 	return deps
+}
+
+// uploadBenchVerifier verifies signed bench uploads with the process's
+// release verifier (benches-09); nil, so signed uploads are refused, when
+// the embedded trusted root cannot be loaded.
+func uploadBenchVerifier() api.BenchVerifier {
+	v, err := benchVerifier()
+	if err != nil {
+		logWarn("autonomy", "signed bench uploads are off: %v", err)
+		return nil
+	}
+	return v
 }
 
 func fleetCanaryResolver(mgr *fleet.DatabaseManager) rollout.TargetResolver {

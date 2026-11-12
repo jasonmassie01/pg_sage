@@ -34,7 +34,7 @@ func TestRunBudgetEndsBeforeMaxRunTime(t *testing.T) {
 }
 
 func TestLocalBenchRunIsBoundedByTheRunBudget(t *testing.T) {
-	p, f := &fakeProvider{}, &fakeFaults{report: []byte(`{}`)}
+	p, f := &fakeProvider{}, &fakeFaults{report: []byte(scoredReport)}
 	b := newLocalBench(t, p, f, &fakeBenchLedger{})
 	started := time.Now()
 	if _, err := b.Run(context.Background(), nil); err != nil {
@@ -46,7 +46,7 @@ func TestLocalBenchRunIsBoundedByTheRunBudget(t *testing.T) {
 // A background local run (Start) outlives its request's context, but not
 // the run budget.
 func TestStartedLocalBenchRunIsBoundedByTheRunBudget(t *testing.T) {
-	p, f := &fakeProvider{}, &fakeFaults{report: []byte(`{}`)}
+	p, f := &fakeProvider{}, &fakeFaults{report: []byte(scoredReport)}
 	b := newLocalBench(t, p, f, &fakeBenchLedger{})
 	ctx, cancel := context.WithCancel(context.Background())
 	started := time.Now()

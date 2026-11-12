@@ -76,7 +76,8 @@ function PairPath({ family, row, bench }) {
   const unmet = (row.next.checks || []).filter(c => !c.met)
   const needsBench = unmet.some(c => c.name.startsWith('bench_'))
   return (
-    <div data-testid={`path-${family}-${row.class}`} className="text-xs">
+    <div id={`path-${family}-${row.class}`} data-testid={`path-${family}-${row.class}`}
+      className="text-xs">
       <div style={strong}>
         {family} / {row.class}: {row.granted} to {row.next.target}
       </div>

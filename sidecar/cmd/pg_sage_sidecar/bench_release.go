@@ -236,7 +236,8 @@ func newLocalBenchFor(database string, svc *earned.Service, s config.SREAutonomy
 	}
 	return gameday.NewLocalBench(gameday.LocalBenchConfig{Database: database, Provider: name,
 		Store: store,
-		Log:   func(format string, args ...any) { logWarn("autonomy", format, args...) }},
+		Log:   func(format string, args ...any) { logWarn("autonomy", format, args...) },
+		Warn:  func(format string, args ...any) { logWarn("autonomy", format, args...) }},
 		provider, faults, svc)
 }
 
@@ -268,23 +269,38 @@ func (rt *databaseRuntime) startLocalBench(svc *earned.Service, s config.SREAuto
 // verifyReportFile verifies a report's <report>.sigstore.json bundle and,
 // when want is set, that it is the report of that commit.
 func verifyReportFile(path, want string) (benchsig.Signature, error) {
+	sig, _, err := readVerifiedReport(path, want)
+	return sig, err
+}
+
+// verifiedReport is a report and its bundle, as read and verified.
+type verifiedReport struct {
+	report, bundle []byte
+}
+
+// readVerifiedReport reads a report and its bundle once and verifies
+// those bytes, so a caller copying them copies exactly what verified.
+func readVerifiedReport(path, want string) (benchsig.Signature, verifiedReport, error) {
 	verifier, err := benchVerifier()
 	if err != nil {
-		return benchsig.Signature{}, fmt.Errorf("load the embedded Sigstore trusted root: %w",
-			err)
+		return benchsig.Signature{}, verifiedReport{},
+			fmt.Errorf("load the embedded Sigstore trusted root: %w", err)
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return benchsig.Signature{}, fmt.Errorf("read report: %w", err)
+		return benchsig.Signature{}, verifiedReport{}, fmt.Errorf("read report: %w", err)
 	}
 	bundle, err := os.ReadFile(path + benchingest.BundleSuffix)
 	if err != nil {
-		return benchsig.Signature{}, fmt.Errorf("no signature bundle %s: %w",
-			path+benchingest.BundleSuffix, err)
+		return benchsig.Signature{}, verifiedReport{}, fmt.Errorf(
+			"no signature bundle %s: %w", path+benchingest.BundleSuffix, err)
 	}
 	sig, err := verifier.Verify(raw, bundle)
 	if err != nil {
-		return benchsig.Signature{}, err
+		return benchsig.Signature{}, verifiedReport{}, err
 	}
-	return sig, checkReportCommit(raw, sig, want)
+	if err := checkReportCommit(raw, sig, want); err != nil {
+		return benchsig.Signature{}, verifiedReport{}, err
+	}
+	return sig, verifiedReport{report: raw, bundle: bundle}, nil
 }

@@ -194,5 +194,6 @@ func trancheTwoMigrations() []namedStep {
 		{"ddlManagedChangeProviders", ddlManagedChangeProviders},           // advisors-03
 		{"ddlSREAutonomyEvidenceExpiring", ddlSREAutonomyEvidenceExpiring}, // earned-06
 		{"ddlSREAutonomyServerMajor", ddlSREAutonomyServerMajor},           // earned-07
+		{"ddlGameDaySummary", ddlGameDaySummary},                           // benches-08: after ddlBenchCrashRecovery
 	}
 }

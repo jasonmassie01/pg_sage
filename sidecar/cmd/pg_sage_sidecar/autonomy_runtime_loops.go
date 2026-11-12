@@ -136,7 +136,8 @@ func (rt *databaseRuntime) startGameDays(svc *earned.Service, s config.SREAutono
 		var runner *gameday.Runner
 		runner, err = gameday.NewRunner(gameday.Config{Database: rt.spec.Name, Provider: name,
 			Families: trimmedFamilies(s.GameDays.Families),
-			Interval: time.Duration(s.GameDays.IntervalHours) * time.Hour},
+			Interval: time.Duration(s.GameDays.IntervalHours) * time.Hour,
+			Warn:     func(format string, args ...any) { logWarn("autonomy", format, args...) }},
 			provider, srebench.GameDayFaults{}, svc, store)
 		if err == nil {
 			processAutonomy().gameDays.Register(rt.spec.Name, runner)
