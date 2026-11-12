@@ -2,8 +2,8 @@
 
 ## [Unreleased]
 
-These changes are planned as three releases: v2.5.1 (tranche T0a, the safety fixes),
-v2.5.2 (tranche T0b) and v2.6.0 (tranche T1).
+These changes are planned as four releases: v2.5.1 (tranche T0a, the safety fixes),
+v2.5.2 (tranche T0b), v2.6.0 (tranche T1) and v2.7.0 (tranche T2).
 
 ### v2.5.1 (tranche T0a, safety)
 
@@ -1590,6 +1590,513 @@ v2.5.2 (tranche T0b) and v2.6.0 (tranche T1).
   environment" table in CONTRIBUTING.md. CONTRIBUTING now explains how to run the Go suites
   against a disposable test server with the skip budget. Test packages print one line when
   SAGE_TEST_DATABASE_URL is unset and their database tests will skip (ci-10).
+
+### v2.7.0 (tranche T2)
+
+#### Security
+
+- **Evidence packs are signed by default.** Whenever an encryption key is set, the sidecar
+  generates an Ed25519 key on first use and keeps it sealed in `sage.evidence_signing_key`;
+  `audit.evidence.signing_key_env` still takes precedence. `GET /api/v1/audit/evidence/key`
+  (admin) serves the public key, and `pg_sage_sidecar evidence verify <pack> [--public-key
+  <file>]` checks a pack offline. Unsigned manifests now say `"signed": false` and
+  `"integrity": "accidental-corruption-only"` (audit-10).
+- **Signed audit checkpoints.** Each clean scheduled verification signs the chain head with
+  the evidence-signing key into the chain as a checkpoint link, which reaches SIEM sinks as an
+  "Audit Checkpoint Signed" event. The opt-in `audit.prune_below_signed_checkpoint` (default
+  false) deletes chain links below a signed checkpoint that every sink has received, except
+  links of rows still present, and records an "Audit Trail Pruned" event. Verification of a
+  pruned chain then starts from that checkpoint (`from_checkpoint`, `pruned_below`)
+  (audit-03b).
+- **The approval trail is chained.** Two new tamper-evident chains: `decision` (the gate's
+  decisions; risk tier, policy version and hash, and targets are sealed; verdict, reason,
+  evidence and links are state; `repeat_count`/`last_seen_at` are not chained) and
+  `policy_approvals` (which gains an `id` column). Evidence packs now prove the decisions and
+  approvals behind an action (`chains.json`), and window packs prove `decisions.json` and add
+  `policy_approvals.json`. SIEM sinks see the new `log_name` values `decision` and
+  `policy_approvals`. A repeat of an open decision at a different risk tier now starts a new
+  decision instead of re-tiering the recorded one (audit-11).
+- **Passwords.** Users can change their own password (Account page, or
+  `PUT /api/v1/auth/password`), which signs out their other sessions. Admins can reset a
+  user's password (Users page, or `POST /api/v1/users/{id}/password-reset`), which signs the
+  user out everywhere and shows a temporary password once. A reset account, and the first
+  sign-in with a generated bootstrap password, must choose a new password before anything
+  else works. New passwords must be 12 to 72 bytes and must not be the account email.
+  Creating a user now answers 400 for a password that breaks these rules and 409 only for an
+  email already in use (apiauth-03).
+- **Widening agent changes need a second admin.** A higher ceiling or a broader profile now
+  answers 202 and waits up to 15 minutes for a second admin, who confirms the same fields at
+  `POST /api/v1/agents/{id}/changes/{cid}/confirm`; before, it was refused unless
+  single-operator mode was on. A move to a narrower profile applies at once. Unknown profiles
+  are refused (422) at create and patch; existing agents with an unknown profile keep loading
+  and show "profile not recognised". New migration: `sage.guard_principal_changes`
+  (agentgov-06).
+- **Model-root authority needs a signed report.** It now counts only a signed release or
+  local-run bench report stamped with the running build; unsigned or unstamped lift reports
+  no longer grant it. Install the release's signed live-model report with
+  `pg_sage bench install [--config FILE] [--commit SHA] pgincidentbench-live.json`, which
+  verifies it and copies it with its bundle into `sre.autonomy.bench_results_path`, or upload
+  both as `multipart/form-data` (`report`, `bundle`) to
+  `POST /api/v1/sre/autonomy/bench-results`. Tag releases list the two asset URLs and the
+  install command in their notes (benches-09).
+
+#### Fixed
+
+- **Query sampling.** The collector now also admits the slowest statements by mean time, the
+  heaviest by I/O, and pinned queryids (the targets of open index verifications), within the
+  same 2 x `max_queries` read. Each query records the arm that admitted it in `admitted_by`.
+  An index whose query got cheap enough to leave the top-N is now measured and kept, not
+  reverted as `insufficient_samples` (collection-07).
+- **Utility statements.** Query advice (`slow_query`, `high_total_time`, the tuner, the
+  briefing) now ignores utility statements (BEGIN/COMMIT/SAVEPOINT, SET/RESET/SHOW, DISCARD,
+  DEALLOCATE, LISTEN/NOTIFY, LOCK) and DDL or privilege changes, and open findings about them
+  resolve; a slow CALL or DO is still reported. Plan capture, the HypoPG what-if and the perf
+  gate share one EXPLAIN check, so a query that starts with a comment is no longer skipped
+  (collection-10).
+- **Slow and regressed queries.** `slow_query` and `query_regression` now judge each query's
+  mean over the last collector interval, not the cumulative `pg_stat_statements` mean, and
+  need at least `analyzer.slow_query_min_calls` calls (new key, default 5).
+  `query_regression` compares against the median of the query's hourly query_store means over
+  the lookback, so plan flips on long-lived queries are caught. A single slow ad hoc call is
+  no longer critical, and open findings for queries below the call floor resolve (rules-05).
+- **Stale statistics and sequential scans.** `stale_statistics` flags a table only when the
+  rows changed since its last ANALYZE pass autovacuum's own analyze threshold (per-table
+  storage parameters respected), so static lookup tables are no longer re-flagged and
+  re-analyzed every week. Partitioned parents, which autoanalyze never processes, get an
+  approval-gated info finding. `seq_scan_heavy` judges scans since the previous snapshot,
+  not lifetime counters. Open findings for static tables and old seq-scan storms resolve on
+  upgrade (rules-10).
+- **Sequence exhaustion.** `sequence_exhaustion` measures how much of a sequence's own range
+  (MINVALUE to MAXVALUE) is used, in the direction it moves, so descending sequences with a
+  custom MINVALUE are no longer under-reported. CYCLE sequences are no longer flagged and
+  their open findings resolve. The finding points to `forecast_sequence_runway` for the time
+  to the limit (rules-11).
+- **Forecasts on closed days.** Daily findings now use closed calendar days only: today is
+  left out (findings lag by up to a day) and days the collector watched for less than 80% of
+  their hours do not count. Query volume compares the two complete weeks ending yesterday, or
+  is not evaluated. Disk growth and connection saturation project only when R² >=
+  `forecaster.min_r_squared` over 7+ calendar days. Connection saturation counts client
+  backends against `max_connections` minus reserved slots (`reserved_connections` counts on
+  PG 16+), falling back to `limit_basis: legacy` until 7 days of new snapshots exist
+  (forecast-08).
+- **Cluster runways in a fleet.** Cluster-wide runways (xid/mxid age, disk, replication
+  slots) and the connection-saturation and checkpoint-pressure forecasts are reported by one
+  owner database per cluster, so one filling slot opens one finding, one case and one
+  investigation. Duplicate copies from earlier versions close on upgrade with
+  `detail.cluster_owner` once the owner reports, and `GET /api/v1/findings?database=X` lists
+  the owner's open cluster findings under `cluster_refs` (read-only) (forecast-09).
+- **Fleet CPU budget.** `self_budget.cpu_ms_per_cycle` now raises one `sage_self_budget`
+  finding on the `sidecar` object instead of one per database. Loops are tracked per database
+  (`pg_sage_self_loop_busy_seconds_total{loop,database}`), LLM waits are reported as
+  `llm_wait` instead of busy time, and open per-database CPU findings resolve on the next
+  analyzer cycle (footprint-07). A database removed from the fleet now takes its loop and Ask
+  Sage answer series off `/metrics` with it.
+- **Vector hints.** The tuning agent no longer treats PostGIS KNN, pg_trgm or btree_gist
+  distance queries (`<->`, `<#>`) as pgvector ANN queries: a vector hint needs a vector,
+  halfvec or sparsevec column or cast. Multi-line queries no longer get a false missing-LIMIT
+  warning, filtered ANN advice points at measuring recall with `pg_sage vector-lab`, and
+  column types reach the model by name (`vector`, `geometry`), not `USER-DEFINED`
+  (indexes-09).
+- **Planning-time hints.** High planning time no longer installs a
+  `Set(plan_cache_mode "force_generic_plan")` hint. The tuner reports `query_parameterization`
+  findings (advice only: prepared statements or one `= ANY($1)` array parameter) when a
+  statement's planning dominates, or when one statement shape shows up as at least
+  `tuner.param_shape_min_variants` queryids (new key, default 20, 2-1000) because its IN
+  lists vary in length; the IN-list trigger is off on PostgreSQL 18. Hints installed earlier
+  stay active until revalidation or rollback (tuning-11).
+- **Connection advisor.** `max_connections` is never recommended below the advisor window's
+  peak of total backends plus `superuser_reserved_connections`, `reserved_connections` (PG16+)
+  and 10, and a decrease stays advice when the peak is unknown. Pooler advice and
+  observations appear as info findings, and churn counts closed sessions (the
+  `pg_stat_database.sessions` delta). `idle_in_transaction_session_timeout` can be applied,
+  only with `ALTER DATABASE` on the reviewed database and only with an operator's approval
+  (1 min to 24 h); `statement_timeout` and `idle_session_timeout` stay advice only
+  (advisors-07).
+- **WAL and bloat advisors.** WAL and bloat advice reason over the advisor window instead of a
+  60-second-old snapshot. The WAL review states the requested share of checkpoints, WAL per
+  hour and WAL per `checkpoint_timeout`, makes no model call while under 20% of checkpoints
+  are requested, and never emits a `max_wal_size` below the current value or the measured
+  floor (1.5 x WAL per `checkpoint_timeout`, its arithmetic shown). Without history, WAL
+  advice is advisory only. Executed `max_wal_size` and `checkpoint_timeout` changes are
+  verified by the requested share of checkpoints. The bloat review lists the 50 tables with
+  the most estimated dead bytes, says how many were omitted, and computes the dead-tuple
+  trend over the window (advisors-05).
+- **Index write cost.** Verified indexes are reverted again for write regressions, measured on
+  the index's own table: if the WAL bytes per tuple the table writes rise more than
+  `verify.write_impact_pct` (default 20%) after the build, an index whose queries improved is
+  reverted as `write_impact`. Too little table-attributable evidence is recorded as
+  `insufficient` and never reverts, and there is no database-wide fallback, so a batch on
+  another table is never charged to the index (executor-03b).
+- **Interrupted canaries.** Fleet canary runs are saved as they run (targets, each database's
+  part, its action id and verdict). At startup pg_sage marks a canary left running by a
+  stopped sidecar as `interrupted` and sends a `canary_interrupted` warning naming the
+  databases that were mid-change. It never resumes the run, and a canary another live HA
+  sidecar is still running is left alone (executor-04b).
+- **Repeated log lines.** Log-based RCA now counts repeated log lines. Deadlock incidents name
+  the participating PIDs and the occurrence count (`sage.incidents.log_occurrences`). A log
+  incident resolves only after `rca.log_quiet_minutes` (default: the dedup window) with no new
+  occurrence, and a recurrence within `rca.recurrence_renotify_hours` (default 6) at no higher
+  severity is linked but not notified again, so periodic deadlocks no longer page all day. A
+  `pg_cancel_backend` cancel is now `log_statement_cancelled` (info, no incident). Deadlock,
+  refused-connection, archive, wraparound and WAL-gap incidents come with investigation
+  probes (rca-07).
+- **Executed plans from the log.** On-demand EXPLAIN plans are stored as `explain_estimate`
+  instead of `auto_explain`, and existing rows are renamed on upgrade. Self-managed servers
+  ingest auto_explain's executed JSON plans from the csvlog/jsonlog server log as
+  `auto_explain_log` (plan records up to 1 MiB, at most `auto_explain.max_plans_per_cycle`
+  per poll; rejected records are counted with the setting to fix). Oversized log records are
+  counted (reason `oversized_record`) instead of dropped silently. The tuner and tuning agent
+  prefer a fresh executed plan over a newer estimate, and the unused
+  `auto_explain.prefer_session_load` key is ignored with a warning (rca-04).
+- **Fact approval cards.** Every new fact proposal sends one approval card, whichever path
+  made it (detectors, model, first look, Ask Sage, MCP `propose_fact` and `mark_object`), and
+  repeats send none. The Facts page and declare form gain "Check what it matches" (new
+  `GET /api/v1/facts/coverage`, at most 50 objects, read-only, 2 s timeout).
+  `owned_by_app_migrations` no longer accepts the unread repo/path values; stored facts keep
+  loading (facts-09).
+- **Executor metrics.** `/metrics` reports what the executor did:
+  `pg_sage_actions_total{database,class,outcome}`,
+  `pg_sage_verification_verdicts_total{database,class,verdict}`,
+  `pg_sage_actions_pending_approval{database,risk}` and
+  `pg_sage_action_last_failure_timestamp_seconds{database}`. The failed-action alert in the
+  deployment guide pointed at a metric that was never exported and could never fire; it now
+  uses `increase(pg_sage_actions_total{outcome="failed"}[15m]) > 0` (observability-04).
+- **First look counts findings.** The time to first finding
+  (`pg_sage_time_to_first_finding_seconds`) counts only warning or critical catalog items.
+  Setup notes and agent posture notes no longer count, and a first look with no findings
+  waits for the analyzer's first finding, so TTFF rises on installs whose only first-look
+  items were setup notes. A new gauge, `pg_sage_first_look_findings`, sits next to
+  `pg_sage_first_look_items`, the checklist reads, for example, "3 findings (1 critical),
+  2 setup notes, 1 posture note", and `/api/v1/onboarding` `first_look` gains `findings`,
+  `critical`, `setup`, `posture` and `notes` (firstlook-07).
+- **Overview health banner.** The top banner no longer reports health when there are open
+  warning findings, open incidents, stale collection or collection it cannot judge. It says
+  "No open critical or warning cases" only when all of these counts are zero, and otherwise
+  lists the open work (critical first) with a link to Cases. `GET /api/v1/databases` adds
+  `summary.total_warning`, `incidents_critical`, `incidents_warning`, `incidents_unknown`,
+  `stale_collection` and `freshness_unknown`, plus `status.incidents_critical`/
+  `incidents_warning` (-1 while unknown) and `status.collection_freshness` per database
+  (cases-11).
+- **Lock investigations after the chain clears.** When a lock chain clears before a lock
+  investigation probes, the investigation names the root blocker RCA recorded at detection
+  (pid, state, `backend_start`, sessions blocked), from one bounded read of `sage.incidents`
+  kept as `incident_snapshot` evidence. It is a contributing hypothesis only, never a
+  conclusive root, and a live lock graph always takes precedence (sre-05).
+- **Time picker.** The header time picker shows only on the pages it filters (Actions,
+  "Ledger window", and Snapshot & metrics, "Health chart window"). Actions marks proposals and
+  approval requests as "Current state, not time-scoped", the fleet health chart no longer
+  refetches on every 30 s tick, and an unknown saved range shows Last 24h (dashboard-07).
+
+#### Changed
+
+- **Metrics rename release.** v2.7.0 removes `pg_sage_findings_total`,
+  `pg_sage_collector_last_run_timestamp`, `pg_sage_fleet_instance_findings`,
+  `pg_sage_fleet_instance_health`, `pg_sage_connections_total` and `pg_sage_cache_hit_ratio`,
+  and renames `pg_sage_optimizer_recommendations_total` to `pg_sage_optimizer_recommendations`
+  and `pg_sage_fleet_findings_total` to `pg_sage_fleet_findings_open` (old-to-new table in
+  docs/deployment.md and docs/metrics.md). The default metrics port moves from 9187
+  (postgres_exporter's) to 8187 (`SAGE_PROMETHEUS_PORT=9187` keeps the old one). The new
+  docs/metrics.md, generated from the registry the sidecar renders `/metrics` from, lists
+  every family with type, labels, modes and meaning, and deploy/prometheus/pg_sage.rules.yml
+  ships nine alerts with promtool tests and runbooks (observability-09).
+- **Grafana dashboard rebuilt** (uid `pg-sage`, version 2, same `DS_PROMETHEUS` input;
+  re-import it). It uses only exported families, has `$job`/`$instance`/`$database`
+  variables, and its rows cover the sidecar, databases, executor and trust, LLM, SRE and SLO,
+  and value and footprint; a panel whose feature is off says so. The PostgreSQL-internals
+  panels (connections, cache hits, transactions, dead tuples, deadlocks) are gone: use
+  postgres_exporter and its community dashboard (observability-01).
+- **LLM metrics per client.** Every LLM client (shared, per-database general, optimizer) has
+  its own `pg_sage_llm_requests_total{client,database,result}`,
+  `pg_sage_llm_request_duration_seconds` histogram and `pg_sage_llm_tokens_total{kind}` in
+  standalone, fleet and meta mode. `pg_sage_llm_enabled`, `_circuit_open`,
+  `_tokens_used_today` and `_tokens_budget_daily` gain `client` and `database` labels and
+  cover every client, so unlabelled selectors keep matching but return one series per client.
+  The budget gauge follows a live `token_budget_daily` change (observability-05).
+- **Briefings.** Briefings cover the time since the previous briefing (a weekly schedule
+  reports a week), store each channel's delivery result in `sage.briefings.delivery_status`,
+  post Slack-safe mrkdwn (model text cannot ping `<!channel>`), and apply
+  `briefing.schedule`/`channels`/`slack_webhook_url` without a restart. Behaviour change: in
+  fleet mode the new `briefing.fleet_mode` (default `rollup`) posts one message covering every
+  database; set `per_database` to keep one message per database (llm-06).
+- **Alert reminders.** A finding that stays open is no longer re-sent every cooldown (about
+  every 20 minutes for a critical). It is alerted once and then reminded per the new
+  `alerting.repeat_minutes` (defaults: critical 240, warning 1440, info 0 = never). Slack shows
+  "Still open for 3h20m (seen 21 times)", webhooks get `"reminder": true` and
+  `open_for_seconds`, and PagerDuty re-triggers the same incident. The schedule survives
+  restarts. Operators who relied on 20-minute repeats should set `repeat_minutes` lower; the
+  minimum is the severity's cooldown (alerting-07).
+- **Disk growth forecast.** `forecast_disk_growth` reports the capacity it was judged against
+  (`capacity_source`, `capacity_bytes`) and `days_until_full`, preferring a fresh provider
+  capacity, then `forecaster.disk_capacity_bytes`, and naming that key when nothing is
+  declared. `GET /api/v1/forecasts/growth` returns data fitted from the runway samples. The
+  unused `sage.size_history` table is dropped on upgrade, and `forecaster.min_data_points`/
+  `forecaster.alert_horizons` are retired (they load with a warning and have no effect;
+  remove them) (forecast-06).
+- **Self-configuration from measured cost.** `collector.interval_seconds` and
+  `safety.query_timeout_ms` are sized from the statements the collector actually ran: the
+  interval from the p90 cycle time, the deadline from 3x the p90 slowest statement, raised to
+  at least 2x the current deadline after timeouts and flagged "timeouts seen".
+  `self_budget.db_time_ms_per_hour` tightens the collector budget below 1%, and each cost
+  citation in the derived-settings API and page names its source (probe before the first
+  cycle, collector after) (footprint-05).
+- **Hints are planned before they are proposed.** Query hints are planned with and without the
+  hint (bounded read-only EXPLAIN, never ANALYZE). Hints that do not change the plan
+  (`no_effect`) or raise the estimated cost by more than the new
+  `tuner.hint_cost_tolerance_pct` (default 10) are refused, and hints that cannot be checked
+  stay advisory. Findings carry `detail.hint_evidence` with both plans and costs, the tuning
+  agent gets a `hinted_explain` tool, and revalidation retires installed hints that no longer
+  change the plan (tuning-05).
+- **Case ranking by time to impact.** Cases rank within each severity by the time to impact
+  the producer measured (disk, WAL slot, sequence and wraparound runways, storage growth,
+  connection saturation), nearest first. Each case shows how that number was calculated, for
+  example "About 3 days until the disk is full (seconds_to_limit 259200 from 48 samples over
+  6 h, R² 0.97)", or "Urgency not assessed". Recurring incidents link to their resolved
+  predecessor ("4th occurrence; previous resolved 2026-11-02"). New API fields: `urgency`,
+  `rank_basis`, `recurrence` (cases-07).
+- **Recommendation lifecycle on cases.** Cases show what pg_sage already did with a proposal:
+  "applied on <date> and reverted it: <reason>", "Stopped after 3 failed attempts" or
+  "Retrying after 14:05 UTC". A change reverted or abandoned with the same content is blocked,
+  a proposal whose evidence is past `expires_at` is blocked as `evidence_expired`, and each
+  candidate shows how long its evidence is valid. If the recommendation history cannot be
+  read, the case is marked `recommendation_unknown` instead of showing "none" (cases-10).
+- **Runbook drafts.** Editing a signed runbook stages a draft and the signed version keeps
+  running until an admin signs the draft (responses carry `running_version` and `running`).
+  The Runbooks page adds Revise, a version list, a structural diff from the newest signed
+  version before signing, and a typed-name confirmation for Retire, which now needs the
+  admin role (playbooks-10).
+- **MCP tool availability.** `tools/list` leaves out tools that cannot be served (`ask_sage`
+  when Ask Sage is off or has no enabled LLM, the `specialist_*` tools when the contract is
+  off, `top_queries` and `whatif_index` on databases without pg_stat_statements), narrows each
+  tool's database enum to the databases that can serve it, and sends
+  `notifications/tools/list_changed` when that changes; a hidden tool called directly still
+  returns -32010 unavailable (mcp-09).
+- **Migration ledger.** Startup records every sage schema migration step in the new
+  `sage.schema_migrations` ledger (step, SHA-256, time, pg_sage version) with a fingerprint of
+  the catalog. A restart over an unchanged schema skips the recorded steps and runs no DDL. A
+  changed schema is re-checked step by step, an INVALID index is rebuilt, and a step whose
+  SQL changed stops startup, naming the step and how to re-run it (config-04b).
+- **Managed providers.** Azure flexible server and AlloyDB: a setting SQL cannot change now
+  becomes an operator-approved proposal, as on RDS and Cloud SQL. On Azure it carries the
+  exact `az postgres flexible-server parameter set` command, a restart line when needed, and a
+  rollback to the prior value or the default; on AlloyDB it is a
+  `gcloud alloydb instances update` fill-in template. pg_sage reads Azure server parameters
+  over ARM (it needs only `configurations/read`) and still writes only `max_slot_wal_keep_size`.
+  A new migration widens `sage.managed_change_proposals.provider` to `alloydb` and `azure`
+  (advisors-03).
+- **Lakebase scale to zero.** pg_sage reads each endpoint's scale-to-zero suspend timeout and
+  warns once per endpoint at startup when its collector, pool health check or MinConns may
+  keep the compute from suspending. The admin deployment status reports
+  `suspend_timeout_seconds`, `compute_state`, `keeps_compute_active` and
+  `scale_to_zero_blockers` per endpoint, and docs/lakebase.md gains a Cost model section. No
+  defaults change (databricks-04).
+- **Shadow report removed.** `GET /api/v1/shadow-report` and its heuristic "avoided toil"
+  figures are gone. The Settings Shadow Mode page reads the shadow ledger
+  (`GET /api/v1/shadow-decisions`, open to every signed-in role) and shows decisions, scores,
+  counted evidence and potential toil minutes per class ("not modelled" when no toil model
+  exists). Query-hint cases show the standing policy's verdict instead of "policy pending".
+  Scripts that called shadow-report should switch to shadow-decisions (earned-04).
+- **Earned autonomy decays visibly.** An earned L2/L3 incident level whose bench report or
+  shadow-review window ages out is recorded as a `capped` history entry
+  (`evidence_decayed:<checks>`) on the evaluate interval, and as `cap_cleared` when new
+  evidence returns. Operators get one warning (`evidence_expiring` plus an `action_failed`
+  warning notification) 7 days before the evidence expires, and the Autonomy and Trust pages
+  show "L3 holds until <date> unless a new bench report arrives" (`holds_until`,
+  `expiring_checks`). Thresholds and levels are unchanged (earned-06).
+- **L3 re-validates after a major upgrade.** Each self-initiated L3 trust level records the
+  server major it was granted on. A level granted on another major runs at L2 (capped, reason
+  `server_major_changed:16->17`) until 3 improved outcomes on the new major, or an admin's
+  re-approval (Trust page Re-approve, or `POST /api/v1/sre/autonomy/revalidate`), clear the
+  cap. Minor upgrades, incident families and carried-over levels are unaffected. Adds the
+  nullable column `sage.sre_family_autonomy.server_major` (earned-07).
+- **Unscored game days.** Game days and local bench runs record what they scored (scored /
+  skipped / errored runs and the top skip reasons in `sage.sre_game_days.summary`). A run
+  where every fault program skipped, for example on a snapshot clone without superuser, ends
+  `completed_unscored` instead of `completed` and logs a WARN naming the reasons; the
+  Autonomy page shows it as a warning, with each game day's eval run and links to its
+  game-day check (benches-08).
+- **CI matrix.** PGIncidentBench runs as a PostgreSQL 14-18 x shard matrix job, and
+  AgentSafetyBench and the performance gate each run in their own job, in parallel with the
+  suites. CI's PostgreSQL images are built once per revision, on a base pinned by digest, with
+  HypoPG, pg_hint_plan and pgaudit baked in, so CI no longer runs apt-get or restarts servers.
+  A nightly-only shuffled race run (`-shuffle=on -count=2`) is reported and never gates
+  (ci-03b).
+- **Docs.** configuration.md has a "Vacuum, bloat and freeze autopilot" section (the freeze
+  custodian's ladder and approvals, its cadence, `custodian.freeze.red_buffer_pct`, backoff
+  and escalation, and reading its decisions in `sage.decision`), and the architecture overview
+  and findings catalog match the code (vacuum-11). The architecture guide states PostgreSQL
+  14-18 and adds "Own Footprint and Self-Configuration": the statement tag and exclusion
+  rules, the self-cost and budget findings and units, every `pg_sage_self_*` family, derived
+  settings and the performance gate (footprint-10).
+
+#### Added
+
+- **Index bloat findings.** The new `index_bloat` rule reads `analyzer.index_bloat_threshold_pct`
+  (default 30). Each cycle it estimates btree bloat from planner statistics in one bounded
+  catalog read (no pgstattuple, no relation opened) for the 200 largest indexes of at least
+  `analyzer.index_bloat_min_bytes` (new, default 100 MiB). At the threshold it raises an info
+  finding and at twice the threshold a warning, both recommending
+  `REINDEX INDEX CONCURRENTLY` under the approval-required `reindex_concurrently` contract.
+  Invalid indexes and partitioned parent indexes are skipped; leaf partition indexes are
+  judged on their own (rules-13).
+- **Finding category registry.** Finding categories come from one registry:
+  `GET /api/v1/findings/categories` lists every source-filter subsystem with its categories,
+  new `source` values `tuning`, `cloud`, `governance`, `migration` and `facts` reach
+  categories no filter matched before, and docs/generated/finding-catalog.md (severities,
+  config keys, executor contract tier) is generated from code (rules-12).
+- **First look re-check.** Operators and admins can press Re-check on the Extensions and
+  First look steps, or call `POST /api/v1/first-look/recheck?database=`, after CREATE
+  EXTENSION or a GRANT; the checklist and degraded checks update with no restart, at most one
+  re-check per database per minute. LLM first-look summaries are no longer regenerated on
+  restart when nothing changed (firstlook-05).
+- **Footprint panel.** `GET /api/v1/self-cost` and a Settings > General "Footprint" panel show
+  pg_sage's own database time, blocks and rows per hour against its self-budget, the sage
+  schema size and the costliest statements, split by the component named in each
+  statement's tag (`/* pg_sage collector */`), with the new metric
+  `pg_sage_self_component_db_time_ms_per_hour{database,component}`. Statements that
+  pg_stat_statements first saw under the old bare tag show as "unattributed" until the entry
+  is evicted or reset (footprint-08).
+- **Missing-index advice without an LLM.** When the tuning agent is inactive (no endpoint,
+  breaker open, daily budget spent), a deterministic index floor proposes `missing_index`
+  findings for `seq_scan_heavy` tables (`detail.source = "deterministic_floor"`). They pass
+  the same validator, rejection memory and HypoPG what-if as the agent's; without HypoPG they
+  are advisory with no executable SQL ("HypoPG not installed: impact unmeasured"). It follows
+  `tuning.enabled` and `llm.optimizer.enabled`, per database (indexes-12).
+- **Plan anti-patterns.** Executed plans yield advisory `query_tuning` findings for an index
+  scan whose filter discards at least 90% of the rows it reads (naming the composite index to
+  build) and for a nested-loop OR join filter spanning both inputs (UNION rewrite advice).
+  Neither proposes a hint or SQL; both detail the plan facts under `plan_antipatterns`. Plans
+  that print fractional "Rows Removed" counters (PG18) now parse (market-10).
+- **Natural-language EXPLAIN without an LLM.** The plan rules always fill `slow_because`,
+  recommendations and the summary; an LLM can only add to them, and each entry carries its
+  source (`insights`). `query_id` is resolved per database (a fresh captured auto_explain plan
+  with actuals is used, with `plan_source`/`plan_age_s`), node `time_ms` counts every loop
+  (`loops` added), and cases get an "Explain this query" panel (tuning-10).
+- **Decisions tab and "Why hasn't this run?".** `GET /api/v1/decisions` and an Actions >
+  Decisions tab (operators only) list every change the policy gate is holding back that has
+  not run, with its verdict, the reason in plain words, how many times it repeated, when the
+  budget frees and the policy version. `GET /api/v1/policy/explain` and a "Why hasn't this
+  run?" link on finding cases show how the gate would decide that finding's changes now and
+  record nothing. Settings > Trust & Safety shows the standing policy and its history,
+  read-only. A new migration adds the partial index `idx_decision_open_withheld`
+  (policy-07).
+- **Approve now, run in the next window.** Approving a moderate or high action outside its
+  maintenance window schedules it for the next opening (UI, API, approval card or chat;
+  `POST /api/v1/actions/{id}/schedule` and `/unschedule`). When the window opens, pg_sage
+  checks the current policy again and then runs it. A new policy field,
+  `window_start_margin_minutes` (0-720, default 0), holds back a start when the window closes
+  within the margin (reason `window_closing`), and startup warns about policy windows that
+  name no time zone (policy-04).
+- **Diagnosis follow-ups.** Sage SRE sends each incident's diagnosis to the engineer who was
+  paged: a new `investigation_concluded` follow-up goes only to the Slack, Telegram or email
+  channels the incident's page reached, at most once per incident and once the newest
+  conclusion has settled for 60 s. On Telegram it is a threaded reply; PagerDuty gets nothing.
+  The text is redacted to one line, and there is no new setting (sre-08).
+- **Each case's own investigation.** The Cases page shows each case's own Sage SRE
+  investigation even on a busy database (the investigations API accepts repeated `case_id`,
+  up to 100, and returns the newest investigation of each), and an open investigation
+  refreshes every 5 s while it is still running (sre-09).
+- **SLO history.** Each SLO shows how long it has been in its state and when its burn started.
+  An unknown budget names its reason; a partial window also shows the share covered and the
+  budget spent so far (new `budget_coverage` and `budget_spent_so_far` status fields). Each
+  row expands into its state transitions, the recovery verdict and the newest `slo:<name>`
+  investigation (playbooks-09).
+- **Statistics maintenance after an incident.** New MCP tools `sre_refresh_table_evidence`,
+  `sre_propose_statistics` and `sre_request_statistics` (propose scope) re-read stat_tables
+  for a table the investigation observed, propose CREATE STATISTICS against evidence pg_sage
+  resolves itself (no evidence id or SHA in the call), and queue the human approval.
+  `sre_rollback_statistics` needs the approve scope and an admin. Inconclusive
+  investigations now qualify; the 15-minute evidence cap, the table-lock identity rechecks
+  and human approval are unchanged. A schema migration admits the new `evidence_refreshed`
+  event (playbooks-06).
+- **OAuth agent identities.** Admins bind and unbind an identity (issuer, subject) on the
+  agent's OAuth identities section or via `/api/v1/agents/{id}/identities`, without SQL. Each
+  change is audited as `agent_identity_bound` or `agent_identity_unbound`, and docs/mcp.md
+  has a new OAuth section (agentgov-03).
+- **Agents page controls.** Admins can edit an agent's sponsor, profile and ceiling (a
+  widening change waits for a second admin), retire it by typing its name (the dialog shows
+  `agents.roles.retire_grace_days`), revoke its tokens, kill one agent or one database as well
+  as all, and release fleet or database freezes from a new banner (two admins after a kill).
+  The new read route `GET /api/v1/agents/freezes` lists the open freezes, at most 200
+  (agentgov-07).
+- **Exact Ask Sage citations.** Citations name the exact read they rest on (a new `alias` per
+  citation and `aliases` per statement; a re-read of the same list no longer replaces the
+  cited digest), and in the UI a finding, investigation or action citation opens that
+  finding's case, the investigated case or the change record instead of the page root
+  (mcp-05).
+- **Source-fix verdicts in the background.** Every database runtime checks every 5 minutes
+  for deploys whose verify window has closed and records the verdict even if the coding agent
+  never comes back. Operators read a finding's source-fix report at
+  `GET /api/v1/findings/{id}/source-fix` and in a finding case's technical details: PR,
+  commit, deploy time, verdict with predicted vs observed change, and a "backdated" flag for
+  deploys reported after their window had closed (mcp-06).
+- **Stored briefings.** `GET /api/v1/briefings?database=&limit=` (newest first) and
+  `/api/v1/briefings/latest?database=` (latest per database; 404 with the reason when none
+  exists yet) for every signed-in role, an MCP resource
+  `pgsage://databases/{database}/briefings/latest` (read scope), and a Latest briefing card on
+  the Overview showing open findings by severity, delivery per channel and the full text;
+  `content_json` and `delivery_status` are returned exactly as stored (llm-06b).
+- **Alert Log delivery failures.** `error`/`resolve_error` rows are red with the channel's
+  error text, `deferred` (quiet hours) rows amber, the fleet view adds a Database column and a
+  banner naming databases whose log could not be read (`failed_databases`; 503 only when no
+  database can be read), and the summary counts delivered, failed and deferred. The
+  Notifications Log clears its error after a successful refresh (alerting-09).
+- **Approve-from-chat setup.** Notifications > Channels sets up Telegram channels (bot token,
+  chat id, generated webhook secret) and Slack "Interactive approvals" (signing secret, team
+  id), with a copyable callback URL after saving, an Edit dialog that keeps masked secrets, a
+  last delivery column and an admin-only Chat identities panel.
+  `GET /api/v1/notifications/channels` adds `last_status`, `last_error` and `last_sent_at`
+  (alerting-10).
+- **Audit health.** `/metrics` exports `pg_sage_audit_chain_ok`,
+  `pg_sage_audit_chain_verified_timestamp_seconds`, `pg_sage_audit_chain_problems{kind}`,
+  `pg_sage_audit_chain_verify_errors_total`, `pg_sage_siem_lag_links`,
+  `pg_sage_siem_consecutive_failures` and `pg_sage_siem_delivered_total`, all from the fleet
+  leader. `GET /api/v1/audit/status` (admin) and a new Audit trail card in Settings show the
+  chain state, SIEM lag and evidence signing, and the card builds evidence downloads. A
+  database name with a tab or similar character no longer breaks the `pgaudit_records_total`
+  scrape, and security.md gives each audit table's retention key and a threat model
+  (audit-12).
+- **Loop health and SRE backlog metrics.** `pg_sage_self_loop_errors_total{loop,database}` and
+  `pg_sage_self_loop_last_success_timestamp_seconds{loop,database}` show a periodic loop that
+  fails every cycle (collector, analyzer, sre, briefing), with the executor and retention
+  loops tracked too. `pg_sage_sre_investigations{database,state}` and
+  `pg_sage_sre_investigation_oldest_open_age_seconds{database}` show the Sage SRE
+  investigation backlog; both SRE families are absent when SRE does not run
+  (observability-06).
+- **Top Cases.** The Overview's Recent Recos tab is now Top Cases: the five highest-ranked
+  open cases (severity, then time to impact), each linking to its case and naming any
+  database whose cases could not be read. `GET /api/v1/cases` gains `?limit=N` (1-100) and
+  `?summary=1` for rows without evidence payloads (cases-11b).
+- **Admin navigation.** A new Admin nav group (Fleet, Users, Notifications, Alert log,
+  Settings, MCP tokens, Agents) makes the Users, Notifications and Alert log pages reachable.
+  The duplicate Advanced entries "Findings explorer" and "Action history" are removed (their
+  old URLs still open Cases and Actions), the command palette lists every page you can see,
+  and `?` opens a keyboard shortcuts sheet (dashboard-06).
+- **Confirmation dialogs.** Rollback, token and grant revokes, channel delete, restart and
+  user delete/deactivate/SSO unlink ask in an accessible dialog that names the target and, for
+  rollback, shows the action id, database, exact rollback SQL and risk tier. HIGH-tier
+  rollbacks require typing the database name, a failed rollback keeps its error in the
+  dialog, actions without stored rollback SQL show a disabled Rollback with the reason, and
+  each browser tab is titled "<page> · pg_sage" (dashboard-10).
+- **Pending restarts in Settings.** Settings lists the saved settings that wait for a restart,
+  with their running and saved values, and badges every field live or restart. Restart
+  appears only when `SAGE_SUPERVISED=1` declares a supervisor; without it Settings says how
+  to restart. The maintenance window field lists the full grammar and previews the next
+  opening through the new admin route `POST /api/v1/config/validate-window`.
+  `GET /api/v1/config/global` adds `pending` and `restart_supported` (config-09).
+- **Fleet runtime view.** Fleet page rows show what the running sidecar reports for each
+  database: connection and HA role, open/critical findings, health and its reasons, effective
+  trust (marked "override" when it differs from the registration), emergency stop with actor
+  and time, and LLM budget used/allocation. A registered database that is not running reads
+  "not running". The Database page leads with a runtime summary and fleet look-alikes, with
+  the raw snapshot collapsed, and fleet-finding occurrences link to their case.
+  `GET /api/v1/databases` adds `llm_budget` when `llm.fleet_token_budget_daily` is set
+  (fleet-06).
+- **Databricks runtime health.** Deployment status (admin) reports `runtime_liveness`
+  "partial" and a `databricks` block: Lakebase credential expiry and mint-failure classes
+  (never tokens), the last AI Gateway success and failure, and per-stream telemetry warehouse
+  statements, rows, bytes and read time. A Databricks runtime card on the Settings General tab
+  shows it, and `authentication_observed` turns false after a Gateway authentication failure
+  (databricks-06).
 
 ## v2.5.0 (2026-11-03) -- The Databricks release
 
