@@ -228,3 +228,31 @@ func TestConfigRates_Lookup(t *testing.T) {
 		t.Fatal("nil rates must report none")
 	}
 }
+
+// Fleet: two entries for one physical database (same Identity) are read
+// and priced once, as the value ledger counts them; the later name's rate
+// still prices it.
+func TestBuild_SamePhysicalDatabaseCountedOnce(t *testing.T) {
+	r := &fakeReader{deltas: map[string][]QueryDelta{
+		"app":  {{Database: "app", QueryID: 7, ExecMs: 1000}},
+		"app2": {{Database: "app2", QueryID: 7, ExecMs: 1000}},
+	}}
+	members := []Member{{Database: "app", Identity: "sys/app"},
+		{Database: "app2", Identity: "sys/app"}, {Database: "other", Identity: "sys/other"}}
+	s := Build(context.Background(), r, members,
+		ratesFor(rateEntry("", "app2", 1), rateEntry("", "other", 1)), repFrom, repTo)
+	if !s.Available || len(s.Resources) != 2 || len(s.Unpriced) != 0 {
+		t.Fatalf("section = %+v, want two priced databases (app once, other)", s)
+	}
+	if s.Compute == nil || !near(*s.Compute, 20) {
+		t.Fatalf("compute = %v, want $20 ($1/h x 10 h for app once and for other)",
+			s.Compute)
+	}
+	if len(s.TopQueries) != 1 || s.TopQueries[0].Database != "app" ||
+		!near(s.TopQueries[0].Share, 1) || !near(s.TopQueries[0].Cost, 10) {
+		t.Fatalf("top = %+v, want query 7 of app once at $10", s.TopQueries)
+	}
+	if r.reads["app2"] != 0 || r.reads["app"] != 1 {
+		t.Fatalf("reads = %v, want the duplicate entry never read", r.reads)
+	}
+}

@@ -185,3 +185,22 @@ func (f valueReaderFunc) Get(ctx context.Context, filter value.Filter) (value.Re
 	error) {
 	return f(ctx, filter)
 }
+
+// Fleet: two entries for one physical database price it and its queries
+// once, as the value ledger dedupes them.
+func TestValueCost_SamePhysicalDatabaseCountedOnce(t *testing.T) {
+	pools := valueFleetPools(t, "coste")
+	seedStorePair(t, pools["coste"], 5151, 20_000)
+	pools["costf"] = pools["coste"]
+	router := costRouter(pools, usdRate("", "coste", 1), usdRate("", "costf", 1))
+	s := getValueCost(t, router, "/api/v1/value")
+	if !s.Available || len(s.Resources) != 1 || s.Compute == nil ||
+		*s.Compute < 167 || *s.Compute > 169 {
+		t.Fatalf("section = %+v, want one database priced once (~$168 for 7 days)", s)
+	}
+	if len(s.TopQueries) != 1 || s.TopQueries[0].QueryID != "5151" ||
+		s.TopQueries[0].Database != "coste" || s.TopQueries[0].Share != 1 {
+		t.Fatalf("top = %+v, want query 5151 of coste once with the whole share",
+			s.TopQueries)
+	}
+}

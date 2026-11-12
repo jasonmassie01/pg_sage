@@ -165,6 +165,12 @@ func dedupeReads(reads []sourceRead) []SourceResult {
 const physicalIdentitySQL = `/* pg_sage */ SELECT system_identifier::text || '/' ||
 	current_database() FROM pg_control_system()`
 
+// PhysicalIdentity is physicalIdentity for readers outside this package
+// that must also count a database registered twice once (market-04 cost).
+func PhysicalIdentity(ctx context.Context, pool *pgxpool.Pool) (string, error) {
+	return physicalIdentity(ctx, pool)
+}
+
 // physicalIdentity names the database cluster and database behind a pool.
 // When the role may not read pg_control_system(), the connection target
 // (host:port/dbname) is used instead. Connection failures are returned.

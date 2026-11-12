@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/cloudtel"
@@ -21,6 +22,8 @@ const (
 	// costMaxWindow is the longest window priced (the host-usage retention).
 	costMaxWindow   = cost.UsageRetention
 	costReadTimeout = 15 * time.Second
+	// costIdentityReads bounds the concurrent physical-identity reads.
+	costIdentityReads = 8
 	// reasonCostUnwired: the value reader has no cost attribution.
 	reasonCostUnwired = "cost attribution is not available on this server"
 )
@@ -50,6 +53,7 @@ func (f *fleetValue) Cost(ctx context.Context, filter value.Filter) cost.Section
 	defer cancel()
 	from, to := costWindow(filter, f.now())
 	members := costMembers(fleet.ValueSources(f.mgr), filter.Database)
+	withIdentities(ctx, members)
 	return cost.Build(ctx, cost.PGReader{}, members, f.rates, from, to)
 }
 
@@ -98,6 +102,30 @@ func costMembers(sources []value.Source, database string) []cost.Member {
 		out = append(out, m)
 	}
 	return out
+}
+
+// withIdentities names the physical database behind each member, so two
+// fleet entries for one database are read and priced once (as the value
+// ledger dedupes them). A member whose identity cannot be read keeps ""
+// and is read on its own; its read then reports the failure.
+func withIdentities(ctx context.Context, members []cost.Member) {
+	slots := make(chan struct{}, costIdentityReads)
+	var wg sync.WaitGroup
+	for i := range members {
+		if members[i].Pool == nil {
+			continue
+		}
+		wg.Add(1)
+		go func(m *cost.Member) {
+			defer wg.Done()
+			slots <- struct{}{}
+			defer func() { <-slots }()
+			if id, err := value.PhysicalIdentity(ctx, m.Pool); err == nil {
+				m.Identity = id
+			}
+		}(&members[i])
+	}
+	wg.Wait()
 }
 
 // costSection prices the report when the reader can.

@@ -23,7 +23,33 @@ const maxConcurrentReads = 8
 type Member struct {
 	Database string
 	Resource string
+	// Identity names the physical database (cluster and database; "":
+	// unknown), so two fleet entries for one database count once.
+	Identity string
 	Pool     *pgxpool.Pool
+	aliases  []string // later fleet names of the same physical database
+}
+
+// dedupe keeps the first member of each physical database, as the value
+// ledger does; the later names still find its rates and its resource.
+func dedupe(members []Member) []Member {
+	out := make([]Member, 0, len(members))
+	at := map[string]int{}
+	for _, m := range members {
+		i, seen := at[m.Identity]
+		if m.Identity == "" || !seen {
+			if m.Identity != "" {
+				at[m.Identity] = len(out)
+			}
+			out = append(out, m)
+			continue
+		}
+		out[i].aliases = append(out[i].aliases, m.Database)
+		if out[i].Resource == "" {
+			out[i].Resource = m.Resource
+		}
+	}
+	return out
 }
 
 // key groups the databases of one instance: its resource, else itself.
@@ -102,7 +128,7 @@ func Build(ctx context.Context, r Reader, members []Member, rates RateSource,
 		s.Reason = ReasonNotConfigured
 		return s
 	}
-	groups := groupMembers(members, rates, &s)
+	groups := groupMembers(dedupe(members), rates, &s)
 	if len(groups) == 0 {
 		s.Reason = "no configured rate matches the monitored databases"
 		return s
@@ -155,8 +181,10 @@ func groupMembers(members []Member, rates RateSource, s *Section) []*group {
 
 func lookupRates(g *group, rates RateSource) (Rates, bool) {
 	for _, m := range g.members {
-		if r, ok := rates.Rates(m.Resource, m.Database); ok {
-			return r, true
+		for _, name := range append([]string{m.Database}, m.aliases...) {
+			if r, ok := rates.Rates(m.Resource, name); ok {
+				return r, true
+			}
 		}
 	}
 	return Rates{}, false
