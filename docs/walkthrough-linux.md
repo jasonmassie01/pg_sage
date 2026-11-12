@@ -87,9 +87,13 @@ Walk through:
 2. **Overview** -- fleet health, Provider Readiness, recent recommendations.
 3. **Cases** -- the primary DBA work queue. The old `#/findings` route aliases
    here for compatibility.
-4. **Actions** -- pending approval and executed action history.
-5. **Fleet** -- managed database connections and runtime status.
-6. **Settings** -- system info, emergency stop/resume, and Shadow Mode (shadow decisions per class).
+4. **Workload** -- the top statements of the last hour by load (execution seconds per
+   second), calls, mean time or rows, and the active sessions by wait class, sampled
+   each collector cycle. Open a statement for its history, plan changes, latest plan
+   and the cases about it; a case's evidence links to the same page.
+5. **Actions** -- pending approval and executed action history.
+6. **Fleet** -- managed database connections and runtime status.
+7. **Settings** -- system info, emergency stop/resume, and Shadow Mode (shadow decisions per class).
 
 ## 4. API and Metrics Checks
 
@@ -100,6 +104,7 @@ curl -c cookies.txt -H 'Content-Type: application/json' \
 
 curl -b cookies.txt http://localhost:8080/api/v1/cases
 curl -b cookies.txt http://localhost:8080/api/v1/shadow-decisions
+curl -b cookies.txt 'http://localhost:8080/api/v1/queries/top?database=all&limit=5'
 curl -s http://localhost:8187/metrics | head
 ```
 

@@ -46,6 +46,22 @@ is retried at a tenth of its size), under `lock_timeout`, within a 5 s budget th
 past half of the startup deadline; the rest resumes on the next start. `sage.data_cleanup`
 records the cleanup.
 
+The `wait_events` category is this database's active client sessions grouped by wait class
+and event, one aggregate of `pg_stat_activity` per collector cycle, stored in full: a list
+of `{wait_event_type, wait_event, sessions}`, with a session that has no wait event counted
+as `wait_event_type` `CPU` and an empty `wait_event`. It holds no query text and no pid,
+and leaves out pg_sage's own sessions. An idle database stores an empty list; a cycle that
+could not read it stores no row (unknown, not zero). It is sampled each collector cycle,
+not active session history, and it follows the snapshot retention. Wait event names
+differ across PostgreSQL 14 to 18 and are kept as plain strings. On managed services the
+monitoring role needs `pg_monitor` to see other sessions' wait events. The workload
+explorer reads it through `GET /api/v1/wait-load?database=<name>&since=&until=`; the top
+statements of a window come from `sage.query_store` through
+`GET /api/v1/queries/top?database=<name|all>&since=&until=&order=load|calls|mean|rows&limit=`
+(load is the window's execution seconds per wall-clock second; a statistics reset splits
+the window), and one statement's history, plan changes, latest plan and links through
+`GET /api/v1/queries/<queryid>?database=<name>`.
+
 ---
 
 ### `sage.findings`
