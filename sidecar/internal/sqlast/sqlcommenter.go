@@ -1,4 +1,4 @@
-package agenttools
+package sqlast
 
 import (
 	"net/url"
@@ -25,8 +25,8 @@ func ParseSQLCommenter(sql string) map[string]string {
 	tags := map[string]string{}
 	// An unterminated token only ends the scan: the comments closed before
 	// it are whole, and an unterminated comment is never collected.
-	scan, _ := scanSQL(sql)
-	for _, body := range scan.comments {
+	scan, _ := ScanSQL(sql)
+	for _, body := range scan.Comments {
 		pairs, ok := parseCommenterBody(body)
 		if !ok {
 			continue
@@ -115,11 +115,11 @@ func tagValue(raw string) (string, bool) {
 		}
 		return r
 	}, v)
-	return clipBytes(v, maxTagValue), true
+	return ClipBytes(v, maxTagValue), true
 }
 
-// clipBytes cuts s to at most n bytes without splitting a UTF-8 sequence.
-func clipBytes(s string, n int) string {
+// ClipBytes cuts s to at most n bytes without splitting a UTF-8 sequence.
+func ClipBytes(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}

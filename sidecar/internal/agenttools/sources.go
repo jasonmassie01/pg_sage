@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/sqlast"
 )
 
 // Sampling bounds of QuerySources.
@@ -111,7 +113,7 @@ func (t *Tools) addSamples(groups map[string]*QuerySource, seen []activity, want
 		if t.opts.Excluded(a.query) || (want != 0 && QueryID(a.queryID) != want) {
 			continue
 		}
-		tags := ParseSQLCommenter(a.query)
+		tags := sqlast.ParseSQLCommenter(a.query)
 		key := groupKey(a.queryID, tags)
 		g := groups[key]
 		if g == nil {

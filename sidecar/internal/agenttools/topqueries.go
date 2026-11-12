@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/pg-sage/sidecar/internal/sqlast"
 	"github.com/pg-sage/sidecar/internal/workload"
 )
 
@@ -180,7 +181,7 @@ func scanTopRow(rows pgx.Rows, sqlExcluded *int) (statement, bool, error) {
 func topQuery(s statement) TopQuery {
 	q := TopQuery{QueryID: QueryID(s.ID), Query: s.Text, Calls: s.Calls,
 		TotalTimeMs: s.TotalTimeMs, MeanTimeMs: s.meanMs(), Rows: s.Rows}
-	if tags := ParseSQLCommenter(s.Text); len(tags) > 0 {
+	if tags := sqlast.ParseSQLCommenter(s.Text); len(tags) > 0 {
 		q.Tags = tags
 	}
 	return q
