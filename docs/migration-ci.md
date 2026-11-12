@@ -138,8 +138,10 @@ Content-Type: application/json
   left out. At most 4 reviews read catalogs at once, so a burst cannot take the monitored
   database's pool.
 
-API-token access (without a session) is not offered yet: CI should use the CLI, which
-needs only a read-only DSN.
+The endpoint takes a session only. With an API token, call MCP `lint_migration` (any
+token with the `read` scope): it runs the same review and returns the full report under
+`review`. CI should use the CLI, which needs only a read-only DSN and no pg_sage
+credential at all.
 
 ## Managed providers
 
