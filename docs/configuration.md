@@ -308,6 +308,7 @@ Variables that only the test suites and benches read (`SAGE_TEST_*`, `SAGE_BENCH
 | `SAGE_SUPABASE_OBSERVABILITY_TOKEN` / `_FILE` | (none) | Supabase Management API token for provider observability (optional) |
 | `SAGE_HISTORY_MONITORED_DSN` / `_FILE` | (none) | Source database of the `history` subcommand's copy into the metadata database (only read) |
 | `SAGE_VECTORLAB_DATABASE_URL` / `_FILE` | (none) | Database of the `vector-lab` subcommand |
+| `SAGE_LINT_DATABASE_URL` / `_FILE` | (none) | Monitored database the `lint-migration` CI gate reads catalog statistics from (only read; not needed with --static) |
 <!-- env-vars:end -->
 
 A `_FILE` variant reads the value from the named file (for Docker, Kubernetes

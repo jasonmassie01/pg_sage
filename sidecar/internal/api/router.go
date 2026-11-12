@@ -266,11 +266,19 @@ func registerFleetScopedRoutes(
 		registerMCPRoutes(apiMux, rt.MCPHandler, mcpTokenStore(pool), rt.MCPOAuth,
 			agentguard.NewStore(pool))
 	}
-	// Value and briefings (llm-06b) are read from every monitored database in
-	// all modes (D3), so they depend on the fleet, not on the control pool.
+	registerFleetReadRoutes(apiMux, mgr, cfg)
+	registerOnboardingRoutes(apiMux, mgr, cfg, pool)
+}
+
+// registerFleetReadRoutes registers value and briefings (llm-06b), read
+// from every monitored database in all modes (D3), and migration lint
+// (migration-11), which reads one monitored database's catalogs: they
+// depend on the fleet, not on the control pool.
+func registerFleetReadRoutes(apiMux *http.ServeMux, mgr *fleet.DatabaseManager,
+	cfg *config.Config) {
 	route(apiMux, "GET /api/v1/value", gateViewer, valueHandler(fleetValueReader(mgr)))
 	registerBriefingRoutes(apiMux, mgr)
-	registerOnboardingRoutes(apiMux, mgr, cfg, pool)
+	registerMigrationLintRoutes(apiMux, mgr, cfg)
 }
 
 // registerControlPoolRoutes registers the routes backed by the control

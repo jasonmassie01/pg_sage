@@ -575,6 +575,13 @@
     "class": "safety_critical",
     "lifecycle": "restart"
   },
+  "api.migration_lint_rate_per_minute": {
+    "type": "int",
+    "default": 0,
+    "doc": "Requests per minute each signed-in user may send to POST /api/v1/migrations/lint, which reads catalog statistics on the monitored database. Default 30.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
   "api.trusted_origins": {
     "type": "[]string",
     "default": null,

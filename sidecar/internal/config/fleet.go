@@ -125,10 +125,26 @@ type APIConfig struct {
 	// AccessLog writes one line per mutating API request and per 401/403
 	// (apiauth-12); nil means enabled.
 	AccessLog *bool `yaml:"access_log" doc:"Log one structured line per mutating API request and per 401/403 response: method, route pattern, user id, role, status and latency, never bodies or query strings. Default true." warning:"Turning this off removes the record of who changed what through the API."`
+
+	// MigrationLintRatePerMinute bounds POST /api/v1/migrations/lint per
+	// signed-in user (migration-11); 0 or less means the default, 30.
+	MigrationLintRatePerMinute int `yaml:"migration_lint_rate_per_minute" doc:"Requests per minute each signed-in user may send to POST /api/v1/migrations/lint, which reads catalog statistics on the monitored database. Default 30."`
 }
 
 // AccessLogEnabled reports whether the API access log is on (default: on).
 func (a APIConfig) AccessLogEnabled() bool { return a.AccessLog == nil || *a.AccessLog }
+
+// DefaultMigrationLintRatePerMinute is api.migration_lint_rate_per_minute
+// when unset.
+const DefaultMigrationLintRatePerMinute = 30
+
+// MigrationLintRate is the per-user migration lint budget per minute.
+func (a APIConfig) MigrationLintRate() int {
+	if a.MigrationLintRatePerMinute <= 0 {
+		return DefaultMigrationLintRatePerMinute
+	}
+	return a.MigrationLintRatePerMinute
+}
 
 // normalize fills in defaults and synthesizes Databases from legacy
 // Postgres fields when appropriate. Must be called after loading

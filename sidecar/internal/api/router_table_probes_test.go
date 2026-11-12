@@ -256,6 +256,7 @@ var routeProbes = []routeProbe{
 	{"POST", "/api/v1/managed-changes/7/approve"},
 	{"POST", "/api/v1/managed-changes/7/reject"},
 	{"POST", "/api/v1/mcp/databases/7"},
+	{"POST", "/api/v1/migrations/lint"},
 	{"POST", "/api/v1/mcp/tokens"},
 	{"POST", "/api/v1/sre/autonomy/bench-runs"},
 	{"POST", "/api/v1/sre/autonomy/downgrade"},
