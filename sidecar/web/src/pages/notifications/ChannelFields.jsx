@@ -22,6 +22,12 @@ const FIELDS = {
     { key: 'from', label: 'From', required: true },
     { key: 'to', label: 'To (comma-separated)', required: true, wide: true },
   ],
+  webhook: [
+    { key: 'webhook_url', label: 'Webhook URL', required: true, wide: true,
+      placeholder: 'https://hooks.example.com/...' },
+    { key: 'headers', label: 'Headers (JSON object)', secret: true, wide: true,
+      placeholder: '{"Authorization": "Bearer ..."}' },
+  ],
   telegram: [
     { key: 'bot_token', label: 'Bot token', required: true, secret: true, wide: true,
       placeholder: '123456:ABC...' },

@@ -87,13 +87,8 @@ func registerNotificationRuleRoutes(
 func newDefaultDispatcher(
 	pool *pgxpool.Pool, deps notificationRouteDeps,
 ) *notify.Dispatcher {
-	logFn := func(_, _ string, _ ...any) {}
-	d := notify.NewDispatcherWithStore(
-		notify.NewPoolStore(pool, deps.secretKey).WithPreviousKey(deps.previousKey), logFn,
+	return notify.NewDefaultDispatcher(
+		notify.NewPoolStore(pool, deps.secretKey).WithPreviousKey(deps.previousKey),
+		deps.policy, nil,
 	)
-	d.RegisterSender(notify.NewSlackSenderWithPolicy(deps.policy))
-	d.RegisterSender(notify.NewEmailSenderWithPolicy(deps.policy))
-	d.RegisterSender(notify.NewPagerDutySender())
-	d.RegisterSender(notify.NewTelegramSenderWithPolicy(deps.policy))
-	return d
 }

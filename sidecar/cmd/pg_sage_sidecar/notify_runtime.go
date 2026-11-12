@@ -39,12 +39,11 @@ func sharedNotifyDispatcher(controlPool *pgxpool.Pool) *notify.Dispatcher {
 	if dispatcher := notifyDispatchers[controlPool]; dispatcher != nil {
 		return dispatcher
 	}
-	dispatcher := notify.NewDispatcherWithStore(
+	dispatcher := notify.NewDefaultDispatcher(
 		notify.NewPoolStore(controlPool, notificationSecretKey(controlPool)).
 			WithPreviousKey(notificationPreviousSecretKey(controlPool)),
-		logStructuredWrapper,
+		notificationTargetPolicy(), logStructuredWrapper,
 	)
-	registerNotifySenders(dispatcher)
 	withApprovalCardTokens(dispatcher, controlPool)
 	withFactCardTokens(dispatcher, controlPool)
 	notifyDispatchers[controlPool] = dispatcher

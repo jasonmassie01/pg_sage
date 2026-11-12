@@ -875,7 +875,7 @@ from the encryption key (argon2id with the database's random salt in
   `alerting.pagerduty_routing_key`);
 - per-database passwords in `sage.databases` (meta-db fleet mode);
 - notification channel secrets (webhook URLs, routing keys, SMTP passwords,
-  bot tokens) in `sage.notification_channels`.
+  bot tokens, webhook channel headers) in `sage.notification_channels`.
 
 A sealed value looks like `sage-enc:v1:<key id>:<ciphertext>`; the key id is
 a public fingerprint of the key. Each value is bound to where it is stored

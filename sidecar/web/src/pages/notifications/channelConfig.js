@@ -10,6 +10,7 @@ export const CHANNEL_TYPES = [
   ['telegram', 'Telegram'],
   ['email', 'Email'],
   ['pagerduty', 'PagerDuty'],
+  ['webhook', 'Webhook'],
 ]
 
 // The keys the backend reads for a channel that approves from chat; a
@@ -22,6 +23,8 @@ export function defaultConfig(type) {
       return { bot_token: '', chat_id: '', webhook_secret: '' }
     case 'pagerduty':
       return { routing_key: '' }
+    case 'webhook':
+      return { webhook_url: '', headers: '' }
     case 'email':
       return { smtp_host: '', smtp_port: '587', smtp_user: '', smtp_pass: '', from: '', to: '' }
     default:

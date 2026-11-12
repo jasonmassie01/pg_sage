@@ -488,14 +488,18 @@ finding posts twice and opens two PagerDuty incidents, because their dedup keys 
 | | Notifications (channels and rules) | Config alerting (`alerting:` block) |
 |---|---|---|
 | Configured in | the Notifications page, stored in `sage.notification_channels` and `sage.notification_rules` (the control database) | the config file's `alerting:` block |
-| Destinations | Slack, PagerDuty, email, Telegram | Slack, PagerDuty, webhooks |
+| Destinations | Slack, PagerDuty, email, Telegram, webhooks | Slack, PagerDuty, webhooks |
 | Triggers | the event types below, each rule with a `min_severity` | every new finding at or above the route's severity, polled per database |
 | Cooldown, quiet hours, reminders | none | `cooldown_minutes`, `quiet_hours_*`, `repeat_minutes` |
 | Log | `sage.notification_log`, the Notifications page's Log tab | `sage.alert_log` of each database, the Alert Log page |
 
 #### Notifications (channels and rules)
 
-Routes events to the channels of the matching rules. Event types: `finding_critical`, `action_executed`, `action_failed`, `approval_needed`, `query_rewrite_suggested`, `incident_detected`, `incident_escalated`, `incident_resolved`, `custodian_escalation` (critical: a red custodian proposal exhausted its failure backoff, raised once per failure streak and recorded as a `custodian_backoff` decision), `fact_expired` (a confirmed binding fact expired and no longer binds; see [facts](facts.md#expiry-and-re-verification)), `canary_interrupted` (warning: a sidecar restart interrupted a fleet canary, which is not resumed; see [configuration](configuration.md)). A Sage SRE diagnosis is not a rule event: `investigation_concluded` goes only to the channels an incident's page reached, once per incident (threaded under the Telegram page, never to PagerDuty; see [configuration](configuration.md#sage-sre-investigations)).
+Routes events to the channels of the matching rules. A `webhook` channel posts each event as
+JSON (`event`, `severity`, `subject`, `body`, `database`, `dedup_key`, `resolve`, `data`,
+`sent_at`) to its `webhook_url`, with its optional `headers`, a JSON object of header names to
+values (`Host` cannot be set). Both are sealed like every channel secret, and the URL passes
+the notification target policy when the channel is saved and again at connect time. Event types: `finding_critical`, `action_executed`, `action_failed`, `approval_needed`, `query_rewrite_suggested`, `incident_detected`, `incident_escalated`, `incident_resolved`, `custodian_escalation` (critical: a red custodian proposal exhausted its failure backoff, raised once per failure streak and recorded as a `custodian_backoff` decision), `fact_expired` (a confirmed binding fact expired and no longer binds; see [facts](facts.md#expiry-and-re-verification)), `canary_interrupted` (warning: a sidecar restart interrupted a fleet canary, which is not resumed; see [configuration](configuration.md)). A Sage SRE diagnosis is not a rule event: `investigation_concluded` goes only to the channels an incident's page reached, once per incident (threaded under the Telegram page, never to PagerDuty; see [configuration](configuration.md#sage-sre-investigations)).
 
 **PagerDuty lifecycle.** Each pg_sage incident is one PagerDuty incident with the
 `dedup_key` `incident:<database>:<incident id>`. `incident_detected` and

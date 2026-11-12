@@ -3,20 +3,7 @@ package main
 import (
 	"github.com/pg-sage/sidecar/internal/alerting"
 	"github.com/pg-sage/sidecar/internal/config"
-	"github.com/pg-sage/sidecar/internal/notify"
 )
-
-// registerNotifySenders wires the built-in notification senders onto a
-// dispatcher. Without it, the executor/analyzer event path dispatched to
-// a sender-less dispatcher and every notification silently no-op'd with
-// "no sender for type" (F1).
-func registerNotifySenders(d *notify.Dispatcher) {
-	policy := notificationTargetPolicy()
-	d.RegisterSender(notify.NewSlackSenderWithPolicy(policy))
-	d.RegisterSender(notify.NewEmailSenderWithPolicy(policy))
-	d.RegisterSender(notify.NewPagerDutySender())
-	d.RegisterSender(notify.NewTelegramSenderWithPolicy(policy))
-}
 
 // buildAlertRoutes constructs channel instances and severity routing
 // from the alerting config.
