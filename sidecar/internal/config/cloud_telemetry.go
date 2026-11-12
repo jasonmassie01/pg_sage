@@ -15,7 +15,7 @@ import (
 // default chain; Google Application Default Credentials), never from this
 // file; without them telemetry reports unavailable and nothing changes.
 type CloudTelemetryConfig struct {
-	Enabled               *bool                 `yaml:"enabled" doc:"Read host telemetry (CPU, memory, storage, IOPS, replica lag, DB load) and parameter groups / database flags of RDS, Aurora and Cloud SQL databases. Nil defaults to enabled; without provider credentials it reports unavailable."`
+	Enabled               *bool                 `yaml:"enabled" doc:"Read host telemetry (CPU, memory, storage, IOPS, replica lag, DB load) of RDS, Aurora, Cloud SQL, AlloyDB and Azure flexible server databases, and parameter groups / database flags of RDS, Aurora and Cloud SQL. Nil defaults to enabled; without provider credentials it reports unavailable."`
 	PollIntervalSeconds   int                   `yaml:"poll_interval_seconds" doc:"Seconds between telemetry polls. 0 = 60. Range 30-3600. CloudWatch bills GetMetricData per metric (about 10 metrics per poll)."`
 	MaxReplicaLagSeconds  float64               `yaml:"max_replica_lag_seconds" doc:"Autonomous index builds wait while a replica lags more than this. 0 = 30."`
 	MinFreeStoragePct     float64               `yaml:"min_free_storage_pct" doc:"Autonomous index builds wait while bounded free storage (including autoscaling headroom) is below this percentage. 0 = 10."`

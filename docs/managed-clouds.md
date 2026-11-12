@@ -1,4 +1,4 @@
-# Managed clouds: RDS, Aurora and Cloud SQL
+# Managed clouds: RDS, Aurora, Cloud SQL, AlloyDB and Azure
 
 pg_sage reads the host telemetry that PostgreSQL cannot see on a managed service, and
 turns setting changes that SQL cannot make into proposals with the exact provider command.
@@ -8,8 +8,8 @@ turns setting changes that SQL cannot make into proposals with the exact provide
 | Amazon RDS for PostgreSQL | CloudWatch (CPU, freeable memory, free storage, IOPS, throughput, connections, replica lag), Performance Insights (DB load by wait type, OS memory total) | DB parameter group |
 | Amazon Aurora PostgreSQL | CloudWatch (as RDS; `AuroraReplicaLagMaximum`), Performance Insights | DB parameter group of the writer |
 | Google Cloud SQL for PostgreSQL | Cloud Monitoring (CPU, memory quota/usage, disk quota/usage, disk ops, backends, replica lag) | Database flags |
-| Google AlloyDB for PostgreSQL | None yet | Database flags: a fill-in template until pg_sage reads the instance's flags |
-| Azure Database for PostgreSQL flexible server | None (Azure Monitor log access only) | Server parameters, read over ARM when the `azure:` section is set ([Azure](azure.md)) |
+| Google AlloyDB for PostgreSQL | Cloud Monitoring `alloydb.googleapis.com/Instance` (CPU, minimum available memory, vCPUs for the memory total, connections, worst read pool lag); storage auto-grows | Database flags: a fill-in template until pg_sage reads the instance's flags |
+| Azure Database for PostgreSQL flexible server | Azure Monitor metrics over ARM (CPU, memory percent with the SKU's memory, storage used/free, connections, IOPS, each replica's lag) | Server parameters, read over ARM when the `azure:` section is set ([Azure](azure.md)) |
 
 Cosmos DB for PostgreSQL (`azure-cosmos`) and the retired Azure single server stay
 guidance-only: their findings name the command, with no proposal.
@@ -299,7 +299,15 @@ Credentials come only from the standard chains and are never stored, logged or p
   metadata server on GCE/GKE/Cloud Run). Roles: `roles/monitoring.viewer`,
   `roles/cloudsql.viewer`. The project comes from the Auth Proxy socket,
   `cloud_resource.gcp.project`, `cloud_telemetry.gcp.project` or the credentials, in that
-  order.
+  order. AlloyDB needs only `roles/monitoring.viewer`; its project comes from
+  `cloud_resource.gcp.project`, `cloud_telemetry.alloydb.project` or the credentials.
+- **Azure:** azidentity's default chain (service principal variables, workload or managed
+  identity, `az login`). Roles on the flexible server: **Reader** (server SKU, storage,
+  replicas) and **Monitoring Reader** (metrics). See [Azure](azure.md#roles-for-host-telemetry).
+
+A denied read names the missing role in the status reason. A throttled read (HTTP 429) is
+retried twice inside the poll (0.5 s then 1 s, or the provider's `Retry-After` up to 5 s, never
+past the poll's deadline) before the poll fails as throttled.
 
 Without credentials telemetry reports `unavailable: <reason>` (see
 `GET /api/v1/cloud-telemetry`) and pg_sage behaves as before.
@@ -334,7 +342,19 @@ cloud_telemetry:
   gcp:
     project: my-project
     instance: main                    # standalone, when connecting by DNS name
+  alloydb:                            # standalone; AlloyDB hosts never name the instance
+    project: my-project               # empty: the credentials' project
+    cluster: orders
+    instance: orders-primary
 ```
+
+Fleet databases name their AlloyDB instance with `cloud_resource.gcp` (`project`, `cluster`,
+`instance`) and their Azure flexible server with `cloud_resource.azure` (`subscription`,
+`resource_group`, `server`); a standalone Azure server uses the `azure:` section, and a
+`<name>.postgres.database.azure.com` host always names the server. Memory totals come from
+dated tables: Azure by SKU name, AlloyDB by vCPU count (8 GiB per vCPU for 2-96 vCPUs); a SKU
+or shape the table does not list leaves the memory total unknown with a reason in `missing`,
+never a guess.
 
 Environment overrides: `SAGE_CLOUD_TELEMETRY_ENABLED`, `SAGE_AWS_REGION`,
 `SAGE_AWS_DB_INSTANCE_IDENTIFIER`, `SAGE_AWS_DB_CLUSTER_IDENTIFIER`, `SAGE_GCP_PROJECT`,
@@ -361,9 +381,18 @@ SAGE_TEST_AWS_REGION=us-east-1 SAGE_TEST_RDS_INSTANCE=my-test-db \
 # Google Cloud (Application Default Credentials)
 SAGE_TEST_GCP_PROJECT=my-project SAGE_TEST_CLOUDSQL_INSTANCE=my-test-instance \
   go test -tags cloudlive -count=1 -run TestLiveGCPTelemetry -v ./internal/cloudtel/
+
+# Azure flexible server (az login; scripts/azure/provision-test-server.sh writes these)
+SAGE_AZURE_SUBSCRIPTION_ID=... SAGE_AZURE_RESOURCE_GROUP=pg-sage-test SAGE_AZURE_SERVER_NAME=... \
+  go test -tags cloudlive -count=1 -run TestLiveAzureTelemetry -v ./internal/cloudtel/
+
+# AlloyDB (Application Default Credentials with roles/monitoring.viewer)
+SAGE_TEST_GCP_PROJECT=my-project SAGE_TEST_ALLOYDB_CLUSTER=c SAGE_TEST_ALLOYDB_INSTANCE=i \
+  go test -tags cloudlive -count=1 -run TestLiveAlloyDBTelemetry -v ./internal/cloudtel/
 ```
 
 Each prints `CHECK-CLOUD-0n: PASS` lines with the sample and the parameter group or flags.
+The Azure and AlloyDB checks skip, naming the variables, until a disposable resource exists.
 
 Cloud SQL and AlloyDB identity and readiness run against the database itself, connected as the
 `sage_agent` role through the Auth Proxy or a private IP. The session is read-only with statement
