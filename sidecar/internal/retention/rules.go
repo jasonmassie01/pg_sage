@@ -250,10 +250,22 @@ func purgeRules(cfg *config.Config) []purgeRule {
 			sweepCol: "at"},
 		// Used or expired SSO link grants are dead weight once old (D7).
 		{table: "user_oidc_link_grants", timeCol: "expires_at", days: r.ActionsDays},
+		// Hour-of-week baselines (market-02) keep baseline.weeks + 1 weeks.
+		{table: "baseline_samples", timeCol: "week_start", days: baselineDays(cfg)},
 		{table: "sre_eval_runs", timeCol: "ingested_at",
 			days: cfg.SRE.Autonomy.ReportRetentionDays, extra: keepEvalRun},
 	}
 	return rules
+}
+
+// baselineDays is baseline.weeks + 1 weeks; a zero (literal) config keeps
+// the default window.
+func baselineDays(cfg *config.Config) int {
+	weeks := cfg.Baseline.Weeks
+	if weeks <= 0 {
+		weeks = config.DefaultBaselineWeeks
+	}
+	return (weeks + 1) * 7
 }
 
 // explainResultsGrace is one day, or 0 (off) with explain retention off.
