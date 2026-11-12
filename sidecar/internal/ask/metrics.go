@@ -51,3 +51,19 @@ func AnswerCounts() []AnswerCount {
 	})
 	return out
 }
+
+// ForgetDatabase drops the answer counters of a database that left the
+// fleet, so its series leave /metrics with it. An empty name forgets
+// nothing.
+func ForgetDatabase(database string) {
+	if database == "" {
+		return
+	}
+	answerCounters.mu.Lock()
+	defer answerCounters.mu.Unlock()
+	for k := range answerCounters.n {
+		if k.database == database {
+			delete(answerCounters.n, k)
+		}
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/api"
+	"github.com/pg-sage/sidecar/internal/ask"
 	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/databricksauth"
@@ -16,6 +17,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/rollout"
+	"github.com/pg-sage/sidecar/internal/selfbudget"
 	"github.com/pg-sage/sidecar/internal/shadow"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 	"github.com/pg-sage/sidecar/internal/store"
@@ -411,6 +413,8 @@ func forgetRemovedDatabase(name string) {
 	executor.PruneCounts(name)
 	shadow.Prune(name)
 	llmHealth.prune(name)
+	ask.ForgetDatabase(name)
+	selfbudget.Process().ForgetDatabase(name)
 }
 
 func cleanupManagedCandidate(candidate *fleet.DatabaseInstance) error {

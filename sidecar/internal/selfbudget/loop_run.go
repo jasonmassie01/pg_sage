@@ -142,3 +142,20 @@ func ForDatabase(snap map[string]LoopStat, database string) map[string]LoopStat 
 	}
 	return out
 }
+
+// ForgetDatabase drops the loops of a database that left the fleet (its
+// component:database keys, llm_wait included), so their series leave
+// /metrics with it. Process loops and other databases' loops are kept; an
+// empty name forgets nothing.
+func (l *Loops) ForgetDatabase(database string) {
+	if l == nil || database == "" {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for name := range l.stats {
+		if _, db := SplitLoopName(name); db == database {
+			delete(l.stats, name)
+		}
+	}
+}
