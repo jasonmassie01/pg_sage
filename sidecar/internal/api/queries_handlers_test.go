@@ -54,18 +54,21 @@ func TestQueriesTop_InvalidInputIs400(t *testing.T) {
 	since := url.QueryEscape("2026-11-10T10:00:00Z")
 	until := url.QueryEscape("2026-11-10T09:00:00Z")
 	cases := map[string]string{
-		"limit zero":        "limit=0",
-		"limit 101":         "limit=101",
-		"limit text":        "limit=ten",
-		"unknown order":     "order=total_time",
-		"until before":      "since=" + since + "&until=" + until,
-		"bad since":         "since=yesterday",
-		"bad until":         "until=1731000000",
-		"window past 7d":    "since=2026-10-01T00:00:00Z&until=2026-11-10T00:00:00Z",
-		"bad database name": "database=a%3Bdrop",
+		"limit zero":     "limit=0",
+		"limit 101":      "limit=101",
+		"limit text":     "limit=ten",
+		"unknown order":  "order=total_time",
+		"until before":   "since=" + since + "&until=" + until,
+		"bad since":      "since=yesterday",
+		"bad until":      "until=1731000000",
+		"window past 7d": "since=2026-10-01T00:00:00Z&until=2026-11-10T00:00:00Z",
 	}
 	for name, query := range cases {
-		code, body := getWorkload(t, mux, "/api/v1/queries/top?database=alpha&"+query)
+		cases[name] = "database=alpha&" + query
+	}
+	cases["bad database name"] = "database=a%3Bdrop"
+	for name, query := range cases {
+		code, body := getWorkload(t, mux, "/api/v1/queries/top?"+query)
 		if code != http.StatusBadRequest {
 			t.Errorf("%s: status %d (%v), want 400", name, code, body)
 			continue
