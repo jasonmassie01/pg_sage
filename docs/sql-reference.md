@@ -242,7 +242,7 @@ connected database, or the standalone database). Two kinds of row share it, flus
 | `purpose` | text | `_total` for a budget counter, else the feature that made the calls (`briefing`, `explain`, `query_tuning`, ...; `unlabeled`, `overflow`) |
 | `model` | text | Model id of the calls (empty for a budget counter) |
 | `prompt_tokens` | bigint | Prompt tokens |
-| `completion_tokens` | bigint | Completion tokens, reasoning included |
+| `completion_tokens` | bigint | Completion tokens, reasoning included, plus any tokens the provider charged beyond its prompt/completion split |
 | `reasoning_tokens` | bigint | Reasoning share of the completion tokens, as the provider reported it |
 | `calls` | bigint | Calls counted (every result, as `pg_sage_llm_requests_total`) |
 | `failures` | bigint | Calls that did not return `ok` |

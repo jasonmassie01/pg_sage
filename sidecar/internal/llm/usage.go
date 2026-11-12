@@ -130,13 +130,19 @@ func (a *UsageAccumulator) addLocked(k UsageKey, d UsageCounts) {
 }
 
 // delta is one call's counts. Without a provider split, the estimate is
-// split into the prompt estimate and the rest as completion.
+// split into the prompt estimate and the rest as completion. Tokens the
+// provider charged beyond its split (some report thinking tokens only in
+// the total) count as completion: the ledger never shows less than the
+// budget charged.
 func (a *UsageAccumulator) delta(o Outcome) UsageCounts {
 	d := UsageCounts{Calls: 1, PromptTokens: int64(max(o.PromptTokens, 0)),
 		CompletionTokens: int64(max(o.CompletionTokens, 0)),
 		ReasoningTokens:  int64(max(o.ReasoningTokens, 0))}
 	if o.Result != ResultOK {
 		d.Failures = 1
+	}
+	if rest := int64(max(o.Tokens, 0)) - d.PromptTokens - d.CompletionTokens; rest > 0 {
+		d.CompletionTokens += rest
 	}
 	if o.Estimated {
 		prompt := min(max(o.EstimatedPromptTokens, 0), max(o.Tokens, 0))

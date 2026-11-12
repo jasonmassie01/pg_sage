@@ -306,6 +306,45 @@ func TestUsageEmptyNilAndNegative(t *testing.T) {
 	}
 }
 
+// Boundary: a key is priced only while every call in it was, whichever
+// order the priced and unpriced calls arrive in.
+func TestUsageMixedPricingUnderOneKeyIsUnpriced(t *testing.T) {
+	for _, order := range [][]bool{{true, false}, {false, true}} {
+		i := 0
+		prices := func(string) (config.LLMPrice, bool) {
+			priced := order[i]
+			i++
+			return price(1, 1), priced
+		}
+		acc := NewUsageAccumulator(DefaultUsageMaxKeys, prices, noopLog)
+		for range order {
+			acc.Record("orders", "general", Outcome{Result: ResultOK, Purpose: "explain",
+				Model: "m", PromptTokens: 10, CompletionTokens: 5, Tokens: 15})
+		}
+		_, v := onlyKey(t, acc)
+		if v.Priced || v.Calls != 2 {
+			t.Fatalf("order %v: counts = %+v, want 2 calls and unpriced", order, v)
+		}
+	}
+}
+
+// Boundary: tokens the provider charged beyond its prompt/completion
+// split (a model's thinking tokens, for one) count as completion, so the
+// ledger never shows less than the budget charged.
+func TestUsageChargedBeyondSplitCountsAsCompletion(t *testing.T) {
+	acc := NewUsageAccumulator(DefaultUsageMaxKeys,
+		PricingFrom(map[string]config.LLMPrice{"m": price(1, 2)}), noopLog)
+	acc.Record("orders", "general", Outcome{Result: ResultOK, Purpose: "explain",
+		Model: "m", PromptTokens: 100, CompletionTokens: 50, Tokens: 180})
+	_, v := onlyKey(t, acc)
+	if v.PromptTokens != 100 || v.CompletionTokens != 80 || v.Estimated {
+		t.Fatalf("counts = %+v, want prompt 100, completion 80, provider source", v)
+	}
+	if want := (100*1 + 80*2) / 1e6; !v.Priced || math.Abs(v.CostUSD-want) > 1e-12 {
+		t.Fatalf("cost = %v priced=%v, want %v", v.CostUSD, v.Priced, want)
+	}
+}
+
 // Concurrency: 64 goroutines x 100 calls, with flushes racing them, total
 // exactly 6400 calls.
 func TestUsageConcurrentRecordsAndFlushes(t *testing.T) {

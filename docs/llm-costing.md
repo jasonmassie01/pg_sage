@@ -203,7 +203,9 @@ midnight UTC.
   `sage.llm_usage` in the control database every 60 s and on shutdown, and kept 400 days.
   A failed flush keeps the counts for the next one and logs once; a call never fails
   because of it. `source` is `estimate` when the provider reported no usage and pg_sage
-  split its own estimate.
+  split its own estimate. Tokens a provider charged beyond its prompt/completion split (some
+  report thinking tokens only in the total) count as completion, so the ledger never shows
+  less than the budget charged.
 - Purposes: `advisor`, `agent_guard`, `ask`, `briefing`, `explain`, `facts`, `first_look`,
   `justification`, `migration_advice`, `migration_script`, `plan_narrative`, `probe`
   (the connection test), `query_tuning`, `rca_narration`, `rca_tier2`, `runbook_compile`,
