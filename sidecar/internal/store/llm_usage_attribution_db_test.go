@@ -81,6 +81,22 @@ func TestLLMAttributionDB_SeparateFromBudget(t *testing.T) {
 	}
 }
 
+// The usage read never returns fleet-10's budget counters (purpose
+// '_total'), even when they share the day, key and role.
+func TestLLMAttributionDB_ReadSkipsBudgetCounters(t *testing.T) {
+	s, ctx := llmUsageStore(t)
+	addOrFail(t, s, ctx, validAttribution())
+	if err := s.Flush(ctx, attrDay, []LLMUsageRow{
+		{DatabaseKey: "id:7", Role: "general", Tokens: 900},
+		{DatabaseKey: "process", Role: "shared", Tokens: 900}}); err != nil {
+		t.Fatalf("budget flush: %v", err)
+	}
+	rows, err := s.Attribution(ctx, attrDay)
+	if err != nil || len(rows) != 1 || rows[0].Purpose != "briefing" || rows[0].Calls != 1 {
+		t.Fatalf("attribution = %+v (%v), want only the briefing row", rows, err)
+	}
+}
+
 // Boundary: Attribution reads days from since on; PruneAttribution drops
 // the days before its cutoff and the budget Prune leaves attribution.
 func TestLLMAttributionDB_ReadAndPruneBoundaries(t *testing.T) {
