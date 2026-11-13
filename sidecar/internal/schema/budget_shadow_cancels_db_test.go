@@ -24,7 +24,8 @@ func TestBudgetShadowCancelsMigration_BootstrapTwiceIsClean(t *testing.T) {
 	}
 	// A row written as market-08 wrote it reads the defaults.
 	if _, err := pool.Exec(ctx, `INSERT INTO sage.budget_shadow
-		(database_name, budget, day, would_cancel) VALUES ('db', 'app', current_date, 2)`); err != nil {
+		(database_name, budget, day, would_cancel)
+		VALUES ('db', 'app', current_date, 2)`); err != nil {
 		t.Fatalf("insert shadow row: %v", err)
 	}
 	var actual int64
