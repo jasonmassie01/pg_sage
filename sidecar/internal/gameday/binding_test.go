@@ -133,6 +133,10 @@ func TestHotTableBindingSkipsWithAReason(t *testing.T) {
 	sageOnlyLater := snap(tableActivity{schema: "sage", name: "findings", ins: 9})
 	quiet := snap(tableActivity{schema: "public", name: "orders", ins: 5})
 	reset := snap(tableActivity{schema: "public", name: "orders", ins: 1})
+	// A stats reset whose fresh counters already sum past the old ones:
+	// the sum grew, but ins went backwards, so there is no delta.
+	resetBefore := snap(tableActivity{schema: "public", name: "orders", ins: 100})
+	resetGrown := snap(tableActivity{schema: "public", name: "orders", ins: 1, idx: 500})
 	unavailable := snap(tableActivity{schema: "public", name: "orders", ins: 9})
 	unavailable.Unavailable = map[string]string{"tables": "statement timeout"}
 	newOnly := snap(tableActivity{schema: "public", name: "brand_new", ins: 9})
@@ -147,6 +151,8 @@ func TestHotTableBindingSkipsWithAReason(t *testing.T) {
 		{"empty table lists", snap(), snap(), SkipNoCustomerTable},
 		{"no activity", quiet, quiet, SkipNoActivity},
 		{"counters went backwards (stats reset)", reset, quiet, SkipNoActivity},
+		{"one counter went backwards, the sum grew", resetGrown, resetBefore,
+			SkipNoActivity},
 		{"table stats unavailable", unavailable, one, SkipNoTableStats},
 		{"table absent from the older snapshot", newOnly, one, SkipNoActivity},
 	}
