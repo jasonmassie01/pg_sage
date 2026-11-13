@@ -11,7 +11,9 @@ import (
 // U1: a table logical replication cannot identify rows of. Blue/green and
 // logical upgrades replicate every table, and UPDATE/DELETE on such a
 // table fails on the publisher; pg_upgrade copies it as it is. REPLICA
-// IDENTITY FULL or USING INDEX identifies rows, so those tables pass.
+// IDENTITY FULL or USING INDEX identifies rows, so those tables pass;
+// REPLICA IDENTITY NOTHING identifies none, even on a table with a
+// primary key.
 // Unlogged and temporary tables are not replicated; extension-owned
 // tables are the extension's.
 var identitySQL = Tag + `SELECT pg_catalog.format('%I.%I', n.nspname, c.relname),
@@ -19,12 +21,12 @@ var identitySQL = Tag + `SELECT pg_catalog.format('%I.%I', n.nspname, c.relname)
   count(*) OVER ()
 FROM pg_catalog.pg_class c
 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-WHERE c.relkind IN ('r', 'p') AND c.relreplident IN ('d', 'n')
-  AND c.relpersistence = 'p'
+WHERE c.relkind IN ('r', 'p') AND c.relpersistence = 'p'
   AND n.nspname NOT IN ('pg_catalog', 'information_schema')
   AND n.nspname !~ '^pg_(toast|temp_)'
-  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint k
-    WHERE k.conrelid = c.oid AND k.contype = 'p')
+  AND (c.relreplident = 'n' OR (c.relreplident = 'd'
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint k
+      WHERE k.conrelid = c.oid AND k.contype = 'p')))
   AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend d
     WHERE d.classid = 'pg_catalog.pg_class'::regclass AND d.objid = c.oid
       AND d.deptype = 'e')
@@ -37,19 +39,22 @@ func checkIdentity(ctx context.Context, q pgx.Tx, in input) (Check, error) {
 		return Check{}, err
 	}
 	out := Check{Rows: rows, Total: total, Status: Pass,
-		Reason: "every replicated table has a primary key or a replica identity"}
+		Reason: "every replicated table has a replica identity logical replication " +
+			"can use"}
 	if total == 0 {
 		return out, nil
 	}
 	if in.target.Method == PGUpgrade {
 		out.Status = Warn
-		out.Reason = fmt.Sprintf("%d tables have no primary key and no replica identity; "+
-			"pg_upgrade copies them as they are, but a blue/green or logical upgrade "+
-			"would stop at them. Add a primary key or set REPLICA IDENTITY.", total)
+		out.Reason = fmt.Sprintf("%d tables have no replica identity logical replication "+
+			"can use (no primary key, or REPLICA IDENTITY NOTHING); pg_upgrade copies them "+
+			"as they are, but a blue/green or logical upgrade would stop at them. Add a "+
+			"primary key or set REPLICA IDENTITY.", total)
 		return out, nil
 	}
 	out.Status = Block
-	out.Reason = fmt.Sprintf("%d tables have no primary key and no replica identity; a %s "+
+	out.Reason = fmt.Sprintf("%d tables have no replica identity logical replication "+
+		"can use (no primary key, or REPLICA IDENTITY NOTHING); a %s "+
 		"upgrade replicates them logically and stops at its prechecks. Add a primary key, "+
 		"or set REPLICA IDENTITY USING INDEX (a unique, non-null index) or FULL.", total,
 		in.target.Method)

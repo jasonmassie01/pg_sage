@@ -65,7 +65,10 @@ ORDER BY 1
 LIMIT $1`
 
 // ftsIndexSQL: GIN and GiST indexes with a pg_trgm operator class or a
-// tsvector expression column; their keys depend on case folding.
+// tsvector expression column; their keys depend on case folding. An
+// index column's pg_attribute type is its operator class's storage type
+// (text for GIN tsvector_ops, gtsvector for GiST), so a tsvector column
+// is found by its operator class's input type; indkey 0 is an expression.
 var ftsIndexSQL = Tag + `SELECT pg_catalog.format('%I.%I', n.nspname, ic.relname),
   am.amname::text, count(*) OVER ()
 FROM pg_catalog.pg_index i
@@ -76,10 +79,10 @@ WHERE am.amname IN ('gin', 'gist')
   AND (EXISTS (SELECT 1 FROM pg_catalog.pg_opclass oc
          WHERE oc.oid = ANY (i.indclass::oid[])
            AND oc.opcname IN ('gin_trgm_ops', 'gist_trgm_ops'))
-    OR EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
-         WHERE a.attrelid = i.indexrelid AND a.attnum > 0
-           AND a.atttypid = 'pg_catalog.tsvector'::regtype
-           AND i.indkey[a.attnum - 1] = 0))
+    OR EXISTS (SELECT 1 FROM pg_catalog.generate_subscripts(i.indclass, 1) AS k(n)
+         JOIN pg_catalog.pg_opclass oc ON oc.oid = i.indclass[k.n]
+         WHERE oc.opcintype = 'pg_catalog.tsvector'::pg_catalog.regtype
+           AND i.indkey[k.n] = 0))
 ORDER BY 1
 LIMIT $1`
 

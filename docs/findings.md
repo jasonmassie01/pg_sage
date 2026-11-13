@@ -992,7 +992,7 @@ finding resolves.
 
 | Check | What it reads | Verdict |
 |-------|---------------|---------|
-| U1 | User tables (`relkind` r/p, permanent) with no primary key and `relreplident` default or nothing | `block` for `blue_green` and `logical` (logical replication stops at them), `warn` for `pg_upgrade`. REPLICA IDENTITY FULL or USING INDEX passes. |
+| U1 | User tables (`relkind` r/p, permanent) with REPLICA IDENTITY NOTHING, or with the default replica identity and no primary key | `block` for `blue_green` and `logical` (logical replication stops at them), `warn` for `pg_upgrade`. REPLICA IDENTITY FULL or USING INDEX passes. |
 | U2 | Installed extensions (not plpgsql) against `pg_available_extension_versions` on `target_database` | `block` when the target lacks one, `warn` when it lacks the installed version, `unknown` with the installed list when no `target_database` (a fleet member already at the target major) is named. |
 | U3 | This database's logical slots and subscriptions (`subconninfo` is never read) | `block` for `pg_upgrade` from below 17 with slots (they disappear); `warn` for subscriptions from below 17 and for `blue_green`/`logical`; `pass` for `pg_upgrade` from 17+. |
 | U4 | `data_checksums` | `block` when off and the target is 18+ via `pg_upgrade`: initialise with `initdb --no-data-checksums`, or run `pg_checksums --enable` offline first. |
