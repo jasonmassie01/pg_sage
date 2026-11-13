@@ -122,6 +122,9 @@ type Config struct {
 	// top-level "notifications" key is retired (see rejectRetiredTopLevelConfig).
 	NotificationPolicy NotificationPolicyConfig `yaml:"notification_policy"`
 
+	// Checks are owner-defined read-only checks (checks.go, market-11).
+	Checks []CustomCheck `yaml:"checks" doc:"Owner-defined read-only checks: one SELECT each, run read-only; each row is a custom:<id> finding (docs/custom-checks.md). Default: empty."`
+
 	// Fleet mode fields.
 	Databases []DatabaseConfig `yaml:"databases"`
 	Defaults  DefaultsConfig   `yaml:"defaults"`
@@ -222,6 +225,9 @@ type AnalyzerConfig struct {
 
 	// SelfCostBudgetMs: see self_cost.go.
 	SelfCostBudgetMs int `yaml:"self_cost_budget_ms" doc:"Raise a sage_self_cost finding when pg_sage's own statements use more than this many ms of database time per collector cycle. 0 disables the finding. Range 0-3600000. Default: 3000."`
+
+	// DisabledRules: see disabled_rules.go (market-11).
+	DisabledRules []string `yaml:"disabled_rules" doc:"Analyzer rules or categories to skip; their open findings resolve as rule_disabled. The wraparound, sequence and sage_* rules cannot be disabled. Default: empty."`
 }
 
 type SafetyConfig struct {
@@ -796,6 +802,9 @@ func (c *Config) validate() error {
 		return err
 	}
 	if err := c.Facts.validate(); err != nil {
+		return err
+	}
+	if err := c.validateRulePacks(); err != nil {
 		return err
 	}
 	if err := c.Specialist.validate(); err != nil {

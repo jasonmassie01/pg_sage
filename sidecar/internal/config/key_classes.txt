@@ -81,6 +81,7 @@ safety_critical defaults.max_connections
 safety_critical defaults.trust_level
 operator_preference databases[].analyzer_interval_seconds
 operator_preference databases[].collector_interval_seconds
+operator_preference databases[].disabled_rules
 safety_critical databases[].database
 safety_critical databases[].execution_mode
 safety_critical databases[].executor_enabled
@@ -169,6 +170,7 @@ derivable analyzer.autovacuum_tune_min_rows
 derivable analyzer.cache_hit_ratio_warning
 derivable analyzer.cdc_stall_minutes
 derivable analyzer.checkpoint_frequency_warning_per_hour
+operator_preference analyzer.disabled_rules
 derivable analyzer.idle_in_transaction_timeout_minutes
 derivable analyzer.inactive_slot_min_minutes
 derivable analyzer.index_bloat_min_bytes
@@ -261,6 +263,7 @@ operator_preference schema_lint.disabled_rules
 operator_preference schema_lint.enabled
 operator_preference schema_lint.exclude_schemas
 operator_preference schema_lint.include_schemas
+safety_critical checks
 derivable schema_lint.min_table_rows
 derivable schema_lint.scan_interval_minutes
 

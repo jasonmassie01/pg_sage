@@ -384,6 +384,13 @@
     "class": "derivable",
     "lifecycle": "restart"
   },
+  "analyzer.disabled_rules": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Analyzer rules or categories to skip; their open findings resolve as rule_disabled. The wraparound, sequence and sage_* rules cannot be disabled. Default: empty.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
   "analyzer.idle_in_transaction_timeout_minutes": {
     "type": "int",
     "default": 30,
@@ -913,6 +920,76 @@
     "class": "safety_critical",
     "lifecycle": "reconfigure"
   },
+  "checks[].databases": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Database name globs the check runs on. Default: every database.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "checks[].id": {
+    "type": "string",
+    "default": "",
+    "doc": "Check id: lower case letters, digits and _; the finding category is custom:\u003cid\u003e.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "checks[].interval_minutes": {
+    "type": "int",
+    "default": 0,
+    "doc": "Minutes between runs, at least 5. Default: 60.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "checks[].max_rows": {
+    "type": "int",
+    "default": 0,
+    "doc": "Most rows read, 1-100; more rows mark the run truncated. Default: 100.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "checks[].message": {
+    "type": "string",
+    "default": "",
+    "doc": "Recommendation text shown on each finding.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "checks[].object_column": {
+    "type": "string",
+    "default": "",
+    "doc": "Result column naming the finding's object.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "checks[].severity": {
+    "type": "string",
+    "default": "",
+    "doc": "info, warning or critical.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "checks[].sql": {
+    "type": "string",
+    "default": "",
+    "doc": "One plain SELECT without parameters. It runs in a READ ONLY transaction.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "checks[].timeout_ms": {
+    "type": "int",
+    "default": 0,
+    "doc": "statement_timeout of the check, 1-5000 ms. Default: 1000.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "checks[].title": {
+    "type": "string",
+    "default": "",
+    "doc": "Finding title; the row's object is appended.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
   "clone.dle_endpoint": {
     "type": "string",
     "default": "",
@@ -1139,6 +1216,14 @@
     "doc": "Database name on the target instance.",
     "mode": "fleet-only",
     "class": "safety_critical",
+    "lifecycle": "reconfigure"
+  },
+  "databases[].disabled_rules": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Per-database analyzer.disabled_rules: replaces the global list here when set; [] re-enables every rule.",
+    "mode": "fleet-only",
+    "class": "operator_preference",
     "lifecycle": "reconfigure"
   },
   "databases[].execution_mode": {

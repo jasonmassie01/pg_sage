@@ -58,6 +58,7 @@
 | `analyzer.cache_hit_ratio_warning` | `restart` | `-` | `derivable` |
 | `analyzer.cdc_stall_minutes` | `restart` | `-` | `derivable` |
 | `analyzer.checkpoint_frequency_warning_per_hour` | `restart` | `-` | `derivable` |
+| `analyzer.disabled_rules` | `restart` | `-` | `operator_preference` |
 | `analyzer.idle_in_transaction_timeout_minutes` | `restart` | `-` | `derivable` |
 | `analyzer.inactive_slot_min_minutes` | `restart` | `-` | `derivable` |
 | `analyzer.index_bloat_min_bytes` | `restart` | `-` | `derivable` |
@@ -123,6 +124,7 @@
 | `briefing.fleet_mode` | `restart` | `-` | `operator_preference` |
 | `briefing.schedule` | `reconfigure` | `briefing` | `operator_preference` |
 | `briefing.slack_webhook_url` | `reconfigure` | `briefing` | `safety_critical` |
+| `checks` | `restart` | `-` | `safety_critical` |
 | `clone.dle_endpoint` | `restart` | `-` | `safety_critical` |
 | `clone.dle_token` | `restart` | `-` | `safety_critical` |
 | `clone.max_clone_age_minutes` | `restart` | `-` | `operator_preference` |
@@ -538,6 +540,7 @@ In YAML fleet mode the `fleet_databases` owner reconciles the list: an added ent
 | `databases[].cloud_resource.gcp.project` | `reconfigure` | `fleet_databases` | `safety_critical` |
 | `databases[].collector_interval_seconds` | `reconfigure` | `fleet_databases` | `operator_preference` |
 | `databases[].database` | `reconfigure` | `fleet_databases` | `safety_critical` |
+| `databases[].disabled_rules` | `reconfigure` | `fleet_databases` | `operator_preference` |
 | `databases[].execution_mode` | `live_policy` | `fleet_databases` | `safety_critical` |
 | `databases[].executor_enabled` | `live_policy` | `fleet_databases` | `safety_critical` |
 | `databases[].host` | `reconfigure` | `fleet_databases` | `safety_critical` |
