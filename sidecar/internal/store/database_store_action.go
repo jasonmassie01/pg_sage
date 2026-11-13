@@ -172,18 +172,21 @@ func (s *DatabaseStore) GetUpdateActionConnectionString(
 	if a != nil && a.Username == "" {
 		return "", nil
 	}
+	if a != nil && a.Password != "" {
+		// A role with a new password needs nothing stored: re-entering it
+		// is the remedy for a stored password no key opens.
+		return databaseConnectionString(input.Host, input.Port, input.DatabaseName,
+			a.Username, a.Password, input.SSLMode), nil
+	}
 	user, password, err := s.storedActionCredential(ctx, id)
 	if err != nil {
 		return "", err
 	}
 	if a != nil {
-		if user == "" && a.Password == "" {
+		if user == "" {
 			return "", actionInputError("action_password is required: none is stored")
 		}
-		user = a.Username
-		if a.Password != "" {
-			password = a.Password
-		}
+		user = a.Username // a rename keeps the stored password
 	}
 	if user == "" {
 		return "", nil

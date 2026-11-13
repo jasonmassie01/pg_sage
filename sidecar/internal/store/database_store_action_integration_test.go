@@ -292,3 +292,37 @@ func TestActionCredential_ConcurrentUpdatesStayPaired(t *testing.T) {
 		t.Fatalf("final credential %q/%q mixes two updates", u.User.Username(), pw)
 	}
 }
+
+// Re-entering the action password is the documented remedy for a stored one
+// no key opens: a prospective update that names both the role and a new
+// password needs nothing stored, while one that keeps the stored password
+// still fails closed with ErrWrongEncryptionKey.
+func TestActionCredential_ReenterAfterLostKey(t *testing.T) {
+	pool, ctx := requireDBWithClean(t)
+	captureSlog(t)
+	id := mustCreate(t, NewDatabaseStore(pool, rotationKeyA), withAction("actor", "old-pw"))
+	keyC := crypto.DeriveKey("rotation-key-c", []byte("rotation-salt-16"))
+	lost := NewDatabaseStore(pool, keyC)
+	keep := withAction("actor", "")
+	if _, err := lost.GetUpdateActionConnectionString(ctx, id, keep); !errors.Is(err,
+		crypto.ErrWrongEncryptionKey) {
+		t.Fatalf("keeping an unreadable password: %v, want ErrWrongEncryptionKey", err)
+	}
+	reentered := withAction("actor2", "new-pw")
+	dsn, err := lost.GetUpdateActionConnectionString(ctx, id, reentered)
+	if err != nil {
+		t.Fatalf("re-entered credential refused: %v", err)
+	}
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("parse prospective DSN: %v", err)
+	}
+	if pw, _ := u.User.Password(); u.User.Username() != "actor2" || pw != "new-pw" {
+		t.Fatalf("prospective DSN role %q password %q, want actor2 new-pw",
+			u.User.Username(), pw)
+	}
+	if err := lost.Update(ctx, id, reentered); err != nil {
+		t.Fatalf("Update with the re-entered credential: %v", err)
+	}
+	assertActionUser(t, lost, id, "actor2", "new-pw")
+}
