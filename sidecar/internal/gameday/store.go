@@ -36,10 +36,15 @@ const (
 )
 
 func (s *Store) start(ctx context.Context, gd GameDay, kind string) error {
-	_, err := s.pool.Exec(ctx, `INSERT INTO sage.sre_game_days
-		(deployment_id, id, database_name, provider, families, status, started_at, kind)
-		VALUES ($1, $2, $3, $4, $5, 'running', $6, $7)`, s.deployment, gd.ID, gd.Database,
-		gd.Provider, gd.Families, gd.StartedAt, kind)
+	exercised, err := encodeExercised(gd)
+	if err != nil {
+		return err
+	}
+	_, err = s.pool.Exec(ctx, `INSERT INTO sage.sre_game_days
+		(deployment_id, id, database_name, provider, families, status, started_at, kind,
+		 exercised)
+		VALUES ($1, $2, $3, $4, $5, 'running', $6, $7, $8::jsonb)`, s.deployment, gd.ID,
+		gd.Database, gd.Provider, gd.Families, gd.StartedAt, kind, exercised)
 	if err != nil {
 		return fmt.Errorf("record %s %s start: %w", kind, gd.ID, err)
 	}
@@ -69,12 +74,16 @@ func (s *Store) finish(ctx context.Context, gd GameDay) error {
 			return fmt.Errorf("encode game day %s summary: %w", gd.ID, err)
 		}
 	}
+	exercised, err := encodeExercised(gd)
+	if err != nil {
+		return err
+	}
 	tag, err := s.pool.Exec(ctx, `UPDATE sage.sre_game_days
 		SET status = $3, finished_at = $4, error = NULLIF($5, ''),
 		    clone_id = NULLIF($6, ''), eval_run_id = NULLIF($7, '')::uuid,
-		    summary = $8::jsonb
+		    summary = $8::jsonb, exercised = COALESCE($9::jsonb, exercised)
 		WHERE deployment_id = $1 AND id = $2`, s.deployment, gd.ID, gd.Status,
-		gd.FinishedAt, gd.Error, gd.CloneID, gd.EvalRunID, string(summary))
+		gd.FinishedAt, gd.Error, gd.CloneID, gd.EvalRunID, string(summary), exercised)
 	if err != nil {
 		return fmt.Errorf("record game day result: %w", err)
 	}
@@ -86,13 +95,15 @@ func (s *Store) finish(ctx context.Context, gd GameDay) error {
 
 const gameDaySelect = `SELECT id::text, database_name, provider, COALESCE(clone_id, ''),
 	families, status, started_at, finished_at, COALESCE(error, ''),
-	COALESCE(eval_run_id::text, ''), summary::text FROM sage.sre_game_days`
+	COALESCE(eval_run_id::text, ''), summary::text, COALESCE(exercised::text, '')
+	FROM sage.sre_game_days`
 
 func scanGameDay(row pgx.Row) (GameDay, error) {
 	var gd GameDay
-	var summary string
+	var summary, exercised string
 	err := row.Scan(&gd.ID, &gd.Database, &gd.Provider, &gd.CloneID, &gd.Families,
-		&gd.Status, &gd.StartedAt, &gd.FinishedAt, &gd.Error, &gd.EvalRunID, &summary)
+		&gd.Status, &gd.StartedAt, &gd.FinishedAt, &gd.Error, &gd.EvalRunID, &summary,
+		&exercised)
 	if gd.Families == nil {
 		gd.Families = []string{}
 	}
@@ -100,6 +111,9 @@ func scanGameDay(row pgx.Row) (GameDay, error) {
 		return gd, err
 	}
 	gd.Summary, err = decodeSummary(summary)
+	if err == nil {
+		gd.Exercised, err = decodeExercised(exercised)
+	}
 	if err != nil {
 		err = fmt.Errorf("game day %s: %w", gd.ID, err)
 	}
@@ -120,6 +134,35 @@ func decodeSummary(raw string) (*Summary, error) {
 		s.TopSkips = []SkipCount{}
 	}
 	return &s, nil
+}
+
+// encodeExercised is gd's exercised record as JSON, or nil (SQL NULL)
+// when it has none.
+func encodeExercised(gd GameDay) (any, error) {
+	if gd.Exercised == nil {
+		return nil, nil
+	}
+	raw, err := json.Marshal(gd.Exercised)
+	if err != nil {
+		return nil, fmt.Errorf("encode game day %s exercised: %w", gd.ID, err)
+	}
+	return string(raw), nil
+}
+
+// decodeExercised reads a stored record; NULL (a row before benches-12, a
+// local bench run) is none.
+func decodeExercised(raw string) (*Exercised, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	var x Exercised
+	if err := json.Unmarshal([]byte(raw), &x); err != nil {
+		return nil, fmt.Errorf("decode exercised: %w", err)
+	}
+	if x.Scenarios == nil {
+		x.Scenarios = []ExercisedScenario{}
+	}
+	return &x, nil
 }
 
 // List lists a database's game days (not its local bench runs), newest first.

@@ -63,6 +63,9 @@ type LocalBenchRun struct {
 	EvalRunID  string     `json:"eval_run_id,omitempty"`
 	// Summary is what the run's report scored, as for a game day.
 	Summary *Summary `json:"summary,omitempty"`
+	// Exercised mirrors GameDay's (the two convert); a local bench run
+	// binds no customer table, so it stays nil.
+	Exercised *Exercised `json:"exercised,omitempty"`
 }
 
 // LocalBench runs one database's local bench runs, one at a time.
@@ -221,7 +224,9 @@ func (b *LocalBench) execute(ctx context.Context, run LocalBenchRun) (LocalBench
 // exercise runs the fault programs on the clone and ingests the report
 // as a local run of this pg_sage.
 func (b *LocalBench) exercise(ctx context.Context, run *LocalBenchRun, dsn string) error {
-	raw, err := b.faults.Run(ctx, dsn, run.Families)
+	// No bindings: a local bench run measures the bench's fixtures, not
+	// the customer's tables (benches-12 binds game days only).
+	raw, err := b.faults.Run(ctx, dsn, run.Families, nil)
 	if err != nil {
 		return fmt.Errorf("fault programs: %w", err)
 	}

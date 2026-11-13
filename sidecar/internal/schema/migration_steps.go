@@ -213,5 +213,6 @@ func trancheThreeMigrations() []namedStep {
 		{"ddlProviderAdvice", ddlProviderAdvice},                         // market-09
 		{"ddlHostUsageHourly", ddlHostUsageHourly},                       // market-04
 		{"ddlManagedChangeProvidersCNPG", ddlManagedChangeProvidersCNPG}, // market-12
+		{"ddlGameDayExercised", ddlGameDayExercised},                     // benches-12
 	}
 }

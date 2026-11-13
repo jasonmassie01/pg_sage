@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/gameday"
 	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/sre"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
@@ -28,6 +29,10 @@ type GameDayOptions struct {
 	// PgSageVersion and PgSageCommit stamp the report with the running
 	// pg_sage build.
 	PgSageVersion, PgSageCommit string
+	// Bindings are the customer programs to run after the fixtures of
+	// their family, each with its table or skip reason (benches-12; nil:
+	// the fixtures only).
+	Bindings []gameday.Binding
 }
 
 // OpenEnv bootstraps the sage schema on dsn's database, sweeps what a
@@ -56,10 +61,15 @@ func OpenEnv(ctx context.Context, dsn string) (*Env, func(), error) {
 	return e, func() { e.closeSessions(); pool.Close() }, nil
 }
 
-// selectGameDayScenarios picks the scenarios of opts; an unknown family
-// or scenario id, or an empty selection, is an error.
+// selectGameDayScenarios picks the scenarios of opts (the fixtures, then
+// the customer programs of opts.Bindings); an unknown family or scenario
+// id, an invalid binding, or an empty selection, is an error.
 func selectGameDayScenarios(opts GameDayOptions) ([]Scenario, error) {
-	all := Scenarios()
+	customer, err := customerScenarios(opts.Bindings)
+	if err != nil {
+		return nil, err
+	}
+	all := append(Scenarios(), customer...)
 	families := map[string]bool{}
 	ids := map[string]bool{}
 	for _, sc := range all {
@@ -155,14 +165,15 @@ type GameDayFaults struct {
 	PgSageVersion, PgSageCommit string
 }
 
-// Run runs the fault programs of families against dsn.
-func (f GameDayFaults) Run(ctx context.Context, dsn string, families []string) ([]byte,
-	error) {
+// Run runs the fault programs of families, and the customer programs of
+// bindings, against dsn.
+func (f GameDayFaults) Run(ctx context.Context, dsn string, families []string,
+	bindings []gameday.Binding) ([]byte, error) {
 	now := time.Now
 	if f.Now != nil {
 		now = f.Now
 	}
 	return RunGameDay(ctx, dsn, GameDayOptions{Families: families, Scenarios: f.Scenarios,
 		MinRunsPerFamily: f.MinRunsPerFamily, PgSageVersion: f.PgSageVersion,
-		PgSageCommit: f.PgSageCommit}, now())
+		PgSageCommit: f.PgSageCommit, Bindings: bindings}, now())
 }

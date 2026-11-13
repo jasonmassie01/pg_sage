@@ -97,15 +97,18 @@ type fakeFaults struct {
 	err      error
 	dsns     []string
 	families [][]string
+	bindings [][]Binding
 	block    chan struct{}
 	// deadlines are the runs' context deadlines (zero: none).
 	deadlines []time.Time
 }
 
-func (f *fakeFaults) Run(ctx context.Context, dsn string, families []string) ([]byte, error) {
+func (f *fakeFaults) Run(ctx context.Context, dsn string, families []string,
+	bindings []Binding) ([]byte, error) {
 	f.mu.Lock()
 	f.dsns = append(f.dsns, dsn)
 	f.families = append(f.families, families)
+	f.bindings = append(f.bindings, bindings)
 	deadline, _ := ctx.Deadline()
 	f.deadlines = append(f.deadlines, deadline)
 	block := f.block

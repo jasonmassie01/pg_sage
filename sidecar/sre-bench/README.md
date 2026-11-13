@@ -21,6 +21,22 @@ cluster of a monitored or the metadata database, a standby, a primary with
 standbys, and a database without the marker
 `COMMENT ON DATABASE <db> IS 'pg_sage:gameday_target'`.
 
+Game days also run customer programs (`scenarios_customer.go`, benches-12),
+which are not part of the CI set: the fixtures above create their own
+`bench_*` tables, so a customer program exercises the customer's own table on
+the clone instead. `lock_customer_hot_table` is bound by `internal/gameday`
+to the monitored database's hottest permanent table (the largest activity
+delta between the collector's two newest snapshots). It checks the table is
+on the clone, holds `ROW EXCLUSIVE` on it in a sleeping session, and queues a
+`SHARE ROW EXCLUSIVE` and two `ROW EXCLUSIVE` requests behind it (each with
+`lock_timeout`, each rolled back), so it reads and writes no row whatever the
+table's size; the gold root is `ddl_lock_queue`. Recovery ends only `bench_*`
+sessions. Without a binding (the `local` provider, no snapshot, a table the
+clone lacks) it is skipped with the reason. The report names the program and
+the binding's hash, never the table; the table name stays in the sidecar's
+`sage.sre_game_days.exercised`. Its integration tests are in
+`scenarios_customer_db_test.go` (a 1M-row customer table).
+
 ```sh
 cd sidecar
 SAGE_TEST_DATABASE_URL='postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable' \
