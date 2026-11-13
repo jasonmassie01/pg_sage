@@ -50,7 +50,8 @@ func runLegacyCutover(
 }
 
 // legacyCutoverSweep resolves what it can and reports whether the
-// cutover is done: no legacy page is owed a resolve, no PagerDuty target
+// cutover is done: no legacy page is owed a resolve (in this batch or
+// beyond it), no PagerDuty target
 // is configured to send one, or this database has no alert log.
 func legacyCutoverSweep(
 	ctx context.Context, pool *pgxpool.Pool, name string, d *notify.Dispatcher,
@@ -79,5 +80,5 @@ func legacyCutoverSweep(
 			"%d failed and retried, %d still open", name, res.Resolved, res.Failed,
 			res.StillOpen)
 	}
-	return res.StillOpen == 0
+	return res.StillOpen == 0 && !res.More
 }

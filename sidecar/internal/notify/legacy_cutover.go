@@ -24,25 +24,32 @@ const legacyPagerDutyChannel = "pagerduty"
 // legacy engine, so a dead routing key is not retried forever.
 const maxLegacyResolveAttempts = 5
 
-// legacyPageBatch bounds one sweep.
-const legacyPageBatch = 200
+// legacyPageBatch bounds one sweep; a var so a test can make it small.
+var legacyPageBatch = 200
 
-// openLegacyPagesSQL lists findings whose newest legacy PagerDuty row is a
-// sent trigger that no resolve followed, with the alert_log key and
-// whether the finding has resolved since.
+// openLegacyPagesSQL lists findings whose newest legacy PagerDuty trigger
+// ('sent') no resolve followed, with the alert_log key and whether the
+// finding has resolved since. A resolve or failed resolve logged before
+// that trigger belongs to an earlier episode of a reopened finding and
+// does not count. Resolved findings come first, so open ones never crowd
+// a resolve out of the batch.
 const openLegacyPagesSQL = `/* pg_sage */
-SELECT DISTINCT ON (a.finding_id) a.finding_id, a.dedup_key, f.severity, f.title,
-       f.category, COALESCE(f.object_identifier, ''), f.status = 'resolved'
-  FROM sage.alert_log a
-  JOIN sage.findings f ON f.id = a.finding_id
- WHERE a.channel = $1 AND a.status = 'sent'
-   AND NOT EXISTS (SELECT 1 FROM sage.alert_log r
-                    WHERE r.finding_id = a.finding_id AND r.channel = $1
-                      AND r.status = 'resolved')
+SELECT finding_id, dedup_key, severity, title, category, object, resolved FROM (
+    SELECT DISTINCT ON (a.finding_id) a.finding_id, a.dedup_key, a.sent_at, a.id,
+           f.severity, f.title, f.category,
+           COALESCE(f.object_identifier, '') AS object, f.status = 'resolved' AS resolved
+      FROM sage.alert_log a
+      JOIN sage.findings f ON f.id = a.finding_id
+     WHERE a.channel = $1 AND a.status = 'sent'
+     ORDER BY a.finding_id, a.sent_at DESC, a.id DESC
+) t
+ WHERE NOT EXISTS (SELECT 1 FROM sage.alert_log r
+                    WHERE r.finding_id = t.finding_id AND r.channel = $1
+                      AND r.status = 'resolved' AND (r.sent_at, r.id) > (t.sent_at, t.id))
    AND (SELECT count(*) FROM sage.alert_log e
-         WHERE e.finding_id = a.finding_id AND e.channel = $1
-           AND e.status = 'resolve_error') < $2
- ORDER BY a.finding_id, a.sent_at DESC, a.id DESC
+         WHERE e.finding_id = t.finding_id AND e.channel = $1
+           AND e.status = 'resolve_error' AND (e.sent_at, e.id) > (t.sent_at, t.id)) < $2
+ ORDER BY resolved DESC, finding_id
  LIMIT $3`
 
 const insertLegacyResolveSQL = `/* pg_sage */ INSERT INTO sage.alert_log
@@ -55,6 +62,9 @@ type LegacyCutoverResult struct {
 	Resolved  int
 	Failed    int
 	StillOpen int
+	// More is set when the sweep read a full batch: pages beyond it are
+	// read by the next sweep, so the cutover is not done yet.
+	More bool
 }
 
 // LegacyPagerDutyKey is the dedup key the legacy engine paged with:
@@ -88,6 +98,7 @@ func ResolveLegacyPages(
 	if err != nil {
 		return res, err
 	}
+	res.More = len(pages) >= legacyPageBatch
 	for _, p := range pages {
 		if !p.resolved {
 			res.StillOpen++
