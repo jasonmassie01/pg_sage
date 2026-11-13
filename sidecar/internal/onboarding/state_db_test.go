@@ -3,9 +3,15 @@ package onboarding
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestInitNewInstall(t *testing.T) {
@@ -142,5 +148,84 @@ func TestHasOpenFinding(t *testing.T) {
 	}
 	if open, err := HasOpenFinding(ctx, pool); err != nil || !open {
 		t.Fatalf("one open finding: open=%v err=%v", open, err)
+	}
+}
+
+// seededFindings numbers seeded findings: open ones are unique per object.
+var seededFindings atomic.Int64
+
+// seedFinding inserts one sage.findings row of severity and status.
+func seedFinding(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	severity, status string) {
+	t.Helper()
+	object := fmt.Sprintf("public.x%d", seededFindings.Add(1))
+	if _, err := pool.Exec(ctx, `INSERT INTO sage.findings (category, severity,
+		object_type, object_identifier, title, detail, status)
+		VALUES ('duplicate_index', $1, 'index', $3, 'dup', '{}'::jsonb, $2)`,
+		severity, status, object); err != nil {
+		t.Fatalf("seed %s %s finding: %v", status, severity, err)
+	}
+}
+
+// TestHasOpenFindingCountsOnlyWarningAndCritical pins firstlook-07b: the
+// analyzer's first finding is an open warning or critical, as the first
+// look counts them; an info note, a legacy upper-case severity or a closed
+// finding is not one.
+func TestHasOpenFindingCountsOnlyWarningAndCritical(t *testing.T) {
+	type seed struct{ severity, status string }
+	cases := []struct {
+		name  string
+		seeds []seed
+		want  bool
+	}{
+		{"no findings", nil, false},
+		{"open warning", []seed{{"warning", "open"}}, true},
+		{"open critical", []seed{{"critical", "open"}}, true},
+		{"open info only", []seed{{"info", "open"}, {"info", "open"}}, false},
+		{"legacy upper-case INFO", []seed{{"INFO", "open"}}, false},
+		{"upper-case WARNING is not exact", []seed{{"WARNING", "open"}}, false},
+		{"info and a resolved critical",
+			[]seed{{"info", "open"}, {"critical", "resolved"}}, false},
+		{"suppressed warning", []seed{{"warning", "suppressed"}}, false},
+		{"info and an open critical", []seed{{"info", "open"}, {"critical", "open"}}, true},
+	}
+	pool, ctx := freshInstall(t)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := pool.Exec(ctx, "DELETE FROM sage.findings"); err != nil {
+				t.Fatalf("clear findings: %v", err)
+			}
+			for _, s := range tc.seeds {
+				seedFinding(t, ctx, pool, s.severity, s.status)
+			}
+			open, err := HasOpenFinding(ctx, pool)
+			if err != nil || open != tc.want {
+				t.Fatalf("HasOpenFinding = %v err %v, want %v", open, err, tc.want)
+			}
+		})
+	}
+}
+
+func TestHasOpenFindingErrors(t *testing.T) {
+	if open, err := HasOpenFinding(context.Background(), nil); !errors.Is(err, ErrNoPool) ||
+		open {
+		t.Fatalf("nil pool: open=%v err=%v, want ErrNoPool", open, err)
+	}
+	pool, ctx := freshInstall(t)
+	seedFinding(t, ctx, pool, "critical", "open")
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	if open, err := HasOpenFinding(cancelled, pool); !errors.Is(err, context.Canceled) ||
+		open {
+		t.Fatalf("cancelled: open=%v err=%v, want context.Canceled", open, err)
+	}
+	if _, err := pool.Exec(ctx, "ALTER TABLE sage.findings RENAME TO findings_gone"); err != nil {
+		t.Fatalf("hide findings: %v", err)
+	}
+	open, err := HasOpenFinding(ctx, pool)
+	var pgErr *pgconn.PgError
+	if open || err == nil || !strings.Contains(err.Error(), "read open findings") ||
+		!errors.As(err, &pgErr) || pgErr.Code != "42P01" {
+		t.Fatalf("missing table: open=%v err=%v, want a wrapped undefined_table", open, err)
 	}
 }

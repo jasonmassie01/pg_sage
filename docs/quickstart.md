@@ -145,7 +145,9 @@ to its first *finding* for that database: a warning or critical item of the cata
 checks, such as a duplicate index or a sequence near its limit. Setup notes (an extension
 pg_sage would like, hidden query text, a server log it cannot read) and the agent posture
 notes are listed in the first look but are not findings, at any severity. When the first
-look has no findings, the time is set by the analyzer's first open finding instead.
+look has no findings, the time is set by the analyzer's first open warning or critical
+finding instead; an open info note does not set it. A time recorded before an upgrade is
+kept as it was measured and is not recomputed.
 `pg_sage_first_look_items` counts every item and `pg_sage_first_look_findings` only the
 findings. The checklist says the same, for example "3 findings (1 critical), 2 setup notes,
 1 posture note from the catalog.", and `/api/v1/onboarding` gives the counts in
