@@ -36,6 +36,8 @@ type FileWatcher struct {
 	started     bool
 	lastLine    atomic.Int64 // unix nanos of the last record read; 0 = none
 	parseErrors atomic.Uint64
+	// deadlockText is rca.deadlock_statement_text for the classifier.
+	deadlockText string
 }
 
 // NewFileWatcher creates a FileWatcher from the given config.
@@ -49,6 +51,13 @@ func NewFileWatcher(
 		logFn:   logFn,
 		entries: make(map[string]*entryBuffer),
 	}
+}
+
+// WithDeadlockStatementText sets rca.deadlock_statement_text for the
+// classifier Start builds (rca-07b). Call it before Start.
+func (fw *FileWatcher) WithDeadlockStatementText(mode string) *FileWatcher {
+	fw.deadlockText = mode
+	return fw
 }
 
 // StartWithConfig replaces the config, then starts: a watcher created
@@ -89,6 +98,8 @@ func (fw *FileWatcher) Start(ctx context.Context) error {
 		SlowQueryEnabled: fw.cfg.SlowQueryEnabled,
 		TempFileMinBytes: int64(fw.cfg.TempFileMinBytes),
 		MaxLinesPerCycle: fw.cfg.MaxLinesPerCycle,
+
+		DeadlockStatementText: fw.deadlockText,
 	}, fw.logFn)
 
 	if err := tailer.Start(ctx); err != nil {

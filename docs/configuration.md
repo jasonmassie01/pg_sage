@@ -535,6 +535,7 @@ would produce an invalid configuration answers `400` with the key.
 | `rca.log_fast_path_interval_seconds` | `5` | Seconds between log fast-path passes. Each pass takes the critical log signals (PANIC and crashes, disk full, out of memory, refused connections, deadlocks, wraparound, corruption, WAL archive and WAL segment failures), opens or updates their incidents and sends `incident_detected` without waiting for the analyzer cycle. Other log signals still wait for the cycle. `0` disables the log fast path; otherwise `1`-`3600`. Escalation still counts analyzer cycles; log incidents auto-resolve after `rca.log_quiet_minutes`. In a YAML fleet each database on a cluster runs its own pass. Restart to change |
 | `rca.log_quiet_minutes` | `0` | Minutes a log incident (deadlocks, refused connections and the other log signals) must go without a new occurrence before it auto-resolves (`resolution_reason` "no log occurrence for N minutes"). Clear analyzer cycles do not count for log incidents: a deadlock every 15 minutes is one open incident, not a detect/resolve pair each time. `0` uses `rca.dedup_window_minutes` (default 30); otherwise `1`-`1440`, and at most `rca.stale_after_hours`. Metric incidents still resolve after `rca.resolution_cycles` clear cycles. Restart to change |
 | `rca.recurrence_renotify_hours` | `6` | Hours after a log incident resolves during which a recurrence of it (same identity, linked through `previous_incident_id`) at the same or a lower severity is recorded but sends no `incident_detected`, and its resolution sends no `incident_resolved` unless it escalated. A severity rise always notifies. pg_sage logs each suppressed notification at DEBUG. Metric incidents are always notified. `1`-`168`. Restart to change |
+| `rca.deadlock_statement_text` | `fingerprint` | What a deadlock incident keeps of the statement each participant ran (from the server-log DETAIL). `fingerprint`: the first 16 hex characters of a SHA-256 over the statement with its string, dollar and numeric constants replaced by `?` and its whitespace collapsed, and no text. `redacted` (experimental, pending a privacy review): also that redacted text, at most 300 characters. Any other value fails at load. Applies to log files and provider log sinks alike. Restart to change |
 | `rca.stale_after_hours` | `24` | Hours an open incident may go without being re-detected before pg_sage resolves it (`resolved_by` `pg_sage:stale`). Incidents about an idle-in-transaction session also resolve once that session is gone (`pg_sage:subject_gone`). Resolutions of incidents last seen longer ago than this send no notification. `1`-`8760`, and at least `rca.dedup_window_minutes` |
 | `rca.vacuum_min_dead_tuples` | `1000` | Fewest dead tuples a table needs before its dead-tuple ratio counts toward the `vacuum_blocked` ("Autovacuum falling behind") incident. Ratios on tables below either floor are ignored, so a table with a handful of rows never opens, nor escalates, an incident. `1`-`1000000000` |
 | `rca.vacuum_min_table_mb` | `8` | Smallest heap (MB, from `pg_class.relpages`) a table needs before its dead-tuple ratio counts toward the `vacuum_blocked` incident. `1`-`1048576` |
@@ -3543,7 +3544,27 @@ most 20; for a deadlock, every process its DETAIL names, never the statements) a
 `first_seen`/`last_seen` (RFC 3339). The incident keeps them as `log_occurrences` (`count`,
 `pids`, `first_seen`, `last_seen`, stored in `sage.incidents.log_occurrences`), and the
 deadlock evidence names the PIDs and the count. A provider log sink reports a batch's repeats
-when its next batch arrives. A log incident auto-resolves after `rca.log_quiet_minutes`
+when its next batch arrives.
+
+**Deadlock wait cycle.** A deadlock's DETAIL also names, per process, the lock it waited for,
+the process that blocked it and (in the server log) the statement it ran. pg_sage reads at most
+10 participants into the signal and keeps the newest deadlock window's set in
+`log_occurrences.participants`: `pid`, `wait_mode`, `wait_object` (PostgreSQL's wording, OIDs
+kept, for example `transaction 745` or `tuple (0,1) of relation 16384 of database 5`),
+`blocked_by`, `relation` (the relation the CONTEXT names, on the detecting process only),
+`fingerprint` and, only when `rca.deadlock_statement_text` is `redacted`, `statement`. A
+statement is clipped to 2,000 bytes, then its string, dollar-quoted and numeric constants are
+replaced by `?`, so one statement shape has one fingerprint whatever its values and no value is
+stored; the default `fingerprint` mode stores no statement text at all. The incident's chain
+gains a "Deadlock wait cycle" link with one line per participant (`pid A waits for ShareLock on
+transaction 745 held by pid B; statement fp=...`). DETAIL lines pg_sage cannot read keep the
+PID-only evidence and are counted as `participants_unparsed`; a server with a non-English
+`lc_messages` (flagged by the locale check) gives no participants. Provider log sinks without
+a CONTEXT field keep the OID only. The tier-2 LLM prompt never sees the raw DETAIL, and sees
+statement text only in `redacted` mode. `redacted` is experimental until the owner's privacy
+review of these rules.
+
+A log incident auto-resolves after `rca.log_quiet_minutes`
 without an occurrence, and a recurrence within `rca.recurrence_renotify_hours` of its
 predecessor's resolution, at no higher severity, is linked but not notified again. The lock
 graph and lock chain probes investigate deadlocks, connection saturation refused connections,

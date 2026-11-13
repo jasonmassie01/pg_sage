@@ -22,6 +22,7 @@ type jsonLogRaw struct {
 	Message     string `json:"message"`
 	Detail      string `json:"detail"`
 	Hint        string `json:"hint"`
+	Context     string `json:"context"`
 	Statement   string `json:"statement"`
 	Application string `json:"application_name"`
 	BackendType string `json:"backend_type"`
@@ -69,6 +70,7 @@ func ParseJSONLogLine(line []byte) (LogEntry, error) {
 		Message:     raw.Message,
 		Detail:      raw.Detail,
 		Hint:        raw.Hint,
+		Context:     raw.Context,
 		Query:       raw.Statement,
 		Application: raw.Application,
 		BackendType: raw.BackendType,
@@ -92,6 +94,7 @@ const (
 	csvColMessage     = 13
 	csvColDetail      = 14
 	csvColHint        = 15
+	csvColContext     = 18
 	csvColQuery       = 19
 	csvColApplication = 22
 	csvColBackendType = 23 // PG13+
@@ -134,6 +137,7 @@ func ParseCSVLogLine(record []string) (LogEntry, error) {
 		Message:     record[csvColMessage],
 		Detail:      record[csvColDetail],
 		Hint:        record[csvColHint],
+		Context:     record[csvColContext],
 		Query:       record[csvColQuery],
 		Application: record[csvColApplication],
 		BackendType: backendType,

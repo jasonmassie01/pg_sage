@@ -40,10 +40,11 @@ func NewLogSink(pool *pgxpool.Pool, database string, cfg *config.Config) (*LogSi
 		return autoexplain.StoreObservedPlan(ctx, pool, plan)
 	}
 	s.classifierConfig = logwatch.ClassifierConfig{DedupWindowS: cfg.LogWatch.DedupWindowS,
-		ExcludeApps:      append([]string(nil), cfg.LogWatch.ExcludeApplications...),
-		SlowQueryEnabled: cfg.LogWatch.SlowQueryEnabled,
-		TempFileMinBytes: int64(cfg.LogWatch.TempFileMinBytes),
-		MaxLinesPerCycle: cfg.LogWatch.MaxLinesPerCycle}
+		ExcludeApps:           append([]string(nil), cfg.LogWatch.ExcludeApplications...),
+		SlowQueryEnabled:      cfg.LogWatch.SlowQueryEnabled,
+		TempFileMinBytes:      int64(cfg.LogWatch.TempFileMinBytes),
+		MaxLinesPerCycle:      cfg.LogWatch.MaxLinesPerCycle,
+		DeadlockStatementText: cfg.RCA.DeadlockStatementText}
 	if cfg.RCA.Enabled && cfg.LogWatch.Enabled {
 		s.classifier = logwatch.NewClassifier(s.classifierConfig, nil)
 	}

@@ -69,7 +69,8 @@ func (s *logFanoutSet) forCluster(
 		cl.addPool(pool)
 		return cl.fanout
 	}
-	watcher := logwatch.NewFileWatcher(cfg.LogWatch, logStructuredWrapper)
+	watcher := logwatch.NewFileWatcher(cfg.LogWatch, logStructuredWrapper).
+		WithDeadlockStatementText(cfg.RCA.DeadlockStatementText)
 	cl := &clusterLog{watcher: watcher, retryDone: make(chan struct{}),
 		fanout: logwatch.NewLogFanout(watcher).WithClusterKey(key)}
 	cl.addPool(pool)
