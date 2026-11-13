@@ -264,3 +264,55 @@ func TestActionPool_BuildsAndSignalsShareThePool(t *testing.T) {
 		t.Fatalf("action pool MaxConns = %d, want %d", got, ActionPoolMaxConns())
 	}
 }
+
+// Integration, PostgreSQL 17+: an action role holding only pg_maintain
+// (no owner membership) passes the maintenance precheck and VACUUMs the
+// table, because the precheck reads the role that will run the statement;
+// an executor without it is withheld on the observation role, which has
+// neither.
+func TestActionPool_MaintainRoleVacuumsOn17(t *testing.T) {
+	f := newIdentityFixture(t)
+	ctx := context.Background()
+	var version int
+	if err := f.super.QueryRow(ctx, "SELECT current_setting('server_version_num')::int").
+		Scan(&version); err != nil {
+		t.Fatalf("server version: %v", err)
+	}
+	if version < 170000 {
+		t.Skip("pg_maintain exists from PostgreSQL 17; before it only the owner may VACUUM")
+	}
+	maint := "ap_mnt" + f.app[len("ap_app"):]
+	// USAGE: without owning the schema, the role must still resolve the name.
+	for _, s := range []string{"CREATE ROLE " + maint + " LOGIN PASSWORD 'mnt' IN ROLE " +
+		"pg_maintain, pg_read_all_stats", "GRANT USAGE ON SCHEMA " + f.schema + " TO " + maint} {
+		if _, err := f.super.Exec(ctx, s); err != nil {
+			t.Fatalf("%s: %v", s, err)
+		}
+	}
+	t.Cleanup(func() {
+		_, _ = f.super.Exec(context.Background(), `SELECT pg_terminate_backend(pid)
+			FROM pg_stat_activity WHERE usename = $1`, maint)
+		_, _ = f.super.Exec(context.Background(), "DROP ROLE IF EXISTS "+maint)
+	})
+	sql := "VACUUM (ANALYZE) " + f.schema + ".t2"
+	decision := ActionPolicyDecision{Decision: PolicyDecisionExecute, RiskTier: "safe"}
+	single := New(f.obs, config.DefaultConfig(), time.Time{}, nopLog)
+	if err := single.admitMaintenance(ctx, sql, decision); !errors.Is(err, ErrActionWithheld) {
+		t.Fatalf("precheck on the observation role = %v, want withheld", err)
+	}
+	split := New(f.obs, config.DefaultConfig(), time.Time{}, nopLog).
+		WithActionPool(f.login(t, maint, "mnt"))
+	if err := split.admitMaintenance(ctx, sql, decision); err != nil {
+		t.Fatalf("precheck on the pg_maintain action role = %v, want admitted", err)
+	}
+	if err := split.runFindingSQL(ctx, identityFinding(sql, f.schema+".t2"),
+		decision); err != nil {
+		t.Fatalf("VACUUM as the pg_maintain action role: %v", err)
+	}
+	var analyzed bool
+	if err := f.super.QueryRow(ctx, `SELECT last_vacuum IS NOT NULL FROM
+		pg_stat_user_tables WHERE relid = to_regclass($1)`, f.schema+".t2").
+		Scan(&analyzed); err != nil || !analyzed {
+		t.Fatalf("t2 last_vacuum set = %t (%v), want true", analyzed, err)
+	}
+}

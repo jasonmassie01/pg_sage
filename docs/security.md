@@ -66,6 +66,7 @@ CREATE SCHEMA IF NOT EXISTS sage AUTHORIZATION sage_observer;
 CREATE ROLE sage_action LOGIN PASSWORD '...';
 GRANT <table owner role> TO sage_action;      -- CREATE INDEX, ALTER TABLE storage
 GRANT pg_maintain TO sage_action;             -- PostgreSQL 17+: VACUUM, ANALYZE, REINDEX
+GRANT USAGE ON SCHEMA <schema> TO sage_action; -- with pg_maintain only: to resolve names
 GRANT pg_signal_backend, pg_read_all_stats TO sage_action;
 ```
 
