@@ -217,6 +217,30 @@ func TestMonitor_RecordsCancelsAndPredicts(t *testing.T) {
 	}
 }
 
+// A day the log subscription dropped entries is recorded as a lower
+// bound on the role budget's row.
+func TestMonitor_RecordsTheLowerBound(t *testing.T) {
+	src := &fakeEntries{evicted: 3}
+	counter := NewCancelCounter("shop", src, alwaysActive)
+	counter.Poll(t0)
+	l := &fakeCancelLedger{fakeLedger: fakeLedger{history: sevenDays()}}
+	if _, err := enforceMonitor(l, counter).Detect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, r := range l.cancels {
+		if r.Budget == "app-6s" && r.Day.Equal(utcDay(t0)) {
+			found = true
+			if !r.LowerBound || r.Count != 0 {
+				t.Fatalf("row %+v, want a lower bound with no cancels", r)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("no row for app-6s on %s in %+v", utcDay(t0), l.cancels)
+	}
+}
+
 // Nil/empty: no subscription records source none and downgrades the
 // statement_timeout enforce finding to approval with the card text.
 func TestMonitor_NoLogSourceNeedsApproval(t *testing.T) {

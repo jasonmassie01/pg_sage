@@ -119,6 +119,33 @@ func TestRoleBudgetRevert_LateCheckCreditsOnlyMeasuredCancels(t *testing.T) {
 	}
 }
 
+// Only cancels after the action count: the ledger's count at apply
+// (before_state.cancel_watch.actual_at_apply) is subtracted.
+func TestRoleBudgetRevert_CancelsBeforeApplyDoNotCount(t *testing.T) {
+	f := enforceRevertFixture(t, 3*time.Hour, 2) // threshold 2 x 6
+	recordSource(t, f, budget.CancelSourceLog, 20)
+	setActualAtApply := func(n int64) {
+		t.Helper()
+		if _, err := f.pool.Exec(context.Background(), `UPDATE sage.action_log
+			SET before_state = jsonb_set(before_state, '{cancel_watch,actual_at_apply}',
+			    to_jsonb($2::bigint)) WHERE id = $1`, f.actionID, n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	setActualAtApply(10)
+	if j := judgeAt(t, f, time.Now()); j.outcome.Verdict != verify.OutcomeInsufficient ||
+		!strings.Contains(j.outcome.Reason, "10 cancels") {
+		t.Fatalf("20 cancels, 10 at apply: %s (%s), want 10 counted and kept",
+			j.outcome.Verdict, j.outcome.Reason)
+	}
+	setActualAtApply(7)
+	if j := judgeAt(t, f, time.Now()); j.outcome.Verdict != verify.OutcomeRegressed ||
+		!strings.Contains(j.outcome.Reason, "13 cancels") {
+		t.Fatalf("20 cancels, 7 at apply: %s (%s), want 13 counted and regressed",
+			j.outcome.Verdict, j.outcome.Reason)
+	}
+}
+
 // A lost log source keeps watching and says why; a zero prediction
 // reverts only past the floor (11 cancels).
 func TestRoleBudgetRevert_LostSourceAndZeroPrediction(t *testing.T) {
