@@ -42,13 +42,28 @@ func initConfigSecrets(ctx context.Context, controlPool *pgxpool.Pool) error {
 }
 
 // resealDatabasePasswords moves every stored database password to
-// sage-enc:v1 under the active key (security-08).
+// sage-enc:v1 under the active key (security-08), and every action password
+// to the active key (security-09b).
 func resealDatabasePasswords(ctx context.Context, s *store.DatabaseStore) error {
+	return resealStoredPasswords(ctx, s, logStructured)
+}
+
+// resealStoredPasswords reseals both password columns and reports each
+// column's counts separately.
+func resealStoredPasswords(
+	ctx context.Context, s *store.DatabaseStore,
+	logf func(level, component, msg string, args ...any),
+) error {
 	report, err := s.ResealDatabasePasswords(ctx)
 	if err != nil {
 		return fmt.Errorf("sealing stored database passwords: %w", err)
 	}
-	reportResealCounts("database passwords", report, logStructured)
+	reportResealCounts("database passwords", report, logf)
+	actions, err := s.ResealActionPasswords(ctx)
+	if err != nil {
+		return fmt.Errorf("re-sealing stored action passwords: %w", err)
+	}
+	reportResealCounts("action passwords", actions, logf)
 	return nil
 }
 

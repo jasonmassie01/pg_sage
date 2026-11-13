@@ -21,6 +21,7 @@ type metaPlan struct {
 	kind      string // added, removed, rebuilt, updated or "" (unchanged)
 	rec       store.DatabaseRecord
 	connStr   string
+	action    memberAction // the stored action identity (security-09b)
 	current   *fleet.DatabaseInstance
 	candidate *fleet.DatabaseInstance
 	buildErr  error
@@ -51,7 +52,13 @@ func classifyMetaRecord(
 	if plan.connStr, err = state.Store.GetConnectionString(ctx, id); err != nil {
 		return plan, err
 	}
+	if plan.action, err = readMemberAction(ctx, state.Store, plan.rec, plan.connStr); err != nil {
+		return plan, err
+	}
 	plan.kind = metaChangeKind(plan.rec, current, plan.connStr)
+	if plan.kind != "rebuilt" && metaActionChanged(current, plan.action) {
+		plan.kind = "rebuilt" // adding, changing or removing the action identity
+	}
 	return plan, nil
 }
 
@@ -103,7 +110,7 @@ func (p *metaPlan) build(ctx context.Context) {
 	if p.kind != "added" && p.kind != "rebuilt" {
 		return
 	}
-	inst, err := prepareStoreDatabaseConnection(ctx, p.rec, p.connStr)
+	inst, err := prepareStoreDatabaseConnection(ctx, p.rec, p.connStr, p.action)
 	if err == nil {
 		if checkErr := healthCheckStoreDatabase(ctx, inst); checkErr != nil {
 			err = errors.Join(checkErr, cleanupManagedCandidate(inst))
@@ -135,7 +142,7 @@ func (p *metaPlan) publish(
 		return metaOutcome{}, err
 	}
 	if fresh.kind != p.kind || fresh.current != p.current || fresh.connStr != p.connStr ||
-		!reflect.DeepEqual(fresh.rec, p.rec) {
+		fresh.action.dsn != p.action.dsn || !reflect.DeepEqual(fresh.rec, p.rec) {
 		return metaOutcome{}, nil
 	}
 	switch p.kind {

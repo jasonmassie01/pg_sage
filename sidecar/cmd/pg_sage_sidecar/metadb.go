@@ -297,49 +297,6 @@ func registerFailedInstance(rec store.DatabaseRecord, errMsg string) {
 	fleetMgr.RegisterInstance(failedStoreInstance(rec, errMsg))
 }
 
-func prepareStoreDatabase(
-	ctx context.Context, state *metaDBState, rec store.DatabaseRecord,
-) (*fleet.DatabaseInstance, error) {
-	connStr, err := state.Store.GetConnectionString(ctx, rec.ID)
-	if err != nil {
-		return nil, fmt.Errorf("get connection string: %w", err)
-	}
-	return prepareStoreDatabaseConnection(ctx, rec, connStr)
-}
-
-func prepareStoreDatabaseConnection(
-	ctx context.Context, rec store.DatabaseRecord, connStr string,
-) (*fleet.DatabaseInstance, error) {
-	dbPool, err := connectMonitoredDBContext(ctx, connStr, rec.MaxConnections)
-	if err != nil {
-		return nil, err
-	}
-	llmUsageIDs.setID(rec.Name, rec.ID) // fleet-10: usage rows keyed by id
-	inst, err := buildStoreDatabaseRuntime(ctx, rec, dbPool)
-	if err != nil {
-		dbPool.Close()
-		return nil, err
-	}
-	return inst, nil
-}
-
-// buildStoreDatabaseRuntime builds a store-managed database's runtime. Its
-// standing policy is scoped to the record and, with notifications, lives
-// in the meta DB the API writes to (G5-B10, G5-B11).
-func buildStoreDatabaseRuntime(
-	ctx context.Context, rec store.DatabaseRecord, dbPool *pgxpool.Pool,
-) (*fleet.DatabaseInstance, error) {
-	rt, err := buildDatabaseRuntime(ctx, databaseRuntimeSpec{
-		Scope: "meta-db", Name: rec.Name, DatabaseID: rec.ID,
-		Config: storeRecordToDBConfig(rec), Pool: dbPool,
-		ControlPool: notificationControlPool(globalMetaState, nil),
-		ExecMode:    resolveExecMode(rec), Parent: shutdownCtx, RequireChecks: true,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return rt.inst, nil
-}
 func activateStoreDatabase(inst *fleet.DatabaseInstance) {
 	activateStoreDatabaseWithManager(fleetMgr, inst)
 }
