@@ -94,8 +94,8 @@ func TestParseBaseline_SchemaRevision(t *testing.T) {
 
 func TestWriteBaseline_KeepsSchemaRevision(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "baseline.json")
-	if err := WriteBaseline(path, mustBaseline(t, sentinelDiffReport(ClassLeakedInError)));
-		err != nil {
+	written := mustBaseline(t, sentinelDiffReport(ClassLeakedInError))
+	if err := WriteBaseline(path, written); err != nil {
 		t.Fatal(err)
 	}
 	b, err := LoadBaseline(path)
