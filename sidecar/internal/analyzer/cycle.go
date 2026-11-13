@@ -45,15 +45,9 @@ func (a *Analyzer) cycle(ctx context.Context) error {
 	all = append(all, a.runSeqScanWatchdog(current, previous, all)...)
 	all = append(all, a.runProducers(ctx, current, previous)...)
 	all = append(all, a.runLateChecks(ctx)...)
-	all = append(all, a.checkSageFootprint(ctx, current)...)
-	all = append(all, a.checkSelfCost(ctx)...)
-	all = a.applyAppManaged(ctx, all)
-	all = a.applyFactFilter(ctx, all, excluded)
-	if current.Available("tables") && len(current.Tables) > 0 {
-		all = collapseCloneSchemas(current, all, a.cloneSignals(ctx))
-		a.eval.evaluated(CategoryCloneSchemas)
-	}
-	all = dropNonWorkloadFindings(all)
+	all = append(append(all, a.checkSageFootprint(ctx, current)...), a.checkSelfCost(ctx)...)
+	all = a.applyDisabledRules(append(all, a.runCustomChecks(ctx)...))
+	all = a.deriveFindings(ctx, current, all, excluded)
 	a.runRCA(ctx, current, previous, all)
 
 	// Deduplicate conflicting findings across advisors.
@@ -65,6 +59,22 @@ func (a *Analyzer) cycle(ctx context.Context) error {
 	err := a.finalizeCycle(ctx, all, a.eval.resolvable(all))
 	a.saveUnusedClock(ctx)
 	return err
+}
+
+// deriveFindings applies the steps that turn findings into derived ones
+// (app_managed_index, clone_schemas), then the fact filter. The rule pack
+// runs again last: a derived category made after the first pass may itself
+// be disabled (market-11), and must be dropped like any other, or it would
+// reopen every cycle only to be resolved as rule_disabled.
+func (a *Analyzer) deriveFindings(ctx context.Context, current *collector.Snapshot,
+	all []Finding, excluded []string) []Finding {
+	all = a.applyAppManaged(ctx, all)
+	all = a.applyFactFilter(ctx, all, excluded)
+	if current.Available("tables") && len(current.Tables) > 0 {
+		all = collapseCloneSchemas(current, all, a.cloneSignals(ctx))
+		a.eval.evaluated(CategoryCloneSchemas)
+	}
+	return a.applyDisabledRules(dropNonWorkloadFindings(all))
 }
 
 // loadCycleInputs reads the state the rules need besides the snapshot:
@@ -105,6 +115,9 @@ func (a *Analyzer) runSnapshotRules(
 ) []Finding {
 	var out []Finding
 	for _, rule := range AllRules {
+		if a.ruleDisabled(rule) {
+			continue // resolved as rule_disabled, not failed (market-11)
+		}
 		skip := skipQueryRules && queryRuleNames[rule.Name]
 		if skip || (rule.Needs != nil && !rule.Needs(current, previous)) {
 			a.eval.fail(rule.Categories...)
@@ -136,6 +149,9 @@ func (a *Analyzer) runSnapshotRules(
 		if rule.Name == "inactive_slots" && a.extras != nil && a.extras.InactiveSlotPending {
 			a.eval.fail("inactive_slot")
 		}
+		for category, idents := range a.extras.takeUndecided() {
+			a.eval.keep(category, idents...)
+		}
 	}
 	return out
 }
@@ -147,7 +163,9 @@ func (a *Analyzer) runDatabaseRules(
 	current, previous *collector.Snapshot,
 	skipQueryRules bool,
 ) []Finding {
-	out := a.checkXIDWraparound(ctx)
+	// Before query_regression, which reads the active statement buckets.
+	out := a.runWorkloadAnomaly(ctx, current, previous)
+	out = append(out, a.checkXIDWraparound(ctx)...)
 	out = append(out, a.checkConnectionLeaks(ctx)...)
 	a.eval.evaluated("xid_wraparound", "connection_leak")
 	if skipQueryRules {

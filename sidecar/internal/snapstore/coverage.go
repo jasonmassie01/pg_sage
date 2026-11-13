@@ -11,6 +11,8 @@ var fullCategories = map[string]string{
 		"or open transactions",
 	"replication": "a few replicas and slots whose LSNs move every cycle; a delta " +
 		"would carry almost the whole document",
+	"subscriptions": "a few subscriptions (at most 200) whose LSNs and report times " +
+		"move every cycle; a delta would carry almost the whole document",
 }
 
 // Coverage reports how the store keeps category: delta is true for a

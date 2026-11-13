@@ -81,6 +81,7 @@ safety_critical defaults.max_connections
 safety_critical defaults.trust_level
 operator_preference databases[].analyzer_interval_seconds
 operator_preference databases[].collector_interval_seconds
+operator_preference databases[].disabled_rules
 safety_critical databases[].database
 safety_critical databases[].execution_mode
 safety_critical databases[].executor_enabled
@@ -167,7 +168,9 @@ derivable analyzer.analyze_stale_days
 derivable analyzer.analyze_stale_min_rows
 derivable analyzer.autovacuum_tune_min_rows
 derivable analyzer.cache_hit_ratio_warning
+derivable analyzer.cdc_stall_minutes
 derivable analyzer.checkpoint_frequency_warning_per_hour
+operator_preference analyzer.disabled_rules
 derivable analyzer.idle_in_transaction_timeout_minutes
 derivable analyzer.inactive_slot_min_minutes
 derivable analyzer.index_bloat_min_bytes
@@ -187,6 +190,7 @@ derivable analyzer.seq_scan_min_rows
 derivable analyzer.slow_query_min_calls
 derivable analyzer.slow_query_threshold_ms
 derivable analyzer.slow_slot_retained_bytes
+derivable analyzer.subscription_lag_minutes
 derivable analyzer.table_bloat_dead_tuple_pct
 derivable analyzer.table_bloat_min_bytes
 derivable analyzer.table_bloat_min_rows
@@ -259,6 +263,7 @@ operator_preference schema_lint.disabled_rules
 operator_preference schema_lint.enabled
 operator_preference schema_lint.exclude_schemas
 operator_preference schema_lint.include_schemas
+safety_critical checks
 derivable schema_lint.min_table_rows
 derivable schema_lint.scan_interval_minutes
 
@@ -520,6 +525,17 @@ operator_preference self_budget.cpu_ms_per_cycle
 operator_preference self_budget.db_time_ms_per_hour
 operator_preference self_budget.storage_mb
 
+# Seasonal baselines (market-02): detection tuning the operator declares. A
+# critical anomaly opens a read-only investigation; no key widens what pg_sage
+# may do, and none is derived.
+operator_preference baseline.enabled
+operator_preference baseline.max_query_keys
+operator_preference baseline.min_delta_ms
+operator_preference baseline.timezone
+operator_preference baseline.weeks
+operator_preference baseline.z_critical
+operator_preference baseline.z_warning
+
 # Fleet learning (v2.3.0): evidence and coordination the operator declares;
 # none widens authority or spend (the split never exceeds the fleet cap).
 operator_preference fleet_learning.budget_ceiling_pct
@@ -604,3 +620,7 @@ safety_critical lakebase_observability.streams
 safety_critical lakebase_observability.bindings
 safety_critical sre.read_policy.scope
 safety_critical sre.read_policy.allowed_sources
+
+# Replication health (market-13): the operator declares which heartbeat
+# tables a CDC connector writes; pg_sage only reads them.
+operator_preference replication.cdc_heartbeats

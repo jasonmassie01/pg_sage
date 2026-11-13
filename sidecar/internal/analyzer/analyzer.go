@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/baseline"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/notify"
@@ -126,6 +127,13 @@ type Analyzer struct {
 	// unusedClock persists the unused_index zero-scan clock (rules-04);
 	// only touched by the cycle goroutine.
 	unusedClock *unusedClockStore
+	// baselines keeps the hour-of-week buckets (market-02); nil leaves
+	// workload_anomaly unevaluated. anomalies and seasonal (the cycle's
+	// active statement buckets, for query_regression) are only touched by
+	// the cycle goroutine.
+	baselines BaselineStore
+	anomalies anomalyTracker
+	seasonal  map[int64]baseline.Score
 
 	// indexFloor is the deterministic index floor (WithIndexFloor, indexes-12);
 	// floorReader overrides its open-findings source (tests; nil reads the
@@ -135,6 +143,11 @@ type Analyzer struct {
 
 	// freezeHorizons is the database's freeze sampler (WithFreezeHorizons).
 	freezeHorizons FreezeHorizonSource
+
+	// rulePack is this database's disabled-rules override and checks its
+	// owner-defined read-only checks (market-11); nil runs none.
+	rulePack rulePackState
+	checks   *customCheckRunner
 }
 
 // PlanNarrator enriches plan_regression findings with an LLM-generated
@@ -177,6 +190,8 @@ func New(
 		selfCost:    selfcost.NewMeter(),
 		selfBudget:  newSelfBudgetMeter(),
 		unusedClock: newUnusedClockStore(newPGUnusedClockDB(pool)),
+		baselines:   newBaselineStore(pool),
+		anomalies:   anomalyTracker{},
 
 		selfStatements: selfcost.NewSampler(logFn),
 		readSageSchema: selfcost.ReadSchema,

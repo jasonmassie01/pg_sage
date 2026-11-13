@@ -132,6 +132,7 @@ can differ by managed-service constraints.
 - [Fleet Mode](fleet.md) — control database, tenant boundaries, fleet learning, leader election, fleet routes
 - [Configuration](configuration.md) — YAML config, environment variables, runtime overrides
 - [Finding Types](findings.md) — All diagnostic findings and severity levels
+- [Owner Checks](custom-checks.md) — Read-only house rules you write as one SELECT
 - [SQL Schema](sql-reference.md) — `sage.*` tables, views, and functions
 - [LLM Costs & Budgets](llm-costing.md) — Token usage, model routing, per-database budgets
 

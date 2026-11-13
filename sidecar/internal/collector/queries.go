@@ -260,7 +260,9 @@ SELECT COALESCE(application_name, '') AS application_name, client_addr::text, st
 // The columns that depend on the major version (wal_status and
 // safe_wal_size PG13+; inactive_since, synced and invalidation_reason
 // PG17+) are read by name through to_jsonb, so one statement runs on
-// every server and a missing column reads as NULL.
+// every server and a missing column reads as NULL. confirmed_flush_lsn
+// (logical slots; NULL for physical ones) and its byte lag feed the CDC
+// stall clock (market-13).
 const replicationSlotsSQL = sageTag + `
 SELECT s.slot_name, s.slot_type, s.active,
        COALESCE(
@@ -275,7 +277,14 @@ SELECT s.slot_name, s.slot_type, s.active,
        COALESCE((to_jsonb(s) ->> 'temporary')::bool, false) AS temporary,
        (to_jsonb(s) ->> 'inactive_since')::timestamptz AS inactive_since,
        COALESCE((to_jsonb(s) ->> 'synced')::bool, false) AS synced,
-       to_jsonb(s) ->> 'invalidation_reason' AS invalidation_reason
+       to_jsonb(s) ->> 'invalidation_reason' AS invalidation_reason,
+       s.confirmed_flush_lsn::text AS confirmed_flush_lsn,
+       pg_wal_lsn_diff(
+         CASE WHEN pg_is_in_recovery()
+              THEN pg_last_wal_receive_lsn()
+              ELSE pg_current_wal_lsn() END,
+         s.confirmed_flush_lsn)::int8 AS confirmed_flush_lag_bytes,
+       COALESCE(s.database = current_database(), false) AS in_current_database
   FROM pg_replication_slots s`
 
 // pg_stat_io (PG16+): I/O statistics by backend type.

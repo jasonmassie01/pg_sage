@@ -504,8 +504,12 @@ would produce an invalid configuration answers `400` with the key.
 | `collector.interval_seconds` | `60` | Seconds between snapshot collections |
 | `analyzer.interval_seconds` | `600` | Seconds between analysis cycles |
 | `analyzer.inactive_slot_min_minutes` | `5` | Report a replication slot (`inactive_slot`) once it has been inactive this many minutes. A slot whose `wal_status` is `extended`, `unreserved` or `lost` is reported at once. `0` uses the default. Settable through the configuration API without a restart (`1`-`10080` there). `0`-`10080` |
+| `analyzer.subscription_lag_minutes` | `5` | Raise `subscription_lag` when an enabled subscription's last report to its publisher (`pg_stat_subscription.latest_end_time`) is this many minutes old, or when it had no apply worker in two consecutive snapshots. `0` uses the default. Restart to change. `0`-`10080` |
+| `analyzer.cdc_stall_minutes` | `10` | Raise `cdc_consumer_stalled` when WAL advanced but an active logical slot's `confirmed_flush_lsn` did not move for this many minutes. The clock is in memory: a restart only delays a finding. `0` uses the default. Restart to change. `0`-`10080` |
+| `replication.cdc_heartbeats` | empty | CDC heartbeat tables, `[{slot, table, column, max_age_minutes}]`. For an entry whose `slot` is a logical slot of the monitored database, pg_sage runs one read-only `SELECT max(column)::timestamptz FROM table` per collector cycle under a 2-second statement timeout and raises `cdc_heartbeat_stale` when the newest value is at least `max_age_minutes` (`1`-`10080`) old or the table is empty. `table` is `table` or `schema.table` and `column` a plain identifier (letters, digits, `_`, `$`), folded to lower case as PostgreSQL folds an unquoted name; anything else, or a second entry for one slot, is refused at startup. Empty runs nothing. Restart to change |
 | `analyzer.unused_index_window_days` | `7` | Days an index must show no scans before it is reported unused (the evidence for a drop). `1`-`1073741824`; `0` is rejected, because it would report every eligible index unused |
 | `analyzer.seq_scan_min_rows` | `100000` | Smallest table whose sequential scans are reported. `1`-`1073741824` |
+| `analyzer.disabled_rules` | empty | Analyzer rules or categories to switch off; see [Rule packs and owner checks](#rule-packs-and-owner-checks). Settable through the configuration API (comma-separated): a per-database override applies on the next cycle; a global change is persisted and waits for a restart (the response lists it in `pending_restart`) |
 | `analyzer.slow_query_min_calls` | `5` | Fewest calls a statement must make between two collector snapshots before `slow_query` and `query_regression` judge its interval mean (the time it added in the interval over the calls it added). Below the floor the interval is not evidence either way: an open finding for the statement stays open (an idle or quiet minute is not a recovery), except for a statement that has made fewer calls than the floor in total, whose finding resolves. `0` uses the default; negative values are rejected. Restart to change |
 | `prometheus.listen_addr` | `127.0.0.1:8187` | Address (`host:port`) of the separate, unauthenticated `/metrics` listener. `""` opens none. A value that is not `host:port` with a port up to 65535 is refused at load. The listener binds at startup; if it cannot (the default was 9187, postgres_exporter's, before v2.7.0), pg_sage logs an ERROR naming the remedies, keeps running, and exports `pg_sage_metrics_listener_up 0` (served on the API route when `serve_on_api` is on). `SAGE_PROMETHEUS_ADDR` replaces it; `SAGE_PROMETHEUS_PORT` replaces only the port. No TLS: use `serve_on_api` for TLS. Requires restart |
 | `prometheus.serve_on_api` | `false` | Also serve `GET /metrics` on the API listener, with the API's TLS and rate limit. A scrape needs `Authorization: Bearer` with a token holding the `metrics` scope ([scrape tokens](deployment.md#scraping-through-the-api-listener)); in a Databricks App, the platform identity of any pg_sage role instead. 401 without a valid token, 403 for a token lacking the scope; refusals carry no metric names. Needs a control database (startup refuses without one). The same snapshot is served, so a scrape adds no database load. Requires restart |
@@ -519,6 +523,13 @@ would produce an invalid configuration answers `400` with the key.
 | `self_budget.db_time_ms_per_hour` | `0` | Database time pg_sage's own statements may use per hour on each database, in ms. `0` keeps `analyzer.self_cost_budget_ms` (per collector cycle) as the database-time budget, so one breach never raises two findings. That inherited budget is per cycle of each database's own collector: `analyzer.self_cost_budget_ms` x 3600 / its period in seconds (in fleet mode a database whose collector runs every 120 s inherits half the hourly budget of one at 60 s). `/metrics` exports it per database as `pg_sage_self_budget_database{database,resource="db_time"}` and compares `pg_sage_self_budget_exceeded{database,resource="db_time"}` with it; `pg_sage_self_budget{resource="db_time"}` stays the value at the configured `collector.interval_seconds`. An explicit value applies to every database as-is; when it is below 1% of one backend (36000 ms/h) it also tightens the budget the derived `collector.interval_seconds` is sized to. `0`-`3600000` |
 | `self_budget.blocks_per_hour` | `18000000` | Shared buffer blocks (8 KB, hit or read) pg_sage's own statements may touch per hour on each database (5,000 a second). `0` disables. `0`-`1000000000000` |
 | `self_budget.storage_mb` | `10240` | Size the `sage` schema (tables, TOAST, indexes) may reach on each database, in MB; complements the relative `retention.sage_size_warning_pct`. `0` disables. `0`-`10485760` |
+| `baseline.enabled` | `true` | Fold each cycle's workload into hour-of-week buckets (`sage.baseline_samples`) and raise [`workload_anomaly`](findings.md#workload_anomaly) when a value is far above the same hour in earlier weeks; `query_regression` then judges a statement whose bucket is active against that bucket. Uses only collected data, no new query on the monitored database. `false` resolves open anomalies. Restart to change |
+| `baseline.weeks` | `4` | Earlier weeks a bucket is scored against. A bucket with data from fewer than 3 weeks is learning and never fires, so findings start after 3 weeks of history. Retention keeps `weeks` + 1 weeks and 2 days (time-zone slack) of `sage.baseline_samples` (at most `max_query_keys` x 168 x (`weeks` + 1) statement rows per database). `3`-`52`. Restart to change |
+| `baseline.timezone` | `UTC` | IANA zone of the buckets (Monday 00:00 is bucket 0), e.g. `America/Chicago`; buckets follow the local wall clock across daylight-saving shifts. An unknown zone fails the config load. Changing it moves every bucket: expect learning again. Restart to change |
+| `baseline.z_warning` | `4` | Robust z, (value - bucket median) / (1.4826 x MAD, the MAD floored at 5% of the median), at or above which 2 consecutive cycles raise a warning. Above `0` |
+| `baseline.z_critical` | `6` | Robust z for a critical anomaly; a statement also needs at least 10% of the interval's DB time. A critical anomaly starts one read-only Sage SRE investigation per episode. At least `z_warning` |
+| `baseline.max_query_keys` | `500` | Statements per database given a baseline each cycle, the largest interval time first. Statement baselines need `pg_stat_statements`; backends, WAL (`pg_stat_wal`, PG 14+) and lock-graph waits work without it. `0` keeps only those. `0`-`5000` |
+| `baseline.min_delta_ms` | `5` | Smallest rise over the bucket median, in ms, before a statement can be anomalous, so quiet buckets do not alarm. Fixed floors apply to the other metrics: 5 sessions for backends, 1 MiB/s for WAL, 3 sessions for a wait class. `0` or more |
 | `rca.lock_chain_interval_seconds` | `60` | Seconds between lock-chain fast-path checks. Each check opens or updates the `lock_contention` incident (with the root blocker's pid, `backend_start` and query identity) and sends `incident_detected` without waiting for the analyzer cycle. `0` disables the fast path; otherwise `10`-`3600`. Escalation and auto-resolution still count analyzer cycles. Restart to change |
 | `rca.log_fast_path_interval_seconds` | `5` | Seconds between log fast-path passes. Each pass takes the critical log signals (PANIC and crashes, disk full, out of memory, refused connections, deadlocks, wraparound, corruption, WAL archive and WAL segment failures), opens or updates their incidents and sends `incident_detected` without waiting for the analyzer cycle. Other log signals still wait for the cycle. `0` disables the log fast path; otherwise `1`-`3600`. Escalation still counts analyzer cycles; log incidents auto-resolve after `rca.log_quiet_minutes`. In a YAML fleet each database on a cluster runs its own pass. Restart to change |
 | `rca.log_quiet_minutes` | `0` | Minutes a log incident (deadlocks, refused connections and the other log signals) must go without a new occurrence before it auto-resolves (`resolution_reason` "no log occurrence for N minutes"). Clear analyzer cycles do not count for log incidents: a deadlock every 15 minutes is one open incident, not a detect/resolve pair each time. `0` uses `rca.dedup_window_minutes` (default 30); otherwise `1`-`1440`, and at most `rca.stale_after_hours`. Metric incidents still resolve after `rca.resolution_cycles` clear cycles. Restart to change |
@@ -566,6 +577,50 @@ on a database (`sage_self_cost`, `sage_self_budget`, `sage_footprint`) are alway
 pg_sage, so a monitored or meta database named `sage` gets them too. On upgrade, a one-time
 migration resolves open findings captured before pg_sage tagged its statements (an untagged
 statistics-view read), with the reason `pre-tagging pg_sage statement` in their detail.
+
+### Rule packs and owner checks
+
+`analyzer.disabled_rules` is a rule pack: the analyzer rules (`unused_indexes`,
+`slow_queries`, `inactive_slots`, ... as in `AllRules`) or analyzer categories (`unused_index`,
+`query_regression`) that do not run on a database. An unknown name fails the config load and
+the API answers 400. `wraparound_freeze`, `xid_wraparound`, `sequence_exhaustion` and the
+`sage_*` self rules are protected: disabling one is refused with the reason. Disabled findings
+resolve as `rule_disabled` ([findings](findings.md#rule-packs-and-owner-checks)).
+
+The effective list for a database is, first match wins: the database's API override
+(`PUT /api/v1/config/databases/{id}` with `{"analyzer.disabled_rules": "unused_indexes,slow_queries"}`,
+recorded in the config audit with the user; `""` disables nothing there; `DELETE` of the key
+returns to inheritance), then the YAML `databases[].disabled_rules` list (`[]` disables
+nothing there), then the global `analyzer.disabled_rules` (YAML, or the global configuration
+API, which applies after a restart).
+
+```yaml
+analyzer:
+  disabled_rules: [cache_hit_ratio]
+databases:
+  - name: reporting-replica
+    disabled_rules: [unused_indexes, slow_queries]
+checks:
+  - id: table_without_pk
+    title: Table without a primary key
+    severity: warning
+    databases: ["*"]
+    interval_minutes: 60
+    max_rows: 100
+    timeout_ms: 1000
+    object_column: table_name
+    message: Add a primary key so logical replication and pg_repack can handle the table.
+    sql: |
+      SELECT n.nspname || '.' || c.relname AS table_name
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+      WHERE c.relkind = 'r' AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'sage')
+        AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint k
+                        WHERE k.conrelid = c.oid AND k.contype = 'p')
+```
+
+`checks` are owner-defined read-only checks, YAML only and read when pg_sage
+starts (restart to change them); see [Owner checks](custom-checks.md) for every field, its bounds and how a check runs.
 
 ### Derived settings (self-configuration)
 

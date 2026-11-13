@@ -97,6 +97,8 @@ var forecastEntries = []Category{
 }
 
 var otherEntries = []Category{
+	family("custom:", "custom", "custom_checks", sevIWC,
+		"An owner-defined read-only check's finding: custom:<check id>. Never carries SQL."),
 	family("schema_lint:", "schema_lint", "schema_lint", sevIWC,
 		"A schema lint rule's finding: schema_lint:<rule id>."),
 	family("agent_posture:", "governance", "agentposture", sevIWC,

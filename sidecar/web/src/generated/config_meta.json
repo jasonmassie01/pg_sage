@@ -370,11 +370,25 @@
     "class": "derivable",
     "lifecycle": "restart"
   },
+  "analyzer.cdc_stall_minutes": {
+    "type": "int",
+    "default": 10,
+    "doc": "Raise cdc_consumer_stalled when WAL advanced but an active logical slot's confirmed_flush_lsn did not move for this many minutes. 0 uses the default. Range 0-10080. Default: 10.",
+    "class": "derivable",
+    "lifecycle": "restart"
+  },
   "analyzer.checkpoint_frequency_warning_per_hour": {
     "type": "int",
     "default": 12,
     "doc": "Warn when checkpoints occur more than this many times per hour. High frequency indicates max_wal_size is too small.",
     "class": "derivable",
+    "lifecycle": "restart"
+  },
+  "analyzer.disabled_rules": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Analyzer rules or categories to skip; their open findings resolve as rule_disabled. The wraparound, sequence and sage_* rules cannot be disabled. Default: empty.",
+    "class": "operator_preference",
     "lifecycle": "restart"
   },
   "analyzer.idle_in_transaction_timeout_minutes": {
@@ -507,6 +521,13 @@
     "type": "int64",
     "default": 0,
     "doc": "Active slots retaining more WAL than this (bytes) are flagged as slow consumers. Default 1 GB. Slow consumers hold xmin, blocking vacuum.",
+    "class": "derivable",
+    "lifecycle": "restart"
+  },
+  "analyzer.subscription_lag_minutes": {
+    "type": "int",
+    "default": 5,
+    "doc": "Raise subscription_lag when a subscription's last report to its publisher (pg_stat_subscription.latest_end_time) is this many minutes old. 0 uses the default. Range 0-10080. Default: 5.",
     "class": "derivable",
     "lifecycle": "restart"
   },
@@ -822,6 +843,55 @@
     "class": "safety_critical",
     "lifecycle": "restart"
   },
+  "baseline.enabled": {
+    "type": "bool",
+    "default": true,
+    "doc": "Score each cycle's workload against the same hour of the week in earlier weeks and raise workload_anomaly when it is far above usual. Default: true.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "baseline.max_query_keys": {
+    "type": "int",
+    "default": 500,
+    "doc": "Statements per database given a baseline each cycle, the largest interval time first. 0 keeps only the backend, WAL and wait baselines. Range 0-5000. Default: 500.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "baseline.min_delta_ms": {
+    "type": "float64",
+    "default": 5,
+    "doc": "Smallest rise over the bucket median, in ms, a statement's interval mean needs before it can be an anomaly, so quiet buckets do not alarm. 0 or more. Default: 5.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "baseline.timezone": {
+    "type": "string",
+    "default": "UTC",
+    "doc": "IANA time zone the hour-of-week buckets follow (Monday 00:00 is bucket 0), e.g. America/Chicago. An unknown zone fails the config load. Default: UTC.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "baseline.weeks": {
+    "type": "int",
+    "default": 4,
+    "doc": "Earlier weeks each hour-of-week bucket is scored against; a bucket with data from fewer than 3 weeks is learning and never fires. sage.baseline_samples keeps weeks + 1 weeks. Range 3-52. Default: 4.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "baseline.z_critical": {
+    "type": "float64",
+    "default": 6,
+    "doc": "Robust z for a critical anomaly; a statement also needs at least 10% of the interval's DB time. At least z_warning. Default: 6.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "baseline.z_warning": {
+    "type": "float64",
+    "default": 4,
+    "doc": "Robust z, (value - bucket median) / (1.4826 x MAD), at or above which two consecutive cycles raise a warning. Above 0. Default: 4.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
   "briefing.channels": {
     "type": "[]string",
     "default": null,
@@ -849,6 +919,76 @@
     "doc": "",
     "class": "safety_critical",
     "lifecycle": "reconfigure"
+  },
+  "checks[].databases": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Database name globs the check runs on. Default: every database.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "checks[].id": {
+    "type": "string",
+    "default": "",
+    "doc": "Check id: lower case letters, digits and _; the finding category is custom:\u003cid\u003e.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "checks[].interval_minutes": {
+    "type": "int",
+    "default": 0,
+    "doc": "Minutes between runs, at least 5. Default: 60.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "checks[].max_rows": {
+    "type": "int",
+    "default": 0,
+    "doc": "Most rows read, 1-100; more rows mark the run truncated. Default: 100.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "checks[].message": {
+    "type": "string",
+    "default": "",
+    "doc": "Recommendation text shown on each finding.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "checks[].object_column": {
+    "type": "string",
+    "default": "",
+    "doc": "Result column naming the finding's object.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "checks[].severity": {
+    "type": "string",
+    "default": "",
+    "doc": "info, warning or critical.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "checks[].sql": {
+    "type": "string",
+    "default": "",
+    "doc": "One plain SELECT without parameters. It runs in a READ ONLY transaction.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "checks[].timeout_ms": {
+    "type": "int",
+    "default": 0,
+    "doc": "statement_timeout of the check, 1-5000 ms. Default: 1000.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "checks[].title": {
+    "type": "string",
+    "default": "",
+    "doc": "Finding title; the row's object is appended.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
   },
   "clone.dle_endpoint": {
     "type": "string",
@@ -1076,6 +1216,14 @@
     "doc": "Database name on the target instance.",
     "mode": "fleet-only",
     "class": "safety_critical",
+    "lifecycle": "reconfigure"
+  },
+  "databases[].disabled_rules": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Per-database analyzer.disabled_rules: replaces the global list here when set; [] re-enables every rule.",
+    "mode": "fleet-only",
+    "class": "operator_preference",
     "lifecycle": "reconfigure"
   },
   "databases[].execution_mode": {
@@ -2458,6 +2606,34 @@
     "default": 5,
     "doc": "Minutes a session's transaction must be open before the vacuum_blocked incident names it as the holder of the oldest xmin. 1-1440. Default: 5.",
     "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "replication.cdc_heartbeats[].column": {
+    "type": "string",
+    "default": "",
+    "doc": "",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "replication.cdc_heartbeats[].max_age_minutes": {
+    "type": "int",
+    "default": 0,
+    "doc": "",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "replication.cdc_heartbeats[].slot": {
+    "type": "string",
+    "default": "",
+    "doc": "",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "replication.cdc_heartbeats[].table": {
+    "type": "string",
+    "default": "",
+    "doc": "",
+    "class": "operator_preference",
     "lifecycle": "restart"
   },
   "retention.actions_days": {

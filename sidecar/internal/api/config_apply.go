@@ -187,6 +187,8 @@ func hotReloadAnalyzer(cfg *config.Config, key, v string) {
 		cfg.Analyzer.RegressionThresholdPct = atoi(v)
 	case "analyzer.cache_hit_ratio_warning":
 		cfg.Analyzer.CacheHitRatioWarning = atof(v)
+	case "analyzer.disabled_rules":
+		cfg.Analyzer.DisabledRules = config.ParseRuleList(v)
 	case "analyzer.slow_slot_retained_bytes":
 		cfg.Analyzer.SlowSlotRetainedBytes = atoi64(v)
 	case "analyzer.lock_chain.enabled":

@@ -67,13 +67,14 @@ func (rt *databaseRuntime) startMonitoring() {
 }
 
 // attachAnalyzerInputs gives the analyzer the index floor (when on), the
-// fact filter and the freeze sampler.
+// fact filter, the freeze sampler and its rule packs.
 func (rt *databaseRuntime) attachAnalyzerInputs() {
 	if floor := rt.newIndexFloor(); floor != nil {
 		rt.analyzer.WithIndexFloor(floor)
 	}
 	rt.analyzer.WithFactFilter(rt.factFilter())
 	rt.analyzer.WithFreezeHorizons(rt.freezeCustodian().Sampler())
+	rt.attachRulePacks()
 }
 
 // newCollector builds the stats collector. The configuration snapshot is

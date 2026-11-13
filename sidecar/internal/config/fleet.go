@@ -26,6 +26,9 @@ type DatabaseConfig struct {
 	LLMEnabled               *bool    `yaml:"llm_enabled" doc:"Per-database LLM override. Nil defaults to enabled; set false to skip LLM calls for this database." mode:"fleet-only"`
 	CollectorIntervalSeconds int      `yaml:"collector_interval_seconds" doc:"Per-database collector interval override. Zero falls back to defaults.collector_interval_seconds." mode:"fleet-only"`
 	AnalyzerIntervalSeconds  int      `yaml:"analyzer_interval_seconds" doc:"Per-database analyzer interval override. Zero falls back to defaults.analyzer_interval_seconds." mode:"fleet-only"`
+	// DisabledRules replaces analyzer.disabled_rules for this database
+	// when set (market-11); nil inherits the global list.
+	DisabledRules []string `yaml:"disabled_rules" doc:"Per-database analyzer.disabled_rules: replaces the global list here when set; [] re-enables every rule." mode:"fleet-only"`
 
 	Provider string `yaml:"provider" doc:"Optional provider override, e.g. rds, cloud-sql, neon or self-managed. Used only while detection cannot tell; a disagreement with detection keeps the detected provider and warns." mode:"fleet-only"`
 	// CloudResource names this database's provider resource when its host

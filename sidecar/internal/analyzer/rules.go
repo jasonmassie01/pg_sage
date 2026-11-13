@@ -44,6 +44,14 @@ type RuleExtras struct {
 	// zeroScanSeen records the identities whose zero-scan clock the
 	// unused_index rule read this cycle (rules-04); nil outside a cycle.
 	zeroScanSeen map[string]bool
+	// subErrorsSeen is each subscription's error count when the analyzer
+	// last read it, and cdcStall each active logical slot's stall clock
+	// (market-13). Both live in memory: a restart only delays a finding.
+	subErrorsSeen map[string]int64
+	cdcStall      map[string]cdcStallClock
+	// undecided names, per category, identities a rule could not decide
+	// this cycle: their open findings stay open (runSnapshotRules).
+	undecided map[string][]string
 }
 
 // RuleFunc is the standard signature for snapshot-based rules.
@@ -108,6 +116,14 @@ var AllRules = []RuleSpec{
 	{"replication_lag", ruleReplicationLag, cats("replication_lag"), hasReplication},
 	{"inactive_slots", ruleInactiveSlots,
 		cats("inactive_slot", "slow_replication_slot"), hasReplication},
+
+	// Subscriber and CDC consumer health (market-13)
+	{"subscription_errors", ruleSubscriptionErrors, cats("subscription_errors"),
+		hasSubscriptions},
+	{"subscription_lag", ruleSubscriptionLag, cats("subscription_lag"), hasSubscriptions},
+	{"cdc_consumer_stalled", ruleCDCConsumerStalled, cats("cdc_consumer_stalled"),
+		hasSlotList},
+	{"cdc_heartbeat_stale", ruleCDCHeartbeatStale, cats("cdc_heartbeat_stale"), nil},
 }
 
 func cats(c ...string) []string { return c }

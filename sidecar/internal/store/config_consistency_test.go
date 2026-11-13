@@ -47,12 +47,17 @@ var excludedPrefixes = []string{
 	// restart-bound, safety-critical (endpoints, credentials, who may call MCP)
 	"audit.",
 	"mcp.oauth.",
+	// owner checks (market-11): YAML only, restart-bound, safety-critical
+	"checks.",
 }
 
 // excludedExactKeys are individual keys that exist in the Config
 // struct but are intentionally excluded from the config override
 // registries.
 var excludedExactKeys = map[string]bool{
+	// Subscriber and CDC thresholds (market-13): YAML only, restart-bound.
+	"analyzer.subscription_lag_minutes": true,
+	"analyzer.cdc_stall_minutes":        true,
 	// Top-level mode/meta fields — not overridable via API.
 	"mode":           true,
 	"meta_db":        true,
@@ -594,6 +599,7 @@ func TestConfigConsistency_HotReloadCoversAllAllowedKeys(
 		"string":            "test-value",
 		// maintenance_window is validated against the policy window grammar.
 		"maintenance_window": "weeknights",
+		"rule_list":          "unused_indexes,slow_queries",
 		"float_pos":          "2.0",
 		"float_nonneg":       "0.5",
 		"float_pct_pos":      "25.0",
@@ -765,6 +771,7 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 		"string":            "hello",
 		// maintenance_window is validated against the policy window grammar.
 		"maintenance_window": "weeknights",
+		"rule_list":          "unused_indexes,slow_queries",
 		"float_pos":          "2.0",
 		"float_nonneg":       "0.5",
 		"float_pct_pos":      "25.0",
@@ -825,7 +832,8 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 					sampleKey, input, vtype, result)
 			}
 		case "trust_level", "exec_mode", "policy_profile",
-			"clone_provider", "mcp_transport", "llm_auth", "string", "maintenance_window":
+			"clone_provider", "mcp_transport", "llm_auth", "string", "maintenance_window",
+			"rule_list":
 			if _, ok := result.(string); !ok {
 				t.Errorf(
 					"coerceValue(%q, %q) [type %s] = %T, "+
@@ -840,7 +848,7 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 // fails when someone adds or removes a key without updating the
 // test. Update the expected count when intentionally changing keys.
 func TestConfigConsistency_AllowedKeyCount(t *testing.T) {
-	const expectedCount = 120 // Update when adding/removing keys.
+	const expectedCount = 121 // Update when adding/removing keys.
 
 	actual := len(allowedConfigKeys)
 	if actual != expectedCount {
@@ -869,7 +877,7 @@ func TestConfigConsistency_ConfigToMapKeyCount(t *testing.T) {
 	}
 	m := configToMap(cfg)
 
-	const expectedCount = 120 // Should match allowedConfigKeys.
+	const expectedCount = 121 // Should match allowedConfigKeys.
 
 	actual := len(m)
 	if actual != expectedCount {

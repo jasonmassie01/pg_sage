@@ -34,6 +34,7 @@ var setterProbeValues = map[string][]string{
 	"mcp_transport":      {"stdio", "http"},
 	"llm_auth":           {"api_key", "databricks"},
 	"maintenance_window": {"never", "Sun 02:00-06:00"},
+	"rule_list":          {"unused_indexes", "slow_queries,temp_spills"}, // market-11
 	"string":             {"probe-a", "probe-b"},
 }
 

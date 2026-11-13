@@ -28,7 +28,10 @@ var rules07Lists = map[string][]string{
 		"autovacuum_tuning", "sage_footprint", "sage_self_cost",
 		"sage_self_budget", "clone_schemas", "app_managed_index",
 		"stale_statistics",
-		"index_bloat"}, // rules-13 added index_bloat to the rules subsystem
+		"index_bloat", // rules-13 added index_bloat to the rules subsystem
+		// market-13 added the subscriber and CDC health categories.
+		"subscription_errors", "subscription_lag", "cdc_consumer_stalled",
+		"cdc_heartbeat_stale"},
 	"advisor": {"wal_tuning", "connection_tuning", "query_rewrite",
 		"bloat_remediation", "advisor_degraded", "vacuum_tuning", "memory_tuning"},
 	"optimizer": {"missing_index", "covering_index", "partial_index", "composite_index"},

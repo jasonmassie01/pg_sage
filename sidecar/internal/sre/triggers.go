@@ -65,7 +65,11 @@ func (s *PGTriggerSource) Triggers(ctx context.Context) ([]Trigger, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read plan regression triggers: %w", err)
 	}
-	return append(out, plans...), nil
+	anomalies, err := s.anomalyTriggers(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("read workload anomaly triggers: %w", err)
+	}
+	return append(append(out, plans...), anomalies...), nil
 }
 
 func (s *PGTriggerSource) incidentTriggers(ctx context.Context) ([]Trigger, error) {

@@ -56,7 +56,9 @@
 | `analyzer.analyze_stale_min_rows` | `restart` | `-` | `derivable` |
 | `analyzer.autovacuum_tune_min_rows` | `restart` | `-` | `derivable` |
 | `analyzer.cache_hit_ratio_warning` | `restart` | `-` | `derivable` |
+| `analyzer.cdc_stall_minutes` | `restart` | `-` | `derivable` |
 | `analyzer.checkpoint_frequency_warning_per_hour` | `restart` | `-` | `derivable` |
+| `analyzer.disabled_rules` | `restart` | `-` | `operator_preference` |
 | `analyzer.idle_in_transaction_timeout_minutes` | `restart` | `-` | `derivable` |
 | `analyzer.inactive_slot_min_minutes` | `restart` | `-` | `derivable` |
 | `analyzer.index_bloat_min_bytes` | `restart` | `-` | `derivable` |
@@ -76,6 +78,7 @@
 | `analyzer.slow_query_min_calls` | `restart` | `-` | `derivable` |
 | `analyzer.slow_query_threshold_ms` | `restart` | `-` | `derivable` |
 | `analyzer.slow_slot_retained_bytes` | `restart` | `-` | `derivable` |
+| `analyzer.subscription_lag_minutes` | `restart` | `-` | `derivable` |
 | `analyzer.table_bloat_dead_tuple_pct` | `restart` | `-` | `derivable` |
 | `analyzer.table_bloat_min_bytes` | `restart` | `-` | `derivable` |
 | `analyzer.table_bloat_min_rows` | `restart` | `-` | `derivable` |
@@ -110,10 +113,18 @@
 | `azure.resource_group` | `restart` | `-` | `safety_critical` |
 | `azure.server_name` | `restart` | `-` | `safety_critical` |
 | `azure.subscription_id` | `restart` | `-` | `safety_critical` |
+| `baseline.enabled` | `restart` | `-` | `operator_preference` |
+| `baseline.max_query_keys` | `restart` | `-` | `operator_preference` |
+| `baseline.min_delta_ms` | `restart` | `-` | `operator_preference` |
+| `baseline.timezone` | `restart` | `-` | `operator_preference` |
+| `baseline.weeks` | `restart` | `-` | `operator_preference` |
+| `baseline.z_critical` | `restart` | `-` | `operator_preference` |
+| `baseline.z_warning` | `restart` | `-` | `operator_preference` |
 | `briefing.channels` | `reconfigure` | `briefing` | `operator_preference` |
 | `briefing.fleet_mode` | `restart` | `-` | `operator_preference` |
 | `briefing.schedule` | `reconfigure` | `briefing` | `operator_preference` |
 | `briefing.slack_webhook_url` | `reconfigure` | `briefing` | `safety_critical` |
+| `checks` | `restart` | `-` | `safety_critical` |
 | `clone.dle_endpoint` | `restart` | `-` | `safety_critical` |
 | `clone.dle_token` | `restart` | `-` | `safety_critical` |
 | `clone.max_clone_age_minutes` | `restart` | `-` | `operator_preference` |
@@ -312,6 +323,7 @@
 | `rca.vacuum_min_table_mb` | `restart` | `-` | `derivable` |
 | `rca.wal_spike_multiplier` | `restart` | `-` | `derivable` |
 | `rca.xmin_holder_min_minutes` | `restart` | `-` | `safety_critical` |
+| `replication.cdc_heartbeats` | `restart` | `-` | `operator_preference` |
 | `retention.actions_days` | `restart` | `-` | `operator_preference` |
 | `retention.auth_audit_days` | `restart` | `-` | `operator_preference` |
 | `retention.decisions_days` | `restart` | `-` | `operator_preference` |
@@ -528,6 +540,7 @@ In YAML fleet mode the `fleet_databases` owner reconciles the list: an added ent
 | `databases[].cloud_resource.gcp.project` | `reconfigure` | `fleet_databases` | `safety_critical` |
 | `databases[].collector_interval_seconds` | `reconfigure` | `fleet_databases` | `operator_preference` |
 | `databases[].database` | `reconfigure` | `fleet_databases` | `safety_critical` |
+| `databases[].disabled_rules` | `reconfigure` | `fleet_databases` | `operator_preference` |
 | `databases[].execution_mode` | `live_policy` | `fleet_databases` | `safety_critical` |
 | `databases[].executor_enabled` | `live_policy` | `fleet_databases` | `safety_critical` |
 | `databases[].host` | `reconfigure` | `fleet_databases` | `safety_critical` |

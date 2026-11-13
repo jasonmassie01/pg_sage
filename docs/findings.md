@@ -29,7 +29,7 @@ The next cycle that reads the category resumes them.
 
 `GET /api/v1/findings?source=<subsystem>` filters by the producer that emitted a finding:
 `rules`, `advisor`, `optimizer`, `query_tuning`, `forecaster`, `incident`, `schema_lint`,
-`tuning`, `cloud`, `governance`, `migration`, `sre` or `facts`. The categories each value matches are
+`tuning`, `cloud`, `governance`, `migration`, `sre`, `facts` or `custom`. The categories each value matches are
 in the [generated finding category catalog](generated/finding-catalog.md), and
 `GET /api/v1/findings/categories` (any signed-in role) serves the same registry: each
 subsystem with its categories, and each category's producer, severities, config keys and
@@ -365,7 +365,7 @@ Detects queries whose latency in the last collector interval regressed against t
 
 **Severity:** warning; critical above +200%
 
-**What it detects:** A statement whose interval mean (see `slow_query`, with the same `analyzer.slow_query_min_calls` floor) exceeds its cumulative mean by `analyzer.regression_threshold_pct` (default 50%) is a candidate; at most 50 candidates per cycle, the largest interval time first. For each, pg_sage reads its `sage.query_store` samples over `analyzer.regression_lookback_days` (default 7), excluding the last hour, as hourly buckets. The baseline is the median of the bucket interval means, using buckets with at least the call floor and no statistics reset; it needs at least 6 such buckets. The finding needs the interval mean above the baseline by the threshold. A plan flip from 2 ms to 20 ms on a query with a million earlier calls moves the cumulative mean by about 9%, below the threshold; the interval mean against the hourly median shows +900%. Without a previous snapshot, or when the history read fails, the category is not evaluated and its open findings stay open. A statement without a measured interval, a candidate without a baseline and a candidate past the cap of 50 have no verdict that cycle, so their open findings stay open. Coverage depends on which statements `sage.query_store` samples. The detail carries `interval_mean_ms`, `interval_calls`, `cumulative_mean_ms`, `baseline_ms`, `baseline_method` (`median_hourly_interval`) and `baseline_buckets`.
+**What it detects:** A statement whose interval mean (see `slow_query`, with the same `analyzer.slow_query_min_calls` floor) exceeds its cumulative mean by `analyzer.regression_threshold_pct` (default 50%) is a candidate; at most 50 candidates per cycle, the largest interval time first. For each, pg_sage reads its `sage.query_store` samples over `analyzer.regression_lookback_days` (default 7), excluding the last hour, as hourly buckets. The baseline is the median of the bucket interval means, using buckets with at least the call floor and no statistics reset; it needs at least 6 such buckets. The finding needs the interval mean above the baseline by the threshold. A plan flip from 2 ms to 20 ms on a query with a million earlier calls moves the cumulative mean by about 9%, below the threshold; the interval mean against the hourly median shows +900%. Without a previous snapshot, or when the history read fails, the category is not evaluated and its open findings stay open. A statement without a measured interval, a candidate without a baseline and a candidate past the cap of 50 have no verdict that cycle, so their open findings stay open. Coverage depends on which statements `sage.query_store` samples. When `baseline.enabled` is on and the statement's hour-of-week bucket is active (data from at least 3 of the last `baseline.weeks` weeks, see `workload_anomaly`), the baseline is that bucket's median instead: a report that is 10x slower every Monday at 09:00 is judged against earlier Mondays at 09:00, so it neither fires every week nor hides a real slowdown. The detail carries `interval_mean_ms`, `interval_calls`, `cumulative_mean_ms`, `baseline_ms`, `baseline_method` (`hour_of_week` for the bucket median, `median_hourly_interval` for the flat one) and `baseline_buckets` (weeks for `hour_of_week`, hourly buckets otherwise).
 
 **Example output:**
 
@@ -374,6 +374,24 @@ Query regression: 20.0ms now vs 2.0ms hourly median (+900%)
 ```
 
 **Recommended action:** Investigate recent changes -- schema modifications, data volume changes, or configuration updates.
+
+---
+
+### workload_anomaly
+
+Detects workload that is far above its usual value for this hour of the week ("slower than usual").
+
+**Severity:** warning; critical at `baseline.z_critical`
+
+**What it detects:** Every cycle, pg_sage folds what it already collected into one of 168 hour-of-week buckets (Monday 00:00 is bucket 0, in `baseline.timezone`, by the local wall clock across daylight-saving shifts) of `sage.baseline_samples`, one mean per database, metric, key, week and bucket. The metrics are each statement's interval mean (`query_mean_ms`, the same interval and `analyzer.slow_query_min_calls` floor as `slow_query`, for at most `baseline.max_query_keys` statements, the largest interval time first; needs `pg_stat_statements`), active and total backends (`active_backends`, `total_backends`), the cluster's WAL bytes per second (`wal_bytes_per_s`) and the lock-graph sessions per wait class (`wait_sessions`). No new query reaches the monitored database. A value is scored against the same bucket in the previous `baseline.weeks` weeks with a robust z, (value - median) / (1.4826 x MAD), the MAD floored at 5% of the median. A bucket with data from fewer than 3 weeks is learning and never fires. The value must also rise over the median by an absolute floor: `baseline.min_delta_ms` for statements, 5 sessions for backends, 1 MiB/s for WAL, 3 sessions for a wait class. A warning needs z at or above `baseline.z_warning` (default 4) for 2 consecutive cycles; critical needs `baseline.z_critical` (default 6), and for a statement at least 10% of the interval's DB time. An open finding resolves after 2 consecutive normal cycles; a cycle without a verdict (an idle statement, a learning bucket) keeps it open, a statement no longer in `pg_stat_statements` resolves, and when the baseline cannot be read the category is not evaluated and open findings stay open. A `pg_stat_statements` reset or a statement evicted and re-entered adds nothing to its bucket. In fleet mode every database keeps its own baselines. Detection is deterministic and uses no LLM; the fixed-threshold rules stay in place. A critical anomaly starts one Sage SRE investigation per episode (trigger `workload_anomaly`, idempotency key `anomaly:<metric>:<key>:<episode_start>`), which triages the lock, connection and plan mechanisms read-only. The detail carries `metric`, `key`, `how`, `observed`, `baseline_median`, `mad`, `z`, `weeks`, `method` (`hour_of_week_mad`) and `episode_start`, and for a statement `queryid`, `query` and `db_time_share`.
+
+**Example output:**
+
+```
+Workload anomaly: query_mean_ms of queryid:4711 is 50.0, usually 5.0 at this hour of the week (z 60.7 over 4 weeks)
+```
+
+**Recommended action:** Compare with the same hour in earlier weeks: look for a new plan, a data or traffic change, or a deploy since the last normal cycle.
 
 ---
 
@@ -823,6 +841,70 @@ SELECT pg_drop_replication_slot('old_subscriber');
 
 ---
 
+### subscription_errors
+
+Detects a logical replication subscriber whose apply or table synchronization workers keep failing.
+
+**Severity:** warning (the error counters rose since the analyzer last read them), or critical (the subscription is disabled and has errors, as `disable_on_error` leaves it)
+
+**What it detects:** On a subscriber, an apply worker that fails on a unique violation or a missing row exits and is restarted every few seconds, so changes stop arriving while the subscription still looks enabled. pg_sage reads `apply_error_count` and `sync_error_count` from `pg_stat_subscription_stats` (PostgreSQL 15 and later; PostgreSQL 14 has no error counters, so this category never fires there) for this database's subscriptions (`pg_subscription.subdbid`, so fleet mode reads one set per database). The comparison is with the counters the previous analyzer cycle read, kept in memory: after a restart the first cycle only records them, and an open finding stays open. A stats reset counts the errors since the reset. On PostgreSQL 18 the conflict counters (`confl_*`) are added to the detail.
+
+**Identity:** `subscription:<name>`.
+
+**Detail:** `enabled`, `worker_running`, `apply_error_count`, `sync_error_count`, `error_count`, `error_count_delta`, `conflicts` (PostgreSQL 18), `latest_end_lsn`, `latest_end_time`, `manual_sql` and `approval_required`.
+
+**Recommended action:** Find the failing transaction in the subscriber's log and fix the conflicting row on the subscriber. The finding is `high_risk` and carries no executable SQL: `detail.manual_sql` holds `ALTER SUBSCRIPTION ... SKIP (lsn = '...')` with a placeholder for the finish LSN from the log (skipping loses that transaction's changes on the subscriber), or `ALTER SUBSCRIPTION ... ENABLE` for a disabled subscription. pg_sage never runs subscription DDL.
+
+---
+
+### subscription_lag
+
+Detects an enabled subscription that stopped reporting to its publisher.
+
+**Severity:** warning
+
+**What it detects:** An enabled subscription whose apply worker last reported to the publisher (`pg_stat_subscription.latest_end_time`, refreshed by keepalives even when the publisher is idle) at least `analyzer.subscription_lag_minutes` (default 5) ago, or that had no apply worker in two consecutive snapshots (the launcher restarts a failed worker within seconds, so one snapshot without one is not evidence). A disabled subscription is left to `subscription_errors`.
+
+**Identity:** `subscription:<name>`.
+
+**Detail:** `enabled`, `worker_running`, `lag_seconds` (when a worker reports), `latest_end_lsn`, `latest_end_time`.
+
+**Recommended action:** Check the network path to the publisher, the publisher's walsender, `max_logical_replication_workers` and `max_worker_processes`, and the subscriber's log. Advisory only.
+
+---
+
+### cdc_consumer_stalled
+
+Detects a CDC consumer that holds its logical slot but no longer confirms progress.
+
+**Severity:** warning
+
+**What it detects:** A Debezium (or other CDC) slot can stay `active` while its `confirmed_flush_lsn` stands still, so it retains WAL and holds the xmin horizon without ever looking inactive. pg_sage reads each logical slot's `confirmed_flush_lsn` and how far the server's WAL is past it, and keeps an in-memory clock per active, permanent logical slot: the finding fires when WAL advanced (the lag grew) but `confirmed_flush_lsn` did not move for `analyzer.cdc_stall_minutes` (default 10). It resolves as soon as the position moves. An idle server whose WAL does not move raises nothing. Inactive slots are `inactive_slot`'s. After a restart the clock starts again, and an open finding stays open while it catches up. pg_replication_slots lists the whole cluster, so in fleet mode every database on a cluster reports the slot, as for `inactive_slot`.
+
+**Identity:** `slot:<name>`.
+
+**Detail:** `confirmed_flush_lsn`, `confirmed_flush_lag_bytes`, `retained_bytes`, `stalled_seconds`.
+
+**Recommended action:** Check the connector's health and committed offsets. A connector that only captures tables with little traffic needs a heartbeat (Debezium `heartbeat.interval.ms`) to advance its slot. Advisory only.
+
+---
+
+### cdc_heartbeat_stale
+
+Detects a CDC heartbeat table that stopped being written.
+
+**Severity:** warning
+
+**What it detects:** For each entry of `replication.cdc_heartbeats` whose slot is a logical slot of the monitored database, pg_sage runs one `SELECT max(column)` on the heartbeat table under a 2-second statement timeout and raises this finding when the newest value is at least `max_age_minutes` old, or when the table has no row. With nothing configured, nothing runs. A heartbeat that could not be read (a missing table, a permission, a timeout) raises nothing and keeps an open finding open.
+
+**Identity:** `cdc_heartbeat:<slot>`.
+
+**Detail:** `slot_name`, `table`, `column`, `max_age_seconds`, `age_seconds` and `latest`, or `no_rows`.
+
+**Recommended action:** The connector on that slot is down, stuck or disconnected: check it and its heartbeat setting before the slot's WAL retention grows. Advisory only.
+
+---
+
 ## More Tier 1 Categories
 
 These deterministic rules run alongside the categories above.
@@ -838,6 +920,33 @@ These deterministic rules run alongside the categories above.
 | <a id="stat_statements_pressure"></a>`stat_statements_pressure` | `pg_stat_statements` above 80% of `pg_stat_statements.max` (critical above 95%), where entries start being evicted. |
 | <a id="work_mem_promotion"></a>`work_mem_promotion` | A role with `work_mem` hints on five or more queries (`analyzer.work_mem_promotion_threshold`). Recommends one `ALTER ROLE ... SET work_mem`; advisory only. |
 | <a id="extension_drift"></a>`extension_drift` | An installed extension whose version lags its default version until `ALTER EXTENSION ... UPDATE` runs. Advisory only. |
+
+---
+
+## Rule packs and owner checks
+
+**Disabling rules.** `analyzer.disabled_rules` names analyzer rules (`unused_indexes`,
+`inactive_slots`) or categories (`unused_index`, `query_regression`) to switch off, globally
+or per database ([configuration](configuration.md#rule-packs-and-owner-checks)). A disabled
+snapshot rule does not run; findings of a disabled category are dropped. Its open findings
+are resolved, never left open or deleted: `status = 'resolved'` with
+`detail.resolution = "rule_disabled"` and `detail.disabled_by` (the API user's email, `user <id>`
+when a stored override is replayed after a restart, or the config path that disabled it).
+Derived categories (`clone_schemas`, `app_managed_index`) can be disabled too: they are
+dropped after they are derived, so disabling `clone_schemas` hides the family finding but
+does not undo the collapse of the per-schema findings into it.
+Re-enabling the rule opens a new finding on the next cycle that still sees the problem. `wraparound_freeze`, `xid_wraparound`, `sequence_exhaustion` and the
+`sage_*` self rules cannot be disabled: the config load and the API refuse them with the
+reason. The suppression API and `schema_lint.disabled_rules` are unchanged.
+
+<a id="custom"></a>**Owner checks (`custom:<id>`).** Each row an [owner check](custom-checks.md)
+returns becomes a `custom:<id>` finding (source filter `custom`) keyed by the check's
+`object_column`, with the check's severity, title and message. `detail` carries `check_id`,
+`fingerprint` (the parsed statement's fingerprint), `row` (every column as text) and
+`truncated`. A custom finding never carries SQL: `recommended_sql` is always empty, so it
+projects into a case with no action. A check that fails, times out, is refused or returns more
+than `max_rows` rows resolves nothing: its open findings stay open until a complete run no
+longer returns them.
 
 ---
 

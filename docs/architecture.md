@@ -53,7 +53,8 @@ circuit breaker that skips cycles while the database is in trouble (active clien
 over `max_connections` above `safety.cpu_ceiling_pct`). A cycle reads the catalog categories
 in order (`catalogSteps`: `queries`, `tables`, `indexes`, `partitioned_indexes`,
 `foreign_keys`, `system`, `locks`, `sequences`), then `replication` and the extra categories
-(`extraSteps`: `io`, `prepared_xacts`, `partitions`, `index_bloat`, `config_data`).
+(`extraSteps`: `io`, `prepared_xacts`, `partitions`, `index_bloat`, `subscriptions`,
+`cdc_heartbeats` when `replication.cdc_heartbeats` is set, `config_data`).
 
 **Health.** A skipped cycle is logged with its cause: `load ratio 0.93 > ceiling 0.90
 (active sessions / max_connections)`, or `load query failed: <error>` when the load query
@@ -116,7 +117,9 @@ Each snapshot holds one row per category: `queries`, `tables`, `indexes`,
 `partitioned_indexes` (the partitioned tables' own indexes, relkind `I`), `foreign_keys`,
 `system`, `locks`, `sequences`, `replication`, `io` (PostgreSQL 16 and later), `partitions`,
 `prepared_xacts` (this database's two-phase-commit transactions from `pg_prepared_xacts`),
-`index_bloat` (the largest btree indexes' bloat estimated from planner statistics, at most 200)
+`index_bloat` (the largest btree indexes' bloat estimated from planner statistics, at most 200),
+`subscriptions` (this database's logical replication subscriptions, their apply workers and,
+from PostgreSQL 15, their error counters; `subconninfo` is never read; at most 200)
 and `config_data` (the advisor's settings, reloptions, connection and WAL snapshot, collected only
 when an advisor will consume it). A category that could not be read in a cycle is
 **unknown, not empty**: it is listed in the snapshot's `unavailable` map with the error, no
@@ -188,9 +191,11 @@ row per constraint, with an empty schema.
 | Sequences | sequence_exhaustion |
 | Maintenance | table_bloat, xid_wraparound |
 | System | connection_leak, cache_hit_ratio, checkpoint_pressure |
-| Replication | replication_lag, inactive_slot |
+| Replication | replication_lag, inactive_slot, slow_replication_slot, subscription_errors, subscription_lag, cdc_consumer_stalled, cdc_heartbeat_stale |
 
 Each rule produces findings with severity (critical/warning/info), recommended SQL, and rollback SQL.
+
+**Seasonal baselines (`internal/baseline`).** Fixed thresholds cannot tell a report that is slow every Monday at 09:00 from a real slowdown. Each cycle the analyzer folds what the collector already read (statement interval means, active and total backends, WAL bytes per second, lock-graph sessions per wait class) into one of 168 hour-of-week buckets per week in `sage.baseline_samples`, keyed by database, and scores the new value against the same bucket in the previous `baseline.weeks` weeks with a robust z over the median and MAD. `workload_anomaly` opens after 2 consecutive anomalous cycles and resolves after 2 normal ones; a bucket with fewer than 3 weeks is learning. `query_regression` judges against the bucket median when it is active. Scoring is deterministic (no LLM) and adds no query on the monitored database; the fixed-threshold rules remain the floor. A critical anomaly is a Sage SRE trigger (`workload_anomaly`), one read-only investigation per episode.
 
 ### Tuning agent (Tier 2)
 

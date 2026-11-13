@@ -450,10 +450,10 @@ func configDBPutHandler(
 			return
 		}
 		for _, write := range writes {
-			if write.Key != "trust.level" {
+			if !perDatabaseKeys[write.Key] {
 				jsonError(w, fmt.Sprintf(
-					"per-database override %q is not supported; "+
-						"only trust.level and execution_mode are active",
+					"per-database override %q is not supported; only trust.level, "+
+						"analyzer.disabled_rules and execution_mode are active",
 					write.Key), http.StatusBadRequest)
 				return
 			}
@@ -481,9 +481,7 @@ func configDBPutHandler(
 				inst.Executor.SetExecutionMode(*executionMode)
 			}
 			for _, write := range writes {
-				if write.Key == "trust.level" {
-					applyDatabaseTrustLevel(inst, write.Value)
-				}
+				applyDatabaseWrite(inst, write, user)
 			}
 			return nil
 		}
@@ -514,7 +512,7 @@ func configDBPutHandler(
 			applied = append(applied, "execution_mode")
 		}
 		for _, write := range writes {
-			if write.Key == "trust.level" {
+			if perDatabaseKeys[write.Key] {
 				applied = append(applied, write.Key)
 			}
 		}
@@ -579,6 +577,7 @@ func configDBDeleteHandler(
 			internalError(w, r, "delete database config override", err)
 			return
 		}
+		resetDatabaseOverride(mgr, dbID, key)
 		jsonResponse(w, map[string]any{
 			"status": "deleted", "desired_generation": generation,
 			"active_generation": generation,
