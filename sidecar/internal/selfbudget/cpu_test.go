@@ -144,19 +144,30 @@ func TestCPUMeter_ConcurrentObserve(t *testing.T) {
 }
 
 // The real reader: CPU time is readable on the platforms pg_sage ships on
-// and grows when the process works.
+// and grows when the process works. Windows counts process CPU in
+// scheduler ticks (about 15.6 ms), and on a loaded host a fixed 150 ms
+// of wall time can pass with this thread off the CPU, so the test works
+// until the reading moves by at least one tick; no growth in
+// cpuGrowthWait of busy work is a real failure (forecast-11).
 func TestProcessCPU_GrowsWithWork(t *testing.T) {
 	before, ok := ProcessCPU()
 	if !ok {
 		t.Skip("process CPU time is not readable on this platform")
 	}
-	deadline := time.Now().Add(150 * time.Millisecond)
-	x := 0
-	for time.Now().Before(deadline) {
-		x++
+	deadline := time.Now().Add(cpuGrowthWait)
+	after, x := before, 0
+	for after <= before && time.Now().Before(deadline) {
+		for i := 0; i < 1_000_000; i++ {
+			x++
+		}
+		if after, ok = ProcessCPU(); !ok {
+			t.Fatalf("CPU became unreadable after %s", before)
+		}
 	}
-	after, ok := ProcessCPU()
-	if !ok || after <= before {
-		t.Fatalf("CPU %s -> %s (ok %v) after busy work (%d)", before, after, ok, x)
+	if after <= before {
+		t.Fatalf("CPU %s -> %s after %s of busy work (%d)", before, after, cpuGrowthWait, x)
 	}
 }
+
+// cpuGrowthWait bounds the busy work: far longer than any scheduler tick.
+const cpuGrowthWait = 5 * time.Second

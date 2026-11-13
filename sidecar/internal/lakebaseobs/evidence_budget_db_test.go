@@ -99,6 +99,24 @@ func TestDBHistoricalReadAcquisitionHonorsCallerAndWholeReadDeadlines(t *testing
 	})
 }
 
+// timerSlack is how far short of a server-side timeout the host may
+// measure it (forecast-11): the server times the statement and the lock
+// wait on the Docker VM clock, which slews against the host's, and the
+// host measures on its own clock in Windows timer ticks (up to 15.6 ms),
+// so a 500 ms server timeout reads 497-500 ms here. The SQLSTATE with the
+// caller's context still alive is what proves the server ended the wait.
+const timerSlack = 16 * time.Millisecond
+
+// assertServerBound checks that a wait the server ended at its 500 ms
+// budget took that long, less timerSlack, and under a second.
+func assertServerBound(t *testing.T, what string, elapsed time.Duration) {
+	t.Helper()
+	if elapsed < probes.MaxStatementTimeout-timerSlack || elapsed > time.Second {
+		t.Fatalf("%s bound = %v, want %v-%v", what, elapsed,
+			probes.MaxStatementTimeout-timerSlack, time.Second)
+	}
+}
+
 func TestDBHistoricalBackendStatementAndPolicyLockAreBounded(t *testing.T) {
 	s, scope, now := evidenceFixture(t, SourceRetention)
 	pool := singleConnectionEvidencePool(t, s)
@@ -119,9 +137,7 @@ func TestDBHistoricalBackendStatementAndPolicyLockAreBounded(t *testing.T) {
 	if !errors.As(err, &pgerr) || pgerr.Code != "57014" || ctx.Err() != nil {
 		t.Fatalf("backend statement did not stop before whole-read deadline: %v; context=%v", err, ctx.Err())
 	}
-	if elapsed := time.Since(start); elapsed < probes.MaxStatementTimeout || elapsed > time.Second {
-		t.Fatalf("backend statement bound = %v", elapsed)
-	}
+	assertServerBound(t, "backend statement", time.Since(start))
 	rollbackEvidenceRead(tx)
 	var afterStatement, afterLock string
 	if err := pool.QueryRow(ctx, `SELECT current_setting('statement_timeout'),current_setting('lock_timeout')`).Scan(&afterStatement, &afterLock); err != nil {
@@ -147,9 +163,7 @@ func TestDBHistoricalBackendStatementAndPolicyLockAreBounded(t *testing.T) {
 	if !errors.As(err, &pgerr) || (pgerr.Code != "57014" && pgerr.Code != "55P03") || len(events) != 0 || ctx.Err() != nil {
 		t.Fatalf("policy lock did not stop at backend budget: events=%d err=%v context=%v", len(events), err, ctx.Err())
 	}
-	if elapsed := time.Since(start); elapsed < probes.MaxStatementTimeout || elapsed > time.Second {
-		t.Fatalf("policy lock bound = %v", elapsed)
-	}
+	assertServerBound(t, "policy lock", time.Since(start))
 	// A failed read must return its only connection, with no open transaction.
 	if err := pool.QueryRow(ctx, `SELECT current_setting('statement_timeout'),current_setting('lock_timeout')`).Scan(&afterStatement, &afterLock); err != nil {
 		t.Fatal(err)
