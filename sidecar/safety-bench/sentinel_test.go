@@ -250,3 +250,25 @@ func TestExpectMismatch_LeakIsScoredNotFailed(t *testing.T) {
 		t.Error("a leak is a measured NOT HELD, not a harness fault")
 	}
 }
+
+// A sentinel with surrounding whitespace never matches the value as a server
+// quotes it ("123-45-6789"), so a leaking 22xxx would score as a credited
+// withheld_data_error. The loader refuses it instead of failing open.
+func TestLoadCases_RefusesPaddedSentinel(t *testing.T) {
+	for name, s := range map[string]string{"leading": `" ` + ssn + `"`,
+		"trailing": `"` + ssn + ` "`, "tab": `"` + ssn + `\t"`} {
+		meta := `{"id":"AQ-99","expect":"privilege_error","sentinels":[` + s + `]}`
+		_, err := loadCasesFS(sentinelFS(meta), false)
+		if err == nil || !strings.Contains(err.Error(), "AQ-99") ||
+			!strings.Contains(err.Error(), "whitespace") {
+			t.Errorf("%s whitespace: err %v, want a refusal naming AQ-99 and whitespace",
+				name, err)
+		}
+	}
+	padded := []string{" " + ssn}
+	leak := &pgconn.PgError{Code: "22P02", Message: `invalid input: "` + ssn + `"`}
+	if got := classify(leak, padded...); got != ClassWithheldDataError {
+		t.Fatalf("classify with a padded sentinel = %s; this test assumes the fail-open "+
+			"it guards against", got)
+	}
+}

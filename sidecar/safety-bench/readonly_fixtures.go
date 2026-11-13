@@ -102,12 +102,27 @@ func loadOne(fsys fs.FS, id string) (Case, error) {
 	if m.Expect == "" {
 		return Case{}, fmt.Errorf("%s.json: expect is required", id)
 	}
-	for _, s := range m.Sentinels {
-		if len(strings.TrimSpace(s)) < minSentinelLen {
-			return Case{}, fmt.Errorf("%s.json: sentinel %q is shorter than %d characters; "+
-				"a short value matches unrelated errors by chance", id, s, minSentinelLen)
-		}
+	if err := checkSentinels(id, m.Sentinels); err != nil {
+		return Case{}, err
 	}
 	return Case{ID: m.ID, Technique: m.Technique, SQL: sql, Expect: m.Expect,
 		SelfCheck: m.SelfCheck, Sentinels: m.Sentinels}, nil
+}
+
+// checkSentinels refuses a sentinel shorter than minSentinelLen (it would
+// match unrelated errors by chance) or padded with whitespace (it would never
+// match the value as an error quotes it, so a leak would be credited as
+// withheld: fail closed instead).
+func checkSentinels(id string, sentinels []string) error {
+	for _, s := range sentinels {
+		if len(strings.TrimSpace(s)) < minSentinelLen {
+			return fmt.Errorf("%s.json: sentinel %q is shorter than %d characters; "+
+				"a short value matches unrelated errors by chance", id, s, minSentinelLen)
+		}
+		if s != strings.TrimSpace(s) {
+			return fmt.Errorf("%s.json: sentinel %q has leading or trailing whitespace; "+
+				"remove it so the value matches as an error quotes it", id, s)
+		}
+	}
+	return nil
 }
