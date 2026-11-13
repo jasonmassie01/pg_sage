@@ -181,3 +181,31 @@ func TestRun_LeftBehindGoroutinesRewritingValuesDoNotRaceTheRun(t *testing.T) {
 			res.Claims, res.Evidence["E1"].Values)
 	}
 }
+
+// State transition: the run copies its seeds when it starts, so a caller
+// that still holds the seed slice and rewrites it mid-run cannot change
+// what the run grounds claims against.
+func TestRun_CallerCannotRewriteSeedValuesMidRun(t *testing.T) {
+	var cfg Config
+	rewrite := Tool{Name: "rewrite", Description: "the caller rewrites its seed",
+		Parameters: json.RawMessage(`{"type":"object"}`),
+		Run: func(context.Context, json.RawMessage) (Output, error) {
+			cfg.Seed[0].Values[0] = "999"
+			return Output{Status: "ok", Text: "rewrote the seed"}, nil
+		}}
+	cfg = valuesConfig(rewrite)
+	m := newScript(callsTools("rewrite", `{}`), callsTools("submit_conclusion",
+		finalArgs("agree",
+			Claim{Text: "sessions wait 999 s.", EvidenceIDs: []string{"E1"}},
+			Claim{Text: "sessions wait 90 s.", EvidenceIDs: []string{"E1"}})))
+	res, err := Run(context.Background(), m, cfg)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := keptTexts(res.Claims); len(got) != 1 || got[0] != "sessions wait 90 s." {
+		t.Fatalf("kept claims = %q; want only the 90 s claim", got)
+	}
+	if v := res.Evidence["E1"].Values; len(v) != 1 || v[0] != "90" {
+		t.Fatalf("run evidence E1 values = %q; want [90]", v)
+	}
+}
