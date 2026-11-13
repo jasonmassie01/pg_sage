@@ -162,17 +162,37 @@ var immutableDefaults = map[string]bool{
 	"statement_timestamp":   true,
 }
 
-var reFuncCall = regexp.MustCompile(`(?i)([\w$]+)\s*\(`)
+// callIdentRE is one identifier of a function call: bare, or "quoted"
+// with "" for a quote (an empty quoted name is kept, as unknown).
+const callIdentRE = `"(?:[^"]|"")*"|[\w$]+`
+
+// reFuncCall is a function call: group 1 is the schema (empty when the
+// call is unqualified) and group 2 the name.
+var reFuncCall = regexp.MustCompile(
+	`(?:(` + callIdentRE + `)\s*\.\s*)?(` + callIdentRE + `)\s*\(`)
 
 // isVolatileDefault returns true if the default expression contains a
-// function call that is NOT in the stable/immutable allowlist.
+// function call that is NOT in the stable/immutable allowlist. It reads
+// the name as PostgreSQL does: a quoted name keeps its case, and a schema
+// other than pg_catalog can name any function, so it counts as volatile
+// (the parse-tree mapping's volatileExpr; env-cgo-b).
 func isVolatileDefault(expr string) bool {
-	matches := reFuncCall.FindAllStringSubmatch(expr, -1)
-	for _, m := range matches {
-		fname := strings.ToLower(m[1])
-		if !immutableDefaults[fname] {
+	for _, m := range reFuncCall.FindAllStringSubmatch(expr, -1) {
+		if m[1] != "" && callName(m[1]) != "pg_catalog" {
+			return true
+		}
+		if !immutableDefaults[callName(m[2])] {
 			return true
 		}
 	}
 	return false
+}
+
+// callName is the name an identifier of reFuncCall denotes: a quoted one
+// unquoted with its case kept, a bare one folded to lower case.
+func callName(ident string) string {
+	if len(ident) >= 2 && ident[0] == '"' {
+		return strings.ReplaceAll(ident[1:len(ident)-1], `""`, `"`)
+	}
+	return strings.ToLower(ident)
 }
