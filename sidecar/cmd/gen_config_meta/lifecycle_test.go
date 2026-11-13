@@ -136,7 +136,8 @@ func TestLifecycle_UnknownKeyFails(t *testing.T) {
 // The standalone owner set is every production owner but the YAML fleet's.
 func TestLifecycle_EveryModeOwners(t *testing.T) {
 	got := strings.Join(everyModeOwners(), ",")
-	if got != "trust_policy,llm,llm_redaction,briefing" {
-		t.Fatalf("everyModeOwners = %s, want trust_policy,llm,llm_redaction,briefing", got)
+	if got != "trust_policy,llm,llm_redaction,briefing,alerting" {
+		t.Fatalf("everyModeOwners = %s, want trust_policy,llm,llm_redaction,briefing,alerting",
+			got)
 	}
 }
