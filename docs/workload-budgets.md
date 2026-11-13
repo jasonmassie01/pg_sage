@@ -173,7 +173,10 @@ rollback decision of the standing policy, and the verdict
 prediction and the threshold. A rollback the server refuses (SQLSTATE
 42501) is recorded as `rollback_failed` with the server's message, and
 the timeout stays in place. After 24 hours within the prediction the
-action is verified.
+action is verified. A check that comes only after the 24 hours (for
+example after a restart) credits the action only when the log was read
+and its cancels stayed within twice the prediction; otherwise it is left
+unverified for an operator to review, and not reverted.
 
 A reverted (or failed, or withheld) revert keeps the budget in warn mode:
 re-promotion needs 7 fresh days of shadow data after the revert. Its
