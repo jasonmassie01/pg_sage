@@ -50,9 +50,10 @@ func sourceFixture(t *testing.T) (*pgxpool.Pool, context.Context, map[string]str
 		t.Fatalf("clean hints: %v", err)
 	}
 	ids := map[string]string{
-		"optimizer":  seedSourceFinding(t, ctx, pool, "missing_index", "warning", "public.orders"),
-		"rules":      seedSourceFinding(t, ctx, pool, "unused_index", "warning", "public.items"),
-		"forecaster": seedSourceFinding(t, ctx, pool, "forecast_disk_growth", "warning", "public.big"),
+		"optimizer": seedSourceFinding(t, ctx, pool, "missing_index", "warning", "public.orders"),
+		"rules":     seedSourceFinding(t, ctx, pool, "unused_index", "warning", "public.items"),
+		"forecaster": seedSourceFinding(t, ctx, pool,
+			"forecast_disk_growth", "warning", "public.big"),
 	}
 	seedPartialIncidents(t, ctx, 1, "warning")
 	seedPartialHints(t, ctx, 1)

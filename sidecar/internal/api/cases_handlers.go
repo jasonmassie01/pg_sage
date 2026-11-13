@@ -18,8 +18,9 @@ import (
 
 // queryDatabaseCases projects one database's open findings, active
 // incidents and query hints (only the findings under a finding source
-// filter), each read one row past its cap so the cut is reported. The finding, incident and query-hint candidates share one
-// standing-policy explanation for the database; a candidate past its
+// filter), each read one row past its cap so the cut is reported. The
+// finding, incident and query-hint candidates share one standing-policy
+// explanation for the database; a candidate past its
 // expires_at is blocked as evidence_expired.
 func queryDatabaseCases(
 	ctx context.Context,
