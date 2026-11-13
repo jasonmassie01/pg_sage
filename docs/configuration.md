@@ -2147,9 +2147,12 @@ the analyzer's `autovacuum_tuning` is the only tuner.
 once a minute: the cadence is the larger of `analyzer.interval_seconds` and 60 seconds. One
 sample per database (the 500 most advanced relations, at most 20 xmin holders, and the XID
 and multixact consumption rates) is read in one read-only transaction and shared with the
-runway advisor and the analyzer for half that interval. The sample sets no statement or
-lock timeout of its own. The `pgstattuple_approx` confirmations of the three largest bloat
-candidates per scan are bounded by `safety.query_timeout_ms` and `safety.lock_timeout_ms`.
+runway advisor and the analyzer for half that interval. The sample's transaction is bounded
+by `safety.query_timeout_ms` and `safety.lock_timeout_ms` (`0` uses the default), so a catalog
+lock held by DDL ends the sample with a `freeze age read: lock timeout` error instead of
+holding the custodian, the runway advisor and the analyzer; that cycle proposes nothing, and
+the next one reads again. The `pgstattuple_approx` confirmations of the three largest bloat
+candidates per scan are bounded by the same two settings.
 Until two scans have measured the consumption rate, the custodian claims no deadline.
 
 **Backoff and escalation.** A custodian statement whose runs failed (outcome `failed` or
