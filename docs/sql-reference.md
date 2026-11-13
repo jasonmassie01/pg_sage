@@ -220,21 +220,36 @@ Generated health briefings.
 
 ### `sage.llm_usage`
 
-Today's LLM token spend, so a restart mid-day restores it instead of granting a fresh daily
-budget. Lives in the control database (the meta database, the fleet's first connected
-database, or the standalone database). Flushed every 60 s and on shutdown; a flush only
-raises `tokens`. Rows older than 35 days are pruned at startup; the admin budget reset
-(`POST /api/v1/llm/budget/reset`) deletes today's rows.
+The LLM usage ledger in the control database (the meta database, the fleet's first
+connected database, or the standalone database). Two kinds of row share it, flushed every
+60 s and on shutdown:
+
+- Budget counters (`purpose = '_total'`, empty `model`): today's token spend per counter,
+  so a restart mid-day restores it instead of granting a fresh daily budget. A flush only
+  raises `tokens`. Pruned after 35 days; the admin budget reset
+  (`POST /api/v1/llm/budget/reset`) deletes today's counters.
+- Attributed usage (llm-04; every other `purpose`, `role` `general` or `optimizer`): each
+  flush adds the calls since the last one, so totals survive restarts. Pruned after 400
+  days; read by `GET /api/v1/llm/usage`.
 
 | Column | Type | Description |
 |---|---|---|
 | `day` | date | UTC day the spend belongs to |
 | `database_key` | text | `id:<sage.databases id>` for a meta-DB database, `name:<name>` for a YAML or standalone one, `process` for the process-wide clients and the global ceiling |
 | `role` | text | `general`, `optimizer`, `shared` (the `llm.global_token_budget_daily` ceiling) or `fleet` (the database's `fleet_token_budget_daily` share) |
-| `tokens` | bigint | Tokens spent that day (at least 0) |
-| `updated_at` | timestamptz | Last flush that raised the count |
+| `tokens` | bigint | Budget counters: tokens spent that day. Attributed rows: prompt plus completion tokens |
+| `updated_at` | timestamptz | Last flush that changed the row |
+| `purpose` | text | `_total` for a budget counter, else the feature that made the calls (`briefing`, `explain`, `query_tuning`, ...; `unlabeled`, `overflow`) |
+| `model` | text | Model id of the calls (empty for a budget counter) |
+| `prompt_tokens` | bigint | Prompt tokens |
+| `completion_tokens` | bigint | Completion tokens, reasoning included, plus any tokens the provider charged beyond its prompt/completion split |
+| `reasoning_tokens` | bigint | Reasoning share of the completion tokens, as the provider reported it |
+| `calls` | bigint | Calls counted (every result, as `pg_sage_llm_requests_total`) |
+| `failures` | bigint | Calls that did not return `ok` |
+| `est_cost_usd` | numeric(20,8) | Cost at the `llm.pricing` rates; NULL when any call in the row had no price |
+| `source` | text | `provider`, or `estimate` when pg_sage estimated the split because the provider reported no usage |
 
-Primary key `(day, database_key, role)`.
+Primary key `(day, database_key, role, purpose, model)`.
 
 ---
 

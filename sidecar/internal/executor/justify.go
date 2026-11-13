@@ -59,8 +59,9 @@ func (e *Executor) justifyAndStore(
 	jctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
+	pctx := llm.WithPurpose(jctx, "justification") // llm-04: usage ledger label
 	note, _, err := e.justifier.Chat(
-		jctx, justifySystemPrompt, buildJustificationPrompt(f), 256)
+		pctx, justifySystemPrompt, buildJustificationPrompt(f), 256)
 	if err != nil {
 		e.logFn("executor", "justification failed for action %d: %v",
 			actionID, err)

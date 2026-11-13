@@ -85,7 +85,8 @@ func (a *Advisor) llmFallback(ctx context.Context, sql string) (string, error) {
 
 	system := buildDDLSystemPrompt()
 	user := buildDDLUserPrompt(sql, a.pgVersion, a.dbName)
-	raw, _, err := a.llmClient.Chat(ctx, system, user, 2048)
+	pctx := llm.WithPurpose(ctx, "migration_advice") // llm-04: usage ledger label
+	raw, _, err := a.llmClient.Chat(pctx, system, user, 2048)
 	return raw, err
 }
 

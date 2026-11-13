@@ -202,7 +202,8 @@ func trancheTwoMigrations() []namedStep {
 // trancheThreeMigrations are the T3 steps, in landing order.
 func trancheThreeMigrations() []namedStep {
 	return []namedStep{
-		{"ddlBaselineSamples", ddlBaselineSamples}, // market-02
-		{"ddlBudgetShadow", ddlBudgetShadow},       // market-08
+		{"ddlBaselineSamples", ddlBaselineSamples},         // market-02
+		{"ddlBudgetShadow", ddlBudgetShadow},               // market-08
+		{"ddlLLMUsageAttribution", ddlLLMUsageAttribution}, // llm-04: after ddlLLMUsage
 	}
 }

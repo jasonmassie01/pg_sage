@@ -42,7 +42,8 @@ func (c *Client) Probe(ctx context.Context) ProbeResult {
 	user := fmt.Sprintf("Connection test %d-%d. Reply with OK.",
 		time.Now().UnixNano(), probeSeq.Add(1))
 	start := time.Now()
-	r, err := c.ChatResult(withForcedProbe(ctx), "Reply with the single word OK.",
+	r, err := c.ChatResult(WithPurpose(withForcedProbe(ctx), "probe"),
+		"Reply with the single word OK.",
 		user, probeMaxTokens)
 	res := ProbeResult{
 		Class:        probeClass(err),

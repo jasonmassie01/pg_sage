@@ -302,6 +302,7 @@ safety_critical llm.endpoint
 safety_critical llm.auth
 operator_preference llm.fleet_token_budget_daily
 operator_preference llm.global_token_budget_daily
+operator_preference llm.pricing
 safety_critical llm.index_optimizer.enabled
 safety_critical llm.index_optimizer.max_include_columns
 safety_critical llm.index_optimizer.max_indexes_per_table

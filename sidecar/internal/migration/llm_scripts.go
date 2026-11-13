@@ -128,7 +128,8 @@ func (g *ScriptGenerator) modelScript(
 	ctx, cancel := context.WithTimeout(ctx, scriptLLMTimeout)
 	defer cancel()
 
-	raw, _, err := g.llmClient.Chat(ctx, system, user, scriptMaxTokens)
+	pctx := llm.WithPurpose(ctx, "migration_script") // llm-04: usage ledger label
+	raw, _, err := g.llmClient.Chat(pctx, system, user, scriptMaxTokens)
 	return raw, err
 }
 

@@ -113,7 +113,8 @@ func (a *LLMJsonbAnalyzer) queryAndAnalyze(
 	llmCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	raw, _, err := a.llmClient.Chat(llmCtx, jsonbSystemPrompt, userPrompt, 4096)
+	pctx := llm.WithPurpose(llmCtx, "schema_lint") // llm-04: usage ledger label
+	raw, _, err := a.llmClient.Chat(pctx, jsonbSystemPrompt, userPrompt, 4096)
 	if err != nil {
 		return nil, fmt.Errorf("llm chat: %w", err)
 	}

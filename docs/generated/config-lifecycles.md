@@ -244,6 +244,7 @@
 | `llm.optimizer_llm.model` | `restart` | `-` | `safety_critical` |
 | `llm.optimizer_llm.timeout_seconds` | `restart` | `-` | `derivable` |
 | `llm.optimizer_llm.token_budget_daily` | `restart` | `-` | `derivable` |
+| `llm.pricing` | `restart` | `-` | `operator_preference` |
 | `llm.redact_numeric_literals` | `reconfigure` | `llm_redaction` | `safety_critical` |
 | `llm.timeout_seconds` | `reconfigure` | `llm` | `derivable` |
 | `llm.token_budget_daily` | `restart` | `-` | `derivable` |

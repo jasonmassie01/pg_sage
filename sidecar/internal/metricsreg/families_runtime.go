@@ -152,9 +152,10 @@ var runtimeFamilies = []Family{
 		Help:   "Configured daily LLM token budget (0 is unlimited)",
 		Labels: llmClientLabels, Modes: AllModes, Unit: "tokens", Since: "v0.7.0"},
 	{Name: "pg_sage_llm_tokens_total", Type: Counter, Area: AreaLLM,
-		Help: "LLM tokens charged since start by kind (prompt, completion, unattributed: " +
-			"estimated or not split by the provider); the spend signal, no prices applied",
-		Labels: []string{"client", "database", "kind"}, Modes: AllModes, Unit: "tokens",
+		Help: "LLM tokens charged since start by purpose and kind (prompt, completion, " +
+			"unattributed: estimated or not split by the provider); the spend signal",
+		Labels: []string{"client", "database", "purpose", "kind"}, Modes: AllModes,
+		Unit:  "tokens",
 		Since: "v2.7.0"},
 	{Name: "pg_sage_llm_tokens_used_today", Type: Gauge, Area: AreaLLM,
 		Help:   "LLM tokens charged today (UTC day)",

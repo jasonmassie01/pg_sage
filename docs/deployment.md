@@ -634,7 +634,7 @@ never closes or probes a circuit breaker.
 |---|---|
 | `pg_sage_llm_requests_total{client,database,result}` | Calls since start; `result` is `ok`, `error`, `timeout`, `rate_limited`, `budget_refused`, `circuit_open`, `empty` or `cancelled` |
 | `pg_sage_llm_request_duration_seconds{client,database}` | Histogram (buckets 0.25 s to 120 s) of calls with result `ok`, `error`, `timeout`, `rate_limited` or `empty`; budget and breaker refusals and cancellations are not timed, and a prompt refused by the pre-flight size guard is an `error` of about 0 s |
-| `pg_sage_llm_tokens_total{client,database,kind}` | Tokens charged since start; `kind` is `prompt`, `completion` or `unattributed` (estimated, or not split by the provider). The spend signal: no prices are applied |
+| `pg_sage_llm_tokens_total{client,database,purpose,kind}` | Tokens charged since start; `purpose` is the feature that made the calls (`briefing`, `explain`, `query_tuning`, ...; `unlabeled` when none); `kind` is `prompt`, `completion` or `unattributed` (estimated, or not split by the provider). The spend signal; costs are in `GET /api/v1/llm/usage` |
 | `pg_sage_llm_enabled{client,database}` | 1 if the client is enabled |
 | `pg_sage_llm_circuit_open{client,database}` | 1 while the circuit breaker refuses requests |
 | `pg_sage_llm_tokens_used_today{client,database}` | Tokens charged today |

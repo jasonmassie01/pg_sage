@@ -88,7 +88,8 @@ func (m *ModelProposer) Propose(ctx context.Context, evidence []EvidenceItem) (
 	}
 	user := "Catalog evidence:\n" + llm.UntrustedData("catalog_evidence",
 		strings.Join(lines, "\n"))
-	raw, _, err := m.client.Chat(ctx, modelSystemPrompt+llm.UntrustedDataRule, user,
+	pctx := llm.WithPurpose(ctx, "facts") // llm-04: usage ledger label
+	raw, _, err := m.client.Chat(pctx, modelSystemPrompt+llm.UntrustedDataRule, user,
 		modelMaxTokens)
 	if err != nil {
 		return nil, fmt.Errorf("model fact proposals: %w", err)

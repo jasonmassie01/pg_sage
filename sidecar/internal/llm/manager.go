@@ -41,6 +41,7 @@ func (m *Manager) ChatForPurpose(
 	maxTokens int,
 ) (string, int, error) {
 	client := m.ForPurpose(purpose)
+	ctx = WithDefaultPurpose(ctx, purpose) // llm-04: the ledger's label
 	resp, tokens, err := client.Chat(ctx, system, user, maxTokens)
 	if err != nil && client != m.General && m.fallback {
 		return m.General.Chat(ctx, system, user, maxTokens)

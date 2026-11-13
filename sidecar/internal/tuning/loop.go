@@ -92,7 +92,8 @@ func (toolLoop) Run(ctx context.Context, m Model, c Conversation) (Transcript, e
 			return tr, fmt.Errorf("%w: request cap reached", ErrBudget)
 		}
 		last := tr.Turns == turns-1
-		res, err := m.ChatWithTools(ctx, msgs, c.Tools, turnOptions(c, last))
+		pctx := llm.WithDefaultPurpose(ctx, "query_tuning") // llm-04: usage ledger label
+		res, err := m.ChatWithTools(pctx, msgs, c.Tools, turnOptions(c, last))
 		tr.Turns++
 		if err != nil {
 			return stopOn(tr, err)

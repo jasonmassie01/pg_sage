@@ -190,7 +190,8 @@ func (m budgetedModel) ChatWithTools(ctx context.Context, msgs []llm.Message,
 		}
 		return llm.ToolResult{}, agentloop.Abort(err)
 	}
-	res, err := m.inner.ChatWithTools(ctx, msgs, tools, opts)
+	pctx := llm.WithPurpose(ctx, "ask") // llm-04: usage ledger label
+	res, err := m.inner.ChatWithTools(pctx, msgs, tools, opts)
 	used := usedTokens(res, err, est)
 	if serr := m.budget.Settle(context.WithoutCancel(ctx), m.actor, est, used); serr != nil {
 		m.log("WARN", "ask: settle %d of %d reserved tokens for %s: %v", used, est,

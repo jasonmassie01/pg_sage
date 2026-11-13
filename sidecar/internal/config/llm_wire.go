@@ -72,7 +72,7 @@ func (l LLMConfig) validateWire() error {
 		return fmt.Errorf("llm.context_budget_tokens %d must be >= 0 "+
 			"(0 turns off the extra context trim)", l.ContextBudgetTokens)
 	}
-	return nil
+	return l.validatePricing()
 }
 
 func oneOf(value string, allowed []string) bool {

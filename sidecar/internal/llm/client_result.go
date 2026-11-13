@@ -41,7 +41,9 @@ func (c *Client) ChatResult(
 ) (Response, error) {
 	start := time.Now()
 	r, err := c.chatResult(ctx, system, user, maxTokens)
-	c.observe(start, err, r.PromptTokens, r.CompletionTokens, r.Tokens)
+	c.observe(ctx, start, err, callUsage{prompt: r.PromptTokens,
+		completion: r.CompletionTokens, tokens: r.Tokens,
+		estimatedPrompt: estimateTokens(system, user)})
 	return r, err
 }
 

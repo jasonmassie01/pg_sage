@@ -2,6 +2,7 @@ package main
 
 import (
 	"cmp"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -35,13 +36,15 @@ type llmHealthSeries struct {
 	results map[llm.Result]uint64
 	// buckets[i] counts durations in (bound i-1, bound i]; longer ones
 	// are only in count.
-	buckets      []uint64
-	sum          float64
-	count        uint64
-	prompt       uint64
-	completion   uint64
-	unattributed uint64
+	buckets []uint64
+	sum     float64
+	count   uint64
+	// tokens is keyed by the calls' purpose (llm-04).
+	tokens map[string]llmTokenKinds
 }
+
+// llmTokenKinds are one purpose's token counters.
+type llmTokenKinds struct{ prompt, completion, unattributed uint64 }
 
 type llmHealthMetrics struct {
 	mu     sync.Mutex
@@ -62,7 +65,8 @@ func (m *llmHealthMetrics) observer(database, client string) func(llm.Outcome) {
 	s := m.series[key]
 	if s == nil {
 		s = &llmHealthSeries{results: map[llm.Result]uint64{},
-			buckets: make([]uint64, len(llmLatencyBounds))}
+			buckets: make([]uint64, len(llmLatencyBounds)),
+			tokens:  map[string]llmTokenKinds{}}
 		m.series[key] = s
 	}
 	m.mu.Unlock()
@@ -73,12 +77,7 @@ func (m *llmHealthMetrics) record(s *llmHealthSeries, o llm.Outcome) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	s.results[o.Result]++
-	split := max(o.PromptTokens, 0) + max(o.CompletionTokens, 0)
-	s.prompt += uint64(max(o.PromptTokens, 0))
-	s.completion += uint64(max(o.CompletionTokens, 0))
-	if o.Tokens > split {
-		s.unattributed += uint64(o.Tokens - split)
-	}
+	recordTokens(s, o)
 	if !llmLatencyResults[o.Result] {
 		return
 	}
@@ -118,6 +117,7 @@ func (m *llmHealthMetrics) snapshot() []llmHealthRow {
 			row.results[r] = n
 		}
 		row.buckets = slices.Clone(s.buckets)
+		row.tokens = maps.Clone(s.tokens)
 		rows = append(rows, row)
 	}
 	m.mu.Unlock()
@@ -177,18 +177,7 @@ func writeLLMHealthMetrics(b *strings.Builder, rows []llmHealthRow, gauges []llm
 	}
 	b.WriteString("\n")
 	writeLLMLatency(b, rows)
-	metricsreg.Header(b, "pg_sage_llm_tokens_total")
-	for _, row := range rows {
-		for _, kind := range []struct {
-			name string
-			n    uint64
-		}{{"prompt", row.prompt}, {"completion", row.completion},
-			{"unattributed", row.unattributed}} {
-			writeSample(b, "pg_sage_llm_tokens_total",
-				withLabel(row.key.labels(), "kind", kind.name), kind.n)
-		}
-	}
-	b.WriteString("\n")
+	writeLLMTokens(b, rows)
 	writeLLMClientGauges(b, gauges)
 }
 
@@ -236,4 +225,47 @@ func boolGauge(v bool) int {
 		return 1
 	}
 	return 0
+}
+
+// recordTokens adds a call's tokens under its purpose; tokens charged
+// beyond the provider's split are unattributed (estimated or not split).
+// A purpose that never spent a token has no series.
+func recordTokens(s *llmHealthSeries, o llm.Outcome) {
+	purpose := o.Purpose
+	if !llm.ValidPurpose(purpose) {
+		purpose = llm.PurposeUnlabeled
+	}
+	_, seen := s.tokens[purpose]
+	if !seen && o.Tokens <= 0 && o.PromptTokens <= 0 && o.CompletionTokens <= 0 {
+		return
+	}
+	k := s.tokens[purpose]
+	split := max(o.PromptTokens, 0) + max(o.CompletionTokens, 0)
+	k.prompt += uint64(max(o.PromptTokens, 0))
+	k.completion += uint64(max(o.CompletionTokens, 0))
+	if o.Tokens > split {
+		k.unattributed += uint64(o.Tokens - split)
+	}
+	s.tokens[purpose] = k
+}
+
+// writeLLMTokens renders pg_sage_llm_tokens_total by client, database,
+// purpose and kind (llm-04 added purpose).
+func writeLLMTokens(b *strings.Builder, rows []llmHealthRow) {
+	const name = "pg_sage_llm_tokens_total"
+	metricsreg.Header(b, name)
+	for _, row := range rows {
+		for _, purpose := range slices.Sorted(maps.Keys(row.tokens)) {
+			k := row.tokens[purpose]
+			labels := withLabel(row.key.labels(), "purpose", purpose)
+			for _, kind := range []struct {
+				name string
+				n    uint64
+			}{{"prompt", k.prompt}, {"completion", k.completion},
+				{"unattributed", k.unattributed}} {
+				writeSample(b, name, withLabel(labels, "kind", kind.name), kind.n)
+			}
+		}
+	}
+	b.WriteString("\n")
 }

@@ -32,8 +32,12 @@ func TestLLMUsageMigration_Table(t *testing.T) {
 		cols = append(cols, col)
 	}
 	rows.Close()
+	// llm-04 (ddlLLMUsageAttribution) appends the attribution columns and
+	// moves the key to (day, database_key, role, purpose, model).
 	want := "day:date,database_key:text,role:text,tokens:bigint," +
-		"updated_at:timestamp with time zone"
+		"updated_at:timestamp with time zone,purpose:text,model:text," +
+		"prompt_tokens:bigint,completion_tokens:bigint,reasoning_tokens:bigint," +
+		"calls:bigint,failures:bigint,est_cost_usd:numeric,source:text"
 	if strings.Join(cols, ",") != want {
 		t.Fatalf("columns = %v\nwant %s", cols, want)
 	}
@@ -43,7 +47,7 @@ func TestLLMUsageMigration_Table(t *testing.T) {
 		  AND contype = 'p'`).Scan(&pk); err != nil {
 		t.Fatalf("primary key: %v", err)
 	}
-	if pk != "PRIMARY KEY (day, database_key, role)" {
+	if pk != "PRIMARY KEY (day, database_key, role, purpose, model)" {
 		t.Fatalf("primary key = %q", pk)
 	}
 	requireLLMUsageChecks(t, ctx, pool)

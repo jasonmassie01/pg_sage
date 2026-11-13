@@ -110,7 +110,9 @@ func (c *Client) ChatWithTools(
 	start := time.Now()
 	defer recordWait(ctx, start)
 	res, err := c.chatWithTools(ctx, msgs, tools, opts)
-	c.observe(start, err, res.PromptTokens, res.CompletionTokens, res.Tokens)
+	c.observe(ctx, start, err, callUsage{prompt: res.PromptTokens,
+		completion: res.CompletionTokens, reasoning: res.ReasoningTokens,
+		tokens: res.Tokens, estimatedPrompt: estimateMessages(msgs)})
 	return res, err
 }
 

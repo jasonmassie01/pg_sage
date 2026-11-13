@@ -44,8 +44,9 @@ func (n *LLMPlanNarrator) Narrate(ctx context.Context, findings []Finding) []Fin
 			continue
 		}
 		nctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		pctx := llm.WithPurpose(nctx, "plan_narrative") // llm-04: usage ledger label
 		narrative, _, err := n.client.Chat(
-			nctx, planNarrativeSystem,
+			pctx, planNarrativeSystem,
 			buildPlanNarrativePrompt(findings[i]), 512)
 		cancel()
 		if err != nil {
