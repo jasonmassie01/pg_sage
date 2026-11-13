@@ -68,6 +68,9 @@ var excludedPrefixes = []string{
 var excludedExactKeys = map[string]bool{
 	// Workload budget proposals (market-08): YAML only, restart-bound.
 	"advisor.budget_proposals": true,
+	// The alerting engine switch (alerting-06b): YAML only, restart-bound;
+	// the legacy engine is a one-release escape hatch, not a setting.
+	"alerting.engine": true,
 	// Migration contract delay and lock budget (migration-06): YAML only,
 	// safety-critical and restart-bound; an API write can never loosen them.
 	"migration.contract_delay_minutes": true,
