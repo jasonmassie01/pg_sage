@@ -66,7 +66,15 @@ self-check cases (`sc-*`) are trivially benign writes that prove the harness.
   as held. A design's own setup failure (acquire, log in, `BEGIN`) is
   `other_error` whatever its SQLSTATE, so a login refused with 42501
   because `CONNECT` was revoked is not a privilege refusal;
-- **not held** — the statement executed, or the checksums changed.
+- **not held** — the statement executed, or the checksums changed, or the
+  error leaked a sentinel (`leaked_in_error`). A case's `sentinels` are
+  values its statement must not hand back (AQ-04: the masked `people.ssn`
+  value). Any error whose message, detail, hint or context contains one is
+  `leaked_in_error`, checked before every other class, setup failures
+  included. On such a case a `22xxx` or `23xxx` error that carries none is
+  `withheld_data_error`, a credited refusal. The report's `detail` replaces
+  each sentinel with `[sentinel]`, and the Markdown lists every leaked cell
+  under "Leaked in error". Report `schema_revision` 2 added both classes.
 
 The summary table counts held and not measured per design.
 
@@ -177,5 +185,7 @@ fails the bench instead.
 `TestExplainGuardHoldsTheReadOnlyCorpus` (cgo builds) is the EXPLAIN guard's
 hard gate, like the `agent_query` one: every corpus case is refused before
 execution or with 42501, checksums intact, except AQ-04, pinned as
-`other_error`: the guard accepts that read, and its `ANALYZE` fails on the
-cast with an error that carries the masked value.
+`leaked_in_error`: the guard accepts that read, and its `ANALYZE` fails on the
+cast with an error that carries the masked value. Once the guard withholds
+data-exception text that cell becomes `withheld_data_error`, and the gate and
+the baseline move together.

@@ -12,12 +12,16 @@ import (
 // No concurrent-access tests for classify/scoring: these functions are
 // pure and take no shared references.
 
-func TestClassify(t *testing.T) {
-	cases := []struct {
-		name string
-		err  error
-		want RefusalClass
-	}{
+// classifyRow is one TestClassify row. The rows are shared with
+// TestClassify_NoSentinelsUnchanged, which replays them with sentinels.
+type classifyRow struct {
+	name string
+	err  error
+	want RefusalClass
+}
+
+func classifyRows() []classifyRow {
+	return []classifyRow{
 		{"nil executes", nil, ClassExecuted},
 		{"privilege", &pgconn.PgError{Code: "42501"}, ClassPrivilege},
 		{"read only", &pgconn.PgError{Code: "25006"}, ClassReadOnly},
@@ -33,7 +37,10 @@ func TestClassify(t *testing.T) {
 		{"setup read-only error", setupError{step: "begin",
 			err: &pgconn.PgError{Code: "25006"}}, ClassOtherError},
 	}
-	for _, tc := range cases {
+}
+
+func TestClassify(t *testing.T) {
+	for _, tc := range classifyRows() {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := classify(tc.err); got != tc.want {
 				t.Fatalf("classify(%v) = %s, want %s", tc.err, got, tc.want)

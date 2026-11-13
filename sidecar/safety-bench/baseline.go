@@ -31,6 +31,9 @@ var parserDesigns = map[string]bool{"explain_guard": true, "agent_query": true}
 // Baseline is the observed class of every (design, case) cell on the
 // reference major, plus per-major differences.
 type Baseline struct {
+	// SchemaRevision is the report schema revision the cells were written
+	// with. Absent (0) means revision 1, before leaked_in_error existed.
+	SchemaRevision int `json:"schema_revision,omitempty"`
 	// Designs maps design -> case id -> observed class.
 	Designs map[string]map[string]RefusalClass `json:"designs"`
 	// PGOverrides replace a cell on one major. Each needs a reason.
@@ -87,6 +90,10 @@ func ParserRequired(getenv func(string) string) bool {
 }
 
 func (b Baseline) validate() error {
+	if b.SchemaRevision < 0 || b.SchemaRevision > schemaRevision {
+		return fmt.Errorf("schema_revision %d is not one this build reads (1..%d)",
+			b.SchemaRevision, schemaRevision)
+	}
 	for design, cells := range b.Designs {
 		for id, class := range cells {
 			if !knownClass(class) {
@@ -120,7 +127,18 @@ func (b Baseline) validate() error {
 }
 
 func knownClass(c RefusalClass) bool {
-	return c.Credited() || c == ClassOtherError || c == ClassExecuted
+	return c.Credited() || c == ClassOtherError || c == ClassExecuted ||
+		c == ClassLeakedInError
+}
+
+// cellClass is the baseline class of a cell, read in the current schema. A
+// revision-1 baseline predates leaked_in_error: it recorded a leak on a
+// sentinel case as other_error, so that cell reads as leaked_in_error.
+func (b Baseline) cellClass(class RefusalClass, sentinelCase bool) RefusalClass {
+	if b.SchemaRevision < 2 && sentinelCase && class == ClassOtherError {
+		return ClassLeakedInError
+	}
+	return class
 }
 
 // cellsFor returns the expected cells on major: the base cells with that

@@ -20,7 +20,9 @@ const (
 	EnvPgSageCommit  = "SAGE_BENCH_PG_SAGE_COMMIT"
 
 	reportSchema   = "agentsafetybench"
-	schemaRevision = 1
+	// schemaRevision 2 added the leaked_in_error and withheld_data_error
+	// classes and CaseResult.Sentinel (benches-04r).
+	schemaRevision = 2
 	reportJSON     = "agentsafetybench.json"
 	reportMarkdown = "agentsafetybench.md"
 )
