@@ -10,6 +10,7 @@ internal/autoexplain/collector.go 1
 internal/autonomy/freeze_bloat.go 1
 internal/autonomy/schema_statements.go 1
 internal/collector/capabilities.go 1
+internal/collector/collect_workload_sessions.go 1
 internal/collector/queries.go 1
 internal/collector/statements_text.go 1
 internal/collector/statements_usage.go 3
