@@ -257,6 +257,7 @@ func registerFleetScopedRoutes(
 	registerAgentGrantRoutes(apiMux, rt.AgentGrants)
 	registerFleetLearningRoutes(apiMux, mgr, cfg, rt.FleetLearning)
 	registerManagedCloudRoutes(apiMux, mgr)
+	registerProviderAdviceRoutes(apiMux, mgr)
 	registerModelLiftRoutes(apiMux, rt.Autonomy)
 	registerAskRoutes(apiMux, rt.Ask)
 	registerPprofRoutes(apiMux, cfg != nil && cfg.Debug.PprofEnabled)

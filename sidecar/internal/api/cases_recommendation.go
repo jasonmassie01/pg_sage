@@ -12,14 +12,15 @@ import (
 	"github.com/pg-sage/sidecar/internal/store"
 )
 
-// enrichFindingCases attaches the action timeline and the recommendation
-// head of each of one database's finding cases.
+// enrichFindingCases attaches the action timeline, the recommendation
+// head and the provider advice of each of one database's finding cases.
 func enrichFindingCases(
 	ctx context.Context, projected []cases.Case, selected namedPool, findingIDs []int,
 ) {
 	enrichCaseActionTimelines(ctx, projected, selected,
 		store.NewActionStore(selected.pool), findingIDs)
 	enrichCaseRecommendations(ctx, projected, selected, findingIDs, time.Now().UTC())
+	enrichCaseProviderAdvice(ctx, projected, selected, findingIDs)
 }
 
 // enrichCaseRecommendations attaches each finding case's newest

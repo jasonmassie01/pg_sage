@@ -84,6 +84,10 @@ type Case struct {
 	// RecommendationUnknown is set when the heads could not be read, so a
 	// nil Recommendation does not read as "never proposed".
 	RecommendationUnknown bool `json:"recommendation_unknown,omitempty"`
+	// ProviderAdvice is the provider's own advice on the case's finding
+	// (market-09); ProviderAdviceUnavailable is set when it could not be read.
+	ProviderAdvice            []ProviderAdvice `json:"provider_advice,omitempty"`
+	ProviderAdviceUnavailable bool             `json:"provider_advice_unavailable,omitempty"`
 }
 
 // Recurrence is an incident's place in its chain of recurrences
