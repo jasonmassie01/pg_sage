@@ -368,6 +368,58 @@ database: databases of one fleet on the same instance (the same host and port, o
 from the first of them that starts until the last one stops. `GET /api/v1/cloud-telemetry`
 lists such an instance once, with its member databases in `databases`.
 
+## Provider advice
+
+Managed services ship their own advisors. pg_sage reads them and says, for each piece of
+advice, whether it would follow it, so you do not have to reconcile two sets of advice by hand.
+
+| Provider | Source | Credential |
+|---|---|---|
+| Cloud SQL, AlloyDB | the `google_db_advisor_recommended_indexes` view (index advisor) | the database connection |
+| Azure flexible server | index tuning (`az postgres flexible-server index-tuning list-recommendations`) | the ARM credential host telemetry uses (Reader) |
+| Supabase | Management API performance advisors (index lints only) | `SAGE_SUPABASE_OBSERVABILITY_TOKEN` |
+| Neon | none: Neon has no advisor API | - |
+
+Every hour each database's advice is compared with pg_sage's open index findings
+(`missing_index`, `missing_fk_index`, `unused_index`, `duplicate_index`) using the coverage rule
+the optimizer and executor use (`CoveredBy`, `Subsumes`). Each recommendation gets a verdict:
+
+- `agree`: pg_sage proposes a change that serves the provider's (for an index, pg_sage's index
+  covers every lookup the provider's would; an INCLUDE column pg_sage's index does not carry
+  is not agreement).
+- `pgsage_only`: pg_sage proposes it; the provider does not.
+- `provider_only`: the provider proposes it and pg_sage does not. The reason says whether pg_sage
+  would act and why: an index to create goes through pg_sage's own HypoPG what-if on the
+  table's hottest statements, and anything it cannot measure (no HypoPG, no workload, an
+  existing index already serves it) is "would not act". An index to drop is "would not act"
+  until pg_sage's own unused-index window and standby checks find it unused.
+- `conflict`: the provider wants to drop an index that backs a constraint, or that pg_sage
+  sees scanned on this server.
+- `unparsed`: the provider's statement is not exactly one `CREATE INDEX`. It is kept as text
+  (`payload.provider_text`) and never offered as SQL.
+- `unknown`: advice of a shape pg_sage does not read (an unrecognized view shape or
+  recommendation type). It is shown, not parsed.
+
+Provider advice is evidence only. It never raises a finding's confidence, risk tier or
+autonomy, and nothing in the executor reads it; anything it leads to is an ordinary pg_sage
+candidate through the policy gate. Advice the provider stops giving is marked `resolved_at`
+and ages out with `retention.findings_days`. A failed fetch (for example an ARM 403 or a
+Supabase 401) is recorded as the source's `last_error` and leaves the earlier advice unchanged.
+
+The view read is one read-only transaction bounded by `statement_timeout = 5s` and
+`lock_timeout = 1s`, at most 100 rows; its columns are checked first, and a view without the
+`index` column is reported as `unknown`.
+
+`GET /api/v1/provider-advice?database=<name>` lists each database's advice and its sources'
+last fetch (`?include_resolved=true` adds resolved advice). A finding case shows the advice
+behind its finding in `provider_advice` (`provider_advice_unavailable` when it could not be
+read). In fleet mode each member reads its own provider's advice.
+
+```yaml
+provider_advice:
+  enabled: true   # default; a source runs only when its provider is detected and its credentials exist
+```
+
 ## Live check (owner-run, never in CI)
 
 CI uses httptest fakes only. To check against a real, disposable instance (read-only calls):

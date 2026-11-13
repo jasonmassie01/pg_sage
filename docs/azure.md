@@ -136,7 +136,19 @@ CHECK-AZ-07: PG_SAGE_LIVE_AZURE=1 go test ./internal/azure -run Live passes (set
 CHECK-AZ-08: PG_SAGE_LIVE_AZURE=1 go test ./internal/azure -run RestartBound passes (pending restart reported)
 CHECK-AZ-09: MANUAL a server-parameter proposal's az command runs and parameter show reads the value back
 CHECK-AZ-10: go test -tags cloudlive ./internal/cloudtel -run TestLiveAzureTelemetry reads fresh CPU and memory
+CHECK-AZ-11: MANUAL GET /api/v1/provider-advice?database=<db> lists the server's index tuning recommendations (confirms the pinned api-version)
 ```
+
+### Index tuning recommendations
+
+With index tuning on (`index_tuning.mode = REPORT`), pg_sage reads the server's index
+recommendations hourly (the ARM list behind `az postgres flexible-server index-tuning
+list-recommendations`, api-version `2024-11-01-preview`, following at most 5 pages on the ARM
+host) with the same credential and **Reader** role, keeps the ones for the monitored database
+and gives each pg_sage's verdict (see [Provider advice](managed-clouds.md#provider-advice)).
+`CreateIndex` and `DropIndex` are read; other recommendation types are shown as `unknown`. A
+403 is recorded as the source's error and leaves earlier advice unchanged. The api-version is
+pinned until the live check below confirms it (CHECK-AZ-11).
 
 ### Roles for host telemetry
 
