@@ -52,10 +52,14 @@ var (
 	// match, either of which keeps the change a rewrite.
 	reUsingOrCollate = regexp.MustCompile(`(?i)\b(?:USING|COLLATE)\b`)
 
-	// ADD [COLUMN] x type ... DEFAULT expr
+	// ADD [COLUMN] x type ... DEFAULT expr: the first DEFAULT after the
+	// ADD, so matching it at every ADD (reAddHead) reads every clause.
 	reAddColumnDefault = regexp.MustCompile(
 		`(?i)\bADD\s+(?:COLUMN\s+)?(?:IF\s+NOT\s+EXISTS\s+)?(` + identRE +
-			`)\s+\S+.*\bDEFAULT\s+(.+?)(?:\s*,|\s*;|\s*\)|$)`)
+			`)\s+\S+.*?\bDEFAULT\s+(.+?)(?:\s*,|\s*;|\s*\)|$)`)
+
+	// reAddHead finds each ADD of a multi-clause ALTER TABLE.
+	reAddHead = regexp.MustCompile(`(?i)\bADD\s`)
 
 	// ADD [COLUMN] x serial / IDENTITY / GENERATED ... STORED: all
 	// populate every existing row and therefore rewrite the table.
