@@ -18,6 +18,7 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 failures=0
 log="$work/docker.log"
+state="$work/containers" # the stub's live containers: "<name> <run label>"
 
 fail() { echo "FAIL $1" >&2; failures=$((failures + 1)); }
 
@@ -27,7 +28,8 @@ expect() {
   shift 4
   local status
   : >"$log"
-  out=$(env PATH="$work/bin:$PATH" STUB_LOG="$log" "$@" 2>&1)
+  : >"$state"
+  out=$(env PATH="$work/bin:$PATH" STUB_LOG="$log" STUB_STATE="$state" "$@" 2>&1)
   status=$?
   if [[ $status -ne $want ]]; then
     fail "$name: exit $status, want $want; output: $out"
@@ -54,14 +56,33 @@ image)
     [[ $3 == "$img" ]] && { echo "Error: No such image: $3" >&2; exit 1; }
   done
   echo sha256:stub ;;
-container)
-  for c in ${STUB_EXISTING:-}; do [[ $3 == "$c" ]] && exit 0; done
-  exit 1 ;;
+container) # inspect: prints the owner label of a known container
+  name=${!#}
+  for c in ${STUB_EXISTING:-}; do [[ $name == "$c" ]] && { echo other-run; exit 0; }; done
+  line=$(grep "^$name " "$STUB_STATE") || exit 1
+  echo "${line#* }" ;;
+rm)
+  grep -v "^${!#} " "$STUB_STATE" >"$STUB_STATE.new"; mv "$STUB_STATE.new" "$STUB_STATE" ;;
 run)
+  args=("$@") name= label=
+  for ((i = 0; i < ${#args[@]}; i++)); do
+    case ${args[i]} in
+    --name) name=${args[i + 1]} ;;
+    --label) [[ ${args[i + 1]} == pg_sage.local-suite.run=* ]] && label=${args[i + 1]#*=} ;;
+    esac
+  done
+  if [[ $name == "${STUB_TAKEN_ON_RUN:-}" ]]; then
+    # Another run took the name between the claim and this run.
+    echo "$name other-run" >>"$STUB_STATE"
+    echo "docker: Conflict. The container name \"/$name\" is already in use" >&2
+    exit 125
+  fi
   if [[ $* == *"command -v gcc"* ]]; then
     [[ -z ${STUB_NO_GCC:-} ]] || exit 1; echo /usr/bin/gcc
   elif [[ $* == *"-race"*"/probe"* || $* == *"/probe"*"-race"* ]]; then
     [[ -z ${STUB_RACE_FAIL:-} ]] || { echo "ld: cannot find -lracego" >&2; exit 1; }
+  elif [[ $2 == -d ]]; then
+    echo "$name $label" >>"$STUB_STATE"
   fi ;;
 esac
 exit 0
@@ -179,6 +200,33 @@ expect 10 'container improve-ci-pg17 already exists' "existing server name" -- \
   $guard FAKE_FREE_GB=99 STUB_EXISTING=improve-ci-pg17 bash "$script" "$o" 17
 grep -q 'docker rm' "$log" && fail "a container the run did not create was removed: $(cat "$log")"
 [[ -f $o/stage/sidecar/vendor/modules.txt ]] || fail "vendor/ was not made in the stage"
+
+# Boundary: another run takes the name between the claim and docker run.
+# The cleanup must leave that run's container alone.
+expect 5 'server improve-ci-pg17 .* did not start' "name taken after the claim" -- \
+  $guard FAKE_FREE_GB=99 STUB_TAKEN_ON_RUN=improve-ci-pg17 bash "$script" "$(newout)" 17
+grep -q 'docker rm .*improve-ci-pg17' "$log" &&
+  fail "the cleanup removed another run's improve-ci-pg17: $(cat "$log")"
+grep -q '^improve-ci-pg17 other-run$' "$state" || fail "the other run's container is gone"
+
+# Happy path through stubs: every container carries this run's label, the
+# server is removed at the end, and the summary is written.
+o=$(newout)
+expect 0 'summary: .*summary.md' "stubbed full run" -- \
+  $guard FAKE_FREE_GB=99 bash "$script" "$o" 17
+runs=$(grep '^docker run' "$log")
+[[ $(grep -c . <<<"$runs") -eq 5 ]] || fail "want 5 docker runs (gcc, race probe, server, suite,"\
+" e2e): $runs"
+ids=$(grep -oE 'pg_sage.local-suite.run=[^ ]+' <<<"$runs" | sort -u)
+[[ $(grep -c . <<<"$ids") -eq 1 ]] ||
+  fail "every container needs one run label with a value: $ids"
+grep -q 'docker rm -f -v improve-ci-pg17$' "$log" ||
+  fail "the server was not removed: $(cat "$log")"
+[[ -s $state ]] && fail "containers left after the run: $(cat "$state")"
+grep -q 'suite=0' "$o/pg17/status.txt" && grep -q 'skipbudget=0' "$o/pg17/status.txt" ||
+  fail "status.txt lacks the suite and skip budget results: $(cat "$o/pg17/status.txt")"
+[[ -f $o/summary.md ]] || fail "no summary.md after a full run"
+
 after=$(git -C "$repo" status --porcelain)
 [[ $before == "$after" ]] || fail "a run changed the worktree: $before -> $after"
 

@@ -12,7 +12,10 @@
 # repository: the source is a git archive of LOCAL_SUITE_REV (default HEAD)
 # under <out-dir>/stage, vendored offline from the host module cache. It
 # creates and removes only containers named LOCAL_SUITE_PREFIX* (default
-# improve-ci-) and refuses a name that is already taken.
+# improve-ci-) and refuses a name that is already taken. Each container it
+# starts carries the label pg_sage.local-suite.run=<this run's id>, and the
+# cleanup removes only containers with that label, so it cannot remove
+# another run's container even when two runs race for one name.
 #
 # Environment:
 #   GO_IMAGE               Go image, needs gcc (default golang:1.27.3-alpine3.24,
@@ -52,6 +55,8 @@ PREFIX=${LOCAL_SUITE_PREFIX-improve-ci-}
 GOCACHE_VOL=${LOCAL_SUITE_GOCACHE-improve-ci-gocache}
 GO_MEMORY=${LOCAL_SUITE_GO_MEMORY-6g}
 REV=${LOCAL_SUITE_REV:-HEAD}
+readonly RUN_LABEL=pg_sage.local-suite.run
+RUN_ID=
 CREATED=()
 MAJORS=()
 
@@ -165,20 +170,24 @@ claim() {
   CREATED+=("$1")
 }
 
-# cleanup removes the containers this run created that still exist; never
-# a name outside improve-.
+# cleanup removes the containers this run claimed that still exist and
+# carry this run's label; never a name outside improve-, and never a
+# container that another run started under a name claimed here.
 cleanup() {
-  local c
+  local c owner
   for c in "${CREATED[@]-}"; do
     case "$c" in improve-?*) ;; *) continue ;; esac
-    dk 60 container inspect "$c" >/dev/null 2>&1 || continue
+    owner=$(dk 60 container inspect -f "{{index .Config.Labels \"$RUN_LABEL\"}}" "$c" \
+      2>/dev/null) || continue
+    [ "$owner" = "$RUN_ID" ] || continue
     dk 120 rm -f -v "$c" >/dev/null 2>&1 || echo "local-linux-suite: could not remove $c" >&2
   done
 }
 
 # go_args <name> <network>: the Go container's options.
 go_args() {
-  GO_ARGS=(--rm --name "$1" --network "$2" --memory="$GO_MEMORY" --memory-swap="$GO_MEMORY"
+  GO_ARGS=(--rm --name "$1" --label "$RUN_LABEL=$RUN_ID" --network "$2"
+    --memory="$GO_MEMORY" --memory-swap="$GO_MEMORY"
     --cpus=4 --cpu-shares=256 --oom-score-adj=500
     -e CGO_ENABLED=1 -e GOPROXY=off -e GOTOOLCHAIN=local -e GOCACHE=/gocache
     -v "$GOCACHE_VOL:/gocache")
@@ -278,7 +287,7 @@ start_server() {
   img=$(pg_image "$m")
   server_flags "$img"
   claim "$srv"
-  dk 180 run -d --rm --name "$srv" --label pg_sage.improve=1 \
+  dk 180 run -d --rm --name "$srv" --label pg_sage.improve=1 --label "$RUN_LABEL=$RUN_ID" \
     --memory=1536m --memory-swap=1536m --oom-score-adj=500 --cpu-shares=256 --cpus=2 \
     -e POSTGRES_PASSWORD=postgres --shm-size=256m \
     --tmpfs /var/lib/postgresql/data:rw,size=2g -e PGDATA=/var/lib/postgresql/data/pgdata \
@@ -370,6 +379,7 @@ main() {
   docker_ok
   check_images
   mkdir -p "$OUT" || die 2 "cannot create out-dir $OUT"
+  RUN_ID="$(date +%s)-$$-$RANDOM"
   trap cleanup EXIT
   trap 'exit 130' INT TERM
   check_toolchain
