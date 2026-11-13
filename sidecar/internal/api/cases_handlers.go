@@ -66,6 +66,7 @@ func queryFindingCases(
 	}
 	rows, next := mergePage(page.rows, listPage{Limit: filters.Limit}, true,
 		filters.Sort, filters.Order)
+	attachSequenceRunway(ctx, selected.pool, selected.name, rows)
 	out, findingIDs = projectFindingRows(rows)
 	return out, findingIDs, next != "", nil
 }
