@@ -45,6 +45,9 @@ type RollbackMonitorConfig struct {
 	// ActionPool is the separate action identity the rollback statement
 	// runs as; nil runs it on the monitor's pool (security-09).
 	ActionPool *pgxpool.Pool
+	// RoleLock, when set, takes the cluster-wide lock of a role a role
+	// budget rollback changes, as the forward change took it (market-08b).
+	RoleLock func(ctx context.Context, role string) (func(), error)
 
 	execRollback func(context.Context, string, time.Duration, ...DDLOption) error
 	applyConfig  func(context.Context, string) configApplyOutcome
@@ -323,7 +326,7 @@ func executeRollbackSQL(
 		err = execStatementsInTransaction(ctx, pool, timeout, o, sql)
 		return "created statistics removed; ANALYZE statistics are not restored", err
 	}
-	if err := cfg.exec(pool)(ctx, sql, timeout, WithLockTimeout(cfg.LockTimeoutMs)); err != nil {
+	if err := cfg.execRollbackStatement(ctx, pool, sql, timeout); err != nil {
 		return "", err
 	}
 	reason := "automatic rollback due to regression"

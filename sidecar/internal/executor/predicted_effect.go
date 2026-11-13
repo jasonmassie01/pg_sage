@@ -186,6 +186,8 @@ func (e *Executor) predictEffect(
 		e.statisticsBaseline(ctx, sql, &p, before)
 	case verify.ClassReindex:
 		e.reindexBaseline(ctx, sql, &p, before)
+	case verify.ClassRoleTimeout:
+		e.recordCancelWatch(ctx, detail, before)
 	}
 	return p
 }
