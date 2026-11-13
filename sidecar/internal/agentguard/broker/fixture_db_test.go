@@ -1,5 +1,3 @@
-//go:build cgo
-
 package broker
 
 import (
@@ -205,4 +203,17 @@ type auditRow struct {
 	verdict, reason, step, envelope, task string
 	rowCount                              int
 	classes                               []string
+}
+
+// cell is one result value, "<null>" for NULL.
+func cell(t *testing.T, r Result, row, col int) string {
+	t.Helper()
+	if row >= len(r.Rows) || col >= len(r.Rows[row]) {
+		t.Fatalf("no cell (%d,%d) in %+v", row, col, r.Rows)
+	}
+	v := r.Rows[row][col]
+	if v == nil {
+		return "<null>"
+	}
+	return *v
 }
