@@ -182,21 +182,13 @@ var reFuncCall = regexp.MustCompile(
 // (the parse-tree mapping's volatileExpr; env-cgo-b).
 func isVolatileDefault(expr string) bool {
 	for _, m := range reFuncCall.FindAllStringSubmatch(expr, -1) {
-		if m[1] != "" && callName(m[1]) != "pg_catalog" {
+		if m[1] != "" && unquoteIdent(m[1]) != "pg_catalog" {
 			return true
 		}
-		if !immutableDefaults[callName(m[2])] {
+		if !immutableDefaults[unquoteIdent(m[2])] {
 			return true
 		}
 	}
 	return false
 }
 
-// callName is the name an identifier of reFuncCall denotes: a quoted one
-// unquoted with its case kept, a bare one folded to lower case.
-func callName(ident string) string {
-	if len(ident) >= 2 && ident[0] == '"' {
-		return strings.ReplaceAll(ident[1:len(ident)-1], `""`, `"`)
-	}
-	return strings.ToLower(ident)
-}
