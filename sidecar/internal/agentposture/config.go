@@ -20,6 +20,9 @@ type Config struct {
 	DailyAt string
 	// Platform is where the database runs (AP-11); the zero value is unknown.
 	Platform Platform
+	// ActionRole is the role of pg_sage's action identity (action_dsn); ""
+	// when one role observes and acts.
+	ActionRole string
 }
 
 // DefaultConfig is the shipped configuration.

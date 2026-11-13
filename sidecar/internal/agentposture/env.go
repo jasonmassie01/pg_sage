@@ -20,6 +20,7 @@ const (
 	SourceRegistered RoleSource = "registered"  // a Guard agent role
 	SourceClientHint RoleSource = "client_hint" // seen with an agent-like application_name
 	SourceSelf       RoleSource = "self"        // pg_sage's own role
+	SourceAction     RoleSource = "action"      // pg_sage's action identity (action_dsn)
 )
 
 // Role is one database role in the posture environment.
@@ -39,6 +40,9 @@ func (r Role) Registered() bool { return r.Source == SourceRegistered }
 type Env struct {
 	VersionNum int
 	Self       Role
+	// Action is pg_sage's separate action identity (action_dsn); nil when
+	// one role observes and acts (AP-14 reports that as one identity).
+	Action *Role
 	// Exposed is PUBLIC first, then agents.exposed_roles that exist, then
 	// anon and authenticated when both exist.
 	Exposed []Role
@@ -151,6 +155,9 @@ func ResolveEnv(ctx context.Context, q Querier, cfg Config) (Env, error) {
 	if err := q.QueryRow(ctx, selfSQL).Scan(&env.VersionNum, &env.Self.OID,
 		&env.Self.Name); err != nil {
 		return Env{}, fmt.Errorf("agent posture: read server version and own role: %w", err)
+	}
+	if err := resolveAction(ctx, q, cfg.ActionRole, &env); err != nil {
+		return Env{}, err
 	}
 	if err := resolveRoles(ctx, q, cfg, &env); err != nil {
 		return Env{}, err

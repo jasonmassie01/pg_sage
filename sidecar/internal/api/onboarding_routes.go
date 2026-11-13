@@ -175,6 +175,14 @@ func (f *fleetOnboardingReader) Guide(ctx context.Context, name string) (
 	if in.Grants, err = onboarding.CheckGrants(ctx, inst.Pool); err != nil {
 		return onboarding.GuideInput{}, grantTarget{}, err
 	}
+	if inst.ActionPool != nil { // the action identity's grants (security-09)
+		action, err := onboarding.CheckGrants(ctx, inst.ActionPool)
+		if err != nil {
+			return onboarding.GuideInput{}, grantTarget{}, fmt.Errorf(
+				"read the action identity's grants: %w", err)
+		}
+		in.ActionGrants = &action
+	}
 	return in, f.target(inst), nil
 }
 

@@ -61,13 +61,18 @@ type GuideInput struct {
 	// RampElapsedHours is how long the trust ramp has run; nil if unknown.
 	RampElapsedHours *float64
 	Grants           GrantStatus
+	// ActionGrants is the separate action identity's grants (action_dsn,
+	// security-09); nil when one role observes and acts. The acting levels
+	// then address and check that role.
+	ActionGrants *GrantStatus
 }
 
 // TrustGuide explains the three trust levels for the "grant more" step.
 func TrustGuide(in GuideInput) []Level {
 	role := quoteRole(in.Grants.Role)
-	levels := []Level{observationLevel(in, role), advisoryLevel(in, role),
-		autonomousLevel(in, role)}
+	acting, actingRole := in.acting()
+	levels := []Level{observationLevel(in, role), advisoryLevel(in, acting, actingRole),
+		autonomousLevel(in, acting, actingRole)}
 	for i := range levels {
 		levels[i].Current = levels[i].Level == in.Current
 	}
@@ -93,7 +98,7 @@ func observationLevel(in GuideInput, role string) Level {
 		}}
 }
 
-func advisoryLevel(in GuideInput, role string) Level {
+func advisoryLevel(in GuideInput, g GrantStatus, role string) Level {
 	l := Level{Level: LevelAdvisory, Title: "Safe changes",
 		Allows: []string{"Read-only actions as soon as they are proposed.",
 			fmt.Sprintf("Eligible typed SAFE actions after the %.0f h safe ramp, "+
@@ -101,7 +106,7 @@ func advisoryLevel(in GuideInput, role string) Level {
 		Never: []string{"MODERATE actions run only after a person approves them.",
 			"High-risk actions run only after a person approves them."},
 		Waits:  rampWaits(in.RampElapsedHours, in.SafeRampHours, "safe"),
-		Grants: actingGrants(in.Grants, role)}
+		Grants: actingGrants(g, role)}
 	if !in.Tier3Safe {
 		l.Waits = append(l.Waits, "trust.tier3_safe is off: SAFE actions also wait for "+
 			"approval.")
@@ -109,7 +114,7 @@ func advisoryLevel(in GuideInput, role string) Level {
 	return withExecutionMode(l, in.ExecutionMode)
 }
 
-func autonomousLevel(in GuideInput, role string) Level {
+func autonomousLevel(in GuideInput, g GrantStatus, role string) Level {
 	l := Level{Level: LevelAutonomous, Title: "Earned autonomy",
 		Allows: []string{"Everything advisory allows.",
 			fmt.Sprintf("Eligible typed MODERATE actions after the %.0f h moderate ramp, "+
@@ -117,11 +122,11 @@ func autonomousLevel(in GuideInput, role string) Level {
 		Never: []string{"High-risk actions run only after a person approves them, at " +
 			"every level."},
 		Waits: rampWaits(in.RampElapsedHours, in.ModerateRampHours, "moderate"),
-		Grants: append(actingGrants(in.Grants, role), Grant{Name: GrantAlterSystem,
+		Grants: append(actingGrants(g, role), Grant{Name: GrantAlterSystem,
 			Why: "Change server settings (managed services: the parameter group or flags).",
 			SQL: "GRANT ALTER SYSTEM ON PARAMETER work_mem TO " + role +
 				"; -- one grant per parameter (PostgreSQL 15+)",
-			Present: in.Grants.AlterSystem})}
+			Present: g.AlterSystem})}
 	if !in.Tier3Moderate {
 		l.Waits = append(l.Waits, "trust.tier3_moderate is off: MODERATE actions wait "+
 			"for approval until it is turned on.")
