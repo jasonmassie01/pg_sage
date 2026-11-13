@@ -2863,7 +2863,11 @@ minimum bench run counts (10) are fixed.
 
 **Evidence decay.** An earned L2 or L3 holds only while its evidence does. The bench report
 stops counting 30 days after its `generated_at` (a release's shipped report too), and shadow
-reviews leave the 30-day window one by one. The Autonomy and Trust pages show, on every
+reviews leave the 30-day window one by one. No evidence is permanent: a signed report for the
+running build expires like any other, because it proves the build, not today's workload. The
+workload, the data volume, the model behind the LLM features and the PostgreSQL minor version
+all drift while the build stays the same; a fresh report or new shadow reviews restore the
+level. The Autonomy and Trust pages show, on every
 earned row, the date the level holds until and the checks that expire then (`holds_until`,
 `expiring_checks` in `GET /api/v1/sre/autonomy` and `GET /api/v1/trust`), for example "L3
 holds until 2026-12-03 09:30 UTC unless a new bench report arrives". The date is the last
