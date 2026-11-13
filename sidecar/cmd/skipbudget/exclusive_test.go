@@ -103,7 +103,7 @@ func TestWorkflowJobsStartTheExclusiveServer(t *testing.T) {
 			t.Errorf("job %s: postgres-exclusive image %q differs from postgres %v",
 				name, exclusive[1], image)
 		}
-		if !regexp.MustCompile(`\n      SAGE_TEST_EXCLUSIVE_URL: postgres://postgres:postgres@` +
+		if !regexp.MustCompile(`\n      SAGE_TEST_EXCLUSIVE_URL: postgres://postgres:postgres@`+
 			`localhost:5433/postgres\?sslmode=disable\n`).MatchString(job) ||
 			!strings.Contains(job, "- 5433:5432") {
 			t.Errorf("job %s does not export SAGE_TEST_EXCLUSIVE_URL on port 5433", name)
