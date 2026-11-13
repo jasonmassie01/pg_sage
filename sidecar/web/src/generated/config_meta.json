@@ -2044,6 +2044,13 @@
     "class": "operator_preference",
     "lifecycle": "restart"
   },
+  "migration.contract_delay_minutes": {
+    "type": "int",
+    "default": 60,
+    "doc": "Minutes after apply_migration's expand phase before its contract phase may run; recorded as contract_not_before. 1 or more. Default: 60.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
   "migration.ddl_row_threshold": {
     "type": "int",
     "default": 0,
@@ -2063,6 +2070,13 @@
     "default": false,
     "doc": "Parse DDL from PG logs (requires log_statement=ddl).",
     "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "migration.max_lock_ms": {
+    "type": "int",
+    "default": 2000,
+    "doc": "Milliseconds a rehearsed step without CONCURRENTLY may hold ACCESS EXCLUSIVE on the clone before apply_migration parks (step_budget_exceeded). 1 or more. Default: 2000.",
+    "class": "safety_critical",
     "lifecycle": "restart"
   },
   "migration.mode": {
@@ -2464,6 +2478,13 @@
     "type": "int",
     "default": 5,
     "doc": "Minutes a session's transaction must be open before the vacuum_blocked incident names it as the holder of the oldest xmin. 1-1440. Default: 5.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "rehearsal.plan_flip_pct": {
+    "type": "float64",
+    "default": 5,
+    "doc": "Percent a query may slow on the rehearsal clone after its plan changed before apply_migration parks (plan_regression); without a plan change the limit is 15. Above 0, at most 100. Default: 5.",
     "class": "safety_critical",
     "lifecycle": "restart"
   },

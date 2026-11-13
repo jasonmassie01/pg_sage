@@ -11,7 +11,6 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/mcp"
-	"github.com/pg-sage/sidecar/internal/migration/plan"
 	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/value"
 )
@@ -216,7 +215,7 @@ func (executor *fleetIntentExecutor) Execute(
 	if err != nil {
 		return nil, err
 	}
-	production := mcp.NewProductionIntentExecutor(adapter, plan.NewPlanner(), executor.gate)
+	production := mcp.NewProductionIntentExecutor(adapter, migrationPlanner(cfg), executor.gate)
 	return production.Execute(ctx, request, decision)
 }
 
@@ -227,7 +226,7 @@ func (executor *fleetIntentExecutor) ExecuteConcrete(
 	if err != nil {
 		return nil, err
 	}
-	production := mcp.NewProductionIntentExecutor(adapter, plan.NewPlanner(), executor.gate)
+	production := mcp.NewProductionIntentExecutor(adapter, migrationPlanner(cfg), executor.gate)
 	if request.Contract != nil && request.Contract.ActionType == "apply_migration" {
 		factory := executor.migrationFactory
 		if factory == nil {

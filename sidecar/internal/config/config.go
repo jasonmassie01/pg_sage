@@ -85,6 +85,7 @@ type Config struct {
 	LogWatch    LogWatchConfig      `yaml:"logwatch"`
 	SchemaLint  SchemaLintConfig    `yaml:"schema_lint"`
 	Migration   MigrationConfig     `yaml:"migration"`
+	Rehearsal   RehearsalConfig     `yaml:"rehearsal"`
 	Retention   RetentionConfig     `yaml:"retention"`
 	Prometheus  PrometheusConfig    `yaml:"prometheus"`
 	Azure       AzureConfig         `yaml:"azure"`
@@ -465,6 +466,9 @@ type MigrationConfig struct {
 	PollIntervalSeconds   int    `yaml:"poll_interval_seconds" doc:"How often to poll during active DDL. Default: 5."`
 	DDLRowThreshold       int    `yaml:"ddl_row_threshold" doc:"Row count below which DDL is considered low-risk. Default: 10000."`
 	QueueWaitersThreshold int    `yaml:"queue_waiters_threshold" doc:"Sessions queued directly behind an in-flight DDL waiting for its lock before the finding turns critical with approval-only cancel guidance. Needs the RCA fast path. Default: 3."`
+	// migration-06: rehearsed apply_migration budgets (migration_rehearsal.go).
+	ContractDelayMinutes int `yaml:"contract_delay_minutes" doc:"Minutes after apply_migration's expand phase before its contract phase may run; recorded as contract_not_before. 1 or more. Default: 60."`
+	MaxLockMS            int `yaml:"max_lock_ms" doc:"Milliseconds a rehearsed step without CONCURRENTLY may hold ACCESS EXCLUSIVE on the clone before apply_migration parks (step_budget_exceeded). 1 or more. Default: 2000."`
 }
 
 type TunerConfig struct {
@@ -800,6 +804,9 @@ func (c *Config) validate() error {
 	if err := c.validateTrust(); err != nil {
 		return err
 	}
+	if err := c.validateMigrationRehearsal(); err != nil {
+		return err
+	}
 	if err := c.validateElevation(); err != nil {
 		return err
 	}
@@ -1069,8 +1076,11 @@ func newDefaults() *Config {
 			ScanIntervalMinutes: DefaultSchemaLintScanIntervalMinutes,
 		},
 		Migration: MigrationConfig{
-			PollIntervalSeconds: DefaultMigrationPollIntervalSeconds,
+			PollIntervalSeconds:  DefaultMigrationPollIntervalSeconds,
+			ContractDelayMinutes: DefaultMigrationContractDelayMinutes,
+			MaxLockMS:            DefaultMigrationMaxLockMS,
 		},
+		Rehearsal: RehearsalConfig{PlanFlipPct: DefaultRehearsalPlanFlipPct},
 		AutoExplain: AutoExplainConfig{
 			Enabled:                true,
 			LogMinDurationMs:       DefaultAutoExplainLogMinDuration,
