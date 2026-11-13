@@ -110,6 +110,9 @@ func (c *Config) ValidateAlerting() error {
 // validateBlock checks an enabled block; requireSecrets also demands the
 // Slack URL and PagerDuty key behind the routes that name them.
 func (a *AlertingConfig) validateBlock(requireSecrets bool) error {
+	if err := a.validateEngine(); err != nil {
+		return err
+	}
 	if !a.Enabled {
 		return nil
 	}

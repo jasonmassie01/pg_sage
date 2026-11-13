@@ -369,7 +369,7 @@ func TestFieldLifecycleRegistryAndEffectiveFallback(t *testing.T) {
 		{"trust.level", LifecycleLivePolicy, "trust_policy"},
 		{"llm.model", LifecycleReconfigure, "llm"},
 		{"collector.interval_seconds", LifecycleRestart, ""},
-		{"alerting.routes", LifecycleRestart, ""},
+		{"alerting.routes", LifecycleReconfigure, AlertingOwner}, // alerting-06b
 		{"mode", LifecycleRestart, ""},
 		{"postgres.database_url", LifecycleRestart, ""},
 		{"databases", LifecycleReconfigure, FleetDatabasesOwner},

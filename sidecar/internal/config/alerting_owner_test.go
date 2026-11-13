@@ -4,8 +4,8 @@ import "testing"
 
 // alerting-06: the alerting owner applies the cooldown, quiet hours,
 // timezone and repeat intervals to the running notification stack, so
-// those fields are reconfigure; routes, channels, secrets, the interval
-// and the switch stay restart-bound.
+// those fields are reconfigure; the legacy check interval stays
+// restart-bound.
 // No concurrent access tests: the registry is built once under sync.Once.
 
 func TestAlertingPolicyFieldsReconfigureLive(t *testing.T) {
@@ -16,8 +16,9 @@ func TestAlertingPolicyFieldsReconfigureLive(t *testing.T) {
 			t.Errorf("%s = %+v, want reconfigure by %s", path, f, AlertingOwner)
 		}
 	}
-	for _, path := range []string{"alerting.enabled", "alerting.routes",
-		"alerting.webhooks", "alerting.slack_webhook_url", "alerting.check_interval_seconds"} {
+	// alerting-06b moved enabled, routes, webhooks and the targets to the
+	// owner (alerting_engine_test.go); the legacy interval stays here.
+	for _, path := range []string{"alerting.check_interval_seconds"} {
 		if f, _ := LookupFieldLifecycle(path); f.Lifecycle != LifecycleRestart || f.Owner != "" {
 			t.Errorf("%s = %+v, want restart without owner", path, f)
 		}

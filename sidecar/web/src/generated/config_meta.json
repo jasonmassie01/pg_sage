@@ -270,6 +270,13 @@
     "default": false,
     "doc": "",
     "class": "operator_preference",
+    "lifecycle": "reconfigure"
+  },
+  "alerting.engine": {
+    "type": "string",
+    "default": "notify",
+    "doc": "Engine for the alerting block: notify (reconciled into notification channels and rules, sent through the outbox) or legacy (old per-database manager). Restart. Default: notify.",
+    "class": "operator_preference",
     "lifecycle": "restart"
   },
   "alerting.pagerduty_routing_key": {
@@ -277,7 +284,7 @@
     "default": "",
     "doc": "",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "reconfigure"
   },
   "alerting.quiet_hours_end": {
     "type": "string",
@@ -305,21 +312,21 @@
     "default": null,
     "doc": "",
     "class": "operator_preference",
-    "lifecycle": "restart"
+    "lifecycle": "reconfigure"
   },
   "alerting.routes[].severity": {
     "type": "string",
     "default": "",
     "doc": "",
     "class": "operator_preference",
-    "lifecycle": "restart"
+    "lifecycle": "reconfigure"
   },
   "alerting.slack_webhook_url": {
     "type": "string",
     "default": "",
     "doc": "",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "reconfigure"
   },
   "alerting.timezone": {
     "type": "string",
@@ -333,21 +340,21 @@
     "default": null,
     "doc": "",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "reconfigure"
   },
   "alerting.webhooks[].name": {
     "type": "string",
     "default": "",
     "doc": "",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "reconfigure"
   },
   "alerting.webhooks[].url": {
     "type": "string",
     "default": "",
     "doc": "",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "reconfigure"
   },
   "analyzer.analyze_stale_days": {
     "type": "int",

@@ -362,6 +362,7 @@ type BriefingConfig struct {
 
 type AlertingConfig struct {
 	Enabled              bool            `yaml:"enabled"`
+	Engine               string          `yaml:"engine" doc:"Engine for the alerting block: notify (reconciled into notification channels and rules, sent through the outbox) or legacy (old per-database manager). Restart. Default: notify."`
 	CheckIntervalSeconds int             `yaml:"check_interval_seconds"`
 	CooldownMinutes      int             `yaml:"cooldown_minutes"`
 	RepeatMinutes        map[string]int  `yaml:"repeat_minutes" doc:"Minutes between reminders of a finding that stays open, per severity. A missing key takes its default; 0 never reminds. Default: critical 240, warning 1440, info 0."`
@@ -1125,6 +1126,7 @@ func newDefaults() *Config {
 		},
 		Alerting: AlertingConfig{
 			Enabled:              false,
+			Engine:               AlertingEngineNotify,
 			CheckIntervalSeconds: DefaultAlertingCheckInterval,
 			CooldownMinutes:      DefaultAlertingCooldown,
 			RepeatMinutes:        ResolveAlertRepeatMinutes(nil),
