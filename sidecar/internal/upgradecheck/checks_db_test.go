@@ -315,7 +315,8 @@ func TestRun_RemovedSettings(t *testing.T) {
 		return
 	}
 	if u6.Status != Warn || u6.Total != 1 || u6.Rows[0]["name"] != "force_parallel_mode" ||
-		u6.Rows[0]["source"] != "database" || !strings.Contains(u6.Rows[0]["change"], "debug_parallel_query") {
+		u6.Rows[0]["source"] != "database" ||
+		!strings.Contains(u6.Rows[0]["change"], "debug_parallel_query") {
 		t.Fatalf("PG%d U6 = %+v, want a warning on force_parallel_mode", d.major, u6)
 	}
 }
