@@ -98,6 +98,31 @@ has "$s14" "no skipbudget.txt" "missing skip budget output is named"
 has "$s15" "no suite.json: the run stopped before the suite" "major that never ran"
 has "$(cat "$out/summary.md")" "**Total:** 3 passed, 12 failed, 2 skipped" "overall totals"
 
+# Invalid input to the label heuristic: an extension name inside a longer
+# word or in t.Errorf's file:line prefix is no missing-extension error.
+o2=$work/out2
+mkdir -p "$o2/pg16"
+{
+  ev output "$a" TestFileName '    hypopg_test.go:40: relation \"sage.findings\" does not exist\n'
+  ev fail "$a" TestFileName
+  ev output "$a" TestLongerWord '    lab_test.go:5: vectorlab table does not exist\n'
+  ev fail "$a" TestLongerWord
+  ev output "$a" TestHypoFunc '    x_test.go:7: ERROR: function hypopg_create_index(unknown)'\
+' does not exist (SQLSTATE 42883)\n'
+  ev fail "$a" TestHypoFunc
+  ev output "$a" TestVectorType '    v_test.go:3: ERROR: type \"vector\" does not exist\n'
+  ev fail "$a" TestVectorType
+} >"$o2/pg16/suite.json"
+printf '  - CREATE EXTENSION hypopg fails\n  - CREATE EXTENSION vector fails\n' \
+  >"$o2/pg16/server-check.txt"
+echo 'image=improve-pg:16' >"$o2/pg16/status.txt"
+bash "$summary" "$o2" 16 >/dev/null 2>"$work/err" || fail "exit $?: $(cat "$work/err")"
+s16=$(cat "$o2/summary.md")
+has "$s16" "- [real] $a TestFileName" "an extension in the file:line prefix"
+has "$s16" "- [real] $a TestLongerWord" "an extension inside a longer word"
+has "$s16" "- [image-limited] $a TestHypoFunc" "a missing HypoPG function"
+has "$s16" "- [image-limited] $a TestVectorType" "a missing pgvector type"
+
 bash "$summary" >/dev/null 2>"$work/err"
 [[ $? -eq 2 ]] && grep -q usage "$work/err" || fail "no arguments: want exit 2 and usage"
 bash "$summary" "$work/none" 17 >/dev/null 2>"$work/err"

@@ -42,11 +42,16 @@ function output(line,   i) {
   if (i == 0) return ""
   return substr(line, i + 10)
 }
+# ext_error: the line reports an error and names a missing extension as a
+# word of its own (hypopg_create_index and "vector" count; vectorlab and the
+# "hypopg_test.go:12:" location prefix of t.Errorf do not).
 function ext_error(text,   lower, i) {
   lower = tolower(text)
   if (lower ~ /^ *(=== |--- )/) return 0
+  sub(/^ *[a-z0-9_.-]+\.go:[0-9]+: /, "", lower)
   if (lower !~ errre) return 0
-  for (i = 1; i <= next_ext; i++) if (index(lower, ext[i])) return 1
+  for (i = 1; i <= next_ext; i++)
+    if (lower ~ ("(^|[^a-z0-9_])" ext[i] "([^a-z0-9]|$)")) return 1
   return 0
 }
 BEGIN {
