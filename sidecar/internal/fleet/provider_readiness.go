@@ -51,6 +51,17 @@ var adapterReadiness = map[string]adapterReadinessSpec{
 		"the azure.extensions allow-list controls CREATE EXTENSION",
 		"log access flows through Azure Monitor diagnostic settings",
 	}},
+	// CloudNativePG (market-12): plain PostgreSQL whose operator owns
+	// postgresql.conf; the image decides which extensions exist.
+	prov.CNPG: {extensions: map[string]string{"pg_stat_statements": "unknown",
+		"hypopg": "unknown", "pg_hint_plan": "cluster_spec_required",
+		"auto_explain": "cluster_spec_required"}, limitations: []string{
+		"instance settings change through the Cluster's spec.postgresql.parameters; " +
+			"ALTER SYSTEM is disabled and pg_sage never patches the Cluster",
+		"preload libraries go in spec.postgresql.shared_preload_libraries; a restart-bound " +
+			"change is a rolling restart that restarts or switches over the primary",
+		"server logs are the instance pods' output (kubectl logs)",
+	}},
 	prov.Neon:     hostedPostgresReadiness,
 	prov.Supabase: hostedPostgresReadiness,
 	// Lakebase families come from the contracts verified on the native OAuth

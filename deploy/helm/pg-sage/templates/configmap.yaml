@@ -1,0 +1,18 @@
+{{- $cfg := deepCopy .Values.config -}}
+{{- if .Values.cnpg.cluster -}}
+{{- $pg := dict -}}
+{{- if hasKey $cfg "postgres" -}}
+{{- $pg = get $cfg "postgres" -}}
+{{- end -}}
+{{- $_ := set $pg "cnpg" (dict "cluster" .Values.cnpg.cluster "namespace" (include "pg-sage.cnpgNamespace" .)) -}}
+{{- $_ := set $cfg "postgres" $pg -}}
+{{- end -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pg-sage.fullname" . }}-config
+  labels:
+    {{- include "pg-sage.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    {{- toYaml $cfg | nindent 4 }}

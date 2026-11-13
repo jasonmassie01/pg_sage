@@ -13,7 +13,11 @@ import (
 )
 
 func detectCloudEnvironment() string {
-	return detectCloudEnv(pool)
+	provider := detectCloudEnv(pool)
+	if cfg != nil {
+		provider, _ = cnpgProvider(provider, cfg.Postgres.CNPG) // the runtime warns
+	}
+	return provider
 }
 
 // detectCloudEnv probes a connection pool for managed service

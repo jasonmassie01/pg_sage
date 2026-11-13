@@ -35,6 +35,8 @@ type DatabaseConfig struct {
 	// CloudResource names this database's provider resource when its host
 	// does not (an IP, the Cloud SQL Auth Proxy, an RDS Proxy, custom DNS).
 	CloudResource CloudResourceConfig `yaml:"cloud_resource"`
+	// CNPG names this database's CloudNativePG Cluster (market-12).
+	CNPG CNPGConfig `yaml:"cnpg"`
 
 	// Verify carries this database's own load-admission attestation (D6).
 	Verify DatabaseVerifyConfig `yaml:"verify"`
@@ -221,6 +223,7 @@ func (c *Config) standaloneDatabase() DatabaseConfig {
 		Provider:       c.Postgres.Provider,
 		CloudResource:  c.Postgres.CloudResource,
 		ActionDSN:      c.Postgres.ActionDSN,
+		CNPG:           c.Postgres.CNPG,
 	}
 	applyDatabaseURL(&db, c.Postgres.DatabaseURL)
 	db.Name = db.Database

@@ -202,15 +202,16 @@ func trancheTwoMigrations() []namedStep {
 // trancheThreeMigrations are the T3 steps, in landing order.
 func trancheThreeMigrations() []namedStep {
 	return []namedStep{
-		{"ddlBaselineSamples", ddlBaselineSamples},         // market-02
-		{"ddlBudgetShadow", ddlBudgetShadow},               // market-08
-		{"ddlLLMUsageAttribution", ddlLLMUsageAttribution}, // llm-04: after ddlLLMUsage
-		{"ddlNotificationOutbox", ddlNotificationOutbox},   // alerting-06
-		{"ddlCaseTickets", ddlCaseTickets},                 // market-14
-		{"ddlUserDatabaseGrants", ddlUserDatabaseGrants},   // apiauth-08
-		{"ddlDatabasesDiscovered", ddlDatabasesDiscovered}, // market-06
-		{"ddlDiscoveredDatabases", ddlDiscoveredDatabases}, // market-06
-		{"ddlProviderAdvice", ddlProviderAdvice},           // market-09
-		{"ddlHostUsageHourly", ddlHostUsageHourly},         // market-04
+		{"ddlBaselineSamples", ddlBaselineSamples},                       // market-02
+		{"ddlBudgetShadow", ddlBudgetShadow},                             // market-08
+		{"ddlLLMUsageAttribution", ddlLLMUsageAttribution},               // llm-04: after ddlLLMUsage
+		{"ddlNotificationOutbox", ddlNotificationOutbox},                 // alerting-06
+		{"ddlCaseTickets", ddlCaseTickets},                               // market-14
+		{"ddlUserDatabaseGrants", ddlUserDatabaseGrants},                 // apiauth-08
+		{"ddlDatabasesDiscovered", ddlDatabasesDiscovered},               // market-06
+		{"ddlDiscoveredDatabases", ddlDiscoveredDatabases},               // market-06
+		{"ddlProviderAdvice", ddlProviderAdvice},                         // market-09
+		{"ddlHostUsageHourly", ddlHostUsageHourly},                       // market-04
+		{"ddlManagedChangeProvidersCNPG", ddlManagedChangeProvidersCNPG}, // market-12
 	}
 }

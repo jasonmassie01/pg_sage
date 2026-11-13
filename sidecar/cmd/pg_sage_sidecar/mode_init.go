@@ -188,6 +188,7 @@ func buildDBConfig(name string) config.DatabaseConfig {
 		SSLMode:  cfg.Postgres.SSLMode,
 		Provider: cfg.Postgres.Provider, CloudResource: cfg.Postgres.CloudResource,
 		ActionDSN: cfg.Postgres.ActionDSN,
+		CNPG:      cfg.Postgres.CNPG,
 	}
 }
 

@@ -16,8 +16,13 @@ const (
 	MechanismDatabaseFlag   = "database_flag"
 	// MechanismServerParameter is an Azure flexible-server parameter.
 	MechanismServerParameter = "server_parameter"
-	ApplyImmediate           = "immediate"
-	ApplyPendingReboot       = "pending-reboot"
+	// MechanismClusterSpec is a CloudNativePG Cluster's
+	// spec.postgresql.parameters entry (market-12).
+	MechanismClusterSpec = "cluster_spec"
+	ApplyImmediate       = "immediate"
+	ApplyPendingReboot   = "pending-reboot"
+	// ApplyRollingRestart: the CNPG operator restarts the instances itself.
+	ApplyRollingRestart = "rolling-restart"
 )
 
 // AutoApplyWithheld is why no managed change is applied by pg_sage in this
@@ -56,22 +61,26 @@ const (
 // Target is the provider resource a change applies to, as resolved
 // through the provider's API (Known) or not (Unresolved says why).
 type Target struct {
-	Provider                string                `json:"provider"`
-	Region                  string                `json:"region,omitempty"`
-	Project                 string                `json:"project,omitempty"`
-	Subscription            string                `json:"subscription,omitempty"`   // Azure
-	ResourceGroup           string                `json:"resource_group,omitempty"` // Azure
-	InstanceID              string                `json:"instance_id,omitempty"`
-	ParameterGroup          string                `json:"parameter_group,omitempty"`
-	ParameterGroupIsDefault bool                  `json:"parameter_group_is_default"`
-	ParameterGroupStatus    string                `json:"parameter_group_status,omitempty"`
-	Cluster                 string                `json:"cluster,omitempty"` // Aurora, AlloyDB
-	InstanceRole            string                `json:"instance_role,omitempty"`
-	Params                  map[string]GroupParam `json:"-"`
-	Flags                   map[string]string     `json:"-"`
-	FlagsKnown              bool                  `json:"flags_known"`
-	Known                   bool                  `json:"known"`
-	Unresolved              string                `json:"unresolved,omitempty"`
+	Provider                string `json:"provider"`
+	Region                  string `json:"region,omitempty"`
+	Project                 string `json:"project,omitempty"`
+	Subscription            string `json:"subscription,omitempty"`   // Azure
+	ResourceGroup           string `json:"resource_group,omitempty"` // Azure
+	InstanceID              string `json:"instance_id,omitempty"`
+	ParameterGroup          string `json:"parameter_group,omitempty"`
+	ParameterGroupIsDefault bool   `json:"parameter_group_is_default"`
+	ParameterGroupStatus    string `json:"parameter_group_status,omitempty"`
+	// Cluster is the Aurora, AlloyDB or CNPG cluster; Namespace and
+	// UpdateStrategy (spec.primaryUpdateStrategy) are CNPG's.
+	Cluster        string                `json:"cluster,omitempty"`
+	Namespace      string                `json:"namespace,omitempty"`
+	UpdateStrategy string                `json:"update_strategy,omitempty"`
+	InstanceRole   string                `json:"instance_role,omitempty"`
+	Params         map[string]GroupParam `json:"-"`
+	Flags          map[string]string     `json:"-"`
+	FlagsKnown     bool                  `json:"flags_known"`
+	Known          bool                  `json:"known"`
+	Unresolved     string                `json:"unresolved,omitempty"`
 }
 
 // GroupParam is one parameter of an RDS/Aurora parameter group or an
@@ -91,37 +100,50 @@ type Rollback struct {
 	Reset       bool   `json:"reset"`
 	ApplyMethod string `json:"apply_method,omitempty"`
 	CLI         string `json:"cli"`
+	// Patch is the CNPG merge patch that restores the prior value.
+	Patch string `json:"patch,omitempty"`
+}
+
+// Conflict is a different value a peer database of the same provider
+// resource proposes for the parameter.
+type Conflict struct {
+	Database string `json:"database"`
+	Value    string `json:"value"`
 }
 
 // Proposal is one typed managed change.
 type Proposal struct {
-	Provider          string   `json:"provider"`
-	Mechanism         string   `json:"mechanism"`
-	Target            string   `json:"target"`
-	Region            string   `json:"region,omitempty"`
-	Project           string   `json:"project,omitempty"`
-	ResourceGroup     string   `json:"resource_group,omitempty"`
-	Cluster           string   `json:"cluster,omitempty"`
-	Instance          string   `json:"instance,omitempty"`
-	ParameterGroup    string   `json:"parameter_group,omitempty"`
-	Parameter         string   `json:"parameter"`
-	Value             string   `json:"value"`
-	PGValue           string   `json:"pg_value"`
-	Unit              string   `json:"unit,omitempty"`
-	CurrentValue      string   `json:"current_value,omitempty"`
-	RunningValue      string   `json:"running_value,omitempty"`
-	ApplyMethod       string   `json:"apply_method"`
-	RebootRequired    bool     `json:"reboot_required"`
-	Rollback          Rollback `json:"rollback"`
-	CLI               string   `json:"cli"`
-	ConsoleURL        string   `json:"console_url"`
-	Notes             []string `json:"notes,omitempty"`
-	Blockers          []string `json:"blockers,omitempty"`
-	RequiresApproval  bool     `json:"requires_approval"`
-	AutoApply         bool     `json:"auto_apply"`
-	AutoApplyWithheld string   `json:"auto_apply_withheld"`
-	Reason            string   `json:"reason,omitempty"`
-	Fingerprint       string   `json:"fingerprint"`
+	Provider          string     `json:"provider"`
+	Mechanism         string     `json:"mechanism"`
+	Target            string     `json:"target"`
+	Region            string     `json:"region,omitempty"`
+	Project           string     `json:"project,omitempty"`
+	ResourceGroup     string     `json:"resource_group,omitempty"`
+	Cluster           string     `json:"cluster,omitempty"`
+	Namespace         string     `json:"namespace,omitempty"`
+	Instance          string     `json:"instance,omitempty"`
+	ParameterGroup    string     `json:"parameter_group,omitempty"`
+	Parameter         string     `json:"parameter"`
+	Value             string     `json:"value"`
+	PGValue           string     `json:"pg_value"`
+	Unit              string     `json:"unit,omitempty"`
+	CurrentValue      string     `json:"current_value,omitempty"`
+	RunningValue      string     `json:"running_value,omitempty"`
+	ApplyMethod       string     `json:"apply_method"`
+	RebootRequired    bool       `json:"reboot_required"`
+	Rollback          Rollback   `json:"rollback"`
+	CLI               string     `json:"cli"`
+	Patch             string     `json:"patch,omitempty"`  // CNPG merge patch
+	GitOps            string     `json:"gitops,omitempty"` // CNPG manifest fragment
+	ConsoleURL        string     `json:"console_url"`
+	Notes             []string   `json:"notes,omitempty"`
+	Blockers          []string   `json:"blockers,omitempty"`
+	Conflicts         []Conflict `json:"conflicts,omitempty"`
+	RequiresApproval  bool       `json:"requires_approval"`
+	AutoApply         bool       `json:"auto_apply"`
+	AutoApplyWithheld string     `json:"auto_apply_withheld"`
+	Reason            string     `json:"reason,omitempty"`
+	Fingerprint       string     `json:"fingerprint"`
 }
 
 // Build turns an intent into a proposal for target. running is the
@@ -155,6 +177,8 @@ func Build(intent Intent, target Target, running *collector.PGSetting) (Proposal
 		err = buildAlloyDB(&p, target)
 	case "azure":
 		err = buildAzure(&p, target)
+	case "cnpg":
+		err = buildCNPG(&p, target)
 	default:
 		err = buildRDS(&p, target)
 	}
@@ -175,6 +199,8 @@ func validateTarget(provider string, t Target) error {
 		instance = azureServerPattern
 	case "alloydb":
 		region = gcpRegionPattern
+	case "cnpg":
+		return validateCNPGTarget(t)
 	}
 	switch {
 	case t.ParameterGroup != "" && !groupNamePattern.MatchString(t.ParameterGroup):

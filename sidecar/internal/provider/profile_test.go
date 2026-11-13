@@ -22,6 +22,7 @@ func TestLookupCanonicalNames(t *testing.T) {
 		Neon:        {true, ConfigTenant, "provider_console"},
 		Supabase:    {true, ConfigTenant, "provider_console"},
 		Lakebase:    {true, ConfigTenant, "unavailable"},
+		CNPG:        {true, ConfigClusterSpec, "kubernetes"},
 	}
 	for name, want := range cases {
 		p, ok := Lookup(name)

@@ -46,7 +46,8 @@ func DetectDrift(target Target, settings []collector.PGSetting) []Drift {
 	var out []Drift
 	for name, configured := range configuredValues(target) {
 		s, ok := running[name]
-		if !ok || strings.HasPrefix(configured, "{") || inEffect(name, configured, s.Setting) {
+		if !ok || strings.HasPrefix(configured, "{") ||
+			inEffect(name, comparableValue(target, name, configured), s.Setting) {
 			continue
 		}
 		out = append(out, classify(name, configured, s, target))
@@ -57,13 +58,16 @@ func DetectDrift(target Target, settings []collector.PGSetting) []Drift {
 
 func configuredValues(t Target) map[string]string {
 	out := map[string]string{}
-	if p := NormalizeProvider(t.Provider); p == "cloud-sql" || p == "alloydb" {
+	switch NormalizeProvider(t.Provider) {
+	case "cloud-sql", "alloydb":
 		if t.FlagsKnown {
 			for k, v := range t.Flags {
 				out[k] = v
 			}
 		}
 		return out
+	case "cnpg":
+		return cnpgConfiguredValues(t)
 	}
 	for k, gp := range t.Params {
 		if gp.Source == "user" && gp.Value != "" {

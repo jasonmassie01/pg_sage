@@ -1,0 +1,31 @@
+{
+  "provider": "cloud-sql",
+  "mechanism": "database_flag",
+  "target": "\u003cproject\u003e:\u003cinstance\u003e",
+  "parameter": "shared_buffers",
+  "value": "524288",
+  "pg_value": "4GB",
+  "unit": "8kB",
+  "running_value": "131072",
+  "apply_method": "pending-reboot",
+  "reboot_required": true,
+  "rollback": {
+    "reset": true,
+    "apply_method": "pending-reboot",
+    "cli": "# fill in: keep the flag list from gcloud sql instances describe \u003cinstance\u003e --project=\u003cproject\u003e --format='json(settings.databaseFlags)' before the change; patching the instance with that list restores it"
+  },
+  "cli": "# fill in: gcloud sql instances describe \u003cinstance\u003e --project=\u003cproject\u003e --format='json(settings.databaseFlags)', then run gcloud sql instances patch \u003cinstance\u003e --project=\u003cproject\u003e with every current flag plus shared_buffers=524288",
+  "console_url": "https://console.cloud.google.com/sql/instances/%3Cinstance%3E/edit?project=%3Cproject%3E",
+  "notes": [
+    "Cloud SQL restarts the instance to apply this flag: an outage of about a minute.",
+    "Cloud SQL supports a subset of PostgreSQL settings as flags; gcloud rejects an unsupported one without changing the instance."
+  ],
+  "blockers": [
+    "The instance's current database flags are unknown (no credentials): --database-flags replaces every flag, so pg_sage gives a fill-in template instead of a command. Read the existing flags (gcloud sql instances describe) and include them all."
+  ],
+  "requires_approval": true,
+  "auto_apply": false,
+  "auto_apply_withheld": "pg_sage never applies provider parameter changes in this release: an operator runs the command (most need a reboot, an outage) and pg_sage verifies the running value afterwards",
+  "reason": "requires a restart",
+  "fingerprint": "v2:8469c22f20caacce"
+}

@@ -79,6 +79,10 @@ func (rt *databaseRuntime) detectProvider(ctx context.Context) string {
 	if warning != "" {
 		logWarn(rt.spec.Scope, "db %q: %s", rt.spec.Name, warning)
 	}
+	provider, warning = cnpgProvider(provider, rt.spec.Config.CNPG)
+	if warning != "" {
+		logWarn(rt.spec.Scope, "db %q: %s", rt.spec.Name, warning)
+	}
 	switch {
 	case err != nil && provider != providerUnknown:
 		logWarn(rt.spec.Scope, "db %q: provider probe failed after retries; using the "+

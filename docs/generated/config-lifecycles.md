@@ -317,6 +317,8 @@
 | `postgres.cloud_resource.gcp.cluster` | `restart` | `-` | `safety_critical` |
 | `postgres.cloud_resource.gcp.instance` | `restart` | `-` | `safety_critical` |
 | `postgres.cloud_resource.gcp.project` | `restart` | `-` | `safety_critical` |
+| `postgres.cnpg.cluster` | `restart` | `-` | `safety_critical` |
+| `postgres.cnpg.namespace` | `restart` | `-` | `safety_critical` |
 | `postgres.database` | `restart` | `-` | `safety_critical` |
 | `postgres.database_url` | `restart` | `-` | `safety_critical` |
 | `postgres.host` | `restart` | `-` | `safety_critical` |
@@ -566,6 +568,8 @@ In YAML fleet mode the `fleet_databases` owner reconciles the list: an added ent
 | `databases[].cloud_resource.gcp.cluster` | `reconfigure` | `fleet_databases` | `safety_critical` |
 | `databases[].cloud_resource.gcp.instance` | `reconfigure` | `fleet_databases` | `safety_critical` |
 | `databases[].cloud_resource.gcp.project` | `reconfigure` | `fleet_databases` | `safety_critical` |
+| `databases[].cnpg.cluster` | `reconfigure` | `fleet_databases` | `safety_critical` |
+| `databases[].cnpg.namespace` | `reconfigure` | `fleet_databases` | `safety_critical` |
 | `databases[].collector_interval_seconds` | `reconfigure` | `fleet_databases` | `operator_preference` |
 | `databases[].database` | `reconfigure` | `fleet_databases` | `safety_critical` |
 | `databases[].disabled_rules` | `reconfigure` | `fleet_databases` | `operator_preference` |

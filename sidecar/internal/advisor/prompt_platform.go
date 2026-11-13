@@ -105,6 +105,8 @@ var platformSettingsSurface = map[string]string{
 	"neon":      "Neon's project settings or support (availability is not guaranteed)",
 	"supabase":  "Supabase's config API or CLI",
 	"lakebase":  "Lakebase, which manages instance settings itself",
+	"cnpg": "the CloudNativePG Cluster's spec.postgresql.parameters (kubectl patch " +
+		"cluster or the GitOps repository)",
 }
 
 // platformNote is the trusted platform statement for a sub-advisor's

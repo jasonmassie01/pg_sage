@@ -91,12 +91,19 @@ func (c *Config) validateCloudResources() error {
 		c.Postgres.CloudResource); err != nil {
 		return err
 	}
+	if err := validateCNPG("postgres", c.Postgres.Provider, c.Postgres.CNPG,
+		c.Postgres.CloudResource); err != nil {
+		return err
+	}
 	for i, db := range c.Databases {
 		field := fmt.Sprintf("databases[%d]", i)
 		if db.Name != "" {
 			field = fmt.Sprintf("databases[%q]", db.Name)
 		}
 		if err := validateCloudIdentity(field, db.Provider, db.CloudResource); err != nil {
+			return err
+		}
+		if err := validateCNPG(field, db.Provider, db.CNPG, db.CloudResource); err != nil {
 			return err
 		}
 	}

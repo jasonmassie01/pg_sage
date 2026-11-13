@@ -1436,6 +1436,20 @@
     "class": "safety_critical",
     "lifecycle": "reconfigure"
   },
+  "databases[].cnpg.cluster": {
+    "type": "string",
+    "default": "",
+    "doc": "CloudNativePG Cluster of this database; makes the provider cnpg.",
+    "class": "safety_critical",
+    "lifecycle": "reconfigure"
+  },
+  "databases[].cnpg.namespace": {
+    "type": "string",
+    "default": "",
+    "doc": "Kubernetes namespace of the CloudNativePG Cluster.",
+    "class": "safety_critical",
+    "lifecycle": "reconfigure"
+  },
   "databases[].collector_interval_seconds": {
     "type": "int",
     "default": 0,
@@ -2748,6 +2762,20 @@
     "type": "string",
     "default": "",
     "doc": "Google Cloud project of the Cloud SQL or AlloyDB instance. Empty: the project of a /cloudsql/\u003cproject\u003e:\u003cregion\u003e:\u003cinstance\u003e socket host, else of the Application Default Credentials.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "postgres.cnpg.cluster": {
+    "type": "string",
+    "default": "",
+    "doc": "CloudNativePG Cluster of this database; makes the provider cnpg.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "postgres.cnpg.namespace": {
+    "type": "string",
+    "default": "",
+    "doc": "Kubernetes namespace of the CloudNativePG Cluster.",
     "class": "safety_critical",
     "lifecycle": "restart"
   },

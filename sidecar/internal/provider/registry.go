@@ -47,4 +47,10 @@ var profiles = []Profile{
 		PreloadSteps: []string{"Lakebase manages shared_preload_libraries; verify the " +
 			"extension is supported by this endpoint and ask a database owner to enable it " +
 			"in this database."}},
+	{Name: CNPG, Aliases: []string{"cloudnative-pg", "cloudnativepg"}, Managed: true,
+		ConfigMechanism: ConfigClusterSpec, LogAccess: "kubernetes",
+		PreloadSteps: []string{"In the CloudNativePG Cluster manifest, add {lib} to " +
+			"spec.postgresql.shared_preload_libraries (kubectl patch cluster, or the " +
+			"GitOps repository that owns the Cluster).", "The operator applies it with a " +
+			"rolling restart: the replicas, then the primary (restart or switchover)."}},
 }

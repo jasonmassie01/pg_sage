@@ -44,6 +44,8 @@ safety_critical postgres.cloud_resource.azure.subscription
 safety_critical postgres.cloud_resource.gcp.cluster
 safety_critical postgres.cloud_resource.gcp.instance
 safety_critical postgres.cloud_resource.gcp.project
+safety_critical postgres.cnpg.cluster
+safety_critical postgres.cnpg.namespace
 safety_critical api.listen_addr
 safety_critical api.trusted_proxies
 safety_critical api.trusted_origins
@@ -110,6 +112,8 @@ safety_critical databases[].cloud_resource.azure.subscription
 safety_critical databases[].cloud_resource.gcp.cluster
 safety_critical databases[].cloud_resource.gcp.instance
 safety_critical databases[].cloud_resource.gcp.project
+safety_critical databases[].cnpg.cluster
+safety_critical databases[].cnpg.namespace
 operator_preference databases[].verify.io_capacity
 safety_critical databases[].replicas
 

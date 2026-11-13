@@ -1,0 +1,33 @@
+{{- if and .Values.cnpg.rbac.create (include "pg-sage.cnpgEnabled" .) -}}
+# Read-only access to the named CloudNativePG Clusters, nothing else:
+# pg_sage reads spec.postgresql.parameters and never patches a Cluster.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "pg-sage.fullname" . }}-cnpg-read
+  namespace: {{ include "pg-sage.cnpgNamespace" . }}
+  labels:
+    {{- include "pg-sage.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["clusters"]
+    verbs: ["get"]
+    resourceNames:
+      {{- include "pg-sage.cnpgClusters" . | nindent 6 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "pg-sage.fullname" . }}-cnpg-read
+  namespace: {{ include "pg-sage.cnpgNamespace" . }}
+  labels:
+    {{- include "pg-sage.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "pg-sage.fullname" . }}-cnpg-read
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "pg-sage.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

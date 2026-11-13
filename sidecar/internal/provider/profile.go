@@ -18,6 +18,10 @@ const (
 	Neon        = "neon"
 	Supabase    = "supabase"
 	Lakebase    = "lakebase"
+	// CNPG is a CloudNativePG Cluster: PostgreSQL on Kubernetes whose
+	// operator owns postgresql.conf. Detection sees self-managed
+	// PostgreSQL; a databases[].cnpg block names the Cluster (market-12).
+	CNPG = "cnpg"
 	// Unknown is not a profile: it is what a failed probe reports, and it
 	// matches nothing so provider-gated work fails closed.
 	Unknown = "unknown"
@@ -33,6 +37,9 @@ const (
 	ConfigCloudSQLFlags         ConfigMechanism = "cloudsql_database_flags"
 	ConfigAlloyDBFlags          ConfigMechanism = "alloydb_database_flags"
 	ConfigServerParameters      ConfigMechanism = "azure_server_parameters"
+	// ConfigClusterSpec: the CloudNativePG Cluster's
+	// spec.postgresql.parameters; ALTER SYSTEM is disabled.
+	ConfigClusterSpec ConfigMechanism = "cnpg_cluster_spec"
 	// ConfigGuidanceOnly: pg_sage has no adapter; findings carry the
 	// provider's command and no executable SQL.
 	ConfigGuidanceOnly ConfigMechanism = "guidance_only"

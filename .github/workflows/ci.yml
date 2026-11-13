@@ -844,6 +844,41 @@ jobs:
           docker run --rm -v "$PWD/deploy/prometheus:/rules:ro" -w /rules \
             --entrypoint promtool prom/prometheus:v2.55.1 test rules pg_sage.rules_test.yml
 
+  # market-12: the Helm chart lints, renders with its default values and
+  # each deploy/helm/pg-sage/tests values file, and the output validates
+  # against the Kubernetes schemas. The image is the appVersion, never
+  # latest (CHECK-01); the only RBAC verb is get (CHECK-02). The Go tests in
+  # sidecar/internal/config render the same chart without helm.
+  helm-chart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: helm lint and template
+        run: |
+          set -euo pipefail
+          chart=deploy/helm/pg-sage
+          helm() { docker run --rm -v "$PWD:/w" -w /w alpine/helm:3.16.2 "$@"; }
+          helm lint "$chart"
+          mkdir -p rendered
+          helm template sage "$chart" > rendered/default.yaml
+          for f in "$chart"/tests/values-*.yaml; do
+            helm lint "$chart" -f "$f"
+            helm template sage "$chart" -f "$f" > "rendered/$(basename "$f")"
+          done
+          app=$(awk '/^appVersion:/ {gsub(/"/, "", $2); print $2}' "$chart/Chart.yaml")
+          grep -q "image: \"ghcr.io/jasonmassie01/pg_sage:${app}\"" rendered/default.yaml
+          if grep -q ':latest"' rendered/*.yaml; then exit 1; fi
+          grep -q 'verbs: \["get"\]' rendered/values-cnpg.yaml
+          if grep -E 'verbs:.*(patch|update|create|delete|list|watch|\*)' rendered/*.yaml; then
+            exit 1
+          fi
+
+      - name: kubeconform
+        run: |
+          docker run --rm -v "$PWD/rendered:/r:ro" ghcr.io/yannh/kubeconform:v0.6.7 \
+            -strict -summary -ignore-missing-schemas /r
+
   # vacuum-03: float-to-Duration overflow differs by architecture (amd64
   # wraps to MinInt64, arm64 saturates), so the freeze deadline and the
   # policy checks that consume it also run on arm64. Unit tests only.
@@ -1488,7 +1523,7 @@ jobs:
     # in the if, any need that failed or was skipped skips the release.
     needs: [test, test-arm64, integration-matrix, agent-servers, lint, security,
       container-health, bench, safety-bench, perfgate, bench-sign, safety-bench-sign,
-      web-e2e-full]
+      web-e2e-full, helm-chart]
     if: startsWith(github.ref, 'refs/tags/v')
     # id-token: goreleaser signs checksums.txt keyless (ci-05).
     permissions:
@@ -1545,6 +1580,15 @@ jobs:
           for ext in json json.sigstore.json md; do
             cp "safety-bench/agentsafetybench.$ext" "release-assets/agentsafetybench.$ext"
           done
+
+      # market-12: the Helm chart ships as a release asset, its version and
+      # appVersion set to the tag, so its default image is this release.
+      - name: Package the Helm chart as a release asset
+        run: |
+          set -euo pipefail
+          v="${GITHUB_REF_NAME#v}"
+          docker run --rm -v "$PWD:/w" -w /w alpine/helm:3.16.2 package \
+            deploy/helm/pg-sage --version "$v" --app-version "$v" -d release-assets
 
       # ci-05: goreleaser runs cosign (signs checksums.txt) and syft (an
       # SBOM per archive) inside the goreleaser-cross container. cosign is

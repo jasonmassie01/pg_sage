@@ -43,6 +43,9 @@ func ProviderValue(provider, parameter, value string) (string, string, error) {
 		v, err := providerBool(provider, value)
 		return v, "", err
 	}
+	if provider == "cnpg" {
+		return cnpgValue(parameter, value)
+	}
 	doc, documented := pgconf.Docs[parameter]
 	if documented && (doc.Unit == "bytes" || doc.Unit == "ms") {
 		return baseUnitValue(parameter, value, doc)
@@ -71,7 +74,8 @@ func providerBool(provider, value string) (string, error) {
 	default:
 		return "", fmt.Errorf("%w: %q is not a boolean", ErrInvalidValue, value)
 	}
-	if provider == "cloud-sql" || provider == "alloydb" || provider == "azure" {
+	if provider == "cloud-sql" || provider == "alloydb" || provider == "azure" ||
+		provider == "cnpg" {
 		if on {
 			return "on", nil
 		}
