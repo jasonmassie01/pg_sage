@@ -1595,6 +1595,20 @@ api:
   migration_lint_rate_per_minute: 30
 ```
 
+#### Per-database grants
+
+`api.database_grants` (default `false`, restart to change) enforces the
+per-database grants admins set on the Users page, in fleet and meta-db modes
+only ([details](security.md#per-database-authorization)). A user with no grants
+keeps their global role everywhere; a user with grants is an operator only on
+the databases granted as operator. While it is off, grants are stored but not
+enforced.
+
+```yaml
+api:
+  database_grants: true
+```
+
 #### Profiling the sidecar
 
 `debug.pprof_enabled: true` (default `false`, restart to change) serves Go's profiler

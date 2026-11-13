@@ -51,15 +51,19 @@ func registerAutonomyRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
 	route(mux, "GET "+autonomyPath, gateViewer, http.HandlerFunc(h.view))
 	route(mux, "GET "+autonomyPath+"/history", gateViewer, http.HandlerFunc(h.history))
 	route(mux, "GET "+autonomyPath+"/proposals", gateViewer, http.HandlerFunc(h.proposals))
-	route(mux, "POST "+autonomyPath+"/evaluate", gateOperator, http.HandlerFunc(h.evaluate))
+	routeDB(mux, "POST "+autonomyPath+"/evaluate", gateOperator, queryDatabase,
+		http.HandlerFunc(h.evaluate))
 	route(mux, "POST "+autonomyPath+"/proposals/{id}/approve", gateAdmin,
 		http.HandlerFunc(h.approve))
-	route(mux, "POST "+autonomyPath+"/proposals/{id}/reject", gateOperator,
+	routeDB(mux, "POST "+autonomyPath+"/proposals/{id}/reject", gateOperator, queryDatabase,
 		http.HandlerFunc(h.reject))
-	route(mux, "POST "+autonomyPath+"/downgrade", gateOperator, http.HandlerFunc(h.downgrade))
+	routeDB(mux, "POST "+autonomyPath+"/downgrade", gateOperator, queryDatabase,
+		http.HandlerFunc(h.downgrade))
 	route(mux, "POST "+autonomyPath+"/revalidate", gateAdmin, http.HandlerFunc(h.revalidate))
-	route(mux, "POST "+autonomyPath+"/reviews", gateOperator, http.HandlerFunc(h.review))
-	route(mux, "POST "+autonomyPath+"/outcomes", gateOperator, http.HandlerFunc(h.outcome))
+	routeDB(mux, "POST "+autonomyPath+"/reviews", gateOperator, queryDatabase,
+		http.HandlerFunc(h.review))
+	routeDB(mux, "POST "+autonomyPath+"/outcomes", gateOperator, queryDatabase,
+		http.HandlerFunc(h.outcome))
 	route(mux, "POST "+autonomyPath+"/bench-results", gateAdmin, http.HandlerFunc(h.bench))
 	route(mux, "GET "+autonomyPath+"/game-days", gateViewer, http.HandlerFunc(h.gameDays))
 	route(mux, "POST "+autonomyPath+"/game-days", gateAdmin, http.HandlerFunc(h.startGameDay))

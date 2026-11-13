@@ -94,7 +94,8 @@ func scanRoutes(name string, src []byte) ([]string, error) {
 
 // routePatternArg is the pattern argument of a route registration: the
 // first of mux.Handle / mux.HandleFunc, or the second of the gated
-// route(mux, pattern, gate, handler) (route_registry.go).
+// route(mux, pattern, gate, handler) and of the database-scoped
+// routeDB(mux, pattern, gate, resolver, handler) (route_registry.go).
 func routePatternArg(call *ast.CallExpr) (ast.Expr, bool) {
 	switch fn := call.Fun.(type) {
 	case *ast.SelectorExpr:
@@ -102,7 +103,8 @@ func routePatternArg(call *ast.CallExpr) (ast.Expr, bool) {
 			return call.Args[0], true
 		}
 	case *ast.Ident:
-		if fn.Name == "route" && len(call.Args) == 4 {
+		if (fn.Name == "route" && len(call.Args) == 4) ||
+			(fn.Name == "routeDB" && len(call.Args) == 5) {
 			return call.Args[1], true
 		}
 	}

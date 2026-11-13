@@ -207,5 +207,6 @@ func trancheThreeMigrations() []namedStep {
 		{"ddlLLMUsageAttribution", ddlLLMUsageAttribution}, // llm-04: after ddlLLMUsage
 		{"ddlNotificationOutbox", ddlNotificationOutbox},   // alerting-06
 		{"ddlCaseTickets", ddlCaseTickets},                 // market-14
+		{"ddlUserDatabaseGrants", ddlUserDatabaseGrants},   // apiauth-08
 	}
 }

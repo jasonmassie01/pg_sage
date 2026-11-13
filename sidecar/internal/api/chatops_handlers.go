@@ -49,6 +49,10 @@ type chatopsDeps struct {
 	cards     *chatops.CardStore
 	factCards *chatops.FactCardStore
 	tolerance time.Duration
+	// pool records refusals in the auth audit; authz enforces database
+	// grants (apiauth-08), nil when they are off.
+	pool  *pgxpool.Pool
+	authz *databaseAuthz
 }
 
 // registerChatOpsRoutes mounts the signed callbacks on the root mux and
@@ -58,7 +62,8 @@ func registerChatOpsRoutes(root, apiMux *http.ServeMux, pool *pgxpool.Pool,
 	d := &chatopsDeps{mgr: mgr, ids: chatops.NewStore(pool), cards: chatops.NewCardStore(pool),
 		channels: store.NewNotificationStore(pool, nil).WithSecretKey(rt.NotificationSecretKey).
 			WithPreviousSecretKey(rt.NotificationPreviousSecretKey),
-		tolerance: 5 * time.Minute, factCards: chatops.NewFactCardStore(pool)}
+		tolerance: 5 * time.Minute, factCards: chatops.NewFactCardStore(pool), pool: pool,
+		authz: newDatabaseAuthz(cfg, pool, rt.DatabaseGrants)}
 	if cfg != nil {
 		d.tolerance = cfg.SRE.Actions.ChatOpsTolerance()
 	}

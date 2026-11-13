@@ -32,6 +32,7 @@ safety_critical postgres.port
 safety_critical postgres.sslmode
 safety_critical postgres.user
 safety_critical api.access_log
+safety_critical api.database_grants
 safety_critical postgres.provider
 safety_critical postgres.cloud_resource.aws.cluster_identifier
 safety_critical postgres.cloud_resource.aws.db_instance_identifier

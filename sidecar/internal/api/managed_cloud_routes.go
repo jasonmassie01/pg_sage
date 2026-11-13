@@ -31,9 +31,9 @@ const managedChangesMeaning = "Settings SQL cannot change on RDS, Aurora or Clou
 
 func registerManagedCloudRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
 	route(mux, "GET /api/v1/managed-changes", gateViewer, managedChangesHandler(mgr))
-	route(mux, "POST /api/v1/managed-changes/{id}/approve", gateOperator,
+	routeDB(mux, "POST /api/v1/managed-changes/{id}/approve", gateOperator, queryDatabase,
 		managedChangeDecisionHandler(mgr, true))
-	route(mux, "POST /api/v1/managed-changes/{id}/reject", gateOperator,
+	routeDB(mux, "POST /api/v1/managed-changes/{id}/reject", gateOperator, queryDatabase,
 		managedChangeDecisionHandler(mgr, false))
 	route(mux, "GET /api/v1/cloud-telemetry", gateViewer, cloudTelemetryHandler(mgr))
 }

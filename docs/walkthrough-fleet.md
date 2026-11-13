@@ -120,6 +120,15 @@ Go to **Fleet** and add:
 
 Use **Test Connection** before saving each database.
 
+### Limit an operator to one database (optional)
+
+By default every operator can approve and execute on every database. To give a
+team only its own database, set `api.database_grants: true` in `config.yaml`
+and restart, then on **Users** open **Databases** for that operator and grant
+`operator` on `staging`. That operator can now approve on `staging` and gets
+`403 database_forbidden` on `production`; with no grants defined nothing
+changes. See [Per-database Authorization](security.md#per-database-authorization).
+
 ### Tenant boundary for fleet learning
 
 Fleet learning (look-alike databases and shared action priors) only compares

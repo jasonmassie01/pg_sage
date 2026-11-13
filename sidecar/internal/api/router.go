@@ -155,6 +155,10 @@ type RuntimeDeps struct {
 	// Metrics serves GET /metrics on this listener (prometheus.serve_on_api,
 	// observability-08); nil leaves the path to the dashboard.
 	Metrics *MetricsRoute
+	// DatabaseGrants reads per-database grants when api.database_grants is
+	// on (apiauth-08); nil reads sage.user_database_grants on the control
+	// pool.
+	DatabaseGrants DatabaseGrantSource
 }
 
 // NewRouterFullRuntime creates the API handler with process controllers.
@@ -179,8 +183,7 @@ func NewRouterFullRuntime(
 	if pool != nil {
 		registerControlPoolRoutes(apiMux, mgr, cfg, pool, rt)
 	}
-	if actions != nil && (actions.Store != nil ||
-		actions.Fleet != nil) {
+	if actions != nil && (actions.Store != nil || actions.Fleet != nil) {
 		registerActionRoutes(apiMux, actions)
 	}
 	if mgr != nil {
@@ -195,7 +198,8 @@ func NewRouterFullRuntime(
 		// optional protocols. No second token system is mounted in this mode.
 		middlewares = append(append([]func(http.Handler) http.Handler{}, middlewares...), databricksAppProtocolGuard)
 	}
-	apiHandler := wrapAPIHandler(apiMux, middlewares,
+	authz := routerDatabaseAuthz(cfg, pool, rt.DatabaseGrants)
+	apiHandler := wrapAPIHandler(withDatabaseAuthz(authz, apiMux), middlewares,
 		newCrossOriginProtection(cfg, rt.DatabricksAppAuth), askRequestTimeout(cfg),
 		accessLogOn(cfg))
 
@@ -301,6 +305,8 @@ func registerControlPoolRoutes(
 		registerAuthRoutes(apiMux, pool, newRouterOAuthProvider(cfg), cfg)
 		registerUserRoutes(apiMux, pool)
 	}
+	registerDatabaseGrantRoutes(apiMux, pool, mgr,
+		newDatabaseAuthz(cfg, pool, rt.DatabaseGrants) != nil)
 	if !rt.DatabricksAppAuth {
 		registerMCPTokenRoutes(apiMux, pool)
 	}
@@ -354,7 +360,7 @@ func newRouterOAuthProvider(cfg *config.Config) *auth.OAuthProvider {
 // deadline (askRequestTimeout). accessLog adds the access log's two
 // layers (access_log.go): one around the mux, one outside auth.
 func wrapAPIHandler(
-	apiMux *http.ServeMux, middlewares []func(http.Handler) http.Handler,
+	apiMux http.Handler, middlewares []func(http.Handler) http.Handler,
 	crossOrigin *http.CrossOriginProtection, askTimeout time.Duration, accessLog bool,
 ) http.Handler {
 	// Stack middlewares onto API routes only.

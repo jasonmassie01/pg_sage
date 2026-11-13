@@ -132,6 +132,10 @@ type APIConfig struct {
 	// MigrationLintRatePerMinute bounds POST /api/v1/migrations/lint per
 	// signed-in user (migration-11); 0 or less means the default, 30.
 	MigrationLintRatePerMinute int `yaml:"migration_lint_rate_per_minute" doc:"Requests per minute each signed-in user may send to POST /api/v1/migrations/lint, which reads catalog statistics on the monitored database. Default 30."`
+
+	// DatabaseGrants turns on per-database authorization in fleet and
+	// meta-db modes (apiauth-08); standalone ignores it.
+	DatabaseGrants bool `yaml:"database_grants" doc:"Fleet and meta-db modes: enforce per-database grants on operator writes. A user with no grants keeps their global role; one with grants operates only where granted. Default false." warning:"While off, grants are stored but not enforced."`
 }
 
 // AccessLogEnabled reports whether the API access log is on (default: on).

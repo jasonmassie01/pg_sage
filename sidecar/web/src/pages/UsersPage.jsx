@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { Fragment, useState, useEffect, useCallback } from 'react'
 import { SSOGrantNotice, UserSSOCell } from './users/UserSSOControls'
 import { grantLinkURL, issueSSOLinkGrant, unlinkUserSSO } from './users/ssoApi'
 import { DisabledBadge, UserStatusButton } from './users/UserStatusControls'
@@ -6,6 +6,7 @@ import { deleteUser, setUserDisabled } from './users/userAdminApi'
 import { useConfirm } from '../hooks/useConfirm'
 import { ResetPasswordButton, TempPasswordNotice } from './users/UserPasswordReset'
 import { resetUserPassword } from './users/passwordApi'
+import { DatabaseGrantsButton, UserDatabaseGrants } from './users/UserDatabaseGrants'
 
 export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
   const platformManaged = authMode === 'databricks_app'
@@ -19,6 +20,7 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
   const [grant, setGrant] = useState(null)
   const { askConfirm, dialog } = useConfirm()
   const [reset, setReset] = useState(null)
+  const [grantsOpen, setGrantsOpen] = useState(null)
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -286,7 +288,8 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
                   ? 'At least one admin must remain'
                   : undefined
               return (
-              <tr key={u.id}
+              <Fragment key={u.id}>
+              <tr
                 style={{
                   borderBottom: '1px solid var(--border)',
                 }}>
@@ -336,6 +339,8 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
                     onToggle={handleStatus} />
                   <ResetPasswordButton user={u} isCurrentUser={isCurrentUser}
                     onReset={handleReset} />
+                  <DatabaseGrantsButton user={u} open={grantsOpen === u.id}
+                    onToggle={id => setGrantsOpen(grantsOpen === id ? null : id)} />
                   <button
                     onClick={() => handleDelete(u.id, u.email)}
                     disabled={isCurrentUser || isLastAdmin}
@@ -354,6 +359,10 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
                   </button>
                 </td>}
               </tr>
+              {grantsOpen === u.id && u.role !== 'admin' && <tr>
+                <td colSpan={6}><UserDatabaseGrants user={u} /></td>
+              </tr>}
+              </Fragment>
               )
             })}
           </tbody>

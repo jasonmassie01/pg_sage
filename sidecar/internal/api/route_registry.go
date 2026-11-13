@@ -3,8 +3,11 @@ package api
 import (
 	"net/http"
 	"runtime"
+	"strings"
 	"sync"
 	"weak"
+
+	"github.com/pg-sage/sidecar/internal/auth"
 )
 
 // Route authorization is declared, not opted into. Every handler in this
@@ -94,11 +97,12 @@ type routeEntry struct {
 	Gate    routeGate
 }
 
-// muxRoutes is the registry of one mux: its own routes and the
-// registries of the muxes mounted under it.
+// muxRoutes is the registry of one mux: its own routes, their database
+// scopes (apiauth-08) and the registries of the muxes mounted under it.
 type muxRoutes struct {
 	mu      sync.Mutex
 	entries []routeEntry
+	scopes  map[string]string
 	mounts  []*muxRoutes
 }
 
@@ -127,13 +131,68 @@ func registryFor(mux *http.ServeMux) *muxRoutes {
 	return reg
 }
 
-// route registers h on mux under pattern behind gate and records it.
+// route registers h on mux under pattern behind gate and records it. An
+// operator write registered here is fleet-wide (apiauth-08): with database
+// grants on, only an operator with no grants may use it. A route that
+// acts on one database registers with routeDB instead.
 func route(mux *http.ServeMux, pattern string, gate routeGate, h http.Handler) {
+	if gate == gateOperator && isWriteRoute(pattern) {
+		registerRoute(mux, pattern, gate, scopeFleetWide,
+			requireDatabaseRole(auth.RoleOperator, fleetWide)(h))
+		return
+	}
+	registerRoute(mux, pattern, gate, "", h)
+}
+
+// routeDB registers an operator write that acts on the one database res
+// resolves: with database grants on, the caller needs operator there.
+func routeDB(mux *http.ServeMux, pattern string, gate routeGate, res databaseResolver,
+	h http.Handler) {
+	registerRoute(mux, pattern, gate, "database:"+res.name,
+		requireDatabaseRole(auth.RoleOperator, res)(h))
+}
+
+// scopeFleetWide marks an operator write that spans databases.
+const scopeFleetWide = "fleet-wide"
+
+func isWriteRoute(pattern string) bool {
+	method, _, ok := strings.Cut(pattern, " ")
+	return !ok || (method != http.MethodGet && method != http.MethodHead)
+}
+
+func registerRoute(mux *http.ServeMux, pattern string, gate routeGate, scope string,
+	h http.Handler) {
 	mux.Handle(pattern, gate.wrap(h))
 	reg := registryFor(mux)
 	reg.mu.Lock()
+	defer reg.mu.Unlock()
 	reg.entries = append(reg.entries, routeEntry{Pattern: pattern, Gate: gate})
+	if scope != "" {
+		if reg.scopes == nil {
+			reg.scopes = map[string]string{}
+		}
+		reg.scopes[pattern] = scope
+	}
+}
+
+// registeredScopes maps each scoped route of mux (and its mounts) to its
+// database scope: "fleet-wide" or "database:<resolver>".
+func registeredScopes(mux *http.ServeMux) map[string]string {
+	out := map[string]string{}
+	registryFor(mux).collectScopes(out)
+	return out
+}
+
+func (reg *muxRoutes) collectScopes(out map[string]string) {
+	reg.mu.Lock()
+	for p, s := range reg.scopes {
+		out[p] = s
+	}
+	mounts := append([]*muxRoutes(nil), reg.mounts...)
 	reg.mu.Unlock()
+	for _, m := range mounts {
+		m.collectScopes(out)
+	}
 }
 
 // mount serves h (child wrapped by its middleware chain) on parent under

@@ -34,10 +34,11 @@ func registerAgentClassRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
 	const base = "/api/v1/agent-classifications/{database}"
 	route(mux, "GET "+base, gateViewer, http.HandlerFunc(h.list))
 	route(mux, "GET "+base+"/column", gateViewer, http.HandlerFunc(h.column))
-	route(mux, "PUT "+base+"/columns", gateOperator, http.HandlerFunc(h.set))
-	route(mux, "POST "+base+"/scan", gateOperator, http.HandlerFunc(h.scan))
+	routeDB(mux, "PUT "+base+"/columns", gateOperator, classDB, http.HandlerFunc(h.set))
+	routeDB(mux, "POST "+base+"/scan", gateOperator, classDB, http.HandlerFunc(h.scan))
 	for _, verb := range []string{"confirm", "reject"} {
-		route(mux, "POST "+base+"/{id}/"+verb, gateOperator, h.decide(verb == "confirm"))
+		routeDB(mux, "POST "+base+"/{id}/"+verb, gateOperator, classDB,
+			h.decide(verb == "confirm"))
 	}
 }
 

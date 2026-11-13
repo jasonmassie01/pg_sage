@@ -37,7 +37,8 @@ func registerCaseTicketRoutes(
 	svc := cases.TicketService{Store: tickets, Tracker: jiraTrackerFor(ns, deps.policy)}
 	route(mux, "GET /api/v1/case-tickets", gateViewer,
 		http.HandlerFunc(listCaseTicketsHandler(tickets, ns)))
-	route(mux, "POST /api/v1/case-tickets", gateOperator,
+	// The body names the one database the case is on (apiauth-08).
+	routeDB(mux, "POST /api/v1/case-tickets", gateOperator, bodyDatabase,
 		http.HandlerFunc(createCaseTicketHandler(mgr, ns, svc)))
 }
 
