@@ -33,13 +33,17 @@ var rules07Lists = map[string][]string{
 		"subscription_errors", "subscription_lag", "cdc_consumer_stalled",
 		"cdc_heartbeat_stale",
 		// market-07 added the WAL archiver rules.
-		"wal_archive_failing", "wal_archive_stale"},
+		"wal_archive_failing", "wal_archive_stale",
+		// market-02 added the seasonal workload anomaly.
+		"workload_anomaly"},
 	"advisor": {"wal_tuning", "connection_tuning", "query_rewrite",
 		"bloat_remediation", "advisor_degraded", "vacuum_tuning", "memory_tuning"},
 	"optimizer": {"missing_index", "covering_index", "partial_index", "composite_index"},
 	// tuning-11 added query_parameterization to the query_tuning subsystem.
 	"query_tuning": {"query_tuning", "stale_statistics", "runaway_query",
-		"query_parameterization"},
+		"query_parameterization",
+		// market-08 added the workload budget categories.
+		"workload_budget_violation", "workload_budget_proposal", "workload_budget_enforce"},
 	"incident": {"incident", "incident_open", "incident_resolved"},
 }
 
