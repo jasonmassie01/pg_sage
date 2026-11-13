@@ -129,7 +129,7 @@ skips() {
     return
   fi
   section "UNLISTED skips and unmet requirements" \
-    "$(head -1 "$1"; grep -E '^ +(UNLISTED|MISSING|STALE)' "$1" | sed 's/^ */- /')"
+    "$(head -1 "$1"; grep -E '^ +(UNLISTED|MISSING)' "$1" | sed 's/^ */- /')"
 }
 
 TOT_P=0 TOT_F=0 TOT_S=0

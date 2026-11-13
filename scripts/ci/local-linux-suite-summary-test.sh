@@ -58,6 +58,8 @@ EOF
 cat >"$out/pg17/skipbudget.txt" <<'EOF'
 skip budget: 1 skipped, 0 allowed, 1 unlisted, 0 stale rules, 0 unmet requirements
   UNLISTED example.com/sidecar/internal/a TestSkipped: needs pgvector
+  STALE    line 17: internal/azure TestAzureLive (matched no skip)
+  MISSING  internal/notify TestPhase2_.*: no matching test passed
 EOF
 printf 'image=improve-pg:17\nserver_check=1\nsuite=1\ne2e=0\nskipbudget=1\n' \
   >"$out/pg17/status.txt"
@@ -87,6 +89,8 @@ lacks "$s" "$a (package)" "a package with failing tests is not listed again"
 has "$s" "- $a TestRace (2 reports)" "data race"
 has "$s" "- $a: 71.2%" "coverage"
 has "$s" "UNLISTED example.com/sidecar/internal/a TestSkipped: needs pgvector" "unlisted skip"
+has "$s" "- MISSING  internal/notify TestPhase2_.*: no matching test passed" "unmet requirement"
+lacks "$s" "STALE    line 17" "stale allow-list rules are a warning, not a finding"
 has "$s" "CREATE EXTENSION hypopg fails" "server check carried into the summary"
 has "$s" "suite=1" "exit statuses carried into the summary"
 has "$s14" "- [real] $a TestHypo" "pg14 lists no missing HypoPG, so the failure is real"
