@@ -33,7 +33,7 @@ func TestPathConcurrentReadsDuringEviction(t *testing.T) {
 		t.Errorf("%d audit rows for %d returned reads", audited, ok)
 	}
 	if len(b.pools.budget) != 0 {
-		t.Errorf("%d connection budget slots leaked", len(b.pools.budget))
+		t.Fatalf("%d connection budget slots leaked", len(b.pools.budget))
 	}
 	res, err := f.ask(b, sqlByID, 0, "4")
 	if err != nil || res.Status != StatusOK || cell(t, res, 0, 0) != "4" {
@@ -48,8 +48,12 @@ func TestPathConcurrentReadsDuringEviction(t *testing.T) {
 // readsDuringEviction runs n concurrent reads while another goroutine
 // evicts the principal's pools 20 times; it counts reads that returned
 // their row and reads that failed closed, and reports any other outcome.
+// The reads share a deadline, so a leaked budget slot fails the test
+// instead of hanging it.
 func (f *fixture) readsDuringEviction(t *testing.T, b *Broker, n int) (int, int) {
 	t.Helper()
+	ctx, cancel := context.WithTimeout(f.ctx(), 30*time.Second)
+	defer cancel()
 	var ok, unavailable atomic.Int32
 	errs := make(chan string, n)
 	var wg sync.WaitGroup
@@ -66,7 +70,8 @@ func (f *fixture) readsDuringEviction(t *testing.T, b *Broker, n int) (int, int)
 		go func(i int) {
 			defer wg.Done()
 			want := fmt.Sprint(i%5 + 1)
-			res, err := f.ask(b, sqlByID, 0, want)
+			res, err := b.Query(ctx, Request{Database: "db", SQL: sqlByID,
+				Params: []any{want}})
 			switch {
 			case errors.Is(err, ErrUnavailable) && len(res.Rows) == 0:
 				unavailable.Add(1)
