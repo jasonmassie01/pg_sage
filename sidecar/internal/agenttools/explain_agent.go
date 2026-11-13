@@ -62,7 +62,7 @@ func (t *Tools) ExplainAsAgent(ctx context.Context, req ExplainRequest,
 	}
 	planned, err := plan(ctx, readapi.ExplainRequest{SQL: query, Params: req.Params})
 	if err != nil {
-		return ExplainResult{}, plannerError(err)
+		return ExplainResult{}, t.plannerError(err)
 	}
 	out := agentExplainResult(query, planned)
 	if req.Analyze {
@@ -98,8 +98,10 @@ func refusalText(p readapi.ExplainResult) string {
 	return "no plan"
 }
 
-// plannerError maps the planner's readapi errors to this package's.
-func plannerError(err error) error {
+// plannerError maps the planner's readapi errors to this package's;
+// server text that can quote a value is withheld (security-10).
+func (t *Tools) plannerError(err error) error {
+	err = t.logWithheld("agent explain", err, explain.SafeError(err))
 	switch {
 	case errors.Is(err, readapi.ErrInvalid):
 		return fmt.Errorf("%w: %v", ErrInvalid, err)

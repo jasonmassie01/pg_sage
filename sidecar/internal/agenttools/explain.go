@@ -73,7 +73,7 @@ func (t *Tools) ExplainQuery(ctx context.Context, req ExplainRequest) (ExplainRe
 	res, err := ex.Explain(ctx, explain.ExplainRequest{Query: query,
 		QueryID: explain.QueryID(req.QueryID), PlanOnly: !req.Analyze, Params: req.Params})
 	if err != nil {
-		return ExplainResult{}, explainError(err)
+		return ExplainResult{}, t.explainError(err)
 	}
 	out := ExplainResult{Query: res.Query, PlanJSON: res.PlanJSON,
 		SlowBecause: res.SlowBecause, Recommendations: res.Recommendations,
@@ -109,15 +109,17 @@ func (t *Tools) explainText(ctx context.Context, req ExplainRequest) (string, er
 	text, err := explain.ResolveQueryID(ctx, catalogread.New(t.pool, catalogread.Default()),
 		int64(req.QueryID))
 	if err != nil {
-		return "", explainError(err)
+		return "", t.explainError(err)
 	}
 	return text, nil
 }
 
 // explainError maps the explain package's errors to this package's: an
 // unknown id is ErrNotFound, a missing pg_stat_statements ErrUnavailable,
-// any other bad request ErrInvalid.
-func explainError(err error) error {
+// any other bad request ErrInvalid. Server text that can quote a value is
+// withheld from the caller and logged for the operator (security-10).
+func (t *Tools) explainError(err error) error {
+	err = t.logWithheld("explain", err, explain.SafeError(err))
 	switch {
 	case errors.Is(err, explain.ErrUnknownQueryID):
 		return fmt.Errorf("%w: %v", ErrNotFound, err)
@@ -127,6 +129,17 @@ func explainError(err error) error {
 		return fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
 	return fmt.Errorf("explain query: %w", err)
+}
+
+// logWithheld returns safe, explain.SafeError(err). When safe withholds
+// text, the full error is logged at INFO for the operator, as the agent
+// broker does.
+func (t *Tools) logWithheld(what string, err, safe error) error {
+	if safe != nil && safe.Error() != err.Error() && t != nil && t.opts.Log != nil {
+		t.opts.Log("INFO", "agenttools: %s failed (text withheld from the caller): %v",
+			what, err)
+	}
+	return safe
 }
 
 // explainSummary is the plan in one line: root node, cost and timing.

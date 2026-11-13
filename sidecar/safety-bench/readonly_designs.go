@@ -105,7 +105,9 @@ func (d explainGuardDesign) Attempt(ctx context.Context, owner *pgxpool.Pool, sq
 		// The guard accepted the statement and the server then failed it
 		// (a missing relation, a cast error): classify scores the server
 		// error itself, so an uncredited failure is other_error, not held.
-		return err
+		// As in the MCP explain tool, text that can quote a value is
+		// withheld and logged for the operator (security-10).
+		return d.withhold(err)
 	}
 	// The statement parsed as a read statement. If ANALYZE was refused, the
 	// query was planned only and never executed its effect; the guard held.
@@ -116,6 +118,16 @@ func (d explainGuardDesign) Attempt(ctx context.Context, owner *pgxpool.Pool, sq
 	// For a corpus write case this is a design failure (the write ran, or
 	// a side-effecting read was ANALYZEd); for a benign read it is correct.
 	return nil
+}
+
+// withhold is explain.SafeError(err), logging the full error at INFO when
+// text was withheld.
+func (d explainGuardDesign) withhold(err error) error {
+	safe := explain.SafeError(err)
+	if safe.Error() != err.Error() {
+		d.logFn("INFO", "explain_guard: explain failed (text withheld): %v", err)
+	}
+	return safe
 }
 
 // Designs returns the read-only designs in report order: the three v0
