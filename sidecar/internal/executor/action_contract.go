@@ -123,6 +123,10 @@ func ContractForActionType(actionType string) (ActionContract, bool) {
 		return prepareQueryRewriteContract(), true
 	case "promote_role_work_mem":
 		return promoteRoleWorkMemContract(), true
+	case ActionTypeSetRoleTimeout:
+		return setRoleTimeoutContract(), true
+	case ActionTypeSetRoleConnectionLimit:
+		return setRoleConnectionLimitContract(), true
 	case "retire_query_hint":
 		return retireQueryHintContract(), true
 	case "apply_query_hint":

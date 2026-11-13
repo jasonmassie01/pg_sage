@@ -218,6 +218,10 @@ func (e *Executor) runManualSQL(
 	if err := e.checkGUCValueSafety(ctx, sql); err != nil {
 		return err
 	}
+	if roleBudgetActionType(sql) != "" {
+		return e.execRoleBudget(ctx, sql, beforeState, e.ddlTimeoutFor(sql),
+			e.lockTimeoutMS(sql, decision))
+	}
 	return e.execManualSQLWithRetry(ctx, sql, beforeState, e.lockOption(sql, decision))
 }
 

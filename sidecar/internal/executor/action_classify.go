@@ -46,6 +46,8 @@ func ActionTypeForSQL(sql string) string {
 		return "create_statistics"
 	case isPgSageDropStatistics(sql):
 		return "revert_created_statistics"
+	case roleBudgetActionType(sql) != "":
+		return roleBudgetActionType(sql)
 	default:
 		return ""
 	}

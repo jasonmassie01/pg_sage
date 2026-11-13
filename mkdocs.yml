@@ -45,6 +45,7 @@ nav:
   - SQL Reference: sql-reference.md
   - Findings Catalog: findings.md
   - Owner Checks: custom-checks.md
+  - Workload Budgets: workload-budgets.md
   - Binding Facts: facts.md
   - MCP for Coding Agents: mcp.md
   - Ask Sage: ask-sage.md

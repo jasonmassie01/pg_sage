@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/pg-sage/sidecar/internal/facts"
+	"github.com/pg-sage/sidecar/internal/sqlast"
 )
 
 // Mark kinds.
@@ -91,7 +92,7 @@ func markProposal(req MarkRequest, actor string, now func() time.Time) (facts.Pr
 	switch req.Mark {
 	case MarkOwned:
 	case MarkExempt:
-		value["note"] = clipBytes("exempt: "+evidence, 300)
+		value["note"] = sqlast.ClipBytes("exempt: "+evidence, 300)
 	default:
 		return facts.Proposal{}, invalid("mark %q is not owned or exempt", req.Mark)
 	}
@@ -120,7 +121,7 @@ func markDetail(evidence, repo, path string) string {
 		return evidence
 	}
 	suffix := " (" + strings.Join(where, ", ") + ")"
-	return clipBytes(evidence, max(0, markDetailLimit-len(suffix))) + suffix
+	return sqlast.ClipBytes(evidence, max(0, markDetailLimit-len(suffix))) + suffix
 }
 
 const objectKindSQL = `/* pg_sage */ SELECT c.relkind::text FROM pg_class c

@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/pg-sage/sidecar/internal/sqlast"
 )
 
 // finding is the sage.findings row a packet is built from.
@@ -129,7 +131,7 @@ func (t *Tools) targetSources(ctx context.Context, ids []int64) ([]QuerySource, 
 		if !ok {
 			continue
 		}
-		if tags := ParseSQLCommenter(s.Text); len(tags) > 0 {
+		if tags := sqlast.ParseSQLCommenter(s.Text); len(tags) > 0 {
 			out = append(out, QuerySource{QueryID: QueryID(id), Tags: tags,
 				ApplicationNames: map[string]int{}})
 		}

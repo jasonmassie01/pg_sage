@@ -104,4 +104,22 @@ func assertSchemaReads(t *testing.T, ctx context.Context, c *Collector) {
 	if epoch := c.collectStatementsEpoch(ctx); epoch.IsZero() {
 		t.Errorf("schema %q: statistics epoch unknown", schema)
 	}
+	assertWorkloadRoleTime(t, ctx, c)
+}
+
+// assertWorkloadRoleTime: the workload_sessions step (market-08) reads
+// per-role statement time through the configured schema too.
+func assertWorkloadRoleTime(t *testing.T, ctx context.Context, c *Collector) {
+	t.Helper()
+	schema := c.cfg.StatementsSchema
+	ws, err := c.collectWorkloadSessions(ctx)
+	if err != nil {
+		t.Fatalf("schema %q: collectWorkloadSessions: %v", schema, err)
+	}
+	for _, r := range ws.Roles {
+		if r.Calls > 0 && r.P99EstimateMs >= 0 {
+			return
+		}
+	}
+	t.Errorf("schema %q: no role statement time in %+v", schema, ws.Roles)
 }

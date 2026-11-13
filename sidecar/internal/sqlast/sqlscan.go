@@ -1,4 +1,4 @@
-package agenttools
+package sqlast
 
 import (
 	"errors"
@@ -9,20 +9,20 @@ import (
 // quoted identifier.
 var errUnterminated = errors.New("unterminated comment, literal or quoted identifier")
 
-// sqlScan is the lexical structure of SQL text that matters here: the
+// Scan is the lexical structure of SQL text that matters here: the
 // block comments outside literals and the statements separated by ';'.
-type sqlScan struct {
-	comments   []string // block comment bodies, in order
-	statements int      // statements with any code (a trailing ';' adds none)
+type Scan struct {
+	Comments   []string // block comment bodies, in order
+	Statements int      // statements with any code (a trailing ';' adds none)
 }
 
-// scanSQL walks sql as PostgreSQL lexes it: quoted literals (a doubled
+// ScanSQL walks sql as PostgreSQL lexes it: quoted literals (a doubled
 // quote or, in E-strings, a backslash escapes), "..." identifiers, $tag$
 // bodies, nested /* */ comments and -- line comments. Text inside them
 // is never a comment or a separator. It returns what it saw up to an
 // unterminated token, and the error.
-func scanSQL(sql string) (sqlScan, error) {
-	var out sqlScan
+func ScanSQL(sql string) (Scan, error) {
+	var out Scan
 	code := false
 	for i := 0; i < len(sql); {
 		next, err := scanToken(sql, i, &out, &code)
@@ -32,13 +32,13 @@ func scanSQL(sql string) (sqlScan, error) {
 		i = next
 	}
 	if code {
-		out.statements++
+		out.Statements++
 	}
 	return out, nil
 }
 
 // scanToken consumes one token at i and returns where the next starts.
-func scanToken(sql string, i int, out *sqlScan, code *bool) (int, error) {
+func scanToken(sql string, i int, out *Scan, code *bool) (int, error) {
 	c := sql[i]
 	switch {
 	case c == '-' && strings.HasPrefix(sql[i:], "--"):
@@ -51,11 +51,11 @@ func scanToken(sql string, i int, out *sqlScan, code *bool) (int, error) {
 		if !ok {
 			return 0, errUnterminated
 		}
-		out.comments = append(out.comments, sql[i+2:end-2])
+		out.Comments = append(out.Comments, sql[i+2:end-2])
 		return end, nil
 	case c == ';':
 		if *code {
-			out.statements++
+			out.Statements++
 		}
 		*code = false
 		return i + 1, nil

@@ -6,6 +6,13 @@
     "class": "operator_preference",
     "lifecycle": "restart"
   },
+  "advisor.budget_proposals": {
+    "type": "bool",
+    "default": true,
+    "doc": "Propose a workload budget statement_timeout per role from its statement time (3x the 14-day p99, rounded up, never below the observed maximum) as info findings. Default: true.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
   "advisor.connection_enabled": {
     "type": "bool",
     "default": true,
@@ -919,6 +926,69 @@
     "doc": "",
     "class": "safety_critical",
     "lifecycle": "reconfigure"
+  },
+  "budgets[].connection_limit": {
+    "type": "int",
+    "default": 0,
+    "doc": "Most client sessions of the role, cluster-wide (role budgets only). 0: none. Enforcing it is HIGH risk and always needs approval.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "budgets[].idle_in_transaction_session_timeout": {
+    "type": "string",
+    "default": "",
+    "doc": "Longest idle in transaction wait the budget allows, a PostgreSQL duration. Empty or 0: none.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "budgets[].match.application_name": {
+    "type": "string",
+    "default": "",
+    "doc": "application_name the budget covers (exact match). Warn-only by design; the runaway policy enforces per application.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "budgets[].match.role": {
+    "type": "string",
+    "default": "",
+    "doc": "Login role the budget covers. Only a role budget can be enforced: PostgreSQL applies settings and connection limits per role.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "budgets[].match.tag": {
+    "type": "string",
+    "default": "",
+    "doc": "sqlcommenter tag key=value the budget covers, read from long-running active queries. Warn-only by design.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "budgets[].mode": {
+    "type": "string",
+    "default": "",
+    "doc": "warn (default) counts would-be violations in sage.budget_shadow; enforce (role budgets only) proposes the role settings after 7 days of shadow data.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "budgets[].name": {
+    "type": "string",
+    "default": "",
+    "doc": "Unique budget name, the key of its shadow ledger and findings.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "budgets[].pool_size": {
+    "type": "int",
+    "default": 0,
+    "doc": "Suggested PgBouncer pool size for the workload. Advisory text only: the pooler's configuration is outside the database. 0: none.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "budgets[].statement_timeout": {
+    "type": "string",
+    "default": "",
+    "doc": "Longest statement the budget allows, a PostgreSQL duration (250ms, 6s, 2min, 1h; a bare number is ms). Empty or 0: none.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
   },
   "checks[].databases": {
     "type": "[]string",

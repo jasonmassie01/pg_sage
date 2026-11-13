@@ -60,6 +60,10 @@ func checkStatement(stmt *pg_query.Node, rules Rules) error {
 	case stmt.GetAlterDatabaseSetStmt() != nil:
 		return checkSetting("ALTER DATABASE",
 			stmt.GetAlterDatabaseSetStmt().GetSetstmt(), rules.DatabaseParam)
+	case stmt.GetAlterRoleSetStmt() != nil:
+		return checkRoleSetting(stmt.GetAlterRoleSetStmt(), rules)
+	case stmt.GetAlterRoleStmt() != nil:
+		return checkRoleConnectionLimit(stmt.GetAlterRoleStmt())
 	case stmt.GetSelectStmt() != nil:
 		return checkBackendSignal(stmt.GetSelectStmt())
 	case stmt.GetInsertStmt() != nil:

@@ -65,13 +65,17 @@ const maxConcurrentDDL = 3
 // Executor runs the autonomous remediation loop after each
 // analyzer cycle.
 type Executor struct {
-	pool               *pgxpool.Pool
-	cfg                *config.Config
-	recs               *recommendation.Store // durable recommendations (C07)
-	rampStart          time.Time
-	recentMu           sync.Mutex
-	recentActions      map[string]time.Time
-	logFn              func(string, string, ...any)
+	pool          *pgxpool.Pool
+	cfg           *config.Config
+	recs          *recommendation.Store // durable recommendations (C07)
+	rampStart     time.Time
+	recentMu      sync.Mutex
+	recentActions map[string]time.Time
+	logFn         func(string, string, ...any)
+	// roleLock serializes role budget changes cluster-wide (role_budget_exec.go);
+	// isLeader gates the cluster-wide connection limit (nil: single process).
+	roleLock           func(ctx context.Context, role string) (func(), error)
+	isLeader           func() bool
 	actionStore        ActionProposer
 	execMode           string // auto, approval, manual
 	dispatcher         EventDispatcher
@@ -190,6 +194,7 @@ func New(
 			return CheckEmergencyStop(ctx, pool)
 		},
 	}
+	executor.roleLock = executor.clusterRoleLock
 	executor.configureIndexVerification()
 	executor.checkRollbackContracts()
 	return executor

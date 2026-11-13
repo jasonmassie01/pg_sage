@@ -13,6 +13,9 @@ var fullCategories = map[string]string{
 		"would carry almost the whole document",
 	"subscriptions": "a few subscriptions (at most 200) whose LSNs and report times " +
 		"move every cycle; a delta would carry almost the whole document",
+	"workload_sessions": "session groups whose ages move every cycle and long sessions " +
+		"keyed by a reused pid, bounded at 200 groups, 50 sessions (tags only, no " +
+		"statement text) and 200 roles (market-08)",
 }
 
 // Coverage reports how the store keeps category: delta is true for a

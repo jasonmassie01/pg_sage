@@ -46,7 +46,8 @@ func TestSnapshotRows_CategoriesSortedAndUnavailableSkipped(t *testing.T) {
 		}
 	}
 	want := "config_data,foreign_keys,index_bloat,io,locks,partitioned_indexes,partitions," +
-		"prepared_xacts,queries,replication,sequences,subscriptions,system,tables"
+		"prepared_xacts,queries,replication,sequences,subscriptions,system,tables," +
+		"workload_sessions"
 	if got := strings.Join(cats, ","); got != want {
 		t.Fatalf("categories = %s\nwant %s", got, want)
 	}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/optimizer"
+	"github.com/pg-sage/sidecar/internal/sqlast"
 )
 
 // Bounds of a what-if request.
@@ -95,12 +96,12 @@ func indexDDL(raw string) (string, error) {
 	if len(ddl) > maxDDLBytes {
 		return "", invalid("ddl is longer than %d bytes", maxDDLBytes)
 	}
-	scan, err := scanSQL(ddl)
+	scan, err := sqlast.ScanSQL(ddl)
 	if err != nil {
 		return "", invalid("ddl: %v", err)
 	}
-	if scan.statements != 1 {
-		return "", invalid("ddl must be one statement, got %d", scan.statements)
+	if scan.Statements != 1 {
+		return "", invalid("ddl must be one statement, got %d", scan.Statements)
 	}
 	ddl = strings.TrimSpace(strings.TrimRight(ddl, "; \t\r\n"))
 	if !createIndexPattern.MatchString(ddl) {

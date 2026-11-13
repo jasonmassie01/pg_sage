@@ -53,8 +53,8 @@ circuit breaker that skips cycles while the database is in trouble (active clien
 over `max_connections` above `safety.cpu_ceiling_pct`). A cycle reads the catalog categories
 in order (`catalogSteps`: `queries`, `tables`, `indexes`, `partitioned_indexes`,
 `foreign_keys`, `system`, `locks`, `sequences`), then `replication` and the extra categories
-(`extraSteps`: `io`, `prepared_xacts`, `partitions`, `index_bloat`, `subscriptions`,
-`cdc_heartbeats` when `replication.cdc_heartbeats` is set, `config_data`).
+(`extraSteps`: `io`, `prepared_xacts`, `partitions`, `index_bloat`, `workload_sessions`,
+`subscriptions`, `cdc_heartbeats` when `replication.cdc_heartbeats` is set, `config_data`).
 
 **Health.** A skipped cycle is logged with its cause: `load ratio 0.93 > ceiling 0.90
 (active sessions / max_connections)`, or `load query failed: <error>` when the load query
@@ -118,6 +118,9 @@ Each snapshot holds one row per category: `queries`, `tables`, `indexes`,
 `system`, `locks`, `sequences`, `replication`, `io` (PostgreSQL 16 and later), `partitions`,
 `prepared_xacts` (this database's two-phase-commit transactions from `pg_prepared_xacts`),
 `index_bloat` (the largest btree indexes' bloat estimated from planner statistics, at most 200),
+`workload_sessions` (this database's client sessions by role, application and state, at most
+200 groups, its 50 longest-running sessions with their sqlcommenter tags, and per-role
+statement time and cluster-wide session counts, which workload budgets read),
 `subscriptions` (this database's logical replication subscriptions, their apply workers and,
 from PostgreSQL 15, their error counters; `subconninfo` is never read; at most 200)
 and `config_data` (the advisor's settings, reloptions, connection and WAL snapshot, collected only

@@ -203,5 +203,6 @@ func trancheTwoMigrations() []namedStep {
 func trancheThreeMigrations() []namedStep {
 	return []namedStep{
 		{"ddlBaselineSamples", ddlBaselineSamples}, // market-02
+		{"ddlBudgetShadow", ddlBudgetShadow},       // market-08
 	}
 }

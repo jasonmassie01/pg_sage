@@ -357,6 +357,9 @@ func (e *Executor) runFindingSQLRecorded(
 	}
 	lockOpt := e.lockOption(sql, decision)
 	switch {
+	case roleBudgetActionType(sql) != "":
+		return e.execRoleBudget(ctx, sql, beforeState, e.ddlTimeoutFor(sql),
+			e.lockTimeoutMS(sql, decision))
 	case categorizeAction(sql) == "create_statistics":
 		return ExecStatistics(ctx, e.pool, sql, e.ddlTimeoutFor(sql), lockOpt)
 	case categorizeAction(sql) == "analyze":
