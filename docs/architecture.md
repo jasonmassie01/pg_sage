@@ -462,6 +462,20 @@ While some databases have not reported their action policy, the strip and the
 fleet tooltip add "2 databases have not reported their action policy" and the
 strip limits its claim to the databases that did, since one that has not
 reported may still auto-execute.
+
+**Approval cards.** Each pending action in "Needs your review" is a card
+(`GET /api/v1/approvals`): why it needs a person, the cited evidence, the
+rationale, the predicted effect, the exact SQL and rollback, and the risk. A
+`pg_hint_plan` card (`apply_query_hint`, `retire_query_hint`) also carries
+`hint_evidence`, the plan comparison that gated the hint, with the finding's key
+names: "Plan comparison: changed, cost 412.0 to 254.6 (-38.2%)", the reason when
+the verdict is not `changed`, and the plans without and with the hint in
+collapsed blocks (see [hint verification](hint-verification.md)). A stored plan
+over 64 KB is left out and named in `plain_plan_omitted` or
+`hinted_plan_omitted`; a malformed `hint_evidence` shows no section and logs one
+WARN with the finding id. The section is read-only: the card hash, which binds
+an approval, and the chat and Slack card text do not change.
+
 The pending-approvals badge counts the selected database, or the whole fleet
 in the all-databases view, the same scope as the Actions list. When a
 database could not be counted (not connected, or its read failed) the badge
