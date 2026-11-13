@@ -1,11 +1,16 @@
 // An agent's OAuth identities (admin, agentgov-03): the (issuer, subject)
 // pairs bound to this principal, a bind form whose issuer is one of
-// mcp.oauth.issuers, and unbind with confirmation (it takes effect at once).
+// mcp.oauth.issuers, and unbind in a ConfirmDialog (dashboard-10b; it takes
+// effect at once).
 import { useCallback, useEffect, useState } from 'react'
+import { ConfirmDialog } from '../../components/ConfirmDialog'
+import { useConfirmTarget } from '../../hooks/useConfirmTarget'
 import {
   bindAgentIdentity, identityBody, listAgentIdentities, oauthIssuers, unbindAgentIdentity,
 } from './agentsApi'
-import { Button, ErrorBox, Section, TextInput, inputStyle, muted, when } from './ui'
+import {
+  Button, ErrorBox, ErrorText, Section, TextInput, inputStyle, muted, when,
+} from './ui'
 
 const noIdentities = { items: [], truncated: false }
 const noIssuers = { enabled: false, issuers: [] }
@@ -117,26 +122,32 @@ function BindArea({ agent, issuers, onBound }) {
   return <BindForm agent={agent} issuers={issuers.data.issuers || []} onBound={onBound} />
 }
 
+// UnbindDialog asks before an identity is unbound. An empty subject is named
+// as such; the request still sends the stored issuer and subject.
+function UnbindDialog({ unbind }) {
+  const b = unbind.target
+  return (
+    <ConfirmDialog open={b !== null}
+      title={b ? `Unbind ${b.subject || '(no subject)'} at ${b.issuer}` : ''}
+      action="Unbind" consequence="Its OAuth tokens are refused at once."
+      busy={unbind.busy} onConfirm={unbind.accept} onCancel={unbind.cancel}
+      error={unbind.error
+        && <ErrorText testId="agent-identity-unbind-error" error={unbind.error} />} />
+  )
+}
+
 function AdminIdentities({ agent }) {
   const list = useIdentities(agent.id)
   const issuers = useIssuers()
-  const [error, setError] = useState(null)
-  async function unbind(b) {
-    if (!confirm(`Unbind ${b.subject} at ${b.issuer}? Its OAuth tokens are refused at once.`)) {
-      return
-    }
-    setError(null)
-    try {
-      await unbindAgentIdentity(agent.id, b.issuer, b.subject)
-      list.reload()
-    } catch (err) {
-      setError(err)
-    }
-  }
+  const unbind = useConfirmTarget({
+    perform: b => unbindAgentIdentity(agent.id, b.issuer, b.subject),
+    onDone: list.reload,
+  })
   return (
     <Section title="OAuth identities" testId="agent-identities-section">
-      <ErrorBox testId="agent-identities-error" error={list.error || error || issuers.error} />
-      {list.loaded && !list.error && <IdentityList list={list.data} onUnbind={unbind} />}
+      <ErrorBox testId="agent-identities-error" error={list.error || issuers.error} />
+      <UnbindDialog unbind={unbind} />
+      {list.loaded && !list.error && <IdentityList list={list.data} onUnbind={unbind.open} />}
       <BindArea agent={agent} issuers={issuers} onBound={list.reload} />
     </Section>
   )

@@ -1,11 +1,13 @@
 // An agent's MCP tokens (admin): the ones bound to this principal, each
-// live one revocable after confirmation (agentgov-07), and a new one (read,
-// optionally propose; never approve), shown once.
+// live one revocable in a ConfirmDialog (agentgov-07, dashboard-10b), and a
+// new one (read, optionally propose; never approve), shown once.
 import { useCallback, useEffect, useState } from 'react'
+import { ConfirmDialog } from '../../components/ConfirmDialog'
+import { useConfirmTarget } from '../../hooks/useConfirmTarget'
 import { SecretNotice } from '../mcptokens/SecretNotice'
 import { revocable, tokenStatus } from '../mcptokens/tokenApi'
 import { listAgentTokens, mintAgentToken, revokeAgentToken, tokenBody } from './agentsApi'
-import { Button, ErrorBox, Section, TextInput, muted, when } from './ui'
+import { Button, ErrorBox, ErrorText, Section, TextInput, muted, when } from './ui'
 
 const emptyForm = { name: '', propose: false, databases: '', days: '30' }
 
@@ -48,23 +50,16 @@ function TokenList({ tokens, onRevoke, busy }) {
   )
 }
 
-function useRevoke(onDone) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState(null)
-  async function revoke(t) {
-    if (!confirm(`Revoke token ${t.name}? Its holder loses access at once.`)) return
-    setBusy(true)
-    setError(null)
-    try {
-      await revokeAgentToken(t.id)
-      onDone()
-    } catch (err) {
-      setError(err)
-    } finally {
-      setBusy(false)
-    }
-  }
-  return { busy, error, revoke }
+// RevokeDialog asks before a token is revoked (dashboard-10b); a failure
+// stays in the open dialog and the token stays listed.
+function RevokeDialog({ rv }) {
+  const t = rv.target
+  return (
+    <ConfirmDialog open={t !== null} title={t ? `Revoke token ${t.name}` : ''}
+      action="Revoke" consequence="Its holder loses access at once."
+      busy={rv.busy} onConfirm={rv.accept} onCancel={rv.cancel}
+      error={rv.error && <ErrorText testId="agent-token-revoke-error" error={rv.error} />} />
+  )
 }
 
 function MintForm({ agent, onMinted }) {
@@ -122,14 +117,14 @@ export function AgentTokens({ agent, user }) {
 
 function AdminTokens({ agent }) {
   const list = useTokens(agent.id)
-  const rv = useRevoke(list.reload)
+  const rv = useConfirmTarget({ perform: t => revokeAgentToken(t.id), onDone: list.reload })
   const [created, setCreated] = useState(null)
   return (
     <Section title="Tokens" testId="agent-tokens-section">
       <SecretNotice created={created} onDismiss={() => setCreated(null)} />
       <ErrorBox testId="agent-tokens-error" error={list.error} />
-      <ErrorBox testId="agent-token-revoke-error" error={rv.error} />
-      {list.loaded && !list.error && <TokenList tokens={list.tokens} onRevoke={rv.revoke}
+      <RevokeDialog rv={rv} />
+      {list.loaded && !list.error && <TokenList tokens={list.tokens} onRevoke={rv.open}
         busy={rv.busy} />}
       {agent.status !== 'retired' && (
         <MintForm agent={agent} onMinted={tok => { setCreated(tok); list.reload() }} />

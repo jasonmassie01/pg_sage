@@ -1,8 +1,24 @@
 import { useState } from 'react'
+import { ConfirmDialog } from '../../components/ConfirmDialog'
 
 // apiauth-03: an admin resets a password user's password. The temporary
 // password is returned once, shown here once with a copy button, and gone on
 // dismiss; the user must replace it at their next sign-in.
+
+// ResetPasswordDialog asks before the reset (dashboard-10b). reset is a
+// useConfirmTarget state whose target is the user; a failure stays in the
+// open dialog.
+export function ResetPasswordDialog({ reset }) {
+  const user = reset.target
+  return (
+    <ConfirmDialog open={user !== null} title={user ? `Reset password of ${user.email}` : ''}
+      action="Reset password"
+      consequence={'They are signed out everywhere and must choose a new password at '
+        + 'their next sign-in.'}
+      busy={reset.busy} error={reset.error?.message} onConfirm={reset.accept}
+      onCancel={reset.cancel} />
+  )
+}
 
 export function ResetPasswordButton({ user, isCurrentUser, onReset }) {
   if (!user.password_login || isCurrentUser) return null

@@ -3,7 +3,9 @@
 // current role. The routes are admin-only; anyone else gets a 403 and the
 // panel is not shown at all.
 import { useCallback, useEffect, useState } from 'react'
+import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { ErrorBanner } from '../../components/ErrorBanner'
+import { useConfirmTarget } from '../../hooks/useConfirmTarget'
 import { cardStyle, inputStyle, FormField } from './shared'
 import { failureMessage } from './channelConfig'
 
@@ -53,6 +55,30 @@ async function linkIdentity(body) {
   } catch (err) {
     return `Failed to link chat user: ${err.message}`
   }
+}
+
+// deleteIdentity removes one mapping or throws an Error saying why.
+async function deleteIdentity(id) {
+  let res
+  try {
+    res = await fetch(`${IDENTITIES_URL}/${id}`, { method: 'DELETE', credentials: 'include' })
+  } catch (err) {
+    throw new Error(`Failed to unlink chat user: ${err.message}`)
+  }
+  if (!res.ok) throw new Error(await failureMessage(res, 'Failed to unlink chat user'))
+}
+
+// UnlinkDialog asks before a chat user is unlinked (dashboard-10b); a
+// failure stays in the open dialog and the row stays listed.
+function UnlinkDialog({ unlink }) {
+  const it = unlink.target
+  return (
+    <ConfirmDialog open={it !== null}
+      title={it ? `Unlink chat user ${it.external_user_id || '(no id)'}` : ''}
+      action="Unlink" consequence="They can no longer approve from chat."
+      busy={unlink.busy} error={unlink.error?.message} onConfirm={unlink.accept}
+      onCancel={unlink.cancel} />
+  )
 }
 
 function ProviderSelect({ value, onChange }) {
@@ -142,7 +168,7 @@ function IdentityTable({ items, onUnlink }) {
             <td className="px-2 py-1">{it.external_user_id}</td>
             <td className="px-2 py-1">{it.user_email || `user ${it.user_id}`}</td>
             <td className="px-2 py-1 text-right">
-              <button type="button" onClick={() => onUnlink(it.id)}
+              <button type="button" onClick={() => onUnlink(it)}
                 data-testid="chat-identity-unlink" className="text-xs px-2 py-1 rounded"
                 style={{ color: 'var(--red)' }}>
                 Unlink
@@ -188,21 +214,7 @@ function useIdentities() {
     if (shown) loadUsers().then(setUsers)
   }, [shown])
 
-  async function unlink(id) {
-    if (!confirm('Unlink this chat user? They can no longer approve from chat.')) return
-    try {
-      const res = await fetch(`${IDENTITIES_URL}/${id}`, {
-        method: 'DELETE', credentials: 'include',
-      })
-      if (!res.ok) {
-        setError(await failureMessage(res, 'Failed to unlink chat user'))
-        return
-      }
-      load()
-    } catch (err) {
-      setError(`Failed to unlink chat user: ${err.message}`)
-    }
-  }
+  const unlink = useConfirmTarget({ perform: it => deleteIdentity(it.id), onDone: load })
 
   return { items, hidden, error, setError, users, load, unlink }
 }
@@ -222,7 +234,8 @@ export function ChatIdentities() {
       {error && <div className="mb-3"><ErrorBanner message={error} /></div>}
       <LinkForm users={users} onLinked={() => { setError(null); load() }}
         onError={setError} />
-      {items && <IdentityTable items={items} onUnlink={unlink} />}
+      <UnlinkDialog unlink={unlink} />
+      {items && <IdentityTable items={items} onUnlink={unlink.open} />}
     </div>
   )
 }
