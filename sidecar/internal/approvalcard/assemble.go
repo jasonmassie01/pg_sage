@@ -25,6 +25,7 @@ func Assemble(in Inputs) Card {
 	c.Recommendation = recommendationRef(a)
 	c.Targets = targetsOf(in.Finding)
 	c.Evidence = evidenceOf(in)
+	c.HintEvidence = hintEvidenceOf(in, c.ActionType)
 	c.Rationale = rationaleOf(in)
 	c.Predicted = predictedOf(in)
 	c.Rollback = rollbackOf(a, in.Contract)
