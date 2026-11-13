@@ -222,3 +222,26 @@ func TestSequenceRateRunwayReadFailureKeepsCases(t *testing.T) {
 		t.Fatalf("want one WARN, got %d:\n%s", n, logs.String())
 	}
 }
+
+// Boundary: when both spellings of one sequence have an open forecast
+// (an older one under the catalog spelling, a newer one under the
+// quote_ident spelling), the newest forecast is stated.
+func TestSequenceRateNewestForecastWins(t *testing.T) {
+	pool, ctx := phase2RequireDB(t)
+	resetCaseTables(t, ctx)
+	seedSequenceRate(t, ctx, "public.Orders_Seq", `public."Orders_Seq"`, seqRateDetail)
+	if _, err := pool.Exec(ctx, `INSERT INTO sage.findings
+		(category, severity, object_type, object_identifier, title, detail,
+		 recommendation, status, last_seen)
+		VALUES ('forecast_sequence_runway', 'warning', 'sequence', 'public.Orders_Seq',
+		        'runway', '{"rate_per_s": 99, "seconds_to_limit": 86400}', 'act', 'open',
+		        '2026-11-01T09:30:00Z')`); err != nil {
+		t.Fatalf("seed older runway finding: %v", err)
+	}
+	s := listedScript(t, ctx, "public.Orders_Seq")
+	wantRate(t, "newest list", s)
+	if strings.Contains(s.MigrationSQL, "99 values/s") {
+		t.Fatalf("older forecast stated:\n%s", s.MigrationSQL)
+	}
+	wantRate(t, "newest focus", focusedScript(t, ctx, "public.Orders_Seq"))
+}
