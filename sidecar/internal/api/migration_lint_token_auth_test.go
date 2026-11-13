@@ -4,10 +4,14 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/pg-sage/sidecar/internal/auth"
+	"github.com/pg-sage/sidecar/internal/catalogread"
+	"github.com/pg-sage/sidecar/internal/mcp"
 	"github.com/pg-sage/sidecar/internal/mcptoken"
 )
 
@@ -194,5 +198,59 @@ func TestCheckRouteGates_ViewerWriteOrToken(t *testing.T) {
 			t.Errorf("viewerWriteOrTokenRoutes[%q] = %q: writes only, with a reason",
 				pattern, reason)
 		}
+	}
+}
+
+// Never both, inside the handler: on the token path the session user is
+// dropped and only the token principal remains.
+func TestTokenOrSessionDropsSessionUser(t *testing.T) {
+	tokens := lintTokens(map[string]mcptoken.Grant{lintSecret(1): readGrant("t1")})
+	var user *auth.User
+	var actor string
+	probe := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user = UserFromContext(r.Context())
+		p, _ := mcp.PrincipalFromContext(r.Context())
+		actor = p.Actor
+		w.WriteHeader(http.StatusNoContent)
+	})
+	h := newTokenOrSession(tokens, probe)
+	rec := postLintAuth(t, h, testAdminUser(), "Bearer "+lintSecret(1), `{}`)
+	if rec.Code != http.StatusNoContent || user != nil || actor != "token:t1" {
+		t.Fatalf("token with a session: %d, user %+v, actor %q", rec.Code, user, actor)
+	}
+	rec = postLintAuth(t, h, testAdminUser(), "", `{}`)
+	if rec.Code != http.StatusNoContent || user == nil || actor != "" {
+		t.Fatalf("session only: %d, user %+v, actor %q", rec.Code, user, actor)
+	}
+}
+
+// A database-limited token that names no database reads the catalog of
+// the database its list was checked against, never a second resolution;
+// a session or an unrestricted token passes the request's database on.
+func TestMigrationLintTokenReadsCheckedDatabase(t *testing.T) {
+	tokens := lintTokens(map[string]mcptoken.Grant{
+		lintSecret(1): readGrant("t1"), lintSecret(4): readGrant("t4", "alpha")})
+	var mu sync.Mutex
+	var read []string
+	d := lintDeps(&lintCatalog{rows: 10}, 1000)
+	d.querier = func(db string) (catalogread.Querier, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		read = append(read, db)
+		return &lintCatalog{rows: 10}, nil
+	}
+	d.resolve = func(string) (string, error) { return "alpha", nil }
+	h := lintTokenMux(d, tokens)
+	body := `{"sql":"SELECT 1"}`
+	for _, call := range []struct {
+		user  *auth.User
+		authz string
+	}{{nil, "Bearer " + lintSecret(4)}, {testViewerUser(), ""}, {nil, "Bearer " + lintSecret(1)}} {
+		if rec := postLintAuth(t, h, call.user, call.authz, body); rec.Code != http.StatusOK {
+			t.Fatalf("%q: %d %s", call.authz, rec.Code, rec.Body)
+		}
+	}
+	if want := []string{"alpha", "", ""}; !slices.Equal(read, want) {
+		t.Fatalf("catalog reads for %v, want %v", read, want)
 	}
 }

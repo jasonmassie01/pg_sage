@@ -174,13 +174,14 @@ func migrationLintHandler(d migrationLintDeps) http.Handler {
 			jsonError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		if err := d.checkTokenDatabase(r.Context(), req); err != nil {
+		database, err := d.reviewDatabase(r.Context(), req)
+		if err != nil {
 			jsonError(w, err.Error(), lintDatabaseStatus(err))
 			return
 		}
 		var q catalogread.Querier
 		if !req.Static {
-			if q, err = d.querier(req.Database); err != nil {
+			if q, err = d.querier(database); err != nil {
 				jsonError(w, err.Error(), lintDatabaseStatus(err))
 				return
 			}

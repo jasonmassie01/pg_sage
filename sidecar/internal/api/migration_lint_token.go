@@ -119,32 +119,34 @@ func registerLintTokenRoute(mux *http.ServeMux, d migrationLintDeps,
 		newTokenOrSession(tokens, migrationLintHandler(d)))
 }
 
-// checkTokenDatabase refuses a token caller a database outside the
-// token's list as an unknown database, so the list does not reveal which
-// databases exist. A live review that names none is checked against the
-// one database it resolves to; a static review that names none reads no
-// catalog. Session callers are not checked here (their grants are).
-func (d migrationLintDeps) checkTokenDatabase(ctx context.Context,
-	req migrationLintRequest) error {
+// reviewDatabase is the database the review reads: the request's own,
+// or, for a token limited to some databases, the one a live review that
+// names none resolves to, so the catalog read is the database checked. A
+// token caller is refused a database outside its list as an unknown
+// database, so the list does not reveal which databases exist; a static
+// review that names none reads no catalog. Session callers keep the
+// request's database (any signed-in role may lint any of them).
+func (d migrationLintDeps) reviewDatabase(ctx context.Context,
+	req migrationLintRequest) (string, error) {
 	p, ok := mcp.PrincipalFromContext(ctx)
 	if !ok || p.Databases == nil {
-		return nil
+		return req.Database, nil
 	}
 	name := req.Database
 	if name == "" {
 		if req.Static {
-			return nil
+			return "", nil
 		}
 		if d.resolve == nil {
-			return errLintNoDatabase
+			return "", errLintNoDatabase
 		}
 		var err error
 		if name, err = d.resolve(""); err != nil {
-			return err
+			return "", err
 		}
 	}
 	if !p.MayUseDatabase(name) {
-		return errLintUnknownDatabase
+		return "", errLintUnknownDatabase
 	}
-	return nil
+	return name, nil
 }
