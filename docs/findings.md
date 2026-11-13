@@ -1155,6 +1155,7 @@ and config keys are in the [generated catalog](generated/finding-catalog.md).
 | <a id="managed_parameter_drift"></a>`managed_parameter_drift` | Cloud telemetry | A managed provider parameter that drifts from its resolved target. |
 | <a id="managed_storage_runway"></a>`managed_storage_runway` | Cloud telemetry | Time left before a managed instance's provisioned storage fills. |
 | <a id="instance_rightsize"></a>`instance_rightsize` | Cost | An instance that is over or under its size on 14 days of host usage. Advisory only: info severity, no SQL, and no executor path acts on it ([below](#instance-right-sizing)). |
+| <a id="cnpg_target_unconfigured"></a>`cnpg_target_unconfigured` | CloudNativePG | A self-managed database that looks like a CloudNativePG Cluster (the instance manager's `archive_command`, or `allow_alter_system = off`) but no `cnpg` block names it; see [Managed clouds](managed-clouds.md). Warning, no SQL. |
 | <a id="incident"></a><a id="incident_open"></a><a id="incident_resolved"></a>`incident` | RCA | Incident-class rows; `incident_open` and `incident_resolved` mark an incident's state. |
 | <a id="migration_safety"></a>`migration_safety` | Migration advisor | A migration safety rule's finding on a DDL statement. |
 | <a id="upgrade_readiness"></a>`upgrade_readiness` | Upgrade readiness | A major-version upgrade check (U1-U7) that does not pass; see [Upgrade Readiness](#upgrade-readiness). |
