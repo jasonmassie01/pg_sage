@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/pg-sage/sidecar/internal/migration"
 )
@@ -92,7 +93,8 @@ func (p Plan) ContractScript() (string, error) {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "-- pg_sage contract script for %s (forward fix; review it first).\n",
-		qualified(TableFacts{Schema: p.ContractGuard.Schema, Name: p.ContractGuard.Table}))
+		commentText(qualified(TableFacts{Schema: p.ContractGuard.Schema,
+			Name: p.ContractGuard.Table})))
 	b.WriteString("-- Run it after contract_not_before. It stops, changing nothing,\n" +
 		"-- unless the expand phase's proof still holds.\nBEGIN;\n")
 	b.WriteString(guard)
@@ -137,5 +139,25 @@ func guardBlock(guard ContractGuard) (string, error) {
 	return block, nil
 }
 
-// literal quotes s as one SQL string literal.
-func literal(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
+// literal quotes s as one SQL string literal. A value with a backslash
+// becomes an escape-string (E) literal with the backslash doubled, so it reads the
+// same whether or not the session has standard_conforming_strings on.
+func literal(s string) string {
+	quoted := strings.ReplaceAll(s, "'", "''")
+	if !strings.Contains(s, `\`) {
+		return "'" + quoted + "'"
+	}
+	return "E'" + strings.ReplaceAll(quoted, `\`, `\\`) + "'"
+}
+
+// commentText makes s safe inside a "--" comment: a control character
+// (a newline above all) would end the comment and turn the rest of a
+// name into SQL the operator runs.
+func commentText(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return '?'
+		}
+		return r
+	}, s)
+}
