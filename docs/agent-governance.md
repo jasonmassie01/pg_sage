@@ -283,6 +283,15 @@ A bad token, audience or issuer answers 401 `invalid_token`, a missing scope 403
 revoke an access token your issuer signed: a kill freezes the agent, which limits its OAuth
 tokens to read tools. Retire the agent, or unbind the identity, to refuse them outright.
 
+### Databricks Apps
+
+Inside a Databricks App none of this is reachable yet: MCP, agent-token issuance and the
+specialist API answer 501 `databricks_app_protocol_unsupported`, and no forwarded header or
+bearer token establishes an agent identity. Service-principal access waits on the header
+spike in [Databricks Apps: service principals and MCP](databricks-apps.md#service-principals-and-mcp);
+when it ships, an admin will bind each service principal to an agent here, under its own
+issuer `<workspace>/databricks-apps-sp`, the same way as an OAuth identity.
+
 ## Grants and activity
 
 An agent reads data it isn't otherwise granted through time-bounded grants. In this release
