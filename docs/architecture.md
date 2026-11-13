@@ -54,8 +54,8 @@ over `max_connections` above `safety.cpu_ceiling_pct`). A cycle reads the catalo
 in order (`catalogSteps`: `queries`, `tables`, `indexes`, `partitioned_indexes`,
 `foreign_keys`, `system`, `locks`, `sequences`), then `replication` and the extra categories
 (`extraSteps`: `io`, `prepared_xacts`, `archiver`, `partitions`, `index_bloat`,
-`workload_sessions`, `subscriptions`, `cdc_heartbeats` when `replication.cdc_heartbeats` is set,
-`config_data`).
+`workload_sessions`, `wait_events`, `subscriptions`, `cdc_heartbeats` when
+`replication.cdc_heartbeats` is set, `config_data`).
 
 **Health.** A skipped cycle is logged with its cause: `load ratio 0.93 > ceiling 0.90
 (active sessions / max_connections)`, or `load query failed: <error>` when the load query
@@ -124,6 +124,11 @@ Each snapshot holds one row per category: `queries`, `tables`, `indexes`,
 `workload_sessions` (this database's client sessions by role, application and state, at most
 200 groups, its 50 longest-running sessions with their sqlcommenter tags, and per-role
 statement time and cluster-wide session counts, which workload budgets read),
+`wait_events` (this database's active client sessions grouped by wait class and event, a
+session without a wait event counted as `CPU`: one aggregate of `pg_stat_activity` per
+cycle, with no query text and no pid, and without pg_sage's own sessions; it is sampled
+each collector cycle, not active session history, and is the workload explorer's wait-load
+chart),
 `subscriptions` (this database's logical replication subscriptions, their apply workers and,
 from PostgreSQL 15, their error counters; `subconninfo` is never read; at most 200)
 and `config_data` (the advisor's settings, reloptions, connection and WAL snapshot, collected only

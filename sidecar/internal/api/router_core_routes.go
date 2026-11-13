@@ -67,6 +67,7 @@ func registerObservabilityRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager)
 		http.HandlerFunc(snapshotLatestHandler(mgr)))
 	route(mux, "GET /api/v1/snapshots/history", gateViewer,
 		http.HandlerFunc(snapshotHistoryHandler(mgr)))
+	registerWorkloadRoutes(mux, mgr) // workload_routes.go (market-01)
 	// v0.12 — Fleet-wide health time-series (ui-redesign-v2 §5 Overview).
 	route(mux, "GET /api/v1/fleet/health", gateViewer, http.HandlerFunc(fleetHealthHandler(mgr)))
 	route(mux, "GET /api/v1/fleet/readiness", gateViewer,

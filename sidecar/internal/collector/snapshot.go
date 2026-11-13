@@ -66,6 +66,9 @@ type Snapshot struct {
 	// WorkloadSessions is who is using this database now, for workload
 	// budgets (market-08); nil when it was not read.
 	WorkloadSessions *WorkloadSessions `json:"workload_sessions,omitempty"`
+	// WaitEvents are the active client sessions by wait class this cycle
+	// (market-01); nil when they were not read.
+	WaitEvents []WaitEventLoad `json:"wait_events,omitempty"`
 }
 
 // Available reports whether category was read this cycle.

@@ -6,5 +6,6 @@ Choose your platform:
 - **[Windows](walkthrough-windows.md)** -- includes PowerShell tips and port conflict troubleshooting
 
 Both guides cover the current v1 workflow in ~10 minutes: connect to a
-database, log in with the generated admin password, review Overview and Cases,
-inspect Actions and Shadow Mode, and check Prometheus metrics.
+database, log in with the generated admin password, review Overview, Cases and the
+Workload explorer (top statements by load, wait-class load, per-query history and
+plans), inspect Actions and Shadow Mode, and check Prometheus metrics.

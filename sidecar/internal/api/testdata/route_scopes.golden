@@ -21,6 +21,9 @@ bare GET /api/v1/query-hints gate:viewer scope:-
 bare GET /api/v1/alert-log gate:viewer scope:-
 bare GET /api/v1/snapshots/latest gate:viewer scope:-
 bare GET /api/v1/snapshots/history gate:viewer scope:-
+bare GET /api/v1/queries/top gate:viewer scope:-
+bare GET /api/v1/queries/{queryid} gate:viewer scope:-
+bare GET /api/v1/wait-load gate:viewer scope:-
 bare GET /api/v1/fleet/health gate:viewer scope:-
 bare GET /api/v1/fleet/readiness gate:viewer scope:-
 bare GET /api/v1/admission gate:viewer scope:-
@@ -169,6 +172,9 @@ standalone GET /api/v1/query-hints gate:viewer scope:-
 standalone GET /api/v1/alert-log gate:viewer scope:-
 standalone GET /api/v1/snapshots/latest gate:viewer scope:-
 standalone GET /api/v1/snapshots/history gate:viewer scope:-
+standalone GET /api/v1/queries/top gate:viewer scope:-
+standalone GET /api/v1/queries/{queryid} gate:viewer scope:-
+standalone GET /api/v1/wait-load gate:viewer scope:-
 standalone GET /api/v1/fleet/health gate:viewer scope:-
 standalone GET /api/v1/fleet/readiness gate:viewer scope:-
 standalone GET /api/v1/admission gate:viewer scope:-
@@ -414,6 +420,9 @@ fleet-readonly GET /api/v1/query-hints gate:viewer scope:-
 fleet-readonly GET /api/v1/alert-log gate:viewer scope:-
 fleet-readonly GET /api/v1/snapshots/latest gate:viewer scope:-
 fleet-readonly GET /api/v1/snapshots/history gate:viewer scope:-
+fleet-readonly GET /api/v1/queries/top gate:viewer scope:-
+fleet-readonly GET /api/v1/queries/{queryid} gate:viewer scope:-
+fleet-readonly GET /api/v1/wait-load gate:viewer scope:-
 fleet-readonly GET /api/v1/fleet/health gate:viewer scope:-
 fleet-readonly GET /api/v1/fleet/readiness gate:viewer scope:-
 fleet-readonly GET /api/v1/admission gate:viewer scope:-
@@ -643,6 +652,9 @@ store-only-actions GET /api/v1/query-hints gate:viewer scope:-
 store-only-actions GET /api/v1/alert-log gate:viewer scope:-
 store-only-actions GET /api/v1/snapshots/latest gate:viewer scope:-
 store-only-actions GET /api/v1/snapshots/history gate:viewer scope:-
+store-only-actions GET /api/v1/queries/top gate:viewer scope:-
+store-only-actions GET /api/v1/queries/{queryid} gate:viewer scope:-
+store-only-actions GET /api/v1/wait-load gate:viewer scope:-
 store-only-actions GET /api/v1/fleet/health gate:viewer scope:-
 store-only-actions GET /api/v1/fleet/readiness gate:viewer scope:-
 store-only-actions GET /api/v1/admission gate:viewer scope:-
@@ -800,6 +812,9 @@ optional GET /api/v1/query-hints gate:viewer scope:-
 optional GET /api/v1/alert-log gate:viewer scope:-
 optional GET /api/v1/snapshots/latest gate:viewer scope:-
 optional GET /api/v1/snapshots/history gate:viewer scope:-
+optional GET /api/v1/queries/top gate:viewer scope:-
+optional GET /api/v1/queries/{queryid} gate:viewer scope:-
+optional GET /api/v1/wait-load gate:viewer scope:-
 optional GET /api/v1/fleet/health gate:viewer scope:-
 optional GET /api/v1/fleet/readiness gate:viewer scope:-
 optional GET /api/v1/admission gate:viewer scope:-
@@ -1042,6 +1057,9 @@ databricks-app GET /api/v1/query-hints gate:viewer scope:-
 databricks-app GET /api/v1/alert-log gate:viewer scope:-
 databricks-app GET /api/v1/snapshots/latest gate:viewer scope:-
 databricks-app GET /api/v1/snapshots/history gate:viewer scope:-
+databricks-app GET /api/v1/queries/top gate:viewer scope:-
+databricks-app GET /api/v1/queries/{queryid} gate:viewer scope:-
+databricks-app GET /api/v1/wait-load gate:viewer scope:-
 databricks-app GET /api/v1/fleet/health gate:viewer scope:-
 databricks-app GET /api/v1/fleet/readiness gate:viewer scope:-
 databricks-app GET /api/v1/admission gate:viewer scope:-

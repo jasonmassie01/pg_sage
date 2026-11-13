@@ -115,6 +115,7 @@ func snapshotRows(snap *Snapshot) ([]snapstore.Row, error) {
 		"index_bloat":         snap.IndexBloat,
 		"subscriptions":       snap.Subscriptions,
 		"workload_sessions":   snap.WorkloadSessions,
+		"wait_events":         snap.WaitEvents,
 	}
 	rows := make([]snapstore.Row, 0, len(categories))
 	for cat, data := range categories {

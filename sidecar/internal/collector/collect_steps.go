@@ -97,12 +97,8 @@ func (c *Collector) extraSteps() []catalogStep {
 				return err
 			}, reset: func(s *Snapshot) {
 				s.IndexBloat, s.IndexBloatTruncated, s.IndexBloatUnknown = nil, false, nil
-			}},
-		catalogStep{name: "workload_sessions",
-			run: func(ctx context.Context, s *Snapshot) (err error) {
-				s.WorkloadSessions, err = c.collectWorkloadSessions(ctx)
-				return err
-			}, reset: func(s *Snapshot) { s.WorkloadSessions = nil }})
+			}})
+	steps = append(steps, c.sessionSteps()...)
 	steps = append(steps, c.replicationHealthSteps()...)
 	if c.CollectsConfigSnapshots() {
 		steps = append(steps, catalogStep{name: "config_data",
@@ -112,6 +108,22 @@ func (c *Collector) extraSteps() []catalogStep {
 			}, reset: func(s *Snapshot) { s.ConfigData = nil }})
 	}
 	return c.withOverrides(steps)
+}
+
+// sessionSteps read the client sessions: workload_sessions by role,
+// application and state for workload budgets (market-08), then one aggregate
+// of the active sessions by wait class (market-01).
+func (c *Collector) sessionSteps() []catalogStep {
+	return []catalogStep{{name: "workload_sessions",
+		run: func(ctx context.Context, s *Snapshot) (err error) {
+			s.WorkloadSessions, err = c.collectWorkloadSessions(ctx)
+			return err
+		}, reset: func(s *Snapshot) { s.WorkloadSessions = nil }},
+		{name: "wait_events",
+			run: func(ctx context.Context, s *Snapshot) (err error) {
+				s.WaitEvents, err = c.collectWaitEvents(ctx)
+				return err
+			}, reset: func(s *Snapshot) { s.WaitEvents = nil }}}
 }
 
 // withOverrides swaps in the readers a test installed through overrideStep.

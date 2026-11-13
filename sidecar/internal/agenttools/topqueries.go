@@ -52,6 +52,9 @@ type CachedPlan struct {
 	TotalCost  float64   `json:"total_cost"`
 	PlanHash   string    `json:"plan_hash,omitempty"`
 	NodeTypes  []string  `json:"node_types"`
+	// JSON is the captured EXPLAIN document; top_queries leaves it out,
+	// the workload explorer's query page shows it.
+	JSON json.RawMessage `json:"-"`
 }
 
 var topOrders = map[string]bool{"total_time": true, "mean_time": true, "calls": true}
@@ -141,12 +144,13 @@ func (t *Tools) readTop(ctx context.Context, order string, limit int,
 		if !listed {
 			continue
 		}
-		if t.opts.Excluded(s.Text) {
+		q, excluded := t.present(s)
+		if excluded {
 			res.ExcludedCount++
 			continue
 		}
 		if len(res.Queries) < limit {
-			res.Queries = append(res.Queries, topQuery(s))
+			res.Queries = append(res.Queries, q)
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -178,6 +182,39 @@ func scanTopRow(rows pgx.Rows, sqlExcluded *int) (statement, bool, error) {
 		Rows: *n}, true, nil
 }
 
+// present is how the agent tools and the workload explorer show a
+// statement: its normalized text and tags, and whether the workload rule
+// leaves it out (pg_sage's own statements).
+func (t *Tools) present(s statement) (TopQuery, bool) {
+	return topQuery(s), t.opts.Excluded(s.Text)
+}
+
+// Statement is one statement as present shows it.
+type Statement struct {
+	Query    string
+	Tags     map[string]string
+	Excluded bool
+}
+
+// Statements reads the statements of ids from pg_stat_statements as
+// top_queries shows them; an id without a statement (evicted, or never
+// tracked) is absent. A missing or unloaded extension is ErrUnavailable.
+func (t *Tools) Statements(ctx context.Context, ids []int64) (map[int64]Statement, error) {
+	if err := t.ready(); err != nil {
+		return nil, err
+	}
+	byID, err := t.statementsByID(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[int64]Statement, len(byID))
+	for id, s := range byID {
+		q, excluded := t.present(s)
+		out[id] = Statement{Query: q.Query, Tags: q.Tags, Excluded: excluded}
+	}
+	return out, nil
+}
+
 func topQuery(s statement) TopQuery {
 	q := TopQuery{QueryID: QueryID(s.ID), Query: s.Text, Calls: s.Calls,
 		TotalTimeMs: s.TotalTimeMs, MeanTimeMs: s.meanMs(), Rows: s.Rows}
@@ -199,9 +236,25 @@ func (t *Tools) attachPlans(ctx context.Context, queries []TopQuery) error {
 	for i, q := range queries {
 		ids[i] = int64(q.QueryID)
 	}
+	plans, err := t.Plans(ctx, ids)
+	if err != nil {
+		return err
+	}
+	for i := range queries {
+		queries[i].Plan = plans[int64(queries[i].QueryID)]
+	}
+	return nil
+}
+
+// Plans reads the newest plan pg_sage captured for each of ids (not a
+// provider's plan history); an id without one is absent.
+func (t *Tools) Plans(ctx context.Context, ids []int64) (map[int64]*CachedPlan, error) {
+	if err := t.ready(); err != nil {
+		return nil, err
+	}
 	rows, err := t.pool.Query(ctx, cachedPlansSQL, ids)
 	if err != nil {
-		return fmt.Errorf("read sage.explain_cache: %w", err)
+		return nil, fmt.Errorf("read sage.explain_cache: %w", err)
 	}
 	defer rows.Close()
 	plans := make(map[int64]*CachedPlan, len(ids))
@@ -211,18 +264,18 @@ func (t *Tools) attachPlans(ctx context.Context, queries []TopQuery) error {
 		p := &CachedPlan{}
 		if err := rows.Scan(&id, &p.Source, &p.CapturedAt, &p.TotalCost, &p.PlanHash,
 			&raw); err != nil {
-			return fmt.Errorf("scan sage.explain_cache: %w", err)
+			return nil, fmt.Errorf("scan sage.explain_cache: %w", err)
 		}
 		p.NodeTypes = planNodeTypes(raw)
+		if json.Valid(raw) {
+			p.JSON = raw
+		}
 		plans[id] = p
 	}
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("read sage.explain_cache: %w", err)
+		return nil, fmt.Errorf("read sage.explain_cache: %w", err)
 	}
-	for i := range queries {
-		queries[i].Plan = plans[int64(queries[i].QueryID)]
-	}
-	return nil
+	return plans, nil
 }
 
 // planNodeTypes lists the distinct "Node Type" values of an EXPLAIN JSON

@@ -25,6 +25,7 @@ import {
 } from './cases/caseFocus'
 import { FocusMissing } from './cases/FocusMissing'
 import { CaseTicket } from './cases/CaseTicket'
+import { QueryPageLink } from './cases/QueryPageLink'
 
 const SOURCE_FILTERS = [
   { value: 'all', label: 'All' },
@@ -447,6 +448,7 @@ function EvidenceItem({ evidence, category, database, canExplain }) {
           <SQLBlock sql={String(query)} />
         </div>
       )}
+      <QueryPageLink queryid={evidence.queryid} database={database} />
       {canExplain && <ExplainQueryButton database={database} queryid={evidence.queryid} />}
       <FindingFactSections row={{ category, detail }} />
       <details className="mt-2">

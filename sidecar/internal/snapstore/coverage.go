@@ -18,6 +18,8 @@ var fullCategories = map[string]string{
 		"statement text) and 200 roles (market-08)",
 	"archiver": "the server's one pg_stat_archiver row (a few hundred bytes) whose " +
 		"archive age and current WAL file move every cycle",
+	"wait_events": "a few rows (active sessions by wait class) that change every cycle; " +
+		"an idle database is an empty list",
 }
 
 // Coverage reports how the store keeps category: delta is true for a

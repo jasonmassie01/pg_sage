@@ -97,9 +97,11 @@ Verify:
    flag on day one, each finding with its catalog evidence.
 2. **Overview** -- database tiles and Provider Readiness.
 3. **Cases** -- ranked work queue. `#/findings` aliases to Cases.
-4. **Actions** -- pending approval and executed action tabs.
-5. **Fleet** -- database connection management.
-6. **Settings** -- emergency controls and Shadow Mode (shadow decisions per class).
+4. **Workload** -- top statements by load and the wait-class load chart; each statement
+   opens its history, plan changes and related cases.
+5. **Actions** -- pending approval and executed action tabs.
+6. **Fleet** -- database connection management.
+7. **Settings** -- emergency controls and Shadow Mode (shadow decisions per class).
 
 ## 4. API and Metrics Checks
 
@@ -110,6 +112,7 @@ curl.exe -c cookies.txt -H "Content-Type: application/json" `
 
 curl.exe -b cookies.txt http://localhost:8080/api/v1/cases
 curl.exe -b cookies.txt http://localhost:8080/api/v1/shadow-decisions
+curl.exe -b cookies.txt "http://localhost:8080/api/v1/queries/top?database=all&limit=5"
 curl.exe http://localhost:8187/metrics
 ```
 
