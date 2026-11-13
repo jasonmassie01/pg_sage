@@ -62,10 +62,11 @@ func readRoleFacts(ctx context.Context, q pgx.Tx, role, setting string) (roleFac
 // before anything changes.
 func (e *Executor) prepareRoleBudget(ctx context.Context, c *configChange,
 	stmt roleBudgetStmt) error {
-	if e.pool == nil {
+	db := e.actionDB() // the identity that will run the change (security-09)
+	if db == nil {
 		return fmt.Errorf("%w: database pool unavailable", ErrConfigPrior)
 	}
-	tx, err := e.pool.Begin(ctx)
+	tx, err := db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("%w: role %s: %v", ErrConfigPrior, stmt.Role, err)
 	}
@@ -94,6 +95,10 @@ func (e *Executor) checkRoleBudget(stmt roleBudgetStmt, f roleFacts) error {
 	}
 	if err := budget.RefusedRole(stmt.Role, f.self, f.superuser); err != nil {
 		return fmt.Errorf("%w: %v", ErrRoleBudgetRefused, err)
+	}
+	if monitor := e.monitoringRole(); monitor != "" && stmt.Role == monitor {
+		return fmt.Errorf("%w: role %s is refused: it is pg_sage's monitoring role",
+			ErrRoleBudgetRefused, stmt.Role)
 	}
 	if !stmt.ConnLimit {
 		if stmt.Database != f.database {
@@ -153,7 +158,7 @@ func (e *Executor) execRoleBudget(ctx context.Context, sql string, beforeState m
 
 func (e *Executor) runRoleBudgetTx(ctx context.Context, stmt roleBudgetStmt, sql, want string,
 	timeout time.Duration, lockTimeoutMS int) error {
-	tx, err := e.pool.Begin(ctx)
+	tx, err := e.actionDB().Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -181,6 +186,16 @@ func (e *Executor) runRoleBudgetTx(ctx context.Context, stmt roleBudgetStmt, sql
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+// monitoringRole is the login of pg_sage's monitoring pool when changes run
+// as a separate action identity: the precheck's session_user is then the
+// action role, so the monitoring role is refused by name. "" without one.
+func (e *Executor) monitoringRole() string {
+	if e.actionPool == nil || e.pool == nil {
+		return ""
+	}
+	return e.pool.Config().ConnConfig.User
 }
 
 // preparedRollback is the rollback prepareConfigChange recorded.

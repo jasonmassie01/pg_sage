@@ -130,6 +130,12 @@ applies to sessions opened afterwards.
 **Fleet mode.** Timeouts are per database (`IN DATABASE`); a connection
 limit is cluster-wide and only the fleet leader applies it.
 
+**Separate action identity.** With `action_dsn` set
+([Security](security.md#separate-observation-and-action-roles-action_dsn)), the prechecks
+and the `ALTER ROLE` run as the action role, so that role needs `CREATEROLE` and the ADMIN
+option on each budgeted role; the observation role needs neither. Neither of pg_sage's two
+roles can be budgeted.
+
 **Managed providers.** RDS and Cloud SQL allow `ALTER ROLE` on roles the
 admin role created. When the server refuses for lack of privilege
 (SQLSTATE 42501), the action fails as refused with the server's message
