@@ -103,12 +103,7 @@ func updateChannelHandler(
 
 		existing, err := ns.GetChannel(r.Context(), id)
 		if err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				jsonError(w, "channel not found",
-					http.StatusNotFound)
-				return
-			}
-			internalError(w, r, "get channel", err)
+			notificationWriteError(w, r, "get channel", "channel not found", err)
 			return
 		}
 		if req.Name == "" {
@@ -126,17 +121,7 @@ func updateChannelHandler(
 			r.Context(), id, req.Name,
 			req.Config, enabled,
 		); err != nil {
-			if errors.Is(err, store.ErrValidation) {
-				jsonError(w, err.Error(),
-					http.StatusBadRequest)
-				return
-			}
-			if errors.Is(err, store.ErrNotFound) {
-				jsonError(w, "channel not found",
-					http.StatusNotFound)
-				return
-			}
-			internalError(w, r, "update channel", err)
+			notificationWriteError(w, r, "update channel", "channel not found", err)
 			return
 		}
 		jsonResponse(w, map[string]string{"status": "updated"})
@@ -154,12 +139,7 @@ func deleteChannelHandler(
 			return
 		}
 		if err := ns.DeleteChannel(r.Context(), id); err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				jsonError(w, "channel not found",
-					http.StatusNotFound)
-				return
-			}
-			internalError(w, r, "delete channel", err)
+			notificationWriteError(w, r, "delete channel", "channel not found", err)
 			return
 		}
 		jsonResponse(w, map[string]string{"status": "deleted"})
@@ -234,17 +214,7 @@ func createRuleHandler(
 			r.Context(), req.ChannelID,
 			req.Event, req.MinSeverity)
 		if err != nil {
-			if errors.Is(err, store.ErrValidation) {
-				jsonError(w, err.Error(),
-					http.StatusBadRequest)
-				return
-			}
-			if errors.Is(err, store.ErrNotFound) {
-				jsonError(w, "channel not found",
-					http.StatusNotFound)
-				return
-			}
-			internalError(w, r, "create rule", err)
+			notificationWriteError(w, r, "create rule", "channel not found", err)
 			return
 		}
 		w.WriteHeader(http.StatusCreated)
@@ -268,12 +238,7 @@ func deleteRuleHandler(
 			return
 		}
 		if err := ns.DeleteRule(r.Context(), id); err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				jsonError(w, "rule not found",
-					http.StatusNotFound)
-				return
-			}
-			internalError(w, r, "delete rule", err)
+			notificationWriteError(w, r, "delete rule", "rule not found", err)
 			return
 		}
 		jsonResponse(w, map[string]string{"status": "deleted"})
@@ -308,12 +273,7 @@ func updateRuleHandler(
 		if err := ns.UpdateRule(
 			r.Context(), id, *req.Enabled,
 		); err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				jsonError(w, "rule not found",
-					http.StatusNotFound)
-				return
-			}
-			internalError(w, r, "update rule", err)
+			notificationWriteError(w, r, "update rule", "rule not found", err)
 			return
 		}
 		jsonResponse(w, map[string]string{"status": "updated"})

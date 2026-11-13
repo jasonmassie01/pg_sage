@@ -31,6 +31,10 @@ func (s *NotificationStore) CreateRule(
 	if err != nil {
 		return 0, err
 	}
+	if ch.ManagedBy == notify.ManagedByConfig {
+		// The reconciler deletes its channels, and their rules with them.
+		return 0, fmt.Errorf("channel %d: %w", channelID, ErrManagedByConfig)
+	}
 	if err := validateRuleChannel(ch); err != nil {
 		return 0, err
 	}
@@ -59,7 +63,7 @@ func (s *NotificationStore) ListRules(
 	defer cancel()
 
 	rows, err := s.pool.Query(qctx,
-		`/* pg_sage */ SELECT id, channel_id, event, min_severity, enabled
+		`/* pg_sage */ SELECT id, channel_id, event, min_severity, enabled, managed_by
 		 FROM sage.notification_rules ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("listing rules: %w", err)
@@ -71,7 +75,7 @@ func (s *NotificationStore) ListRules(
 		var r notify.Rule
 		if err := rows.Scan(
 			&r.ID, &r.ChannelID, &r.Event,
-			&r.MinSeverity, &r.Enabled,
+			&r.MinSeverity, &r.Enabled, &r.ManagedBy,
 		); err != nil {
 			return nil, fmt.Errorf("scanning rule: %w", err)
 		}
@@ -88,12 +92,13 @@ func (s *NotificationStore) DeleteRule(
 	defer cancel()
 
 	tag, err := s.pool.Exec(qctx,
-		"DELETE FROM sage.notification_rules WHERE id = $1", id)
+		`/* pg_sage */ DELETE FROM sage.notification_rules
+		 WHERE id = $1 AND managed_by = 'api'`, id)
 	if err != nil {
 		return fmt.Errorf("deleting rule %d: %w", id, err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("%w: rule %d", ErrNotFound, id)
+		return s.ruleNotWritten(ctx, id)
 	}
 	return nil
 }
@@ -107,13 +112,13 @@ func (s *NotificationStore) UpdateRule(
 
 	tag, err := s.pool.Exec(qctx,
 		`/* pg_sage */ UPDATE sage.notification_rules
-		 SET enabled = $1 WHERE id = $2`,
+		 SET enabled = $1 WHERE id = $2 AND managed_by = 'api'`,
 		enabled, id)
 	if err != nil {
 		return fmt.Errorf("updating rule %d: %w", id, err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("%w: rule %d", ErrNotFound, id)
+		return s.ruleNotWritten(ctx, id)
 	}
 	return nil
 }
