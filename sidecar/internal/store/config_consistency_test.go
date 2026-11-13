@@ -58,6 +58,8 @@ var excludedPrefixes = []string{
 	"baseline.",
 	// rehearsal plan-flip budget (migration-06): YAML only, safety-critical
 	"rehearsal.",
+	// provider advice reconciliation switch (market-09): YAML only, restart-bound
+	"provider_advice.",
 }
 
 // excludedExactKeys are individual keys that exist in the Config
