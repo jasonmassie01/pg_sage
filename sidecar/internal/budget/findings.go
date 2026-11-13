@@ -58,7 +58,8 @@ func matchText(m Match) string {
 // enforceActions are an enforce-mode role budget's actions whose setting
 // is not in place yet. A refused role or connection limit raises none.
 func (m *Monitor) enforceActions(ctx context.Context, b Budget,
-	ws *collector.WorkloadSessions) ([]analyzer.Finding, error) {
+	ws *collector.WorkloadSessions, history []ShadowDay, now time.Time) ([]analyzer.Finding,
+	error) {
 	self, err := m.catalog.SelfRole(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("read pg_sage's role for budget %q: %w", b.Name, err)
@@ -88,6 +89,9 @@ func (m *Monitor) enforceActions(ctx context.Context, b Budget,
 	}{{SettingStatementTimeout, b.StatementTimeoutMs},
 		{SettingIdleInTx, b.IdleInTransactionTimeoutMs}} {
 		if f, ok := timeoutAction(b, db, s.name, s.ms, fact); ok {
+			if s.name == SettingStatementTimeout {
+				m.addCancelWatch(&f, b, history, now)
+			}
 			out = append(out, f)
 		}
 	}

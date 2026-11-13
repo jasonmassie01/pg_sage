@@ -75,7 +75,8 @@ ON CONFLICT (database_name, role_name, day) DO UPDATE SET
 func (s *Store) History(ctx context.Context, budget, definition string,
 	since time.Time) ([]ShadowDay, error) {
 	rows, err := s.pool.Query(ctx, `/* pg_sage budget */
-SELECT day, first_seen, would_cancel, would_reject, protected_cancels, worst_ms
+SELECT day, first_seen, would_cancel, would_reject, protected_cancels, worst_ms,
+       actual_cancels, cancel_source, cancels_lower_bound
   FROM sage.budget_shadow
  WHERE database_name = $1 AND budget = $2 AND definition = $3 AND day >= $4::date
  ORDER BY day`, s.database, budget, definition, since.UTC())
@@ -88,7 +89,7 @@ SELECT day, first_seen, would_cancel, would_reject, protected_cancels, worst_ms
 		var d ShadowDay
 		var cancels, protected int64
 		if err := rows.Scan(&d.Day, &d.FirstSeen, &cancels, &d.WouldReject, &protected,
-			&d.WorstMs); err != nil {
+			&d.WorstMs, &d.ActualCancels, &d.CancelSource, &d.CancelsLowerBound); err != nil {
 			return nil, fmt.Errorf("scan sage.budget_shadow: %w", err)
 		}
 		d.WouldCancel, d.ProtectedCancels = int(cancels), int(protected)

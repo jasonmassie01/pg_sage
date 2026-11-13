@@ -3,6 +3,7 @@ package budget
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
@@ -80,13 +81,19 @@ type Monitor struct {
 	now      func() time.Time
 	// evaluated is the categories the last Detect fully evaluated.
 	evaluated []string
+	// cancels counts statement-timeout cancels from the server log (nil:
+	// no log source); cancelLedger records them and reads reverts (nil
+	// when the ledger keeps neither) (market-08b).
+	cancels      atomic.Pointer[CancelCounter]
+	cancelLedger CancelLedger
 }
 
 // NewMonitor builds the detector for one database (its ledger key).
 func NewMonitor(cfg *config.Config, src SnapshotSource, ledger Ledger, catalog RoleCatalog,
 	database string, logFn func(string, string, ...any)) *Monitor {
+	cancelLedger, _ := ledger.(CancelLedger)
 	return &Monitor{cfg: cfg, src: src, ledger: ledger, catalog: catalog, database: database,
-		eval: NewEvaluator(), logFn: logFn, now: time.Now}
+		eval: NewEvaluator(), logFn: logFn, now: time.Now, cancelLedger: cancelLedger}
 }
 
 // LastEvaluatedCategories is the categories the last Detect evaluated, so
@@ -115,6 +122,9 @@ func (m *Monitor) Detect(ctx context.Context) ([]analyzer.Finding, error) {
 	tallies := m.eval.Evaluate(budgets, snap.WorkloadSessions, set.protected,
 		snap.CollectedAt)
 	if err := m.record(ctx, day, tallies, snap.WorkloadSessions.Roles); err != nil {
+		return nil, err
+	}
+	if err := m.recordCancels(ctx, day, budgets); err != nil {
 		return nil, err
 	}
 	out, err := m.budgetFindings(ctx, budgets, snap.WorkloadSessions, now)
@@ -175,11 +185,15 @@ func (m *Monitor) budgetFindings(ctx context.Context, budgets []Budget,
 		if !b.Enforceable() {
 			continue
 		}
-		if ok, why := CanPromote(history, now); !ok {
+		ok, why, err := m.promotable(ctx, b, history, now)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
 			m.logFn("INFO", "budget %q stays in warn mode: %s", b.Name, why)
 			continue
 		}
-		actions, err := m.enforceActions(ctx, b, ws)
+		actions, err := m.enforceActions(ctx, b, ws, history, now)
 		if err != nil {
 			return nil, err
 		}

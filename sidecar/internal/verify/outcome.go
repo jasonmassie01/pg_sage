@@ -53,6 +53,9 @@ const (
 	// Roadmap 2.3: a replacement (create the wider index, soft-drop the
 	// subsumed one), judged on its targets and on the old index's users.
 	ClassIndexReplace = "index_replace"
+	// market-08b: an enforced role statement_timeout, judged by its real
+	// statement-timeout cancels against the budget's shadow prediction.
+	ClassRoleTimeout = "role_timeout"
 )
 
 // Metrics a prediction can name (config metrics are named by the
@@ -68,6 +71,9 @@ const (
 	MetricRowEstimateError = "row_estimate_error"
 	// MetricIndexBytes is the size of a REINDEX target's indexes.
 	MetricIndexBytes = "index_bytes"
+	// MetricStatementTimeoutCancels is the statement-timeout cancels of a
+	// budgeted role counted from the server log (market-08b).
+	MetricStatementTimeoutCancels = "statement_timeout_cancels"
 )
 
 // PredictionTolerance is the share of a predicted change the observed one
