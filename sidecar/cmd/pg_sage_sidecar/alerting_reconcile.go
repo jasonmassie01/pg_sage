@@ -34,10 +34,12 @@ func (o *alertingOwner) reconcileStores() []notify.ReconcileStore {
 	return out
 }
 
-// reconcileAtBoot tracks s and, with the notify engine, reconciles the
-// running config's block into it. It returns what was written, or nil
-// when nothing ran or the reconcile failed (logged: config alerts are
-// not delivered until a later reconcile succeeds).
+// reconcileAtBoot tracks s and reconciles the running config's block into
+// it. With the legacy engine the block is reconciled as absent: the
+// legacy manager delivers it, so config rows left by an earlier notify
+// run would post every finding a second time. It returns what was
+// written, or nil when nothing ran or the reconcile failed (logged:
+// config alerts are not delivered until a later reconcile succeeds).
 func (o *alertingOwner) reconcileAtBoot(
 	ctx context.Context, s notify.ReconcileStore,
 ) *notify.ReconcileResult {
@@ -45,10 +47,11 @@ func (o *alertingOwner) reconcileAtBoot(
 		return nil
 	}
 	o.addReconciler(s)
-	if cfg.Alerting.EffectiveEngine() != config.AlertingEngineNotify {
-		return nil
+	block := cfg.Alerting
+	if block.EffectiveEngine() == config.AlertingEngineLegacy {
+		block = config.AlertingConfig{}
 	}
-	res, err := notify.Reconcile(ctx, s, cfg.Alerting, configTargetPolicy(cfg),
+	res, err := notify.Reconcile(ctx, s, block, configTargetPolicy(cfg),
 		logStructuredWrapper)
 	if err != nil {
 		logError("alerting", "reconciling the alerting: block into notification channels "+
@@ -111,7 +114,8 @@ func warnLegacyAlertingEngine(c *config.Config) {
 		return
 	}
 	logWarn("alerting", "alerting.engine is legacy: the old per-database alerting "+
-		"manager delivers the alerting: block and nothing is reconciled into notification "+
-		"channels. The legacy engine is removed by alerting-06d; switch to "+
+		"manager delivers the alerting: block, nothing is reconciled into notification "+
+		"channels and config-managed channels left by the notify engine are removed. "+
+		"The legacy engine is removed by alerting-06d; switch to "+
 		"alerting.engine: notify (the default)")
 }

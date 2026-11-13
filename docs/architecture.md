@@ -508,8 +508,8 @@ retries, cooldown, quiet hours and reminders. Config rows show a "From config fi
 the API refuses to change them (409 `managed_by_config`).
 
 `alerting.engine: legacy` keeps the old per-database alerting manager (below) for one
-release instead; it reconciles nothing, and it posts a second time to any destination the
-Notifications page also routes to, because the two stacks share no state and their dedup keys
+release instead; at startup it removes the config rows a notify run left, so the block is
+delivered once, and it posts a second time to any destination the Notifications page routes to, because the two stacks share no state and their dedup keys
 differ. It is removed by alerting-06d.
 
 | | Notify engine (default) | Legacy engine (`engine: legacy`) |

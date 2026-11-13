@@ -105,15 +105,36 @@ func TestEngineNotify_OnePostPerFinding(t *testing.T) {
 	}
 }
 
-func TestEngineLegacy_BootReconcilesNothing(t *testing.T) {
+// The legacy manager delivers the block, so the switch back from notify
+// removes the config rows a notify run left (else the outbox posts each
+// finding a second time) and writes none; UI rows stay.
+func TestEngineLegacy_BootRemovesConfigRowsOnly(t *testing.T) {
+	ctx := context.Background()
+	notifyBlock := engineAlerting("", "https://hooks.slack.example.com/x")
+	withAlertingConfig(t, notifyBlock)
+	store := notify.NewMemoryStore()
+	uiID := store.AddChannel(notify.Channel{Name: "ops-ui", Type: "slack", Enabled: true,
+		Config: map[string]string{"webhook_url": "https://hooks.slack.example.com/ui"}})
+	store.AddRule(notify.Rule{ChannelID: uiID, Event: "finding_opened",
+		MinSeverity: "warning", Enabled: true})
+	if res := newAlertingOwner().reconcileAtBoot(ctx, store); res == nil ||
+		res.ChannelsCreated != 1 {
+		t.Fatalf("notify boot reconcile = %+v, want the config channel", res)
+	}
 	withAlertingConfig(t, engineAlerting(config.AlertingEngineLegacy,
 		"https://hooks.slack.example.com/x"))
-	store := notify.NewMemoryStore()
-	if res := newAlertingOwner().reconcileAtBoot(context.Background(), store); res != nil {
-		t.Fatalf("legacy boot reconcile = %+v, want none", res)
+	res := newAlertingOwner().reconcileAtBoot(ctx, store)
+	want := notify.ReconcileResult{ChannelsDeleted: 1, RulesDeleted: 2}
+	if res == nil || *res != want {
+		t.Fatalf("legacy boot reconcile = %+v, want %+v", res, want)
 	}
-	if ch, err := store.Channel(context.Background(), 1); err == nil {
-		t.Fatalf("legacy engine wrote channel %+v", ch)
+	rules, err := store.MatchingRules(ctx, "finding_opened")
+	if err != nil || len(rules) != 1 || rules[0].ChannelID != uiID {
+		t.Fatalf("rules after the legacy boot = %+v, %v; want only the UI rule", rules, err)
+	}
+	if again := newAlertingOwner().reconcileAtBoot(ctx, store); again == nil ||
+		*again != (notify.ReconcileResult{}) {
+		t.Fatalf("second legacy boot = %+v, want nothing written", again)
 	}
 }
 
