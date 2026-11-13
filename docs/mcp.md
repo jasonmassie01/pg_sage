@@ -448,6 +448,20 @@ is validated (`convalidated`), or the unique index is valid and unique (`indisva
 changes, even in a client that keeps going after an error. A lock wait over 5 seconds aborts
 it the same way; run it again later.
 
+## Upgrade readiness
+
+`upgrade_readiness` checks the resolved database for a major-version upgrade to
+`target_major` (above the server's major, at most the newest major pg_sage knows)
+by `method` (`pg_upgrade`, the default; `blue_green`; `logical`). It returns each
+check U1-U7 as `pass`, `warn`, `block` or `unknown`, with its reason, up to 50
+evidence rows and the total; see [Upgrade Readiness](findings.md#upgrade-readiness)
+for what each check reads. Name `target_database`, a monitored database already at
+the target major, to compare installed extensions against what it offers; without it
+U2 is `unknown`. The tool only reads, in one read-only transaction with a statement
+timeout; it writes nothing and opens no finding (the daily check does that). The REST
+form is `GET /api/v1/upgrade-readiness?database=&target_major=&method=&target_database=`
+(any signed-in role; 400 for an invalid target, 404 for an unknown database).
+
 ## Query to source attribution
 
 Without any extension pg_sage attributes statements from two places:
@@ -525,6 +539,7 @@ application's database driver (most ORMs have a plugin) for reliable attribution
 | [`agent_query`](#agent_query) | `read` | always |
 | [`agent_whoami`](#agent_whoami) | `read` | always |
 | [`agent_request_capability`](#agent_request_capability) | `propose` | always |
+| [`upgrade_readiness`](#upgrade_readiness) | `read` | always |
 
 ### `get_policy`
 
@@ -1225,5 +1240,18 @@ Scope: `propose`
 | `duration_minutes` | integer | yes | value >= 1 |
 | `objects` | array of string | yes | at most 50 items |
 | `reason` | string | yes | length 1-2000 |
+
+### `upgrade_readiness`
+
+Check the database for a major-version upgrade: tables logical replication cannot identify rows of, extensions against a target member, logical slots and subscriptions, data checksums against PG18's initdb default, collation versions and indexes to reindex, removed settings and dated support windows. Each check is pass, warn, block or unknown with up to 50 evidence rows. Read-only; it changes nothing.
+
+Scope: `read`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
+| `method` | string | no | default pg_upgrade; one of `pg_upgrade`, `blue_green`, `logical` |
+| `target_database` | string | no | a monitored database already at target_major to compare extensions against; length <= 63 |
+| `target_major` | integer | yes | the major to upgrade to (above the server's, at most the newest pg_sage knows); value >= 1 |
 
 <!-- END GENERATED MCP TOOL REFERENCE -->

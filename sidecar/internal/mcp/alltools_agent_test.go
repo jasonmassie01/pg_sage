@@ -85,6 +85,12 @@ func (b *allToolsBackend) ReportSourceFix(ctx context.Context, r agenttools.Repo
 		b.recordAgent(ctx, "report_source_fix", r, actor)
 }
 
+func (b *allToolsBackend) UpgradeReadiness(ctx context.Context,
+	_ UpgradeReadinessRequest) (any, error) {
+	b.hit(ctx, "upgrade_readiness")
+	return map[string]any{}, nil
+}
+
 func (b *allToolsBackend) FleetFindings(ctx context.Context,
 	_ FleetFindingsRequest) (any, error) {
 	b.hit(ctx, "fleet_findings")

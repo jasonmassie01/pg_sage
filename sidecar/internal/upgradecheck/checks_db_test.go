@@ -300,7 +300,7 @@ func TestRun_RemovedSettings(t *testing.T) {
 	requireBelow18(t, d)
 	if d.major < 16 {
 		d.exec(t, "ALTER DATABASE "+pgx.Identifier{d.name}.Sanitize()+
-			" SET vacuum_defer_cleanup_age = 5")
+			" SET force_parallel_mode = on")
 		d.pool.Reset() // the setting applies to new sessions
 	}
 	rep, err := Run(d.ctx, d.pool, Target{Major: 18}, Options{})
@@ -314,9 +314,9 @@ func TestRun_RemovedSettings(t *testing.T) {
 		}
 		return
 	}
-	if u6.Status != Warn || u6.Total != 1 || u6.Rows[0]["name"] != "vacuum_defer_cleanup_age" ||
-		u6.Rows[0]["source"] != "database" || !strings.Contains(u6.Rows[0]["change"], "16") {
-		t.Fatalf("PG%d U6 = %+v, want a warning on vacuum_defer_cleanup_age", d.major, u6)
+	if u6.Status != Warn || u6.Total != 1 || u6.Rows[0]["name"] != "force_parallel_mode" ||
+		u6.Rows[0]["source"] != "database" || !strings.Contains(u6.Rows[0]["change"], "debug_parallel_query") {
+		t.Fatalf("PG%d U6 = %+v, want a warning on force_parallel_mode", d.major, u6)
 	}
 }
 

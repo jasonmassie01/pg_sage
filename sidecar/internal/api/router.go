@@ -279,6 +279,7 @@ func registerFleetReadRoutes(apiMux *http.ServeMux, mgr *fleet.DatabaseManager,
 	route(apiMux, "GET /api/v1/value", gateViewer, valueHandler(fleetValueReader(mgr)))
 	registerBriefingRoutes(apiMux, mgr)
 	registerMigrationLintRoutes(apiMux, mgr, cfg)
+	registerUpgradeReadinessRoutes(apiMux, mgr, cfg)
 }
 
 // registerControlPoolRoutes registers the routes backed by the control

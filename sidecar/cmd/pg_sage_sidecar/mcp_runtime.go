@@ -94,6 +94,8 @@ func mcpDependencies() mcp.ProductionDependencies {
 		Availability: newMCPAvailability(fleetMgr),
 		// The latest-briefing resource of each database (llm-06b).
 		Briefings: fleetBriefingsMCP{manager: fleetMgr},
+		// upgrade_readiness (market-05): read-only, on the resolved database.
+		UpgradeReadiness: upgradeReadinessMCP{manager: fleetMgr},
 	}
 }
 

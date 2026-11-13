@@ -81,6 +81,8 @@ type ProductionDependencies struct {
 	Availability Availability
 	// Briefings serves the latest-briefing resource (llm-06b); optional.
 	Briefings BriefingBackend
+	// UpgradeReadiness serves upgrade_readiness (market-05); optional.
+	UpgradeReadiness UpgradeReadinessBackend
 }
 
 type ProductionBackend struct {

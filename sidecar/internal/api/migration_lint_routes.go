@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
@@ -88,30 +90,40 @@ func registerMigrationLintRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
 // only one when a single database is monitored.
 func fleetLintQuerier(mgr *fleet.DatabaseManager) func(string) (catalogread.Querier, error) {
 	return func(database string) (catalogread.Querier, error) {
-		if mgr == nil {
-			return nil, errLintNoDatabase
-		}
-		if database == "" {
-			names := mgr.Instances()
-			if len(names) > 1 {
-				return nil, errLintDatabaseRequired
-			}
-			for name := range names {
-				database = name
-			}
-		}
-		if database == "" {
-			return nil, errLintNoDatabase
-		}
-		if mgr.GetInstance(database) == nil {
-			return nil, errLintUnknownDatabase
-		}
-		pool := mgr.PoolForDatabase(database)
-		if pool == nil {
-			return nil, errLintNoDatabase
+		pool, err := fleetDatabasePool(mgr, database)
+		if err != nil {
+			return nil, err
 		}
 		return catalogread.New(pool, migrationLintTimeouts), nil
 	}
+}
+
+// fleetDatabasePool is the named monitored database's pool, or the only
+// one's when database is empty and a single database is monitored.
+func fleetDatabasePool(mgr *fleet.DatabaseManager, database string) (*pgxpool.Pool, error) {
+	if mgr == nil {
+		return nil, errLintNoDatabase
+	}
+	if database == "" {
+		names := mgr.Instances()
+		if len(names) > 1 {
+			return nil, errLintDatabaseRequired
+		}
+		for name := range names {
+			database = name
+		}
+	}
+	if database == "" {
+		return nil, errLintNoDatabase
+	}
+	if mgr.GetInstance(database) == nil {
+		return nil, errLintUnknownDatabase
+	}
+	pool := mgr.PoolForDatabase(database)
+	if pool == nil {
+		return nil, errLintNoDatabase
+	}
+	return pool, nil
 }
 
 func migrationLintHandler(d migrationLintDeps) http.Handler {

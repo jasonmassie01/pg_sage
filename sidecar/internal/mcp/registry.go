@@ -30,6 +30,7 @@ func toolDefinitions() []Tool {
 		askTools()...)
 	tools = append(append(append(tools, fleetTools()...), agentBrokerTools()...),
 		grantTools()...)
+	tools = append(tools, upgradeTools()...)
 	for i := range tools {
 		tools[i] = finishTool(tools[i])
 	}
