@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/pg-sage/sidecar/internal/crypto"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
@@ -120,7 +122,31 @@ func TestUpdatedDatabaseRecord_ActionUsername(t *testing.T) {
 	}
 }
 
+// connected is a running generation with lazy pools (MinConns 0, so
+// nothing dials): an observation pool and, when actionDSN is set, an
+// action pool.
+func connected(t *testing.T, actionDSN string) *fleet.DatabaseInstance {
+	t.Helper()
+	inst := &fleet.DatabaseInstance{Pool: lazyDSNPool(t, obsMemberDSN)}
+	if actionDSN != "" {
+		inst.ActionPool = lazyDSNPool(t, actionDSN)
+	}
+	return inst
+}
+
+func lazyDSNPool(t *testing.T, dsn string) *pgxpool.Pool {
+	t.Helper()
+	p, err := pgxpool.New(context.Background(), dsn)
+	if err != nil {
+		t.Fatalf("lazy pool: %v", err)
+	}
+	t.Cleanup(p.Close)
+	return p
+}
+
 func TestMetaActionChanged(t *testing.T) {
+	const actA = "postgres://actor:a@db.example.com:5432/app?sslmode=require"
+	const actB = "postgres://actor:b@db.example.com:5432/app?sslmode=require"
 	running := &fleet.DatabaseInstance{}
 	cases := []struct {
 		name    string
@@ -131,6 +157,10 @@ func TestMetaActionChanged(t *testing.T) {
 		{"absent member", nil, memberAction{dsn: "x"}, false},
 		{"failed placeholder", &fleet.DatabaseInstance{}, memberAction{dsn: "x"}, false},
 		{"none on either side", running, memberAction{}, false},
+		{"connected, none to one", connected(t, ""), memberAction{dsn: actA}, true},
+		{"same identity", connected(t, actA), memberAction{dsn: actA}, false},
+		{"changed identity", connected(t, actA), memberAction{dsn: actB}, true},
+		{"removed identity", connected(t, actA), memberAction{}, true},
 	}
 	for _, tc := range cases {
 		if got := metaActionChanged(tc.current, tc.action); got != tc.want {
