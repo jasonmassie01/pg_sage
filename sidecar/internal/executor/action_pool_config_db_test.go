@@ -51,3 +51,35 @@ func TestActionPool_ConfigChangeReloadsAsActionRole(t *testing.T) {
 		t.Fatalf("read-back state = %s (%s), want %s", state, note, readbackInEffect)
 	}
 }
+
+// A rollback is a change: executeRollbackSQL rebinds to the action pool
+// the executor's rollback config carries, so the observation role (not an
+// owner) never runs it. Without the action pool the same DROP fails 42501.
+func TestActionPool_RollbackRunsAsActionRole(t *testing.T) {
+	f := newIdentityFixture(t)
+	ctx := context.Background()
+	table := f.schema + ".t3"
+	for _, s := range []string{"CREATE INDEX ap_rb1 ON " + table + " (id)",
+		"CREATE INDEX ap_rb2 ON " + table + " (id)"} {
+		if _, err := f.super.Exec(ctx, s); err != nil {
+			t.Fatalf("%s: %v", s, err)
+		}
+	}
+	single := RollbackMonitorConfig{}
+	_, err := executeRollbackSQL(ctx, f.obs, "DROP INDEX "+f.schema+".ap_rb1", single)
+	requireSQLState(t, "rollback on the observation role", err, "42501")
+	if !indexIsValid(t, f, f.schema+".ap_rb1") {
+		t.Fatal("the refused rollback dropped the index")
+	}
+
+	split := New(f.obs, config.DefaultConfig(), time.Time{}, nopLog).WithActionPool(f.act)
+	cfg := split.rollbackMonitorConfig(nil)
+	cfg.Acquire, cfg.Track = nil, nil // no DDL slot or stop registry in this test
+	if _, err := executeRollbackSQL(ctx, f.obs, "DROP INDEX "+f.schema+".ap_rb2",
+		cfg); err != nil {
+		t.Fatalf("rollback through the executor's action pool: %v", err)
+	}
+	if indexIsValid(t, f, f.schema+".ap_rb2") {
+		t.Fatal("the rollback through the action pool left the index in place")
+	}
+}
