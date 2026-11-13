@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/pg-sage/sidecar/internal/pgversion"
 )
 
 func init() { Register(ap10{}) }
@@ -24,21 +26,8 @@ func (ap10) Spec() Spec {
 		Severity: Critical}
 }
 
-// postgresEOL is each PostgreSQL major's final release (end of life),
-// from the versioning policy at https://www.postgresql.org/support/versioning/
-// (read 2026-10-09; spec §6.6 also gives PG14's). Majors older than the
-// table are past end of life; newer ones are unknown and not reported.
-var postgresEOL = map[int]string{
-	13: "2025-11-13",
-	14: "2026-11-12",
-	15: "2027-11-11",
-	16: "2028-11-09",
-	17: "2029-11-08",
-	18: "2030-11-14",
-}
-
 // eolWindow is how far ahead of end of life the server is reported.
-const eolWindow = 90 * 24 * time.Hour
+const eolWindow = pgversion.EOLWindow
 
 // pgvectorFix is a pgvector bug fixed in a release, for indexes of one
 // access method. The fixed releases are those of the spec's competitive
@@ -152,12 +141,15 @@ func listSome(items []string, n int) string {
 // life on now's date; majors older than the table are past it.
 func eolFinding(versionNum int, now time.Time) (Finding, bool) {
 	major := versionNum / 10000
-	date, known := postgresEOL[major]
-	if major == 0 || (!known && major >= 13) {
+	date, known := pgversion.EOLDate(major)
+	oldest := pgversion.OldestKnownMajor()
+	if major == 0 || (!known && major >= oldest) {
 		return Finding{}, false
 	}
 	object := "PostgreSQL " + strconv.Itoa(major)
-	when := "is past end of life (before PostgreSQL 13's, " + postgresEOL[13] + ")"
+	oldestEOL, _ := pgversion.EOLDate(oldest)
+	when := "is past end of life (before PostgreSQL " + strconv.Itoa(oldest) + "'s, " +
+		oldestEOL + ")"
 	if known {
 		end, _ := time.Parse("2006-01-02", date)
 		if end.Sub(now) > eolWindow {

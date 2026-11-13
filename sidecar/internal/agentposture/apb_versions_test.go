@@ -141,16 +141,3 @@ func TestEOLFinding_VersionsOutsideTheTable(t *testing.T) {
 		t.Fatal("PG18 is years from end of life")
 	}
 }
-
-// Every major from 13 to 18 has an end-of-life date that parses.
-func TestPostgresEOLTable(t *testing.T) {
-	for major := 13; major <= 18; major++ {
-		d, ok := postgresEOL[major]
-		if !ok {
-			t.Fatalf("no end-of-life date for PostgreSQL %d", major)
-		}
-		if _, err := time.Parse("2006-01-02", d); err != nil {
-			t.Fatalf("PostgreSQL %d end of life %q: %v", major, d, err)
-		}
-	}
-}
