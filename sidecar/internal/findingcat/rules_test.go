@@ -65,7 +65,7 @@ func TestAnalyzerRules_CategoriesAreAnalyzerEntries(t *testing.T) {
 			}
 		}
 	}
-	if e, ok := Lookup("custom:no_pk"); !ok || e.Subsystem != "rules" {
-		t.Fatalf("custom:<id> = %+v, %v; want a rules family", e, ok)
+	if e, ok := Lookup("custom:no_pk"); !ok || e.Subsystem != "custom" {
+		t.Fatalf("custom:<id> = %+v, %v; want the custom family", e, ok)
 	}
 }

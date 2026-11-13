@@ -20,6 +20,13 @@ type cycleEval struct {
 	// seqHeavy are this cycle's seq_scan_heavy tables (quoted, most
 	// sequential scans first), the index floor's work (indexes-12).
 	seqHeavy []string
+	// disabled and disabledRules are this cycle's rule pack (market-11):
+	// disabled categories never resolve as cleared; resolveDisabled
+	// resolves them as rule_disabled by disabledBy.
+	disabled      map[string]bool
+	disabledRules map[string]bool
+	disabledBy    string
+	packLoaded    bool
 }
 
 // evidenceAt returns when this cycle's evidence was collected, zero when
@@ -96,6 +103,9 @@ func (e *cycleEval) resolvable(findings []Finding) map[string]bool {
 		out[f.Category] = true
 	}
 	for c := range e.failed {
+		delete(out, c)
+	}
+	for c := range e.disabled {
 		delete(out, c)
 	}
 	return out

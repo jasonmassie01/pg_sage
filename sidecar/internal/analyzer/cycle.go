@@ -45,8 +45,8 @@ func (a *Analyzer) cycle(ctx context.Context) error {
 	all = append(all, a.runSeqScanWatchdog(current, previous, all)...)
 	all = append(all, a.runProducers(ctx, current, previous)...)
 	all = append(all, a.runLateChecks(ctx)...)
-	all = append(all, a.checkSageFootprint(ctx, current)...)
-	all = append(all, a.checkSelfCost(ctx)...)
+	all = append(append(all, a.checkSageFootprint(ctx, current)...), a.checkSelfCost(ctx)...)
+	all = a.applyDisabledRules(append(all, a.runCustomChecks(ctx)...))
 	all = a.applyAppManaged(ctx, all)
 	all = a.applyFactFilter(ctx, all, excluded)
 	if current.Available("tables") && len(current.Tables) > 0 {
@@ -105,6 +105,9 @@ func (a *Analyzer) runSnapshotRules(
 ) []Finding {
 	var out []Finding
 	for _, rule := range AllRules {
+		if a.ruleDisabled(rule) {
+			continue // resolved as rule_disabled, not failed (market-11)
+		}
 		skip := skipQueryRules && queryRuleNames[rule.Name]
 		if skip || (rule.Needs != nil && !rule.Needs(current, previous)) {
 			a.eval.fail(rule.Categories...)

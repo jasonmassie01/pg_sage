@@ -30,6 +30,7 @@ var allowedConfigKeys = map[string]string{
 	"analyzer.wraparound_freeze_share":    "float_share",
 	"analyzer.regression_threshold_pct":   "pct",
 	"analyzer.cache_hit_ratio_warning":    "float01",
+	"analyzer.disabled_rules":             "rule_list",
 	"trust.level":                         "trust_level",
 	"trust.tier3_safe":                    "bool",
 	"trust.tier3_moderate":                "bool",
@@ -228,6 +229,11 @@ func validateByType(vtype, key, value string) error {
 		})
 	case "maintenance_window":
 		return validateMaintenanceWindow(value)
+	case "rule_list":
+		if err := config.ValidateDisabledRules(key, config.ParseRuleList(value)); err != nil {
+			return fmt.Errorf("validate: invalid value: %w", err)
+		}
+		return nil
 	case "string":
 		return nil
 	default:
@@ -529,6 +535,8 @@ func addAnalyzerFields(m map[string]any, a *config.AnalyzerConfig) {
 		a.RegressionThresholdPct, SourceFileDefault)
 	addField(m, "analyzer.cache_hit_ratio_warning",
 		a.CacheHitRatioWarning, SourceFileDefault)
+	addField(m, "analyzer.disabled_rules",
+		strings.Join(a.DisabledRules, ","), SourceFileDefault)
 	addField(m, "analyzer.slow_slot_retained_bytes",
 		a.SlowSlotRetainedBytes, SourceFileDefault)
 	addField(m, "analyzer.lock_chain.enabled",

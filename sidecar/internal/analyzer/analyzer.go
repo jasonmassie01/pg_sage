@@ -143,6 +143,11 @@ type Analyzer struct {
 
 	// freezeHorizons is the database's freeze sampler (WithFreezeHorizons).
 	freezeHorizons FreezeHorizonSource
+
+	// rulePack is this database's disabled-rules override and checks its
+	// owner-defined read-only checks (market-11); nil runs none.
+	rulePack rulePackState
+	checks   *customCheckRunner
 }
 
 // PlanNarrator enriches plan_regression findings with an LLM-generated

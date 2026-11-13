@@ -95,6 +95,7 @@ func (a *Analyzer) finalizeCycle(
 	a.mu.Unlock()
 	a.recordRecommendations(ctx, published, evaluated)
 	a.resolveCleared(ctx, published, evaluated)
+	a.resolveDisabled(ctx)
 	a.logFn("INFO", "analyzer cycle: %d findings", len(published))
 	return upsertErr
 }

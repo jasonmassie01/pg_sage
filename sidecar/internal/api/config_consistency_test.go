@@ -78,6 +78,12 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 		input:  "0.85",
 		reader: func(c *config.Config) string { return ftoa(c.Analyzer.CacheHitRatioWarning) },
 	},
+	"analyzer.disabled_rules": { // market-11
+		input: "unused_indexes,slow_queries",
+		reader: func(c *config.Config) string {
+			return strings.Join(c.Analyzer.DisabledRules, ",")
+		},
+	},
 
 	// --- trust ---
 	"trust.level": {
