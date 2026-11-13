@@ -3465,7 +3465,10 @@ target policy (`notification_policy.allow_private_targets`).
 | `incidentio` | `alert_source_config_id` (the HTTP alert source's id: letters, digits, `_`, `-`); `token` (secret, the source's bearer token) | HTTP alert source event with `deduplication_key` set to the dedup key and `status` `firing` or `resolved`. |
 
 A Teams, Opsgenie or incident.io channel with a missing credential, a bad region, a malformed
-source id or a non-https Teams URL is refused when it is saved. For one alert that opens and
+source id or a non-https Teams URL is refused when it is saved. An edit that moves a Jira
+integration to another `base_url`, or a webhook to another `webhook_url`, while sending the masked
+`api_token` or `headers` back is refused: re-enter the secret for the new target, so a stored
+secret never follows a moved target. For one alert that opens and
 resolves on Opsgenie or incident.io, give the channel rules for the opening event and for its
 resolve (for example `finding_opened` and `finding_resolved`, or `incident_detected`,
 `incident_escalated` and `incident_resolved`).

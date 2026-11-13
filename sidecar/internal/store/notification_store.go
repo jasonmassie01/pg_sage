@@ -196,6 +196,9 @@ func (s *NotificationStore) UpdateChannel(
 	if err := checkSMTPDestinationSecrets(ch.Config, config); err != nil {
 		return err
 	}
+	if err := checkDestinationSecrets(ch.Type, ch.Config, config); err != nil {
+		return err
+	}
 	config = preserveMaskedNotificationSecrets(ch.Config, config)
 	if err := s.validateChannel(ch.Type, config); err != nil {
 		return err
