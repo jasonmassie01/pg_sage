@@ -326,9 +326,12 @@ no index or hint can fix them. A slow `CALL` or `DO` is still reported.
 There is no slow-`COMMIT` finding: `pg_stat_statements` cannot see one. Its `COMMIT`
 entry times only the statement, which marks the transaction for commit; the commit
 itself (deferred constraint triggers, the WAL flush, the wait for a synchronous standby)
-runs after it and is never counted, so a `COMMIT` that waited minutes for a standby
-shows about 0.001 ms (measured on PostgreSQL 14 and 17). A waiting standby shows up as
-`replication_lag`; the triggers' own statements appear under `track = all`.
+runs after it and is never counted. A `COMMIT` held 30 ms by a deferred trigger shows
+about 0.001 ms (measured on PostgreSQL 14 and 17), and so did one that waited minutes for
+a synchronous standby (PostgreSQL 17). A standby whose replay falls 30 seconds or more
+behind shows up as `replication_lag`; shorter per-commit synchronous waits, and a
+synchronous standby that is not connected at all, are not reported. The deferred
+triggers' own statements appear under `pg_stat_statements.track = all`.
 
 ### slow_query
 
