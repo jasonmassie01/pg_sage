@@ -43,6 +43,59 @@ Agent governance creates and retires agent roles only when pg_sage's role has
 `CREATEROLE` on PostgreSQL 16+ (`ALTER ROLE sage_agent CREATEROLE`); without it,
 or below 16, agent governance is posture-only ([agent governance](agent-governance.md)).
 
+### Separate observation and action roles (`action_dsn`)
+
+By default one role does everything, so every probe, Ask Sage query and MCP read runs with
+the rights the actions need: owner-role membership and `pg_signal_backend`. A bug or
+injection in a probe would then run with owner rights and could end other sessions. A
+read-only pool does not contain that (`default_transaction_read_only` neither stops
+`pg_terminate_backend` nor survives a session turning it off), so pg_sage separates the
+identities instead:
+
+```yaml
+postgres:                       # standalone; fleet: databases[].action_dsn
+  user: sage_observer           # pg_monitor and the sage schema only
+  action_dsn: postgres://sage_action:${SAGE_ACTION_PASSWORD}@db.internal:5432/app
+```
+
+```sql
+-- the observation role: what it reads, and pg_sage's own state
+CREATE ROLE sage_observer LOGIN PASSWORD '...' IN ROLE pg_monitor;
+CREATE SCHEMA IF NOT EXISTS sage AUTHORIZATION sage_observer;
+-- the action role: what the actions change and signal
+CREATE ROLE sage_action LOGIN PASSWORD '...';
+GRANT <table owner role> TO sage_action;      -- CREATE INDEX, ALTER TABLE storage
+GRANT pg_maintain TO sage_action;             -- PostgreSQL 17+: VACUUM, ANALYZE, REINDEX
+GRANT pg_signal_backend, pg_read_all_stats TO sage_action;
+```
+
+- Only the executor's changes (everything `Apply` runs, rollbacks, the maintenance
+  privilege precheck) and backend cancel and terminate (approved cancels, the freeze
+  custodian's blocker response, the agent kill switch) use the action role. Collectors,
+  the analyzer, Ask Sage, MCP tools and every write to the `sage` schema stay on the
+  observation role.
+- The action role needs `pg_read_all_stats`: a backend signal matches the session's query
+  and start time in `pg_stat_activity`, which a role sees only for its own sessions
+  without it. Without it every signal fails closed as stale evidence.
+- `action_dsn` must reach the same host, port and database as the main connection, as a
+  different role; anything else is refused at startup. Hosts compare as written, so use
+  the same spelling (`localhost` and `127.0.0.1` differ).
+- The action pool connects lazily (no connection until a change or signal runs, idle
+  connections close after five minutes) and holds at most 7 connections: two per DDL slot
+  (a `CONCURRENTLY` build and its gate) and one kept for signals, so the kill switch never
+  waits behind a long build. Watch `max_connections` on Lakebase and Cloud SQL.
+- If the action role does not answer, observation continues and every change fails with
+  `action identity unavailable`; nothing falls back to the observation role.
+- HIGH-risk approval, the executor allowlist and the policy gate are unchanged.
+- AP-14 checks both roles: it warns when the observation role inherits a table owner role
+  or `pg_signal_backend`, and applies the `BYPASSRLS` and agent-role checks to both.
+  Without `action_dsn`, one role that holds acting rights is reported as info ("one
+  identity"). The onboarding trust guide (`GET /api/v1/onboarding/trust`) returns one
+  grant script per role in `scripts`.
+- Removing or changing a fleet database's `action_dsn` on reload rebuilds that database's
+  runtime; `postgres.action_dsn` needs a restart. Databases registered through the API
+  (meta-db mode) do not take an action credential yet and run as one identity.
+
 The sidecar bootstraps the `sage` schema and tables on first connect. Either
 connect with a role that can create that schema, or pre-create it and grant the
 sidecar role ownership/write privileges:

@@ -281,6 +281,12 @@ pg_sage's checks, so grant it only where you want approved cancels.
 | Databricks Lakebase | not established | no: backend signalling is restricted or unproven there and is not an enabled Lakebase action ([Lakebase](lakebase.md)) |
 | Neon, Supabase | as the project owner role | not exercised |
 
+With a separate action identity (`action_dsn`,
+[security](security.md#separate-observation-and-action-roles-action_dsn)), grant
+`pg_signal_backend` and `pg_read_all_stats` to the action role, not to the observation
+role: approved cancels run as the action role, and AP-14 warns when the observation role
+holds `pg_signal_backend`.
+
 ## What leaves the database, and where it goes
 
 | Destination | What | When |
