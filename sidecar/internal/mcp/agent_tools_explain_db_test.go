@@ -88,11 +88,12 @@ func (a allowReads) Decide(context.Context, decide.Request) decide.Verdict {
 }
 
 type explainWorld struct {
-	pool   *pgxpool.Pool
-	schema string
-	role   string
-	server *Server
-	agent  context.Context
+	pool        *pgxpool.Pool
+	schema      string
+	role        string
+	principalID string
+	server      *Server
+	agent       context.Context
 }
 
 func hexSuffix(t *testing.T) string {
@@ -139,6 +140,7 @@ func newExplainWorld(t *testing.T) *explainWorld {
 	backend, err := NewProductionBackend(deps)
 	require.NoError(t, err)
 	w.server = NewServer(backend).WithDirectory(fleetOf("db"))
+	w.principalID = p.ID
 	w.agent = agentguard.WithIdentity(WithPrincipal(ctx, Principal{Actor: "token:t1",
 		Kind: KindAgent, PrincipalID: p.ID, Scopes: []Scope{ScopeRead, ScopePropose},
 		TokenID: "t1"}), agentguard.Identity{Principal: p, TokenID: "t1"})
@@ -219,7 +221,7 @@ func TestAgentExplainRunsAsTheAgentsRole(t *testing.T) {
 	var sessions int
 	require.NoError(t, w.pool.QueryRow(context.Background(), `SELECT count(*)
 		FROM pg_stat_activity WHERE usename = $1 AND datname = current_database()
-		AND application_name = 'pg_sage agent:explain-bot'`, w.role).Scan(&sessions))
+		AND application_name = $2`, w.role, "pg_sage agent:"+w.principalID).Scan(&sessions))
 	require.True(t, sessions >= 1, "no session of the agent's role: the explain ran elsewhere")
 	if _, err := w.pool.Exec(context.Background(),
 		"SELECT 1 FROM pg_stat_statements LIMIT 1"); err != nil {

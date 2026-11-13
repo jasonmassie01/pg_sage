@@ -67,7 +67,7 @@ func TestExplainRunsAsTheBrokerRole(t *testing.T) {
 	requirePlan(t, f.explain(t, "SELECT id FROM items"))
 	var users []string
 	rows, err := f.super.Query(context.Background(), `SELECT usename::text
-		FROM pg_stat_activity WHERE application_name = $1`, "pg_sage agent:"+f.p.Name)
+		FROM pg_stat_activity WHERE application_name = $1`, "pg_sage agent:"+f.p.ID)
 	require.NoError(t, err)
 	defer rows.Close()
 	for rows.Next() {
