@@ -14,6 +14,7 @@ import (
 
 	databricks "github.com/databricks/databricks-sdk-go"
 	sdkconfig "github.com/databricks/databricks-sdk-go/config"
+	"github.com/databricks/databricks-sdk-go/service/postgres"
 	"github.com/databricks/databricks-sdk-go/service/sql"
 	"github.com/pg-sage/sidecar/internal/appmode"
 )
@@ -108,6 +109,16 @@ func StatementExecution() (sql.StatementExecutionInterface, error) {
 		return nil, err
 	}
 	return w.StatementExecution, nil
+}
+
+// Postgres exposes the SDK Lakebase (Postgres) service of the unified-auth
+// workspace, for the lakebase_branch clone provider (market-03).
+func Postgres() (postgres.PostgresInterface, error) {
+	w, err := workspace()
+	if err != nil {
+		return nil, err
+	}
+	return w.Postgres, nil
 }
 
 // WorkspaceOrigin binds external resource scopes to the actual SDK workspace.

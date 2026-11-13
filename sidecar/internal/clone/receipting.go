@@ -131,13 +131,17 @@ func (p *ReceiptingProvider) unrecorded(receipt Receipt, created Clone, cause er
 	return err
 }
 
+// ErrCloneLeftBehind marks a failed create whose own cleanup failed, so a
+// clone may remain (market-03).
+var ErrCloneLeftBehind = errors.New("clone: a failed create may have left a clone")
+
 // uncertainCreate reports whether a failed create may still have made a
 // clone: the request may have reached the provider before it timed out
-// or was cancelled.
+// or was cancelled, or the adapter could not delete what it made.
 func uncertainCreate(err error) bool {
 	var netErr net.Error
 	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) ||
-		(errors.As(err, &netErr) && netErr.Timeout())
+		errors.Is(err, ErrCloneLeftBehind) || (errors.As(err, &netErr) && netErr.Timeout())
 }
 
 // Destroy tears down a clone this provider created and closes its

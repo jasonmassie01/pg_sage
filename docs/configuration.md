@@ -289,7 +289,7 @@ Variables that only the test suites and benches read (`SAGE_TEST_*`, `SAGE_BENCH
 | `SAGE_VERIFY_REGRESS_PCT` | `15` | Regression percentage that triggers a revert (`verify.regress_pct`) |
 | `SAGE_VERIFY_WRITE_IMPACT_PCT` | `20` | Maximum rise of the table's WAL bytes per written tuple (`verify.write_impact_pct`) |
 | `SAGE_VERIFY_MIN_SAMPLES` | `30` | Minimum verification samples (`verify.min_samples`) |
-| `SAGE_CLONE_PROVIDER` | `none` | Clone provider (`clone.provider`): `none` or `dle` |
+| `SAGE_CLONE_PROVIDER` | `none` | Clone provider (`clone.provider`): `none`, `dle` or `lakebase_branch` |
 | `SAGE_CLONE_DLE_ENDPOINT` | (none) | Database Lab Engine API endpoint (`clone.dle_endpoint`) |
 | `SAGE_CLONE_DLE_TOKEN` / `_FILE` | (none) | Database Lab bearer token (`clone.dle_token`) |
 | `SAGE_CLONE_MAX_AGE_MINUTES` | `1440` | Maximum source snapshot age (`clone.max_clone_age_minutes`) |
@@ -1629,8 +1629,21 @@ The default `unattended` policy profile permits explicitly bounded deadline
 overrides for XID and disk emergencies. Use `staffed` for narrow maintenance
 windows without deadline overrides. Clone-backed migration rehearsal defaults
 to disabled (`clone.provider: none`) and stale clones are recommendation-only.
-`dle` (Database Lab Engine) is the only clone adapter in this build; `snapshot`
-is refused at startup.
+The clone adapters are `dle` (Database Lab Engine) and `lakebase_branch` (an
+instant Lakebase branch per rehearsal, below). `snapshot` is refused at startup:
+this build has no RDS, Aurora, Cloud SQL or AlloyDB snapshot adapter.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `clone.provider` | `none` | `none`, `dle` or `lakebase_branch` |
+| `clone.lakebase.project` | (none) | Lakebase project id the rehearsal branches are created in. Required for `lakebase_branch` |
+| `clone.lakebase.source_branch` | the monitored endpoint's branch | Branch id, or `projects/<project>/branches/<id>` of the same project, a rehearsal branches from |
+| `clone.lakebase.ttl_minutes` | `60` | Server-side expiry of every rehearsal branch, 1 to 1440: the backstop if pg_sage cannot delete it |
+| `clone.lakebase.endpoint_max_cu` | `1` | Autoscaling maximum of the read-write endpoint on a rehearsal branch |
+
+The `clone.lakebase.*` keys are read at startup (restart to change them) and are
+not dashboard overrides. They are checked only when `clone.provider` is
+`lakebase_branch`. See [Lakebase: branch rehearsal](lakebase.md#branch-rehearsal).
 
 A rehearsal clone holds production data, so pg_sage keeps a receipt for it
 (`sage.clone_instances`, purpose `rehearsal`) in the agent governance control
@@ -1639,7 +1652,8 @@ before the clone is requested and is closed when the clone is destroyed. With no
 receipt store the rehearsal is recommendation-only with reason
 `no_receipt_store`. A rehearsal is bounded to one hour and its receipt expires
 15 minutes later. Every 10 minutes the fleet leader destroys the clones of
-expired rehearsal receipts of its own adapter, endpoint and deployment. An
+expired rehearsal receipts of its own adapter, endpoint (for `lakebase_branch`,
+the project) and deployment. An
 expired receipt that never got a clone id is logged, never destroyed. Before the
 first step the rehearsal checks that the clone is not the production server:
 the same DSN host and port, or the same postmaster start time and port under

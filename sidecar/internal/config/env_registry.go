@@ -169,7 +169,7 @@ var runtimeEnvVars = []EnvVar{
 	{Name: "SAGE_VERIFY_MIN_SAMPLES", Default: envCode(DefaultVerifyMinSamples),
 		Doc: "Minimum verification samples (`verify.min_samples`)"},
 	{Name: "SAGE_CLONE_PROVIDER", Default: envCode(DefaultCloneProvider),
-		Doc: "Clone provider (`clone.provider`): `none` or `dle`"},
+		Doc: "Clone provider (`clone.provider`): `none`, `dle` or `lakebase_branch`"},
 	{Name: "SAGE_CLONE_DLE_ENDPOINT", Default: envNone,
 		Doc: "Database Lab Engine API endpoint (`clone.dle_endpoint`)"},
 	{Name: "SAGE_CLONE_DLE_TOKEN", Default: envNone, File: true,

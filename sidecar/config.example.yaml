@@ -233,10 +233,16 @@ verify:
   write_impact_pct: 20
   min_samples: 30
 clone:
-  provider: "none"            # none, dle, or snapshot
+  provider: "none"            # none, dle, or lakebase_branch
   dle_endpoint: ""
   dle_token: "${DLE_TOKEN}"
   max_clone_age_minutes: 1440
+  # lakebase_branch: one instant Lakebase branch per rehearsal (docs/lakebase.md)
+  # lakebase:
+  #   project: "<project>"
+  #   source_branch: ""         # default: the monitored endpoint's branch
+  #   ttl_minutes: 60           # server-side expiry of each branch, 1-1440
+  #   endpoint_max_cu: 1
 custodian:
   freeze:
     red_buffer_pct: 25
