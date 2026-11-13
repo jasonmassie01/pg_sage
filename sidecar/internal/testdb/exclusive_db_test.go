@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -290,5 +291,89 @@ func checkDisjoint(t *testing.T, base, table string, workers int) {
 				iv.worker, iv.start.Format(time.RFC3339Nano), got[i-1].worker,
 				got[i-1].end.Format(time.RFC3339Nano))
 		}
+	}
+}
+
+// waitForLockWaiter returns once a session on conn's server waits for an
+// advisory lock, the waiter the drop-order test starts.
+func waitForLockWaiter(t testing.TB, conn *pgx.Conn) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		var waiting int
+		if err := conn.QueryRow(context.Background(), "SELECT count(*) FROM pg_locks"+
+			" WHERE locktype = 'advisory' AND NOT granted").Scan(&waiting); err != nil {
+			t.Fatalf("read pg_locks: %v", err)
+		}
+		if waiting > 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("no session waited for the exclusive lock within 10s")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// existsOnAcquire waits for the exclusive lock, then reports at once, on a
+// connection opened beforehand, whether database name still exists.
+func existsOnAcquire(base string, check *pgx.Conn, name func() string) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	release, err := clusterlock.Lock(ctx, base, exclusiveLockName)
+	if err != nil {
+		return false, err
+	}
+	defer release()
+	var exists bool
+	err = check.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)",
+		name()).Scan(&exists)
+	return exists, err
+}
+
+// The next holder must not find the last test's database still there:
+// DROP DATABASE writes WAL and forces a checkpoint, which the next
+// measuring test would otherwise count as its own.
+func TestExclusiveDropsTheDatabaseBeforeReleasingTheServer(t *testing.T) {
+	SkipUnlessLive(t)
+	base := exclusiveURL(t, "release order probe")
+	check, poll := exclusiveConn(t, base), exclusiveConn(t, base)
+	var mu sync.Mutex
+	var name string
+	fixture := func() string { mu.Lock(); defer mu.Unlock(); return name }
+	type result struct {
+		exists bool
+		err    error
+	}
+	acquired := make(chan result, 1)
+	rec := runTB(t, func(tb testing.TB) {
+		parsed, err := url.Parse(Exclusive(tb, "release order probe"))
+		if err != nil {
+			tb.Fatalf("parse the held DSN: %v", err)
+		}
+		mu.Lock()
+		name = strings.TrimPrefix(parsed.Path, "/")
+		mu.Unlock()
+		go func() {
+			exists, err := existsOnAcquire(base, check, fixture)
+			acquired <- result{exists, err}
+		}()
+		waitForLockWaiter(tb, poll)
+	})
+	if len(rec.fatals) != 0 || len(rec.errors) != 0 || fixture() == "" {
+		t.Fatalf("name=%q fatals=%q errors=%q, want a clean hold", fixture(), rec.fatals,
+			rec.errors)
+	}
+	select {
+	case got := <-acquired:
+		if got.err != nil {
+			t.Fatalf("the waiting caller: %v", got.err)
+		}
+		if got.exists {
+			t.Errorf("the next holder found %s still present: the server was released "+
+				"before the database was dropped", fixture())
+		}
+	case <-time.After(time.Minute):
+		t.Fatal("the waiting caller never got the exclusive lock")
 	}
 }
