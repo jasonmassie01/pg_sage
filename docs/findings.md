@@ -323,6 +323,13 @@ utility statements (`BEGIN`, `COMMIT`, `SAVEPOINT`, `SET`, `DISCARD ALL`, `DEALL
 `GRANT`, ...) are never the subject of `slow_query`, `high_total_time` or other advice:
 no index or hint can fix them. A slow `CALL` or `DO` is still reported.
 
+There is no slow-`COMMIT` finding: `pg_stat_statements` cannot see one. Its `COMMIT`
+entry times only the statement, which marks the transaction for commit; the commit
+itself (deferred constraint triggers, the WAL flush, the wait for a synchronous standby)
+runs after it and is never counted, so a `COMMIT` that waited minutes for a standby
+shows about 0.001 ms (measured on PostgreSQL 14 and 17). A waiting standby shows up as
+`replication_lag`; the triggers' own statements appear under `track = all`.
+
 ### slow_query
 
 Detects queries whose mean execution time over the last collector interval is above the threshold.
