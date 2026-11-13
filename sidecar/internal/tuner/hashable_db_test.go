@@ -3,6 +3,7 @@ package tuner
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -117,5 +118,28 @@ func TestHashableDB_ParameterizedIndexScanIsHashable(t *testing.T) {
 	}
 	if p := Prescribe(bnl, TunerConfig{}); p == nil || p.HintDirective != "HashJoin(a b)" {
 		t.Fatalf("prescription = %+v, want HashJoin(a b); plan %s", p, plan)
+	}
+}
+
+// With indexes on ob.x and ob.y the OR join becomes a parameterized
+// Bitmap Heap Scan over a BitmapOr: each arm's Index Cond is an equality
+// on the outer input, but the join as a whole is still a pure OR (the
+// Recheck Cond), so it cannot be hash-joined. The inner side reads 25 rows
+// per loop, so the row threshold is lowered to 1.
+func TestHashableDB_IndexedORJoinGetsNoHashJoin(t *testing.T) {
+	pool, _ := requireTunerDB(t)
+	s := hashableSchema(t, pool)
+	execAll(t, pool, "CREATE INDEX ob_x_idx ON "+s+".ob (x)",
+		"CREATE INDEX ob_y_idx ON "+s+".ob (y)", "ANALYZE "+s+".ob")
+	plan := explainNestedLoop(t, pool, hashableJoinQuery(s, "(a.x = b.x OR a.y = b.y)"))
+	if !strings.Contains(string(plan), `"BitmapOr"`) {
+		t.Fatalf("fixture: want a BitmapOr inner side; plan %s", plan)
+	}
+	bnl := dbBadNestedLoop(t, plan, WithNestedLoopMinRows(1))
+	if h, ok := bnl.Detail["hashable_join"].(bool); !ok || h {
+		t.Fatalf("hashable_join = %#v, want false; plan %s", bnl.Detail["hashable_join"], plan)
+	}
+	if p := Prescribe(bnl, TunerConfig{}); p != nil {
+		t.Fatalf("indexed OR join prescribed %+v; plan %s", p, plan)
 	}
 }

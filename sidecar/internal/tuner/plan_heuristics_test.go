@@ -178,6 +178,12 @@ func TestHashable_ParameterizedInnerScans(t *testing.T) {
 			"Index Cond": "(a_id = z.id)"}), false},
 		{"or of params", innerScan("Seq Scan", map[string]any{
 			"Filter": "((a_id = a.id) OR (x = a.x))"}), false},
+		{"bitmap or", innerScan("Bitmap Heap Scan", map[string]any{
+			"Recheck Cond": "((a.x = x) OR (a.y = y))",
+			"Plans": []map[string]any{{"Node Type": "BitmapOr", "Plan Rows": 0,
+				"Parent Relationship": "Outer", "Plans": []map[string]any{
+					bitmapIndex("tb_x_idx", "(x = a.x)"),
+					bitmapIndex("tb_y_idx", "(y = a.y)")}}}}), false},
 		{"no conditions", innerScan("Seq Scan", nil), false},
 	}
 	for _, c := range cases {
@@ -186,6 +192,12 @@ func TestHashable_ParameterizedInnerScans(t *testing.T) {
 			t.Errorf("%s: hashable = %v, want %v", c.name, got, c.want)
 		}
 	}
+}
+
+// bitmapIndex is a Bitmap Index Scan child with the given Index Cond.
+func bitmapIndex(index, cond string) map[string]any {
+	return map[string]any{"Node Type": "Bitmap Index Scan", "Index Name": index,
+		"Plan Rows": 10, "Index Cond": cond, "Parent Relationship": "Member"}
 }
 
 // Nil/empty: a nested loop without both inputs, or a zero node, is not
