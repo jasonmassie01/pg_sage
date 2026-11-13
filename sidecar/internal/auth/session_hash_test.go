@@ -197,9 +197,7 @@ func TestCreateSessionWithDuration_StoresHashWithLifetime(t *testing.T) {
 		FROM sage.sessions WHERE token_hash = $1`, HashSessionToken(tok)).Scan(&secs); err != nil {
 		t.Fatalf("reading lifetime: %v", err)
 	}
-	// expires_at is computed on the sidecar clock, now() on the server's,
-	// so allow for skew between them.
-	if secs < 30 || secs > 90 {
+	if secs < 55 || secs > 60 {
 		t.Fatalf("session lifetime %.1fs, want about 60s", secs)
 	}
 }
