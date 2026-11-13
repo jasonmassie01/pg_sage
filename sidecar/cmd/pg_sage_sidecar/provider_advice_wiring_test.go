@@ -69,8 +69,8 @@ func TestProviderAdviceSources_DisabledOrNoPoolIsNothing(t *testing.T) {
 	off := false
 	target := adviceTarget{provider: "cloud-sql", host: "10.0.0.5", database: "app",
 		pool: lazyPool(t, "app")}
-	if names, note := providersOf(t, adviceConfig(&off), target, adviceDeps(nil), "");
-		len(names) != 0 || note != "" {
+	names, note := providersOf(t, adviceConfig(&off), target, adviceDeps(nil), "")
+	if len(names) != 0 || note != "" {
 		t.Fatalf("disabled: %v %q", names, note)
 	}
 	target.pool = nil
@@ -104,8 +104,26 @@ func TestProviderAdviceSources_AzureSaysWhatIsMissing(t *testing.T) {
 	target.azure = config.CloudResourceAzure{Subscription: adviceSubscription,
 		ResourceGroup: "rg-db", Server: "pg-other"}
 	target.host = "10.1.2.3"
-	if names, note = providersOf(t, &config.Config{}, target, adviceDeps(nil), "");
-		len(names) != 1 || note != "" {
+	names, note = providersOf(t, &config.Config{}, target, adviceDeps(nil), "")
+	if len(names) != 1 || note != "" {
 		t.Fatalf("cloud_resource.azure names the server: %v %q", names, note)
+	}
+}
+
+// Azure index tuning filters by the PostgreSQL database name, so the
+// target must carry the pool's dbname, not the fleet instance name.
+func TestAdviceTarget_NamesThePostgresDatabaseNotTheInstance(t *testing.T) {
+	rt := &databaseRuntime{provider: "azure", spec: databaseRuntimeSpec{
+		Name: "orders-prod", Pool: lazyPool(t, "orders")}}
+	got := rt.adviceTarget()
+	if got.database != "orders" || got.user != "u" || got.host != "127.0.0.1" ||
+		got.provider != "azure" || got.pool != rt.spec.Pool {
+		t.Fatalf("target = %+v, want database orders of 127.0.0.1", got)
+	}
+	if db := postgresDatabaseName("", "app_owner"); db != "app_owner" {
+		t.Fatalf("no dbname: %q, want the user name (the server default)", db)
+	}
+	if db := postgresDatabaseName("orders", "app_owner"); db != "orders" {
+		t.Fatalf("dbname: %q, want orders", db)
 	}
 }

@@ -17,7 +17,18 @@ import (
 // providers refresh their advisors daily or slower.
 const providerAdviceInterval = time.Hour
 
-// adviceTarget is the database whose provider advice is read.
+// postgresDatabaseName is the PostgreSQL database a connection opens: its
+// dbname, or the user name when none is given (the server's default).
+// Index tuning names databases this way, not by pg_sage's instance name.
+func postgresDatabaseName(dbname, user string) string {
+	if dbname != "" {
+		return dbname
+	}
+	return user
+}
+
+// adviceTarget is the database whose provider advice is read; database is
+// the PostgreSQL database name.
 type adviceTarget struct {
 	provider, host, user, database string
 	pool                           *pgxpool.Pool
@@ -90,18 +101,25 @@ func azureAdviceSource(c *config.Config, t adviceTarget,
 		Server: server, Database: t.database, Token: token})
 }
 
+// adviceTarget is the runtime's database as its provider names it: the
+// pool's host, user and PostgreSQL database (not the fleet instance name).
+func (rt *databaseRuntime) adviceTarget() adviceTarget {
+	cc := rt.spec.Pool.Config().ConnConfig
+	return adviceTarget{provider: rt.provider, host: cc.Host, user: cc.User,
+		database: postgresDatabaseName(cc.Database, cc.User), pool: rt.spec.Pool,
+		azure: rt.spec.Config.CloudResource.Azure}
+}
+
 // startProviderAdvice reconciles the provider's advice hourly. It is
 // evidence only: nothing it writes reaches the executor or the policy
 // gate.
 func (rt *databaseRuntime) startProviderAdvice() {
-	cc := rt.spec.Pool.Config().ConnConfig
 	token, err := config.LookupSecretEnv("SAGE_SUPABASE_OBSERVABILITY_TOKEN")
 	if err != nil {
 		logWarn(rt.spec.Scope, "db %q: supabase advisors unavailable: %v", rt.spec.Name, err)
 	}
-	sources, note := providerAdviceSources(rt.cfg, adviceTarget{provider: rt.provider,
-		host: cc.Host, user: cc.User, database: rt.spec.Name, pool: rt.spec.Pool,
-		azure: rt.spec.Config.CloudResource.Azure}, defaultCloudDeps(), token)
+	sources, note := providerAdviceSources(rt.cfg, rt.adviceTarget(), defaultCloudDeps(),
+		token)
 	if note != "" {
 		logInfo(rt.spec.Scope, "db %q: provider advice: %s", rt.spec.Name, note)
 	}
