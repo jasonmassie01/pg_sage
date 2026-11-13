@@ -53,6 +53,10 @@ type databaseRuntimeSpec struct {
 	// LLM gates, and the PostgreSQL database name.
 	Config config.DatabaseConfig
 	Pool   *pgxpool.Pool
+	// ActionPool is the separate action identity (action_dsn): changes and
+	// backend signals run on it. Nil runs everything on Pool. The caller
+	// owns it like Pool; the fleet registration closes it with Pool.
+	ActionPool *pgxpool.Pool
 	// ControlPool holds the standing policy and the notification rules the
 	// API writes (G5-B10, G5-B11). Nil means the monitored pool.
 	ControlPool *pgxpool.Pool
@@ -334,7 +338,7 @@ func (rt *databaseRuntime) pgVersion() int {
 func (rt *databaseRuntime) instance() *fleet.DatabaseInstance {
 	return &fleet.DatabaseInstance{
 		Name: rt.spec.Name, DatabaseID: rt.spec.DatabaseID,
-		Config: rt.spec.Config, Pool: rt.spec.Pool,
+		Config: rt.spec.Config, Pool: rt.spec.Pool, ActionPool: rt.spec.ActionPool,
 		Collector: rt.collector, Analyzer: rt.analyzer, Executor: rt.executor,
 		HA:             rt.ha,
 		Investigations: rt.sreService,

@@ -150,7 +150,7 @@ func killTargets(mgr *fleet.DatabaseManager) func(context.Context) (
 
 func killTarget(ctx context.Context, name string,
 	inst *fleet.DatabaseInstance) agentguard.KillTarget {
-	t := agentguard.KillTarget{Name: name, Pool: inst.Pool,
+	t := agentguard.KillTarget{Name: name, Pool: inst.Pool, SignalPool: inst.ActionPool,
 		ClusterKey: clusterKeyOf(ctx, name, inst.Pool),
 		Replicas:   killReplicas(inst.Config.Replicas, os.Getenv)}
 	if inst.Executor != nil {

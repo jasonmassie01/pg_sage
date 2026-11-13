@@ -140,7 +140,9 @@ func (rt *databaseRuntime) resolveFirstLookOptions(ctx context.Context) firstloo
 			rt.cfg.Safety.QueryTimeoutMs, err)
 		set = nil
 	}
-	return firstLookOptions(rt.cfg, set)
+	opts := firstLookOptions(rt.cfg, set)
+	opts.Posture.ActionRole = actionRole(rt.spec.ActionPool) // AP-14 checks both roles
+	return opts
 }
 
 // firstLookOptions applies the analyzer's wraparound thresholds, so the
