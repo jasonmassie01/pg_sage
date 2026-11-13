@@ -45,12 +45,8 @@ func processCSVImport(
 		})
 		return result
 	}
-	if !validCSVHeader(header) {
-		result.Errors = append(result.Errors, csvImportError{
-			Row: 1, Error: "invalid CSV header: expected " +
-				"name,host,port,database_name," +
-				"username,password,sslmode",
-		})
+	if msg := csvHeaderProblem(header); msg != "" {
+		result.Errors = append(result.Errors, csvImportError{Row: 1, Error: msg})
 		return result
 	}
 
