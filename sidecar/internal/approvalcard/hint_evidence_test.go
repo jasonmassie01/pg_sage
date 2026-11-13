@@ -29,7 +29,7 @@ const (
 
 func changedEvidenceJSON(plain, hinted string) string {
 	return `{"verdict":"changed","reason":"the hinted plan uses idx_orders_customer",` +
-		`"pg_major":17,"generic_plan":false,"tolerance_pct":5,"basis":"custom",` +
+		`"pg_major":17,"generic_plan":false,"tolerance_pct":5,"basis":"plan",` +
 		`"plain_cost":412.0,"hinted_cost":254.6,"plain_plan_hash":"a1b2",` +
 		`"hinted_plan_hash":"c3d4","cost_delta_pct":-38.2,` +
 		`"plain_plan":` + plain + `,"hinted_plan":` + hinted + `}`
@@ -103,7 +103,7 @@ func TestHintEvidence_ChangedComparisonIsLiftedWithBothPlans(t *testing.T) {
 				t.Fatal("hint_evidence is absent from a hint card")
 			}
 			if h.Verdict != "changed" || h.Reason != "the hinted plan uses idx_orders_customer" ||
-				h.Basis != "custom" || h.PGMajor != 17 || h.GenericPlan ||
+				h.Basis != "plan" || h.PGMajor != 17 || h.GenericPlan ||
 				h.PlainPlanHash != "a1b2" || h.HintedPlanHash != "c3d4" {
 				t.Fatalf("hint evidence head = %+v", h)
 			}

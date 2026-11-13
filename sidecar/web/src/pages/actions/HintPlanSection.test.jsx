@@ -17,7 +17,7 @@ const hintedPlan = [{ Plan: { 'Node Type': 'Index Scan', 'Index Name': 'idx_orde
 
 function evidence(overrides = {}) {
   return {
-    verdict: 'changed', reason: 'the hinted plan uses idx_orders_customer', basis: 'custom',
+    verdict: 'changed', reason: 'the hinted plan uses idx_orders_customer', basis: 'plan',
     plain_cost: 412, hinted_cost: 254.6, cost_delta_pct: -38.2,
     plain_plan_hash: 'a1b2', hinted_plan_hash: 'c3d4',
     plain_plan: plainPlan, hinted_plan: hintedPlan, generic_plan: false, pg_major: 17,

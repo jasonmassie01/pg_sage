@@ -5,7 +5,7 @@
   "hint_evidence": {
     "verdict": "changed",
     "reason": "the hinted plan uses idx_orders_customer",
-    "basis": "custom",
+    "basis": "plan",
     "plain_cost": 412,
     "hinted_cost": 254.6,
     "cost_delta_pct": -38.2,
