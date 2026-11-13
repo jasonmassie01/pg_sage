@@ -14,12 +14,14 @@ import (
 const legacyNamePattern = `agent[-_]?db|agt_`
 
 // legacyPinnedFiles are files outside the package that must spell a legacy
-// name: the router table pins every registered route, this package's
-// /api/v1/agentdb routes included (apiauth-09, agentgov-11), and the v2.4.0
-// schema dump still holds sage.agentdb_decommission (config-04).
+// name: the router table and the per-route database scopes pin every
+// registered route, this package's /api/v1/agentdb routes included
+// (apiauth-09, agentgov-11, apiauth-08), and the v2.4.0 schema dump still
+// holds sage.agentdb_decommission (config-04).
 var legacyPinnedFiles = map[string]bool{
 	"sidecar/internal/api/router_table_probes_test.go":      true,
 	"sidecar/internal/api/testdata/router_table.golden":     true,
+	"sidecar/internal/api/testdata/route_scopes.golden":     true,
 	"sidecar/internal/schema/testdata/v2.4.0_sage_dump.sql": true,
 }
 
