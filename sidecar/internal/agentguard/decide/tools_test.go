@@ -55,6 +55,7 @@ func TestToolClassTable(t *testing.T) {
 		{"sre_evaluate_autonomy", agentguard.ToolPropose, ""},
 		{"top_queries", agentguard.ToolRead, ""},
 		{"get_policy", agentguard.ToolRead, ""},
+		{"upgrade_readiness", agentguard.ToolRead, ""},
 		{"decide_fact", KindApprove, ""},
 		{"declare_table_contract", KindApprove, ""},
 		{"register_consumer", KindApprove, ""},

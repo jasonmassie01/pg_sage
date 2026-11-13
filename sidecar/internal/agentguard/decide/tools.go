@@ -66,6 +66,8 @@ var toolClasses = map[string]toolClass{
 	"sre_list_incidents": read(), "sre_list_runbooks": read(), "sre_list_slos": read(),
 	"sre_runbook_runs": read(), "sre_similar_incidents": read(), "top_queries": read(),
 	"whatif_index": read(),
+	// market-05: one bounded read-only transaction; it writes nothing.
+	"upgrade_readiness": read(),
 	// agent_* tools (G1+): every D-step applies.
 	"agent_query": agentTool(CapRead), "agent_whoami": agentTool(CapRead),
 	// The capability class of a grant request is the class it asks for;
