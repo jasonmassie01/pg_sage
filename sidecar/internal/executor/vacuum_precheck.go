@@ -144,13 +144,14 @@ func (e *Executor) admitMaintenance(
 		return nil
 	}
 	table := maintenanceTable(sql)
-	if e.pool == nil {
+	// The privilege that matters is the role that will run the statement.
+	if e.actionDB() == nil {
 		return e.withholdMaintenance(ctx, decision, reasonCapabilityUnverified,
 			"database pool unavailable to read the maintenance privilege", nil)
 	}
 	readCtx, cancel := context.WithTimeout(ctx, maintenancePrivilegeTimeout)
 	defer cancel()
-	p, err := readMaintenancePrivilege(readCtx, e.pool, table, actionType)
+	p, err := readMaintenancePrivilege(readCtx, e.actionDB(), table, actionType)
 	switch {
 	case err != nil:
 		return e.withholdMaintenance(ctx, decision, reasonCapabilityUnverified,

@@ -1272,6 +1272,15 @@
     "class": "safety_critical",
     "lifecycle": "restart"
   },
+  "databases[].action_dsn": {
+    "type": "string",
+    "default": null,
+    "doc": "Optional DSN of a second role on the same database. Only executor actions and backend cancel/terminate use it (a lazy pool of at most 7); the main role only observes. Empty: one role.",
+    "mode": "fleet-only",
+    "secret": true,
+    "class": "safety_critical",
+    "lifecycle": "reconfigure"
+  },
   "databases[].analyzer_interval_seconds": {
     "type": "int",
     "default": 0,
@@ -2577,6 +2586,14 @@
     "type": "string",
     "default": "unattended",
     "doc": "Bootstrap standing-policy profile: staffed or unattended.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "postgres.action_dsn": {
+    "type": "string",
+    "default": null,
+    "doc": "Optional DSN of a second role on the same database. Only executor actions and backend cancel/terminate use it (a lazy pool of at most 7); the main role only observes. Empty: one role.",
+    "secret": true,
     "class": "safety_critical",
     "lifecycle": "restart"
   },

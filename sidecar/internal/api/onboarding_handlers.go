@@ -195,6 +195,7 @@ func trustGuideHandler(reader onboardingReader) http.Handler {
 		}
 		jsonResponse(w, map[string]any{"database": names[0], "current": in.Current,
 			"levels": onboarding.TrustGuide(in), "grant": target,
-			"grants": in.Grants})
+			"grants": in.Grants, "action_grants": in.ActionGrants,
+			"scripts": onboarding.GrantScripts(in)})
 	})
 }

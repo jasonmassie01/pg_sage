@@ -77,7 +77,7 @@ func (r *clusterRun) checkPrimary(ctx context.Context) (clean, settled bool) {
 	}
 	clean, settled = true, true
 	if n > 0 {
-		more, err := terminate(ctx, primary, r.k, r.scopeDatname())
+		more, err := terminate(ctx, r.targets[0].signalPool(), r.k, r.scopeDatname())
 		r.noteEnded(more)
 		clean = false
 		settled = err != nil // a refused signal is refused again next round

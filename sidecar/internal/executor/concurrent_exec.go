@@ -10,7 +10,7 @@ type remnantHooks struct {
 // remnantRunFor runs sql under its class timeout; each cleanup DROP runs
 // under safety.ddl_timeout_seconds and the same lock timeout.
 func (e *Executor) remnantRunFor(sql string, opts ...DDLOption) remnantRun {
-	return remnantRun{pool: e.pool, logFn: e.logFn, timeout: e.ddlTimeoutFor(sql),
+	return remnantRun{pool: e.actionDB(), logFn: e.logFn, timeout: e.ddlTimeoutFor(sql),
 		dropTimeout: e.ddlTimeout(), opts: opts, beforeDrop: e.remnantHooks.beforeDrop}
 }
 

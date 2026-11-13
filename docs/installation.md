@@ -123,6 +123,15 @@ At startup pg_sage checks each prerequisite and logs what it could not confirm:
 - **Extension schema.** pg_sage finds the schema `pg_stat_statements` was created in from `pg_extension` and reads it qualified, so it need not be on the role's `search_path`.
 - **WAL and planning-time columns** (`pg_stat_statements` 1.9+, shipped with PostgreSQL 14). If the check itself fails, for example on a 5-second timeout, the sidecar logs a WARN naming the cause, and per-query WAL usage or planning time is not collected until it restarts. Without `pg_stat_statements`, monitoring runs degraded: the first look lists the exact steps to enable it on your provider.
 
+### Optional: a separate action role
+
+To keep probes from running with owner rights, give pg_sage a second role for its
+actions and point `action_dsn` (`postgres.action_dsn`, or `databases[].action_dsn` in a
+fleet) at it. The main role then needs only `pg_monitor` and the `sage` schema; the action
+role gets the table owner memberships, `pg_maintain`, `pg_signal_backend` and
+`pg_read_all_stats`. See
+[separate observation and action roles](security.md#separate-observation-and-action-roles-action_dsn).
+
 ---
 
 ## Running with Connection URL

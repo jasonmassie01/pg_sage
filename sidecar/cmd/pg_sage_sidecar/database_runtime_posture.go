@@ -30,13 +30,18 @@ func postureConfig(c *config.Config) agentposture.Config {
 // agents.* keys on every cycle.
 func (rt *databaseRuntime) newPostureMonitor() *agentposture.Monitor {
 	return agentposture.NewMonitor(rt.spec.Pool, agentposture.MonitorOptions{
-		Config: func() agentposture.Config {
-			config.RLockForHotReload()
-			defer config.RUnlockForHotReload()
-			cfg := postureConfig(rt.cfg)
-			cfg.Platform.Backup = rt.postureBackup()
-			return cfg
-		},
-		Logf: logStructuredWrapper,
+		Config: rt.newPostureMonitorConfig, Logf: logStructuredWrapper,
 	})
+}
+
+// newPostureMonitorConfig is the posture monitor's configuration for one
+// cycle: the live agents.* keys, the backup posture and the action role
+// (AP-14 checks both of pg_sage's roles, security-09).
+func (rt *databaseRuntime) newPostureMonitorConfig() agentposture.Config {
+	config.RLockForHotReload()
+	defer config.RUnlockForHotReload()
+	cfg := postureConfig(rt.cfg)
+	cfg.Platform.Backup = rt.postureBackup()
+	cfg.ActionRole = actionRole(rt.spec.ActionPool)
+	return cfg
 }

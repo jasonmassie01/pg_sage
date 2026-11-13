@@ -221,7 +221,7 @@ func (e *Executor) replaceDropStep(ctx context.Context, rec *indexReplaceRecord,
 		return 0, err
 	}
 	sql := rec.Plan.DropSQL
-	if err := ExecConcurrently(ctx, e.pool, sql, e.ddlTimeout(),
+	if err := ExecConcurrently(ctx, e.actionDB(), sql, e.ddlTimeout(),
 		e.lockOption(sql, decision)); err != nil {
 		return e.partialReplace(ctx, rec, err, claim)
 	}

@@ -228,7 +228,7 @@ func (r *custodianRun) execute(
 			outcomeStatus(managedResult.InEffect), managedResult.Note)
 	} else if isAlterSystem(r.proposal.SQL) {
 		outcome := applyConfigChange(
-			ctx, e.pool, r.proposal.SQL, e.cfg.CloudEnvironment, e.logFn,
+			ctx, e.actionDB(), r.proposal.SQL, e.cfg.CloudEnvironment, e.logFn,
 		)
 		recordActionOutcome(ctx, e.pool, e.logFn, actionID,
 			outcomeStatus(outcome.InEffect), outcome.Note)
@@ -379,7 +379,7 @@ func (e *Executor) executeCustodianSQL(
 	if statementRunsTopLevel(sql) {
 		err = e.execConcurrentDDL(ctx, sql, nil, lockOpt)
 	} else {
-		err = ExecInTransaction(ctx, e.pool, sql, timeout, lockOpt)
+		err = ExecInTransaction(ctx, e.actionDB(), sql, timeout, lockOpt)
 	}
 	if err == nil {
 		e.notifyPostDDL(ctx, sql)

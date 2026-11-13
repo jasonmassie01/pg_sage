@@ -129,6 +129,9 @@ func (e *Executor) Apply(ctx context.Context, intent ActionIntent) (actionID int
 	if cause := run.stopCause(); cause != nil {
 		return 0, &StoppedError{Cause: cause}
 	}
+	if err := e.checkActionIdentity(runCtx); err != nil {
+		return 0, err
+	}
 	actionID, err = e.executeHeld(runCtx, intent, final)
 	if err != nil || intent.Verify == nil {
 		return actionID, err

@@ -1248,6 +1248,29 @@ func sendDataRow(w io.Writer, value string) {
 	pgMsg(w, 'D', dr)
 }
 
+// isAppPathRead reports the application search_path read (apppath),
+// which the fake answers with one NULL row: no setting applies.
+func isAppPathRead(query string) bool {
+	return strings.Contains(query, "pg_db_role_setting")
+}
+
+// fakeParamDescription describes one text parameter for the path's
+// set_config and none for every other statement.
+func fakeParamDescription(query string) []byte {
+	if strings.Contains(query, "set_config('search_path', $1") {
+		return []byte{0, 1, 0, 0, 0, 25}
+	}
+	return []byte{0, 0}
+}
+
+// sendNullRow sends a DataRow with one NULL value.
+func sendNullRow(w io.Writer) {
+	dr := make([]byte, 2+4)
+	binary.BigEndian.PutUint16(dr[0:2], 1)          // 1 column
+	binary.BigEndian.PutUint32(dr[2:6], 0xFFFFFFFF) // length -1: NULL
+	pgMsg(w, 'D', dr)
+}
+
 func (s *fakePGServer) handleConn(conn net.Conn) {
 	defer conn.Close()
 
@@ -1352,6 +1375,7 @@ func (s *fakePGServer) handleConn(conn net.Conn) {
 
 		case 'S': // Sync — respond to accumulated batch.
 			isExplain := strings.HasPrefix(parsedQuery, "EXPLAIN")
+			isPathRead := isAppPathRead(parsedQuery)
 
 			if s.failExec && (hasParse || hasExecute) {
 				sendError(conn, "42601", "simulated error")
@@ -1359,9 +1383,9 @@ func (s *fakePGServer) handleConn(conn net.Conn) {
 			} else if hasParse && hasDescribeStmt &&
 				!hasBind && !hasExecute {
 				// Phase 1: Parse + Describe Statement + Sync.
-				pgMsg(conn, '1', nil)          // ParseComplete
-				pgMsg(conn, 't', []byte{0, 0}) // ParamDescription
-				if isExplain {
+				pgMsg(conn, '1', nil)                               // ParseComplete
+				pgMsg(conn, 't', fakeParamDescription(parsedQuery)) // ParamDescription
+				if isExplain || isPathRead {
 					sendRowDescription(conn, "QUERY PLAN")
 				} else {
 					pgMsg(conn, 'n', nil) // NoData
@@ -1371,7 +1395,7 @@ func (s *fakePGServer) handleConn(conn net.Conn) {
 				// Phase 2: Bind + Describe Portal + Execute + Sync.
 				pgMsg(conn, '2', nil) // BindComplete
 				if hasDescribePortal {
-					if isExplain {
+					if isExplain || isPathRead {
 						sendRowDescription(conn, "QUERY PLAN")
 					} else {
 						pgMsg(conn, 'n', nil) // NoData
@@ -1379,6 +1403,8 @@ func (s *fakePGServer) handleConn(conn net.Conn) {
 				}
 				if isExplain {
 					sendDataRow(conn, s.planJSON)
+				} else if isPathRead {
+					sendNullRow(conn)
 				}
 				pgMsg(conn, 'C', pgStr("SET"))
 				pgMsg(conn, 'Z', []byte{'I'})

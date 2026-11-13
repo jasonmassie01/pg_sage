@@ -213,7 +213,8 @@ func (e *Executor) runManualSQL(
 		return e.executeManualAnalyze(ctx, findingID, sql, e.lockTimeoutMS(sql, decision))
 	}
 	if categorizeAction(sql) == "create_statistics" {
-		return ExecStatistics(ctx, e.pool, sql, e.ddlTimeoutFor(sql), e.lockOption(sql, decision))
+		return ExecStatistics(ctx, e.actionDB(), sql, e.ddlTimeoutFor(sql),
+			e.lockOption(sql, decision))
 	}
 	if err := e.checkGUCValueSafety(ctx, sql); err != nil {
 		return err
@@ -367,7 +368,7 @@ func (e *Executor) execManualSQLWithRetry(
 		if statementRunsTopLevel(sql) {
 			err = e.execConcurrentDDL(ctx, sql, beforeState, lockOpt)
 		} else {
-			err = ExecInTransaction(ctx, e.pool, sql, e.ddlTimeoutFor(sql), lockOpt)
+			err = ExecInTransaction(ctx, e.actionDB(), sql, e.ddlTimeoutFor(sql), lockOpt)
 		}
 		if err == nil {
 			return nil

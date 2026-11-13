@@ -103,10 +103,13 @@ type Replica struct {
 // pg_sage's own pool on it; Executor (nil: no gate, the direct path) runs
 // the narrowing contracts; ClusterKey groups databases that share roles;
 // DatabaseID is the binding's uuid (guard_inflight), "" when unbound.
+// SignalPool is pg_sage's separate action identity on the database
+// (action_dsn, security-09): cancel and terminate run on it; nil uses Pool.
 type KillTarget struct {
 	Name       string
 	DatabaseID string
 	Pool       *pgxpool.Pool
+	SignalPool *pgxpool.Pool
 	Executor   Applier
 	ClusterKey string
 	Replicas   []Replica
@@ -207,4 +210,13 @@ func ParsePriorAttrs(raw json.RawMessage) (PriorAttrs, error) {
 		}
 	}
 	return out, nil
+}
+
+// signalPool is the pool the kill cancels and terminates backends on: the
+// action identity when there is one, else pg_sage's pool.
+func (t KillTarget) signalPool() *pgxpool.Pool {
+	if t.SignalPool != nil {
+		return t.SignalPool
+	}
+	return t.Pool
 }

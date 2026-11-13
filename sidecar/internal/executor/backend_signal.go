@@ -73,7 +73,7 @@ func (e *Executor) signalMatchingBackend(
 		query = terminateMatchingBackendSQL
 	}
 	var signaled bool
-	err := e.pool.QueryRow(
+	err := e.actionDB().QueryRow(
 		ctx,
 		query,
 		evidence.PID,

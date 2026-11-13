@@ -58,7 +58,9 @@ func (e *Executor) readBackConfig(
 		return e.readRoleBudget(ctx, c)
 	}
 	if c.kind == configKindGUC {
-		out := applyConfigChangeWithin(ctx, e.pool, c.sql, e.cfg.CloudEnvironment,
+		// The reload is part of the change: the role that ran ALTER SYSTEM
+		// reloads it (security-09), not the observation role.
+		out := applyConfigChangeWithin(ctx, e.actionDB(), c.sql, e.cfg.CloudEnvironment,
 			e.logFn, e.readbackWait())
 		return out.State, out.Note, map[string]any{"state": out.State,
 			"effective": out.Effective, "source": out.Source,

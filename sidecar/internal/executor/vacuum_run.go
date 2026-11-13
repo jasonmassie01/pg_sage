@@ -87,11 +87,11 @@ func (e *Executor) execVacuumWatched(ctx context.Context, sql string, opts ...DD
 	if err := ValidateExecutorSQL(sql); err != nil {
 		return fmt.Errorf("SQL validation: %w", err)
 	}
-	if e.pool == nil {
+	if e.actionDB() == nil {
 		return errors.New("execute VACUUM: database pool unavailable")
 	}
 	w := e.newVacuumWatch()
-	err := withTopLevelSession(ctx, e.pool, sql, 0, applyDDLOpts(opts),
+	err := withTopLevelSession(ctx, e.actionDB(), sql, 0, applyDDLOpts(opts),
 		func(conn pooledExecutor) error { return w.run(ctx, conn, sql) })
 	return stoppedStatement(ctx, sql, err)
 }
@@ -257,7 +257,7 @@ func (w *vacuumWatch) end(
 // signal its own sessions on every provider without a grant.
 func (e *Executor) cancelVacuumBackend(ctx context.Context, pid uint32) error {
 	var cancelled bool
-	if err := e.pool.QueryRow(ctx, "/* pg_sage executor */ SELECT pg_cancel_backend($1)",
+	if err := e.actionDB().QueryRow(ctx, "/* pg_sage executor */ SELECT pg_cancel_backend($1)",
 		int32(pid)).Scan(&cancelled); err != nil {
 		return fmt.Errorf("pg_cancel_backend(%d): %w", pid, err)
 	}

@@ -196,7 +196,7 @@ func (r *backendCancelRun) record(ctx context.Context,
 func (e *Executor) signalIdentity(ctx context.Context, req BackendCancel) error {
 	t := req.Target
 	var signalled bool
-	err := e.pool.QueryRow(ctx, cancelBackendIdentitySQL, t.PID, t.BackendStart,
+	err := e.actionDB().QueryRow(ctx, cancelBackendIdentitySQL, t.PID, t.BackendStart,
 		t.QueryStart, t.Database, t.User, t.QueryHash, t.QueryID,
 		nonNil(req.ProtectedRoles), nonNil(req.ProtectedApplications)).Scan(&signalled)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !signalled) {

@@ -42,6 +42,9 @@ type RollbackMonitorConfig struct {
 	// Track registers the rollback as in-flight work the emergency stop
 	// cancels; a latched stop refuses it.
 	Track func(ctx context.Context, label string) (context.Context, func(), error)
+	// ActionPool is the separate action identity the rollback statement
+	// runs as; nil runs it on the monitor's pool (security-09).
+	ActionPool *pgxpool.Pool
 
 	execRollback func(context.Context, string, time.Duration, ...DDLOption) error
 	applyConfig  func(context.Context, string) configApplyOutcome
@@ -299,6 +302,9 @@ func executeRollbackSQL(
 		return "", err
 	}
 	defer release()
+	if cfg.ActionPool != nil {
+		pool = cfg.ActionPool // the rollback is a change: the action identity runs it
+	}
 	sql := concurrentIndexRollbackSQL(rollbackSQL)
 	timeout := cfg.StatementTimeout
 	if timeout <= 0 {

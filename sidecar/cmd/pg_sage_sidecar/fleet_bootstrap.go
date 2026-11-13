@@ -66,15 +66,22 @@ func prepareFleetRuntimeFrom(
 		return nil, err
 	}
 	logInfo("fleet", "db %q: connected", dbCfg.Name)
+	actionPool, err := openActionPool(dbCfg.ConnString(), dbCfg)
+	if err != nil {
+		dbPool.Close()
+		logError("fleet", "%v", err)
+		return nil, err
+	}
 	if control == nil {
 		control = dbPool
 	}
 	rt, err := buildDatabaseRuntime(context.Background(), databaseRuntimeSpec{
 		Scope: "fleet", Name: dbCfg.Name, Config: dbCfg, Pool: dbPool,
-		ControlPool: control, ExecMode: resolveStaticFleetExecMode(dbCfg),
-		Parent: shutdownCtx,
+		ActionPool: actionPool, ControlPool: control,
+		ExecMode: resolveStaticFleetExecMode(dbCfg), Parent: shutdownCtx,
 	})
 	if err != nil {
+		closeActionPool(actionPool)
 		dbPool.Close()
 		logError("fleet", "db %q: %v", dbCfg.Name, err)
 		return nil, err

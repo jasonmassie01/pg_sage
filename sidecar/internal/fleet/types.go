@@ -33,6 +33,9 @@ type DatabaseInstance struct {
 	DatabaseID int
 	Config     config.DatabaseConfig
 	Pool       *pgxpool.Pool
+	// ActionPool is the separate action identity (action_dsn); nil when one
+	// role does everything. Closed with Pool.
+	ActionPool *pgxpool.Pool
 	Collector  *collector.Collector
 	Analyzer   *analyzer.Analyzer
 	Executor   *executor.Executor
@@ -457,6 +460,9 @@ func closeInstancePool(
 ) error {
 	done := make(chan struct{})
 	go func() {
+		if inst.ActionPool != nil {
+			inst.ActionPool.Close()
+		}
 		if inst.PoolClose != nil {
 			inst.PoolClose()
 		} else if inst.Pool != nil {

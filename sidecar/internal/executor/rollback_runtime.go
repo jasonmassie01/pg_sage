@@ -16,7 +16,7 @@ func (e *Executor) rollbackMonitorConfig(
 ) RollbackMonitorConfig {
 	cfg, _, _ := e.policySnapshot()
 	result := RollbackMonitorConfig{Authorize: authorize, Acquire: e.acquireDDLSlot,
-		Track: e.trackRun, QueueRevert: e.queueRevert}
+		Track: e.trackRun, QueueRevert: e.queueRevert, ActionPool: e.actionPool}
 	if cfg != nil {
 		result.ThresholdPct = cfg.Trust.RollbackThresholdPct
 		result.WindowMinutes = cfg.Trust.RollbackWindowMinutes

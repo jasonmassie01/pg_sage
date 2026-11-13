@@ -43,9 +43,15 @@ func initStandalone() {
 	learnLLMInputLimits()
 	llmMgr = newStandaloneLLMManager(llmClient)
 	startLLMUsageLedger(pool) // fleet-10: before the runtime's first call
+	dbCfg := buildDBConfig(name)
+	actionPool, err := openActionPool(cfg.Postgres.DSN(), dbCfg)
+	if err != nil {
+		logError("startup", "%v", err)
+		os.Exit(1)
+	}
 	rt, err := buildDatabaseRuntime(ctx, databaseRuntimeSpec{
-		Scope: "startup", Name: name, Config: buildDBConfig(name),
-		Pool: pool, ControlPool: pool, ExecMode: resolveExecutionMode(),
+		Scope: "startup", Name: name, Config: dbCfg, Pool: pool, ActionPool: actionPool,
+		ControlPool: pool, ExecMode: resolveExecutionMode(),
 		Parent: shutdownCtx, RequireChecks: true, Checks: checks, Shared: true,
 	})
 	if err != nil {
@@ -181,6 +187,7 @@ func buildDBConfig(name string) config.DatabaseConfig {
 		Database: cfg.Postgres.Database,
 		SSLMode:  cfg.Postgres.SSLMode,
 		Provider: cfg.Postgres.Provider, CloudResource: cfg.Postgres.CloudResource,
+		ActionDSN: cfg.Postgres.ActionDSN,
 	}
 }
 

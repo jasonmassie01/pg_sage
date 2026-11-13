@@ -74,7 +74,8 @@ func (rt *databaseRuntime) buildExecutor() {
 		logWarn(rt.spec.Scope, "db %q: trust ramp start: %v", rt.spec.Name, err)
 		rampStart = time.Now()
 	}
-	ex := executor.New(rt.spec.Pool, rt.cfg, rampStart, logStructuredWrapper)
+	ex := executor.New(rt.spec.Pool, rt.cfg, rampStart, logStructuredWrapper).
+		WithActionPool(rt.spec.ActionPool)
 	ex.WithAnalyzeSemaphore(ensureAnalyzeSemaphore())
 	// A role's connection limit is cluster-wide: only the fleet leader sets it.
 	ex.WithLeaderCheck(func() bool { return fleetLeader == nil || fleetLeader.IsLeader() })
