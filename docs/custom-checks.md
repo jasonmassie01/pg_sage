@@ -8,8 +8,9 @@ run: they report, people decide.
 
 ## Defining a check
 
-Checks live in the YAML config file under the top-level `checks:` list and are read when a
-database's runtime starts (restart, or a fleet reconfigure, to change them).
+Checks live in the YAML config file under the top-level `checks:` list and are read when
+pg_sage starts: restart to change them (the key is restart-bound; a fleet reconfigure keeps
+the checks loaded at startup).
 
 | Field | Required | Default | Meaning |
 |---|---|---|---|
