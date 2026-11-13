@@ -49,12 +49,16 @@ var excludedPrefixes = []string{
 	"mcp.oauth.",
 	// owner checks (market-11): YAML only, restart-bound, safety-critical
 	"checks.",
+	// seasonal workload baselines (market-02): YAML only, restart-bound
+	"baseline.",
 }
 
 // excludedExactKeys are individual keys that exist in the Config
 // struct but are intentionally excluded from the config override
 // registries.
 var excludedExactKeys = map[string]bool{
+	// Workload budget proposals (market-08): YAML only, restart-bound.
+	"advisor.budget_proposals": true,
 	// Subscriber and CDC thresholds (market-13): YAML only, restart-bound.
 	"analyzer.subscription_lag_minutes": true,
 	"analyzer.cdc_stall_minutes":        true,
