@@ -110,7 +110,7 @@ func closeBroken(conn *pgxpool.Conn) {
 // (or, for an explain, plans the statement without running it).
 func (c *call) inTransaction(ctx context.Context, conn *pgxpool.Conn,
 	read sqlast.BrokeredRead, rels []relation, env envbind.Env) (Result, error) {
-	refusal, err := explain.ProveRead(ctx, conn, read.Canonical, nil, c.b.proof)
+	refusal, err := explain.ProveRead(ctx, conn, read.Canonical, c.b.parse.read, c.b.proof)
 	if err != nil {
 		c.b.deps.Log("WARN", "%s: catalog proof failed for %s: %v", c.tool, c.id.Principal.ID,
 			err)

@@ -21,6 +21,20 @@ type Broker struct {
 	deps  Deps
 	pools *pools
 	proof explain.ReadProofOptions
+	parse parser
+}
+
+// parser is the SQL parser the broker verifies statements with: the C
+// parser, or none on a build without cgo (every statement is then
+// refused). Tests on such builds substitute a scripted one to reach the
+// execution path; nothing else replaces it.
+type parser struct {
+	brokered func(sql string) (sqlast.BrokeredRead, error)
+	read     func(sql string) (sqlast.ReadQuery, error)
+}
+
+func cParser() parser {
+	return parser{brokered: sqlast.InspectBrokeredRead, read: sqlast.InspectReadQuery}
 }
 
 // New returns a broker over cfg and deps.
@@ -36,7 +50,8 @@ func New(cfg Config, deps Deps) (*Broker, error) {
 	}
 	return &Broker{cfg: cfg, deps: deps, pools: newPools(cfg),
 		proof: explain.ReadProofOptions{AllowRLS: true, DenySecurityDefiner: true,
-			DenyFunction: deniedFunction, AllowCatalogRelation: catalogAllowed}}, nil
+			DenyFunction: deniedFunction, AllowCatalogRelation: catalogAllowed},
+		parse: cParser()}, nil
 }
 
 // Close closes every broker connection.
@@ -165,7 +180,7 @@ func (c *call) run(ctx context.Context) (Result, error) {
 			"%U at byte %d (a hidden or control character)", r, at),
 			"remove invisible and bidi control characters"), nil
 	}
-	read, err := sqlast.InspectBrokeredRead(c.req.SQL)
+	read, err := c.b.parse.brokered(c.req.SQL)
 	switch {
 	case errors.Is(err, sqlast.ErrUnavailable):
 		return blocked(ReasonParserUnavailable, "this pg_sage build cannot parse SQL, so "+
