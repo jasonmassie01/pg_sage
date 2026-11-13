@@ -33,12 +33,14 @@ var docMetricToken = regexp.MustCompile(`\bpg_sage_[a-z0-9_]+`)
 // and file names in the deployment guides, and the auto_explain log
 // rejection reason pg_sage_self (rca-04), and the migration ledger column
 // pg_sage_version (config-04b) and the bench report stamps pg_sage_version and
-// pg_sage_commit (benches-09).
+// pg_sage_commit (benches-09), and the apply_migration contract script's
+// dollar-quote tag pg_sage_guard (migration-06).
 var docNonMetricTokens = map[string]bool{
 	"pg_sage_sidecar": true, "pg_sage_linux_amd64": true, "pg_sage_darwin_arm64": true,
 	"pg_sage_dashboard": true, "pg_sage_metrics_token": true,
 	"pg_sage_break_glass_hash": true, "pg_sage_app_sp_secret": true, "pg_sage_app": true,
 	"pg_sage_self": true, "pg_sage_version": true, "pg_sage_commit": true,
+	"pg_sage_guard": true,
 }
 
 // docTokenProblem says why token is not a registered metric name, or "".
