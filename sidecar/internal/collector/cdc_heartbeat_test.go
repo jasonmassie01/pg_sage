@@ -23,7 +23,9 @@ func TestCDCHeartbeatSQL_QuotesIdentifiers(t *testing.T) {
 		{"cdc.heartbeat", "ts", `max("ts")::timestamptz FROM "cdc"."heartbeat"`},
 		{"heartbeat", "beat_at", `max("beat_at")::timestamptz FROM "heartbeat"`},
 		{`we"ird`, "ts", `FROM "we""ird"`},
-		{"cdc.hb; DROP TABLE x", "ts", `FROM "cdc"."hb; DROP TABLE x"`},
+		{"cdc.hb; DROP TABLE x", "ts", `FROM "cdc"."hb; drop table x"`},
+		// plain identifiers fold to lower case, as they do unquoted in SQL
+		{"CDC.HeartBeat", "TS", `max("ts")::timestamptz FROM "cdc"."heartbeat"`},
 	} {
 		sql, err := cdcHeartbeatSQL(tc.table, tc.column)
 		if err != nil {
@@ -104,6 +106,22 @@ func TestCollectCDCHeartbeats_ReadsNewestValue(t *testing.T) {
 	age := time.Since(*r.Latest)
 	if age < 2*time.Minute || age > 5*time.Minute {
 		t.Fatalf("newest heartbeat is %s old, want about 3 minutes (max, not min)", age)
+	}
+}
+
+// A heartbeat configured in upper or mixed case reads the table PostgreSQL
+// would resolve for the same unquoted name, not a quoted mixed-case one.
+func TestCollectCDCHeartbeats_UnquotedNamesFoldToLowerCase(t *testing.T) {
+	c, table, set := heartbeatServer(t)
+	slot := strings.Replace(table, "m13_hb_", "m13_hb_slot_", 1)
+	set(config.CDCHeartbeat{Slot: slot, Table: "PUBLIC." + strings.ToUpper(table),
+		Column: "Ts", MaxAgeMinutes: 1})
+	snap := &Snapshot{}
+	retries := 0
+	c.collectExtras(context.Background(), snap, &retries)
+	if len(snap.CDCHeartbeats) != 1 || snap.CDCHeartbeats[0].Err != "" ||
+		snap.CDCHeartbeats[0].Latest == nil {
+		t.Fatalf("readings = %+v, want the lower-case table read", snap.CDCHeartbeats)
 	}
 }
 

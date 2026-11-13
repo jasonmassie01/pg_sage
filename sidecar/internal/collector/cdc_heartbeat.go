@@ -50,20 +50,24 @@ func heartbeatTimeouts(cfg *config.Config) catalogread.Timeouts {
 
 // cdcHeartbeatSQL is the one read of a heartbeat: table is "name" or
 // "schema.name" (config load admits plain identifiers only); each part is
-// quoted again here, so no name is ever interpolated as SQL.
+// quoted again here, so no name is ever interpolated as SQL. A plain
+// identifier means what it means unquoted in SQL, so it is folded to lower
+// case before quoting: CDC.Heartbeat reads cdc.heartbeat.
 func cdcHeartbeatSQL(table, column string) (string, error) {
 	parts := strings.Split(table, ".")
 	if len(parts) > 2 || column == "" {
 		return "", fmt.Errorf("heartbeat %q.%q: want table or schema.table and a column",
 			table, column)
 	}
-	for _, p := range parts {
+	for i, p := range parts {
 		if p == "" {
 			return "", fmt.Errorf("heartbeat table %q has an empty name part", table)
 		}
+		parts[i] = strings.ToLower(p)
 	}
-	return sageTag + "SELECT max(" + pgx.Identifier{column}.Sanitize() +
-		")::timestamptz FROM " + pgx.Identifier(parts).Sanitize(), nil
+	col := pgx.Identifier{strings.ToLower(column)}.Sanitize()
+	return sageTag + "SELECT max(" + col + ")::timestamptz FROM " +
+		pgx.Identifier(parts).Sanitize(), nil
 }
 
 // collectCDCHeartbeats reads each configured heartbeat whose slot is a
