@@ -506,6 +506,7 @@ safety_critical cloud_telemetry.aws.db_cluster_identifier
 safety_critical cloud_telemetry.aws.db_instance_identifier
 safety_critical cloud_telemetry.aws.region
 operator_preference cloud_telemetry.enabled
+operator_preference provider_advice.enabled
 safety_critical cloud_telemetry.alloydb.cluster
 safety_critical cloud_telemetry.alloydb.instance
 safety_critical cloud_telemetry.alloydb.project

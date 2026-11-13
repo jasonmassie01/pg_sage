@@ -110,6 +110,8 @@ type Config struct {
 	// CloudTelemetry is managed-cloud host telemetry (cloud_telemetry.go).
 	CloudTelemetry        CloudTelemetryConfig        `yaml:"cloud_telemetry"`
 	LakebaseObservability LakebaseObservabilityConfig `yaml:"lakebase_observability"`
+	// ProviderAdvice is provider advisor recommendations (provider_advice.go).
+	ProviderAdvice ProviderAdviceConfig `yaml:"provider_advice"`
 	// Agents is agent posture (agents.go).
 	Agents AgentsConfig `yaml:"agents"`
 	// Audit is the audit export and evidence of E2 (audit.go).
