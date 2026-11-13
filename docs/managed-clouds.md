@@ -519,7 +519,7 @@ publishes PostgreSQL parameter advice that pg_sage could read (checked 2026-11-1
 
 | Provider | What its advisors recommend | Parameter advice |
 |---|---|---|
-| Cloud SQL | Recommender API (`google.cloudsql.instance.*`): idle, over- and underprovisioned (machine size), out of disk, high availability, security (network, SSL, certificates, password policy, `ENABLE_DATABASE_AUDITING`) and performance (`POSTGRES_HIGH_TRANSACTION_ID_UTILIZATION_BEST_PRACTICE`, manual vacuum steps) | none: the only flag recommendation, `table_open_cache`, is MySQL only |
+| Cloud SQL | Recommender API (`google.cloudsql.instance.*`): idle, over- and underprovisioned (machine size), out of disk, high availability, security (network, SSL, certificates, password policy, `ENABLE_DATABASE_AUDITING`) and performance (`POSTGRES_HIGH_TRANSACTION_ID_UTILIZATION_BEST_PRACTICE`, manual vacuum steps; `POSTGRES_OPTIMIZE_HIGH_MEMORY_QUERIES`, a machine type) | none: the only flag recommendation, `table_open_cache`, is MySQL only |
 | AlloyDB | no recommender | none |
 | Azure flexible server | index tuning (`CreateIndex`, `DropIndex`); other types are shown as `unknown` | none |
 | Supabase | performance advisors (index lints) | none |
