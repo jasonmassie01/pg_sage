@@ -65,6 +65,10 @@ Run the whole script in **one session**: the `SET` statements apply to that sess
   trigger step's comment says so.
 - Clients that cache prepared statements returning the column may get `cached plan must not
   change result type` once after the swap; they recover on retry or reconnect.
+- The new column is a new attribute: re-apply any column-level `GRANT`, `COMMENT ON COLUMN`,
+  collation or `SET STATISTICS` the old column had, and expect it last in `SELECT *` order.
+- Other `BEFORE` row triggers fire in name order with the sync trigger; one that changes the
+  column after the sync trigger has run leaves the new column stale. Check for them first.
 
 ## What is refused
 
