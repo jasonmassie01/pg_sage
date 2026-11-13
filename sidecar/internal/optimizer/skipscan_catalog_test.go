@@ -108,3 +108,28 @@ func TestFillCatalog_NoLeadingKeyReadBeforePG18(t *testing.T) {
 			"none and none", tc.PGMajor, tc.LeadingKeyStats, q.asked)
 	}
 }
+
+// State transition: once the serving composite is dropped, the agent's
+// packet no longer tells the model the idea is served by it (admission
+// already judges the candidate again); other remembered lines stay.
+func TestSkipScan_PromptLineGoneOnceTheServingIndexIsDropped(t *testing.T) {
+	store, plans := newMemStore(), servedPlans()
+	o, _, _ := skipOptimizer(store, plans, verifiedResult)
+	if a := o.Admit(context.Background(), candidate(createdAtDDL), skipTable()); a.Outcome !=
+		AdmitRejected {
+		t.Fatalf("first cycle = %s %q", a.Outcome, a.Reason)
+	}
+	if lines := o.MeasuredRejections(context.Background(), skipTable()); len(lines) != 1 {
+		t.Fatalf("prompt lines while served = %q, want one", lines)
+	}
+	dropped := skipTable()
+	dropped.Indexes, dropped.IndexCount = nil, 0
+	if lines := o.MeasuredRejections(context.Background(), dropped); len(lines) != 0 {
+		t.Fatalf("prompt lines after the drop = %q, want none", lines)
+	}
+	unknown := skipTable()
+	unknown.PGMajor = 0
+	if lines := o.MeasuredRejections(context.Background(), unknown); len(lines) != 0 {
+		t.Fatalf("prompt lines with the version unknown = %q, want none", lines)
+	}
+}

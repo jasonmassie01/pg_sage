@@ -308,17 +308,43 @@ func (o *Optimizer) remembered(ctx context.Context, rec Recommendation, tc Table
 	if !seen {
 		return Admission{}, false
 	}
-	if name, ok := strings.CutPrefix(r.Reason, skipScanReasonPrefix); ok {
-		if ix, still := skipScanCandidate(tc, rec); !still || ix.Name != name {
-			o.logFn("INFO", "optimizer: %s on %s.%s was served by %s through skip scan; "+
-				"that no longer holds, judging it again", rec.DDL, tc.Schema, tc.Table, name)
-			return Admission{}, false
-		}
+	if name, stale := staleSkipScan(r, tc); stale {
+		o.logFn("INFO", "optimizer: %s on %s.%s was served by %s through skip scan; "+
+			"that no longer holds, judging it again", rec.DDL, tc.Schema, tc.Table, name)
+		return Admission{}, false
 	}
 	o.whatIfSkips.Add(1)
 	return Admission{Rec: rec, Outcome: AdmitMeasured, Reason: fmt.Sprintf(
 		"already measured %dx, last %s: %s", max(r.MeasureCount, 1),
 		r.MeasuredAt.UTC().Format("2006-01-02 15:04 UTC"), r.Reason)}, true
+}
+
+// staleSkipScan reports a skip-scan rejection whose index no longer
+// serves the remembered candidate on tc (dropped, no longer qualifying, or
+// the server version unknown this cycle), with that index's name.
+func staleSkipScan(r rejection, tc TableContext) (string, bool) {
+	name, ok := strings.CutPrefix(r.Reason, skipScanReasonPrefix)
+	if !ok {
+		return "", false
+	}
+	ix, still := skipScanCandidate(tc, Recommendation{DDL: r.DDL})
+	return name, !still || ix.Name != name
+}
+
+// withoutStaleSkipScan is v without the skip-scan rejections that no
+// longer hold on tc, so the agent is not told an idea is served by an
+// index that no longer serves it.
+func (v *tableMemory) withoutStaleSkipScan(tc TableContext) *tableMemory {
+	if v == nil {
+		return v
+	}
+	kept := &tableMemory{mem: v.mem}
+	for _, r := range v.live {
+		if _, stale := staleSkipScan(r, tc); !stale {
+			kept.live = append(kept.live, r)
+		}
+	}
+	return kept
 }
 
 // poolPlanner plans the evidence statements on one pooled connection, in
