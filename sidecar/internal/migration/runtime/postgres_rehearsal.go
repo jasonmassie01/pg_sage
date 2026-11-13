@@ -59,9 +59,11 @@ func (runner *PostgresRehearsalRunner) Run(
 		}
 		duration := time.Since(started)
 		measurement.BackfillDuration += duration
-		if duration > measurement.MaxLockDuration {
-			measurement.MaxLockDuration = duration
-		}
+		measurement.MaxStepDuration = max(measurement.MaxStepDuration, duration)
+		measurement.Steps = append(measurement.Steps, rehearsalpkg.StepMeasurement{
+			Kind: step.Kind, Duration: duration, Concurrent: step.RequiresTopLevel,
+			LockLevel: planpkg.StepLock(ctx, step),
+		})
 	}
 	after, err := rehearsalDatabaseSize(ctx, pool)
 	if err != nil {

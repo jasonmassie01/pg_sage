@@ -68,7 +68,7 @@ func TestOrchestratorAlwaysDestroysClone(t *testing.T) {
 func TestOrchestratorParksPlanRegressionAndPreservesEvidence(t *testing.T) {
 	provider := freshProvider()
 	runner := &fakeRunner{measurement: Measurement{
-		MaxLockDuration:  80 * time.Millisecond,
+		MaxStepDuration:  80 * time.Millisecond,
 		BackfillDuration: 2 * time.Minute,
 		DiskDeltaBytes:   512 << 20,
 		AffectedQueries: []QueryMeasurement{{
@@ -87,7 +87,7 @@ func TestOrchestratorParksPlanRegressionAndPreservesEvidence(t *testing.T) {
 		t.Fatalf("Result = %#v", result)
 	}
 	if result.Measurement.AffectedQueries[0].QueryID != 42 ||
-		result.Measurement.MaxLockDuration != 80*time.Millisecond {
+		result.Measurement.MaxStepDuration != 80*time.Millisecond {
 		t.Fatalf("measurement evidence = %#v", result.Measurement)
 	}
 	if provider.destroyCalls != 1 {
@@ -220,7 +220,7 @@ func testOptions() Options {
 
 func passingMeasurement() Measurement {
 	return Measurement{
-		MaxLockDuration: 20 * time.Millisecond,
+		MaxStepDuration: 20 * time.Millisecond,
 		AffectedQueries: []QueryMeasurement{{
 			QueryID: 42, BeforeLatencyMS: 10, AfterLatencyMS: 10.5,
 			BeforePlanHash: "plan-a", AfterPlanHash: "plan-a",

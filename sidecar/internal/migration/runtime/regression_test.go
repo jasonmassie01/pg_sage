@@ -44,7 +44,7 @@ func TestApplyRecordsCleanupFailureAndMeasurement(t *testing.T) {
 		Verdict: rehearsalpkg.VerdictRecommendOnly,
 		Reason:  rehearsalpkg.ReasonInconclusiveWorkload,
 		Measurement: rehearsalpkg.Measurement{
-			MaxLockDuration: 30 * time.Millisecond, DiskDeltaBytes: 99,
+			MaxStepDuration: 30 * time.Millisecond, DiskDeltaBytes: 99,
 		},
 		CleanupError: "destroy clone clone-1: busy",
 	}
@@ -74,7 +74,7 @@ func TestPostgresRecorderPersistsMeasurement(t *testing.T) {
 		Request: request(), Verdict: VerdictRecommendOnly,
 		EvidenceID: "ev_runtime_measurement", Reason: "inconclusive_no_workload",
 		Measurement: &rehearsalpkg.Measurement{
-			MaxLockDuration: 250 * time.Millisecond, DiskDeltaBytes: 8192,
+			MaxStepDuration: 250 * time.Millisecond, DiskDeltaBytes: 8192,
 		},
 	}
 	if err := NewPostgresRecorder(pool).Record(context.Background(), record); err != nil {
@@ -85,7 +85,7 @@ func TestPostgresRecorderPersistsMeasurement(t *testing.T) {
 	var reason string
 	err := pool.QueryRow(context.Background(), `SELECT
 		(measurement->>'disk_delta_bytes')::bigint,
-		(measurement->>'max_lock_duration_ms')::float8,
+		(measurement->>'max_step_duration_ms')::float8,
 		measurement->>'reason'
 		FROM sage.migration_run WHERE evidence_id=$1`,
 		record.EvidenceID).Scan(&disk, &lockMS, &reason)
