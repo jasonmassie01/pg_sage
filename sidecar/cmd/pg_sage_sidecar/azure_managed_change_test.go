@@ -9,24 +9,29 @@ import (
 	"github.com/pg-sage/sidecar/internal/managedparam"
 )
 
-// advisors-03: Azure and AlloyDB became managed-change providers. They
-// have no cloud-telemetry source, so cloudTelemetryFor must not hand them
-// to the AWS source; Azure's server identity resolves through the ARM
-// adapter (read-only), and the startup note no longer promises ARM writes
-// beyond the WAL-slot cap.
+// advisors-03: Azure and AlloyDB became managed-change providers; clouds-09
+// gave them their own telemetry sources. cloudTelemetryFor must never hand
+// them to the AWS source nor return a telemetry resolver for them: Azure's
+// server identity resolves through the ARM adapter (read-only), AlloyDB's
+// changes stay proposals, and the startup note no longer promises ARM
+// writes beyond the WAL-slot cap.
 //
 // No concurrent access tests: these wiring helpers hold no shared state.
 
-func TestCloudTelemetryForSkipsProvidersWithoutASource(t *testing.T) {
-	for _, tc := range []struct{ provider, host string }{
-		{"azure", "x.postgres.database.azure.com"},
-		{"azure-flexible", "10.0.0.9"},
-		{"alloydb", "10.20.0.7"},
+func TestCloudTelemetryForKeepsAzureAndAlloyDBOffTheAWSSource(t *testing.T) {
+	for _, tc := range []struct{ provider, host, want string }{
+		{"azure", "x.postgres.database.azure.com", "azure"},
+		{"azure-flexible", "10.0.0.9", "azure"},
+		{"alloydb", "10.20.0.7", "alloydb"},
 	} {
 		rt, resolver := cloudTelemetryFor(context.Background(), cloudCfg(), tc.provider,
 			tc.host, "orders", true, config.CloudResourceConfig{}, testCloudDeps())
-		if rt != nil || resolver != nil {
-			t.Fatalf("%s: runtime=%v resolver=%v, want none", tc.provider, rt, resolver)
+		if rt == nil || resolver != nil {
+			t.Fatalf("%s: runtime=%v resolver=%v, want a runtime and no resolver",
+				tc.provider, rt, resolver)
+		}
+		if st := rt.Status(); st.Provider != tc.want || st.Available {
+			t.Fatalf("%s: status %+v, want an unnamed %s runtime", tc.provider, st, tc.want)
 		}
 	}
 }

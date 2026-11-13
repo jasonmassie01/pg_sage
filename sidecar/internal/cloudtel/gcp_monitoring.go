@@ -10,9 +10,9 @@ import (
 	"time"
 )
 
-// Cloud Monitoring timeSeries.list for the cloudsql_database resource:
-// one request per metric (a filter may match only one metric type), each
-// covering the instance and its replicas.
+// Cloud Monitoring timeSeries.list: one request per metric (a filter may
+// match only one metric type). For Cloud SQL each covers the instance and
+// its replicas (the cloudsql_database resource).
 
 const cloudSQLMetric = "cloudsql.googleapis.com/database/"
 
@@ -49,10 +49,13 @@ func quoteList(values []string) string {
 
 func (s *GCPSource) timeSeries(ctx context.Context, primary string, replicas []string,
 	now time.Time) ([]tsSeries, error) {
-	ids := quoteList(append([]string{primary}, replicas...))
+	mon := monitoringClient{api: s.api(), endpoint: s.opts.MonitoringEndpoint,
+		project: s.opts.Project, prefix: cloudSQLMetric}
+	resource := fmt.Sprintf("resource.labels.database_id = one_of(%s)",
+		quoteList(append([]string{primary}, replicas...)))
 	var out []tsSeries
 	for _, m := range cloudSQLMetrics {
-		series, err := s.metricSeries(ctx, cloudSQLMetric+m, ids, now)
+		series, err := mon.series(ctx, m, resource, now)
 		if err != nil {
 			return nil, err
 		}
@@ -61,16 +64,26 @@ func (s *GCPSource) timeSeries(ctx context.Context, primary string, replicas []s
 	return out, nil
 }
 
-func (s *GCPSource) metricSeries(ctx context.Context, metric, ids string,
+// monitoringClient lists Cloud Monitoring time series of one service: its
+// metric types share prefix (Cloud SQL's cloudsql.googleapis.com/database/,
+// AlloyDB's alloydb.googleapis.com/instance/).
+type monitoringClient struct {
+	api      gcpAPI
+	endpoint string
+	project  string
+	prefix   string
+}
+
+// series lists metric (without the prefix) over the freshness window for
+// the resources resource (a filter clause) selects.
+func (m monitoringClient) series(ctx context.Context, metric, resource string,
 	now time.Time) ([]tsSeries, error) {
-	filter := fmt.Sprintf(`metric.type = %s AND resource.labels.database_id = one_of(%s)`,
-		strconv.Quote(metric), ids)
+	filter := fmt.Sprintf(`metric.type = %s AND %s`, strconv.Quote(m.prefix+metric), resource)
 	q := url.Values{"filter": {filter},
 		"interval.startTime": {now.Add(-cloudWatchWindow).UTC().Format(time.RFC3339)},
 		"interval.endTime":   {now.Add(time.Minute).UTC().Format(time.RFC3339)}}
-	u := s.opts.MonitoringEndpoint + "/v3/projects/" + url.PathEscape(s.opts.Project) +
-		"/timeSeries?" + q.Encode()
-	raw, err := s.get(ctx, u, "Cloud Monitoring timeSeries.list")
+	u := m.endpoint + "/v3/projects/" + url.PathEscape(m.project) + "/timeSeries?" + q.Encode()
+	raw, err := m.api.get(ctx, u, "Cloud Monitoring timeSeries.list")
 	if err != nil {
 		return nil, err
 	}

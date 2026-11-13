@@ -98,6 +98,7 @@ bare GET /api/v1/managed-changes gate:viewer scope:-
 bare POST /api/v1/managed-changes/{id}/approve gate:operator scope:database:query
 bare POST /api/v1/managed-changes/{id}/reject gate:operator scope:database:query
 bare GET /api/v1/cloud-telemetry gate:viewer scope:-
+bare GET /api/v1/provider-advice gate:viewer scope:-
 bare GET /api/v1/value gate:viewer scope:-
 bare GET /api/v1/briefings gate:viewer scope:-
 bare GET /api/v1/briefings/latest gate:viewer scope:-
@@ -268,6 +269,7 @@ standalone GET /api/v1/managed-changes gate:viewer scope:-
 standalone POST /api/v1/managed-changes/{id}/approve gate:operator scope:database:query
 standalone POST /api/v1/managed-changes/{id}/reject gate:operator scope:database:query
 standalone GET /api/v1/cloud-telemetry gate:viewer scope:-
+standalone GET /api/v1/provider-advice gate:viewer scope:-
 standalone GET /api/v1/model-lift gate:viewer scope:-
 standalone POST /api/v1/mcp gate:self-auth scope:-
 standalone POST /api/v1/mcp/databases/{database} gate:self-auth scope:-
@@ -497,6 +499,7 @@ fleet-readonly GET /api/v1/managed-changes gate:viewer scope:-
 fleet-readonly POST /api/v1/managed-changes/{id}/approve gate:operator scope:database:query
 fleet-readonly POST /api/v1/managed-changes/{id}/reject gate:operator scope:database:query
 fleet-readonly GET /api/v1/cloud-telemetry gate:viewer scope:-
+fleet-readonly GET /api/v1/provider-advice gate:viewer scope:-
 fleet-readonly GET /api/v1/value gate:viewer scope:-
 fleet-readonly GET /api/v1/briefings gate:viewer scope:-
 fleet-readonly GET /api/v1/briefings/latest gate:viewer scope:-
@@ -729,6 +732,7 @@ store-only-actions GET /api/v1/managed-changes gate:viewer scope:-
 store-only-actions POST /api/v1/managed-changes/{id}/approve gate:operator scope:database:query
 store-only-actions POST /api/v1/managed-changes/{id}/reject gate:operator scope:database:query
 store-only-actions GET /api/v1/cloud-telemetry gate:viewer scope:-
+store-only-actions GET /api/v1/provider-advice gate:viewer scope:-
 store-only-actions GET /api/v1/value gate:viewer scope:-
 store-only-actions GET /api/v1/briefings gate:viewer scope:-
 store-only-actions GET /api/v1/briefings/latest gate:viewer scope:-
@@ -908,6 +912,7 @@ optional GET /api/v1/managed-changes gate:viewer scope:-
 optional POST /api/v1/managed-changes/{id}/approve gate:operator scope:database:query
 optional POST /api/v1/managed-changes/{id}/reject gate:operator scope:database:query
 optional GET /api/v1/cloud-telemetry gate:viewer scope:-
+optional GET /api/v1/provider-advice gate:viewer scope:-
 optional GET /api/v1/model-lift gate:viewer scope:-
 optional POST /api/v1/databases/{db}/ask gate:viewer-write scope:-
 optional GET /api/v1/databases/{db}/ask/conversations gate:viewer scope:-
@@ -1135,6 +1140,7 @@ databricks-app GET /api/v1/managed-changes gate:viewer scope:-
 databricks-app POST /api/v1/managed-changes/{id}/approve gate:operator scope:database:query
 databricks-app POST /api/v1/managed-changes/{id}/reject gate:operator scope:database:query
 databricks-app GET /api/v1/cloud-telemetry gate:viewer scope:-
+databricks-app GET /api/v1/provider-advice gate:viewer scope:-
 databricks-app GET /api/v1/value gate:viewer scope:-
 databricks-app GET /api/v1/briefings gate:viewer scope:-
 databricks-app GET /api/v1/briefings/latest gate:viewer scope:-

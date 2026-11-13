@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 
+	"github.com/pg-sage/sidecar/internal/azure"
 	"github.com/pg-sage/sidecar/internal/cloudtel"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/managedparam"
@@ -30,6 +31,7 @@ type gcpTokenSource interface {
 type cloudDeps struct {
 	awsCredentials func(ctx context.Context, region string) (aws.CredentialsProvider, error)
 	gcpToken       func(ctx context.Context) (gcpTokenSource, error)
+	azureToken     func() (azure.TokenSource, error)
 }
 
 func defaultCloudDeps() cloudDeps {
@@ -46,15 +48,16 @@ func defaultCloudDeps() cloudDeps {
 			return cloudtel.NewGCPTokenSource(ctx, cloudtel.GCPAuthOptions{
 				CredentialsFile: os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")})
 		},
+		azureToken: func() (azure.TokenSource, error) { return newAzureTokenSource() },
 	}
 }
 
-// cloudTelemetryFor builds the database's telemetry runtime and the
-// managed-change resolver: nil for providers without telemetry (AlloyDB
-// and Azure included) or when it is disabled; an unavailable runtime
-// (with the reason) when the resource or credentials cannot be
-// established. A host that names the resource always wins over the
-// configured resource.
+// cloudTelemetryFor builds the database's telemetry runtime and, where
+// the telemetry source also reads parameters (RDS, Aurora, Cloud SQL), the
+// managed-change resolver: nil for providers without telemetry or when it
+// is disabled; an unavailable runtime (with the reason) when the resource
+// or credentials cannot be established. A host that names the resource
+// always wins over the configured resource.
 func cloudTelemetryFor(ctx context.Context, c *config.Config, provider, host,
 	database string, standalone bool, resource config.CloudResourceConfig,
 	deps cloudDeps) (*cloudtel.Runtime, managedparam.Resolver) {
@@ -62,29 +65,54 @@ func cloudTelemetryFor(ctx context.Context, c *config.Config, provider, host,
 	if c == nil || provider == "" || !c.CloudTelemetry.IsEnabled() {
 		return nil, nil
 	}
-	var src interface {
-		cloudtel.Source
-		managedparam.Resolver
-	}
-	var err error
-	switch provider {
-	case "cloud-sql":
-		src, err = gcpSourceFor(ctx, c.CloudTelemetry, resource.GCP, host, standalone, deps)
-	case "rds", "aurora":
-		src, err = awsSourceFor(ctx, c.CloudTelemetry, resource.AWS, provider, host,
-			standalone, deps)
-	default: // AlloyDB and Azure have managed changes but no telemetry source
-		return nil, nil
-	}
+	src, resolver, err := cloudSourceFor(ctx, c, provider, host, standalone, resource, deps)
 	if err != nil {
 		return cloudtel.Unavailable(database, provider, err.Error()), nil
+	}
+	if src == nil {
+		return nil, nil
 	}
 	rt, err := cloudtel.NewRuntime(src, cloudtel.RuntimeOptions{Database: database,
 		Interval: c.CloudTelemetry.PollInterval(), Limits: cloudLimits(c.CloudTelemetry)})
 	if err != nil {
 		return cloudtel.Unavailable(database, provider, err.Error()), nil
 	}
-	return rt, src
+	return rt, resolver
+}
+
+// cloudSourceFor is the provider's telemetry source and its optional
+// managed-change resolver (nil, nil, nil: no telemetry for provider).
+func cloudSourceFor(ctx context.Context, c *config.Config, provider, host string,
+	standalone bool, resource config.CloudResourceConfig,
+	deps cloudDeps) (cloudtel.Source, managedparam.Resolver, error) {
+	switch provider {
+	case "cloud-sql":
+		s, err := gcpSourceFor(ctx, c.CloudTelemetry, resource.GCP, host, standalone, deps)
+		if err != nil {
+			return nil, nil, err
+		}
+		return s, s, nil
+	case "rds", "aurora":
+		s, err := awsSourceFor(ctx, c.CloudTelemetry, resource.AWS, provider, host,
+			standalone, deps)
+		if err != nil {
+			return nil, nil, err
+		}
+		return s, s, nil
+	case "azure": // managed changes resolve through the ARM parameter adapter
+		s, err := azureSourceFor(c, host, resource.Azure, deps)
+		if err != nil {
+			return nil, nil, err
+		}
+		return s, nil, nil
+	case "alloydb": // managed changes stay proposal-only
+		s, err := alloyDBSourceFor(ctx, c.CloudTelemetry, resource.GCP, standalone, deps)
+		if err != nil {
+			return nil, nil, err
+		}
+		return s, nil, nil
+	}
+	return nil, nil, nil
 }
 
 func cloudLimits(ct config.CloudTelemetryConfig) cloudtel.Limits {

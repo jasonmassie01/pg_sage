@@ -26,10 +26,12 @@ type CloudResourceAWS struct {
 	Region               string `yaml:"region" doc:"AWS region of the named instance or cluster. Empty: AWS_REGION."`
 }
 
-// CloudResourceGCP names a Cloud SQL instance.
+// CloudResourceGCP names a Cloud SQL instance or, with cluster, an AlloyDB
+// instance.
 type CloudResourceGCP struct {
-	Project  string `yaml:"project" doc:"Google Cloud project of the Cloud SQL instance. Empty: the project of a /cloudsql/<project>:<region>:<instance> socket host, else of the Application Default Credentials."`
-	Instance string `yaml:"instance" doc:"Cloud SQL instance name when the host does not name it (Auth Proxy on 127.0.0.1, custom DNS). With it set the instance is read directly, never listed."`
+	Project  string `yaml:"project" doc:"Google Cloud project of the Cloud SQL or AlloyDB instance. Empty: the project of a /cloudsql/<project>:<region>:<instance> socket host, else of the Application Default Credentials."`
+	Instance string `yaml:"instance" doc:"Cloud SQL instance name when the host does not name it (Auth Proxy on 127.0.0.1, custom DNS). With it set the instance is read directly, never listed. For AlloyDB: the instance ID within cluster."`
+	Cluster  string `yaml:"cluster" doc:"AlloyDB cluster ID of this database (set with instance). AlloyDB hosts never name the instance, so its host telemetry needs both."`
 }
 
 // CloudResourceAzure names an Azure Database for PostgreSQL flexible server.
@@ -49,7 +51,7 @@ var ProviderOverrides = []string{
 
 // cloudFamily is the providers a cloud_resource block may describe.
 var cloudFamily = map[string][]string{
-	"aws": {"aurora", "rds"}, "gcp": {"cloud-sql"}, "azure": {"azure"},
+	"aws": {"aurora", "rds"}, "gcp": {"cloud-sql", "alloydb"}, "azure": {"azure"},
 }
 
 var (
@@ -123,7 +125,7 @@ func validateCloudIdentity(field, provider string, r CloudResourceConfig) error 
 	case "aws":
 		return validateAWSResource(field+".cloud_resource.aws", r.AWS)
 	case "gcp":
-		return validateGCPResource(field+".cloud_resource.gcp", r.GCP)
+		return validateGCPResource(field+".cloud_resource.gcp", provider, r.GCP)
 	}
 	return validateAzureResource(field+".cloud_resource.azure", r.Azure)
 }
@@ -156,10 +158,18 @@ func validateAWSResource(field string, r CloudResourceAWS) error {
 	return nil
 }
 
-func validateGCPResource(field string, r CloudResourceGCP) error {
+func validateGCPResource(field, provider string, r CloudResourceGCP) error {
+	switch {
+	case r.Cluster != "" && provider == "cloud-sql":
+		return fmt.Errorf("%s.cluster names an AlloyDB cluster but the provider is "+
+			"cloud-sql; drop cluster or set provider: alloydb", field)
+	case (r.Cluster != "" || provider == "alloydb") && (r.Cluster == "" || r.Instance == ""):
+		return fmt.Errorf("%s: an AlloyDB instance needs cluster and instance together", field)
+	}
 	return matchNames(field, map[string]nameCheck{
 		"project":  {r.Project, cloudGCPProject},
 		"instance": {r.Instance, cloudGCPInstance},
+		"cluster":  {r.Cluster, cloudAlloyDBID},
 	})
 }
 

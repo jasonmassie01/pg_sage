@@ -26,6 +26,7 @@ func (rt *databaseRuntime) startExecution() {
 		rt.providerLogs.Store(true)
 	}
 	rt.startCloudTelemetry()
+	rt.startProviderAdvice()
 	rt.startLakebaseTelemetry()
 	// Autonomous index builds earn load admission from pg-side IO (D6).
 	if startIOAdmission(rt.ctx, rt.workers, rt.spec.Pool, rt.cfg,

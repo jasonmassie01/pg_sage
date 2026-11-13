@@ -41,6 +41,7 @@ safety_critical postgres.cloud_resource.aws.region
 safety_critical postgres.cloud_resource.azure.resource_group
 safety_critical postgres.cloud_resource.azure.server
 safety_critical postgres.cloud_resource.azure.subscription
+safety_critical postgres.cloud_resource.gcp.cluster
 safety_critical postgres.cloud_resource.gcp.instance
 safety_critical postgres.cloud_resource.gcp.project
 safety_critical api.listen_addr
@@ -106,6 +107,7 @@ safety_critical databases[].cloud_resource.aws.region
 safety_critical databases[].cloud_resource.azure.resource_group
 safety_critical databases[].cloud_resource.azure.server
 safety_critical databases[].cloud_resource.azure.subscription
+safety_critical databases[].cloud_resource.gcp.cluster
 safety_critical databases[].cloud_resource.gcp.instance
 safety_critical databases[].cloud_resource.gcp.project
 operator_preference databases[].verify.io_capacity
@@ -523,6 +525,10 @@ safety_critical cloud_telemetry.aws.db_cluster_identifier
 safety_critical cloud_telemetry.aws.db_instance_identifier
 safety_critical cloud_telemetry.aws.region
 operator_preference cloud_telemetry.enabled
+operator_preference provider_advice.enabled
+safety_critical cloud_telemetry.alloydb.cluster
+safety_critical cloud_telemetry.alloydb.instance
+safety_critical cloud_telemetry.alloydb.project
 safety_critical cloud_telemetry.gcp.instance
 safety_critical cloud_telemetry.gcp.project
 safety_critical cloud_telemetry.max_replica_lag_seconds

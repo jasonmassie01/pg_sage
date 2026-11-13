@@ -235,6 +235,8 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		// kept; decided, applied and superseded ones age from their last change.
 		{table: "managed_change_proposals", timeCol: "updated_at", days: r.ActionsDays,
 			extra: "AND status NOT IN ('pending', 'approved')"},
+		// market-09: provider advice ages from its resolution; open advice is kept.
+		{table: "provider_recommendations", timeCol: "resolved_at", days: r.FindingsDays},
 		{table: "explain_cache", timeCol: "captured_at", days: r.ExplainsDays},
 		// A cached explanation is useless once it expires; a day of grace
 		// covers a reader racing the expiry. (created_at, the old key, is

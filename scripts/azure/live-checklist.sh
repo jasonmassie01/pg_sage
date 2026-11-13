@@ -66,6 +66,7 @@ if [[ "${SAGE_AZURE_KIND:-flexible}" == cosmos ]]; then
 	echo "CHECK-AZ-06: N/A cosmos (parameters stay guidance-only)"
 	echo "CHECK-AZ-07: N/A cosmos"
 	echo "CHECK-AZ-08: N/A cosmos"
+	echo "CHECK-AZ-10: N/A cosmos (telemetry reads flexible servers)"
 	finish_manual
 	exit "$failures"
 fi
@@ -82,6 +83,11 @@ out="$(live '^TestAzureLiveRestartBoundParameter$')"
 echo "$out" | grep -q -- "--- PASS" && ! echo "$out" | grep -q -- "--- SKIP"
 check CHECK-AZ-08 $? "restart-bound parameter reported pending restart"
 echo "$out" | grep -E "azure parameter|FAIL|Error" | sed 's/^/  /' >&2
+
+out="$(go test -tags cloudlive -count=1 -v -run '^TestLiveAzureTelemetry$' ./internal/cloudtel 2>&1)"
+echo "$out" | grep -q -- "--- PASS" && ! echo "$out" | grep -q -- "--- SKIP"
+check CHECK-AZ-10 $? "host telemetry reads fresh CPU and memory (Monitoring Reader)"
+echo "$out" | grep -E "CHECK-CLOUD-05|FAIL|Error" | sed 's/^/  /' >&2
 
 finish_manual
 exit "$failures"

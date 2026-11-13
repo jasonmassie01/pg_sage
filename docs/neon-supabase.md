@@ -86,6 +86,18 @@ decommission runbook in `sidecar/internal/decommission/README.md`, which lists e
 it may have created, with a delete template per provider. Governed short-lived branches return
 as sandbox substrates in a later release.
 
+## Provider advisors
+
+Supabase performance advisors are read hourly with `SAGE_SUPABASE_OBSERVABILITY_TOKEN` for the
+project the endpoint names (the token needs advisor read access). The index lints map to
+pg_sage's findings: `unindexed_foreign_keys` (matched by constraint to `missing_fk_index`),
+`unused_index` and `duplicate_index`; other lints (RLS, primary keys, bloat) are not index
+advice and are not read. Each lint gets pg_sage's verdict (`agree`, `provider_only` with whether
+pg_sage would act, `conflict`, `unknown`), shown in `GET /api/v1/provider-advice` and on the
+finding's case. A 401 is recorded as the source's error and leaves earlier advice unchanged.
+Neon has no advisor API, so pg_sage's own index findings stand alone there. See
+[Provider advice](managed-clouds.md#provider-advice).
+
 ## Verified limitations and remaining integrations
 
 The Free Supabase organization used for verification reported no branch entitlement and no managed

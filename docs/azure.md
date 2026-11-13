@@ -38,6 +38,7 @@ created, so this path is covered by unit tests only.
 | Instance parameters | `ALTER SYSTEM` is unavailable. A setting SQL cannot change becomes a managed-change **proposal** (mechanism `server_parameter`) on the Actions page: the value in Azure's unit, whether a restart is needed, the rollback and the `az postgres flexible-server parameter set` command. An operator approves and runs it; pg_sage never writes these parameters |
 | Restart-bound parameters | The proposal is marked `reboot_required` and adds `az postgres flexible-server restart`; pg_sage observes the running value afterwards and reports drift |
 | ARM writes | Only the WAL-slot custodian's `max_slot_wal_keep_size` cap is written through Azure Resource Manager, and only when the `azure:` section is set |
+| Host telemetry | With `azure.subscription_id` and `azure.resource_group` (or a database's `cloud_resource.azure`), pg_sage reads the flexible server over ARM: its SKU (memory, from a dated table; an unknown SKU leaves memory unknown), storage auto-grow, its read replicas, and Azure Monitor metrics `cpu_percent`, `memory_percent`, `storage_used`, `storage_free`, `active_connections`, `read_iops`, `write_iops` and each replica's `physical_replication_delay_in_seconds`. They feed the memory gates, CPU index-build admission and the replica-lag and storage guards exactly as on RDS and Cloud SQL (see [managed-clouds.md](managed-clouds.md)). Reads only; a stale or missing point is unknown, never 0% |
 | Readiness | The fleet overview shows `azure_monitor` log access. The `azure.extensions` allow-list requirement for HypoPG, pg_hint_plan and auto_explain appears as a separate `extension_hints` field (shown as "hint:" in the dashboard); the `extensions` field is what the catalog shows is installed. ANALYZE permission is `ok` for members of `azure_pg_admin`, otherwise `limited` (checked per table at execution). Capabilities are recollected every 15 minutes and after a config reload |
 
 ## Database setup
@@ -113,7 +114,7 @@ command`, or why the cap stays guidance-only.
 ```bash
 az login
 scripts/azure/provision-test-server.sh   # Burstable B1ms, ~USD 15-20/month while it exists
-scripts/azure/live-checklist.sh          # CHECK-AZ-01/03/06/07/08; 02 comes from provisioning
+scripts/azure/live-checklist.sh          # CHECK-AZ-01/03/06/07/08/10; 02 comes from provisioning
 scripts/azure/teardown-test-server.sh    # deletes the resource group
 ```
 
@@ -134,4 +135,31 @@ CHECK-AZ-06: startup logs "the WAL-slot cap (max_slot_wal_keep_size) applies thr
 CHECK-AZ-07: PG_SAGE_LIVE_AZURE=1 go test ./internal/azure -run Live passes (sets and restores work_mem)
 CHECK-AZ-08: PG_SAGE_LIVE_AZURE=1 go test ./internal/azure -run RestartBound passes (pending restart reported)
 CHECK-AZ-09: MANUAL a server-parameter proposal's az command runs and parameter show reads the value back
+CHECK-AZ-10: go test -tags cloudlive ./internal/cloudtel -run TestLiveAzureTelemetry reads fresh CPU and memory
+CHECK-AZ-11: MANUAL GET /api/v1/provider-advice?database=<db> lists the server's index tuning recommendations (confirms the pinned api-version)
 ```
+
+### Index tuning recommendations
+
+With index tuning on (`index_tuning.mode = REPORT`), pg_sage reads the server's index
+recommendations hourly (the ARM list behind `az postgres flexible-server index-tuning
+list-recommendations`, api-version `2024-11-01-preview`, following at most 5 pages on the ARM
+host) with the same credential and **Reader** role, keeps the ones for the monitored database
+and gives each pg_sage's verdict (see [Provider advice](managed-clouds.md#provider-advice)).
+`CreateIndex` and `DropIndex` are read; other recommendation types are shown as `unknown`. A
+403 is recorded as the source's error and leaves earlier advice unchanged. The api-version is
+pinned until the live check below confirms it (CHECK-AZ-11).
+
+### Roles for host telemetry
+
+The credential (azidentity's default chain: service principal variables, workload or managed
+identity, then `az login`) needs, on the flexible server or its resource group:
+
+- **Reader** (`Microsoft.DBforPostgreSQL/flexibleServers/read`): the server's SKU, storage and
+  replicas.
+- **Monitoring Reader** (`Microsoft.Insights/metrics/read`): the metrics.
+
+Without them the telemetry status reads `unavailable: cloud telemetry access denied ... grant the
+credential the Monitoring Reader (on the flexible server) role` and every guard keeps its
+"unknown" behaviour; polling backs off and recovers by itself once the role is granted. A
+throttled read (HTTP 429) is retried twice inside the poll before the poll fails.

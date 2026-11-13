@@ -32,6 +32,8 @@ type GCPOptions struct {
 	// Endpoint overrides (tests, Private Service Connect).
 	MonitoringEndpoint, SQLAdminEndpoint string
 	Now                                  func() time.Time
+	// Sleep waits between throttled retries (tests record it).
+	Sleep func(ctx context.Context, d time.Duration) error
 }
 
 var (
@@ -83,37 +85,63 @@ func (s *GCPSource) Provider() string { return "cloud-sql" }
 
 // get sends an authorized GET and returns the body of a 200 response.
 func (s *GCPSource) get(ctx context.Context, rawURL, api string) ([]byte, error) {
+	return s.api().get(ctx, rawURL, api)
+}
+
+func (s *GCPSource) api() gcpAPI {
+	return gcpAPI{token: s.opts.Token, client: s.opts.HTTPClient, now: s.opts.Now,
+		sleep: s.opts.Sleep}
+}
+
+// gcpAPI sends authorized GETs to Google APIs; a throttled read is retried
+// inside the poll (retryThrottled).
+type gcpAPI struct {
+	token  GCPTokenSource
+	client *http.Client
+	now    func() time.Time
+	sleep  sleepFunc
+}
+
+func (a gcpAPI) get(ctx context.Context, rawURL, api string) ([]byte, error) {
+	return retryThrottled(ctx, a.sleep, func() ([]byte, time.Duration, error) {
+		return a.getOnce(ctx, rawURL, api)
+	})
+}
+
+func (a gcpAPI) getOnce(ctx context.Context, rawURL, api string) ([]byte, time.Duration,
+	error) {
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	token, err := s.opts.Token.Token(ctx)
+	token, err := a.token.Token(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("google credentials: %w", err)
+		return nil, 0, fmt.Errorf("google credentials: %w", err)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("%w: build %s request", ErrProvider, api)
+		return nil, 0, fmt.Errorf("%w: build %s request", ErrProvider, api)
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := s.opts.HTTPClient.Do(req)
+	resp, err := a.client.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return nil, 0, ctx.Err()
 		}
-		return nil, fmt.Errorf("%w: %s unreachable; check network access", ErrProvider, api)
+		return nil, 0, fmt.Errorf("%w: %s unreachable; check network access", ErrProvider, api)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 	if err != nil || len(raw) > maxResponseBytes {
-		return nil, fmt.Errorf("%w: %s response unreadable or too large", ErrMalformed, api)
+		return nil, 0, fmt.Errorf("%w: %s response unreadable or too large", ErrMalformed, api)
 	}
-	if err := checkServerDate(resp.Header.Get("Date"), s.opts.Now()); err != nil {
-		return nil, fmt.Errorf("%s: %w", api, err)
+	if err := checkServerDate(resp.Header.Get("Date"), a.now()); err != nil {
+		return nil, 0, fmt.Errorf("%s: %w", api, err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, googleAPIError(api, resp.StatusCode, raw)
+		return nil, retryAfter(resp.Header.Get("Retry-After")),
+			googleAPIError(api, resp.StatusCode, raw)
 	}
-	return raw, nil
+	return raw, 0, nil
 }
 
 func googleAPIError(api string, status int, raw []byte) error {
@@ -130,11 +158,22 @@ func googleAPIError(api string, status int, raw []byte) error {
 	case status == http.StatusTooManyRequests || e.Error.Status == "RESOURCE_EXHAUSTED":
 		return fmt.Errorf("%w: %s", ErrThrottled, detail)
 	case status == http.StatusUnauthorized || status == http.StatusForbidden:
-		return fmt.Errorf("%w: %s", ErrAuth, detail)
+		return fmt.Errorf("%w: %s%s", ErrAuth, detail, googleRoleHint(api))
 	case status == http.StatusNotFound:
 		return fmt.Errorf("%w: %s", ErrIdentity, detail)
 	}
 	return fmt.Errorf("%w: %s", ErrProvider, detail)
+}
+
+// googleRoleHint names the role a denied read needs.
+func googleRoleHint(api string) string {
+	switch {
+	case strings.HasPrefix(api, "Cloud Monitoring"):
+		return "; grant the credentials roles/monitoring.viewer on the project"
+	case strings.HasPrefix(api, "Cloud SQL Admin"):
+		return "; grant the credentials roles/cloudsql.viewer on the project"
+	}
+	return ""
 }
 
 // Collect gathers one sample of the instance and its replicas' lag.

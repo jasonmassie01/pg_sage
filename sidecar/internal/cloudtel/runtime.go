@@ -97,6 +97,9 @@ func (r *Runtime) PollNow() {
 	}
 }
 
+// HasSource reports a polling runtime (false for an Unavailable one).
+func (r *Runtime) HasSource() bool { return r != nil && r.src != nil }
+
 // Database is the runtime's database name.
 func (r *Runtime) Database() string { return r.database }
 

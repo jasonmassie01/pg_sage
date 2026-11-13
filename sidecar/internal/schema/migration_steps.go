@@ -210,5 +210,6 @@ func trancheThreeMigrations() []namedStep {
 		{"ddlUserDatabaseGrants", ddlUserDatabaseGrants},   // apiauth-08
 		{"ddlDatabasesDiscovered", ddlDatabasesDiscovered}, // market-06
 		{"ddlDiscoveredDatabases", ddlDiscoveredDatabases}, // market-06
+		{"ddlProviderAdvice", ddlProviderAdvice},           // market-09
 	}
 }

@@ -35,8 +35,10 @@ var decommissionExemptions = map[string]string{
 var coreExemptions = map[string]string{
 	"advisor_runs": "current state: one row per database and sub-advisor, its " +
 		"backoff clock",
-	"action_outcome":     "deleted with its action (ON DELETE CASCADE, actions_days)",
-	"ask_messages":       "deleted with its conversation (ON DELETE CASCADE)",
+	"action_outcome": "deleted with its action (ON DELETE CASCADE, actions_days)",
+	"ask_messages":   "deleted with its conversation (ON DELETE CASCADE)",
+	"provider_advice_sources": "current state: one row per database and provider, its " +
+		"last advice fetch (market-09)",
 	"chatops_identities": "admin-managed mapping of chat users to accounts, current state",
 	"chatops_replay":     "pruned by chatops on every callback (24 h replay window)",
 	"config":             "current configuration, not a time-series",
