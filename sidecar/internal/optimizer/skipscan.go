@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -226,8 +227,13 @@ type planNode struct {
 	Plans     []planNode `json:"Plans"`
 }
 
+// planStringLiteral is a quoted string constant in a plan condition: it
+// is a value, never a column reference.
+var planStringLiteral = regexp.MustCompile(`'(?:[^']|'')*'`)
+
 // planServedBy reports whether an EXPLAIN (FORMAT JSON) plan scans index
-// with an Index Cond on col anywhere in its tree.
+// with an Index Cond on col anywhere in its tree (string literals in the
+// condition are not column references).
 func planServedBy(planJSON []byte, index, col string) bool {
 	var wrapper []struct {
 		Plan planNode `json:"Plan"`
@@ -237,7 +243,8 @@ func planServedBy(planJSON []byte, index, col string) bool {
 	}
 	var walk func(n planNode) bool
 	walk = func(n planNode) bool {
-		if n.IndexName == index && identIn(n.IndexCond, col) {
+		cond := planStringLiteral.ReplaceAllString(n.IndexCond, "''")
+		if n.IndexName == index && identIn(cond, col) {
 			return true
 		}
 		return slices.ContainsFunc(n.Plans, walk)

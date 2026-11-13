@@ -143,3 +143,28 @@ func TestLeadingKeyColumns(t *testing.T) {
 		t.Fatalf("PG 17 leading key columns = %q, want none", got)
 	}
 }
+
+// A string literal in the Index Cond that spells the column's name is not
+// a condition on the column: dropping a candidate needs a real one.
+func TestPlanServedBy_IgnoresStringLiterals(t *testing.T) {
+	literal := `[{"Plan": {"Node Type": "Index Scan", "Index Name": "t_tenant_created",
+	  "Index Cond": "(tenant_id = 'created_at'::text)"}}]`
+	escaped := `[{"Plan": {"Node Type": "Index Scan", "Index Name": "t_tenant_created",
+	  "Index Cond": "(tenant_id = 'it''s created_at'::text)"}}]`
+	both := `[{"Plan": {"Node Type": "Index Scan", "Index Name": "t_tenant_created",
+	  "Index Cond": "((tenant_id = 'x'::text) AND (created_at = $1))"}}]`
+	cases := []struct {
+		name, plan string
+		want       bool
+	}{
+		{"literal only", literal, false},
+		{"escaped quote in literal", escaped, false},
+		{"literal and a real condition", both, true},
+	}
+	for _, c := range cases {
+		got := planServedBy([]byte(c.plan), "t_tenant_created", "created_at")
+		if got != c.want {
+			t.Errorf("%s: planServedBy = %t, want %t", c.name, got, c.want)
+		}
+	}
+}
