@@ -19,6 +19,11 @@ type Scorer struct {
 	pool *pgxpool.Pool
 	opts Options
 	logf func(string, ...any)
+	// catalog serves the catalog reads of the detectors (scorer_detect.go).
+	catalog catalogReader
+	// settle is how old a maintenance run must be before it is taken as
+	// applied outside pg_sage: pg_sage logs its own runs once they end.
+	settle time.Duration
 }
 
 // Result counts one pass: decisions examined, still waiting, and scored
@@ -34,7 +39,11 @@ func NewScorer(pool *pgxpool.Pool, opts Options, logf func(string, ...any)) *Sco
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
-	return &Scorer{pool: pool, opts: opts.normalized(), logf: logf}
+	s := &Scorer{pool: pool, opts: opts.normalized(), logf: logf, settle: maintenanceSettle}
+	if pool != nil {
+		s.catalog = pool
+	}
+	return s
 }
 
 // pendingDecision is a pending decision with its age and the database's

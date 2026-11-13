@@ -17,19 +17,16 @@ import (
 // then verified like pg_sage's own actions: call-weighted, variance-aware
 // before/after windows around that gap.
 
-// external is the verification of d's change applied outside pg_sage;
-// nil when the class cannot be checked in the catalog or nothing changed.
-// own is true when the change is in the catalog but pg_sage made it (or
-// may have): no other source may score it then, not even the what-if of
-// an index that already exists, and the horizon leaves it unscored. A
+// indexExternal is the verification of an index create or drop applied
+// outside pg_sage; nil when nothing changed. own is true when the change
+// is in the catalog but pg_sage made it (or may have): no other source
+// may score it then, not even the what-if of an index that already
+// exists, and the horizon leaves it unscored. A
 // change already marked applied is asked again on every pass: pg_sage's
 // action may be logged just after its index became valid, and a mark may
 // predate this check (an upgrade).
-func (s *Scorer) external(ctx context.Context, p pendingDecision) (*verifiedFact, bool,
+func (s *Scorer) indexExternal(ctx context.Context, p pendingDecision) (*verifiedFact, bool,
 	error) {
-	if p.Class != "index_create" && p.Class != "index_drop" {
-		return nil, false, nil
-	}
 	marked := p.AppliedDetectedAt != nil && p.AppliedAfter != nil
 	if !marked {
 		applied, err := s.appliedOutside(ctx, p.Decision)
@@ -118,7 +115,8 @@ func (s *Scorer) markApplied(ctx context.Context, id int64) error {
 	return nil
 }
 
-// verifyApplied compares the targets before the gap with after it. The
+// verifyApplied compares the targets before the gap with after it (an
+// extended statistics object: with its row estimates too). The
 // after window grows with time from VerifyWindow to its cap; a
 // regression is final at once, an improvement or neutral once the
 // class's minimum window (a drop's business cycle) elapsed, too little
@@ -153,7 +151,12 @@ func (s *Scorer) verifyApplied(ctx context.Context, p pendingDecision) (*verifie
 		Evidence: map[string]any{"verdict": pooled.Verdict, "comparison": pooled.Evidence(),
 			"targets": verify.TargetsEvidence(per), "window_seconds": win.Seconds(),
 			"applied_after": p.AppliedAfter, "applied_detected_at": p.AppliedDetectedAt}}
-	f.Final = finalVerdict(pooled.Verdict, win, minWin, maxWin)
+	if p.Class == "statistics" { // scorer_config.go
+		if err := s.decideStatistics(ctx, p, f, &pooled, win); err != nil {
+			return nil, err
+		}
+	}
+	f.Final = finalVerdict(f.Verdict, win, minWin, maxWin)
 	return f, nil
 }
 
