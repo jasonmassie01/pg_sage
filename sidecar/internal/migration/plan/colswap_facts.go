@@ -28,8 +28,9 @@ LEFT JOIN pg_catalog.pg_attribute a
 LEFT JOIN pg_catalog.pg_attrdef d ON d.adrelid = c.oid AND d.adnum = a.attnum
 WHERE  n.nspname = $1 AND c.relname = $2`
 
-// swapSequenceSQL reads the sequence the column owns ($1 table oid, $2
-// attnum) and whether the column's default depends on it.
+// swapSequenceSQL reads the sequences the column owns ($1 table oid, $2
+// attnum) and whether the column's default depends on each, the one the
+// default uses first.
 const swapSequenceSQL = `
 SELECT sn.nspname, s.relname, pg_catalog.format_type(q.seqtypid, NULL),
        EXISTS (SELECT 1 FROM pg_catalog.pg_attrdef ad
@@ -43,7 +44,8 @@ JOIN   pg_catalog.pg_namespace sn ON sn.oid = s.relnamespace
 JOIN   pg_catalog.pg_sequence q ON q.seqrelid = s.oid
 WHERE  d.classid = 'pg_catalog.pg_class'::regclass
   AND  d.refclassid = 'pg_catalog.pg_class'::regclass
-  AND  d.refobjid = $1 AND d.refobjsubid = $2 AND d.deptype = 'a'`
+  AND  d.refobjid = $1 AND d.refobjsubid = $2 AND d.deptype = 'a'
+ORDER  BY 4 DESC, 1, 2`
 
 // swapPrimaryKeySQL reads the primary key ($1 table oid): its name, its
 // columns in key order, the first column's type and the shapes the swap
@@ -74,7 +76,7 @@ func ReadSwapFacts(
 		return SwapFacts{}, err
 	}
 	steps := []func() error{
-		func() error { return readSwapSequence(ctx, q, &f.Column, oid, attnum) },
+		func() error { return readSwapSequences(ctx, q, &f, oid, attnum) },
 		func() error { return readSwapPrimaryKey(ctx, q, &f, oid) },
 		func() error { return readSwapForeignKeys(ctx, q, &f, oid, attnum) },
 		func() error { return readSwapDependents(ctx, q, &f, oid, attnum) },
@@ -113,16 +115,33 @@ func readSwapTable(
 	return oid, *attnum, nil
 }
 
-func readSwapSequence(
-	ctx context.Context, q catalogread.Querier, c *SwapColumn, oid uint32, attnum int16,
+// readSwapSequences reads the column's owned sequence. The swap moves
+// one; any other sequence the column owns would be dropped with the old
+// column, so it is recorded as a dependent, which refuses the swap.
+func readSwapSequences(
+	ctx context.Context, q catalogread.Querier, f *SwapFacts, oid uint32, attnum int16,
 ) error {
-	err := q.QueryRow(ctx, swapSequenceSQL, oid, attnum).Scan(
-		&c.SequenceSchema, &c.SequenceName, &c.SequenceType, &c.DefaultIsSeq)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
-	}
+	rows, err := q.Query(ctx, swapSequenceSQL, oid, attnum)
 	if err != nil {
 		return fmt.Errorf("owned sequence: %w", err)
+	}
+	seqs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (SwapColumn, error) {
+		var c SwapColumn
+		err := r.Scan(&c.SequenceSchema, &c.SequenceName, &c.SequenceType, &c.DefaultIsSeq)
+		return c, err
+	})
+	if err != nil {
+		return fmt.Errorf("owned sequence: %w", err)
+	}
+	for i, s := range seqs {
+		if i == 0 {
+			c := &f.Column
+			c.SequenceSchema, c.SequenceName = s.SequenceSchema, s.SequenceName
+			c.SequenceType, c.DefaultIsSeq = s.SequenceType, s.DefaultIsSeq
+			continue
+		}
+		f.Dependents = append(f.Dependents,
+			"sequence "+s.SequenceSchema+"."+s.SequenceName)
 	}
 	return nil
 }

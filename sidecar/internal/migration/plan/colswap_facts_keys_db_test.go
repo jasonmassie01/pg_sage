@@ -56,3 +56,27 @@ func TestColumnSwapLiveReadsPrimaryKeyShape(t *testing.T) {
 		t.Fatalf("plain primary key read as %+v", k)
 	}
 }
+
+// A column can own more than one sequence. The swap moves only one, and
+// dropping the old column would drop the rest, so a second owned
+// sequence is read as a dependent and the swap is refused; the one the
+// default uses stays the column's sequence.
+func TestColumnSwapLiveRefusesSecondOwnedSequence(t *testing.T) {
+	pool := planDBPool(t)
+	swapSchema(t, pool,
+		`CREATE TABLE swap09b.orders (id serial PRIMARY KEY)`,
+		`CREATE SEQUENCE swap09b.aaa_extra_seq OWNED BY swap09b.orders.id`)
+	facts, err := readFacts(t, pool, "orders", "id")
+	if err != nil {
+		t.Fatalf("ReadSwapFacts: %v", err)
+	}
+	if facts.Column.SequenceName != "orders_id_seq" || !facts.Column.DefaultIsSeq {
+		t.Fatalf("column sequence %q (default uses it: %v), want orders_id_seq",
+			facts.Column.SequenceName, facts.Column.DefaultIsSeq)
+	}
+	if len(facts.Dependents) != 1 || facts.Dependents[0] != "sequence swap09b.aaa_extra_seq" {
+		t.Fatalf("dependents %v, want the second owned sequence", facts.Dependents)
+	}
+	refuse(t, facts, SwapRequest{Schema: "swap09b", Table: "orders", Column: "id",
+		TargetType: "bigint"}, "aaa_extra_seq depends on the column")
+}

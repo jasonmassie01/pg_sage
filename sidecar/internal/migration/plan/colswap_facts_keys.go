@@ -95,7 +95,7 @@ func readSwapDependents(
 	if err != nil {
 		return fmt.Errorf("column dependents: %w", err)
 	}
-	f.Dependents = names
+	f.Dependents = append(f.Dependents, names...)
 	return nil
 }
 

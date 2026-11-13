@@ -80,7 +80,7 @@ The planner refuses, with a reason, anything it cannot carry over exactly:
   table's replica identity index: the rebuilt key would differ;
 - a referencing column outside the integer family when the key changes type;
 - identity and generated columns, a default other than the column's own sequence, and a
-  sequence wider than the new type;
+  sequence wider than the new type, or a column that owns more than one sequence;
 - a column other objects depend on (indexes other than the primary key's, views, CHECK
   constraints, triggers with column lists, statistics, policies), which would be lost with
   the old column;
