@@ -226,7 +226,11 @@ optimizer, advisor vacuum/memory and tuner hint prompts:
   effect. pg_sage generates every statement.
 - **Validation**: index creates go through the optimizer's admission (`internal/optimizer`:
   canonical form, 8 validators, rejection memory in `sage.optimizer_rejection`, HypoPG
-  what-if; a verified measurement replaces the model's estimate); configuration through the
+  what-if; a verified measurement replaces the model's estimate; on PostgreSQL 18 a
+  single-column candidate an existing low-cardinality composite already serves through
+  btree skip scan, shown by the generic plans of its top statements, is rejected as
+  `served_by_skip_scan:<index>`, see
+  [PostgreSQL 18 skip scan](findings.md#postgresql-18-skip-scan)); configuration through the
   advisor's allowlists and ranges; hints through the tuner; confirmed facts redirect bound
   changes to source-fix packets; operator rejections are not re-proposed.
 - **Calibrated confidence**: per action class and prediction method from
