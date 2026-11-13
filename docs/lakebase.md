@@ -679,7 +679,7 @@ those guards; complete per-entry lineage is not established.
 | `pg_hint_plan` | Publicly listed for PG18 and installed, but the planner hook is inactive; `LOAD` returned `0A000` and session/database preload settings returned `42501`. Hint enforcement remains unsupported in this configuration |
 | `pgstattuple` | Owned-table inspection passed on the isolated PG18 branch |
 | `pgaudit` | October 29 endpoint catalog advertised it, but installation returned `42501`; audit-log integration is unverified. The public extension table rechecked November 1 does not list it; catalog advertisement is not install/activation proof |
-| `vector` | PG18 vector lab passed HNSW and exact-baseline comparison for three synthetic queries (recall 1.0); broader workload performance is unverified |
+| `vector` | PG18 vector lab passed HNSW and exact-baseline comparison for three synthetic queries (recall 1.0); broader workload performance is unverified. The lab needs pgvector 0.8.0 or later and reports the version it found otherwise; halfvec, `relaxed_order` and `max_scan_tuples` were verified on self-hosted pgvector 0.8.2, not yet on Lakebase |
 | Server configuration | Instance settings and `ALTER SYSTEM` are unavailable; permitted user-context session/database/role settings remain separate |
 | Server logs / OS metrics | No direct log-file or host access. Lakebase exposes Beta plans, Postgres logs and compute metrics through `system.lakebase`; scoped history and controlled native delivery are verified within the follow-up report's limits. Asynchronous history cannot supply live admission |
 | Statistics continuity | Suspend/restart can reset `pg_stat_statements`; never interpret a reset as workload improvement |

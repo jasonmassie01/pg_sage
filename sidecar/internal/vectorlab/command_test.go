@@ -68,7 +68,7 @@ func TestCommandRealReportAndInconclusiveExit(t *testing.T) {
 		if err := json.Unmarshal(out.Bytes(), &r); err != nil {
 			t.Fatal(err)
 		}
-		if code != want || r.FormatVersion != 1 || diagnostic.Len() != 0 {
+		if code != want || r.FormatVersion != 2 || diagnostic.Len() != 0 {
 			t.Fatalf("command = %d, report=%#v err=%q", code, r, diagnostic.String())
 		}
 	}

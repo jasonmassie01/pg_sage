@@ -75,10 +75,27 @@ func (m Manifest) validateVariants() error {
 			return errors.New("variant names must be unique, nonempty, <=80 bytes")
 		}
 		names[v.Name] = true
-		if v.EFSearch < 1 || v.EFSearch > 1000 ||
-			(v.IterativeScan != "off" && v.IterativeScan != "strict_order") {
-			return errors.New("variant requires ef_search 1..1000 and iterative_scan off or strict_order")
+		if err := v.validate(); err != nil {
+			return fmt.Errorf("variant %q: %w", v.Name, err)
 		}
+	}
+	return nil
+}
+
+func (v Variant) validate() error {
+	if v.EFSearch < 1 || v.EFSearch > 1000 {
+		return errors.New("ef_search must be 1..1000")
+	}
+	switch v.IterativeScan {
+	case "off", "strict_order", "relaxed_order":
+	default:
+		return errors.New("iterative_scan must be off, strict_order, or relaxed_order")
+	}
+	if n := v.maxScanTuples(); n < 1 || n > 1000000 {
+		return errors.New("max_scan_tuples must be 1..1000000 (default 20000)")
+	}
+	if f := v.scanMemMultiplier(); !finite(f) || f < 1 || f > 1000 {
+		return errors.New("scan_mem_multiplier must be 1..1000 (default 1)")
 	}
 	return nil
 }
@@ -86,8 +103,8 @@ func (m Manifest) validateVariants() error {
 func (m Manifest) validateQueries() error {
 	seen := make(map[string]bool)
 	dimensions := len(m.Queries[0].Vector)
-	if dimensions < 1 || dimensions > 2000 {
-		return errors.New("vector dimensions must be 1..2000")
+	if dimensions < 1 || dimensions > maxHalfvecDimensions {
+		return errors.New("vector dimensions must be 1..4000 (2000 for vector columns)")
 	}
 	for i, q := range m.Queries {
 		if !validName(q.ID, 80) || seen[q.ID] || len(q.Vector) != dimensions ||
@@ -110,6 +127,27 @@ func (m Manifest) validateQueries() error {
 				return fmt.Errorf("query %d: invalid filter value", i)
 			}
 		}
+	}
+	return nil
+}
+
+// HNSW indexes vector columns up to 2000 dimensions and halfvec up to 4000.
+const (
+	maxVectorDimensions  = 2000
+	maxHalfvecDimensions = 4000
+)
+
+// checkTargetDimensions applies the cap of the column type read from the
+// catalog; the manifest never declares the type.
+func checkTargetDimensions(vectorType string, dimensions int) error {
+	limit := map[string]int{"vector": maxVectorDimensions, "halfvec": maxHalfvecDimensions}
+	maxDims, ok := limit[vectorType]
+	if !ok {
+		return errors.New("vector_column must be a pgvector vector or halfvec column")
+	}
+	if dimensions < 1 || dimensions > maxDims {
+		return fmt.Errorf("%s columns support 1..%d query dimensions; "+
+			"use halfvec for up to 4000", vectorType, maxDims)
 	}
 	return nil
 }

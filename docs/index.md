@@ -62,7 +62,7 @@ query only when a `<->`, `<=>` or `<#>` operand is a `vector`, `halfvec` or
 `sparsevec` column or is cast to one: the same operators on PostGIS, pg_trgm or
 btree_gist columns are not vector queries, and a column of unknown type gets no
 hint. A filtered ANN query is pointed at measuring its recall (pgvector iterative
-scans or a higher `ef_search`) with `pg_sage vector-lab`.
+scans or a higher `ef_search`) with [`pg_sage vector-lab`](vector-lab.md).
 
 A table's workload is the application statements that name it after FROM, JOIN,
 UPDATE or INTO (every relation of a comma list, `ONLY` and quoted mixed-case
