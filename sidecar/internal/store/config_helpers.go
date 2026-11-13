@@ -147,7 +147,7 @@ var allowedConfigKeys = map[string]string{
 	"clone.dle_endpoint":                          "string",
 	"clone.dle_token":                             "string",
 	"clone.max_clone_age_minutes":                 "int_pos",
-	"custodian.freeze.red_buffer_pct":             "float_pct_pos",
+	"custodian.freeze.red_buffer_pct":             "float_pct_open", // vacuum-11b
 	"custodian.wal.abandon_after_minutes":         "int_pos",
 	"custodian.wal.retained_wal_disk_pct_ceiling": "float_pct_pos",
 	"mcp.enabled":                                 "bool",
@@ -194,17 +194,12 @@ func validateByType(vtype, key, value string) error {
 	if r, ok := intRanges[vtype]; ok {
 		return validateIntRange(key, value, r[0], r[1])
 	}
+	if r, ok := floatRanges[vtype]; ok {
+		return validateFloatRange(key, value, r[0], r[1])
+	}
 	switch vtype {
-	case "float01":
-		return validateFloatRange(key, value, 0, 1)
-	case "float_share": // a share of a maximum: (0, 1], as the config file holds it
-		return validateFloatRange(key, value, 0.01, 1)
-	case "float_pos":
-		return validateFloatRange(key, value, 0.001, 1e9)
-	case "float_nonneg":
-		return validateFloatRange(key, value, 0, 1e9)
-	case "float_pct_pos":
-		return validateFloatRange(key, value, 0.001, 100)
+	case "float_pct_open": // 0 < value < 100, what the freeze custodian uses as given
+		return validateOpenPercent(key, value)
 	case "bool":
 		return validateBool(key, value)
 	case "trust_level":
@@ -261,21 +256,6 @@ func validateIntRange(
 	if n < min || n > max {
 		return fmt.Errorf(
 			"validate: %s must be %d-%d, got %d", key, min, max, n)
-	}
-	return nil
-}
-
-func validateFloatRange(
-	key, value string, min, max float64,
-) error {
-	f, err := strconv.ParseFloat(value, 64)
-	if err != nil {
-		return fmt.Errorf(
-			"validate: %s must be a number, got %q", key, value)
-	}
-	if f < min || f > max {
-		return fmt.Errorf(
-			"validate: %s must be %g-%g, got %g", key, min, max, f)
 	}
 	return nil
 }
@@ -793,7 +773,8 @@ func coerceValue(key, value string) any {
 		if n, err := strconv.Atoi(value); err == nil {
 			return n
 		}
-	case "float01", "float_share", "float_pos", "float_nonneg", "float_pct_pos":
+	case "float01", "float_share", "float_pos", "float_nonneg", "float_pct_pos",
+		"float_pct_open":
 		if f, err := strconv.ParseFloat(value, 64); err == nil {
 			return f
 		}
