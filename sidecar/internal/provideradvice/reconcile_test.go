@@ -123,20 +123,56 @@ func TestReconcile_EmptyGivesNoRows(t *testing.T) {
 	}
 }
 
-func TestReconcile_PGSageOnlyFindingIsListed(t *testing.T) {
-	rows := Reconcile(context.Background(), nil, []Finding{
+func pgsageOnlyFindings() []Finding {
+	return []Finding{
 		missingIndex(3, "CREATE INDEX CONCURRENTLY ON public.orders (customer_id);"),
 		{ID: 4, Category: "unused_index", Object: "public.orders_old_idx",
 			SQL: "DROP INDEX CONCURRENTLY public.orders_old_idx;"},
-	}, &fakeEval{})
-	if len(rows) != 2 {
+	}
+}
+
+func TestReconcile_PGSageOnlyFindingIsListed(t *testing.T) {
+	// The provider's advisor is evidently running: it advised another table.
+	other := createRec("p9", `CREATE INDEX ON public.events (kind)`)
+	rows := Reconcile(context.Background(), []Recommendation{other}, pgsageOnlyFindings(),
+		&fakeEval{reason: "would not act: no workload"})
+	if len(rows) != 3 || rows[0].ProviderID != "p9" ||
+		rows[0].Verdict != VerdictProviderOnly {
 		t.Fatalf("rows = %+v", rows)
 	}
 	want := map[string]Kind{"pgsage:3": KindCreateIndex, "pgsage:4": KindDropIndex}
-	for _, r := range rows {
+	for _, r := range rows[1:] {
 		if r.Verdict != VerdictPGSageOnly || want[r.ProviderID] != r.Kind ||
 			r.FindingID == 0 || r.Payload.PGSageSQL == "" {
 			t.Fatalf("row = %+v", r)
+		}
+	}
+}
+
+// No advice (an absent view, an empty list) or only advice pg_sage cannot
+// read must not claim the provider's advisor disagrees with pg_sage.
+func TestReconcile_NoReadableAdviceClaimsNoPGSageOnly(t *testing.T) {
+	unknown := Recommendation{Provider: "cloud-sql", ProviderID: "view-shape",
+		Kind: KindUnknown, Reason: "unknown columns", ObservedAt: seen}
+	for _, tc := range []struct {
+		name     string
+		recs     []Recommendation
+		wantRows int
+	}{
+		{"nil", nil, 0},
+		{"empty", []Recommendation{}, 0},
+		{"unknown only", []Recommendation{unknown}, 1},
+		{"no provider id", []Recommendation{
+			createRec("", `CREATE INDEX ON public.events (kind)`)}, 0},
+	} {
+		rows := Reconcile(context.Background(), tc.recs, pgsageOnlyFindings(), &fakeEval{})
+		for _, r := range rows {
+			if r.Verdict == VerdictPGSageOnly {
+				t.Fatalf("%s: pgsage_only row %+v without provider advice", tc.name, r)
+			}
+		}
+		if len(rows) != tc.wantRows {
+			t.Fatalf("%s: rows = %+v, want %d", tc.name, rows, tc.wantRows)
 		}
 	}
 }

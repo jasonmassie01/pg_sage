@@ -387,7 +387,8 @@ the optimizer and executor use (`CoveredBy`, `Subsumes`). Each recommendation ge
 - `agree`: pg_sage proposes a change that serves the provider's (for an index, pg_sage's index
   covers every lookup the provider's would; an INCLUDE column pg_sage's index does not carry
   is not agreement).
-- `pgsage_only`: pg_sage proposes it; the provider does not.
+- `pgsage_only`: pg_sage proposes it; the provider does not. It is listed only when the
+  provider gave index advice this run: an empty list or an absent advisor claims nothing.
 - `provider_only`: the provider proposes it and pg_sage does not. The reason says whether pg_sage
   would act and why: an index to create goes through pg_sage's own HypoPG what-if on the
   table's hottest statements, and anything it cannot measure (no HypoPG, no workload, an

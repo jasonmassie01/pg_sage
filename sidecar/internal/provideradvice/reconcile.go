@@ -70,12 +70,15 @@ var (
 
 // Reconcile compares one provider's advice with pg_sage's open index
 // findings. Every recommendation gives one row (repeated provider IDs
-// count once); every finding no recommendation matched gives a
-// pgsage_only row.
+// count once). A finding no recommendation matched gives a pgsage_only
+// row only when the provider gave index advice of a known kind: an empty
+// list, an absent advisor or advice pg_sage cannot read says nothing about
+// what the provider's advisor thinks of pg_sage's findings.
 func Reconcile(ctx context.Context, recs []Recommendation, findings []Finding,
 	ev Evaluator) []Row {
 	var rows []Row
 	matched, seenIDs := map[int64]bool{}, map[string]bool{}
+	advised := false
 	for _, rec := range recs {
 		if rec.ProviderID == "" || seenIDs[rec.ProviderID] {
 			continue
@@ -85,7 +88,11 @@ func Reconcile(ctx context.Context, recs []Recommendation, findings []Finding,
 		if row.FindingID != 0 {
 			matched[row.FindingID] = true
 		}
+		advised = advised || row.Kind != KindUnknown
 		rows = append(rows, row)
+	}
+	if !advised {
+		return rows
 	}
 	for _, f := range findings {
 		if !matched[f.ID] && (createCategories[f.Category] || dropCategories[f.Category]) {
