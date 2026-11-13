@@ -392,13 +392,61 @@ The `verdict` column uses this vocabulary:
 | `blocked` | The policy gate refused an expand step before any rehearsal. `reason` holds the gate's reason code, for example `change_class_not_allowed`. |
 | `recommend_only` | The plan was returned for a person to run; nothing was rehearsed or applied. |
 | `parked` | Rehearsal or the gate held the migration for review. |
-| `promote` | The expand steps ran. The contract steps wait for `contract_not_before`. |
+| `promote` | The expand steps ran. The contract steps wait for `contract_not_before` (expand time + `migration.contract_delay_minutes`); pg_sage never runs them. |
 | `failed` | The rehearsal or an expand step failed. |
 | `pending` | Reserved for a run that has not reached a verdict. |
 
 A run uses the gate's evidence id. When the gate returned none, the run gets a fresh id, so
 two runs never share a row. If a later write reuses an evidence id, the row takes that
 write's verdict, `source_sql_hash` and `reason`.
+
+### What `apply_migration` returns
+
+The result always carries `verdict` and `reason`, so an agent can tell why a migration stopped:
+
+| Field | Meaning |
+|---|---|
+| `verdict` | `expanded`, `recommend_only`, `parked`, `blocked` or `failed`. |
+| `reason` | Why: the gate's reason code (`blocked`, `parked`); the rehearsal's (`stale_clone`, `inconclusive_no_workload`, `plan_regression`, `step_budget_exceeded: <step, measured time, budget>`, `clone_unavailable`, `rehearsal_failed:<SQLSTATE>`, ...), with `; clone_cleanup_failed: <error>` appended when the rehearsal clone could not be destroyed; `contract_pending` after an expand; `no_rehearsal_runtime` when no clone provider is configured; `plan_only` for a plan that was never rehearsed. |
+| `pending_contract_sql` | After an expand: the contract statements pg_sage did not run, in order. |
+| `contract_script` | After an expand: a forward-fix script for those statements (below). |
+| `contract_not_before_cycle` | The deploy cycle the contract waits for. |
+| `plan` | The full plan: expand and contract steps with their locks, `ContractNotBefore` and the proof (`ContractGuard`). |
+
+A rehearsal promotes only with workload evidence. Today's rehearsal runner measures the
+expand steps (time and lock per step, disk delta) but does not yet replay the workload, so a
+rehearsed migration returns `recommend_only` with `inconclusive_no_workload` unless a step
+already parked it. A step parks with `step_budget_exceeded` when 1.5 times its time on the
+clone exceeds the applier's 10-minute `statement_timeout`, or when a step without
+`CONCURRENTLY` held `ACCESS EXCLUSIVE` longer than `migration.max_lock_ms`. A query whose
+plan hash changed parks above `rehearsal.plan_flip_pct` (default 5%) slower; any query parks
+above 15% slower.
+
+pg_sage never runs the contract phase. `contract_script` is one transaction for a person to
+review and run after `contract_not_before` (`sage.migration_run`, set to the expand time plus
+`migration.contract_delay_minutes`):
+
+```sql
+BEGIN;
+DO $pg_sage_guard$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint WHERE conrelid = ...
+      AND conname = 'users_email_nn' AND contype = 'c' AND convalidated) THEN
+    RAISE EXCEPTION 'pg_sage: proof % (validated_check) does not hold; run nothing', ...;
+  END IF;
+END
+$pg_sage_guard$;
+SET LOCAL lock_timeout = '5000ms';
+ALTER TABLE "public"."users" ALTER COLUMN "email" SET NOT NULL;
+ALTER TABLE "public"."users" DROP CONSTRAINT "users_email_nn";
+COMMIT;
+```
+
+The guard checks the proof the expand phase built: the `CHECK (col IS NOT NULL)` constraint
+is validated (`convalidated`), or the unique index is valid and unique (`indisvalid`,
+`indisunique`). When it does not hold, the guard raises, the transaction aborts and nothing
+changes, even in a client that keeps going after an error. A lock wait over 5 seconds aborts
+it the same way; run it again later.
 
 ## Query to source attribution
 
