@@ -87,6 +87,31 @@ a reviewer can verify; add an entry only with such a reason. For a quick loop
 on one package, `go test -count=1 -tags=integration ./internal/store/` is
 enough. Remove the server with `docker rm -f -v pgsage-test`.
 
+Every package shares that one server, so anything cluster-wide is shared too:
+WAL volume and checkpoints, XID consumption, `pg_stat_reset_shared`,
+`pg_stat_statements`, the I/O statistics and the whole-cluster backend count.
+A test that measures or resets such state calls `testdb.Exclusive(t, reason)`
+instead: it gets a fresh database on a second server, `SAGE_TEST_EXCLUSIVE_URL`,
+which it holds alone until it ends (a cluster lock, so measuring tests run one
+at a time across packages), then the database is dropped and the server
+released. Start a second container from the same image on another port and
+export it next to the first:
+
+```bash
+docker run -d --name pgsage-test-exclusive -e POSTGRES_PASSWORD=postgres \
+  -p 127.0.0.1:55433:5432 ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r1
+bash scripts/ci/verify-test-postgres.sh pgsage-test-exclusive 17
+export SAGE_TEST_EXCLUSIVE_URL="postgres://postgres:postgres@127.0.0.1:55433/postgres?sslmode=disable"
+```
+
+`Exclusive` compares `system_identifier` (`pg_control_system()`) on both
+servers and fails the test, "same cluster", when the two URLs name one
+cluster, or when `SAGE_TEST_DATABASE_URL` is unset and it cannot tell. Without
+`SAGE_TEST_EXCLUSIVE_URL` those tests skip with an `exclusive-cluster:` reason
+that `.skip-allowlist` never lists, so the skip budget fails a CI job that
+lost the server. Every CI job with a test server runs a `postgres-exclusive`
+service on port 5433.
+
 `docker-compose.test.yml` is not the Go test server: it runs two PostgreSQL 16
 targets (no HypoPG) seeded from `test-fixtures/seed.sql`, plus mocks, for the
 functional harness `test-fixtures/run-tests.sh`.
@@ -101,6 +126,7 @@ Variables the test suites and benches read. Runtime variables are in
 |---|---|---|
 | `SAGE_TEST_DATABASE_URL` | (none) | Disposable PostgreSQL server for database tests; each test package creates and drops its own database on it. Unset, database tests skip. Never point it at a shared server |
 | `SAGE_TEST_SECOND_CLUSTER_URL` | (none) | A second disposable PostgreSQL server, for tests that need a database on another cluster; unset, they skip |
+| `SAGE_TEST_EXCLUSIVE_URL` | (none) | A separate disposable PostgreSQL server for tests that measure or reset cluster-wide state; they run on it one at a time. It must not be the `SAGE_TEST_DATABASE_URL` server (checked by `system_identifier`). Unset, they skip, and the CI skip budget fails |
 | `SAGE_TEST_REPLICA_URL` | (none) | Streaming replica of the `SAGE_TEST_DATABASE_URL` server, for replica tests; unset, they skip |
 | `SAGE_TEST_DSN` | (set by the fixture) | Legacy test DSN name; the fixture overwrites it with the package database, so do not set it |
 | `SAGE_BENCH_RUN` | (unset) | `1` runs `TestPGIncidentBench` in `sre-bench` |

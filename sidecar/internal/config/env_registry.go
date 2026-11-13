@@ -221,6 +221,10 @@ var contributorEnvVars = []EnvVar{
 		"Unset, database tests skip. Never point it at a shared server"},
 	{Name: "SAGE_TEST_SECOND_CLUSTER_URL", Default: envNone, Doc: "A second disposable " +
 		"PostgreSQL server, for tests that need a database on another cluster; unset, they skip"},
+	{Name: "SAGE_TEST_EXCLUSIVE_URL", Default: envNone, Doc: "A separate disposable " +
+		"PostgreSQL server for tests that measure or reset cluster-wide state; they run on it " +
+		"one at a time. It must not be the `SAGE_TEST_DATABASE_URL` server (checked by " +
+		"`system_identifier`). Unset, they skip, and the CI skip budget fails"},
 	{Name: "SAGE_TEST_REPLICA_URL", Default: envNone, Doc: "Streaming replica of the " +
 		"`SAGE_TEST_DATABASE_URL` server, for replica tests; unset, they skip"},
 	{Name: "SAGE_TEST_DSN", Default: "(set by the fixture)", Doc: "Legacy test DSN name; " +

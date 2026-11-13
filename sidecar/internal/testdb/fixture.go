@@ -62,7 +62,7 @@ func Run(run func() int, packageID string) int {
 		return 1
 	}
 	name := fixtureDatabaseName(packageID, os.Getpid())
-	fixtureURL, err := createFixture(baseDSN, name)
+	fixtureURL, err := createFixture(baseDSN, name, "designated")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "test fixture setup failed: %v\n", err)
 		return 1
@@ -132,7 +132,9 @@ func validateFixtureDatabaseName(database string) error {
 // shared server can keep one waiting well past the time the DDL needs.
 const fixtureDatabaseTimeout = 2 * time.Minute
 
-func createFixture(baseDSN, database string) (string, error) {
+// createFixture creates database on the server baseDSN names; server labels
+// that server in a connect error ("designated", "exclusive").
+func createFixture(baseDSN, database, server string) (string, error) {
 	if err := validateFixtureDatabaseName(database); err != nil {
 		return "", err
 	}
@@ -140,7 +142,7 @@ func createFixture(baseDSN, database string) (string, error) {
 	defer cancel()
 	admin, err := pgx.Connect(ctx, baseDSN)
 	if err != nil {
-		return "", fmt.Errorf("connect designated test server: %w", err)
+		return "", fmt.Errorf("connect %s test server: %w", server, err)
 	}
 	defer func() { _ = admin.Close(context.Background()) }()
 	_, err = admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{database}.Sanitize()+

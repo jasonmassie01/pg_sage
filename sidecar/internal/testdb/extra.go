@@ -24,7 +24,7 @@ func CreateDatabase(t testing.TB, label string) string {
 	if err != nil {
 		t.Fatalf("name extra test database: %v", err)
 	}
-	dsn, err := createFixture(base, name)
+	dsn, err := createFixture(base, name, "designated")
 	if err != nil {
 		t.Fatalf("create extra test database: %v", err)
 	}
