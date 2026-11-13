@@ -231,3 +231,39 @@ func containsLine(lines []string, want string) bool {
 	}
 	return false
 }
+
+// State transition through the API update path: a member running with an
+// action password no key opens takes a re-entered credential at once (the
+// published runtime acts as the role), and the next reconcile pass leaves
+// it alone because the prospective DSN is the stored one.
+func TestMetaUpdateReenteredActionCredentialActsAtOnce(t *testing.T) {
+	env := newMetaReconcileEnv(t)
+	rec, role := env.actionMember(t, "reentered")
+	stored, err := env.state.Store.GetActionConnectionString(context.Background(), rec.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, _ := url.Parse(stored)
+	pw, _ := u.User.Password()
+	lost := store.NewDatabaseStore(env.state.Pool,
+		crypto.DeriveKey("another-key", []byte("another-salt-16b")))
+	in := inputFromRecord(rec)
+	in.Action = &store.ActionCredentialInput{Username: role, Password: "sealed-elsewhere"}
+	if err := lost.Update(context.Background(), rec.ID, in); err != nil {
+		t.Fatal(err)
+	}
+	env.reconcile(t)
+	if err := fleetMgr.GetInstance("reentered").ActionPool.Ping(
+		context.Background()); !errors.Is(err, executor.ErrActionIdentityUnavailable) {
+		t.Fatalf("unreadable credential ping = %v, want unavailable", err)
+	}
+	in.Action = &store.ActionCredentialInput{Username: role, Password: pw}
+	if _, err := applyMetaDatabaseUpdate(context.Background(), fleetMgr, env.state,
+		rec.ID, rec, in); err != nil {
+		t.Fatalf("re-enter the action credential: %v", err)
+	}
+	assertMemberActionRole(t, fleetMgr.GetInstance("reentered"), rec.Username, role)
+	if again := env.reconcile(t); !again.empty() {
+		t.Fatalf("the pass after the API update changed the fleet: %+v", again)
+	}
+}
