@@ -360,6 +360,22 @@ database: databases of one fleet on the same instance (the same host and port, o
 from the first of them that starts until the last one stops. `GET /api/v1/cloud-telemetry`
 lists such an instance once, with its member databases in `databases`.
 
+## Major-version upgrades and blue/green prechecks
+
+`GET /api/v1/upgrade-readiness?target_major=18&method=blue_green` (or the MCP tool
+`upgrade_readiness`) runs the checks that stop managed upgrades midway. RDS and Aurora
+blue/green deployments replicate logically, so a table with no primary key and no replica
+identity fails the prechecks (U1 `block`); fix it with a primary key or
+`REPLICA IDENTITY USING INDEX`/`FULL`. A managed in-place major upgrade runs `pg_upgrade`:
+from below PostgreSQL 17 it drops logical slots (U3 `block`), and removed settings in the
+parameter group stop the new server (U6, read from `pg_settings.source` because providers
+hide `pg_file_settings`). U7 compares the source and target majors with the provider's
+dated standard-support calendar (`rds` and `aurora` today, each date with its source URL
+and the day pg_sage read it); other providers are `unknown`, never `pass`. The detected
+`cloud_environment` selects the provider. In fleet mode each member is checked on its
+own, and pg_sage opens a daily advisory case for members at or near end of life. pg_sage
+never starts an upgrade.
+
 ## Live check (owner-run, never in CI)
 
 CI uses httptest fakes only. To check against a real, disposable instance (read-only calls):

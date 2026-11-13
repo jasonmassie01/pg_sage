@@ -47,7 +47,7 @@ func TestPostgresRehearsalRunnerExecutesExpandOnlyOnCloneDSN(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if measurement.MaxLockDuration <= 0 {
+	if measurement.MaxStepDuration <= 0 {
 		t.Fatalf("measurement = %#v", measurement)
 	}
 	var indexExists, constraintExists bool
@@ -100,7 +100,7 @@ func TestPostgresRecorderPersistsMigrationContinuation(t *testing.T) {
 	recorder := NewPostgresRecorder(pool)
 	record := Record{
 		Request: request(), Verdict: VerdictExpanded, EvidenceID: "ev_runtime_record",
-		ContractNotBeforeCycle: 2,
+		ContractDelay: time.Hour,
 	}
 	if err := recorder.Record(context.Background(), record); err != nil {
 		t.Fatalf("Record: %v", err)

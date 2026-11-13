@@ -96,17 +96,50 @@ func configuredMCPMigrationRuntime(
 	if maxAge <= 0 {
 		maxAge = 24 * time.Hour
 	}
-	runner := runtimepkg.NewPostgresRehearsalRunner(5*time.Second, 10*time.Minute).
-		WithProduction(runtimepkg.PoolIdentity(pool))
-	rehearser := rehearsalpkg.NewOrchestrator(provider, runner, rehearsalpkg.Options{
-		MaxCloneAge: maxAge, RegressionPct: 15,
-		MaxDuration: rehearsalpkg.DefaultMaxDuration,
-	})
+	runner := runtimepkg.NewPostgresRehearsalRunner(migrationLockTimeout,
+		migrationStatementTimeout).WithProduction(runtimepkg.PoolIdentity(pool))
+	rehearser := rehearsalpkg.NewOrchestrator(provider, runner, migrationRehearsalOptions(
+		cfg, maxAge))
 	return runtimepkg.NewOrchestrator(
-		planpkg.NewPlanner(), recommendOnlyOnCloneFailure{rehearser}, gate,
-		runtimepkg.NewPostgresApplier(pool, 5*time.Second, 10*time.Minute),
+		migrationPlanner(cfg), recommendOnlyOnCloneFailure{rehearser}, gate,
+		runtimepkg.NewPostgresApplier(pool, migrationLockTimeout, migrationStatementTimeout),
 		runtimepkg.NewPostgresRecorder(pool),
 	), nil
+}
+
+// The applier's bounds; the rehearsal judges each step against the same
+// statement timeout (migration-06).
+const (
+	migrationLockTimeout      = planpkg.ContractLockTimeout
+	migrationStatementTimeout = rehearsalpkg.DefaultStepStatementTimeout
+)
+
+// migrationRehearsalOptions carries rehearsal.plan_flip_pct and
+// migration.max_lock_ms into the rehearsal; a nil config (tests) keeps
+// the package defaults.
+func migrationRehearsalOptions(
+	loaded *config.Config, maxAge time.Duration,
+) rehearsalpkg.Options {
+	options := rehearsalpkg.Options{
+		MaxCloneAge: maxAge, RegressionPct: 15,
+		MaxDuration:      rehearsalpkg.DefaultMaxDuration,
+		StatementTimeout: migrationStatementTimeout,
+	}
+	if loaded != nil {
+		options.PlanFlipPct = loaded.Rehearsal.PlanFlipPct
+		options.MaxLock = loaded.Migration.MaxLock()
+	}
+	return options
+}
+
+// migrationPlanner plans with migration.contract_delay_minutes; a nil
+// config (tests) keeps the 1h default.
+func migrationPlanner(loaded *config.Config) *planpkg.Planner {
+	planner := planpkg.NewPlanner()
+	if loaded != nil {
+		planner.WithContractDelay(loaded.Migration.ContractDelay())
+	}
+	return planner
 }
 
 type recommendOnlyOnCloneFailure struct {

@@ -281,7 +281,8 @@ constraints, `CONCURRENTLY` and `NOT VALID`, with the version the server runs (o
 `pg_version` given). A statement holds the strongest lock of its subcommands. Each
 statement is either *known* (a rule below matched, or it is a form proven safe, such as
 `CREATE INDEX CONCURRENTLY`, `ADD CONSTRAINT ... NOT VALID`, `VALIDATE CONSTRAINT`,
-`DETACH PARTITION ... CONCURRENTLY` or a plain `VACUUM`) or *unrecognized* (no rule
+`DETACH PARTITION ... CONCURRENTLY`, a plain `VACUUM`, a new `CREATE FUNCTION` or
+`ALTER SEQUENCE ... AS / OWNED BY`) or *unrecognized* (no rule
 matched and the form is not proven safe, or it did not parse).
 
 | Rule | Form | Lock | Rewrite |
@@ -304,6 +305,9 @@ matched and the form is not proven safe, or it did not parse).
 | `ddl_detach_partition_not_concurrent` | `DETACH PARTITION` without `CONCURRENTLY` | ACCESS EXCLUSIVE | no |
 | `ddl_rename` | `RENAME` of a table, column, constraint or index | ACCESS EXCLUSIVE (SHARE UPDATE EXCLUSIVE for an index) | no |
 | `ddl_create_trigger` | `CREATE TRIGGER` | SHARE ROW EXCLUSIVE | no |
+| `ddl_drop_trigger` | `DROP TRIGGER` | ACCESS EXCLUSIVE | no |
+| `ddl_drop_function` | `DROP FUNCTION` (the lock is on the function, not a table) | ACCESS EXCLUSIVE | no |
+| `ddl_lock_table` | `LOCK TABLE` | the mode it names | no |
 | `ddl_reindex_not_concurrent` | `REINDEX` without `CONCURRENTLY` | ACCESS EXCLUSIVE | no |
 | `ddl_vacuum_full` | `VACUUM FULL` | ACCESS EXCLUSIVE | yes |
 | `ddl_refresh_not_concurrent` | `REFRESH MATERIALIZED VIEW` without `CONCURRENTLY` | ACCESS EXCLUSIVE | yes |
@@ -343,6 +347,16 @@ unterminated literal, quoted identifier or comment.
 * `lint_migration` returns `safe` only when every statement is known. It returns
   `review`, never `safe`, for an unrecognized statement (on a build without the parser:
   one outside the allowlist that no rule matched), and its `note` says how many there are.
+* `lint_migration` is a thin wrapper over the shared pre-merge review that the
+  `lint-migration` CI gate and `POST /api/v1/migrations/lint` also call
+  ([Migration review in CI](migration-ci.md)), and that scores exactly as the migration
+  advisor does: it applies `migration.ddl_row_threshold`, marks a binary-coercible
+  `ALTER COLUMN ... TYPE` (`varchar(20)` to `text`) as no rewrite, and lists
+  `ddl_missing_lock_timeout` as an unscored annotation (`"annotation": true`,
+  `risk_score` 0) instead of a hazard. Items also carry `statement_index`, `verdict` and
+  `guarded_rewrite`; the result carries `pg_version`, `row_threshold` and the full
+  per-statement `review`. A catalog read that fails or times out is an error, never a
+  verdict.
 
 ### What `apply_migration` can plan
 
@@ -378,13 +392,75 @@ The `verdict` column uses this vocabulary:
 | `blocked` | The policy gate refused an expand step before any rehearsal. `reason` holds the gate's reason code, for example `change_class_not_allowed`. |
 | `recommend_only` | The plan was returned for a person to run; nothing was rehearsed or applied. |
 | `parked` | Rehearsal or the gate held the migration for review. |
-| `promote` | The expand steps ran. The contract steps wait for `contract_not_before`. |
+| `promote` | The expand steps ran. The contract steps wait for `contract_not_before` (expand time + `migration.contract_delay_minutes`); pg_sage never runs them. |
 | `failed` | The rehearsal or an expand step failed. |
 | `pending` | Reserved for a run that has not reached a verdict. |
 
 A run uses the gate's evidence id. When the gate returned none, the run gets a fresh id, so
 two runs never share a row. If a later write reuses an evidence id, the row takes that
 write's verdict, `source_sql_hash` and `reason`.
+
+### What `apply_migration` returns
+
+The result always carries `verdict` and `reason`, so an agent can tell why a migration stopped:
+
+| Field | Meaning |
+|---|---|
+| `verdict` | `expanded`, `recommend_only`, `parked`, `blocked` or `failed`. |
+| `reason` | Why: the gate's reason code (`blocked`, `parked`); the rehearsal's (`stale_clone`, `inconclusive_no_workload`, `plan_regression`, `step_budget_exceeded: <step, measured time, budget>`, `clone_unavailable`, `rehearsal_failed:<SQLSTATE>`, ...), with `; clone_cleanup_failed: <error>` appended when the rehearsal clone could not be destroyed; `contract_pending` after an expand; `no_rehearsal_runtime` when no clone provider is configured; `plan_only` for a plan that was never rehearsed. |
+| `pending_contract_sql` | After an expand: the contract statements pg_sage did not run, in order. |
+| `contract_script` | After an expand: a forward-fix script for those statements (below). |
+| `contract_not_before_cycle` | The deploy cycle the contract waits for. |
+| `plan` | The full plan: expand and contract steps with their locks, `ContractNotBefore` and the proof (`ContractGuard`). |
+
+A rehearsal promotes only with workload evidence. Today's rehearsal runner measures the
+expand steps (time and lock per step, disk delta) but does not yet replay the workload, so a
+rehearsed migration returns `recommend_only` with `inconclusive_no_workload` unless a step
+already parked it. A step parks with `step_budget_exceeded` when 1.5 times its time on the
+clone exceeds the applier's 10-minute `statement_timeout`, or when a step without
+`CONCURRENTLY` held `ACCESS EXCLUSIVE` longer than `migration.max_lock_ms`. A query whose
+plan hash changed parks above `rehearsal.plan_flip_pct` (default 5%) slower; any query parks
+above 15% slower.
+
+pg_sage never runs the contract phase. `contract_script` is one transaction for a person to
+review and run after `contract_not_before` (`sage.migration_run`, set to the expand time plus
+`migration.contract_delay_minutes`):
+
+```sql
+BEGIN;
+DO $pg_sage_guard$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint WHERE conrelid = ...
+      AND conname = 'users_email_nn' AND contype = 'c' AND convalidated) THEN
+    RAISE EXCEPTION 'pg_sage: proof % (validated_check) does not hold; run nothing', ...;
+  END IF;
+END
+$pg_sage_guard$;
+SET LOCAL lock_timeout = '5000ms';
+ALTER TABLE "public"."users" ALTER COLUMN "email" SET NOT NULL;
+ALTER TABLE "public"."users" DROP CONSTRAINT "users_email_nn";
+COMMIT;
+```
+
+The guard checks the proof the expand phase built: the `CHECK (col IS NOT NULL)` constraint
+is validated (`convalidated`), or the unique index is valid and unique (`indisvalid`,
+`indisunique`). When it does not hold, the guard raises, the transaction aborts and nothing
+changes, even in a client that keeps going after an error. A lock wait over 5 seconds aborts
+it the same way; run it again later.
+
+## Upgrade readiness
+
+`upgrade_readiness` checks the resolved database for a major-version upgrade to
+`target_major` (above the server's major, at most the newest major pg_sage knows)
+by `method` (`pg_upgrade`, the default; `blue_green`; `logical`). It returns each
+check U1-U7 as `pass`, `warn`, `block` or `unknown`, with its reason, up to 50
+evidence rows and the total; see [Upgrade Readiness](findings.md#upgrade-readiness)
+for what each check reads. Name `target_database`, a monitored database already at
+the target major, to compare installed extensions against what it offers; without it
+U2 is `unknown`. The tool only reads, in one read-only transaction with a statement
+timeout; it writes nothing and opens no finding (the daily check does that). The REST
+form is `GET /api/v1/upgrade-readiness?database=&target_major=&method=&target_database=`
+(any signed-in role; 400 for an invalid target, 404 for an unknown database).
 
 ## Query to source attribution
 
@@ -463,6 +539,7 @@ application's database driver (most ORMs have a plugin) for reliable attribution
 | [`agent_query`](#agent_query) | `read` | always |
 | [`agent_whoami`](#agent_whoami) | `read` | always |
 | [`agent_request_capability`](#agent_request_capability) | `propose` | always |
+| [`upgrade_readiness`](#upgrade_readiness) | `read` | always |
 
 ### `get_policy`
 
@@ -1163,5 +1240,18 @@ Scope: `propose`
 | `duration_minutes` | integer | yes | value >= 1 |
 | `objects` | array of string | yes | at most 50 items |
 | `reason` | string | yes | length 1-2000 |
+
+### `upgrade_readiness`
+
+Check the database for a major-version upgrade: tables logical replication cannot identify rows of, extensions against a target member, logical slots and subscriptions, data checksums against PG18's initdb default, collation versions and indexes to reindex, removed settings and dated support windows. Each check is pass, warn, block or unknown with up to 50 evidence rows. Read-only; it changes nothing.
+
+Scope: `read`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
+| `method` | string | no | default pg_upgrade; one of `pg_upgrade`, `blue_green`, `logical` |
+| `target_database` | string | no | a monitored database already at target_major to compare extensions against; length <= 63 |
+| `target_major` | integer | yes | the major to upgrade to (above the server's, at most the newest pg_sage knows); value >= 1 |
 
 <!-- END GENERATED MCP TOOL REFERENCE -->

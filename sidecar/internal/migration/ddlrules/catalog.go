@@ -21,6 +21,7 @@ func Catalog() []Rule {
 	rules = append(rules, columnRules()...)
 	rules = append(rules, maintenanceRules()...)
 	rules = append(rules, formRules()...)
+	rules = append(rules, swapFormRules()...)
 	return rules
 }
 

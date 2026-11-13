@@ -2,18 +2,11 @@ package agenttools
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/migration"
-)
-
-// Lint bounds and verdict bars.
-const (
-	maxLintBytes = 100000
-	riskyScore   = 0.7
-	reviewScore  = 0.3
 )
 
 // LintRequest is migration SQL to lint. PGVersion is a major (14-18) or a
@@ -29,9 +22,15 @@ type LintResult struct {
 	MaxRiskScore float64    `json:"max_risk_score"`
 	Verdict      string     `json:"verdict"` // safe | review | risky
 	Note         string     `json:"note,omitempty"`
+	// PGVersion and RowThreshold are what the review used (migration-11).
+	PGVersion    int   `json:"pg_version"`
+	RowThreshold int64 `json:"row_threshold"`
+	// Review is the shared engine's full per-statement report.
+	Review migration.Report `json:"review"`
 }
 
 // LintItem is one rule a statement matched, scored on live statistics.
+// The lock_timeout rule is an annotation: it is listed with no score.
 type LintItem struct {
 	Statement       string  `json:"statement"`
 	RuleID          string  `json:"rule_id"`
@@ -44,14 +43,18 @@ type LintItem struct {
 	EstimatedLockMs int64   `json:"estimated_lock_ms"`
 	SafeAlternative string  `json:"safe_alternative,omitempty"`
 	Description     string  `json:"description,omitempty"`
+	// StatementIndex is the 1-based statement the item belongs to.
+	StatementIndex int    `json:"statement_index"`
+	Verdict        string `json:"verdict,omitempty"`
+	Annotation     bool   `json:"annotation,omitempty"`
+	GuardedRewrite string `json:"guarded_rewrite,omitempty"`
 }
 
-// LintMigration classifies migration SQL against the DDL safety rules and
-// scores each hazard with the target table's size and activity. The SQL
-// is text to analyze: it is never run. It classifies with the same entry
-// point as the advisor and the agent gate (migration.ClassifyStatements),
-// including the binary-coercible ALTER COLUMN TYPE check, so lint and the
-// advisor agree on a rewrite.
+// LintMigration lints migration SQL with the shared pre-merge review
+// (migration.Review): the advisor's scoring path, its configured row
+// threshold, the binary-coercible ALTER COLUMN TYPE check and the
+// lock_timeout annotation. The SQL is text to analyze: it is never run.
+// A catalog read that fails is an error, never a verdict.
 func (t *Tools) LintMigration(ctx context.Context, req LintRequest) (LintResult, error) {
 	if err := t.ready(); err != nil {
 		return LintResult{}, err
@@ -59,134 +62,57 @@ func (t *Tools) LintMigration(ctx context.Context, req LintRequest) (LintResult,
 	if strings.TrimSpace(req.SQL) == "" {
 		return LintResult{}, invalid("sql is required")
 	}
-	if len(req.SQL) > maxLintBytes {
-		return LintResult{}, invalid("sql is longer than %d bytes", maxLintBytes)
+	if len(req.SQL) > migration.MaxReviewBytes {
+		return LintResult{}, invalid("sql is longer than %d bytes", migration.MaxReviewBytes)
 	}
-	version, err := t.lintVersion(ctx, req.PGVersion)
+	if req.PGVersion != 0 {
+		if _, err := normalizeServerVersion(req.PGVersion); err != nil {
+			return LintResult{}, err
+		}
+	}
+	rep, err := migration.Review(ctx, catalogread.New(t.pool, catalogread.Default()), req.SQL,
+		migration.ReviewOptions{PGVersion: req.PGVersion,
+			RowThreshold: int64(t.opts.DDLRowThreshold), Log: t.opts.Log})
+	if errors.Is(err, migration.ErrInvalidMigration) {
+		return LintResult{}, invalid("%v", err)
+	}
 	if err != nil {
 		return LintResult{}, err
 	}
-	classified, err := migration.ClassifyStatements(ctx,
-		catalogread.New(t.pool, catalogread.Default()), req.SQL, version)
-	if err != nil {
-		t.opts.Log("warn", "lint_migration: %v; the type change is kept as a rewrite", err)
-	}
-	assessor := migration.NewRiskAssessor(t.pool, t.opts.Log)
-	res := LintResult{Statements: []LintItem{}}
-	for _, c := range classified.All() {
-		risk, err := assessor.Assess(ctx, c)
-		if err != nil {
-			return LintResult{}, fmt.Errorf("assess %s: %w", c.RuleID, err)
+	return lintResultOf(rep), nil
+}
+
+// lintResultOf is the report in lint_migration's established shape.
+func lintResultOf(rep migration.Report) LintResult {
+	res := LintResult{Statements: []LintItem{}, MaxRiskScore: rep.MaxRiskScore,
+		Verdict: rep.Verdict, Note: strings.Join(rep.Notes, " "), PGVersion: rep.PGVersion,
+		RowThreshold: rep.RowThreshold, Review: rep}
+	for _, st := range rep.Statements {
+		for _, h := range st.Hazards {
+			res.Statements = append(res.Statements, LintItem{Statement: st.Statement,
+				RuleID: h.RuleID, LockLevel: h.LockLevel, RequiresRewrite: h.RequiresRewrite,
+				Table: h.Table, TableSizeBytes: h.TableSizeBytes, EstimatedRows: h.LiveRows,
+				RiskScore: h.RiskScore, EstimatedLockMs: h.EstimatedLockMs,
+				SafeAlternative: h.SafeAlternative, Description: h.Description,
+				StatementIndex: st.Index, Verdict: h.Verdict, GuardedRewrite: st.GuardedRewrite})
 		}
-		res.Statements = append(res.Statements, lintItem(risk))
+		for _, a := range st.Annotations {
+			res.Statements = append(res.Statements, LintItem{Statement: st.Statement,
+				RuleID: a.RuleID, Table: a.Table, SafeAlternative: a.SafeAlternative,
+				Description: a.Description, StatementIndex: st.Index, Annotation: true})
+		}
 	}
-	res.MaxRiskScore, res.Verdict = lintVerdict(res.Statements)
-	if len(res.Statements) == 0 {
-		res.Note = "No DDL safety rule recognized these statements: nothing is known to " +
-			"lock or rewrite a table. Unrecognized DDL is not proven safe."
-	}
-	return reviewUnproven(res, classified), nil
-}
-
-// reviewUnproven raises a safe verdict to review when a statement is
-// unrecognized (no DDL safety rule matched it and it is not a known safe
-// form, migration-04) or when the text cannot be tokenized: safe must mean
-// every statement is known. It never lowers a verdict or changes the
-// score.
-func reviewUnproven(res LintResult, classified migration.Classification) LintResult {
-	if classified.Untokenizable {
-		return raiseToReview(res, "The SQL could not be tokenized: it ends inside a "+
-			"literal, quoted identifier, dollar-quoted body or comment, which can hide "+
-			"statements. Review it.")
-	}
-	n := classified.Unrecognized()
-	if n == 0 {
-		return res
-	}
-	known := "a known safe form"
-	if classified.Degraded {
-		known = "on the additive allowlist (this build has no SQL parser)"
-	}
-	if n == 1 {
-		return raiseToReview(res, "1 statement is not "+known+" and matches no DDL "+
-			"safety rule: unrecognized DDL is not proven safe. Review it.")
-	}
-	return raiseToReview(res, fmt.Sprintf("%d statements are not %s and match no DDL "+
-		"safety rule: unrecognized DDL is not proven safe. Review them.", n, known))
-}
-
-func raiseToReview(res LintResult, note string) LintResult {
-	if res.Verdict == "safe" {
-		res.Verdict = "review"
-	}
-	if res.Note != "" {
-		note = res.Note + " " + note
-	}
-	res.Note = note
 	return res
 }
 
-// Supported server majors for pg_version.
-const (
-	minLintMajor = 14
-	maxLintMajor = 18
-)
-
-// normalizeServerVersion maps a requested pg_version to server_version_num:
-// a major from 14 to 18 is scaled by 10000, a server_version_num from
-// 140000 to 189999 passes, and anything else is an invalid request (0 is
-// not a version; the caller reads the server's instead).
+// normalizeServerVersion maps a requested pg_version to server_version_num
+// (migration.NormalizePGVersion); anything unsupported is an invalid
+// request whose message names both accepted forms.
 func normalizeServerVersion(v int) (int, error) {
-	switch {
-	case v >= minLintMajor && v <= maxLintMajor:
-		return v * 10000, nil
-	case v >= minLintMajor*10000 && v < (maxLintMajor+1)*10000:
-		return v, nil
-	}
-	return 0, invalid("pg_version %d is not supported: give a major from %d to %d "+
-		"or a server_version_num from %d to %d", v, minLintMajor, maxLintMajor,
-		minLintMajor*10000, (maxLintMajor+1)*10000-1)
-}
-
-func (t *Tools) lintVersion(ctx context.Context, requested int) (int, error) {
-	if requested != 0 {
-		return normalizeServerVersion(requested)
-	}
-	var version int
-	err := t.pool.QueryRow(ctx,
-		"/* pg_sage */ SELECT current_setting('server_version_num')::int").Scan(&version)
+	n, err := migration.NormalizePGVersion(v)
 	if err != nil {
-		return 0, fmt.Errorf("read server version: %w", err)
+		return 0, invalid("%s", strings.TrimPrefix(err.Error(),
+			migration.ErrInvalidMigration.Error()+": "))
 	}
-	return version, nil
-}
-
-func lintItem(r *migration.DDLRisk) LintItem {
-	table := r.TableName
-	if r.SchemaName != "" && table != "" {
-		table = r.SchemaName + "." + table
-	}
-	return LintItem{Statement: r.Statement, RuleID: r.RuleID, LockLevel: r.LockLevel,
-		RequiresRewrite: r.RequiresRewrite, Table: table, TableSizeBytes: r.TableSizeBytes,
-		EstimatedRows: r.EstimatedRows, RiskScore: r.RiskScore,
-		EstimatedLockMs: r.EstimatedLockMs, SafeAlternative: r.SafeAlternative,
-		Description: r.Description}
-}
-
-// lintVerdict is risky at riskyScore; review at reviewScore or for any
-// rewrite or ACCESS EXCLUSIVE lock (they block the table however small it
-// is now); safe otherwise.
-func lintVerdict(items []LintItem) (float64, string) {
-	maxScore, heavy := 0.0, false
-	for _, it := range items {
-		maxScore = max(maxScore, it.RiskScore)
-		heavy = heavy || it.RequiresRewrite || it.LockLevel == "ACCESS EXCLUSIVE"
-	}
-	switch {
-	case maxScore >= riskyScore:
-		return maxScore, "risky"
-	case maxScore >= reviewScore || heavy:
-		return maxScore, "review"
-	}
-	return maxScore, "safe"
+	return n, nil
 }

@@ -308,6 +308,7 @@ Variables that only the test suites and benches read (`SAGE_TEST_*`, `SAGE_BENCH
 | `SAGE_SUPABASE_OBSERVABILITY_TOKEN` / `_FILE` | (none) | Supabase Management API token for provider observability (optional) |
 | `SAGE_HISTORY_MONITORED_DSN` / `_FILE` | (none) | Source database of the `history` subcommand's copy into the metadata database (only read) |
 | `SAGE_VECTORLAB_DATABASE_URL` / `_FILE` | (none) | Database of the `vector-lab` subcommand |
+| `SAGE_LINT_DATABASE_URL` / `_FILE` | (none) | Monitored database the `lint-migration` CI gate reads catalog statistics from (only read; not needed with --static) |
 <!-- env-vars:end -->
 
 A `_FILE` variant reads the value from the named file (for Docker, Kubernetes
@@ -540,6 +541,9 @@ would produce an invalid configuration answers `400` with the key.
 | `rca.xmin_holder_min_minutes` | `5` | Minutes a session's transaction must be open before the `vacuum_blocked` incident names it as the holder of the oldest xmin. Younger sessions are never named, so a briefly idle session opens no incident. A holder idle in transaction for at least `analyzer.lock_chain.idle_in_tx_terminate_minutes` gets `pg_terminate_backend` proposed for approval; an active one gets a diagnostic. `1`-`1440` |
 | `rca.prepared_xact_min_age_minutes` | `30` | Minutes a prepared transaction of this database must be old before it opens the `orphaned_prepared_tx` incident or is named as the `vacuum_blocked` holder (with `ROLLBACK PREPARED` of its quoted GID proposed for approval). Other databases' prepared transactions are never blamed. `1`-`10080` |
 | `migration.queue_waiters_threshold` | `3` | Sessions queued directly behind an in-flight DDL that is waiting for its lock (`wait_event_type = Lock`) before the DDL's `migration_safety` finding turns critical. The queue comes from the RCA lock-chain fast path (`rca.lock_chain_interval_seconds`; an observation counts for two intervals, so with the fast path off the queue is never observed and the detail reads "lock queue not observed"). The escalated finding carries the DDL's backend identity and approval-only guidance: cancel the DDL (`SELECT pg_cancel_backend(pid)`, a HIGH-risk guarded script, never auto-executed; managed services need `pg_signal_backend`), then retry with `SET lock_timeout = '5s'`. The lock-chain finding for that queue drops its cancel of the root reader. `0` means `3`. API-settable |
+| `migration.contract_delay_minutes` | `60` | Minutes after a rehearsed `apply_migration` expand phase before its contract phase may run; recorded as `contract_not_before`. pg_sage never runs the contract: it returns a guarded forward-fix script ([What `apply_migration` returns](mcp.md#what-apply_migration-returns)). 1 or more; `0` or less is refused at load. Restart to change |
+| `migration.max_lock_ms` | `2000` | Milliseconds a rehearsed step without `CONCURRENTLY` may hold `ACCESS EXCLUSIVE` on the clone before `apply_migration` parks (`step_budget_exceeded`, with the measured time). A step also parks when 1.5 times its clone time exceeds the applier's 10-minute `statement_timeout`. 1 or more; `0` or less is refused. Restart to change |
+| `rehearsal.plan_flip_pct` | `5` | Percent a query whose plan hash changed on the rehearsal clone may slow before `apply_migration` parks (`plan_regression`); without a plan change the limit is 15. Above 0, at most 100. Restart to change |
 
 **How pg_sage measures its own cost.** Once per analyzer cycle pg_sage reads the sage
 tables' sizes and statistics in one bounded, read-only statement (`safety.query_timeout_ms`,
@@ -1574,6 +1578,21 @@ layer (a proxy's access log) already records who changed what.
 ```yaml
 api:
   access_log: true
+```
+
+#### Migration lint rate
+
+`api.migration_lint_rate_per_minute` (default `30`, restart to change) is how
+many requests each signed-in user may send to `POST /api/v1/migrations/lint` in
+any minute; the next one gets 429 with `Retry-After`. 0 or less means the
+default. Each request reads catalog statistics on the monitored database under a
+2 s `statement_timeout`, and at most 4 run at once. The CLI gate
+(`pg_sage lint-migration`) is not rate limited: it uses its own
+connection ([Migration review in CI](migration-ci.md)).
+
+```yaml
+api:
+  migration_lint_rate_per_minute: 30
 ```
 
 #### Profiling the sidecar

@@ -44,6 +44,7 @@ safety_critical postgres.cloud_resource.gcp.project
 safety_critical api.listen_addr
 safety_critical api.trusted_proxies
 safety_critical api.trusted_origins
+safety_critical api.migration_lint_rate_per_minute
 safety_critical prometheus.listen_addr
 safety_critical prometheus.serve_on_api
 operator_preference prometheus.refresh_interval_seconds
@@ -238,11 +239,14 @@ operator_preference logwatch.slow_query_enabled
 derivable logwatch.temp_file_min_bytes
 operator_preference migration.activity_polling
 derivable migration.ddl_row_threshold
+safety_critical migration.contract_delay_minutes
 safety_critical migration.enabled
 operator_preference migration.log_detection
+safety_critical migration.max_lock_ms
 safety_critical migration.mode
 operator_preference migration.queue_waiters_threshold
 derivable migration.poll_interval_seconds
+safety_critical rehearsal.plan_flip_pct
 derivable rca.connection_saturation_pct
 derivable rca.dedup_window_minutes
 operator_preference rca.enabled

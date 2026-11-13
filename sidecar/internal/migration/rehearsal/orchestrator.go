@@ -37,6 +37,11 @@ const (
 	// ReasonTargetUnverified: the clone could not be shown not to be the
 	// production server; nothing ran on it.
 	ReasonTargetUnverified Reason = "target_unverified"
+	// ReasonStepBudget: a rehearsed step ran too long for production: 1.5x
+	// its time exceeds the applier's statement_timeout, or a step without
+	// CONCURRENTLY held ACCESS EXCLUSIVE past migration.max_lock_ms
+	// (migration-06). Result.Detail carries the measured value.
+	ReasonStepBudget Reason = "step_budget_exceeded"
 )
 
 // DefaultMaxDuration bounds one rehearsal, clone creation included, when
@@ -65,14 +70,20 @@ type QueryMeasurement struct {
 	AfterPlanHash   string
 }
 type Measurement struct {
-	MaxLockDuration  time.Duration
+	// MaxStepDuration is the longest step's wall time (migration-06
+	// renamed it from MaxLockDuration: it is not a lock hold time).
+	MaxStepDuration  time.Duration
 	BackfillDuration time.Duration
 	DiskDeltaBytes   int64
 	AffectedQueries  []QueryMeasurement
+	// Steps holds every rehearsed step's wall time and lock, in order.
+	Steps []StepMeasurement
 }
 type Result struct {
-	Verdict     Verdict
-	Reason      Reason
+	Verdict Verdict
+	Reason  Reason
+	// Detail is the measured value behind Reason (step budget parks).
+	Detail      string
 	Measurement Measurement
 	// CleanupError is non-empty when the rehearsal clone could not be
 	// destroyed; callers must record it durably (leaked resource).
@@ -81,8 +92,17 @@ type Result struct {
 type Options struct {
 	MaxCloneAge   time.Duration
 	RegressionPct float64
+	// PlanFlipPct is the latency change above which a query whose plan
+	// hash changed parks; zero means DefaultPlanFlipPct.
+	PlanFlipPct float64
 	// MaxDuration bounds one rehearsal; zero means DefaultMaxDuration.
 	MaxDuration time.Duration
+	// StatementTimeout is the production applier's statement_timeout;
+	// zero means DefaultStepStatementTimeout.
+	StatementTimeout time.Duration
+	// MaxLock bounds how long a step without CONCURRENTLY may hold
+	// ACCESS EXCLUSIVE (migration.max_lock_ms); zero means DefaultMaxLock.
+	MaxLock time.Duration
 }
 type Runner interface {
 	Run(context.Context, string, planpkg.Plan) (Measurement, error)
@@ -144,28 +164,36 @@ func (o *Orchestrator) destroy(target clonepkg.Clone) string {
 	return ""
 }
 
-// judge turns a measurement into a verdict. Without affected-query
-// evidence the result is inconclusive and never promotes.
+// judge turns a measurement into a verdict. A step over its budget
+// parks first: that evidence stands without a workload. Without
+// affected-query evidence the result is inconclusive and never promotes.
 func (o *Orchestrator) judge(measurement Measurement) Result {
 	result := Result{Verdict: VerdictPromoteExpand, Reason: ReasonRehearsalPassed,
 		Measurement: measurement}
+	if detail, over := o.overBudget(measurement); over {
+		result.Verdict, result.Reason, result.Detail = VerdictPark, ReasonStepBudget, detail
+		return result
+	}
 	if len(measurement.AffectedQueries) == 0 {
 		result.Verdict, result.Reason = VerdictRecommendOnly, ReasonInconclusiveWorkload
 		return result
 	}
-	if regressed(measurement, o.options.RegressionPct) {
+	if regressed(measurement, o.options.RegressionPct, o.planFlipPct()) {
 		result.Verdict, result.Reason = VerdictPark, ReasonPlanRegression
 	}
 	return result
 }
 
-func regressed(measurement Measurement, threshold float64) bool {
+// regressed: a query slower by more than threshold percent, or by more
+// than flipPct percent when its plan hash changed.
+func regressed(measurement Measurement, threshold, flipPct float64) bool {
 	for _, query := range measurement.AffectedQueries {
 		if query.BeforeLatencyMS <= 0 {
 			continue
 		}
 		change := (query.AfterLatencyMS - query.BeforeLatencyMS) * 100 / query.BeforeLatencyMS
-		if change > threshold || (query.AfterPlanHash != query.BeforePlanHash && change > threshold) {
+		flipped := query.AfterPlanHash != query.BeforePlanHash
+		if change > threshold || (flipped && change > flipPct) {
 			return true
 		}
 	}

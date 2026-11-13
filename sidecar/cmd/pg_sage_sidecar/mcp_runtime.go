@@ -11,7 +11,6 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/mcp"
-	"github.com/pg-sage/sidecar/internal/migration/plan"
 	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/value"
 )
@@ -95,6 +94,8 @@ func mcpDependencies() mcp.ProductionDependencies {
 		Availability: newMCPAvailability(fleetMgr),
 		// The latest-briefing resource of each database (llm-06b).
 		Briefings: fleetBriefingsMCP{manager: fleetMgr},
+		// upgrade_readiness (market-05): read-only, on the resolved database.
+		UpgradeReadiness: upgradeReadinessMCP{manager: fleetMgr},
 	}
 }
 
@@ -216,7 +217,7 @@ func (executor *fleetIntentExecutor) Execute(
 	if err != nil {
 		return nil, err
 	}
-	production := mcp.NewProductionIntentExecutor(adapter, plan.NewPlanner(), executor.gate)
+	production := mcp.NewProductionIntentExecutor(adapter, migrationPlanner(cfg), executor.gate)
 	return production.Execute(ctx, request, decision)
 }
 
@@ -227,7 +228,7 @@ func (executor *fleetIntentExecutor) ExecuteConcrete(
 	if err != nil {
 		return nil, err
 	}
-	production := mcp.NewProductionIntentExecutor(adapter, plan.NewPlanner(), executor.gate)
+	production := mcp.NewProductionIntentExecutor(adapter, migrationPlanner(cfg), executor.gate)
 	if request.Contract != nil && request.Contract.ActionType == "apply_migration" {
 		factory := executor.migrationFactory
 		if factory == nil {

@@ -1156,6 +1156,7 @@ and config keys are in the [generated catalog](generated/finding-catalog.md).
 | <a id="managed_storage_runway"></a>`managed_storage_runway` | Cloud telemetry | Time left before a managed instance's provisioned storage fills. |
 | <a id="incident"></a><a id="incident_open"></a><a id="incident_resolved"></a>`incident` | RCA | Incident-class rows; `incident_open` and `incident_resolved` mark an incident's state. |
 | <a id="migration_safety"></a>`migration_safety` | Migration advisor | A migration safety rule's finding on a DDL statement. |
+| <a id="upgrade_readiness"></a>`upgrade_readiness` | Upgrade readiness | A major-version upgrade check (U1-U7) that does not pass; see [Upgrade Readiness](#upgrade-readiness). |
 | <a id="test_fixture_cleanup"></a>`test_fixture_cleanup` | Facts | A confirmed test-fixture fact's cleanup batch for an operator to review. pg_sage never drops a schema itself. |
 | <a id="schema_lint"></a>`schema_lint` | Schema lint | `schema_lint:<rule id>`: a schema lint rule's finding. |
 | <a id="agent_posture"></a>`agent_posture` | Agent posture | `agent_posture:<detector>`: an agent posture detector's finding. |
@@ -1171,3 +1172,32 @@ and config keys are in the [generated catalog](generated/finding-catalog.md).
 | <a id="auth_email_case_duplicates"></a>`auth_email_case_duplicates` | Schema migration | User accounts whose emails differ only in case, which block case-insensitive sign-in until an admin merges or renames them. |
 | <a id="sre_action"></a>`sre_action` | SRE agent | A backend cancel the SRE agent proposes; it waits for an operator to approve or deny it. |
 | <a id="sre_maintenance"></a>`sre_maintenance` | SRE agent | Operator-requested extended statistics, queued for approval. |
+
+## Upgrade Readiness
+
+`upgrade_readiness` findings are the major-version upgrade case. Once a day,
+on a database whose major is past or within 90 days of its community end of
+life (where AP-10 reports it), pg_sage checks an upgrade to the newest major
+it knows via `pg_upgrade`. Run any other target on demand with
+`GET /api/v1/upgrade-readiness` or the MCP tool `upgrade_readiness`.
+
+Each check is `pass`, `warn`, `block` or `unknown`. A check that does not pass
+is one finding and one case: `block` is a warning, `warn` and `unknown` are
+info. The finding's detail holds the check's reason, up to 50 evidence rows
+and the total. The case is advisory: it never has an action candidate, and
+pg_sage runs no DDL for it. When the next daily run finds a check passing, its
+finding resolves.
+
+| Check | What it reads | Verdict |
+|-------|---------------|---------|
+| U1 | User tables (`relkind` r/p, permanent) with REPLICA IDENTITY NOTHING, or with the default replica identity and no primary key | `block` for `blue_green` and `logical` (logical replication stops at them), `warn` for `pg_upgrade`. REPLICA IDENTITY FULL or USING INDEX passes. |
+| U2 | Installed extensions (not plpgsql) against `pg_available_extension_versions` on `target_database` | `block` when the target lacks one, `warn` when it lacks the installed version, `unknown` with the installed list when no `target_database` (a fleet member already at the target major) is named. |
+| U3 | This database's logical slots and subscriptions (`subconninfo` is never read) | `block` for `pg_upgrade` from below 17 with slots (they disappear); `warn` for subscriptions from below 17 and for `blue_green`/`logical`; `pass` for `pg_upgrade` from 17+. |
+| U4 | `data_checksums` | `block` when off and the target is 18+ via `pg_upgrade`: initialise with `initdb --no-data-checksums`, or run `pg_checksums --enable` offline first. |
+| U5 | `datcollversion` against `pg_database_collation_actual_version` (PG15+), ICU `collversion` against `pg_collation_actual_version`, and for an 18+ target on a non-libc database the GIN/GiST indexes on tsvector expressions or with `gin_trgm_ops`/`gist_trgm_ops` | `warn`: reindex them after the upgrade. Arms that do not apply are listed in `skipped` with the reason. |
+| U6 | Non-default settings (`pg_settings.source`, which managed providers expose) removed or renamed between the source and target: `stats_temp_directory` (15), `force_parallel_mode`, `vacuum_defer_cleanup_age`, `promote_trigger_file` (16), `old_snapshot_threshold`, `db_user_namespace` (17) | `warn`. |
+| U7 | The provider's dated support table: the community end of life for `self-managed`, the RDS and Aurora standard-support calendars for `rds` and `aurora`; each row names its source URL and read date | `block` when the target is already out of support, `warn` when it leaves support within a year, `unknown` for a provider or major without a dated row, never `pass`. |
+
+A check that cannot read (for example permission denied) is `unknown` with
+its SQLSTATE; the other checks still run. All reads run in one read-only
+REPEATABLE READ transaction under a statement timeout.

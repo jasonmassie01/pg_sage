@@ -84,6 +84,9 @@ func (m astMapper) statement(n *pg_query.Node) ([]DDLClassification, bool) {
 		return nil, createTableKnown(s.CreateStmt)
 	case *pg_query.Node_CreateSchemaStmt:
 		return nil, len(s.CreateSchemaStmt.GetSchemaElts()) == 0
+	case *pg_query.Node_LockStmt, *pg_query.Node_CreateFunctionStmt,
+		*pg_query.Node_AlterSeqStmt:
+		return m.swapForm(n)
 	case *pg_query.Node_VariableSetStmt, *pg_query.Node_TransactionStmt,
 		*pg_query.Node_ViewStmt, *pg_query.Node_CommentStmt, *pg_query.Node_CreateSeqStmt:
 		return nil, true
@@ -100,9 +103,10 @@ func (m astMapper) createIndex(s *pg_query.IndexStmt) []DDLClassification {
 	return []DDLClassification{c}
 }
 
-// drop knows DROP TABLE and a plain DROP INDEX. Other drops, including
-// DROP INDEX CONCURRENTLY, take no table-wide lock pg_sage measures but
-// still remove an object, so they are not proven safe.
+// drop knows DROP TABLE, a plain DROP INDEX, DROP TRIGGER and DROP
+// FUNCTION, each of which matches a rule. Other drops, including DROP
+// INDEX CONCURRENTLY, take no table-wide lock pg_sage measures but still
+// remove an object, so they are not proven safe.
 func (m astMapper) drop(s *pg_query.DropStmt) ([]DDLClassification, bool) {
 	switch s.GetRemoveType() {
 	case pg_query.ObjectType_OBJECT_TABLE:
@@ -113,6 +117,10 @@ func (m astMapper) drop(s *pg_query.DropStmt) ([]DDLClassification, bool) {
 		if !s.GetConcurrent() {
 			return []DDLClassification{m.rule("ddl_drop_index_not_concurrent", nil)}, true
 		}
+	case pg_query.ObjectType_OBJECT_TRIGGER:
+		return m.dropTrigger(s), true
+	case pg_query.ObjectType_OBJECT_FUNCTION:
+		return []DDLClassification{m.rule("ddl_drop_function", nil)}, true
 	}
 	return nil, false
 }

@@ -209,6 +209,9 @@ var runtimeEnvVars = []EnvVar{
 		"of the `history` subcommand's copy into the metadata database (only read)"},
 	{Name: "SAGE_VECTORLAB_DATABASE_URL", Default: envNone, File: true,
 		Doc: "Database of the `vector-lab` subcommand"},
+	{Name: "SAGE_LINT_DATABASE_URL", Default: envNone, File: true, Doc: "Monitored " +
+		"database the `lint-migration` CI gate reads catalog statistics from (only read; " +
+		"not needed with --static)"},
 }
 
 // contributorEnvVars are read only by tests (internal/testdb) and benches.

@@ -127,6 +127,17 @@ jobs:
         working-directory: sidecar
         run: go vet ./...
 
+      # migration-11 (CHECK-24): the docs/migration-ci.md gate against the
+      # fixture migrations, statically and against this job's PostgreSQL.
+      # Each fixture must exit with its expected code (0 safe, 1 review,
+      # 2 risky); a tool error (3) fails the step.
+      - name: Migration lint gate (fixture migrations)
+        env:
+          SAGE_LINT_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+        run: |
+          (cd sidecar && go build -o ../pg_sage_sidecar ./cmd/pg_sage_sidecar)
+          scripts/ci/lint-migration-fixtures.sh ./pg_sage_sidecar
+
       # ci-04: compile every tagged suite (go vet builds test files and runs
       # nothing), so a live suite cannot rot unbuilt. Keep this list in step
       # with internal/testsupport/buildtags, which fails on a missing tag.

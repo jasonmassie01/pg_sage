@@ -143,6 +143,8 @@ var otherEntries = []Category{
 		"An audit event a SIEM sink refused."),
 	e("migration_safety", "migration", "migration", sevWC, nil, nil,
 		"A migration safety rule's finding on a DDL statement."),
+	e("upgrade_readiness", "migration", "upgradecheck", sevIW, nil, nil,
+		"A major-version upgrade readiness check that does not pass (U1-U7)."),
 	e("test_fixture_cleanup", "facts", "facts", sevI, nil, nil,
 		"A confirmed test-fixture fact's cleanup batch for an operator to review."),
 	e("auth_email_case_duplicates", "governance", "schema", sevC, nil, nil,

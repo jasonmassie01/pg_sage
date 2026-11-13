@@ -27,6 +27,8 @@ Migration-safety cases are non-executing by default for high-risk DDL. pg_sage
 generates deterministic lock/rewrite and live-risk preflight evidence,
 migration SQL, rollback or forward-fix guidance, verification SQL, and PR/CI
 metadata so teams can review schema work before anything touches production.
+A type tightening also gets a recommend-only online column swap script that changes
+the type without a table rewrite ([Migration safety](migration-safety.md)).
 
 Incident and maintenance cases now carry richer automation candidates. Lock
 blockers, runaway queries, connection exhaustion, standby conflicts,

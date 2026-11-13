@@ -50,6 +50,9 @@ type Options struct {
 	Excluded func(query string) bool
 	// Log receives diagnostics; nil discards them.
 	Log func(level, format string, args ...any)
+	// DDLRowThreshold is migration.ddl_row_threshold for lint_migration
+	// (0 means the default, 10000).
+	DDLRowThreshold int
 }
 
 // Tools are the coding-agent tools of one monitored database.

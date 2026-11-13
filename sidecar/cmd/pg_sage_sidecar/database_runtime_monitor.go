@@ -39,11 +39,7 @@ func (rt *databaseRuntime) startMonitoring() {
 		logStructuredWrapper,
 	)
 	rt.attachAnalyzerInputs()
-	rt.analyzer.WithSupplementalDetector(executor.NewRunawayDetector(
-		rt.spec.Pool, &cfg.Runaway, logStructuredWrapper,
-	))
-	rt.analyzer.WithSupplementalDetector(rt.newPostureMonitor())
-	rt.analyzer.WithSupplementalDetector(rt.newBudgetMonitor())
+	rt.attachSupplementalDetectors()
 	rt.note("analyzer")
 	rt.wireRCA()
 	rt.startInvestigator()
@@ -67,6 +63,18 @@ func (rt *databaseRuntime) startMonitoring() {
 	rt.startMigrationAdvisor()
 	rt.startPGAuditCorrelation()
 	rt.startObservedPlans()
+}
+
+// attachSupplementalDetectors adds the analyzer's extra per-cycle detectors:
+// runaway queries, agent posture, workload budgets (market-08) and upgrade
+// readiness (market-05).
+func (rt *databaseRuntime) attachSupplementalDetectors() {
+	rt.analyzer.WithSupplementalDetector(executor.NewRunawayDetector(
+		rt.spec.Pool, &cfg.Runaway, logStructuredWrapper,
+	))
+	rt.analyzer.WithSupplementalDetector(rt.newPostureMonitor())
+	rt.analyzer.WithSupplementalDetector(rt.newBudgetMonitor())
+	rt.analyzer.WithSupplementalDetector(rt.newUpgradeMonitor())
 }
 
 // attachAnalyzerInputs gives the analyzer the index floor (when on), the

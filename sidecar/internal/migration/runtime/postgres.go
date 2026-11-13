@@ -95,10 +95,11 @@ func (r *PostgresRecorder) Record(ctx context.Context, record Record) error {
 func measurementJSON(record Record) ([]byte, error) {
 	doc := map[string]any{"reason": record.Reason}
 	if m := record.Measurement; m != nil {
-		doc["max_lock_duration_ms"] = float64(m.MaxLockDuration.Microseconds()) / 1000
-		doc["backfill_duration_ms"] = float64(m.BackfillDuration.Microseconds()) / 1000
+		doc["max_step_duration_ms"] = milliseconds(m.MaxStepDuration)
+		doc["backfill_duration_ms"] = milliseconds(m.BackfillDuration)
 		doc["disk_delta_bytes"] = m.DiskDeltaBytes
 		doc["affected_queries"] = affectedQueriesJSON(m.AffectedQueries)
+		doc["steps"] = stepsJSON(m.Steps)
 	}
 	raw, err := json.Marshal(doc)
 	if err != nil {
@@ -119,12 +120,26 @@ func affectedQueriesJSON(queries []rehearsalpkg.QueryMeasurement) []map[string]a
 	return out
 }
 
+func milliseconds(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }
+
+func stepsJSON(steps []rehearsalpkg.StepMeasurement) []map[string]any {
+	out := make([]map[string]any, 0, len(steps))
+	for _, s := range steps {
+		out = append(out, map[string]any{
+			"kind": string(s.Kind), "duration_ms": milliseconds(s.Duration),
+			"concurrent": s.Concurrent, "lock": s.LockLevel,
+		})
+	}
+	return out
+}
+
+// contractTime is when the contract may run: the recorder's clock plus
+// the plan's delay (migration.contract_delay), or nil with no delay.
 func contractTime(now time.Time, record Record) *time.Time {
-	if record.ContractNotBeforeCycle <= record.Request.Cycle {
+	if record.ContractDelay <= 0 {
 		return nil
 	}
-	delta := record.ContractNotBeforeCycle - record.Request.Cycle
-	result := now.Add(time.Duration(delta) * time.Minute)
+	result := now.Add(record.ContractDelay)
 	return &result
 }
 

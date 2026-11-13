@@ -4,6 +4,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/pgversion"
 )
 
 // AP-10 on the test images (pgvector 0.8.2): HNSW and IVFFlat indexes are
@@ -50,7 +52,7 @@ func TestAP10_ServerEndOfLifeOnLiveServer(t *testing.T) {
 	o := f.run("AP-10", env)
 	major := env.VersionNum / 10000
 	object := "PostgreSQL " + strconv.Itoa(major)
-	eol, known := postgresEOL[major]
+	eol, known := pgversion.EOLDate(major)
 	if !known {
 		requireNoFinding(t, o, object)
 		return

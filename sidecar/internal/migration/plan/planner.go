@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 )
 
 type Classification string
@@ -58,6 +59,9 @@ type Step struct {
 	SQL              string
 	RequiresTopLevel bool
 	Destructive      bool
+	// LockLevel is the table lock the step takes (migration-06); StepLock
+	// folds in what the DDL classifier reports.
+	LockLevel string
 }
 type Plan struct {
 	Cycle                  int
@@ -67,6 +71,12 @@ type Plan struct {
 	ExpandSteps            []Step
 	ContractSteps          []Step
 	ContractNotBeforeCycle int
+	// ContractNotBefore is how long after the expand phase the contract
+	// phase may run (migration.contract_delay); the recorder stores the
+	// wall-clock time.
+	ContractNotBefore time.Duration
+	// ContractGuard is the proof the contract script asserts first.
+	ContractGuard ContractGuard
 }
 
 func (p Plan) StepsForCycle(cycle int, phase Phase) []Step {
@@ -79,9 +89,9 @@ func (p Plan) StepsForCycle(cycle int, phase Phase) []Step {
 	return nil
 }
 
-type Planner struct{}
+type Planner struct{ contractDelay time.Duration }
 
-func NewPlanner() *Planner { return &Planner{} }
+func NewPlanner() *Planner { return &Planner{contractDelay: DefaultContractDelay} }
 
 func (p *Planner) Plan(ctx context.Context, request Request) (Plan, error) {
 	if err := ctx.Err(); err != nil {
@@ -97,10 +107,15 @@ func (p *Planner) Plan(ctx context.Context, request Request) (Plan, error) {
 	if err := checkTarget(stmt, request.Table); err != nil {
 		return Plan{}, err
 	}
+	planned, err := planNotNull(request, stmt.column)
 	if stmt.classification == ClassificationAddUnique {
-		return planUnique(request, stmt)
+		planned, err = planUnique(request, stmt)
 	}
-	return planNotNull(request, stmt.column)
+	if err != nil {
+		return Plan{}, err
+	}
+	planned.ContractNotBefore = p.delay()
+	return planned, nil
 }
 
 func planUnique(request Request, stmt statement) (Plan, error) {
@@ -115,11 +130,15 @@ func planUnique(request Request, stmt statement) (Plan, error) {
 		Rewritten: true, RequiresRehearsal: true,
 		ExpandSteps: []Step{{Kind: StepCreateUniqueIndex, Phase: PhaseExpand,
 			SQL: fmt.Sprintf("CREATE UNIQUE INDEX CONCURRENTLY %s ON %s (%s)",
-				quote(index), table, columnSQL), RequiresTopLevel: true}},
+				quote(index), table, columnSQL), RequiresTopLevel: true,
+			LockLevel: lockShareUpdateExclusive}},
 		ContractSteps: []Step{{Kind: StepAttachUniqueConstraint, Phase: PhaseContract,
 			SQL: fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s UNIQUE USING INDEX %s%s",
-				table, quote(stmt.constraint), quote(index), stmt.timing)}},
-		ContractNotBeforeCycle: request.Cycle + 1}, nil
+				table, quote(stmt.constraint), quote(index), stmt.timing),
+			LockLevel: lockAccessExclusive}},
+		ContractNotBeforeCycle: request.Cycle + 1,
+		ContractGuard: ContractGuard{Kind: GuardValidUniqueIndex,
+			Schema: request.Table.Schema, Table: request.Table.Name, Name: index}}, nil
 }
 
 func planNotNull(request Request, column string) (Plan, error) {
@@ -129,38 +148,42 @@ func planNotNull(request Request, column string) (Plan, error) {
 	}
 	table := qualified(request.Table)
 	result := Plan{Cycle: request.Cycle, Classification: ClassificationSetNotNull,
-		RequiresRehearsal: true, ContractNotBeforeCycle: request.Cycle + 1}
-	if !hasProof(request.Proofs, column) {
-		result.Rewritten = true
-		result.ExpandSteps = []Step{
-			{Kind: StepAddCheckNotValid, Phase: PhaseExpand,
-				SQL: fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s CHECK (%s IS NOT NULL) NOT VALID",
-					table, quote(proofName), quote(column))},
-			{Kind: StepValidateConstraint, Phase: PhaseExpand,
-				SQL: fmt.Sprintf("ALTER TABLE %s VALIDATE CONSTRAINT %s", table, quote(proofName))},
-		}
-		result.ContractSteps = append(result.ContractSteps,
-			Step{Kind: StepSetNotNull, Phase: PhaseContract,
-				SQL: fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s SET NOT NULL", table, quote(column))},
-			Step{Kind: StepDropProofConstraint, Phase: PhaseContract, Destructive: true,
-				SQL: fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT %s", table, quote(proofName))})
+		RequiresRehearsal: true, ContractNotBeforeCycle: request.Cycle + 1,
+		ContractGuard: ContractGuard{Kind: GuardValidatedCheck,
+			Schema: request.Table.Schema, Table: request.Table.Name, Name: proofName}}
+	setNotNull := Step{Kind: StepSetNotNull, Phase: PhaseContract,
+		SQL:       fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s SET NOT NULL", table, quote(column)),
+		LockLevel: lockAccessExclusive}
+	if proof, ok := findProof(request.Proofs, column); ok {
+		result.ContractGuard.Name = proof.Constraint
+		result.ContractSteps = []Step{setNotNull}
 		return result, nil
 	}
-	result.ContractSteps = []Step{{Kind: StepSetNotNull, Phase: PhaseContract,
-		SQL: fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s SET NOT NULL", table, quote(column))}}
+	result.Rewritten = true
+	result.ExpandSteps = []Step{
+		{Kind: StepAddCheckNotValid, Phase: PhaseExpand, LockLevel: lockAccessExclusive,
+			SQL: fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s CHECK (%s IS NOT NULL) NOT VALID",
+				table, quote(proofName), quote(column))},
+		{Kind: StepValidateConstraint, Phase: PhaseExpand, LockLevel: lockShareUpdateExclusive,
+			SQL: fmt.Sprintf("ALTER TABLE %s VALIDATE CONSTRAINT %s", table, quote(proofName))},
+	}
+	result.ContractSteps = append(result.ContractSteps, setNotNull,
+		Step{Kind: StepDropProofConstraint, Phase: PhaseContract, Destructive: true,
+			LockLevel: lockAccessExclusive,
+			SQL:       fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT %s", table, quote(proofName))})
 	return result, nil
 }
 
-// hasProof matches the folded column exactly: Proof.Column is a
+// findProof matches the folded column exactly: Proof.Column is a
 // catalog attname, so "Email" proves nothing about email.
-func hasProof(proofs []Proof, column string) bool {
+func findProof(proofs []Proof, column string) (Proof, bool) {
 	for _, proof := range proofs {
 		if proof.Kind == ProofValidatedNotNullCheck && proof.Validated &&
 			proof.Column == column {
-			return true
+			return proof, true
 		}
 	}
-	return false
+	return Proof{}, false
 }
 func qualified(table TableFacts) string { return quote(table.Schema) + "." + quote(table.Name) }
 

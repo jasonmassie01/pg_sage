@@ -62,6 +62,8 @@ var viewerWriteRoutes = map[string]string{
 		"the current one (apiauth-03)",
 	"POST " + askBasePath: "Ask Sage answers from read-only tools and cannot " +
 		"execute or approve anything; the conversation is the caller's own",
+	"POST " + migrationLintPath: "migration lint never runs the SQL: it reads " +
+		"catalog statistics under a 2 s bound and changes nothing (migration-11)",
 }
 
 var (

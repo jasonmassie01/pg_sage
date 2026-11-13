@@ -90,6 +90,7 @@
 | `analyzer.xid_wraparound_warning` | `restart` | `-` | `derivable` |
 | `api.access_log` | `restart` | `-` | `safety_critical` |
 | `api.listen_addr` | `restart` | `-` | `safety_critical` |
+| `api.migration_lint_rate_per_minute` | `restart` | `-` | `safety_critical` |
 | `api.trusted_origins` | `restart` | `-` | `safety_critical` |
 | `api.trusted_proxies` | `restart` | `-` | `safety_critical` |
 | `ask.daily_tokens_per_database` | `restart` | `-` | `derivable` |
@@ -270,9 +271,11 @@
 | `mcp.transport` | `restart` | `-` | `safety_critical` |
 | `meta_db` | `restart` | `-` | `safety_critical` |
 | `migration.activity_polling` | `restart` | `-` | `operator_preference` |
+| `migration.contract_delay_minutes` | `restart` | `-` | `safety_critical` |
 | `migration.ddl_row_threshold` | `restart` | `-` | `derivable` |
 | `migration.enabled` | `restart` | `-` | `safety_critical` |
 | `migration.log_detection` | `restart` | `-` | `operator_preference` |
+| `migration.max_lock_ms` | `restart` | `-` | `safety_critical` |
 | `migration.mode` | `restart` | `-` | `safety_critical` |
 | `migration.poll_interval_seconds` | `restart` | `-` | `derivable` |
 | `migration.queue_waiters_threshold` | `restart` | `-` | `operator_preference` |
@@ -329,6 +332,7 @@
 | `rca.vacuum_min_table_mb` | `restart` | `-` | `derivable` |
 | `rca.wal_spike_multiplier` | `restart` | `-` | `derivable` |
 | `rca.xmin_holder_min_minutes` | `restart` | `-` | `safety_critical` |
+| `rehearsal.plan_flip_pct` | `restart` | `-` | `safety_critical` |
 | `replication.cdc_heartbeats` | `restart` | `-` | `operator_preference` |
 | `retention.actions_days` | `restart` | `-` | `operator_preference` |
 | `retention.auth_audit_days` | `restart` | `-` | `operator_preference` |
