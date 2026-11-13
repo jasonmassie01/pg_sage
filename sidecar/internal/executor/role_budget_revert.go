@@ -112,9 +112,8 @@ func (p monitorPlan) judgeCancels(
 		Reason: reason}
 	switch {
 	case elapsed > budget.RevertWatch+revertGrace:
-		j.Verdict, j.Terminal = verify.OutcomeImproved, true
-		j.Reason = fmt.Sprintf("the enforced timeout cancelled %d statements in the 24 h "+
-			"watch, within twice the prediction", actual)
+		j.Verdict, j.Reason = lateVerdict(check, source, elapsed)
+		j.Terminal = true
 	case revert:
 		j.Verdict = verify.OutcomeRegressed
 	case source != budget.CancelSourceLog:
@@ -126,6 +125,27 @@ func (p monitorPlan) judgeCancels(
 		j.Verdict = verify.OutcomeInsufficient
 	}
 	return j
+}
+
+// lateVerdict settles a check past the 24 h watch (a late or resumed
+// monitor): the rule no longer reverts, and the timeout is credited only
+// when the server log was read and its cancels stayed within the
+// threshold; otherwise it is left uncredited for an operator to review.
+func lateVerdict(check budget.RevertCheck, source string, elapsed time.Duration) (string,
+	string) {
+	numbers := fmt.Sprintf("%d cancels by %.1f h after apply, threshold %.0f",
+		check.Actual, elapsed.Hours(), check.Threshold())
+	switch {
+	case source != budget.CancelSourceLog:
+		return verify.OutcomeInsufficient, numbers + "; the 24 h watch ended and the " +
+			"server log is not read now, so its cancels are unproven: not credited"
+	case float64(check.Actual) > check.Threshold():
+		return verify.OutcomeInsufficient, numbers + "; past twice the prediction but " +
+			"checked after the 24 h watch ended, so it is not reverted automatically: " +
+			"review it"
+	}
+	return verify.OutcomeImproved, fmt.Sprintf("the enforced timeout cancelled %d "+
+		"statements in the 24 h watch, within twice the prediction", check.Actual)
 }
 
 // lockRoleRollback takes the cluster role lock of a role budget rollback,

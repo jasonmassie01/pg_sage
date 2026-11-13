@@ -71,14 +71,51 @@ func judgeAt(t *testing.T, f timeoutRevertFixture, now time.Time) judgement {
 	return plan.judge(context.Background(), f.pool, cfg, now)
 }
 
-// State transition: past 24 hours within the prediction the timeout is
-// kept (improved, final).
+// State transition: past 24 hours within the prediction, counted from the
+// server log, the timeout is kept (improved, final).
 func TestRoleBudgetRevert_KeptAfterTheWatch(t *testing.T) {
 	f := enforceRevertFixture(t, 25*time.Hour, 2)
+	recordSource(t, f, budget.CancelSourceLog, 0)
 	if j := judgeAt(t, f, time.Now()); j.outcome.Verdict != verify.OutcomeImproved ||
 		j.accruing {
 		t.Fatalf("after 25 h: %s (%s) accruing %v, want improved and final",
 			j.outcome.Verdict, j.outcome.Reason, j.accruing)
+	}
+}
+
+// recordSource records n of today's cancels from source on the fixture's
+// ledger.
+func recordSource(t *testing.T, f timeoutRevertFixture, source string, n int64) {
+	t.Helper()
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	var rows []budget.CancelRow
+	if n > 0 {
+		rows = []budget.CancelRow{{Budget: revertBudget, Definition: "role=" + budgetRole,
+			Day: today, Count: n}}
+	}
+	if err := f.store.RecordCancels(context.Background(), today, source, rows); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A late check past the watch (a resumed monitor) never credits cancels
+// it cannot prove: without the server log, or past the threshold, the
+// action settles uncredited (insufficient, final) and is not reverted.
+func TestRoleBudgetRevert_LateCheckCreditsOnlyMeasuredCancels(t *testing.T) {
+	f := enforceRevertFixture(t, 30*time.Hour, 0)
+	j := judgeAt(t, f, time.Now())
+	if j.outcome.Verdict != verify.OutcomeInsufficient || j.accruing ||
+		!strings.Contains(j.outcome.Reason, "server log") {
+		t.Fatalf("30 h, no log source: %s (%s) accruing %v, want insufficient and final "+
+			"naming the log", j.outcome.Verdict, j.outcome.Reason, j.accruing)
+	}
+	recordSource(t, f, budget.CancelSourceLog, 20)
+	j = judgeAt(t, f, time.Now())
+	if j.outcome.Verdict != verify.OutcomeInsufficient || j.accruing ||
+		!strings.Contains(j.outcome.Reason, "20 cancels") {
+		t.Fatalf("30 h, 20 cancels on a zero prediction: %s (%s) accruing %v, want "+
+			"insufficient and final naming the count", j.outcome.Verdict, j.outcome.Reason,
+			j.accruing)
 	}
 }
 
