@@ -8,8 +8,24 @@ const TRUST_LEVELS = ['observation', 'advisory', 'autonomous']
 const EXEC_MODES = ['auto', 'approval', 'manual']
 const NUMERIC_FIELDS = new Set(['port', 'max_connections'])
 
+// requestBody sends the write-only action identity (security-09b) only
+// when the operator touched it: a changed role (an empty one removes it)
+// or a new password, which always travels with its role.
+function requestBody(form, storedActionUser) {
+  const {
+    action_username: actionUser, action_password: actionPassword, ...rest
+  } = form
+  const body = { ...rest }
+  if (actionUser !== storedActionUser || actionPassword) {
+    body.action_username = actionUser
+  }
+  if (actionPassword) body.action_password = actionPassword
+  return body
+}
+
 export function DatabaseForm({ db, onClose, onError }) {
   const isEdit = !!db
+  const storedActionUser = db?.action_identity?.username || ''
   const [form, setForm] = useState({
     name: db?.name || '',
     host: db?.host || '',
@@ -21,6 +37,8 @@ export function DatabaseForm({ db, onClose, onError }) {
     max_connections: db?.max_connections || 2,
     trust_level: db?.trust_level || 'observation',
     execution_mode: db?.execution_mode || 'approval',
+    action_username: storedActionUser,
+    action_password: '',
     // Round-trip tags: the PUT replaces them, so omitting them wiped
     // tags set through the API or MCP (G9-B10).
     ...(db?.tags ? { tags: db.tags } : {}),
@@ -50,7 +68,7 @@ export function DatabaseForm({ db, onClose, onError }) {
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(form),
+            body: JSON.stringify(requestBody(form, storedActionUser)),
           })
       } else {
         res = await fetch(
@@ -59,7 +77,7 @@ export function DatabaseForm({ db, onClose, onError }) {
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(form),
+            body: JSON.stringify(requestBody(form, storedActionUser)),
           })
       }
       const data = await res.json()
@@ -83,7 +101,7 @@ export function DatabaseForm({ db, onClose, onError }) {
         method,
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify(form),
+        body: JSON.stringify(requestBody(form, storedActionUser)),
       })
       if (!res.ok) {
         const data = await res.json()
@@ -158,6 +176,8 @@ export function DatabaseForm({ db, onClose, onError }) {
 		    trust level and execution mode.
 		  </p>
 		)}
+        <ActionIdentityFields form={form} set={set} isEdit={isEdit}
+          configured={!!storedActionUser} style={inputStyle} />
 
         {testResult && (
           <TestResultBanner result={testResult} />
@@ -190,6 +210,32 @@ export function DatabaseForm({ db, onClose, onError }) {
         </div>
       </form>
     </div>
+  )
+}
+
+function ActionIdentityFields({ form, set, isEdit, configured, style }) {
+  return (
+    <fieldset className="mb-3" data-testid="db-action-identity">
+      <legend className="text-xs font-semibold mb-1"
+        style={{ color: 'var(--text-primary)' }}>
+        Action identity (optional)
+      </legend>
+      <p className="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>
+        A second role on the same database that runs approved changes and
+        backend cancel/terminate; the role above then only observes. Clear
+        the role to remove it.
+      </p>
+      <div className="grid grid-cols-3 gap-3">
+        <Field label="Action role" value={form.action_username}
+          onChange={set('action_username')} style={style}
+          data-testid="db-action-username" />
+        <Field label="Action password" type="password"
+          value={form.action_password} onChange={set('action_password')}
+          style={style}
+          placeholder={isEdit && configured ? '(unchanged)' : ''}
+          data-testid="db-action-password" />
+      </div>
+    </fieldset>
   )
 }
 
