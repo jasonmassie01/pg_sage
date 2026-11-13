@@ -138,3 +138,29 @@ func TestDisabledRules_ResolveIsIdempotent(t *testing.T) {
 		t.Fatalf("resolved rows = %d, want 1", n)
 	}
 }
+
+// clone_schemas is derived after the first rule-pack pass (collapse of a
+// schema family). Disabled, it must still be dropped and not resolvable:
+// otherwise every cycle would reopen it and then resolve it as
+// rule_disabled again.
+func TestDisabledRules_DerivedCategoryIsDropped(t *testing.T) {
+	pool := phase2Pool(t)
+	for _, disabled := range [][]string{nil, {"clone_schemas"}} {
+		cfg := phase2Config()
+		cfg.Analyzer.DisabledRules = disabled
+		a := New(pool, cfg, nil, nil, nil, nil, nil, noopLog)
+		a.eval = newCycleEval()
+		out := a.deriveFindings(context.Background(), tenantSnapshot(5),
+			tenantFindings(5), nil)
+		family, _ := splitFamilyOutput(t, out)
+		resolvable := a.eval.resolvable(out)[CategoryCloneSchemas]
+		if disabled == nil && (len(family) != 1 || !resolvable) {
+			t.Fatalf("enabled: family findings = %d, resolvable %v; want 1, true",
+				len(family), resolvable)
+		}
+		if disabled != nil && (len(family) != 0 || resolvable) {
+			t.Fatalf("disabled: family findings = %d, resolvable %v; want 0, false",
+				len(family), resolvable)
+		}
+	}
+}

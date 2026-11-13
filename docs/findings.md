@@ -930,9 +930,12 @@ These deterministic rules run alongside the categories above.
 or per database ([configuration](configuration.md#rule-packs-and-owner-checks)). A disabled
 snapshot rule does not run; findings of a disabled category are dropped. Its open findings
 are resolved, never left open or deleted: `status = 'resolved'` with
-`detail.resolution = "rule_disabled"` and `detail.disabled_by` (the API user's email, or the
-config path that disabled it). Re-enabling the rule opens a new finding on the next cycle that
-still sees the problem. `wraparound_freeze`, `xid_wraparound`, `sequence_exhaustion` and the
+`detail.resolution = "rule_disabled"` and `detail.disabled_by` (the API user's email, `user <id>`
+when a stored override is replayed after a restart, or the config path that disabled it).
+Derived categories (`clone_schemas`, `app_managed_index`) can be disabled too: they are
+dropped after they are derived, so disabling `clone_schemas` hides the family finding but
+does not undo the collapse of the per-schema findings into it.
+Re-enabling the rule opens a new finding on the next cycle that still sees the problem. `wraparound_freeze`, `xid_wraparound`, `sequence_exhaustion` and the
 `sage_*` self rules cannot be disabled: the config load and the API refuse them with the
 reason. The suppression API and `schema_lint.disabled_rules` are unchanged.
 
