@@ -26,6 +26,8 @@ import {
 import { FocusMissing } from './cases/FocusMissing'
 import { CaseTicket } from './cases/CaseTicket'
 import { QueryPageLink } from './cases/QueryPageLink'
+import { FindingSourceSelect } from './cases/FindingSourceSelect'
+import { useFindingSource } from './cases/findingSource'
 
 const SOURCE_FILTERS = [
   { value: 'all', label: 'All' },
@@ -38,10 +40,12 @@ const SOURCE_FILTERS = [
 
 // casesQuery selects the database and, for a focused case, asks the
 // server to load that case even when the capped list does not carry it.
-function casesQuery(database, focusedID) {
+// A finding source (rules-12b) filters the list, never a focused case.
+function casesQuery(database, focusedID, findingSource) {
   const params = new URLSearchParams()
   if (database && database !== 'all') params.set('database', database)
   if (focusedID) params.set('case', focusedID)
+  if (findingSource) params.set('finding_source', findingSource)
   const query = params.toString()
   return query ? `?${query}` : ''
 }
@@ -100,8 +104,10 @@ function InvestigationFocusCases(props) {
 function CasesView({ database, initialSource = 'all', user, focus, setFocus, invItems }) {
   const [sourceFilter, setSourceFilter] = useState(initialSource)
   const [showSuppressed, setShowSuppressed] = useState(false)
+  const [findingSource, setFindingSource] = useFindingSource()
   const serverFocus = focus?.kind === 'case' ? focus.id : investigationCase(focus, invItems)
-  const casesResult = useAPI(`/api/v1/cases${casesQuery(database, serverFocus)}`, 30000)
+  const casesResult = useAPI(
+    `/api/v1/cases${casesQuery(database, serverFocus, focus ? '' : findingSource)}`, 30000)
   const { data, refetch } = casesResult
 
   if (queryBlocked(casesResult)) {
@@ -167,6 +173,8 @@ function CasesView({ database, initialSource = 'all', user, focus, setFocus, inv
             {source.label}
           </button>
         ))}
+        <FindingSourceSelect value={findingSource} sources={data?.finding_sources}
+          onChange={setFindingSource} />
       </div>}
 
       {!focus && <div>

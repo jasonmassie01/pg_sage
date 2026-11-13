@@ -1,8 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  FindingSourceSelect, findingSourceFromHash, hashWithFindingSource,
-} from './FindingSourceSelect'
+import { FindingSourceSelect } from './FindingSourceSelect'
+import { findingSourceFromHash, hashWithFindingSource } from './findingSource'
 import { CasesPage } from '../CasesPage'
 
 // rules-12b: the Cases page asks the server for one finding source
