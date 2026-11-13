@@ -68,5 +68,21 @@
       "status": "empty",
       "offset_ms": 160
     }
-  ]
+  ],
+  "deadlock_log": {
+    "detail": "Process 16010 waits for ShareLock on transaction 90211; blocked by process 16020.\nProcess 16020 waits for ShareLock on transaction 90210; blocked by process 16010.\nProcess 16010: UPDATE ledger SET balance = balance - 25 WHERE account_id = 7101\nProcess 16020: UPDATE ledger SET balance = balance + 25 WHERE account_id = 7100",
+    "context": "while updating tuple (12,4) in relation \"ledger\"",
+    "participants": [
+      {
+        "pid": 16010,
+        "wait_mode": "ShareLock",
+        "blocked_by": 16020
+      },
+      {
+        "pid": 16020,
+        "wait_mode": "ShareLock",
+        "blocked_by": 16010
+      }
+    ]
+  }
 }

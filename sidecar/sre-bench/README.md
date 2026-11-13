@@ -281,6 +281,14 @@ are errors):
 - Each canary (8 characters or more) must appear in the case's data. The
   grader fails the run if a canary appears in the redacted export (JSON or
   Markdown) or in any model prompt.
+- `deadlock_log` (optional, rca-07b) is a deadlock's server-log record:
+  `detail` and `context` as csvlog writes them, and the `participants` a DBA
+  must see (`pid`, `wait_mode`, `blocked_by`). `replay.ParticipantsNamed`
+  runs the record through pg_sage's log parser and scores
+  `participants_named` 1 when every expected participant is named with its
+  lock mode, its blocker and a statement fingerprint, else 0
+  (`lock-deadlock-cycle` carries one). Its text is case text for the
+  canary checks.
 
 **Adding cases (other families).** Add a directory under `replay/cases/` and
 JSON files in it. The loader validates every file against the probe catalog

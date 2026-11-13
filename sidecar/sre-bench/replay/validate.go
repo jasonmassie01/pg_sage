@@ -36,7 +36,8 @@ func (c Case) Validate(reg *probes.Registry) error {
 		return invalid("no probe registry to validate against")
 	}
 	for _, check := range []func() error{c.validateHeader, c.validateGold,
-		func() error { return c.validateObservations(reg) }, c.validateCanaries} {
+		func() error { return c.validateObservations(reg) }, c.validateCanaries,
+		c.validateDeadlockLog} {
 		if err := check(); err != nil {
 			return err
 		}
