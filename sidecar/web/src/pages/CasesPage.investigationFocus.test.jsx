@@ -98,6 +98,21 @@ describe('Cases investigation focus over the real useAPI (cases-12)', () => {
     expect(detailReads()).toEqual([detailURL(INV), detailURL(INV)])
   })
 
+  it('links an Ask Sage investigation to the record of the database it was read from',
+    async () => {
+      // The server's investigation carries no database (sre.Investigation);
+      // the record link takes it from the detail's top-level database.
+      routes[detailURL(INV)] = () => detail(INV, 'ask:0123456789abcdef')
+      go(`#/cases?investigation=${INV}&database=orders`)
+      render(<CasesPage database="orders" user={{ role: 'viewer' }} />)
+      const notice = await screen.findByTestId('cases-focus-missing')
+      expect(notice).toHaveTextContent(/no case here/)
+      expect(within(notice).getByRole('link', { name: /investigation record/i }))
+        .toHaveAttribute('href', detailURL(INV))
+      expect(requested.some(u => u.startsWith('/api/v1/cases') && u.includes('case=')))
+        .toBe(false)
+    })
+
   it('says not found for a 404 and reads the investigation once', async () => {
     routes[detailURL(INV)] = () =>
       json({ error: 'investigation not found', code: 'not_found' }, 404)
