@@ -49,6 +49,7 @@ nav:
   - Binding Facts: facts.md
   - MCP for Coding Agents: mcp.md
   - Migration review in CI: migration-ci.md
+  - Migration safety: migration-safety.md
   - Ask Sage: ask-sage.md
   - Postgres Specialist for Other Agents: specialist.md
   - Hint Verification: hint-verification.md
