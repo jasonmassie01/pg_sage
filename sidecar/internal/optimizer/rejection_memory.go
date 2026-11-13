@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -276,9 +277,14 @@ func (v *tableMemory) promptLines(minPct float64) []string {
 }
 
 func promptLine(r rejection) string {
-	suffix := fmt.Sprintf(": %.1f%% call-weighted improvement, below the %.1f%% minimum "+
-		"(measured %dx, last %s)", r.ImprovementPct, r.MinImprovementPct,
-		max(r.MeasureCount, 1), r.MeasuredAt.UTC().Format("2006-01-02 15:04 UTC"))
+	when := fmt.Sprintf("(measured %dx, last %s)", max(r.MeasureCount, 1),
+		r.MeasuredAt.UTC().Format("2006-01-02 15:04 UTC"))
+	suffix := fmt.Sprintf(": %.1f%% call-weighted improvement, below the %.1f%% minimum %s",
+		r.ImprovementPct, r.MinImprovementPct, when)
+	if index, ok := strings.CutPrefix(r.Reason, skipScanReasonPrefix); ok {
+		suffix = fmt.Sprintf(": already served by %s through PostgreSQL 18 skip scan %s",
+			llm.SanitizeForLLM(index), when)
+	}
 	shape := llm.SanitizeForLLM(r.Shape.String())
 	if budget := maxRejectionPromptLine - len("- ") - len(suffix); len(shape) > budget {
 		shape = truncateBytes(shape, budget-len("...")) + "..."

@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/workload"
@@ -173,31 +175,34 @@ func fetchColStats(
 	// Extract column names referenced in query texts to filter
 	// pg_stats to only the columns the optimizer needs.
 	cols := extractColumnsFromQueries(queries)
-
-	var rows interface {
-		Next() bool
-		Scan(dest ...any) error
-		Close()
-	}
-	var err error
 	if len(cols) > 0 {
-		rows, err = pool.Query(ctx,
-			`/* pg_sage optimizer */ SELECT attname, n_distinct, correlation,
-			        most_common_vals::text, most_common_freqs::text
-			 FROM pg_stats
-			 WHERE schemaname = $1 AND tablename = $2
-			   AND attname = ANY($3)`, schema, table, cols)
-	} else {
-		// No column names extracted: return the most skewed
-		// columns to cap prompt size.
-		rows, err = pool.Query(ctx,
-			`/* pg_sage optimizer */ SELECT attname, n_distinct, correlation,
+		return fetchNamedColStats(ctx, pool, schema, table, cols)
+	}
+	// No column names extracted: return the most skewed
+	// columns to cap prompt size.
+	return scanColStats(pool.Query(ctx,
+		`/* pg_sage optimizer */ SELECT attname, n_distinct, correlation,
 			        most_common_vals::text, most_common_freqs::text
 			 FROM pg_stats
 			 WHERE schemaname = $1 AND tablename = $2
 			 ORDER BY abs(correlation) DESC
-			 LIMIT 15`, schema, table)
-	}
+			 LIMIT 15`, schema, table))
+}
+
+// fetchNamedColStats reads the pg_stats rows of the named columns.
+func fetchNamedColStats(ctx context.Context, pool catalogread.Querier,
+	schema, table string, cols []string) []ColStat {
+	return scanColStats(pool.Query(ctx,
+		`/* pg_sage optimizer */ SELECT attname, n_distinct, correlation,
+			        most_common_vals::text, most_common_freqs::text
+			 FROM pg_stats
+			 WHERE schemaname = $1 AND tablename = $2
+			   AND attname = ANY($3)`, schema, table, cols))
+}
+
+// scanColStats reads pg_stats rows; a failed read is no statistics (the
+// rules that need them do not apply) and an unreadable row is skipped.
+func scanColStats(rows pgx.Rows, err error) []ColStat {
 	if err != nil {
 		return nil
 	}
@@ -410,4 +415,16 @@ func parseFloatArray(s string) []float64 {
 		}
 	}
 	return result
+}
+
+// SkipScanNote is the PostgreSQL 18 note for the index agent's table
+// context, "" before 18.
+func SkipScanNote(tc TableContext) string {
+	if tc.PGMajor < skipScanMinMajor {
+		return ""
+	}
+	return fmt.Sprintf("PostgreSQL 18 skip scan: a btree index can serve an equality "+
+		"or range on its second key when its leading key has few distinct values (at "+
+		"most %d), so a single-column index on a column an existing composite holds "+
+		"second behind such a key is usually redundant.", skipScanMaxLeadingDistinct)
 }

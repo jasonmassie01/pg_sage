@@ -81,9 +81,9 @@ func baseContext(snap *collector.Snapshot, ts collector.TableStats, queries []Qu
 	return tc
 }
 
-// readCatalog adds the table's columns, their key defaults, column
-// statistics and the database collation; without a database the context
-// keeps none (and ColumnsKnown stays false).
+// readCatalog adds the server's major version, the table's columns, their
+// key defaults, column statistics and the database collation; without a
+// database the context keeps none (and ColumnsKnown stays false).
 func (o *Optimizer) readCatalog(ctx context.Context, tc *TableContext, queries []QueryInfo) {
 	if o.pool == nil {
 		return
@@ -96,11 +96,12 @@ func (o *Optimizer) readCatalog(ctx context.Context, tc *TableContext, queries [
 // the columns the role may see, and a timeout is no evidence either.
 func (o *Optimizer) fillCatalog(ctx context.Context, reader catalogread.Querier,
 	tc *TableContext, queries []QueryInfo) {
-	collation, err := fetchCollation(ctx, reader)
+	collation, major, err := fetchCollationAndMajor(ctx, reader)
 	if err != nil {
-		o.logFn("optimizer", "read database collation: %v", err)
+		o.logFn("optimizer", "%v; version-specific index rules (PostgreSQL 18 skip scan) "+
+			"are off for %s.%s this cycle", err, tc.Schema, tc.Table)
 	}
-	tc.Collation = collation
+	tc.Collation, tc.PGMajor = collation, major
 	cols, err := fetchColumns(ctx, reader, tc.Schema, tc.Table)
 	if err != nil {
 		o.logFn("WARN", "optimizer: %v; column existence is not checked this cycle", err)
@@ -113,6 +114,9 @@ func (o *Optimizer) fillCatalog(ctx context.Context, reader catalogread.Querier,
 	}
 	tc.KeyDefaults = defaults
 	tc.ColStats = fetchColStats(ctx, reader, tc.Schema, tc.Table, queries)
+	if cols := leadingKeyColumns(*tc); len(cols) > 0 {
+		tc.LeadingKeyStats = fetchNamedColStats(ctx, reader, tc.Schema, tc.Table, cols)
+	}
 }
 
 // findTable is the snapshot's row for "schema.table"; an unqualified name
