@@ -2871,6 +2871,13 @@
     "class": "derivable",
     "lifecycle": "restart"
   },
+  "rca.deadlock_statement_text": {
+    "type": "string",
+    "default": "fingerprint",
+    "doc": "Deadlock participant statements: fingerprint (hash of the literal-redacted statement, no text) or redacted (also its redacted text, experimental). Default: fingerprint.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
   "rca.dedup_window_minutes": {
     "type": "int",
     "default": 30,

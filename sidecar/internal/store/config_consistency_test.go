@@ -253,6 +253,9 @@ var excludedExactKeys = map[string]bool{
 	// they are YAML-only.
 	"rca.log_quiet_minutes":         true,
 	"rca.recurrence_renotify_hours": true,
+	// rca-07b: whether deadlock statement text is kept, validated at load
+	// and read once when the log classifier starts: YAML-only.
+	"rca.deadlock_statement_text": true,
 
 	// Dogfood lifeos-1: validated at load against other keys
 	// (rca.dedup_window_minutes; sre.runways.interval_seconds,
