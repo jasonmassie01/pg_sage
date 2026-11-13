@@ -120,7 +120,8 @@ and the status or error, and `docker inspect` shows it under
 
 ## Cloud SQL (Google Cloud)
 
-Validated on PostgreSQL 14, 15, 16, 17. Zero code changes.
+Validated live on Cloud SQL majors 14 to 17; pg_sage itself is tested in CI on
+PostgreSQL 14-18 (CI matrix), and Cloud SQL 18 is not yet validated live. Zero code changes.
 
 ```yaml
 # config.yaml
