@@ -369,10 +369,11 @@ func healthCheckStoreDatabase(
 	).Scan(&databaseName); err != nil {
 		return fmt.Errorf("health check database: %w", err)
 	}
-	if inst.Config.Database != "" && databaseName != inst.Config.Database {
+	expected := inst.ConfigSnapshot().Database
+	if expected != "" && databaseName != expected {
 		return fmt.Errorf(
 			"health check connected to %q, expected %q",
-			databaseName, inst.Config.Database,
+			databaseName, expected,
 		)
 	}
 	return nil

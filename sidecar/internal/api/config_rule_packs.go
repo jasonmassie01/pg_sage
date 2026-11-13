@@ -41,8 +41,8 @@ func resetDatabaseOverride(mgr *fleet.DatabaseManager, dbID int, key string) {
 	if inst == nil || inst.Analyzer == nil {
 		return
 	}
-	if inst.Config.DisabledRules != nil {
-		inst.Analyzer.SetDisabledRules(inst.Config.DisabledRules,
+	if rules := inst.ConfigSnapshot().DisabledRules; rules != nil {
+		inst.Analyzer.SetDisabledRules(rules,
 			"config databases[].disabled_rules")
 		return
 	}

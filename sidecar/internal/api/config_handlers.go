@@ -100,18 +100,9 @@ func configReadOnlyDBGetHandler(
 			controller,
 		)
 		values := store.ConfigReadModel(responseCfg)
-		executionMode := instance.Config.ExecutionMode
-		trustLevel := instance.Config.TrustLevel
-		if instance.Executor != nil {
-			executionMode = instance.Executor.ExecutionMode()
-			trustLevel = instance.Executor.TrustLevel()
-		}
-		if executionMode == "" {
-			executionMode = "approval"
-		}
-		if trustLevel == "" {
-			trustLevel = responseCfg.Trust.Level
-		}
+		executionMode, trustLevel := instanceModeAndTrust(
+			instance, responseCfg.Trust.Level,
+		)
 		values["execution_mode"] = map[string]any{
 			"value": executionMode, "source": store.SourceFileDefault,
 		}

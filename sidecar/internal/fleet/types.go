@@ -118,6 +118,9 @@ type DatabaseInstance struct {
 	// statusMu guards reads/writes to the InstanceStatus pointed to by
 	// Status. Always access via UpdateStatus / SnapshotStatus.
 	statusMu sync.RWMutex
+	// configMu (leaf) guards Config swaps; writers also hold m.mu, so code
+	// under m.mu reads Config directly and everything else ConfigSnapshot.
+	configMu sync.RWMutex
 	// trustPolicyMu protects the runtime source bit for per-database trust.
 	trustPolicyMu       sync.RWMutex
 	trustOverrideKnown  bool
@@ -138,7 +141,7 @@ func (d *DatabaseInstance) HasTrustLevelOverride() bool {
 	if d.trustOverrideKnown {
 		return d.trustOverrideActive
 	}
-	return d.Config.TrustLevelExplicit
+	return d.ConfigSnapshot().TrustLevelExplicit
 }
 
 // SetTrustLevelOverride records the runtime source of effective trust.
