@@ -3473,8 +3473,13 @@ PagerDuty re-triggers with the same dedup key, which it folds into the open inci
 finding that escalates (warning to critical) is sent at once. A finding that resolves and
 reopens, as a new finding or as the same one when an action did not fix it, is alerted again
 once the cooldown has passed, so a flapping check is not re-sent every cycle. Reminders are logged in `sage.alert_log` as `sent`, and after a restart the
-throttle reads that log far enough back to keep the schedule. Like the other alerting keys,
-`repeat_minutes` takes effect on restart.
+throttle reads that log far enough back to keep the schedule. `repeat_minutes`,
+`cooldown_minutes`, `quiet_hours_start`, `quiet_hours_end` and `timezone` apply without a
+restart when changed through the settings API: the next decision of every alerting manager
+and of the notification outbox uses them, and alerts already open stay throttled. An unknown
+timezone or an invalid quiet-hours value is refused with an error naming the key. The other
+alerting keys (routes, channels, URLs, `enabled`, `check_interval_seconds`) take effect on
+restart.
 
 ```yaml
 alerting:
@@ -3515,6 +3520,89 @@ held by quiet hours, channel `quiet_hours`). In the fleet view, a database whose
 cannot be read is named in a banner (`failed_databases` in `GET /api/v1/alert-log`) while the
 other databases' rows still show; the API answers 503 only when no selected database can be
 read. The date range filters the newest 100 rows per database.
+
+### Notification delivery
+
+Notification rules (the Notifications page) are delivered through an outbox in the control
+database, `sage.notification_outbox`; in fleet and meta-database mode it is the same database
+as the rules. Each matching rule queues one entry, and the sidecar delivers due entries every
+5 seconds, each channel on its own so one slow endpoint does not hold up the others. A network
+error, a 5xx or a 429 is retried after 30 s, 1 min, 2 min, 4 min and 8 min (6 attempts, at
+most 15 min apart). When the answer carries `Retry-After`, the next attempt waits that long
+if it is longer than the backoff, at most 1 hour; another 4xx, a target the notification policy refuses and a disabled or
+deleted channel are not retried. Every failed attempt is in the Log tab, as `retrying` while
+attempts are left and as `error` on the last. Sidecars sharing a control database never
+deliver an entry twice. Approval cards, fact cards and Telegram follow-ups are still sent at
+once, because their buttons and reply ids are minted at send time.
+
+The finding events (`finding_critical`, `finding_opened`, `finding_resolved`) follow the
+`alerting.*` cooldown, quiet hours and repeat intervals, per database, dedup key and channel
+(`sage.notification_state`), whether or not `alerting.enabled` is set:
+
+- the first alert of a finding is sent at once; while it stays open it is not sent again,
+  except when it escalates (sent at once) or when its `alerting.repeat_minutes` interval has
+  passed (one reminder, headed "Still open for ..."; `0` never reminds). A finding that
+  resolves and reopens is alerted again once the cooldown since the last alert has passed;
+  until then it waits, it is not dropped;
+- during `alerting.quiet_hours_*` a warning or info alert waits until the window ends and is
+  then sent once; a critical alert is sent at once. A resolve of an alert that is still
+  waiting cancels both;
+- a resolve goes only to a channel whose alert is open. A `finding_critical` resolve with no
+  state (a page sent before this release) is still sent, so PagerDuty closes it under the key
+  it was opened with.
+
+Other events (incidents, actions, approvals) are queued and retried, without cooldown or
+quiet hours. `finding_opened` uses the key `finding:<database>:<category>:<object>`, and
+`finding_critical` keeps `finding_critical:<database>:<category>:<object>`: give a PagerDuty
+channel rules for one of the two, not both, or a critical finding opens two incidents. A
+change of those alerting values through the settings API applies to the next decision without a
+restart. Delivered entries and closed states are deleted after 7 days.
+
+### Notification channel types
+
+A channel's credentials are sealed at rest with `encryption_key`, never read back in full by
+the API, and redacted from errors. Every HTTP destination connects through the notification
+target policy (`notification_policy.allow_private_targets`).
+
+| Type | Settings | Delivery |
+|---|---|---|
+| `slack` | `webhook_url` (secret); `interactive`, `signing_secret`, `team_id` for approvals | Incoming webhook message |
+| `pagerduty` | `routing_key` (secret); `source`, `component`, `dedup_key_prefix` | Events API v2 trigger and resolve on the dedup key |
+| `email` | `smtp_host`, `smtp_port`, `smtp_user`, `smtp_pass` (secret), `from`, `to` | SMTP |
+| `telegram` | `bot_token` (secret), `chat_id`, `webhook_secret` (secret) | Bot API message |
+| `webhook` | `webhook_url` (secret), `headers` (secret, JSON object) | JSON post of every event |
+| `teams` | `webhook_url` (secret, a Teams Workflows "When a Teams webhook request is received" URL, https only); `dashboard_url` (optional link on the card) | Adaptive Card. A card over 27 KB keeps the longest body that fits and ends with "truncated; see pg_sage for the full text". Office 365 connector URLs are retired by Microsoft; use a Workflows URL. |
+| `opsgenie` | `api_key` (secret, an API integration key); `region` `us` (default) or `eu` | Alert API v2. The alias is the dedup key (cut to 512 characters plus a hash when longer), so a resolve closes the alert by alias. Priority: critical P1, warning P3, info P5. |
+| `jira` | `base_url` (the Jira Cloud site, https, no path), `email`, `api_token` (secret), `project_key`, `issue_type` (default `Task`) | Not an alert destination: a case ticket integration (below). No rule can route events to it, broadcasts skip it, and its Test button answers that it is checked by creating a ticket. |
+| `incidentio` | `alert_source_config_id` (the HTTP alert source's id: letters, digits, `_`, `-`); `token` (secret, the source's bearer token) | HTTP alert source event with `deduplication_key` set to the dedup key and `status` `firing` or `resolved`. |
+
+A Teams, Opsgenie or incident.io channel with a missing credential, a bad region, a malformed
+source id or a non-https Teams URL is refused when it is saved. An edit that moves a Jira
+integration to another `base_url`, or a webhook to another `webhook_url`, while sending the masked
+`api_token` or `headers` back is refused: re-enter the secret for the new target, so a stored
+secret never follows a moved target. For one alert that opens and
+resolves on Opsgenie or incident.io, give the channel rules for the opening event and for its
+resolve (for example `finding_opened` and `finding_resolved`, or `incident_detected`,
+`incident_escalated` and `incident_resolved`).
+
+#### Case tickets (Jira)
+
+With one enabled `jira` integration, an operator's case card offers **Create Jira ticket**. It
+creates one issue in `project_key` (summary `[pg_sage] <database>: <case title>`, the case's
+why and why-now, and a link back to the case, labelled `pg_sage`) and stores the link in
+`sage.case_tickets` on the control database, keyed by database, case identity and system, so
+two operators clicking at once make one issue. A failed create keeps no link and can be
+retried. With several enabled Jira integrations the request must name one (`channel_id`).
+
+Every 15 minutes a worker reads back the status of at most 50 tickets (oldest read first) and
+shows it on the case. A failed read shows as `ticket_sync: unauthorized` (Jira refused the
+token), `not_found`, `integration_missing` (the integration was deleted or disabled; the link
+is kept) or `unreachable`, and keeps the last status read. When the case is no longer open
+the worker adds one comment to the issue; that comment is the only change pg_sage makes to it.
+Ticket status is read-only evidence: closing the issue never resolves the case, approves an
+action or changes trust. API: `GET /api/v1/case-tickets?database=` (viewer) lists the links;
+`POST /api/v1/case-tickets` (operator) with `database`, `case_id` and optional `case_url` and
+`channel_id` creates one. ServiceNow is not supported.
 
 ### Retention
 

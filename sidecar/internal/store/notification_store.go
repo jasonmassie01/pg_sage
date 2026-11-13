@@ -196,6 +196,9 @@ func (s *NotificationStore) UpdateChannel(
 	if err := checkSMTPDestinationSecrets(ch.Config, config); err != nil {
 		return err
 	}
+	if err := checkDestinationSecrets(ch.Type, ch.Config, config); err != nil {
+		return err
+	}
 	config = preserveMaskedNotificationSecrets(ch.Config, config)
 	if err := s.validateChannel(ch.Type, config); err != nil {
 		return err
@@ -282,6 +285,10 @@ func (s *NotificationStore) TestChannel(
 	}
 	if s.dispatcher == nil {
 		return fmt.Errorf("dispatcher not configured")
+	}
+	if notify.IsTicketIntegration(ch.Type) {
+		return fmt.Errorf("%w: a %s integration is checked when a ticket is created "+
+			"from a case", ErrValidation, ch.Type)
 	}
 
 	testEvt := notify.Event{

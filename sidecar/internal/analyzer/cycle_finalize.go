@@ -78,6 +78,7 @@ func (a *Analyzer) finalizeCycle(
 	// action or severity-escalated findings, subject to a per-identity
 	// cooldown (G2-B06/G7-B07). The upsert already skipped suppressed ones.
 	a.dispatchCriticalFindings(ctx, a.notifiableCritical(res, time.Now()))
+	a.dispatchFindingAlerts(ctx, res)
 	a.dispatchRewriteFindings(ctx, res.Opened)
 
 	// Operator-suppressed identities are never published to the executor,
@@ -140,6 +141,7 @@ func (a *Analyzer) resolveCleared(
 		cleared, err := ResolveClearedFindings(ctx, a.pool, idents, cat)
 		// Findings resolved before an error still get their resolve.
 		a.dispatchResolvedCritical(ctx, cleared)
+		a.dispatchFindingResolved(ctx, cleared)
 		if err != nil {
 			a.logFn("ERROR", "analyzer: resolve cleared %s: %v", cat, err)
 		}

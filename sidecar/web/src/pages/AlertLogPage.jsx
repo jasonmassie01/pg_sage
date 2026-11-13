@@ -172,6 +172,12 @@ function DateRangeFilter({ from, to, onFrom, onTo, onClear }) {
   )
 }
 
+// The Alert Log is sage.alert_log, written only by the config file's
+// alerting: block; Notifications channels log elsewhere (alerting-06).
+const EMPTY_LOG_MESSAGE = 'No alerts sent yet. This log shows deliveries of the alerting: '
+  + 'block in the config file (Slack, PagerDuty, webhooks). Deliveries to channels set up '
+  + 'in Notifications are on the Notifications page, Log tab.'
+
 function StatusCell({ row }) {
   const style = statusStyle(row.status)
   return (
@@ -247,7 +253,7 @@ export function AlertLogPage({ database }) {
   if (allAlerts.length === 0) {
     return <QueryState query={alertsQuery}>
       <FailedDatabases names={failed} />
-      <EmptyState message="No alerts sent yet. Configure notification channels in Notifications to receive alerts when pg_sage detects issues." />
+      <EmptyState message={EMPTY_LOG_MESSAGE} />
     </QueryState>
   }
 

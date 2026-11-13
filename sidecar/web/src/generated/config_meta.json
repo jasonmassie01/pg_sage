@@ -263,7 +263,7 @@
     "default": 15,
     "doc": "",
     "class": "operator_preference",
-    "lifecycle": "restart"
+    "lifecycle": "reconfigure"
   },
   "alerting.enabled": {
     "type": "bool",
@@ -284,21 +284,21 @@
     "default": "",
     "doc": "",
     "class": "operator_preference",
-    "lifecycle": "restart"
+    "lifecycle": "reconfigure"
   },
   "alerting.quiet_hours_start": {
     "type": "string",
     "default": "",
     "doc": "",
     "class": "operator_preference",
-    "lifecycle": "restart"
+    "lifecycle": "reconfigure"
   },
   "alerting.repeat_minutes": {
     "type": "map[string]int",
     "default": null,
     "doc": "Minutes between reminders of a finding that stays open, per severity. A missing key takes its default; 0 never reminds. Default: critical 240, warning 1440, info 0.",
     "class": "operator_preference",
-    "lifecycle": "restart"
+    "lifecycle": "reconfigure"
   },
   "alerting.routes[].channels": {
     "type": "[]string",
@@ -326,7 +326,7 @@
     "default": "UTC",
     "doc": "",
     "class": "operator_preference",
-    "lifecycle": "restart"
+    "lifecycle": "reconfigure"
   },
   "alerting.webhooks[].headers": {
     "type": "map[string]string",

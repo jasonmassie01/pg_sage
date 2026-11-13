@@ -70,9 +70,9 @@ func TestEveryModeRegistersTheOwnersItsFieldsName(t *testing.T) {
 		mode string
 		want string
 	}{
-		{"standalone", "trust_policy,llm,llm_redaction,briefing"},
-		{"fleet", "trust_policy,llm,llm_redaction,briefing,fleet_databases"},
-		{"meta", "trust_policy,llm,llm_redaction,briefing"},
+		{"standalone", "trust_policy,llm,llm_redaction,briefing,alerting"},
+		{"fleet", "trust_policy,llm,llm_redaction,briefing,alerting,fleet_databases"},
+		{"meta", "trust_policy,llm,llm_redaction,briefing,alerting"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.mode, func(t *testing.T) {
@@ -112,7 +112,7 @@ func TestOwnersForModeAreProductionOwners(t *testing.T) {
 		}
 	}
 	got := strings.Join(ownersForMode(nil), ",")
-	if got != "trust_policy,llm,llm_redaction,briefing" {
+	if got != "trust_policy,llm,llm_redaction,briefing,alerting" {
 		t.Fatalf("ownersForMode(nil) = %v, want the process owners", got)
 	}
 }
@@ -136,7 +136,7 @@ func TestOwnerHelpersRunTwiceKeepOneOwnerEach(t *testing.T) {
 	registerLLMConfigOwner()
 	registerFleetDatabasesOwner(&fleetBootstrap{})
 	if got := strings.Join(configController.OwnerNames(), ","); got !=
-		"trust_policy,llm,llm_redaction,briefing,fleet_databases" {
+		"trust_policy,llm,llm_redaction,briefing,alerting,fleet_databases" {
 		t.Fatalf("OwnerNames() after a second registration = %s", got)
 	}
 }

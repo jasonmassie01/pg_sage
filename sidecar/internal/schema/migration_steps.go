@@ -205,5 +205,7 @@ func trancheThreeMigrations() []namedStep {
 		{"ddlBaselineSamples", ddlBaselineSamples},         // market-02
 		{"ddlBudgetShadow", ddlBudgetShadow},               // market-08
 		{"ddlLLMUsageAttribution", ddlLLMUsageAttribution}, // llm-04: after ddlLLMUsage
+		{"ddlNotificationOutbox", ddlNotificationOutbox},   // alerting-06
+		{"ddlCaseTickets", ddlCaseTickets},                 // market-14
 	}
 }

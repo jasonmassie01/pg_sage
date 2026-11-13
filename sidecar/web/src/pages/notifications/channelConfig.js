@@ -10,6 +10,11 @@ export const CHANNEL_TYPES = [
   ['telegram', 'Telegram'],
   ['email', 'Email'],
   ['pagerduty', 'PagerDuty'],
+  ['webhook', 'Webhook'],
+  ['teams', 'Microsoft Teams'],
+  ['opsgenie', 'Opsgenie'],
+  ['incidentio', 'incident.io'],
+  ['jira', 'Jira (case tickets)'],
 ]
 
 // The keys the backend reads for a channel that approves from chat; a
@@ -22,6 +27,16 @@ export function defaultConfig(type) {
       return { bot_token: '', chat_id: '', webhook_secret: '' }
     case 'pagerduty':
       return { routing_key: '' }
+    case 'webhook':
+      return { webhook_url: '', headers: '' }
+    case 'teams':
+      return { webhook_url: '', dashboard_url: '' }
+    case 'opsgenie':
+      return { api_key: '', region: 'us' }
+    case 'incidentio':
+      return { alert_source_config_id: '', token: '' }
+    case 'jira':
+      return { base_url: '', email: '', api_token: '', project_key: '', issue_type: '' }
     case 'email':
       return { smtp_host: '', smtp_port: '587', smtp_user: '', smtp_pass: '', from: '', to: '' }
     default:

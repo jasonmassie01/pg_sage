@@ -22,6 +22,40 @@ const FIELDS = {
     { key: 'from', label: 'From', required: true },
     { key: 'to', label: 'To (comma-separated)', required: true, wide: true },
   ],
+  webhook: [
+    { key: 'webhook_url', label: 'Webhook URL', required: true, wide: true,
+      placeholder: 'https://hooks.example.com/...' },
+    { key: 'headers', label: 'Headers (JSON object)', secret: true, wide: true,
+      placeholder: '{"Authorization": "Bearer ..."}' },
+  ],
+  // market-14: Teams Workflows webhook, Opsgenie Alert API, incident.io
+  // HTTP alert source.
+  teams: [
+    { key: 'webhook_url', label: 'Workflows webhook URL', required: true, secret: true,
+      wide: true, placeholder: 'https://prod-00.westus.logic.azure.com/workflows/...' },
+    { key: 'dashboard_url', label: 'pg_sage link (optional)', wide: true,
+      placeholder: 'https://pg-sage.example.com' },
+  ],
+  opsgenie: [
+    { key: 'api_key', label: 'API key', required: true, secret: true, wide: true },
+    { key: 'region', label: 'Region', options: [['us', 'US'], ['eu', 'EU']] },
+  ],
+  incidentio: [
+    { key: 'alert_source_config_id', label: 'Alert source config ID', required: true,
+      placeholder: '01H...' },
+    { key: 'token', label: 'API token', required: true, secret: true, wide: true },
+  ],
+  // A case ticket integration, not an alert destination: no rule routes
+  // events to it; operators create tickets from cases.
+  jira: [
+    { key: 'base_url', label: 'Jira site URL', required: true, wide: true,
+      placeholder: 'https://acme.atlassian.net' },
+    { key: 'email', label: 'Account email', required: true },
+    { key: 'api_token', label: 'API token', required: true, secret: true, wide: true },
+    { key: 'project_key', label: 'Project key', required: true, narrow: true,
+      placeholder: 'OPS' },
+    { key: 'issue_type', label: 'Issue type', placeholder: 'Task' },
+  ],
   telegram: [
     { key: 'bot_token', label: 'Bot token', required: true, secret: true, wide: true,
       placeholder: '123456:ABC...' },
@@ -43,7 +77,25 @@ function widthClass(f) {
   return f.narrow ? 'w-20' : ''
 }
 
+function ConfigSelect({ prefix, field, config, upd }) {
+  return (
+    <FormField label={field.label}>
+      <select value={config[field.key] || field.options[0][0]} aria-label={field.label}
+        data-testid={testId(prefix, field.key)}
+        onChange={e => upd(field.key, e.target.value)}
+        className="px-3 py-1.5 rounded text-sm" style={inputStyle}>
+        {field.options.map(([value, label]) => (
+          <option key={value} value={value}>{label}</option>
+        ))}
+      </select>
+    </FormField>
+  )
+}
+
 function ConfigInput({ prefix, field, config, upd }) {
+  if (field.options) {
+    return <ConfigSelect prefix={prefix} field={field} config={config} upd={upd} />
+  }
   return (
     <FormField label={field.label}>
       <input value={config[field.key] ?? ''} required={field.required}

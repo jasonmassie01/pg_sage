@@ -70,6 +70,8 @@ func constructorEvents() map[string]Event {
 		"ActionFailedEvent":    ActionFailedEvent("t", "ANALYZE t", "orders", "e"),
 		"ApprovalNeededEvent":  ApprovalNeededEvent("t", "ANALYZE t", "orders", "safe"),
 		"FindingCriticalEvent": FindingCriticalEvent("t", "d", "orders", "c", "o"),
+		"FindingOpenedEvent":   FindingOpenedEvent("t", "d", "orders", "c", "o", "warning"),
+		"FindingResolvedEvent": FindingResolvedEvent("t", "orders", "c", "o", "critical"),
 		"QueryRewriteEvent":    QueryRewriteEvent("t", "q", "r", "why", "orders"),
 		"ResolvedEvent":        ResolvedEvent(fact),
 		"QueuedApprovalEvent":  queued,

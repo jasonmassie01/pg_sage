@@ -35,7 +35,8 @@ export function RulesTab() {
         { credentials: 'include' })
       if (!res.ok) return
       const data = await res.json()
-      const chs = data.channels || []
+      // A Jira integration links cases; no rule routes events to it (market-14).
+      const chs = (data.channels || []).filter(ch => ch.type !== 'jira')
       setChannels(chs)
       if (chs.length > 0 && !channelId) {
         setChannelId(String(chs[0].id))

@@ -98,6 +98,23 @@ func NewThrottle(
 	return t
 }
 
+// Reconfigure applies new cooldown, repeat, quiet-hour and timezone
+// settings to a running throttle and returns their warnings; invalid
+// values are disabled as at construction. Sent records are kept, so an
+// alert that is open stays throttled (alerting-06).
+func (t *Throttle) Reconfigure(
+	cooldownMinutes int, repeat map[string]int, quietStart, quietEnd, tz string,
+) []string {
+	next := NewThrottle(cooldownMinutes, quietStart, quietEnd, tz)
+	next.setRepeat(repeat)
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.cooldown, t.repeat, t.retain = next.cooldown, next.repeat, next.retain
+	t.quietStart, t.quietEnd, t.timezone = next.quietStart, next.quietEnd, next.timezone
+	t.warnings = next.warnings
+	return next.warnings
+}
+
 // Warnings returns configuration problems found at construction.
 func (t *Throttle) Warnings() []string { return t.warnings }
 

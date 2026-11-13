@@ -15,12 +15,15 @@ export const cardStyle = {
 // Mirrors notify.EventSeverity: the severity each event is emitted with.
 // A rule whose min_severity is above it can never fire, so new rules
 // default to the event's own severity (notify.DefaultMinSeverity).
-// Incident events carry variable severity; warning is the default.
+// Incident and finding_opened/finding_resolved events carry variable
+// severity; warning is the default.
 export const EVENT_SEVERITY = {
   action_executed: 'info',
   action_failed: 'warning',
   approval_needed: 'warning',
   finding_critical: 'critical',
+  finding_opened: 'warning',
+  finding_resolved: 'warning',
   query_rewrite_suggested: 'warning',
   incident_detected: 'warning',
   incident_escalated: 'warning',
@@ -42,6 +45,7 @@ export const SEVERITIES = ['info', 'warning', 'critical']
 // unknown status keeps the secondary colour instead of reading as failed.
 export const DELIVERY_STATUS_COLORS = {
   sent: 'var(--green)',
+  retrying: 'var(--yellow)',
   error: 'var(--red)',
 }
 
