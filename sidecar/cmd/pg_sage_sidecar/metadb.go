@@ -271,6 +271,7 @@ func initMetaDBFleet(state *metaDBState) {
 		registerStoreDatabase(state, rec)
 	}
 
+	startFleetDiscovery(state) // fleet_discovery_wiring.go (market-06)
 	go fleetReconnectLoop(shutdownCtx, state)
 }
 

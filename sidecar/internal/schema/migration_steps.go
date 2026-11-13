@@ -208,5 +208,7 @@ func trancheThreeMigrations() []namedStep {
 		{"ddlNotificationOutbox", ddlNotificationOutbox},   // alerting-06
 		{"ddlCaseTickets", ddlCaseTickets},                 // market-14
 		{"ddlUserDatabaseGrants", ddlUserDatabaseGrants},   // apiauth-08
+		{"ddlDatabasesDiscovered", ddlDatabasesDiscovered}, // market-06
+		{"ddlDiscoveredDatabases", ddlDiscoveredDatabases}, // market-06
 	}
 }

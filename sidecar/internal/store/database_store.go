@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/crypto"
@@ -31,6 +32,11 @@ type DatabaseRecord struct {
 	CreatedAt      time.Time
 	CreatedBy      int
 	UpdatedAt      time.Time
+	// Discovery (market-06): empty and nil for manual and CSV members.
+	DiscoveredSource string
+	Owner            string
+	ExpiresAt        *time.Time
+	AdoptedAt        *time.Time
 }
 
 // DatabaseInput holds user-provided fields for create/update.
@@ -132,6 +138,19 @@ func (s *DatabaseStore) WithKeyMigration(passphrase string) *DatabaseStore {
 func (s *DatabaseStore) Create(
 	ctx context.Context, input DatabaseInput, createdBy int,
 ) (int, error) {
+	return s.insert(ctx, input, createdBy, discoveryColumns{})
+}
+
+// discoveryColumns are the market-06 columns of a discovered member; the
+// zero value (all NULL) is a manual or CSV member.
+type discoveryColumns struct {
+	source, owner *string
+	expiresAt     *time.Time
+}
+
+func (s *DatabaseStore) insert(
+	ctx context.Context, input DatabaseInput, createdBy int, disc discoveryColumns,
+) (int, error) {
 	if err := validateInput(input, true); err != nil {
 		return 0, err
 	}
@@ -164,11 +183,12 @@ func (s *DatabaseStore) Create(
 		`/* pg_sage */ INSERT INTO sage.databases
 		    (id, name, host, port, database_name, username, password_enc,
 		     sslmode, max_connections, tags, trust_level,
-		     execution_mode, created_by)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+		     execution_mode, created_by, discovered_source, owner, expires_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
 		id, input.Name, input.Host, input.Port, input.DatabaseName,
 		input.Username, enc, input.SSLMode, input.MaxConnections,
 		tagsJSON, input.TrustLevel, input.ExecutionMode, createdBy,
+		disc.source, disc.owner, disc.expiresAt,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("inserting database: %w", err)
@@ -182,10 +202,7 @@ func (s *DatabaseStore) List(ctx context.Context) ([]DatabaseRecord, error) {
 	defer cancel()
 
 	rows, err := s.pool.Query(qctx,
-		`/* pg_sage */ SELECT id, name, host, port, database_name, username,
-		        sslmode, max_connections, enabled, tags, trust_level,
-		        execution_mode, created_at, created_by, updated_at
-		 FROM sage.databases ORDER BY id`)
+		`/* pg_sage */ SELECT `+databaseColumns+` FROM sage.databases ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("listing databases: %w", err)
 	}
@@ -193,26 +210,9 @@ func (s *DatabaseStore) List(ctx context.Context) ([]DatabaseRecord, error) {
 
 	var results []DatabaseRecord
 	for rows.Next() {
-		var r DatabaseRecord
-		var tagsJSON []byte
-		var createdBy *int
-		err := rows.Scan(
-			&r.ID, &r.Name, &r.Host, &r.Port, &r.DatabaseName,
-			&r.Username, &r.SSLMode, &r.MaxConnections, &r.Enabled,
-			&tagsJSON, &r.TrustLevel, &r.ExecutionMode,
-			&r.CreatedAt, &createdBy, &r.UpdatedAt,
-		)
+		r, err := scanDatabaseRecord(rows)
 		if err != nil {
-			return nil, fmt.Errorf("scanning database row: %w", err)
-		}
-		if createdBy != nil {
-			r.CreatedBy = *createdBy
-		}
-		r.Tags = make(map[string]string)
-		if len(tagsJSON) > 0 {
-			if jsonErr := json.Unmarshal(tagsJSON, &r.Tags); jsonErr != nil {
-				return nil, fmt.Errorf("unmarshalling tags: %w", jsonErr)
-			}
+			return nil, err
 		}
 		results = append(results, r)
 	}
@@ -224,22 +224,34 @@ func (s *DatabaseStore) Get(ctx context.Context, id int) (*DatabaseRecord, error
 	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
+	r, err := scanDatabaseRecord(s.pool.QueryRow(qctx,
+		`/* pg_sage */ SELECT `+databaseColumns+` FROM sage.databases WHERE id = $1`, id))
+	if err != nil {
+		return nil, fmt.Errorf("getting database %d: %w", id, err)
+	}
+	return &r, nil
+}
+
+// databaseColumns are the sage.databases columns scanDatabaseRecord reads.
+const databaseColumns = `id, name, host, port, database_name, username,
+	sslmode, max_connections, enabled, tags, trust_level, execution_mode,
+	created_at, created_by, updated_at, COALESCE(discovered_source, ''),
+	COALESCE(owner, ''), expires_at, adopted_at`
+
+// scanDatabaseRecord scans one row of databaseColumns.
+func scanDatabaseRecord(row pgx.Row) (DatabaseRecord, error) {
 	var r DatabaseRecord
 	var tagsJSON []byte
 	var createdBy *int
-	err := s.pool.QueryRow(qctx,
-		`/* pg_sage */ SELECT id, name, host, port, database_name, username,
-		        sslmode, max_connections, enabled, tags, trust_level,
-		        execution_mode, created_at, created_by, updated_at
-		 FROM sage.databases WHERE id = $1`, id,
-	).Scan(
+	err := row.Scan(
 		&r.ID, &r.Name, &r.Host, &r.Port, &r.DatabaseName,
 		&r.Username, &r.SSLMode, &r.MaxConnections, &r.Enabled,
 		&tagsJSON, &r.TrustLevel, &r.ExecutionMode,
 		&r.CreatedAt, &createdBy, &r.UpdatedAt,
+		&r.DiscoveredSource, &r.Owner, &r.ExpiresAt, &r.AdoptedAt,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("getting database %d: %w", id, err)
+		return r, fmt.Errorf("scanning database row: %w", err)
 	}
 	if createdBy != nil {
 		r.CreatedBy = *createdBy
@@ -247,10 +259,10 @@ func (s *DatabaseStore) Get(ctx context.Context, id int) (*DatabaseRecord, error
 	r.Tags = make(map[string]string)
 	if len(tagsJSON) > 0 {
 		if jsonErr := json.Unmarshal(tagsJSON, &r.Tags); jsonErr != nil {
-			return nil, fmt.Errorf("unmarshalling tags: %w", jsonErr)
+			return r, fmt.Errorf("unmarshalling tags: %w", jsonErr)
 		}
 	}
-	return &r, nil
+	return r, nil
 }
 
 // Update modifies an existing database record.

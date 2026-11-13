@@ -109,6 +109,8 @@ type Config struct {
 	Budgets []BudgetConfig `yaml:"budgets" doc:"Workload budgets per role, application_name or sqlcommenter tag: warn mode (default) counts would-be violations; enforce (role budgets) proposes ALTER ROLE settings. Default: none."`
 	// FleetLearning is fleet learning and leader election (fleet_learning.go).
 	FleetLearning FleetLearningConfig `yaml:"fleet_learning"`
+	// Fleet holds fleet auto-discovery (fleet_discovery.go, market-06).
+	Fleet FleetConfig `yaml:"fleet"`
 	// HA is each database's HA monitor cadence (ha.go).
 	HA HAConfig `yaml:"ha"`
 	// Backup is the backup freshness policy (backup.go, market-07).
@@ -907,6 +909,9 @@ func (c *Config) validate() error {
 	if err := c.validateFleetLearning(); err != nil {
 		return err
 	}
+	if err := c.Fleet.Discovery.Validate(); err != nil {
+		return err
+	}
 	if err := c.HA.validate(); err != nil {
 		return err
 	}
@@ -1274,6 +1279,7 @@ func newDefaults() *Config {
 		},
 		SelfConfig:    defaultSelfConfigConfig(),
 		FleetLearning: defaultFleetLearningConfig(),
+		Fleet:         defaultFleetConfig(),
 		HA:            defaultHAConfig(),
 		Backup:        defaultBackupConfig(),
 		Agents:        defaultAgentsConfig(),

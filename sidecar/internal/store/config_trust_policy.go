@@ -42,7 +42,7 @@ func (s *ConfigStore) SetDatabaseTrustPolicy(
 		`/* pg_sage */ UPDATE sage.databases SET trust_level = $1 WHERE id = $2`,
 		level, databaseID,
 	); err != nil {
-		return "", fmt.Errorf("update database trust policy: %w", err)
+		return "", fmt.Errorf("update database trust policy: %w", DiscoveredTrustError(err))
 	}
 	if err := insertAudit(qctx, tx, "trust.level",
 		previous, level, databaseID, 0); err != nil {

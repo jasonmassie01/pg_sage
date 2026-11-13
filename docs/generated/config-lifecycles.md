@@ -172,6 +172,10 @@
 | `explain.max_tokens` | `restart` | `-` | `derivable` |
 | `explain.timeout_ms` | `restart` | `-` | `derivable` |
 | `facts.confirmed_absence_days` | `restart` | `-` | `operator_preference` |
+| `fleet.discovery.enabled` | `restart` | `-` | `safety_critical` |
+| `fleet.discovery.max_enrolled` | `restart` | `-` | `safety_critical` |
+| `fleet.discovery.sources` | `restart` | `-` | `safety_critical` |
+| `fleet.discovery.ttl_hours` | `restart` | `-` | `operator_preference` |
 | `fleet_learning.budget_ceiling_pct` | `restart` | `-` | `operator_preference` |
 | `fleet_learning.budget_floor_pct` | `restart` | `-` | `operator_preference` |
 | `fleet_learning.budget_split` | `restart` | `-` | `operator_preference` |
