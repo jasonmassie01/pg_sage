@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -115,14 +116,45 @@ func TestMetaNotificationSecretEncryptedAtRestAndDelivered(t *testing.T) {
 	}
 
 	dispatcher := sharedNotifyDispatcher(notificationControlPool(state, nil))
-	err := dispatcher.Dispatch(context.Background(), notify.Event{
+	res, err := dispatcher.Submit(context.Background(), notify.Event{
 		Type: "action_failed", Severity: "warning", Subject: "s", Body: "b",
 	})
 	if err != nil {
 		t.Fatalf("dispatch: %v", err)
 	}
-	if got := hits.Load(); got != 1 {
-		t.Fatalf("webhook deliveries = %d, want 1 (decrypt + deliver)", got)
+	// alerting-06: with a process lifetime (prepareMetaGlobals sets
+	// shutdownCtx) the runtime dispatcher queues action events in the
+	// outbox, and its drain decrypts the sealed channel and delivers.
+	if res != (notify.DispatchResult{Enqueued: 1}) {
+		t.Fatalf("submit = %+v, want one queued delivery", res)
+	}
+	if _, err := dispatcher.DrainOutbox(context.Background()); err != nil {
+		t.Fatalf("drain the outbox: %v", err)
+	}
+	assertOutboxDelivered(t, state.Pool, channel.ID, hits)
+}
+
+// assertOutboxDelivered waits for channelID's one outbox entry to be sent
+// (by DrainOutbox or the background drain, which lease it, never both)
+// and checks the webhook got exactly that one delivery.
+func assertOutboxDelivered(t *testing.T, pool *pgxpool.Pool, channelID int,
+	hits *atomic.Int32) {
+	t.Helper()
+	var status string
+	for deadline := time.Now().Add(20 * time.Second); ; {
+		err := pool.QueryRow(context.Background(), `SELECT string_agg(status, ',')
+			FROM sage.notification_outbox WHERE channel_id = $1`, channelID).Scan(&status)
+		if err != nil {
+			t.Fatalf("read outbox: %v", err)
+		}
+		if status == "sent" || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if got := hits.Load(); status != "sent" || got != 1 {
+		t.Fatalf("outbox status %q, webhook deliveries = %d, want sent once "+
+			"(decrypt + deliver)", status, got)
 	}
 }
 
