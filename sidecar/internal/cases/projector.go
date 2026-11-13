@@ -82,7 +82,14 @@ func evidenceTypeForFinding(f SourceFinding) string {
 	}
 }
 
+// upgradeReadinessCategory is upgradecheck.Category (market-05); cases
+// does not import upgradecheck, which imports the analyzer.
+const upgradeReadinessCategory = "upgrade_readiness"
+
 func actionCandidatesForFinding(f SourceFinding, classify SQLClassifier) []ActionCandidate {
+	if f.Category == upgradeReadinessCategory {
+		return nil // advisory: the upgrade is the operator's, never an executor action
+	}
 	if f.Category == "migration_safety" {
 		return migrationSafetyCandidates(f, classify)
 	}

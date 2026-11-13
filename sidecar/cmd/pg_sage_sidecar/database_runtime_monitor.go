@@ -43,6 +43,7 @@ func (rt *databaseRuntime) startMonitoring() {
 		rt.spec.Pool, &cfg.Runaway, logStructuredWrapper,
 	))
 	rt.analyzer.WithSupplementalDetector(rt.newPostureMonitor())
+	rt.analyzer.WithSupplementalDetector(rt.newUpgradeMonitor())
 	rt.note("analyzer")
 	rt.wireRCA()
 	rt.startInvestigator()
