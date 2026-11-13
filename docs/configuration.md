@@ -619,8 +619,8 @@ checks:
                         WHERE k.conrelid = c.oid AND k.contype = 'p')
 ```
 
-`checks` are owner-defined read-only checks, YAML only and read when a database's runtime
-starts; see [Owner checks](custom-checks.md) for every field, its bounds and how a check runs.
+`checks` are owner-defined read-only checks, YAML only and read when pg_sage
+starts (restart to change them); see [Owner checks](custom-checks.md) for every field, its bounds and how a check runs.
 
 ### Derived settings (self-configuration)
 
