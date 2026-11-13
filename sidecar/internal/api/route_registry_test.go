@@ -232,7 +232,8 @@ func TestRegistry_DroppedWhenMuxCollected(t *testing.T) {
 
 // checkRouteGates reports every route whose declared gate breaks the
 // rules: a gate must be set, gateViewer only on GET, gateViewerWrite only
-// on writes listed in viewerWriteRoutes.
+// on writes listed in viewerWriteRoutes, gateViewerWriteOrToken only on
+// writes listed in viewerWriteOrTokenRoutes.
 func checkRouteGates(entries []routeEntry) []string {
 	var problems []string
 	for _, e := range entries {
@@ -251,6 +252,12 @@ func checkRouteGates(entries []routeEntry) []string {
 				"documented viewerWriteRoutes entry")
 		case e.Gate == gateViewerWrite && (method == http.MethodGet || method == ""):
 			problems = append(problems, e.Pattern+": gateViewerWrite on a non-write pattern")
+		case e.Gate == gateViewerWriteOrToken && viewerWriteOrTokenRoutes[e.Pattern] == "":
+			problems = append(problems, e.Pattern+": gateViewerWriteOrToken without a "+
+				"documented viewerWriteOrTokenRoutes entry")
+		case e.Gate == gateViewerWriteOrToken && (method == http.MethodGet || method == ""):
+			problems = append(problems, e.Pattern+": gateViewerWriteOrToken on a non-write "+
+				"pattern")
 		}
 	}
 	sort.Strings(problems)

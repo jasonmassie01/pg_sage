@@ -274,19 +274,26 @@ func registerFleetScopedRoutes(
 		registerMCPRoutes(apiMux, rt.MCPHandler, mcpTokenStore(pool), rt.MCPOAuth,
 			agentguard.NewStore(pool))
 	}
-	registerFleetReadRoutes(apiMux, mgr, cfg)
+	registerFleetReadRoutes(apiMux, mgr, cfg, pool, rt.DatabricksAppAuth)
 	registerOnboardingRoutes(apiMux, mgr, cfg, pool)
 }
 
 // registerFleetReadRoutes registers value and briefings (llm-06b), read
 // from every monitored database in all modes (D3), and migration lint
 // (migration-11), which reads one monitored database's catalogs: they
-// depend on the fleet, not on the control pool.
+// depend on the fleet, not on the control pool. Outside a Databricks App
+// migration lint also takes a read-scope API token from pool's store
+// (migration-11b).
 func registerFleetReadRoutes(apiMux *http.ServeMux, mgr *fleet.DatabaseManager,
-	cfg *config.Config) {
+	cfg *config.Config, pool *pgxpool.Pool, appMode bool) {
 	route(apiMux, "GET /api/v1/value", gateViewer, valueHandler(fleetValueReader(mgr, cfg)))
 	registerBriefingRoutes(apiMux, mgr)
-	registerMigrationLintRoutes(apiMux, mgr, cfg)
+	if appMode {
+		registerMigrationLintRoutes(apiMux, mgr, cfg)
+	} else {
+		registerMigrationLintTokenRoutes(apiMux, mgr, cfg,
+			lintTokenStore(mcpTokenStore(pool)))
+	}
 	registerUpgradeReadinessRoutes(apiMux, mgr, cfg)
 }
 

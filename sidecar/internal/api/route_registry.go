@@ -34,6 +34,11 @@ const (
 	// gateViewerWrite allows any signed-in role on a write; only for the
 	// patterns in viewerWriteRoutes.
 	gateViewerWrite
+	// gateViewerWriteOrToken allows any signed-in role, or instead a
+	// read-scope MCP API token sent as `Authorization: Bearer`, on a write;
+	// only for the patterns in viewerWriteOrTokenRoutes, and only for a
+	// handler built by newTokenOrSession (any other is session-only).
+	gateViewerWriteOrToken
 	// gateOperator allows operators and admins.
 	gateOperator
 	// gateAdmin allows admins only.
@@ -41,12 +46,13 @@ const (
 )
 
 var gateNames = map[routeGate]string{
-	gatePublic:      "public",
-	gateSelfAuth:    "self-auth",
-	gateViewer:      "viewer",
-	gateViewerWrite: "viewer-write",
-	gateOperator:    "operator",
-	gateAdmin:       "admin",
+	gatePublic:             "public",
+	gateSelfAuth:           "self-auth",
+	gateViewer:             "viewer",
+	gateViewerWrite:        "viewer-write",
+	gateViewerWriteOrToken: "viewer-write-or-token",
+	gateOperator:           "operator",
+	gateAdmin:              "admin",
 }
 
 func (g routeGate) String() string {
@@ -65,8 +71,15 @@ var viewerWriteRoutes = map[string]string{
 		"the current one (apiauth-03)",
 	"POST " + askBasePath: "Ask Sage answers from read-only tools and cannot " +
 		"execute or approve anything; the conversation is the caller's own",
+}
+
+// viewerWriteOrTokenRoutes lists the writes a signed-in user or a
+// read-scope API token may make (gateViewerWriteOrToken), each with the
+// reason it is safe. Their Bearer requests skip session auth.
+var viewerWriteOrTokenRoutes = map[string]string{
 	"POST " + migrationLintPath: "migration lint never runs the SQL: it reads " +
-		"catalog statistics under a 2 s bound and changes nothing (migration-11)",
+		"catalog statistics under a 2 s bound and changes nothing (migration-11); " +
+		"CI calls it with a read token (migration-11b)",
 }
 
 var (
@@ -82,6 +95,11 @@ func (g routeGate) wrap(h http.Handler) http.Handler {
 	case gatePublic, gateSelfAuth:
 		return h
 	case gateViewer, gateViewerWrite:
+		return RequireRole(viewerRoles...)(h)
+	case gateViewerWriteOrToken:
+		if ts, ok := h.(*tokenOrSession); ok {
+			return ts
+		}
 		return RequireRole(viewerRoles...)(h)
 	case gateOperator:
 		return RequireRole(operatorRoles...)(h)

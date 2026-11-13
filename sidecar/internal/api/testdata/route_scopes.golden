@@ -102,7 +102,7 @@ bare GET /api/v1/provider-advice gate:viewer scope:-
 bare GET /api/v1/value gate:viewer scope:-
 bare GET /api/v1/briefings gate:viewer scope:-
 bare GET /api/v1/briefings/latest gate:viewer scope:-
-bare POST /api/v1/migrations/lint gate:viewer-write scope:-
+bare POST /api/v1/migrations/lint gate:viewer-write-or-token scope:-
 bare GET /api/v1/upgrade-readiness gate:viewer scope:-
 bare GET /api/v1/onboarding gate:viewer scope:-
 bare GET /api/v1/onboarding/trust gate:viewer scope:-
@@ -276,7 +276,7 @@ standalone POST /api/v1/mcp/databases/{database} gate:self-auth scope:-
 standalone GET /api/v1/value gate:viewer scope:-
 standalone GET /api/v1/briefings gate:viewer scope:-
 standalone GET /api/v1/briefings/latest gate:viewer scope:-
-standalone POST /api/v1/migrations/lint gate:viewer-write scope:-
+standalone POST /api/v1/migrations/lint gate:viewer-write-or-token scope:-
 standalone GET /api/v1/upgrade-readiness gate:viewer scope:-
 standalone GET /api/v1/onboarding gate:viewer scope:-
 standalone GET /api/v1/onboarding/trust gate:viewer scope:-
@@ -503,7 +503,7 @@ fleet-readonly GET /api/v1/provider-advice gate:viewer scope:-
 fleet-readonly GET /api/v1/value gate:viewer scope:-
 fleet-readonly GET /api/v1/briefings gate:viewer scope:-
 fleet-readonly GET /api/v1/briefings/latest gate:viewer scope:-
-fleet-readonly POST /api/v1/migrations/lint gate:viewer-write scope:-
+fleet-readonly POST /api/v1/migrations/lint gate:viewer-write-or-token scope:-
 fleet-readonly GET /api/v1/upgrade-readiness gate:viewer scope:-
 fleet-readonly GET /api/v1/onboarding gate:viewer scope:-
 fleet-readonly GET /api/v1/onboarding/trust gate:viewer scope:-
@@ -736,7 +736,7 @@ store-only-actions GET /api/v1/provider-advice gate:viewer scope:-
 store-only-actions GET /api/v1/value gate:viewer scope:-
 store-only-actions GET /api/v1/briefings gate:viewer scope:-
 store-only-actions GET /api/v1/briefings/latest gate:viewer scope:-
-store-only-actions POST /api/v1/migrations/lint gate:viewer-write scope:-
+store-only-actions POST /api/v1/migrations/lint gate:viewer-write-or-token scope:-
 store-only-actions GET /api/v1/upgrade-readiness gate:viewer scope:-
 store-only-actions GET /api/v1/onboarding gate:viewer scope:-
 store-only-actions GET /api/v1/onboarding/trust gate:viewer scope:-
@@ -927,7 +927,7 @@ optional POST /api/v1/mcp/databases/{database} gate:self-auth scope:-
 optional GET /api/v1/value gate:viewer scope:-
 optional GET /api/v1/briefings gate:viewer scope:-
 optional GET /api/v1/briefings/latest gate:viewer scope:-
-optional POST /api/v1/migrations/lint gate:viewer-write scope:-
+optional POST /api/v1/migrations/lint gate:viewer-write-or-token scope:-
 optional GET /api/v1/upgrade-readiness gate:viewer scope:-
 optional GET /api/v1/onboarding gate:viewer scope:-
 optional GET /api/v1/onboarding/trust gate:viewer scope:-
@@ -1144,7 +1144,7 @@ databricks-app GET /api/v1/provider-advice gate:viewer scope:-
 databricks-app GET /api/v1/value gate:viewer scope:-
 databricks-app GET /api/v1/briefings gate:viewer scope:-
 databricks-app GET /api/v1/briefings/latest gate:viewer scope:-
-databricks-app POST /api/v1/migrations/lint gate:viewer-write scope:-
+databricks-app POST /api/v1/migrations/lint gate:viewer-write-or-token scope:-
 databricks-app GET /api/v1/upgrade-readiness gate:viewer scope:-
 databricks-app GET /api/v1/onboarding gate:viewer scope:-
 databricks-app GET /api/v1/onboarding/trust gate:viewer scope:-
