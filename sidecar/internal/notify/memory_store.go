@@ -20,13 +20,20 @@ type MemoryStore struct {
 	outbox     []OutboxEntry
 	states     map[StateKey]NotifyState
 	nextID     int64
+	channelSeq int
+	ruleSeq    int
+	hashes     map[string]string // "c<id>" / "r<id>" -> config_hash
 
 	FailRules, FailSchedule, FailClaim error
+	// FailReconcile fails a reconcile write of channel FailReconcileAt.
+	FailReconcile   error
+	FailReconcileAt string
 }
 
 // NewMemoryStore returns an empty MemoryStore.
 func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{channels: map[int]Channel{}, states: map[StateKey]NotifyState{}}
+	return &MemoryStore{channels: map[int]Channel{}, states: map[StateKey]NotifyState{},
+		hashes: map[string]string{}}
 }
 
 var _ Store = (*MemoryStore)(nil)
@@ -36,7 +43,10 @@ func (m *MemoryStore) AddChannel(ch Channel) int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if ch.ID == 0 {
-		ch.ID = len(m.channels) + 1
+		ch.ID = m.channelSeq + 1
+	}
+	if ch.ID > m.channelSeq {
+		m.channelSeq = ch.ID
 	}
 	m.channels[ch.ID] = ch
 	return ch.ID
@@ -46,7 +56,8 @@ func (m *MemoryStore) AddChannel(ch Channel) int {
 func (m *MemoryStore) AddRule(r Rule) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	r.ID = len(m.rules) + 1
+	m.ruleSeq++
+	r.ID = m.ruleSeq
 	m.rules = append(m.rules, r)
 }
 
