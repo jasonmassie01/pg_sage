@@ -57,6 +57,16 @@ func samplerTestConn(t *testing.T) *pgx.Conn {
 	return conn
 }
 
+// liveDeadline bounds a test that reads under a held catalog lock: a
+// reading left unbounded fails at the deadline instead of hanging the
+// package until go test's own timeout.
+func liveDeadline(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	return ctx
+}
+
 // holdCatalogLock takes ACCESS EXCLUSIVE on pg_class, which the horizon
 // read scans, as DDL waiting on a catalog would; release ends it.
 func holdCatalogLock(t *testing.T) (release func()) {
@@ -107,7 +117,7 @@ func TestFreezeSamplerLiveReadRunsUnderItsBounds(t *testing.T) {
 func TestFreezeSamplerLiveLockTimeoutThenRecovers(t *testing.T) {
 	sampler := NewFreezeSampler(samplerTestConn(t), 0, 0)
 	sampler.bounds = catalogread.Timeouts{Statement: 5 * time.Second, Lock: 200 * time.Millisecond}
-	ctx := context.Background()
+	ctx := liveDeadline(t)
 	if _, err := sampler.Read(ctx); err != nil { // warms the connection's caches
 		t.Fatalf("first Read: %v", err)
 	}
@@ -149,7 +159,7 @@ func TestFreezeSamplerCustodianProposesNothingOnLockTimeout(t *testing.T) {
 	t.Cleanup(pool.Close)
 	c := NewPostgresFreezeCustodian(pool, "testdb", 25).WithBloatBounds(0,
 		catalogread.Timeouts{Statement: 5 * time.Second, Lock: 200 * time.Millisecond})
-	ctx := context.Background()
+	ctx := liveDeadline(t)
 	if _, err := c.Sampler().Read(ctx); err != nil {
 		t.Fatalf("warm-up Read: %v", err)
 	}
@@ -166,5 +176,31 @@ func TestFreezeSamplerCustodianProposesNothingOnLockTimeout(t *testing.T) {
 	}
 	if took := time.Since(started); took > 2*time.Second {
 		t.Fatalf("Scan took %v under the lock, want under 2s", took)
+	}
+}
+
+// The shipped bounds have a statement timeout (500 ms) far shorter than the
+// lock timeout (30 s): a held catalog lock then ends the reading at the
+// statement timeout, and the error names that bound.
+func TestFreezeSamplerLiveStatementTimeoutUnderAHeldLock(t *testing.T) {
+	sampler := NewFreezeSampler(samplerTestConn(t), 0, 0)
+	sampler.bounds = catalogread.Timeouts{Statement: 200 * time.Millisecond, Lock: 5 * time.Second}
+	ctx := liveDeadline(t)
+	if _, err := sampler.Read(ctx); err != nil { // warms the connection's caches
+		t.Fatalf("first Read: %v", err)
+	}
+	holdCatalogLock(t)
+
+	started := time.Now()
+	_, err := sampler.Read(ctx)
+	took := time.Since(started)
+
+	var pgErr *pgconn.PgError
+	if err == nil || !strings.Contains(err.Error(), "freeze age read: statement timeout") ||
+		!errors.As(err, &pgErr) || pgErr.Code != "57014" {
+		t.Fatalf("Read under a held pg_class lock = %v, want a statement timeout (57014)", err)
+	}
+	if took > 2*time.Second {
+		t.Fatalf("statement timeout took %v, want under 2s", took)
 	}
 }
