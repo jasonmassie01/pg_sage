@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // fakeSamplerDB answers a sampler reading with no holders and no
@@ -21,6 +22,41 @@ type fakeSamplerDB struct {
 	entered  chan struct{} // closed on the first BeginTx, when set
 	release  chan struct{} // BeginTx waits on it, when set
 	once     sync.Once
+	// execErr fails the bounds' set_config; horizonErr fails the horizon
+	// read (a lock or statement timeout), when set.
+	execErr    error
+	horizonErr error
+	mu         sync.Mutex
+	stmts      []samplerStmt // every statement the readings ran, in order
+}
+
+// samplerStmt is one statement a reading ran: its method, SQL and args.
+type samplerStmt struct {
+	method, sql string
+	args        []any
+}
+
+func (d *fakeSamplerDB) record(method, sql string, args []any) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.stmts = append(d.stmts, samplerStmt{method: method, sql: sql, args: args})
+}
+
+func (d *fakeSamplerDB) statements() []samplerStmt {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]samplerStmt(nil), d.stmts...)
+}
+
+// boundCalls counts the set_config statements that bound a reading.
+func (d *fakeSamplerDB) boundCalls() int {
+	n := 0
+	for _, s := range d.statements() {
+		if s.method == "Exec" && strings.Contains(s.sql, "set_config('statement_timeout'") {
+			n++
+		}
+	}
+	return n
 }
 
 func (d *fakeSamplerDB) BeginTx(context.Context, pgx.TxOptions) (pgx.Tx, error) {
@@ -42,11 +78,23 @@ type fakeSamplerTx struct {
 	db *fakeSamplerDB
 }
 
-func (tx *fakeSamplerTx) QueryRow(context.Context, string, ...any) pgx.Row {
+func (tx *fakeSamplerTx) Exec(_ context.Context, sql string, args ...any) (
+	pgconn.CommandTag, error,
+) {
+	tx.db.record("Exec", sql, args)
+	return pgconn.CommandTag{}, tx.db.execErr
+}
+
+func (tx *fakeSamplerTx) QueryRow(_ context.Context, sql string, args ...any) pgx.Row {
+	tx.db.record("QueryRow", sql, args)
 	return counterRow{next: tx.db.nextXID.Add(1000)}
 }
 
-func (tx *fakeSamplerTx) Query(context.Context, string, ...any) (pgx.Rows, error) {
+func (tx *fakeSamplerTx) Query(_ context.Context, sql string, args ...any) (pgx.Rows, error) {
+	tx.db.record("Query", sql, args)
+	if tx.db.horizonErr != nil && strings.Contains(sql, "freeze_horizons") {
+		return nil, tx.db.horizonErr
+	}
 	return emptyRows{}, nil
 }
 
@@ -115,6 +163,9 @@ func TestFreezeSamplerParallelReadersShareOneReading(t *testing.T) {
 	}
 	if n := db.begins.Load(); n != 1 {
 		t.Fatalf("parallel readers ran %d readings, want 1", n)
+	}
+	if n := db.boundCalls(); n != 1 {
+		t.Fatalf("parallel readers bounded %d transactions, want the one reading's", n)
 	}
 	a, b := readings[0], readings[1]
 	if !a.At.Equal(b.At) || a.rates != b.rates || !a.rates.known || a.rates.xid <= 0 {
