@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/schema"
@@ -43,6 +44,7 @@ func TestMetaLifecycleFixtureWhenAnotherUserExistsFirst(t *testing.T) {
 		_, _ = pool.Exec(context.Background(),
 			"DELETE FROM sage.users WHERE email = $1", other)
 	})
+	parkFixtureAdmin(t, pool)
 
 	_, _, userID := metaLifecycleFixture(t)
 
@@ -60,6 +62,36 @@ func TestMetaLifecycleFixtureWhenAnotherUserExistsFirst(t *testing.T) {
 		t.Fatalf("fixture user = %q role %q must_change=%v, want %q admin false",
 			email, role, mustChange, adminEmail)
 	}
+}
+
+// parkFixtureAdmin moves an admin left by an earlier fixture caller aside,
+// so the fixture must create its own while another user exists. Without
+// it the test above passes on the broken fixture in any whole-package run.
+// Cleanup puts the earlier admin back in place of the one the fixture made.
+func parkFixtureAdmin(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	ctx := context.Background()
+	parked := "config14-parked-admin@pg-sage.local"
+	tag, err := pool.Exec(ctx, "UPDATE sage.users SET email = $1 WHERE email = $2",
+		parked, adminEmail)
+	if err != nil {
+		t.Fatalf("park the earlier fixture admin: %v", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return
+	}
+	t.Cleanup(func() {
+		ctx := context.Background()
+		if _, err := pool.Exec(ctx, "DELETE FROM sage.users WHERE email = $1",
+			adminEmail); err != nil {
+			t.Errorf("remove the admin the fixture created: %v", err)
+			return
+		}
+		if _, err := pool.Exec(ctx, "UPDATE sage.users SET email = $1 WHERE email = $2",
+			adminEmail, parked); err != nil {
+			t.Errorf("restore the earlier fixture admin: %v", err)
+		}
+	})
 }
 
 // Invalid input does not apply: the fixture takes no arguments. The id it

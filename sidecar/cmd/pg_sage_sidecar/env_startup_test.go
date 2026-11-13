@@ -86,8 +86,8 @@ func TestStartupTrustLineShowsThePersistedLevel(t *testing.T) {
 }
 
 // fixtureAdminID returns the package fixtures' admin, creating it on an
-// empty users table the way metaLifecycleFixture does. Inserting another
-// user first would make that fixture skip its bootstrap and find no admin.
+// empty users table; metaLifecycleFixture finds or creates the same admin
+// by email.
 func fixtureAdminID(t *testing.T, pool *pgxpool.Pool) int {
 	t.Helper()
 	ctx := context.Background()
