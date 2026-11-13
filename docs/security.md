@@ -113,6 +113,8 @@ identity as two write-only fields on `POST` / `PUT /api/v1/databases/managed[/{i
 - `GET` returns `action_identity: {"configured": true, "username": "..."}`, never the
   password. On `PUT`, omitting both fields keeps the credential, an empty
   `action_password` keeps the stored password, and `"action_username": ""` removes it.
+  A new `action_password` travels with its `action_username`; sending both replaces a
+  stored password that no configured key opens.
 - Adding, changing or removing it rebuilds that database's runtime (also when another
   replica or SQL changes the row: the reconcile pass compares it).
 - If the stored action password opens with no configured key, the database keeps
@@ -1020,7 +1022,8 @@ from the encryption key (argon2id with the database's random salt in
 A sealed value looks like `sage-enc:v1:<key id>:<ciphertext>`; the key id is
 a public fingerprint of the key. Each value is bound to where it is stored
 (`sage.config|<key>|<database id>`, `sage.databases|<id>|password`,
-`sage.databases|<id>|action_password`, `sage.notification_channels|<id>|<key>`), so a value copied to another row or
+`sage.databases|<id>|action_password`,
+`sage.notification_channels|<id>|<key>`), so a value copied to another row or
 key does not open there. Audit rows never hold a value or its ciphertext.
 YAML and environment secrets are never written to `sage.config`.
 
