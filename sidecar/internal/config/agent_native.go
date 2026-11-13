@@ -114,9 +114,11 @@ func (c *Config) validateAgentNative() error {
 	if err := c.Clone.validate(); err != nil {
 		return err
 	}
-	if c.Custodian.Freeze.RedBufferPct <= 0 ||
-		c.Custodian.Freeze.RedBufferPct > 100 {
-		return fmt.Errorf("custodian.freeze.red_buffer_pct must be within 1-100")
+	// The open interval freeze.BufferThresholds uses as given; written so
+	// NaN, which compares false with both bounds, is refused (vacuum-11b).
+	if red := c.Custodian.Freeze.RedBufferPct; !(red > 0 && red < 100) {
+		return fmt.Errorf("custodian.freeze.red_buffer_pct must be greater than 0 " +
+			"and less than 100")
 	}
 	if c.Custodian.WAL.AbandonAfterMinutes <= 0 ||
 		c.Custodian.WAL.RetainedWALDiskPctCeiling <= 0 ||
