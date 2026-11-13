@@ -51,6 +51,8 @@ var excludedPrefixes = []string{
 	"checks.",
 	// seasonal workload baselines (market-02): YAML only, restart-bound
 	"baseline.",
+	// rehearsal plan-flip budget (migration-06): YAML only, safety-critical
+	"rehearsal.",
 }
 
 // excludedExactKeys are individual keys that exist in the Config
@@ -59,6 +61,10 @@ var excludedPrefixes = []string{
 var excludedExactKeys = map[string]bool{
 	// Workload budget proposals (market-08): YAML only, restart-bound.
 	"advisor.budget_proposals": true,
+	// Migration contract delay and lock budget (migration-06): YAML only,
+	// safety-critical and restart-bound; an API write can never loosen them.
+	"migration.contract_delay_minutes": true,
+	"migration.max_lock_ms":            true,
 	// Subscriber and CDC thresholds (market-13): YAML only, restart-bound.
 	"analyzer.subscription_lag_minutes": true,
 	"analyzer.cdc_stall_minutes":        true,
