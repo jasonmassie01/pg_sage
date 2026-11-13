@@ -148,7 +148,7 @@ func (e *Executor) dropCreatedIndex(
 	if cfg != nil {
 		lockOpt, timeout = WithLockTimeout(cfg.Safety.LockTimeout()), cfg.Safety.DDLTimeout()
 	}
-	if err := ExecConcurrently(ctx, e.pool, dropSQL, timeout, lockOpt); err != nil {
+	if err := ExecConcurrently(ctx, e.actionDB(), dropSQL, timeout, lockOpt); err != nil {
 		recordActionOutcome(ctx, e.pool, e.logFn, actionID, "rollback_failed", err.Error())
 		return fmt.Errorf("revert verified index action %d: %w", actionID, err)
 	}

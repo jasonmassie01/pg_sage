@@ -139,7 +139,7 @@ func (e *Executor) dropNewIndex(ctx context.Context, rec indexReplaceRecord) err
 			ErrReplaceIdentityChanged, rec.Plan.NewIndex, oid, rec.NewOID)
 	}
 	sql := rec.Plan.DropNewSQL
-	return ExecConcurrently(ctx, e.pool, sql, e.ddlTimeout(),
+	return ExecConcurrently(ctx, e.actionDB(), sql, e.ddlTimeout(),
 		WithLockTimeout(e.lockTimeoutMS(sql, ActionPolicyDecision{})))
 }
 

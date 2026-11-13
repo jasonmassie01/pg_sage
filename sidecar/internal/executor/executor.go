@@ -65,7 +65,10 @@ const maxConcurrentDDL = 3
 // Executor runs the autonomous remediation loop after each
 // analyzer cycle.
 type Executor struct {
-	pool               *pgxpool.Pool
+	pool *pgxpool.Pool
+	// actionPool is the separate action identity (action_dsn); nil runs
+	// everything on pool (actionDB, security-09).
+	actionPool         *pgxpool.Pool
 	cfg                *config.Config
 	recs               *recommendation.Store // durable recommendations (C07)
 	rampStart          time.Time

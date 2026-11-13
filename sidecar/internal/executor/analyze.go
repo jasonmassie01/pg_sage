@@ -72,7 +72,7 @@ func (e *Executor) executeAnalyze(
 	}
 
 	if err := runAnalyzeOnConn(
-		ctx, e.pool, f.RecommendedSQL, timeoutMs, lockTimeoutMs,
+		ctx, e.actionDB(), f.RecommendedSQL, timeoutMs, lockTimeoutMs,
 	); err != nil {
 		return err
 	}
