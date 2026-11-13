@@ -46,6 +46,7 @@ func (rt *databaseRuntime) initCloudTelemetry() {
 		<-rt.ctx.Done()
 		release()
 	})
+	rt.attachHostUsage()
 	if st := rt.cloud.Status(); !st.Available && !rt.cloud.HasSource() {
 		logWarn(rt.spec.Scope, "db %q: managed-cloud telemetry %s", rt.spec.Name, st.Reason)
 	}
@@ -84,6 +85,7 @@ func (rt *databaseRuntime) startCloudTelemetry() {
 			rt.executor.WithHostCPUReader(rt.cloud)
 		}
 		rt.note("cloud_telemetry")
+		rt.startRightsize()
 	}
 	if !managedparam.Supported(rt.provider) {
 		return

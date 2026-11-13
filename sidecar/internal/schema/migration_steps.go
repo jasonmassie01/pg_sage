@@ -211,5 +211,6 @@ func trancheThreeMigrations() []namedStep {
 		{"ddlDatabasesDiscovered", ddlDatabasesDiscovered}, // market-06
 		{"ddlDiscoveredDatabases", ddlDiscoveredDatabases}, // market-06
 		{"ddlProviderAdvice", ddlProviderAdvice},           // market-09
+		{"ddlHostUsageHourly", ddlHostUsageHourly},         // market-04
 	}
 }

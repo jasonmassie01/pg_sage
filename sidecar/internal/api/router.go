@@ -284,7 +284,7 @@ func registerFleetScopedRoutes(
 // depend on the fleet, not on the control pool.
 func registerFleetReadRoutes(apiMux *http.ServeMux, mgr *fleet.DatabaseManager,
 	cfg *config.Config) {
-	route(apiMux, "GET /api/v1/value", gateViewer, valueHandler(fleetValueReader(mgr)))
+	route(apiMux, "GET /api/v1/value", gateViewer, valueHandler(fleetValueReader(mgr, cfg)))
 	registerBriefingRoutes(apiMux, mgr)
 	registerMigrationLintRoutes(apiMux, mgr, cfg)
 	registerUpgradeReadinessRoutes(apiMux, mgr, cfg)

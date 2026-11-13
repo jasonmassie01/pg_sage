@@ -144,3 +144,20 @@ func tierMemoryBytes(tier string) float64 {
 	}
 	return 0
 }
+
+// TierMemoryBytes is the RAM of a Cloud SQL machine tier (0: unknown).
+func TierMemoryBytes(tier string) float64 { return tierMemoryBytes(tier) }
+
+// TierVCPUs is the vCPU count of a Cloud SQL machine tier (0: unknown,
+// including the shared-core tiers, which have a fraction of one).
+func TierVCPUs(tier string) int {
+	if m := customTier.FindStringSubmatch(tier); m != nil {
+		n, _ := strconv.Atoi(m[1])
+		return n
+	}
+	if m := standardTier.FindStringSubmatch(tier); m != nil {
+		n, _ := strconv.Atoi(m[2])
+		return n
+	}
+	return 0
+}

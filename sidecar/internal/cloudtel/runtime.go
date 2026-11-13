@@ -54,6 +54,11 @@ type Runtime struct {
 	drift       []managedparam.Drift
 	failures    int       // consecutive failed polls
 	nextPoll    time.Time // when Run polls next (zero: not scheduled)
+
+	usage usageState // hourly host usage (market-04), under pollMu
+	// lastResource is the resource the last good sample named; it outlives
+	// a failed poll, so cost reports keep pricing the instance.
+	lastResource string
 }
 
 // NewRuntime builds a polling runtime over src.
@@ -116,15 +121,18 @@ func (r *Runtime) Poll(ctx context.Context) error {
 	now := r.now()
 	s, err := r.src.Collect(ctx, now)
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.lastPoll = now
 	if err != nil {
 		r.sample, r.lastErr = nil, err.Error()
 		r.failures++
+		r.mu.Unlock()
 		return err
 	}
 	r.sample, r.lastErr, r.lastSuccess, r.failures = &s, "", now, 0
+	r.lastResource = s.Resource
 	r.record(s, now)
+	r.mu.Unlock()
+	r.rollUsage(ctx, s, now) // a failed usage write never fails the poll
 	return nil
 }
 
@@ -223,4 +231,12 @@ func (r *Runtime) SetDrift(d []managedparam.Drift) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.drift = append([]managedparam.Drift(nil), d...)
+}
+
+// Resource is the provider resource the last good sample named ("" before
+// one), kept across failed polls.
+func (r *Runtime) Resource() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.lastResource
 }

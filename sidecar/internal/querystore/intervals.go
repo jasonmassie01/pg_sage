@@ -43,6 +43,10 @@ func epochBreak(cur, prev string) string {
 		" OR " + cur + "stats_epoch IS DISTINCT FROM " + prev + "stats_epoch)"
 }
 
+// EpochBreak is R10's predicate for history readers outside this package
+// (cost attribution): the same rule, written once.
+func EpochBreak(cur, prev string) string { return epochBreak(cur, prev) }
+
 // queryIntervalsSQL returns query $1's call and time deltas between
 // consecutive samples in [$2, $3], summed per bucket of $5 seconds, with
 // whether the bucket holds an epoch break. The window starts at the last

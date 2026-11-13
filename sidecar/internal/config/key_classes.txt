@@ -657,3 +657,6 @@ safety_critical sre.read_policy.allowed_sources
 # Replication health (market-13): the operator declares which heartbeat
 # tables a CDC connector writes; pg_sage only reads them.
 operator_preference replication.cdc_heartbeats
+
+# Cost attribution (market-04): operator-declared prices
+operator_preference cost.rates

@@ -1265,6 +1265,69 @@
     "class": "derivable",
     "lifecycle": "restart"
   },
+  "cost.rates[].as_of": {
+    "type": "string",
+    "default": "",
+    "doc": "Date (YYYY-MM-DD) the prices were read from the provider's price list; shown next to every figure.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "cost.rates[].compute_units": {
+    "type": "float64",
+    "default": 0,
+    "doc": "Fixed DBUs or capacity units the instance runs at; required with dbu_per_hour or cu_per_hour.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "cost.rates[].currency": {
+    "type": "string",
+    "default": "",
+    "doc": "ISO 4217 currency of every price in the entry, e.g. USD or EUR.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "cost.rates[].database": {
+    "type": "string",
+    "default": "",
+    "doc": "pg_sage database name the rate prices (self-managed or when the resource is not known). Set this or resource.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "cost.rates[].iops_month": {
+    "type": "float64",
+    "default": 0,
+    "doc": "Price per provisioned IOPS-month; requires provisioned_iops.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "cost.rates[].provisioned_iops": {
+    "type": "int",
+    "default": 0,
+    "doc": "Provisioned IOPS the iops_month price applies to.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "cost.rates[].resource": {
+    "type": "string",
+    "default": "",
+    "doc": "Provider resource the rate prices, as cloud telemetry status names it (rds:\u003cregion\u003e/\u003cinstance\u003e, aurora:\u003cregion\u003e/\u003cinstance\u003e, cloud-sql:\u003cproject\u003e:\u003cinstance\u003e). Set this or database.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "cost.rates[].storage_gb_month": {
+    "type": "float64",
+    "default": 0,
+    "doc": "Storage price per GB-month, applied to the allocated storage cloud telemetry reports.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "cost.rates[].vcpus": {
+    "type": "int",
+    "default": 0,
+    "doc": "vCPUs of the instance when telemetry cannot tell (self-managed); used for the idle share. 0: from telemetry.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
   "custodian.freeze.red_buffer_pct": {
     "type": "float64",
     "default": 25,

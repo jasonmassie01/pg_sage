@@ -123,6 +123,8 @@ var otherEntries = []Category{
 	e("backup_retention_below_policy", "cloud", "cloud_telemetry", sevW,
 		k("backup.min_retention_days"), nil,
 		"A managed instance keeping backups for fewer days than the retention policy."),
+	e("instance_rightsize", "cloud", "cost", sevI, k("cost.rates"), nil,
+		"An instance that is over or under its size on 14 days of host usage (advisory)."),
 	e("agent_environment_binding", "governance", "agentguard", sevC, nil, nil,
 		"An agent connected to a database outside its bound environment."),
 	e("agent_role_drift", "governance", "agentguard", sevWC, nil, nil,

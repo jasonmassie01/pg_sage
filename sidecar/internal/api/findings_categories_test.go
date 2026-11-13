@@ -78,8 +78,9 @@ func TestNewSubsystemsFilterTheirCategories(t *testing.T) {
 	_, args, ok = buildSourceClause("cloud", 1)
 	if !ok || !slices.Equal(args[0].([]string),
 		[]string{"backup_retention_below_policy", "backup_stale", // market-07
+			"instance_rightsize", // market-04
 			"managed_parameter_drift", "managed_storage_runway"}) {
-		t.Errorf("cloud = (%v, %v), want the managed categories", args, ok)
+		t.Errorf("cloud = (%v, %v), want the cloud categories", args, ok)
 	}
 }
 

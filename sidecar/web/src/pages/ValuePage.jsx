@@ -1,6 +1,7 @@
 import { useAPI } from '../hooks/useAPI'
 import { QueryState } from '../components/QueryState'
 import { queryBlocked } from '../lib/queryState'
+import { CostCard } from '../components/CostCard'
 
 const valuePollIntervalMs = 60000
 
@@ -262,6 +263,7 @@ export function ValuePage({ database }) {
         </p>
       </div>
       {data?.partial && <PartialWarning unavailable={data.unavailable} />}
+      <CostCard cost={data?.cost} />
       {isEmptyValue(data) ? <EmptyState /> : (
         <>
           <RealizedValue savings={data.dba_hours_saved || {}} />

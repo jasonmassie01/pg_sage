@@ -1154,6 +1154,7 @@ and config keys are in the [generated catalog](generated/finding-catalog.md).
 | <a id="forecast_sequence_runway"></a>`forecast_sequence_runway` | Runway | Time left before a sequence runs out of values at its current rate. |
 | <a id="managed_parameter_drift"></a>`managed_parameter_drift` | Cloud telemetry | A managed provider parameter that drifts from its resolved target. |
 | <a id="managed_storage_runway"></a>`managed_storage_runway` | Cloud telemetry | Time left before a managed instance's provisioned storage fills. |
+| <a id="instance_rightsize"></a>`instance_rightsize` | Cost | An instance that is over or under its size on 14 days of host usage. Advisory only: info severity, no SQL, and no executor path acts on it ([below](#instance-right-sizing)). |
 | <a id="incident"></a><a id="incident_open"></a><a id="incident_resolved"></a>`incident` | RCA | Incident-class rows; `incident_open` and `incident_resolved` mark an incident's state. |
 | <a id="migration_safety"></a>`migration_safety` | Migration advisor | A migration safety rule's finding on a DDL statement. |
 | <a id="upgrade_readiness"></a>`upgrade_readiness` | Upgrade readiness | A major-version upgrade check (U1-U7) that does not pass; see [Upgrade Readiness](#upgrade-readiness). |
@@ -1172,6 +1173,32 @@ and config keys are in the [generated catalog](generated/finding-catalog.md).
 | <a id="auth_email_case_duplicates"></a>`auth_email_case_duplicates` | Schema migration | User accounts whose emails differ only in case, which block case-insensitive sign-in until an admin merges or renames them. |
 | <a id="sre_action"></a>`sre_action` | SRE agent | A backend cancel the SRE agent proposes; it waits for an operator to approve or deny it. |
 | <a id="sre_maintenance"></a>`sre_maintenance` | SRE agent | Operator-requested extended statistics, queued for approval. |
+
+### Instance right-sizing
+
+`instance_rightsize` is a deterministic rule over `sage.host_usage_hourly`, the hourly roll-up
+of cloud telemetry (RDS, Aurora provisioned and Cloud SQL). It judges only the current size:
+a resize starts a new window. It needs at least 14 days of hourly rows covering 90% or more of
+the hours, with the newest hour under two hours old; otherwise the size is `unknown` and any
+open finding is left as it is.
+
+- **Upsize** one size in the family when the CPU p95 reached 85% on 3 of the last 7 days, or
+  the DB load p95 exceeds the vCPU count.
+- **Downsize** one size in the family only when the CPU p95 projected onto the smaller size
+  (scaled by vCPUs) is at most 60%, the projected peak at most 85%, and the smaller size's RAM
+  holds `shared_buffers` plus the used-memory p95. It never downsizes onto a burstable class
+  (`db.t3`, `db.t4g`) or to a single-vCPU Cloud SQL tier, and with memory use unknown it keeps
+  the size.
+- Serverless instances (Aurora Serverless, Lakebase autoscaling) and classes without a
+  documented vCPU count are `unknown: capacity telemetry not collected` or `unknown` and never
+  produce a finding.
+
+With `cost.rates` set for the instance, the finding's detail carries the monthly compute delta
+(the configured compute price scaled linearly by vCPUs), its currency, `rate_source` and
+`as_of`; `estimated_cost_usd` holds the delta only when the rates are in USD. Without rates
+there is no dollar figure. The finding is info severity with no recommended SQL: pg_sage never
+resizes an instance, and an LLM may only narrate a finding this rule produced. A later `keep`
+verdict resolves it.
 
 ## Upgrade Readiness
 
