@@ -144,7 +144,8 @@ func (executor *ProductionIntentExecutor) planMigration(
 		return MigrationOutcome{}, err
 	}
 	return executor.recordMigrationPlan(ctx, request, input, MigrationOutcome{
-		Verdict: "recommend_only", EvidenceID: decision.EvidenceID, Plan: planned,
+		Verdict: "recommend_only", Reason: ReasonPlanOnly, EvidenceID: decision.EvidenceID,
+		Plan: planned,
 	}, "")
 }
 
@@ -204,7 +205,7 @@ func (executor *ProductionIntentExecutor) authorizeMigration(
 	actions, blocked := executor.preflightMigration(ctx, request, input, planned)
 	if blocked != nil {
 		return executor.recordMigrationPlan(ctx, request, input, MigrationOutcome{
-			Verdict: "blocked", EvidenceID: blocked.EvidenceID,
+			Verdict: "blocked", Reason: string(blocked.Reason), EvidenceID: blocked.EvidenceID,
 			Plan: planned, Actions: actions,
 		}, string(blocked.Reason))
 	}
@@ -216,7 +217,7 @@ func (executor *ProductionIntentExecutor) authorizeMigration(
 		evidenceID = actions[0].EvidenceID
 	}
 	return executor.recordMigrationPlan(ctx, request, input, MigrationOutcome{
-		Verdict: "recommend_only", EvidenceID: evidenceID,
+		Verdict: "recommend_only", Reason: ReasonNoRehearsalRuntime, EvidenceID: evidenceID,
 		Plan: planned, Actions: actions,
 	}, "")
 }
@@ -283,9 +284,21 @@ func (executor *ProductionIntentExecutor) runMigration(
 		return MigrationOutcome{}, fmt.Errorf("run rehearsed migration: %w", err)
 	}
 	return MigrationOutcome{
-		Verdict: string(result.Verdict), EvidenceID: result.EvidenceID,
-		ContractNotBeforeCycle: result.ContractNotBeforeCycle, Plan: planned,
+		Verdict: string(result.Verdict), Reason: runtimeReason(result),
+		EvidenceID:             result.EvidenceID,
+		ContractNotBeforeCycle: result.ContractNotBeforeCycle,
+		PendingContractSQL:     result.PendingContractSQL,
+		ContractScript:         result.ContractScript, Plan: planned,
 	}, nil
+}
+
+// runtimeReason is the runtime's reason, or the verdict when it gave
+// none, so the outcome always says why (migration-06).
+func runtimeReason(result migrationruntime.Result) string {
+	if result.Reason != "" {
+		return result.Reason
+	}
+	return string(result.Verdict)
 }
 
 type migrationInput struct {
