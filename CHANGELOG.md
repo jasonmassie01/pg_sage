@@ -2,8 +2,8 @@
 
 ## [Unreleased]
 
-These changes are planned as four releases: v2.5.1 (tranche T0a, the safety fixes),
-v2.5.2 (tranche T0b), v2.6.0 (tranche T1) and v2.7.0 (tranche T2).
+These changes are planned as five releases: v2.5.1 (tranche T0a, the safety fixes),
+v2.5.2 (tranche T0b), v2.6.0 (tranche T1), v2.7.0 (tranche T2) and v2.8.0+ (tranche T3).
 
 ### v2.5.1 (tranche T0a, safety)
 
@@ -2097,6 +2097,191 @@ v2.5.2 (tranche T0b), v2.6.0 (tranche T1) and v2.7.0 (tranche T2).
   statements, rows, bytes and read time. A Databricks runtime card on the Settings General tab
   shows it, and `authentication_observed` turns false after a Gateway authentication failure
   (databricks-06).
+
+### v2.8.0+ (tranche T3)
+
+#### Security
+
+- **Separate action identity.** Optional `action_dsn` (`postgres.action_dsn`,
+  `databases[].action_dsn`) runs pg_sage's changes (workload budget role changes included) and
+  backend cancel/terminate as a second role on the same database, so probes, Ask Sage and MCP
+  reads no longer run with owner rights. Neither of pg_sage's two roles can be given a workload
+  budget. AP-14 checks both roles and "Grant more" prints one script per role (security-09).
+- **Per-database grants.** Fleet and meta-db modes can now limit operators to their own
+  databases: set `api.database_grants: true` (off by default) and grant viewer or operator per
+  database on the Users page. A user with no grants keeps their global role everywhere. A user
+  with grants can approve, execute, roll back, stop and run other operator writes only on
+  databases granted as operator. Admins are never limited. Every grant change and every ChatOps
+  refusal is recorded in the auth audit chain (apiauth-08).
+- **Application search_path for what-if plans.** Workload EXPLAIN and HypoPG what-if checks now
+  plan statements on the application's search_path (`ALTER DATABASE`, then `ALTER ROLE ALL`,
+  then the server value) and no longer use pg_sage's own session or role path. If your
+  application relies on a per-role search_path, set it on the database instead (security-01c).
+
+#### Changed
+
+- **Migration outcomes and budgets.** `apply_migration` now says why it stopped (`reason`,
+  including clone-cleanup failures), lists the contract steps it did not run
+  (`pending_contract_sql`), and returns a guarded forward-fix `contract_script`. A rehearsal now
+  parks a plan flip slowed by more than `rehearsal.plan_flip_pct` (5%), and parks a step that
+  would exceed the 10-minute statement timeout or that holds ACCESS EXCLUSIVE longer than
+  `migration.max_lock_ms` (2000). `contract_not_before` is now the expand time plus
+  `migration.contract_delay_minutes` (60); before, cycles were counted as minutes
+  (migration-06).
+- **Notification delivery.** Rule deliveries now queue in an outbox on the control database and
+  are retried with backoff (network errors, 5xx and 429; up to 6 attempts), and sidecars that
+  share a control database never send one twice. Finding alerts (`finding_critical` and the new
+  `finding_opened` and `finding_resolved`) follow `alerting.cooldown_minutes`, quiet hours and
+  `repeat_minutes` per database, dedup key and channel. Critical alerts bypass quiet hours;
+  others wait and are sent once after the window. A new webhook channel type posts JSON with
+  sealed headers. Changes to `alerting.cooldown_minutes`, `quiet_hours_*`, `timezone` and
+  `repeat_minutes` now apply without a restart. The empty Alert Log now says it shows only the
+  config file's `alerting:` block (alerting-06).
+- **Vector lab.** vector-lab now measures halfvec HNSW indexes (up to 4000 dimensions),
+  `relaxed_order` iterative scans and per-variant `max_scan_tuples` / `scan_mem_multiplier`.
+  Ties at the k-th distance are scored by accepting any tied row instead of disqualifying every
+  variant. Reports are `format_version` 2 and add `vector_type` and `ambiguous_boundary_ties`
+  ([Vector lab](docs/vector-lab.md), indexes-10).
+- **Host telemetry for Azure and AlloyDB.** Azure Database for PostgreSQL flexible servers and
+  AlloyDB instances now feed host telemetry (CPU, memory, storage, replica lag) to the memory
+  gates, CPU index-build admission and the replica-lag and storage guards. Azure is named by
+  host, `azure.*` or `cloud_resource.azure`, and needs the Reader and Monitoring Reader roles.
+  AlloyDB is named by `cloud_resource.gcp.cluster`/`instance` or `cloud_telemetry.alloydb`, and
+  needs `roles/monitoring.viewer`. Throttled provider reads are retried inside the poll
+  (clouds-09).
+- **Shadow mode scores maintenance.** Shadow mode now scores vacuum, analyze, autovacuum
+  reloption and extended statistics decisions as external evidence when the same change is
+  found in the catalog (a manual VACUUM/ANALYZE, never autovacuum; exactly the proposed
+  reloption; the same statistics object) and no pg_sage action on the table explains it;
+  `config_guc`, `query_hint` and `reindex` stay unscored (earned-05).
+- **Game days on the customer's hottest table.** Game days now also exercise the monitored
+  database's own hottest table on the clone. The customer program `lock_customer_hot_table`
+  queues lock requests on the table and reads or writes no row. Each game day records what it
+  exercised in `sage.sre_game_days.exercised` and in the game-days API: provider, whether the
+  clone holds customer objects, scenarios, and the binding or skip reason. A game day whose
+  customer program ran but scored nothing finishes `completed_unscored`, which includes every
+  game day on `local_dsn`. A customer program that errors fails the game day. New switch
+  `sre.autonomy.game_days.customer_programs`: on by default for `dle` and `lakebase_branch`,
+  never on `local_dsn` (benches-12).
+- **Databricks Apps service principals.** MCP, specialist and agent-token routes stay 501 until a
+  service-principal identity is verified; a header-capture spike App and go/no-go procedure
+  ([Databricks Apps](docs/databricks-apps.md), "Service principals and MCP") let operators
+  answer the open service-principal question (databricks-09).
+
+#### Added
+
+- **Seasonal workload baselines.** pg_sage folds statement latency, backends, WAL rate and lock
+  waits into hour-of-week buckets (`sage.baseline_samples`) and raises `workload_anomaly` when a
+  value is far above the same hour in earlier weeks. `query_regression` judges against that
+  bucket once it is active, and a critical anomaly opens one read-only Sage SRE investigation
+  per episode. Configure under `baseline.*` (on by default, 4 weeks, UTC); findings start after
+  3 weeks of history (market-02).
+- **Subscriber and CDC health.** New advisory findings: `subscription_errors` (apply or sync
+  errors rising, critical when `disable_on_error` has switched the subscription off),
+  `subscription_lag` (`analyzer.subscription_lag_minutes`, default 5, or no apply worker),
+  `cdc_consumer_stalled` (an active logical slot whose `confirmed_flush_lsn` stood still while
+  WAL advanced, `analyzer.cdc_stall_minutes`, default 10) and `cdc_heartbeat_stale` (optional
+  `replication.cdc_heartbeats` tables, each read with one bounded `SELECT max`). Subscription
+  DDL appears only as manual SQL that needs approval (market-13).
+- **Rule packs and owner checks.** `analyzer.disabled_rules` (global, per database through the
+  config API, or YAML `databases[].disabled_rules`) switches analyzer rules off and resolves
+  their open findings as `rule_disabled`; wraparound, sequence-exhaustion and `sage_*` rules
+  cannot be disabled. A new `checks:` list runs your own single SELECT checks read-only and
+  bounded, and each row becomes a `custom:<id>` finding that never carries SQL
+  ([Owner checks](docs/custom-checks.md), market-11).
+- **Workload budgets.** A new `budgets:` list ([Workload budgets](docs/workload-budgets.md)) sets
+  statement, idle in transaction and connection limits per role, `application_name` or
+  sqlcommenter tag. Warn mode (the default) counts would-be cancels and rejects in
+  `sage.budget_shadow` and raises `workload_budget_violation`; `advisor.budget_proposals`
+  (default on) proposes a role `statement_timeout` of 3x its p99. A role budget in enforce mode
+  becomes `set_role_timeout` (`ALTER ROLE ... IN DATABASE ... SET`) or
+  `set_role_connection_limit` actions only after 7 days of shadow data with no protected
+  application cancelled. The connection limit is HIGH risk, always needs approval and runs on
+  the fleet leader only (market-08).
+- **Backup results.** Backup results are now watched, not just backup settings. New findings:
+  `wal_archive_failing` (`pg_stat_archiver` failures, critical after a 30-minute streak) and
+  `wal_archive_stale` (completed WAL waiting longer than `backup.max_archive_gap_minutes`) on
+  any server, and `backup_stale` (the provider's last good backup older than
+  `backup.max_age_hours`, default 26) and `backup_retention_below_policy` (below
+  `backup.min_retention_days`, default 7) on RDS, Aurora and Cloud SQL. Cloud SQL backup runs
+  are read at most every 15 minutes with `roles/cloudsql.viewer`. Missing evidence is reported
+  as unknown, never as healthy (market-07).
+- **LLM usage ledger.** LLM usage is now persisted per day, database, client role, purpose and
+  model in `sage.llm_usage` (control database, kept 400 days). Each row carries the
+  prompt/completion/reasoning split, calls, failures and an optional cost from the new
+  `llm.pricing` (operator-supplied USD per million tokens; empty by default, NULL cost without a
+  price). Read it with `GET /api/v1/llm/usage?days=N`. `pg_sage_llm_tokens_total` gains a
+  `purpose` label (llm-04).
+- **Pre-merge migration review.** `pg_sage lint-migration --file x.sql` runs in CI (exit 0
+  safe, 1 review, 2 risky, 3 tool error; JSON, GitHub annotations or SARIF; `--static` needs no
+  database, otherwise set `SAGE_LINT_DATABASE_URL`), and `POST /api/v1/migrations/lint` serves
+  any signed-in role (`api.migration_lint_rate_per_minute`, default 30). MCP `lint_migration`
+  now shares the advisor's engine, so it applies `migration.ddl_row_threshold`, lists a missing
+  `lock_timeout` as advice instead of a score, adds guarded rewrites, and errors instead of
+  guessing when a catalog read fails (migration-11).
+- **Online column swap.** A schema-guard type-tightening decision now carries a recommend-only
+  script (`online_swap_script`) that changes a column's type without a table rewrite: a sync
+  trigger, a keyset backfill under `lock_timeout`, one short swap transaction that also moves
+  the primary key, sequence, default and referencing foreign keys (re-added NOT VALID, then
+  validated), and a final drop of the old column. Each step names the lock it takes. Columns it
+  cannot swap online get `online_swap_refused` with the reason. pg_sage never runs the script
+  ([Migration safety](docs/migration-safety.md), migration-09b).
+- **Upgrade readiness.** `GET /api/v1/upgrade-readiness` and the read-only MCP tool
+  `upgrade_readiness` check a database for a target major (`pg_upgrade`, `blue_green` or
+  `logical`): tables without a key or replica identity, extensions on a target member, logical
+  slots and subscriptions, PG18 data checksums, collation versions and FTS/pg_trgm indexes to
+  reindex, removed settings, and dated RDS/Aurora/community support windows. Members at or near
+  end of life get advisory `upgrade_readiness` cases daily (market-05).
+- **Rehearsal on a Lakebase branch.** Migration rehearsal can now run on an instant Lakebase
+  branch. Set `clone.provider: lakebase_branch` and `clone.lakebase.project`. Optional keys are
+  `source_branch` (default: the monitored endpoint's branch), `ttl_minutes` (default 60, range
+  1-1440) and `endpoint_max_cu` (default 1). Each rehearsal gets its own `sage-rh-*` branch,
+  which Lakebase expires on its own after the TTL. Branches are receipted and reaped by the
+  fleet leader, and are deleted after the run. A branch or endpoint that is production's is
+  refused. Without Databricks auth the rehearsal is recommend-only. The principal needs
+  CAN_MANAGE on the project (market-03).
+- **Teams, Opsgenie, incident.io and Jira.** Notifications can now go to Microsoft Teams
+  (Workflows webhook, Adaptive Card), Opsgenie (alias = dedup key, closed on resolve, us/eu)
+  and incident.io (HTTP alert source, firing/resolved), all through the outbox, which now
+  honours `Retry-After` (up to 1 hour). An operator can turn a case into one Jira issue from the
+  case card; pg_sage reads its status back every 15 minutes (read-only evidence that never
+  resolves the case) and comments once when the case is no longer open (market-14).
+- **Workload explorer.** A new Workload page ranks the window's statements by load (execution
+  seconds per second), calls, mean time or rows from the query store, stacks active sessions
+  by wait class (sampled each collector cycle, stored as the new `wait_events` snapshot
+  category), and opens a page per query with its history, plan changes, newest captured plan
+  and related cases, hints and actions (`GET /api/v1/queries/top`,
+  `/api/v1/queries/{queryid}`, `/api/v1/wait-load`) (market-01).
+- **Fleet auto-discovery.** Meta-db fleets can discover databases (off by default).
+  `fleet.discovery` takes cluster, Lakebase and RDS sources, each with a required owner. It
+  finds new databases, branch endpoints and tagged instances every 10 minutes. With
+  `reuse_credentials`, it enrols cluster databases at trust observation and approval, up to
+  `max_enrolled`. An enrolled member is disabled after `ttl_hours` unless an owner adopts it
+  from the new Discovered tab. A member that disappears is disabled and marked gone. Every step
+  is audited (market-06).
+- **Provider advice.** pg_sage now reads the provider's own advisors hourly (Cloud SQL and
+  AlloyDB index advisor view, Azure flexible server index tuning, Supabase performance
+  advisors; Neon has none) and gives each piece of advice a verdict against pg_sage's own index
+  findings: `agree`, `pgsage_only`, `provider_only` (with whether pg_sage would act, from its
+  HypoPG what-if), `conflict`, `unparsed` (never offered as SQL) or `unknown`. The results are at
+  `GET /api/v1/provider-advice?database=` and on finding cases (`provider_advice`). Advice is
+  evidence only and never raises confidence, risk or autonomy. Set
+  `provider_advice.enabled: false` to turn it off; one new migration
+  (`sage.provider_recommendations`, `sage.provider_advice_sources`) (market-09).
+- **Cost on the Value report.** The Value report now shows dollar cost when you set rates in the
+  new optional `cost.rates` block: compute, storage and IOPS cost per instance, idle capacity,
+  and the top 20 queries by cost, each figure shown with its rate source and `as_of` date.
+  pg_sage ships no price tables. Cloud telemetry now keeps hourly host usage for 35 days
+  (`sage.host_usage_hourly`). A new advisory `instance_rightsize` finding (info severity, no
+  SQL) suggests one size up or down in the same family after 14 days of usage history
+  (market-04).
+- **Helm chart and CloudNativePG.** A Helm chart (`deploy/helm/pg-sage`: one replica with
+  Recreate, image pinned to the release, non-root read-only pod, optional ServiceMonitor and
+  NetworkPolicy) and a CloudNativePG adapter: `postgres.cnpg` / `databases[].cnpg` names the
+  Cluster, so pg_sage never runs ALTER SYSTEM there. Instance settings become
+  `kubectl patch cluster` proposals with a rollback and a GitOps fragment, read through a
+  get-only Role and never applied by pg_sage. Unconfigured CNPG servers open finding
+  `cnpg_target_unconfigured` (market-12).
 
 ## v2.5.0 (2026-11-03) -- The Databricks release
 
