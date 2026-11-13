@@ -16,6 +16,8 @@ var fullCategories = map[string]string{
 	"workload_sessions": "session groups whose ages move every cycle and long sessions " +
 		"keyed by a reused pid, bounded at 200 groups, 50 sessions (tags only, no " +
 		"statement text) and 200 roles (market-08)",
+	"archiver": "the server's one pg_stat_archiver row (a few hundred bytes) whose " +
+		"archive age and current WAL file move every cycle",
 }
 
 // Coverage reports how the store keeps category: delta is true for a

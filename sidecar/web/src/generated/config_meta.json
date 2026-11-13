@@ -850,6 +850,27 @@
     "class": "safety_critical",
     "lifecycle": "restart"
   },
+  "backup.max_age_hours": {
+    "type": "int",
+    "default": 26,
+    "doc": "Hours the provider's last good backup (RDS and Aurora latest restorable time, Cloud SQL last successful backup run) may age before backup_stale opens; critical at twice the age. 1-8760. Default: 26.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "backup.max_archive_gap_minutes": {
+    "type": "int",
+    "default": 15,
+    "doc": "Minutes completed WAL may wait since the last successful archive before wal_archive_stale opens; critical at four times the gap. 1-10080. Default: 15.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "backup.min_retention_days": {
+    "type": "int",
+    "default": 7,
+    "doc": "Backup retention in days the provider must keep; less opens backup_retention_below_policy (0 days is AP-11's backups-off case). 0 turns the check off. 0-35. Default: 7.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
   "baseline.enabled": {
     "type": "bool",
     "default": true,

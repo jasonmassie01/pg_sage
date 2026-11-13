@@ -85,6 +85,17 @@ still goes through the policy gate and the trust ledger.
   no limit. A bound proposed there by the byte backstop records
   `capacity_source=capacity_unbounded`. A Cloud SQL auto-resize limit counts as the capacity.
   In fleet mode each database uses its own telemetry runtime.
+- **Backup freshness.** The provider's last good backup opens `backup_stale` when it is older
+  than `backup.max_age_hours` (26), and a retention under `backup.min_retention_days` (7) opens
+  `backup_retention_below_policy`. RDS reports `LatestRestorableTime` in the instance
+  description and Aurora in the cluster description, both already read, so no extra call is
+  made. Cloud SQL's instance has the backup settings only: pg_sage lists the 5 newest backup
+  runs (`backupRuns.list`, in `roles/cloudsql.viewer`) at most every 15 minutes and takes the
+  latest successful one. A denied or failed list keeps the backup settings, marks freshness
+  unavailable (logged once per reason) and leaves `backup_stale` as it was; unknown is never
+  "ok". `pg_stat_archiver` is still read on managed servers, but providers often run their own
+  archiving, so the provider's restorable time is the evidence to trust there. See
+  [Backups and WAL archiving](findings.md#backups-and-wal-archiving).
 - **Parameter drift.** Values set in the parameter group or flags that PostgreSQL does not run
   (pending a reboot, overridden by a database/role setting, or not in effect) open
   `managed_parameter_drift` findings.
@@ -297,7 +308,8 @@ Credentials come only from the standard chains and are never stored, logged or p
 - **Google Cloud:** Application Default Credentials (`GOOGLE_APPLICATION_CREDENTIALS` with a
   service-account key or user credentials, `gcloud auth application-default login`, or the
   metadata server on GCE/GKE/Cloud Run). Roles: `roles/monitoring.viewer`,
-  `roles/cloudsql.viewer`. The project comes from the Auth Proxy socket,
+  `roles/cloudsql.viewer` (it includes `cloudsql.backupRuns.list` for backup freshness). The
+  project comes from the Auth Proxy socket,
   `cloud_resource.gcp.project`, `cloud_telemetry.gcp.project` or the credentials, in that
   order.
 

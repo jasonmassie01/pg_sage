@@ -79,6 +79,11 @@ func (c *Collector) extraSteps() []catalogStep {
 			s.PreparedXacts, err = c.collectPreparedXacts(ctx)
 			return err
 		}, reset: func(s *Snapshot) { s.PreparedXacts = nil }},
+		catalogStep{name: "archiver",
+			run: func(ctx context.Context, s *Snapshot) (err error) {
+				s.Archiver, err = c.collectArchiver(ctx)
+				return err
+			}, reset: func(s *Snapshot) { s.Archiver = nil }},
 		catalogStep{name: "partitions",
 			run: func(ctx context.Context, s *Snapshot) (err error) {
 				s.Partitions, err = c.collectPartitions(ctx)

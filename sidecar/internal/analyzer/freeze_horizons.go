@@ -21,6 +21,7 @@ func (a *Analyzer) loadCycleCatalogState(ctx context.Context) {
 	a.loadStatsEpoch(ctx)
 	a.loadIndexBuilds(ctx)
 	a.loadFreezeHorizons(ctx)
+	a.loadArchiverOwner()
 }
 
 // loadFreezeHorizons refreshes extras.FreezeHorizons once per cycle. It

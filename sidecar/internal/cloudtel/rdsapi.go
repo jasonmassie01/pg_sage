@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
@@ -25,6 +26,15 @@ type rdsInstance struct {
 	Replicas                                 []string
 	BackupRetention                          *int32
 	DeletionProtection                       *bool
+	// LatestRestorable is the instance's latest restorable time, or on
+	// Aurora the cluster's.
+	LatestRestorable *time.Time
+}
+
+// rdsCluster is what collection reads from an Aurora cluster.
+type rdsCluster struct {
+	Writer           string
+	LatestRestorable *time.Time
 }
 
 type rdsAPI struct{ client *rds.Client }
@@ -55,7 +65,7 @@ func (a *rdsAPI) instance(ctx context.Context, id string) (rdsInstance, error) {
 		AllocatedGiB: aws.ToInt32(d.AllocatedStorage), MaxAllocatedGiB: aws.ToInt32(
 			d.MaxAllocatedStorage), PIEnabled: aws.ToBool(d.PerformanceInsightsEnabled),
 		Replicas: d.ReadReplicaDBInstanceIdentifiers, BackupRetention: d.BackupRetentionPeriod,
-		DeletionProtection: d.DeletionProtection}
+		DeletionProtection: d.DeletionProtection, LatestRestorable: d.LatestRestorableTime}
 	if len(d.DBParameterGroups) > 0 {
 		inst.ParameterGroup = aws.ToString(d.DBParameterGroups[0].DBParameterGroupName)
 		inst.ParameterApplyStatus = aws.ToString(d.DBParameterGroups[0].ParameterApplyStatus)
@@ -63,21 +73,24 @@ func (a *rdsAPI) instance(ctx context.Context, id string) (rdsInstance, error) {
 	return inst, nil
 }
 
-// clusterWriter is the writer instance of an Aurora cluster.
-func (a *rdsAPI) clusterWriter(ctx context.Context, cluster string) (string, error) {
+// clusterWriter is the writer instance of an Aurora cluster and the
+// cluster's latest restorable time.
+func (a *rdsAPI) clusterWriter(ctx context.Context, cluster string) (rdsCluster, error) {
 	out, err := a.client.DescribeDBClusters(ctx, &rds.DescribeDBClustersInput{
 		DBClusterIdentifier: aws.String(cluster)})
 	if err != nil {
-		return "", sdkError(ctx, "RDS DescribeDBClusters", err)
+		return rdsCluster{}, sdkError(ctx, "RDS DescribeDBClusters", err)
 	}
 	for _, c := range out.DBClusters {
 		for _, m := range c.DBClusterMembers {
 			if aws.ToBool(m.IsClusterWriter) {
-				return aws.ToString(m.DBInstanceIdentifier), nil
+				return rdsCluster{Writer: aws.ToString(m.DBInstanceIdentifier),
+					LatestRestorable: c.LatestRestorableTime}, nil
 			}
 		}
 	}
-	return "", fmt.Errorf("%w: Aurora cluster %s has no writer", ErrIdentity, cluster)
+	return rdsCluster{}, fmt.Errorf("%w: Aurora cluster %s has no writer", ErrIdentity,
+		cluster)
 }
 
 // parameters pages through the group's parameters (at most 50 pages).

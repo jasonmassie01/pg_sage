@@ -114,6 +114,9 @@
 | `azure.resource_group` | `restart` | `-` | `safety_critical` |
 | `azure.server_name` | `restart` | `-` | `safety_critical` |
 | `azure.subscription_id` | `restart` | `-` | `safety_critical` |
+| `backup.max_age_hours` | `restart` | `-` | `operator_preference` |
+| `backup.max_archive_gap_minutes` | `restart` | `-` | `operator_preference` |
+| `backup.min_retention_days` | `restart` | `-` | `operator_preference` |
 | `baseline.enabled` | `restart` | `-` | `operator_preference` |
 | `baseline.max_query_keys` | `restart` | `-` | `operator_preference` |
 | `baseline.min_delta_ms` | `restart` | `-` | `operator_preference` |

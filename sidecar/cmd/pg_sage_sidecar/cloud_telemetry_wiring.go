@@ -130,4 +130,7 @@ func (rt *databaseRuntime) afterManagedCycle(res managedparam.CycleResult, err e
 		rt.cloud); err != nil {
 		logWarn(rt.spec.Scope, "db %q: managed-cloud findings: %v", rt.spec.Name, err)
 	}
+	if err := rt.upsertBackupFindings(ctx); err != nil {
+		logWarn(rt.spec.Scope, "db %q: backup findings: %v", rt.spec.Name, err)
+	}
 }

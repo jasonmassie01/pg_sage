@@ -38,6 +38,8 @@ var analyzerRules = []Rule{
 	{"subscription_lag", k("subscription_lag")},
 	{"cdc_consumer_stalled", k("cdc_consumer_stalled")},
 	{"cdc_heartbeat_stale", k("cdc_heartbeat_stale")},
+	{"wal_archive_failing", k("wal_archive_failing")},
+	{"wal_archive_stale", k("wal_archive_stale")},
 }
 
 // AnalyzerRules returns a copy of the rule-pack vocabulary.

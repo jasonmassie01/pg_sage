@@ -141,12 +141,13 @@ func (s *AWSSource) resolve(ctx context.Context) (rdsInstance, awsIdentity, erro
 		return rdsInstance{}, awsIdentity{}, err
 	}
 	id := s.opts.InstanceID
+	var cluster rdsCluster
 	if s.opts.ClusterID != "" {
-		writer, err := s.rds.clusterWriter(ctx, s.opts.ClusterID)
-		if err != nil {
+		var err error
+		if cluster, err = s.rds.clusterWriter(ctx, s.opts.ClusterID); err != nil {
 			return rdsInstance{}, awsIdentity{}, err
 		}
-		id = writer
+		id = cluster.Writer
 	}
 	inst, err := s.rds.instance(ctx, id)
 	if err != nil {
@@ -155,10 +156,14 @@ func (s *AWSSource) resolve(ctx context.Context) (rdsInstance, awsIdentity, erro
 	ident := awsIdentity{engine: inst.Engine, cluster: s.opts.ClusterID,
 		role: managedparam.InstanceRoleWriter}
 	if s.opts.ClusterID == "" {
-		ident.cluster, ident.role = inst.ClusterID, s.memberRole(ctx, inst)
+		ident.role, cluster = s.memberRole(ctx, inst)
+		ident.cluster = inst.ClusterID
 		if err := ctx.Err(); err != nil {
 			return rdsInstance{}, awsIdentity{}, err
 		}
+	}
+	if cluster.LatestRestorable != nil {
+		inst.LatestRestorable = cluster.LatestRestorable
 	}
 	s.mu.Lock()
 	s.resolved = ident
@@ -168,19 +173,20 @@ func (s *AWSSource) resolve(ctx context.Context) (rdsInstance, awsIdentity, erro
 
 // memberRole is an instance endpoint's role in its Aurora cluster ("" for
 // an instance outside any cluster). An unreadable cluster leaves the role
-// unknown rather than failing collection, which never needed it.
-func (s *AWSSource) memberRole(ctx context.Context, inst rdsInstance) string {
+// unknown rather than failing collection, which never needed it. The
+// cluster is returned as read (zero when unread).
+func (s *AWSSource) memberRole(ctx context.Context, inst rdsInstance) (string, rdsCluster) {
 	if inst.ClusterID == "" {
-		return ""
+		return "", rdsCluster{}
 	}
-	writer, err := s.rds.clusterWriter(ctx, inst.ClusterID)
+	cluster, err := s.rds.clusterWriter(ctx, inst.ClusterID)
 	switch {
 	case err != nil:
-		return managedparam.InstanceRoleUnknown
-	case writer == inst.ID:
-		return managedparam.InstanceRoleWriter
+		return managedparam.InstanceRoleUnknown, rdsCluster{}
+	case cluster.Writer == inst.ID:
+		return managedparam.InstanceRoleWriter, cluster
 	}
-	return managedparam.InstanceRoleReader
+	return managedparam.InstanceRoleReader, cluster
 }
 
 // checkDetected refuses an instance whose engine contradicts the platform
@@ -222,7 +228,8 @@ func (s *AWSSource) Collect(ctx context.Context, now time.Time) (Sample, error) 
 		return Sample{}, err
 	}
 	s.applyStorage(&sample, inst, aurora, now)
-	sample.Backup = rdsBackup(inst.BackupRetention, inst.DeletionProtection, aurora)
+	sample.Backup = rdsBackup(inst.BackupRetention, inst.DeletionProtection, aurora,
+		inst.LatestRestorable)
 	if err := s.applyPI(ctx, &sample, inst, now); err != nil {
 		return Sample{}, err
 	}

@@ -110,6 +110,8 @@ type Config struct {
 	FleetLearning FleetLearningConfig `yaml:"fleet_learning"`
 	// HA is each database's HA monitor cadence (ha.go).
 	HA HAConfig `yaml:"ha"`
+	// Backup is the backup freshness policy (backup.go, market-07).
+	Backup BackupConfig `yaml:"backup"`
 	// CloudTelemetry is managed-cloud host telemetry (cloud_telemetry.go).
 	CloudTelemetry        CloudTelemetryConfig        `yaml:"cloud_telemetry"`
 	LakebaseObservability LakebaseObservabilityConfig `yaml:"lakebase_observability"`
@@ -900,6 +902,9 @@ func (c *Config) validate() error {
 	if err := c.HA.validate(); err != nil {
 		return err
 	}
+	if err := c.Backup.validate(); err != nil {
+		return err
+	}
 	if err := c.Agents.validate(); err != nil {
 		return err
 	}
@@ -1257,6 +1262,7 @@ func newDefaults() *Config {
 		SelfConfig:    defaultSelfConfigConfig(),
 		FleetLearning: defaultFleetLearningConfig(),
 		HA:            defaultHAConfig(),
+		Backup:        defaultBackupConfig(),
 		Agents:        defaultAgentsConfig(),
 		Audit:         defaultAuditConfig(),
 	}

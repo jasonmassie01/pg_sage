@@ -133,27 +133,40 @@ func (a *Analyzer) runSnapshotRules(
 		a.eval.evaluated(rule.Categories...)
 		got := rule.Fn(current, previous, a.cfg, a.extras)
 		out = append(out, got...)
-		if rule.Name == "slow_queries" && hasQueryInterval(current, previous) {
-			// An idle or thin interval is no verdict (rules-05).
-			a.eval.keep("slow_query",
-				undecidedQueries(current, previous, slowQueryMinCalls(a.cfg))...)
-		}
-		if rule.Name == "unused_indexes" {
-			// The zero-scan clock's restart warmup and holds (rules-04).
-			a.holdUnusedFindings(current, previous, got)
-		}
-		if rule.Name == "index_bloat" {
-			// An index read without an estimate is no verdict (rules-13).
-			a.eval.keep("index_bloat", current.IndexBloatUnknown...)
-		}
-		if rule.Name == "inactive_slots" && a.extras != nil && a.extras.InactiveSlotPending {
-			a.eval.fail("inactive_slot")
-		}
-		for category, idents := range a.extras.takeUndecided() {
-			a.eval.keep(category, idents...)
-		}
+		a.holdUndecided(rule, current, previous, got)
 	}
 	return out
+}
+
+// holdUndecided keeps or fails the categories a rule ran on but could not
+// decide this cycle, so their open findings are not resolved on no verdict.
+func (a *Analyzer) holdUndecided(
+	rule RuleSpec, current, previous *collector.Snapshot, got []Finding,
+) {
+	if rule.Name == "slow_queries" && hasQueryInterval(current, previous) {
+		// An idle or thin interval is no verdict (rules-05).
+		a.eval.keep("slow_query",
+			undecidedQueries(current, previous, slowQueryMinCalls(a.cfg))...)
+	}
+	if rule.Name == "unused_indexes" {
+		// The zero-scan clock's restart warmup and holds (rules-04).
+		a.holdUnusedFindings(current, previous, got)
+	}
+	if rule.Name == "index_bloat" {
+		// An index read without an estimate is no verdict (rules-13).
+		a.eval.keep("index_bloat", current.IndexBloatUnknown...)
+	}
+	if rule.Name == "inactive_slots" && a.extras != nil && a.extras.InactiveSlotPending {
+		a.eval.fail("inactive_slot")
+	}
+	if rule.Name == "wal_archive_failing" && !archiverDeferred(a.extras) &&
+		archiverStillFailing(current) {
+		// No success since the last failure: no verdict of recovery.
+		a.eval.keep(categoryWALArchiveFailing, archiverIdentity)
+	}
+	for category, idents := range a.extras.takeUndecided() {
+		a.eval.keep(category, idents...)
+	}
 }
 
 // runDatabaseRules runs rules that need their own catalog/sage queries.

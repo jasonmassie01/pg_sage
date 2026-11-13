@@ -46,6 +46,11 @@ type fakeGCP struct {
 	fail      map[string]fakeFailure // "token", "metadata", "monitoring", "sqladmin"
 	dateSkew  time.Duration
 
+	// backupRuns are each instance's backupRuns.list items, newest first
+	// (fail key "backupruns"); backupQueries records the list calls' queries.
+	backupRuns    map[string][]map[string]any
+	backupQueries []url.Values
+
 	calls        map[string]int
 	tokenForms   []url.Values
 	bearers      []string
@@ -61,7 +66,8 @@ func newFakeGCP(t *testing.T, now time.Time) *fakeGCP {
 		t.Fatal(err)
 	}
 	f := &fakeGCP{t: t, now: now, key: key, instances: map[string]map[string]any{},
-		fail: map[string]fakeFailure{}, calls: map[string]int{}, metadataUp: true}
+		backupRuns: map[string][]map[string]any{},
+		fail:       map[string]fakeFailure{}, calls: map[string]int{}, metadataUp: true}
 	f.srv = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.srv.Close)
 	return f
@@ -204,6 +210,10 @@ func (f *fakeGCP) serveMetadata(w http.ResponseWriter, r *http.Request) {
 }
 
 func (f *fakeGCP) serveSQLAdmin(w http.ResponseWriter, r *http.Request) {
+	if strings.HasSuffix(r.URL.Path, "/backupRuns") {
+		f.serveBackupRuns(w, r)
+		return
+	}
 	if f.failed(w, "sqladmin") {
 		return
 	}
@@ -230,6 +240,26 @@ func (f *fakeGCP) serveSQLAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = json.NewEncoder(w).Encode(inst)
+}
+
+// serveBackupRuns lists an instance's backup runs (backupRuns.list).
+func (f *fakeGCP) serveBackupRuns(w http.ResponseWriter, r *http.Request) {
+	if f.failed(w, "backupruns") {
+		return
+	}
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/v1/projects/"), "/")
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.backupQueries = append(f.backupQueries, r.URL.Query())
+	if len(parts) != 4 || f.instances[parts[2]] == nil {
+		http.NotFound(w, r)
+		return
+	}
+	items := f.backupRuns[parts[2]]
+	if n, err := strconv.Atoi(r.URL.Query().Get("maxResults")); err == nil && n < len(items) {
+		items = items[:n]
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"items": items})
 }
 
 func (f *fakeGCP) serveMonitoring(w http.ResponseWriter, r *http.Request) {

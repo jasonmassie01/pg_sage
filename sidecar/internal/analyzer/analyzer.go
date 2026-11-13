@@ -148,6 +148,10 @@ type Analyzer struct {
 	// owner-defined read-only checks (market-11); nil runs none.
 	rulePack rulePackState
 	checks   *customCheckRunner
+
+	// instanceOwner names the fleet database that owns this database's
+	// instance (WithInstanceOwner); nil reports cluster-wide findings here.
+	instanceOwner func() (owner string, isOwner bool)
 }
 
 // PlanNarrator enriches plan_regression findings with an LLM-generated

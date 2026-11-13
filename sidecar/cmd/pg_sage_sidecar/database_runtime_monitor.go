@@ -51,6 +51,8 @@ func (rt *databaseRuntime) startMonitoring() {
 		rt.analyzer.WithDispatcher(rt.dispatcher)
 	}
 	rt.analyzer.WithDatabaseName(rt.spec.Name)
+	// Archiving is cluster-wide: the instance's owner reports it (market-07).
+	rt.analyzer.WithInstanceOwner(rt.instanceOwnerFunc())
 	rt.analyzer.WithPolicyVersion(rt.policyVersionReader())
 	if rt.llmOn {
 		rt.analyzer.WithPlanNarrator(

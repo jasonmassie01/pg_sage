@@ -119,6 +119,14 @@ unfreezes are recorded in the action log (see [the kill switch](#kill-switch-fre
 proposal. `agent_*` tools reach L3 at most, and L2 while the agent is tainted. The trust level
 and the gate can only lower these.
 
+**Production writes (D7).** A write or DDL in `prod` needs point-in-time recovery: the
+provider's PITR flag from cloud telemetry, else WAL archiving that is on and has a command or
+library. Without it the request is refused (`agent_no_pitr`). L3 is earned only with a passed
+restore drill in the last 14 days; pg_sage does not run restore drills yet, so production
+writes and DDL stay at L2, where a person approves each one, even with PITR on. Whether PITR
+actually works is reported separately by `wal_archive_failing`, `wal_archive_stale` and
+`backup_stale` (see [Backups and WAL archiving](findings.md#backups-and-wal-archiving)).
+
 **Environment ceiling.** The effective ceiling is the narrower of the agent's `env_ceiling`
 and its profile's ceiling. A database's environment comes from its verified label (see
 [Environments](#environments)), never from the agent, and an unverified database counts as

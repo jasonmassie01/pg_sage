@@ -31,7 +31,9 @@ var rules07Lists = map[string][]string{
 		"index_bloat", // rules-13 added index_bloat to the rules subsystem
 		// market-13 added the subscriber and CDC health categories.
 		"subscription_errors", "subscription_lag", "cdc_consumer_stalled",
-		"cdc_heartbeat_stale"},
+		"cdc_heartbeat_stale",
+		// market-07 added the WAL archiver rules.
+		"wal_archive_failing", "wal_archive_stale"},
 	"advisor": {"wal_tuning", "connection_tuning", "query_rewrite",
 		"bloat_remediation", "advisor_degraded", "vacuum_tuning", "memory_tuning"},
 	"optimizer": {"missing_index", "covering_index", "partial_index", "composite_index"},
@@ -71,7 +73,8 @@ func TestNewSubsystemsFilterTheirCategories(t *testing.T) {
 	}
 	_, args, ok = buildSourceClause("cloud", 1)
 	if !ok || !slices.Equal(args[0].([]string),
-		[]string{"managed_parameter_drift", "managed_storage_runway"}) {
+		[]string{"backup_retention_below_policy", "backup_stale", // market-07
+			"managed_parameter_drift", "managed_storage_runway"}) {
 		t.Errorf("cloud = (%v, %v), want the managed categories", args, ok)
 	}
 }
