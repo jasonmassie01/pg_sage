@@ -94,7 +94,7 @@ func TestProviderAdviceHandler_Validation(t *testing.T) {
 	mgr := phase2MgrWithPool(pool)
 	h := providerAdviceHandler(mgr)
 	for target, want := range map[string]int{
-		"/api/v1/provider-advice?database=nope":                       http.StatusNotFound,
+		"/api/v1/provider-advice?database=nope":                      http.StatusNotFound,
 		"/api/v1/provider-advice?database=testdb&include_resolved=x": http.StatusBadRequest,
 		"/api/v1/provider-advice?database=bad%00name":                http.StatusBadRequest,
 	} {

@@ -17,8 +17,7 @@ func TestRunner_CloudSQLAdviceReconcilesIntoTheStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	failing := &fakeSource{name: "azure",
-		recs: []Recommendation{dropRec("z1", "public.gone_idx")}}
+	failing := &fakeSource{name: "azure", recs: []Recommendation{dropRec("z1", "public.gone_idx")}}
 	store := NewStore(pool)
 	r, err := NewRunner(RunnerOptions{Database: "app", Sources: []Source{src, failing},
 		Sink: store, Findings: func(c context.Context) ([]Finding, error) {
