@@ -60,9 +60,9 @@ func TestNoBuildRecipeUsesTheSQLASTAssumptionTag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve the repository root: %v", err)
 	}
-	roots := []string{"sidecar/Dockerfile", ".github", "scripts", "sidecar/scripts",
-		"deploy", "docker-compose.yml", "docker-compose.test.yml",
-		"docker-compose.e2e.yml"}
+	roots := []string{"sidecar/Dockerfile", ".github", ".goreleaser.yml", "scripts",
+		"sidecar/scripts", "deploy", "demo", "sidecar/tests", "sidecar/test",
+		"docker-compose.yml", "docker-compose.test.yml", "docker-compose.e2e.yml"}
 	scanned := 0
 	for _, root := range roots {
 		path := filepath.Join(repo, filepath.FromSlash(root))
