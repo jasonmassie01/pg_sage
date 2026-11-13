@@ -54,7 +54,7 @@ func TestIngestStoresTaggedRecordBeforeItsAction(t *testing.T) {
 	decision := seedDecision(t, pool)
 	own := sessionUser(t, pool)
 	rec := entry("pg_sage action:"+itoa(decision), own, cicRecord)
-	stats, err := NewCorrelator(pool, "orders").Ingest(ctx, []logwatch.LogEntry{rec})
+	stats, err := NewCorrelator(pool, "orders", nil).Ingest(ctx, []logwatch.LogEntry{rec})
 	if err != nil || stats.Stored != 1 {
 		t.Fatalf("ingest before the action exists = %+v, %v; want stored", stats, err)
 	}
@@ -83,7 +83,7 @@ func TestIngestTaggedRecordLinksExistingAction(t *testing.T) {
 	decision := seedDecision(t, pool)
 	rec := entry("pg_sage action:"+itoa(decision), sessionUser(t, pool), cicRecord)
 	action := seedAction(t, pool, decision, rec.Timestamp.Add(-time.Hour))
-	if _, err := NewCorrelator(pool, "orders").Ingest(ctx,
+	if _, err := NewCorrelator(pool, "orders", nil).Ingest(ctx,
 		[]logwatch.LogEntry{rec}); err != nil {
 		t.Fatalf("ingest: %v", err)
 	}

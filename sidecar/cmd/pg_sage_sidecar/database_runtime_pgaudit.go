@@ -51,7 +51,7 @@ func (rt *databaseRuntime) startPGAuditCorrelation() {
 		return
 	}
 	sub := rt.logFanout.SubscribeEntries("pgaudit:"+rt.spec.Name, rt.spec.Config.Database)
-	c := pgaudit.NewCorrelator(rt.spec.Pool, rt.spec.Name)
+	c := pgaudit.NewCorrelator(rt.spec.Pool, rt.spec.Name, pgauditRoleCache())
 	rt.start(func() {
 		runPGAuditCorrelation(rt.ctx, sub, c, logwatchPollInterval(), rt.spec.Name,
 			rt.spec.Scope)

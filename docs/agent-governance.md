@@ -39,6 +39,12 @@ The roles are created through the executor as operator-approved (L2) actions. Th
 superuser or `BYPASSRLS`, hold no dangerous membership and own nothing. pg_sage records them in
 `sage.guard_cluster_roles` on the control database.
 
+Brokered sessions set `application_name = 'pg_sage agent:<id>'`, the principal's id and not its
+name. pgaudit attribution counts that claim only from one of the two roles the id derives, so
+one agent cannot sign its statements as another; see
+[Attribution](security.md#attribution-trusts-the-role-not-application_name). An agent that
+connects on its direct lane can name itself the same way: `pg_sage agent:<id>[:<action>]`.
+
 | Field | Meaning |
 |---|---|
 | `id` | `agp_` and 20 lower-case base32 characters, assigned at creation |

@@ -37,7 +37,7 @@ func TestRealPGAuditTaggedLongAction(t *testing.T) {
 		t.Fatalf("the index build took %s, want at least 2 s", took)
 	}
 	entries := readLog(t, pool, *logfile, table+"_idx", 1)
-	stats, err := NewCorrelator(pool, "orders").Ingest(ctx, entries)
+	stats, err := NewCorrelator(pool, "orders", nil).Ingest(ctx, entries)
 	if err != nil || stats.Stored != 1 {
 		t.Fatalf("ingest of %d log lines = %+v, %v", len(entries), stats, err)
 	}

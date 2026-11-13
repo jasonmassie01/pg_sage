@@ -44,6 +44,7 @@ type querier interface {
 type Correlator struct {
 	q        querier
 	database string
+	roles    *RoleCache // the agent roles' principals (nil: none known)
 	now      func() time.Time
 
 	mu      sync.Mutex
@@ -53,9 +54,13 @@ type Correlator struct {
 	held     []heldRecord // pg_sage's untagged records waiting for their action
 }
 
-// NewCorrelator returns a correlator writing to pool for database.
-func NewCorrelator(pool *pgxpool.Pool, database string) *Correlator {
-	return newCorrelator(pool, database)
+// NewCorrelator returns a correlator writing to pool for database. roles
+// resolves agent roles to their principals (nil: slug claims and direct
+// sessions name no principal; id claims still verify).
+func NewCorrelator(pool *pgxpool.Pool, database string, roles *RoleCache) *Correlator {
+	c := newCorrelator(pool, database)
+	c.roles = roles
+	return c
 }
 
 func newCorrelator(q querier, database string) *Correlator {
@@ -103,7 +108,9 @@ func (c *Correlator) Ingest(ctx context.Context, entries []logwatch.LogEntry) (S
 	if err != nil {
 		return Stats{}, err
 	}
-	b := &batch{c: c, own: own, now: c.now(), decisions: map[int64]int64{}}
+	// A failed read was reported by the cache; this batch resolves no roles.
+	roles, _ := c.roles.Roles(ctx)
+	b := &batch{c: c, own: own, roles: roles, now: c.now(), decisions: map[int64]int64{}}
 	if err := b.retryHeld(ctx, c.held); err != nil {
 		return Stats{}, err
 	}
