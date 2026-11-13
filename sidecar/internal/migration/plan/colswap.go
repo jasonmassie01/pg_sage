@@ -80,6 +80,10 @@ type SwapKey struct {
 	Constraint string
 	Columns    []string
 	ColumnType string // type of the first key column
+	// Shapes the swap cannot rebuild on the new column's index.
+	Deferrable      bool // DEFERRABLE
+	Include         bool // the index has INCLUDE columns
+	ReplicaIdentity bool // the index is the table's replica identity
 }
 
 // SwapForeignKey references the column from another (or the same) table.
@@ -93,6 +97,7 @@ type SwapForeignKey struct {
 	SetColumns                bool // ON DELETE SET NULL/DEFAULT (col, ...)
 	ChildPartitioned          bool
 	ChildIsPartition          bool
+	NotValidated              bool // NOT VALID, or NOT ENFORCED (PostgreSQL 18)
 }
 
 // SwapStep is one statement of the script.

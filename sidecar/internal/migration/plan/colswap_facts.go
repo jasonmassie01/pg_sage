@@ -46,7 +46,8 @@ WHERE  d.classid = 'pg_catalog.pg_class'::regclass
   AND  d.refobjid = $1 AND d.refobjsubid = $2 AND d.deptype = 'a'`
 
 // swapPrimaryKeySQL reads the primary key ($1 table oid): its name, its
-// columns in key order and the first column's type.
+// columns in key order, the first column's type and the shapes the swap
+// cannot rebuild (DEFERRABLE, INCLUDE columns, replica identity).
 const swapPrimaryKeySQL = `
 SELECT con.conname,
        ARRAY(SELECT a.attname::text
@@ -55,8 +56,10 @@ SELECT con.conname,
              ORDER BY k.ord),
        (SELECT pg_catalog.format_type(a.atttypid, a.atttypmod)
         FROM pg_catalog.pg_attribute a
-        WHERE a.attrelid = con.conrelid AND a.attnum = con.conkey[1])
+        WHERE a.attrelid = con.conrelid AND a.attnum = con.conkey[1]),
+       con.condeferrable, i.indnatts <> i.indnkeyatts, i.indisreplident
 FROM   pg_catalog.pg_constraint con
+JOIN   pg_catalog.pg_index i ON i.indexrelid = con.conindid
 WHERE  con.conrelid = $1 AND con.contype = 'p'`
 
 // ReadSwapFacts reads what PlanColumnSwap needs about schema.table.column
@@ -129,7 +132,8 @@ func readSwapPrimaryKey(
 ) error {
 	var key SwapKey
 	var colType *string
-	err := q.QueryRow(ctx, swapPrimaryKeySQL, oid).Scan(&key.Constraint, &key.Columns, &colType)
+	err := q.QueryRow(ctx, swapPrimaryKeySQL, oid).Scan(&key.Constraint, &key.Columns, &colType,
+		&key.Deferrable, &key.Include, &key.ReplicaIdentity)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}

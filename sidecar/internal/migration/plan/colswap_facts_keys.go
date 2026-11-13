@@ -10,8 +10,9 @@ import (
 )
 
 // swapReferencingSQL reads the foreign keys that reference the column
-// ($1 table oid, $2 attnum), with each referencing table's shape. %s is
-// the ON DELETE SET column-list test (PostgreSQL 15+).
+// ($1 table oid, $2 attnum), with each referencing table's shape. The
+// first %s is the ON DELETE SET column-list test (PostgreSQL 15+), the
+// second whether the key is enforced (PostgreSQL 18+).
 const swapReferencingSQL = `
 SELECT con.conname, cn.nspname, cc.relname,
        cc.relkind = 'p', cc.relispartition OR con.conparentid <> 0,
@@ -19,7 +20,8 @@ SELECT con.conname, cn.nspname, cc.relname,
        COALESCE(a.attname::text, ''),
        COALESCE(pg_catalog.format_type(a.atttypid, a.atttypmod), ''),
        con.confupdtype::text, con.confdeltype::text, con.confmatchtype::text,
-       con.condeferrable, con.condeferred, %s
+       con.condeferrable, con.condeferred, %s,
+       NOT con.convalidated OR NOT %s
 FROM   pg_catalog.pg_constraint con
 JOIN   pg_catalog.pg_class cc ON cc.oid = con.conrelid
 JOIN   pg_catalog.pg_namespace cn ON cn.oid = cc.relnamespace
@@ -57,11 +59,14 @@ ORDER  BY 1`
 func readSwapForeignKeys(
 	ctx context.Context, q catalogread.Querier, f *SwapFacts, oid uint32, attnum int16,
 ) error {
-	setCols := "false"
+	setCols, enforced := "false", "true"
 	if f.ServerVersion >= 150000 {
 		setCols = "COALESCE(array_length(con.confdelsetcols, 1), 0) > 0"
 	}
-	rows, err := q.Query(ctx, fmt.Sprintf(swapReferencingSQL, setCols), oid, attnum)
+	if f.ServerVersion >= 180000 {
+		enforced = "con.conenforced"
+	}
+	rows, err := q.Query(ctx, fmt.Sprintf(swapReferencingSQL, setCols, enforced), oid, attnum)
 	if err != nil {
 		return fmt.Errorf("referencing foreign keys: %w", err)
 	}
@@ -69,7 +74,8 @@ func readSwapForeignKeys(
 		var fk SwapForeignKey
 		err := r.Scan(&fk.Constraint, &fk.Schema, &fk.Table, &fk.ChildPartitioned,
 			&fk.ChildIsPartition, &fk.Columns, &fk.Column, &fk.ColumnType, &fk.OnUpdate,
-			&fk.OnDelete, &fk.Match, &fk.Deferrable, &fk.Deferred, &fk.SetColumns)
+			&fk.OnDelete, &fk.Match, &fk.Deferrable, &fk.Deferred, &fk.SetColumns,
+			&fk.NotValidated)
 		return fk, err
 	})
 	if err != nil {

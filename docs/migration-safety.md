@@ -74,6 +74,10 @@ The planner refuses, with a reason, anything it cannot carry over exactly:
 - a partitioned table, a partition, or a table in an inheritance tree;
 - a key referenced by a foreign key from a partitioned table or a partition (out of scope);
 - multi-column foreign keys, `ON DELETE SET NULL (cols)`, and foreign keys on the column itself;
+- a referencing foreign key that is `NOT VALID` or (PostgreSQL 18) `NOT ENFORCED`: the swap
+  would re-add it enforced and validate it;
+- a primary key the swap moves that is `DEFERRABLE`, has `INCLUDE` columns, or is the
+  table's replica identity index: the rebuilt key would differ;
 - a referencing column outside the integer family when the key changes type;
 - identity and generated columns, a default other than the column's own sequence, and a
   sequence wider than the new type;

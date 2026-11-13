@@ -101,15 +101,22 @@ func checkSwapColumn(c SwapColumn, target string) error {
 	return nil
 }
 
-// checkSwapKeys: foreign keys must reference the column through a
-// single-column key, from an ordinary table, with a referencing column
+// checkSwapKeys: a primary key the swap moves must be one it rebuilds
+// exactly; foreign keys must be validated, reference the column through
+// a single-column key, from an ordinary table, with a referencing column
 // that stays comparable with the new type.
 func checkSwapKeys(f SwapFacts, target string) error {
+	if err := checkSwapPrimaryKey(f); err != nil {
+		return err
+	}
 	for _, fk := range f.Referencing {
 		switch {
 		case fk.ChildPartitioned || fk.ChildIsPartition:
 			return fmt.Errorf("foreign key %s comes from a partitioned table; out of "+
 				"scope", fk.Constraint)
+		case fk.NotValidated:
+			return fmt.Errorf("foreign key %s is not validated (NOT VALID or NOT ENFORCED); "+
+				"re-adding it would enforce it, so plan it by hand", fk.Constraint)
 		case fk.Columns != 1:
 			return fmt.Errorf("multi-column foreign key %s; plan it by hand", fk.Constraint)
 		case fk.SetColumns:
@@ -120,6 +127,25 @@ func checkSwapKeys(f SwapFacts, target string) error {
 				"%s key; change the referencing columns first", fk.Schema, fk.Table,
 				fk.Column, fk.ColumnType, target)
 		}
+	}
+	return nil
+}
+
+// checkSwapPrimaryKey refuses a key the swap would re-attach changed: it
+// rebuilds a plain, immediate unique index on the new column only.
+func checkSwapPrimaryKey(f SwapFacts) error {
+	if !swapsPrimaryKey(f) {
+		return nil
+	}
+	k := f.PrimaryKey
+	switch {
+	case k.Deferrable:
+		return fmt.Errorf("primary key %s is deferrable; plan it by hand", k.Constraint)
+	case k.Include:
+		return fmt.Errorf("primary key %s has INCLUDE columns; plan it by hand", k.Constraint)
+	case k.ReplicaIdentity:
+		return fmt.Errorf("primary key %s is the table's replica identity index; plan it "+
+			"by hand", k.Constraint)
 	}
 	return nil
 }
