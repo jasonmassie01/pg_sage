@@ -131,7 +131,10 @@ The tuner flags it only when the row estimate is off by more than 10x (on the jo
 side) **and** the inner side read at least `tuner.nested_loop_row_threshold` rows in total
 (`Actual Rows` x `Actual Loops`, default 10,000). A small nested loop with a bad estimate is cheap
 either way and gets no hint (or, on a stale table, no ANALYZE). The rule needs a plan with actual
-row counts (auto_explain with `log_analyze`); a plain EXPLAIN plan never triggers it.
+row counts (auto_explain with `log_analyze`); a plain EXPLAIN plan never triggers it. The hint
+is offered only when the join has an equality between the two inputs (here
+`Index Cond: (id = o.customer_id)`); a join that is only an OR cannot be hash-joined and gets no
+hint (see `or_join_filter` below).
 
 **Hint:** `/*+ HashJoin(c o) */`
 
@@ -594,9 +597,16 @@ that references only one input is not reported.
 > applied after the join; rewriting as UNION (or UNION ALL with an exclusion
 > predicate) lets each arm use its own index. pg_sage does not rewrite statements
 
-Neither changes the hints of other symptoms in the same plan: a misestimated nested
-loop with an OR join filter still gets `HashJoin(...)`. The 10,000-row thresholds
-are built in (no configuration key).
+Neither adds a hint of its own. A misestimated nested loop (`bad_nested_loop`) gets
+`HashJoin(...)` only when its join is hashable: an equality between a column of the
+outer input and a column of the inner input, as a top-level AND conjunct of the
+`Join Filter` or of a parameterized inner scan's `Index Cond`, `Recheck Cond` or
+`Filter` (through `Memoize`, `Materialize`, `Append` and a bitmap scan). A join that
+is a pure OR, has no join condition, or cannot be parsed has nothing to hash on, so
+PostgreSQL cannot build a hash join and pg_hint_plan cannot force one: the symptom
+records `hashable_join: false`, no join hint is offered, and the finding's
+`join_hint_note` (also appended to its recommendation) says why. The OR advice above
+still applies. The 10,000-row thresholds are built in (no configuration key).
 
 ---
 

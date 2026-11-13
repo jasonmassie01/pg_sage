@@ -90,6 +90,7 @@ func checkBadNestedLoop(n planNode, depth int, sc *scanContext) *PlanSymptom {
 	}
 	detail := map[string]any{
 		"plan_rows": n.PlanRows, "inner_rows_total": total, "loops": loops,
+		"hashable_join": hashableJoin(n),
 	}
 	if n.ActualRows != nil {
 		detail["actual_rows"] = int64(math.Round(*n.ActualRows))

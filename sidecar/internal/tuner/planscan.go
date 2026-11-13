@@ -28,6 +28,7 @@ type planNode struct {
 	Filter              *string    `json:"Filter,omitempty"`
 	RowsRemovedByFilter *float64   `json:"Rows Removed by Filter,omitempty"` // per loop
 	IndexCond           *string    `json:"Index Cond,omitempty"`
+	RecheckCond         *string    `json:"Recheck Cond,omitempty"`
 	JoinFilter          *string    `json:"Join Filter,omitempty"`
 	WorkersPlanned      *int       `json:"Workers Planned,omitempty"`
 	WorkersLaunched     *int       `json:"Workers Launched,omitempty"`

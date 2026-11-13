@@ -110,9 +110,11 @@ var hintIdent = regexp.MustCompile(`^[a-z_][a-z0-9_$]*$`)
 // prescribeBadNestedLoop forces a hash join of the relations the nested
 // loop joins. pg_hint_plan join hints need two or more relation aliases,
 // so with fewer (or with an alias it cannot take unquoted) no hint is
-// prescribed; never HashJoin() or HashJoin(<one alias>).
+// prescribed; never HashJoin() or HashJoin(<one alias>). A join the
+// scanner found no equality for (hashable_join false: a pure OR, no join
+// condition) cannot be hash-joined, so no hint either (market-10b).
 func prescribeBadNestedLoop(s PlanSymptom) *Prescription {
-	if len(s.JoinAliases) < 2 {
+	if len(s.JoinAliases) < 2 || !joinMayHash(s) {
 		return nil
 	}
 	for _, a := range s.JoinAliases {

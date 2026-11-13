@@ -134,10 +134,35 @@ func TestORJoin_OnlyNestedLoops(t *testing.T) {
 	}
 }
 
-// Existing hints are unchanged: a misestimated nested loop with an OR join
-// filter still gets HashJoin, and the advisory symptoms add no directive.
+// A misestimated nested loop whose join is a pure OR gets no HashJoin: with
+// no equality between the inputs PostgreSQL cannot hash-join them, so the
+// hint could not take effect (market-10b; this test used to pin
+// HashJoin(a b), the accepted bug of market-10 Review issue 2). The
+// advisory symptoms add no directive either.
 func TestAntipatterns_DoNotChangeExistingHints(t *testing.T) {
-	n := orJoinNode(orJoinFilter, ptr(50_000.0), nil)
+	if got := misORJoinHint(t, orJoinFilter, true); got != "" {
+		t.Fatalf("combined hint = %q, want none for a pure OR join", got)
+	}
+	idx := Prescribe(PlanSymptom{Kind: SymptomIndexFilterInefficient}, TunerConfig{})
+	if idx == nil || CombineHints([]Prescription{*idx}) != "" {
+		t.Fatalf("index filter prescription must add no directive: %+v", idx)
+	}
+}
+
+// Sibling: an extra equality conjunct makes the join hashable, so the
+// misestimated nested loop keeps HashJoin(a b).
+func TestAntipatterns_EqualityConjunctKeepsHashJoin(t *testing.T) {
+	filter := "((a.id = b.a_id) AND ((a.x = b.x) OR (a.y = b.y)))"
+	if got := misORJoinHint(t, filter, false); got != "HashJoin(a b)" {
+		t.Fatalf("combined hint = %q, want HashJoin(a b)", got)
+	}
+}
+
+// misORJoinHint scans a misestimated nested loop with the given Join Filter
+// and returns the combined hint; wantOR says whether or_join_filter fires.
+func misORJoinHint(t *testing.T, filter string, wantOR bool) string {
+	t.Helper()
+	n := orJoinNode(filter, ptr(50_000.0), nil)
 	n["Plan Rows"], n["Actual Rows"] = 1, 5_000.0
 	inner := n["Plans"].([]map[string]any)[1]
 	inner["Actual Rows"] = 20_000.0
@@ -145,8 +170,8 @@ func TestAntipatterns_DoNotChangeExistingHints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanPlan: %v", err)
 	}
-	if !hasKind(all, SymptomBadNestedLoop) || !hasKind(all, SymptomORJoinFilter) {
-		t.Fatalf("want bad_nested_loop and or_join_filter: %+v", all)
+	if !hasKind(all, SymptomBadNestedLoop) || hasKind(all, SymptomORJoinFilter) != wantOR {
+		t.Fatalf("want bad_nested_loop and or_join_filter=%v: %+v", wantOR, all)
 	}
 	var ps []Prescription
 	for _, s := range all {
@@ -154,13 +179,7 @@ func TestAntipatterns_DoNotChangeExistingHints(t *testing.T) {
 			ps = append(ps, *p)
 		}
 	}
-	if got := CombineHints(ps); got != "HashJoin(a b)" {
-		t.Fatalf("combined hint = %q, want HashJoin(a b)", got)
-	}
-	idx := Prescribe(PlanSymptom{Kind: SymptomIndexFilterInefficient}, TunerConfig{})
-	if idx == nil || CombineHints([]Prescription{*idx}) != "" {
-		t.Fatalf("index filter prescription must add no directive: %+v", idx)
-	}
+	return CombineHints(ps)
 }
 
 func TestAntipatterns_Titles(t *testing.T) {
