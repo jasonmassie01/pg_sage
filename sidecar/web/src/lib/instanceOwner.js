@@ -2,9 +2,9 @@
 // settings (WAL, connections, ALTER SYSTEM), from the fleet status field
 // status.capabilities.instance_owner (advisors-08). Pure functions.
 
-// OWNER_NAME_MAX is the longest owner name shown in full; a longer one is
-// cut to this many characters, ellipsis included, with the full name in
-// the title.
+// OWNER_NAME_MAX is the longest owner name shown in full, in characters
+// (code points); a longer one is cut to this many characters, ellipsis
+// included, with the full name in the title.
 export const OWNER_NAME_MAX = 64
 
 const UNKNOWN = 'Instance owner unknown'
@@ -47,8 +47,10 @@ export function instanceOwnerLabel(caps) {
   if (!o) return null
   const name = ownerName(o)
   const deferred = o.is_owner === false && name !== null
-  if (deferred && name.length > OWNER_NAME_MAX) {
-    const shown = `${name.slice(0, OWNER_NAME_MAX - 1)}\u2026`
+  // Count and cut code points, so a cut never splits a surrogate pair.
+  const chars = deferred ? Array.from(name) : []
+  if (chars.length > OWNER_NAME_MAX) {
+    const shown = `${chars.slice(0, OWNER_NAME_MAX - 1).join('')}\u2026`
     return { text: lineFor(o, shown), title: name }
   }
   return { text: lineFor(o, name), title: reasonOf(o) }

@@ -88,6 +88,18 @@ describe('instanceOwnerLabel', () => {
     expect(label.title).toBe(name(65))
   })
 
+  // A UTF-16 slice would cut a surrogate pair and leave a lone half.
+  it('counts and cuts an owner name by characters, not UTF-16 units', () => {
+    const fits = '\u{1F418}'.repeat(64)
+    expect(instanceOwnerLabel(caps({ owner: fits, is_owner: false })))
+      .toEqual({ text: `Instance settings handled by ${fits}`, title: undefined })
+    const long = '\u{1F418}'.repeat(65)
+    const label = instanceOwnerLabel(caps({ owner: long, is_owner: false }))
+    expect(label.text)
+      .toBe(`Instance settings handled by ${'\u{1F418}'.repeat(63)}\u2026`)
+    expect(label.title).toBe(long)
+  })
+
   it('puts the reason in the title when the owner is unknown', () => {
     expect(instanceOwnerLabel(caps({
       owner: 42, is_owner: false, reason: 'instance identity unreadable',
