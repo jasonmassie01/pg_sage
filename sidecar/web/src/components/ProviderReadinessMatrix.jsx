@@ -1,6 +1,7 @@
 import { Fragment } from 'react'
 import { AlertTriangle, CheckCircle, CircleHelp } from 'lucide-react'
 import { useAPI } from '../hooks/useAPI'
+import { instanceOwnerLabel } from '../lib/instanceOwner'
 
 function statusText(row, key) {
   const status = row.capabilities?.permissions?.[key]?.status
@@ -24,6 +25,19 @@ function ExtensionCell({ row, name }) {
     <td className="py-2" style={{ color: 'var(--text-secondary)' }}>
       <div>{extensionText(row, name)}</div>
       {hint && <div className="text-xs">{`hint: ${hint}`}</div>}
+    </td>
+  )
+}
+
+// Which database owns the instance settings (advisors-08b); a dash when
+// the database reports no instance owner (single-database mode).
+function InstanceOwnerCell({ row }) {
+  const label = instanceOwnerLabel(row.capabilities)
+  return (
+    <td className="py-2" data-testid="readiness-instance-owner"
+      title={label?.title}
+      style={{ color: 'var(--text-secondary)' }}>
+      {label ? label.text : '—'}
     </td>
   )
 }
@@ -108,6 +122,7 @@ export function ProviderReadinessMatrix() {
               <th className="text-left font-medium py-2">Stats</th>
               <th className="text-left font-medium py-2">Hints</th>
               <th className="text-left font-medium py-2">Replica</th>
+              <th className="text-left font-medium py-2">Instance settings</th>
               <th className="text-left font-medium py-2">Blocker</th>
             </tr>
           </thead>
@@ -139,13 +154,14 @@ export function ProviderReadinessMatrix() {
                     {row.capabilities?.is_replica === true ? 'yes'
                       : row.capabilities?.is_replica === false ? 'no' : 'unknown'}
                   </td>
+                  <InstanceOwnerCell row={row} />
                   <td className="py-2" style={{ color: 'var(--text-secondary)' }}>
                     {blockerText(row)}
                   </td>
                 </tr>
                 {actionFamilies(row).length > 0 && (
                   <tr key={`${row.name}-families`}>
-                    <td colSpan={8} className="pb-3">
+                    <td colSpan={9} className="pb-3">
                       <div className="flex flex-wrap gap-1.5"
                         aria-label={`${row.name} action families`}>
                         {actionFamilies(row).map(family => (

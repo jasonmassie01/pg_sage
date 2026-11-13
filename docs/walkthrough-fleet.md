@@ -182,7 +182,11 @@ under one owner, which only withholds advice from the others. If the identity ca
 database is advised on its own and pg_sage logs why. The fleet status
 (`GET /api/v1/databases`, `status.capabilities.instance_owner`) shows each
 database's owner, whether it is the owner, and how the instance was
-identified (`system_identifier` or `address`). Separate
+identified (`system_identifier` or `address`). The dashboard shows the same on each
+database tile of the fleet overview and in the "Instance settings" column
+of the Provider Readiness tab: "Owns the instance settings", "Instance
+settings handled by <owner>", or "Instance owner unknown" with the reason
+in the tooltip. Separate
 pg_sage processes that monitor the same instance are not coordinated: each
 elects its own owner. Single-database mode is unchanged.
 
