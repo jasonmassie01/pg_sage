@@ -509,6 +509,7 @@ would produce an invalid configuration answers `400` with the key.
 | `replication.cdc_heartbeats` | empty | CDC heartbeat tables, `[{slot, table, column, max_age_minutes}]`. For an entry whose `slot` is a logical slot of the monitored database, pg_sage runs one read-only `SELECT max(column)::timestamptz FROM table` per collector cycle under a 2-second statement timeout and raises `cdc_heartbeat_stale` when the newest value is at least `max_age_minutes` (`1`-`10080`) old or the table is empty. `table` is `table` or `schema.table` and `column` a plain identifier (letters, digits, `_`, `$`), folded to lower case as PostgreSQL folds an unquoted name; anything else, or a second entry for one slot, is refused at startup. Empty runs nothing. Restart to change |
 | `analyzer.unused_index_window_days` | `7` | Days an index must show no scans before it is reported unused (the evidence for a drop). `1`-`1073741824`; `0` is rejected, because it would report every eligible index unused |
 | `analyzer.seq_scan_min_rows` | `100000` | Smallest table whose sequential scans are reported. `1`-`1073741824` |
+| `analyzer.disabled_rules` | empty | Analyzer rules or categories to switch off; see [Rule packs and owner checks](#rule-packs-and-owner-checks). Settable through the configuration API (comma-separated) globally and per database without a restart |
 | `analyzer.slow_query_min_calls` | `5` | Fewest calls a statement must make between two collector snapshots before `slow_query` and `query_regression` judge its interval mean (the time it added in the interval over the calls it added). Below the floor the interval is not evidence either way: an open finding for the statement stays open (an idle or quiet minute is not a recovery), except for a statement that has made fewer calls than the floor in total, whose finding resolves. `0` uses the default; negative values are rejected. Restart to change |
 | `prometheus.listen_addr` | `127.0.0.1:8187` | Address (`host:port`) of the separate, unauthenticated `/metrics` listener. `""` opens none. A value that is not `host:port` with a port up to 65535 is refused at load. The listener binds at startup; if it cannot (the default was 9187, postgres_exporter's, before v2.7.0), pg_sage logs an ERROR naming the remedies, keeps running, and exports `pg_sage_metrics_listener_up 0` (served on the API route when `serve_on_api` is on). `SAGE_PROMETHEUS_ADDR` replaces it; `SAGE_PROMETHEUS_PORT` replaces only the port. No TLS: use `serve_on_api` for TLS. Requires restart |
 | `prometheus.serve_on_api` | `false` | Also serve `GET /metrics` on the API listener, with the API's TLS and rate limit. A scrape needs `Authorization: Bearer` with a token holding the `metrics` scope ([scrape tokens](deployment.md#scraping-through-the-api-listener)); in a Databricks App, the platform identity of any pg_sage role instead. 401 without a valid token, 403 for a token lacking the scope; refusals carry no metric names. Needs a control database (startup refuses without one). The same snapshot is served, so a scrape adds no database load. Requires restart |
@@ -576,6 +577,50 @@ on a database (`sage_self_cost`, `sage_self_budget`, `sage_footprint`) are alway
 pg_sage, so a monitored or meta database named `sage` gets them too. On upgrade, a one-time
 migration resolves open findings captured before pg_sage tagged its statements (an untagged
 statistics-view read), with the reason `pre-tagging pg_sage statement` in their detail.
+
+### Rule packs and owner checks
+
+`analyzer.disabled_rules` is a rule pack: the analyzer rules (`unused_indexes`,
+`slow_queries`, `inactive_slots`, ... as in `AllRules`) or analyzer categories (`unused_index`,
+`query_regression`) that do not run on a database. An unknown name fails the config load and
+the API answers 400. `wraparound_freeze`, `xid_wraparound`, `sequence_exhaustion` and the
+`sage_*` self rules are protected: disabling one is refused with the reason. Disabled findings
+resolve as `rule_disabled` ([findings](findings.md#rule-packs-and-owner-checks)).
+
+The effective list for a database is, first match wins: the database's API override
+(`PUT /api/v1/config/databases/{id}` with `{"analyzer.disabled_rules": "unused_indexes,slow_queries"}`,
+recorded in the config audit with the user; `""` disables nothing there; `DELETE` of the key
+returns to inheritance), then the YAML `databases[].disabled_rules` list (`[]` disables
+nothing there), then the global `analyzer.disabled_rules` (YAML, or the global configuration
+API, applied on the next cycle).
+
+```yaml
+analyzer:
+  disabled_rules: [cache_hit_ratio]
+databases:
+  - name: reporting-replica
+    disabled_rules: [unused_indexes, slow_queries]
+checks:
+  - id: table_without_pk
+    title: Table without a primary key
+    severity: warning
+    databases: ["*"]
+    interval_minutes: 60
+    max_rows: 100
+    timeout_ms: 1000
+    object_column: table_name
+    message: Add a primary key so logical replication and pg_repack can handle the table.
+    sql: |
+      SELECT n.nspname || '.' || c.relname AS table_name
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+      WHERE c.relkind = 'r' AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'sage')
+        AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint k
+                        WHERE k.conrelid = c.oid AND k.contype = 'p')
+```
+
+`checks` are owner-defined read-only checks, YAML only and read when a database's runtime
+starts; see [Owner checks](custom-checks.md) for every field, its bounds and how a check runs.
 
 ### Derived settings (self-configuration)
 

@@ -29,7 +29,7 @@ The next cycle that reads the category resumes them.
 
 `GET /api/v1/findings?source=<subsystem>` filters by the producer that emitted a finding:
 `rules`, `advisor`, `optimizer`, `query_tuning`, `forecaster`, `incident`, `schema_lint`,
-`tuning`, `cloud`, `governance`, `migration`, `sre` or `facts`. The categories each value matches are
+`tuning`, `cloud`, `governance`, `migration`, `sre`, `facts` or `custom`. The categories each value matches are
 in the [generated finding category catalog](generated/finding-catalog.md), and
 `GET /api/v1/findings/categories` (any signed-in role) serves the same registry: each
 subsystem with its categories, and each category's producer, severities, config keys and
@@ -920,6 +920,30 @@ These deterministic rules run alongside the categories above.
 | <a id="stat_statements_pressure"></a>`stat_statements_pressure` | `pg_stat_statements` above 80% of `pg_stat_statements.max` (critical above 95%), where entries start being evicted. |
 | <a id="work_mem_promotion"></a>`work_mem_promotion` | A role with `work_mem` hints on five or more queries (`analyzer.work_mem_promotion_threshold`). Recommends one `ALTER ROLE ... SET work_mem`; advisory only. |
 | <a id="extension_drift"></a>`extension_drift` | An installed extension whose version lags its default version until `ALTER EXTENSION ... UPDATE` runs. Advisory only. |
+
+---
+
+## Rule packs and owner checks
+
+**Disabling rules.** `analyzer.disabled_rules` names analyzer rules (`unused_indexes`,
+`inactive_slots`) or categories (`unused_index`, `query_regression`) to switch off, globally
+or per database ([configuration](configuration.md#rule-packs-and-owner-checks)). A disabled
+snapshot rule does not run; findings of a disabled category are dropped. Its open findings
+are resolved, never left open or deleted: `status = 'resolved'` with
+`detail.resolution = "rule_disabled"` and `detail.disabled_by` (the API user's email, or the
+config path that disabled it). Re-enabling the rule opens a new finding on the next cycle that
+still sees the problem. `wraparound_freeze`, `xid_wraparound`, `sequence_exhaustion` and the
+`sage_*` self rules cannot be disabled: the config load and the API refuse them with the
+reason. The suppression API and `schema_lint.disabled_rules` are unchanged.
+
+<a id="custom"></a>**Owner checks (`custom:<id>`).** Each row an [owner check](custom-checks.md)
+returns becomes a `custom:<id>` finding (source filter `custom`) keyed by the check's
+`object_column`, with the check's severity, title and message. `detail` carries `check_id`,
+`fingerprint` (the parsed statement's fingerprint), `row` (every column as text) and
+`truncated`. A custom finding never carries SQL: `recommended_sql` is always empty, so it
+projects into a case with no action. A check that fails, times out, is refused or returns more
+than `max_rows` rows resolves nothing: its open findings stay open until a complete run no
+longer returns them.
 
 ---
 

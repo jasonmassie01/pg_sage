@@ -44,6 +44,7 @@ nav:
   - Fleet Mode: fleet.md
   - SQL Reference: sql-reference.md
   - Findings Catalog: findings.md
+  - Owner Checks: custom-checks.md
   - Binding Facts: facts.md
   - MCP for Coding Agents: mcp.md
   - Ask Sage: ask-sage.md
