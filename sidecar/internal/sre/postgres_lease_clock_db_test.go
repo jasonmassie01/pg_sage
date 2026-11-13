@@ -79,23 +79,47 @@ func dbLeft(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	return time.Duration(u * float64(time.Second)), time.Duration(s * float64(time.Second))
 }
 
+// clockMark is a host instant and the database clock's offset from the
+// host at that instant, read to within rtt.
+type clockMark struct {
+	at          time.Time
+	offset, rtt time.Duration
+}
+
+// markClock reads the (skewed) database clock's offset from the host.
+func markClock(t *testing.T, ctx context.Context, pool *pgxpool.Pool) clockMark {
+	t.Helper()
+	before := time.Now()
+	var db time.Time
+	if err := pool.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&db); err != nil {
+		t.Fatalf("read database clock: %v", err)
+	}
+	rtt := time.Since(before)
+	return clockMark{at: before, offset: db.Sub(before.Add(rtt / 2)), rtt: rtt}
+}
+
 // assertFollowsDatabase checks the happy-path bound: measured after the
 // remaining was read, the host's time left is at most the database's and
 // short of it by no more than the time spent in the claim and the read.
+// The guarantee holds for any constant skew; the Docker VM's clock also
+// steps while a test runs, so the bound widens by the measured change in
+// skew since began (plus the reading error), never by the skew itself.
 func assertFollowsDatabase(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
-	l Lease, began time.Time) {
+	l Lease, began clockMark) {
 	t.Helper()
 	until, segment := dbLeft(t, ctx, pool, l.InvestigationID)
 	hostUntil, hostSegment := time.Until(l.Until), time.Until(l.SegmentDeadline)
-	slack := time.Since(began)
+	slack := time.Since(began.at)
+	end := markClock(t, ctx, pool)
+	step := (end.offset - began.offset).Abs() + began.rtt + end.rtt
 	for _, c := range []struct {
 		name       string
 		host, want time.Duration
 	}{{"lease", hostUntil, until}, {"segment", hostSegment, segment}} {
-		if c.host > c.want || c.host < c.want-slack {
+		if c.host > c.want+step || c.host < c.want-slack-step {
 			t.Errorf("%s time left on the host = %v, want in (%v, %v] (database "+
-				"remaining, minus %v spent querying)", c.name, c.host, c.want-slack, c.want,
-				slack)
+				"remaining, minus %v spent querying, +/- %v database clock step)",
+				c.name, c.host, c.want-slack, c.want, slack, step)
 		}
 	}
 	if l.Until.After(l.SegmentDeadline) {
@@ -112,7 +136,7 @@ func TestPostgresLeaseClock_ClaimFollowsTheDatabaseRemaining(t *testing.T) {
 			if err != nil {
 				t.Fatalf("create: %v", err)
 			}
-			began := time.Now()
+			began := markClock(t, ctx, pool)
 			lease, err := st.Claim(ctx, inv.Scope, inv.ID, NewUUID())
 			if err != nil {
 				t.Fatalf("claim: %v", err)
@@ -153,7 +177,7 @@ func TestPostgresLeaseClock_HeartbeatOnALostLeaseHasNoDeadlines(t *testing.T) {
 func TestPostgresLeaseClock_RacingClaimsUnderSkew(t *testing.T) {
 	st, pool, ctx := skewedStore(t, DefaultLimits(), 5*time.Second)
 	inv, _, _ := st.Create(ctx, lockStart(testScope(t, ctx, st), "clock-race"))
-	began := time.Now()
+	began := markClock(t, ctx, pool)
 	var wg sync.WaitGroup
 	leases := make([]Lease, 2)
 	errs := make([]error, 2)
@@ -192,7 +216,7 @@ func TestPostgresLeaseClock_LeaseLifecycleUnderSkew(t *testing.T) {
 				t.Fatalf("claim: %v", err)
 			}
 			time.Sleep(50 * time.Millisecond)
-			began := time.Now()
+			began := markClock(t, ctx, pool)
 			b, err := st.Heartbeat(ctx, a)
 			if err != nil || !b.Until.After(a.Until) || time.Until(b.Until) > ttl {
 				t.Fatalf("heartbeat = %v (%v) after %v, want later and at most %v left",
@@ -213,25 +237,25 @@ func TestPostgresLeaseClock_LeaseLifecycleUnderSkew(t *testing.T) {
 	}
 }
 
-// heartbeatAtSegmentEnd moves the segment end to one second away on the
-// database clock; the heartbeat is capped there, on the host clock too.
+// heartbeatAtSegmentEnd moves the segment end to three seconds away on
+// the database clock; the heartbeat is capped there, on the host clock too.
 func heartbeatAtSegmentEnd(t *testing.T, ctx context.Context, st *PostgresStore,
 	pool *pgxpool.Pool, l Lease) {
 	t.Helper()
 	if _, err := pool.Exec(ctx, `UPDATE sage.sre_investigations
-		SET segment_deadline = clock_timestamp() + interval '1 second',
-		    lease_until = clock_timestamp() + interval '1 second'
+		SET segment_deadline = clock_timestamp() + interval '3 seconds',
+		    lease_until = clock_timestamp() + interval '3 seconds'
 		WHERE id = $1`, string(l.InvestigationID)); err != nil {
 		t.Fatalf("shorten segment: %v", err)
 	}
-	began := time.Now()
+	began := markClock(t, ctx, pool)
 	c, err := st.Heartbeat(ctx, l)
 	if err != nil {
 		t.Fatalf("heartbeat at segment end: %v", err)
 	}
-	if !c.Until.Equal(c.SegmentDeadline) || time.Until(c.SegmentDeadline) > time.Second {
+	if !c.Until.Equal(c.SegmentDeadline) || time.Until(c.SegmentDeadline) > 3*time.Second {
 		t.Fatalf("heartbeat at segment end: until=%v segment=%v (%v left), want both "+
-			"at the segment end, at most 1s away", c.Until, c.SegmentDeadline,
+			"at the segment end, at most 3s away", c.Until, c.SegmentDeadline,
 			time.Until(c.SegmentDeadline))
 	}
 	assertFollowsDatabase(t, ctx, pool, c, began)
