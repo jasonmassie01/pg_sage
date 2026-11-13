@@ -3575,7 +3575,8 @@ A disabled block is not checked. In fleet mode the one shared block is checked o
 | Key | Default | Meaning |
 |---|---|---|
 | `alerting.enabled` | `false` | Send alerts. Needs at least one route that reaches a usable channel |
-| `alerting.check_interval_seconds` | `60` | How often new findings are read |
+| `alerting.engine` | `notify` | Which engine delivers the block. `notify` reconciles it into notification channels and rules (below) and delivers through the notification outbox with retries; `legacy` runs the old per-database alerting manager instead, reconciles nothing and logs a startup warning. `legacy` is the escape hatch for one release and is removed by alerting-06d. Any other value refuses startup naming the key, whether or not alerting is enabled. Takes effect on restart |
+| `alerting.check_interval_seconds` | `60` | How often the `legacy` engine reads new findings; the `notify` engine does not use it |
 | `alerting.cooldown_minutes` | `15` | Raises the per-severity cooldown floors: critical 5 min, warning 30 min, info 6 h. A value below a floor leaves that floor |
 | `alerting.repeat_minutes` | `critical: 240`, `warning: 1440`, `info: 0` | Minutes between reminders of a finding that stays open, per severity; `0` never reminds. A missing severity keeps its default. A negative value, an unknown severity, more than `525600` (a year), or a value below that severity's cooldown (above) refuses startup naming the key |
 | `alerting.quiet_hours_start` / `alerting.quiet_hours_end` | empty | `HH:MM` (00:00-23:59); set both or neither. The window may cross midnight. Warning and info alerts are deferred, never dropped, until it ends; critical alerts bypass it |
@@ -3614,9 +3615,31 @@ throttle reads that log far enough back to keep the schedule. `repeat_minutes`,
 `cooldown_minutes`, `quiet_hours_start`, `quiet_hours_end` and `timezone` apply without a
 restart when changed through the settings API: the next decision of every alerting manager
 and of the notification outbox uses them, and alerts already open stay throttled. An unknown
-timezone or an invalid quiet-hours value is refused with an error naming the key. The other
-alerting keys (routes, channels, URLs, `enabled`, `check_interval_seconds`) take effect on
-restart.
+timezone or an invalid quiet-hours value is refused with an error naming the key. With the
+`notify` engine, `enabled`, `routes`, `webhooks`, `slack_webhook_url` and
+`pagerduty_routing_key` also apply without a restart (they are reconciled, below); with the
+`legacy` engine such a change is refused with an error that asks for a restart.
+`engine` and `check_interval_seconds` take effect on restart.
+
+**Reconciled into notification channels (`engine: notify`).** At startup and on every live
+change, the block is written to the notification tables of the control database (the meta
+database in meta mode, else the primary): one channel per usable target, named
+`config:slack:slack`, `config:pagerduty:pagerduty` and `config:webhook:<name>`, and for each
+routed channel one `finding_opened` and one `finding_resolved` rule whose `min_severity` is
+the lowest severity any route sends to that channel. Notification rules match "at least
+`min_severity`", so a channel routed only `warning` also receives `critical` findings, and a
+finding is posted once per channel however many routes name it. Secrets are sealed like those
+of channels created in the UI, and a target refused by the target policy builds no channel
+(the log names its key). These rows are marked `managed_by = config`: the Notifications page
+shows them with a "From config file" badge and without edit or delete, and the API answers
+`409 {"error":"managed_by_config"}` to a change; channel names starting with `config:` are
+reserved. The reconciler changes only its own rows, compares a hash of each so an unchanged
+block writes nothing, and runs in one transaction under an advisory lock, so two sidecars on
+one control database converge once; a failed reconcile writes nothing and refuses a live
+change. Removing the block (or `enabled: false`) deletes the config rows; channels and rules
+created in the UI are never touched. PagerDuty pages the legacy engine opened before the
+switch are resolved under their legacy key (`<database>:<category>:<object>`, read from
+`sage.alert_log`) when their finding resolves; new pages use the notification key.
 
 ```yaml
 alerting:
