@@ -55,9 +55,14 @@ func upgradeDeps(f *fakeUpgrade) upgradeReadinessDeps {
 			}
 			return nil, errUnknownTargetDatabase
 		},
-		provider: func() string { return "rds" },
-		run:      f.run,
-		slots:    make(chan struct{}, 1),
+		provider: func(db string) string {
+			if db == "prod" {
+				return "rds"
+			}
+			return "aurora"
+		},
+		run:   f.run,
+		slots: make(chan struct{}, 1),
 	}
 }
 

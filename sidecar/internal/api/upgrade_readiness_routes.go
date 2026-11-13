@@ -41,8 +41,9 @@ type upgradeReadinessDeps struct {
 	// pool resolves the database parameter like the migration lint does.
 	pool func(database string) (*pgxpool.Pool, error)
 	// member is a named fleet member's pool (target_database).
-	member   func(name string) (*pgxpool.Pool, error)
-	provider func() string
+	member func(name string) (*pgxpool.Pool, error)
+	// provider is the database parameter's provider, for U7.
+	provider func(database string) string
 	run      upgradeRunner
 	slots    chan struct{}
 }
@@ -62,13 +63,8 @@ func registerUpgradeReadinessRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManag
 			}
 			return nil, errLintNoDatabase
 		},
-		provider: func() string {
-			if cfg == nil {
-				return ""
-			}
-			config.RLockForHotReload()
-			defer config.RUnlockForHotReload()
-			return cfg.CloudEnvironment
+		provider: func(database string) string {
+			return memberProvider(mgr, cfg, database)
 		},
 		run:   upgradecheck.Run,
 		slots: make(chan struct{}, upgradeReadinessSlots),
@@ -81,9 +77,34 @@ type upgradeReadinessQuery struct {
 	target                   upgradecheck.Target
 }
 
+// memberProvider is the database's detected provider: each fleet member
+// has its own, so the process's cloud environment is only the fallback
+// for a member that reports none. database "" is the only member.
+func memberProvider(mgr *fleet.DatabaseManager, cfg *config.Config, database string) string {
+	if mgr != nil {
+		if database == "" {
+			if names := mgr.Instances(); len(names) == 1 {
+				for name := range names {
+					database = name
+				}
+			}
+		}
+		if inst := mgr.GetInstance(database); inst != nil {
+			if p := inst.SnapshotStatus().Platform; p != "" {
+				return p
+			}
+		}
+	}
+	if cfg == nil {
+		return ""
+	}
+	config.RLockForHotReload()
+	defer config.RUnlockForHotReload()
+	return cfg.CloudEnvironment
+}
+
 // parseUpgradeReadiness reads and checks the query parameters.
-func parseUpgradeReadiness(r *http.Request, provider string) (upgradeReadinessQuery,
-	error) {
+func parseUpgradeReadiness(r *http.Request) (upgradeReadinessQuery, error) {
 	q := r.URL.Query()
 	out := upgradeReadinessQuery{database: q.Get("database"),
 		targetDatabase: q.Get("target_database")}
@@ -99,14 +120,13 @@ func parseUpgradeReadiness(r *http.Request, provider string) (upgradeReadinessQu
 		return out, fmt.Errorf("%w: target_major is required and must be an integer "+
 			"major such as 18", upgradecheck.ErrInvalidTarget)
 	}
-	out.target = upgradecheck.Target{Major: major, Method: q.Get("method"),
-		Provider: provider}.Normalized()
+	out.target = upgradecheck.Target{Major: major, Method: q.Get("method")}.Normalized()
 	return out, out.target.ValidateStatic()
 }
 
 func upgradeReadinessHandler(d upgradeReadinessDeps) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		req, err := parseUpgradeReadiness(r, d.provider())
+		req, err := parseUpgradeReadiness(r)
 		if err != nil {
 			jsonError(w, err.Error(), http.StatusBadRequest)
 			return
@@ -116,6 +136,7 @@ func upgradeReadinessHandler(d upgradeReadinessDeps) http.Handler {
 			jsonError(w, err.Error(), lintDatabaseStatus(err))
 			return
 		}
+		req.target.Provider = d.provider(req.database)
 		opts := upgradecheck.Options{TargetDatabase: req.targetDatabase}
 		if req.targetDatabase != "" {
 			if opts.TargetDB, err = d.member(req.targetDatabase); err != nil {

@@ -60,14 +60,25 @@ func (u upgradeReadinessMCP) UpgradeReadiness(ctx context.Context,
 				req.TargetDatabase)
 		}
 	}
-	provider := ""
-	if cfg != nil {
-		config.RLockForHotReload()
-		provider = cfg.CloudEnvironment
-		config.RUnlockForHotReload()
-	}
+	provider := u.provider(name)
 	ctx, cancel := context.WithTimeout(ctx, upgradeReadinessBudget)
 	defer cancel()
 	return upgradecheck.Run(ctx, pool, upgradecheck.Target{Major: req.TargetMajor,
 		Method: req.Method, Provider: provider}, opts)
+}
+
+// provider is the member's detected provider (each fleet member has its
+// own); the process's cloud environment when the member reports none.
+func (u upgradeReadinessMCP) provider(name string) string {
+	if inst := u.manager.GetInstance(name); inst != nil {
+		if p := inst.SnapshotStatus().Platform; p != "" {
+			return p
+		}
+	}
+	if cfg == nil {
+		return ""
+	}
+	config.RLockForHotReload()
+	defer config.RUnlockForHotReload()
+	return cfg.CloudEnvironment
 }

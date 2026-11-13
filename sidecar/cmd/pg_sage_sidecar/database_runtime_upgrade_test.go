@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/mcp"
 	"github.com/pg-sage/sidecar/internal/upgradecheck"
 )
@@ -34,5 +36,28 @@ func TestUpgradeReadinessMCP_Resolution(t *testing.T) {
 	_, err = u.UpgradeReadiness(onApp, mcp.UpgradeReadinessRequest{TargetMajor: 19})
 	if !errors.Is(err, upgradecheck.ErrInvalidTarget) {
 		t.Fatalf("target 19 = %v, want ErrInvalidTarget before any connection", err)
+	}
+}
+
+// Each fleet member's U7 reads its own detected provider; the process's
+// cloud environment is only the fallback for a member that reports none.
+func TestUpgradeReadinessMCP_ProviderIsTheMembers(t *testing.T) {
+	saved := cfg
+	t.Cleanup(func() { cfg = saved })
+	cfg = &config.Config{CloudEnvironment: "self-managed"}
+	mgr, _ := managerWith(t, "app", "plain")
+	mgr.GetInstance("app").UpdateStatus(func(s *fleet.InstanceStatus) {
+		s.Platform = "aurora"
+	})
+	u := upgradeReadinessMCP{manager: mgr}
+	for name, want := range map[string]string{"app": "aurora", "plain": "self-managed",
+		"ghost": "self-managed"} {
+		if got := u.provider(name); got != want {
+			t.Fatalf("provider(%q) = %q, want %q", name, got, want)
+		}
+	}
+	cfg = nil
+	if got := u.provider("plain"); got != "" {
+		t.Fatalf("no config: provider = %q, want empty", got)
 	}
 }
