@@ -63,9 +63,9 @@ func TestUnexplainedQueues(t *testing.T) {
 		{"unknown reason", map[string][]decisionRow{
 			"pipe_av": {{verdict: "queue_approval", reason: "mystery"}},
 		}, []string{"pipe_av:mystery"}},
-		{"read error is not a queue", map[string][]decisionRow{
-			"pipe_av": {{verdict: "<read error>", reason: "boom"}},
-		}, nil},
+		{"read error fails the check", map[string][]decisionRow{
+			"pipe_av": {{verdict: readErrorVerdict, reason: "boom"}},
+		}, []string{"pipe_av:<read error> boom"}},
 		{"other verdicts may carry any reason", map[string][]decisionRow{
 			"pipe_stale": {{verdict: "blocked", reason: ""},
 				{verdict: "execute", reason: "authorized"}},

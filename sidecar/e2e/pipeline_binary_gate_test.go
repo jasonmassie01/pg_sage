@@ -182,12 +182,20 @@ func reasonOrUnset(reason string) string {
 	return reason
 }
 
+// readErrorVerdict marks a seed whose decisions could not be read.
+const readErrorVerdict = "<read error>"
+
 // unexplainedQueues lists the queue verdicts whose reason is empty or not
-// one the gate can record (CHECK-A11).
+// one the gate can record (CHECK-A11). A seed whose decisions could not be
+// read is listed too: A11 cannot vouch for what it did not see.
 func unexplainedQueues(bySeed map[string][]decisionRow) []string {
 	var bad []string
 	for name, rows := range bySeed {
 		for _, r := range rows {
+			if r.verdict == readErrorVerdict {
+				bad = append(bad, fmt.Sprintf("%s:%s %s", name, readErrorVerdict, r.reason))
+				continue
+			}
 			if r.verdict != string(policy.VerdictQueueApproval) {
 				continue
 			}
@@ -206,7 +214,7 @@ func readSeedDecisions(pool *pgxpool.Pool) map[string][]decisionRow {
 	for _, seed := range pipelineSeeds {
 		rows, err := seedDecisions(pool, seed.name)
 		if err != nil {
-			rows = []decisionRow{{verdict: "<read error>", reason: err.Error()}}
+			rows = []decisionRow{{verdict: readErrorVerdict, reason: err.Error()}}
 		}
 		bySeed[seed.name] = rows
 	}
