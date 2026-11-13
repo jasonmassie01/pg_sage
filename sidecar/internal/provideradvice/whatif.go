@@ -18,8 +18,15 @@ const tableIndexesSQL = `SELECT c.relname, pg_catalog.pg_get_indexdef(i.indexrel
 FROM pg_catalog.pg_index i JOIN pg_catalog.pg_class c ON c.oid = i.indexrelid
 WHERE i.indrelid = $1::regclass AND i.indisvalid ORDER BY c.relname`
 
+// pssSchemaSQL finds the schema pg_stat_statements is installed in, so the
+// workload read names it qualified whatever the search_path is.
+const pssSchemaSQL = `SELECT COALESCE((SELECT n.nspname FROM pg_catalog.pg_extension e
+JOIN pg_catalog.pg_namespace n ON n.oid = e.extnamespace
+WHERE e.extname = 'pg_stat_statements'), '')`
+
+// tableWorkloadSQL takes the quoted schema of pg_stat_statements.
 const tableWorkloadSQL = `SELECT queryid, query, calls, mean_exec_time, total_exec_time
-FROM pg_stat_statements
+FROM %s.pg_stat_statements
 WHERE dbid = (SELECT oid FROM pg_catalog.pg_database WHERE datname = current_database())
   AND position(lower($1) IN lower(query)) > 0
 ORDER BY total_exec_time DESC LIMIT $2`
@@ -64,7 +71,8 @@ func (e *DBEvaluator) WhatIf(ctx context.Context, ddl string) (bool, string) {
 // whatIfInputs reads, in one bounded read-only transaction, the existing
 // index that already serves ddl (if any) and the table's hottest
 // statements. pg_stat_statements is optional: without it the workload is
-// empty.
+// empty. It is read from the schema it is installed in, not through the
+// search_path (security-01c).
 func (e *DBEvaluator) whatIfInputs(ctx context.Context, ddl, table, name string,
 ) ([]optimizer.QueryInfo, string, error) {
 	var queries []optimizer.QueryInfo
@@ -107,10 +115,20 @@ func servingIndex(ctx context.Context, tx pgx.Tx, ddl, table string) (string, er
 
 func (e *DBEvaluator) tableWorkload(ctx context.Context, tx pgx.Tx, name string,
 ) ([]optimizer.QueryInfo, error) {
+	var schema string
+	if err := tx.QueryRow(ctx, pssSchemaSQL).Scan(&schema); err != nil {
+		return nil, fmt.Errorf("find the pg_stat_statements schema: %w", err)
+	}
+	if schema == "" {
+		e.logFn("INFO", "provider advice: no workload for the what-if of %s: "+
+			"pg_stat_statements is not installed in this database", name)
+		return nil, nil
+	}
 	if _, err := tx.Exec(ctx, "SAVEPOINT workload"); err != nil {
 		return nil, err
 	}
-	rows, err := tx.Query(ctx, tableWorkloadSQL, name, maxWhatIfStatements)
+	rows, err := tx.Query(ctx, fmt.Sprintf(tableWorkloadSQL, pgx.Identifier{schema}.Sanitize()),
+		name, maxWhatIfStatements)
 	var out []optimizer.QueryInfo
 	if err == nil {
 		out, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (optimizer.QueryInfo,
