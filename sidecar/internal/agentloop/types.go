@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/llm"
@@ -261,25 +262,33 @@ type Result struct {
 // aliasesKey carries a run's aliases into a tool call's context.
 type aliasesKey struct{}
 
-// withAliases gives a tool call a copy of the aliases issued so far: a
-// tool, or a goroutine it leaves behind, can neither change nor race the
-// run's own map.
+// clone is a copy of e that shares no memory with it: Values is a slice,
+// so a plain copy would let a writer of one change the other (env-race-b).
+func (e Evidence) clone() Evidence {
+	e.Values = slices.Clone(e.Values)
+	return e
+}
+
+// withAliases gives a tool call a deep copy of the aliases issued so far:
+// a tool, or a goroutine it leaves behind, can neither change nor race the
+// run's own map or the values the run grounds claims against.
 func withAliases(ctx context.Context, aliases map[string]Evidence) context.Context {
 	cp := make(map[string]Evidence, len(aliases))
 	for alias, ev := range aliases {
-		cp[alias] = ev
+		cp[alias] = ev.clone()
 	}
 	return context.WithValue(ctx, aliasesKey{}, cp)
 }
 
 // ResolveEvidence returns the evidence behind an alias (E1, E2, ...)
 // that the run calling this tool issued before the call. It reports
-// false outside a run and for anything that is not such an alias.
+// false outside a run and for anything that is not such an alias. Each
+// call returns its own copy, so concurrent resolvers never share values.
 func ResolveEvidence(ctx context.Context, ref string) (Evidence, bool) {
 	if ctx == nil {
 		return Evidence{}, false
 	}
 	aliases, _ := ctx.Value(aliasesKey{}).(map[string]Evidence)
 	ev, ok := aliases[ref]
-	return ev, ok
+	return ev.clone(), ok
 }
