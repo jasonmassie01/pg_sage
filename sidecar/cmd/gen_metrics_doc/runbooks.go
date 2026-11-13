@@ -65,8 +65,10 @@ var runbooks = []runbook{
 			"serving the API over TLS exports it; `/ready` reports `tls_expiring` " +
 			"from the same 14 days.",
 		"Renew the certificate and replace the files `SAGE_TLS_CERT` and " +
-			"`SAGE_TLS_KEY` name; handshakes pick up the new pair within seconds, " +
-			"without a restart. " +
+			"`SAGE_TLS_KEY` name; the next new TLS connection to the API loads the " +
+			"pair (files checked at most every 5 s), without a restart. A kept-alive " +
+			"scrape connection does not, so on an idle API open the dashboard once " +
+			"and the gauge follows. " +
 			"If the alert stays, check `pg_sage_api_tls_reload_failures_total` and " +
 			"the log for the reload error: a failed reload keeps the old certificate."},
 	{"PgSageLeaderLeaseStale", "page",
