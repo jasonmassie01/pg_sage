@@ -2866,9 +2866,10 @@ stops counting 30 days after its `generated_at` (a release's shipped report too)
 reviews leave the 30-day window one by one. No evidence is permanent: a signed report for the
 running build expires like any other, because it proves the build, not today's workload. The
 workload, the data volume, the model behind the LLM features and the PostgreSQL minor version
-all drift while the build stays the same; a fresh report or new shadow reviews restore the
-level. The Autonomy and Trust pages show, on every
-earned row, the date the level holds until and the checks that expire then (`holds_until`,
+all drift while the build stays the same. Only a fresh report renews the bench check (new
+shadow reviews renew only the shadow window), and the level returns once both hold again. The
+Autonomy and Trust pages show, on every earned row, the date the level holds until and the
+checks that expire then (`holds_until`,
 `expiring_checks` in `GET /api/v1/sre/autonomy` and `GET /api/v1/trust`), for example "L3
 holds until 2026-12-03 09:30 UTC unless a new bench report arrives". The date is the last
 moment the evidence still counts: for the shadow window, the review whose leaving breaks the
