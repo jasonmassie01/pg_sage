@@ -142,8 +142,9 @@ const (
 )
 
 // freezeReadError names the reading and, when a server-side bound ended
-// it, which one: a held catalog lock is a "lock timeout", a slow catalog a
-// "statement timeout". The driver's error stays wrapped.
+// it, which one: "lock timeout" or "statement timeout" (a slow catalog, or
+// a held lock when the statement bound is the shorter, as shipped). The
+// driver's error stays wrapped.
 func freezeReadError(err error) error {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {

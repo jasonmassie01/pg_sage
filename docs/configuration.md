@@ -2149,9 +2149,11 @@ sample per database (the 500 most advanced relations, at most 20 xmin holders, a
 and multixact consumption rates) is read in one read-only transaction and shared with the
 runway advisor and the analyzer for half that interval. The sample's transaction is bounded
 by `safety.query_timeout_ms` and `safety.lock_timeout_ms` (`0` uses the default), so a catalog
-lock held by DDL ends the sample with a `freeze age read: lock timeout` error instead of
-holding the custodian, the runway advisor and the analyzer; that cycle proposes nothing, and
-the next one reads again. The `pgstattuple_approx` confirmations of the three largest bloat
+lock held by DDL ends the sample at the shorter of the two instead of holding the custodian,
+the runway advisor and the analyzer. The error names the bound: with the shipped values
+(500 ms and 30 s) it is `freeze age read: statement timeout`, and `freeze age read: lock
+timeout` when the lock timeout is the shorter. That cycle proposes nothing, and the next one
+reads again. The `pgstattuple_approx` confirmations of the three largest bloat
 candidates per scan are bounded by the same two settings.
 Until two scans have measured the consumption rate, the custodian claims no deadline.
 
