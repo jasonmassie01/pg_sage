@@ -51,7 +51,8 @@ func DesignatedDSN() (string, error) {
 // so on stderr, once, and runs the tests against the disabled DSN, so their
 // database tests skip instead of reaching an implicit localhost server. The
 // database starts empty (template0); RunBootstrapped copies a bootstrapped
-// one instead.
+// one instead. The package-wide pools (Pool) live from before the tests
+// until after them, and are closed before the database is dropped.
 func Run(run func() int, packageID string) int {
 	return runFixtureWith(run, packageID, "", nil)
 }
@@ -62,7 +63,7 @@ func runFixtureWith(run func() int, packageID, root string, bootstrap BootstrapF
 	if strings.TrimSpace(os.Getenv(EnvName)) == "" {
 		fmt.Fprintf(diag(), "testdb: %s unset; database tests in %s will skip\n",
 			EnvName, packageID)
-		return runWithDSNEnvironment(run, disabledDSN)
+		return runWithSharedPools(run, disabledDSN)
 	}
 	baseDSN, err := DesignatedDSN()
 	if err != nil {
@@ -81,12 +82,20 @@ func runFixtureWith(run func() int, packageID, root string, bootstrap BootstrapF
 		fmt.Fprintf(diag(), "test fixture setup failed: %v\n", err)
 		return 1
 	}
-	code := runWithDSNEnvironment(run, fixtureURL)
+	code := runWithSharedPools(run, fixtureURL)
 	if err := dropFixture(baseDSN, name); err != nil {
 		fmt.Fprintf(diag(), "test fixture cleanup failed: %v\n", err)
 		return 1
 	}
 	return code
+}
+
+// runWithSharedPools runs the tests with the package-wide pools open and
+// closes them all afterwards, before the fixture database is dropped.
+func runWithSharedPools(run func() int, dsn string) int {
+	sharedPools.open()
+	defer sharedPools.close()
+	return runWithDSNEnvironment(run, dsn)
 }
 
 func runWithDSNEnvironment(run func() int, dsn string) int {

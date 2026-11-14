@@ -119,6 +119,20 @@ dropped by the next build; removing the server removes them all. Keep
 migration behaviour: they need an empty database (`internal/schema`
 asserts its fixture came from `template0`).
 
+Every pool a test opens and closes leaves its client sockets in TIME_WAIT
+(up to 120 s on Windows), and a full round can use up the host's dynamic
+port range: dials then fail with "Only one usage of each socket address" or
+"lacked sufficient buffer space". A test helper that only runs statements
+takes `testdb.Pool(t)`, the package-wide pool on the fixture database
+(`testdb.PoolFor(t, dsn)` for another DSN that outlives the tests). It holds
+at most 8 connections, and `testdb.Run` and `testdb.RunBootstrapped` close
+it after the tests; using it later returns pgxpool's "closed pool" error.
+Tests share it, so a test never closes it and never leaves session state on
+it (`SET`, `SET ROLE`, temporary tables, advisory locks, HypoPG
+hypothetical indexes). Tests of connection-level behaviour (per-session
+timeouts, `SET` scope, pool exhaustion), tests that need more than 8
+connections at once, and tests on a database they create keep their own pool.
+
 Every package shares that one server, so anything cluster-wide is shared too:
 WAL volume and checkpoints, XID consumption, `pg_stat_reset_shared`,
 `pg_stat_statements`, the I/O statistics and the whole-cluster backend count.
