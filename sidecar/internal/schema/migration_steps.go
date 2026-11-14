@@ -221,6 +221,7 @@ func trancheThreeMigrations() []namedStep {
 // trancheFourMigrations are the T4 steps, in landing order.
 func trancheFourMigrations() []namedStep {
 	return []namedStep{
-		{"ddlUserDatabaseGrantsSource", ddlUserDatabaseGrantsSource}, // apiauth-08d
+		{"ddlDatabasesActionCredential", ddlDatabasesActionCredential}, // security-09b
+		{"ddlUserDatabaseGrantsSource", ddlUserDatabaseGrantsSource},   // apiauth-08d
 	}
 }

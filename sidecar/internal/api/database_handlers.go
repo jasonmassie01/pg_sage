@@ -137,8 +137,7 @@ func createManagedDBHandler(
 				r.Context(), input, createdBy,
 			)
 			if applyErr != nil {
-				if errors.Is(applyErr, store.ErrValidation) {
-					jsonError(w, applyErr.Error(), http.StatusBadRequest)
+				if writeDatabaseInputError(w, applyErr) {
 					return
 				}
 				internalError(w, r, "create and activate database", applyErr)
@@ -151,9 +150,7 @@ func createManagedDBHandler(
 		id, err := deps.Store.Create(
 			r.Context(), input, createdBy)
 		if err != nil {
-			if errors.Is(err, store.ErrValidation) {
-				jsonError(w, err.Error(),
-					http.StatusBadRequest)
+			if writeDatabaseInputError(w, err) {
 				return
 			}
 			internalError(w, r, "create database", err)
@@ -216,9 +213,7 @@ func updateManagedDBHandler(
 			r.Context(), deps, id, oldRec, input,
 		)
 		if err != nil {
-			if errors.Is(err, store.ErrValidation) {
-				jsonError(w, err.Error(),
-					http.StatusBadRequest)
+			if writeDatabaseInputError(w, err) {
 				return
 			}
 			if errors.Is(err, store.ErrNotFound) {
@@ -335,8 +330,7 @@ func testManagedDBHandler(
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, err := strconv.Atoi(r.PathValue("id"))
 		if err != nil {
-			jsonError(w, "invalid database ID",
-				http.StatusBadRequest)
+			jsonError(w, "invalid database ID", http.StatusBadRequest)
 			return
 		}
 
@@ -345,8 +339,7 @@ func testManagedDBHandler(
 		if r.Body != nil {
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				if !errors.Is(err, io.EOF) {
-					jsonError(w, "invalid request body",
-						http.StatusBadRequest)
+					jsonError(w, "invalid request body", http.StatusBadRequest)
 					return
 				}
 			} else {
@@ -356,8 +349,7 @@ func testManagedDBHandler(
 
 		rec, err := deps.Store.Get(r.Context(), id)
 		if err != nil {
-			jsonError(w, "database not found",
-				http.StatusNotFound)
+			jsonError(w, "database not found", http.StatusNotFound)
 			return
 		}
 
@@ -401,6 +393,8 @@ func testManagedDBHandler(
 			}
 		}
 		result := testFromConnStringAtIP(r.Context(), connStr, req.resolvedIP)
+		result.ActionIdentity = testManagedActionIdentity(r.Context(), deps, id, req,
+			hasPreviewBody, connStr)
 		jsonResponse(w, result)
 	}
 }
@@ -446,6 +440,7 @@ func testConnectionPreviewHandler() http.HandlerFunc {
 		}
 		u := buildManagedTestURL(req, req.Password)
 		result := testFromConnStringAtIP(r.Context(), u.String(), req.resolvedIP)
+		result.ActionIdentity = testRequestedActionIdentity(r.Context(), req, u.String())
 		jsonResponse(w, result)
 	}
 }
@@ -622,6 +617,10 @@ type dbCreateRequest struct {
 	Tags           map[string]string `json:"tags"`
 	TrustLevel     string            `json:"trust_level"`
 	ExecutionMode  string            `json:"execution_mode"`
+	// The action identity (security-09b) is write-only: nil leaves it
+	// unchanged, "" removes it.
+	ActionUsername *string `json:"action_username,omitempty"`
+	ActionPassword string  `json:"action_password,omitempty"`
 }
 
 func (r *dbCreateRequest) toInput() store.DatabaseInput {
@@ -641,6 +640,7 @@ func (r *dbCreateRequest) toInput() store.DatabaseInput {
 		Tags:           r.Tags,
 		TrustLevel:     r.TrustLevel,
 		ExecutionMode:  r.ExecutionMode,
+		Action:         r.actionInput(),
 	}
 }
 
@@ -665,5 +665,6 @@ func dbRecordToMap(rec store.DatabaseRecord) map[string]any {
 		"owner":             rec.Owner,
 		"expires_at":        rec.ExpiresAt,
 		"adopted_at":        rec.AdoptedAt,
+		"action_identity":   actionIdentityView(rec),
 	}
 }

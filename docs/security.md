@@ -94,8 +94,37 @@ GRANT pg_signal_backend, pg_read_all_stats TO sage_action;
   identity"). The onboarding trust guide (`GET /api/v1/onboarding/trust`) returns one
   grant script per role in `scripts`.
 - Removing or changing a fleet database's `action_dsn` on reload rebuilds that database's
-  runtime; `postgres.action_dsn` needs a restart. Databases registered through the API
-  (meta-db mode) do not take an action credential yet and run as one identity.
+  runtime; `postgres.action_dsn` needs a restart.
+
+**Meta-db databases (registered through the API).** A managed database takes the action
+identity as two write-only fields on `POST` / `PUT /api/v1/databases/managed[/{id}]`:
+`action_username` and `action_password` (also in the Databases form, "Action identity").
+
+- Only the role and its password are stored (`sage.databases.action_username`,
+  `action_password_enc`); the action identity always connects to the database's own host,
+  port and database, so it cannot point anywhere else.
+- The password is sealed like the observation password (`sage-enc:v1`, bound to
+  `sage.databases|<id>|action_password`), so a value copied to another row or onto the
+  observation password does not open. Key rotation re-seals it at startup, reported on its
+  own line ("action passwords at rest: sealed 0, rotated N").
+- The role must differ from the observation `username`; otherwise, or for a password with
+  no role, the API answers 400 with code `invalid_action_identity`. Error bodies never
+  echo a password.
+- `GET` returns `action_identity: {"configured": true, "username": "..."}`, never the
+  password. On `PUT`, omitting both fields keeps the credential, an empty
+  `action_password` keeps the stored password, and `"action_username": ""` removes it.
+  A new `action_password` travels with its `action_username`; sending both replaces a
+  stored password that no configured key opens.
+- Adding, changing or removing it rebuilds that database's runtime (also when another
+  replica or SQL changes the row: the reconcile pass compares it).
+- If the stored action password opens with no configured key, the database keeps
+  observing and every change fails with `action identity unavailable` naming the database;
+  nothing falls back to the observation role. Re-enter the password or restore the key.
+- The connection test (`POST .../test` and `.../test-connection`) also tests the action
+  role when the body names both fields, or, with no body, the stored one
+  (`action_identity` in the result).
+- CSV import refuses action columns: set the action identity per database through the
+  API.
 
 The sidecar bootstraps the `sage` schema and tables on first connect. Either
 connect with a role that can create that schema, or pre-create it and grant the
@@ -1100,13 +1129,14 @@ from the encryption key (argon2id with the database's random salt in
 - secrets set through the API or UI and stored in `sage.config`
   (`llm.api_key`, `clone.dle_token`, `alerting.slack_webhook_url`,
   `alerting.pagerduty_routing_key`);
-- per-database passwords in `sage.databases` (meta-db fleet mode);
+- per-database passwords and action passwords in `sage.databases` (meta-db fleet mode);
 - notification channel secrets (webhook URLs, routing keys, SMTP passwords,
   bot tokens, webhook channel headers) in `sage.notification_channels`.
 
 A sealed value looks like `sage-enc:v1:<key id>:<ciphertext>`; the key id is
 a public fingerprint of the key. Each value is bound to where it is stored
 (`sage.config|<key>|<database id>`, `sage.databases|<id>|password`,
+`sage.databases|<id>|action_password`,
 `sage.notification_channels|<id>|<key>`), so a value copied to another row or
 key does not open there. Audit rows never hold a value or its ciphertext.
 YAML and environment secrets are never written to `sage.config`.

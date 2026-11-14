@@ -307,7 +307,12 @@ func applyMetaDatabaseUpdate(
 		if err != nil {
 			return nil, err
 		}
-		return prepareStoreDatabaseConnection(ctx, prospective, connStr)
+		actionDSN, err := state.Store.GetUpdateActionConnectionString(ctx, id, input)
+		action, err := classifyMemberAction(actionDSN, err, prospective.ActionUsername, connStr)
+		if err != nil {
+			return nil, err
+		}
+		return prepareStoreDatabaseConnection(ctx, prospective, connStr, action)
 	}
 	persist := func(ctx context.Context) error {
 		return state.Store.Update(ctx, id, input)
@@ -455,5 +460,8 @@ func updatedDatabaseRecord(
 	old.Tags = input.Tags
 	old.TrustLevel = input.TrustLevel
 	old.ExecutionMode = input.ExecutionMode
+	if input.Action != nil {
+		old.ActionUsername = input.Action.Username
+	}
 	return old
 }

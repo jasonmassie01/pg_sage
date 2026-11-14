@@ -221,6 +221,24 @@ makes the next start run every step through its catalog checks.
 
 ---
 
+### `sage.databases`
+
+Databases registered through the API in meta-db mode, one row each. Passwords are
+sealed (`sage-enc:v1`) and never returned by the API. The action identity columns
+(security-09b) are both set or both NULL, and the action role is never `username`
+(checks `databases_action_credential_pair`, `databases_action_role_distinct`).
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `username` | text | Observation role |
+| `password_enc` | bytea | Observation password, bound to `sage.databases\|<id>\|password` |
+| `action_username` | text | Optional action role (a second role on the same database); NULL for one identity |
+| `action_password_enc` | bytea | Action password, bound to `sage.databases\|<id>\|action_password`; NULL with `action_username` |
+
+Host, port, database name, TLS mode, trust level, execution mode, tags and the
+discovery columns are the other columns; the action identity reuses the row's host,
+port, database and TLS mode.
+
 ### `sage.briefings`
 
 Generated health briefings.

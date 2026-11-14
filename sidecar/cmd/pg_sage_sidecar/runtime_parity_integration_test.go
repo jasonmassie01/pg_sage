@@ -410,7 +410,7 @@ func buildMetaParity(
 		MaxConnections: dbCfg.MaxConnections, TrustLevel: base.Trust.Level,
 		ExecutionMode: "auto",
 	}
-	inst, err := prepareStoreDatabaseConnection(context.Background(), rec, dsn)
+	inst, err := prepareStoreDatabaseConnection(context.Background(), rec, dsn, memberAction{})
 	if err != nil {
 		t.Fatalf("build meta runtime: %v", err)
 	}
