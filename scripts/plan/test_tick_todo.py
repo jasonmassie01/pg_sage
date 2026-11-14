@@ -316,6 +316,31 @@ class TickTodoTest(unittest.TestCase):
             self.assertIn(f"{item_id}: partial: ", out)
         self.assertIn("done 1, partial 5,", _summary(out))
 
+    def test_env_blocked_and_backticked_status_mean_not_done(self):
+        self.fx.report("t0", "k-11", self._status_report("k-11", 5, "Status: env_blocked."))
+        self.fx.report("t0", "k-12", self._status_report("k-12", 5, "Status: `partial`."))
+        self.fx.write_todo(["- [ ] k-11 K (x, S)", "- [ ] k-12 K (x, S)"])
+        code, out, _ = self.fx.run()
+        self.assertEqual(code, 0)
+        self.assertIn("k-11: partial: " + os.path.join("t0", "k-11.md") + ":5", out)
+        self.assertIn("k-12: partial: " + os.path.join("t0", "k-12.md") + ":5", out)
+        self.assertIn("done 0, partial 2,", _summary(out))
+
+    def test_also_covers_stops_at_prose(self):
+        self.fx.report("t0", "r-01", _merged_report("r-01"))
+        self.fx.write_todo([
+            "- [ ] r-01 R (also covers s-01, side branches, ledger-pin (the guard is t-30)) (x, M)",
+            "- [ ] s-01 Folded (x, S)",
+            "- [ ] side Not an id list entry (x, S)",
+            "- [ ] t-30 Separate item (x, S)",
+        ])
+        code, out, _ = self.fx.run()
+        self.assertEqual(code, 0)
+        self.assertIn("s-01: done: covered by r-01", out)
+        self.assertIn("side: no report", out)
+        self.assertIn("t-30: no report", out)
+        self.assertIn("done 2, partial 0, unmerged 0, no report 2,", _summary(out))
+
     def test_title_partial_counts(self):
         self.fx.report("t0", "l-01", (
             "# l-01 Converge the stacks (partial)\n\nBranch improve/t0/merged, base x.\n"

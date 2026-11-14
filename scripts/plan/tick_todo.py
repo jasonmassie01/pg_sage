@@ -4,7 +4,8 @@
 For each "- [ ] <id> ..." line the item counts as done only when all hold:
   * a report reports/t*/<id>.md exists;
   * its title has no "(partial)", its first 15 lines carry no
-    "Status: partial|blocked|not built", and no "CHECK-NN: NOT BUILT" line;
+    "Status: partial|blocked|env_blocked|not built", and no
+    "CHECK-NN: NOT BUILT" line;
   * the branch it names ("Branch improve/..." or "branch improve/...") is an
     ancestor of the target (default improve/integration), or failing that the
     "head <sha>" it names is.
@@ -43,7 +44,7 @@ _TICKED_RE = re.compile(rf"^- \[[xX]\](?: (?P<id>{_ID})(?: .*)?)?$")
 _ALSO_COVERS_RE = re.compile(r"\(also covers ([^)]*)\)")
 _TITLE_PARTIAL_RE = re.compile(r"\(partial\)", re.IGNORECASE)
 _STATUS_BAD_RE = re.compile(
-    r"status:\s*\**\s*(?:partial|blocked|not built)\b", re.IGNORECASE)
+    r"status:[\s*`]*(?:partial|env_blocked|blocked|not built)\b", re.IGNORECASE)
 _CHECK_NOT_BUILT_RE = re.compile(
     r"\bCHECK-\d+[a-z]?[`*:\s\[]*NOT BUILT\b", re.IGNORECASE)
 _BRANCH_RE = re.compile(r"\b[Bb]ranch\b[\s:]*`?(improve/[A-Za-z0-9._/-]+)")
@@ -159,9 +160,14 @@ def classify(item_id, reports, git, target_sha):
 
 
 def also_covers(text):
+    """Ids in "(also covers a-01, b-02)". The list ends at the first piece that
+    is not a bare id, so prose such as "(the guard is ci-30)" ticks nothing."""
     ids = []
     for group in _ALSO_COVERS_RE.findall(text):
-        ids += [tok for tok in re.split(r"[\s,]+", group) if _ID_RE.match(tok)]
+        for piece in (p.strip() for p in group.split(",")):
+            if not _ID_RE.match(piece):
+                break
+            ids.append(piece)
     return ids
 
 
