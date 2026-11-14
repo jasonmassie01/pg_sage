@@ -21,6 +21,7 @@ import {
 } from './settings/SourceBadge'
 import { LifecycleBadge } from './settings/LifecycleBadge'
 import { MaintenanceWindowPreview } from './settings/MaintenanceWindowPreview'
+import { firstRangeProblem } from './settings/valueRange'
 import { PendingRestartPanel, RestartControl } from './settings/PendingRestartPanel'
 import { readPref, writePref } from '../lib/storage'
 import { SETTINGS_SAVED_EVENT } from '../components/SecretsPostureBanner'
@@ -216,6 +217,11 @@ export function SettingsPage({ database, databaseId }) {
 
   const requestSave = () => {
     if (Object.keys(edits).length === 0) return
+    const problem = firstRangeProblem(edits)
+    if (problem) {
+      setFeedback({ type: 'error', msg: problem })
+      return
+    }
     setFeedback(null)
     setShowDiff(true)
   }
