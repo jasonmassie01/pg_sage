@@ -258,15 +258,7 @@ func TestExpireDue_LeaderFailoverWithTwoElectors(t *testing.T) {
 	a := leader.NewElector(store, scope, "sidecar-a", ttl)
 	b := leader.NewElector(store, scope, "sidecar-b", ttl)
 	tickRetrying(t, a) // A dies after this tick
-	// Times are the lease table's (the database clock), so client latency
-	// under load does not blur the bound.
-	leaseTime := func(col string) time.Time {
-		var at time.Time
-		require.NoError(t, f.super.QueryRow(ctx, "SELECT "+col+
-			" FROM sage.fleet_leader_lease WHERE scope = $1", scope).Scan(&at))
-		return at
-	}
-	lastRenewal := leaseTime("renewed_at")
+	lastRenewal := f.leaseTime(t, scope, "renewed_at")
 	// The bound is on the database clock, which can step against the host
 	// between B's host-timed ticks: widen it by the measured step (ci-14).
 	watch, err := testdb.StartClockWatch(ctx, f.super)
@@ -281,27 +273,15 @@ func TestExpireDue_LeaderFailoverWithTwoElectors(t *testing.T) {
 	require.True(t, ok)
 	g := f.grantID(t)
 	f.expireNow(t, g.ID)
-	var led time.Time
-	missed := 0
-	for deadline := time.Now().Add(ttl + interval + 5*time.Second); time.Now().Before(
-		deadline); time.Sleep(interval) {
-		if !ticked(t, b, &missed) {
-			continue
-		}
-		fb, ok := fenceOf(b)
-		if !ok {
-			continue
-		}
-		led = leaseTime("acquired_at")
-		rep, err := f.manager.ExpireDue(ctx, f.target, fb, 100)
-		require.NoError(t, err)
-		require.Contains(t, rep.Revoked, g.ID, "B's first pass as leader revokes it")
-		break
-	}
-	require.False(t, led.IsZero(), "B never led")
+	fb := awaitLead(t, b, fenceOf, interval, ttl+interval+5*time.Second)
+	led := f.leaseTime(t, scope, "acquired_at")
+	rep, err := f.manager.ExpireDue(ctx, f.target, fb, 100)
+	require.NoError(t, err)
+	require.Contains(t, rep.Revoked, g.ID, "B's first pass as leader revokes it")
 	took := led.Sub(lastRenewal)
 	bound := watch.Widen(t, ttl+interval+500*time.Millisecond)
-	t.Logf("B led %v after A's last renewal (bound ttl+interval = %v)", took, ttl+interval)
+	t.Logf("B led %v after A's last renewal (ttl+interval %v, bound %v)", took,
+		ttl+interval, bound)
 	require.True(t, took <= bound, "B led after %v (bound %v)", took, bound)
 	require.Equal(t, StateRevoked, f.row(t, g.ID).State)
 	require.False(t, f.can(t, f.p.BrokerRole(), "id"))
@@ -311,6 +291,35 @@ func TestExpireDue_LeaderFailoverWithTwoElectors(t *testing.T) {
 	require.True(t, errors.Is(err, ErrFenced), "stale leader fenced: %v", err)
 	require.Equal(t, StateActive, f.row(t, g2.ID).State)
 	require.True(t, f.can(t, f.p.BrokerRole(), "id"))
+}
+
+// leaseTime reads one timestamp of scope's lease row. Times are the lease
+// table's (the database clock), so client latency under load does not
+// blur a bound on them.
+func (f *fixture) leaseTime(t *testing.T, scope, col string) time.Time {
+	t.Helper()
+	var at time.Time
+	require.NoError(t, f.super.QueryRow(context.Background(), "SELECT "+col+
+		" FROM sage.fleet_leader_lease WHERE scope = $1", scope).Scan(&at))
+	return at
+}
+
+// awaitLead ticks e every interval until it holds a fence, failing after
+// limit of host time; it returns that fence.
+func awaitLead(t *testing.T, e *leader.Elector, fenceOf func(*leader.Elector) (Fence, bool),
+	interval, limit time.Duration) Fence {
+	t.Helper()
+	missed := 0
+	for deadline := time.Now().Add(limit); time.Now().Before(deadline); time.Sleep(interval) {
+		if !ticked(t, e, &missed) {
+			continue
+		}
+		if fence, ok := fenceOf(e); ok {
+			return fence
+		}
+	}
+	t.Fatal("B never led")
+	return Fence{}
 }
 
 // missedTickLimit is how many ticks in a row may run past their bound.
