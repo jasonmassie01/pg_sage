@@ -19,6 +19,9 @@ func (m *DatabaseManager) WithLifecycle(
 	ctx context.Context,
 	fn func(*LifecycleMutation) error,
 ) error {
+	if m.readOnly {
+		return ErrReadOnlyView
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
