@@ -13,9 +13,9 @@ import (
 // retries failed databases. Tests shrink it.
 var fleetReconnectInterval = 30 * time.Second
 
-// fleetReconnectLoop periodically checks for failed instances and
-// attempts to reconnect with exponential backoff. Runs every 30s,
-// caps backoff at 5 minutes per database.
+// fleetReconnectLoop runs every fleetReconnectInterval (30s by default):
+// it reconciles the fleet with the store, then retries every failed
+// instance once. A retry's connect backs off from startupBackoff.
 func fleetReconnectLoop(ctx context.Context, state *metaDBState) {
 	ticker := time.NewTicker(fleetReconnectInterval)
 	defer ticker.Stop()
@@ -53,7 +53,7 @@ func needsReconnect(inst *fleet.DatabaseInstance) bool {
 	if inst.Pool != nil && snap.Error == "" {
 		return false // healthy
 	}
-	return !fleetMgr.InstanceStopped(inst) // manually stopped
+	return !fleetMgr.InstanceStopped(inst) // a stopped instance stays down
 }
 
 // retryOneInstance reconnects the failed instance inst registered as name
