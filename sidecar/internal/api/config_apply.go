@@ -375,7 +375,7 @@ func hotReloadExplain(cfg *config.Config, key, v string) {
 func hotReloadLogWatch(cfg *config.Config, key, v string) {
 	switch key {
 	case "logwatch.enabled":
-		cfg.LogWatch.Enabled = atob(v)
+		cfg.LogWatch.Enabled = logWatchEnabled(v)
 	case "logwatch.log_directory":
 		cfg.LogWatch.LogDirectory = v
 	case "logwatch.format":

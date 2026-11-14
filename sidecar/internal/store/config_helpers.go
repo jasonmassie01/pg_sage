@@ -109,7 +109,7 @@ var allowedConfigKeys = map[string]string{
 	"explain.max_tokens":        "int_pos",
 
 	// v0.9.1: LogWatch (log-based RCA).
-	"logwatch.enabled":              "bool",
+	"logwatch.enabled":              "bool_auto",
 	"logwatch.log_directory":        "string",
 	"logwatch.format":               "string",
 	"logwatch.poll_interval_ms":     "int_pos",
@@ -205,8 +205,8 @@ func validateByType(vtype, key, value string) error {
 		return validateFloatRange(key, value, 0, 1e9)
 	case "float_pct_pos":
 		return validateFloatRange(key, value, 0.001, 100)
-	case "bool":
-		return validateBool(key, value)
+	case "bool", "bool_auto":
+		return validateBool(vtype, key, value)
 	case "trust_level":
 		return validateEnum(key, value, validTrustLevels)
 	case "exec_mode":
@@ -280,7 +280,15 @@ func validateFloatRange(
 	return nil
 }
 
-func validateBool(key, value string) error {
+// validateBool checks the API's boolean grammar; bool_auto also takes
+// auto (logwatch.enabled, rca-09b).
+func validateBool(vtype, key, value string) error {
+	if vtype == "bool_auto" {
+		if _, err := config.ParseLogWatchEnabled(value); err != nil {
+			return fmt.Errorf("validate: %w", err)
+		}
+		return nil
+	}
 	if _, err := config.ParseBool(value); err != nil {
 		return fmt.Errorf(
 			"validate: %s must be true or false, got %q", key, value)
@@ -682,7 +690,8 @@ func addExplainFields(m map[string]any, e *config.ExplainConfig) {
 func addLogWatchFields(
 	m map[string]any, lw *config.LogWatchConfig,
 ) {
-	addField(m, "logwatch.enabled", lw.Enabled, SourceFileDefault)
+	addField(m, "logwatch.enabled", coerceValue("logwatch.enabled", lw.Setting()),
+		SourceFileDefault)
 	addField(m, "logwatch.log_directory",
 		lw.LogDirectory, SourceFileDefault)
 	addField(m, "logwatch.format", lw.Format, SourceFileDefault)
@@ -797,7 +806,7 @@ func coerceValue(key, value string) any {
 		if f, err := strconv.ParseFloat(value, 64); err == nil {
 			return f
 		}
-	case "bool":
+	case "bool", "bool_auto":
 		if b, err := config.ParseBool(value); err == nil {
 			return b
 		}

@@ -45,7 +45,8 @@ func NewLogSink(pool *pgxpool.Pool, database string, cfg *config.Config) (*LogSi
 		TempFileMinBytes:      int64(cfg.LogWatch.TempFileMinBytes),
 		MaxLinesPerCycle:      cfg.LogWatch.MaxLinesPerCycle,
 		DeadlockStatementText: cfg.RCA.DeadlockStatementText}
-	if cfg.RCA.Enabled && cfg.LogWatch.Enabled {
+	// A configured provider sink is a detected log source (rca-09b).
+	if cfg.RCA.Enabled && cfg.LogWatch.IsActive(true) {
 		s.classifier = logwatch.NewClassifier(s.classifierConfig, nil)
 	}
 	return s, nil

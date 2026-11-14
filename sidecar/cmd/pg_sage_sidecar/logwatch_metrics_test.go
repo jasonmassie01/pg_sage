@@ -98,7 +98,7 @@ func TestLogwatchDropsReachMetricsEndpoint(t *testing.T) {
 	runtimeLogFanouts = newLogFanoutSet()
 
 	dir := t.TempDir()
-	cfg.LogWatch = config.LogWatchConfig{Enabled: true, LogDirectory: dir,
+	cfg.LogWatch = config.LogWatchConfig{Enabled: logWatchSwitch(true), LogDirectory: dir,
 		Format: "jsonlog", PollIntervalMs: 3600000, MaxLineLenBytes: 65536}
 	if err := os.WriteFile(filepath.Join(dir, "postgresql.json"), nil, 0o600); err != nil {
 		t.Fatal(err)

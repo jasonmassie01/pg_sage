@@ -634,6 +634,7 @@ func TestConfigConsistency_HotReloadCoversAllAllowedKeys(
 		"clone_provider":     "none",
 		"mcp_transport":      "stdio",
 		"llm_auth":           "databricks",
+		"bool_auto":          "true", // rca-09b
 	}
 
 	for key, vtype := range allowedConfigKeys {
@@ -806,6 +807,7 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 		"clone_provider":     "none",
 		"mcp_transport":      "stdio",
 		"llm_auth":           "databricks",
+		"bool_auto":          "true", // rca-09b
 	}
 
 	for vtype := range vtypes {

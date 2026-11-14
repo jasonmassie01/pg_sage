@@ -14,7 +14,7 @@ import (
 
 func TestLogwatchRuntimeUsesExplicitPathAndReusesOwner(t *testing.T) {
 	prepareMetaGlobals(t)
-	cfg.LogWatch = config.LogWatchConfig{Enabled: true, LogDirectory: t.TempDir(),
+	cfg.LogWatch = config.LogWatchConfig{Enabled: logWatchSwitch(true), LogDirectory: t.TempDir(),
 		Format: "jsonlog", PollIntervalMs: 5, MaxLineLenBytes: 65536}
 	cfg.RCA.Enabled = true
 	logPath := filepath.Join(cfg.LogWatch.LogDirectory, "postgresql.json")
@@ -45,7 +45,7 @@ func TestLogwatchRuntimeUsesExplicitPathAndReusesOwner(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("canceled log drain did not terminate")
 	}
-	cfg.LogWatch.Enabled = false
+	cfg.LogWatch.Enabled = logWatchSwitch(false)
 	if (&databaseRuntime{}).clusterLogFanout() != nil {
 		t.Fatal("disabled watcher started")
 	}
@@ -61,7 +61,8 @@ func TestLogwatchRuntimeRejectsUnreadableConfiguredPath(t *testing.T) {
 	if err := os.WriteFile(path, []byte("fixture"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	cfg.LogWatch = config.LogWatchConfig{Enabled: true, LogDirectory: path, Format: "jsonlog"}
+	cfg.LogWatch = config.LogWatchConfig{Enabled: logWatchSwitch(true), LogDirectory: path,
+		Format: "jsonlog"}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	set := newLogFanoutSet()

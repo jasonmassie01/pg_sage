@@ -29,6 +29,7 @@ var setterProbeValues = map[string][]string{
 	"float_nonneg":       {"0", "3.5", "1.25"},
 	"float_pct_pos":      {"0.5", "42.5", "10"},
 	"bool":               {"true", "false"},
+	"bool_auto":          {"true", "false", "auto"}, // rca-09b
 	"policy_profile":     {"staffed", "unattended"},
 	"clone_provider":     {"none", "dle", "snapshot"},
 	"mcp_transport":      {"stdio", "http"},

@@ -391,7 +391,7 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 	// --- v0.9.1: LogWatch (log-based RCA) ---
 	"logwatch.enabled": {
 		input:  "true",
-		reader: func(c *config.Config) string { return btoa(c.LogWatch.Enabled) },
+		reader: logWatchSetting,
 	},
 	"logwatch.log_directory": {
 		input:  "/var/log/postgresql",

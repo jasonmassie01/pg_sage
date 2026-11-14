@@ -40,6 +40,18 @@ func ReplayStoredOverrides(
 	return recordMasked(candidate, base, masked)
 }
 
+// logWatchEnabled parses a validated logwatch.enabled: auto is unset;
+// anything else unparsable fails closed to off, as atob does (rca-09b).
+func logWatchEnabled(s string) *bool {
+	enabled, err := config.ParseLogWatchEnabled(s)
+	if err != nil {
+		slog.Warn("hotReload: logwatch.enabled is not true, false or auto; applying false")
+		off := false
+		return &off
+	}
+	return enabled
+}
+
 // atob parses a validated boolean with the API's grammar; anything else is
 // false, so a setter reached without validation fails closed to off.
 func atob(s string) bool {

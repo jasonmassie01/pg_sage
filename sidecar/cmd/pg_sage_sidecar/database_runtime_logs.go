@@ -112,10 +112,17 @@ func logConsumerEnabled() bool {
 	return cfg.RCA.Enabled || (cfg.Migration.Enabled && cfg.Migration.LogDetection)
 }
 
+// logWatchWanted reports whether a cluster log source is wired: logwatch
+// is not off (auto probes for a readable source, rca-09b) and something
+// reads the log.
+func logWatchWanted() bool {
+	return cfg.LogWatch.Mode() != config.LogWatchOff && logConsumerEnabled()
+}
+
 // clusterLogFanout returns the shared log fanout when a log consumer (RCA
 // or migration log detection) is enabled.
 func (rt *databaseRuntime) clusterLogFanout() *logwatch.LogFanout {
-	if !cfg.LogWatch.Enabled || !logConsumerEnabled() {
+	if !logWatchWanted() {
 		return nil
 	}
 	key := poolHostPort(rt.spec.Pool)

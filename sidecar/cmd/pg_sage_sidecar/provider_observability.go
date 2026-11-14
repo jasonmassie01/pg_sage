@@ -55,7 +55,7 @@ func buildProviderObservability(
 		logWarn("provider", "auto_explain record rejected: %s (count %d)", reason, count)
 	})
 	var handler providerobs.LogHandler
-	if cfg.AutoExplain.Enabled || (cfg.LogWatch.Enabled && cfg.RCA.Enabled) {
+	if cfg.AutoExplain.Enabled || (cfg.LogWatch.IsActive(true) && cfg.RCA.Enabled) {
 		handler = sink.Handle
 	}
 	runtime, err := providerobs.NewRuntime(api, conn.Database, handler)
@@ -94,7 +94,7 @@ func startProviderObservability(
 	if exec != nil {
 		exec.WithHostCPUReader(runtime)
 	}
-	logs := rcaEngine != nil && cfg.LogWatch.Enabled
+	logs := rcaEngine != nil && cfg.LogWatch.IsActive(true)
 	if logs {
 		rcaEngine.SetLogSource(sink)
 	}

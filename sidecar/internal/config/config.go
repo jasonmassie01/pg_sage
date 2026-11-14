@@ -440,7 +440,7 @@ type LockChainConfig struct {
 
 // LogWatchConfig controls PostgreSQL log file monitoring (v0.9.1).
 type LogWatchConfig struct {
-	Enabled             bool     `yaml:"enabled" doc:"Enable RCA logs from a configured provider API or local PostgreSQL jsonlog/csvlog files. Requires rca.enabled=true. Default: false."`
+	Enabled             *bool    `yaml:"enabled" doc:"Log RCA from local jsonlog/csvlog files or a provider log API: true, false, or auto (unset, the default: on once a readable source is detected). Needs rca.enabled."`
 	LogDirectory        string   `yaml:"log_directory" doc:"Path to PG log directory. Auto-detected from pg_settings if blank."`
 	Format              string   `yaml:"format" doc:"Log format: jsonlog (PG15+) or csvlog. Auto-detected if blank."`
 	PollIntervalMs      int      `yaml:"poll_interval_ms" doc:"Log file poll interval (the tailer only polls). Default: 1000."`
