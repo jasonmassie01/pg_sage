@@ -1,9 +1,11 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import userEvent from '@testing-library/user-event'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AgentDetail } from './AgentDetail'
 import {
   admin, agentToken, bodiesOf, callsTo, coder, frozenBot, iso, operator, response, stubAPI,
 } from './testStub'
+import { answerConfirm } from '../../test/confirmDialog'
 
 // agentgov-07: the drawer edits an agent's sponsor, profile and ceiling
 // (a widening change waits for a second admin), retires it after the name
@@ -14,10 +16,6 @@ const el = id => screen.getByTestId(id)
 const type = (id, value) => fireEvent.change(el(id), { target: { value } })
 const profiles = [{ name: 'coding-agent' }, { name: 'readonly-analyst' }]
 const agentPath = `/api/v1/agents/${coder.id}`
-
-beforeEach(() => {
-  vi.spyOn(window, 'confirm').mockReturnValue(true)
-})
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -233,17 +231,17 @@ describe('AgentTokens revoke', () => {
       'DELETE /api/v1/mcp/tokens/tok-1': () => response(200, { revoked: true }),
     })
     fireEvent.click(await screen.findByTestId('agent-token-revoke-coder-laptop'))
+    expect(await answerConfirm()).toMatch(/coder-laptop/)
     await waitFor(() => expect(callsTo(mock, 'DELETE', '/api/v1/mcp/tokens/tok-1'))
       .toHaveLength(1))
-    expect(window.confirm).toHaveBeenCalledWith(expect.stringMatching(/coder-laptop/))
     await waitFor(() => expect(callsTo(mock, 'GET', '/api/v1/mcp/tokens')).toHaveLength(2))
     expect(screen.queryByTestId('agent-token-revoke-old-key')).toBeNull()
   })
 
   it('keeps the token when the admin cancels', async () => {
-    window.confirm.mockReturnValue(false)
     const { mock } = await renderDetail(coder, admin, { 'GET /api/v1/mcp/tokens': tokens })
     fireEvent.click(await screen.findByTestId('agent-token-revoke-coder-laptop'))
+    await answerConfirm('cancel')
     expect(callsTo(mock, 'DELETE', '/api/v1/mcp/tokens/tok-1')).toHaveLength(0)
   })
 
@@ -252,8 +250,105 @@ describe('AgentTokens revoke', () => {
       'DELETE /api/v1/mcp/tokens/tok-1': () => response(404, { error: 'token not found' }),
     })
     fireEvent.click(await screen.findByTestId('agent-token-revoke-coder-laptop'))
+    await answerConfirm()
     expect(await screen.findByTestId('agent-token-revoke-error'))
       .toHaveTextContent('token not found')
+  })
+})
+
+describe('AgentTokens revoke dialog (dashboard-10b)', () => {
+  const tokenPath = '/api/v1/mcp/tokens/tok-1'
+  const second = { ...agentToken, id: 'tok-4', name: 'ci-key' }
+  const deletes = (mock, path = tokenPath) => callsTo(mock, 'DELETE', path)
+
+  async function openRevoke(routes = {}, name = 'coder-laptop') {
+    const ctx = await renderDetail(coder, admin, routes)
+    fireEvent.click(await screen.findByTestId(`agent-token-revoke-${name}`))
+    return { ...ctx, dialog: await screen.findByRole('dialog') }
+  }
+
+  it('names the token and sends exactly the recorded request', async () => {
+    const { mock, dialog } = await openRevoke({
+      [`DELETE ${tokenPath}`]: () => response(200, { revoked: true }),
+    })
+    expect(within(dialog).getByRole('heading')).toHaveTextContent('Revoke token coder-laptop')
+    expect(dialog).toHaveTextContent('Its holder loses access at once.')
+    expect(within(dialog).getByTestId('confirm-dialog-confirm')).toHaveTextContent('Revoke')
+    expect(within(dialog).queryByTestId('confirm-dialog-risk')).toBeNull()
+    expect(deletes(mock)).toHaveLength(0)
+    await answerConfirm()
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(deletes(mock)).toEqual([[tokenPath, { method: 'DELETE', credentials: 'include' }]])
+  })
+
+  it('shows a token name holding markup as text', async () => {
+    const evil = '<script>alert(1)</script>'
+    const { dialog } = await openRevoke({
+      'GET /api/v1/mcp/tokens': () => response(200, { tokens: [{ ...agentToken, name: evil }] }),
+    }, evil)
+    expect(within(dialog).getByRole('heading').textContent).toBe(`Revoke token ${evil}`)
+    expect(dialog.querySelector('script')).toBeNull()
+  })
+
+  it.each([
+    ['a 500', () => response(500, { error: 'store unavailable', code: 'store_down' }),
+      'store unavailable'],
+    ['a non-JSON body', () => ({ ok: false, status: 502, statusText: 'Bad Gateway',
+      json: async () => { throw new SyntaxError('Unexpected token <') } }),
+    'Could not revoke the token (502 Bad Gateway)'],
+    ['a network error', () => { throw new TypeError('Failed to fetch') }, 'Failed to fetch'],
+  ])('keeps the dialog open with the error on %s', async (_name, fail, text) => {
+    const { mock } = await openRevoke({ [`DELETE ${tokenPath}`]: fail })
+    await answerConfirm()
+    const error = await screen.findByTestId('agent-token-revoke-error')
+    expect(error).toHaveTextContent(text)
+    const dialog = screen.getByRole('dialog')
+    expect(dialog).toContainElement(error)
+    expect(dialog).toHaveAttribute('open')
+    expect(deletes(mock)).toHaveLength(1)
+    expect(callsTo(mock, 'GET', '/api/v1/mcp/tokens')).toHaveLength(1)
+    expect(screen.getByTestId('agent-token-coder-laptop')).toBeInTheDocument()
+  })
+
+  it('Escape sends nothing and returns focus to the Revoke button', async () => {
+    const user = userEvent.setup()
+    const { mock } = await renderDetail()
+    const button = await screen.findByTestId('agent-token-revoke-coder-laptop')
+    await user.click(button)
+    expect(screen.getByRole('dialog')).toHaveAttribute('open')
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).toBe(button)
+    expect(deletes(mock)).toHaveLength(0)
+  })
+
+  it('sends once when Confirm is clicked again while in flight', async () => {
+    let release
+    const { mock, dialog } = await openRevoke({
+      [`DELETE ${tokenPath}`]: () => new Promise(res => { release = res }),
+    })
+    const confirmButton = within(dialog).getByTestId('confirm-dialog-confirm')
+    fireEvent.click(confirmButton)
+    fireEvent.click(confirmButton)
+    await waitFor(() => expect(deletes(mock)).toHaveLength(1))
+    expect(confirmButton).toBeDisabled()
+    release(response(200, { revoked: true }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(deletes(mock)).toHaveLength(1)
+  })
+
+  it('opens one dialog at a time and names the next row after Cancel', async () => {
+    const { mock } = await openRevoke({
+      'GET /api/v1/mcp/tokens': () => response(200, { tokens: [agentToken, second] }),
+      'DELETE /api/v1/mcp/tokens/tok-4': () => response(200, { revoked: true }),
+    })
+    fireEvent.click(screen.getByTestId('agent-token-revoke-ci-key'))
+    expect(screen.getAllByRole('dialog')).toHaveLength(1)
+    expect(await answerConfirm('cancel')).toBe('Revoke token coder-laptop')
+    fireEvent.click(screen.getByTestId('agent-token-revoke-ci-key'))
+    expect(await answerConfirm()).toBe('Revoke token ci-key')
+    await waitFor(() => expect(deletes(mock, '/api/v1/mcp/tokens/tok-4')).toHaveLength(1))
+    expect(deletes(mock)).toHaveLength(0)
   })
 })
 

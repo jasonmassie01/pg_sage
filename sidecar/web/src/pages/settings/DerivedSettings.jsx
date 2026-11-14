@@ -147,18 +147,11 @@ async function changePin(database, key, action) {
   return body.error || `${action} failed (${res.status})`
 }
 
-export function DerivedSettings({ database }) {
-  const url = derivedURL(database)
-  const derived = useAPI(url, 60000)
-  const { data, refetch } = derived
+// usePinAction pins or unpins one derived setting, refetching on success
+// and keeping the server's refusal to show above the list.
+function usePinAction(refetch) {
   const [failure, setFailure] = useState(null)
   const [busy, setBusy] = useState(false)
-
-  const message = e => `Derived settings: ${e}`
-  if (queryBlocked(derived)) {
-    return <QueryState query={derived} skeleton={null} message={message} />
-  }
-
   async function onPin(db, key, action) {
     setBusy(true)
     setFailure(null)
@@ -171,6 +164,19 @@ export function DerivedSettings({ database }) {
     } finally {
       setBusy(false)
     }
+  }
+  return { failure, busy, onPin }
+}
+
+export function DerivedSettings({ database }) {
+  const url = derivedURL(database)
+  const derived = useAPI(url, 60000)
+  const { data, refetch } = derived
+  const { failure, busy, onPin } = usePinAction(refetch)
+
+  const message = e => `Derived settings: ${e}`
+  if (queryBlocked(derived)) {
+    return <QueryState query={derived} skeleton={null} message={message} />
   }
 
   const databases = Array.isArray(data?.databases) ? data.databases : []

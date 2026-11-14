@@ -24,16 +24,27 @@ export function Section({ title, testId, children }) {
   )
 }
 
-export function ErrorBox({ testId, error }) {
+// ErrorText is an API error's message, reason code and fix, unboxed, for a
+// place that already frames it (a ConfirmDialog's error, dashboard-10b).
+export function ErrorText({ testId, error }) {
   if (!error) return null
   return (
-    <div data-testid={testId} role="alert" className="text-sm p-3 rounded mb-3"
-      style={errorStyle}>
+    <span data-testid={testId}>
       {error.message}
       {error.reason && <span className="ml-1">({error.reason})</span>}
       {error.fix && (
         <pre className="mt-2 text-xs whitespace-pre-wrap break-all">{error.fix}</pre>
       )}
+    </span>
+  )
+}
+
+export function ErrorBox({ testId, error }) {
+  if (!error) return null
+  return (
+    <div data-testid={testId} role="alert" className="text-sm p-3 rounded mb-3"
+      style={errorStyle}>
+      <ErrorText error={error} />
     </div>
   )
 }

@@ -1,8 +1,9 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import userEvent from '@testing-library/user-event'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AgentDetail } from './AgentDetail'
 import {
-  admin, bodiesOf, callsTo, coder, frozenBot, iso, operator, response, stubAPI,
+  admin, bodiesOf, callsTo, coder, frozenBot, identity, iso, operator, response, stubAPI,
 } from './testStub'
 import { answerConfirm } from '../../test/confirmDialog'
 
@@ -230,12 +231,6 @@ describe('AgentDetail activity', () => {
 describe('AgentDetail OAuth identities', () => {
   const identitiesPath = `/api/v1/agents/${coder.id}/identities`
 
-  // The identity unbind (agentgov-03) still asks with window.confirm; the
-  // grant and token controls above moved to the dialog (dashboard-10).
-  beforeEach(() => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
-  })
-
   it('lists the bound identities and binds one with a configured issuer', async () => {
     const { mock } = await renderDetail(coder, admin, {
       [`POST ${identitiesPath}`]: ({ body }) => response(201, { ...body,
@@ -263,18 +258,19 @@ describe('AgentDetail OAuth identities', () => {
       [`DELETE ${identitiesPath}`]: () => response(200, {}),
     })
     fireEvent.click(await screen.findByTestId('agent-identity-unbind-0'))
+    expect(await screen.findByRole('dialog')).toHaveTextContent(/refused at once/)
+    await answerConfirm()
     await waitFor(() => expect(callsTo(mock, 'DELETE', identitiesPath)).toHaveLength(1))
     const q = new URL(callsTo(mock, 'DELETE', identitiesPath)[0][0], 'http://x').searchParams
     expect(q.get('issuer')).toBe('https://idp.x.test')
     expect(q.get('subject')).toBe('coder-client')
-    expect(window.confirm).toHaveBeenCalledWith(expect.stringMatching(/refused at once/))
     await waitFor(() => expect(callsTo(mock, 'GET', identitiesPath)).toHaveLength(2))
   })
 
   it('keeps the binding when the admin cancels the unbind', async () => {
-    window.confirm.mockReturnValue(false)
     const { mock } = await renderDetail()
     fireEvent.click(await screen.findByTestId('agent-identity-unbind-0'))
+    await answerConfirm('cancel')
     expect(callsTo(mock, 'DELETE', identitiesPath)).toHaveLength(0)
   })
 
@@ -319,5 +315,128 @@ describe('AgentDetail OAuth identities', () => {
     expect(el('agent-identities-admin-only')).toBeInTheDocument()
     expect(callsTo(mock, 'GET', identitiesPath)).toHaveLength(0)
     expect(callsTo(mock, 'GET', '/api/v1/mcp/oauth/issuers')).toHaveLength(0)
+  })
+})
+
+describe('AgentDetail identity unbind dialog (dashboard-10b)', () => {
+  const identitiesPath = `/api/v1/agents/${coder.id}/identities`
+  const second = { ...identity, subject: 'ci-runner', issuer: 'https://login.x.test' }
+  const listOf = items => () => response(200, { items, truncated: false })
+  const deletes = mock => callsTo(mock, 'DELETE', identitiesPath)
+
+  async function openUnbind(routes = {}, row = 0) {
+    const ctx = await renderDetail(coder, admin, routes)
+    fireEvent.click(await screen.findByTestId(`agent-identity-unbind-${row}`))
+    return { ...ctx, dialog: await screen.findByRole('dialog') }
+  }
+
+  it('names the identity and sends exactly the recorded request', async () => {
+    const { mock, dialog } = await openUnbind({
+      [`DELETE ${identitiesPath}`]: () => response(200, {}),
+    })
+    expect(within(dialog).getByRole('heading'))
+      .toHaveTextContent('Unbind coder-client at https://idp.x.test')
+    expect(dialog).toHaveTextContent('Its OAuth tokens are refused at once.')
+    expect(within(dialog).getByTestId('confirm-dialog-confirm')).toHaveTextContent('Unbind')
+    expect(within(dialog).queryByTestId('confirm-dialog-risk')).toBeNull()
+    expect(deletes(mock)).toHaveLength(0)
+    await answerConfirm()
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(deletes(mock)).toEqual([[`${identitiesPath}?issuer=https%3A%2F%2Fidp.x.test`
+      + '&subject=coder-client', { credentials: 'include', method: 'DELETE' }]])
+  })
+
+  it('shows a subject holding markup as text', async () => {
+    const evil = '<script>alert(1)</script>'
+    const { dialog } = await openUnbind({
+      [`GET ${identitiesPath}`]: listOf([{ ...identity, subject: evil }]),
+    })
+    expect(within(dialog).getByRole('heading').textContent)
+      .toBe(`Unbind ${evil} at https://idp.x.test`)
+    expect(dialog.querySelector('script')).toBeNull()
+  })
+
+  it('names an empty subject and still sends the stored values', async () => {
+    const { mock, dialog } = await openUnbind({
+      [`GET ${identitiesPath}`]: listOf([{ ...identity, subject: '' }]),
+      [`DELETE ${identitiesPath}`]: () => response(200, {}),
+    })
+    expect(within(dialog).getByRole('heading').textContent)
+      .toBe('Unbind (no subject) at https://idp.x.test')
+    await answerConfirm()
+    await waitFor(() => expect(deletes(mock)).toHaveLength(1))
+    expect(deletes(mock)[0][0])
+      .toBe(`${identitiesPath}?issuer=https%3A%2F%2Fidp.x.test&subject=`)
+  })
+
+  it.each([
+    ['a 500', () => response(500, { error: 'store unavailable' }), 'store unavailable'],
+    ['a non-JSON body', () => ({ ok: false, status: 502, statusText: 'Bad Gateway',
+      json: async () => { throw new SyntaxError('Unexpected token <') } }),
+    'Could not unbind the identity (502 Bad Gateway)'],
+    ['a network error', () => { throw new TypeError('Failed to fetch') }, 'Failed to fetch'],
+  ])('keeps the dialog open with the error on %s', async (_name, fail, text) => {
+    const { mock } = await openUnbind({ [`DELETE ${identitiesPath}`]: fail })
+    await answerConfirm()
+    const error = await screen.findByTestId('agent-identity-unbind-error')
+    expect(error).toHaveTextContent(text)
+    const dialog = screen.getByRole('dialog')
+    expect(dialog).toContainElement(error)
+    expect(dialog).toHaveAttribute('open')
+    expect(deletes(mock)).toHaveLength(1)
+    expect(callsTo(mock, 'GET', identitiesPath)).toHaveLength(1)
+    expect(screen.getByTestId('agent-identity-0')).toHaveTextContent('coder-client')
+  })
+
+  it('shows the error code and fix with the message', async () => {
+    await openUnbind({ [`DELETE ${identitiesPath}`]: () => response(409,
+      { error: 'identity is in use', code: 'identity_in_use', fix: 'revoke its tokens' }) })
+    await answerConfirm()
+    const error = await screen.findByTestId('agent-identity-unbind-error')
+    expect(error).toHaveTextContent('identity is in use')
+    expect(error).toHaveTextContent('(identity_in_use)')
+    expect(error).toHaveTextContent('revoke its tokens')
+  })
+
+  it('Escape sends nothing and returns focus to the Unbind button', async () => {
+    const user = userEvent.setup()
+    const { mock } = await renderDetail()
+    const button = await screen.findByTestId('agent-identity-unbind-0')
+    await user.click(button)
+    expect(screen.getByRole('dialog')).toHaveAttribute('open')
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).toBe(button)
+    expect(deletes(mock)).toHaveLength(0)
+  })
+
+  it('sends once when Confirm is clicked again while in flight', async () => {
+    let release
+    const { mock, dialog } = await openUnbind({
+      [`DELETE ${identitiesPath}`]: () => new Promise(res => { release = res }),
+    })
+    const confirmButton = within(dialog).getByTestId('confirm-dialog-confirm')
+    fireEvent.click(confirmButton)
+    fireEvent.click(confirmButton)
+    await waitFor(() => expect(deletes(mock)).toHaveLength(1))
+    expect(confirmButton).toBeDisabled()
+    release(response(200, {}))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(deletes(mock)).toHaveLength(1)
+  })
+
+  it('opens one dialog at a time and names the next row after Cancel', async () => {
+    const { mock } = await openUnbind({
+      [`GET ${identitiesPath}`]: listOf([identity, second]),
+      [`DELETE ${identitiesPath}`]: () => response(200, {}),
+    })
+    fireEvent.click(screen.getByTestId('agent-identity-unbind-1'))
+    expect(screen.getAllByRole('dialog')).toHaveLength(1)
+    expect(await answerConfirm('cancel')).toBe('Unbind coder-client at https://idp.x.test')
+    fireEvent.click(screen.getByTestId('agent-identity-unbind-1'))
+    expect(await answerConfirm()).toBe('Unbind ci-runner at https://login.x.test')
+    await waitFor(() => expect(deletes(mock)).toHaveLength(1))
+    const q = new URL(deletes(mock)[0][0], 'http://x').searchParams
+    expect(q.get('subject')).toBe('ci-runner')
   })
 })

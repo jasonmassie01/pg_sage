@@ -4,7 +4,10 @@ import { grantLinkURL, issueSSOLinkGrant, unlinkUserSSO } from './users/ssoApi'
 import { DisabledBadge, UserStatusButton } from './users/UserStatusControls'
 import { deleteUser, setUserDisabled } from './users/userAdminApi'
 import { useConfirm } from '../hooks/useConfirm'
-import { ResetPasswordButton, TempPasswordNotice } from './users/UserPasswordReset'
+import { useConfirmTarget } from '../hooks/useConfirmTarget'
+import {
+  ResetPasswordButton, ResetPasswordDialog, TempPasswordNotice,
+} from './users/UserPasswordReset'
 import { resetUserPassword } from './users/passwordApi'
 import { DatabaseGrantsButton, UserDatabaseGrants } from './users/UserDatabaseGrants'
 
@@ -21,6 +24,14 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
   const { askConfirm, dialog } = useConfirm()
   const [reset, setReset] = useState(null)
   const [grantsOpen, setGrantsOpen] = useState(null)
+  const resetConfirm = useConfirmTarget({
+    perform: user => {
+      setError(null)
+      setReset(null)
+      return resetUserPassword(user.id)
+    },
+    onDone: (user, data) => setReset({ email: user.email, password: data.temporary_password }),
+  })
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -130,19 +141,6 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
     }
   }
 
-  async function handleReset(user) {
-    if (!confirm(`Reset the password of ${user.email}? They are signed out ` +
-      'everywhere and must choose a new password at their next sign-in.')) return
-    setError(null)
-    setReset(null)
-    try {
-      const data = await resetUserPassword(user.id)
-      setReset({ email: user.email, password: data.temporary_password })
-    } catch (err) {
-      setError(err.message)
-    }
-  }
-
   async function handleGrant(user) {
     setError(null)
     setGrant(null)
@@ -166,6 +164,7 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
   return (
     <div>
       {dialog}
+      <ResetPasswordDialog reset={resetConfirm} />
       {error && (
         <div className="text-sm p-3 rounded mb-4"
           style={{
@@ -338,7 +337,7 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
                       : 'At least one enabled admin must remain'}
                     onToggle={handleStatus} />
                   <ResetPasswordButton user={u} isCurrentUser={isCurrentUser}
-                    onReset={handleReset} />
+                    onReset={resetConfirm.open} />
                   <DatabaseGrantsButton user={u} open={grantsOpen === u.id}
                     onToggle={id => setGrantsOpen(grantsOpen === id ? null : id)} />
                   <button

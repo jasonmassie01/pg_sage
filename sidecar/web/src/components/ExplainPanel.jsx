@@ -106,16 +106,18 @@ function ExplainBody({ result }) {
   )
 }
 
-// ExplainPanel explains queryid (an exact decimal string) on database.
+// ExplainPanel explains queryid (an exact decimal string) on database. A
+// failed request shows the server's message with Retry, which asks again.
 export function ExplainPanel({ database, queryid, onClose }) {
   const [state, setState] = useState({ loading: true })
+  const [attempt, setAttempt] = useState(0)
   useEffect(() => {
     let live = true
     apiSend('POST', explainURL(database), { query_id: queryid })
       .then(result => { if (live) setState({ result }) })
       .catch(err => { if (live) setState({ error: err.message }) })
     return () => { live = false }
-  }, [database, queryid])
+  }, [database, queryid, attempt])
   return (
     <section className="mt-2 rounded border p-3 text-xs" data-testid="explain-panel"
       aria-label={`Explain of query ${queryid}`} style={{ borderColor: 'var(--border)' }}>
@@ -132,8 +134,16 @@ export function ExplainPanel({ database, queryid, onClose }) {
       </div>
       {state.loading && <p className="mt-2" style={{ color: 'var(--text-secondary)' }}>
         Explaining…</p>}
-      {state.error && <p className="mt-2" role="alert" style={{ color: 'var(--red)' }}>
-        {state.error}</p>}
+      {state.error && <div className="mt-2 flex items-center gap-2">
+        <p role="alert" style={{ color: 'var(--red)' }}>{state.error}</p>
+        <button type="button" onClick={() => {
+          setState({ loading: true })
+          setAttempt(n => n + 1)
+        }}
+          className="px-2 py-0.5 rounded" style={{ border: '1px solid var(--border)' }}>
+          Retry
+        </button>
+      </div>}
       {state.result && <div className="mt-2"><ExplainBody result={state.result} /></div>}
     </section>
   )

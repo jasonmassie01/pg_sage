@@ -1,12 +1,15 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ChatIdentities } from './ChatIdentities'
 import { stubFetch } from '../../test/fetchStub'
+import { answerConfirm } from '../../test/confirmDialog'
 
 // alerting-10: an admin links a Slack or Telegram user to a pg_sage user
 // over /api/v1/chatops/identities, so that user can approve from chat.
-// Anyone else gets a 403 and sees no panel.
-// No concurrent access tests: one request per action, local state only.
+// Anyone else gets a 403 and sees no panel. dashboard-10b: unlink asks in
+// the shared ConfirmDialog, not window.confirm.
+// Concurrency: the in-flight double click below; no other shared state.
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -105,10 +108,10 @@ describe('ChatIdentities', () => {
       [`DELETE ${IDS}/3`]: { json: { ok: true, id: 3 } },
       [USERS]: { json: { users } },
     })
-    vi.stubGlobal('confirm', vi.fn(() => true))
     render(<ChatIdentities />)
     const rows = await screen.findAllByTestId('chat-identity-row')
     fireEvent.click(within(rows[0]).getByTestId('chat-identity-unlink'))
+    await answerConfirm()
     await waitFor(() => expect(screen.getAllByTestId('chat-identity-row')).toHaveLength(1))
     expect(fetchFn.mock.calls.some(([u, i]) => u === `${IDS}/3` && i?.method === 'DELETE'))
       .toBe(true)
@@ -154,5 +157,113 @@ describe('ChatIdentities', () => {
       .toBe(true))
     const post = fetchFn.mock.calls.find(([, init]) => init?.method === 'POST')
     expect(JSON.parse(post[1].body).user_id).toBe(7)
+  })
+})
+
+describe('ChatIdentities unlink dialog (dashboard-10b)', () => {
+  const deletes = (fetchFn, id = 3) => fetchFn.mock.calls
+    .filter(([u, i]) => u === `${IDS}/${id}` && i?.method === 'DELETE')
+
+  async function openUnlink(routes, row = 0) {
+    const fetchFn = stubFetch({ [`GET ${IDS}`]: { json: { items: linked } },
+      [USERS]: { json: { users } }, ...routes })
+    render(<ChatIdentities />)
+    const rows = await screen.findAllByTestId('chat-identity-row')
+    fireEvent.click(within(rows[row]).getByTestId('chat-identity-unlink'))
+    return { fetchFn, dialog: await screen.findByRole('dialog') }
+  }
+
+  it('names the chat user and sends exactly the recorded request', async () => {
+    const { fetchFn, dialog } = await openUnlink({
+      [`DELETE ${IDS}/3`]: { json: { ok: true, id: 3 } },
+    })
+    expect(within(dialog).getByRole('heading')).toHaveTextContent('Unlink chat user U1')
+    expect(dialog).toHaveTextContent('They can no longer approve from chat.')
+    expect(within(dialog).getByTestId('confirm-dialog-confirm')).toHaveTextContent('Unlink')
+    expect(within(dialog).queryByTestId('confirm-dialog-risk')).toBeNull()
+    expect(deletes(fetchFn)).toHaveLength(0)
+    await answerConfirm()
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(deletes(fetchFn)).toEqual([[`${IDS}/3`, { method: 'DELETE', credentials: 'include' }]])
+  })
+
+  it('shows a chat user id holding markup as text', async () => {
+    const evil = '<script>alert(1)</script>'
+    const { dialog } = await openUnlink({
+      [`GET ${IDS}`]: { json: { items: [{ ...linked[0], external_user_id: evil }] } },
+    })
+    expect(within(dialog).getByRole('heading').textContent).toBe(`Unlink chat user ${evil}`)
+    expect(dialog.querySelector('script')).toBeNull()
+  })
+
+  it('names an empty chat user id and still sends the stored id', async () => {
+    const { fetchFn, dialog } = await openUnlink({
+      [`GET ${IDS}`]: { json: { items: [{ ...linked[0], external_user_id: '' }] } },
+      [`DELETE ${IDS}/3`]: { json: { ok: true, id: 3 } },
+    })
+    expect(within(dialog).getByRole('heading').textContent).toBe('Unlink chat user (no id)')
+    await answerConfirm()
+    await waitFor(() => expect(deletes(fetchFn)).toHaveLength(1))
+  })
+
+  it.each([
+    ['a 500', { status: 500, json: { error: 'store unavailable' } }, 'store unavailable'],
+    ['a non-JSON body', { status: 502, text: '<html>bad gateway</html>' },
+      'Failed to unlink chat user (502)'],
+    ['a network error', () => Promise.reject(new TypeError('Failed to fetch')),
+      'Failed to unlink chat user: Failed to fetch'],
+  ])('keeps the dialog open with the error on %s', async (_name, fail, text) => {
+    const { fetchFn } = await openUnlink({ [`DELETE ${IDS}/3`]: fail })
+    await answerConfirm()
+    const error = await screen.findByTestId('confirm-dialog-error')
+    expect(error).toHaveTextContent(text)
+    expect(error).not.toHaveTextContent('<html>')
+    const dialog = screen.getByRole('dialog')
+    expect(dialog).toContainElement(error)
+    expect(dialog).toHaveAttribute('open')
+    expect(deletes(fetchFn)).toHaveLength(1)
+    expect(screen.getAllByTestId('chat-identity-row')).toHaveLength(2)
+  })
+
+  it('Escape sends nothing and returns focus to the Unlink button', async () => {
+    const user = userEvent.setup()
+    const fetchFn = stubFetch({ [`GET ${IDS}`]: { json: { items: linked } },
+      [USERS]: { json: { users } } })
+    render(<ChatIdentities />)
+    const rows = await screen.findAllByTestId('chat-identity-row')
+    const button = within(rows[0]).getByTestId('chat-identity-unlink')
+    await user.click(button)
+    expect(screen.getByRole('dialog')).toHaveAttribute('open')
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).toBe(button)
+    expect(deletes(fetchFn)).toHaveLength(0)
+  })
+
+  it('sends once when Confirm is clicked again while in flight', async () => {
+    let release
+    const { fetchFn, dialog } = await openUnlink({
+      [`DELETE ${IDS}/3`]: () => new Promise(res => { release = res }),
+    })
+    const confirmButton = within(dialog).getByTestId('confirm-dialog-confirm')
+    fireEvent.click(confirmButton)
+    fireEvent.click(confirmButton)
+    await waitFor(() => expect(deletes(fetchFn)).toHaveLength(1))
+    expect(confirmButton).toBeDisabled()
+    release({ json: { ok: true, id: 3 } })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(deletes(fetchFn)).toHaveLength(1)
+  })
+
+  it('opens one dialog at a time and names the next row after Cancel', async () => {
+    const { fetchFn } = await openUnlink({ [`DELETE ${IDS}/4`]: { json: { ok: true, id: 4 } } })
+    const rows = screen.getAllByTestId('chat-identity-row')
+    fireEvent.click(within(rows[1]).getByTestId('chat-identity-unlink'))
+    expect(screen.getAllByRole('dialog')).toHaveLength(1)
+    expect(await answerConfirm('cancel')).toBe('Unlink chat user U1')
+    fireEvent.click(within(rows[1]).getByTestId('chat-identity-unlink'))
+    expect(await answerConfirm()).toBe('Unlink chat user 4242')
+    await waitFor(() => expect(deletes(fetchFn, 4)).toHaveLength(1))
+    expect(deletes(fetchFn)).toHaveLength(0)
   })
 })

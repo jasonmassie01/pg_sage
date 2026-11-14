@@ -6,6 +6,7 @@ import { queryBlocked } from '../lib/queryState'
 import { EvaluateNow } from './autonomy/EvaluateNow'
 import { PathToNextLevel } from './autonomy/PathToNextLevel'
 import { GameDays } from './autonomy/GameDays'
+import { Rollouts } from './autonomy/Rollouts'
 
 // Sage SRE M7 earned autonomy: the level pg_sage has earned per incident
 // family x action class, the evidence behind it, pending promotions
@@ -316,22 +317,6 @@ function History({ items }) {
             <span>by {e.actor}</span>{e.database ? <span> on {e.database}</span> : null}
             <span>: {e.reason}</span>
           </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
-function Rollouts({ data }) {
-  const items = data?.items || []
-  return (
-    <div className="rounded border p-3 text-xs" style={card}>
-      <h3 className="text-sm font-semibold" style={strong}>Fleet canaries</h3>
-      {items.length === 0 && <div style={muted}>No canary rollouts.</div>}
-      <ul style={muted}>
-        {items.map(r => (
-          <li key={r.id}>{r.created_at} {r.source_database}: {r.state}
-            {r.halt_reason ? ` (${r.halt_reason})` : ''}, {r.applied_instances} applied</li>
         ))}
       </ul>
     </div>
