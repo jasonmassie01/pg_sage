@@ -3,9 +3,11 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 
+	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/store"
 )
@@ -280,14 +282,26 @@ func updateRuleHandler(
 	}
 }
 
+// listNotificationLogHandler serves the one notification log
+// (alerting-06c), filtered by ?database= like the other list endpoints:
+// a malformed name is 400, one pg_sage does not monitor is 404, and "all"
+// or none lists every database.
 func listNotificationLogHandler(
-	ns *store.NotificationStore,
+	ns *store.NotificationStore, mgr *fleet.DatabaseManager,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		database, ok := readDatabaseParam(w, r)
+		if !ok || rejectUnknownDatabase(w, mgr, database) {
+			return
+		}
+		if database == "all" {
+			database = ""
+		}
 		limit := parseIntDefault(
 			r.URL.Query().Get("limit"), 100)
-		entries, err := ns.ListLog(r.Context(), limit)
+		entries, err := ns.ListLogFor(r.Context(), database, limit)
 		if err != nil {
+			slog.Error("list notification log failed", "database", database, "error", err)
 			jsonError(w, "failed to list log",
 				http.StatusInternalServerError)
 			return

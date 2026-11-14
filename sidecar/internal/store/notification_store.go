@@ -77,6 +77,11 @@ type NotificationLogEntry struct {
 	Status    string    `json:"status"`
 	Error     string    `json:"error"`
 	SentAt    time.Time `json:"sent_at"`
+	// Database is the database the delivery was for; "unknown" for a
+	// fleet-wide event or a row written before alerting-06c.
+	Database string `json:"database"`
+	// DedupKey is the event's dedup key; empty for rows before alerting-06c.
+	DedupKey string `json:"dedup_key"`
 }
 
 // CreateChannel inserts a new notification channel.

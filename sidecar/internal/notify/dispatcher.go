@@ -185,7 +185,8 @@ func (d *Dispatcher) logDelivery(
 }
 
 // recordDelivery records one attempt, with the provider's message id when
-// the store keeps it, and returns the send failure.
+// the store keeps it, and returns the send failure. A failed log write is
+// logged with the event and channel and never fails the delivery.
 func (d *Dispatcher) recordDelivery(ctx context.Context, rec Delivery) error {
 	var err error
 	if r, ok := d.store.(DeliveryRecorder); ok {
@@ -194,7 +195,8 @@ func (d *Dispatcher) recordDelivery(ctx context.Context, rec Delivery) error {
 		err = d.store.LogDelivery(ctx, rec.ChannelID, rec.Event, rec.Status, rec.Error)
 	}
 	if err != nil {
-		d.logFn("ERROR", "%v", err)
+		d.logFn("ERROR", "record %s delivery (database %q) to channel %d: %v",
+			rec.Event.Type, logDatabase(rec.Event), rec.ChannelID, err)
 	}
 	if rec.Error != "" {
 		return fmt.Errorf("send failed: %s", rec.Error)

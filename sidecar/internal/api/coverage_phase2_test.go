@@ -2661,7 +2661,7 @@ func TestPhase2_ListNotificationLogHandler_RealDB(
 	d := notify.NewDispatcher(pool, logFn)
 	ns := store.NewNotificationStore(pool, d)
 
-	handler := listNotificationLogHandler(ns)
+	handler := listNotificationLogHandler(ns, nil)
 	req := httptest.NewRequest("GET",
 		"/api/v1/notifications/log", nil)
 	w := httptest.NewRecorder()
