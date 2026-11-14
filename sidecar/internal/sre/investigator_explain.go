@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/apppath"
 	"github.com/pg-sage/sidecar/internal/explain"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
@@ -229,10 +230,13 @@ func statementKnown(ctx context.Context, tx pgx.Tx, queryID int64) (bool, error)
 var errExplainUnsupported = errors.New("explain unsupported")
 
 // runExplain prepares the statement (extended protocol: one statement
-// only) and explains its generic plan with NULL arguments, which a
-// generic plan does not use.
+// only) on the application's search_path (security-01c-n) and explains
+// its generic plan with NULL arguments, which a generic plan does not use.
 func runExplain(ctx context.Context, tx pgx.Tx, name, body string,
 	res probes.Result) probes.Result {
+	if err := apppath.Pin(ctx, tx); err != nil {
+		return readFailure(res, err)
+	}
 	prep := tx.Conn().PgConn().ExecParams(ctx, "PREPARE "+name+" AS "+body, nil, nil, nil,
 		nil)
 	if _, err := prep.Close(); err != nil {

@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/apppath"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/extschema"
 	"github.com/pg-sage/sidecar/internal/planhash"
@@ -295,6 +296,11 @@ func (c *Collector) explainReadOnly(
 	}
 	if _, err := tx.Exec(ctx, explainIdleTimeoutSQL); err != nil {
 		return nil, fmt.Errorf("set idle_in_transaction_session_timeout: %w", err)
+	}
+	// The statement is the application's: plan it on its search_path, not
+	// pg_sage's pinned one (security-01c-n).
+	if err := apppath.Pin(ctx, tx); err != nil {
+		return nil, err
 	}
 	explain := "EXPLAIN (FORMAT JSON) "
 	if generic {
