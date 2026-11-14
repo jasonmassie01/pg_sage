@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // The policy lock ceiling (D1) is applied by Apply to every statement an
@@ -66,10 +67,11 @@ func lockTable(t *testing.T, pool *pgxpool.Pool, table string) {
 // under 2 s passes; on a loaded runner the path's overhead can push it
 // past that, so a run at least 1.5 s shorter than the control (which pays
 // the same overhead) passes too: the ceiling ends the wait 3.5 s sooner.
-// PostgreSQL times lock waits on the realtime clock, which a VM clock
-// sync can move forward by 1.4-1.6 s (measured under Docker Desktop's
-// WSL2), so the control's floor is 2 s, not 4 s: still far above the
-// 500 ms ceiling.
+// PostgreSQL times lock waits on its realtime clock, which a VM clock
+// sync can move forward by 1.4-2.5 s against the host (Docker Desktop's
+// WSL2), so every wait is measured on the database clock (ci-14: two
+// testdb.MustDBNow readings), not with the host's time.Since. The
+// control's floor stays 2 s: still far above the 500 ms ceiling.
 func assertCeilingBounds(t *testing.T, capped, uncapped time.Duration) {
 	t.Helper()
 	if capped >= 2*time.Second && capped > uncapped-1500*time.Millisecond {
@@ -90,11 +92,11 @@ func timeAnalyzeFinding(t *testing.T, pool *pgxpool.Pool, ceiling int64) time.Du
 		ObjectIdentifier: "public." + table, Title: "analyze probe",
 		RecommendedSQL: "ANALYZE public." + table}
 	intent := e.findingIntent(f, 0, false, nil)
-	started := time.Now()
+	started := testdb.MustDBNow(t, pool)
 	if _, err := e.Apply(context.Background(), intent); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	return time.Since(started)
+	return testdb.MustDBNow(t, pool).Sub(started)
 }
 
 func TestApplyLockCeilingCapsCycleAnalyze(t *testing.T) {
@@ -107,12 +109,12 @@ func timeCustodian(t *testing.T, pool *pgxpool.Pool, ceiling int64) time.Duratio
 	t.Helper()
 	table := holdTable(t, pool, "ceiling_custodian")
 	e := ceilingExecutor(pool, ceiling)
-	started := time.Now()
+	started := testdb.MustDBNow(t, pool)
 	err := e.SubmitCustodianProposal(context.Background(), CustodianProposal{
 		Feature: "autovacuum_tuning", SQL: fmt.Sprintf(autovacuumProbe, table),
 		TargetObjects: []string{"public." + table},
 	})
-	elapsed := time.Since(started)
+	elapsed := testdb.MustDBNow(t, pool).Sub(started)
 	if err == nil || !strings.Contains(err.Error(), "lock not available") {
 		t.Fatalf("custodian on a held table = %v, want a lock timeout", err)
 	}
@@ -130,12 +132,12 @@ func timeOperatorAnalyze(t *testing.T, ceiling int64) time.Duration {
 	pool, table, findingID := manualFixture(t, "ANALYZE public.{table}")
 	lockTable(t, pool, table)
 	e := ceilingExecutor(pool, ceiling)
-	started := time.Now()
+	started := testdb.MustDBNow(t, pool)
 	if _, err := e.ExecuteManual(context.Background(), findingID,
 		"ANALYZE public."+table, "", nil); err == nil {
 		t.Fatal("operator ANALYZE on a held table succeeded")
 	}
-	return time.Since(started)
+	return testdb.MustDBNow(t, pool).Sub(started)
 }
 
 // Each run takes its own fixture in a subtest: requireDB holds a
