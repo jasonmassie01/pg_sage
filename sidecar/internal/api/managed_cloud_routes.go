@@ -30,12 +30,14 @@ const managedChangesMeaning = "Settings SQL cannot change on RDS, Aurora or Clou
 	"a proposal applied once PostgreSQL runs the new value."
 
 func registerManagedCloudRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
-	route(mux, "GET /api/v1/managed-changes", gateViewer, managedChangesHandler(mgr))
+	routeAggregate(mux, "GET /api/v1/managed-changes", gateViewer, mgr,
+		aggregateHandler(managedChangesHandler))
 	routeDB(mux, "POST /api/v1/managed-changes/{id}/approve", gateOperator, queryDatabase,
 		managedChangeDecisionHandler(mgr, true))
 	routeDB(mux, "POST /api/v1/managed-changes/{id}/reject", gateOperator, queryDatabase,
 		managedChangeDecisionHandler(mgr, false))
-	route(mux, "GET /api/v1/cloud-telemetry", gateViewer, cloudTelemetryHandler(mgr))
+	routeAggregate(mux, "GET /api/v1/cloud-telemetry", gateViewer, mgr,
+		aggregateHandler(cloudTelemetryHandler))
 }
 
 // managedChangeDatabase is one database's proposals. MemberDatabases are

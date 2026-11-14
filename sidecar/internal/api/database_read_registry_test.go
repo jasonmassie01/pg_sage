@@ -2,6 +2,8 @@ package api
 
 import (
 	"net/http"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -15,6 +17,32 @@ import (
 // fleet-only. Admin GETs are admin-only (admins are never scoped). The
 // scope table (testdata/route_scopes.golden) shows each route's scope.
 // No DB or concurrency test here: registration happens once per router.
+
+// checkReadScopes reports every route whose read scope breaks the rules.
+func checkReadScopes(entries []routeEntry, reads map[string]string) []string {
+	var problems []string
+	for _, e := range entries {
+		scope := reads[e.Pattern]
+		switch {
+		case isWriteRoute(e.Pattern) || !isUserRead(e.Pattern, e.Gate):
+			if scope != "" {
+				problems = append(problems, e.Pattern+": read scope "+scope+
+					" on a route that is not a signed-in GET")
+			}
+		case e.Gate == gateAdmin:
+			if scope != readKindAdminOnly {
+				problems = append(problems, e.Pattern+": admin GET with read scope "+
+					strconv.Quote(scope)+", want admin-only")
+			}
+		case !validReadScope(scope):
+			problems = append(problems, e.Pattern+": GET route with no read scope "+
+				strconv.Quote(scope)+"; declare it in readRouteScopes, or register it "+
+				"with routeAggregate")
+		}
+	}
+	sort.Strings(problems)
+	return problems
+}
 
 func TestRouteReadScopes_EveryReadDeclaresScope(t *testing.T) {
 	for _, rc := range routerConfigs() {
@@ -90,15 +118,15 @@ func TestRouteReadScopes_TableHasNoStaleEntries(t *testing.T) {
 
 func TestRouteReadScopes_PlanRoutesAreFiltered(t *testing.T) {
 	want := map[string]string{
-		"GET /api/v1/databases":                       readKindAggregate,
-		"GET /api/v1/findings":                        readKindAggregate,
-		"GET /api/v1/actions":                         readKindAggregate,
-		"GET /api/v1/incidents":                       readKindAggregate,
-		"GET /api/v1/cases":                           readKindAggregate,
-		"GET /api/v1/events":                          readKindAggregate,
-		"GET /api/v1/databases/{db}/investigations":   "database:path:db",
+		"GET /api/v1/databases":                        readKindAggregate,
+		"GET /api/v1/findings":                         readKindAggregate,
+		"GET /api/v1/actions":                          readKindAggregate,
+		"GET /api/v1/incidents":                        readKindAggregate,
+		"GET /api/v1/cases":                            readKindAggregate,
+		"GET /api/v1/events":                           readKindAggregate,
+		"GET /api/v1/databases/{db}/investigations":    "database:path:db",
 		"GET /api/v1/agent-classifications/{database}": "database:path:database",
-		"GET /api/v1/auth/me":                         readKindGlobal,
+		"GET /api/v1/auth/me":                          readKindGlobal,
 	}
 	seen := map[string]string{}
 	for _, rc := range routerConfigs() {

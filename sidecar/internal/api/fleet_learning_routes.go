@@ -29,7 +29,8 @@ const (
 // registerFleetLearningRoutes registers the fleet learning read routes.
 func registerFleetLearningRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
 	cfg *config.Config, reader FleetLearningReader) {
-	route(mux, "GET /api/v1/fleet/findings", gateViewer, fleetFindingsHandler(mgr, cfg))
+	routeAggregate(mux, "GET /api/v1/fleet/findings", gateViewer, mgr,
+		func(m *fleet.DatabaseManager) http.Handler { return fleetFindingsHandler(m, cfg) })
 	route(mux, "GET /api/v1/fleet/lookalikes", gateViewer, fleetLookalikesHandler(mgr, reader))
 	route(mux, "GET /api/v1/fleet/leader", gateViewer, fleetLeaderHandler(reader))
 }

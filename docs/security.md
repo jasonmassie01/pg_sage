@@ -674,10 +674,50 @@ written to `sage.auth_audit` (`database_grant_set`, `database_grant_revoked`,
 with the database, role and previous role) in the same transaction, so the
 audit chain seals it.
 
-Not scoped yet (phase 2, for a multi-team fleet): reads. A limited user still
-sees every database's findings, actions, `?database=all` aggregates, event
-streams, MCP read tools and Ask Sage context. MCP and agent tokens keep their
-own database lists (agent governance) and are not affected by user grants.
+#### Reads
+
+With grants enforced, a user with any grant reads only the granted databases
+(apiauth-08b), whatever the grant's role. Users with no grants, admins, the
+switch off and standalone mode see exactly what they saw before. Every `GET`
+route a signed-in user can reach declares how it filters, and the registry test
+fails on one that does not (`internal/api/route_read.go`, the list in
+`internal/api/route_read_scopes.go`, each route's scope in
+`internal/api/testdata/route_scopes.golden`):
+
+- **One database** (`database:path:db`, for example Ask conversations,
+  investigations and runbooks under `/api/v1/databases/{db}/`): a database
+  outside the user's grants answers exactly like a database that does not exist
+  (`404 {"error": "database not found"}`), so a read never reveals that another
+  team's database exists. A malformed name is `400`, as before. Writes keep the
+  `403 database_forbidden` above.
+- **Aggregate** (the database list, findings, cases, actions, incidents,
+  recommendations, snapshots, fleet health, queries, approvals, facts, value,
+  briefings and the other fleet-wide views): no `?database=`, or
+  `?database=all`, means every database the user can read. Lists, counts and
+  summaries are computed over those databases only; `GET /api/v1/databases`
+  lists only them. A grant on a database that has left the fleet shows nothing
+  and is not an error.
+- **Global**: routes with no database data (`/api/v1/auth/me`, SSO status, the
+  model list, finding categories).
+- **Fleet-only**: routes this release cannot narrow to a set of databases
+  (process config, LLM status and usage, onboarding and first look, policy and
+  trust pages, autonomy, agents, upgrade readiness, case tickets, fleet
+  look-alikes and leader, specialist requests). A limited user gets
+  `403 {"code": "fleet_scope_required"}`; an admin or an unlimited user is
+  served as before. pg_sage refuses rather than show other databases' data.
+
+The live-update stream (`GET /api/v1/events`) reads the user's databases once,
+when it connects, and drops every event of another database; an event that
+names no database passes only if it is a fleet-wide type with no per-database
+payload (the heartbeat). A stream lasts 45 seconds and the dashboard then
+reconnects, so a revoked grant stops live updates within 45 seconds; ordinary
+reads apply a revoke on the next request. If the grants cannot be read, the read
+is refused with `503 grant_store_unavailable`; it never falls back to showing
+everything.
+
+Not scoped yet: MCP read tools for people and Ask Sage (apiauth-08c), and SSO
+group-to-grant mapping (apiauth-08d). MCP and agent tokens keep their own
+database lists (agent governance) and are not affected by user grants.
 
 ### User Offboarding
 
