@@ -243,3 +243,26 @@ describe('Settings trust raise in simple mode', () => {
     })
   })
 })
+
+describe('Settings reset notice', () => {
+  // The success toast names where the value now comes from: the inherited
+  // value for a database override, the configured default for a global one.
+  it.each([
+    ['global', { database: 'all' }, 'retention', 'retention.snapshots_days', 'override',
+      'Reset retention.snapshots_days to configured default'],
+    ['database', { database: 'orders', databaseId: 12 }, 'trust-safety',
+      'trust.tier3_moderate', 'db_override',
+      'Reset trust.tier3_moderate to inherited value'],
+  ])('a %s reset says where the value now comes from', async (
+    _, props, tab, key, source, msg,
+  ) => {
+    configQuery = ok({ ...FULL, config: { ...FULL.config, [key]: { value: '9', source } } })
+    renderPage(props)
+    fireEvent.click(screen.getByTestId(`settings-tab-${tab}`))
+    await act(async () => { fireEvent.click(screen.getByTestId(`reset-${key}`)) })
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1)
+    expect(globalThis.fetch.mock.calls[0][1].method).toBe('DELETE')
+    expect(screen.getByTestId('toast')).toHaveTextContent(msg)
+    expect(refetch).toHaveBeenCalledTimes(1)
+  })
+})
