@@ -91,10 +91,9 @@ func wordPattern(name string) string {
 	return `\m` + regexp.QuoteMeta(unquoteIdentifier(name)) + `\M`
 }
 
-// statementIDs runs a queryid-returning query; a failure (for example no
-// pg_stat_statements) is logged and yields no targets.
 // workloadIDs runs build over the qualified pg_stat_statements view and
-// returns the queryids it lists.
+// returns the queryids it lists; an unresolved view (for example no
+// pg_stat_statements) is logged and yields no targets.
 func (e *Executor) workloadIDs(ctx context.Context, build func(rel string) string,
 	args ...any) []int64 {
 	rel, err := extschema.StatementsRel(ctx, e.pool, "pg_stat_statements")
@@ -105,6 +104,8 @@ func (e *Executor) workloadIDs(ctx context.Context, build func(rel string) strin
 	return e.statementIDs(ctx, build(rel), args...)
 }
 
+// statementIDs runs a queryid-returning query; a failure (for example no
+// pg_stat_statements) is logged and yields no targets.
 func (e *Executor) statementIDs(ctx context.Context, query string, args ...any) []int64 {
 	rows, err := e.pool.Query(ctx, query, args...)
 	if err != nil {

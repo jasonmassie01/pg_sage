@@ -3,11 +3,11 @@ package api
 import (
 	"context"
 	"fmt"
-	"github.com/jackc/pgx/v5"
 	"log/slog"
 	"strconv"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/cases"
 	"github.com/pg-sage/sidecar/internal/executor"

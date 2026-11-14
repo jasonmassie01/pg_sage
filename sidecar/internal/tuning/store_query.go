@@ -3,6 +3,7 @@ package tuning
 import (
 	"context"
 	"fmt"
+
 	"github.com/jackc/pgx/v5"
 
 	"github.com/pg-sage/sidecar/internal/catalogread"

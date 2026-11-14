@@ -3,8 +3,9 @@ package analyzer
 import (
 	"context"
 	"fmt"
-	"github.com/jackc/pgx/v5"
 	"strings"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/pg-sage/sidecar/internal/extschema"
 )
