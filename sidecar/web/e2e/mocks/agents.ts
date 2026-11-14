@@ -16,7 +16,11 @@
 //     own freeze the agent's sponsor may not be that second admin (403
 //     sponsor_cannot_approve); a fleet or database flag has no sponsor;
 //   - internal/agentguard/kill_freezes.go: {freezes, truncated}, each with
-//     pending_release.
+//     pending_release;
+//   - internal/agentguard/kill_types.go, principal.go: a kill or freeze
+//     needs a 1 to 2000 character reason (an unfreeze or release may have
+//     none), a principal id is agp_ and 20 base32 characters, and the
+//     stored reason is prefixed "kill: " or "freeze: " (kill_switch.go).
 // The Go side of these rules is pinned by internal/api/agent_kill_routes_test.go,
 // internal/api/agent_freezes_routes_test.go and internal/agentguard/unfreeze_db_test.go.
 import { type Page, type Route } from '@playwright/test'
@@ -94,6 +98,12 @@ const fail = (status: number, code: string, error: string): Reply =>
 
 export const DATABASES = ['primary', 'orders']
 
+// Principal ids have the real shape (agentguard idPattern).
+export const ALPHA_ID = 'agp_alpha234567abcdefghi'
+export const BETA_ID = 'agp_beta234567abcdefghij'
+const ID_PATTERN = /^agp_[a-z2-7]{20}$/
+const MAX_REASON = 2000
+
 const PROFILES = [
   { name: 'readonly-analyst', classes: ['read'], env_ceiling: 'prod', direct_lane: false },
   { name: 'app-writer', classes: ['read', 'write_insert', 'write_update'],
@@ -118,12 +128,23 @@ const text = (v: unknown): string => (typeof v === 'string' ? v : '')
 const malformed = (): Reply =>
   fail(422, 'invalid_arguments', 'malformed body: unknown field or not an object')
 
-const needReason = (): Reply =>
-  fail(422, 'invalid_arguments', 'agentguard: invalid request: reason is required')
+const invalid = (msg: string): Reply =>
+  fail(422, 'invalid_arguments', `agentguard: invalid request: ${msg}`)
+
+// badReason is checkText("reason", reason, min, 2000): a kill or freeze
+// needs one, an unfreeze or release may have none; blanks are not trimmed.
+function badReason(reason: string, min: number): Reply | null {
+  const n = [...reason].length
+  return n < min || n > MAX_REASON
+    ? invalid(`reason must be ${min} to ${MAX_REASON} characters`) : null
+}
+
+const badID = (id: string): Reply | null =>
+  (ID_PATTERN.test(id) ? null : invalid(`principal id "${id}" is not valid`))
 
 export class AgentsMock {
-  agents: Agent[] = [agent('agt-alpha', 'alpha', ADMIN1.id),
-    agent('agt-beta', 'beta', ADMIN2.id)]
+  agents: Agent[] = [agent(ALPHA_ID, 'alpha', ADMIN1.id),
+    agent(BETA_ID, 'beta', ADMIN2.id)]
   freezes: Freeze[] = []
   truncated = false
   failKill = false
@@ -176,8 +197,9 @@ export class AgentsMock {
     if (!b) return malformed()
     const scope = text(b.scope)
     const id = text(b.id)
-    const reason = text(b.reason).trim()
-    if (!reason) return needReason()
+    const bad = badReason(text(b.reason), 1)
+    if (bad) return bad
+    const reason = `kill: ${text(b.reason)}`
     if (this.failKill) return { status: 500, json: { error: 'internal error' } }
     const live = this.agents.filter(a => a.status !== 'retired')
     if (scope === 'all' && id === '') {
@@ -186,17 +208,22 @@ export class AgentsMock {
         set_by: user.email, after_kill: true, pending: null })
       return this.report(scope, '', reason, live.map(a => a.id))
     }
-    if (scope === 'database' && DATABASES.includes(id)) {
+    if (scope === 'database') {
+      if (!DATABASES.includes(id)) {
+        return fail(404, 'not_found', `agentguard: not found: database "${id}"`)
+      }
       this.freezes.push({ id: this.id(), scope: 'database', target: id, reason,
         set_by: user.email, after_kill: true, pending: null })
       return this.report(scope, id, reason, live.map(a => a.id))
     }
-    const one = live.find(a => a.id === id)
-    if (scope === 'principal' && one) {
-      this.freezeAgent(one, reason, true)
-      return this.report(scope, id, reason, [one.id])
+    if (scope !== 'principal') {
+      return invalid(`scope "${scope}" must be all, principal or database`)
     }
-    return fail(422, 'invalid_arguments', `agentguard: invalid request: scope ${scope}`)
+    if (badID(id)) return invalid('scope principal needs a principal id (agp_…)')
+    const one = live.find(a => a.id === id)
+    if (!one) return fail(404, 'not_found', `agentguard: not found: principal "${id}"`)
+    this.freezeAgent(one, reason, true)
+    return this.report(scope, id, reason, [one.id])
   }
 
   // signOff is unfreeze.go signOff: pending for the first admin and for
@@ -215,16 +242,18 @@ export class AgentsMock {
   release(body: unknown, user: MockUser): Reply {
     const b = strict(body, ['scope', 'database', 'reason'])
     if (!b) return malformed()
-    if (!text(b.reason).trim()) return needReason()
     // ReleaseRequest.Validate: scope all takes no database, scope
     // database needs one; anything else is refused.
     const target = text(b.database)
-    const valid = (b.scope === 'all' && target === '') ||
-      (b.scope === 'database' && target !== '')
-    if (!valid) {
-      return fail(422, 'invalid_arguments',
-        `agentguard: invalid request: scope ${text(b.scope)} must be all or database`)
+    if (b.scope === 'all' && target !== '') return invalid('scope all takes no database')
+    if (b.scope === 'database' && target === '') {
+      return invalid('database must be 1 to 200 characters')
     }
+    if (b.scope !== 'all' && b.scope !== 'database') {
+      return invalid(`scope "${text(b.scope)}" must be all or database`)
+    }
+    const bad = badReason(text(b.reason), 0)
+    if (bad) return bad
     const scope = b.scope === 'all' ? 'fleet' : 'database'
     const f = this.freezes.find(x => x.scope === scope && x.target === target)
     if (!f) {
@@ -241,8 +270,9 @@ export class AgentsMock {
   freeze(a: Agent, body: unknown): Reply {
     const b = strict(body, ['reason'])
     if (!b) return malformed()
-    const reason = text(b.reason).trim()
-    if (!reason) return needReason()
+    const bad = badReason(text(b.reason), 1)
+    if (bad) return bad
+    const reason = `freeze: ${text(b.reason)}`
     this.freezeAgent(a, reason, false)
     return this.report('principal', a.id, reason, [a.id])
   }
@@ -250,7 +280,8 @@ export class AgentsMock {
   unfreeze(a: Agent, body: unknown, user: MockUser): Reply {
     const b = strict(body, ['reason'])
     if (!b) return malformed()
-    if (!text(b.reason).trim()) return needReason()
+    const bad = badReason(text(b.reason), 0)
+    if (bad) return bad
     const lock = this.locks.get(a.id)
     if (a.status !== 'frozen' || !lock) {
       return fail(409, 'not_frozen', `agentguard: not frozen: principal ${a.id} is ${a.status}`)
@@ -286,9 +317,12 @@ export class AgentsMock {
 
   // agentRoute answers /api/v1/agents/{id}[/sub].
   private agentRoute(method: string, rest: string, body: unknown, user: MockUser): Reply {
-    const [id, sub = ''] = rest.split('/')
-    const a = this.agents.find(x => x.id === decodeURIComponent(id))
-    if (!a) return fail(404, 'not_found', `agentguard: not found: principal ${id}`)
+    const [raw, sub = ''] = rest.split('/')
+    const id = decodeURIComponent(raw)
+    const bad = method === 'POST' ? badID(id) : null
+    if (bad) return bad
+    const a = this.agents.find(x => x.id === id)
+    if (!a) return fail(404, 'not_found', `agentguard: not found: principal "${id}"`)
     if (method === 'GET' && sub === '') return ok(a)
     if (method === 'PATCH' && sub === '') return this.patch(a, body, user)
     if (method === 'POST' && sub === 'freeze') return this.freeze(a, body)

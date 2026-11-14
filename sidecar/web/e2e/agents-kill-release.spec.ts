@@ -13,7 +13,7 @@
 import { test, expect, type Browser, type Page } from '@playwright/test'
 import { mockAllAPIs } from './fixtures'
 import {
-  ADMIN1, ADMIN2, AgentsMock, installAgentsMock, type MockUser,
+  ADMIN1, ADMIN2, ALPHA_ID, AgentsMock, installAgentsMock, type MockUser,
 } from './mocks/agents'
 
 async function openAgents(page: Page, mock: AgentsMock, user: MockUser): Promise<void> {
@@ -65,6 +65,9 @@ test.describe('Agents kill, unfreeze and second-admin release (mocked)', () => {
   test('admin1 kills all agents; admin2 completes the fleet release', async ({
     page, browser,
   }) => {
+    // Two browser contexts and a reload: on a loaded machine the default
+    // 30 s budget ran out once while opening the second context.
+    test.slow()
     const mock = new AgentsMock()
     await openAgents(page, mock, ADMIN1)
     await expect(page.getByTestId('agents-freeze-banner')).toHaveCount(0)
@@ -78,7 +81,7 @@ test.describe('Agents kill, unfreeze and second-admin release (mocked)', () => {
     await expect(page.getByTestId('agents-kill-dialog')).toHaveCount(0)
     const fleet = page.getByTestId('agents-freeze-fleet')
     await expect(fleet).toContainText('Every agent is frozen (fleet)')
-    await expect(fleet).toContainText('runaway agent. Set by admin1@example.com')
+    await expect(fleet).toContainText('kill: runaway agent. Set by admin1@example.com')
     await expect(fleet).toContainText('A kill set it: releasing it needs two admins.')
     await expect(page.getByTestId('agent-status-alpha')).toHaveText('frozen')
 
@@ -116,6 +119,9 @@ test.describe('Agents kill, unfreeze and second-admin release (mocked)', () => {
   test('after a kill an agent needs a second admin who is not its sponsor', async ({
     page, browser,
   }) => {
+    // Two browser contexts and a reload: on a loaded machine the default
+    // 30 s budget ran out once while opening the second context.
+    test.slow()
     const mock = new AgentsMock()
     await openAgents(page, mock, ADMIN1)
     await killAll(page, 'runaway agent')
@@ -165,6 +171,9 @@ test.describe('Agents kill, unfreeze and second-admin release (mocked)', () => {
   test('a stale release after the second admin applied it shows not_frozen', async ({
     page, browser,
   }) => {
+    // Two browser contexts and a reload: on a loaded machine the default
+    // 30 s budget ran out once while opening the second context.
+    test.slow()
     const mock = new AgentsMock()
     await openAgents(page, mock, ADMIN1)
     await killAll(page, 'runaway agent')
@@ -277,12 +286,12 @@ test.describe('Agents kill, unfreeze and second-admin release (mocked)', () => {
     await page.getByTestId('agent-freeze-reason').fill('investigating')
     await page.getByTestId('agent-freeze').click()
     await expect(page.getByTestId('agent-detail-status')).toHaveText('frozen')
-    await expect(page.getByTestId('agent-detail-frozen-reason')).toHaveText('investigating')
+    await expect(page.getByTestId('agent-detail-frozen-reason')).toHaveText('freeze: investigating')
     await expect(page.getByTestId('agent-status-alpha')).toHaveText('frozen')
 
     await page.getByTestId('agent-unfreeze-reason').fill('cleared')
     const [resp] = await Promise.all([
-      page.waitForResponse('**/api/v1/agents/agt-alpha/unfreeze'),
+      page.waitForResponse(`**/api/v1/agents/${ALPHA_ID}/unfreeze`),
       page.getByTestId('agent-unfreeze').click(),
     ])
     expect(resp.status()).toBe(202)
@@ -290,9 +299,9 @@ test.describe('Agents kill, unfreeze and second-admin release (mocked)', () => {
     await expect(page.getByTestId('agent-detail-status')).toHaveText('active')
     await expect(page.getByTestId('agent-status-alpha')).toHaveText('active')
     await expect(page.getByTestId('agent-detail-frozen-reason')).toHaveCount(0)
-    expect(mock.calls('POST', '/api/v1/agents/agt-alpha/freeze').map(c => c.body))
+    expect(mock.calls('POST', `/api/v1/agents/${ALPHA_ID}/freeze`).map(c => c.body))
       .toEqual([{ reason: 'investigating' }])
-    expect(mock.calls('POST', '/api/v1/agents/agt-alpha/unfreeze').map(c => c.body))
+    expect(mock.calls('POST', `/api/v1/agents/${ALPHA_ID}/unfreeze`).map(c => c.body))
       .toEqual([{ reason: 'cleared' }])
   })
 
@@ -304,7 +313,7 @@ test.describe('Agents kill, unfreeze and second-admin release (mocked)', () => {
     await page.getByTestId('agent-edit-reason').fill('needs writes')
     const [resp] = await Promise.all([
       page.waitForResponse(r => r.request().method() === 'PATCH' &&
-        r.url().endsWith('/api/v1/agents/agt-alpha')),
+        r.url().endsWith(`/api/v1/agents/${ALPHA_ID}`)),
       page.getByTestId('agent-edit-submit').click(),
     ])
     expect(resp.status()).toBe(202)
@@ -312,7 +321,7 @@ test.describe('Agents kill, unfreeze and second-admin release (mocked)', () => {
       'Awaiting a second admin: change #')
     await expect(page.getByTestId('agent-edit-pending'))
       .toContainText('requested by admin1@example.com')
-    expect(mock.calls('PATCH', '/api/v1/agents/agt-alpha').map(c => c.body))
+    expect(mock.calls('PATCH', `/api/v1/agents/${ALPHA_ID}`).map(c => c.body))
       .toEqual([{ profile: 'app-writer', reason: 'needs writes' }])
     await expect(page.getByTestId('agent-status-alpha')).toHaveText('active')
   })
