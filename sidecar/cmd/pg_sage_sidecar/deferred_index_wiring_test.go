@@ -85,8 +85,8 @@ func TestWriteDeferredIndexMetrics(t *testing.T) {
 	if empty.Len() != 0 {
 		t.Fatalf("no builder wrote %q, want nothing", empty.String())
 	}
-	g.set("db2", schema.DeferredIndexCounts{})
-	g.set("db1", schema.DeferredIndexCounts{Missing: 1, Building: 3, Invalid: 2})
+	g.set("db2", nil, schema.DeferredIndexCounts{})
+	g.set("db1", nil, schema.DeferredIndexCounts{Missing: 1, Building: 3, Invalid: 2})
 	var b strings.Builder
 	writeDeferredIndexMetrics(&b, g)
 	out := b.String()
@@ -104,7 +104,7 @@ func TestWriteDeferredIndexMetrics(t *testing.T) {
 	if strings.Index(out, `database="db1"`) > strings.Index(out, `database="db2"`) {
 		t.Errorf("databases are not sorted:\n%s", out)
 	}
-	g.drop("db1")
+	g.drop("db1", nil)
 	if _, ok := g.snapshot()["db1"]; ok {
 		t.Fatal("drop kept db1")
 	}
@@ -119,7 +119,7 @@ func TestDeferredIndexGaugeStore_Concurrent(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			name := string(rune('a' + i))
-			g.set(name, schema.DeferredIndexCounts{Missing: i})
+			g.set(name, nil, schema.DeferredIndexCounts{Missing: i})
 			var b strings.Builder
 			writeDeferredIndexMetrics(&b, g)
 		}()

@@ -62,7 +62,7 @@ func renderFullScrape(t *testing.T) string {
 	writeSSODiscoveryMetrics(&b, api.SSODiscoveryStatus{Enabled: true, Ready: true,
 		Failures: 2})
 	deferred := &deferredIndexGaugeStore{} // config-04c
-	deferred.set("alpha", schema.DeferredIndexCounts{Missing: 1})
+	deferred.set("alpha", nil, schema.DeferredIndexCounts{Missing: 1})
 	writeDeferredIndexMetrics(&b, deferred)
 	writeSelfCostMetrics(&b, map[string]selfcost.Cost{"alpha": {Known: true,
 		DBTimeKnown: true, DBTimeMsPerCycle: 12, CallsPerCycle: 4, BlocksPerCycle: 9,
