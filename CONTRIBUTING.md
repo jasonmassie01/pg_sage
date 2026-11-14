@@ -198,6 +198,19 @@ explain "hypothetical" paths), pgvector (vectorlab) or pgaudit correlation.
 test shows up as an UNLISTED skip or as a failure labelled `image-limited`.
 None of them is accepted silently, and none belongs in `.skip-allowlist`.
 
+To tell port exhaustion from other dial failures in a full round, sample
+the host's TCP ports while it runs: `scripts/ci/port-usage.sh start
+<round-dir> <server-port...>` samples `netstat` every 10 s
+(`PORT_USAGE_INTERVAL`), `scripts/ci/port-usage.sh group <round-dir>
+<group>` labels the samples before each group starts, and
+`scripts/ci/port-usage.sh stop <round-dir>` ends it.
+`scripts/ci/port-usage.sh summary <round-dir>` writes
+`<round-dir>/port-usage.md`, which gives, per group, the peak count of
+dynamic ports in use and the TIME_WAIT and ESTABLISHED sockets to the test
+servers. It also names the round's peak and says whether it came near the
+range (50% by default, `PORT_USAGE_NEAR_PCT`). `scripts/ci/port-usage-test.sh`
+tests the script with a stub socket table.
+
 `docker-compose.test.yml` is not the Go test server: it runs two PostgreSQL 16
 targets (no HypoPG) seeded from `test-fixtures/seed.sql`, plus mocks, for the
 functional harness `test-fixtures/run-tests.sh`.
