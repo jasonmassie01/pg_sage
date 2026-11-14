@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -42,6 +44,22 @@ func programSteps(p Program) string {
 	return fmt.Sprintf("steps=%d[%s]", len(steps), strings.Join(steps, ","))
 }
 
+// uniqueSuffix is the per-process part of a uniqueName: a clock value and
+// a process-wide counter.
+var uniqueSuffix = regexp.MustCompile(`_[0-9]{15,}_[0-9]+`)
+
+// stableSubject removes what differs between processes: uniqueName
+// suffixes, and the run's planBase from a plan scenario's query id.
+func stableSubject(subject string) string {
+	subject = uniqueSuffix.ReplaceAllString(subject, "_<unique>")
+	if rest, ok := strings.CutPrefix(subject, "queryid "); ok {
+		if qid, err := strconv.ParseInt(rest, 10, 64); err == nil {
+			return fmt.Sprintf("queryid planBase+%d", qid-planBase)
+		}
+	}
+	return subject
+}
+
 // scenarioCatalog renders every registered scenario as one line: what a
 // signed bench result means depends on exactly this list.
 func scenarioCatalog(scenarios []Scenario) string {
@@ -49,7 +67,7 @@ func scenarioCatalog(scenarios []Scenario) string {
 	for _, s := range scenarios {
 		fmt.Fprintf(&b, "%s family=%s class=%s subject=%q split=%q "+
 			"root=%q contributing=%q lookalike=%q %s\n",
-			s.ID, s.Family, s.Class, s.Subject, s.Split, s.Gold.Root,
+			s.ID, s.Family, s.Class, stableSubject(s.Subject), s.Split, s.Gold.Root,
 			s.Gold.Contributing, s.Gold.Lookalike, programSteps(s.Program))
 	}
 	return b.String()
@@ -103,6 +121,23 @@ func TestScenarioCatalog_WALFamily(t *testing.T) {
 		}
 		if steps := programSteps(s.Program); steps != w.steps {
 			t.Errorf("%s: %s, want %s", s.ID, steps, w.steps)
+		}
+	}
+}
+
+func TestStableSubject(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{"", ""},
+		{"table public.bench_wrap_1794674163585670700_30",
+			"table public.bench_wrap_<unique>"},
+		{"sequence public.bench_seq_1794674163585670700_49_seq",
+			"sequence public.bench_seq_<unique>_seq"},
+		{fmt.Sprintf("queryid %d", planBase+20), "queryid planBase+20"},
+		{"queryid notanumber", "queryid notanumber"},
+		{"table public.bench_wrap_12_30", "table public.bench_wrap_12_30"},
+	} {
+		if got := stableSubject(c.in); got != c.want {
+			t.Errorf("stableSubject(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
 }
