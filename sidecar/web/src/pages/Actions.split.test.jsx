@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Actions } from './Actions'
 
@@ -250,6 +250,40 @@ describe('Actions pending decisions', () => {
     await screen.findByText('not allowed')
     expect(h.toast.error).toHaveBeenCalledWith('not allowed')
     expect(screen.getAllByTestId('reject-button')).toHaveLength(3)
+  })
+
+  it('sends one approve request when approve is double-clicked', async () => {
+    const reply = deferred()
+    const fetchMock = vi.fn(() => reply.promise)
+    vi.stubGlobal('fetch', fetchMock)
+    openTab('pending')
+    const approve = screen.getAllByTestId('approve-button')[0]
+    fireEvent.click(approve)
+    fireEvent.click(approve)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      reply.resolve(jsonResponse(409, { error: 'already decided' }))
+    })
+    await screen.findByText('already decided')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getAllByTestId('approve-button')[0])
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+  })
+
+  it('sends one reject request when Confirm Reject is double-clicked', async () => {
+    const reply = deferred()
+    const fetchMock = vi.fn(() => reply.promise)
+    vi.stubGlobal('fetch', fetchMock)
+    openTab('pending')
+    fireEvent.click(screen.getAllByTestId('reject-button')[0])
+    fireEvent.change(screen.getByLabelText('Reason for rejection'), { target: { value: 'no' } })
+    const confirm = screen.getByRole('button', { name: 'Confirm Reject' })
+    fireEvent.click(confirm)
+    fireEvent.click(confirm)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    await act(async () => { reply.resolve(jsonResponse(200, { ok: true })) })
+    await screen.findByText('Action 41 rejected')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
   it('approves different rows concurrently, one request each', async () => {

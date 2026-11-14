@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { usePendingActionsRefetch } from '../../components/Layout'
 import { useToast } from '../../components/Toast'
 import { approvalOutcomeMessage } from './ApprovalCard'
@@ -20,10 +20,13 @@ function postDecision(action, verb, body) {
 }
 
 // usePendingActions holds the table view's approve and reject decisions.
+// A decision already in flight for a row is not sent again, so a double
+// click posts one request (dashboard-31).
 export function usePendingActions(refetch) {
   const [rejectId, setRejectId] = useState(null)
   const [rejectReason, setRejectReason] = useState('')
   const [actionMsg, setActionMsg] = useState(null)
+  const inFlight = useRef(new Set())
   const refetchPendingCount = usePendingActionsRefetch()
   const toast = useToast()
   const report = (ok, text) => {
@@ -31,10 +34,20 @@ export function usePendingActions(refetch) {
     else toast.error(text)
     setActionMsg({ type: ok ? 'success' : 'error', text })
   }
-  const approve = action =>
-    approveAction(action, { setActionMsg, report, toast, refetch, refetchPendingCount })
-  const reject = action => rejectAction(action, rejectReason, {
-    setActionMsg, report, toast, refetch, refetchPendingCount, setRejectId, setRejectReason })
+  const once = async (action, verb, run) => {
+    const key = `${verb}:${actionRowKey(action)}`
+    if (inFlight.current.has(key)) return
+    inFlight.current.add(key)
+    try {
+      await run()
+    } finally {
+      inFlight.current.delete(key)
+    }
+  }
+  const approve = action => once(action, 'approve',
+    () => approveAction(action, { setActionMsg, report, toast, refetch, refetchPendingCount }))
+  const reject = action => once(action, 'reject', () => rejectAction(action, rejectReason, {
+    setActionMsg, report, toast, refetch, refetchPendingCount, setRejectId, setRejectReason }))
   const toggleReject = row =>
     setRejectId(rejectId === actionRowKey(row) ? null : actionRowKey(row))
   return { rejectId, toggleReject, rejectReason, setRejectReason, actionMsg, approve, reject }
