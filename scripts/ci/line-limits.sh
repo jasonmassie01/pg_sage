@@ -71,7 +71,9 @@ function name_of(sig,   s) {
   return "?"
 }
 # scan counts the lines of path and, for Go, records each top-level function
-# over 50 lines. A func line ending in "}" is a one-line function.
+# over 50 lines. A func line ending in "}" is a one-line function. Only a
+# column-0 "}" alone (or before a comment) closes a function: a signature
+# line such as "}, error) {" after an inline interface does not.
 function scan(path,   line, n, isgo, start, sig, nlong, k, r) {
   isgo = path ~ /\.go$/
   n = 0; start = 0; nlong = 0
@@ -82,7 +84,7 @@ function scan(path,   line, n, isgo, start, sig, nlong, k, r) {
     if (!isgo) continue
     if (start == 0 && line ~ /^func[ \t(]/) {
       if (line !~ /}[ \t]*$/) { start = n; sig = line }
-    } else if (start > 0 && line ~ /^}/) {
+    } else if (start > 0 && line ~ /^}[ \t]*($|\/\/)/) {
       if (n - start + 1 > 50) {
         nlong++
         pending[nlong] = path ":" start " " name_of(sig) " " (n - start + 1) " 50"

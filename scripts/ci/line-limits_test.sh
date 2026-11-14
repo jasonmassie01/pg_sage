@@ -187,6 +187,20 @@ expect 1 'f\.go:2 method 52 50' "a method with a multi-line signature counts all
 
 new_repo
 mkdir -p "$repo/sidecar/f"
+{
+  echo "package f"
+  echo "func (r *recv) collect(rows interface {"
+  echo "	Next() bool"
+  echo "}, n int) error {"
+  for ((i = 0; i < 48; i++)); do printf '\t_ = %d\n' "$i"; done
+  echo "} // collect"
+} >"$repo/sidecar/f/f.go"
+stage
+expect 1 'f\.go:2 collect 52 50' \
+  "an inline interface in the signature does not close the function early" -- bash "$script"
+
+new_repo
+mkdir -p "$repo/sidecar/f"
 { echo "package f"; func_lines 51; } | sed 's/$/\r/' >"$repo/sidecar/f/f.go"
 stage
 expect 1 'functions_over_50 1/0' "CRLF line endings still close a function" -- \
