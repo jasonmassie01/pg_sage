@@ -17,6 +17,8 @@ var advisorEntries = []Category{
 	e("wal_tuning", "advisor", "advisor", sevIW, k("advisor.wal_enabled"),
 		act("alter_system_guc", "alter_database_guc"),
 		"WAL and checkpoint settings, such as max_wal_size when checkpoints are forced."),
+	e("io_settings", "advisor", "advisor", sevI, k("advisor.enabled"), nil,
+		"PostgreSQL 18 I/O settings carried over from an older server. Advisory."),
 	e("connection_tuning", "advisor", "advisor", sevIW, k("advisor.connection_enabled"),
 		act("alter_system_guc", "alter_database_guc"),
 		"Connection capacity and churn, such as max_connections or pooling advice."),

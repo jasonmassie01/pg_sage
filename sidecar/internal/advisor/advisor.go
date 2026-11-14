@@ -166,6 +166,10 @@ func (a *Advisor) analyzeSnapshot(ctx context.Context, snap *collector.Snapshot,
 		a.logFn("DEBUG", "advisor: no config snapshot yet")
 		return a.finish(out, evaluated)
 	}
+	own := a.ownership()
+	if io, ok := a.ioSettingsCycle(snap, own); ok {
+		out, evaluated = append(out, io...), append(evaluated, ioSettingsCategory)
+	}
 	open, err := a.open.OpenFindings(ctx, advisorCategories)
 	if err != nil {
 		// Fail closed on spend: without the open set the gate is unknown.
@@ -173,7 +177,6 @@ func (a *Advisor) analyzeSnapshot(ctx context.Context, snap *collector.Snapshot,
 			"this cycle: %v", err)
 		return a.finish(out, evaluated)
 	}
-	own := a.ownership()
 	checked, aside := splitInstanceOpen(open, own)
 	res := a.resolveOpen(snap, checked)
 	out = append(out, res.kept...)
