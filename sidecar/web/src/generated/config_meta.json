@@ -3785,6 +3785,13 @@
     "class": "derivable",
     "lifecycle": "restart"
   },
+  "sre.investigator.require_support_citation": {
+    "type": "bool",
+    "default": true,
+    "doc": "A model contest or conclusion needs a kept claim citing evidence the causal graph records as support for its root, else it is inconclusive (unsupported_root). Default: true.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
   "sre.llm.enabled": {
     "type": "bool",
     "default": true,

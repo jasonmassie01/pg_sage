@@ -20,7 +20,8 @@ import (
 // stays advisory (L1). Self-reported confidence is never read. An
 // unmodeled cause has no graph node and is always advisory. A root or
 // cause that no surviving cited claim supports is downgraded to
-// inconclusive.
+// inconclusive; with the Support-evidence rule on (support_cited.go) a
+// contest or conclusion also needs a claim citing the root's support.
 
 // Downgrade reasons.
 const (

@@ -14,13 +14,15 @@ import (
 // the plan-only EXPLAIN of its monitored database inside its probe
 // runner's slots (texts: the collector's in-memory statement texts); nil
 // in "review" mode, which keeps the M3 single review turn. The default
-// plans apply.
+// plans apply; sre.investigator.require_support_citation sets the
+// Support-evidence rule.
 func sreInvestigatorConfig(settings config.SREConfig, runner *probes.Runner,
 	texts sre.StatementTexts) *sre.InvestigatorConfig {
 	if settings.LLM.Mode != config.SRELLMModeInvestigator {
 		return nil
 	}
-	cfg := &sre.InvestigatorConfig{}
+	cfg := &sre.InvestigatorConfig{
+		RequireSupportCitation: settings.Investigator.RequireSupportCitation}
 	if runner.Pool() != nil {
 		cfg.Explainer = sre.NewStatementExplainer(runner, texts)
 	}
