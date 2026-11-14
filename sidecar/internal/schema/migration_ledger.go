@@ -51,9 +51,9 @@ const ledgerCatalogID = "catalog fingerprint"
 // errMigrationChanged marks a recorded step whose SQL changed.
 var errMigrationChanged = errors.New("migration step changed since it was applied")
 
-// ledgerReadSQL reads the recorded steps and the current catalog
-// fingerprint in one round trip.
-const ledgerReadSQL = `/* pg_sage migration ledger v1 */
+// ledgerReadSQL reads the recorded steps, the current catalog fingerprint
+// and the INVALID indexes in one round trip.
+var ledgerReadSQL = `/* pg_sage migration ledger v1 */
 SELECT COALESCE((SELECT array_agg(id ORDER BY id) FROM sage.schema_migrations), '{}'),
        COALESCE((SELECT array_agg(checksum ORDER BY id) FROM sage.schema_migrations), '{}'),
        (` + catalogFingerprintSQL + `),
@@ -64,7 +64,7 @@ VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING`
 
 // ledgerSealSQL stores the fingerprint the boot left, writing only when it
 // changed.
-const ledgerSealSQL = `INSERT INTO sage.schema_migrations (id, checksum, pg_sage_version)
+var ledgerSealSQL = `INSERT INTO sage.schema_migrations (id, checksum, pg_sage_version)
 SELECT $1, (` + catalogFingerprintSQL + `), $2
 ON CONFLICT (id) DO UPDATE
    SET checksum = EXCLUDED.checksum, applied_at = now(),
@@ -130,9 +130,9 @@ func (l *migrationLedger) load(ctx context.Context, db bootstrapDB) error {
 	}
 	var ids, sums []string
 	var fingerprint string
-	var invalidIndex bool
+	var invalid []string
 	if err := db.QueryRow(ctx, ledgerReadSQL).Scan(&ids, &sums, &fingerprint,
-		&invalidIndex, &l.notValid); err != nil {
+		&invalid, &l.notValid); err != nil {
 		return fmt.Errorf("migration ledger: reading sage.schema_migrations: %w", err)
 	}
 	if len(ids) != len(sums) {
@@ -143,17 +143,41 @@ func (l *migrationLedger) load(ctx context.Context, db bootstrapDB) error {
 		l.recorded[id] = sums[i]
 	}
 	sealed, ok := l.recorded[ledgerCatalogID]
-	l.trusted = ok && sealed == fingerprint && !invalidIndex
-	switch {
-	case ok && invalidIndex:
-		slog.Warn("schema: a sage index is INVALID; every migration step runs " +
-			"through its catalog checks, which rebuild it")
-	case ok && !l.trusted:
+	l.trusted = ok && sealed == fingerprint && len(invalid) == 0
+	if ok {
+		for _, name := range invalid {
+			slog.Warn(invalidIndexWarning(name))
+		}
+	}
+	if ok && !l.trusted && len(invalid) == 0 {
 		slog.Info("schema: the sage catalog changed since the last boot; " +
 			"every migration step runs through its catalog checks")
 	}
 	l.loaded = true
 	return nil
+}
+
+// noteRan marks that a step ran SQL this boot without being recorded (a
+// deferred variant, config-04c), so the boot seals the catalog it left.
+func (l *migrationLedger) noteRan() {
+	if l != nil {
+		l.ran = true
+	}
+}
+
+// invalidIndexWarning is the WARN for an INVALID sage index outside the
+// deferred list: only a step that builds the index rebuilds it.
+func invalidIndexWarning(name string) string {
+	for _, step := range migrationSteps() {
+		if namesIdentifier(step.sql, name) {
+			return fmt.Sprintf("schema: sage index %s is INVALID; every migration step "+
+				"runs through its catalog checks, which rebuild it", name)
+		}
+	}
+	return fmt.Sprintf("schema: sage index %s is INVALID; every migration step runs "+
+		"through its catalog checks, but no step rebuilds this index; drop it "+
+		"(DROP INDEX CONCURRENTLY sage.%s) or rebuild it (REINDEX INDEX CONCURRENTLY "+
+		"sage.%s)", name, name, name)
 }
 
 // decide reports whether step may be skipped: it is recorded with its

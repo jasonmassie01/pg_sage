@@ -23,7 +23,9 @@ import "strings"
 // Each step checks the catalog first, so a re-run takes no lock on any
 // table; a build pauses only pg_sage's own writes to that table, once, at
 // startup. An INVALID index (a failed build by hand) is rebuilt unless a
-// build is still running. Idempotent.
+// build is still running. Idempotent. On a table of a million rows or more
+// these indexes are left to the background builder (deferred_index.go,
+// config-04c): the boot runs this step without them.
 
 type ledgerIndex struct{ name, table, definition string }
 
@@ -77,8 +79,12 @@ func ddlDecisionLedger() string {
 }
 
 // ledgerIndexBlock is one DO block: the columns step, then each index
-// built (or an INVALID one rebuilt) by the index loop.
+// built (or an INVALID one rebuilt) by the index loop. With no index (a
+// variant whose indexes are all deferred, config-04c) it has no loop.
 func ledgerIndexBlock(columns string, indexes []ledgerIndex) string {
+	if len(indexes) == 0 {
+		return "DO $$\nDECLARE spec record;\nBEGIN" + columns + "\nEND $$;"
+	}
 	values := make([]string, 0, len(indexes))
 	for _, index := range indexes {
 		values = append(values, "("+sqlLiteral(index.name)+", "+sqlLiteral(index.table)+

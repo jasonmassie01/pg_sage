@@ -10,8 +10,10 @@ import "strings"
 // (pg_get_expr, pg_get_viewdef) lock the relations they describe, and the
 // ledger read must not wait behind a session holding a table lock. Day
 // partitions are left out (retention adds and drops them every day);
-// their parent carries the shape. Rows are not part of it.
-const catalogFingerprintSQL = `/* pg_sage catalog fingerprint v1 */
+// their parent carries the shape. Rows are not part of it. The deferred
+// indexes are left out (config-04c): the background builder, not a step,
+// owns them, so their builds and failures do not distrust the ledger.
+var catalogFingerprintSQL = `/* pg_sage catalog fingerprint v2 */
 SELECT md5(COALESCE(string_agg(line, E'\n' ORDER BY line), '')) FROM (
     SELECT 'relation ' || c.relname || ' ' || c.relkind::text AS line
       FROM pg_catalog.pg_class c
@@ -37,6 +39,7 @@ SELECT md5(COALESCE(string_agg(line, E'\n' ORDER BY line), '')) FROM (
       JOIN pg_catalog.pg_class i ON i.oid = x.indexrelid
       JOIN pg_catalog.pg_class c ON c.oid = x.indrelid
      WHERE c.relnamespace = 'sage'::regnamespace AND NOT c.relispartition
+       AND i.relname NOT IN ` + deferredIndexNamesSQL() + `
     UNION ALL
     SELECT 'constraint ' || c.relname || '.' || k.conname || ' ' || k.contype::text ||
            ' ' || k.convalidated::text || ' ' || COALESCE(k.conkey::text, '-') ||
@@ -67,13 +70,16 @@ SELECT md5(COALESCE(string_agg(line, E'\n' ORDER BY line), '')) FROM (
      WHERE c.relnamespace = 'sage'::regnamespace
 ) fingerprint`
 
-// catalogInvalidIndexSQL is true while a sage index is INVALID (a killed
-// CREATE INDEX CONCURRENTLY leaves one): the boot then does not trust the
-// ledger, and the step that builds the index rebuilds it.
-const catalogInvalidIndexSQL = `/* pg_sage catalog invalid index v1 */
-SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_index x
-                 JOIN pg_catalog.pg_class c ON c.oid = x.indexrelid
-                WHERE c.relnamespace = 'sage'::regnamespace AND NOT x.indisvalid)`
+// catalogInvalidIndexSQL lists the INVALID sage indexes (a killed CREATE
+// INDEX CONCURRENTLY leaves one): the boot then does not trust the ledger,
+// and the step that builds the index, if any, rebuilds it. The deferred
+// indexes are the background builder's (config-04c) and left out.
+var catalogInvalidIndexSQL = `/* pg_sage catalog invalid index v2 */
+SELECT COALESCE(array_agg(c.relname::text ORDER BY c.relname), '{}')
+  FROM pg_catalog.pg_index x
+  JOIN pg_catalog.pg_class c ON c.oid = x.indexrelid
+ WHERE c.relnamespace = 'sage'::regnamespace AND NOT x.indisvalid
+   AND c.relname NOT IN ` + deferredIndexNamesSQL()
 
 // catalogNotValidSQL lists each NOT VALID sage constraint as its name and
 // its table ("name sage.t"), for steps that validate one on a later boot.

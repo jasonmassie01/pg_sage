@@ -150,6 +150,9 @@ func runMigrationStep(
 	if skip {
 		return runDataStatements(ctx, db, step)
 	}
+	if outcome, ran, err := runDeferredVariant(ctx, db, step); ran || err != nil {
+		return outcome, err // config-04c: large indexes left to the builder
+	}
 	outcome, err := runCheckedStep(ctx, db, step)
 	if err != nil {
 		return outcome, err
