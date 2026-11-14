@@ -125,3 +125,5 @@ func TestGuardParserTimeoutBoundary(t *testing.T) { checkGuardTimeoutBoundary(t,
 
 // Run under -race in CI: 16 guard calls share the Explainer and the parser.
 func TestGuardParserConcurrent(t *testing.T) { checkGuardConcurrent(t, nil) }
+
+func TestGuardParserRefusesDomainChecks(t *testing.T) { checkGuardRefusesDomainChecks(t, nil) }

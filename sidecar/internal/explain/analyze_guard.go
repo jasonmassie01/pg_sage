@@ -99,6 +99,9 @@ func (g *analyzeGuard) check(ctx context.Context, sql string, depth int) (string
 	if reason, err := g.checkArgDefaults(ctx, shape, depth); err != nil || reason != "" {
 		return reason, err
 	}
+	if reason, err := g.checkDomainChecks(ctx, shape, depth); err != nil || reason != "" {
+		return reason, err
+	}
 	return g.checkRelations(ctx, shape, depth)
 }
 

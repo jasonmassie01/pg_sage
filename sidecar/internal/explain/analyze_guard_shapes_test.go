@@ -67,6 +67,9 @@ func recordedShapes() map[string]sqlast.ReadQuery {
 		"SELECT count(*) FROM generate_series(1, 2000000000) g": {
 			Functions: names(qn("", "count"), qn("", "generate_series"))},
 	}
+	for query, shape := range domainShapes {
+		shapes[query] = shape
+	}
 	for i := 0; i < concurrentQueries; i++ {
 		shape := sqlast.ReadQuery{Relations: probe}
 		if i%2 == 1 {
