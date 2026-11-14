@@ -162,14 +162,17 @@ func recordOnce(ctx context.Context, pool *pgxpool.Pool, database, update string
 	return changed, nil
 }
 
-// HasOpenFinding reports whether the analyzer has an open finding.
+// HasOpenFinding reports whether the analyzer has an open finding of
+// severity warning or critical, exactly as stored: what firstlook.CountItems
+// counts as a finding. An info note (or a legacy upper-case severity) is not
+// one, so the time to first finding measures the first thing to act on.
 func HasOpenFinding(ctx context.Context, pool *pgxpool.Pool) (bool, error) {
 	if pool == nil {
 		return false, ErrNoPool
 	}
 	var open bool
 	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM sage.findings
-		WHERE status = 'open')`).Scan(&open); err != nil {
+		WHERE status = 'open' AND severity IN ('warning', 'critical'))`).Scan(&open); err != nil {
 		return false, fmt.Errorf("read open findings: %w", err)
 	}
 	return open, nil

@@ -282,10 +282,18 @@ func (f *firstLookRun) measure(ctx context.Context, tracker *onboarding.Tracker,
 	}
 }
 
-// itemsNote is "2 findings, 5 items" for the log.
+// itemsNote is "2 findings, 5 items" (or "1 finding, 1 item") for the log.
 func itemsNote(items []firstlook.Item) string {
-	return fmt.Sprintf("%d findings, %d items", firstlook.CountItems(items).Findings,
-		len(items))
+	return countNote(firstlook.CountItems(items).Findings, "finding") + ", " +
+		countNote(len(items), "item")
+}
+
+// countNote is "1 item" or "n items".
+func countNote(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }
 
 func degradedNote(checks []firstlook.Check) string {
