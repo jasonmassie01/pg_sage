@@ -9,7 +9,6 @@ sidecar/internal/api/cases_handlers.go 593
 sidecar/internal/config/config.go 1487
 sidecar/internal/fleet/capabilities.go 502
 sidecar/internal/fleet/types.go 533
-sidecar/internal/lakebaseobs/store.go 591
 sidecar/internal/schema/bootstrap.go 1010
 sidecar/internal/store/action_store.go 744
 sidecar/internal/store/config_helpers.go 818
