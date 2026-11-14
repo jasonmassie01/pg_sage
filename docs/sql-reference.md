@@ -55,7 +55,10 @@ could not read it stores no row (unknown, not zero). It is sampled each collecto
 not active session history, and it follows the snapshot retention. Wait event names
 differ across PostgreSQL 14 to 18 and are kept as plain strings. On managed services the
 monitoring role needs `pg_monitor` to see other sessions' wait events. The workload
-explorer reads it through `GET /api/v1/wait-load?database=<name>&since=&until=`; the top
+explorer reads it through `GET /api/v1/wait-load?database=<name>&since=&until=`, which
+also names a preferred provider breakdown when one exists, in this order: Performance
+Insights, then Lakebase wait counters (see [Lakebase](lakebase.md#workload-explorer-wait-load)),
+then these samples, which are always returned; the top
 statements of a window come from `sage.query_store` through
 `GET /api/v1/queries/top?database=<name|all>&since=&until=&order=load|calls|mean|rows&limit=`
 (load is the window's execution seconds per wall-clock second; a statistics reset splits

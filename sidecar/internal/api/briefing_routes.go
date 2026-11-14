@@ -37,7 +37,14 @@ type briefingDeps struct {
 }
 
 func registerBriefingRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
-	registerBriefingRoutesWith(mux, fleetBriefingDeps(mgr))
+	routeAggregate(mux, "GET "+briefingsPath, gateViewer, mgr,
+		func(m *fleet.DatabaseManager) http.Handler {
+			return briefingsListHandler(fleetBriefingDeps(m))
+		})
+	routeAggregate(mux, "GET "+briefingsPath+"/latest", gateViewer, mgr,
+		func(m *fleet.DatabaseManager) http.Handler {
+			return briefingsLatestHandler(fleetBriefingDeps(m))
+		})
 }
 
 func registerBriefingRoutesWith(mux *http.ServeMux, deps briefingDeps) {

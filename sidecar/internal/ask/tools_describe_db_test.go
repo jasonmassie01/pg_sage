@@ -54,15 +54,32 @@ func (f *fixture) partitioned(name string, n, rows int) {
 // an analyze time (PG 14 reports statistics asynchronously).
 func (f *fixture) waitVacuumed(name string, leaves int64) {
 	f.t.Helper()
+	f.waitLeafStats(name, leaves, "vacuum", true)
+}
+
+// waitAnalyzed waits until every leaf of public.<name> shows an analyze
+// time. On PG 14 an ANALYZE reaches pg_stat_user_tables asynchronously:
+// right after it, a read showed "never" in 10 of 20 tries (PG 17: 0 of
+// 20), so concurrent readers started at once saw different texts (ci-17).
+func (f *fixture) waitAnalyzed(name string, leaves int64) {
+	f.t.Helper()
+	f.waitLeafStats(name, leaves, "analyze", false)
+}
+
+// waitLeafStats waits until every leaf of public.<name> shows an analyze
+// time, and a vacuum time too when vacuumed is set.
+func (f *fixture) waitLeafStats(name string, leaves int64, what string, vacuumed bool) {
+	f.t.Helper()
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
 		if f.count(`SELECT count(*) FROM pg_stat_user_tables WHERE relname LIKE $1
-			AND last_vacuum IS NOT NULL AND last_analyze IS NOT NULL`, name+`\_p%`) >= leaves {
+			AND (last_vacuum IS NOT NULL OR NOT $2) AND last_analyze IS NOT NULL`,
+			name+`\_p%`, vacuumed) >= leaves {
 			return
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	f.t.Fatalf("leaves of %s never showed vacuum statistics", name)
+	f.t.Fatalf("leaves of %s never showed %s statistics", name, what)
 }
 
 // leafBytes sums pg_total_relation_size over the first limit leaves of
@@ -320,6 +337,7 @@ func TestDescribeTable_ConcurrentPartitionedReads(t *testing.T) {
 	s := f.service(f.deps(nil))
 	f.partitioned("ask_shared", 2, 5)
 	f.exec(`ANALYZE public.ask_shared`)
+	f.waitAnalyzed("ask_shared", 2)
 	const workers = 8
 	texts := make([]string, workers)
 	errs := make([]error, workers)

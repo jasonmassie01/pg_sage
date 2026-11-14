@@ -37,8 +37,9 @@ var readDatabaseDecisions = func(
 }
 
 func registerDecisionRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
-	route(mux, "GET "+decisionsPath, gateOperator, decisionsHandler(mgr))
-	route(mux, "GET /api/v1/policy/explain", gateOperator, policyExplainHandler(mgr))
+	routeAggregate(mux, "GET "+decisionsPath, gateOperator, mgr, aggregateHandler(decisionsHandler))
+	routeAggregate(mux, "GET /api/v1/policy/explain", gateOperator, mgr,
+		aggregateHandler(policyExplainHandler))
 }
 
 // decisionEntry is one candidate's open withheld decisions as served.

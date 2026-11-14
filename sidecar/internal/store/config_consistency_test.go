@@ -289,6 +289,11 @@ var excludedExactKeys = map[string]bool{
 	// switch (restart lifecycle), so it is YAML-only too.
 	"sre.llm.mode": true,
 
+	// sre-03: the investigator's support-citation rule is read when a
+	// database runtime is built (restart lifecycle) and only tightens what
+	// a model may conclude, so an API write can never switch it off: YAML only.
+	"sre.investigator.require_support_citation": true,
+
 	// Sage SRE M5: SLOs and the change feed are built with the database
 	// runtime (restart lifecycle), carry secrets and are validated at
 	// load, so they are YAML-only.

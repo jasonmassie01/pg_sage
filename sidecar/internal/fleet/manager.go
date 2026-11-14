@@ -51,6 +51,8 @@ type DatabaseManager struct {
 	// budget reports the fleet LLM budget per database (fleet-06); nil when
 	// no fleet budget is configured. Guarded by mu.
 	budget BudgetSource
+	// readOnly marks a ReadView (apiauth-08b): every mutation is refused.
+	readOnly bool
 }
 
 // NewManager creates a fleet manager from config.
@@ -72,6 +74,9 @@ func NewManager(cfg *config.Config) *DatabaseManager {
 // nil-pool primary breaks auth-route registration and every
 // "all"-scoped query (see PoolForDatabase).
 func (m *DatabaseManager) RegisterInstance(inst *DatabaseInstance) {
+	if m.readOnly {
+		return
+	}
 	var retired *DatabaseInstance
 	var pending []*DatabaseInstance
 	m.restorePersistedStop(inst)

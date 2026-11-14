@@ -298,6 +298,7 @@
 | `oauth.break_glass.password_hash` | `restart` | `-` | `safety_critical` |
 | `oauth.client_id` | `restart` | `-` | `safety_critical` |
 | `oauth.client_secret` | `restart` | `-` | `safety_critical` |
+| `oauth.database_grant_mapping` | `restart` | `-` | `safety_critical` |
 | `oauth.default_role` | `restart` | `-` | `safety_critical` |
 | `oauth.enabled` | `restart` | `-` | `safety_critical` |
 | `oauth.groups_claim` | `restart` | `-` | `safety_critical` |
@@ -456,6 +457,7 @@
 | `sre.detectors.temp_file_mb` | `restart` | `-` | `derivable` |
 | `sre.detectors.window_seconds` | `restart` | `-` | `derivable` |
 | `sre.evidence_retention_days` | `restart` | `-` | `derivable` |
+| `sre.investigator.require_support_citation` | `restart` | `-` | `safety_critical` |
 | `sre.llm.enabled` | `restart` | `-` | `safety_critical` |
 | `sre.llm.mode` | `restart` | `-` | `safety_critical` |
 | `sre.poolers` | `restart` | `-` | `safety_critical` |

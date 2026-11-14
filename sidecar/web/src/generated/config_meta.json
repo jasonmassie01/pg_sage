@@ -2624,6 +2624,27 @@
     "class": "safety_critical",
     "lifecycle": "restart"
   },
+  "oauth.database_grant_mapping[].database": {
+    "type": "string",
+    "default": "",
+    "doc": "Database name as the fleet names it.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "oauth.database_grant_mapping[].group": {
+    "type": "string",
+    "default": "",
+    "doc": "IdP group as the groups claim carries it (case-sensitive).",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "oauth.database_grant_mapping[].role": {
+    "type": "string",
+    "default": "",
+    "doc": "Grant for group members on the database: viewer or operator.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
   "oauth.default_role": {
     "type": "string",
     "default": "viewer",
@@ -3783,6 +3804,13 @@
     "default": 30,
     "doc": "Days a finished, unpinned investigation keeps its probe evidence (a tombstone records the delete). 1 to timeline_retention_days. Default: 30.",
     "class": "derivable",
+    "lifecycle": "restart"
+  },
+  "sre.investigator.require_support_citation": {
+    "type": "bool",
+    "default": true,
+    "doc": "A model contest or conclusion needs a kept claim citing evidence the causal graph records as support for its root, else it is inconclusive (unsupported_root). Default: true.",
+    "class": "safety_critical",
     "lifecycle": "restart"
   },
   "sre.llm.enabled": {

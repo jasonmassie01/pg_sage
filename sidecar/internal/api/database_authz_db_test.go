@@ -34,7 +34,7 @@ func grantsFleet(names ...string) *fleet.DatabaseManager {
 func serveGrants(pool *pgxpool.Pool, mgr *fleet.DatabaseManager, method, path, body string,
 	caller *auth.User) (int, map[string]any) {
 	mux := http.NewServeMux()
-	registerDatabaseGrantRoutes(mux, pool, mgr, true)
+	registerDatabaseGrantRoutes(mux, pool, mgr, true, false)
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	return serveJSON(mux, withUser(req, caller))

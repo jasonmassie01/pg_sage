@@ -29,7 +29,7 @@ func CreateDatabaseOnSecondCluster(t testing.TB, label string) string {
 	if err != nil {
 		t.Fatalf("name second-cluster test database: %v", err)
 	}
-	dsn, err := createFixture(base, name)
+	dsn, err := createFixture(base, name, "second-cluster")
 	if err != nil {
 		t.Fatalf("create second-cluster test database: %v", err)
 	}

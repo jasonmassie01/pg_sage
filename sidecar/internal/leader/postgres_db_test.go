@@ -151,18 +151,29 @@ func TestPostgresStore_NoSplitBrainUnderContention(t *testing.T) {
 	}
 }
 
+// takeoverPoll is how often B retries the expired lease, and
+// takeoverSlack the database-clock time B may take past the TTL: one poll
+// plus a tick under load. Both are widened only by the measured step.
+const (
+	takeoverPoll  = 100 * time.Millisecond
+	takeoverSlack = 500 * time.Millisecond
+)
+
 func TestPostgresStore_ElectorsAgainstRealDatabase(t *testing.T) {
 	ctx := context.Background()
-	st := NewPostgresStore(dbPool(t))
+	pool := dbPool(t)
+	st := NewPostgresStore(pool)
 	scope := uniqueScope(t)
-	a := NewElector(st, scope, "A", 2*time.Second)
-	b := NewElector(st, scope, "B", 2*time.Second)
-	if err := a.Tick(ctx); err != nil {
-		t.Fatalf("a: %v", err)
+	const ttl = 2 * time.Second
+	a := NewElector(st, scope, "A", ttl)
+	b := NewElector(st, scope, "B", ttl)
+	tickRetrying(t, a, "a")
+	renewed := leaseColumn(t, pool, scope, "renewed_at")
+	watch, err := testdb.StartClockWatch(ctx, pool)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := b.Tick(ctx); err != nil {
-		t.Fatalf("b: %v", err)
-	}
+	tickRetrying(t, b, "b")
 	if !a.IsLeader() || b.IsLeader() {
 		t.Fatalf("a=%v b=%v, want only A", a.IsLeader(), b.IsLeader())
 	}
@@ -170,11 +181,16 @@ func TestPostgresStore_ElectorsAgainstRealDatabase(t *testing.T) {
 	if a.IsLeader() {
 		t.Fatal("A leads past its lease without renewing")
 	}
-	if err := b.Tick(ctx); err != nil {
-		t.Fatalf("b takeover: %v", err)
-	}
-	if !b.IsLeader() {
-		t.Fatal("B did not take over the expired lease")
+	// The lease expires on the database clock, which slews against the
+	// host's on a VM: poll for the takeover and bound it on that clock
+	// (ci-14) instead of trusting one host-timed sleep.
+	awaitTakeover(t, b, ttl+5*time.Second)
+	took := leaseColumn(t, pool, scope, "acquired_at").Sub(renewed)
+	bound := watch.Widen(t, ttl+takeoverSlack)
+	t.Logf("B took over %v after A's last renewal (database clock, bound %v)", took, bound)
+	if took < ttl || took > bound {
+		t.Fatalf("B took over %v after A's renewal, want between the %v TTL and %v",
+			took, ttl, bound)
 	}
 	cur, ok, err := st.Current(ctx, scope)
 	if err != nil || !ok || cur.Holder != "B" || cur.Epoch != 2 {
@@ -183,6 +199,63 @@ func TestPostgresStore_ElectorsAgainstRealDatabase(t *testing.T) {
 	if _, ok, err := st.Current(ctx, "never-"+scope); ok || err != nil {
 		t.Fatalf("unknown scope current ok=%v err=%v", ok, err)
 	}
+}
+
+// missedTickLimit is how many ticks in a row may run past their bound.
+const missedTickLimit = 3
+
+// missedTick reports a tick that ran past the elector's ttl/3 bound. The
+// product counts it as a missed renewal and retries on the next tick; a VM
+// stall on a loaded host can exceed the bound. Any other error is fatal.
+func missedTick(t *testing.T, name string, err error, attempt int) {
+	t.Helper()
+	if !errors.Is(err, context.DeadlineExceeded) || attempt >= missedTickLimit {
+		t.Fatalf("%s: %v", name, err)
+	}
+	t.Logf("%s: missed tick %d (past its bound): %v", name, attempt, err)
+}
+
+// tickRetrying ticks e, retrying only a tick that missed its bound.
+func tickRetrying(t *testing.T, e *Elector, name string) {
+	t.Helper()
+	for attempt := 1; ; attempt++ {
+		err := e.Tick(context.Background())
+		if err == nil {
+			return
+		}
+		missedTick(t, name, err, attempt)
+	}
+}
+
+// awaitTakeover ticks e until it leads, failing after limit of host time.
+func awaitTakeover(t *testing.T, e *Elector, limit time.Duration) {
+	t.Helper()
+	missed := 0
+	for deadline := time.Now().Add(limit); ; time.Sleep(takeoverPoll) {
+		if err := e.Tick(context.Background()); err != nil {
+			missed++
+			missedTick(t, "b takeover", err, missed)
+			continue
+		}
+		missed = 0
+		if e.IsLeader() {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("B did not take over the expired lease within %v", limit)
+		}
+	}
+}
+
+// leaseColumn reads one timestamp of scope's lease row (database clock).
+func leaseColumn(t *testing.T, pool *pgxpool.Pool, scope, col string) time.Time {
+	t.Helper()
+	var at time.Time
+	if err := pool.QueryRow(context.Background(), "SELECT "+col+
+		" FROM sage.fleet_leader_lease WHERE scope = $1", scope).Scan(&at); err != nil {
+		t.Fatalf("read the lease's %s: %v", col, err)
+	}
+	return at
 }
 
 func TestPostgresStore_ErrorsNameTheOperation(t *testing.T) {

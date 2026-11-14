@@ -269,7 +269,7 @@ func checkpointed(t *testing.T, pool *pgxpool.Pool) {
 // server still produces system stats, both through a cycle and through the
 // system read alone (the 42703 fallback).
 func TestCapabilities_StalePG16VersionOnPG17(t *testing.T) {
-	pool := testPool(t)
+	pool := exclusivePool(t, "checkpoint counters after a forced CHECKPOINT")
 	if v := serverVersion(t, pool); v < 170000 {
 		t.Skipf("needs a PG17+ server, have %d", v)
 	}
@@ -311,7 +311,7 @@ func TestCapabilities_IOGateFollowsLiveVersion(t *testing.T) {
 // CHECK-23 (PG17 to PG14): a collector built for PG17 against an older
 // server falls back to the pre-17 system SQL.
 func TestCapabilities_StalePG17VersionOnPG14(t *testing.T) {
-	pool := testPool(t)
+	pool := exclusivePool(t, "checkpoint counters after a forced CHECKPOINT")
 	if v := serverVersion(t, pool); v >= 170000 {
 		t.Skipf("needs a pre-17 server, have %d", v)
 	}

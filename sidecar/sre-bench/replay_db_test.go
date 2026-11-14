@@ -150,6 +150,19 @@ func TestReplayForbidden_RunnerRefusalsAreReported(t *testing.T) {
 	}
 }
 
+// replayCorpusBudget bounds TestReplayCorpus: replayBudget per arm, plus
+// the live model's allowance. It was one replayBudget for all arms, sized
+// when one arm's corpus took about 25 s; with three arms a run took 20 to
+// 128 s alone and over 180 s under a loaded round, so the shared budget
+// ran out ("safety snapshot: context deadline exceeded"; ci-17).
+func replayCorpusBudget(arms int, llm LLMConfig) time.Duration {
+	budget := time.Duration(max(arms, 1)) * replayBudget
+	if llm.Mode == LLMLive {
+		budget += liveModelBudget
+	}
+	return budget
+}
+
 // TestReplayCorpus replays the whole embedded corpus (60 R1 cases)
 // through the causal graph and the LLM-on arm (the fake adversarial
 // model, or the live endpoint of PG_SAGE_BENCH_LLM_URL) and fails when a
@@ -161,18 +174,13 @@ func TestReplayCorpus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 120 investigations take about 25 s on an idle server; the budget
-	// leaves room for a loaded CI runner, and for a (paced) live model.
-	budget := replayBudget
-	if llmCfg.Mode == LLMLive {
-		budget += liveModelBudget
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), budget)
+	arms := []LiveArm{CausalGraph{}, LLMArm{Config: llmCfg}, InvestigatorArm{Config: llmCfg}}
+	names := []string{ArmCausalGraph, ArmLLM, ArmInvestigator}
+	ctx, cancel := context.WithTimeout(context.Background(),
+		replayCorpusBudget(len(arms), llmCfg))
 	t.Cleanup(cancel)
 	env := NewEnv(ctx, t, dsn)
 	cases := splitCorpus(t)
-	arms := []LiveArm{CausalGraph{}, LLMArm{Config: llmCfg}, InvestigatorArm{Config: llmCfg}}
-	names := []string{ArmCausalGraph, ArmLLM, ArmInvestigator}
 	rs := RunReplay(ctx, env, cases, arms)
 	if len(rs) != len(arms)*len(cases) {
 		t.Fatalf("%d results for %d cases and %d arms", len(rs), len(cases), len(arms))

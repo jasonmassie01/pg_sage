@@ -37,8 +37,17 @@ type approvalCardHandlers struct {
 func registerApprovalCardRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
 	ledgers *earned.Registry) {
 	h := &approvalCardHandlers{mgr: mgr, ledgers: ledgers}
-	route(mux, "GET /api/v1/approvals", gateOperator, http.HandlerFunc(h.list))
-	route(mux, "GET /api/v1/approvals/{id}", gateOperator, http.HandlerFunc(h.get))
+	view := func(read func(*approvalCardHandlers, http.ResponseWriter, *http.Request)) func(
+		*fleet.DatabaseManager) http.Handler {
+		return func(m *fleet.DatabaseManager) http.Handler {
+			v := &approvalCardHandlers{mgr: m, ledgers: ledgers}
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { read(v, w, r) })
+		}
+	}
+	routeAggregate(mux, "GET /api/v1/approvals", gateOperator, mgr,
+		view((*approvalCardHandlers).list))
+	routeAggregate(mux, "GET /api/v1/approvals/{id}", gateOperator, mgr,
+		view((*approvalCardHandlers).get))
 	card := approvalCardDatabase(mgr)
 	routeDB(mux, "POST /api/v1/approvals/{id}/approve", gateOperator, card,
 		http.HandlerFunc(h.approve))

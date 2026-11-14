@@ -39,10 +39,10 @@ type Monitor struct {
 	// that the next sequence reading lists whatever their rank.
 	keepMu  sync.Mutex
 	seqKeep []string
-	// sizeMu guards sizeAt, when the last size this monitor sampled was
-	// measured.
-	sizeMu sync.Mutex
-	sizeAt time.Time
+	// sizeMu guards sizeSeq, the sequence of the last size this monitor
+	// sampled (zero: none yet).
+	sizeMu  sync.Mutex
+	sizeSeq uint64
 	// staleMu guards stale, the held findings this monitor marked stale
 	// (category NUL identifier), and truncated, whether the last trends
 	// read was cut at its row cap: each transition is logged once.
@@ -250,9 +250,9 @@ func (m *Monitor) fillSize(ctx context.Context, w *probes.WALRunway,
 	w.DatabaseBytes, w.UnreadableDatabases = size.DatabaseBytes, size.UnreadableDatabases
 	m.sizeMu.Lock()
 	defer m.sizeMu.Unlock()
-	if size.MeasuredAt.Equal(m.sizeAt) {
+	if size.seq == m.sizeSeq {
 		return false
 	}
-	m.sizeAt = size.MeasuredAt
+	m.sizeSeq = size.seq
 	return true
 }
