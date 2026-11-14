@@ -293,3 +293,27 @@ These names are no longer exported. Update dashboards and alerts to the replacem
 **Severity:** ticket. **Fires when:** A Sage SRE investigation has been open for over an hour.
 
 **What to do:** Check `pg_sage_sre_investigations` by state: runs in `needs_evidence` wait for a probe or a person, and `pg_sage_sre_probe_refusals_total` shows probe slots running out.
+
+### PgSageTLSCertExpiring
+
+**Severity:** ticket. **Fires when:** The certificate the API serves expires within 14 days (`pg_sage_api_tls_cert_not_after_seconds`), for an hour. Only a sidecar serving the API over TLS exports it; `/ready` reports `tls_expiring` from the same 14 days.
+
+**What to do:** Renew the certificate and replace the files `SAGE_TLS_CERT` and `SAGE_TLS_KEY` name; the next new TLS connection to the API loads the pair (files checked at most every 5 s), without a restart. A kept-alive scrape connection does not, so on an idle API open the dashboard once and the gauge follows. If the alert stays, check `pg_sage_api_tls_reload_failures_total` and the log for the reload error: a failed reload keeps the old certificate.
+
+### PgSageLeaderLeaseStale
+
+**Severity:** page. **Fires when:** A sidecar has not reached its lease store for a scope in over 90 s (three lease TTLs), for 2 minutes (`pg_sage_leader_last_renew_age_seconds`).
+
+**What to do:** A leader that cannot renew loses the lease and stops its jobs; a follower that cannot read it cannot take over. Check the sidecar's connection to the database that holds `sage.fleet_leader_lease` and the log for `leader:` warnings, then `pg_sage_leader` to see which replica leads now.
+
+### PgSageSSODiscoveryDown
+
+**Severity:** ticket. **Fires when:** OAuth is enabled but OIDC discovery has not succeeded for 15 minutes (`pg_sage_sso_discovery_ready` 0), so SSO sign-in cannot start.
+
+**What to do:** Check that the sidecar reaches the issuer's `/.well-known/openid-configuration` and that `oauth.issuer_url` is right; `pg_sage_sso_discovery_failures_total` counts the failed attempts.
+
+### PgSageApprovalsWaiting
+
+**Severity:** ticket. **Fires when:** A database has had actions of one risk waiting for approval for a day (`pg_sage_actions_pending_approval` above 0 throughout).
+
+**What to do:** Open the approval queue in the dashboard (Actions) and approve or reject them. Pending approvals do not run on their own; a queue nobody reads means the changes Sage proposed are not being made.

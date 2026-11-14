@@ -74,16 +74,25 @@ func TestRulesMatchTheRunbooksAndTheRegistry(t *testing.T) {
 		if r.Annotations["summary"] == "" {
 			t.Errorf("%s has no summary", r.Alert)
 		}
-		names := exprMetric.FindAllString(r.Expr, -1)
-		if len(names) == 0 && !strings.Contains(r.Expr, "up{") {
+		if len(exprMetric.FindAllString(r.Expr, -1)) == 0 && !strings.Contains(r.Expr, "up{") {
 			t.Errorf("%s reads no pg_sage family: %s", r.Alert, r.Expr)
 		}
-		for _, n := range names {
-			if _, ok := metricsreg.Lookup(n); !ok {
-				t.Errorf("%s reads %s, which is not registered", r.Alert, n)
-			}
+		for _, n := range unregisteredFamilies(r.Expr) {
+			t.Errorf("%s reads %s, which is not registered", r.Alert, n)
 		}
 	}
+}
+
+// unregisteredFamilies returns the pg_sage_* names in expr that the
+// registry does not know, in order of appearance.
+func unregisteredFamilies(expr string) []string {
+	var out []string
+	for _, n := range exprMetric.FindAllString(expr, -1) {
+		if _, ok := metricsreg.Lookup(n); !ok {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // Every alert is exercised by promtool, firing at least once.

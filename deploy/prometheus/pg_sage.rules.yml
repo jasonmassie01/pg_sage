@@ -98,3 +98,44 @@ groups:
         annotations:
           summary: "A Sage SRE investigation on {{ $labels.database }} has been open over an hour"
           runbook_url: "https://jasonmassie01.github.io/pg_sage/metrics/#pgsageinvestigationbacklogold"
+
+      # observability-09b. Only a sidecar serving the API over TLS exports
+      # the expiry; 14 days matches /ready's tls_expiring.
+      - alert: PgSageTLSCertExpiring
+        expr: pg_sage_api_tls_cert_not_after_seconds - time() < 14 * 86400
+        for: 1h
+        labels:
+          severity: ticket
+        annotations:
+          summary: "The API TLS certificate of {{ $labels.instance }} expires within 14 days"
+          runbook_url: "https://jasonmassie01.github.io/pg_sage/metrics/#pgsagetlscertexpiring"
+
+      # 90 s is three lease TTLs (leader.DefaultTTL, 30 s); the elector
+      # renews every TTL/3, so this is many missed renewals, not one.
+      - alert: PgSageLeaderLeaseStale
+        expr: pg_sage_leader_last_renew_age_seconds > 90
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "pg_sage has not reached the lease store for {{ $labels.scope }} in 90 s"
+          runbook_url: "https://jasonmassie01.github.io/pg_sage/metrics/#pgsageleaderleasestale"
+
+      # Only a sidecar with OAuth enabled exports the readiness.
+      - alert: PgSageSSODiscoveryDown
+        expr: pg_sage_sso_discovery_ready == 0
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "SSO sign-in on {{ $labels.instance }} is down: OIDC discovery fails"
+          runbook_url: "https://jasonmassie01.github.io/pg_sage/metrics/#pgsagessodiscoverydown"
+
+      - alert: PgSageApprovalsWaiting
+        expr: pg_sage_actions_pending_approval > 0
+        for: 24h
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.database }} has had {{ $labels.risk }}-risk approvals waiting a day"
+          runbook_url: "https://jasonmassie01.github.io/pg_sage/metrics/#pgsageapprovalswaiting"

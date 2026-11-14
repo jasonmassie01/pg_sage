@@ -224,3 +224,118 @@ tests:
             exp_annotations:
               summary: "pg_sage exceeds its cpu budget on a"
               runbook_url: "https://jasonmassie01.github.io/pg_sage/metrics/#pgsageselfbudgetexceeded"
+
+  # observability-09b. The cert series rises with time(), so the time left
+  # stays fixed: a at 14 days and 1 s never fires; b at 13 days 23 h is
+  # pending from 0m, fires after 1h, and clears once the cert is renewed
+  # (90 days on) at 71m.
+  - interval: 1m
+    input_series:
+      - series: 'pg_sage_api_tls_cert_not_after_seconds{instance="sage:1"}'
+        values: '1209601+60x120'
+      - series: 'pg_sage_api_tls_cert_not_after_seconds{instance="sage:2"}'
+        values: '1206000+60x70 7780260x30'
+    alert_rule_test:
+      - eval_time: 59m
+        alertname: PgSageTLSCertExpiring
+        exp_alerts: []
+      - eval_time: 61m
+        alertname: PgSageTLSCertExpiring
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              instance: "sage:2"
+            exp_annotations:
+              summary: "The API TLS certificate of sage:2 expires within 14 days"
+              runbook_url: "https://jasonmassie01.github.io/pg_sage/metrics/#pgsagetlscertexpiring"
+      - eval_time: 80m
+        alertname: PgSageTLSCertExpiring
+        exp_alerts: []
+
+  # A lease age of exactly 90 s never fires; 91 s fires after 2m and
+  # clears when the renewal comes back.
+  - interval: 1m
+    input_series:
+      - series: 'pg_sage_leader_last_renew_age_seconds{scope="a"}'
+        values: '90x10'
+      - series: 'pg_sage_leader_last_renew_age_seconds{scope="b"}'
+        values: '91x5 5x5'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: PgSageLeaderLeaseStale
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: PgSageLeaderLeaseStale
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              scope: b
+            exp_annotations:
+              summary: "pg_sage has not reached the lease store for b in 90 s"
+              runbook_url: "https://jasonmassie01.github.io/pg_sage/metrics/#pgsageleaderleasestale"
+      - eval_time: 8m
+        alertname: PgSageLeaderLeaseStale
+        exp_alerts: []
+
+  # SSO discovery down for 16 minutes fires; ready stays silent.
+  - interval: 1m
+    input_series:
+      - series: 'pg_sage_sso_discovery_ready{instance="sage:1"}'
+        values: '0x20'
+      - series: 'pg_sage_sso_discovery_ready{instance="sage:2"}'
+        values: '1x20'
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: PgSageSSODiscoveryDown
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: PgSageSSODiscoveryDown
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              instance: "sage:1"
+            exp_annotations:
+              summary: "SSO sign-in on sage:1 is down: OIDC discovery fails"
+              runbook_url: "https://jasonmassie01.github.io/pg_sage/metrics/#pgsagessodiscoverydown"
+
+  # Nil/empty: a sidecar without TLS or OAuth exports neither family, so
+  # the two rules stay silent; there is no absent() arm.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="pg_sage",instance="sage:3"}'
+        values: '1x130'
+    alert_rule_test:
+      - eval_time: 125m
+        alertname: PgSageTLSCertExpiring
+        exp_alerts: []
+      - eval_time: 125m
+        alertname: PgSageSSODiscoveryDown
+        exp_alerts: []
+
+  # Approvals: a at 1 is pending for 23h59m and fires at 24h, then clears
+  # at 0. b dips to 0 once at 23h01m, which restarts its 24 hours.
+  - interval: 1m
+    input_series:
+      - series: 'pg_sage_actions_pending_approval{database="a",risk="high"}'
+        values: '1x1450 0x20'
+      - series: 'pg_sage_actions_pending_approval{database="b",risk="moderate"}'
+        values: '1x1380 0 1x89'
+      - series: 'pg_sage_actions_pending_approval{database="c",risk="safe"}'
+        values: '0x1470'
+    alert_rule_test:
+      - eval_time: 1439m
+        alertname: PgSageApprovalsWaiting
+        exp_alerts: []
+      - eval_time: 1440m
+        alertname: PgSageApprovalsWaiting
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              database: a
+              risk: high
+            exp_annotations:
+              summary: "a has had high-risk approvals waiting a day"
+              runbook_url: "https://jasonmassie01.github.io/pg_sage/metrics/#pgsageapprovalswaiting"
+      - eval_time: 1460m
+        alertname: PgSageApprovalsWaiting
+        exp_alerts: []

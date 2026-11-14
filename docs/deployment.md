@@ -389,7 +389,9 @@ sidecar renders `/metrics` from, so it cannot name a family that does not
 exist. Alert rules ship in
 [`deploy/prometheus/pg_sage.rules.yml`](https://github.com/jasonmassie01/pg_sage/blob/master/deploy/prometheus/pg_sage.rules.yml)
 (database down, collector stale, LLM circuit open, failed and rolled-back
-actions, self-budget exceeded, SLO paging, old Sage SRE investigations), with
+actions, self-budget exceeded, SLO paging, old Sage SRE investigations, an API
+TLS certificate within 14 days of expiry, a stale leader lease, failing SSO
+discovery, and approvals left waiting for a day), with
 `promtool test rules` tests beside them. Load the file with `rule_files:`; each
 alert's `runbook_url` opens its runbook in the reference.
 
