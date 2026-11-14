@@ -64,8 +64,9 @@ test('fleet-06 CHECK-04: a metadata fleet with one database stopped', async ({ p
 
   const reporting = rows.filter({ hasText: 'reporting.db' })
   await expect(reporting.getByTestId('runtime-connection')).toHaveText('disconnected')
-  await expect(reporting.getByTestId('runtime-health')).toContainText('not connected')
-  await expect(reporting).not.toContainText('enabled')
+  await expect(reporting.getByTestId('runtime-health')).toHaveText('0not connected')
+  // Stopped is a runtime state: the registration stays enabled, not "disabled".
+  await expect(reporting.getByTestId('db-registration')).toHaveText('')
 
   const orders = rows.filter({ hasText: 'orders.db' })
   await expect(orders.getByTestId('runtime-connection')).toHaveText('connected')

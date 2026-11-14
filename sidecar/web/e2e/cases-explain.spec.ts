@@ -69,6 +69,7 @@ test('a 500 from /api/v1/explain shows the panel error with Retry', async ({ pag
   await expect(panel.getByRole('alert')).toHaveCount(0)
   expect(requests.length).toBeGreaterThan(before)
   expect(requests[before].postDataJSON()).toEqual({ query_id: HINT_QUERYID })
+  expect(new URL(requests[before].url()).search).toBe('?database=orders')
 })
 
 test('market-01 CHECK-04: one click from a query-hint case opens its query page',
