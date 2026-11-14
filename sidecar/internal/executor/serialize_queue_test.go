@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/policy"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // serialize_mode queue (debt item 3) through Apply: a self-initiated
@@ -96,11 +97,13 @@ func TestQueueModeTimeoutParksSelfInitiated(t *testing.T) {
 	exec := queueExecutor(pool, 300*time.Millisecond)
 	holdTypedLease(t, pool, "custodian", "public."+parkTable)
 	decision := insertParkDecision(t, ctx, pool)
-	started := time.Now()
+	// The queue bound is enforced on the database clock; measure the wait
+	// on it too (ci-14).
+	started := testdb.MustDBNow(t, pool)
 
 	exec.executeFinding(ctx, parkFinding(), 0, queueDecision(decision))
 
-	if elapsed := time.Since(started); elapsed < 250*time.Millisecond ||
+	if elapsed := testdb.MustDBNow(t, pool).Sub(started); elapsed < 250*time.Millisecond ||
 		elapsed > 10*time.Second {
 		t.Fatalf("queued for %s, want about the 300ms queue bound", elapsed)
 	}

@@ -11,6 +11,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // A card token is minted per card per channel, stored only as its
@@ -129,7 +131,8 @@ func TestCardConsumeExpired(t *testing.T) {
 		t.Fatalf("expired: err = %v, want ErrCardExpired", err)
 	}
 	got, err := s.Lookup(ctx, token)
-	if err != nil || got.UsedAt != nil || !got.Expired(time.Now()) {
+	// expires_at is the database's now() - 1 s: judge it on that clock (ci-14).
+	if err != nil || got.UsedAt != nil || !got.Expired(testdb.MustDBNow(t, pool)) {
 		t.Fatalf("expired card = %+v, %v", got, err)
 	}
 }

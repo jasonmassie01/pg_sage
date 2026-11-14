@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // serialize_mode queue (debt item 3): a request whose target is leased
@@ -160,11 +162,13 @@ func TestLeaseQueueTimeoutReleasesPosition(t *testing.T) {
 	cfg.MaxWait = 300 * time.Millisecond
 	queue := NewLeaseQueue(h.pool, nil, cfg, "instance-a")
 	release := h.hold()
-	started := time.Now()
+	// The deadline is enforced on the database clock: measure the wait on
+	// it too (ci-14), not with the host's time.Since.
+	started := testdb.MustDBNow(t, h.pool)
 
 	_, err := queue.Acquire(boundedCtx(t), h.request("late", h.manager()))
 
-	elapsed := time.Since(started)
+	elapsed := testdb.MustDBNow(t, h.pool).Sub(started)
 	if !errors.Is(err, ErrLeaseQueueTimeout) || !errors.Is(err, ErrLeaseConflict) {
 		t.Fatalf("queue wait past MaxWait = %v, want ErrLeaseQueueTimeout", err)
 	}
@@ -328,7 +332,8 @@ func TestLeaseQueueAbandonedEntryExpiresAtDeadline(t *testing.T) {
 	// The deadline is the server's now() at insert + 400 ms, so the wait is
 	// measured from before the insert: the setup after it (queue, manager)
 	// took ~185 ms on a loaded CI runner and made a full wait look short.
-	started := time.Now()
+	// Both ends are read on the database clock that enforces it (ci-14).
+	started := testdb.MustDBNow(t, h.pool)
 	_, err := h.pool.Exec(context.Background(), `INSERT INTO sage.lease_queue
 		(request_key, object_keys, kind, actor, intent, decision_id, instance,
 		 heartbeat_at, deadline_at)
@@ -348,7 +353,8 @@ func TestLeaseQueueAbandonedEntryExpiresAtDeadline(t *testing.T) {
 		t.Fatalf("acquire behind an abandoned entry = %v, want granted after it expires", err)
 	}
 	_ = manager.ReleaseLease(context.Background(), id)
-	if elapsed := time.Since(started); elapsed < 250*time.Millisecond || elapsed > 5*time.Second {
+	elapsed := testdb.MustDBNow(t, h.pool).Sub(started)
+	if elapsed < 250*time.Millisecond || elapsed > 5*time.Second {
 		t.Fatalf("waited %s behind the abandoned entry, want until its deadline", elapsed)
 	}
 	if h.entries("timed_out") != 1 {

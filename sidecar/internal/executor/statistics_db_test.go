@@ -13,6 +13,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/policy"
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"github.com/pg-sage/sidecar/internal/verify"
 )
 
@@ -280,17 +281,21 @@ func waitBuiltSinceAction(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 
 // postAnalyzeCaptureTime puts the synthetic plans after PostgreSQL's ANALYZE
 // timestamp, even when the database VM clock is slightly ahead of the host.
-// The monitor's upper bound uses the host clock, so wait for the final seeded
+// The monitor's upper bound uses the host clock (the product mixes clocks:
+// ci-14 triage, proposed item executor-31), so wait for the final seeded
 // timestamp to be observable there before starting its first judgement.
 func postAnalyzeCaptureTime(t *testing.T, ctx context.Context, pool *pgxpool.Pool) time.Time {
 	t.Helper()
-	var at time.Time
-	if err := pool.QueryRow(ctx, "SELECT clock_timestamp()").Scan(&at); err != nil {
+	at, err := testdb.DBNow(ctx, pool)
+	if err != nil {
 		t.Fatalf("read database capture clock: %v", err)
 	}
 	wait := time.Until(at.Add(2 * time.Millisecond))
+	t.Logf("capture stamp: database %s, host %s (database ahead by %s)",
+		at.UTC().Format(time.RFC3339Nano), time.Now().UTC().Format(time.RFC3339Nano), wait)
 	if wait > time.Second {
-		t.Fatalf("database capture clock is too far ahead of host: %s", wait)
+		t.Fatalf("database capture clock is too far ahead of host: %s (the monitor's "+
+			"window ends at the host's time.Now(): executor-31)", wait)
 	}
 	timer := time.NewTimer(max(wait, 0))
 	defer timer.Stop()

@@ -151,14 +151,29 @@ func TestPostgresStore_NoSplitBrainUnderContention(t *testing.T) {
 	}
 }
 
+// takeoverPoll is how often B retries the expired lease, and
+// takeoverSlack the database-clock time B may take past the TTL: one poll
+// plus a tick under load. Both are widened only by the measured step.
+const (
+	takeoverPoll  = 100 * time.Millisecond
+	takeoverSlack = 500 * time.Millisecond
+)
+
 func TestPostgresStore_ElectorsAgainstRealDatabase(t *testing.T) {
 	ctx := context.Background()
-	st := NewPostgresStore(dbPool(t))
+	pool := dbPool(t)
+	st := NewPostgresStore(pool)
 	scope := uniqueScope(t)
-	a := NewElector(st, scope, "A", 2*time.Second)
-	b := NewElector(st, scope, "B", 2*time.Second)
+	const ttl = 2 * time.Second
+	a := NewElector(st, scope, "A", ttl)
+	b := NewElector(st, scope, "B", ttl)
 	if err := a.Tick(ctx); err != nil {
 		t.Fatalf("a: %v", err)
+	}
+	renewed := leaseColumn(t, pool, scope, "renewed_at")
+	watch, err := testdb.StartClockWatch(ctx, pool)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if err := b.Tick(ctx); err != nil {
 		t.Fatalf("b: %v", err)
@@ -170,11 +185,16 @@ func TestPostgresStore_ElectorsAgainstRealDatabase(t *testing.T) {
 	if a.IsLeader() {
 		t.Fatal("A leads past its lease without renewing")
 	}
-	if err := b.Tick(ctx); err != nil {
-		t.Fatalf("b takeover: %v", err)
-	}
-	if !b.IsLeader() {
-		t.Fatal("B did not take over the expired lease")
+	// The lease expires on the database clock, which slews against the
+	// host's on a VM: poll for the takeover and bound it on that clock
+	// (ci-14) instead of trusting one host-timed sleep.
+	awaitTakeover(t, b, ttl+5*time.Second)
+	took := leaseColumn(t, pool, scope, "acquired_at").Sub(renewed)
+	bound := watch.Widen(t, ttl+takeoverSlack)
+	t.Logf("B took over %v after A's last renewal (database clock, bound %v)", took, bound)
+	if took < ttl || took > bound {
+		t.Fatalf("B took over %v after A's renewal, want between the %v TTL and %v",
+			took, ttl, bound)
 	}
 	cur, ok, err := st.Current(ctx, scope)
 	if err != nil || !ok || cur.Holder != "B" || cur.Epoch != 2 {
@@ -183,6 +203,33 @@ func TestPostgresStore_ElectorsAgainstRealDatabase(t *testing.T) {
 	if _, ok, err := st.Current(ctx, "never-"+scope); ok || err != nil {
 		t.Fatalf("unknown scope current ok=%v err=%v", ok, err)
 	}
+}
+
+// awaitTakeover ticks e until it leads, failing after limit of host time.
+func awaitTakeover(t *testing.T, e *Elector, limit time.Duration) {
+	t.Helper()
+	for deadline := time.Now().Add(limit); ; time.Sleep(takeoverPoll) {
+		if err := e.Tick(context.Background()); err != nil {
+			t.Fatalf("b takeover: %v", err)
+		}
+		if e.IsLeader() {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("B did not take over the expired lease within %v", limit)
+		}
+	}
+}
+
+// leaseColumn reads one timestamp of scope's lease row (database clock).
+func leaseColumn(t *testing.T, pool *pgxpool.Pool, scope, col string) time.Time {
+	t.Helper()
+	var at time.Time
+	if err := pool.QueryRow(context.Background(), "SELECT "+col+
+		" FROM sage.fleet_leader_lease WHERE scope = $1", scope).Scan(&at); err != nil {
+		t.Fatalf("read the lease's %s: %v", col, err)
+	}
+	return at
 }
 
 func TestPostgresStore_ErrorsNameTheOperation(t *testing.T) {

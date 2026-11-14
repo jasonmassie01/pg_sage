@@ -14,6 +14,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/leader"
 	"github.com/pg-sage/sidecar/internal/policy"
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
@@ -266,6 +267,10 @@ func TestExpireDue_LeaderFailoverWithTwoElectors(t *testing.T) {
 		return at
 	}
 	lastRenewal := leaseTime("renewed_at")
+	// The bound is on the database clock, which can step against the host
+	// between B's host-timed ticks: widen it by the measured step (ci-14).
+	watch, err := testdb.StartClockWatch(ctx, f.super)
+	require.NoError(t, err)
 	require.NoError(t, b.Tick(ctx))
 	require.True(t, a.IsLeader() && !b.IsLeader(), "A leads first")
 	fenceOf := func(e *leader.Elector) (Fence, bool) {
@@ -292,13 +297,14 @@ func TestExpireDue_LeaderFailoverWithTwoElectors(t *testing.T) {
 	}
 	require.False(t, led.IsZero(), "B never led")
 	took := led.Sub(lastRenewal)
+	bound := watch.Widen(t, ttl+interval+500*time.Millisecond)
 	t.Logf("B led %v after A's last renewal (bound ttl+interval = %v)", took, ttl+interval)
-	require.True(t, took <= ttl+interval+500*time.Millisecond, "B led after %v", took)
+	require.True(t, took <= bound, "B led after %v (bound %v)", took, bound)
 	require.Equal(t, StateRevoked, f.row(t, g.ID).State)
 	require.False(t, f.can(t, f.p.BrokerRole(), "id"))
 	g2 := f.grantID(t)
 	f.expireNow(t, g2.ID)
-	_, err := f.manager.ExpireDue(ctx, f.target, staleA, 100)
+	_, err = f.manager.ExpireDue(ctx, f.target, staleA, 100)
 	require.True(t, errors.Is(err, ErrFenced), "stale leader fenced: %v", err)
 	require.Equal(t, StateActive, f.row(t, g2.ID).State)
 	require.True(t, f.can(t, f.p.BrokerRole(), "id"))
