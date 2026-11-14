@@ -91,15 +91,18 @@ func TestCasesHandlerSplitGoldenResponse(t *testing.T) {
 	if !bytes.Equal(bytes.TrimSpace(got), bytes.TrimSpace(utcTimestamps(t, want))) {
 		t.Fatalf("cases JSON changed:\n got %s\nwant %s", got, want)
 	}
-	// Today the pending action does not reach the case: the queue's ledger
-	// read selects 27 columns and its scanner reads 35, so the finding case
-	// is marked actions_unavailable (a defect reported in cases-30, fixed
-	// separately; this golden pins the split, not that fix).
-	for _, marker := range []string{`"total":3`, `"actions_unavailable":true`,
+	// The pending action reaches its finding case: config-32 fixed the
+	// queue's ledger read (27 columns selected, 35 scanned), the defect
+	// cases-30 reported, so the case lists queue:9401 and is no longer
+	// marked actions_unavailable.
+	for _, marker := range []string{`"total":3`, `"id":"queue:9401"`,
 		`"incident:prod:vacuum_blocked:00000000-0000-0000-0000-000000009501"`,
 		`"query_hint:prod:9601:`} {
 		if !bytes.Contains(got, []byte(marker)) {
 			t.Fatalf("golden response lacks %s: %.600s", marker, got)
 		}
+	}
+	if bytes.Contains(got, []byte(`"actions_unavailable"`)) {
+		t.Fatalf("a case is still marked actions_unavailable: %.600s", got)
 	}
 }
