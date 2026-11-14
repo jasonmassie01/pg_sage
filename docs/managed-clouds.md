@@ -512,6 +512,25 @@ The view read is one read-only transaction bounded by `statement_timeout = 5s` a
 `lock_timeout = 1s`, at most 100 rows; its columns are checked first, and a view without the
 `index` column is reported as `unknown`.
 
+### Parameter advice: no provider source
+
+Provider advice is index advice only; there is no `parameter` kind, because no provider
+publishes PostgreSQL parameter advice that pg_sage could read (checked 2026-11-13):
+
+| Provider | What its advisors recommend | Parameter advice |
+|---|---|---|
+| Cloud SQL | Recommender API (`google.cloudsql.instance.*`): idle, over- and underprovisioned (machine size), out of disk, high availability, security (network, SSL, certificates, password policy, `ENABLE_DATABASE_AUDITING`) and performance (`POSTGRES_HIGH_TRANSACTION_ID_UTILIZATION_BEST_PRACTICE`, manual vacuum steps; `POSTGRES_OPTIMIZE_HIGH_MEMORY_QUERIES`, a machine type) | none: the only flag recommendation, `table_open_cache`, is MySQL only |
+| AlloyDB | no recommender | none |
+| Azure flexible server | index tuning (`CreateIndex`, `DropIndex`); other types are shown as `unknown` | none |
+| Supabase | performance advisors (index lints) | none |
+| Neon | no advisor API | none |
+
+The database-auditing recommendation says to enable auditing and links to the pgAudit guide;
+it carries no flag name and value, so it would be a provider instruction, not a parameter
+change pg_sage could reconcile. pg_sage's own parameter advice (`managed_parameter_drift`
+findings and the provider proposals above) is unaffected. If a provider starts publishing
+PostgreSQL flag recommendations, a `parameter` kind can be added then.
+
 `GET /api/v1/provider-advice?database=<name>` lists each database's advice and its sources'
 last fetch (`?include_resolved=true` adds resolved advice). A finding case shows the advice
 behind its finding in `provider_advice` (`provider_advice_unavailable` when it could not be
