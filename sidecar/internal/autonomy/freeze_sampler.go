@@ -2,6 +2,7 @@ package autonomy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -11,6 +12,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/custodian/freeze"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
@@ -42,8 +45,10 @@ type FreezeReading struct {
 type FreezeSampler struct {
 	pool          txBeginner
 	bloatMinBytes int64
-	ttl           time.Duration
-	now           func() time.Time
+	// bounds are the reading transaction's statement and lock timeouts.
+	bounds catalogread.Timeouts
+	ttl    time.Duration
+	now    func() time.Time
 
 	mu sync.Mutex
 	// readings counts completed readings (read before mu is taken).
@@ -55,10 +60,12 @@ type FreezeSampler struct {
 
 // NewFreezeSampler reads through pool; minBloatBytes is the bloat plan
 // floor (heaps at it get a bloat estimate). A zero TTL serves only
-// readings taken while a caller waited.
+// readings taken while a caller waited. Each reading runs under the
+// shipped catalog read bounds (catalogread.Default) until the custodian's
+// WithBloatBounds applies the configured ones.
 func NewFreezeSampler(pool txBeginner, minBloatBytes int64, ttl time.Duration) *FreezeSampler {
 	return &FreezeSampler{pool: pool, bloatMinBytes: minBloatBytes, ttl: max(ttl, 0),
-		now: time.Now}
+		bounds: catalogread.Default(), now: time.Now}
 }
 
 // Read returns the current reading, taking a new one when the cached one
@@ -97,28 +104,28 @@ func (s *FreezeSampler) FreezeHorizons(ctx context.Context) ([]probes.FreezeHori
 	return reading.Horizons, nil
 }
 
-// read samples the counters, the holders and the horizons in one
-// read-only transaction; the caller holds mu.
+// read samples the counters, the holders and the horizons in one bounded
+// read-only transaction (statement and lock timeouts); the caller holds mu.
 func (s *FreezeSampler) read(ctx context.Context) (FreezeReading, error) {
 	if s.pool == nil {
 		return FreezeReading{}, fmt.Errorf("freeze sampler has no database pool")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	tx, err := catalogread.Begin(ctx, s.pool, s.bounds)
 	if err != nil {
 		return FreezeReading{}, fmt.Errorf("begin freeze age read: %w", err)
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }() // read-only
 	cur, failsafeAge, err := readFreezeCounters(ctx, tx)
 	if err != nil {
-		return FreezeReading{}, err
+		return FreezeReading{}, freezeReadError(err)
 	}
 	holders, err := readXminHolders(ctx, tx)
 	if err != nil {
-		return FreezeReading{}, err
+		return FreezeReading{}, freezeReadError(err)
 	}
 	horizons, err := probes.ReadFreezeHorizons(ctx, tx, freezeHorizonLimit, s.bloatMinBytes)
 	if err != nil {
-		return FreezeReading{}, err
+		return FreezeReading{}, freezeReadError(err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return FreezeReading{}, fmt.Errorf("end freeze age read: %w", err)
@@ -126,6 +133,30 @@ func (s *FreezeSampler) read(ctx context.Context) (FreezeReading, error) {
 	cur.at = s.now()
 	return FreezeReading{At: cur.at, Holders: holders, Horizons: horizons,
 		rates: s.advance(cur, failsafeAge)}, nil
+}
+
+// SQLSTATEs of the reading's server-side bounds.
+const (
+	sqlStateQueryCanceled = "57014" // statement_timeout (or a cancel)
+	sqlStateLockTimeout   = "55P03"
+)
+
+// freezeReadError names the reading and, when a server-side bound ended
+// it, which one: "lock timeout" or "statement timeout" (a slow catalog, or
+// a held lock when the statement bound is the shorter, as shipped). The
+// driver's error stays wrapped.
+func freezeReadError(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch {
+		case pgErr.Code == sqlStateLockTimeout:
+			return fmt.Errorf("freeze age read: lock timeout: %w", err)
+		case pgErr.Code == sqlStateQueryCanceled &&
+			strings.Contains(pgErr.Message, "statement timeout"):
+			return fmt.Errorf("freeze age read: statement timeout: %w", err)
+		}
+	}
+	return fmt.Errorf("freeze age read: %w", err)
 }
 
 // advance turns a counter sample into rates against the previous one.

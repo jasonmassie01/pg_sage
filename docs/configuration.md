@@ -2235,6 +2235,28 @@ multixact one:
    plan (when the extension is installed) or a parked `bloat_remediation` decision, at risk
    tier `high`. pg_sage never runs either.
 
+**Emergency `VACUUM` profile.** When the watchdog has cancelled a red table's freeze at
+`safety.vacuum_timeout_seconds` (`vacuum_cap`) twice in the last 6 hours, with no completed
+custodian `VACUUM` of the table since, the next freeze runs the emergency profile:
+`VACUUM (FREEZE, INDEX_CLEANUP OFF, TRUNCATE OFF)`, or `VACUUM (INDEX_CLEANUP OFF, TRUNCATE
+OFF)` when a plain `VACUUM` is aggressive already. Index vacuuming is usually most of a large
+table's `VACUUM`, and skipping the truncation avoids its end-of-run `ACCESS EXCLUSIVE` lock. Its
+session also runs with `vacuum_cost_delay = 0`, which a role or database setting may have
+raised; the replaced value is recorded as `vacuum_cost_delay_before` in the action's
+`before_state`, and the setting is reset before the connection returns to the pool. Only
+`vacuum_cap` failures count, not `vacuum_stalled`, a lock timeout or any other error, and an
+amber or green table never gets the profile. The trade-off: dead index entries stay, so index
+bloat grows until the next normal `VACUUM`. That is the custodian's next freeze proposal once
+the table leaves red, or autovacuum's next run. PostgreSQL's own failsafe
+(`vacuum_failsafe_age`, PostgreSQL 14+) does the same only near 1.6 billion XIDs. The profile is
+the same `vacuum_table` action under the same policy gate and trust level, keeps
+`lock_timeout`, the watchdog and the emergency stop, and is never `VACUUM FULL`. The proposal's
+evidence carries `profile: emergency` and `cap_failures`. The emergency statement has its own
+failure backoff, so a failing emergency streak escalates once more, with `profile: emergency`
+in the `custodian_escalation` event and its decision. If the cap history cannot be read, the
+normal freeze runs and one `WARN` names the table. No configuration and no extra privilege
+are needed (both options exist on PostgreSQL 12+).
+
 An amber table gets no custodian action, and the custodian has no autovacuum tuning step:
 the analyzer's `autovacuum_tuning` is the only tuner.
 
@@ -2243,9 +2265,14 @@ the analyzer's `autovacuum_tuning` is the only tuner.
 once a minute: the cadence is the larger of `analyzer.interval_seconds` and 60 seconds. One
 sample per database (the 500 most advanced relations, at most 20 xmin holders, and the XID
 and multixact consumption rates) is read in one read-only transaction and shared with the
-runway advisor and the analyzer for half that interval. The sample sets no statement or
-lock timeout of its own. The `pgstattuple_approx` confirmations of the three largest bloat
-candidates per scan are bounded by `safety.query_timeout_ms` and `safety.lock_timeout_ms`.
+runway advisor and the analyzer for half that interval. The sample's transaction is bounded
+by `safety.query_timeout_ms` and `safety.lock_timeout_ms` (`0` uses the default), so a catalog
+lock held by DDL ends the sample at the shorter of the two instead of holding the custodian,
+the runway advisor and the analyzer. The error names the bound: with the shipped values
+(500 ms and 30 s) it is `freeze age read: statement timeout`, and `freeze age read: lock
+timeout` when the lock timeout is the shorter. That cycle proposes nothing, and the next one
+reads again. The `pgstattuple_approx` confirmations of the three largest bloat
+candidates per scan are bounded by the same two settings.
 Until two scans have measured the consumption rate, the custodian claims no deadline.
 
 **Backoff and escalation.** A custodian statement whose runs failed (outcome `failed` or

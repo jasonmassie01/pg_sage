@@ -23,7 +23,7 @@ func (e *Executor) execConcurrentDDL(
 	ctx context.Context, sql string, state map[string]any, opts ...DDLOption,
 ) error {
 	if isWatchedVacuum(sql) {
-		return e.execVacuumWatched(ctx, sql, opts...)
+		return e.execVacuumWatched(ctx, sql, state, opts...)
 	}
 	cleanup, err := e.remnantRunFor(sql, opts...).exec(ctx, sql)
 	recordRemnantCleanup(state, cleanup)

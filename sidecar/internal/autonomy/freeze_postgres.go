@@ -29,6 +29,11 @@ type PostgresFreezeCustodian struct {
 	// detail reads a pinning session's own state before it is signalled
 	// (readSessionDetail unless a test replaces it).
 	detail sessionDetailReader
+	// capFailures counts a red table's capped custodian VACUUMs
+	// (readVacuumCapFailures unless a test replaces it); logFn takes the
+	// custodian's warnings (WithLogger).
+	capFailures capFailureReader
+	logFn       func(level, format string, args ...any)
 }
 
 // NewPostgresFreezeCustodian builds the custodian with the shipped bloat
@@ -50,6 +55,8 @@ func NewPostgresFreezeCustodian(
 	}
 	c.confirm = c.pgstattupleApprox
 	c.detail = c.readSessionDetail
+	c.capFailures = c.readVacuumCapFailures
+	c.logFn = stdLogf
 	return c
 }
 
@@ -110,9 +117,11 @@ func (c *PostgresFreezeCustodian) freezeRows(horizons []probes.FreezeHorizon) []
 
 // respond answers one table's horizon: the freeze ladder, then a bloat
 // plan from the bloat estimate (never from the dead-tuple ratio). A red
-// table also returns the holder that pins it, if any.
+// table also returns the holder that pins it, if any, and its capped
+// VACUUMs pick the freeze's profile.
 func (c *PostgresFreezeCustodian) respond(
-	row freezeRow, rates freezeRateSample, holders []freeze.XminBlocker, repack bool,
+	ctx context.Context, row freezeRow, rates freezeRateSample,
+	holders []freeze.XminBlocker, repack bool,
 ) (Proposal, *freeze.XminBlocker, error) {
 	sample := row.sample
 	sample.Database = c.database
@@ -129,6 +138,7 @@ func (c *PostgresFreezeCustodian) respond(
 		PGRepackAvailable: repack}
 	if assessment.Urgency == freeze.UrgencyRed {
 		input.Holder = freeze.PinningCandidate(holders, row.userCatalog)
+		input.CapFailures = c.capFailureCount(ctx, sample.Schema, sample.Table)
 	}
 	response, err := freeze.PlanResponse(input)
 	if err != nil {

@@ -188,7 +188,7 @@ func TestConfirmBloatErrorKeepsEstimate(t *testing.T) {
 		errors.New("ERROR: canceling statement due to statement timeout (SQLSTATE 57014)"))
 	rows := bloatRows(t, horizonValues("c1", 0, 11, 200, pagesPtr(40)))
 	custodian.confirmBloat(context.Background(), rows, true)
-	proposal, _, err := custodian.respond(rows[0], knownRates, nil, false)
+	proposal, _, err := custodian.respond(context.Background(), rows[0], knownRates, nil, false)
 	if err != nil {
 		t.Fatalf("respond: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestConfirmBloatMeasurementCanWithdrawThePlan(t *testing.T) {
 	custodian.confirm = recordingConfirm(&calls, 0.2, nil)
 	rows := bloatRows(t, horizonValues("c1", 0, 11, 200, pagesPtr(40)))
 	custodian.confirmBloat(context.Background(), rows, true)
-	proposal, _, err := custodian.respond(rows[0], knownRates, nil, false)
+	proposal, _, err := custodian.respond(context.Background(), rows[0], knownRates, nil, false)
 	if err != nil || len(calls) != 1 || proposal.Plan != "" || proposal.ResponseKind != "" {
 		t.Fatalf("measured 20%% bloat still planned: %#v (%v)", proposal, err)
 	}
@@ -238,6 +238,6 @@ func (c *PostgresFreezeCustodian) scanResponseRow(
 	if err != nil {
 		return Proposal{}, err
 	}
-	proposal, _, err := c.respond(scanned, rates, holders, repack)
+	proposal, _, err := c.respond(context.Background(), scanned, rates, holders, repack)
 	return proposal, err
 }

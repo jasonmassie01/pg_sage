@@ -31,7 +31,8 @@ func newFreezeCustodian(pool *pgxpool.Pool, cfg *config.Config,
 	return autonomy.NewPostgresFreezeCustodian(pool, database,
 		cfg.Custodian.Freeze.RedBufferPct).
 		WithBloatBounds(cfg.Analyzer.BloatPlanMinBytes(), catalogread.FromSafety(cfg.Safety)).
-		WithSampleTTL(autonomyInterval(cfg) / 2)
+		WithSampleTTL(autonomyInterval(cfg) / 2).
+		WithLogger(logStructuredWrapper)
 }
 
 // freezeCustodian is the runtime's one freeze custodian, built on first use.

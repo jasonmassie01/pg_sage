@@ -40,7 +40,7 @@ func TestCustodianRefusesUnparsableWALKeepSize(t *testing.T) {
 	exec := New(pool, config.DefaultConfig(), time.Time{}, nopLog)
 
 	err := exec.executeCustodianSQL(ctx,
-		"ALTER SYSTEM SET max_slot_wal_keep_size = '1 zillion'", ActionPolicyDecision{})
+		"ALTER SYSTEM SET max_slot_wal_keep_size = '1 zillion'", ActionPolicyDecision{}, nil)
 
 	if !errors.Is(err, ErrUnsafeGUCValue) {
 		t.Fatalf("executeCustodianSQL = %v, want ErrUnsafeGUCValue", err)

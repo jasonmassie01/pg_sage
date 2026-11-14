@@ -66,8 +66,9 @@ func aggressiveAges(
 }
 
 // WithBloatBounds sets the least heap size for a bloat plan and the bounds
-// of each pgstattuple confirmation. A zero floor or timeout keeps the
-// shipped value: a zero bound would mean an unbounded probe.
+// of each pgstattuple confirmation and of the sampler's reading. A zero
+// floor or timeout keeps the shipped value: a zero bound would mean an
+// unbounded probe.
 func (c *PostgresFreezeCustodian) WithBloatBounds(
 	minBytes int64, confirm catalogread.Timeouts,
 ) *PostgresFreezeCustodian {
@@ -83,6 +84,7 @@ func (c *PostgresFreezeCustodian) WithBloatBounds(
 		confirm.Lock = defaults.Lock
 	}
 	c.confirmBounds = confirm
+	c.sampler.bounds = confirm
 	return c
 }
 

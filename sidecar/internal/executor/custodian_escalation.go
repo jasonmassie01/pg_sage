@@ -60,7 +60,16 @@ func (e *Executor) escalateCustodianBackoff(
 		Database: e.databaseName, Feature: proposal.Feature,
 		Target: strings.Join(proposal.TargetObjects, ","), SQL: proposal.SQL,
 		SQLSHA256: sha, Failures: backoff.failures,
-		Window: custodianBackoffWindow.String(), DecisionID: decisionID}))
+		Window: custodianBackoffWindow.String(), DecisionID: decisionID,
+		Profile: custodianProfile(proposal)}))
+}
+
+// custodianProfile is the proposal's VACUUM profile evidence (vacuum-05b:
+// "emergency"), empty when it has none. An emergency statement differs
+// from the normal one, so its failure streak escalates on its own.
+func custodianProfile(p CustodianProposal) string {
+	profile, _ := p.Evidence["profile"].(string)
+	return profile
 }
 
 // custodianRed reports a proposal that answers a red horizon: a critical
@@ -124,6 +133,9 @@ func (e *Executor) escalationDecision(
 		Reason: reasonCustodianBackoff, RiskTier: riskTier,
 		TargetObjects: append([]string(nil), proposal.TargetObjects...),
 		EvidenceID:    ledger.NewEvidenceID()}
+	if profile := custodianProfile(proposal); profile != "" {
+		input.Evidence["profile"] = profile
+	}
 	if proposal.Deadline != nil && !proposal.Deadline.HardAt.IsZero() {
 		hardAt := proposal.Deadline.HardAt
 		input.DeadlineKind, input.DeadlineHardAt = string(proposal.Deadline.Kind), &hardAt

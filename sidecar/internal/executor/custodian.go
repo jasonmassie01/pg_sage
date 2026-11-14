@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -213,12 +214,13 @@ func (r *custodianRun) execute(
 	r.baseline = baseline
 	managedResult, managed, execErr := e.applyManagedCustodianConfig(ctx, r.proposal)
 	r.managed = managed
+	session := map[string]any{}
 	if !managed {
-		execErr = e.executeCustodianSQL(ctx, r.proposal.SQL, decision)
+		execErr = e.executeCustodianSQL(ctx, r.proposal.SQL, decision, session)
 	}
-	actionID := e.logActionWithDecision(
-		ctx, r.finding, 0, e.snapshotBeforeState(ctx, nil), decisionID, execErr,
-	)
+	before := e.snapshotBeforeState(ctx, nil)
+	maps.Copy(before, session)
+	actionID := e.logActionWithDecision(ctx, r.finding, 0, before, decisionID, execErr)
 	if execErr != nil {
 		return actionID, fmt.Errorf("execute custodian proposal: %w", execErr)
 	}
@@ -360,9 +362,10 @@ func setCustodianVerificationCriterion(
 }
 
 // executeCustodianSQL runs a custodian statement under the decision's lock
-// timeout (the policy lock ceiling caps in-transaction statements).
+// timeout (the policy lock ceiling caps in-transaction statements); a
+// top-level statement records what its session changed in state.
 func (e *Executor) executeCustodianSQL(
-	ctx context.Context, sql string, decision ActionPolicyDecision,
+	ctx context.Context, sql string, decision ActionPolicyDecision, state map[string]any,
 ) error {
 	if err := ValidateExecutorSQL(sql); err != nil {
 		return err
@@ -377,7 +380,7 @@ func (e *Executor) executeCustodianSQL(
 	lockOpt := e.lockOption(sql, decision)
 	var err error
 	if statementRunsTopLevel(sql) {
-		err = e.execConcurrentDDL(ctx, sql, nil, lockOpt)
+		err = e.execConcurrentDDL(ctx, sql, state, lockOpt)
 	} else {
 		err = ExecInTransaction(ctx, e.actionDB(), sql, timeout, lockOpt)
 	}

@@ -40,6 +40,10 @@ type ResponseInput struct {
 	SizeBytes         int64
 	MinBloatBytes     int64
 	PGRepackAvailable bool
+	// CapFailures counts the table's custodian VACUUMs the watchdog capped
+	// in the backoff window; from EmergencyCapFailures a red table gets
+	// the emergency profile (EmergencyVacuumSQL).
+	CapFailures int
 }
 
 type Response struct {
@@ -97,6 +101,9 @@ func validateResponseInput(input ResponseInput) error {
 		input.BloatRatio < 0 || input.BloatRatio > 1 {
 		return fmt.Errorf("freeze ratios must be within zero and one")
 	}
+	if input.CapFailures < 0 {
+		return fmt.Errorf("cap failure count %d must not be negative", input.CapFailures)
+	}
 	if input.SizeBytes < 0 || input.MinBloatBytes < 0 {
 		return fmt.Errorf("heap size %d and bloat floor %d must not be negative",
 			input.SizeBytes, input.MinBloatBytes)
@@ -125,6 +132,10 @@ func freezeResponse(input ResponseInput) Response {
 }
 
 func freezeSQL(input ResponseInput) string {
+	if emergencyProfile(input) {
+		return EmergencyVacuumSQL(input.Schema, input.Table, input.XIDAge, input.MultiXactAge,
+			input.Aggressive)
+	}
 	return VacuumSQL(input.Schema, input.Table, input.XIDAge, input.MultiXactAge,
 		input.Aggressive)
 }
@@ -149,6 +160,10 @@ func responseEvidence(input ResponseInput) map[string]any {
 	if input.BloatKnown {
 		evidence["bloat_ratio"] = input.BloatRatio
 		evidence["bloat_source"] = input.BloatSource
+	}
+	if emergencyProfile(input) {
+		evidence["profile"] = ProfileEmergency
+		evidence["cap_failures"] = input.CapFailures
 	}
 	return evidence
 }
