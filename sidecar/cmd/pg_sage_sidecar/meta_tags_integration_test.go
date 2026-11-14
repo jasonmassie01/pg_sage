@@ -60,12 +60,14 @@ func TestMetaReconcileAppliesTagEditInPlace(t *testing.T) {
 	}
 }
 
+// lookalikeSchemaSQL is the tenants' application schema. It runs on the
+// fleet instance's pool, pinned to pg_catalog, pg_temp, so it names public.
 const lookalikeSchemaSQL = `
-CREATE TABLE customers (id bigint PRIMARY KEY, email text NOT NULL, created timestamptz);
-CREATE TABLE orders (id bigint PRIMARY KEY, customer_id bigint, total numeric(12,2),
+CREATE TABLE public.customers (id bigint PRIMARY KEY, email text NOT NULL, created timestamptz);
+CREATE TABLE public.orders (id bigint PRIMARY KEY, customer_id bigint, total numeric(12,2),
 	status text, placed timestamptz);
-CREATE INDEX ON orders (customer_id);
-CREATE UNIQUE INDEX ON customers (email)`
+CREATE INDEX ON public.orders (customer_id);
+CREATE UNIQUE INDEX ON public.customers (email)`
 
 // tenantFleet registers one same-shaped database per name, tagged with its
 // tenant, and fingerprints the fleet the way the leader's cycle does.
