@@ -268,6 +268,6 @@ You should see findings for any detected issues (duplicate indexes, unused index
 |----------|-------------|--------|
 | Google Cloud SQL | 14, 15, 16, 17 | Verified |
 | Google AlloyDB | 17 | Verified |
-| Self-managed | 14, 15, 16, 17 | Verified |
+| Self-managed | 14-18 | Verified (CI matrix) |
 | Amazon Aurora | 14-17 | Supported |
 | Amazon RDS | 14-17 | Supported |

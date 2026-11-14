@@ -7,7 +7,7 @@ changing pg_sage setup.
 ## Prerequisites
 
 - Windows 11
-- Docker Desktop, or a local PostgreSQL 14-17 install
+- Docker Desktop, or a local PostgreSQL 14-18 install
 - Go 1.26+
 - Node.js 22+ and npm
 - `psql` client, only for a local PostgreSQL install (the Docker path runs `psql`
