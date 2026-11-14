@@ -152,9 +152,11 @@ func (c *Collector) queryCapabilities(ctx context.Context) Capabilities {
 }
 
 // invalidateCapabilities forces the next refresh to re-derive everything.
+// It keeps pg_stat_statements' schema: the statements reads before that
+// refresh still name the view where the last probe found it.
 func (c *Collector) invalidateCapabilities() {
 	c.mu.Lock()
-	c.caps.key, c.caps.cached = capKey{}, false
+	c.caps.key, c.caps.cached = capKey{schema: c.caps.key.schema}, false
 	c.mu.Unlock()
 }
 

@@ -2,7 +2,10 @@ package collector
 
 import (
 	"context"
+	"errors"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/extschema"
 )
 
 // statementsInfoProbeSQL reports whether pg_stat_statements_info exists
@@ -33,7 +36,12 @@ const postmasterEpochSQL = sageTag + `SELECT pg_postmaster_start_time()`
 func (c *Collector) collectStatementsEpoch(ctx context.Context) time.Time {
 	var hasInfo bool
 	names, err := c.pgss()
-	if err == nil {
+	switch {
+	case errors.Is(err, extschema.ErrExtensionAbsent):
+		// Not installed in this database: no info view, so only a server
+		// restart is detectable, as when the view is missing.
+		err = nil
+	case err == nil:
 		err = c.catalogQueryRow(ctx, statementsInfoProbeSQL, names.info).Scan(&hasInfo)
 	}
 	if err != nil {
