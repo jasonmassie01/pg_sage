@@ -40,6 +40,10 @@ var analyzerRules = []Rule{
 	{"cdc_heartbeat_stale", k("cdc_heartbeat_stale")},
 	{"wal_archive_failing", k("wal_archive_failing")},
 	{"wal_archive_stale", k("wal_archive_stale")},
+	{"pg_cron_job_failed", k("pg_cron_job_failed")},
+	{"pg_cron_history_unbounded", k("pg_cron_history_unbounded")},
+	{"partman_premake_gap", k("partman_premake_gap")},
+	{"partman_default_rows", k("partman_default_rows")},
 }
 
 // AnalyzerRules returns a copy of the rule-pack vocabulary.

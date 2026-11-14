@@ -55,6 +55,10 @@ type RuleExtras struct {
 	// undecided names, per category, identities a rule could not decide
 	// this cycle: their open findings stay open (runSnapshotRules).
 	undecided map[string][]string
+	// ext is this cycle's pg_cron and pg_partman reading (market-16);
+	// extWarned names the reads in a streak of failures already logged.
+	ext       *extReading
+	extWarned map[string]bool
 }
 
 // RuleFunc is the standard signature for snapshot-based rules.
@@ -132,6 +136,13 @@ var AllRules = []RuleSpec{
 	{"wal_archive_failing", ruleWALArchiveFailing, cats(categoryWALArchiveFailing),
 		hasArchiverInterval},
 	{"wal_archive_stale", ruleWALArchiveStale, cats(categoryWALArchiveStale), hasArchiver},
+
+	// Extension health (market-16, rules_ext_*.go): the cycle's extension
+	// reading marks a category not evaluated when it could not run.
+	{categoryCronJobFailed, rulePgCronJobFailed, cats(categoryCronJobFailed), nil},
+	{categoryCronHistory, rulePgCronHistoryUnbounded, cats(categoryCronHistory), nil},
+	{categoryPartmanPremake, rulePartmanPremakeGap, cats(categoryPartmanPremake), nil},
+	{categoryPartmanDefault, rulePartmanDefaultRows, cats(categoryPartmanDefault), nil},
 }
 
 func cats(c ...string) []string { return c }
