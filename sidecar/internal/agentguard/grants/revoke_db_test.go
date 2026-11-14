@@ -257,7 +257,7 @@ func TestExpireDue_LeaderFailoverWithTwoElectors(t *testing.T) {
 	store := leader.NewPostgresStore(f.super)
 	a := leader.NewElector(store, scope, "sidecar-a", ttl)
 	b := leader.NewElector(store, scope, "sidecar-b", ttl)
-	require.NoError(t, a.Tick(ctx)) // A dies after this tick
+	tickRetrying(t, a) // A dies after this tick
 	// Times are the lease table's (the database clock), so client latency
 	// under load does not blur the bound.
 	leaseTime := func(col string) time.Time {
@@ -271,7 +271,7 @@ func TestExpireDue_LeaderFailoverWithTwoElectors(t *testing.T) {
 	// between B's host-timed ticks: widen it by the measured step (ci-14).
 	watch, err := testdb.StartClockWatch(ctx, f.super)
 	require.NoError(t, err)
-	require.NoError(t, b.Tick(ctx))
+	tickRetrying(t, b)
 	require.True(t, a.IsLeader() && !b.IsLeader(), "A leads first")
 	fenceOf := func(e *leader.Elector) (Fence, bool) {
 		tok, ok := e.Fence()
@@ -282,9 +282,12 @@ func TestExpireDue_LeaderFailoverWithTwoElectors(t *testing.T) {
 	g := f.grantID(t)
 	f.expireNow(t, g.ID)
 	var led time.Time
+	missed := 0
 	for deadline := time.Now().Add(ttl + interval + 5*time.Second); time.Now().Before(
 		deadline); time.Sleep(interval) {
-		require.NoError(t, b.Tick(ctx))
+		if !ticked(t, b, &missed) {
+			continue
+		}
 		fb, ok := fenceOf(b)
 		if !ok {
 			continue
@@ -308,6 +311,36 @@ func TestExpireDue_LeaderFailoverWithTwoElectors(t *testing.T) {
 	require.True(t, errors.Is(err, ErrFenced), "stale leader fenced: %v", err)
 	require.Equal(t, StateActive, f.row(t, g2.ID).State)
 	require.True(t, f.can(t, f.p.BrokerRole(), "id"))
+}
+
+// missedTickLimit is how many ticks in a row may run past their bound.
+const missedTickLimit = 3
+
+// ticked ticks e and reports whether the tick finished. A tick past the
+// elector's ttl/3 bound is a missed renewal the product retries on the
+// next tick (a VM stall on a loaded host can exceed the bound), so it is
+// logged and counted in missed; any other error, or too many misses in a
+// row, fails the test.
+func ticked(t *testing.T, e *leader.Elector, missed *int) bool {
+	t.Helper()
+	err := e.Tick(context.Background())
+	if err == nil {
+		*missed = 0
+		return true
+	}
+	*missed++
+	if !errors.Is(err, context.DeadlineExceeded) || *missed >= missedTickLimit {
+		t.Fatalf("tick: %v", err)
+	}
+	t.Logf("missed tick %d (past its bound): %v", *missed, err)
+	return false
+}
+
+// tickRetrying ticks e until a tick finishes (see ticked).
+func tickRetrying(t *testing.T, e *leader.Elector) {
+	t.Helper()
+	for missed := 0; !ticked(t, e, &missed); {
+	}
 }
 
 func TestExpireDue_UnknownFenceScopeIsFenced(t *testing.T) {

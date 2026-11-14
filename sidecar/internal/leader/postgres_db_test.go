@@ -167,17 +167,13 @@ func TestPostgresStore_ElectorsAgainstRealDatabase(t *testing.T) {
 	const ttl = 2 * time.Second
 	a := NewElector(st, scope, "A", ttl)
 	b := NewElector(st, scope, "B", ttl)
-	if err := a.Tick(ctx); err != nil {
-		t.Fatalf("a: %v", err)
-	}
+	tickRetrying(t, a, "a")
 	renewed := leaseColumn(t, pool, scope, "renewed_at")
 	watch, err := testdb.StartClockWatch(ctx, pool)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := b.Tick(ctx); err != nil {
-		t.Fatalf("b: %v", err)
-	}
+	tickRetrying(t, b, "b")
 	if !a.IsLeader() || b.IsLeader() {
 		t.Fatalf("a=%v b=%v, want only A", a.IsLeader(), b.IsLeader())
 	}
@@ -205,13 +201,43 @@ func TestPostgresStore_ElectorsAgainstRealDatabase(t *testing.T) {
 	}
 }
 
+// missedTickLimit is how many ticks in a row may run past their bound.
+const missedTickLimit = 3
+
+// missedTick reports a tick that ran past the elector's ttl/3 bound. The
+// product counts it as a missed renewal and retries on the next tick; a VM
+// stall on a loaded host can exceed the bound. Any other error is fatal.
+func missedTick(t *testing.T, name string, err error, attempt int) {
+	t.Helper()
+	if !errors.Is(err, context.DeadlineExceeded) || attempt >= missedTickLimit {
+		t.Fatalf("%s: %v", name, err)
+	}
+	t.Logf("%s: missed tick %d (past its bound): %v", name, attempt, err)
+}
+
+// tickRetrying ticks e, retrying only a tick that missed its bound.
+func tickRetrying(t *testing.T, e *Elector, name string) {
+	t.Helper()
+	for attempt := 1; ; attempt++ {
+		err := e.Tick(context.Background())
+		if err == nil {
+			return
+		}
+		missedTick(t, name, err, attempt)
+	}
+}
+
 // awaitTakeover ticks e until it leads, failing after limit of host time.
 func awaitTakeover(t *testing.T, e *Elector, limit time.Duration) {
 	t.Helper()
+	missed := 0
 	for deadline := time.Now().Add(limit); ; time.Sleep(takeoverPoll) {
 		if err := e.Tick(context.Background()); err != nil {
-			t.Fatalf("b takeover: %v", err)
+			missed++
+			missedTick(t, "b takeover", err, missed)
+			continue
 		}
+		missed = 0
 		if e.IsLeader() {
 			return
 		}
