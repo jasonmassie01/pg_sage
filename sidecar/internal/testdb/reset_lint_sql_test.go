@@ -38,9 +38,9 @@ func lintLiterals(fset *token.FileSet, rel string, root ast.Node) []resetFinding
 // lintOffence names what text does to the whole cluster, or "".
 func lintOffence(text string) string {
 	switch {
-	case lintZeroArgReset.MatchString(text):
-		return "a zero-argument pg_stat_statements_reset empties every database's " +
-			"statements; use testdb.ResetStatements, or testdb.Exclusive"
+	case lintZeroArgReset.MatchString(text), lintAllZeroReset.MatchString(text):
+		return "a zero-argument (or all-zero) pg_stat_statements_reset empties every " +
+			"database's statements; use testdb.ResetStatements, or testdb.Exclusive"
 	case lintResetShared.MatchString(text):
 		return "pg_stat_reset_shared resets cluster-wide statistics; " +
 			"run it in a test that calls testdb.Exclusive"

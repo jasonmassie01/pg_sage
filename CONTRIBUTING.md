@@ -121,7 +121,8 @@ Only a reset of every database moves `pg_stat_statements_info.stats_reset`;
 a test that needs that, a `pg_stat_reset_shared` call or a `CHECKPOINT` runs
 on `testdb.Exclusive`. `TestResetLint` (`go test -run TestResetLint
 ./internal/testdb/`) fails, naming file and line, on a zero-argument
-`pg_stat_statements_reset()`, a `pg_stat_reset_shared(` call or an executed
+`pg_stat_statements_reset()` (or its all-zero `(0, 0, 0)` form), a
+`pg_stat_reset_shared(` call or an executed
 `CHECKPOINT` in a test file or under `internal/testsupport/` that no
 `Exclusive` test reaches.
 

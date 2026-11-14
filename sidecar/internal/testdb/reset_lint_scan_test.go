@@ -24,7 +24,10 @@ import (
 
 var (
 	lintZeroArgReset = regexp.MustCompile(`(?i)pg_stat_statements_reset\s*\(\s*\)`)
-	lintResetShared  = regexp.MustCompile(`(?i)pg_stat_reset_shared\s*\(`)
+	// (0, 0, 0): every role, every database, every query; the same reset.
+	lintAllZeroReset = regexp.MustCompile(`(?i)pg_stat_statements_reset\s*\(` +
+		`(\s*0\s*(::\s*\w+\s*)?,){2}\s*0\s*(::\s*\w+\s*)?[,)]`)
+	lintResetShared = regexp.MustCompile(`(?i)pg_stat_reset_shared\s*\(`)
 )
 
 // resetLintSkipDirs are never walked: fixtures, vendored or built trees.

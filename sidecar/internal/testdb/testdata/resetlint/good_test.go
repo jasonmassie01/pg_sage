@@ -30,6 +30,8 @@ func TestPerDatabaseStatementsAreAllowed(t *testing.T) {
 	_, _ = pool.Exec(ctx, "SELECT pg_stat_reset()")
 	_, _ = pool.Exec(ctx, `SELECT pg_stat_statements_reset(0,
 		(SELECT oid FROM pg_database WHERE datname = current_database()), 0)`)
+	_, _ = pool.Exec(ctx, "SELECT pg_stat_statements_reset(0, 0, $1)", int64(7))
+	_, _ = pool.Exec(ctx, "SELECT pg_stat_statements_reset(10, 0, 0)")
 	_, _ = pool.Exec(ctx, "SELECT 'CHECKPOINT' AS word")
 	_, _ = pool.Exec(ctx, "INSERT INTO kinds VALUES ($1)", "CHECKPOINT")
 	_ = classifyOne("CHECKPOINT")

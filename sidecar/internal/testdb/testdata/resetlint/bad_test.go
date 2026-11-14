@@ -23,6 +23,8 @@ func TestZeroArgumentReset(t *testing.T) {
 	_, _ = pool.Exec(ctx,
 		"/* "+harnessTag+" */ SELECT pg_stat_statements_reset( )") // want
 	_, _ = pool.Exec(ctx, fmt.Sprintf("SELECT %s, PG_STAT_STATEMENTS_RESET()", "1")) // want
+	_, _ = pool.Exec(ctx, "SELECT pg_stat_statements_reset(0, 0::oid, 0)")           // want
+	_, _ = pool.Exec(ctx, "SELECT pg_stat_statements_reset(0,0,0, false)")           // want
 }
 
 func TestResetShared(t *testing.T) {
