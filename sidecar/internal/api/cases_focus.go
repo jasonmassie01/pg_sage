@@ -174,6 +174,7 @@ func lookupFindingCases(
 	for i, p := range paged {
 		maps[i] = p.row
 	}
+	attachSequenceRunway(ctx, sel.pool, sel.name, maps)
 	out, findingIDs := projectFindingRows(maps)
 	enrichCasesActionPolicies(ctx, out, mgr.GetInstance(sel.name))
 	enrichFindingCases(ctx, out, sel, findingIDs)
