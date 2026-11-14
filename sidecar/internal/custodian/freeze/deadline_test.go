@@ -163,3 +163,38 @@ func validHorizonSample(edit func(*HorizonSample)) HorizonSample {
 	edit(&sample)
 	return sample
 }
+
+// vacuum-11b: the fallback agrees with config validation, which accepts
+// only 0 < red < 100. Values inside the open interval, up to its edges,
+// are used as given; the amber rule min(2 x red, 100) is unchanged.
+func TestBufferThresholdsUsesOpenIntervalUpToItsEdges(t *testing.T) {
+	tests := []struct{ red, wantRed, wantAmber float64 }{
+		{0.0001, 0.0001, 0.0002},
+		{0.5, 0.5, 1},
+		{49.9, 49.9, 99.8},
+		{99.999, 99.999, 100},
+	}
+	for _, tt := range tests {
+		got := BufferThresholds(tt.red)
+		if got.RedBufferPct != tt.wantRed || got.AmberBufferPct != tt.wantAmber {
+			t.Fatalf("BufferThresholds(%v) = %+v, want %v/%v",
+				tt.red, got, tt.wantRed, tt.wantAmber)
+		}
+	}
+}
+
+// NaN compares false with every bound, so a range check written as
+// "redPct <= 0 || redPct >= 100" let it through as NaN thresholds, under
+// which no table is ever red or amber. The defence falls back instead.
+func TestBufferThresholdsFallsBackOnNaNAndInfinity(t *testing.T) {
+	for _, red := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		got := BufferThresholds(red)
+		if got.RedBufferPct != 25 || got.AmberBufferPct != 50 {
+			t.Fatalf("BufferThresholds(%v) = %+v, want the 25/50 fallback", red, got)
+		}
+		const maximum = int64(200_000_000)
+		if u := TableUrgency(maximum, maximum, 0, maximum, got); u != UrgencyRed {
+			t.Fatalf("exhausted runway under BufferThresholds(%v) = %q, want red", red, u)
+		}
+	}
+}

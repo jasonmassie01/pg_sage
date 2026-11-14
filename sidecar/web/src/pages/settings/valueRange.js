@@ -25,6 +25,13 @@ export function rangeProblem(key, value) {
   if (isIntegerType(meta.type) && !Number.isInteger(n)) {
     return `${key} must be a whole number, got "${text}"`
   }
+  if (meta.open) {
+    // vacuum-11b: both bounds excluded, as the API checks it.
+    if (!(n > meta.min && n < meta.max)) {
+      return `${key} must be greater than ${meta.min} and less than ${meta.max}, got ${text}`
+    }
+    return null
+  }
   if ((meta.min !== undefined && n < meta.min) || (meta.max !== undefined && n > meta.max)) {
     return `${key} must be ${meta.min}-${meta.max}, got ${text}`
   }

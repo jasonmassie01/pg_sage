@@ -17,6 +17,8 @@ import (
 //	enum:"stdio|http"     the accepted strings
 //	zero:"default"        a file may also hold 0, meaning "use the default";
 //	                      the API refuses 0 (removing the override restores it)
+//
+// An open api type (float_pct_open) excludes both bounds.
 type KeySpec struct {
 	Key         string
 	Type        string // the API validation type; "" for a YAML-only setting
@@ -24,6 +26,7 @@ type KeySpec struct {
 	Integer     bool   // the value is a whole number
 	HasRange    bool
 	Min, Max    float64
+	Open        bool // Min and Max are excluded (vacuum-11b)
 	ZeroDefault bool
 	Enum        []string
 	index       []int
@@ -31,8 +34,8 @@ type KeySpec struct {
 
 // apiType is what a validation type implies before a field's own tags.
 type apiType struct {
-	ranged, integer, enum bool
-	min, max              float64
+	ranged, integer, enum, open bool
+	min, max                    float64
 }
 
 // apiTypes are the validation types the configuration API accepts.
@@ -53,6 +56,7 @@ var apiTypes = map[string]apiType{
 	"float_pos":          {ranged: true, min: 0.001, max: 1e9},
 	"float_nonneg":       {ranged: true, min: 0, max: 1e9},
 	"float_pct_pos":      {ranged: true, min: 0.001, max: 100},
+	"float_pct_open":     {ranged: true, open: true, min: 0, max: 100}, // vacuum-11b
 	"bool":               {},
 	"string":             {},
 	"maintenance_window": {},
@@ -184,6 +188,7 @@ func (s *KeySpec) applyAPIType(name string, kind reflect.Kind) error {
 	}
 	s.Type, s.Overridable = name, true
 	s.HasRange, s.Integer, s.Min, s.Max = t.ranged, t.integer, t.min, t.max
+	s.Open = t.open
 	return nil
 }
 

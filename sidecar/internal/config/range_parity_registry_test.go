@@ -78,13 +78,19 @@ type probe struct {
 }
 
 // rangeProbes are Min, Max and the nearest values outside them; for a
-// zero:"default" key, 0 loads from a file and the API refuses it.
+// zero:"default" key, 0 loads from a file and the API refuses it. An open
+// range (vacuum-11b) refuses Min and Max and accepts the values just inside.
 func rangeProbes(s config.KeySpec) []probe {
 	step := 1.0
 	if !s.Integer {
 		step = 0.001
 	}
 	format := func(f float64) string { return strconv.FormatFloat(f, 'f', -1, 64) }
+	if s.Open {
+		return []probe{{format(s.Min + step), true, true}, {format(s.Max - step), true, true},
+			{format(s.Min), false, false}, {format(s.Max), false, false},
+			{format(s.Min - step), false, false}, {format(s.Max + step), false, false}}
+	}
 	probes := []probe{{format(s.Min), true, true}, {format(s.Max), true, true},
 		{format(s.Max + step), false, false}}
 	if below := s.Min - step; !s.ZeroDefault || below != 0 {

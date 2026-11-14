@@ -1405,8 +1405,9 @@
     "doc": "Remaining XID percentage classified red.",
     "class": "safety_critical",
     "lifecycle": "restart",
-    "min": 0.001,
-    "max": 100
+    "min": 0,
+    "max": 100,
+    "open": true
   },
   "custodian.wal.abandon_after_minutes": {
     "type": "int",

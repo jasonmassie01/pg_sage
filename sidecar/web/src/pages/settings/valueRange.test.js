@@ -39,6 +39,18 @@ describe('rangeProblem', () => {
       'mcp.transport must be one of stdio, http, got "grpc"')
   })
 
+  // vacuum-11b: red_buffer_pct is an open range, both bounds refused.
+  it('refuses the bounds of an open range and accepts values inside', () => {
+    const key = 'custodian.freeze.red_buffer_pct'
+    expect(rangeProblem(key, '99.5')).toBeNull()
+    expect(rangeProblem(key, '0.5')).toBeNull()
+    for (const v of ['100', '0', '-1', '150']) {
+      expect(rangeProblem(key, v))
+        .toBe(`${key} must be greater than 0 and less than 100, got ${v}`)
+    }
+    expect(rangeProblem(key, 'abc')).toBe(`${key} must be a number, got "abc"`)
+  })
+
   it('leaves keys without a contract alone', () => {
     expect(rangeProblem('llm.model', 'anything')).toBeNull()
     expect(rangeProblem('execution_mode', 'auto')).toBeNull()

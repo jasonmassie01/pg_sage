@@ -2201,7 +2201,7 @@ tuned to freeze early is judged early. The catalog entries are in
 
 | Key | Default | Meaning |
 |---|---|---|
-| `custodian.freeze.red_buffer_pct` | `25` | A table is red when its remaining XID (or multixact) runway, its effective freeze maximum minus its age, is at most this percent of that maximum. Amber is twice this, at most 100 percent. Above 0, at most 100; a value of `100` loads, but the custodian then uses `25`. Environment: `SAGE_CUSTODIAN_FREEZE_RED_BUFFER_PCT`. Restart to change |
+| `custodian.freeze.red_buffer_pct` | `25` | A table is red when its remaining XID (or multixact) runway, its effective freeze maximum minus its age, is at most this percent of that maximum. Amber is twice this, at most 100 percent. Greater than 0 and less than 100: `0`, `100` and above, negative values and `.nan` are refused when the file loads, on a hot reload and by the API, and a stored API override outside the interval is skipped with a warning. Environment: `SAGE_CUSTODIAN_FREEZE_RED_BUFFER_PCT`. Restart to change |
 
 **The freeze ladder.** The freeze custodian is the single producer of freeze actions: the
 analyzer only diagnoses. It answers each table by its urgency, the worse of the XID and the

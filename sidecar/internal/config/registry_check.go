@@ -21,8 +21,12 @@ func (s KeySpec) CheckNumber(n float64) error {
 // even on a zero:"default" key, because removing the override (DELETE)
 // is how the API returns a key to its default.
 func (s KeySpec) CheckOverride(n float64) error {
-	if !s.HasRange || (n >= s.Min && n <= s.Max) {
+	if !s.HasRange || s.inRange(n) {
 		return nil
+	}
+	if s.Open {
+		return fmt.Errorf("%s must be greater than %s and less than %s, got %s",
+			s.Key, s.formatNumber(s.Min), s.formatNumber(s.Max), s.formatNumber(n))
 	}
 	note := ""
 	if s.ZeroDefault && n == 0 {
@@ -30,6 +34,15 @@ func (s KeySpec) CheckOverride(n float64) error {
 	}
 	return fmt.Errorf("%s must be %s-%s, got %s%s",
 		s.Key, s.formatNumber(s.Min), s.formatNumber(s.Max), s.formatNumber(n), note)
+}
+
+// inRange reports n within the bounds; NaN compares false with both, so
+// it is never in range.
+func (s KeySpec) inRange(n float64) bool {
+	if s.Open {
+		return n > s.Min && n < s.Max
+	}
+	return n >= s.Min && n <= s.Max
 }
 
 // CheckEnum refuses v, naming the key, when the key lists its values and

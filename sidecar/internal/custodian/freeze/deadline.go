@@ -102,10 +102,11 @@ func urgency(distance, maximum int64, thresholds Thresholds) Urgency {
 }
 
 // BufferThresholds derives the urgency buffers from the configured red
-// percentage: amber is twice red, capped at 100. An out-of-range value
-// falls back to the 25% default.
+// percentage: amber is twice red, capped at 100. Config validation admits
+// only 0 < red < 100; a value outside that, NaN included, falls back to
+// the 25% default for a caller that skipped validation.
 func BufferThresholds(redPct float64) Thresholds {
-	if redPct <= 0 || redPct >= 100 {
+	if !(redPct > 0 && redPct < 100) {
 		redPct = 25
 	}
 	return Thresholds{RedBufferPct: redPct, AmberBufferPct: math.Min(redPct*2, 100)}

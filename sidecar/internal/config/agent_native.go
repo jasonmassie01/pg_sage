@@ -61,7 +61,7 @@ type CustodianConfig struct {
 }
 
 type FreezeCustodianConfig struct {
-	RedBufferPct float64 `yaml:"red_buffer_pct" doc:"Remaining XID percentage classified red." api:"float_pct_pos"`
+	RedBufferPct float64 `yaml:"red_buffer_pct" doc:"Remaining XID percentage classified red." api:"float_pct_open"`
 }
 
 type WALCustodianConfig struct {
@@ -115,9 +115,11 @@ func (c *Config) validateAgentNative() error {
 	if err := c.Clone.validate(); err != nil {
 		return err
 	}
-	if c.Custodian.Freeze.RedBufferPct <= 0 ||
-		c.Custodian.Freeze.RedBufferPct > 100 {
-		return fmt.Errorf("custodian.freeze.red_buffer_pct must be within 1-100")
+	// The open interval freeze.BufferThresholds uses as given; written so
+	// NaN, which compares false with both bounds, is refused (vacuum-11b).
+	if red := c.Custodian.Freeze.RedBufferPct; !(red > 0 && red < 100) {
+		return fmt.Errorf("custodian.freeze.red_buffer_pct must be greater than 0 " +
+			"and less than 100")
 	}
 	if err := c.Custodian.WAL.validate(); err != nil {
 		return err

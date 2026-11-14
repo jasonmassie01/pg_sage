@@ -28,6 +28,7 @@ var setterProbeValues = map[string][]string{
 	"float_pos":          {"1.5", "2.5", "0.5"},
 	"float_nonneg":       {"0", "3.5", "1.25"},
 	"float_pct_pos":      {"0.5", "42.5", "10"},
+	"float_pct_open":     {"0.5", "42.5", "99.5"}, // vacuum-11b
 	"bool":               {"true", "false"},
 	"policy_profile":     {"staffed", "unattended"},
 	"clone_provider":     {"none", "dle", "snapshot"},

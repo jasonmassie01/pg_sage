@@ -35,8 +35,10 @@ type fieldMeta struct {
 	// Min, Max and Enum are the value contract the configuration API applies
 	// on save (config-02b), from config.Registry(); the Settings page checks
 	// them before a PUT.
-	Min  *float64 `json:"min,omitempty"`
-	Max  *float64 `json:"max,omitempty"`
+	Min *float64 `json:"min,omitempty"`
+	Max *float64 `json:"max,omitempty"`
+	// Open marks min and max as excluded (vacuum-11b).
+	Open bool     `json:"open,omitempty"`
 	Enum []string `json:"enum,omitempty"`
 }
 
@@ -222,7 +224,7 @@ func withContract(meta fieldMeta, key string) fieldMeta {
 	}
 	if spec.HasRange {
 		lo, hi := spec.Min, spec.Max
-		meta.Min, meta.Max = &lo, &hi
+		meta.Min, meta.Max, meta.Open = &lo, &hi, spec.Open
 	}
 	if len(spec.Enum) > 0 {
 		meta.Enum = append([]string(nil), spec.Enum...)

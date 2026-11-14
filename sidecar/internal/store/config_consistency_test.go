@@ -635,6 +635,7 @@ func TestConfigConsistency_HotReloadCoversAllAllowedKeys(
 		"float_pos":          "2.0",
 		"float_nonneg":       "0.5",
 		"float_pct_pos":      "25.0",
+		"float_pct_open":     "25.0", // vacuum-11b
 		"policy_profile":     "staffed",
 		"clone_provider":     "none",
 		"mcp_transport":      "stdio",
@@ -807,6 +808,7 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 		"float_pos":          "2.0",
 		"float_nonneg":       "0.5",
 		"float_pct_pos":      "25.0",
+		"float_pct_open":     "25.0", // vacuum-11b
 		"policy_profile":     "staffed",
 		"clone_provider":     "none",
 		"mcp_transport":      "stdio",
@@ -849,7 +851,8 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 						"want int",
 					sampleKey, input, vtype, result)
 			}
-		case "float01", "float_share", "float_pos", "float_nonneg", "float_pct_pos":
+		case "float01", "float_share", "float_pos", "float_nonneg", "float_pct_pos",
+			"float_pct_open":
 			if _, ok := result.(float64); !ok {
 				t.Errorf(
 					"coerceValue(%q, %q) [type %s] = %T, "+
