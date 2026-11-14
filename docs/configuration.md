@@ -1460,6 +1460,38 @@ snapshot with the earliest `system` or `tables` snapshot inside the window, read
 Checkpoints and WAL are cluster-wide: in fleet mode the WAL review runs once per
 instance, from the database that owns the instance settings. Bloat is per database.
 
+### PostgreSQL 18 I/O settings
+
+The config snapshot reads `io_method`, `io_workers`, `io_combine_limit` and
+`maintenance_io_concurrency` beside `effective_io_concurrency`. A server returns only the
+names it has: `maintenance_io_concurrency` exists on every supported version,
+`io_combine_limit` from PostgreSQL 17, `io_method` and `io_workers` from 18. The tuning
+agent's case packet lists `maintenance_io_concurrency`, `io_method` and `io_workers` with
+their source and context, as context only.
+
+These settings are documented for advice, never proposed as SQL: none is in the executor's
+allowlist, so no new write path is added. `io_method` (sync, worker or io_uring; io_uring
+needs a Linux build with liburing) needs a restart; `io_workers` (used only with
+`io_method = worker`) is reloadable.
+
+On PostgreSQL 18 and later the advisor runs a deterministic check every cycle. It makes no
+model call, but it runs inside the advisor, which starts only when `advisor.enabled` is on
+and an LLM is configured; it keeps running if the LLM is switched off later. It reports an
+[`io_settings`](findings.md#io_settings) `info` finding, without SQL, when a configuration
+carried from an older server undoes 18's asynchronous I/O:
+
+- `effective_io_concurrency` at or below 1, or `maintenance_io_concurrency` at or below
+  10, from a source other than `default`: the value overrides 18's new default of 16 and
+  switches off most of the read-ahead that asynchronous I/O adds;
+- `io_method = sync` from a source other than `default`: asynchronous I/O is off.
+
+The finding names the setting's source; on a managed service change it in the
+provider's parameter settings. Nothing is reported on PostgreSQL 14-17 or while the
+server version is unknown. In fleet mode the instance-wide values are reported once per
+instance, from the database that owns the instance settings; a value set for one database
+alone (source `database` or `database user`, from `ALTER DATABASE` or `ALTER ROLE ... IN
+DATABASE`) is reported by that database, as `database:<setting>` with `scope = database`.
+
 ### LLM provider errors and the circuit breaker
 
 Each LLM client classifies every provider error and reports the class as

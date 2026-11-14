@@ -37,7 +37,9 @@ var rules07Lists = map[string][]string{
 		// market-02 added the seasonal workload anomaly.
 		"workload_anomaly"},
 	"advisor": {"wal_tuning", "connection_tuning", "query_rewrite",
-		"bloat_remediation", "advisor_degraded", "vacuum_tuning", "memory_tuning"},
+		"bloat_remediation", "advisor_degraded", "vacuum_tuning", "memory_tuning",
+		// market-15 added the PostgreSQL 18 I/O settings check.
+		"io_settings"},
 	"optimizer": {"missing_index", "covering_index", "partial_index", "composite_index"},
 	// tuning-11 added query_parameterization to the query_tuning subsystem.
 	"query_tuning": {"query_tuning", "stale_statistics", "runaway_query",

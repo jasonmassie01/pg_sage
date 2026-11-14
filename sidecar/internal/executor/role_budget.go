@@ -165,10 +165,11 @@ func setRoleTimeoutContract() ActionContract {
 		},
 		Guardrails: []string{"cluster role lock", "dedicated transaction",
 			"statement_timeout", "lock_timeout", "prior value re-read under the lock"},
-		ExecutionPlan:   []string{"ALTER ROLE r IN DATABASE d SET setting = 'value'"},
-		SuccessCriteria: []string{"pg_db_role_setting holds the value for new sessions"},
-		PostChecks:      []string{"read pg_db_role_setting back"},
-		RollbackClass:   "reversible", Cooldown: "role-scoped",
+		ExecutionPlan: []string{"ALTER ROLE r IN DATABASE d SET setting = 'value'"},
+		SuccessCriteria: []string{"pg_db_role_setting holds the value for new sessions",
+			roleTimeoutLogCheck},
+		PostChecks:    []string{"read pg_db_role_setting back", roleTimeoutLogCheck},
+		RollbackClass: "reversible", Cooldown: "role-scoped",
 		AuditFields: []string{"case_id", "database", "role", "setting", "prior", "value"},
 	}
 }
@@ -194,3 +195,8 @@ func setRoleConnectionLimitContract() ActionContract {
 			"connection_limit", "current_sessions"},
 	}
 }
+
+// roleTimeoutLogCheck is the verification of an enforced statement_timeout
+// (market-08b): its cancels, counted from the server log, must stay within
+// twice the budget's shadow prediction for 24 hours, or it is reverted.
+const roleTimeoutLogCheck = "statement-timeout cancels from the server log"

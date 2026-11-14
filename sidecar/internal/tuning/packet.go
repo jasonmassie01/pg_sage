@@ -222,10 +222,12 @@ func writeFacts(p *packetBuilder, confirmed []facts.Fact, now time.Time, tables 
 }
 
 // packetSettings are the configuration values the agent may tune or must
-// reason about.
+// reason about. The PostgreSQL 18 I/O settings are context only: absent
+// before 18 (io_method, io_workers) and never executable (market-15).
 var packetSettings = []string{"work_mem", "hash_mem_multiplier", "maintenance_work_mem",
 	"shared_buffers", "effective_cache_size", "random_page_cost", "max_connections",
-	"default_statistics_target", "effective_io_concurrency", "autovacuum_vacuum_scale_factor",
+	"default_statistics_target", "effective_io_concurrency", "maintenance_io_concurrency",
+	"io_method", "io_workers", "autovacuum_vacuum_scale_factor",
 	"autovacuum_vacuum_threshold", "autovacuum_vacuum_cost_delay",
 	"autovacuum_vacuum_cost_limit", "autovacuum_max_workers", "autovacuum_naptime"}
 

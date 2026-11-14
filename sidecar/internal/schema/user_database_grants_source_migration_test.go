@@ -10,10 +10,16 @@ import (
 // 'manual' (an admin) or 'idp' (the SSO group mapping). Rows written
 // before the column existed read 'manual'; bootstrap stays idempotent.
 
-func TestGrantSourceMigration_StepIsLastAndBounded(t *testing.T) {
+// The global last-step pin lives in TestMigrationStatements_AreTheStepsInOrder;
+// later T4 steps land after this one, so this test pins its tranche only.
+func TestGrantSourceMigration_StepIsInTrancheFourAndBounded(t *testing.T) {
 	steps := trancheFourMigrations()
-	if len(steps) == 0 || steps[len(steps)-1][0] != "ddlUserDatabaseGrantsSource" {
-		t.Fatalf("trancheFourMigrations = %+v, want ddlUserDatabaseGrantsSource last", steps)
+	found := false
+	for _, s := range steps {
+		found = found || s[0] == "ddlUserDatabaseGrantsSource"
+	}
+	if !found {
+		t.Fatalf("trancheFourMigrations = %+v, want ddlUserDatabaseGrantsSource", steps)
 	}
 	for _, want := range []string{"lock_timeout", "ADD COLUMN IF NOT EXISTS source",
 		"'manual'", "'idp'"} {
