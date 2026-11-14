@@ -94,6 +94,10 @@ var runtimeFamilies = []Family{
 	{Name: "pg_sage_trust_level", Type: Gauge, Area: AreaHealth,
 		Help:   "Effective trust level of the database (one-hot)",
 		Labels: []string{"database", "level"}, Modes: AllModes, Since: "v2.6.0"},
+	{Name: "pg_sage_schema_deferred_indexes", Type: Gauge, Area: AreaHealth,
+		Help: "Large sage indexes the background builder has still to build, by state " +
+			"(missing, building, invalid); 0 once all are built",
+		Labels: []string{"database", "state"}, Modes: AllModes, Since: "v2.7.0"},
 	{Name: "pg_sage_collector_breaker_skips_total", Type: Counter, Area: AreaCollector,
 		Help: "Collector cycles skipped by the breaker, by reason (load, " +
 			"load_query_error)",

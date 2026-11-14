@@ -124,6 +124,9 @@ func main() {
 	defer closeMonitoredPool()
 
 	initProcessContext()
+	if metaState != nil {
+		startMetaDeferredIndexBuilder(shutdownCtx, pool) // config-04c
+	}
 	initModeRuntime(metaState)
 
 	// Construct the API rate limiter before initFleetAndAPI captures its
