@@ -27,12 +27,13 @@ func configGetHandler(
 					http.StatusNotFound)
 				return
 			}
+			cfg := inst.ConfigSnapshot()
 			jsonResponse(w, map[string]any{
 				"database":    database,
-				"trust_level": inst.Config.TrustLevel,
-				"executor":    inst.Config.IsExecutorEnabled(),
-				"llm":         inst.Config.IsLLMEnabled(),
-				"tags":        inst.Config.Tags,
+				"trust_level": cfg.TrustLevel,
+				"executor":    cfg.IsExecutorEnabled(),
+				"llm":         cfg.IsLLMEnabled(),
+				"tags":        cfg.Tags,
 			})
 			return
 		}

@@ -45,9 +45,19 @@ func ExtSchemaDatabase(t testing.TB, label string) (admin, pinned *pgxpool.Pool)
 // pg_catalog, pg_temp, as pg_sage's observation sessions will.
 func PinnedPool(t testing.TB, dsn string) *pgxpool.Pool {
 	t.Helper()
+	return pinnedPool(t, dsn, 0)
+}
+
+// pinnedPool is PinnedPool with at most maxConns sessions (0: pgx's
+// default).
+func pinnedPool(t testing.TB, dsn string, maxConns int32) *pgxpool.Pool {
+	t.Helper()
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		t.Fatalf("parse DSN: %v", err)
+	}
+	if maxConns > 0 {
+		cfg.MaxConns = maxConns
 	}
 	cfg.ConnConfig.AfterConnect = func(ctx context.Context, pc *pgconn.PgConn) error {
 		return pc.Exec(ctx, "SET search_path = pg_catalog, pg_temp").Close()

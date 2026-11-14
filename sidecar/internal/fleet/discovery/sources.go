@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
@@ -14,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/lakebaseid"
 	"github.com/pg-sage/sidecar/internal/store"
 )
 
@@ -101,7 +103,8 @@ func NewLakebaseSource(name, project string, api LakebaseAPI, cap int) *Lakebase
 func (l *LakebaseSource) Name() string { return l.name }
 
 // List walks branches and their endpoints; both walks stop at the cap, so
-// a page-token loop cannot spin.
+// a page-token loop cannot spin. pg_sage's own rehearsal branches are
+// skipped but still count toward the branch walk.
 func (l *LakebaseSource) List(ctx context.Context) ([]Candidate, error) {
 	parent := "projects/" + l.project
 	branches := l.api.ListBranches(ctx, postgres.ListBranchesRequest{Parent: parent})
@@ -111,6 +114,9 @@ func (l *LakebaseSource) List(ctx context.Context) ([]Candidate, error) {
 		if err != nil {
 			return nil, fmt.Errorf("lakebase source %s: list branches of %s: %w",
 				l.name, parent, err)
+		}
+		if isRehearsalBranch(b.Name) {
+			continue
 		}
 		eps := l.api.ListEndpoints(ctx, postgres.ListEndpointsRequest{Parent: b.Name})
 		// Endpoints without a host add no candidate, so the walk counts too.
@@ -126,6 +132,14 @@ func (l *LakebaseSource) List(ctx context.Context) ([]Candidate, error) {
 		}
 	}
 	return out, nil
+}
+
+// isRehearsalBranch reports whether name (projects/<p>/branches/<id>, or a
+// bare id) is a branch pg_sage created for a rehearsal: its id, the last
+// path segment, starts with the rehearsal prefix.
+func isRehearsalBranch(name string) bool {
+	id := name[strings.LastIndex(name, "/")+1:]
+	return strings.HasPrefix(id, lakebaseid.RehearsalBranchPrefix)
 }
 
 func lakebaseCandidate(ep postgres.Endpoint) (Candidate, bool) {

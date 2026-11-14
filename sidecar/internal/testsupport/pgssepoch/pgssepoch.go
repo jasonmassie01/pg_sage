@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/pg-sage/sidecar/internal/extschema"
 )
 
 // Querier is the subset of a pool or connection Epoch needs.
@@ -21,9 +23,15 @@ type Querier interface {
 // Epoch identifies the statistics' generation: a full reset changes
 // stats_reset and an eviction raises dealloc.
 func Epoch(ctx context.Context, q Querier) (string, error) {
+	// The view is named with its schema: a pinned session (pg_catalog,
+	// pg_temp) finds it no other way (security-01c-n).
+	info, err := extschema.StatementsRel(ctx, q, "pg_stat_statements_info")
+	if err != nil {
+		return "", fmt.Errorf("read pg_stat_statements_info: %w", err)
+	}
 	var epoch string
-	err := q.QueryRow(ctx, `SELECT stats_reset::text || '/' || dealloc::text
-		FROM pg_stat_statements_info`).Scan(&epoch)
+	err = q.QueryRow(ctx, `SELECT stats_reset::text || '/' || dealloc::text
+		FROM `+info).Scan(&epoch)
 	if err != nil {
 		return "", fmt.Errorf("read pg_stat_statements_info: %w", err)
 	}

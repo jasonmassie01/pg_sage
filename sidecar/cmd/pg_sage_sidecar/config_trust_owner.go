@@ -101,8 +101,8 @@ func currentTrustLevel(instance *fleet.DatabaseInstance, global string) string {
 	if status := instance.SnapshotStatus(); status.TrustLevel != "" {
 		return status.TrustLevel
 	}
-	if instance.Config.TrustLevel != "" {
-		return instance.Config.TrustLevel
+	if level := instance.ConfigSnapshot().TrustLevel; level != "" {
+		return level
 	}
 	return global
 }

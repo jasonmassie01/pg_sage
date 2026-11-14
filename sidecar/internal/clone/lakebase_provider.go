@@ -35,11 +35,10 @@ var (
 )
 
 const (
-	lakebaseBranchPrefix = "sage-rh-"
-	maxLakebaseTTL       = 24 * time.Hour
-	defaultLakebaseWait  = 10 * time.Minute
-	lakebasePort         = "5432"
-	lakebaseDatabase     = "databricks_postgres"
+	maxLakebaseTTL      = 24 * time.Hour
+	defaultLakebaseWait = 10 * time.Minute
+	lakebasePort        = "5432"
+	lakebaseDatabase    = "databricks_postgres"
 )
 
 var lakebaseIDPattern = regexp.MustCompile(`^` + lakebaseid.Pattern + `$`)
@@ -139,7 +138,7 @@ func NewLakebaseBranchProvider(cfg LakebaseConfig) (*LakebaseBranchProvider, err
 		cfg.Now = time.Now
 	}
 	owned := regexp.MustCompile(`^projects/` + regexp.QuoteMeta(cfg.Project) +
-		`/branches/` + lakebaseBranchPrefix + `[0-9a-f]{8}$`)
+		`/branches/` + lakebaseid.RehearsalBranchPrefix + `[0-9a-f]{8}$`)
 	return &LakebaseBranchProvider{cfg: cfg, source: source, owned: owned}, nil
 }
 
@@ -184,7 +183,7 @@ func newLakebaseBranchID() (string, error) {
 	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("generate rehearsal branch id: %w", err)
 	}
-	return lakebaseBranchPrefix + hex.EncodeToString(b), nil
+	return lakebaseid.RehearsalBranchPrefix + hex.EncodeToString(b), nil
 }
 
 // lakebaseDSN connects to host as production's role with the minted

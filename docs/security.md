@@ -204,6 +204,20 @@ Model-authored SQL never runs through the executor ([Model-authored SQL](#model-
 
 - **Never directly executes high-risk DDL.** Rewrite-heavy or forward-fix-only schema changes become migration-safety cases with preflight evidence, generated scripts, verification SQL, and PR/CI metadata for human review.
 - **Never ignores live DDL risk.** Active workload, pending locks, replica lag, large table size, and missing lock-timeout evidence keep DDL in reviewed PR/script mode.
+- **Never resolves its own reads through `public`.** Every pg_sage session (collector,
+  analyzer, Ask Sage, MCP tools, the meta-database and fleet pools, and the separate action
+  identity's pool) runs with `search_path = pg_catalog, pg_temp`, set with a session `SET`
+  right after connect, after the READ COMMITTED pin. A function or operator planted in
+  `public` (a `public.lower(text)`, a `public.=` over `text` or `name`) therefore never runs
+  inside pg_sage, whatever `ALTER ROLE` or `ALTER DATABASE` sets the path to. pg_sage's own
+  objects are named with the `sage` schema and extension objects with the schema
+  `pg_extension` records, so neither needs to be on the path. A connection whose pin cannot
+  be set is closed and the error names `search_path`. The pin is a `SET`, not a startup
+  parameter, so PgBouncer accepts it and `pg_settings.reset_val` still shows the database's
+  own value, which workload `EXPLAIN` uses (below). An executor action outside a transaction
+  restores the session's own `search_path` when it ends, so the session goes back to the
+  pool still pinned. Through PgBouncer, use session pooling: in transaction pooling a
+  session `SET` does not follow the client.
 - **Never resolves its own DDL through `public`.** Every executor DDL session (transactional
   and `CONCURRENTLY`) runs with `search_path = pg_catalog, pg_temp`, so a function or
   operator another role plants in `public` cannot bind into an index pg_sage builds (the

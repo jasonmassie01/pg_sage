@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/apppath"
 	"github.com/pg-sage/sidecar/internal/explain"
 	"github.com/pg-sage/sidecar/internal/sqlast"
 )
@@ -61,6 +62,12 @@ func vetTier2SQL(ctx context.Context, store *pgxpool.Pool, inc *Incident,
 	vetModelSQL(pctx, tx, nil, inc, logFn)
 }
 
+// beginProofTx opens the proof's bounded READ ONLY transaction on the
+// application's search_path (apppath.Pin), the path a person runs the SQL
+// on: the store's own sessions are pinned to pg_catalog, pg_temp, where a
+// public function that wins resolution for that person would go unseen
+// and an application table the SQL names without a schema would not
+// resolve (security-01c-r).
 func beginProofTx(ctx context.Context, store *pgxpool.Pool) (pgx.Tx, error) {
 	tx, err := store.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
 	if err != nil {
@@ -74,6 +81,10 @@ func beginProofTx(ctx context.Context, store *pgxpool.Pool) (pgx.Tx, error) {
 			_ = tx.Rollback(context.WithoutCancel(ctx))
 			return nil, fmt.Errorf("%s: %w", stmt, err)
 		}
+	}
+	if err := apppath.Pin(ctx, tx); err != nil {
+		_ = tx.Rollback(context.WithoutCancel(ctx))
+		return nil, err
 	}
 	return tx, nil
 }

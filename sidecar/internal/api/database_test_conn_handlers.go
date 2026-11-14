@@ -133,7 +133,8 @@ func fleetManagedDBConnection(
 		connection := inst.Pool.Config().ConnConfig
 		return connection.ConnString(), connection.Password, true
 	}
-	return inst.Config.ConnString(), inst.Config.Password, true
+	cfg := inst.ConfigSnapshot()
+	return cfg.ConnString(), cfg.Password, true
 }
 
 func testConnectionPreviewHandler() http.HandlerFunc {

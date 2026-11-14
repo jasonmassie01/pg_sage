@@ -1,0 +1,27 @@
+# Production functions holding a string literal that opens with EXPLAIN (security-01c-n).
+# Observation sessions run under search_path = pg_catalog, pg_temp (security-01c-r): a function
+# that plans an application's statement sets the application's path with apppath.Pin first.
+# <file> <function> pin
+# <file> <function> via <function> -- reason   (that function of the package calls apppath.Pin)
+# <file> <function> own <function> -- reason   (that function sets its session's own search_path)
+# <file> <function> qualified -- reason        (pg_sage's own statement over qualified names)
+# <file> <function> text -- reason             (never run as a statement)
+internal/agentguard/broker/explain.go explainEnvelopeStatement own call.begin -- the agent's statement, planned in the broker transaction whose search_path is the grant's (pg_catalog, grant schemas, pg_temp)
+internal/agentguard/broker/explain.go call.prepareExplain own call.begin -- prepared and planned in the broker transaction call.begin opened on the grant's path
+internal/autoexplain/collector.go Collector.explainReadOnly pin
+internal/briefing/ground.go statementKeywords text -- a list of statement keywords the grounding check refuses in model text
+internal/cases/ddl_safety.go verificationSQLForFinding text -- a verification script shown to the operator, never run by pg_sage
+internal/cases/query_actions.go queryInvestigationScriptOutput text -- an investigation script shown to the operator, never run by pg_sage
+internal/explain/analyze_guard.go explainNote text -- the result note shown with a plan
+internal/explain/explain.go Explainer.runExplainParameterized via Explainer.prepareConn -- prepareConn pins the transaction before PREPARE
+internal/explain/explain.go explainSQL via Explainer.prepareConn -- built for Explainer.runExplain, which plans it after prepareConn
+internal/explain/explain.go buildResult text -- the result note shown with a plan
+internal/mcp/agent_tools.go agentTools text -- the explain_query tool description for the model
+internal/optimizer/hypopg_generic.go hypopgSession.explainPreparedSteps via boundSession -- openHypoPGSession pins the session's transaction with boundSession
+internal/optimizer/hypopg_session.go hypopgSession.explain via boundSession -- openHypoPGSession pins the session's transaction with boundSession
+internal/sre/investigator_explain.go runExplain pin
+internal/tuner/hint_explain.go compareInTx pin
+internal/tuning/rehearsal.go planCost via planOnApplicationPath -- planned by planOnApplicationPath
+internal/tuning/store_plan.go postgresStore.explainAfresh via postgresStore.explain -- planned by postgresStore.explain
+internal/vectorlab/plan.go postgresSource.planIndexes qualified -- pg_sage's own vector query over pgx.Identifier-quoted schema.table names
+internal/workload/workload.go explainPart text -- a pattern that recognizes EXPLAIN statements

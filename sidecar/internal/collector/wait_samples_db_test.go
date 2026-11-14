@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/pg-sage/sidecar/internal/extschema"
 	"github.com/pg-sage/sidecar/internal/querystore"
 	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/testdb"
@@ -151,8 +152,12 @@ func statementCalls(t *testing.T, ctx context.Context, q interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }, marker string) int64 {
 	t.Helper()
+	view, err := extschema.StatementsRel(ctx, q, "pg_stat_statements")
+	if err != nil {
+		t.Skipf("pg_stat_statements not installed: %v", err)
+	}
 	var n int64
-	err := q.QueryRow(ctx, `SELECT COALESCE(sum(calls), 0)::bigint FROM pg_stat_statements
+	err = q.QueryRow(ctx, `SELECT COALESCE(sum(calls), 0)::bigint FROM `+view+`
 		WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
 		  AND strpos(query, $1) > 0`, marker).Scan(&n)
 	if err != nil {

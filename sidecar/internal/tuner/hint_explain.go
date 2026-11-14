@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/pg-sage/sidecar/internal/apppath"
 	"github.com/pg-sage/sidecar/internal/catalogread"
 )
 
@@ -150,6 +151,11 @@ func compareInTx(ctx context.Context, tx pgx.Tx, cmp HintComparison, body, hint 
 	}
 	if _, err := tx.Exec(ctx, hintSessionSQL); err != nil {
 		return refuse(cmp, HintExplainFailed, "configure pg_hint_plan: "+err.Error())
+	}
+	// Last, so pg_sage's own statements above ran on its own path: the
+	// statement is the application's, planned on its path (security-01c-n).
+	if err := apppath.Pin(ctx, tx); err != nil {
+		return refuse(cmp, HintExplainFailed, err.Error())
 	}
 	cmp.Generic = parameterized
 	explain := "EXPLAIN (FORMAT JSON) "

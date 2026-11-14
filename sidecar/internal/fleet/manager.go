@@ -409,7 +409,7 @@ func (m *DatabaseManager) UpdateInstanceMetadata(
 		}
 		inst.Name = newName
 		inst.DatabaseID = databaseID
-		inst.Config = cfg
+		inst.setConfig(cfg)
 		m.mu.Unlock()
 		inst.UpdateStatus(func(s *InstanceStatus) {
 			s.TrustLevel = trustLevel

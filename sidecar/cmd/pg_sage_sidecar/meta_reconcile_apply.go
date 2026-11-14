@@ -76,7 +76,7 @@ func metaChangeKind(
 		return "rebuilt"
 	case metaPolicyChanged(rec, current):
 		return "updated"
-	case !config.SameTags(recordTags(rec.Tags), current.Config.Tags):
+	case !config.SameTags(recordTags(rec.Tags), current.ConfigSnapshot().Tags):
 		return "updated"
 	}
 	return ""
@@ -89,10 +89,10 @@ func metaNeedsRebuild(
 	rec store.DatabaseRecord, current *fleet.DatabaseInstance, connStr string,
 ) bool {
 	if current.Pool == nil {
-		return !reflect.DeepEqual(storeRecordToDBConfig(rec), current.Config)
+		return !reflect.DeepEqual(storeRecordToDBConfig(rec), current.ConfigSnapshot())
 	}
 	return rec.Name != current.Name ||
-		rec.MaxConnections != current.Config.MaxConnections ||
+		rec.MaxConnections != current.ConfigSnapshot().MaxConnections ||
 		current.Pool.Config().ConnString() != connStr
 }
 

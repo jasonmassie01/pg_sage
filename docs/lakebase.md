@@ -759,7 +759,10 @@ project with a `lakebase` source under `fleet.discovery.sources` (see
 The listing uses the workspace's Postgres API (`ListBranches`, then
 `ListEndpoints` per branch), stops at 200 endpoints a cycle, and records
 each endpoint with a host as a candidate keyed by its uid, database
-`databricks_postgres`. Lakebase candidates are not enrolled automatically:
+`databricks_postgres`. pg_sage's own rehearsal branches (`sage-rh-*`, see
+[Branch rehearsal](#branch-rehearsal)) are skipped and never listed as
+candidates; a skipped branch still counts toward the per-cycle walk limit.
+Lakebase candidates are not enrolled automatically:
 a store-managed member has no OAuth credential path yet, so add the ones
 you want by hand. An endpoint the project no longer reports is marked
 `gone`; a failed listing keeps the previous candidates.

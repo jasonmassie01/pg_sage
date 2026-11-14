@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
+	"github.com/pg-sage/sidecar/internal/apppath"
 	"github.com/pg-sage/sidecar/internal/catalogread"
 )
 
@@ -146,13 +147,17 @@ var paramRef = regexp.MustCompile(`\$[0-9]+`)
 var errMultiStatement = errors.New("tuning: a plan is read for one statement only")
 
 // explain runs one EXPLAIN (never ANALYZE) in a bounded READ ONLY
-// transaction that is always rolled back.
+// transaction that is always rolled back, on the application's
+// search_path (security-01c-n).
 func (s *postgresStore) explain(ctx context.Context, sql string) ([]byte, error) {
 	tx, err := catalogread.Begin(ctx, s.pool, s.timeouts)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	if err := apppath.Pin(ctx, tx); err != nil {
+		return nil, err
+	}
 	return rawSingleValue(ctx, tx.Conn().PgConn(), sql)
 }
 

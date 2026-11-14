@@ -2,17 +2,12 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"log"
-	"os"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/pg-sage/sidecar/internal/auth"
-	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/schema"
@@ -20,11 +15,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/store"
 )
 
-const (
-	adminEmail    = "admin@pg-sage.local"
-	adminPassLen  = 16
-	metaDBTimeout = 10 * time.Second
-)
+const metaDBTimeout = 10 * time.Second
 
 var bootstrapManagedDatabaseSchema = schema.Bootstrap
 
@@ -113,57 +104,6 @@ func initMetaDB(
 		Keys:       keys,
 		Store:      dbStore,
 	}, nil
-}
-
-// bootstrapAdminUser creates the first admin user when the
-// sage.users table is empty. Only generated credentials are printed to stderr.
-func bootstrapAdminUser(
-	ctx context.Context, pool *pgxpool.Pool,
-) error {
-	appAuth, err := auth.LoadDatabricksAppConfigFromEnv(os.Getenv)
-	if err != nil {
-		return err
-	}
-	if appAuth != nil {
-		return auth.BootstrapDatabricksAppAdmin(ctx, pool, *appAuth)
-	}
-	count, err := auth.UserCount(ctx, pool)
-	if err != nil {
-		return fmt.Errorf("checking user count: %w", err)
-	}
-	if count > 0 {
-		return nil
-	}
-
-	credentials, err := loadBootstrapAdminCredentials()
-	if err != nil {
-		return fmt.Errorf("loading admin bootstrap credentials: %w", err)
-	}
-
-	if err := createBootstrapAdmin(ctx, pool, credentials); err != nil {
-		return fmt.Errorf("creating admin: %w", err)
-	}
-
-	if credentials.supplied {
-		fmt.Fprintf(os.Stderr, "First admin created: %s (configured bootstrap secret; password not logged)\n", credentials.email)
-		return nil
-	}
-	fmt.Fprintf(os.Stderr,
-		"First admin created: %s\nInitial password: %s\n"+
-			"You must change this password at first sign-in.\n",
-		credentials.email, credentials.password,
-	)
-	return nil
-}
-
-// generateRandomPassword returns a hex-encoded random string of
-// the given length.
-func generateRandomPassword(length int) (string, error) {
-	buf := make([]byte, length)
-	if _, err := rand.Read(buf); err != nil {
-		return "", fmt.Errorf("reading random bytes: %w", err)
-	}
-	return hex.EncodeToString(buf)[:length], nil
 }
 
 // loadDatabasesFromStore reads enabled databases from the store.
@@ -326,91 +266,14 @@ func healthCheckStoreDatabase(
 	).Scan(&databaseName); err != nil {
 		return fmt.Errorf("health check database: %w", err)
 	}
-	if inst.Config.Database != "" && databaseName != inst.Config.Database {
+	expected := inst.ConfigSnapshot().Database
+	if expected != "" && databaseName != expected {
 		return fmt.Errorf(
 			"health check connected to %q, expected %q",
-			databaseName, inst.Config.Database,
+			databaseName, expected,
 		)
 	}
 	return nil
-}
-
-// fleetReconnectLoop periodically checks for failed instances and
-// attempts to reconnect with exponential backoff. Runs every 30s,
-// caps backoff at 5 minutes per database.
-func fleetReconnectLoop(ctx context.Context, state *metaDBState) {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			// Rows changed outside this process's API (another replica,
-			// SQL) converge first; failed databases then retry.
-			runMetaReconcilePass(ctx, state)
-			retryFailedInstances(state)
-		case <-ctx.Done():
-			return
-		}
-	}
-}
-
-// retryFailedInstances finds instances with errors or nil pools
-// and attempts reconnection.
-func retryFailedInstances(state *metaDBState) {
-	instances := fleetMgr.Instances()
-	for name, inst := range instances {
-		snap := inst.SnapshotStatus()
-		if inst.Pool != nil && snap.Error == "" {
-			continue // healthy
-		}
-		if fleetMgr.InstanceStopped(inst) {
-			continue // manually stopped
-		}
-
-		logInfo("reconnect", "attempting reconnect for %q", name)
-
-		ctx, cancel := context.WithTimeout(
-			context.Background(), metaDBTimeout,
-		)
-		records, err := loadDatabasesFromStore(ctx, state.Store)
-		if err != nil {
-			cancel()
-			logWarn("reconnect", "load databases: %v", err)
-			return
-		}
-
-		for _, rec := range records {
-			if rec.Name != name {
-				continue
-			}
-			candidate, err := prepareStoreDatabase(ctx, state, rec)
-			if err != nil {
-				logWarn("reconnect",
-					"db %q: still unreachable: %v", name, err)
-				break
-			}
-			// Success — bootstrap and re-register.
-			err = fleetMgr.ReplaceInstanceIfCurrent(
-				ctx, name, inst, candidate, healthCheckStoreDatabase,
-			)
-			if err != nil {
-				if fleetMgr.GetInstance(candidate.Name) == candidate {
-					logWarn("reconnect",
-						"db %q: published but old runtime drain failed: %v",
-						name, err)
-				} else {
-					logWarn("reconnect", "db %q: candidate rejected: %v",
-						name, err)
-				}
-				break
-			}
-			updateInstanceFindings(context.Background(), candidate)
-			logInfo("reconnect", "db %q: reconnected successfully", name)
-			break
-		}
-		cancel()
-	}
 }
 
 // detectPGVersion queries the PG version number from the pool and
@@ -441,32 +304,4 @@ func detectPGVersion(p *pgxpool.Pool) int {
 		return fallback
 	}
 	return ver
-}
-
-// storeRecordToDBConfig converts a store.DatabaseRecord to a
-// config.DatabaseConfig for the fleet manager.
-func storeRecordToDBConfig(
-	rec store.DatabaseRecord,
-) config.DatabaseConfig {
-	return config.DatabaseConfig{
-		Name:               rec.Name,
-		Host:               rec.Host,
-		Port:               rec.Port,
-		Database:           rec.DatabaseName,
-		User:               rec.Username,
-		SSLMode:            rec.SSLMode,
-		MaxConnections:     rec.MaxConnections,
-		Tags:               recordTags(rec.Tags),
-		TrustLevel:         rec.TrustLevel,
-		TrustLevelExplicit: true,
-		ExecutionMode:      resolveExecMode(rec),
-	}
-}
-
-// resolveExecMode returns the execution mode for a store record.
-func resolveExecMode(rec store.DatabaseRecord) string {
-	if rec.ExecutionMode != "" {
-		return rec.ExecutionMode
-	}
-	return "auto"
 }
