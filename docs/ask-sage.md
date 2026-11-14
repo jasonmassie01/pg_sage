@@ -115,6 +115,42 @@ The same holds when Ask Sage's own store fails mid-run after an action.
 `pg_sage_ask_answers_total{database,status,stop}` counts answers since the process started.
 A growing `stop="wall_clock"` series means questions need more time than the bound allows.
 
+## Asynchronous runs
+
+The dashboard asks through runs, so a question no longer lives inside one HTTP request.
+`POST /api/v1/databases/{db}/ask/runs` stores the run (`sage.ask_runs`, state `queued`) and
+answers `202 Accepted` with `{"run_id", "conversation_id"}` at once; a new conversation is
+created when none is given. The run then answers in the background on the sidecar's own
+context, bounded by `ask.max_seconds_per_question` and the same budgets as a synchronous
+question, so closing the tab no longer cancels it. The page polls
+`GET .../ask/runs/{id}` (every second, backing off to every 5 s after 30 s) and resumes
+polling after a reload from the `?run=` parameter.
+
+A poll returns the state (`queued`, `running`, `done`, `cancelled`, `interrupted` or
+`failed`), the progress so far (one entry per tool call: the tool, its status, the id of an
+action it took and the time; never tool output; at most 64 entries) and, once the run
+stored one, the answer. The answer is stored exactly as the synchronous route stores it,
+and the run's `message_id` points at it.
+
+- **Cancel**: `POST .../ask/runs/{id}/cancel` stops the run. A run that already acted keeps
+  its partial answer (status `incomplete`, stop `cancelled`, with its actions); one that had
+  not acted stores no answer. A run that already ended cannot be cancelled (409). A cancel
+  that reaches another sidecar of an HA pair marks the run `cancelled`, and the sidecar
+  running it stops at its next tool call.
+- **Failure**: when Ask Sage's store fails while recording progress, the run ends `failed`
+  with the error (at most 500 characters); a poll still answers with the state.
+- **Restart**: when a sidecar starts, its own `queued` or `running` runs that have not moved
+  for `ask.max_seconds_per_question` plus 30 s become `interrupted`, and the actions already
+  in their progress stay as the record. When a sidecar stops, its running runs end
+  `interrupted`. Runs of another sidecar instance (by host name) are left alone.
+- **Caps**: one active run per conversation (a second is 409) and at most
+  `ask.max_concurrent_runs` (default 4, 1-16) per database on one sidecar (one more is 429
+  with `Retry-After`).
+
+Runs are deleted with their conversation. `pg_sage_ask_runs_active{database}` is the number
+of runs in progress and `pg_sage_ask_runs_total{database,state}` counts the runs that ended,
+by state. The synchronous `POST .../ask` is unchanged for MCP and scripts.
+
 ## Budget
 
 Ask Sage has its own daily LLM token budget, separate from `llm.token_budget_daily` (which
@@ -134,6 +170,7 @@ up, Ask Sage answers with `budget_exhausted` without calling the model.
 | `ask.max_tokens_per_question` | `40000` | Most tokens one question may use across its model calls (4000-200000). |
 | `ask.retention_days` | `30` | Days a conversation is kept after its last question (1-3650). |
 | `ask.max_seconds_per_question` | `60` | Wall clock of one question (15-300); each model call is still bounded at 15 s. The ask API route gets this plus 5 s. |
+| `ask.max_concurrent_runs` | `4` | Asynchronous runs at once per database on one sidecar (1-16); one more is 429. |
 
 All keys are read when a database's runtime starts (restart to change). Without an LLM,
 Ask Sage answers `llm_unavailable`.
@@ -145,12 +182,17 @@ All routes use the session; every signed-in role may ask.
 | Method | Path | |
 |---|---|---|
 | `POST` | `/api/v1/databases/{db}/ask` | `{"question": "...", "conversation_id": "...", "read_only": true}` (both optional) → the answer |
+| `POST` | `/api/v1/databases/{db}/ask/runs` | the same body → `202` `{"run_id", "conversation_id"}` |
+| `GET` | `/api/v1/databases/{db}/ask/runs/{id}` | the run's state, progress and, once stored, its answer |
+| `POST` | `/api/v1/databases/{db}/ask/runs/{id}/cancel` | cancels the run → the run |
 | `GET` | `/api/v1/databases/{db}/ask/conversations` | the caller's conversations, newest first |
 | `GET` | `/api/v1/databases/{db}/ask/conversations/{id}` | one conversation with its answers |
 | `GET` | `/api/v1/databases/{db}/ask/budget` | today's usage of the database and the caller |
 
 Errors are `{"error", "code"}`: `invalid_request` (400), `not_found` (404; another user's
-conversation is also "not found"), `ask_disabled` and `ask_unavailable` (503).
+conversation or run is also "not found"), `ask_conflict` (409: a run is active on the
+conversation, or the run already ended), `ask_busy` (429 with `Retry-After`: too many runs),
+`ask_disabled` and `ask_unavailable` (503).
 
 ## MCP
 

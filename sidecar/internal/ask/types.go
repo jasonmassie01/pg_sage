@@ -39,6 +39,11 @@ var (
 	ErrRefused = errors.New("ask: refused")
 	// ErrBlocked: the policy gate blocks the proposal.
 	ErrBlocked = errors.New("ask: blocked by policy")
+	// ErrConflict: a run is already active on the conversation, or the
+	// run to cancel already ended (mcp-07b).
+	ErrConflict = errors.New("ask: conflict")
+	// ErrBusy: the database has ask.max_concurrent_runs runs in progress.
+	ErrBusy = errors.New("ask: too many runs in progress")
 )
 
 // Answer statuses.

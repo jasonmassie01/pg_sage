@@ -53,7 +53,7 @@ func (ss *session) tools() []agentloop.Tool {
 	if ss.caller.MayPropose {
 		out = append(out, ss.proposeFactTool())
 	}
-	return out
+	return ss.tracked(out)
 }
 
 // cite builds a citable output and remembers its evidence.

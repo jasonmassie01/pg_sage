@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/agenttools"
 	"github.com/pg-sage/sidecar/internal/ask"
@@ -37,7 +38,7 @@ func askServices() *ask.Registry {
 func (rt *databaseRuntime) startAsk() {
 	d := ask.Deps{Database: rt.spec.Name, Pool: rt.spec.Pool, Config: rt.cfg.Ask,
 		Settings: rt.cfg, Queries: agenttools.New(rt.spec.Pool, agentToolOptions(rt.cfg)),
-		Log: logStructuredWrapper}
+		Log: logStructuredWrapper, RunCtx: rt.ctx}
 	if registry := processAutonomy().registry; registry != nil {
 		d.Trust = askTrust{viewer: registry, database: rt.spec.Name}
 	}
@@ -57,11 +58,23 @@ func (rt *databaseRuntime) startAsk() {
 		return
 	}
 	askServices().Set(rt.spec.Name, svc)
+	rt.start(func() { rt.recoverAskRuns(svc) })
 	rt.start(func() {
 		<-rt.ctx.Done()
 		askServices().Remove(rt.spec.Name, svc)
 	})
 	rt.note("ask_sage")
+}
+
+// recoverAskRuns marks this sidecar's abandoned Ask Sage runs (left by
+// a crash or restart) interrupted, keeping their recorded actions.
+func (rt *databaseRuntime) recoverAskRuns(svc *ask.Service) {
+	ctx, cancel := context.WithTimeout(rt.ctx, 30*time.Second)
+	defer cancel()
+	if _, err := svc.RecoverRuns(ctx); err != nil {
+		logWarn(rt.spec.Scope, "db %q: Ask Sage could not recover abandoned runs: %v",
+			rt.spec.Name, err)
+	}
 }
 
 // findingProposer is the executor's queue-never-execute proposal path.
