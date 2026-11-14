@@ -118,6 +118,16 @@ func TestRegistryMalformedRangeAndEnumTagsPanic(t *testing.T) {
 		"enum on int": reflect.TypeOf(struct {
 			F int `yaml:"f" enum:"a|b"`
 		}{}),
+		// validateRegistry reads a leaf by kind; a pointer would go unchecked.
+		"range on pointer int": reflect.TypeOf(struct {
+			F *int `yaml:"f" range:"1,9"`
+		}{}),
+		"enum on pointer string": reflect.TypeOf(struct {
+			F *string `yaml:"f" enum:"a|b"`
+		}{}),
+		"ranged api on pointer int": reflect.TypeOf(struct {
+			F *int `yaml:"f" api:"int_pos"`
+		}{}),
 	})
 }
 

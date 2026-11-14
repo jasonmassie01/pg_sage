@@ -124,7 +124,9 @@ func buildRegistry(rt reflect.Type, prefix string, index []int) ([]KeySpec, erro
 			out = append(out, nested...)
 			continue
 		}
-		spec, ok, err := specFromTags(key, sf, ft.Kind())
+		// A pointer leaf keeps its Pointer kind, so a range or enum tag on it
+		// is refused: validateRegistry could not read the value it bounds.
+		spec, ok, err := specFromTags(key, sf, sf.Type.Kind())
 		if err != nil {
 			return nil, err
 		}
