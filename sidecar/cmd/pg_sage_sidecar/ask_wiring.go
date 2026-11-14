@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/agenttools"
 	"github.com/pg-sage/sidecar/internal/ask"
@@ -37,7 +38,7 @@ func askServices() *ask.Registry {
 func (rt *databaseRuntime) startAsk() {
 	d := ask.Deps{Database: rt.spec.Name, Pool: rt.spec.Pool, Config: rt.cfg.Ask,
 		Settings: rt.cfg, Queries: agenttools.New(rt.spec.Pool, agentToolOptions(rt.cfg)),
-		Log: logStructuredWrapper}
+		Log: logStructuredWrapper, RunCtx: rt.ctx}
 	if registry := processAutonomy().registry; registry != nil {
 		d.Trust = askTrust{viewer: registry, database: rt.spec.Name}
 	}
@@ -57,12 +58,19 @@ func (rt *databaseRuntime) startAsk() {
 		return
 	}
 	askServices().Set(rt.spec.Name, svc)
+	rt.start(func() { svc.WatchAbandonedRuns(rt.ctx, askRunSweep) })
 	rt.start(func() {
 		<-rt.ctx.Done()
 		askServices().Remove(rt.spec.Name, svc)
 	})
 	rt.note("ask_sage")
 }
+
+// askRunSweep is how often a sidecar marks its abandoned Ask Sage runs
+// (left by a crash or restart) interrupted, keeping their recorded
+// actions: at start and then every minute, so rows still inside the stale
+// window at a fast restart are recovered once they go stale.
+const askRunSweep = time.Minute
 
 // findingProposer is the executor's queue-never-execute proposal path.
 type findingProposer interface {

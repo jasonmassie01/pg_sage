@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/ask"
@@ -39,6 +40,7 @@ func registerAskRoutes(mux *http.ServeMux, reg *ask.Registry) {
 	route(mux, "GET "+askBasePath+"/conversations", gateViewer, http.HandlerFunc(h.list))
 	route(mux, "GET "+askBasePath+"/conversations/{id}", gateViewer, http.HandlerFunc(h.thread))
 	route(mux, "GET "+askBasePath+"/budget", gateViewer, http.HandlerFunc(h.budget))
+	registerAskRunRoutes(mux, h)
 }
 
 // askCaller is the session user as an Ask Sage caller.
@@ -133,7 +135,12 @@ func askError(w http.ResponseWriter, err error) {
 	case errors.Is(err, ask.ErrInvalid):
 		sreErrorCode(w, err.Error(), "invalid_request", http.StatusBadRequest)
 	case errors.Is(err, ask.ErrNotFound):
-		sreErrorCode(w, "conversation not found", "not_found", http.StatusNotFound)
+		sreErrorCode(w, notFoundMessage(err), "not_found", http.StatusNotFound)
+	case errors.Is(err, ask.ErrConflict):
+		sreErrorCode(w, err.Error(), "ask_conflict", http.StatusConflict)
+	case errors.Is(err, ask.ErrBusy):
+		w.Header().Set("Retry-After", askRunRetryAfter)
+		sreErrorCode(w, err.Error(), "ask_busy", http.StatusTooManyRequests)
 	case errors.Is(err, ask.ErrDisabled):
 		sreErrorCode(w, "Ask Sage is disabled (ask.enabled: false)", "ask_disabled",
 			http.StatusServiceUnavailable)
@@ -142,6 +149,14 @@ func askError(w http.ResponseWriter, err error) {
 		sreErrorCode(w, "Ask Sage is unavailable; try again", "ask_unavailable",
 			http.StatusServiceUnavailable)
 	}
+}
+
+// notFoundMessage names what was not found: a run or a conversation.
+func notFoundMessage(err error) string {
+	if strings.Contains(err.Error(), "run ") {
+		return "run not found"
+	}
+	return "conversation not found"
 }
 
 // askConnSlack is how long past the request deadline the connection

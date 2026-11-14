@@ -47,12 +47,7 @@ func (s *Service) Ask(ctx context.Context, c Caller, r Request) (Answer, error) 
 	if runErr != nil && len(a.Actions) == 0 {
 		return Answer{}, runErr
 	}
-	a.ConversationID, a.Question, a.CreatedAt = r.ConversationID, question, s.d.Now().UTC()
-	a.ReadOnly = r.ReadOnly
-	countAnswer(s.d.Database, a)
-	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), persistTimeout)
-	defer cancel()
-	saved, err := s.store.save(saveCtx, c.Actor, a)
+	saved, err := s.persistAnswer(ctx, c, r.ConversationID, question, r.ReadOnly, a)
 	if runErr == nil {
 		return saved, err
 	}

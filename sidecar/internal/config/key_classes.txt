@@ -521,6 +521,7 @@ derivable ask.daily_tokens_per_database
 operator_preference ask.daily_tokens_per_user
 safety_critical ask.enabled
 derivable ask.max_tokens_per_question
+operator_preference ask.max_concurrent_runs
 operator_preference ask.max_seconds_per_question
 operator_preference ask.retention_days
 operator_preference facts.confirmed_absence_days

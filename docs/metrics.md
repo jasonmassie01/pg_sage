@@ -212,6 +212,8 @@ Log watcher, pgaudit, audit chain verification and SIEM export (fleet leader onl
 | `pg_sage_siem_delivered_total` | counter | `sink` | - | all | v2.7.0 | Audit events the SIEM sink confirmed since the exporter started |
 | `pg_sage_siem_lag_links` | gauge | `sink`, `source`, `chain` | - | all | v2.7.0 | Audit chain links not yet exported to the SIEM sink: chain head minus the sink's cursor |
 | `pg_sage_ask_answers_total` | counter | `database`, `status`, `stop` | - | all | v2.6.0 | Ask Sage answers by status and the reason the run stopped |
+| `pg_sage_ask_runs_active` | gauge | `database` | - | all | v2.7.0 | Asynchronous Ask Sage runs in progress on this sidecar |
+| `pg_sage_ask_runs_total` | counter | `database`, `state` | - | all | v2.7.0 | Asynchronous Ask Sage runs that ended, by terminal state |
 | `pg_sage_logwatch_dropped_lines_total` | counter | `cluster`, `reason` | - | all | v2.6.0 | PostgreSQL log lines the log watcher dropped before classification, by cluster and reason (queue_overflow, classifier_cap, oversized_record) |
 | `pg_sage_migration_enrich_dropped_total` | counter | `database` | - | all | v2.6.0 | Migration model requests dropped because the database's enrichment queue was full |
 | `pg_sage_pgaudit_records_total` | counter | `database`, `outcome` | - | all | v2.6.0 | pgaudit records pg_sage read, by outcome (stored, dropped, evicted, requeued, unmatched) |

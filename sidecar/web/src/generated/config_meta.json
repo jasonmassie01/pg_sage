@@ -655,6 +655,13 @@
     "class": "safety_critical",
     "lifecycle": "restart"
   },
+  "ask.max_concurrent_runs": {
+    "type": "int",
+    "default": 4,
+    "doc": "Asynchronous Ask Sage runs (the dashboard's questions) at once per database on one sidecar; one more is refused with HTTP 429 and Retry-After. Range 1-16. Default: 4.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
   "ask.max_seconds_per_question": {
     "type": "int",
     "default": 60,

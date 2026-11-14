@@ -3357,6 +3357,7 @@ or approves. See [Ask Sage](ask-sage.md).
 | `ask.max_tokens_per_question` | `40000` | Most tokens one question may use (4000-200000). Restart to change |
 | `ask.retention_days` | `30` | Days a conversation is kept after its last question (1-3650). Restart to change |
 | `ask.max_seconds_per_question` | `60` | Wall clock of one question (15-300; each model call at most 15 s). `POST /api/v1/databases/{db}/ask` gets this plus 5 s, every other API route 30 s; an MCP call keeps its own deadline. A run cut off by its caller after it acted is stored `incomplete` with stop `cancelled`; answers are counted in `pg_sage_ask_answers_total{database,status,stop}`. Restart to change |
+| `ask.max_concurrent_runs` | `4` | Asynchronous runs (the dashboard's questions, `POST /api/v1/databases/{db}/ask/runs`) at once per database on one sidecar (1-16). One more is refused with HTTP 429 and `Retry-After`; a second run on one conversation is 409. Each run is bounded by `ask.max_seconds_per_question` and the daily budgets; see [Ask Sage](ask-sage.md#asynchronous-runs). Restart to change |
 
 ### Forecaster
 

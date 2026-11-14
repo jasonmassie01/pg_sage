@@ -209,6 +209,12 @@ var workFamilies = []Family{
 	{Name: "pg_sage_ask_answers_total", Type: Counter, Area: AreaIntegrations,
 		Help:   "Ask Sage answers by status and the reason the run stopped",
 		Labels: []string{"database", "status", "stop"}, Modes: AllModes, Since: "v2.6.0"},
+	{Name: "pg_sage_ask_runs_active", Type: Gauge, Area: AreaIntegrations,
+		Help:   "Asynchronous Ask Sage runs in progress on this sidecar",
+		Labels: []string{"database"}, Modes: AllModes, Since: "v2.7.0"},
+	{Name: "pg_sage_ask_runs_total", Type: Counter, Area: AreaIntegrations,
+		Help:   "Asynchronous Ask Sage runs that ended, by terminal state",
+		Labels: []string{"database", "state"}, Modes: AllModes, Since: "v2.7.0"},
 	{Name: "pg_sage_logwatch_dropped_lines_total", Type: Counter, Area: AreaIntegrations,
 		Help: "PostgreSQL log lines the log watcher dropped before classification, by " +
 			"cluster and reason (queue_overflow, classifier_cap, oversized_record)",

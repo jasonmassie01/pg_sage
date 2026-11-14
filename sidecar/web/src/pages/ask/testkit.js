@@ -71,7 +71,10 @@ function route(url, method) {
   if (!m) return null
   const rest = m[1] || ''
   if (method === 'POST' && rest === '') return 'ask'
+  if (method === 'POST' && rest === '/runs') return 'runs'
+  if (method === 'POST' && /^\/runs\/[^/]+\/cancel$/.test(rest)) return 'cancel'
   if (method !== 'GET') return null
+  if (/^\/runs\/[^/]+$/.test(rest)) return 'run'
   if (rest === '/budget') return 'budget'
   if (rest === '/conversations') return 'conversations'
   if (rest.startsWith('/conversations/')) return 'conversation'
@@ -82,8 +85,28 @@ function route(url, method) {
 // returns a response (or a promise of one, or throws to simulate a network
 // failure). Unhandled routes answer 404.
 export function stubAsk(handlers = {}) {
+  // The page asks through asynchronous runs (mcp-07b). By default a run
+  // delegates to the `ask` handler: an answer becomes a run that is done on
+  // its first poll; an error response is the start's response.
+  const answers = new Map()
   const defaults = {
     ask: () => response(200, makeAnswer()),
+    runs: async (url, init) => {
+      const res = await h.ask(url, init)
+      if (!res.ok) return res
+      const answer = await res.json()
+      const id = `run-${answers.size + 1}`
+      answers.set(id, answer)
+      return response(202, { run_id: id, conversation_id: answer?.conversation_id || 'c-1' })
+    },
+    run: url => {
+      const id = decodeURIComponent(String(url).split('?')[0].split('/').pop())
+      if (!answers.has(id)) return response(404, { error: 'run not found', code: 'not_found' })
+      const answer = answers.get(id)
+      return response(200, { id, state: 'done', progress: [], answer,
+        conversation_id: answer?.conversation_id })
+    },
+    cancel: () => response(409, { error: 'the run already ended', code: 'ask_conflict' }),
     budget: () => response(200, budgetBody()),
     conversations: () => response(200, { conversations: [] }),
     conversation: () => response(404, { error: 'not found', code: 'not_found' }),

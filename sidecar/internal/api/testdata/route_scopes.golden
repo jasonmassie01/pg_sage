@@ -918,6 +918,9 @@ optional POST /api/v1/databases/{db}/ask gate:viewer-write scope:-
 optional GET /api/v1/databases/{db}/ask/conversations gate:viewer scope:database:path:db
 optional GET /api/v1/databases/{db}/ask/conversations/{id} gate:viewer scope:database:path:db
 optional GET /api/v1/databases/{db}/ask/budget gate:viewer scope:database:path:db
+optional POST /api/v1/databases/{db}/ask/runs gate:viewer-write scope:-
+optional GET /api/v1/databases/{db}/ask/runs/{id} gate:viewer scope:database:path:db
+optional POST /api/v1/databases/{db}/ask/runs/{id}/cancel gate:viewer-write scope:-
 optional GET /api/v1/debug/pprof/{$} gate:admin scope:admin-only
 optional GET /api/v1/debug/pprof/{name} gate:admin scope:admin-only
 optional /api/v1/specialist/ gate:self-auth scope:-

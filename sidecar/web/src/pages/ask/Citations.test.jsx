@@ -103,3 +103,59 @@ describe('CitationMarkers', () => {
     expect(screen.getByTestId('st')).toBeEmptyDOMElement()
   })
 })
+
+// mcp-05b: "what Sage read". A citation with an excerpt gets a disclosure
+// showing the text in a <pre>, through React (never as HTML); a truncated
+// one says so; answers stored before excerpts render with no panel.
+describe('CitationList excerpts', () => {
+  const read = (extra) => [{ id: 'finding:42', alias: 'E1', kind: 'finding', ref: '42',
+    label: 'finding:42 ok', digest: 'aaaaaaaaaaaaaaaa', ...extra }]
+
+  it('shows what Sage read in a disclosure', () => {
+    render(<CitationList citations={read({ excerpt: 'finding 42 [warning, open]\nseq 4200' })}
+      database="orders" />)
+    const item = screen.getByTestId('ask-citation')
+    expect(within(item).getByText('What Sage read')).toBeInTheDocument()
+    const pre = within(item).getByTestId('ask-citation-excerpt')
+    expect(pre.tagName).toBe('PRE')
+    expect(pre.textContent).toBe('finding 42 [warning, open]\nseq 4200')
+    expect(item).not.toHaveTextContent('excerpt truncated')
+  })
+
+  it('renders a script in an excerpt as text, never as markup', () => {
+    const hostile = '<script>window.pwned = 1</script><img src=x onerror="alert(1)">'
+    const { container } = render(<CitationList citations={read({ excerpt: hostile })}
+      database="orders" />)
+    expect(screen.getByTestId('ask-citation-excerpt').textContent).toBe(hostile)
+    expect(container.querySelector('script')).toBeNull()
+    expect(container.querySelector('img')).toBeNull()
+    expect(window.pwned).toBeUndefined()
+  })
+
+  it('says when the excerpt was truncated', () => {
+    render(<CitationList citations={read({ excerpt: 'abc', excerpt_truncated: true })}
+      database="orders" />)
+    expect(screen.getByTestId('ask-citation-excerpt').textContent).toBe('abc')
+    expect(screen.getByTestId('ask-citation')).toHaveTextContent('excerpt truncated')
+  })
+
+  it('says truncated with no panel when the answer budget left no text', () => {
+    render(<CitationList citations={read({ excerpt_truncated: true })} database="orders" />)
+    const item = screen.getByTestId('ask-citation')
+    expect(item).toHaveTextContent('excerpt truncated')
+    expect(within(item).queryByTestId('ask-citation-excerpt')).toBeNull()
+    expect(within(item).queryByText('What Sage read')).toBeNull()
+  })
+
+  it('renders a stored answer without excerpts with no panel', () => {
+    render(<CitationList citations={reads} database="orders" />)
+    expect(screen.queryAllByTestId('ask-citation-excerpt')).toHaveLength(0)
+    expect(screen.queryByText('What Sage read')).toBeNull()
+    expect(screen.getAllByTestId('ask-citation')[0]).not.toHaveTextContent('truncated')
+  })
+
+  it('renders no panel for an empty excerpt', () => {
+    render(<CitationList citations={read({ excerpt: '' })} database="orders" />)
+    expect(screen.queryByTestId('ask-citation-excerpt')).toBeNull()
+  })
+})

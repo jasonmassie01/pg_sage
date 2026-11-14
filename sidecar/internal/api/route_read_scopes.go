@@ -20,6 +20,7 @@ var readRouteScopes = map[string]readScope{
 	"GET /api/v1/databases/{db}/ask/budget":             readDatabase(pathDB),
 	"GET /api/v1/databases/{db}/ask/conversations":      readDatabase(pathDB),
 	"GET /api/v1/databases/{db}/ask/conversations/{id}": readDatabase(pathDB),
+	"GET /api/v1/databases/{db}/ask/runs/{id}":          readDatabase(pathDB),
 	"GET /api/v1/databases/{db}/investigations":         readDatabase(pathDB),
 	"GET /api/v1/databases/{db}/investigations/{id}":    readDatabase(pathDB),
 	"GET /api/v1/databases/{db}/investigations/{id}/events": readDatabase(

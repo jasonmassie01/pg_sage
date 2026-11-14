@@ -38,6 +38,7 @@ var coreExemptions = map[string]string{
 		"backoff clock",
 	"action_outcome": "deleted with its action (ON DELETE CASCADE, actions_days)",
 	"ask_messages":   "deleted with its conversation (ON DELETE CASCADE)",
+	"ask_runs":       "deleted with its conversation (ON DELETE CASCADE, mcp-07b)",
 	"provider_advice_sources": "current state: one row per database and provider, its " +
 		"last advice fetch (market-09)",
 	"chatops_identities": "admin-managed mapping of chat users to accounts, current state",

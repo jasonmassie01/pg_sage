@@ -20,3 +20,19 @@ func writeAskMetrics(b *strings.Builder, counts []ask.AnswerCount) {
 	}
 	b.WriteString("\n")
 }
+
+// writeAskRunMetrics emits Ask Sage's asynchronous runs: in progress on
+// this sidecar, and ended by state since the process started.
+func writeAskRunMetrics(b *strings.Builder, active []ask.ActiveRun, ended []ask.RunCount) {
+	metricsreg.Header(b, "pg_sage_ask_runs_active")
+	for _, a := range active {
+		fmt.Fprintf(b, "pg_sage_ask_runs_active{database=%q} %d\n", a.Database, a.Active)
+	}
+	b.WriteString("\n")
+	metricsreg.Header(b, "pg_sage_ask_runs_total")
+	for _, c := range ended {
+		fmt.Fprintf(b, "pg_sage_ask_runs_total{database=%q,state=%q} %d\n", c.Database,
+			c.State, c.Count)
+	}
+	b.WriteString("\n")
+}

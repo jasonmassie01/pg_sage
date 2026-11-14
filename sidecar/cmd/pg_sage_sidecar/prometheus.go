@@ -59,6 +59,7 @@ func handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	writeMigrationEnrichMetrics(&b, migration.EnrichDroppedCounts())
 	writeAuditHealthFamilies(&b)
 	writeAskMetrics(&b, ask.AnswerCounts())
+	writeAskRunMetrics(&b, ask.ActiveRuns(), ask.RunCounts())
 
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	if _, err := fmt.Fprint(w, b.String()); err != nil {

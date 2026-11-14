@@ -63,7 +63,7 @@ func newRun(m Model, cfg Config) *run {
 	r.deadline = now().Add(cfg.Budget.Wall)
 	r.res.Transcript.Rejected = map[string]int{}
 	for i, e := range cfg.Seed {
-		r.aliases[fmt.Sprintf("E%d", i+1)] = e
+		r.aliases[fmt.Sprintf("E%d", i+1)] = e.clone()
 	}
 	return r
 }
