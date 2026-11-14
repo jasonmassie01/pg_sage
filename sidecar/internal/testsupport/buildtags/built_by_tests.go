@@ -8,12 +8,13 @@ import (
 	"slices"
 )
 
-// BuiltByTests maps each custom tag that CI compiles inside a test, not in
-// the vet step, to the module-relative test file that passes it to go build.
-// The e2e suite builds the sidecar binary with sage_e2e_assume_sqlast
+// BuiltByTests maps each custom tag that no CI recipe may name to the
+// module-relative test file that passes it to go build. The e2e suite builds
+// the sidecar binary with sage_e2e_assume_sqlast on a host without cgo
 // (executor-10), and that tag must never appear in a CI recipe
-// (TestNoBuildRecipeUsesTheSQLASTAssumptionTag), so the vet step cannot
-// list it (ci-18).
+// (TestNoBuildRecipeUsesTheSQLASTAssumptionTag), so the vet step cannot list
+// it. CI builds with cgo and never passes the tag, so the unit suite vets
+// every package that uses it instead (TestTagsBuiltByTestsAreVetted, ci-18).
 var BuiltByTests = map[string]string{
 	"sage_e2e_assume_sqlast": "e2e/pipeline_binary_gate_test.go",
 }
