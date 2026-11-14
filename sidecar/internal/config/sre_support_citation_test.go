@@ -85,3 +85,28 @@ func TestSRESupportCitation_UnknownKeyInTheBlockIsRejected(t *testing.T) {
 		t.Fatalf("a non-mapping block was accepted or not named: %v", err)
 	}
 }
+
+// The block is decoded by hand, so pin its tag check: only a plain YAML
+// 1.2 boolean is accepted. A quoted "true", YAML 1.1 words (yes, off)
+// and an empty value would each be a silent guess for a safety-critical
+// switch; they fail and name the key instead.
+func TestSRESupportCitation_OnlyPlainBooleansAreAccepted(t *testing.T) {
+	for _, v := range []string{`"true"`, `'false'`, "yes", "off", "on", "no", "", "~"} {
+		body := "sre:\n  investigator:\n    require_support_citation: " + v + "\n"
+		_, err := loadRCAYAML(t, body)
+		if err == nil {
+			t.Errorf("value %q was accepted", v)
+			continue
+		}
+		if !strings.Contains(err.Error(), "sre.investigator.require_support_citation") {
+			t.Errorf("value %q: error %q does not name the key", v, err)
+		}
+	}
+	for v, want := range map[string]bool{"false": false, "False": false, "TRUE": true} {
+		cfg, err := loadRCAYAML(t, "sre:\n  investigator:\n    require_support_citation: "+
+			v+"\n")
+		if err != nil || cfg.SRE.Investigator.RequireSupportCitation != want {
+			t.Errorf("value %s: got %+v (%v), want %v", v, cfg.SRE.Investigator, err, want)
+		}
+	}
+}
