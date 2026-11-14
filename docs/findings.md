@@ -915,6 +915,113 @@ Detects a CDC heartbeat table that stopped being written.
 
 ---
 
+## Extension Health (pg_cron and pg_partman)
+
+pg_cron and pg_partman keep state nothing else watches: a job that fails every
+night, a run history that pg_cron never purges, a partitioned table that ran out of
+future partitions, rows landing in a default partition. Each cycle one query reads
+`pg_extension` for the monitored database; each rule below runs only when its
+extension is installed there, and reads the schema the extension's tables live in
+(the schema of pg_cron's `job` table, of pg_partman's `part_config`), quoted, never
+an assumed `cron` or `partman`. With neither extension installed nothing runs
+beyond that query, and these categories are not evaluated, so open findings stay
+open. Every read is read-only under `safety.query_timeout_ms`. In fleet mode each
+database reports its own extensions: pg_cron's jobs appear on the database where
+pg_cron is installed (`cron.database_name`). None of these findings carries SQL to
+run; the recommendation names the operator's step. The rules live in
+`rules_ext_gate.go`, `rules_ext_pgcron.go` and `rules_ext_partman.go`, and each can
+be switched off by a [rule pack](#rule-packs-and-owner-checks) under its category
+name. They are tested against stub schemas with pg_cron's and pg_partman's shapes on
+PostgreSQL 14 and 17; a run against real pg_cron 1.6 and pg_partman 5 is pending.
+
+### pg_cron_job_failed
+
+**Severity:** warning (info for the visibility finding below)
+
+**What it detects:** a job whose latest finished run in the last 24 hours failed
+(`cron.job_run_details.status = 'failed'`, timed by `end_time`, else `start_time`;
+a run exactly 24 hours old is included). `failures` counts its failed runs in those
+24 hours. A job whose latest run succeeded is clear, so its finding resolves on the
+next cycle. At most 50 jobs are reported, newest failure first; past 50 the category
+is not evaluated that cycle, so the jobs not reported keep their open findings. It
+needs `job_run_details` (pg_cron 1.4 and later); without it, or when the role cannot
+read it, the category is not evaluated and one warning per streak names the table.
+
+pg_cron's row security shows a role only the jobs it owns. When it applies to the
+monitoring role and that role sees no job, pg_sage cannot tell healthy from hidden:
+it raises one info finding, `pg_cron:visibility` with `visibility: own_jobs_only`,
+instead of reporting health, and leaves the category not evaluated. Failures of the
+jobs it does see carry `visibility: own_jobs_only` too.
+
+**Identity:** `pg_cron:job:<jobid>`.
+
+**Detail:** `jobid`, `jobname` (when `cron.job` has the column), `failures`,
+`last_failed_at`, `last_message` (literals redacted, cut to 300 characters),
+`window_hours`, `visibility` (`all_jobs` or `own_jobs_only`) and `schema`.
+
+**Recommended action:** read the job's runs in `job_run_details`, fix the command or
+what it depends on, and remove an obsolete job with `cron.unschedule(jobid)`.
+
+### pg_cron_history_unbounded
+
+**Severity:** info
+
+**What it detects:** `job_run_details` holding more than 1,000,000 rows by the
+planner's estimate (`pg_class.reltuples`; it never counts the table). A table never
+analyzed (`reltuples = -1`) is not judged. pg_cron never deletes run history.
+
+**Identity:** the quoted `job_run_details` table, for example `cron.job_run_details`.
+
+**Detail:** `estimated_rows`, `threshold_rows` and `schema`.
+
+**Recommended action:** schedule a cleanup job, for example
+`SELECT cron.schedule('purge-cron-history', '0 3 * * *', $$DELETE FROM cron.job_run_details WHERE end_time < now() - interval '7 days'$$)`,
+or set `cron.log_run = off` when run history is not needed.
+
+### partman_premake_gap
+
+**Severity:** warning
+
+**What it detects:** a `part_config` parent (at most 100 per cycle; past that the
+category is not evaluated) with fewer future child partitions than its `premake`.
+pg_sage lists the newest `premake + 1` children with `show_partitions(parent, 'DESC')`
+and reads each child's bounds with `show_partition_info`. A time-controlled child is
+future when it starts after now; an id-controlled child when it starts above the
+parent's highest control value (one `SELECT max(control)` on the parent). A parent
+whose children could not be read keeps its open finding. `premake = 0` is not judged.
+
+**Identity:** the quoted parent table.
+
+**Detail:** `parent_table`, `premake`, `future_partitions`, `control`, `control_kind`
+(`time` or `id`) and `schema`.
+
+**Recommended action:** `CALL partman.run_maintenance_proc()` creates the missing
+children; then find why maintenance stopped (the background worker's
+`pg_partman_bgw.interval`, the job that calls it, or `automatic_maintenance` off).
+
+### partman_default_rows
+
+**Severity:** warning
+
+**What it detects:** the default partition of a `part_config` parent holds at least
+one row. pg_sage finds the default partition in the catalog and checks it with
+`SELECT EXISTS (SELECT 1 FROM <default>)`, which reads at most one row. It does not
+judge by `reltuples`, which stays above zero after the rows are moved out until the
+next analyze, and reads -1 or 0 on a new default partition. A default partition that
+could not be read keeps its open finding.
+
+**Identity:** the quoted default partition.
+
+**Detail:** `parent_table`, `default_partition`, `estimated_rows` (`reltuples`) and
+`schema`.
+
+**Recommended action:** `CALL partman.partition_data_proc('<parent>')` moves the rows
+into proper children (pg_partman 5; `partition_data_time()` or
+`partition_data_id()` on 4.x). Rows in the default partition also block pg_partman
+from creating a child whose range they fall in.
+
+---
+
 ## Backups and WAL Archiving
 
 AP-11 (agent posture) reports backup *configuration*: archiving or point-in-time
