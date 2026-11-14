@@ -4,7 +4,6 @@
 # when the function total exceeds functions_over_50. A PR may shrink a row or
 # delete it, never add one or raise it. Each split item deletes its rows.
 # Format: <repo-relative path> <max lines>
-sidecar/cmd/pg_sage_sidecar/metadb.go 515
 sidecar/internal/api/action_handlers.go 748
 sidecar/internal/api/cases_handlers.go 593
 sidecar/internal/api/config_handlers.go 638
