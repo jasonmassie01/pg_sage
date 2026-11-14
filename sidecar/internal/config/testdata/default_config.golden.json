@@ -1,0 +1,790 @@
+{
+  "Mode": "standalone",
+  "Postgres": {
+    "Host": "localhost",
+    "Port": 5432,
+    "User": "sage_agent",
+    "Password": "",
+    "Database": "postgres",
+    "SSLMode": "prefer",
+    "MaxConnections": 2,
+    "DatabaseURL": "",
+    "ActionDSN": "",
+    "Provider": "",
+    "CloudResource": {
+      "AWS": {
+        "DBInstanceIdentifier": "",
+        "ClusterIdentifier": "",
+        "Region": ""
+      },
+      "GCP": {
+        "Project": "",
+        "Instance": "",
+        "Cluster": ""
+      },
+      "Azure": {
+        "Subscription": "",
+        "ResourceGroup": "",
+        "Server": ""
+      }
+    },
+    "CNPG": {
+      "Cluster": "",
+      "Namespace": ""
+    }
+  },
+  "Collector": {
+    "IntervalSeconds": 60,
+    "BatchSize": 1000,
+    "MaxQueries": 500
+  },
+  "Analyzer": {
+    "IntervalSeconds": 600,
+    "SlowQueryThresholdMs": 1000,
+    "SlowQueryMinCalls": 5,
+    "SeqScanMinRows": 100000,
+    "UnusedIndexWindowDays": 7,
+    "IndexBloatThresholdPct": 30,
+    "IndexBloatMinBytes": 104857600,
+    "TableBloatDeadTuplePct": 20,
+    "TableBloatMinRows": 1000,
+    "TableBloatMinBytes": 1073741824,
+    "AutovacuumTuneMinRows": 1000000,
+    "AnalyzeStaleMinRows": 10000,
+    "AnalyzeStaleDays": 7,
+    "WraparoundFreezeShare": 0.75,
+    "IdleInTxTimeoutMinutes": 30,
+    "CacheHitRatioWarning": 0.95,
+    "XIDWraparoundWarning": 500000000,
+    "XIDWraparoundCritical": 1000000000,
+    "RegressionThresholdPct": 50,
+    "RegressionLookbackDays": 7,
+    "CheckpointFreqWarningPerHour": 12,
+    "WorkMemPromotionThreshold": 5,
+    "SlowSlotRetainedBytes": 0,
+    "InactiveSlotMinMinutes": 5,
+    "SubscriptionLagMinutes": 5,
+    "CDCStallMinutes": 10,
+    "LockChain": {
+      "Enabled": true,
+      "MinBlockedThreshold": 3,
+      "CriticalBlockedThreshold": 10,
+      "IdleInTxTerminateMinutes": 5,
+      "ActiveQueryCancelMinutes": 15,
+      "SafePatterns": [
+        "pg_sage",
+        "replication",
+        "patroni"
+      ]
+    },
+    "SchemaGuardDDLDebounceSeconds": 60,
+    "SelfCostBudgetMs": 3000,
+    "DisabledRules": null
+  },
+  "Safety": {
+    "CPUCeilingPct": 90,
+    "HostCPUCeilingPct": 0,
+    "QueryTimeoutMs": 500,
+    "DDLTimeoutSeconds": 300,
+    "DiskPressureThresholdPct": 5,
+    "BackoffConsecutiveSkips": 3,
+    "DormantIntervalSeconds": 600,
+    "LockTimeoutMs": 30000,
+    "DataIOCeilingPct": 70,
+    "WALIOCeilingPct": 70,
+    "IndexBuildTimeoutSeconds": 14400,
+    "ReindexTimeoutSeconds": 14400,
+    "VacuumTimeoutSeconds": 14400,
+    "VacuumStallMinutes": 15
+  },
+  "Trust": {
+    "Level": "observation",
+    "RampStart": "",
+    "RampSafeHours": 192,
+    "RampModerateHours": 744,
+    "MaintenanceWindow": "",
+    "Tier3Safe": true,
+    "Tier3Moderate": false,
+    "Tier3HighRisk": false,
+    "RollbackThresholdPct": 10,
+    "RollbackWindowMinutes": 15,
+    "RollbackCooldownDays": 7,
+    "CascadeCooldownCycles": 3
+  },
+  "LLM": {
+    "Auth": "",
+    "Enabled": true,
+    "Endpoint": "",
+    "APIKey": "",
+    "Model": "",
+    "TimeoutSeconds": 30,
+    "TokenBudgetDaily": 500000,
+    "FleetTokenBudgetDaily": 0,
+    "GlobalTokenBudgetDaily": 0,
+    "ContextBudgetTokens": 8192,
+    "CooldownSeconds": 300,
+    "JSONMode": false,
+    "TokenParameter": "auto",
+    "ToolReasoningEffort": "auto",
+    "IndexOptimizer": {
+      "Enabled": true,
+      "MinQueryCalls": 100,
+      "MaxIndexesPerTable": 10,
+      "MaxIncludeColumns": 3,
+      "WriteHeavyRatio": 70
+    },
+    "Optimizer": {
+      "Enabled": true,
+      "MinQueryCalls": 100,
+      "MaxIndexesPerTable": 10,
+      "MaxNewPerTable": 3,
+      "MaxIncludeColumns": 3,
+      "WriteHeavyRatioPct": 70,
+      "MinSnapshots": 2,
+      "HypoPGMinImprovePct": 10,
+      "ConfidenceThreshold": 0.5,
+      "WriteImpactThreshPct": 15,
+      "RejectionMemory": {
+        "Enabled": true,
+        "MaxAgeDays": 7,
+        "CallVolumeRatio": 2,
+        "MeanTimeRatio": 2,
+        "RowEstimateRatio": 2,
+        "PromptMaxShapes": 5,
+        "SkipLLMAfter": 3
+      }
+    },
+    "OptimizerLLM": {
+      "Enabled": false,
+      "Endpoint": "",
+      "APIKey": "",
+      "Model": "",
+      "TimeoutSeconds": 120,
+      "TokenBudgetDaily": 500000,
+      "CooldownSeconds": 300,
+      "MaxOutputTokens": 8192,
+      "FallbackToGeneral": true
+    },
+    "RedactNumericLiterals": true,
+    "Pricing": null
+  },
+  "Advisor": {
+    "Enabled": true,
+    "IntervalSeconds": 86400,
+    "VacuumEnabled": true,
+    "WALEnabled": true,
+    "ConnectionEnabled": true,
+    "MemoryEnabled": true,
+    "RewriteEnabled": true,
+    "BloatEnabled": true,
+    "BudgetProposals": true
+  },
+  "Briefing": {
+    "Schedule": "0 6 * * *",
+    "Channels": [
+      "stdout"
+    ],
+    "SlackWebhookURL": "",
+    "FleetMode": "rollup"
+  },
+  "Alerting": {
+    "Enabled": false,
+    "Engine": "notify",
+    "CheckIntervalSeconds": 60,
+    "CooldownMinutes": 15,
+    "RepeatMinutes": {
+      "critical": 240,
+      "info": 0,
+      "warning": 1440
+    },
+    "QuietHoursStart": "",
+    "QuietHoursEnd": "",
+    "Timezone": "UTC",
+    "SlackWebhookURL": "",
+    "PagerDutyRoutingKey": "",
+    "Routes": null,
+    "Webhooks": null
+  },
+  "AutoExplain": {
+    "Enabled": true,
+    "LogMinDurationMs": 1000,
+    "CollectIntervalSeconds": 300,
+    "MaxPlansPerCycle": 100
+  },
+  "Forecaster": {
+    "Enabled": true,
+    "LookbackDays": 30,
+    "DiskWarnGrowthGBDay": 5,
+    "ConnectionWarnPct": 80,
+    "CacheWarnThreshold": 0.95,
+    "CacheMinBlocksPerDay": 100000,
+    "CheckpointRequestedPerHour": 2,
+    "DiskCapacityBytes": 0,
+    "MinRSquared": 0.5
+  },
+  "Tuner": {
+    "Enabled": true,
+    "LLMEnabled": true,
+    "WorkMemMaxMB": 512,
+    "PlanTimeRatio": 3,
+    "NestedLoopRowThreshold": 10000,
+    "ParallelMinTableRows": 1000000,
+    "MinQueryCalls": 100,
+    "VerifyAfterApply": true,
+    "HintRetirementDays": 14,
+    "RevalidationIntervalHours": 24,
+    "PlanMaxAgeMinutes": 1440,
+    "ParamShapeMinVariants": 20,
+    "HintCostTolerancePct": 10,
+    "HintAbsentCycles": 3,
+    "StaleStatsEstimateSkew": 10,
+    "StaleStatsModRatio": 0.1,
+    "StaleStatsAgeMinutes": 60,
+    "AnalyzeMaxTableMB": 10240,
+    "AnalyzeCooldownMinutes": 60,
+    "AnalyzeTimeoutMs": 600000,
+    "MaxConcurrentAnalyze": 1
+  },
+  "Tuning": {
+    "Enabled": true,
+    "MaxCasesPerCycle": 3,
+    "MaxRequestsPerCycle": 12,
+    "MaxTokensPerCycle": 60000,
+    "MaxTurnsPerCase": 6,
+    "MaxProposalsPerCycle": 10,
+    "CalibrationMinOutcomes": 5,
+    "CalibrationWindowDays": 180
+  },
+  "RCA": {
+    "Enabled": true,
+    "LLMCorrelationThreshold": 3,
+    "DedupWindowMinutes": 30,
+    "EscalationCycles": 5,
+    "ResolutionCycles": 2,
+    "StaleAfterHours": 24,
+    "VacuumMinDeadTuples": 1000,
+    "VacuumMinTableMB": 8,
+    "XminHolderMinMinutes": 5,
+    "PreparedXactMinAgeMinutes": 30,
+    "ConnectionSaturationPct": 80,
+    "ReplicationLagThresholdS": 30,
+    "WALSpikeMultiplier": 2,
+    "LockChainIntervalSeconds": 60,
+    "NarrationEnabled": true,
+    "LogFastPathIntervalSeconds": 5,
+    "LogQuietMinutes": 0,
+    "RecurrenceRenotifyHours": 6
+  },
+  "SRE": {
+    "ReadPolicy": {
+      "Scope": "",
+      "AllowedSources": null
+    },
+    "AutomaticStart": true,
+    "TriggerIntervalSeconds": 15,
+    "SampleIntervalSeconds": 5,
+    "EvidenceRetentionDays": 30,
+    "TimelineRetentionDays": 90,
+    "LLM": {
+      "Enabled": true,
+      "Mode": "investigator"
+    },
+    "Investigator": {
+      "RequireSupportCitation": true
+    },
+    "SLO": {
+      "Enabled": true,
+      "EvaluationIntervalSeconds": 60,
+      "OpenInvestigations": true,
+      "BurnRules": null,
+      "Prometheus": {
+        "URL": "",
+        "BearerToken": "",
+        "BearerTokenFile": "",
+        "TimeoutSeconds": 5
+      },
+      "Push": {
+        "HMACSecret": "",
+        "TimestampToleranceSeconds": 300
+      },
+      "Proxies": {
+        "Enabled": true,
+        "Target": 0.99,
+        "WindowDays": 30,
+        "LatencyThresholdMs": 0,
+        "LatencyFactor": 3,
+        "LatencyFloorMs": 50,
+        "TopQueries": 20,
+        "ReplicationLagBudgetSeconds": 60
+      },
+      "Objectives": null
+    },
+    "ChangeEvents": {
+      "HMACSecret": "",
+      "TimestampToleranceSeconds": 300,
+      "AllowedSources": null,
+      "FeedEnabled": true,
+      "FeedIntervalSeconds": 60,
+      "RetentionDays": 90
+    },
+    "Actions": {
+      "Proposals": true,
+      "RequestApproval": true,
+      "ApprovalTTLMinutes": 15,
+      "MaxEvidenceAgeSeconds": 5,
+      "RecoverySampleSeconds": 40,
+      "RecoverySamples": 3,
+      "RecoveryDeadlineMinutes": 30,
+      "ChatOpsToleranceSeconds": 300,
+      "ProtectedRoles": null,
+      "ProtectedApplications": null
+    },
+    "Runways": {
+      "Enabled": true,
+      "Investigate": true,
+      "IntervalSeconds": 60,
+      "SequenceIntervalSeconds": 600,
+      "SizeIntervalSeconds": 600,
+      "LookbackHours": 6,
+      "MinSamples": 10,
+      "MinSpanMinutes": 30,
+      "WraparoundHorizonHours": 336,
+      "WraparoundCriticalHours": 72,
+      "DiskHorizonHours": 72,
+      "DiskCriticalHours": 24,
+      "SequenceHorizonDays": 30,
+      "SequenceCriticalDays": 7,
+      "SampleRetentionHours": 48
+    },
+    "Autonomy": {
+      "Enforce": true,
+      "BenchResultsPath": "",
+      "EvaluateIntervalMinutes": 60,
+      "ReconcileIntervalSeconds": 60,
+      "MaxEvidenceAgeSeconds": 300,
+      "ConcurrencyWindowMinutes": 15,
+      "SafetyWindowDays": 30,
+      "FailoverCooldownMinutes": 30,
+      "ProposalTTLHours": 168,
+      "ReportRetentionDays": 90,
+      "Promotion": {
+        "ShadowWindowHours": 720,
+        "ShadowMinReviewed": 20,
+        "ShadowMinAcceptedPct": 95,
+        "BenchMinTop1Pct": 80,
+        "BenchMinPrecisionPct": 90,
+        "MinSafePassPct": 95,
+        "MinLiveRecoveries": 50
+      },
+      "GameDays": {
+        "Enabled": false,
+        "IntervalHours": 168,
+        "LocalDSN": "",
+        "Families": null,
+        "CustomerPrograms": null
+      },
+      "Canary": {
+        "CanaryInstances": 1,
+        "RegressionLimitPct": 10
+      },
+      "ClassPromotion": {
+        "MinSuccessesL2": 3,
+        "MinSuccessesL3": 10,
+        "MinSuccessRatePct": 80
+      }
+    },
+    "Detectors": {
+      "WindowSeconds": 300,
+      "CheckpointRequested": 3,
+      "TempFileMB": 1024,
+      "LWLockWaiters": 8,
+      "LWLockPolls": 3,
+      "CooldownMinutes": 30
+    },
+    "Poolers": null
+  },
+  "Runaway": {
+    "Enabled": false,
+    "Policies": [
+      {
+        "Name": "long_running",
+        "MaxDurationMinutes": 30,
+        "MaxBlockedSessions": 0,
+        "WarnCycles": 2,
+        "CancelCycles": 4
+      },
+      {
+        "Name": "blocker",
+        "MaxDurationMinutes": 0,
+        "MaxBlockedSessions": 5,
+        "WarnCycles": 1,
+        "CancelCycles": 2
+      }
+    ],
+    "SafePatterns": [
+      "pg_dump",
+      "pg_basebackup"
+    ]
+  },
+  "Explain": {
+    "Enabled": true,
+    "TimeoutMs": 10000,
+    "CacheTTLMinutes": 60,
+    "MaxTokens": 4096
+  },
+  "LogWatch": {
+    "Enabled": false,
+    "LogDirectory": "",
+    "Format": "",
+    "PollIntervalMs": 1000,
+    "DedupWindowS": 60,
+    "MaxLineLenBytes": 65536,
+    "TempFileMinBytes": 10485760,
+    "MaxLinesPerCycle": 10000,
+    "ExcludeApplications": null,
+    "SlowQueryEnabled": false
+  },
+  "SchemaLint": {
+    "Enabled": false,
+    "ScanIntervalMinutes": 60,
+    "IncludeSchemas": null,
+    "ExcludeSchemas": null,
+    "DisabledRules": null,
+    "MinTableRows": 0
+  },
+  "Migration": {
+    "Enabled": false,
+    "Mode": "",
+    "LogDetection": false,
+    "ActivityPolling": false,
+    "PollIntervalSeconds": 5,
+    "DDLRowThreshold": 0,
+    "QueueWaitersThreshold": 0,
+    "ContractDelayMinutes": 60,
+    "MaxLockMS": 2000
+  },
+  "Rehearsal": {
+    "PlanFlipPct": 5
+  },
+  "Retention": {
+    "SnapshotsDays": 90,
+    "FindingsDays": 180,
+    "ActionsDays": 365,
+    "ExplainsDays": 90,
+    "DecisionsDays": 30,
+    "AuthAuditDays": 365,
+    "SageSizeWarningPct": 10,
+    "QueryStoreDays": 14,
+    "SnapshotsMaxPct": 5
+  },
+  "Prometheus": {
+    "ListenAddr": "127.0.0.1:8187",
+    "ServeOnAPI": false,
+    "RefreshIntervalSeconds": 0
+  },
+  "Azure": {
+    "SubscriptionID": "",
+    "ResourceGroup": "",
+    "ServerName": ""
+  },
+  "OAuth": {
+    "Enabled": false,
+    "Provider": "",
+    "ClientID": "",
+    "ClientSecret": "",
+    "RedirectURL": "",
+    "IssuerURL": "",
+    "DefaultRole": "viewer",
+    "GroupsClaim": "groups",
+    "RoleMapping": null,
+    "UnmappedUsers": "deny",
+    "BreakGlass": {
+      "Enabled": false,
+      "PasswordHash": ""
+    },
+    "DatabaseGrantMapping": null
+  },
+  "Policy": {
+    "Profile": "unattended"
+  },
+  "Value": {
+    "ToilModelVersion": 1
+  },
+  "Verify": {
+    "WindowMinutes": 120,
+    "WindowMaxMinutes": 4320,
+    "MinGainPct": 20,
+    "RegressPct": 15,
+    "WriteImpactPct": 20,
+    "MinSamples": 30,
+    "IOBaselineDays": 7,
+    "DropWindowHours": 168,
+    "IOBaselineHours": 0,
+    "IOSampleDays": 14,
+    "IOCapacity": null
+  },
+  "Clone": {
+    "Provider": "none",
+    "DLEEndpoint": "",
+    "DLEToken": "",
+    "MaxCloneAgeMinutes": 1440,
+    "Lakebase": {
+      "Project": "",
+      "SourceBranch": "",
+      "TTLMinutes": 60,
+      "EndpointMaxCU": 1
+    }
+  },
+  "Custodian": {
+    "Freeze": {
+      "RedBufferPct": 25
+    },
+    "WAL": {
+      "AbandonAfterMinutes": 1440,
+      "RetainedWALDiskPctCeiling": 10
+    }
+  },
+  "MCP": {
+    "Enabled": true,
+    "Transport": "http",
+    "OAuth": {
+      "Enabled": false,
+      "Resource": "",
+      "Issuers": null,
+      "TaskClaim": "task_id"
+    },
+    "StdioPrincipal": "",
+    "CallTimeoutSeconds": 90
+  },
+  "Ask": {
+    "Enabled": true,
+    "DailyTokensPerDatabase": 300000,
+    "DailyTokensPerUser": 100000,
+    "MaxTokensPerQuestion": 40000,
+    "RetentionDays": 30,
+    "MaxSecondsPerQuestion": 60
+  },
+  "Facts": {
+    "ConfirmedAbsenceDays": 7
+  },
+  "SelfBudget": {
+    "CPUMsPerCycle": 600,
+    "DBTimeMsPerHour": 0,
+    "BlocksPerHour": 18000000,
+    "StorageMB": 10240
+  },
+  "Baseline": {
+    "Enabled": true,
+    "Weeks": 4,
+    "Timezone": "UTC",
+    "ZWarning": 4,
+    "ZCritical": 6,
+    "MaxQueryKeys": 500,
+    "MinDeltaMs": 5
+  },
+  "History": {
+    "Store": "monitored"
+  },
+  "Debug": {
+    "PprofEnabled": false
+  },
+  "SelfConfig": {
+    "Enabled": true,
+    "SoakHours": 24
+  },
+  "Specialist": {
+    "Enabled": true,
+    "WritesPerMinute": 30,
+    "ReadsPerMinute": 240,
+    "MaxOpenPerIdentity": 3,
+    "MaxOpenTotal": 10,
+    "MaxLiveAgeHours": 24,
+    "KeepIdentifiers": true,
+    "PagerDuty": {
+      "SigningSecret": "",
+      "Services": null,
+      "APIURL": "",
+      "APIToken": "",
+      "FromEmail": ""
+    },
+    "Webhook": {
+      "SigningSecret": "",
+      "ResultURL": "",
+      "TimestampToleranceSeconds": 300
+    }
+  },
+  "Budgets": null,
+  "FleetLearning": {
+    "Enabled": true,
+    "IncludeNames": false,
+    "IntervalMinutes": 60,
+    "LookalikeMinSimilarity": 0.6,
+    "MinPriorOutcomes": 3,
+    "FleetFindingMinDatabases": 3,
+    "BudgetSplit": "need",
+    "BudgetFloorPct": 50,
+    "BudgetCeilingPct": 300,
+    "LeaderLeaseSeconds": 30,
+    "ControlDatabase": "",
+    "OrphanScopeDays": 14
+  },
+  "Fleet": {
+    "Discovery": {
+      "Enabled": false,
+      "Sources": null,
+      "MaxEnrolled": 10,
+      "TTLHours": 72
+    }
+  },
+  "HA": {
+    "CheckIntervalSeconds": 60
+  },
+  "Backup": {
+    "MaxAgeHours": 26,
+    "MaxArchiveGapMinutes": 15,
+    "MinRetentionDays": 7
+  },
+  "CloudTelemetry": {
+    "Enabled": null,
+    "PollIntervalSeconds": 0,
+    "MaxReplicaLagSeconds": 0,
+    "MinFreeStoragePct": 0,
+    "MinStorageRunwayHours": 0,
+    "MinAvailableMemoryPct": 0,
+    "AWS": {
+      "Region": "",
+      "DBInstanceIdentifier": "",
+      "DBClusterIdentifier": ""
+    },
+    "GCP": {
+      "Project": "",
+      "Instance": ""
+    },
+    "AlloyDB": {
+      "Project": "",
+      "Cluster": "",
+      "Instance": ""
+    }
+  },
+  "LakebaseObservability": {
+    "Enabled": false,
+    "WarehouseID": "",
+    "AllowPayload": false,
+    "PollIntervalSeconds": 0,
+    "QueryTimeoutSeconds": 0,
+    "MaxRows": 0,
+    "MaxBytes": 0,
+    "QueriesPerPoll": 0,
+    "WindowSeconds": 0,
+    "RetentionHours": 0,
+    "SettleLagSeconds": 0,
+    "ShortLookbackSeconds": 0,
+    "Streams": null,
+    "Bindings": null
+  },
+  "ProviderAdvice": {
+    "Enabled": null
+  },
+  "Cost": {
+    "Rates": null
+  },
+  "Agents": {
+    "ExposedRoles": null,
+    "ClientPatterns": [
+      "^mcp",
+      "^claude",
+      "^cursor",
+      "^codex",
+      "^langgraph",
+      "^crewai"
+    ],
+    "Posture": {
+      "MemoryGrowthGBDay": 5,
+      "DailyAt": "03:00"
+    },
+    "Roles": {
+      "ConnectionLimit": 5,
+      "StatementTimeoutMS": 30000,
+      "LockTimeoutMS": 2000,
+      "IdleInTransactionTimeoutMS": 60000,
+      "IdleSessionTimeoutMS": 600000,
+      "TransactionTimeoutMS": 600000,
+      "TempFileLimitMB": 1024,
+      "RetireGraceDays": 7
+    },
+    "Broker": {
+      "RotationDays": 7,
+      "PoolMaxConns": 2,
+      "PoolIdleSeconds": 60,
+      "MaxTotalConnections": 20
+    },
+    "KillVerifyTimeoutSeconds": 10,
+    "KillFallbackLog": "agent-kill-fallback.log",
+    "SingleOperatorMode": false,
+    "ControlDatabase": "",
+    "DefaultEnvironment": "prod",
+    "Query": {
+      "MaxRows": 200,
+      "MaxRowsCeiling": 1000,
+      "MaxBytes": 1048576,
+      "AuditRetentionDays": 30
+    },
+    "Capabilities": {
+      "MaxDurationMinutes": 240
+    },
+    "ReconcileIntervalSeconds": 60
+  },
+  "Audit": {
+    "SIEM": {
+      "Sinks": null,
+      "BatchSize": 200,
+      "IntervalSeconds": 10,
+      "MaxBackoffSeconds": 300
+    },
+    "Evidence": {
+      "SigningKeyEnv": ""
+    },
+    "PGAudit": {
+      "Correlate": true
+    },
+    "VerifyIntervalHours": 24,
+    "FullVerifyIntervalHours": 168,
+    "PruneBelowSignedCheckpoint": false
+  },
+  "Replication": {
+    "CDCHeartbeats": null
+  },
+  "NotificationPolicy": {
+    "AllowPrivateTargets": false
+  },
+  "Checks": null,
+  "Databases": null,
+  "Defaults": {
+    "MaxConnections": 0,
+    "TrustLevel": "",
+    "ExecutionMode": "",
+    "CollectorIntervalSeconds": 0,
+    "AnalyzerIntervalSeconds": 0
+  },
+  "API": {
+    "ListenAddr": "0.0.0.0:8080",
+    "TrustedProxies": null,
+    "TrustedOrigins": null,
+    "AccessLog": null,
+    "MigrationLintRatePerMinute": 0,
+    "DatabaseGrants": false
+  },
+  "MetaDB": "",
+  "EncryptionKey": "",
+  "EncryptionKeyPrevious": "",
+  "DataDir": "",
+  "APIKey": "",
+  "TLSCert": "",
+  "TLSKey": "",
+  "ConfigPath": "",
+  "PGVersionNum": 0,
+  "HasWALColumns": false,
+  "HasPlanTimeColumns": false,
+  "StatementsSchema": "",
+  "CloudEnvironment": ""
+}
