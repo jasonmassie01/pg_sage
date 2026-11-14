@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pg-sage/sidecar/internal/logwatch"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
@@ -38,7 +39,7 @@ func TestCorpus_DeadlockCycleNamesItsParticipants(t *testing.T) {
 		if c.ID != "lock-deadlock-cycle" {
 			continue
 		}
-		named, ok := ParticipantsNamed(c)
+		named, ok := ParticipantsNamed(c, logwatchParser)
 		if !ok || named != 1 {
 			t.Fatalf("participants_named = %d (scored %v), want 1", named, ok)
 		}
@@ -58,7 +59,7 @@ func TestParticipantsNamed_ScoresEveryExpectedParticipant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if named, ok := ParticipantsNamed(c); !ok || named != 1 {
+	if named, ok := ParticipantsNamed(c, logwatchParser); !ok || named != 1 {
 		t.Errorf("participants_named = %d (%v), want 1", named, ok)
 	}
 	for _, miss := range [][]any{
@@ -70,7 +71,7 @@ func TestParticipantsNamed_ScoresEveryExpectedParticipant(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if named, ok := ParticipantsNamed(c); !ok || named != 0 {
+		if named, ok := ParticipantsNamed(c, logwatchParser); !ok || named != 0 {
 			t.Errorf("%v: participants_named = %d (%v), want 0", miss, named, ok)
 		}
 	}
@@ -85,7 +86,7 @@ func TestParticipantsNamed_NeedsAFingerprint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if named, ok := ParticipantsNamed(c); !ok || named != 0 {
+	if named, ok := ParticipantsNamed(c, logwatchParser); !ok || named != 0 {
 		t.Errorf("participants_named = %d (%v), want 0 without fingerprints", named, ok)
 	}
 }
@@ -96,7 +97,7 @@ func TestParticipantsNamed_NotScoredWithoutDeadlockLog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if named, ok := ParticipantsNamed(c); ok || named != 0 {
+	if named, ok := ParticipantsNamed(c, logwatchParser); ok || named != 0 {
 		t.Errorf("participants_named = %d (%v), want not scored", named, ok)
 	}
 }
@@ -147,5 +148,34 @@ func TestCaseText_IncludesDeadlockDetail(t *testing.T) {
 	}
 	if !strings.Contains(caseText(c), "account_id = 7101") {
 		t.Error("caseText leaves out the deadlock DETAIL")
+	}
+}
+
+// logwatchParser is pg_sage's deadlock log parser, the one the bench
+// passes, as a DeadlockParser.
+func logwatchParser(detail, context string) []ParsedParticipant {
+	parts, _ := logwatch.ParseDeadlockDetail(detail, context)
+	out := make([]ParsedParticipant, 0, len(parts))
+	for _, p := range parts {
+		out = append(out, ParsedParticipant{PID: p.PID, BlockedBy: p.BlockedBy,
+			WaitMode: p.WaitMode, Fingerprint: p.Fingerprint})
+	}
+	return out
+}
+
+// Without a parser a deadlock case is scored, and scored 0: a miss, never
+// a silent skip.
+func TestParticipantsNamed_NoParserScoresZero(t *testing.T) {
+	m := deadlockLogCase([]any{expect(16010, 16020, "ShareLock"),
+		expect(16020, 16010, "ShareLock")})
+	c, err := parseValid(t, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if named, ok := ParticipantsNamed(c, nil); !ok || named != 0 {
+		t.Fatalf("no parser: participants_named = %d (scored %v), want 0 scored", named, ok)
+	}
+	if named, ok := ParticipantsNamed(c, logwatchParser); !ok || named != 1 {
+		t.Fatalf("logwatch parser: participants_named = %d (scored %v), want 1", named, ok)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/pg-sage/sidecar/internal/logwatch"
 	"github.com/pg-sage/sidecar/sre-bench/replay"
 )
 
@@ -24,7 +25,7 @@ type ParticipantsScore struct {
 func participantsScores(cases []replay.Case) []ParticipantsScore {
 	var out []ParticipantsScore
 	for _, c := range cases {
-		if named, ok := replay.ParticipantsNamed(c); ok {
+		if named, ok := replay.ParticipantsNamed(c, logwatchDeadlocks); ok {
 			out = append(out, ParticipantsScore{Case: c.ID, Named: named})
 		}
 	}
@@ -42,4 +43,16 @@ func writeParticipants(b *strings.Builder, scores []ParticipantsScore) {
 	for _, s := range scores {
 		b.WriteString(row(s.Case, fmt.Sprint(s.Named)))
 	}
+}
+
+// logwatchDeadlocks is pg_sage's deadlock log parser as the replay's
+// DeadlockParser.
+func logwatchDeadlocks(detail, context string) []replay.ParsedParticipant {
+	parts, _ := logwatch.ParseDeadlockDetail(detail, context)
+	out := make([]replay.ParsedParticipant, 0, len(parts))
+	for _, p := range parts {
+		out = append(out, replay.ParsedParticipant{PID: p.PID, BlockedBy: p.BlockedBy,
+			WaitMode: p.WaitMode, Fingerprint: p.Fingerprint})
+	}
+	return out
 }

@@ -2,8 +2,6 @@ package replay
 
 import (
 	"strings"
-
-	"github.com/pg-sage/sidecar/internal/logwatch"
 )
 
 // rca-07b: a deadlock case can carry the deadlock's server-log record
@@ -49,16 +47,31 @@ func (c Case) validateDeadlockLog() error {
 	return nil
 }
 
-// ParticipantsNamed scores a deadlock case: 1 when the parser names every
+// ParsedParticipant is one process a deadlock parser named.
+type ParsedParticipant struct {
+	PID, BlockedBy        int
+	WaitMode, Fingerprint string
+}
+
+// DeadlockParser reads a deadlock record's DETAIL and CONTEXT; the bench
+// passes pg_sage's log parser (logwatch.ParseDeadlockDetail). It is a
+// parameter so this package, which the SRE package's tests load, does not
+// import logwatch, which imports rca and so sre (an import cycle).
+type DeadlockParser func(detail, context string) []ParsedParticipant
+
+// ParticipantsNamed scores a deadlock case: 1 when parse names every
 // expected participant with its lock mode, its blocker and a statement
-// fingerprint, else 0. ok is false for a case without a deadlock record
-// (not scored).
-func ParticipantsNamed(c Case) (named int, ok bool) {
+// fingerprint, else 0 (also with no parser). ok is false for a case
+// without a deadlock record (not scored).
+func ParticipantsNamed(c Case, parse DeadlockParser) (named int, ok bool) {
 	if c.DeadlockLog == nil {
 		return 0, false
 	}
-	parts, _ := logwatch.ParseDeadlockDetail(c.DeadlockLog.Detail, c.DeadlockLog.Context)
-	got := make(map[int]logwatch.DeadlockParticipant, len(parts))
+	if parse == nil {
+		return 0, true
+	}
+	parts := parse(c.DeadlockLog.Detail, c.DeadlockLog.Context)
+	got := make(map[int]ParsedParticipant, len(parts))
 	for _, p := range parts {
 		got[p.PID] = p
 	}
