@@ -715,9 +715,35 @@ reads apply a revoke on the next request. If the grants cannot be read, the read
 is refused with `503 grant_store_unavailable`; it never falls back to showing
 everything.
 
-Not scoped yet: MCP read tools for people and Ask Sage (apiauth-08c), and SSO
-group-to-grant mapping (apiauth-08d). MCP and agent tokens keep their own
-database lists (agent governance) and are not affected by user grants.
+#### MCP tokens and Ask Sage
+
+With grants enforced, a person's MCP token (`kind: operator`) reads only the
+databases on its own list that its owner may read now (apiauth-08c): the token's
+`databases` (or `["*"]`) is intersected with the owner's grants on every MCP
+request. `list_databases`, `tools/list` and `resources/list` show only those
+databases, and naming another is `-32003 database_not_permitted`, the same
+answer as for a database that does not exist. Revoking a grant narrows the
+token's next call; a grant added later widens the token up to its own list,
+never beyond it. An owner with no grants, or an admin owner, is not narrowed.
+A person's token with no owner reads no database while grants are on. If the
+grants cannot be read, every tool call and resource read is
+`-32010 unavailable`; the token never falls back to its full list. Agent tokens
+and OAuth agent identities keep their own database lists (agent governance) and
+are not affected by user grants.
+
+Minting (`POST /api/v1/mcp/tokens`, admin only) checks the same rule: a token
+whose `owner_user_id` is a user limited by grants may name only databases that
+user is granted; `"*"` or any other database is
+`400 {"code": "database_forbidden"}` and no token is stored. Tokens minted
+before grants were turned on keep working, narrowed by the intersection.
+
+Ask Sage (`POST /api/v1/databases/{db}/ask`) is scoped like the other
+one-database reads: a database outside the caller's grants answers exactly like
+one that does not exist (`404 {"error": "database not found"}`), the model is
+not called and nothing is stored. Over MCP, `ask_sage` follows the token rule
+above.
+
+Not scoped yet: SSO group-to-grant mapping (apiauth-08d).
 
 ### User Offboarding
 

@@ -32,7 +32,10 @@ func registerAskRoutes(mux *http.ServeMux, reg *ask.Registry) {
 		return
 	}
 	h := askHandlers{reg: reg}
-	route(mux, "POST "+askBasePath, gateViewerWrite, http.HandlerFunc(h.ask))
+	// A question reads its database: with grants on, a database the
+	// caller may not read is answered like an unknown one (apiauth-08c).
+	route(mux, "POST "+askBasePath, gateViewerWrite,
+		requireReadScope(readDatabase(pathDB))(http.HandlerFunc(h.ask)))
 	route(mux, "GET "+askBasePath+"/conversations", gateViewer, http.HandlerFunc(h.list))
 	route(mux, "GET "+askBasePath+"/conversations/{id}", gateViewer, http.HandlerFunc(h.thread))
 	route(mux, "GET "+askBasePath+"/budget", gateViewer, http.HandlerFunc(h.budget))
