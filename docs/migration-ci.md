@@ -6,7 +6,7 @@ advisor uses on DDL that is already running. One review, three ways in:
 | Entry point | Who it is for | Auth |
 |---|---|---|
 | `pg_sage lint-migration` | CI pipelines (GitHub Actions, any runner) | A read-only DSN in `SAGE_LINT_DATABASE_URL`, or none with `--static` |
-| `POST /api/v1/migrations/lint` | Tools that already talk to the pg_sage API | A signed-in session (any role) |
+| `POST /api/v1/migrations/lint` | CI jobs and tools that talk to the pg_sage API | A signed-in session (any role), or an API token with the `read` scope |
 | MCP `lint_migration` | Coding agents | An MCP token ([MCP](mcp.md)) |
 
 The SQL is text to analyze: **it is never run**. pg_sage reads only catalog statistics
@@ -127,20 +127,47 @@ Content-Type: application/json
 {"sql": "CREATE INDEX x ON app.t (c)", "database": "orders", "pg_version": 0, "static": false}
 ```
 
-* Any signed-in role may call it (it changes nothing). The response is the report
+* Any signed-in role, or an API token with the `read` scope, may call it (it changes
+  nothing). The response is the report
   (`verdict`, `max_risk_score`, `statements[]` with `hazards`, `guarded_rewrite`, `line`).
 * 400: empty SQL, SQL over 100,000 bytes, a body that is not one JSON object, or an
   unsupported `pg_version`. 404: an unknown `database`. 429 with `Retry-After`: more than
-  `api.migration_lint_rate_per_minute` (default 30) requests from one user in a minute.
-  503 with the reason: no connected database, or a catalog read that failed or hit the
-  2 s timeout; never a verdict.
+  `api.migration_lint_rate_per_minute` (default 30) requests from one user, or one
+  token, in a minute. 503 with the reason: no connected database, or a catalog read that
+  failed or hit the 2 s timeout; never a verdict.
 * In fleet mode `database` selects the instance; with one monitored database it may be
   left out. At most 4 reviews read catalogs at once, so a burst cannot take the monitored
   database's pool.
 
-The endpoint takes a session only. With an API token, call MCP `lint_migration` (any
-token with the `read` scope): it runs the same review and returns the full report under
-`review`. CI should use the CLI, which needs only a read-only DSN and no pg_sage
+### Calling it from CI with an API token
+
+A CI job that should use the server's own catalog view (rather than a DSN of its own)
+sends an MCP API token ([MCP](mcp.md)) with the `read` scope as a Bearer header. Create
+one on the **MCP tokens** page (or `POST /api/v1/mcp/tokens`) with only the `read`
+scope, limited to the databases the job reviews, and store it as a CI secret:
+
+```bash
+jq -n --rawfile sql migrations/0042_add_index.sql '{sql: $sql, database: "orders"}' |
+  curl -fsS -X POST "$PG_SAGE_URL/api/v1/migrations/lint" \
+    -H "Authorization: Bearer $PG_SAGE_LINT_TOKEN" \
+    -H "Content-Type: application/json" \
+    --data-binary @-
+```
+
+* The token is the only credential such a request carries: a session cookie beside it is
+  ignored, and a bad token is never retried as a session.
+* 401 with `WWW-Authenticate: Bearer`: the token is malformed, unknown, expired or
+  revoked. 403 `scope_missing`: the token lacks `read`. A metrics-only token is refused.
+  404: a `database` outside the token's list, answered as an unknown database.
+  503 `token validation unavailable`: the control database could not check the token
+  (retry; the token is not at fault). The secret is never logged.
+* The rate limit counts per token (`token:<id>`), and the access log records that
+  principal.
+* **Databricks Apps:** the platform proxy sets its own `Authorization` header, so the
+  endpoint takes the platform identity only there; from CI, use the CLI.
+
+MCP `lint_migration` (any token with the `read` scope) runs the same review and returns
+the full report under `review`. The CLI needs only a read-only DSN and no pg_sage
 credential at all.
 
 ## Managed providers

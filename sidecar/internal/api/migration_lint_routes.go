@@ -16,15 +16,18 @@ import (
 	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/mcp"
 	"github.com/pg-sage/sidecar/internal/migration"
 )
 
 // POST /api/v1/migrations/lint (migration-11) reviews migration SQL with
 // the engine MCP lint_migration and the lint-migration CLI use. Any
-// signed-in role may call it: the SQL is never run, and the catalog reads
-// are bounded (statement_timeout 2 s, at most migrationLintSlots at once
-// across all users) and rate limited per user. In fleet mode "database"
-// selects the instance; an unknown name is 404.
+// signed-in role may call it, and outside a Databricks App so may a
+// read-scope MCP API token (migration-11b, migration_lint_token.go): the
+// SQL is never run, and the catalog reads are bounded (statement_timeout
+// 2 s, at most migrationLintSlots at once across all callers) and rate
+// limited per user or token. In fleet mode "database" selects the
+// instance; an unknown name is 404.
 
 const migrationLintPath = "/api/v1/migrations/lint"
 
@@ -59,7 +62,10 @@ type migrationLintRequest struct {
 
 type migrationLintDeps struct {
 	// querier resolves the database to its bounded catalog reader.
-	querier      func(database string) (catalogread.Querier, error)
+	querier func(database string) (catalogread.Querier, error)
+	// resolve names the database a request without one reviews; it is
+	// used to check a token's database list (nil: such a check fails).
+	resolve      func(database string) (string, error)
 	rowThreshold int64
 	limiter      *lintLimiter
 	slots        chan struct{}
@@ -74,16 +80,35 @@ func (d migrationLintDeps) reviewBudget() time.Duration {
 	return d.budget
 }
 
+// registerMigrationLintRoutes registers the route session-only, as in a
+// Databricks App, where the platform proxy owns the Authorization header:
+// the gate is the same in every mode, and it serves a handler not built
+// by newTokenOrSession to signed-in roles only.
 func registerMigrationLintRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
 	cfg *config.Config) {
+	route(mux, "POST "+migrationLintPath, gateViewerWriteOrToken,
+		migrationLintHandler(newMigrationLintDeps(mgr, cfg)))
+}
+
+// registerMigrationLintTokenRoutes registers the route for a session or a
+// read-scope API token checked by tokens (migration-11b).
+func registerMigrationLintTokenRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
+	cfg *config.Config, tokens lintTokenValidator) {
+	registerLintTokenRoute(mux, newMigrationLintDeps(mgr, cfg), tokens)
+}
+
+func newMigrationLintDeps(mgr *fleet.DatabaseManager, cfg *config.Config) migrationLintDeps {
 	deps := migrationLintDeps{querier: fleetLintQuerier(mgr),
+		resolve: func(database string) (string, error) {
+			return resolveFleetDatabase(mgr, database)
+		},
 		limiter: newLintLimiter(config.DefaultMigrationLintRatePerMinute, time.Minute),
 		slots:   make(chan struct{}, migrationLintSlots)}
 	if cfg != nil {
 		deps.rowThreshold = int64(cfg.Migration.DDLRowThreshold)
 		deps.limiter = newLintLimiter(cfg.API.MigrationLintRate(), time.Minute)
 	}
-	route(mux, "POST "+migrationLintPath, gateViewerWrite, migrationLintHandler(deps))
+	return deps
 }
 
 // fleetLintQuerier selects one monitored database: the named one, or the
@@ -101,29 +126,39 @@ func fleetLintQuerier(mgr *fleet.DatabaseManager) func(string) (catalogread.Quer
 // fleetDatabasePool is the named monitored database's pool, or the only
 // one's when database is empty and a single database is monitored.
 func fleetDatabasePool(mgr *fleet.DatabaseManager, database string) (*pgxpool.Pool, error) {
-	if mgr == nil {
-		return nil, errLintNoDatabase
-	}
-	if database == "" {
-		names := mgr.Instances()
-		if len(names) > 1 {
-			return nil, errLintDatabaseRequired
-		}
-		for name := range names {
-			database = name
-		}
-	}
-	if database == "" {
-		return nil, errLintNoDatabase
-	}
-	if mgr.GetInstance(database) == nil {
-		return nil, errLintUnknownDatabase
+	database, err := resolveFleetDatabase(mgr, database)
+	if err != nil {
+		return nil, err
 	}
 	pool := mgr.PoolForDatabase(database)
 	if pool == nil {
 		return nil, errLintNoDatabase
 	}
 	return pool, nil
+}
+
+// resolveFleetDatabase is the named monitored database, or the only one
+// when database is empty and a single database is monitored.
+func resolveFleetDatabase(mgr *fleet.DatabaseManager, database string) (string, error) {
+	if mgr == nil {
+		return "", errLintNoDatabase
+	}
+	if database == "" {
+		names := mgr.Instances()
+		if len(names) > 1 {
+			return "", errLintDatabaseRequired
+		}
+		for name := range names {
+			database = name
+		}
+	}
+	if database == "" {
+		return "", errLintNoDatabase
+	}
+	if mgr.GetInstance(database) == nil {
+		return "", errLintUnknownDatabase
+	}
+	return database, nil
 }
 
 func migrationLintHandler(d migrationLintDeps) http.Handler {
@@ -139,9 +174,14 @@ func migrationLintHandler(d migrationLintDeps) http.Handler {
 			jsonError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		database, err := d.reviewDatabase(r.Context(), req)
+		if err != nil {
+			jsonError(w, err.Error(), lintDatabaseStatus(err))
+			return
+		}
 		var q catalogread.Querier
 		if !req.Static {
-			if q, err = d.querier(req.Database); err != nil {
+			if q, err = d.querier(database); err != nil {
 				jsonError(w, err.Error(), lintDatabaseStatus(err))
 				return
 			}
@@ -210,8 +250,12 @@ func decodeMigrationLint(w http.ResponseWriter, r *http.Request) (migrationLintR
 	return req, nil
 }
 
-// lintLimiterKey is the signed-in user (the gate guarantees one).
+// lintLimiterKey is the API token ("token:<id>") or the signed-in user
+// (the gate guarantees one of them).
 func lintLimiterKey(r *http.Request) string {
+	if p, ok := mcp.PrincipalFromContext(r.Context()); ok && p.Actor != "" {
+		return p.Actor
+	}
 	if u := UserFromContext(r.Context()); u != nil {
 		return "user:" + strconv.Itoa(u.ID)
 	}

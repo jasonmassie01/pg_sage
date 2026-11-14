@@ -67,7 +67,8 @@ func builtRoutes(t *testing.T, h http.Handler, config string) []routeEntry {
 }
 
 func isGated(g routeGate) bool {
-	return g == gateViewer || g == gateViewerWrite || g == gateOperator || g == gateAdmin
+	return g == gateViewer || g == gateViewerWrite || g == gateViewerWriteOrToken ||
+		g == gateOperator || g == gateAdmin
 }
 
 // checkProbeAgainstGate probes one request four ways and reports every

@@ -68,6 +68,16 @@ func tokenPrincipal(
 	if err != nil {
 		return mcp.Principal{}, nil, err
 	}
+	p := grantPrincipal(grant)
+	if !isAgent {
+		return p, nil, nil
+	}
+	return p, &id, nil
+}
+
+// grantPrincipal is the principal a validated token grants: actor
+// "token:<id>", its scopes and databases.
+func grantPrincipal(grant mcptoken.Grant) mcp.Principal {
 	scopes := make([]mcp.Scope, 0, len(grant.Scopes))
 	for _, s := range grant.Scopes {
 		scopes = append(scopes, mcp.Scope(s))
@@ -76,15 +86,11 @@ func tokenPrincipal(
 	if grant.Kind == mcptoken.KindAgent {
 		kind = mcp.KindAgent
 	}
-	p := mcp.Principal{
+	return mcp.Principal{
 		Actor: "token:" + grant.TokenID, Role: grant.OwnerRole, Kind: kind, Name: grant.Name,
 		Scopes: scopes, Databases: grant.Databases, TokenID: grant.TokenID,
 		PrincipalID: grant.PrincipalID, OwnerUserID: grant.OwnerUserID,
 	}
-	if !isAgent {
-		return p, nil, nil
-	}
-	return p, &id, nil
 }
 
 // serveMCPToken authenticates a Bearer request to the MCP endpoint.
