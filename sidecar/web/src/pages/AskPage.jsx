@@ -4,6 +4,7 @@ import { Answer } from './ask/Answer'
 import { BudgetMeter } from './ask/BudgetMeter'
 import { Composer } from './ask/Composer'
 import { ConversationList } from './ask/ConversationList'
+import { RunProgress } from './ask/RunProgress'
 import { useAskSession } from './ask/useAskSession'
 import { useAPI } from '../hooks/useAPI'
 import { casePresentation } from './cases/casePresentation'
@@ -103,6 +104,7 @@ function AskSession({ database, user, caseId }) {
         )}
         <BudgetMeter budget={s.budget.data} />
         <Thread answers={s.thread} />
+        <RunProgress run={s.run} onCancel={s.cancelRun} />
         {s.error && (
           <p data-testid="ask-error" role="alert" className="text-sm"
             style={{ color: 'var(--red)' }}>

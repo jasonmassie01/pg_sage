@@ -1,11 +1,13 @@
 // useAskSession.js — request state for one database's Ask Sage session:
-// the thread, the current conversation, in-flight and error state, plus
-// the budget and conversation-list resources refreshed after each answer.
+// the thread, the current conversation, in-flight and error state, the
+// active asynchronous run (useAskRun), plus the budget and
+// conversation-list resources refreshed after each answer.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  askURL, budgetURL, conversationURL, conversationsURL, describeAskError,
+  budgetURL, conversationURL, conversationsURL, describeAskError, runsURL,
 } from '../../lib/ask'
+import { useAskRun } from './useAskRun'
 
 // requestJSON sends a session-authenticated request. A non-JSON body is
 // tolerated (null); HTTP errors come back as {ok: false, error}; network
@@ -50,10 +52,11 @@ const postInit = body => ({
   body: JSON.stringify(body),
 })
 
-// useAsk posts a question into the current conversation. busyRef guards
-// against a second submit before React re-renders the disabled button.
-// readOnly sends read_only: the server then offers no write tool.
-function useAsk(database, conv, onAnswer, readOnly) {
+// useAsk starts a run of the question in the current conversation and
+// resolves when it ends (true with an answer). busyRef guards against a
+// second submit before React re-renders the disabled button. readOnly
+// sends read_only: the server then offers no write tool.
+function useAsk(database, conv, startRun, readOnly) {
   const [busy, setBusy] = useState(false)
   const busyRef = useRef(false)
   const ask = useCallback(async question => {
@@ -64,13 +67,17 @@ function useAsk(database, conv, onAnswer, readOnly) {
     const body = conv.id ? { question, conversation_id: conv.id } : { question }
     if (readOnly) body.read_only = true
     try {
-      const r = await requestJSON(askURL(database), postInit(body))
+      const r = await requestJSON(runsURL(database), postInit(body))
       if (!r.ok) {
         conv.fail(r.error)
         return false
       }
-      onAnswer(r.data)
-      return true
+      if (typeof r.data?.run_id !== 'string' || !r.data.run_id) {
+        conv.fail({ kind: 'http', message: 'The server did not start the question.' })
+        return false
+      }
+      if (r.data.conversation_id) conv.setId(r.data.conversation_id)
+      return await startRun(r.data.run_id)
     } catch (err) {
       if (!(err instanceof TypeError)) throw err
       conv.setNetError({ message: err.message, question })
@@ -79,7 +86,7 @@ function useAsk(database, conv, onAnswer, readOnly) {
       busyRef.current = false
       setBusy(false)
     }
-  }, [database, conv, onAnswer, readOnly])
+  }, [database, conv, startRun, readOnly])
   return { busy, ask }
 }
 
@@ -134,12 +141,14 @@ export function useAskSession(database, { readOnly = false } = {}) {
     if (answer?.conversation_id) setId(answer.conversation_id)
     setTick(n => n + 1)
   }, [setThread, setId])
-  const { busy, ask } = useAsk(database, conv, onAnswer, readOnly)
+  const runner = useAskRun(database, requestJSON, { onAnswer, onError: conv.fail })
+  const { busy, ask } = useAsk(database, conv, runner.start, readOnly)
   const budget = useAskResource(budgetURL(database), tick, markDisabled)
   const conversations = useAskResource(conversationsURL(database), tick, markDisabled)
   return {
     thread: conv.thread, conversationId: conv.id, error: conv.error,
     netError: conv.netError, load: conv.load, reset: conv.reset,
-    busy, ask, disabled, budget, conversations,
+    busy: busy || Boolean(runner.run), ask, disabled, budget, conversations,
+    run: runner.run, cancelRun: runner.cancel,
   }
 }

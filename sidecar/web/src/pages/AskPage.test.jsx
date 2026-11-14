@@ -40,7 +40,7 @@ describe('AskPage database guard', () => {
     await ask('hi')
     await screen.findByTestId('ask-answer-41')
     const urls = mock.mock.calls.map(([url]) => String(url))
-    expect(urls).toContain('/api/v1/databases/my%20db%2Fx/ask')
+    expect(urls).toContain('/api/v1/databases/my%20db%2Fx/ask/runs')
     expect(urls).toContain('/api/v1/databases/my%20db%2Fx/ask/budget')
     expect(urls).toContain('/api/v1/databases/my%20db%2Fx/ask/conversations')
     expect(urls.every(u => !u.includes('my db/x'))).toBe(true)
@@ -108,7 +108,7 @@ describe('AskPage composer', () => {
     await ask('  Why is orders slow?  ')
     const answer = await screen.findByTestId('ask-answer-41')
     const [[url, init]] = posts(mock)
-    expect(url).toBe(BASE)
+    expect(url).toBe(`${BASE}/runs`) // mcp-07b: questions start a run
     expect(init.credentials).toBe('include')
     expect(init.headers['Content-Type']).toBe('application/json')
     expect(JSON.parse(init.body)).toEqual({ question: 'Why is orders slow?' })

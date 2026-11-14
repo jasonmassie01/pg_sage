@@ -18,6 +18,19 @@ export function conversationURL(db, id) {
   return `${conversationsURL(db)}/${enc(id)}`
 }
 
+// Asynchronous runs (mcp-07b): start, poll, cancel.
+export function runsURL(db) {
+  return `${askURL(db)}/runs`
+}
+
+export function runURL(db, id) {
+  return `${runsURL(db)}/${enc(id)}`
+}
+
+export function cancelRunURL(db, id) {
+  return `${runURL(db, id)}/cancel`
+}
+
 export function budgetURL(db) {
   return `${askURL(db)}/budget`
 }
@@ -125,5 +138,7 @@ export function describeAskError(status, body) {
   if (status === 503) return { kind: 'unavailable', message: fallback }
   if (status === 400) return { kind: 'invalid', message: fallback }
   if (status === 404) return { kind: 'not_found', message: fallback }
+  if (status === 409) return { kind: 'conflict', message: fallback }
+  if (status === 429) return { kind: 'busy', message: fallback }
   return { kind: 'http', message: fallback }
 }
