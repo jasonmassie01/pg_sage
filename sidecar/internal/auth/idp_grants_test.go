@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -358,7 +359,7 @@ func TestIdPGrantSync_UnknownUser(t *testing.T) {
 func TestIdPGrantSync_ConcurrentLoginsSameGroupsAuditOnce(t *testing.T) {
 	pool := setupOIDCPool(t)
 	u := linkTestUser(t, pool, "idp-race-same@example.com", RoleOperator)
-	s := NewDatabaseGrantStore(pool)
+	s := NewDatabaseGrantStore(idpWidePool(t, pool))
 	runConcurrentSyncs(t, s, u, func(int) map[string]string {
 		return map[string]string{"billing": RoleOperator}
 	})
@@ -374,7 +375,7 @@ func TestIdPGrantSync_ConcurrentLoginsSameGroupsAuditOnce(t *testing.T) {
 func TestIdPGrantSync_ConcurrentLoginsLeaveOneConsistentSet(t *testing.T) {
 	pool := setupOIDCPool(t)
 	u := linkTestUser(t, pool, "idp-race-mixed@example.com", RoleOperator)
-	s := NewDatabaseGrantStore(pool)
+	s := NewDatabaseGrantStore(idpWidePool(t, pool))
 	runConcurrentSyncs(t, s, u, func(i int) map[string]string {
 		if i%2 == 0 {
 			return map[string]string{"billing": RoleOperator}
@@ -392,6 +393,21 @@ func TestIdPGrantSync_ConcurrentLoginsLeaveOneConsistentSet(t *testing.T) {
 	if sets-revs != 1 {
 		t.Fatalf("%d sets and %d revokes do not net to the one grant left", sets, revs)
 	}
+}
+
+// idpWidePool is a second pool on the test database with room for the
+// concurrent syncs: the shared test pool keeps one connection for the
+// cross-package lock and so would serialize them in the pool instead.
+func idpWidePool(t *testing.T, pool *pgxpool.Pool) *pgxpool.Pool {
+	t.Helper()
+	cfg := pool.Config()
+	cfg.MaxConns = 10
+	wide, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("opening a wider pool: %v", err)
+	}
+	t.Cleanup(wide.Close)
+	return wide
 }
 
 func runConcurrentSyncs(t *testing.T, s *DatabaseGrantStore, u int,
@@ -414,5 +430,49 @@ func runConcurrentSyncs(t *testing.T, s *DatabaseGrantStore, u int,
 		if err != nil {
 			t.Fatalf("concurrent sync: %v", err)
 		}
+	}
+}
+
+// A sync in flight holds the user row; a second login's sync waits for it
+// rather than reading grants the first is about to change.
+func TestIdPGrantSync_WaitsForASyncInFlight(t *testing.T) {
+	pool := setupOIDCPool(t)
+	ctx := context.Background()
+	u := linkTestUser(t, pool, "idp-wait@example.com", RoleOperator)
+	wide := idpWidePool(t, pool)
+	s := NewDatabaseGrantStore(wide)
+	tx, err := wide.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if _, err := lockIdPSync(ctx, tx, u); err != nil {
+		t.Fatalf("holding the sync lock: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := s.SyncIdPGrants(ctx, IdPGrantSync{UserID: u,
+			Grants: map[string]string{"billing": RoleViewer}})
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		t.Fatalf("a second sync ran while the first held the user (err %v)", err)
+	case <-time.After(500 * time.Millisecond):
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("sync after the first finished: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the waiting sync never ran")
+	}
+	if rows := idpGrantRows(t, pool, u); rows["billing"] != (idpRow{RoleViewer,
+		GrantSourceIdP}) {
+		t.Fatalf("rows = %+v", rows)
 	}
 }

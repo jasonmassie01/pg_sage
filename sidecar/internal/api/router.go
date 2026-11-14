@@ -310,7 +310,8 @@ func registerControlPoolRoutes(
 		registerUserRoutes(apiMux, pool)
 	}
 	registerDatabaseGrantRoutes(apiMux, pool, mgr,
-		newDatabaseAuthz(cfg, pool, rt.DatabaseGrants) != nil)
+		newDatabaseAuthz(cfg, pool, rt.DatabaseGrants) != nil,
+		!rt.DatabricksAppAuth && auth.DatabaseGrantMappingConfigured(&cfg.OAuth))
 	if !rt.DatabricksAppAuth {
 		registerMCPTokenRoutes(apiMux, pool)
 	}

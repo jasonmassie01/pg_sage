@@ -34,6 +34,15 @@ var (
 	ErrInvalidGrantDatabase  = errors.New("a database grant must name one database")
 	ErrGrantUserNotFound     = errors.New("database grant: user not found")
 	ErrGrantNotFound         = errors.New("database grant not found")
+	// ErrIdPGrantReadOnly is a revoke of a grant the SSO group mapping
+	// owns while that mapping is configured (apiauth-08d).
+	ErrIdPGrantReadOnly = errors.New("database grant is set by the SSO group mapping")
+)
+
+// Grant sources (apiauth-08d): who owns a stored grant.
+const (
+	GrantSourceManual = "manual"
+	GrantSourceIdP    = "idp"
 )
 
 var roleRanks = map[string]int{RoleViewer: 1, RoleOperator: 2, RoleAdmin: 3}
@@ -80,6 +89,7 @@ type DatabaseGrant struct {
 	Role      string    `json:"role"`
 	GrantedBy int       `json:"granted_by"`
 	GrantedAt time.Time `json:"granted_at"`
+	Source    string    `json:"source"` // GrantSourceManual or GrantSourceIdP
 }
 
 // GrantChange is one grant write: who makes it, for whom, on what.
@@ -89,6 +99,9 @@ type GrantChange struct {
 	Database string
 	Role     string // ignored by RevokeGrant
 	SourceIP string
+	// ProtectIdP makes RevokeGrant refuse a grant the SSO group mapping
+	// owns: set while oauth.database_grant_mapping is configured.
+	ProtectIdP bool
 }
 
 // DatabaseGrantStore reads and writes sage.user_database_grants.
@@ -128,7 +141,7 @@ func (s *DatabaseGrantStore) ListUserGrants(ctx context.Context,
 		return nil, err
 	}
 	rows, err := s.pool.Query(ctx, `SELECT user_id, database_name, role, granted_by,
-		granted_at FROM sage.user_database_grants WHERE user_id = $1
+		granted_at, source FROM sage.user_database_grants WHERE user_id = $1
 		ORDER BY database_name`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("%w: reading grants of user %d: %v",
@@ -136,7 +149,8 @@ func (s *DatabaseGrantStore) ListUserGrants(ctx context.Context,
 	}
 	list, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (DatabaseGrant, error) {
 		var g DatabaseGrant
-		err := row.Scan(&g.UserID, &g.Database, &g.Role, &g.GrantedBy, &g.GrantedAt)
+		err := row.Scan(&g.UserID, &g.Database, &g.Role, &g.GrantedBy, &g.GrantedAt,
+			&g.Source)
 		return g, err
 	})
 	if err != nil {
@@ -151,6 +165,8 @@ func validGrantDatabase(name string) bool {
 }
 
 // SetGrant creates or changes c.UserID's grant on c.Database and audits it.
+// The grant is manual: an admin's choice, which takes over an IdP grant on
+// the same database and is never changed by an SSO login.
 func (s *DatabaseGrantStore) SetGrant(ctx context.Context, c GrantChange) (DatabaseGrant,
 	error) {
 	if !IsGrantRole(c.Role) {
@@ -164,16 +180,18 @@ func (s *DatabaseGrantStore) SetGrant(ctx context.Context, c GrantChange) (Datab
 	}
 	var g DatabaseGrant
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		prev, err := lockGrant(ctx, tx, c)
+		prev, _, err := lockGrant(ctx, tx, c)
 		if err != nil {
 			return err
 		}
 		g = DatabaseGrant{UserID: c.UserID, Database: c.Database, Role: c.Role,
-			GrantedBy: c.ActorID}
+			GrantedBy: c.ActorID, Source: GrantSourceManual}
 		if err := tx.QueryRow(ctx, `INSERT INTO sage.user_database_grants
-			(user_id, database_name, role, granted_by) VALUES ($1, $2, $3, $4)
+			(user_id, database_name, role, granted_by, source)
+			VALUES ($1, $2, $3, $4, 'manual')
 			ON CONFLICT (user_id, database_name) DO UPDATE
-			SET role = EXCLUDED.role, granted_by = EXCLUDED.granted_by, granted_at = now()
+			SET role = EXCLUDED.role, granted_by = EXCLUDED.granted_by, granted_at = now(),
+				source = 'manual'
 			RETURNING granted_at`, c.UserID, c.Database, c.Role, c.ActorID).
 			Scan(&g.GrantedAt); err != nil {
 			return fmt.Errorf("writing grant of user %d on %s: %w", c.UserID, c.Database, err)
@@ -187,7 +205,8 @@ func (s *DatabaseGrantStore) SetGrant(ctx context.Context, c GrantChange) (Datab
 }
 
 // RevokeGrant removes c.UserID's grant on c.Database and audits it.
-// Revoking a user's last grant returns them to their global role.
+// Revoking a user's last grant returns them to their global role. With
+// c.ProtectIdP a grant the SSO group mapping owns is refused.
 func (s *DatabaseGrantStore) RevokeGrant(ctx context.Context, c GrantChange) error {
 	if !validGrantDatabase(c.Database) {
 		return ErrInvalidGrantDatabase
@@ -196,12 +215,15 @@ func (s *DatabaseGrantStore) RevokeGrant(ctx context.Context, c GrantChange) err
 		return err
 	}
 	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		prev, err := lockGrant(ctx, tx, c)
+		prev, source, err := lockGrant(ctx, tx, c)
 		if err != nil {
 			return err
 		}
 		if prev == "" {
 			return ErrGrantNotFound
+		}
+		if c.ProtectIdP && source == GrantSourceIdP {
+			return ErrIdPGrantReadOnly
 		}
 		if _, err := tx.Exec(ctx, `DELETE FROM sage.user_database_grants
 			WHERE user_id = $1 AND database_name = $2`, c.UserID, c.Database); err != nil {
@@ -212,25 +234,27 @@ func (s *DatabaseGrantStore) RevokeGrant(ctx context.Context, c GrantChange) err
 }
 
 // lockGrant locks the target user's row (so a concurrent delete waits)
-// and returns their current role on the database ("" when none).
-func lockGrant(ctx context.Context, tx pgx.Tx, c GrantChange) (string, error) {
+// and returns their current role and its source on the database ("" when
+// none).
+func lockGrant(ctx context.Context, tx pgx.Tx, c GrantChange) (string, string, error) {
 	var one int
 	err := tx.QueryRow(ctx, `SELECT 1 FROM sage.users WHERE id = $1 FOR KEY SHARE`,
 		c.UserID).Scan(&one)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", ErrGrantUserNotFound
+		return "", "", ErrGrantUserNotFound
 	}
 	if err != nil {
-		return "", fmt.Errorf("locking user %d for a grant change: %w", c.UserID, err)
+		return "", "", fmt.Errorf("locking user %d for a grant change: %w", c.UserID, err)
 	}
-	var prev string
-	err = tx.QueryRow(ctx, `SELECT role FROM sage.user_database_grants
+	var prev, source string
+	err = tx.QueryRow(ctx, `SELECT role, source FROM sage.user_database_grants
 		WHERE user_id = $1 AND database_name = $2 FOR UPDATE`, c.UserID, c.Database).
-		Scan(&prev)
+		Scan(&prev, &source)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return "", fmt.Errorf("reading grant of user %d on %s: %w", c.UserID, c.Database, err)
+		return "", "", fmt.Errorf("reading grant of user %d on %s: %w", c.UserID,
+			c.Database, err)
 	}
-	return prev, nil
+	return prev, source, nil
 }
 
 func grantAudit(event string, c GrantChange, prev string) AuthAuditEvent {

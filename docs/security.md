@@ -956,6 +956,52 @@ oauth:
 - Without `role_mapping`, every SSO user gets `oauth.default_role`
   (`viewer`), as before.
 
+### Group to Database Grant Mapping
+
+With `oauth.database_grant_mapping` (apiauth-08d, default empty) the IdP also
+sets [per-database grants](#per-database-authorization):
+
+```yaml
+oauth:
+  database_grant_mapping:
+    - {group: team-billing, database: billing, role: operator}
+    - {group: team-billing, database: orders,  role: viewer}
+    - {group: team-search,  database: search,  role: viewer}
+```
+
+- It is checked at startup: a role other than `viewer` or `operator` (admins
+  are never limited by database), an empty, `all` or `*` database, an empty
+  group or the same group twice on one database stops startup with an error
+  naming the entry. Restart to change it.
+- At every SSO login the grants the user's groups give replace the grants the
+  IdP gave before (`source: idp`), in one transaction. Group names match
+  exactly (case-sensitive), as for `role_mapping`; a user in several groups
+  that grant one database gets the higher role. Each change is audited as
+  `database_grant_set` or `database_grant_revoked` with `"source": "idp"`.
+- **Manual grants win.** A grant an admin set on the Users page (`source:
+  manual`) is never changed or removed by a login. If the groups would grant
+  the same database, the manual grant stays and the login records
+  `idp_grant_shadowed` (with `idp_role` and `manual_role`) at each login.
+  Setting a grant on the Users page on a database the IdP granted turns it into
+  a manual grant.
+- The Users page shows each grant's source. While the mapping is set, IdP
+  grants are read-only there, and `DELETE` of one is
+  `409 {"code": "idp_grant"}`: the next login would restore it. Change the
+  user's groups, or set a manual grant to override it. If the mapping is later
+  removed, logins stop changing grants and the IdP grants already stored stay
+  (fail closed) until an admin removes them.
+- If the grants cannot be written the login is refused with `503`
+  (`sso_error=grants_unavailable`, `login_failed` reason `grant_sync_failed`)
+  and nothing changes: pg_sage never signs a user in with a grant set the IdP
+  has since changed.
+- A user whose groups grant nothing (or whose token carries no groups claim)
+  loses every IdP grant. With no manual grant left they are no longer limited
+  and get their global role on every database again (the phase 1 rule). Pair
+  the mapping with a `role_mapping` that gives such users only `viewer`, or with
+  `unmapped_users: deny`, so leaving a team never widens access.
+- Concurrent logins of one user are serialized: the grants end as one login's
+  set, never a mix.
+
 ### Authentication Audit
 
 `sage.auth_audit` records, with actor and target user ids, time and the
@@ -968,6 +1014,8 @@ client address (`source_ip`, honouring `api.trusted_proxies`):
 | `user_created`, `user_deleted` | Admin user administration |
 | `user_disabled`, `user_enabled` | Deactivation and reactivation (`detail.sessions_ended`, `detail.mcp_tokens_revoked`) |
 | `user_role_changed` | Role changes from the API (`source: api`) or the IdP (`source: idp`) |
+| `database_grant_set`, `database_grant_revoked` | Per-database grant changes by an admin, or by an SSO login (`source: idp`) |
+| `idp_grant_shadowed` | An SSO login's grant not applied because an admin's manual grant holds that database |
 | `password_changed`, `password_reset` | A user changed their own password; an admin reset one (`detail.sessions_ended`). SIEM: Account Change, Password Change / Password Reset |
 | `oidc_linked`, `oidc_unlinked`, `oidc_link_grant_*` | Account linking |
 | `agent_created`, `agent_updated`, `agent_widened_single_operator`, `agent_retired`, `agent_status_changed` | Agent principal changes, in the change's own transaction (see [Agent governance](agent-governance.md#principals)) |
