@@ -26,3 +26,4 @@ internal/migration/runtime/postgres.go#PostgresApplier.Apply	out_of_gate:migrati
 internal/migration/runtime/postgres_rehearsal.go#PostgresRehearsalRunner.applyStep	clone_only	rehearses the expand steps on the clone DSN the clone provider returned; never the monitored pool
 internal/optimizer/hypopg_session.go#hypopgSession.createIndex	out_of_gate:hypothetical_index_session	hypopg_create_index inside the what-if transaction: backend-local, no catalog change, gone when the session closes
 internal/retention/purge.go#Cleaner.purgeRows	sage_schema	relation is always sage.<table> or one of its partitions (purge.go, partitions.go callers)
+internal/schema/deferred_index_build.go#buildDeferredIndex	sage_schema	config-04c background build of the decision-ledger indexes: DROP/CREATE INDEX CONCURRENTLY of a fixed ledgerIndex on sage.<table>, names quoted with pgx.Identifier
