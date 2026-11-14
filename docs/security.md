@@ -1728,18 +1728,40 @@ The database role a session logged in as decides.
 
 - **pgaudit records** (`audit.pgaudit.correlate`) are kept in
   `sage.guard_pgaudit_events` with `correlated_by`:
-  - `application_name`: `pg_sage agent:<principal>[:<action>]` from an
-    agent role (`sage_agent_…` or `sage_agentb_…`). The record names that
-    principal and action.
-  - `role`: any other session of an agent role.
+  - `application_name`: `pg_sage agent:<principal>[:<action>]` from that
+    principal's own role. The record names the principal by its id
+    (`agp_…`) and the action. A claim by id (`agp_…`, what the broker
+    sets) counts only when the session's role is one of the two roles the
+    id derives (`sage_agent_…` or `sage_agentb_…`). A claim by name (older
+    brokers, or a direct-lane client that sets its name) counts only when
+    `sage.guard_cluster_roles` on the control database maps the session's
+    role to a principal of that name; a role that maps to more than one
+    principal (role names are unique per cluster only) maps to none.
+  - `role`: any other session of an agent role. `principal_id` is the
+    role's principal when the control database maps it to exactly one.
   - `statement`: `application_name = pg_sage` from pg_sage's own login
     role (`session_user` of its connection), linked to the action whose
     SQL it ran; pg_sage's other statements are not kept. The same name
     from any other role is not pg_sage's and is not kept either.
   - `application_name_unverified`: an agent's application name from a
-    role that is not an agent role. The record is kept for forensics, with
-    the claimed name in `application`, but `principal_id` and `action_id`
-    are NULL, so it never joins an action's evidence.
+    role that is not that principal's own (not an agent role, or another
+    agent's role), or a claim by name while the roles cannot be read. The
+    record is kept for forensics, with the claimed name in `application`,
+    but `principal_id` and `action_id` are NULL, so it never joins an
+    action's evidence.
+  - The agent roles are read from the control database at most once a
+    minute. When the read fails (no access, table missing), the sidecar
+    warns once until a read succeeds; meanwhile name claims are unverified
+    and `role` records name no principal, and no record is dropped. Claims
+    by id still verify, since they need no lookup.
+  - Rows written by earlier sidecars may name a principal by its name
+    slug in `principal_id`. They are hash-chained, so pg_sage does not
+    rewrite them, and the SIEM export carries them as stored. Map them to
+    ids through `guard_principals.name` on the control database; where
+    the records are in the control database too:
+    `SELECT e.*, coalesce(p.id, e.principal_id) AS principal FROM
+    sage.guard_pgaudit_events e LEFT JOIN sage.guard_principals p ON
+    p.name = e.principal_id`.
 - **SIEM severity of audit-row deletes**: a delete is Informational only
   when the link's `db_user` is pg_sage's role on that database
   (`current_user` of the exporter's connection) and its application name

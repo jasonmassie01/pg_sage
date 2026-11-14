@@ -33,6 +33,7 @@ type heldRecord struct {
 type batch struct {
 	c         *Correlator
 	own       string
+	roles     RoleMap // the agent roles' principals; nil when unread
 	now       time.Time
 	st        Stats
 	rows      []event
@@ -62,7 +63,7 @@ func (b *batch) add(ctx context.Context, e logwatch.LogEntry) error {
 		b.st.NotAudit++
 		return nil
 	}
-	a, ok := Attribute(e, b.own)
+	a, ok := Attribute(e, b.own, b.roles)
 	switch {
 	case !ok:
 		b.st.Dropped++

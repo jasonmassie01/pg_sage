@@ -55,12 +55,12 @@ func TestIngestStoresSpoofedAgentAppUnverified(t *testing.T) {
 		t.Fatalf("seed action: %v", err)
 	}
 	own := sessionUser(t, pool)
-	stats, err := NewCorrelator(pool, "orders").Ingest(ctx, []logwatch.LogEntry{
+	stats, err := NewCorrelator(pool, "orders", nil).Ingest(ctx, []logwatch.LogEntry{
 		entry("pg_sage agent:ci-bot:77", "app_user", ddl),
 		entry("pg_sage agent:ci-bot:78", own, ddl),
 		entry("pg_sage", "mallory", `AUDIT: SESSION,1,1,DDL,DROP TABLE,TABLE,`+
 			`public.accounts,`+sql),
-		entry("pg_sage agent:ci-bot:79", "sage_agent_k2m4q7x7ab", ddl),
+		entry("pg_sage agent:"+idA+":79", agentguard.LoginRoleName(idA), ddl),
 	})
 	if err != nil {
 		t.Fatalf("ingest: %v", err)
@@ -77,8 +77,9 @@ func TestIngestStoresSpoofedAgentAppUnverified(t *testing.T) {
 	if n := count(t, pool, "db_user = 'mallory'"); n != 0 {
 		t.Fatalf("pg_sage impersonation stored %d records", n)
 	}
-	if n := count(t, pool, "correlated_by = 'application_name' AND principal_id = "+
-		"'ci-bot' AND action_id = 79 AND db_user = 'sage_agent_k2m4q7x7ab'"); n != 1 {
+	if n := count(t, pool, "correlated_by = 'application_name' AND principal_id = '"+
+		idA+"' AND action_id = 79 AND db_user = '"+agentguard.LoginRoleName(idA)+
+		"'"); n != 1 {
 		t.Fatalf("agent role record stored %d times", n)
 	}
 	if n := nonAgentPrincipals(t, pool); n != 0 {
@@ -94,7 +95,7 @@ func TestIngestStoresSpoofedAgentAppUnverified(t *testing.T) {
 // stored and the error says what failed.
 func TestIngestFailsWhenOwnRoleUnreadable(t *testing.T) {
 	pool, _ := freshDB(t, "pgaudit_role_err")
-	c := NewCorrelator(pool, "orders")
+	c := NewCorrelator(pool, "orders", nil)
 	pool.Close()
 	_, err := c.Ingest(context.Background(), []logwatch.LogEntry{
 		entry("pg_sage", "sage", ddl)})
@@ -108,7 +109,7 @@ func TestIngestFailsWhenOwnRoleUnreadable(t *testing.T) {
 func TestIngestConcurrentOnOneCorrelator(t *testing.T) {
 	pool, _ := freshDB(t, "pgaudit_concurrent")
 	ctx := context.Background()
-	c := NewCorrelator(pool, "orders")
+	c := NewCorrelator(pool, "orders", nil)
 	const workers = 8
 	var wg sync.WaitGroup
 	errs := make(chan error, workers)
@@ -116,9 +117,10 @@ func TestIngestConcurrentOnOneCorrelator(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			app := fmt.Sprintf("pg_sage agent:ci-bot:%d", i+1)
+			app := fmt.Sprintf("pg_sage agent:%s:%d", idA, i+1)
 			_, err := c.Ingest(ctx, []logwatch.LogEntry{
-				entry(app, "sage_agent_k2m4q7x7ab", ddl), entry(app, "app_user", ddl)})
+				entry(app, agentguard.BrokerRoleName(idA), ddl),
+				entry(app, "app_user", ddl)})
 			errs <- err
 		}(i)
 	}
@@ -144,21 +146,17 @@ func TestIngestConcurrentOnOneCorrelator(t *testing.T) {
 	}
 }
 
-// agentLogin creates a login agent role that pgaudit logs DDL for and
-// connects as it under app; the role is dropped when the test ends.
-func agentLogin(t *testing.T, pool *pgxpool.Pool, dsn, app string) (*pgx.Conn, string) {
+// agentLogin creates the login agent role role, which pgaudit logs DDL
+// for, and connects as it under app; the role is dropped when the test ends.
+func agentLogin(t *testing.T, pool *pgxpool.Pool, dsn, role, app string) (*pgx.Conn,
+	string) {
 	t.Helper()
 	ctx := context.Background()
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
 		t.Fatalf("random: %v", err)
 	}
-	const alphabet = "abcdefghijklmnopqrstuvwxyz234567"
-	suffix := make([]byte, 10)
-	for i := range suffix {
-		suffix[i] = alphabet[int(b[i])%len(alphabet)]
-	}
-	role, password := "sage_agent_"+string(suffix), hex.EncodeToString(b)
+	password := hex.EncodeToString(b)
 	ident := pgx.Identifier{role}.Sanitize()
 	for _, s := range []string{
 		"CREATE ROLE " + ident + " LOGIN PASSWORD '" + password + "'",

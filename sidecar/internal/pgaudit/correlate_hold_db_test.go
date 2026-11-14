@@ -15,7 +15,7 @@ func TestIngestHeldUntaggedRecordMatchedLater(t *testing.T) {
 	ctx := context.Background()
 	start := time.Now()
 	now := start
-	c := NewCorrelator(pool, "orders")
+	c := NewCorrelator(pool, "orders", nil)
 	c.now = func() time.Time { return now }
 	rec := entry("pg_sage", sessionUser(t, pool), cicRecord)
 	if st, err := c.Ingest(ctx, []logwatch.LogEntry{rec}); err != nil || st.Held != 1 {

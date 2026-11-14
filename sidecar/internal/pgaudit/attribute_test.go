@@ -1,6 +1,10 @@
 package pgaudit
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/pg-sage/sidecar/internal/agentguard"
+)
 
 // No concurrent access tests here: Attribute is a pure function of its
 // arguments; the correlator's shared state is covered in correlate_db_test.go.
@@ -9,7 +13,7 @@ const ownRole = "sage"
 
 func attributeCase(t *testing.T, app, user, role string, want Attribution, wantOK bool) {
 	t.Helper()
-	got, ok := Attribute(entry(app, user, ddl), role)
+	got, ok := Attribute(entry(app, user, ddl), role, nil)
 	if ok != wantOK || got != want {
 		t.Fatalf("app %q user %q own %q: got %+v ok=%v, want %+v ok=%v",
 			app, user, role, got, ok, want, wantOK)
@@ -31,14 +35,20 @@ func TestAttributeSpoofedAgentAppIsUnverified(t *testing.T) {
 	}
 }
 
-// Happy path: an agent role (either lane) with the agent application name
-// is attributed to that principal and action.
+// Happy path: a principal's own role (either lane) with its id in the
+// agent application name is attributed to that principal and action; any
+// other agent role's claim is not (audit-04b).
 func TestAttributeAgentRoleWithAgentApp(t *testing.T) {
+	for _, user := range []string{agentguard.LoginRoleName(idA),
+		agentguard.BrokerRoleName(idA)} {
+		attributeCase(t, "pg_sage agent:"+idA+":77", user, ownRole,
+			Attribution{By: ByApplication, Principal: idA, ActionID: 77}, true)
+		attributeCase(t, "pg_sage agent:"+idA, user, ownRole,
+			Attribution{By: ByApplication, Principal: idA}, true)
+	}
 	for _, user := range []string{"sage_agent_k2m4q7x7ab", "sage_agentb_abcdefgh23"} {
-		attributeCase(t, "pg_sage agent:ci-bot:77", user, ownRole,
-			Attribution{By: ByApplication, Principal: "ci-bot", ActionID: 77}, true)
-		attributeCase(t, "pg_sage agent:agp_aaaaaaaaaaaaaaaaaaaa", user, ownRole,
-			Attribution{By: ByApplication, Principal: "agp_aaaaaaaaaaaaaaaaaaaa"}, true)
+		attributeCase(t, "pg_sage agent:"+idA+":77", user, ownRole,
+			Attribution{By: ByApplicationUnverified}, true)
 	}
 }
 
@@ -62,8 +72,8 @@ func TestAttributeEmptyOwnRoleNeverMatchesPGSage(t *testing.T) {
 		attributeCase(t, "pg_sage", user, "", Attribution{}, false)
 	}
 	attributeCase(t, "", "", "", Attribution{}, false)
-	attributeCase(t, "pg_sage agent:ci-bot:5", "sage_agent_k2m4q7x7ab", "",
-		Attribution{By: ByApplication, Principal: "ci-bot", ActionID: 5}, true)
+	attributeCase(t, "pg_sage agent:"+idA+":5", agentguard.LoginRoleName(idA), "",
+		Attribution{By: ByApplication, Principal: idA, ActionID: 5}, true)
 }
 
 // Invalid input: a malformed agent application name is not an agent claim
@@ -87,7 +97,7 @@ func TestRowOfUnverifiedRecordNamesNoPrincipalOrAction(t *testing.T) {
 	if !ok {
 		t.Fatalf("fixture not parsed")
 	}
-	a, _ := Attribute(e, ownRole)
+	a, _ := Attribute(e, ownRole, nil)
 	ev := c.row(e, rec, a)
 	if ev.PrincipalID != nil || ev.ActionID != nil {
 		t.Fatalf("unverified row names principal %v action %v", ev.PrincipalID, ev.ActionID)

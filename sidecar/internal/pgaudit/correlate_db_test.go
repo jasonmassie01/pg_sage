@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/agentguard"
 	"github.com/pg-sage/sidecar/internal/auditchain"
 	"github.com/pg-sage/sidecar/internal/logwatch"
 	"github.com/pg-sage/sidecar/internal/schema"
@@ -61,7 +62,7 @@ func TestIngestKeepsOnlyCorrelatedRecords(t *testing.T) {
 	}
 	own := sessionUser(t, pool)
 	entries := []logwatch.LogEntry{
-		entry("pg_sage agent:ci-bot:9", "sage_agentb_k2m4q7x7ab", ddl),
+		entry("pg_sage agent:"+idA+":9", agentguard.BrokerRoleName(idA), ddl),
 		entry("pg_sage", own, `AUDIT: SESSION,1,1,DDL,CREATE INDEX,INDEX,`+
 			`public.orders_status,"`+sql+`",<not logged>`),
 		entry("pg_sage", own, `AUDIT: SESSION,2,1,READ,SELECT,,,`+
@@ -69,7 +70,7 @@ func TestIngestKeepsOnlyCorrelatedRecords(t *testing.T) {
 		entry("psql", "alice", ddl),
 		entry("pg_sage agent:ci-bot", "x", "duration: 3 ms"),
 	}
-	c := NewCorrelator(pool, "orders")
+	c := NewCorrelator(pool, "orders", nil)
 	stats, err := c.Ingest(ctx, entries)
 	if err != nil {
 		t.Fatalf("ingest: %v", err)
@@ -77,7 +78,7 @@ func TestIngestKeepsOnlyCorrelatedRecords(t *testing.T) {
 	if stats.Stored != 2 || stats.Dropped != 2 || stats.NotAudit != 1 {
 		t.Fatalf("stats = %+v", stats)
 	}
-	if count(t, pool, "principal_id = 'ci-bot' AND action_id = 9 AND "+
+	if count(t, pool, "principal_id = '"+idA+"' AND action_id = 9 AND "+
 		"correlated_by = 'application_name'") != 1 {
 		t.Fatalf("agent record not stored with its principal and action")
 	}
@@ -94,7 +95,7 @@ func TestIngestKeepsOnlyCorrelatedRecords(t *testing.T) {
 // Nothing to ingest writes nothing; a storage failure is an error.
 func TestIngestEmptyAndErrors(t *testing.T) {
 	pool, _ := freshDB(t, "pgaudit_empty")
-	c := NewCorrelator(pool, "orders")
+	c := NewCorrelator(pool, "orders", nil)
 	stats, err := c.Ingest(context.Background(), nil)
 	if err != nil || stats != (Stats{}) {
 		t.Fatalf("empty ingest = %+v, %v", stats, err)
@@ -139,17 +140,22 @@ func TestRealPGAuditCorrelation(t *testing.T) {
 		t.Skip("the server does not write jsonlog through the logging collector")
 	}
 	marker := "pgaudit_e2e_" + itoa(time.Now().UnixNano())
-	agent, role := agentLogin(t, pool, dsn, "pg_sage agent:ci-bot:77")
+	id, err := agentguard.NewID()
+	if err != nil {
+		t.Fatalf("principal id: %v", err)
+	}
+	agent, role := agentLogin(t, pool, dsn, agentguard.LoginRoleName(id),
+		"pg_sage agent:"+id+":77")
 	if _, err := agent.Exec(ctx, "CREATE TABLE "+marker+"_agent (a int)"); err != nil {
 		t.Fatalf("agent DDL: %v", err)
 	}
 	spoofDDL(t, pool, marker+"_spoof")
 	entries := readLog(t, pool, *logfile, marker, 2)
-	stats, err := NewCorrelator(pool, "orders").Ingest(ctx, entries)
+	stats, err := NewCorrelator(pool, "orders", nil).Ingest(ctx, entries)
 	if err != nil || stats.Stored != 2 {
 		t.Fatalf("ingest of %d log lines = %+v, %v", len(entries), stats, err)
 	}
-	if count(t, pool, "principal_id = 'ci-bot' AND action_id = 77 AND command = "+
+	if count(t, pool, "principal_id = '"+id+"' AND action_id = 77 AND command = "+
 		"'CREATE TABLE' AND correlated_by = 'application_name' AND db_user = '"+role+
 		"' AND statement LIKE '%"+marker+"_agent%'") != 1 {
 		t.Fatalf("real pgaudit record of the agent role not stored as attributed")

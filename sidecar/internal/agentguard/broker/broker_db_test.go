@@ -72,7 +72,7 @@ func TestQueryRunsAsBrokerRoleReadOnly(t *testing.T) {
 	if cell(t, res, 0, 2) != "on" {
 		t.Errorf("transaction_read_only = %s", cell(t, res, 0, 2))
 	}
-	if cell(t, res, 0, 3) != "pg_sage agent:"+f.p.Name {
+	if cell(t, res, 0, 3) != "pg_sage agent:"+f.p.ID {
 		t.Errorf("application_name = %s", cell(t, res, 0, 3))
 	}
 	if want := "pg_catalog, " + f.schema + ", pg_temp"; cell(t, res, 0, 4) != want {

@@ -29,7 +29,7 @@ const defaultCloseTimeout = 5 * time.Second
 // execute runs the statement on the principal's broker login (S0, S4).
 func (c *call) execute(ctx context.Context, p agentguard.Principal, role, password string,
 	read sqlast.BrokeredRead, rels []relation, v decide.Verdict) (Result, error) {
-	conn, release, err := c.b.pools.acquire(ctx, c.t, p.ID, p.Name, role, password)
+	conn, release, err := c.b.pools.acquire(ctx, c.t, p.ID, role, password)
 	if err != nil {
 		return c.connectFailure(p, err)
 	}
