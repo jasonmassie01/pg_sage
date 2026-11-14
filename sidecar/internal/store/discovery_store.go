@@ -236,7 +236,7 @@ const claimDiscoveredSQL = `/* pg_sage */ WITH claimed AS (
 		                         c.first_seen, c.id
 		                   LIMIT $2)
 		    RETURNING *)
-		 SELECT `+discoveredColumns+` FROM claimed d ORDER BY d.id`
+		 SELECT ` + discoveredColumns + ` FROM claimed d ORDER BY d.id`
 
 // Claim takes up to limit candidates of source for enrolment, keeping the
 // live discovered members (enrolling, enrolled, adopted) at or under
