@@ -4,6 +4,9 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // apiauth-08d: a manual grant an admin writes while a login's sync is in
@@ -15,16 +18,7 @@ func TestIdPGrantSync_ManualRowWrittenMidSyncIsNotOverwritten(t *testing.T) {
 	admin := linkTestUser(t, pool, "idp-midsync-admin@example.com", RoleAdmin)
 	u := linkTestUser(t, pool, "idp-midsync@example.com", RoleOperator)
 	wide := idpWidePool(t, pool)
-	tx, err := wide.Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = tx.Rollback(context.Background()) }()
-	if _, err := tx.Exec(ctx, `INSERT INTO sage.user_database_grants
-		(user_id, database_name, role, granted_by, source)
-		VALUES ($1, 'billing', 'viewer', $2, 'manual')`, u, admin); err != nil {
-		t.Fatalf("uncommitted manual grant: %v", err)
-	}
+	tx := uncommittedManualGrant(t, wide, u, admin)
 	type outcome struct {
 		res IdPGrantResult
 		err error
@@ -60,4 +54,22 @@ func TestIdPGrantSync_ManualRowWrittenMidSyncIsNotOverwritten(t *testing.T) {
 	if n := len(idpAuditDetails(t, pool, AuditDatabaseGrantSet, u)); n != 0 {
 		t.Fatalf("%d database_grant_set rows for a grant that was not written", n)
 	}
+}
+
+// uncommittedManualGrant opens a transaction holding an uncommitted manual
+// viewer grant on billing for u; the test commits it, cleanup rolls back.
+func uncommittedManualGrant(t *testing.T, pool *pgxpool.Pool, u, admin int) pgx.Tx {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(context.Background()) })
+	if _, err := tx.Exec(ctx, `INSERT INTO sage.user_database_grants
+		(user_id, database_name, role, granted_by, source)
+		VALUES ($1, 'billing', 'viewer', $2, 'manual')`, u, admin); err != nil {
+		t.Fatalf("uncommitted manual grant: %v", err)
+	}
+	return tx
 }
