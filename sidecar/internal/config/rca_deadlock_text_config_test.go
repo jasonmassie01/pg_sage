@@ -23,17 +23,12 @@ func TestRCADeadlockStatementText_DefaultIsFingerprint(t *testing.T) {
 		t.Errorf("deadlock_statement_text = %q (default %q), want fingerprint",
 			cfg.RCA.DeadlockStatementText, DefaultRCADeadlockStatementText)
 	}
-	if cfg.RCA.DeadlockStatementsRedacted() {
-		t.Error("DeadlockStatementsRedacted() = true by default, want false")
-	}
 }
 
-// Nil/zero: a config built without the key keeps no text (fails closed).
-func TestRCADeadlockStatementText_ZeroValueKeepsNoText(t *testing.T) {
+// Nil/zero: a config built without the key is valid; the classifier then
+// keeps no text (TestClassifier_DeadlockParticipantsFingerprintMode).
+func TestRCADeadlockStatementText_ZeroValueIsValid(t *testing.T) {
 	var r RCAConfig
-	if r.DeadlockStatementsRedacted() {
-		t.Error("zero RCAConfig keeps statement text, want fingerprint only")
-	}
 	if err := r.validateDeadlockStatementText(); err != nil {
 		t.Errorf("empty value rejected: %v", err)
 	}
@@ -45,9 +40,8 @@ func TestRCADeadlockStatementText_YAMLRedacted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.RCA.DeadlockStatementText != "redacted" || !cfg.RCA.DeadlockStatementsRedacted() {
-		t.Errorf("deadlock_statement_text = %q, redacted = %v; want redacted, true",
-			cfg.RCA.DeadlockStatementText, cfg.RCA.DeadlockStatementsRedacted())
+	if cfg.RCA.DeadlockStatementText != DeadlockStatementTextRedacted {
+		t.Errorf("deadlock_statement_text = %q, want redacted", cfg.RCA.DeadlockStatementText)
 	}
 }
 

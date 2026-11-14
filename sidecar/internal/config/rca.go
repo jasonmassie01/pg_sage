@@ -31,12 +31,6 @@ const (
 	DefaultRCADeadlockStatementText  = DeadlockStatementTextFingerprint
 )
 
-// DeadlockStatementsRedacted reports whether deadlock participants keep
-// their redacted statement text (rca.deadlock_statement_text: redacted).
-func (r *RCAConfig) DeadlockStatementsRedacted() bool {
-	return r.DeadlockStatementText == DeadlockStatementTextRedacted
-}
-
 // validateDeadlockStatementText accepts the two modes, and empty (a config
 // built without the key) as fingerprint.
 func (r *RCAConfig) validateDeadlockStatementText() error {
