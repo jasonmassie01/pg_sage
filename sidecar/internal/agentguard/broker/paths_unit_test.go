@@ -117,7 +117,7 @@ func TestAcquireGivesUpWhenTheBudgetIsFull(t *testing.T) {
 	p.budget <- struct{}{}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	conn, release, err := p.acquire(ctx, Target{Name: "db"}, "a", "bot", "r", "pw")
+	conn, release, err := p.acquire(ctx, Target{Name: "db"}, "a", "r", "pw")
 	if !errors.Is(err, context.Canceled) || conn != nil || release != nil {
 		t.Errorf("acquire = %v %v, want context.Canceled", conn, err)
 	}
@@ -125,7 +125,7 @@ func TestAcquireGivesUpWhenTheBudgetIsFull(t *testing.T) {
 		t.Errorf("budget holds %d slots, want 1", len(p.budget))
 	}
 	<-p.budget
-	_, _, err = p.acquire(context.Background(), Target{Name: "db"}, "a", "bot", "r", "pw")
+	_, _, err = p.acquire(context.Background(), Target{Name: "db"}, "a", "r", "pw")
 	if !errors.Is(err, ErrUnavailable) || len(p.budget) != 0 {
 		t.Errorf("no target pool: %v with %d slots held, want ErrUnavailable and 0", err,
 			len(p.budget))
