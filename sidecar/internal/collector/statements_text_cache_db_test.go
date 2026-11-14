@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/extschema"
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
 	"github.com/pg-sage/sidecar/internal/testdb"
 	"github.com/pg-sage/sidecar/internal/testsupport/pgssepoch"
@@ -82,8 +83,12 @@ func seedTextWorkload(t *testing.T, pool *pgxpool.Pool) {
 // textReads is how many text reads this database has run.
 func textReads(t *testing.T, ctx context.Context, pool *pgxpool.Pool) int64 {
 	t.Helper()
+	view, err := extschema.StatementsRel(ctx, pool, "pg_stat_statements")
+	if err != nil {
+		t.Fatalf("count text reads: %v", err)
+	}
 	var n int64
-	err := pool.QueryRow(ctx, `SELECT COALESCE(sum(calls), 0)::int8 FROM pg_stat_statements
+	err = pool.QueryRow(ctx, `SELECT COALESCE(sum(calls), 0)::int8 FROM `+view+`
 		WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
 		  AND starts_with(query, $1)`, statementTextsTag).Scan(&n)
 	if err != nil {
@@ -203,7 +208,8 @@ func TestCollect_TenSteadyCyclesReadTextsAtMostOnce(t *testing.T) {
 			}
 		}
 		pgss := textReads(t, ctx, pool) - base
-		hook := rec.count("pg_stat_statements(true)") + rec.count(statementsClassifySQL)
+		hook := rec.count(`pg_stat_statements"(true)`) +
+			rec.count("count(*) FILTER (WHERE kw NOT IN") // the classification
 		if pgss > 1 || hook > 1 {
 			return []string{fmt.Sprintf("10 cycles: %d text reads in pg_stat_statements, "+
 				"%d text reads sent; want at most 1", pgss, hook)}
@@ -295,6 +301,13 @@ func legacyQueries(ctx context.Context, c *Collector) ([]QueryStats, error) {
 	caps := c.queryCapabilities(ctx)
 	sql := fmt.Sprintf(legacyQueryStatsTemplate(caps.WALColumns, caps.PlanTimeColumns),
 		caps.blk.read, caps.blk.write, c.maxQueries())
+	// The golden text names the view bare; a pinned session (security-01c)
+	// resolves it only through its schema.
+	view, err := extschema.StatementsRel(ctx, c.pool, "pg_stat_statements")
+	if err != nil {
+		return nil, err
+	}
+	sql = strings.ReplaceAll(sql, " pg_stat_statements(", " "+view+"(")
 	rows, err := c.catalogQuery(ctx, sql)
 	if err != nil {
 		return nil, err

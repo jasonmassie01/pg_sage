@@ -88,10 +88,19 @@ func (g *analyzeGuard) check(ctx context.Context, sql string, depth int) (string
 		g.checkFunctions, g.checkDefiners, g.checkAttributeCalls, g.checkOperators,
 		g.checkTypes,
 	}
+	if depth == 0 {
+		steps = append(steps, g.checkImplicitCasts) // database-wide, once per request
+	}
 	for _, step := range steps {
 		if reason, err := step(ctx, shape); err != nil || reason != "" {
 			return reason, err
 		}
+	}
+	if reason, err := g.checkArgDefaults(ctx, shape, depth); err != nil || reason != "" {
+		return reason, err
+	}
+	if reason, err := g.checkDomainChecks(ctx, shape, depth); err != nil || reason != "" {
+		return reason, err
 	}
 	return g.checkRelations(ctx, shape, depth)
 }

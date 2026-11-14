@@ -3,6 +3,7 @@ package executor
 import (
 	"fmt"
 
+	"github.com/pg-sage/sidecar/internal/budget"
 	"github.com/pg-sage/sidecar/internal/extstats"
 	"github.com/pg-sage/sidecar/internal/pgconf"
 	"github.com/pg-sage/sidecar/internal/sqlast"
@@ -10,9 +11,15 @@ import (
 
 // executorASTRules hands the executor allowlists to the parse-tree layer.
 var executorASTRules = sqlast.Rules{
-	SystemParam:     pgconf.ExecutableGUC,
-	DatabaseParam:   pgconf.ExecutableGUC,
-	RoleParam:       isRoleBudgetSetting,
+	SystemParam:   pgconf.ExecutableGUC,
+	DatabaseParam: pgconf.ExecutableGUC,
+	RoleParam:     isRoleBudgetSetting,
+	// The catalog-free half of the role budget rule: postgres, pg_ and
+	// provider administration roles. pg_sage's own role and superusers
+	// are refused at run time (role_budget_exec.go), with the catalog.
+	RoleConnectionLimit: func(role string) bool {
+		return budget.RefusedRole(role, "", false) == nil
+	},
 	ProtectedSchema: isProtectedExecutorSchema,
 	Reloption: func(key, value string, reset bool) bool {
 		opt := pgconf.Reloption{Key: key, Value: value}
@@ -43,7 +50,7 @@ func AssumeASTValidationForTests() {
 // accepted must also have an allowed parse-tree structure.
 func checkParseTree(sql string) error {
 	if err := sqlast.Check(sql, executorASTRules); err != nil {
-		return fmt.Errorf("%w: %v", ErrDisallowedSQL, err)
+		return fmt.Errorf("%w: %w", ErrDisallowedSQL, err)
 	}
 	return nil
 }

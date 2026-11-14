@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/pg-sage/sidecar/internal/apppath"
 	"github.com/pg-sage/sidecar/internal/clone"
 	"github.com/pg-sage/sidecar/internal/optimizer"
 	"github.com/pg-sage/sidecar/internal/sqlident"
@@ -187,7 +188,8 @@ func indexesSize(ctx context.Context, conn *pgx.Conn, table string) (int64, erro
 }
 
 // planCost is the total cost of a statement's plan (EXPLAIN, never
-// ANALYZE; a generic plan for a parameterized statement on PG16+).
+// ANALYZE; a generic plan for a parameterized statement on PG16+), planned
+// in a transaction on the application's search_path (security-01c-n).
 func planCost(ctx context.Context, conn *pgx.Conn, text string, version int) (float64,
 	error) {
 	body, ok := singleStatement(text)
@@ -201,7 +203,7 @@ func planCost(ctx context.Context, conn *pgx.Conn, text string, version int) (fl
 		}
 		explain = "EXPLAIN (GENERIC_PLAN, FORMAT JSON) "
 	}
-	raw, err := rawSingleValue(ctx, conn.PgConn(), explain+body)
+	raw, err := planOnApplicationPath(ctx, conn, explain+body)
 	if err != nil {
 		return 0, err
 	}
@@ -214,4 +216,18 @@ func planCost(ctx context.Context, conn *pgx.Conn, text string, version int) (fl
 		return 0, fmt.Errorf("unreadable plan: %v", err)
 	}
 	return plans[0].Plan.TotalCost, nil
+}
+
+// planOnApplicationPath runs one EXPLAIN in a transaction that sets the
+// application's search_path and is always rolled back.
+func planOnApplicationPath(ctx context.Context, conn *pgx.Conn, sql string) ([]byte, error) {
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin the plan transaction on the clone: %w", err)
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	if err := apppath.Pin(ctx, tx); err != nil {
+		return nil, err
+	}
+	return rawSingleValue(ctx, tx.Conn().PgConn(), sql)
 }

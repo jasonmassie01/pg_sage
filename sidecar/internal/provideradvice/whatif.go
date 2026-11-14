@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/extschema"
 	"github.com/pg-sage/sidecar/internal/optimizer"
 )
 
@@ -18,11 +19,14 @@ const tableIndexesSQL = `SELECT c.relname, pg_catalog.pg_get_indexdef(i.indexrel
 FROM pg_catalog.pg_index i JOIN pg_catalog.pg_class c ON c.oid = i.indexrelid
 WHERE i.indrelid = $1::regclass AND i.indisvalid ORDER BY c.relname`
 
-const tableWorkloadSQL = `SELECT queryid, query, calls, mean_exec_time, total_exec_time
-FROM pg_stat_statements
+// rel is the qualified pg_stat_statements view.
+func tableWorkloadSQL(rel string) string {
+	return `SELECT queryid, query, calls, mean_exec_time, total_exec_time
+FROM ` + rel + `
 WHERE dbid = (SELECT oid FROM pg_catalog.pg_database WHERE datname = current_database())
   AND position(lower($1) IN lower(query)) > 0
 ORDER BY total_exec_time DESC LIMIT $2`
+}
 
 // WhatIf says whether pg_sage would act on a provider-only index and
 // why, failing closed: an index an existing one serves, an unmodelable
@@ -110,7 +114,11 @@ func (e *DBEvaluator) tableWorkload(ctx context.Context, tx pgx.Tx, name string,
 	if _, err := tx.Exec(ctx, "SAVEPOINT workload"); err != nil {
 		return nil, err
 	}
-	rows, err := tx.Query(ctx, tableWorkloadSQL, name, maxWhatIfStatements)
+	rel, err := extschema.StatementsRel(ctx, tx, "pg_stat_statements")
+	var rows pgx.Rows
+	if err == nil {
+		rows, err = tx.Query(ctx, tableWorkloadSQL(rel), name, maxWhatIfStatements)
+	}
 	var out []optimizer.QueryInfo
 	if err == nil {
 		out, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (optimizer.QueryInfo,

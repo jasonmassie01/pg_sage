@@ -4,6 +4,10 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/pg-sage/sidecar/internal/extschema"
 )
 
 // checkWorkMemPromotion emits a role-level work_mem promotion
@@ -38,7 +42,12 @@ func (a *Analyzer) checkWorkMemPromotion(ctx context.Context) []Finding {
 	if threshold <= 0 {
 		return nil
 	}
-	rows, err := a.catalog().Query(ctx, workMemPromotionSQL, threshold)
+	db := a.catalog()
+	rel, err := extschema.StatementsRel(ctx, db, "pg_stat_statements")
+	var rows pgx.Rows
+	if err == nil {
+		rows, err = db.Query(ctx, workMemPromotionSQL(rel), threshold)
+	}
 	if err != nil {
 		a.evalFail("work_mem_promotion")
 		a.logFn("WARN", "analyzer: work_mem promotion query: %v", err)
@@ -127,13 +136,15 @@ func quoteRoleIdentifier(name string) string {
 // query IDs, because pg_stat_statements keys on (userid, dbid, queryid,
 // toplevel): without that, hints were inflated by other databases' and
 // nested-statement rows (G2-B28).
-const workMemPromotionSQL = `/* pg_sage analyzer */
+// rel is the qualified pg_stat_statements view.
+func workMemPromotionSQL(rel string) string {
+	return `/* pg_sage analyzer */
 SELECT
     r.rolname AS role_name,
     count(DISTINCT h.queryid) AS hint_count,
     max((regexp_match(h.hint_text, 'Set\(work_mem "(\d+)MB"\)'))[1]::int) AS max_mb
 FROM sage.query_hints h
-JOIN pg_stat_statements s USING (queryid)
+JOIN ` + rel + ` s USING (queryid)
 JOIN pg_roles r ON r.oid = s.userid
 WHERE h.status = 'active'
   AND s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
@@ -141,3 +152,4 @@ WHERE h.status = 'active'
 GROUP BY r.rolname
 HAVING count(DISTINCT h.queryid) >= $1
 ORDER BY r.rolname`
+}

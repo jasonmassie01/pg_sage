@@ -109,16 +109,20 @@ SELECT pid, COALESCE(usename, ''), COALESCE(application_name, ''), state,
  ORDER BY age DESC, pid
  LIMIT ` + fmt.Sprint(workloadLongCap)
 
-var workloadRolesSQL = sageTag + `
+// workloadRolesSQL reads per-role statement time from view, the qualified
+// pg_stat_statements view.
+func workloadRolesSQL(view string) string {
+	return sageTag + `
 SELECT r.rolname, sum(s.calls)::bigint, max(s.max_exec_time)::float8,
        max(LEAST(s.max_exec_time, s.mean_exec_time + 2.326 * s.stddev_exec_time))::float8
-  FROM pg_stat_statements s
+  FROM ` + view + ` s
   JOIN pg_roles r ON r.oid = s.userid
  WHERE s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
    AND s.calls > 0
  GROUP BY r.rolname
  ORDER BY 2 DESC, 1
  LIMIT 200`
+}
 
 var workloadClusterSessionsSQL = sageTag + `
 SELECT COALESCE(usename, ''), count(*)::int
@@ -244,7 +248,11 @@ func (c *Collector) workloadRoles(ctx context.Context) ([]WorkloadRoleStats, err
 }
 
 func (c *Collector) workloadRoleTime(ctx context.Context) ([]WorkloadRoleStats, error) {
-	rows, err := c.catalogQuery(ctx, c.statementsSQL(workloadRolesSQL))
+	names, err := c.pgss()
+	if err != nil {
+		return nil, err
+	}
+	rows, err := c.catalogQuery(ctx, workloadRolesSQL(names.view))
 	if err != nil {
 		return nil, err
 	}

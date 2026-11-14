@@ -174,7 +174,7 @@ Beyond the catalog it reads:
 | What | When | What it keeps |
 |---|---|---|
 | `EXPLAIN` plans | Optimizer, query analysis and the EXPLAIN endpoint (`explain.enabled`; REST and MCP need the operator role or the `propose` scope) | The plan; no rows |
-| `EXPLAIN ANALYZE` | When the caller asks for it on the EXPLAIN endpoint, inside a `READ ONLY` transaction with `explain.timeout_ms`, and only for a statement pg_sage proves free of side effects (anything else gets the plan alone, with `analyze_refused`) | Executing the statement reads the rows it touches; pg_sage keeps the plan, timings and row counts, never result rows |
+| `EXPLAIN ANALYZE` | When the caller asks for it on the EXPLAIN endpoint, inside a `READ ONLY` transaction with `explain.timeout_ms`, and only for a statement pg_sage proves free of side effects, including calls its text does not show: a volatile implicit or assignment cast anywhere in the database, a volatile default argument of a called function, or a domain CHECK constraint that calls a volatile function, run when a value is coerced to a domain argument, operand or field (anything else gets the plan alone, with `analyze_refused`) | Executing the statement reads the rows it touches; pg_sage keeps the plan, timings and row counts, never result rows |
 | Retention row counts | A table whose owner declared a [retention contract](configuration.md#retention-contracts): the dry run counts eligible rows, and each batch reports how many it deleted | Counts only |
 | Live session text | `pg_stat_activity.query` for lock and incident evidence (`pg_read_all_stats`) | Literals redacted, cut to 256 bytes ([LLM data](#llm-configured)) |
 
@@ -204,6 +204,20 @@ Model-authored SQL never runs through the executor ([Model-authored SQL](#model-
 
 - **Never directly executes high-risk DDL.** Rewrite-heavy or forward-fix-only schema changes become migration-safety cases with preflight evidence, generated scripts, verification SQL, and PR/CI metadata for human review.
 - **Never ignores live DDL risk.** Active workload, pending locks, replica lag, large table size, and missing lock-timeout evidence keep DDL in reviewed PR/script mode.
+- **Never resolves its own reads through `public`.** Every pg_sage session (collector,
+  analyzer, Ask Sage, MCP tools, the meta-database and fleet pools, and the separate action
+  identity's pool) runs with `search_path = pg_catalog, pg_temp`, set with a session `SET`
+  right after connect, after the READ COMMITTED pin. A function or operator planted in
+  `public` (a `public.lower(text)`, a `public.=` over `text` or `name`) therefore never runs
+  inside pg_sage, whatever `ALTER ROLE` or `ALTER DATABASE` sets the path to. pg_sage's own
+  objects are named with the `sage` schema and extension objects with the schema
+  `pg_extension` records, so neither needs to be on the path. A connection whose pin cannot
+  be set is closed and the error names `search_path`. The pin is a `SET`, not a startup
+  parameter, so PgBouncer accepts it and `pg_settings.reset_val` still shows the database's
+  own value, which workload `EXPLAIN` uses (below). An executor action outside a transaction
+  restores the session's own `search_path` when it ends, so the session goes back to the
+  pool still pinned. Through PgBouncer, use session pooling: in transaction pooling a
+  session `SET` does not follow the client.
 - **Never resolves its own DDL through `public`.** Every executor DDL session (transactional
   and `CONCURRENTLY`) runs with `search_path = pg_catalog, pg_temp`, so a function or
   operator another role plants in `public` cannot bind into an index pg_sage builds (the

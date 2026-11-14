@@ -55,7 +55,10 @@ parser.
    inside `BEGIN READ ONLY` with `SET LOCAL statement_timeout = <timeout_ms>`,
    `lock_timeout = 100ms` and `application_name = pg_sage`. It reads at most `max_rows + 1`
    rows and always rolls back. A write that slipped through any other way fails in the
-   read-only transaction.
+   read-only transaction. Like every pg_sage session, the connection runs with
+   `search_path = pg_catalog, pg_temp` ([Security](security.md)): name your own tables and
+   functions with their schema (`public.orders`), or the check fails with "relation does not
+   exist". Catalog objects (`pg_class`, `pg_stat_activity`) need no schema.
 3. **Findings.** Each row becomes a `custom:<id>` finding keyed by `object_column`, with every
    column in `detail.row` as text, `detail.fingerprint` and `detail.truncated`
    ([findings](findings.md#custom)). `recommended_sql` is always empty.

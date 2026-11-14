@@ -48,8 +48,9 @@ func TestQueryCountersSQL_ReadsNoText(t *testing.T) {
 	for _, wal := range []bool{false, true} {
 		for _, plan := range []bool{false, true} {
 			sql := queryStatsTemplate(wal, plan)
-			if !strings.Contains(sql, "pg_stat_statements(false)") ||
-				strings.Contains(sql, "pg_stat_statements(true)") ||
+			// %[6]s: the qualified pg_stat_statements function (security-01c-q).
+			if !strings.Contains(sql, "FROM %[6]s(false)") ||
+				strings.Contains(sql, "%[6]s(true)") ||
 				strings.Contains(sql, "array_agg(query") ||
 				!strings.Contains(sql, "LIMIT %d") || candidateHeadroom != 2 {
 				t.Errorf("wal %v plan %v: want a text-free ranking of 2N:\n%s",
@@ -57,13 +58,14 @@ func TestQueryCountersSQL_ReadsNoText(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{"pg_stat_statements(true)", "queryid = ANY($1)",
+	texts := statementTextsSQL(testPgss.fn)
+	for _, want := range []string{`"ext"."pg_stat_statements"(true)`, "queryid = ANY($1)",
 		"datname = current_database()", "array_agg(query ORDER BY calls DESC)"} {
-		if !strings.Contains(statementTextsSQL, want) {
-			t.Errorf("text read lacks %q:\n%s", want, statementTextsSQL)
+		if !strings.Contains(texts, want) {
+			t.Errorf("text read lacks %q:\n%s", want, texts)
 		}
 	}
-	if !strings.HasPrefix(statementTextsSQL, statementTextsTag) {
+	if !strings.HasPrefix(texts, statementTextsTag) {
 		t.Errorf("text read does not start with its tag %q", statementTextsTag)
 	}
 }

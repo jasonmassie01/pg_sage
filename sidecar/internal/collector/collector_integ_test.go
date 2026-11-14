@@ -34,8 +34,11 @@ func testPool(t *testing.T) *pgxpool.Pool {
 }
 
 // testConfig returns a minimal config suitable for testing.
+// testConfig models a startup that found pg_stat_statements in public
+// (StatementsSchema, security-01c-q).
 func testConfig() *config.Config {
 	return &config.Config{
+		StatementsSchema: "public",
 		Collector: config.CollectorConfig{
 			IntervalSeconds: 60,
 			BatchSize:       100,

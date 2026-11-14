@@ -56,7 +56,7 @@ func TestCandidateSQLProviderHistoryCannotSuppressFallback(t *testing.T) {
 	}
 	assertCandidate := func(want bool) {
 		t.Helper()
-		rows, err := tx.Query(ctx, candidateSQL, thresholdMS, 100000)
+		rows, err := tx.Query(ctx, candidateSQL(publicStatements), thresholdMS, 100000)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -93,3 +93,8 @@ func TestCandidateSQLProviderHistoryCannotSuppressFallback(t *testing.T) {
 	}
 	assertCandidate(false)
 }
+
+// publicStatements is the pg_stat_statements view the test database
+// installs in public; the statements became builders over the qualified
+// view in security-01c-q.
+const publicStatements = `"public"."pg_stat_statements"`

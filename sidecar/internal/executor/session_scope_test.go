@@ -3,11 +3,13 @@ package executor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
@@ -17,21 +19,54 @@ import (
 var errFakeSession = errors.New("fake session failure")
 
 // fakeSession records every statement and how the session left the pool.
+// Its search_path is path ("" reads as the pool pin, pg_catalog, pg_temp);
+// readErr fails the read of it.
 type fakeSession struct {
 	execs     []string
+	args      [][]any
 	failOn    string
+	path      string
+	readErr   error
+	reads     int
 	released  int
 	discarded int
 }
 
 func (f *fakeSession) Exec(
-	_ context.Context, sql string, _ ...any,
+	_ context.Context, sql string, args ...any,
 ) (pgconn.CommandTag, error) {
 	f.execs = append(f.execs, sql)
+	f.args = append(f.args, args)
 	if f.failOn != "" && sql == f.failOn {
 		return pgconn.CommandTag{}, errFakeSession
 	}
 	return pgconn.CommandTag{}, nil
+}
+
+func (f *fakeSession) QueryRow(_ context.Context, sql string, _ ...any) pgx.Row {
+	f.reads++
+	path := f.path
+	if path == "" {
+		path = "pg_catalog, pg_temp"
+	}
+	return fakePathRow{sql: sql, path: path, err: f.readErr}
+}
+
+// fakePathRow answers readSearchPathSQL with the session's path.
+type fakePathRow struct {
+	sql, path string
+	err       error
+}
+
+func (r fakePathRow) Scan(dest ...any) error {
+	if r.err != nil {
+		return r.err
+	}
+	if r.sql != readSearchPathSQL || len(dest) != 1 {
+		return fmt.Errorf("fake session: unexpected query %q", r.sql)
+	}
+	*dest[0].(*string) = r.path
+	return nil
 }
 
 func (f *fakeSession) Release() { f.released++ }
@@ -43,11 +78,17 @@ var pinnedTopLevelSet = []string{
 	"SET search_path = pg_catalog, pg_temp",
 }
 
+// topLevelResets end a top-level session. search_path is restored to the
+// session's own value before the action (security-01c-r), not RESET: RESET
+// would hand a pinned pool's session back on the role's path.
 var topLevelResets = []string{
 	"RESET statement_timeout",
 	"RESET lock_timeout",
-	"RESET search_path",
+	restoreSearchPathSQL,
 }
+
+// resetSettings names the setting each of topLevelResets restores.
+var resetSettings = []string{"statement_timeout", "lock_timeout", "search_path"}
 
 func TestSessionScopePinsSearchPathAfterTimeouts(t *testing.T) {
 	sess := &fakeSession{}
@@ -95,11 +136,12 @@ func TestSessionScopePinsSearchPathWithoutLockTimeout(t *testing.T) {
 	}
 }
 
-// Error propagation: any failed RESET, the new search_path one included,
+// Error propagation: any failed reset, the search_path restore included,
 // discards the connection instead of returning a pinned session to the pool.
 func TestSessionScopeFailedResetDiscardsSession(t *testing.T) {
-	for _, reset := range topLevelResets {
-		t.Run(reset, func(t *testing.T) {
+	for i, reset := range topLevelResets {
+		setting := resetSettings[i]
+		t.Run(setting, func(t *testing.T) {
 			sess := &fakeSession{failOn: reset}
 			ran := false
 			err := runTopLevelSession(context.Background(), sess, time.Minute,
@@ -113,7 +155,6 @@ func TestSessionScopeFailedResetDiscardsSession(t *testing.T) {
 			if !errors.Is(err, errFakeSession) {
 				t.Fatalf("error = %v, want the reset failure", err)
 			}
-			setting := strings.TrimPrefix(reset, "RESET ")
 			if !strings.Contains(err.Error(), "resetting "+setting) {
 				t.Fatalf("error %q does not name the failed reset of %s", err, setting)
 			}
@@ -128,7 +169,7 @@ func TestSessionScopeFailedResetDiscardsSession(t *testing.T) {
 // Error propagation: the action's own error survives a failed reset.
 func TestSessionScopeFailedResetKeepsRunError(t *testing.T) {
 	errRun := errors.New("ddl failed")
-	sess := &fakeSession{failOn: "RESET search_path"}
+	sess := &fakeSession{failOn: topLevelResets[2]}
 	err := runTopLevelSession(context.Background(), sess, time.Minute, ddlOpts{},
 		func(pooledExecutor) error { return errRun })
 	if !errors.Is(err, errRun) || !errors.Is(err, errFakeSession) {

@@ -175,13 +175,16 @@ ORDER BY last_revalidated_at NULLS FIRST, id`)
 // toplevel), so one row (the old LIMIT 1) could change between passes when
 // two roles run the statement. The same queryid hash can also appear in
 // other databases, hence the dbid scope. A NULL sum means not found.
-const queryStatsSQL = `/* pg_sage tuner */
-SELECT (SELECT stats_reset FROM pg_stat_statements_info),
+// view and info are the qualified pg_stat_statements views.
+func queryStatsSQL(view, info string) string {
+	return `/* pg_sage tuner */
+SELECT (SELECT stats_reset FROM ` + info + `),
        sum(calls)::bigint,
        sum(total_exec_time) / NULLIF(sum(calls), 0)
-FROM pg_stat_statements
+FROM ` + view + `
 WHERE queryid = $1
   AND dbid = (SELECT oid FROM pg_database WHERE datname = current_database())`
+}
 
 func (t *Tuner) fetchQueryStats(
 	ctx context.Context, queryID int64,
@@ -193,8 +196,11 @@ func (t *Tuner) fetchQueryStats(
 	}
 	var calls *int64
 	var meanMs *float64
-	err := t.pool.QueryRow(ctx, queryStatsSQL, queryID).Scan(
-		&obs.ResetAt, &calls, &meanMs)
+	view, info, err := statementsViews(ctx, t.pool)
+	if err == nil {
+		err = t.pool.QueryRow(ctx, queryStatsSQL(view, info), queryID).Scan(
+			&obs.ResetAt, &calls, &meanMs)
+	}
 	if err != nil {
 		return obs, fmt.Errorf("read pg_stat_statements and "+
 			"pg_stat_statements_info for queryid %d: %w", queryID, err)

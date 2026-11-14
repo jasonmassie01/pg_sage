@@ -153,13 +153,47 @@ func (r unqualifiedRef) String() string {
 	return fmt.Sprintf("%s:%d: %s", r.file, r.line, r.name)
 }
 
+// proseMarker on the line of a chain's first literal, or the line above
+// it, marks the chain as model prose, not SQL: an LLM prompt or a tool
+// description that names an extension in words. A reason must follow.
+const proseMarker = "//qualifiedrefs:prose "
+
+// proseLines returns the lines holding a prose marker with a reason.
+func proseLines(fset *token.FileSet, f *ast.File) map[int]bool {
+	lines := map[int]bool{}
+	for _, group := range f.Comments {
+		for _, c := range group.List {
+			reason, ok := strings.CutPrefix(c.Text, proseMarker)
+			if ok && strings.TrimSpace(reason) != "" {
+				lines[fset.Position(c.Slash).Line] = true
+			}
+		}
+	}
+	return lines
+}
+
+// startsAsStatement reports a chain whose text opens with a statement
+// keyword: SQL, which a prose marker cannot excuse.
+func startsAsStatement(toks []string) bool {
+	if len(toks) == 0 {
+		return false
+	}
+	switch strings.ToLower(toks[0]) {
+	case "select", "with", "explain", "insert", "update", "delete", "values", "table":
+		return true
+	}
+	return false
+}
+
 // fileRefs parses one Go source and checks each string concatenation
-// (or lone literal) that looks like SQL.
+// (or lone literal) that looks like SQL and is not marked as prose.
 func fileRefs(fset *token.FileSet, name string, src any) ([]unqualifiedRef, error) {
-	f, err := parser.ParseFile(fset, name, src, parser.SkipObjectResolution)
+	f, err := parser.ParseFile(fset, name, src,
+		parser.SkipObjectResolution|parser.ParseComments)
 	if err != nil {
 		return nil, err
 	}
+	prose := proseLines(fset, f)
 	var out []unqualifiedRef
 	seen := map[*ast.BasicLit]bool{} // a chain's inner chains are its own
 	ast.Inspect(f, func(n ast.Node) bool {
@@ -174,6 +208,10 @@ func fileRefs(fset *token.FileSet, name string, src any) ([]unqualifiedRef, erro
 		for _, lit := range lits {
 			toks, _ := sqlTokens(literalValue(lit))
 			all = append(all, toks...)
+		}
+		line := fset.Position(lits[0].Pos()).Line
+		if (prose[line] || prose[line-1]) && !startsAsStatement(all) {
+			return true
 		}
 		if looksLikeSQL(all) {
 			for _, lit := range lits {
@@ -256,10 +294,19 @@ func skipDir(name string) bool {
 // internal and cmd trees.
 func productionRefs(t *testing.T) []unqualifiedRef {
 	t.Helper()
-	root := filepath.Join("..", "..")
+	refs, err := treeRefs(filepath.Join("..", ".."), "internal", "cmd")
+	if err != nil {
+		t.Fatalf("scan production code: %v", err)
+	}
+	return refs
+}
+
+// treeRefs checks every non-test Go file under root's dirs, naming each
+// file relative to root.
+func treeRefs(root string, dirs ...string) ([]unqualifiedRef, error) {
 	fset := token.NewFileSet()
 	var out []unqualifiedRef
-	for _, dir := range []string{"internal", "cmd"} {
+	for _, dir := range dirs {
 		walk := func(path string, d os.DirEntry, err error) error {
 			switch {
 			case err != nil:
@@ -283,8 +330,8 @@ func productionRefs(t *testing.T) []unqualifiedRef {
 			return err
 		}
 		if err := filepath.WalkDir(filepath.Join(root, dir), walk); err != nil {
-			t.Fatalf("scan %s: %v", dir, err)
+			return nil, fmt.Errorf("scan %s: %w", dir, err)
 		}
 	}
-	return out
+	return out, nil
 }

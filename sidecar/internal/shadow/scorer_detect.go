@@ -7,6 +7,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/pg-sage/sidecar/internal/apppath"
+	"github.com/pg-sage/sidecar/internal/catalogread"
 )
 
 // A change pg_sage wanted, applied outside pg_sage (a migration, an
@@ -89,6 +92,25 @@ func catalogFailure(what string, err error) (*verifiedFact, bool, error) {
 		return &verifiedFact{Unscorable: reason}, false, nil
 	}
 	return nil, false, fmt.Errorf("shadow: %s: %w", what, err)
+}
+
+// appName is a relation the decision's SQL names as written, named as the
+// application resolves it (apppath.Resolve): schema-qualified, so the
+// catalog reads find it on pg_sage's session pinned to pg_catalog, pg_temp
+// (security-01c-n). A name not on the application's path is returned as
+// written, and the catalog read decides (relation gone).
+func (s *Scorer) appName(ctx context.Context, name string) (string, error) {
+	if s.pool == nil {
+		return "", ErrUnavailable
+	}
+	resolved, err := apppath.Resolve(ctx, s.pool, catalogread.Default(), name)
+	if err != nil {
+		return "", fmt.Errorf("shadow: %w", err)
+	}
+	if resolved == "" {
+		return name, nil
+	}
+	return resolved, nil
 }
 
 // relationGone is the unscorable fact of a table that no longer resolves.

@@ -38,6 +38,7 @@ type capKey struct {
 	version    int
 	viewOID    uint32
 	extVersion string
+	schema     string // pg_stat_statements' schema; "" when not installed
 }
 
 // capState is guarded by Collector.mu.
@@ -51,11 +52,18 @@ type capState struct {
 }
 
 // capabilityKeySQL is the one statement a steady-state cycle spends here.
+// It finds the view in the extension's own schema (pg_extension), never
+// through the search_path, and returns that schema for the statements
+// reads.
 const capabilityKeySQL = sageTag + `/* capabilities: key */
 SELECT current_setting('server_version_num')::int,
-       COALESCE(to_regclass('pg_stat_statements')::oid, 0::oid),
-       COALESCE((SELECT extversion FROM pg_extension
-                  WHERE extname = 'pg_stat_statements'), '')`
+       COALESCE((SELECT c.oid FROM pg_catalog.pg_class c
+                  WHERE c.relnamespace = e.extnamespace
+                    AND c.relname = 'pg_stat_statements'), 0::oid),
+       COALESCE(e.extversion, ''), COALESCE(n.nspname::text, '')
+  FROM (SELECT 1) one
+  LEFT JOIN pg_catalog.pg_extension e ON e.extname = 'pg_stat_statements'
+  LEFT JOIN pg_catalog.pg_namespace n ON n.oid = e.extnamespace`
 
 // capabilityColumnsSQL finds the optional columns the installed view
 // exposes (they depend on the extension version, not only the server's):
@@ -100,10 +108,10 @@ func (c *Collector) refreshCapabilities(ctx context.Context) {
 	c.mu.Lock()
 	c.caps.attempted = true
 	c.mu.Unlock()
-	db := c.statementsDB(c.probeQuerier())
+	db := c.probeQuerier()
 	var key capKey
 	if err := db.QueryRow(ctx, capabilityKeySQL).Scan(
-		&key.version, &key.viewOID, &key.extVersion); err != nil {
+		&key.version, &key.viewOID, &key.extVersion, &key.schema); err != nil {
 		c.capabilityProbeFailed("server version and pg_stat_statements", err)
 		return
 	}
@@ -144,9 +152,11 @@ func (c *Collector) queryCapabilities(ctx context.Context) Capabilities {
 }
 
 // invalidateCapabilities forces the next refresh to re-derive everything.
+// It keeps pg_stat_statements' schema: the statements reads before that
+// refresh still name the view where the last probe found it.
 func (c *Collector) invalidateCapabilities() {
 	c.mu.Lock()
-	c.caps.key, c.caps.cached = capKey{}, false
+	c.caps.key, c.caps.cached = capKey{schema: c.caps.key.schema}, false
 	c.mu.Unlock()
 }
 

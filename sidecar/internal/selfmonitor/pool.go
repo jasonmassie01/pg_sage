@@ -16,7 +16,9 @@ import (
 // with StatementTag (pg_stat_statements). pg_sage does not hide from
 // pg_stat_statements: its cost is visible to the DBA, and its own readers
 // exclude it with StatementExclusionSQL and ActivityExclusionSQL. Every
-// session is pinned to READ COMMITTED (pinReadCommitted). An
+// session is pinned to READ COMMITTED (pinReadCommitted), then to
+// search_path = pg_catalog, pg_temp (pinSearchPath), so no object a
+// database user creates resolves in pg_sage's own statements. An
 // AfterNetConnect or AfterConnect hook already set runs first.
 func ConfigurePool(cfg *pgxpool.Config) {
 	if cfg == nil {
@@ -52,6 +54,7 @@ func ConfigureConn(cfg *pgx.ConnConfig) {
 		return TagConn(conn), nil
 	}
 	pinReadCommitted(cfg)
+	pinSearchPath(cfg)
 }
 
 // pinReadCommittedSQL makes every transaction of the session READ
@@ -75,6 +78,31 @@ func pinReadCommitted(cfg *pgx.ConnConfig) {
 		}
 		if err := pc.Exec(ctx, pinReadCommittedSQL).Close(); err != nil {
 			return fmt.Errorf("pin default_transaction_isolation to read committed: %w", err)
+		}
+		return nil
+	}
+}
+
+// PinSearchPathSQL is the observation sessions' search_path pin: only
+// pg_catalog and the session's own temporary schema, so no object a
+// database user creates resolves unless it is named with its schema
+// (security-01c). It is a SET, not a startup parameter, for PgBouncer, and
+// so pg_settings.reset_val (which apppath reads) keeps the server's value.
+const PinSearchPathSQL = "SET SESSION search_path = pg_catalog, pg_temp"
+
+// pinSearchPath chains the search_path pin after every other AfterConnect
+// hook (the READ COMMITTED pin first). A pin that fails fails the
+// connection, naming search_path.
+func pinSearchPath(cfg *pgx.ConnConfig) {
+	inner := cfg.AfterConnect
+	cfg.AfterConnect = func(ctx context.Context, pc *pgconn.PgConn) error {
+		if inner != nil {
+			if err := inner(ctx, pc); err != nil {
+				return err
+			}
+		}
+		if err := pc.Exec(ctx, PinSearchPathSQL).Close(); err != nil {
+			return fmt.Errorf("pin search_path to pg_catalog, pg_temp: %w", err)
 		}
 		return nil
 	}

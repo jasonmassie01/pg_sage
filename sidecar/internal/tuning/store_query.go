@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/pg-sage/sidecar/internal/catalogread"
+	"github.com/pg-sage/sidecar/internal/extschema"
 )
 
 // queryStatesSQL reads, for each queryid in $1, whether pg_stat_statements
@@ -12,10 +15,11 @@ import (
 // (candidateSQL: calls >= $2 and a mean above 100 ms, temp blocks written,
 // or planning above $3 times execution) would take it now, and the status
 // of its latest sage.query_hints row. pg_stat_statements is read once.
-const queryStatesSQL = `/* pg_sage */
+func queryStatesSQL(rel string) string {
+	return `/* pg_sage */
 WITH s AS MATERIALIZED (
     SELECT queryid, calls, mean_exec_time, mean_plan_time, temp_blks_written
-    FROM pg_stat_statements
+    FROM ` + rel + `
     WHERE queryid = ANY($1)
       AND dbid = (SELECT oid FROM pg_catalog.pg_database
                   WHERE datname = pg_catalog.current_database()))
@@ -28,6 +32,7 @@ SELECT ids.qid,
        COALESCE((SELECT q.status FROM sage.query_hints q WHERE q.queryid = ids.qid
                  ORDER BY q.id DESC LIMIT 1), '')
 FROM unnest($1::bigint[]) AS ids(qid)`
+}
 
 func (s *postgresStore) QueryStates(ctx context.Context, ids []int64, adm HintAdmission) (
 	map[int64]QueryState, error) {
@@ -35,8 +40,12 @@ func (s *postgresStore) QueryStates(ctx context.Context, ids []int64, adm HintAd
 	if len(ids) == 0 {
 		return out, nil
 	}
-	rows, err := catalogread.New(s.pool, s.timeouts).Query(ctx, queryStatesSQL, ids,
-		adm.MinCalls, adm.PlanTimeRatio)
+	db := catalogread.New(s.pool, s.timeouts)
+	rel, err := extschema.StatementsRel(ctx, db, "pg_stat_statements")
+	var rows pgx.Rows
+	if err == nil {
+		rows, err = db.Query(ctx, queryStatesSQL(rel), ids, adm.MinCalls, adm.PlanTimeRatio)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("read statement states from pg_stat_statements and "+
 			"sage.query_hints: %w", err)

@@ -1,6 +1,10 @@
 package tuner
 
-import "context"
+import (
+	"context"
+
+	"github.com/pg-sage/sidecar/internal/extschema"
+)
 
 // reverifyHint is revalidation's counterfactual (tuning-01, deferred to
 // tuning-05): a live hint due for re-verification (reverify_due) whose
@@ -34,16 +38,38 @@ func (t *Tuner) reverifyHint(ctx context.Context, h hintRow, d hintDecision) hin
 
 // statementTextSQL reads one text of the queryid in this database ("" when
 // absent).
-const statementTextSQL = `/* pg_sage tuner */
-SELECT coalesce((SELECT query FROM pg_stat_statements
+// rel is the qualified pg_stat_statements view.
+func statementTextSQL(rel string) string {
+	return `/* pg_sage tuner */
+SELECT coalesce((SELECT query FROM ` + rel + `
   WHERE queryid = $1
     AND dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
   LIMIT 1), '')`
+}
 
 func (t *Tuner) statementText(ctx context.Context, queryID int64) (string, error) {
+	rel, err := extschema.StatementsRel(ctx, t.pool, "pg_stat_statements")
+	if err != nil {
+		return "", err
+	}
 	var q string
-	err := t.pool.QueryRow(ctx, statementTextSQL, queryID).Scan(&q)
+	err = t.pool.QueryRow(ctx, statementTextSQL(rel), queryID).Scan(&q)
 	return q, err
+}
+
+// statementsViews returns the qualified pg_stat_statements view and its
+// info view, resolved on q.
+func statementsViews(ctx context.Context, q extschema.Querier) (view, info string,
+	err error) {
+	s, err := extschema.Detect(ctx, q)
+	if err != nil {
+		return "", "", err
+	}
+	if view, err = extschema.Rel(s.Statements, "pg_stat_statements"); err != nil {
+		return "", "", err
+	}
+	info, err = extschema.Rel(s.Statements, "pg_stat_statements_info")
+	return view, info, err
 }
 
 // recordHintCosts writes the comparison's costs to the hint's row; a

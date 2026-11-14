@@ -18,7 +18,7 @@ import (
 // fakeProbeDB answers the two capability probes and counts them.
 type fakeProbeDB struct {
 	mu       sync.Mutex
-	key      []any // server_version_num, pg_stat_statements oid, extversion
+	key      []any // server_version_num, view oid, extversion, schema
 	keyErr   error
 	cols     []string
 	colErr   error
@@ -27,7 +27,7 @@ type fakeProbeDB struct {
 }
 
 func newFakeProbeDB(version int, oid uint32, ext string, cols ...string) *fakeProbeDB {
-	return &fakeProbeDB{key: []any{version, oid, ext}, cols: cols}
+	return &fakeProbeDB{key: []any{version, oid, ext, "public"}, cols: cols}
 }
 
 var allStatementColumns = []string{"wal_bytes", "total_plan_time", "shared_blk_read_time"}
@@ -35,7 +35,7 @@ var allStatementColumns = []string{"wal_bytes", "total_plan_time", "shared_blk_r
 func (f *fakeProbeDB) set(version int, oid uint32, ext string, cols ...string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.key, f.cols = []any{version, oid, ext}, cols
+	f.key, f.cols = []any{version, oid, ext, "public"}, cols
 }
 
 func (f *fakeProbeDB) fail(keyErr, colErr error) {

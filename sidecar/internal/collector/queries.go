@@ -75,9 +75,10 @@ const queryStatsPlanColumns = `,
 // to be pg_sage's own ($2); pinned is every row of $1 (open verification
 // targets and watches). Pinned rows come first, then the other rows the
 // total ranking would not have admitted, then the rest by total time, so
-// the Go cut at max_queries keeps them; the final %d is the row bound.
+// the Go cut at max_queries keeps them; the final %d is the row bound and
+// %[6]s the qualified pg_stat_statements function.
 const queryStatsFrom = `
-  FROM pg_stat_statements(false)
+  FROM %[6]s(false)
  WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
    AND queryid IS NOT NULL
  GROUP BY queryid
