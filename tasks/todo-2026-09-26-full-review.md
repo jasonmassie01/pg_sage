@@ -51,7 +51,9 @@ provider-support check. So the UI can show "execute" for an action the gate will
       or delete their tests; add a test that no production code path references them.
 - [x] Verify: unit + integration + e2e; lint; record results in MASTER-SPEC §10.7.
       (recorded in §10.8 and §10.9 instead: §10.7 ends "Update (overnight 2026-09-26)";
-      §10.9 "Native unit: 7624 passed", "e2e under cgo: 76 passed", "Lint: 0 issues")
+      §10.8 "Unit: 7608 passed", "e2e: 76 passed" on the PG17/18 matrix; §10.9 "Native
+      unit: 7624 passed", "e2e under cgo: 76 passed", "Lint: 0 issues"; neither section
+      gives a separate -tags=integration count)
 
 ## Overnight 2026-09-26 — decisions from jmass
 1. Build Azure provider support (account + live test tomorrow).
