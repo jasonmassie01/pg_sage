@@ -1,0 +1,349 @@
+[
+  {
+    "name": "fleet findings all",
+    "role": "viewer",
+    "request": "GET /api/v1/findings?database=all",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "cluster_refs": [],
+      "database": "all",
+      "filters": {
+        "Category": "",
+        "From": "\u003ctime\u003e",
+        "Limit": 50,
+        "Offset": 0,
+        "Order": "desc",
+        "Severity": "",
+        "Sort": "severity",
+        "Source": "",
+        "Status": "open",
+        "ThematicCategory": "",
+        "To": "\u003ctime\u003e"
+      },
+      "findings": [
+        {
+          "acted_on_at": null,
+          "action_log_id": null,
+          "action_risk": "safe",
+          "action_type": "analyze_table",
+          "approval_reason": "",
+          "approval_required": false,
+          "category": "index_missing",
+          "contract_tier": "safe",
+          "created_at": "\u003ctime\u003e",
+          "database_name": "primary",
+          "detail": {
+            "why": "golden"
+          },
+          "id": "1",
+          "impact_score": null,
+          "last_seen": "\u003ctime\u003e",
+          "object_identifier": "public.orders",
+          "object_type": "table",
+          "occurrence_count": 1,
+          "recommendation": "fix it",
+          "recommended_sql": "ANALYZE public.orders",
+          "resolved_at": null,
+          "rollback_sql": "",
+          "rule_id": "",
+          "severity": "critical",
+          "status": "open",
+          "subsystem": "",
+          "title": "golden index_missing"
+        },
+        {
+          "acted_on_at": null,
+          "action_log_id": null,
+          "action_risk": "safe",
+          "action_type": "analyze_table",
+          "approval_reason": "",
+          "approval_required": false,
+          "category": "index_missing",
+          "contract_tier": "safe",
+          "created_at": "\u003ctime\u003e",
+          "database_name": "replica",
+          "detail": {
+            "why": "golden"
+          },
+          "id": "1",
+          "impact_score": null,
+          "last_seen": "\u003ctime\u003e",
+          "object_identifier": "public.orders",
+          "object_type": "table",
+          "occurrence_count": 1,
+          "recommendation": "fix it",
+          "recommended_sql": "ANALYZE public.orders",
+          "resolved_at": null,
+          "rollback_sql": "",
+          "rule_id": "",
+          "severity": "critical",
+          "status": "open",
+          "subsystem": "",
+          "title": "golden index_missing"
+        },
+        {
+          "acted_on_at": null,
+          "action_log_id": null,
+          "action_risk": "safe",
+          "action_type": "analyze_table",
+          "approval_reason": "",
+          "approval_required": false,
+          "category": "table_bloat",
+          "contract_tier": "safe",
+          "created_at": "\u003ctime\u003e",
+          "database_name": "primary",
+          "detail": {
+            "why": "golden"
+          },
+          "id": "2",
+          "impact_score": null,
+          "last_seen": "\u003ctime\u003e",
+          "object_identifier": "public.users",
+          "object_type": "table",
+          "occurrence_count": 1,
+          "recommendation": "fix it",
+          "recommended_sql": "ANALYZE public.users",
+          "resolved_at": null,
+          "rollback_sql": "",
+          "rule_id": "",
+          "severity": "warning",
+          "status": "open",
+          "subsystem": "rules",
+          "title": "golden table_bloat"
+        },
+        {
+          "acted_on_at": null,
+          "action_log_id": null,
+          "action_risk": "safe",
+          "action_type": "analyze_table",
+          "approval_reason": "",
+          "approval_required": false,
+          "category": "table_bloat",
+          "contract_tier": "safe",
+          "created_at": "\u003ctime\u003e",
+          "database_name": "replica",
+          "detail": {
+            "why": "golden"
+          },
+          "id": "2",
+          "impact_score": null,
+          "last_seen": "\u003ctime\u003e",
+          "object_identifier": "public.users",
+          "object_type": "table",
+          "occurrence_count": 1,
+          "recommendation": "fix it",
+          "recommended_sql": "ANALYZE public.users",
+          "resolved_at": null,
+          "rollback_sql": "",
+          "rule_id": "",
+          "severity": "warning",
+          "status": "open",
+          "subsystem": "rules",
+          "title": "golden table_bloat"
+        }
+      ],
+      "limit": 50,
+      "next_cursor": "",
+      "offset": 0,
+      "total": 4,
+      "total_capped": false
+    }
+  },
+  {
+    "name": "fleet stats all",
+    "role": "viewer",
+    "request": "GET /api/v1/findings/stats?database=all",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "database": "all",
+      "stats": [
+        {
+          "category": "index_missing",
+          "count": 2,
+          "severity": "critical"
+        },
+        {
+          "category": "table_bloat",
+          "count": 2,
+          "severity": "warning"
+        }
+      ],
+      "total_open": 4
+    }
+  },
+  {
+    "name": "fleet health all",
+    "role": "viewer",
+    "request": "GET /api/v1/fleet/health?database=all",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "databases": {
+        "primary": [
+          {
+            "actions": 0,
+            "critical": 1,
+            "health": 87,
+            "info": 0,
+            "open": 2,
+            "t": "\u003ctime\u003e",
+            "warning": 0
+          }
+        ],
+        "replica": []
+      },
+      "from": "\u003ctime\u003e",
+      "to": "\u003ctime\u003e"
+    }
+  },
+  {
+    "name": "fleet pending by finding",
+    "role": "operator",
+    "request": "GET /api/v1/findings/1/pending-actions",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "pending": [
+        {
+          "action_risk": "moderate",
+          "blocked_reason": "standing policy unavailable",
+          "database_id": 1,
+          "database_name": "primary",
+          "decided_at": null,
+          "decided_by": null,
+          "defer_reason": "standing policy unavailable",
+          "eligible": false,
+          "expires_at": "\u003ctime\u003e",
+          "finding_id": 1,
+          "id": 1,
+          "lifecycle_detail": {
+            "circuit_open": false,
+            "expired": false,
+            "in_cooldown": false,
+            "resolved_ephemeral": false,
+            "state": "ready"
+          },
+          "output_modes": [
+            "queue_for_approval",
+            "generate_pr_or_script"
+          ],
+          "policy_detail": {
+            "blocked_reason": "standing policy unavailable",
+            "decision": "blocked",
+            "guardrails": [
+              "CREATE INDEX CONCURRENTLY",
+              "lock_timeout",
+              "statement_timeout",
+              "maintenance-window enforcement"
+            ],
+            "requires_approval": false,
+            "requires_maintenance_window": false,
+            "risk_tier": "moderate"
+          },
+          "proposed_at": "\u003ctime\u003e",
+          "proposed_sql": "CREATE INDEX CONCURRENTLY golden_p ON public.orders (id)",
+          "reason": "",
+          "rollback_class": "reversible",
+          "rollback_sql": "DROP INDEX CONCURRENTLY golden_p",
+          "script_output": {
+            "filename": "1_ddl_action.sql",
+            "format": "sql",
+            "migration_sql": "CREATE INDEX CONCURRENTLY golden_p ON public.orders (id)",
+            "pr_body": "Generated from pg_sage finding 1. Review migration SQL, rollback or mitigation, and verification SQL.",
+            "pr_title": "Review pg_sage action: ddl_action",
+            "risk_labels": [
+              "moderate",
+              "ddl_action"
+            ],
+            "rollback_sql": "DROP INDEX CONCURRENTLY golden_p",
+            "verification_sql": [
+              "-- Run the case verification query before merging.",
+              "-- Rerun pg_sage analyzers after deployment."
+            ]
+          },
+          "status": "pending",
+          "verification_status": "not_started"
+        },
+        {
+          "action_risk": "moderate",
+          "blocked_reason": "standing policy unavailable",
+          "database_id": 1,
+          "database_name": "replica",
+          "decided_at": null,
+          "decided_by": null,
+          "defer_reason": "standing policy unavailable",
+          "eligible": false,
+          "expires_at": "\u003ctime\u003e",
+          "finding_id": 1,
+          "id": 1,
+          "lifecycle_detail": {
+            "circuit_open": false,
+            "expired": false,
+            "in_cooldown": false,
+            "resolved_ephemeral": false,
+            "state": "ready"
+          },
+          "output_modes": [
+            "queue_for_approval",
+            "generate_pr_or_script"
+          ],
+          "policy_detail": {
+            "blocked_reason": "standing policy unavailable",
+            "decision": "blocked",
+            "guardrails": [
+              "CREATE INDEX CONCURRENTLY",
+              "lock_timeout",
+              "statement_timeout",
+              "maintenance-window enforcement"
+            ],
+            "requires_approval": false,
+            "requires_maintenance_window": false,
+            "risk_tier": "moderate"
+          },
+          "proposed_at": "\u003ctime\u003e",
+          "proposed_sql": "CREATE INDEX CONCURRENTLY golden_p ON public.orders (id)",
+          "reason": "",
+          "rollback_class": "reversible",
+          "rollback_sql": "DROP INDEX CONCURRENTLY golden_p",
+          "script_output": {
+            "filename": "1_ddl_action.sql",
+            "format": "sql",
+            "migration_sql": "CREATE INDEX CONCURRENTLY golden_p ON public.orders (id)",
+            "pr_body": "Generated from pg_sage finding 1. Review migration SQL, rollback or mitigation, and verification SQL.",
+            "pr_title": "Review pg_sage action: ddl_action",
+            "risk_labels": [
+              "moderate",
+              "ddl_action"
+            ],
+            "rollback_sql": "DROP INDEX CONCURRENTLY golden_p",
+            "verification_sql": [
+              "-- Run the case verification query before merging.",
+              "-- Rerun pg_sage analyzers after deployment."
+            ]
+          },
+          "status": "pending",
+          "verification_status": "not_started"
+        }
+      ],
+      "total": 2
+    }
+  },
+  {
+    "name": "fleet incidents",
+    "role": "viewer",
+    "request": "GET /api/v1/incidents",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "incidents": [],
+      "total": 0
+    }
+  }
+]

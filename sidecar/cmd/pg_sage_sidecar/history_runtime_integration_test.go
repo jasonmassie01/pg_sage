@@ -38,7 +38,7 @@ func metaHistoryRuntime(t *testing.T, monDSN, metaDSN string) (store.DatabaseRec
 func TestMetaRuntimeKeepsHistoryInTheStore(t *testing.T) {
 	monDSN, metaDSN, mon, meta := historyDBs(t)
 	rec, _ := metaHistoryRuntime(t, monDSN, metaDSN)
-	inst, err := prepareStoreDatabaseConnection(context.Background(), rec, monDSN)
+	inst, err := prepareStoreDatabaseConnection(context.Background(), rec, monDSN, memberAction{})
 	if err != nil {
 		t.Fatalf("build meta runtime: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestMetaRuntimeRefusesUnmigratedHistory(t *testing.T) {
 	monDSN, metaDSN, mon, _ := historyDBs(t)
 	seedHistoryRows(t, mon, 2)
 	rec, _ := metaHistoryRuntime(t, monDSN, metaDSN)
-	_, err := prepareStoreDatabaseConnection(context.Background(), rec, monDSN)
+	_, err := prepareStoreDatabaseConnection(context.Background(), rec, monDSN, memberAction{})
 	if err == nil || !strings.Contains(err.Error(), "history migrate") {
 		t.Fatalf("a database with unmigrated history must be refused: %v", err)
 	}

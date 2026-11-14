@@ -21,6 +21,9 @@ type ConnectionTestResult struct {
 	PGVersion  string   `json:"pg_version,omitempty"`
 	Extensions []string `json:"extensions,omitempty"`
 	Error      string   `json:"error,omitempty"`
+	// ActionIdentity is the action role's own test (security-09b), when one
+	// was given or is stored.
+	ActionIdentity *ConnectionTestResult `json:"action_identity,omitempty"`
 }
 
 // queryPGVersion runs SELECT version() and extracts

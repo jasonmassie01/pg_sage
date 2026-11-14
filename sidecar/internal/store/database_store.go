@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/crypto"
 )
@@ -37,6 +36,9 @@ type DatabaseRecord struct {
 	Owner            string
 	ExpiresAt        *time.Time
 	AdoptedAt        *time.Time
+	// ActionUsername is the action identity's role (security-09b); "" when
+	// the member runs as one identity. Its password is never read here.
+	ActionUsername string
 }
 
 // DatabaseInput holds user-provided fields for create/update.
@@ -52,6 +54,9 @@ type DatabaseInput struct {
 	Tags           map[string]string
 	TrustLevel     string
 	ExecutionMode  string
+	// Action sets or removes the action identity (security-09b); nil
+	// creates none and leaves it unchanged on update.
+	Action *ActionCredentialInput
 }
 
 // DatabaseStore handles CRUD for sage.databases.
@@ -151,20 +156,8 @@ type discoveryColumns struct {
 func (s *DatabaseStore) insert(
 	ctx context.Context, input DatabaseInput, createdBy int, disc discoveryColumns,
 ) (int, error) {
-	if err := validateInput(input, true); err != nil {
+	if err := s.checkCreate(ctx, input); err != nil {
 		return 0, err
-	}
-	if s.keyring == nil {
-		return 0, errNoPasswordKey
-	}
-
-	count, err := s.Count(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("checking database count: %w", err)
-	}
-	if count >= 50 {
-		return 0, fmt.Errorf(
-			"%w: maximum of 50 databases reached", ErrValidation)
 	}
 	tagsJSON, err := json.Marshal(input.Tags)
 	if err != nil {
@@ -179,21 +172,48 @@ func (s *DatabaseStore) insert(
 	if err != nil {
 		return 0, err
 	}
+	_, actUser, actEnc, err := s.actionWriteArgs(id, input.Action)
+	if err != nil {
+		return 0, err
+	}
 	_, err = s.pool.Exec(qctx,
 		`/* pg_sage */ INSERT INTO sage.databases
 		    (id, name, host, port, database_name, username, password_enc,
 		     sslmode, max_connections, tags, trust_level,
-		     execution_mode, created_by, discovered_source, owner, expires_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+		     execution_mode, created_by, discovered_source, owner, expires_at,
+		     action_username, action_password_enc)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
 		id, input.Name, input.Host, input.Port, input.DatabaseName,
 		input.Username, enc, input.SSLMode, input.MaxConnections,
 		tagsJSON, input.TrustLevel, input.ExecutionMode, createdBy,
-		disc.source, disc.owner, disc.expiresAt,
+		disc.source, disc.owner, disc.expiresAt, actUser, actEnc,
 	)
 	if err != nil {
-		return 0, fmt.Errorf("inserting database: %w", err)
+		return 0, fmt.Errorf("inserting database: %w", actionConstraintError(err))
 	}
 	return id, nil
+}
+
+// checkCreate refuses an invalid input, a store with no key and a full
+// fleet before a create allocates an id.
+func (s *DatabaseStore) checkCreate(ctx context.Context, input DatabaseInput) error {
+	if err := validateInput(input, true); err != nil {
+		return err
+	}
+	if err := validateActionInput(input, true); err != nil {
+		return err
+	}
+	if s.keyring == nil {
+		return errNoPasswordKey
+	}
+	count, err := s.Count(ctx)
+	if err != nil {
+		return fmt.Errorf("checking database count: %w", err)
+	}
+	if count >= 50 {
+		return fmt.Errorf("%w: maximum of 50 databases reached", ErrValidation)
+	}
+	return nil
 }
 
 // List returns all database records (never returns password).
@@ -236,7 +256,7 @@ func (s *DatabaseStore) Get(ctx context.Context, id int) (*DatabaseRecord, error
 const databaseColumns = `id, name, host, port, database_name, username,
 	sslmode, max_connections, enabled, tags, trust_level, execution_mode,
 	created_at, created_by, updated_at, COALESCE(discovered_source, ''),
-	COALESCE(owner, ''), expires_at, adopted_at`
+	COALESCE(owner, ''), expires_at, adopted_at, COALESCE(action_username, '')`
 
 // scanDatabaseRecord scans one row of databaseColumns.
 func scanDatabaseRecord(row pgx.Row) (DatabaseRecord, error) {
@@ -248,7 +268,7 @@ func scanDatabaseRecord(row pgx.Row) (DatabaseRecord, error) {
 		&r.Username, &r.SSLMode, &r.MaxConnections, &r.Enabled,
 		&tagsJSON, &r.TrustLevel, &r.ExecutionMode,
 		&r.CreatedAt, &createdBy, &r.UpdatedAt,
-		&r.DiscoveredSource, &r.Owner, &r.ExpiresAt, &r.AdoptedAt,
+		&r.DiscoveredSource, &r.Owner, &r.ExpiresAt, &r.AdoptedAt, &r.ActionUsername,
 	)
 	if err != nil {
 		return r, fmt.Errorf("scanning database row: %w", err)
@@ -265,59 +285,61 @@ func scanDatabaseRecord(row pgx.Row) (DatabaseRecord, error) {
 	return r, nil
 }
 
-// Update modifies an existing database record.
-// Password is optional (empty = no change).
+// Update modifies an existing database record. Password is optional
+// (empty = no change); Action nil leaves the action identity unchanged.
 func (s *DatabaseStore) Update(
 	ctx context.Context, id int, input DatabaseInput,
 ) error {
 	if err := validateInput(input, false); err != nil {
 		return err
 	}
-
-	qctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-
+	if err := validateActionInput(input, false); err != nil {
+		return err
+	}
 	tagsJSON, err := json.Marshal(input.Tags)
 	if err != nil {
 		return fmt.Errorf("marshalling tags: %w", err)
 	}
-
-	var tag pgconn.CommandTag
+	var enc []byte
 	if input.Password != "" {
-		enc, encErr := s.sealPassword(id, input.Password)
-		if encErr != nil {
-			return encErr
+		if enc, err = s.sealPassword(id, input.Password); err != nil {
+			return err
 		}
-		tag, err = s.pool.Exec(qctx,
-			`/* pg_sage */ UPDATE sage.databases SET
-			    name=$1, host=$2, port=$3, database_name=$4,
-			    username=$5, password_enc=$6, sslmode=$7,
-			    max_connections=$8, tags=$9, updated_at=now()
-			 WHERE id=$10`,
-			input.Name, input.Host, input.Port, input.DatabaseName,
-			input.Username, enc, input.SSLMode,
-			input.MaxConnections, tagsJSON, id,
-		)
-	} else {
-		tag, err = s.pool.Exec(qctx,
-			`/* pg_sage */ UPDATE sage.databases SET
-			    name=$1, host=$2, port=$3, database_name=$4,
-			    username=$5, sslmode=$6, max_connections=$7,
-			    tags=$8, updated_at=now()
-			 WHERE id=$9`,
-			input.Name, input.Host, input.Port, input.DatabaseName,
-			input.Username, input.SSLMode,
-			input.MaxConnections, tagsJSON, id,
-		)
 	}
+	setAction, actUser, actEnc, err := s.actionWriteArgs(id, input.Action)
 	if err != nil {
-		return fmt.Errorf("updating database %d: %w", id, err)
+		return err
+	}
+	qctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	tag, err := s.pool.Exec(qctx, updateDatabaseSQL,
+		input.Name, input.Host, input.Port, input.DatabaseName,
+		input.Username, enc, input.SSLMode,
+		input.MaxConnections, tagsJSON, id, setAction, actUser, actEnc,
+	)
+	if err != nil {
+		return fmt.Errorf("updating database %d: %w", id, actionConstraintError(err))
 	}
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("%w: database %d", ErrNotFound, id)
 	}
 	return nil
 }
+
+// updateDatabaseSQL writes a member's connection fields. A NULL $6 keeps
+// the stored password. With $11 the action identity is set ($12 the role,
+// $13 its sealed password, NULL to keep the stored one) or, with a NULL
+// $12, removed; the table's checks refuse a role with no password.
+const updateDatabaseSQL = `/* pg_sage */ UPDATE sage.databases SET
+	    name=$1, host=$2, port=$3, database_name=$4, username=$5,
+	    password_enc=COALESCE($6::bytea, password_enc), sslmode=$7,
+	    max_connections=$8, tags=$9, updated_at=now(),
+	    action_username = CASE WHEN $11::boolean THEN $12::text
+	                           ELSE action_username END,
+	    action_password_enc = CASE WHEN NOT $11::boolean THEN action_password_enc
+	                               WHEN $12::text IS NULL THEN NULL
+	                               ELSE COALESCE($13::bytea, action_password_enc) END
+	 WHERE id=$10`
 
 // Delete removes a database record.
 func (s *DatabaseStore) Delete(ctx context.Context, id int) error {

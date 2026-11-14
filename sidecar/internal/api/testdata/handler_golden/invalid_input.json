@@ -1,0 +1,389 @@
+[
+  {
+    "name": "config put malformed json",
+    "role": "admin",
+    "request": "PUT /api/v1/config/databases/1",
+    "status": 400,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "invalid JSON"
+    }
+  },
+  {
+    "name": "config put no generation",
+    "role": "admin",
+    "request": "PUT /api/v1/config/databases/1",
+    "status": 428,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "expected_generation is required"
+    }
+  },
+  {
+    "name": "config put unknown key",
+    "role": "admin",
+    "request": "PUT /api/v1/config/databases/1",
+    "status": 400,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "no.such.key: validate: unknown config key \"no.such.key\""
+    }
+  },
+  {
+    "name": "config put global-only key",
+    "role": "admin",
+    "request": "PUT /api/v1/config/databases/1",
+    "status": 400,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "per-database override \"collector.interval_seconds\" is not supported; only trust.level, analyzer.disabled_rules and execution_mode are active"
+    }
+  },
+  {
+    "name": "config put bad exec mode",
+    "role": "admin",
+    "request": "PUT /api/v1/config/databases/1",
+    "status": 400,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "execution_mode must be auto, approval, or manual: got \"yolo\""
+    }
+  },
+  {
+    "name": "config put zero generation",
+    "role": "admin",
+    "request": "PUT /api/v1/config/databases/1",
+    "status": 428,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "expected_generation is required"
+    }
+  },
+  {
+    "name": "config put negative id",
+    "role": "admin",
+    "request": "PUT /api/v1/config/databases/-1",
+    "status": 400,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "invalid database id"
+    }
+  },
+  {
+    "name": "config put injected id",
+    "role": "admin",
+    "request": "PUT /api/v1/config/databases/1;DROP",
+    "status": 400,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "invalid database id"
+    }
+  },
+  {
+    "name": "config put unknown database",
+    "role": "admin",
+    "request": "PUT /api/v1/config/databases/99",
+    "status": 404,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "database 99 not found"
+    }
+  },
+  {
+    "name": "config put empty",
+    "role": "admin",
+    "request": "PUT /api/v1/config/databases/1",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "active_generation": 3,
+      "desired_generation": 3,
+      "status": "updated"
+    }
+  },
+  {
+    "name": "config delete exec mode",
+    "role": "admin",
+    "request": "DELETE /api/v1/config/databases/1/execution_mode?expected_generation=1",
+    "status": 400,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "invalid config key"
+    }
+  },
+  {
+    "name": "config delete trust",
+    "role": "admin",
+    "request": "DELETE /api/v1/config/databases/1/trust.level?expected_generation=1",
+    "status": 400,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "database trust is a durable policy and cannot be reset to global inheritance"
+    }
+  },
+  {
+    "name": "config delete unknown key",
+    "role": "admin",
+    "request": "DELETE /api/v1/config/databases/1/no.such.key?expected_generation=1",
+    "status": 400,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "invalid config key"
+    }
+  },
+  {
+    "name": "config delete no generation",
+    "role": "admin",
+    "request": "DELETE /api/v1/config/databases/1/analyzer.disabled_rules",
+    "status": 428,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "expected_generation is required"
+    }
+  },
+  {
+    "name": "config db get negative id",
+    "role": "admin",
+    "request": "GET /api/v1/config/databases/-1",
+    "status": 400,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "invalid database id"
+    }
+  },
+  {
+    "name": "global put malformed",
+    "role": "admin",
+    "request": "PUT /api/v1/config",
+    "status": 400,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "invalid JSON"
+    }
+  },
+  {
+    "name": "global put no generation",
+    "role": "admin",
+    "request": "PUT /api/v1/config",
+    "status": 428,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "expected_generation is required"
+    }
+  },
+  {
+    "name": "global put bad trust",
+    "role": "admin",
+    "request": "PUT /api/v1/config",
+    "status": 400,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "invalid trust level"
+    }
+  },
+  {
+    "name": "pending by finding negative",
+    "role": "operator",
+    "request": "GET /api/v1/findings/-1/pending-actions",
+    "status": 400,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "invalid finding id"
+    }
+  },
+  {
+    "name": "pending by finding injected",
+    "role": "operator",
+    "request": "GET /api/v1/findings/1;DROP/pending-actions",
+    "status": 400,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "invalid finding id"
+    }
+  },
+  {
+    "name": "findings bad database",
+    "role": "viewer",
+    "request": "GET /api/v1/findings?database=a;DROP",
+    "status": 500,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "internal error"
+    }
+  },
+  {
+    "name": "findings unknown database",
+    "role": "viewer",
+    "request": "GET /api/v1/findings?database=nope",
+    "status": 404,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "database not found"
+    }
+  },
+  {
+    "name": "history bad metric",
+    "role": "viewer",
+    "request": "GET /api/v1/snapshots/history?database=primary\u0026metric=bogus",
+    "status": 400,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "invalid metric"
+    }
+  },
+  {
+    "name": "manual exec malformed",
+    "role": "operator",
+    "request": "POST /api/v1/actions/execute",
+    "status": 400,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "invalid JSON"
+    }
+  },
+  {
+    "name": "manual exec missing sql",
+    "role": "operator",
+    "request": "POST /api/v1/actions/execute",
+    "status": 400,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "finding_id and sql are required"
+    }
+  },
+  {
+    "name": "manual exec no database",
+    "role": "operator",
+    "request": "POST /api/v1/actions/execute",
+    "status": 400,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "database is required"
+    }
+  },
+  {
+    "name": "manual exec unknown database",
+    "role": "operator",
+    "request": "POST /api/v1/actions/execute",
+    "status": 404,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "database action executor not found"
+    }
+  },
+  {
+    "name": "managed create malformed",
+    "role": "admin",
+    "request": "POST /api/v1/databases/managed",
+    "status": 400,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "invalid request body"
+    }
+  },
+  {
+    "name": "managed test bad id",
+    "role": "admin",
+    "request": "POST /api/v1/databases/managed/abc/test",
+    "status": 415,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "Content-Type must be application/json"
+    }
+  },
+  {
+    "name": "managed test malformed",
+    "role": "admin",
+    "request": "POST /api/v1/databases/managed/1/test",
+    "status": 400,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "invalid request body"
+    }
+  },
+  {
+    "name": "incident resolve no database",
+    "role": "operator",
+    "request": "POST /api/v1/incidents/\u003cuuid\u003e/resolve",
+    "status": 500,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "failed to resolve incident"
+    }
+  },
+  {
+    "name": "emergency stop unknown database",
+    "role": "operator",
+    "request": "POST /api/v1/emergency-stop?database=nope",
+    "status": 404,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "database not found"
+    }
+  },
+  {
+    "name": "resume unknown database",
+    "role": "operator",
+    "request": "POST /api/v1/resume?database=nope",
+    "status": 404,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "database not found"
+    }
+  },
+  {
+    "name": "metrics unknown database",
+    "role": "viewer",
+    "request": "GET /api/v1/metrics?database=nope",
+    "status": 404,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "database not found"
+    }
+  },
+  {
+    "name": "config get unknown database",
+    "role": "viewer",
+    "request": "GET /api/v1/config?database=nope",
+    "status": 404,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "database not found"
+    }
+  }
+]

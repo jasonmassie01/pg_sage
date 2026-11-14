@@ -1,0 +1,1302 @@
+[
+  {
+    "name": "findings list",
+    "role": "viewer",
+    "request": "GET /api/v1/findings?database=primary",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "cluster_refs": [],
+      "database": "primary",
+      "filters": {
+        "Category": "",
+        "From": "\u003ctime\u003e",
+        "Limit": 50,
+        "Offset": 0,
+        "Order": "desc",
+        "Severity": "",
+        "Sort": "severity",
+        "Source": "",
+        "Status": "open",
+        "ThematicCategory": "",
+        "To": "\u003ctime\u003e"
+      },
+      "findings": [
+        {
+          "acted_on_at": null,
+          "action_log_id": null,
+          "action_risk": "safe",
+          "action_type": "analyze_table",
+          "approval_reason": "",
+          "approval_required": false,
+          "category": "index_missing",
+          "contract_tier": "safe",
+          "created_at": "\u003ctime\u003e",
+          "database_name": "primary",
+          "detail": {
+            "why": "golden"
+          },
+          "id": "1",
+          "impact_score": null,
+          "last_seen": "\u003ctime\u003e",
+          "object_identifier": "public.orders",
+          "object_type": "table",
+          "occurrence_count": 1,
+          "recommendation": "fix it",
+          "recommended_sql": "ANALYZE public.orders",
+          "resolved_at": null,
+          "rollback_sql": "",
+          "rule_id": "",
+          "severity": "critical",
+          "status": "open",
+          "subsystem": "",
+          "title": "golden index_missing"
+        },
+        {
+          "acted_on_at": null,
+          "action_log_id": null,
+          "action_risk": "safe",
+          "action_type": "analyze_table",
+          "approval_reason": "",
+          "approval_required": false,
+          "category": "table_bloat",
+          "contract_tier": "safe",
+          "created_at": "\u003ctime\u003e",
+          "database_name": "primary",
+          "detail": {
+            "why": "golden"
+          },
+          "id": "2",
+          "impact_score": null,
+          "last_seen": "\u003ctime\u003e",
+          "object_identifier": "public.users",
+          "object_type": "table",
+          "occurrence_count": 1,
+          "recommendation": "fix it",
+          "recommended_sql": "ANALYZE public.users",
+          "resolved_at": null,
+          "rollback_sql": "",
+          "rule_id": "",
+          "severity": "warning",
+          "status": "open",
+          "subsystem": "rules",
+          "title": "golden table_bloat"
+        }
+      ],
+      "limit": 50,
+      "next_cursor": "",
+      "offset": 0,
+      "total": 2,
+      "total_capped": false
+    }
+  },
+  {
+    "name": "findings list all",
+    "role": "viewer",
+    "request": "GET /api/v1/findings",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "cluster_refs": [],
+      "database": "primary",
+      "filters": {
+        "Category": "",
+        "From": "\u003ctime\u003e",
+        "Limit": 50,
+        "Offset": 0,
+        "Order": "desc",
+        "Severity": "",
+        "Sort": "severity",
+        "Source": "",
+        "Status": "open",
+        "ThematicCategory": "",
+        "To": "\u003ctime\u003e"
+      },
+      "findings": [
+        {
+          "acted_on_at": null,
+          "action_log_id": null,
+          "action_risk": "safe",
+          "action_type": "analyze_table",
+          "approval_reason": "",
+          "approval_required": false,
+          "category": "index_missing",
+          "contract_tier": "safe",
+          "created_at": "\u003ctime\u003e",
+          "database_name": "primary",
+          "detail": {
+            "why": "golden"
+          },
+          "id": "1",
+          "impact_score": null,
+          "last_seen": "\u003ctime\u003e",
+          "object_identifier": "public.orders",
+          "object_type": "table",
+          "occurrence_count": 1,
+          "recommendation": "fix it",
+          "recommended_sql": "ANALYZE public.orders",
+          "resolved_at": null,
+          "rollback_sql": "",
+          "rule_id": "",
+          "severity": "critical",
+          "status": "open",
+          "subsystem": "",
+          "title": "golden index_missing"
+        },
+        {
+          "acted_on_at": null,
+          "action_log_id": null,
+          "action_risk": "safe",
+          "action_type": "analyze_table",
+          "approval_reason": "",
+          "approval_required": false,
+          "category": "table_bloat",
+          "contract_tier": "safe",
+          "created_at": "\u003ctime\u003e",
+          "database_name": "primary",
+          "detail": {
+            "why": "golden"
+          },
+          "id": "2",
+          "impact_score": null,
+          "last_seen": "\u003ctime\u003e",
+          "object_identifier": "public.users",
+          "object_type": "table",
+          "occurrence_count": 1,
+          "recommendation": "fix it",
+          "recommended_sql": "ANALYZE public.users",
+          "resolved_at": null,
+          "rollback_sql": "",
+          "rule_id": "",
+          "severity": "warning",
+          "status": "open",
+          "subsystem": "rules",
+          "title": "golden table_bloat"
+        }
+      ],
+      "limit": 50,
+      "next_cursor": "",
+      "offset": 0,
+      "total": 2,
+      "total_capped": false
+    }
+  },
+  {
+    "name": "findings list suppressed",
+    "role": "viewer",
+    "request": "GET /api/v1/findings?database=primary\u0026status=suppressed",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "cluster_refs": [],
+      "database": "primary",
+      "filters": {
+        "Category": "",
+        "From": "\u003ctime\u003e",
+        "Limit": 50,
+        "Offset": 0,
+        "Order": "desc",
+        "Severity": "",
+        "Sort": "severity",
+        "Source": "",
+        "Status": "suppressed",
+        "ThematicCategory": "",
+        "To": "\u003ctime\u003e"
+      },
+      "findings": [
+        {
+          "acted_on_at": null,
+          "action_log_id": null,
+          "action_risk": "safe",
+          "action_type": "analyze_table",
+          "approval_reason": "",
+          "approval_required": false,
+          "category": "seq_scan",
+          "contract_tier": "safe",
+          "created_at": "\u003ctime\u003e",
+          "database_name": "primary",
+          "detail": {
+            "why": "golden"
+          },
+          "id": "3",
+          "impact_score": null,
+          "last_seen": "\u003ctime\u003e",
+          "object_identifier": "public.items",
+          "object_type": "table",
+          "occurrence_count": 1,
+          "recommendation": "fix it",
+          "recommended_sql": "ANALYZE public.items",
+          "resolved_at": null,
+          "rollback_sql": "",
+          "rule_id": "",
+          "severity": "info",
+          "status": "suppressed",
+          "subsystem": "",
+          "title": "golden seq_scan"
+        }
+      ],
+      "limit": 50,
+      "next_cursor": "",
+      "offset": 0,
+      "total": 1,
+      "total_capped": false
+    }
+  },
+  {
+    "name": "findings stats",
+    "role": "viewer",
+    "request": "GET /api/v1/findings/stats?database=primary",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "database": "primary",
+      "stats": [
+        {
+          "category": "index_missing",
+          "count": 1,
+          "severity": "critical"
+        },
+        {
+          "category": "table_bloat",
+          "count": 1,
+          "severity": "warning"
+        }
+      ],
+      "total_open": 2
+    }
+  },
+  {
+    "name": "findings stats all",
+    "role": "viewer",
+    "request": "GET /api/v1/findings/stats?database=all",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "database": "primary",
+      "stats": [
+        {
+          "category": "index_missing",
+          "count": 1,
+          "severity": "critical"
+        },
+        {
+          "category": "table_bloat",
+          "count": 1,
+          "severity": "warning"
+        }
+      ],
+      "total_open": 2
+    }
+  },
+  {
+    "name": "finding detail",
+    "role": "viewer",
+    "request": "GET /api/v1/findings/1?database=primary",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "acted_on_at": null,
+      "action_log_id": null,
+      "action_risk": "safe",
+      "action_type": "analyze_table",
+      "approval_reason": "",
+      "approval_required": false,
+      "category": "index_missing",
+      "contract_tier": "safe",
+      "created_at": "\u003ctime\u003e",
+      "detail": {
+        "why": "golden"
+      },
+      "estimated_cost_usd": null,
+      "id": "1",
+      "last_seen": "\u003ctime\u003e",
+      "object_identifier": "public.orders",
+      "object_type": "table",
+      "occurrence_count": 1,
+      "recommendation": "fix it",
+      "recommended_sql": "ANALYZE public.orders",
+      "resolved_at": null,
+      "rollback_sql": "",
+      "severity": "critical",
+      "status": "open",
+      "suppressed_until": null,
+      "title": "golden index_missing"
+    }
+  },
+  {
+    "name": "finding detail missing",
+    "role": "viewer",
+    "request": "GET /api/v1/findings/999999?database=primary",
+    "status": 404,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "finding not found"
+    }
+  },
+  {
+    "name": "actions list",
+    "role": "viewer",
+    "request": "GET /api/v1/actions?database=primary",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "actions": [
+        {
+          "action_risk": "safe",
+          "action_type": "queued_action",
+          "attempt_count": 0,
+          "cooldown_until": null,
+          "database_name": "primary",
+          "event_at": "\u003ctime\u003e",
+          "executed_at": "\u003ctime\u003e",
+          "expires_at": "\u003ctime\u003e",
+          "finding_id": "2",
+          "guardrails": null,
+          "id": "2",
+          "ledger_key": "queue:2",
+          "outcome": "pending",
+          "policy_decision": "",
+          "record_kind": "queued",
+          "rollback_reason": "",
+          "rollback_sql": "",
+          "shadow_toil_minutes": 0,
+          "sql_executed": "VACUUM public.users",
+          "status": "pending",
+          "verification_status": "not_started"
+        },
+        {
+          "action_risk": "moderate",
+          "action_type": "queued_action",
+          "attempt_count": 0,
+          "cooldown_until": null,
+          "database_name": "primary",
+          "event_at": "\u003ctime\u003e",
+          "executed_at": "\u003ctime\u003e",
+          "expires_at": "\u003ctime\u003e",
+          "finding_id": "1",
+          "guardrails": null,
+          "id": "1",
+          "ledger_key": "queue:1",
+          "outcome": "pending",
+          "policy_decision": "",
+          "record_kind": "queued",
+          "rollback_reason": "",
+          "rollback_sql": "DROP INDEX CONCURRENTLY golden_p",
+          "shadow_toil_minutes": 0,
+          "sql_executed": "CREATE INDEX CONCURRENTLY golden_p ON public.orders (id)",
+          "status": "pending",
+          "verification_status": "not_started"
+        },
+        {
+          "action_risk": "safe",
+          "action_type": "create_index",
+          "after_state": null,
+          "attempts": 1,
+          "attempts_capped": false,
+          "before_state": null,
+          "database_name": "primary",
+          "event_at": "\u003ctime\u003e",
+          "executed_at": "\u003ctime\u003e",
+          "finding_id": "1",
+          "id": "1",
+          "ledger_key": "log:1",
+          "measured_at": null,
+          "outcome": "success",
+          "record_kind": "executed",
+          "rollback_reason": "",
+          "rollback_sql": "DROP INDEX public.golden_i",
+          "sql_executed": "CREATE INDEX golden_i ON public.orders (id)",
+          "verification_outcome": null,
+          "verification_status": "applied"
+        }
+      ],
+      "database": "primary",
+      "limit": 50,
+      "next_cursor": "",
+      "offset": 0,
+      "total": 3,
+      "total_capped": false
+    }
+  },
+  {
+    "name": "action detail",
+    "role": "viewer",
+    "request": "GET /api/v1/actions/1?database=primary",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "action_type": "create_index",
+      "after_state": null,
+      "before_state": null,
+      "event_at": "\u003ctime\u003e",
+      "executed_at": "\u003ctime\u003e",
+      "finding_id": "1",
+      "id": "1",
+      "ledger_key": "log:1",
+      "measured_at": null,
+      "outcome": "success",
+      "record_kind": "executed",
+      "rollback_reason": "",
+      "rollback_sql": "DROP INDEX public.golden_i",
+      "sql_executed": "CREATE INDEX golden_i ON public.orders (id)",
+      "verification_outcome": null
+    }
+  },
+  {
+    "name": "action detail missing",
+    "role": "viewer",
+    "request": "GET /api/v1/actions/999999?database=primary",
+    "status": 404,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "action not found"
+    }
+  },
+  {
+    "name": "snapshot latest",
+    "role": "viewer",
+    "request": "GET /api/v1/snapshots/latest?database=primary\u0026metric=system",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "database": "primary",
+      "snapshot": {
+        "connections": 7,
+        "max_connections": 100
+      }
+    }
+  },
+  {
+    "name": "snapshot latest empty",
+    "role": "viewer",
+    "request": "GET /api/v1/snapshots/latest?database=primary\u0026metric=locks",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "database": "primary",
+      "snapshot": null
+    }
+  },
+  {
+    "name": "snapshot history",
+    "role": "viewer",
+    "request": "GET /api/v1/snapshots/history?database=primary\u0026metric=connections\u0026hours=2",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "database": "primary",
+      "metric": "connections",
+      "points": [],
+      "truncated": false
+    }
+  },
+  {
+    "name": "fleet health",
+    "role": "viewer",
+    "request": "GET /api/v1/fleet/health?hours=3",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "databases": {
+        "primary": [
+          {
+            "actions": 0,
+            "critical": 1,
+            "health": 87,
+            "info": 0,
+            "open": 2,
+            "t": "\u003ctime\u003e",
+            "warning": 0
+          }
+        ]
+      },
+      "from": "\u003ctime\u003e",
+      "to": "\u003ctime\u003e"
+    }
+  },
+  {
+    "name": "config get",
+    "role": "viewer",
+    "request": "GET /api/v1/config",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "active_generation": 1,
+      "advisor": {
+        "BloatEnabled": true,
+        "BudgetProposals": true,
+        "ConnectionEnabled": true,
+        "Enabled": true,
+        "IntervalSeconds": 86400,
+        "MemoryEnabled": true,
+        "RewriteEnabled": true,
+        "VacuumEnabled": true,
+        "WALEnabled": true
+      },
+      "analyzer": {
+        "AnalyzeStaleDays": 7,
+        "AnalyzeStaleMinRows": 10000,
+        "AutovacuumTuneMinRows": 1000000,
+        "CDCStallMinutes": 10,
+        "CacheHitRatioWarning": 0.95,
+        "CheckpointFreqWarningPerHour": 12,
+        "DisabledRules": null,
+        "IdleInTxTimeoutMinutes": 30,
+        "InactiveSlotMinMinutes": 5,
+        "IndexBloatMinBytes": 104857600,
+        "IndexBloatThresholdPct": 30,
+        "IntervalSeconds": 600,
+        "LockChain": {
+          "ActiveQueryCancelMinutes": 15,
+          "CriticalBlockedThreshold": 10,
+          "Enabled": true,
+          "IdleInTxTerminateMinutes": 5,
+          "MinBlockedThreshold": 3,
+          "SafePatterns": [
+            "pg_sage",
+            "replication",
+            "patroni"
+          ]
+        },
+        "RegressionLookbackDays": 7,
+        "RegressionThresholdPct": 50,
+        "SchemaGuardDDLDebounceSeconds": 60,
+        "SelfCostBudgetMs": 3000,
+        "SeqScanMinRows": 100000,
+        "SlowQueryMinCalls": 5,
+        "SlowQueryThresholdMs": 1000,
+        "SlowSlotRetainedBytes": 0,
+        "SubscriptionLagMinutes": 5,
+        "TableBloatDeadTuplePct": 20,
+        "TableBloatMinBytes": 1073741824,
+        "TableBloatMinRows": 1000,
+        "UnusedIndexWindowDays": 7,
+        "WorkMemPromotionThreshold": 5,
+        "WraparoundFreezeShare": 0.75,
+        "XIDWraparoundCritical": 1000000000,
+        "XIDWraparoundWarning": 500000000
+      },
+      "collector": {
+        "BatchSize": 1000,
+        "IntervalSeconds": 60,
+        "MaxQueries": 500
+      },
+      "databases": 0,
+      "desired_generation": 1,
+      "last_resync_at": null,
+      "llm_enabled": true,
+      "mode": "fleet",
+      "safety": {
+        "BackoffConsecutiveSkips": 3,
+        "CPUCeilingPct": 90,
+        "DDLTimeoutSeconds": 300,
+        "DataIOCeilingPct": 70,
+        "DiskPressureThresholdPct": 5,
+        "DormantIntervalSeconds": 600,
+        "HostCPUCeilingPct": 0,
+        "IndexBuildTimeoutSeconds": 14400,
+        "LockTimeoutMs": 30000,
+        "QueryTimeoutMs": 500,
+        "ReindexTimeoutSeconds": 14400,
+        "VacuumStallMinutes": 15,
+        "VacuumTimeoutSeconds": 14400,
+        "WALIOCeilingPct": 70
+      },
+      "trust": {
+        "CascadeCooldownCycles": 3,
+        "Level": "observation",
+        "MaintenanceWindow": "",
+        "RampModerateHours": 744,
+        "RampSafeHours": 192,
+        "RampStart": "",
+        "RollbackCooldownDays": 7,
+        "RollbackThresholdPct": 10,
+        "RollbackWindowMinutes": 15,
+        "Tier3HighRisk": false,
+        "Tier3Moderate": false,
+        "Tier3Safe": true
+      }
+    }
+  },
+  {
+    "name": "config get database",
+    "role": "viewer",
+    "request": "GET /api/v1/config?database=primary",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "database": "primary",
+      "executor": true,
+      "llm": true,
+      "tags": null,
+      "trust_level": "advisory"
+    }
+  },
+  {
+    "name": "metrics database",
+    "role": "viewer",
+    "request": "GET /api/v1/metrics?database=primary",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "database": "primary",
+      "status": {
+        "actions_total": 0,
+        "analyzer_last_run": "\u003ctime\u003e",
+        "capabilities": {
+          "action_families": [
+            {
+              "action_type": "analyze_table",
+              "blocked_reason": "provider adapter does not support action",
+              "decision": "blocked",
+              "requires_approval": false,
+              "requires_maintenance_window": false,
+              "supported": false
+            },
+            {
+              "action_type": "vacuum_table",
+              "blocked_reason": "provider adapter does not support action",
+              "decision": "blocked",
+              "requires_approval": false,
+              "requires_maintenance_window": false,
+              "supported": false
+            },
+            {
+              "action_type": "alter_system_guc",
+              "blocked_reason": "provider adapter does not support action",
+              "decision": "blocked",
+              "requires_approval": false,
+              "requires_maintenance_window": false,
+              "supported": false
+            },
+            {
+              "action_type": "alter_database_guc",
+              "blocked_reason": "provider adapter does not support action",
+              "decision": "blocked",
+              "requires_approval": false,
+              "requires_maintenance_window": false,
+              "supported": false
+            },
+            {
+              "action_type": "diagnose_lock_blockers",
+              "blocked_reason": "provider adapter does not support action",
+              "decision": "blocked",
+              "requires_approval": false,
+              "requires_maintenance_window": false,
+              "supported": false
+            },
+            {
+              "action_type": "diagnose_runaway_query",
+              "blocked_reason": "provider adapter does not support action",
+              "decision": "blocked",
+              "requires_approval": false,
+              "requires_maintenance_window": false,
+              "supported": false
+            },
+            {
+              "action_type": "diagnose_connection_exhaustion",
+              "blocked_reason": "provider adapter does not support action",
+              "decision": "blocked",
+              "requires_approval": false,
+              "requires_maintenance_window": false,
+              "supported": false
+            },
+            {
+              "action_type": "diagnose_wal_replication",
+              "blocked_reason": "provider adapter does not support action",
+              "decision": "blocked",
+              "requires_approval": false,
+              "requires_maintenance_window": false,
+              "supported": false
+            },
+            {
+              "action_type": "diagnose_standby_conflicts",
+              "blocked_reason": "provider adapter does not support action",
+              "decision": "blocked",
+              "requires_approval": false,
+              "requires_maintenance_window": false,
+              "supported": false
+            },
+            {
+              "action_type": "prepare_sequence_capacity_migration",
+              "blocked_reason": "provider adapter does not support action",
+              "decision": "blocked",
+              "requires_approval": false,
+              "requires_maintenance_window": false,
+              "supported": false
+            },
+            {
+              "action_type": "cancel_backend",
+              "blocked_reason": "provider adapter does not support action",
+              "decision": "blocked",
+              "requires_approval": false,
+              "requires_maintenance_window": false,
+              "supported": false
+            },
+            {
+              "action_type": "terminate_backend",
+              "blocked_reason": "provider adapter does not support action",
+              "decision": "blocked",
+              "requires_approval": false,
+              "requires_maintenance_window": false,
+              "supported": false
+            },
+            {
+              "action_type": "diagnose_freeze_blockers",
+              "blocked_reason": "provider adapter does not support action",
+              "decision": "blocked",
+              "requires_approval": false,
+              "requires_maintenance_window": false,
+              "supported": false
+            },
+            {
+              "action_type": "diagnose_vacuum_pressure",
+              "blocked_reason": "provider adapter does not support action",
+              "decision": "blocked",
+              "requires_approval": false,
+              "requires_maintenance_window": false,
+              "supported": false
+            },
+            {
+              "action_type": "create_index_concurrently",
+              "blocked_reason": "provider adapter does not support action",
+              "decision": "blocked",
+              "requires_approval": false,
+              "requires_maintenance_window": false,
+              "supported": false
+            },
+            {
+              "action_type": "drop_unused_index",
+              "blocked_reason": "provider adapter does not support action",
+              "decision": "blocked",
+              "requires_approval": false,
+              "requires_maintenance_window": false,
+              "supported": false
+            },
+            {
+              "action_type": "set_table_autovacuum",
+              "blocked_reason": "provider adapter does not support action",
+              "decision": "blocked",
+              "requires_approval": false,
+              "requires_maintenance_window": false,
+              "supported": false
+            },
+            {
+              "action_type": "plan_bloat_remediation",
+              "blocked_reason": "provider adapter does not support action",
+              "decision": "blocked",
+              "requires_approval": false,
+              "requires_maintenance_window": false,
+              "supported": false
+            },
+            {
+              "action_type": "reindex_concurrently",
+              "blocked_reason": "provider adapter does not support action",
+              "decision": "blocked",
+              "requires_approval": false,
+              "requires_maintenance_window": false,
+              "supported": false
+            },
+            {
+              "action_type": "prepare_query_rewrite",
+              "blocked_reason": "provider adapter does not support action",
+              "decision": "blocked",
+              "requires_approval": false,
+              "requires_maintenance_window": false,
+              "supported": false
+            },
+            {
+              "action_type": "promote_role_work_mem",
+              "blocked_reason": "direct execution is not implemented",
+              "decision": "blocked",
+              "requires_approval": false,
+              "requires_maintenance_window": false,
+              "supported": false
+            },
+            {
+              "action_type": "create_statistics",
+              "blocked_reason": "provider adapter does not support action",
+              "decision": "blocked",
+              "requires_approval": false,
+              "requires_maintenance_window": false,
+              "supported": false
+            },
+            {
+              "action_type": "prepare_parameterized_query",
+              "blocked_reason": "provider adapter does not support action",
+              "decision": "blocked",
+              "requires_approval": false,
+              "requires_maintenance_window": false,
+              "supported": false
+            },
+            {
+              "action_type": "retire_query_hint",
+              "blocked_reason": "provider adapter does not support action",
+              "decision": "blocked",
+              "requires_approval": false,
+              "requires_maintenance_window": false,
+              "supported": false
+            },
+            {
+              "action_type": "apply_query_hint",
+              "blocked_reason": "provider adapter does not support action",
+              "decision": "blocked",
+              "requires_approval": false,
+              "requires_maintenance_window": false,
+              "supported": false
+            },
+            {
+              "action_type": "ddl_preflight",
+              "blocked_reason": "provider adapter does not support action",
+              "decision": "blocked",
+              "requires_approval": false,
+              "requires_maintenance_window": false,
+              "supported": false
+            },
+            {
+              "action_type": "alter_table",
+              "blocked_reason": "provider adapter does not support action",
+              "decision": "blocked",
+              "requires_approval": false,
+              "requires_maintenance_window": false,
+              "supported": false
+            }
+          ],
+          "blockers": [
+            "provider unknown",
+            "ANALYZE permission unknown",
+            "pg_stat_statements unknown",
+            "provider adapter does not support action"
+          ],
+          "extensions": {
+            "auto_explain": "unknown",
+            "hypopg": "unknown",
+            "pg_hint_plan": "unknown",
+            "pg_stat_statements": "unknown"
+          },
+          "is_replica": false,
+          "limitations": [
+            "provider adapter unknown"
+          ],
+          "log_access": "unknown",
+          "permissions": {
+            "analyze": {
+              "reason": "maintenance privilege not probed",
+              "status": "unknown"
+            },
+            "read_stats": {
+              "reason": "pg_stat access depends on configured grants",
+              "status": "unknown"
+            }
+          },
+          "provider": "unknown",
+          "ready_for_auto_safe": false
+        },
+        "collection_freshness": "unknown",
+        "collector_last_run": "\u003ctime\u003e",
+        "connected": true,
+        "database_name": "primary",
+        "database_size_bytes": 0,
+        "findings_critical": 0,
+        "findings_info": 0,
+        "findings_open": 0,
+        "findings_warning": 0,
+        "ha_role": "unknown",
+        "ha_safe_mode": false,
+        "health_reasons": [],
+        "health_score": 100,
+        "incidents_critical": 0,
+        "incidents_warning": 0,
+        "last_seen": "\u003ctime\u003e",
+        "llm_tokens_used": 0,
+        "log_source": {
+          "dropped_lines": 0,
+          "parse_errors": 0,
+          "reason": "no log source is wired for this database",
+          "state": "disabled"
+        },
+        "pg_version": "\u003cvolatile\u003e",
+        "platform": "unknown",
+        "trust_level": ""
+      }
+    }
+  },
+  {
+    "name": "incidents list",
+    "role": "viewer",
+    "request": "GET /api/v1/incidents?database=primary",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "incidents": [
+        {
+          "action_risk": "",
+          "affected_objects": [],
+          "causal_chain": [],
+          "confidence": 1,
+          "database_name": "primary",
+          "detected_at": "\u003ctime\u003e",
+          "escalated_at": null,
+          "fleet_database_name": "primary",
+          "id": "\u003cuuid\u003e",
+          "last_detected_at": "\u003ctime\u003e",
+          "occurrence_count": 1,
+          "previous_incident_id": "",
+          "recommended_sql": "",
+          "resolution_reason": "",
+          "resolved_at": null,
+          "resolved_by": "",
+          "rollback_sql": "",
+          "root_cause": "golden cause",
+          "severity": "warning",
+          "signal_ids": [
+            "sig1"
+          ],
+          "source": "deterministic"
+        }
+      ],
+      "total": 1
+    }
+  },
+  {
+    "name": "incidents active",
+    "role": "viewer",
+    "request": "GET /api/v1/incidents/active?database=primary",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "incidents": [
+        {
+          "action_risk": "",
+          "affected_objects": [],
+          "causal_chain": [],
+          "confidence": 1,
+          "database_name": "primary",
+          "detected_at": "\u003ctime\u003e",
+          "escalated_at": null,
+          "fleet_database_name": "primary",
+          "id": "\u003cuuid\u003e",
+          "last_detected_at": "\u003ctime\u003e",
+          "occurrence_count": 1,
+          "previous_incident_id": "",
+          "recommended_sql": "",
+          "resolution_reason": "",
+          "resolved_at": null,
+          "resolved_by": "",
+          "rollback_sql": "",
+          "root_cause": "golden cause",
+          "severity": "warning",
+          "signal_ids": [
+            "sig1"
+          ],
+          "source": "deterministic"
+        }
+      ],
+      "total": 1
+    }
+  },
+  {
+    "name": "incident detail",
+    "role": "viewer",
+    "request": "GET /api/v1/incidents/\u003cuuid\u003e?database=primary",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "action_risk": "",
+      "affected_objects": [],
+      "causal_chain": [],
+      "confidence": 1,
+      "database_name": "primary",
+      "detected_at": "\u003ctime\u003e",
+      "escalated_at": null,
+      "fleet_database_name": "primary",
+      "id": "\u003cuuid\u003e",
+      "last_detected_at": "\u003ctime\u003e",
+      "occurrence_count": 1,
+      "previous_incident_id": "",
+      "recommended_sql": "",
+      "resolution_reason": "",
+      "resolved_at": null,
+      "resolved_by": "",
+      "rollback_sql": "",
+      "root_cause": "golden cause",
+      "severity": "warning",
+      "signal_ids": [
+        "sig1"
+      ],
+      "source": "deterministic"
+    }
+  },
+  {
+    "name": "pending",
+    "role": "operator",
+    "request": "GET /api/v1/actions/pending?database=primary",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "errors": [],
+      "pending": [
+        {
+          "action_risk": "moderate",
+          "blocked_reason": "standing policy unavailable",
+          "database_id": 1,
+          "database_name": "primary",
+          "decided_at": null,
+          "decided_by": null,
+          "defer_reason": "standing policy unavailable",
+          "eligible": false,
+          "expires_at": "\u003ctime\u003e",
+          "finding_id": 1,
+          "id": 1,
+          "lifecycle_detail": {
+            "circuit_open": false,
+            "expired": false,
+            "in_cooldown": false,
+            "resolved_ephemeral": false,
+            "state": "ready"
+          },
+          "output_modes": [
+            "queue_for_approval",
+            "generate_pr_or_script"
+          ],
+          "policy_detail": {
+            "blocked_reason": "standing policy unavailable",
+            "decision": "blocked",
+            "guardrails": [
+              "CREATE INDEX CONCURRENTLY",
+              "lock_timeout",
+              "statement_timeout",
+              "maintenance-window enforcement"
+            ],
+            "requires_approval": false,
+            "requires_maintenance_window": false,
+            "risk_tier": "moderate"
+          },
+          "proposed_at": "\u003ctime\u003e",
+          "proposed_sql": "CREATE INDEX CONCURRENTLY golden_p ON public.orders (id)",
+          "reason": "",
+          "rollback_class": "reversible",
+          "rollback_sql": "DROP INDEX CONCURRENTLY golden_p",
+          "script_output": {
+            "filename": "1_ddl_action.sql",
+            "format": "sql",
+            "migration_sql": "CREATE INDEX CONCURRENTLY golden_p ON public.orders (id)",
+            "pr_body": "Generated from pg_sage finding 1. Review migration SQL, rollback or mitigation, and verification SQL.",
+            "pr_title": "Review pg_sage action: ddl_action",
+            "risk_labels": [
+              "moderate",
+              "ddl_action"
+            ],
+            "rollback_sql": "DROP INDEX CONCURRENTLY golden_p",
+            "verification_sql": [
+              "-- Run the case verification query before merging.",
+              "-- Rerun pg_sage analyzers after deployment."
+            ]
+          },
+          "status": "pending",
+          "verification_status": "not_started"
+        },
+        {
+          "action_risk": "safe",
+          "database_id": 1,
+          "database_name": "primary",
+          "decided_at": null,
+          "decided_by": null,
+          "eligible": true,
+          "expires_at": "\u003ctime\u003e",
+          "finding_id": 2,
+          "id": 2,
+          "lifecycle_detail": {
+            "circuit_open": false,
+            "expired": false,
+            "in_cooldown": false,
+            "resolved_ephemeral": false,
+            "state": "ready"
+          },
+          "proposed_at": "\u003ctime\u003e",
+          "proposed_sql": "VACUUM public.users",
+          "reason": "",
+          "rollback_sql": "",
+          "status": "pending",
+          "verification_status": "not_started"
+        }
+      ],
+      "scheduled": [],
+      "total": 2
+    }
+  },
+  {
+    "name": "pending count",
+    "role": "operator",
+    "request": "GET /api/v1/actions/pending/count?database=primary",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "count": 2,
+      "errors": []
+    }
+  },
+  {
+    "name": "pending by finding",
+    "role": "operator",
+    "request": "GET /api/v1/findings/1/pending-actions?database=primary",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "pending": [
+        {
+          "action_risk": "moderate",
+          "blocked_reason": "standing policy unavailable",
+          "database_id": 1,
+          "database_name": "primary",
+          "decided_at": null,
+          "decided_by": null,
+          "defer_reason": "standing policy unavailable",
+          "eligible": false,
+          "expires_at": "\u003ctime\u003e",
+          "finding_id": 1,
+          "id": 1,
+          "lifecycle_detail": {
+            "circuit_open": false,
+            "expired": false,
+            "in_cooldown": false,
+            "resolved_ephemeral": false,
+            "state": "ready"
+          },
+          "output_modes": [
+            "queue_for_approval",
+            "generate_pr_or_script"
+          ],
+          "policy_detail": {
+            "blocked_reason": "standing policy unavailable",
+            "decision": "blocked",
+            "guardrails": [
+              "CREATE INDEX CONCURRENTLY",
+              "lock_timeout",
+              "statement_timeout",
+              "maintenance-window enforcement"
+            ],
+            "requires_approval": false,
+            "requires_maintenance_window": false,
+            "risk_tier": "moderate"
+          },
+          "proposed_at": "\u003ctime\u003e",
+          "proposed_sql": "CREATE INDEX CONCURRENTLY golden_p ON public.orders (id)",
+          "reason": "",
+          "rollback_class": "reversible",
+          "rollback_sql": "DROP INDEX CONCURRENTLY golden_p",
+          "script_output": {
+            "filename": "1_ddl_action.sql",
+            "format": "sql",
+            "migration_sql": "CREATE INDEX CONCURRENTLY golden_p ON public.orders (id)",
+            "pr_body": "Generated from pg_sage finding 1. Review migration SQL, rollback or mitigation, and verification SQL.",
+            "pr_title": "Review pg_sage action: ddl_action",
+            "risk_labels": [
+              "moderate",
+              "ddl_action"
+            ],
+            "rollback_sql": "DROP INDEX CONCURRENTLY golden_p",
+            "verification_sql": [
+              "-- Run the case verification query before merging.",
+              "-- Rerun pg_sage analyzers after deployment."
+            ]
+          },
+          "status": "pending",
+          "verification_status": "not_started"
+        }
+      ],
+      "total": 1
+    }
+  },
+  {
+    "name": "managed list",
+    "role": "admin",
+    "request": "GET /api/v1/databases/managed",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "databases": [
+        {
+          "action_identity": {
+            "configured": false,
+            "username": ""
+          },
+          "adopted_at": null,
+          "created_at": "\u003ctime\u003e",
+          "database_name": "app",
+          "discovered_source": "",
+          "enabled": true,
+          "execution_mode": "approval",
+          "expires_at": null,
+          "host": "127.0.0.1",
+          "id": 1,
+          "max_connections": 2,
+          "name": "primary",
+          "owner": "",
+          "port": 1,
+          "sslmode": "disable",
+          "tags": null,
+          "trust_level": "advisory",
+          "updated_at": "\u003ctime\u003e",
+          "username": "sage"
+        }
+      ]
+    }
+  },
+  {
+    "name": "managed get",
+    "role": "admin",
+    "request": "GET /api/v1/databases/managed/1",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "action_identity": {
+        "configured": false,
+        "username": ""
+      },
+      "adopted_at": null,
+      "created_at": "\u003ctime\u003e",
+      "database_name": "app",
+      "discovered_source": "",
+      "enabled": true,
+      "execution_mode": "approval",
+      "expires_at": null,
+      "host": "127.0.0.1",
+      "id": 1,
+      "max_connections": 2,
+      "name": "primary",
+      "owner": "",
+      "port": 1,
+      "sslmode": "disable",
+      "tags": null,
+      "trust_level": "advisory",
+      "updated_at": "\u003ctime\u003e",
+      "username": "sage"
+    }
+  }
+]

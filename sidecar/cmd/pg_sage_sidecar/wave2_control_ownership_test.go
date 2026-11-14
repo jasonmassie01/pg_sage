@@ -214,7 +214,7 @@ func TestWave2SchemaBootstrapFailureRejectsRuntime(t *testing.T) {
 	inst, err := buildStoreDatabaseRuntime(
 		context.Background(),
 		store.DatabaseRecord{Name: "orders"},
-		&pgxpool.Pool{},
+		&pgxpool.Pool{}, nil,
 	)
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("bootstrap error = %v, want %v", err, wantErr)
