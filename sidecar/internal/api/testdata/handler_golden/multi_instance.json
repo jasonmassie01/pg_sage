@@ -1,0 +1,113 @@
+[
+  {
+    "name": "finding detail no database",
+    "role": "viewer",
+    "request": "GET /api/v1/findings/1",
+    "status": 400,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "database is required"
+    }
+  },
+  {
+    "name": "action detail no database",
+    "role": "viewer",
+    "request": "GET /api/v1/actions/1",
+    "status": 400,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "database is required"
+    }
+  },
+  {
+    "name": "suppress no database",
+    "role": "operator",
+    "request": "POST /api/v1/findings/1/suppress",
+    "status": 400,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "database is required"
+    }
+  },
+  {
+    "name": "unsuppress no database",
+    "role": "operator",
+    "request": "POST /api/v1/findings/1/unsuppress",
+    "status": 400,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "database is required"
+    }
+  },
+  {
+    "name": "snapshot latest all",
+    "role": "viewer",
+    "request": "GET /api/v1/snapshots/latest",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "database": "all",
+      "snapshot": null
+    }
+  },
+  {
+    "name": "snapshot history all",
+    "role": "viewer",
+    "request": "GET /api/v1/snapshots/history?metric=tps",
+    "status": 400,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "database is required"
+    }
+  },
+  {
+    "name": "findings stats all closed",
+    "role": "viewer",
+    "request": "GET /api/v1/findings/stats",
+    "status": 500,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "failed to query findings stats"
+    }
+  },
+  {
+    "name": "findings list all closed",
+    "role": "viewer",
+    "request": "GET /api/v1/findings",
+    "status": 500,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "internal error"
+    }
+  },
+  {
+    "name": "approve no database",
+    "role": "operator",
+    "request": "POST /api/v1/actions/1/approve",
+    "status": 400,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "database is required"
+    }
+  },
+  {
+    "name": "manual exec all",
+    "role": "operator",
+    "request": "POST /api/v1/actions/execute",
+    "status": 400,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "database is required"
+    }
+  }
+]

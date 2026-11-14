@@ -1,0 +1,110 @@
+[
+  {
+    "name": "findings empty fleet",
+    "role": "viewer",
+    "request": "GET /api/v1/findings",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "database": "all",
+      "filters": {
+        "Category": "",
+        "From": "\u003ctime\u003e",
+        "Limit": 50,
+        "Offset": 0,
+        "Order": "desc",
+        "Severity": "",
+        "Sort": "severity",
+        "Source": "",
+        "Status": "open",
+        "ThematicCategory": "",
+        "To": "\u003ctime\u003e"
+      },
+      "findings": [],
+      "limit": 50,
+      "next_cursor": "",
+      "offset": 0,
+      "total": 0,
+      "total_capped": false
+    }
+  },
+  {
+    "name": "stats empty fleet",
+    "role": "viewer",
+    "request": "GET /api/v1/findings/stats",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "database": "all",
+      "stats": [],
+      "total_open": 0
+    }
+  },
+  {
+    "name": "actions empty fleet",
+    "role": "viewer",
+    "request": "GET /api/v1/actions",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "actions": [],
+      "database": "all",
+      "limit": 50,
+      "next_cursor": "",
+      "offset": 0,
+      "total": 0,
+      "total_capped": false
+    }
+  },
+  {
+    "name": "incidents empty fleet",
+    "role": "viewer",
+    "request": "GET /api/v1/incidents",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "incidents": [],
+      "total": 0
+    }
+  },
+  {
+    "name": "health empty fleet",
+    "role": "viewer",
+    "request": "GET /api/v1/fleet/health",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "databases": {},
+      "from": "\u003ctime\u003e",
+      "to": "\u003ctime\u003e"
+    }
+  },
+  {
+    "name": "snapshot empty fleet",
+    "role": "viewer",
+    "request": "GET /api/v1/snapshots/latest",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "database": "all",
+      "snapshot": null
+    }
+  },
+  {
+    "name": "suppress empty fleet",
+    "role": "operator",
+    "request": "POST /api/v1/findings/1/suppress",
+    "status": 400,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "database is required"
+    }
+  }
+]

@@ -1,0 +1,1381 @@
+[
+  {
+    "name": "suppress",
+    "role": "operator",
+    "request": "POST /api/v1/findings/2/suppress?database=primary",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "id": "2",
+      "ok": true,
+      "status": "suppressed"
+    }
+  },
+  {
+    "name": "suppress again",
+    "role": "operator",
+    "request": "POST /api/v1/findings/2/suppress?database=primary",
+    "status": 404,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "finding not found"
+    }
+  },
+  {
+    "name": "unsuppress",
+    "role": "operator",
+    "request": "POST /api/v1/findings/2/unsuppress?database=primary",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "id": "2",
+      "ok": true,
+      "status": "open"
+    }
+  },
+  {
+    "name": "suppress implicit",
+    "role": "operator",
+    "request": "POST /api/v1/findings/2/suppress",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "id": "2",
+      "ok": true,
+      "status": "suppressed"
+    }
+  },
+  {
+    "name": "unsuppress implicit",
+    "role": "operator",
+    "request": "POST /api/v1/findings/2/unsuppress",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "id": "2",
+      "ok": true,
+      "status": "open"
+    }
+  },
+  {
+    "name": "config db get",
+    "role": "admin",
+    "request": "GET /api/v1/config/databases/1",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "active_generation": 1,
+      "config": {
+        "advisor.enabled": {
+          "source": "file/default",
+          "value": true
+        },
+        "advisor.interval_seconds": {
+          "source": "file/default",
+          "value": 86400
+        },
+        "alerting.check_interval_seconds": {
+          "source": "file/default",
+          "value": 60
+        },
+        "alerting.cooldown_minutes": {
+          "source": "file/default",
+          "value": 15
+        },
+        "alerting.enabled": {
+          "source": "file/default",
+          "value": false
+        },
+        "alerting.pagerduty_routing_key": {
+          "source": "file/default",
+          "value": ""
+        },
+        "alerting.quiet_hours_end": {
+          "source": "file/default",
+          "value": ""
+        },
+        "alerting.quiet_hours_start": {
+          "source": "file/default",
+          "value": ""
+        },
+        "alerting.slack_webhook_url": {
+          "source": "file/default",
+          "value": ""
+        },
+        "analyzer.analyze_stale_days": {
+          "source": "file/default",
+          "value": 7
+        },
+        "analyzer.analyze_stale_min_rows": {
+          "source": "file/default",
+          "value": 10000
+        },
+        "analyzer.autovacuum_tune_min_rows": {
+          "source": "file/default",
+          "value": 1000000
+        },
+        "analyzer.cache_hit_ratio_warning": {
+          "source": "file/default",
+          "value": 0.95
+        },
+        "analyzer.disabled_rules": {
+          "source": "file/default",
+          "value": ""
+        },
+        "analyzer.inactive_slot_min_minutes": {
+          "source": "file/default",
+          "value": 5
+        },
+        "analyzer.index_bloat_threshold_pct": {
+          "source": "file/default",
+          "value": 30
+        },
+        "analyzer.interval_seconds": {
+          "source": "file/default",
+          "value": 600
+        },
+        "analyzer.lock_chain.active_query_cancel_minutes": {
+          "source": "file/default",
+          "value": 15
+        },
+        "analyzer.lock_chain.critical_blocked_threshold": {
+          "source": "file/default",
+          "value": 10
+        },
+        "analyzer.lock_chain.enabled": {
+          "source": "file/default",
+          "value": true
+        },
+        "analyzer.lock_chain.idle_in_tx_terminate_minutes": {
+          "source": "file/default",
+          "value": 5
+        },
+        "analyzer.lock_chain.min_blocked_threshold": {
+          "source": "file/default",
+          "value": 3
+        },
+        "analyzer.regression_threshold_pct": {
+          "source": "file/default",
+          "value": 50
+        },
+        "analyzer.self_cost_budget_ms": {
+          "source": "file/default",
+          "value": 3000
+        },
+        "analyzer.seq_scan_min_rows": {
+          "source": "file/default",
+          "value": 100000
+        },
+        "analyzer.slow_query_threshold_ms": {
+          "source": "file/default",
+          "value": 1000
+        },
+        "analyzer.slow_slot_retained_bytes": {
+          "source": "file/default",
+          "value": 0
+        },
+        "analyzer.table_bloat_dead_tuple_pct": {
+          "source": "file/default",
+          "value": 20
+        },
+        "analyzer.unused_index_window_days": {
+          "source": "file/default",
+          "value": 7
+        },
+        "analyzer.wraparound_freeze_share": {
+          "source": "file/default",
+          "value": 0.75
+        },
+        "clone.dle_endpoint": {
+          "source": "file/default",
+          "value": ""
+        },
+        "clone.dle_token": {
+          "source": "file/default",
+          "value": ""
+        },
+        "clone.max_clone_age_minutes": {
+          "source": "file/default",
+          "value": 1440
+        },
+        "clone.provider": {
+          "source": "file/default",
+          "value": "none"
+        },
+        "collector.batch_size": {
+          "source": "file/default",
+          "value": 1000
+        },
+        "collector.interval_seconds": {
+          "source": "file/default",
+          "value": 60
+        },
+        "collector.max_queries": {
+          "source": "file/default",
+          "value": 500
+        },
+        "custodian.freeze.red_buffer_pct": {
+          "source": "file/default",
+          "value": 25
+        },
+        "custodian.wal.abandon_after_minutes": {
+          "source": "file/default",
+          "value": 1440
+        },
+        "custodian.wal.retained_wal_disk_pct_ceiling": {
+          "source": "file/default",
+          "value": 10
+        },
+        "execution_mode": {
+          "source": "db_override",
+          "value": "approval"
+        },
+        "explain.cache_ttl_minutes": {
+          "source": "file/default",
+          "value": 60
+        },
+        "explain.enabled": {
+          "source": "file/default",
+          "value": true
+        },
+        "explain.max_tokens": {
+          "source": "file/default",
+          "value": 4096
+        },
+        "explain.timeout_ms": {
+          "source": "file/default",
+          "value": 10000
+        },
+        "llm.api_key": {
+          "source": "file/default",
+          "value": ""
+        },
+        "llm.auth": {
+          "source": "file/default",
+          "value": ""
+        },
+        "llm.context_budget_tokens": {
+          "source": "file/default",
+          "value": 8192
+        },
+        "llm.enabled": {
+          "source": "file/default",
+          "value": true
+        },
+        "llm.endpoint": {
+          "source": "file/default",
+          "value": ""
+        },
+        "llm.fleet_token_budget_daily": {
+          "source": "file/default",
+          "value": 0
+        },
+        "llm.global_token_budget_daily": {
+          "source": "file/default",
+          "value": 0
+        },
+        "llm.json_mode": {
+          "source": "file/default",
+          "value": false
+        },
+        "llm.model": {
+          "source": "file/default",
+          "value": ""
+        },
+        "llm.optimizer.enabled": {
+          "source": "file/default",
+          "value": true
+        },
+        "llm.optimizer.max_new_per_table": {
+          "source": "file/default",
+          "value": 3
+        },
+        "llm.optimizer.min_query_calls": {
+          "source": "file/default",
+          "value": 100
+        },
+        "llm.timeout_seconds": {
+          "source": "file/default",
+          "value": 30
+        },
+        "llm.token_budget_daily": {
+          "source": "file/default",
+          "value": 500000
+        },
+        "logwatch.dedup_window_seconds": {
+          "source": "file/default",
+          "value": 60
+        },
+        "logwatch.enabled": {
+          "source": "file/default",
+          "value": false
+        },
+        "logwatch.exclude_applications": {
+          "source": "file/default",
+          "value": ""
+        },
+        "logwatch.format": {
+          "source": "file/default",
+          "value": ""
+        },
+        "logwatch.log_directory": {
+          "source": "file/default",
+          "value": ""
+        },
+        "logwatch.max_line_len_bytes": {
+          "source": "file/default",
+          "value": 65536
+        },
+        "logwatch.max_lines_per_cycle": {
+          "source": "file/default",
+          "value": 10000
+        },
+        "logwatch.poll_interval_ms": {
+          "source": "file/default",
+          "value": 1000
+        },
+        "logwatch.slow_query_enabled": {
+          "source": "file/default",
+          "value": false
+        },
+        "logwatch.temp_file_min_bytes": {
+          "source": "file/default",
+          "value": 10485760
+        },
+        "mcp.enabled": {
+          "source": "file/default",
+          "value": true
+        },
+        "mcp.transport": {
+          "source": "file/default",
+          "value": "http"
+        },
+        "migration.activity_polling": {
+          "source": "file/default",
+          "value": false
+        },
+        "migration.ddl_row_threshold": {
+          "source": "file/default",
+          "value": 0
+        },
+        "migration.enabled": {
+          "source": "file/default",
+          "value": false
+        },
+        "migration.log_detection": {
+          "source": "file/default",
+          "value": false
+        },
+        "migration.mode": {
+          "source": "file/default",
+          "value": ""
+        },
+        "migration.poll_interval_seconds": {
+          "source": "file/default",
+          "value": 5
+        },
+        "migration.queue_waiters_threshold": {
+          "source": "file/default",
+          "value": 0
+        },
+        "policy.profile": {
+          "source": "file/default",
+          "value": "unattended"
+        },
+        "rca.connection_saturation_pct": {
+          "source": "file/default",
+          "value": 80
+        },
+        "rca.dedup_window_minutes": {
+          "source": "file/default",
+          "value": 30
+        },
+        "rca.enabled": {
+          "source": "file/default",
+          "value": true
+        },
+        "rca.escalation_cycles": {
+          "source": "file/default",
+          "value": 5
+        },
+        "rca.llm_correlation_threshold": {
+          "source": "file/default",
+          "value": 3
+        },
+        "rca.narration_enabled": {
+          "source": "file/default",
+          "value": true
+        },
+        "rca.replication_lag_threshold_seconds": {
+          "source": "file/default",
+          "value": 30
+        },
+        "rca.resolution_cycles": {
+          "source": "file/default",
+          "value": 2
+        },
+        "rca.wal_spike_multiplier": {
+          "source": "file/default",
+          "value": 2
+        },
+        "retention.actions_days": {
+          "source": "file/default",
+          "value": 365
+        },
+        "retention.explains_days": {
+          "source": "file/default",
+          "value": 90
+        },
+        "retention.findings_days": {
+          "source": "file/default",
+          "value": 180
+        },
+        "retention.sage_size_warning_pct": {
+          "source": "file/default",
+          "value": 10
+        },
+        "retention.snapshots_days": {
+          "source": "file/default",
+          "value": 90
+        },
+        "runaway.enabled": {
+          "source": "file/default",
+          "value": false
+        },
+        "safety.cpu_ceiling_pct": {
+          "source": "file/default",
+          "value": 90
+        },
+        "safety.ddl_timeout_seconds": {
+          "source": "file/default",
+          "value": 300
+        },
+        "safety.host_cpu_ceiling_pct": {
+          "source": "file/default",
+          "value": 90
+        },
+        "safety.index_build_timeout_seconds": {
+          "source": "file/default",
+          "value": 14400
+        },
+        "safety.lock_timeout_ms": {
+          "source": "file/default",
+          "value": 30000
+        },
+        "safety.query_timeout_ms": {
+          "source": "file/default",
+          "value": 500
+        },
+        "safety.reindex_timeout_seconds": {
+          "source": "file/default",
+          "value": 14400
+        },
+        "safety.vacuum_stall_minutes": {
+          "source": "file/default",
+          "value": 15
+        },
+        "safety.vacuum_timeout_seconds": {
+          "source": "file/default",
+          "value": 14400
+        },
+        "schema_lint.enabled": {
+          "source": "file/default",
+          "value": false
+        },
+        "schema_lint.min_table_rows": {
+          "source": "file/default",
+          "value": 0
+        },
+        "schema_lint.scan_interval_minutes": {
+          "source": "file/default",
+          "value": 60
+        },
+        "trust.cascade_cooldown_cycles": {
+          "source": "file/default",
+          "value": 3
+        },
+        "trust.level": {
+          "source": "database_policy",
+          "value": "advisory"
+        },
+        "trust.maintenance_window": {
+          "source": "file/default",
+          "value": ""
+        },
+        "trust.rollback_cooldown_days": {
+          "source": "file/default",
+          "value": 7
+        },
+        "trust.rollback_threshold_pct": {
+          "source": "file/default",
+          "value": 10
+        },
+        "trust.rollback_window_minutes": {
+          "source": "file/default",
+          "value": 15
+        },
+        "trust.tier3_high_risk": {
+          "source": "file/default",
+          "value": false
+        },
+        "trust.tier3_moderate": {
+          "source": "file/default",
+          "value": false
+        },
+        "trust.tier3_safe": {
+          "source": "file/default",
+          "value": true
+        },
+        "value.toil_model_version": {
+          "source": "file/default",
+          "value": 1
+        },
+        "verify.min_gain_pct": {
+          "source": "file/default",
+          "value": 20
+        },
+        "verify.min_samples": {
+          "source": "file/default",
+          "value": 30
+        },
+        "verify.regress_pct": {
+          "source": "file/default",
+          "value": 15
+        },
+        "verify.window_max_minutes": {
+          "source": "file/default",
+          "value": 4320
+        },
+        "verify.window_minutes": {
+          "source": "file/default",
+          "value": 120
+        },
+        "verify.write_impact_pct": {
+          "source": "file/default",
+          "value": 20
+        }
+      },
+      "database_id": 1,
+      "desired_generation": 1,
+      "restart_supported": false
+    }
+  },
+  {
+    "name": "config db put",
+    "role": "admin",
+    "request": "PUT /api/v1/config/databases/1",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "active_generation": 2,
+      "applied": [
+        "execution_mode",
+        "trust.level"
+      ],
+      "desired_generation": 2,
+      "pending_restart": [],
+      "status": "updated"
+    }
+  },
+  {
+    "name": "config db put stale",
+    "role": "admin",
+    "request": "PUT /api/v1/config/databases/1",
+    "status": 409,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "config generation conflict: expected 1, durable 2"
+    }
+  },
+  {
+    "name": "config db put rules",
+    "role": "admin",
+    "request": "PUT /api/v1/config/databases/1",
+    "status": 400,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "analyzer.disabled_rules: validate: invalid value: analyzer.disabled_rules: \"[seq_scan_heavy]\": unknown rule or category (see docs/findings.md for the rule names)"
+    }
+  },
+  {
+    "name": "config db get after",
+    "role": "admin",
+    "request": "GET /api/v1/config/databases/1",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "active_generation": 2,
+      "config": {
+        "advisor.enabled": {
+          "source": "file/default",
+          "value": true
+        },
+        "advisor.interval_seconds": {
+          "source": "file/default",
+          "value": 86400
+        },
+        "alerting.check_interval_seconds": {
+          "source": "file/default",
+          "value": 60
+        },
+        "alerting.cooldown_minutes": {
+          "source": "file/default",
+          "value": 15
+        },
+        "alerting.enabled": {
+          "source": "file/default",
+          "value": false
+        },
+        "alerting.pagerduty_routing_key": {
+          "source": "file/default",
+          "value": ""
+        },
+        "alerting.quiet_hours_end": {
+          "source": "file/default",
+          "value": ""
+        },
+        "alerting.quiet_hours_start": {
+          "source": "file/default",
+          "value": ""
+        },
+        "alerting.slack_webhook_url": {
+          "source": "file/default",
+          "value": ""
+        },
+        "analyzer.analyze_stale_days": {
+          "source": "file/default",
+          "value": 7
+        },
+        "analyzer.analyze_stale_min_rows": {
+          "source": "file/default",
+          "value": 10000
+        },
+        "analyzer.autovacuum_tune_min_rows": {
+          "source": "file/default",
+          "value": 1000000
+        },
+        "analyzer.cache_hit_ratio_warning": {
+          "source": "file/default",
+          "value": 0.95
+        },
+        "analyzer.disabled_rules": {
+          "source": "file/default",
+          "value": ""
+        },
+        "analyzer.inactive_slot_min_minutes": {
+          "source": "file/default",
+          "value": 5
+        },
+        "analyzer.index_bloat_threshold_pct": {
+          "source": "file/default",
+          "value": 30
+        },
+        "analyzer.interval_seconds": {
+          "source": "file/default",
+          "value": 600
+        },
+        "analyzer.lock_chain.active_query_cancel_minutes": {
+          "source": "file/default",
+          "value": 15
+        },
+        "analyzer.lock_chain.critical_blocked_threshold": {
+          "source": "file/default",
+          "value": 10
+        },
+        "analyzer.lock_chain.enabled": {
+          "source": "file/default",
+          "value": true
+        },
+        "analyzer.lock_chain.idle_in_tx_terminate_minutes": {
+          "source": "file/default",
+          "value": 5
+        },
+        "analyzer.lock_chain.min_blocked_threshold": {
+          "source": "file/default",
+          "value": 3
+        },
+        "analyzer.regression_threshold_pct": {
+          "source": "file/default",
+          "value": 50
+        },
+        "analyzer.self_cost_budget_ms": {
+          "source": "file/default",
+          "value": 3000
+        },
+        "analyzer.seq_scan_min_rows": {
+          "source": "file/default",
+          "value": 100000
+        },
+        "analyzer.slow_query_threshold_ms": {
+          "source": "file/default",
+          "value": 1000
+        },
+        "analyzer.slow_slot_retained_bytes": {
+          "source": "file/default",
+          "value": 0
+        },
+        "analyzer.table_bloat_dead_tuple_pct": {
+          "source": "file/default",
+          "value": 20
+        },
+        "analyzer.unused_index_window_days": {
+          "source": "file/default",
+          "value": 7
+        },
+        "analyzer.wraparound_freeze_share": {
+          "source": "file/default",
+          "value": 0.75
+        },
+        "clone.dle_endpoint": {
+          "source": "file/default",
+          "value": ""
+        },
+        "clone.dle_token": {
+          "source": "file/default",
+          "value": ""
+        },
+        "clone.max_clone_age_minutes": {
+          "source": "file/default",
+          "value": 1440
+        },
+        "clone.provider": {
+          "source": "file/default",
+          "value": "none"
+        },
+        "collector.batch_size": {
+          "source": "file/default",
+          "value": 1000
+        },
+        "collector.interval_seconds": {
+          "source": "file/default",
+          "value": 60
+        },
+        "collector.max_queries": {
+          "source": "file/default",
+          "value": 500
+        },
+        "custodian.freeze.red_buffer_pct": {
+          "source": "file/default",
+          "value": 25
+        },
+        "custodian.wal.abandon_after_minutes": {
+          "source": "file/default",
+          "value": 1440
+        },
+        "custodian.wal.retained_wal_disk_pct_ceiling": {
+          "source": "file/default",
+          "value": 10
+        },
+        "execution_mode": {
+          "source": "db_override",
+          "value": "manual"
+        },
+        "explain.cache_ttl_minutes": {
+          "source": "file/default",
+          "value": 60
+        },
+        "explain.enabled": {
+          "source": "file/default",
+          "value": true
+        },
+        "explain.max_tokens": {
+          "source": "file/default",
+          "value": 4096
+        },
+        "explain.timeout_ms": {
+          "source": "file/default",
+          "value": 10000
+        },
+        "llm.api_key": {
+          "source": "file/default",
+          "value": ""
+        },
+        "llm.auth": {
+          "source": "file/default",
+          "value": ""
+        },
+        "llm.context_budget_tokens": {
+          "source": "file/default",
+          "value": 8192
+        },
+        "llm.enabled": {
+          "source": "file/default",
+          "value": true
+        },
+        "llm.endpoint": {
+          "source": "file/default",
+          "value": ""
+        },
+        "llm.fleet_token_budget_daily": {
+          "source": "file/default",
+          "value": 0
+        },
+        "llm.global_token_budget_daily": {
+          "source": "file/default",
+          "value": 0
+        },
+        "llm.json_mode": {
+          "source": "file/default",
+          "value": false
+        },
+        "llm.model": {
+          "source": "file/default",
+          "value": ""
+        },
+        "llm.optimizer.enabled": {
+          "source": "file/default",
+          "value": true
+        },
+        "llm.optimizer.max_new_per_table": {
+          "source": "file/default",
+          "value": 3
+        },
+        "llm.optimizer.min_query_calls": {
+          "source": "file/default",
+          "value": 100
+        },
+        "llm.timeout_seconds": {
+          "source": "file/default",
+          "value": 30
+        },
+        "llm.token_budget_daily": {
+          "source": "file/default",
+          "value": 500000
+        },
+        "logwatch.dedup_window_seconds": {
+          "source": "file/default",
+          "value": 60
+        },
+        "logwatch.enabled": {
+          "source": "file/default",
+          "value": false
+        },
+        "logwatch.exclude_applications": {
+          "source": "file/default",
+          "value": ""
+        },
+        "logwatch.format": {
+          "source": "file/default",
+          "value": ""
+        },
+        "logwatch.log_directory": {
+          "source": "file/default",
+          "value": ""
+        },
+        "logwatch.max_line_len_bytes": {
+          "source": "file/default",
+          "value": 65536
+        },
+        "logwatch.max_lines_per_cycle": {
+          "source": "file/default",
+          "value": 10000
+        },
+        "logwatch.poll_interval_ms": {
+          "source": "file/default",
+          "value": 1000
+        },
+        "logwatch.slow_query_enabled": {
+          "source": "file/default",
+          "value": false
+        },
+        "logwatch.temp_file_min_bytes": {
+          "source": "file/default",
+          "value": 10485760
+        },
+        "mcp.enabled": {
+          "source": "file/default",
+          "value": true
+        },
+        "mcp.transport": {
+          "source": "file/default",
+          "value": "http"
+        },
+        "migration.activity_polling": {
+          "source": "file/default",
+          "value": false
+        },
+        "migration.ddl_row_threshold": {
+          "source": "file/default",
+          "value": 0
+        },
+        "migration.enabled": {
+          "source": "file/default",
+          "value": false
+        },
+        "migration.log_detection": {
+          "source": "file/default",
+          "value": false
+        },
+        "migration.mode": {
+          "source": "file/default",
+          "value": ""
+        },
+        "migration.poll_interval_seconds": {
+          "source": "file/default",
+          "value": 5
+        },
+        "migration.queue_waiters_threshold": {
+          "source": "file/default",
+          "value": 0
+        },
+        "policy.profile": {
+          "source": "file/default",
+          "value": "unattended"
+        },
+        "rca.connection_saturation_pct": {
+          "source": "file/default",
+          "value": 80
+        },
+        "rca.dedup_window_minutes": {
+          "source": "file/default",
+          "value": 30
+        },
+        "rca.enabled": {
+          "source": "file/default",
+          "value": true
+        },
+        "rca.escalation_cycles": {
+          "source": "file/default",
+          "value": 5
+        },
+        "rca.llm_correlation_threshold": {
+          "source": "file/default",
+          "value": 3
+        },
+        "rca.narration_enabled": {
+          "source": "file/default",
+          "value": true
+        },
+        "rca.replication_lag_threshold_seconds": {
+          "source": "file/default",
+          "value": 30
+        },
+        "rca.resolution_cycles": {
+          "source": "file/default",
+          "value": 2
+        },
+        "rca.wal_spike_multiplier": {
+          "source": "file/default",
+          "value": 2
+        },
+        "retention.actions_days": {
+          "source": "file/default",
+          "value": 365
+        },
+        "retention.explains_days": {
+          "source": "file/default",
+          "value": 90
+        },
+        "retention.findings_days": {
+          "source": "file/default",
+          "value": 180
+        },
+        "retention.sage_size_warning_pct": {
+          "source": "file/default",
+          "value": 10
+        },
+        "retention.snapshots_days": {
+          "source": "file/default",
+          "value": 90
+        },
+        "runaway.enabled": {
+          "source": "file/default",
+          "value": false
+        },
+        "safety.cpu_ceiling_pct": {
+          "source": "file/default",
+          "value": 90
+        },
+        "safety.ddl_timeout_seconds": {
+          "source": "file/default",
+          "value": 300
+        },
+        "safety.host_cpu_ceiling_pct": {
+          "source": "file/default",
+          "value": 90
+        },
+        "safety.index_build_timeout_seconds": {
+          "source": "file/default",
+          "value": 14400
+        },
+        "safety.lock_timeout_ms": {
+          "source": "file/default",
+          "value": 30000
+        },
+        "safety.query_timeout_ms": {
+          "source": "file/default",
+          "value": 500
+        },
+        "safety.reindex_timeout_seconds": {
+          "source": "file/default",
+          "value": 14400
+        },
+        "safety.vacuum_stall_minutes": {
+          "source": "file/default",
+          "value": 15
+        },
+        "safety.vacuum_timeout_seconds": {
+          "source": "file/default",
+          "value": 14400
+        },
+        "schema_lint.enabled": {
+          "source": "file/default",
+          "value": false
+        },
+        "schema_lint.min_table_rows": {
+          "source": "file/default",
+          "value": 0
+        },
+        "schema_lint.scan_interval_minutes": {
+          "source": "file/default",
+          "value": 60
+        },
+        "trust.cascade_cooldown_cycles": {
+          "source": "file/default",
+          "value": 3
+        },
+        "trust.level": {
+          "source": "database_policy",
+          "value": "advisory"
+        },
+        "trust.maintenance_window": {
+          "source": "file/default",
+          "value": ""
+        },
+        "trust.rollback_cooldown_days": {
+          "source": "file/default",
+          "value": 7
+        },
+        "trust.rollback_threshold_pct": {
+          "source": "file/default",
+          "value": 10
+        },
+        "trust.rollback_window_minutes": {
+          "source": "file/default",
+          "value": 15
+        },
+        "trust.tier3_high_risk": {
+          "source": "file/default",
+          "value": false
+        },
+        "trust.tier3_moderate": {
+          "source": "file/default",
+          "value": false
+        },
+        "trust.tier3_safe": {
+          "source": "file/default",
+          "value": true
+        },
+        "value.toil_model_version": {
+          "source": "file/default",
+          "value": 1
+        },
+        "verify.min_gain_pct": {
+          "source": "file/default",
+          "value": 20
+        },
+        "verify.min_samples": {
+          "source": "file/default",
+          "value": 30
+        },
+        "verify.regress_pct": {
+          "source": "file/default",
+          "value": 15
+        },
+        "verify.window_max_minutes": {
+          "source": "file/default",
+          "value": 4320
+        },
+        "verify.window_minutes": {
+          "source": "file/default",
+          "value": 120
+        },
+        "verify.write_impact_pct": {
+          "source": "file/default",
+          "value": 20
+        }
+      },
+      "database_id": 1,
+      "desired_generation": 2,
+      "restart_supported": false
+    }
+  },
+  {
+    "name": "config db delete",
+    "role": "admin",
+    "request": "DELETE /api/v1/config/databases/1/analyzer.disabled_rules?expected_generation=2",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "active_generation": 3,
+      "desired_generation": 3,
+      "status": "deleted"
+    }
+  },
+  {
+    "name": "config db delete stale",
+    "role": "admin",
+    "request": "DELETE /api/v1/config/databases/1/analyzer.disabled_rules?expected_generation=2",
+    "status": 409,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "config generation conflict: expected 2, durable 3"
+    }
+  },
+  {
+    "name": "config audit",
+    "role": "admin",
+    "request": "GET /api/v1/config/audit?limit=2",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "audit": [
+        {
+          "changed_at": "\u003ctime\u003e",
+          "changed_by": 9,
+          "database_id": 1,
+          "id": 1,
+          "key": "execution_mode",
+          "new_value": "manual",
+          "old_value": "approval"
+        },
+        {
+          "changed_at": "\u003ctime\u003e",
+          "changed_by": 9,
+          "database_id": 1,
+          "id": 2,
+          "key": "trust.level",
+          "new_value": "advisory",
+          "old_value": "advisory"
+        }
+      ]
+    }
+  },
+  {
+    "name": "reject",
+    "role": "operator",
+    "request": "POST /api/v1/actions/2/reject?database=primary",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "database": "primary",
+      "ok": true,
+      "queue_id": 2,
+      "status": "rejected"
+    }
+  },
+  {
+    "name": "reject again",
+    "role": "operator",
+    "request": "POST /api/v1/actions/2/reject?database=primary",
+    "status": 404,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "failed to reject action"
+    }
+  },
+  {
+    "name": "rollback",
+    "role": "operator",
+    "request": "POST /api/v1/actions/1/rollback?database=primary",
+    "status": 400,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "policy refused rollback: standing policy unavailable"
+    }
+  },
+  {
+    "name": "incident resolve",
+    "role": "operator",
+    "request": "POST /api/v1/incidents/\u003cuuid\u003e/resolve?database=primary",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "database": "primary",
+      "id": "\u003cuuid\u003e",
+      "ok": true,
+      "status": "resolved"
+    }
+  },
+  {
+    "name": "incident resolve again",
+    "role": "operator",
+    "request": "POST /api/v1/incidents/\u003cuuid\u003e/resolve?database=primary",
+    "status": 409,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "incident already resolved"
+    }
+  },
+  {
+    "name": "emergency stop",
+    "role": "operator",
+    "request": "POST /api/v1/emergency-stop?database=primary",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "cancel_failures": {},
+      "cancelled_actions": {
+        "primary": []
+      },
+      "status": "stopped",
+      "stopped": 1
+    }
+  },
+  {
+    "name": "emergency stop again",
+    "role": "operator",
+    "request": "POST /api/v1/emergency-stop?database=primary",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "cancel_failures": {},
+      "cancelled_actions": {
+        "primary": []
+      },
+      "status": "stopped",
+      "stopped": 0
+    }
+  },
+  {
+    "name": "resume",
+    "role": "operator",
+    "request": "POST /api/v1/resume?database=primary",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "resumed": 1,
+      "status": "resumed"
+    }
+  },
+  {
+    "name": "managed create",
+    "role": "admin",
+    "request": "POST /api/v1/databases/managed",
+    "status": 201,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "action_identity": {
+        "configured": false,
+        "username": ""
+      },
+      "adopted_at": null,
+      "created_at": "\u003ctime\u003e",
+      "database_name": "app2",
+      "discovered_source": "",
+      "enabled": true,
+      "execution_mode": "approval",
+      "expires_at": null,
+      "host": "127.0.0.1",
+      "id": 2,
+      "max_connections": 2,
+      "name": "golden2",
+      "owner": "",
+      "port": 1,
+      "sslmode": "disable",
+      "tags": null,
+      "trust_level": "observation",
+      "updated_at": "\u003ctime\u003e",
+      "username": "sage"
+    }
+  },
+  {
+    "name": "managed create duplicate",
+    "role": "admin",
+    "request": "POST /api/v1/databases/managed",
+    "status": 500,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "internal error"
+    }
+  },
+  {
+    "name": "managed update",
+    "role": "admin",
+    "request": "PUT /api/v1/databases/managed/1",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "action_identity": {
+        "configured": false,
+        "username": ""
+      },
+      "adopted_at": null,
+      "created_at": "\u003ctime\u003e",
+      "database_name": "app",
+      "discovered_source": "",
+      "enabled": true,
+      "execution_mode": "manual",
+      "expires_at": null,
+      "host": "127.0.0.1",
+      "id": 1,
+      "max_connections": 3,
+      "name": "primary",
+      "owner": "",
+      "port": 1,
+      "sslmode": "disable",
+      "tags": null,
+      "trust_level": "advisory",
+      "updated_at": "\u003ctime\u003e",
+      "username": "sage"
+    }
+  },
+  {
+    "name": "managed test",
+    "role": "admin",
+    "request": "POST /api/v1/databases/managed/1/test",
+    "status": 415,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "Content-Type must be application/json"
+    }
+  },
+  {
+    "name": "managed test json",
+    "role": "admin",
+    "request": "POST /api/v1/databases/managed/1/test",
+    "status": 400,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "could not resolve hostname"
+    }
+  },
+  {
+    "name": "managed test preview",
+    "role": "admin",
+    "request": "POST /api/v1/databases/managed/1/test",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "connection failed",
+      "status": "error"
+    }
+  }
+]

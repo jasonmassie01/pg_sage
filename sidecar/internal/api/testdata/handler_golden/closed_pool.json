@@ -1,0 +1,186 @@
+[
+  {
+    "name": "findings list closed",
+    "role": "viewer",
+    "request": "GET /api/v1/findings?database=primary",
+    "status": 500,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "internal error"
+    }
+  },
+  {
+    "name": "findings stats closed",
+    "role": "viewer",
+    "request": "GET /api/v1/findings/stats?database=primary",
+    "status": 500,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "failed to query findings stats"
+    }
+  },
+  {
+    "name": "finding detail closed",
+    "role": "viewer",
+    "request": "GET /api/v1/findings/1?database=primary",
+    "status": 404,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "finding not found"
+    }
+  },
+  {
+    "name": "suppress named closed",
+    "role": "operator",
+    "request": "POST /api/v1/findings/1/suppress?database=primary",
+    "status": 404,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "finding not found"
+    }
+  },
+  {
+    "name": "suppress implicit closed",
+    "role": "operator",
+    "request": "POST /api/v1/findings/1/suppress",
+    "status": 503,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "database connection error — some databases are unreachable"
+    }
+  },
+  {
+    "name": "unsuppress implicit closed",
+    "role": "operator",
+    "request": "POST /api/v1/findings/1/unsuppress",
+    "status": 503,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "database connection error — some databases are unreachable"
+    }
+  },
+  {
+    "name": "actions list closed",
+    "role": "viewer",
+    "request": "GET /api/v1/actions?database=primary",
+    "status": 500,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "internal error"
+    }
+  },
+  {
+    "name": "action detail closed",
+    "role": "viewer",
+    "request": "GET /api/v1/actions/1?database=primary",
+    "status": 404,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "action not found"
+    }
+  },
+  {
+    "name": "snapshot latest closed",
+    "role": "viewer",
+    "request": "GET /api/v1/snapshots/latest?database=primary\u0026metric=system",
+    "status": 500,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "internal error"
+    }
+  },
+  {
+    "name": "snapshot history closed",
+    "role": "viewer",
+    "request": "GET /api/v1/snapshots/history?database=primary\u0026metric=cache_hit_ratio",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "database": "primary",
+      "metric": "cache_hit_ratio",
+      "points": [],
+      "truncated": false
+    }
+  },
+  {
+    "name": "fleet health closed",
+    "role": "viewer",
+    "request": "GET /api/v1/fleet/health?database=primary",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "databases": {
+        "primary": []
+      },
+      "from": "\u003ctime\u003e",
+      "to": "\u003ctime\u003e"
+    }
+  },
+  {
+    "name": "incidents closed",
+    "role": "viewer",
+    "request": "GET /api/v1/incidents?database=primary",
+    "status": 500,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "failed to query incidents"
+    }
+  },
+  {
+    "name": "config db get closed",
+    "role": "admin",
+    "request": "GET /api/v1/config/databases/1",
+    "status": 500,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "internal error"
+    }
+  },
+  {
+    "name": "pending by finding closed",
+    "role": "operator",
+    "request": "GET /api/v1/findings/1/pending-actions?database=primary",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "pending": [],
+      "total": 0
+    }
+  },
+  {
+    "name": "managed list closed",
+    "role": "admin",
+    "request": "GET /api/v1/databases/managed",
+    "status": 500,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "failed to list databases"
+    }
+  },
+  {
+    "name": "managed test closed",
+    "role": "admin",
+    "request": "POST /api/v1/databases/managed/1/test",
+    "status": 415,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "Content-Type must be application/json"
+    }
+  }
+]
