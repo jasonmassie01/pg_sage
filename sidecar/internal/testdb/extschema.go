@@ -59,3 +59,23 @@ func PinnedPool(t testing.TB, dsn string) *pgxpool.Pool {
 	t.Cleanup(pool.Close)
 	return pool
 }
+
+// SeedStatement runs sql on pool calls times and returns its queryid in
+// ext.pg_stat_statements, read through admin (unpinned).
+func SeedStatement(t testing.TB, admin, pool *pgxpool.Pool, sql string, calls int) int64 {
+	t.Helper()
+	ctx := context.Background()
+	for i := 0; i < calls; i++ {
+		if _, err := pool.Exec(ctx, sql); err != nil {
+			t.Fatalf("%s: %v", sql, err)
+		}
+	}
+	var id int64
+	err := admin.QueryRow(ctx, `SELECT queryid FROM `+ExtSchema+`.pg_stat_statements
+		WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+		  AND query = $1 ORDER BY calls DESC LIMIT 1`, sql).Scan(&id)
+	if err != nil {
+		t.Fatalf("queryid of %q: %v", sql, err)
+	}
+	return id
+}
