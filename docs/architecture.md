@@ -519,7 +519,18 @@ differ. It is removed by alerting-06d.
 | Triggers | the event types below, each rule with a `min_severity` | every new finding at or above the route's severity, polled per database |
 | Retries | queued in `sage.notification_outbox`, up to 6 attempts | up to 3 attempts within one check |
 | Cooldown, quiet hours, reminders | the `alerting.*` values, for the finding events `finding_critical`, `finding_opened` and `finding_resolved` ([notification delivery](configuration.md#notification-delivery)) | `cooldown_minutes`, `quiet_hours_*`, `repeat_minutes` |
-| Log | `sage.notification_log`, the Notifications page's Log tab | `sage.alert_log` of each database, the Alert Log page |
+| Log | `sage.notification_log`, the Notifications page's Log tab | `sage.alert_log` of each database, `GET /api/v1/alert-log` (deprecated) |
+
+**One notification log.** Every delivery the notify engine makes is a row of
+`sage.notification_log` naming the database it was for and the event's dedup key; a
+fleet-wide event, and every row written before the upgrade that added the column, has no
+database and shows as `unknown`.
+The Notifications page's Log tab, open to admins and operators, lists them for the database
+selected in the header (all databases when none is), through
+`GET /api/v1/notifications/log?database=<name>`. The old Alert log is folded into it: the
+`#/alerts` dashboard URL redirects to the Log tab, keeping `?database=`, and
+`GET /api/v1/alert-log` still serves `sage.alert_log` history (rows age out as before) with
+`Deprecation: true` and a `Link` to its successor. Channels and rules stay admin-only.
 
 **Cutover.** After the switch to the notify engine, each database runtime resolves the
 PagerDuty pages the legacy engine opened on it (newest `sage.alert_log` row `sent` on the

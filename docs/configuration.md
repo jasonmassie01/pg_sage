@@ -3674,12 +3674,20 @@ with the channel's error text, is logged at ERROR, and is retried on the next ch
 times per channel. After the fifth failure the ERROR log says it gave up; close that alert in the
 channel by hand.
 
-The Alert Log page shows each row's status as written: `sent` and `resolved` (green), `error` and
-`resolve_error` (red, with the channel's error text in the Error column) and `deferred` (amber,
-held by quiet hours, channel `quiet_hours`). In the fleet view, a database whose alert log
-cannot be read is named in a banner (`failed_databases` in `GET /api/v1/alert-log`) while the
-other databases' rows still show; the API answers 503 only when no selected database can be
-read. The date range filters the newest 100 rows per database.
+`GET /api/v1/alert-log` returns these rows with each status as written (`sent`, `resolved`,
+`error`, `resolve_error` with the channel's error text, and `deferred`, held by quiet hours,
+channel `quiet_hours`). A database whose alert log cannot be read is named in
+`failed_databases` while the other databases' rows still return; the API answers 503 only when
+no selected database can be read. The route is deprecated: it answers with
+`Deprecation: true` and a `Link` to `GET /api/v1/notifications/log`, the one notification log,
+which the Notifications page's Log tab shows. The dashboard's old `#/alerts` page redirects
+there, keeping `?database=`.
+
+The notification log names each delivery's `database` (`unknown` for a fleet-wide event and
+for rows written before the upgrade that added the column) and `dedup_key`.
+`?database=<name>` lists one database's deliveries (400 for a malformed name, 404 for a
+database pg_sage does not monitor; `all` or no parameter lists every database). The read is
+open to admins and operators; channels and rules stay admin-only.
 
 ### Notification delivery
 
