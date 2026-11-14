@@ -332,8 +332,15 @@ func (executor *ProductionIntentExecutor) buildMigrationPlan(
 		SQL: raw.SQL, Cycle: raw.Cycle,
 		Table: plan.TableFacts{Schema: schemaName, Name: tableName},
 	})
-	if err != nil {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return migrationInput{}, plan.Plan{}, fmt.Errorf("build safe migration plan: %w", err)
+	}
+	if err != nil {
+		// Every other planner error refuses the SQL as written (shape,
+		// option, name, or a build without the parse tree): the caller
+		// must change the request or plan it by hand (migration-02b).
+		return migrationInput{}, plan.Plan{}, fmt.Errorf("%w: build safe migration plan: %w",
+			ErrIntentInvalid, err)
 	}
 	return migrationInput{
 		sql: raw.SQL, table: raw.Table, schema: schemaName,
