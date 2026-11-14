@@ -150,7 +150,9 @@ All routes use the session; every signed-in role may ask.
 | `GET` | `/api/v1/databases/{db}/ask/budget` | today's usage of the database and the caller |
 
 Errors are `{"error", "code"}`: `invalid_request` (400), `not_found` (404; another user's
-conversation is also "not found"), `ask_disabled` and `ask_unavailable` (503).
+conversation is also "not found"), `ask_disabled` and `ask_unavailable` (503). With
+`api.database_grants` on, a database outside the caller's grants is `404` like an unknown
+one, and nothing is asked or stored ([Per-database Authorization](security.md#mcp-tokens-and-ask-sage)).
 
 ## MCP
 

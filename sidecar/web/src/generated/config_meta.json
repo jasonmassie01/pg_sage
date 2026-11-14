@@ -276,6 +276,13 @@
     "default": false,
     "doc": "",
     "class": "operator_preference",
+    "lifecycle": "reconfigure"
+  },
+  "alerting.engine": {
+    "type": "string",
+    "default": "notify",
+    "doc": "Engine for the alerting block: notify (reconciled into notification channels and rules, sent through the outbox) or legacy (old per-database manager). Restart. Default: notify.",
+    "class": "operator_preference",
     "lifecycle": "restart"
   },
   "alerting.pagerduty_routing_key": {
@@ -283,7 +290,7 @@
     "default": "",
     "doc": "",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "reconfigure"
   },
   "alerting.quiet_hours_end": {
     "type": "string",
@@ -311,21 +318,21 @@
     "default": null,
     "doc": "",
     "class": "operator_preference",
-    "lifecycle": "restart"
+    "lifecycle": "reconfigure"
   },
   "alerting.routes[].severity": {
     "type": "string",
     "default": "",
     "doc": "",
     "class": "operator_preference",
-    "lifecycle": "restart"
+    "lifecycle": "reconfigure"
   },
   "alerting.slack_webhook_url": {
     "type": "string",
     "default": "",
     "doc": "",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "reconfigure"
   },
   "alerting.timezone": {
     "type": "string",
@@ -339,21 +346,21 @@
     "default": null,
     "doc": "",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "reconfigure"
   },
   "alerting.webhooks[].name": {
     "type": "string",
     "default": "",
     "doc": "",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "reconfigure"
   },
   "alerting.webhooks[].url": {
     "type": "string",
     "default": "",
     "doc": "",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "reconfigure"
   },
   "analyzer.analyze_stale_days": {
     "type": "int",
@@ -2732,6 +2739,27 @@
     "class": "safety_critical",
     "lifecycle": "restart"
   },
+  "oauth.database_grant_mapping[].database": {
+    "type": "string",
+    "default": "",
+    "doc": "Database name as the fleet names it.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "oauth.database_grant_mapping[].group": {
+    "type": "string",
+    "default": "",
+    "doc": "IdP group as the groups claim carries it (case-sensitive).",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "oauth.database_grant_mapping[].role": {
+    "type": "string",
+    "default": "",
+    "doc": "Grant for group members on the database: viewer or operator.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
   "oauth.default_role": {
     "type": "string",
     "default": "viewer",
@@ -3941,6 +3969,13 @@
     "default": 30,
     "doc": "Days a finished, unpinned investigation keeps its probe evidence (a tombstone records the delete). 1 to timeline_retention_days. Default: 30.",
     "class": "derivable",
+    "lifecycle": "restart"
+  },
+  "sre.investigator.require_support_citation": {
+    "type": "bool",
+    "default": true,
+    "doc": "A model contest or conclusion needs a kept claim citing evidence the causal graph records as support for its root, else it is inconclusive (unsupported_root). Default: true.",
+    "class": "safety_critical",
     "lifecycle": "restart"
   },
   "sre.llm.enabled": {

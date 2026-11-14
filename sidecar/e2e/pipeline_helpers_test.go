@@ -281,8 +281,12 @@ func settledString(t *testing.T, pool *pgxpool.Pool, sql string) string {
 // repo-mandated verification checklist.
 type checkReport struct {
 	lines []string
+	notes []string
 	fails int
 }
+
+// note adds a context line the dump prints before the CHECK lines.
+func (r *checkReport) note(line string) { r.notes = append(r.notes, line) }
 
 func (r *checkReport) add(t *testing.T, id string, pass bool, desc string) {
 	t.Helper()
@@ -302,6 +306,9 @@ func (r *checkReport) add(t *testing.T, id string, pass bool, desc string) {
 func (r *checkReport) dump(t *testing.T, header string) {
 	t.Helper()
 	t.Logf("===== %s =====", header)
+	for _, n := range r.notes {
+		t.Logf("%s", n)
+	}
 	for _, l := range r.lines {
 		t.Logf("%s", l)
 	}

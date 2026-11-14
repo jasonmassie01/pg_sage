@@ -31,9 +31,10 @@ func ASTValidationAvailable() bool { return astValidationAvailable() }
 
 // AssumeASTValidationForTests makes the gate treat this build as having the
 // parse-tree layer, so tests of unattended execution also run in local
-// builds without a C compiler. Call it from TestMain only; SQL checks are
-// unchanged (Check is still a no-op without cgo). Never call it in
-// production code.
+// builds without a C compiler. Call it from TestMain, or from the main
+// package's file built only with the e2e tag sage_e2e_assume_sqlast; SQL
+// checks are unchanged (Check is still a no-op without cgo). Never call it
+// in production code.
 func AssumeASTValidationForTests() {
 	astValidationAvailable = func() bool { return true }
 }

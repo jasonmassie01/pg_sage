@@ -139,11 +139,15 @@ func queryHintsHandler(
 // alertLogHandler serves the alert log of the selected databases. A
 // database whose log cannot be read is named in failed_databases and the
 // rows of the others are still returned (alerting-09); only when every
-// selected database fails is the reply a 503.
+// selected database fails is the reply a 503. The route is deprecated
+// (alerting-06c): it stays readable for history and every reply links
+// the notification log that replaces it.
 func alertLogHandler(
 	mgr *fleet.DatabaseManager,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Deprecation", "true")
+		w.Header().Set("Link", `</api/v1/notifications/log>; rel="successor-version"`)
 		database, ok := readDatabaseParam(w, r)
 		if !ok {
 			return

@@ -16,7 +16,7 @@ import (
 // "unverifiable". checkpoint_timeout is lowered to 30 s so timed
 // checkpoints happen within the test.
 func TestOutcome_MaxWALSizeChangeIsVerified(t *testing.T) {
-	pool, ctx := requireDB(t)
+	pool, ctx := exclusiveDB(t, "timed and requested checkpoint counts")
 	shortCheckpointTimeout(t, ctx, pool)
 	for i := 0; i < 3; i++ { // requested checkpoints before the change
 		if _, err := pool.Exec(ctx, `CHECKPOINT`); err != nil {

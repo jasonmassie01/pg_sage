@@ -77,6 +77,11 @@ type NotificationLogEntry struct {
 	Status    string    `json:"status"`
 	Error     string    `json:"error"`
 	SentAt    time.Time `json:"sent_at"`
+	// Database is the database the delivery was for; "unknown" for a
+	// fleet-wide event or a row written before alerting-06c.
+	Database string `json:"database"`
+	// DedupKey is the event's dedup key; empty for rows before alerting-06c.
+	DedupKey string `json:"dedup_key"`
 }
 
 // CreateChannel inserts a new notification channel.
@@ -87,6 +92,9 @@ func (s *NotificationStore) CreateChannel(
 	userID int,
 ) (int, error) {
 	if err := validateChannelType(typ); err != nil {
+		return 0, err
+	}
+	if err := validateAPIChannelName(name); err != nil {
 		return 0, err
 	}
 	if err := s.validateChannel(typ, config); err != nil {
@@ -158,9 +166,9 @@ func (s *NotificationStore) GetChannel(
 	var ch notify.Channel
 	var cfgJSON []byte
 	err := s.pool.QueryRow(qctx,
-		`/* pg_sage */ SELECT id, name, type, config, enabled
+		`/* pg_sage */ SELECT id, name, type, config, enabled, managed_by
 		 FROM sage.notification_channels WHERE id = $1`, id,
-	).Scan(&ch.ID, &ch.Name, &ch.Type, &cfgJSON, &ch.Enabled)
+	).Scan(&ch.ID, &ch.Name, &ch.Type, &cfgJSON, &ch.Enabled, &ch.ManagedBy)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("%w: channel %d", ErrNotFound, id)
@@ -193,6 +201,14 @@ func (s *NotificationStore) UpdateChannel(
 	if err != nil {
 		return err
 	}
+	if ch.ManagedBy == notify.ManagedByConfig {
+		return fmt.Errorf("channel %d: %w", id, ErrManagedByConfig)
+	}
+	if name != ch.Name {
+		if err := validateAPIChannelName(name); err != nil {
+			return err
+		}
+	}
 	if err := checkSMTPDestinationSecrets(ch.Config, config); err != nil {
 		return err
 	}
@@ -214,13 +230,13 @@ func (s *NotificationStore) UpdateChannel(
 	tag, err := s.pool.Exec(qctx,
 		`/* pg_sage */ UPDATE sage.notification_channels
 		 SET name = $1, config = $2, enabled = $3
-		 WHERE id = $4`,
+		 WHERE id = $4 AND managed_by = 'api'`,
 		name, cfgJSON, enabled, id)
 	if err != nil {
 		return fmt.Errorf("updating channel %d: %w", id, err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("%w: channel %d", ErrNotFound, id)
+		return s.channelNotWritten(ctx, id)
 	}
 	return nil
 }
@@ -257,12 +273,13 @@ func (s *NotificationStore) DeleteChannel(
 	defer cancel()
 
 	tag, err := s.pool.Exec(qctx,
-		"DELETE FROM sage.notification_channels WHERE id = $1", id)
+		`/* pg_sage */ DELETE FROM sage.notification_channels
+		 WHERE id = $1 AND managed_by = 'api'`, id)
 	if err != nil {
 		return fmt.Errorf("deleting channel %d: %w", id, err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("%w: channel %d", ErrNotFound, id)
+		return s.channelNotWritten(ctx, id)
 	}
 	return nil
 }

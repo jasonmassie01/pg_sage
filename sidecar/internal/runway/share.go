@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/sre/probes"
@@ -16,12 +17,18 @@ import (
 // cluster once per pass and the others reuse that reading; runtimes that
 // tick together wait for the one measurement in flight.
 
-// ClusterSize is one measurement of the databases' total size.
+// ClusterSize is one measurement of the databases' total size. seq
+// identifies the measurement (zero: none); MeasuredAt is for its age only,
+// since two clock readings close together can be equal (forecast-11).
 type ClusterSize struct {
 	DatabaseBytes       float64
 	UnreadableDatabases float64
 	MeasuredAt          time.Time
+	seq                 uint64
 }
+
+// sizeSeq numbers successful measurements across the process.
+var sizeSeq atomic.Uint64
 
 // SizeShare shares cluster size measurements between runtimes.
 type SizeShare struct {
@@ -127,7 +134,8 @@ func waitFlight(ctx context.Context, f *sizeFlight) (ClusterSize, bool, error) {
 	}
 }
 
-// measureNow measures and stamps the reading with the share's clock.
+// measureNow measures, numbers the reading and stamps it with the share's
+// clock. A failed measurement gets neither.
 func (s *SizeShare) measureNow(ctx context.Context,
 	measure func(context.Context) (ClusterSize, error)) (ClusterSize, error) {
 	size, err := measure(ctx)
@@ -139,6 +147,7 @@ func (s *SizeShare) measureNow(ctx context.Context,
 	} else {
 		size.MeasuredAt = time.Now()
 	}
+	size.seq = sizeSeq.Add(1)
 	return size, nil
 }
 

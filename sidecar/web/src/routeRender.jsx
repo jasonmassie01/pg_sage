@@ -4,7 +4,7 @@ import { CasesPage } from './pages/CasesPage'
 import { Actions } from './pages/Actions'
 import { DatabasePage } from './pages/DatabasePage'
 import { SettingsPage } from './pages/SettingsPage'
-import { AlertLogPage } from './pages/AlertLogPage'
+import { AlertsRedirect } from './pages/AlertsRedirect'
 import { UsersPage } from './pages/UsersPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { NotificationsPage } from './pages/NotificationsPage'
@@ -123,8 +123,12 @@ export const RENDERERS = Object.freeze({
   ),
   databases: ctx => <DatabasesPage onSelectDatabase={ctx.setSelectedDB} />,
   users: ctx => <UsersPage currentUser={ctx.user} authMode={ctx.authMode} />,
-  notifications: () => <NotificationsPage />,
-  alerts: ctx => <AlertLogPage database={ctx.database} />,
+  notifications: ctx => {
+    const tab = new URLSearchParams(ctx.route.split('?')[1] || '').get('tab') || ''
+    return <NotificationsPage key={tab} user={ctx.user} database={ctx.database}
+      initialTab={tab} />
+  },
+  alerts: ctx => <AlertsRedirect route={ctx.route} />,
   settings: ctx => (
     <SettingsPage database={ctx.database}
       databaseId={ctx.selectedDatabase?.id || ctx.selectedDatabase?.database_id} />

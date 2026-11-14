@@ -1,6 +1,5 @@
 import { act, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { AlertLogPage } from './AlertLogPage'
 import { AutonomyPage } from './AutonomyPage'
 import { Dashboard } from './Dashboard'
 import { DatabasePage } from './DatabasePage'
@@ -23,8 +22,6 @@ let state
 const at = (h, m) => new Date(2026, 10, 8, h, m, 0).getTime()
 const pageData = {
   '/api/v1/databases': { summary: { total_databases: 1, healthy: 1 }, databases: [] },
-  '/api/v1/alert-log': { alerts: [{ id: 1, sent_at: '2026-11-08T14:00:00Z',
-    severity: 'warning', title: 'Disk filling', channel: 'slack', status: 'sent' }] },
 }
 vi.mock('../hooks/useAPI', () => ({
   withTimeRange: base => base,
@@ -43,7 +40,6 @@ function DashboardWithFleet() {
 
 const user = { role: 'admin' }
 const pages = [
-  ['AlertLogPage', <AlertLogPage database="all" />, /Disk filling/],
   ['AutonomyPage', <AutonomyPage database="prod" user={user} />, null],
   ['Dashboard', <DashboardWithFleet />, null],
   ['DatabasePage', <DatabasePage database="prod" />, /Database: prod/],

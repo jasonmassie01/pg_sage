@@ -3,9 +3,11 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 
+	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/store"
 )
@@ -103,12 +105,7 @@ func updateChannelHandler(
 
 		existing, err := ns.GetChannel(r.Context(), id)
 		if err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				jsonError(w, "channel not found",
-					http.StatusNotFound)
-				return
-			}
-			internalError(w, r, "get channel", err)
+			notificationWriteError(w, r, "get channel", "channel not found", err)
 			return
 		}
 		if req.Name == "" {
@@ -126,17 +123,7 @@ func updateChannelHandler(
 			r.Context(), id, req.Name,
 			req.Config, enabled,
 		); err != nil {
-			if errors.Is(err, store.ErrValidation) {
-				jsonError(w, err.Error(),
-					http.StatusBadRequest)
-				return
-			}
-			if errors.Is(err, store.ErrNotFound) {
-				jsonError(w, "channel not found",
-					http.StatusNotFound)
-				return
-			}
-			internalError(w, r, "update channel", err)
+			notificationWriteError(w, r, "update channel", "channel not found", err)
 			return
 		}
 		jsonResponse(w, map[string]string{"status": "updated"})
@@ -154,12 +141,7 @@ func deleteChannelHandler(
 			return
 		}
 		if err := ns.DeleteChannel(r.Context(), id); err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				jsonError(w, "channel not found",
-					http.StatusNotFound)
-				return
-			}
-			internalError(w, r, "delete channel", err)
+			notificationWriteError(w, r, "delete channel", "channel not found", err)
 			return
 		}
 		jsonResponse(w, map[string]string{"status": "deleted"})
@@ -234,17 +216,7 @@ func createRuleHandler(
 			r.Context(), req.ChannelID,
 			req.Event, req.MinSeverity)
 		if err != nil {
-			if errors.Is(err, store.ErrValidation) {
-				jsonError(w, err.Error(),
-					http.StatusBadRequest)
-				return
-			}
-			if errors.Is(err, store.ErrNotFound) {
-				jsonError(w, "channel not found",
-					http.StatusNotFound)
-				return
-			}
-			internalError(w, r, "create rule", err)
+			notificationWriteError(w, r, "create rule", "channel not found", err)
 			return
 		}
 		w.WriteHeader(http.StatusCreated)
@@ -268,12 +240,7 @@ func deleteRuleHandler(
 			return
 		}
 		if err := ns.DeleteRule(r.Context(), id); err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				jsonError(w, "rule not found",
-					http.StatusNotFound)
-				return
-			}
-			internalError(w, r, "delete rule", err)
+			notificationWriteError(w, r, "delete rule", "rule not found", err)
 			return
 		}
 		jsonResponse(w, map[string]string{"status": "deleted"})
@@ -308,26 +275,33 @@ func updateRuleHandler(
 		if err := ns.UpdateRule(
 			r.Context(), id, *req.Enabled,
 		); err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				jsonError(w, "rule not found",
-					http.StatusNotFound)
-				return
-			}
-			internalError(w, r, "update rule", err)
+			notificationWriteError(w, r, "update rule", "rule not found", err)
 			return
 		}
 		jsonResponse(w, map[string]string{"status": "updated"})
 	}
 }
 
+// listNotificationLogHandler serves the one notification log
+// (alerting-06c), filtered by ?database= like the other list endpoints:
+// a malformed name is 400, one pg_sage does not monitor is 404, and "all"
+// or none lists every database.
 func listNotificationLogHandler(
-	ns *store.NotificationStore,
+	ns *store.NotificationStore, mgr *fleet.DatabaseManager,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		database, ok := readDatabaseParam(w, r)
+		if !ok || rejectUnknownDatabase(w, mgr, database) {
+			return
+		}
+		if database == "all" {
+			database = ""
+		}
 		limit := parseIntDefault(
 			r.URL.Query().Get("limit"), 100)
-		entries, err := ns.ListLog(r.Context(), limit)
+		entries, err := ns.ListLogFor(r.Context(), database, limit)
 		if err != nil {
+			slog.Error("list notification log failed", "database", database, "error", err)
 			jsonError(w, "failed to list log",
 				http.StatusInternalServerError)
 			return

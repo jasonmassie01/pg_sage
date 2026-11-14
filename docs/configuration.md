@@ -1644,7 +1644,8 @@ curl -b cookies.txt http://localhost:8080/api/v1/cases
 
 SSO (`oauth.*`) validates the OIDC `id_token` with PKCE and a nonce, can map
 IdP groups to roles (`oauth.role_mapping`, `oauth.groups_claim`,
-`oauth.unmapped_users`), and audits every login. A break-glass admin
+`oauth.unmapped_users`) and to per-database grants
+(`oauth.database_grant_mapping`), and audits every login. A break-glass admin
 (`oauth.break_glass`) works when the IdP is down and alerts every channel on
 use. See [SSO login validation](security.md#sso-login-validation).
 
@@ -1733,6 +1734,22 @@ enforced.
 ```yaml
 api:
   database_grants: true
+```
+
+`oauth.database_grant_mapping` (default empty, restart to change) lets SSO
+groups set those grants instead (apiauth-08d): at every SSO login the grants a
+user's groups give replace the grants the IdP gave before. An admin's manual
+grants are never changed by it and win on the same database. Each entry needs
+a `group` (exact, case-sensitive), one `database` and a `role` of `viewer` or
+`operator`; any other role, an empty or `all` database, or the same group twice
+on one database stops startup with an error naming the entry
+([details](security.md#group-to-database-grant-mapping)).
+
+```yaml
+oauth:
+  database_grant_mapping:
+    - {group: team-billing, database: billing, role: operator}
+    - {group: team-search,  database: search,  role: viewer}
 ```
 
 #### Profiling the sidecar
@@ -2381,7 +2398,14 @@ timestamp as the whole RFC 3339 instant, never its year, hour or second. For the
 reads these are the row values it was shown; a probe's version, its row count and its `[i]`
 row ordinals ground nothing. A minus sign counts only at the start of a value or after a
 space, `(`, `=`, `:`, `[` or `,`, so `10-20` is a range. Uncited or ungrounded claims are dropped and counted. A conclusion, contest or
-unmodeled cause with no surviving claim counts as inconclusive. The model's root stays
+unmodeled cause with no surviving claim counts as inconclusive. With
+`sre.investigator.require_support_citation` on (the default), a contest or conclusion also
+needs a surviving claim that cites evidence the causal graph itself lists as support for the
+model's root; a claim about something else (connection counts under a lock contest, say)
+does not carry it, and the outcome is inconclusive with the reason `unsupported_root`.
+Evidence from the detection-time incident snapshot never counts. Agreement and an unmodeled
+cause (which has no graph node) are not affected. Set it to `false` to keep the earlier rule,
+where any surviving claim carries the root. The model's root stays
 advisory unless its family has earned model-root authority from held-out bench results, and
 the model's self-reported confidence is ignored. An unmodeled cause is always advisory. The
 model's reads can conclude an inconclusive graph, but never move or drop a conclusive root;
@@ -2432,6 +2456,7 @@ reasoning than allowed, the usage is recorded as reported and no further turn is
 | `sre.timeline_retention_days` | `90` | Days a finished, unpinned investigation is kept at all (hypotheses, steps, event chain), leaving a tombstone. At least `sre.evidence_retention_days`, at most `3650` |
 | `sre.llm.enabled` | `true` | Model turn in investigations, used whenever an LLM is configured. `false` keeps investigations deterministic. Restart to change |
 | `sre.llm.mode` | `investigator` | `investigator`: the model plans read-only probes within the plan's budget and concludes with cited evidence. `review`: one cheaper review turn. Restart to change |
+| `sre.investigator.require_support_citation` | `true` | A model contest or conclusion keeps its root only when a surviving claim cites evidence the causal graph lists as support for that root; otherwise it is inconclusive (`unsupported_root`). `false`: any surviving cited claim carries it. Restart to change |
 | `sre.detectors.window_seconds` | `300` | Seconds over which checkpoint and temp-file growth is measured, `60`-`3600`. Keep it at least twice `sre.trigger_interval_seconds`; a shorter window cannot see growth between two polls, and the sidecar warns at startup |
 | `sre.detectors.checkpoint_requested` | `3` | Requested checkpoints within the window that are a checkpoint storm (they must also outnumber timed ones), `1`-`1000` |
 | `sre.detectors.temp_file_mb` | `1024` | MiB of temp files this database writes within the window that are a temp-file explosion, `1`-`1048576` |
@@ -3615,7 +3640,8 @@ A disabled block is not checked. In fleet mode the one shared block is checked o
 | Key | Default | Meaning |
 |---|---|---|
 | `alerting.enabled` | `false` | Send alerts. Needs at least one route that reaches a usable channel |
-| `alerting.check_interval_seconds` | `60` | How often new findings are read |
+| `alerting.engine` | `notify` | Which engine delivers the block. `notify` reconciles it into notification channels and rules (below) and delivers through the notification outbox with retries; `legacy` runs the old per-database alerting manager instead, removes at startup the `config:` channels and rules a notify run left (so a finding is not posted twice) and logs a startup warning. `legacy` is the escape hatch for one release and is removed by alerting-06d. Any other value refuses startup naming the key, whether or not alerting is enabled. Takes effect on restart |
+| `alerting.check_interval_seconds` | `60` | How often the `legacy` engine reads new findings; the `notify` engine does not use it |
 | `alerting.cooldown_minutes` | `15` | Raises the per-severity cooldown floors: critical 5 min, warning 30 min, info 6 h. A value below a floor leaves that floor |
 | `alerting.repeat_minutes` | `critical: 240`, `warning: 1440`, `info: 0` | Minutes between reminders of a finding that stays open, per severity; `0` never reminds. A missing severity keeps its default. A negative value, an unknown severity, more than `525600` (a year), or a value below that severity's cooldown (above) refuses startup naming the key |
 | `alerting.quiet_hours_start` / `alerting.quiet_hours_end` | empty | `HH:MM` (00:00-23:59); set both or neither. The window may cross midnight. Warning and info alerts are deferred, never dropped, until it ends; critical alerts bypass it |
@@ -3654,9 +3680,31 @@ throttle reads that log far enough back to keep the schedule. `repeat_minutes`,
 `cooldown_minutes`, `quiet_hours_start`, `quiet_hours_end` and `timezone` apply without a
 restart when changed through the settings API: the next decision of every alerting manager
 and of the notification outbox uses them, and alerts already open stay throttled. An unknown
-timezone or an invalid quiet-hours value is refused with an error naming the key. The other
-alerting keys (routes, channels, URLs, `enabled`, `check_interval_seconds`) take effect on
-restart.
+timezone or an invalid quiet-hours value is refused with an error naming the key. With the
+`notify` engine, `enabled`, `routes`, `webhooks`, `slack_webhook_url` and
+`pagerduty_routing_key` also apply without a restart (they are reconciled, below); with the
+`legacy` engine such a change is refused with an error that asks for a restart.
+`engine` and `check_interval_seconds` take effect on restart.
+
+**Reconciled into notification channels (`engine: notify`).** At startup and on every live
+change, the block is written to the notification tables of the control database (the meta
+database in meta mode, else the primary): one channel per usable target, named
+`config:slack:slack`, `config:pagerduty:pagerduty` and `config:webhook:<name>`, and for each
+routed channel one `finding_opened` and one `finding_resolved` rule whose `min_severity` is
+the lowest severity any route sends to that channel. Notification rules match "at least
+`min_severity`", so a channel routed only `warning` also receives `critical` findings, and a
+finding is posted once per channel however many routes name it. Secrets are sealed like those
+of channels created in the UI, and a target refused by the target policy builds no channel
+(the log names its key). These rows are marked `managed_by = config`: the Notifications page
+shows them with a "From config file" badge and without edit or delete, and the API answers
+`409 {"error":"managed_by_config"}` to a change; channel names starting with `config:` are
+reserved. The reconciler changes only its own rows, compares a hash of each so an unchanged
+block writes nothing, and runs in one transaction under an advisory lock, so two sidecars on
+one control database converge once; a failed reconcile writes nothing and refuses a live
+change. Removing the block (or `enabled: false`) deletes the config rows; channels and rules
+created in the UI are never touched. PagerDuty pages the legacy engine opened before the
+switch are resolved under their legacy key (`<database>:<category>:<object>`, read from
+`sage.alert_log`) when their finding resolves; new pages use the notification key.
 
 ```yaml
 alerting:
@@ -3691,12 +3739,20 @@ with the channel's error text, is logged at ERROR, and is retried on the next ch
 times per channel. After the fifth failure the ERROR log says it gave up; close that alert in the
 channel by hand.
 
-The Alert Log page shows each row's status as written: `sent` and `resolved` (green), `error` and
-`resolve_error` (red, with the channel's error text in the Error column) and `deferred` (amber,
-held by quiet hours, channel `quiet_hours`). In the fleet view, a database whose alert log
-cannot be read is named in a banner (`failed_databases` in `GET /api/v1/alert-log`) while the
-other databases' rows still show; the API answers 503 only when no selected database can be
-read. The date range filters the newest 100 rows per database.
+`GET /api/v1/alert-log` returns these rows with each status as written (`sent`, `resolved`,
+`error`, `resolve_error` with the channel's error text, and `deferred`, held by quiet hours,
+channel `quiet_hours`). A database whose alert log cannot be read is named in
+`failed_databases` while the other databases' rows still return; the API answers 503 only when
+no selected database can be read. The route is deprecated: it answers with
+`Deprecation: true` and a `Link` to `GET /api/v1/notifications/log`, the one notification log,
+which the Notifications page's Log tab shows. The dashboard's old `#/alerts` page redirects
+there, keeping `?database=`.
+
+The notification log names each delivery's `database` (`unknown` for a fleet-wide event and
+for rows written before the upgrade that added the column) and `dedup_key`.
+`?database=<name>` lists one database's deliveries (400 for a malformed name, 404 for a
+database pg_sage does not monitor; `all` or no parameter lists every database). The read is
+open to admins and operators; channels and rules stay admin-only.
 
 ### Notification delivery
 

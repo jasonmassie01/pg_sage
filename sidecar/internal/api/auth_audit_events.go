@@ -74,6 +74,8 @@ func loginFailureReason(err error) string {
 		return "not_authorized"
 	case errors.Is(err, auth.ErrUserDisabled):
 		return "user_disabled"
+	case errors.Is(err, auth.ErrIdPGrantSync):
+		return "grant_sync_failed"
 	default:
 		return "exchange_failed"
 	}

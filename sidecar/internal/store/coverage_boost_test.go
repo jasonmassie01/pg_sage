@@ -1715,7 +1715,7 @@ func TestCoverage_NotificationStore_ListLog(t *testing.T) {
 	pool, ctx := coverageDB(t)
 	ns := NewNotificationStore(pool, nil)
 
-	entries, err := ns.ListLog(ctx, 10)
+	entries, err := ns.ListLogFor(ctx, "", 10)
 	if err != nil {
 		t.Fatalf("ListLog: %v", err)
 	}
@@ -1730,19 +1730,19 @@ func TestCoverage_NotificationStore_ListLog_DefaultLimit(
 	ns := NewNotificationStore(pool, nil)
 
 	// limit=0 should default to 100.
-	_, err := ns.ListLog(ctx, 0)
+	_, err := ns.ListLogFor(ctx, "", 0)
 	if err != nil {
 		t.Fatalf("ListLog(0): %v", err)
 	}
 
 	// limit=-1 should also default.
-	_, err = ns.ListLog(ctx, -1)
+	_, err = ns.ListLogFor(ctx, "", -1)
 	if err != nil {
 		t.Fatalf("ListLog(-1): %v", err)
 	}
 
 	// limit > 500 should default.
-	_, err = ns.ListLog(ctx, 600)
+	_, err = ns.ListLogFor(ctx, "", 600)
 	if err != nil {
 		t.Fatalf("ListLog(600): %v", err)
 	}

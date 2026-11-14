@@ -98,11 +98,13 @@ type routeEntry struct {
 }
 
 // muxRoutes is the registry of one mux: its own routes, their database
-// scopes (apiauth-08) and the registries of the muxes mounted under it.
+// scopes (apiauth-08: writes; apiauth-08b: reads) and the registries of
+// the muxes mounted under it.
 type muxRoutes struct {
 	mu      sync.Mutex
 	entries []routeEntry
 	scopes  map[string]string
+	reads   map[string]string
 	mounts  []*muxRoutes
 }
 
@@ -134,11 +136,18 @@ func registryFor(mux *http.ServeMux) *muxRoutes {
 // route registers h on mux under pattern behind gate and records it. An
 // operator write registered here is fleet-wide (apiauth-08): with database
 // grants on, only an operator with no grants may use it. A route that
-// acts on one database registers with routeDB instead.
+// acts on one database registers with routeDB instead. A GET behind a
+// signed-in gate takes its read scope from readRouteScopes (apiauth-08b,
+// route_read.go); one whose handler aggregates through the fleet
+// registers with routeAggregate instead.
 func route(mux *http.ServeMux, pattern string, gate routeGate, h http.Handler) {
 	if gate == gateOperator && isWriteRoute(pattern) {
 		registerRoute(mux, pattern, gate, scopeFleetWide,
 			requireDatabaseRole(auth.RoleOperator, fleetWide)(h))
+		return
+	}
+	if isUserRead(pattern, gate) {
+		routeUserRead(mux, pattern, gate, h)
 		return
 	}
 	registerRoute(mux, pattern, gate, "", h)
@@ -172,6 +181,37 @@ func registerRoute(mux *http.ServeMux, pattern string, gate routeGate, scope str
 			reg.scopes = map[string]string{}
 		}
 		reg.scopes[pattern] = scope
+	}
+}
+
+// recordReadScope records pattern's read scope (apiauth-08b).
+func recordReadScope(mux *http.ServeMux, pattern, scope string) {
+	reg := registryFor(mux)
+	reg.mu.Lock()
+	defer reg.mu.Unlock()
+	if reg.reads == nil {
+		reg.reads = map[string]string{}
+	}
+	reg.reads[pattern] = scope
+}
+
+// registeredReadScopes maps each GET route of mux (and its mounts) that
+// declared a read scope to it.
+func registeredReadScopes(mux *http.ServeMux) map[string]string {
+	out := map[string]string{}
+	registryFor(mux).collectReads(out)
+	return out
+}
+
+func (reg *muxRoutes) collectReads(out map[string]string) {
+	reg.mu.Lock()
+	for p, s := range reg.reads {
+		out[p] = s
+	}
+	mounts := append([]*muxRoutes(nil), reg.mounts...)
+	reg.mu.Unlock()
+	for _, m := range mounts {
+		m.collectReads(out)
 	}
 }
 

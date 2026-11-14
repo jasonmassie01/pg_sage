@@ -213,7 +213,11 @@ func loadStartupConfigOrExit() {
 	schema.SetBuildVersion(version) // recorded in sage.schema_migrations (config-04b)
 	logInfo("startup", "Prometheus=%s API=%s",
 		metricsWhere(cfg.Prometheus), cfg.API.ListenAddr)
-	if !executor.ASTValidationAvailable() {
+	if sqlASTAssumed {
+		logWarn("startup", "e2e TEST BUILD (%s): parse-tree SQL validation is "+
+			"assumed, not present; never run this binary against a database "+
+			"you care about", sqlASTAssumeTag)
+	} else if !executor.ASTValidationAvailable() {
 		logWarn("startup", "built without cgo: parse-tree SQL validation is "+
 			"unavailable, so unattended changes wait for operator approval")
 	}

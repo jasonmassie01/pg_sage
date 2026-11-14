@@ -181,6 +181,7 @@ func wireRouter(p WireParams) (WireResult, error) {
 			LLMBudgets:        p.LLMBudgets,
 			TelemetryStatus:   lakebaseTelemetryStatuses,
 			TelemetryHistory:  lakebaseTelemetryHistory,
+			LakebaseWaitLoad:  lakebaseWaitLoad, // market-01b
 			// Expiry times and failure classes only; never tokens (databricks-06).
 			LakebaseCredentials:  databricksauth.CredentialStatuses,
 			LakebaseEndpointInfo: databricksauth.EndpointInfoFor,

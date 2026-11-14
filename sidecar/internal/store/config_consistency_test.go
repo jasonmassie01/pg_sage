@@ -68,6 +68,9 @@ var excludedPrefixes = []string{
 var excludedExactKeys = map[string]bool{
 	// Workload budget proposals (market-08): YAML only, restart-bound.
 	"advisor.budget_proposals": true,
+	// The alerting engine switch (alerting-06b): YAML only, restart-bound;
+	// the legacy engine is a one-release escape hatch, not a setting.
+	"alerting.engine": true,
 	// Migration contract delay and lock budget (migration-06): YAML only,
 	// safety-critical and restart-bound; an API write can never loosen them.
 	"migration.contract_delay_minutes": true,
@@ -288,6 +291,11 @@ var excludedExactKeys = map[string]bool{
 	// Roadmap 2.1: the investigator mode is read with the model turn
 	// switch (restart lifecycle), so it is YAML-only too.
 	"sre.llm.mode": true,
+
+	// sre-03: the investigator's support-citation rule is read when a
+	// database runtime is built (restart lifecycle) and only tightens what
+	// a model may conclude, so an API write can never switch it off: YAML only.
+	"sre.investigator.require_support_citation": true,
 
 	// Sage SRE M5: SLOs and the change feed are built with the database
 	// runtime (restart lifecycle), carry secrets and are validated at

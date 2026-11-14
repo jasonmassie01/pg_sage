@@ -14,6 +14,16 @@ type Delivery struct {
 	ProviderMessageID string
 }
 
+// logDatabase is the database a delivery of evt is logged under: "" (NULL
+// in sage.notification_log) for a fleet-wide event, the "all" selector
+// included, so the log never names "all" as a database (alerting-06c).
+func logDatabase(evt Event) string {
+	if db := eventDatabase(evt); db != "all" {
+		return db
+	}
+	return ""
+}
+
 // DeliveryRecorder is a RuleStore that also records the event's RefID and
 // the provider's message id. A store without it records the attempt
 // through LogDelivery alone.

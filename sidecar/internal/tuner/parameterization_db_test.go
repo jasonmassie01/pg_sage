@@ -11,6 +11,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/cases"
 	"github.com/pg-sage/sidecar/internal/collector"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // tuning-11 on real PostgreSQL: 25 statements whose IN lists have 1..25
@@ -59,11 +60,13 @@ func runListVariants(t *testing.T, pool *pgxpool.Pool, n int) {
 		"DROP TABLE IF EXISTS " + paramDBTable,
 		"CREATE TABLE " + paramDBTable + " (id int PRIMARY KEY, total numeric)",
 		"INSERT INTO " + paramDBTable + " SELECT g, g FROM generate_series(1, 100) g",
-		"SELECT pg_stat_statements_reset()",
 	} {
 		if _, err := pool.Exec(ctx, sql); err != nil {
 			t.Fatalf("%s: %v", sql, err)
 		}
+	}
+	if _, err := testdb.ResetStatements(ctx, pool); err != nil {
+		t.Fatalf("reset this database's pg_stat_statements: %v", err)
 	}
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS "+paramDBTable)

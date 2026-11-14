@@ -38,28 +38,47 @@ def elf(payload=b"", architecture=62, dynamic=False):
     return bytes(binary) + payload
 
 
+def as_linux_x86_64():
+    system = patch.object(launcher.platform, "system", return_value="Linux")
+    machine = patch.object(launcher.platform, "machine", return_value="x86_64")
+    return system, machine
+
+
+def package_and_unpack(temp, binary):
+    source = temp / "source"
+    source.write_bytes(binary)
+    output = temp / "app"
+    manifest = packager.package(source, output)
+    runtime = temp / "runtime"
+    runtime.mkdir()
+    system, machine = as_linux_x86_64()
+    with system, machine:
+        restored = launcher.unpack_binary(output, runtime)
+    return manifest, output, runtime, restored
+
+
 class PackageTests(unittest.TestCase):
     def test_large_binary_roundtrip_stays_under_upload_limit(self):
         with tempfile.TemporaryDirectory() as temp:
             temp = Path(temp)
             binary = elf(os.urandom(9_000_000))
-            source = temp / "source"
-            source.write_bytes(binary)
-            output = temp / "app"
-            manifest = packager.package(source, output)
+            manifest, output, runtime, restored = package_and_unpack(temp, binary)
             self.assertGreater(len(manifest["chunks"]), 1)
-            self.assertTrue(all(file.stat().st_size < 10_000_000 for file in output.iterdir()))
-            runtime = temp / "runtime"
-            runtime.mkdir()
-            with patch.object(launcher.platform, "system", return_value="Linux"), patch.object(launcher.platform, "machine", return_value="x86_64"):
-                restored = launcher.unpack_binary(output, runtime)
+            sizes = [file.stat().st_size for file in output.iterdir()]
+            self.assertTrue(all(size < 10_000_000 for size in sizes), sizes)
             self.assertEqual(restored.read_bytes(), binary)
-            self.assertEqual(restored.stat().st_mode & 0o777, 0o700)
             manifest["sha256"] = "0" * 64
             (output / "binary.json").write_text(json.dumps(manifest))
-            with patch.object(launcher.platform, "system", return_value="Linux"), patch.object(launcher.platform, "machine", return_value="x86_64"):
+            system, machine = as_linux_x86_64()
+            with system, machine:
                 with self.assertRaisesRegex(ValueError, "checksum"):
                     launcher.unpack_binary(output, runtime)
+
+    @unittest.skipUnless(os.name == "posix", "file modes require POSIX")
+    def test_restored_binary_is_owner_only(self):
+        with tempfile.TemporaryDirectory() as temp:
+            _, _, _, restored = package_and_unpack(Path(temp), elf(b"payload"))
+            self.assertEqual(restored.stat().st_mode & 0o777, 0o700)
 
     def test_rejects_dynamic_and_wrong_platform_binary(self):
         for binary in (b"not an ELF file", elf(dynamic=True), elf(architecture=0)):

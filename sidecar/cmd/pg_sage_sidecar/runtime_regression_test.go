@@ -311,6 +311,8 @@ func TestFleetBudgetMetricsExposePerDatabaseSpend(t *testing.T) {
 func TestInstanceAlertManagerFollowsAlertingFlag(t *testing.T) {
 	preserveFleetRuntimeGlobals(t)
 	cfg = config.DefaultConfig()
+	// alerting-06b: only the legacy engine builds a per-database manager.
+	cfg.Alerting.Engine = config.AlertingEngineLegacy
 	cfg.Alerting.Enabled = false
 	if newInstanceAlertManager(&pgxpool.Pool{}, "") != nil {
 		t.Fatal("disabled alerting built a manager")
@@ -329,6 +331,7 @@ func TestInstanceAlertManagerFollowsAlertingFlag(t *testing.T) {
 func TestInstanceAlertManagerStampsDatabaseName(t *testing.T) {
 	preserveFleetRuntimeGlobals(t)
 	cfg = config.DefaultConfig()
+	cfg.Alerting.Engine = config.AlertingEngineLegacy // alerting-06b
 	cfg.Alerting.Enabled = true
 	for _, name := range []string{"orders", "shard:01", ""} {
 		m := newInstanceAlertManager(&pgxpool.Pool{}, name)

@@ -362,6 +362,7 @@ type BriefingConfig struct {
 
 type AlertingConfig struct {
 	Enabled              bool            `yaml:"enabled" api:"bool"`
+	Engine               string          `yaml:"engine" doc:"Engine for the alerting block: notify (reconciled into notification channels and rules, sent through the outbox) or legacy (old per-database manager). Restart. Default: notify."`
 	CheckIntervalSeconds int             `yaml:"check_interval_seconds" api:"int_min5"`
 	CooldownMinutes      int             `yaml:"cooldown_minutes" api:"int_nonneg"`
 	RepeatMinutes        map[string]int  `yaml:"repeat_minutes" doc:"Minutes between reminders of a finding that stays open, per severity. A missing key takes its default; 0 never reminds. Default: critical 240, warning 1440, info 0."`
@@ -566,6 +567,8 @@ type OAuthConfig struct {
 	RoleMapping   []OAuthRoleMapping `yaml:"role_mapping" doc:"Maps IdP groups to pg_sage roles; the highest matching role wins and is re-applied at every SSO login."`
 	UnmappedUsers string             `yaml:"unmapped_users" doc:"When role_mapping is set, what a user in no mapped group gets: deny (default, refused) or default_role."`
 	BreakGlass    BreakGlassConfig   `yaml:"break_glass"`
+	// IdP group to per-database grant mapping (apiauth-08d); see idp_grants.go.
+	DatabaseGrantMapping []OAuthDatabaseGrant `yaml:"database_grant_mapping" doc:"Maps IdP groups to per-database grants (viewer or operator), re-applied at every SSO login. Empty (default) leaves grants to admins."`
 }
 
 // Interval helpers.
@@ -1125,6 +1128,7 @@ func newDefaults() *Config {
 		},
 		Alerting: AlertingConfig{
 			Enabled:              false,
+			Engine:               AlertingEngineNotify,
 			CheckIntervalSeconds: DefaultAlertingCheckInterval,
 			CooldownMinutes:      DefaultAlertingCooldown,
 			RepeatMinutes:        ResolveAlertRepeatMinutes(nil),

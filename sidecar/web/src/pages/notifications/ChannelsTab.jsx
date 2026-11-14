@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useConfirm } from '../../hooks/useConfirm'
-import { cardStyle, DELIVERY_STATUS_COLORS, StatusMessages } from './shared'
+import {
+  cardStyle, ConfigBadge, CONFIG_MANAGED_TITLE, DELIVERY_STATUS_COLORS, isConfigManaged,
+  StatusMessages,
+} from './shared'
 import { ChannelForm } from './ChannelForm'
 import { CallbackInfo } from './CallbackInfo'
 import { ChatIdentities } from './ChatIdentities'
@@ -166,12 +169,16 @@ function LastDelivery({ ch }) {
 const rowStyle = { borderBottom: '1px solid var(--border)' }
 
 function ChannelRow({ ch, onEdit, onTest, onToggle, onDelete }) {
+  const managed = isConfigManaged(ch)
+  const locked = managed ? { disabled: true, title: CONFIG_MANAGED_TITLE } : {}
   return (
     <tr data-testid="channel-row" style={rowStyle}>
-      <td className="px-4 py-2" style={{ color: 'var(--text-primary)' }}>{ch.name}</td>
+      <td className="px-4 py-2" style={{ color: 'var(--text-primary)' }}>
+        {ch.name}{managed && <ConfigBadge />}
+      </td>
       <td className="px-4 py-2" style={{ color: 'var(--text-secondary)' }}>{ch.type}</td>
       <td className="px-4 py-2">
-        <button onClick={() => onToggle(ch)} data-testid="channel-toggle-button"
+        <button onClick={() => onToggle(ch)} data-testid="channel-toggle-button" {...locked}
           className="text-xs px-2 py-1 rounded"
           style={{ color: ch.enabled ? 'var(--green)' : 'var(--red)' }}>
           {ch.enabled ? 'ON' : 'OFF'}
@@ -179,7 +186,7 @@ function ChannelRow({ ch, onEdit, onTest, onToggle, onDelete }) {
       </td>
       <td className="px-4 py-2 text-xs"><LastDelivery ch={ch} /></td>
       <td className="px-4 py-2 text-right whitespace-nowrap">
-        <button onClick={() => onEdit(ch)} data-testid="channel-edit-button"
+        <button onClick={() => onEdit(ch)} data-testid="channel-edit-button" {...locked}
           className="px-2 py-1 rounded text-xs mr-2" style={{ color: 'var(--accent)' }}>
           Edit
         </button>
@@ -187,7 +194,7 @@ function ChannelRow({ ch, onEdit, onTest, onToggle, onDelete }) {
           className="px-2 py-1 rounded text-xs mr-2" style={{ color: 'var(--accent)' }}>
           Test
         </button>
-        <button onClick={() => onDelete(ch)} data-testid="channel-delete-button"
+        <button onClick={() => onDelete(ch)} data-testid="channel-delete-button" {...locked}
           className="px-2 py-1 rounded text-xs" style={{ color: 'var(--red)' }}>
           Delete
         </button>

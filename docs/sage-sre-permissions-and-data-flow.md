@@ -275,7 +275,7 @@ pg_sage's checks, so grant it only where you want approved cancels.
 | Provider | `pg_signal_backend` | Verified |
 |---|---|---|
 | Self-managed PostgreSQL 14-18 | as a superuser: `GRANT pg_signal_backend TO sage_agent;` | yes: the agent kill tests grant and revoke it on a real server |
-| Google Cloud SQL, AlloyDB | as the `postgres` admin user | the repo's setup (`cloudsqltests/`) issues the grant, but logs and continues on an error, so success is not asserted |
+| Google Cloud SQL, AlloyDB | as the `postgres` admin user | not exercised by a live test in this repository (the v0.8 setup scripts were retired) |
 | Azure Database for PostgreSQL (flexible server) | as the server admin (`azure_pg_admin`) | yes: the documented setup, this grant included, ran without error on every flavor ([Azure](azure.md)) |
 | Amazon RDS / Aurora PostgreSQL | as the master user (`rds_superuser`) | not exercised by a live test in this repository |
 | Databricks Lakebase | not established | no: backend signalling is restricted or unproven there and is not an enabled Lakebase action ([Lakebase](lakebase.md)) |

@@ -497,18 +497,47 @@ decides whether a specific database can execute, queue, or only observe.
 
 ### Alerting
 
-pg_sage has two notification stacks today. They share no state, so configure one of them per
-destination: with both pointing at the same Slack webhook or PagerDuty routing key, a critical
-finding posts twice and opens two PagerDuty incidents, because their dedup keys differ.
+pg_sage delivers notifications through one engine, the notification outbox (alerting-06b).
+Channels and rules come from two places, both stored in `sage.notification_channels` and
+`sage.notification_rules` of the control database: the Notifications page (`managed_by =
+api`) and the config file's `alerting:` block, which the alerting owner reconciles into
+`config:<kind>:<name>` channels and `finding_opened`/`finding_resolved` rules (`managed_by =
+config`) at startup and on every live change ([alerting](configuration.md#alerting)). Each
+finding therefore posts once per channel and pages PagerDuty under one key, with the outbox's
+retries, cooldown, quiet hours and reminders. Config rows show a "From config file" badge and
+the API refuses to change them (409 `managed_by_config`).
 
-| | Notifications (channels and rules) | Config alerting (`alerting:` block) |
+`alerting.engine: legacy` keeps the old per-database alerting manager (below) for one
+release instead; at startup it removes the config rows a notify run left, so the block is
+delivered once, and it posts a second time to any destination the Notifications page routes to, because the two stacks share no state and their dedup keys
+differ. It is removed by alerting-06d.
+
+| | Notify engine (default) | Legacy engine (`engine: legacy`) |
 |---|---|---|
-| Configured in | the Notifications page, stored in `sage.notification_channels` and `sage.notification_rules` (the control database) | the config file's `alerting:` block |
+| Configured in | the Notifications page and the reconciled `alerting:` block | the config file's `alerting:` block |
 | Destinations | Slack, PagerDuty, email, Telegram, webhooks, Microsoft Teams, Opsgenie, incident.io | Slack, PagerDuty, webhooks |
 | Triggers | the event types below, each rule with a `min_severity` | every new finding at or above the route's severity, polled per database |
 | Retries | queued in `sage.notification_outbox`, up to 6 attempts | up to 3 attempts within one check |
 | Cooldown, quiet hours, reminders | the `alerting.*` values, for the finding events `finding_critical`, `finding_opened` and `finding_resolved` ([notification delivery](configuration.md#notification-delivery)) | `cooldown_minutes`, `quiet_hours_*`, `repeat_minutes` |
-| Log | `sage.notification_log`, the Notifications page's Log tab | `sage.alert_log` of each database, the Alert Log page |
+| Log | `sage.notification_log`, the Notifications page's Log tab | `sage.alert_log` of each database, `GET /api/v1/alert-log` (deprecated) |
+
+**One notification log.** Every delivery the notify engine makes is a row of
+`sage.notification_log` naming the database it was for and the event's dedup key; a
+fleet-wide event, and every row written before the upgrade that added the column, has no
+database and shows as `unknown`.
+The Notifications page's Log tab, open to admins and operators, lists them for the database
+selected in the header (all databases when none is), through
+`GET /api/v1/notifications/log?database=<name>`. The old Alert log is folded into it: the
+`#/alerts` dashboard URL redirects to the Log tab, keeping `?database=`, and
+`GET /api/v1/alert-log` still serves `sage.alert_log` history (rows age out as before) with
+`Deprecation: true` and a `Link` to its successor. Channels and rules stay admin-only.
+
+**Cutover.** After the switch to the notify engine, each database runtime resolves the
+PagerDuty pages the legacy engine opened on it (newest `sage.alert_log` row `sent` on the
+`pagerduty` channel, no resolve since) through the reconciled PagerDuty channel, under the
+legacy key `<database>:<category>:<object>`, once the finding resolves. Each attempt is
+logged in `sage.alert_log` (`resolved` or `resolve_error`, at most 5 failures per finding);
+the sweep runs every minute and stops when no legacy page is left.
 
 #### Notifications (channels and rules)
 
@@ -558,7 +587,7 @@ webhooks receive the resolves as ordinary messages ("Incident resolved: ...",
 is still prepended to every key. PagerDuty incidents opened before v2.5.1 used other keys and
 do not auto-resolve: close them by hand once after the upgrade.
 
-#### Config alerting (`alerting:` block)
+#### Legacy alerting engine (`alerting.engine: legacy`)
 
 Polls each monitored database for new findings and routes them by severity to Slack,
 PagerDuty and webhooks, with cooldown, quiet hours (a deferred alert is delivered when they

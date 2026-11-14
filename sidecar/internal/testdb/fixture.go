@@ -49,30 +49,53 @@ func DesignatedDSN() (string, error) {
 // Run creates one database per package process, runs the package tests, then
 // force-drops only that validated fixture database. Without EnvName it says
 // so on stderr, once, and runs the tests against the disabled DSN, so their
-// database tests skip instead of reaching an implicit localhost server.
+// database tests skip instead of reaching an implicit localhost server. The
+// database starts empty (template0); RunBootstrapped copies a bootstrapped
+// one instead. The package-wide pools (Pool) live from before the tests
+// until after them, and are closed before the database is dropped.
 func Run(run func() int, packageID string) int {
+	return runFixtureWith(run, packageID, "", nil)
+}
+
+// runFixtureWith is Run, with the fixture copied from the template that
+// chooseTemplate picks for root and bootstrap (template0 for nil).
+func runFixtureWith(run func() int, packageID, root string, bootstrap BootstrapFunc) int {
 	if strings.TrimSpace(os.Getenv(EnvName)) == "" {
-		fmt.Fprintf(os.Stderr, "testdb: %s unset; database tests in %s will skip\n",
+		fmt.Fprintf(diag(), "testdb: %s unset; database tests in %s will skip\n",
 			EnvName, packageID)
-		return runWithDSNEnvironment(run, disabledDSN)
+		return runWithSharedPools(run, disabledDSN)
 	}
 	baseDSN, err := DesignatedDSN()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "test fixture setup failed: %v\n", err)
+		fmt.Fprintf(diag(), "test fixture setup failed: %v\n", err)
 		return 1
 	}
-	name := fixtureDatabaseName(packageID, os.Getpid())
-	fixtureURL, err := createFixture(baseDSN, name)
+	template, err := chooseTemplate(baseDSN, root, bootstrap)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "test fixture setup failed: %v\n", err)
+		fmt.Fprintf(diag(), "test fixture setup failed: %v\n", err)
 		return 1
 	}
-	code := runWithDSNEnvironment(run, fixtureURL)
+	setFixtureTemplate(template)
+	name := fixtureDatabaseName(packageID, os.Getpid())
+	fixtureURL, err := createFixtureFrom(baseDSN, name, "designated", template)
+	if err != nil {
+		fmt.Fprintf(diag(), "test fixture setup failed: %v\n", err)
+		return 1
+	}
+	code := runWithSharedPools(run, fixtureURL)
 	if err := dropFixture(baseDSN, name); err != nil {
-		fmt.Fprintf(os.Stderr, "test fixture cleanup failed: %v\n", err)
+		fmt.Fprintf(diag(), "test fixture cleanup failed: %v\n", err)
 		return 1
 	}
 	return code
+}
+
+// runWithSharedPools runs the tests with the package-wide pools open and
+// closes them all afterwards, before the fixture database is dropped.
+func runWithSharedPools(run func() int, dsn string) int {
+	sharedPools.open()
+	defer sharedPools.close()
+	return runWithDSNEnvironment(run, dsn)
 }
 
 func runWithDSNEnvironment(run func() int, dsn string) int {
@@ -107,6 +130,19 @@ func fixtureDSN(baseDSN, database string) (string, error) {
 	if err := validateFixtureDatabaseName(database); err != nil {
 		return "", err
 	}
+	return swapDatabase(baseDSN, database)
+}
+
+// templateDSN is fixtureDSN for a fixture template.
+func templateDSN(baseDSN, database string) (string, error) {
+	if err := validateTemplateDatabaseName(database); err != nil {
+		return "", err
+	}
+	return swapDatabase(baseDSN, database)
+}
+
+// swapDatabase is baseDSN naming database instead.
+func swapDatabase(baseDSN, database string) (string, error) {
 	parsed, err := url.Parse(baseDSN)
 	if err != nil {
 		return "", fmt.Errorf("parse designated test DSN: %w", err)
@@ -132,19 +168,30 @@ func validateFixtureDatabaseName(database string) error {
 // shared server can keep one waiting well past the time the DDL needs.
 const fixtureDatabaseTimeout = 2 * time.Minute
 
-func createFixture(baseDSN, database string) (string, error) {
+// createFixture creates database on the server baseDSN names; server labels
+// that server in a connect error ("designated", "exclusive").
+func createFixture(baseDSN, database, server string) (string, error) {
+	return createFixtureFrom(baseDSN, database, server, "template0")
+}
+
+// createFixtureFrom is createFixture copying template: template0 or a
+// fixture template (ci-15).
+func createFixtureFrom(baseDSN, database, server, template string) (string, error) {
 	if err := validateFixtureDatabaseName(database); err != nil {
+		return "", err
+	}
+	if err := validateFixtureTemplate(template); err != nil {
 		return "", err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), fixtureDatabaseTimeout)
 	defer cancel()
 	admin, err := pgx.Connect(ctx, baseDSN)
 	if err != nil {
-		return "", fmt.Errorf("connect designated test server: %w", err)
+		return "", fmt.Errorf("connect %s test server: %w", server, err)
 	}
 	defer func() { _ = admin.Close(context.Background()) }()
 	_, err = admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{database}.Sanitize()+
-		" TEMPLATE template0")
+		" TEMPLATE "+pgx.Identifier{template}.Sanitize())
 	if err != nil {
 		return "", fmt.Errorf("create fixture database %s: %w", database, err)
 	}

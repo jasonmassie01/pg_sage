@@ -44,15 +44,16 @@
 | `agents.single_operator_mode` | `restart` | `-` | `safety_critical` |
 | `alerting.check_interval_seconds` | `restart` | `-` | `operator_preference` |
 | `alerting.cooldown_minutes` | `reconfigure` | `alerting` | `operator_preference` |
-| `alerting.enabled` | `restart` | `-` | `operator_preference` |
-| `alerting.pagerduty_routing_key` | `restart` | `-` | `safety_critical` |
+| `alerting.enabled` | `reconfigure` | `alerting` | `operator_preference` |
+| `alerting.engine` | `restart` | `-` | `operator_preference` |
+| `alerting.pagerduty_routing_key` | `reconfigure` | `alerting` | `safety_critical` |
 | `alerting.quiet_hours_end` | `reconfigure` | `alerting` | `operator_preference` |
 | `alerting.quiet_hours_start` | `reconfigure` | `alerting` | `operator_preference` |
 | `alerting.repeat_minutes` | `reconfigure` | `alerting` | `operator_preference` |
-| `alerting.routes` | `restart` | `-` | `operator_preference` |
-| `alerting.slack_webhook_url` | `restart` | `-` | `safety_critical` |
+| `alerting.routes` | `reconfigure` | `alerting` | `operator_preference` |
+| `alerting.slack_webhook_url` | `reconfigure` | `alerting` | `safety_critical` |
 | `alerting.timezone` | `reconfigure` | `alerting` | `operator_preference` |
-| `alerting.webhooks` | `restart` | `-` | `safety_critical` |
+| `alerting.webhooks` | `reconfigure` | `alerting` | `safety_critical` |
 | `analyzer.analyze_stale_days` | `restart` | `-` | `derivable` |
 | `analyzer.analyze_stale_min_rows` | `restart` | `-` | `derivable` |
 | `analyzer.autovacuum_tune_min_rows` | `restart` | `-` | `derivable` |
@@ -298,6 +299,7 @@
 | `oauth.break_glass.password_hash` | `restart` | `-` | `safety_critical` |
 | `oauth.client_id` | `restart` | `-` | `safety_critical` |
 | `oauth.client_secret` | `restart` | `-` | `safety_critical` |
+| `oauth.database_grant_mapping` | `restart` | `-` | `safety_critical` |
 | `oauth.default_role` | `restart` | `-` | `safety_critical` |
 | `oauth.enabled` | `restart` | `-` | `safety_critical` |
 | `oauth.groups_claim` | `restart` | `-` | `safety_critical` |
@@ -456,6 +458,7 @@
 | `sre.detectors.temp_file_mb` | `restart` | `-` | `derivable` |
 | `sre.detectors.window_seconds` | `restart` | `-` | `derivable` |
 | `sre.evidence_retention_days` | `restart` | `-` | `derivable` |
+| `sre.investigator.require_support_citation` | `restart` | `-` | `safety_critical` |
 | `sre.llm.enabled` | `restart` | `-` | `safety_critical` |
 | `sre.llm.mode` | `restart` | `-` | `safety_critical` |
 | `sre.poolers` | `restart` | `-` | `safety_critical` |

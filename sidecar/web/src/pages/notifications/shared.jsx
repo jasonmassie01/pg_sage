@@ -12,6 +12,26 @@ export const cardStyle = {
   border: '1px solid var(--border)',
 }
 
+// alerting-06b: rows reconciled from the config file's alerting: block are
+// managed_by "config"; the API refuses to change them (409), so the page
+// shows where they come from and offers no edit, toggle or delete.
+export const CONFIG_MANAGED_TITLE =
+  "Set by the alerting: block of the config file; change it there"
+
+export function isConfigManaged(row) {
+  return row?.managed_by === 'config'
+}
+
+export function ConfigBadge() {
+  return (
+    <span data-testid="config-managed-badge" title={CONFIG_MANAGED_TITLE}
+      className="ml-2 text-xs px-1.5 py-0.5 rounded whitespace-nowrap"
+      style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)' }}>
+      From config file
+    </span>
+  )
+}
+
 // Mirrors notify.EventSeverity: the severity each event is emitted with.
 // A rule whose min_severity is above it can never fire, so new rules
 // default to the event's own severity (notify.DefaultMinSeverity).
