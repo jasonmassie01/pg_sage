@@ -126,6 +126,31 @@ describe('ExplainPanel', () => {
       .toHaveTextContent('no pg_stat_statements entry 42 (400)')
   })
 
+  // dashboard-13: a failed explain could only be retried by closing and
+  // reopening the panel.
+  it('offers Retry after a 500 and shows the result of the new request', async () => {
+    respond(500, { error: 'explain failed: canceling statement due to timeout' })
+    render(<ExplainPanel database="orders" queryid="42" />)
+    expect(await screen.findByRole('alert'))
+      .toHaveTextContent('explain failed: canceling statement due to timeout (500)')
+    respond(200, rulesOnly)
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(await screen.findByTestId('explain-slow-because'))
+      .toHaveTextContent('sort spilled 8.2 MB to disk')
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+    expect(calls).toHaveLength(2)
+    expect(JSON.parse(calls[1].init.body)).toEqual({ query_id: '42' })
+    expect(calls[1].url).toBe('/api/v1/explain?database=orders')
+  })
+
+  it('offers no Retry while the result is shown', async () => {
+    respond(200, rulesOnly)
+    render(<ExplainPanel database="orders" queryid="42" />)
+    await screen.findByTestId('explain-slow-because')
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+  })
+
   it('tolerates a response without insights (an older cached result)', async () => {
     respond(200, { ...rulesOnly, insights: undefined })
     render(<ExplainPanel database="db" queryid="42" />)
