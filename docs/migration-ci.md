@@ -159,6 +159,9 @@ jq -n --rawfile sql migrations/0042_add_index.sql '{sql: $sql, database: "orders
 * 401 with `WWW-Authenticate: Bearer`: the token is malformed, unknown, expired or
   revoked. 403 `scope_missing`: the token lacks `read`. A metrics-only token is refused.
   404: a `database` outside the token's list, answered as an unknown database.
+  With `api.database_grants` on, a person's token is also limited to the databases its
+  owner may read now, the same 404 otherwise; if the grants cannot be checked the request
+  is refused with 503 `grant_store_unavailable`.
   503 `token validation unavailable`: the control database could not check the token
   (retry; the token is not at fault). The secret is never logged.
 * The rate limit counts per token (`token:<id>`), and the access log records that

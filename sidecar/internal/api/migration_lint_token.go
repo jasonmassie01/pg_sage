@@ -17,7 +17,9 @@ import (
 // instead of signing in. The token is the only credential such a request
 // carries: a session cookie beside it is ignored, a bad token is never
 // retried as a session. A token limited to some databases may name only
-// those; any other is 404, as an unknown database. Cross-origin
+// those; any other is 404, as an unknown database. With api.database_grants
+// on, a person's token is further limited to what its owner may read now
+// (apiauth-08c). Cross-origin
 // protection still runs first: CI clients send no Origin or
 // Sec-Fetch-Site and pass it, and a browser cannot send the header
 // cross-origin without a CORS grant pg_sage never gives. In a Databricks
@@ -66,6 +68,15 @@ func (h *tokenOrSession) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	p, ok := authenticateReadToken(w, r, h.tokens, secret)
 	if !ok {
+		return
+	}
+	// A person's token lints only the databases its owner may read now
+	// (apiauth-08c); a grant store failure refuses the request.
+	p, err := scopeMCPPrincipal(r.Context(), databaseAuthzFrom(r.Context()), p)
+	if err != nil {
+		slog.Error("migration lint grant check failed; refusing the token request",
+			"token_id", p.TokenID, "owner_user_id", p.OwnerUserID, "err", err)
+		writeGrantStoreUnavailable(w)
 		return
 	}
 	// Never both: drop any session user, so only the token acts.
