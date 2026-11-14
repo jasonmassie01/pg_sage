@@ -95,6 +95,23 @@ var analyzerEntries = []Category{
 		"The WAL archiver failing since its last successful archive (critical after 30 min)."),
 	a("wal_archive_stale", sevWC, k("backup.max_archive_gap_minutes"), nil,
 		"Completed WAL waiting longer than the archive gap since the last archive."),
+	a("pg_cron_job_failed", sevIW, nil, nil,
+		"A pg_cron job whose latest run in the last 24 hours failed (info: the "+
+			"monitoring role sees only its own jobs)."),
+	a("pg_cron_history_unbounded", sevI, nil, nil,
+		"pg_cron's cron.job_run_details past an estimated 1,000,000 rows; pg_cron "+
+			"never purges it."),
+	a("partman_premake_gap", sevW, nil, nil,
+		"A pg_partman parent with fewer future child partitions than its premake."),
+	a("partman_default_rows", sevW, nil, nil,
+		"Rows in the default partition of a pg_partman parent."),
+	a("timescale_job_failed", sevW, nil, nil,
+		"A scheduled TimescaleDB job (compression, retention, refresh or a "+
+			"user action) whose last run failed."),
+	a("timescale_cagg_stale", sevW, nil, nil,
+		"A TimescaleDB continuous aggregate whose watermark lags more than 3 x its "+
+			"refresh policy's schedule_interval plus end_offset, while the policy has "+
+			"not succeeded within that time."),
 	a("sequence_exhaustion", sevWC, nil, act("prepare_sequence_capacity_migration"),
 		"A sequence that has used most of its range."),
 	a("sort_without_index", sevW, nil, nil,

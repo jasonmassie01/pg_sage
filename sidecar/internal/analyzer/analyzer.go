@@ -144,6 +144,10 @@ type Analyzer struct {
 	// freezeHorizons is the database's freeze sampler (WithFreezeHorizons).
 	freezeHorizons FreezeHorizonSource
 
+	// extGate finds pg_cron and pg_partman (market-16); nil reads
+	// pg_extension. Tests inject it.
+	extGate extGateFunc
+
 	// rulePack is this database's disabled-rules override and checks its
 	// owner-defined read-only checks (market-11); nil runs none.
 	rulePack rulePackState

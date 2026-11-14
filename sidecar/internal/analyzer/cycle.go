@@ -85,6 +85,7 @@ func (a *Analyzer) loadCycleInputs(ctx context.Context, current *collector.Snaps
 	a.eval.collectedAt = current.CollectedAt
 	a.loadRecentlyCreatedIndexes(ctx)
 	a.loadCycleCatalogState(ctx)
+	a.loadExtensionState(ctx)
 	a.prepareUnusedClock(ctx, current)
 }
 

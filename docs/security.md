@@ -43,6 +43,26 @@ Agent governance creates and retires agent roles only when pg_sage's role has
 `CREATEROLE` on PostgreSQL 16+ (`ALTER ROLE sage_agent CREATEROLE`); without it,
 or below 16, agent governance is posture-only ([agent governance](agent-governance.md)).
 
+The [extension health checks](findings.md#extension-health-pg_cron-and-pg_partman)
+read pg_cron's and pg_partman's tables where those extensions are installed. For
+`pg_cron_job_failed` the monitoring role needs `USAGE` on pg_cron's schema and
+`SELECT` on `cron.job` and `cron.job_run_details`. pg_cron's row security shows a
+role only the jobs it owns, so on a self-managed server only a superuser (or a role
+with `BYPASSRLS`) sees every job; providers such as RDS and Cloud SQL give this to
+their admin role. pg_sage stays safe without it: a role that sees no job gets an
+info finding saying so (`visibility: own_jobs_only`) instead of a health verdict.
+For pg_partman it needs `USAGE` and `EXECUTE` on the extension's schema, `SELECT` on
+`part_config`, and `SELECT` on each managed parent and default partition
+(`pg_read_all_data` on PostgreSQL 14+ covers the tables). Without a grant the check
+is not evaluated, its open findings stay open, and one warning per streak names the
+table.
+The [TimescaleDB checks](findings.md#extension-health-timescaledb) read the
+`timescaledb_information` views `jobs`, `job_stats`, `continuous_aggregates` and
+`dimensions`, and call `cagg_watermark()` in `_timescaledb_functions` (2.12 and
+later) or `_timescaledb_internal`. TimescaleDB grants these to `PUBLIC`, so the
+monitoring role needs no extra grant unless an operator revoked them; then the
+category is not evaluated and one warning per streak says what could not be read.
+
 ### Separate observation and action roles (`action_dsn`)
 
 By default one role does everything, so every probe, Ask Sage query and MCP read runs with
@@ -176,6 +196,9 @@ Beyond the catalog it reads:
 | `EXPLAIN` plans | Optimizer, query analysis and the EXPLAIN endpoint (`explain.enabled`; REST and MCP need the operator role or the `propose` scope) | The plan; no rows |
 | `EXPLAIN ANALYZE` | When the caller asks for it on the EXPLAIN endpoint, inside a `READ ONLY` transaction with `explain.timeout_ms`, and only for a statement pg_sage proves free of side effects, including calls its text does not show: a volatile implicit or assignment cast anywhere in the database, a volatile default argument of a called function, or a domain CHECK constraint that calls a volatile function, run when a value is coerced to a domain argument, operand or field (anything else gets the plan alone, with `analyze_refused`) | Executing the statement reads the rows it touches; pg_sage keeps the plan, timings and row counts, never result rows |
 | Retention row counts | A table whose owner declared a [retention contract](configuration.md#retention-contracts): the dry run counts eligible rows, and each batch reports how many it deleted | Counts only |
+| pg_cron run history | `cron.job_run_details` when pg_cron is installed: the last 24 hours of finished runs, at most 50 failing jobs | Job id, name, failure count, last failure time and its message (literals redacted, cut to 300 characters) |
+| pg_partman parents | `show_partitions` and `show_partition_info` on the newest `premake + 1` children, for an id-controlled parent `SELECT max(control)` on those listed children, newest first, until one holds a row, and one row's existence in each default partition | Counts and partition names; no rows |
+| TimescaleDB jobs and aggregates | `timescaledb_information` views when TimescaleDB is installed: scheduled jobs whose last run failed (at most 50), and continuous aggregates with a scheduled refresh policy (at most 100) with their `cagg_watermark()` and the policy's last successful finish | Job id, procedure, hypertable, failure count and next start; aggregate name, watermark and lag; no rows |
 | Live session text | `pg_stat_activity.query` for lock and incident evidence (`pg_read_all_stats`) | Literals redacted, cut to 256 bytes ([LLM data](#llm-configured)) |
 
 Agents get plan-only EXPLAIN under their own database role through agent
