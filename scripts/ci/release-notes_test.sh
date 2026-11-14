@@ -210,7 +210,8 @@ new_changelog <<'EOF'
 
 - Older line.
 EOF
-expect 1 'no release notes for v2\.5\.1-rc\.1 .*tried ## v2\.5\.1-rc\.1 ## v2\.5\.1 ## \[Unreleased\]' \
+tried='tried ## v2\.5\.1-rc\.1 ## v2\.5\.1 ## \[Unreleased\]'
+expect 1 "no release notes for v2\.5\.1-rc\.1 .*$tried" \
   "an [Unreleased] with an empty body fails a release candidate" \
   -- bash "$script" v2.5.1-rc.1 "$file"
 
