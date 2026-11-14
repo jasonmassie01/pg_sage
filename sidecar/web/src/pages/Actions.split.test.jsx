@@ -133,6 +133,23 @@ describe('Actions executed list rows', () => {
       .toHaveTextContent('DROP INDEX CONCURRENTLY idx_b;')
   })
 
+  it('resets the expanded row when switching between History and In progress', () => {
+    h.store.actions = [...executedRows, { id: '4', ledger_key: 'log:4',
+      record_kind: 'executed', database_name: 'orders', action_type: 'analyze',
+      outcome: 'pending', sql_executed: 'ANALYZE public.orders;',
+      executed_at: '2026-10-03T07:00:00Z' }]
+    openTab('executed', 'admin')
+    fireEvent.click(within(rowFor('lock timeout on idx_b')).getByLabelText('Expand row'))
+    expect(screen.getByText('Error Details')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('actions-tab-progress'))
+    expect(screen.getByTestId('executed-actions-count'))
+      .toHaveTextContent('1 loaded in-progress records')
+    fireEvent.click(screen.getByTestId('actions-tab-executed'))
+    expect(screen.getByTestId('executed-actions-count'))
+      .toHaveTextContent('3 loaded history records')
+    expect(screen.queryByText('Error Details')).toBeNull()
+  })
+
   it('shows the empty state when no row is loaded', () => {
     h.store.actions = []
     openTab('executed', 'admin')
