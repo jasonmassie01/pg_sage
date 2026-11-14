@@ -127,13 +127,15 @@ func (p *detailParser) finishStatement() {
 	}
 }
 
-// statementFingerprint clips stmt to maxStatementBytes, redacts its
-// literals and values, collapses whitespace, and returns the first 16 hex
-// characters of the sha256 of that text and the text clipped to
-// maxStatementRunes. A blank statement gives neither.
+// statementFingerprint clips stmt to maxStatementBytes, strips its
+// comments (free text that may name a person and per-request tags that
+// would split one shape into many ids), redacts its literals and values,
+// collapses whitespace, and returns the first 16 hex characters of the
+// sha256 of that text and the text clipped to maxStatementRunes. A blank
+// statement gives neither.
 func statementFingerprint(stmt string) (fingerprint, text string) {
-	norm := strings.Join(strings.Fields(
-		redactStatementValues(llm.RedactSQLLiterals(Truncate(stmt, maxStatementBytes)))), " ")
+	clean := llm.RedactSQLLiterals(llm.StripSQLComments(Truncate(stmt, maxStatementBytes)))
+	norm := strings.Join(strings.Fields(redactStatementValues(clean)), " ")
 	if norm == "" {
 		return "", ""
 	}

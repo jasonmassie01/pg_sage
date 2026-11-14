@@ -288,3 +288,18 @@ func TestParseDeadlockDetail_RealServerLog(t *testing.T) {
 		t.Error("two statement shapes share a fingerprint")
 	}
 }
+
+// Invalid input: comments are free text (a name, a request id) and never
+// reach the text or split one shape into several fingerprints.
+func TestParseDeadlockDetail_StripsComments(t *testing.T) {
+	plain, _ := ParseDeadlockDetail("Process 1: UPDATE t SET v = 1 WHERE id = 7", "")
+	commented, _ := ParseDeadlockDetail("Process 1: /* customer alice req=ab12cd */ "+
+		"UPDATE t SET v = 1 -- ticket bob\n WHERE id = 7", "")
+	if len(commented) != 1 || commented[0].Statement != "UPDATE t SET v = ? WHERE id = ?" {
+		t.Fatalf("participants = %+v, want the statement without its comments", commented)
+	}
+	if commented[0].Fingerprint != plain[0].Fingerprint {
+		t.Errorf("fingerprints %s (commented), %s (plain); want the same shape id",
+			commented[0].Fingerprint, plain[0].Fingerprint)
+	}
+}

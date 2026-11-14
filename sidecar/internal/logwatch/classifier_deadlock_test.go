@@ -224,3 +224,22 @@ func assertWholeSetsAndTotals(t *testing.T, sigs []*rca.Signal) {
 		t.Errorf("windows total %d occurrences, want %d", sum, raceWorkers*raceLinesPerWorker)
 	}
 }
+
+// State: the unread DETAIL lines of every deadlock in a window add up on
+// the window's follow-up (two German reports of 2 lines each give 4).
+func TestClassifier_UnparsedLinesSumOverWindow(t *testing.T) {
+	c := defaultClassifier()
+	de := "Prozess 4242 wartet auf ShareLock-Sperre auf Transaktion 745; " +
+		"blockiert von Prozess 4243.\nProzess 4242: UPDATE t SET v = 1"
+	c.Classify(deadlockWith(4242, occBase, de, ""))
+	if s := c.Classify(deadlockWith(4243, occBase.Add(time.Second), de, "")); s != nil {
+		t.Fatalf("second deadlock in the window emitted at once: %+v", s)
+	}
+	ups := c.FollowUps()
+	if len(ups) != 1 {
+		t.Fatalf("follow-ups = %d, want 1", len(ups))
+	}
+	if got := ups[0].Metrics[rca.MetricParticipantsUnparsed]; got != 4 {
+		t.Errorf("participants_unparsed = %v, want 4 (2 lines in each of 2 reports)", got)
+	}
+}
