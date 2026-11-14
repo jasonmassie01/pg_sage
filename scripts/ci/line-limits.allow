@@ -21,6 +21,5 @@ sidecar/internal/store/action_store.go 744
 sidecar/internal/store/config_helpers.go 818
 sidecar/internal/store/config_store.go 587
 sidecar/sre-bench/scenarios_wal.go 509
-sidecar/web/src/pages/Actions.jsx 885
 
 functions_over_50 73
