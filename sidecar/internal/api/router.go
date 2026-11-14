@@ -104,6 +104,10 @@ type RuntimeDeps struct {
 	// TelemetryHistory resolves a registered database to retained normalized
 	// history. It must never run caller-supplied SQL or broaden provider scope.
 	TelemetryHistory func(context.Context, string, string, time.Time, time.Time, int) (any, error)
+	// LakebaseWaitLoad reads a database's raw Lakebase wait counters as the
+	// wait-load chart's preferred source after Performance Insights
+	// (market-01b); nil keeps the activity samples alone.
+	LakebaseWaitLoad LakebaseWaitLoadFunc
 	// LakebaseCredentials lists each Lakebase endpoint's credential refresh
 	// state for the admin deployment status; nil reports no endpoints.
 	LakebaseCredentials func() []databricksauth.EndpointCredential
@@ -242,7 +246,7 @@ func registerFleetScopedRoutes(
 	}
 	registerAPIRoutes(
 		apiMux, mgr, cfg, llmMgr, rt.ConfigController, runtimeConfigStore,
-		rt.DisableConfigWrites,
+		rt.DisableConfigWrites, rt.LakebaseWaitLoad,
 	)
 	registerLLMBudgetRoutes(apiMux, llmBudgetSource(rt.LLMBudgets, llmMgr))
 	registerDeploymentStatusRoutes(apiMux, cfg, rt, llmBudgetSource(rt.LLMBudgets, llmMgr))
