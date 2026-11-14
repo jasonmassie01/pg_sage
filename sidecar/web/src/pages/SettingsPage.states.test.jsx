@@ -69,16 +69,18 @@ afterEach(() => {
 
 describe('Settings invalid input', () => {
   // The numeric fields are <input type="number">: the browser keeps no
-  // non-numeric text, so the edit is empty and the review shows it unset.
-  // Nothing is sent until the operator applies the review.
+  // non-numeric text, so the edit is empty. config-02b refuses an edit
+  // outside the key's value contract on Save, before the review opens, so
+  // nothing is sent and no review is shown.
   it('keeps no non-numeric text in a numeric field and sends nothing', () => {
     renderPage()
     editRetention('abc')
     expect(screen.getByTestId('setting-retention.snapshots_days')).toHaveValue(null)
     expect(globalThis.fetch).not.toHaveBeenCalled()
     fireEvent.click(screen.getByTestId('settings-save'))
-    expect(screen.getByTestId('config-diff-after-retention.snapshots_days'))
-      .toHaveTextContent('(unset)')
+    expect(screen.getByTestId('settings-feedback'))
+      .toHaveTextContent('retention.snapshots_days must be a number, got ""')
+    expect(screen.queryByTestId('config-diff-after-retention.snapshots_days')).toBeNull()
     expect(globalThis.fetch).not.toHaveBeenCalled()
   })
 })
