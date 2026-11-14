@@ -5,11 +5,7 @@
 // with failure code stale_evidence and no diagnosis; the panel says that,
 // and offers no re-run control.
 
-import { isStaleExpiry, STALE_EVIDENCE_TEXT } from './staleEvidence'
-
-// The longest configurable sample interval (sre MaxSampleInterval): an
-// age within it is evidence collected during the run itself.
-const SAMPLE_INTERVAL_S = 30
+import { isStaleExpiry, SAMPLE_INTERVAL_S, STALE_EVIDENCE_TEXT } from './staleEvidence'
 
 function ageText(seconds) {
   if (seconds < 60) return `${seconds} s`
