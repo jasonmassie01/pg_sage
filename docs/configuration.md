@@ -3432,10 +3432,24 @@ dropped on upgrade.
 
 ### Log-based RCA
 
-With `logwatch.enabled` and `rca.enabled`, pg_sage tails the server's csvlog or jsonlog
-and opens incidents from it (crashes, WAL gaps, corruption, wraparound, disk full and the
-other signals below). It is **off by default**: `logwatch.enabled` is `false`. Migration
-log detection (`migration.log_detection`) reads the same watcher.
+With `rca.enabled` (the default), pg_sage tails the server's csvlog or jsonlog and opens
+incidents from it (crashes, WAL gaps, corruption, wraparound, disk full and the other
+signals below). `logwatch.enabled` takes three values:
+
+- unset or `auto` (the default): log RCA starts by itself once a readable source is
+  detected: a jsonlog or csvlog file in the server's `log_directory` that the sidecar can
+  read, or a configured provider log sink (Supabase). Until then the source is `disabled`
+  with reason `auto: <what is missing>`, one INFO line is logged (not a WARN per retry),
+  and the background retry keeps probing, so fixing `log_destination` or mounting the
+  log directory activates it without a restart.
+- `true`: always wanted; an unreadable log is `unavailable` and logged as a WARN.
+- `false`: never read the server log.
+
+Set `logwatch.enabled: false` to keep log RCA off.
+`logwatch.slow_query_enabled` stays opt-in, because it reads statement text. Migration log
+detection (`migration.log_detection`) reads the same watcher and stays opt-in. The
+override API takes `true`, `false` or `auto`, and `GET /api/v1/deployment/status` reports
+`readers.logwatch_mode`.
 
 **Requirements.** PostgreSQL 14-18. The server must write log files pg_sage can parse:
 
@@ -3453,7 +3467,7 @@ loses nothing. Detection only reads `pg_settings` (read-only, bounded by a timeo
 
 | Key | Default | Meaning |
 |---|---|---|
-| `logwatch.enabled` | `false` | Tail the server log for RCA. Needs `rca.enabled` (or migration log detection) |
+| `logwatch.enabled` | auto | `auto` (unset): tail the server log once a readable source is detected; `true`: always; `false`: never. Needs `rca.enabled` (or migration log detection) |
 | `logwatch.log_directory` | auto | Log directory as the sidecar sees it; blank reads `log_directory` from `pg_settings` |
 | `logwatch.format` | auto | `jsonlog` or `csvlog`; blank reads `log_destination` |
 | `logwatch.poll_interval_ms` | `1000` | How often the tailer polls the log file (it only polls) |
@@ -3469,7 +3483,8 @@ database: `state` is `active` (tailing; with `format`, `file`, `last_line_at`,
 `parse_errors` and `dropped_lines`), `unavailable` (wanted but unreadable; `reason` names the
 setting at fault, for example `log_destination is "stderr"` or `logging_collector is "off"`,
 and `next_retry_at` says when pg_sage tries again) or `disabled` (`reason` names the switch,
-for example `logwatch.enabled is false`). `hints` lists settings that keep a signal silent.
+for example `logwatch.enabled is false`; in auto mode, `auto: ` and the setting at fault,
+with `next_retry_at`, because the retry keeps probing). `hints` lists settings that keep a signal silent.
 An unavailable source is retried in the background, first after 30 s and then doubling to
 every 10 minutes, until it starts or the sidecar stops; databases that started while it was
 unavailable receive its signals once it is active, without a restart. In fleet mode one
