@@ -191,4 +191,3 @@ func isVolatileDefault(expr string) bool {
 	}
 	return false
 }
-
