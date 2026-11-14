@@ -27,7 +27,7 @@ const maxWaitLoadEvents = 20
 var ErrHistoryUnavailable = errors.New("history source unavailable")
 
 // WaitLoadPoint is one counter interval: average active sessions by wait
-// class over [From, T), summed across the endpoint's computes.
+// class over [From, T), summed across the computes that share its edges.
 type WaitLoadPoint struct {
 	From     time.Time          `json:"from"`
 	T        time.Time          `json:"t"`
@@ -44,21 +44,61 @@ type WaitLoadEvent struct {
 }
 
 // WaitLoadSeries is the window's wait load, oldest interval first.
-// Skipped counts unusable intervals; Truncated reports that the read was
-// capped and older intervals are missing.
+// Current is the load by wait class now: each compute's newest interval
+// that overlaps the newest interval of all, summed (computes need not share
+// interval edges), ending at CurrentAt. Skipped counts unusable intervals;
+// Truncated reports that the read was capped and older intervals are missing.
 type WaitLoadSeries struct {
-	Points    []WaitLoadPoint `json:"series"`
-	Classes   []string        `json:"classes"`
-	Events    []WaitLoadEvent `json:"events"`
-	Skipped   int             `json:"skipped"`
-	Truncated bool            `json:"truncated"`
+	Points    []WaitLoadPoint    `json:"series"`
+	Current   map[string]float64 `json:"current"`
+	CurrentAt time.Time          `json:"current_at"`
+	Classes   []string           `json:"classes"`
+	Events    []WaitLoadEvent    `json:"events"`
+	Skipped   int                `json:"skipped"`
+	Truncated bool               `json:"truncated"`
 }
 
 type waitInterval struct {
 	from, to     time.Time
+	compute      string
 	class, event string
 	seconds      float64
 	count        float64
+}
+
+// computeNewest is one compute's newest interval and its load by class.
+type computeNewest struct {
+	from, to time.Time
+	byClass  map[string]float64
+}
+
+// add keeps iv's load when iv is the compute's newest interval so far.
+func (c *computeNewest) add(iv waitInterval, aas float64) {
+	if c.byClass == nil || iv.to.After(c.to) || (iv.to.Equal(c.to) && iv.from.After(c.from)) {
+		c.from, c.to, c.byClass = iv.from, iv.to, map[string]float64{}
+	}
+	if iv.from.Equal(c.from) && iv.to.Equal(c.to) {
+		c.byClass[iv.class] += aas
+	}
+}
+
+// currentLoad sums each compute's newest interval overlapping newest.
+func currentLoad(newest map[string]*computeNewest, points []WaitLoadPoint,
+) (map[string]float64, time.Time) {
+	out := map[string]float64{}
+	if len(points) == 0 {
+		return out, time.Time{}
+	}
+	last := points[len(points)-1]
+	for _, c := range newest {
+		if !c.to.After(last.From) {
+			continue
+		}
+		for class, v := range c.byClass {
+			out[class] += v
+		}
+	}
+	return out, last.T
 }
 
 // waitIntervalOf parses one counter event; ok is false for an unusable one
@@ -82,7 +122,8 @@ func waitIntervalOf(e Event) (waitInterval, bool) {
 			return waitInterval{}, false
 		}
 	}
-	return waitInterval{from: from, to: e.OccurredAt.UTC(), class: f["wait_class_name"],
+	return waitInterval{from: from, to: e.OccurredAt.UTC(), compute: e.ComputeID,
+		class: f["wait_class_name"],
 		event: f["wait_event_name"], seconds: waited * WaitEventTimeUnit.Seconds(),
 		count: count}, true
 }
@@ -91,14 +132,15 @@ func waitIntervalOf(e Event) (waitInterval, bool) {
 // is in the window when it overlaps [from, to]: one starting at from is
 // counted, one ending at from is not. It is counted whole, not prorated.
 func WaitLoad(events []Event, from, to time.Time) (WaitLoadSeries, error) {
-	out := WaitLoadSeries{Points: []WaitLoadPoint{}, Classes: []string{},
-		Events: []WaitLoadEvent{}}
+	out := WaitLoadSeries{Points: []WaitLoadPoint{}, Current: map[string]float64{},
+		Classes: []string{}, Events: []WaitLoadEvent{}}
 	if from.IsZero() || !to.After(from) {
 		return out, errors.New("lakebase wait load: until must be after since")
 	}
 	points := map[[2]time.Time]*WaitLoadPoint{}
 	classTotal := map[string]float64{}
 	totals := map[[2]string]*WaitLoadEvent{}
+	newest := map[string]*computeNewest{}
 	for _, e := range events {
 		iv, ok := waitIntervalOf(e)
 		if !ok {
@@ -117,6 +159,10 @@ func WaitLoad(events []Event, from, to time.Time) (WaitLoadSeries, error) {
 		aas := iv.seconds / iv.to.Sub(iv.from).Seconds()
 		p.ByClass[iv.class] += aas
 		p.Sessions += aas
+		if newest[iv.compute] == nil {
+			newest[iv.compute] = &computeNewest{}
+		}
+		newest[iv.compute].add(iv, aas)
 		classTotal[iv.class] += iv.seconds
 		ev := totals[[2]string{iv.class, iv.event}]
 		if ev == nil {
@@ -127,6 +173,7 @@ func WaitLoad(events []Event, from, to time.Time) (WaitLoadSeries, error) {
 		ev.Count += iv.count
 	}
 	out.Points = sortedWaitPoints(points)
+	out.Current, out.CurrentAt = currentLoad(newest, out.Points)
 	out.Classes = classesByTotal(classTotal)
 	out.Events = heaviestWaitEvents(totals)
 	return out, nil

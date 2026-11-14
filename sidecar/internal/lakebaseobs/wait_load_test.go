@@ -194,3 +194,40 @@ func TestErrHistoryUnavailableIsDistinguishable(t *testing.T) {
 		t.Fatalf("ErrHistoryUnavailable = %q", ErrHistoryUnavailable)
 	}
 }
+
+// Computes need not share interval edges: the current load sums each
+// compute's newest interval that overlaps the newest one, so a replica
+// reporting a few seconds later does not hide the primary's load, and a
+// compute that stopped reporting earlier in the window is not counted.
+func TestWaitLoad_CurrentLoadSumsEachComputesNewestInterval(t *testing.T) {
+	end := waitT0.Add(time.Minute)
+	primary := waitEvent(waitT0, end, "IO", "DataFileRead", 30*time.Second)
+	older := waitEvent(waitT0.Add(-time.Minute), waitT0, "IO", "DataFileRead", 60*time.Second)
+	replica := waitEvent(waitT0.Add(5*time.Second), end.Add(5*time.Second), "IO",
+		"DataFileRead", 90*time.Second)
+	replica.ComputeID = "compute-b"
+	stopped := waitEvent(waitT0.Add(-time.Minute), waitT0, "Lock", "relation", 60*time.Second)
+	stopped.ComputeID = "compute-c"
+	got, err := WaitLoad([]Event{replica, older, primary, stopped},
+		waitT0.Add(-time.Minute), end.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("WaitLoad: %v", err)
+	}
+	if len(got.Points) != 3 {
+		t.Fatalf("points = %+v, want the 3 distinct intervals", got.Points)
+	}
+	if len(got.Current) != 1 || !near(got.Current["IO"], 2.0) {
+		t.Fatalf("current = %v, want IO 2.0 (primary 0.5 + replica 1.5), no Lock", got.Current)
+	}
+	if !got.CurrentAt.Equal(end.Add(5 * time.Second)) {
+		t.Fatalf("current at %v, want the newest interval end %v", got.CurrentAt,
+			end.Add(5*time.Second))
+	}
+}
+
+func TestWaitLoad_CurrentLoadEmptyWithoutIntervals(t *testing.T) {
+	got, err := WaitLoad(nil, waitT0, waitT0.Add(time.Hour))
+	if err != nil || got.Current == nil || len(got.Current) != 0 || !got.CurrentAt.IsZero() {
+		t.Fatalf("got %+v err %v, want an empty non-nil current load", got, err)
+	}
+}

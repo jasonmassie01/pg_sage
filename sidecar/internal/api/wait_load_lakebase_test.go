@@ -84,6 +84,7 @@ func lakebaseSeries() lakebaseobs.WaitLoadSeries {
 				ByClass: map[string]float64{"CPU": 1, "LWLock": 0.5}},
 			{From: waitT1, T: t2, Sessions: 0.2, ByClass: map[string]float64{"LWLock": 0.2}},
 		},
+		Current: map[string]float64{"LWLock": 0.2}, CurrentAt: t2,
 		Classes: []string{"CPU", "LWLock"},
 		Events: []lakebaseobs.WaitLoadEvent{
 			{WaitClass: "CPU", WaitSeconds: 60, Count: 3},
@@ -241,5 +242,24 @@ func TestWaitLoadLakebase_RouterPassesRuntimeSeam(t *testing.T) {
 		!strings.Contains(w.Body.String(), `"preferred_source":"lakebase_wait_counters"`) {
 		t.Fatalf("router: %d %s (seam calls %d), want lakebase preferred",
 			w.Code, w.Body.String(), seam.calls)
+	}
+}
+
+// load_by_wait is the series' current load (every compute's newest
+// interval), not just the newest point, which may hold one compute only.
+func TestWaitLoadLakebase_LoadByWaitIsTheCurrentLoadOfAllComputes(t *testing.T) {
+	series := lakebaseSeries()
+	series.Current = map[string]float64{"LWLock": 0.2, "IO": 1.5}
+	series.CurrentAt = waitT1.Add(65 * time.Second)
+	seam := &fakeWaitSeam{responses: []lakebaseobs.WaitLoadSeries{series}}
+	_, body := getWorkload(t, seamMux(noPoolMgr(), seam.read), waitGoldenPath)
+	p, _ := body["provider"].(map[string]any)
+	load, _ := p["load_by_wait"].(map[string]any)
+	if len(load) != 2 || load["IO"] != 1.5 || load["LWLock"] != 0.2 ||
+		p["collected_at"] != "2026-11-10T09:31:05Z" {
+		t.Fatalf("provider %v, want the current load of both computes at 09:31:05", p)
+	}
+	if _, leaked := p["current"]; leaked {
+		t.Fatalf("provider %v names the current load twice", p)
 	}
 }

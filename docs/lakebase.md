@@ -564,9 +564,11 @@ the activity-sample answer. The stream is endpoint-wide, so it needs
 
 Each counter interval becomes average active sessions by wait class: the
 interval's `wait_event_time` divided by its wall-clock length (`previous_ts` to
-the row time), summed across the endpoint's computes. The `provider` object
-carries the per-interval `series`, the heaviest `events`, the newest
-interval's `load_by_wait`, `skipped` (intervals with a bad time range, a
+the row time); computes whose intervals share their edges are summed into one
+point. The `provider` object carries the per-interval `series`, the heaviest
+`events`, the current `load_by_wait` (each compute's newest interval that
+overlaps the newest interval of all, summed, so a replica reporting a few
+seconds later does not hide the primary), `skipped` (intervals with a bad time range, a
 negative or non-numeric value, or no wait class) and `truncated` (the read is
 capped at the newest 1,000 events). The unit of `wait_event_time` is not yet
 confirmed against a live workspace: pg_sage assumes milliseconds and reports

@@ -58,10 +58,9 @@ func lakebaseWaitLoad(ctx context.Context, seam LakebaseWaitLoadFunc,
 	if len(s.Points) == 0 {
 		return nil
 	}
-	latest := s.Points[len(s.Points)-1]
 	return map[string]any{"source": "lakebase", "provider": "lakebase",
-		"sampling": waitLakebaseSampling, "collected_at": latest.T,
-		"load_by_wait": latest.ByClass, "series": s.Points, "classes": s.Classes,
+		"sampling": waitLakebaseSampling, "collected_at": s.CurrentAt,
+		"load_by_wait": s.Current, "series": s.Points, "classes": s.Classes,
 		"events": s.Events, "skipped": s.Skipped, "truncated": s.Truncated,
 		"wait_event_time_unit": lakebaseobs.WaitEventTimeUnitName, "unit_confirmed": false}
 }
