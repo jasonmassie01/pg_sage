@@ -220,63 +220,57 @@ func (s *ActionStore) ListLedgerByFinding(
 	return scanQueuedActions(r)
 }
 
+// ListLedgerByFindingIDs returns, per finding, the newest 20 non-executed
+// queued actions, newest first. An empty input sends no query.
 func (s *ActionStore) ListLedgerByFindingIDs(
 	ctx context.Context, findingIDs []int,
 ) (map[int][]QueuedAction, error) {
-	out := make(map[int][]QueuedAction, len(findingIDs))
 	if len(findingIDs) == 0 {
-		return out, nil
+		return make(map[int][]QueuedAction), nil
 	}
-	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
+	actions, err := s.queryLedgerRows(ctx, findingIDs)
+	if err != nil {
+		return nil, err
+	}
+	return groupLedgerByFinding(actions, len(findingIDs)), nil
+}
 
-	r, err := s.pool.Query(qctx, `/* pg_sage */ 
-SELECT id, database_id, finding_id, proposed_sql, rollback_sql,
-       action_risk, status, proposed_at, decided_by, decided_at,
-       expires_at, reason, action_type, identity_key, policy_decision,
-       guardrails, attempt_count, last_attempt_at, cooldown_until,
-       failure_fingerprint, last_failure_fingerprint, verification_status,
-       shadow_toil_minutes, action_log_id, recommendation_id,
-       recommendation_revision, content_hash
-FROM (
-    SELECT q.id, q.database_id, q.finding_id, q.proposed_sql,
-           q.rollback_sql, q.action_risk, q.status, q.proposed_at,
-           q.decided_by, q.decided_at, q.expires_at,
-           COALESCE(q.reason, '') AS reason,
-           COALESCE(q.action_type, '') AS action_type,
-           COALESCE(q.identity_key, '') AS identity_key,
-           COALESCE(q.policy_decision, '') AS policy_decision,
-           COALESCE(q.guardrails, '[]'::jsonb) AS guardrails,
-           COALESCE(q.attempt_count, 0) AS attempt_count,
-           q.last_attempt_at, q.cooldown_until,
-           COALESCE(q.failure_fingerprint, '') AS failure_fingerprint,
-           COALESCE(q.last_failure_fingerprint, '') AS last_failure_fingerprint,
-           COALESCE(q.verification_status, '') AS verification_status,
-           COALESCE(q.shadow_toil_minutes, 0) AS shadow_toil_minutes,
-           q.action_log_id, q.recommendation_id, q.recommendation_revision,
-           COALESCE(q.content_hash, '') AS content_hash,
-           row_number() OVER (
+// ledgerByFindingsSQL ranks each finding's non-executed queue rows and keeps
+// the newest 20. The ranked subquery is aliased q so it reads the same
+// queuedActionColumns as every other queue read.
+const ledgerByFindingsSQL = `/* pg_sage */SELECT ` + queuedActionColumns + `
+ FROM (
+    SELECT q.*, row_number() OVER (
                PARTITION BY q.finding_id
                ORDER BY q.proposed_at DESC, q.id DESC
-           ) AS rn
-    FROM sage.action_queue q
-    WHERE q.finding_id = ANY($1)
-      AND q.status <> 'executed'
-) ranked
-WHERE rn <= 20
-ORDER BY finding_id, proposed_at DESC, id DESC`, findingIDs)
+           ) AS ledger_rank
+      FROM sage.action_queue q
+     WHERE q.finding_id = ANY($1)
+       AND q.status <> 'executed'
+ ) q
+ WHERE q.ledger_rank <= 20
+ ORDER BY q.finding_id, q.proposed_at DESC, q.id DESC`
+
+func (s *ActionStore) queryLedgerRows(
+	ctx context.Context, findingIDs []int,
+) ([]QueuedAction, error) {
+	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	r, err := s.pool.Query(qctx, ledgerByFindingsSQL, findingIDs)
 	if err != nil {
 		return nil, fmt.Errorf("listing action ledger by findings: %w", err)
 	}
 	defer r.Close()
-	actions, err := scanQueuedActions(r)
-	if err != nil {
-		return nil, err
-	}
+	return scanQueuedActions(r)
+}
+
+// groupLedgerByFinding groups queue rows by finding, keeping their order.
+func groupLedgerByFinding(actions []QueuedAction, findings int) map[int][]QueuedAction {
+	out := make(map[int][]QueuedAction, findings)
 	for _, action := range actions {
 		out[action.FindingID] = append(out[action.FindingID], action)
 	}
-	return out, nil
+	return out
 }
 
 // queuedActionColumns are the action_queue columns scanQueuedAction reads,
