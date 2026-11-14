@@ -484,3 +484,39 @@ func TestDeferredIndexBuilder_CancelLeavesNoBuildRunning(t *testing.T) {
 		t.Fatal("the cancelled builder still holds its advisory lock")
 	}
 }
+
+// State transition: while a build waits on an older writer, its index is
+// counted building, not invalid; afterwards nothing is pending.
+func TestReadDeferredIndexStates_CountsARunningBuild(t *testing.T) {
+	pool := freshSchemaPool(t, "deferred_states")
+	mustExec(t, pool, "DROP INDEX sage."+deferredTestIndex)
+	counts, err := ReadDeferredIndexStates(context.Background(), pool)
+	if err != nil || counts != (DeferredIndexCounts{Missing: 1}) {
+		t.Fatalf("before the build: %+v, %v; want missing=1", counts, err)
+	}
+	release := openWriter(t, pool)
+	done := make(chan error, 1)
+	go func() {
+		_, err := BuildDeferredIndexes(context.Background(), pool)
+		done <- err
+	}()
+	waitFor(t, pool, cicWaitingOnWriter)
+	counts, err = ReadDeferredIndexStates(context.Background(), pool)
+	release()
+	if err != nil || counts != (DeferredIndexCounts{Building: 1}) {
+		t.Fatalf("during the build: %+v, %v; want building=1", counts, err)
+	}
+	if err := <-done; err != nil { // the writer may outlast lock_timeout
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) || pgErr.Code != sqlLockNotAvailable {
+			t.Fatalf("build: %v", err)
+		}
+		if _, err := BuildDeferredIndexes(context.Background(), pool); err != nil {
+			t.Fatalf("rebuild: %v", err)
+		}
+	}
+	counts, err = ReadDeferredIndexStates(context.Background(), pool)
+	if err != nil || counts != (DeferredIndexCounts{}) {
+		t.Fatalf("after the build: %+v, %v; want zero", counts, err)
+	}
+}

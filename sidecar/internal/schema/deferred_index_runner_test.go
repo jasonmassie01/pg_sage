@@ -201,3 +201,18 @@ func TestDeferredBuilder_NoBuildWhileStopped(t *testing.T) {
 		t.Fatalf("built %d times during an emergency stop", f.nBuilds)
 	}
 }
+
+func TestSleepCtx(t *testing.T) {
+	if !sleepCtx(context.Background(), time.Millisecond) {
+		t.Fatal("an elapsed sleep reported a cancel")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	start := time.Now()
+	if sleepCtx(ctx, time.Hour) {
+		t.Fatal("a cancelled sleep reported it elapsed")
+	}
+	if time.Since(start) > time.Second {
+		t.Fatal("a cancelled sleep waited")
+	}
+}
