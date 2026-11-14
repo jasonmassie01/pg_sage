@@ -1042,6 +1042,7 @@ longer returns them.
 |----------|--------|-----------------|
 | <a id="wal_tuning"></a>`wal_tuning` | LLM advisor | WAL and checkpoint settings, such as `max_wal_size` when checkpoints are forced. |
 | <a id="connection_tuning"></a>`connection_tuning` | LLM advisor | Connection capacity and churn: `max_connections` (never below the window's peak of total backends + reserved slots + 10), `idle_in_transaction_session_timeout` for this database only (`ALTER DATABASE`, approval required), and pooler advice or observations as `info` rows without SQL. |
+| <a id="io_settings"></a>`io_settings` | Advisor (deterministic, PostgreSQL 18+) | `info`, no SQL: `effective_io_concurrency` or `maintenance_io_concurrency` set (source other than `default`) at or below its pre-18 default (1 and 10), which overrides PostgreSQL 18's new default of 16, or `io_method = sync` from a non-default source, which switches asynchronous I/O off. The detail carries `setting`, `value`, `source`, `pg_major`, the documented `doc_note` and, for the concurrency settings, `pre18_default` and `pg18_default`. Runs with the LLM off; never on PostgreSQL 14-17 or an unknown version. |
 | <a id="query_rewrite"></a>`query_rewrite` | LLM advisor | Rewrites for the slowest queries. Text only, always advisory. |
 | <a id="bloat_remediation"></a>`bloat_remediation` | LLM advisor | Options for removing table and index bloat. |
 | <a id="memory_tuning"></a><a id="vacuum_tuning"></a>`memory_tuning`, `vacuum_tuning` | Tuning agent | Memory and autovacuum configuration changes. A recommendation without SQL is dropped. |
@@ -1096,6 +1097,7 @@ finding against the latest snapshot, deterministically.
 | `wal_tuning`, `connection_tuning` | the live `pg_settings` value equals the recommended value (from the `ALTER SYSTEM`, the managed `ALTER DATABASE`, or the managed-change intent; units normalized). A setting pending a restart is not live yet |
 | `query_rewrite` | the query has been absent from `pg_stat_statements` for 3 consecutive cycles (a stats reset or an unreadable query list does not count) |
 | `bloat_remediation` | the table has been under 10% dead tuples (or under 1,000 rows) for 2 consecutive cycles |
+| `io_settings` | the next cycle no longer sees the carried-over value (it re-runs every cycle on the latest `pg_settings`; skipped, and kept open, while the server version is unknown or the snapshot has no settings) |
 | <a id="advisor_degraded"></a>`advisor_degraded` | the LLM is enabled again, or the advisor is disabled on purpose |
 
 A `connection_tuning` `info` row without SQL (pooler advice or an observation) has no
