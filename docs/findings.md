@@ -987,8 +987,11 @@ category is not evaluated) with fewer future child partitions than its `premake`
 pg_sage lists the newest `premake + 1` children with `show_partitions(parent, 'DESC')`
 and reads each child's bounds with `show_partition_info`. A time-controlled child is
 future when it starts after now; an id-controlled child when it starts above the
-parent's highest control value (one `SELECT max(control)` on the parent). A parent
-whose children could not be read keeps its open finding. `premake = 0` is not judged.
+highest control value. That value is read with `SELECT max(control)` on the listed
+children, newest first, stopping at the first that holds a row; the parent and older
+children are never scanned, and when no listed child holds a row every listed child
+is future. A parent whose children could not be read keeps its open finding.
+`premake = 0` is not judged.
 
 **Identity:** the quoted parent table.
 

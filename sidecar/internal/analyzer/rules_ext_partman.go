@@ -39,8 +39,10 @@ type partmanParent struct {
 	DefaultRead    bool
 }
 
-// partmanChild is one child's lower bound from show_partition_info.
+// partmanChild is one child, quoted, with its lower bound from
+// show_partition_info.
 type partmanChild struct {
+	Table   string
 	Start   *time.Time
 	StartID *int64
 }
@@ -134,7 +136,7 @@ func (a *Analyzer) readPartmanFuture(ctx context.Context, q catalogread.Querier,
 	children, err := readPartmanChildren(ctx, q, schema, p.ConfigName, p.Premake+1)
 	var maxID *int64
 	if err == nil && childKind(children) == "id" {
-		maxID, err = readPartmanMaxID(ctx, q, p.Parent, p.Control)
+		maxID, err = readPartmanMaxID(ctx, q, children, p.Control)
 	}
 	if err != nil {
 		a.extWarn(key, "analyzer: pg_partman: read the children of %s: %v; its %s "+
@@ -151,10 +153,13 @@ func readPartmanChildren(ctx context.Context, q catalogread.Querier, schema, par
 	limit int) ([]partmanChild, error) {
 	s := sqlident.Ident(schema)
 	rows, err := q.Query(ctx, `/* pg_sage analyzer */
-SELECT i.child_start_time, i.child_start_id
-  FROM `+s+`.show_partitions($1, 'DESC') p
+SELECT p.partition_schemaname, p.partition_tablename,
+       i.child_start_time, i.child_start_id
+  FROM `+s+`.show_partitions($1, 'DESC')
+       WITH ORDINALITY AS p(partition_schemaname, partition_tablename, n)
   CROSS JOIN LATERAL `+s+`.show_partition_info(
        p.partition_schemaname || '.' || p.partition_tablename, NULL::text, $1) i
+ ORDER BY p.n
  LIMIT $2`, parent, limit)
 	if err != nil {
 		return nil, err
@@ -163,23 +168,35 @@ SELECT i.child_start_time, i.child_start_id
 	var out []partmanChild
 	for rows.Next() {
 		var c partmanChild
-		if err := rows.Scan(&c.Start, &c.StartID); err != nil {
+		var nsp, rel string
+		if err := rows.Scan(&nsp, &rel, &c.Start, &c.StartID); err != nil {
 			return nil, fmt.Errorf("scan: %w", err)
 		}
+		c.Table = sqlident.Qualified(nsp, rel)
 		out = append(out, c)
 	}
 	return out, rows.Err()
 }
 
 // readPartmanMaxID reads the newest control value of an id-controlled
-// parent; nil when the parent holds no row.
-func readPartmanMaxID(ctx context.Context, q catalogread.Querier, parent, control string) (
-	*int64, error,
-) {
-	var v *int64
-	err := q.QueryRow(ctx, "/* pg_sage analyzer */ SELECT max("+sqlident.Ident(control)+
-		")::bigint FROM "+parent).Scan(&v)
-	return v, err
+// parent from its listed children, newest first: ranges do not overlap, so
+// the first child holding a row holds the maximum. It reads no older child
+// and never the whole parent; nil when no listed child holds a row, and
+// then every listed child is future.
+func readPartmanMaxID(ctx context.Context, q catalogread.Querier, children []partmanChild,
+	control string) (*int64, error) {
+	for _, c := range children {
+		var v *int64
+		err := q.QueryRow(ctx, "/* pg_sage analyzer */ SELECT max("+sqlident.Ident(control)+
+			")::bigint FROM "+c.Table).Scan(&v)
+		if err != nil {
+			return nil, fmt.Errorf("read max(%s) of %s: %w", control, c.Table, err)
+		}
+		if v != nil {
+			return v, nil
+		}
+	}
+	return nil, nil
 }
 
 // childKind is "time" when the children have time bounds, "id" when they

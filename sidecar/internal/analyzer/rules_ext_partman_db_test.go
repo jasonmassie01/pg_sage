@@ -3,11 +3,14 @@ package analyzer
 import (
 	"context"
 	"fmt"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
@@ -57,6 +60,21 @@ func partmanParentTable(t *testing.T, pool *pgxpool.Pool, name, col, typ string)
 	})
 }
 
+// partmanIDChildren creates an id-partitioned parent with n real children
+// of 100 ids each (p1 starts at 0) and lists them in the stub, as
+// pg_partman lists only children that exist.
+func partmanIDChildren(t *testing.T, pool *pgxpool.Pool, q, parent string, n int) {
+	t.Helper()
+	partmanParentTable(t, pool, parent, "id", "bigint")
+	for g := 1; g <= n; g++ {
+		extExec(t, pool, fmt.Sprintf(`CREATE TABLE public.%s_p%d PARTITION OF public.%s
+			FOR VALUES FROM (%d) TO (%d)`, parent, g, parent, (g-1)*100, g*100))
+	}
+	extExec(t, pool, `INSERT INTO `+q+`.stub_children
+		SELECT 'public.' || $1, 'public', $1 || '_p' || g, g, NULL, (g - 1) * 100
+		FROM generate_series(1, $2::int) g`, parent, n)
+}
+
 func TestExtPartman_PremakeBoundary(t *testing.T) {
 	a, pool, _ := extAnalyzer(t, map[string]extInstall{extPartman: {Schema: "partman"}})
 	q := partmanStub(t, pool, "partman")
@@ -84,15 +102,10 @@ func TestExtPartman_IDControlInQuotedSchema(t *testing.T) {
 	schema := `My "pm"`
 	a, pool, _ := extAnalyzer(t, map[string]extInstall{extPartman: {Schema: schema}})
 	q := partmanStub(t, pool, schema)
-	partmanParentTable(t, pool, "ext_pm_ids", "id", "bigint")
-	extExec(t, pool, `CREATE TABLE public.ext_pm_ids_p0 PARTITION OF public.ext_pm_ids
-		FOR VALUES FROM (0) TO (1000)`)
+	partmanIDChildren(t, pool, q, "ext_pm_ids", 5)
 	extExec(t, pool, `INSERT INTO public.ext_pm_ids SELECT generate_series(1, 150)`)
 	extExec(t, pool, `INSERT INTO `+q+`.part_config (parent_table, control, premake)
 		VALUES ('public.ext_pm_ids', 'id', 4)`)
-	extExec(t, pool, `INSERT INTO `+q+`.stub_children
-		SELECT 'public.ext_pm_ids', 'public', 'ext_pm_ids_p' || g, g, NULL, (g - 1) * 100
-		FROM generate_series(1, 5) g`)
 	// Starts 0..400 with ids up to 150: 200, 300 and 400 are future.
 	got := byCategory(runExtCycle(t, a), categoryPartmanPremake)
 	if len(got) != 1 || got[0].Detail["future_partitions"] != 3 ||
@@ -143,5 +156,96 @@ func TestExtPartman_MissingPartConfigIsNotEvaluated(t *testing.T) {
 	}
 	if n := logs.warns("part_config"); n != 1 {
 		t.Fatalf("WARN lines naming part_config = %d, want 1", n)
+	}
+}
+
+// sqlRecorder records the statements a reading runs.
+type sqlRecorder struct {
+	mu  sync.Mutex
+	sql []string
+}
+
+func (r *sqlRecorder) reader(pool *pgxpool.Pool) catalogread.Reader {
+	rd := catalogread.New(pool, catalogread.Default())
+	rd.Done = func(_ context.Context, s catalogread.ReadStat) {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		r.sql = append(r.sql, s.SQL)
+	}
+	return rd
+}
+
+// reads reports whether a statement read FROM table, exactly that table.
+func (r *sqlRecorder) reads(table string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, s := range r.sql {
+		if strings.HasSuffix(strings.TrimSpace(s), "FROM "+table) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestExtPartman_IDMaxReadsOnlyListedChildren(t *testing.T) {
+	a, pool, _ := extAnalyzer(t, map[string]extInstall{extPartman: {Schema: "partman"}})
+	q := partmanStub(t, pool, "partman")
+	partmanIDChildren(t, pool, q, "ext_pm_scan", 8)
+	extExec(t, pool, `INSERT INTO public.ext_pm_scan SELECT generate_series(1, 50)`)
+	extExec(t, pool, `INSERT INTO `+q+`.part_config (parent_table, control, premake)
+		VALUES ('public.ext_pm_scan', 'id', 2)`)
+	read := func() (*sqlRecorder, []Finding) {
+		rec := &sqlRecorder{}
+		a.eval = newCycleEval()
+		a.readExtensions(context.Background(), rec.reader(pool))
+		_ = a.extras.takeUndecided()
+		return rec, rulePartmanPremakeGap(nil, nil, nil, a.extras)
+	}
+	// Rows only in p1, older than the newest premake+1 (p8, p7, p6): all
+	// three listed children are future, and neither p1 nor the parent is read.
+	rec, got := read()
+	if len(got) != 0 {
+		t.Fatalf("rows below the listed children = %+v, want none", got)
+	}
+	for _, tbl := range []string{"public.ext_pm_scan", "public.ext_pm_scan_p1",
+		"public.ext_pm_scan_p5"} {
+		if rec.reads(tbl) {
+			t.Fatalf("read %s; want only the listed children: %v", tbl, rec.sql)
+		}
+	}
+	if !rec.reads("public.ext_pm_scan_p6") {
+		t.Fatalf("p6 (the oldest listed child) not read: %v", rec.sql)
+	}
+	extExec(t, pool, `INSERT INTO public.ext_pm_scan VALUES (650)`)
+	rec, got = read()
+	if len(got) != 1 || got[0].Detail["future_partitions"] != 1 {
+		t.Fatalf("max id 650 in p7 with premake 2 = %+v, want one finding, 1 future", got)
+	}
+	if rec.reads("public.ext_pm_scan_p6") {
+		t.Fatalf("read p6 after p7 held the max: %v", rec.sql)
+	}
+}
+
+func TestExtPartman_UnreadableChildKeepsFindingOpen(t *testing.T) {
+	a, pool, logs := extAnalyzer(t, map[string]extInstall{extPartman: {Schema: "partman"}})
+	q := partmanStub(t, pool, "partman")
+	partmanIDChildren(t, pool, q, "ext_pm_gone", 5)
+	extExec(t, pool, `INSERT INTO public.ext_pm_gone SELECT generate_series(1, 150)`)
+	extExec(t, pool, `INSERT INTO `+q+`.part_config (parent_table, control, premake)
+		VALUES ('public.ext_pm_gone', 'id', 4)`)
+	if got := byCategory(runExtCycle(t, a), categoryPartmanPremake); len(got) != 1 {
+		t.Fatalf("premake gap = %+v, want one", got)
+	}
+	// The newest listed child cannot be read: no verdict for this parent.
+	extExec(t, pool, `DROP TABLE public.ext_pm_gone_p5`)
+	if got := byCategory(runExtCycle(t, a), categoryPartmanPremake); len(got) != 0 {
+		t.Fatalf("an unreadable child gave %+v", got)
+	}
+	if n := countFindingRows(t, pool, categoryPartmanPremake, "public.ext_pm_gone",
+		"open"); n != 1 {
+		t.Fatalf("open rows after an unreadable child = %d, want 1 (kept open)", n)
+	}
+	if n := logs.warns("ext_pm_gone_p5"); n != 1 {
+		t.Fatalf("WARN lines naming the unreadable child = %d, want 1", n)
 	}
 }
