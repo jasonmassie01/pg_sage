@@ -389,8 +389,9 @@ The planner refuses, and the call returns `invalid_arguments` (-32602) with the 
 * `unsupported migration statement` for anything but one `ALTER TABLE` with one of the two
   clauses above: `ADD PRIMARY KEY`, an unnamed `ADD UNIQUE`, a repeated column, several
   clauses or statements, or a database-qualified table;
-* `identifier too long` for any name in the SQL longer than 63 bytes, quoted or not, and any
-  derived index or proof name past 63 bytes. PostgreSQL would silently truncate them.
+* `identifier too long` for any name in the SQL longer than 63 bytes, quoted or not, and
+  `name "..." is N bytes` for a derived index (`<constraint>_idx`) or proof name past 63
+  bytes. PostgreSQL would silently truncate them.
 
 Plan those migrations by hand. A build without cgo (a local `CGO_ENABLED=0` build; release
 images and binaries are built with cgo) has no parser, so it refuses every online-migration
