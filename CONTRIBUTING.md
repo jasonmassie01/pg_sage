@@ -134,6 +134,21 @@ on `testdb.Exclusive`. `TestResetLint` (`go test -run TestResetLint
 `CHECKPOINT` in a test file or under `internal/testsupport/` that no
 `Exclusive` test reaches.
 
+Compare times on the clock that produced them. The test server's clock is
+not the host's: the Docker Desktop VM clock slews by about -0.9 s to +2.5 s
+within minutes. A stamp compared with a database timestamp (`now()`,
+`clock_timestamp()`, a column default) comes from `testdb.DBNow(ctx, q)` or
+`testdb.MustDBNow(t, q)`, never `time.Now()`; an interval the database
+enforces (a lease TTL, a queue deadline) is measured as the difference of
+two `DBNow` readings, not with `time.Since`. When a test bounds a
+database-clock interval that host-timed steps drive (ticks, sleeps), start
+`w, err := testdb.StartClockWatch(ctx, q)` before the interval and check
+against `w.Widen(t, bound)`: it adds how far the database clock moved
+against the host's monotonic clock (`w.Step(ctx)`), logs it, and fails the
+test if the sample fails. Never widen such a bound by a constant. A time the
+sidecar stamps on the host (a fallback log entry, for example) stays on the
+host clock.
+
 On a machine without cgo (Windows, for example), `scripts/ci/local-linux-suite.sh
 <out-dir> [majors...]` runs the test job's suite command on Linux, with cgo and
 `-race`, once per PostgreSQL major (default 14, 15 and 17; PostgreSQL 17 also
