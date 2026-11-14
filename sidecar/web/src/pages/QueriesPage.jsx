@@ -14,7 +14,9 @@ const ORDERS = [
   { id: 'mean', label: 'Mean time' }, { id: 'rows', label: 'Rows' },
 ]
 const number = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 })
-const PROVIDER_LABELS = { performance_insights: 'Performance Insights' }
+const PROVIDER_LABELS = {
+  performance_insights: 'Performance Insights', lakebase: 'Lakebase wait counters',
+}
 
 const card = { background: 'var(--bg-card)', border: '1px solid var(--border)' }
 
@@ -81,6 +83,8 @@ function ProviderWaits({ provider }) {
       style={{ color: 'var(--text-secondary)' }}>
       Preferred source: {label} (current load by wait class:{' '}
       {entries.map(([cls, v]) => `${cls} ${v.toFixed(2)}`).join(', ')}).
+      {provider.unit_confirmed === false &&
+        ` Wait time unit not yet confirmed (assumed ${provider.wait_event_time_unit}).`}
     </p>
   )
 }
