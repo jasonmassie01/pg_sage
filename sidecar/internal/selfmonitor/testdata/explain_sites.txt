@@ -19,6 +19,7 @@ internal/explain/explain.go buildResult text -- the result note shown with a pla
 internal/mcp/agent_tools.go agentTools text -- the explain_query tool description for the model
 internal/optimizer/hypopg_generic.go hypopgSession.explainPreparedSteps via boundSession -- openHypoPGSession pins the session's transaction with boundSession
 internal/optimizer/hypopg_session.go hypopgSession.explain via boundSession -- openHypoPGSession pins the session's transaction with boundSession
+internal/optimizer/skipscan.go poolPlanner.genericPlans via boundSession -- genericPlans pins its read-only evidence transaction with boundSession
 internal/sre/investigator_explain.go runExplain pin
 internal/tuner/hint_explain.go compareInTx pin
 internal/tuning/rehearsal.go planCost via planOnApplicationPath -- planned by planOnApplicationPath
