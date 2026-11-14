@@ -174,4 +174,3 @@ func maskSecret(s string) string {
 	}
 	return strings.Repeat("*", len(s)-4) + s[len(s)-4:]
 }
-

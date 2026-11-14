@@ -217,4 +217,3 @@ func NilIfEmpty(s string) *string {
 	}
 	return &s
 }
-
