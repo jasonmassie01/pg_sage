@@ -7,12 +7,14 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/custodian/freeze"
 )
 
 // Outcomes of an executor VACUUM its watchdog ended (vacuum-05).
 const (
 	VacuumStalled       = "vacuum_stalled"
-	VacuumCap           = "vacuum_cap"
+	VacuumCap           = freeze.VacuumCapOutcome
 	VacuumEmergencyStop = "emergency_stop"
 )
 
@@ -25,6 +27,9 @@ const (
 	// vacuumAbortGrace is how long after the cap the session itself is
 	// closed if the cancel never took effect.
 	vacuumAbortGrace = 30 * time.Second
+	// vacuumCostDelayBeforeKey is the before-state key of the
+	// vacuum_cost_delay an emergency VACUUM replaced with 0 (vacuum-05b).
+	vacuumCostDelayBeforeKey = "vacuum_cost_delay_before"
 )
 
 // vacuumHooks are the watched VACUUM's test seams; zero values use the
@@ -82,8 +87,12 @@ func isWatchedVacuum(sql string) bool { return timeoutClassOf(sql) == classVacuu
 // execVacuumWatched runs a VACUUM on a dedicated session with
 // statement_timeout 0 and the caller's lock_timeout: a freeze of a large
 // table advances relfrozenxid only when its scan completes, so a statement
-// timeout only ever wasted it. The watchdog bounds it instead.
-func (e *Executor) execVacuumWatched(ctx context.Context, sql string, opts ...DDLOption) error {
+// timeout only ever wasted it. The watchdog bounds it instead. An
+// emergency VACUUM (freeze.IsEmergencyVacuumSQL) also runs with
+// vacuum_cost_delay 0; the value it replaced goes into state.
+func (e *Executor) execVacuumWatched(
+	ctx context.Context, sql string, state map[string]any, opts ...DDLOption,
+) error {
 	if err := ValidateExecutorSQL(sql); err != nil {
 		return fmt.Errorf("SQL validation: %w", err)
 	}
@@ -91,8 +100,13 @@ func (e *Executor) execVacuumWatched(ctx context.Context, sql string, opts ...DD
 		return errors.New("execute VACUUM: database pool unavailable")
 	}
 	w := e.newVacuumWatch()
-	err := withTopLevelSession(ctx, e.actionDB(), sql, 0, applyDDLOpts(opts),
+	o := applyDDLOpts(opts)
+	o.resetCostDelay = freeze.IsEmergencyVacuumSQL(sql)
+	err := withTopLevelSession(ctx, e.actionDB(), sql, 0, o,
 		func(conn pooledExecutor) error { return w.run(ctx, conn, sql) })
+	if w.costDelayBefore != "" && state != nil {
+		state[vacuumCostDelayBeforeKey] = w.costDelayBefore
+	}
 	return stoppedStatement(ctx, sql, err)
 }
 
@@ -103,6 +117,9 @@ type vacuumWatch struct {
 	stopped              func(ctx context.Context) (bool, error)
 	onSession            func(ctx context.Context, conn *pgxpool.Conn) error
 	logFn                func(string, string, ...any)
+	// costDelayBefore is the vacuum_cost_delay an emergency VACUUM's
+	// session replaced with 0 (empty when it replaced none).
+	costDelayBefore string
 }
 
 func (e *Executor) newVacuumWatch() *vacuumWatch {
@@ -142,6 +159,11 @@ func (w *vacuumWatch) run(ctx context.Context, conn pooledExecutor, sql string) 
 			return fmt.Errorf("prepare VACUUM session: %w", err)
 		}
 	}
+	if freeze.IsEmergencyVacuumSQL(sql) {
+		if err := w.dropCostDelay(ctx, ps); err != nil {
+			return err
+		}
+	}
 	pid := ps.Conn.Conn().PgConn().PID()
 	execCtx, abort := context.WithTimeout(ctx, w.cap+vacuumAbortGrace)
 	defer abort()
@@ -159,6 +181,22 @@ func (w *vacuumWatch) run(ctx context.Context, conn pooledExecutor, sql string) 
 	}
 	verdict.Err = wrapDDLError(execErr)
 	return verdict
+}
+
+// dropCostDelay runs an emergency VACUUM unthrottled: a role or database
+// setting can raise vacuum_cost_delay above the manual VACUUM default of 0.
+// The session's reset (ddlOpts.resetCostDelay) restores it.
+func (w *vacuumWatch) dropCostDelay(ctx context.Context, ps pooledSession) error {
+	var before string
+	if err := ps.QueryRow(ctx, "/* pg_sage executor */ SELECT "+
+		"pg_catalog.current_setting('vacuum_cost_delay')").Scan(&before); err != nil {
+		return fmt.Errorf("prepare emergency VACUUM: read vacuum_cost_delay: %w", err)
+	}
+	if _, err := ps.Exec(ctx, "SET vacuum_cost_delay = 0"); err != nil {
+		return fmt.Errorf("prepare emergency VACUUM: SET vacuum_cost_delay = 0: %w", err)
+	}
+	w.costDelayBefore = before
+	return nil
 }
 
 // watch samples the backend every interval until ctx ends, and cancels it

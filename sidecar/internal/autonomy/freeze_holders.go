@@ -161,7 +161,7 @@ func (c *PostgresFreezeCustodian) plan(
 			}
 			continue
 		}
-		proposal, pinnedBy, err := c.respond(row, rates, holders, repack)
+		proposal, pinnedBy, err := c.respond(ctx, row, rates, holders, repack)
 		if err != nil {
 			return nil, err
 		}

@@ -77,7 +77,8 @@ func TestFreezeAmberToRedStillFreezes(t *testing.T) {
 func TestFreezeResponseProposalNeverNamesAutovacuumTuning(t *testing.T) {
 	custodian := NewPostgresFreezeCustodian(nil, "orders", 25)
 	for _, dead := range []float64{0, 0.2, 0.99} {
-		proposal, _, err := custodian.respond(amberRow(t, "orders", dead), knownRates, nil, false)
+		proposal, _, err := custodian.respond(context.Background(),
+			amberRow(t, "orders", dead), knownRates, nil, false)
 		if err != nil {
 			t.Fatalf("dead %v: respond: %v", dead, err)
 		}

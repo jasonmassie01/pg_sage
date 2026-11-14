@@ -13,6 +13,9 @@ type CustodianEscalation struct {
 	Failures   int
 	Window     string
 	DecisionID int64
+	// Profile names a non-default VACUUM profile (vacuum-05b: "emergency");
+	// empty for every other proposal.
+	Profile string
 }
 
 // CustodianEscalationEvent is the one critical event of an exhausted
@@ -23,7 +26,7 @@ func CustodianEscalationEvent(info CustodianEscalation) Event {
 	if info.DecisionID > 0 {
 		decision = fmt.Sprintf("%d", info.DecisionID)
 	}
-	return Event{
+	evt := Event{
 		Type:     "custodian_escalation",
 		Severity: "critical",
 		Subject: fmt.Sprintf("Custodian gave up on %s: %d failures in %s",
@@ -40,4 +43,9 @@ func CustodianEscalationEvent(info CustodianEscalation) Event {
 		},
 		DedupKey: fmt.Sprintf("custodian_backoff:%s:%s", info.Database, info.SQLSHA256),
 	}
+	if info.Profile != "" {
+		evt.Body = "Profile: " + info.Profile + "\n" + evt.Body
+		evt.Data["profile"] = info.Profile
+	}
+	return evt
 }

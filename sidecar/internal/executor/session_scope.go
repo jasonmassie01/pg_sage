@@ -149,6 +149,9 @@ func resetTopLevelSession(conn pooledExecutor, o ddlOpts) error {
 	if o.actionTag > 0 {
 		settings = append(slices.Clone(settings), "application_name")
 	}
+	if o.resetCostDelay {
+		settings = append(slices.Clone(settings), "vacuum_cost_delay")
+	}
 	for _, setting := range settings {
 		if err := resetSessionSetting(conn, setting); err != nil {
 			return err

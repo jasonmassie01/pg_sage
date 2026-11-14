@@ -1,6 +1,7 @@
 package autonomy
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -126,7 +127,7 @@ func TestFreezeDeadlineSlowRateIsCappedNotOverflowed(t *testing.T) {
 // A green table at real magnitudes yields nothing to route.
 func TestFreezeGreenRealMagnitudeProposesNothing(t *testing.T) {
 	proposal, _, err := NewPostgresFreezeCustodian(nil, "orders", 25).
-		respond(realRow(t, 1_000_000, 1_000_000), realRates, nil, false)
+		respond(context.Background(), realRow(t, 1_000_000, 1_000_000), realRates, nil, false)
 	if err != nil {
 		t.Fatalf("respond: %v", err)
 	}

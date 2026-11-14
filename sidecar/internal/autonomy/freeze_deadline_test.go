@@ -1,6 +1,7 @@
 package autonomy
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -27,7 +28,7 @@ func threatRow(t *testing.T, xidAge, mxidAge int64) freezeRow {
 func freezeProposalFor(t *testing.T, row freezeRow, rates freezeRateSample) Proposal {
 	t.Helper()
 	proposal, _, err := NewPostgresFreezeCustodian(nil, "orders", 25).
-		respond(row, rates, nil, false)
+		respond(context.Background(), row, rates, nil, false)
 	if err != nil {
 		t.Fatalf("respond: %v", err)
 	}

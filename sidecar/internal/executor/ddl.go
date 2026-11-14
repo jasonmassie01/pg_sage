@@ -187,6 +187,9 @@ type ddlOpts struct {
 	// actionTag is the decision the statement runs for (0: none); its
 	// session's application_name names it (audit-06).
 	actionTag int64
+	// resetCostDelay resets vacuum_cost_delay with the session's other
+	// settings: an emergency VACUUM sets it to 0 (vacuum-05b).
+	resetCostDelay bool
 }
 
 func applyDDLOpts(opts []DDLOption) ddlOpts {
