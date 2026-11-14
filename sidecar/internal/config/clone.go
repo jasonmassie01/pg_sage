@@ -27,6 +27,8 @@ func Clone(cfg *Config) *Config {
 	cp.API.TrustedOrigins = append([]string(nil), cfg.API.TrustedOrigins...)
 	cp.API.AccessLog = cloneBool(cfg.API.AccessLog)
 	cp.OAuth.RoleMapping = append([]OAuthRoleMapping(nil), cfg.OAuth.RoleMapping...)
+	cp.OAuth.DatabaseGrantMapping = append([]OAuthDatabaseGrant(nil),
+		cfg.OAuth.DatabaseGrantMapping...)
 	cp.Briefing.Channels = append(
 		[]string(nil), cfg.Briefing.Channels...)
 	cloneAlerting(&cp.Alerting, cfg.Alerting)

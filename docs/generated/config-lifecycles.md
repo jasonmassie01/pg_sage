@@ -298,6 +298,7 @@
 | `oauth.break_glass.password_hash` | `restart` | `-` | `safety_critical` |
 | `oauth.client_id` | `restart` | `-` | `safety_critical` |
 | `oauth.client_secret` | `restart` | `-` | `safety_critical` |
+| `oauth.database_grant_mapping` | `restart` | `-` | `safety_critical` |
 | `oauth.default_role` | `restart` | `-` | `safety_critical` |
 | `oauth.enabled` | `restart` | `-` | `safety_critical` |
 | `oauth.groups_claim` | `restart` | `-` | `safety_critical` |
