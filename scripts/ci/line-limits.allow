@@ -13,8 +13,6 @@ sidecar/internal/api/handlers.go 1353
 sidecar/internal/api/handlers_v09.go 506
 sidecar/internal/config/config.go 1487
 sidecar/internal/executor/action_contract.go 876
-sidecar/internal/fleet/capabilities.go 502
-sidecar/internal/fleet/types.go 533
 sidecar/internal/lakebaseobs/store.go 591
 sidecar/internal/schema/bootstrap.go 1010
 sidecar/internal/store/action_store.go 744
