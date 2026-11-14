@@ -334,8 +334,18 @@ python3 -m unittest discover -s deploy/databricks-apps -p 'test_*.py' -v
    (`sidecar/internal/schema/testdata/migration_checksums.txt`) is
    append-only from the last release tag: `bash
    scripts/ci/ledger-append-only.sh "$(git describe --tags --abbrev=0 --match 'v*')"`.
-5. Run the relevant verification commands and include results in the PR.
-6. Submit a PR with a clear description of what changed and why.
+5. Record behaviour changes in `CHANGELOG.md` in the same PR: a bullet
+   under the release's `### vX.Y.Z` subsection of `## [Unreleased]` that
+   names the item id, and, when an operator must act or will see different
+   behaviour after upgrading (a forced sign-in, a refused config, a moved
+   port, a page to close by hand), one line in that release's
+   `#### Upgrade notes` that names the same id. A PR that closes an entry
+   under `#### Known limitations` deletes that line. Leave the existing
+   bullets' text and the `## [Unreleased]` heading as they are:
+   `bash scripts/ci/release-notes.sh v<version>-rc.1 CHANGELOG.md` builds a
+   release candidate's notes from that section.
+6. Run the relevant verification commands and include results in the PR.
+7. Submit a PR with a clear description of what changed and why.
 
 ## Code of Conduct
 
