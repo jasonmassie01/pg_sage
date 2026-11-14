@@ -187,5 +187,7 @@ type Store interface {
 	Resume(ctx context.Context, scope Scope, id UUID, version int64) (Investigation, error)
 	Stop(ctx context.Context, scope Scope, id UUID, version int64) (Investigation, error)
 	Evidence(ctx context.Context, scope Scope, id UUID) ([]Evidence, error)
+	StepEvidence(ctx context.Context, scope Scope, id UUID, key string) ([]Evidence, error)
+	StepKeys(ctx context.Context, scope Scope, id UUID) (map[string]bool, error)
 	Ping(ctx context.Context) error
 }

@@ -36,6 +36,12 @@ type investigatorSession struct {
 	commits   int // reads committed as evidence
 	memory    string
 	memoryRef *MemoryRef
+	// observed caches the stored evidence for graph_state: seeded from the
+	// store on its first call, then appended with each committed read
+	// (sre-11). It never feeds the conclusion: finish re-reads the store
+	// and re-verifies every cited hash.
+	observed []Evidence
+	seeded   bool
 }
 
 // investigate runs the investigator on a diagnosis. It returns the

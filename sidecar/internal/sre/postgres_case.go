@@ -228,7 +228,7 @@ func (s *PostgresStore) EvidenceByID(ctx context.Context, scope Scope,
 	if err := validateIDs(scope, id, evidenceID); err != nil {
 		return Evidence{}, err
 	}
-	all, err := s.evidence(ctx, scope, id, &evidenceID)
+	all, err := s.evidence(ctx, scope, id, &evidenceID, nil)
 	if err != nil {
 		return Evidence{}, err
 	}

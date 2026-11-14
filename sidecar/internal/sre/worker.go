@@ -145,7 +145,7 @@ func (c *Coordinator) conclude(ctx context.Context, lease Lease, d causal.Diagno
 // the steps already committed) and moves the investigation to evaluating.
 func (c *Coordinator) collect(ctx context.Context, lease Lease, inv Investigation,
 	plan []planStep) (Lease, error) {
-	done, err := c.committedSteps(ctx, lease.Scope, inv.ID)
+	done, err := c.store.StepKeys(ctx, lease.Scope, inv.ID)
 	if err != nil {
 		return lease, err
 	}
@@ -210,19 +210,6 @@ func (c *Coordinator) waitHeld(ctx context.Context, lease Lease,
 		return cur, ctx.Err()
 	}
 	return cur, err
-}
-
-func (c *Coordinator) committedSteps(ctx context.Context, scope Scope,
-	id UUID) (map[string]bool, error) {
-	evidence, err := c.store.Evidence(ctx, scope, id)
-	if err != nil {
-		return nil, err
-	}
-	done := map[string]bool{}
-	for _, e := range evidence {
-		done[e.StepKey] = true
-	}
-	return done, nil
 }
 
 func stepKey(i int) string { return fmt.Sprintf("step-%d", i+1) }

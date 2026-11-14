@@ -63,6 +63,8 @@ type CoordinatorStore interface {
 	Conclude(ctx context.Context, lease Lease, c Conclusion) (Investigation, error)
 	ExpireStale(ctx context.Context, lease Lease, s Summary) (Investigation, error)
 	Evidence(ctx context.Context, scope Scope, id UUID) ([]Evidence, error)
+	StepEvidence(ctx context.Context, scope Scope, id UUID, key string) ([]Evidence, error)
+	StepKeys(ctx context.Context, scope Scope, id UUID) (map[string]bool, error)
 	Pending(ctx context.Context, scope Scope, limit int) ([]UUID, error)
 	Purge(ctx context.Context, scope Scope, p RetentionPolicy) (PurgeResult, error)
 	Ping(ctx context.Context) error
