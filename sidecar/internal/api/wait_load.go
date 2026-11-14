@@ -21,7 +21,8 @@ import (
 // wait_events snapshot category, one count of active client sessions by
 // wait class per cycle. It is sampled each collector cycle, not active
 // session history. Where the provider reports load by wait class
-// (Performance Insights), that breakdown is preferred and named.
+// (Performance Insights, or Lakebase wait counters in market-01b's
+// wait_load_lakebase.go), that breakdown is preferred and named.
 
 // Sources of a wait-load answer.
 const (
@@ -141,7 +142,7 @@ func providerWaitLoad(database string) map[string]any {
 	return nil
 }
 
-func waitLoadHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
+func waitLoadHandler(mgr *fleet.DatabaseManager, seam LakebaseWaitLoadFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		database, ok := readDatabaseParam(w, r)
 		if !ok {
@@ -164,8 +165,8 @@ func waitLoadHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
 			"source": waitSourceActivity, "preferred_source": waitSourceActivity,
 			"sampling": waitSampling, "coverage": "none", "truncated": false,
 			"series": []waitPoint{}, "classes": []string{}, "events": []waitRow{}}
-		if p := providerWaitLoad(database); p != nil {
-			body["provider"], body["preferred_source"] = p, waitSourcePI
+		if p, src := preferredWaitProvider(r.Context(), seam, database, from, to); p != nil {
+			body["provider"], body["preferred_source"] = p, src
 		}
 		sel, _ := resolveSingleDatabaseRequestPool(mgr, database)
 		if sel.pool == nil {

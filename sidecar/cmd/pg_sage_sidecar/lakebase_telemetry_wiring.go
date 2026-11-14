@@ -292,18 +292,29 @@ func (rt *databaseRuntime) cleanupLakebaseHistory(ctx context.Context, store *la
 	return err
 }
 
-func lakebaseTelemetryHistory(ctx context.Context, database, stream string, from, to time.Time, limit int) (any, error) {
+// lakebaseHistorySource is database's own telemetry runtime and store, or
+// lakebaseobs.ErrHistoryUnavailable; it never borrows another database's.
+func lakebaseHistorySource(database string) (*lakebaseobs.Runtime, *lakebaseobs.Store, error) {
 	lakebaseTelemetryRegistry.Lock()
 	st := lakebaseTelemetryRegistry.entries[database]
 	lakebaseTelemetryRegistry.Unlock()
 	if st == nil {
-		return nil, fmt.Errorf("history source unavailable")
+		return nil, nil, lakebaseobs.ErrHistoryUnavailable
 	}
 	st.mu.Lock()
 	runtime, store := st.runtime, st.store
 	st.mu.Unlock()
 	if runtime == nil || store == nil {
-		return nil, fmt.Errorf("history source unavailable")
+		return nil, nil, lakebaseobs.ErrHistoryUnavailable
+	}
+	return runtime, store, nil
+}
+
+func lakebaseTelemetryHistory(ctx context.Context, database, stream string, from, to time.Time,
+	limit int) (any, error) {
+	runtime, store, err := lakebaseHistorySource(database)
+	if err != nil {
+		return nil, err
 	}
 	events, err := store.History(ctx, runtime.Binding(), lakebaseobs.Stream(stream), from, to, limit, time.Now())
 	if err != nil {

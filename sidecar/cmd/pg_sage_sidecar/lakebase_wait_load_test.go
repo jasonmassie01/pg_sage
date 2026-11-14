@@ -35,7 +35,8 @@ func TestLakebaseWaitLoadReadsRawCountersWithLabels(t *testing.T) {
 		waitCounterEvent(t, scope, at, f.now, "LWLock", "WALWrite", 30*time.Second),
 		waitCounterEvent(t, scope, at, f.now, "CPU", "", 60*time.Second),
 		historyWiringEvent(t, scope, lakebaseobs.DatabaseCounters, at, f.now, nil))
-	registerHistoryWiring(t, rt.spec.Name, &lakebaseTelemetryState{runtime: runtime, store: f.store})
+	state := &lakebaseTelemetryState{runtime: runtime, store: f.store}
+	registerHistoryWiring(t, rt.spec.Name, state)
 	got, err := lakebaseWaitLoad(f.ctx, rt.spec.Name, f.now.Add(-time.Hour), f.now)
 	if err != nil {
 		t.Fatalf("lakebaseWaitLoad: %v", err)

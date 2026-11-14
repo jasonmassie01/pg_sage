@@ -20,10 +20,11 @@ func registerAPIRoutes(
 	controller *config.ConfigController,
 	cs *store.ConfigStore,
 	disableConfigWrites bool,
+	waitLoad LakebaseWaitLoadFunc,
 ) {
 	registerFindingRoutes(mux, mgr)
 	registerSourceFixRoutes(mux, mgr, cfg) // source_fix_routes.go (mcp-06)
-	registerObservabilityRoutes(mux, mgr)
+	registerObservabilityRoutes(mux, mgr, waitLoad)
 	registerProcessControlRoutes(mux, mgr, controller, cs, disableConfigWrites)
 	registerLLMModelRoutes(mux, controller)
 	registerIncidentRoutes(mux, mgr)
@@ -51,8 +52,11 @@ func registerFindingRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
 }
 
 // registerObservabilityRoutes covers read-only fleet state: actions,
-// recommendations, forecasts, snapshots, fleet health and admission.
-func registerObservabilityRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
+// recommendations, forecasts, snapshots, fleet health and admission;
+// waitLoad feeds the wait-load chart's Lakebase source (market-01b).
+func registerObservabilityRoutes(
+	mux *http.ServeMux, mgr *fleet.DatabaseManager, waitLoad LakebaseWaitLoadFunc,
+) {
 	route(mux, "GET /api/v1/actions", gateViewer, http.HandlerFunc(actionsListHandler(mgr)))
 	route(mux, "GET /api/v1/actions/{id}", gateViewer, http.HandlerFunc(actionDetailHandler(mgr)))
 	route(mux, "GET /api/v1/action-outcomes", gateViewer,
@@ -67,7 +71,7 @@ func registerObservabilityRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager)
 		http.HandlerFunc(snapshotLatestHandler(mgr)))
 	route(mux, "GET /api/v1/snapshots/history", gateViewer,
 		http.HandlerFunc(snapshotHistoryHandler(mgr)))
-	registerWorkloadRoutes(mux, mgr) // workload_routes.go (market-01)
+	registerWorkloadRoutes(mux, mgr, waitLoad) // workload_routes.go (market-01, market-01b)
 	// v0.12 — Fleet-wide health time-series (ui-redesign-v2 §5 Overview).
 	route(mux, "GET /api/v1/fleet/health", gateViewer, http.HandlerFunc(fleetHealthHandler(mgr)))
 	route(mux, "GET /api/v1/fleet/readiness", gateViewer,

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/cloudtel"
+	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/lakebaseobs"
 )
@@ -221,5 +222,24 @@ func TestWaitLoadLakebase_ValidationAnd404NeverReadTheSeam(t *testing.T) {
 	}
 	if seam.calls != 0 {
 		t.Fatalf("seam read %d times for rejected requests, want 0", seam.calls)
+	}
+}
+
+// The full router passes RuntimeDeps.LakebaseWaitLoad to the route.
+func TestWaitLoadLakebase_RouterPassesRuntimeSeam(t *testing.T) {
+	seam := &fakeWaitSeam{responses: []lakebaseobs.WaitLoadSeries{lakebaseSeries()}}
+	asViewer := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(w, withUser(r, viewerUser()))
+		})
+	}
+	h := newTestRouter(noPoolMgr(), config.DefaultConfig(), nil, nil, nil, nil,
+		&RuntimeDeps{LakebaseWaitLoad: seam.read}, asViewer)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, waitGoldenPath, nil))
+	if w.Code != http.StatusOK || seam.calls != 1 ||
+		!strings.Contains(w.Body.String(), `"preferred_source":"lakebase_wait_counters"`) {
+		t.Fatalf("router: %d %s (seam calls %d), want lakebase preferred",
+			w.Code, w.Body.String(), seam.calls)
 	}
 }
