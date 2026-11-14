@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // ci-15 triage: a migration step that ends on a deadline says which one
@@ -126,5 +127,50 @@ func TestListBudget_NamesTheListBudget(t *testing.T) {
 	}
 	if listBudget(0).budget != 0 {
 		t.Fatalf("listBudget(0) = %+v, want zero", listBudget(0))
+	}
+}
+
+// causeDB is a session whose every call waits for its context, records the
+// context's cause, and fails as pgconn does.
+type causeDB struct{ cause error }
+
+func (c *causeDB) wait(ctx context.Context) error {
+	<-ctx.Done()
+	c.cause = context.Cause(ctx)
+	return pgTimeout(ctx)
+}
+
+func (c *causeDB) Exec(ctx context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
+	return pgconn.CommandTag{}, c.wait(ctx)
+}
+
+func (c *causeDB) Query(ctx context.Context, _ string, _ ...any) (pgx.Rows, error) {
+	return nil, c.wait(ctx)
+}
+
+func (c *causeDB) QueryRow(ctx context.Context, _ string, _ ...any) pgx.Row {
+	return fakeRow{err: c.wait(ctx)}
+}
+
+func (c *causeDB) Begin(ctx context.Context) (pgx.Tx, error) { return nil, c.wait(ctx) }
+
+// The storage migration's own bound carries its cause, so a step it ends
+// names the storage budget, not the caller's context (ci-15 review).
+func TestMigrateStorage_ItsBudgetIsTheCause(t *testing.T) {
+	saved := storageMigrationBudget
+	t.Cleanup(func() { storageMigrationBudget = saved })
+	storageMigrationBudget.budget = 20 * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	db := &causeDB{}
+	if err := migrateStorage(ctx, db); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("migrateStorage on a stalled session = %v, want a deadline", err)
+	}
+	var b budgetExpired
+	if !errors.As(db.cause, &b) || b.what != "storage migration" {
+		t.Fatalf("the stalled call's context cause = %v, want the storage budget", db.cause)
+	}
+	if saved.budget != storageMigrationTimeout {
+		t.Fatalf("storageMigrationBudget = %s, want %s", saved.budget, storageMigrationTimeout)
 	}
 }
