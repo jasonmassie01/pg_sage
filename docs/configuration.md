@@ -485,6 +485,8 @@ outside the range fails to load and the error names the key; the API answers 400
 | `float01` / `float_share` | `0`-`1` / `0.01`-`1` |
 | `float_pos` / `float_nonneg` / `float_pct_pos` | `0.001`-`1e9` / `0`-`1e9` / `0.001`-`100` |
 | `int_week_minutes`, `int_class_timeout`, `int_vacuum_stall` | `1`-`10080`, `60`-`86400`, `5`-`240` |
+| `float_pct_open` | greater than `0` and less than `100`, both bounds refused (`custodian.freeze.red_buffer_pct`) |
+| `bool_auto` | `true`, `false` or `auto` (`logwatch.enabled`) |
 
 A key with its own `range` tag uses that range instead: `analyzer.self_cost_budget_ms` is
 `0`-`3600000`, `rca.dedup_window_minutes` `1`-`525600` (it must also fit inside
