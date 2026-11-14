@@ -8,9 +8,11 @@ import (
 	planpkg "github.com/pg-sage/sidecar/internal/migration/plan"
 	rehearsalpkg "github.com/pg-sage/sidecar/internal/migration/rehearsal"
 	"github.com/pg-sage/sidecar/internal/policy"
+	"github.com/pg-sage/sidecar/internal/testsupport/parsetree"
 )
 
 func TestApplyRehearsesThenAuthorizesEveryExpandStep(t *testing.T) {
+	parsetree.Require(t)
 	fixture := newFixture()
 	result, err := fixture.orchestrator().Apply(context.Background(), Request{
 		SQL: addUniqueSQL, Cycle: 4,
@@ -31,6 +33,7 @@ func TestApplyRehearsesThenAuthorizesEveryExpandStep(t *testing.T) {
 }
 
 func TestApplyNeverRunsContractInExpandCycle(t *testing.T) {
+	parsetree.Require(t)
 	fixture := newFixture()
 	result, err := fixture.orchestrator().Apply(context.Background(), Request{
 		SQL: addUniqueSQL, Cycle: 7,
@@ -50,6 +53,7 @@ func TestApplyNeverRunsContractInExpandCycle(t *testing.T) {
 }
 
 func TestApplyStaleCloneDowngradesWithoutAuthorizationOrMutation(t *testing.T) {
+	parsetree.Require(t)
 	fixture := newFixture()
 	fixture.rehearser.result = rehearsalpkg.Result{
 		Verdict: rehearsalpkg.VerdictRecommendOnly,
@@ -67,6 +71,7 @@ func TestApplyStaleCloneDowngradesWithoutAuthorizationOrMutation(t *testing.T) {
 }
 
 func TestApplyPlanRegressionParksWithoutMutation(t *testing.T) {
+	parsetree.Require(t)
 	fixture := newFixture()
 	fixture.rehearser.result = rehearsalpkg.Result{
 		Verdict: rehearsalpkg.VerdictPark,
@@ -82,6 +87,7 @@ func TestApplyPlanRegressionParksWithoutMutation(t *testing.T) {
 }
 
 func TestApplyPolicyDenialIsDurablyParked(t *testing.T) {
+	parsetree.Require(t)
 	fixture := newFixture()
 	fixture.gate.decision = policy.Decision{
 		Verdict: policy.VerdictPark, Reason: policy.ReasonOutsideMaintenanceWindow,

@@ -9,6 +9,7 @@ import (
 
 	planpkg "github.com/pg-sage/sidecar/internal/migration/plan"
 	"github.com/pg-sage/sidecar/internal/testdb"
+	"github.com/pg-sage/sidecar/internal/testsupport/parsetree"
 )
 
 // Integration (migration-06 part A): the runner measures every expand
@@ -16,6 +17,7 @@ import (
 // clock plus the plan's delay.
 
 func TestPostgresRehearsalRunnerMeasuresEveryStep(t *testing.T) {
+	parsetree.Require(t)
 	pool := migrationRuntimePool(t)
 	ctx := context.Background()
 	const table = "public.mig06_rehearsal_users"

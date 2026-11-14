@@ -2,11 +2,16 @@ package plan
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/pg-sage/sidecar/internal/sqlast"
+	"github.com/pg-sage/sidecar/internal/testsupport/parsetree"
 )
 
 func TestPlannerRewritesAddUniqueWithoutBlockingIndexBuild(t *testing.T) {
+	parsetree.Require(t)
 	planner := NewPlanner()
 	result, err := planner.Plan(context.Background(), Request{
 		SQL:   `ALTER TABLE public.users ADD CONSTRAINT users_email_key UNIQUE (email)`,
@@ -40,6 +45,7 @@ func TestPlannerRewritesAddUniqueWithoutBlockingIndexBuild(t *testing.T) {
 }
 
 func TestPlannerRewritesHugeSetNotNullWithoutValidatedProof(t *testing.T) {
+	parsetree.Require(t)
 	result, err := NewPlanner().Plan(context.Background(), Request{
 		SQL:   `ALTER TABLE public.accounts ALTER COLUMN email SET NOT NULL`,
 		Cycle: 41,
@@ -73,6 +79,7 @@ func TestPlannerRewritesHugeSetNotNullWithoutValidatedProof(t *testing.T) {
 }
 
 func TestPlannerUsesValidatedNotNullProofButStillDelaysContract(t *testing.T) {
+	parsetree.Require(t)
 	result, err := NewPlanner().Plan(context.Background(), Request{
 		SQL:   `ALTER TABLE public.accounts ALTER COLUMN email SET NOT NULL`,
 		Cycle: 9,
@@ -101,6 +108,7 @@ func TestPlannerUsesValidatedNotNullProofButStillDelaysContract(t *testing.T) {
 }
 
 func TestPlanNeverReturnsContractInExpandCycle(t *testing.T) {
+	parsetree.Require(t)
 	result, err := NewPlanner().Plan(context.Background(), Request{
 		SQL:   `ALTER TABLE public.accounts ALTER COLUMN email SET NOT NULL`,
 		Cycle: 100,
@@ -159,6 +167,49 @@ func assertNoUnsafeOriginal(t *testing.T, result Plan, original string) {
 	) {
 		if strings.EqualFold(strings.TrimSpace(step.SQL), strings.TrimSpace(original)) {
 			t.Fatalf("unsafe original DDL survived rewrite: %#v", step)
+		}
+	}
+}
+
+// migration-02b: the planner reads the statement from the parse tree, so
+// a comment means what PostgreSQL says it means, never a clause.
+func TestPlannerReadsCommentsAsTheParseTreeDoes(t *testing.T) {
+	parsetree.Require(t)
+	got := stepSQL(mustPlan(t, `ALTER TABLE public.users ADD CONSTRAINT k `+
+		`UNIQUE /* ) INCLUDE ( */ (a) /* DEFERRABLE */`, usersTable()))
+	want := []string{
+		`CREATE UNIQUE INDEX CONCURRENTLY "k_idx" ON "public"."users" ("a")`,
+		`ALTER TABLE "public"."users" ADD CONSTRAINT "k" UNIQUE USING INDEX "k_idx"`,
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("plan\n got %q\nwant %q", got, want)
+	}
+}
+
+// The planner keeps the parse-tree refusal in its error chain, so callers
+// can tell a statement shape from an option, a syntax error or a name.
+func TestPlannerKeepsTheNamedParseTreeRefusal(t *testing.T) {
+	parsetree.Require(t)
+	long := strings.Repeat("c", 64)
+	cases := []struct {
+		sql  string
+		want error
+	}{
+		{`ALTER TABLE public.users ADD CONSTRAINT k UNIQUE (a) INCLUDE (b)`,
+			sqlast.ErrUnsupportedOption},
+		{`ALTER TABLE public.users ADD CONSTRAINT k PRIMARY KEY (a)`, sqlast.ErrNotPlannable},
+		{`ALTER TABLE public.users ADD CONSTRAINT k UNIQUE ()`, sqlast.ErrSyntax},
+		{`ALTER TABLE public.users ALTER COLUMN ` + long + ` SET NOT NULL`,
+			sqlast.ErrNameTooLong},
+	}
+	for _, tc := range cases {
+		result, err := NewPlanner().Plan(context.Background(),
+			Request{SQL: tc.sql, Cycle: 1, Table: usersTable()})
+		if !errors.Is(err, tc.want) {
+			t.Fatalf("Plan(%q) error = %v, want %v", tc.sql, err, tc.want)
+		}
+		if len(result.ExpandSteps) != 0 || len(result.ContractSteps) != 0 {
+			t.Fatalf("Plan(%q) refused but returned %#v", tc.sql, result)
 		}
 	}
 }

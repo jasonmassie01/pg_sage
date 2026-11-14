@@ -8,6 +8,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/migration/plan"
 	migrationruntime "github.com/pg-sage/sidecar/internal/migration/runtime"
 	"github.com/pg-sage/sidecar/internal/policy"
+	"github.com/pg-sage/sidecar/internal/testsupport/parsetree"
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
@@ -82,6 +83,7 @@ func TestApplyMigrationForwardsSchemaArguments(t *testing.T) {
 }
 
 func TestApplyMigrationIsGatedBeforeRehearsal(t *testing.T) {
+	parsetree.Require(t)
 	store := &recordingIntentStore{}
 	runtime := &recordingSafeMigrationRuntime{}
 	gate := &recordingProductionGate{decision: policy.Decision{Verdict: policy.VerdictBlocked,
@@ -105,6 +107,7 @@ func TestApplyMigrationIsGatedBeforeRehearsal(t *testing.T) {
 }
 
 func TestApplyMigrationQueuedByTheGateStillRehearses(t *testing.T) {
+	parsetree.Require(t)
 	runtime := &recordingSafeMigrationRuntime{result: migrationruntime.Result{
 		Verdict: migrationruntime.VerdictParked, EvidenceID: "ev-park"}}
 	gate := &recordingProductionGate{decision: policy.Decision{

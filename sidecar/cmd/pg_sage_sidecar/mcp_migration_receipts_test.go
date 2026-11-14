@@ -18,6 +18,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/migration/plan"
 	"github.com/pg-sage/sidecar/internal/migration/rehearsal"
 	"github.com/pg-sage/sidecar/internal/policy"
+	"github.com/pg-sage/sidecar/internal/testsupport/parsetree"
 )
 
 // migration-07: a rehearsal that cannot write a receipt creates no clone
@@ -98,6 +99,7 @@ func TestRehearsalOnProductionIsLoggedAsError(t *testing.T) {
 }
 
 func TestFleetMCPApplyMigrationLogsRuntimeError(t *testing.T) {
+	parsetree.Require(t)
 	pool := agentWiringPool(t)
 	executor := &fleetIntentExecutor{
 		access: &fleetMCPAccess{fallback: pool},

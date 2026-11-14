@@ -8,6 +8,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	planpkg "github.com/pg-sage/sidecar/internal/migration/plan"
 	rehearsalpkg "github.com/pg-sage/sidecar/internal/migration/rehearsal"
+	"github.com/pg-sage/sidecar/internal/testsupport/parsetree"
 )
 
 // No concurrent access tests: both helpers read a config value once and
@@ -16,6 +17,7 @@ import (
 // migration-06: the loaded config's budgets reach the rehearsal and the
 // planner; without a config the package defaults apply.
 func TestMigrationBudgetsFollowConfig(t *testing.T) {
+	parsetree.Require(t)
 	loaded := config.DefaultConfig()
 	loaded.Rehearsal.PlanFlipPct = 3
 	loaded.Migration.MaxLockMS = 750
@@ -36,6 +38,7 @@ func TestMigrationBudgetsFollowConfig(t *testing.T) {
 }
 
 func TestMigrationBudgetsWithoutConfigUseDefaults(t *testing.T) {
+	parsetree.Require(t)
 	options := migrationRehearsalOptions(nil, time.Hour)
 	if options.PlanFlipPct != 0 || options.MaxLock != 0 ||
 		options.StatementTimeout != rehearsalpkg.DefaultStepStatementTimeout {

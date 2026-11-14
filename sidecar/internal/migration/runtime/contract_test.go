@@ -9,6 +9,7 @@ import (
 
 	planpkg "github.com/pg-sage/sidecar/internal/migration/plan"
 	rehearsalpkg "github.com/pg-sage/sidecar/internal/migration/rehearsal"
+	"github.com/pg-sage/sidecar/internal/testsupport/parsetree"
 )
 
 // No concurrent access tests: the orchestrator holds no state between
@@ -24,6 +25,7 @@ func notNullRequest() Request {
 // Happy path: an expanded SET NOT NULL returns both contract statements,
 // a forward-fix script that asserts the proof, and the plan's delay.
 func TestApplyReturnsContractScriptAndDelay(t *testing.T) {
+	parsetree.Require(t)
 	fixture := newFixture()
 	fixture.rehearser.result.Measurement = passingRuntimeMeasurement()
 	result, err := fixture.orchestrator().Apply(context.Background(), notNullRequest())
@@ -49,6 +51,7 @@ func TestApplyReturnsContractScriptAndDelay(t *testing.T) {
 
 // A run that never expanded has no contract to wait for and no script.
 func TestNonExpandedRunsRecordNoContractDelay(t *testing.T) {
+	parsetree.Require(t)
 	fixture := newFixture()
 	fixture.rehearser.result = rehearsalpkg.Result{
 		Verdict: rehearsalpkg.VerdictRecommendOnly,
@@ -70,6 +73,7 @@ func TestNonExpandedRunsRecordNoContractDelay(t *testing.T) {
 // Error propagation: a budget park carries the measured value in the
 // reason, so the agent and the ledger both see why it parked.
 func TestApplyStepBudgetParkCarriesMeasuredValue(t *testing.T) {
+	parsetree.Require(t)
 	fixture := newFixture()
 	fixture.rehearser.result = rehearsalpkg.Result{
 		Verdict: rehearsalpkg.VerdictPark, Reason: rehearsalpkg.ReasonStepBudget,

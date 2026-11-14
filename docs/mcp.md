@@ -369,18 +369,33 @@ forms:
   `ADD CONSTRAINT "name" UNIQUE USING INDEX "name_idx"` with the same timing clauses, so a
   deferrable request stays deferrable. PostgreSQL renames the index to the constraint name
   when it attaches.
-* `ALTER TABLE t ALTER COLUMN col SET NOT NULL`, planned as a `NOT VALID` check named
+* `ALTER TABLE t ALTER [COLUMN] col SET NOT NULL`, planned as a `NOT VALID` check named
   `<table>_<col>_nn`, validated, then `SET NOT NULL` and the check dropped.
 
-Names resolve the way PostgreSQL resolves them: a bare `Email` is the column `email`, a quoted
-`"Email"` keeps its case, and every name in the plan is quoted exactly once. Bare names must
-be ASCII; quote any other name. The planner refuses, with
-`unsupported option "..."; plan it by hand`, anything it cannot carry into the plan:
-`INCLUDE (...)`, `WITH (...)`, `USING INDEX TABLESPACE`, `NULLS [NOT] DISTINCT`, comments
-and any other trailing text. It also refuses an empty or repeated column list, contradictory
-timing such as `NOT DEFERRABLE INITIALLY DEFERRED`, and any constraint, index, column or
-proof name longer than 63 bytes, which PostgreSQL would otherwise truncate. Plan those
-migrations by hand.
+The planner reads the statement with PostgreSQL's own parser (libpg_query), so the SQL means
+what PostgreSQL says it means: a comment is never a clause, and `ONLY`, `IF EXISTS` and
+spaces around the schema dot read as they do in `psql`. Names resolve the way PostgreSQL
+resolves them: a bare `Email` is the column `email`, a quoted `"Email"` keeps its case, and
+every name in the plan is quoted exactly once. Bare names must be ASCII; quote any other name.
+
+The planner refuses, and the call returns `invalid_arguments` (-32602) with the reason:
+
+* `unsupported option "..."; plan it by hand` for anything it cannot carry into the plan:
+  `INCLUDE (...)`, `WITH (...)`, `USING INDEX TABLESPACE`, `USING INDEX`,
+  `NULLS [NOT] DISTINCT`, and a repeated timing clause such as `DEFERRABLE DEFERRABLE`;
+* `PostgreSQL cannot parse the migration SQL: ... at "..."` for SQL PostgreSQL rejects,
+  including an empty column list and contradictory timing such as
+  `NOT DEFERRABLE INITIALLY DEFERRED`;
+* `unsupported migration statement` for anything but one `ALTER TABLE` with one of the two
+  clauses above: `ADD PRIMARY KEY`, an unnamed `ADD UNIQUE`, a repeated column, several
+  clauses or statements, or a database-qualified table;
+* `identifier too long` for any name in the SQL longer than 63 bytes, quoted or not, and
+  `name "..." is N bytes` for a derived index (`<constraint>_idx`) or proof name past 63
+  bytes. PostgreSQL would silently truncate them.
+
+Plan those migrations by hand. A build without cgo (a local `CGO_ENABLED=0` build; release
+images and binaries are built with cgo) has no parser, so it refuses every online-migration
+plan with `online migration planning needs the parse-tree build`.
 
 ### The migration ledger
 

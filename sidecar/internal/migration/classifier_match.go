@@ -80,19 +80,30 @@ func (rc *RegexClassifier) matchAlterColumnRules(sql string) []DDLClassification
 // generated/serial/identity column. A constant DEFAULT is a catalog-only
 // change on PostgreSQL 11+, so it is not flagged.
 func (rc *RegexClassifier) matchAddColumnRules(sql string) []DDLClassification {
-	rewrites := false
-	if m := reAddColumnDefault.FindStringSubmatch(sql); m != nil && isColumnIdent(m[1]) {
-		rewrites = isVolatileDefault(m[2])
-	}
-	if m := reAddColumnGenerated.FindStringSubmatch(sql); m != nil && isColumnIdent(m[1]) {
-		rewrites = true
-	}
-	if !rewrites {
+	if !addColumnRewrites(sql) {
 		return nil
 	}
 	c := newClassification(rc.ruleByID("ddl_add_column_volatile_default"), sql)
 	fillTableFromAlter(sql, &c)
 	return []DDLClassification{c}
+}
+
+// addColumnRewrites reports whether any ADD COLUMN clause rewrites the
+// table. Each ADD is read on its own, so an ADD CONSTRAINT or a constant
+// default in another clause cannot hide a volatile one (the parse-tree
+// mapping checks every subcommand too; env-cgo-b).
+func addColumnRewrites(sql string) bool {
+	for _, loc := range reAddHead.FindAllStringIndex(sql, -1) {
+		rest := sql[loc[0]:]
+		if m := reAddColumnDefault.FindStringSubmatch(rest); m != nil &&
+			isColumnIdent(m[1]) && isVolatileDefault(m[2]) {
+			return true
+		}
+		if m := reAddColumnGenerated.FindStringSubmatch(rest); m != nil && isColumnIdent(m[1]) {
+			return true
+		}
+	}
+	return false
 }
 
 // matchDropRules checks DROP COLUMN (COLUMN keyword optional inside

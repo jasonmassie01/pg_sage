@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/pg-sage/sidecar/internal/testsupport/parsetree"
 )
 
 // TestPlannerRejectsMultiClauseAlter is the G7-B24 regression: only
@@ -29,6 +31,7 @@ func TestPlannerRejectsMultiClauseAlter(t *testing.T) {
 // TestPlannerRejectsTableMismatch: the SQL's target table must be the
 // table the caller described, or the plan would alter a different one.
 func TestPlannerRejectsTableMismatch(t *testing.T) {
+	parsetree.Require(t)
 	_, err := NewPlanner().Plan(context.Background(), Request{
 		SQL:   `ALTER TABLE public.orders ALTER COLUMN a SET NOT NULL`,
 		Cycle: 1, Table: TableFacts{Schema: "public", Name: "users"},
@@ -49,6 +52,7 @@ func TestPlannerRejectsTableMismatch(t *testing.T) {
 // TestPlannerAllowsCommaInsideUniqueColumns: a column-list comma is
 // not a second clause.
 func TestPlannerAllowsCommaInsideUniqueColumns(t *testing.T) {
+	parsetree.Require(t)
 	result, err := NewPlanner().Plan(context.Background(), Request{
 		SQL:   `ALTER TABLE public.users ADD CONSTRAINT u UNIQUE (a, b)`,
 		Cycle: 1, Table: TableFacts{Schema: "public", Name: "users"},
@@ -62,6 +66,7 @@ func TestPlannerAllowsCommaInsideUniqueColumns(t *testing.T) {
 // planner emitted for lower-case identifiers before migration-02; the
 // identifier reader must leave it byte-identical.
 func TestPlannerGoldenSQLForLowerCaseStatements(t *testing.T) {
+	parsetree.Require(t)
 	const users = `"public"."users"`
 	const accounts = `"public"."accounts"`
 	uniqueEmail := []string{
@@ -108,6 +113,7 @@ func TestPlannerGoldenSQLForLowerCaseStatements(t *testing.T) {
 // TestPlannerGoldenSQLForProvedNotNull: with a validated proof only the
 // SET NOT NULL contract step remains, byte-identical to before.
 func TestPlannerGoldenSQLForProvedNotNull(t *testing.T) {
+	parsetree.Require(t)
 	const want = `ALTER TABLE "public"."accounts" ALTER COLUMN "email" SET NOT NULL`
 	proved, err := NewPlanner().Plan(context.Background(), Request{
 		SQL: `ALTER TABLE public.accounts ALTER COLUMN email SET NOT NULL`, Cycle: 2,

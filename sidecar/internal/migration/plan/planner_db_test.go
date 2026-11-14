@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/testdb"
+	"github.com/pg-sage/sidecar/internal/testsupport/parsetree"
 )
 
 func TestMain(m *testing.M) {
@@ -54,6 +55,7 @@ func resetTable(t *testing.T, pool *pgxpool.Pool, ddl string) {
 // mixed-case, DEFERRABLE request builds, attaches, and the attached
 // constraint has exactly the timing the request asked for.
 func TestPlannedUniqueAttachesWithRequestedTiming(t *testing.T) {
+	parsetree.Require(t)
 	pool := planDBPool(t)
 	table := TableFacts{Schema: "public", Name: "mig02_users"}
 	cases := []struct {
@@ -96,6 +98,7 @@ WHERE c.conrelid = 'public.mig02_users'::regclass AND c.conname = $1`,
 // TestPlannedUniqueOnQuotedColumnBuilds: a quoted, mixed-case column
 // is planned as the real column name, not a tripled-quote name.
 func TestPlannedUniqueOnQuotedColumnBuilds(t *testing.T) {
+	parsetree.Require(t)
 	pool := planDBPool(t)
 	resetTable(t, pool, `CREATE TABLE public.mig02_users (id int, "Email" text)`)
 	result := mustPlan(t, `ALTER TABLE public.mig02_users ADD CONSTRAINT "Mig02_Key" `+
@@ -119,6 +122,7 @@ WHERE c.conname = 'Mig02_Key'`).Scan(&columns)
 // steps for a bare mixed-case column run, the column ends NOT NULL and
 // the proof constraint is gone.
 func TestPlannedSetNotNullOnMixedCaseColumn(t *testing.T) {
+	parsetree.Require(t)
 	pool := planDBPool(t)
 	resetTable(t, pool, `CREATE TABLE public.mig02_users (id int, email text);
 INSERT INTO public.mig02_users VALUES (1, 'a@example.test')`)

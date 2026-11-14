@@ -14,6 +14,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/migration/rehearsal"
 	migrationruntime "github.com/pg-sage/sidecar/internal/migration/runtime"
 	"github.com/pg-sage/sidecar/internal/policy"
+	"github.com/pg-sage/sidecar/internal/testsupport/parsetree"
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
@@ -54,6 +55,7 @@ func TestConfiguredMCPCloneProviderDLEOnly(t *testing.T) {
 }
 
 func TestFleetMCPApplyMigrationInjectsPerDatabaseConfiguredRuntime(t *testing.T) {
+	parsetree.Require(t)
 	runtime := &commandMigrationRuntime{result: migrationruntime.Result{
 		Verdict: migrationruntime.VerdictRecommendOnly,
 		Reason:  "stale_clone", ContractNotBeforeCycle: 5,

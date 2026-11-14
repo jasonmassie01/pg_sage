@@ -2,9 +2,12 @@ package plan
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/sqlast"
 )
 
 type Classification string
@@ -100,15 +103,19 @@ func (p *Planner) Plan(ctx context.Context, request Request) (Plan, error) {
 	if err := validateStatement(request); err != nil {
 		return Plan{}, err
 	}
-	stmt, err := parseStatement(request.SQL)
+	stmt, err := sqlast.ParsePlannableAlter(request.SQL)
+	if errors.Is(err, sqlast.ErrUnavailable) {
+		return Plan{}, fmt.Errorf("online migration planning needs the parse-tree "+
+			"build: %w", err)
+	}
 	if err != nil {
 		return Plan{}, err
 	}
 	if err := checkTarget(stmt, request.Table); err != nil {
 		return Plan{}, err
 	}
-	planned, err := planNotNull(request, stmt.column)
-	if stmt.classification == ClassificationAddUnique {
+	planned, err := planNotNull(request, stmt.Column)
+	if stmt.Kind == sqlast.AlterAddUnique {
 		planned, err = planUnique(request, stmt)
 	}
 	if err != nil {
@@ -118,14 +125,14 @@ func (p *Planner) Plan(ctx context.Context, request Request) (Plan, error) {
 	return planned, nil
 }
 
-func planUnique(request Request, stmt statement) (Plan, error) {
-	index := stmt.constraint + "_idx"
-	if err := checkNames(append([]string{stmt.constraint, index},
-		stmt.columns...)...); err != nil {
+func planUnique(request Request, stmt sqlast.PlannableAlter) (Plan, error) {
+	index := stmt.Constraint + "_idx"
+	if err := checkNames(append([]string{stmt.Constraint, index},
+		stmt.Columns...)...); err != nil {
 		return Plan{}, err
 	}
 	table := qualified(request.Table)
-	columnSQL := quotedColumns(stmt.columns)
+	columnSQL := quotedColumns(stmt.Columns)
 	return Plan{Cycle: request.Cycle, Classification: ClassificationAddUnique,
 		Rewritten: true, RequiresRehearsal: true,
 		ExpandSteps: []Step{{Kind: StepCreateUniqueIndex, Phase: PhaseExpand,
@@ -134,7 +141,7 @@ func planUnique(request Request, stmt statement) (Plan, error) {
 			LockLevel: lockShareUpdateExclusive}},
 		ContractSteps: []Step{{Kind: StepAttachUniqueConstraint, Phase: PhaseContract,
 			SQL: fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s UNIQUE USING INDEX %s%s",
-				table, quote(stmt.constraint), quote(index), stmt.timing),
+				table, quote(stmt.Constraint), quote(index), stmt.Timing),
 			LockLevel: lockAccessExclusive}},
 		ContractNotBeforeCycle: request.Cycle + 1,
 		ContractGuard: ContractGuard{Kind: GuardValidUniqueIndex,
