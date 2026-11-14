@@ -329,17 +329,18 @@ class TickTodoTest(unittest.TestCase):
     def test_also_covers_stops_at_prose(self):
         self.fx.report("t0", "r-01", _merged_report("r-01"))
         self.fx.write_todo([
-            "- [ ] r-01 R (also covers s-01, side branches, ledger-pin (the guard is t-30)) (x, M)",
+            "- [ ] r-01 R (also covers s-01, side branches, u-01, pin (the guard is t-30)) (x, M)",
             "- [ ] s-01 Folded (x, S)",
             "- [ ] side Not an id list entry (x, S)",
+            "- [ ] u-01 After the prose, so not covered (x, S)",
             "- [ ] t-30 Separate item (x, S)",
         ])
         code, out, _ = self.fx.run()
         self.assertEqual(code, 0)
         self.assertIn("s-01: done: covered by r-01", out)
-        self.assertIn("side: no report", out)
-        self.assertIn("t-30: no report", out)
-        self.assertIn("done 2, partial 0, unmerged 0, no report 2,", _summary(out))
+        for item_id in ("side", "u-01", "t-30"):
+            self.assertIn(f"{item_id}: no report", out)
+        self.assertIn("done 2, partial 0, unmerged 0, no report 3,", _summary(out))
 
     def test_title_partial_counts(self):
         self.fx.report("t0", "l-01", (
