@@ -285,7 +285,9 @@ func registerFleetScopedRoutes(
 func registerFleetReadRoutes(apiMux *http.ServeMux, mgr *fleet.DatabaseManager,
 	cfg *config.Config) {
 	routeAggregate(apiMux, "GET /api/v1/value", gateViewer, mgr,
-		func(m *fleet.DatabaseManager) http.Handler { return valueHandler(fleetValueReader(m, cfg)) })
+		func(m *fleet.DatabaseManager) http.Handler {
+			return valueHandler(fleetValueReader(m, cfg))
+		})
 	registerBriefingRoutes(apiMux, mgr)
 	registerMigrationLintRoutes(apiMux, mgr, cfg)
 	registerUpgradeReadinessRoutes(apiMux, mgr, cfg)
