@@ -1,0 +1,2041 @@
+[
+  {
+    "ActionType": "analyze_table",
+    "BaseRiskTier": "safe",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg",
+      "lakebase"
+    ],
+    "RequiredPermissions": [
+      "table ownership or ANALYZE privilege"
+    ],
+    "Prechecks": [
+      "table exists",
+      "table is not excluded by policy",
+      "emergency stop is not active",
+      "stale-stat evidence exists",
+      "cooldown window has elapsed"
+    ],
+    "Guardrails": [
+      "dedicated connection",
+      "statement_timeout",
+      "per-table cooldown",
+      "fleet analyze semaphore",
+      "per-cluster safe-action concurrency limit"
+    ],
+    "ExecutionPlan": [
+      "ANALYZE qualified_table"
+    ],
+    "SuccessCriteria": [
+      "last_analyze advances or analyze_count increases",
+      "stale-stat case no longer fires"
+    ],
+    "PostChecks": [
+      "verify last_analyze or analyze_count changed",
+      "rerun analyzer",
+      "compare planner row-estimate error where available"
+    ],
+    "RollbackClass": "no_rollback_needed",
+    "Cooldown": "configured analyze cooldown",
+    "AuditFields": [
+      "table",
+      "prior_last_analyze",
+      "new_last_analyze",
+      "prior_estimate_error",
+      "post_action_estimate_error",
+      "case_id"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "alter_system_guc",
+    "BaseRiskTier": "moderate",
+    "ProviderSupport": [
+      "postgres"
+    ],
+    "RequiredPermissions": [
+      "permission to change database configuration"
+    ],
+    "Prechecks": [
+      "parameter is in the executor GUC allowlist",
+      "current value is captured for rollback"
+    ],
+    "Guardrails": [
+      "approval or autonomous moderate policy required",
+      "single validated GUC change",
+      "maintenance-window enforcement"
+    ],
+    "ExecutionPlan": [
+      "ALTER SYSTEM SET or RESET validated_parameter"
+    ],
+    "SuccessCriteria": [
+      "configured value matches the requested value"
+    ],
+    "PostChecks": [
+      "read back the effective and pending value"
+    ],
+    "RollbackClass": "reversible",
+    "Cooldown": "configured cascade cooldown",
+    "AuditFields": [
+      "database",
+      "parameter",
+      "old_value",
+      "new_value"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "alter_database_guc",
+    "BaseRiskTier": "moderate",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "cnpg",
+      "lakebase"
+    ],
+    "RequiredPermissions": [
+      "permission to change database configuration"
+    ],
+    "Prechecks": [
+      "parameter is in the executor GUC allowlist",
+      "current value is captured for rollback"
+    ],
+    "Guardrails": [
+      "approval or autonomous moderate policy required",
+      "single validated GUC change",
+      "maintenance-window enforcement"
+    ],
+    "ExecutionPlan": [
+      "ALTER DATABASE SET or RESET validated_parameter"
+    ],
+    "SuccessCriteria": [
+      "configured value matches the requested value"
+    ],
+    "PostChecks": [
+      "read back the effective and pending value"
+    ],
+    "RollbackClass": "reversible",
+    "Cooldown": "configured cascade cooldown",
+    "AuditFields": [
+      "database",
+      "parameter",
+      "old_value",
+      "new_value"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "diagnose_lock_blockers",
+    "BaseRiskTier": "safe",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "pg_monitor or pg_read_all_stats"
+    ],
+    "Prechecks": [
+      "incident evidence is still open",
+      "emergency stop is not active"
+    ],
+    "Guardrails": [
+      "read-only lock graph query",
+      "statement_timeout",
+      "no backend state changes"
+    ],
+    "ExecutionPlan": [
+      "query pg_stat_activity and pg_locks"
+    ],
+    "SuccessCriteria": [
+      "current blocker and blocked sessions are identified"
+    ],
+    "PostChecks": [
+      "refresh lock wait graph"
+    ],
+    "RollbackClass": "not_applicable",
+    "Cooldown": "none",
+    "AuditFields": [
+      "case_id",
+      "database",
+      "blocker_pid"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "diagnose_runaway_query",
+    "BaseRiskTier": "safe",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "pg_monitor or pg_read_all_stats"
+    ],
+    "Prechecks": [
+      "incident evidence is still open",
+      "emergency stop is not active"
+    ],
+    "Guardrails": [
+      "read-only diagnostic query",
+      "statement_timeout",
+      "no backend state changes"
+    ],
+    "ExecutionPlan": [
+      "read current query age, wait state, temp spill, and text"
+    ],
+    "SuccessCriteria": [
+      "confirm query is still active and matches incident evidence"
+    ],
+    "PostChecks": [
+      "refresh incident evidence"
+    ],
+    "RollbackClass": "not_applicable",
+    "Cooldown": "none",
+    "AuditFields": [
+      "case_id",
+      "database"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "diagnose_connection_exhaustion",
+    "BaseRiskTier": "safe",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "pg_monitor or pg_read_all_stats"
+    ],
+    "Prechecks": [
+      "incident evidence is still open",
+      "emergency stop is not active"
+    ],
+    "Guardrails": [
+      "read-only diagnostic query",
+      "statement_timeout",
+      "no backend state changes"
+    ],
+    "ExecutionPlan": [
+      "group pg_stat_activity by role, application, and state"
+    ],
+    "SuccessCriteria": [
+      "identify connection pressure source without changing sessions"
+    ],
+    "PostChecks": [
+      "refresh incident evidence"
+    ],
+    "RollbackClass": "not_applicable",
+    "Cooldown": "none",
+    "AuditFields": [
+      "case_id",
+      "database"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "diagnose_wal_replication",
+    "BaseRiskTier": "safe",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "pg_monitor or pg_read_all_stats"
+    ],
+    "Prechecks": [
+      "incident evidence is still open",
+      "emergency stop is not active"
+    ],
+    "Guardrails": [
+      "read-only diagnostic query",
+      "statement_timeout",
+      "no backend state changes"
+    ],
+    "ExecutionPlan": [
+      "read replication lag and slot retention evidence"
+    ],
+    "SuccessCriteria": [
+      "identify WAL retention cause without dropping slots"
+    ],
+    "PostChecks": [
+      "refresh incident evidence"
+    ],
+    "RollbackClass": "not_applicable",
+    "Cooldown": "none",
+    "AuditFields": [
+      "case_id",
+      "database"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "diagnose_standby_conflicts",
+    "BaseRiskTier": "read_only",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "pg_monitor or pg_read_all_stats"
+    ],
+    "Prechecks": [
+      "incident evidence is still open",
+      "emergency stop is not active"
+    ],
+    "Guardrails": [
+      "read-only diagnostic query",
+      "statement_timeout",
+      "no backend state changes"
+    ],
+    "ExecutionPlan": [
+      "read standby conflict counters by database"
+    ],
+    "SuccessCriteria": [
+      "identify replay conflict type without changing replica settings"
+    ],
+    "PostChecks": [
+      "refresh incident evidence"
+    ],
+    "RollbackClass": "not_applicable",
+    "Cooldown": "none",
+    "AuditFields": [
+      "case_id",
+      "database"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "prepare_sequence_capacity_migration",
+    "BaseRiskTier": "high",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "read sequence metadata",
+      "submit reviewed migration through version control"
+    ],
+    "Prechecks": [
+      "sequence still approaches max_value",
+      "owning table and column are identified",
+      "forward-fix migration is reviewed"
+    ],
+    "Guardrails": [
+      "direct execution disabled",
+      "generate PR or migration script",
+      "manual review required"
+    ],
+    "ExecutionPlan": [
+      "prepare capacity migration and verification SQL"
+    ],
+    "SuccessCriteria": [
+      "sequence or owning column has sufficient runway"
+    ],
+    "PostChecks": [
+      "verify sequence last_value and max_value",
+      "confirm dependent column type has headroom"
+    ],
+    "RollbackClass": "forward_fix_only",
+    "Cooldown": "none",
+    "AuditFields": [
+      "case_id",
+      "database",
+      "sequence"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "cancel_backend",
+    "BaseRiskTier": "moderate",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "pg_signal_backend or role membership allowing cancellation"
+    ],
+    "Prechecks": [
+      "exact backend PID from current incident evidence",
+      "PID still exists and still matches user/query/state evidence",
+      "target is not a pg_sage backend"
+    ],
+    "Guardrails": [
+      "approval required",
+      "revalidate PID immediately before execution",
+      "never target pg_sage backend",
+      "prefer cancel before terminate"
+    ],
+    "ExecutionPlan": [
+      "SELECT pg_cancel_backend(validated_pid)"
+    ],
+    "SuccessCriteria": [
+      "blocked sessions no longer wait on the same backend"
+    ],
+    "PostChecks": [
+      "verify blocker PID no longer blocks waiters"
+    ],
+    "RollbackClass": "mitigation_only",
+    "Cooldown": "incident-scoped",
+    "AuditFields": [
+      "case_id",
+      "database",
+      "pid",
+      "query"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "terminate_backend",
+    "BaseRiskTier": "high",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "pg_signal_backend or role membership allowing termination"
+    ],
+    "Prechecks": [
+      "exact backend PID from current incident evidence",
+      "PID still exists and still matches user/query/state evidence",
+      "cancel was attempted or judged insufficient",
+      "target is not superuser, replication, autovacuum, or pg_sage"
+    ],
+    "Guardrails": [
+      "approval required",
+      "incident responder review",
+      "revalidate PID immediately before execution",
+      "never target superuser/replication/autovacuum/pg_sage backend",
+      "prefer cancel first"
+    ],
+    "ExecutionPlan": [
+      "SELECT pg_terminate_backend(validated_pid)"
+    ],
+    "SuccessCriteria": [
+      "validated blocker backend is gone",
+      "blocked workload is no longer waiting on the same blocker"
+    ],
+    "PostChecks": [
+      "verify blocker PID is gone",
+      "verify blocked sessions cleared or changed blockers"
+    ],
+    "RollbackClass": "not_reversible",
+    "Cooldown": "incident-scoped",
+    "AuditFields": [
+      "case_id",
+      "database",
+      "pid",
+      "query"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "vacuum_table",
+    "BaseRiskTier": "safe",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg",
+      "lakebase"
+    ],
+    "RequiredPermissions": [
+      "table ownership or VACUUM privilege"
+    ],
+    "Prechecks": [
+      "table exists",
+      "dead tuple or bloat evidence still exceeds threshold",
+      "IO pressure is below policy threshold"
+    ],
+    "Guardrails": [
+      "dedicated connection",
+      "statement_timeout",
+      "per-table cooldown",
+      "per-cluster safe-action concurrency limit"
+    ],
+    "ExecutionPlan": [
+      "VACUUM qualified_table"
+    ],
+    "SuccessCriteria": [
+      "last_vacuum advances or vacuum_count increases",
+      "dead tuple ratio improves"
+    ],
+    "PostChecks": [
+      "verify last_vacuum or vacuum_count changed",
+      "rerun bloat analyzer"
+    ],
+    "RollbackClass": "no_rollback_needed",
+    "Cooldown": "configured vacuum cooldown",
+    "AuditFields": [
+      "case_id",
+      "database",
+      "table"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "diagnose_freeze_blockers",
+    "BaseRiskTier": "safe",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "pg_monitor or pg_read_all_stats"
+    ],
+    "Prechecks": [
+      "incident evidence is still open",
+      "emergency stop is not active"
+    ],
+    "Guardrails": [
+      "read-only diagnostic query",
+      "statement_timeout",
+      "no backend state changes"
+    ],
+    "ExecutionPlan": [
+      "query database XID age and oldest backend_xmin holders"
+    ],
+    "SuccessCriteria": [
+      "freeze blockers and XID runway are identified"
+    ],
+    "PostChecks": [
+      "refresh incident evidence"
+    ],
+    "RollbackClass": "not_applicable",
+    "Cooldown": "none",
+    "AuditFields": [
+      "case_id",
+      "database"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "set_table_autovacuum",
+    "BaseRiskTier": "moderate",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "table ownership or maintenance role"
+    ],
+    "Prechecks": [
+      "table exists",
+      "recommended reloptions are bounded by policy",
+      "current reloptions captured for review"
+    ],
+    "Guardrails": [
+      "earned autonomy: autonomous trust, tier3_moderate, 31-day ramp",
+      "generate PR or migration script",
+      "monitor post-change vacuum cadence"
+    ],
+    "ExecutionPlan": [
+      "ALTER TABLE ... SET (autovacuum_*)"
+    ],
+    "SuccessCriteria": [
+      "reloptions contain expected autovacuum settings",
+      "future dead tuple ratio trends down"
+    ],
+    "PostChecks": [
+      "verify pg_class.reloptions",
+      "rerun vacuum tuning analyzer after one churn window"
+    ],
+    "RollbackClass": "reversible",
+    "Cooldown": "configured cascade cooldown",
+    "AuditFields": [
+      "case_id",
+      "database",
+      "table",
+      "reloptions"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "diagnose_vacuum_pressure",
+    "BaseRiskTier": "safe",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "pg_monitor or pg_read_all_stats"
+    ],
+    "Prechecks": [
+      "incident evidence is still open",
+      "emergency stop is not active"
+    ],
+    "Guardrails": [
+      "read-only diagnostic query",
+      "statement_timeout",
+      "no backend state changes"
+    ],
+    "ExecutionPlan": [
+      "query table vacuum stats and oldest xmin holders"
+    ],
+    "SuccessCriteria": [
+      "vacuum blockers and maintenance pressure are identified"
+    ],
+    "PostChecks": [
+      "refresh incident evidence"
+    ],
+    "RollbackClass": "not_applicable",
+    "Cooldown": "none",
+    "AuditFields": [
+      "case_id",
+      "database"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "plan_bloat_remediation",
+    "BaseRiskTier": "high",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "read relation size and bloat evidence",
+      "submit online rebuild plan through change control"
+    ],
+    "Prechecks": [
+      "bloat evidence still exceeds threshold",
+      "maintenance window and disk headroom are reviewed",
+      "online rebuild path is selected before execution"
+    ],
+    "Guardrails": [
+      "direct execution disabled",
+      "manual review required",
+      "avoid VACUUM FULL without outage approval"
+    ],
+    "ExecutionPlan": [
+      "generate online bloat remediation plan"
+    ],
+    "SuccessCriteria": [
+      "table size or bloat ratio decreases",
+      "application latency remains acceptable"
+    ],
+    "PostChecks": [
+      "rerun bloat analyzer",
+      "compare relation size and error rate"
+    ],
+    "RollbackClass": "forward_fix_only",
+    "Cooldown": "table-scoped",
+    "AuditFields": [
+      "case_id",
+      "database",
+      "table"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "reindex_concurrently",
+    "BaseRiskTier": "moderate",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg",
+      "lakebase"
+    ],
+    "RequiredPermissions": [
+      "index ownership or maintenance role"
+    ],
+    "Prechecks": [
+      "index exists",
+      "disk headroom is sufficient for concurrent rebuild",
+      "replica lag is acceptable"
+    ],
+    "Guardrails": [
+      "REINDEX CONCURRENTLY",
+      "approval required",
+      "maintenance-window enforcement"
+    ],
+    "ExecutionPlan": [
+      "REINDEX INDEX CONCURRENTLY ..."
+    ],
+    "SuccessCriteria": [
+      "rebuilt index is valid",
+      "index bloat or size decreases"
+    ],
+    "PostChecks": [
+      "verify pg_index validity",
+      "compare index size before and after"
+    ],
+    "RollbackClass": "reversible",
+    "Cooldown": "index-scoped",
+    "AuditFields": [
+      "case_id",
+      "database",
+      "index"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "prepare_query_rewrite",
+    "BaseRiskTier": "moderate",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "read query statistics and plans",
+      "submit application query change through version control"
+    ],
+    "Prechecks": [
+      "rewrite has deterministic rationale",
+      "semantic equivalence can be tested in CI or staging",
+      "baseline plan and latency evidence are attached"
+    ],
+    "Guardrails": [
+      "direct database execution disabled",
+      "generate PR or script",
+      "approval required"
+    ],
+    "ExecutionPlan": [
+      "generate query rewrite artifact and verification checklist"
+    ],
+    "SuccessCriteria": [
+      "rewritten query returns equivalent rows",
+      "plan cost, latency, or temp IO improves"
+    ],
+    "PostChecks": [
+      "compare old and rewritten EXPLAIN plans",
+      "monitor query latency and error rate after deployment"
+    ],
+    "RollbackClass": "application_rollback",
+    "Cooldown": "query-scoped",
+    "AuditFields": [
+      "case_id",
+      "database",
+      "queryid"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "promote_role_work_mem",
+    "BaseRiskTier": "moderate",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "ALTER ROLE privilege or admin role"
+    ],
+    "Prechecks": [
+      "multiple queries for same role need repeated work_mem hints",
+      "recommended value is below configured maximum",
+      "role-level memory blast radius is estimated"
+    ],
+    "Guardrails": [
+      "approval required",
+      "bounded work_mem value",
+      "verification after one workload window"
+    ],
+    "ExecutionPlan": [
+      "ALTER ROLE ... SET work_mem"
+    ],
+    "SuccessCriteria": [
+      "representative queries stop spilling to temp",
+      "database memory pressure remains acceptable"
+    ],
+    "PostChecks": [
+      "verify pg_roles.rolconfig",
+      "monitor temp blocks and memory pressure"
+    ],
+    "RollbackClass": "reversible",
+    "Cooldown": "role-scoped",
+    "AuditFields": [
+      "case_id",
+      "database",
+      "role",
+      "work_mem"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "set_role_timeout",
+    "BaseRiskTier": "moderate",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "CREATEROLE with ADMIN on the role, or superuser"
+    ],
+    "Prechecks": [
+      "enforce-mode role budget with 7 days of warn-mode shadow data",
+      "no protected application would have been cancelled",
+      "role is not a superuser, pg_sage's role, a pg_ role or a provider admin role",
+      "IN DATABASE names the connected database"
+    ],
+    "Guardrails": [
+      "cluster role lock",
+      "dedicated transaction",
+      "statement_timeout",
+      "lock_timeout",
+      "prior value re-read under the lock"
+    ],
+    "ExecutionPlan": [
+      "ALTER ROLE r IN DATABASE d SET setting = 'value'"
+    ],
+    "SuccessCriteria": [
+      "pg_db_role_setting holds the value for new sessions",
+      "statement-timeout cancels from the server log"
+    ],
+    "PostChecks": [
+      "read pg_db_role_setting back",
+      "statement-timeout cancels from the server log"
+    ],
+    "RollbackClass": "reversible",
+    "Cooldown": "role-scoped",
+    "AuditFields": [
+      "case_id",
+      "database",
+      "role",
+      "setting",
+      "prior",
+      "value"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "set_role_connection_limit",
+    "BaseRiskTier": "high",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "CREATEROLE with ADMIN on the role, or superuser"
+    ],
+    "Prechecks": [
+      "enforce-mode role budget with 7 days of warn-mode shadow data",
+      "limit is at least the role's current sessions plus a margin",
+      "role is not a superuser, pg_sage's role, a pg_ role or a provider admin role",
+      "this process is the fleet leader (the limit is cluster-wide)"
+    ],
+    "Guardrails": [
+      "approval required",
+      "cluster role lock",
+      "dedicated transaction",
+      "statement_timeout",
+      "lock_timeout"
+    ],
+    "ExecutionPlan": [
+      "ALTER ROLE r CONNECTION LIMIT n"
+    ],
+    "SuccessCriteria": [
+      "pg_roles.rolconnlimit is the limit"
+    ],
+    "PostChecks": [
+      "read pg_roles.rolconnlimit back"
+    ],
+    "RollbackClass": "reversible",
+    "Cooldown": "role-scoped",
+    "AuditFields": [
+      "case_id",
+      "role",
+      "prior_connection_limit",
+      "connection_limit",
+      "current_sessions"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "retire_query_hint",
+    "BaseRiskTier": "safe",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "write access to sage query hint metadata"
+    ],
+    "Prechecks": [
+      "hint status is broken or superseded",
+      "replacement action is absent or already generated"
+    ],
+    "Guardrails": [
+      "metadata-only update",
+      "query-scoped cooldown",
+      "no user table writes"
+    ],
+    "ExecutionPlan": [
+      "mark query hint retired"
+    ],
+    "SuccessCriteria": [
+      "hint no longer appears in active hint inventory"
+    ],
+    "PostChecks": [
+      "verify hint no longer appears in active hints",
+      "rerun tuner revalidation"
+    ],
+    "RollbackClass": "reversible",
+    "Cooldown": "query-scoped",
+    "AuditFields": [
+      "case_id",
+      "database",
+      "queryid",
+      "hint_text"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "apply_query_hint",
+    "BaseRiskTier": "moderate",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "write access to hint_plan.hints",
+      "pg_hint_plan installed and active"
+    ],
+    "Prechecks": [
+      "query still appears in pg_stat_statements",
+      "hint syntax validates",
+      "hinted EXPLAIN changed the plan within tuner.hint_cost_tolerance_pct (detail.hint_evidence.verdict changed)",
+      "rollback SQL is available",
+      "recent rejected hint cooldown has elapsed"
+    ],
+    "Guardrails": [
+      "approval required",
+      "revalidation required",
+      "cooldown after rollback",
+      "no broad planner enable/disable toggles"
+    ],
+    "ExecutionPlan": [
+      "insert reviewed hint into hint_plan.hints"
+    ],
+    "SuccessCriteria": [
+      "hint row exists",
+      "query latency does not regress (post-apply verification)"
+    ],
+    "PostChecks": [
+      "run hint revalidation loop",
+      "monitor query latency and error rate"
+    ],
+    "RollbackClass": "reversible",
+    "Cooldown": "configured hint rollback cooldown",
+    "AuditFields": [
+      "queryid",
+      "hint_text",
+      "case_id"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "investigate_query_plan",
+    "BaseRiskTier": "safe",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "read access to query text and EXPLAIN"
+    ],
+    "Prechecks": [
+      "query text or queryid evidence exists",
+      "statement_timeout is configured"
+    ],
+    "Guardrails": [
+      "read-only investigation",
+      "statement_timeout",
+      "no catalog changes"
+    ],
+    "ExecutionPlan": [
+      "capture EXPLAIN (ANALYZE, BUFFERS, VERBOSE)"
+    ],
+    "SuccessCriteria": [
+      "plan evidence attached",
+      "follow-up remediation path classified"
+    ],
+    "PostChecks": [
+      "review plan for missing index, stale stats, memory spill, or rewrite"
+    ],
+    "RollbackClass": "not_applicable",
+    "Cooldown": "none",
+    "AuditFields": [
+      "queryid",
+      "case_id"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "create_statistics",
+    "BaseRiskTier": "moderate",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg",
+      "lakebase"
+    ],
+    "RequiredPermissions": [
+      "CREATE privilege on the schema and table ownership (or MAINTAIN)"
+    ],
+    "Prechecks": [
+      "correlated predicate evidence still exists",
+      "statistics object does not already exist",
+      "sample query is attached for verification"
+    ],
+    "Guardrails": [
+      "pg_sage form only: sage_stx_ name in the table's schema, kinds ndistinct/dependencies/mcv, 2-8 plain columns of one table",
+      "SHARE UPDATE EXCLUSIVE on the table (CREATE STATISTICS and ANALYZE)",
+      "lock_timeout",
+      "statement_timeout"
+    ],
+    "ExecutionPlan": [
+      "CREATE STATISTICS schema.sage_stx_... ON columns FROM schema.table",
+      "ANALYZE schema.table",
+      "both in one transaction: all or none"
+    ],
+    "SuccessCriteria": [
+      "extended statistics object exists and is built",
+      "planner row estimates improve without slowing the targeted queries"
+    ],
+    "PostChecks": [
+      "verify pg_statistic_ext row",
+      "compare EXPLAIN row estimates before and after the ANALYZE"
+    ],
+    "RollbackClass": "reversible",
+    "Cooldown": "configured rollback cooldown",
+    "AuditFields": [
+      "table",
+      "statistics_name",
+      "kinds",
+      "columns",
+      "case_id"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "prepare_parameterized_query",
+    "BaseRiskTier": "moderate",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "read query statistics and submit application PR"
+    ],
+    "Prechecks": [
+      "literal-heavy query evidence is attached",
+      "normalized query shape is available",
+      "semantic equivalence can be tested"
+    ],
+    "Guardrails": [
+      "direct database execution disabled",
+      "generate PR or script",
+      "approval required"
+    ],
+    "ExecutionPlan": [
+      "generate application parameterization plan"
+    ],
+    "SuccessCriteria": [
+      "queryid churn decreases",
+      "latency and plan stability remain acceptable"
+    ],
+    "PostChecks": [
+      "compare pg_stat_statements fingerprints",
+      "monitor latency and errors after deployment"
+    ],
+    "RollbackClass": "application_rollback",
+    "Cooldown": "query-scoped",
+    "AuditFields": [
+      "case_id",
+      "database",
+      "queryid"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "retention_delete",
+    "BaseRiskTier": "moderate",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "DELETE on the contracted table"
+    ],
+    "Prechecks": [
+      "explicit append-only retention contract with an owner-declared column",
+      "reviewed dry run for the same relation, column identity, contract version and window"
+    ],
+    "Guardrails": [
+      "statement_timeout",
+      "lock_timeout",
+      "bounded batch",
+      "typed-target lease"
+    ],
+    "ExecutionPlan": [
+      "DELETE one bounded batch by (tableoid, ctid)"
+    ],
+    "SuccessCriteria": [
+      "only rows older than the cutoff are deleted",
+      "no more rows than the reviewed dry run's bound"
+    ],
+    "PostChecks": [
+      "verify deleted rows against the declared predicate before commit",
+      "match the sage.retention_run record to the action"
+    ],
+    "RollbackClass": "not_reversible",
+    "Cooldown": "one batch per autonomy tick",
+    "AuditFields": [
+      "table",
+      "retention_column",
+      "cutoff",
+      "deleted_rows"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "revert_created_index",
+    "BaseRiskTier": "moderate",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg",
+      "lakebase"
+    ],
+    "RequiredPermissions": [
+      "index ownership or maintenance role"
+    ],
+    "Prechecks": [
+      "index OID equals the OID recorded when pg_sage created it",
+      "verification verdict requires revert"
+    ],
+    "Guardrails": [
+      "DROP INDEX CONCURRENTLY",
+      "lock_timeout"
+    ],
+    "ExecutionPlan": [
+      "DROP INDEX CONCURRENTLY IF EXISTS created_index"
+    ],
+    "SuccessCriteria": [
+      "created index is absent"
+    ],
+    "PostChecks": [
+      "verify index no longer exists"
+    ],
+    "RollbackClass": "reversible",
+    "Cooldown": "configured rollback cooldown",
+    "AuditFields": [
+      "index_name",
+      "index_oid",
+      "action_id"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "restore_dropped_index",
+    "BaseRiskTier": "safe",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "index ownership or maintenance role"
+    ],
+    "Prechecks": [
+      "SQL equals the CONCURRENTLY form of the definition recorded with the drop",
+      "the drop's targeted queries regressed or a hint names the index"
+    ],
+    "Guardrails": [
+      "CREATE INDEX CONCURRENTLY",
+      "lock_timeout",
+      "statement_timeout"
+    ],
+    "ExecutionPlan": [
+      "CREATE [UNIQUE] INDEX CONCURRENTLY recorded_definition"
+    ],
+    "SuccessCriteria": [
+      "the dropped index exists again with its definition"
+    ],
+    "PostChecks": [
+      "verify pg_index.indisvalid and indisready"
+    ],
+    "RollbackClass": "reversible",
+    "Cooldown": "configured rollback cooldown",
+    "AuditFields": [
+      "index_name",
+      "table",
+      "action_id"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "replace_index",
+    "BaseRiskTier": "moderate",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "schema CREATE privilege",
+      "table and index ownership or maintenance role"
+    ],
+    "Prechecks": [
+      "the new index subsumes the old index",
+      "the old index backs no constraint and enforces no uniqueness",
+      "every foreign key the old index supports stays supported",
+      "the old index's OID and definition are the ones proposed",
+      "no binding fact forbids DDL on the table"
+    ],
+    "Guardrails": [
+      "approval_required",
+      "CREATE INDEX CONCURRENTLY",
+      "DROP INDEX CONCURRENTLY",
+      "table change lease held across both steps",
+      "lock_timeout",
+      "statement_timeout"
+    ],
+    "ExecutionPlan": [
+      "CREATE INDEX CONCURRENTLY new_index ...",
+      "verify pg_index.indisvalid and indisready of new_index",
+      "DROP INDEX CONCURRENTLY old_index (soft drop: definition kept)"
+    ],
+    "SuccessCriteria": [
+      "the new index is valid and the old index is absent",
+      "targeted queries improve and the old index's users do not regress"
+    ],
+    "PostChecks": [
+      "verify the new index is valid and the old index is absent",
+      "judge targeted queries and the old index's users over the verification window",
+      "watch the old index's users over the drop window; re-create it on regression"
+    ],
+    "RollbackClass": "reversible",
+    "Cooldown": "configured cascade cooldown",
+    "AuditFields": [
+      "table",
+      "new_index",
+      "old_index",
+      "old_index_oid",
+      "old_definition",
+      "case_id"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "revert_created_statistics",
+    "BaseRiskTier": "moderate",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg",
+      "lakebase"
+    ],
+    "RequiredPermissions": [
+      "statistics object ownership"
+    ],
+    "Prechecks": [
+      "the object is a sage_stx_ object"
+    ],
+    "Guardrails": [
+      "DROP STATISTICS IF EXISTS of one object, never CASCADE",
+      "lock_timeout"
+    ],
+    "ExecutionPlan": [
+      "DROP STATISTICS IF EXISTS schema.sage_stx_..."
+    ],
+    "SuccessCriteria": [
+      "statistics object is absent"
+    ],
+    "PostChecks": [
+      "verify pg_statistic_ext no longer has the object"
+    ],
+    "RollbackClass": "reversible",
+    "Cooldown": "configured rollback cooldown",
+    "AuditFields": [
+      "statistics_name",
+      "action_id"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "guard_role_ensure",
+    "BaseRiskTier": "moderate",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "azure",
+      "azure-cosmos",
+      "supabase",
+      "neon",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "CREATEROLE (PostgreSQL 16 or later), not superuser",
+      "CONNECT grant option on each database"
+    ],
+    "Prechecks": [
+      "PostgreSQL 16 or later",
+      "principal is active",
+      "pg_sage's own role passes the self-check",
+      "operator approval"
+    ],
+    "Guardrails": [
+      "one transaction",
+      "lock_timeout 2s",
+      "per-role advisory lock",
+      "SCRAM verifier computed client-side"
+    ],
+    "ExecutionPlan": [
+      "CREATE ROLE or ALTER ROLE sage_agentb_\u003cid10\u003e LOGIN ...",
+      "CREATE ROLE or ALTER ROLE sage_agent_\u003cid10\u003e NOLOGIN ...",
+      "ALTER ROLE ... IN DATABASE d SET \u003ctimeouts\u003e",
+      "GRANT CONNECT ON DATABASE d"
+    ],
+    "SuccessCriteria": [
+      "both roles exist with the specified attributes"
+    ],
+    "PostChecks": [
+      "attributes and settings equal the spec",
+      "no membership in a dangerous role",
+      "owns nothing (AP-02 is zero)"
+    ],
+    "RollbackClass": "reversible",
+    "Cooldown": "none",
+    "AuditFields": [
+      "principal_id",
+      "cluster_key",
+      "login_role",
+      "broker_role"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "guard_role_retire",
+    "BaseRiskTier": "high",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "azure",
+      "azure-cosmos",
+      "supabase",
+      "neon",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "ADMIN option on the agent roles"
+    ],
+    "Prechecks": [
+      "PostgreSQL 16 or later",
+      "operator approval"
+    ],
+    "Guardrails": [
+      "lock_timeout 2s",
+      "per-role advisory lock",
+      "REVOKE and DROP OWNED BY in every database first"
+    ],
+    "ExecutionPlan": [
+      "per database: DROP OWNED BY \u003crole\u003e",
+      "DROP ROLE \u003crole\u003e"
+    ],
+    "SuccessCriteria": [
+      "the roles are gone from the cluster"
+    ],
+    "PostChecks": [
+      "role absent in every database of the cluster"
+    ],
+    "RollbackClass": "not_reversible",
+    "Cooldown": "none",
+    "AuditFields": [
+      "principal_id",
+      "cluster_key",
+      "login_role",
+      "broker_role"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "guard_freeze",
+    "BaseRiskTier": "safe",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "azure",
+      "azure-cosmos",
+      "supabase",
+      "neon",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "ADMIN option on the agent roles",
+      "pg_signal_backend (to end agent sessions pg_sage does not inherit)"
+    ],
+    "Prechecks": [
+      "none: narrowing works under the emergency stop and at any trust level"
+    ],
+    "Guardrails": [
+      "lock_timeout 2s per ALTER ROLE",
+      "3 attempts"
+    ],
+    "ExecutionPlan": [
+      "record each role's prior attributes",
+      "ALTER ROLE \u003crole\u003e NOLOGIN CONNECTION LIMIT 0 (one principal, cluster-wide)",
+      "cancel in-flight agent applies",
+      "terminate agent backends on the primary and each configured replica",
+      "cancel pending approvals (cancelled_kill)"
+    ],
+    "SuccessCriteria": [
+      "no agent backend remains",
+      "new agent logins fail"
+    ],
+    "PostChecks": [
+      "no agent backend on the primary or any configured replica",
+      "roles NOLOGIN; principal frozen (flag set)"
+    ],
+    "RollbackClass": "reversible",
+    "Cooldown": "none",
+    "AuditFields": [
+      "principal_id",
+      "cluster_key",
+      "prior_attrs",
+      "reason"
+    ],
+    "Narrowing": true
+  },
+  {
+    "ActionType": "guard_kill",
+    "BaseRiskTier": "safe",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "azure",
+      "azure-cosmos",
+      "supabase",
+      "neon",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "ADMIN option on the agent roles",
+      "pg_signal_backend (to end agent sessions pg_sage does not inherit)"
+    ],
+    "Prechecks": [
+      "none: narrowing works under the emergency stop and at any trust level"
+    ],
+    "Guardrails": [
+      "lock_timeout 2s per ALTER ROLE",
+      "3 attempts"
+    ],
+    "ExecutionPlan": [
+      "record each role's prior attributes",
+      "ALTER ROLE \u003crole\u003e NOLOGIN CONNECTION LIMIT 0 (every agent role of the scope)",
+      "cancel in-flight agent applies",
+      "terminate agent backends on the primary and each configured replica",
+      "cancel pending approvals (cancelled_kill)"
+    ],
+    "SuccessCriteria": [
+      "no agent backend remains",
+      "new agent logins fail"
+    ],
+    "PostChecks": [
+      "no agent backend on the primary or any configured replica",
+      "roles NOLOGIN; principal frozen (flag set)"
+    ],
+    "RollbackClass": "reversible",
+    "Cooldown": "none",
+    "AuditFields": [
+      "principal_id",
+      "cluster_key",
+      "prior_attrs",
+      "reason"
+    ],
+    "Narrowing": true
+  },
+  {
+    "ActionType": "guard_unfreeze",
+    "BaseRiskTier": "moderate",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "azure",
+      "azure-cosmos",
+      "supabase",
+      "neon",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "ADMIN option on the agent roles",
+      "CREATEROLE (PostgreSQL 16 or later)"
+    ],
+    "Prechecks": [
+      "principal frozen",
+      "operator approval (two admins after a kill)",
+      "encryption_key"
+    ],
+    "Guardrails": [
+      "one transaction",
+      "lock_timeout 2s",
+      "per-role advisory lock",
+      "SCRAM verifier computed client-side"
+    ],
+    "ExecutionPlan": [
+      "ALTER ROLE \u003crole\u003e WITH \u003cprior LOGIN\u003e CONNECTION LIMIT \u003cprior\u003e",
+      "ALTER ROLE \u003cbroker\u003e PASSWORD '\u003cnew scram verifier\u003e'",
+      "store the new sealed credential",
+      "principal active"
+    ],
+    "SuccessCriteria": [
+      "roles have their prior attributes",
+      "the old broker password fails"
+    ],
+    "PostChecks": [
+      "grants restored; credentials rotated"
+    ],
+    "RollbackClass": "reversible",
+    "Cooldown": "none",
+    "AuditFields": [
+      "principal_id",
+      "cluster_key",
+      "approved_by",
+      "reason"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "guard_grant",
+    "BaseRiskTier": "moderate",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "azure",
+      "azure-cosmos",
+      "supabase",
+      "neon",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "the privilege WITH GRANT OPTION, held by pg_sage's own role (never through owner-role membership)"
+    ],
+    "Prechecks": [
+      "principal active and sponsored",
+      "operator approval",
+      "environment within the principal's ceiling",
+      "PUBLIC has no CREATE on the object's schema (P1)",
+      "columns grantable in the environment (classification)"
+    ],
+    "Guardrails": [
+      "one transaction",
+      "lock_timeout 2s",
+      "per-principal advisory lock",
+      "column list, never a whole table"
+    ],
+    "ExecutionPlan": [
+      "GRANT USAGE ON SCHEMA s TO sage_agentb_\u003cid10\u003e",
+      "GRANT SELECT (cols) ON TABLE s.t TO sage_agentb_\u003cid10\u003e",
+      "record grantor from aclexplode and expires_at on the database clock"
+    ],
+    "SuccessCriteria": [
+      "the broker role holds exactly the listed columns"
+    ],
+    "PostChecks": [
+      "aclexplode shows grantee, grantor and privileges for every listed column"
+    ],
+    "RollbackClass": "reversible",
+    "Cooldown": "none",
+    "AuditFields": [
+      "principal_id",
+      "database_id",
+      "object",
+      "columns",
+      "grantor",
+      "expires_at"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "guard_revoke",
+    "BaseRiskTier": "safe",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "azure",
+      "azure-cosmos",
+      "supabase",
+      "neon",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "membership in the recorded grantor"
+    ],
+    "Prechecks": [
+      "the grant is in the registry and not revoked"
+    ],
+    "Guardrails": [
+      "one transaction",
+      "lock_timeout 2s",
+      "per-principal advisory lock",
+      "leader-lease fence for the reconciler"
+    ],
+    "ExecutionPlan": [
+      "REVOKE SELECT (cols) ON TABLE s.t FROM sage_agentb_\u003cid10\u003e GRANTED BY \u003cgrantor\u003e",
+      "REVOKE USAGE ON SCHEMA s with the schema's last grant"
+    ],
+    "SuccessCriteria": [
+      "the role holds none of the grant's privileges"
+    ],
+    "PostChecks": [
+      "no residue for (grantee, grantor)"
+    ],
+    "RollbackClass": "no_rollback_needed",
+    "Cooldown": "none",
+    "AuditFields": [
+      "principal_id",
+      "database_id",
+      "grant_id",
+      "cause"
+    ],
+    "Narrowing": true
+  },
+  {
+    "ActionType": "create_index_concurrently",
+    "BaseRiskTier": "moderate",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg",
+      "lakebase"
+    ],
+    "RequiredPermissions": [
+      "schema CREATE privilege",
+      "table ownership or maintenance role"
+    ],
+    "Prechecks": [
+      "table exists",
+      "index does not already cover target columns",
+      "disk pressure is below safety threshold"
+    ],
+    "Guardrails": [
+      "CREATE INDEX CONCURRENTLY",
+      "lock_timeout",
+      "statement_timeout",
+      "maintenance-window enforcement"
+    ],
+    "ExecutionPlan": [
+      "CREATE INDEX CONCURRENTLY ..."
+    ],
+    "SuccessCriteria": [
+      "index is valid and ready",
+      "planner can choose the index where applicable"
+    ],
+    "PostChecks": [
+      "verify pg_index.indisvalid and indisready"
+    ],
+    "RollbackClass": "reversible",
+    "Cooldown": "configured cascade cooldown",
+    "AuditFields": [
+      "table",
+      "columns",
+      "index_name",
+      "case_id"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "drop_unused_index",
+    "BaseRiskTier": "moderate",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "index ownership or maintenance role"
+    ],
+    "Prechecks": [
+      "index exists",
+      "unused window has elapsed",
+      "index is not protected by policy"
+    ],
+    "Guardrails": [
+      "DROP INDEX CONCURRENTLY",
+      "earned autonomy: autonomous trust, tier3_moderate, 31-day ramp",
+      "maintenance-window enforcement"
+    ],
+    "ExecutionPlan": [
+      "DROP INDEX CONCURRENTLY ..."
+    ],
+    "SuccessCriteria": [
+      "index is absent",
+      "no protected dependency was removed"
+    ],
+    "PostChecks": [
+      "verify index no longer exists"
+    ],
+    "RollbackClass": "reversible",
+    "Cooldown": "configured cascade cooldown",
+    "AuditFields": [
+      "index_name",
+      "table",
+      "case_id"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "alter_table",
+    "BaseRiskTier": "high",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "table ownership or maintenance role"
+    ],
+    "Prechecks": [
+      "table exists",
+      "DDL has a reviewed forward-fix plan",
+      "maintenance window is active"
+    ],
+    "Guardrails": [
+      "approval required",
+      "lock_timeout",
+      "statement_timeout",
+      "maintenance-window enforcement"
+    ],
+    "ExecutionPlan": [
+      "ALTER TABLE ..."
+    ],
+    "SuccessCriteria": [
+      "schema change is visible in catalog"
+    ],
+    "PostChecks": [
+      "verify expected schema state"
+    ],
+    "RollbackClass": "forward_fix_only",
+    "Cooldown": "configured cascade cooldown",
+    "AuditFields": [
+      "table",
+      "ddl",
+      "case_id"
+    ],
+    "Narrowing": false
+  },
+  {
+    "ActionType": "ddl_preflight",
+    "BaseRiskTier": "high",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "read catalog statistics",
+      "review migration output in PR or CI"
+    ],
+    "Prechecks": [
+      "classify DDL lock level and rewrite behavior",
+      "check live table size and activity evidence",
+      "check pending locks and replica lag evidence"
+    ],
+    "Guardrails": [
+      "direct execution disabled",
+      "generate PR or migration script",
+      "manual review required",
+      "maintenance-window recommendation"
+    ],
+    "ExecutionPlan": [
+      "generate migration SQL, rollback or mitigation plan, and verification SQL"
+    ],
+    "SuccessCriteria": [
+      "reviewable migration artifact is produced",
+      "verification SQL is attached to the originating case"
+    ],
+    "PostChecks": [
+      "run verification SQL in CI or staging",
+      "rerun migration safety analyzer after deployment"
+    ],
+    "RollbackClass": "forward_fix_only",
+    "Cooldown": "none",
+    "AuditFields": [
+      "table",
+      "ddl",
+      "case_id",
+      "risk_score"
+    ],
+    "Narrowing": false
+  }
+]
