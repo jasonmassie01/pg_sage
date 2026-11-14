@@ -79,8 +79,12 @@ const (
 	MaxNotes                   = 5
 	MaxNoteRunes               = 300
 	MaxClaims                  = 8
-	maxTitleRunes              = 80
-	historyTurns               = 4
+	// MaxExcerptRunes bounds one citation's excerpt; MaxExcerptBytes
+	// bounds all excerpts of one answer, earlier citations first.
+	MaxExcerptRunes = 1500
+	MaxExcerptBytes = 24 * 1024
+	maxTitleRunes   = 80
+	historyTurns    = 4
 )
 
 // FinalTool is the tool the model answers with.
@@ -132,15 +136,20 @@ type Statement struct {
 // the run showed it under (E1, E2, ...; two reads of one id are two
 // citations), kind and reference, the label and digest of exactly what
 // the model was shown, and the API path that serves the object. Answers
-// stored before aliases existed have none.
+// stored before aliases existed have none. Excerpt is what the model read
+// (redacted, clipped to MaxExcerptRunes); ExcerptTruncated says it is not
+// the whole text, or, with no Excerpt, that the answer's excerpt budget
+// was spent. Answers stored before excerpts have neither.
 type Citation struct {
-	ID      string `json:"id"`
-	Alias   string `json:"alias,omitempty"`
-	Kind    string `json:"kind"`
-	Ref     string `json:"ref"`
-	Label   string `json:"label"`
-	Digest  string `json:"digest"`
-	APIPath string `json:"api_path,omitempty"`
+	ID               string `json:"id"`
+	Alias            string `json:"alias,omitempty"`
+	Kind             string `json:"kind"`
+	Ref              string `json:"ref"`
+	Label            string `json:"label"`
+	Digest           string `json:"digest"`
+	APIPath          string `json:"api_path,omitempty"`
+	Excerpt          string `json:"excerpt,omitempty"`
+	ExcerptTruncated bool   `json:"excerpt_truncated,omitempty"`
 }
 
 // ActionTaken is an investigation opened or a proposal queued (or the

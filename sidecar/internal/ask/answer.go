@@ -58,11 +58,13 @@ func keepClaims(a *Answer, claims []agentloop.Claim, issued map[string]agentloop
 				seen[alias] = true
 				c := citationFor(a.Database, ev)
 				c.Alias = alias
+				c.Excerpt, c.ExcerptTruncated = excerptOf(ev.Text)
 				a.Citations = append(a.Citations, c)
 			}
 		}
 		a.Statements = append(a.Statements, st)
 	}
+	capExcerpts(a.Citations)
 }
 
 func allKnown(aliases []string, issued map[string]agentloop.Evidence) bool {
