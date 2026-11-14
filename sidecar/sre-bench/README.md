@@ -287,8 +287,9 @@ are errors):
   runs the record through pg_sage's log parser and scores
   `participants_named` 1 when every expected participant is named with its
   lock mode, its blocker and a statement fingerprint, else 0
-  (`lock-deadlock-cycle` carries one). Its text is case text for the
-  canary checks.
+  (`lock-deadlock-cycle` carries one). The replay report lists each scored
+  case under `participants_named` (JSON) and "Deadlock participants named"
+  (Markdown). Its text is case text for the canary checks.
 
 **Adding cases (other families).** Add a directory under `replay/cases/` and
 JSON files in it. The loader validates every file against the probe catalog
