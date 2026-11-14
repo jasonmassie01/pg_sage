@@ -947,7 +947,24 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
+      # Full history: the ledger check compares with the last release tag.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ci-30: files stay under 500 lines and the long-function count never
+      # grows (scripts/ci/line-limits.allow may shrink a row, never add one).
+      - name: File-length ratchet
+        run: |
+          bash scripts/ci/line-limits_test.sh
+          bash scripts/ci/line-limits.sh
+
+      # ci-30 (ledger-pin): a released migration step never changes.
+      - name: Migration ledger is append-only
+        run: |
+          bash scripts/ci/ledger-append-only_test.sh
+          base="$(git describe --tags --abbrev=0 --match 'v*')"
+          bash scripts/ci/ledger-append-only.sh "$base"
 
       - uses: actions/setup-go@v5
         with:
@@ -1640,6 +1657,7 @@ jobs:
           changed="$(git diff --name-only "$BASE" HEAD)"
           release_files='\.goreleaser\.yml|sidecar/Dockerfile|\.github/workflows/ci\.yml'
           release_files+='|scripts/ci/(smoke-version|release-notes)\.sh'
+          release_files+='|scripts/ci/(line-limits|ledger-append-only)\.sh'
           if grep -qxE "$release_files" <<< "$changed"; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else

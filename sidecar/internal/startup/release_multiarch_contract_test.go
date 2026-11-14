@@ -201,6 +201,10 @@ func TestReleaseDryRunDetectsReleaseFiles(t *testing.T) {
 		{[]string{".github/workflows/ci.yml"}, "true"},
 		{[]string{"scripts/ci/smoke-version.sh"}, "true"},
 		{[]string{"scripts/ci/release-notes.sh"}, "true"},
+		{[]string{"scripts/ci/line-limits.sh"}, "true"},        // ci-30
+		{[]string{"scripts/ci/ledger-append-only.sh"}, "true"}, // ci-30
+		{[]string{"scripts/ci/line-limits.allow"}, "false"},    // ci-30: split PRs
+		{[]string{"scripts/ci/line-limits_test.sh"}, "false"},  // ci-30
 		{[]string{"README.md", "sidecar/main.go"}, "false"},
 		{[]string{"sidecar/Dockerfile.dev", "x/.goreleaser.yml"}, "false"},
 		{append(manyFiles(3000), "sidecar/Dockerfile"), "true"},

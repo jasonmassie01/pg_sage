@@ -327,8 +327,15 @@ python3 -m unittest discover -s deploy/databricks-apps -p 'test_*.py' -v
    Add a golden probe for the route to `router_table_probes_test.go` and
    regenerate with `go test ./internal/api -run RouterTable_MatchesGolden
    -update-router-golden`.
-4. Run the relevant verification commands and include results in the PR.
-5. Submit a PR with a clear description of what changed and why.
+4. Keep files at 500 lines or fewer and functions at 50 or fewer:
+   `bash scripts/ci/line-limits.sh` checks non-test Go and dashboard sources
+   against `scripts/ci/line-limits.allow`, and a PR may shrink a row, never
+   add one. The migration ledger
+   (`sidecar/internal/schema/testdata/migration_checksums.txt`) is
+   append-only from the last release tag: `bash
+   scripts/ci/ledger-append-only.sh "$(git describe --tags --abbrev=0 --match 'v*')"`.
+5. Run the relevant verification commands and include results in the PR.
+6. Submit a PR with a clear description of what changed and why.
 
 ## Code of Conduct
 

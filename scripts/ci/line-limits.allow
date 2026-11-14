@@ -1,0 +1,27 @@
+# ci-30: files allowed over the 500-line limit, and the number of top-level
+# Go functions allowed over 50 lines. scripts/ci/line-limits.sh fails when a
+# file over 500 lines has no row, when a listed file grows past its count, or
+# when the function total exceeds functions_over_50. A PR may shrink a row or
+# delete it, never add one or raise it. Each split item deletes its rows.
+# Format: <repo-relative path> <max lines>
+sidecar/cmd/pg_sage_sidecar/metadb.go 515
+sidecar/internal/api/action_handlers.go 748
+sidecar/internal/api/cases_handlers.go 593
+sidecar/internal/api/config_handlers.go 638
+sidecar/internal/api/database_handlers.go 668
+sidecar/internal/api/handlers.go 1353
+sidecar/internal/api/handlers_v09.go 506
+sidecar/internal/config/config.go 1487
+sidecar/internal/executor/action_contract.go 876
+sidecar/internal/fleet/capabilities.go 502
+sidecar/internal/fleet/types.go 533
+sidecar/internal/lakebaseobs/store.go 591
+sidecar/internal/schema/bootstrap.go 1010
+sidecar/internal/store/action_store.go 744
+sidecar/internal/store/config_helpers.go 818
+sidecar/internal/store/config_store.go 587
+sidecar/sre-bench/scenarios_wal.go 509
+sidecar/web/src/pages/Actions.jsx 885
+sidecar/web/src/pages/SettingsPage.jsx 1335
+
+functions_over_50 72
