@@ -487,8 +487,9 @@ outside the range fails to load and the error names the key; the API answers 400
 | `int_week_minutes`, `int_class_timeout`, `int_vacuum_stall` | `1`-`10080`, `60`-`86400`, `5`-`240` |
 
 A key with its own `range` tag uses that range instead: `analyzer.self_cost_budget_ms` is
-`0`-`3600000` and `rca.dedup_window_minutes` `1`-`525600` (it must also fit inside
-`rca.stale_after_hours`). Keys marked `zero:"default"` also take `0` in a config file, meaning
+`0`-`3600000`, `rca.dedup_window_minutes` `1`-`525600` (it must also fit inside
+`rca.stale_after_hours`) and `analyzer.slow_slot_retained_bytes` `1`-`1099511627776` (1 TiB;
+its 1 GiB default is the generic integer ceiling, so the ceiling would only let it go down). Keys marked `zero:"default"` also take `0` in a config file, meaning
 the default; the API refuses a stored `0` for them, because deleting the override is how the API
 restores a default: `analyzer.inactive_slot_min_minutes`, `analyzer.slow_slot_retained_bytes`,
 `safety.host_cpu_ceiling_pct`, `safety.index_build_timeout_seconds`,
@@ -502,7 +503,8 @@ Ranges that changed in tranche T4 (config-02b), where the file and the API used 
   `int_pos` key without `zero:"default"` (for example `llm.timeout_seconds`,
   `safety.lock_timeout_ms`, `retention.*_days`, `explain.*`, `logwatch.*`, `rca.*` counts,
   `analyzer.lock_chain.*` minutes and thresholds, `llm.optimizer.*`); `4` and below for the
-  `int_min5` intervals; any integer above `1073741824`; percentages outside `0`-`100`
+  `int_min5` intervals; any integer above `1073741824` (above `1099511627776` for
+  `analyzer.slow_slot_retained_bytes`); percentages outside `0`-`100`
   (`analyzer.*_pct`, `rca.connection_saturation_pct`); `analyzer.cache_hit_ratio_warning`
   outside `0`-`1`; `analyzer.wraparound_freeze_share` below `0.01`; negative
   `llm.fleet_token_budget_daily` and `llm.global_token_budget_daily`; float settings above

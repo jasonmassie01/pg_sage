@@ -201,6 +201,10 @@ func TestRangesThatMovedInConfig02b(t *testing.T) {
 		{"rca.dedup_window_minutes", "525601", false, false},       // API moved
 		{"safety.host_cpu_ceiling_pct", "0", true, false},          // unchanged: file default
 		{"trust.cascade_cooldown_cycles", "0", true, false},        // unchanged: file default
+		// The default threshold is 1 GiB, the generic int ceiling: a busy
+		// primary must be able to raise it (review of config-02b).
+		{"analyzer.slow_slot_retained_bytes", "10737418240", true, true},
+		{"analyzer.slow_slot_retained_bytes", "1099511627777", false, false},
 	} {
 		s, ok := config.LookupKey(tc.key)
 		if !ok {

@@ -567,7 +567,7 @@
     "class": "derivable",
     "lifecycle": "restart",
     "min": 1,
-    "max": 1073741824
+    "max": 1099511627776
   },
   "analyzer.subscription_lag_minutes": {
     "type": "int",
