@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/testsupport/parsetree"
 )
 
 // Integration (migration-06): the rendered forward-fix script runs as
@@ -64,6 +65,7 @@ func columnNullable(t *testing.T, pool *pgxpool.Pool) bool {
 }
 
 func TestContractScriptRunsAfterExpand(t *testing.T) {
+	parsetree.Require(t)
 	pool := planDBPool(t)
 	resetContractTable(t, pool)
 	planned, script := renderScript(t,
@@ -86,6 +88,7 @@ func TestContractScriptRunsAfterExpand(t *testing.T) {
 // The header raises when the CHECK was added NOT VALID but never
 // validated, and the transaction leaves the column as it was.
 func TestContractScriptStopsOnUnvalidatedProof(t *testing.T) {
+	parsetree.Require(t)
 	pool := planDBPool(t)
 	resetContractTable(t, pool)
 	planned, script := renderScript(t,
@@ -106,6 +109,7 @@ func TestContractScriptStopsOnUnvalidatedProof(t *testing.T) {
 }
 
 func TestContractScriptUniqueNeedsValidIndex(t *testing.T) {
+	parsetree.Require(t)
 	pool := planDBPool(t)
 	resetContractTable(t, pool)
 	planned, script := renderScript(t,

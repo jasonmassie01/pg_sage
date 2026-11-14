@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/testsupport/parsetree"
 )
 
 // Integration (migration-06 review): the forward-fix script's safety
@@ -44,6 +45,7 @@ func proofConstraintExists(t *testing.T, pool *pgxpool.Pool, name string) bool {
 // sends every statement; the raised guard still leaves the table as it
 // was, because the later statements run in the aborted transaction.
 func TestContractScriptIgnoringErrorsChangesNothing(t *testing.T) {
+	parsetree.Require(t)
 	pool := planDBPool(t)
 	resetContractTable(t, pool)
 	planned, script := renderScript(t,
@@ -79,6 +81,7 @@ func TestContractScriptIgnoringErrorsChangesNothing(t *testing.T) {
 // A proof name with a backslash guards correctly when the operator's
 // session has standard_conforming_strings off.
 func TestContractScriptBackslashNameWithoutStandardStrings(t *testing.T) {
+	parsetree.Require(t)
 	pool := planDBPool(t)
 	resetContractTable(t, pool)
 	const proof = `mig06_chk\x`

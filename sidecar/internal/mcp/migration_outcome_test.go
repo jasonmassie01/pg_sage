@@ -10,6 +10,7 @@ import (
 	rehearsalpkg "github.com/pg-sage/sidecar/internal/migration/rehearsal"
 	migrationruntime "github.com/pg-sage/sidecar/internal/migration/runtime"
 	"github.com/pg-sage/sidecar/internal/policy"
+	"github.com/pg-sage/sidecar/internal/testsupport/parsetree"
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
@@ -46,6 +47,7 @@ func passedRehearsal() rehearsalpkg.Result {
 // Happy path: SET NOT NULL reports contract_pending, both contract
 // statements and a forward-fix script whose header names the proof.
 func TestApplyMigrationOutcomeCarriesPendingContract(t *testing.T) {
+	parsetree.Require(t)
 	outcome := runOutcome(t, passedRehearsal())
 	require.Equal(t, "expanded", outcome.Verdict)
 	require.Equal(t, "contract_pending", outcome.Reason)
@@ -60,6 +62,7 @@ func TestApplyMigrationOutcomeCarriesPendingContract(t *testing.T) {
 // CHECK-27: the JSON golden for the apply_migration outcome includes
 // reason and pending_contract_sql (the plan itself is pinned elsewhere).
 func TestApplyMigrationOutcomeJSONGolden(t *testing.T) {
+	parsetree.Require(t)
 	raw, err := json.Marshal(runOutcome(t, passedRehearsal()))
 	require.NoError(t, err)
 	var doc map[string]any
@@ -80,6 +83,7 @@ func TestApplyMigrationOutcomeJSONGolden(t *testing.T) {
 
 // Nil/empty: no workload evidence reaches the agent as a reason, not "".
 func TestApplyMigrationOutcomeInconclusiveReason(t *testing.T) {
+	parsetree.Require(t)
 	outcome := runOutcome(t, rehearsalpkg.Result{Verdict: rehearsalpkg.VerdictRecommendOnly,
 		Reason: rehearsalpkg.ReasonInconclusiveWorkload})
 	require.Equal(t, "recommend_only", outcome.Verdict)
@@ -94,6 +98,7 @@ func TestApplyMigrationOutcomeInconclusiveReason(t *testing.T) {
 
 // A clone-cleanup failure's text reaches Reason.
 func TestApplyMigrationOutcomeCarriesCleanupFailure(t *testing.T) {
+	parsetree.Require(t)
 	rehearsal := passedRehearsal()
 	rehearsal.CleanupError = "destroy rehearsal clone clone-9: 503 busy"
 	outcome := runOutcome(t, rehearsal)
@@ -104,6 +109,7 @@ func TestApplyMigrationOutcomeCarriesCleanupFailure(t *testing.T) {
 
 // Every apply_migration path sets a reason, the runtime-less one too.
 func TestApplyMigrationOutcomeReasonWithoutRuntime(t *testing.T) {
+	parsetree.Require(t)
 	executor := NewProductionIntentExecutor(&recordingIntentStore{}, plan.NewPlanner(),
 		&recordingProductionGate{decision: policy.Decision{Verdict: policy.VerdictExecute}})
 	result, err := executor.ExecuteConcrete(context.Background(), policy.ActionRequest{

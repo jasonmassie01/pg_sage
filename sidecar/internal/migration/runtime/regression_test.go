@@ -7,11 +7,13 @@ import (
 	"time"
 
 	rehearsalpkg "github.com/pg-sage/sidecar/internal/migration/rehearsal"
+	"github.com/pg-sage/sidecar/internal/testsupport/parsetree"
 )
 
 // TestApplyReportsPendingContract is the G7-B23 regression: "expanded"
 // was reported while nothing would ever run the contract phase.
 func TestApplyReportsPendingContract(t *testing.T) {
+	parsetree.Require(t)
 	fixture := newFixture()
 	fixture.rehearser.result.Measurement = passingRuntimeMeasurement()
 	result, err := fixture.orchestrator().Apply(context.Background(), request())
@@ -39,6 +41,7 @@ func passingRuntimeMeasurement() rehearsalpkg.Measurement {
 // TestApplyRecordsCleanupFailureAndMeasurement covers R08's durable
 // cleanup-failure record and G7-B22's discarded measurement.
 func TestApplyRecordsCleanupFailureAndMeasurement(t *testing.T) {
+	parsetree.Require(t)
 	fixture := newFixture()
 	fixture.rehearser.result = rehearsalpkg.Result{
 		Verdict: rehearsalpkg.VerdictRecommendOnly,

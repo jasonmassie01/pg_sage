@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/testsupport/parsetree"
 )
 
 // No concurrent access tests: the planner holds only its delay, set
@@ -25,6 +27,7 @@ func planWith(t *testing.T, planner *Planner, request Request) Plan {
 // State transition: the contract waits a wall-clock delay (default 1h),
 // not a count of cycles.
 func TestPlannerContractDelay(t *testing.T) {
+	parsetree.Require(t)
 	request := Request{SQL: contractNotNullSQL, Cycle: 3, Table: usersTable()}
 	if got := planWith(t, NewPlanner(), request).ContractNotBefore; got != time.Hour {
 		t.Fatalf("default ContractNotBefore = %s, want 1h", got)
@@ -47,6 +50,7 @@ func TestPlannerContractDelay(t *testing.T) {
 
 // Every planned step states the lock it takes.
 func TestPlannerDeclaresStepLocks(t *testing.T) {
+	parsetree.Require(t)
 	want := map[StepKind]string{
 		StepAddCheckNotValid: "ACCESS EXCLUSIVE", StepValidateConstraint: "SHARE UPDATE EXCLUSIVE",
 		StepSetNotNull: "ACCESS EXCLUSIVE", StepDropProofConstraint: "ACCESS EXCLUSIVE",
@@ -87,6 +91,7 @@ func TestStepLock(t *testing.T) {
 // constraint is validated, bounds lock waits, then runs both contract
 // steps in order inside one transaction.
 func TestContractScriptSetNotNull(t *testing.T) {
+	parsetree.Require(t)
 	planned := planWith(t, NewPlanner(), Request{SQL: contractNotNullSQL, Table: usersTable()})
 	script, err := planned.ContractScript()
 	if err != nil {
@@ -107,6 +112,7 @@ func TestContractScriptSetNotNull(t *testing.T) {
 }
 
 func TestContractScriptUniqueChecksIndexValid(t *testing.T) {
+	parsetree.Require(t)
 	planned := planWith(t, NewPlanner(), Request{SQL: contractUniqueSQL, Table: usersTable()})
 	script, err := planned.ContractScript()
 	if err != nil {
@@ -122,6 +128,7 @@ func TestContractScriptUniqueChecksIndexValid(t *testing.T) {
 
 // An operator-supplied proof is what the script asserts.
 func TestContractScriptUsesSuppliedProof(t *testing.T) {
+	parsetree.Require(t)
 	planned := planWith(t, NewPlanner(), Request{SQL: contractNotNullSQL, Table: usersTable(),
 		Proofs: []Proof{{Kind: ProofValidatedNotNullCheck, Column: "email",
 			Constraint: "email_present", Validated: true}}})
@@ -137,6 +144,7 @@ func TestContractScriptUsesSuppliedProof(t *testing.T) {
 // Invalid input: literals are quoted, and a plan the header cannot
 // guard is refused instead of rendered unguarded.
 func TestContractScriptRefusesUnguardablePlans(t *testing.T) {
+	parsetree.Require(t)
 	quoted := planWith(t, NewPlanner(), Request{
 		SQL:   `ALTER TABLE public."o'brien" ALTER COLUMN email SET NOT NULL`,
 		Table: TableFacts{Schema: "public", Name: "o'brien"}})

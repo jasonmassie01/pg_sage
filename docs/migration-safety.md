@@ -10,6 +10,12 @@ The script is **recommend-only**. pg_sage generates it from the catalog and neve
 proposes it for approval, or routes it to the executor. You run it yourself, step by step,
 after review.
 
+The other online rewrite pg_sage plans, `apply_migration` for `ADD CONSTRAINT ... UNIQUE`
+and `SET NOT NULL`, is described with the forms it supports and the ones it refuses in
+[what `apply_migration` can plan](mcp.md#what-apply_migration-can-plan). Both planners
+need a build with the SQL parser (cgo): without it `apply_migration` refuses to plan, and
+the column swap below is marked degraded.
+
 ## Where to find it
 
 A type-tightening decision in `sage.decision` (feature `schema_guard`) carries:

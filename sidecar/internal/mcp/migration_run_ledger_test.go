@@ -14,6 +14,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/ledger"
 	"github.com/pg-sage/sidecar/internal/migration/plan"
 	"github.com/pg-sage/sidecar/internal/policy"
+	"github.com/pg-sage/sidecar/internal/testsupport/parsetree"
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
@@ -102,6 +103,7 @@ func TestRecordMigrationParallelBlockedRunsBothPersist(t *testing.T) {
 }
 
 func TestApplyMigrationIsGatedBeforeRehearsalAgainstPostgres(t *testing.T) {
+	parsetree.Require(t)
 	access, pool := newPostgresIntentAccess(t)
 	evidenceID := ledger.NewEvidenceID()
 	runtime := &recordingSafeMigrationRuntime{}
@@ -122,6 +124,7 @@ func TestApplyMigrationIsGatedBeforeRehearsalAgainstPostgres(t *testing.T) {
 }
 
 func TestRecommendOnlyRunsWithoutEvidenceGetDistinctRows(t *testing.T) {
+	parsetree.Require(t)
 	access, pool := newPostgresIntentAccess(t)
 	databaseID := uniqueDatabaseID()
 	gate := &recordingProductionGate{decision: policy.Decision{

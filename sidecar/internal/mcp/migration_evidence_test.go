@@ -8,6 +8,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/migration/plan"
 	"github.com/pg-sage/sidecar/internal/policy"
+	"github.com/pg-sage/sidecar/internal/testsupport/parsetree"
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
@@ -17,6 +18,7 @@ import (
 // PostgreSQL in migration_run_ledger_test.go.
 
 func TestBlockedMigrationRecordsTheGateReason(t *testing.T) {
+	parsetree.Require(t)
 	store := &recordingIntentStore{}
 	gate := &recordingProductionGate{decision: policy.Decision{Verdict: policy.VerdictBlocked,
 		Reason: policy.ReasonChangeClassNotAllowed, EvidenceID: "ev-blocked"}}
@@ -30,6 +32,7 @@ func TestBlockedMigrationRecordsTheGateReason(t *testing.T) {
 }
 
 func TestBlockedMigrationWithoutEvidenceGetsAFreshID(t *testing.T) {
+	parsetree.Require(t)
 	ids := make([]string, 0, 2)
 	for range 2 {
 		store := &recordingIntentStore{}
@@ -48,6 +51,7 @@ func TestBlockedMigrationWithoutEvidenceGetsAFreshID(t *testing.T) {
 }
 
 func TestRecommendOnlyMigrationNeverUsesASharedEvidenceLiteral(t *testing.T) {
+	parsetree.Require(t)
 	store := &recordingIntentStore{}
 	gate := &recordingProductionGate{decision: policy.Decision{
 		Verdict: policy.VerdictQueueApproval}}
@@ -67,6 +71,7 @@ func TestRecommendOnlyMigrationNeverUsesASharedEvidenceLiteral(t *testing.T) {
 }
 
 func TestRecommendOnlyMigrationKeepsTheActionEvidence(t *testing.T) {
+	parsetree.Require(t)
 	store := &recordingIntentStore{}
 	gate := &recordingProductionGate{decision: policy.Decision{
 		Verdict: policy.VerdictQueueApproval, EvidenceID: "ev-queue"}}
@@ -81,6 +86,7 @@ func TestRecommendOnlyMigrationKeepsTheActionEvidence(t *testing.T) {
 // same gap: a gate without a decision recorder hands back no evidence id,
 // and every such plan was written under one empty evidence_id.
 func TestAuthorizedMigrationWithoutEvidenceGetsAFreshID(t *testing.T) {
+	parsetree.Require(t)
 	ids := make([]string, 0, 2)
 	for range 2 {
 		store := &recordingIntentStore{}
@@ -101,6 +107,7 @@ func TestAuthorizedMigrationWithoutEvidenceGetsAFreshID(t *testing.T) {
 }
 
 func TestAuthorizedMigrationKeepsTheDecisionEvidence(t *testing.T) {
+	parsetree.Require(t)
 	store := &recordingIntentStore{}
 	executor := NewProductionIntentExecutor(store, plan.NewPlanner())
 	result, err := executor.Execute(context.Background(), migrationRequest(),
@@ -111,6 +118,7 @@ func TestAuthorizedMigrationKeepsTheDecisionEvidence(t *testing.T) {
 }
 
 func TestBlockedMigrationStoreErrorIsReturned(t *testing.T) {
+	parsetree.Require(t)
 	storeErr := errors.New("sage.migration_run unavailable")
 	store := &failingMigrationStore{err: storeErr}
 	gate := &recordingProductionGate{decision: policy.Decision{

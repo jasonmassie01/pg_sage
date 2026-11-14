@@ -5,6 +5,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/pg-sage/sidecar/internal/testsupport/parsetree"
 )
 
 // migration-02: the planner folds and unquotes identifiers the way
@@ -54,6 +56,7 @@ func uniqueSQL(t *testing.T, sql string) (expand, contract string) {
 }
 
 func TestPlannerUniqueFoldsAndUnquotesIdentifiers(t *testing.T) {
+	parsetree.Require(t)
 	cases := []struct{ name, sql, expand, contract string }{
 		{"quoted column",
 			`ALTER TABLE public.users ADD CONSTRAINT users_email_key UNIQUE ("email")`,
@@ -98,6 +101,7 @@ func TestPlannerUniqueFoldsAndUnquotesIdentifiers(t *testing.T) {
 }
 
 func TestPlannerSetNotNullFoldsColumnAndProofName(t *testing.T) {
+	parsetree.Require(t)
 	cases := []struct{ name, sql, column, proof string }{
 		{"mixed-case bare", `ALTER TABLE public.accounts ALTER COLUMN Email SET NOT NULL`,
 			`"email"`, `"accounts_email_nn"`},
@@ -125,6 +129,7 @@ func TestPlannerSetNotNullFoldsColumnAndProofName(t *testing.T) {
 }
 
 func TestPlannerNotNullProofMatchesFoldedColumnExactly(t *testing.T) {
+	parsetree.Require(t)
 	plan := func(sql, proofColumn string) Plan {
 		result, err := NewPlanner().Plan(context.Background(), Request{
 			SQL: sql, Cycle: 5, Table: accountsTable(),
@@ -149,6 +154,7 @@ func TestPlannerNotNullProofMatchesFoldedColumnExactly(t *testing.T) {
 }
 
 func TestPlannerCarriesDeferrableIntoAttachStep(t *testing.T) {
+	parsetree.Require(t)
 	const prefix = `ALTER TABLE public.users ADD CONSTRAINT users_email_key UNIQUE (email) `
 	const attach = `ALTER TABLE "public"."users" ADD CONSTRAINT "users_email_key" ` +
 		`UNIQUE USING INDEX "users_email_key_idx"`
@@ -177,6 +183,7 @@ func TestPlannerCarriesDeferrableIntoAttachStep(t *testing.T) {
 }
 
 func TestPlannerRefusesConflictingConstraintTiming(t *testing.T) {
+	parsetree.Require(t)
 	const prefix = `ALTER TABLE public.users ADD CONSTRAINT k UNIQUE (email) `
 	for _, options := range []string{
 		"NOT DEFERRABLE INITIALLY DEFERRED",
@@ -187,34 +194,49 @@ func TestPlannerRefusesConflictingConstraintTiming(t *testing.T) {
 	} {
 		refusePlan(t, prefix+options, usersTable(), "plan it by hand")
 	}
+	// PostgreSQL's parser rejects these itself (migration-02b).
 	for _, options := range []string{"INITIALLY LATER", "INITIALLY", "NOT VALID", "NOT"} {
-		refusePlan(t, prefix+options, usersTable(), "unsupported option", "plan it by hand")
+		refusePlan(t, prefix+options, usersTable(), "cannot parse", "plan it by hand")
 	}
 }
 
 func TestPlannerRefusesOptionsItCannotCarry(t *testing.T) {
+	parsetree.Require(t)
 	const prefix = `ALTER TABLE public.users ADD CONSTRAINT k UNIQUE `
 	cases := map[string]string{
-		"(email) INCLUDE (name)":                  `"INCLUDE (name)"`,
-		"(email) WITH (fillfactor=70)":            `"WITH (fillfactor=70)"`,
-		"(email) USING INDEX TABLESPACE fast":     `"USING INDEX TABLESPACE fast"`,
-		"NULLS NOT DISTINCT (email)":              `"NULLS NOT DISTINCT (email)"`,
-		"NULLS DISTINCT (email)":                  `"NULLS DISTINCT (email)"`,
-		"(email) DEFERRABLE INCLUDE (name)":       `"INCLUDE (name)"`,
-		"(email) garbage":                         `"garbage"`,
-		"(email) -- trailing comment":             `"-- trailing comment"`,
-		"(email) 'literal'":                       `"'literal'"`,
-		"(email) INITIALLY DEFERRED WITH (x = 1)": `"WITH (x = 1)"`,
+		"(email) INCLUDE (name)":              `"INCLUDE (name)"`,
+		"(email) WITH (fillfactor=70)":        `"WITH (fillfactor=70)"`,
+		"(email) USING INDEX TABLESPACE fast": `"USING INDEX TABLESPACE fast"`,
+		"NULLS NOT DISTINCT (email)":          `"NULLS NOT DISTINCT (email)"`,
+		"NULLS DISTINCT (email)":              `"NULLS DISTINCT (email)"`,
 	}
 	for tail, option := range cases {
 		refusePlan(t, prefix+tail, usersTable(),
 			"unsupported option "+option, "plan it by hand")
 	}
+	// Text PostgreSQL's own parser rejects is refused at the place it
+	// stops reading (migration-02b).
+	unparsable := map[string]string{
+		"(email) DEFERRABLE INCLUDE (name)":       `at "INCLUDE (name)"`,
+		"(email) garbage":                         `at "garbage"`,
+		"(email) 'literal'":                       `at "'literal'"`,
+		"(email) INITIALLY DEFERRED WITH (x = 1)": `at "WITH (x = 1)"`,
+	}
+	for tail, where := range unparsable {
+		refusePlan(t, prefix+tail, usersTable(), "cannot parse", where, "plan it by hand")
+	}
 	refusePlan(t, `ALTER TABLE public.accounts ALTER COLUMN email SET NOT NULL NOT VALID`,
-		accountsTable(), `unsupported option "NOT VALID"`, "plan it by hand")
+		accountsTable(), "cannot parse", `at "NOT VALID"`, "plan it by hand")
+	// A comment is not an option: the parse tree reads past it.
+	expand, contract := uniqueSQL(t, prefix+"(email) -- trailing comment")
+	if expand != `CREATE UNIQUE INDEX CONCURRENTLY "k_idx" ON "public"."users" ("email")` ||
+		contract != `ALTER TABLE "public"."users" ADD CONSTRAINT "k" UNIQUE USING INDEX "k_idx"` {
+		t.Fatalf("trailing comment changed the plan: %s / %s", expand, contract)
+	}
 }
 
 func TestPlannerRefusesLongOptionTextTruncated(t *testing.T) {
+	parsetree.Require(t)
 	long := strings.Repeat("x", 200)
 	_, err := NewPlanner().Plan(context.Background(), Request{
 		SQL:   `ALTER TABLE public.users ADD CONSTRAINT k UNIQUE (email) WITH (` + long + `)`,
@@ -227,6 +249,7 @@ func TestPlannerRefusesLongOptionTextTruncated(t *testing.T) {
 }
 
 func TestPlannerRefusesNamesPostgresWouldTruncate(t *testing.T) {
+	parsetree.Require(t)
 	// "_idx" makes a 59-byte constraint name a 63-byte index name.
 	ok := strings.Repeat("c", 59)
 	expand, _ := uniqueSQL(t, `ALTER TABLE public.users ADD CONSTRAINT `+ok+` UNIQUE (email)`)
@@ -253,6 +276,7 @@ func TestPlannerRefusesNamesPostgresWouldTruncate(t *testing.T) {
 }
 
 func TestPlannerRefusesMalformedColumnLists(t *testing.T) {
+	parsetree.Require(t)
 	const prefix = `ALTER TABLE public.users ADD CONSTRAINT k UNIQUE `
 	for _, tail := range []string{
 		"()", "( )", "(email", `("email)`, `("")`, "(email email)", "(email.name)",
@@ -260,11 +284,12 @@ func TestPlannerRefusesMalformedColumnLists(t *testing.T) {
 	} {
 		refusePlan(t, prefix+tail, usersTable())
 	}
-	refusePlan(t, prefix+"()", usersTable(), "empty column list")
+	refusePlan(t, prefix+"()", usersTable(), "cannot parse", "plan it by hand")
 	refusePlan(t, prefix+"(email, Email)", usersTable(), `"email"`, "twice")
 }
 
 func TestPlannerRefusesUnsupportedStatementShapes(t *testing.T) {
+	parsetree.Require(t)
 	for _, sql := range []string{
 		`ALTER TABLE public.users ADD CONSTRAINT k "UNIQUE" (email)`,
 		`ALTER TABLE public.users ADD "CONSTRAINT" k UNIQUE (email)`,
@@ -290,6 +315,7 @@ func TestPlannerRefusesZeroRequest(t *testing.T) {
 // TestPlannerIsSafeForConcurrentUse: one Planner serves every MCP
 // session, so concurrent plans must not share parse state.
 func TestPlannerIsSafeForConcurrentUse(t *testing.T) {
+	parsetree.Require(t)
 	planner := NewPlanner()
 	var wg sync.WaitGroup
 	errs := make(chan string, 64)
@@ -330,6 +356,7 @@ func stepSQL(result Plan) []string {
 // "users . other" as users.other, so a plan written against
 // public.users would change a table the SQL never named.
 func TestPlannerRefusesTargetOtherThanRequestTable(t *testing.T) {
+	parsetree.Require(t)
 	for _, sql := range []string{
 		`ALTER TABLE users . other ADD CONSTRAINT k UNIQUE (email)`,
 		`ALTER TABLE users .other ALTER COLUMN email SET NOT NULL`,
