@@ -7,9 +7,11 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/cases"
 	"github.com/pg-sage/sidecar/internal/executor"
+	"github.com/pg-sage/sidecar/internal/extschema"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
 	"github.com/pg-sage/sidecar/internal/store"
@@ -174,16 +176,20 @@ func annotateQueryHintTexts(
 	if len(queryIDs) == 0 {
 		return
 	}
-	psRows, err := pool.Query(ctx,
-		`/* pg_sage */ SELECT queryid, min(query)
-		 FROM pg_stat_statements
+	rel, err := extschema.StatementsRel(ctx, pool, "pg_stat_statements")
+	var psRows pgx.Rows
+	if err == nil {
+		psRows, err = pool.Query(ctx,
+			`/* pg_sage */ SELECT queryid, min(query)
+		 FROM `+rel+`
 		 WHERE dbid = (
 		   SELECT oid FROM pg_database WHERE datname = current_database()
 		 )
 		   AND queryid = ANY($1::bigint[])
 		 GROUP BY queryid`,
-		queryIDs,
-	)
+			queryIDs,
+		)
+	}
 	if err != nil {
 		// Don't fail silently: without query_text the self-monitoring
 		// filter downstream can't recognize pg_sage's own hints, so they

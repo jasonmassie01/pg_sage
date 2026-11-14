@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/extschema"
 	"github.com/pg-sage/sidecar/internal/planhash"
 	"github.com/pg-sage/sidecar/internal/sanitize"
 	"github.com/pg-sage/sidecar/internal/selfbudget"
@@ -37,6 +38,18 @@ type Collector struct {
 	logFn func(string, string, ...any)
 	// serverVersionNum caches server_version_num (0 = not read yet).
 	serverVersionNum int
+	// statementsRel overrides the qualified pg_stat_statements view, which
+	// is otherwise resolved from the catalog each cycle: a test seam for a
+	// fixture table with chosen candidates.
+	statementsRel string
+}
+
+// statements is the qualified pg_stat_statements view the cycle reads.
+func (c *Collector) statements(ctx context.Context) (string, error) {
+	if c.statementsRel != "" {
+		return c.statementsRel, nil
+	}
+	return extschema.StatementsRel(ctx, c.pool, "pg_stat_statements")
 }
 
 // NewCollector creates a Collector wired to the given pool.
@@ -86,7 +99,11 @@ func (c *Collector) Run(ctx context.Context) {
 func (c *Collector) Collect(ctx context.Context) error {
 	ctx, done := selfbudget.Process().TrackFor(ctx, "auto_explain")
 	defer done()
-	rows, err := c.pool.Query(ctx, candidateSQL,
+	rel, err := c.statements(ctx)
+	if err != nil {
+		return fmt.Errorf("query slow queries: %w", err)
+	}
+	rows, err := c.pool.Query(ctx, candidateSQL(rel),
 		float64(c.cfg.LogMinDurationMs),
 		c.cfg.MaxPlansPerCycle,
 	)
@@ -153,9 +170,12 @@ func (c *Collector) reportCapture(queryID int64, err error) bool {
 	}
 }
 
-var candidateSQL = `
+// candidateSQL reads slow statements without a recent plan from rel, the
+// qualified pg_stat_statements view.
+func candidateSQL(rel string) string {
+	return `
 		SELECT s.queryid, s.query
-		FROM pg_stat_statements s
+		FROM ` + rel + ` s
 		LEFT JOIN sage.explain_cache e
 			ON e.queryid = s.queryid AND e.source <> 'lakebase_plan_history'
 			AND e.captured_at > now() - interval '1 day'
@@ -169,6 +189,7 @@ var candidateSQL = `
 			AND e.id IS NULL
 		ORDER BY s.mean_exec_time DESC
 		LIMIT $2`
+}
 
 // captureOnDemand runs EXPLAIN on a single query inside a read-only,
 // rolled-back transaction so there are no side effects.

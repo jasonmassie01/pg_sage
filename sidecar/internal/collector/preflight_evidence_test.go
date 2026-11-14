@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/extschema"
 	"github.com/pg-sage/sidecar/internal/querystore"
 	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/testdb"
@@ -64,6 +65,13 @@ func preflightPoolOn(
 	cfg.Advisor.Enabled = false
 	cfg.HasPlanTimeColumns = true
 	cfg.Safety.QueryTimeoutMs = 5000
+	// The startup checks' pg_stat_statements schema, as production sets it
+	// (security-01c-q: the collector qualifies the view by it).
+	ext, err := extschema.Detect(ctx, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.StatementsSchema = ext.Statements
 	c := New(p, cfg, 170000, func(level, format string, args ...any) { t.Logf(format, args...) })
 	return p, ctx, c
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/pg-sage/sidecar/internal/catalogread"
+	"github.com/pg-sage/sidecar/internal/extschema"
 	"github.com/pg-sage/sidecar/internal/planfresh"
 )
 
@@ -52,10 +53,13 @@ func (q *QueryID) UnmarshalJSON(raw []byte) error {
 
 // statementTextSQL reads one statement's text in the current database,
 // summed over users and top-level/nested entries (NULL when absent).
-const statementTextSQL = `/* pg_sage */ SELECT min(query)
-FROM pg_stat_statements
+// rel is the qualified pg_stat_statements view.
+func statementTextSQL(rel string) string {
+	return `/* pg_sage */ SELECT min(query)
+FROM ` + rel + `
 WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
   AND queryid = $1`
+}
 
 // ResolveQueryID returns the pg_stat_statements text of id in the database
 // q reads. The REST explain endpoint and the MCP tools share it. An id
@@ -64,7 +68,11 @@ WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
 // ErrStatementsUnavailable; both are invalid requests.
 func ResolveQueryID(ctx context.Context, q catalogread.Querier, id int64) (string, error) {
 	var text *string
-	if err := q.QueryRow(ctx, statementTextSQL, id).Scan(&text); err != nil {
+	rel, err := extschema.StatementsRel(ctx, q, "pg_stat_statements")
+	if err != nil {
+		return "", statementsError(err)
+	}
+	if err := q.QueryRow(ctx, statementTextSQL(rel), id).Scan(&text); err != nil {
 		return "", statementsError(err)
 	}
 	if text == nil {

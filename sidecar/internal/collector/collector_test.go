@@ -73,8 +73,8 @@ func TestQueryStatsSQL_SelectsCorrectVariant(t *testing.T) {
 			"queryStatsWithWALAndPlanTimeSQL": queryStatsWithWALAndPlanTimeSQL,
 		}
 		for name, sql := range variants {
-			if !strings.Contains(sql, "pg_stat_statements(false)") ||
-				strings.Contains(sql, "pg_stat_statements(true)") {
+			// %[6]s is the qualified pg_stat_statements function (security-01c-q).
+			if !strings.Contains(sql, "FROM %[6]s(false)") || strings.Contains(sql, "%[6]s(true)") {
 				t.Errorf("%s must rank on counters without reading texts", name)
 			}
 		}

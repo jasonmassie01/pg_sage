@@ -71,8 +71,11 @@ func newLockFixture(t *testing.T) *lockFixture {
 	return f
 }
 
+// collector reads the fixture's candidates: pg_temp.pg_stat_statements,
+// which the qualified reader (security-01c-q) no longer finds by
+// search_path.
 func (f *lockFixture) collector() *Collector {
-	return NewCollector(f.pool,
+	c := NewCollector(f.pool,
 		CollectorConfig{CollectIntervalSeconds: 60, MaxPlansPerCycle: 10},
 		&Availability{Available: false, Method: "unavailable"},
 		func(level, format string, args ...any) {
@@ -80,6 +83,8 @@ func (f *lockFixture) collector() *Collector {
 			defer f.mu.Unlock()
 			f.lines = append(f.lines, logLine{level, fmt.Sprintf(format, args...)})
 		})
+	c.statementsRel = "pg_temp.pg_stat_statements"
+	return c
 }
 
 func (f *lockFixture) logs(level string) []string {

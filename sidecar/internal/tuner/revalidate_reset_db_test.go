@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/testdb"
 	"github.com/pg-sage/sidecar/internal/testsupport/pgssepoch"
 )
@@ -329,22 +330,24 @@ func assertInstalledAndKept(t *testing.T, ctx context.Context, tu *Tuner, qid in
 	}
 }
 
-// A missing pg_stat_statements_info (here: not on the search_path) is a
-// read error: the hint keeps its status and nothing is written.
+// A missing pg_stat_statements_info is a read error: the hint keeps its
+// status and nothing is written. The fixture hid the view behind
+// search_path = sage until security-01c-q, which finds the extension by its
+// catalog schema whatever the search_path; the database here has none.
 func TestRevalidate_MissingPgssInfoFailsClosed(t *testing.T) {
-	pool, ctx := requireTunerDB(t)
-	cfg, err := pgxpool.ParseConfig(testdb.SkipUnlessLive(t))
-	if err != nil {
-		t.Fatalf("parse DSN: %v", err)
-	}
-	cfg.MaxConns = 1
-	cfg.ConnConfig.RuntimeParams["search_path"] = "sage"
-	hidden, err := pgxpool.NewWithConfig(ctx, cfg)
+	_, ctx := requireTunerDB(t)
+	pool, err := pgxpool.New(ctx, testdb.CreateDatabase(t, "tunernopgss"))
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
-	t.Cleanup(hidden.Close)
-	tu := New(hidden, TunerConfig{}, nil, noopLogFn)
+	t.Cleanup(pool.Close)
+	if err := schema.Bootstrap(ctx, pool); err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	if _, err := pool.Exec(ctx, "DROP EXTENSION IF EXISTS pg_stat_statements"); err != nil {
+		t.Fatalf("drop pg_stat_statements: %v", err)
+	}
+	tu := New(pool, TunerConfig{}, nil, noopLogFn)
 	id := seedProbeHint(t, ctx, pool, revalTestQIDBase+500, `Set(work_mem "64MB")`)
 
 	obs, err := tu.fetchQueryStats(ctx, revalTestQIDBase+500)

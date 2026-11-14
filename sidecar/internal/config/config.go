@@ -161,7 +161,7 @@ type Config struct {
 	PGVersionNum       int    `yaml:"-"` // e.g. 160000 for PG16
 	HasWALColumns      bool   `yaml:"-"`
 	HasPlanTimeColumns bool   `yaml:"-"`
-	StatementsSchema   string `yaml:"-"` // pg_stat_statements' schema; empty: unqualified
+	StatementsSchema   string `yaml:"-"` // pg_stat_statements' schema; empty: not found
 	CloudEnvironment   string `yaml:"-"` // e.g. "rds", "cloud-sql", "self-managed"
 
 	// The file layer's presence set and the overrides masking it (config-03,

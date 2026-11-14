@@ -36,13 +36,16 @@ const statementTextsTag = "/* pg_sage text */"
 
 // statementTextsSQL reads the texts of the given queryids ($1) of this
 // database, one per queryid: the text of its most-called row, as the
-// single-statement read before collection-11 kept.
-const statementTextsSQL = statementTextsTag + `
+// single-statement read before collection-11 kept. fn is the qualified
+// pg_stat_statements function.
+func statementTextsSQL(fn string) string {
+	return statementTextsTag + `
 SELECT queryid, (array_agg(query ORDER BY calls DESC))[1]
-  FROM pg_stat_statements(true)
+  FROM ` + fn + `(true)
  WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
    AND queryid = ANY($1)
  GROUP BY queryid`
+}
 
 // stmtText is one cached text: when it was read, the last cycle its
 // queryid was a candidate (for least-recently-seen eviction), and whether
@@ -188,13 +191,13 @@ func (s *stmtTextCache) size() int {
 
 // resolve returns the texts of ids, reading the ones the cache lacks in
 // one statement. A failed read caches nothing and fails the step.
-func (s *stmtTextCache) resolve(ctx context.Context, db catalogQuerier, ids []int64,
-	now time.Time, maxEntries int) (map[int64]string, error) {
+func (s *stmtTextCache) resolve(ctx context.Context, db catalogQuerier, fn string,
+	ids []int64, now time.Time, maxEntries int) (map[int64]string, error) {
 	texts, missing := s.lookup(ids, now)
 	if len(missing) == 0 {
 		return texts, nil
 	}
-	read, err := readStatementTexts(ctx, db, missing)
+	read, err := readStatementTexts(ctx, db, fn, missing)
 	if err != nil {
 		return nil, fmt.Errorf("read pg_stat_statements texts of %d queries: %w",
 			len(missing), err)
@@ -209,9 +212,9 @@ func (s *stmtTextCache) resolve(ctx context.Context, db catalogQuerier, ids []in
 // readStatementTexts reads the texts of ids. A NULL text (the text file
 // could not be read) is not returned, so it is neither attributed nor
 // cached.
-func readStatementTexts(ctx context.Context, db catalogQuerier,
+func readStatementTexts(ctx context.Context, db catalogQuerier, fn string,
 	ids []int64) (map[int64]string, error) {
-	rows, err := db.Query(ctx, statementTextsSQL, ids)
+	rows, err := db.Query(ctx, statementTextsSQL(fn), ids)
 	if err != nil {
 		return nil, err
 	}

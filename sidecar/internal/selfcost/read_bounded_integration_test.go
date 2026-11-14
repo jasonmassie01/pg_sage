@@ -127,7 +127,7 @@ func textCounter(pool *pgxpool.Pool) (catalogread.Reader, *atomic.Int32) {
 	n := &atomic.Int32{}
 	r := boundedReader(pool, 5*time.Second)
 	r.After = func(_ context.Context, _ pgx.Tx, sql string, _ []any) {
-		if strings.Contains(sql, "pg_stat_statements(true)") {
+		if strings.Contains(sql, `pg_stat_statements"(true)`) {
 			n.Add(1)
 		}
 	}

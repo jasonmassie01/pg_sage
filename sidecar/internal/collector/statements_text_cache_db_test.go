@@ -203,7 +203,8 @@ func TestCollect_TenSteadyCyclesReadTextsAtMostOnce(t *testing.T) {
 			}
 		}
 		pgss := textReads(t, ctx, pool) - base
-		hook := rec.count("pg_stat_statements(true)") + rec.count(statementsClassifySQL)
+		hook := rec.count(`pg_stat_statements"(true)`) +
+			rec.count("count(*) FILTER (WHERE kw NOT IN") // the classification
 		if pgss > 1 || hook > 1 {
 			return []string{fmt.Sprintf("10 cycles: %d text reads in pg_stat_statements, "+
 				"%d text reads sent; want at most 1", pgss, hook)}

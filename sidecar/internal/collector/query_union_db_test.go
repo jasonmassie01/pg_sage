@@ -219,10 +219,10 @@ func TestCollectQueries_TextReadOnlyForAdmittedRows(t *testing.T) {
 		mu.Lock()
 		defer mu.Unlock()
 		switch {
-		case strings.Contains(sql, "pg_stat_statements(true)"):
+		case strings.Contains(sql, `pg_stat_statements"(true)`):
 			ids, _ := args[0].([]int64)
 			texts = append(texts, ids)
-		case strings.Contains(sql, "pg_stat_statements(false)") &&
+		case strings.Contains(sql, `pg_stat_statements"(false)`) &&
 			strings.Contains(sql, "admitted_by"):
 			counters++
 		}
@@ -255,8 +255,12 @@ func TestCollectQueries_TextReadOnlyForAdmittedRows(t *testing.T) {
 func admissionOf(t *testing.T, ctx context.Context, c *Collector, queryid int64,
 	own []int64) ([]string, bool) {
 	t.Helper()
-	db := c.statementsDB(timedCatalogQuerier{collector: c})
-	qs, err := readQueryCounters(ctx, db, c.queryCapabilities(ctx),
+	caps := c.queryCapabilities(ctx)
+	names, err := c.pgss()
+	if err != nil {
+		t.Fatalf("pg_stat_statements names: %v", err)
+	}
+	qs, err := readQueryCounters(ctx, timedCatalogQuerier{collector: c}, names.fn, caps,
 		rankedRead{admission: admissionFor(10), own: own})
 	if err != nil {
 		t.Fatalf("ranked read: %v", err)

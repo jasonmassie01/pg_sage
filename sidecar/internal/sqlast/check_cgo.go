@@ -63,7 +63,7 @@ func checkStatement(stmt *pg_query.Node, rules Rules) error {
 	case stmt.GetAlterRoleSetStmt() != nil:
 		return checkRoleSetting(stmt.GetAlterRoleSetStmt(), rules)
 	case stmt.GetAlterRoleStmt() != nil:
-		return checkRoleConnectionLimit(stmt.GetAlterRoleStmt())
+		return checkRoleConnectionLimit(stmt.GetAlterRoleStmt(), rules)
 	case stmt.GetSelectStmt() != nil:
 		return checkBackendSignal(stmt.GetSelectStmt())
 	case stmt.GetInsertStmt() != nil:

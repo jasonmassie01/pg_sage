@@ -85,7 +85,7 @@ func (e *Executor) tableTargets(ctx context.Context, table string) []int64 {
 	if table == "" || len(parts) == 0 {
 		return nil
 	}
-	return e.statementIDs(ctx, tableStatementsSQL, wordPattern(parts[len(parts)-1]),
+	return e.workloadIDs(ctx, tableStatementsSQL, wordPattern(parts[len(parts)-1]),
 		verifyTargetLimit)
 }
 
