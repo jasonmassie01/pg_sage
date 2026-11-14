@@ -188,31 +188,31 @@ type PostgresConfig struct {
 }
 
 type CollectorConfig struct {
-	IntervalSeconds int `yaml:"interval_seconds"`
-	BatchSize       int `yaml:"batch_size"`
-	MaxQueries      int `yaml:"max_queries"`
+	IntervalSeconds int `yaml:"interval_seconds" api:"int_min5"`
+	BatchSize       int `yaml:"batch_size" api:"int_pos"`
+	MaxQueries      int `yaml:"max_queries" api:"int_pos"`
 }
 
 type AnalyzerConfig struct {
-	IntervalSeconds              int     `yaml:"interval_seconds" doc:"How often the analyzer runs its rule checks, in seconds. Lower values detect issues faster but add load."`
-	SlowQueryThresholdMs         int     `yaml:"slow_query_threshold_ms" doc:"Queries whose mean execution time over the last collector interval is above this are considered slow and become candidates for optimization findings."`
+	IntervalSeconds              int     `yaml:"interval_seconds" doc:"How often the analyzer runs its rule checks, in seconds. Lower values detect issues faster but add load." api:"int_min5"`
+	SlowQueryThresholdMs         int     `yaml:"slow_query_threshold_ms" doc:"Queries whose mean execution time over the last collector interval is above this are considered slow and become candidates for optimization findings." api:"int_nonneg"`
 	SlowQueryMinCalls            int     `yaml:"slow_query_min_calls" doc:"Fewest calls a query must make in one collector interval before its interval mean is judged by slow_query and query_regression. 0 uses the default. Default: 5."`
-	SeqScanMinRows               int     `yaml:"seq_scan_min_rows" doc:"Minimum table row count before a sequential scan is reported as a finding. Below this, a seq scan is usually cheaper than an index lookup."`
-	UnusedIndexWindowDays        int     `yaml:"unused_index_window_days" doc:"An index must be unused (idx_scan=0) for at least this many days before the analyzer suggests dropping it. Default 7 days." warning:"Setting this too low can recommend dropping indexes that support infrequent but critical queries (e.g. monthly reports)."`
-	IndexBloatThresholdPct       int     `yaml:"index_bloat_threshold_pct" doc:"Estimated btree bloat percentage (0-100) for an index_bloat finding recommending REINDEX INDEX CONCURRENTLY: info from it, warning from twice it. 0 uses the default. Default: 30."`
+	SeqScanMinRows               int     `yaml:"seq_scan_min_rows" doc:"Minimum table row count before a sequential scan is reported as a finding. Below this, a seq scan is usually cheaper than an index lookup." api:"int_pos"`
+	UnusedIndexWindowDays        int     `yaml:"unused_index_window_days" doc:"An index must be unused (idx_scan=0) for at least this many days before the analyzer suggests dropping it. Default 7 days." warning:"Setting this too low can recommend dropping indexes that support infrequent but critical queries (e.g. monthly reports)." api:"int_pos"`
+	IndexBloatThresholdPct       int     `yaml:"index_bloat_threshold_pct" doc:"Estimated btree bloat percentage (0-100) for an index_bloat finding recommending REINDEX INDEX CONCURRENTLY: info from it, warning from twice it. 0 uses the default. Default: 30." api:"pct"`
 	IndexBloatMinBytes           int64   `yaml:"index_bloat_min_bytes" doc:"Smallest btree index (bytes, from pg_class.relpages) whose bloat the collector estimates from planner statistics each cycle, at most the 200 largest. 0 uses the default. Default: 104857600 (100 MiB)."`
-	TableBloatDeadTuplePct       int     `yaml:"table_bloat_dead_tuple_pct" doc:"Dead-tuple percentage threshold for reporting table bloat. Above this the analyzer emits a vacuum or repack finding."`
+	TableBloatDeadTuplePct       int     `yaml:"table_bloat_dead_tuple_pct" doc:"Dead-tuple percentage threshold for reporting table bloat. Above this the analyzer emits a vacuum or repack finding." api:"pct"`
 	TableBloatMinRows            int     `yaml:"table_bloat_min_rows" doc:"Minimum row count before a table is considered for bloat analysis. Tiny tables are noisy and not worth reporting."`
 	TableBloatMinBytes           int64   `yaml:"table_bloat_min_bytes" doc:"Minimum heap size in bytes before the freeze custodian plans an online bloat rebuild from the catalog bloat estimate. 0 uses the default. Default: 1073741824 (1 GiB)."`
-	AutovacuumTuneMinRows        int     `yaml:"autovacuum_tune_min_rows" doc:"Minimum live-row count before the per-table autovacuum tuner recommends a lower scale factor. Tuning small tables is pointless. Default: 1000000."`
-	AnalyzeStaleMinRows          int     `yaml:"analyze_stale_min_rows" doc:"Minimum live rows before recommending ANALYZE on a stale/never-analyzed table. Default: 10000."`
-	AnalyzeStaleDays             int     `yaml:"analyze_stale_days" doc:"A table whose last (auto)analyze is older than this many days, with write activity, is flagged for ANALYZE. Default: 7."`
-	WraparoundFreezeShare        float64 `yaml:"wraparound_freeze_share" doc:"Share (0-1] of a table's effective freeze maximum (setting or lower reloption) at which the analyzer reports wraparound risk; the freeze custodian decides the VACUUM. Default: 0.75."`
+	AutovacuumTuneMinRows        int     `yaml:"autovacuum_tune_min_rows" doc:"Minimum live-row count before the per-table autovacuum tuner recommends a lower scale factor. Tuning small tables is pointless. Default: 1000000." api:"int_pos"`
+	AnalyzeStaleMinRows          int     `yaml:"analyze_stale_min_rows" doc:"Minimum live rows before recommending ANALYZE on a stale/never-analyzed table. Default: 10000." api:"int_pos"`
+	AnalyzeStaleDays             int     `yaml:"analyze_stale_days" doc:"A table whose last (auto)analyze is older than this many days, with write activity, is flagged for ANALYZE. Default: 7." api:"int_pos"`
+	WraparoundFreezeShare        float64 `yaml:"wraparound_freeze_share" doc:"Share (0-1] of a table's effective freeze maximum (setting or lower reloption) at which the analyzer reports wraparound risk; the freeze custodian decides the VACUUM. Default: 0.75." api:"float_share"`
 	IdleInTxTimeoutMinutes       int     `yaml:"idle_in_transaction_timeout_minutes" doc:"Report sessions sitting in 'idle in transaction' longer than this. Long idle-in-tx sessions block vacuum and hold locks."`
-	CacheHitRatioWarning         float64 `yaml:"cache_hit_ratio_warning" doc:"Warn when the shared buffers cache hit ratio falls below this fraction (0.0-1.0). Low ratios suggest shared_buffers is under-sized or working set is too large."`
+	CacheHitRatioWarning         float64 `yaml:"cache_hit_ratio_warning" doc:"Warn when the shared buffers cache hit ratio falls below this fraction (0.0-1.0). Low ratios suggest shared_buffers is under-sized or working set is too large." api:"float01"`
 	XIDWraparoundWarning         int64   `yaml:"xid_wraparound_warning" doc:"Transaction age at which the analyzer emits a wraparound warning. Normally ~200 million."`
 	XIDWraparoundCritical        int64   `yaml:"xid_wraparound_critical" doc:"Transaction age at which the analyzer escalates to critical severity. Normally ~1.5 billion — past this autovacuum will force emergency wraparound runs." warning:"If this is hit, autovacuum enters aggressive mode and the database may eventually refuse writes."`
-	RegressionThresholdPct       int     `yaml:"regression_threshold_pct" doc:"Percent latency regression required before a query is flagged as a regressor. Set low for sensitive detection, higher to reduce noise."`
+	RegressionThresholdPct       int     `yaml:"regression_threshold_pct" doc:"Percent latency regression required before a query is flagged as a regressor. Set low for sensitive detection, higher to reduce noise." api:"pct"`
 	RegressionLookbackDays       int     `yaml:"regression_lookback_days" doc:"How many days of pg_stat_statements history the regression detector compares against."`
 	CheckpointFreqWarningPerHour int     `yaml:"checkpoint_frequency_warning_per_hour" doc:"Warn when checkpoints occur more than this many times per hour. High frequency indicates max_wal_size is too small."`
 
@@ -222,10 +222,10 @@ type AnalyzerConfig struct {
 	WorkMemPromotionThreshold int `yaml:"work_mem_promotion_threshold" doc:"How many active work_mem hints a single role must accumulate before the analyzer recommends promoting work_mem at the role level via ALTER ROLE. Set 0 to disable the advisor."`
 
 	// v0.9.2 — Slow active replication slot threshold (bytes).
-	SlowSlotRetainedBytes int64 `yaml:"slow_slot_retained_bytes" doc:"Active slots retaining more WAL than this (bytes) are flagged as slow consumers. Default 1 GB. Slow consumers hold xmin, blocking vacuum."`
+	SlowSlotRetainedBytes int64 `yaml:"slow_slot_retained_bytes" doc:"Active slots retaining more WAL than this (bytes) are flagged as slow consumers. Default 1 GB. Slow consumers hold xmin, blocking vacuum." api:"int_pos" zero:"default"`
 
 	// InactiveSlotMinMinutes: see inactive_slot.go.
-	InactiveSlotMinMinutes int `yaml:"inactive_slot_min_minutes" doc:"Report a replication slot once it has been inactive this many minutes (wal_status extended, unreserved or lost reports it at once). 0 uses the default. Range 0-10080. Default: 5."`
+	InactiveSlotMinMinutes int `yaml:"inactive_slot_min_minutes" doc:"Report a replication slot once it has been inactive this many minutes (wal_status extended, unreserved or lost reports it at once). 0 uses the default. Range 0-10080. Default: 5." api:"int_week_minutes" zero:"default"`
 
 	// Subscriber and CDC health thresholds: see replication.go (market-13).
 	SubscriptionLagMinutes int `yaml:"subscription_lag_minutes" doc:"Raise subscription_lag when a subscription's last report to its publisher (pg_stat_subscription.latest_end_time) is this many minutes old. 0 uses the default. Range 0-10080. Default: 5."`
@@ -238,21 +238,21 @@ type AnalyzerConfig struct {
 	SchemaGuardDDLDebounceSeconds int `yaml:"schema_guard_ddl_debounce_seconds" doc:"After pg_sage's own DDL, the schema guard re-scans the schema at most once per this many seconds (DDL bursts are coalesced into one extra scan). 0 uses the default. Range 0-3600. Default: 60."`
 
 	// SelfCostBudgetMs: see self_cost.go.
-	SelfCostBudgetMs int `yaml:"self_cost_budget_ms" doc:"Raise a sage_self_cost finding when pg_sage's own statements use more than this many ms of database time per collector cycle. 0 disables the finding. Range 0-3600000. Default: 3000."`
+	SelfCostBudgetMs int `yaml:"self_cost_budget_ms" doc:"Raise a sage_self_cost finding when pg_sage's own statements use more than this many ms of database time per collector cycle. 0 disables the finding. Range 0-3600000. Default: 3000." api:"int_nonneg" range:"0,3600000"`
 
 	// DisabledRules: see disabled_rules.go (market-11).
-	DisabledRules []string `yaml:"disabled_rules" doc:"Analyzer rules or categories to skip; their open findings resolve as rule_disabled. The wraparound, sequence and sage_* rules cannot be disabled. Default: empty."`
+	DisabledRules []string `yaml:"disabled_rules" doc:"Analyzer rules or categories to skip; their open findings resolve as rule_disabled. The wraparound, sequence and sage_* rules cannot be disabled. Default: empty." api:"rule_list"`
 }
 
 type SafetyConfig struct {
-	CPUCeilingPct            int `yaml:"cpu_ceiling_pct" doc:"Skip collector cycles when active client sessions / max_connections exceeds this percent (1-100), so pg_sage adds no load during incidents. Verify inherits it while host_cpu_ceiling_pct is unset."`
-	HostCPUCeilingPct        int `yaml:"host_cpu_ceiling_pct" doc:"Index verification applies a change only while database-host CPU is at or below this percent (1-100). Unset (0) inherits cpu_ceiling_pct, default 90."`
-	QueryTimeoutMs           int `yaml:"query_timeout_ms" doc:"statement_timeout applied to every collector and analyzer query issued by the sidecar. Protects the target from runaway introspection."`
-	DDLTimeoutSeconds        int `yaml:"ddl_timeout_seconds" doc:"Timeout applied to DDL actions (CREATE INDEX, ALTER TABLE) executed by the executor. Per-statement ceiling, not per-cycle."`
+	CPUCeilingPct            int `yaml:"cpu_ceiling_pct" doc:"Skip collector cycles when active client sessions / max_connections exceeds this percent (1-100), so pg_sage adds no load during incidents. Verify inherits it while host_cpu_ceiling_pct is unset." api:"pct1_100"`
+	HostCPUCeilingPct        int `yaml:"host_cpu_ceiling_pct" doc:"Index verification applies a change only while database-host CPU is at or below this percent (1-100). Unset (0) inherits cpu_ceiling_pct, default 90." api:"pct1_100" zero:"default"`
+	QueryTimeoutMs           int `yaml:"query_timeout_ms" doc:"statement_timeout applied to every collector and analyzer query issued by the sidecar. Protects the target from runaway introspection." api:"int_pos"`
+	DDLTimeoutSeconds        int `yaml:"ddl_timeout_seconds" doc:"Timeout applied to DDL actions (CREATE INDEX, ALTER TABLE) executed by the executor. Per-statement ceiling, not per-cycle." api:"int_pos"`
 	DiskPressureThresholdPct int `yaml:"disk_pressure_threshold_pct" doc:"When database data volume usage exceeds this percent, skip write-producing actions. Prevents adding indexes to a near-full volume."`
 	BackoffConsecutiveSkips  int `yaml:"backoff_consecutive_skips" doc:"After this many consecutive skipped cycles (e.g. CPU ceiling hit repeatedly), enter dormant mode and slow the cadence until load subsides."`
 	DormantIntervalSeconds   int `yaml:"dormant_interval_seconds" doc:"Cycle interval (seconds) used while in dormant mode — typically much larger than the normal interval so the sidecar wakes rarely while the target is stressed."`
-	LockTimeoutMs            int `yaml:"lock_timeout_ms" doc:"lock_timeout applied to connections running DDL or ANALYZE. Must be > 0 for ANALYZE actions in v0.8.5 — autovacuum can hold a ShareUpdateExclusiveLock indefinitely." warning:"Zero disables the timeout entirely and is refused by the executor for ANALYZE actions."`
+	LockTimeoutMs            int `yaml:"lock_timeout_ms" doc:"lock_timeout applied to connections running DDL or ANALYZE. Must be > 0 for ANALYZE actions in v0.8.5 — autovacuum can hold a ShareUpdateExclusiveLock indefinitely." warning:"Zero disables the timeout entirely and is refused by the executor for ANALYZE actions." api:"int_pos"`
 
 	// IO ceilings for declared-capacity load admission (D6), independent
 	// of cpu_ceiling_pct.
@@ -260,41 +260,41 @@ type SafetyConfig struct {
 	WALIOCeilingPct  int `yaml:"wal_io_ceiling_pct" doc:"WAL IO ceiling, % of capacity."`
 
 	// Per-class statement timeouts (executor-05): see ddl_class_timeouts.go.
-	IndexBuildTimeoutSeconds int `yaml:"index_build_timeout_seconds" doc:"statement_timeout of a CREATE INDEX CONCURRENTLY run by the executor (seconds). Other DDL keeps ddl_timeout_seconds. 0 uses the default. Range 60-86400. Default: 14400."`
-	ReindexTimeoutSeconds    int `yaml:"reindex_timeout_seconds" doc:"statement_timeout of a REINDEX CONCURRENTLY run by the executor (seconds). 0 uses the default. Range 60-86400. Default: 14400."`
-	VacuumTimeoutSeconds     int `yaml:"vacuum_timeout_seconds" doc:"Cap on a VACUUM (not VACUUM FULL) run by the executor (seconds), enforced by its watchdog; the VACUUM runs with statement_timeout 0. 0 uses the default. Range 60-86400. Default: 14400."`
+	IndexBuildTimeoutSeconds int `yaml:"index_build_timeout_seconds" doc:"statement_timeout of a CREATE INDEX CONCURRENTLY run by the executor (seconds). Other DDL keeps ddl_timeout_seconds. 0 uses the default. Range 60-86400. Default: 14400." api:"int_class_timeout" zero:"default"`
+	ReindexTimeoutSeconds    int `yaml:"reindex_timeout_seconds" doc:"statement_timeout of a REINDEX CONCURRENTLY run by the executor (seconds). 0 uses the default. Range 60-86400. Default: 14400." api:"int_class_timeout" zero:"default"`
+	VacuumTimeoutSeconds     int `yaml:"vacuum_timeout_seconds" doc:"Cap on a VACUUM (not VACUUM FULL) run by the executor (seconds), enforced by its watchdog; the VACUUM runs with statement_timeout 0. 0 uses the default. Range 60-86400. Default: 14400." api:"int_class_timeout" zero:"default"`
 	// VACUUM watchdog (vacuum-05): see vacuum_stall.go.
-	VacuumStallMinutes int `yaml:"vacuum_stall_minutes" doc:"Minutes an executor VACUUM may show no heap-phase progress before its watchdog cancels it (vacuum_stalled). 0 uses the default. Range 5-240. Default: 15."`
+	VacuumStallMinutes int `yaml:"vacuum_stall_minutes" doc:"Minutes an executor VACUUM may show no heap-phase progress before its watchdog cancels it (vacuum_stalled). 0 uses the default. Range 5-240. Default: 15." api:"int_vacuum_stall" zero:"default"`
 }
 
 type TrustConfig struct {
-	Level                 string `yaml:"level" doc:"Operator ceiling and kill switch, never a grant: the ledger grants, the operator caps. observation: cases only; advisory: earned safe actions, moderate to approval; autonomous: both." warning:"Changing trust can expand what execution_mode=auto may execute without human review."`
+	Level                 string `yaml:"level" doc:"Operator ceiling and kill switch, never a grant: the ledger grants, the operator caps. observation: cases only; advisory: earned safe actions, moderate to approval; autonomous: both." warning:"Changing trust can expand what execution_mode=auto may execute without human review." api:"trust_level" enum:"observation|advisory|autonomous"`
 	RampStart             string `yaml:"ramp_start" doc:"RFC3339 time pg_sage began observing the database; auto-persisted on first startup if empty. Observation time is the floor before a trust promotion can be proposed."`
 	RampSafeHours         int    `yaml:"ramp_safe_hours" doc:"Minimum hours observed before pg_sage may propose a promotion to L2 (or L3 for SAFE classes): a floor, never a grant. 1-8760. Default: 192. Irreversible actions: at least 192." warning:"Lower values let pg_sage propose promotions sooner after first start; the sidecar warns at startup."`
 	RampModerateHours     int    `yaml:"ramp_moderate_hours" doc:"Minimum hours observed before pg_sage may propose a MODERATE class's promotion to L3: a floor, never a grant. 1-8760, >= ramp_safe_hours. Default: 744. Irreversible: at least 744." warning:"Lower values let pg_sage propose promotions sooner after first start; the sidecar warns at startup."`
-	MaintenanceWindow     string `yaml:"maintenance_window" doc:"Window for MODERATE auto-actions: always, never, presets (nights, weeknights, weekends), Mon-Fri 01:00-05:00, or cron (1h wide, or @30m). Optional IANA zone: weeknights America/Chicago." example:"weeknights"`
-	Tier3Safe             bool   `yaml:"tier3_safe" doc:"Operator switch for unattended SAFE actions (ANALYZE, non-FULL VACUUM) the trust ledger has earned; off caps them at approval. Needs execution_mode=auto and trust.level advisory+."`
-	Tier3Moderate         bool   `yaml:"tier3_moderate" doc:"Operator switch for unattended MODERATE actions (CREATE INDEX CONCURRENTLY) the trust ledger has earned; off caps them at approval. Needs execution_mode=auto, trust.level=autonomous." warning:"Moderate actions can consume IO or briefly contend for locks."`
-	Tier3HighRisk         bool   `yaml:"tier3_high_risk" doc:"Enable tier-3 actions classified as high risk. Ignored outside fleet mode — standalone always forces this to false." mode:"fleet-only" warning:"High-risk actions can destabilize production — enable only with a reviewed rollback plan."`
-	RollbackThresholdPct  int    `yaml:"rollback_threshold_pct" doc:"Latency regression percentage (0-100) that triggers automatic rollback of a recently applied action. Lower = more sensitive."`
-	RollbackWindowMinutes int    `yaml:"rollback_window_minutes" doc:"How many minutes after applying an action pg_sage watches for regressions before considering it stable."`
-	RollbackCooldownDays  int    `yaml:"rollback_cooldown_days" doc:"After a rollback, the same action family is blocked for this many days to prevent flap. Default 3 days."`
-	CascadeCooldownCycles int    `yaml:"cascade_cooldown_cycles" doc:"If N consecutive cycles each propose new actions, throttle to observe impact. Prevents storm-like cascades of small changes."`
+	MaintenanceWindow     string `yaml:"maintenance_window" doc:"Window for MODERATE auto-actions: always, never, presets (nights, weeknights, weekends), Mon-Fri 01:00-05:00, or cron (1h wide, or @30m). Optional IANA zone: weeknights America/Chicago." example:"weeknights" api:"maintenance_window"`
+	Tier3Safe             bool   `yaml:"tier3_safe" doc:"Operator switch for unattended SAFE actions (ANALYZE, non-FULL VACUUM) the trust ledger has earned; off caps them at approval. Needs execution_mode=auto and trust.level advisory+." api:"bool"`
+	Tier3Moderate         bool   `yaml:"tier3_moderate" doc:"Operator switch for unattended MODERATE actions (CREATE INDEX CONCURRENTLY) the trust ledger has earned; off caps them at approval. Needs execution_mode=auto, trust.level=autonomous." warning:"Moderate actions can consume IO or briefly contend for locks." api:"bool"`
+	Tier3HighRisk         bool   `yaml:"tier3_high_risk" doc:"Enable tier-3 actions classified as high risk. Ignored outside fleet mode — standalone always forces this to false." mode:"fleet-only" warning:"High-risk actions can destabilize production — enable only with a reviewed rollback plan." api:"bool"`
+	RollbackThresholdPct  int    `yaml:"rollback_threshold_pct" doc:"Latency regression percentage (0-100) that triggers automatic rollback of a recently applied action. Lower = more sensitive." api:"pct"`
+	RollbackWindowMinutes int    `yaml:"rollback_window_minutes" doc:"How many minutes after applying an action pg_sage watches for regressions before considering it stable." api:"int_pos"`
+	RollbackCooldownDays  int    `yaml:"rollback_cooldown_days" doc:"After a rollback, the same action family is blocked for this many days to prevent flap. Default 3 days." api:"int_pos"`
+	CascadeCooldownCycles int    `yaml:"cascade_cooldown_cycles" doc:"If N consecutive cycles each propose new actions, throttle to observe impact. Prevents storm-like cascades of small changes." api:"int_pos" zero:"default"`
 }
 
 type LLMConfig struct {
-	Auth                   string               `yaml:"auth" doc:"LLM authentication: api_key (default) or databricks (SDK unified authentication with automatic token refresh). Databricks auth requires the configured workspace HTTPS origin."`
-	Enabled                bool                 `yaml:"enabled" doc:"Global enable for LLM-assisted analysis. On by default; calls a provider only once llm.endpoint and llm.api_key are set. When off, pg_sage uses deterministic heuristics only."`
-	Endpoint               string               `yaml:"endpoint" doc:"LLM provider base URL. Supports OpenAI-compatible chat-completions endpoints. Can be left blank to use the vendor default."`
-	APIKey                 string               `yaml:"api_key" doc:"Authentication token for the LLM provider. Prefer sourcing from environment via ${LLM_API_KEY} rather than committing literal values." secret:"true"`
-	Model                  string               `yaml:"model" doc:"Model identifier sent to the provider (e.g. gpt-4o-mini). Must support JSON-mode responses for structured outputs."`
-	TimeoutSeconds         int                  `yaml:"timeout_seconds" doc:"Timeout of each LLM request attempt; 429 and 5xx replies are retried, up to 4 attempts. Reasoning models get at least 120 s per attempt. Low values protect the analyzer cycle."`
-	TokenBudgetDaily       int                  `yaml:"token_budget_daily" doc:"Daily token cap (input + output) per LLM client: the shared client and each database's general and optimizer client get their own copy. llm.global_token_budget_daily caps the sum."`
-	FleetTokenBudgetDaily  int                  `yaml:"fleet_token_budget_daily" doc:"Fleet-wide daily token cap split per database so one noisy database can't drain the whole budget. 0 disables per-database budgeting (fleet mode only)."`
-	GlobalTokenBudgetDaily int                  `yaml:"global_token_budget_daily" doc:"Process-wide daily token cap across all LLM clients. 0 derives today's total: the clients' token_budget_daily summed, an active fleet budget standing in for the per-database ones."`
-	ContextBudgetTokens    int                  `yaml:"context_budget_tokens" doc:"Trim target in tokens (~4 bytes each) for prompt context: lowering it shrinks advisor, tuning and explain prompts, each keeping its own cap. 0 turns off this extra trim. Never refuses or caps answers."`
+	Auth                   string               `yaml:"auth" doc:"LLM authentication: api_key (default) or databricks (SDK unified authentication with automatic token refresh). Databricks auth requires the configured workspace HTTPS origin." api:"llm_auth" enum:"|api_key|databricks"`
+	Enabled                bool                 `yaml:"enabled" doc:"Global enable for LLM-assisted analysis. On by default; calls a provider only once llm.endpoint and llm.api_key are set. When off, pg_sage uses deterministic heuristics only." api:"bool"`
+	Endpoint               string               `yaml:"endpoint" doc:"LLM provider base URL. Supports OpenAI-compatible chat-completions endpoints. Can be left blank to use the vendor default." api:"string"`
+	APIKey                 string               `yaml:"api_key" doc:"Authentication token for the LLM provider. Prefer sourcing from environment via ${LLM_API_KEY} rather than committing literal values." secret:"true" api:"string"`
+	Model                  string               `yaml:"model" doc:"Model identifier sent to the provider (e.g. gpt-4o-mini). Must support JSON-mode responses for structured outputs." api:"string"`
+	TimeoutSeconds         int                  `yaml:"timeout_seconds" doc:"Timeout of each LLM request attempt; 429 and 5xx replies are retried, up to 4 attempts. Reasoning models get at least 120 s per attempt. Low values protect the analyzer cycle." api:"int_pos"`
+	TokenBudgetDaily       int                  `yaml:"token_budget_daily" doc:"Daily token cap (input + output) per LLM client: the shared client and each database's general and optimizer client get their own copy. llm.global_token_budget_daily caps the sum." api:"int_nonneg"`
+	FleetTokenBudgetDaily  int                  `yaml:"fleet_token_budget_daily" doc:"Fleet-wide daily token cap split per database so one noisy database can't drain the whole budget. 0 disables per-database budgeting (fleet mode only)." api:"int_nonneg"`
+	GlobalTokenBudgetDaily int                  `yaml:"global_token_budget_daily" doc:"Process-wide daily token cap across all LLM clients. 0 derives today's total: the clients' token_budget_daily summed, an active fleet budget standing in for the per-database ones." api:"int_nonneg"`
+	ContextBudgetTokens    int                  `yaml:"context_budget_tokens" doc:"Trim target in tokens (~4 bytes each) for prompt context: lowering it shrinks advisor, tuning and explain prompts, each keeping its own cap. 0 turns off this extra trim. Never refuses or caps answers." api:"int_nonneg"`
 	CooldownSeconds        int                  `yaml:"cooldown_seconds" doc:"Dedup window and breaker cooldown: an identical request is not re-sent within this many seconds; after 3 failures in a row (or one 401/403) calls pause this long, then one probe decides."`
-	JSONMode               bool                 `yaml:"json_mode" doc:"When true, requests structured JSON via response_format: json_object. Supported by OpenAI, Gemini (OpenAI-compat), Groq, Ollama. Off for providers that reject unknown fields."`
+	JSONMode               bool                 `yaml:"json_mode" doc:"When true, requests structured JSON via response_format: json_object. Supported by OpenAI, Gemini (OpenAI-compat), Groq, Ollama. Off for providers that reject unknown fields." api:"bool"`
 	TokenParameter         string               `yaml:"token_parameter" doc:"Completion cap parameter: auto (max_tokens, switching per model to max_completion_tokens when the provider asks), max_tokens or max_completion_tokens. Default: auto."`
 	ToolReasoningEffort    string               `yaml:"tool_reasoning_effort" doc:"reasoning_effort sent with tool calls: auto (unset; none once a model rejects tools without it), none, low, medium, high, or omit (never sent). Default: auto."`
 	IndexOptimizer         IndexOptimizerConfig `yaml:"index_optimizer"` // Deprecated: use Optimizer.
@@ -314,10 +314,10 @@ type IndexOptimizerConfig struct {
 
 // OptimizerConfig controls the index optimizer v2 behavior.
 type OptimizerConfig struct {
-	Enabled              bool    `yaml:"enabled" doc:"Allow index creates and drops: the tuning agent (needs an LLM) and, without one, the deterministic index floor. Changes execute only via the policy gate and trust level. Default: true."`
-	MinQueryCalls        int     `yaml:"min_query_calls"`
+	Enabled              bool    `yaml:"enabled" doc:"Allow index creates and drops: the tuning agent (needs an LLM) and, without one, the deterministic index floor. Changes execute only via the policy gate and trust level. Default: true." api:"bool"`
+	MinQueryCalls        int     `yaml:"min_query_calls" api:"int_pos"`
 	MaxIndexesPerTable   int     `yaml:"max_indexes_per_table"`
-	MaxNewPerTable       int     `yaml:"max_new_per_table"`
+	MaxNewPerTable       int     `yaml:"max_new_per_table" api:"int_pos"`
 	MaxIncludeColumns    int     `yaml:"max_include_columns" doc:"Most INCLUDE columns a proposed index may carry; a wider proposal is refused with a reason naming the cap. 0 or less means 3. Default: 3."`
 	WriteHeavyRatioPct   int     `yaml:"write_heavy_ratio_pct"`
 	MinSnapshots         int     `yaml:"min_snapshots"`
@@ -342,8 +342,8 @@ type OptimizerLLMConfig struct {
 }
 
 type AdvisorConfig struct {
-	Enabled           bool `yaml:"enabled" doc:"Run the LLM configuration advisor. On by default; needs a usable LLM at startup. Its changes execute only through the policy gate and trust level. Default: true."`
-	IntervalSeconds   int  `yaml:"interval_seconds"`
+	Enabled           bool `yaml:"enabled" doc:"Run the LLM configuration advisor. On by default; needs a usable LLM at startup. Its changes execute only through the policy gate and trust level. Default: true." api:"bool"`
+	IntervalSeconds   int  `yaml:"interval_seconds" api:"int_min5"`
 	VacuumEnabled     bool `yaml:"vacuum_enabled" doc:"Let the tuning agent propose table storage parameters (autovacuum, fillfactor) for its write-amplification cases. Needs advisor.enabled. Default: true."`
 	WALEnabled        bool `yaml:"wal_enabled"`
 	ConnectionEnabled bool `yaml:"connection_enabled"`
@@ -361,15 +361,15 @@ type BriefingConfig struct {
 }
 
 type AlertingConfig struct {
-	Enabled              bool            `yaml:"enabled"`
-	CheckIntervalSeconds int             `yaml:"check_interval_seconds"`
-	CooldownMinutes      int             `yaml:"cooldown_minutes"`
+	Enabled              bool            `yaml:"enabled" api:"bool"`
+	CheckIntervalSeconds int             `yaml:"check_interval_seconds" api:"int_min5"`
+	CooldownMinutes      int             `yaml:"cooldown_minutes" api:"int_nonneg"`
 	RepeatMinutes        map[string]int  `yaml:"repeat_minutes" doc:"Minutes between reminders of a finding that stays open, per severity. A missing key takes its default; 0 never reminds. Default: critical 240, warning 1440, info 0."`
-	QuietHoursStart      string          `yaml:"quiet_hours_start"`
-	QuietHoursEnd        string          `yaml:"quiet_hours_end"`
+	QuietHoursStart      string          `yaml:"quiet_hours_start" api:"string"`
+	QuietHoursEnd        string          `yaml:"quiet_hours_end" api:"string"`
 	Timezone             string          `yaml:"timezone"`
-	SlackWebhookURL      string          `yaml:"slack_webhook_url"`
-	PagerDutyRoutingKey  string          `yaml:"pagerduty_routing_key"`
+	SlackWebhookURL      string          `yaml:"slack_webhook_url" api:"string"`
+	PagerDutyRoutingKey  string          `yaml:"pagerduty_routing_key" api:"string"`
 	Routes               []AlertRoute    `yaml:"routes"`
 	Webhooks             []WebhookConfig `yaml:"webhooks"`
 }
@@ -407,21 +407,21 @@ type ForecasterConfig struct {
 
 // RCAConfig controls the root cause analysis engine (v0.9).
 type RCAConfig struct {
-	Enabled                    bool    `yaml:"enabled" doc:"Enable the root cause analysis engine. Correlates multiple signals into unified incident narratives."`
-	LLMCorrelationThreshold    int     `yaml:"llm_correlation_threshold" doc:"Minimum concurrent signals to trigger LLM-based correlation (Tier 2). Default: 3."`
-	DedupWindowMinutes         int     `yaml:"dedup_window_minutes" doc:"Time window for deduplicating incidents with the same signals and root object. Default: 30."`
-	EscalationCycles           int     `yaml:"escalation_cycles" doc:"Consecutive analyzer cycles an incident stays open before escalating warning to critical. Default: 5."`
-	ResolutionCycles           int     `yaml:"resolution_cycles" doc:"Consecutive clear cycles before an incident auto-resolves. Default: 2."`
+	Enabled                    bool    `yaml:"enabled" doc:"Enable the root cause analysis engine. Correlates multiple signals into unified incident narratives." api:"bool"`
+	LLMCorrelationThreshold    int     `yaml:"llm_correlation_threshold" doc:"Minimum concurrent signals to trigger LLM-based correlation (Tier 2). Default: 3." api:"int_pos"`
+	DedupWindowMinutes         int     `yaml:"dedup_window_minutes" doc:"Time window for deduplicating incidents with the same signals and root object. Default: 30." api:"int_pos" range:"1,525600"`
+	EscalationCycles           int     `yaml:"escalation_cycles" doc:"Consecutive analyzer cycles an incident stays open before escalating warning to critical. Default: 5." api:"int_pos"`
+	ResolutionCycles           int     `yaml:"resolution_cycles" doc:"Consecutive clear cycles before an incident auto-resolves. Default: 2." api:"int_pos"`
 	StaleAfterHours            int     `yaml:"stale_after_hours" doc:"Hours an open incident may go unseen before pg_sage resolves it as stale (no notification when it was last seen that long ago). 1-8760, at least the dedup window. Default: 24."`
 	VacuumMinDeadTuples        int     `yaml:"vacuum_min_dead_tuples" doc:"Fewest dead tuples a table needs before its dead-tuple ratio counts toward the vacuum_blocked (autovacuum falling behind) incident. 1-1000000000. Default: 1000."`
 	VacuumMinTableMB           int     `yaml:"vacuum_min_table_mb" doc:"Smallest heap, in MB, a table needs before its dead-tuple ratio counts toward the vacuum_blocked incident. 1-1048576. Default: 8."`
 	XminHolderMinMinutes       int     `yaml:"xmin_holder_min_minutes" doc:"Minutes a session's transaction must be open before the vacuum_blocked incident names it as the holder of the oldest xmin. 1-1440. Default: 5."`
 	PreparedXactMinAgeMinutes  int     `yaml:"prepared_xact_min_age_minutes" doc:"Minutes a prepared transaction of this database must be old before it opens orphaned_prepared_tx or is named the vacuum_blocked holder. 1-10080. Default: 30."`
-	ConnectionSaturationPct    int     `yaml:"connection_saturation_pct" doc:"Percentage of max_connections that triggers the connections_high signal. Default: 80."`
-	ReplicationLagThresholdS   int     `yaml:"replication_lag_threshold_seconds" doc:"Seconds of replay lag before the replication_lag_increasing signal fires. Default: 30."`
-	WALSpikeMultiplier         float64 `yaml:"wal_spike_multiplier" doc:"wal_growth_spike fires when the WAL rate (insert position advance per minute) of a collector interval is this many times the previous interval's and at least 1 MiB/min. Default: 2.0."`
+	ConnectionSaturationPct    int     `yaml:"connection_saturation_pct" doc:"Percentage of max_connections that triggers the connections_high signal. Default: 80." api:"pct"`
+	ReplicationLagThresholdS   int     `yaml:"replication_lag_threshold_seconds" doc:"Seconds of replay lag before the replication_lag_increasing signal fires. Default: 30." api:"int_pos"`
+	WALSpikeMultiplier         float64 `yaml:"wal_spike_multiplier" doc:"wal_growth_spike fires when the WAL rate (insert position advance per minute) of a collector interval is this many times the previous interval's and at least 1 MiB/min. Default: 2.0." api:"float_pos"`
 	LockChainIntervalSeconds   int     `yaml:"lock_chain_interval_seconds" doc:"Seconds between lock-chain fast-path checks, which open or update the lock_contention incident between analyzer cycles. 0 disables the fast path; otherwise 10-3600. Default: 60."`
-	NarrationEnabled           bool    `yaml:"narration_enabled" doc:"Add an LLM narrative, citing the incident's evidence and catalog probe results, to incident notifications. Off, no LLM, or any LLM failure uses the deterministic summary. Default: true."`
+	NarrationEnabled           bool    `yaml:"narration_enabled" doc:"Add an LLM narrative, citing the incident's evidence and catalog probe results, to incident notifications. Off, no LLM, or any LLM failure uses the deterministic summary. Default: true." api:"bool"`
 	LogFastPathIntervalSeconds int     `yaml:"log_fast_path_interval_seconds" doc:"Seconds between log fast-path passes, which open incidents for critical log lines (PANIC, disk full, OOM, wraparound) between analyzer cycles. 0 disables; otherwise 1-3600. Default: 5."`
 	LogQuietMinutes            int     `yaml:"log_quiet_minutes" doc:"Minutes without a new log line before a log incident auto-resolves (not clear cycles). 0 = rca.dedup_window_minutes; else 1-1440, within stale_after_hours. Default: 0."`
 	RecurrenceRenotifyHours    int     `yaml:"recurrence_renotify_hours" doc:"Hours after a log incident resolves in which a recurrence at no higher severity is linked but not notified again. 1-168. Default: 6."`
@@ -429,26 +429,26 @@ type RCAConfig struct {
 
 // LockChainConfig controls lock chain detection (v0.9).
 type LockChainConfig struct {
-	Enabled                  bool     `yaml:"enabled" doc:"Enable lock chain detection using pg_blocking_pids(). Detects cascading lock waits."`
-	MinBlockedThreshold      int      `yaml:"min_blocked_threshold" doc:"Minimum blocked sessions before a lock chain generates a finding. Default: 3."`
-	CriticalBlockedThreshold int      `yaml:"critical_blocked_threshold" doc:"Blocked session count that escalates finding to critical severity. Default: 10."`
-	IdleInTxTerminateMinutes int      `yaml:"idle_in_tx_terminate_minutes" doc:"Minutes an idle-in-transaction root blocker must wait before pg_terminate_backend is recommended. Default: 5."`
-	ActiveQueryCancelMinutes int      `yaml:"active_query_cancel_minutes" doc:"Minutes an active query root blocker must run before pg_cancel_backend is recommended. Default: 15."`
+	Enabled                  bool     `yaml:"enabled" doc:"Enable lock chain detection using pg_blocking_pids(). Detects cascading lock waits." api:"bool"`
+	MinBlockedThreshold      int      `yaml:"min_blocked_threshold" doc:"Minimum blocked sessions before a lock chain generates a finding. Default: 3." api:"int_pos"`
+	CriticalBlockedThreshold int      `yaml:"critical_blocked_threshold" doc:"Blocked session count that escalates finding to critical severity. Default: 10." api:"int_pos"`
+	IdleInTxTerminateMinutes int      `yaml:"idle_in_tx_terminate_minutes" doc:"Minutes an idle-in-transaction root blocker must wait before pg_terminate_backend is recommended. Default: 5." api:"int_pos"`
+	ActiveQueryCancelMinutes int      `yaml:"active_query_cancel_minutes" doc:"Minutes an active query root blocker must run before pg_cancel_backend is recommended. Default: 15." api:"int_pos"`
 	SafePatterns             []string `yaml:"safe_patterns" doc:"Application name substrings that protect a process from automated termination/cancellation."`
 }
 
 // LogWatchConfig controls PostgreSQL log file monitoring (v0.9.1).
 type LogWatchConfig struct {
-	Enabled             bool     `yaml:"enabled" doc:"Enable RCA logs from a configured provider API or local PostgreSQL jsonlog/csvlog files. Requires rca.enabled=true. Default: false."`
-	LogDirectory        string   `yaml:"log_directory" doc:"Path to PG log directory. Auto-detected from pg_settings if blank."`
-	Format              string   `yaml:"format" doc:"Log format: jsonlog (PG15+) or csvlog. Auto-detected if blank."`
-	PollIntervalMs      int      `yaml:"poll_interval_ms" doc:"Log file poll interval (the tailer only polls). Default: 1000."`
-	DedupWindowS        int      `yaml:"dedup_window_seconds" doc:"Suppress duplicate log signals within this window. Default: 60."`
-	MaxLineLenBytes     int      `yaml:"max_line_len_bytes" doc:"Drop log records longer than this (an auto_explain plan record may reach 1 MiB); drops are counted as oversized_record. Default: 65536."`
-	TempFileMinBytes    int      `yaml:"temp_file_min_bytes" doc:"Minimum temp file size to trigger log_temp_file_created. Default: 10485760."`
-	MaxLinesPerCycle    int      `yaml:"max_lines_per_cycle" doc:"Stop parsing after this many lines per drain cycle. Default: 10000."`
-	ExcludeApplications []string `yaml:"exclude_applications" doc:"Application names excluded from timeout/deadlock signals. Default: pg_sage."`
-	SlowQueryEnabled    bool     `yaml:"slow_query_enabled" doc:"Opt-in: parse log_min_duration_statement output as log_slow_query signals. Default: false."`
+	Enabled             bool     `yaml:"enabled" doc:"Enable RCA logs from a configured provider API or local PostgreSQL jsonlog/csvlog files. Requires rca.enabled=true. Default: false." api:"bool"`
+	LogDirectory        string   `yaml:"log_directory" doc:"Path to PG log directory. Auto-detected from pg_settings if blank." api:"string"`
+	Format              string   `yaml:"format" doc:"Log format: jsonlog (PG15+) or csvlog. Auto-detected if blank." api:"string"`
+	PollIntervalMs      int      `yaml:"poll_interval_ms" doc:"Log file poll interval (the tailer only polls). Default: 1000." api:"int_pos"`
+	DedupWindowS        int      `yaml:"dedup_window_seconds" doc:"Suppress duplicate log signals within this window. Default: 60." api:"int_pos"`
+	MaxLineLenBytes     int      `yaml:"max_line_len_bytes" doc:"Drop log records longer than this (an auto_explain plan record may reach 1 MiB); drops are counted as oversized_record. Default: 65536." api:"int_pos"`
+	TempFileMinBytes    int      `yaml:"temp_file_min_bytes" doc:"Minimum temp file size to trigger log_temp_file_created. Default: 10485760." api:"int_pos"`
+	MaxLinesPerCycle    int      `yaml:"max_lines_per_cycle" doc:"Stop parsing after this many lines per drain cycle. Default: 10000." api:"int_pos"`
+	ExcludeApplications []string `yaml:"exclude_applications" doc:"Application names excluded from timeout/deadlock signals. Default: pg_sage." api:"string"`
+	SlowQueryEnabled    bool     `yaml:"slow_query_enabled" doc:"Opt-in: parse log_min_duration_statement output as log_slow_query signals. Default: false." api:"bool"`
 }
 
 // RunawayPolicy defines when a query is considered runaway (v0.9).
@@ -462,38 +462,38 @@ type RunawayPolicy struct {
 
 // RunawayConfig controls runaway query termination (v0.9).
 type RunawayConfig struct {
-	Enabled      bool            `yaml:"enabled" doc:"Enable policy-based runaway query detection and escalation (warn -> cancel -> terminate)."`
+	Enabled      bool            `yaml:"enabled" doc:"Enable policy-based runaway query detection and escalation (warn -> cancel -> terminate)." api:"bool"`
 	Policies     []RunawayPolicy `yaml:"policies" doc:"List of runaway query policies. A query matching any policy enters the escalation state machine."`
 	SafePatterns []string        `yaml:"safe_patterns" doc:"Application name substrings protected from runaway termination. Merged with lock_chain.safe_patterns at startup."`
 }
 
 // ExplainConfig controls the natural language EXPLAIN feature (v0.9).
 type ExplainConfig struct {
-	Enabled         bool `yaml:"enabled" doc:"Enable the LLM-powered natural language EXPLAIN API endpoint."`
-	TimeoutMs       int  `yaml:"timeout_ms" doc:"statement_timeout for EXPLAIN ANALYZE execution. Default: 10000."`
-	CacheTTLMinutes int  `yaml:"cache_ttl_minutes" doc:"TTL for cached explain results. Default: 60."`
-	MaxTokens       int  `yaml:"max_tokens" doc:"Maximum LLM output tokens for explain responses. Default: 4096."`
+	Enabled         bool `yaml:"enabled" doc:"Enable the LLM-powered natural language EXPLAIN API endpoint." api:"bool"`
+	TimeoutMs       int  `yaml:"timeout_ms" doc:"statement_timeout for EXPLAIN ANALYZE execution. Default: 10000." api:"int_pos"`
+	CacheTTLMinutes int  `yaml:"cache_ttl_minutes" doc:"TTL for cached explain results. Default: 60." api:"int_pos"`
+	MaxTokens       int  `yaml:"max_tokens" doc:"Maximum LLM output tokens for explain responses. Default: 4096." api:"int_pos"`
 }
 
 // SchemaLintConfig controls schema anti-pattern detection (v0.10).
 type SchemaLintConfig struct {
-	Enabled             bool     `yaml:"enabled" doc:"Enable periodic schema anti-pattern scanning."`
-	ScanIntervalMinutes int      `yaml:"scan_interval_minutes" doc:"How often to run the full schema lint scan. Default: 60."`
+	Enabled             bool     `yaml:"enabled" doc:"Enable periodic schema anti-pattern scanning." api:"bool"`
+	ScanIntervalMinutes int      `yaml:"scan_interval_minutes" doc:"How often to run the full schema lint scan. Default: 60." api:"int_pos"`
 	IncludeSchemas      []string `yaml:"include_schemas" doc:"Schemas to scan. Empty means all non-system schemas."`
 	ExcludeSchemas      []string `yaml:"exclude_schemas" doc:"Schemas to exclude. Default: pg_catalog, information_schema."`
 	DisabledRules       []string `yaml:"disabled_rules" doc:"Rule IDs to skip (e.g. lint_serial_usage)."`
-	MinTableRows        int      `yaml:"min_table_rows" doc:"Ignore findings on tables below this row count. Default: 1000."`
+	MinTableRows        int      `yaml:"min_table_rows" doc:"Ignore findings on tables below this row count. Default: 1000." api:"int_pos" zero:"default"`
 }
 
 // MigrationConfig controls the DDL safety advisor (v0.10).
 type MigrationConfig struct {
-	Enabled               bool   `yaml:"enabled" doc:"Enable DDL safety advisory."`
-	Mode                  string `yaml:"mode" doc:"Operating mode: advisory (default). Active mode deferred to future release."`
-	LogDetection          bool   `yaml:"log_detection" doc:"Parse DDL from PG logs (requires log_statement=ddl)."`
-	ActivityPolling       bool   `yaml:"activity_polling" doc:"Scan pg_stat_activity for active DDL."`
-	PollIntervalSeconds   int    `yaml:"poll_interval_seconds" doc:"How often to poll during active DDL. Default: 5."`
-	DDLRowThreshold       int    `yaml:"ddl_row_threshold" doc:"Row count below which DDL is considered low-risk. Default: 10000."`
-	QueueWaitersThreshold int    `yaml:"queue_waiters_threshold" doc:"Sessions queued directly behind an in-flight DDL waiting for its lock before the finding turns critical with approval-only cancel guidance. Needs the RCA fast path. Default: 3."`
+	Enabled               bool   `yaml:"enabled" doc:"Enable DDL safety advisory." api:"bool"`
+	Mode                  string `yaml:"mode" doc:"Operating mode: advisory (default). Active mode deferred to future release." api:"string"`
+	LogDetection          bool   `yaml:"log_detection" doc:"Parse DDL from PG logs (requires log_statement=ddl)." api:"bool"`
+	ActivityPolling       bool   `yaml:"activity_polling" doc:"Scan pg_stat_activity for active DDL." api:"bool"`
+	PollIntervalSeconds   int    `yaml:"poll_interval_seconds" doc:"How often to poll during active DDL. Default: 5." api:"int_pos"`
+	DDLRowThreshold       int    `yaml:"ddl_row_threshold" doc:"Row count below which DDL is considered low-risk. Default: 10000." api:"int_pos" zero:"default"`
+	QueueWaitersThreshold int    `yaml:"queue_waiters_threshold" doc:"Sessions queued directly behind an in-flight DDL waiting for its lock before the finding turns critical with approval-only cancel guidance. Needs the RCA fast path. Default: 3." api:"int_pos" zero:"default"`
 	// migration-06: rehearsed apply_migration budgets (migration_rehearsal.go).
 	ContractDelayMinutes int `yaml:"contract_delay_minutes" doc:"Minutes after apply_migration's expand phase before its contract phase may run; recorded as contract_not_before. 1 or more. Default: 60."`
 	MaxLockMS            int `yaml:"max_lock_ms" doc:"Milliseconds a rehearsed step without CONCURRENTLY may hold ACCESS EXCLUSIVE on the clone before apply_migration parks (step_budget_exceeded). 1 or more. Default: 2000."`
@@ -532,14 +532,14 @@ type TunerConfig struct {
 }
 
 type RetentionConfig struct {
-	SnapshotsDays int `yaml:"snapshots_days"`
-	FindingsDays  int `yaml:"findings_days"`
-	ActionsDays   int `yaml:"actions_days"`
-	ExplainsDays  int `yaml:"explains_days"`
+	SnapshotsDays int `yaml:"snapshots_days" api:"int_pos"`
+	FindingsDays  int `yaml:"findings_days" api:"int_pos"`
+	ActionsDays   int `yaml:"actions_days" api:"int_pos"`
+	ExplainsDays  int `yaml:"explains_days" api:"int_pos"`
 	DecisionsDays int `yaml:"decisions_days" doc:"Days to keep parked, queued, blocked and observe-only decisions after they were last seen; ones behind an action or verification are kept. 0 disables. Range 0-3650. Default 30."`
 	AuthAuditDays int `yaml:"auth_audit_days" doc:"Days to keep the sign-in audit trail (sage.auth_audit: SSO logins, links, grants and break-glass use). 0 keeps it forever. Range 0-3650. Default 365."`
 	// SageSizeWarningPct: see sage_footprint.go.
-	SageSizeWarningPct int `yaml:"sage_size_warning_pct" doc:"Raise a sage_footprint finding when pg_sage's own tables (the sage schema) exceed this percent of the database size; below 256 MB it is never a finding. 0 disables the check. Default 10."`
+	SageSizeWarningPct int `yaml:"sage_size_warning_pct" doc:"Raise a sage_footprint finding when pg_sage's own tables (the sage schema) exceed this percent of the database size; below 256 MB it is never a finding. 0 disables the check. Default 10." api:"pct"`
 	// QueryStoreDays and SnapshotsMaxPct: see storage_retention.go.
 	QueryStoreDays  int `yaml:"query_store_days" doc:"Days to keep per-query samples in sage.query_store (its readers look back at most 7 days). 0 disables. Range 0-3650. Default 14."`
 	SnapshotsMaxPct int `yaml:"snapshots_max_pct" doc:"Cap sage.snapshots at this percent of the database size (never below 256 MB): the oldest days are removed first. 0 disables the cap. Range 0-100. Default 5."`
@@ -796,9 +796,6 @@ func (c *Config) validate() error {
 		return fmt.Errorf("analyzer.slow_query_min_calls must be non-negative, got %d",
 			c.Analyzer.SlowQueryMinCalls)
 	}
-	if err := c.validateAPITypedRanges(); err != nil {
-		return err
-	}
 	if err := c.Analyzer.validateSchemaGuard(); err != nil {
 		return err
 	}
@@ -947,6 +944,9 @@ func (c *Config) validate() error {
 		return err
 	}
 	if err := c.Prometheus.validate(); err != nil {
+		return err
+	}
+	if err := c.validateRegistry(); err != nil {
 		return err
 	}
 
@@ -1333,7 +1333,8 @@ func loadYAML(path string, cfg *Config) error {
 	candidate := Clone(cfg)
 	decoder := yaml.NewDecoder(strings.NewReader(expanded))
 	decoder.KnownFields(true)
-	if err := decoder.Decode(candidate); err != nil {
+	// An empty file is a file with no settings: the defaults stand.
+	if err := decoder.Decode(candidate); err != nil && !errors.Is(err, io.EOF) {
 		return err
 	}
 	if err := migrateLegacyIndexOptimizer(expanded, candidate); err != nil {

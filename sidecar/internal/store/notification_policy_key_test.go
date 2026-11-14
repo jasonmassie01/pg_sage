@@ -10,6 +10,6 @@ func TestNotificationPolicyIsNotAnAPIOverride(t *testing.T) {
 		t.Fatalf("%s accepted as an API config override", key)
 	}
 	if _, ok := AllowedConfigKeysSnapshot()[key]; ok {
-		t.Fatalf("%s is listed in allowedConfigKeys", key)
+		t.Fatalf("%s is listed in api-tagged keys", key)
 	}
 }

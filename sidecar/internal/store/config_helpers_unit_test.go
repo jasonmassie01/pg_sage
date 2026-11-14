@@ -68,7 +68,7 @@ func TestConfigToMap_AllKeysPresent(t *testing.T) {
 
 	m := configToMap(cfg)
 
-	// Every key in allowedConfigKeys should exist in the map.
+	// Every key in api-tagged keys should exist in the map.
 	// Some keys might not be mapped (execution_mode is set at a
 	// different level), but all section-specific keys should be present.
 	expectedKeys := []string{
@@ -582,7 +582,7 @@ func TestNullIfEmpty_Extended(t *testing.T) {
 
 func TestValidateConfigKey_AllKeys(t *testing.T) {
 	// Valid keys should not error.
-	for key := range allowedConfigKeys {
+	for key := range configKeyTypes() {
 		if err := validateConfigKey(key); err != nil {
 			t.Errorf("validateConfigKey(%q) unexpected error: %v",
 				key, err)

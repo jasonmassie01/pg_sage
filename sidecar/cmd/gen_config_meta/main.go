@@ -32,6 +32,12 @@ type fieldMeta struct {
 	// Lifecycle is how a saved value takes effect (config-09): live_policy,
 	// reconfigure or restart; see lifecycleFor.
 	Lifecycle string `json:"lifecycle"`
+	// Min, Max and Enum are the value contract the configuration API applies
+	// on save (config-02b), from config.Registry(); the Settings page checks
+	// them before a PUT.
+	Min  *float64 `json:"min,omitempty"`
+	Max  *float64 `json:"max,omitempty"`
+	Enum []string `json:"enum,omitempty"`
 }
 
 // sensitiveSuffixes lists yaml-key terminal components that require
@@ -203,9 +209,25 @@ func Generate(cfg *config.Config, strict bool) (map[string]fieldMeta, error) {
 			return nil, err
 		}
 		meta.Lifecycle = lifecycle
-		out[key] = meta
+		out[key] = withContract(meta, key)
 	}
 	return out, nil
+}
+
+// withContract copies the key's registry range and enum into its meta.
+func withContract(meta fieldMeta, key string) fieldMeta {
+	spec, ok := config.LookupKey(key)
+	if !ok {
+		return meta
+	}
+	if spec.HasRange {
+		lo, hi := spec.Min, spec.Max
+		meta.Min, meta.Max = &lo, &hi
+	}
+	if len(spec.Enum) > 0 {
+		meta.Enum = append([]string(nil), spec.Enum...)
+	}
+	return meta
 }
 
 // walkStruct recursively walks a struct value and populates out.
