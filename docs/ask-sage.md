@@ -26,6 +26,17 @@ coding agent with the MCP tool `ask_sage`.
   record on the Actions page. List citations (`findings:`, `actions:`, `facts:`,
   `trust:`, ...) open their page; `table:`, `config:`, `queries:` and `doc:` citations are
   plain text. Answers stored before citations carried aliases still render by id.
+- **What Sage read**: each citation also keeps an `excerpt`, the text the model was shown
+  for that read, so you can audit a citation later even when the cited list (`queries:`,
+  `findings:open`, ...) has changed since. The excerpt is the already-redacted tool output,
+  redacted again (string and long numeric literals become `?`), and clipped to 1,500
+  characters. All excerpts of one answer share a 24 KiB budget, earliest citation first;
+  `excerpt_truncated: true` marks an excerpt that was clipped, or, with no `excerpt`, one
+  dropped because the budget was spent. In the UI, open "What Sage read" under a citation to
+  see it, shown as plain text. Excerpts are stored inside the answer
+  (`sage.ask_messages.answer`), are read only by the conversation's own actor, and are
+  deleted with the conversation after `ask.retention_days`. Answers stored before excerpts
+  existed show no panel. The `ask_sage` MCP tool returns the same `excerpt` fields.
 - **Could not verify**: what Ask Sage looked for and did not find. "Not observed" is a
   valid answer. These notes may not contain numbers (a number is a claim and needs a
   citation).
