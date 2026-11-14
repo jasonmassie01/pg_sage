@@ -175,7 +175,13 @@ func TestWorkloadSessions_RoleStatementTime(t *testing.T) {
 	if !c.Capabilities().StatStatementsView {
 		t.Skip("pg_stat_statements is not installed on this server")
 	}
-	if _, err := pool.Exec(ctx, "SELECT pg_sleep(0.2)"); err != nil {
+	// A statement shape no other test runs: pg_stat_statements normalizes
+	// constants, so a bare "SELECT pg_sleep(0.2)" shares one entry with
+	// every short pg_sleep other packages run on the same server, and that
+	// entry's mean + 2.326 sd falls far below 200 ms.
+	const slow = "SELECT count(*) AS workload_role_time" +
+		" FROM pg_sleep(0.2), generate_series(1, 3)"
+	if _, err := pool.Exec(ctx, slow); err != nil {
 		t.Fatal(err)
 	}
 	snap := &Snapshot{}
