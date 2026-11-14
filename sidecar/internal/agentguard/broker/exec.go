@@ -48,14 +48,17 @@ func (c *call) execute(ctx context.Context, p agentguard.Principal, role, passwo
 }
 
 // connectFailure maps a failed broker login: a rejected password drops the
-// pool (the credential rotated mid-flight) and is retryable.
+// pool (the credential rotated mid-flight) and is retryable. The error
+// names the broker role (never the password), so an operator knows which
+// login to check.
 func (c *call) connectFailure(p agentguard.Principal, err error) (Result, error) {
 	if pgErr, ok := asPgError(err); ok && strings.HasPrefix(pgErr.Code, "28") {
 		c.b.pools.drop(p.ID, c.t.Name)
 	}
 	c.b.deps.Log("WARN", "%s: broker login of %s on %s failed: %v", c.tool, p.ID,
 		c.t.Name, err)
-	return Result{}, fmt.Errorf("%w: the broker login failed", ErrUnavailable)
+	return Result{}, fmt.Errorf("%w: the broker login of role %s on %s failed",
+		ErrUnavailable, c.b.roleOf(p.ID), c.t.Name)
 }
 
 // begin opens BEGIN READ ONLY with the broker's own timeouts and search
@@ -110,7 +113,7 @@ func closeBroken(conn *pgxpool.Conn) {
 // (or, for an explain, plans the statement without running it).
 func (c *call) inTransaction(ctx context.Context, conn *pgxpool.Conn,
 	read sqlast.BrokeredRead, rels []relation, env envbind.Env) (Result, error) {
-	refusal, err := explain.ProveRead(ctx, conn, read.Canonical, nil, c.b.proof)
+	refusal, err := explain.ProveRead(ctx, conn, read.Canonical, c.b.parse.read, c.b.proof)
 	if err != nil {
 		c.b.deps.Log("WARN", "%s: catalog proof failed for %s: %v", c.tool, c.id.Principal.ID,
 			err)

@@ -18,18 +18,6 @@ import (
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
-func cell(t *testing.T, r Result, row, col int) string {
-	t.Helper()
-	if row >= len(r.Rows) || col >= len(r.Rows[row]) {
-		t.Fatalf("no cell (%d,%d) in %+v", row, col, r.Rows)
-	}
-	v := r.Rows[row][col]
-	if v == nil {
-		return "<null>"
-	}
-	return *v
-}
-
 func TestQueryHappyPath(t *testing.T) {
 	f := newFixture(t, envbind.EnvProd)
 	res := f.query(t, "SELECT id, name FROM items WHERE id <= $1 ORDER BY id", "3")
