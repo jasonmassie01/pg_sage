@@ -15,6 +15,7 @@ var restartRequired = map[string]bool{
 	"autovacuum_max_workers":         true,
 	"huge_pages":                     true,
 	"huge_page_size":                 true,
+	"io_method":                      true, // PG18; io_workers is reloadable
 	"max_connections":                true,
 	"max_files_per_process":          true,
 	"max_locks_per_transaction":      true,

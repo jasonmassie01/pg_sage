@@ -1042,6 +1042,7 @@ longer returns them.
 |----------|--------|-----------------|
 | <a id="wal_tuning"></a>`wal_tuning` | LLM advisor | WAL and checkpoint settings, such as `max_wal_size` when checkpoints are forced. |
 | <a id="connection_tuning"></a>`connection_tuning` | LLM advisor | Connection capacity and churn: `max_connections` (never below the window's peak of total backends + reserved slots + 10), `idle_in_transaction_session_timeout` for this database only (`ALTER DATABASE`, approval required), and pooler advice or observations as `info` rows without SQL. |
+| <a id="io_settings"></a>`io_settings` | Advisor (deterministic, PostgreSQL 18+) | `info`, no SQL: `effective_io_concurrency` or `maintenance_io_concurrency` set (source other than `default`) at or below its pre-18 default (1 and 10), which overrides PostgreSQL 18's new default of 16, or `io_method = sync` from a non-default source, which switches asynchronous I/O off. The detail carries `setting`, `value`, `source`, `scope` (`instance`, or `database` for a value set for this database alone), `pg_major`, the documented `doc_note` and, for the concurrency settings, `pre18_default` and `pg18_default`. Makes no model call; never on PostgreSQL 14-17 or an unknown version. In fleet mode instance-wide values are reported by the database that owns the instance settings, per-database values by their database. |
 | <a id="query_rewrite"></a>`query_rewrite` | LLM advisor | Rewrites for the slowest queries. Text only, always advisory. |
 | <a id="bloat_remediation"></a>`bloat_remediation` | LLM advisor | Options for removing table and index bloat. |
 | <a id="memory_tuning"></a><a id="vacuum_tuning"></a>`memory_tuning`, `vacuum_tuning` | Tuning agent | Memory and autovacuum configuration changes. A recommendation without SQL is dropped. |
@@ -1050,7 +1051,7 @@ longer returns them.
 | <a id="runaway_query"></a>`runaway_query` | Executor | A running query past the configured runaway limits, such as its maximum duration. |
 | <a id="workload_budget_violation"></a>`workload_budget_violation` | Workload budgets | `info`: a [workload budget](workload-budgets.md) would have cancelled statements (strictly past its timeout, each counted once a day) or rejected connections today. Warn mode changes nothing; the counts are in `sage.budget_shadow`. |
 | <a id="workload_budget_proposal"></a>`workload_budget_proposal` | Workload budgets | `info`: a `statement_timeout` budget proposed for a role without one, 3x its 14-day p99 statement time rounded up to a whole second and never below its longest statement (`advisor.budget_proposals`). Text only, with a `budgets:` snippet in warn mode. |
-| <a id="workload_budget_enforce"></a>`workload_budget_enforce` | Workload budgets | An enforce-mode role budget past 7 days of warn-mode data with no protected application cancelled: `set_role_timeout` (`ALTER ROLE ... IN DATABASE ... SET`, moderate) or `set_role_connection_limit` (`ALTER ROLE ... CONNECTION LIMIT`, HIGH risk, always approval). Resolves once the role has the setting. |
+| <a id="workload_budget_enforce"></a>`workload_budget_enforce` | Workload budgets | An enforce-mode role budget past 7 days of warn-mode data with no protected application cancelled: `set_role_timeout` (`ALTER ROLE ... IN DATABASE ... SET`, moderate) or `set_role_connection_limit` (`ALTER ROLE ... CONNECTION LIMIT`, HIGH risk, always approval). An enforced `statement_timeout` reverts automatically when its cancels counted from the server log exceed twice the shadow prediction within 24 hours; without a readable log it needs approval ("auto-revert unavailable: no statement log"). Resolves once the role has the setting. |
 
 ### Plan anti-pattern detail (`query_tuning`)
 
@@ -1096,6 +1097,7 @@ finding against the latest snapshot, deterministically.
 | `wal_tuning`, `connection_tuning` | the live `pg_settings` value equals the recommended value (from the `ALTER SYSTEM`, the managed `ALTER DATABASE`, or the managed-change intent; units normalized). A setting pending a restart is not live yet |
 | `query_rewrite` | the query has been absent from `pg_stat_statements` for 3 consecutive cycles (a stats reset or an unreadable query list does not count) |
 | `bloat_remediation` | the table has been under 10% dead tuples (or under 1,000 rows) for 2 consecutive cycles |
+| `io_settings` | the next cycle no longer sees the carried-over value (it re-runs every cycle on the latest `pg_settings`; skipped, and kept open, while the server version is unknown or the snapshot has no settings) |
 | <a id="advisor_degraded"></a>`advisor_degraded` | the LLM is enabled again, or the advisor is disabled on purpose |
 
 A `connection_tuning` `info` row without SQL (pooler advice or an observation) has no

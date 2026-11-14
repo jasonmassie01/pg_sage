@@ -147,6 +147,9 @@ func unavailable(reason string) *verify.Comparison {
 func (p monitorPlan) judgeMetric(
 	ctx context.Context, pool *pgxpool.Pool, now time.Time, evidence map[string]any,
 ) *metricJudgement {
+	if p.cancels != nil {
+		return p.judgeCancels(ctx, pool, now, evidence)
+	}
 	if p.config == nil {
 		return nil
 	}

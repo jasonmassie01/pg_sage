@@ -14,6 +14,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/autonomy"
 	"github.com/pg-sage/sidecar/internal/briefing"
+	"github.com/pg-sage/sidecar/internal/budget"
 	"github.com/pg-sage/sidecar/internal/cloudtel"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
@@ -120,6 +121,9 @@ type databaseRuntime struct {
 	// ha is the database's one HA monitor (ha_loop.go).
 	ha        *ha.Monitor
 	logFanout *logwatch.LogFanout
+	// budgetMonitor is the workload budget detector, fed the log's
+	// statement-timeout cancels once the fanout exists (market-08b).
+	budgetMonitor *budget.Monitor
 	// providerLogs is set when RCA reads the provider's log API instead of
 	// the cluster's log files (Supabase).
 	providerLogs atomic.Bool

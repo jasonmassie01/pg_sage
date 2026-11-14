@@ -109,7 +109,7 @@ have, pg_sage raises a
 
 | Action | Statement | Risk |
 |---|---|---|
-| `set_role_timeout` | `ALTER ROLE r IN DATABASE d SET statement_timeout` (or `idle_in_transaction_session_timeout`) | moderate: the policy gate and trust level decide, as for other configuration changes |
+| `set_role_timeout` | `ALTER ROLE r IN DATABASE d SET statement_timeout` (or `idle_in_transaction_session_timeout`) | moderate: the policy gate and trust level decide, as for other configuration changes; a `statement_timeout` needs approval when pg_sage cannot read the server log (see [Automatic revert](#automatic-revert)) |
 | `set_role_connection_limit` | `ALTER ROLE r CONNECTION LIMIT n` | HIGH: always needs an operator's approval, at every trust level |
 
 Before anything changes the executor refuses superusers, pg_sage's own
@@ -141,7 +141,50 @@ admin role created. When the server refuses for lack of privilege
 (SQLSTATE 42501), the action fails as refused with the server's message
 and nothing changes. PostgreSQL 14 to 18 behave the same.
 
-**Not yet automatic.** Reverting an enforced timeout when its observed
-cancels exceed the shadow prediction by 2x needs a source of actual
-statement-timeout cancels (the server log). Until then an operator
-reverts through the action's rollback.
+## Automatic revert
+
+An enforced `statement_timeout` is verified by the statements it really
+cancels. With `logwatch.enabled` and a log consumer (`rca.enabled`, or
+migration log detection; see [Log-based RCA](configuration.md#log-based-rca)),
+pg_sage counts each
+database's statement-timeout cancels from the server log: SQLSTATE 57014
+at ERROR, not a cancel "due to user request" (`pg_cancel_backend` or a
+client) and not an autovacuum cancel. A 57014 logged without English text
+(`lc_messages`) counts too, since pg_sage cannot tell it from a timeout
+and counting it errs toward reverting. Cancels are counted per role and
+UTC day into `sage.budget_shadow.actual_cancels` of every role budget
+matching the role, in warn mode too, so the 7 promotion days hold a
+pre-enforcement baseline. `cancel_source` is `log` while the log is read
+and `none` otherwise; `cancels_lower_bound` marks a day on which the log
+subscription dropped entries, so its count may be short.
+
+The prediction, recorded on the action when it runs, is the mean daily
+would-cancels plus actual cancels over the 7 full promotion days, per
+hour. For 24 hours after the change, checked every 5 minutes from 15
+minutes on, the verification reverts it when
+
+    actual cancels since apply > 2 x max(prediction per hour x hours elapsed, 5)
+
+The floor of 5 keeps a zero prediction from reverting on a single cancel:
+it needs 11. The revert runs the action's rollback (the prior setting
+byte for byte, or RESET) under the same cluster-wide role lock, as a
+rollback decision of the standing policy, and the verdict
+(`sage.action_outcome`) and its evidence name the cancels, the hours, the
+prediction and the threshold. A rollback the server refuses (SQLSTATE
+42501) is recorded as `rollback_failed` with the server's message, and
+the timeout stays in place. After 24 hours within the prediction the
+action is verified. A check that comes only after the 24 hours (for
+example after a restart) credits the action only when the log was read
+and its cancels stayed within twice the prediction; otherwise it is left
+unverified for an operator to review, and not reverted.
+
+A reverted (or failed, or withheld) revert keeps the budget in warn mode:
+re-promotion needs 7 fresh days of shadow data after the revert. Its
+ledger continues.
+
+**No server log.** On a database whose log pg_sage cannot read (log
+watching off, or a managed service without log access) the revert cannot
+be verified, so the `statement_timeout` action is never applied
+autonomously: its card reads "auto-revert unavailable: no statement log"
+and it needs an operator's approval. An `idle_in_transaction_session_timeout`
+action is not judged by cancels.

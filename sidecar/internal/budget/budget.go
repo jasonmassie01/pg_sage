@@ -138,6 +138,12 @@ type ShadowDay struct {
 	WouldReject      int
 	ProtectedCancels int
 	WorstMs          float64
+	// ActualCancels is the role's statement-timeout cancels counted from
+	// the server log (market-08b); CancelSource is where they came from;
+	// CancelsLowerBound marks a count the log subscription cut short.
+	ActualCancels     int64
+	CancelSource      string
+	CancelsLowerBound bool
 }
 
 // CanPromote reports whether the shadow ledger allows enforce mode to

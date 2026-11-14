@@ -9,7 +9,9 @@ import (
 
 // configSettingsSQL reads the pg_settings rows the advisors reason about,
 // with each row's context: the managed-cloud rewrite routes on it, so every
-// GUC the advisor may change must be listed here.
+// GUC the advisor may change must be listed here. The I/O settings from
+// io_method on are read for advice only; a name the server lacks (io_method
+// before 18) returns no row (market-15).
 const configSettingsSQL = `/* pg_sage collector */
 		SELECT name, setting, COALESCE(unit,''), source,
 		       COALESCE(pending_restart, false), context
@@ -26,7 +28,8 @@ const configSettingsSQL = `/* pg_sage collector */
 		      'temp_buffers','max_connections','superuser_reserved_connections',
 		      'idle_in_transaction_session_timeout','statement_timeout',
 		      'tcp_keepalives_idle','tcp_keepalives_interval',
-		      'hash_mem_multiplier')`
+		      'hash_mem_multiplier','io_method','io_workers','io_combine_limit',
+		      'maintenance_io_concurrency')`
 
 // configReloptionsSQL lists the tables with per-table storage options
 // (autovacuum overrides), temporary tables left out (collection-03).

@@ -13,6 +13,7 @@ Actions are the executor action types the category's SQL can run as, with the ba
 | [`advisor_degraded`](../findings.md#advisor_degraded) | advisor | warning | `advisor.enabled` | - | The advisor is enabled but has no usable LLM, so it proposes nothing. |
 | [`bloat_remediation`](../findings.md#bloat_remediation) | advisor | info, warning | `advisor.bloat_enabled` | - | Options for removing table and index bloat. Advisory. |
 | [`connection_tuning`](../findings.md#connection_tuning) | advisor | info, warning | `advisor.connection_enabled` | `alter_system_guc` (moderate), `alter_database_guc` (moderate) | Connection capacity and churn, such as max_connections or pooling advice. |
+| [`io_settings`](../findings.md#io_settings) | advisor | info | `advisor.enabled` | - | PostgreSQL 18 I/O settings carried over from an older server. Advisory. |
 | [`memory_tuning`](../findings.md#memory_tuning) | advisor | info, warning | `advisor.memory_enabled` | `alter_system_guc` (moderate) | Memory configuration changes (the advisor, and the tuning agent). |
 | [`query_rewrite`](../findings.md#query_rewrite) | advisor | info, warning | `advisor.rewrite_enabled` | - | A rewrite for one of the slowest queries. Text only, always advisory. |
 | [`vacuum_tuning`](../findings.md#vacuum_tuning) | advisor | info, warning | `advisor.vacuum_enabled` | `alter_system_guc` (moderate), `set_table_autovacuum` (moderate) | Autovacuum configuration changes (the advisor, and the tuning agent). |

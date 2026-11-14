@@ -42,6 +42,7 @@ func (rt *databaseRuntime) startMonitoring() {
 	rt.attachSupplementalDetectors()
 	rt.note("analyzer")
 	rt.wireRCA()
+	rt.startBudgetCancels()
 	rt.startInvestigator()
 	if rt.dispatcher != nil {
 		rt.analyzer.WithDispatcher(rt.dispatcher)

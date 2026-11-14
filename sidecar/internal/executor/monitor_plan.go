@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/budget"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/verify"
 )
@@ -32,6 +33,8 @@ type monitorPlan struct {
 	index       string // the dropped index, for the soft-drop hint check
 	softDrop    bool
 	r2          r2State // statistics and reindex baselines
+	// cancels is an enforced statement_timeout's cancel watch (market-08b).
+	cancels *cancelWatch
 
 	minWindow, capWindow, checkEvery time.Duration
 }
@@ -50,6 +53,12 @@ func monitorWindows(class string, cfg RollbackMonitorConfig) (minW, capW, every 
 		return minW, minW, clampDuration(minW/8, 5*time.Minute, time.Hour)
 	}
 	minW = time.Duration(cfg.WindowMinutes) * time.Minute
+	if class == verify.ClassRoleTimeout {
+		// Its cancels are judged from 15 minutes for 24 hours (market-08b).
+		minW = budget.RevertMinElapsed
+		return minW, max(time.Duration(cfg.CapMinutes)*time.Minute, budget.RevertWatch),
+			clampDuration(minW/8, 5*time.Minute, time.Hour)
+	}
 	capW = max(time.Duration(cfg.CapMinutes)*time.Minute, minW)
 	return minW, capW, clampDuration(minW/8, 5*time.Minute, time.Hour)
 }
@@ -97,7 +106,8 @@ type monitorState struct {
 	Config    *struct {
 		Outcome *outcomeBaseline `json:"outcome"`
 	} `json:"config_change"`
-	DroppedIndex string `json:"dropped_index"`
+	DroppedIndex string       `json:"dropped_index"`
+	CancelWatch  *cancelWatch `json:"cancel_watch"`
 	r2State
 }
 
@@ -159,6 +169,9 @@ func (p *monitorPlan) applyState(state monitorState, sql string) {
 	}
 	p.index = state.DroppedIndex
 	p.r2 = state.r2State
+	if p.class == verify.ClassRoleTimeout {
+		p.cancels = state.CancelWatch
+	}
 	if p.index == "" && p.softDrop {
 		p.index = bareIndexName(firstObjectAfter(sql, "DROP INDEX", "CONCURRENTLY", "IF",
 			"EXISTS"))

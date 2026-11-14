@@ -223,5 +223,6 @@ func trancheFourMigrations() []namedStep {
 	return []namedStep{
 		{"ddlDatabasesActionCredential", ddlDatabasesActionCredential}, // security-09b
 		{"ddlUserDatabaseGrantsSource", ddlUserDatabaseGrantsSource},   // apiauth-08d
+		{"ddlBudgetShadowActualCancels", ddlBudgetShadowActualCancels}, // market-08b
 	}
 }

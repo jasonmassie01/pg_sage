@@ -342,7 +342,7 @@ func TestVacuumDocs_FindingsThresholdAndTierMatchCode(t *testing.T) {
 		t.Error("docs/findings.md keeps the wrong 10% table_bloat threshold")
 	}
 	tuning := normalizeSpace(docSection(doc, "### autovacuum_tuning"))
-	// set_table_autovacuum's contract is moderate (executor/action_contract.go).
+	// set_table_autovacuum's contract is moderate (executor/contract_maintenance.go).
 	if strings.Contains(strings.ToLower(tuning), "safe-tier") ||
 		!strings.Contains(tuning, "`moderate`") {
 		t.Error("### autovacuum_tuning must give its contract tier `moderate`, not SAFE")
