@@ -110,7 +110,20 @@ cluster, or when `SAGE_TEST_DATABASE_URL` is unset and it cannot tell. Without
 `SAGE_TEST_EXCLUSIVE_URL` those tests skip with an `exclusive-cluster:` reason
 that `.skip-allowlist` never lists, so the skip budget fails a CI job that
 lost the server. Every CI job with a test server runs a `postgres-exclusive`
-service on port 5433.
+service on port 5433. A test that needs a second database there (the perf
+gate's meta store) adds it with `testdb.ExclusiveDatabase(t, label)`.
+
+To clear your own statement statistics on the shared server, call
+`testdb.ResetStatements(ctx, pool)`: it resets only the current database's
+`pg_stat_statements` entries (the three-argument reset) and returns the
+extension's `dealloc` count, so you can tell an eviction from your reset.
+Only a reset of every database moves `pg_stat_statements_info.stats_reset`;
+a test that needs that, a `pg_stat_reset_shared` call or a `CHECKPOINT` runs
+on `testdb.Exclusive`. `TestResetLint` (`go test -run TestResetLint
+./internal/testdb/`) fails, naming file and line, on a zero-argument
+`pg_stat_statements_reset()`, a `pg_stat_reset_shared(` call or an executed
+`CHECKPOINT` in a test file or under `internal/testsupport/` that no
+`Exclusive` test reaches.
 
 `docker-compose.test.yml` is not the Go test server: it runs two PostgreSQL 16
 targets (no HypoPG) seeded from `test-fixtures/seed.sql`, plus mocks, for the
