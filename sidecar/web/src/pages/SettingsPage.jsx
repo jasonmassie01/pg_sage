@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useAPI } from '../hooks/useAPI'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { ErrorBanner } from '../components/ErrorBanner'
@@ -13,7 +13,8 @@ import { useConfirm } from '../hooks/useConfirm'
 import { ShadowModePage } from './ShadowModePage'
 import { DerivedSettings } from './settings/DerivedSettings'
 import { Footprint } from './settings/Footprint'
-import { POLICY_GATE_DOC, StandingPolicy } from './settings/StandingPolicy'
+import { StandingPolicy } from './settings/StandingPolicy'
+import { TrustLevelConfirm } from './settings/TrustLevelConfirm'
 import { AuditCard } from './settings/AuditCard'
 import { DatabricksStatusCard } from './settings/DatabricksStatusCard'
 import {
@@ -25,27 +26,8 @@ import { PendingRestartPanel, RestartControl } from './settings/PendingRestartPa
 import { readPref, writePref } from '../lib/storage'
 import { SETTINGS_SAVED_EVENT } from '../components/SecretsPostureBanner'
 import {
-  ShieldAlert, Save, RotateCcw, Check, X,
+  Save, RotateCcw, Check, X,
 } from 'lucide-react'
-
-const TRUST_LEVEL_EXPLAIN = {
-  observation:
-    'Observation: pg_sage only monitors and surfaces findings.'
-    + ' No automated actions will run.',
-  // A summary of the standing policy gate; the dialog links the full
-  // rules (docs/policy-gate.md). Nothing runs automatically unless
-  // execution_mode is auto for the database.
-  advisory:
-    'Advisory: when execution_mode is auto, Tier 3 Safe is on and the'
-    + ' 8-day trust ramp has passed, pg_sage may execute SAFE actions'
-    + ' (ANALYZE, non-destructive index hints). Everything else, and'
-    + ' everything under approval/manual mode, queues for approval.',
-  autonomous:
-    'Autonomous: when execution_mode is auto, pg_sage may execute SAFE'
-    + ' actions (Tier 3 Safe, 8-day ramp) and MODERATE actions (Tier 3'
-    + ' Moderate, 31-day ramp, inside the maintenance window).'
-    + ' High-risk actions always require approval.',
-}
 
 const ADVANCED_TABS = [
   'General', 'Collector', 'Analyzer', 'Trust & Safety',
@@ -87,6 +69,9 @@ export function SettingsPage({ database, databaseId }) {
   const [restarting, setRestarting] = useState(false)
   const [pendingTrust, setPendingTrust] = useState(null)
   const [showDiff, setShowDiff] = useState(false)
+  const [saveError, setSaveError] = useState(null)
+  // One save at a time: a second Apply while a PUT is in flight is ignored.
+  const savingRef = useRef(false)
   const readOnly = data?.read_only === true
 
   const tabs = mode === 'simple' ? SIMPLE_TABS : ADVANCED_TABS
@@ -217,18 +202,33 @@ export function SettingsPage({ database, databaseId }) {
   const requestSave = () => {
     if (Object.keys(edits).length === 0) return
     setFeedback(null)
+    setSaveError(null)
     setShowDiff(true)
   }
 
+  const cancelSave = () => {
+    setSaveError(null)
+    setShowDiff(false)
+  }
+
+  // A failed save stays in the open review dialog with its diff.
+  const failSave = msg => {
+    setSaveError(msg)
+    toast.error(msg)
+  }
+
   const confirmSave = async () => {
+    if (savingRef.current) return
     if (Object.keys(edits).length === 0) {
       setShowDiff(false)
       return
     }
+    savingRef.current = true
     setSaving(true)
+    setSaveError(null)
     try {
       if (!configUrl) {
-        toast.error('Selected database is not available')
+        failSave('Selected database is not available')
         return
       }
       const res = await fetch(configUrl, {
@@ -243,7 +243,7 @@ export function SettingsPage({ database, databaseId }) {
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
 		if (res.status === 409) await refetch()
-        toast.error(err.error || 'Save failed')
+        failSave(err.error || 'Save failed')
         return
       }
 	  const result = await res.json().catch(() => ({}))
@@ -267,8 +267,9 @@ export function SettingsPage({ database, databaseId }) {
       refetch()
       window.dispatchEvent(new CustomEvent(SETTINGS_SAVED_EVENT))
     } catch (e) {
-      toast.error(e.message || 'Save failed')
+      failSave(e.message || 'Save failed')
     } finally {
+      savingRef.current = false
       setSaving(false)
     }
   }
@@ -335,6 +336,7 @@ export function SettingsPage({ database, databaseId }) {
         <TrustLevelConfirm
           from={pendingTrust.from}
           to={pendingTrust.val}
+          database={database}
           onConfirm={applyPendingTrust}
           onCancel={() => setPendingTrust(null)}
         />
@@ -344,8 +346,9 @@ export function SettingsPage({ database, databaseId }) {
           edits={edits}
           cfg={cfg}
           saving={saving}
+          error={saveError}
           onConfirm={confirmSave}
-          onCancel={() => setShowDiff(false)}
+          onCancel={cancelSave}
         />
       )}
       <div className="flex items-center justify-between">
@@ -700,66 +703,6 @@ function TabBar({ tabs, active, onSelect }) {
           {t}
         </button>
       ))}
-    </div>
-  )
-}
-
-function TrustLevelConfirm({ from, to, onConfirm, onCancel }) {
-  useEffect(() => {
-    const handler = e => {
-      if (e.key === 'Escape') onCancel()
-    }
-    document.addEventListener('keydown', handler)
-    return () => document.removeEventListener('keydown', handler)
-  }, [onCancel])
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center"
-      role="dialog" aria-modal="true"
-      data-testid="trust-level-confirm"
-      style={{ background: 'rgba(0,0,0,0.5)' }}
-      onClick={onCancel}>
-      <div className="rounded p-5 max-w-md w-full mx-4"
-        onClick={e => e.stopPropagation()}
-        style={{
-          background: 'var(--bg-card)',
-          border: '1px solid var(--border)',
-        }}>
-        <div className="flex items-center gap-2 mb-3">
-          <ShieldAlert size={20} style={{ color: 'var(--yellow)' }} />
-          <h3 className="text-sm font-semibold"
-            style={{ color: 'var(--text-primary)' }}>
-            Confirm Trust Level Change
-          </h3>
-        </div>
-        <p className="text-sm mb-3"
-          style={{ color: 'var(--text-secondary)' }}>
-          Changing trust from <b>{from || 'unknown'}</b> to <b>{to}</b>.
-        </p>
-        <p className="text-xs mb-4"
-          style={{ color: 'var(--text-secondary)' }}>
-          {TRUST_LEVEL_EXPLAIN[to] || 'Unknown trust level.'}
-          {' '}<a href={POLICY_GATE_DOC} className="underline" data-testid="trust-level-policy-doc"
-            style={{ color: 'var(--accent)' }}>How the policy gate decides</a>
-        </p>
-        <div className="flex gap-2 justify-end">
-          <button onClick={onCancel}
-            data-testid="trust-level-cancel"
-            className="px-3 py-1.5 rounded text-sm"
-            style={{
-              background: 'var(--bg-card)',
-              color: 'var(--text-secondary)',
-              border: '1px solid var(--border)',
-            }}>
-            Cancel
-          </button>
-          <button onClick={onConfirm}
-            data-testid="trust-level-confirm-btn"
-            className="px-3 py-1.5 rounded text-sm font-medium"
-            style={{ background: 'var(--accent)', color: '#fff' }}>
-            Confirm
-          </button>
-        </div>
-      </div>
     </div>
   )
 }

@@ -219,6 +219,10 @@ still passes the policy gate, waits for its ramp, `trust.tier3_safe` and
 `trust.tier3_moderate`, and is verified afterwards. High-risk actions always need
 approval.
 
+On the Settings page, raising the trust level asks you to confirm first. Raising it to
+autonomous asks you to type the database name, or the word `autonomous` when Settings
+covers the whole fleet. Lowering the level applies at once, with no dialog.
+
 Already running pg_sage? An upgraded install keeps its configured trust level. A level
 set in your configuration file or with `SAGE_TRUST_LEVEL` is your grant: pg_sage honors
 it from the first start.

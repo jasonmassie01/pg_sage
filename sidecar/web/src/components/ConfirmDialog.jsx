@@ -20,14 +20,16 @@ function Detail({ label, testId, children }) {
   )
 }
 
-function PhraseInput({ phrase, value, onChange, testId }) {
+// PhraseInput is the typed-phrase field; the trust escalation confirm reuses
+// it with autoFocus off so its initial focus stays on Cancel (dashboard-10c).
+export function PhraseInput({ phrase, value, onChange, testId, autoFocus = true }) {
   const id = useId()
   return (
     <div className="space-y-1">
       <label htmlFor={id} className="block text-sm" style={{ color: 'var(--text-secondary)' }}>
         Type <code className="font-mono">{phrase}</code> to confirm
       </label>
-      <input id={id} data-testid={testId} data-autofocus value={value}
+      <input id={id} data-testid={testId} data-autofocus={autoFocus || undefined} value={value}
         onChange={e => onChange(e.target.value)} autoComplete="off" spellCheck={false}
         className="w-full rounded px-2 py-1 text-sm font-mono"
         style={{

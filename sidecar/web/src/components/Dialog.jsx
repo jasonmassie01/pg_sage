@@ -8,6 +8,27 @@ import { useEffect, useId, useRef } from 'react'
 const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), '
   + 'textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
 
+// Chromium lets Tab leave a modal <dialog> for the browser UI after its last
+// control, so Tab and Shift+Tab wrap inside the dialog (dashboard-10c).
+function wrapTab(el, event) {
+  const items = [...el.querySelectorAll(FOCUSABLE)]
+  if (items.length === 0) {
+    event.preventDefault()
+    return
+  }
+  const first = items[0]
+  const last = items[items.length - 1]
+  const active = document.activeElement
+  const outside = !el.contains(active) || active === el
+  if (event.shiftKey && (active === first || outside)) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && (active === last || outside)) {
+    event.preventDefault()
+    first.focus()
+  }
+}
+
 function focusFirst(el) {
   const target = el.querySelector('[data-autofocus]:not([disabled])')
     || el.querySelector(FOCUSABLE) || el
@@ -44,6 +65,7 @@ export function Dialog({
   }
   const onKeyDown = event => {
     if (event.key === 'Escape') requestClose(event)
+    else if (event.key === 'Tab' && ref.current) wrapTab(ref.current, event)
   }
 
   return (
