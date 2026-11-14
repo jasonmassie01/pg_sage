@@ -157,6 +157,7 @@ func (s *investigatorSession) explainTool() agentloop.Tool {
 	return agentloop.Tool{Name: ToolExplain, Cost: 1,
 		Parameters: json.RawMessage(`{"type":"object","properties":{"queryid":` +
 			`{"type":"integer"}},"required":["queryid"]}`),
+		//qualifiedrefs:prose tool description for the model, not SQL
 		Description: "Plan-only EXPLAIN of one statement named by its pg_stat_statements " +
 			"queryid (never ANALYZE); the plan's node shapes are citable evidence.",
 		Run: func(ctx context.Context, raw json.RawMessage) (agentloop.Output, error) {

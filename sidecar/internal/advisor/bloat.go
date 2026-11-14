@@ -15,6 +15,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/llm"
 )
 
+//qualifiedrefs:prose system prompt for the model, not SQL
 const bloatSystemPrompt = `You are a PostgreSQL bloat remediation expert.
 
 CRITICAL: Respond with ONLY a JSON array. No thinking, no reasoning outside JSON.

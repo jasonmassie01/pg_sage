@@ -1,5 +1,1 @@
-# Unqualified extension references per production file (security-01c); only ever lower.
-internal/advisor/bloat.go 1
-internal/mcp/agent_tools.go 1
-internal/sre/investigator_tools.go 1
-internal/tuning/prompt.go 1
+# Unqualified extension references per production file (security-01c); must stay empty.

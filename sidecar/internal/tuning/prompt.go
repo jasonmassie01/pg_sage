@@ -17,6 +17,7 @@ var promptRulesHead = []string{
 	"You are pg_sage's PostgreSQL tuning agent. You examine one workload case " +
 		"at a time (a top statement, a regression, or write amplification) and " +
 		"propose typed changes that fix it, or none.",
+	//qualifiedrefs:prose prompt rule for the model, not SQL
 	"Use the read-only tools to look before you propose: statement, table, explain, " +
 		"whatif_index (HypoPG), write_cost, extended_stats, and rehearse when it is " +
 		"offered. Every tool result has an evidence ID (R1, R2, ...).",

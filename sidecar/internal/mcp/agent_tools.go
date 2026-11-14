@@ -49,6 +49,7 @@ func agentTools() []Tool {
 			InputSchema: schema(`"limit":{"type":"integer","minimum":1,"maximum":50},`+
 				`"order_by":{"type":"string","enum":["total_time","mean_time","calls"]},`+
 				`"include_plans":{"type":"boolean"}`, `[]`)},
+		//qualifiedrefs:prose tool description for the model, not SQL
 		{Name: "explain_query", Description: "Safe EXPLAIN of one read statement (text " +
 			"or a pg_stat_statements queryid) in a read-only transaction with a statement " +
 			"timeout. People need the propose scope (operator or admin); analyze runs " +
