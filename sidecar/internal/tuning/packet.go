@@ -9,6 +9,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/facts"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/optimizer"
 )
 
 // The case packet: what the model sees about a case. It is bounded, its
@@ -188,6 +189,9 @@ func (a *Agent) writeTableContext(ctx context.Context, p *packetBuilder,
 	}
 	if len(cols) > 0 {
 		p.line("   columns: %s", strings.Join(cols, ", "))
+	}
+	if note := optimizer.SkipScanNote(tc); note != "" {
+		p.line("   %s", note)
 	}
 	if a.deps.Indexes == nil {
 		return

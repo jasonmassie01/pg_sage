@@ -83,6 +83,13 @@ type TableContext struct {
 	// candidate names is not evidence of a hallucination: the existence
 	// check is skipped and HypoPG and PostgreSQL validate the columns.
 	ColumnsKnown bool
+	// PGMajor is the server's major version (18 for 18.1), read with the
+	// collation; 0 when unknown, which no version-specific rule matches.
+	PGMajor int
+	// LeadingKeyStats are the pg_stats rows of the leading keys of the
+	// table's multi-key btree indexes that ColStats lacks, read on PG 18+
+	// only, for the skip-scan rule (market-15b).
+	LeadingKeyStats []ColStat
 }
 
 // ColumnInfo describes a table column.

@@ -11,7 +11,6 @@ package optimizer
 
 import (
 	"context"
-	"fmt"
 	"sync/atomic"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -32,6 +31,10 @@ type Optimizer struct {
 	// catalogTimeouts bound the context builder's catalog reads; their
 	// lock timeout also bounds the HypoPG what-if's lock waits (at most 1 s).
 	catalogTimeouts catalogread.Timeouts
+
+	// skipScanPlans plans workload statements for the PG 18 skip-scan
+	// evidence (nil without a database: no evidence, nothing dropped).
+	skipScanPlans genericPlanner
 
 	// whatIfSkips counts candidates rejection memory skipped (MemoryStats).
 	whatIfSkips atomic.Int64
@@ -73,6 +76,9 @@ func New(
 	o.hypopg.lockTimeout = o.catalogTimeouts.Lock
 	o.hypopg.readTimeouts = o.catalogTimeouts
 	o.validator.timeouts = o.catalogTimeouts
+	if pool != nil {
+		o.skipScanPlans = poolPlanner{pool: pool, lockTimeout: o.catalogTimeouts.Lock}
+	}
 	return o
 }
 
@@ -124,9 +130,11 @@ type Admission struct {
 // Admit canonicalizes, validates, checks rejection memory and HypoPG-
 // measures one candidate for tc, then applies the write-impact gate to the
 // measurement. An idea rejection memory already measured on this workload
-// skips the what-if; a new what-if rejection is remembered. Memory's age
-// and material-change rules let an idea be measured again once it may
-// have changed.
+// skips the what-if; a new what-if rejection is remembered. On PostgreSQL
+// 18 a candidate an existing composite already serves through skip scan,
+// shown by every top statement's plan, is rejected (and remembered)
+// before the what-if. Memory's age and material-change rules let an idea
+// be measured again once it may have changed.
 func (o *Optimizer) Admit(ctx context.Context, rec Recommendation, tc TableContext,
 ) Admission {
 	rec, err := canonicalizeRecommendation(rec, tc)
@@ -138,11 +146,11 @@ func (o *Optimizer) Admit(ctx context.Context, rec Recommendation, tc TableConte
 		return Admission{Rec: rec, Outcome: AdmitInvalid, Reason: reason}
 	}
 	minPct := o.minImprovePct(tc)
-	if r, seen := o.memory.view(ctx, tc).suppress(rec, minPct); seen {
-		o.whatIfSkips.Add(1)
-		return Admission{Rec: rec, Outcome: AdmitMeasured, Reason: fmt.Sprintf(
-			"already measured %dx, last %s: %s", max(r.MeasureCount, 1),
-			r.MeasuredAt.UTC().Format("2006-01-02 15:04 UTC"), r.Reason)}
+	if a, seen := o.remembered(ctx, rec, tc, minPct); seen {
+		return a
+	}
+	if ix, served := o.servedBySkipScan(ctx, rec, tc); served {
+		return o.rejectServedBySkipScan(ctx, rec, tc, ix, minPct)
 	}
 	rec, rejected := o.enrichWithHypoPG(ctx, rec, tc)
 	if !rejected {
@@ -161,7 +169,7 @@ func (o *Optimizer) Admit(ctx context.Context, rec Recommendation, tc TableConte
 // MeasuredRejections lists the newest shapes rejection memory already
 // measured and rejected on tc's workload, for the agent's case packet.
 func (o *Optimizer) MeasuredRejections(ctx context.Context, tc TableContext) []string {
-	return o.memory.view(ctx, tc).promptLines(o.minImprovePct(tc))
+	return o.memory.view(ctx, tc).withoutStaleSkipScan(tc).promptLines(o.minImprovePct(tc))
 }
 
 // enrichWithHypoPG measures the recommendation with hypothetical indexes
@@ -191,6 +199,11 @@ func (o *Optimizer) enrichWithHypoPG(
 		o.logFn("optimizer", "hypopg validation failed for %s: %v", rec.Table, err)
 	}
 	verdict, reason := whatIfVerdict(res, err, o.cfg.HypoPGMinImprovePct)
+	if verdict == WhatIfRejected && len(res.Regressions) == 0 {
+		if ix, ok := skipScanCandidate(tc, rec); ok {
+			reason = joinReasons(reason, "already served by "+ix.Name+" through skip scan")
+		}
+	}
 	rec.WhatIf, rec.WhatIfReason = verdict, reason
 	rec.WhatIfMeasured, rec.WhatIfUnplannedQueryIDs = res.Measured, res.UnplannedQueryIDs
 	if res.Measured > 0 {

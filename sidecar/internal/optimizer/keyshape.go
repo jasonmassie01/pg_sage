@@ -34,20 +34,28 @@ func shapeKeys(keys []indexKey, method string, defaults map[string]KeyDefault) [
 	invert := ordered && len(keys) > 0 && keys[0].decor.order == "desc"
 	out := make([]string, len(keys))
 	for i, k := range keys {
-		d := withoutDefaults(k, method, defaults)
-		s := keyBase(k)
-		if d.collation != "" {
-			s += " collate " + d.collation
-		}
-		if d.opclass != "" {
-			s += " " + opclassShape(d.opclass)
-		}
+		s := keyIdentity(k, method, defaults)
 		if ordered {
-			s += orderSuffix(d, invert)
+			s += orderSuffix(withoutDefaults(k, method, defaults), invert)
 		}
 		out[i] = s
 	}
 	return out
+}
+
+// keyIdentity renders a key without its ordering: the key, then its
+// collation and operator class unless they are the column's defaults for
+// method.
+func keyIdentity(k indexKey, method string, defaults map[string]KeyDefault) string {
+	d := withoutDefaults(k, method, defaults)
+	s := keyBase(k)
+	if d.collation != "" {
+		s += " collate " + d.collation
+	}
+	if d.opclass != "" {
+		s += " " + opclassShape(d.opclass)
+	}
+	return s
 }
 
 // quotedNumber is a quoted numeric literal in an operator class's

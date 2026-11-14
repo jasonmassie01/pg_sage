@@ -314,6 +314,37 @@ The rebuild resets `relpages`, so the next cycle's reading resolves the finding.
 
 ---
 
+### PostgreSQL 18 skip scan
+
+Not a finding category: how `missing_index` candidates (from the tuning agent or the
+deterministic floor) are judged on PostgreSQL 18 and later. Btree skip scan lets an
+index on `(a, b)` serve `WHERE b = $1` when `a` has few distinct values, so a new
+single-column index on `b` beside it would pay its write cost for nothing.
+
+A candidate is a skip-scan candidate when the server is 18 or later, the candidate is a
+single plain-column, non-unique btree on `b`, and a valid btree on the same table has `b`
+as its second key (same collation and operator class) behind a plain leading key whose
+`pg_stats.n_distinct` is known and at most 200 (a negative `n_distinct` is a fraction of
+the live rows). That index must also serve the candidate's `WHERE` and `INCLUDE`
+columns. pg_sage then plans the candidate's top workload statements naming `b` (at most
+3, by calls) with `EXPLAIN (GENERIC_PLAN, FORMAT JSON)`, read-only, on one connection
+under the what-if's statement and lock timeouts. Only when every plan already scans the
+existing index with an `Index Cond` on `b` is the candidate dropped, with the reason
+`served_by_skip_scan:<index>`. The rejection is kept in rejection memory, so the idea is
+not planned again each cycle; once that index is dropped (or no longer qualifies) the
+candidate is judged again. Missing evidence never drops a candidate: no such statement,
+a statement that cannot be planned read-only, an `EXPLAIN` error (logged as a WARN
+naming the table) or a plan that does not use the index all leave it to the usual
+HypoPG what-if. When the what-if rejects a skip-scan candidate for too little
+improvement, the reason adds "already served by `<index>` through skip scan". The tuning
+agent's table context carries a one-line PostgreSQL 18 note on skip scan.
+
+PostgreSQL 14 to 17 behave as before: no extra `EXPLAIN`, the same candidates. The
+server version is read with the database collation, so it costs no extra round trip.
+Managed providers get the same plans; fleet mode judges each database on its own.
+
+---
+
 ## Query Performance
 
 Query findings are about application workload only. pg_sage's own statements,
