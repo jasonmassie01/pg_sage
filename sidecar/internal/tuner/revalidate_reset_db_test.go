@@ -217,7 +217,9 @@ func TestFetchQueryStats_SumsAcrossRoles(t *testing.T) {
 // CHECK-01: pg_stat_statements_reset() re-baselines the checkpoint and
 // leaves the hint active; nothing new is marked broken.
 func TestRevalidate_StatsResetKeepsHintActive(t *testing.T) {
-	pool, ctx := requireTunerDB(t)
+	// Only a reset of every database moves pg_stat_statements_info's
+	// stats_reset, which this test re-baselines on: exclusive server.
+	pool, ctx := exclusiveTunerDB(t, "the pg_stat_statements stats_reset epoch")
 	tu := New(pool, TunerConfig{}, nil, noopLogFn)
 	runProbe(t, ctx, pool, revalResetCols, 3)
 	rows := probeRows(t, ctx, pool, revalResetCols)

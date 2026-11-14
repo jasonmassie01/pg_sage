@@ -22,7 +22,7 @@ func run(ctx context.Context, pool *pgxpool.Pool, id ID) Result {
 }
 
 func TestCatalog_CheckpointActivityCountsARequestedCheckpoint(t *testing.T) {
-	pool, ctx := livePool(t)
+	pool, ctx := exclusivePool(t, "requested checkpoints across a forced CHECKPOINT")
 	before, err := CheckpointStats(run(ctx, pool, CheckpointActivity))
 	if err != nil {
 		t.Fatalf("checkpoint_activity: %v", err)

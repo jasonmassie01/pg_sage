@@ -151,7 +151,7 @@ func TestFreezeHoldersNameAnIdleWriterByItsXID(t *testing.T) {
 }
 
 func TestFreezeHoldersOneProposalForFiftyRedTablesLive(t *testing.T) {
-	pool := requireAutonomyDB(t)
+	pool := exclusiveAutonomyDB(t, "table XID ages against a held snapshot")
 	holderSchema(t, pool)
 	tables := holderTables(t, pool, "f", 50, "")
 	pid := holdSnapshot(t, pool, "orders_api")
@@ -329,7 +329,7 @@ func catalogSlots(t *testing.T, pool *pgxpool.Pool) map[string]bool {
 }
 
 func TestFreezeHoldersNameALogicalSlotOnCatalogTables(t *testing.T) {
-	pool := requireAutonomyDB(t)
+	pool := exclusiveAutonomyDB(t, "catalog XID ages against a logical slot")
 	holderSchema(t, pool)
 	ctx := context.Background()
 	catalog := holderTables(t, pool, "cat", 1, ", user_catalog_table = true")

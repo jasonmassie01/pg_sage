@@ -98,7 +98,7 @@ func TestSystemStats_CheckpointSplitJSON(t *testing.T) {
 // every version, so swapped or summed columns show up here. Run against
 // PG 14-16 (pg_stat_bgwriter) and PG 17+ (pg_stat_checkpointer).
 func TestCollectSystem_CheckpointSplitFromServer(t *testing.T) {
-	pool := testPool(t)
+	pool := exclusivePool(t, "requested checkpoints across a forced CHECKPOINT")
 	version := serverVersion(t, pool)
 	c := New(pool, testConfig(), version, noopLog)
 	ctx := context.Background()

@@ -48,7 +48,9 @@ func TestPerfGate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("timing: %v", err)
 	}
-	dsn := testdb.CreateDatabase(t, "perfgate")
+	// Exclusive: Settle forces a CHECKPOINT, and the gate measures DB time
+	// that other packages' load on a shared server would inflate (ci-13).
+	dsn := testdb.Exclusive(t, "perf gate: a CHECKPOINT and timed measurements")
 	ctx := context.Background()
 	harness := perfHarnessPool(t, dsn)
 	calibration := calibrateRunner(t, ctx, harness)

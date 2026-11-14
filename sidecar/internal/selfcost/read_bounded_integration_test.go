@@ -176,11 +176,14 @@ func TestSampler_LiveNoTextReadWithoutNewKeys(t *testing.T) {
 // State transition: after pg_stat_statements_reset() the cache is read
 // again and the window counts the re-created entry from zero.
 func TestSampler_LiveResetRevalidates(t *testing.T) {
-	pool, ctx := livePool(t)
+	// The cache revalidates on the stats_reset epoch, which only a reset of
+	// every database moves: that reset runs on the exclusive server.
+	dsn := testdb.Exclusive(t, "the pg_stat_statements stats_reset epoch")
+	pool, ctx := livePoolOn(t, dsn)
 	s := NewSampler(nil)
 	q, n := textCounter(pool)
 	probe := "SELECT 43 AS selfcost_reset_probe, 'probe'::text AS reset_shape"
-	runAsSage(t, ctx, probe, probe, probe)
+	runAsSageOn(t, ctx, dsn, probe, probe, probe)
 	settle(t, ctx, s, q, n)
 	sc, err := ReadSchema(ctx, q)
 	if err != nil {
@@ -190,7 +193,7 @@ func TestSampler_LiveResetRevalidates(t *testing.T) {
 	if _, err := pool.Exec(ctx, "SELECT pg_stat_statements_reset()"); err != nil {
 		t.Fatal(err)
 	}
-	runAsSage(t, ctx, probe)
+	runAsSageOn(t, ctx, dsn, probe)
 	before := n.Load()
 	cur := s.Sample(ctx, q, sc)
 	if !cur.StatementsKnown || n.Load() <= before {

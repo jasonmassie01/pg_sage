@@ -80,7 +80,20 @@ func TestPostgresObservationSourceReadsRealCollectorTables(t *testing.T) {
 
 func verifyIntegrationPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := testdb.SkipUnlessLive(t)
+	return verifyPoolOn(t, testdb.SkipUnlessLive(t))
+}
+
+// verifyExclusivePool is verifyIntegrationPool on a fresh database of the
+// exclusive test server, held for t alone (testdb.Exclusive): for tests
+// that read cluster WAL or I/O counters or force a CHECKPOINT (ci-13).
+func verifyExclusivePool(t *testing.T, reason string) *pgxpool.Pool {
+	t.Helper()
+	return verifyPoolOn(t, testdb.Exclusive(t, reason))
+}
+
+// verifyPoolOn is verifyIntegrationPool on the database dsn names.
+func verifyPoolOn(t *testing.T, dsn string) *pgxpool.Pool {
+	t.Helper()
 	pool, err := pgxpool.New(t.Context(), dsn)
 	if err != nil {
 		t.Fatalf("pgxpool.New() error = %v", err)

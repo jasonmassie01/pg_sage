@@ -14,7 +14,7 @@ import (
 // only the rate falls tenfold after the build. The per-tuple WAL rises far
 // over 20%, and the signal must call that insufficient, not write_impact.
 func TestSlowerWritesAfterTheBuildAreNotChargedToTheIndex(t *testing.T) {
-	pool := verifyIntegrationPool(t)
+	pool := verifyExclusivePool(t, "WAL per tuple across forced CHECKPOINTs")
 	ctx := t.Context()
 	executedAt := time.Date(2098, 3, 9, 12, 0, 0, 0, time.UTC)
 	f := newWriteFixture(t, ctx, pool, executedAt, "verify_wsig_rate")

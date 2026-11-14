@@ -19,12 +19,13 @@ import (
 
 func resetEvidencePool(t *testing.T) (*pgxpool.Pool, *Collector) {
 	t.Helper()
+	return resetEvidencePoolOn(t, connectPool(t, testdb.CreateDatabase(t, "reset_evidence")))
+}
+
+// resetEvidencePoolOn is resetEvidencePool on pool's database.
+func resetEvidencePoolOn(t *testing.T, pool *pgxpool.Pool) (*pgxpool.Pool, *Collector) {
+	t.Helper()
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, testdb.CreateDatabase(t, "reset_evidence"))
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
-	t.Cleanup(pool.Close)
 	var version int
 	if err := pool.QueryRow(ctx, `SELECT current_setting('server_version_num')::int`).
 		Scan(&version); err != nil {
@@ -52,7 +53,7 @@ func liveEpoch(t *testing.T, pool *pgxpool.Pool) time.Time {
 // and on a single-relation reset (pg_stat_reset_single_table_counters),
 // which PostgreSQL 14-18 all record in pg_stat_database.stats_reset.
 func TestCollectSystem_RecordsRelationStatsEpoch(t *testing.T) {
-	pool, c := resetEvidencePool(t)
+	pool, c := resetEvidencePoolOn(t, exclusivePool(t, "the relation statistics epoch"))
 	ctx := context.Background()
 	s1, err := c.collectSystem(ctx)
 	if err != nil {

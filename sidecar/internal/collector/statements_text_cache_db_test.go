@@ -50,6 +50,13 @@ func textTestDB(t *testing.T, ctx context.Context) *pgxpool.Pool {
 		t.Fatalf("connect to %s: %v", name, err)
 	}
 	t.Cleanup(pool.Close)
+	return seedTextDB(t, pool)
+}
+
+// seedTextDB adds pg_stat_statements and the small table to pool's
+// database.
+func seedTextDB(t *testing.T, pool *pgxpool.Pool) *pgxpool.Pool {
+	t.Helper()
 	mustExec(t, pool, "CREATE EXTENSION IF NOT EXISTS pg_stat_statements")
 	mustExec(t, pool, "CREATE TABLE text_w (id int PRIMARY KEY, v text)")
 	mustExec(t, pool, "INSERT INTO text_w SELECT g, md5(g::text) "+
@@ -159,7 +166,7 @@ func TestCollectQueries_TextReadsFollowTheCache(t *testing.T) {
 // After pg_stat_statements_reset() the next cycle reads the texts again.
 func TestCollectQueries_ResetReadsTextsAgain(t *testing.T) {
 	ctx := context.Background()
-	pool := textTestDB(t, ctx)
+	pool := seedTextDB(t, exclusivePool(t, "the pg_stat_statements stats_reset epoch"))
 	seedTextWorkload(t, pool)
 	c := warmCollector(t, ctx, pool, 5000, false)
 	rec := &sqlRecorder{}

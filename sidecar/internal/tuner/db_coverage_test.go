@@ -65,6 +65,28 @@ func requireTunerDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 	return tunerTestPool, ctx
 }
 
+// exclusiveTunerDB is requireTunerDB on a fresh database of the exclusive
+// test server, held for t alone (testdb.Exclusive): for tests that reset
+// every database's pg_stat_statements (ci-13).
+func exclusiveTunerDB(t *testing.T, reason string) (*pgxpool.Pool, context.Context) {
+	t.Helper()
+	ctx := context.Background()
+	poolCfg, err := pgxpool.ParseConfig(testdb.Exclusive(t, reason))
+	if err != nil {
+		t.Fatalf("parse the exclusive test DSN: %v", err)
+	}
+	poolCfg.MaxConns = 2
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
+	if err != nil {
+		t.Fatalf("connect the exclusive test database: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	if err := schema.Bootstrap(ctx, pool); err != nil {
+		t.Fatalf("bootstrap the exclusive test database: %v", err)
+	}
+	return pool, ctx
+}
+
 // TestFunctional_Coverage_DB_FetchPlanJSON tests fetchPlanJSON with a
 // real PostgreSQL connection.
 func TestFunctional_Coverage_DB_FetchPlanJSON(t *testing.T) {

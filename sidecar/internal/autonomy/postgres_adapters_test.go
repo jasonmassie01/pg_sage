@@ -71,6 +71,22 @@ func requireAutonomyDB(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
+// exclusiveAutonomyDB is requireAutonomyDB on a fresh database of the
+// exclusive test server, held for t alone (testdb.Exclusive): for tests
+// that measure XID ages, which every other package's writes move (ci-13).
+func exclusiveAutonomyDB(t *testing.T, reason string) *pgxpool.Pool {
+	t.Helper()
+	pool, err := pgxpool.New(context.Background(), testdb.Exclusive(t, reason))
+	if err != nil {
+		t.Fatalf("connect the exclusive test database: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	if err := schema.Bootstrap(context.Background(), pool); err != nil {
+		t.Fatalf("bootstrap the exclusive test database: %v", err)
+	}
+	return pool
+}
+
 // vacuum-09: an empty, just-frozen table is green, and the scan proposes
 // nothing for it (counted, not looped over: before, this test passed with
 // any number of proposals, zero included). The sampler's second read
