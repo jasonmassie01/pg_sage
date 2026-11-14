@@ -105,6 +105,12 @@ var analyzerEntries = []Category{
 		"A pg_partman parent with fewer future child partitions than its premake."),
 	a("partman_default_rows", sevW, nil, nil,
 		"Rows in the default partition of a pg_partman parent."),
+	a("timescale_job_failed", sevW, nil, nil,
+		"A scheduled TimescaleDB job (compression, retention, refresh or a "+
+			"user action) whose last run failed."),
+	a("timescale_cagg_stale", sevW, nil, nil,
+		"A TimescaleDB continuous aggregate whose watermark lags more than 3 x its "+
+			"refresh policy's schedule_interval plus end_offset."),
 	a("sequence_exhaustion", sevWC, nil, act("prepare_sequence_capacity_migration"),
 		"A sequence that has used most of its range."),
 	a("sort_without_index", sevW, nil, nil,

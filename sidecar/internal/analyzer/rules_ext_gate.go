@@ -32,7 +32,14 @@ var (
 	partmanCategories = []string{categoryPartmanPremake, categoryPartmanDefault}
 )
 
-func isExtCategory(c string) bool { return slices.Contains(extCategories, c) }
+// isExtCategory reports whether c belongs to an extension health rule
+// (market-16 or TimescaleDB, market-16b).
+func isExtCategory(c string) bool {
+	return slices.Contains(extCategories, c) || slices.Contains(tsCategories, c)
+}
+
+// extGateNames are the extensions the gate looks for.
+var extGateNames = []string{extPgCron, extPartman, extTimescale}
 
 // extInstall is where an extension keeps its objects. For pg_cron, whose
 // extension schema is pg_catalog, it is the schema of its job table.
@@ -47,12 +54,14 @@ type extGateFunc func(ctx context.Context, q catalogread.Querier) (map[string]ex
 // extReading is one cycle's reading of the extension rules' inputs; a nil
 // part means the extension is absent or its rules are off this cycle.
 type extReading struct {
-	cron    *cronReading
-	partman *partmanReading
+	cron      *cronReading
+	partman   *partmanReading
+	timescale *tsReading
 }
 
-// extGateSQL finds pg_cron and pg_partman and the schema of a table each
-// owns (job, part_config), falling back to the extension's schema.
+// extGateSQL finds pg_cron, pg_partman and TimescaleDB and the schema of
+// a relation each owns (job, part_config, job_stats), falling back to the
+// extension's schema.
 const extGateSQL = `/* pg_sage analyzer */
 SELECT e.extname, e.extversion,
        COALESCE((SELECT tn.nspname
@@ -63,6 +72,7 @@ SELECT e.extname, e.extversion,
                     AND d.refclassid = 'pg_extension'::regclass
                     AND d.refobjid = e.oid AND d.deptype = 'e'
                     AND c.relname = CASE e.extname WHEN 'pg_cron' THEN 'job'
+                                                   WHEN 'timescaledb' THEN 'job_stats'
                                                    ELSE 'part_config' END
                   LIMIT 1), n.nspname) AS schema
 FROM pg_extension e
@@ -73,7 +83,7 @@ WHERE e.extname = ANY($1)`
 func readExtensionGate(ctx context.Context, q catalogread.Querier) (
 	map[string]extInstall, error,
 ) {
-	rows, err := q.Query(ctx, extGateSQL, []string{extPgCron, extPartman})
+	rows, err := q.Query(ctx, extGateSQL, extGateNames)
 	if err != nil {
 		return nil, fmt.Errorf("read pg_extension: %w", err)
 	}
@@ -99,6 +109,7 @@ func (a *Analyzer) loadExtensionState(ctx context.Context) {
 	if a.pool == nil {
 		a.extras.ext = nil
 		a.evalFail(extCategories...)
+		a.evalFail(tsCategories...)
 		return
 	}
 	a.readExtensions(ctx, a.catalog())
@@ -116,9 +127,10 @@ func (a *Analyzer) readExtensions(ctx context.Context, q catalogread.Querier) {
 	}
 	installs, err := gate(ctx, q)
 	if err != nil {
-		a.extWarn("gate", "analyzer: extension rules: %v; pg_cron and pg_partman "+
-			"checks not evaluated until pg_extension can be read", err)
+		a.extWarn("gate", "analyzer: extension rules: %v; pg_cron, pg_partman and "+
+			"TimescaleDB checks not evaluated until pg_extension can be read", err)
 		a.evalFail(extCategories...)
+		a.evalFail(tsCategories...)
 		return
 	}
 	a.extOK("gate")
@@ -132,6 +144,11 @@ func (a *Analyzer) readExtensions(ctx context.Context, q catalogread.Querier) {
 		r.partman = a.readPartman(ctx, q, in.Schema)
 	} else {
 		a.evalFail(partmanCategories...)
+	}
+	if in, ok := installs[extTimescale]; ok && a.extRulesOn(tsCategories) {
+		r.timescale = a.readTimescale(ctx, q, in.Schema)
+	} else {
+		a.evalFail(tsCategories...)
 	}
 	a.extras.ext = r
 }

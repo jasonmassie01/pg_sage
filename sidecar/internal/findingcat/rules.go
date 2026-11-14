@@ -44,6 +44,8 @@ var analyzerRules = []Rule{
 	{"pg_cron_history_unbounded", k("pg_cron_history_unbounded")},
 	{"partman_premake_gap", k("partman_premake_gap")},
 	{"partman_default_rows", k("partman_default_rows")},
+	{"timescale_job_failed", k("timescale_job_failed")},
+	{"timescale_cagg_stale", k("timescale_cagg_stale")},
 }
 
 // AnalyzerRules returns a copy of the rule-pack vocabulary.

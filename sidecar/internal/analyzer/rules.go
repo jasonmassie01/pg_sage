@@ -55,7 +55,8 @@ type RuleExtras struct {
 	// undecided names, per category, identities a rule could not decide
 	// this cycle: their open findings stay open (runSnapshotRules).
 	undecided map[string][]string
-	// ext is this cycle's pg_cron and pg_partman reading (market-16);
+	// ext is this cycle's pg_cron, pg_partman and TimescaleDB reading
+	// (market-16, market-16b);
 	// extWarned names the reads in a streak of failures already logged.
 	ext       *extReading
 	extWarned map[string]bool
@@ -143,6 +144,10 @@ var AllRules = []RuleSpec{
 	{categoryCronHistory, rulePgCronHistoryUnbounded, cats(categoryCronHistory), nil},
 	{categoryPartmanPremake, rulePartmanPremakeGap, cats(categoryPartmanPremake), nil},
 	{categoryPartmanDefault, rulePartmanDefaultRows, cats(categoryPartmanDefault), nil},
+	// TimescaleDB jobs and continuous aggregates (market-16b), behind the
+	// same gate.
+	{categoryTSJobFailed, ruleTimescaleJobFailed, cats(categoryTSJobFailed), nil},
+	{categoryTSCaggStale, ruleTimescaleCaggStale, cats(categoryTSCaggStale), nil},
 }
 
 func cats(c ...string) []string { return c }
