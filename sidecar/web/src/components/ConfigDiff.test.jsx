@@ -153,6 +153,34 @@ describe('ConfigDiff on the shared Dialog', () => {
     expect(screen.getByTestId('config-diff-cancel')).toBeDisabled()
   })
 
+  it('makes an overflowing diff a named Tab stop inside the wrap', () => {
+    const height = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(900)
+    const client = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(300)
+    try {
+      renderDiff()
+      const rows = screen.getByRole('region', { name: /configuration changes/i })
+      expect(rows).toBe(screen.getByTestId('config-diff-rows'))
+      expect(rows).toHaveAttribute('tabindex', '0')
+      expect(document.activeElement).toBe(screen.getByTestId('config-diff-cancel'))
+      const apply = screen.getByTestId('config-diff-confirm')
+      apply.focus()
+      fireEvent.keyDown(apply, { key: 'Tab' })
+      expect(document.activeElement).toBe(rows)
+      fireEvent.keyDown(rows, { key: 'Tab', shiftKey: true })
+      expect(document.activeElement).toBe(apply)
+    } finally {
+      height.mockRestore()
+      client.mockRestore()
+    }
+  })
+
+  it('keeps a diff that fits out of the Tab order', () => {
+    renderDiff()
+    const rows = screen.getByTestId('config-diff-rows')
+    expect(rows).not.toHaveAttribute('tabindex')
+    expect(rows).not.toHaveAttribute('role')
+  })
+
   it('returns focus to the opener when it closes', async () => {
     const user = userEvent.setup()
     function Harness() {

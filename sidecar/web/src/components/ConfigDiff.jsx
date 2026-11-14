@@ -1,12 +1,13 @@
 /* eslint-disable react-refresh/only-export-components */
+import { useEffect, useRef, useState } from 'react'
 import { Dialog } from './Dialog'
 import { FileDiff, ArrowRight } from 'lucide-react'
 
 // ConfigDiff is the review step before a Settings save. It runs on the
 // shared Dialog (dashboard-10c): focus stays inside, starts on Cancel and
 // returns to Review & Save; Escape cancels unless a save is in flight. A
-// failed save shows inside the open dialog and keeps the diff. The caller
-// mounts it only while open.
+// failed save shows inside the open dialog and keeps the diff, and a diff
+// taller than its box is a Tab stop. The caller mounts it only while open.
 
 // Secret fields (API keys, passwords, routing keys, tokens) are never
 // rendered in the review modal (G9-B25).
@@ -84,6 +85,23 @@ function DiffRow({ row }) {
   )
 }
 
+// useOverflows reports whether the element's content is taller than its box.
+// An overflowing diff becomes a named Tab stop, so a keyboard user can scroll
+// every row before applying (the Tab wrap reaches only focusable elements).
+// It measures in an effect, which runs after Dialog's showModal() effect.
+function useOverflows(ref, count) {
+  const [overflows, setOverflows] = useState(false)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return undefined
+    const check = () => setOverflows(el.scrollHeight > el.clientHeight)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [ref, count])
+  return overflows
+}
+
 function Title() {
   return (
     <span className="flex items-center gap-2">
@@ -118,6 +136,8 @@ export function ConfigDiff({
   edits, cfg, saving, error, onConfirm, onCancel,
 }) {
   const rows = buildDiffRows(edits, cfg)
+  const rowsRef = useRef(null)
+  const scrollable = useOverflows(rowsRef, rows.length)
   const confirm = () => { if (!saving && rows.length > 0) onConfirm() }
   return (
     <Dialog open title={<Title />} onClose={onCancel} busy={saving}
@@ -126,8 +146,11 @@ export function ConfigDiff({
         {rows.length} key{rows.length === 1 ? '' : 's'} will change.
         Review the diff before saving.
       </p>
-      <div className="max-h-[50vh] overflow-y-auto overscroll-contain space-y-3 pr-1"
-        data-testid="config-diff-rows">
+      <div ref={rowsRef} data-testid="config-diff-rows"
+        className="max-h-[50vh] overflow-y-auto overscroll-contain space-y-3 pr-1"
+        {...(scrollable
+          ? { tabIndex: 0, role: 'region', 'aria-label': 'Configuration changes' }
+          : {})}>
         {rows.length === 0 && (
           <div className="text-sm" style={{ color: 'var(--text-secondary)' }}>
             No changes to save.
