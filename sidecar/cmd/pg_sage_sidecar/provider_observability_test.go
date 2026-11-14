@@ -88,3 +88,29 @@ func TestProviderObservabilityWorkerCancellation(t *testing.T) {
 }
 
 // HTTP authentication, outages, log isolation and live observations are tested in providerobs.
+
+// rca-09b: with no logwatch key (auto) a configured provider log sink
+// feeds RCA; explicit false, or RCA off, keeps it out.
+func TestProviderLogRCAModes(t *testing.T) {
+	yes, no := true, false
+	for _, tc := range []struct {
+		name    string
+		enabled *bool
+		rca     bool
+		want    bool
+	}{
+		{"auto default", nil, true, true},
+		{"explicit true", &yes, true, true},
+		{"explicit false", &no, true, false},
+		{"auto without rca", nil, false, false},
+	} {
+		c := config.DefaultConfig()
+		c.LogWatch.Enabled, c.RCA.Enabled = tc.enabled, tc.rca
+		if got := providerLogRCA(c); got != tc.want {
+			t.Errorf("%s: providerLogRCA = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+	if !providerLogRCA(config.DefaultConfig()) {
+		t.Fatal("a default install does not read the provider log sink")
+	}
+}
