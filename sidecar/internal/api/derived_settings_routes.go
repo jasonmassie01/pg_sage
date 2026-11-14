@@ -29,7 +29,8 @@ const derivedSettingsMeaning = "pg_sage derives these settings per database from
 	"new evidence until it is unpinned."
 
 func registerDerivedSettingsRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
-	route(mux, "GET "+derivedSettingsPath, gateViewer, derivedSettingsHandler(mgr))
+	routeAggregate(mux, "GET "+derivedSettingsPath, gateViewer, mgr,
+		aggregateHandler(derivedSettingsHandler))
 	route(mux, "POST "+derivedSettingsPath+"/{key}/pin", gateAdmin,
 		derivedSettingPinHandler(mgr, true))
 	route(mux, "POST "+derivedSettingsPath+"/{key}/unpin", gateAdmin,

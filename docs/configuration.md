@@ -1604,7 +1604,8 @@ curl -b cookies.txt http://localhost:8080/api/v1/cases
 
 SSO (`oauth.*`) validates the OIDC `id_token` with PKCE and a nonce, can map
 IdP groups to roles (`oauth.role_mapping`, `oauth.groups_claim`,
-`oauth.unmapped_users`), and audits every login. A break-glass admin
+`oauth.unmapped_users`) and to per-database grants
+(`oauth.database_grant_mapping`), and audits every login. A break-glass admin
 (`oauth.break_glass`) works when the IdP is down and alerts every channel on
 use. See [SSO login validation](security.md#sso-login-validation).
 
@@ -1693,6 +1694,22 @@ enforced.
 ```yaml
 api:
   database_grants: true
+```
+
+`oauth.database_grant_mapping` (default empty, restart to change) lets SSO
+groups set those grants instead (apiauth-08d): at every SSO login the grants a
+user's groups give replace the grants the IdP gave before. An admin's manual
+grants are never changed by it and win on the same database. Each entry needs
+a `group` (exact, case-sensitive), one `database` and a `role` of `viewer` or
+`operator`; any other role, an empty or `all` database, or the same group twice
+on one database stops startup with an error naming the entry
+([details](security.md#group-to-database-grant-mapping)).
+
+```yaml
+oauth:
+  database_grant_mapping:
+    - {group: team-billing, database: billing, role: operator}
+    - {group: team-search,  database: search,  role: viewer}
 ```
 
 #### Profiling the sidecar

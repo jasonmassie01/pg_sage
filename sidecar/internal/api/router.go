@@ -284,7 +284,10 @@ func registerFleetScopedRoutes(
 // depend on the fleet, not on the control pool.
 func registerFleetReadRoutes(apiMux *http.ServeMux, mgr *fleet.DatabaseManager,
 	cfg *config.Config) {
-	route(apiMux, "GET /api/v1/value", gateViewer, valueHandler(fleetValueReader(mgr, cfg)))
+	routeAggregate(apiMux, "GET /api/v1/value", gateViewer, mgr,
+		func(m *fleet.DatabaseManager) http.Handler {
+			return valueHandler(fleetValueReader(m, cfg))
+		})
 	registerBriefingRoutes(apiMux, mgr)
 	registerMigrationLintRoutes(apiMux, mgr, cfg)
 	registerUpgradeReadinessRoutes(apiMux, mgr, cfg)
@@ -307,7 +310,8 @@ func registerControlPoolRoutes(
 		registerUserRoutes(apiMux, pool)
 	}
 	registerDatabaseGrantRoutes(apiMux, pool, mgr,
-		newDatabaseAuthz(cfg, pool, rt.DatabaseGrants) != nil)
+		newDatabaseAuthz(cfg, pool, rt.DatabaseGrants) != nil,
+		!rt.DatabricksAppAuth && auth.DatabaseGrantMappingConfigured(&cfg.OAuth))
 	if !rt.DatabricksAppAuth {
 		registerMCPTokenRoutes(apiMux, pool)
 	}

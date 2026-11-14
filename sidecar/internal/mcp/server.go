@@ -116,6 +116,9 @@ func (s *Server) callTool(ctx context.Context, raw json.RawMessage) (map[string]
 	if !ok {
 		return nil, failure(codeInvalidParams, "tool arguments must be a JSON object")
 	}
+	if failed := databasesUnavailable(ctx); failed != nil {
+		return toolError(failed), nil
+	}
 	if failed := authorizeTool(ctx, call.Name, arguments); failed != nil {
 		return toolError(failed), nil
 	}

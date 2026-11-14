@@ -566,6 +566,8 @@ type OAuthConfig struct {
 	RoleMapping   []OAuthRoleMapping `yaml:"role_mapping" doc:"Maps IdP groups to pg_sage roles; the highest matching role wins and is re-applied at every SSO login."`
 	UnmappedUsers string             `yaml:"unmapped_users" doc:"When role_mapping is set, what a user in no mapped group gets: deny (default, refused) or default_role."`
 	BreakGlass    BreakGlassConfig   `yaml:"break_glass"`
+	// IdP group to per-database grant mapping (apiauth-08d); see idp_grants.go.
+	DatabaseGrantMapping []OAuthDatabaseGrant `yaml:"database_grant_mapping" doc:"Maps IdP groups to per-database grants (viewer or operator), re-applied at every SSO login. Empty (default) leaves grants to admins."`
 }
 
 // Interval helpers.

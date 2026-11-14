@@ -2624,6 +2624,27 @@
     "class": "safety_critical",
     "lifecycle": "restart"
   },
+  "oauth.database_grant_mapping[].database": {
+    "type": "string",
+    "default": "",
+    "doc": "Database name as the fleet names it.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "oauth.database_grant_mapping[].group": {
+    "type": "string",
+    "default": "",
+    "doc": "IdP group as the groups claim carries it (case-sensitive).",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "oauth.database_grant_mapping[].role": {
+    "type": "string",
+    "default": "",
+    "doc": "Grant for group members on the database: viewer or operator.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
   "oauth.default_role": {
     "type": "string",
     "default": "viewer",

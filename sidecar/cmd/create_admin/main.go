@@ -128,10 +128,25 @@ func productionAdminDeps() adminDeps {
 	}
 }
 
+// minAdminConns is the pool size a run needs: one session holds the
+// sequence lock while auth.CreateUser inserts on another. A DSN with
+// pool_max_conns=1 would otherwise wait forever for the second.
+const minAdminConns = 2
+
 // openAdminPool connects and pings: a pool connects lazily, so an
 // unreachable server would otherwise surface at the first query.
 func openAdminPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
-	pool, err := databricksauth.NewPool(ctx, dsn)
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, err
+	}
+	if err := databricksauth.ConfigurePool(ctx, cfg); err != nil {
+		return nil, err
+	}
+	if cfg.MaxConns < minAdminConns {
+		cfg.MaxConns = minAdminConns
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}

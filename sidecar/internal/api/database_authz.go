@@ -20,8 +20,8 @@ import (
 // api.database_grants on in fleet or meta-db mode, an operator write that
 // names a database (routeDB) needs the caller's role on that database, and
 // an operator write that spans databases needs an operator with no
-// grants. The rules are auth.EffectiveDatabaseRole's. Reads are not
-// scoped yet (phase 2). The authorizer travels in the request context;
+// grants. The rules are auth.EffectiveDatabaseRole's. Reads are scoped by
+// route_read.go (apiauth-08b). The authorizer travels in the request context;
 // without it (grants off, standalone, embedders) every check passes, which
 // is today's behaviour.
 

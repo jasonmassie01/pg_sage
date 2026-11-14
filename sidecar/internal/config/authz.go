@@ -55,6 +55,9 @@ func (c *Config) validateAuthz() error {
 				"operator or viewer", i, m.Role)
 		}
 	}
+	if err := o.validateDatabaseGrantMapping(); err != nil {
+		return err
+	}
 	if err := o.BreakGlass.validate(); err != nil {
 		return err
 	}

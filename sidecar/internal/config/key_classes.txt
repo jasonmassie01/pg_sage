@@ -62,6 +62,7 @@ safety_critical oauth.provider
 safety_critical oauth.redirect_url
 safety_critical oauth.groups_claim
 safety_critical oauth.role_mapping
+safety_critical oauth.database_grant_mapping
 safety_critical oauth.unmapped_users
 safety_critical oauth.break_glass.enabled
 safety_critical oauth.break_glass.password_hash
