@@ -95,6 +95,30 @@ a reviewer can verify; add an entry only with such a reason. For a quick loop
 on one package, `go test -count=1 -tags=integration ./internal/store/` is
 enough. Remove the server with `docker rm -f -v pgsage-test`.
 
+A package's fixture database starts empty (`testdb.Run`), so every
+package bootstraps the sage schema, and a full run does that in about
+200 databases at once. A package whose tests only need the schema opts
+into one bootstrapped template per run instead:
+
+```go
+func TestMain(m *testing.M) {
+	os.Exit(testdb.RunBootstrapped(m.Run, "internal/<pkg>", schema.Bootstrap))
+}
+```
+
+The first such package builds `pgsage_tpl_<hash>` (the hash covers
+`internal/schema/testdata/migration_checksums.txt` and the schema
+package's sources, so a schema change builds a new one) under a cluster
+lock; the others wait and copy it. Its fixture, and each database
+`testdb.CreateBootstrappedDatabase(t, label)` makes, is a copy, so
+`schema.Bootstrap` on it only checks. Tests still call `schema.Bootstrap`.
+Without the checksum file the fixtures start from `template0` and the
+package says so once. Templates of other hashes older than an hour are
+dropped by the next build; removing the server removes them all. Keep
+`testdb.Run` and `testdb.CreateDatabase` for tests of bootstrap or
+migration behaviour: they need an empty database (`internal/schema`
+asserts its fixture came from `template0`).
+
 Every package shares that one server, so anything cluster-wide is shared too:
 WAL volume and checkpoints, XID consumption, `pg_stat_reset_shared`,
 `pg_stat_statements`, the I/O statistics and the whole-cluster backend count.
