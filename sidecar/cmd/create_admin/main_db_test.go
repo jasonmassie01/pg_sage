@@ -222,6 +222,32 @@ func TestRunWaitsWhileAnotherRunHoldsTheSequenceLock(t *testing.T) {
 	}
 }
 
+// A run holds the lock session while auth.CreateUser inserts on a second
+// one, so a DSN that caps the pool at one connection used to wait forever.
+func TestRunFinishesWithAOneConnectionPoolDSN(t *testing.T) {
+	dsn, pool := bootstrappedDB(t)
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
+	}
+	done := make(chan [2]string, 1)
+	go func() {
+		code, out := runCreate(dsn+sep+"pool_max_conns=1", "one@example.com", goodPassword)
+		done <- [2]string{fmt.Sprint(code), out}
+	}()
+	select {
+	case res := <-done:
+		if res[0] != "0" {
+			t.Fatalf("run = %s; stderr %q", res[0], res[1])
+		}
+	case <-time.After(60 * time.Second):
+		t.Fatal("run with pool_max_conns=1 did not finish within 60 seconds")
+	}
+	if id := userID(t, pool, "one@example.com"); id != 1 {
+		t.Fatalf("admin id = %d, want 1", id)
+	}
+}
+
 // waitForLockWait closes its channel once a session in this database waits on
 // a lock, and never closes it if none does within 20 seconds.
 func waitForLockWait(t *testing.T, pool *pgxpool.Pool) <-chan struct{} {
