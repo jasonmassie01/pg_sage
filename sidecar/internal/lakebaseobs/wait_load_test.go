@@ -85,7 +85,7 @@ func TestWaitLoad_InvalidIntervalsAreSkippedAndCounted(t *testing.T) {
 		"previous after occurred": func(e *Event) {
 			e.Fields["previous_ts"] = end.Add(time.Second).Format(time.RFC3339Nano)
 		},
-		"zero length": func(e *Event) { e.Fields["previous_ts"] = end.Format(time.RFC3339Nano) },
+		"zero length":  func(e *Event) { e.Fields["previous_ts"] = end.Format(time.RFC3339Nano) },
 		"bad previous": func(e *Event) { e.Fields["previous_ts"] = "yesterday" },
 		"no previous":  func(e *Event) { delete(e.Fields, "previous_ts") },
 		"text count":   func(e *Event) { e.Fields["wait_event_count"] = "many" },
