@@ -66,7 +66,7 @@ func TestWave5CurrentLifecycleClaimsUseTypedRegistry(t *testing.T) {
 			"docs/generated/config-lifecycles.md"},
 		{"reviews/archive/docs-internal/reverse_spec/01-architecture.md", "HotReloadable()",
 			"generated/config-lifecycles.md"},
-		{"sidecar/web/src/pages/SettingsPage.jsx",
+		{"sidecar/web/src/pages/settings/SettingsSections.jsx",
 			"take effect only after a restart", "server lifecycle metadata"},
 	}
 	for _, check := range checks {
