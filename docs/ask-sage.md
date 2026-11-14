@@ -139,10 +139,11 @@ and the run's `message_id` points at it.
   running it stops at its next tool call.
 - **Failure**: when Ask Sage's store fails while recording progress, the run ends `failed`
   with the error (at most 500 characters); a poll still answers with the state.
-- **Restart**: when a sidecar starts, its own `queued` or `running` runs that have not moved
-  for `ask.max_seconds_per_question` plus 30 s become `interrupted`, and the actions already
-  in their progress stay as the record. When a sidecar stops, its running runs end
-  `interrupted`. Runs of another sidecar instance (by host name) are left alone.
+- **Restart**: when a sidecar starts, and every minute after, its own `queued` or `running`
+  runs that have not moved for `ask.max_seconds_per_question` plus 30 s become `interrupted`,
+  and the actions already in their progress stay as the record (a sidecar restarted within
+  that window recovers its old runs once they go stale). When a sidecar stops, its running
+  runs end `interrupted`. Runs of another sidecar instance (by host name) are left alone.
 - **Caps**: one active run per conversation (a second is 409) and at most
   `ask.max_concurrent_runs` (default 4, 1-16) per database on one sidecar (one more is 429
   with `Retry-After`).

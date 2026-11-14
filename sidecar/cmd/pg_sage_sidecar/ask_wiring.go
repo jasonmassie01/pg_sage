@@ -58,7 +58,7 @@ func (rt *databaseRuntime) startAsk() {
 		return
 	}
 	askServices().Set(rt.spec.Name, svc)
-	rt.start(func() { rt.recoverAskRuns(svc) })
+	rt.start(func() { svc.WatchAbandonedRuns(rt.ctx, askRunSweep) })
 	rt.start(func() {
 		<-rt.ctx.Done()
 		askServices().Remove(rt.spec.Name, svc)
@@ -66,16 +66,11 @@ func (rt *databaseRuntime) startAsk() {
 	rt.note("ask_sage")
 }
 
-// recoverAskRuns marks this sidecar's abandoned Ask Sage runs (left by
-// a crash or restart) interrupted, keeping their recorded actions.
-func (rt *databaseRuntime) recoverAskRuns(svc *ask.Service) {
-	ctx, cancel := context.WithTimeout(rt.ctx, 30*time.Second)
-	defer cancel()
-	if _, err := svc.RecoverRuns(ctx); err != nil {
-		logWarn(rt.spec.Scope, "db %q: Ask Sage could not recover abandoned runs: %v",
-			rt.spec.Name, err)
-	}
-}
+// askRunSweep is how often a sidecar marks its abandoned Ask Sage runs
+// (left by a crash or restart) interrupted, keeping their recorded
+// actions: at start and then every minute, so rows still inside the stale
+// window at a fast restart are recovered once they go stale.
+const askRunSweep = time.Minute
 
 // findingProposer is the executor's queue-never-execute proposal path.
 type findingProposer interface {

@@ -36,6 +36,8 @@ const (
 	staleRunSlack = 30 * time.Second
 	// cancelWait bounds how long a cancel waits for the run to end.
 	cancelWait = persistTimeout + 2*time.Second
+	// recoverTimeout bounds one sweep for abandoned runs.
+	recoverTimeout = 30 * time.Second
 )
 
 // RunStart is a started run.
@@ -255,4 +257,26 @@ func (s *Service) RecoverRuns(ctx context.Context) (int64, error) {
 			"marked interrupted", n, s.d.Instance, s.d.Database)
 	}
 	return n, err
+}
+
+// WatchAbandonedRuns recovers this instance's abandoned runs now and then
+// every interval until ctx ends. A sidecar restarted inside the stale
+// window finds its old rows still fresh at start; they go stale later,
+// and without a later sweep they would stay running for good.
+func (s *Service) WatchAbandonedRuns(ctx context.Context, every time.Duration) {
+	tick := time.NewTicker(every)
+	defer tick.Stop()
+	for {
+		sweep, cancel := context.WithTimeout(ctx, recoverTimeout)
+		if _, err := s.RecoverRuns(sweep); err != nil && ctx.Err() == nil {
+			s.d.Log("WARN", "ask: %s could not recover its abandoned runs on %s: %v",
+				s.d.Instance, s.d.Database, err)
+		}
+		cancel()
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
 }

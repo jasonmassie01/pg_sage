@@ -1,0 +1,113 @@
+package ask
+
+import (
+	"context"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+// mcp-07b review: a run stopped before it is marked running, and runs a
+// fast restart left behind (still inside the stale window at start).
+
+// queueOnly stores a queued run of question the way StartRun does, without
+// starting it, and returns the job a started run would answer.
+func queueOnly(t *testing.T, s *Service, question string) runJob {
+	t.Helper()
+	id, err := newRunID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := viewer.For(Request{Question: question})
+	st, history, err := s.queueRun(context.Background(), c, id, question,
+		Request{Question: question})
+	if err != nil {
+		t.Fatalf("queueRun: %v", err)
+	}
+	return runJob{caller: c, start: st, question: question, history: history}
+}
+
+func TestRun_CancelBeforeItIsMarkedRunningIsCancelled(t *testing.T) {
+	f := newFixture(t)
+	m := newFakeLLM(t, slowAnswers(1, 0)...)
+	s := f.runService(m, nil)
+	job := queueOnly(t, s, "Cancelled at once?")
+	ctx, cancel := context.WithCancel(context.Background())
+	ar := &activeRun{cancel: cancel, done: make(chan struct{})}
+	// The cancel lands between the start and the run's first write.
+	ar.cancelled.Store(true)
+	cancel()
+	s.execute(ctx, ar, job)
+	r, err := s.PollRun(context.Background(), viewer, job.start.RunID)
+	if err != nil {
+		t.Fatalf("PollRun: %v", err)
+	}
+	if r.State != RunCancelled || r.Error != "" || r.MessageID != nil {
+		t.Fatalf("run cancelled before it started = %+v, want cancelled with no error", r)
+	}
+	if m.calls() != 0 {
+		t.Fatalf("the model was called %d times for a cancelled run", m.calls())
+	}
+}
+
+func TestRun_ShutdownBeforeItIsMarkedRunningIsInterrupted(t *testing.T) {
+	f := newFixture(t)
+	runCtx, stop := context.WithCancel(context.Background())
+	s := f.runService(newFakeLLM(t, slowAnswers(1, 0)...), func(d *Deps) {
+		d.RunCtx = runCtx
+	})
+	job := queueOnly(t, s, "Shut down at once?")
+	ctx, cancel := context.WithCancel(runCtx)
+	ar := &activeRun{cancel: cancel, done: make(chan struct{})}
+	stop()
+	s.execute(ctx, ar, job)
+	r, err := s.PollRun(context.Background(), viewer, job.start.RunID)
+	if err != nil {
+		t.Fatalf("PollRun: %v", err)
+	}
+	if r.State != RunInterrupted {
+		t.Fatalf("run stopped by a shutdown before it started = %+v, want interrupted", r)
+	}
+}
+
+func TestWatchAbandonedRuns_RecoversRunsThatGoStaleAfterStart(t *testing.T) {
+	f := newFixture(t)
+	// Left by a sidecar that restarted seconds ago: not yet stale at start.
+	fresh := f.seedRun("host-a", RunRunning, 5*time.Second, "[]")
+	other := f.seedRun("host-b", RunRunning, time.Hour, "[]")
+	var skew atomic.Int64
+	s := f.runService(nil, func(d *Deps) {
+		d.Now = func() time.Time { return time.Now().Add(time.Duration(skew.Load())) }
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.WatchAbandonedRuns(ctx, 20*time.Millisecond)
+	}()
+	time.Sleep(100 * time.Millisecond)
+	if state, _, _ := f.runState(fresh); state != RunRunning {
+		t.Fatalf("a run inside the stale window = %s, want running", state)
+	}
+	skew.Store(int64(2 * time.Hour)) // the stale window passes
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if state, _, _ := f.runState(fresh); state == RunInterrupted {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the run left by the restart was never marked interrupted")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if state, _, _ := f.runState(other); state != RunRunning {
+		t.Fatalf("another instance's run = %s, want running", state)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("WatchAbandonedRuns did not return when its context ended")
+	}
+}
