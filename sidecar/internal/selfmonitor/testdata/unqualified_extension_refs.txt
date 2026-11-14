@@ -5,7 +5,7 @@ internal/agentguard/broker/audit.go 1
 internal/agenttools/statements.go 1
 internal/agenttools/topqueries.go 1
 internal/analyzer/rules_workmem_promotion.go 1
-internal/api/cases_handlers.go 1
+internal/api/cases_hint_cases.go 1
 internal/autoexplain/collector.go 1
 internal/autonomy/freeze_bloat.go 1
 internal/autonomy/schema_statements.go 1
