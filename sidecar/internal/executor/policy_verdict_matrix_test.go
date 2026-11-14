@@ -2,8 +2,7 @@ package executor
 
 import (
 	"context"
-	"os"
-	"regexp"
+	"slices"
 	"testing"
 	"time"
 
@@ -265,9 +264,11 @@ func TestPolicyVerdictMatrixCoversEveryContract(t *testing.T) {
 	for _, row := range baselineVerdicts {
 		covered[row.actionType]++
 	}
-	types := contractActionTypes()
-	if len(types) < 30 {
-		t.Fatalf("parsed %d contract types from source, want >= 30", len(types))
+	types := matrixActionTypes(t)
+	t.Logf("verdict matrix covers %d contract types", len(types))
+	if len(types) < 31 {
+		t.Fatalf("matrix covers %d contract types, want >= the 31 it covered before executor-30",
+			len(types))
 	}
 	for _, actionType := range types {
 		if covered[actionType] != 3 {
@@ -277,18 +278,34 @@ func TestPolicyVerdictMatrixCoversEveryContract(t *testing.T) {
 	}
 }
 
-// contractActionTypes reads every case of ContractForActionType from source,
-// so a new contract cannot be added without a matrix row.
+// contractActionTypes is every type with a contract (executor-30: it used
+// to parse the ContractForActionType switch out of action_contract.go).
 func contractActionTypes() []string {
-	source, err := os.ReadFile("action_contract.go")
-	if err != nil {
-		panic(err)
+	return ContractActionTypes()
+}
+
+// matrixUncoveredTypes are the contract types the verdict matrix has never
+// had rows for: the old source parse matched only string-literal cases, so
+// these constant-named cases were silently out of scope. Pinning them keeps
+// the matrix scope unchanged and makes any new type need rows or a listing.
+var matrixUncoveredTypes = []string{
+	ActionTypeSetRoleTimeout, ActionTypeSetRoleConnectionLimit,
+	ActionTypeRestoreDroppedIndex, ActionTypeReplaceIndex,
+	ActionTypeGuardRoleEnsure, ActionTypeGuardRoleRetire, ActionTypeGuardFreeze,
+	ActionTypeGuardKill, ActionTypeGuardUnfreeze, ActionTypeGuardGrant,
+	ActionTypeGuardRevoke,
+}
+
+// matrixActionTypes is every contract type the verdict matrix must cover.
+func matrixActionTypes(t *testing.T) []string {
+	t.Helper()
+	types := contractActionTypes()
+	for _, uncovered := range matrixUncoveredTypes {
+		if !slices.Contains(types, uncovered) {
+			t.Fatalf("matrixUncoveredTypes lists %q, which has no contract", uncovered)
+		}
 	}
-	body := regexp.MustCompile(`(?s)func ContractForActionType.*?\r?\n}\r?\n`).Find(source)
-	matches := regexp.MustCompile(`case "([a-z_]+)":`).FindAllSubmatch(body, -1)
-	types := make([]string, 0, len(matches))
-	for _, match := range matches {
-		types = append(types, string(match[1]))
-	}
-	return types
+	return slices.DeleteFunc(types, func(actionType string) bool {
+		return slices.Contains(matrixUncoveredTypes, actionType)
+	})
 }
