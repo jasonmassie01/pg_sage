@@ -233,6 +233,10 @@ printf 'functions_over_50 0\nsidecar/internal/big/big.go 600\n' >"$scratch/other
 stage
 expect 0 '1 allowlisted file' "an allowlist path argument is used" -- \
   bash "$script" "$scratch/other.allow"
+mkdir -p "$repo/sidecar/internal"
+cp "$scratch/other.allow" "$repo/sidecar/internal/rel.allow"
+expect 0 '1 allowlisted file' "a relative allowlist path works from a subdirectory" -- \
+  bash -c 'cd sidecar/internal && bash "$1" rel.allow' _ "$script"
 
 cases=$((cases + 1))
 repo="$scratch/not-a-repo"

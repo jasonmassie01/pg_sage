@@ -29,6 +29,8 @@ top=$(git rev-parse --show-toplevel 2>/dev/null) || {
 }
 allow=${1:-$top/scripts/ci/line-limits.allow}
 [[ -f $allow && -r $allow ]] || usage "allowlist $allow is missing or unreadable"
+# Absolute, so a relative ALLOWLIST still resolves after the cd below.
+allow=$(cd "$(dirname "$allow")" && pwd)/$(basename "$allow")
 cd "$top"
 
 tracked=$(git -c core.quotePath=false ls-files -- \
