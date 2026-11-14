@@ -36,34 +36,46 @@ func incidentsListHandler(
 			})
 			return
 		}
-
-		var incidents []map[string]any
-		for _, selected := range pools {
-			dbIncidents, err := queryIncidents(
-				r.Context(), selected.pool, "",
-				severity, status)
-			if err != nil {
-				slog.Error("query incidents failed",
-					"database", selected.name, "error", err)
-				jsonError(w, "failed to query incidents", 500)
-				return
-			}
-			for _, incident := range dbIncidents {
-				annotateIncidentFleetDatabase(incident, selected.name)
-				incidents = append(incidents, incident)
-			}
-		}
-		sortIncidentsByDetectedAt(incidents)
-		if len(incidents) > 100 {
-			incidents = incidents[:100]
-		}
-		if incidents == nil {
-			incidents = []map[string]any{}
+		incidents, ok := collectIncidents(w, r, pools, severity, status)
+		if !ok {
+			return
 		}
 		jsonResponse(w, map[string]any{
 			"incidents": incidents, "total": len(incidents),
 		})
 	}
+}
+
+// collectIncidents reads every selected database's incidents, newest
+// first and at most 100; one failed read fails the request.
+func collectIncidents(
+	w http.ResponseWriter, r *http.Request,
+	pools []namedPool, severity, status string,
+) ([]map[string]any, bool) {
+	var incidents []map[string]any
+	for _, selected := range pools {
+		dbIncidents, err := queryIncidents(
+			r.Context(), selected.pool, "",
+			severity, status)
+		if err != nil {
+			slog.Error("query incidents failed",
+				"database", selected.name, "error", err)
+			jsonError(w, "failed to query incidents", 500)
+			return nil, false
+		}
+		for _, incident := range dbIncidents {
+			annotateIncidentFleetDatabase(incident, selected.name)
+			incidents = append(incidents, incident)
+		}
+	}
+	sortIncidentsByDetectedAt(incidents)
+	if len(incidents) > 100 {
+		incidents = incidents[:100]
+	}
+	if incidents == nil {
+		incidents = []map[string]any{}
+	}
+	return incidents, true
 }
 
 func incidentsActiveHandler(

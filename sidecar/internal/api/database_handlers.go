@@ -129,48 +129,65 @@ func createManagedDBHandler(
 			createdBy = user.ID
 		}
 		if deps.ApplyCreate != nil {
-			rec, applyErr := deps.ApplyCreate(
-				r.Context(), input, createdBy,
-			)
-			if applyErr != nil {
-				if writeDatabaseInputError(w, applyErr) {
-					return
-				}
-				internalError(w, r, "create and activate database", applyErr)
-				return
-			}
-			w.WriteHeader(http.StatusCreated)
-			jsonResponse(w, dbRecordToMap(*rec))
+			applyManagedDBCreate(w, r, deps, input, createdBy)
 			return
 		}
-		id, err := deps.Store.Create(
-			r.Context(), input, createdBy)
-		if err != nil {
-			if writeDatabaseInputError(w, err) {
-				return
-			}
-			internalError(w, r, "create database", err)
-			return
-		}
-		rec, err := deps.Store.Get(r.Context(), id)
-		if err != nil {
-			jsonError(w, "created but failed to read back",
-				http.StatusInternalServerError)
-			return
-		}
-		if err := runDatabaseCreateHook(
-			r.Context(), deps, *rec,
-		); err != nil {
-			if deleteErr := deps.Store.Delete(r.Context(), id); deleteErr != nil {
-				slog.Error("rollback failed managed database create",
-					"database_id", id, "error", deleteErr)
-			}
-			internalError(w, r, "activate managed database", err)
-			return
-		}
-		w.WriteHeader(http.StatusCreated)
-		jsonResponse(w, dbRecordToMap(*rec))
+		storeManagedDBCreate(w, r, deps, input, createdBy)
 	}
+}
+
+// applyManagedDBCreate creates and activates through the runtime hook.
+func applyManagedDBCreate(
+	w http.ResponseWriter, r *http.Request, deps *DatabaseDeps,
+	input store.DatabaseInput, createdBy int,
+) {
+	rec, applyErr := deps.ApplyCreate(
+		r.Context(), input, createdBy,
+	)
+	if applyErr != nil {
+		if writeDatabaseInputError(w, applyErr) {
+			return
+		}
+		internalError(w, r, "create and activate database", applyErr)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+	jsonResponse(w, dbRecordToMap(*rec))
+}
+
+// storeManagedDBCreate writes the record, then activates it; a failed
+// activation deletes the record again.
+func storeManagedDBCreate(
+	w http.ResponseWriter, r *http.Request, deps *DatabaseDeps,
+	input store.DatabaseInput, createdBy int,
+) {
+	id, err := deps.Store.Create(
+		r.Context(), input, createdBy)
+	if err != nil {
+		if writeDatabaseInputError(w, err) {
+			return
+		}
+		internalError(w, r, "create database", err)
+		return
+	}
+	rec, err := deps.Store.Get(r.Context(), id)
+	if err != nil {
+		jsonError(w, "created but failed to read back",
+			http.StatusInternalServerError)
+		return
+	}
+	if err := runDatabaseCreateHook(
+		r.Context(), deps, *rec,
+	); err != nil {
+		if deleteErr := deps.Store.Delete(r.Context(), id); deleteErr != nil {
+			slog.Error("rollback failed managed database create",
+				"database_id", id, "error", deleteErr)
+		}
+		internalError(w, r, "activate managed database", err)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+	jsonResponse(w, dbRecordToMap(*rec))
 }
 
 func updateManagedDBHandler(

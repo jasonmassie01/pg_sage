@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/store"
@@ -34,24 +35,10 @@ func configDBGetHandler(
 				http.StatusBadRequest)
 			return
 		}
-
-		var execMode string
-		var trustLevel string
-		qErr := metaPool.QueryRow(r.Context(),
-			`SELECT COALESCE(execution_mode, 'approval'),
-			 COALESCE(trust_level, 'observation')
-			 FROM sage.databases WHERE id = $1`, dbID,
-		).Scan(&execMode, &trustLevel)
-		if qErr != nil {
-			if errors.Is(qErr, pgx.ErrNoRows) {
-				jsonError(w, "database not found",
-					http.StatusNotFound)
-				return
-			}
-			internalError(w, r, "load database execution mode", qErr)
+		execMode, trustLevel, ok := loadDatabasePolicy(w, r, metaPool, dbID)
+		if !ok {
 			return
 		}
-
 		merged, err := cs.GetMergedConfig(
 			r.Context(), cfg, dbID)
 		if err != nil {
@@ -83,144 +70,225 @@ func configDBGetHandler(
 	}
 }
 
+// loadDatabasePolicy reads the database's execution mode and trust level
+// from sage.databases; a missing row is a 404.
+func loadDatabasePolicy(
+	w http.ResponseWriter, r *http.Request, metaPool *pgxpool.Pool, dbID int,
+) (string, string, bool) {
+	var execMode string
+	var trustLevel string
+	qErr := metaPool.QueryRow(r.Context(),
+		`SELECT COALESCE(execution_mode, 'approval'),
+		 COALESCE(trust_level, 'observation')
+		 FROM sage.databases WHERE id = $1`, dbID,
+	).Scan(&execMode, &trustLevel)
+	if qErr != nil {
+		if errors.Is(qErr, pgx.ErrNoRows) {
+			jsonError(w, "database not found",
+				http.StatusNotFound)
+			return "", "", false
+		}
+		internalError(w, r, "load database execution mode", qErr)
+		return "", "", false
+	}
+	return execMode, trustLevel, true
+}
+
 func configDBPutHandler(
 	cs *store.ConfigStore, cfg *config.Config,
 	metaPool *pgxpool.Pool,
 	mgr *fleet.DatabaseManager,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		idStr := r.PathValue("id")
-		dbID, err := strconv.Atoi(idStr)
-		if err != nil || dbID < 1 {
-			jsonError(w, "invalid database id",
-				http.StatusBadRequest)
-			return
-		}
-
-		// Validate database exists.
-		if mgr != nil {
-			if mgr.GetInstanceByDatabaseID(dbID) == nil {
-				jsonError(w,
-					fmt.Sprintf("database %d not found", dbID),
-					http.StatusNotFound)
-				return
-			}
-		}
-
-		user := UserFromContext(r.Context())
-		userID := 0
-		if user != nil {
-			userID = user.ID
-		}
-
-		var body map[string]any
-		if jsonErr := json.NewDecoder(
-			r.Body).Decode(&body); jsonErr != nil {
-			jsonError(w, "invalid JSON", http.StatusBadRequest)
-			return
-		}
-
-		// Handle execution_mode separately — it lives in
-		// sage.databases, not sage.config.
-		expected, ok := configExpectedGeneration(body)
+		dbID, ok := authorizeDBConfigPut(w, r, mgr)
 		if !ok {
-			jsonError(w, "expected_generation is required",
-				http.StatusPreconditionRequired)
 			return
 		}
-		delete(body, "expected_generation")
-		var executionMode *string
-		if raw, ok := body["execution_mode"]; ok {
-			mode := fmt.Sprintf("%v", raw)
-			if !validExecModes[mode] {
-				jsonError(w, fmt.Sprintf("%v: got %q",
-					errInvalidExecMode, mode), http.StatusBadRequest)
-				return
-			}
-			executionMode = &mode
-			delete(body, "execution_mode")
-		}
-		writes, validationErrs := validatedConfigWrites(body, configTargetPolicy(cfg))
-		if len(validationErrs) > 0 {
-			jsonError(w, validationErrs[0], http.StatusBadRequest)
+		put, ok := decodeDBConfigPut(w, r, cfg)
+		if !ok {
 			return
 		}
-		for _, write := range writes {
-			if !perDatabaseKeys[write.Key] {
-				jsonError(w, fmt.Sprintf(
-					"per-database override %q is not supported; only trust.level, "+
-						"analyzer.disabled_rules and execution_mode are active",
-					write.Key), http.StatusBadRequest)
-				return
-			}
-		}
-		if len(writes) == 0 && executionMode == nil {
+		put.dbID = dbID
+		if len(put.writes) == 0 && put.executionMode == nil {
 			jsonResponse(w, map[string]any{
-				"status": "updated", "desired_generation": expected,
-				"active_generation": expected,
+				"status": "updated", "desired_generation": put.expected,
+				"active_generation": put.expected,
 			})
 			return
 		}
-		var generation uint64
-		persistAndApply := func(inst *fleet.DatabaseInstance) error {
-			var persistErr error
-			generation, persistErr = cs.SetDatabaseOverridesCAS(
-				r.Context(), writes, dbID, userID, expected, executionMode,
-			)
-			if persistErr != nil {
-				return persistErr
-			}
-			if inst == nil {
-				return nil
-			}
-			if executionMode != nil && inst.Executor != nil {
-				inst.Executor.SetExecutionMode(*executionMode)
-			}
-			for _, write := range writes {
-				applyDatabaseWrite(inst, write, user)
-			}
+		generation, err := applyDBConfigPut(r, cs, mgr, put)
+		if err != nil {
+			writeDBConfigPutError(w, r, err)
+			return
+		}
+		writeDBConfigPutResponse(w, put, generation)
+	}
+}
+
+// dbConfigPut is one checked per-database config write.
+type dbConfigPut struct {
+	dbID          int
+	user          *auth.User
+	expected      uint64
+	executionMode *string
+	writes        []store.ConfigOverrideWrite
+}
+
+// authorizeDBConfigPut checks the target before the body is read: a valid
+// id of a database the fleet knows (any database without a fleet).
+func authorizeDBConfigPut(
+	w http.ResponseWriter, r *http.Request, mgr *fleet.DatabaseManager,
+) (int, bool) {
+	idStr := r.PathValue("id")
+	dbID, err := strconv.Atoi(idStr)
+	if err != nil || dbID < 1 {
+		jsonError(w, "invalid database id",
+			http.StatusBadRequest)
+		return 0, false
+	}
+	// Validate database exists.
+	if mgr != nil {
+		if mgr.GetInstanceByDatabaseID(dbID) == nil {
+			jsonError(w,
+				fmt.Sprintf("database %d not found", dbID),
+				http.StatusNotFound)
+			return 0, false
+		}
+	}
+	return dbID, true
+}
+
+// decodeDBConfigPut reads the body: an expected generation, an optional
+// execution_mode and only the keys a database may override.
+func decodeDBConfigPut(
+	w http.ResponseWriter, r *http.Request, cfg *config.Config,
+) (dbConfigPut, bool) {
+	put := dbConfigPut{user: UserFromContext(r.Context())}
+	var body map[string]any
+	if jsonErr := json.NewDecoder(
+		r.Body).Decode(&body); jsonErr != nil {
+		jsonError(w, "invalid JSON", http.StatusBadRequest)
+		return put, false
+	}
+	// Handle execution_mode separately — it lives in
+	// sage.databases, not sage.config.
+	expected, ok := configExpectedGeneration(body)
+	if !ok {
+		jsonError(w, "expected_generation is required",
+			http.StatusPreconditionRequired)
+		return put, false
+	}
+	put.expected = expected
+	delete(body, "expected_generation")
+	if raw, ok := body["execution_mode"]; ok {
+		mode := fmt.Sprintf("%v", raw)
+		if !validExecModes[mode] {
+			jsonError(w, fmt.Sprintf("%v: got %q",
+				errInvalidExecMode, mode), http.StatusBadRequest)
+			return put, false
+		}
+		put.executionMode = &mode
+		delete(body, "execution_mode")
+	}
+	writes, ok := perDatabaseConfigWrites(w, body, cfg)
+	put.writes = writes
+	return put, ok
+}
+
+// perDatabaseConfigWrites validates the remaining keys and refuses one
+// that has no per-database effect.
+func perDatabaseConfigWrites(
+	w http.ResponseWriter, body map[string]any, cfg *config.Config,
+) ([]store.ConfigOverrideWrite, bool) {
+	writes, validationErrs := validatedConfigWrites(body, configTargetPolicy(cfg))
+	if len(validationErrs) > 0 {
+		jsonError(w, validationErrs[0], http.StatusBadRequest)
+		return nil, false
+	}
+	for _, write := range writes {
+		if !perDatabaseKeys[write.Key] {
+			jsonError(w, fmt.Sprintf(
+				"per-database override %q is not supported; only trust.level, "+
+					"analyzer.disabled_rules and execution_mode are active",
+				write.Key), http.StatusBadRequest)
+			return nil, false
+		}
+	}
+	return writes, true
+}
+
+// applyDBConfigPut persists the writes under compare-and-set and applies
+// them to the running database inside one fleet lifecycle mutation.
+func applyDBConfigPut(
+	r *http.Request, cs *store.ConfigStore, mgr *fleet.DatabaseManager, put dbConfigPut,
+) (uint64, error) {
+	userID := 0
+	if put.user != nil {
+		userID = put.user.ID
+	}
+	var generation uint64
+	persistAndApply := func(inst *fleet.DatabaseInstance) error {
+		var persistErr error
+		generation, persistErr = cs.SetDatabaseOverridesCAS(
+			r.Context(), put.writes, put.dbID, userID, put.expected, put.executionMode,
+		)
+		if persistErr != nil {
+			return persistErr
+		}
+		if inst == nil {
 			return nil
 		}
-		if mgr == nil {
-			err = persistAndApply(nil)
-		} else {
-			err = mgr.WithLifecycle(r.Context(), func(*fleet.LifecycleMutation) error {
-				inst := mgr.GetInstanceByDatabaseID(dbID)
-				if inst == nil {
-					return store.ErrConfigDatabaseNotFound
-				}
-				return persistAndApply(inst)
-			})
+		if put.executionMode != nil && inst.Executor != nil {
+			inst.Executor.SetExecutionMode(*put.executionMode)
 		}
-		if err != nil {
-			switch {
-			case errors.Is(err, store.ErrConfigGenerationConflict):
-				jsonError(w, err.Error(), http.StatusConflict)
-			case errors.Is(err, store.ErrConfigDatabaseNotFound):
-				jsonError(w, "database not found", http.StatusNotFound)
-			case errors.Is(err, store.ErrDiscoveredTrust):
-				// market-06: adopt the discovered member first.
-				jsonError(w, err.Error(), http.StatusConflict)
-			default:
-				internalError(w, r, "persist database config revision", err)
-			}
-			return
+		for _, write := range put.writes {
+			applyDatabaseWrite(inst, write, put.user)
 		}
-		applied := make([]string, 0, 2)
-		if executionMode != nil {
-			applied = append(applied, "execution_mode")
-		}
-		for _, write := range writes {
-			if perDatabaseKeys[write.Key] {
-				applied = append(applied, write.Key)
-			}
-		}
-		jsonResponse(w, map[string]any{
-			"status": "updated", "desired_generation": generation,
-			"active_generation": generation, "applied": applied,
-			"pending_restart": []string{},
-		})
+		return nil
 	}
+	if mgr == nil {
+		err := persistAndApply(nil)
+		return generation, err
+	}
+	err := mgr.WithLifecycle(r.Context(), func(*fleet.LifecycleMutation) error {
+		inst := mgr.GetInstanceByDatabaseID(put.dbID)
+		if inst == nil {
+			return store.ErrConfigDatabaseNotFound
+		}
+		return persistAndApply(inst)
+	})
+	return generation, err
+}
+
+func writeDBConfigPutError(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, store.ErrConfigGenerationConflict):
+		jsonError(w, err.Error(), http.StatusConflict)
+	case errors.Is(err, store.ErrConfigDatabaseNotFound):
+		jsonError(w, "database not found", http.StatusNotFound)
+	case errors.Is(err, store.ErrDiscoveredTrust):
+		// market-06: adopt the discovered member first.
+		jsonError(w, err.Error(), http.StatusConflict)
+	default:
+		internalError(w, r, "persist database config revision", err)
+	}
+}
+
+func writeDBConfigPutResponse(w http.ResponseWriter, put dbConfigPut, generation uint64) {
+	applied := make([]string, 0, 2)
+	if put.executionMode != nil {
+		applied = append(applied, "execution_mode")
+	}
+	for _, write := range put.writes {
+		if perDatabaseKeys[write.Key] {
+			applied = append(applied, write.Key)
+		}
+	}
+	jsonResponse(w, map[string]any{
+		"status": "updated", "desired_generation": generation,
+		"active_generation": generation, "applied": applied,
+		"pending_restart": []string{},
+	})
 }
 
 func configDBDeleteHandler(
@@ -230,35 +298,8 @@ func configDBDeleteHandler(
 	controllers ...*config.ConfigController,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		dbID, err := strconv.Atoi(r.PathValue("id"))
-		if err != nil || dbID < 1 {
-			jsonError(w, "invalid database id",
-				http.StatusBadRequest)
-			return
-		}
-		key := r.PathValue("key")
-		if key == "" || key == "execution_mode" {
-			jsonError(w, "invalid config key",
-				http.StatusBadRequest)
-			return
-		}
-		if key == "trust.level" {
-			jsonError(w,
-				"database trust is a durable policy and cannot be reset to global inheritance",
-				http.StatusBadRequest)
-			return
-		}
-		if _, ok := store.AllowedConfigKeysSnapshot()[key]; !ok {
-			jsonError(w, "invalid config key",
-				http.StatusBadRequest)
-			return
-		}
-		expected, parseErr := strconv.ParseUint(
-			r.URL.Query().Get("expected_generation"), 10, 64,
-		)
-		if parseErr != nil || expected == 0 {
-			jsonError(w, "expected_generation is required",
-				http.StatusPreconditionRequired)
+		dbID, key, expected, ok := decodeDBConfigDelete(w, r)
+		if !ok {
 			return
 		}
 		userID := 0
@@ -282,6 +323,45 @@ func configDBDeleteHandler(
 			"active_generation": generation,
 		})
 	}
+}
+
+// decodeDBConfigDelete reads the database id, a key a database may reset
+// (never execution_mode or trust.level) and the expected generation.
+func decodeDBConfigDelete(
+	w http.ResponseWriter, r *http.Request,
+) (int, string, uint64, bool) {
+	dbID, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil || dbID < 1 {
+		jsonError(w, "invalid database id",
+			http.StatusBadRequest)
+		return 0, "", 0, false
+	}
+	key := r.PathValue("key")
+	if key == "" || key == "execution_mode" {
+		jsonError(w, "invalid config key",
+			http.StatusBadRequest)
+		return 0, "", 0, false
+	}
+	if key == "trust.level" {
+		jsonError(w,
+			"database trust is a durable policy and cannot be reset to global inheritance",
+			http.StatusBadRequest)
+		return 0, "", 0, false
+	}
+	if _, ok := store.AllowedConfigKeysSnapshot()[key]; !ok {
+		jsonError(w, "invalid config key",
+			http.StatusBadRequest)
+		return 0, "", 0, false
+	}
+	expected, parseErr := strconv.ParseUint(
+		r.URL.Query().Get("expected_generation"), 10, 64,
+	)
+	if parseErr != nil || expected == 0 {
+		jsonError(w, "expected_generation is required",
+			http.StatusPreconditionRequired)
+		return 0, "", 0, false
+	}
+	return dbID, key, expected, true
 }
 
 var validExecModes = map[string]bool{

@@ -160,24 +160,8 @@ func buildFindingsWhere(
 	f fleet.FindingFilters,
 ) (string, []any) {
 	where := " WHERE 1=1"
-	var args []any
-	n := 1
 	where += selfmonitor.FindingsSQLExclusionClause()
-	if f.Status != "" {
-		where += fmt.Sprintf(" AND status = $%d", n)
-		args = append(args, f.Status)
-		n++
-	}
-	if f.Severity != "" {
-		where += fmt.Sprintf(" AND severity = $%d", n)
-		args = append(args, f.Severity)
-		n++
-	}
-	if f.Category != "" {
-		where += fmt.Sprintf(" AND category = $%d", n)
-		args = append(args, f.Category)
-		n++
-	}
+	where, args, n := appendFindingEqualityFilters(where, f)
 	// Source filter — subsystem taxonomy mapping (see §16 of
 	// reviews/archive/docs-internal/ui-redesign-v2.md). The mapping is an allowlist-to-SQL
 	// rewrite. Unknown source values are treated as no-filter so the
@@ -198,8 +182,40 @@ func buildFindingsWhere(
 		args = append(args, f.ThematicCategory)
 		n++
 	}
-	// Overlapping-window time filter (findings live across time):
-	// include a finding when it was open at any point in [From, To].
+	return appendFindingTimeWindow(where, args, n, f)
+}
+
+// appendFindingEqualityFilters adds the status, severity and category
+// filters as $1.. parameters and returns the next parameter number.
+func appendFindingEqualityFilters(
+	where string, f fleet.FindingFilters,
+) (string, []any, int) {
+	var args []any
+	n := 1
+	if f.Status != "" {
+		where += fmt.Sprintf(" AND status = $%d", n)
+		args = append(args, f.Status)
+		n++
+	}
+	if f.Severity != "" {
+		where += fmt.Sprintf(" AND severity = $%d", n)
+		args = append(args, f.Severity)
+		n++
+	}
+	if f.Category != "" {
+		where += fmt.Sprintf(" AND category = $%d", n)
+		args = append(args, f.Category)
+		n++
+	}
+	return where, args, n
+}
+
+// appendFindingTimeWindow is the overlapping-window time filter
+// (findings live across time): include a finding when it was open at
+// any point in [From, To].
+func appendFindingTimeWindow(
+	where string, args []any, n int, f fleet.FindingFilters,
+) (string, []any) {
 	if !f.From.IsZero() {
 		where += fmt.Sprintf(
 			" AND (resolved_at IS NULL OR resolved_at >= $%d)", n)
@@ -266,73 +282,84 @@ func buildFindingMapWithAction(
 func queryFindingByID(
 	ctx context.Context, pool *pgxpool.Pool, id string,
 ) (map[string]any, error) {
-	var (
-		fID              int64
-		createdAt        time.Time
-		lastSeen         time.Time
-		occurrenceCount  int
-		category         string
-		severity         string
-		objectType       *string
-		objectIdent      *string
-		title            string
-		detail           []byte
-		recommendation   *string
-		recommendedSQL   *string
-		rollbackSQL      *string
-		estimatedCostUSD *float64
-		status           string
-		suppressedUntil  *time.Time
-		resolvedAt       *time.Time
-		actedOnAt        *time.Time
-		actionLogID      *int64
-	)
-	err := pool.QueryRow(ctx, findingDetailSQL, id).Scan(
-		&fID, &createdAt, &lastSeen, &occurrenceCount,
-		&category, &severity, &objectType, &objectIdent,
-		&title, &detail, &recommendation, &recommendedSQL,
-		&rollbackSQL, &estimatedCostUSD, &status,
-		&suppressedUntil, &resolvedAt, &actedOnAt,
-		&actionLogID,
-	)
+	var row findingDetailRow
+	err := pool.QueryRow(ctx, findingDetailSQL, id).Scan(row.scanDest()...)
 	if err != nil {
 		return nil, err
 	}
+	return row.toMap(), nil
+}
+
+// findingDetailRow is one findingDetailSQL row.
+type findingDetailRow struct {
+	fID              int64
+	createdAt        time.Time
+	lastSeen         time.Time
+	occurrenceCount  int
+	category         string
+	severity         string
+	objectType       *string
+	objectIdent      *string
+	title            string
+	detail           []byte
+	recommendation   *string
+	recommendedSQL   *string
+	rollbackSQL      *string
+	estimatedCostUSD *float64
+	status           string
+	suppressedUntil  *time.Time
+	resolvedAt       *time.Time
+	actedOnAt        *time.Time
+	actionLogID      *int64
+}
+
+func (fr *findingDetailRow) scanDest() []any {
+	return []any{
+		&fr.fID, &fr.createdAt, &fr.lastSeen, &fr.occurrenceCount,
+		&fr.category, &fr.severity, &fr.objectType, &fr.objectIdent,
+		&fr.title, &fr.detail, &fr.recommendation, &fr.recommendedSQL,
+		&fr.rollbackSQL, &fr.estimatedCostUSD, &fr.status,
+		&fr.suppressedUntil, &fr.resolvedAt, &fr.actedOnAt,
+		&fr.actionLogID,
+	}
+}
+
+func (fr *findingDetailRow) toMap() map[string]any {
 	// See getFindings — bad JSON returns the raw string rather than
 	// masquerading as a missing field, with a log entry for audit.
 	var detailParsed any
-	if len(detail) > 0 {
-		if err := json.Unmarshal(detail, &detailParsed); err != nil {
+	if len(fr.detail) > 0 {
+		if err := json.Unmarshal(fr.detail, &detailParsed); err != nil {
 			slog.Warn(
 				"finding_detail: detail column is not valid JSON",
-				"finding_id", fID,
+				"finding_id", fr.fID,
 				"err", err,
 			)
-			detailParsed = string(detail)
+			detailParsed = string(fr.detail)
 		}
 	}
-	normalizeFindingQueryID(detailParsed, derefStr(objectType), derefStr(objectIdent))
+	normalizeFindingQueryID(detailParsed, derefStr(fr.objectType), derefStr(fr.objectIdent))
 	return withFindingRisk(map[string]any{
-		"id":                 strconv.FormatInt(fID, 10),
-		"created_at":         createdAt,
-		"last_seen":          lastSeen,
-		"occurrence_count":   occurrenceCount,
-		"category":           category,
-		"severity":           severity,
-		"object_type":        derefStr(objectType),
-		"object_identifier":  derefStr(objectIdent),
-		"title":              title,
+		"id":                 strconv.FormatInt(fr.fID, 10),
+		"created_at":         fr.createdAt,
+		"last_seen":          fr.lastSeen,
+		"occurrence_count":   fr.occurrenceCount,
+		"category":           fr.category,
+		"severity":           fr.severity,
+		"object_type":        derefStr(fr.objectType),
+		"object_identifier":  derefStr(fr.objectIdent),
+		"title":              fr.title,
 		"detail":             detailParsed,
-		"recommendation":     derefStr(recommendation),
-		"recommended_sql":    derefStr(recommendedSQL),
-		"rollback_sql":       derefStr(rollbackSQL),
-		"estimated_cost_usd": estimatedCostUSD,
-		"status":             status,
-		"suppressed_until":   suppressedUntil,
-		"resolved_at":        resolvedAt,
-		"acted_on_at":        actedOnAt,
-		"action_log_id":      actionLogID,
-	}, derefStr(recommendedSQL), detailParsed), nil
+		"recommendation":     derefStr(fr.recommendation),
+		"recommended_sql":    derefStr(fr.recommendedSQL),
+		"rollback_sql":       derefStr(fr.rollbackSQL),
+		"estimated_cost_usd": fr.estimatedCostUSD,
+		"status":             fr.status,
+		"suppressed_until":   fr.suppressedUntil,
+		"resolved_at":        fr.resolvedAt,
+		"acted_on_at":        fr.actedOnAt,
+		"action_log_id":      fr.actionLogID,
+	}, derefStr(fr.recommendedSQL), detailParsed)
 }
 
 const findingDetailSQL = `/* pg_sage */SELECT id, created_at, last_seen,

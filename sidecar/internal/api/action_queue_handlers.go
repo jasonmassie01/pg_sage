@@ -160,54 +160,76 @@ func findingPendingActionsHandler(
 			return
 		}
 		result := make([]map[string]any, 0)
+		ok := true
 		if deps.Fleet != nil {
-			dbFilter := r.URL.Query().Get("database")
-			if err := validateDatabaseParam(dbFilter); err != nil {
-				jsonError(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-			if rejectUnknownDatabase(w, deps.Fleet, dbFilter) {
-				return
-			}
-			for _, inst := range sortedFleetInstances(deps.Fleet) {
-				if dbFilter != "" && dbFilter != "all" &&
-					inst.Name != dbFilter {
-					continue
-				}
-				if inst.Pool == nil {
-					continue
-				}
-				as := store.NewActionStore(inst.Pool)
-				actions, qerr := as.ListPendingByFinding(
-					r.Context(), findingID)
-				if qerr != nil {
-					continue
-				}
-				for _, a := range actions {
-					m := queuedActionMapWithReadiness(a, inst.Executor)
-					m["database_name"] = inst.Name
-					result = append(result, m)
-				}
-			}
+			result, ok = fleetFindingPendingActions(w, r, deps.Fleet, findingID, result)
 		} else if deps.Store != nil {
-			actions, qerr := deps.Store.ListPendingByFinding(
-				r.Context(), findingID)
-			if qerr != nil {
-				slog.Error(
-					"finding pending actions failed",
-					"finding_id", findingID, "error", qerr)
-				jsonError(w,
-					"failed to list pending actions", 500)
-				return
-			}
-			for _, a := range actions {
-				result = append(result,
-					queuedActionMapWithReadiness(a, deps.Executor))
-			}
+			result, ok = storeFindingPendingActions(w, r, deps, findingID, result)
+		}
+		if !ok {
+			return
 		}
 		jsonResponse(w, map[string]any{
 			"pending": result,
 			"total":   len(result),
 		})
 	}
+}
+
+// fleetFindingPendingActions collects the finding's pending actions from
+// each selected database; a database whose read fails is left out.
+func fleetFindingPendingActions(
+	w http.ResponseWriter, r *http.Request, mgr *fleet.DatabaseManager,
+	findingID int, result []map[string]any,
+) ([]map[string]any, bool) {
+	dbFilter := r.URL.Query().Get("database")
+	if err := validateDatabaseParam(dbFilter); err != nil {
+		jsonError(w, err.Error(), http.StatusBadRequest)
+		return nil, false
+	}
+	if rejectUnknownDatabase(w, mgr, dbFilter) {
+		return nil, false
+	}
+	for _, inst := range sortedFleetInstances(mgr) {
+		if dbFilter != "" && dbFilter != "all" &&
+			inst.Name != dbFilter {
+			continue
+		}
+		if inst.Pool == nil {
+			continue
+		}
+		as := store.NewActionStore(inst.Pool)
+		actions, qerr := as.ListPendingByFinding(
+			r.Context(), findingID)
+		if qerr != nil {
+			continue
+		}
+		for _, a := range actions {
+			m := queuedActionMapWithReadiness(a, inst.Executor)
+			m["database_name"] = inst.Name
+			result = append(result, m)
+		}
+	}
+	return result, true
+}
+
+func storeFindingPendingActions(
+	w http.ResponseWriter, r *http.Request, deps *ActionDeps,
+	findingID int, result []map[string]any,
+) ([]map[string]any, bool) {
+	actions, qerr := deps.Store.ListPendingByFinding(
+		r.Context(), findingID)
+	if qerr != nil {
+		slog.Error(
+			"finding pending actions failed",
+			"finding_id", findingID, "error", qerr)
+		jsonError(w,
+			"failed to list pending actions", 500)
+		return nil, false
+	}
+	for _, a := range actions {
+		result = append(result,
+			queuedActionMapWithReadiness(a, deps.Executor))
+	}
+	return result, true
 }

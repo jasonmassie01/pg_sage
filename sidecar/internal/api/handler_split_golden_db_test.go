@@ -192,7 +192,8 @@ func goldenReadCalls() []goldenCall {
 		{"actions list", "viewer", "GET", "/api/v1/actions" + q, ""},
 		{"action detail", "viewer", "GET", "/api/v1/actions/{log}" + q, ""},
 		{"action detail missing", "viewer", "GET", "/api/v1/actions/999999" + q, ""},
-		{"snapshot latest", "viewer", "GET", "/api/v1/snapshots/latest?database=primary&metric=system", ""},
+		{"snapshot latest", "viewer", "GET",
+			"/api/v1/snapshots/latest?database=primary&metric=system", ""},
 		{"snapshot latest empty", "viewer", "GET",
 			"/api/v1/snapshots/latest?database=primary&metric=locks", ""},
 		{"snapshot history", "viewer", "GET",
@@ -206,7 +207,8 @@ func goldenReadCalls() []goldenCall {
 		{"incident detail", "viewer", "GET", "/api/v1/incidents/{incident}" + q, ""},
 		{"pending", "operator", "GET", "/api/v1/actions/pending" + q, ""},
 		{"pending count", "operator", "GET", "/api/v1/actions/pending/count" + q, ""},
-		{"pending by finding", "operator", "GET", "/api/v1/findings/{open}/pending-actions" + q, ""},
+		{"pending by finding", "operator", "GET",
+			"/api/v1/findings/{open}/pending-actions" + q, ""},
 		{"managed list", "admin", "GET", "/api/v1/databases/managed", ""},
 		{"managed get", "admin", "GET", "/api/v1/databases/managed/{db}", ""},
 	}
@@ -234,8 +236,10 @@ func goldenWriteCalls() []goldenCall {
 		{"config db delete stale", "admin", "DELETE",
 			cfgPath + "/analyzer.disabled_rules?expected_generation=2", ""},
 		{"config audit", "admin", "GET", "/api/v1/config/audit?limit=2", ""},
-		{"reject", "operator", "POST", "/api/v1/actions/{reject}/reject" + q, `{"reason":"golden"}`},
-		{"reject again", "operator", "POST", "/api/v1/actions/{reject}/reject" + q, `{"reason":"x"}`},
+		{"reject", "operator", "POST", "/api/v1/actions/{reject}/reject" + q,
+			`{"reason":"golden"}`},
+		{"reject again", "operator", "POST", "/api/v1/actions/{reject}/reject" + q,
+			`{"reason":"x"}`},
 		{"rollback", "operator", "POST", "/api/v1/actions/{log}/rollback" + q, "{}"},
 		{"incident resolve", "operator", "POST",
 			"/api/v1/incidents/{incident}/resolve" + q, `{"reason":"golden fixed"}`},
@@ -244,6 +248,11 @@ func goldenWriteCalls() []goldenCall {
 		{"emergency stop", "operator", "POST", "/api/v1/emergency-stop" + q, "{}"},
 		{"emergency stop again", "operator", "POST", "/api/v1/emergency-stop" + q, "{}"},
 		{"resume", "operator", "POST", "/api/v1/resume" + q, "{}"},
+	}
+}
+
+func goldenManagedWriteCalls() []goldenCall {
+	return []goldenCall{
 		{"managed create", "admin", "POST", "/api/v1/databases/managed",
 			`{"name":"golden2","host":"127.0.0.1","port":1,"database_name":"app2",` +
 				`"username":"sage","password":"pw2","sslmode":"disable",` +
@@ -267,13 +276,15 @@ func TestHandlerSplitGolden_DB(t *testing.T) {
 	fx := seedSplitFixture(t, goldenDBPool(t, "api_handler_golden"))
 	h, _ := goldenDBRouter(t, fx, "primary")
 	checkHandlerGolden(t, "db_reads.json", runGoldenCalls(h, fx.expand(goldenReadCalls())))
-	checkHandlerGolden(t, "db_writes.json", runGoldenCalls(h, fx.expand(goldenWriteCalls())))
+	checkHandlerGolden(t, "db_writes.json", runGoldenCalls(h,
+		fx.expand(append(goldenWriteCalls(), goldenManagedWriteCalls()...))))
 	fleetH, _ := goldenDBRouter(t, fx, "primary", "replica")
 	checkHandlerGolden(t, "db_fleet.json", runGoldenCalls(fleetH, fx.expand([]goldenCall{
 		{"fleet findings all", "viewer", "GET", "/api/v1/findings?database=all", ""},
 		{"fleet stats all", "viewer", "GET", "/api/v1/findings/stats?database=all", ""},
 		{"fleet health all", "viewer", "GET", "/api/v1/fleet/health?database=all", ""},
-		{"fleet pending by finding", "operator", "GET", "/api/v1/findings/{open}/pending-actions", ""},
+		{"fleet pending by finding", "operator", "GET",
+			"/api/v1/findings/{open}/pending-actions", ""},
 		{"fleet incidents", "viewer", "GET", "/api/v1/incidents", ""},
 	})))
 }

@@ -19,4 +19,4 @@ sidecar/sre-bench/scenarios_wal.go 509
 sidecar/web/src/pages/Actions.jsx 885
 sidecar/web/src/pages/SettingsPage.jsx 1335
 
-functions_over_50 73
+functions_over_50 54

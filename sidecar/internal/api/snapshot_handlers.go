@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -42,34 +43,42 @@ func snapshotLatestHandler(
 		if metric == "" {
 			metric = "system"
 		}
-		if selected.pool == nil {
-			if selected.name == "" {
-				jsonError(w, "database not found", http.StatusNotFound)
-				return
-			}
-			jsonResponse(w, map[string]any{
-				"database": selected.name, "snapshot": nil,
-			})
-			return
-		}
-		displayName := selected.name
-		data, err := querySnapshotLatest(
-			r.Context(), selected.pool, metric,
-		)
-		if err != nil {
-			if !errors.Is(err, pgx.ErrNoRows) {
-				internalError(w, r, "read latest snapshot", err)
-				return
-			}
-			jsonResponse(w, map[string]any{
-				"database": displayName, "snapshot": nil,
-			})
+		writeLatestSnapshot(w, r, selected, metric)
+	}
+}
+
+// writeLatestSnapshot answers the newest snapshot of metric; no pool or
+// no row is a null snapshot, any other read error a 500.
+func writeLatestSnapshot(
+	w http.ResponseWriter, r *http.Request, selected namedPool, metric string,
+) {
+	if selected.pool == nil {
+		if selected.name == "" {
+			jsonError(w, "database not found", http.StatusNotFound)
 			return
 		}
 		jsonResponse(w, map[string]any{
-			"database": displayName, "snapshot": data,
+			"database": selected.name, "snapshot": nil,
 		})
+		return
 	}
+	displayName := selected.name
+	data, err := querySnapshotLatest(
+		r.Context(), selected.pool, metric,
+	)
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			internalError(w, r, "read latest snapshot", err)
+			return
+		}
+		jsonResponse(w, map[string]any{
+			"database": displayName, "snapshot": nil,
+		})
+		return
+	}
+	jsonResponse(w, map[string]any{
+		"database": displayName, "snapshot": data,
+	})
 }
 
 func snapshotHistoryHandler(
@@ -106,23 +115,32 @@ func snapshotHistoryHandler(
 			})
 			return
 		}
-		displayName := selected.name
-		hours := parseIntDefault(q.Get("hours"), 24)
-		from := parseTimeParam(q.Get("from"))
-		to := parseTimeParam(q.Get("to"))
-		points, truncated, err := querySnapshotHistory(
-			r.Context(), selected.pool, metric, hours, from, to,
-		)
-		if err != nil {
-			slog.Warn("snapshot history query failed; answering no points",
-				"database", displayName, "metric", metric, "error", err)
-			points, truncated = []historyPoint{}, false
-		}
-		jsonResponse(w, map[string]any{
-			"database": displayName, "metric": metric,
-			"points": points, "truncated": truncated,
-		})
+		writeSnapshotHistory(w, r, selected, metric)
 	}
+}
+
+// writeSnapshotHistory answers metric's points; a failed read answers
+// no points, as the chart treats an empty series.
+func writeSnapshotHistory(
+	w http.ResponseWriter, r *http.Request, selected namedPool, metric string,
+) {
+	q := r.URL.Query()
+	displayName := selected.name
+	hours := parseIntDefault(q.Get("hours"), 24)
+	from := parseTimeParam(q.Get("from"))
+	to := parseTimeParam(q.Get("to"))
+	points, truncated, err := querySnapshotHistory(
+		r.Context(), selected.pool, metric, hours, from, to,
+	)
+	if err != nil {
+		slog.Warn("snapshot history query failed; answering no points",
+			"database", displayName, "metric", metric, "error", err)
+		points, truncated = []historyPoint{}, false
+	}
+	jsonResponse(w, map[string]any{
+		"database": displayName, "metric": metric,
+		"points": points, "truncated": truncated,
+	})
 }
 
 // fleetHealthHandler returns a time-series of health scores per
@@ -147,49 +165,64 @@ func fleetHealthHandler(
 			jsonError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		hours := parseIntDefault(q.Get("hours"), 24)
-		from := parseTimeParam(q.Get("from"))
-		to := parseTimeParam(q.Get("to"))
-		if from.IsZero() && to.IsZero() {
-			to = time.Now().UTC()
-			from = to.Add(-time.Duration(hours) * time.Hour)
-		} else {
-			if from.IsZero() {
-				from = time.Unix(0, 0)
-			}
-			if to.IsZero() {
-				to = time.Now().UTC()
-			}
-		}
-
-		out := map[string][]map[string]any{}
-		// In fleet mode every instance has its own sage.health_history
-		// written by RecordHealthSnapshots. We query each pool once.
-		instances := mgr.Instances()
-		for name, inst := range instances {
-			if database != "" && database != "all" && database != name {
-				continue
-			}
-			if inst.Pool == nil {
-				continue
-			}
-			points, err := queryHealthHistory(
-				r.Context(), inst.Pool, name, from, to,
-			)
-			if err != nil {
-				slog.Warn("fleet_health: query failed",
-					"database", name, "error", err)
-				out[name] = []map[string]any{}
-				continue
-			}
-			out[name] = points
-		}
+		from, to := fleetHealthWindow(q)
 		jsonResponse(w, map[string]any{
 			"from":      from,
 			"to":        to,
-			"databases": out,
+			"databases": fleetHealthSeries(r.Context(), mgr, database, from, to),
 		})
 	}
+}
+
+// fleetHealthWindow reads from/to, defaulting to the last `hours`
+// (24) hours, or an open edge to the epoch or now.
+func fleetHealthWindow(q url.Values) (time.Time, time.Time) {
+	hours := parseIntDefault(q.Get("hours"), 24)
+	from := parseTimeParam(q.Get("from"))
+	to := parseTimeParam(q.Get("to"))
+	if from.IsZero() && to.IsZero() {
+		to = time.Now().UTC()
+		from = to.Add(-time.Duration(hours) * time.Hour)
+	} else {
+		if from.IsZero() {
+			from = time.Unix(0, 0)
+		}
+		if to.IsZero() {
+			to = time.Now().UTC()
+		}
+	}
+	return from, to
+}
+
+// fleetHealthSeries reads each selected database's health_history; a
+// failed read is an empty series.
+func fleetHealthSeries(
+	ctx context.Context, mgr *fleet.DatabaseManager,
+	database string, from, to time.Time,
+) map[string][]map[string]any {
+	out := map[string][]map[string]any{}
+	// In fleet mode every instance has its own sage.health_history
+	// written by RecordHealthSnapshots. We query each pool once.
+	instances := mgr.Instances()
+	for name, inst := range instances {
+		if database != "" && database != "all" && database != name {
+			continue
+		}
+		if inst.Pool == nil {
+			continue
+		}
+		points, err := queryHealthHistory(
+			ctx, inst.Pool, name, from, to,
+		)
+		if err != nil {
+			slog.Warn("fleet_health: query failed",
+				"database", name, "error", err)
+			out[name] = []map[string]any{}
+			continue
+		}
+		out[name] = points
+	}
+	return out
 }
 
 func queryHealthHistory(

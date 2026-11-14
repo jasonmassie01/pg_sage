@@ -91,24 +91,7 @@ func configReadOnlyDBGetHandler(
 			controller,
 		)
 		values := store.ConfigReadModel(responseCfg)
-		executionMode := instance.Config.ExecutionMode
-		trustLevel := instance.Config.TrustLevel
-		if instance.Executor != nil {
-			executionMode = instance.Executor.ExecutionMode()
-			trustLevel = instance.Executor.TrustLevel()
-		}
-		if executionMode == "" {
-			executionMode = "approval"
-		}
-		if trustLevel == "" {
-			trustLevel = responseCfg.Trust.Level
-		}
-		values["execution_mode"] = map[string]any{
-			"value": executionMode, "source": store.SourceFileDefault,
-		}
-		values["trust.level"] = map[string]any{
-			"value": trustLevel, "source": store.SourceFileDefault,
-		}
+		addReadOnlyDatabasePolicy(values, instance, responseCfg)
 		jsonResponse(w, map[string]any{
 			"mode":               responseCfg.Mode,
 			"databases":          len(responseCfg.Databases),
@@ -121,6 +104,31 @@ func configReadOnlyDBGetHandler(
 			"read_only":          true,
 			"write_guidance":     "edit the YAML file",
 		})
+	}
+}
+
+// addReadOnlyDatabasePolicy reports the database's running execution
+// mode and trust level, falling back to its YAML and the global trust.
+func addReadOnlyDatabasePolicy(
+	values map[string]any, instance *fleet.DatabaseInstance, responseCfg *config.Config,
+) {
+	executionMode := instance.Config.ExecutionMode
+	trustLevel := instance.Config.TrustLevel
+	if instance.Executor != nil {
+		executionMode = instance.Executor.ExecutionMode()
+		trustLevel = instance.Executor.TrustLevel()
+	}
+	if executionMode == "" {
+		executionMode = "approval"
+	}
+	if trustLevel == "" {
+		trustLevel = responseCfg.Trust.Level
+	}
+	values["execution_mode"] = map[string]any{
+		"value": executionMode, "source": store.SourceFileDefault,
+	}
+	values["trust.level"] = map[string]any{
+		"value": trustLevel, "source": store.SourceFileDefault,
 	}
 }
 

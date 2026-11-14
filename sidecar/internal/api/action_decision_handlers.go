@@ -283,28 +283,8 @@ func fleetManualExecuteHandler(
 				http.StatusUnauthorized)
 			return
 		}
-		var body struct {
-			FindingID   int    `json:"finding_id"`
-			SQL         string `json:"sql"`
-			RollbackSQL string `json:"rollback_sql"`
-			Database    string `json:"database"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			jsonError(w, "invalid JSON", http.StatusBadRequest)
-			return
-		}
-		if body.FindingID == 0 || body.SQL == "" {
-			jsonError(w, "finding_id and sql are required",
-				http.StatusBadRequest)
-			return
-		}
-		if body.Database == "" || body.Database == "all" {
-			jsonError(w, "database is required",
-				http.StatusBadRequest)
-			return
-		}
-		if err := validateDatabaseParam(body.Database); err != nil {
-			jsonError(w, err.Error(), http.StatusBadRequest)
+		body, ok := decodeFleetManualExecute(w, r)
+		if !ok {
 			return
 		}
 		inst := mgr.GetInstance(body.Database)
@@ -331,6 +311,40 @@ func fleetManualExecuteHandler(
 			"action_log_id": actionLogID,
 		})
 	}
+}
+
+type fleetManualExecuteBody struct {
+	FindingID   int    `json:"finding_id"`
+	SQL         string `json:"sql"`
+	RollbackSQL string `json:"rollback_sql"`
+	Database    string `json:"database"`
+}
+
+// decodeFleetManualExecute reads and checks the body: a finding, SQL and
+// one named database are required.
+func decodeFleetManualExecute(
+	w http.ResponseWriter, r *http.Request,
+) (fleetManualExecuteBody, bool) {
+	var body fleetManualExecuteBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonError(w, "invalid JSON", http.StatusBadRequest)
+		return body, false
+	}
+	if body.FindingID == 0 || body.SQL == "" {
+		jsonError(w, "finding_id and sql are required",
+			http.StatusBadRequest)
+		return body, false
+	}
+	if body.Database == "" || body.Database == "all" {
+		jsonError(w, "database is required",
+			http.StatusBadRequest)
+		return body, false
+	}
+	if err := validateDatabaseParam(body.Database); err != nil {
+		jsonError(w, err.Error(), http.StatusBadRequest)
+		return body, false
+	}
+	return body, true
 }
 
 func fleetRollbackActionHandler(

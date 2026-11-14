@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/store"
 )
 
 func testManagedDBHandler(
@@ -20,70 +22,98 @@ func testManagedDBHandler(
 			jsonError(w, "invalid database ID", http.StatusBadRequest)
 			return
 		}
-
-		var req dbCreateRequest
-		hasPreviewBody := false
-		if r.Body != nil {
-			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-				if !errors.Is(err, io.EOF) {
-					jsonError(w, "invalid request body", http.StatusBadRequest)
-					return
-				}
-			} else {
-				hasPreviewBody = true
-			}
+		req, hasPreviewBody, ok := decodeManagedTestBody(w, r)
+		if !ok {
+			return
 		}
-
 		rec, err := deps.Store.Get(r.Context(), id)
 		if err != nil {
 			jsonError(w, "database not found", http.StatusNotFound)
 			return
 		}
-
-		fleetConnStr, fleetPassword, fleetFound :=
-			fleetManagedDBConnection(deps, id, rec.Name)
-
-		var connStr string
-		if hasPreviewBody {
-			if sameManagedHost(req.Host, rec.Host) {
-				applyManagedTestDefaults(&req)
-			} else {
-				if !applySafePreviewHost(w, &req) {
-					return
-				}
-			}
-			fallbackPassword := fleetPassword
-			if req.Password == "" && fallbackPassword == "" {
-				storedConnStr, storeErr := deps.Store.GetConnectionString(
-					r.Context(), id)
-				if storeErr != nil {
-					internalError(w, r,
-						"read database credentials", storeErr)
-					return
-				}
-				if parsed, parseErr := url.Parse(
-					storedConnStr); parseErr == nil {
-					fallbackPassword, _ = parsed.User.Password()
-				}
-			}
-			connStr = buildManagedTestConnString(
-				req, fallbackPassword)
-		} else if fleetFound {
-			connStr = fleetConnStr
-		} else {
-			connStr, err = deps.Store.GetConnectionString(
-				r.Context(), id)
-			if err != nil {
-				internalError(w, r,
-					"read database credentials", err)
-				return
-			}
+		connStr, ok := managedTestConnString(w, r, deps, id, rec, &req, hasPreviewBody)
+		if !ok {
+			return
 		}
 		result := testFromConnStringAtIP(r.Context(), connStr, req.resolvedIP)
 		result.ActionIdentity = testManagedActionIdentity(r.Context(), deps, id, req,
 			hasPreviewBody, connStr)
 		jsonResponse(w, result)
 	}
+}
+
+// decodeManagedTestBody reads an optional preview body: none tests the
+// stored record, one tests the edited form.
+func decodeManagedTestBody(
+	w http.ResponseWriter, r *http.Request,
+) (dbCreateRequest, bool, bool) {
+	var req dbCreateRequest
+	hasPreviewBody := false
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			if !errors.Is(err, io.EOF) {
+				jsonError(w, "invalid request body", http.StatusBadRequest)
+				return req, false, false
+			}
+		} else {
+			hasPreviewBody = true
+		}
+	}
+	return req, hasPreviewBody, true
+}
+
+// managedTestConnString picks what to test: the preview (falling back to
+// the running or stored password), the running fleet connection, or the
+// stored record.
+func managedTestConnString(
+	w http.ResponseWriter, r *http.Request, deps *DatabaseDeps, id int,
+	rec *store.DatabaseRecord, req *dbCreateRequest, hasPreviewBody bool,
+) (string, bool) {
+	fleetConnStr, fleetPassword, fleetFound :=
+		fleetManagedDBConnection(deps, id, rec.Name)
+	if hasPreviewBody {
+		return previewTestConnString(w, r, deps, id, rec, req, fleetPassword)
+	}
+	if fleetFound {
+		return fleetConnStr, true
+	}
+	connStr, err := deps.Store.GetConnectionString(
+		r.Context(), id)
+	if err != nil {
+		internalError(w, r,
+			"read database credentials", err)
+		return "", false
+	}
+	return connStr, true
+}
+
+func previewTestConnString(
+	w http.ResponseWriter, r *http.Request, deps *DatabaseDeps, id int,
+	rec *store.DatabaseRecord, req *dbCreateRequest, fleetPassword string,
+) (string, bool) {
+	if sameManagedHost(req.Host, rec.Host) {
+		applyManagedTestDefaults(req)
+	} else {
+		if !applySafePreviewHost(w, req) {
+			return "", false
+		}
+	}
+	fallbackPassword := fleetPassword
+	if req.Password == "" && fallbackPassword == "" {
+		storedConnStr, storeErr := deps.Store.GetConnectionString(
+			r.Context(), id)
+		if storeErr != nil {
+			internalError(w, r,
+				"read database credentials", storeErr)
+			return "", false
+		}
+		if parsed, parseErr := url.Parse(
+			storedConnStr); parseErr == nil {
+			fallbackPassword, _ = parsed.User.Password()
+		}
+	}
+	return buildManagedTestConnString(
+		*req, fallbackPassword), true
 }
 
 func fleetManagedDBConnection(

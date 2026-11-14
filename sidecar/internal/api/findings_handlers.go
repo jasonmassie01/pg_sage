@@ -4,6 +4,8 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/pg-sage/sidecar/internal/fleet"
 )
 
@@ -72,46 +74,59 @@ func findingsStatsHandler(
 		}
 		filters := parseFindingFilters(q)
 		if database == "all" && mgr.InstanceCount() > 1 {
-			stats, total, err := queryFindingsStatsAcrossFleet(
-				r.Context(), mgr, filters,
-			)
-			if err != nil {
-				slog.Error("query fleet findings stats failed",
-					"error", err)
-				jsonError(w, "failed to query findings stats", 500)
-				return
-			}
-			jsonResponse(w, map[string]any{
-				"database":   "all",
-				"stats":      stats,
-				"total_open": total,
-			})
+			writeFleetFindingsStats(w, r, mgr, filters)
 			return
 		}
-		pool := mgr.PoolForDatabase(database)
-		displayName := mgr.ResolveDatabaseName(database)
-		if pool == nil {
-			jsonResponse(w, map[string]any{
-				"database":   displayName,
-				"stats":      []any{},
-				"total_open": 0,
-			})
-			return
-		}
-		stats, total, err := queryFindingsStats(
-			r.Context(), pool, filters,
-		)
-		if err != nil {
-			slog.Error("query findings stats failed",
-				"error", err)
-			jsonError(w, "failed to query findings stats", 500)
-			return
-		}
-		jsonResponse(w, map[string]any{
-			"database":   displayName,
-			"stats":      stats,
-			"total_open": total,
-		})
+		writeDatabaseFindingsStats(w, r, mgr, database, filters)
+	}
+}
+
+// writeFleetFindingsStats answers the stats summed over every database.
+func writeFleetFindingsStats(
+	w http.ResponseWriter, r *http.Request,
+	mgr *fleet.DatabaseManager, filters fleet.FindingFilters,
+) {
+	stats, total, err := queryFindingsStatsAcrossFleet(
+		r.Context(), mgr, filters,
+	)
+	if err != nil {
+		slog.Error("query fleet findings stats failed",
+			"error", err)
+		jsonError(w, "failed to query findings stats", 500)
+		return
+	}
+	jsonResponse(w, findingsStatsResponse("all", stats, total))
+}
+
+// writeDatabaseFindingsStats answers one database's stats; a database
+// without a pool has none.
+func writeDatabaseFindingsStats(
+	w http.ResponseWriter, r *http.Request,
+	mgr *fleet.DatabaseManager, database string, filters fleet.FindingFilters,
+) {
+	pool := mgr.PoolForDatabase(database)
+	displayName := mgr.ResolveDatabaseName(database)
+	if pool == nil {
+		jsonResponse(w, findingsStatsResponse(displayName, []any{}, 0))
+		return
+	}
+	stats, total, err := queryFindingsStats(
+		r.Context(), pool, filters,
+	)
+	if err != nil {
+		slog.Error("query findings stats failed",
+			"error", err)
+		jsonError(w, "failed to query findings stats", 500)
+		return
+	}
+	jsonResponse(w, findingsStatsResponse(displayName, stats, total))
+}
+
+func findingsStatsResponse(database string, stats any, total int) map[string]any {
+	return map[string]any{
+		"database":   database,
+		"stats":      stats,
+		"total_open": total,
 	}
 }
 
@@ -152,73 +167,19 @@ func findingDetailHandler(
 func suppressHandler(
 	mgr *fleet.DatabaseManager,
 ) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		id := r.PathValue("id")
-		if id == "" {
-			jsonError(w, "missing finding id",
-				http.StatusBadRequest)
-			return
-		}
-		if dbName := r.URL.Query().Get("database"); dbName != "" &&
-			dbName != "all" {
-			pool := mgr.PoolForDatabase(dbName)
-			if pool == nil {
-				jsonError(w, "database not found",
-					http.StatusNotFound)
-				return
-			}
-			err := updateFindingStatus(
-				r.Context(), pool, id, "open", "suppressed",
-			)
-			if err != nil {
-				jsonError(w, "finding not found",
-					http.StatusNotFound)
-				return
-			}
-			jsonResponse(w, map[string]any{
-				"ok": true, "id": id, "status": "suppressed",
-			})
-			return
-		}
-		if !allowImplicitSingleDatabaseMutation(w, mgr) {
-			return
-		}
-		pools := mgr.AllPools()
-		if len(pools) == 0 {
-			jsonResponse(w, map[string]string{
-				"id": id, "status": "suppressed",
-			})
-			return
-		}
-		connErrors := 0
-		for _, pool := range pools {
-			err := updateFindingStatus(
-				r.Context(), pool, id, "open", "suppressed",
-			)
-			if err == nil {
-				jsonResponse(w, map[string]any{
-					"ok": true, "id": id, "status": "suppressed",
-				})
-				return
-			}
-			if isConnectionError(err) {
-				connErrors++
-			}
-		}
-		if connErrors > 0 {
-			jsonError(w,
-				"database connection error — "+
-					"some databases are unreachable",
-				http.StatusServiceUnavailable)
-			return
-		}
-		jsonError(w, "finding not found",
-			http.StatusNotFound)
-	}
+	return findingStatusHandler(mgr, "open", "suppressed")
 }
 
 func unsuppressHandler(
 	mgr *fleet.DatabaseManager,
+) http.HandlerFunc {
+	return findingStatusHandler(mgr, "suppressed", "open")
+}
+
+// findingStatusHandler moves one finding from status from to status to:
+// on the named database, or on the only database when none is named.
+func findingStatusHandler(
+	mgr *fleet.DatabaseManager, from, to string,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
@@ -229,60 +190,74 @@ func unsuppressHandler(
 		}
 		if dbName := r.URL.Query().Get("database"); dbName != "" &&
 			dbName != "all" {
-			pool := mgr.PoolForDatabase(dbName)
-			if pool == nil {
-				jsonError(w, "database not found",
-					http.StatusNotFound)
-				return
-			}
-			err := updateFindingStatus(
-				r.Context(), pool, id, "suppressed", "open",
-			)
-			if err != nil {
-				jsonError(w, "finding not found",
-					http.StatusNotFound)
-				return
-			}
-			jsonResponse(w, map[string]any{
-				"ok": true, "id": id, "status": "open",
-			})
+			setNamedFindingStatus(w, r, mgr.PoolForDatabase(dbName), id, from, to)
 			return
 		}
 		if !allowImplicitSingleDatabaseMutation(w, mgr) {
 			return
 		}
-		pools := mgr.AllPools()
-		if len(pools) == 0 {
-			jsonResponse(w, map[string]string{
-				"id": id, "status": "open",
+		setImplicitFindingStatus(w, r, mgr.AllPools(), id, from, to)
+	}
+}
+
+func setNamedFindingStatus(
+	w http.ResponseWriter, r *http.Request,
+	pool *pgxpool.Pool, id, from, to string,
+) {
+	if pool == nil {
+		jsonError(w, "database not found",
+			http.StatusNotFound)
+		return
+	}
+	err := updateFindingStatus(
+		r.Context(), pool, id, from, to,
+	)
+	if err != nil {
+		jsonError(w, "finding not found",
+			http.StatusNotFound)
+		return
+	}
+	jsonResponse(w, map[string]any{
+		"ok": true, "id": id, "status": to,
+	})
+}
+
+// setImplicitFindingStatus tries each pool until one holds the finding;
+// an unreachable pool makes a miss a 503 rather than a 404.
+func setImplicitFindingStatus(
+	w http.ResponseWriter, r *http.Request,
+	pools []*pgxpool.Pool, id, from, to string,
+) {
+	if len(pools) == 0 {
+		jsonResponse(w, map[string]string{
+			"id": id, "status": to,
+		})
+		return
+	}
+	connErrors := 0
+	for _, pool := range pools {
+		err := updateFindingStatus(
+			r.Context(), pool, id, from, to,
+		)
+		if err == nil {
+			jsonResponse(w, map[string]any{
+				"ok": true, "id": id, "status": to,
 			})
 			return
 		}
-		connErrors := 0
-		for _, pool := range pools {
-			err := updateFindingStatus(
-				r.Context(), pool, id, "suppressed", "open",
-			)
-			if err == nil {
-				jsonResponse(w, map[string]any{
-					"ok": true, "id": id, "status": "open",
-				})
-				return
-			}
-			if isConnectionError(err) {
-				connErrors++
-			}
+		if isConnectionError(err) {
+			connErrors++
 		}
-		if connErrors > 0 {
-			jsonError(w,
-				"database connection error — "+
-					"some databases are unreachable",
-				http.StatusServiceUnavailable)
-			return
-		}
-		jsonError(w, "finding not found",
-			http.StatusNotFound)
 	}
+	if connErrors > 0 {
+		jsonError(w,
+			"database connection error — "+
+				"some databases are unreachable",
+			http.StatusServiceUnavailable)
+		return
+	}
+	jsonError(w, "finding not found",
+		http.StatusNotFound)
 }
 
 func allowImplicitSingleDatabaseMutation(

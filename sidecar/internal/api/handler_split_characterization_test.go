@@ -261,11 +261,18 @@ func invalidInputCalls() []goldenCall {
 		{"config delete no generation", "admin", "DELETE",
 			"/api/v1/config/databases/1/analyzer.disabled_rules", ""},
 		{"config db get negative id", "admin", "GET", "/api/v1/config/databases/-1", ""},
+	}
+}
+
+// requestInvalidInputCalls cover the non-config invalid requests.
+func requestInvalidInputCalls() []goldenCall {
+	return []goldenCall{
 		{"global put malformed", "admin", "PUT", "/api/v1/config", "{not json"},
 		{"global put no generation", "admin", "PUT", "/api/v1/config", `{"trust":{}}`},
 		{"global put bad trust", "admin", "PUT", "/api/v1/config",
 			`{"expected_generation":1,"trust":{"level":"godmode"}}`},
-		{"pending by finding negative", "operator", "GET", "/api/v1/findings/-1/pending-actions", ""},
+		{"pending by finding negative", "operator", "GET",
+			"/api/v1/findings/-1/pending-actions", ""},
 		{"pending by finding injected", "operator", "GET",
 			"/api/v1/findings/1;DROP/pending-actions", ""},
 		{"findings bad database", "viewer", "GET", "/api/v1/findings?database=a;DROP", ""},
@@ -346,7 +353,7 @@ func TestHandlerSplitGolden_ClosedPool(t *testing.T) {
 
 func TestHandlerSplitGolden_InvalidInput(t *testing.T) {
 	h, _ := closedFleetRouter(t, "primary")
-	recs := runGoldenCalls(h, invalidInputCalls())
+	recs := runGoldenCalls(h, append(invalidInputCalls(), requestInvalidInputCalls()...))
 	checkHandlerGolden(t, "invalid_input.json", recs)
 	for _, rec := range recs {
 		// An empty put with a generation is today's no-op 200 echo.
