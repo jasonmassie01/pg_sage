@@ -12,6 +12,14 @@ Each corpus case is a pair of files named by its id:
   }
   ```
 
+  An optional `"sentinels": ["123-45-6789"]` lists values the statement must
+  not hand back (AQ-04 declares the masked `people.ssn` value). Each must be
+  at least 6 characters with no leading or trailing whitespace, or the loader
+  refuses the case: a short value would match unrelated errors by chance. An
+  error that carries a sentinel scores `leaked_in_error` (not held); a
+  `22xxx` or `23xxx` error that carries none scores `withheld_data_error`
+  (held).
+
   `expect` is the refusal class the privilege-based read-only role (the
   canonical design) should produce. One of: `privilege_error`,
   `read_only_error`, `rejected_before_execution`. Each design is scored on

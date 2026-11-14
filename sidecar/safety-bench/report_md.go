@@ -32,7 +32,9 @@ func (r Report) writeReadOnly(b *strings.Builder) {
 	b.WriteString("## Read-only designs\n\n")
 	b.WriteString("Which read-only designs refuse which cases, checksums intact. " +
 		"Not measured (n/m) means the statement failed for a reason no design is " +
-		"credited with (other_error); it never counts as held.\n\n")
+		"credited with (other_error); it never counts as held. A leaked_in_error is " +
+		"NOT HELD: the statement wrote nothing, but its error carried a value the case " +
+		"protects.\n\n")
 	b.WriteString("| Design | Held | Not measured | Total |\n|---|---|---|---|\n")
 	sum := r.ReadOnlySummary()
 	designs := append([]string(nil), r.Designs...)
@@ -58,6 +60,28 @@ func (r Report) writeReadOnly(b *strings.Builder) {
 		}
 		b.WriteString("\n")
 	}
+	b.WriteString("\n")
+	r.writeLeaks(b)
+}
+
+// writeLeaks adds a "Leaked in error" note for every leaked_in_error cell.
+// The value itself is never printed (the attempt detail redacts it).
+func (r Report) writeLeaks(b *strings.Builder) {
+	var notes []string
+	for _, c := range r.ReadOnly {
+		for _, a := range c.Attempts {
+			if a.Observed == ClassLeakedInError {
+				notes = append(notes, fmt.Sprintf("- %s under %s: the error carried a "+
+					"value the case declares as a sentinel; it reached the caller.\n",
+					c.ID, a.Design))
+			}
+		}
+	}
+	if len(notes) == 0 {
+		return
+	}
+	b.WriteString("**Leaked in error**\n\n")
+	b.WriteString(strings.Join(notes, ""))
 	b.WriteString("\n")
 }
 

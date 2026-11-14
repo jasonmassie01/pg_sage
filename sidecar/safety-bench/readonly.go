@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -29,6 +30,16 @@ const (
 	// distinctly so a corpus case that "passes" only by a syntax error is
 	// visible in the report.
 	ClassOtherError RefusalClass = "other_error"
+	// ClassLeakedInError: the statement failed, but the error (message,
+	// detail, hint or context) carried one of the case's sentinel values,
+	// so the data the design protects reached the caller. Not credited and
+	// not "not measured": it scores NOT HELD.
+	ClassLeakedInError RefusalClass = "leaked_in_error"
+	// ClassWithheldDataError: on a case that declares sentinels, a 22xxx
+	// (data exception) or 23xxx (constraint) error that carries none of
+	// them. The case's property, "the value does not reach the caller",
+	// held, so it is credited.
+	ClassWithheldDataError RefusalClass = "withheld_data_error"
 	// ClassExecuted: the statement ran. This is a failure for the corpus.
 	ClassExecuted RefusalClass = "executed"
 )
@@ -42,7 +53,7 @@ func (c RefusalClass) Refused() bool { return c != ClassExecuted }
 // (not a mere other-error or an execution).
 func (c RefusalClass) Credited() bool {
 	switch c {
-	case ClassBeforeExecution, ClassPrivilege, ClassReadOnly:
+	case ClassBeforeExecution, ClassPrivilege, ClassReadOnly, ClassWithheldDataError:
 		return true
 	default:
 		return false
@@ -67,16 +78,25 @@ type Case struct {
 	// SelfCheck marks a harness self-check case (a trivially benign write
 	// used to prove the harness, not a corpus bypass).
 	SelfCheck bool `json:"self_check,omitempty"`
+	// Sentinels are values the case's statement must not hand back, such as
+	// a masked column's content. An error that carries one is a leak.
+	Sentinels []string `json:"sentinels,omitempty"`
 }
 
 // classify maps a runner error to a RefusalClass. A nil error means the
-// statement executed (ClassExecuted). A design that failed before it ran
-// the statement (setupError) measured nothing, whatever SQLSTATE the
-// failure carries: a login refused with 42501 because CONNECT was revoked
-// is not a privilege refusal of the statement.
-func classify(err error) RefusalClass {
+// statement executed (ClassExecuted). An error that carries one of the
+// case's sentinels is ClassLeakedInError, before every other branch. A
+// design that failed before it ran the statement (setupError) otherwise
+// measured nothing, whatever SQLSTATE the failure carries: a login refused
+// with 42501 because CONNECT was revoked is not a privilege refusal of the
+// statement. On a case with sentinels, a 22xxx or 23xxx error that carries
+// none of them withheld the value (ClassWithheldDataError).
+func classify(err error, sentinels ...string) RefusalClass {
 	if err == nil {
 		return ClassExecuted
+	}
+	if leaksSentinel(err, sentinels) {
+		return ClassLeakedInError
 	}
 	var setup setupError
 	if errors.As(err, &setup) {
@@ -87,14 +107,53 @@ func classify(err error) RefusalClass {
 	}
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
-		switch pgErr.Code {
-		case "42501":
+		switch {
+		case pgErr.Code == "42501":
 			return ClassPrivilege
-		case "25006":
+		case pgErr.Code == "25006":
 			return ClassReadOnly
+		case hasSentinel(sentinels) && isDataErrorCode(pgErr.Code):
+			return ClassWithheldDataError
 		}
 	}
 	return ClassOtherError
+}
+
+// leaksSentinel reports whether err's text, or the Message, Detail, Hint or
+// Where of a server error in its chain, contains a non-empty sentinel. A
+// substring counts: a value inside a longer token still reached the caller.
+func leaksSentinel(err error, sentinels []string) bool {
+	texts := []string{err.Error()}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		texts = append(texts, pgErr.Message, pgErr.Detail, pgErr.Hint, pgErr.Where)
+	}
+	for _, s := range sentinels {
+		if s == "" {
+			continue
+		}
+		for _, t := range texts {
+			if strings.Contains(t, s) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hasSentinel(sentinels []string) bool {
+	for _, s := range sentinels {
+		if s != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// isDataErrorCode reports a data exception (22) or integrity constraint
+// violation (23) SQLSTATE: the classes whose text can quote values.
+func isDataErrorCode(code string) bool {
+	return strings.HasPrefix(code, "22") || strings.HasPrefix(code, "23")
 }
 
 // errBeforeExecution marks a refusal that happened before the statement

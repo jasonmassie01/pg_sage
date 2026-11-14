@@ -99,7 +99,8 @@ func DiffBaseline(r Report, b Baseline) (BaselineDiff, error) {
 				d.Missing = append(d.Missing, cell)
 				continue
 			}
-			d.add(CellDiff{Design: a.Design, Case: c.ID, Baseline: base, Observed: a})
+			d.add(CellDiff{Design: a.Design, Case: c.ID,
+				Baseline: b.cellClass(base, c.Sentinel), Observed: a})
 		}
 	}
 	for design, cells := range want {
@@ -144,7 +145,8 @@ func BaselineFromReport(r Report, keep []PGOverride) (Baseline, error) {
 			"from the PG%d reference run, and a per-major difference is a pg_overrides entry "+
 			"with a reason", major, ReferenceMajor)
 	}
-	b := Baseline{Designs: map[string]map[string]RefusalClass{}, PGOverrides: keep}
+	b := Baseline{SchemaRevision: schemaRevision,
+		Designs: map[string]map[string]RefusalClass{}, PGOverrides: keep}
 	for _, c := range r.ReadOnly {
 		for _, a := range c.Attempts {
 			if b.Designs[a.Design] == nil {

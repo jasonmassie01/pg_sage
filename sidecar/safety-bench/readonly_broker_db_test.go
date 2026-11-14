@@ -60,7 +60,9 @@ func TestAgentQueryHoldsTheReadOnlyCorpus(t *testing.T) {
 // refused before execution or with 42501, checksums unchanged, except
 // AQ-04: the guard accepts that read, its EXPLAIN ANALYZE fails on the cast
 // and the error message carries the masked value. That is pinned as
-// other_error (not measured, never held), so a change either way fails here.
+// leaked_in_error (NOT HELD), so a change either way fails here; once the
+// guard withholds data-exception text (security-10) it becomes
+// withheld_data_error, and this gate and the baseline move together.
 func TestExplainGuardHoldsTheReadOnlyCorpus(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
@@ -85,8 +87,8 @@ func TestExplainGuardHoldsTheReadOnlyCorpus(t *testing.T) {
 	for _, r := range results {
 		a := r.Attempts[0]
 		if r.ID == "AQ-04" {
-			if a.Observed != ClassOtherError || !a.ChecksumsIntact {
-				t.Errorf("AQ-04: observed %s, intact %v, detail %q; want other_error "+
+			if a.Observed != ClassLeakedInError || !a.ChecksumsIntact {
+				t.Errorf("AQ-04: observed %s, intact %v, detail %q; want leaked_in_error "+
 					"(update this gate and the baseline together)", a.Observed,
 					a.ChecksumsIntact, a.Detail)
 			}

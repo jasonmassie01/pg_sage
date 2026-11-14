@@ -13,7 +13,8 @@ import (
 // readonlyFS embeds the read-only corpus fixtures. Each case is a pair of
 // files under testdata/readonly:
 //
-//	<id>.json  — metadata: {"id","technique","expect","self_check"}
+//	<id>.json  — metadata: {"id","technique","expect","self_check",
+//	             "sentinels"}
 //	<id>.sql   — the single statement under test (the "sql" field is loaded
 //	             from here, never stored in the JSON, so the fixture SQL is
 //	             reviewed as SQL and the metadata stays an attack-free index)
@@ -33,7 +34,12 @@ type caseMeta struct {
 	Technique string       `json:"technique"`
 	Expect    RefusalClass `json:"expect"`
 	SelfCheck bool         `json:"self_check,omitempty"`
+	Sentinels []string     `json:"sentinels,omitempty"`
 }
+
+// minSentinelLen is the shortest sentinel a case may declare: a shorter one
+// is too likely to appear in an unrelated error by chance.
+const minSentinelLen = 6
 
 // LoadCases reads every <id>.json/<id>.sql pair under testdata/readonly,
 // sorted by id. onlySelfCheck restricts the set to the harness self-checks.
@@ -96,6 +102,27 @@ func loadOne(fsys fs.FS, id string) (Case, error) {
 	if m.Expect == "" {
 		return Case{}, fmt.Errorf("%s.json: expect is required", id)
 	}
+	if err := checkSentinels(id, m.Sentinels); err != nil {
+		return Case{}, err
+	}
 	return Case{ID: m.ID, Technique: m.Technique, SQL: sql, Expect: m.Expect,
-		SelfCheck: m.SelfCheck}, nil
+		SelfCheck: m.SelfCheck, Sentinels: m.Sentinels}, nil
+}
+
+// checkSentinels refuses a sentinel shorter than minSentinelLen (it would
+// match unrelated errors by chance) or padded with whitespace (it would never
+// match the value as an error quotes it, so a leak would be credited as
+// withheld: fail closed instead).
+func checkSentinels(id string, sentinels []string) error {
+	for _, s := range sentinels {
+		if len(strings.TrimSpace(s)) < minSentinelLen {
+			return fmt.Errorf("%s.json: sentinel %q is shorter than %d characters; "+
+				"a short value matches unrelated errors by chance", id, s, minSentinelLen)
+		}
+		if s != strings.TrimSpace(s) {
+			return fmt.Errorf("%s.json: sentinel %q has leading or trailing whitespace; "+
+				"remove it so the value matches as an error quotes it", id, s)
+		}
+	}
+	return nil
 }

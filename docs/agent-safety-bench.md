@@ -69,6 +69,12 @@ order-independent content hash) and records whether they changed. A design
 the checksums were unchanged. A statement that failed for any other reason
 (a syntax error, a missing table, a design that could not log in) is
 **not measured** (`n/m`): it is counted in its own column and never as held.
+A case may declare sentinel values (AQ-04 declares the masked `people.ssn`
+value). An error whose message, detail, hint or context carries a sentinel
+is **`leaked_in_error`**, scored NOT HELD: the statement wrote nothing, but
+the value reached the caller. On such a case a data-exception (`22xxx`) or
+constraint (`23xxx`) error that carries no sentinel is
+**`withheld_data_error`**, credited, because the value stayed out.
 The harness self-checks must be held by every design with a credited class,
 and a case whose canonical design (`privilege_role`) refuses it with another
 credited class than declared fails the bench.
@@ -122,17 +128,18 @@ From the PG17 reference run: the sixteen corpus cases RO-01..RO-16, the four
 
 | Design | Held | Not measured | Total | Got through |
 |---|---|---|---|---|
-| `read_only_txn` | 16 | 1 (AQ-04) | 23 | AQ-01 session default via `set_config`, RO-01 `COMMIT` then write, RO-05 server file read, RO-06 `COPY ... TO PROGRAM`, RO-07 switch to read-write, RO-15 lifting the timeout |
-| `privilege_role` | 20 | 1 (AQ-04) | 23 | AQ-01 session default via `set_config`, RO-15 lifting the timeout |
-| `explain_guard` | 22 | 1 (AQ-04) | 23 | none |
+| `read_only_txn` | 16 | 0 | 23 | AQ-01 session default via `set_config`, AQ-04 masked value leaked in an error, RO-01 `COMMIT` then write, RO-05 server file read, RO-06 `COPY ... TO PROGRAM`, RO-07 switch to read-write, RO-15 lifting the timeout |
+| `privilege_role` | 20 | 0 | 23 | AQ-01 session default via `set_config`, AQ-04 masked value leaked in an error, RO-15 lifting the timeout |
+| `explain_guard` | 22 | 0 | 23 | AQ-04 masked value leaked in an error |
 | `agent_query` | 23 | 0 | 23 | none |
 
 AQ-04 casts a masked column. Under the transaction, role and EXPLAIN guard
-designs the cast fails with an error whose message carries the value; that
-is an `other_error`, so it is reported as not measured rather than held (the
-write checksums cannot score a leak through an error message). The EXPLAIN
-guard accepts the read and its `ANALYZE` runs the cast; only `agent_query`
-refuses it by the column's classification.
+designs the cast fails with an error whose message carries the value. The
+write checksums are unchanged, but the value reached the caller, so the cell
+is `leaked_in_error`: NOT HELD. The EXPLAIN guard accepts the read and its
+`ANALYZE` runs the cast; only `agent_query` refuses it by the column's
+classification. A guard that withholds data-exception text scores
+`withheld_data_error` (held) instead.
 
 PG14 and PG15 differ in one cell: RO-14 (`lo_import`) executes under
 `read_only_txn`, because those servers do not check the read-only setting
@@ -214,6 +221,10 @@ cell with it:
 
 - a **regression** (held to not measured or executed, or not measured to
   executed) fails, naming the design and the case;
+- a baseline written before report `schema_revision` 2 recorded AQ-04's leak
+  as `other_error`; on a case with sentinels that cell reads as
+  `leaked_in_error`, so an old baseline does not report the rescoring as a
+  regression;
 - an **improvement**, or the same score with another class, fails with
   "regenerate baseline", so the published numbers stay true;
 - a cell with no baseline row, or a baseline row the run did not measure,
