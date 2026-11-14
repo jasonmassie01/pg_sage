@@ -49,7 +49,6 @@ internal/logwatch TestResolveLogDir_Absolute(Unix|Windows) # OS path semantics, 
 internal/collector TestCollectIO|TestPhase2_CollectIO_FieldsPopulated pg<16 # pg_stat_io is PG16+
 internal/collector TestCollectQueries_BlockReadTimeFromStatements pg>=16 pg<17 # PG16 does not time local-buffer reads in pg_stat_statements
 internal/autoexplain TestCaptureOnDemand_(ParameterizedUsesGenericPlan|NormalizedParameterizedQuery) pg<16 # EXPLAIN (GENERIC_PLAN) is PG16+
-internal/optimizer TestGenericPlanCapturesUnboundParameters pg<16 # EXPLAIN (GENERIC_PLAN) is PG16+
 internal/api TestActionLogCappedCountWalksTheTimeIndex pg<16 # EXPLAIN (GENERIC_PLAN) is PG16+
 internal/recommendation TestVerifyingEffectsReachActionsByIndex pg<16 # EXPLAIN (GENERIC_PLAN) is PG16+
 internal/retention TestPurgeGenericPlansProbeLargeTablesByIndex pg<16 # EXPLAIN (GENERIC_PLAN) is PG16+
@@ -79,6 +78,15 @@ internal/agentguard TestCheckBackends_RegisteredRolePassesThenDrifts pg<16 # reg
 internal/agentguard/grants Test(Approve|CheckObjects|EffectivePrivileges|ExpireDue|Grant|LeaseActive|List|RegistryPrivileges|RequestCapability|Revoke)_.*|TestGrantNowAndRevokeNow pg<16 # agent grants need agent roles, PG16+ (posture-only on PG14/15)
 internal/agentguard/upkeep TestDrift_.*|TestEndToEnd_(RotationSetsANewPasswordAndSaysItIsScheduled|RetireDropsTheRolesAfterGrace|ObservationWithholdsRotation) pg<16 # drift, rotation and retire act on agent roles, PG16+ (posture-only on PG14/15)
 internal/retention TestGuardQueryAuditPurge_GenericPlanUsesAnIndex pg<16 # EXPLAIN (GENERIC_PLAN) is PG16+
+# Found UNLISTED by the first PostgreSQL 15 run (env-pg-a); each reason= is the test's own skip text.
+internal/collector TestCapabilities_IOGateFollowsLiveVersion pg<16 reason=/needs\sa\sPG16\+\sserver\s\(pg_stat_io\)/ # pg_stat_io is PG16+
+internal/collector TestCollect_FailedExtraIsUnavailableNotEmpty pg<16 reason=/pg_stat_io\sis\snot\sread\sbelow\sPG16/ # the io subtest only: pg_stat_io is PG16+; the other extras run on every major
+internal/collector TestCapabilities_StalePG16VersionOnPG17 pg<17 reason=/needs\sa\sPG17\+\sserver/ # the stale-PG16 fallback is checked against a PG17+ server (pg_stat_checkpointer)
+internal/collector TestCapabilities_StalePG17VersionOnPG14 pg>=17 reason=/needs\sa\spre-17\sserver/ # the pre-17 system SQL fallback is checked against a PG14-16 server
+internal/collector TestCollectSystem_MissingNumDoneFallsBack pg<17 reason=/needs\sPG\s17\s\(pg_stat_checkpointer\swithout\snum_done\)/ # pg_stat_checkpointer is PG17+
+internal/collector TestCollectSystem_MissingNumDoneFallsBack pg>=18 reason=/needs\sPG\s17\s\(pg_stat_checkpointer\swithout\snum_done\)/ # PG18 has num_done: the fallback exists on PG17 only
+internal/executor TestActionPool_MaintainRoleVacuumsOn17 pg<17 reason=/pg_maintain\sexists\sfrom\sPostgreSQL\s17/ # pg_maintain is PG17+
+internal/shadow TestDetectOwnTableActionsWalkTheTimeIndex|TestScorerReadsWalkTheirIndexes pg<16 reason=/EXPLAIN\s\(GENERIC_PLAN\)\srequires\sPostgreSQL\s16\+/ # EXPLAIN (GENERIC_PLAN) is PG16+
 
 # Agent governance tests that need servers of their own; ci.yml agent-servers runs
 # them, and there none may skip.
