@@ -19,53 +19,60 @@ import (
 // is what each sample cost before the cache.
 const MaxClassifiedKeys = 2000
 
-// versionSQL is the installed pg_stat_statements version of this database.
-const versionSQL = `/* pg_sage */ SELECT extversion FROM pg_extension
-WHERE extname = 'pg_stat_statements'`
+// versionSQL is the installed pg_stat_statements version of this database
+// and the schema the extension was created in.
+const versionSQL = `/* pg_sage */ SELECT e.extversion, n.nspname::text
+FROM pg_catalog.pg_extension e
+JOIN pg_catalog.pg_namespace n ON n.oid = e.extnamespace
+WHERE e.extname = 'pg_stat_statements'`
 
 // The counters of this database's entries, without their texts: reading
 // the texts loads pg_stat_statements' whole query-text file. The 1.8 forms
 // have no toplevel column and no pg_stat_statements_info (added in 1.9).
-const (
-	countersSQL = `/* pg_sage */ SELECT userid, queryid, toplevel,
+// fn is the qualified pg_stat_statements function, info its info view.
+func countersSQL(fn, info string) string {
+	return `/* pg_sage */ SELECT userid, queryid, toplevel,
   (total_exec_time + total_plan_time)::float8, calls,
   (shared_blks_hit + shared_blks_read)::int8,
-  (SELECT stats_reset FROM pg_stat_statements_info)
-FROM pg_stat_statements(false)
+  (SELECT stats_reset FROM ` + info + `)
+FROM ` + fn + `(false)
 WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
   AND queryid IS NOT NULL`
-	countersSQL18 = `/* pg_sage */ SELECT userid, queryid, false,
+}
+
+func countersSQL18(fn string) string {
+	return `/* pg_sage */ SELECT userid, queryid, false,
   (total_exec_time + total_plan_time)::float8, calls,
   (shared_blks_hit + shared_blks_read)::int8, NULL::timestamptz
-FROM pg_stat_statements(false)
+FROM ` + fn + `(false)
 WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
   AND queryid IS NOT NULL`
-)
+}
 
 // The tagged entries with their texts, read only when the counters show
 // keys not yet classified. pg_sage's statements carry the /* pg_sage */
 // tag: that is how its own entries are found. An entry whose text cannot
-// be shown (NULL) is read too, so it stays unclassified.
-const (
-	textsSQL = `/* pg_sage */ SELECT userid, queryid, toplevel,
+// be shown (NULL) is read too, so it stays unclassified. fn is the
+// qualified pg_stat_statements function.
+func textsSQL(fn string, topLevel bool) string {
+	cols := `userid, queryid, false,`
+	if topLevel {
+		cols = `userid, queryid, toplevel,`
+	}
+	return `/* pg_sage */ SELECT ` + cols + `
   (total_exec_time + total_plan_time)::float8, calls,
   (shared_blks_hit + shared_blks_read)::int8, left(query, 2000)
-FROM pg_stat_statements(true)
+FROM ` + fn + `(true)
 WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
   AND queryid IS NOT NULL AND (query IS NULL OR strpos(query, '/* pg_sage') > 0)`
-	textsSQL18 = `/* pg_sage */ SELECT userid, queryid, false,
-  (total_exec_time + total_plan_time)::float8, calls,
-  (shared_blks_hit + shared_blks_read)::int8, left(query, 2000)
-FROM pg_stat_statements(true)
-WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-  AND queryid IS NOT NULL AND (query IS NULL OR strpos(query, '/* pg_sage') > 0)`
-)
+}
 
 // extension is what the installed pg_stat_statements version allows.
 type extension struct {
 	version  string
-	readable bool // 1.8+: total_exec_time and total_plan_time
-	topLevel bool // 1.9+: toplevel and pg_stat_statements_info
+	schema   string // the schema the extension was created in
+	readable bool   // 1.8+: total_exec_time and total_plan_time
+	topLevel bool   // 1.9+: toplevel and pg_stat_statements_info
 }
 
 // classified is one cached key: pg_sage's (with its text) or not, and its
@@ -136,14 +143,14 @@ func (s *Sampler) sample(ctx context.Context, q Querier) (
 	if !ext.readable {
 		return nil, fmt.Errorf("%w (installed %s)", errNotReadable, ext.version)
 	}
-	counters, reset, err := readCounters(ctx, q, ext.topLevel)
+	counters, reset, err := readCounters(ctx, q, ext)
 	if err != nil {
 		return nil, fmt.Errorf("read counters: %w", err)
 	}
 	s.revalidate(counters, reset)
 	var texts tagged
 	if s.unclassified(counters) {
-		if texts, err = readTexts(ctx, q, ext.topLevel); err != nil {
+		if texts, err = readTexts(ctx, q, ext); err != nil {
 			return nil, fmt.Errorf("read tagged texts: %w", err)
 		}
 	}
@@ -155,11 +162,12 @@ func (s *Sampler) extension(ctx context.Context, q Querier) (extension, error) {
 	if s.ext != nil {
 		return *s.ext, nil
 	}
-	var v string
-	if err := q.QueryRow(ctx, versionSQL).Scan(&v); err != nil {
+	var v, schema string
+	if err := q.QueryRow(ctx, versionSQL).Scan(&v, &schema); err != nil {
 		return extension{}, err
 	}
-	ext := extension{version: v, readable: atLeast(v, 1, 8), topLevel: atLeast(v, 1, 9)}
+	ext := extension{version: v, schema: schema, readable: atLeast(v, 1, 8),
+		topLevel: atLeast(v, 1, 9)}
 	if ext.readable { // an older one is read again: the advised update shows at once
 		s.ext = &ext
 	}

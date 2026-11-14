@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/extschema"
 	"github.com/pg-sage/sidecar/internal/workload"
 )
 
@@ -105,7 +106,11 @@ func indexStatements(rows []statementRow) statementIndex {
 // unloaded pg_stat_statements means there are no statements to see (known,
 // empty); a statement history we may not read is unknown.
 func loadStatementIndex(ctx context.Context, pool *pgxpool.Pool) (statementIndex, error) {
-	rows, err := pool.Query(ctx, statementsSQL, maxStatements)
+	rel, err := extschema.StatementsRel(ctx, pool, "pg_stat_statements")
+	if err != nil {
+		return statementsUnavailable(err)
+	}
+	rows, err := pool.Query(ctx, statementsSQL(rel), maxStatements)
 	if err != nil {
 		return statementsUnavailable(err)
 	}
@@ -145,9 +150,12 @@ func statementsUnavailable(err error) (statementIndex, error) {
 // statementsSQL keeps workload statements (internal/workload): pg_sage is
 // tracked by pg_stat_statements (perf v1.8.3) and must not cite its own
 // reads, nor an EXPLAIN or VACUUM of the table, as related queries.
-var statementsSQL = `/* pg_sage */
-SELECT queryid::bigint, query FROM pg_stat_statements
+// rel is the qualified pg_stat_statements view.
+func statementsSQL(rel string) string {
+	return `/* pg_sage */
+SELECT queryid::bigint, query FROM ` + rel + `
 WHERE queryid IS NOT NULL
   AND dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
   AND ` + workload.AdviceSQL("query") + `
 ORDER BY calls DESC LIMIT $1`
+}

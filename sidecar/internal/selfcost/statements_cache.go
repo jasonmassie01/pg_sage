@@ -4,18 +4,20 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/extschema"
 )
 
 // readCounters reads this database's entries without their texts, and
 // pg_stat_statements_info.stats_reset (zero on 1.8 or with no entry). A
 // key reported twice (a 1.8 read of a server since updated) is summed.
-func readCounters(ctx context.Context, q Querier, topLevel bool) (
+func readCounters(ctx context.Context, q Querier, ext extension) (
 	map[StatementKey]StatementCounters, time.Time, error) {
-	sql := countersSQL18
-	if topLevel {
-		sql = countersSQL
-	}
 	var reset time.Time
+	sql, err := countersFor(ext)
+	if err != nil {
+		return nil, reset, err
+	}
 	rows, err := q.Query(ctx, sql)
 	if err != nil {
 		return nil, reset, err
@@ -45,15 +47,26 @@ type tagged struct {
 	untold  map[StatementKey]bool
 }
 
-// readTexts reads the tagged entries with their texts.
-func readTexts(ctx context.Context, q Querier, topLevel bool) (tagged, error) {
-	sql := textsSQL18
-	if topLevel {
-		sql = textsSQL
+// countersFor is the counters read the extension's version allows, over
+// its qualified names.
+func countersFor(ext extension) (string, error) {
+	fn, err := extschema.Func(ext.schema, "pg_stat_statements")
+	if err != nil || !ext.topLevel {
+		return countersSQL18(fn), err
 	}
+	info, err := extschema.Rel(ext.schema, "pg_stat_statements_info")
+	return countersSQL(fn, info), err
+}
+
+// readTexts reads the tagged entries with their texts.
+func readTexts(ctx context.Context, q Querier, ext extension) (tagged, error) {
 	out := tagged{entries: map[StatementKey]StatementCounters{},
 		untold: map[StatementKey]bool{}}
-	rows, err := q.Query(ctx, sql)
+	fn, err := extschema.Func(ext.schema, "pg_stat_statements")
+	if err != nil {
+		return out, err
+	}
+	rows, err := q.Query(ctx, textsSQL(fn, ext.topLevel))
 	if err != nil {
 		return out, err
 	}

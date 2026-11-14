@@ -24,11 +24,14 @@ const cacheHitRatioSQL = `/* pg_sage executor */ SELECT coalesce(
 // writeLatencySQL is the application's write latency: pg_sage's own
 // statements are tagged after their first keyword ("INSERT /* pg_sage executor */
 // INTO sage.action_log ...") and matched 'INSERT%' too (perf-selfexcl).
-var writeLatencySQL = `/* pg_sage executor */ SELECT coalesce(avg(mean_exec_time), 0)
-	FROM pg_stat_statements
+// rel is the qualified pg_stat_statements view.
+func writeLatencySQL(rel string) string {
+	return `/* pg_sage executor */ SELECT coalesce(avg(mean_exec_time), 0)
+	FROM ` + rel + `
 	WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
 	  AND (query LIKE 'INSERT%' OR query LIKE 'UPDATE%')
 	  AND ` + selfmonitor.StatementExclusionSQL("query")
+}
 
 // monitorableOutcomes are states a post-action monitor may still change.
 // Terminal outcomes (rolled_back, rollback_failed, failed, ...) are final.

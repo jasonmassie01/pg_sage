@@ -11,7 +11,7 @@ import (
 // maintenance statement must not take a capture slot (LIMIT) or become a
 // plan regression.
 func TestCandidateSQLAppliesTheWorkloadRule(t *testing.T) {
-	if !strings.Contains(candidateSQL, workload.AdviceSQL("s.query")) {
-		t.Fatalf("candidateSQL lacks the workload predicate:\n%s", candidateSQL)
+	if !strings.Contains(candidateSQL(publicStatements), workload.AdviceSQL("s.query")) {
+		t.Fatalf("candidateSQL lacks the workload predicate:\n%s", candidateSQL(publicStatements))
 	}
 }

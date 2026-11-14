@@ -8,9 +8,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/agentguard"
+	"github.com/pg-sage/sidecar/internal/extschema"
 )
 
 // Attribution sources and the reasons it is reported dropped (G1-10).
@@ -288,13 +290,17 @@ var errNoPSSView = errors.New("pg_stat_statements view not installed")
 // calls of the broker's cursor declarations.
 func readStatements(ctx context.Context, pool *pgxpool.Pool, roles []string) (
 	[]Statement, int64, error) {
-	rows, err := pool.Query(ctx, `/* pg_sage guard_attribution v1 */
+	rel, err := extschema.StatementsRel(ctx, pool, "pg_stat_statements")
+	var rows pgx.Rows
+	if err == nil {
+		rows, err = pool.Query(ctx, `/* pg_sage guard_attribution v1 */
 		SELECT s.queryid::text, r.rolname::text, s.query, s.calls, s.rows,
 			s.total_exec_time
-		FROM pg_stat_statements s JOIN pg_catalog.pg_roles r ON r.oid = s.userid
+		FROM `+rel+` s JOIN pg_catalog.pg_roles r ON r.oid = s.userid
 		WHERE r.rolname = ANY($1::text[]) AND s.dbid = (SELECT oid FROM
 			pg_catalog.pg_database WHERE datname = pg_catalog.current_database())
 		ORDER BY s.total_exec_time DESC, s.queryid`, roles)
+	}
 	if err != nil {
 		if pgErr, ok := asPgError(err); ok && pgErr.Code == "42P01" {
 			return nil, 0, errNoPSSView

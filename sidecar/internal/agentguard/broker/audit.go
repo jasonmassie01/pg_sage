@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/agentguard/classify"
+	"github.com/pg-sage/sidecar/internal/extschema"
 )
 
 // AuditRecord is one sage.guard_query_audit row: one per agent_query call
@@ -76,9 +77,12 @@ type pssInfo struct {
 // readable; attribution then falls back to the audit.
 func readPSSInfo(ctx context.Context, pool *pgxpool.Pool) *pssInfo {
 	var info pssInfo
-	err := pool.QueryRow(ctx, `/* pg_sage guard_attribution v1 */
-		SELECT dealloc, stats_reset FROM pg_stat_statements_info`).
-		Scan(&info.Dealloc, &info.Reset)
+	rel, err := extschema.StatementsRel(ctx, pool, "pg_stat_statements_info")
+	if err != nil {
+		return nil
+	}
+	err = pool.QueryRow(ctx, `/* pg_sage guard_attribution v1 */
+		SELECT dealloc, stats_reset FROM `+rel).Scan(&info.Dealloc, &info.Reset)
 	if err != nil {
 		return nil
 	}

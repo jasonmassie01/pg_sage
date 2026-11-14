@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/catalogread"
+	"github.com/pg-sage/sidecar/internal/extschema"
 )
 
 // Measure is one piece of evidence; Known is false when it was not read.
@@ -87,9 +88,11 @@ JOIN pg_catalog.pg_class c ON c.oid = s.seqrelid
 WHERE NOT pg_catalog.pg_is_other_temp_schema(c.relnamespace)`
 	sequenceSampleSQL = `/* pg_sage */ SELECT count(*)::float8, count(last_value)::float8
 FROM (SELECT last_value FROM pg_catalog.pg_sequences LIMIT $1) s`
+	// statementsScanSQL + the qualified view + statementsScanWhere.
 	statementsScanSQL = `/* pg_sage */ SELECT count(*)::float8,
        coalesce(sum(length(query)), 0)::float8
-FROM pg_stat_statements
+FROM `
+	statementsScanWhere = `
 WHERE dbid = (SELECT oid FROM pg_catalog.pg_database WHERE datname = current_database())`
 	maxConnectionsSQL = `/* pg_sage */ SELECT current_setting('max_connections')::float8`
 	tempSQL           = `/* pg_sage */ SELECT temp_bytes::float8,
@@ -179,7 +182,11 @@ func extrapolateSequenceScan(ms, sampled, total float64) float64 {
 func (ev *Evidence) readStatements(ctx context.Context, r catalogread.Reader) error {
 	var n, text float64
 	ms, err := timed(func() error {
-		return r.QueryRow(ctx, statementsScanSQL).Scan(&n, &text)
+		rel, err := extschema.StatementsRel(ctx, r, "pg_stat_statements")
+		if err != nil {
+			return err
+		}
+		return r.QueryRow(ctx, statementsScanSQL+rel+statementsScanWhere).Scan(&n, &text)
 	})
 	switch {
 	case timedOut(err):

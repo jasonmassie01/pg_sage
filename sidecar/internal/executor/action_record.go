@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
+	"github.com/pg-sage/sidecar/internal/extschema"
 	"github.com/pg-sage/sidecar/internal/extstats"
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
 )
@@ -40,7 +41,10 @@ func (e *Executor) snapshotBeforeState(
 	}
 
 	var meanExecMs float64
-	err = e.pool.QueryRow(ctx, writeLatencySQL).Scan(&meanExecMs)
+	rel, err := extschema.StatementsRel(ctx, e.pool, "pg_stat_statements")
+	if err == nil {
+		err = e.pool.QueryRow(ctx, writeLatencySQL(rel)).Scan(&meanExecMs)
+	}
 	if err == nil && meanExecMs > 0 {
 		state["mean_exec_time_ms"] = meanExecMs
 	}

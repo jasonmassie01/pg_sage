@@ -10,6 +10,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/advisor"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/catalogread"
+	"github.com/pg-sage/sidecar/internal/extschema"
 	"github.com/pg-sage/sidecar/internal/planfresh"
 	"github.com/pg-sage/sidecar/internal/selfbudget"
 	"github.com/pg-sage/sidecar/internal/workload"
@@ -250,22 +251,6 @@ func (t *Tuner) cooldownCycles() int {
 	return 3
 }
 
-var candidateSQL = `/* pg_sage tuner */
-SELECT queryid, query, calls, mean_exec_time,
-       mean_plan_time, temp_blks_read, temp_blks_written, userid::int8
-FROM pg_stat_statements
-WHERE calls >= $1
-  AND dbid = (
-      SELECT oid FROM pg_database WHERE datname = current_database()
-  )
-  AND ` + workload.AdviceSQL("query") + `
-  AND (mean_exec_time > 100
-       OR temp_blks_written > 0
-       OR (mean_plan_time > 0
-           AND mean_plan_time > mean_exec_time * $2))
-ORDER BY mean_exec_time * calls DESC
-LIMIT 50`
-
 // filterSelfMonitoringCandidates keeps workload candidates
 // (internal/workload): never pg_sage's own statements or diagnostic
 // tooling.
@@ -283,8 +268,12 @@ func filterSelfMonitoringCandidates(candidates []candidate) []candidate {
 func (t *Tuner) fetchCandidates(
 	ctx context.Context,
 ) ([]candidate, error) {
+	rel, err := extschema.StatementsRel(ctx, t.pool, "pg_stat_statements")
+	if err != nil {
+		return nil, fmt.Errorf("query pg_stat_statements: %w", err)
+	}
 	rows, err := t.pool.Query(
-		ctx, candidateSQL,
+		ctx, candidateSQL(rel),
 		t.cfg.MinQueryCalls, t.cfg.PlanTimeRatio,
 	)
 	if err != nil {

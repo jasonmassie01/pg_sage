@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/custodian/freeze"
+	"github.com/pg-sage/sidecar/internal/extschema"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
@@ -124,17 +125,30 @@ func (c *PostgresFreezeCustodian) confirmBloat(
 }
 
 // pgstattupleConfirmSQL is the measured bloat: the share of the heap not
-// holding live tuples, beyond the free space the fillfactor reserves.
-const pgstattupleConfirmSQL = `/* pg_sage */
+// holding live tuples, beyond the free space the fillfactor reserves. fn
+// is the qualified pgstattuple_approx.
+func pgstattupleConfirmSQL(fn string) string {
+	return `/* pg_sage */
 SELECT CASE WHEN a.table_len > 0 THEN greatest(0, least(1,
          1 - a.approx_tuple_len::float8 / (a.table_len * COALESCE(
            (SELECT ro.option_value::float8 FROM pg_class pc,
                    pg_options_to_table(pc.reloptions) ro
              WHERE pc.oid = $1::bigint::oid AND ro.option_name = 'fillfactor'),
            100) / 100))) END
-FROM pgstattuple_approx($1::bigint::oid::regclass) a`
+FROM ` + fn + `($1::bigint::oid::regclass) a`
+}
 
 var errNoBloatMeasurement = errors.New("pgstattuple_approx returned no measurement")
+
+// pgstattupleFunc is pgstattuple_approx qualified by its extension's
+// schema on q.
+func pgstattupleFunc(ctx context.Context, q extschema.Querier) (string, error) {
+	s, err := extschema.Detect(ctx, q)
+	if err != nil {
+		return "", err
+	}
+	return extschema.Func(s.Pgstattuple, "pgstattuple_approx")
+}
 
 // pgstattupleApprox runs one confirmation in its own bounded read-only
 // transaction (statement and lock timeouts).
@@ -147,7 +161,11 @@ func (c *PostgresFreezeCustodian) pgstattupleApprox(
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	var ratio *float64
-	err = tx.QueryRow(ctx, pgstattupleConfirmSQL, oid).Scan(&ratio)
+	fn, err := pgstattupleFunc(ctx, tx)
+	if err != nil {
+		return 0, fmt.Errorf("confirm bloat of relation %d: %w", oid, err)
+	}
+	err = tx.QueryRow(ctx, pgstattupleConfirmSQL(fn), oid).Scan(&ratio)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && ratio == nil) {
 		return 0, fmt.Errorf("confirm bloat of relation %d: %w", oid, errNoBloatMeasurement)
 	}

@@ -13,8 +13,8 @@ import (
 // them) but is not a query an action can help or hurt.
 func TestTargetSQLAppliesTheWorkloadRule(t *testing.T) {
 	for name, sql := range map[string]string{
-		"tableStatementsSQL":    tableStatementsSQL,
-		"workloadStatementsSQL": workloadStatementsSQL,
+		"tableStatementsSQL":    tableStatementsSQL(publicStatements),
+		"workloadStatementsSQL": workloadStatementsSQL(publicStatements),
 	} {
 		if !strings.Contains(sql, workload.AdviceSQL("s.query")) {
 			t.Errorf("%s lacks the workload predicate:\n%s", name, sql)
@@ -64,7 +64,8 @@ func targetTexts(t *testing.T, exec *Executor, ctx context.Context,
 			}
 		}
 	}
-	rows, err := exec.pool.Query(context.Background(), `WITH t AS (`+tableStatementsSQL+`)
+	targets := tableStatementsSQL(publicStatements)
+	rows, err := exec.pool.Query(context.Background(), `WITH t AS (`+targets+`)
 		SELECT t.queryid, min(s.query) FROM t JOIN pg_stat_statements s USING (queryid)
 		GROUP BY t.queryid`, wordPattern(table), verifyTargetLimit)
 	if err != nil {

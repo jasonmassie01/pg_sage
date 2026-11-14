@@ -44,6 +44,7 @@ func TestAuditCaptureLogPreservesQueryIDAndError(t *testing.T) {
 		func(level, format string, args ...any) {
 			message = level + ":" + fmt.Sprintf(format, args...)
 		})
+	c.statementsRel = "pg_temp.pg_stat_statements" // the fixture table above
 	if err := c.Collect(ctx); err != nil {
 		t.Fatalf("one bad candidate must not fail the collection: %v", err)
 	}

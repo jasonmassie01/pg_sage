@@ -70,7 +70,7 @@ func writeLatencyProblems(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 		t.Fatalf("application statement in pg_stat_statements: %v", err)
 	}
 	var got float64
-	if err := pool.QueryRow(ctx, writeLatencySQL).Scan(&got); err != nil {
+	if err := pool.QueryRow(ctx, writeLatencySQL(publicStatements)).Scan(&got); err != nil {
 		t.Fatalf("write latency: %v", err)
 	}
 	if math.Abs(got-appMean) > 1e-9 || got >= 100 {

@@ -98,10 +98,10 @@ func (f *fakeDB) record(sql string) string {
 	case strings.Contains(sql, "pg_extension"):
 		f.calls["version"]++
 		return "version"
-	case strings.Contains(sql, "pg_stat_statements(false)"):
+	case strings.Contains(sql, `pg_stat_statements"(false)`):
 		f.calls["counters"]++
 		return "counters"
-	case strings.Contains(sql, "pg_stat_statements(true)"):
+	case strings.Contains(sql, `pg_stat_statements"(true)`):
 		f.calls["texts"]++
 		return "texts"
 	case strings.Contains(sql, "pg_class"):
@@ -124,7 +124,7 @@ func (f *fakeDB) QueryRow(_ context.Context, sql string, _ ...any) pgx.Row {
 	if f.version == "" {
 		return fakeRow{err: pgx.ErrNoRows}
 	}
-	return fakeRow{vals: []any{f.version}}
+	return fakeRow{vals: []any{f.version, "public"}} // version, schema
 }
 
 func (f *fakeDB) Query(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {

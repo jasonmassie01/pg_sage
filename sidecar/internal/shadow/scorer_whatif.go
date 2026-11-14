@@ -5,6 +5,9 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
+	"github.com/pg-sage/sidecar/internal/extschema"
 	"github.com/pg-sage/sidecar/internal/optimizer"
 	"github.com/pg-sage/sidecar/internal/verify"
 )
@@ -19,12 +22,15 @@ import (
 var concurrently = regexp.MustCompile(`(?i)\s+concurrently\b`)
 
 // queryTextsSQL reads the targets' text and cost from pg_stat_statements.
-const queryTextsSQL = `/* pg_sage */ SELECT s.queryid, min(s.query), sum(s.calls)::bigint,
+// rel is the qualified view.
+func queryTextsSQL(rel string) string {
+	return `/* pg_sage */ SELECT s.queryid, min(s.query), sum(s.calls)::bigint,
 	sum(s.total_exec_time)::float8
-	FROM pg_stat_statements s
+	FROM ` + rel + ` s
 	WHERE s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
 	  AND s.queryid = ANY($1)
 	GROUP BY s.queryid`
+}
 
 // evaluate is p's what-if, nil when it cannot be evaluated (budget spent,
 // an access method HypoPG cannot model, targets idle or unknown, HypoPG
@@ -82,7 +88,11 @@ func (w *whatIf) stillRunning(ctx context.Context, p pendingDecision) []int64 {
 
 // queries are the running targets as the what-if plans them.
 func (w *whatIf) queries(ctx context.Context, ids []int64) []optimizer.QueryInfo {
-	rows, err := w.s.pool.Query(ctx, queryTextsSQL, ids)
+	rel, err := extschema.StatementsRel(ctx, w.s.pool, "pg_stat_statements")
+	var rows pgx.Rows
+	if err == nil {
+		rows, err = w.s.pool.Query(ctx, queryTextsSQL(rel), ids)
+	}
 	if err != nil {
 		w.s.logf("shadow: read target query texts: %v", err)
 		return nil

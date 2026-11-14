@@ -276,7 +276,7 @@ func TestJudgeTargetWithoutSamplesIsInsufficient(t *testing.T) {
 
 func TestLegacyHealthQueriesAreScopedToCurrentDatabase(t *testing.T) {
 	for name, query := range map[string]string{
-		"cache hit": cacheHitRatioSQL, "write latency": writeLatencySQL,
+		"cache hit": cacheHitRatioSQL, "write latency": writeLatencySQL(publicStatements),
 	} {
 		if !strings.Contains(query, "current_database()") {
 			t.Fatalf("%s query is not scoped to the current database:\n%s", name, query)
@@ -369,3 +369,8 @@ func alterDatabaseProbeSQL(
 	})
 	return "ALTER DATABASE " + database + " " + clause
 }
+
+// publicStatements is the pg_stat_statements view the test database
+// installs in public; the statements became builders over the qualified
+// view in security-01c-q.
+const publicStatements = `"public"."pg_stat_statements"`

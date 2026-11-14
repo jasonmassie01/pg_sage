@@ -24,10 +24,15 @@ func TestStructuralColumnSummaryCarriesTheGateTag(t *testing.T) {
 		"missing FK indexes": missingFKIndexSQL, "unbounded append": unboundedAppendSQL,
 		"schema shapes": schemaShapesSQL, "sessions": sessionsSQL,
 		"table contracts": tableContractsSQL, "schema history": schemaHistorySQL,
-		"statements": statementsSQL,
+		"statements": statementsSQL(publicStatements),
 	} {
 		if strings.Contains(sql, "structural:columns") {
 			t.Fatalf("%s statement carries the column summary's gate tag:\n%s", name, sql)
 		}
 	}
 }
+
+// publicStatements is the pg_stat_statements view the test database
+// installs in public; the statements became builders over the qualified
+// view in security-01c-q.
+const publicStatements = `"public"."pg_stat_statements"`

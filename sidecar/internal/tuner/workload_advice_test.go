@@ -23,7 +23,7 @@ func TestFilterCandidatesDropsDiagnosticStatements(t *testing.T) {
 
 // The filter must run before LIMIT 50, in SQL.
 func TestCandidateSQLAppliesTheWorkloadRuleBeforeLimit(t *testing.T) {
-	if !strings.Contains(candidateSQL, workload.AdviceSQL("query")) {
-		t.Fatalf("candidateSQL lacks the workload predicate:\n%s", candidateSQL)
+	if !strings.Contains(qualifiedCandidateSQL, workload.AdviceSQL("query")) {
+		t.Fatalf("candidateSQL lacks the workload predicate:\n%s", qualifiedCandidateSQL)
 	}
 }

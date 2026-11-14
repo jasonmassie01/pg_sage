@@ -44,9 +44,30 @@ func (q *fakeQuerier) Query(context.Context, string, ...any) (pgx.Rows, error) {
 	return nil, errors.New("fakeQuerier: Query not expected")
 }
 
+// QueryRow answers the extension-schema lookup (security-01c-q qualifies
+// pg_stat_statements by its schema) with public, and records any other
+// statement.
 func (q *fakeQuerier) QueryRow(_ context.Context, sql string, args ...any) pgx.Row {
+	if strings.Contains(sql, "pg_catalog.pg_extension") {
+		return schemaRow{}
+	}
 	q.sql, q.args = sql, args
 	return q.row
+}
+
+type schemaRow struct{}
+
+func (schemaRow) Scan(dest ...any) error {
+	for i, d := range dest {
+		p, ok := d.(*string)
+		if !ok {
+			return fmt.Errorf("schemaRow: want *string, got %T", d)
+		}
+		if *p = ""; i == 0 {
+			*p = "public"
+		}
+	}
+	return nil
 }
 
 func strPtr(s string) *string { return &s }

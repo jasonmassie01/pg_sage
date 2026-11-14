@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/pg-sage/sidecar/internal/extschema"
 	"github.com/pg-sage/sidecar/internal/sqlast"
 	"github.com/pg-sage/sidecar/internal/workload"
 )
@@ -64,11 +65,13 @@ var topOrders = map[string]bool{"total_time": true, "mean_time": true, "calls": 
 // the LIMIT and the statements it leaves out are only counted: pg_sage's
 // own statements (its schema bootstrap alone is hundreds) must not fill
 // the bounded scan and hide the workload. The first column is that count;
-// the query columns are NULL when no statement is listed.
-var topQueriesSQL = `/* pg_sage */ WITH s AS (
+// the query columns are NULL when no statement is listed. rel is the
+// qualified pg_stat_statements view.
+func topQueriesSQL(rel string) string {
+	return `/* pg_sage */ WITH s AS (
     SELECT queryid, min(query) AS query, sum(calls)::bigint AS calls,
         sum(total_exec_time)::float8 AS total_ms, sum(rows)::bigint AS nrows
-    FROM pg_stat_statements
+    FROM ` + rel + `
     WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
       AND queryid IS NOT NULL
     GROUP BY queryid),
@@ -80,6 +83,7 @@ SELECT (SELECT count(*) FROM w WHERE NOT listed)::bigint,
     q.queryid, q.query, q.calls, q.total_ms, q.nrows
 FROM (SELECT 1) one LEFT JOIN q ON true
 ORDER BY ` + topOrderSQL + `, q.queryid`
+}
 
 // topOrderSQL is the ORDER BY key of $1 (an order from topOrders).
 const topOrderSQL = `CASE $1
@@ -129,7 +133,11 @@ func topRequest(req TopQueriesRequest) (int, string, error) {
 
 func (t *Tools) readTop(ctx context.Context, order string, limit int,
 ) (TopQueriesResult, error) {
-	rows, err := t.pool.Query(ctx, topQueriesSQL, order, maxTopScan, t.sqlWorkload)
+	rel, err := extschema.StatementsRel(ctx, t.pool, "pg_stat_statements")
+	if err != nil {
+		return TopQueriesResult{}, statementsError(err)
+	}
+	rows, err := t.pool.Query(ctx, topQueriesSQL(rel), order, maxTopScan, t.sqlWorkload)
 	if err != nil {
 		return TopQueriesResult{}, statementsError(err)
 	}
