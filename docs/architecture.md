@@ -639,7 +639,7 @@ Stores plans for slow statements in `sage.explain_cache`, each with its true
   wrote it to the server log (with actual rows and timing only when
   `auto_explain.log_analyze` is on, which adds overhead to every statement), where pg_sage reads that log: the
   Supabase log sink, and on self-managed servers the cluster's log watcher
-  (`logwatch.enabled` with RCA or migration log detection on), where each
+  (`logwatch.enabled` auto or true, with RCA or migration log detection on), where each
   database subscribes to its own records. A plan needs
   `auto_explain.log_format = 'json'` and a query identifier
   (`compute_query_id = on` and `auto_explain.log_verbose = on`: only verbose

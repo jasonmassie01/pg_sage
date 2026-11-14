@@ -15,7 +15,7 @@ import (
 
 func sinkConfig() *config.Config {
 	cfg := config.DefaultConfig()
-	cfg.LogWatch.Enabled = true
+	cfg.LogWatch.Enabled = enabledRef(true)
 	cfg.AutoExplain.Enabled = true
 	return cfg
 }
@@ -44,7 +44,7 @@ func TestLogSinkIsolatesDatabaseAndPreservesRCA(t *testing.T) {
 func TestLogSinkHonorsFlagsAndSanitizesStoreErrors(t *testing.T) {
 	cfg := sinkConfig()
 	cfg.AutoExplain.Enabled = false
-	cfg.LogWatch.Enabled = false
+	cfg.LogWatch.Enabled = enabledRef(false)
 	sink, _ := NewLogSink(nil, "postgres", cfg)
 	if err := sink.Handle(context.Background(), []logwatch.LogEntry{{Database: "postgres",
 		Message: "duration: 1 ms plan: malformed"}}); err != nil {

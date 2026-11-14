@@ -21,6 +21,28 @@ const (
 	maxRCARecurrenceRenotifyHours = 168
 )
 
+// Values of rca.deadlock_statement_text (rca-07b). Fingerprint keeps a
+// hash of each deadlock participant's literal-redacted statement and no
+// text; redacted also keeps the redacted text. Any other value keeps no
+// text: a config that bypassed validation fails closed.
+const (
+	DeadlockStatementTextFingerprint = "fingerprint"
+	DeadlockStatementTextRedacted    = "redacted"
+	DefaultRCADeadlockStatementText  = DeadlockStatementTextFingerprint
+)
+
+// validateDeadlockStatementText accepts the two modes, and empty (a config
+// built without the key) as fingerprint.
+func (r *RCAConfig) validateDeadlockStatementText() error {
+	switch r.DeadlockStatementText {
+	case "", DeadlockStatementTextFingerprint, DeadlockStatementTextRedacted:
+		return nil
+	}
+	return fmt.Errorf("rca.deadlock_statement_text must be %q or %q, got %q",
+		DeadlockStatementTextFingerprint, DeadlockStatementTextRedacted,
+		r.DeadlockStatementText)
+}
+
 // LogQuiet is how long a log incident must go without an occurrence
 // before it auto-resolves: rca.log_quiet_minutes, else the dedup window,
 // else its 30 min default. A config built without the keys never gets 0.
@@ -85,6 +107,9 @@ func (r *RCAConfig) validate() error {
 		return err
 	}
 	if err := r.validateLogQuiet(); err != nil {
+		return err
+	}
+	if err := r.validateDeadlockStatementText(); err != nil {
 		return err
 	}
 	s := r.LockChainIntervalSeconds

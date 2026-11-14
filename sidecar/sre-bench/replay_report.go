@@ -68,6 +68,8 @@ type ReplayReport struct {
 	LLMBudget    *BudgetRecord `json:"llm_budget,omitempty"`
 	// Compare is a compare run's per-family table (sre-03 Phase 2).
 	Compare *SupportCompare `json:"compare,omitempty"`
+	// rca-07b: participants_named per deadlock case with a server-log record.
+	ParticipantsNamed []ParticipantsScore `json:"participants_named,omitempty"`
 }
 
 // BuildReplayReport scores replay results.
@@ -75,7 +77,8 @@ func BuildReplayReport(rs []Result, cases []replay.Case, meta ReplayMeta) Replay
 	s := Summarize(rs, meta.Arms)
 	r := ReplayReport{Schema: replay.Schema, GeneratedAt: meta.GeneratedAt,
 		ServerVersion: meta.ServerVersion, LLM: meta.LLM, Cases: len(cases),
-		Corpus: corpusCounts(cases), Arms: s.Arms, Gated: meta.Gated}
+		Corpus: corpusCounts(cases), Arms: s.Arms, Gated: meta.Gated,
+		ParticipantsNamed: participantsScores(cases)}
 	for _, arm := range s.Arms {
 		for _, fam := range s.Families {
 			r.Cells = append(r.Cells, cellOf(arm, fam, s.Tally(arm, fam)))
@@ -153,6 +156,7 @@ func (r ReplayReport) Markdown() string {
 	view.writeModel(&b)
 	writeUsage(&b, r.Usage, r.LLM)
 	r.writeHeldOut(&b)
+	writeParticipants(&b, r.ParticipantsNamed)
 	b.WriteString("\n### Replay gates\n\n")
 	b.WriteString(row("gate", "family", "arm", "status", "observed", "threshold", "note"))
 	b.WriteString(separator(7))

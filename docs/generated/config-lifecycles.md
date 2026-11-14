@@ -336,6 +336,7 @@
 | `prometheus.serve_on_api` | `restart` | `-` | `safety_critical` |
 | `provider_advice.enabled` | `restart` | `-` | `operator_preference` |
 | `rca.connection_saturation_pct` | `restart` | `-` | `derivable` |
+| `rca.deadlock_statement_text` | `restart` | `-` | `safety_critical` |
 | `rca.dedup_window_minutes` | `restart` | `-` | `derivable` |
 | `rca.enabled` | `restart` | `-` | `operator_preference` |
 | `rca.escalation_cycles` | `restart` | `-` | `derivable` |

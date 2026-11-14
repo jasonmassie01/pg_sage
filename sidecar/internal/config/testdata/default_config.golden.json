@@ -273,7 +273,8 @@
     "NarrationEnabled": true,
     "LogFastPathIntervalSeconds": 5,
     "LogQuietMinutes": 0,
-    "RecurrenceRenotifyHours": 6
+    "RecurrenceRenotifyHours": 6,
+    "DeadlockStatementText": "fingerprint"
   },
   "SRE": {
     "ReadPolicy": {
@@ -433,7 +434,7 @@
     "MaxTokens": 4096
   },
   "LogWatch": {
-    "Enabled": false,
+    "Enabled": null,
     "LogDirectory": "",
     "Format": "",
     "PollIntervalMs": 1000,

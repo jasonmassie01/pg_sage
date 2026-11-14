@@ -1778,8 +1778,8 @@ With `audit.pgaudit.correlate` on (the default), each monitored database
 where `pgaudit` is in `shared_preload_libraries` has the pgaudit records
 of pg_sage's actions and agent principals kept in
 `sage.guard_pgaudit_events`. pg_sage reads them from the server log, so
-log access must be configured (`logwatch.enabled`, which needs
-`rca.enabled`); without it the sidecar logs once that pgaudit is loaded
+log access must be configured (`logwatch.enabled` auto, the default, or true,
+which needs `rca.enabled`); without it the sidecar logs once that pgaudit is loaded
 but unread. pgaudit's own settings (`pgaudit.log`, `pgaudit.role`) are
 the operator's; pg_sage keeps only the records it can attribute (see
 [Attribution](#attribution-trusts-the-role-not-application_name)) and

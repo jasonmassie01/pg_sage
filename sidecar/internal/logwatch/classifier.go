@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/rca"
 	"github.com/pg-sage/sidecar/internal/signalid"
 )
@@ -83,6 +84,10 @@ type ClassifierConfig struct {
 	SlowQueryEnabled bool
 	TempFileMinBytes int64 // skip temp-file signals below this
 	MaxLinesPerCycle int   // 0 = unlimited
+	// DeadlockStatementText is rca.deadlock_statement_text: "redacted"
+	// keeps each deadlock participant's redacted statement text; anything
+	// else keeps only its fingerprint (rca-07b).
+	DeadlockStatementText string
 }
 
 // dedupEntry tracks repeated occurrences of (signalID, database) within
@@ -95,6 +100,10 @@ type dedupEntry struct {
 	emitted   int
 	pids      map[int]bool
 	sig       *rca.Signal
+	// participants is the wait cycle of the window's newest deadlock line
+	// whose DETAIL named one, unparsed that line's unread lines (rca-07b).
+	participants []rca.DeadlockParticipant
+	unparsed     int
 }
 
 // Classifier matches LogEntry values against the signal pattern table and
@@ -105,7 +114,9 @@ type Classifier struct {
 	slowQueryEnabled bool
 	tempFileMinBytes int64
 	maxLinesPerCycle int
-	logFn            func(string, string, ...any)
+	// redactedStatements keeps deadlock statement text (rca-07b).
+	redactedStatements bool
+	logFn              func(string, string, ...any)
 
 	dedupBuf map[string]*dedupEntry
 	// pending holds follow-ups of windows closed before a drain reported
@@ -140,8 +151,10 @@ func NewClassifier(
 		slowQueryEnabled: cfg.SlowQueryEnabled,
 		tempFileMinBytes: cfg.TempFileMinBytes,
 		maxLinesPerCycle: cfg.MaxLinesPerCycle,
-		logFn:            logFn,
-		dedupBuf:         make(map[string]*dedupEntry),
+		redactedStatements: cfg.DeadlockStatementText ==
+			config.DeadlockStatementTextRedacted,
+		logFn:    logFn,
+		dedupBuf: make(map[string]*dedupEntry),
 	}
 }
 
@@ -290,6 +303,8 @@ func (c *Classifier) addSignalMetrics(id string, entry LogEntry, metrics map[str
 		if !strings.Contains(strings.ToLower(entry.Message), "statement timeout") {
 			metrics["message_unclassified"] = true
 		}
+	case signalid.LogDeadlockDetected:
+		c.addDeadlockParticipants(entry, metrics)
 	case signalid.LogSlowQuery:
 		dur := parseSlowQueryDuration(entry.Message)
 		metrics["duration_ms"] = dur

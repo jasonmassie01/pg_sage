@@ -107,8 +107,9 @@ func selfManagedLogSteps(s LogSettings, needDestination bool) []string {
 			"ALTER SYSTEM SET lc_messages = 'C';",
 			"Then restart PostgreSQL (logging_collector applies only at server start).")
 	}
-	steps = append(steps, "Mount the server's log_directory read-only into the sidecar "+
-		"and set logwatch.enabled: true and rca.enabled: true.")
+	steps = append(steps, "Mount the server's log_directory read-only into the sidecar; "+
+		"with logwatch.enabled at auto (the default) or true and rca.enabled: true, "+
+		"log RCA then starts by itself.")
 	return steps
 }
 
@@ -130,7 +131,8 @@ func managedLogSteps(provider string) (steps []string, detail string, ok bool) {
 	case "supabase":
 		return []string{"Set SAGE_SUPABASE_OBSERVABILITY_TOKEN: pg_sage then reads the " +
 			"logs through the Supabase Management API.",
-			"Set logwatch.enabled: true and rca.enabled: true."}, noFiles, true
+			"Keep logwatch.enabled at auto (the default) or true, and rca.enabled: true.",
+		}, noFiles, true
 	case "lakebase":
 		return []string{"Lakebase exposes PostgreSQL logs through system.lakebase: " +
 			"configure the opt-in lakebase_observability reader and inspect its " +

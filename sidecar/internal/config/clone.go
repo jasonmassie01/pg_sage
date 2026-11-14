@@ -38,6 +38,7 @@ func Clone(cfg *Config) *Config {
 		[]RunawayPolicy(nil), cfg.Runaway.Policies...)
 	cp.Runaway.SafePatterns = append(
 		[]string(nil), cfg.Runaway.SafePatterns...)
+	cp.LogWatch.Enabled = cloneBool(cfg.LogWatch.Enabled)
 	cp.LogWatch.ExcludeApplications = append(
 		[]string(nil), cfg.LogWatch.ExcludeApplications...)
 	cp.SchemaLint.IncludeSchemas = append(

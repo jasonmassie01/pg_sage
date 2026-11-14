@@ -32,6 +32,13 @@ func supabaseObservabilityProject(host, user string) string {
 	return ref
 }
 
+// providerLogRCA reports whether RCA reads a configured provider log sink:
+// with logwatch.enabled at auto the sink counts as a detected source
+// (rca-09b), and explicit false keeps it off.
+func providerLogRCA(cfg *config.Config) bool {
+	return cfg.RCA.Enabled && cfg.LogWatch.IsActive(true)
+}
+
 func buildProviderObservability(
 	pool *pgxpool.Pool, cfg *config.Config, token string,
 ) (*providerobs.Runtime, *providerobs.LogSink, error) {
@@ -55,7 +62,7 @@ func buildProviderObservability(
 		logWarn("provider", "auto_explain record rejected: %s (count %d)", reason, count)
 	})
 	var handler providerobs.LogHandler
-	if cfg.AutoExplain.Enabled || (cfg.LogWatch.Enabled && cfg.RCA.Enabled) {
+	if cfg.AutoExplain.Enabled || providerLogRCA(cfg) {
 		handler = sink.Handle
 	}
 	runtime, err := providerobs.NewRuntime(api, conn.Database, handler)
@@ -94,7 +101,7 @@ func startProviderObservability(
 	if exec != nil {
 		exec.WithHostCPUReader(runtime)
 	}
-	logs := rcaEngine != nil && cfg.LogWatch.Enabled
+	logs := rcaEngine != nil && providerLogRCA(cfg)
 	if logs {
 		rcaEngine.SetLogSource(sink)
 	}

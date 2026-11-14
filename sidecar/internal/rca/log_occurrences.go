@@ -28,6 +28,11 @@ type LogOccurrences struct {
 	PIDs      []int     `json:"pids"`
 	FirstSeen time.Time `json:"first_seen"`
 	LastSeen  time.Time `json:"last_seen"`
+	// Participants is the newest deadlock window's wait cycle (rca-07b),
+	// at most MaxDeadlockParticipants; ParticipantsUnparsed counts the
+	// DETAIL lines of that window that were not read.
+	Participants         []DeadlockParticipant `json:"participants,omitempty"`
+	ParticipantsUnparsed int                   `json:"participants_unparsed,omitempty"`
 	// windows are the latest classifier windows counted (each one's
 	// first_seen and the total it reported), so a later report of any of
 	// them adds only its growth. Not stored: after a restart the
@@ -62,6 +67,8 @@ func logOccurrencesFromSignal(s *Signal) *LogOccurrences {
 	if pids, ok := s.Metrics["affected_pids"].([]int); ok {
 		occ.PIDs = unionPIDs(nil, pids)
 	}
+	occ.Participants = participantsFromSignal(s)
+	occ.ParticipantsUnparsed, _ = s.Metrics[MetricParticipantsUnparsed].(int)
 	return occ
 }
 
@@ -88,6 +95,7 @@ func mergeLogOccurrences(a, b *LogOccurrences) *LogOccurrences {
 	if a == nil {
 		cp := *b
 		cp.PIDs = slices.Clone(b.PIDs)
+		cp.Participants = slices.Clone(b.Participants)
 		cp.windows = slices.Clone(b.windows)
 		return &cp
 	}
@@ -100,6 +108,7 @@ func mergeLogOccurrences(a, b *LogOccurrences) *LogOccurrences {
 		out.Count += out.countWindow(w)
 	}
 	out.PIDs = unionPIDs(a.PIDs, b.PIDs)
+	out.mergeParticipants(b)
 	if b.FirstSeen.Before(out.FirstSeen) {
 		out.FirstSeen = b.FirstSeen
 	}
@@ -126,6 +135,22 @@ func (o *LogOccurrences) countWindow(w occWindow) int {
 		o.windows = o.windows[n-maxLogOccurrenceWindows:]
 	}
 	return w.count
+}
+
+// mergeParticipants keeps the newest window's wait cycle (rca-07b): b's
+// set replaces o's unless b has none or was last seen before o (an older
+// set only fills an empty one); the unparsed count follows the same rule.
+// o is a fresh copy (mergeLogOccurrences), and the set is cloned, so the
+// result never aliases b.
+func (o *LogOccurrences) mergeParticipants(b *LogOccurrences) {
+	newer := !b.LastSeen.Before(o.LastSeen)
+	if len(b.Participants) > 0 && (newer || len(o.Participants) == 0) {
+		o.Participants = slices.Clone(b.Participants[:min(len(b.Participants),
+			MaxDeadlockParticipants)])
+	}
+	if b.ParticipantsUnparsed > 0 && (newer || o.ParticipantsUnparsed == 0) {
+		o.ParticipantsUnparsed = b.ParticipantsUnparsed
+	}
 }
 
 // unionPIDs returns the sorted union of a and b, capped at 20 PIDs (the

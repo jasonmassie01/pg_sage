@@ -73,6 +73,7 @@ type RCAConfig struct {
 	LogFastPathIntervalSeconds int     `yaml:"log_fast_path_interval_seconds" doc:"Seconds between log fast-path passes, which open incidents for critical log lines (PANIC, disk full, OOM, wraparound) between analyzer cycles. 0 disables; otherwise 1-3600. Default: 5."`
 	LogQuietMinutes            int     `yaml:"log_quiet_minutes" doc:"Minutes without a new log line before a log incident auto-resolves (not clear cycles). 0 = rca.dedup_window_minutes; else 1-1440, within stale_after_hours. Default: 0."`
 	RecurrenceRenotifyHours    int     `yaml:"recurrence_renotify_hours" doc:"Hours after a log incident resolves in which a recurrence at no higher severity is linked but not notified again. 1-168. Default: 6."`
+	DeadlockStatementText      string  `yaml:"deadlock_statement_text" doc:"Deadlock participant statements: fingerprint (hash of the literal-redacted statement, no text) or redacted (also its redacted text, experimental). Default: fingerprint."`
 }
 
 // LockChainConfig controls lock chain detection (v0.9).
@@ -87,7 +88,7 @@ type LockChainConfig struct {
 
 // LogWatchConfig controls PostgreSQL log file monitoring (v0.9.1).
 type LogWatchConfig struct {
-	Enabled             bool     `yaml:"enabled" doc:"Enable RCA logs from a configured provider API or local PostgreSQL jsonlog/csvlog files. Requires rca.enabled=true. Default: false." api:"bool"`
+	Enabled             *bool    `yaml:"enabled" doc:"Log RCA from local jsonlog/csvlog files or a provider log API: true, false, or auto (unset, the default: on once a readable source is detected). Needs rca.enabled." api:"bool_auto"`
 	LogDirectory        string   `yaml:"log_directory" doc:"Path to PG log directory. Auto-detected from pg_settings if blank." api:"string"`
 	Format              string   `yaml:"format" doc:"Log format: jsonlog (PG15+) or csvlog. Auto-detected if blank." api:"string"`
 	PollIntervalMs      int      `yaml:"poll_interval_ms" doc:"Log file poll interval (the tailer only polls). Default: 1000." api:"int_pos"`

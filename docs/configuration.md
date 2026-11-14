@@ -575,6 +575,7 @@ would produce an invalid configuration answers `400` with the key.
 | `rca.log_fast_path_interval_seconds` | `5` | Seconds between log fast-path passes. Each pass takes the critical log signals (PANIC and crashes, disk full, out of memory, refused connections, deadlocks, wraparound, corruption, WAL archive and WAL segment failures), opens or updates their incidents and sends `incident_detected` without waiting for the analyzer cycle. Other log signals still wait for the cycle. `0` disables the log fast path; otherwise `1`-`3600`. Escalation still counts analyzer cycles; log incidents auto-resolve after `rca.log_quiet_minutes`. In a YAML fleet each database on a cluster runs its own pass. Restart to change |
 | `rca.log_quiet_minutes` | `0` | Minutes a log incident (deadlocks, refused connections and the other log signals) must go without a new occurrence before it auto-resolves (`resolution_reason` "no log occurrence for N minutes"). Clear analyzer cycles do not count for log incidents: a deadlock every 15 minutes is one open incident, not a detect/resolve pair each time. `0` uses `rca.dedup_window_minutes` (default 30); otherwise `1`-`1440`, and at most `rca.stale_after_hours`. Metric incidents still resolve after `rca.resolution_cycles` clear cycles. Restart to change |
 | `rca.recurrence_renotify_hours` | `6` | Hours after a log incident resolves during which a recurrence of it (same identity, linked through `previous_incident_id`) at the same or a lower severity is recorded but sends no `incident_detected`, and its resolution sends no `incident_resolved` unless it escalated. A severity rise always notifies. pg_sage logs each suppressed notification at DEBUG. Metric incidents are always notified. `1`-`168`. Restart to change |
+| `rca.deadlock_statement_text` | `fingerprint` | What a deadlock incident keeps of the statement each participant ran (from the server-log DETAIL). `fingerprint`: the first 16 hex characters of a SHA-256 over the statement with its comments removed, its string, dollar and numeric constants replaced by `?` and its whitespace collapsed, and no text. `redacted` (experimental, pending a privacy review): also that redacted text, at most 300 characters. Any other value fails at load. Applies to log files and provider log sinks alike. Restart to change |
 | `rca.stale_after_hours` | `24` | Hours an open incident may go without being re-detected before pg_sage resolves it (`resolved_by` `pg_sage:stale`). Incidents about an idle-in-transaction session also resolve once that session is gone (`pg_sage:subject_gone`). Resolutions of incidents last seen longer ago than this send no notification. `1`-`8760`, and at least `rca.dedup_window_minutes` |
 | `rca.vacuum_min_dead_tuples` | `1000` | Fewest dead tuples a table needs before its dead-tuple ratio counts toward the `vacuum_blocked` ("Autovacuum falling behind") incident. Ratios on tables below either floor are ignored, so a table with a handful of rows never opens, nor escalates, an incident. `1`-`1000000000` |
 | `rca.vacuum_min_table_mb` | `8` | Smallest heap (MB, from `pg_class.relpages`) a table needs before its dead-tuple ratio counts toward the `vacuum_blocked` incident. `1`-`1048576` |
@@ -3568,10 +3569,24 @@ dropped on upgrade.
 
 ### Log-based RCA
 
-With `logwatch.enabled` and `rca.enabled`, pg_sage tails the server's csvlog or jsonlog
-and opens incidents from it (crashes, WAL gaps, corruption, wraparound, disk full and the
-other signals below). It is **off by default**: `logwatch.enabled` is `false`. Migration
-log detection (`migration.log_detection`) reads the same watcher.
+With `rca.enabled` (the default), pg_sage tails the server's csvlog or jsonlog and opens
+incidents from it (crashes, WAL gaps, corruption, wraparound, disk full and the other
+signals below). `logwatch.enabled` takes three values:
+
+- unset or `auto` (the default): log RCA starts by itself once a readable source is
+  detected: a jsonlog or csvlog file in the server's `log_directory` that the sidecar can
+  read, or a configured provider log sink (Supabase). Until then the source is `disabled`
+  with reason `auto: <what is missing>`, one INFO line is logged (not a WARN per retry),
+  and the background retry keeps probing, so fixing `log_destination` or mounting the
+  log directory activates it without a restart.
+- `true`: always wanted; an unreadable log is `unavailable` and logged as a WARN.
+- `false`: never read the server log.
+
+Set `logwatch.enabled: false` to keep log RCA off.
+`logwatch.slow_query_enabled` stays opt-in, because it reads statement text. Migration log
+detection (`migration.log_detection`) reads the same watcher and stays opt-in. The
+override API takes `true`, `false` or `auto`, and `GET /api/v1/deployment/status` reports
+`readers.logwatch_mode`.
 
 **Requirements.** PostgreSQL 14-18. The server must write log files pg_sage can parse:
 
@@ -3589,7 +3604,7 @@ loses nothing. Detection only reads `pg_settings` (read-only, bounded by a timeo
 
 | Key | Default | Meaning |
 |---|---|---|
-| `logwatch.enabled` | `false` | Tail the server log for RCA. Needs `rca.enabled` (or migration log detection) |
+| `logwatch.enabled` | auto | `auto` (unset): tail the server log once a readable source is detected; `true`: always; `false`: never. Needs `rca.enabled` (or migration log detection) |
 | `logwatch.log_directory` | auto | Log directory as the sidecar sees it; blank reads `log_directory` from `pg_settings` |
 | `logwatch.format` | auto | `jsonlog` or `csvlog`; blank reads `log_destination` |
 | `logwatch.poll_interval_ms` | `1000` | How often the tailer polls the log file (it only polls) |
@@ -3605,7 +3620,8 @@ database: `state` is `active` (tailing; with `format`, `file`, `last_line_at`,
 `parse_errors` and `dropped_lines`), `unavailable` (wanted but unreadable; `reason` names the
 setting at fault, for example `log_destination is "stderr"` or `logging_collector is "off"`,
 and `next_retry_at` says when pg_sage tries again) or `disabled` (`reason` names the switch,
-for example `logwatch.enabled is false`). `hints` lists settings that keep a signal silent.
+for example `logwatch.enabled is false`; in auto mode, `auto: ` and the setting at fault,
+with `next_retry_at`, because the retry keeps probing). `hints` lists settings that keep a signal silent.
 An unavailable source is retried in the background, first after 30 s and then doubling to
 every 10 minutes, until it starts or the sidecar stops; databases that started while it was
 unavailable receive its signals once it is active, without a restart. In fleet mode one
@@ -3680,7 +3696,27 @@ most 20; for a deadlock, every process its DETAIL names, never the statements) a
 `first_seen`/`last_seen` (RFC 3339). The incident keeps them as `log_occurrences` (`count`,
 `pids`, `first_seen`, `last_seen`, stored in `sage.incidents.log_occurrences`), and the
 deadlock evidence names the PIDs and the count. A provider log sink reports a batch's repeats
-when its next batch arrives. A log incident auto-resolves after `rca.log_quiet_minutes`
+when its next batch arrives.
+
+**Deadlock wait cycle.** A deadlock's DETAIL also names, per process, the lock it waited for,
+the process that blocked it and (in the server log) the statement it ran. pg_sage reads at most
+10 participants into the signal and keeps the newest deadlock window's set in
+`log_occurrences.participants`: `pid`, `wait_mode`, `wait_object` (PostgreSQL's wording, OIDs
+kept, for example `transaction 745` or `tuple (0,1) of relation 16384 of database 5`),
+`blocked_by`, `relation` (the relation the CONTEXT names, on the detecting process only),
+`fingerprint` and, only when `rca.deadlock_statement_text` is `redacted`, `statement`. A
+statement is clipped to 2,000 bytes, then its comments are removed and its string, dollar-quoted
+and numeric constants are replaced by `?`, so one statement shape has one fingerprint whatever its values and no value is
+stored; the default `fingerprint` mode stores no statement text at all. The incident's chain
+gains a "Deadlock wait cycle" link with one line per participant (`pid A waits for ShareLock on
+transaction 745 held by pid B; statement fp=...`). DETAIL lines pg_sage cannot read keep the
+PID-only evidence and are counted as `participants_unparsed`; a server with a non-English
+`lc_messages` (flagged by the locale check) gives no participants. Provider log sinks without
+a CONTEXT field keep the OID only. The tier-2 LLM prompt never sees the raw DETAIL, and sees
+statement text only in `redacted` mode. `redacted` is experimental until the owner's privacy
+review of these rules.
+
+A log incident auto-resolves after `rca.log_quiet_minutes`
 without an occurrence, and a recurrence within `rca.recurrence_renotify_hours` of its
 predecessor's resolution, at no higher severity, is linked but not notified again. The lock
 graph and lock chain probes investigate deadlocks, connection saturation refused connections,

@@ -30,6 +30,7 @@ var setterProbeValues = map[string][]string{
 	"float_pct_pos":      {"0.5", "42.5", "10"},
 	"float_pct_open":     {"0.5", "42.5", "99.5"}, // vacuum-11b
 	"bool":               {"true", "false"},
+	"bool_auto":          {"true", "false", "auto"}, // rca-09b
 	"policy_profile":     {"staffed", "unattended"},
 	"clone_provider":     {"none", "dle", "snapshot"},
 	"mcp_transport":      {"stdio", "http"},

@@ -21,7 +21,7 @@ import (
 
 // reDeadlockProcess finds the participant PIDs of a deadlock DETAIL
 // ("Process 5678 waits for ShareLock ...; blocked by process 5679."). The
-// statements the DETAIL also carries are not read.
+// wait cycle and statements are read by ParseDeadlockDetail (rca-07b).
 var reDeadlockProcess = regexp.MustCompile(`(?i)\bprocess (\d+)\b`)
 
 // occurrencePIDs are the PIDs one log line counts: the logging backend
@@ -55,6 +55,7 @@ func (c *Classifier) recordOccurrence(
 			de.lastSeen = ts
 		}
 		addPIDs(de.pids, pids)
+		de.noteParticipants(sig)
 		return true
 	}
 	if exists {
@@ -63,6 +64,7 @@ func (c *Classifier) recordOccurrence(
 	de = &dedupEntry{firstSeen: ts, lastSeen: ts, count: 1, emitted: 1,
 		pids: make(map[int]bool, len(pids))}
 	addPIDs(de.pids, pids)
+	de.noteParticipants(sig)
 	stampOccurrences(sig, de)
 	// A private copy: consumers own the returned signal and its metrics.
 	de.sig = &rca.Signal{ID: sig.ID, FiredAt: sig.FiredAt, Severity: sig.Severity,
@@ -124,4 +126,42 @@ func stampOccurrences(sig *rca.Signal, de *dedupEntry) {
 	sig.Metrics["affected_pids"] = slices.Sorted(maps.Keys(de.pids))
 	sig.Metrics["first_seen"] = de.firstSeen.Format(time.RFC3339Nano)
 	sig.Metrics["last_seen"] = de.lastSeen.Format(time.RFC3339Nano)
+	if len(de.participants) > 0 {
+		sig.Metrics[rca.MetricDeadlockParticipants] = de.participants
+	}
+	if de.unparsed > 0 {
+		sig.Metrics[rca.MetricParticipantsUnparsed] = de.unparsed
+	}
+}
+
+// noteParticipants records the wait cycle of the line sig was built from
+// (rca-07b): the newest set the window saw replaces the last one, and the
+// unread DETAIL lines add up over the window. A set is never mutated
+// after it is built, so signals may share it.
+func (de *dedupEntry) noteParticipants(sig *rca.Signal) {
+	if parts, ok := sig.Metrics[rca.MetricDeadlockParticipants].([]rca.DeadlockParticipant); ok &&
+		len(parts) > 0 {
+		de.participants = parts
+	}
+	if n, ok := sig.Metrics[rca.MetricParticipantsUnparsed].(int); ok {
+		de.unparsed += n
+	}
+}
+
+// addDeadlockParticipants parses a deadlock's DETAIL into its wait cycle
+// (rca-07b). Statement text is dropped unless redacted mode keeps it; a
+// DETAIL that names nobody leaves the PID-only signal of rca-07.
+func (c *Classifier) addDeadlockParticipants(entry LogEntry, metrics map[string]any) {
+	parts, unparsed := ParseDeadlockDetail(entry.Detail, entry.Context)
+	if !c.redactedStatements {
+		for i := range parts {
+			parts[i].Statement = ""
+		}
+	}
+	if len(parts) > 0 {
+		metrics[rca.MetricDeadlockParticipants] = parts
+	}
+	if unparsed > 0 {
+		metrics[rca.MetricParticipantsUnparsed] = unparsed
+	}
 }

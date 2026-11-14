@@ -93,7 +93,7 @@ func TestReplayStoredOverridesNilAndEmpty(t *testing.T) {
 func TestEveryBoolSetterAppliesParseBoolForms(t *testing.T) {
 	keys := 0
 	for key, vtype := range store.AllowedConfigKeysSnapshot() {
-		if vtype != "bool" {
+		if vtype != "bool" && vtype != "bool_auto" { // bool_auto: rca-09b
 			continue
 		}
 		keys++

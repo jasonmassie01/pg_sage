@@ -120,7 +120,7 @@ func waitDeadlockSignal(t *testing.T, sub interface{ Drain() []*rca.Signal }) {
 func TestLogSourceRetryActivatesAfterDirectoryAppears(t *testing.T) {
 	prepareMetaGlobals(t)
 	dir := filepath.Join(t.TempDir(), "pg_log")
-	cfg.LogWatch = config.LogWatchConfig{Enabled: true, LogDirectory: dir,
+	cfg.LogWatch = config.LogWatchConfig{Enabled: logWatchSwitch(true), LogDirectory: dir,
 		Format: "jsonlog", PollIntervalMs: 5, MaxLineLenBytes: 65536}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -184,7 +184,7 @@ func TestNextLogRetry(t *testing.T) {
 // goroutine ends with its context.
 func TestLogSourceRetryBacksOffAndStopsOnCancel(t *testing.T) {
 	prepareMetaGlobals(t)
-	cfg.LogWatch = config.LogWatchConfig{Enabled: true, Format: "jsonlog",
+	cfg.LogWatch = config.LogWatchConfig{Enabled: logWatchSwitch(true), Format: "jsonlog",
 		LogDirectory: filepath.Join(t.TempDir(), "never")}
 	ctx, cancel := context.WithCancel(context.Background())
 	clock := newFakeAfter()
@@ -217,17 +217,21 @@ func TestLogSourceStatusDefaultsAndDisabled(t *testing.T) {
 	prepareMetaGlobals(t)
 	cfg = config.DefaultConfig()
 	lw := cfg.LogWatch
-	if lw.Enabled || lw.PollIntervalMs != 1000 || lw.DedupWindowS != 60 ||
+	if lw.Enabled != nil || lw.PollIntervalMs != 1000 || lw.DedupWindowS != 60 ||
 		lw.MaxLineLenBytes != 65536 || lw.TempFileMinBytes != 10485760 ||
 		lw.MaxLinesPerCycle != 10000 || lw.LogDirectory != "" || lw.Format != "" {
 		t.Fatalf("logwatch defaults = %+v, want the documented ones", lw)
 	}
+	// rca-09b: the default is auto, so only an explicit false is disabled
+	// by the switch itself.
+	cfg.LogWatch.Enabled = logWatchSwitch(false)
 	set := newLogFanoutSet()
 	st := logSourceStatusFor(set, "db:5432", false)
 	if st.State != logwatch.SourceDisabled || !strings.Contains(st.Reason, "logwatch.enabled") {
-		t.Fatalf("default status = %+v, want disabled naming logwatch.enabled", st)
+		t.Fatalf("switched-off status = %+v, want disabled naming logwatch.enabled", st)
 	}
-	cfg.LogWatch.Enabled, cfg.RCA.Enabled, cfg.Migration.Enabled = true, false, false
+	cfg.LogWatch.Enabled = logWatchSwitch(true)
+	cfg.RCA.Enabled, cfg.Migration.Enabled = false, false
 	st = logSourceStatusFor(set, "db:5432", false)
 	if st.State != logwatch.SourceDisabled || !strings.Contains(st.Reason, "rca.enabled") {
 		t.Fatalf("no consumer status = %+v, want disabled naming rca.enabled", st)
@@ -253,7 +257,7 @@ func TestLogSourceStatusIsPerCluster(t *testing.T) {
 	t.Cleanup(cancel)
 	set := newLogFanoutSet()
 	set.after = newFakeAfter().after
-	cfg.LogWatch = config.LogWatchConfig{Enabled: true, LogDirectory: good,
+	cfg.LogWatch = config.LogWatchConfig{Enabled: logWatchSwitch(true), LogDirectory: good,
 		Format: "jsonlog", PollIntervalMs: 3600000}
 	set.forCluster(ctx, "a:5432", nil)
 	cfg.LogWatch.LogDirectory = filepath.Join(good, "missing")
@@ -276,7 +280,7 @@ func TestLogSourceStatusConcurrentReads(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "postgresql.json"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cfg.LogWatch = config.LogWatchConfig{Enabled: true, LogDirectory: dir,
+	cfg.LogWatch = config.LogWatchConfig{Enabled: logWatchSwitch(true), LogDirectory: dir,
 		Format: "jsonlog", PollIntervalMs: 1}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -323,7 +327,7 @@ func TestLogErrorCounterUnknownUntilSourceActive(t *testing.T) {
 // nil-pool panic.
 func TestLogSourceWithoutPoolNamesTheSettings(t *testing.T) {
 	prepareMetaGlobals(t)
-	cfg.LogWatch = config.LogWatchConfig{Enabled: true, LogDirectory: t.TempDir()}
+	cfg.LogWatch = config.LogWatchConfig{Enabled: logWatchSwitch(true), LogDirectory: t.TempDir()}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	set := newLogFanoutSet()
@@ -340,7 +344,7 @@ func TestLogSourceWithoutPoolNamesTheSettings(t *testing.T) {
 // detects through a database that still runs, and nothing once none does.
 func TestLogSourceReleasesRemovedDatabasePools(t *testing.T) {
 	prepareMetaGlobals(t)
-	cfg.LogWatch = config.LogWatchConfig{Enabled: true, Format: "jsonlog",
+	cfg.LogWatch = config.LogWatchConfig{Enabled: logWatchSwitch(true), Format: "jsonlog",
 		LogDirectory: filepath.Join(t.TempDir(), "missing")}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -376,12 +380,12 @@ func TestLogSourceReleasesRemovedDatabasePools(t *testing.T) {
 func TestLogSourceStatusProviderLogs(t *testing.T) {
 	prepareMetaGlobals(t)
 	cfg = config.DefaultConfig()
-	cfg.LogWatch.Enabled, cfg.RCA.Enabled = true, true
+	cfg.LogWatch.Enabled, cfg.RCA.Enabled = logWatchSwitch(true), true
 	st := logSourceStatusFor(newLogFanoutSet(), "db.supabase.co:5432", true)
 	if st.State != logwatch.SourceActive || st.Format != providerLogFormat || st.Reason != "" {
 		t.Fatalf("provider status = %+v, want active %s", st, providerLogFormat)
 	}
-	cfg.LogWatch.Enabled = false
+	cfg.LogWatch.Enabled = logWatchSwitch(false)
 	st = logSourceStatusFor(newLogFanoutSet(), "db.supabase.co:5432", true)
 	if st.State != logwatch.SourceDisabled {
 		t.Fatalf("disabled logwatch with provider logs = %+v, want disabled", st)

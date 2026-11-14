@@ -14,6 +14,7 @@ type LogEntry struct {
 	Message     string    // message
 	Detail      string    // detail
 	Hint        string    // hint
+	Context     string    // context (csvlog column 18); "" when the source lacks it
 	Query       string    // query (if available)
 	Application string    // application_name
 	BackendType string    // backend_type (csvlog column 23, PG13+); "" when absent

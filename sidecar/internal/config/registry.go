@@ -58,6 +58,7 @@ var apiTypes = map[string]apiType{
 	"float_pct_pos":      {ranged: true, min: 0.001, max: 100},
 	"float_pct_open":     {ranged: true, open: true, min: 0, max: 100}, // vacuum-11b
 	"bool":               {},
+	"bool_auto":          {}, // true, false or auto (logwatch.enabled, rca-09b)
 	"string":             {},
 	"maintenance_window": {},
 	"rule_list":          {},

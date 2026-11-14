@@ -176,7 +176,8 @@ func logTreeSimple(
 }
 
 // logTreeDeadlock handles log_deadlock_detected with self-inflicted
-// detection and the classifier's participant PIDs and count (rca-07).
+// detection, the classifier's participant PIDs and count (rca-07) and,
+// when the DETAIL was read, the wait cycle (rca-07b).
 func logTreeDeadlock(s *Signal) Incident {
 	evidence := fmt.Sprintf("database=%s",
 		stringMetric(s, "database"))
@@ -185,19 +186,25 @@ func logTreeDeadlock(s *Signal) Incident {
 			evidence += ", pids=" + joinInts(occ.PIDs)
 		}
 		evidence += fmt.Sprintf(", occurrences=%d", occ.Count)
+		if occ.ParticipantsUnparsed > 0 {
+			evidence += fmt.Sprintf(", participants_unparsed=%d", occ.ParticipantsUnparsed)
+		}
 	}
 	if boolMetric(s, "self_inflicted") {
 		evidence += " [self-inflicted deadlock]"
 	}
+	chain := []ChainLink{{
+		Order: 1, Signal: s.ID,
+		Description: "Deadlock detected between concurrent transactions",
+		Evidence:    evidence,
+	}}
+	if link, ok := deadlockCycleLink(s); ok {
+		chain = append(chain, link)
+	}
 	return buildLogIncident(s.FiredAt, "critical",
 		[]string{s.ID},
 		"Deadlock detected between concurrent transactions",
-		[]ChainLink{{
-			Order: 1, Signal: s.ID,
-			Description: "Deadlock detected between concurrent transactions",
-			Evidence:    evidence,
-		}},
-		dbAffected(s), "", "moderate",
+		chain, dbAffected(s), "", "moderate",
 	)
 }
 

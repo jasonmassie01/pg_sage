@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/logwatch"
 )
 
@@ -38,6 +39,8 @@ type clusterLog struct {
 	status    logwatch.SourceStatus
 	active    bool
 	retryDone chan struct{} // closed when the retry goroutine ends
+	// autoNoted: auto mode has logged this cluster's missing source once.
+	autoNoted bool
 }
 
 // logFanoutSet shares one log watcher per PostgreSQL cluster (host:port)
@@ -47,10 +50,16 @@ type logFanoutSet struct {
 	clusters map[string]*clusterLog
 	// after is the retry clock; tests replace it.
 	after func(time.Duration) <-chan time.Time
+	// resolve detects the log settings from pg_settings; tests replace it.
+	resolve logSettingsResolver
 }
 
+// logSettingsResolver fills the log directory and format of a cluster.
+type logSettingsResolver func(context.Context, *pgxpool.Pool) (config.LogWatchConfig, error)
+
 func newLogFanoutSet() *logFanoutSet {
-	return &logFanoutSet{clusters: map[string]*clusterLog{}, after: time.After}
+	return &logFanoutSet{clusters: map[string]*clusterLog{}, after: time.After,
+		resolve: resolvedLogWatchConfig}
 }
 
 // runtimeLogFanouts is the process-wide set every mode uses.
@@ -69,14 +78,15 @@ func (s *logFanoutSet) forCluster(
 		cl.addPool(pool)
 		return cl.fanout
 	}
-	watcher := logwatch.NewFileWatcher(cfg.LogWatch, logStructuredWrapper)
+	watcher := logwatch.NewFileWatcher(cfg.LogWatch, logStructuredWrapper).
+		WithDeadlockStatementText(cfg.RCA.DeadlockStatementText)
 	cl := &clusterLog{watcher: watcher, retryDone: make(chan struct{}),
 		fanout: logwatch.NewLogFanout(watcher).WithClusterKey(key)}
 	cl.addPool(pool)
 	s.clusters[key] = cl
 	// The first attempt holds s.mu so every database of the cluster sees
 	// its outcome; retries run outside it.
-	if s.record(ctx, key, cl, startClusterLog(ctx, key, cl.watcher, pool)) {
+	if s.record(ctx, key, cl, s.attempt(ctx, key, cl, pool)) {
 		close(cl.retryDone)
 		return cl.fanout
 	}
@@ -87,33 +97,59 @@ func (s *logFanoutSet) forCluster(
 // logStartTimeout bounds the pg_settings detection of one start attempt.
 const logStartTimeout = 10 * time.Second
 
-// startClusterLog detects the log source and starts the watcher once. Only
-// the cluster's first call or its single retry goroutine calls it, never
-// both at once, and before the watcher's drain loop exists.
+// attempt runs one start and turns a failure into the status of the
+// logwatch mode: explicit true is unavailable with a WARN; auto is
+// disabled with the detector's reason, noted by one INFO line until the
+// source starts (rca-09b). Only the cluster's first call or its single
+// retry goroutine calls it, never both at once, and before the watcher's
+// drain loop exists.
+func (s *logFanoutSet) attempt(
+	ctx context.Context, key string, cl *clusterLog, pool *pgxpool.Pool,
+) logwatch.SourceStatus {
+	st, err := startClusterLog(ctx, key, cl.watcher, pool, s.resolve)
+	if err == nil {
+		return st
+	}
+	if cfg.LogWatch.Mode() != config.LogWatchAuto {
+		logWarn("logwatch", "[%s] log source unavailable: %v", key, err)
+		return logwatch.UnavailableStatus(err.Error())
+	}
+	if !cl.autoNoted {
+		cl.autoNoted = true
+		logInfo("logwatch", "[%s] log RCA waits for a readable log source "+
+			"(logwatch.enabled: auto): %v", key, err)
+	}
+	st = logwatch.DisabledStatus("auto: " + err.Error())
+	st.Hints = []string{autoLogHint}
+	return st
+}
+
+// autoLogHint tells an operator how an auto-disabled log source starts.
+const autoLogHint = "logwatch.enabled is auto: log RCA starts by itself once the " +
+	"server writes a readable jsonlog (PostgreSQL 15+) or csvlog file; set " +
+	"logwatch.enabled: false to stop probing"
+
+// startClusterLog detects the log source and starts the watcher once.
 func startClusterLog(
 	ctx context.Context, key string, watcher *logwatch.FileWatcher, pool *pgxpool.Pool,
-) logwatch.SourceStatus {
+	resolve logSettingsResolver,
+) (logwatch.SourceStatus, error) {
 	detectCtx, cancel := context.WithTimeout(ctx, logStartTimeout)
 	defer cancel()
-	settings, err := resolvedLogWatchConfig(detectCtx, pool)
+	settings, err := resolve(detectCtx, pool)
 	if err != nil {
-		return unavailableLog(key, fmt.Errorf("auto-detect: %w", err))
+		return logwatch.SourceStatus{}, fmt.Errorf("auto-detect: %w", err)
 	}
 	if err := watcher.StartWithConfig(ctx, settings); err != nil {
-		return unavailableLog(key, fmt.Errorf("cannot read logwatch.log_directory %s "+
-			"(%w): mount the server's log_directory read-only into the sidecar and "+
+		return logwatch.SourceStatus{}, fmt.Errorf("cannot read logwatch.log_directory "+
+			"%s (%w): mount the server's log_directory read-only into the sidecar and "+
 			"check that logging_collector = on and log_destination includes %s",
-			settings.LogDirectory, err, settings.Format))
+			settings.LogDirectory, err, settings.Format)
 	}
 	logInfo("logwatch", "[%s] started (dir=%s format=%s)",
 		key, settings.LogDirectory, settings.Format)
 	return logwatch.SourceStatus{State: logwatch.SourceActive, Format: settings.Format,
-		Hints: logSettingHints(ctx, key, pool)}
-}
-
-func unavailableLog(key string, err error) logwatch.SourceStatus {
-	logWarn("logwatch", "[%s] log source unavailable: %v", key, err)
-	return logwatch.UnavailableStatus(err.Error())
+		Hints: logSettingHints(ctx, key, pool)}, nil
 }
 
 // record stores an attempt's outcome (s.mu held) and, when the source is
@@ -149,7 +185,7 @@ func (s *logFanoutSet) retry(ctx context.Context, key string, cl *clusterLog) {
 		s.mu.Lock()
 		pool := cl.latestPool()
 		s.mu.Unlock()
-		st := startClusterLog(ctx, key, cl.watcher, pool)
+		st := s.attempt(ctx, key, cl, pool)
 		s.mu.Lock()
 		started := s.record(ctx, key, cl, st)
 		s.mu.Unlock()
@@ -229,7 +265,7 @@ const providerLogFormat = "supabase_api"
 func logSourceStatusFor(
 	set *logFanoutSet, key string, providerLogs bool,
 ) logwatch.SourceStatus {
-	if !cfg.LogWatch.Enabled {
+	if cfg.LogWatch.Mode() == config.LogWatchOff {
 		return logwatch.DisabledStatus("logwatch.enabled is false")
 	}
 	if !logConsumerEnabled() {

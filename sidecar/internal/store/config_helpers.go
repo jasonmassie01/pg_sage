@@ -52,6 +52,11 @@ func validateSpec(spec config.KeySpec, value string) error {
 	switch spec.Type {
 	case "bool":
 		return validateBool(spec.Key, value)
+	case "bool_auto": // logwatch.enabled also takes auto (rca-09b)
+		if _, err := config.ParseLogWatchEnabled(value); err != nil {
+			return fmt.Errorf("validate: %w", err)
+		}
+		return nil
 	case "clone_provider":
 		return validateAPICloneProvider(value)
 	case "maintenance_window":
@@ -493,7 +498,8 @@ func addExplainFields(m map[string]any, e *config.ExplainConfig) {
 func addLogWatchFields(
 	m map[string]any, lw *config.LogWatchConfig,
 ) {
-	addField(m, "logwatch.enabled", lw.Enabled, SourceFileDefault)
+	addField(m, "logwatch.enabled", coerceValue("logwatch.enabled", lw.Setting()),
+		SourceFileDefault)
 	addField(m, "logwatch.log_directory",
 		lw.LogDirectory, SourceFileDefault)
 	addField(m, "logwatch.format", lw.Format, SourceFileDefault)
@@ -607,7 +613,7 @@ func coerceValue(key, value string) any {
 		if f, err := strconv.ParseFloat(value, 64); err == nil {
 			return f
 		}
-	case spec.Type == "bool":
+	case spec.Type == "bool", spec.Type == "bool_auto":
 		if b, err := config.ParseBool(value); err == nil {
 			return b
 		}

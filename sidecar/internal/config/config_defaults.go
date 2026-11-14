@@ -343,6 +343,7 @@ func defaultRCAConfig() RCAConfig {
 		NarrationEnabled:           DefaultRCANarrationEnabled,
 		LogFastPathIntervalSeconds: DefaultRCALogFastPathIntervalSeconds,
 		RecurrenceRenotifyHours:    DefaultRCARecurrenceRenotifyHours,
+		DeadlockStatementText:      DefaultRCADeadlockStatementText,
 	}
 }
 

@@ -263,6 +263,7 @@ derivable migration.poll_interval_seconds
 safety_critical rehearsal.plan_flip_pct
 derivable rca.connection_saturation_pct
 derivable rca.dedup_window_minutes
+safety_critical rca.deadlock_statement_text
 operator_preference rca.enabled
 derivable rca.escalation_cycles
 derivable rca.llm_correlation_threshold
