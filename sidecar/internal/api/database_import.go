@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"strconv"
 
 	"github.com/pg-sage/sidecar/internal/store"
@@ -150,4 +151,34 @@ func validCSVHeader(header []string) bool {
 		}
 	}
 	return true
+}
+
+func importCSVHandler(
+	deps *DatabaseDeps,
+) http.HandlerFunc {
+	const maxUpload = 5 << 20 // 5 MB total upload limit
+	return func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, maxUpload)
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			jsonError(w, "invalid multipart form",
+				http.StatusBadRequest)
+			return
+		}
+		file, _, err := r.FormFile("file")
+		if err != nil {
+			jsonError(w, "missing file field",
+				http.StatusBadRequest)
+			return
+		}
+		defer func() { _ = file.Close() }()
+
+		user := UserFromContext(r.Context())
+		createdBy := 0
+		if user != nil {
+			createdBy = user.ID
+		}
+		result := processCSVImport(
+			r.Context(), deps.Store, file, createdBy)
+		jsonResponse(w, result)
+	}
 }

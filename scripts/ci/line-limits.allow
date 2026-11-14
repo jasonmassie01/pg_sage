@@ -5,12 +5,7 @@
 # delete it, never add one or raise it. Each split item deletes its rows.
 # Format: <repo-relative path> <max lines>
 sidecar/cmd/pg_sage_sidecar/metadb.go 515
-sidecar/internal/api/action_handlers.go 748
 sidecar/internal/api/cases_handlers.go 593
-sidecar/internal/api/config_handlers.go 638
-sidecar/internal/api/database_handlers.go 668
-sidecar/internal/api/handlers.go 1353
-sidecar/internal/api/handlers_v09.go 506
 sidecar/internal/config/config.go 1487
 sidecar/internal/executor/action_contract.go 876
 sidecar/internal/fleet/capabilities.go 502
