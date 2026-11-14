@@ -65,8 +65,11 @@ func nearStatementsCapacity(entries, max int) bool {
 	return max > 0 && entries > 0 && entries*100 >= max*classifyPercent
 }
 
-// statementsEntriesSQL counts entries without reading their texts.
-const statementsEntriesSQL = sageTag + `SELECT count(*)::int FROM pg_stat_statements(false)`
+// statementsEntriesSQL counts entries without reading their texts; fn is
+// the qualified pg_stat_statements function.
+func statementsEntriesSQL(fn string) string {
+	return sageTag + `SELECT count(*)::int FROM ` + fn + `(false)`
+}
 
 // classifySQL counts the entries of source, the utility ones and the
 // COPY ... TO STDOUT ones, by each text's first keyword after leading
@@ -83,16 +86,18 @@ FROM (SELECT query,
       FROM ` + source + `) s`
 }
 
-// statementsClassifySQL classifies every pg_stat_statements entry.
-var statementsClassifySQL = classifySQL("pg_stat_statements")
-
 // statementsSettingsSQL reads track_utility and whether the info view
-// (pg_stat_statements 1.9+, PostgreSQL 14+) exists.
+// (pg_stat_statements 1.9+, PostgreSQL 14+) exists; $1 is its qualified
+// name.
 const statementsSettingsSQL = sageTag + `
 SELECT COALESCE(current_setting('pg_stat_statements.track_utility', true), ''),
-       to_regclass('pg_stat_statements_info') IS NOT NULL`
+       to_regclass($1) IS NOT NULL`
 
-const statementsDeallocSQL = sageTag + `SELECT dealloc::int8 FROM pg_stat_statements_info`
+// statementsDeallocSQL reads the deallocations from info, the qualified
+// info view.
+func statementsDeallocSQL(info string) string {
+	return sageTag + `SELECT dealloc::int8 FROM ` + info
+}
 
 // collectStatStatementsUsage reads the usage when pg_stat_statements is
 // loaded (max > 0), classifying texts only near capacity. A failed read
@@ -103,7 +108,10 @@ func (c *Collector) collectStatStatementsUsage(ctx context.Context,
 		return nil
 	}
 	var entries int
-	err := c.catalogQueryRow(ctx, c.statementsSQL(statementsEntriesSQL)).Scan(&entries)
+	names, err := c.pgss()
+	if err == nil {
+		err = c.catalogQueryRow(ctx, statementsEntriesSQL(names.fn)).Scan(&entries)
+	}
 	var u *StatStatementsUsage
 	switch {
 	case err != nil:
@@ -149,12 +157,14 @@ func (c *Collector) classifiedUsage(ctx context.Context,
 func (c *Collector) readStatStatementsUsage(ctx context.Context,
 	classify bool) (*StatStatementsUsage, error) {
 	u := &StatStatementsUsage{Dealloc: -1, Classified: classify}
-	var err error
-	if classify {
-		err = c.catalogQueryRow(ctx, c.statementsSQL(statementsClassifySQL)).Scan(&u.Entries,
+	names, err := c.pgss()
+	switch {
+	case err != nil:
+	case classify:
+		err = c.catalogQueryRow(ctx, classifySQL(names.view)).Scan(&u.Entries,
 			&u.Utility, &u.CopyOut)
-	} else {
-		err = c.catalogQueryRow(ctx, c.statementsSQL(statementsEntriesSQL)).Scan(&u.Entries)
+	default:
+		err = c.catalogQueryRow(ctx, statementsEntriesSQL(names.fn)).Scan(&u.Entries)
 	}
 	if err != nil {
 		return nil, err
@@ -168,15 +178,19 @@ func (c *Collector) readStatStatementsUsage(ctx context.Context,
 // readStatementsSettings fills track_utility and, where the info view
 // exists, the deallocation count.
 func (c *Collector) readStatementsSettings(ctx context.Context, u *StatStatementsUsage) error {
+	names, err := c.pgss()
+	if err != nil {
+		return err
+	}
 	var hasInfo bool
-	if err := c.catalogQueryRow(ctx, c.statementsSQL(statementsSettingsSQL)).Scan(
+	if err := c.catalogQueryRow(ctx, statementsSettingsSQL, names.info).Scan(
 		&u.TrackUtility, &hasInfo); err != nil {
 		return err
 	}
 	if !hasInfo {
 		return nil
 	}
-	err := c.catalogQueryRow(ctx, c.statementsSQL(statementsDeallocSQL)).Scan(&u.Dealloc)
+	err = c.catalogQueryRow(ctx, statementsDeallocSQL(names.info)).Scan(&u.Dealloc)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}

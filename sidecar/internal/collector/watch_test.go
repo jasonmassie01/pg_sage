@@ -53,7 +53,7 @@ type armStatements struct {
 }
 
 func (a *armStatements) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
-	if !strings.Contains(sql, "pg_stat_statements(true)") {
+	if !strings.Contains(sql, `pg_stat_statements"(true)`) {
 		a.mu.Lock()
 		a.sql = append(a.sql, sql)
 		a.args = append(a.args, slices.Clone(args))

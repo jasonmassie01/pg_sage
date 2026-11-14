@@ -16,8 +16,10 @@ func TestExecutorReadersFindExtensionOutsideSearchPath(t *testing.T) {
 	if _, err := admin.Exec(ctx, "CREATE TABLE public.ext_probe (v int)"); err != nil {
 		t.Fatalf("create table: %v", err)
 	}
-	id := testdb.SeedStatement(t, admin, pool, "SELECT count(*) FROM public.ext_probe", 3)
-	testdb.SeedStatement(t, admin, pool, "INSERT INTO public.ext_probe SELECT v FROM public.ext_probe", 2)
+	const probe = "SELECT count(*) FROM public.ext_probe"
+	id := testdb.SeedStatement(t, admin, pool, probe, 3)
+	testdb.SeedStatement(t, admin, pool,
+		"INSERT INTO public.ext_probe SELECT v FROM public.ext_probe", 2)
 	var logged []string
 	e := &Executor{pool: pool, logFn: func(_, format string, _ ...any) {
 		logged = append(logged, format)

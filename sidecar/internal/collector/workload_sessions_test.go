@@ -20,7 +20,7 @@ import (
 func TestWorkloadSessionsSQL_IsBoundedAndExcludesSelf(t *testing.T) {
 	for name, sql := range map[string]string{
 		"groups": workloadGroupsSQL, "long": workloadLongSQL,
-		"roles": workloadRolesSQL, "cluster": workloadClusterSessionsSQL,
+		"roles": workloadRolesSQL(testPgss.view), "cluster": workloadClusterSessionsSQL,
 	} {
 		if !strings.HasPrefix(sql, sageTag) {
 			t.Errorf("%s SQL is not tagged as pg_sage's own statement", name)
@@ -43,7 +43,7 @@ func TestWorkloadSessionsSQL_IsBoundedAndExcludesSelf(t *testing.T) {
 	if !strings.Contains(workloadGroupsSQL, "LIMIT 201") {
 		t.Error("groups SQL must read one row past the 200-group cap to detect truncation")
 	}
-	if !strings.Contains(workloadRolesSQL, "userid") {
+	if !strings.Contains(workloadRolesSQL(testPgss.view), "userid") {
 		t.Error("per-role statement time must come from pg_stat_statements.userid")
 	}
 }

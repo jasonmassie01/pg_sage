@@ -1,11 +1,5 @@
 # Unqualified extension references per production file (security-01c); only ever lower.
 internal/advisor/bloat.go 1
-internal/collector/capabilities.go 1
-internal/collector/collect_workload_sessions.go 1
-internal/collector/queries.go 1
-internal/collector/statements_text.go 1
-internal/collector/statements_usage.go 3
-internal/collector/stats_epoch.go 2
 internal/mcp/agent_tools.go 1
 internal/sre/investigator_tools.go 1
 internal/tuning/prompt.go 1

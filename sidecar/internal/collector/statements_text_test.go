@@ -35,7 +35,7 @@ type fakeStatements struct {
 func (f *fakeStatements) Query(_ context.Context, sql string, args ...any) (pgx.Rows, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if !strings.Contains(sql, "pg_stat_statements(true)") {
+	if !strings.Contains(sql, `pg_stat_statements"(true)`) {
 		if f.countErr != nil {
 			return nil, f.countErr
 		}

@@ -65,12 +65,15 @@ func (c *Collector) collectQueries(ctx context.Context) ([]QueryStats, error) {
 // published without their texts: a failed text read fails the step.
 func (c *Collector) collectQueriesVia(ctx context.Context,
 	db catalogQuerier) ([]QueryStats, error) {
-	db = c.statementsDB(db)
 	caps := c.queryCapabilities(ctx)
+	names, err := c.pgss()
+	if err != nil {
+		return nil, fmt.Errorf("read pg_stat_statements counters: %w", err)
+	}
 	admission := admissionFor(c.maxQueries())
 	read := rankedRead{admission: admission,
 		pins: c.pinnedQueryIDs(ctx, admission.pinCap), own: c.stmtTexts.ownIDs()}
-	candidates, err := readQueryCounters(ctx, db, caps, read)
+	candidates, err := readQueryCounters(ctx, db, names.fn, caps, read)
 	if err != nil {
 		return nil, fmt.Errorf("read pg_stat_statements counters: %w", err)
 	}
@@ -78,7 +81,7 @@ func (c *Collector) collectQueriesVia(ctx context.Context,
 	for i, q := range candidates {
 		ids[i] = q.QueryID
 	}
-	texts, err := c.stmtTexts.resolve(ctx, db, ids, c.clock(),
+	texts, err := c.stmtTexts.resolve(ctx, db, names.fn, ids, c.clock(),
 		stmtTextEntriesPerQuery*admission.limit)
 	if err != nil {
 		return nil, err
@@ -107,14 +110,15 @@ type rankedRead struct {
 }
 
 // readQueryCounters reads the admitted queryids (queryStatsFrom), pinned
-// first, with their counters and admission and without their texts.
-func readQueryCounters(ctx context.Context, db catalogQuerier, caps Capabilities,
-	read rankedRead) ([]QueryStats, error) {
+// first, with their counters and admission and without their texts. fn
+// is the qualified pg_stat_statements function (the template's %[6]s).
+func readQueryCounters(ctx context.Context, db catalogQuerier, fn string,
+	caps Capabilities, read rankedRead) ([]QueryStats, error) {
 	hasWAL, hasPlan := caps.WALColumns, caps.PlanTimeColumns
 	pins, own := nonNil(read.pins), nonNil(read.own)
 	a := read.admission
 	sql := fmt.Sprintf(queryStatsTemplate(hasWAL, hasPlan), caps.blk.read, caps.blk.write,
-		a.total(len(pins)), a.perArm, a.candidates(len(pins)))
+		a.total(len(pins)), a.perArm, a.candidates(len(pins)), fn)
 	rows, err := db.Query(ctx, sql, pins, own)
 	if err != nil {
 		return nil, err
