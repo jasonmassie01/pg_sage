@@ -21,7 +21,8 @@ import {
   FINDING_SOURCES, actionAvailability, caseID, caseLink, casePresentation,
 } from './cases/casePresentation'
 import {
-  focusFromHash, focusedInvestigation, investigationCase, resolveFocus,
+  focusFromHash, focusedInvestigation, investigationCase, investigationDetailURL,
+  resolveFocus,
 } from './cases/caseFocus'
 import { FocusMissing } from './cases/FocusMissing'
 import { CaseTicket } from './cases/CaseTicket'
@@ -91,21 +92,25 @@ export function CasesPage(props) {
     ? <InvestigationFocusCases {...view} /> : <CasesView {...view} />
 }
 
-// A cited investigation resolves to its case through the database's
-// investigations (mcp-05); the case cards ask for their own (sre-09), so
-// only this view reads the database's list.
+// A cited investigation resolves to its case through its own record, read
+// once by id (cases-12), never the database's newest 100. A 404 is the
+// not-found notice; any other failure an error with Retry.
 function InvestigationFocusCases(props) {
-  const { database } = props
-  const investigations = useAPI(
-    `/api/v1/investigations?database=${encodeURIComponent(database || 'all')}`, 30000)
-  return <CasesView {...props} invItems={investigations.data?.items} />
+  const url = investigationDetailURL(props.focus, props.database)
+  const detail = useAPI(url, 0)
+  if (url && detail.errorStatus !== 404 && queryBlocked(detail)) {
+    return <QueryState query={detail} skeleton={<LoadingSpinner />} />
+  }
+  const inv = detail.data?.investigation
+  const record = url && inv ? { ...inv, database: detail.data.database } : null
+  return <CasesView {...props} investigation={record} />
 }
 
-function CasesView({ database, initialSource = 'all', user, focus, setFocus, invItems }) {
+function CasesView({ database, initialSource = 'all', user, focus, setFocus, investigation }) {
   const [sourceFilter, setSourceFilter] = useState(initialSource)
   const [showSuppressed, setShowSuppressed] = useState(false)
   const [findingSource, setFindingSource] = useFindingSource()
-  const serverFocus = focus?.kind === 'case' ? focus.id : investigationCase(focus, invItems)
+  const serverFocus = focus?.kind === 'case' ? focus.id : investigationCase(focus, investigation)
   const casesResult = useAPI(
     `/api/v1/cases${casesQuery(database, serverFocus, focus ? '' : findingSource)}`, 30000)
   const { data, refetch } = casesResult
@@ -118,7 +123,7 @@ function CasesView({ database, initialSource = 'all', user, focus, setFocus, inv
   const filteredCases = sourceFilter === 'all'
     ? cases
     : cases.filter(c => c.source_type === sourceFilter)
-  const focusedID = resolveFocus(focus, cases, invItems)
+  const focusedID = resolveFocus(focus, cases, investigation)
   const focusedCase = focusedID ? cases.find(c => caseID(c) === focusedID) : null
   const visibleCases = focus ? (focusedCase ? [focusedCase] : []) : filteredCases
   const criticalCount = cases.filter(c => c.severity === 'critical').length
@@ -196,7 +201,8 @@ function CasesView({ database, initialSource = 'all', user, focus, setFocus, inv
       </div>}
 
       {visibleCases.length === 0 && focus && focus.kind !== 'case' && (
-        <FocusMissing focus={focus} investigation={focusedInvestigation(focus, invItems)} />
+        <FocusMissing focus={focus} database={database}
+          investigation={focusedInvestigation(focus, investigation)} />
       )}
       {visibleCases.length === 0 && (!focus || focus.kind === 'case') && (
         <div className="rounded border p-4 text-sm" style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>

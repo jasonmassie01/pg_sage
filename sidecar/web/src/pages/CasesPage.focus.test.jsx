@@ -22,15 +22,27 @@ const hint = {
   database_name: 'orders', title: 'Query hint 777', severity: 'info', state: 'open',
   why_now: 'hint', evidence: [],
 }
+// Investigation ids are canonical UUIDs (internal/sre/ids.go).
+const INV = '9b2e0c4a-1d3f-4a5b-8c6d-7e8f9a0b1c2d'
+const INV_OTHER = '6f1c2d3e-4a5b-4c6d-9e7f-8a9b0c1d2e3f'
 const otherDB = { ...orders, id: 'finding:billing:missing_index:table:public.orders',
   database_name: 'billing', title: 'Missing index on billing orders' }
 let cases
 let investigations
 const urls = []
+// cases-12: a cited investigation is read from its per-id route; one not
+// in `investigations` answers 404, as the server does.
+function investigationDetail(url) {
+  const [, db, id] = url.match(/^\/api\/v1\/databases\/([^/]+)\/investigations\/([^/?]+)$/)
+  const inv = investigations.find(i => i.id === id && i.database === db)
+  return inv ? { data: { database: db, investigation: inv }, loading: false, error: null }
+    : { data: null, loading: false, error: 'investigation not found (404)', errorStatus: 404 }
+}
 vi.mock('../hooks/useAPI', () => ({
   useAPI: url => {
     urls.push(url)
-    return { data: url.startsWith('/api/v1/cases') ? { cases } : { items: investigations },
+    if (url?.includes('/investigations/')) return { ...investigationDetail(url), refetch: vi.fn() }
+    return { data: url?.startsWith('/api/v1/cases') ? { cases } : { items: [] },
       loading: false, error: null, refetch: vi.fn() }
   },
 }))
@@ -105,9 +117,9 @@ describe('Cases focus from an Ask Sage citation', () => {
   })
 
   it('focuses the case of a cited investigation', () => {
-    investigations = [{ id: 'inv-2', case_id: forecast.id, database: 'orders' },
-      { id: '9b2e', case_id: orders.id, database: 'orders' }]
-    go('#/cases?investigation=9b2e&database=orders')
+    investigations = [{ id: INV_OTHER, case_id: forecast.id, database: 'orders' },
+      { id: INV, case_id: orders.id, database: 'orders' }]
+    go(`#/cases?investigation=${INV}&database=orders`)
     render(<CasesPage database="orders" />)
     expect(screen.getAllByRole('article')).toHaveLength(1)
     expect(focusedCase()).toBe(orders.id)
@@ -126,16 +138,16 @@ describe('Cases focus from an Ask Sage citation', () => {
     // An investigation Ask Sage starts has a synthetic ask:<digest> case id
     // that names no case; the cases API rejects it as a focus (400), which
     // would blank the page instead of saying what happened.
-    investigations = [{ id: '6f1c', case_id: 'ask:0123456789abcdef', database: 'orders' }]
-    go('#/cases?investigation=6f1c&database=orders')
+    investigations = [{ id: INV, case_id: 'ask:0123456789abcdef', database: 'orders' }]
+    go(`#/cases?investigation=${INV}&database=orders`)
     render(<CasesPage database="orders" />)
     expect(urls.some(u => u.startsWith('/api/v1/cases') && u.includes('case='))).toBe(false)
     expect(screen.queryByRole('article')).toBeNull()
     const notice = screen.getByTestId('cases-focus-missing')
-    expect(notice).toHaveTextContent(/investigation 6f1c/i)
+    expect(notice).toHaveTextContent(new RegExp(`investigation ${INV}`, 'i'))
     expect(notice).toHaveTextContent(/no case/)
     expect(within(notice).getByRole('link', { name: /investigation record/i }))
-      .toHaveAttribute('href', '/api/v1/databases/orders/investigations/6f1c')
+      .toHaveAttribute('href', `/api/v1/databases/orders/investigations/${INV}`)
   })
 
   it('follows a hash change from a finding focus back to the list', () => {

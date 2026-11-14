@@ -35,26 +35,59 @@ function isCaseID(id) {
   return at > 0 && at < id.length - 1 && CASE_ID_KINDS.has(id.slice(0, at))
 }
 
-// focusedInvestigation is the focused investigation, if the
-// investigations list holds it for the focused database.
-export function focusedInvestigation(focus, investigations) {
-  if (focus?.kind !== 'investigation') return null
-  return (investigations || []).find(i => String(i.id) === focus.id &&
-    sameDatabase(focus, i.database)) || null
+// INVESTIGATION_ID is a canonical investigation id (uuidPattern in
+// internal/sre/ids.go). The detail route does not canonicalise its path
+// value, so an id is lower-cased here before it is asked for.
+const INVESTIGATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+// investigationID is id as a canonical lower-case UUID, or '' when it is
+// not one (and so names no investigation).
+export function investigationID(id) {
+  if (typeof id !== 'string') return ''
+  const low = id.toLowerCase()
+  return INVESTIGATION_ID.test(low) ? low : ''
 }
 
-// investigationCase is the case id of the focused investigation, if the
-// investigations list holds it and it belongs to a case.
-export function investigationCase(focus, investigations) {
-  const caseID = focusedInvestigation(focus, investigations)?.case_id
+// focusDatabase is the database a focus belongs to: the one it names,
+// otherwise the selected one; '' in the fleet view with none named.
+export function focusDatabase(focus, database) {
+  if (focus?.database) return focus.database
+  return database && database !== 'all' ? database : ''
+}
+
+// investigationDetailURL is the per-id read of the focused investigation
+// (cases-12), or null when the focus names no valid id or no database.
+// A cited investigation resolves by id, never through the database's
+// newest 100, so an older one still opens its case.
+export function investigationDetailURL(focus, database) {
+  if (focus?.kind !== 'investigation') return null
+  const id = investigationID(focus.id)
+  const db = focusDatabase(focus, database)
+  if (!id || !db) return null
+  return `/api/v1/databases/${encodeURIComponent(db)}/investigations/${encodeURIComponent(id)}`
+}
+
+// focusedInvestigation is the investigation read for the focus, if it is
+// the focused one of the focused database.
+export function focusedInvestigation(focus, investigation) {
+  if (focus?.kind !== 'investigation' || !investigation) return null
+  const id = investigationID(focus.id)
+  if (!id || String(investigation.id) !== id) return null
+  return sameDatabase(focus, investigation.database) ? investigation : null
+}
+
+// investigationCase is the case id of the focused investigation, if it
+// belongs to a case.
+export function investigationCase(focus, investigation) {
+  const caseID = focusedInvestigation(focus, investigation)?.case_id
   return isCaseID(caseID) ? caseID : null
 }
 
 // resolveFocus is the case id to focus, or null when nothing matches.
-export function resolveFocus(focus, cases, investigations) {
+export function resolveFocus(focus, cases, investigation) {
   if (!focus) return null
   if (focus.kind === 'case') return focus.id
-  if (focus.kind === 'investigation') return investigationCase(focus, investigations)
+  if (focus.kind === 'investigation') return investigationCase(focus, investigation)
   const found = (cases || []).find(c => FINDING_SOURCES.has(c.source_type) &&
     sameDatabase(focus, c.database_name) &&
     (c.source_ids || []).some(id => String(id) === focus.id))
