@@ -19,9 +19,8 @@ func TestAskRunsStep_IsTheOnlyStepCreatingTheTable(t *testing.T) {
 	if len(found) != 1 || found[0] != "ddlAskRuns" {
 		t.Fatalf("steps naming sage.ask_runs = %v, want only ddlAskRuns", found)
 	}
-	tranche := trancheFourMigrations()
-	if len(tranche) == 0 || tranche[0][0] != "ddlAskRuns" {
-		t.Fatalf("trancheFourMigrations = %v, want ddlAskRuns first", tranche)
+	if trancheFourIndex(t, "ddlAskRuns") < 0 {
+		t.Fatalf("trancheFourMigrations = %v, want ddlAskRuns", trancheFourMigrations())
 	}
 }
 

@@ -17,11 +17,11 @@ import (
 // is serialised by its advisory lock (covered by the bootstrap tests).
 
 func TestNotificationLogDatabaseStepIsRegisteredAndBounded(t *testing.T) {
-	four := trancheFourMigrations()
-	if len(four) < 2 || four[0][0] != "ddlNotificationManagedBy" ||
-		four[1][0] != "ddlNotificationLogDatabase" {
-		t.Fatalf("T4 steps = %v, want ddlNotificationLogDatabase after "+
-			"ddlNotificationManagedBy", four)
+	managed := trancheFourIndex(t, "ddlNotificationManagedBy")
+	if logDB := trancheFourIndex(t, "ddlNotificationLogDatabase"); managed < 0 ||
+		logDB != managed+1 {
+		t.Fatalf("T4 steps = %v, want ddlNotificationLogDatabase right after "+
+			"ddlNotificationManagedBy", trancheFourMigrations())
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout",
 		"ALTER TABLE sage.notification_log",
