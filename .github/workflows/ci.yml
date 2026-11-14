@@ -966,6 +966,11 @@ jobs:
           base="$(git describe --tags --abbrev=0 --match 'v*')"
           bash scripts/ci/ledger-append-only.sh "$base"
 
+      # release-notes: the script that writes the GitHub release body
+      # (temporary CHANGELOGs, then this repository's own).
+      - name: Release notes script
+        run: bash scripts/ci/release-notes_test.sh
+
       - uses: actions/setup-go@v5
         with:
           go-version-file: sidecar/go.mod
