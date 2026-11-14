@@ -30,12 +30,14 @@ const managedChangesMeaning = "Settings SQL cannot change on RDS, Aurora or Clou
 	"a proposal applied once PostgreSQL runs the new value."
 
 func registerManagedCloudRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
-	route(mux, "GET /api/v1/managed-changes", gateViewer, managedChangesHandler(mgr))
+	routeAggregate(mux, "GET /api/v1/managed-changes", gateViewer, mgr,
+		aggregateHandler(managedChangesHandler))
 	routeDB(mux, "POST /api/v1/managed-changes/{id}/approve", gateOperator, queryDatabase,
 		managedChangeDecisionHandler(mgr, true))
 	routeDB(mux, "POST /api/v1/managed-changes/{id}/reject", gateOperator, queryDatabase,
 		managedChangeDecisionHandler(mgr, false))
-	route(mux, "GET /api/v1/cloud-telemetry", gateViewer, cloudTelemetryHandler(mgr))
+	routeAggregate(mux, "GET /api/v1/cloud-telemetry", gateViewer, mgr,
+		aggregateHandler(cloudTelemetryHandler))
 }
 
 // managedChangeDatabase is one database's proposals. MemberDatabases are
@@ -171,6 +173,36 @@ func cloudTelemetryHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
 				out = append(out, st)
 			}
 		}
+		if visible, scoped := visibleDatabasesFrom(r.Context()); scoped {
+			out = visibleTelemetry(out, visible)
+		}
 		jsonResponse(w, map[string]any{"databases": out})
 	}
+}
+
+// visibleTelemetry narrows statuses to a scoped caller's visible databases
+// (apiauth-08b). The telemetry registry is process-wide, not the fleet
+// view the handler was built over, and a shared instance names all its
+// members: each status keeps only visible members, and one with none is
+// dropped. statuses is not modified.
+func visibleTelemetry(statuses []cloudtel.Status, visible map[string]bool) []cloudtel.Status {
+	out := []cloudtel.Status{}
+	for _, st := range statuses {
+		members := st.Databases
+		if len(members) == 0 {
+			members = []string{st.Database}
+		}
+		kept := []string{}
+		for _, db := range members {
+			if visible[db] {
+				kept = append(kept, db)
+			}
+		}
+		if len(kept) == 0 {
+			continue
+		}
+		st.Database, st.Databases = kept[0], kept
+		out = append(out, st)
+	}
+	return out
 }

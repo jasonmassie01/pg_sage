@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -98,7 +99,7 @@ func TestSystemStats_CheckpointSplitJSON(t *testing.T) {
 // every version, so swapped or summed columns show up here. Run against
 // PG 14-16 (pg_stat_bgwriter) and PG 17+ (pg_stat_checkpointer).
 func TestCollectSystem_CheckpointSplitFromServer(t *testing.T) {
-	pool := testPool(t)
+	pool := exclusivePool(t, "requested checkpoints across a forced CHECKPOINT")
 	version := serverVersion(t, pool)
 	c := New(pool, testConfig(), version, noopLog)
 	ctx := context.Background()
@@ -109,10 +110,7 @@ func TestCollectSystem_CheckpointSplitFromServer(t *testing.T) {
 	if _, err := pool.Exec(ctx, "CHECKPOINT"); err != nil {
 		t.Fatalf("CHECKPOINT: %v", err)
 	}
-	after, err := c.collectSystem(ctx)
-	if err != nil {
-		t.Fatalf("collectSystem: %v", err)
-	}
+	after := systemAfterCheckpoint(t, ctx, c, before.CheckpointsRequested)
 	if after.CheckpointsRequested < before.CheckpointsRequested+1 {
 		t.Fatalf("requested %d -> %d across a CHECKPOINT", before.CheckpointsRequested,
 			after.CheckpointsRequested)
@@ -131,6 +129,26 @@ func TestCollectSystem_CheckpointSplitFromServer(t *testing.T) {
 		*after.CheckpointsDone < *before.CheckpointsDone+1):
 		t.Fatalf("num_done did not count the CHECKPOINT: %v -> %v",
 			before.CheckpointsDone, after.CheckpointsDone)
+	}
+}
+
+// systemAfterCheckpoint reads the system snapshot until the requested
+// count passes requested, for at most 10 s: PostgreSQL 14 reports the
+// checkpointer's counters through the statistics collector, asynchronously,
+// so the first read after a CHECKPOINT can still show the old count.
+func systemAfterCheckpoint(t *testing.T, ctx context.Context, c *Collector,
+	requested int64) SystemStats {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		after, err := c.collectSystem(ctx)
+		if err != nil {
+			t.Fatalf("collectSystem: %v", err)
+		}
+		if after.CheckpointsRequested > requested || time.Now().After(deadline) {
+			return after
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 

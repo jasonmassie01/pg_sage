@@ -66,6 +66,8 @@ type ReplayReport struct {
 	HeldOutCells []CellRecord  `json:"held_out_cells"`
 	ModelLift    []LiftRecord  `json:"model_lift,omitempty"`
 	LLMBudget    *BudgetRecord `json:"llm_budget,omitempty"`
+	// Compare is a compare run's per-family table (sre-03 Phase 2).
+	Compare *SupportCompare `json:"compare,omitempty"`
 }
 
 // BuildReplayReport scores replay results.
@@ -157,6 +159,9 @@ func (r ReplayReport) Markdown() string {
 	for _, g := range r.Gates {
 		b.WriteString(row(g.ID, g.Family, g.Arm, string(g.Status), g.Observed, g.Threshold,
 			g.Reason))
+	}
+	if r.Compare != nil {
+		b.WriteString("\n" + r.Compare.Markdown())
 	}
 	b.WriteString("\n### Replay runs\n\n")
 	view.writeRuns(&b)

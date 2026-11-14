@@ -4,7 +4,9 @@ import { listDatabaseGrants, revokeDatabaseGrant, setDatabaseGrant } from './dat
 // apiauth-08: an admin limits a user to some databases. A user with no
 // grants keeps their role everywhere; with grants they are an operator
 // only where granted (and never above their own role) and a viewer
-// elsewhere. Admins are never limited.
+// elsewhere. Admins are never limited. A grant the SSO group mapping wrote
+// (apiauth-08d, source 'idp') is shown with its source and is read-only
+// while the mapping is set; adding a grant on its database overrides it.
 
 const inputStyle = {
   background: 'var(--bg-main)', color: 'var(--text-primary)',
@@ -35,24 +37,52 @@ function GrantNotice({ enforced, scoped, role }) {
   )
 }
 
-function GrantRow({ grant, last, onRole, onRemove }) {
+function GrantSource({ idp, managed }) {
+  const title = !idp ? 'Set by an administrator'
+    : managed ? 'Set by the IdP group mapping at sign-in; change their IdP groups, ' +
+      'or add a grant on this database to override it'
+      : 'Set by an IdP group mapping that is no longer configured'
+  return (
+    <span data-testid="user-grant-source" title={title} className="px-1.5 rounded text-xs"
+      style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+      {idp ? 'SSO' : 'manual'}
+    </span>
+  )
+}
+
+function GrantRole({ grant, idp, onRole }) {
+  if (idp) {
+    return (
+      <span data-testid="user-grant-role-readonly" className="text-xs"
+        style={{ color: 'var(--text-primary)' }}>{grant.role}</span>
+    )
+  }
+  return (
+    <select value={grant.role} data-testid="user-grant-role"
+      onChange={e => onRole(grant.database, e.target.value)}
+      className="px-2 py-0.5 rounded text-xs" style={inputStyle}>
+      <option value="viewer">viewer</option>
+      <option value="operator">operator</option>
+    </select>
+  )
+}
+
+function GrantRow({ grant, last, idpManaged, onRole, onRemove }) {
+  const idp = grant.source === 'idp'
   return (
     <li className="flex items-center gap-2 py-1" data-testid="user-grant-row">
       <span className="font-mono text-xs" style={{ color: 'var(--text-primary)' }}>
         {grant.database}
       </span>
-      <select value={grant.role} data-testid="user-grant-role"
-        onChange={e => onRole(grant.database, e.target.value)}
-        className="px-2 py-0.5 rounded text-xs" style={inputStyle}>
-        <option value="viewer">viewer</option>
-        <option value="operator">operator</option>
-      </select>
-      <button onClick={() => onRemove(grant.database)} data-testid="user-grant-remove"
+      <GrantRole grant={grant} idp={idp} onRole={onRole} />
+      <GrantSource idp={idp} managed={idpManaged} />
+      {!(idp && idpManaged) && <button onClick={() => onRemove(grant.database)}
+        data-testid="user-grant-remove"
         title={last ? 'Removing the last grant returns the user to their role on ' +
           'every database' : undefined}
         className="px-2 py-0.5 rounded text-xs" style={{ color: '#ef4444' }}>
         Remove
-      </button>
+      </button>}
     </li>
   )
 }
@@ -105,6 +135,7 @@ export function UserDatabaseGrants({ user }) {
       <ul>
         {grants.map(g => (
           <GrantRow key={g.database} grant={g} last={grants.length === 1}
+            idpManaged={Boolean(state?.idp_managed)}
             onRole={(db, role) => change(() => setDatabaseGrant(user.id, db, role))}
             onRemove={db => change(() => revokeDatabaseGrant(user.id, db))} />
         ))}

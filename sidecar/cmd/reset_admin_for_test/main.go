@@ -33,17 +33,24 @@ type resetDeps struct {
 }
 
 func main() {
-	cfg, err := loadResetConfig(os.Args[1:])
+	os.Exit(run(os.Args[1:], os.Stderr, productionResetDeps()))
+}
+
+// run is main without the process exit: 2 on a usage error, 1 on a failure
+// (apiauth-14).
+func run(args []string, stderr io.Writer, deps resetDeps) int {
+	cfg, err := loadResetConfig(args)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(2)
+		fmt.Fprintln(stderr, err)
+		return 2
 	}
-	rows, err := resetAdmin(context.Background(), cfg, productionResetDeps())
+	rows, err := resetAdmin(context.Background(), cfg, deps)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		fmt.Fprintln(stderr, err)
+		return 1
 	}
-	fmt.Fprintf(os.Stderr, "reset password for %s (rows=%d)\n", cfg.Email, rows)
+	fmt.Fprintf(stderr, "reset password for %s (rows=%d)\n", cfg.Email, rows)
+	return 0
 }
 
 func loadResetConfig(args []string) (resetConfig, error) {
@@ -88,7 +95,7 @@ func resetAdmin(
 
 func productionResetDeps() resetDeps {
 	return resetDeps{
-		open: databricksauth.NewPool,
+		open: openResetPool,
 		close: func(pool *pgxpool.Pool) {
 			pool.Close()
 		},
@@ -102,4 +109,18 @@ func productionResetDeps() resetDeps {
 			return tag.RowsAffected(), err
 		},
 	}
+}
+
+// openResetPool connects and pings: a pool connects lazily, so an
+// unreachable server would otherwise surface at the first query.
+func openResetPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
+	pool, err := databricksauth.NewPool(ctx, dsn)
+	if err != nil {
+		return nil, err
+	}
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	return pool, nil
 }

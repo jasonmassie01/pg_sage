@@ -20,10 +20,11 @@ import (
 // Integration: sage.optimizer_rejection on a real PostgreSQL, and the whole
 // optimizer cycle with a real HypoPG what-if.
 
+// rejectionDB is the package-wide pool (testdb.Pool: shared, so no test
+// closes it or leaves session state on it), with the sage schema.
 func rejectionDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	pool := connectTestDB(t)
-	t.Cleanup(pool.Close)
+	pool := testdb.Pool(t)
 	if err := schema.Bootstrap(context.Background(), pool); err != nil {
 		t.Fatalf("bootstrap: %v", err)
 	}

@@ -88,6 +88,9 @@ func (s *Server) resourcesRead(ctx context.Context, params json.RawMessage) (map
 		return nil, failure(codeScopeRequired, "read scope required: a signed-in role, or "+
 			"a token with the read scope")
 	}
+	if failed := databasesUnavailable(ctx); failed != nil {
+		return nil, failed
+	}
 	ref, failed := s.resolveDatabase(ctx, name, nil)
 	if failed != nil {
 		return nil, failed

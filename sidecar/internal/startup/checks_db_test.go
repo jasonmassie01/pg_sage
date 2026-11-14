@@ -130,7 +130,7 @@ func TestQueryTextVisible_MemberAfterReset(t *testing.T) {
 	if _, err := admin.Exec(dbCtx(t), "GRANT pg_read_all_stats TO "+role); err != nil {
 		t.Fatalf("grant: %v", err)
 	}
-	if _, err := admin.Exec(dbCtx(t), "SELECT pg_stat_statements_reset()"); err != nil {
+	if _, err := testdb.ResetStatements(dbCtx(t), admin); err != nil {
 		t.Fatalf("reset: %v", err)
 	}
 	as := poolAs(t, dsn, role)
@@ -187,7 +187,7 @@ func TestQueryTextVisible_EmptyViewDependsOnRole(t *testing.T) {
 		role string
 		want bool
 	}{{member, true}, {other, false}} {
-		if _, err := admin.Exec(dbCtx(t), "SELECT pg_stat_statements_reset()"); err != nil {
+		if _, err := testdb.ResetStatements(dbCtx(t), admin); err != nil {
 			t.Fatalf("reset: %v", err)
 		}
 		got, err := checkQueryTextVisible(dbCtx(t), poolAs(t, dsn, c.role))

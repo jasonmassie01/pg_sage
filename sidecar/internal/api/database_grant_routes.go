@@ -21,17 +21,21 @@ import (
 // A grant must name a database the fleet monitors. Every change is written
 // to sage.auth_audit in the same transaction. enforced says whether
 // api.database_grants is on in this mode: grants are stored either way.
+// idpManaged says oauth.database_grant_mapping is set (apiauth-08d): the
+// grants it wrote (source idp) cannot be removed here, since the next
+// login would restore them; a PUT turns one into a manual grant.
 
 type databaseGrantHandlers struct {
-	store    *auth.DatabaseGrantStore
-	mgr      *fleet.DatabaseManager
-	enforced bool
+	store      *auth.DatabaseGrantStore
+	mgr        *fleet.DatabaseManager
+	enforced   bool
+	idpManaged bool
 }
 
 func registerDatabaseGrantRoutes(mux *http.ServeMux, pool *pgxpool.Pool,
-	mgr *fleet.DatabaseManager, enforced bool) {
+	mgr *fleet.DatabaseManager, enforced, idpManaged bool) {
 	h := databaseGrantHandlers{store: auth.NewDatabaseGrantStore(pool), mgr: mgr,
-		enforced: enforced}
+		enforced: enforced, idpManaged: idpManaged}
 	const base = "/api/v1/users/{id}/database-grants"
 	route(mux, "GET "+base, gateAdmin, http.HandlerFunc(h.list))
 	route(mux, "PUT "+base+"/{database}", gateAdmin, http.HandlerFunc(h.set))
@@ -61,7 +65,7 @@ func (h databaseGrantHandlers) list(w http.ResponseWriter, r *http.Request) {
 		grants = []auth.DatabaseGrant{}
 	}
 	jsonResponse(w, map[string]any{"user_id": id, "grants": grants,
-		"enforced": h.enforced, "scoped": len(grants) > 0})
+		"enforced": h.enforced, "scoped": len(grants) > 0, "idp_managed": h.idpManaged})
 }
 
 // change reads the user id and the {database}. A new grant must name a
@@ -110,6 +114,7 @@ func (h databaseGrantHandlers) revoke(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	c.ProtectIdP = h.idpManaged
 	if err := h.store.RevokeGrant(r.Context(), c); err != nil {
 		writeGrantChangeError(w, r, err)
 		return
@@ -130,6 +135,10 @@ func writeGrantChangeError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, auth.ErrGrantNotFound):
 		sreErrorCode(w, "the user has no grant on this database", "not_found",
 			http.StatusNotFound)
+	case errors.Is(err, auth.ErrIdPGrantReadOnly):
+		sreErrorCode(w, "this grant comes from the SSO group mapping: change the user's IdP "+
+			"groups or oauth.database_grant_mapping, or set a manual grant to override it",
+			"idp_grant", http.StatusConflict)
 	case errors.Is(err, auth.ErrGrantStoreUnavailable):
 		writeGrantStoreUnavailable(w)
 	default:

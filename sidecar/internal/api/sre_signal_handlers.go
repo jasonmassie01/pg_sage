@@ -34,9 +34,11 @@ func registerSRESignalRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
 	cfg *config.Config) {
 	route(mux, "POST "+changeEventsPath, gateSelfAuth, changeEventIngestHandler(mgr, cfg))
 	route(mux, "POST "+sliPushPrefix+"{name}", gateSelfAuth, sliPushHandler(mgr, cfg))
-	route(mux, "GET /api/v1/sre/slos", gateViewer, sloListHandler(mgr))
-	route(mux, "GET /api/v1/sre/slos/{name}", gateViewer, sloDetailHandler(mgr))
-	route(mux, "GET /api/v1/sre/changes", gateViewer, changeListHandler(mgr))
+	routeAggregate(mux, "GET /api/v1/sre/slos", gateViewer, mgr, aggregateHandler(sloListHandler))
+	routeAggregate(mux, "GET /api/v1/sre/slos/{name}", gateViewer, mgr,
+		aggregateHandler(sloDetailHandler))
+	routeAggregate(mux, "GET /api/v1/sre/changes", gateViewer, mgr,
+		aggregateHandler(changeListHandler))
 }
 
 // isSignedIngestPath reports the routes authenticated by their signature

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
@@ -47,7 +48,9 @@ func TestKill_WaitsForAnApplyThatCommits(t *testing.T) {
 		done <- result{rep, err, time.Now()}
 	}()
 	time.Sleep(800 * time.Millisecond)
-	commitAt := time.Now()
+	// The freeze stamps updated_at with the database's clock_timestamp(), so
+	// the commit is stamped on that clock too (ci-14), not the host's.
+	commitAt := testdb.MustDBNow(t, f.super)
 	require.NoError(t, tx.Commit(ctx))
 	var r result
 	select {

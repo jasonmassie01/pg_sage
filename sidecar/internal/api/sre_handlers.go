@@ -26,7 +26,8 @@ const fleetInvestigationLimit = 100
 
 func registerSRERoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
 	ledgers *earned.Registry) {
-	route(mux, "GET /api/v1/investigations", gateViewer, fleetInvestigationsHandler(mgr))
+	routeAggregate(mux, "GET /api/v1/investigations", gateViewer, mgr,
+		aggregateHandler(fleetInvestigationsHandler))
 	perDB := perDatabaseSREMux(mgr, ledgers)
 	// The per-database routes go through their own mux behind one
 	// catch-all per method: "{db}/investigations" and the fleet-mode

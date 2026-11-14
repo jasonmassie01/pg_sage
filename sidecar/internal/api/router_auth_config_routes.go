@@ -41,6 +41,8 @@ func registerAuthRoutes(
 func oauthSnapshot(cfg *config.Config) *config.OAuthConfig {
 	snap := cfg.OAuth
 	snap.RoleMapping = append([]config.OAuthRoleMapping(nil), cfg.OAuth.RoleMapping...)
+	snap.DatabaseGrantMapping = append([]config.OAuthDatabaseGrant(nil),
+		cfg.OAuth.DatabaseGrantMapping...)
 	return &snap
 }
 
