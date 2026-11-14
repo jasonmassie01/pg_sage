@@ -27,9 +27,8 @@ func logWatchSwitch(on bool) *bool { return &on }
 func captureLogs(t *testing.T) *syncBuffer {
 	t.Helper()
 	buf := &syncBuffer{}
-	old := logOutput
-	logOutput = buf
-	t.Cleanup(func() { logOutput = old })
+	old := setLogOutput(buf)
+	t.Cleanup(func() { setLogOutput(old) })
 	return buf
 }
 
