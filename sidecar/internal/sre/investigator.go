@@ -128,10 +128,9 @@ func (s *investigatorSession) finish(ctx context.Context, prior causal.Diagnosis
 		return s.lease, d, out, s.noConclusion(ctx, run)
 	}
 	narrative := verifiedNarrative(res.Claims, stored)
-	kept := liveClaims(narrative, stored)
 	r := inconclusive(DowngradeInvalidOutcome)
 	if f, ferr := decodeFinal(res.Final); ferr == nil {
-		r = resolveOutcome(d, f, kept)
+		r = resolveSupported(d, f, narrative, stored, s.c.investigator.RequireSupportCitation)
 	}
 	var g RootGrant
 	if r.outcome == ModelContested || r.outcome == ModelConcluded {

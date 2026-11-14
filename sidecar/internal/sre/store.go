@@ -65,7 +65,11 @@ func timePtr(t time.Time) *time.Time {
 
 // Lease is a worker's fenced claim on an investigation. Every write
 // compares the worker, fence and lease expiry; a stale worker cannot
-// commit.
+// commit. Until and SegmentDeadline are host-monotonic deadlines derived
+// from the database's remaining lease and segment time (sre-12), not
+// database timestamps: compare them only with the host clock
+// (time.Until). Investigation.LeaseUntil and SegmentDeadline stay
+// database timestamps, for display.
 type Lease struct {
 	Scope           Scope
 	InvestigationID UUID

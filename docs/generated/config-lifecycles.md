@@ -456,6 +456,7 @@
 | `sre.detectors.temp_file_mb` | `restart` | `-` | `derivable` |
 | `sre.detectors.window_seconds` | `restart` | `-` | `derivable` |
 | `sre.evidence_retention_days` | `restart` | `-` | `derivable` |
+| `sre.investigator.require_support_citation` | `restart` | `-` | `safety_critical` |
 | `sre.llm.enabled` | `restart` | `-` | `safety_critical` |
 | `sre.llm.mode` | `restart` | `-` | `safety_critical` |
 | `sre.poolers` | `restart` | `-` | `safety_critical` |

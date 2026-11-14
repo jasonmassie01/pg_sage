@@ -2341,7 +2341,14 @@ timestamp as the whole RFC 3339 instant, never its year, hour or second. For the
 reads these are the row values it was shown; a probe's version, its row count and its `[i]`
 row ordinals ground nothing. A minus sign counts only at the start of a value or after a
 space, `(`, `=`, `:`, `[` or `,`, so `10-20` is a range. Uncited or ungrounded claims are dropped and counted. A conclusion, contest or
-unmodeled cause with no surviving claim counts as inconclusive. The model's root stays
+unmodeled cause with no surviving claim counts as inconclusive. With
+`sre.investigator.require_support_citation` on (the default), a contest or conclusion also
+needs a surviving claim that cites evidence the causal graph itself lists as support for the
+model's root; a claim about something else (connection counts under a lock contest, say)
+does not carry it, and the outcome is inconclusive with the reason `unsupported_root`.
+Evidence from the detection-time incident snapshot never counts. Agreement and an unmodeled
+cause (which has no graph node) are not affected. Set it to `false` to keep the earlier rule,
+where any surviving claim carries the root. The model's root stays
 advisory unless its family has earned model-root authority from held-out bench results, and
 the model's self-reported confidence is ignored. An unmodeled cause is always advisory. The
 model's reads can conclude an inconclusive graph, but never move or drop a conclusive root;
@@ -2392,6 +2399,7 @@ reasoning than allowed, the usage is recorded as reported and no further turn is
 | `sre.timeline_retention_days` | `90` | Days a finished, unpinned investigation is kept at all (hypotheses, steps, event chain), leaving a tombstone. At least `sre.evidence_retention_days`, at most `3650` |
 | `sre.llm.enabled` | `true` | Model turn in investigations, used whenever an LLM is configured. `false` keeps investigations deterministic. Restart to change |
 | `sre.llm.mode` | `investigator` | `investigator`: the model plans read-only probes within the plan's budget and concludes with cited evidence. `review`: one cheaper review turn. Restart to change |
+| `sre.investigator.require_support_citation` | `true` | A model contest or conclusion keeps its root only when a surviving claim cites evidence the causal graph lists as support for that root; otherwise it is inconclusive (`unsupported_root`). `false`: any surviving cited claim carries it. Restart to change |
 | `sre.detectors.window_seconds` | `300` | Seconds over which checkpoint and temp-file growth is measured, `60`-`3600`. Keep it at least twice `sre.trigger_interval_seconds`; a shorter window cannot see growth between two polls, and the sidecar warns at startup |
 | `sre.detectors.checkpoint_requested` | `3` | Requested checkpoints within the window that are a checkpoint storm (they must also outnumber timed ones), `1`-`1000` |
 | `sre.detectors.temp_file_mb` | `1024` | MiB of temp files this database writes within the window that are a temp-file explosion, `1`-`1048576` |

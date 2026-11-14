@@ -160,12 +160,16 @@ func (p InvestigatorPlan) probeBudget(l Limits, used int) int {
 // InvestigatorConfig turns the model turn into the tool-calling
 // investigator. Plans nil uses the defaults; Explainer nil offers no
 // EXPLAIN; Protocol "" is auto (native tool calls, JSON actions when the
-// provider refuses them).
+// provider refuses them). RequireSupportCitation turns on the
+// Support-evidence rule (sre.investigator.require_support_citation): a
+// contest or conclusion no kept claim citing the root's graph support
+// carries is inconclusive (unsupported_root).
 type InvestigatorConfig struct {
-	History   probes.HistoricalSource
-	Plans     map[string]InvestigatorPlan
-	Explainer Explainer
-	Protocol  agentloop.Protocol
+	History                probes.HistoricalSource
+	Plans                  map[string]InvestigatorPlan
+	Explainer              Explainer
+	Protocol               agentloop.Protocol
+	RequireSupportCitation bool
 }
 
 // Validate checks the plans and the protocol.

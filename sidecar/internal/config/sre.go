@@ -19,6 +19,8 @@ type SREConfig struct {
 	TimelineRetentionDays  int                 `yaml:"timeline_retention_days" doc:"Days a finished, unpinned investigation is kept at all, leaving a tombstone. evidence_retention_days to 3650. Pinned and running ones are kept. Default: 90."`
 	// LLM is the model turn (M3).
 	LLM SRELLMConfig `yaml:"llm"`
+	// Investigator holds the tool-calling investigator's citation rule.
+	Investigator SREInvestigatorConfig `yaml:"investigator"`
 	// SLO is SLO burn-rate alerting (M5); ChangeEvents the change feed.
 	SLO          SRESLOConfig          `yaml:"slo"`
 	ChangeEvents SREChangeEventsConfig `yaml:"change_events"`
@@ -61,6 +63,7 @@ func defaultSREConfig() SREConfig {
 		EvidenceRetentionDays:  DefaultSREEvidenceRetentionDays,
 		TimelineRetentionDays:  DefaultSRETimelineRetentionDays,
 		LLM:                    SRELLMConfig{Enabled: true, Mode: SRELLMModeInvestigator},
+		Investigator:           SREInvestigatorConfig{RequireSupportCitation: true},
 		SLO:                    defaultSRESLOConfig(),
 		ChangeEvents:           defaultSREChangeEventsConfig(),
 		Actions:                defaultSREActionsConfig(),

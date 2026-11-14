@@ -95,6 +95,15 @@ func claimRefs(sum sre.Summary, ev []sre.Evidence) (claims, resolved int) {
 	return claims, resolved
 }
 
+// modelOutcomeOf is the investigator's normalized outcome; empty without
+// a model conclusion (the review turn, or no usable answer).
+func modelOutcomeOf(sum sre.Summary) string {
+	if sum.ModelConclusion == nil {
+		return ""
+	}
+	return sum.ModelConclusion.Outcome
+}
+
 // rankedFirst is the model's pick: the investigator's root (an
 // unmodeled cause is UnmodeledPick; an inconclusive one none), else the
 // first node of the stored model ranking, if any.
