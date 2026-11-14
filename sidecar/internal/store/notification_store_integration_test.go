@@ -187,7 +187,7 @@ func TestListLog(t *testing.T) {
 	pool, ctx := requireDB(t)
 	ns := NewNotificationStore(pool, nil)
 
-	entries, err := ns.ListLog(ctx, 10)
+	entries, err := ns.ListLogFor(ctx, "", 10)
 	if err != nil {
 		t.Fatalf("ListLog: %v", err)
 	}

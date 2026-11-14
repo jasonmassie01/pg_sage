@@ -17,14 +17,6 @@ const listLogColumns = `/* pg_sage */ SELECT id, channel_id, event, subject,
         COALESCE(database, $2), COALESCE(dedup_key, '')
    FROM sage.notification_log`
 
-// ListLog returns the most recent notification log entries of every
-// database.
-func (s *NotificationStore) ListLog(
-	ctx context.Context, limit int,
-) ([]NotificationLogEntry, error) {
-	return s.ListLogFor(ctx, "", limit)
-}
-
 // ListLogFor returns the most recent notification log entries for
 // database, newest first; "" lists every database, including deliveries
 // logged without one. A database filter never matches those.

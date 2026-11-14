@@ -108,20 +108,26 @@ func TestListLogFor_DatabaseWithNoRowsIsEmpty(t *testing.T) {
 	}
 }
 
-// Must not change: the existing limit still bounds the filtered read, and
-// ListLog stays the unfiltered read.
+// Must not change: the existing limit still bounds the filtered read. db1
+// gets a second, newer row, so limit 1 must drop the older one.
 func TestListLogFor_LimitStillApplies(t *testing.T) {
 	pool, ctx := requireDB(t)
 	f := seedLog(t, pool)
+	if _, err := pool.Exec(ctx, `INSERT INTO sage.notification_log
+		(event, subject, status, database, dedup_key)
+		VALUES ('finding_resolved', $1, 'sent', $2, 'finding:2')`,
+		f.subject, f.db1); err != nil {
+		t.Fatalf("seed a newer db1 row: %v", err)
+	}
 	ns := NewNotificationStore(pool, nil)
 	got, err := ns.ListLogFor(ctx, f.db1, 1)
-	if err != nil || len(got) != 1 || got[0].Database != f.db1 {
-		t.Fatalf("limit 1 rows = %+v, err = %v; want the db1 row", got, err)
+	if err != nil || len(got) != 1 || got[0].Database != f.db1 ||
+		got[0].DedupKey != "finding:2" {
+		t.Fatalf("limit 1 rows = %+v, err = %v; want only the newest db1 row", got, err)
 	}
-	unfiltered, err := ns.ListLog(ctx, 500)
-	if err != nil || len(ofSubject(unfiltered, f.subject)) != 3 {
-		t.Fatalf("ListLog listed %d seeded rows (err %v), want 3",
-			len(ofSubject(unfiltered, f.subject)), err)
+	both, err := ns.ListLogFor(ctx, f.db1, 500)
+	if err != nil || len(both) != 2 {
+		t.Fatalf("db1 rows = %+v, err = %v; want both db1 rows", both, err)
 	}
 }
 
