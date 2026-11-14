@@ -1,0 +1,38 @@
+{
+  "action_type": "apply_query_hint",
+  "status": "pending",
+  "title": "Hint for query 4242",
+  "hint_evidence": {
+    "verdict": "changed",
+    "reason": "the hinted plan uses idx_orders_customer",
+    "basis": "plan",
+    "plain_cost": 412,
+    "hinted_cost": 254.6,
+    "cost_delta_pct": -38.2,
+    "plain_plan_hash": "a1b2",
+    "hinted_plan_hash": "c3d4",
+    "plain_plan": [
+      {
+        "Plan": {
+          "Node Type": "Seq Scan",
+          "Plan Rows": 1200,
+          "Relation Name": "orders",
+          "Total Cost": 412
+        }
+      }
+    ],
+    "hinted_plan": [
+      {
+        "Plan": {
+          "Index Name": "idx_orders_customer",
+          "Node Type": "Index Scan",
+          "Plan Rows": 1200,
+          "Relation Name": "orders",
+          "Total Cost": 254.6
+        }
+      }
+    ],
+    "generic_plan": false,
+    "pg_major": 17
+  }
+}
