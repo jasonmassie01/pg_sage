@@ -1674,6 +1674,13 @@ curl -c cookies.txt -H 'Content-Type: application/json' \
 curl -b cookies.txt http://localhost:8080/api/v1/cases
 ```
 
+`GET /api/v1/cases` takes `?database=`, `?case=`, `?limit=`, `?summary=1`
+and `?finding_source=<subsystem>`, which keeps one subsystem's open findings
+(`optimizer`, `rules`, `forecaster`, ...; the response's `finding_sources`
+lists them) and leaves out incidents and query hints. An unknown value
+answers `400` `unknown_finding_source`. See
+[Cases API fields](walkthrough-fleet.md) for the full response.
+
 SSO (`oauth.*`) validates the OIDC `id_token` with PKCE and a nonce, can map
 IdP groups to roles (`oauth.role_mapping`, `oauth.groups_claim`,
 `oauth.unmapped_users`) and to per-database grants

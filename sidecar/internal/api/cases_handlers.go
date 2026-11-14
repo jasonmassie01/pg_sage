@@ -19,9 +19,10 @@ import (
 )
 
 // queryDatabaseCases projects one database's open findings, active
-// incidents and query hints, each read one row past its cap so the cut is
-// reported. The finding, incident and query-hint candidates share one
-// standing-policy explanation for the database; a candidate past its
+// incidents and query hints (only the findings under a finding source
+// filter), each read one row past its cap so the cut is reported. The
+// finding, incident and query-hint candidates share one standing-policy
+// explanation for the database; a candidate past its
 // expires_at is blocked as evidence_expired.
 func queryDatabaseCases(
 	ctx context.Context,
@@ -34,17 +35,11 @@ func queryDatabaseCases(
 		return res, err
 	}
 	res.truncated.Findings = cut
-	incidentCases, cut, err := queryIncidentCases(ctx, selected)
+	otherCases, err := queryOtherCases(ctx, selected, &res.truncated)
 	if err != nil {
 		return res, err
 	}
-	res.truncated.Incidents = cut
-	hintCases, cut, err := queryHintCases(ctx, selected)
-	if err != nil {
-		return res, err
-	}
-	res.truncated.QueryHints = cut
-	out := append(append(findingCases, incidentCases...), hintCases...)
+	out := append(findingCases, otherCases...)
 	enrichCasesActionPolicies(ctx, out, mgr.GetInstance(selected.name))
 	enrichFindingCases(ctx, out[:len(findingCases)], selected, findingIDs)
 	cases.MarkExpiredCandidates(out, time.Now().UTC())
@@ -54,12 +49,14 @@ func queryDatabaseCases(
 
 // queryFindingCases projects one database's open findings (one bounded
 // index-ordered read; the cases view needs no total), skipping pg_sage's
-// own monitoring queries. cut reports open findings past the cap.
+// own monitoring queries. The request's finding source filters the read
+// before the cap. cut reports open findings past the cap.
 func queryFindingCases(
 	ctx context.Context, selected namedPool,
 ) (out []cases.Case, findingIDs []int, cut bool, err error) {
 	filters := fleet.FindingFilters{
 		Status: "open", Limit: caseFindingsCap, Sort: "severity", Order: "desc",
+		Source: findingSourceFrom(ctx),
 	}
 	page, err := queryFindingsPage(ctx, selected.pool, filters,
 		listPage{Limit: filters.Limit}, selected.name, false)

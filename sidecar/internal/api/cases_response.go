@@ -13,6 +13,7 @@ import (
 // names the missing databases in "unavailable"; a single-database request
 // that fails answers 503 (cases-05). ?limit= and ?summary=1 return the top
 // of the global rank without evidence payloads (cases-11b).
+// ?finding_source= keeps one subsystem's findings (rules-12b).
 func casesHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		database, ok := casesDatabaseSelection(w, r, mgr)
@@ -29,14 +30,19 @@ func casesHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
 			jsonError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		source, ok := casesFindingSource(w, r.URL.Query())
+		if !ok {
+			return
+		}
 		report := emptyCasesReport()
 		if mgr != nil {
-			report = collectCases(r.Context(), mgr, database)
+			report = collectCases(withFindingSource(r.Context(), source), mgr, database)
 		}
 		if rejectSingleDatabaseFailure(w, database, report) {
 			return
 		}
 		body := casesResponseBody(database, report)
+		addFindingSourceFields(body, source)
 		if focus != "" {
 			body["focus"] = addFocusedCase(r.Context(), mgr, database, &report, focus)
 			body["cases"], body["total"] = report.Cases, len(report.Cases)

@@ -397,6 +397,16 @@ slow does not hide the others:
   and sets `"summary": true`. Neither combines with `?case=` (`400`). The
   Overview's **Top Cases** tab uses `?summary=1&limit=5`, names each
   `unavailable` database, and links each row to its case.
+- `?finding_source=<subsystem>` keeps only that subsystem's open findings
+  (for example `optimizer`, `rules` for the analyzer, or `forecaster`). The
+  filter runs in the database read, before the 500-finding cap, so a
+  low-severity optimizer finding is not lost behind other findings.
+  Incidents and query hints are left out and the response says
+  `"filtered": {"finding_source": "optimizer"}`. Every response lists the
+  accepted values in `finding_sources`. An empty value means no filter; any
+  other value answers `400` with `"code": "unknown_finding_source"`. The
+  Cases page's **Finding source** select uses it and keeps the choice in
+  the URL (`#/cases?finding_source=optimizer`).
 
 All of these fields are additive; existing fields are unchanged.
 `GET /api/v1/shadow-decisions` serves each database's shadow ledger (see
