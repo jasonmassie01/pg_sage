@@ -4,7 +4,8 @@
 # server with CI's settings (images/postgresql.ci.conf), records what the
 # server cannot cover (verify-test-postgres.sh), runs the test job's
 # go test command in a Go container on the server's network, then the skip
-# budget, and writes <out-dir>/summary.md.
+# budget (and, on PG17, the coverage floors of cmd/covfloor, ci-20), and
+# writes <out-dir>/summary.md.
 #
 # Usage: local-linux-suite.sh <out-dir> [majors...]   (default majors 14 15 17)
 #
@@ -31,8 +32,8 @@
 #                          up to two directories above the repository)
 #   LOCAL_SUITE_DRY_RUN=1  validate the inputs, print the plan and stop
 #
-# Exit codes: 0 every suite and skip budget passed, 1 a suite, e2e run or
-# skip budget failed (see summary.md), 2 usage, 3 disk below the guard,
+# Exit codes: 0 every suite and gate passed, 1 a suite, e2e run, skip budget
+# or coverage floor failed (see summary.md), 2 usage, 3 disk below the guard,
 # 4 Docker not answering, 5 server not ready, 6 image missing locally,
 # 7 GO_IMAGE has no C compiler, 8 a module is missing for go mod vendor,
 # 9 the race runtime does not link, 10 a container name is taken.
@@ -345,6 +346,16 @@ skip_budget() {
   return "$st"
 }
 
+# cov_floor <major>: CI's coverage floors (ci.yml: test job, ci-20) on the
+# suite stream.
+cov_floor() {
+  local m=$1 st=0
+  (cd "$OUT/stage/sidecar" && GOFLAGS=-mod=vendor GOPROXY=off \
+    go run ./cmd/covfloor <"$OUT/pg$m/suite.json") >"$OUT/pg$m/covfloor.txt" 2>&1 || st=$?
+  echo "covfloor=$st" >>"$OUT/pg$m/status.txt"
+  return "$st"
+}
+
 run_major() {
   local m=$1 dir=$OUT/pg$1 st=0 inputs
   mkdir -p "$dir"
@@ -363,6 +374,9 @@ run_major() {
     inputs+=("$dir/e2e.json")
   fi
   skip_budget "$m" "${inputs[@]}" || st=1
+  if [ "$m" = 17 ]; then
+    cov_floor "$m" || st=1
+  fi
   cleanup
   CREATED=()
   return "$st"

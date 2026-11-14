@@ -61,7 +61,14 @@ skip budget: 1 skipped, 0 allowed, 1 unlisted, 0 stale rules, 0 unmet requiremen
   STALE    line 17: internal/azure TestAzureLive (matched no skip)
   MISSING  internal/notify TestPhase2_.*: no matching test passed
 EOF
-printf 'image=improve-pg:17\nserver_check=1\nsuite=1\ne2e=0\nskipbudget=1\n' \
+cat >"$out/pg17/covfloor.txt" <<'EOF'
+covfloor: checked 3 packages against .coverage-floors (default floor 70%)
+  BELOW     internal/a  40.0% < 70% (default)
+  FAILED    internal/b  build failed
+  EXEMPT    e2e  no tests (line 9: runs in its own step)
+covfloor: 2 packages under their floor
+EOF
+printf 'image=improve-pg:17\nserver_check=1\nsuite=1\ne2e=0\nskipbudget=1\ncovfloor=1\n' \
   >"$out/pg17/status.txt"
 fixture >"$out/pg14/suite.json"
 echo '  - pgaudit is not installed' >"$out/pg14/server-check.txt"
@@ -95,6 +102,12 @@ has "$s" "CREATE EXTENSION hypopg fails" "server check carried into the summary"
 has "$s" "suite=1" "exit statuses carried into the summary"
 has "$s14" "- [real] $a TestHypo" "pg14 lists no missing HypoPG, so the failure is real"
 has "$s14" "no skipbudget.txt" "missing skip budget output is named"
+has "$s" "- BELOW     internal/a  40.0% < 70% (default)" "package under its floor (ci-20)"
+has "$s" "- FAILED    internal/b  build failed" "build failure in the floors gate"
+has "$s" "covfloor: 2 packages under their floor" "floors gate verdict"
+lacks "$s" "EXEMPT" "exempt packages are not findings"
+has "$s" "covfloor=1" "floors gate status carried into the summary"
+lacks "$s14" "Coverage floors" "the floors gate runs on PostgreSQL 17 only"
 has "$s15" "no suite.json: the run stopped before the suite" "major that never ran"
 has "$(cat "$out/summary.md")" "**Total:** 3 passed, 12 failed, 2 skipped" "overall totals"
 

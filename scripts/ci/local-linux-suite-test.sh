@@ -97,6 +97,10 @@ if [[ $1 == mod && $2 == vendor ]]; then
   fi
   mkdir -p vendor && echo "# stub" >vendor/modules.txt
 fi
+if [[ $1 == run && $2 == ./cmd/covfloor ]]; then
+  echo "covfloor: stub"
+  exit "${STUB_COVFLOOR_EXIT:-0}"
+fi
 exit 0
 EOF
 cat >"$work/bin/guard.sh" <<'EOF'
@@ -226,6 +230,19 @@ grep -q 'docker rm -f -v improve-ci-pg17$' "$log" ||
 grep -q 'suite=0' "$o/pg17/status.txt" && grep -q 'skipbudget=0' "$o/pg17/status.txt" ||
   fail "status.txt lacks the suite and skip budget results: $(cat "$o/pg17/status.txt")"
 [[ -f $o/summary.md ]] || fail "no summary.md after a full run"
+grep -q 'covfloor=0' "$o/pg17/status.txt" ||
+  fail "status.txt lacks the coverage floors result: $(cat "$o/pg17/status.txt")"
+grep -q '^go run ./cmd/covfloor' "$log" || fail "covfloor did not run: $(cat "$log")"
+
+# ci-20: a package under its floor fails the run; covfloor runs on PG17 only.
+o=$(newout)
+expect 1 'summary: .*summary.md' "coverage floor failure" -- \
+  $guard FAKE_FREE_GB=99 STUB_COVFLOOR_EXIT=1 bash "$script" "$o" 15 17
+grep -q 'covfloor=1' "$o/pg17/status.txt" ||
+  fail "status.txt lacks covfloor=1: $(cat "$o/pg17/status.txt")"
+grep -q 'covfloor' "$o/pg15/status.txt" && fail "covfloor ran on PG15: $(cat "$o/pg15/status.txt")"
+[[ $(grep -c '^go run ./cmd/covfloor' "$log") -eq 1 ]] ||
+  fail "want one covfloor call for majors 15 and 17: $(grep covfloor "$log")"
 
 after=$(git -C "$repo" status --porcelain)
 [[ $before == "$after" ]] || fail "a run changed the worktree: $before -> $after"

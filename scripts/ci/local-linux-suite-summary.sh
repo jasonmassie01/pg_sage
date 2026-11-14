@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Writes <out-dir>/summary.md for a local-linux-suite.sh run (ci-19), in
 # the CLAUDE.md report format: totals, failures, data races, per-package
-# coverage and UNLISTED skips, per PostgreSQL major.
+# coverage, UNLISTED skips and packages under their coverage floor, per
+# PostgreSQL major.
 #
 # A failure is labelled image-limited only when its own output (or every
 # failing subtest's) shows a missing-extension error for an extension that
 # the major's server-check.txt names as missing; otherwise it is real.
 # Reads <out-dir>/pg<N>/{suite.json,e2e.json,server-check.txt,
-# skipbudget.txt,status.txt} and <out-dir>/run.txt. Plain awk: no jq.
+# skipbudget.txt,covfloor.txt,status.txt} and <out-dir>/run.txt. Plain awk: no jq.
 #
 # Usage: local-linux-suite-summary.sh <out-dir> <majors...>
 set -euo pipefail
@@ -117,6 +118,7 @@ major_section() {
       ($4 == 1 ? "" : "s")}')"
   section "Coverage" "$(grep '^COV' <<<"$scan" | sort | awk -F'\t' '{printf "- %s: %s\n", $2, $3}')"
   skips "$dir/skipbudget.txt"
+  floors "$dir/covfloor.txt" "$m"
   section "What this server cannot cover (server-check.txt)" \
     "$(sed -n 's/^  - /- /p' "$dir/server-check.txt" 2>/dev/null)"
 }
@@ -135,6 +137,17 @@ skips() {
   fi
   section "UNLISTED skips and unmet requirements" \
     "$(head -1 "$1"; grep -E '^ +(UNLISTED|MISSING)' "$1" | sed 's/^ */- /')"
+}
+
+# floors <covfloor.txt> <major>: packages under their coverage floor (ci-20;
+# the runner gates on PostgreSQL 17 only, as CI's test job does).
+floors() {
+  if [ -f "$1" ]; then
+    section "Coverage floors (cmd/covfloor)" \
+      "$(tail -1 "$1"; grep -E '^  (BELOW|FAILED) ' "$1" | sed 's/^  /- /')"
+  elif [ "$2" = 17 ]; then
+    section "Coverage floors (cmd/covfloor)" "no covfloor.txt: the floors gate did not run"
+  fi
 }
 
 TOT_P=0 TOT_F=0 TOT_S=0

@@ -69,14 +69,22 @@ bash scripts/ci/verify-test-postgres.sh pgsage-test 17
 export SAGE_TEST_DATABASE_URL="postgres://postgres:postgres@127.0.0.1:55432/postgres?sslmode=disable"
 ```
 
-Then run the suites as CI does and check the skip budget:
+Then run the suites as CI does and check the skip budget and the coverage
+floors:
 
 ```bash
 cd sidecar
-go test -race -count=1 -tags=integration -timeout 1500s ./... -json > ../unit.json
+go test -race -cover -count=1 -tags=integration -timeout 1500s ./... -json > ../unit.json
 go test -count=1 -tags=e2e -timeout 900s ./e2e -json > ../e2e.json
 cat ../unit.json ../e2e.json | go run ./cmd/skipbudget -pg 17
+go run ./cmd/covfloor < ../unit.json
 ```
+
+`cmd/covfloor` fails when a package's statement coverage is under its floor in
+`sidecar/.coverage-floors`: 70% unless a line lowers it (50% for test helpers
+and generators). It also fails on a package that failed to build or printed no
+coverage line. Lower a floor only with a `# reason` a reviewer can verify,
+never to turn a red build green; the tool refuses a line without a reason.
 
 `-race` needs cgo and a C compiler; leave it out without one. Build tags pick
 the suites: `integration` adds the tests against the server, `e2e` the
@@ -90,8 +98,9 @@ enough. Remove the server with `docker rm -f -v pgsage-test`.
 On a machine without cgo (Windows, for example), `scripts/ci/local-linux-suite.sh
 <out-dir> [majors...]` runs the test job's suite command on Linux, with cgo and
 `-race`, once per PostgreSQL major (default 14, 15 and 17; PostgreSQL 17 also
-runs the e2e step). Then it runs the skip budget and writes
-`<out-dir>/summary.md`, which lists every failure, data race and UNLISTED skip.
+runs the e2e step). Then it runs the skip budget (and, on PostgreSQL 17, the
+coverage floors) and writes `<out-dir>/summary.md`, which lists every failure,
+data race, UNLISTED skip and package under its floor.
 It uses local images only and never pulls one. `GO_IMAGE` needs gcc and a
 race runtime that links. The default, `golang:1.27.3-alpine3.24`, has no gcc,
 so the run stops with exit 7; set `GO_IMAGE` (and `GO_ROOT` for a Go tree
