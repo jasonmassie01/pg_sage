@@ -105,9 +105,15 @@ func cronRun(t *testing.T, pool *pgxpool.Pool, q string, job int64, status, msg 
 // extension rules exactly as runSnapshotRules runs them.
 func runExtCycle(t *testing.T, a *Analyzer) []Finding {
 	t.Helper()
+	return runExtCycleWith(t, a, a.loadExtensionState)
+}
+
+// runExtCycleWith is runExtCycle with load as the cycle's extension read.
+func runExtCycleWith(t *testing.T, a *Analyzer, load func(context.Context)) []Finding {
+	t.Helper()
 	ctx := context.Background()
 	a.eval = newCycleEval()
-	a.loadExtensionState(ctx)
+	load(ctx)
 	var got []Finding
 	for _, rule := range AllRules {
 		if !isExtCategory(rule.Name) || a.ruleDisabled(rule) {

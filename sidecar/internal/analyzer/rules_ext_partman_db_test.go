@@ -249,3 +249,56 @@ func TestExtPartman_UnreadableChildKeepsFindingOpen(t *testing.T) {
 		t.Fatalf("WARN lines naming the unreadable child = %d, want 1", n)
 	}
 }
+
+func TestExtPartman_UnreadableDefaultKeepsFindingOpen(t *testing.T) {
+	a, pool, logs := extAnalyzer(t, map[string]extInstall{extPartman: {Schema: "partman"}})
+	q := partmanStub(t, pool, "partman")
+	partmanParentTable(t, pool, "ext_pm_hid", "id", "bigint")
+	extExec(t, pool, `CREATE TABLE public.ext_pm_hid_default PARTITION OF public.ext_pm_hid
+		DEFAULT`)
+	extExec(t, pool, `INSERT INTO public.ext_pm_hid VALUES (7)`)
+	extExec(t, pool, `INSERT INTO `+q+`.part_config (parent_table, control, premake)
+		VALUES ('public.ext_pm_hid', 'id', 0)`)
+	if got := byCategory(runExtCycle(t, a), categoryPartmanDefault); len(got) != 1 {
+		t.Fatalf("default partition with a row = %+v, want one", got)
+	}
+	// A role that reads part_config but not the default partition.
+	role := "sage_ext_reader"
+	_, _ = pool.Exec(context.Background(), "DROP OWNED BY "+role)
+	_, _ = pool.Exec(context.Background(), "DROP ROLE IF EXISTS "+role)
+	extExec(t, pool, "CREATE ROLE "+role+" NOLOGIN")
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), "DROP OWNED BY "+role)
+		_, _ = pool.Exec(context.Background(), "DROP ROLE IF EXISTS "+role)
+	})
+	extExec(t, pool, "GRANT USAGE ON SCHEMA "+q+" TO "+role)
+	extExec(t, pool, "GRANT SELECT ON "+q+".part_config TO "+role)
+	ctx := context.Background()
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	defer func() {
+		_, _ = conn.Exec(ctx, "RESET ROLE")
+		conn.Release()
+	}()
+	if _, err := conn.Exec(ctx, "SET ROLE "+role); err != nil {
+		t.Fatalf("set role: %v", err)
+	}
+	got := runExtCycleWith(t, a, func(ctx context.Context) {
+		a.readExtensions(ctx, catalogread.New(conn, catalogread.Default()))
+	})
+	if f := byCategory(got, categoryPartmanDefault); len(f) != 0 {
+		t.Fatalf("an unreadable default partition gave %+v", f)
+	}
+	if !a.eval.ok[categoryPartmanDefault] || a.eval.hasFailed(categoryPartmanDefault) {
+		t.Fatal("partman_default_rows not evaluated: the hold must be per partition")
+	}
+	n := countFindingRows(t, pool, categoryPartmanDefault, "public.ext_pm_hid_default", "open")
+	if n != 1 {
+		t.Fatalf("open rows after a denied read = %d, want 1 (kept open)", n)
+	}
+	if n := logs.warns("public.ext_pm_hid_default"); n != 1 {
+		t.Fatalf("WARN lines naming the default partition = %d, want 1", n)
+	}
+}
