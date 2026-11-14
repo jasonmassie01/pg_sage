@@ -48,13 +48,10 @@ var (
 // posture-only, logged once.
 func governanceControlPool(c *config.Config, mgr *fleet.DatabaseManager,
 	meta *metaDBState) *pgxpool.Pool {
-	if meta != nil && meta.Pool != nil {
-		return meta.Pool
+	if p := controlPoolOf(c, mgr, meta); p != nil {
+		return p
 	}
 	if c != nil && c.Agents.ControlDatabase != "" && mgr != nil {
-		if inst := mgr.GetInstance(c.Agents.ControlDatabase); inst != nil && inst.Pool != nil {
-			return inst.Pool
-		}
 		agentPostureOnce.Do(func() {
 			logWarn("agents", "agents.control_database %q is not a connected monitored "+
 				"database: agent governance runs posture checks only", c.Agents.ControlDatabase)
@@ -65,6 +62,24 @@ func governanceControlPool(c *config.Config, mgr *fleet.DatabaseManager,
 		logInfo("agents", "agent governance runs posture checks only: set "+
 			"agents.control_database (or use mode: meta) to bind environments")
 	})
+	return nil
+}
+
+// controlPoolOf finds the control database without logging, for readers
+// that may run before the fleet finishes registering (pgaudit attribution)
+// and must not spend governance's one posture-only message on a database
+// that is still connecting.
+func controlPoolOf(c *config.Config, mgr *fleet.DatabaseManager,
+	meta *metaDBState) *pgxpool.Pool {
+	if meta != nil && meta.Pool != nil {
+		return meta.Pool
+	}
+	if c == nil || c.Agents.ControlDatabase == "" || mgr == nil {
+		return nil
+	}
+	if inst := mgr.GetInstance(c.Agents.ControlDatabase); inst != nil && inst.Pool != nil {
+		return inst.Pool
+	}
 	return nil
 }
 

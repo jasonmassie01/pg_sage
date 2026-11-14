@@ -33,12 +33,13 @@ func pgauditRoleCache() *pgaudit.RoleCache {
 
 // pgauditRoleSource is agent governance's control database at each read,
 // so one registered after the first correlator starts is still found; no
-// control database is no querier (never a typed nil pool).
+// control database is no querier (never a typed nil pool). It logs
+// nothing: governance reports its own posture once the fleet is wired.
 func pgauditRoleSource(state func() (*config.Config, *fleet.DatabaseManager,
 	*metaDBState)) func() pgaudit.RoleQuerier {
 	return func() pgaudit.RoleQuerier {
 		c, mgr, meta := state()
-		if p := governanceControlPool(c, mgr, meta); p != nil {
+		if p := controlPoolOf(c, mgr, meta); p != nil {
 			return p
 		}
 		return nil
