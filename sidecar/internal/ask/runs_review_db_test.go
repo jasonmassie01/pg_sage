@@ -111,3 +111,25 @@ func TestWatchAbandonedRuns_RecoversRunsThatGoStaleAfterStart(t *testing.T) {
 		t.Fatal("WatchAbandonedRuns did not return when its context ended")
 	}
 }
+
+func TestRecoverRuns_LeavesThisProcessLiveRunsAloneUnderClockSkew(t *testing.T) {
+	f := newFixture(t)
+	var skew atomic.Int64
+	m := newFakeLLM(t, slowAnswers(1, 1500*time.Millisecond)...)
+	s := f.runService(m, func(d *Deps) {
+		d.Now = func() time.Time { return time.Now().Add(time.Duration(skew.Load())) }
+	})
+	st := mustStart(t, s, viewer, Request{Question: "Live?"})
+	waitRun(t, s, viewer, st.RunID, func(Run) bool { return m.calls() == 1 })
+	// The sidecar's clock jumps far ahead of the database's: by the clock
+	// alone the live run looks abandoned.
+	skew.Store(int64(2 * time.Hour))
+	n, err := s.RecoverRuns(context.Background())
+	if err != nil || n != 0 {
+		t.Fatalf("RecoverRuns during a live run = %d, %v; want 0", n, err)
+	}
+	r, _ := waitRun(t, s, viewer, st.RunID, ended)
+	if r.State != RunDone || r.MessageID == nil {
+		t.Fatalf("live run after a sweep = %+v, want done with its answer", r)
+	}
+}

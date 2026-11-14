@@ -180,14 +180,16 @@ func (st *store) cancelRun(ctx context.Context, id string) error {
 }
 
 // interruptStale marks instance's queued or running runs not updated
-// since before interrupted; their progress stays as the record.
-func (st *store) interruptStale(ctx context.Context, instance string, before time.Time) (
-	int64, error) {
+// since before, other than live, interrupted; their progress stays as
+// the record.
+func (st *store) interruptStale(ctx context.Context, instance string, before time.Time,
+	live []string) (int64, error) {
 	tag, err := st.pool.Exec(ctx, `/* pg_sage */ UPDATE sage.ask_runs
 		SET state = 'interrupted', error = 'the sidecar restarted before the run ended',
 		    finished_at = now(), updated_at = now()
-		WHERE instance = $1 AND state IN ('queued', 'running') AND updated_at < $2`,
-		instance, before)
+		WHERE instance = $1 AND state IN ('queued', 'running') AND updated_at < $2
+		      AND NOT (id = ANY ($3::uuid[]))`,
+		instance, before, live)
 	if err != nil {
 		return 0, fmt.Errorf("%w: recover abandoned runs: %v", ErrUnavailable, err)
 	}

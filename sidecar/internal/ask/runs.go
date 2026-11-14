@@ -122,6 +122,17 @@ func (t *runTracker) get(id string) *activeRun {
 	return t.active[id]
 }
 
+// ids are the runs active here.
+func (t *runTracker) ids() []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	out := make([]string, 0, len(t.active))
+	for id := range t.active {
+		out = append(out, id)
+	}
+	return out
+}
+
 func (t *runTracker) count() int {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -249,9 +260,10 @@ func (s *Service) CancelRun(ctx context.Context, c Caller, id string) (Run, erro
 
 // RecoverRuns marks this instance's abandoned queued or running runs
 // interrupted (their progress stays as the record) and returns how many.
-// Runs of other instances are left alone.
+// Runs of other instances are left alone, and so are the runs active in
+// this process whatever the clocks say.
 func (s *Service) RecoverRuns(ctx context.Context) (int64, error) {
-	n, err := s.store.interruptStale(ctx, s.d.Instance, s.staleBefore())
+	n, err := s.store.interruptStale(ctx, s.d.Instance, s.staleBefore(), s.runs.ids())
 	if err == nil && n > 0 {
 		s.d.Log("WARN", "ask: %d runs of %s on %s were abandoned (restart) and are "+
 			"marked interrupted", n, s.d.Instance, s.d.Database)
