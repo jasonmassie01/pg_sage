@@ -55,7 +55,10 @@ func (s *Service) runToEnd(ctx context.Context, ar *activeRun, job runJob) (stri
 	running, err := s.store.markRunning(ctx, job.start.RunID)
 	switch {
 	case err != nil:
-		return RunFailed, nil, runError(err)
+		// A cancel or a shutdown that lands before the first write is
+		// that, not a store failure.
+		state := runOutcome(err, ar.cancelled.Load(), s.d.RunCtx.Err() != nil)
+		return state, nil, s.stateError(state, err)
 	case !running:
 		return RunCancelled, nil, ""
 	}
