@@ -56,6 +56,12 @@ For pg_partman it needs `USAGE` and `EXECUTE` on the extension's schema, `SELECT
 (`pg_read_all_data` on PostgreSQL 14+ covers the tables). Without a grant the check
 is not evaluated, its open findings stay open, and one warning per streak names the
 table.
+The [TimescaleDB checks](findings.md#extension-health-timescaledb) read the
+`timescaledb_information` views `jobs`, `job_stats`, `continuous_aggregates` and
+`dimensions`, and call `cagg_watermark()` in `_timescaledb_functions` (2.12 and
+later) or `_timescaledb_internal`. TimescaleDB grants these to `PUBLIC`, so the
+monitoring role needs no extra grant unless an operator revoked them; then the
+category is not evaluated and one warning per streak says what could not be read.
 
 ### Separate observation and action roles (`action_dsn`)
 
@@ -163,6 +169,7 @@ Beyond the catalog it reads:
 | Retention row counts | A table whose owner declared a [retention contract](configuration.md#retention-contracts): the dry run counts eligible rows, and each batch reports how many it deleted | Counts only |
 | pg_cron run history | `cron.job_run_details` when pg_cron is installed: the last 24 hours of finished runs, at most 50 failing jobs | Job id, name, failure count, last failure time and its message (literals redacted, cut to 300 characters) |
 | pg_partman parents | `show_partitions` and `show_partition_info` on the newest `premake + 1` children, for an id-controlled parent `SELECT max(control)` on those listed children, newest first, until one holds a row, and one row's existence in each default partition | Counts and partition names; no rows |
+| TimescaleDB jobs and aggregates | `timescaledb_information` views when TimescaleDB is installed: scheduled jobs whose last run failed (at most 50), and continuous aggregates with a scheduled refresh policy (at most 100) with their `cagg_watermark()` | Job id, procedure, hypertable, failure count and next start; aggregate name, watermark and lag; no rows |
 | Live session text | `pg_stat_activity.query` for lock and incident evidence (`pg_read_all_stats`) | Literals redacted, cut to 256 bytes ([LLM data](#llm-configured)) |
 
 Agents get plan-only EXPLAIN under their own database role through agent

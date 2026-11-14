@@ -1023,6 +1023,88 @@ into proper children (pg_partman 5; `partition_data_time()` or
 `partition_data_id()` on 4.x). Rows in the default partition also block pg_partman
 from creating a child whose range they fall in.
 
+## Extension Health (TimescaleDB)
+
+TimescaleDB runs compression, retention and continuous-aggregate refresh as
+background jobs, and a failing policy keeps failing quietly: chunks stop
+compressing, retention stops dropping, aggregates go stale. These two rules sit
+behind the same `pg_extension` query as the
+[pg_cron and pg_partman checks](#extension-health-pg_cron-and-pg_partman): they run
+only where `timescaledb` is installed, and read the `timescaledb_information` views
+of TimescaleDB 2.x in the schema the extension's `job_stats` view lives in, quoted.
+Without TimescaleDB nothing runs beyond that query and both categories are not
+evaluated, so open findings stay open. Without the 2.x views (TimescaleDB 1.x) both
+are not evaluated and one warning per streak says so. Every read is read-only under
+`safety.query_timeout_ms`. In fleet mode each database reports its own jobs and
+aggregates. Neither finding carries SQL; the recommendation names `run_job()` and
+the policy to check. Each can be switched off by a
+[rule pack](#rule-packs-and-owner-checks) under its category name. The rules live in
+`rules_ext_timescale.go` and `rules_ext_timescale_rules.go`. Timescale Cloud and
+self-managed servers carry TimescaleDB 2.x with policies; RDS and Cloud SQL do not.
+They are tested against stub relations with the 2.x view shapes on PostgreSQL 14
+and 17; a run against real TimescaleDB 2.11 and 2.17 is pending.
+
+### timescale_job_failed
+
+**Severity:** warning
+
+**What it detects:** a scheduled job (`timescaledb_information.jobs.scheduled`) whose
+last run failed (`timescaledb_information.job_stats.last_run_status = 'Failed'`). A
+job that never ran (a NULL status) is clear, and so is a paused job: pausing it with
+`alter_job(..., scheduled => false)` is the operator's decision, and a paused job does
+not fail again. A job whose next run succeeds resolves on the next cycle. At most 50
+jobs are reported, newest run first; past 50 the category is not evaluated that
+cycle, so the jobs not reported keep their open findings. When the role cannot read
+the views the category is not evaluated and one warning per streak names
+`job_stats`.
+
+**Identity:** `timescaledb:job:<job_id>`.
+
+**Detail:** `job_id`, `proc_schema`, `proc_name` (for example `policy_compression`,
+`policy_retention`, `policy_refresh_continuous_aggregate`), `hypertable_schema` and
+`hypertable_name` (when the job has a hypertable), `total_failures`, `next_start`,
+`last_run_started_at` and `schema`.
+
+**Recommended action:** run the job by hand with `CALL run_job(<job_id>)` to see its
+error (TimescaleDB 2.15 and later also keep it in
+`timescaledb_information.job_errors`), fix the cause, and check the policy's
+settings in `timescaledb_information.jobs` (`alter_job` changes them).
+
+### timescale_cagg_stale
+
+**Severity:** warning
+
+**What it detects:** a continuous aggregate whose watermark lags the clock by more
+than 3 x (`schedule_interval` + `end_offset`) of its scheduled refresh policy
+(`policy_refresh_continuous_aggregate`); a lag of exactly that much is clear. A NULL
+or negative `end_offset` counts as zero; with more than one refresh policy the
+largest sum is used. The watermark comes from `cagg_watermark()`, which TimescaleDB
+2.12 moved from `_timescaledb_internal` to `_timescaledb_functions`; pg_sage reads
+whichever exists in `pg_proc`, the newer first, and when neither does the category
+is not evaluated (open findings stay open) and one warning per streak says so, while
+`timescale_job_failed` still runs. Not judged: an aggregate without a scheduled
+refresh policy, one over an integer time column (its watermark is not a time), and
+one that never materialized anything (its watermark is the time type's minimum; a
+failing first refresh shows up as `timescale_job_failed`). At most 100 aggregates
+per cycle; past that the category is not evaluated.
+
+The threshold assumes an `end_offset` of at least one bucket, as TimescaleDB
+recommends: the watermark advances by whole buckets, so with a shorter `end_offset`
+and wide buckets (for example daily buckets refreshed hourly with a one-hour
+`end_offset`) the normal lag can pass the threshold. Raise `end_offset` to a bucket,
+or switch the rule off with a rule pack for that database.
+
+**Identity:** the quoted continuous aggregate view, for example
+`public.metrics_hourly`.
+
+**Detail:** `view_schema`, `view_name`, `hypertable_schema`, `hypertable_name`,
+`materialized_only`, `job_id`, `schedule_interval`, `end_offset`, `watermark`,
+`lag_seconds`, `threshold_seconds`, `watermark_function` and `schema`.
+
+**Recommended action:** check the refresh job in `timescaledb_information.job_stats`,
+run it by hand with `CALL run_job(<job_id>)`, and if it succeeds while the watermark
+stays, check the policy's `start_offset` and `end_offset` (`alter_job`).
+
 ---
 
 ## Backups and WAL Archiving
