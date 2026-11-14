@@ -22,7 +22,7 @@ case "$tag" in
   v[0-9]*) ;;
   *) usage ;;
 esac
-if [ ! -r "$changelog" ]; then
+if [ ! -f "$changelog" ] || [ ! -r "$changelog" ]; then
   echo "release-notes: cannot read $changelog" >&2
   exit 1
 fi

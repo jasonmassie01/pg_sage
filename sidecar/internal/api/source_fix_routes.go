@@ -17,8 +17,8 @@ import (
 // verdict. Read-only: the route never decides a verdict.
 func registerSourceFixRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
 	cfg *config.Config) {
-	route(mux, "GET /api/v1/findings/{id}/source-fix", gateViewer,
-		http.HandlerFunc(sourceFixReportHandler(mgr, cfg)))
+	routeAggregate(mux, "GET /api/v1/findings/{id}/source-fix", gateViewer, mgr,
+		func(m *fleet.DatabaseManager) http.Handler { return sourceFixReportHandler(m, cfg) })
 }
 
 func sourceFixReportHandler(mgr *fleet.DatabaseManager, cfg *config.Config,

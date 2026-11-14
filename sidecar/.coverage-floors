@@ -1,0 +1,23 @@
+# Statement-coverage floors CI enforces (cmd/covfloor, ci-20) on the test
+# job's go test -cover -json stream. Format: <package-regex> <floor> # reason
+# The package regex is anchored and matches the path under the module root
+# (internal/testdb, not github.com/pg-sage/sidecar/internal/testdb). The first
+# matching line wins. A package no line matches has floor 70 (CLAUDE.md's
+# floor for business logic).
+#
+# Every line needs a reason. Lower a floor only with a reason a reviewer can
+# verify, never to make a red build green; raise coverage instead. A floor of
+# 0 exempts a package and is only for suites CI measures in another step.
+
+# Test helpers (CLAUDE.md: 50% floor for helpers); their callers also use them.
+internal/testsupport/.* 50 # test helper packages, CLAUDE.md helper floor
+internal/testdb 50 # test database helper, CLAUDE.md helper floor
+internal/.*test 50 # Go-style test helper packages (servertls/servertlstest), helper floor
+
+# Generators and CI tools: small mains whose output other tests check.
+cmd/gen_.* 50 # doc and catalog generators, checked by the docs contract tests
+cmd/skipbudget 50 # CI gate main; its logic is internal/testsupport/skipbudget
+
+# Suites outside the test job's stream.
+e2e 0 # e2e tag only: CI's end-to-end step runs and reports it
+release-bench 0 # release benchmark harness, run by the release workflow

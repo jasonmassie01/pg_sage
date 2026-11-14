@@ -243,3 +243,117 @@ func TestAuthorityFamily_IsTheAdoptedNodesFamily(t *testing.T) {
 		t.Fatalf("unknown node falls back to the diagnosis family, got %s", f)
 	}
 }
+
+// The Support-evidence rule in the outcome (sre-03 Phase 2): with
+// require on, a contest or conclusion keeps its root only when a kept
+// claim cites evidence the graph records as support for that root.
+
+func TestResolveSupported_ContestCitingTheRootsSupportStaysContested(t *testing.T) {
+	f := newSupportFixture()
+	r := resolveSupported(f.d, final("contest", "ddl_lock_queue"),
+		claims([]UUID{f.ddlEv}), f.stored, true)
+	if r.outcome != ModelContested || r.root != "ddl_lock_queue" || r.reason != "" {
+		t.Fatalf("resolved %+v, want contested ddl_lock_queue", r)
+	}
+}
+
+func TestResolveSupported_ContestCitingOtherSupportIsUnsupported(t *testing.T) {
+	f := newSupportFixture()
+	r := resolveSupported(f.d, final("contest", "ddl_lock_queue"),
+		claims([]UUID{f.connEv}), f.stored, true)
+	if r.outcome != ModelInconclusive || r.reason != DowngradeUnsupported || r.root != "" {
+		t.Fatalf("resolved %+v, want inconclusive (%s)", r, DowngradeUnsupported)
+	}
+	if DowngradeUnsupported != "unsupported_root" || DowngradeUnsupported == DowngradeUncited {
+		t.Fatalf("reason constant %q must be unsupported_root, distinct from uncited",
+			DowngradeUnsupported)
+	}
+}
+
+func TestResolveSupported_FlagOffKeepsThePhaseOneRule(t *testing.T) {
+	f := newSupportFixture()
+	n := claims([]UUID{f.connEv})
+	r := resolveSupported(f.d, final("contest", "ddl_lock_queue"), n, f.stored, false)
+	if r.outcome != ModelContested || r.root != "ddl_lock_queue" {
+		t.Fatalf("flag off: resolved %+v, want the Phase 1 contest", r)
+	}
+	for _, fa := range []finalAnswer{final("contest", "ddl_lock_queue"),
+		final("conclude", "hot_row_contention"), final("agree", ""),
+		final("contest", "cosmic_rays"), final("inconclusive", ""), final("maybe", "x"),
+		{Outcome: "unmodeled", Cause: &UnmodeledCause{Label: "deploy", Mechanism: "held"}}} {
+		for _, nn := range []*Narrative{nil, n, claims([]UUID{f.snap})} {
+			got := resolveSupported(f.d, fa, nn, f.stored, false)
+			want := resolveOutcome(f.d, fa, liveClaims(nn, f.stored))
+			if got.outcome != want.outcome || got.root != want.root ||
+				got.reason != want.reason {
+				t.Errorf("flag off %+v: %+v, want the Phase 1 result %+v", fa, got, want)
+			}
+		}
+	}
+}
+
+func TestResolveSupported_AgreeAndUnmodeledAreUnchanged(t *testing.T) {
+	f := newSupportFixture()
+	if r := resolveSupported(f.d, final("agree", ""), nil, f.stored, true); r.outcome !=
+		ModelAgreed || r.root != "idle_in_tx_holder" {
+		t.Fatalf("agree without claims: %+v, want agreed", r)
+	}
+	un := finalAnswer{Outcome: "unmodeled", Cause: &UnmodeledCause{Label: "deploy job",
+		Mechanism: "a deploy paused inside a transaction"}}
+	r := resolveSupported(f.d, un, claims([]UUID{f.connEv}), f.stored, true)
+	if r.outcome != ModelUnmodeled || r.cause == nil || r.cause.Label != "deploy job" {
+		t.Fatalf("unmodeled with one kept claim: %+v, want unmodeled", r)
+	}
+}
+
+func TestResolveSupported_ConclusionNeedsSupportToo(t *testing.T) {
+	f := newSupportFixture()
+	inc := inconclusiveLock()
+	hot := inc.Alternatives[0]
+	hot.Support = []causal.Fact{{EvidenceID: string(f.connEv)}}
+	inc.Alternatives = []causal.Hypothesis{hot, inc.Alternatives[1]}
+	r := resolveSupported(inc, final("conclude", "hot_row_contention"),
+		claims([]UUID{f.connEv}), f.stored, true)
+	if r.outcome != ModelConcluded || r.root != "hot_row_contention" {
+		t.Fatalf("supported conclusion: %+v, want concluded", r)
+	}
+	r = resolveSupported(inc, final("conclude", "idle_in_tx_holder"),
+		claims([]UUID{f.connEv}), f.stored, true)
+	if r.outcome != ModelInconclusive || r.reason != DowngradeUnsupported {
+		t.Fatalf("unsupported conclusion: %+v, want inconclusive (%s)", r,
+			DowngradeUnsupported)
+	}
+}
+
+func TestResolveSupported_EarlierDowngradesKeepTheirReason(t *testing.T) {
+	f := newSupportFixture()
+	cases := []struct {
+		f      finalAnswer
+		n      *Narrative
+		reason string
+	}{
+		{final("contest", "cosmic_rays"), claims([]UUID{f.ddlEv}), DowngradeUnknownNode},
+		{final("contest", "ddl_lock_queue"), nil, DowngradeUncited},
+		{final("contest", "ddl_lock_queue"), claims([]UUID{f.snap}), DowngradeUncited},
+		{final("conclude", ""), claims([]UUID{f.ddlEv}), DowngradeNoRoot},
+		{final("maybe", "ddl_lock_queue"), claims([]UUID{f.ddlEv}), DowngradeInvalidOutcome},
+	}
+	for _, tc := range cases {
+		r := resolveSupported(f.d, tc.f, tc.n, f.stored, true)
+		if r.outcome != ModelInconclusive || r.reason != tc.reason {
+			t.Errorf("%+v: %+v, want inconclusive (%s)", tc.f, r, tc.reason)
+		}
+	}
+}
+
+func TestApplyAuthority_UnsupportedContestIsNeverAdopted(t *testing.T) {
+	f := newSupportFixture()
+	r := resolveSupported(f.d, final("contest", "ddl_lock_queue"),
+		claims([]UUID{f.connEv}), f.stored, true)
+	out, mc, contest := applyAuthority(f.d, r, RootGrant{Granted: true, Reason: "earned"})
+	if out.Root.Node != causal.IdleInTxHolder || contest != nil ||
+		mc.Outcome != ModelInconclusive || mc.Authority != ContestAdvisory ||
+		!strings.Contains(mc.Reason, DowngradeUnsupported) {
+		t.Fatalf("root %s contest %+v conclusion %+v", out.Root.Node, contest, mc)
+	}
+}

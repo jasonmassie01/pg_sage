@@ -105,7 +105,7 @@ func runMigrationSteps(
 	if len(steps) == 0 {
 		return report, nil
 	}
-	bctx, cancel := context.WithTimeout(ctx, migrationBudget(len(steps)))
+	bctx, cancel := withBudget(ctx, listBudget(len(steps)))
 	defer cancel()
 	for _, step := range steps {
 		stepStart := time.Now()
@@ -135,8 +135,16 @@ const (
 
 // runMigrationStep runs step unless the bootstrap's migration ledger
 // records it and trusts the catalog (config-04b), then records it.
-// Outside a bootstrap (no ledger in ctx) it is runCheckedStep.
+// Outside a bootstrap (no ledger in ctx) it is runCheckedStep. A timeout
+// names the deadline that ended it (ci-15).
 func runMigrationStep(
+	ctx context.Context, db bootstrapDB, step migrationStep,
+) (stepOutcome, error) {
+	outcome, err := runLedgeredStep(ctx, db, step)
+	return outcome, namedDeadline(ctx, err)
+}
+
+func runLedgeredStep(
 	ctx context.Context, db bootstrapDB, step migrationStep,
 ) (stepOutcome, error) {
 	l := ledgerFrom(ctx)

@@ -11,7 +11,8 @@ import (
 // moves the requested count, and pg_stat_wal.wal_bytes grows with the
 // burst under an unchanged epoch.
 func TestSystemWALStatsDB_CheckpointAndWriteBurst(t *testing.T) {
-	pool, c := sysIntervalCollector(t)
+	pool, c := sysIntervalCollectorOn(t,
+		exclusivePool(t, "cluster WAL bytes and requested checkpoints"))
 	ctx := context.Background()
 	first := collectAndPublish(t, c)
 	if _, err := pool.Exec(ctx, `INSERT INTO public.iv_t

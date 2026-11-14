@@ -132,7 +132,7 @@ func TestIOMonitorMeasuresRealDataAndWALRates(t *testing.T) {
 }
 
 func TestIOMonitorConcurrentSamplersPersistOneRatePerInterval(t *testing.T) {
-	pool := verifyIntegrationPool(t)
+	pool := verifyExclusivePool(t, "cluster I/O statistics across a sampling interval")
 	monitor, clock := newTestIOMonitor(t, pool)
 	if err := monitor.Sample(t.Context()); err != nil {
 		t.Fatalf("prime: %v", err)

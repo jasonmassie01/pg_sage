@@ -2,6 +2,7 @@ package verify
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -212,10 +213,8 @@ func waitSnapshotsPastNow(t *testing.T, ctx context.Context, pool *pgxpool.Pool)
 		t.Fatalf("read the current transaction id: %v", err)
 	}
 	for i := 0; i < 120; i++ {
-		var clear bool
-		if err := pool.QueryRow(ctx, `SELECT NOT EXISTS (SELECT 1 FROM pg_stat_activity
-			WHERE pid <> pg_backend_pid() AND backend_xmin IS NOT NULL
-			  AND age(backend_xmin) >= age(xid($1::xid8)))`, now).Scan(&clear); err != nil {
+		clear, err := snapshotsPastNow(ctx, pool, now)
+		if err != nil {
 			t.Fatalf("read the xmin horizon: %v", err)
 		}
 		if clear {
@@ -224,4 +223,23 @@ func waitSnapshotsPastNow(t *testing.T, ctx context.Context, pool *pgxpool.Pool)
 		time.Sleep(250 * time.Millisecond)
 	}
 	t.Fatal("another backend held a snapshot older than the test's deletes for 30 s")
+}
+
+// snapshotsPastNow reports whether no other backend that can hold back a
+// VACUUM of this database's tables holds a snapshot older than the
+// transaction id now. Those are the backends of this database and the ones
+// bound to none (a walsender with hot_standby_feedback); PostgreSQL ignores
+// other databases' snapshots for ordinary tables, so the shared test
+// server's other packages never count (ci-17).
+func snapshotsPastNow(ctx context.Context, pool *pgxpool.Pool, now string) (bool, error) {
+	if strings.TrimSpace(now) == "" {
+		// PG 14 reads '' as transaction id 0, which every snapshot is past.
+		return false, errors.New("no transaction id to compare snapshots with")
+	}
+	var clear bool
+	err := pool.QueryRow(ctx, `SELECT NOT EXISTS (SELECT 1 FROM pg_stat_activity
+		WHERE pid <> pg_backend_pid() AND backend_xmin IS NOT NULL
+		  AND (datid IS NULL OR datname = current_database())
+		  AND age(backend_xmin) >= age(xid($1::xid8)))`, now).Scan(&clear)
+	return clear, err
 }

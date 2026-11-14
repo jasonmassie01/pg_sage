@@ -15,12 +15,13 @@ import (
 
 func sysIntervalCollector(t *testing.T) (*pgxpool.Pool, *Collector) {
 	t.Helper()
+	return sysIntervalCollectorOn(t, connectPool(t, testdb.CreateDatabase(t, "system_interval")))
+}
+
+// sysIntervalCollectorOn is sysIntervalCollector on pool's database.
+func sysIntervalCollectorOn(t *testing.T, pool *pgxpool.Pool) (*pgxpool.Pool, *Collector) {
+	t.Helper()
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, testdb.CreateDatabase(t, "system_interval"))
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
-	t.Cleanup(pool.Close)
 	var version int
 	if err := pool.QueryRow(ctx, `SELECT current_setting('server_version_num')::int`).
 		Scan(&version); err != nil {

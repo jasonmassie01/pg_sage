@@ -176,7 +176,9 @@ func TestFreezeBloatConfirmationIsBounded(t *testing.T) {
 		bloatedTable(t, pool, name, 7200+i*900, 3) // ~64-72 pages
 		large[relationOID(t, pool, "bloatfx."+name)] = name
 	}
-	bloatTestExec(t, pool, "SELECT pg_stat_statements_reset()")
+	if _, err := testdb.ResetStatements(ctx, pool); err != nil {
+		t.Fatalf("reset this database's pg_stat_statements: %v", err)
+	}
 	recorder := &testdb.QueryRecorder{}
 	traced := recordedPool(t, pool, recorder)
 	custodian := NewPostgresFreezeCustodian(traced, "testdb", 25).

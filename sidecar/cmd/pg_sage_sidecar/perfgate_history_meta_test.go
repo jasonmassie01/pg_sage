@@ -41,8 +41,9 @@ func TestPerfGateHistoryMeta(t *testing.T) {
 		t.Fatalf("timing: %v", err)
 	}
 	ctx := context.Background()
-	dsn := testdb.CreateDatabase(t, "perfgate")
-	metaDSN := testdb.CreateDatabase(t, "perfgate_meta")
+	// Exclusive, like TestPerfGate: Settle forces a CHECKPOINT (ci-13).
+	dsn := testdb.Exclusive(t, "perf gate with a meta store: a CHECKPOINT and timings")
+	metaDSN := testdb.ExclusiveDatabase(t, "perfgate_meta")
 	harness, metaHarness := perfHarnessPool(t, dsn), perfHarnessPool(t, metaDSN)
 	buildPerfFixture(t, ctx, harness, scale)
 	buildPerfStore(t, ctx, harness, metaHarness)

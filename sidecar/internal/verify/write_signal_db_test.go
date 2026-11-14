@@ -82,7 +82,7 @@ func signalSide(t *testing.T, signal map[string]any, side string) map[string]any
 // what they cost before the build (a delete maintains no index), so the
 // index whose queries gained 30% stays.
 func TestBatchOnAnotherTableIsNotChargedToTheIndex(t *testing.T) {
-	pool := verifyIntegrationPool(t)
+	pool := verifyExclusivePool(t, "cluster WAL charged to one table")
 	ctx := t.Context()
 	executedAt := time.Date(2098, 3, 1, 12, 0, 0, 0, time.UTC)
 	f := newWriteFixture(t, ctx, pool, executedAt, "verify_wsig_a", "verify_wsig_b")
@@ -134,7 +134,7 @@ func TestBatchOnAnotherTableIsNotChargedToTheIndex(t *testing.T) {
 // written tuple rises far above 20%: write_impact, though the queries
 // gained 30%.
 func TestWriteHeavyTableRevertsAsWriteImpact(t *testing.T) {
-	pool := verifyIntegrationPool(t)
+	pool := verifyExclusivePool(t, "cluster WAL charged to one table")
 	ctx := t.Context()
 	executedAt := time.Date(2098, 3, 2, 12, 0, 0, 0, time.UTC)
 	f := newWriteFixture(t, ctx, pool, executedAt, "verify_wsig_heavy")

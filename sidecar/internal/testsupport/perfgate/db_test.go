@@ -29,7 +29,12 @@ func tinyScale() Scale {
 
 func livePool(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
-	dsn := testdb.CreateDatabase(t, "perfgate_lib")
+	return livePoolOn(t, testdb.CreateDatabase(t, "perfgate_lib"))
+}
+
+// livePoolOn is livePool on the database dsn names.
+func livePoolOn(t *testing.T, dsn string) (*pgxpool.Pool, context.Context) {
+	t.Helper()
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {

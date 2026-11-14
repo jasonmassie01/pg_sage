@@ -50,8 +50,27 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
+      # ci-12: a second server, from the same image, that only the tests
+      # measuring cluster-wide state use, one at a time (testdb.Exclusive).
+      postgres-exclusive:
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r1
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5433:5432
     env:
       SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+      SAGE_TEST_EXCLUSIVE_URL: postgres://postgres:postgres@localhost:5433/postgres?sslmode=disable
       PGHOST: localhost
       PGPORT: "5432"
       PGUSER: postgres
@@ -77,7 +96,9 @@ jobs:
       # the test server settings baked in (scripts/ci/images); this only
       # checks the server, it installs and restarts nothing.
       - name: Check the PostgreSQL server (CI image)
-        run: scripts/ci/verify-test-postgres.sh ${{ job.services.postgres.id }} 17
+        run: |
+          scripts/ci/verify-test-postgres.sh ${{ job.services.postgres.id }} 17
+          scripts/ci/verify-test-postgres.sh ${{ job.services.postgres-exclusive.id }} 17
 
       - name: Verify and build frontend
         working-directory: sidecar/web
@@ -181,6 +202,14 @@ jobs:
             -require 'internal/alerting TestEvaluate_.*' \
             -require 'internal/notify TestPhase2_(ProcessRule|LoadChannel|LoadMatchingRules)_.*'
 
+      # ci-20: fails when a package's statement coverage in the unit stream
+      # is under its floor in sidecar/.coverage-floors (70% by default).
+      - name: Coverage floors
+        if: ${{ !cancelled() }}
+        working-directory: sidecar
+        shell: bash
+        run: go run ./cmd/covfloor < ../unit.json
+
   # PostgreSQL 17 runs in the test job above; this covers the rest of the
   # supported range with the race detector and integration tags.
   integration-matrix:
@@ -209,8 +238,27 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
+      # ci-12: a second server, from the same image, that only the tests
+      # measuring cluster-wide state use, one at a time (testdb.Exclusive).
+      postgres-exclusive:
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg${{ matrix.pg }}-r1
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5433:5432
     env:
       SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+      SAGE_TEST_EXCLUSIVE_URL: postgres://postgres:postgres@localhost:5433/postgres?sslmode=disable
     steps:
       - uses: actions/checkout@v4
 
@@ -220,7 +268,9 @@ jobs:
           cache-dependency-path: sidecar/go.sum
 
       - name: Check the PostgreSQL server (CI image)
-        run: scripts/ci/verify-test-postgres.sh ${{ job.services.postgres.id }} ${{ matrix.pg }}
+        run: |
+          scripts/ci/verify-test-postgres.sh ${{ job.services.postgres.id }} ${{ matrix.pg }}
+          scripts/ci/verify-test-postgres.sh ${{ job.services.postgres-exclusive.id }} ${{ matrix.pg }}
 
       - name: Integration tests (race detector)
         working-directory: sidecar
@@ -281,8 +331,27 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
+      # ci-12: a second server, from the same image, that only the tests
+      # measuring cluster-wide state use, one at a time (testdb.Exclusive).
+      postgres-exclusive:
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r1
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5433:5432
     env:
       SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+      SAGE_TEST_EXCLUSIVE_URL: postgres://postgres:postgres@localhost:5433/postgres?sslmode=disable
     steps:
       - uses: actions/checkout@v4
 
@@ -292,7 +361,9 @@ jobs:
           cache-dependency-path: sidecar/go.sum
 
       - name: Check the PostgreSQL server (CI image)
-        run: scripts/ci/verify-test-postgres.sh ${{ job.services.postgres.id }} 17
+        run: |
+          scripts/ci/verify-test-postgres.sh ${{ job.services.postgres.id }} 17
+          scripts/ci/verify-test-postgres.sh ${{ job.services.postgres-exclusive.id }} 17
 
       - name: Performance gate
         working-directory: sidecar
@@ -372,8 +443,27 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
+      # ci-12: a second server, from the same image, that only the tests
+      # measuring cluster-wide state use, one at a time (testdb.Exclusive).
+      postgres-exclusive:
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg${{ matrix.pg }}-r1
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5433:5432
     env:
       SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+      SAGE_TEST_EXCLUSIVE_URL: postgres://postgres:postgres@localhost:5433/postgres?sslmode=disable
       # Roadmap 1.1: every PGIncidentBench report names the pg_sage build it
       # scored, so a sidecar refuses a report made for another build.
       SAGE_BENCH_PG_SAGE_COMMIT: ${{ github.sha }}
@@ -387,7 +477,9 @@ jobs:
           cache-dependency-path: sidecar/go.sum
 
       - name: Check the PostgreSQL server (CI image)
-        run: scripts/ci/verify-test-postgres.sh ${{ job.services.postgres.id }} ${{ matrix.pg }}
+        run: |
+          scripts/ci/verify-test-postgres.sh ${{ job.services.postgres.id }} ${{ matrix.pg }}
+          scripts/ci/verify-test-postgres.sh ${{ job.services.postgres-exclusive.id }} ${{ matrix.pg }}
 
       - name: PGIncidentBench (${{ matrix.shard.name }})
         working-directory: sidecar
@@ -462,8 +554,27 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
+      # ci-12: a second server, from the same image, that only the tests
+      # measuring cluster-wide state use, one at a time (testdb.Exclusive).
+      postgres-exclusive:
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg${{ matrix.pg }}-r1
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5433:5432
     env:
       SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+      SAGE_TEST_EXCLUSIVE_URL: postgres://postgres:postgres@localhost:5433/postgres?sslmode=disable
       SAGE_BENCH_PG_SAGE_COMMIT: ${{ github.sha }}
       SAGE_BENCH_PG_SAGE_VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
     steps:
@@ -475,7 +586,9 @@ jobs:
           cache-dependency-path: sidecar/go.sum
 
       - name: Check the PostgreSQL server (CI image)
-        run: scripts/ci/verify-test-postgres.sh ${{ job.services.postgres.id }} ${{ matrix.pg }}
+        run: |
+          scripts/ci/verify-test-postgres.sh ${{ job.services.postgres.id }} ${{ matrix.pg }}
+          scripts/ci/verify-test-postgres.sh ${{ job.services.postgres-exclusive.id }} ${{ matrix.pg }}
 
       # An improvement fails too and asks for the baseline to be regenerated
       # (go run ./safety-bench/cmd/baseline), so the published numbers in
@@ -537,8 +650,27 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
+      # ci-12: a second server, from the same image, that only the tests
+      # measuring cluster-wide state use, one at a time (testdb.Exclusive).
+      postgres-exclusive:
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r1
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5433:5432
     env:
       SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+      SAGE_TEST_EXCLUSIVE_URL: postgres://postgres:postgres@localhost:5433/postgres?sslmode=disable
     steps:
       - uses: actions/checkout@v4
 
@@ -548,7 +680,9 @@ jobs:
           cache-dependency-path: sidecar/go.sum
 
       - name: Check the PostgreSQL server (CI image)
-        run: scripts/ci/verify-test-postgres.sh ${{ job.services.postgres.id }} 17
+        run: |
+          scripts/ci/verify-test-postgres.sh ${{ job.services.postgres.id }} 17
+          scripts/ci/verify-test-postgres.sh ${{ job.services.postgres-exclusive.id }} 17
 
       - name: Unit and integration tests (race detector, shuffled, twice)
         working-directory: sidecar
@@ -813,7 +947,29 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
+      # Full history: the ledger check compares with the last release tag.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ci-30: files stay under 500 lines and the long-function count never
+      # grows (scripts/ci/line-limits.allow may shrink a row, never add one).
+      - name: File-length ratchet
+        run: |
+          bash scripts/ci/line-limits_test.sh
+          bash scripts/ci/line-limits.sh
+
+      # ci-30 (ledger-pin): a released migration step never changes.
+      - name: Migration ledger is append-only
+        run: |
+          bash scripts/ci/ledger-append-only_test.sh
+          base="$(git describe --tags --abbrev=0 --match 'v*')"
+          bash scripts/ci/ledger-append-only.sh "$base"
+
+      # release-notes: the script that writes the GitHub release body
+      # (temporary CHANGELOGs, then this repository's own).
+      - name: Release notes script
+        run: bash scripts/ci/release-notes_test.sh
 
       - uses: actions/setup-go@v5
         with:
@@ -1096,8 +1252,27 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
+      # ci-12: a second server, from the same image, that only the tests
+      # measuring cluster-wide state use, one at a time (testdb.Exclusive).
+      postgres-exclusive:
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r1
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5433:5432
     env:
       SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+      SAGE_TEST_EXCLUSIVE_URL: postgres://postgres:postgres@localhost:5433/postgres?sslmode=disable
       SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench-live
       SAGE_BENCH_PG_SAGE_COMMIT: ${{ github.sha }}
       SAGE_BENCH_PG_SAGE_VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
@@ -1124,7 +1299,9 @@ jobs:
 
       - name: Check the PostgreSQL server (CI image)
         if: steps.secret.outputs.ready == 'true'
-        run: scripts/ci/verify-test-postgres.sh ${{ job.services.postgres.id }} 17
+        run: |
+          scripts/ci/verify-test-postgres.sh ${{ job.services.postgres.id }} 17
+          scripts/ci/verify-test-postgres.sh ${{ job.services.postgres-exclusive.id }} 17
 
       # The caps cover one model arm's replay of the corpus, not both: a v*
       # tag measures the review arm (the release's root authority reads its
@@ -1485,6 +1662,7 @@ jobs:
           changed="$(git diff --name-only "$BASE" HEAD)"
           release_files='\.goreleaser\.yml|sidecar/Dockerfile|\.github/workflows/ci\.yml'
           release_files+='|scripts/ci/(smoke-version|release-notes)\.sh'
+          release_files+='|scripts/ci/(line-limits|ledger-append-only)\.sh'
           if grep -qxE "$release_files" <<< "$changed"; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
