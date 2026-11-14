@@ -469,15 +469,53 @@ read it as the resource `pgsage://databases/{database}/briefings/latest`
 
 ### One range per setting
 
-The config file and the settings API (`PUT /api/v1/config/global`) accept the same values for
-the settings below; a config file with a value outside the range fails to load, and the error
-names the key. The API's ranges are unchanged.
+Every setting the API can override has one value contract, declared once on its field in
+`internal/config` (struct tags `api`, `range`, `enum` and `zero`) and read by the config-file
+loader, the settings API (`PUT /api/v1/config/global` and the per-database endpoint), the replay
+of stored overrides and the dashboard (`config_meta.json` carries `min`, `max` and `enum`, and
+the Settings page refuses an out-of-range value before it saves). A config file with a value
+outside the range fails to load and the error names the key; the API answers 400 naming the key.
 
-| Key | Range |
+| API type | Range |
 |---|---|
-| `analyzer.unused_index_window_days`, `analyzer.seq_scan_min_rows`, `safety.ddl_timeout_seconds`, `trust.rollback_window_minutes`, `trust.rollback_cooldown_days`, `schema_lint.scan_interval_minutes`, `migration.poll_interval_seconds` | `1`-`1073741824` |
-| `advisor.interval_seconds`, `alerting.check_interval_seconds` | `5`-`1073741824` |
-| `trust.rollback_threshold_pct` | `0`-`100` |
+| `int_pos` | `1`-`1073741824` |
+| `int_nonneg` | `0`-`1073741824` |
+| `int_min5` | `5`-`1073741824` |
+| `pct` / `pct1_100` | `0`-`100` / `1`-`100` |
+| `float01` / `float_share` | `0`-`1` / `0.01`-`1` |
+| `float_pos` / `float_nonneg` / `float_pct_pos` | `0.001`-`1e9` / `0`-`1e9` / `0.001`-`100` |
+| `int_week_minutes`, `int_class_timeout`, `int_vacuum_stall` | `1`-`10080`, `60`-`86400`, `5`-`240` |
+
+A key with its own `range` tag uses that range instead: `analyzer.self_cost_budget_ms` is
+`0`-`3600000` and `rca.dedup_window_minutes` `1`-`525600` (it must also fit inside
+`rca.stale_after_hours`). Keys marked `zero:"default"` also take `0` in a config file, meaning
+the default; the API refuses a stored `0` for them, because deleting the override is how the API
+restores a default: `analyzer.inactive_slot_min_minutes`, `analyzer.slow_slot_retained_bytes`,
+`safety.host_cpu_ceiling_pct`, `safety.index_build_timeout_seconds`,
+`safety.reindex_timeout_seconds`, `safety.vacuum_timeout_seconds`,
+`safety.vacuum_stall_minutes`, `schema_lint.min_table_rows`, `migration.ddl_row_threshold`,
+`migration.queue_waiters_threshold` and `trust.cascade_cooldown_cycles`.
+
+Ranges that changed in tranche T4 (config-02b), where the file and the API used to disagree:
+
+- The config file now refuses what the API already refused: `0` (and negatives) for every
+  `int_pos` key without `zero:"default"` (for example `llm.timeout_seconds`,
+  `safety.lock_timeout_ms`, `retention.*_days`, `explain.*`, `logwatch.*`, `rca.*` counts,
+  `analyzer.lock_chain.*` minutes and thresholds, `llm.optimizer.*`); `4` and below for the
+  `int_min5` intervals; any integer above `1073741824`; percentages outside `0`-`100`
+  (`analyzer.*_pct`, `rca.connection_saturation_pct`); `analyzer.cache_hit_ratio_warning`
+  outside `0`-`1`; `analyzer.wraparound_freeze_share` below `0.01`; negative
+  `llm.fleet_token_budget_daily` and `llm.global_token_budget_daily`; float settings above
+  `1e9`; and enum values outside `policy.profile`, `mcp.transport` and `llm.auth`.
+- The API now accepts `llm.token_budget_daily: 0` (no cap, as documented) and
+  `alerting.cooldown_minutes: 0` (the per-severity floors alone), which the file accepted.
+- The API now refuses `analyzer.self_cost_budget_ms` above `3600000` and
+  `rca.dedup_window_minutes` above `525600`, which the file refused.
+- `clone.provider: lakebase_branch` stays file-only: the API refuses it, because its
+  `clone.lakebase` project binding is file-only and restart-bound.
+
+A stored override that a moved range now refuses is skipped at replay with a warning naming the
+key and its `updated_at`, and the default applies until a valid value is saved.
 
 Boolean settings saved through the API accept `true`/`false`, `t`/`f` and `1`/`0` in any
 case, and apply the value they validate as (`"True"` is true).
