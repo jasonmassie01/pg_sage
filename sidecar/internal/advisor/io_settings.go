@@ -27,17 +27,32 @@ var ioPre18Defaults = map[string]int{
 // pg18IOConcurrencyDefault is PostgreSQL 18's default for both settings.
 const pg18IOConcurrencyDefault = 16
 
+// databaseSources are the pg_settings sources of a value set for this
+// database alone (ALTER DATABASE, ALTER ROLE ... IN DATABASE).
+var databaseSources = map[string]bool{"database": true, "database user": true}
+
 // ioSettingsCycle runs the check for one advisor cycle. The category is
 // evaluated (its stale findings may resolve) only when the settings were
-// read, the server's major is known, and this database owns its instance
-// settings: the I/O settings belong to the whole instance (advisors-08).
+// read and the server's major is known. The I/O settings belong to the
+// whole instance (advisors-08), so a database that leaves its instance
+// settings to an owner reports only the values set for it alone.
 func (a *Advisor) ioSettingsCycle(snap *collector.Snapshot, own ownership,
 ) ([]analyzer.Finding, bool) {
-	if a.pgMajor <= 0 || own.defers() || snap.ConfigData == nil ||
+	if a.pgMajor <= 0 || snap.ConfigData == nil ||
 		len(snap.ConfigData.PGSettings) == 0 {
 		return nil, false
 	}
-	return ioSettingsFindings(snap.ConfigData, a.pgMajor), true
+	out := ioSettingsFindings(snap.ConfigData, a.pgMajor)
+	if !own.defers() {
+		return out, true
+	}
+	var mine []analyzer.Finding
+	for _, f := range out {
+		if f.Detail["scope"] == "database" {
+			mine = append(mine, f)
+		}
+	}
+	return mine, true
 }
 
 // ioSettingsFindings reports, on PostgreSQL 18 and later, the I/O settings
@@ -94,18 +109,26 @@ func carriedConcurrencyFinding(s collector.PGSetting, pre, pgMajor int) analyzer
 	return f
 }
 
-// ioFinding is the advice-only finding about one instance setting.
+// ioFinding is the advice-only finding about one I/O setting.
+// A value set for this database alone is about the database, not the
+// instance (detail scope).
 func ioFinding(s collector.PGSetting, pgMajor int, title, rec string) analyzer.Finding {
+	source := strings.TrimSpace(s.Source)
+	scope := "instance"
+	if databaseSources[source] {
+		scope = "database"
+	}
 	return analyzer.Finding{
 		Category:         ioSettingsCategory,
 		Severity:         "info",
 		ObjectType:       "configuration",
-		ObjectIdentifier: "instance:" + s.Name,
+		ObjectIdentifier: scope + ":" + s.Name,
 		Title:            title,
 		Detail: map[string]any{
 			"setting":  s.Name,
 			"value":    s.Setting,
-			"source":   strings.TrimSpace(s.Source),
+			"source":   source,
+			"scope":    scope,
 			"pg_major": pgMajor,
 			"doc_note": ioDocNote(s.Name, pgMajor),
 		},

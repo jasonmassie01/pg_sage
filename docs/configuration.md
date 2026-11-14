@@ -1474,8 +1474,9 @@ allowlist, so no new write path is added. `io_method` (sync, worker or io_uring;
 needs a Linux build with liburing) needs a restart; `io_workers` (used only with
 `io_method = worker`) is reloadable.
 
-On PostgreSQL 18 and later the advisor runs a deterministic check every cycle, with or
-without the LLM, gated only by `advisor.enabled`. It reports an
+On PostgreSQL 18 and later the advisor runs a deterministic check every cycle. It makes no
+model call, but it runs inside the advisor, which starts only when `advisor.enabled` is on
+and an LLM is configured; it keeps running if the LLM is switched off later. It reports an
 [`io_settings`](findings.md#io_settings) `info` finding, without SQL, when a configuration
 carried from an older server undoes 18's asynchronous I/O:
 
@@ -1486,8 +1487,10 @@ carried from an older server undoes 18's asynchronous I/O:
 
 The finding names the setting's source; on a managed service change it in the
 provider's parameter settings. Nothing is reported on PostgreSQL 14-17 or while the
-server version is unknown. In fleet mode the check runs once per instance, from the
-database that owns the instance settings.
+server version is unknown. In fleet mode the instance-wide values are reported once per
+instance, from the database that owns the instance settings; a value set for one database
+alone (source `database` or `database user`, from `ALTER DATABASE` or `ALTER ROLE ... IN
+DATABASE`) is reported by that database, as `database:<setting>` with `scope = database`.
 
 ### LLM provider errors and the circuit breaker
 

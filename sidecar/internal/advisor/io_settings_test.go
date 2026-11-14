@@ -234,8 +234,10 @@ func TestIOSettings_AdvisorCycleByMajor(t *testing.T) {
 }
 
 // A database that leaves its instance settings to another database in the
-// fleet neither reports nor resolves the instance-wide I/O advice.
-func TestIOSettings_NonOwnerDefers(t *testing.T) {
+// fleet does not report the instance-wide values: the owner does. It still
+// evaluates the category, so its own stale instance rows (from when it was
+// the owner) resolve rather than duplicate the owner's.
+func TestIOSettings_NonOwnerDefersInstanceValues(t *testing.T) {
 	a := newTestAdvisor(true, false, 0)
 	a.WithPGVersion(180001)
 	a.WithInstanceOwner(func() (string, bool) { return "owner_db", false })
@@ -243,8 +245,54 @@ func TestIOSettings_NonOwnerDefers(t *testing.T) {
 	if len(got) != 0 {
 		t.Fatalf("non-owner io findings = %+v, want none", got)
 	}
-	if slices.Contains(a.LastEvaluatedCategories(), "io_settings") {
-		t.Errorf("non-owner evaluated io_settings: %v", a.LastEvaluatedCategories())
+	if !slices.Contains(a.LastEvaluatedCategories(), "io_settings") {
+		t.Errorf("non-owner did not evaluate io_settings: %v", a.LastEvaluatedCategories())
+	}
+}
+
+// A value set for one database alone (ALTER DATABASE, or ALTER ROLE ... IN
+// DATABASE) is seen only from that database, so every database reports
+// its own, owner or not (plan: fleet per database).
+func TestIOSettings_DatabaseOverridePerDatabase(t *testing.T) {
+	for _, source := range []string{"database", "database user"} {
+		for _, isOwner := range []bool{true, false} {
+			a := newTestAdvisor(true, false, 0)
+			a.WithPGVersion(180001)
+			a.WithInstanceOwner(func() (string, bool) { return "owner_db", isOwner })
+			snap := &collector.Snapshot{ConfigData: ioSnap(
+				ioSetting("effective_io_concurrency", "1", source),
+				ioSetting("io_method", "sync", "configuration file"))}
+			got := ioFindings(a.analyzeSnapshot(context.Background(), snap))
+			var ids []string
+			for _, f := range got {
+				ids = append(ids, f.ObjectIdentifier)
+			}
+			want := []string{"database:effective_io_concurrency"}
+			if isOwner {
+				want = append(want, "instance:io_method")
+			}
+			if !slices.Equal(ids, want) {
+				t.Errorf("source %q, owner %v: identifiers %v, want %v", source, isOwner,
+					ids, want)
+				continue
+			}
+			if got[0].Detail["scope"] != "database" || got[0].Detail["source"] != source {
+				t.Errorf("source %q: detail %v, want database scope and the source",
+					source, got[0].Detail)
+			}
+		}
+	}
+}
+
+// Instance-wide sources keep the instance scope.
+func TestIOSettings_InstanceScopeSources(t *testing.T) {
+	for _, source := range []string{"configuration file", "command line", "user", "global"} {
+		got := ioSettingsFindings(ioSnap(ioSetting("effective_io_concurrency", "1",
+			source)), 18)
+		if len(got) != 1 || got[0].ObjectIdentifier != "instance:effective_io_concurrency" ||
+			got[0].Detail["scope"] != "instance" {
+			t.Errorf("source %q: %+v, want one instance-scope finding", source, got)
+		}
 	}
 }
 
