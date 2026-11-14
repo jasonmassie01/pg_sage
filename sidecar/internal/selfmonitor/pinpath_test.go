@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -15,9 +14,8 @@ import (
 	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
-// security-01c-n: the pinpath build tag runs the suite with the
-// search_path pin security-01c-r ships; without it sessions keep the
-// role's path. The pin itself is tested here in both builds.
+// security-01c-r: every pool built through ConfigurePool pins its sessions
+// to search_path = pg_catalog, pg_temp, after the READ COMMITTED pin.
 
 func TestPinSearchPath_EarlierHookErrorSkipsThePin(t *testing.T) {
 	cfg, err := pgx.ParseConfig("postgres://u@127.0.0.1:1/db")
@@ -53,15 +51,16 @@ func TestPinSearchPath_NilHookStillPins(t *testing.T) {
 	}
 }
 
-func pinnedSelfPool(t *testing.T) *pgxpool.Pool {
+// configuredPool is a pool built exactly as pg_sage builds its own: through
+// ConfigurePool and nothing else.
+func configuredPool(t *testing.T, dsn string, maxConns int32) *pgxpool.Pool {
 	t.Helper()
-	cfg, err := pgxpool.ParseConfig(testdb.SkipUnlessLive(t))
+	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ConfigurePool(cfg)
-	pinSearchPath(cfg.ConnConfig)
-	cfg.MaxConns = 4
+	cfg.MaxConns = maxConns
 	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -70,47 +69,89 @@ func pinnedSelfPool(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
-// Concurrent acquires each get a pinned, READ COMMITTED session.
-func TestPinSearchPath_EverySessionIsPinned(t *testing.T) {
-	pool := pinnedSelfPool(t)
-	var wg sync.WaitGroup
-	errs := make(chan string, 8)
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			var path, iso string
-			err := pool.QueryRow(context.Background(), `SELECT current_setting('search_path'),
-				current_setting('default_transaction_isolation')`).Scan(&path, &iso)
-			if err != nil || path != testdb.PinnedPath || iso != "read committed" {
-				errs <- path + " / " + iso + " / " + errString(err)
-			}
-		}()
-	}
-	wg.Wait()
-	close(errs)
-	for e := range errs {
-		t.Errorf("session: %s", e)
-	}
-}
-
-func errString(err error) string {
-	if err == nil {
-		return "<nil>"
-	}
-	return err.Error()
-}
-
-// An apppath.Pin transaction ends with the session back on the pin.
-func TestPinSearchPath_ApplicationPathIsTransactionLocal(t *testing.T) {
-	pool := pinnedSelfPool(t)
-	ctx := context.Background()
-	conn, err := pool.Acquire(ctx)
-	if err != nil {
+// Happy path: a pooled session shows the pin, and the database's own
+// setting (reset_val, which apppath reads) is untouched: the pin is a SET,
+// not a startup parameter.
+func TestConfigurePool_PinsSearchPath(t *testing.T) {
+	dsn := testdb.CreateDatabase(t, "pin_path")
+	admin := configuredPool(t, dsn, 1)
+	db := pgx.Identifier{databaseName(t, admin)}.Sanitize()
+	if _, err := admin.Exec(context.Background(),
+		"ALTER DATABASE "+db+" SET search_path = app, public"); err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Release()
-	tx, err := conn.Begin(ctx)
+	pool := configuredPool(t, dsn, 2)
+	var path, reset string
+	if err := pool.QueryRow(context.Background(), `SELECT current_setting('search_path'),
+		(SELECT reset_val FROM pg_settings WHERE name = 'search_path')`).
+		Scan(&path, &reset); err != nil {
+		t.Fatal(err)
+	}
+	if path != testdb.PinnedPath {
+		t.Fatalf("search_path = %q, want %q", path, testdb.PinnedPath)
+	}
+	if reset != "app, public" {
+		t.Fatalf("reset_val = %q, want the database's own app, public", reset)
+	}
+}
+
+func databaseName(t *testing.T, pool *pgxpool.Pool) string {
+	t.Helper()
+	var name string
+	if err := pool.QueryRow(context.Background(), "SELECT current_database()").
+		Scan(&name); err != nil {
+		t.Fatal(err)
+	}
+	return name
+}
+
+// Concurrency: 20 sessions held at once (so 20 distinct server sessions)
+// each see the pin and READ COMMITTED.
+func TestConfigurePool_TwentyConcurrentSessionsArePinned(t *testing.T) {
+	const n = 20
+	pool := configuredPool(t, testdb.SkipUnlessLive(t), n)
+	ctx := context.Background()
+	type result struct {
+		conn      *pgxpool.Conn
+		pid       int
+		path, iso string
+		err       error
+	}
+	results := make(chan result, n)
+	for i := 0; i < n; i++ {
+		go func() {
+			var r result
+			if r.conn, r.err = pool.Acquire(ctx); r.err == nil {
+				r.err = r.conn.QueryRow(ctx, `SELECT pg_backend_pid(),
+					current_setting('search_path'),
+					current_setting('default_transaction_isolation')`).
+					Scan(&r.pid, &r.path, &r.iso)
+			}
+			results <- r
+		}()
+	}
+	pids := map[int]bool{}
+	for i := 0; i < n; i++ {
+		r := <-results
+		if r.conn != nil {
+			defer r.conn.Release()
+		}
+		if r.err != nil || r.path != testdb.PinnedPath || r.iso != "read committed" {
+			t.Errorf("session %d: path %q iso %q err %v", r.pid, r.path, r.iso, r.err)
+		}
+		pids[r.pid] = true
+	}
+	if len(pids) != n {
+		t.Fatalf("%d distinct sessions, want %d held at once", len(pids), n)
+	}
+}
+
+// State transition: an apppath.Pin transaction plans on the application's
+// path and the session returns to the pool on the pin.
+func TestConfigurePool_ApplicationPathIsTransactionLocal(t *testing.T) {
+	pool := configuredPool(t, testdb.SkipUnlessLive(t), 1)
+	ctx := context.Background()
+	tx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,32 +162,14 @@ func TestPinSearchPath_ApplicationPathIsTransactionLocal(t *testing.T) {
 	if err := tx.QueryRow(ctx, "SHOW search_path").Scan(&inside); err != nil {
 		t.Fatal(err)
 	}
-	_ = tx.Rollback(ctx)
-	if err := conn.QueryRow(ctx, "SHOW search_path").Scan(&after); err != nil {
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// MaxConns 1: this is the same session the transaction ran on.
+	if err := pool.QueryRow(ctx, "SHOW search_path").Scan(&after); err != nil {
 		t.Fatal(err)
 	}
 	if inside == testdb.PinnedPath || after != testdb.PinnedPath {
 		t.Fatalf("inside %q after %q, want the application's path, then the pin", inside, after)
-	}
-}
-
-// ConfigurePool pins the path exactly when the pinpath tag is on.
-func TestConfigurePool_SearchPathFollowsTheHarnessTag(t *testing.T) {
-	cfg, err := pgxpool.ParseConfig(testdb.SkipUnlessLive(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	ConfigurePool(cfg)
-	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
-	var path string
-	if err := pool.QueryRow(context.Background(), "SHOW search_path").Scan(&path); err != nil {
-		t.Fatal(err)
-	}
-	if (path == testdb.PinnedPath) != pinPathHarness {
-		t.Fatalf("search_path = %q with pinPathHarness = %v", path, pinPathHarness)
 	}
 }

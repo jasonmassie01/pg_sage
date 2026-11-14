@@ -7,6 +7,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -31,9 +32,20 @@ var topLevelSessionSettings = []string{"statement_timeout", "lock_timeout", "sea
 // transaction: released when its settings reset cleanly, discarded if not.
 type topLevelSession interface {
 	pooledExecutor
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 	Release()
 	discard()
 }
+
+// readSearchPathSQL reads the session's search_path before an action pins
+// it; restoreSearchPathSQL puts exactly that value back afterwards. A
+// RESET would restore the role's path instead, and a session of a pg_sage
+// pool (pinned to pg_catalog, pg_temp at connect, security-01c-r) would go
+// back to the pool unpinned.
+const (
+	readSearchPathSQL    = "SELECT pg_catalog.current_setting('search_path')"
+	restoreSearchPathSQL = "SELECT pg_catalog.set_config('search_path', $1, false)"
+)
 
 // pooledSession is a pool connection and the statement it will run, which
 // an emergency stop cancels while it runs.
@@ -79,8 +91,13 @@ func runTopLevelSession(
 	opts ddlOpts,
 	run func(pooledExecutor) error,
 ) (retErr error) {
+	var prior string
+	if err := sess.QueryRow(ctx, readSearchPathSQL).Scan(&prior); err != nil {
+		sess.discard()
+		return fmt.Errorf("reading search_path: %w", err)
+	}
 	defer func() {
-		if cleanupErr := resetTopLevelSession(sess, opts); cleanupErr != nil {
+		if cleanupErr := resetTopLevelSession(sess, opts, prior); cleanupErr != nil {
 			sess.discard()
 			retErr = errors.Join(retErr, cleanupErr)
 			return
@@ -141,28 +158,33 @@ func setActionTag(ctx context.Context, conn pooledExecutor, verb string, o ddlOp
 	return nil
 }
 
-// resetTopLevelSession resets every session setting, and the action tag
-// when one was set; the first failure stops it, and the caller then
-// discards the connection.
-func resetTopLevelSession(conn pooledExecutor, o ddlOpts) error {
+// resetTopLevelSession resets every session setting (search_path to path,
+// the session's own value before the action), and the action tag when one
+// was set; the first failure stops it, and the caller then discards the
+// connection.
+func resetTopLevelSession(conn pooledExecutor, o ddlOpts, path string) error {
 	settings := topLevelSessionSettings
 	if o.actionTag > 0 {
 		settings = append(slices.Clone(settings), "application_name")
 	}
 	for _, setting := range settings {
-		if err := resetSessionSetting(conn, setting); err != nil {
+		if err := resetSessionSetting(conn, setting, path); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// resetSessionSetting gives each RESET its own cleanup budget, so a slow
+// resetSessionSetting gives each reset its own cleanup budget, so a slow
 // round trip on one cannot starve the next.
-func resetSessionSetting(conn pooledExecutor, setting string) error {
+func resetSessionSetting(conn pooledExecutor, setting, path string) error {
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	if _, err := conn.Exec(cleanupCtx, "RESET "+setting); err != nil {
+	sql, args := "RESET "+setting, []any(nil)
+	if setting == "search_path" {
+		sql, args = restoreSearchPathSQL, []any{path}
+	}
+	if _, err := conn.Exec(cleanupCtx, sql, args...); err != nil {
 		return fmt.Errorf("resetting %s: %w", setting, err)
 	}
 	return nil

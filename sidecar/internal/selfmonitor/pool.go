@@ -16,7 +16,9 @@ import (
 // with StatementTag (pg_stat_statements). pg_sage does not hide from
 // pg_stat_statements: its cost is visible to the DBA, and its own readers
 // exclude it with StatementExclusionSQL and ActivityExclusionSQL. Every
-// session is pinned to READ COMMITTED (pinReadCommitted). An
+// session is pinned to READ COMMITTED (pinReadCommitted), then to
+// search_path = pg_catalog, pg_temp (pinSearchPath), so no object a
+// database user creates resolves in pg_sage's own statements. An
 // AfterNetConnect or AfterConnect hook already set runs first.
 func ConfigurePool(cfg *pgxpool.Config) {
 	if cfg == nil {
@@ -52,9 +54,7 @@ func ConfigureConn(cfg *pgx.ConnConfig) {
 		return TagConn(conn), nil
 	}
 	pinReadCommitted(cfg)
-	if pinPathHarness {
-		pinSearchPath(cfg)
-	}
+	pinSearchPath(cfg)
 }
 
 // pinReadCommittedSQL makes every transaction of the session READ
