@@ -5,6 +5,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/agentloop"
 )
 
 // mcp-07b review: a run stopped before it is marked running, and runs a
@@ -131,5 +133,38 @@ func TestRecoverRuns_LeavesThisProcessLiveRunsAloneUnderClockSkew(t *testing.T) 
 	r, _ := waitRun(t, s, viewer, st.RunID, ended)
 	if r.State != RunDone || r.MessageID == nil {
 		t.Fatalf("live run after a sweep = %+v, want done with its answer", r)
+	}
+}
+
+func TestRun_CancelledOnAnotherInstanceKeepsThePartialAnswer(t *testing.T) {
+	f := newFixture(t)
+	m := newFakeLLM(t, calls(toolCall{"propose_action", `{"finding_id":42}`}),
+		slowReply(800*time.Millisecond, calls(toolCall{"list_findings", `{}`})),
+		slowAnswers(1, 0)[0])
+	proposer := &fakeProposer{result: Proposal{QueueID: 9, Created: true,
+		Verdict: "queue_approval", SQL: "CREATE INDEX CONCURRENTLY idx ON t (a)"}}
+	owner := f.runService(m, func(d *Deps) { d.Proposer = proposer })
+	peer := f.runService(nil, func(d *Deps) { d.Instance = "host-b" })
+	st := mustStart(t, owner, operator, Request{Question: "Fix the slow orders query"})
+	// The cancel lands on the peer after the proposal, while the owner
+	// waits on the model; the owner sees it at its next tool call.
+	waitRun(t, owner, operator, st.RunID, func(r Run) bool {
+		return len(r.Progress) == 1 && m.calls() == 2
+	})
+	if _, err := peer.CancelRun(context.Background(), operator, st.RunID); err != nil {
+		t.Fatalf("peer CancelRun: %v", err)
+	}
+	r, _ := waitRun(t, owner, operator, st.RunID, func(r Run) bool {
+		return r.MessageID != nil || owner.runs.count() == 0
+	})
+	if r.State != RunCancelled || r.MessageID == nil || r.Answer == nil {
+		t.Fatalf("run cancelled on the peer = %+v, want cancelled with the partial answer", r)
+	}
+	if len(r.Answer.Actions) != 1 || r.Answer.Actions[0].ID != "9" ||
+		r.Answer.Stop != agentloop.StopCancelled {
+		t.Fatalf("partial answer = %+v", r.Answer)
+	}
+	if m.calls() != 2 {
+		t.Fatalf("the model was called %d times after the cancel", m.calls())
 	}
 }
