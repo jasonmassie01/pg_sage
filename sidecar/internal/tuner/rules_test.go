@@ -1,8 +1,11 @@
 package tuner
 
 import (
+	"context"
 	"strings"
 	"testing"
+
+	"github.com/pg-sage/sidecar/internal/planfresh"
 )
 
 var defaultCfg = TunerConfig{
@@ -276,5 +279,76 @@ func TestCombineHints_GUCOnly(t *testing.T) {
 	}
 	if !strings.Contains(got, "plan_cache_mode") {
 		t.Errorf("missing plan_cache_mode, got %q", got)
+	}
+}
+
+// market-10b: hashable_join false withholds the join hint; true keeps it.
+// A symptom without the key (built by hand, not by the scanner, which
+// always records it) keeps the earlier behaviour.
+func TestPrescribe_BadNestedLoop_HashableJoin(t *testing.T) {
+	cases := []struct {
+		name   string
+		detail map[string]any
+		want   string
+	}{
+		{"not hashable", map[string]any{"hashable_join": false}, ""},
+		{"hashable", map[string]any{"hashable_join": true}, "HashJoin(o c)"},
+		{"not recorded", nil, "HashJoin(o c)"},
+		{"wrong type", map[string]any{"hashable_join": "false"}, "HashJoin(o c)"},
+	}
+	for _, c := range cases {
+		s := PlanSymptom{Kind: SymptomBadNestedLoop, JoinAliases: []string{"o", "c"},
+			Detail: c.detail}
+		p := Prescribe(s, defaultCfg)
+		got := ""
+		if p != nil {
+			got = p.HintDirective
+		}
+		if got != c.want || (c.want == "") != (p == nil) {
+			t.Errorf("%s: prescription %+v, want directive %q", c.name, p, c.want)
+		}
+	}
+}
+
+// State transition: a query whose hashable nested loop earned HashJoin(a b)
+// loses the prescription on the next scan once its plan joins only by OR;
+// the finding keeps the symptoms and the OR advice and says why no join
+// hint is offered.
+func TestTuner_NonHashablePlanWithdrawsJoinHint(t *testing.T) {
+	tu := New(nil, TunerConfig{}, &HintPlanAvailability{}, noopLogFn)
+	c := candidate{QueryID: 77, Query: "SELECT 1 FROM ta a JOIN tb b ON ...", Calls: 9}
+	hashable := misNestedLoop("(a.id = b.a_id)", innerScan("Seq Scan", nil))
+	tu.plans = map[int64]planfresh.Plan{77: {JSON: planOf(t, hashable),
+		HasActuals: true, Source: planfresh.SourceCache}}
+	first := tu.processCandidate(context.Background(), c)
+	if len(first) != 1 || first[0].Detail["hint_directive"] != "HashJoin(a b)" ||
+		first[0].Detail["join_hint_note"] != nil {
+		t.Fatalf("first scan findings = %+v, want one HashJoin(a b)", first)
+	}
+	pureOR := misNestedLoop(orJoinFilter, innerScan("Seq Scan", nil))
+	pureOR["Rows Removed by Join Filter"] = 50_000.0
+	tu.plans[77] = planfresh.Plan{JSON: planOf(t, pureOR), HasActuals: true,
+		Source: planfresh.SourceCache}
+	second := tu.processCandidate(context.Background(), c)
+	if len(second) != 1 {
+		t.Fatalf("second scan findings = %d, want 1: %+v", len(second), second)
+	}
+	f := second[0]
+	if f.Detail["hint_directive"] != "" || f.RecommendedSQL != "" ||
+		strings.Contains(f.Recommendation, "HashJoin") {
+		t.Fatalf("join hint not withdrawn: %+v", f)
+	}
+	syms, _ := f.Detail["symptoms"].([]string)
+	if strings.Join(syms, ",") != "bad_nested_loop,or_join_filter" ||
+		f.Detail["plan_antipatterns"] == nil ||
+		!strings.Contains(f.Recommendation, "rewriting as UNION") {
+		t.Fatalf("finding lost its symptoms or OR advice: %+v", f)
+	}
+	note, _ := f.Detail["join_hint_note"].(string)
+	for _, frag := range []string{"no join hint", "a and b", "no equality",
+		"cannot hash-join"} {
+		if !strings.Contains(note, frag) || !strings.Contains(f.Recommendation, frag) {
+			t.Errorf("note %q / recommendation %q lack %q", note, f.Recommendation, frag)
+		}
 	}
 }

@@ -169,6 +169,7 @@ func TestTunerAllHints_BadNestedLoop(t *testing.T) {
 					"Node Type":       "Index Scan",
 					"Relation Name":   "line_items",
 					"Alias":           "li",
+					"Index Cond":      "(order_id = o.id)",
 					"Plan Rows":       1,
 					"Actual Rows":     5000,
 					"Actual Loops":    100,

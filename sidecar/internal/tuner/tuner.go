@@ -329,7 +329,7 @@ func (t *Tuner) processCandidate(
 	rationale := buildRationale(prescriptions)
 	if c.foreignHint && combined != "" {
 		f := operatorHintFinding(c, symptoms, combined, rationale)
-		return append(staleFindings, withAntipatterns(f, symptoms))
+		return append(staleFindings, withJoinHintNote(withAntipatterns(f, symptoms), symptoms))
 	}
 	// Every work_mem hint stays within min(work_mem_max_mb, 5% of host
 	// memory); with host memory unknown it needs approval (tuning-03).
@@ -342,7 +342,7 @@ func (t *Tuner) processCandidate(
 	finding := t.buildGatedFinding(ctx, c, symptoms, combined, buildTitle(symptoms),
 		rationale, cmp)
 	finding = withSpillSizing(budget.annotate(finding, combined, budgetDetail), symptoms)
-	finding = withAntipatterns(finding, symptoms)
+	finding = withJoinHintNote(withAntipatterns(finding, symptoms), symptoms)
 	return append(staleFindings, finding)
 }
 

@@ -21,7 +21,9 @@ type nlInner struct {
 }
 
 // nestedLoopPlanJSON builds EXPLAIN (ANALYZE, FORMAT JSON) output for a
-// nested loop joining a (outer) and b (inner).
+// nested loop joining a (outer) and b (inner) through a parameterized index
+// scan of b (Index Cond id = a.b_id; market-10b: without a join equality
+// the join cannot be hashed and gets no HashJoin).
 func nestedLoopPlanJSON(
 	t *testing.T, joinPlan int64, joinActual float64,
 	outerPlan int64, outerActual float64, inner nlInner,
@@ -30,6 +32,7 @@ func nestedLoopPlanJSON(
 	innerNode := map[string]any{
 		"Node Type": "Index Scan", "Relation Name": "b", "Schema": "public",
 		"Alias": "b", "Parent Relationship": "Inner", "Plan Rows": 1,
+		"Index Cond": "(id = a.b_id)",
 	}
 	if inner.rows != nil {
 		innerNode["Actual Rows"] = *inner.rows

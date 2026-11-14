@@ -75,7 +75,10 @@ func describeNestedLoop(s PlanSymptom) (string, string) {
 		because += fmt.Sprintf("; its inner side read %d rows over %d loops", rows, loops)
 	}
 	recommend := "ANALYZE the joined tables so the estimate improves"
-	if len(s.JoinAliases) >= 2 {
+	if !joinMayHash(s) {
+		recommend += "; the join has no equality between its inputs, " +
+			"so a hash join cannot replace the nested loop"
+	} else if len(s.JoinAliases) >= 2 {
 		recommend += "; if it stays wrong, a hash join (HashJoin(" +
 			strings.Join(s.JoinAliases, " ") + ")) reads the inner side once"
 	}
