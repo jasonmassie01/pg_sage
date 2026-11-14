@@ -134,6 +134,22 @@ func TestCompose_ExcerptThatExactlyFillsTheBudgetIsKept(t *testing.T) {
 	}
 }
 
+func TestCompose_ExcerptBudgetStaysClosedForLaterSmallCitations(t *testing.T) {
+	// Boundary: 16 x 1500 = 24000 bytes leaves 576. The 17th (1500) does
+	// not fit and closes the budget, so the small 18th keeps no text even
+	// though it would fit: the excerpts kept are always the earliest ones.
+	evs := append(fill(17, MaxExcerptRunes), ev("doc:small", "tiny"))
+	a := compose("testdb", excerptResult(evs...), nil)
+	if c := a.Citations[16]; c.Excerpt != "" || !c.ExcerptTruncated {
+		t.Fatalf("17th citation: %d bytes truncated %v, want dropped", len(c.Excerpt),
+			c.ExcerptTruncated)
+	}
+	if c := a.Citations[17]; c.Excerpt != "" || !c.ExcerptTruncated {
+		t.Fatalf("18th citation: %q truncated %v, want dropped after the budget closed",
+			c.Excerpt, c.ExcerptTruncated)
+	}
+}
+
 func TestCompose_ExcerptIsRedactedAgain(t *testing.T) {
 	// Invalid input: a tool that let a literal through. The excerpt is
 	// redacted as defence in depth; the digest still names what was read.
