@@ -180,18 +180,26 @@ func TestIdPGrantSync_SetsChangesAndRevokesWithAudit(t *testing.T) {
 		t.Fatalf("an unchanged sync wrote audit rows: %d set rows", n)
 	}
 
+	assertRoleChangeAndRevoke(t, pool, s, u)
+}
+
+// assertRoleChangeAndRevoke changes orders to operator and drops billing,
+// then checks the rows and the audit of both changes.
+func assertRoleChangeAndRevoke(t *testing.T, pool *pgxpool.Pool, s *DatabaseGrantStore,
+	u int) {
+	t.Helper()
 	// Role change on orders, billing dropped.
-	res, err = s.SyncIdPGrants(ctx, IdPGrantSync{UserID: u,
+	res, err := s.SyncIdPGrants(context.Background(), IdPGrantSync{UserID: u,
 		Grants: map[string]string{"orders": RoleOperator}})
 	if err != nil || len(res.Set) != 1 || res.Set[0] != "orders" || len(res.Revoked) != 1 ||
 		res.Revoked[0] != "billing" {
 		t.Fatalf("third sync = (%+v, %v)", res, err)
 	}
-	rows = idpGrantRows(t, pool, u)
+	rows := idpGrantRows(t, pool, u)
 	if len(rows) != 1 || rows["orders"] != (idpRow{RoleOperator, GrantSourceIdP}) {
 		t.Fatalf("rows after third sync = %+v", rows)
 	}
-	sets = idpAuditDetails(t, pool, AuditDatabaseGrantSet, u)
+	sets := idpAuditDetails(t, pool, AuditDatabaseGrantSet, u)
 	if len(sets) != 3 || sets[2]["previous_role"] != RoleViewer || sets[2]["role"] != RoleOperator {
 		t.Fatalf("role change audit = %+v", sets)
 	}
