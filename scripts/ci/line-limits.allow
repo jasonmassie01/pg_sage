@@ -4,4 +4,4 @@
 # when the function total exceeds functions_over_50. A PR may shrink a row or
 # delete it, never add one or raise it. Each split item deletes its rows.
 # Format: <repo-relative path> <max lines>
-functions_over_50 54
+functions_over_50 44
