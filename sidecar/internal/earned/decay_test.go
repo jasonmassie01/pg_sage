@@ -306,3 +306,150 @@ func TestDecaySameWarningAcrossAMovingExpiry(t *testing.T) {
 		}
 	}
 }
+
+// earned-06b: no evidence is permanent. A signed release report that
+// names the running build ages out at BenchMaxAge like any other report:
+// it proves the build, not the workload, data or model it runs on today.
+
+// runningBuild is the build the signed report below was shipped with.
+var runningBuild = Build{Version: "2.6.0", Commit: "0123456789abcdef0123456789abcdef01234567"}
+
+// signedL3Evidence is evidence at at that supports L3 while its signed,
+// build-matching bench report (generated at generated) is fresh: the
+// shadow window, the live recoveries and the bench bars are all met.
+func signedL3Evidence(t *testing.T, at, generated time.Time) Evidence {
+	t.Helper()
+	run := freshBench(generated)
+	run.Origin, run.Build = OriginSignedRelease, runningBuild
+	run.Signature = &ReportSignature{Identity: "release", Issuer: "sigstore",
+		Commit: runningBuild.Commit, SignedAt: generated}
+	if sum := SummarizeBench(run); !sum.Signed || !sum.Build.Matches(runningBuild) {
+		t.Fatalf("fixture is not a signed report for the running build: %+v", sum)
+	}
+	return Evidence{Family: FamilyWraparound, Class: ClassFreeze, At: at, Bench: run,
+		Shadow: shadowOf(at.Add(-40*day), marksAt(at.Add(-day), 20, 0)),
+		Live:   Live{VerifiedL2: 50}}
+}
+
+var earnedL3 = State{Family: FamilyWraparound, Class: ClassFreeze, Level: L3,
+	Provenance: ProvenanceLedger}
+
+// Nil marks: the shadow window's own expiry is pinned by the tests above,
+// so the bench report's date is the only one here.
+func TestDecayBuildMatchingReportStillExpires(t *testing.T) {
+	th := DefaultThresholds()
+	gen := decayT0
+	young := signedL3Evidence(t, gen.Add(29*day), gen)
+	if got := SupportedLevel(th, young); got != L3 {
+		t.Fatalf("at 29 days the signed report supports %v, want L3", got)
+	}
+	if d := decayOf(th, earnedL3, SupportedLevel(th, young), young); d != nil {
+		t.Fatalf("at 29 days the level decayed: %+v", d)
+	}
+	at, checks := expiryOf(th, young, nil)
+	if want := gen.Add(30 * day); !at.Equal(want) ||
+		!slices.Equal(checks, []string{"bench_fresh"}) {
+		t.Fatalf("at 29 days expiry = %v %v, want %v [bench_fresh]", at, checks, want)
+	}
+
+	old := signedL3Evidence(t, gen.Add(30*day+time.Minute), gen)
+	if c := benchFresh(th, old); c.Met || c.Observed != "720h1m0s" {
+		t.Fatalf("a signed build-matching report 30d1m old: %+v, want not met", c)
+	}
+	supported := SupportedLevel(th, old)
+	d := decayOf(th, earnedL3, supported, old)
+	if supported != L1 || d == nil || d.Granted != L3 || d.Supported != L1 ||
+		!slices.Equal(d.Checks, []string{"bench_fresh"}) {
+		t.Fatalf("expired signed report: supported %v, decay %+v; want L3 -> L1 "+
+			"[bench_fresh]", supported, d)
+	}
+	if d.reason() != "evidence_decayed:bench_fresh" {
+		t.Fatalf("cap reason = %q", d.reason())
+	}
+}
+
+// The bound is inclusive: exactly BenchMaxAge still counts, a nanosecond
+// more does not, for a signed build-matching report as for any other.
+func TestDecayBenchFreshBoundaryForASignedReport(t *testing.T) {
+	th := DefaultThresholds()
+	for _, tc := range []struct {
+		name string
+		age  time.Duration
+		met  bool
+	}{
+		{"zero age", 0, true},
+		{"one nanosecond under", th.BenchMaxAge - time.Nanosecond, true},
+		{"exactly the max age", th.BenchMaxAge, true},
+		{"one nanosecond over", th.BenchMaxAge + time.Nanosecond, false},
+	} {
+		ev := signedL3Evidence(t, decayT0.Add(tc.age), decayT0)
+		if c := benchFresh(th, ev); c.Met != tc.met {
+			t.Errorf("%s: bench_fresh met = %v, want %v (%+v)", tc.name, c.Met, tc.met, c)
+		}
+		want := L1
+		if tc.met {
+			want = L3
+		}
+		if got := SupportedLevel(th, ev); got != want {
+			t.Errorf("%s: supported = %v, want %v", tc.name, got, want)
+		}
+	}
+	// A shorter configured max age moves the bound with it.
+	th.BenchMaxAge = 7 * day
+	if c := benchFresh(th, signedL3Evidence(t, decayT0.Add(7*day+time.Nanosecond),
+		decayT0)); c.Met {
+		t.Fatalf("a 7-day max age still counted a report past it: %+v", c)
+	}
+}
+
+// No report has nothing to expire; a report dated in the future (age < 0)
+// does not count, even signed for the running build.
+func TestDecayBuildMatchingReportStillExpiresNoneOrFuture(t *testing.T) {
+	th := DefaultThresholds()
+	none := signedL3Evidence(t, decayT0, decayT0)
+	none.Bench = nil
+	if c := benchFresh(th, none); c.Met || c.Observed != "none" {
+		t.Fatalf("no report: %+v, want not met with Observed none", c)
+	}
+	if at, checks := expiryOf(th, none, nil); !at.IsZero() || checks != nil {
+		t.Fatalf("no report: expiry = %v %v, want zero", at, checks)
+	}
+	future := signedL3Evidence(t, decayT0, decayT0.Add(time.Hour))
+	if c := benchFresh(th, future); c.Met || c.Observed != "-1h0m0s" {
+		t.Fatalf("future report: %+v, want not met", c)
+	}
+	if got := SupportedLevel(th, future); got != L1 {
+		t.Fatalf("future report supports %v, want L1", got)
+	}
+	if at, checks := expiryOf(th, future, nil); !at.IsZero() || checks != nil {
+		t.Fatalf("future report: expiry = %v %v, want zero", at, checks)
+	}
+}
+
+// Expired, then renewed: a report dated now ends the decay and moves the
+// expiry to its own generated_at + BenchMaxAge.
+func TestDecayBuildMatchingReportStillExpiresUntilRenewed(t *testing.T) {
+	th := DefaultThresholds()
+	now := decayT0.Add(45 * day)
+	expired := signedL3Evidence(t, now, decayT0)
+	if d := decayOf(th, earnedL3, SupportedLevel(th, expired), expired); d == nil {
+		t.Fatal("a 45-day-old signed report did not decay the level")
+	}
+	if at, _ := expiryOf(th, expired, nil); !at.IsZero() {
+		t.Fatalf("an expired report still has an expiry: %v", at)
+	}
+	renewed := signedL3Evidence(t, now, now)
+	supported := SupportedLevel(th, renewed)
+	if d := decayOf(th, earnedL3, supported, renewed); supported != L3 || d != nil {
+		t.Fatalf("renewed: supported %v, decay %+v; want L3 and none", supported, d)
+	}
+	at, checks := expiryOf(th, renewed, nil)
+	if want := now.Add(th.BenchMaxAge); !at.Equal(want) ||
+		!slices.Equal(checks, []string{"bench_fresh"}) {
+		t.Fatalf("renewed expiry = %v %v, want %v [bench_fresh]", at, checks, want)
+	}
+}
+
+// Error propagation, concurrency and integration do not apply: these are
+// pure functions; earned-06's DB tests cover the ledger's capped and
+// cap_cleared events, and this item adds no read, write or shared state.
