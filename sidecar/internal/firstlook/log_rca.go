@@ -131,8 +131,8 @@ func managedLogSteps(provider string) (steps []string, detail string, ok bool) {
 	case "supabase":
 		return []string{"Set SAGE_SUPABASE_OBSERVABILITY_TOKEN: pg_sage then reads the " +
 			"logs through the Supabase Management API.",
-			"Keep logwatch.enabled at auto (the default) or true, and rca.enabled: true."},
-			noFiles, true
+			"Keep logwatch.enabled at auto (the default) or true, and rca.enabled: true.",
+		}, noFiles, true
 	case "lakebase":
 		return []string{"Lakebase exposes PostgreSQL logs through system.lakebase: " +
 			"configure the opt-in lakebase_observability reader and inspect its " +
