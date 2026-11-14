@@ -3,6 +3,7 @@ import { StatusDot } from './StatusDot'
 import { TrustBadge } from './TrustBadge'
 import { formatTrustLevel } from '../pages/Dashboard'
 import { rowAutoFamilies } from '../lib/autonomy'
+import { instanceOwnerLabel } from '../lib/instanceOwner'
 
 function healthColor(score) {
   if (score === undefined || score === null) return 'var(--text-secondary)'
@@ -25,6 +26,7 @@ export function DatabaseTile({ db, selected, onSelect }) {
   const blocker = (caps.blockers || [])[0]
   const ready = caps.ready_for_auto_safe
   const readiness = ready === true ? 'ready' : ready === false ? 'blocked' : 'unknown'
+  const instanceOwner = instanceOwnerLabel(caps)
   const reasons = Array.isArray(s.health_reasons) ? s.health_reasons : []
   const haRole = typeof s.ha_role === 'string' && s.ha_role ? s.ha_role : null
 
@@ -134,6 +136,13 @@ export function DatabaseTile({ db, selected, onSelect }) {
             Auto-safe {readiness}
           </span>
         </div>
+        {instanceOwner && (
+          <div data-testid="db-instance-owner" className="text-xs mt-1 truncate"
+            title={instanceOwner.title}
+            style={{ color: 'var(--text-secondary)' }}>
+            {instanceOwner.text}
+          </div>
+        )}
         {blocker && (
           <div className="text-xs mt-1 truncate"
             style={{ color: 'var(--text-secondary)' }}>
