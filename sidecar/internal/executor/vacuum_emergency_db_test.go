@@ -3,10 +3,13 @@ package executor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/custodian/freeze"
 	"github.com/pg-sage/sidecar/internal/policy"
@@ -219,4 +222,75 @@ func TestEmergencyStreakEscalatesOnceMore(t *testing.T) {
 	if profile != freeze.ProfileEmergency {
 		t.Fatalf("emergency escalation decision profile = %q", profile)
 	}
+}
+
+// The emergency session's RESET reaches the live pooled connection: a
+// role whose vacuum_cost_delay is raised to 7ms (the production case) runs
+// the emergency VACUUM on a one-connection pool; the same backend records
+// 7ms, and returns to the pool with 7ms again (not discarded, not left at 0).
+func TestEmergencyVacuumResetsCostDelayOnTheLivePooledConnection(t *testing.T) {
+	f := newVacuumFixture(t, 2000, "0")
+	one := throttledRolePool(t, f, "7ms")
+	exec := New(one, f.exec.cfg, time.Time{}, nopLog)
+	exec.emergencyStopFn = f.exec.emergencyStopFn
+	exec.vacuumHooks = vacuumHooks{interval: 50 * time.Millisecond,
+		readProgress: func(context.Context, uint32) (vacuumProgress, bool, error) {
+			return vacuumProgress{}, false, nil
+		},
+		emergencyStop: func(context.Context) (bool, error) { return false, nil }}
+	pidBefore, delayBefore := sessionCostDelay(t, f.ctx, one)
+	if delayBefore != "7ms" {
+		t.Fatalf("role vacuum_cost_delay = %q, want 7ms", delayBefore)
+	}
+	state := map[string]any{}
+	if err := exec.execConcurrentDDL(f.ctx, emergencySQLFor(f), state,
+		WithLockTimeout(4321)); err != nil {
+		t.Fatalf("emergency VACUUM: %v", err)
+	}
+	if got := state[vacuumCostDelayBeforeKey]; got != "7ms" {
+		t.Fatalf("recorded %s = %#v, want the role's 7ms", vacuumCostDelayBeforeKey, got)
+	}
+	pidAfter, delayAfter := sessionCostDelay(t, f.ctx, one)
+	if pidAfter != pidBefore || delayAfter != "7ms" {
+		t.Fatalf("after the emergency VACUUM: backend %d vacuum_cost_delay %q, want "+
+			"backend %d with 7ms", pidAfter, delayAfter, pidBefore)
+	}
+}
+
+// throttledRolePool is a one-connection pool of a new superuser role whose
+// own vacuum_cost_delay is delay; the role is dropped after the test.
+func throttledRolePool(t *testing.T, f *vacuumFixture, delay string) *pgxpool.Pool {
+	t.Helper()
+	role := fmt.Sprintf("vac05b_%d", time.Now().UnixNano())
+	if _, err := f.pool.Exec(f.ctx, "CREATE ROLE "+role+
+		" LOGIN SUPERUSER PASSWORD 'vac05b'"); err != nil {
+		t.Fatalf("create role %s: %v", role, err)
+	}
+	t.Cleanup(func() { _, _ = f.pool.Exec(context.Background(), "DROP ROLE IF EXISTS "+role) })
+	if _, err := f.pool.Exec(f.ctx, "ALTER ROLE "+role+" SET vacuum_cost_delay = '"+
+		delay+"'"); err != nil {
+		t.Fatalf("raise vacuum_cost_delay of %s: %v", role, err)
+	}
+	cfg, err := pgxpool.ParseConfig(f.pool.Config().ConnString())
+	if err != nil {
+		t.Fatalf("parse the test DSN: %v", err)
+	}
+	cfg.ConnConfig.User, cfg.ConnConfig.Password, cfg.MaxConns = role, "vac05b", 1
+	one, err := pgxpool.NewWithConfig(f.ctx, cfg)
+	if err != nil {
+		t.Fatalf("open a one-connection pool as %s: %v", role, err)
+	}
+	t.Cleanup(one.Close)
+	return one
+}
+
+func sessionCostDelay(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (int32, string) {
+	t.Helper()
+	var pid int32
+	var delay string
+	if err := pool.QueryRow(ctx, "SELECT pg_backend_pid(), "+
+		"current_setting('vacuum_cost_delay')").Scan(&pid, &delay); err != nil {
+		t.Fatalf("read the pooled session: %v", err)
+	}
+	return pid, delay
 }
