@@ -87,6 +87,17 @@ describe('QueriesPage', () => {
       .toHaveTextContent(/performance insights/i)
   })
 
+  it('names Lakebase wait counters as the preferred source (market-01b)', async () => {
+    renderQueries({ database: 'shop', coverage: 'full', order: 'load', queries: [] },
+      waitBody({ preferred_source: 'lakebase_wait_counters',
+        provider: { source: 'lakebase', load_by_wait: { LWLock: 0.25, CPU: 1 },
+          wait_event_time_unit: 'ms', unit_confirmed: false } }))
+    const line = await screen.findByTestId('wait-provider')
+    expect(line).toHaveTextContent(/Preferred source: Lakebase wait counters/)
+    expect(line).toHaveTextContent('CPU 1.00, LWLock 0.25')
+    expect(line).toHaveTextContent(/unit not yet confirmed/i)
+  })
+
   it('names the database of each row in the fleet view and asks for one for waits', async () => {
     const fetch = renderQueries({ database: 'all', coverage: 'full', order: 'load',
       queries: [topRow({ database: 'a' }), topRow({ database: 'b', queryid: '8' })] },
