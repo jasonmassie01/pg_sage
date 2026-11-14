@@ -164,7 +164,7 @@ jobs:
       # with internal/testsupport/buildtags, which fails on a missing tag.
       - name: Go vet (tagged suites, compile only)
         working-directory: sidecar
-        run: go vet -tags=integration,e2e,perfgate,providerlive,cloudlive,convertscale ./...
+        run: go vet -tags=integration,e2e,perfgate,providerlive,cloudlive,convertscale,sage_e2e_assume_sqlast ./...
 
       - name: Databricks Apps packaging tests
         run: python3 -m unittest discover -s deploy/databricks-apps -p 'test_*.py' -v
