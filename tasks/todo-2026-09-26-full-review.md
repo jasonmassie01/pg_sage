@@ -4,15 +4,23 @@ Branch `claude/full-review-ai-sre-2026-09-26`. Output dir `reviews/2026-09-26/`.
 
 - [x] Worktree + baseline build/vet/staticcheck/deadcode
 - [x] Disposable CI-equivalent PG17 (+hypopg, pg_stat_statements) on 127.0.0.1:55499
-- [ ] Baseline unit + integration tests against test DB
-- [ ] G1–G10 feature-group reviews (bugs, dead/unwired, improvements, questions)
-- [ ] AI SRE research: market, prior art, internal substrate
-- [ ] Verify every P0/P1 claim from agents myself before it enters the master spec
-- [ ] Write master findings doc (`MASTER-SPEC.md`) incl. AI SRE spec
-- [ ] Locate Codex findings file; integrate (accept / reject with reason)
-- [ ] Fix bugs: phase 1 write failing tests, phase 2 fix; one commit per logical fix
-- [ ] Full test run (unit + integration + race on touched pkgs + web lint/build) + report
-- [ ] Update lessons / memory
+- [x] Baseline unit + integration tests against test DB (MASTER-SPEC §2, "Baseline unit" and
+      "Baseline integration" rows)
+- [x] G1–G10 feature-group reviews (bugs, dead/unwired, improvements, questions)
+      (`group-01-collection.md` .. `group-10-tests-ci-docs.md`)
+- [x] AI SRE research: market, prior art, internal substrate (`research-ai-sre-market.md`,
+      `research-ai-sre-prior-art.md`, `research-ai-sre-substrate.md`)
+- [x] Verify every P0/P1 claim from agents myself before it enters the master spec
+      (MASTER-SPEC §2, "Lead re-verification" row, marked *LV*)
+- [x] Write master findings doc (`MASTER-SPEC.md`) incl. AI SRE spec (`MASTER-SPEC.md`,
+      `AI-SRE-SPEC.md`)
+- [x] Locate Codex findings file; integrate (accept / reject with reason) (`codex/`,
+      MASTER-SPEC §8 "Codex integration ledger")
+- [x] Fix bugs: phase 1 write failing tests, phase 2 fix; one commit per logical fix
+      (`fixes-*.md`, MASTER-SPEC §4 "Fix plan & status")
+- [x] Full test run (unit + integration + race on touched pkgs + web lint/build) + report
+      (MASTER-SPEC §10.3a "Final verification", Test Results block)
+- [x] Update lessons / memory (`tasks/lessons.md`, commit c5a5f1fc on 2026-09-26)
 
 ## Roadmap §5.1 #3 — the standing gate is the only policy authority (G4-I01, G4-I03)
 
@@ -41,7 +49,9 @@ provider-support check. So the UI can show "execute" for an action the gate will
       The current legacy readiness fakes a satisfied 365-day ramp.
 - [x] E. Delete `EvaluateActionPolicy`, `ActionPolicyContext` and legacy helpers; migrate
       or delete their tests; add a test that no production code path references them.
-- [ ] Verify: unit + integration + e2e; lint; record results in MASTER-SPEC §10.7.
+- [x] Verify: unit + integration + e2e; lint; record results in MASTER-SPEC §10.7.
+      (recorded in §10.8 and §10.9 instead: §10.7 ends "Update (overnight 2026-09-26)";
+      §10.9 "Native unit: 7624 passed", "e2e under cgo: 76 passed", "Lint: 0 issues")
 
 ## Overnight 2026-09-26 — decisions from jmass
 1. Build Azure provider support (account + live test tomorrow).
@@ -61,4 +71,7 @@ Order: C2 -> D -> E (policy core) ; Azure ; pg_query_go.
       the layer is missing. goreleaser uses goreleaser-cross (static linux,
       osxcross darwin). A snapshot build of all 4 targets was proven in Docker.
       `--version` reports sql-ast; a no-cgo build logs a warning.
-- [ ] Morning decisions: see the morning report in reviews/.
+- [x] Morning decisions: see the morning report in reviews/. (MASTER-SPEC §10.9 "Morning
+      decisions (2026-09-27)" resolves all three)
+
+Closed 2026-11-14: all items done; evidence in reviews/2026-09-26/.
