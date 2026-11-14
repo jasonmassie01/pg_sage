@@ -154,3 +154,39 @@ func TestStatementsCreatedAfterStartupFollowTheRefresh(t *testing.T) {
 		t.Fatalf("collectQueries after the refresh: %v", err)
 	}
 }
+
+// State transitions (security-01c-q): two databases of a fleet, A with
+// the extension in public and B in ext; each collector follows its own
+// database's schema, and B's never names public's view.
+func TestFleetCollectorsReadTheirOwnSchema(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	_, poolB := schemaPool(t, ctx)
+	poolA, err := pgxpool.New(ctx, testdb.CreateDatabase(t, "collpgsspublic"))
+	if err != nil {
+		t.Fatalf("connect A: %v", err)
+	}
+	t.Cleanup(poolA.Close)
+	for _, sql := range []string{"DROP EXTENSION IF EXISTS pg_stat_statements",
+		"CREATE EXTENSION pg_stat_statements SCHEMA public"} {
+		if _, err := poolA.Exec(ctx, sql); err != nil {
+			t.Fatalf("%s: %v", sql, err)
+		}
+	}
+	a, b := schemaCollector(poolA, ""), schemaCollector(poolB, "")
+	rec := &sqlRecorder{}
+	b.onCatalogQuery = rec.hook
+	for name, c := range map[string]*Collector{"public": a, "ext": b} {
+		c.refreshCapabilities(ctx)
+		if got := c.statementsSchema(); got != name {
+			t.Fatalf("collector of the %s database reads schema %q", name, got)
+		}
+		if _, err := c.collectQueries(ctx); err != nil {
+			t.Fatalf("%s: collectQueries: %v", name, err)
+		}
+	}
+	if n := rec.count(`"public"."pg_stat_statements"`); n != 0 || rec.count(`"ext".`) == 0 {
+		t.Fatalf("B sent %d reads of public's view and %d of ext's, want 0 and some",
+			n, rec.count(`"ext".`))
+	}
+}
