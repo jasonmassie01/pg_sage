@@ -227,9 +227,10 @@ func concurrentIndexSQL(idx ledgerIndex) string {
 }
 
 // execCancellable runs sql so that cancelling ctx cancels it on the server
-// (a cancel request), not only on the client: a closed socket alone would
-// leave the build running. If the server does not stop within
-// buildCancelGrace, the client gives up on the statement.
+// (a cancel request) and the session waits for the server to stop it, so
+// the build is over before the session closes and releases the builder's
+// lock. If the server does not stop within buildCancelGrace, the client
+// gives up on the statement (pgx then closes the session).
 func execCancellable(ctx context.Context, conn *pgx.Conn, sql string) error {
 	execCtx, cancelExec := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancelExec()
