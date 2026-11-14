@@ -20,7 +20,7 @@ var safeErrorAllowlist = map[string]string{
 		"itself (dbFailure, sanitize); its operator log keeps the full text",
 	"internal/agentguard/broker/exec.go": "the broker withholds data exceptions " +
 		"itself (dbFailure, sanitize); its operator log keeps the full text",
-	"internal/api/handlers_v09.go": "the dashboard route sends non-validation " +
+	"internal/api/explain_handler.go": "the dashboard route sends non-validation " +
 		"errors through internalError, which never returns server text",
 	"internal/rca/tier2_sql.go": "ProveRead errors reach only the operator log; " +
 		"the incident chain note is fixed text, so no server text reaches a prompt",
