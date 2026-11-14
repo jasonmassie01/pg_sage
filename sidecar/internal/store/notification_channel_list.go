@@ -29,7 +29,7 @@ type ChannelListing struct {
 // beside busy ones reads the whole log. Ordering by channel_id first
 // leaves only the per-channel index able to deliver the order.
 const listChannelsSQL = `/* pg_sage */ SELECT c.id, c.name, c.type, c.config, c.enabled,
-       COALESCE(l.status, ''), COALESCE(l.error, ''), l.sent_at
+       c.managed_by, COALESCE(l.status, ''), COALESCE(l.error, ''), l.sent_at
   FROM sage.notification_channels c
   LEFT JOIN LATERAL (
        SELECT status, error, sent_at
@@ -60,7 +60,7 @@ func (s *NotificationStore) ListChannels(
 		var ch ChannelListing
 		var cfgJSON []byte
 		if err := rows.Scan(
-			&ch.ID, &ch.Name, &ch.Type, &cfgJSON, &ch.Enabled,
+			&ch.ID, &ch.Name, &ch.Type, &cfgJSON, &ch.Enabled, &ch.ManagedBy,
 			&ch.LastStatus, &ch.LastError, &ch.LastSentAt,
 		); err != nil {
 			return nil, fmt.Errorf("scanning channel: %w", err)

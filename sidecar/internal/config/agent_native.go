@@ -6,20 +6,20 @@ import (
 )
 
 type PolicyConfig struct {
-	Profile string `yaml:"profile" doc:"Bootstrap standing-policy profile: staffed or unattended."`
+	Profile string `yaml:"profile" doc:"Bootstrap standing-policy profile: staffed or unattended." api:"policy_profile" enum:"staffed|unattended"`
 }
 
 type ValueConfig struct {
-	ToilModelVersion int `yaml:"toil_model_version" doc:"Active calibrated toil-model version."`
+	ToilModelVersion int `yaml:"toil_model_version" doc:"Active calibrated toil-model version." api:"int_pos"`
 }
 
 type VerifyConfig struct {
-	WindowMinutes    int     `yaml:"window_minutes" doc:"Initial verification window."`
-	WindowMaxMinutes int     `yaml:"window_max_minutes" doc:"Maximum verification window."`
-	MinGainPct       float64 `yaml:"min_gain_pct" doc:"Minimum gain required to retain a change."`
-	RegressPct       float64 `yaml:"regress_pct" doc:"Regression percentage that triggers revert."`
-	WriteImpactPct   float64 `yaml:"write_impact_pct" doc:"Table WAL-per-tuple rise that reverts."`
-	MinSamples       int     `yaml:"min_samples" doc:"Minimum verification samples."`
+	WindowMinutes    int     `yaml:"window_minutes" doc:"Initial verification window." api:"int_pos"`
+	WindowMaxMinutes int     `yaml:"window_max_minutes" doc:"Maximum verification window." api:"int_pos"`
+	MinGainPct       float64 `yaml:"min_gain_pct" doc:"Minimum gain required to retain a change." api:"float_nonneg"`
+	RegressPct       float64 `yaml:"regress_pct" doc:"Regression percentage that triggers revert." api:"float_nonneg"`
+	WriteImpactPct   float64 `yaml:"write_impact_pct" doc:"Table WAL-per-tuple rise that reverts." api:"float_nonneg"`
+	MinSamples       int     `yaml:"min_samples" doc:"Minimum verification samples." api:"int_pos"`
 
 	// IO load admission (D6). io_capacity is standalone-only; fleet
 	// databases declare it in databases[].verify.io_capacity.
@@ -38,10 +38,10 @@ type IOCapacityConfig struct {
 }
 
 type CloneProviderConfig struct {
-	Provider           string `yaml:"provider" doc:"Clone provider: none, dle (Database Lab) or lakebase_branch (a Lakebase branch per rehearsal)."`
-	DLEEndpoint        string `yaml:"dle_endpoint" doc:"Database Lab Engine API endpoint."`
-	DLEToken           string `yaml:"dle_token" doc:"Database Lab bearer token." secret:"true"`
-	MaxCloneAgeMinutes int    `yaml:"max_clone_age_minutes" doc:"Maximum source snapshot age."`
+	Provider           string `yaml:"provider" doc:"Clone provider: none, dle (Database Lab) or lakebase_branch (a Lakebase branch per rehearsal)." api:"clone_provider" enum:"none|dle|lakebase_branch"`
+	DLEEndpoint        string `yaml:"dle_endpoint" doc:"Database Lab Engine API endpoint." api:"string"`
+	DLEToken           string `yaml:"dle_token" doc:"Database Lab bearer token." secret:"true" api:"string"`
+	MaxCloneAgeMinutes int    `yaml:"max_clone_age_minutes" doc:"Maximum source snapshot age." api:"int_pos"`
 	// Lakebase configures clone.provider lakebase_branch (market-03).
 	Lakebase CloneLakebaseConfig `yaml:"lakebase"`
 }
@@ -61,17 +61,17 @@ type CustodianConfig struct {
 }
 
 type FreezeCustodianConfig struct {
-	RedBufferPct float64 `yaml:"red_buffer_pct" doc:"Remaining XID percentage classified red."`
+	RedBufferPct float64 `yaml:"red_buffer_pct" doc:"Remaining XID percentage classified red." api:"float_pct_pos"`
 }
 
 type WALCustodianConfig struct {
-	AbandonAfterMinutes       int     `yaml:"abandon_after_minutes" doc:"Inactive abandonment age."`
-	RetainedWALDiskPctCeiling float64 `yaml:"retained_wal_disk_pct_ceiling" doc:"WAL retention limit."`
+	AbandonAfterMinutes       int     `yaml:"abandon_after_minutes" doc:"Inactive abandonment age." api:"int_pos"`
+	RetainedWALDiskPctCeiling float64 `yaml:"retained_wal_disk_pct_ceiling" doc:"WAL retention limit." api:"float_pct_pos"`
 }
 
 type MCPConfig struct {
-	Enabled   bool   `yaml:"enabled" doc:"Enable the intent-level MCP server."`
-	Transport string `yaml:"transport" doc:"MCP transport: http (default, credential required) or stdio."`
+	Enabled   bool   `yaml:"enabled" doc:"Enable the intent-level MCP server." api:"bool"`
+	Transport string `yaml:"transport" doc:"MCP transport: http (default, credential required) or stdio." api:"mcp_transport" enum:"stdio|http"`
 	// OAuth makes MCP over HTTP an OAuth 2.1 resource server (mcp_oauth.go).
 	OAuth MCPOAuthConfig `yaml:"oauth"`
 	// StdioPrincipal names the agent principal the stdio client acts as
@@ -102,14 +102,15 @@ func (c *Config) validateAgentNative() error {
 	}
 	if c.Verify.WindowMinutes <= 0 ||
 		c.Verify.WindowMaxMinutes < c.Verify.WindowMinutes {
-		return fmt.Errorf("verify window must be positive and within hard maximum")
+		return fmt.Errorf("verify window: verify.window_minutes must be positive and at most "+
+			"verify.window_max_minutes, got %d and %d",
+			c.Verify.WindowMinutes, c.Verify.WindowMaxMinutes)
 	}
 	if c.Verify.MinSamples <= 0 {
 		return fmt.Errorf("verify.min_samples must be positive")
 	}
-	if c.Verify.MinGainPct < 0 || c.Verify.RegressPct < 0 ||
-		c.Verify.WriteImpactPct < 0 {
-		return fmt.Errorf("verify percentages must be non-negative")
+	if err := c.Verify.validatePercentages(); err != nil {
+		return err
 	}
 	if err := c.Clone.validate(); err != nil {
 		return err
@@ -118,10 +119,8 @@ func (c *Config) validateAgentNative() error {
 		c.Custodian.Freeze.RedBufferPct > 100 {
 		return fmt.Errorf("custodian.freeze.red_buffer_pct must be within 1-100")
 	}
-	if c.Custodian.WAL.AbandonAfterMinutes <= 0 ||
-		c.Custodian.WAL.RetainedWALDiskPctCeiling <= 0 ||
-		c.Custodian.WAL.RetainedWALDiskPctCeiling > 100 {
-		return fmt.Errorf("custodian.wal limits are invalid")
+	if err := c.Custodian.WAL.validate(); err != nil {
+		return err
 	}
 	if c.MCP.Transport != "stdio" && c.MCP.Transport != "http" {
 		return fmt.Errorf("mcp.transport must be stdio or http")
@@ -130,6 +129,37 @@ func (c *Config) validateAgentNative() error {
 		c.MCP.CallTimeoutSeconds > MaxMCPCallTimeoutSeconds {
 		return fmt.Errorf("mcp.call_timeout_seconds must be within 5-600, got %d",
 			c.MCP.CallTimeoutSeconds)
+	}
+	return nil
+}
+
+// validatePercentages names the first verify percentage below zero.
+func (v VerifyConfig) validatePercentages() error {
+	for _, p := range []struct {
+		key   string
+		value float64
+	}{
+		{"verify.min_gain_pct", v.MinGainPct},
+		{"verify.regress_pct", v.RegressPct},
+		{"verify.write_impact_pct", v.WriteImpactPct},
+	} {
+		if p.value < 0 {
+			return fmt.Errorf("verify percentages: %s must be non-negative, got %v",
+				p.key, p.value)
+		}
+	}
+	return nil
+}
+
+// validate names the custodian.wal limit that is out of range.
+func (w WALCustodianConfig) validate() error {
+	if w.AbandonAfterMinutes <= 0 {
+		return fmt.Errorf("custodian.wal.abandon_after_minutes must be positive, got %d",
+			w.AbandonAfterMinutes)
+	}
+	if w.RetainedWALDiskPctCeiling <= 0 || w.RetainedWALDiskPctCeiling > 100 {
+		return fmt.Errorf("custodian.wal.retained_wal_disk_pct_ceiling must be above 0 "+
+			"and at most 100, got %v", w.RetainedWALDiskPctCeiling)
 	}
 	return nil
 }

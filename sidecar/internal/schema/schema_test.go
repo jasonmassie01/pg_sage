@@ -365,6 +365,7 @@ func TestBootstrap_Idempotent(t *testing.T) {
 
 func TestPersistTrustRampStart_HonorsConfigValue(t *testing.T) {
 	pool, ctx := requireDB(t)
+	bootstrapWithRetry(t, ctx, pool) // sage.config must exist when run alone
 
 	// Clean slate: drop any existing trust_ramp_start row.
 	_, _ = pool.Exec(ctx,
@@ -398,6 +399,7 @@ func TestPersistTrustRampStart_HonorsConfigValue(t *testing.T) {
 
 func TestPersistTrustRampStart_ZeroConfigUsesNow(t *testing.T) {
 	pool, ctx := requireDB(t)
+	bootstrapWithRetry(t, ctx, pool) // sage.config must exist when run alone
 
 	// Clean slate.
 	_, _ = pool.Exec(ctx,

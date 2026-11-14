@@ -199,6 +199,7 @@ func buildDatabaseRuntime(
 	rt.startMetricsRefresher() // metrics_refresher.go
 	rt.startCapabilityRefresh()
 	rt.startProviderReprobe()
+	rt.startDeferredIndexBuilder() // config-04c: large sage indexes, in the background
 	logInfo(spec.Scope, "db %q: initialized (%s)", spec.Name,
 		strings.Join(rt.features, "+"))
 	runtimeBuilt(rt)

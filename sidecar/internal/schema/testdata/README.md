@@ -17,3 +17,12 @@ How it was made (PostgreSQL 14, so the dump restores on 14 to 18):
 as `sage.schema_migrations` records it (config-04b). A released step must
 never change: every install's next boot would fail on the checksum. Add a
 new step instead, and append its line (the failing test prints it).
+
+`ddl_constants.sha256` pins the SHA-256 of every base-table DDL constant,
+every `expectedTables` entry, every migration step and the audit chain's DDL
+(config-31). It was generated on the unsplit `bootstrap.go`, before the
+constants moved to `ddl_core_tables.go` and `ddl_core_alters.go`, and covers
+the base tables a fresh install runs, which the ledger never sees. A pinned
+line never changes; a new migration step needs no line here (the ledger pins
+it), but a new base table or `expectedTables` entry does (the failing test
+prints it).

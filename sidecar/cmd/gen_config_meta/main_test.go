@@ -391,3 +391,62 @@ func keysOf(m map[string]fieldMeta) []string {
 	}
 	return keys
 }
+
+// config-02b: config_meta.json carries each key's registry contract so
+// the Settings page can refuse an out-of-range value before the PUT.
+func TestGenerateCarriesRegistryRanges(t *testing.T) {
+	meta, err := Generate(config.DefaultConfig(), false)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	num := func(f *float64) float64 {
+		if f == nil {
+			return -999
+		}
+		return *f
+	}
+	interval := meta["collector.interval_seconds"]
+	if num(interval.Min) != 5 || num(interval.Max) != config.MaxIntSetting {
+		t.Errorf("collector.interval_seconds min/max = %v/%v, want 5/%d",
+			num(interval.Min), num(interval.Max), config.MaxIntSetting)
+	}
+	if pct := meta["analyzer.regression_threshold_pct"]; pct.Min == nil || *pct.Min != 0 ||
+		num(pct.Max) != 100 {
+		t.Errorf("a 0 minimum must be written, got min %v max %v", pct.Min, num(pct.Max))
+	}
+	timeout := meta["safety.index_build_timeout_seconds"]
+	if num(timeout.Min) != 60 || num(timeout.Max) != 86400 {
+		t.Errorf("index_build_timeout_seconds = %+v, want the API range 60-86400", timeout)
+	}
+	if got := meta["mcp.transport"].Enum; !reflect.DeepEqual(got, []string{"stdio", "http"}) {
+		t.Errorf("mcp.transport enum = %v", got)
+	}
+	if got := meta["llm.auth"].Enum; len(got) != 3 || got[0] != "" {
+		t.Errorf(`llm.auth enum = %q, want "" first`, got)
+	}
+	plain := meta["postgres.host"]
+	if plain.Min != nil || plain.Max != nil || plain.Enum != nil {
+		t.Errorf("an untagged key carries a contract: %+v", plain)
+	}
+}
+
+// Golden: the committed config_meta.json is exactly what the generator
+// writes today (line endings aside: checkouts may use CRLF).
+func TestCommittedMetaMatchesGenerator(t *testing.T) {
+	raw, err := os.ReadFile(committedMetaPath)
+	if err != nil {
+		t.Fatalf("read %s: %v", committedMetaPath, err)
+	}
+	meta, err := Generate(config.DefaultConfig(), false)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	want, err := marshalSorted(meta)
+	if err != nil {
+		t.Fatalf("marshalSorted: %v", err)
+	}
+	if strings.ReplaceAll(string(raw), "\r\n", "\n") != string(want) {
+		t.Fatal("web/src/generated/config_meta.json is stale: regenerate with " +
+			"`go run ./cmd/gen_config_meta/`")
+	}
+}

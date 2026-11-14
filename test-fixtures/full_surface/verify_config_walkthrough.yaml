@@ -20,7 +20,7 @@ analyzer:
   unused_index_window_days: 1   # 1-1073741824; 0 is rejected since config-02
   table_bloat_dead_tuple_pct: 10
   table_bloat_min_rows: 100
-  cache_hit_ratio_warning: 1.01
+  cache_hit_ratio_warning: 1.0   # 0-1 since config-02b (was 1.01)
   checkpoint_frequency_warning_per_hour: 0
   xid_wraparound_warning: 1
   xid_wraparound_critical: 2000000000
@@ -32,8 +32,8 @@ analyzer:
     enabled: true
     min_blocked_threshold: 1
     critical_blocked_threshold: 3
-    idle_in_tx_terminate_minutes: 0
-    active_query_cancel_minutes: 0
+    idle_in_tx_terminate_minutes: 1   # 1.. since config-02b (was 0)
+    active_query_cancel_minutes: 1    # 1.. since config-02b (was 0)
     safe_patterns: [pg_sage]
 
 safety:

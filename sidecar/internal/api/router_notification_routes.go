@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/store"
 )
@@ -14,6 +15,9 @@ type notificationRouteDeps struct {
 	secretKey   []byte
 	previousKey []byte // the previous key of a rotation (security-08)
 	policy      notify.TargetPolicy
+	// fleet resolves ?database= on the notification log (alerting-06c);
+	// nil accepts any well-formed name.
+	fleet *fleet.DatabaseManager
 }
 
 func newNotificationRouteDeps(rt RuntimeDeps) notificationRouteDeps {
@@ -37,9 +41,12 @@ func registerNotificationRoutes(
 	registerNotificationChannelRoutes(mux, ns)
 	registerNotificationRuleRoutes(mux, ns)
 
+	// The log read is open to the roles the Alert log had (admins and
+	// operators), since /alerts now redirects to it (alerting-06c);
+	// channels and rules stay admin-only.
 	logList := http.HandlerFunc(
-		listNotificationLogHandler(ns))
-	route(mux, "GET /api/v1/notifications/log", gateAdmin, logList)
+		listNotificationLogHandler(ns, deps.fleet))
+	route(mux, "GET /api/v1/notifications/log", gateOperator, logList)
 	return ns
 }
 

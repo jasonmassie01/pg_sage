@@ -334,7 +334,7 @@ standalone GET /api/v1/notifications/rules gate:admin scope:admin-only
 standalone POST /api/v1/notifications/rules gate:admin scope:-
 standalone DELETE /api/v1/notifications/rules/{id} gate:admin scope:-
 standalone PUT /api/v1/notifications/rules/{id} gate:admin scope:-
-standalone GET /api/v1/notifications/log gate:admin scope:admin-only
+standalone GET /api/v1/notifications/log gate:operator scope:fleet-only
 standalone GET /api/v1/case-tickets gate:viewer scope:fleet-only
 standalone POST /api/v1/case-tickets gate:operator scope:database:body
 standalone POST /api/v1/auth/break-glass gate:self-auth scope:-
@@ -561,7 +561,7 @@ fleet-readonly GET /api/v1/notifications/rules gate:admin scope:admin-only
 fleet-readonly POST /api/v1/notifications/rules gate:admin scope:-
 fleet-readonly DELETE /api/v1/notifications/rules/{id} gate:admin scope:-
 fleet-readonly PUT /api/v1/notifications/rules/{id} gate:admin scope:-
-fleet-readonly GET /api/v1/notifications/log gate:admin scope:admin-only
+fleet-readonly GET /api/v1/notifications/log gate:operator scope:fleet-only
 fleet-readonly GET /api/v1/case-tickets gate:viewer scope:fleet-only
 fleet-readonly POST /api/v1/case-tickets gate:operator scope:database:body
 fleet-readonly POST /api/v1/auth/break-glass gate:self-auth scope:-
@@ -988,7 +988,7 @@ optional GET /api/v1/notifications/rules gate:admin scope:admin-only
 optional POST /api/v1/notifications/rules gate:admin scope:-
 optional DELETE /api/v1/notifications/rules/{id} gate:admin scope:-
 optional PUT /api/v1/notifications/rules/{id} gate:admin scope:-
-optional GET /api/v1/notifications/log gate:admin scope:admin-only
+optional GET /api/v1/notifications/log gate:operator scope:fleet-only
 optional GET /api/v1/case-tickets gate:viewer scope:fleet-only
 optional POST /api/v1/case-tickets gate:operator scope:database:body
 optional POST /api/v1/auth/break-glass gate:self-auth scope:-
@@ -1188,7 +1188,7 @@ databricks-app GET /api/v1/notifications/rules gate:admin scope:admin-only
 databricks-app POST /api/v1/notifications/rules gate:admin scope:-
 databricks-app DELETE /api/v1/notifications/rules/{id} gate:admin scope:-
 databricks-app PUT /api/v1/notifications/rules/{id} gate:admin scope:-
-databricks-app GET /api/v1/notifications/log gate:admin scope:admin-only
+databricks-app GET /api/v1/notifications/log gate:operator scope:fleet-only
 databricks-app GET /api/v1/case-tickets gate:viewer scope:fleet-only
 databricks-app POST /api/v1/case-tickets gate:operator scope:database:body
 databricks-app GET /api/v1/policy gate:viewer scope:fleet-only

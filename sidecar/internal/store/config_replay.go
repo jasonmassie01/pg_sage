@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/config"
 )
 
 // closedMaintenanceWindow is what an invalid stored window replays as: the
@@ -22,18 +24,18 @@ func ReplayOverride(key, value string) (apply string, ok bool, problem string) {
 		// the fleet stop rows); it is not an override and needs no warning.
 		return "", false, ""
 	}
-	vtype, known := allowedConfigKeys[key]
-	if !known {
+	spec, known := config.LookupKey(key)
+	if !known || !spec.Overridable {
 		return "", false, "the key is not a settable override"
 	}
-	if validateByType(vtype, key, value) == nil {
+	if validateSpec(spec, value) == nil {
 		return value, true, ""
 	}
 	if key == maintenanceWindowKey {
 		return closedMaintenanceWindow, true,
 			"the window does not parse, so it stays closed (never)"
 	}
-	return "", false, fmt.Sprintf("the value fails the %s check", vtype)
+	return "", false, fmt.Sprintf("the value fails the %s check", spec.Type)
 }
 
 // StoredOverrideWarning is the operator message for a row ReplayOverride

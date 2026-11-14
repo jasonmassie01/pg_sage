@@ -32,7 +32,9 @@
     "default": 86400,
     "doc": "",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 5,
+    "max": 1073741824
   },
   "advisor.memory_enabled": {
     "type": "bool",
@@ -256,19 +258,30 @@
     "default": 60,
     "doc": "",
     "class": "operator_preference",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 5,
+    "max": 1073741824
   },
   "alerting.cooldown_minutes": {
     "type": "int",
     "default": 15,
     "doc": "",
     "class": "operator_preference",
-    "lifecycle": "reconfigure"
+    "lifecycle": "reconfigure",
+    "min": 0,
+    "max": 1073741824
   },
   "alerting.enabled": {
     "type": "bool",
     "default": false,
     "doc": "",
+    "class": "operator_preference",
+    "lifecycle": "reconfigure"
+  },
+  "alerting.engine": {
+    "type": "string",
+    "default": "notify",
+    "doc": "Engine for the alerting block: notify (reconciled into notification channels and rules, sent through the outbox) or legacy (old per-database manager). Restart. Default: notify.",
     "class": "operator_preference",
     "lifecycle": "restart"
   },
@@ -277,7 +290,7 @@
     "default": "",
     "doc": "",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "reconfigure"
   },
   "alerting.quiet_hours_end": {
     "type": "string",
@@ -305,21 +318,21 @@
     "default": null,
     "doc": "",
     "class": "operator_preference",
-    "lifecycle": "restart"
+    "lifecycle": "reconfigure"
   },
   "alerting.routes[].severity": {
     "type": "string",
     "default": "",
     "doc": "",
     "class": "operator_preference",
-    "lifecycle": "restart"
+    "lifecycle": "reconfigure"
   },
   "alerting.slack_webhook_url": {
     "type": "string",
     "default": "",
     "doc": "",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "reconfigure"
   },
   "alerting.timezone": {
     "type": "string",
@@ -333,49 +346,57 @@
     "default": null,
     "doc": "",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "reconfigure"
   },
   "alerting.webhooks[].name": {
     "type": "string",
     "default": "",
     "doc": "",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "reconfigure"
   },
   "alerting.webhooks[].url": {
     "type": "string",
     "default": "",
     "doc": "",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "reconfigure"
   },
   "analyzer.analyze_stale_days": {
     "type": "int",
     "default": 7,
     "doc": "A table whose last (auto)analyze is older than this many days, with write activity, is flagged for ANALYZE. Default: 7.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "analyzer.analyze_stale_min_rows": {
     "type": "int",
     "default": 10000,
     "doc": "Minimum live rows before recommending ANALYZE on a stale/never-analyzed table. Default: 10000.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "analyzer.autovacuum_tune_min_rows": {
     "type": "int",
     "default": 1000000,
     "doc": "Minimum live-row count before the per-table autovacuum tuner recommends a lower scale factor. Tuning small tables is pointless. Default: 1000000.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "analyzer.cache_hit_ratio_warning": {
     "type": "float64",
     "default": 0.95,
     "doc": "Warn when the shared buffers cache hit ratio falls below this fraction (0.0-1.0). Low ratios suggest shared_buffers is under-sized or working set is too large.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 0,
+    "max": 1
   },
   "analyzer.cdc_stall_minutes": {
     "type": "int",
@@ -410,7 +431,9 @@
     "default": 5,
     "doc": "Report a replication slot once it has been inactive this many minutes (wal_status extended, unreserved or lost reports it at once). 0 uses the default. Range 0-10080. Default: 5.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 10080
   },
   "analyzer.index_bloat_min_bytes": {
     "type": "int64",
@@ -424,28 +447,36 @@
     "default": 30,
     "doc": "Estimated btree bloat percentage (0-100) for an index_bloat finding recommending REINDEX INDEX CONCURRENTLY: info from it, warning from twice it. 0 uses the default. Default: 30.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 0,
+    "max": 100
   },
   "analyzer.interval_seconds": {
     "type": "int",
     "default": 600,
     "doc": "How often the analyzer runs its rule checks, in seconds. Lower values detect issues faster but add load.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 5,
+    "max": 1073741824
   },
   "analyzer.lock_chain.active_query_cancel_minutes": {
     "type": "int",
     "default": 15,
     "doc": "Minutes an active query root blocker must run before pg_cancel_backend is recommended. Default: 15.",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "analyzer.lock_chain.critical_blocked_threshold": {
     "type": "int",
     "default": 10,
     "doc": "Blocked session count that escalates finding to critical severity. Default: 10.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "analyzer.lock_chain.enabled": {
     "type": "bool",
@@ -459,14 +490,18 @@
     "default": 5,
     "doc": "Minutes an idle-in-transaction root blocker must wait before pg_terminate_backend is recommended. Default: 5.",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "analyzer.lock_chain.min_blocked_threshold": {
     "type": "int",
     "default": 3,
     "doc": "Minimum blocked sessions before a lock chain generates a finding. Default: 3.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "analyzer.lock_chain.safe_patterns": {
     "type": "[]string",
@@ -487,7 +522,9 @@
     "default": 50,
     "doc": "Percent latency regression required before a query is flagged as a regressor. Set low for sensitive detection, higher to reduce noise.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 0,
+    "max": 100
   },
   "analyzer.schema_guard_ddl_debounce_seconds": {
     "type": "int",
@@ -501,14 +538,18 @@
     "default": 3000,
     "doc": "Raise a sage_self_cost finding when pg_sage's own statements use more than this many ms of database time per collector cycle. 0 disables the finding. Range 0-3600000. Default: 3000.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 0,
+    "max": 3600000
   },
   "analyzer.seq_scan_min_rows": {
     "type": "int",
     "default": 100000,
     "doc": "Minimum table row count before a sequential scan is reported as a finding. Below this, a seq scan is usually cheaper than an index lookup.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "analyzer.slow_query_min_calls": {
     "type": "int",
@@ -522,14 +563,18 @@
     "default": 1000,
     "doc": "Queries whose mean execution time over the last collector interval is above this are considered slow and become candidates for optimization findings.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 0,
+    "max": 1073741824
   },
   "analyzer.slow_slot_retained_bytes": {
     "type": "int64",
     "default": 0,
     "doc": "Active slots retaining more WAL than this (bytes) are flagged as slow consumers. Default 1 GB. Slow consumers hold xmin, blocking vacuum.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1099511627776
   },
   "analyzer.subscription_lag_minutes": {
     "type": "int",
@@ -543,7 +588,9 @@
     "default": 20,
     "doc": "Dead-tuple percentage threshold for reporting table bloat. Above this the analyzer emits a vacuum or repack finding.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 0,
+    "max": 100
   },
   "analyzer.table_bloat_min_bytes": {
     "type": "int64",
@@ -565,7 +612,9 @@
     "doc": "An index must be unused (idx_scan=0) for at least this many days before the analyzer suggests dropping it. Default 7 days.",
     "warning": "Setting this too low can recommend dropping indexes that support infrequent but critical queries (e.g. monthly reports).",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "analyzer.work_mem_promotion_threshold": {
     "type": "int",
@@ -579,7 +628,9 @@
     "default": 0.75,
     "doc": "Share (0-1] of a table's effective freeze maximum (setting or lower reloption) at which the analyzer reports wraparound risk; the freeze custodian decides the VACUUM. Default: 0.75.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 0.01,
+    "max": 1
   },
   "analyzer.xid_wraparound_critical": {
     "type": "int64",
@@ -1151,14 +1202,21 @@
     "default": 1440,
     "doc": "Maximum source snapshot age.",
     "class": "operator_preference",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "clone.provider": {
     "type": "string",
     "default": "none",
     "doc": "Clone provider: none, dle (Database Lab) or lakebase_branch (a Lakebase branch per rehearsal).",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "enum": [
+      "none",
+      "dle",
+      "lakebase_branch"
+    ]
   },
   "cloud_telemetry.alloydb.cluster": {
     "type": "string",
@@ -1256,21 +1314,27 @@
     "default": 1000,
     "doc": "",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "collector.interval_seconds": {
     "type": "int",
     "default": 60,
     "doc": "",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 5,
+    "max": 1073741824
   },
   "collector.max_queries": {
     "type": "int",
     "default": 500,
     "doc": "",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "cost.rates[].as_of": {
     "type": "string",
@@ -1340,21 +1404,27 @@
     "default": 25,
     "doc": "Remaining XID percentage classified red.",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 0.001,
+    "max": 100
   },
   "custodian.wal.abandon_after_minutes": {
     "type": "int",
     "default": 1440,
     "doc": "Inactive abandonment age.",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "custodian.wal.retained_wal_disk_pct_ceiling": {
     "type": "float64",
     "default": 10,
     "doc": "WAL retention limit.",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 0.001,
+    "max": 100
   },
   "data_dir": {
     "type": "string",
@@ -1652,7 +1722,9 @@
     "default": 60,
     "doc": "TTL for cached explain results. Default: 60.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "explain.enabled": {
     "type": "bool",
@@ -1666,14 +1738,18 @@
     "default": 4096,
     "doc": "Maximum LLM output tokens for explain responses. Default: 4096.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "explain.timeout_ms": {
     "type": "int",
     "default": 10000,
     "doc": "statement_timeout for EXPLAIN ANALYZE execution. Default: 10000.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "facts.confirmed_absence_days": {
     "type": "int",
@@ -2059,14 +2135,21 @@
     "default": "",
     "doc": "LLM authentication: api_key (default) or databricks (SDK unified authentication with automatic token refresh). Databricks auth requires the configured workspace HTTPS origin.",
     "class": "safety_critical",
-    "lifecycle": "reconfigure"
+    "lifecycle": "reconfigure",
+    "enum": [
+      "",
+      "api_key",
+      "databricks"
+    ]
   },
   "llm.context_budget_tokens": {
     "type": "int",
     "default": 8192,
     "doc": "Trim target in tokens (~4 bytes each) for prompt context: lowering it shrinks advisor, tuning and explain prompts, each keeping its own cap. 0 turns off this extra trim. Never refuses or caps answers.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 0,
+    "max": 1073741824
   },
   "llm.cooldown_seconds": {
     "type": "int",
@@ -2094,14 +2177,18 @@
     "default": 0,
     "doc": "Fleet-wide daily token cap split per database so one noisy database can't drain the whole budget. 0 disables per-database budgeting (fleet mode only).",
     "class": "operator_preference",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 0,
+    "max": 1073741824
   },
   "llm.global_token_budget_daily": {
     "type": "int",
     "default": 0,
     "doc": "Process-wide daily token cap across all LLM clients. 0 derives today's total: the clients' token_budget_daily summed, an active fleet budget standing in for the per-database ones.",
     "class": "operator_preference",
-    "lifecycle": "reconfigure"
+    "lifecycle": "reconfigure",
+    "min": 0,
+    "max": 1073741824
   },
   "llm.index_optimizer.enabled": {
     "type": "bool",
@@ -2192,14 +2279,18 @@
     "default": 3,
     "doc": "",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "llm.optimizer.min_query_calls": {
     "type": "int",
     "default": 100,
     "doc": "",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "llm.optimizer.min_snapshots": {
     "type": "int",
@@ -2354,14 +2445,18 @@
     "default": 30,
     "doc": "Timeout of each LLM request attempt; 429 and 5xx replies are retried, up to 4 attempts. Reasoning models get at least 120 s per attempt. Low values protect the analyzer cycle.",
     "class": "derivable",
-    "lifecycle": "reconfigure"
+    "lifecycle": "reconfigure",
+    "min": 1,
+    "max": 1073741824
   },
   "llm.token_budget_daily": {
     "type": "int",
     "default": 500000,
     "doc": "Daily token cap (input + output) per LLM client: the shared client and each database's general and optimizer client get their own copy. llm.global_token_budget_daily caps the sum.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 0,
+    "max": 1073741824
   },
   "llm.token_parameter": {
     "type": "string",
@@ -2382,7 +2477,9 @@
     "default": 60,
     "doc": "Suppress duplicate log signals within this window. Default: 60.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "logwatch.enabled": {
     "type": "bool",
@@ -2417,21 +2514,27 @@
     "default": 65536,
     "doc": "Drop log records longer than this (an auto_explain plan record may reach 1 MiB); drops are counted as oversized_record. Default: 65536.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "logwatch.max_lines_per_cycle": {
     "type": "int",
     "default": 10000,
     "doc": "Stop parsing after this many lines per drain cycle. Default: 10000.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "logwatch.poll_interval_ms": {
     "type": "int",
     "default": 1000,
     "doc": "Log file poll interval (the tailer only polls). Default: 1000.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "logwatch.slow_query_enabled": {
     "type": "bool",
@@ -2445,7 +2548,9 @@
     "default": 10485760,
     "doc": "Minimum temp file size to trigger log_temp_file_created. Default: 10485760.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "mcp.call_timeout_seconds": {
     "type": "int",
@@ -2515,7 +2620,11 @@
     "default": "http",
     "doc": "MCP transport: http (default, credential required) or stdio.",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "enum": [
+      "stdio",
+      "http"
+    ]
   },
   "meta_db": {
     "type": "string",
@@ -2543,7 +2652,9 @@
     "default": 0,
     "doc": "Row count below which DDL is considered low-risk. Default: 10000.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "migration.enabled": {
     "type": "bool",
@@ -2578,14 +2689,18 @@
     "default": 5,
     "doc": "How often to poll during active DDL. Default: 5.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "migration.queue_waiters_threshold": {
     "type": "int",
     "default": 0,
     "doc": "Sessions queued directly behind an in-flight DDL waiting for its lock before the finding turns critical with approval-only cancel guidance. Needs the RCA fast path. Default: 3.",
     "class": "operator_preference",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "mode": {
     "type": "string",
@@ -2720,7 +2835,11 @@
     "default": "unattended",
     "doc": "Bootstrap standing-policy profile: staffed or unattended.",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "enum": [
+      "staffed",
+      "unattended"
+    ]
   },
   "postgres.action_dsn": {
     "type": "string",
@@ -2897,14 +3016,18 @@
     "default": 80,
     "doc": "Percentage of max_connections that triggers the connections_high signal. Default: 80.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 0,
+    "max": 100
   },
   "rca.dedup_window_minutes": {
     "type": "int",
     "default": 30,
     "doc": "Time window for deduplicating incidents with the same signals and root object. Default: 30.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 525600
   },
   "rca.enabled": {
     "type": "bool",
@@ -2918,14 +3041,18 @@
     "default": 5,
     "doc": "Consecutive analyzer cycles an incident stays open before escalating warning to critical. Default: 5.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "rca.llm_correlation_threshold": {
     "type": "int",
     "default": 3,
     "doc": "Minimum concurrent signals to trigger LLM-based correlation (Tier 2). Default: 3.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "rca.lock_chain_interval_seconds": {
     "type": "int",
@@ -2974,14 +3101,18 @@
     "default": 30,
     "doc": "Seconds of replay lag before the replication_lag_increasing signal fires. Default: 30.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "rca.resolution_cycles": {
     "type": "int",
     "default": 2,
     "doc": "Consecutive clear cycles before an incident auto-resolves. Default: 2.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "rca.stale_after_hours": {
     "type": "int",
@@ -3009,7 +3140,9 @@
     "default": 2,
     "doc": "wal_growth_spike fires when the WAL rate (insert position advance per minute) of a collector interval is this many times the previous interval's and at least 1 MiB/min. Default: 2.0.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 0.001,
+    "max": 1000000000
   },
   "rca.xmin_holder_min_minutes": {
     "type": "int",
@@ -3058,7 +3191,9 @@
     "default": 365,
     "doc": "",
     "class": "operator_preference",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "retention.auth_audit_days": {
     "type": "int",
@@ -3079,14 +3214,18 @@
     "default": 90,
     "doc": "",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "retention.findings_days": {
     "type": "int",
     "default": 180,
     "doc": "",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "retention.query_store_days": {
     "type": "int",
@@ -3100,14 +3239,18 @@
     "default": 10,
     "doc": "Raise a sage_footprint finding when pg_sage's own tables (the sage schema) exceed this percent of the database size; below 256 MB it is never a finding. 0 disables the check. Default 10.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 0,
+    "max": 100
   },
   "retention.snapshots_days": {
     "type": "int",
     "default": 90,
     "doc": "",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "retention.snapshots_max_pct": {
     "type": "int",
@@ -3177,7 +3320,9 @@
     "default": 90,
     "doc": "Skip collector cycles when active client sessions / max_connections exceeds this percent (1-100), so pg_sage adds no load during incidents. Verify inherits it while host_cpu_ceiling_pct is unset.",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 100
   },
   "safety.data_io_ceiling_pct": {
     "type": "int",
@@ -3191,7 +3336,9 @@
     "default": 300,
     "doc": "Timeout applied to DDL actions (CREATE INDEX, ALTER TABLE) executed by the executor. Per-statement ceiling, not per-cycle.",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "safety.disk_pressure_threshold_pct": {
     "type": "int",
@@ -3212,14 +3359,18 @@
     "default": 0,
     "doc": "Index verification applies a change only while database-host CPU is at or below this percent (1-100). Unset (0) inherits cpu_ceiling_pct, default 90.",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 100
   },
   "safety.index_build_timeout_seconds": {
     "type": "int",
     "default": 14400,
     "doc": "statement_timeout of a CREATE INDEX CONCURRENTLY run by the executor (seconds). Other DDL keeps ddl_timeout_seconds. 0 uses the default. Range 60-86400. Default: 14400.",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 60,
+    "max": 86400
   },
   "safety.lock_timeout_ms": {
     "type": "int",
@@ -3227,35 +3378,45 @@
     "doc": "lock_timeout applied to connections running DDL or ANALYZE. Must be \u003e 0 for ANALYZE actions in v0.8.5 — autovacuum can hold a ShareUpdateExclusiveLock indefinitely.",
     "warning": "Zero disables the timeout entirely and is refused by the executor for ANALYZE actions.",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "safety.query_timeout_ms": {
     "type": "int",
     "default": 500,
     "doc": "statement_timeout applied to every collector and analyzer query issued by the sidecar. Protects the target from runaway introspection.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "safety.reindex_timeout_seconds": {
     "type": "int",
     "default": 14400,
     "doc": "statement_timeout of a REINDEX CONCURRENTLY run by the executor (seconds). 0 uses the default. Range 60-86400. Default: 14400.",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 60,
+    "max": 86400
   },
   "safety.vacuum_stall_minutes": {
     "type": "int",
     "default": 15,
     "doc": "Minutes an executor VACUUM may show no heap-phase progress before its watchdog cancels it (vacuum_stalled). 0 uses the default. Range 5-240. Default: 15.",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 5,
+    "max": 240
   },
   "safety.vacuum_timeout_seconds": {
     "type": "int",
     "default": 14400,
     "doc": "Cap on a VACUUM (not VACUUM FULL) run by the executor (seconds), enforced by its watchdog; the VACUUM runs with statement_timeout 0. 0 uses the default. Range 60-86400. Default: 14400.",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 60,
+    "max": 86400
   },
   "safety.wal_io_ceiling_pct": {
     "type": "int",
@@ -3297,14 +3458,18 @@
     "default": 0,
     "doc": "Ignore findings on tables below this row count. Default: 1000.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "schema_lint.scan_interval_minutes": {
     "type": "int",
     "default": 60,
     "doc": "How often to run the full schema lint scan. Default: 60.",
     "class": "derivable",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "self_budget.blocks_per_hour": {
     "type": "int64",
@@ -4269,7 +4434,9 @@
     "default": 3,
     "doc": "If N consecutive cycles each propose new actions, throttle to observe impact. Prevents storm-like cascades of small changes.",
     "class": "safety_critical",
-    "lifecycle": "live_policy"
+    "lifecycle": "live_policy",
+    "min": 1,
+    "max": 1073741824
   },
   "trust.level": {
     "type": "string",
@@ -4277,7 +4444,12 @@
     "doc": "Operator ceiling and kill switch, never a grant: the ledger grants, the operator caps. observation: cases only; advisory: earned safe actions, moderate to approval; autonomous: both.",
     "warning": "Changing trust can expand what execution_mode=auto may execute without human review.",
     "class": "safety_critical",
-    "lifecycle": "live_policy"
+    "lifecycle": "live_policy",
+    "enum": [
+      "observation",
+      "advisory",
+      "autonomous"
+    ]
   },
   "trust.maintenance_window": {
     "type": "string",
@@ -4314,21 +4486,27 @@
     "default": 7,
     "doc": "After a rollback, the same action family is blocked for this many days to prevent flap. Default 3 days.",
     "class": "safety_critical",
-    "lifecycle": "live_policy"
+    "lifecycle": "live_policy",
+    "min": 1,
+    "max": 1073741824
   },
   "trust.rollback_threshold_pct": {
     "type": "int",
     "default": 10,
     "doc": "Latency regression percentage (0-100) that triggers automatic rollback of a recently applied action. Lower = more sensitive.",
     "class": "safety_critical",
-    "lifecycle": "live_policy"
+    "lifecycle": "live_policy",
+    "min": 0,
+    "max": 100
   },
   "trust.rollback_window_minutes": {
     "type": "int",
     "default": 15,
     "doc": "How many minutes after applying an action pg_sage watches for regressions before considering it stable.",
     "class": "safety_critical",
-    "lifecycle": "live_policy"
+    "lifecycle": "live_policy",
+    "min": 1,
+    "max": 1073741824
   },
   "trust.tier3_high_risk": {
     "type": "bool",
@@ -4564,7 +4742,9 @@
     "default": 1,
     "doc": "Active calibrated toil-model version.",
     "class": "operator_preference",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "verify.drop_window_hours": {
     "type": "int",
@@ -4601,41 +4781,53 @@
     "default": 20,
     "doc": "Minimum gain required to retain a change.",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 0,
+    "max": 1000000000
   },
   "verify.min_samples": {
     "type": "int",
     "default": 30,
     "doc": "Minimum verification samples.",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "verify.regress_pct": {
     "type": "float64",
     "default": 15,
     "doc": "Regression percentage that triggers revert.",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 0,
+    "max": 1000000000
   },
   "verify.window_max_minutes": {
     "type": "int",
     "default": 4320,
     "doc": "Maximum verification window.",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "verify.window_minutes": {
     "type": "int",
     "default": 120,
     "doc": "Initial verification window.",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 1,
+    "max": 1073741824
   },
   "verify.write_impact_pct": {
     "type": "float64",
     "default": 20,
     "doc": "Table WAL-per-tuple rise that reverts.",
     "class": "safety_critical",
-    "lifecycle": "restart"
+    "lifecycle": "restart",
+    "min": 0,
+    "max": 1000000000
   }
 }

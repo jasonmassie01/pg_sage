@@ -11,10 +11,9 @@ import (
 // formerOrphanFields named owners that production never registers
 // (config-07): they are restart-bound in every mode and must say so.
 var formerOrphanFields = []string{
+	// alerting.enabled, routes, webhooks and the targets left this list in
+	// alerting-06b: the alerting owner, registered in every mode, applies them.
 	"alerting.check_interval_seconds",
-	"alerting.enabled", "alerting.pagerduty_routing_key",
-	"alerting.routes", "alerting.slack_webhook_url",
-	"alerting.webhooks",
 	"collector.interval_seconds", "analyzer.interval_seconds",
 	"auto_explain.collect_interval_seconds",
 	"schema_lint.scan_interval_minutes", "tuner.revalidation_interval_hours",
@@ -123,9 +122,12 @@ func TestFormerOrphansStayRestartWithAllProductionOwners(t *testing.T) {
 	}
 }
 
-// State transition: alerting.enabled true -> false is persisted as desired
-// and reported pending restart; no owner is prepared and active is unchanged.
-func TestAlertingEnabledChangeIsPendingRestart(t *testing.T) {
+// State transition: the alerting engine switch notify -> legacy is
+// persisted as desired and reported pending restart; no owner is prepared
+// and active is unchanged. (alerting-06b: alerting.enabled, which this
+// test used to pin, is now reconciled live by the alerting owner, so the
+// restart-bound alerting switch is alerting.engine.)
+func TestAlertingEngineChangeIsPendingRestart(t *testing.T) {
 	events := &eventLog{}
 	base := DefaultConfig()
 	base.Alerting.Enabled = true
@@ -135,19 +137,19 @@ func TestAlertingEnabledChangeIsPendingRestart(t *testing.T) {
 	}
 	controller := NewConfigController(base, nil, stubs...)
 	candidate := controller.Desired().Config
-	candidate.Alerting.Enabled = false
+	candidate.Alerting.Engine = AlertingEngineLegacy
 	result, err := controller.Apply(context.Background(), 1, candidate)
 	if err != nil {
-		t.Fatalf("apply alerting.enabled=false: %v", err)
+		t.Fatalf("apply alerting.engine=legacy: %v", err)
 	}
-	if strings.Join(result.PendingRestart, ",") != "alerting.enabled" ||
+	if strings.Join(result.PendingRestart, ",") != "alerting.engine" ||
 		len(result.Applied) != 0 || len(result.ComponentStatus) != 0 {
-		t.Fatalf("result = %+v, want only alerting.enabled pending restart", result)
+		t.Fatalf("result = %+v, want only alerting.engine pending restart", result)
 	}
 	assertGenerations(t, controller, 2, 1)
-	if !controller.Active().Config.Alerting.Enabled ||
-		controller.Desired().Config.Alerting.Enabled {
-		t.Fatal("active must keep alerting enabled; desired must disable it")
+	if controller.Active().Config.Alerting.Engine != AlertingEngineNotify ||
+		controller.Desired().Config.Alerting.Engine != AlertingEngineLegacy {
+		t.Fatal("active must keep the notify engine; desired must hold legacy")
 	}
 	if len(events.events) != 0 {
 		t.Fatalf("owners ran for a restart-bound field: %v", events.events)

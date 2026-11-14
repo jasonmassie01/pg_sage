@@ -27,7 +27,7 @@ var validSSLModes = map[string]bool{
 	"verify-full": true,
 }
 
-// validTrustLevels is config.TrustLevels as a set for validateEnum.
+// validTrustLevels is config.TrustLevels as a set for validateInput.
 var validTrustLevels = enumSet(config.TrustLevels())
 
 func enumSet(values []string) map[string]bool {

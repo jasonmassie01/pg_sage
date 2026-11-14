@@ -225,5 +225,7 @@ func trancheFourMigrations() []namedStep {
 		{"ddlUserDatabaseGrantsSource", ddlUserDatabaseGrantsSource},   // apiauth-08d
 		{"ddlBudgetShadowActualCancels", ddlBudgetShadowActualCancels}, // market-08b
 		{"ddlAskRuns", ddlAskRuns},                                     // mcp-07b
+		{"ddlNotificationManagedBy", ddlNotificationManagedBy},         // alerting-06b
+		{"ddlNotificationLogDatabase", ddlNotificationLogDatabase},     // alerting-06c
 	}
 }

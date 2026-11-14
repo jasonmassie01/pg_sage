@@ -82,15 +82,17 @@ export const ROUTES = Object.freeze([
     guide: 'Manage who can use pg_sage and what each role can do. App access and '
       + 'database permissions are separate.' },
   { id: 'notifications', path: '/notifications', title: 'Notifications', navGroup: 'admin',
-    testId: 'nav-notifications', icon: Bell, roles: ADMIN,
+    testId: 'nav-notifications', icon: Bell, roles: REVIEWERS,
     hint: 'Alert channels, rules and delivery history',
-    guide: 'Configure alert delivery channels and rules, then inspect delivery history '
-      + 'to see what was sent or failed.' },
+    guide: 'Inspect delivery history for the selected database to see what was sent or '
+      + 'failed. Administrators also configure the delivery channels and rules.' },
+  // The Alert log is folded into Notifications (alerting-06c): /alerts
+  // redirects to its Log tab, keeping ?database=.
   { id: 'alerts', path: '/alerts', title: 'Alerts', label: 'Alert log', guideTitle: 'Alerts',
     navGroup: 'admin', testId: 'nav-alerts', icon: ScrollText, roles: REVIEWERS,
-    hint: 'Alerts sent for the selected database',
-    guide: 'Review alert history for the selected database, including severity, timing '
-      + 'and delivery details.' },
+    hint: 'Delivery history in Notifications',
+    guide: 'The Alert log moved to Notifications · Log, which lists every delivery with '
+      + 'its database, status and error.' },
   { id: 'settings', path: '/settings', title: 'Settings', navGroup: 'admin',
     testId: 'nav-settings', icon: Settings, roles: ADMIN, hint: 'Configure pg_sage',
     guide: 'Inspect monitoring, AI and safety settings. Scope labels show whether changes '
