@@ -1529,7 +1529,7 @@ carried from an older server undoes 18's asynchronous I/O:
 - `io_method = sync` from a source other than `default`: asynchronous I/O is off.
 
 The finding names the setting's source; on a managed service change it in the
-provider's parameter settings. Nothing is reported on PostgreSQL 14-17 or while the
+provider's parameter settings. Nothing is reported before PostgreSQL 18 or while the
 server version is unknown. In fleet mode the instance-wide values are reported once per
 instance, from the database that owns the instance settings; a value set for one database
 alone (source `database` or `database user`, from `ALTER DATABASE` or `ALTER ROLE ... IN
@@ -2258,7 +2258,7 @@ evidence carries `profile: emergency` and `cap_failures`. The emergency statemen
 failure backoff, so a failing emergency streak escalates once more, with `profile: emergency`
 in the `custodian_escalation` event and its decision. If the cap history cannot be read, the
 normal freeze runs and one `WARN` names the table. No configuration and no extra privilege
-are needed (both options exist on PostgreSQL 12+).
+are needed (both options exist on every supported PostgreSQL major).
 
 An amber table gets no custodian action, and the custodian has no autovacuum tuning step:
 the analyzer's `autovacuum_tuning` is the only tuner.

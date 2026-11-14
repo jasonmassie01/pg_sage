@@ -339,7 +339,7 @@ HypoPG what-if. When the what-if rejects a skip-scan candidate for too little
 improvement, the reason adds "already served by `<index>` through skip scan". The tuning
 agent's table context carries a one-line PostgreSQL 18 note on skip scan.
 
-PostgreSQL 14 to 17 behave as before: no extra `EXPLAIN`, the same candidates. The
+Majors before PostgreSQL 18 behave as before: no extra `EXPLAIN`, the same candidates. The
 server version is read with the database collation, so it costs no extra round trip.
 Managed providers get the same plans; fleet mode judges each database on its own.
 
@@ -1283,7 +1283,7 @@ longer returns them.
 |----------|--------|-----------------|
 | <a id="wal_tuning"></a>`wal_tuning` | LLM advisor | WAL and checkpoint settings, such as `max_wal_size` when checkpoints are forced. |
 | <a id="connection_tuning"></a>`connection_tuning` | LLM advisor | Connection capacity and churn: `max_connections` (never below the window's peak of total backends + reserved slots + 10), `idle_in_transaction_session_timeout` for this database only (`ALTER DATABASE`, approval required), and pooler advice or observations as `info` rows without SQL. |
-| <a id="io_settings"></a>`io_settings` | Advisor (deterministic, PostgreSQL 18+) | `info`, no SQL: `effective_io_concurrency` or `maintenance_io_concurrency` set (source other than `default`) at or below its pre-18 default (1 and 10), which overrides PostgreSQL 18's new default of 16, or `io_method = sync` from a non-default source, which switches asynchronous I/O off. The detail carries `setting`, `value`, `source`, `scope` (`instance`, or `database` for a value set for this database alone), `pg_major`, the documented `doc_note` and, for the concurrency settings, `pre18_default` and `pg18_default`. Makes no model call; never on PostgreSQL 14-17 or an unknown version. In fleet mode instance-wide values are reported by the database that owns the instance settings, per-database values by their database. |
+| <a id="io_settings"></a>`io_settings` | Advisor (deterministic, PostgreSQL 18+) | `info`, no SQL: `effective_io_concurrency` or `maintenance_io_concurrency` set (source other than `default`) at or below its pre-18 default (1 and 10), which overrides PostgreSQL 18's new default of 16, or `io_method = sync` from a non-default source, which switches asynchronous I/O off. The detail carries `setting`, `value`, `source`, `scope` (`instance`, or `database` for a value set for this database alone), `pg_major`, the documented `doc_note` and, for the concurrency settings, `pre18_default` and `pg18_default`. Makes no model call; never before PostgreSQL 18 or on an unknown version. In fleet mode instance-wide values are reported by the database that owns the instance settings, per-database values by their database. |
 | <a id="query_rewrite"></a>`query_rewrite` | LLM advisor | Rewrites for the slowest queries. Text only, always advisory. |
 | <a id="bloat_remediation"></a>`bloat_remediation` | LLM advisor | Options for removing table and index bloat. |
 | <a id="memory_tuning"></a><a id="vacuum_tuning"></a>`memory_tuning`, `vacuum_tuning` | Tuning agent | Memory and autovacuum configuration changes. A recommendation without SQL is dropped. |
