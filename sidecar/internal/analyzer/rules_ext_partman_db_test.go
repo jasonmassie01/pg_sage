@@ -263,16 +263,7 @@ func TestExtPartman_UnreadableDefaultKeepsFindingOpen(t *testing.T) {
 		t.Fatalf("default partition with a row = %+v, want one", got)
 	}
 	// A role that reads part_config but not the default partition.
-	role := "sage_ext_reader"
-	_, _ = pool.Exec(context.Background(), "DROP OWNED BY "+role)
-	_, _ = pool.Exec(context.Background(), "DROP ROLE IF EXISTS "+role)
-	extExec(t, pool, "CREATE ROLE "+role+" NOLOGIN")
-	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), "DROP OWNED BY "+role)
-		_, _ = pool.Exec(context.Background(), "DROP ROLE IF EXISTS "+role)
-	})
-	extExec(t, pool, "GRANT USAGE ON SCHEMA "+q+" TO "+role)
-	extExec(t, pool, "GRANT SELECT ON "+q+".part_config TO "+role)
+	role := partmanConfigReader(t, pool, q)
 	ctx := context.Background()
 	conn, err := pool.Acquire(ctx)
 	if err != nil {
@@ -301,4 +292,21 @@ func TestExtPartman_UnreadableDefaultKeepsFindingOpen(t *testing.T) {
 	if n := logs.warns("public.ext_pm_hid_default"); n != 1 {
 		t.Fatalf("WARN lines naming the default partition = %d, want 1", n)
 	}
+}
+
+// partmanConfigReader creates a role that reads part_config and nothing
+// else in pg_partman's schema.
+func partmanConfigReader(t *testing.T, pool *pgxpool.Pool, q string) string {
+	t.Helper()
+	role := "sage_ext_reader"
+	_, _ = pool.Exec(context.Background(), "DROP OWNED BY "+role)
+	_, _ = pool.Exec(context.Background(), "DROP ROLE IF EXISTS "+role)
+	extExec(t, pool, "CREATE ROLE "+role+" NOLOGIN")
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), "DROP OWNED BY "+role)
+		_, _ = pool.Exec(context.Background(), "DROP ROLE IF EXISTS "+role)
+	})
+	extExec(t, pool, "GRANT USAGE ON SCHEMA "+q+" TO "+role)
+	extExec(t, pool, "GRANT SELECT ON "+q+".part_config TO "+role)
+	return role
 }
