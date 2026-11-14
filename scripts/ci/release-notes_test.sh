@@ -147,6 +147,7 @@ expect_stdout "$scratch/want-own" \
   "a release candidate uses its release's own section before [Unreleased]" \
   -- bash "$script" v2.6.0-rc.2 "$file"
 
+# Git Bash's awk drops the CR itself, so only Linux CI shows a missing strip.
 sed 's/$/\r/' "$file" >"$scratch/crlf.md"
 expect_stdout "$scratch/want-own" "a CRLF CHANGELOG gives the same notes" \
   -- bash "$script" v2.6.0 "$scratch/crlf.md"
