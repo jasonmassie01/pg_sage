@@ -35,16 +35,19 @@ type Card struct {
 	Finding        *FindingRef        `json:"finding,omitempty"`
 	Recommendation *RecommendationRef `json:"recommendation,omitempty"`
 	Evidence       []Evidence         `json:"evidence"`
-	Rationale      *Rationale         `json:"rationale"`
-	Predicted      Predicted          `json:"predicted_effect"`
-	SQL            string             `json:"sql"`
-	Rollback       Rollback           `json:"rollback"`
-	Risk           Risk               `json:"risk"`
-	Why            []Reason           `json:"why_approval"`
-	ProposedAt     time.Time          `json:"proposed_at"`
-	ExpiresAt      time.Time          `json:"expires_at"`
-	SnoozedUntil   *time.Time         `json:"snoozed_until,omitempty"`
-	SnoozeReason   string             `json:"snooze_reason,omitempty"`
+	// HintEvidence is a query-hint action's plan comparison (tuning-05b);
+	// not part of the hash: it is read-only evidence, the action not.
+	HintEvidence *HintEvidence `json:"hint_evidence,omitempty"`
+	Rationale    *Rationale    `json:"rationale"`
+	Predicted    Predicted     `json:"predicted_effect"`
+	SQL          string        `json:"sql"`
+	Rollback     Rollback      `json:"rollback"`
+	Risk         Risk          `json:"risk"`
+	Why          []Reason      `json:"why_approval"`
+	ProposedAt   time.Time     `json:"proposed_at"`
+	ExpiresAt    time.Time     `json:"expires_at"`
+	SnoozedUntil *time.Time    `json:"snoozed_until,omitempty"`
+	SnoozeReason string        `json:"snooze_reason,omitempty"`
 	// Trust is the action class's trust on the database (roadmap 1.2);
 	// nil without a trust ledger.
 	Trust *Trust `json:"trust,omitempty"`
