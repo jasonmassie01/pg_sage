@@ -8,6 +8,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -19,18 +20,26 @@ import (
 )
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stderr, fetchTrustedRoot))
+	os.Exit(run(os.Args[1:], os.Stderr, func() ([]byte, error) {
+		return fetchTrustedRoot(tuf.DefaultOptions())
+	}))
 }
 
-// fetchTrustedRoot reads trusted_root.json through a TUF client rooted
-// in the TUF root embedded in sigstore-go, with a throwaway cache.
-func fetchTrustedRoot() ([]byte, error) {
+// fetchTrustedRoot reads trusted_root.json through a TUF client built
+// from base (main passes the public-good options, whose root is the TUF
+// root embedded in sigstore-go), with a throwaway cache. base itself is
+// not changed.
+func fetchTrustedRoot(base *tuf.Options) ([]byte, error) {
+	if base == nil {
+		return nil, errors.New("TUF options: none given")
+	}
 	cache, err := os.MkdirTemp("", "sigstore-tuf-")
 	if err != nil {
 		return nil, fmt.Errorf("TUF cache: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(cache) }()
-	client, err := tuf.New(tuf.DefaultOptions().WithCachePath(cache))
+	opts := *base
+	client, err := tuf.New(opts.WithCachePath(cache))
 	if err != nil {
 		return nil, fmt.Errorf("TUF client: %w", err)
 	}
