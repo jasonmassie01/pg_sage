@@ -1,0 +1,30 @@
+{"ImportPath":"github.com/pg-sage/sidecar/broken [github.com/pg-sage/sidecar/broken.test]","Action":"build-output","Output":"# github.com/pg-sage/sidecar/broken [github.com/pg-sage/sidecar/broken.test]\n"}
+{"ImportPath":"github.com/pg-sage/sidecar/broken [github.com/pg-sage/sidecar/broken.test]","Action":"build-output","Output":"broken\\broken.go:3:179: undefined: undefinedName\n"}
+{"ImportPath":"github.com/pg-sage/sidecar/broken [github.com/pg-sage/sidecar/broken.test]","Action":"build-fail"}
+{"Time":"2026-11-13T18:17:15.0932177-06:00","Action":"start","Package":"github.com/pg-sage/sidecar/broken"}
+{"Time":"2026-11-13T18:17:15.0932177-06:00","Action":"output","Package":"github.com/pg-sage/sidecar/broken","Output":"FAIL\tgithub.com/pg-sage/sidecar/broken [build failed]\n"}
+{"Time":"2026-11-13T18:17:15.0932177-06:00","Action":"fail","Package":"github.com/pg-sage/sidecar/broken","Elapsed":0,"FailedBuild":"github.com/pg-sage/sidecar/broken [github.com/pg-sage/sidecar/broken.test]"}
+{"Time":"2026-11-13T18:17:16.1559147-06:00","Action":"start","Package":"github.com/pg-sage/sidecar/covered"}
+{"Time":"2026-11-13T18:17:16.1559147-06:00","Action":"start","Package":"github.com/pg-sage/sidecar/nostmts"}
+{"Time":"2026-11-13T18:17:16.1559147-06:00","Action":"start","Package":"github.com/pg-sage/sidecar/notests"}
+{"Time":"2026-11-13T18:17:16.1559147-06:00","Action":"start","Package":"github.com/pg-sage/sidecar/typesonly"}
+{"Time":"2026-11-13T18:17:16.1565459-06:00","Action":"output","Package":"github.com/pg-sage/sidecar/typesonly","Output":"?   \tgithub.com/pg-sage/sidecar/typesonly\t[no test files]\n"}
+{"Time":"2026-11-13T18:17:16.1565459-06:00","Action":"skip","Package":"github.com/pg-sage/sidecar/typesonly","Elapsed":0.001}
+{"Time":"2026-11-13T18:17:17.0180115-06:00","Action":"run","Package":"github.com/pg-sage/sidecar/covered","Test":"TestHalf"}
+{"Time":"2026-11-13T18:17:17.0185647-06:00","Action":"output","Package":"github.com/pg-sage/sidecar/covered","Test":"TestHalf","Output":"=== RUN   TestHalf\n"}
+{"Time":"2026-11-13T18:17:17.0185647-06:00","Action":"output","Package":"github.com/pg-sage/sidecar/covered","Test":"TestHalf","Output":"--- PASS: TestHalf (0.00s)\n"}
+{"Time":"2026-11-13T18:17:17.0185647-06:00","Action":"pass","Package":"github.com/pg-sage/sidecar/covered","Test":"TestHalf","Elapsed":0}
+{"Time":"2026-11-13T18:17:17.0185647-06:00","Action":"output","Package":"github.com/pg-sage/sidecar/covered","Output":"PASS\n"}
+{"Time":"2026-11-13T18:17:17.0426858-06:00","Action":"output","Package":"github.com/pg-sage/sidecar/covered","Output":"coverage: 66.7% of statements\n"}
+{"Time":"2026-11-13T18:17:17.0448472-06:00","Action":"output","Package":"github.com/pg-sage/sidecar/covered","Output":"ok  \tgithub.com/pg-sage/sidecar/covered\t0.888s\tcoverage: 66.7% of statements\n"}
+{"Time":"2026-11-13T18:17:17.0448472-06:00","Action":"pass","Package":"github.com/pg-sage/sidecar/covered","Elapsed":0.889}
+{"Time":"2026-11-13T18:17:17.0502974-06:00","Action":"run","Package":"github.com/pg-sage/sidecar/nostmts","Test":"TestNothing"}
+{"Time":"2026-11-13T18:17:17.050811-06:00","Action":"output","Package":"github.com/pg-sage/sidecar/nostmts","Test":"TestNothing","Output":"=== RUN   TestNothing\n"}
+{"Time":"2026-11-13T18:17:17.050811-06:00","Action":"output","Package":"github.com/pg-sage/sidecar/nostmts","Test":"TestNothing","Output":"--- PASS: TestNothing (0.00s)\n"}
+{"Time":"2026-11-13T18:17:17.050811-06:00","Action":"pass","Package":"github.com/pg-sage/sidecar/nostmts","Test":"TestNothing","Elapsed":0}
+{"Time":"2026-11-13T18:17:17.050811-06:00","Action":"output","Package":"github.com/pg-sage/sidecar/nostmts","Output":"PASS\n"}
+{"Time":"2026-11-13T18:17:17.0605684-06:00","Action":"output","Package":"github.com/pg-sage/sidecar/nostmts","Output":"coverage: [no statements]\n"}
+{"Time":"2026-11-13T18:17:17.062687-06:00","Action":"output","Package":"github.com/pg-sage/sidecar/nostmts","Output":"ok  \tgithub.com/pg-sage/sidecar/nostmts\t0.906s\tcoverage: [no statements]\n"}
+{"Time":"2026-11-13T18:17:17.062687-06:00","Action":"pass","Package":"github.com/pg-sage/sidecar/nostmts","Elapsed":0.907}
+{"Time":"2026-11-13T18:17:24.5432106-06:00","Action":"output","Package":"github.com/pg-sage/sidecar/notests","Output":"\tgithub.com/pg-sage/sidecar/notests\t\tcoverage: 0.0% of statements\n"}
+{"Time":"2026-11-13T18:17:24.5432106-06:00","Action":"pass","Package":"github.com/pg-sage/sidecar/notests","Elapsed":8.387}

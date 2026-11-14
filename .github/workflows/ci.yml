@@ -181,6 +181,14 @@ jobs:
             -require 'internal/alerting TestEvaluate_.*' \
             -require 'internal/notify TestPhase2_(ProcessRule|LoadChannel|LoadMatchingRules)_.*'
 
+      # ci-20: fails when a package's statement coverage in the unit stream
+      # is under its floor in sidecar/.coverage-floors (70% by default).
+      - name: Coverage floors
+        if: ${{ !cancelled() }}
+        working-directory: sidecar
+        shell: bash
+        run: go run ./cmd/covfloor < ../unit.json
+
   # PostgreSQL 17 runs in the test job above; this covers the rest of the
   # supported range with the race detector and integration tags.
   integration-matrix:

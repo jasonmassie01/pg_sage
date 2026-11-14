@@ -1,0 +1,256 @@
+#!/usr/bin/env bash
+# Tests local-linux-suite.sh (ci-19) without Docker or PostgreSQL: dry runs
+# (LOCAL_SUITE_DRY_RUN=1 validates the inputs and stops before Docker) and
+# runs against stub docker, go and disk-guard commands on PATH, which log
+# every call and fail on demand. Also checks local-linux-suite-summary.sh
+# on a fixture go test -json stream.
+#
+# Concurrency: the script runs once per machine; two runs differ by their
+# container names, which the dry-run cases below assert. State transitions:
+# none, the script keeps no state between runs.
+set -uo pipefail
+
+here=$(cd "$(dirname "$0")" && pwd)
+script="$here/local-linux-suite.sh"
+summary="$here/local-linux-suite-summary.sh"
+repo=$(cd "$here/../.." && pwd -P)
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+failures=0
+log="$work/docker.log"
+state="$work/containers" # the stub's live containers: "<name> <run label>"
+
+fail() { echo "FAIL $1" >&2; failures=$((failures + 1)); }
+
+# expect <want-status> <output-pattern> <description> -- <env/args...>
+expect() {
+  local want=$1 pattern=$2 name=$3
+  shift 4
+  local status
+  : >"$log"
+  : >"$state"
+  out=$(env PATH="$work/bin:$PATH" STUB_LOG="$log" STUB_STATE="$state" "$@" 2>&1)
+  status=$?
+  if [[ $status -ne $want ]]; then
+    fail "$name: exit $status, want $want; output: $out"
+  elif [[ -n $pattern ]] && ! grep -Eq -- "$pattern" <<<"$out"; then
+    fail "$name: output does not match /$pattern/: $out"
+  else
+    echo "ok   $name"
+  fi
+}
+
+# no_docker_call <description>: the last case never ran docker.
+no_docker_call() {
+  if [[ -s $log ]]; then fail "$1: docker was called: $(cat "$log")"; else echo "ok   $1"; fi
+}
+
+mkdir -p "$work/bin"
+cat >"$work/bin/docker" <<'EOF'
+#!/usr/bin/env bash
+echo "docker $*" >>"$STUB_LOG"
+case "$1" in
+info) [[ -z ${STUB_DOCKER_DOWN:-} ]] || exit 1; echo 27.0.0 ;;
+image)
+  for img in ${STUB_MISSING_IMAGES:-}; do
+    [[ $3 == "$img" ]] && { echo "Error: No such image: $3" >&2; exit 1; }
+  done
+  echo sha256:stub ;;
+container) # inspect: prints the owner label of a known container
+  name=${!#}
+  for c in ${STUB_EXISTING:-}; do [[ $name == "$c" ]] && { echo other-run; exit 0; }; done
+  line=$(grep "^$name " "$STUB_STATE") || exit 1
+  echo "${line#* }" ;;
+rm)
+  grep -v "^${!#} " "$STUB_STATE" >"$STUB_STATE.new"; mv "$STUB_STATE.new" "$STUB_STATE" ;;
+run)
+  args=("$@") name= label=
+  for ((i = 0; i < ${#args[@]}; i++)); do
+    case ${args[i]} in
+    --name) name=${args[i + 1]} ;;
+    --label) [[ ${args[i + 1]} == pg_sage.local-suite.run=* ]] && label=${args[i + 1]#*=} ;;
+    esac
+  done
+  if [[ $name == "${STUB_TAKEN_ON_RUN:-}" ]]; then
+    # Another run took the name between the claim and this run.
+    echo "$name other-run" >>"$STUB_STATE"
+    echo "docker: Conflict. The container name \"/$name\" is already in use" >&2
+    exit 125
+  fi
+  if [[ $* == *"command -v gcc"* ]]; then
+    [[ -z ${STUB_NO_GCC:-} ]] || exit 1; echo /usr/bin/gcc
+  elif [[ $* == *"-race"*"/probe"* || $* == *"/probe"*"-race"* ]]; then
+    [[ -z ${STUB_RACE_FAIL:-} ]] || { echo "ld: cannot find -lracego" >&2; exit 1; }
+  elif [[ $2 == -d ]]; then
+    echo "$name $label" >>"$STUB_STATE"
+  fi ;;
+esac
+exit 0
+EOF
+cat >"$work/bin/go" <<'EOF'
+#!/usr/bin/env bash
+echo "go $*" >>"$STUB_LOG"
+if [[ $1 == mod && $2 == vendor ]]; then
+  if [[ -n ${STUB_GO_MISSING:-} ]]; then
+    echo "go: example.com/missing@v1.2.3: module lookup disabled by GOPROXY=off" >&2
+    exit 1
+  fi
+  mkdir -p vendor && echo "# stub" >vendor/modules.txt
+fi
+if [[ $1 == run && $2 == ./cmd/covfloor ]]; then
+  echo "covfloor: stub"
+  exit "${STUB_COVFLOOR_EXIT:-0}"
+fi
+exit 0
+EOF
+cat >"$work/bin/guard.sh" <<'EOF'
+#!/usr/bin/env bash
+# Mirrors tools/disk-guard.sh: exit 3 when free space is below the floor.
+min=${1:-${PG_SAGE_DISK_GUARD_GB:-40}}
+if [ "$FAKE_FREE_GB" -lt "$min" ]; then
+  echo "BLOCKED: C: has ${FAKE_FREE_GB} GB free, under the ${min} GB guard" >&2; exit 3
+fi
+echo "disk ok: C: has ${FAKE_FREE_GB} GB free (guard ${min} GB)"
+EOF
+chmod +x "$work/bin/docker" "$work/bin/go" "$work/bin/guard.sh"
+guard="LOCAL_SUITE_DISK_GUARD=$work/bin/guard.sh"
+dry="LOCAL_SUITE_DRY_RUN=1"
+newout() { local d; d=$(mktemp -d "$work/out.XXXX"); rmdir "$d"; echo "$d"; }
+
+# Happy path and nil/empty: no majors selects 14 15 17.
+expect 0 'plan pg14 server=improve-ci-pg14 image=improve-pg:14 go=improve-ci-go-pg14' \
+  "dry run: default majors" -- $dry bash "$script" "$(newout)"
+grep -q 'plan pg15 server=improve-ci-pg15 image=postgres:15 go=improve-ci-go-pg15' <<<"$out" ||
+  fail "dry run: pg15 plan line missing: $out"
+grep -q 'plan pg17 server=improve-ci-pg17 image=improve-pg:17 go=improve-ci-go-pg17' <<<"$out" ||
+  fail "dry run: pg17 plan line missing: $out"
+[[ $(grep -c '^plan pg' <<<"$out") -eq 3 ]] || fail "dry run: want 3 plan lines: $out"
+grep -q 'go-image=golang:1.27.3-alpine3.24 go-root=none' <<<"$out" ||
+  fail "dry run: empty GO_ROOT must mount nothing: $out"
+no_docker_call "dry run touches no docker"
+
+# Concurrency: two runs with other prefixes or majors get distinct names.
+expect 0 'plan pg17 server=improve-t4-a-pg17 .* go=improve-t4-a-go-pg17' "dry run: prefix A" -- \
+  $dry LOCAL_SUITE_PREFIX=improve-t4-a- bash "$script" "$(newout)" 17
+names_a=$(grep '^plan' <<<"$out" | grep -oE '(server|go)=improve-[a-z0-9-]*' | sort -u)
+expect 0 'plan pg17 server=improve-t4-b-pg17' "dry run: prefix B" -- \
+  $dry LOCAL_SUITE_PREFIX=improve-t4-b- bash "$script" "$(newout)" 17
+names_b=$(grep '^plan' <<<"$out" | grep -oE '(server|go)=improve-[a-z0-9-]*' | sort -u)
+[[ -n $(comm -12 <(echo "$names_a") <(echo "$names_b")) ]] &&
+  fail "two prefixes share a container name: $names_a / $names_b"
+mkdir -p "$work/goroot/bin" && touch "$work/goroot/bin/go"
+expect 0 'go-root=.*goroot' "dry run: GO_ROOT with bin/go" -- \
+  $dry GO_ROOT="$work/goroot" bash "$script" "$(newout)" 14
+
+# Invalid input.
+expect 2 'usage: .*local-linux-suite.sh <out-dir>' "missing out-dir" -- $dry bash "$script"
+expect 2 "unknown PostgreSQL major '13'" "major 13" -- $dry bash "$script" "$(newout)" 13
+expect 2 "unknown PostgreSQL major 'abc'" "major abc" -- $dry bash "$script" "$(newout)" abc
+expect 2 "PostgreSQL major 17 is given twice" "duplicate major" -- \
+  $dry bash "$script" "$(newout)" 17 17
+expect 2 'out-dir .* is inside the repository' "out-dir inside the repo" -- \
+  $dry bash "$script" "$repo/sidecar/local-suite-out"
+mkdir -p "$work/full" && touch "$work/full/x"
+expect 2 'out-dir .*full is not empty' "non-empty out-dir" -- $dry bash "$script" "$work/full"
+expect 2 "LOCAL_SUITE_PREFIX 'lifeos-' must start with improve-" "prefix outside improve-" -- \
+  $dry LOCAL_SUITE_PREFIX=lifeos- bash "$script" "$(newout)"
+no_docker_call "a refused prefix touches no container"
+expect 2 "LOCAL_SUITE_GOCACHE 'gocache' must start with improve-" "cache volume name" -- \
+  $dry LOCAL_SUITE_GOCACHE=gocache bash "$script" "$(newout)"
+expect 2 'GO_ROOT .*nope has no bin/go' "GO_ROOT without go" -- \
+  $dry GO_ROOT="$work/nope" bash "$script" "$(newout)"
+expect 2 "LOCAL_SUITE_GO_MEMORY '6 g'" "bad memory cap" -- \
+  $dry "LOCAL_SUITE_GO_MEMORY=6 g" bash "$script" "$(newout)"
+expect 2 "LOCAL_SUITE_REV 'no-such-rev' is not a commit" "unknown revision" -- \
+  $dry LOCAL_SUITE_REV=no-such-rev bash "$script" "$(newout)"
+expect 2 "GO_IMAGE '' is not an image name" "empty GO_IMAGE" -- \
+  $dry GO_IMAGE= bash "$script" "$(newout)"
+
+# Boundary: the disk guard just below and at its floor.
+expect 3 'BLOCKED: C: has 39 GB free' "disk guard below its floor" -- \
+  $guard FAKE_FREE_GB=39 bash "$script" "$(newout)" 17
+no_docker_call "a blocked disk guard touches no docker"
+expect 4 'docker did not answer' "disk guard at its floor passes; docker down" -- \
+  $guard FAKE_FREE_GB=40 STUB_DOCKER_DOWN=1 bash "$script" "$(newout)" 17
+
+# Error propagation from the image checks, the race probe and vendoring.
+expect 6 "GO_IMAGE golang:9.9-none is not present locally" "GO_IMAGE missing locally" -- \
+  $guard FAKE_FREE_GB=99 GO_IMAGE=golang:9.9-none STUB_MISSING_IMAGES=golang:9.9-none \
+  bash "$script" "$(newout)" 17
+grep -q 'docker pull' "$log" && fail "the script pulled an image: $(cat "$log")"
+expect 6 "PG_IMAGE_15 postgres:15 is not present locally" "PG image missing locally" -- \
+  $guard FAKE_FREE_GB=99 STUB_MISSING_IMAGES=postgres:15 bash "$script" "$(newout)"
+expect 7 'GO_IMAGE has no C compiler: cgo and -race cannot run' "no gcc" -- \
+  $guard FAKE_FREE_GB=99 STUB_NO_GCC=1 bash "$script" "$(newout)" 17
+grep -q 'CGO_ENABLED=0' "$log" && fail "no gcc fell back to CGO_ENABLED=0: $(cat "$log")"
+expect 9 'the race runtime does not link in GO_IMAGE; use a glibc image' "race probe fails" -- \
+  $guard FAKE_FREE_GB=99 STUB_RACE_FAIL=1 bash "$script" "$(newout)" 17
+grep -q '/opt/go' "$log" && fail "empty GO_ROOT mounted /opt/go: $(cat "$log")"
+grep 'docker run' "$log" | grep -vq -- '--name improve-ci-' &&
+  fail "a probe container is not named improve-ci-*: $(grep 'docker run' "$log")"
+
+before=$(git -C "$repo" status --porcelain)
+o=$(newout)
+expect 8 'example.com/missing@v1.2.3' "missing module in go mod vendor" -- \
+  $guard FAKE_FREE_GB=99 STUB_GO_MISSING=1 bash "$script" "$o" 17
+grep -q 'go mod vendor failed' <<<"$out" || fail "exit 8 without its message: $out"
+[[ -f $o/stage/sidecar/go.mod ]] || fail "the source was not staged under $o/stage"
+grep -q 'docker run.*improve-ci-pg17' "$log" && fail "a server started after exit 8"
+
+# Boundary: a container that already holds the server's name is never
+# removed, and the run refuses to share it.
+o=$(newout)
+expect 10 'container improve-ci-pg17 already exists' "existing server name" -- \
+  $guard FAKE_FREE_GB=99 STUB_EXISTING=improve-ci-pg17 bash "$script" "$o" 17
+grep -q 'docker rm' "$log" && fail "a container the run did not create was removed: $(cat "$log")"
+[[ -f $o/stage/sidecar/vendor/modules.txt ]] || fail "vendor/ was not made in the stage"
+
+# Boundary: another run takes the name between the claim and docker run.
+# The cleanup must leave that run's container alone.
+expect 5 'server improve-ci-pg17 .* did not start' "name taken after the claim" -- \
+  $guard FAKE_FREE_GB=99 STUB_TAKEN_ON_RUN=improve-ci-pg17 bash "$script" "$(newout)" 17
+grep -q 'docker rm .*improve-ci-pg17' "$log" &&
+  fail "the cleanup removed another run's improve-ci-pg17: $(cat "$log")"
+grep -q '^improve-ci-pg17 other-run$' "$state" || fail "the other run's container is gone"
+
+# Happy path through stubs: every container carries this run's label, the
+# server is removed at the end, and the summary is written.
+o=$(newout)
+expect 0 'summary: .*summary.md' "stubbed full run" -- \
+  $guard FAKE_FREE_GB=99 bash "$script" "$o" 17
+runs=$(grep '^docker run' "$log")
+[[ $(grep -c . <<<"$runs") -eq 5 ]] || fail "want 5 docker runs (gcc, race probe, server, suite,"\
+" e2e): $runs"
+ids=$(grep -oE 'pg_sage.local-suite.run=[^ ]+' <<<"$runs" | sort -u)
+[[ $(grep -c . <<<"$ids") -eq 1 ]] ||
+  fail "every container needs one run label with a value: $ids"
+grep -q 'docker rm -f -v improve-ci-pg17$' "$log" ||
+  fail "the server was not removed: $(cat "$log")"
+[[ -s $state ]] && fail "containers left after the run: $(cat "$state")"
+grep -q 'suite=0' "$o/pg17/status.txt" && grep -q 'skipbudget=0' "$o/pg17/status.txt" ||
+  fail "status.txt lacks the suite and skip budget results: $(cat "$o/pg17/status.txt")"
+[[ -f $o/summary.md ]] || fail "no summary.md after a full run"
+grep -q 'covfloor=0' "$o/pg17/status.txt" ||
+  fail "status.txt lacks the coverage floors result: $(cat "$o/pg17/status.txt")"
+grep -q '^go run ./cmd/covfloor' "$log" || fail "covfloor did not run: $(cat "$log")"
+
+# ci-20: a package under its floor fails the run; covfloor runs on PG17 only.
+o=$(newout)
+expect 1 'summary: .*summary.md' "coverage floor failure" -- \
+  $guard FAKE_FREE_GB=99 STUB_COVFLOOR_EXIT=1 bash "$script" "$o" 15 17
+grep -q 'covfloor=1' "$o/pg17/status.txt" ||
+  fail "status.txt lacks covfloor=1: $(cat "$o/pg17/status.txt")"
+grep -q 'covfloor' "$o/pg15/status.txt" && fail "covfloor ran on PG15: $(cat "$o/pg15/status.txt")"
+[[ $(grep -c '^go run ./cmd/covfloor' "$log") -eq 1 ]] ||
+  fail "want one covfloor call for majors 15 and 17: $(grep covfloor "$log")"
+
+after=$(git -C "$repo" status --porcelain)
+[[ $before == "$after" ]] || fail "a run changed the worktree: $before -> $after"
+
+bash "$here/local-linux-suite-summary-test.sh" || failures=$((failures + 1))
+
+if [[ $failures -gt 0 ]]; then
+  echo "$failures local suite check(s) failed" >&2
+  exit 1
+fi
+echo "all local suite checks passed"
