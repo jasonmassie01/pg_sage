@@ -23,12 +23,16 @@ func (s *Scorer) reloptionExternal(ctx context.Context, p pendingDecision) (*ver
 	}
 	marked := p.AppliedDetectedAt != nil && p.AppliedAfter != nil
 	if !marked {
+		resolved, err := s.appName(ctx, table)
+		if err != nil {
+			return catalogFailure("resolve "+table, err)
+		}
 		var gone bool
 		var have []string
-		err := s.catalog.QueryRow(ctx, `/* pg_sage */ SELECT r.oid IS NULL,
+		err = s.catalog.QueryRow(ctx, `/* pg_sage */ SELECT r.oid IS NULL,
 			COALESCE(c.reloptions, '{}')::text[]
 			FROM (SELECT to_regclass($1) AS oid) r
-			LEFT JOIN pg_class c ON c.oid = r.oid`, table).Scan(&gone, &have)
+			LEFT JOIN pg_class c ON c.oid = r.oid`, resolved).Scan(&gone, &have)
 		switch {
 		case err != nil:
 			return catalogFailure("read the reloptions of "+table, err)

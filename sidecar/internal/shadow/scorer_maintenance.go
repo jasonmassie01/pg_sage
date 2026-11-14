@@ -48,8 +48,12 @@ func (s *Scorer) maintenanceExternal(ctx context.Context, p pendingDecision) (*v
 	if table == "" {
 		return &verifiedFact{Unscorable: "the decision names no table"}, false, nil
 	}
+	resolved, err := s.appName(ctx, table)
+	if err != nil {
+		return catalogFailure("resolve "+table, err)
+	}
 	var sig maintenanceSignal
-	err := s.catalog.QueryRow(ctx, maintenanceSignalSQL, table, p.Class == "vacuum",
+	err = s.catalog.QueryRow(ctx, maintenanceSignalSQL, resolved, p.Class == "vacuum",
 		p.RecordedAt, p.Prediction.Metric, s.settle.Seconds()).Scan(&sig.gone, &sig.applied,
 		&sig.reset, &sig.metric)
 	switch {
