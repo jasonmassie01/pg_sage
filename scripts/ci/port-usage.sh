@@ -168,7 +168,9 @@ case $cmd in
   group)
     [ $# -eq 2 ] || usage
     mkdir -p "$1"
-    printf '%s\n' "$2" >"$1/port-usage.group"
+    # Write then rename, so a sample never reads a truncated, empty label.
+    printf '%s\n' "$2" >"$1/port-usage.group.tmp"
+    mv -f "$1/port-usage.group.tmp" "$1/port-usage.group"
     ;;
   summary) summary "$1" ;;
   *) usage ;;
