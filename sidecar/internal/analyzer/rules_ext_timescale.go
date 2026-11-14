@@ -32,6 +32,8 @@ const (
 	tsMinWatermarkMicros = -62135596800000000
 	// tsRefreshProc is the refresh policy's job procedure.
 	tsRefreshProc = "policy_refresh_continuous_aggregate"
+	// tsTelemetryProc is TimescaleDB's telemetry job procedure.
+	tsTelemetryProc = "policy_telemetry"
 )
 
 // tsCategories are the TimescaleDB rules' categories; each rule has the
@@ -76,6 +78,9 @@ type tsCagg struct {
 	// AllowedLag is the policy's schedule_interval plus end_offset.
 	AllowedLag time.Duration
 	Watermark  time.Time
+	// LastSuccess is the policy's last successful finish; nil when it never
+	// succeeded or job_stats could not be read.
+	LastSuccess *time.Time
 }
 
 // tsProbe is what the catalog says about TimescaleDB's views.
@@ -132,6 +137,7 @@ func (a *Analyzer) readTimescale(ctx context.Context, q catalogread.Querier,
 	a.extOK("ts_views")
 	a.readTSJobs(ctx, q, r)
 	a.readTSCaggs(ctx, q, r, p)
+	a.readTSRefreshSuccess(ctx, q, r)
 	return r
 }
 
@@ -160,7 +166,9 @@ func (a *Analyzer) readTSJobs(ctx context.Context, q catalogread.Querier, r *tsR
 }
 
 // tsJobsSQL lists the scheduled jobs whose last run failed, newest run
-// first, at most $1. A job that never ran has a NULL status.
+// first, at most $1. A job that never ran has a NULL status. TimescaleDB's
+// own telemetry job is left out: it fails wherever the server cannot reach
+// the internet, and no operator policy depends on it.
 func tsJobsSQL(schema string) string {
 	s := sqlident.Ident(schema)
 	return `/* pg_sage analyzer */
@@ -172,6 +180,8 @@ SELECT s.job_id::bigint, j.proc_schema::text, j.proc_name::text,
   FROM ` + s + `.job_stats s
   JOIN ` + s + `.jobs j ON j.job_id = s.job_id
  WHERE s.last_run_status = 'Failed' AND j.scheduled
+   AND NOT (j.proc_name = '` + tsTelemetryProc + `'
+            AND j.proc_schema IN ('_timescaledb_functions', '_timescaledb_internal'))
  ORDER BY s.last_run_started_at DESC NULLS LAST, s.job_id
  LIMIT $1`
 }
@@ -224,4 +234,61 @@ func (a *Analyzer) readTSCaggs(ctx context.Context, q catalogread.Querier, r *ts
 		a.evalFail(categoryTSCaggStale)
 	}
 	r.Caggs, r.caggsRead, r.WatermarkSchema = caggs, true, *p.watermarkFns
+}
+
+// readTSRefreshSuccess adds each judged aggregate's refresh policy's last
+// successful finish. The watermark is the end of the newest materialized
+// bucket, so it stops when the source stops receiving rows even while the
+// policy keeps succeeding; a recent success clears the aggregate. Without
+// job_stats (the jobs read already warned) the rule judges by the
+// watermark alone.
+func (a *Analyzer) readTSRefreshSuccess(ctx context.Context, q catalogread.Querier,
+	r *tsReading) {
+	if !r.jobsRead || len(r.Caggs) == 0 {
+		return
+	}
+	ids := make([]int64, 0, len(r.Caggs))
+	for _, c := range r.Caggs {
+		ids = append(ids, c.JobID)
+	}
+	last, err := readTSSuccessRows(ctx, q, r.Schema, ids)
+	if err != nil {
+		a.extWarn("ts_cagg_success", "analyzer: timescaledb: read the refresh policies' "+
+			"last successful runs in %s: %v; %s judged by the watermark alone",
+			sqlident.Qualified(r.Schema, "job_stats"), err, categoryTSCaggStale)
+		return
+	}
+	a.extOK("ts_cagg_success")
+	for i := range r.Caggs {
+		if at, ok := last[r.Caggs[i].JobID]; ok {
+			r.Caggs[i].LastSuccess = &at
+		}
+	}
+}
+
+// tsSuccessSQL reads the last successful finish of the jobs $1.
+func tsSuccessSQL(schema string) string {
+	return `/* pg_sage analyzer */
+SELECT job_id::bigint, last_successful_finish
+  FROM ` + sqlident.Ident(schema) + `.job_stats
+ WHERE job_id = ANY($1) AND isfinite(last_successful_finish)`
+}
+
+func readTSSuccessRows(ctx context.Context, q catalogread.Querier, schema string,
+	ids []int64) (map[int64]time.Time, error) {
+	rows, err := q.Query(ctx, tsSuccessSQL(schema), ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[int64]time.Time, len(ids))
+	for rows.Next() {
+		var id int64
+		var at time.Time
+		if err := rows.Scan(&id, &at); err != nil {
+			return nil, fmt.Errorf("scan: %w", err)
+		}
+		out[id] = at
+	}
+	return out, rows.Err()
 }

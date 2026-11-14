@@ -153,7 +153,9 @@ func tsJobFinding(schema string, j tsJobFailure) Finding {
 
 // ruleTimescaleCaggStale reports each continuous aggregate whose
 // watermark lags the clock by more than tsCaggLagFactor times its refresh
-// policy's schedule_interval plus end_offset.
+// policy's schedule_interval plus end_offset, while the policy has not
+// succeeded within that time: a policy that keeps succeeding has
+// materialized all the data there is.
 func ruleTimescaleCaggStale(_, _ *collector.Snapshot, _ *config.Config,
 	extras *RuleExtras) []Finding {
 	r := extras.tsReading()
@@ -168,6 +170,9 @@ func ruleTimescaleCaggStale(_, _ *collector.Snapshot, _ *config.Config,
 		if c.AllowedLag <= 0 || lag <= limit {
 			continue
 		}
+		if c.LastSuccess != nil && now.Sub(*c.LastSuccess) <= limit {
+			continue
+		}
 		out = append(out, tsCaggFinding(r, c, lag, limit))
 	}
 	return out
@@ -175,7 +180,7 @@ func ruleTimescaleCaggStale(_, _ *collector.Snapshot, _ *config.Config,
 
 func tsCaggFinding(r *tsReading, c tsCagg, lag, limit time.Duration) Finding {
 	view := sqlident.Qualified(c.ViewSchema, c.ViewName)
-	return Finding{
+	f := Finding{
 		Category:         categoryTSCaggStale,
 		Severity:         "warning",
 		ObjectType:       "continuous_aggregate",
@@ -198,14 +203,20 @@ func tsCaggFinding(r *tsReading, c tsCagg, lag, limit time.Duration) Finding {
 			"schema":             r.Schema,
 		},
 		Recommendation: fmt.Sprintf("Its refresh policy (job %d, %s, every %s with "+
-			"end_offset %s) has not moved the watermark. Check the job in %s, run it by "+
-			"hand with CALL run_job(%d), and if it succeeds while the watermark stays, "+
-			"check the policy's start_offset and end_offset (alter_job). Until then "+
+			"end_offset %s) has not moved the watermark or succeeded within the "+
+			"threshold. Check the job in %s and run it by hand with CALL run_job(%d); "+
+			"if it never starts, check that TimescaleDB's job scheduler runs "+
+			"(timescaledb.max_background_workers, timescaledb_post_restore() after a "+
+			"restore). Until then "+
 			"queries on the aggregate miss recent data or compute it at query time. "+
 			"Advisory only: pg_sage runs nothing.", c.JobID, tsRefreshProc,
 			c.ScheduleInterval, c.EndOffset, sqlident.Qualified(r.Schema, "job_stats"),
 			c.JobID),
 	}
+	if c.LastSuccess != nil {
+		f.Detail["last_successful_finish"] = c.LastSuccess.UTC().Format(time.RFC3339)
+	}
+	return f
 }
 
 func (e *RuleExtras) tsReading() *tsReading {

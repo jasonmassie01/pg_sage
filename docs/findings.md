@@ -1052,7 +1052,8 @@ and 17; a run against real TimescaleDB 2.11 and 2.17 is pending.
 last run failed (`timescaledb_information.job_stats.last_run_status = 'Failed'`). A
 job that never ran (a NULL status) is clear, and so is a paused job: pausing it with
 `alter_job(..., scheduled => false)` is the operator's decision, and a paused job does
-not fail again. A job whose next run succeeds resolves on the next cycle. At most 50
+not fail again. TimescaleDB's own telemetry job (`policy_telemetry`) is not reported:
+it fails wherever the server cannot reach the internet, and no policy depends on it. A job whose next run succeeds resolves on the next cycle. At most 50
 jobs are reported, newest run first; past 50 the category is not evaluated that
 cycle, so the jobs not reported keep their open findings. When the role cannot read
 the views the category is not evaluated and one warning per streak names
@@ -1076,7 +1077,8 @@ settings in `timescaledb_information.jobs` (`alter_job` changes them).
 
 **What it detects:** a continuous aggregate whose watermark lags the clock by more
 than 3 x (`schedule_interval` + `end_offset`) of its scheduled refresh policy
-(`policy_refresh_continuous_aggregate`); a lag of exactly that much is clear. A NULL
+(`policy_refresh_continuous_aggregate`), while that policy has not succeeded within the
+same time (`job_stats.last_successful_finish`); a lag of exactly that much is clear. A NULL
 or negative `end_offset` counts as zero; with more than one refresh policy the
 largest sum is used. The watermark comes from `cagg_watermark()`, which TimescaleDB
 2.12 moved from `_timescaledb_internal` to `_timescaledb_functions`; pg_sage reads
@@ -1088,22 +1090,28 @@ one that never materialized anything (its watermark is the time type's minimum; 
 failing first refresh shows up as `timescale_job_failed`). At most 100 aggregates
 per cycle; past that the category is not evaluated.
 
-The threshold assumes an `end_offset` of at least one bucket, as TimescaleDB
-recommends: the watermark advances by whole buckets, so with a shorter `end_offset`
-and wide buckets (for example daily buckets refreshed hourly with a one-hour
-`end_offset`) the normal lag can pass the threshold. Raise `end_offset` to a bucket,
-or switch the rule off with a rule pack for that database.
+The watermark is the end of the newest materialized bucket, so it follows the data,
+not the clock: it stops when the source hypertable stops receiving rows, it advances by
+whole buckets, and over a `timestamp` column holding local time it is off by the UTC
+offset. A refresh policy that keeps succeeding has materialized all there is, so a
+recent success clears the aggregate however far its watermark lags; the finding
+means the policy is failing, stuck, or not being run (for example the job scheduler is
+stopped, or `timescaledb_post_restore()` was not run after a restore). When the role
+cannot read `job_stats` (`timescale_job_failed` is then not evaluated and warns), the
+aggregate is judged by its watermark alone, and those cases can trip it.
 
 **Identity:** the quoted continuous aggregate view, for example
 `public.metrics_hourly`.
 
 **Detail:** `view_schema`, `view_name`, `hypertable_schema`, `hypertable_name`,
 `materialized_only`, `job_id`, `schedule_interval`, `end_offset`, `watermark`,
-`lag_seconds`, `threshold_seconds`, `watermark_function` and `schema`.
+`lag_seconds`, `threshold_seconds`, `watermark_function`, `schema`, and
+`last_successful_finish` when the policy has succeeded before.
 
-**Recommended action:** check the refresh job in `timescaledb_information.job_stats`,
-run it by hand with `CALL run_job(<job_id>)`, and if it succeeds while the watermark
-stays, check the policy's `start_offset` and `end_offset` (`alter_job`).
+**Recommended action:** check the refresh job in `timescaledb_information.job_stats`
+and run it by hand with `CALL run_job(<job_id>)`; if it never starts, check that
+TimescaleDB's job scheduler runs (`timescaledb.max_background_workers`, and
+`timescaledb_post_restore()` after a restore).
 
 ---
 

@@ -110,7 +110,8 @@ var analyzerEntries = []Category{
 			"user action) whose last run failed."),
 	a("timescale_cagg_stale", sevW, nil, nil,
 		"A TimescaleDB continuous aggregate whose watermark lags more than 3 x its "+
-			"refresh policy's schedule_interval plus end_offset."),
+			"refresh policy's schedule_interval plus end_offset, while the policy has "+
+			"not succeeded within that time."),
 	a("sequence_exhaustion", sevWC, nil, act("prepare_sequence_capacity_migration"),
 		"A sequence that has used most of its range."),
 	a("sort_without_index", sevW, nil, nil,

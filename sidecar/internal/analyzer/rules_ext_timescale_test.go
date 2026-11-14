@@ -218,3 +218,35 @@ func TestTimescaleRules_RegisteredAndDisableable(t *testing.T) {
 		t.Fatalf("the gate does not look for TimescaleDB: %v", extGateNames)
 	}
 }
+
+// The watermark stops with the source's data, so a policy that succeeded
+// within the threshold clears the aggregate however far the watermark lags.
+func TestTimescaleCaggStale_RecentPolicySuccessIsClear(t *testing.T) {
+	allowed := 90 * time.Minute
+	limit := tsCaggLagFactor * allowed
+	at := func(d time.Duration) *time.Time { v := tsTestNow.Add(-d); return &v }
+	cases := []struct {
+		last *time.Time
+		want int
+	}{{nil, 1}, {at(0), 0}, {at(limit), 0}, {at(limit + time.Second), 1},
+		{at(-time.Hour), 0}}
+	for _, c := range cases {
+		r := tsStaleReading(48*time.Hour, allowed)
+		r.Caggs[0].LastSuccess = c.last
+		got := ruleTimescaleCaggStale(nil, nil, nil, tsExtras(r))
+		if len(got) != c.want {
+			t.Fatalf("last success %v (limit %v): findings = %d, want %d", c.last, limit,
+				len(got), c.want)
+		}
+		if c.want == 0 {
+			continue
+		}
+		v, ok := got[0].Detail["last_successful_finish"]
+		if c.last == nil && ok {
+			t.Fatalf("detail names a success that never happened: %v", v)
+		}
+		if c.last != nil && v != c.last.Format(time.RFC3339) {
+			t.Fatalf("last_successful_finish = %v, want %v", v, c.last)
+		}
+	}
+}
