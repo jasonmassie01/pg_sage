@@ -68,6 +68,8 @@ func Exclusive(t testing.TB, reason string) string {
 			t.Errorf("exclusive-cluster: drop the exclusive test database: %v", err)
 		}
 	})
+	exclusiveHolders.Store(t, base)
+	t.Cleanup(func() { exclusiveHolders.Delete(t) })
 	return dsn
 }
 
