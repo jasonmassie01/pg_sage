@@ -19,6 +19,11 @@ import (
 // deploy/databricks-apps/configure.py copies this text as SEGMENT.
 const Pattern = `[a-z0-9][a-z0-9-]{0,62}`
 
+// RehearsalBranchPrefix starts the id of every branch pg_sage creates for a
+// rehearsal (sage-rh-<8 hex>). The clone provider creates and destroys only
+// such branches, and fleet discovery skips them.
+const RehearsalBranchPrefix = "sage-rh-"
+
 var resource = regexp.MustCompile(`^projects/(` + Pattern + `)/branches/(` + Pattern +
 	`)/endpoints/(` + Pattern + `)$`)
 
