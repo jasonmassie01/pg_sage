@@ -172,3 +172,60 @@ func TestSetDatabaseOverridesCAS_CancelInsideTransactionRollsBack(t *testing.T) 
 		t.Fatalf("config rows after cancel = %d, want 0 (rolled back)", rows)
 	}
 }
+
+// queryStrings returns the single text column of every row the query reads.
+func queryStrings(t *testing.T, pool *pgxpool.Pool, sql string) []string {
+	t.Helper()
+	rows, err := pool.Query(context.Background(), sql)
+	if err != nil {
+		t.Fatalf("query %q: %v", sql, err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			t.Fatalf("scan %q: %v", sql, err)
+		}
+		out = append(out, v)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read %q: %v", sql, err)
+	}
+	return out
+}
+
+// A revision with two trust.level writes stores the last one on the policy
+// row, audits it once, drops the legacy override and keeps other writes.
+func TestSetDatabaseOverridesCAS_TrustWriteKeepsLastAndDropsLegacy(t *testing.T) {
+	pool := setupConfigTestDB(t)
+	seedCASDatabase(t, pool, 905, "config-cas-trust")
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `INSERT INTO sage.config (key, value, database_id)
+		VALUES ('trust.level', 'autonomous', 905)`); err != nil {
+		t.Fatalf("seed legacy override: %v", err)
+	}
+	gen, err := NewConfigStore(pool).SetDatabaseOverridesCAS(ctx, []ConfigOverrideWrite{
+		{Key: "trust.level", Value: "observation"},
+		{Key: "analyzer.slow_query_threshold_ms", Value: "1500"},
+		{Key: "trust.level", Value: "advisory"},
+	}, 905, 1, 1, nil)
+	if err != nil || gen != 2 {
+		t.Fatalf("SetDatabaseOverridesCAS = (%d, %v), want (2, nil)", gen, err)
+	}
+	trust := queryStrings(t, pool, `SELECT trust_level FROM sage.databases WHERE id = 905`)
+	if len(trust) != 1 || trust[0] != "advisory" {
+		t.Fatalf("trust_level = %v, want advisory (the last write)", trust)
+	}
+	overrides := queryStrings(t, pool, `SELECT key || '=' || value FROM sage.config
+		WHERE database_id = 905 AND key <> '`+configGenerationKey+`' ORDER BY key`)
+	if len(overrides) != 1 || overrides[0] != "analyzer.slow_query_threshold_ms=1500" {
+		t.Fatalf("overrides = %v, want only the threshold (legacy trust row dropped)",
+			overrides)
+	}
+	audits := queryStrings(t, pool, `SELECT COALESCE(old_value, '') || '->' || new_value
+		FROM sage.config_audit WHERE database_id = 905 AND key = 'trust.level'`)
+	if len(audits) != 1 || audits[0] != "observation->advisory" {
+		t.Fatalf("trust audits = %v, want [observation->advisory]", audits)
+	}
+}
