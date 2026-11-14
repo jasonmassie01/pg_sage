@@ -27,6 +27,10 @@ const cicWaitingOnWriter = `SELECT to_regclass('sage.idx_decision_created') IS N
 	AND EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = current_database()
 	              AND query ILIKE 'CREATE INDEX CONCURRENTLY%' AND wait_event_type = 'Lock')`
 
+// cancelledBuildStopsWithin bounds how long a cancelled build may stay on
+// the server: well under migrationLockTimeout, which would end it anyway.
+const cancelledBuildStopsWithin = migrationLockTimeout * 3 / 4
+
 // interruptBuild starts the builder, waits until its CIC created the
 // INVALID index and waits on the open writer, then cancels it.
 func interruptBuild(t *testing.T, pool *pgxpool.Pool, run func(context.Context) error) error {
@@ -38,10 +42,17 @@ func interruptBuild(t *testing.T, pool *pgxpool.Pool, run func(context.Context) 
 	done := make(chan error, 1)
 	go func() { done <- run(ctx) }()
 	waitFor(t, pool, cicWaitingOnWriter)
+	cancelled := time.Now()
 	cancel()
 	select {
 	case err := <-done:
 		waitFor(t, pool, noBuildRunning)
+		// Without a cancel request the server keeps waiting until its 2 s
+		// lock_timeout; the cancel must stop the build at once.
+		if gone := time.Since(cancelled); gone > cancelledBuildStopsWithin {
+			t.Fatalf("the build ran on for %s after the cancel: the server was not "+
+				"sent a cancel request", gone)
+		}
 		return err
 	case <-time.After(20 * time.Second):
 		t.Fatal("the builder did not return after its context was cancelled")
