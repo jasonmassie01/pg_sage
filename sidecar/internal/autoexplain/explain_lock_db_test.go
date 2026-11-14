@@ -219,12 +219,12 @@ func TestExplainWithoutLockStoresAnEstimate(t *testing.T) {
 }
 
 // Boundary: a lock wait shorter than the lock timeout still captures. The
-// lock is released as soon as the EXPLAIN is seen waiting, well inside the
-// 100ms timeout. It used to be held about 50ms first, which left 50ms for
-// the poll and the commit, and a 50ms stall on the shared host (the test
-// server's container runs at a quarter CPU weight) lost 4 of 50 runs on an
-// otherwise idle PG17 (ci-17). Only a lock-busy attempt is retried (three at most), with
-// its measured hold logged; any other outcome decides the test at once.
+// holder releases the lock from the server, as soon as the EXPLAIN waits
+// (releaseOnWaiterSQL), well inside the 100ms timeout. A release from the
+// client after a ~50ms hold lost 4 of 50 runs alone on PG17, and one that
+// polled pg_locks from the client lost under load (released 212-270ms
+// after the capture started; ci-17). Only a lock-busy attempt is retried
+// (three at most); any other outcome decides the test at once.
 func TestExplainLockReleasedWithinTimeoutStillCaptures(t *testing.T) {
 	f := newLockFixture(t)
 	const qid = int64(991200503)
@@ -234,6 +234,7 @@ func TestExplainLockReleasedWithinTimeoutStillCaptures(t *testing.T) {
 		if err = f.captureAfterShortLock(t, qid); !errors.Is(err, errLockBusy) {
 			break
 		}
+		t.Logf("attempt %d: %v", attempt+1, err)
 	}
 	if err != nil {
 		t.Fatalf("capture after a short lock wait: %v", err)
@@ -243,56 +244,51 @@ func TestExplainLockReleasedWithinTimeoutStillCaptures(t *testing.T) {
 	}
 }
 
-// captureAfterShortLock runs one capture behind ACCESS EXCLUSIVE and
-// releases the lock as soon as the EXPLAIN is seen waiting; a lock-busy
-// outcome logs how long the lock was held after the capture started.
+// releaseOnWaiterSQL runs on the holder inside its lock transaction: it
+// polls pg_locks on the server every millisecond (5 s at most) until a
+// session waits for lockTable, notes that in a session setting, and
+// commits in the same round trip, so no client latency delays the release.
+const releaseOnWaiterSQL = `DO $$
+BEGIN
+	PERFORM pg_catalog.set_config('pg_sage_test.saw_waiter', 'off', false);
+	FOR i IN 1..5000 LOOP
+		IF EXISTS (SELECT 1 FROM pg_catalog.pg_locks
+		           WHERE relation = '` + lockTable + `'::regclass AND NOT granted) THEN
+			PERFORM pg_catalog.set_config('pg_sage_test.saw_waiter', 'on', false);
+			EXIT;
+		END IF;
+		PERFORM pg_catalog.pg_sleep(0.001);
+	END LOOP;
+END $$; COMMIT`
+
+// captureAfterShortLock runs one capture behind ACCESS EXCLUSIVE, which
+// the holder releases from the server once the EXPLAIN waits for it.
 func (f *lockFixture) captureAfterShortLock(t *testing.T, qid int64) error {
 	t.Helper()
-	tx := f.lockExclusive(t)
+	ctx := context.Background()
+	if _, err := f.holder.Exec(ctx, "BEGIN; LOCK TABLE "+lockTable+
+		" IN ACCESS EXCLUSIVE MODE"); err != nil {
+		t.Fatalf("take ACCESS EXCLUSIVE: %v", err)
+	}
 	done := make(chan error, 1)
-	start := time.Now()
 	go func() {
-		done <- f.collector().captureOnDemand(context.Background(), qid,
+		done <- f.collector().captureOnDemand(ctx, qid,
 			"SELECT * FROM "+lockTable+" WHERE id = 1")
 	}()
-	waited := waitForLockWaiter(t, f.holder, done)
-	if err := tx.Commit(context.Background()); err != nil {
-		t.Fatalf("release lock: %v", err)
+	if _, err := f.holder.Exec(ctx, releaseOnWaiterSQL); err != nil {
+		_, _ = f.holder.Exec(ctx, "ROLLBACK")
+		t.Fatalf("release the lock once the EXPLAIN waits: %v", err)
 	}
-	held := time.Since(start)
 	err := <-done
-	if errors.Is(err, errLockBusy) {
-		t.Logf("lock busy although released %s after the capture started", held)
+	var waited string
+	if qerr := f.holder.QueryRow(ctx, `SELECT pg_catalog.current_setting(
+		'pg_sage_test.saw_waiter')`).Scan(&waited); qerr != nil {
+		t.Fatalf("read whether the EXPLAIN waited: %v", qerr)
 	}
-	if !waited && err == nil {
-		t.Fatal("the capture succeeded without waiting for ACCESS EXCLUSIVE")
+	if waited != "on" {
+		t.Fatalf("the EXPLAIN never waited for ACCESS EXCLUSIVE (capture: %v)", err)
 	}
 	return err
-}
-
-// waitForLockWaiter reports true once a session waits for a lock on
-// lockTable, so the boundary test proves the EXPLAIN actually waited, and
-// false when the capture finished before the wait was seen.
-func waitForLockWaiter(t *testing.T, holder *pgx.Conn, done <-chan error) bool {
-	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		var n int
-		err := holder.QueryRow(context.Background(), `SELECT count(*) FROM pg_locks
-			WHERE relation = $1::regclass AND NOT granted`, lockTable).Scan(&n)
-		if err != nil {
-			t.Fatalf("read pg_locks: %v", err)
-		}
-		if n > 0 {
-			return true
-		}
-		if len(done) > 0 {
-			return false
-		}
-		time.Sleep(2 * time.Millisecond)
-	}
-	t.Fatal("the EXPLAIN never waited for the lock")
-	return false
 }
 
 // shadowCandidates makes Collect see exactly these statements, through a
