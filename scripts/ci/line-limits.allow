@@ -15,7 +15,6 @@ sidecar/internal/config/config.go 1487
 sidecar/internal/executor/action_contract.go 876
 sidecar/internal/fleet/capabilities.go 502
 sidecar/internal/fleet/types.go 533
-sidecar/internal/lakebaseobs/store.go 591
 sidecar/internal/schema/bootstrap.go 1010
 sidecar/internal/store/action_store.go 744
 sidecar/internal/store/config_helpers.go 818
@@ -24,4 +23,4 @@ sidecar/sre-bench/scenarios_wal.go 509
 sidecar/web/src/pages/Actions.jsx 885
 sidecar/web/src/pages/SettingsPage.jsx 1335
 
-functions_over_50 73
+functions_over_50 72
