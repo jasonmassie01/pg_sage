@@ -35,7 +35,12 @@ var rules07Lists = map[string][]string{
 		// market-07 added the WAL archiver rules.
 		"wal_archive_failing", "wal_archive_stale",
 		// market-02 added the seasonal workload anomaly.
-		"workload_anomaly"},
+		"workload_anomaly",
+		// market-16 added the pg_cron and pg_partman health checks.
+		"pg_cron_job_failed", "pg_cron_history_unbounded", "partman_premake_gap",
+		"partman_default_rows",
+		// market-16b added the TimescaleDB health checks.
+		"timescale_job_failed", "timescale_cagg_stale"},
 	"advisor": {"wal_tuning", "connection_tuning", "query_rewrite",
 		"bloat_remediation", "advisor_degraded", "vacuum_tuning", "memory_tuning",
 		// market-15 added the PostgreSQL 18 I/O settings check.
