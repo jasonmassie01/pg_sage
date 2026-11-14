@@ -104,7 +104,18 @@ func seedDecisions(t *testing.T, pool *pgxpool.Pool, n int) {
 func TestDeferredIndexes_HappyPath(t *testing.T) {
 	pool := freshSchemaPool(t, "deferred_happy")
 	forgetDeferredStep(t, pool)
-	seedDecisions(t, pool, deferredIndexRows)
+	// Above the threshold: ANALYZE estimates reltuples from a sample, and
+	// PG14 put exactly 1,000,000 rows a little below it.
+	seedDecisions(t, pool, deferredIndexRows+50_000)
+	var reltuples float64
+	if err := pool.QueryRow(context.Background(), `SELECT reltuples::float8 FROM pg_class
+		WHERE oid = 'sage.decision'::regclass`).Scan(&reltuples); err != nil {
+		t.Fatalf("read reltuples: %v", err)
+	}
+	if !atOrAboveDeferral(reltuples) {
+		t.Fatalf("setup: sage.decision reltuples %.0f, want at least %d", reltuples,
+			deferredIndexRows)
+	}
 	bootWithin(t, pool, startupDeadline)
 	if exists, _ := indexValid(t, pool, deferredTestIndex); exists {
 		t.Fatal("the boot built the deferred index inline")
