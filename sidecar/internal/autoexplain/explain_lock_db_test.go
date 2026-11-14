@@ -219,9 +219,12 @@ func TestExplainWithoutLockStoresAnEstimate(t *testing.T) {
 }
 
 // Boundary: a lock wait shorter than the lock timeout still captures. The
-// release lands about 50ms into the 100ms timeout. On a loaded host the
-// poll and the commit can overrun it, so only a lock-busy attempt is
-// retried (three at most); any other outcome decides the test at once.
+// lock is released as soon as the EXPLAIN is seen waiting, well inside the
+// 100ms timeout. It used to be held about 50ms first, which left 50ms for
+// the poll and the commit, and a 50ms stall on the shared host (the test
+// server's container runs at a quarter CPU weight) lost 4 of 50 runs on an
+// otherwise idle PG17 (ci-17). Only a lock-busy attempt is retried (three at most), with
+// its measured hold logged; any other outcome decides the test at once.
 func TestExplainLockReleasedWithinTimeoutStillCaptures(t *testing.T) {
 	f := newLockFixture(t)
 	const qid = int64(991200503)
@@ -233,7 +236,7 @@ func TestExplainLockReleasedWithinTimeoutStillCaptures(t *testing.T) {
 		}
 	}
 	if err != nil {
-		t.Fatalf("capture after a ~50ms lock wait: %v", err)
+		t.Fatalf("capture after a short lock wait: %v", err)
 	}
 	if got := f.storedPlans(t, qid); got[qid] != estimateSource {
 		t.Fatalf("stored plans = %v, want source %s", got, estimateSource)
@@ -241,8 +244,8 @@ func TestExplainLockReleasedWithinTimeoutStillCaptures(t *testing.T) {
 }
 
 // captureAfterShortLock runs one capture behind ACCESS EXCLUSIVE and
-// releases the lock about 50ms after the capture started, once the EXPLAIN
-// is seen waiting.
+// releases the lock as soon as the EXPLAIN is seen waiting; a lock-busy
+// outcome logs how long the lock was held after the capture started.
 func (f *lockFixture) captureAfterShortLock(t *testing.T, qid int64) error {
 	t.Helper()
 	tx := f.lockExclusive(t)
@@ -253,13 +256,14 @@ func (f *lockFixture) captureAfterShortLock(t *testing.T, qid int64) error {
 			"SELECT * FROM "+lockTable+" WHERE id = 1")
 	}()
 	waited := waitForLockWaiter(t, f.holder, done)
-	if waited {
-		time.Sleep(50*time.Millisecond - min(time.Since(start), 50*time.Millisecond))
-	}
 	if err := tx.Commit(context.Background()); err != nil {
 		t.Fatalf("release lock: %v", err)
 	}
+	held := time.Since(start)
 	err := <-done
+	if errors.Is(err, errLockBusy) {
+		t.Logf("lock busy although released %s after the capture started", held)
+	}
 	if !waited && err == nil {
 		t.Fatal("the capture succeeded without waiting for ACCESS EXCLUSIVE")
 	}
