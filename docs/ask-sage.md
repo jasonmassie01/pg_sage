@@ -205,8 +205,8 @@ Errors are `{"error", "code"}`: `invalid_request` (400), `not_found` (404; anoth
 conversation or run is also "not found"), `ask_conflict` (409: a run is active on the
 conversation, or the run already ended), `ask_busy` (429 with `Retry-After`: too many runs),
 `ask_disabled` and `ask_unavailable` (503). With `api.database_grants` on, a database outside
-the caller's grants is `404` like an unknown one, and nothing is asked or stored
-([Per-database Authorization](security.md#mcp-tokens-and-ask-sage)).
+the caller's grants is `404` like an unknown one, for questions and runs alike, and nothing is
+asked or stored ([Per-database Authorization](security.md#mcp-tokens-and-ask-sage)).
 
 ## MCP
 

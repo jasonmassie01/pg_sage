@@ -13,15 +13,19 @@ import (
 // .../ask/runs/{id}/cancel cancels it. Same gates as the question route;
 // every route keeps the default 30 s request deadline because the run
 // lives on the database runtime's context. Another actor's run is 404.
+// With grants on, a database the caller may not read is answered like an
+// unknown one on every run route, as on the question route (apiauth-08c).
 
 // askRunRetryAfter is the Retry-After (seconds) of a run over the cap.
 const askRunRetryAfter = "5"
 
 func registerAskRunRoutes(mux *http.ServeMux, h askHandlers) {
-	route(mux, "POST "+askBasePath+"/runs", gateViewerWrite, http.HandlerFunc(h.startRun))
+	scoped := requireReadScope(readDatabase(pathDB))
+	route(mux, "POST "+askBasePath+"/runs", gateViewerWrite,
+		scoped(http.HandlerFunc(h.startRun)))
 	route(mux, "GET "+askBasePath+"/runs/{id}", gateViewer, http.HandlerFunc(h.pollRun))
 	route(mux, "POST "+askBasePath+"/runs/{id}/cancel", gateViewerWrite,
-		http.HandlerFunc(h.cancelRun))
+		scoped(http.HandlerFunc(h.cancelRun)))
 }
 
 func (h askHandlers) startRun(w http.ResponseWriter, r *http.Request) {
