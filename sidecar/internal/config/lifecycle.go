@@ -150,7 +150,12 @@ func reconfigurationOwner(path string) string {
 		return BriefingOwner // llm-06: briefing.fleet_mode stays restart-bound
 	case "alerting.cooldown_minutes", "alerting.quiet_hours_start",
 		"alerting.quiet_hours_end", "alerting.timezone", "alerting.repeat_minutes":
-		return AlertingOwner // alerting-06: routes and channels stay restart-bound
+		return AlertingOwner // alerting-06
+	case "alerting.enabled", "alerting.routes", "alerting.webhooks",
+		"alerting.slack_webhook_url", "alerting.pagerduty_routing_key":
+		// alerting-06b: reconciled live into the notification tables;
+		// alerting.engine and check_interval_seconds stay restart-bound.
+		return AlertingOwner
 	}
 	if strings.HasPrefix(path, "llm.") && isLLMResourceField(path) {
 		return LLMOwner

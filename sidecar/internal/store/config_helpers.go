@@ -11,234 +11,90 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 )
 
-// allowedConfigKeys maps dot-notation keys to their value type.
-var allowedConfigKeys = map[string]string{
-	"collector.interval_seconds":          "int_min5",
-	"collector.batch_size":                "int_pos",
-	"collector.max_queries":               "int_pos",
-	"analyzer.interval_seconds":           "int_min5",
-	"analyzer.slow_query_threshold_ms":    "int_nonneg",
-	"analyzer.self_cost_budget_ms":        "int_nonneg",
-	"analyzer.inactive_slot_min_minutes":  "int_week_minutes",
-	"analyzer.seq_scan_min_rows":          "int_pos",
-	"analyzer.unused_index_window_days":   "int_pos",
-	"analyzer.index_bloat_threshold_pct":  "pct",
-	"analyzer.table_bloat_dead_tuple_pct": "pct",
-	"analyzer.autovacuum_tune_min_rows":   "int_pos",
-	"analyzer.analyze_stale_min_rows":     "int_pos",
-	"analyzer.analyze_stale_days":         "int_pos",
-	"analyzer.wraparound_freeze_share":    "float_share",
-	"analyzer.regression_threshold_pct":   "pct",
-	"analyzer.cache_hit_ratio_warning":    "float01",
-	"analyzer.disabled_rules":             "rule_list",
-	"trust.level":                         "trust_level",
-	"trust.tier3_safe":                    "bool",
-	"trust.tier3_moderate":                "bool",
-	"trust.tier3_high_risk":               "bool",
-	"trust.maintenance_window":            "maintenance_window",
-	"trust.rollback_threshold_pct":        "pct",
-	"trust.rollback_window_minutes":       "int_pos",
-	"trust.rollback_cooldown_days":        "int_pos",
-	"trust.cascade_cooldown_cycles":       "int_pos",
-	"safety.cpu_ceiling_pct":              "pct1_100",
-	"safety.host_cpu_ceiling_pct":         "pct1_100",
-	"safety.query_timeout_ms":             "int_pos",
-	"safety.ddl_timeout_seconds":          "int_pos",
-	"safety.lock_timeout_ms":              "int_pos",
-	"safety.index_build_timeout_seconds":  "int_class_timeout",
-	"safety.reindex_timeout_seconds":      "int_class_timeout",
-	"safety.vacuum_timeout_seconds":       "int_class_timeout",
-	"safety.vacuum_stall_minutes":         "int_vacuum_stall",
-	"llm.enabled":                         "bool",
-	"llm.auth":                            "llm_auth",
-	"llm.endpoint":                        "string",
-	"llm.api_key":                         "string",
-	"llm.model":                           "string",
-	"llm.json_mode":                       "bool",
-	"llm.timeout_seconds":                 "int_pos",
-	"llm.token_budget_daily":              "int_pos",
-	"llm.fleet_token_budget_daily":        "int_nonneg",
-	"llm.global_token_budget_daily":       "int_nonneg",
-	"llm.context_budget_tokens":           "int_nonneg",
-	"advisor.enabled":                     "bool",
-	"advisor.interval_seconds":            "int_min5",
-	"llm.optimizer.enabled":               "bool",
-	"llm.optimizer.min_query_calls":       "int_pos",
-	"llm.optimizer.max_new_per_table":     "int_pos",
-	"alerting.enabled":                    "bool",
-	"alerting.slack_webhook_url":          "string",
-	"alerting.pagerduty_routing_key":      "string",
-	"alerting.check_interval_seconds":     "int_min5",
-	"alerting.cooldown_minutes":           "int_pos",
-	"alerting.quiet_hours_start":          "string",
-	"alerting.quiet_hours_end":            "string",
-	"retention.snapshots_days":            "int_pos",
-	"retention.findings_days":             "int_pos",
-	"retention.actions_days":              "int_pos",
-	"retention.sage_size_warning_pct":     "pct",
-	"retention.explains_days":             "int_pos",
-
-	// v0.9: RCA engine.
-	"rca.enabled":                           "bool",
-	"rca.llm_correlation_threshold":         "int_pos",
-	"rca.dedup_window_minutes":              "int_pos",
-	"rca.escalation_cycles":                 "int_pos",
-	"rca.resolution_cycles":                 "int_pos",
-	"rca.connection_saturation_pct":         "pct",
-	"rca.replication_lag_threshold_seconds": "int_pos",
-	"rca.wal_spike_multiplier":              "float_pos",
-	"rca.narration_enabled":                 "bool",
-
-	// v0.9.2: Slow active replication slot threshold.
-	"analyzer.slow_slot_retained_bytes": "int_pos",
-
-	// v0.9: Lock chain detection.
-	"analyzer.lock_chain.enabled":                      "bool",
-	"analyzer.lock_chain.min_blocked_threshold":        "int_pos",
-	"analyzer.lock_chain.critical_blocked_threshold":   "int_pos",
-	"analyzer.lock_chain.idle_in_tx_terminate_minutes": "int_pos",
-	"analyzer.lock_chain.active_query_cancel_minutes":  "int_pos",
-
-	// v0.9: Runaway query termination.
-	"runaway.enabled": "bool",
-
-	// v0.9: Natural language EXPLAIN.
-	"explain.enabled":           "bool",
-	"explain.timeout_ms":        "int_pos",
-	"explain.cache_ttl_minutes": "int_pos",
-	"explain.max_tokens":        "int_pos",
-
-	// v0.9.1: LogWatch (log-based RCA).
-	"logwatch.enabled":              "bool",
-	"logwatch.log_directory":        "string",
-	"logwatch.format":               "string",
-	"logwatch.poll_interval_ms":     "int_pos",
-	"logwatch.dedup_window_seconds": "int_pos",
-	"logwatch.max_line_len_bytes":   "int_pos",
-	"logwatch.temp_file_min_bytes":  "int_pos",
-	"logwatch.max_lines_per_cycle":  "int_pos",
-	"logwatch.exclude_applications": "string",
-	"logwatch.slow_query_enabled":   "bool",
-
-	// v0.10: Schema lint.
-	"schema_lint.enabled":               "bool",
-	"schema_lint.scan_interval_minutes": "int_pos",
-	"schema_lint.min_table_rows":        "int_pos",
-
-	// v0.10: Migration / DDL safety.
-	"migration.enabled":                 "bool",
-	"migration.mode":                    "string",
-	"migration.log_detection":           "bool",
-	"migration.activity_polling":        "bool",
-	"migration.poll_interval_seconds":   "int_pos",
-	"migration.ddl_row_threshold":       "int_pos",
-	"migration.queue_waiters_threshold": "int_pos",
-
-	// v1.4: Agent-native autonomy.
-	"policy.profile":                              "policy_profile",
-	"value.toil_model_version":                    "int_pos",
-	"verify.window_minutes":                       "int_pos",
-	"verify.window_max_minutes":                   "int_pos",
-	"verify.min_gain_pct":                         "float_nonneg",
-	"verify.regress_pct":                          "float_nonneg",
-	"verify.write_impact_pct":                     "float_nonneg",
-	"verify.min_samples":                          "int_pos",
-	"clone.provider":                              "clone_provider",
-	"clone.dle_endpoint":                          "string",
-	"clone.dle_token":                             "string",
-	"clone.max_clone_age_minutes":                 "int_pos",
-	"custodian.freeze.red_buffer_pct":             "float_pct_pos",
-	"custodian.wal.abandon_after_minutes":         "int_pos",
-	"custodian.wal.retained_wal_disk_pct_ceiling": "float_pct_pos",
-	"mcp.enabled":                                 "bool",
-	"mcp.transport":                               "mcp_transport",
+// overridableSpec is the registry contract of a key the configuration API
+// may store (config-02b): the api struct tag on the Config field.
+func overridableSpec(key string) (config.KeySpec, error) {
+	spec, ok := config.LookupKey(key)
+	if !ok || !spec.Overridable {
+		return config.KeySpec{}, fmt.Errorf("validate: unknown config key %q", key)
+	}
+	return spec, nil
 }
 
 func validateConfigKey(key string) error {
-	if _, ok := allowedConfigKeys[key]; !ok {
-		return fmt.Errorf("validate: unknown config key %q", key)
-	}
-	return nil
+	_, err := overridableSpec(key)
+	return err
 }
 
 func validateConfigValue(key, value string) error {
-	vtype, ok := allowedConfigKeys[key]
-	if !ok {
-		return fmt.Errorf("validate: unknown config key %q", key)
+	spec, err := overridableSpec(key)
+	if err != nil {
+		return err
 	}
-	return validateByType(vtype, key, value)
+	return validateSpec(spec, value)
 }
 
 // ValidateConfigOverride validates a single config override without
 // persisting it. Handlers use this to make multi-key saves atomic.
 func ValidateConfigOverride(key, value string) error {
-	if err := validateConfigKey(key); err != nil {
-		return err
-	}
 	return validateConfigValue(key, value)
 }
 
-// intRanges are the inclusive bounds of the integer validation types.
-var intRanges = map[string][2]int{
-	"int_pos":           {1, 1 << 30},
-	"int_nonneg":        {0, 1 << 30},
-	"int_min5":          {5, 1 << 30},
-	"int_week_minutes":  {1, config.MaxInactiveSlotMinMinutes},
-	"int_class_timeout": {config.MinClassTimeoutSeconds, config.MaxClassTimeoutSeconds},
-	"pct":               {0, 100},
-	"pct1_100":          {1, 100},
-	"int_vacuum_stall":  {config.MinVacuumStallMinutes, config.MaxVacuumStallMinutes},
-}
-
-func validateByType(vtype, key, value string) error {
-	if r, ok := intRanges[vtype]; ok {
-		return validateIntRange(key, value, r[0], r[1])
+// validateSpec applies the key's registry range or enum, then the named
+// special types' own grammars.
+func validateSpec(spec config.KeySpec, value string) error {
+	if spec.HasRange {
+		return validateNumber(spec, value)
 	}
-	switch vtype {
-	case "float01":
-		return validateFloatRange(key, value, 0, 1)
-	case "float_share": // a share of a maximum: (0, 1], as the config file holds it
-		return validateFloatRange(key, value, 0.01, 1)
-	case "float_pos":
-		return validateFloatRange(key, value, 0.001, 1e9)
-	case "float_nonneg":
-		return validateFloatRange(key, value, 0, 1e9)
-	case "float_pct_pos":
-		return validateFloatRange(key, value, 0.001, 100)
+	if err := spec.CheckEnum(value); err != nil {
+		return fmt.Errorf("validate: %w", err)
+	}
+	switch spec.Type {
 	case "bool":
-		return validateBool(key, value)
-	case "trust_level":
-		return validateEnum(key, value, validTrustLevels)
-	case "exec_mode":
-		return validateEnum(key, value, validExecutionModes)
-	case "policy_profile":
-		return validateEnum(key, value, map[string]bool{
-			"staffed": true, "unattended": true,
-		})
+		return validateBool(spec.Key, value)
 	case "clone_provider":
-		return validateEnum(key, value, map[string]bool{
-			"none": true, "dle": true,
-		})
-	case "mcp_transport":
-		return validateEnum(key, value, map[string]bool{
-			"stdio": true, "http": true,
-		})
-	case "llm_auth":
-		return validateEnum(key, value, map[string]bool{
-			"": true, "api_key": true, "databricks": true,
-		})
+		return validateAPICloneProvider(value)
 	case "maintenance_window":
 		return validateMaintenanceWindow(value)
 	case "rule_list":
-		if err := config.ValidateDisabledRules(key, config.ParseRuleList(value)); err != nil {
+		err := config.ValidateDisabledRules(spec.Key, config.ParseRuleList(value))
+		if err != nil {
 			return fmt.Errorf("validate: invalid value: %w", err)
 		}
-		return nil
-	case "string":
-		return nil
-	default:
-		return nil
 	}
+	return nil
+}
+
+// validateAPICloneProvider refuses lakebase_branch on save: that provider
+// needs the clone.lakebase project binding, which is YAML only and
+// restart-bound, so the API cannot switch to it.
+func validateAPICloneProvider(value string) error {
+	if value == "lakebase_branch" {
+		return fmt.Errorf("validate: clone.provider lakebase_branch is set in YAML " +
+			"with its clone.lakebase project, not through the API")
+	}
+	return nil
+}
+
+func validateNumber(spec config.KeySpec, value string) error {
+	var n float64
+	if spec.Integer {
+		i, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("validate: %s must be an integer, got %q", spec.Key, value)
+		}
+		n = float64(i)
+	} else {
+		f, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return fmt.Errorf("validate: %s must be a number, got %q", spec.Key, value)
+		}
+		n = f
+	}
+	if err := spec.CheckOverride(n); err != nil {
+		return fmt.Errorf("validate: %w", err)
+	}
+	return nil
 }
 
 // validateMaintenanceWindow applies the policy window grammar so a typo is
@@ -250,55 +106,10 @@ func validateMaintenanceWindow(value string) error {
 	return nil
 }
 
-func validateIntRange(
-	key, value string, min, max int,
-) error {
-	n, err := strconv.Atoi(value)
-	if err != nil {
-		return fmt.Errorf(
-			"validate: %s must be an integer, got %q", key, value)
-	}
-	if n < min || n > max {
-		return fmt.Errorf(
-			"validate: %s must be %d-%d, got %d", key, min, max, n)
-	}
-	return nil
-}
-
-func validateFloatRange(
-	key, value string, min, max float64,
-) error {
-	f, err := strconv.ParseFloat(value, 64)
-	if err != nil {
-		return fmt.Errorf(
-			"validate: %s must be a number, got %q", key, value)
-	}
-	if f < min || f > max {
-		return fmt.Errorf(
-			"validate: %s must be %g-%g, got %g", key, min, max, f)
-	}
-	return nil
-}
-
 func validateBool(key, value string) error {
 	if _, err := config.ParseBool(value); err != nil {
 		return fmt.Errorf(
 			"validate: %s must be true or false, got %q", key, value)
-	}
-	return nil
-}
-
-func validateEnum(
-	key, value string, allowed map[string]bool,
-) error {
-	if !allowed[value] {
-		keys := make([]string, 0, len(allowed))
-		for k := range allowed {
-			keys = append(keys, k)
-		}
-		return fmt.Errorf(
-			"validate: %s must be one of %s, got %q",
-			key, strings.Join(keys, ", "), value)
 	}
 	return nil
 }
@@ -786,18 +597,17 @@ func applyOverrides(
 // coerceValue converts a string value back to its expected Go type
 // based on the config key.
 func coerceValue(key, value string) any {
-	vtype := allowedConfigKeys[key]
-	switch vtype {
-	case "int_pos", "int_nonneg", "int_min5", "int_week_minutes", "pct", "pct1_100",
-		"int_class_timeout", "int_vacuum_stall":
+	spec, _ := config.LookupKey(key)
+	switch {
+	case spec.HasRange && spec.Integer:
 		if n, err := strconv.Atoi(value); err == nil {
 			return n
 		}
-	case "float01", "float_share", "float_pos", "float_nonneg", "float_pct_pos":
+	case spec.HasRange:
 		if f, err := strconv.ParseFloat(value, 64); err == nil {
 			return f
 		}
-	case "bool":
+	case spec.Type == "bool":
 		if b, err := config.ParseBool(value); err == nil {
 			return b
 		}
@@ -805,14 +615,21 @@ func coerceValue(key, value string) any {
 	return value
 }
 
-// AllowedConfigKeysSnapshot returns a shallow copy of the
-// allowedConfigKeys registry (key -> validation type). Exported
-// so cross-package consistency tests can iterate the registry
-// without duplicating it.
-func AllowedConfigKeysSnapshot() map[string]string {
-	cp := make(map[string]string, len(allowedConfigKeys))
-	for k, v := range allowedConfigKeys {
-		cp[k] = v
+// configKeyTypes maps every overridable key to its API validation type,
+// read from the config registry.
+func configKeyTypes() map[string]string {
+	out := make(map[string]string)
+	for _, spec := range config.Registry() {
+		if spec.Overridable {
+			out[spec.Key] = spec.Type
+		}
 	}
-	return cp
+	return out
+}
+
+// AllowedConfigKeysSnapshot returns a fresh copy of the overridable keys
+// (key -> validation type). Exported so cross-package consistency tests
+// and handlers can iterate the registry without duplicating it.
+func AllowedConfigKeysSnapshot() map[string]string {
+	return configKeyTypes()
 }

@@ -111,7 +111,7 @@ func TestTier2FieldsDocumented(t *testing.T) {
 	}
 	if len(missing) > 0 {
 		t.Errorf("tier 2 fields missing doc tags (%d): %v — "+
-			"add doc:\"...\" struct tags in internal/config/config.go "+
+			"add doc:\"...\" struct tags in internal/config/config_types*.go "+
 			"and run `go run ./cmd/gen_config_meta/`",
 			len(missing), missing)
 	}

@@ -140,10 +140,13 @@ describe('canSee and allowsRole', () => {
     }
   })
 
-  it('gives operators Alert log and Agents but not the admin pages', () => {
-    expect(canSee(byId('alerts'), operator, false)).toBe(true)
-    expect(canSee(byId('agents'), operator, false)).toBe(true)
-    for (const id of ADMIN_ONLY) expect(canSee(byId(id), operator, false), id).toBe(false)
+  it('gives operators Alert log, Notifications and Agents but not the admin pages', () => {
+    for (const id of ['alerts', 'notifications', 'agents']) {
+      expect(canSee(byId(id), operator, false), id).toBe(true)
+    }
+    for (const id of ADMIN_ONLY.filter(id => id !== 'notifications')) {
+      expect(canSee(byId(id), operator, false), id).toBe(false)
+    }
   })
 
   it('hides MCP tokens and Agents in a platform-managed deployment', () => {

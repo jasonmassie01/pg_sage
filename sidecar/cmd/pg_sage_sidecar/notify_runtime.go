@@ -15,7 +15,16 @@ import (
 var (
 	notifyDispatchersMu sync.Mutex
 	notifyDispatchers   = map[*pgxpool.Pool]*notify.Dispatcher{}
+	notifyStores        = map[*pgxpool.Pool]*notify.PoolStore{}
 )
+
+// sharedNotifyStore is the store of the dispatcher bound to controlPool,
+// or nil before sharedNotifyDispatcher built it.
+func sharedNotifyStore(controlPool *pgxpool.Pool) *notify.PoolStore {
+	notifyDispatchersMu.Lock()
+	defer notifyDispatchersMu.Unlock()
+	return notifyStores[controlPool]
+}
 
 // notificationControlPool is the database the UI writes notification
 // channels and rules to: the meta DB, else the fleet primary (auth) pool.
@@ -45,6 +54,7 @@ func sharedNotifyDispatcher(controlPool *pgxpool.Pool) *notify.Dispatcher {
 		WithPreviousKey(notificationPreviousSecretKey(controlPool))
 	dispatcher := notify.NewDefaultDispatcher(store, notificationTargetPolicy(),
 		logStructuredWrapper)
+	notifyStores[controlPool] = store
 	startNotifyOutbox(dispatcher, store)
 	withApprovalCardTokens(dispatcher, controlPool)
 	withFactCardTokens(dispatcher, controlPool)
@@ -110,8 +120,13 @@ func notificationTargetPolicy() notify.TargetPolicy {
 // silently never alerted (G7-B09). name is stamped on every alert, so
 // payloads say which database they concern and PagerDuty keys stay apart
 // across a fleet (alerting-02).
+//
+// Only the legacy engine has one (alerting-06b): with the default notify
+// engine the alerting: block is reconciled into notification channels and
+// delivered by the outbox, so a second manager would post twice.
 func newInstanceAlertManager(pool *pgxpool.Pool, name string) *alerting.Manager {
-	if pool == nil || !cfg.Alerting.Enabled {
+	if pool == nil || cfg == nil || !cfg.Alerting.Enabled ||
+		cfg.Alerting.EffectiveEngine() != config.AlertingEngineLegacy {
 		return nil
 	}
 	routes := buildAlertRoutes(cfg, logStructuredWrapper)
@@ -143,6 +158,7 @@ func startNotifyOutbox(d *notify.Dispatcher, store *notify.PoolStore) {
 	d.UseOutbox(store)
 	d.SetAlertPolicy(notifyAlertPolicy(cfg))
 	alertingRuntime.addDispatcher(d)
+	alertingRuntime.reconcileAtBoot(shutdownCtx, store)
 	go d.RunOutbox(shutdownCtx, notifyOutboxInterval)
 }
 

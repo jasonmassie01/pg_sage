@@ -364,6 +364,7 @@ safety_critical llm.tool_reasoning_effort
 operator_preference alerting.check_interval_seconds
 operator_preference alerting.cooldown_minutes
 operator_preference alerting.enabled
+operator_preference alerting.engine
 safety_critical alerting.pagerduty_routing_key
 operator_preference alerting.quiet_hours_end
 operator_preference alerting.quiet_hours_start

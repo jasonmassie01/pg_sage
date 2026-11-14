@@ -58,6 +58,8 @@ func (rt *databaseRuntime) startMonitoring() {
 	if alerts := newInstanceAlertManager(rt.spec.Pool, rt.spec.Name); alerts != nil {
 		rt.start(func() { alerts.Run(rt.ctx) })
 		rt.note("alerting")
+	} else {
+		rt.startLegacyCutover()
 	}
 	rt.startSchemaLint()
 	rt.startMigrationAdvisor()

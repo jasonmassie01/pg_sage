@@ -469,15 +469,55 @@ read it as the resource `pgsage://databases/{database}/briefings/latest`
 
 ### One range per setting
 
-The config file and the settings API (`PUT /api/v1/config/global`) accept the same values for
-the settings below; a config file with a value outside the range fails to load, and the error
-names the key. The API's ranges are unchanged.
+Every setting the API can override has one value contract, declared once on its field in
+`internal/config` (struct tags `api`, `range`, `enum` and `zero`) and read by the config-file
+loader, the settings API (`PUT /api/v1/config/global` and the per-database endpoint), the replay
+of stored overrides and the dashboard (`config_meta.json` carries `min`, `max` and `enum`, and
+the Settings page refuses an out-of-range value before it saves). A config file with a value
+outside the range fails to load and the error names the key; the API answers 400 naming the key.
 
-| Key | Range |
+| API type | Range |
 |---|---|
-| `analyzer.unused_index_window_days`, `analyzer.seq_scan_min_rows`, `safety.ddl_timeout_seconds`, `trust.rollback_window_minutes`, `trust.rollback_cooldown_days`, `schema_lint.scan_interval_minutes`, `migration.poll_interval_seconds` | `1`-`1073741824` |
-| `advisor.interval_seconds`, `alerting.check_interval_seconds` | `5`-`1073741824` |
-| `trust.rollback_threshold_pct` | `0`-`100` |
+| `int_pos` | `1`-`1073741824` |
+| `int_nonneg` | `0`-`1073741824` |
+| `int_min5` | `5`-`1073741824` |
+| `pct` / `pct1_100` | `0`-`100` / `1`-`100` |
+| `float01` / `float_share` | `0`-`1` / `0.01`-`1` |
+| `float_pos` / `float_nonneg` / `float_pct_pos` | `0.001`-`1e9` / `0`-`1e9` / `0.001`-`100` |
+| `int_week_minutes`, `int_class_timeout`, `int_vacuum_stall` | `1`-`10080`, `60`-`86400`, `5`-`240` |
+
+A key with its own `range` tag uses that range instead: `analyzer.self_cost_budget_ms` is
+`0`-`3600000`, `rca.dedup_window_minutes` `1`-`525600` (it must also fit inside
+`rca.stale_after_hours`) and `analyzer.slow_slot_retained_bytes` `1`-`1099511627776` (1 TiB;
+its 1 GiB default is the generic integer ceiling, so the ceiling would only let it go down). Keys marked `zero:"default"` also take `0` in a config file, meaning
+the default; the API refuses a stored `0` for them, because deleting the override is how the API
+restores a default: `analyzer.inactive_slot_min_minutes`, `analyzer.slow_slot_retained_bytes`,
+`safety.host_cpu_ceiling_pct`, `safety.index_build_timeout_seconds`,
+`safety.reindex_timeout_seconds`, `safety.vacuum_timeout_seconds`,
+`safety.vacuum_stall_minutes`, `schema_lint.min_table_rows`, `migration.ddl_row_threshold`,
+`migration.queue_waiters_threshold` and `trust.cascade_cooldown_cycles`.
+
+Ranges that changed in tranche T4 (config-02b), where the file and the API used to disagree:
+
+- The config file now refuses what the API already refused: `0` (and negatives) for every
+  `int_pos` key without `zero:"default"` (for example `llm.timeout_seconds`,
+  `safety.lock_timeout_ms`, `retention.*_days`, `explain.*`, `logwatch.*`, `rca.*` counts,
+  `analyzer.lock_chain.*` minutes and thresholds, `llm.optimizer.*`); `4` and below for the
+  `int_min5` intervals; any integer above `1073741824` (above `1099511627776` for
+  `analyzer.slow_slot_retained_bytes`); percentages outside `0`-`100`
+  (`analyzer.*_pct`, `rca.connection_saturation_pct`); `analyzer.cache_hit_ratio_warning`
+  outside `0`-`1`; `analyzer.wraparound_freeze_share` below `0.01`; negative
+  `llm.fleet_token_budget_daily` and `llm.global_token_budget_daily`; float settings above
+  `1e9`; and enum values outside `policy.profile`, `mcp.transport` and `llm.auth`.
+- The API now accepts `llm.token_budget_daily: 0` (no cap, as documented) and
+  `alerting.cooldown_minutes: 0` (the per-severity floors alone), which the file accepted.
+- The API now refuses `analyzer.self_cost_budget_ms` above `3600000` and
+  `rca.dedup_window_minutes` above `525600`, which the file refused.
+- `clone.provider: lakebase_branch` stays file-only: the API refuses it, because its
+  `clone.lakebase` project binding is file-only and restart-bound.
+
+A stored override that a moved range now refuses is skipped at replay with a warning naming the
+key and its `updated_at`, and the default applies until a valid value is saved.
 
 Boolean settings saved through the API accept `true`/`false`, `t`/`f` and `1`/`0` in any
 case, and apply the value they validate as (`"True"` is true).
@@ -3600,7 +3640,8 @@ A disabled block is not checked. In fleet mode the one shared block is checked o
 | Key | Default | Meaning |
 |---|---|---|
 | `alerting.enabled` | `false` | Send alerts. Needs at least one route that reaches a usable channel |
-| `alerting.check_interval_seconds` | `60` | How often new findings are read |
+| `alerting.engine` | `notify` | Which engine delivers the block. `notify` reconciles it into notification channels and rules (below) and delivers through the notification outbox with retries; `legacy` runs the old per-database alerting manager instead, removes at startup the `config:` channels and rules a notify run left (so a finding is not posted twice) and logs a startup warning. `legacy` is the escape hatch for one release and is removed by alerting-06d. Any other value refuses startup naming the key, whether or not alerting is enabled. Takes effect on restart |
+| `alerting.check_interval_seconds` | `60` | How often the `legacy` engine reads new findings; the `notify` engine does not use it |
 | `alerting.cooldown_minutes` | `15` | Raises the per-severity cooldown floors: critical 5 min, warning 30 min, info 6 h. A value below a floor leaves that floor |
 | `alerting.repeat_minutes` | `critical: 240`, `warning: 1440`, `info: 0` | Minutes between reminders of a finding that stays open, per severity; `0` never reminds. A missing severity keeps its default. A negative value, an unknown severity, more than `525600` (a year), or a value below that severity's cooldown (above) refuses startup naming the key |
 | `alerting.quiet_hours_start` / `alerting.quiet_hours_end` | empty | `HH:MM` (00:00-23:59); set both or neither. The window may cross midnight. Warning and info alerts are deferred, never dropped, until it ends; critical alerts bypass it |
@@ -3639,9 +3680,31 @@ throttle reads that log far enough back to keep the schedule. `repeat_minutes`,
 `cooldown_minutes`, `quiet_hours_start`, `quiet_hours_end` and `timezone` apply without a
 restart when changed through the settings API: the next decision of every alerting manager
 and of the notification outbox uses them, and alerts already open stay throttled. An unknown
-timezone or an invalid quiet-hours value is refused with an error naming the key. The other
-alerting keys (routes, channels, URLs, `enabled`, `check_interval_seconds`) take effect on
-restart.
+timezone or an invalid quiet-hours value is refused with an error naming the key. With the
+`notify` engine, `enabled`, `routes`, `webhooks`, `slack_webhook_url` and
+`pagerduty_routing_key` also apply without a restart (they are reconciled, below); with the
+`legacy` engine such a change is refused with an error that asks for a restart.
+`engine` and `check_interval_seconds` take effect on restart.
+
+**Reconciled into notification channels (`engine: notify`).** At startup and on every live
+change, the block is written to the notification tables of the control database (the meta
+database in meta mode, else the primary): one channel per usable target, named
+`config:slack:slack`, `config:pagerduty:pagerduty` and `config:webhook:<name>`, and for each
+routed channel one `finding_opened` and one `finding_resolved` rule whose `min_severity` is
+the lowest severity any route sends to that channel. Notification rules match "at least
+`min_severity`", so a channel routed only `warning` also receives `critical` findings, and a
+finding is posted once per channel however many routes name it. Secrets are sealed like those
+of channels created in the UI, and a target refused by the target policy builds no channel
+(the log names its key). These rows are marked `managed_by = config`: the Notifications page
+shows them with a "From config file" badge and without edit or delete, and the API answers
+`409 {"error":"managed_by_config"}` to a change; channel names starting with `config:` are
+reserved. The reconciler changes only its own rows, compares a hash of each so an unchanged
+block writes nothing, and runs in one transaction under an advisory lock, so two sidecars on
+one control database converge once; a failed reconcile writes nothing and refuses a live
+change. Removing the block (or `enabled: false`) deletes the config rows; channels and rules
+created in the UI are never touched. PagerDuty pages the legacy engine opened before the
+switch are resolved under their legacy key (`<database>:<category>:<object>`, read from
+`sage.alert_log`) when their finding resolves; new pages use the notification key.
 
 ```yaml
 alerting:
@@ -3676,12 +3739,20 @@ with the channel's error text, is logged at ERROR, and is retried on the next ch
 times per channel. After the fifth failure the ERROR log says it gave up; close that alert in the
 channel by hand.
 
-The Alert Log page shows each row's status as written: `sent` and `resolved` (green), `error` and
-`resolve_error` (red, with the channel's error text in the Error column) and `deferred` (amber,
-held by quiet hours, channel `quiet_hours`). In the fleet view, a database whose alert log
-cannot be read is named in a banner (`failed_databases` in `GET /api/v1/alert-log`) while the
-other databases' rows still show; the API answers 503 only when no selected database can be
-read. The date range filters the newest 100 rows per database.
+`GET /api/v1/alert-log` returns these rows with each status as written (`sent`, `resolved`,
+`error`, `resolve_error` with the channel's error text, and `deferred`, held by quiet hours,
+channel `quiet_hours`). A database whose alert log cannot be read is named in
+`failed_databases` while the other databases' rows still return; the API answers 503 only when
+no selected database can be read. The route is deprecated: it answers with
+`Deprecation: true` and a `Link` to `GET /api/v1/notifications/log`, the one notification log,
+which the Notifications page's Log tab shows. The dashboard's old `#/alerts` page redirects
+there, keeping `?database=`.
+
+The notification log names each delivery's `database` (`unknown` for a fleet-wide event and
+for rows written before the upgrade that added the column) and `dedup_key`.
+`?database=<name>` lists one database's deliveries (400 for a malformed name, 404 for a
+database pg_sage does not monitor; `all` or no parameter lists every database). The read is
+open to admins and operators; channels and rules stay admin-only.
 
 ### Notification delivery
 

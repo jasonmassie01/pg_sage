@@ -703,7 +703,36 @@ mode, each managed database in fleet mode, and the metadata database).
   `INVALID` index), the start trusts nothing: before each step it reads the
   catalog, a column, index or table that already exists is not touched, and
   missing objects are created again. An `INVALID` index (left by a killed
-  `CREATE INDEX CONCURRENTLY`) is dropped and rebuilt by the step that owns it.
+  `CREATE INDEX CONCURRENTLY`) is dropped and rebuilt by the step that owns it;
+  for an `INVALID` index no step builds, the start logs `no step rebuilds this
+  index; drop it` with the `DROP INDEX CONCURRENTLY` and `REINDEX INDEX
+  CONCURRENTLY` commands, and keeps distrusting the ledger until you do.
+- **Large indexes are built in the background.** The decision-ledger indexes
+  (`idx_decision_fingerprint`, `idx_decision_created`,
+  `idx_decision_action_log`, `idx_decision_queue`,
+  `idx_verification_decision`, `idx_change_lease_decision`,
+  `idx_incident_avoided_decision`, `idx_schema_baseline_decision`) are not
+  built by a start when their table has a million rows or more
+  (`pg_class.reltuples`): a build that size would not fit the startup
+  deadline and would leave an `INVALID` index each start. The start leaves
+  them out, and a background builder, one per database, builds them with
+  `CREATE INDEX CONCURRENTLY` once the database is running: on a dedicated
+  session, under its own advisory lock (a second sidecar on the same
+  database logs "another sidecar is building" and waits), with
+  `lock_timeout = 2s`, no `statement_timeout`, and the server's
+  `maintenance_work_mem`. A build that fails (a lock it cannot get within 2
+  seconds, a long transaction it would wait for) is retried after 1 minute,
+  doubling to at most 1 hour, with one `WARN` per run of failures; an
+  interrupted build leaves an `INVALID` index that the next run drops and
+  builds again. Each built index logs one `INFO` line. Stopping the sidecar,
+  removing the database from the fleet, or an emergency stop cancels a running
+  build on the server. `pg_sage_schema_deferred_indexes{database,state}`
+  counts the indexes still `missing`, `building` or `invalid`; it reads 0
+  once they are built. On a large install, some of these indexes therefore
+  appear a few minutes after an upgrade. These indexes do not count against
+  the fingerprint above, so their builds never make a start distrust the
+  ledger. Managed PostgreSQL services allow `CREATE INDEX CONCURRENTLY` on
+  tables pg_sage owns.
 - **A changed step stops the start.** A released migration step never
   changes. If the step recorded in `sage.schema_migrations` has another
   checksum than this build's, startup fails naming the step, for example

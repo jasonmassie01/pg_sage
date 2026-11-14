@@ -181,6 +181,22 @@ describe('SettingsPage', () => {
     expect(screen.queryByTestId('settings-save')).not.toBeInTheDocument()
   })
 
+  // config-02b: an out-of-range value is refused before the PUT, with the
+  // same message the API would return.
+  it('refuses an out-of-range value before sending the PUT', () => {
+    render(<SettingsPage database="all" />)
+    fireEvent.click(screen.getByTestId('settings-tab-retention'))
+    fireEvent.change(screen.getByTestId('setting-retention.snapshots_days'), {
+      target: { value: '0' },
+    })
+    fireEvent.click(screen.getByTestId('settings-save'))
+
+    expect(screen.getByTestId('settings-feedback')).toHaveTextContent(
+      'retention.snapshots_days must be 1-1073741824, got 0')
+    expect(screen.queryByTestId('config-diff-confirm')).not.toBeInTheDocument()
+    expect(globalThis.fetch).not.toHaveBeenCalled()
+  })
+
   it('sends the desired generation with global config writes', async () => {
     render(<SettingsPage database="all" />)
     fireEvent.click(screen.getByTestId('settings-tab-retention'))

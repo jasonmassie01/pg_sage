@@ -327,6 +327,7 @@ func registerControlPoolRoutes(
 		rt.DisableConfigWrites,
 	)
 	notifyDeps := newNotificationRouteDeps(rt)
+	notifyDeps.fleet = mgr
 	ns := registerNotificationRoutes(apiMux, pool, notifyDeps)
 	registerCaseTicketRoutes(apiMux, mgr, pool, ns, notifyDeps)
 	if rt.CaseTicketSync {

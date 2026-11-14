@@ -7,6 +7,9 @@ type Channel struct {
 	Type    string            `json:"type"`
 	Config  map[string]string `json:"config"`
 	Enabled bool              `json:"enabled"`
+	// ManagedBy is "config" for a channel the alerting reconciler owns
+	// (alerting-06b), else "api" (or empty where not read).
+	ManagedBy string `json:"managed_by,omitempty"`
 }
 
 // Rule maps events to channels with severity filtering.
@@ -16,6 +19,8 @@ type Rule struct {
 	Event       string `json:"event"`
 	MinSeverity string `json:"min_severity"`
 	Enabled     bool   `json:"enabled"`
+	// ManagedBy is "config" for a rule the alerting reconciler owns.
+	ManagedBy string `json:"managed_by,omitempty"`
 }
 
 // Event is the payload dispatched through the notification system.

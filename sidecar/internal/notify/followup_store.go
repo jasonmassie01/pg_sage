@@ -7,8 +7,10 @@ import (
 )
 
 // RecordDelivery records one delivery attempt with the event's incident
-// (ref_id) and the provider's message id. The error must already be
-// redacted; it is redacted again here as defense in depth.
+// (ref_id), the provider's message id, and the event's database and
+// dedup key (alerting-06c; a fleet-wide event records NULL database). The
+// error must already be redacted; it is redacted again here as defense in
+// depth.
 func (s *PoolStore) RecordDelivery(ctx context.Context, d Delivery) error {
 	if s.pool == nil {
 		return nil
@@ -17,10 +19,13 @@ func (s *PoolStore) RecordDelivery(ctx context.Context, d Delivery) error {
 	defer cancel()
 	_, err := s.pool.Exec(qctx,
 		`/* pg_sage */ INSERT INTO sage.notification_log
-		    (channel_id, event, subject, body, status, error, ref_id, provider_message_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), NULLIF($8, ''))`,
+		    (channel_id, event, subject, body, status, error, ref_id, provider_message_id,
+		     database, dedup_key)
+		 VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), NULLIF($8, ''),
+		         NULLIF($9, ''), NULLIF($10, ''))`,
 		d.ChannelID, d.Event.Type, d.Event.Subject, d.Event.Body, d.Status,
-		RedactURLs(d.Error), d.Event.RefID, d.ProviderMessageID)
+		RedactURLs(d.Error), d.Event.RefID, d.ProviderMessageID,
+		logDatabase(d.Event), EventDedupKey(d.Event))
 	if err != nil {
 		return fmt.Errorf("insert notification_log: %w", err)
 	}

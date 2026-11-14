@@ -12,6 +12,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/api"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/metricsreg"
+	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/selfbudget"
 	"github.com/pg-sage/sidecar/internal/selfcost"
 	"github.com/pg-sage/sidecar/internal/servertls"
@@ -60,6 +61,9 @@ func renderFullScrape(t *testing.T) string {
 	writeLeaderMetrics(&b, tickedElector(t, stubLease{held: true}, "meta", clk))
 	writeSSODiscoveryMetrics(&b, api.SSODiscoveryStatus{Enabled: true, Ready: true,
 		Failures: 2})
+	deferred := &deferredIndexGaugeStore{} // config-04c
+	deferred.set("alpha", nil, schema.DeferredIndexCounts{Missing: 1})
+	writeDeferredIndexMetrics(&b, deferred)
 	writeSelfCostMetrics(&b, map[string]selfcost.Cost{"alpha": {Known: true,
 		DBTimeKnown: true, DBTimeMsPerCycle: 12, CallsPerCycle: 4, BlocksPerCycle: 9,
 		RowsReadPerCycle: 3, RowsWrittenPerCycle: 2, SchemaBytes: 4096}}, 3000)

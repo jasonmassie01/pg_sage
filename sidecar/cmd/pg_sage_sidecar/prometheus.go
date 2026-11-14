@@ -27,6 +27,7 @@ func handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	writeLoginLimiterMetric(&b, api.LoginLimiterSaturatedTotal())
 	writeTLSMetrics(&b, apiTLS)
 	writeSSODiscoveryMetrics(&b, api.CurrentSSODiscoveryStatus())
+	writeDeferredIndexMetrics(&b, deferredIndexGauges)
 	writeFirstLookMetrics(&b, firstLookTracker.Snapshot())
 	writeConnectionMetric(&b, views)
 

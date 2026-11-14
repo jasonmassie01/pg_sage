@@ -12,7 +12,7 @@ import (
 
 // excludedPrefixes are top-level Config sections that represent
 // connection/infrastructure settings, not hot-reloadable config
-// overrides. They are intentionally absent from allowedConfigKeys.
+// overrides. They are intentionally absent from api-tagged keys.
 var excludedPrefixes = []string{
 	"postgres.",
 	"prometheus.",
@@ -68,6 +68,9 @@ var excludedPrefixes = []string{
 var excludedExactKeys = map[string]bool{
 	// Workload budget proposals (market-08): YAML only, restart-bound.
 	"advisor.budget_proposals": true,
+	// The alerting engine switch (alerting-06b): YAML only, restart-bound;
+	// the legacy engine is a one-release escape hatch, not a setting.
+	"alerting.engine": true,
 	// Migration contract delay and lock budget (migration-06): YAML only,
 	// safety-critical and restart-bound; an API write can never loosen them.
 	"migration.contract_delay_minutes": true,
@@ -460,7 +463,7 @@ func structFieldPaths(t reflect.Type, prefix string) []string {
 }
 
 // isExcluded returns true if a field path should not be expected
-// in allowedConfigKeys.
+// in api-tagged keys.
 func isExcluded(path string) bool {
 	if excludedExactKeys[path] {
 		return true
@@ -475,10 +478,10 @@ func isExcluded(path string) bool {
 
 // TestConfigConsistency_AllowedKeysMatchStruct verifies that every
 // leaf field in config.Config (minus excluded infra/connection
-// fields) has a corresponding entry in allowedConfigKeys.
+// fields) has a corresponding entry in api-tagged keys.
 //
 // When you add a new field to a Config sub-struct, this test will
-// fail until you also add it to allowedConfigKeys (or explicitly
+// fail until you also add it to api-tagged keys (or explicitly
 // exclude it).
 func TestConfigConsistency_AllowedKeysMatchStruct(t *testing.T) {
 	allPaths := structFieldPaths(
@@ -489,7 +492,7 @@ func TestConfigConsistency_AllowedKeysMatchStruct(t *testing.T) {
 		if isExcluded(path) {
 			continue
 		}
-		if _, ok := allowedConfigKeys[path]; !ok {
+		if _, ok := configKeyTypes()[path]; !ok {
 			missing = append(missing, path)
 		}
 	}
@@ -498,7 +501,7 @@ func TestConfigConsistency_AllowedKeysMatchStruct(t *testing.T) {
 		sort.Strings(missing)
 		t.Errorf(
 			"config.Config has %d field(s) not in "+
-				"allowedConfigKeys (add them or exclude them "+
+				"api-tagged keys (add api tags or exclude them "+
 				"in config_consistency_test.go):\n  %s",
 			len(missing),
 			strings.Join(missing, "\n  "))
@@ -506,7 +509,7 @@ func TestConfigConsistency_AllowedKeysMatchStruct(t *testing.T) {
 }
 
 // TestConfigConsistency_AllowedKeysExistInStruct verifies the
-// reverse: every key in allowedConfigKeys corresponds to a real
+// reverse: every key in api-tagged keys corresponds to a real
 // yaml-tagged field in config.Config.
 func TestConfigConsistency_AllowedKeysExistInStruct(t *testing.T) {
 	allPaths := structFieldPaths(
@@ -517,7 +520,7 @@ func TestConfigConsistency_AllowedKeysExistInStruct(t *testing.T) {
 	}
 
 	var orphans []string
-	for key := range allowedConfigKeys {
+	for key := range configKeyTypes() {
 		if !pathSet[key] {
 			orphans = append(orphans, key)
 		}
@@ -526,7 +529,7 @@ func TestConfigConsistency_AllowedKeysExistInStruct(t *testing.T) {
 	if len(orphans) > 0 {
 		sort.Strings(orphans)
 		t.Errorf(
-			"allowedConfigKeys has %d key(s) with no "+
+			"api-tagged keys has %d key(s) with no "+
 				"matching config.Config field:\n  %s",
 			len(orphans),
 			strings.Join(orphans, "\n  "))
@@ -535,7 +538,7 @@ func TestConfigConsistency_AllowedKeysExistInStruct(t *testing.T) {
 
 // TestConfigConsistency_ConfigToMapCoversAllAllowedKeys verifies
 // that configToMap() emits an entry for every key in
-// allowedConfigKeys.
+// api-tagged keys.
 func TestConfigConsistency_ConfigToMapCoversAllAllowedKeys(
 	t *testing.T,
 ) {
@@ -546,7 +549,7 @@ func TestConfigConsistency_ConfigToMapCoversAllAllowedKeys(
 	m := configToMap(cfg)
 
 	var missing []string
-	for key := range allowedConfigKeys {
+	for key := range configKeyTypes() {
 		if _, ok := m[key]; !ok {
 			missing = append(missing, key)
 		}
@@ -556,7 +559,7 @@ func TestConfigConsistency_ConfigToMapCoversAllAllowedKeys(
 		sort.Strings(missing)
 		t.Errorf(
 			"configToMap() is missing %d key(s) that "+
-				"allowedConfigKeys defines:\n  %s",
+				"api-tagged keys defines:\n  %s",
 			len(missing),
 			strings.Join(missing, "\n  "))
 	}
@@ -564,7 +567,7 @@ func TestConfigConsistency_ConfigToMapCoversAllAllowedKeys(
 
 // TestConfigConsistency_ConfigToMapOnlyAllowedKeys verifies that
 // configToMap() does not emit keys that are absent from
-// allowedConfigKeys. Stale or typo'd keys in configToMap would
+// api-tagged keys. Stale or typo'd keys in configToMap would
 // cause silent data that the SET API rejects.
 func TestConfigConsistency_ConfigToMapOnlyAllowedKeys(
 	t *testing.T,
@@ -576,7 +579,7 @@ func TestConfigConsistency_ConfigToMapOnlyAllowedKeys(
 
 	var extra []string
 	for key := range m {
-		if _, ok := allowedConfigKeys[key]; !ok {
+		if _, ok := configKeyTypes()[key]; !ok {
 			extra = append(extra, key)
 		}
 	}
@@ -585,7 +588,7 @@ func TestConfigConsistency_ConfigToMapOnlyAllowedKeys(
 		sort.Strings(extra)
 		t.Errorf(
 			"configToMap() emits %d key(s) not in "+
-				"allowedConfigKeys:\n  %s",
+				"api-tagged keys:\n  %s",
 			len(extra),
 			strings.Join(extra, "\n  "))
 	}
@@ -593,7 +596,7 @@ func TestConfigConsistency_ConfigToMapOnlyAllowedKeys(
 
 // TestConfigConsistency_HotReloadCoversAllAllowedKeys verifies
 // that hotReload() (in internal/api/config_apply.go) handles every
-// key defined in allowedConfigKeys.
+// key defined in api-tagged keys.
 //
 // Strategy: call hotReload for each key with a non-zero value and
 // verify the config struct was actually mutated. This catches keys
@@ -605,7 +608,7 @@ func TestConfigConsistency_HotReloadCoversAllAllowedKeys(
 	// hotReload is in package api, which we can't call from
 	// package store. Instead, we build the expected set of
 	// hotReload keys by parsing the switch cases from the
-	// function's behavior: for each allowedConfigKeys entry we
+	// function's behavior: for each api-tagged keys entry we
 	// verify that a SET + GET round-trip through configToMap
 	// reflects the change. This is an indirect but accurate test.
 
@@ -638,7 +641,7 @@ func TestConfigConsistency_HotReloadCoversAllAllowedKeys(
 		"llm_auth":           "databricks",
 	}
 
-	for key, vtype := range allowedConfigKeys {
+	for key, vtype := range configKeyTypes() {
 		testVal, ok := testValues[vtype]
 		if !ok {
 			t.Errorf(
@@ -704,14 +707,14 @@ func TestConfigConsistency_NoExclusionDrift(t *testing.T) {
 }
 
 // TestConfigConsistency_ExcludedAndAllowedAreDisjoint ensures no
-// key appears in both the exclusion list and allowedConfigKeys.
+// key appears in both the exclusion list and api-tagged keys.
 // That would indicate confusion about whether a key is overridable.
 func TestConfigConsistency_ExcludedAndAllowedAreDisjoint(
 	t *testing.T,
 ) {
 	var overlap []string
 	for key := range excludedExactKeys {
-		if _, ok := allowedConfigKeys[key]; ok {
+		if _, ok := configKeyTypes()[key]; ok {
 			overlap = append(overlap, key)
 		}
 	}
@@ -720,7 +723,7 @@ func TestConfigConsistency_ExcludedAndAllowedAreDisjoint(
 		sort.Strings(overlap)
 		t.Errorf(
 			"%d key(s) appear in BOTH excludedExactKeys and "+
-				"allowedConfigKeys — pick one:\n  %s",
+				"api-tagged keys — pick one:\n  %s",
 			len(overlap),
 			strings.Join(overlap, "\n  "))
 	}
@@ -771,11 +774,11 @@ func TestConfigConsistency_StructFieldPathsReturnsExpectedPaths(
 }
 
 // TestConfigConsistency_CoerceValueCoverage ensures coerceValue
-// handles every validation type that appears in allowedConfigKeys.
+// handles every validation type that appears in api-tagged keys.
 func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 	// Collect all unique validation types.
 	vtypes := make(map[string]bool)
-	for _, vtype := range allowedConfigKeys {
+	for _, vtype := range configKeyTypes() {
 		vtypes[vtype] = true
 	}
 
@@ -821,7 +824,7 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 
 		// Find any key with this vtype to test coercion.
 		var sampleKey string
-		for k, v := range allowedConfigKeys {
+		for k, v := range configKeyTypes() {
 			if v == vtype {
 				sampleKey = k
 				break
@@ -879,17 +882,17 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 func TestConfigConsistency_AllowedKeyCount(t *testing.T) {
 	const expectedCount = 121 // Update when adding/removing keys.
 
-	actual := len(allowedConfigKeys)
+	actual := len(configKeyTypes())
 	if actual != expectedCount {
 		// Build a sorted list for easy diffing.
 		keys := make([]string, 0, actual)
-		for k := range allowedConfigKeys {
+		for k := range configKeyTypes() {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
 
 		t.Errorf(
-			"allowedConfigKeys count changed: got %d, "+
+			"api-tagged keys count changed: got %d, "+
 				"want %d.\nCurrent keys:\n  %s\n\n"+
 				"If this is intentional, update "+
 				"expectedCount in this test.",
@@ -906,7 +909,7 @@ func TestConfigConsistency_ConfigToMapKeyCount(t *testing.T) {
 	}
 	m := configToMap(cfg)
 
-	const expectedCount = 121 // Should match allowedConfigKeys.
+	const expectedCount = 121 // Should match api-tagged keys.
 
 	actual := len(m)
 	if actual != expectedCount {
@@ -937,7 +940,7 @@ func TestConfigConsistency_SymmetricDiff(t *testing.T) {
 
 	// Collect all keys from both sources.
 	allKeys := make(map[string]bool)
-	for k := range allowedConfigKeys {
+	for k := range configKeyTypes() {
 		allKeys[k] = true
 	}
 	for k := range m {
@@ -946,27 +949,27 @@ func TestConfigConsistency_SymmetricDiff(t *testing.T) {
 
 	var diffs []string
 	for key := range allKeys {
-		_, inAllowed := allowedConfigKeys[key]
+		_, inAllowed := configKeyTypes()[key]
 		_, inMap := m[key]
 
 		switch {
 		case inAllowed && !inMap:
 			diffs = append(diffs,
 				fmt.Sprintf(
-					"  %s: in allowedConfigKeys but NOT "+
+					"  %s: in api-tagged keys but NOT "+
 						"in configToMap()", key))
 		case !inAllowed && inMap:
 			diffs = append(diffs,
 				fmt.Sprintf(
 					"  %s: in configToMap() but NOT in "+
-						"allowedConfigKeys", key))
+						"api-tagged keys", key))
 		}
 	}
 
 	if len(diffs) > 0 {
 		sort.Strings(diffs)
 		t.Errorf(
-			"registry mismatch between allowedConfigKeys "+
+			"registry mismatch between api-tagged keys "+
 				"and configToMap():\n%s",
 			strings.Join(diffs, "\n"))
 	}
