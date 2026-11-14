@@ -25,9 +25,6 @@ vi.mock('./pages/CasesPage', () => ({
 }))
 vi.mock('./pages/Actions', () => ({ Actions: () => <div data-testid="actions-page" /> }))
 vi.mock('./pages/UsersPage', () => ({ UsersPage: () => <div data-testid="users-page" /> }))
-vi.mock('./pages/AlertLogPage', () => ({
-  AlertLogPage: () => <div data-testid="alert-log-page" />,
-}))
 vi.mock('./pages/NotificationsPage', () => ({
   NotificationsPage: () => <div data-testid="notifications-page" />,
 }))
@@ -94,16 +91,16 @@ describe('App routes from the registry', () => {
     expect(screen.queryByTestId('nav-alerts')).toBeNull()
   })
 
-  it('keeps the alert log open to operators', async () => {
+  it('sends operators from the alert log to the notification log', async () => {
     await open('#/alerts', 'operator')
-    expect(screen.getByTestId('alert-log-page')).toBeInTheDocument()
-    expect(title()).toHaveTextContent('Alerts')
+    expect(await screen.findByTestId('notifications-page')).toBeInTheDocument()
+    expect(title()).toHaveTextContent('Notifications')
   })
 
   it('denies a viewer the alert log on a direct hash', async () => {
     await open('#/alerts', 'viewer')
     expect(screen.getByTestId('access-denied')).toBeInTheDocument()
-    expect(screen.queryByTestId('alert-log-page')).toBeNull()
+    expect(screen.queryByTestId('notifications-page')).toBeNull()
     expect(title()).toHaveTextContent('Access denied')
   })
 

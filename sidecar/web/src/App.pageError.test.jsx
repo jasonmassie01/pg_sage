@@ -73,7 +73,7 @@ describe('App: a page render error', () => {
     })
 
     expect(screen.queryByTestId('page-error')).toBeNull()
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Alerts')
-    expect(screen.getByText(/no alerts sent yet/i)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Notifications')
+    expect(await screen.findByText(/no notifications sent yet/i)).toBeInTheDocument()
   })
 })
