@@ -19,13 +19,19 @@ const ArmInvestigator = "causal-graph+investigator"
 // InvestigatorArm runs the coordinator with the tool-calling
 // investigator against Config's model: the scripted fake investigator
 // (CI default) or a live OpenAI-compatible endpoint.
-type InvestigatorArm struct{ Config LLMConfig }
+// RequireSupportCitation runs it under the Support-evidence rule
+// (sre.investigator.require_support_citation); off is the Phase 1 bench
+// the replay gates were set on, and the compare runs both.
+type InvestigatorArm struct {
+	Config                 LLMConfig
+	RequireSupportCitation bool
+}
 
 // Name implements LiveArm.
 func (InvestigatorArm) Name() string { return ArmInvestigator }
 
 // Ready implements LiveArm, as for the LLM-on arm.
-func (a InvestigatorArm) Ready() (bool, string) { return LLMArm(a).Ready() }
+func (a InvestigatorArm) Ready() (bool, string) { return LLMArm{Config: a.Config}.Ready() }
 
 // Investigate implements LiveArm: the fault's database also serves the
 // plan-only EXPLAIN.
@@ -37,7 +43,7 @@ func (a InvestigatorArm) Investigate(ctx context.Context, e *Env, sc Scenario) (
 	}
 	defer done()
 	cfg := &sre.InvestigatorConfig{Explainer: sre.NewStatementExplainer(e.Runner,
-		benchStatementTexts(e.Pool))}
+		benchStatementTexts(e.Pool)), RequireSupportCitation: a.RequireSupportCitation}
 	tr, err := e.investigate(ctx, sc, client, cfg)
 	if err == nil && tr.Outcome.Model != nil {
 		tr.Outcome.Model.Usage = tap.Usage()
@@ -53,8 +59,8 @@ func (a InvestigatorArm) replayModel(sc Scenario) (*llm.Client, *ModelTap, func(
 
 // replayInvestigator is the investigator of a replay: recorded evidence
 // only, so no EXPLAIN against the bench database.
-func (InvestigatorArm) replayInvestigator() *sre.InvestigatorConfig {
-	return &sre.InvestigatorConfig{}
+func (a InvestigatorArm) replayInvestigator() *sre.InvestigatorConfig {
+	return &sre.InvestigatorConfig{RequireSupportCitation: a.RequireSupportCitation}
 }
 
 // UnmodeledPick is what the lift reads as the investigator's pick when it

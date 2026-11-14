@@ -258,6 +258,7 @@ func (e *Env) trace(ctx context.Context, scope sre.Scope, id sre.UUID,
 		}
 		o.Model.Claims, o.Model.ClaimsResolved = claimRefs(inv.Summary, stored)
 		o.Model.RankedFirst = rankedFirst(inv.Summary)
+		o.Model.Outcome = modelOutcomeOf(inv.Summary)
 	}
 	tr := Trace{Outcome: o, scope: scopeFindings(inv.Summary, hs, stored)}
 	for i, ev := range stored {
