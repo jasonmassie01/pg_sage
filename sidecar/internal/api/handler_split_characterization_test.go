@@ -387,3 +387,53 @@ func TestHandlerSplitGolden_MultiInstance(t *testing.T) {
 	h, _ := closedFleetRouter(t, "primary", "secondary")
 	checkHandlerGolden(t, "multi_instance.json", runGoldenCalls(h, multiInstanceCalls()))
 }
+
+// Read-only config mode: the per-database view reports the running
+// executor's mode and trust, else the database's YAML, else approval and
+// the global trust. None of the goldens reach this handler with a fleet.
+func TestHandlerSplit_ReadOnlyDBConfigPolicy(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Mode = "fleet"
+	cfg.Trust.Level = "advisory"
+	mgr := fleet.NewManager(cfg)
+	running := executor.New(nil, cfg, time.Time{}, func(string, string, ...any) {})
+	running.SetExecutionMode("auto")
+	if err := running.SetTrustLevel("autonomous"); err != nil {
+		t.Fatal(err)
+	}
+	for id, inst := range map[int]*fleet.DatabaseInstance{
+		1: {Name: "bare", Config: config.DatabaseConfig{Name: "bare"}},
+		2: {Name: "yaml", Config: config.DatabaseConfig{
+			Name: "yaml", ExecutionMode: "manual", TrustLevel: "observation"}},
+		3: {Name: "live", Executor: running, Config: config.DatabaseConfig{
+			Name: "live", ExecutionMode: "manual", TrustLevel: "observation"}},
+	} {
+		inst.DatabaseID = id
+		inst.Status = &fleet.InstanceStatus{Connected: true}
+		mgr.RegisterInstance(inst)
+	}
+	mux := http.NewServeMux()
+	mux.Handle("GET /x/{id}", configReadOnlyDBGetHandler(mgr,
+		config.NewConfigController(cfg, nil)))
+	for _, tc := range []struct{ path, mode, trust string }{
+		{"/x/1", "approval", "advisory"},
+		{"/x/2", "manual", "observation"},
+		{"/x/3", "auto", "autonomous"},
+	} {
+		rec := serveGolden(mux, goldenCall{tc.path, "admin", "GET", tc.path, ""})
+		body, _ := rec.Body.(map[string]any)
+		values, _ := body["config"].(map[string]any)
+		want := fmt.Sprintf("map[source:%s value:%s] map[source:%s value:%s]",
+			store.SourceFileDefault, tc.mode, store.SourceFileDefault, tc.trust)
+		got := fmt.Sprint(values["execution_mode"], " ", values["trust.level"])
+		if rec.Status != http.StatusOK || got != want || body["read_only"] != true {
+			t.Errorf("%s = %d %s read_only=%v, want 200 %s", tc.path, rec.Status, got,
+				body["read_only"], want)
+		}
+	}
+	rec := serveGolden(mux, goldenCall{"missing", "admin", "GET", "/x/9", ""})
+	if rec.Status != http.StatusNotFound ||
+		fmt.Sprint(rec.Body) != "map[error:database not found]" {
+		t.Fatalf("unknown database = %d %v, want 404 database not found", rec.Status, rec.Body)
+	}
+}
