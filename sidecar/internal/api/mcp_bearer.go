@@ -104,6 +104,14 @@ func serveMCPToken(
 		jsonError(w, "token validation unavailable", http.StatusServiceUnavailable)
 		return
 	}
+	// A person's token reads only what its owner may read now
+	// (apiauth-08c); a grant store failure binds a principal that reads
+	// nothing, and the MCP server answers each call as unavailable.
+	p, err = scopeMCPPrincipal(r.Context(), databaseAuthzFrom(r.Context()), p)
+	if err != nil {
+		slog.Error("mcp database grant check failed; the call reads no database",
+			"token_id", p.TokenID, "owner_user_id", p.OwnerUserID, "err", err)
+	}
 	ctx := mcp.WithPrincipal(r.Context(), p)
 	if identity != nil {
 		ctx = agentguard.WithIdentity(ctx, *identity)

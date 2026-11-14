@@ -91,7 +91,9 @@ type Outcome struct {
 // the investigation that still verifies; the first node of the stored
 // model ranking; the roots of a disagreement (the graph's conclusive
 // root, the model's top-ranked one and the authority it got, roadmap
-// 2.4); and the model traffic the tap saw.
+// 2.4); the investigator's normalized outcome (contested, concluded,
+// ...: the support-citation compare counts it); and the model traffic
+// the tap saw.
 type ModelStats struct {
 	Turns          int      `json:"model_turns"`
 	Reviewed       int      `json:"model_reviewed"`
@@ -103,6 +105,7 @@ type ModelStats struct {
 	GraphRoot      string   `json:"graph_root,omitempty"`
 	ModelRoot      string   `json:"model_root,omitempty"`
 	Authority      string   `json:"authority,omitempty"`
+	Outcome        string   `json:"model_outcome,omitempty"`
 	Usage          TapUsage `json:"usage"`
 }
 

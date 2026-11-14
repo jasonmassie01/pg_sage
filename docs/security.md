@@ -674,10 +674,76 @@ written to `sage.auth_audit` (`database_grant_set`, `database_grant_revoked`,
 with the database, role and previous role) in the same transaction, so the
 audit chain seals it.
 
-Not scoped yet (phase 2, for a multi-team fleet): reads. A limited user still
-sees every database's findings, actions, `?database=all` aggregates, event
-streams, MCP read tools and Ask Sage context. MCP and agent tokens keep their
-own database lists (agent governance) and are not affected by user grants.
+#### Reads
+
+With grants enforced, a user with any grant reads only the granted databases
+(apiauth-08b), whatever the grant's role. Users with no grants, admins, the
+switch off and standalone mode see exactly what they saw before. Every `GET`
+route a signed-in user can reach declares how it filters, and the registry test
+fails on one that does not (`internal/api/route_read.go`, the list in
+`internal/api/route_read_scopes.go`, each route's scope in
+`internal/api/testdata/route_scopes.golden`):
+
+- **One database** (`database:path:db`, for example Ask conversations,
+  investigations and runbooks under `/api/v1/databases/{db}/`): a database
+  outside the user's grants answers exactly like a database that does not exist
+  (`404 {"error": "database not found"}`), so a read never reveals that another
+  team's database exists. A malformed name is `400`, as before. Writes keep the
+  `403 database_forbidden` above.
+- **Aggregate** (the database list, findings, cases, actions, incidents,
+  recommendations, snapshots, fleet health, queries, approvals, facts, value,
+  briefings and the other fleet-wide views): no `?database=`, or
+  `?database=all`, means every database the user can read. Lists, counts and
+  summaries are computed over those databases only; `GET /api/v1/databases`
+  lists only them. A grant on a database that has left the fleet shows nothing
+  and is not an error.
+- **Global**: routes with no database data (`/api/v1/auth/me`, SSO status, the
+  model list, finding categories).
+- **Fleet-only**: routes this release cannot narrow to a set of databases
+  (process config, LLM status and usage, onboarding and first look, policy and
+  trust pages, autonomy, agents, upgrade readiness, case tickets, fleet
+  look-alikes and leader, specialist requests). A limited user gets
+  `403 {"code": "fleet_scope_required"}`; an admin or an unlimited user is
+  served as before. pg_sage refuses rather than show other databases' data.
+
+The live-update stream (`GET /api/v1/events`) reads the user's databases once,
+when it connects, and drops every event of another database; an event that
+names no database passes only if it is a fleet-wide type with no per-database
+payload (the heartbeat). A stream lasts 45 seconds and the dashboard then
+reconnects, so a revoked grant stops live updates within 45 seconds; ordinary
+reads apply a revoke on the next request. If the grants cannot be read, the read
+is refused with `503 grant_store_unavailable`; it never falls back to showing
+everything.
+
+#### MCP tokens and Ask Sage
+
+With grants enforced, a person's MCP token (`kind: operator`) reads only the
+databases on its own list that its owner may read now (apiauth-08c): the token's
+`databases` (or `["*"]`) is intersected with the owner's grants on every MCP
+request. `list_databases`, `tools/list` and `resources/list` show only those
+databases, and naming another is `-32003 database_not_permitted`, the same
+answer as for a database that does not exist. Revoking a grant narrows the
+token's next call; a grant added later widens the token up to its own list,
+never beyond it. An owner with no grants, or an admin owner, is not narrowed.
+A person's token with no owner reads no database while grants are on. If the
+grants cannot be read, every tool call and resource read is
+`-32010 unavailable`; the token never falls back to its full list. Agent tokens
+and OAuth agent identities keep their own database lists (agent governance) and
+are not affected by user grants.
+
+Minting (`POST /api/v1/mcp/tokens`, admin only) checks the same rule: a token
+whose `owner_user_id` is a user limited by grants may name only databases that
+user is granted; `"*"` or any other database is
+`400 {"code": "database_forbidden"}` and no token is stored. Tokens minted
+before grants were turned on keep working, narrowed by the intersection.
+
+Ask Sage (`POST /api/v1/databases/{db}/ask`) is scoped like the other
+one-database reads: a database outside the caller's grants answers exactly like
+one that does not exist (`404 {"error": "database not found"}`), the model is
+not called and nothing is stored. Over MCP, `ask_sage` follows the token rule
+above.
+
+Not scoped yet: SSO group-to-grant mapping (apiauth-08d).
 
 ### User Offboarding
 
@@ -890,6 +956,52 @@ oauth:
 - Without `role_mapping`, every SSO user gets `oauth.default_role`
   (`viewer`), as before.
 
+### Group to Database Grant Mapping
+
+With `oauth.database_grant_mapping` (apiauth-08d, default empty) the IdP also
+sets [per-database grants](#per-database-authorization):
+
+```yaml
+oauth:
+  database_grant_mapping:
+    - {group: team-billing, database: billing, role: operator}
+    - {group: team-billing, database: orders,  role: viewer}
+    - {group: team-search,  database: search,  role: viewer}
+```
+
+- It is checked at startup: a role other than `viewer` or `operator` (admins
+  are never limited by database), an empty, `all` or `*` database, an empty
+  group or the same group twice on one database stops startup with an error
+  naming the entry. Restart to change it.
+- At every SSO login the grants the user's groups give replace the grants the
+  IdP gave before (`source: idp`), in one transaction. Group names match
+  exactly (case-sensitive), as for `role_mapping`; a user in several groups
+  that grant one database gets the higher role. Each change is audited as
+  `database_grant_set` or `database_grant_revoked` with `"source": "idp"`.
+- **Manual grants win.** A grant an admin set on the Users page (`source:
+  manual`) is never changed or removed by a login. If the groups would grant
+  the same database, the manual grant stays and the login records
+  `idp_grant_shadowed` (with `idp_role` and `manual_role`) at each login.
+  Setting a grant on the Users page on a database the IdP granted turns it into
+  a manual grant.
+- The Users page shows each grant's source. While the mapping is set, IdP
+  grants are read-only there, and `DELETE` of one is
+  `409 {"code": "idp_grant"}`: the next login would restore it. Change the
+  user's groups, or set a manual grant to override it. If the mapping is later
+  removed, logins stop changing grants and the IdP grants already stored stay
+  (fail closed) until an admin removes them.
+- If the grants cannot be written the login is refused with `503`
+  (`sso_error=grants_unavailable`, `login_failed` reason `grant_sync_failed`)
+  and nothing changes: pg_sage never signs a user in with a grant set the IdP
+  has since changed.
+- A user whose groups grant nothing (or whose token carries no groups claim)
+  loses every IdP grant. With no manual grant left they are no longer limited
+  and get their global role on every database again (the phase 1 rule). Pair
+  the mapping with a `role_mapping` that gives such users only `viewer`, or with
+  `unmapped_users: deny`, so leaving a team never widens access.
+- Concurrent logins of one user are serialized: the grants end as one login's
+  set, never a mix.
+
 ### Authentication Audit
 
 `sage.auth_audit` records, with actor and target user ids, time and the
@@ -902,6 +1014,8 @@ client address (`source_ip`, honouring `api.trusted_proxies`):
 | `user_created`, `user_deleted` | Admin user administration |
 | `user_disabled`, `user_enabled` | Deactivation and reactivation (`detail.sessions_ended`, `detail.mcp_tokens_revoked`) |
 | `user_role_changed` | Role changes from the API (`source: api`) or the IdP (`source: idp`) |
+| `database_grant_set`, `database_grant_revoked` | Per-database grant changes by an admin, or by an SSO login (`source: idp`) |
+| `idp_grant_shadowed` | An SSO login's grant not applied because an admin's manual grant holds that database |
 | `password_changed`, `password_reset` | A user changed their own password; an admin reset one (`detail.sessions_ended`). SIEM: Account Change, Password Change / Password Reset |
 | `oidc_linked`, `oidc_unlinked`, `oidc_link_grant_*` | Account linking |
 | `agent_created`, `agent_updated`, `agent_widened_single_operator`, `agent_retired`, `agent_status_changed` | Agent principal changes, in the change's own transaction (see [Agent governance](agent-governance.md#principals)) |

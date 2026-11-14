@@ -16,7 +16,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	os.Exit(testdb.Run(m.Run, "internal/recommendation"))
+	os.Exit(testdb.RunBootstrapped(m.Run, "internal/recommendation", schema.Bootstrap))
 }
 
 var (

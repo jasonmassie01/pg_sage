@@ -39,7 +39,7 @@ func registerSelfAwareRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
 }
 
 func registerSelfCostRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
-	route(mux, "GET "+selfCostPath, gateViewer, selfCostHandler(mgr))
+	routeAggregate(mux, "GET "+selfCostPath, gateViewer, mgr, aggregateHandler(selfCostHandler))
 }
 
 type footprintKnown struct {

@@ -34,9 +34,21 @@ func registerFactRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
 	h := factHandlers{mgr: mgr}
 	// Facts resolve their database like approval cards (factHandlers.target).
 	factDB := approvalCardDatabase(mgr)
-	route(mux, "GET /api/v1/facts", gateViewer, http.HandlerFunc(h.list))
-	route(mux, "GET /api/v1/facts/match", gateViewer, http.HandlerFunc(h.match))
-	route(mux, "GET /api/v1/facts/coverage", gateViewer, http.HandlerFunc(h.coverage))
+	for _, read := range []struct {
+		path string
+		fn   func(factHandlers, http.ResponseWriter, *http.Request)
+	}{
+		{"/api/v1/facts", factHandlers.list}, {"/api/v1/facts/match", factHandlers.match},
+		{"/api/v1/facts/coverage", factHandlers.coverage},
+	} {
+		routeAggregate(mux, "GET "+read.path, gateViewer, mgr,
+			func(m *fleet.DatabaseManager) http.Handler {
+				v := factHandlers{mgr: m}
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					read.fn(v, w, r)
+				})
+			})
+	}
 	routeDB(mux, "POST /api/v1/facts", gateOperator, factDB, http.HandlerFunc(h.declare))
 	for _, verb := range []string{"confirm", "reject", "expire"} {
 		routeDB(mux, "POST /api/v1/facts/{id}/"+verb, gateOperator, factDB, h.decide(verb))

@@ -120,7 +120,7 @@ func countCategory(t *testing.T, ctx context.Context, pool *pgxpool.Pool, cat st
 // slope (template0 is never vacuumed, so the cluster age rises with
 // every XID).
 func TestMonitorTick_LowAgeBurnOpensNoWraparoundFinding(t *testing.T) {
-	pool, ctx := livePool(t)
+	pool, ctx := exclusivePool(t, "the cluster-wide XID slope of a low-age burn")
 	resetXID(t, ctx, pool)
 	sampler := newTestMonitor(t, pool, liveRunner(pool), nil)
 	burnXIDs(t, ctx, pool, sampler, 12, 417, 100*time.Millisecond)

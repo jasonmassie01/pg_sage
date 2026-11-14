@@ -69,14 +69,22 @@ bash scripts/ci/verify-test-postgres.sh pgsage-test 17
 export SAGE_TEST_DATABASE_URL="postgres://postgres:postgres@127.0.0.1:55432/postgres?sslmode=disable"
 ```
 
-Then run the suites as CI does and check the skip budget:
+Then run the suites as CI does and check the skip budget and the coverage
+floors:
 
 ```bash
 cd sidecar
-go test -race -count=1 -tags=integration -timeout 1500s ./... -json > ../unit.json
+go test -race -cover -count=1 -tags=integration -timeout 1500s ./... -json > ../unit.json
 go test -count=1 -tags=e2e -timeout 900s ./e2e -json > ../e2e.json
 cat ../unit.json ../e2e.json | go run ./cmd/skipbudget -pg 17
+go run ./cmd/covfloor < ../unit.json
 ```
+
+`cmd/covfloor` fails when a package's statement coverage is under its floor in
+`sidecar/.coverage-floors`: 70% unless a line lowers it (50% for test helpers
+and generators). It also fails on a package that failed to build or printed no
+coverage line. Lower a floor only with a `# reason` a reviewer can verify,
+never to turn a red build green; the tool refuses a line without a reason.
 
 `-race` needs cgo and a C compiler; leave it out without one. Build tags pick
 the suites: `integration` adds the tests against the server, `e2e` the
@@ -86,6 +94,136 @@ fails `cmd/skipbudget` unless `sidecar/.skip-allowlist` names it with a reason
 a reviewer can verify; add an entry only with such a reason. For a quick loop
 on one package, `go test -count=1 -tags=integration ./internal/store/` is
 enough. Remove the server with `docker rm -f -v pgsage-test`.
+
+A package's fixture database starts empty (`testdb.Run`), so every
+package bootstraps the sage schema, and a full run does that in about
+200 databases at once. A package whose tests only need the schema opts
+into one bootstrapped template per run instead:
+
+```go
+func TestMain(m *testing.M) {
+	os.Exit(testdb.RunBootstrapped(m.Run, "internal/<pkg>", schema.Bootstrap))
+}
+```
+
+The first such package builds `pgsage_tpl_<hash>` (the hash covers
+`internal/schema/testdata/migration_checksums.txt` and the schema
+package's sources, so a schema change builds a new one) under a cluster
+lock; the others wait and copy it. Its fixture, and each database
+`testdb.CreateBootstrappedDatabase(t, label)` makes, is a copy, so
+`schema.Bootstrap` on it only checks. Tests still call `schema.Bootstrap`.
+Without the checksum file the fixtures start from `template0` and the
+package says so once. Templates of other hashes older than an hour are
+dropped by the next build; removing the server removes them all. Keep
+`testdb.Run` and `testdb.CreateDatabase` for tests of bootstrap or
+migration behaviour: they need an empty database (`internal/schema`
+asserts its fixture came from `template0`).
+
+Every pool a test opens and closes leaves its client sockets in TIME_WAIT
+(up to 120 s on Windows), and a full round can use up the host's dynamic
+port range: dials then fail with "Only one usage of each socket address" or
+"lacked sufficient buffer space". A test helper that only runs statements
+takes `testdb.Pool(t)`, the package-wide pool on the fixture database
+(`testdb.PoolFor(t, dsn)` for another DSN that outlives the tests). It holds
+at most 8 connections, and `testdb.Run` and `testdb.RunBootstrapped` close
+it after the tests; using it later returns pgxpool's "closed pool" error.
+Tests share it, so a test never closes it and never leaves session state on
+it (`SET`, `SET ROLE`, temporary tables, advisory locks, HypoPG
+hypothetical indexes). Tests of connection-level behaviour (per-session
+timeouts, `SET` scope, pool exhaustion), tests that need more than 8
+connections at once, and tests on a database they create keep their own pool.
+
+Every package shares that one server, so anything cluster-wide is shared too:
+WAL volume and checkpoints, XID consumption, `pg_stat_reset_shared`,
+`pg_stat_statements`, the I/O statistics and the whole-cluster backend count.
+A test that measures or resets such state calls `testdb.Exclusive(t, reason)`
+instead: it gets a fresh database on a second server, `SAGE_TEST_EXCLUSIVE_URL`,
+which it holds alone until it ends (a cluster lock, so measuring tests run one
+at a time across packages), then the database is dropped and the server
+released. Start a second container from the same image on another port and
+export it next to the first:
+
+```bash
+docker run -d --name pgsage-test-exclusive -e POSTGRES_PASSWORD=postgres \
+  -p 127.0.0.1:55433:5432 ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r1
+bash scripts/ci/verify-test-postgres.sh pgsage-test-exclusive 17
+export SAGE_TEST_EXCLUSIVE_URL="postgres://postgres:postgres@127.0.0.1:55433/postgres?sslmode=disable"
+```
+
+`Exclusive` compares `system_identifier` (`pg_control_system()`) on both
+servers and fails the test, "same cluster", when the two URLs name one
+cluster, or when `SAGE_TEST_DATABASE_URL` is unset and it cannot tell. Without
+`SAGE_TEST_EXCLUSIVE_URL` those tests skip with an `exclusive-cluster:` reason
+that `.skip-allowlist` never lists, so the skip budget fails a CI job that
+lost the server. Every CI job with a test server runs a `postgres-exclusive`
+service on port 5433. A test that needs a second database there (the perf
+gate's meta store) adds it with `testdb.ExclusiveDatabase(t, label)`.
+
+To clear your own statement statistics on the shared server, call
+`testdb.ResetStatements(ctx, pool)`: it resets only the current database's
+`pg_stat_statements` entries (the three-argument reset) and returns the
+extension's `dealloc` count, so you can tell an eviction from your reset.
+Only a reset of every database moves `pg_stat_statements_info.stats_reset`;
+a test that needs that, a `pg_stat_reset_shared` call or a `CHECKPOINT` runs
+on `testdb.Exclusive`. `TestResetLint` (`go test -run TestResetLint
+./internal/testdb/`) fails, naming file and line, on a zero-argument
+`pg_stat_statements_reset()` (or its all-zero `(0, 0, 0)` form), a
+`pg_stat_reset_shared(` call or an executed
+`CHECKPOINT` in a test file or under `internal/testsupport/` that no
+`Exclusive` test reaches.
+
+Compare times on the clock that produced them. The test server's clock is
+not the host's: the Docker Desktop VM clock slews by about -0.9 s to +2.5 s
+within minutes. A stamp compared with a database timestamp (`now()`,
+`clock_timestamp()`, a column default) comes from `testdb.DBNow(ctx, q)` or
+`testdb.MustDBNow(t, q)`, never `time.Now()`; an interval the database
+enforces (a lease TTL, a queue deadline) is measured as the difference of
+two `DBNow` readings, not with `time.Since`. When a test bounds a
+database-clock interval that host-timed steps drive (ticks, sleeps), start
+`w, err := testdb.StartClockWatch(ctx, q)` before the interval and check
+against `w.Widen(t, bound)`: it adds how far the database clock moved
+against the host's monotonic clock (`w.Step(ctx)`), logs it, and fails the
+test if the sample fails. Never widen such a bound by a constant. A time the
+sidecar stamps on the host (a fallback log entry, for example) stays on the
+host clock.
+
+On a machine without cgo (Windows, for example), `scripts/ci/local-linux-suite.sh
+<out-dir> [majors...]` runs the test job's suite command on Linux, with cgo and
+`-race`, once per PostgreSQL major (default 14, 15 and 17; PostgreSQL 17 also
+runs the e2e step). Then it runs the skip budget (and, on PostgreSQL 17, the
+coverage floors) and writes `<out-dir>/summary.md`, which lists every failure,
+data race, UNLISTED skip and package under its floor.
+It uses local images only and never pulls one. `GO_IMAGE` needs gcc and a
+race runtime that links. The default, `golang:1.27.3-alpine3.24`, has no gcc,
+so the run stops with exit 7; set `GO_IMAGE` (and `GO_ROOT` for a Go tree
+mounted at `/opt/go`) to an image that has them. It tests a `git archive` of
+`LOCAL_SUITE_REV` (default `HEAD`), vendored offline from your module cache,
+and never writes inside the worktree. It creates and removes only containers
+named `improve-ci-*` (`LOCAL_SUITE_PREFIX`). A full run takes about 40 to 70
+minutes per major, so run one per machine at a time.
+`LOCAL_SUITE_DRY_RUN=1` checks the inputs and prints the plan, and
+`scripts/ci/local-linux-suite-test.sh` tests the script without Docker.
+The local servers are not CI's image. The `improve-pg` images lack pgaudit,
+and `postgres:15` lacks pg_hint_plan, HypoPG and pgvector. On those servers
+the run cannot exercise pg_hint_plan paths (tuner hint tables,
+`test/hint_verify`, hint evidence), HypoPG what-if paths (the optimizer and the
+explain "hypothetical" paths), pgvector (vectorlab) or pgaudit correlation.
+`<out-dir>/pg<N>/server-check.txt` names what each server lacks. Each such
+test shows up as an UNLISTED skip or as a failure labelled `image-limited`.
+None of them is accepted silently, and none belongs in `.skip-allowlist`.
+
+To tell port exhaustion from other dial failures in a full round, sample
+the host's TCP ports while it runs: `scripts/ci/port-usage.sh start
+<round-dir> <server-port...>` samples `netstat` every 10 s
+(`PORT_USAGE_INTERVAL`), `scripts/ci/port-usage.sh group <round-dir>
+<group>` labels the samples before each group starts, and
+`scripts/ci/port-usage.sh stop <round-dir>` ends it.
+`scripts/ci/port-usage.sh summary <round-dir>` writes
+`<round-dir>/port-usage.md`, which gives, per group, the peak count of
+dynamic ports in use and the TIME_WAIT and ESTABLISHED sockets to the test
+servers. It also names the round's peak and says whether it came near the
+range (50% by default, `PORT_USAGE_NEAR_PCT`). `scripts/ci/port-usage-test.sh`
+tests the script with a stub socket table.
 
 `docker-compose.test.yml` is not the Go test server: it runs two PostgreSQL 16
 targets (no HypoPG) seeded from `test-fixtures/seed.sql`, plus mocks, for the
@@ -101,6 +239,7 @@ Variables the test suites and benches read. Runtime variables are in
 |---|---|---|
 | `SAGE_TEST_DATABASE_URL` | (none) | Disposable PostgreSQL server for database tests; each test package creates and drops its own database on it. Unset, database tests skip. Never point it at a shared server |
 | `SAGE_TEST_SECOND_CLUSTER_URL` | (none) | A second disposable PostgreSQL server, for tests that need a database on another cluster; unset, they skip |
+| `SAGE_TEST_EXCLUSIVE_URL` | (none) | A separate disposable PostgreSQL server for tests that measure or reset cluster-wide state; they run on it one at a time. It must not be the `SAGE_TEST_DATABASE_URL` server (checked by `system_identifier`). Unset, they skip, and the CI skip budget fails |
 | `SAGE_TEST_REPLICA_URL` | (none) | Streaming replica of the `SAGE_TEST_DATABASE_URL` server, for replica tests; unset, they skip |
 | `SAGE_TEST_DSN` | (set by the fixture) | Legacy test DSN name; the fixture overwrites it with the package database, so do not set it |
 | `SAGE_BENCH_RUN` | (unset) | `1` runs `TestPGIncidentBench` in `sre-bench` |
@@ -188,8 +327,15 @@ python3 -m unittest discover -s deploy/databricks-apps -p 'test_*.py' -v
    Add a golden probe for the route to `router_table_probes_test.go` and
    regenerate with `go test ./internal/api -run RouterTable_MatchesGolden
    -update-router-golden`.
-4. Run the relevant verification commands and include results in the PR.
-5. Submit a PR with a clear description of what changed and why.
+4. Keep files at 500 lines or fewer and functions at 50 or fewer:
+   `bash scripts/ci/line-limits.sh` checks non-test Go and dashboard sources
+   against `scripts/ci/line-limits.allow`, and a PR may shrink a row, never
+   add one. The migration ledger
+   (`sidecar/internal/schema/testdata/migration_checksums.txt`) is
+   append-only from the last release tag: `bash
+   scripts/ci/ledger-append-only.sh "$(git describe --tags --abbrev=0 --match 'v*')"`.
+5. Run the relevant verification commands and include results in the PR.
+6. Submit a PR with a clear description of what changed and why.
 
 ## Code of Conduct
 

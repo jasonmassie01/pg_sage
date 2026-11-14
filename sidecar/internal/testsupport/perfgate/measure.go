@@ -48,9 +48,11 @@ func Prepare(ctx context.Context, q Querier) error {
 	return nil
 }
 
-// ResetStatements clears pg_stat_statements.
+// ResetStatements clears pg_stat_statements for the current database only,
+// so other databases' entries on the server survive (ci-13).
 func ResetStatements(ctx context.Context, q Querier) error {
-	_, err := q.Exec(ctx, "/* "+HarnessTag+" */ SELECT pg_stat_statements_reset()")
+	_, err := q.Exec(ctx, "/* "+HarnessTag+" */ SELECT pg_stat_statements_reset(0, d.oid, 0) "+
+		"FROM pg_catalog.pg_database d WHERE d.datname = pg_catalog.current_database()")
 	if err != nil {
 		return fmt.Errorf("perfgate: reset pg_stat_statements: %w", err)
 	}

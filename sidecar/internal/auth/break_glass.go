@@ -75,11 +75,19 @@ func BreakGlassLogin(
 
 // CreateSessionWithDuration inserts a session that expires after d and
 // returns its cookie value. Only the cookie's SHA-256 is stored.
+//
+// The expiry is computed on the database clock (now() + d), the clock
+// every lookup and the cleanup judge it by, so host clock skew neither
+// lengthens nor shortens a session. The database stores microseconds, so
+// a lifetime under 1 µs expires at once.
 func CreateSessionWithDuration(
 	ctx context.Context, pool *pgxpool.Pool, userID int, d time.Duration,
 ) (string, error) {
 	if d <= 0 {
 		return "", fmt.Errorf("creating session: duration must be positive")
+	}
+	if pool == nil {
+		return "", fmt.Errorf("creating session: no database pool")
 	}
 	token, err := newSessionToken()
 	if err != nil {
@@ -87,8 +95,9 @@ func CreateSessionWithDuration(
 	}
 	_, err = pool.Exec(ctx,
 		"/* pg_sage auth_session v2 */ INSERT INTO sage.sessions "+
-			"(user_id, expires_at, token_hash) VALUES ($1, $2, $3)",
-		userID, time.Now().Add(d), hashToken(token),
+			"(user_id, expires_at, token_hash) "+
+			"VALUES ($1, now() + make_interval(secs => $2), $3)",
+		userID, d.Seconds(), hashToken(token),
 	)
 	if err != nil {
 		return "", fmt.Errorf("creating session: %w", err)

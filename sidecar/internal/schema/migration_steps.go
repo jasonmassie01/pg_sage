@@ -50,7 +50,8 @@ func migrationSteps() []migrationStep {
 	steps = append(steps, namedSteps(latestMigrations())...)
 	steps = append(steps, namedSteps(trancheOneMigrations())...)
 	steps = append(steps, namedSteps(trancheTwoMigrations())...)
-	return append(steps, namedSteps(trancheThreeMigrations())...)
+	steps = append(steps, namedSteps(trancheThreeMigrations())...)
+	return append(steps, namedSteps(trancheFourMigrations())...)
 }
 
 // namedStep pairs a constant's name with its SQL for laterMigrations.
@@ -214,5 +215,12 @@ func trancheThreeMigrations() []namedStep {
 		{"ddlHostUsageHourly", ddlHostUsageHourly},                       // market-04
 		{"ddlManagedChangeProvidersCNPG", ddlManagedChangeProvidersCNPG}, // market-12
 		{"ddlGameDayExercised", ddlGameDayExercised},                     // benches-12
+	}
+}
+
+// trancheFourMigrations are the T4 steps, in landing order.
+func trancheFourMigrations() []namedStep {
+	return []namedStep{
+		{"ddlUserDatabaseGrantsSource", ddlUserDatabaseGrantsSource}, // apiauth-08d
 	}
 }

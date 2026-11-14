@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -186,6 +187,10 @@ func eventsHandlerWithLifetime(b *EventBroker, lifetime time.Duration) http.Hand
 		}
 		flusher.Flush()
 
+		// A scoped caller's visible databases are read once, at connect
+		// (apiauth-08b): a revoked grant applies at the next reconnect,
+		// at most one lifetime later.
+		visible, scoped := visibleDatabasesFrom(r.Context())
 		ch, cancel := b.Subscribe()
 		defer cancel()
 
@@ -200,20 +205,47 @@ func eventsHandlerWithLifetime(b *EventBroker, lifetime time.Duration) http.Hand
 				if !open {
 					return
 				}
-				data, err := json.Marshal(evt)
-				if err != nil {
+				if !eventVisible(evt, visible, scoped) {
 					continue
 				}
-				// "event:" lets client code dispatch per type if
-				// it prefers addEventListener over onmessage.
-				if _, err := fmt.Fprintf(w, "event: %s\n", evt.Type); err != nil {
-					return
-				}
-				if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
+				if !writeEventFrame(w, evt) {
 					return
 				}
 				flusher.Flush()
 			}
 		}
 	}
+}
+
+// writeEventFrame writes one SSE frame; false when the client is gone. An
+// event that cannot be encoded is skipped.
+func writeEventFrame(w io.Writer, evt Event) bool {
+	data, err := json.Marshal(evt)
+	if err != nil {
+		return true
+	}
+	// "event:" lets client code dispatch per type if it prefers
+	// addEventListener over onmessage.
+	if _, err := fmt.Fprintf(w, "event: %s\n", evt.Type); err != nil {
+		return false
+	}
+	_, err = fmt.Fprintf(w, "data: %s\n\n", data)
+	return err == nil
+}
+
+// fleetWideEventTypes are the event types with no per-database payload; a
+// scoped stream passes them only when they name no database.
+var fleetWideEventTypes = map[EventType]bool{EventHeartbeat: true}
+
+// eventVisible reports whether a stream may deliver evt (apiauth-08b): an
+// unscoped stream gets everything; a scoped one gets its visible
+// databases' events and the fleet-wide types that name no database.
+func eventVisible(evt Event, visible map[string]bool, scoped bool) bool {
+	if !scoped {
+		return true
+	}
+	if evt.Database != "" {
+		return visible[evt.Database]
+	}
+	return fleetWideEventTypes[evt.Type]
 }

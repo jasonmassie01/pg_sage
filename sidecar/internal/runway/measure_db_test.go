@@ -23,7 +23,17 @@ import (
 
 func seedDiskTrends(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
-	_, err := pool.Exec(ctx, `INSERT INTO sage.runway_samples
+	// The package's tests share one fixture database, and a Monitor stamps
+	// its samples with the host clock, which can run ahead of the
+	// database's now() that the seed uses: an earlier test's sample would
+	// then be the series' latest and its epoch the trend's (ci-15). The
+	// two cluster series are this seed's alone.
+	_, err := pool.Exec(ctx, `DELETE FROM sage.runway_samples
+		WHERE subject = 'cluster' AND kind IN ('disk_used', 'database_bytes')`)
+	if err != nil {
+		t.Fatalf("clear the cluster disk series: %v", err)
+	}
+	_, err = pool.Exec(ctx, `INSERT INTO sage.runway_samples
 		(kind, subject, epoch, sampled_at, value, limit_value)
 		SELECT k, 'cluster', 'seed', now() - make_interval(mins => 55 - i * 5),
 		       1e9 + i * 1e6, CASE WHEN k = 'disk_used' THEN 1e11 END

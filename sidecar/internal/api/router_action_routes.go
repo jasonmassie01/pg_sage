@@ -31,12 +31,10 @@ func registerPendingActionRoutes(
 	if deps.Fleet != nil {
 		// Fleet mode: dynamically resolve pool on each
 		// request so delete/re-add cycles don't break.
-		pendingH := http.HandlerFunc(
-			fleetPendingActionsHandler(deps.Fleet))
-		route(mux, "GET /api/v1/actions/pending", gateOperator, pendingH)
-		countH := http.HandlerFunc(
-			fleetPendingCountHandler(deps.Fleet))
-		route(mux, "GET /api/v1/actions/pending/count", gateOperator, countH)
+		routeAggregate(mux, "GET /api/v1/actions/pending", gateOperator, deps.Fleet,
+			aggregateHandler(fleetPendingActionsHandler))
+		routeAggregate(mux, "GET /api/v1/actions/pending/count", gateOperator, deps.Fleet,
+			aggregateHandler(fleetPendingCountHandler))
 	} else {
 		pendingH := http.HandlerFunc(
 			pendingActionsHandler(deps.Store, deps.Executor))

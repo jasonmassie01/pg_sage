@@ -26,7 +26,8 @@ const providerAdviceMeaning = "The provider's own advisor recommendations beside
 	"through the policy gate."
 
 func registerProviderAdviceRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
-	route(mux, "GET /api/v1/provider-advice", gateViewer, providerAdviceHandler(mgr))
+	routeAggregate(mux, "GET /api/v1/provider-advice", gateViewer, mgr,
+		aggregateHandler(providerAdviceHandler))
 }
 
 // providerAdviceDatabase is one database's advice and its sources.

@@ -37,6 +37,11 @@ func TestEveryTagIsVetInCI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ci.yml: %v", err)
 	}
+	built, err := TagsBuiltByTests(root, BuiltByTests)
+	if err != nil {
+		t.Fatalf("tags compiled by a test: %v", err)
+	}
+	vetted = append(vetted, built...)
 	if missing := MissingTags(used, vetted); len(missing) > 0 {
 		for _, tag := range missing {
 			t.Errorf("tag %q (used in %s) is not in the CI vet -tags= list %v",

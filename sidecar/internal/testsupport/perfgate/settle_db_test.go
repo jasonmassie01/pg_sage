@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // The fixture's load and VACUUM dirty gigabytes; without a checkpoint
@@ -15,7 +17,7 @@ import (
 // only 10-14% slower). Settle checkpoints, so the gate measures pg_sage on
 // a settled database as a long-running deployment would be.
 func TestSettleCheckpoints(t *testing.T) {
-	pool, ctx := livePool(t)
+	pool, ctx := livePoolOn(t, testdb.Exclusive(t, "requested checkpoints across Settle"))
 	before := checkpointsRequested(t, ctx, pool)
 	if err := Settle(ctx, pool); err != nil {
 		t.Fatalf("settle: %v", err)

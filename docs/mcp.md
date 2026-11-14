@@ -80,7 +80,7 @@ How the stdio transport behaves:
 |---|---|
 | `kind` | `agent` for a coding agent, minted for its agent at `POST /api/v1/agents/{id}/tokens` (the **Agents** page); `operator` for a person's own token, bound to an operator or admin user (`owner_user_id`), created at `POST /api/v1/mcp/tokens` (the **MCP tokens** page), which refuses `agent` |
 | `scopes` | `read` (always), `propose`, and `approve` (operator tokens only; an agent token can never hold it) |
-| `databases` | the fleet databases the token may name, or `["*"]` for all |
+| `databases` | the fleet databases the token may name, or `["*"]` for all; with `api.database_grants` on, a person's token reads only those its owner is granted ([Per-database Authorization](security.md#mcp-tokens-and-ask-sage)) |
 | `expires_in_days` | 1 to 90 |
 
 Only the SHA-256 of a token is stored; the plaintext is returned once when it is created.

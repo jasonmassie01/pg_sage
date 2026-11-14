@@ -551,6 +551,31 @@ Earlier [telemetry](https://github.com/jasonmassie01/pg_sage/blob/master/reviews
 [SRE acceptance](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-29-lakebase-sre-acceptance.md) reports retain
 their original zero-row and version-specific evidence.
 
+### Workload explorer wait load
+
+The Queries page's wait-load chart (`GET /api/v1/wait-load`) names one
+preferred source, in this order: Performance Insights (Amazon RDS and Aurora
+only), then Lakebase wait counters, then pg_sage's own `pg_stat_activity`
+samples. The activity samples are always returned as well. A Lakebase database
+prefers its counters once the retained `wait_event_counters` stream has at
+least one interval in the requested window; until then the answer is exactly
+the activity-sample answer. The stream is endpoint-wide, so it needs
+`allow_compute: true` on the binding and the stream in the reader's streams.
+
+Each counter interval becomes average active sessions by wait class: the
+interval's `wait_event_time` divided by its wall-clock length (`previous_ts` to
+the row time); computes whose intervals share their edges are summed into one
+point. The `provider` object carries the per-interval `series`, the heaviest
+`events`, the current `load_by_wait` (each compute's newest interval that
+overlaps the newest interval of all, summed, so a replica reporting a few
+seconds later does not hide the primary), `skipped` (intervals with a bad time range, a
+negative or non-numeric value, or no wait class) and `truncated` (the read is
+capped at the newest 1,000 events). The unit of `wait_event_time` is not yet
+confirmed against a live workspace: pg_sage assumes milliseconds and reports
+`wait_event_time_unit: "ms"` with `unit_confirmed: false`, and the page says
+so. A failed read is logged with the database and stream and the route still
+answers from the activity samples.
+
 ### SRE with and without Advanced Telemetry
 
 Advanced Telemetry is not required for catalog-based monitoring, deterministic
