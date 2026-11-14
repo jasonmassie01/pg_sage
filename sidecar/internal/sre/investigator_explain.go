@@ -305,9 +305,12 @@ func explainFailure(res probes.Result, err error) probes.Result {
 	return readFailure(res, err)
 }
 
-// failedRead marks res as not observed, with a bounded error.
+// failedRead marks res as not observed, with a bounded error. The error
+// reaches a model prompt, so server text that can quote a value is
+// withheld (security-10); the SQLSTATE stays.
 func failedRead(res probes.Result, st probes.Status, reason string,
 	err error) probes.Result {
+	err = explain.SafeError(err)
 	res.Status, res.Reason, res.Rows = st, reason, nil
 	if errors.Is(err, errExplainUnsupported) {
 		res.Status, res.Reason = probes.StatusUnsupported, "extension_not_installed"

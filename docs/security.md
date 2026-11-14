@@ -1358,6 +1358,18 @@ MCP exposes typed tools, never pg_sage's own SQL connection. The full model is i
 - **Agent SQL.** `agent_query` runs one read-only `SELECT` as the agent's own
   database role, never pg_sage's, with timeouts and row and byte limits;
   `explain_query` gives agents plan-only EXPLAIN under that role.
+- **Agent-facing errors.** A server error can quote the value it failed on: a
+  data exception (SQLSTATE class `22`, such as `invalid input syntax for type
+  integer: "123-45-6789"` from a cast of a masked column) or a constraint
+  violation (class `23`, whose detail names the key). `agent_query` and the
+  agent's plan-only EXPLAIN return their own message for every SQLSTATE.
+  `explain_query` run as pg_sage, and the SRE investigator's EXPLAIN probe whose
+  result reaches a model, keep the SQLSTATE of a class `22` or `23` error but
+  replace its message with `(withheld: a data exception can quote column
+  values)` (or `(withheld: a constraint violation can quote key values)`) and
+  drop its detail, hint, context and internal query. The explain tools write the
+  full text to the pg_sage log at INFO for the operator. Validation refusals and
+  other server errors (a missing relation, a permission error) are unchanged.
 - **Audit.** Every call is recorded with the actor `mcp:token:<id>`.
 
 ### Request Limits
