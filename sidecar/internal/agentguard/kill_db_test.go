@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/policy"
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
@@ -47,7 +48,8 @@ func newPrincipalKill(t *testing.T) *principalKill {
 	k.tok, k.otherTok = f.agentToken(t, k.p).ID, f.agentToken(t, k.other).ID
 	k.stmt = f.sleepAs(t, f.super, f.dsn, k.p.BrokerRole(), k.password, 30)
 	k.otherStmt = f.sleepAs(t, f.super, f.dsn, k.other.BrokerRole(), otherPassword, 3)
-	k.since = time.Now().Add(-time.Second)
+	// The kill's action_log row is stamped by the database (ci-14).
+	k.since = testdb.MustDBNow(t, f.super)
 	return k
 }
 
@@ -429,7 +431,8 @@ func TestFreeze_Operator(t *testing.T) {
 	pending := f.pendingApproval(t, p, "pending")
 	tok := f.agentToken(t, p)
 	stmt := f.sleepAs(t, f.super, f.dsn, p.BrokerRole(), password, 30)
-	since := time.Now().Add(-time.Second)
+	// action_log.executed_at is the database's clock (ci-14).
+	since := testdb.MustDBNow(t, f.super)
 	rep, err := f.sw.Freeze(ctx, FreezeRequest{PrincipalID: p.ID, Reason: "odd reads",
 		Actor: "op@example.com"})
 	require.NoError(t, err)
@@ -473,6 +476,8 @@ func TestFallback_Reconcile(t *testing.T) {
 		Database: f.db, Scope: "principal", PrincipalID: validPID, Reason: "r", Actor: "a",
 		Statements: []string{"ALTER ROLE x NOLOGIN CONNECTION LIMIT 0"},
 		Outcome:    "success"}))
+	// The reconciled row keeps the entry's own time, stamped on the host
+	// while the control database was down, so this mark is the host's too.
 	since := time.Now().Add(-time.Second)
 	n, err := f.sw.ReconcileFallback(context.Background())
 	require.NoError(t, err)

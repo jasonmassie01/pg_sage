@@ -32,8 +32,16 @@ func preflightPoolWith(
 	t *testing.T, params map[string]string,
 ) (*pgxpool.Pool, context.Context, *Collector) {
 	t.Helper()
+	return preflightPoolOn(t, testdb.SkipUnlessLive(t), params)
+}
+
+// preflightPoolOn is preflightPoolWith on the database dsn names.
+func preflightPoolOn(
+	t *testing.T, dsn string, params map[string]string,
+) (*pgxpool.Pool, context.Context, *Collector) {
+	t.Helper()
 	ctx := context.Background()
-	pcfg, err := pgxpool.ParseConfig(testdb.SkipUnlessLive(t))
+	pcfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +109,8 @@ func preflightWorkload(t *testing.T, p *pgxpool.Pool, c *Collector, n int) (
 // measurement here is repeated when the statistics changed generation
 // under it (pgssepoch).
 func TestPreflightEvidenceResetAfterRegrowth(t *testing.T) {
-	p, ctx, c := preflightPool(t)
+	p, ctx, c := preflightPoolOn(t,
+		testdb.Exclusive(t, "the pg_stat_statements stats_reset epoch"), nil)
 	// Only the second reset must be cluster-wide (it moves the stats_reset
 	// epoch); a cluster-wide reset wipes other packages' workloads.
 	preflightResetDatabase(t, p)

@@ -208,13 +208,19 @@ func TestDatabaseAuthz_DisabledIsPassThrough(t *testing.T) {
 	requireReached(t, "grants off, fleet-wide route", code, body)
 }
 
-func TestDatabaseAuthz_ReadsAreNotScopedInPhaseOne(t *testing.T) {
-	// No phase 2 yet: a scoped user still reads every database.
+func TestDatabaseAuthz_ReadsAreScopedInPhaseTwo(t *testing.T) {
+	// apiauth-08b replaced phase 1's unscoped reads: this fixture GET
+	// declares no read scope, so a scoped user is refused (fail closed).
 	src := &dbAuthzSource{}
 	src.set(7, map[string]string{"A": auth.RoleOperator})
 	code, body := dbAuthzDo(dbAuthzMux(src, nil), "GET", "/api/v1/findings?database=B", "",
 		dbOperator(7))
-	requireReached(t, "scoped GET on B", code, body)
+	if code != http.StatusForbidden || body["code"] != "fleet_scope_required" {
+		t.Fatalf("scoped GET on B: %d %v, want 403 fleet_scope_required", code, body)
+	}
+	code, body = dbAuthzDo(dbAuthzMux(src, nil), "GET", "/api/v1/findings?database=B", "",
+		dbOperator(8))
+	requireReached(t, "unscoped GET on B", code, body)
 }
 
 func TestDatabaseAuthz_ScopedOperatorRefusedOnFleetWideRoute(t *testing.T) {

@@ -71,6 +71,9 @@ func (m *DatabaseManager) InstanceStopped(inst *DatabaseInstance) bool {
 func (m *DatabaseManager) setEmergencyStopped(
 	name string, stopped bool, actor string,
 ) (StopResult, error) {
+	if m.readOnly {
+		return StopResult{}, ErrReadOnlyView
+	}
 	if actor == "" {
 		actor = executor.EmergencyStopActorSystem
 	}

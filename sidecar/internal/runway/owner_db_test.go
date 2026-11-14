@@ -3,7 +3,6 @@ package runway
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -32,24 +31,16 @@ type fleetDB struct {
 // fleetDatabases creates n bootstrapped databases on the test server.
 func fleetDatabases(t *testing.T, ctx context.Context, n int) []*fleetDB {
 	t.Helper()
-	admin, _ := livePool(t)
-	dsn := testdb.SkipUnlessLive(t)
 	out := make([]*fleetDB, 0, n)
 	for i := range n {
-		name := fmt.Sprintf("rw09_%d_%c", os.Getpid(), 'a'+i)
-		ident := pgx.Identifier{name}.Sanitize()
-		if _, err := admin.Exec(ctx, "CREATE DATABASE "+ident); err != nil {
-			t.Fatalf("create database %s: %v", name, err)
-		}
-		t.Cleanup(func() {
-			_, _ = admin.Exec(context.Background(), "DROP DATABASE IF EXISTS "+ident+
-				" WITH (FORCE)")
-		})
+		// ci-15: a copy of the bootstrapped fixture template, so the three
+		// bootstraps below only check.
+		dsn := testdb.CreateBootstrappedDatabase(t, fmt.Sprintf("rw09_%c", 'a'+i))
 		pcfg, err := pgxpool.ParseConfig(dsn)
 		if err != nil {
 			t.Fatal(err)
 		}
-		pcfg.ConnConfig.Database = name
+		name := pcfg.ConnConfig.Database
 		pool, err := pgxpool.NewWithConfig(ctx, pcfg)
 		if err != nil {
 			t.Fatalf("connect to %s: %v", name, err)

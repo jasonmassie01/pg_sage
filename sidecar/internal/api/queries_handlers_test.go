@@ -22,7 +22,7 @@ import (
 
 func workloadMux(mgr *fleet.DatabaseManager) *http.ServeMux {
 	mux := http.NewServeMux()
-	registerWorkloadRoutes(mux, mgr)
+	registerWorkloadRoutes(mux, mgr, nil)
 	return mux
 }
 

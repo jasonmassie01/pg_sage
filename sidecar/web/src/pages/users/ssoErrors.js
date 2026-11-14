@@ -15,6 +15,9 @@ const messages = {
     'allowed to use pg_sage. Ask an administrator to add you to a mapped group.',
   user_disabled: 'This pg_sage account is deactivated. Ask an administrator ' +
     'to reactivate it.',
+  grants_unavailable: 'Your database access from your identity provider groups ' +
+    'could not be applied, so pg_sage did not sign you in. Try again, or ask an ' +
+    'administrator.',
 }
 
 const genericMessage = 'Single sign-on failed. Try again, or sign in with ' +

@@ -216,6 +216,21 @@ all of it through the three live arms with every DB test run (about 100 s) and w
 SAGE_TEST_DATABASE_URL=... go test -count=1 -v -run TestReplayCorpus ./sre-bench/
 ```
 
+**Compare mode.** `TestReplayCompare` replays the corpus twice on one commit, with
+`sre.investigator.require_support_citation` off and on (the investigator arm of
+`TestReplayCorpus` runs with it off, the Phase 1 rule its gates were set on). It fails on
+any difference in the deterministic arms (state, root, ranking, Safe Pass, top-1) and on a
+replay gate missed under either setting, and adds a per-family table to the replay report:
+how many investigator contests and conclusions the rule keeps. A family that keeps less
+than 90% fails that table's gate; it is reported, not enforced, because only a live-model
+run (the live switches above) decides the shipped default. The fake-model table is
+committed in `replay/compare-require_support_citation.md`.
+
+```sh
+SAGE_TEST_DATABASE_URL=... go test -count=1 -v -run TestReplayCompare ./sre-bench/ \
+  -args --compare require_support_citation
+```
+
 **What is in it.** 60 R1 cases in `replay/cases/<family>/<id>.json`, plus cases added
 after R1 (tagged `post_r1`): pooler and failover cases, six `plan_regression` cases (real
 plan flips, a same-plan slowdown, a flip without a slowdown, a probe timeout) and composite

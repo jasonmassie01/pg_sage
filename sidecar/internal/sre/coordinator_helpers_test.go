@@ -12,12 +12,14 @@ import (
 
 // scriptedRunner answers probes from scripts: each call of a probe takes
 // the next scripted result (the last one repeats). It never touches a
-// database; hook, when set, runs before a probe answers.
+// database; hook, when set, runs before a probe answers. Each answer is
+// stamped strictly after the last (see stamp).
 type scriptedRunner struct {
 	mu      sync.Mutex
 	scripts map[probes.ID][]probes.Result
 	calls   map[probes.ID]int
 	hook    func(id probes.ID, call int)
+	last    time.Time
 }
 
 func newScriptedRunner() *scriptedRunner {
@@ -42,11 +44,26 @@ func (r *scriptedRunner) Run(_ context.Context, id probes.ID, _ probes.Args) pro
 	}
 	if len(rs) == 0 {
 		return probes.Result{ProbeID: id, Version: "v1", Status: probes.StatusEmpty,
-			Reason: "no_rows", ObservedAt: time.Now()}
+			Reason: "no_rows", ObservedAt: r.stamp()}
 	}
 	res := rs[min(n, len(rs)-1)]
-	res.ObservedAt = time.Now()
+	res.ObservedAt = r.stamp()
 	return res
+}
+
+// stamp is the later of now and a millisecond after the last stamp
+// (forecast-11): Windows reads time in timer ticks, so back-to-back calls
+// can read one instant, where real samples are a sample delay apart.
+// Stamps stay near the present, so stale-evidence checks see them fresh.
+func (r *scriptedRunner) stamp() time.Time {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	at := time.Now()
+	if next := r.last.Add(time.Millisecond); next.After(at) {
+		at = next
+	}
+	r.last = at
+	return at
 }
 
 func (r *scriptedRunner) total() int {

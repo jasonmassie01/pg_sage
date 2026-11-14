@@ -192,7 +192,7 @@ func (s *investigatorSession) graphTool() agentloop.Tool {
 		Description: "The causal graph's diagnosis on all evidence collected so far " +
 			"(not citable: cite the evidence it rests on).",
 		Run: func(ctx context.Context, _ json.RawMessage) (agentloop.Output, error) {
-			d, _, err := s.diagnosis(ctx)
+			d, err := s.graphDiagnosis(ctx)
 			if err != nil {
 				return agentloop.Output{}, agentloop.Abort(err)
 			}
@@ -230,7 +230,45 @@ func (s *investigatorSession) factsTool() agentloop.Tool {
 		}}
 }
 
-// diagnosis re-runs the causal graph on everything stored so far.
+// graphDiagnosis is graph_state's diagnosis: the causal graph on the
+// session's evidence cache, which equals everything stored so far. The
+// first call seeds the cache from the store; a failed seed is retried on
+// the next call.
+func (s *investigatorSession) graphDiagnosis(ctx context.Context) (causal.Diagnosis,
+	error) {
+	if !s.seeded {
+		stored, err := s.c.store.Evidence(ctx, s.lease.Scope, s.inv.ID)
+		if err != nil {
+			return causal.Diagnosis{}, err
+		}
+		s.observed, s.seeded = stored, true
+	}
+	obs, err := observations(s.observed)
+	if err != nil {
+		return causal.Diagnosis{}, err
+	}
+	return diagnose(s.inv, obs), nil
+}
+
+// remember appends committed evidence to a seeded cache, once per row (a
+// retried commit reads back the row it stored the first time).
+func (s *investigatorSession) remember(ev []Evidence) {
+	if !s.seeded {
+		return // the seed will read it from the store
+	}
+	held := make(map[UUID]bool, len(s.observed))
+	for _, e := range s.observed {
+		held[e.ID] = true
+	}
+	for _, e := range ev {
+		if !held[e.ID] {
+			s.observed, held[e.ID] = append(s.observed, e), true
+		}
+	}
+}
+
+// diagnosis re-runs the causal graph on everything stored so far, read
+// from the store.
 func (s *investigatorSession) diagnosis(ctx context.Context) (causal.Diagnosis,
 	[]Evidence, error) {
 	stored, err := s.c.store.Evidence(ctx, s.lease.Scope, s.inv.ID)
@@ -292,17 +330,16 @@ func (s *investigatorSession) commit(ctx context.Context, res probes.Result) (Ev
 			return Evidence{}, err
 		}
 	}
-	stored, err := s.c.store.Evidence(ctx, s.lease.Scope, s.inv.ID)
-	if err != nil {
+	stored, err := s.c.store.StepEvidence(ctx, s.lease.Scope, s.inv.ID, key)
+	if err != nil && !errors.Is(err, ErrNotFound) {
 		return Evidence{}, err
 	}
-	for _, e := range stored {
-		if e.StepKey == key {
-			return e, nil
-		}
+	if len(stored) == 0 {
+		return Evidence{}, fmt.Errorf("%w: the committed read %s is not stored",
+			ErrNotFound, key)
 	}
-	return Evidence{}, fmt.Errorf("%w: the committed read %s is not stored", ErrNotFound,
-		key)
+	s.remember(stored)
+	return stored[0], nil
 }
 
 // resultForModel is a result as the model sees it: every text value

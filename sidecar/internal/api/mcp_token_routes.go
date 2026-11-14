@@ -63,6 +63,9 @@ func createMCPTokenHandler(store *mcptoken.Store) http.HandlerFunc {
 				http.StatusBadRequest)
 			return
 		}
+		if !mintWithinOwnerGrants(w, r, store.Pool(), body) {
+			return
+		}
 		tok, err := store.Create(r.Context(), mcptoken.CreateRequest{
 			Name: body.Name, Kind: mcptoken.Kind(body.Kind), Scopes: body.Scopes,
 			Databases:   body.Databases,

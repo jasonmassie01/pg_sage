@@ -164,8 +164,12 @@ func TestRouterTable_ScopesMatchGolden(t *testing.T) {
 	for _, rc := range routerConfigs() {
 		h := rc.build(t, injectCharRole)
 		scopes := registeredScopes(h.(*http.ServeMux))
+		reads := registeredReadScopes(h.(*http.ServeMux)) // apiauth-08b
 		for _, e := range builtRoutes(t, h, rc.name) {
 			scope := scopes[e.Pattern]
+			if scope == "" {
+				scope = reads[e.Pattern]
+			}
 			if scope == "" {
 				scope = "-"
 			}

@@ -87,32 +87,21 @@ func runWorkload(t *testing.T, ctx context.Context, pool *pgxpool.Pool, n int) {
 }
 
 // Integration: real pg_stat_statements deltas through the recorder give
-// query shares that sum to 1 within 1e-9.
+// query shares that sum to 1 within 1e-9. It runs on the exclusive server:
+// pg_stat_statements is cluster-wide, and other packages filling it on the
+// shared server evict this window's fresh entries (market-04b).
 func TestAttribution_RealStatementDeltasSumToOne(t *testing.T) {
-	pool, ctx := requireDB(t)
+	pool, ctx := requireExclusiveDB(t, "pg_stat_statements capacity")
 	if _, err := pool.Exec(ctx, `CREATE EXTENSION IF NOT EXISTS pg_stat_statements`); err != nil {
 		t.Skipf("pg_stat_statements extension: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `DELETE FROM sage.query_store`); err != nil {
-		t.Fatalf("clear: %v", err)
-	}
-	from := time.Now().Add(-time.Second)
-	runWorkload(t, ctx, pool, 5)
-	rec := querystore.NewRecorder()
-	if _, err := rec.Record(ctx, pool, statementSamples(t, ctx, pool), time.Now()); err != nil {
-		t.Fatalf("record 1: %v", err)
-	}
-	time.Sleep(50 * time.Millisecond)
-	runWorkload(t, ctx, pool, 40)
-	if _, err := rec.Record(ctx, pool, statementSamples(t, ctx, pool), time.Now()); err != nil {
-		t.Fatalf("record 2: %v", err)
-	}
-	deltas, dropped, err := QueryDeltas(ctx, pool, "orders", from, time.Now().Add(time.Second))
+	w, err := measureWindow(t, ctx, pool, nil)
 	if err != nil {
-		t.Fatalf("QueryDeltas: %v", err)
+		t.Fatal(err)
 	}
-	if len(deltas) < 2 || dropped != 0 {
-		t.Fatalf("%d deltas (%d dropped), want the workload's queries", len(deltas), dropped)
+	deltas := w.deltas
+	if len(deltas) < 2 || w.dropped != 0 {
+		t.Fatalf("%d deltas (%d dropped), want the workload's queries", len(deltas), w.dropped)
 	}
 	a := Attribute(1.25, time.Hour, 2, deltas)
 	var sum float64

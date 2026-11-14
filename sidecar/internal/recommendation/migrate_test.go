@@ -13,7 +13,7 @@ import (
 // every legacy row, so it must not see other tests' fixtures.
 func isolatedPool(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
-	dsn := testdb.CreateDatabase(t, "recmigrate")
+	dsn := testdb.CreateBootstrappedDatabase(t, "recmigrate")
 	ctx := withTimeout(t)
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {

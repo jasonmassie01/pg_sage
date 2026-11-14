@@ -59,12 +59,18 @@ func migrateConfigSchema(ctx context.Context, db bootstrapDB) error {
 	return nil
 }
 
+// The config migrations' own budgets (ci-15: a timeout names them).
+var (
+	configMigrationBudget = budgetExpired{what: "config migration", budget: 15 * time.Second}
+	configAuditBudget     = budgetExpired{what: "config audit migration", budget: 10 * time.Second}
+)
+
 // migrateConfigUserKeys lets a user who changed config be deleted
 // (apiauth-01): the audit trail keeps the id without a key, and
 // sage.config forgets its updater. Add and validate run in separate
 // transactions so validation does not hold the add's lock.
 func migrateConfigUserKeys(ctx context.Context, db bootstrapDB) error {
-	qctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	qctx, cancel := withBudget(ctx, configMigrationBudget)
 	defer cancel()
 	if _, err := runMigrationStep(qctx, db, migrationStep{
 		name: "ddlConfigUserKeys", sql: ddlConfigUserKeys,
@@ -109,7 +115,7 @@ SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint
 func addConfigColumns(
 	ctx context.Context, db bootstrapDB,
 ) error {
-	qctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	qctx, cancel := withBudget(ctx, configMigrationBudget)
 	defer cancel()
 	if _, err := runMigrationStep(qctx, db, migrationStep{
 		name: "ddlConfigColumns", sql: ddlConfigColumns,
@@ -176,7 +182,7 @@ func addConfigCompositeIndex(
 func ensureConfigAudit(
 	ctx context.Context, db bootstrapDB,
 ) error {
-	qctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	qctx, cancel := withBudget(ctx, configAuditBudget)
 	defer cancel()
 
 	_, err := runMigrationStep(qctx, db, migrationStep{

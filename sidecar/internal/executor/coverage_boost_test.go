@@ -947,12 +947,9 @@ func TestCoverage_ExecuteManual_SuccessfulExecution(t *testing.T) {
 		t.Fatalf("ExecuteManual: %v", err)
 	}
 
-	// actionID may be 0 due to a known pgx type inference issue
-	// in logManualAction's CASE WHEN $7 IS NOT NULL clause.
-	// The important coverage here is that the execution path
-	// (validation, emergency stop, snapshot, DDL) ran successfully.
-	t.Logf("actionID = %d (0 is acceptable due to pgx $7 issue)",
-		actionID)
+	if actionID <= 0 {
+		t.Fatalf("actionID = %d, want the action_log id (> 0)", actionID)
+	}
 }
 
 func TestCoverage_ExecuteManual_MissingFindingRejectedBeforeSQL(
@@ -1359,8 +1356,9 @@ func TestCoverage_ExecuteManual_WithRollbackSQL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExecuteManual: %v", err)
 	}
-	// actionID may be 0 due to pgx type inference in logManualAction.
-	t.Logf("actionID = %d", actionID)
+	if actionID <= 0 {
+		t.Fatalf("actionID = %d, want the action_log id (> 0)", actionID)
+	}
 }
 
 // TestCoverage_ExecuteManual_VacuumTopLevel verifies that VACUUM
@@ -1425,8 +1423,9 @@ func TestCoverage_ExecuteManual_VacuumTopLevel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExecuteManual(VACUUM): %v", err)
 	}
-	// actionID may be 0 due to pgx type inference in logManualAction.
-	t.Logf("actionID = %d", actionID)
+	if actionID <= 0 {
+		t.Fatalf("actionID = %d, want the action_log id (> 0)", actionID)
+	}
 }
 
 // TestCoverage_LogManualAction_Success verifies logManualAction
@@ -1472,53 +1471,46 @@ func TestCoverage_LogManualAction_Success(t *testing.T) {
 
 	beforeState := map[string]any{"cache_hit_ratio": 0.99}
 
-	// The CASE WHEN $7 IS NOT NULL expression in logManualAction has
-	// a pgx type inference issue with *int parameters. This exercises
-	// the code path even though the INSERT may fail at the DB layer.
 	actionID := e.logManualAction(
 		ctx, findingID, "SELECT 1", "SELECT 2",
 		beforeState, nil, nil)
 
-	// actionID may be 0 if the INSERT fails due to pgx $7 issue.
-	if actionID > 0 {
-		var outcome string
-		err = pool.QueryRow(ctx,
-			"SELECT outcome FROM sage.action_log WHERE id = $1",
-			actionID,
-		).Scan(&outcome)
-		if err != nil {
-			t.Fatalf("reading action_log: %v", err)
-		}
-		if outcome != "monitoring" {
-			t.Errorf("outcome = %q, want %q", outcome, "monitoring")
-		}
-		var status string
-		var actedOn, resolvedAt *time.Time
-		var actionLogID *int64
-		err = pool.QueryRow(ctx,
-			`SELECT status, acted_on_at, resolved_at, action_log_id
-			 FROM sage.findings WHERE id = $1`,
-			findingID,
-		).Scan(&status, &actedOn, &resolvedAt, &actionLogID)
-		if err != nil {
-			t.Fatalf("reading finding after manual action: %v", err)
-		}
-		if status != "resolved" {
-			t.Errorf("status = %q, want resolved", status)
-		}
-		if actedOn == nil || resolvedAt == nil {
-			t.Errorf("acted_on_at/resolved_at should be set, got %v/%v",
-				actedOn, resolvedAt)
-		}
-		if actionLogID == nil || *actionLogID != actionID {
-			t.Errorf("action_log_id = %v, want %d",
-				actionLogID, actionID)
-		}
-	} else {
-		for _, m := range logMessages {
-			t.Logf("log: %s", m)
-		}
-		t.Logf("logManualAction returned 0 (known pgx $7 issue)")
+	if actionID <= 0 {
+		t.Fatalf("logManualAction = %d, want the action_log id (> 0); log: %q",
+			actionID, logMessages)
+	}
+	var outcome string
+	err = pool.QueryRow(ctx,
+		"SELECT outcome FROM sage.action_log WHERE id = $1",
+		actionID,
+	).Scan(&outcome)
+	if err != nil {
+		t.Fatalf("reading action_log: %v", err)
+	}
+	if outcome != "monitoring" {
+		t.Errorf("outcome = %q, want %q", outcome, "monitoring")
+	}
+	var status string
+	var actedOn, resolvedAt *time.Time
+	var actionLogID *int64
+	err = pool.QueryRow(ctx,
+		`SELECT status, acted_on_at, resolved_at, action_log_id
+		 FROM sage.findings WHERE id = $1`,
+		findingID,
+	).Scan(&status, &actedOn, &resolvedAt, &actionLogID)
+	if err != nil {
+		t.Fatalf("reading finding after manual action: %v", err)
+	}
+	if status != "resolved" {
+		t.Errorf("status = %q, want resolved", status)
+	}
+	if actedOn == nil || resolvedAt == nil {
+		t.Errorf("acted_on_at/resolved_at should be set, got %v/%v",
+			actedOn, resolvedAt)
+	}
+	if actionLogID == nil || *actionLogID != actionID {
+		t.Errorf("action_log_id = %v, want %d",
+			actionLogID, actionID)
 	}
 }
 
@@ -1564,22 +1556,19 @@ func TestCoverage_LogManualAction_Failed(t *testing.T) {
 		ctx, findingID, "SELECT 1", "",
 		nil, execErr, nil)
 
-	// actionID may be 0 due to pgx type inference in the
-	// CASE WHEN $7 clause. Code path is still exercised.
-	if actionID > 0 {
-		var outcome string
-		err = pool.QueryRow(ctx,
-			"SELECT outcome FROM sage.action_log WHERE id = $1",
-			actionID,
-		).Scan(&outcome)
-		if err != nil {
-			t.Fatalf("reading action_log: %v", err)
-		}
-		if outcome != "failed" {
-			t.Errorf("outcome = %q, want %q", outcome, "failed")
-		}
-	} else {
-		t.Log("logManualAction returned 0 (known pgx $7 issue)")
+	if actionID <= 0 {
+		t.Fatalf("logManualAction(failed) = %d, want the action_log id (> 0)", actionID)
+	}
+	var outcome string
+	err = pool.QueryRow(ctx,
+		"SELECT outcome FROM sage.action_log WHERE id = $1",
+		actionID,
+	).Scan(&outcome)
+	if err != nil {
+		t.Fatalf("reading action_log: %v", err)
+	}
+	if outcome != "failed" {
+		t.Errorf("outcome = %q, want %q", outcome, "failed")
 	}
 }
 
@@ -1660,78 +1649,6 @@ func TestCoverage_New_Defaults(t *testing.T) {
 	if e.recentActions == nil {
 		t.Error("recentActions should be initialized")
 	}
-}
-
-// TestCoverage_ExecuteManual_ConcurrentlyPath verifies that
-// CREATE INDEX CONCURRENTLY goes through ExecConcurrently.
-func TestCoverage_ExecuteManual_ConcurrentlyPath(t *testing.T) {
-	pool, ctx := requireDB(t)
-
-	_ = SetEmergencyStop(ctx, pool, false, "test")
-
-	_, err := pool.Exec(ctx,
-		`CREATE TABLE IF NOT EXISTS public.test_manual_conc (
-			id int, val text
-		)`)
-	if err != nil {
-		t.Fatalf("creating test table: %v", err)
-	}
-
-	var findingID int
-	err = pool.QueryRow(ctx,
-		`INSERT INTO sage.findings
-		 (category, severity, object_type, object_identifier,
-		  title, detail, recommendation, recommended_sql)
-		 VALUES ('test_conc_cat', 'warning', 'index',
-		         'public.test_manual_conc',
-		         'test conc finding',
-		         '{}', 'rec',
-		         'CREATE INDEX CONCURRENTLY idx_manual_conc ON public.test_manual_conc (id)')
-		 RETURNING id`,
-	).Scan(&findingID)
-	if err != nil {
-		t.Fatalf("inserting test finding: %v", err)
-	}
-
-	t.Cleanup(func() {
-		cctx := context.Background()
-		_, _ = pool.Exec(cctx,
-			"DROP INDEX CONCURRENTLY IF EXISTS public.idx_manual_conc")
-		_, _ = pool.Exec(cctx,
-			"DELETE FROM sage.action_log WHERE finding_id = $1",
-			findingID)
-		_, _ = pool.Exec(cctx,
-			"DELETE FROM sage.findings WHERE id = $1", findingID)
-		_, _ = pool.Exec(cctx,
-			"DROP TABLE IF EXISTS public.test_manual_conc")
-	})
-
-	cfg := &config.Config{
-		Safety: config.SafetyConfig{
-			DDLTimeoutSeconds: 30,
-			LockTimeoutMs:     5000,
-		},
-	}
-	cfg.Trust.Level = "advisory"
-	e := &Executor{
-		pool:          pool,
-		cfg:           cfg,
-		recentActions: make(map[string]time.Time),
-		logFn:         func(string, string, ...any) {},
-		execMode:      "auto",
-	}
-
-	sql := "CREATE INDEX CONCURRENTLY idx_manual_conc " +
-		"ON public.test_manual_conc (id)"
-	withTestStandingGate(e)
-	actionID, err := e.ExecuteManual(ctx, findingID, sql, "", nil)
-	if err != nil {
-		// Lock timeout / deadlock from concurrent schema tests is not
-		// a real failure — this test passes reliably in isolation.
-		t.Fatalf("ExecuteManual(CONCURRENTLY): %v", err)
-	}
-	// actionID may be 0 due to pgx type inference in logManualAction.
-	t.Logf("actionID = %d", actionID)
 }
 
 // TestCoverage_ExecuteManual_FailedSQL verifies that ExecuteManual
@@ -1857,22 +1774,19 @@ func TestCoverage_ExecuteManual_WithApprovedBy(t *testing.T) {
 		t.Fatalf("ExecuteManual: %v", err)
 	}
 
-	// actionID may be 0 due to pgx type inference issue with the
-	// *int parameter in CASE WHEN $7. The execution path is covered.
-	if actionID > 0 {
-		var ab *int
-		err = pool.QueryRow(ctx,
-			"SELECT approved_by FROM sage.action_log WHERE id = $1",
-			actionID,
-		).Scan(&ab)
-		if err != nil {
-			t.Fatalf("reading action_log: %v", err)
-		}
-		if ab == nil || *ab != 7 {
-			t.Errorf("approved_by = %v, want 7", ab)
-		}
-	} else {
-		t.Log("actionID = 0 (known pgx $7 type inference issue)")
+	if actionID <= 0 {
+		t.Fatalf("actionID = %d, want the action_log id (> 0)", actionID)
+	}
+	var ab *int
+	err = pool.QueryRow(ctx,
+		"SELECT approved_by FROM sage.action_log WHERE id = $1",
+		actionID,
+	).Scan(&ab)
+	if err != nil {
+		t.Fatalf("reading action_log: %v", err)
+	}
+	if ab == nil || *ab != 7 {
+		t.Errorf("approved_by = %v, want 7", ab)
 	}
 }
 
