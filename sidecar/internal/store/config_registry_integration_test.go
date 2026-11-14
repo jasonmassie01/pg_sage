@@ -22,13 +22,10 @@ func TestStoredOverrideOutOfTheNewRangeIsSkippedAndTheNextSaveWorks(t *testing.T
 		t.Fatalf("seed the pre-config-02b row: %v", err)
 	}
 	cs := NewConfigStore(pool)
-	rows, err := cs.GetOverrides(ctx, 0)
-	if err != nil || len(rows) != 1 {
-		t.Fatalf("GetOverrides = %v, %v; want the seeded row", rows, err)
-	}
-	if _, ok, problem := ReplayOverride(rows[0].Key, rows[0].Value); ok {
+	row := storedOverride(ctx, t, cs, key)
+	if _, ok, problem := ReplayOverride(row.Key, row.Value); ok {
 		t.Fatal("the out-of-range row replayed")
-	} else if msg := StoredOverrideWarning(rows[0], problem); !strings.Contains(msg, key) ||
+	} else if msg := StoredOverrideWarning(row, problem); !strings.Contains(msg, key) ||
 		!strings.Contains(msg, "updated_at 20") {
 		t.Fatalf("warning %q must name the key and updated_at", msg)
 	}
@@ -39,11 +36,30 @@ func TestStoredOverrideOutOfTheNewRangeIsSkippedAndTheNextSaveWorks(t *testing.T
 		!strings.Contains(err.Error(), key) {
 		t.Fatalf("an out-of-range save = %v, want a refusal naming the key", err)
 	}
-	rows, err = cs.GetOverrides(ctx, 0)
-	if err != nil || len(rows) != 1 || rows[0].Value != "4000" {
-		t.Fatalf("after the save rows = %+v, %v; want value 4000", rows, err)
+	if row = storedOverride(ctx, t, cs, key); row.Value != "4000" {
+		t.Fatalf("after the save the row holds %q, want 4000", row.Value)
 	}
-	if _, ok, _ := ReplayOverride(rows[0].Key, rows[0].Value); !ok {
+	if _, ok, _ := ReplayOverride(row.Key, row.Value); !ok {
 		t.Fatal("the saved row does not replay")
 	}
+}
+
+// storedOverride returns the one global row of key (sage.config also holds
+// runtime state such as emergency_stop).
+func storedOverride(ctx context.Context, t *testing.T, cs *ConfigStore, key string) ConfigOverride {
+	t.Helper()
+	rows, err := cs.GetOverrides(ctx, 0)
+	if err != nil {
+		t.Fatalf("GetOverrides: %v", err)
+	}
+	var found []ConfigOverride
+	for _, r := range rows {
+		if r.Key == key {
+			found = append(found, r)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("rows for %s = %+v, want exactly one", key, found)
+	}
+	return found[0]
 }
