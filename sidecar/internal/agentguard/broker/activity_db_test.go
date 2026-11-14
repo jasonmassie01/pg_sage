@@ -14,6 +14,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/agentguard/envbind"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
@@ -155,7 +156,8 @@ func TestActivityReportsDeallocAndFallsBack(t *testing.T) {
 	f := newFixtureOn(t, pool, envbind.EnvProd)
 	// Bootstrap and the fixture alone overflow 100 entries; start the
 	// attribution window from a clean slate (this server is the test's own).
-	exec(t, pool, "SELECT pg_stat_statements_reset()")
+	_, err = testdb.ResetStatements(ctx, pool)
+	require.NoError(t, err)
 	f.runTagged(t, 2)
 	if a := f.activity(t); a.Attribution.Dropped {
 		t.Fatalf("before eviction: %+v, want complete", a.Attribution)

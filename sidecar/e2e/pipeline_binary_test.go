@@ -23,6 +23,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 const (
@@ -130,8 +132,10 @@ func seedBinaryScenarios(t *testing.T, pool *pgxpool.Pool, dsn string) {
 
 	// A7 slow_query → advisory finding, NO action. Needs
 	// pg_stat_statements (preloaded by the runner's container).
-	mustExec(t, pool, `CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
-		SELECT pg_stat_statements_reset();`)
+	mustExec(t, pool, `CREATE EXTENSION IF NOT EXISTS pg_stat_statements`)
+	if _, err := testdb.ResetStatements(context.Background(), pool); err != nil {
+		t.Fatalf("reset this database's pg_stat_statements: %v", err)
+	}
 	for i := 0; i < 3; i++ {
 		mustExec(t, pool, "SELECT pg_sleep(0.8)")
 	}
