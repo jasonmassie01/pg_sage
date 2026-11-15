@@ -118,9 +118,27 @@ a per-database advisory lock and upserted, so rolling it again gives the same ro
 worker backfills from the oldest snapshot, 24 hours per pass every 5 minutes (the first
 90 days take about 7.5 hours per database), then rolls the previous hour at :05 and
 re-rolls the one before it for late snapshots. `SnapshotIntervals` exposes the pairs to
-other readers. Both tables follow `retention.snapshots_days`;
+other readers. The hourly rows follow `retention.query_rollup_hourly_days` (35, never past
+`snapshots_days`) and the coverage rows `retention.query_rollup_daily_days` (400);
 `pg_sage_query_rollup_hours_total{database,result}` and
 `pg_sage_query_rollup_lag_hours{database}` report progress.
+
+**Daily rollup and coverage.** Each worker pass then rolls every closed UTC day whose last
+hour is rolled into `sage.query_rollup_daily` (`querystore.RollupDay`: per queryid the
+day's sums, the hours with a row and with a break, the number of plan fingerprints and
+the last one), day d-1 from 00:15, at most seven days per pass, so a backfilled day is
+rolled as soon as its 24 hours are; the newest day is re-rolled until 01:15, after its
+23:00 hour's late re-roll. A re-roll replaces a row only with a sum over at least as many
+hours, and retention removes an hourly row only once its day's daily row exists, so a
+purge racing the roll never loses a day. `GET /api/v1/queries/coverage` sums the coverage
+rows of a window (default 28 days): the covered share of execution time over the hours
+whose total is known, the hours with an epoch break, missing hours, dealloc growth and
+the rollup's measured bytes, with a status: `unknown` without statement totals (never
+`ok` by default), `mostly_breaks` when more than a quarter of the hours with workload
+broke (a compute that suspends), `learning` under 14 days of history, else `ok`. The
+workload explorer shows it as one line under the top statements, silent when `ok` above
+90%. A history migration (`pg_sage history migrate`) copies the daily and coverage rows
+and rebuilds the hourly tier from the copied snapshots ("hourly rollup rebuilt").
 
 **The workload rule.** The collector keeps every statement. Advice paths (findings, the
 tuning agent, plan capture, verification targets, the briefing) read only application
