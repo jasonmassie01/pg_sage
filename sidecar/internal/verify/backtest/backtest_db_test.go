@@ -214,3 +214,30 @@ func TestBacktestDB_OneRunPerDatabase(t *testing.T) {
 		t.Fatalf("run after unlock: %v", err)
 	}
 }
+
+// A placebo keeps its gap from every recorded action, whatever its
+// outcome: a pending row may have been cut off mid-run and a failed one
+// may still have loaded the database.
+func TestBacktestDB_ActionsOfEveryOutcome(t *testing.T) {
+	pool := backtestPool(t)
+	m, cfg := dbFixture(t)
+	backtestfx.Persist(t, pool, fxSource(m), dbCycle, 1)
+	at := cfg.Now().Add(-5 * day)
+	for i, outcome := range []string{"pending", "failed", "rolled_back", "success"} {
+		if _, err := pool.Exec(t.Context(), `INSERT INTO sage.action_log (executed_at,
+			action_type, sql_executed, outcome) VALUES ($1, 'x', $2, $3)`,
+			at.Add(time.Duration(i)*time.Minute), "VACUUM public.t2", outcome); err != nil {
+			t.Fatalf("insert %s action: %v", outcome, err)
+		}
+	}
+	acts, err := NewPostgresHistory(pool).Actions(t.Context(), at, at.Add(time.Hour))
+	if err != nil || len(acts) != 4 {
+		t.Fatalf("Actions = %+v, %v; want all 4 outcomes", acts, err)
+	}
+	for i, a := range acts {
+		if !a.At.Equal(at.Add(time.Duration(i)*time.Minute)) || len(a.Tables) != 1 ||
+			a.Tables[0] != "public.t2" {
+			t.Fatalf("action %d = %+v, want public.t2 at minute %d", i, a, i)
+		}
+	}
+}

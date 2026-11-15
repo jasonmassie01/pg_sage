@@ -113,13 +113,18 @@ func (h *PostgresHistory) Statements(ctx context.Context, at time.Time) ([]State
 	return out, nil
 }
 
+// actionsSQL is every action of sage.action_log in [$1, $2), whatever its
+// outcome: a pending row may be one cut off mid-run (a retention delete is
+// recorded pending before it runs) and a failed one may have loaded the
+// database (a CREATE INDEX CONCURRENTLY that failed late), so a placebo
+// keeps its gap from all of them.
 const actionsSQL = `/* pg_sage */ SELECT executed_at, sql_executed FROM sage.action_log
-WHERE executed_at >= $1 AND executed_at < $2 AND outcome NOT IN ('pending', 'failed')
+WHERE executed_at >= $1 AND executed_at < $2
 ORDER BY executed_at, id`
 
-// Actions are the executed actions of sage.action_log in [from, to). An
-// action touches each known table whose name its SQL names as a word; one
-// that names none may have touched any.
+// Actions are the actions of sage.action_log in [from, to). An action
+// touches each known table whose name its SQL names as a word; one that
+// names none may have touched any.
 func (h *PostgresHistory) Actions(ctx context.Context, from, to time.Time) ([]Action,
 	error) {
 	known, err := h.knownTables(ctx, to)
