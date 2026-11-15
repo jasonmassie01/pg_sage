@@ -1,8 +1,10 @@
 package codehost
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -134,10 +136,22 @@ func (g *GitHub) content(ctx context.Context, repo, path, ref string) (ghContent
 	if ref != "" {
 		q.Set("ref", ref)
 	}
-	var c ghContent
+	var raw json.RawMessage
 	err = g.r.getJSON(ctx, call{method: http.MethodGet,
-		path: base + "/contents/" + escapePath(path), query: q, repo: repo}, &c)
-	return c, err
+		path: base + "/contents/" + escapePath(path), query: q, repo: repo}, &raw)
+	if err != nil {
+		return ghContent{}, err
+	}
+	// A directory is answered with an array of its entries.
+	if trimmed := bytes.TrimSpace(raw); len(trimmed) > 0 && trimmed[0] == '[' {
+		return ghContent{Type: "dir"}, nil
+	}
+	var c ghContent
+	if err := json.Unmarshal(raw, &c); err != nil {
+		return ghContent{}, fmt.Errorf("%w: codehost %s: contents of %s in %s: "+
+			"unexpected answer: %v", ErrUnavailable, g.Name(), path, repo, err)
+	}
+	return c, nil
 }
 
 type ghIssue struct {
