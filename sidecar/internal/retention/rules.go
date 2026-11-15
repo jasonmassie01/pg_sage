@@ -24,6 +24,10 @@ type purgeRule struct {
 	// sweepCol, when set, makes the rule swept (sweep.go): an incremental
 	// pass reads only rows with sweepCol at or after its floor.
 	sweepCol string
+	// inHistory marks a table that lives where the database's history
+	// lives (histstore): in meta mode the history store's cleaner runs it
+	// too, on every database's rows at once.
+	inHistory bool
 }
 
 // Keep predicates for parents referenced by NOT NULL foreign keys. The
@@ -280,7 +284,8 @@ func rollupPurgeRules(r config.RetentionConfig) []purgeRule {
 		{table: "query_rollup_coverage", timeCol: "hour", days: r.QueryRollupDailyDays},
 		// Stored workload evidence packs (evid-02a) age from their build;
 		// a pack is never updated, only deleted.
-		{table: "workload_packs", timeCol: "built_at", days: r.WorkloadPacksDays},
+		{table: "workload_packs", timeCol: "built_at", days: r.WorkloadPacksDays,
+			inHistory: true},
 	}
 }
 
