@@ -59,7 +59,7 @@ func (monitorMechanisms) CheckMechanism(_ context.Context, in verify.MechanismIn
 func monitorV2Config(method string, err error, step time.Time) RollbackMonitorConfig {
 	return RollbackMonitorConfig{GainPct: 20, ThresholdPct: 15, V2: &verify.V2Options{
 		Counters: monitorCounters{step: step, err: err}, Mechanisms: monitorMechanisms{},
-		Method:   func(context.Context) string { return method }, Cycle: 5 * time.Minute,
+		Method: func(context.Context) string { return method }, Cycle: 5 * time.Minute,
 		Controls: func(context.Context, verify.WatchState) ([]int64, error) {
 			return []int64{11, 12, 13}, nil
 		}}}
