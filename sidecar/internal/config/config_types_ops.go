@@ -195,6 +195,8 @@ type RetentionConfig struct {
 	// QueryRollupHourlyDays and QueryRollupDailyDays: see storage_retention.go.
 	QueryRollupHourlyDays int `yaml:"query_rollup_hourly_days" doc:"Days to keep the hourly per-query rollup; an hour goes once its day is in the daily tier. At most snapshots_days (the default follows a smaller one). 0 disables. Range 0-3650. Default 35."`
 	QueryRollupDailyDays  int `yaml:"query_rollup_daily_days" doc:"Days to keep the daily per-query rollup and the hourly coverage rows. At least query_rollup_hourly_days. 0 disables. Range 0-3650. Default 400."`
+	// WorkloadPacksDays: see storage_retention.go.
+	WorkloadPacksDays int `yaml:"workload_packs_days" doc:"Days to keep stored workload evidence packs (sage.workload_packs), from when each was built. 0 disables. Range 0-3650. Default 180."`
 }
 
 // NotificationPolicyConfig holds notification delivery policy. It is YAML-only

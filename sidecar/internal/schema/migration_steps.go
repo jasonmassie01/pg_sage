@@ -237,6 +237,8 @@ func trancheFiveMigrations() []namedStep {
 		{"ddlQueryRollup", ddlQueryRollup},                                   // evid-01a
 		{"ddlQueryRollupDaily", ddlQueryRollupDaily},                         // evid-01b
 		{"ddlHistoryMigrationRollupTables", ddlHistoryMigrationRollupTables}, // evid-01b
+		{"ddlWorkloadPacks", ddlWorkloadPacks},                               // evid-02a
+		{"ddlFactsOwnerBrief", ddlFactsOwnerBrief},                           // evid-03a
 		{"ddlActionOutcomeVerifier", ddlActionOutcomeVerifier},               // lab-01c
 		{"ddlVerifierBacktest", ddlVerifierBacktest},                         // lab-02
 	}

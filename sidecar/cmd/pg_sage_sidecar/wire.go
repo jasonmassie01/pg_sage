@@ -13,6 +13,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/databricksauth"
+	"github.com/pg-sage/sidecar/internal/evidence/workpack"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/llm"
@@ -427,7 +428,8 @@ func replaceManagedDatabase(
 // the LLM budget share returns to the remaining databases (G5-B06), its
 // Sage SRE probe queue series leave /metrics (sre-06), and the
 // process-wide /metrics counters drop its series (observability-07), the
-// LLM health counters included (observability-05).
+// LLM health counters included (observability-05), and its workload
+// evidence pack series (evid-02a).
 func forgetRemovedDatabase(name string) {
 	if fleetLLMBudget != nil {
 		fleetLLMBudget.Unregister(name)
@@ -438,6 +440,7 @@ func forgetRemovedDatabase(name string) {
 	llmHealth.prune(name)
 	ask.ForgetDatabase(name)
 	selfbudget.Process().ForgetDatabase(name)
+	workpack.ForgetDatabase(name)
 }
 
 func cleanupManagedCandidate(candidate *fleet.DatabaseInstance) error {

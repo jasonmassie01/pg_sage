@@ -112,6 +112,13 @@ var runtimeFamilies = []Family{
 	{Name: "pg_sage_query_rollup_lag_hours", Type: Gauge, Area: AreaCollector,
 		Help:   "Closed hours the hourly per-query rollup has not rolled yet (0: caught up)",
 		Labels: []string{"database"}, Modes: AllModes, Unit: "hours", Since: "v2.8.0"},
+	{Name: "pg_sage_workload_pack_builds_total", Type: Counter, Area: AreaCollector,
+		Help: "Workload evidence pack builds, by result (built, reused: the window's " +
+			"data was already stored, too_large, failed)",
+		Labels: []string{"database", "result"}, Modes: AllModes, Since: "v2.8.0"},
+	{Name: "pg_sage_workload_pack_bytes", Type: Gauge, Area: AreaCollector,
+		Help:   "Stored bytes of the last workload evidence pack built or reused",
+		Labels: []string{"database"}, Modes: AllModes, Unit: "bytes", Since: "v2.8.0"},
 	{Name: "pg_sage_collector_category_unavailable", Type: Gauge, Area: AreaCollector,
 		Help:   "Category the latest snapshot could not read",
 		Labels: []string{"database", "category"}, Modes: AllModes, Since: "v2.7.0"},

@@ -2,6 +2,7 @@ package collector
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -137,5 +138,28 @@ func TestCapWorkloadGroups(t *testing.T) {
 			t.Errorf("%d groups: kept %d truncated %v, want %d %v", tc.n, len(got),
 				truncated, tc.keep, tc.truncated)
 		}
+	}
+}
+
+// evid-02b: the age read is bounded, tagged, scoped to this database's
+// client sessions and leaves pg_sage's own out, like the group read.
+func TestWorkloadAgesSQL_IsBoundedAndExcludesSelf(t *testing.T) {
+	sql := workloadAgesSQL
+	for _, want := range []string{sageTag, notSelf, "'client backend'", "current_database()",
+		"backend_start", "LIMIT "} {
+		if !strings.Contains(sql, want) {
+			t.Errorf("ages SQL lacks %q", want)
+		}
+	}
+}
+
+// A legacy snapshot decodes with Ages nil (unknown), never an empty list.
+func TestWorkloadSessions_LegacyJSONHasNoAges(t *testing.T) {
+	var ws WorkloadSessions
+	if err := json.Unmarshal([]byte(`{"groups":[],"long":[],"roles":[]}`), &ws); err != nil {
+		t.Fatal(err)
+	}
+	if ws.Ages != nil {
+		t.Fatalf("legacy ages %v, want nil", ws.Ages)
 	}
 }

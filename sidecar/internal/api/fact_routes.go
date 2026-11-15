@@ -53,6 +53,7 @@ func registerFactRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
 	for _, verb := range []string{"confirm", "reject", "expire"} {
 		routeDB(mux, "POST /api/v1/facts/{id}/"+verb, gateOperator, factDB, h.decide(verb))
 	}
+	registerFactPeakRoute(mux, mgr)
 }
 
 // factView is a fact as served: with its database, its words and who

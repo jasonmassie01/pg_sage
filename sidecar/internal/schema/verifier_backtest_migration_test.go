@@ -5,13 +5,20 @@ import (
 	"testing"
 )
 
-// lab-02: sage.verifier_backtest is one T5 step, the last, created only
-// with IF NOT EXISTS under lock_timeout.
-func TestVerifierBacktestMigration_IsTheLastT5Step(t *testing.T) {
+// lab-02: sage.verifier_backtest is one T5 step, right after lab-01c's
+// verifier columns, created only with IF NOT EXISTS under lock_timeout.
+// Later T5 items append after it, so the pin is its place, not "last".
+func TestVerifierBacktestMigration_FollowsTheVerifierColumns(t *testing.T) {
 	steps := trancheFiveMigrations()
-	if last := steps[len(steps)-1]; last[0] != "ddlVerifierBacktest" ||
-		last[1] != ddlVerifierBacktest {
-		t.Fatalf("last T5 step = %s, want ddlVerifierBacktest", last[0])
+	idx := -1
+	for i, step := range steps {
+		if step[0] == "ddlVerifierBacktest" && step[1] == ddlVerifierBacktest {
+			idx = i
+		}
+	}
+	if idx < 1 || steps[idx-1][0] != "ddlActionOutcomeVerifier" {
+		t.Fatalf("ddlVerifierBacktest at %d of tranche five, want after "+
+			"ddlActionOutcomeVerifier", idx)
 	}
 	var naming []string
 	for _, s := range migrationSteps() {

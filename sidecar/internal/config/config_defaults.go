@@ -385,6 +385,7 @@ func defaultRetentionConfig() RetentionConfig {
 
 		QueryRollupHourlyDays: DefaultRetentionQueryRollupHourlyDays,
 		QueryRollupDailyDays:  DefaultRetentionQueryRollupDailyDays,
+		WorkloadPacksDays:     DefaultRetentionWorkloadPacksDays,
 	}
 }
 

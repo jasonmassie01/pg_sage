@@ -76,6 +76,8 @@ The collector's breaker, freshness and failures per database.
 | `pg_sage_collector_breaker_state` | gauge | `database` | - | all | v2.6.0 | Collector circuit breaker (0=closed, 1=skipping, 2=dormant) |
 | `pg_sage_query_rollup_hours_total` | counter | `database`, `result` | - | all | v2.8.0 | Hours the hourly per-query rollup rolled, by result (ok, empty: no queries snapshot in the hour, failed) |
 | `pg_sage_query_rollup_lag_hours` | gauge | `database` | hours | all | v2.8.0 | Closed hours the hourly per-query rollup has not rolled yet (0: caught up) |
+| `pg_sage_workload_pack_builds_total` | counter | `database`, `result` | - | all | v2.8.0 | Workload evidence pack builds, by result (built, reused: the window's data was already stored, too_large, failed) |
+| `pg_sage_workload_pack_bytes` | gauge | `database` | bytes | all | v2.8.0 | Stored bytes of the last workload evidence pack built or reused |
 | `pg_sage_collector_category_unavailable` | gauge | `database`, `category` | - | all | v2.7.0 | Category the latest snapshot could not read |
 | `pg_sage_collector_last_success_timestamp` | gauge | `database` | seconds | all | v2.7.0 | Last collected snapshot (unix seconds) |
 | `pg_sage_collector_last_success_timestamp_seconds` | gauge | `database` | seconds | all | v2.7.0 | Unix time of the database's last completed collector snapshot |
@@ -138,6 +140,8 @@ Action outcomes, pending approvals, verification verdicts, policy parks and shad
 | `pg_sage_action_last_failure_timestamp_seconds` | gauge | `database` | seconds | all | v2.7.0 | When the latest failed action was recorded (no sample: none has failed) |
 | `pg_sage_actions_pending_approval` | gauge | `database`, `risk` | - | all | v2.7.0 | Pending approvals a person can act on now (past cooldown, not expired), by risk |
 | `pg_sage_actions_total` | counter | `database`, `class`, `outcome` | - | all | v2.7.0 | Actions that ended, by change class and outcome (success, failed, rolled_back, cancelled, unverifiable, other) |
+| `pg_sage_owner_brief_present` | gauge | `database` | - | all | v2.7.0 | 1 when the database has a confirmed owner brief (owner, peak windows, growth), else 0 |
+| `pg_sage_owner_brief_steps` | gauge | `database`, `period`, `outcome` | - | all | v2.7.0 | Accepted (approved or executed) and rejected queued actions since the owner brief was confirmed (after) and in as long before it (before); without a brief the split is 30 days ago |
 | `pg_sage_policy_parks_total` | counter | `database`, `reason` | - | all | v2.2.0 | Self-initiated changes the policy gate parked, by reason (one per evaluation) |
 | `pg_sage_policy_record_failures_total` | counter | `database`, `reason` | - | all | v2.5.1 | Policy gate decisions that could not be recorded in the decision ledger, by decision reason |
 | `pg_sage_shadow_decisions_total` | counter | `database`, `class`, `verdict` | - | all | v1.9.0 | Shadow decisions recorded below an action class's earned trust level, by the gate's verdict had it been trusted |

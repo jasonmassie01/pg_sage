@@ -9,6 +9,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
+	"github.com/pg-sage/sidecar/internal/facts"
 	"github.com/pg-sage/sidecar/internal/selfbudget"
 	"github.com/pg-sage/sidecar/internal/sre/slo"
 	"github.com/pg-sage/sidecar/internal/value"
@@ -39,6 +40,8 @@ type metricsSnapshot struct {
 	slo       []slo.Status
 	optimizer map[string]int64
 	actions   executor.ActionGauges
+	// brief is the owner brief measure (owner_brief_metrics.go).
+	brief facts.BriefMeasure
 	// sre is the Sage SRE backlog (sre_metrics.go); nil without SRE.
 	sre *sreBacklog
 	ok  map[string]bool
@@ -276,7 +279,7 @@ func (rt *databaseRuntime) startMetricsRefresher() {
 // runs also reads its investigation backlog.
 func newRuntimeMetricsRefresher(rt *databaseRuntime) *metricsRefresher {
 	sources := []metricsSource{valueMetricsSource(rt.spec.Name, rt.spec.Pool),
-		actionMetricsSource(rt.spec.Pool)}
+		actionMetricsSource(rt.spec.Pool), ownerBriefMetricsSource(rt.spec.Pool)}
 	if rt.sloEngine != nil {
 		sources = append(sources, sloMetricsSource(rt.sloEngine))
 	}
