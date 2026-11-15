@@ -58,6 +58,9 @@ type WatchState struct {
 	// FrozenWeights are the request's; nil for a watch stored before
 	// lab-01a (judged by v1 only).
 	FrozenWeights map[int64]float64
+	// AlphaSpend is the alpha the watch's looks have spent (lab-01b,
+	// SpendLook); zero before its first look.
+	AlphaSpend AlphaSpend
 }
 
 type Verdict struct {
