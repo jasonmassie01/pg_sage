@@ -108,7 +108,7 @@ func TestShape_InvalidInput(t *testing.T) {
 	for name, in := range map[string]string{
 		"empty": "", "spaces": "   ", "not json": "Seq Scan on t", "number": "42",
 		"empty array": "[]", "no node type": `{"Relation Name": "t"}`,
-		"plans not array": `{"Node Type": "Result", "Plans": {}}`,
+		"plans not array":  `{"Node Type": "Result", "Plans": {}}`,
 		"child not object": `{"Node Type": "Result", "Plans": [1]}`, "too deep": deep,
 		"text explain": `[{"QUERY PLAN": "Seq Scan on t"}]`,
 	} {

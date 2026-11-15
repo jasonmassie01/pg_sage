@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/catalogread"
+	"github.com/pg-sage/sidecar/internal/cloudtel"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/evidence/workpack"
 	"github.com/pg-sage/sidecar/internal/fleet"
@@ -18,8 +20,9 @@ import (
 // The workload evidence pack (evid-02a): an operator builds one for a
 // database and window (POST, within packBuildTimeout); anyone who can read
 // the database lists its packs, reads one pack's manifest and header, and
-// resolves one evidence id. A build only reads the history; the pack is
-// stored once per database and content hash.
+// resolves one evidence id. A build only reads the history and (evid-02b)
+// the database's catalog, each read bounded by the safety timeouts; the
+// pack is stored once per database and content hash.
 
 const workloadPacksPath = "/api/v1/databases/{db}/workload-packs"
 
@@ -60,18 +63,24 @@ func packInstance(w http.ResponseWriter, r *http.Request,
 }
 
 // packWindowBody is a build request; both bounds are optional (the 28
-// days ending at the current hour).
+// days ending at the current hour). The two opt-ins (evid-02b, off by
+// default) put plan conditions, literals redacted, and pg_stats' value
+// samples into this one build's pack.
 type packWindowBody struct {
-	From *time.Time `json:"from"`
-	To   *time.Time `json:"to"`
+	From                *time.Time `json:"from"`
+	To                  *time.Time `json:"to"`
+	IncludeConditions   bool       `json:"include_conditions"`
+	IncludeValueSamples bool       `json:"include_value_samples"`
 }
 
-func parsePackWindow(r *http.Request, now time.Time) (workpack.Window, error) {
+func parsePackWindow(r *http.Request, now time.Time) (workpack.Window, packWindowBody,
+	error) {
 	var b packWindowBody
 	err := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 4096)).Decode(&b)
 	if err != nil && !errors.Is(err, io.EOF) {
-		return workpack.Window{}, fmt.Errorf("the body must be {\"from\", \"to\"} with "+
-			"RFC 3339 times: %v", err)
+		return workpack.Window{}, b, fmt.Errorf("the body must be {\"from\", \"to\"} "+
+			"with RFC 3339 times, and optional include_conditions and "+
+			"include_value_samples booleans: %v", err)
 	}
 	w := workpack.DefaultWindowEnding(now)
 	if b.To != nil {
@@ -80,7 +89,7 @@ func parsePackWindow(r *http.Request, now time.Time) (workpack.Window, error) {
 	if b.From != nil {
 		w.From = *b.From
 	}
-	return w.UTC(), w.Validate()
+	return w.UTC(), b, w.Validate()
 }
 
 // packRequest describes the build of w for inst.
@@ -91,6 +100,10 @@ func packRequest(inst *fleet.DatabaseInstance, cfg *config.Config, w workpack.Wi
 	if cfg != nil {
 		req.Location = cfg.Baseline.Location()
 		req.HourlyDays = cfg.Retention.EffectiveQueryRollupHourlyDays()
+		req.Timeouts = catalogread.FromSafety(cfg.Safety)
+	}
+	if rt := cloudtel.Lookup(inst.Name); rt != nil {
+		req.Resource = rt.Resource()
 	}
 	if inst.Status != nil {
 		req.PGVersion, req.Platform = inst.Status.PGVersion, inst.Status.Platform
@@ -106,7 +119,7 @@ func packRequest(inst *fleet.DatabaseInstance, cfg *config.Config, w workpack.Wi
 func workloadPackBuildHandler(mgr *fleet.DatabaseManager, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now().UTC()
-		window, err := parsePackWindow(r, now)
+		window, body, err := parsePackWindow(r, now)
 		if err != nil {
 			jsonError(w, err.Error(), http.StatusBadRequest)
 			return
@@ -117,7 +130,10 @@ func workloadPackBuildHandler(mgr *fleet.DatabaseManager, cfg *config.Config) ht
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), packBuildTimeout)
 		defer cancel()
-		row, err := buildAndSave(ctx, inst, packRequest(inst, cfg, window, now), r)
+		req := packRequest(inst, cfg, window, now)
+		req.IncludeConditions = body.IncludeConditions
+		req.IncludeValueSamples = body.IncludeValueSamples
+		row, err := buildAndSave(ctx, inst, req, r)
 		if err != nil {
 			packBuildError(w, r, inst.Name, err)
 			return
