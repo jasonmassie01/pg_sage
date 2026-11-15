@@ -68,6 +68,30 @@ func (a *Analyzer) dispatchRewriteFindings(
 func (a *Analyzer) finalizeCycle(
 	ctx context.Context, findings []Finding, evaluated map[string]bool,
 ) error {
+	published, upsertErr, err := a.persistFindings(ctx, findings)
+	if err != nil {
+		a.logFn("ERROR", "analyzer: %v; keeping the previous %d findings, "+
+			"skipping recommendations and resolving nothing this cycle",
+			err, len(a.LatestFindings()))
+		return fmt.Errorf("filter suppressed findings: %w", err)
+	}
+	a.mu.Lock()
+	a.findings = published
+	a.mu.Unlock()
+	a.recordRecommendations(ctx, published, evaluated)
+	a.resolveCleared(ctx, published, evaluated)
+	a.resolveDisabled(ctx)
+	a.logFn("INFO", "analyzer cycle: %d findings", len(published))
+	return upsertErr
+}
+
+// persistFindings upserts findings, sends the notifications their upsert
+// earned and returns the ones to publish: all but operator-suppressed
+// identities. upsertErr is a persist failure (the rest still runs);
+// filterErr means the suppression state could not be read, so nothing
+// may be published, recorded or resolved.
+func (a *Analyzer) persistFindings(ctx context.Context, findings []Finding) (
+	published []Finding, upsertErr, filterErr error) {
 	res, upsertErr := UpsertFindingsObserved(ctx, a.pool, findings, a.cycleEvidence())
 	if upsertErr != nil {
 		a.logFn("ERROR", "analyzer: %d of %d findings not persisted: %v",
@@ -84,21 +108,8 @@ func (a *Analyzer) finalizeCycle(
 	// Operator-suppressed identities are never published to the executor,
 	// the API or recommendations (G2-B01), whether or not the upsert
 	// reached them.
-	published, err := withoutActiveSuppressions(ctx, a.suppressionReader(), findings)
-	if err != nil {
-		a.logFn("ERROR", "analyzer: %v; keeping the previous %d findings, "+
-			"skipping recommendations and resolving nothing this cycle",
-			err, len(a.LatestFindings()))
-		return fmt.Errorf("filter suppressed findings: %w", err)
-	}
-	a.mu.Lock()
-	a.findings = published
-	a.mu.Unlock()
-	a.recordRecommendations(ctx, published, evaluated)
-	a.resolveCleared(ctx, published, evaluated)
-	a.resolveDisabled(ctx)
-	a.logFn("INFO", "analyzer cycle: %d findings", len(published))
-	return upsertErr
+	published, filterErr = withoutActiveSuppressions(ctx, a.suppressionReader(), findings)
+	return published, upsertErr, filterErr
 }
 
 // cycleEvidence is when this cycle's snapshot was collected and how long
