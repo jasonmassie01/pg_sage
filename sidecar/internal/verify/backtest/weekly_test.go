@@ -111,3 +111,38 @@ func TestWeekly_ReportsARefusedGate(t *testing.T) {
 		t.Fatalf("Tick = %q %v", did, err)
 	}
 }
+
+// A failed run is not retried every Check: the next try waits RetryAfter
+// (a day by default), and a stored run clears the wait.
+func TestWeekly_FailedRunWaitsBeforeRetrying(t *testing.T) {
+	f := &weeklyFake{runErr: ErrRuntimeExceeded}
+	now := weeklyNow
+	w := f.weekly(now)
+	w.Now = func() time.Time { return now }
+	tick := func() (string, error) { return w.Tick(context.Background()) }
+	if _, err := tick(); !errors.Is(err, ErrRuntimeExceeded) ||
+		!strings.Contains(err.Error(), "next try in 24h0m0s") || len(f.ran) != 1 {
+		t.Fatalf("first run: %v, %d runs", err, len(f.ran))
+	}
+	now = weeklyNow.Add(DefaultRetryAfter - time.Second)
+	did, err := tick()
+	if err != nil || did != "skipped: the last run failed; retrying after "+
+		"2026-11-16T03:00:00Z" || len(f.ran) != 1 {
+		t.Fatalf("an hour later: %q %v, %d runs", did, err, len(f.ran))
+	}
+	f.runErr = nil
+	now = weeklyNow.Add(DefaultRetryAfter)
+	if did, err := tick(); err != nil || did != "stored: gate passed" || len(f.ran) != 2 {
+		t.Fatalf("a day later: %q %v, %d runs", did, err, len(f.ran))
+	}
+	f.runErr = errSnapshot
+	w.RetryAfter = time.Hour
+	now = now.Add(2 * DefaultPeriod)
+	if _, err := tick(); !errors.Is(err, errSnapshot) || len(f.ran) != 3 {
+		t.Fatalf("a stored run did not clear the wait: %v, %d runs", err, len(f.ran))
+	}
+	now = now.Add(time.Hour)
+	if _, err := tick(); !errors.Is(err, errSnapshot) || len(f.ran) != 4 {
+		t.Fatalf("RetryAfter 1h: %v, %d runs", err, len(f.ran))
+	}
+}

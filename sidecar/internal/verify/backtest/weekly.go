@@ -12,24 +12,32 @@ import (
 // lab-01c's auto keeps a fresh verdict (it falls back to shadow when the
 // latest passing row is older than 35 days). A database under the host
 // withhold (managed-cloud host telemetry says to wait) is skipped: the
-// replay reads a lot of history. Run and Latest are the store's
-// RunAndSave and Latest in the runtime.
+// replay reads a lot of history. A run that fails (not enough history
+// yet, cut short at verify.backtest_max_runtime_minutes, a read error) is
+// not retried before RetryAfter, so a database whose run cannot finish is
+// not replayed for up to the whole runtime every Check. Run and Latest are
+// the store's RunAndSave and Latest in the runtime. Tick is not safe for
+// concurrent use: Loop calls it from one goroutine.
 type Weekly struct {
-	Config   Config
-	Period   time.Duration // between runs (default 7 days)
-	Check    time.Duration // how often Due is checked (default 1 hour)
-	Leader   func() bool
-	Withhold func(context.Context) []string
-	Latest   func(context.Context) (Result, bool, error)
-	Run      func(context.Context, Config) (Result, error)
-	Log      func(component, format string, args ...any)
-	Now      func() time.Time
+	Config     Config
+	Period     time.Duration // between runs (default 7 days)
+	Check      time.Duration // how often Due is checked (default 1 hour)
+	RetryAfter time.Duration // after a failed run (default 1 day)
+	Leader     func() bool
+	Withhold   func(context.Context) []string
+	Latest     func(context.Context) (Result, bool, error)
+	Run        func(context.Context, Config) (Result, error)
+	Log        func(component, format string, args ...any)
+	Now        func() time.Time
+
+	failedAt time.Time // the last failed run; zero after a stored one
 }
 
 // Default cadence of the weekly run.
 const (
-	DefaultPeriod = 7 * day
-	DefaultCheck  = time.Hour
+	DefaultPeriod     = 7 * day
+	DefaultCheck      = time.Hour
+	DefaultRetryAfter = day
 )
 
 // Tick runs the back-test when it is due: on the leader, outside the host
@@ -47,6 +55,10 @@ func (w *Weekly) Tick(ctx context.Context) (string, error) {
 		}
 	}
 	now := w.now()
+	if retry := w.failedAt.Add(w.retryAfter()); !w.failedAt.IsZero() && now.Before(retry) {
+		return "skipped: the last run failed; retrying after " +
+			retry.UTC().Format(time.RFC3339), nil
+	}
 	last, ok, err := w.Latest(ctx)
 	if err != nil {
 		return "", fmt.Errorf("weekly verifier back-test of %q: %w", w.Config.Database, err)
@@ -58,8 +70,11 @@ func (w *Weekly) Tick(ctx context.Context) (string, error) {
 	cfg.Now = w.Now
 	r, err := w.Run(ctx, cfg)
 	if err != nil {
-		return "", fmt.Errorf("weekly verifier back-test of %q: %w", w.Config.Database, err)
+		w.failedAt = now
+		return "", fmt.Errorf("weekly verifier back-test of %q (next try in %s): %w",
+			w.Config.Database, w.retryAfter(), err)
 	}
+	w.failedAt = time.Time{}
 	ok, reason := r.Gate()
 	if ok {
 		return "stored: gate passed", nil
@@ -79,6 +94,13 @@ func (w *Weekly) period() time.Duration {
 		return w.Period
 	}
 	return DefaultPeriod
+}
+
+func (w *Weekly) retryAfter() time.Duration {
+	if w.RetryAfter > 0 {
+		return w.RetryAfter
+	}
+	return DefaultRetryAfter
 }
 
 // Loop ticks every Check until ctx ends, logging each run and failure.

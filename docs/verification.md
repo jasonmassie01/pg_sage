@@ -63,8 +63,11 @@ is about 1.9%, on 200 with ten (5%) about 9%.
 
 The sidecar runs the back-test weekly per database on the leader, skipped while the
 host guard withholds heavy work (managed-cloud replica lag, storage runway, memory
-pressure). The resolver re-reads the row every 10 minutes, so a new back-test takes
-effect without a restart; a later failing row returns the database to `shadow`.
+pressure). A run that fails (not enough history yet, cut short at
+`verify.backtest_max_runtime_minutes`, a read error) is retried a day later, not at
+every hourly check. The resolver re-reads the row every 10 minutes, so a new
+back-test takes effect without a restart; a later failing row returns the database
+to `shadow`.
 
 ## The rates on the bench fixtures
 
