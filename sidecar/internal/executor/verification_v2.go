@@ -26,6 +26,13 @@ func controlStatementsSQL(rel string) string {
 	GROUP BY s.queryid ORDER BY sum(s.calls) DESC LIMIT $3`
 }
 
+// WithBacktestReader installs the reader of this database's verifier
+// back-tests (lab-02): verify.method auto acts on v2 once the latest one
+// passes. Without it auto stays in shadow.
+func (e *Executor) WithBacktestReader(reader verify.BacktestReader) {
+	e.methodResolver = verify.NewMethodResolver(reader, nil)
+}
+
 // verificationV2Options wires v2 to this executor's database.
 func (e *Executor) verificationV2Options() verify.V2Options {
 	if e.methodResolver == nil {
