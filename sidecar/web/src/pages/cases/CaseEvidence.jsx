@@ -2,6 +2,7 @@ import { SQLBlock } from '../../components/SQLBlock'
 import { ExplainQueryButton } from '../../components/ExplainPanel'
 import { FindingFactSections } from '../facts/FindingFactSections'
 import { QueryPageLink } from './QueryPageLink'
+import { CaseCallSite } from './CaseCallSite'
 
 // A case's evidence list (split out of CasesPage.jsx): each item's
 // summary, scalar details, query with Explain and its full payload.
@@ -64,6 +65,7 @@ function EvidenceItem({ evidence, category, database, canExplain }) {
         </div>
       )}
       <QueryPageLink queryid={evidence.queryid} database={database} />
+      <CaseCallSite queryid={evidence.queryid} database={database} />
       {canExplain && <ExplainQueryButton database={database} queryid={evidence.queryid} />}
       <FindingFactSections row={{ category, detail }} />
       <details className="mt-2">
