@@ -13,6 +13,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/recommendation"
 	"github.com/pg-sage/sidecar/internal/store"
+	"github.com/pg-sage/sidecar/internal/verify"
 )
 
 // EventDispatcher sends notification events. Nil means no
@@ -101,6 +102,8 @@ type Executor struct {
 	principalHold      PrincipalHold          // §6.2.7 cross-database re-check
 	managedConfig      ManagedConfigAdapter
 	indexVerification  *verifiedIndexLifecycle
+	// methodResolver resolves verify.method for this database (lab-01c).
+	methodResolver *verify.MethodResolver
 	hostCPU            HostCPUReader
 	ioEvidence         IOEvidenceReader
 	retainedCleanupMu  sync.Mutex

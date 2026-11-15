@@ -34,6 +34,7 @@ func (e *Executor) engineOutcome(
 	if o.Evidence == nil {
 		o.Evidence = map[string]any{}
 	}
+	withVerifier(&o, v)
 	var executedAt time.Time
 	var predicted []byte
 	err := e.pool.QueryRow(ctx, `/* pg_sage executor */ SELECT executed_at,

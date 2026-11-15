@@ -130,6 +130,16 @@ func (s *CounterSource) Seasonal(ctx context.Context, ids []int64, from, to time
 	if err != nil {
 		return nil, fmt.Errorf("read seasonal query history: %w", err)
 	}
+	out, err := collectHourly(rows)
+	if err != nil {
+		return nil, fmt.Errorf("read seasonal query history: %w", err)
+	}
+	return out, nil
+}
+
+// collectHourly reads rollup rows (queryid, hour, calls, exec_ms, blocks,
+// rows) into a Series.
+func collectHourly(rows pgx.Rows) (Series, error) {
 	type row struct {
 		id int64
 		b  Bucket
@@ -142,11 +152,41 @@ func (s *CounterSource) Seasonal(ctx context.Context, ids []int64, from, to time
 		return x, err
 	})
 	if err != nil {
-		return nil, fmt.Errorf("read seasonal query history: %w", err)
+		return nil, err
 	}
 	out := Series{}
 	for _, x := range got {
 		out[x.id] = append(out[x.id], x.b)
+	}
+	return out, nil
+}
+
+// hourlySQL reads the hourly rollup rows of queryids $1 in [$2, $3),
+// leaving out epoch-broken hours (partial counts).
+const hourlySQL = `/* pg_sage */ SELECT h.queryid, h.hour, h.calls, h.exec_ms,
+	h.shared_blks_hit + h.shared_blks_read, h.rows
+FROM sage.query_rollup_hourly h
+WHERE {db:h} AND h.queryid = ANY($1::int8[]) AND h.hour >= $2 AND h.hour < $3
+	AND NOT h.epoch_break
+ORDER BY h.queryid, h.hour`
+
+// Hourly reads, for ids, the hourly rollup rows in [from, to): the history
+// PreflightVerifiable judges a step's targets by (lab-01c).
+func (s *CounterSource) Hourly(ctx context.Context, ids []int64, from, to time.Time) (Series,
+	error) {
+	if err := s.check(from, to); err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return Series{}, nil
+	}
+	rows, err := histstore.Resolve(s.queryer).Query(ctx, hourlySQL, ids, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("read hourly query history: %w", err)
+	}
+	out, err := collectHourly(rows)
+	if err != nil {
+		return nil, fmt.Errorf("read hourly query history: %w", err)
 	}
 	return out, nil
 }
