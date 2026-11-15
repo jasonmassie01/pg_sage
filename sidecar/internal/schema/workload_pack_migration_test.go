@@ -6,9 +6,9 @@ import (
 )
 
 // evid-02a: sage.workload_packs stores each built workload evidence pack
-// once per database and content hash. The step follows the evid-01b rollup
-// tables in tranche five. No concurrent access tests: the step is a constant string (the
-// bootstrap lock serializes it; see the DB test).
+// once per database and content hash. The step follows the evid-01b
+// rollup tables in tranche five. No concurrent access tests: the step is a
+// constant string (the bootstrap lock serializes it; see the DB test).
 
 func TestWorkloadPacksStep_IsATrancheFiveStep(t *testing.T) {
 	steps := trancheFiveMigrations()
