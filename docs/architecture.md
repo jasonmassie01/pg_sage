@@ -322,6 +322,40 @@ The counters come from the snapshot `queries` category through the same reader a
 the hourly rollup, in the database's history store. Watches stored before v2 carry
 no frozen weights and are judged by v1 only.
 
+Three guards sit in front of the v2 estimate (none of them changes a verdict yet):
+
+- **Mechanism required** (`verify.MechanismCheck`). An index step is credited for a
+  target only when the index can have caused the change: the target's plan
+  fingerprint in the query store changed within one collector cycle of the step,
+  and its newest plan in `sage.explain_cache` names the index in an `Index Name`
+  node (a name in a filter or condition does not count). For a dropped index the
+  plan must change and no longer name it. A target that improved without that is
+  "unexplained" and left out; with no target left the result is
+  `insufficient_evidence` with reason `no_mechanism`. A setting's mechanism is the
+  metric the executor already maps to it (temp spills for `work_mem`, dead tuples
+  for autovacuum knobs, requested checkpoints for the WAL bounds); a setting with
+  no mapped metric is `no_mechanism`. A plan without actual row counts (the
+  generic `EXPLAIN` that is the only evidence on Neon and Lakebase) is labelled
+  "estimated plan". If the plans cannot be read, the reason is
+  `mechanism_unavailable: <cause>`: insufficient evidence, never a revert.
+- **Contamination** (`verify.DetectContamination`). Each target's residual and the
+  median control's residual after the step are scanned with a two-sided CUSUM
+  (k = 0.5 and h = 5 robust deviations, the scale `baseline.Judge` uses, floored
+  at 5%). The step's own effect is the window's level, so a break that starts more
+  than one collector cycle after the step (a deploy at hour 5 of a 24-hour window)
+  marks the window contaminated: `insufficient_evidence` with reason
+  `contaminated_at=<time>`, and the next look starts after the break. An alarm
+  counts only when the levels on either side differ by at least 3 standard errors,
+  so slow drift is not called a break.
+- **Repeated looks** (`verify.SpendLook`). A watch is looked at 2, 4, 8, 16, 32, 64
+  and 72 hours after the step with the defaults, and seven tests at 5% each would
+  call about one in five unchanged steps a change. Each look instead spends a share
+  of the 5% by an O'Brien-Fleming-type schedule of the information so far (calls
+  seen over the calls expected by the hard maximum): early looks need
+  overwhelming evidence, and the last look spends exactly what is left. The shares
+  add up to 5%, the per-target Bonferroni split stays on top, and the spend is
+  stored with the watch (`alpha_spend` in its baseline) so a restart continues it.
+
 High-risk schema changes are handled as migration-safety cases before direct
 execution. The case projector attaches deterministic DDL preflight evidence,
 including lock/rewrite classification plus live table-size, activity, pending
