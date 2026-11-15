@@ -29,6 +29,10 @@ func (e *Executor) rollbackMonitorConfig(
 		result.LockTimeoutMs = cfg.Safety.LockTimeout()
 		result.CloudEnvironment = cfg.CloudEnvironment
 	}
+	if e.pool != nil {
+		v2 := e.verificationV2Options()
+		result.V2 = &v2
+	}
 	return result
 }
 

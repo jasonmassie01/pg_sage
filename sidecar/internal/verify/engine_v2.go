@@ -142,20 +142,46 @@ func (e *Engine) withWrites(state WatchState, observed observations, v Verdict) 
 	return v
 }
 
-// v2Reads is one look's counters and controls.
-type v2Reads struct {
-	controls       []int64
-	pre, post      CounterWindow
-	seasonal       Series
-	mechanism      Mechanism
-	executedAt, to time.Time
+// LookV2 is one v2 look outside the index watch: the post-action
+// monitor's. Class is a mechanism class (MechanismIndexDrop,
+// MechanismConfigGUC, ...), Kind the attribution kind, Metric the
+// setting's outcome metric.
+type LookV2 struct {
+	State               WatchState
+	Now                 time.Time
+	Class, Kind, Metric string
 }
 
-func (e *Engine) readV2(ctx context.Context, state WatchState) (v2Reads, error) {
-	r := v2Reads{executedAt: state.ExecutedAt, to: e.options.Now()}
+// JudgeLookV2 is one v2 look with o's readers.
+func JudgeLookV2(ctx context.Context, o V2Options, in LookV2) (Verdict, AlphaSpend, error) {
+	if o.Counters == nil || o.Mechanisms == nil {
+		return Verdict{}, AlphaSpend{}, errors.New("verify: verification v2 needs counters " +
+			"and a mechanism source")
+	}
+	if o.Cycle <= 0 {
+		o.Cycle = defaultV2Cycle
+	}
+	v, spend, err := judgeLook(ctx, &o, in)
+	if err != nil {
+		return Verdict{}, AlphaSpend{}, err
+	}
+	return v, *spend, nil
+}
+
+// v2Reads is one look's counters and controls.
+type v2Reads struct {
+	controls  []int64
+	pre, post CounterWindow
+	seasonal  Series
+	mechanism Mechanism
+}
+
+func readV2(ctx context.Context, o *V2Options, in LookV2) (v2Reads, error) {
+	var r v2Reads
+	state, at := in.State, in.State.ExecutedAt
 	targets := state.Criterion.TargetIDs
-	if e.v2.Controls != nil {
-		controls, err := e.v2.Controls(ctx, state)
+	if o.Controls != nil && in.Kind == AttributionIndex {
+		controls, err := o.Controls(ctx, state)
 		if err != nil {
 			return r, fmt.Errorf("choose control statements: %w", err)
 		}
@@ -164,34 +190,40 @@ func (e *Engine) readV2(ctx context.Context, state WatchState) (v2Reads, error) 
 	}
 	ids := append(slices.Clone(targets), r.controls...)
 	var err error
-	if r.pre, err = e.v2.Counters.Window(ctx, ids, r.executedAt.Add(-state.Window),
-		r.executedAt, 0); err != nil {
+	if r.pre, err = o.Counters.Window(ctx, ids, at.Add(-state.Window), at, 0); err != nil {
 		return r, fmt.Errorf("read pre-action counters: %w", err)
 	}
-	if r.post, err = e.v2.Counters.Window(ctx, ids, r.executedAt, r.to, 0); err != nil {
+	if r.post, err = o.Counters.Window(ctx, ids, at, in.Now, 0); err != nil {
 		return r, fmt.Errorf("read post-action counters: %w", err)
 	}
-	if r.seasonal, err = e.v2.Counters.Seasonal(ctx, ids, r.executedAt, r.to, 0); err != nil {
+	if r.seasonal, err = o.Counters.Seasonal(ctx, ids, at, in.Now, 0); err != nil {
 		return r, fmt.Errorf("read seasonal history: %w", err)
 	}
-	r.mechanism, err = e.v2.Mechanisms.CheckMechanism(ctx, MechanismInput{
-		Class: MechanismIndexCreate, Index: state.IndexName, Targets: targets,
-		ExecutedAt: r.executedAt, Cycle: e.v2.Cycle}, r.to)
+	r.mechanism, err = o.Mechanisms.CheckMechanism(ctx, MechanismInput{Class: in.Class,
+		Index: state.IndexName, Targets: targets, ExecutedAt: at, Cycle: o.Cycle,
+		Metric: in.Metric}, in.Now)
 	if err != nil {
 		return r, fmt.Errorf("check the mechanism: %w", err)
 	}
 	return r, nil
 }
 
-// judgeV2 is one v2 look: the reads, the look's alpha, the attribution on
-// the counted targets, the contamination scan and the verdict.
+// judgeV2 is one look of the index watch.
 func (e *Engine) judgeV2(ctx context.Context, state WatchState) (Verdict, *AlphaSpend,
 	error) {
-	r, err := e.readV2(ctx, state)
+	return judgeLook(ctx, e.v2, LookV2{State: state, Now: e.options.Now(),
+		Class: MechanismIndexCreate, Kind: AttributionIndex})
+}
+
+// judgeLook is one v2 look: the reads, the look's alpha, the attribution
+// on the counted targets, the contamination scan and the verdict.
+func judgeLook(ctx context.Context, o *V2Options, look LookV2) (Verdict, *AlphaSpend, error) {
+	r, err := readV2(ctx, o, look)
 	if err != nil {
 		return Verdict{}, nil, err
 	}
-	look, spend, err := nextLook(state)
+	state := look.State
+	next, spend, err := nextLook(state)
 	if err != nil {
 		return Verdict{}, nil, err
 	}
@@ -199,20 +231,20 @@ func (e *Engine) judgeV2(ctx context.Context, state WatchState) (Verdict, *Alpha
 	if r.mechanism.Passed() && len(r.mechanism.Counted) > 0 {
 		targets = r.mechanism.Counted
 	}
-	in := AttributionInput{Kind: AttributionIndex, Targets: targets, Controls: r.controls,
+	in := AttributionInput{Kind: look.Kind, Targets: targets, Controls: r.controls,
 		Pre: r.pre.Series, Post: r.post.Series, Seasonal: r.seasonal,
 		Weights: state.FrozenWeights, RegressPct: state.Criterion.RegressPct,
-		Alpha: testAlpha(look.Alpha), EpochBreak: r.pre.EpochBreak || r.post.EpochBreak}
+		Alpha: testAlpha(next.Alpha), EpochBreak: r.pre.EpochBreak || r.post.EpochBreak}
 	a, err := Attribute(in)
 	if err != nil {
 		return Verdict{}, nil, err
 	}
-	c, err := DetectContamination(in, state.ExecutedAt, e.v2.Cycle)
+	c, err := DetectContamination(in, state.ExecutedAt, o.Cycle)
 	if err != nil {
 		return Verdict{}, nil, err
 	}
 	v := JudgeV2(state, V2Evidence{Attribution: a, Mechanism: r.mechanism,
-		Contamination: c, Look: look})
+		Contamination: c, Look: next})
 	return v, &spend, nil
 }
 
