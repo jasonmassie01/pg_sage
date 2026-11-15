@@ -15,16 +15,17 @@ import (
 const cursorBatch = 100
 
 func (p *Poller) sources() []source {
-	return []source{
+	if p.providerOnly {
+		return p.providerSources()
+	}
+	out := []source{
 		{name: "sage_actions", poll: pollActions},
 		{name: "config_audit", control: true, poll: p.pollConfigAudit},
 		{name: "migration_findings", poll: pollMigrationFindings},
 		{name: "pg_stat_statements", poll: pollStatsReset},
-		{name: "postmaster", poll: pollPostmaster},
-		{name: "recovery_role", poll: pollRecoveryRole},
-		{name: "timeline", poll: pollTimeline},
-		{name: "extensions", poll: pollExtensions},
 	}
+	out = append(out, p.providerSources()...)
+	return append(out, source{name: "extensions", poll: pollExtensions})
 }
 
 type cursorState struct {
