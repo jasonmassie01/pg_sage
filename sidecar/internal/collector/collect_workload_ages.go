@@ -8,9 +8,11 @@ import (
 // Connection ages (evid-02b): this database's client sessions counted by
 // state and by how long ago they connected (now() - backend_start), in
 // four buckets. Each bucket starts at its lower bound: a session connected
-// exactly 60 minutes ago is in AgeOver1h. pg_sage's own sessions are left
-// out (notSelf), like the groups. A snapshot written before this read has
-// no ages (nil): unknown, never zero.
+// exactly 60 minutes ago is in AgeOver1h. A session whose backend_start
+// the role cannot see (another role's session without pg_read_all_stats)
+// is AgeUnknown, never a guessed age. pg_sage's own sessions are left out
+// (notSelf), like the groups. A snapshot written before this read has no
+// ages (nil): unknown, never zero.
 
 // The connection-age buckets.
 const (
@@ -18,6 +20,7 @@ const (
 	Age1To10m  = "1m_10m"
 	Age10To60m = "10m_1h"
 	AgeOver1h  = "ge_1h"
+	AgeUnknown = "unknown"
 )
 
 // WorkloadAgeBucket is the client sessions of one state and age bucket.
@@ -32,7 +35,8 @@ const workloadAgeCap = 200
 
 // ageBucketSQL is the bucket of the interval expression age.
 func ageBucketSQL(age string) string {
-	return `CASE WHEN ` + age + ` < interval '1 minute' THEN '` + AgeUnder1m + `'
+	return `CASE WHEN ` + age + ` IS NULL THEN '` + AgeUnknown + `'
+             WHEN ` + age + ` < interval '1 minute' THEN '` + AgeUnder1m + `'
              WHEN ` + age + ` < interval '10 minutes' THEN '` + Age1To10m + `'
              WHEN ` + age + ` < interval '60 minutes' THEN '` + Age10To60m + `'
              ELSE '` + AgeOver1h + `' END`

@@ -18,10 +18,12 @@ func TestWorkloadAgeBucketSQL_Boundaries(t *testing.T) {
 		"0 seconds": AgeUnder1m, "59.999 seconds": AgeUnder1m, "1 minute": Age1To10m,
 		"9 minutes 59 seconds": Age1To10m, "10 minutes": Age10To60m,
 		"59 minutes 59 seconds": Age10To60m, "60 minutes": AgeOver1h, "3 days": AgeOver1h,
+		// A backend_start the role cannot see is NULL: unknown, not over 1 h.
+		"": AgeUnknown,
 	} {
 		var got string
 		err := pool.QueryRow(context.Background(),
-			"SELECT "+ageBucketSQL("$1::interval"), age).Scan(&got)
+			"SELECT "+ageBucketSQL("NULLIF($1, '')::interval"), age).Scan(&got)
 		if err != nil || got != want {
 			t.Errorf("age %s: bucket %q (%v), want %q", age, got, err, want)
 		}
@@ -79,7 +81,7 @@ func TestWorkloadSessions_CountsAgesByStateWithoutSelf(t *testing.T) {
 
 func validAgeBucket(b string) bool {
 	switch b {
-	case AgeUnder1m, Age1To10m, Age10To60m, AgeOver1h:
+	case AgeUnder1m, Age1To10m, Age10To60m, AgeOver1h, AgeUnknown:
 		return true
 	}
 	return false
