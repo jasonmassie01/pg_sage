@@ -195,8 +195,11 @@ coverage floors) and writes `<out-dir>/summary.md`, which lists every failure,
 data race, UNLISTED skip and package under its floor.
 It uses local images only and never pulls one. `GO_IMAGE` needs gcc and a
 race runtime that links. The default, `golang:1.27.3-alpine3.24`, has no gcc,
-so the run stops with exit 7; set `GO_IMAGE` (and `GO_ROOT` for a Go tree
-mounted at `/opt/go`) to an image that has them. It tests a `git archive` of
+so the run stops with exit 7; set `GO_IMAGE` to an image that has them. To use
+a newer Go than the image ships, give a Linux Go tree as a host directory
+(`GO_ROOT`) or as a Docker volume (`GO_ROOT_VOLUME`, for example
+`GO_IMAGE=golang:1.25 GO_ROOT_VOLUME=<volume with go1.27.3>`). It is mounted
+read-only at `/opt/go` and used as `GOROOT`. It tests a `git archive` of
 `LOCAL_SUITE_REV` (default `HEAD`), vendored offline from your module cache,
 and never writes inside the worktree. It creates and removes only containers
 named `improve-ci-*` (`LOCAL_SUITE_PREFIX`). A full run takes about 40 to 70
