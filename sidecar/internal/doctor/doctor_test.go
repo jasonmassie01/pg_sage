@@ -216,3 +216,21 @@ func TestCountUnrecognisedStatusIsUnknown(t *testing.T) {
 		t.Fatal("warnings alone must exit 0")
 	}
 }
+
+// Masking edge cases: an unencoded '@' in a URL password and an escaped
+// quote in a key=value password leave no part of the password behind.
+func TestMaskPasswordEdgeCases(t *testing.T) {
+	for _, tc := range []struct{ in, leak string }{
+		{"dial postgres://sage:p@ss-tail@db.internal/app failed", "ss-tail"},
+		{`host=db password='it\'s-tail' user=sage`, "s-tail"},
+	} {
+		got := Mask(tc.in, nil)
+		if strings.Contains(got, tc.leak) || !strings.Contains(got, maskedPassword) {
+			t.Errorf("Mask(%q) = %q, leaks %q", tc.in, got, tc.leak)
+		}
+	}
+	got := Mask("postgres://sage:p@ss@db/app", []string{"p@ss"})
+	if strings.Contains(got, "ss@db") || !strings.Contains(got, "@db/app") {
+		t.Errorf("Mask with the secret = %q, want the host kept and no password", got)
+	}
+}
