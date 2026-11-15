@@ -49,6 +49,8 @@ type history struct {
 	dbSize   map[string]int64
 	tables   map[string]map[string]int64
 	largest  []string
+	maint    maintHistory
+	cat      catalogData
 }
 
 // Build reads db's history store (histstore.Resolve) for req's window and
@@ -59,16 +61,20 @@ func Build(ctx context.Context, db any, req Request) (*Pack, error) {
 		return nil, err
 	}
 	plan := planDays(req.Window, req.HourlyDays, req.Now)
-	h, err := readHistory(ctx, histstore.Resolve(db), req.Window, plan)
+	h, err := readHistory(ctx, histstore.Resolve(db), req, plan)
 	if err != nil {
+		return nil, err
+	}
+	if h.cat, err = readCatalog(ctx, db, req, catalogInputOf(req, plan, h)); err != nil {
 		return nil, err
 	}
 	return assemble(req, plan, h)
 }
 
 // readHistory reads the window in one read-only transaction.
-func readHistory(ctx context.Context, st histstore.Store, w Window,
+func readHistory(ctx context.Context, st histstore.Store, req Request,
 	plan dayPlan) (history, error) {
+	w := req.Window
 	tx, err := beginRead(ctx, st)
 	if err != nil {
 		return history{}, err
@@ -79,7 +85,11 @@ func readHistory(ctx context.Context, st histstore.Store, w Window,
 	steps := []func(context.Context, *history) error{
 		func(ctx context.Context, h *history) error { return r.hourly(ctx, h, plan) },
 		func(ctx context.Context, h *history) error { return r.daily(ctx, h, plan) },
-		r.covered, r.coverage, r.snapshots,
+		r.covered, r.coverage, r.snapshots, r.relations, r.settings, r.measures,
+		r.deadTuples,
+		func(ctx context.Context, h *history) error {
+			return r.connections(ctx, h, req.location().String())
+		},
 	}
 	for _, step := range steps {
 		if err := step(ctx, &h); err != nil {

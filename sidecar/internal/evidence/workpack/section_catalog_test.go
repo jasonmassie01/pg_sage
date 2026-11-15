@@ -303,8 +303,8 @@ func TestBuildStats_UnreadableTablesAndSamples(t *testing.T) {
 	rows := []statRow{{table: "public.t", column: "a", nullFrac: 0.5, nDistinct: -1,
 		width: 4, mcv: &mcv}}
 	got := buildStats([]string{"public.t", "public.secret"}, rows, false)
-	if len(got.Tables) != 2 || got.Tables[0].Status != "ok" ||
-		got.Tables[1].ID != "stats/table/public.secret" || got.Tables[1].Status != valueUnknown {
+	if len(got.Tables) != 2 || got.Tables[1].Status != "ok" ||
+		got.Tables[0].ID != "stats/table/public.secret" || got.Tables[0].Status != valueUnknown {
 		t.Fatalf("tables %+v", got.Tables)
 	}
 	if len(got.Columns) != 1 || got.Columns[0].ID != "stats/column/public.t.a" ||

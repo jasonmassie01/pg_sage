@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -36,6 +37,9 @@ type Manifest struct {
 	Database      string               `json:"database"`
 	Window        Window               `json:"window"`
 	Files         []evidence.FileEntry `json:"files"`
+	// Completeness is which sections have every fact known (evid-02b);
+	// absent on packs built before it.
+	Completeness *Completeness `json:"completeness,omitempty"`
 }
 
 // Fact is one resolved evidence id: its section, value (the entry's
@@ -79,15 +83,20 @@ func (p *Pack) IDs() []string {
 }
 
 // sections are the id-bearing sections of a pack.
-var sections = map[string]bool{"workload": true, "coverage": true, "growth": true}
+var sections = map[string]bool{"workload": true, "coverage": true, "growth": true,
+	"index": true, "setting": true, "table": true, "schema": true, "plan": true,
+	"connections": true, "provider": true, "stats": true, "context": true}
+
+// twoPartSections may have ids of two parts (section/key).
+var twoPartSections = map[string]bool{"setting": true, "provider": true, "context": true}
 
 // Resolve returns the fact id names in p, or ErrUnknownEvidence for an id
 // p does not hold: a malformed one (not section/kind/key, an empty part,
 // "..", an unknown section) included.
 func Resolve(p *Pack, id string) (Fact, error) {
 	parts := strings.SplitN(id, "/", 3)
-	if p == nil || len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" ||
-		strings.Contains(id, "..") || !sections[parts[0]] {
+	if p == nil || len(parts) < 2 || (len(parts) == 2 && !twoPartSections[parts[0]]) ||
+		slices.Contains(parts, "") || strings.Contains(id, "..") || !sections[parts[0]] {
 		return Fact{}, fmt.Errorf("%w: %q", ErrUnknownEvidence, id)
 	}
 	f, ok := p.facts[id]

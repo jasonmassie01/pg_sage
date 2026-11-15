@@ -12,7 +12,9 @@
 //
 // A build only reads: the rollup tables and snapshots of the database's
 // history store (histstore), in one read-only transaction bounded by a
-// statement timeout.
+// statement timeout, and (evid-02b) the monitored database's catalog and
+// pg_sage tables, each section in its own bounded read-only transaction
+// (catalog.go).
 package workpack
 
 import (
@@ -20,6 +22,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/baseline"
+	"github.com/pg-sage/sidecar/internal/catalogread"
 )
 
 // Format names the pack layout.
@@ -82,6 +85,19 @@ type Request struct {
 	Now          time.Time
 	// MaxBodyBytes bounds the gzip body; 0 is MaxBodyBytes.
 	MaxBodyBytes int64
+	// Resource is the database's cloud provider resource ("" when no
+	// telemetry names it): sage.host_usage_hourly is keyed by it, so
+	// without one the hardware and provider facts are unknown.
+	Resource string
+	// IncludeConditions puts each plan's full document, its literals
+	// redacted, in plans.json (evid-02b; off by default).
+	IncludeConditions bool
+	// IncludeValueSamples reads pg_stats' most common values and histogram
+	// bounds into stats.json (evid-02b; off by default).
+	IncludeValueSamples bool
+	// Timeouts bound each catalog read on the monitored database; zero is
+	// catalogread.Default().
+	Timeouts catalogread.Timeouts
 }
 
 func (r Request) location() *time.Location {

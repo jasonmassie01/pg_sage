@@ -23,10 +23,7 @@ func assemble(req Request, plan dayPlan, h history) (*Pack, error) {
 	w := req.Window.UTC()
 	wl, fams := buildWorkload(req, plan, h)
 	c := h.coverage
-	parts := []struct {
-		name string
-		v    any
-	}{
+	parts := []part{
 		{fileHeader, Header{Format: Format, Database: req.Database, Window: w,
 			Timezone: req.location().String(), PGVersion: req.PGVersion,
 			Platform: req.Platform, Capabilities: req.Capabilities,
@@ -38,6 +35,7 @@ func assemble(req Request, plan dayPlan, h history) (*Pack, error) {
 		{fileWorkload, wl},
 		{fileGrowth, buildGrowth(req, plan, h, fams)},
 	}
+	parts = append(parts, catalogParts(req, plan, h, wl)...)
 	files := make([]evidence.File, 0, len(parts))
 	for _, part := range parts {
 		data, err := canonical(part.v)
@@ -73,7 +71,8 @@ func seal(req Request, w Window, files []evidence.File) (*Pack, error) {
 			largest.Name, len(largest.Data))
 	}
 	m := Manifest{Format: Format, ContentSHA256: contentSHA256(sums),
-		Database: req.Database, Window: w, Files: sealed.Manifest.Files}
+		Database: req.Database, Window: w, Files: sealed.Manifest.Files,
+		Completeness: completenessOf(sealed.Files)}
 	p := &Pack{Format: Format, ContentSHA256: m.ContentSHA256, Window: w,
 		Files: sealed.Files, Body: body, Manifest: m}
 	if err := p.index(); err != nil {
@@ -117,7 +116,10 @@ func (p *Pack) index() error {
 			}
 		}
 	}
-	return p.indexGrowth(g, add)
+	if err := p.indexGrowth(g, add); err != nil {
+		return err
+	}
+	return p.indexCatalog(add)
 }
 
 func (p *Pack) indexGrowth(g Growth,

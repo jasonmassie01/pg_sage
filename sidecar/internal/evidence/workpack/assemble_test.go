@@ -299,11 +299,21 @@ func mapWith(m map[string]int64, k string, v int64) map[string]int64 {
 func TestAssemble_TooLargeNamesTheLargestSection(t *testing.T) {
 	w := fourWeeks()
 	req := synthRequest(w)
+	// evid-02b added sections larger than workload.json (connections.json
+	// lists all 168 hours), so the largest is found, not assumed.
+	full := mustAssemble(t, req, synthHistory(w))
+	largest := full.Files[0]
+	for _, f := range full.Files {
+		if len(f.Data) > len(largest.Data) {
+			largest = f
+		}
+	}
 	req.MaxBodyBytes = 512
 	_, err := assemble(req, planDays(w, 35, w.To), synthHistory(w))
-	if !errors.Is(err, ErrPackTooLarge) || !strings.Contains(err.Error(), fileWorkload) {
+	want := "the largest section is " + largest.Name
+	if !errors.Is(err, ErrPackTooLarge) || !strings.Contains(err.Error(), want) {
 		t.Fatalf("assemble over the bound: %v, want ErrPackTooLarge naming %s", err,
-			fileWorkload)
+			largest.Name)
 	}
 }
 
