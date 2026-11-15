@@ -165,3 +165,24 @@ func TestRollupMetrics_CountByResultAndLag(t *testing.T) {
 		t.Fatalf("lags = %+v", RollupLags())
 	}
 }
+
+func TestRollupHour_RejectsTheOpenHour(t *testing.T) {
+	db := recDB{tx: &recTx{}}
+	open := time.Now().UTC().Truncate(time.Hour)
+	_, err := RollupHour(context.Background(), db, open.Add(time.Minute))
+	if !errors.Is(err, ErrRollupHour) || !strings.Contains(err.Error(),
+		open.Format(time.RFC3339)) {
+		t.Fatalf("open hour: err = %v, want ErrRollupHour naming %s", err,
+			open.Format(time.RFC3339))
+	}
+	if len(db.tx.sqls) != 0 {
+		t.Fatalf("the open hour ran %d statements", len(db.tx.sqls))
+	}
+	// The hour that just closed is due: it gets as far as the read.
+	db.tx.err = errors.New("read refused")
+	_, err = RollupHour(context.Background(), db, open.Add(-time.Hour))
+	if err == nil || errors.Is(err, ErrRollupHour) || !strings.Contains(err.Error(),
+		"read refused") {
+		t.Fatalf("closed hour: err = %v, want the read's error", err)
+	}
+}

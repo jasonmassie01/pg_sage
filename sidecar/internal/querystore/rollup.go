@@ -22,7 +22,7 @@ import (
 // queries snapshots of one statistics epoch (R10, EpochBreak), so a reset
 // or a suspend/resume undercounts one interval and never goes negative.
 
-// ErrRollupHour marks an hour the rollup refuses: zero, or in the future.
+// ErrRollupHour marks an hour the rollup refuses: zero, or not over yet.
 var ErrRollupHour = errors.New("query rollup: invalid hour")
 
 // rollupStatementTimeout bounds every statement of one hour's rollup.
@@ -127,15 +127,18 @@ func sumIntervals(ivs []SnapshotInterval) []rollupRow {
 	return out
 }
 
-// checkHour truncates hour to its UTC hour and refuses a zero or future one.
+// checkHour truncates hour to its UTC hour and refuses a zero one, and one
+// that has not ended: a row of an open hour would be partial, and the
+// worker, which resumes after the newest rolled hour, would never re-roll
+// it once the hour closed.
 func checkHour(hour time.Time) (time.Time, error) {
 	if hour.IsZero() {
 		return time.Time{}, fmt.Errorf("%w: zero hour", ErrRollupHour)
 	}
 	h := hour.UTC().Truncate(time.Hour)
-	if h.After(time.Now()) {
-		return time.Time{}, fmt.Errorf("%w: hour %s is in the future", ErrRollupHour,
-			h.Format(time.RFC3339))
+	if h.Add(time.Hour).After(time.Now()) {
+		return time.Time{}, fmt.Errorf("%w: hour %s is in the future or not over yet",
+			ErrRollupHour, h.Format(time.RFC3339))
 	}
 	return h, nil
 }
