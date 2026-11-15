@@ -1,0 +1,16 @@
+{
+  "provider": "SM",
+  "checks": [
+    {"id": "connection", "title": "Connection", "status": "pass", "detail": "", "fix": ""},
+    {"id": "postgres_version", "title": "PostgreSQL version", "status": "pass", "detail": "", "fix": ""},
+    {"id": "role_grants", "title": "Role and grants", "status": "pass", "detail": "", "fix": ""},
+    {"id": "extensions", "title": "Extensions", "status": "pass", "detail": "", "fix": ""},
+    {"id": "provider", "title": "Provider", "status": "pass", "detail": "", "fix": ""},
+    {"id": "query_text", "title": "Query text visibility", "status": "pass", "detail": "", "fix": ""},
+    {"id": "model", "title": "Model key", "status": "unknown", "detail": "", "fix": ""},
+    {"id": "notification", "title": "Test notification", "status": "unknown", "detail": "", "fix": ""},
+    {"id": "meta_db", "title": "Meta database", "status": "unknown", "detail": "", "fix": ""},
+    {"id": "clock_skew", "title": "Clock skew", "status": "pass", "detail": "", "fix": ""}
+  ],
+  "counts": {"pass": 7, "warn": 0, "fail": 0, "unknown": 3}
+}

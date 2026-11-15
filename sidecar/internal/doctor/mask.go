@@ -15,9 +15,9 @@ var (
 	kvPassword = regexp.MustCompile(`(?i)(password\s*=\s*)('[^']*'|\S+)`)
 )
 
-// mask hides URL and key=value passwords and every given secret in s.
+// Mask hides URL and key=value passwords and every given secret in s.
 // Empty secrets are ignored.
-func mask(s string, secrets []string) string {
+func Mask(s string, secrets []string) string {
 	s = urlPassword.ReplaceAllString(s, "${1}"+maskedPassword+"@")
 	s = kvPassword.ReplaceAllString(s, "${1}"+maskedPassword)
 	for _, secret := range secrets {

@@ -196,12 +196,12 @@ func TestMaskHidesPasswords(t *testing.T) {
 		"the key hunter2 was refused":                       "the key **** was refused",
 	}
 	for in, want := range cases {
-		got := mask(in, []string{"hunter2", ""})
+		got := Mask(in, []string{"hunter2", ""})
 		if !strings.Contains(got, want) || strings.Contains(got, "hunter2") {
-			t.Errorf("mask(%q) = %q, want it to contain %q", in, got, want)
+			t.Errorf("Mask(%q) = %q, want it to contain %q", in, got, want)
 		}
 	}
-	if got := mask("nothing secret", nil); got != "nothing secret" {
+	if got := Mask("nothing secret", nil); got != "nothing secret" {
 		t.Fatalf("mask changed plain text: %q", got)
 	}
 }

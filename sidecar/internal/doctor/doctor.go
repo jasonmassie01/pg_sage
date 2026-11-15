@@ -154,8 +154,8 @@ func Run(ctx context.Context, in Inputs) Report {
 		db.clock,
 	}
 	for i := range checks {
-		checks[i].Detail = mask(checks[i].Detail, in.Secrets)
-		checks[i].Fix = mask(checks[i].Fix, in.Secrets)
+		checks[i].Detail = Mask(checks[i].Detail, in.Secrets)
+		checks[i].Fix = Mask(checks[i].Fix, in.Secrets)
 	}
 	return Report{Provider: db.platform.Code, Checks: checks, Counts: Count(checks)}
 }
