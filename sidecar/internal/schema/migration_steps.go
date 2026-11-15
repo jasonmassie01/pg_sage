@@ -51,7 +51,8 @@ func migrationSteps() []migrationStep {
 	steps = append(steps, namedSteps(trancheOneMigrations())...)
 	steps = append(steps, namedSteps(trancheTwoMigrations())...)
 	steps = append(steps, namedSteps(trancheThreeMigrations())...)
-	return append(steps, namedSteps(trancheFourMigrations())...)
+	steps = append(steps, namedSteps(trancheFourMigrations())...)
+	return append(steps, namedSteps(trancheSixMigrations())...)
 }
 
 // namedStep pairs a constant's name with its SQL for laterMigrations.
@@ -227,5 +228,12 @@ func trancheFourMigrations() []namedStep {
 		{"ddlAskRuns", ddlAskRuns},                                     // mcp-07b
 		{"ddlNotificationManagedBy", ddlNotificationManagedBy},         // alerting-06b
 		{"ddlNotificationLogDatabase", ddlNotificationLogDatabase},     // alerting-06c
+	}
+}
+
+// trancheSixMigrations are the T6 steps, in landing order.
+func trancheSixMigrations() []namedStep {
+	return []namedStep{
+		{"ddlMultixactMembers", ddlMultixactMembers}, // guard-02a
 	}
 }

@@ -37,13 +37,14 @@ type urgencyRule func(detail map[string]any) urgencyRead
 
 // urgencyRules is the one table of producers whose fields urgency reads.
 var urgencyRules = map[string]urgencyRule{
-	"forecast_disk_growth":           storageUrgency,
-	"forecast_connection_saturation": connectionUrgency,
-	"forecast_wal_runway":            runwayUrgency,
-	"forecast_sequence_runway":       runwayUrgency,
-	"forecast_wraparound_runway":     runwayUrgency,
-	"xid_wraparound":                 xidHeadroom,
-	"sequence_exhaustion":            sequenceHeadroom,
+	"forecast_disk_growth":             storageUrgency,
+	"forecast_connection_saturation":   connectionUrgency,
+	"forecast_wal_runway":              runwayUrgency,
+	"forecast_sequence_runway":         runwayUrgency,
+	"forecast_wraparound_runway":       runwayUrgency,
+	"forecast_multixact_member_runway": runwayUrgency,
+	"xid_wraparound":                   xidHeadroom,
+	"sequence_exhaustion":              sequenceHeadroom,
 }
 
 // UrgencyForFinding is the finding's urgency, from its category's rule.
@@ -126,11 +127,12 @@ func connectionUrgency(d map[string]any) urgencyRead {
 
 // runwayImpact is what a runway kind reaches at its limit.
 var runwayImpact = map[string]string{
-	"disk_used": "until the disk is full",
-	"wal_slot":  "until the slot reaches its WAL maximum",
-	"sequence":  "until the sequence reaches its limit",
-	"xid":       "until the XID wraparound warning limit",
-	"mxid":      "until the multixact wraparound warning limit",
+	"disk_used":    "until the disk is full",
+	"wal_slot":     "until the slot reaches its WAL maximum",
+	"sequence":     "until the sequence reaches its limit",
+	"xid":          "until the XID wraparound warning limit",
+	"mxid":         "until the multixact wraparound warning limit",
+	"mxid_members": "until aggressive vacuuming of multixact member space starts",
 }
 
 func runwayUrgency(d map[string]any) urgencyRead {
