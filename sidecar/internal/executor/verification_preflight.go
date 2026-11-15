@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"maps"
+	"strings"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
@@ -42,9 +43,23 @@ func (e *Executor) guardUnverifiable(ctx context.Context, f analyzer.Finding) an
 	}
 	f.Detail[DetailVerificationPreflight] = p.Evidence()
 	if p.Blocks() {
-		return withApprovalReason(f, p.Reason)
+		return withApprovalReason(f, joinApprovalReason(f.Detail, p.Reason))
 	}
 	return f
+}
+
+// joinApprovalReason keeps a reason another guard already gave (an
+// operator's rejection, a producer's marker) in front of reason, so the
+// card names every cause of the approval.
+func joinApprovalReason(detail map[string]any, reason string) string {
+	prior, _ := detail[analyzer.DetailApprovalRequired].(string)
+	switch prior = strings.TrimSpace(prior); {
+	case prior == "":
+		return reason
+	case strings.Contains(prior, reason):
+		return prior
+	}
+	return prior + "; " + reason
 }
 
 // preflight reads the targets' last PreflightWeeks weeks of hourly history
