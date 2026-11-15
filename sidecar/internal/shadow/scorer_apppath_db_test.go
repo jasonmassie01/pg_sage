@@ -66,11 +66,28 @@ func TestReloptionExternal_MissingTableIsGone(t *testing.T) {
 	}
 }
 
+// serverNow is the server's now(), the clock that dates a recorded decision
+// (sage.shadow_decision.recorded_at DEFAULT now()). The maintenance read
+// compares the decision's time with server timestamps (stats_reset,
+// last_vacuum), so a decision dated by the test host's clock is wrong
+// whenever the two clocks differ.
+func serverNow(t *testing.T, sc *Scorer) time.Time {
+	t.Helper()
+	var now time.Time
+	if err := sc.catalog.QueryRow(context.Background(), "SELECT pg_catalog.now()").
+		Scan(&now); err != nil {
+		t.Fatalf("read the server clock: %v", err)
+	}
+	return now
+}
+
 // Boundary: a quoted mixed-case name resolves exactly.
 func TestMaintenanceExternal_ResolvesAQuotedTable(t *testing.T) {
 	sc, _ := appPathScorer(t, "shadow_apppath_mnt")
 	for _, sql := range []string{`VACUUM orders`, `VACUUM "Order Items"`} {
-		f, own, err := sc.maintenanceExternal(context.Background(), pendingOn("vacuum", sql))
+		p := pendingOn("vacuum", sql)
+		p.RecordedAt = serverNow(t, sc)
+		f, own, err := sc.maintenanceExternal(context.Background(), p)
 		assertNotGone(t, "maintenanceExternal("+sql+")", f, own, err)
 	}
 }
