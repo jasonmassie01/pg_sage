@@ -547,6 +547,8 @@
 | `tuning.max_tokens_per_cycle` | `restart` | `-` | `derivable` |
 | `tuning.max_turns_per_case` | `restart` | `-` | `derivable` |
 | `value.toil_model_version` | `restart` | `-` | `operator_preference` |
+| `verify.backtest_max_runtime_minutes` | `restart` | `-` | `operator_preference` |
+| `verify.backtest_placebos` | `restart` | `-` | `safety_critical` |
 | `verify.drop_window_hours` | `restart` | `-` | `safety_critical` |
 | `verify.io_baseline_days` | `restart` | `-` | `safety_critical` |
 | `verify.io_baseline_hours` | `restart` | `-` | `safety_critical` |

@@ -33,3 +33,28 @@ func (v VerifyConfig) validateMethod() error {
 	}
 	return nil
 }
+
+// The verifier back-test's bounds (lab-02): a run's runtime in minutes and
+// the weekly run's placebos; fewer than 200 could never pass the gate.
+const (
+	DefaultVerifyBacktestMaxRuntimeMinutes = 10
+	DefaultVerifyBacktestPlacebos          = 300
+	maxVerifyBacktestRuntimeMinutes        = 1440
+	minVerifyBacktestPlacebos              = 200
+	maxVerifyBacktestPlacebos              = 10000
+)
+
+// validateBacktest refuses a back-test bound outside its range.
+func (v VerifyConfig) validateBacktest() error {
+	if v.BacktestMaxRuntimeMinutes < 1 ||
+		v.BacktestMaxRuntimeMinutes > maxVerifyBacktestRuntimeMinutes {
+		return fmt.Errorf("verify.backtest_max_runtime_minutes must be 1-%d, got %d",
+			maxVerifyBacktestRuntimeMinutes, v.BacktestMaxRuntimeMinutes)
+	}
+	if v.BacktestPlacebos < minVerifyBacktestPlacebos ||
+		v.BacktestPlacebos > maxVerifyBacktestPlacebos {
+		return fmt.Errorf("verify.backtest_placebos must be %d-%d, got %d",
+			minVerifyBacktestPlacebos, maxVerifyBacktestPlacebos, v.BacktestPlacebos)
+	}
+	return nil
+}

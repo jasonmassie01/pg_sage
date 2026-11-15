@@ -145,6 +145,8 @@ safety_critical safety.reindex_timeout_seconds
 safety_critical safety.vacuum_stall_minutes
 safety_critical safety.vacuum_timeout_seconds
 safety_critical safety.wal_io_ceiling_pct
+operator_preference verify.backtest_max_runtime_minutes
+safety_critical verify.backtest_placebos
 safety_critical verify.drop_window_hours
 safety_critical verify.io_baseline_days
 safety_critical verify.io_baseline_hours

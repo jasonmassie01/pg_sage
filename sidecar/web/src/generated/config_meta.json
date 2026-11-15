@@ -4761,6 +4761,20 @@
     "min": 1,
     "max": 1073741824
   },
+  "verify.backtest_max_runtime_minutes": {
+    "type": "int",
+    "default": 10,
+    "doc": "Longest one verifier back-test may run, 1-1440 minutes; a run past it stops and stores nothing. Default: 10.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "verify.backtest_placebos": {
+    "type": "int",
+    "default": 300,
+    "doc": "Placebo steps the weekly verifier back-test draws, 200-10000 (auto needs 200 usable). Default: 300.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
   "verify.drop_window_hours": {
     "type": "int",
     "default": 168,

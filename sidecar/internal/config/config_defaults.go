@@ -412,17 +412,19 @@ func defaultAPIConfig() APIConfig {
 // defaultVerifyConfig returns the verify defaults.
 func defaultVerifyConfig() VerifyConfig {
 	return VerifyConfig{
-		WindowMinutes:    DefaultVerifyWindowMinutes,
-		WindowMaxMinutes: DefaultVerifyWindowMaxMinutes,
-		MinGainPct:       DefaultVerifyMinGainPct,
-		RegressPct:       DefaultVerifyRegressPct,
-		WriteImpactPct:   DefaultVerifyWriteImpactPct,
-		MinSamples:       DefaultVerifyMinSamples,
-		DropWindowHours:  DefaultVerifyDropWindowHours,
-		Method:           DefaultVerifyMethod,
-		OnExpired:        DefaultVerifyOnExpired,
-		IOBaselineDays:   DefaultIOBaselineDays,
-		IOSampleDays:     DefaultIOSampleRetentionDays,
+		WindowMinutes:             DefaultVerifyWindowMinutes,
+		WindowMaxMinutes:          DefaultVerifyWindowMaxMinutes,
+		MinGainPct:                DefaultVerifyMinGainPct,
+		RegressPct:                DefaultVerifyRegressPct,
+		WriteImpactPct:            DefaultVerifyWriteImpactPct,
+		MinSamples:                DefaultVerifyMinSamples,
+		DropWindowHours:           DefaultVerifyDropWindowHours,
+		Method:                    DefaultVerifyMethod,
+		OnExpired:                 DefaultVerifyOnExpired,
+		BacktestMaxRuntimeMinutes: DefaultVerifyBacktestMaxRuntimeMinutes,
+		BacktestPlacebos:          DefaultVerifyBacktestPlacebos,
+		IOBaselineDays:            DefaultIOBaselineDays,
+		IOSampleDays:              DefaultIOSampleRetentionDays,
 	}
 }
 

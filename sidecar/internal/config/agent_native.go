@@ -23,6 +23,9 @@ type VerifyConfig struct {
 	// Method and OnExpired are verification v2's switches (lab-01c).
 	Method    string `yaml:"method" doc:"Verifier: v1, shadow (v2 beside v1, act on v1), v2, or auto (v2 where the latest back-test passed within 35 days, else shadow). Default: auto." warning:"v2 decides reverts from blocks per call against untouched control statements; auto switches to it only after a passing back-test."`
 	OnExpired string `yaml:"on_expired" doc:"A monitor whose window ended unwatched: ask (queue a Revert action N item), keep (keep the change, recorded) or revert (operator rollback). Default: ask."`
+	// The verifier back-test (lab-02) that auto's switch reads.
+	BacktestMaxRuntimeMinutes int `yaml:"backtest_max_runtime_minutes" doc:"Longest one verifier back-test may run, 1-1440 minutes; a run past it stops and stores nothing. Default: 10."`
+	BacktestPlacebos          int `yaml:"backtest_placebos" doc:"Placebo steps the weekly verifier back-test draws, 200-10000 (auto needs 200 usable). Default: 300."`
 
 	// IO load admission (D6). io_capacity is standalone-only; fleet
 	// databases declare it in databases[].verify.io_capacity.
@@ -116,6 +119,9 @@ func (c *Config) validateAgentNative() error {
 		return err
 	}
 	if err := c.Verify.validateMethod(); err != nil {
+		return err
+	}
+	if err := c.Verify.validateBacktest(); err != nil {
 		return err
 	}
 	if err := c.Clone.validate(); err != nil {
