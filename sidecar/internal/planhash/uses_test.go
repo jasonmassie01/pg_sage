@@ -27,6 +27,9 @@ func TestUsesIndexWalksNestedPlans(t *testing.T) {
 	if UsesIndex(plan, "orders_status") || UsesIndex(plan, "") {
 		t.Fatal("a prefix or an empty name matched")
 	}
+	if UsesIndex([]byte(`{"Node Type":"Index Scan","Index Name":""}`), "") {
+		t.Fatal("an empty name matched a node with an empty Index Name")
+	}
 	if UsesIndex([]byte("not json"), "orders_status_idx") {
 		t.Fatal("malformed plan reported a use")
 	}

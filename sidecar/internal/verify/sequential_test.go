@@ -312,3 +312,26 @@ func TestSequentialSimulationKeepsTheFalsePositiveRate(t *testing.T) {
 			100*naiveRate)
 	}
 }
+
+// Boundary: the last look (at HardMax) spends what is left even when the
+// calls seen fall short of the calls expected, so its information fraction
+// is below 1; otherwise a watch on a quiet target would leave alpha unspent.
+func TestSequentialFinalLookAtPartialInformationSpendsTheRest(t *testing.T) {
+	_, prev, err := SpendLook(AlphaSpend{}, DefaultAlpha, 0.3, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := InformationFraction(400, 1000, 72*time.Hour, 72*time.Hour)
+	look, next, err := SpendLook(prev, DefaultAlpha, f, true)
+	if err != nil || f != 0.4 {
+		t.Fatalf("fraction %v: %v", f, err)
+	}
+	if !look.Final || next.Fraction != 1 || math.Abs(next.Spent-DefaultAlpha) > 1e-15 ||
+		math.Abs(look.Alpha-(DefaultAlpha-prev.Spent)) > 1e-15 {
+		t.Fatalf("final look at fraction 0.4: %+v %+v, want the remaining %v", look, next,
+			DefaultAlpha-prev.Spent)
+	}
+	if CumulativeAlpha(DefaultAlpha, 0.4) >= DefaultAlpha/2 {
+		t.Fatal("the spending function alone would spend the rest: the test cannot tell")
+	}
+}
