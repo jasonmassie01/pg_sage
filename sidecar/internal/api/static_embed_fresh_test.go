@@ -36,8 +36,10 @@ func embeddedAssetsContaining(t *testing.T, marker string) []string {
 
 // dist-regen: the embedded dashboard carries the Notifications Log read
 // failure fix (alerting-06c, 27fe7ef7): the error cell has a test id beside
-// the status cell, and a failed read names the HTTP status. A stale build
-// has the status cell only.
+// the status cell, and a failed read names the server's message and the HTTP
+// status. A stale build has the status cell only and a fixed message
+// (`Failed to load log` with nothing after it), so the second marker is the
+// start of the new template literal, not the bare message both builds carry.
 func TestStaticEmbedded_NotificationLogCarriesReadFailureFix(t *testing.T) {
 	withStatus := embeddedAssetsContaining(t, "notify-status-")
 	if len(withStatus) != 1 {
@@ -49,7 +51,7 @@ func TestStaticEmbedded_NotificationLogCarriesReadFailureFix(t *testing.T) {
 		t.Fatalf("read %s: %v", withStatus[0], err)
 	}
 	src := string(body)
-	for _, want := range []string{"notify-error-", "Failed to load log"} {
+	for _, want := range []string{"notify-error-", "Failed to load log${"} {
 		if !strings.Contains(src, want) {
 			t.Errorf("%s lacks %q: embedded dashboard is older than sidecar/web/src",
 				withStatus[0], want)
