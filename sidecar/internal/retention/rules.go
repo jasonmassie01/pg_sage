@@ -1,6 +1,8 @@
 package retention
 
 import (
+	"fmt"
+
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/partition"
 	"github.com/pg-sage/sidecar/internal/sre"
@@ -272,7 +274,8 @@ func purgeRules(cfg *config.Config) []purgeRule {
 func rollupPurgeRules(r config.RetentionConfig) []purgeRule {
 	return []purgeRule{
 		{table: "query_rollup_hourly", timeCol: "hour",
-			days: r.EffectiveQueryRollupHourlyDays(), extra: keepUnrolledHours},
+			days:  r.EffectiveQueryRollupHourlyDays(),
+			extra: keepUnrolledHours(r.QueryRollupDailyDays)},
 		{table: "query_rollup_daily", timeCol: "day", days: r.QueryRollupDailyDays},
 		{table: "query_rollup_coverage", timeCol: "hour", days: r.QueryRollupDailyDays},
 	}
@@ -280,12 +283,25 @@ func rollupPurgeRules(r config.RetentionConfig) []purgeRule {
 
 // keepUnrolledHours keeps an hourly row until its day's daily row exists
 // (found on the daily table's unique key): a purge racing the daily roll
-// never removes hours the daily tier does not hold yet.
-const keepUnrolledHours = `AND EXISTS (SELECT 1 FROM sage.query_rollup_daily d
+// never removes hours the daily tier does not hold yet. A row past the
+// daily retention (dailyDays, 0: kept forever) goes without its daily row,
+// which that purge removes (dailyDays is a validated integer, never
+// text): an unrolled hour is never kept forever, also
+// when both windows are equal and the daily row went first.
+func keepUnrolledHours(dailyDays int) string {
+	past := ""
+	if dailyDays > 0 {
+		past = fmt.Sprintf(`
+	                   OR query_rollup_hourly.hour < now() - make_interval(days => %d)`,
+			dailyDays)
+	}
+	return `AND (EXISTS (SELECT 1 FROM sage.query_rollup_daily d
 	                   WHERE COALESCE(d.database_id, 0) =
 	                         COALESCE(query_rollup_hourly.database_id, 0)
 	                     AND d.queryid = query_rollup_hourly.queryid
-	                     AND d.day = (query_rollup_hourly.hour AT TIME ZONE 'UTC')::date)`
+	                     AND d.day = (query_rollup_hourly.hour AT TIME ZONE 'UTC')::date)` +
+		past + `)`
+}
 
 // baselineDays is baseline.weeks + 1 weeks and baselineSlackDays; a zero
 // (literal) config keeps the default window.

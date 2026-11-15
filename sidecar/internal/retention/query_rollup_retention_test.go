@@ -228,3 +228,31 @@ func TestRun_PurgeRacingTheDailyRollKeepsTheSource(t *testing.T) {
 		}
 	}
 }
+
+// With equal windows the daily row of a day is purged before the day's
+// last hours are: those hours must not then be kept forever for want of a
+// daily row. Past the daily window an hour goes without one; with the
+// daily tier kept forever (0) it still waits.
+func TestRun_UnrolledHourPastTheDailyWindowIsPurged(t *testing.T) {
+	_, ctx := requireDB(t)
+	cleanRollup(t, ctx)
+	hour := time.Now().UTC().Truncate(time.Hour).Add(-31*24*time.Hour - time.Hour)
+	insertRollupHour(t, ctx, hour, 1)
+	cfg := rollupCfg()
+	cfg.Retention.QueryRollupDailyDays = 0
+	cfg.Retention.QueryRollupHourlyDays = 30
+	New(testPool, cfg, noopLog).Run(ctx)
+	if hourlyLeft(t, ctx) != 1 {
+		t.Fatal("daily tier kept forever: an unrolled hour must wait for its daily row")
+	}
+	cfg.Retention.QueryRollupDailyDays = 30
+	New(testPool, cfg, noopLog).Run(ctx)
+	if hourlyLeft(t, ctx) != 0 {
+		t.Fatal("an unrolled hour past the daily window (30 days) must be purged")
+	}
+	insertRollupHour(t, ctx, time.Now().UTC().Truncate(time.Hour).Add(-29*24*time.Hour), 1)
+	New(testPool, cfg, noopLog).Run(ctx)
+	if hourlyLeft(t, ctx) != 1 {
+		t.Fatal("an hour inside both windows must be kept")
+	}
+}
