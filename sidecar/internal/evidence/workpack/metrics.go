@@ -77,3 +77,19 @@ func PackBytes() []PackSize {
 	sort.Slice(out, func(i, j int) bool { return out[i].Database < out[j].Database })
 	return out
 }
+
+// ForgetDatabase drops the series of a database that left the fleet, so
+// they leave /metrics with it. An empty name forgets nothing.
+func ForgetDatabase(database string) {
+	if database == "" {
+		return
+	}
+	packMetrics.mu.Lock()
+	defer packMetrics.mu.Unlock()
+	delete(packMetrics.bytes, database)
+	for k := range packMetrics.builds {
+		if k.database == database {
+			delete(packMetrics.builds, k)
+		}
+	}
+}

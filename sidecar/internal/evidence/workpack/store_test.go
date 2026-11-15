@@ -74,3 +74,25 @@ func TestMetrics_CountBuildsAndRememberBytes(t *testing.T) {
 		}
 	}
 }
+
+func TestMetrics_ForgetDatabaseDropsOnlyItsSeries(t *testing.T) {
+	NoteBuild("gone_db", ResultBuilt, 10)
+	NoteBuild("kept_db", ResultBuilt, 20)
+	ForgetDatabase("gone_db")
+	ForgetDatabase("")
+	for _, c := range BuildCounts() {
+		if c.Database == "gone_db" {
+			t.Fatalf("forgotten database still counted: %+v", c)
+		}
+	}
+	kept := false
+	for _, b := range PackBytes() {
+		if b.Database == "gone_db" {
+			t.Fatalf("forgotten database still has bytes: %+v", b)
+		}
+		kept = kept || b.Database == "kept_db" && b.Bytes == 20
+	}
+	if !kept {
+		t.Fatal("forgetting one database dropped another's series")
+	}
+}
