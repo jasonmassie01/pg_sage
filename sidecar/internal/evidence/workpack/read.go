@@ -69,17 +69,11 @@ func Build(ctx context.Context, db any, req Request) (*Pack, error) {
 // readHistory reads the window in one read-only transaction.
 func readHistory(ctx context.Context, st histstore.Store, w Window,
 	plan dayPlan) (history, error) {
-	tx, err := st.Begin(ctx)
+	tx, err := beginRead(ctx, st)
 	if err != nil {
-		return history{}, fmt.Errorf("workpack: open a read of the history: %w", err)
+		return history{}, err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
-	if _, err := tx.Exec(ctx, "SET TRANSACTION READ ONLY"); err != nil {
-		return history{}, fmt.Errorf("workpack: make the history read read-only: %w", err)
-	}
-	if _, err := tx.Exec(ctx, "SET LOCAL statement_timeout = '"+readTimeout+"'"); err != nil {
-		return history{}, fmt.Errorf("workpack: bound the history read: %w", err)
-	}
 	r := reader{st: st.WithDB(tx), w: w}
 	var h history
 	steps := []func(context.Context, *history) error{
@@ -93,6 +87,24 @@ func readHistory(ctx context.Context, st histstore.Store, w Window,
 		}
 	}
 	return h, nil
+}
+
+// beginRead opens the build's transaction: read-only, each statement
+// bounded by readTimeout (the store may be the monitored database).
+func beginRead(ctx context.Context, st histstore.Store) (pgx.Tx, error) {
+	tx, err := st.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("workpack: open a read of the history: %w", err)
+	}
+	if _, err := tx.Exec(ctx, "SET TRANSACTION READ ONLY"); err != nil {
+		_ = tx.Rollback(context.WithoutCancel(ctx))
+		return nil, fmt.Errorf("workpack: make the history read read-only: %w", err)
+	}
+	if _, err := tx.Exec(ctx, "SET LOCAL statement_timeout = '"+readTimeout+"'"); err != nil {
+		_ = tx.Rollback(context.WithoutCancel(ctx))
+		return nil, fmt.Errorf("workpack: bound the history read: %w", err)
+	}
+	return tx, nil
 }
 
 // reader runs the build's statements on one transaction of the store.
