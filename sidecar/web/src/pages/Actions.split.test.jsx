@@ -228,7 +228,7 @@ describe('Actions pending decisions', () => {
     expect(rowFor('ANALYZE public.orders')).toBeUndefined()
     expect(screen.getByTestId('actions-tab-pending')).toHaveTextContent('(2)')
     fireEvent.click(screen.getByTestId('actions-tab-executed'))
-    expect(rowFor('Updated statistics for orders')).toHaveTextContent('Neutral')
+    expect(rowFor('Updated statistics for orders')).toHaveTextContent('No change')
     expect(screen.getByTestId('executed-actions-count'))
       .toHaveTextContent('4 loaded history records')
   })
