@@ -124,7 +124,7 @@ func TestRun_HourlyRollupBoundaryAt35Days(t *testing.T) {
 		t.Fatal(err)
 	}
 	old := now.Add(-35 * 24 * time.Hour).Truncate(time.Hour) // exactly 35 days, on the hour
-	young := old.Add(time.Hour)                             // 35 days minus one hour
+	young := old.Add(time.Hour)                              // 35 days minus one hour
 	insertRollupHour(t, ctx, old, 1)
 	insertRollupHour(t, ctx, young, 2)
 	insertDaily(t, ctx, old)
