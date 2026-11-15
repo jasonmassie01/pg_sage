@@ -248,28 +248,7 @@ func TestProviderEvent_DBTwoPollersEmitOnce(t *testing.T) {
 // is not reported unavailable. The revoke is per database (the fixture's).
 func TestProviderEvent_DBControlSystemDenied(t *testing.T) {
 	f := newPollFixture(t)
-	f.exec(t, `DO $$ BEGIN
-		IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'guard02b_reader') THEN
-			CREATE ROLE guard02b_reader NOLOGIN;
-		END IF; END $$`)
-	t.Cleanup(func() {
-		_, _ = f.pool.Exec(context.Background(), `DROP ROLE IF EXISTS guard02b_reader`)
-	})
-	f.exec(t, `REVOKE EXECUTE ON FUNCTION pg_control_system() FROM PUBLIC`)
-	t.Cleanup(func() {
-		_, _ = f.pool.Exec(context.Background(),
-			`GRANT EXECUTE ON FUNCTION pg_control_system() TO PUBLIC`)
-	})
-	cfg := f.pool.Config().Copy()
-	cfg.AfterConnect = func(ctx context.Context, c *pgx.Conn) error {
-		_, err := c.Exec(ctx, `SET ROLE guard02b_reader`)
-		return err
-	}
-	reader, err := pgxpool.NewWithConfig(f.ctx, cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(reader.Close)
+	reader := deniedControlSystemPool(t, f)
 	p, err := NewPoller(PollerDeps{Feed: f.feed, Monitored: reader, Interval: time.Minute,
 		ProviderEventsOnly: true, Now: time.Now})
 	if err != nil {
@@ -300,6 +279,35 @@ func TestProviderEvent_DBControlSystemDenied(t *testing.T) {
 	if reason := res.Unavailable["timeline"]; reason != "" {
 		t.Fatalf("timeline unavailable: %s", reason)
 	}
+}
+
+// deniedControlSystemPool is a pool on the fixture's database whose role
+// may not execute pg_control_system() (revoked from PUBLIC for the test).
+func deniedControlSystemPool(t *testing.T, f pollFixture) *pgxpool.Pool {
+	t.Helper()
+	f.exec(t, `DO $$ BEGIN
+		IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'guard02b_reader') THEN
+			CREATE ROLE guard02b_reader NOLOGIN;
+		END IF; END $$`)
+	t.Cleanup(func() {
+		_, _ = f.pool.Exec(context.Background(), `DROP ROLE IF EXISTS guard02b_reader`)
+	})
+	f.exec(t, `REVOKE EXECUTE ON FUNCTION pg_control_system() FROM PUBLIC`)
+	t.Cleanup(func() {
+		_, _ = f.pool.Exec(context.Background(),
+			`GRANT EXECUTE ON FUNCTION pg_control_system() TO PUBLIC`)
+	})
+	cfg := f.pool.Config().Copy()
+	cfg.AfterConnect = func(ctx context.Context, c *pgx.Conn) error {
+		_, err := c.Exec(ctx, `SET ROLE guard02b_reader`)
+		return err
+	}
+	reader, err := pgxpool.NewWithConfig(f.ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(reader.Close)
+	return reader
 }
 
 // A provider API failover on a managed database lands once with source
