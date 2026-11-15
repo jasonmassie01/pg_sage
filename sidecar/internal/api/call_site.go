@@ -91,7 +91,7 @@ func writeCallSiteError(w http.ResponseWriter, r *http.Request, err error) {
 	var rl *codehost.RateLimitError
 	switch {
 	case errors.As(err, &rl):
-		w.Header().Set("Retry-After", strconv.Itoa(int(rl.RetryAfter.Seconds())))
+		w.Header().Set("Retry-After", strconv.Itoa(retryAfterSeconds(rl.RetryAfter)))
 		jsonError(w, err.Error(), http.StatusServiceUnavailable)
 	case errors.Is(err, agenttools.ErrNotFound):
 		jsonError(w, err.Error(), http.StatusNotFound)

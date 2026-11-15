@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/agenttools"
 	"github.com/pg-sage/sidecar/internal/codehost"
@@ -108,5 +109,21 @@ func TestCallSiteErrorStatus(t *testing.T) {
 		&codehost.RateLimitError{Host: "h", RetryAfter: 42e9})
 	if got := w.Header().Get("Retry-After"); got != "42" {
 		t.Errorf("Retry-After = %q, want 42", got)
+	}
+}
+
+func TestCallSiteRetryAfterRoundsUpToWholeSeconds(t *testing.T) {
+	// A cool-down with a fraction of a second left must not answer
+	// "Retry-After: 0", which invites an immediate retry the client refuses.
+	for _, tc := range []struct {
+		left time.Duration
+		want string
+	}{{400 * time.Millisecond, "1"}, {41200 * time.Millisecond, "42"}, {42 * time.Second, "42"}} {
+		w := httptest.NewRecorder()
+		writeCallSiteError(w, httptest.NewRequest(http.MethodGet, "/", nil),
+			&codehost.RateLimitError{Host: "h", RetryAfter: tc.left})
+		if got := w.Header().Get("Retry-After"); got != tc.want {
+			t.Errorf("%s left: Retry-After = %q, want %q", tc.left, got, tc.want)
+		}
 	}
 }
