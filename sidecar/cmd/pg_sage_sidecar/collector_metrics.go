@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/collector"
+	"github.com/pg-sage/sidecar/internal/evidence/workpack"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/metricsreg"
 	"github.com/pg-sage/sidecar/internal/querystore"
@@ -67,6 +68,7 @@ func writeCollectorMetrics(b *strings.Builder, statuses map[string]collector.Sta
 		statuses,
 		func(s collector.Status) int64 { return s.QueryStoreFailures })
 	writeQueryRollupMetrics(b, querystore.RollupHourCounts(), querystore.RollupLags())
+	writeWorkloadPackMetrics(b, workpack.BuildCounts(), workpack.PackBytes())
 }
 
 // writeCollectorUnavailable writes 1 per category the latest snapshot
