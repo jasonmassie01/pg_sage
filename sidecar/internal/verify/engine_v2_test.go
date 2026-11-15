@@ -3,6 +3,7 @@ package verify
 import (
 	"context"
 	"errors"
+	"math"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -239,5 +240,26 @@ func TestV2_EnableV2RefusesMissingDependencies(t *testing.T) {
 	e := newTestEngine(t, newFakeObservationSource(), newMemoryStateStore())
 	if err := e.EnableV2(V2Options{}); err == nil {
 		t.Fatal("EnableV2 accepted no counters, mechanisms or method")
+	}
+}
+
+// A look that spends no alpha tests at an infinite interval: TCritical
+// reads alpha 0 as the default 0.05, which would test an early look at
+// the full alpha (review: the guard had no test).
+func TestV2_ZeroAlphaLookNeverTestsAtTheDefault(t *testing.T) {
+	for _, alpha := range []float64{0, -1, math.NaN()} {
+		got := testAlpha(alpha)
+		if !(got > 0) || got > 1e-300 {
+			t.Fatalf("testAlpha(%v) = %v, want the smallest positive alpha", alpha, got)
+		}
+		if tc := TCritical(30, got); !math.IsInf(tc, 1) {
+			t.Fatalf("TCritical(30, testAlpha(%v)) = %v, want +Inf", alpha, tc)
+		}
+	}
+	if math.IsInf(TCritical(30, 0), 1) {
+		t.Fatal("TCritical(30, 0) is infinite: the guard is no longer needed, revisit it")
+	}
+	if got := testAlpha(0.01); got != 0.01 {
+		t.Fatalf("testAlpha(0.01) = %v, want it unchanged", got)
 	}
 }
