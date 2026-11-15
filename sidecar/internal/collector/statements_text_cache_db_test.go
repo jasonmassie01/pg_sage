@@ -21,9 +21,11 @@ import (
 
 // collection-11 on PostgreSQL: the collector reads pg_stat_statements
 // texts only when its cache lacks a candidate's, and returns what the old
-// single statement did. Each test owns a database: pg_stat_statements is
-// cluster-wide, but every read here is scoped to one database, so other
-// packages' statements cannot move the counts.
+// single statement did. Each test owns a database, and every read here is
+// scoped to it, but pg_stat_statements is one hash for the whole cluster:
+// other packages' statements fill it and their resets empty it, which
+// changes what a ranked or counted read sees. Tests that rank or count
+// every row therefore use exclusiveTextTestDB (ci-23).
 
 // textTestDB creates a database of its own with pg_stat_statements and a
 // small table, and returns a pool on it.
