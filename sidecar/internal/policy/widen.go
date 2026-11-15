@@ -18,7 +18,8 @@ func Widens(base, next Document) bool {
 		!subsetStrings(base.RefusalSet, next.RefusalSet) ||
 		base.UnknownClassification != next.UnknownClassification ||
 		base.SerializeMode != next.SerializeMode ||
-		next.WindowStartMarginMinutes < base.WindowStartMarginMinutes
+		next.WindowStartMarginMinutes < base.WindowStartMarginMinutes ||
+		exposureWidens(base, next)
 }
 
 // WidensJSON compares two stored documents. A next document that does not

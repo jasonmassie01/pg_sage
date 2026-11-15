@@ -92,6 +92,9 @@ type Document struct {
 	// WindowStartMarginMinutes withholds a moderate or high action whose
 	// window closes within this many minutes (0-720, default 0: none).
 	WindowStartMarginMinutes int64
+	// ExposureMode is shadow ("" or "shadow", the default) or enforce
+	// (fleetpol-02b): whether exposure findings become proposals.
+	ExposureMode string
 	// Version and SHA256 name the stored policy row the document was read
 	// from: its version and the SHA-256 of its stored jsonb text
 	// (DocumentFromPolicy). Both are zero for a document read from nowhere.
@@ -112,6 +115,7 @@ type documentWire struct {
 	UnknownClassification   string          `json:"unknown_classification"`
 	SerializeMode           string          `json:"serialize_mode"`
 	WindowStartMargin       int64           `json:"window_start_margin_minutes,omitempty"`
+	Exposure                *exposureWire   `json:"exposure,omitempty"`
 }
 
 type budgetWire struct {
@@ -163,6 +167,9 @@ func MarshalDocument(doc Document) ([]byte, error) {
 	if doc.WindowStartMarginMinutes != 0 {
 		// Written only when set: documents without it keep their bytes.
 		wire["window_start_margin_minutes"] = doc.WindowStartMarginMinutes
+	}
+	if doc.ExposureMode != "" {
+		wire["exposure"] = exposureWire{Mode: doc.ExposureMode} // only when set
 	}
 	return json.Marshal(wire)
 }
@@ -245,6 +252,7 @@ func documentFromWire(wire documentWire, budgets Budgets) (Document, error) {
 		UnknownClassification:    wire.UnknownClassification,
 		SerializeMode:            wire.SerializeMode,
 		WindowStartMarginMinutes: wire.WindowStartMargin,
+		ExposureMode:             exposureFromWire(wire.Exposure),
 	}, nil
 }
 
@@ -264,6 +272,9 @@ func ValidateDocument(doc Document) error {
 	if doc.WindowStartMarginMinutes < 0 || doc.WindowStartMarginMinutes > maxWindowStartMargin {
 		return fmt.Errorf("window_start_margin_minutes %d must be 0-%d",
 			doc.WindowStartMarginMinutes, maxWindowStartMargin)
+	}
+	if err := validateExposureMode(doc.ExposureMode); err != nil {
+		return err
 	}
 	if err := validateRefusalSet(doc.RefusalSet); err != nil {
 		return err
@@ -388,7 +399,7 @@ func allChangeClasses() []ChangeClass {
 		ChangeAutovacuumTuning, ChangeConfigGUC, ChangeRetention,
 		ChangeFKIndex, ChangeOnlineMigration, ChangeBackendSignal, ChangeQueryHint,
 		ChangeSchemaChange, ChangeAgentAccess, ChangeAgentDataWrite, ChangeAgentSchemaChange,
-		ChangeAgentMaintenance, ChangeAgentSandbox, ChangeAgentEstate,
+		ChangeAgentMaintenance, ChangeAgentSandbox, ChangeAgentEstate, ChangeExposure,
 	}
 }
 
