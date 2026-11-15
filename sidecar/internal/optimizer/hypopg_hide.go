@@ -2,7 +2,6 @@ package optimizer
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -156,37 +155,4 @@ func regressionReason(action string, res WhatIfResult) string {
 	}
 	return fmt.Sprintf("%s %s raises the planned cost of queryid %s (a statement that "+
 		"used it may rise at most %d%%)", action, index, list, maxGuardedRegressionPct)
-}
-
-// planUsesIndex reports whether an EXPLAIN (FORMAT JSON) plan scans the
-// index named name anywhere in its tree.
-func planUsesIndex(planJSON []byte, name string) bool {
-	type node struct {
-		IndexName string `json:"Index Name"`
-		Plans     []node `json:"Plans"`
-	}
-	var wrapper []struct {
-		Plan node `json:"Plan"`
-	}
-	if name == "" || json.Unmarshal(planJSON, &wrapper) != nil {
-		return false
-	}
-	var walk func(n node) bool
-	walk = func(n node) bool {
-		if n.IndexName == name {
-			return true
-		}
-		for _, c := range n.Plans {
-			if walk(c) {
-				return true
-			}
-		}
-		return false
-	}
-	for _, w := range wrapper {
-		if walk(w.Plan) {
-			return true
-		}
-	}
-	return false
 }

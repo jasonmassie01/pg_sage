@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math"
 	"sort"
+
+	"github.com/pg-sage/sidecar/internal/planhash"
 )
 
 // Statistics verification (dogfood round 2). CREATE STATISTICS exists to
@@ -34,30 +36,10 @@ func PlanQError(plan []byte) (float64, bool) {
 	}
 	var worst float64
 	found := false
-	for _, root := range planRoots(doc) {
+	for _, root := range planhash.PlanRoots(doc) {
 		walkQError(root, false, &worst, &found)
 	}
 	return worst, found
-}
-
-// planRoots finds the plan nodes of an EXPLAIN JSON array, an auto_explain
-// object ({"Plan": ...}) or a bare node.
-func planRoots(doc any) []map[string]any {
-	var out []map[string]any
-	switch v := doc.(type) {
-	case []any:
-		for _, item := range v {
-			out = append(out, planRoots(item)...)
-		}
-	case map[string]any:
-		if node, ok := v["Plan"].(map[string]any); ok {
-			return []map[string]any{node}
-		}
-		if _, ok := v["Node Type"]; ok {
-			return []map[string]any{v}
-		}
-	}
-	return out
 }
 
 func walkQError(node map[string]any, underLimit bool, worst *float64, found *bool) {
