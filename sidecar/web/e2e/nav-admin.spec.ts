@@ -50,7 +50,8 @@ test('dashboard-06: an admin sees the Admin group, in registry order', async ({ 
 test('an operator sees only the Admin pages a reviewer may open', async ({ page }) => {
   await signInAs(page, 'operator')
   await page.goto('/#/')
-  await expect(group(page, 'Admin')).toHaveText(['Alert log', 'Agents'])
+  // alerting-06c opened Notifications (its Log tab) to operators.
+  await expect(group(page, 'Admin')).toHaveText(['Notifications', 'Alert log', 'Agents'])
   await expect(page.getByTestId('nav-settings')).toHaveCount(0)
 })
 
