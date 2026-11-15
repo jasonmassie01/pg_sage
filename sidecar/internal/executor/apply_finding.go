@@ -42,6 +42,9 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 	} else if n > 0 {
 		e.logFn("executor", "superseded %d queued proposal(s) whose reason is gone", n)
 	}
+	if err := e.settleKeptExpired(ctx); err != nil {
+		e.logFn("executor", "%v", err)
+	}
 	// Scheduled approvals are people's decisions: they run in every mode,
 	// and the gate re-checks each one (executor-disabled included).
 	if !isReplica {

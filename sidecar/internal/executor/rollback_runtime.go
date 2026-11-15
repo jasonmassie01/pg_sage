@@ -155,7 +155,7 @@ func (e *Executor) resumeMonitor(
 	cfg := e.actionRollbackConfig(actionID, sql)
 	_, capW, _ := monitorWindows(verificationClass(sql), cfg)
 	if verificationExpired(executedAt, capW, time.Now()) {
-		expireMonitor(ctx, e.pool, actionID, executedAt, capW, e.logFn)
+		e.expireMonitorAndAct(ctx, actionID, rollbackSQL, executedAt, capW)
 		return
 	}
 	e.logFn("executor", "resuming rollback monitor for action %d", actionID)
