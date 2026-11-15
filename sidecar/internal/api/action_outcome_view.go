@@ -18,7 +18,8 @@ const actionOutcomeColumnSQL = `
  (SELECT jsonb_build_object('class', o.action_class, 'verdict', o.verdict,
    'tolerance', o.tolerance, 'predicted', o.predicted, 'observed', o.observed,
    'evidence', o.evidence, 'reason', o.reason, 'window_start', o.window_start,
-   'window_end', o.window_end, 'decided_at', o.decided_at)
+   'window_end', o.window_end, 'decided_at', o.decided_at, 'verifier', o.verifier,
+   'other_verdict', o.other_verdict, 'other_evidence', o.other_evidence)
    FROM sage.action_outcome o WHERE o.action_log_id = action_log.id)
    AS verification_outcome`
 

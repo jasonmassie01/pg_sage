@@ -141,6 +141,11 @@ type Outcome struct {
 	WindowEnd   *time.Time     `json:"window_end,omitempty"`
 	CreatedAt   *time.Time     `json:"created_at,omitempty"`
 	DecidedAt   *time.Time     `json:"decided_at,omitempty"`
+	// Verifier is the judge whose verdict this is (v1 when empty);
+	// OtherVerdict and OtherEvidence the other judge's (lab-01c).
+	Verifier      string         `json:"verifier,omitempty"`
+	OtherVerdict  string         `json:"other_verdict,omitempty"`
+	OtherEvidence map[string]any `json:"other_evidence,omitempty"`
 }
 
 // DecidedVerdict reports one of the five final verdicts.
