@@ -90,7 +90,7 @@ func levelSeries(n, breakAt int, before, after float64) []float64 {
 
 // Happy path: a break early in the window (the minority first) and late
 // in it (the majority first) are both located at their bucket.
-func TestScanChangepointLocatesEarlyAndLateBreaks(t *testing.T) {
+func TestCusumScanChangepointLocatesEarlyAndLateBreaks(t *testing.T) {
 	ref := []float64{0.01, -0.01, 0.02, -0.02, 0, 0.015, -0.015}
 	for _, breakAt := range []int{5, 18} {
 		cp := ScanChangepoint(hourlyPoints(levelSeries(24, breakAt, 0, 0.4)), ref)
@@ -109,7 +109,7 @@ func TestScanChangepointLocatesEarlyAndLateBreaks(t *testing.T) {
 }
 
 // Nil/empty: fewer than 3 buckets is a typed reason and no scan.
-func TestScanChangepointNeedsThreeBuckets(t *testing.T) {
+func TestCusumScanChangepointNeedsThreeBuckets(t *testing.T) {
 	for _, pts := range [][]Point{nil, hourlyPoints([]float64{1, 2})} {
 		cp := ScanChangepoint(pts, []float64{0, 0, 0})
 		if cp.Scanned || cp.Fired || cp.Reason != ReasonCusumFewBuckets {
@@ -124,7 +124,7 @@ func TestScanChangepointNeedsThreeBuckets(t *testing.T) {
 
 // Happy path: a deploy at hour 5 of a 24 h window is named, within one
 // bucket, and the next look starts after it.
-func TestDetectContaminationNamesTheDeployHour(t *testing.T) {
+func TestCusumDetectContaminationNamesTheDeployHour(t *testing.T) {
 	c, err := DetectContamination(cusumFixture(1, 24, 5, 1.6), cusumStep, time.Minute)
 	if err != nil {
 		t.Fatal(err)
@@ -151,7 +151,7 @@ func TestDetectContaminationNamesTheDeployHour(t *testing.T) {
 }
 
 // The step's own effect is a change at the step, not contamination.
-func TestDetectContaminationIgnoresTheStepItself(t *testing.T) {
+func TestCusumDetectContaminationIgnoresTheStepItself(t *testing.T) {
 	c, err := DetectContamination(cusumFixture(2, 24, -1, 1), cusumStep, time.Minute)
 	if err != nil {
 		t.Fatal(err)
@@ -166,7 +166,7 @@ func TestDetectContaminationIgnoresTheStepItself(t *testing.T) {
 
 // Boundary: a changepoint exactly one cycle after the step is the step
 // settling; two cycles after is contamination.
-func TestDetectContaminationCycleBoundary(t *testing.T) {
+func TestCusumDetectContaminationCycleBoundary(t *testing.T) {
 	for _, tc := range []struct {
 		breakAt      int
 		contaminated bool
@@ -186,7 +186,7 @@ func TestDetectContaminationCycleBoundary(t *testing.T) {
 // The share of clean windows marked contaminated, reported: expected
 // under 10% on fixtures without an injected break, with hour-to-hour
 // noise under the 5% scale floor (3%) and above it (8%).
-func TestDetectContaminationNullShare(t *testing.T) {
+func TestCusumDetectContaminationNullShare(t *testing.T) {
 	const runs = 400
 	for _, noise := range []float64{0.03, 0.08} {
 		marked := 0
@@ -211,7 +211,7 @@ func TestDetectContaminationNullShare(t *testing.T) {
 }
 
 // A deploy is found through noise above the scale floor too.
-func TestDetectContaminationNamesTheDeployThroughNoise(t *testing.T) {
+func TestCusumDetectContaminationNamesTheDeployThroughNoise(t *testing.T) {
 	c, err := DetectContamination(noisyCusumFixture(9, 24, 5, 2, 0.08), cusumStep,
 		time.Minute)
 	if err != nil {
@@ -225,7 +225,7 @@ func TestDetectContaminationNamesTheDeployThroughNoise(t *testing.T) {
 
 // Nil/empty: no targets and too few post buckets give typed reasons, never
 // a contamination verdict.
-func TestDetectContaminationEmptyInputs(t *testing.T) {
+func TestCusumDetectContaminationEmptyInputs(t *testing.T) {
 	in := cusumFixture(4, 24, -1, 1)
 	in.Targets = nil
 	c, err := DetectContamination(in, cusumStep, time.Minute)
@@ -249,7 +249,7 @@ func TestDetectContaminationEmptyInputs(t *testing.T) {
 
 // Invalid input: an unknown kind, a target as its own control, a missing
 // step and a negative cycle are caller errors.
-func TestDetectContaminationRefusesBadInput(t *testing.T) {
+func TestCusumDetectContaminationRefusesBadInput(t *testing.T) {
 	in := cusumFixture(7, 24, -1, 1)
 	in.Kind = "nonsense"
 	if _, err := DetectContamination(in, cusumStep, time.Minute); err == nil {
@@ -271,7 +271,7 @@ func TestDetectContaminationRefusesBadInput(t *testing.T) {
 }
 
 // A global setting has no control group: only the targets are scanned.
-func TestDetectContaminationGlobalScansTargetsOnly(t *testing.T) {
+func TestCusumDetectContaminationGlobalScansTargetsOnly(t *testing.T) {
 	in := cusumFixture(8, 24, 5, 1.6)
 	in.Kind, in.Controls = AttributionGlobal, nil
 	c, err := DetectContamination(in, cusumStep, time.Minute)
@@ -282,7 +282,7 @@ func TestDetectContaminationGlobalScansTargetsOnly(t *testing.T) {
 
 // Boundary: a moderate break (1.3x) through 8% noise is still found; a 3%
 // change inside 8% noise is not a break.
-func TestDetectContaminationSensitivity(t *testing.T) {
+func TestCusumDetectContaminationSensitivity(t *testing.T) {
 	c, err := DetectContamination(noisyCusumFixture(10, 24, 12, 1.3, 0.08), cusumStep,
 		time.Minute)
 	if err != nil {
@@ -301,7 +301,7 @@ func TestDetectContaminationSensitivity(t *testing.T) {
 
 // The confirmation's standard error: medians of 3 and 3 values one scale
 // apart are 1/(1.2533 x sqrt(2/3)) standard errors apart.
-func TestLevelShiftStandardError(t *testing.T) {
+func TestCusumLevelShiftStandardError(t *testing.T) {
 	shift, z := levelShift([]float64{0, 0, 0, 1, 1, 1}, 3, 1)
 	if shift != 1 || math.Abs(z-1/(1.2533*math.Sqrt(2.0/3))) > 1e-12 {
 		t.Fatalf("levelShift = %v, %v", shift, z)

@@ -20,7 +20,7 @@ import (
 var defaultLooks = []time.Duration{2 * time.Hour, 4 * time.Hour, 8 * time.Hour,
 	16 * time.Hour, 32 * time.Hour, 64 * time.Hour, 72 * time.Hour}
 
-func TestLookScheduleFollowsTheDoubling(t *testing.T) {
+func TestSequentialLookScheduleFollowsTheDoubling(t *testing.T) {
 	d := DefaultOptions()
 	if got := LookSchedule(d.InitialWindow, d.HardMax); !slices.Equal(got, defaultLooks) {
 		t.Fatalf("default schedule %v, want %v", got, defaultLooks)
@@ -44,7 +44,7 @@ func TestLookScheduleFollowsTheDoubling(t *testing.T) {
 }
 
 // The schedule matches insufficientVerdict's doubling look for look.
-func TestLookScheduleMatchesTheEngineDoubling(t *testing.T) {
+func TestSequentialLookScheduleMatchesTheEngineDoubling(t *testing.T) {
 	e := &Engine{options: DefaultOptions()}
 	state := WatchState{Window: 2 * time.Hour, Criterion: Criterion{HardMax: 72 * time.Hour}}
 	var seen []time.Duration
@@ -61,7 +61,7 @@ func TestLookScheduleMatchesTheEngineDoubling(t *testing.T) {
 	}
 }
 
-func TestLookIndex(t *testing.T) {
+func TestSequentialLookIndex(t *testing.T) {
 	for _, tc := range []struct {
 		window time.Duration
 		index  int
@@ -79,7 +79,7 @@ func TestLookIndex(t *testing.T) {
 	}
 }
 
-func TestCumulativeAlpha(t *testing.T) {
+func TestSequentialCumulativeAlpha(t *testing.T) {
 	if got := CumulativeAlpha(0.05, 1); math.Abs(got-0.05) > 1e-12 {
 		t.Fatalf("alpha(1) = %v, want 0.05", got)
 	}
@@ -123,7 +123,7 @@ func spendAll(t *testing.T, prev AlphaSpend, schedule []time.Duration, from int)
 
 // Boundary: the last look spends exactly the remaining alpha: the per-look
 // alphas sum to 0.05 within 1e-9.
-func TestSpendLookLastLookSpendsTheRemainder(t *testing.T) {
+func TestSequentialSpendLookLastLookSpendsTheRemainder(t *testing.T) {
 	s := spendAll(t, AlphaSpend{}, defaultLooks, 0)
 	if s.Looks != 7 || len(s.PerLook) != 7 || s.Fraction != 1 {
 		t.Fatalf("after seven looks: %+v", s)
@@ -150,7 +150,7 @@ func TestSpendLookLastLookSpendsTheRemainder(t *testing.T) {
 
 // A look that adds no information spends nothing; a final look after
 // alpha is spent spends nothing more.
-func TestSpendLookNeverGoesBack(t *testing.T) {
+func TestSequentialSpendLookNeverGoesBack(t *testing.T) {
 	_, s, err := SpendLook(AlphaSpend{}, DefaultAlpha, 0.6, false)
 	if err != nil {
 		t.Fatal(err)
@@ -168,7 +168,7 @@ func TestSpendLookNeverGoesBack(t *testing.T) {
 
 // Invalid input: alpha outside (0,1), a NaN or negative fraction and a
 // corrupt stored spend are errors; never a fresh alpha.
-func TestSpendLookRefusesBadInput(t *testing.T) {
+func TestSequentialSpendLookRefusesBadInput(t *testing.T) {
 	for name, tc := range map[string]struct {
 		prev            AlphaSpend
 		alpha, fraction float64
@@ -189,7 +189,7 @@ func TestSpendLookRefusesBadInput(t *testing.T) {
 	}
 }
 
-func TestInformationFraction(t *testing.T) {
+func TestSequentialInformationFraction(t *testing.T) {
 	for _, tc := range []struct {
 		calls, expected float64
 		window          time.Duration
@@ -216,7 +216,7 @@ func TestInformationFraction(t *testing.T) {
 }
 
 // Bonferroni across targets stays on top of the look's alpha.
-func TestTargetAlpha(t *testing.T) {
+func TestSequentialTargetAlpha(t *testing.T) {
 	if got := TargetAlpha(0.01, 4); got != 0.0025 {
 		t.Fatalf("TargetAlpha(0.01, 4) = %v", got)
 	}
@@ -228,7 +228,7 @@ func TestTargetAlpha(t *testing.T) {
 // State transition: the spend survives a sidecar restart between look 3
 // and 4 through the watch baseline JSON, and the run ends where the
 // uninterrupted one does. Recomputing from zero would not.
-func TestAlphaSpendSurvivesARestart(t *testing.T) {
+func TestSequentialAlphaSpendSurvivesARestart(t *testing.T) {
 	whole := spendAll(t, AlphaSpend{}, defaultLooks, 0)
 	three := AlphaSpend{}
 	for i := 0; i < 3; i++ {

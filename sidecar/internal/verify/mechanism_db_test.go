@@ -156,7 +156,7 @@ func TestMechanismOnRealPlans(t *testing.T) {
 }
 
 // A plan captured before the step is not the latest plan after it.
-func TestPlanEvidenceReadsOnlyPlansAfterTheStep(t *testing.T) {
+func TestMechanismPlanEvidenceReadsOnlyPlansAfterTheStep(t *testing.T) {
 	pool := verifyIntegrationPool(t)
 	ctx := t.Context()
 	f := newMechFixture(t, ctx, pool)
