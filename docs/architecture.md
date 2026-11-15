@@ -129,7 +129,8 @@ day's sums, the hours with a row and with a break, the number of plan fingerprin
 the last one), day d-1 from 00:15, at most seven days per pass, so a backfilled day is
 rolled as soon as its 24 hours are; the newest day is re-rolled until 01:15, after its
 23:00 hour's late re-roll. A re-roll replaces a row only with a sum over at least as many
-hours, and retention removes an hourly row only once its day's daily row exists, so a
+hours, and retention removes an hourly row only once its day's daily row exists (or the
+hour is past `query_rollup_daily_days`, so an unrolled hour is never kept forever), so a
 purge racing the roll never loses a day. `GET /api/v1/queries/coverage` sums the coverage
 rows of a window (default 28 days): the covered share of execution time over the hours
 whose total is known, the hours with an epoch break, missing hours, dealloc growth and
