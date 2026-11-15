@@ -280,6 +280,7 @@ func registerFleetScopedRoutes(
 	}
 	registerFleetReadRoutes(apiMux, mgr, cfg, pool, rt.DatabricksAppAuth)
 	registerOnboardingRoutes(apiMux, mgr, cfg, pool)
+	registerDoctorRoute(apiMux, mgr, cfg, pool, llmBudgetSource(rt.LLMBudgets, llmMgr))
 }
 
 // registerFleetReadRoutes registers value and briefings (llm-06b), read
