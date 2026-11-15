@@ -101,7 +101,9 @@ func PreflightVerifiable(in PreflightInput) (Preflight, error) {
 // weekHours sums the targets' calls per hour, keyed by the week back
 // (1..PreflightWeeks) the hour lies in; a week without any row is absent.
 func weekHours(in PreflightInput) map[int]map[time.Time]float64 {
-	from := in.From.UTC()
+	// The step's hour: an hour k weeks before it is week k, as the
+	// expectation loop (which starts at this hour) reads it.
+	from := in.From.UTC().Truncate(time.Hour)
 	out := map[int]map[time.Time]float64{}
 	for _, id := range in.Targets {
 		for _, b := range in.Hourly[id] {

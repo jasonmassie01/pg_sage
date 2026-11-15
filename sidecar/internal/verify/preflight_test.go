@@ -234,3 +234,16 @@ func TestPreflight_ConcurrentCallsAgree(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// A step in the middle of an hour reads last week's same hour as week 1
+// (review fix): before, that hour was counted as a second week, which
+// halved the median and dropped the step's own hour from the expectation.
+func TestPreflight_StepMidHourReadsLastWeeksSameHour(t *testing.T) {
+	in := pfInput([]int64{1}, hourly(1, 5, 1, 0, time.Hour, 2*time.Hour))
+	in.From = pfFrom.Add(30 * time.Minute)
+	p := mustPreflight(t, in)
+	if p.WeeksSeen != 1 || p.ExpectedCalls != 15 || p.ActiveHours != 3 ||
+		p.WeeklyCalls != 15 {
+		t.Fatalf("mid-hour step: %+v, want 1 week, 15 expected calls in 3 active hours", p)
+	}
+}
