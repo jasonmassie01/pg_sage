@@ -63,7 +63,7 @@ type Changepoint struct {
 }
 
 // ScanChangepoint scans post for one departure from its level (the
-// median). The scale is ref's robust deviation (post's when ref has fewer
+// median); a NaN or infinite bucket is left out. The scale is ref's robust deviation (post's when ref has fewer
 // than MinWeeks values), floored at cusumScaleFloor. A departure from
 // the first bucket is the step itself and is found from the other end:
 // the forward scan locates a break with the old level in the majority, the
@@ -72,10 +72,12 @@ type Changepoint struct {
 // CusumConfirmZ standard errors: a CUSUM on an estimated level drifts, and
 // a drift is not a break.
 func ScanChangepoint(post []Point, ref []float64) Changepoint {
-	if len(post) < MinCusumBuckets {
+	pts := slices.DeleteFunc(slices.Clone(post), func(p Point) bool {
+		return math.IsNaN(p.V) || math.IsInf(p.V, 0)
+	})
+	if len(pts) < MinCusumBuckets {
 		return Changepoint{Reason: ReasonCusumFewBuckets}
 	}
-	pts := slices.Clone(post)
 	slices.SortStableFunc(pts, func(a, b Point) int { return a.At.Compare(b.At) })
 	x := make([]float64, len(pts))
 	for i, p := range pts {

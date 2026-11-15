@@ -311,3 +311,22 @@ func TestCusumLevelShiftStandardError(t *testing.T) {
 		t.Fatalf("an alarm short of %v standard errors fired: %+v", CusumConfirmZ, cp)
 	}
 }
+
+// Invalid input: a NaN or infinite bucket is left out of the scan. Go's max
+// returns NaN when an argument is NaN, so a NaN kept in the CUSUM would
+// poison every later statistic and hide the break after it; with fewer
+// than three finite buckets left there is no scan.
+func TestCusumScanChangepointSkipsNonFiniteBuckets(t *testing.T) {
+	ref := []float64{0.01, -0.01, 0.02, -0.02, 0, 0.015, -0.015}
+	pts := hourlyPoints(levelSeries(24, 18, 0, 0.4))
+	pts[3].V, pts[9].V = math.NaN(), math.Inf(1)
+	cp := ScanChangepoint(pts, ref)
+	want := cusumStep.Add(18 * time.Hour)
+	if !cp.Scanned || !cp.Fired || !cp.At.Equal(want) {
+		t.Fatalf("break at 18 behind a NaN bucket: %+v, want a changepoint at %s", cp, want)
+	}
+	few := hourlyPoints([]float64{0, math.NaN(), 0.4, math.Inf(-1)})
+	if cp := ScanChangepoint(few, ref); cp.Scanned || cp.Reason != ReasonCusumFewBuckets {
+		t.Fatalf("two finite buckets: %+v, want reason %q", cp, ReasonCusumFewBuckets)
+	}
+}
