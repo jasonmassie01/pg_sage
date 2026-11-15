@@ -22,14 +22,16 @@ func verificationExpired(executedAt time.Time, window time.Duration, now time.Ti
 }
 
 // expireMonitor records an expired monitor: no regression check and no
-// rollback, with why. The action is no longer watched; it is not credited.
+// rollback, with why. The action is no longer watched; it is not
+// credited. now is the database clock, as executedAt is (executor-31).
 func expireMonitor(ctx context.Context, pool *pgxpool.Pool, actionID int64,
-	executedAt time.Time, window time.Duration, logFn func(string, string, ...any)) {
+	executedAt time.Time, window time.Duration, now time.Time,
+	logFn func(string, string, ...any)) {
 	ended := executedAt.Add(window)
 	reason := fmt.Sprintf("verification window ended %s (%s ago) while pg_sage was not "+
 		"watching; comparing that before-state baseline with today's workload would not "+
 		"be evidence, so no regression check and no rollback",
-		ended.UTC().Format(time.RFC3339), time.Since(ended).Round(time.Minute))
+		ended.UTC().Format(time.RFC3339), now.Sub(ended).Round(time.Minute))
 	logFn("rollback", "action %d: %s", actionID, reason)
 	if setMonitoredOutcome(ctx, pool, actionID, "verification_expired", reason) {
 		_, _ = finalizeActionVerification(ctx, pool, actionID, "unverifiable", reason)

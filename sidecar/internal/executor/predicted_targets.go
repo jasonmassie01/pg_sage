@@ -163,7 +163,7 @@ func (e *Executor) freezeBaseline(
 	}
 	window, capW, minCalls := baselineWindows(class, cfg)
 	source := verify.NewPostgresObservationSource(e.pool)
-	now := time.Now()
+	now := e.databaseNow(ctx, "freeze verification baseline")
 	var got map[int64]verify.Measurement
 	for {
 		measured, err := source.QueryMeasurements(ctx, ids, now.Add(-window), now)
