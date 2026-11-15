@@ -22,6 +22,7 @@ func (f Finding) AnalyzerFinding() analyzer.Finding {
 	if len(f.Evidence) > 0 {
 		detail["evidence"] = f.Evidence
 	}
+	exposureDetail(f.Detector, detail)
 	return analyzer.Finding{
 		Category:         f.Category(),
 		Severity:         string(f.Severity),

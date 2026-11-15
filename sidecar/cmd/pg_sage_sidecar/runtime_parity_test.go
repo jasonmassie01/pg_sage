@@ -30,6 +30,7 @@ var perDatabaseCapabilities = []runtimeCapability{
 	{"collector", []string{"collector.New"}},
 	{"analyzer", []string{"analyzer.New"}},
 	{"runaway detector", []string{"executor.NewRunawayDetector"}},
+	{"exposure sweep (fleetpol-02a)", []string{".RunSweeps"}},
 	{"forecaster", []string{"forecaster.New"}},
 	{"query tuner", []string{"tuner.New"}},
 	{"hint revalidation loop", []string{".StartRevalidationLoop"}},
