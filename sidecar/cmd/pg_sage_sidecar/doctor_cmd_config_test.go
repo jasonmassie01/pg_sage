@@ -123,3 +123,37 @@ func wantStatus(t *testing.T, r doctor.Report, id string, want doctor.Status) do
 	}
 	return c
 }
+
+// Error propagation: a configured webhook the notification target policy
+// refuses (a private http address without allow_private_targets) is not
+// sent to and fails the check by its key, instead of reading as "no
+// channels configured"; the detail still hides the URL.
+func TestDoctorCmdDBSendTestBlockedTarget(t *testing.T) {
+	dsn := testdb.CreateDatabase(t, "doctor_cfg_blocked")
+	hook, posts := hookDouble(t, http.StatusOK)
+	cfgPath := writeDoctorConfig(t, dsn, modelDouble(t), hook)
+	body, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	strict := strings.Replace(string(body), "allow_private_targets: true",
+		"allow_private_targets: false", 1)
+	if err := os.WriteFile(cfgPath, []byte(strict), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	code, out, errOut := runDoctorForTest(t, "--pg-url", dsn, "--config", cfgPath, "--json",
+		"--send-test")
+	r := decodeDoctor(t, out, errOut)
+	c := wantStatus(t, r, doctor.IDNotification, doctor.StatusFail)
+	if code != 1 || posts.Load() != 0 {
+		t.Fatalf("exit %d posts %d, want 1 and no post: %+v", code, posts.Load(), c)
+	}
+	for _, want := range []string{"alerting.webhooks[0].url", "0 sent"} {
+		if !strings.Contains(c.Detail, want) {
+			t.Fatalf("detail %q lacks %q", c.Detail, want)
+		}
+	}
+	if strings.Contains(c.Detail, "secret-token-in-path") {
+		t.Fatalf("detail carries the webhook URL: %q", c.Detail)
+	}
+}

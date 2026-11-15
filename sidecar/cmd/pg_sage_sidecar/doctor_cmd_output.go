@@ -70,7 +70,7 @@ func doctorAlertSender(cfg *config.Config,
 		sort.Strings(names)
 		alert := doctorTestAlert(time.Now().UTC())
 		sent := 0
-		var errs []error
+		errs := blockedAlertTargets(cfg)
 		for _, name := range names {
 			if err := channels[name].Send(ctx, alert); err != nil {
 				errs = append(errs, fmt.Errorf("%s: %s", name,
@@ -81,6 +81,25 @@ func doctorAlertSender(cfg *config.Config,
 		}
 		return sent, errors.Join(errs...)
 	}
+}
+
+// blockedAlertTargets are the configured Slack and webhook targets the
+// notification target policy refuses. buildAlertChannels builds no
+// channel for them, so the test names each one instead of passing over
+// it; their URLs are hidden like a delivery error's.
+func blockedAlertTargets(cfg *config.Config) []error {
+	policy := configTargetPolicy(cfg)
+	targets := [][2]string{{"alerting.slack_webhook_url", cfg.Alerting.SlackWebhookURL}}
+	for i, wh := range cfg.Alerting.Webhooks {
+		targets = append(targets, [2]string{webhookURLKey(i, wh.Name), wh.URL})
+	}
+	var errs []error
+	for _, tg := range targets {
+		if err := checkAlertTarget(policy, tg[0], tg[1]); err != nil {
+			errs = append(errs, errors.New(targetURL.ReplaceAllString(err.Error(), "<url>")))
+		}
+	}
+	return errs
 }
 
 func doctorTestAlert(now time.Time) alerting.Alert {
