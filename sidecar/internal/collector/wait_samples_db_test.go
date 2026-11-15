@@ -236,8 +236,10 @@ func TestWorkloadExplorer_TwoCyclesRankTheWorkloadFirst(t *testing.T) {
 		t.Fatalf("first cycle: %v", err)
 	}
 	// The first cycle's samples are the anchors: work done before it
-	// (earlier tests) is not this window's.
-	from := time.Now()
+	// (earlier tests) is not this window's. The window is read on the
+	// database clock, which stamps captured_at: the test server's VM clock
+	// can lead the host's by more than the second of slack below.
+	from := testdb.MustDBNow(t, pool)
 	runWorkload(30)
 	if err := c.cycle(ctx, &fakeTicker{}); err != nil {
 		t.Fatalf("second cycle: %v", err)
@@ -250,7 +252,8 @@ func TestWorkloadExplorer_TwoCyclesRankTheWorkloadFirst(t *testing.T) {
 		t.Skipf("pg_stat_statements has no workload entry: %v", err)
 	}
 	res, err := querystore.Top(ctx, pool, querystore.TopRequest{From: from,
-		To: time.Now().Add(time.Second), Order: querystore.OrderLoad, Limit: 5})
+		To: testdb.MustDBNow(t, pool).Add(time.Second), Order: querystore.OrderLoad,
+		Limit: 5})
 	if err != nil {
 		t.Fatalf("Top: %v", err)
 	}
