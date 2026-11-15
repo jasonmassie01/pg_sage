@@ -141,6 +141,35 @@ workload explorer shows it as one line under the top statements, silent when `ok
 90%. A history migration (`pg_sage history migrate`) copies the daily and coverage rows
 and rebuilds the hourly tier from the copied snapshots ("hourly rollup rebuilt").
 
+**Workload evidence pack.** A pack (`internal/evidence/workpack`, format
+`pg_sage-workload/1`) is one database's workload over a window of 14 to 100 whole UTC days
+(default 28), as canonical JSON sections sealed with the evidence pack format:
+`header.json` (database, window, hour-of-week timezone `baseline.timezone`, version,
+platform, collector capabilities, and each day's tier: days before
+`query_rollup_hourly_days` read the daily rollup and are listed `daily`, a partial daily
+day is not counted), `coverage.json` (the coverage report of the window), `workload.json`
+(families, each a statement's command plus its sorted referenced relations or
+`unparsed:<queryid>`: totals, top 20 queryids and a 168-bucket hour-of-week shape from
+the hourly days, a bucket seen under three weeks marked learning; at most 50 families and
+500 queryids by execution time, with `truncated`) and `growth.json` (weekly calls and
+execution time per family, daily database and 50 largest table sizes, each with slope,
+R2 and the slope's standard error; under three points the trend is `unknown`, a day with
+no snapshot is `null` and counted in `missing_days`). `content_sha256` is the SHA-256 of
+the sorted `name sha256` lines, so the same window and data give the same hash; when and
+by whom it was built is stored beside it, never in it. Every fact has an evidence id from
+what it is about (`workload/family/<12 hex of the key's SHA-256>`, `workload/query/<queryid>`,
+`coverage/window/all`, `growth/workload/<family>`, `growth/db/size`,
+`growth/table/<schema.table>`), resolved against the pack that holds it. A build only
+reads the history store, in one read-only transaction with a 30 s statement timeout, and
+stores the pack once per database and hash in `sage.workload_packs` beside the history
+(`history.store`); a stored pack is never changed, and
+`retention.workload_packs_days` (180) deletes old ones. `POST
+/api/v1/databases/{db}/workload-packs` (operator) builds one within 60 s, answering
+`reused: true` for a window whose data is already stored; `GET
+.../workload-packs`, `.../{sha}` and `.../{sha}/evidence/{id}` read them (viewer, scoped to
+the database). `pg_sage_workload_pack_builds_total{database,result}` and
+`pg_sage_workload_pack_bytes{database}` report builds.
+
 **The workload rule.** The collector keeps every statement. Advice paths (findings, the
 tuning agent, plan capture, verification targets, the briefing) read only application
 workload as `internal/workload` classifies it: pg_sage's own tagged statements,
