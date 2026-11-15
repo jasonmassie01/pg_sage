@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -55,31 +56,63 @@ func expireMonitor(ctx context.Context, pool *pgxpool.Pool, actionID int64,
 // expireMonitorAndAct records the expiry, then acts as verify.on_expired
 // says, so an unjudged change is never left without anyone asked: ask
 // queues one "Revert action N" item, keep keeps it (recorded), revert
-// rolls it back through the operator rollback. Each path writes the
-// decision ledger.
+// rolls it back through the operator rollback and, when that is refused
+// or fails, asks instead. An action with no rollback SQL is kept, since
+// there is nothing to revert. Each path writes the decision ledger.
 func (e *Executor) expireMonitorAndAct(ctx context.Context, actionID int64,
 	rollbackSQL string, executedAt time.Time, window time.Duration) {
 	if !expireMonitor(ctx, e.pool, actionID, executedAt, window, e.logFn) {
 		return
 	}
-	switch onExpired := e.onExpired(); onExpired {
-	case onExpiredKeep:
+	switch onExpired := e.onExpired(); {
+	case strings.TrimSpace(rollbackSQL) == "":
+		e.recordExpiryDecision(ctx, actionID, rollbackSQL, policy.VerdictObserveOnly,
+			"verification expired; change kept: it has no rollback SQL to revert")
+	case onExpired == onExpiredKeep:
 		e.recordExpiryDecision(ctx, actionID, rollbackSQL, policy.VerdictObserveOnly,
 			"verification expired; change kept (verify.on_expired=keep)")
-	case onExpiredRevert:
-		reason := "verification expired; rolled back (verify.on_expired=revert)"
-		e.recordExpiryDecision(ctx, actionID, rollbackSQL, policy.VerdictExecute, reason)
-		if err := e.RollbackAction(ctx, actionID, reason); err != nil {
-			e.logFn("ERROR", "action %d: verify.on_expired=revert could not roll it back "+
-				"(%v); roll it back by hand", actionID, err)
-		}
+	case onExpired == onExpiredRevert:
+		e.revertExpired(ctx, actionID, rollbackSQL)
 	default:
-		reason := "verification expired; revert offered (verify.on_expired=ask)"
-		id := e.recordExpiryDecision(ctx, actionID, rollbackSQL,
-			policy.VerdictQueueApproval, reason)
-		e.queueRevert(ctx, actionID, rollbackSQL, RollbackVerdict{Reason: reason,
-			DecisionID: id})
+		e.askExpired(ctx, actionID, rollbackSQL,
+			"verification expired; revert offered (verify.on_expired=ask)")
 	}
+}
+
+// revertExpired rolls an expired action back through the operator
+// rollback and records it. A rollback refused before it ran (the action
+// is still expired) asks a person instead; one that ran and failed is
+// recorded with its error (the action says rollback_failed).
+func (e *Executor) revertExpired(ctx context.Context, actionID int64, rollbackSQL string) {
+	reason := "verification expired; rolled back (verify.on_expired=revert)"
+	err := e.RollbackAction(ctx, actionID, reason)
+	if err == nil {
+		e.recordExpiryDecision(ctx, actionID, rollbackSQL, policy.VerdictExecute, reason)
+		return
+	}
+	if outcome, _, readErr := e.revertState(ctx, actionID); readErr == nil &&
+		revertWithheld(outcome) {
+		e.logFn("executor", "action %d: verify.on_expired=revert was refused (%v); a "+
+			"revert item is queued instead", actionID, err)
+		e.askExpired(ctx, actionID, rollbackSQL, fmt.Sprintf("verification expired; the "+
+			"rollback was refused (%v), so a revert is offered (verify.on_expired=revert)",
+			err))
+		return
+	}
+	e.logFn("ERROR", "action %d: verify.on_expired=revert could not roll it back (%v); "+
+		"roll it back by hand", actionID, err)
+	e.recordExpiryDecision(ctx, actionID, rollbackSQL, policy.VerdictExecute,
+		fmt.Sprintf("verification expired; the rollback failed: %v "+
+			"(verify.on_expired=revert)", err))
+}
+
+// askExpired queues one "Revert action N" item with its decision.
+func (e *Executor) askExpired(ctx context.Context, actionID int64, rollbackSQL,
+	reason string) {
+	id := e.recordExpiryDecision(ctx, actionID, rollbackSQL,
+		policy.VerdictQueueApproval, reason)
+	e.queueRevert(ctx, actionID, rollbackSQL, RollbackVerdict{Reason: reason,
+		DecisionID: id})
 }
 
 func (e *Executor) onExpired() string {
