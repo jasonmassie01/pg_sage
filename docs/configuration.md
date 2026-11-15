@@ -2793,6 +2793,37 @@ the cluster's age or freeze maximum cannot be read, the XID finding is held, mar
 `stale_reason` `freeze_gate_unknown`. On upgrade, an open XID or multixact finding on a
 cluster below the setting resolves on its first measured tick.
 
+#### Multixact member space
+
+Multixact members (the transactions that share a row lock: `SELECT ... FOR SHARE` or
+`FOR KEY SHARE`, foreign key checks) live in a 32-bit offset space of their own, which fills
+independently of the multixact age above. On PostgreSQL 14-18 autovacuum starts freezing
+multixacts aggressively once half of it (2^31 members) is in use, whatever
+`autovacuum_multixact_freeze_max_age` says, and PostgreSQL refuses new multixacts when it
+is full. No view shows the space in use before PostgreSQL 19, so pg_sage estimates it, at
+most every 5 minutes (or every `sre.runways.interval_seconds` when that is longer): it reads
+`next_multixact_id` and `next_multi_offset` from `pg_control_checkpoint()` (as of the last
+checkpoint), counts the members of up to 200 multixacts spaced evenly between the oldest
+`datminmxid` and the next multixact with `pg_get_multixact_members()`, and multiplies the
+mean by the multixacts in that range. Each reading is one read-only transaction with a 5 s
+statement and 1 s lock timeout, stored in `sage.multixact_member_samples` (pruned after 90
+days). The member consumption rate comes from the oldest sample of the lookback taken at an
+earlier checkpoint (modulo 2^32; an offset that went back, after a restore or a failover to
+another cluster, starts the rate again).
+
+The runway is projected from the estimate's upper bound (estimate plus two standard
+errors), so a noisy sample warns early. `forecast_multixact_member_runway` opens as a
+warning when the aggressive-vacuum threshold is less than 14 days away and as critical under
+3 days (or past it); its detail records `members_est`, `members_stderr`, `members_upper`,
+`live_multixacts`, `sampled`, `rate_per_s`, `seconds_to_limit` (to the threshold) and
+`seconds_to_hard_limit` (to the full space, less up to two 52,352-member segments). It
+resolves once a measured runway is clear; a reading without a rate yet holds an open finding.
+When the role may not execute either function (some managed providers revoke them), the
+reading is unknown: nothing is recorded or resolved, and the log names the grant that would
+fix it once, for example `GRANT EXECUTE ON FUNCTION pg_catalog.pg_get_multixact_members(xid)
+TO sage_agent`. In fleet mode one owner database per cluster reports it, like the other
+cluster runways. The finding opens no investigation and carries no SQL.
+
 A pre-incident investigation explains what drives the runway. Wraparound: a session,
 prepared transaction or replication slot holding the xmin horizon, busy, disabled or
 cancelled autovacuum (cancellations are read from logged incidents, so with no log source
