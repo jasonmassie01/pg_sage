@@ -136,6 +136,8 @@ Action outcomes, pending approvals, verification verdicts, policy parks and shad
 | `pg_sage_action_last_failure_timestamp_seconds` | gauge | `database` | seconds | all | v2.7.0 | When the latest failed action was recorded (no sample: none has failed) |
 | `pg_sage_actions_pending_approval` | gauge | `database`, `risk` | - | all | v2.7.0 | Pending approvals a person can act on now (past cooldown, not expired), by risk |
 | `pg_sage_actions_total` | counter | `database`, `class`, `outcome` | - | all | v2.7.0 | Actions that ended, by change class and outcome (success, failed, rolled_back, cancelled, unverifiable, other) |
+| `pg_sage_owner_brief_present` | gauge | `database` | - | all | v2.7.0 | 1 when the database has a confirmed owner brief (owner, peak windows, growth), else 0 |
+| `pg_sage_owner_brief_steps` | gauge | `database`, `period`, `outcome` | - | all | v2.7.0 | Accepted (approved or executed) and rejected queued actions since the owner brief was confirmed (after) and in as long before it (before); without a brief the split is 30 days ago |
 | `pg_sage_policy_parks_total` | counter | `database`, `reason` | - | all | v2.2.0 | Self-initiated changes the policy gate parked, by reason (one per evaluation) |
 | `pg_sage_policy_record_failures_total` | counter | `database`, `reason` | - | all | v2.5.1 | Policy gate decisions that could not be recorded in the decision ledger, by decision reason |
 | `pg_sage_shadow_decisions_total` | counter | `database`, `class`, `verdict` | - | all | v1.9.0 | Shadow decisions recorded below an action class's earned trust level, by the gate's verdict had it been trusted |

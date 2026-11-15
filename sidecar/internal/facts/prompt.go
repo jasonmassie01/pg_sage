@@ -25,11 +25,12 @@ var guidance = map[Type]string{
 		"indexes (they serve rare reads).",
 }
 
-// promptPriority orders the binding facts of a prompt before its budget
-// cuts: the facts behind WAL and vacuum advice first, so many index
-// ownership facts never crowd them out. Ties go by fact id.
-var promptPriority = map[Type]int{TypeSlotConsumer: 0, TypeTableWindow: 1,
-	TypeAppendOnly: 2, TypeAppMigrations: 3, TypeTestFixture: 4}
+// promptPriority orders the facts of a prompt before its budget cuts: the
+// owner brief (about the whole database), then the facts behind WAL and
+// vacuum advice, so many index ownership facts never crowd them out. Ties
+// go by fact id.
+var promptPriority = map[Type]int{TypeOwnerBrief: 0, TypeSlotConsumer: 1,
+	TypeTableWindow: 2, TypeAppendOnly: 3, TypeAppMigrations: 4, TypeTestFixture: 5}
 
 func promptRank(t Type) int {
 	if p, ok := promptPriority[t]; ok {
@@ -102,6 +103,9 @@ func omittedNote(n int) string {
 }
 
 func promptLine(f Fact) string {
+	if f.Type == TypeOwnerBrief {
+		return briefPromptLine(f)
+	}
 	how := guidance[f.Type]
 	if f.Type == TypeTableWindow {
 		how = "Act on it only inside that window."
@@ -114,8 +118,12 @@ func promptLine(f Fact) string {
 }
 
 // relevant reports a fact about one of refs; an index fact is relevant to
-// any object in its schema (the object's indexes are not listed).
+// any object in its schema (the object's indexes are not listed), and a
+// database fact (the owner brief) to every object.
 func relevant(f Fact, refs []ObjectRef) bool {
+	if f.Kind == KindDatabase {
+		return true
+	}
 	p, err := ParsePattern(f.Kind, f.Subject)
 	if err != nil {
 		return false

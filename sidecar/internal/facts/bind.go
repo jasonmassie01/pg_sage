@@ -136,6 +136,8 @@ func routeFor(f Fact, class requestClass, req Request) (Route, bool) {
 		return RouteExcluded, !req.OperatorApproved
 	case TypeTableWindow:
 		return RouteWait, !req.OperatorApproved && windowHolds(f, req.Now)
+	case TypeOwnerBrief:
+		return "", false // context only: it never narrows or widens
 	}
 	return "", false
 }

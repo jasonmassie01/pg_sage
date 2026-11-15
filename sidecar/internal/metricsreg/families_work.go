@@ -61,6 +61,15 @@ var workFamilies = []Family{
 		Help: "Actions that ended, by change class and outcome (success, failed, " +
 			"rolled_back, cancelled, unverifiable, other)",
 		Labels: []string{"database", "class", "outcome"}, Modes: AllModes, Since: "v2.7.0"},
+	{Name: "pg_sage_owner_brief_present", Type: Gauge, Area: AreaActions,
+		Help: "1 when the database has a confirmed owner brief (owner, peak windows, " +
+			"growth), else 0",
+		Labels: []string{"database"}, Modes: AllModes, Since: "v2.7.0"},
+	{Name: "pg_sage_owner_brief_steps", Type: Gauge, Area: AreaActions,
+		Help: "Accepted (approved or executed) and rejected queued actions since the " +
+			"owner brief was confirmed (after) and in as long before it (before); " +
+			"without a brief the split is 30 days ago",
+		Labels: []string{"database", "period", "outcome"}, Modes: AllModes, Since: "v2.7.0"},
 	{Name: "pg_sage_policy_parks_total", Type: Counter, Area: AreaActions,
 		Help: "Self-initiated changes the policy gate parked, by reason (one per " +
 			"evaluation)",

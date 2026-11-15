@@ -981,7 +981,7 @@ Scope: `propose`
 
 ### `list_facts`
 
-List pg_sage's typed facts about a database (who owns an object, test fixtures, CDC slots, archives, table windows): proposed ones awaiting a person and confirmed ones, which bind pg_sage.
+List pg_sage's typed facts about a database (who owns an object, test fixtures, CDC slots, archives, table windows, the owner brief): proposed ones awaiting a person and confirmed ones, which bind pg_sage (the owner brief is context only).
 
 Scope: `read`
 
@@ -989,7 +989,7 @@ Scope: `read`
 |---|---|---|---|
 | `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
 | `status` | string | no |  |
-| `type` | string | no | one of `owned_by_app_migrations`, `test_fixture`, `slot_consumer`, `append_only`, `table_window` |
+| `type` | string | no | one of `owned_by_app_migrations`, `test_fixture`, `slot_consumer`, `append_only`, `table_window`, `owner_brief` |
 
 ### `propose_fact`
 
@@ -1002,8 +1002,8 @@ Scope: `propose`
 | `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
 | `evidence` | string | yes | length <= 500 |
 | `subject` | string | yes | length <= 300 |
-| `subject_kind` | string | yes | one of `index`, `table`, `schema`, `slot` |
-| `type` | string | yes | one of `owned_by_app_migrations`, `test_fixture`, `slot_consumer`, `append_only`, `table_window` |
+| `subject_kind` | string | yes | one of `index`, `table`, `schema`, `slot`, `database` |
+| `type` | string | yes | one of `owned_by_app_migrations`, `test_fixture`, `slot_consumer`, `append_only`, `table_window`, `owner_brief` |
 | `value` | object | no |  |
 
 ### `decide_fact`

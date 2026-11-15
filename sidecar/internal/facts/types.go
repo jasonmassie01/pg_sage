@@ -32,6 +32,10 @@ const (
 	TypeSlotConsumer  Type = "slot_consumer"
 	TypeAppendOnly    Type = "append_only"
 	TypeTableWindow   Type = "table_window"
+	// TypeOwnerBrief is the owner's note about the whole database (who owns
+	// it, peak windows, growth, retention; evid-03a). It never binds: it is
+	// prompt context only.
+	TypeOwnerBrief Type = "owner_brief"
 )
 
 // Kind is the catalog kind of a fact's subject.
@@ -39,12 +43,15 @@ type Kind string
 
 // Subject kinds. KindRelation is only an object reference whose kind is
 // unknown (a table or an index); no fact has it as its subject kind.
+// KindDatabase is the database whose fact store holds the fact; its only
+// subject is "*" and it names no object.
 const (
 	KindIndex    Kind = "index"
 	KindTable    Kind = "table"
 	KindSchema   Kind = "schema"
 	KindSlot     Kind = "slot"
 	KindRelation Kind = "relation"
+	KindDatabase Kind = "database"
 )
 
 // Status is where a fact stands. Only StatusConfirmed binds.
@@ -172,6 +179,8 @@ func (f Fact) Describe() string {
 	case TypeTableWindow:
 		return fmt.Sprintf("%s has a %s window: %s", subject, f.Value["kind"],
 			f.Value["window"])
+	case TypeOwnerBrief:
+		return describeBrief(f.Value)
 	}
 	return subject + " " + string(f.Type)
 }

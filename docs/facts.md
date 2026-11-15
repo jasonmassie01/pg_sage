@@ -18,10 +18,13 @@ would not have done anyway.
 | `slot_consumer` | replication slot | The slot feeds a named consumer (Debezium, Fivetran, Airbyte...) | Never drops or advances the slot and never bounds WAL in a way that could invalidate it; it alerts instead. `max_slot_wal_keep_size` is cluster-wide, so any finite bound (and `RESET`) is blocked whichever slot it names; only `-1` (unbounded) is allowed. A confirmed slot is also registered in `sage.slot_consumer_registry`, so the WAL custodian escalates instead of acting; rejecting or expiring the fact yourself unregisters the slot again (owner and last confirmation are kept); an automatic expiry does not (see [Expiry and re-verification](#expiry-and-re-verification)). |
 | `append_only` | table | Rows are only inserted (an archive or a log) | Never deletes its rows, rewrites it (`VACUUM FULL`, bloat plans) or drops its indexes (they look unused because an archive is rarely read). |
 | `table_window` | table | `maintenance` window (act only inside) or `batch` window (never act during) | Holds pg_sage's own work on the table until the window allows it. Your own approvals are not held. |
+| `owner_brief` | the database (`*`) | What you know and telemetry does not: who owns the database, its peak windows, expected growth, retention rules | Nothing on its own: it never binds, narrows or widens what the gate allows. Prompts carry it first, as context. See [The owner brief](#the-owner-brief). |
 
 ## Subjects
 
 * Index and table subjects are schema-qualified: `public.idx_orders_status`, `app.orders`.
+* An `owner_brief` has subject kind `database` and subject `*`: the database whose facts
+  hold it. Any other subject is refused.
 * Identifiers fold like PostgreSQL's: unquoted names are lower-cased, quoted names are exact
   (`"Billing"."Invoices"` is not `billing.invoices`).
 * `*` matches any run of characters (`test_memory_*`, `public.idx_thesis_*`); nothing else
@@ -36,10 +39,44 @@ would not have done anyway.
   2 s statement timeout. An invalid subject gives `400 invalid_fact`, one that could match a
   protected schema `400 protected_subject`, and no match an empty list.
 * Values: `slot_consumer` names its `consumer`, `table_window` its `kind` and `window`;
-  the other types take an optional `note`. `owned_by_app_migrations` no longer takes `repo`
+  `owner_brief` takes the keys listed under [The owner brief](#the-owner-brief); the other
+  types take an optional `note`. `owned_by_app_migrations` no longer takes `repo`
   or `path` (nothing read them): a new proposal with either is refused, while facts stored
   with them keep loading and binding. MCP `mark_object` still accepts `repo` and `path` and
   records them in the mark's evidence, where the person deciding sees them.
+
+## The owner brief
+
+The owner brief is the note a senior DBA keeps in their head: who owns the database, when
+it is busy, how fast it grows and what must be kept. There is one per database; declaring
+it again replaces it in place (the same fact, `proposals` counts the declarations, and
+`decided_by` and `decided_at` move to the latest declaration).
+
+| Key | What it says |
+|---|---|
+| `owner` | The team or person who owns the database |
+| `contact` | How to reach them (a channel, a rota, an address) |
+| `peak_windows` | When it is busiest: one or more windows in the [maintenance window grammar](configuration.md#maintenance-windows), separated by `;` (`weekdays 09:00-17:00 America/Chicago; sat 10:00-14:00`) |
+| `growth` | Expected growth in words (`about 20 GB a month`) |
+| `growth_pct_month` | Expected growth in percent per month, a number from 0 to 1000 |
+| `retention` | Retention rules (`orders kept 7 years`) |
+| `note` | Anything else |
+
+At least one key is required; each value is at most 300 characters, and blank keys are
+dropped. Declare it with `POST /api/v1/facts?database=...` and
+`{"type": "owner_brief", "subject_kind": "database", "subject": "*", "value": {...}}`, or
+propose it over MCP (`propose_fact`); a form in the dashboard follows.
+
+The brief never binds: the gate allows exactly what it allowed without it. Re-verification
+never expires it for absence (its subject is the database itself, so there is no catalog
+lookup); it expires only on its expiry date or when you expire it. Prompts carry it as one
+line of at most 300 characters, first; a longer brief is cut and the line ends with
+`(rest of the brief omitted)`.
+
+To see whether it helps, `/metrics` exports `pg_sage_owner_brief_present{database}` and
+`pg_sage_owner_brief_steps{database,period,outcome}`: approved or executed (`accepted`)
+and `rejected` queued actions since the brief was confirmed (`after`) and in as long before
+it (`before`). Without a brief the two periods split 30 days ago.
 
 ## Where facts come from
 
@@ -175,7 +212,9 @@ model, is what enforces them):
 
 * The **advisor**'s review prompts and the **investigator**'s review turns carry the
   database's confirmed facts: at most 12 facts and 1,500 characters. When there are more,
-  the facts behind WAL and vacuum advice go first: `slot_consumer`, then `table_window`,
+  the owner brief goes first (it is about the whole database and reaches every prompt,
+  whatever objects it is about), then the facts behind WAL and vacuum advice:
+  `slot_consumer`, then `table_window`,
   `append_only`, `owned_by_app_migrations` and `test_fixture`, by fact id within a type.
   The last line then says how many were left out (`- 19 more confirmed facts omitted.`);
   the budget still holds with that line.
