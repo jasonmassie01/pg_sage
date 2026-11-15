@@ -1,11 +1,13 @@
 import { useAPI } from '../hooks/useAPI'
 import { QueryState } from '../components/QueryState'
 import { SQLBlock } from '../components/SQLBlock'
+import { QueryCallSite } from './QueryCallSite'
 import { queryDetailParams } from '../lib/workload'
 
 // QueryDetailPage: one statement of the workload explorer (market-01):
 // its history from the query store, one marker per plan change, the
-// newest captured plan, and the cases, hints and actions about it. A
+// newest captured plan, the cases, hints and actions about it, and the
+// application call site when a code host is configured (pr-01a). A
 // queryid belongs to one database, so the page needs one.
 
 const card = { background: 'var(--bg-card)', border: '1px solid var(--border)' }
@@ -125,6 +127,7 @@ export function QueryDetailPage({ route, database }) {
           <Section title={`Query ${data.queryid} on ${data.database}`}>
             {data.query ? <SQLBlock sql={data.query} />
               : <p className="text-sm" style={muted}>{data.text_unavailable}</p>}
+            <QueryCallSite queryid={queryid} database={db} />
           </Section>
           <Section title="History, last 24 hours" testId="query-history">
             <History data={data} />

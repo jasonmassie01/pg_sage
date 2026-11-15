@@ -68,15 +68,32 @@ export function queryDetail(queryid: string) {
   }
 }
 
-// routeQueryDetail answers the query page for any queryid and records the
-// URLs asked for.
-export async function routeQueryDetail(page: Page) {
+// callSiteOff copies GET /api/v1/queries/{queryid}/call-site without a
+// code host, as TestCallSiteRoute_OffWithoutACodeHost checks it (pr-01a).
+export const callSiteOff = {
+  configured: false, database: 'orders',
+  note: 'No code host is configured: set agents.code_host.provider and ' +
+    'agents.code_host.repo, and the read token in SAGE_CODE_HOST_TOKEN.',
+}
+
+// callSiteExact copies the exact answer of TestCallSiteRouteDB_ExactCallSiteFromTags.
+export const callSiteExact = {
+  configured: true, database: 'orders', repo: 'acme/shop', host: 'github api.github.com',
+  summary: 'Called from app/models/order.rb:3 (exact)',
+  call_site: { path: 'app/models/order.rb', line: 3, confidence: 'exact',
+    method: 'sqlcommenter file and line' },
+}
+
+// routeQueryDetail answers the query page for any queryid, and its call
+// site with callSite, and records the URLs asked for.
+export async function routeQueryDetail(page: Page, callSite: unknown = callSiteOff) {
   const urls: string[] = []
   await page.route('**/api/v1/queries/**', route => {
     const url = new URL(route.request().url())
     urls.push(url.pathname + url.search)
-    const id = url.pathname.split('/').pop() || ''
-    return route.fulfill({ json: queryDetail(id) })
+    const parts = url.pathname.split('/')
+    if (parts[parts.length - 1] === 'call-site') return route.fulfill({ json: callSite })
+    return route.fulfill({ json: queryDetail(parts.pop() || '') })
   })
   return urls
 }
