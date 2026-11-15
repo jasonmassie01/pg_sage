@@ -71,13 +71,22 @@ func WithChanges(d Diagnosis, obs []Observation) Diagnosis {
 		if i == maxChangeFacts {
 			break
 		}
-		h.add(changeWeight, o.EvidenceID, fmt.Sprintf("%s change from %s (%s): %s, %s s "+
-			"before the probe", probes.FormatValue(c.Kind), probes.FormatValue(c.Source),
-			probes.FormatValue(c.Signature), probes.FormatValue(c.Summary),
-			probes.FormatValue(c.AgeS)))
+		h.add(changeWeight, o.EvidenceID, changeFact(c))
 	}
 	d.Alternatives = append(d.Alternatives, h)
 	return d
+}
+
+// changeFact is the observed fact of one change; a provider event says
+// who most likely made it (guard-02b).
+func changeFact(c probes.ChangeRow) string {
+	origin := probes.FormatValue(c.Signature)
+	if c.Attribution != "" {
+		origin += ", attributed to " + probes.FormatValue(c.Attribution)
+	}
+	return fmt.Sprintf("%s change from %s (%s): %s, %s s before the probe",
+		probes.FormatValue(c.Kind), probes.FormatValue(c.Source), origin,
+		probes.FormatValue(c.Summary), probes.FormatValue(c.AgeS))
 }
 
 // Customer-impact states.
