@@ -1047,8 +1047,11 @@ enough evidence the watch extends up to `verify.window_max_minutes`.
 `verify.method` picks the verifier that decides (`v1`, `shadow`, `v2` or `auto`,
 default `auto`): `shadow` computes verification v2 beside v1 and acts on v1, `v2`
 acts on v2, and `auto` is `v2` only on a database whose latest verifier back-test
-passed within 35 days, `shadow` otherwise (today always `shadow`: the back-test
-arrives with lab-02). In v2 a "No change" result keeps the index instead of
+passed within 35 days, `shadow` otherwise: v2 becomes a database's verifier once its
+own back-test passes (see [verification.md](verification.md)). The weekly back-test
+draws `verify.backtest_placebos` placebo steps (default 300, 200-10000) and stops,
+storing nothing, after `verify.backtest_max_runtime_minutes` (default 10, 1-1440);
+`pg_sage_sidecar verifier-backtest --database NAME` runs one by hand. In v2 a "No change" result keeps the index instead of
 reverting it as `no_gain`. The post-action monitor (index drops, settings, storage
 parameters) always acts on v1 for now and records v2's verdict beside it for comparison.
 `verify.on_expired` (`ask`, `keep` or `revert`, default

@@ -53,6 +53,7 @@ nav:
   - Ask Sage: ask-sage.md
   - Postgres Specialist for Other Agents: specialist.md
   - Hint Verification: hint-verification.md
+  - "Verifying the verifier: the placebo back-test": verification.md
   - Natural-language EXPLAIN: explain.md
   - Vector Evidence Lab: vector-lab.md
   - Security: security.md

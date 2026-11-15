@@ -378,9 +378,11 @@ Three guards sit in front of the v2 estimate:
 **Verification v2 in the executor** (`verify.method`). `v1` judges by v1 only;
 `shadow` computes v2 beside v1 at every look and acts on v1; `v2` acts on v2 and
 keeps v1 for comparison; `auto` (the default) is `v2` on a database whose latest
-verifier back-test passed within 35 days and `shadow` otherwise. Until the
-back-test exists (lab-02) there is none, so `auto` is `shadow` and no verdict
-changes. The choice is read at each look through a 10-minute cache, so a new
+verifier back-test passed within 35 days and `shadow` otherwise. The back-test
+(`internal/verify/backtest`, [verification.md](verification.md)) replays placebo
+steps over the database's stored history every week on the leader and stores its
+rates in `sage.verifier_backtest`; until a passing row exists `auto` is `shadow`
+and no verdict changes. The choice is read at each look through a 10-minute cache, so a new
 back-test takes effect without a restart. `verify.JudgeV2` maps v2's evidence to
 a verdict: a confidence interval below zero with the effect at or beyond
 `verify.min_gain_pct` and the mechanism present is `improved`; an interval inside
