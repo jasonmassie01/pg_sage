@@ -6,8 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/querystore"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // evid-01b: the per-query rollup ages out by tier. Hourly rows follow
@@ -227,6 +230,85 @@ func TestRun_PurgeRacingTheDailyRollKeepsTheSource(t *testing.T) {
 				"committed", round, left)
 		}
 	}
+}
+
+// The racing test above cannot interleave: testPool has one connection,
+// so the roll and the purge take turns. This one forces the bad order on
+// a second pool: the daily roll waits on the rollup lock (held here) while
+// the purge runs, so without the keep predicate the purge removes the
+// day's hours before the roll reads them and the day is lost.
+func TestRun_PurgeBeforeAWaitingDailyRollKeepsTheHours(t *testing.T) {
+	_, ctx := requireDB(t)
+	cleanRollup(t, ctx)
+	day := time.Now().UTC().Truncate(24*time.Hour).AddDate(0, 0, -40)
+	for h := range 24 {
+		insertRollupHour(t, ctx, day.Add(time.Duration(h)*time.Hour), int64(h+1))
+	}
+	other, err := pgxpool.New(ctx, testdb.SkipUnlessLive(t))
+	if err != nil {
+		t.Fatalf("open a second pool: %v", err)
+	}
+	defer other.Close()
+	lock, err := other.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Release()
+	const key = `SELECT pg_advisory_lock(hashtext('sage.query_rollup'), 0)`
+	if _, err := lock.Exec(ctx, key); err != nil {
+		t.Fatalf("hold the rollup lock: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := querystore.RollupDay(ctx, other, day)
+		done <- err
+	}()
+	waitForAdvisoryWaiter(t, ctx)
+	New(testPool, rollupCfg(), noopLog).Run(ctx)
+	if left := hourlyLeft(t, ctx); left != 24 {
+		t.Fatalf("%d of 24 hourly rows left while the daily roll waited: the purge "+
+			"removed hours the daily tier does not hold", left)
+	}
+	const unlock = `SELECT pg_advisory_unlock(hashtext('sage.query_rollup'), 0)`
+	if _, err := lock.Exec(ctx, unlock); err != nil {
+		t.Fatalf("release the rollup lock: %v", err)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("roll day: %v", err)
+	}
+	requireWholeDay(t, ctx, day)
+	New(testPool, rollupCfg(), noopLog).Run(ctx)
+	if left := hourlyLeft(t, ctx); left != 0 {
+		t.Fatalf("%d hourly rows left once the day is rolled, want 0", left)
+	}
+}
+
+// requireWholeDay fails unless day's daily row holds all 24 test hours.
+func requireWholeDay(t *testing.T, ctx context.Context, day time.Time) {
+	t.Helper()
+	var calls, hours int64
+	if err := testPool.QueryRow(ctx, `SELECT COALESCE(sum(calls), 0), COALESCE(sum(hours), 0)
+		FROM sage.query_rollup_daily WHERE queryid = $1 AND day = $2::date`, rollupQID,
+		day.Format(time.DateOnly)).Scan(&calls, &hours); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 300 || hours != 24 {
+		t.Fatalf("daily row calls %d hours %d, want 300 and 24", calls, hours)
+	}
+}
+
+// waitForAdvisoryWaiter waits until a backend waits on an advisory lock.
+func waitForAdvisoryWaiter(t *testing.T, ctx context.Context) {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		if countWhere(t, ctx, `SELECT count(*) FROM pg_locks
+			WHERE locktype = 'advisory' AND NOT granted`) > 0 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("the daily roll never waited on the rollup lock")
 }
 
 // With equal windows the daily row of a day is purged before the day's
