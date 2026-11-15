@@ -69,6 +69,10 @@ type Snapshot struct {
 	// WaitEvents are the active client sessions by wait class this cycle
 	// (market-01); nil when they were not read.
 	WaitEvents []WaitEventLoad `json:"wait_events,omitempty"`
+
+	// stmtTotals are the statement totals the queries step read, copied
+	// into System after the steps (applyStatementTotals).
+	stmtTotals statementTotals
 }
 
 // Available reports whether category was read this cycle.
@@ -297,6 +301,18 @@ type SystemStats struct {
 	// Interval is what the counters did since the previous snapshot; nil
 	// on the first snapshot after a start and on legacy rows.
 	Interval *SystemInterval `json:"interval,omitempty"`
+	// StatementsEpoch is Snapshot.StatsEpoch, persisted here because the
+	// system category is stored in full every cycle (evid-01a): the hourly
+	// rollup breaks a pair of queries snapshots on its change. Zero (absent)
+	// when unread and on legacy rows.
+	StatementsEpoch time.Time `json:"statements_epoch,omitzero"`
+	// The database's pg_stat_statements totals over all its entries but
+	// pg_sage's known own, read with the queries step whatever the 500
+	// cap admits (evid-01a: the rollup's coverage). All zero (absent) when
+	// the queries step failed: unknown, not an idle database.
+	StatementsTotalExecMs float64 `json:"statements_total_exec_ms,omitempty"`
+	StatementsCalls       int64   `json:"statements_calls,omitempty"`
+	StatementsEntries     int     `json:"statements_entries,omitempty"`
 }
 
 // LockInfo is one row of the lock wait graph (locksSQL): a waiting lock,

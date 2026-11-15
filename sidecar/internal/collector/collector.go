@@ -266,6 +266,7 @@ func (c *Collector) collect(ctx context.Context) (*Snapshot, error) {
 		}
 		c.markUnavailable(snap, step.name, err)
 	}
+	applyStatementTotals(snap)
 	c.collectExtras(ctx, snap, &retries)
 	// Collect pg_stat_statements.max for capacity monitoring.
 	usage := withStep(ctx, "statements_usage")

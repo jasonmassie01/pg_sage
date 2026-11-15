@@ -76,7 +76,10 @@ const queryStatsPlanColumns = `,
 // targets and watches). Pinned rows come first, then the other rows the
 // total ranking would not have admitted, then the rest by total time, so
 // the Go cut at max_queries keeps them; the final %d is the row bound and
-// %[6]s the qualified pg_stat_statements function.
+// %[6]s the qualified pg_stat_statements function. Every row also carries
+// the database's statement totals over agg less pg_sage's known own
+// statements ($2), whatever the admission keeps (evid-01a: the rollup's
+// coverage); they ride on this read, no second statement.
 const queryStatsFrom = `
   FROM %[6]s(false)
  WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
@@ -100,8 +103,13 @@ const queryStatsFrom = `
          array_agg(arm ORDER BY arm_rank) AS admitted_by
     FROM arms GROUP BY queryid
 )
-SELECT agg.*, admitted.admitted_by
+SELECT agg.*, totals.stmt_exec_ms, totals.stmt_calls, totals.stmt_entries,
+       admitted.admitted_by
   FROM agg JOIN admitted USING (queryid)
+ CROSS JOIN (
+  SELECT COALESCE(sum(total_exec_time), 0)::float8 AS stmt_exec_ms,
+         COALESCE(sum(calls), 0)::bigint AS stmt_calls, count(*)::int AS stmt_entries
+    FROM agg WHERE queryid <> ALL($2::int8[])) totals
  ORDER BY CASE admitted.first_rank WHEN 1 THEN 0 WHEN 4 THEN 2 ELSE 1 END,
           agg.total_exec_time DESC, agg.queryid
  LIMIT %d`
