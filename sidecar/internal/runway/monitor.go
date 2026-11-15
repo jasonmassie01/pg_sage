@@ -79,8 +79,9 @@ type TickResult struct {
 	// cluster findings this non-owner resolved because the owner did.
 	ClusterOwner string
 	Duplicates   int
-	// MXMembers is the multixact member space reading (nil on a standby
-	// and on a database that does not report the cluster's series).
+	// MXMembers is the multixact member space reading (nil on a standby;
+	// a database that does not report the cluster's series samples it
+	// without reporting).
 	MXMembers *MXMemberResult
 }
 

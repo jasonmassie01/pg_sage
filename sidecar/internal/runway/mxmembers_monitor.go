@@ -11,10 +11,12 @@ import (
 	"github.com/pg-sage/sidecar/internal/analyzer"
 )
 
-// MXMemberResult is what one tick learned of the member space: nil when
-// this monitor does not report the cluster's series (another database of
-// the cluster does). Recorded says a sample was stored, Opened that the
-// finding was opened or refreshed and Resolved that an open one cleared.
+// MXMemberResult is what one tick learned of the member space. Recorded
+// says a sample was stored, Opened that the finding was opened or
+// refreshed and Resolved that an open one cleared. A database that does
+// not report the cluster's series (another database of the cluster does)
+// still records its samples, so it has the rate the moment it takes over,
+// but never opens or resolves the finding.
 type MXMemberResult struct {
 	Estimate MXMemberEstimate
 	Runway   MXMemberRunway
@@ -48,9 +50,6 @@ const (
 // measured is never resolved. Ticks of one monitor are serialized.
 func (m *Monitor) tickMXMembers(ctx context.Context, scope clusterScope) (*MXMemberResult,
 	error) {
-	if !scope.reports() {
-		return nil, nil
-	}
 	m.mxMu.Lock()
 	defer m.mxMu.Unlock()
 	now := m.now()
@@ -120,10 +119,12 @@ func (m *Monitor) previousMXSample(ctx context.Context, e MXMemberEstimate) (MXC
 // reportMXMembers opens (or refreshes) the finding of a runway inside
 // its horizon and resolves an open one once the runway is measured clear.
 // A runway without a rate (the first sample, a reset) is unknown: an open
-// finding is held, not resolved.
+// finding is held, not resolved. A non-owner reports nothing: its copy
+// resolves once the owner has reported (resolveDuplicates).
 func (m *Monitor) reportMXMembers(ctx context.Context, scope clusterScope,
 	res *MXMemberResult) error {
-	if res.Runway.Severity == "" && math.IsNaN(res.Runway.SecondsToSafe) {
+	if !scope.reports() ||
+		res.Runway.Severity == "" && math.IsNaN(res.Runway.SecondsToSafe) {
 		return nil
 	}
 	if res.Runway.Severity != "" {

@@ -310,10 +310,6 @@ func TestMXMembers_DB_IntervalKeepsTheLastReading(t *testing.T) {
 	if c.Estimate.NextOffset != 20 {
 		t.Fatalf("third tick read offset %d, want 20", c.Estimate.NextOffset)
 	}
-	if got, err := m.tickMXMembers(ctx, clusterScope{shared: true, isOwner: false}); got != nil ||
-		err != nil {
-		t.Fatalf("a non-owner read %+v, %v; the owner reports the cluster", got, err)
-	}
 }
 
 // TestMXMembers_DB_ConcurrentSamplers: two monitors of one database and

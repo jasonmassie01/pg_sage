@@ -2822,7 +2822,10 @@ When the role may not execute either function (some managed providers revoke the
 reading is unknown: nothing is recorded or resolved, and the log names the grant that would
 fix it once, for example `GRANT EXECUTE ON FUNCTION pg_catalog.pg_get_multixact_members(xid)
 TO sage_agent`. In fleet mode one owner database per cluster reports it, like the other
-cluster runways. The finding opens no investigation and carries no SQL.
+cluster runways: every database samples the member space, so a new owner has the rate at
+once, and the other databases close their copies (naming the owner in
+`detail.cluster_owner`) once the owner has reported. The finding opens no investigation and
+carries no SQL.
 
 A pre-incident investigation explains what drives the runway. Wraparound: a session,
 prepared transaction or replication slot holding the xmin horizon, busy, disabled or
