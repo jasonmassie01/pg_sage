@@ -306,8 +306,8 @@ per-database disabled executor are hard mutation blocks.
 
 **Verification v2 (attribution).** Today's judge compares the targets'
 call-weighted time per call with the same-length window just before the action.
-Version 2 (`verify.Attribute`; the executor does not use it to decide a verdict
-yet) asks a narrower question: did the targets' work change because of this step?
+Version 2 (`verify.Attribute`; it decides a verdict only under `verify.method: v2`,
+see below) asks a narrower question: did the targets' work change because of this step?
 
 - **Metric.** Shared blocks (hit plus read) per call, which moves with the plan and
   not with cache warmth or a busy host. Time per call is a guardrail: a rise beyond
@@ -340,7 +340,7 @@ The counters come from the snapshot `queries` category through the same reader a
 the hourly rollup, in the database's history store. Watches stored before v2 carry
 no frozen weights and are judged by v1 only.
 
-Three guards sit in front of the v2 estimate (none of them changes a verdict yet):
+Three guards sit in front of the v2 estimate:
 
 - **Mechanism required** (`verify.MechanismCheck`). An index step is credited for a
   target only when the index can have caused the change: the target's plan
@@ -373,6 +373,41 @@ Three guards sit in front of the v2 estimate (none of them changes a verdict yet
   overwhelming evidence, and the last look spends exactly what is left. The shares
   add up to 5%, the per-target Bonferroni split stays on top, and the spend is
   stored with the watch (`alpha_spend` in its baseline) so a restart continues it.
+
+**Verification v2 in the executor** (`verify.method`). `v1` judges by v1 only;
+`shadow` computes v2 beside v1 at every look and acts on v1; `v2` acts on v2 and
+keeps v1 for comparison; `auto` (the default) is `v2` on a database whose latest
+verifier back-test passed within 35 days and `shadow` otherwise. Until the
+back-test exists (lab-02) there is none, so `auto` is `shadow` and no verdict
+changes. The choice is read at each look through a 10-minute cache, so a new
+back-test takes effect without a restart. `verify.JudgeV2` maps v2's evidence to
+a verdict: a confidence interval below zero with the effect at or beyond
+`verify.min_gain_pct` and the mechanism present is `improved`; an interval inside
+both bars is `neutral` ("No change", and the index is kept); an interval above zero
+beyond `verify.regress_pct` on blocks, or the time guardrail, is `regressed`; a
+contaminated window, no mechanism or too wide an interval is
+`insufficient_evidence`, extended until the last look, which reverts as
+unverifiable as v1 does. `sage.action_outcome.verifier` names the verdict that was
+acted on, and `other_verdict` / `other_evidence` hold the other one; the trust
+ledger reads `verdict` only. The post-action monitor stores v2 beside v1 for
+index drops, settings and storage parameters, and acts on v1 in every mode.
+
+**Up-front unverifiable.** Before a step runs, its targets' hourly history
+(`sage.query_rollup_hourly`) gives the calls expected within
+`verify.window_max_minutes`: per hour, the median of the same hour of the week over
+the last 4 weeks. Fewer than `verify.min_samples` expected calls, or fewer than 3
+active hours, mean no watch could judge the step: it needs an operator's approval at
+every trust level, and the card says "cannot be verified within 72 h: the targets
+run N times a week". No history (a new database) is `unknown`: recorded with the
+finding and never inferred either way. VACUUM, ANALYZE and REINDEX are judged at
+once and exempt.
+
+**Expired monitors** (`verify.on_expired`). A monitor whose window ended while
+pg_sage was not watching keeps its `verification_expired` record, and then: `ask`
+(the default) queues one "Revert action N" item through the revert card (approving
+it runs the recorded rollback; rejecting it records "kept by operator"); `keep`
+keeps the change; `revert` rolls it back through the operator rollback. Each path
+writes the decision ledger.
 
 High-risk schema changes are handled as migration-safety cases before direct
 execution. The case projector attaches deterministic DDL preflight evidence,

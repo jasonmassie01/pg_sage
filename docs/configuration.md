@@ -1032,8 +1032,8 @@ targets, the metric that should move and by how much, and how that was predicted
 | Verdict | Meaning | Trust and credit |
 |---|---|---|
 | `improved` | the predicted effect was observed (a drop: reads held for the whole cycle) | counts toward earned autonomy and value |
-| `neutral` | measured, no change beyond the bars | neither |
-| `insufficient_evidence` | too few calls, too few sampling intervals, or too noisy to tell | neither |
+| `neutral` | measured, no change beyond the bars (shown as "No change") | neither |
+| `insufficient_evidence` | too few calls, too few sampling intervals, or too noisy to tell (shown as "Inconclusive") | neither |
 | `unverifiable` | nothing measurable, or no prediction | neither |
 | `regressed` | a targeted query (or the targeted metric) got significantly worse | rolled back; counts against trust |
 
@@ -1043,6 +1043,25 @@ only when it is both significant and beyond its bar. With several targets each i
 with a Bonferroni-corrected significance and the call-weighted pool decides. A first verdict
 comes after `trust.rollback_window_minutes` once there are `verify.min_samples` calls; without
 enough evidence the watch extends up to `verify.window_max_minutes`.
+
+`verify.method` picks the verifier that decides (`v1`, `shadow`, `v2` or `auto`,
+default `auto`): `shadow` computes verification v2 beside v1 and acts on v1, `v2`
+acts on v2, and `auto` is `v2` only on a database whose latest verifier back-test
+passed within 35 days, `shadow` otherwise (today always `shadow`: the back-test
+arrives with lab-02). In v2 a "No change" result keeps the index instead of
+reverting it as `no_gain`. `verify.on_expired` (`ask`, `keep` or `revert`, default
+`ask`) decides what happens to a monitor whose window ended while pg_sage was not
+watching: `ask` queues one "Revert action N" item, `keep` keeps the change
+(recorded), `revert` rolls it back through the operator rollback. Any other value of
+either key is refused at startup. A step whose targets ran too rarely in the last 4
+weeks to be judged within `verify.window_max_minutes` needs approval at every trust
+level ("cannot be verified within 72 h: the targets run N times a week").
+
+```yaml
+verify:
+  method: auto        # v1 | shadow | v2 | auto
+  on_expired: ask     # ask | keep | revert
+```
 
 Verification pauses while its evidence is unreadable. A failed read of the query history
 or the catalog (a lost connection, or the meta database down under
