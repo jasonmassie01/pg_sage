@@ -21,6 +21,10 @@
 | `agents.broker.rotation_days` | `restart` | `-` | `safety_critical` |
 | `agents.capabilities.max_duration_minutes` | `restart` | `-` | `safety_critical` |
 | `agents.client_patterns` | `restart` | `-` | `operator_preference` |
+| `agents.code_host.base_url` | `restart` | `-` | `safety_critical` |
+| `agents.code_host.provider` | `restart` | `-` | `safety_critical` |
+| `agents.code_host.repo` | `restart` | `-` | `safety_critical` |
+| `agents.code_host.timeout_seconds` | `restart` | `-` | `operator_preference` |
 | `agents.control_database` | `restart` | `-` | `safety_critical` |
 | `agents.default_environment` | `restart` | `-` | `safety_critical` |
 | `agents.exposed_roles` | `restart` | `-` | `safety_critical` |

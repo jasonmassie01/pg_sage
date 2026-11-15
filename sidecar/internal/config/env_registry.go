@@ -117,6 +117,8 @@ var runtimeEnvVars = []EnvVar{
 		"standing-policy profile (`policy.profile`): `staffed` or `unattended`"},
 	{Name: "SAGE_VALUE_TOIL_MODEL_VERSION", Default: envCode(DefaultToilModelVersion),
 		Doc: "Active calibrated toil-model version (`value.toil_model_version`)"},
+	{Name: CodeHostTokenEnv, Default: envNone, File: true, Doc: "Read token for " +
+		"`agents.code_host` (call-site lookups); never logged"},
 	{Name: "SAGE_LLM_API_KEY", Default: envNone, File: true,
 		Doc: "API key for Gemini or any OpenAI-compatible LLM"},
 	{Name: "SAGE_LLM_AUTH", Default: envCode("api_key"), Doc: "`databricks` uses SDK unified " +

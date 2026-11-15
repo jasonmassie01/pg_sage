@@ -106,6 +106,34 @@
     "class": "operator_preference",
     "lifecycle": "restart"
   },
+  "agents.code_host.base_url": {
+    "type": "string",
+    "default": "",
+    "doc": "API root of the code host. Empty means https://api.github.com or https://gitlab.com/api/v4; GitHub Enterprise is https://\u003chost\u003e/api/v3. https only, except a loopback relay. Default: empty.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "agents.code_host.provider": {
+    "type": "string",
+    "default": "",
+    "doc": "Code host of the monitored application's repository: github or gitlab. Empty turns call-site lookups off. The read token comes from SAGE_CODE_HOST_TOKEN (or SAGE_CODE_HOST_TOKEN_FILE). Default: empty.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "agents.code_host.repo": {
+    "type": "string",
+    "default": "",
+    "doc": "Repository of the monitored application's code: owner/name (GitLab: group/sub/name). Required with provider. Default: empty.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "agents.code_host.timeout_seconds": {
+    "type": "int",
+    "default": 15,
+    "doc": "Seconds one code-host request may take. 1 to 120. Default: 15.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
   "agents.control_database": {
     "type": "string",
     "default": "",

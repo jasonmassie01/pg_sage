@@ -32,6 +32,8 @@ type AgentsConfig struct {
 	// Capabilities and ReconcileIntervalSeconds: agents_grants.go (spec §6.6).
 	Capabilities             AgentsCapabilitiesConfig `yaml:"capabilities"`
 	ReconcileIntervalSeconds int                      `yaml:"reconcile_interval_seconds" doc:"Seconds between agent reconcile passes on the leader sidecar (grant expiry). 10-3600. Default: 60."`
+	// CodeHost is the application repository's code host (agents_codehost.go, pr-01a).
+	CodeHost AgentsCodeHostConfig `yaml:"code_host"`
 }
 
 // AgentsPostureConfig tunes the agent posture checks.
@@ -61,7 +63,8 @@ func defaultAgentsConfig() AgentsConfig {
 		KillFallbackLog:          DefaultKillFallbackLog,
 		Query:                    defaultAgentsQuery(),
 		Capabilities:             AgentsCapabilitiesConfig{MaxDurationMinutes: DefaultAgentGrantMaxMinutes},
-		ReconcileIntervalSeconds: DefaultAgentReconcileIntervalSecs}
+		ReconcileIntervalSeconds: DefaultAgentReconcileIntervalSecs,
+		CodeHost:                 defaultCodeHost()}
 }
 
 func (a AgentsConfig) validate() error {
@@ -92,6 +95,9 @@ func (a AgentsConfig) validate() error {
 		return err
 	}
 	if err := a.validateGrants(); err != nil {
+		return err
+	}
+	if err := a.CodeHost.validate(); err != nil {
 		return err
 	}
 	return a.validateEnvironment()

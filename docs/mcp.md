@@ -491,6 +491,42 @@ Without any extension pg_sage attributes statements from two places:
 while sampled and carries no comment cannot be attributed. Add sqlcommenter to the
 application's database driver (most ORMs have a plugin) for reliable attribution.
 
+### Call site in application code
+
+With a code host configured (`agents.code_host`), pg_sage also names the line of
+application code that sends a statement. It reads the repository, read-only, through the
+GitHub or GitLab REST API and tries, in order:
+
+1. a sqlcommenter `file` plus `line` tag (Rails marginalia style), read from the
+   repository's default branch and checked against the file's length: **exact**;
+2. a SQL string literal in the code whose fingerprint (identifiers kept, values and
+   placeholders such as `$1`, `?`, `%s` or `:name` folded) matches the
+   `pg_stat_statements` text: **exact** when it is the only one, **likely** when there
+   are several;
+3. a code search for the `controller`, `action` or `route` tags: never more than
+   **likely**.
+
+Several candidates are listed, never guessed. A statement with no tags and no literal is
+**none**, with the advice to add sqlcommenter tags. A `line` tag that is not a positive
+number, or a `file` tag with `..` or an absolute path, is refused before any request.
+
+```yaml
+agents:
+  code_host:
+    provider: github        # or gitlab; empty (the default) turns lookups off
+    repo: acme/shop         # GitLab: group/sub/name
+    base_url: ""            # GitHub Enterprise: https://<host>/api/v3
+    timeout_seconds: 15
+```
+
+The read token comes from `SAGE_CODE_HOST_TOKEN` (or `SAGE_CODE_HOST_TOKEN_FILE`). It is
+sent only in a request header, never logged and redacted from every error. Every request
+goes through the egress floor, at most 4 run at once per host, and a rate-limit answer
+(429, or GitHub's quota 403) stops requests until its `Retry-After` time. A 401 or 403
+says "token cannot read <repo>". The query page reads the call site from
+`GET /api/v1/queries/<queryid>/call-site?database=<name>` (viewer); with no code host it
+answers `configured: false`.
+
 ## Tool reference
 
 <!-- BEGIN GENERATED MCP TOOL REFERENCE: regenerate with `go test ./internal/mcp -run TestToolReferenceDocsMatchSchemas -update-docs` -->
