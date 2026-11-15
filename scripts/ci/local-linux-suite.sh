@@ -268,6 +268,14 @@ stage_source() {
     "${MAJORS[*]}" >"$OUT/run.txt"
 }
 
+# pack_stage: one tar of the vendored stage for the Go containers. Docker
+# Desktop's bind mounts of a Windows directory fail go's directory reads
+# under load ("readdirent ...: cannot allocate memory"), so each container
+# mounts this file read-only and unpacks it into its own filesystem.
+pack_stage() {
+  tar -cf "$OUT/stage.tar" -C "$OUT/stage" . || die 1 "packing $OUT/stage into stage.tar failed"
+}
+
 vendor_source() {
   local mod="$OUT/stage/sidecar"
   if ! (cd "$mod" && GOFLAGS=-mod=mod GOPROXY=off go mod vendor) >"$OUT/vendor.txt" 2>&1; then
@@ -348,10 +356,12 @@ go_test() {
   local m=$1 name=${PREFIX}go-pg$1 st=0
   claim "$name"
   go_args "$name" "container:${PREFIX}pg$m"
-  dk 5400 run "${GO_ARGS[@]}" -v "$(host_path "$OUT/stage"):/src" -w /src/sidecar \
+  dk 5400 run "${GO_ARGS[@]}" -v "$(host_path "$OUT/stage.tar"):/stage.tar:ro" -w / \
     -e "GOFLAGS=-mod=vendor -buildvcs=false" -e "SAGE_TEST_DATABASE_URL=$TEST_URL" \
     -e PGHOST=127.0.0.1 -e PGPORT=5432 -e PGUSER=postgres -e PGPASSWORD=postgres \
-    -e PGDATABASE=postgres "$GO_IMAGE" sh -c "$2" >"$3" 2>"${3%.json}.stderr.txt" || st=$?
+    -e PGDATABASE=postgres "$GO_IMAGE" \
+    sh -c "mkdir -p /work && tar -xf /stage.tar -C /work && cd /work/sidecar && $2" \
+    >"$3" 2>"${3%.json}.stderr.txt" || st=$?
   return "$st"
 }
 
@@ -422,6 +432,7 @@ main() {
   check_toolchain
   stage_source
   vendor_source
+  pack_stage
   local m failed=0
   for m in "${MAJORS[@]}"; do
     run_major "$m" || failed=1

@@ -251,6 +251,21 @@ grep -q 'docker rm -f -v improve-ci-pg17$' "$log" ||
 grep -q 'suite=0' "$o/pg17/status.txt" && grep -q 'skipbudget=0' "$o/pg17/status.txt" ||
   fail "status.txt lacks the suite and skip budget results: $(cat "$o/pg17/status.txt")"
 [[ -f $o/summary.md ]] || fail "no summary.md after a full run"
+# A bind-mounted stage directory fails go's directory reads on Docker
+# Desktop ("readdirent ...: cannot allocate memory"), so the suite and e2e
+# containers get one read-only tar of the stage and unpack it inside.
+gotests=$(grep '^docker run' "$log" | grep -- '--name improve-ci-go-pg17 ')
+[[ $(grep -c . <<<"$gotests") -eq 2 ]] || fail "want 2 suite/e2e containers: $gotests"
+while IFS= read -r r; do
+  [[ $r == *"/stage.tar:/stage.tar:ro "* ]] || fail "the stage tar is not mounted read-only: $r"
+  [[ $r == *":/src "* ]] && fail "the stage directory is bind-mounted: $r"
+  [[ $r == *"tar -xf /stage.tar -C /work && cd /work/sidecar && go test "* ]] ||
+    fail "the container does not unpack the stage before go test: $r"
+done <<<"$gotests"
+tar -tf "$o/stage.tar" >"$work/stage-list.txt" || fail "stage.tar is not a readable tar"
+grep -qx './sidecar/go.mod' "$work/stage-list.txt" || fail "stage.tar lacks ./sidecar/go.mod"
+grep -qx './sidecar/vendor/modules.txt' "$work/stage-list.txt" ||
+  fail "stage.tar lacks the vendored modules"
 grep -q 'covfloor=0' "$o/pg17/status.txt" ||
   fail "status.txt lacks the coverage floors result: $(cat "$o/pg17/status.txt")"
 grep -q '^go run ./cmd/covfloor' "$log" || fail "covfloor did not run: $(cat "$log")"
