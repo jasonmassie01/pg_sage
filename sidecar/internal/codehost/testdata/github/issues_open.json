@@ -1,0 +1,16 @@
+[
+  {
+    "id": 1, "number": 1347, "state": "open", "title": "pg_sage: add index on orders",
+    "body": "Why this item\n<!-- pg_sage:key=cand-1 -->",
+    "html_url": "https://github.com/acme/shop/pull/1347",
+    "labels": [{"id": 208045946, "name": "pg_sage", "color": "f29513"}],
+    "pull_request": {"url": "https://api.github.com/repos/acme/shop/pulls/1347",
+      "html_url": "https://github.com/acme/shop/pull/1347"}
+  },
+  {
+    "id": 2, "number": 1348, "state": "open", "title": "An issue, not a pull request",
+    "body": "<!-- pg_sage:key=cand-2 -->",
+    "html_url": "https://github.com/acme/shop/issues/1348",
+    "labels": [{"id": 208045946, "name": "pg_sage", "color": "f29513"}]
+  }
+]

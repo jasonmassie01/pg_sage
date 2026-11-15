@@ -1,0 +1,5 @@
+[{"id": 1, "iid": 12, "project_id": 3, "title": "pg_sage: add index",
+  "description": "<!-- pg_sage:key=cand-1 -->", "state": "opened",
+  "web_url": "https://gitlab.example.com/acme/backend/shop/-/merge_requests/12",
+  "source_branch": "pg_sage/cand-1", "target_branch": "main", "labels": ["pg_sage"],
+  "merged_at": null}]
