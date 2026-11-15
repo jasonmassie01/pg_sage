@@ -14,7 +14,8 @@ func (rt *databaseRuntime) newSignals(legacyID *int) *sreSignals {
 		readPolicy: rt.sreReadPolicy(),
 		monitored:  rt.spec.Pool, name: rt.spec.Name, legacyID: legacyID,
 		settings: rt.cfg.SRE, errors: rt.logErrorCounter(), history: rt.sreHistorySource(),
-		logFn: logStructuredWrapper, managed: prov.IsManaged(rt.provider)})
+		logFn: logStructuredWrapper, managed: prov.IsManaged(rt.provider),
+		providerAPI: rt.providerEventReader()})
 	if err != nil {
 		logWarn(rt.spec.Scope, "db %q: sre change feed and SLOs not started: %v",
 			rt.spec.Name, err)
