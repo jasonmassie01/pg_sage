@@ -17,6 +17,7 @@ import (
 // retention cycles).
 func (rt *databaseRuntime) startExecution() {
 	rt.buildExecutor()
+	rt.startVerifierBacktest()
 	rt.startAutonomyLoops()
 	obs, providerLogs := startProviderObservability(
 		rt.ctx, rt.workers, rt.spec.Pool, rt.cfg, rt.executor, rt.rca,
