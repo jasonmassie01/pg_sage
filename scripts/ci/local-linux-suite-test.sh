@@ -61,12 +61,15 @@ volume) # inspect: fails for a volume named in STUB_MISSING_VOLUMES
     [[ $3 == "$v" ]] && { echo "Error: No such volume: $3" >&2; exit 1; }
   done
   echo "[]" ;;
-container) # inspect: the owner label, or the IP, of a known container
+container) # inspect: prints the owner label of a known container
   name=${!#}
   for c in ${STUB_EXISTING:-}; do [[ $name == "$c" ]] && { echo other-run; exit 0; }; done
   line=$(grep "^$name " "$STUB_STATE") || exit 1
-  if [[ $* == *IPAddress* ]]; then echo "${STUB_SERVER_IP-172.17.0.9}"
-  else echo "${line#* }"; fi ;;
+  echo "${line#* }" ;;
+exec) # a password-less loopback login fails unless STUB_LOOPBACK_TRUST is set
+  if [[ $* == *" psql -w -h 127.0.0.1 "* ]]; then
+    [[ -n ${STUB_LOOPBACK_TRUST:-} ]] || { echo "fe_sendauth: no password supplied" >&2; exit 2; }
+  fi ;;
 rm)
   grep -v "^${!#} " "$STUB_STATE" >"$STUB_STATE.new"; mv "$STUB_STATE.new" "$STUB_STATE" ;;
 run)
@@ -235,11 +238,12 @@ expect 10 'container improve-ci-pg17 already exists' "existing server name" -- \
 grep -q 'docker rm' "$log" && fail "a container the run did not create was removed: $(cat "$log")"
 [[ -f $o/stage/sidecar/vendor/modules.txt ]] || fail "vendor/ was not made in the stage"
 
-# Error propagation: a server with no container IP stops the run before
-# any suite starts.
-expect 5 'server improve-ci-pg17 has no container IP address' "server without an IP" -- \
-  $guard FAKE_FREE_GB=99 STUB_SERVER_IP= bash "$script" "$(newout)" 17
-grep -q -- '--name improve-ci-go-pg17' "$log" && fail "a suite started without a server IP"
+# Error propagation: a server that still lets a password-less loopback
+# login in stops the run before any suite starts, and is removed.
+expect 5 'server improve-ci-pg17 still accepts a loopback login without a password' \
+  "loopback still trusted" -- $guard FAKE_FREE_GB=99 STUB_LOOPBACK_TRUST=1 bash "$script" \
+  "$(newout)" 17
+grep -q -- '--name improve-ci-go-pg17' "$log" && fail "a suite started on a trusting server"
 grep -q 'docker rm -f -v improve-ci-pg17$' "$log" || fail "the server was left after exit 5"
 
 # Boundary: another run takes the name between the claim and docker run.
@@ -287,14 +291,20 @@ tar -tf "$o/stage.tar" >"$work/stage-list.txt" || fail "stage.tar is not a reada
 grep -qx './sidecar/go.mod' "$work/stage-list.txt" || fail "stage.tar lacks ./sidecar/go.mod"
 grep -qx './sidecar/vendor/modules.txt' "$work/stage-list.txt" ||
   fail "stage.tar lacks the vendored modules"
-# The suite reaches the server by its container IP, never by loopback: the
-# postgres images trust 127.0.0.1 without a password, so a loopback client
-# would pass every password check that CI's (bridge-routed) client fails.
+# The postgres images trust loopback TCP without a password; CI's client
+# must pass scram-sha-256. The server's loopback host lines are switched to
+# scram-sha-256 and reloaded before the suite, which connects to 127.0.0.1.
+hba=$(grep -n '^docker exec improve-ci-pg17 ' "$log")
+grep -q 'sh -c .*pg_hba.conf' <<<"$hba" || fail "the server's pg_hba.conf was not changed: $hba"
+grep -q 'pg_reload_conf' <<<"$hba" || fail "the server did not reload pg_hba.conf: $hba"
+grep -q 'psql -w -h 127.0.0.1 ' <<<"$hba" || fail "a password-less loopback login was not tried"
+first_suite=$(grep -n -- '^docker run .*--name improve-ci-go-pg17 ' "$log" | head -1 | cut -d: -f1)
+last_hba=$(grep 'psql -w -h 127.0.0.1 ' <<<"$hba" | tail -1 | cut -d: -f1)
+[[ -n $first_suite && -n $last_hba && $last_hba -lt $first_suite ]] ||
+  fail "the loopback check must run before the suite (check $last_hba, suite $first_suite)"
 while IFS= read -r r; do
-  [[ $r == *" -e SAGE_TEST_DATABASE_URL=postgres://postgres:postgres@172.17.0.9:5432/"* &&
-    $r == *" -e PGHOST=172.17.0.9 "* ]] ||
-    fail "the suite does not reach the server by its container IP: $r"
-  [[ $r == *127.0.0.1* ]] && fail "the suite still names loopback: $r"
+  [[ $r == *" -e SAGE_TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/"* &&
+    $r == *" -e PGHOST=127.0.0.1 "* ]] || fail "the suite does not connect to 127.0.0.1: $r"
 done <<<"$gotests"
 grep -q 'covfloor=0' "$o/pg17/status.txt" ||
   fail "status.txt lacks the coverage floors result: $(cat "$o/pg17/status.txt")"

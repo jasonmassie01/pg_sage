@@ -53,10 +53,7 @@ readonly SUITE_CMD="go test ./... -race -cover -tags=integration -count=1 \
 readonly E2E_CMD='go test ./e2e -cover -tags=e2e -count=1 -timeout 900s -json'
 readonly VALID_MAJORS="14 15 16 17 18"
 readonly DEFAULT_MAJORS="14 15 17"
-# The suite reaches the server by its container IP (SERVER_IP), not by
-# loopback: the postgres images trust 127.0.0.1 without a password, while
-# CI's client arrives over the bridge and must pass scram-sha-256.
-SERVER_IP=
+readonly TEST_URL='postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable'
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../.." && pwd -P)
@@ -324,7 +321,22 @@ server_flags() {
 }
 
 psql_srv() {
-  dk 120 exec "$1" psql -U postgres -h 127.0.0.1 -d postgres -v ON_ERROR_STOP=1 -qAtX "${@:2}"
+  dk 120 exec "$1" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -qAtX "${@:2}"
+}
+
+# loopback_scram <server>: the postgres images trust TCP logins from
+# loopback without a password, while CI's client reaches its server over
+# the bridge and must pass scram-sha-256. The suite connects to 127.0.0.1,
+# so switch every host line to scram-sha-256 (socket lines stay trusted for
+# docker exec), reload, and prove a password-less loopback login fails.
+loopback_scram() {
+  dk 60 exec "$1" sh -c 'sed -i "/^host/s/trust\$/scram-sha-256/" "$PGDATA/pg_hba.conf"' ||
+    die 5 "could not switch $1's pg_hba.conf host lines to scram-sha-256"
+  psql_srv "$1" -c "SELECT pg_reload_conf()" >/dev/null || die 5 "could not reload $1"
+  if dk 60 exec "$1" psql -w -h 127.0.0.1 -U postgres -d postgres -qAtX -c 'SELECT 1' \
+    >/dev/null 2>&1; then
+    die 5 "server $1 still accepts a loopback login without a password"
+  fi
 }
 
 # start_server <major>: CI's server, by default with its data directory in
@@ -348,11 +360,8 @@ start_server() {
     sleep 1
   done
   [ -n "$ready" ] || die 5 "server $srv did not become ready on TCP in 90s"
-  SERVER_IP=$(dk 60 container inspect -f \
-    '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$srv" 2>/dev/null)
-  [[ $SERVER_IP =~ ^[0-9]+([.][0-9]+){3}$ ]] ||
-    die 5 "server $srv has no container IP address ('$SERVER_IP'); the suite needs one"
   sleep 1
+  loopback_scram "$srv"
   psql_srv "$srv" -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements" >/dev/null ||
     die 5 "CREATE EXTENSION pg_stat_statements failed on $srv"
 }
@@ -374,13 +383,11 @@ check_server() {
 # container on the server's network and returns its status.
 go_test() {
   local m=$1 name=${PREFIX}go-pg$1 st=0
-  local url="postgres://postgres:postgres@$SERVER_IP:5432/postgres?sslmode=disable"
   claim "$name"
   go_args "$name" "container:${PREFIX}pg$m"
   dk 5400 run "${GO_ARGS[@]}" -v "$(host_path "$OUT/stage.tar"):/stage.tar:ro" -w / \
-    -e "GOFLAGS=-mod=vendor -buildvcs=false" \
-    -e "SAGE_TEST_DATABASE_URL=$url" \
-    -e "PGHOST=$SERVER_IP" -e PGPORT=5432 -e PGUSER=postgres -e PGPASSWORD=postgres \
+    -e "GOFLAGS=-mod=vendor -buildvcs=false" -e "SAGE_TEST_DATABASE_URL=$TEST_URL" \
+    -e PGHOST=127.0.0.1 -e PGPORT=5432 -e PGUSER=postgres -e PGPASSWORD=postgres \
     -e PGDATABASE=postgres "$GO_IMAGE" \
     sh -c "mkdir -p /work && tar -xf /stage.tar -C /work && cd /work/sidecar && $2" \
     >"$3" 2>"${3%.json}.stderr.txt" || st=$?
