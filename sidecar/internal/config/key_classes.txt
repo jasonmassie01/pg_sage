@@ -150,8 +150,10 @@ safety_critical verify.io_baseline_days
 safety_critical verify.io_baseline_hours
 operator_preference verify.io_capacity
 derivable verify.io_sample_retention_days
+safety_critical verify.method
 safety_critical verify.min_gain_pct
 safety_critical verify.min_samples
+safety_critical verify.on_expired
 safety_critical verify.regress_pct
 safety_critical verify.window_max_minutes
 safety_critical verify.window_minutes

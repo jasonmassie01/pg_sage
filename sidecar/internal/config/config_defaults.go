@@ -419,6 +419,8 @@ func defaultVerifyConfig() VerifyConfig {
 		WriteImpactPct:   DefaultVerifyWriteImpactPct,
 		MinSamples:       DefaultVerifyMinSamples,
 		DropWindowHours:  DefaultVerifyDropWindowHours,
+		Method:           DefaultVerifyMethod,
+		OnExpired:        DefaultVerifyOnExpired,
 		IOBaselineDays:   DefaultIOBaselineDays,
 		IOSampleDays:     DefaultIOSampleRetentionDays,
 	}

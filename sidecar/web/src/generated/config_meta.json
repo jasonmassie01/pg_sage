@@ -4791,6 +4791,14 @@
     "class": "derivable",
     "lifecycle": "restart"
   },
+  "verify.method": {
+    "type": "string",
+    "default": "auto",
+    "doc": "Verifier: v1, shadow (v2 beside v1, act on v1), v2, or auto (v2 where the latest back-test passed within 35 days, else shadow). Default: auto.",
+    "warning": "v2 decides reverts from blocks per call against untouched control statements; auto switches to it only after a passing back-test.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
   "verify.min_gain_pct": {
     "type": "float64",
     "default": 20,
@@ -4808,6 +4816,13 @@
     "lifecycle": "restart",
     "min": 1,
     "max": 1073741824
+  },
+  "verify.on_expired": {
+    "type": "string",
+    "default": "ask",
+    "doc": "A monitor whose window ended unwatched: ask (queue a Revert action N item), keep (keep the change, recorded) or revert (operator rollback). Default: ask.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
   },
   "verify.regress_pct": {
     "type": "float64",

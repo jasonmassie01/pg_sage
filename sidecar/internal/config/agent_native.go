@@ -20,6 +20,9 @@ type VerifyConfig struct {
 	RegressPct       float64 `yaml:"regress_pct" doc:"Regression percentage that triggers revert." api:"float_nonneg"`
 	WriteImpactPct   float64 `yaml:"write_impact_pct" doc:"Table WAL-per-tuple rise that reverts." api:"float_nonneg"`
 	MinSamples       int     `yaml:"min_samples" doc:"Minimum verification samples." api:"int_pos"`
+	// Method and OnExpired are verification v2's switches (lab-01c).
+	Method    string `yaml:"method" doc:"Verifier: v1, shadow (v2 beside v1, act on v1), v2, or auto (v2 where the latest back-test passed within 35 days, else shadow). Default: auto." warning:"v2 decides reverts from blocks per call against untouched control statements; auto switches to it only after a passing back-test."`
+	OnExpired string `yaml:"on_expired" doc:"A monitor whose window ended unwatched: ask (queue a Revert action N item), keep (keep the change, recorded) or revert (operator rollback). Default: ask."`
 
 	// IO load admission (D6). io_capacity is standalone-only; fleet
 	// databases declare it in databases[].verify.io_capacity.
@@ -110,6 +113,9 @@ func (c *Config) validateAgentNative() error {
 		return fmt.Errorf("verify.min_samples must be positive")
 	}
 	if err := c.Verify.validatePercentages(); err != nil {
+		return err
+	}
+	if err := c.Verify.validateMethod(); err != nil {
 		return err
 	}
 	if err := c.Clone.validate(); err != nil {

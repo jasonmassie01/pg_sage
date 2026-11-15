@@ -552,8 +552,10 @@
 | `verify.io_baseline_hours` | `restart` | `-` | `safety_critical` |
 | `verify.io_capacity` | `restart` | `-` | `operator_preference` |
 | `verify.io_sample_retention_days` | `restart` | `-` | `derivable` |
+| `verify.method` | `restart` | `-` | `safety_critical` |
 | `verify.min_gain_pct` | `restart` | `-` | `safety_critical` |
 | `verify.min_samples` | `restart` | `-` | `safety_critical` |
+| `verify.on_expired` | `restart` | `-` | `safety_critical` |
 | `verify.regress_pct` | `restart` | `-` | `safety_critical` |
 | `verify.window_max_minutes` | `restart` | `-` | `safety_critical` |
 | `verify.window_minutes` | `restart` | `-` | `safety_critical` |

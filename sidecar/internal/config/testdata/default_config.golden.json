@@ -520,6 +520,8 @@
     "RegressPct": 15,
     "WriteImpactPct": 20,
     "MinSamples": 30,
+    "Method": "auto",
+    "OnExpired": "ask",
     "IOBaselineDays": 7,
     "DropWindowHours": 168,
     "IOBaselineHours": 0,
