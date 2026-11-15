@@ -31,17 +31,29 @@ export function askAnswer(question: string, opts: {
   }
 }
 
-// routeAsk answers POST /databases/{db}/ask with answer(body) and the
-// session's GETs (budget, conversations) with empty lists. It returns the
-// POSTed requests so a spec can check what was sent.
+// routeAsk answers the asynchronous run API the page uses (mcp-07b):
+// POST /databases/{db}/ask/runs starts a run whose answer is answer(body),
+// and GET .../ask/runs/{id} reports it done with that answer on the first
+// poll (the shape useAskRun reads, as src/pages/ask/testkit.js stubs it).
+// The session's other GETs (budget, conversations) get empty lists. It
+// returns the POSTed start requests so a spec can check what was sent.
 export async function routeAsk(page: Page,
   answer: (body: Record<string, unknown>) => unknown) {
   const posts: Request[] = []
-  await page.route('**/api/v1/databases/*/ask**', route => {
+  const runs = new Map<string, unknown>()
+  await page.route('**/api/v1/databases/*/ask/**', route => {
     const req = route.request()
-    if (req.method() === 'POST' && new URL(req.url()).pathname.endsWith('/ask')) {
+    const path = new URL(req.url()).pathname
+    if (req.method() === 'POST' && path.endsWith('/ask/runs')) {
       posts.push(req)
-      return route.fulfill({ json: answer(req.postDataJSON()) })
+      const id = `run-${runs.size + 1}`
+      runs.set(id, answer(req.postDataJSON()))
+      return route.fulfill({ status: 202, json: { run_id: id, conversation_id: 'conv-1' } })
+    }
+    const run = path.match(/\/ask\/runs\/([^/]+)$/)
+    if (req.method() === 'GET' && run && runs.has(run[1])) {
+      return route.fulfill({ json: { id: run[1], state: 'done', progress: [],
+        answer: runs.get(run[1]), conversation_id: 'conv-1' } })
     }
     return route.fulfill({ json: { conversations: [] } })
   })

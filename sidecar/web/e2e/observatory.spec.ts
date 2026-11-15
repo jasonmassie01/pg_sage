@@ -18,15 +18,20 @@ async function singletonApp(page: Page) {
 
 test('singleton Ask sends the question to the selected database and renders evidence', async ({ page }) => {
   await singletonApp(page)
-  await page.route('**/api/v1/databases/primary/ask', async route => {
+  // The page asks through an asynchronous run (mcp-07b): it starts one, then
+  // polls it until it is done with the answer.
+  await page.route('**/api/v1/databases/primary/ask/runs', async route => {
     expect(route.request().method()).toBe('POST')
     expect(route.request().postDataJSON()).toEqual({ question: 'Which indexes need attention?' })
-    await route.fulfill({ json: {
+    await route.fulfill({ status: 202, json: { run_id: 'run-1', conversation_id: 'observatory-1' } })
+  })
+  await page.route('**/api/v1/databases/primary/ask/runs/run-1', route => route.fulfill({ json: {
+    id: 'run-1', state: 'done', progress: [], conversation_id: 'observatory-1', answer: {
       id: 1, conversation_id: 'observatory-1', question: 'Which indexes need attention?', status: 'answered',
       statements: [{ text: 'The duplicate index needs review.', citations: ['finding-1'] }],
       citations: [{ id: 'finding-1', kind: 'finding', label: 'Duplicate index evidence' }],
-    } })
-  })
+    },
+  } }))
   await page.goto('/#/ask')
   await expect(page.getByRole('combobox', { name: 'Database scope' })).toHaveValue('primary')
   await expect(page.getByTestId('ask-pick-database')).toHaveCount(0)

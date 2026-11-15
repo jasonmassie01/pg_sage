@@ -46,7 +46,7 @@ test('mcp-01 CHECK-03: Ask from a case sends answer-only and shows "Answer only"
     await expect(answer.getByTestId('ask-read-only')).toHaveText('Answer only')
     expect(posts).toHaveLength(1)
     expect(posts[0].postDataJSON()).toMatchObject({ read_only: true })
-    expect(new URL(posts[0].url()).pathname).toBe('/api/v1/databases/orders/ask')
+    expect(new URL(posts[0].url()).pathname).toBe('/api/v1/databases/orders/ask/runs')
   })
 
 test('a question asked outside a case is not answer-only', async ({ page }) => {
