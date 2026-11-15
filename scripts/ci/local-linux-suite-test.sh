@@ -175,6 +175,10 @@ expect 2 "GO_ROOT_VOLUME 'bad/vol' is not a volume name" "bad GO_ROOT_VOLUME" --
   $dry GO_ROOT_VOLUME=bad/vol bash "$script" "$(newout)"
 expect 2 "GO_ROOT_VOLUME '-v' is not a volume name" "GO_ROOT_VOLUME as an option" -- \
   $dry GO_ROOT_VOLUME=-v bash "$script" "$(newout)"
+expect 2 "LOCAL_SUITE_PG_TMPFS '2' must be a size such as 2g, or off" "bad tmpfs size" -- \
+  $dry LOCAL_SUITE_PG_TMPFS=2 bash "$script" "$(newout)"
+expect 2 "LOCAL_SUITE_PG_TMPFS 'OFF' must be a size" "tmpfs off is lower case" -- \
+  $dry LOCAL_SUITE_PG_TMPFS=OFF bash "$script" "$(newout)"
 expect 2 "LOCAL_SUITE_PG_MEMORY '1.5g' must be a size" "bad server memory cap" -- \
   $dry LOCAL_SUITE_PG_MEMORY=1.5g bash "$script" "$(newout)"
 expect 2 "LOCAL_SUITE_PG_MEMORY '0m' must be a size" "zero server memory cap" -- \
@@ -255,6 +259,8 @@ grep -q 'docker rm -f -v improve-ci-pg17$' "$log" ||
 srvrun=$(grep '^docker run' "$log" | grep -- '--name improve-ci-pg17 ')
 [[ $srvrun == *" --memory=1536m --memory-swap=1536m "* ]] ||
   fail "the server is not capped at the default 1536m: $srvrun"
+[[ $srvrun == *" --tmpfs /var/lib/postgresql/data:rw,size=2g "* ]] ||
+  fail "the server's data directory is not the default 2g tmpfs: $srvrun"
 grep -q 'suite=0' "$o/pg17/status.txt" && grep -q 'skipbudget=0' "$o/pg17/status.txt" ||
   fail "status.txt lacks the suite and skip budget results: $(cat "$o/pg17/status.txt")"
 [[ -f $o/summary.md ]] || fail "no summary.md after a full run"
@@ -282,7 +288,7 @@ grep -q '^go run ./cmd/covfloor' "$log" || fail "covfloor did not run: $(cat "$l
 o=$(newout)
 expect 0 'summary: .*summary.md' "stubbed full run with GO_ROOT_VOLUME" -- \
   $guard FAKE_FREE_GB=99 GO_IMAGE=golang:1.25 GO_ROOT_VOLUME=improve-go1273-root \
-  LOCAL_SUITE_PG_MEMORY=4g bash "$script" "$o" 17
+  LOCAL_SUITE_PG_MEMORY=4g LOCAL_SUITE_PG_TMPFS=off bash "$script" "$o" 17
 grep -q '^docker volume inspect improve-go1273-root$' "$log" ||
   fail "the Go volume was not checked: $(cat "$log")"
 goruns=$(grep '^docker run' "$log" | grep -v -- '--name improve-ci-pg17 ')
@@ -298,6 +304,13 @@ srvrun=$(grep '^docker run' "$log" | grep -- '--name improve-ci-pg17 ')
 grep -q improve-go1273-root <<<"$srvrun" && fail "the server mounted the Go volume: $srvrun"
 [[ $srvrun == *" --memory=4g --memory-swap=4g "* ]] ||
   fail "LOCAL_SUITE_PG_MEMORY=4g did not cap the server at 4g: $srvrun"
+# LOCAL_SUITE_PG_TMPFS=off: the data directory stays on the container's
+# disk (an anonymous volume that docker rm -v removes), not in memory.
+[[ $srvrun == *"--tmpfs"* ]] && fail "LOCAL_SUITE_PG_TMPFS=off still mounted a tmpfs: $srvrun"
+[[ $srvrun == *" -e PGDATA=/var/lib/postgresql/data/pgdata "* ]] ||
+  fail "the server lost its PGDATA: $srvrun"
+grep -qx 'pg_memory=4g pg_tmpfs=off' "$o/run.txt" ||
+  fail "run.txt lacks the server caps: $(cat "$o/run.txt")"
 mounts=$(grep -oE 'improve-go1273-root:[^ ]*' "$log")
 grep -vqx 'improve-go1273-root:/opt/go:ro' <<<"$mounts" &&
   fail "the Go volume was mounted writable: $mounts"

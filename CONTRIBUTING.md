@@ -204,8 +204,10 @@ read-only at `/opt/go` and used as `GOROOT`. It tests a `git archive` of
 and never writes inside the worktree. It creates and removes only containers
 named `improve-ci-*` (`LOCAL_SUITE_PREFIX`). A full run takes about 40 to 70
 minutes per major, so run one per machine at a time. A full suite's server
-grows past the 1536m default cap (its data directory is in memory), so give it
-more with `LOCAL_SUITE_PG_MEMORY`, for example `4g`.
+grows past the 1536m default cap and fills the default 2g in-memory data
+directory ("No space left on device"), so run it with
+`LOCAL_SUITE_PG_MEMORY=4g LOCAL_SUITE_PG_TMPFS=off`, which keeps the data on
+the container's disk and removes it with the container.
 `LOCAL_SUITE_DRY_RUN=1` checks the inputs and prints the plan, and
 `scripts/ci/local-linux-suite-test.sh` tests the script without Docker.
 The local servers are not CI's image. The `improve-pg` images lack pgaudit,

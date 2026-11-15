@@ -31,6 +31,9 @@
 #   LOCAL_SUITE_GO_MEMORY  Go container memory cap (default 6g)
 #   LOCAL_SUITE_PG_MEMORY  server memory cap, its in-memory data directory
 #                          included (default 1536m, as tools/pg-ephemeral.sh)
+#   LOCAL_SUITE_PG_TMPFS   size of the in-memory data directory (default 2g,
+#                          as pg-ephemeral.sh), or off to keep it on the
+#                          container's disk, removed with the container
 #   LOCAL_SUITE_REV        revision to test (default HEAD)
 #   LOCAL_SUITE_DISK_GUARD disk guard script (default: tools/disk-guard.sh
 #                          up to two directories above the repository)
@@ -61,6 +64,7 @@ PREFIX=${LOCAL_SUITE_PREFIX-improve-ci-}
 GOCACHE_VOL=${LOCAL_SUITE_GOCACHE-improve-ci-gocache}
 GO_MEMORY=${LOCAL_SUITE_GO_MEMORY-6g}
 PG_MEMORY=${LOCAL_SUITE_PG_MEMORY-1536m}
+PG_TMPFS=${LOCAL_SUITE_PG_TMPFS-2g}
 REV=${LOCAL_SUITE_REV:-HEAD}
 readonly RUN_LABEL=pg_sage.local-suite.run
 RUN_ID=
@@ -125,6 +129,8 @@ validate_env() {
     die 2 "LOCAL_SUITE_GO_MEMORY '$GO_MEMORY' must be a size such as 6g or 4096m"
   [[ $PG_MEMORY =~ ^[1-9][0-9]*[mg]$ ]] ||
     die 2 "LOCAL_SUITE_PG_MEMORY '$PG_MEMORY' must be a size such as 1536m or 4g"
+  [[ $PG_TMPFS =~ ^([1-9][0-9]*[mg]|off)$ ]] ||
+    die 2 "LOCAL_SUITE_PG_TMPFS '$PG_TMPFS' must be a size such as 2g, or off"
   if [ -n "$GO_ROOT" ] && [ ! -f "$GO_ROOT/bin/go" ]; then
     die 2 "GO_ROOT $GO_ROOT has no bin/go (a Linux Go tree is expected)"
   fi
@@ -271,6 +277,7 @@ stage_source() {
   printf 'rev=%s\ngo_image=%s\ngo_root=%s\ngo_version=%s\nmajors=%s\n' "$REV_SHA" \
     "$GO_IMAGE" "$(go_root_desc)" "$(grep -m1 '^go version ' "$OUT/race-probe.txt")" \
     "${MAJORS[*]}" >"$OUT/run.txt"
+  echo "pg_memory=$PG_MEMORY pg_tmpfs=$PG_TMPFS" >>"$OUT/run.txt"
 }
 
 # pack_stage: one tar of the vendored stage for the Go containers. Docker
@@ -317,17 +324,18 @@ psql_srv() {
   dk 120 exec "$1" psql -U postgres -h 127.0.0.1 -d postgres -v ON_ERROR_STOP=1 -qAtX "${@:2}"
 }
 
-# start_server <major>: CI's server, with its data directory in memory and
-# the caps of tools/pg-ephemeral.sh; no port is published.
+# start_server <major>: CI's server, by default with its data directory in
+# memory and the caps of tools/pg-ephemeral.sh; no port is published.
 start_server() {
-  local m=$1 srv=${PREFIX}pg$1 img ready= i
+  local m=$1 srv=${PREFIX}pg$1 img ready= i data=()
+  [ "$PG_TMPFS" = off ] || data=(--tmpfs "/var/lib/postgresql/data:rw,size=$PG_TMPFS")
   img=$(pg_image "$m")
   server_flags "$img"
   claim "$srv"
   dk 180 run -d --rm --name "$srv" --label pg_sage.improve=1 --label "$RUN_LABEL=$RUN_ID" \
     --memory="$PG_MEMORY" --memory-swap="$PG_MEMORY" --oom-score-adj=500 --cpu-shares=256 --cpus=2 \
     -e POSTGRES_PASSWORD=postgres --shm-size=256m \
-    --tmpfs /var/lib/postgresql/data:rw,size=2g -e PGDATA=/var/lib/postgresql/data/pgdata \
+    "${data[@]}" -e PGDATA=/var/lib/postgresql/data/pgdata \
     "$img" postgres "${SERVER_FLAGS[@]}" >/dev/null || die 5 "server $srv ($img) did not start"
   for i in $(seq 1 90); do
     if dk 20 exec "$srv" pg_isready -U postgres -h 127.0.0.1 >/dev/null 2>&1; then
