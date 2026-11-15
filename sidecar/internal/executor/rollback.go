@@ -91,7 +91,7 @@ func (c RollbackMonitorConfig) observer(pool *pgxpool.Pool) queryObserver {
 	if c.observe != nil {
 		return c.observe
 	}
-	return verify.NewPostgresObservationSource(pool).QueryMeasurements
+	return historyObserver(pool)
 }
 
 // MonitorAndRollback runs as a goroutine to verify an executed action
