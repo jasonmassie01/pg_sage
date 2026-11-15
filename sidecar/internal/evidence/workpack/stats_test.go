@@ -68,3 +68,29 @@ func TestFit_FallingSeries(t *testing.T) {
 		t.Fatalf("falling series %+v", got)
 	}
 }
+
+// A constant series of non-integers fits a float-noise slope (about
+// 1e-15, residuals 0): it is flat with slope 0, not rising or falling.
+func TestFit_ConstantNonIntegerSeriesIsFlat(t *testing.T) {
+	for _, v := range []float64{12.3, 0.1, 1234.567, 7.7, 3.3333} {
+		for n := 3; n <= 14; n++ {
+			vals := make([]*float64, n)
+			for i := range vals {
+				vals[i] = f(v)
+			}
+			got := fit(vals)
+			if got.Trend != trendFlat || got.Slope == nil || *got.Slope != 0 ||
+				got.SlopeSE == nil || *got.SlopeSE != 0 || got.Points != n {
+				t.Fatalf("constant %v x%d: %+v, want flat with slope 0 and se 0", v, n, got)
+			}
+		}
+	}
+	// A real rise on a large value is still a slope: 1 TB growing 1 MB a day.
+	grow := make([]*float64, 28)
+	for i := range grow {
+		grow[i] = f(1e12 + float64(i)*1e6)
+	}
+	if got := fit(grow); got.Trend != trendRising || got.Slope == nil || !near(*got.Slope, 1e6) {
+		t.Fatalf("1 MB/day on 1 TB: %+v, want rising at 1e6 per step", got)
+	}
+}

@@ -42,6 +42,9 @@ func fit(values []*float64) Fit {
 		return out
 	}
 	reg := forecaster.LinearRegression(pts)
+	if noiseSlope(pts, reg.Slope) {
+		reg = flatLine(pts)
+	}
 	se := slopeSE(pts, reg)
 	slope, r2 := round12(reg.Slope), round12(reg.R2)
 	out.Slope, out.R2, out.SlopeSE = &slope, &r2, &se
@@ -54,6 +57,27 @@ func fit(values []*float64) Fit {
 		out.Trend = trendFalling
 	}
 	return out
+}
+
+// noiseSlope reports a slope whose whole rise over the series is float
+// noise against its values (a constant series of non-integers fits a
+// slope of about 1e-15): it is stated as 0, so the trend is flat.
+func noiseSlope(pts []forecaster.DataPoint, slope float64) bool {
+	scale := 1.0
+	for _, p := range pts {
+		scale = math.Max(scale, math.Abs(p.Y))
+	}
+	span := pts[len(pts)-1].X - pts[0].X
+	return math.Abs(slope)*span <= 1e-9*scale
+}
+
+// flatLine is the zero-slope fit of pts: the mean, R2 0.
+func flatLine(pts []forecaster.DataPoint) forecaster.RegressionResult {
+	var sum float64
+	for _, p := range pts {
+		sum += p.Y
+	}
+	return forecaster.RegressionResult{Intercept: sum / float64(len(pts))}
 }
 
 // slopeSE is the standard error of reg's slope over pts (at least 3).
