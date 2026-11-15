@@ -34,6 +34,10 @@ type WatchRequest struct {
 	Table      string
 	IndexName  string
 	Criterion  Criterion
+	// FrozenWeights are the targets' pre-period call shares
+	// (FrozenWeights), fixed when the watch is created so the attribution's
+	// pooled metric cannot move with the post-period call mix (lab-01a).
+	FrozenWeights map[int64]float64
 }
 
 type WatchState struct {
@@ -51,6 +55,9 @@ type WatchState struct {
 	// ObservationFailures counts consecutive observations that could not
 	// read their evidence; a successful observation resets it.
 	ObservationFailures int
+	// FrozenWeights are the request's; nil for a watch stored before
+	// lab-01a (judged by v1 only).
+	FrozenWeights map[int64]float64
 }
 
 type Verdict struct {
@@ -167,5 +174,6 @@ func WatchStateFromRequest(request WatchRequest) WatchState {
 		Table: request.Table, IndexName: request.IndexName, Criterion: request.Criterion,
 		Status: "pending", Window: request.Criterion.Window,
 		NextEvaluationAt: request.ExecutedAt.Add(request.Criterion.Window),
+		FrozenWeights:    request.FrozenWeights,
 	}
 }
