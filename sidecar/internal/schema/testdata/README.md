@@ -13,6 +13,10 @@ How it was made (PostgreSQL 14, so the dump restores on 14 to 18):
    --no-comments > v2.4.0_sage_dump.sql`, then the `\restrict` /
    `\unrestrict` psql lines removed.
 
+`v2.5.0_sage_dump.sql` is the same for pg_sage v2.5.0, made by plan-01a with
+the same recipe (tag `v2.5.0`, database `v250`, PostgreSQL 14 `pg_dump`).
+`upgrade_v250_db_test.go` boots the current code over it.
+
 `migration_checksums.txt` pins the SHA-256 of every migration step's SQL
 as `sage.schema_migrations` records it (config-04b). A released step must
 never change: every install's next boot would fail on the checksum. Add a
