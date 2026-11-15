@@ -127,6 +127,13 @@
     "class": "safety_critical",
     "lifecycle": "restart"
   },
+  "agents.exposure.sweep_seconds": {
+    "type": "int",
+    "default": 60,
+    "doc": "Seconds between exposure sweeps: each reads the catalog fingerprint and, when it changed, re-runs the exposure checks (AP-01 to AP-05, AP-15, AP-17) outside the analyzer cycle. 15-600. Default: 60.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
   "agents.kill_fallback_log": {
     "type": "string",
     "default": "agent-kill-fallback.log",

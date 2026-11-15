@@ -704,6 +704,9 @@
       "MemoryGrowthGBDay": 5,
       "DailyAt": "03:00"
     },
+    "Exposure": {
+      "SweepSeconds": 60
+    },
     "Roles": {
       "ConnectionLimit": 5,
       "StatementTimeoutMS": 30000,

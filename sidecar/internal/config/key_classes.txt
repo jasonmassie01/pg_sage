@@ -614,6 +614,7 @@ safety_critical agents.default_environment
 operator_preference agents.client_patterns
 operator_preference agents.posture.daily_at
 operator_preference agents.posture.memory_growth_gb_day
+operator_preference agents.exposure.sweep_seconds
 
 # Audit export and evidence (E2). Sinks are endpoints and the signing key is
 # a credential; the cadence and correlation switches are the operator's.
