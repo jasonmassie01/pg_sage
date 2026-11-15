@@ -96,7 +96,9 @@ the rollup hours the suggestion rests on.
 ```
 
 It suggests nothing (`"suggestion": "none"` with a `reason`) with less than 28 days of
-hourly rollup, when the rollup coverage status (`GET /api/v1/queries/coverage`, see
+hourly rollup (the coverage rows and the hourly rows themselves must both reach back 28
+days: keep `retention.query_rollup_hourly_days`, which is at most `snapshots_days`, at 29 or
+more; the default is 35), when the rollup coverage status (`GET /api/v1/queries/coverage`, see
 [architecture](architecture.md#collector)) is anything but `ok`
 (`learning`, `mostly_breaks`, `unknown`), when no hour peaks in 3 of 4 weeks, or when the
 windows would not fit a brief field (300 characters). The suggestion is computed on request

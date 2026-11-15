@@ -58,6 +58,12 @@ const peakHourlySQL = `/* pg_sage facts */ SELECT h.hour, sum(h.exec_ms)::float8
 FROM sage.query_rollup_hourly h WHERE {db:h} AND h.hour >= $1 AND h.hour < $2
 GROUP BY h.hour`
 
+// peakOldestHourlySQL is the oldest hour the hourly rollup still holds. Its
+// retention (retention.query_rollup_hourly_days, never past snapshots_days)
+// can be shorter than the coverage rows' (query_rollup_daily_days).
+const peakOldestHourlySQL = `/* pg_sage facts */ SELECT min(h.hour)
+FROM sage.query_rollup_hourly h WHERE {db:h}`
+
 // SuggestPeakWindows suggests the peak windows of db (a monitored pool or
 // its history store, histstore.Resolve) over the 28 days before now's
 // hour. Its reads (SELECTs of pg_sage's own rollup tables) run in one
@@ -92,6 +98,14 @@ func SuggestPeakWindows(ctx context.Context, db any, now time.Time) (PeakSuggest
 		none.Reason = "the hourly rollup's coverage is " + cov.Status + ", not ok"
 		return none, tx.Commit(ctx)
 	}
+	short, err := hourlyHistoryShort(ctx, st, tx, from)
+	if err != nil {
+		return PeakSuggestion{}, err
+	}
+	if short != "" {
+		none.Reason = short
+		return none, tx.Commit(ctx)
+	}
 	exec, err := readPeakHours(ctx, st, tx, from, to)
 	if err != nil {
 		return PeakSuggestion{}, err
@@ -106,6 +120,24 @@ func oldestNote(oldest *time.Time) string {
 		return " (none yet)"
 	}
 	return " (the oldest hour is " + oldest.UTC().Format(time.RFC3339) + ")"
+}
+
+// hourlyHistoryShort says why the hourly rollup itself does not reach back
+// to from, or "" when it does: the coverage rows outlive the hourly rows,
+// and weeks the hourly retention already removed would read as idle.
+func hourlyHistoryShort(ctx context.Context, st histstore.Store, tx pgx.Tx,
+	from time.Time) (string, error) {
+	sql, args := st.Bind(peakOldestHourlySQL)
+	var oldest *time.Time
+	if err := tx.QueryRow(ctx, sql, args...).Scan(&oldest); err != nil {
+		return "", fmt.Errorf("read the peak-window hourly rollup's oldest hour: %w", err)
+	}
+	if oldest != nil && !oldest.After(from) {
+		return "", nil
+	}
+	return "less than 28 days of hourly rollup" + oldestNote(oldest) +
+		"; retention.query_rollup_hourly_days (at most snapshots_days) must keep " +
+		"at least 29 days", nil
 }
 
 func readPeakHours(ctx context.Context, st histstore.Store, tx pgx.Tx, from,

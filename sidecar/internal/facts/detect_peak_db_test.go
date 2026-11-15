@@ -135,3 +135,28 @@ func TestSuggestPeakWindowsReadErrorOnLiveDB(t *testing.T) {
 		t.Fatalf("closed pool: err = %v, want a peak-window read error", err)
 	}
 }
+
+// The coverage rows outlive the hourly rows (query_rollup_daily_days is
+// longer than query_rollup_hourly_days, which is at most snapshots_days):
+// with 28 days of coverage but only the last 21 days of hourly rollup, the
+// purged first week would read as idle and 3 weeks would pass for "3 of
+// 4". It suggests nothing and names the retention.
+func TestSuggestPeakWindowsNeedsTwentyEightDaysOfHourlyRowsOnLiveDB(t *testing.T) {
+	pool, ctx := livePool(t)
+	kept := map[time.Time]float64{}
+	cut := peakFrom.Add(7 * 24 * time.Hour)
+	for at, ms := range peakLoad(peakAt{time.Monday, 9, []int{1, 2, 3}},
+		peakAt{time.Monday, 10, []int{1, 2, 3}}) {
+		if !at.Before(cut) {
+			kept[at] = ms
+		}
+	}
+	seedRollup(t, ctx, pool, peakFrom.Add(-24*time.Hour), kept, nil)
+	got, err := SuggestPeakWindows(ctx, pool, peakNow)
+	if err != nil || got.PeakWindows != "" || got.CoverageStatus != "ok" ||
+		!strings.Contains(got.Reason, "28 days of hourly rollup") ||
+		!strings.Contains(got.Reason, cut.Format(time.RFC3339)) ||
+		!strings.Contains(got.Reason, "query_rollup_hourly_days") || len(got.Hours) != 0 {
+		t.Fatalf("21 days of hourly rows under 29 days of coverage: %+v %v", got, err)
+	}
+}
