@@ -23,7 +23,7 @@ func TestFactsOwnerBriefStepIsLastAndBounded(t *testing.T) {
 		t.Fatalf("T5 steps = %v, want ddlFactsOwnerBrief last", steps)
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout", "pg_catalog.pg_constraint",
-		"facts_fact_type_v3", "facts_subject_kind_v3", "'owner_brief'", "'do_not_touch'",
+		"facts_fact_type_v2", "facts_subject_kind_v2", "'owner_brief'", "'do_not_touch'",
 		"'database'", "'column_class'", "'column'"} {
 		if !strings.Contains(ddlFactsOwnerBrief, want) {
 			t.Errorf("the step lacks %q", want)
@@ -65,8 +65,6 @@ func factChecks(t *testing.T, ctx context.Context, pool *pgxpool.Pool, col strin
 func restorePreStepChecks(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
 	for _, stmt := range []string{
-		`ALTER TABLE sage.facts DROP CONSTRAINT IF EXISTS facts_fact_type_v3`,
-		`ALTER TABLE sage.facts DROP CONSTRAINT IF EXISTS facts_subject_kind_v3`,
 		`ALTER TABLE sage.facts DROP CONSTRAINT IF EXISTS facts_fact_type_v2`,
 		`ALTER TABLE sage.facts DROP CONSTRAINT IF EXISTS facts_subject_kind_v2`,
 		`ALTER TABLE sage.facts ADD CONSTRAINT facts_fact_type_v2 CHECK (fact_type IN (
@@ -113,9 +111,9 @@ func TestFactsOwnerBriefMigrationKeepsRowsAndIsIdempotent(t *testing.T) {
 	}
 	types, kinds := factChecks(t, ctx, pool, "fact_type"), factChecks(t, ctx, pool,
 		"subject_kind")
-	if len(types) != 1 || !strings.HasPrefix(types[0], "facts_fact_type_v3=") ||
-		len(kinds) != 1 || !strings.HasPrefix(kinds[0], "facts_subject_kind_v3=") {
-		t.Fatalf("checks after the step: %v %v, want only the v3 ones", types, kinds)
+	if len(types) != 1 || !strings.HasPrefix(types[0], "facts_fact_type_v2=") ||
+		len(kinds) != 1 || !strings.HasPrefix(kinds[0], "facts_subject_kind_v2=") {
+		t.Fatalf("checks after the step: %v %v, want only the widened v2 ones", types, kinds)
 	}
 	assertFactsOwnerBriefChecks(t, ctx, pool)
 	bootstrapWithRetry(t, ctx, pool)
@@ -149,4 +147,46 @@ func assertFactsOwnerBriefChecks(t *testing.T, ctx context.Context, pool *pgxpoo
 		t.Errorf("column class fact refused after the swap: %v", err)
 	}
 	_, _ = pool.Exec(ctx, `DELETE FROM sage.facts WHERE subject = 'evid03a.16400.2'`)
+}
+
+// An untrusted boot (the ledger's catalog fingerprint gone: a boot cut
+// off, an operator's schema change) reruns every step, ddlAgentEnvClass
+// among them. It must neither put the narrower lists back nor fail on an
+// owner brief row already stored.
+func TestFactsOwnerBriefSurvivesAnUntrustedBoot(t *testing.T) {
+	pool, ctx := requireDB(t)
+	bootstrapWithRetry(t, ctx, pool)
+	clean := func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM sage.facts
+			WHERE subject LIKE 'evid03a%' OR fact_type IN ('owner_brief', 'do_not_touch')`)
+	}
+	clean()
+	t.Cleanup(clean)
+	if _, err := pool.Exec(ctx, `INSERT INTO sage.facts (fact_type, subject_kind, subject,
+		value, source) VALUES ('owner_brief', 'database', '*', '{"owner":"ops"}',
+		'operator')`); err != nil {
+		t.Fatalf("store an owner brief: %v", err)
+	}
+	before := append(factChecks(t, ctx, pool, "fact_type"),
+		factChecks(t, ctx, pool, "subject_kind")...)
+	if _, err := pool.Exec(ctx, `DELETE FROM sage.schema_migrations
+		WHERE id = $1`, ledgerCatalogID); err != nil {
+		t.Fatalf("drop the catalog fingerprint: %v", err)
+	}
+	if err := Bootstrap(ctx, pool); err != nil {
+		t.Fatalf("untrusted boot with an owner brief stored: %v", err)
+	}
+	after := append(factChecks(t, ctx, pool, "fact_type"),
+		factChecks(t, ctx, pool, "subject_kind")...)
+	if strings.Join(after, ",") != strings.Join(before, ",") {
+		t.Fatalf("the untrusted boot changed the checks: %v, was %v", after, before)
+	}
+	var briefs int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sage.facts
+		WHERE fact_type = 'owner_brief' AND value->>'owner' = 'ops'`).Scan(&briefs); err != nil ||
+		briefs != 1 {
+		t.Fatalf("%d owner briefs kept, want 1 (%v)", briefs, err)
+	}
+	clean()
+	assertFactsOwnerBriefChecks(t, ctx, pool)
 }
