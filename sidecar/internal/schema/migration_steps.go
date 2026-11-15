@@ -231,9 +231,12 @@ func trancheFourMigrations() []namedStep {
 	}
 }
 
-// trancheFiveMigrations are the T5 steps, in landing order.
+// trancheFiveMigrations are the T5 steps, after trancheFourMigrations.
 func trancheFiveMigrations() []namedStep {
 	return []namedStep{
-		{"ddlFactsOwnerBrief", ddlFactsOwnerBrief}, // evid-03a
+		{"ddlQueryRollup", ddlQueryRollup},                                   // evid-01a
+		{"ddlQueryRollupDaily", ddlQueryRollupDaily},                         // evid-01b
+		{"ddlHistoryMigrationRollupTables", ddlHistoryMigrationRollupTables}, // evid-01b
+		{"ddlFactsOwnerBrief", ddlFactsOwnerBrief},                           // evid-03a
 	}
 }

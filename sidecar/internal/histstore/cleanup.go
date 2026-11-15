@@ -26,7 +26,7 @@ func Cleanup(ctx context.Context, src, dst Store) (CleanupReport, error) {
 		return CleanupReport{}, err
 	}
 	defer m.release(ctx)
-	for _, table := range historyTables {
+	for _, table := range movedTables() {
 		mk, err := readMark(ctx, m.conn, m.id, m.dir, table)
 		if err != nil {
 			return CleanupReport{}, err
@@ -40,7 +40,8 @@ func Cleanup(ctx context.Context, src, dst Store) (CleanupReport, error) {
 		}
 	}
 	rep := CleanupReport{Removed: map[string]int64{}}
-	for _, table := range historyTables {
+	// The hourly rollup is derived: the destination rebuilt it.
+	for _, table := range append(movedTables(), "query_rollup_hourly") {
 		n, err := m.removeSource(ctx, table)
 		if err != nil {
 			return rep, err
@@ -66,23 +67,28 @@ func (m *migration) removeSource(ctx context.Context, table string) (int64, erro
 		_, err = m.src.Exec(ctx, "TRUNCATE sage."+table)
 		return n, wrapRemove(table, err)
 	}
-	col := "collected_at"
-	if table == "query_store" {
-		col = "captured_at"
-	}
+	col := timeColumns[table]
 	var lo, hi *time.Time
-	if err := m.src.QueryRow(ctx, `SELECT min(h.`+col+`), max(h.`+col+`) FROM sage.`+
+	if err := m.src.QueryRow(ctx, `SELECT min(`+col+`), max(`+col+`) FROM sage.`+
 		table+` h WHERE {db:h}`).Scan(&lo, &hi); err != nil || lo == nil {
 		return n, wrapRemove(table, err)
 	}
 	for from := lo.Truncate(cleanupDayBatch); !from.After(*hi); from = from.Add(
 		cleanupDayBatch) {
-		if _, err := m.src.Exec(ctx, `DELETE FROM sage.`+table+` h WHERE {db:h} AND h.`+col+
-			` >= $1 AND h.`+col+` < $2`, from, from.Add(cleanupDayBatch)); err != nil {
+		if _, err := m.src.Exec(ctx, `DELETE FROM sage.`+table+` h WHERE {db:h} AND `+col+
+			` >= $1 AND `+col+` < $2`, from, from.Add(cleanupDayBatch)); err != nil {
 			return n, wrapRemove(table, err)
 		}
 	}
 	return n, nil
+}
+
+// timeColumns are each moved table's time, as an expression on alias h
+// (constants, never input).
+var timeColumns = map[string]string{
+	"snapshots": "h.collected_at", "query_store": "h.captured_at",
+	"query_rollup_hourly": "h.hour", "query_rollup_coverage": "h.hour",
+	"query_rollup_daily": "(h.day::timestamp AT TIME ZONE 'UTC')",
 }
 
 func wrapRemove(table string, err error) error {

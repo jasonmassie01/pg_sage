@@ -192,6 +192,9 @@ type RetentionConfig struct {
 	// QueryStoreDays and SnapshotsMaxPct: see storage_retention.go.
 	QueryStoreDays  int `yaml:"query_store_days" doc:"Days to keep per-query samples in sage.query_store (its readers look back at most 7 days). 0 disables. Range 0-3650. Default 14."`
 	SnapshotsMaxPct int `yaml:"snapshots_max_pct" doc:"Cap sage.snapshots at this percent of the database size (never below 256 MB): the oldest days are removed first. 0 disables the cap. Range 0-100. Default 5."`
+	// QueryRollupHourlyDays and QueryRollupDailyDays: see storage_retention.go.
+	QueryRollupHourlyDays int `yaml:"query_rollup_hourly_days" doc:"Days to keep the hourly per-query rollup; an hour goes once its day is in the daily tier. At most snapshots_days (the default follows a smaller one). 0 disables. Range 0-3650. Default 35."`
+	QueryRollupDailyDays  int `yaml:"query_rollup_daily_days" doc:"Days to keep the daily per-query rollup and the hourly coverage rows. At least query_rollup_hourly_days. 0 disables. Range 0-3650. Default 400."`
 }
 
 // NotificationPolicyConfig holds notification delivery policy. It is YAML-only

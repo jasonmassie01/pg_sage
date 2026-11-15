@@ -74,6 +74,8 @@ The collector's breaker, freshness and failures per database.
 |---|---|---|---|---|---|---|
 | `pg_sage_collector_breaker_skips_total` | counter | `database`, `reason` | - | all | v2.7.0 | Collector cycles skipped by the breaker, by reason (load, load_query_error) |
 | `pg_sage_collector_breaker_state` | gauge | `database` | - | all | v2.6.0 | Collector circuit breaker (0=closed, 1=skipping, 2=dormant) |
+| `pg_sage_query_rollup_hours_total` | counter | `database`, `result` | - | all | v2.8.0 | Hours the hourly per-query rollup rolled, by result (ok, empty: no queries snapshot in the hour, failed) |
+| `pg_sage_query_rollup_lag_hours` | gauge | `database` | hours | all | v2.8.0 | Closed hours the hourly per-query rollup has not rolled yet (0: caught up) |
 | `pg_sage_collector_category_unavailable` | gauge | `database`, `category` | - | all | v2.7.0 | Category the latest snapshot could not read |
 | `pg_sage_collector_last_success_timestamp` | gauge | `database` | seconds | all | v2.7.0 | Last collected snapshot (unix seconds) |
 | `pg_sage_collector_last_success_timestamp_seconds` | gauge | `database` | seconds | all | v2.7.0 | Unix time of the database's last completed collector snapshot |

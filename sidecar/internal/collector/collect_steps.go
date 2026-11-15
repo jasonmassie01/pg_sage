@@ -20,7 +20,8 @@ type catalogStep struct {
 func (c *Collector) catalogSteps() []catalogStep {
 	steps := []catalogStep{
 		{name: "queries", run: func(ctx context.Context, s *Snapshot) (err error) {
-			s.Queries, err = c.collectQueries(ctx)
+			s.Queries, err = c.queriesVia(ctx, timedCatalogQuerier{collector: c},
+				&s.stmtTotals)
 			return err
 		}},
 		{name: "tables", run: func(ctx context.Context, s *Snapshot) (err error) {

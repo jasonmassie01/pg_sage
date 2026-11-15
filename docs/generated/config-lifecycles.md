@@ -361,6 +361,8 @@
 | `retention.decisions_days` | `restart` | `-` | `operator_preference` |
 | `retention.explains_days` | `restart` | `-` | `derivable` |
 | `retention.findings_days` | `restart` | `-` | `derivable` |
+| `retention.query_rollup_daily_days` | `restart` | `-` | `derivable` |
+| `retention.query_rollup_hourly_days` | `restart` | `-` | `derivable` |
 | `retention.query_store_days` | `restart` | `-` | `derivable` |
 | `retention.sage_size_warning_pct` | `restart` | `-` | `derivable` |
 | `retention.snapshots_days` | `restart` | `-` | `derivable` |

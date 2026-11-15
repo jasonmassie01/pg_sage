@@ -46,6 +46,9 @@ type MigrateOptions struct {
 	BatchRows  int
 	MaxBatches int
 	Log        func(format string, args ...any)
+	// Rebuild, when set, rebuilds the derived hourly query rollup in the
+	// destination once every table is copied (evid-01b): it is not copied.
+	Rebuild func(ctx context.Context, dst Store) error
 }
 
 // TableReport is what a run did for one table. Complete: every source row
@@ -62,6 +65,8 @@ type MigrateReport struct {
 	Direction  Mode
 	DatabaseID int
 	Tables     []TableReport
+	// HourlyRebuilt: Rebuild ran after a complete copy.
+	HourlyRebuilt bool
 }
 
 // mark is a table's progress in the destination.
@@ -75,6 +80,7 @@ type mark struct {
 // migration is one run's state.
 type migration struct {
 	src, dst Store
+	out      Store // the destination on its own pool (Rebuild)
 	dir      Mode
 	id       int
 	conn     *pgxpool.Conn // destination, holding the run's advisory lock
@@ -99,7 +105,22 @@ func Migrate(ctx context.Context, src, dst Store, opt MigrateOptions) (MigrateRe
 		}
 		rep.Tables = append(rep.Tables, tr)
 	}
-	return rep, nil
+	for _, table := range derivedTables {
+		if m.stopped() {
+			break
+		}
+		tr, err := m.copyDerived(ctx, table)
+		if err != nil {
+			return rep, err
+		}
+		rep.Tables = append(rep.Tables, tr)
+	}
+	return rep, m.rebuild(ctx, &rep)
+}
+
+// stopped reports a run that reached MaxBatches.
+func (m *migration) stopped() bool {
+	return m.opt.MaxBatches > 0 && m.batches >= m.opt.MaxBatches
 }
 
 // placement checks the pair and returns the direction and database id.
@@ -143,7 +164,8 @@ func startMigration(ctx context.Context, src, dst Store, opt MigrateOptions) (*m
 	if err != nil {
 		return nil, fmt.Errorf("histstore: connect to the destination: %w", err)
 	}
-	m := &migration{src: src, dst: dst.WithDB(conn), dir: dir, id: id, conn: conn, opt: opt}
+	m := &migration{src: src, dst: dst.WithDB(conn), out: dst, dir: dir, id: id, conn: conn,
+		opt: opt}
 	if err := m.prepare(ctx); err != nil {
 		m.release(ctx)
 		return nil, err
@@ -185,7 +207,7 @@ func (m *migration) prepare(ctx context.Context) error {
 	if err := schema.EnsureHistoryMigrationTables(ctx, m.conn); err != nil {
 		return err
 	}
-	for _, table := range historyTables {
+	for _, table := range movedTables() {
 		for _, side := range []Store{m.src, m.dst} {
 			if err := checkColumns(ctx, side, table); err != nil {
 				return err
@@ -220,6 +242,14 @@ var knownColumns = map[string]map[string]bool{
 	"query_store": {"id": true, "captured_at": true, "queryid": true, "calls": true,
 		"total_exec_time": true, "mean_exec_time": true, "rows": true, "plan_hash": true,
 		"stats_epoch": true, "database_id": true},
+	"query_rollup_daily": {"database_id": true, "queryid": true, "day": true,
+		"calls": true, "exec_ms": true, "rows": true, "shared_blks_hit": true,
+		"shared_blks_read": true, "temp_blks_read": true, "temp_blks_written": true,
+		"wal_bytes": true, "hours": true, "epoch_breaks": true, "plan_hashes": true,
+		"last_plan_hash": true, "built_at": true},
+	"query_rollup_coverage": {"database_id": true, "hour": true, "db_exec_ms": true,
+		"sampled_exec_ms": true, "sampled_queryids": true, "epoch_breaks": true,
+		"dealloc_delta": true, "snapshots": true, "epoch_source": true, "built_at": true},
 }
 
 // checkColumns refuses a table with a column the copy would drop, and a
