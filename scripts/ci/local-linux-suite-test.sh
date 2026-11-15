@@ -175,6 +175,10 @@ expect 2 "GO_ROOT_VOLUME 'bad/vol' is not a volume name" "bad GO_ROOT_VOLUME" --
   $dry GO_ROOT_VOLUME=bad/vol bash "$script" "$(newout)"
 expect 2 "GO_ROOT_VOLUME '-v' is not a volume name" "GO_ROOT_VOLUME as an option" -- \
   $dry GO_ROOT_VOLUME=-v bash "$script" "$(newout)"
+expect 2 "LOCAL_SUITE_PG_MEMORY '1.5g' must be a size" "bad server memory cap" -- \
+  $dry LOCAL_SUITE_PG_MEMORY=1.5g bash "$script" "$(newout)"
+expect 2 "LOCAL_SUITE_PG_MEMORY '0m' must be a size" "zero server memory cap" -- \
+  $dry LOCAL_SUITE_PG_MEMORY=0m bash "$script" "$(newout)"
 expect 2 "LOCAL_SUITE_GO_MEMORY '6 g'" "bad memory cap" -- \
   $dry "LOCAL_SUITE_GO_MEMORY=6 g" bash "$script" "$(newout)"
 expect 2 "LOCAL_SUITE_REV 'no-such-rev' is not a commit" "unknown revision" -- \
@@ -248,6 +252,9 @@ ids=$(grep -oE 'pg_sage.local-suite.run=[^ ]+' <<<"$runs" | sort -u)
 grep -q 'docker rm -f -v improve-ci-pg17$' "$log" ||
   fail "the server was not removed: $(cat "$log")"
 [[ -s $state ]] && fail "containers left after the run: $(cat "$state")"
+srvrun=$(grep '^docker run' "$log" | grep -- '--name improve-ci-pg17 ')
+[[ $srvrun == *" --memory=1536m --memory-swap=1536m "* ]] ||
+  fail "the server is not capped at the default 1536m: $srvrun"
 grep -q 'suite=0' "$o/pg17/status.txt" && grep -q 'skipbudget=0' "$o/pg17/status.txt" ||
   fail "status.txt lacks the suite and skip budget results: $(cat "$o/pg17/status.txt")"
 [[ -f $o/summary.md ]] || fail "no summary.md after a full run"
@@ -275,7 +282,7 @@ grep -q '^go run ./cmd/covfloor' "$log" || fail "covfloor did not run: $(cat "$l
 o=$(newout)
 expect 0 'summary: .*summary.md' "stubbed full run with GO_ROOT_VOLUME" -- \
   $guard FAKE_FREE_GB=99 GO_IMAGE=golang:1.25 GO_ROOT_VOLUME=improve-go1273-root \
-  bash "$script" "$o" 17
+  LOCAL_SUITE_PG_MEMORY=4g bash "$script" "$o" 17
 grep -q '^docker volume inspect improve-go1273-root$' "$log" ||
   fail "the Go volume was not checked: $(cat "$log")"
 goruns=$(grep '^docker run' "$log" | grep -v -- '--name improve-ci-pg17 ')
@@ -285,10 +292,15 @@ while IFS= read -r r; do
     $r == *" -e PATH=/opt/go/bin:"* ]] ||
     fail "a Go container lacks the read-only Go volume, GOROOT or PATH: $r"
 done <<<"$goruns"
-grep '^docker run' "$log" | grep -- '--name improve-ci-pg17 ' | grep -q improve-go1273-root &&
-  fail "the server mounted the Go volume"
-grep -oE 'improve-go1273-root:[^ ]*' "$log" | grep -vqx 'improve-go1273-root:/opt/go:ro' &&
-  fail "the Go volume was mounted writable: $(grep -oE 'improve-go1273-root:[^ ]*' "$log")"
+# Here-strings, not pipes into grep -q: under pipefail an early grep -q exit
+# can fail the pipe and hide the very match these checks look for.
+srvrun=$(grep '^docker run' "$log" | grep -- '--name improve-ci-pg17 ')
+grep -q improve-go1273-root <<<"$srvrun" && fail "the server mounted the Go volume: $srvrun"
+[[ $srvrun == *" --memory=4g --memory-swap=4g "* ]] ||
+  fail "LOCAL_SUITE_PG_MEMORY=4g did not cap the server at 4g: $srvrun"
+mounts=$(grep -oE 'improve-go1273-root:[^ ]*' "$log")
+grep -vqx 'improve-go1273-root:/opt/go:ro' <<<"$mounts" &&
+  fail "the Go volume was mounted writable: $mounts"
 grep -qx 'go_root=volume:improve-go1273-root' "$o/run.txt" ||
   fail "run.txt lacks the Go volume: $(cat "$o/run.txt")"
 grep -qx 'go_version=go version go1.27.3 linux/amd64' "$o/run.txt" ||

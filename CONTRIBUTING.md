@@ -203,7 +203,9 @@ read-only at `/opt/go` and used as `GOROOT`. It tests a `git archive` of
 `LOCAL_SUITE_REV` (default `HEAD`), vendored offline from your module cache,
 and never writes inside the worktree. It creates and removes only containers
 named `improve-ci-*` (`LOCAL_SUITE_PREFIX`). A full run takes about 40 to 70
-minutes per major, so run one per machine at a time.
+minutes per major, so run one per machine at a time. A full suite's server
+grows past the 1536m default cap (its data directory is in memory), so give it
+more with `LOCAL_SUITE_PG_MEMORY`, for example `4g`.
 `LOCAL_SUITE_DRY_RUN=1` checks the inputs and prints the plan, and
 `scripts/ci/local-linux-suite-test.sh` tests the script without Docker.
 The local servers are not CI's image. The `improve-pg` images lack pgaudit,

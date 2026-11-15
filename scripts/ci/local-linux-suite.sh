@@ -29,6 +29,8 @@
 #   LOCAL_SUITE_PREFIX     container name prefix (must start with improve-)
 #   LOCAL_SUITE_GOCACHE    Go build cache volume (default improve-ci-gocache)
 #   LOCAL_SUITE_GO_MEMORY  Go container memory cap (default 6g)
+#   LOCAL_SUITE_PG_MEMORY  server memory cap, its in-memory data directory
+#                          included (default 1536m, as tools/pg-ephemeral.sh)
 #   LOCAL_SUITE_REV        revision to test (default HEAD)
 #   LOCAL_SUITE_DISK_GUARD disk guard script (default: tools/disk-guard.sh
 #                          up to two directories above the repository)
@@ -58,6 +60,7 @@ GO_ROOT_VOLUME=${GO_ROOT_VOLUME:-}
 PREFIX=${LOCAL_SUITE_PREFIX-improve-ci-}
 GOCACHE_VOL=${LOCAL_SUITE_GOCACHE-improve-ci-gocache}
 GO_MEMORY=${LOCAL_SUITE_GO_MEMORY-6g}
+PG_MEMORY=${LOCAL_SUITE_PG_MEMORY-1536m}
 REV=${LOCAL_SUITE_REV:-HEAD}
 readonly RUN_LABEL=pg_sage.local-suite.run
 RUN_ID=
@@ -120,6 +123,8 @@ validate_env() {
     die 2 "LOCAL_SUITE_GOCACHE '$GOCACHE_VOL' must start with improve- ([a-z0-9-] only)"
   [[ $GO_MEMORY =~ ^[1-9][0-9]*[mg]$ ]] ||
     die 2 "LOCAL_SUITE_GO_MEMORY '$GO_MEMORY' must be a size such as 6g or 4096m"
+  [[ $PG_MEMORY =~ ^[1-9][0-9]*[mg]$ ]] ||
+    die 2 "LOCAL_SUITE_PG_MEMORY '$PG_MEMORY' must be a size such as 1536m or 4g"
   if [ -n "$GO_ROOT" ] && [ ! -f "$GO_ROOT/bin/go" ]; then
     die 2 "GO_ROOT $GO_ROOT has no bin/go (a Linux Go tree is expected)"
   fi
@@ -320,7 +325,7 @@ start_server() {
   server_flags "$img"
   claim "$srv"
   dk 180 run -d --rm --name "$srv" --label pg_sage.improve=1 --label "$RUN_LABEL=$RUN_ID" \
-    --memory=1536m --memory-swap=1536m --oom-score-adj=500 --cpu-shares=256 --cpus=2 \
+    --memory="$PG_MEMORY" --memory-swap="$PG_MEMORY" --oom-score-adj=500 --cpu-shares=256 --cpus=2 \
     -e POSTGRES_PASSWORD=postgres --shm-size=256m \
     --tmpfs /var/lib/postgresql/data:rw,size=2g -e PGDATA=/var/lib/postgresql/data/pgdata \
     "$img" postgres "${SERVER_FLAGS[@]}" >/dev/null || die 5 "server $srv ($img) did not start"
