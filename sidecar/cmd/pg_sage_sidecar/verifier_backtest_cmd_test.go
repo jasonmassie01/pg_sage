@@ -209,3 +209,29 @@ func TestBacktestCmd_StoresTheInMemoryCounts(t *testing.T) {
 		t.Fatalf("report:\n%s", out.String())
 	}
 }
+
+// With history.store: meta the command refuses before connecting: it reads
+// only the monitored database's history, which is not where it lives.
+func TestBacktestCmd_RefusesMetaHistory(t *testing.T) {
+	opened := false
+	deps := backtestDeps{
+		load: func(string) (*config.Config, error) {
+			cfg := fleetConfig("orders")
+			cfg.History.Store = config.HistoryStoreMeta
+			return cfg, nil
+		},
+		open: func(context.Context, string) (*pgxpool.Pool, error) {
+			opened = true
+			return nil, errors.New("must not connect")
+		},
+		now: time.Now}
+	var out, errOut bytes.Buffer
+	code := runVerifierBacktest(context.Background(), []string{"--database", "orders"}, deps,
+		&out, &errOut)
+	if code != 2 || opened || out.Len() != 0 ||
+		!strings.Contains(errOut.String(), "history.store is meta") ||
+		!strings.Contains(errOut.String(), `back-tests "orders" from the meta database`) {
+		t.Fatalf("exit %d, stderr %q, opened %v; want 2 refusing meta history", code,
+			errOut.String(), opened)
+	}
+}

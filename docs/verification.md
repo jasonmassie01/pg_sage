@@ -95,8 +95,8 @@ standalone database). The command prints v2's and v1's counts, the rate with its
 Wilson bound, the inconclusive share, the detection rate and the gate's answer, and
 stores the row the gate reads (exit 0 whatever the gate says, 1 when the run failed,
 2 on a usage error). It reads the history through the monitored database's
-connection; a database whose history lives in the meta database (`history.store:
-meta`) is back-tested by the sidecar's weekly run. The latest rows:
+connection, so with `history.store: meta` it refuses (exit 2): such a database is
+back-tested by the sidecar's weekly run, which reads the meta database. The latest rows:
 
 ```sql
 SELECT ran_at, placebos, excluded, false_positives, fp_rate, fp_wilson_upper,

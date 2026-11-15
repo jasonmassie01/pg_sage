@@ -23,6 +23,9 @@ import (
 // in sage.verifier_backtest, the row verify.method auto reads. It only
 // reads the history; the row is its one write. The database is one the
 // configuration registers (databases[].name, or the standalone database).
+// With history.store: meta it refuses: it would read the monitored
+// database's own, stale or empty, history (the weekly run reads the meta
+// database's).
 
 const verifierBacktestSubcommand = "verifier-backtest"
 
@@ -99,6 +102,12 @@ func runVerifierBacktest(ctx context.Context, args []string, deps backtestDeps, 
 	cfg, err := deps.load(a.configPath)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "verifier-backtest: load the configuration: %v\n", err)
+		return 2
+	}
+	if cfg.HistoryInMeta() {
+		_, _ = fmt.Fprintf(stderr, "verifier-backtest: history.store is meta: this "+
+			"command reads only the monitored database's history; the sidecar's weekly "+
+			"run back-tests %q from the meta database\n", a.database)
 		return 2
 	}
 	db, err := backtestDatabase(cfg, a.database)
