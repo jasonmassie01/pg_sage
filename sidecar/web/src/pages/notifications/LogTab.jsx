@@ -10,6 +10,19 @@ function logURL(database) {
   return `/api/v1/notifications/log?${params.toString()}`
 }
 
+// readFailure names a failed log read with the server's own message and
+// the HTTP status, so an unreadable log is never mistaken for an empty one.
+async function readFailure(res) {
+  let detail = ''
+  try {
+    const body = await res.json()
+    if (body && typeof body.error === 'string') detail = `: ${body.error}`
+  } catch (err) {
+    if (!(err instanceof SyntaxError)) throw err
+  }
+  return new Error(`Failed to load log${detail} (${res.status})`)
+}
+
 export function LogTab({ database } = {}) {
   const [entries, setEntries] = useState([])
   const [error, setError] = useState(null)
@@ -17,7 +30,7 @@ export function LogTab({ database } = {}) {
   const fetchLog = useCallback(async () => {
     try {
       const res = await fetch(logURL(database), { credentials: 'include' })
-      if (!res.ok) throw new Error('Failed to load log')
+      if (!res.ok) throw await readFailure(res)
       const data = await res.json()
       setEntries(data.log || [])
       setError(null)
@@ -35,12 +48,12 @@ export function LogTab({ database } = {}) {
   return (
     <div>
       {error && <div className="mb-4"><ErrorBanner message={error} /></div>}
-      {!entries.length ? (
+      {!entries.length ? (error ? null : (
         <div className="text-sm p-4"
           style={{ color: 'var(--text-secondary)' }}>
           No notifications sent yet.
         </div>
-      ) : (
+      )) : (
         <div className="rounded-lg overflow-hidden"
           style={cardStyle}>
           <table className="w-full text-sm">
@@ -91,6 +104,7 @@ export function LogTab({ database } = {}) {
                     </span>
                   </td>
                   <td className="px-4 py-2 text-xs"
+                    data-testid={`notify-error-${e.id}`}
                     style={{
                       color: 'var(--text-secondary)',
                     }}>
