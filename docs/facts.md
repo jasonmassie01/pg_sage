@@ -233,6 +233,10 @@ fact #41: table public.orders must not be touched (confirmed by alice@example.co
 2026-10-03); route: hold
 ```
 
+A fact on one index also holds a `REINDEX TABLE`, `VACUUM FULL` or `CLUSTER` of its table,
+which rebuild every index of the table (pg_sage lists the table's indexes from the catalog;
+if it cannot, the gate fails closed); a plain `VACUUM` or `ANALYZE` of the table is not held.
+
 Rollbacks of pg_sage's own changes on it (dropping an index pg_sage built, restoring one it
 dropped) still run: they restore what the owner had. Findings about the object stay listed,
 as advice: their SQL is withdrawn and the hold packet says why. Prompts carry the fact right

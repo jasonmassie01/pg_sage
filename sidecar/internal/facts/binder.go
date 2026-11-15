@@ -93,6 +93,9 @@ func (b *Binder) Bind(ctx context.Context, req policy.ActionRequest) (
 			return nil, fmt.Errorf("resolve index tables and partition roots: %w", err)
 		}
 	}
+	if refs, err = b.withTableIndexes(ctx, facts, refs, r.SQL); err != nil {
+		return nil, err
+	}
 	return policyBindings(append(Bind(facts, refs, r), siblings...)), nil
 }
 
