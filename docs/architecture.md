@@ -286,6 +286,40 @@ actions at autonomous trust, and queues higher-risk supported actions. Neither
 trust nor its ramp can promote `manual` to `auto`. Emergency Stop and a
 per-database disabled executor are hard mutation blocks.
 
+**Verification v2 (attribution).** Today's judge compares the targets'
+call-weighted time per call with the same-length window just before the action.
+Version 2 (`verify.Attribute`; the executor does not use it to decide a verdict
+yet) asks a narrower question: did the targets' work change because of this step?
+
+- **Metric.** Shared blocks (hit plus read) per call, which moves with the plan and
+  not with cache warmth or a busy host. Time per call is a guardrail: a rise beyond
+  `verify.regress_pct` whose confidence interval is above zero vetoes a gain, but
+  time alone never makes one.
+- **Frozen weights.** The targets are pooled with their call shares from before the
+  step, stored with the watch, so traffic moving toward a cheap target after the
+  step does not look like an improvement. A target with no calls after the step is
+  dropped from the pool, and the evidence says so.
+- **Seasonal match.** When at least 3 of the 4 earlier weeks have the same
+  hour-of-week in the hourly rollup (`sage.query_rollup_hourly`), the after-period
+  is compared with those weeks (`basis: seasonal`); otherwise with the pre-window
+  (`basis: pre_window`), and the evidence gives the weeks found.
+- **Control group.** For an index or reloptions step, statements in the admitted
+  top set that do not touch the changed table are controls: the effect is the
+  targets' change minus the median control change (`method: did`), so a deploy or a
+  noisy neighbour that slows everything is not charged to the step. With fewer
+  than 3 controls the evidence says `controls<3` and there is no control term
+  (`method: its`); a global setting has none by design ("no control group: global
+  setting").
+- **Confidence.** Welch's comparison of per-bucket log ratios (the same machinery as
+  v1) gives the interval; the effect is reported in log space and as a percentage.
+- **Evidence gaps.** A statistics epoch change inside a window (a reset, or a Neon
+  or Lakebase suspend and resume) gives no measurement, as do no blocks before the
+  step or too few buckets; each says why.
+
+The counters come from the snapshot `queries` category through the same reader as
+the hourly rollup, in the database's history store. Watches stored before v2 carry
+no frozen weights and are judged by v1 only.
+
 High-risk schema changes are handled as migration-safety cases before direct
 execution. The case projector attaches deterministic DDL preflight evidence,
 including lock/rewrite classification plus live table-size, activity, pending
