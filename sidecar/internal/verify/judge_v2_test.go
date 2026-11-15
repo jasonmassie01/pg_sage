@@ -226,7 +226,7 @@ func TestV2_LastLookInsufficientReverts(t *testing.T) {
 }
 
 func TestV2_UpFrontUnverifiable(t *testing.T) {
-	p := Preflight{Status: PreflightUnverifiable, Reason: "cannot be verified within 72 h: " +
+	p := Preflight{Status: PreflightStatusUnverifiable, Reason: "cannot be verified within 72 h: " +
 		"the targets run 4 times a week"}
 	v := JudgeV2(v2State(), V2Evidence{Attribution: measured(-40, -45, -35),
 		Mechanism: passed(1), Look: firstLook, Preflight: &p})
@@ -235,7 +235,7 @@ func TestV2_UpFrontUnverifiable(t *testing.T) {
 		t.Fatalf("up-front unverifiable: %+v, want unverifiable, neither kept nor reverted",
 			v)
 	}
-	unknown := Preflight{Status: PreflightUnknown, Reason: "no hourly history"}
+	unknown := Preflight{Status: PreflightStatusUnknown, Reason: "no hourly history"}
 	v = JudgeV2(v2State(), V2Evidence{Attribution: measured(-40, -45, -35),
 		Mechanism: passed(1), Look: firstLook, Preflight: &unknown})
 	if v.Outcome != OutcomeImproved {
@@ -271,10 +271,10 @@ func TestV2_EvidenceRecordsEveryGuard(t *testing.T) {
 	}
 }
 
-// Nil and zero inputs: an empty attribution and mechanism are insufficient,
-// never a revert or a retain on a first look.
+// Nil and zero inputs: an empty attribution, mechanism and look are
+// insufficient, never a revert or a retain on a first look.
 func TestV2_ZeroInputsAreInsufficient(t *testing.T) {
-	v := JudgeV2(WatchState{}, V2Evidence{})
+	v := JudgeV2(v2State(), V2Evidence{})
 	if v.Outcome != OutcomeInsufficient || v.Retain || v.Revert {
 		t.Fatalf("zero input: %+v, want insufficient", v)
 	}

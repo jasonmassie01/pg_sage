@@ -61,6 +61,19 @@ type WatchState struct {
 	// AlphaSpend is the alpha the watch's looks have spent (lab-01b,
 	// SpendLook); zero before its first look.
 	AlphaSpend AlphaSpend
+	// Other is the latest verdict of the verifier that did not act
+	// (lab-01c); nil while only v1 judges.
+	Other *OtherVerdict
+}
+
+// OtherVerdict is the verdict of the verifier that did not act: v2 in
+// shadow, v1 in v2 (lab-01c). It is stored with the watch and in
+// sage.action_outcome.other_verdict and other_evidence for comparison.
+type OtherVerdict struct {
+	Verifier string         `json:"verifier"`
+	Outcome  string         `json:"outcome,omitempty"`
+	Reason   string         `json:"reason,omitempty"`
+	Evidence map[string]any `json:"evidence,omitempty"`
 }
 
 type Verdict struct {
@@ -80,6 +93,12 @@ type Verdict struct {
 	// ObservationFailures is the watch's consecutive failed observations
 	// after this evaluation (0 when it read its evidence).
 	ObservationFailures int
+	// Verifier is the judge that decided this verdict (v1 or v2); Other the
+	// other judge's verdict, and AlphaSpend the look's spend to store
+	// (lab-01c). Both nil while only v1 judges.
+	Verifier   string
+	Other      *OtherVerdict
+	AlphaSpend *AlphaSpend
 }
 
 // ErrStateNotPersisted marks a Watch that returned before its durable state
@@ -159,6 +178,7 @@ type Engine struct {
 	source  ObservationSource
 	store   StateStore
 	options Options
+	v2      *V2Options
 }
 
 func NewEngine(source ObservationSource, store StateStore, options Options) (*Engine, error) {

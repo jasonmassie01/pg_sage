@@ -51,7 +51,7 @@ func TestV2_WeeklyTargetUnverifiableUpFront(t *testing.T) {
 	// Sunday 03:00 is 4 days 17 h after Wednesday 10:00.
 	weekly := hourly(7, 500, 4, 4*24*time.Hour+17*time.Hour)
 	p := mustPreflight(t, pfInput([]int64{7}, weekly))
-	if p.Status != PreflightUnverifiable {
+	if p.Status != PreflightStatusUnverifiable {
 		t.Fatalf("weekly target: %+v, want unverifiable", p)
 	}
 	if p.ExpectedCalls != 0 || p.ActiveHours != 0 || p.WeeklyCalls != 500 {
@@ -78,7 +78,7 @@ func TestV2_WeeklyTargetUnverifiableUpFront(t *testing.T) {
 // The weekly job inside the window is still too few active hours.
 func TestPreflight_WeeklyJobInsideTheWindowHasOneActiveHour(t *testing.T) {
 	p := mustPreflight(t, pfInput([]int64{7}, hourly(7, 5000, 4, 20*time.Hour)))
-	if p.Status != PreflightUnverifiable || p.ActiveHours != 1 || p.ExpectedCalls != 5000 {
+	if p.Status != PreflightStatusUnverifiable || p.ActiveHours != 1 || p.ExpectedCalls != 5000 {
 		t.Fatalf("one busy hour: %+v, want unverifiable with 1 active hour, 5000 calls", p)
 	}
 	if !strings.Contains(p.Reason, "1 active hour") {
@@ -96,7 +96,7 @@ func TestPreflight_BusyTargetsAreVerifiable(t *testing.T) {
 		h[id] = b
 	}
 	p := mustPreflight(t, pfInput([]int64{1, 2}, h))
-	if p.Status != PreflightVerifiable || p.ExpectedCalls != 72*15 || p.ActiveHours != 72 {
+	if p.Status != PreflightStatusVerifiable || p.ExpectedCalls != 72*15 || p.ActiveHours != 72 {
 		t.Fatalf("busy targets: %+v, want verifiable, 1080 calls, 72 active hours", p)
 	}
 	if p.WeeksSeen != 4 || p.Blocks() {
@@ -122,9 +122,9 @@ func TestPreflight_MinSamplesAndActiveHoursBoundaries(t *testing.T) {
 		want  string
 		calls float64
 	}{
-		{"exactly min_samples", exact, PreflightVerifiable, 30},
-		{"one fewer", fewer, PreflightUnverifiable, 29},
-		{"two active hours", two, PreflightUnverifiable, 40},
+		{"exactly min_samples", exact, PreflightStatusVerifiable, 30},
+		{"one fewer", fewer, PreflightStatusUnverifiable, 29},
+		{"two active hours", two, PreflightStatusUnverifiable, 40},
 	} {
 		p := mustPreflight(t, pfInput([]int64{1}, tc.h))
 		if p.Status != tc.want || p.ExpectedCalls != tc.calls {
@@ -143,7 +143,7 @@ func TestPreflight_MedianIgnoresOneOutlierWeek(t *testing.T) {
 		}
 	}
 	p := mustPreflight(t, pfInput([]int64{1}, h))
-	if p.Status != PreflightUnverifiable || p.ExpectedCalls != 3 {
+	if p.Status != PreflightStatusUnverifiable || p.ExpectedCalls != 3 {
 		t.Fatalf("outlier week: %+v, want unverifiable with 3 expected calls", p)
 	}
 }
@@ -153,7 +153,7 @@ func TestPreflight_NoHistoryIsUnknown(t *testing.T) {
 	for name, h := range map[string]Series{"nil": nil, "empty": {},
 		"other query": hourly(99, 100, 4, time.Hour)} {
 		p := mustPreflight(t, pfInput([]int64{1}, h))
-		if p.Status != PreflightUnknown || !strings.Contains(p.Reason, "no hourly history") {
+		if p.Status != PreflightStatusUnknown || !strings.Contains(p.Reason, "no hourly history") {
 			t.Fatalf("%s: %+v, want unknown naming the missing history", name, p)
 		}
 		if p.Blocks() {
@@ -161,7 +161,7 @@ func TestPreflight_NoHistoryIsUnknown(t *testing.T) {
 		}
 	}
 	p := mustPreflight(t, pfInput(nil, hourly(1, 100, 4, time.Hour)))
-	if p.Status != PreflightUnknown || !strings.Contains(p.Reason, "no target") {
+	if p.Status != PreflightStatusUnknown || !strings.Contains(p.Reason, "no target") {
 		t.Fatalf("no targets: %+v, want unknown naming the missing targets", p)
 	}
 }
@@ -174,7 +174,7 @@ func TestPreflight_ShortHistoryUsesTheWeeksSeen(t *testing.T) {
 		offsets = append(offsets, time.Duration(h)*time.Hour)
 	}
 	p := mustPreflight(t, pfInput([]int64{1}, hourly(1, 5, 1, offsets...)))
-	if p.Status != PreflightVerifiable || p.WeeksSeen != 1 || p.ExpectedCalls != 120 {
+	if p.Status != PreflightStatusVerifiable || p.WeeksSeen != 1 || p.ExpectedCalls != 120 {
 		t.Fatalf("one week: %+v, want verifiable from 1 week, 120 calls", p)
 	}
 }
@@ -195,7 +195,7 @@ func TestPreflight_MalformedBucketsAreIgnored(t *testing.T) {
 	h := hourly(1, 10, 4, time.Hour, 2*time.Hour, 3*time.Hour)
 	h[1] = append(h[1], Bucket{Start: pfFrom.Add(time.Hour - week), Calls: -50})
 	p := mustPreflight(t, pfInput([]int64{1}, h))
-	if p.Status != PreflightVerifiable || p.ExpectedCalls != 30 {
+	if p.Status != PreflightStatusVerifiable || p.ExpectedCalls != 30 {
 		t.Fatalf("a negative bucket changed the count: %+v", p)
 	}
 }
@@ -212,7 +212,7 @@ func TestPreflight_ExemptClasses(t *testing.T) {
 func TestPreflight_EvidenceIsJSONSafe(t *testing.T) {
 	p := mustPreflight(t, pfInput([]int64{7}, hourly(7, 500, 4, 100*time.Hour)))
 	ev := p.Evidence()
-	if ev["status"] != PreflightUnverifiable || ev["min_samples"] != 30 ||
+	if ev["status"] != PreflightStatusUnverifiable || ev["min_samples"] != 30 ||
 		ev["hard_max_hours"] != 72.0 || ev["weekly_calls"] != 500.0 {
 		t.Fatalf("evidence %v", ev)
 	}
