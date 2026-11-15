@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useAPI } from '../hooks/useAPI'
 import { QueryState } from '../components/QueryState'
 import { StackedAreaChart } from '../components/StackedAreaChart'
+import { CoverageNotice } from './QueriesCoverageNotice'
 
 // QueriesPage: the workload explorer (market-01). The top table ranks the
 // window's statements from the query store by load (execution seconds per
@@ -142,6 +143,7 @@ export function QueriesPage({ database }) {
             </button>
           ))}
         </div>
+        <CoverageNotice database={scope} />
         <QueryState query={top}>
           {data => <TopTable data={data} fleet={fleet} />}
         </QueryState>
