@@ -129,6 +129,32 @@ func TestAssemble_TwoWeeksMarkBucketsLearning(t *testing.T) {
 	}
 }
 
+// The learning boundary: a bucket seen exactly baseline.MinWeeks (3) weeks
+// is learned; one seen fewer is learning. A three-week window with its
+// first Monday hour uncovered and without rows leaves bucket 0 at 2 weeks.
+func TestAssemble_ThreeWeeksAreLearnedTwoAreLearning(t *testing.T) {
+	w := Window{monday, monday.Add(21 * 24 * time.Hour)}
+	s := workloadOf(t, mustAssemble(t, synthRequest(w), synthHistory(w))).Families[0].Shape
+	if s.Weeks != 3 || len(s.Learning) != 0 || s.BucketWeeks[0] != 3 {
+		t.Fatalf("three-week shape weeks %d learning %v, want 3 and none", s.Weeks, s.Learning)
+	}
+	h := synthHistory(w)
+	h.covered = h.covered[1:]
+	var rows []hourRow
+	for _, r := range h.hourly {
+		if !r.hour.Equal(w.From) {
+			rows = append(rows, r)
+		}
+	}
+	h.hourly = rows
+	s = workloadOf(t, mustAssemble(t, synthRequest(w), h)).Families[0].Shape
+	if len(s.Learning) != 1 || s.Learning[0] != 0 || s.BucketWeeks[0] != 2 ||
+		s.BucketWeeks[1] != 3 {
+		t.Fatalf("bucket 0 seen twice: learning %v weeks %v, want only bucket 0 at 2",
+			s.Learning, s.BucketWeeks[:2])
+	}
+}
+
 func manyFamilies(w Window, n int) history {
 	h := synthHistory(w)
 	h.hourly, h.texts = nil, map[int64]string{}
