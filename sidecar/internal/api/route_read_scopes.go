@@ -22,7 +22,11 @@ var readRouteScopes = map[string]readScope{
 	"GET /api/v1/databases/{db}/ask/conversations/{id}": readDatabase(pathDB),
 	"GET /api/v1/databases/{db}/ask/runs/{id}":          readDatabase(pathDB),
 	"GET /api/v1/databases/{db}/investigations":         readDatabase(pathDB),
-	"GET /api/v1/databases/{db}/investigations/{id}":    readDatabase(pathDB),
+	// evid-02a: a database's workload evidence packs.
+	"GET /api/v1/databases/{db}/workload-packs":                        readDatabase(pathDB),
+	"GET /api/v1/databases/{db}/workload-packs/{sha}":                  readDatabase(pathDB),
+	"GET /api/v1/databases/{db}/workload-packs/{sha}/evidence/{id...}": readDatabase(pathDB),
+	"GET /api/v1/databases/{db}/investigations/{id}":                   readDatabase(pathDB),
 	"GET /api/v1/databases/{db}/investigations/{id}/events": readDatabase(
 		pathDB),
 	"GET /api/v1/databases/{db}/investigations/{id}/evidence/{evidence}": readDatabase(
