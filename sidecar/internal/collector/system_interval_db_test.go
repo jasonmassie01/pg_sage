@@ -31,7 +31,31 @@ func sysIntervalCollectorOn(t *testing.T, pool *pgxpool.Pool) (*pgxpool.Pool, *C
 		SELECT g AS id, repeat('x', 200) AS pad FROM generate_series(1, 5000) g`); err != nil {
 		t.Fatalf("fixture: %v", err)
 	}
+	waitDatabaseStatsPublished(t, pool)
 	return pool, New(pool, testConfig(), version, noopLog)
+}
+
+// waitDatabaseStatsPublished waits until pg_stat_database shows the
+// fixture's own work in the freshly created database: PG14's statistics
+// collector publishes a backend's counters up to 500 ms late, so a first
+// snapshot taken at once could read zeros for a database nobody has
+// reported on yet (round 3: "counters not read: hit=0 commit=0").
+func waitDatabaseStatsPublished(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	ctx := context.Background()
+	for range 40 {
+		var ready bool
+		if err := pool.QueryRow(ctx, `SELECT blks_hit > 0 AND xact_commit + xact_rollback > 0
+			FROM pg_catalog.pg_stat_database WHERE datname = current_database()`).
+			Scan(&ready); err != nil {
+			t.Fatalf("read pg_stat_database: %v", err)
+		}
+		if ready {
+			return
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	t.Fatal("pg_stat_database never showed the fixture's work within 10 s")
 }
 
 // collectAndPublish runs one real collection and publishes it as latest,
