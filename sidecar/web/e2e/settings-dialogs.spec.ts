@@ -5,6 +5,36 @@
 
 import { test, expect, type Page } from '@playwright/test'
 import { mockAllAPIs } from './fixtures'
+import { readFileSync } from 'node:fs'
+
+type KeyMeta = { min?: number, max?: number, type?: string }
+// config_meta.json is the bundle's per-key contract (min, max, type).
+const META = JSON.parse(readFileSync(
+  new URL('../src/generated/config_meta.json', import.meta.url), 'utf8')) as
+  Record<string, KeyMeta>
+
+// fillEveryInput gives each number input of the tab a new value inside its
+// key's range: Save refuses an out-of-range edit before the review dialog
+// opens (config-02b), so 900 + i only where the range allows it.
+async function fillEveryInput(page: Page) {
+  const inputs = page.locator('input[type="number"]')
+  const count = await inputs.count()
+  for (let i = 0; i < count; i += 1) {
+    const input = inputs.nth(i)
+    const key = (await input.getAttribute('data-testid') ?? '').replace(/^setting-/, '')
+    await input.fill(inRangeValue(META[key] ?? {}, 900 + i, await input.inputValue()))
+  }
+  return count
+}
+
+function inRangeValue(meta: KeyMeta, wanted: number, current: string) {
+  const min = meta.min ?? 0
+  const max = meta.max ?? Number.MAX_SAFE_INTEGER
+  const whole = /^u?int/.test(meta.type ?? 'int')
+  let v = wanted <= max ? wanted : (whole ? Math.floor((min + max) / 2) : (min + max) / 2)
+  if (String(v) === current) v = whole ? v - 1 : v / 2
+  return String(Math.max(min, v))
+}
 
 async function openAdvancedTab(page: Page, tab: string) {
   await page.goto('#/settings')
@@ -101,12 +131,8 @@ test.describe('Settings dialogs by keyboard', () => {
   test('a long diff scrolls inside the dialog, not the page', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 420 })
     await openAdvancedTab(page, 'analyzer')
-    const inputs = page.locator('input[type="number"]')
-    const count = await inputs.count()
+    const count = await fillEveryInput(page)
     expect(count).toBeGreaterThanOrEqual(5)
-    for (let i = 0; i < count; i += 1) {
-      await inputs.nth(i).fill(String(900 + i))
-    }
     await page.getByTestId('settings-save').click()
     const rows = page.getByTestId('config-diff-rows')
     await expect(rows.getByTestId(/^config-diff-row-/)).toHaveCount(count)
@@ -124,9 +150,7 @@ test.describe('Settings dialogs by keyboard', () => {
   test('a long diff can be reached and scrolled by keyboard', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 420 })
     await openAdvancedTab(page, 'analyzer')
-    const inputs = page.locator('input[type="number"]')
-    const count = await inputs.count()
-    for (let i = 0; i < count; i += 1) await inputs.nth(i).fill(String(900 + i))
+    await fillEveryInput(page)
     await page.getByTestId('settings-save').click()
     const rows = page.getByRole('region', { name: /configuration changes/i })
     await expect(page.getByTestId('config-diff-cancel')).toBeFocused()

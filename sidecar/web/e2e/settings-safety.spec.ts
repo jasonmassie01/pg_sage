@@ -94,7 +94,10 @@ test('tier3_safe goes on, off and on again with two PUTs', async ({ page }) => {
 test('a refused save shows the server message beside the diff and changes nothing',
   async ({ page }) => {
     const state = configState()
-    const message = 'validate: trust.rollback_threshold_pct must be 0-100, got -1'
+    // Save refuses an out-of-range value before the PUT (config-02b), so the
+    // refusal here is one only the server makes: a server whose range is
+    // narrower than this bundle's config_meta.json (a version skew).
+    const message = 'validate: trust.rollback_threshold_pct must be 0-30, got 40'
     // Multi-key saves are atomic (ValidateConfigOverride): one bad key
     // refuses the whole PUT (TestGlobalPutTrustCeilingRejectsNegativeThreshold).
     const { puts } = await routeConfig(page, state,
@@ -102,15 +105,15 @@ test('a refused save shows the server message beside the diff and changes nothin
     await openTrustSafety(page)
     const toggle = page.getByTestId(`setting-${TIER3}`)
     await toggle.click()
-    await page.getByTestId('setting-trust.rollback_threshold_pct').fill('-1')
+    await page.getByTestId('setting-trust.rollback_threshold_pct').fill('40')
     await saveReviewed(page)
 
     const dialog = page.getByTestId('config-diff-modal')
     await expect(dialog.getByTestId('config-diff-error')).toHaveText(message)
     await expect(dialog.getByTestId(`config-diff-after-${TIER3}`)).toHaveText('false')
     await expect(dialog.getByTestId('config-diff-after-trust.rollback_threshold_pct'))
-      .toHaveText('-1')
-    expect(puts).toEqual([{ [TIER3]: 'false', 'trust.rollback_threshold_pct': '-1',
+      .toHaveText('40')
+    expect(puts).toEqual([{ [TIER3]: 'false', 'trust.rollback_threshold_pct': '40',
       expected_generation: 1 }])
     expect(state).toMatchObject({ tier3Safe: 'true', tier3Source: 'file/default',
       generation: 1 })
