@@ -192,13 +192,15 @@ pg_sage could not measure is ever zero or left out: it is `unknown` (or `absent`
   parse is kept as text).
 - `schema.json` (`schema/table/<schema.table>`): tables and partition roots, with size,
   partition key and partition count, columns, constraints and index definitions. At most
-  2,000 tables and 20,000 columns, with `truncated`. pg_sage's and the system schemas are
-  left out.
+  2,000 tables and 20,000 columns, with `truncated`; a table whose constraint or index
+  list reached its bound is left out with the tables after it, never listed half.
+  pg_sage's and the system schemas are left out.
 - `plans.json` (`plan/query/<queryid>`): the latest captured plan before the window's
   end of each of the top 50 queryids. It is shape only (`planhash.Shape`: structure,
   plan rows, total cost, actual rows and loops), with its fingerprint.
 - `connections.json` (`connections/hour/<0-167>`): mean client sessions per hour of week,
-  by state and by connection age.
+  by state and by connection age (under 1 min, 1-10 min, 10-60 min, 1 h or more, and
+  `unknown` for a session whose start the monitoring role cannot see).
 - `provider.json` (`provider/<fact>`): instance class, vCPUs, memory, storage and the
   serverless flag from the cloud telemetry, or `provider/status = unknown`. It is never
   inferred.
