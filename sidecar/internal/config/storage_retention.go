@@ -31,6 +31,10 @@ const (
 	DefaultRetentionQueryRollupDailyDays  = 400
 )
 
+// DefaultRetentionWorkloadPacksDays keeps a stored workload evidence pack
+// (evid-02a) half a year after it was built.
+const DefaultRetentionWorkloadPacksDays = 180
+
 // validateStorage refuses query_store_days outside 0-3650 and
 // snapshots_max_pct outside 0-100 (0 disables either), and the rollup
 // windows (validateRollup).
@@ -46,7 +50,8 @@ func (r RetentionConfig) validateStorage() error {
 	return r.validateRollup()
 }
 
-// validateRollup refuses rollup windows outside 0-3650 (0 disables), an
+// validateRollup refuses rollup and workload pack windows outside 0-3650
+// (0 disables), an
 // hourly window longer than the snapshots it is rebuilt from (the default
 // follows a smaller snapshots_days instead), and a daily window shorter
 // than the hourly one (an hour is purged only once its day is rolled).
@@ -57,6 +62,7 @@ func (r RetentionConfig) validateRollup() error {
 	}{
 		{"query_rollup_hourly_days", r.QueryRollupHourlyDays},
 		{"query_rollup_daily_days", r.QueryRollupDailyDays},
+		{"workload_packs_days", r.WorkloadPacksDays},
 	} {
 		if k.days < 0 || k.days > maxRetentionQueryStoreDays {
 			return fmt.Errorf("retention.%s must be 0-%d, got %d", k.key,
