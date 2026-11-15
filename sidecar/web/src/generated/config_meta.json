@@ -3228,6 +3228,20 @@
     "min": 1,
     "max": 1073741824
   },
+  "retention.query_rollup_daily_days": {
+    "type": "int",
+    "default": 400,
+    "doc": "Days to keep the daily per-query rollup and the hourly coverage rows. At least query_rollup_hourly_days. 0 disables. Range 0-3650. Default 400.",
+    "class": "derivable",
+    "lifecycle": "restart"
+  },
+  "retention.query_rollup_hourly_days": {
+    "type": "int",
+    "default": 35,
+    "doc": "Days to keep the hourly per-query rollup; an hour goes once its day is in the daily tier. At most snapshots_days (the default follows a smaller one). 0 disables. Range 0-3650. Default 35.",
+    "class": "derivable",
+    "lifecycle": "restart"
+  },
   "retention.query_store_days": {
     "type": "int",
     "default": 14,

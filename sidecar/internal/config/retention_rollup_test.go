@@ -45,7 +45,7 @@ func TestRollupRetention_OutOfRangeNamesTheKey(t *testing.T) {
 		{"query_rollup_hourly_days: -1", "retention.query_rollup_hourly_days"},
 		{"query_rollup_hourly_days: 3651", "retention.query_rollup_hourly_days"},
 	} {
-		_, err := loadRCAYAML(t, "retention:\n  snapshots_days: 0\n  "+tc.yaml+"\n")
+		_, err := loadRCAYAML(t, "retention:\n  "+tc.yaml+"\n")
 		if err == nil || !strings.Contains(err.Error(), tc.key) ||
 			!strings.Contains(err.Error(), "0-3650") {
 			t.Fatalf("%s: err = %v, want one naming %s and its range", tc.yaml, err, tc.key)
@@ -65,7 +65,7 @@ func TestRollupRetention_Boundaries(t *testing.T) {
 		{"snapshots_days: 40\n  query_rollup_hourly_days: 40", true, ""},
 		{"snapshots_days: 40\n  query_rollup_hourly_days: 41", false,
 			"cannot exceed retention.snapshots_days"},
-		{"snapshots_days: 0\n  query_rollup_hourly_days: 3650\n  query_rollup_daily_days: 0",
+		{"snapshots_days: 3650\n  query_rollup_hourly_days: 3650\n  query_rollup_daily_days: 0",
 			true, ""},
 		{"query_rollup_hourly_days: 30\n  query_rollup_daily_days: 29", false,
 			"retention.query_rollup_daily_days"},

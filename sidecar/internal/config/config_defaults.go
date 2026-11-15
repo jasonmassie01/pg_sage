@@ -382,6 +382,9 @@ func defaultRetentionConfig() RetentionConfig {
 		AuthAuditDays:      DefaultRetentionAuthAuditDays,
 		QueryStoreDays:     DefaultRetentionQueryStoreDays,
 		SnapshotsMaxPct:    DefaultRetentionSnapshotsMaxPct,
+
+		QueryRollupHourlyDays: DefaultRetentionQueryRollupHourlyDays,
+		QueryRollupDailyDays:  DefaultRetentionQueryRollupDailyDays,
 	}
 }
 

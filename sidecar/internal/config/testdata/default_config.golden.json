@@ -476,7 +476,9 @@
     "AuthAuditDays": 365,
     "SageSizeWarningPct": 10,
     "QueryStoreDays": 14,
-    "SnapshotsMaxPct": 5
+    "SnapshotsMaxPct": 5,
+    "QueryRollupHourlyDays": 35,
+    "QueryRollupDailyDays": 400
   },
   "Prometheus": {
     "ListenAddr": "127.0.0.1:8187",
