@@ -6,14 +6,22 @@ import (
 )
 
 // evid-02a: sage.workload_packs stores each built workload evidence pack
-// once per database and content hash. The step is the last of tranche
-// five. No concurrent access tests: the step is a constant string (the
+// once per database and content hash. The step follows the evid-01b rollup
+// tables in tranche five. No concurrent access tests: the step is a constant string (the
 // bootstrap lock serializes it; see the DB test).
 
-func TestWorkloadPacksStep_IsTheLastTrancheFiveStep(t *testing.T) {
+func TestWorkloadPacksStep_IsATrancheFiveStep(t *testing.T) {
 	steps := trancheFiveMigrations()
-	if last := steps[len(steps)-1]; last[0] != "ddlWorkloadPacks" || last[1] != ddlWorkloadPacks {
-		t.Fatalf("last tranche five step %q, want ddlWorkloadPacks", last[0])
+	idx := -1
+	for i, step := range steps {
+		if step[0] == "ddlWorkloadPacks" && step[1] == ddlWorkloadPacks {
+			idx = i
+		}
+	}
+	// evid-03a's ddlFactsOwnerBrief merged in after this step; the pack
+	// step must stay in tranche five, after the evid-01b rollup tables.
+	if idx < 1 || steps[idx-1][0] != "ddlHistoryMigrationRollupTables" {
+		t.Fatalf("ddlWorkloadPacks at %d of tranche five, want after the rollup tables", idx)
 	}
 	var found []string
 	for _, step := range migrationSteps() {

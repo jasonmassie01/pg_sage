@@ -238,5 +238,6 @@ func trancheFiveMigrations() []namedStep {
 		{"ddlQueryRollupDaily", ddlQueryRollupDaily},                         // evid-01b
 		{"ddlHistoryMigrationRollupTables", ddlHistoryMigrationRollupTables}, // evid-01b
 		{"ddlWorkloadPacks", ddlWorkloadPacks},                               // evid-02a
+		{"ddlFactsOwnerBrief", ddlFactsOwnerBrief},                           // evid-03a
 	}
 }

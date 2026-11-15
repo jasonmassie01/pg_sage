@@ -70,7 +70,9 @@ describe('FactsPage listing', () => {
     const mock = stubFetch({ listBody: () => ({ facts: [proposed], total: 1, errors: [] }) })
     render(<FactsPage database="orders" user={operator} />)
     const card = await screen.findByTestId('fact-card-12')
-    expect(gets(mock)[0]).toBe('/api/v1/facts?database=orders&status=proposed')
+    // The owner brief form (evid-03b) reads its brief too; the list asks
+    // for the proposed facts by default.
+    expect(gets(mock)).toContain('/api/v1/facts?database=orders&status=proposed')
     const explainer = screen.getByTestId('facts-explainer')
     expect(explainer).toHaveTextContent(/only narrow or redirect/i)
     expect(explainer).toHaveTextContent(/source-fix packet/i)

@@ -173,6 +173,7 @@ var routeProbes = []routeProbe{
 	{"GET", "/api/v1/databases/7/ask/conversations"},
 	{"GET", "/api/v1/databases/7/ask/conversations/7"},
 	{"GET", "/api/v1/databases/7/ask/runs/7"},
+	{"GET", "/api/v1/databases/7/facts/peak-suggestion"},
 	{"GET", "/api/v1/databases/7/investigations"},
 	{"GET", "/api/v1/databases/7/investigations/7"},
 	{"GET", "/api/v1/databases/7/investigations/7/events"},
