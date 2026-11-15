@@ -55,7 +55,8 @@ func TestMigration_MovesTheRollupAndRebuildsTheHourlyTier(t *testing.T) {
 	truncateAllRollup(t, p)
 	start := writeThreeHours(t, p)
 	for k := range 3 {
-		if _, err := RollupHour(ctx, p.Monitored, start.Add(time.Duration(k)*time.Hour)); err != nil {
+		hour := start.Add(time.Duration(k) * time.Hour)
+		if _, err := RollupHour(ctx, p.Monitored, hour); err != nil {
 			t.Fatal(err)
 		}
 	}

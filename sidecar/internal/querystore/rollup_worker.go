@@ -22,6 +22,8 @@ const rollupDueAfter = 5 * time.Minute
 // RollupWorker keeps one monitored database's hourly rollup current: it
 // backfills every closed hour from the oldest queries snapshot, 24 hours
 // per pass, then rolls hour h-1 at :05 and re-rolls h-2 (late snapshots).
+// Each pass then rolls the closed days whose hours are rolled into the
+// daily tier, day d-1 from 00:15 (rollDays).
 // Store is the monitored pool (or a histstore.Store); Database names the
 // metric series. It writes only sage history tables.
 type RollupWorker struct {
@@ -97,7 +99,7 @@ func (w *RollupWorker) Pass(ctx context.Context) (int, error) {
 	}
 	if !ok {
 		setRollupLag(w.Database, 0)
-		return 0, nil
+		return 0, w.passDays(ctx)
 	}
 	rolled := 0
 	for _, h := range passHours(next, last) {
@@ -118,7 +120,15 @@ func (w *RollupWorker) Pass(ctx context.Context) (int, error) {
 		noteRollupHour(w.Database, result)
 	}
 	setRollupLag(w.Database, max(last.Sub(next).Hours()+1, 0))
-	return rolled, nil
+	return rolled, w.passDays(ctx)
+}
+
+// passDays rolls the days that are due into the daily tier (evid-01b),
+// after the hours: a backfilled day is rolled in the pass that rolled its
+// last hour.
+func (w *RollupWorker) passDays(ctx context.Context) error {
+	_, err := w.rollDays(ctx)
+	return err
 }
 
 // resume is the first hour not rolled: after the newest rolled hour, or

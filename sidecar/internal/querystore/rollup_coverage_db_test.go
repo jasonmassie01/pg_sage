@@ -16,12 +16,12 @@ import (
 
 // coverageFix writes one coverage row.
 type coverageFix struct {
-	hour            time.Time
-	db              *float64
-	sampled         float64
-	queryids, brk   int
-	dealloc         *int64
-	source          string
+	hour          time.Time
+	db            *float64
+	sampled       float64
+	queryids, brk int
+	dealloc       *int64
+	source        string
 }
 
 func insertCoverage(t *testing.T, db any, c coverageFix) {

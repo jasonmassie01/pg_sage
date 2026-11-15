@@ -3,6 +3,7 @@ package querystore
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -35,8 +36,9 @@ func insertHourly(t testing.TB, db any, f hourlyFix) {
 	_, err := histstore.Resolve(db).Exec(context.Background(), `INSERT INTO
 		sage.query_rollup_hourly (queryid, hour, calls, exec_ms, rows, shared_blks_hit,
 		shared_blks_read, temp_blks_read, temp_blks_written, wal_bytes, plan_hash,
-		epoch_break, pairs{dbcol}) VALUES ($1, $2, $3, $4, $3 * 3, $3 * 7, $3, 1, 2,
-		$3 * 100, $5, $6, 11{dbval})`, f.qid, f.hour, f.calls, f.exec, f.plan, f.brk)
+		epoch_break, pairs{dbcol}) VALUES ($1, $2, $3::int8, $4, $3::int8 * 3,
+		$3::int8 * 7, $3::int8, 1, 2,
+		$3::int8 * 100, $5, $6, 11{dbval})`, f.qid, f.hour, f.calls, f.exec, f.plan, f.brk)
 	if err != nil {
 		t.Fatalf("insert hourly row %+v: %v", f, err)
 	}
@@ -112,7 +114,7 @@ func writeTwoDays(t *testing.T, db any, day0 time.Time) {
 	}
 }
 
-func checkDay(t *testing.T, mode histstore.Mode, got dailyRow, calls int64, exec float64,
+func checkDailyRow(t *testing.T, mode histstore.Mode, got dailyRow, calls int64, exec float64,
 	hours, breaks, plans int16, last string) {
 	t.Helper()
 	if got.calls != calls || got.rows != 3*calls || got.hit != 7*calls ||
@@ -160,11 +162,11 @@ func TestRollupDay_SumsTheHoursInBothPlacements(t *testing.T) {
 				dailyCount(t, p.Monitored))
 		}
 		// day 0: hours 0-23, calls 1..24 = 300, exec 0.5..23.5 = 288
-		checkDay(t, mode, got0, 300, 288, 24, 0, 1, "p1")
+		checkDailyRow(t, mode, got0, 300, 288, 24, 0, 1, "p1")
 		// day 1: hours 24-47, calls 25..48 = 876, exec 24.5..47.5 = 864, one break,
 		// the plan flipped once (p1 then p2)
-		checkDay(t, mode, got1, 876, 864, 24, 1, 2, "p2")
-		checkDay(t, mode, got6, 20, 10, 10, 0, 0, "")
+		checkDailyRow(t, mode, got1, 876, 864, 24, 1, 2, "p2")
+		checkDailyRow(t, mode, got6, 20, 10, 10, 0, 0, "")
 	}
 }
 
@@ -208,7 +210,7 @@ func TestRollupDay_EmptyAndPartlyPurgedDaysKeepTheirRows(t *testing.T) {
 	if _, err := RollupDay(ctx, p.Monitored, day0); err != nil {
 		t.Fatal(err)
 	}
-	if after, _ := readDaily(t, p.Monitored, 5, day0); after != before {
+	if after, _ := readDaily(t, p.Monitored, 5, day0); !reflect.DeepEqual(after, before) {
 		t.Fatalf("a partly purged day re-rolled to %+v, want %+v kept", after, before)
 	}
 	if _, ok := readDaily(t, p.Monitored, 6, day0); !ok {
