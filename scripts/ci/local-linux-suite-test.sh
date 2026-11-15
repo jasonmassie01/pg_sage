@@ -56,6 +56,11 @@ image)
     [[ $3 == "$img" ]] && { echo "Error: No such image: $3" >&2; exit 1; }
   done
   echo sha256:stub ;;
+volume) # inspect: fails for a volume named in STUB_MISSING_VOLUMES
+  for v in ${STUB_MISSING_VOLUMES:-}; do
+    [[ $3 == "$v" ]] && { echo "Error: No such volume: $3" >&2; exit 1; }
+  done
+  echo "[]" ;;
 container) # inspect: prints the owner label of a known container
   name=${!#}
   for c in ${STUB_EXISTING:-}; do [[ $name == "$c" ]] && { echo other-run; exit 0; }; done
@@ -81,6 +86,7 @@ run)
     [[ -z ${STUB_NO_GCC:-} ]] || exit 1; echo /usr/bin/gcc
   elif [[ $* == *"-race"*"/probe"* || $* == *"/probe"*"-race"* ]]; then
     [[ -z ${STUB_RACE_FAIL:-} ]] || { echo "ld: cannot find -lracego" >&2; exit 1; }
+    echo "go version go1.27.3 linux/amd64"
   elif [[ $2 == -d ]]; then
     echo "$name $label" >>"$STUB_STATE"
   fi ;;
@@ -141,6 +147,10 @@ names_b=$(grep '^plan' <<<"$out" | grep -oE '(server|go)=improve-[a-z0-9-]*' | s
 mkdir -p "$work/goroot/bin" && touch "$work/goroot/bin/go"
 expect 0 'go-root=.*goroot' "dry run: GO_ROOT with bin/go" -- \
   $dry GO_ROOT="$work/goroot" bash "$script" "$(newout)" 14
+expect 0 'go-image=golang:1.25 go-root=volume:improve-go1273-root' \
+  "dry run: GO_ROOT_VOLUME" -- \
+  $dry GO_IMAGE=golang:1.25 GO_ROOT_VOLUME=improve-go1273-root bash "$script" "$(newout)" 14
+no_docker_call "a GO_ROOT_VOLUME dry run touches no docker"
 
 # Invalid input.
 expect 2 'usage: .*local-linux-suite.sh <out-dir>' "missing out-dir" -- $dry bash "$script"
@@ -159,6 +169,12 @@ expect 2 "LOCAL_SUITE_GOCACHE 'gocache' must start with improve-" "cache volume 
   $dry LOCAL_SUITE_GOCACHE=gocache bash "$script" "$(newout)"
 expect 2 'GO_ROOT .*nope has no bin/go' "GO_ROOT without go" -- \
   $dry GO_ROOT="$work/nope" bash "$script" "$(newout)"
+expect 2 'GO_ROOT and GO_ROOT_VOLUME are both set' "GO_ROOT and GO_ROOT_VOLUME" -- \
+  $dry GO_ROOT="$work/goroot" GO_ROOT_VOLUME=improve-go1273-root bash "$script" "$(newout)"
+expect 2 "GO_ROOT_VOLUME 'bad/vol' is not a volume name" "bad GO_ROOT_VOLUME" -- \
+  $dry GO_ROOT_VOLUME=bad/vol bash "$script" "$(newout)"
+expect 2 "GO_ROOT_VOLUME '-v' is not a volume name" "GO_ROOT_VOLUME as an option" -- \
+  $dry GO_ROOT_VOLUME=-v bash "$script" "$(newout)"
 expect 2 "LOCAL_SUITE_GO_MEMORY '6 g'" "bad memory cap" -- \
   $dry "LOCAL_SUITE_GO_MEMORY=6 g" bash "$script" "$(newout)"
 expect 2 "LOCAL_SUITE_REV 'no-such-rev' is not a commit" "unknown revision" -- \
@@ -180,6 +196,11 @@ expect 6 "GO_IMAGE golang:9.9-none is not present locally" "GO_IMAGE missing loc
 grep -q 'docker pull' "$log" && fail "the script pulled an image: $(cat "$log")"
 expect 6 "PG_IMAGE_15 postgres:15 is not present locally" "PG image missing locally" -- \
   $guard FAKE_FREE_GB=99 STUB_MISSING_IMAGES=postgres:15 bash "$script" "$(newout)"
+expect 6 "GO_ROOT_VOLUME improve-none is not present locally" "GO_ROOT_VOLUME missing" -- \
+  $guard FAKE_FREE_GB=99 GO_ROOT_VOLUME=improve-none STUB_MISSING_VOLUMES=improve-none \
+  bash "$script" "$(newout)" 17
+grep -q 'docker volume create' "$log" && fail "the script created a volume: $(cat "$log")"
+grep -q 'docker run' "$log" && fail "a container started without its Go volume: $(cat "$log")"
 expect 7 'GO_IMAGE has no C compiler: cgo and -race cannot run' "no gcc" -- \
   $guard FAKE_FREE_GB=99 STUB_NO_GCC=1 bash "$script" "$(newout)" 17
 grep -q 'CGO_ENABLED=0' "$log" && fail "no gcc fell back to CGO_ENABLED=0: $(cat "$log")"
@@ -233,6 +254,30 @@ grep -q 'suite=0' "$o/pg17/status.txt" && grep -q 'skipbudget=0' "$o/pg17/status
 grep -q 'covfloor=0' "$o/pg17/status.txt" ||
   fail "status.txt lacks the coverage floors result: $(cat "$o/pg17/status.txt")"
 grep -q '^go run ./cmd/covfloor' "$log" || fail "covfloor did not run: $(cat "$log")"
+
+# GO_ROOT_VOLUME: every Go container mounts the volume read-only at /opt/go
+# with GOROOT and PATH pointing at it; the server never mounts it.
+o=$(newout)
+expect 0 'summary: .*summary.md' "stubbed full run with GO_ROOT_VOLUME" -- \
+  $guard FAKE_FREE_GB=99 GO_IMAGE=golang:1.25 GO_ROOT_VOLUME=improve-go1273-root \
+  bash "$script" "$o" 17
+grep -q '^docker volume inspect improve-go1273-root$' "$log" ||
+  fail "the Go volume was not checked: $(cat "$log")"
+goruns=$(grep '^docker run' "$log" | grep -v -- '--name improve-ci-pg17 ')
+[[ $(grep -c . <<<"$goruns") -eq 4 ]] || fail "want 4 Go containers: $goruns"
+while IFS= read -r r; do
+  [[ $r == *" -v improve-go1273-root:/opt/go:ro "* && $r == *" -e GOROOT=/opt/go "* &&
+    $r == *" -e PATH=/opt/go/bin:"* ]] ||
+    fail "a Go container lacks the read-only Go volume, GOROOT or PATH: $r"
+done <<<"$goruns"
+grep '^docker run' "$log" | grep -- '--name improve-ci-pg17 ' | grep -q improve-go1273-root &&
+  fail "the server mounted the Go volume"
+grep -oE 'improve-go1273-root:[^ ]*' "$log" | grep -vqx 'improve-go1273-root:/opt/go:ro' &&
+  fail "the Go volume was mounted writable: $(grep -oE 'improve-go1273-root:[^ ]*' "$log")"
+grep -qx 'go_root=volume:improve-go1273-root' "$o/run.txt" ||
+  fail "run.txt lacks the Go volume: $(cat "$o/run.txt")"
+grep -qx 'go_version=go version go1.27.3 linux/amd64' "$o/run.txt" ||
+  fail "run.txt lacks the toolchain's go version: $(cat "$o/run.txt")"
 
 # ci-20: a package under its floor fails the run; covfloor runs on PG17 only.
 o=$(newout)

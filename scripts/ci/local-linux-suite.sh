@@ -21,8 +21,10 @@
 # Environment:
 #   GO_IMAGE               Go image, needs gcc (default golang:1.27.3-alpine3.24,
 #                          which has none, so the run stops on exit 7)
-#   GO_ROOT                Linux Go tree mounted read-only at /opt/go and put
-#                          first on PATH (default: none)
+#   GO_ROOT                Linux Go tree mounted read-only at /opt/go, set as
+#                          GOROOT and put first on PATH (default: none)
+#   GO_ROOT_VOLUME         Docker volume holding such a tree, used the same way
+#                          instead of GO_ROOT (default: none; never created)
 #   PG_IMAGE_<N>           server image (default improve-pg:<N>, postgres:15)
 #   LOCAL_SUITE_PREFIX     container name prefix (must start with improve-)
 #   LOCAL_SUITE_GOCACHE    Go build cache volume (default improve-ci-gocache)
@@ -52,6 +54,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../.." && pwd -P)
 GO_IMAGE=${GO_IMAGE-golang:1.27.3-alpine3.24}
 GO_ROOT=${GO_ROOT:-}
+GO_ROOT_VOLUME=${GO_ROOT_VOLUME:-}
 PREFIX=${LOCAL_SUITE_PREFIX-improve-ci-}
 GOCACHE_VOL=${LOCAL_SUITE_GOCACHE-improve-ci-gocache}
 GO_MEMORY=${LOCAL_SUITE_GO_MEMORY-6g}
@@ -120,6 +123,11 @@ validate_env() {
   if [ -n "$GO_ROOT" ] && [ ! -f "$GO_ROOT/bin/go" ]; then
     die 2 "GO_ROOT $GO_ROOT has no bin/go (a Linux Go tree is expected)"
   fi
+  if [ -n "$GO_ROOT_VOLUME" ]; then
+    [ -z "$GO_ROOT" ] || die 2 "GO_ROOT and GO_ROOT_VOLUME are both set: give one Go tree"
+    [[ $GO_ROOT_VOLUME =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] ||
+      die 2 "GO_ROOT_VOLUME '$GO_ROOT_VOLUME' is not a volume name"
+  fi
   check_image_name GO_IMAGE "$GO_IMAGE"
   local m
   for m in "${MAJORS[@]}"; do check_image_name "PG_IMAGE_$m" "$(pg_image "$m")"; done
@@ -127,8 +135,14 @@ validate_env() {
     die 2 "LOCAL_SUITE_REV '$REV' is not a commit in $repo"
 }
 
+# go_root_desc: the Go tree the Go containers use, as run.txt records it.
+go_root_desc() {
+  if [ -n "$GO_ROOT_VOLUME" ]; then echo "volume:$GO_ROOT_VOLUME"; else echo "${GO_ROOT:-none}"; fi
+}
+
 print_plan() {
-  local m root=${GO_ROOT:-none}
+  local m root
+  root=$(go_root_desc)
   echo "dry run: inputs valid"
   for m in "${MAJORS[@]}"; do
     echo "plan pg$m server=${PREFIX}pg$m image=$(pg_image "$m") go=${PREFIX}go-pg$m" \
@@ -157,6 +171,10 @@ check_images() {
   local m
   dk 60 image inspect "$GO_IMAGE" >/dev/null 2>&1 ||
     die 6 "GO_IMAGE $GO_IMAGE is not present locally; the script never pulls"
+  if [ -n "$GO_ROOT_VOLUME" ]; then
+    dk 60 volume inspect "$GO_ROOT_VOLUME" >/dev/null 2>&1 ||
+      die 6 "GO_ROOT_VOLUME $GO_ROOT_VOLUME is not present locally; the script never creates it"
+  fi
   for m in "${MAJORS[@]}"; do
     dk 60 image inspect "$(pg_image "$m")" >/dev/null 2>&1 ||
       die 6 "PG_IMAGE_$m $(pg_image "$m") is not present locally; the script never pulls"
@@ -192,8 +210,11 @@ go_args() {
     --cpus=4 --cpu-shares=256 --oom-score-adj=500
     -e CGO_ENABLED=1 -e GOPROXY=off -e GOTOOLCHAIN=local -e GOCACHE=/gocache
     -v "$GOCACHE_VOL:/gocache")
-  if [ -n "$GO_ROOT" ]; then
-    GO_ARGS+=(-v "$(host_path "$GO_ROOT"):/opt/go:ro"
+  local src=
+  [ -n "$GO_ROOT" ] && src=$(host_path "$GO_ROOT")
+  [ -n "$GO_ROOT_VOLUME" ] && src=$GO_ROOT_VOLUME
+  if [ -n "$src" ]; then
+    GO_ARGS+=(-v "$src:/opt/go:ro" -e GOROOT=/opt/go
       -e "PATH=/opt/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
   fi
 }
@@ -228,7 +249,8 @@ func TestRaceRuntimeLinks(t *testing.T) {
 }
 EOF
   if ! dk 600 run "${GO_ARGS[@]}" -e GOFLAGS= -v "$(host_path "$OUT/probe"):/probe" \
-    -w /probe "$GO_IMAGE" go test -race -count=1 ./... >"$OUT/race-probe.txt" 2>&1; then
+    -w /probe "$GO_IMAGE" sh -c 'go version && go test -race -count=1 ./...' \
+    >"$OUT/race-probe.txt" 2>&1; then
     tail -20 "$OUT/race-probe.txt" >&2
     die 9 "the race runtime does not link in GO_IMAGE; use a glibc image ($GO_IMAGE)"
   fi
@@ -241,8 +263,9 @@ stage_source() {
   local st=("${PIPESTATUS[@]}")
   [ "${st[0]}" -eq 0 ] && [ "${st[1]}" -eq 0 ] ||
     die 1 "staging $REV_SHA into $OUT/stage failed (git archive ${st[0]}, tar ${st[1]})"
-  printf 'rev=%s\ngo_image=%s\ngo_root=%s\nmajors=%s\n' "$REV_SHA" "$GO_IMAGE" \
-    "${GO_ROOT:-none}" "${MAJORS[*]}" >"$OUT/run.txt"
+  printf 'rev=%s\ngo_image=%s\ngo_root=%s\ngo_version=%s\nmajors=%s\n' "$REV_SHA" \
+    "$GO_IMAGE" "$(go_root_desc)" "$(grep -m1 '^go version ' "$OUT/race-probe.txt")" \
+    "${MAJORS[*]}" >"$OUT/run.txt"
 }
 
 vendor_source() {
