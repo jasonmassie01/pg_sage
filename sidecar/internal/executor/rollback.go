@@ -19,7 +19,7 @@ import (
 type RollbackMonitorConfig struct {
 	// V2 computes verification v2 beside the monitor's v1 verdict, stored
 	// as the other verdict (lab-01c); nil: v1 only.
-	V2 *verify.V2Options
+	V2               *verify.V2Options
 	ThresholdPct     int // regression bar on the targets' call-weighted mean
 	WindowMinutes    int // minimum window before the first verdict
 	CapMinutes       int // longest a non-drop action is watched for evidence

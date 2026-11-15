@@ -103,16 +103,16 @@ type Executor struct {
 	managedConfig      ManagedConfigAdapter
 	indexVerification  *verifiedIndexLifecycle
 	// methodResolver resolves verify.method for this database (lab-01c).
-	methodResolver *verify.MethodResolver
-	hostCPU            HostCPUReader
-	ioEvidence         IOEvidenceReader
-	retainedCleanupMu  sync.Mutex
-	recordFailures     recordFailureLog // rate-limits record-failure logs (policy-01)
-	resumeOnce         sync.Once
-	inflight           inflightRegistry        // running work the emergency stop cancels
-	leaseQueueCfg      policy.LeaseQueueConfig // serialize_mode queue bounds
-	postDDLMu          sync.RWMutex
-	postDDLHook        func(context.Context) error
+	methodResolver    *verify.MethodResolver
+	hostCPU           HostCPUReader
+	ioEvidence        IOEvidenceReader
+	retainedCleanupMu sync.Mutex
+	recordFailures    recordFailureLog // rate-limits record-failure logs (policy-01)
+	resumeOnce        sync.Once
+	inflight          inflightRegistry        // running work the emergency stop cancels
+	leaseQueueCfg     policy.LeaseQueueConfig // serialize_mode queue bounds
+	postDDLMu         sync.RWMutex
+	postDDLHook       func(context.Context) error
 	// retriesReopened is set once the startup sweep of transient unverifiable
 	// watches from before observation retries has succeeded (executor-02).
 	retriesReopened atomic.Bool
