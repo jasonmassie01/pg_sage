@@ -446,6 +446,11 @@ its evaluation order and every verdict and reason it records.
     detectors on the same catalog. The daily run still runs every detector.
   - Sweep findings take the analyzer's own path: the same identity, notifications,
     suppressions and resolution. A sweep resolves only its own detectors' findings.
+    Confirmed facts, clone-schema families and disabled rules shape them as in a cycle.
+    Before the collector's first snapshot the sweep waits: the first cycle runs every
+    detector.
+  - The hash covers the catalog, not sessions. An agent that connects as an owner on an
+    unchanged catalog is reported by AP-17 at the next catalog change or the daily run.
   - An unchanged catalog costs one hash query per sweep. Each sweep logs how many findings
     it reported.
   - Exposure findings (AP-03, AP-04, AP-05, AP-15, AP-17) carry `detail.mode = shadow`:

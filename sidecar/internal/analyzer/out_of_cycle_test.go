@@ -3,8 +3,12 @@ package analyzer
 import (
 	"context"
 	"errors"
+	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/collector"
 )
 
 // fleetpol-02a: a producer that runs between cycles (the agent posture
@@ -124,5 +128,64 @@ func TestMergeOutOfCycle_ReplacesOnlyTheRunsCategories(t *testing.T) {
 	if len(got) != 2 || got[0].ObjectIdentifier != "public.a" ||
 		got[1].ObjectIdentifier != "public.new" {
 		t.Fatalf("latest = %+v, want public.a then public.new", got)
+	}
+}
+
+// Concurrency: the cycle itself holds the cycle lock, so an out-of-cycle
+// run started while a cycle runs returns only after the cycle is done.
+func TestRunOutOfCycle_WaitsForTheCycleItself(t *testing.T) {
+	cfg := phase2Config()
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	logFn := func(_, msg string, _ ...any) {
+		if strings.Contains(msg, "no snapshot yet, skipping") {
+			once.Do(func() { close(entered); <-release })
+		}
+	}
+	a := New(nil, cfg, collector.New(nil, cfg, 170000, noopLog), nil, nil, nil, nil, logFn)
+	cycleDone := make(chan error, 1)
+	go func() { cycleDone <- a.cycle(context.Background()) }()
+	<-entered
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- a.RunOutOfCycle(context.Background(), func(context.Context) (OutOfCycle,
+			bool, error) {
+			return OutOfCycle{}, false, nil
+		})
+	}()
+	select {
+	case err := <-runDone:
+		t.Fatalf("the out-of-cycle run returned (%v) while a cycle ran", err)
+	case <-time.After(150 * time.Millisecond):
+	}
+	close(release)
+	<-cycleDone
+	select {
+	case err := <-runDone:
+		if err != nil {
+			t.Fatalf("err = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the out-of-cycle run never returned after the cycle ended")
+	}
+}
+
+// Before the collector's first snapshot there is nothing to derive the
+// run's findings against: the run is not started (the first cycle, which
+// waits for that snapshot, runs every detector) and nothing is published.
+func TestRunOutOfCycle_WaitsForTheFirstSnapshot(t *testing.T) {
+	cfg := phase2Config()
+	a := New(nil, cfg, collector.New(nil, cfg, 170000, noopLog), nil, nil, nil, nil, noopLog)
+	calls := 0
+	err := a.RunOutOfCycle(context.Background(), func(context.Context) (OutOfCycle, bool,
+		error) {
+		calls++
+		return OutOfCycle{Findings: []Finding{lifecycleFinding("x", "y", "info")}}, true, nil
+	})
+	if err != nil || calls != 0 {
+		t.Fatalf("err = %v, calls = %d; want nil and no run", err, calls)
+	}
+	if got := a.LatestFindings(); len(got) != 0 {
+		t.Fatalf("latest findings = %+v, want none", got)
 	}
 }
