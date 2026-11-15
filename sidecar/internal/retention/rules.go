@@ -271,7 +271,8 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		{table: "sre_eval_runs", timeCol: "ingested_at",
 			days: cfg.SRE.Autonomy.ReportRetentionDays, extra: keepEvalRun},
 	}
-	return append(append(rules, rollupPurgeRules(r)...), verifierBacktestRule)
+	rules = append(append(rules, rollupPurgeRules(r)...), verifierBacktestRule)
+	return append(rules, planPurgeRule(r))
 }
 
 // rollupPurgeRules age out the per-query rollup by tier (evid-01b): an
@@ -288,9 +289,10 @@ func rollupPurgeRules(r config.RetentionConfig) []purgeRule {
 		{table: "query_rollup_daily", timeCol: "day", days: r.QueryRollupDailyDays},
 		{table: "query_rollup_coverage", timeCol: "hour", days: r.QueryRollupDailyDays},
 		// Stored workload evidence packs (evid-02a) age from their build;
-		// a pack is never updated, only deleted.
+		// a pack is never updated, only deleted. A pack a plan cites is
+		// kept (plan-01a).
 		{table: "workload_packs", timeCol: "built_at", days: r.WorkloadPacksDays,
-			inHistory: true},
+			extra: keepCitedPacks(r.ActionsDays), inHistory: true},
 	}
 }
 

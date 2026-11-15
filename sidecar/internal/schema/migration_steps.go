@@ -241,5 +241,6 @@ func trancheFiveMigrations() []namedStep {
 		{"ddlFactsOwnerBrief", ddlFactsOwnerBrief},                           // evid-03a
 		{"ddlActionOutcomeVerifier", ddlActionOutcomeVerifier},               // lab-01c
 		{"ddlVerifierBacktest", ddlVerifierBacktest},                         // lab-02
+		{"ddlPlans", ddlPlans},                                               // plan-01a
 	}
 }
