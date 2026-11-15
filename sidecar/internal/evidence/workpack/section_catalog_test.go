@@ -151,6 +151,24 @@ func TestBuildSchema_TableAndColumnBounds(t *testing.T) {
 	}
 }
 
+// A table whose constraint or index list the parts bound cut is not kept
+// half-listed: it and every table after it are left out, and the section
+// says truncated.
+func TestBuildSchema_PartsBoundCutsAtTheFirstCutTable(t *testing.T) {
+	rows := tablesN(4, 1)
+	rows[2].partsCut = true
+	s := buildSchema(rows)
+	if len(s.Tables) != 2 || !s.Truncated || s.Tables[1].ID != "schema/table/s.t00001" ||
+		s.TablesTotal != 4 {
+		t.Fatalf("parts cut at table 2: %d kept (%+v), truncated %v, total %d",
+			len(s.Tables), s.Tables, s.Truncated, s.TablesTotal)
+	}
+	whole := buildSchema(tablesN(4, 1))
+	if len(whole.Tables) != 4 || whole.Truncated {
+		t.Fatalf("no cut: %d kept, truncated %v", len(whole.Tables), whole.Truncated)
+	}
+}
+
 func TestBuildPlans_ShapeUnreadableAbsentAndConditions(t *testing.T) {
 	at := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
 	plan := []byte(`[{"Plan": {"Node Type": "Seq Scan", "Relation Name": "orders",
