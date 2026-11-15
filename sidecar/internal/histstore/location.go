@@ -84,7 +84,7 @@ func checkSide(ctx context.Context, p Placement, src, dst Store, want Mode) erro
 	} else if dst.Scoped() {
 		id = dst.DatabaseID()
 	}
-	for _, table := range historyTables {
+	for _, table := range movedTables() {
 		m, err := readMark(ctx, dst.DB(), id, want, table)
 		if err != nil {
 			return err
@@ -140,6 +140,8 @@ func rowsAfter(ctx context.Context, src Store, table string, m mark) (bool, erro
 	var sql string
 	var args []any
 	switch table {
+	case "query_rollup_daily", "query_rollup_coverage":
+		return derivedRowsAfter(ctx, src, table, m)
 	case "snapshots":
 		sql = `/* pg_sage */ SELECT EXISTS (SELECT 1 FROM sage.snapshots s
 			WHERE {db:s} AND s.id > $1)`

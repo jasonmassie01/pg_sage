@@ -141,8 +141,8 @@ func TestMigrateRollupResumesAfterAFailedBatch(t *testing.T) {
 		WHERE database_id = 7 AND table_name = 'query_rollup_daily'`).Scan(&copied); err != nil {
 		t.Fatalf("the committed batches must leave a progress row: %v", err)
 	}
-	if copied != 8 { // day 0 and day 1 (2 batches), the failure is on day 2
-		t.Fatalf("progress says %d copied before the failure, want 8", copied)
+	if copied != 12 { // three batches of 4 in (day, queryid) order; day 2's queryid 3 fails
+		t.Fatalf("progress says %d copied before the failure, want 12", copied)
 	}
 	if _, err := p.Meta.Exec(ctx, `DROP TRIGGER fail_rollup_copy ON sage.query_rollup_daily;
 		DROP FUNCTION sage.fail_rollup_copy()`); err != nil {
@@ -150,8 +150,8 @@ func TestMigrateRollupResumesAfterAFailedBatch(t *testing.T) {
 	}
 	rep := migrate(t, src, dst, histstore.MigrateOptions{BatchRows: 4})
 	tr := table(t, rep, "query_rollup_daily")
-	if !tr.Complete || tr.Copied != 12 {
-		t.Fatalf("the resumed run %+v, want the 12 rows not yet copied", tr)
+	if !tr.Complete || tr.Copied != 8 {
+		t.Fatalf("the resumed run %+v, want the 8 rows not yet copied", tr)
 	}
 	equal(t, "daily rows after the resume", rollupRows(t, p.Monitored,
 		"query_rollup_daily", ""), rollupRows(t, p.Meta, "query_rollup_daily", scoped))

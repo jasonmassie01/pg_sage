@@ -24,8 +24,8 @@ func Status(ctx context.Context, src, dst Store) ([]TableStatus, error) {
 	if src, err = withLegacy(ctx, src); err != nil {
 		return nil, err
 	}
-	out := make([]TableStatus, 0, len(historyTables))
-	for _, table := range historyTables {
+	out := make([]TableStatus, 0, len(movedTables()))
+	for _, table := range movedTables() {
 		m, err := readMark(ctx, dst.db, id, dir, table)
 		if err != nil {
 			return nil, err
