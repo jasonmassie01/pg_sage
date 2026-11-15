@@ -107,7 +107,8 @@ func seedHourly(t *testing.T, db any, from, to time.Time, weeks int) int {
 		if _, err := st.Exec(context.Background(), `INSERT INTO sage.query_rollup_hourly
 			(queryid, hour, calls, exec_ms, rows, shared_blks_hit, shared_blks_read,
 			 temp_blks_read, temp_blks_written, wal_bytes, epoch_break, pairs{dbcol})
-			VALUES ($1, $2, $3, $3 * 2.0, $3, $3 * 10, $3, 0, 0, 0, $4, 60{dbval})`,
+			VALUES ($1, $2, $3::int8, $3::int8 * 2.0, $3::int8, $3::int8 * 10, $3::int8,
+			 0, 0, 0, $4, 60{dbval})`,
 			id, hour, calls, brk); err != nil {
 			t.Fatalf("seed hourly row: %v", err)
 		}
