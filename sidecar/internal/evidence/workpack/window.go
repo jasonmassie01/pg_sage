@@ -68,13 +68,17 @@ type dayPlan struct {
 	hourlyFrom time.Time // the hourly tier serves [hourlyFrom, To)
 }
 
-// planDays splits w at the hourly rollup's retention: whole UTC days
-// before dayStart(now) - hourlyDays read the daily tier.
+// planDays splits w at the hourly rollup's retention. The hourly purge is
+// rolling (hour < now() - hourlyDays days, calendar days in the purge's
+// session time zone, so up to an hour later across DST): the hourly part
+// starts at the first whole UTC day after that boundary plus an hour, and
+// every day before it, the partly purged one included, reads the daily
+// tier.
 func planDays(w Window, hourlyDays int, now time.Time) dayPlan {
 	w = w.UTC()
 	cutoff := time.Time{}
 	if hourlyDays > 0 {
-		cutoff = dayStart(now.UTC()).AddDate(0, 0, -hourlyDays)
+		cutoff = ceilDay(now.UTC().AddDate(0, 0, -hourlyDays).Add(time.Hour))
 	}
 	p := dayPlan{hourlyFrom: w.From}
 	if cutoff.After(w.From) {
@@ -102,6 +106,15 @@ func planDays(w Window, hourlyDays int, now time.Time) dayPlan {
 func dayStart(t time.Time) time.Time {
 	y, m, d := t.UTC().Date()
 	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+}
+
+// ceilDay is the first UTC midnight at or after t.
+func ceilDay(t time.Time) time.Time {
+	d := dayStart(t)
+	if d.Before(t) {
+		return d.AddDate(0, 0, 1)
+	}
+	return d
 }
 
 func maxTime(a, b time.Time) time.Time {

@@ -145,9 +145,10 @@ and rebuilds the hourly tier from the copied snapshots ("hourly rollup rebuilt")
 `pg_sage-workload/1`) is one database's workload over a window of 14 to 100 whole UTC days
 (default 28), as canonical JSON sections sealed with the evidence pack format:
 `header.json` (database, window, hour-of-week timezone `baseline.timezone`, version,
-platform, collector capabilities, and each day's tier: days before
-`query_rollup_hourly_days` read the daily rollup and are listed `daily`, a partial daily
-day is not counted), `coverage.json` (the coverage report of the window), `workload.json`
+platform, collector capabilities, and each day's tier: a day the rolling hourly purge
+(`query_rollup_hourly_days`, with an hour's margin for the purge's time zone) has reached,
+even in part, reads the daily rollup and is listed `daily`; a daily day the window only
+partly covers is not counted), `coverage.json` (the coverage report of the window), `workload.json`
 (families, each a statement's command plus its sorted referenced relations or
 `unparsed:<queryid>`: totals, top 20 queryids and a 168-bucket hour-of-week shape from
 the hourly days, a bucket seen under three weeks marked learning; at most 50 families and

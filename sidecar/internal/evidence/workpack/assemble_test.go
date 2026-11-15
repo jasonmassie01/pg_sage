@@ -312,8 +312,9 @@ func TestAssemble_DailyDaysFeedTotalsNotTheShape(t *testing.T) {
 	w := Window{monday, to}
 	h := synthHistory(Window{monday.Add(25 * 24 * time.Hour), to})
 	h.daily = []dayRow{{qid: 1, day: monday, calls: 1000, execMs: 5}}
+	// Built at 23:00 the day before to: the hourly part is the last 35 days.
 	p := mustAssemble(t, Request{Database: "d", Window: w, Location: time.UTC,
-		HourlyDays: 35, Now: to}, h)
+		HourlyDays: 35, Now: to.Add(-time.Hour)}, h)
 	wl := workloadOf(t, p)
 	var orders Family
 	for _, fam := range wl.Families {
