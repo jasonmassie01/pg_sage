@@ -17,7 +17,7 @@ func TestCanonical_SortsKeysAndFormatsNumbers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"a":[3,2.25e-07,1e+21],"b":1.5,"c":null,"d":{"y":"<x>","z":true}}` +
+	want := `{"a":[3,2.25e-07,1e+21],"b":1.5,"c":null,"d":{"y":"\u003cx\u003e","z":true}}` +
 		"\n"
 	if string(got) != want {
 		t.Fatalf("canonical = %s, want %s", got, want)

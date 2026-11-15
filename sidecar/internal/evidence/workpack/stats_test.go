@@ -33,9 +33,13 @@ func TestFit_StandardErrorMatchesTheHandComputedValue(t *testing.T) {
 		!near(*got.SlopeSE, math.Sqrt(2.7/2)/math.Sqrt(5)) {
 		t.Fatalf("fit %+v, want slope 1.1 and se %v", got, math.Sqrt(2.7/2)/math.Sqrt(5))
 	}
-	if got.Trend != trendFlat {
-		t.Fatalf("slope 1.1 within two standard errors (%v) is flat, got %s",
+	if got.Trend != trendRising {
+		t.Fatalf("slope 1.1 above two standard errors (%v) is rising, got %s",
 			*got.SlopeSE, got.Trend)
+	}
+	noisy := fit([]*float64{f(1), f(5), f(0), f(4), f(1)})
+	if noisy.Trend != trendFlat || noisy.Slope == nil || !near(*noisy.Slope, -0.1) {
+		t.Fatalf("noisy series %+v, want flat (slope -0.1 within two standard errors)", noisy)
 	}
 }
 

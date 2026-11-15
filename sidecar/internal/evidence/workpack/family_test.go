@@ -18,20 +18,24 @@ var knownTables = map[string][]string{
 }
 
 func TestFamilyKey_CommandAndSortedRelations(t *testing.T) {
-	cases := map[string]string{
-		"SELECT * FROM orders WHERE id = $1":                         "select public.orders",
-		"select o.* from customers c join orders o on o.c = c.id":    "select public.customers,public.orders",
-		"  /* tag */ INSERT INTO app.events VALUES ($1)":             "insert app.events",
-		"WITH x AS (SELECT 1 FROM customers) UPDATE orders SET a=1":  "update public.customers,public.orders",
-		"(SELECT 1 FROM orders) UNION (SELECT 2 FROM orders)":        "select public.orders",
-		"SELECT now()":                                               "select",
-		"DELETE FROM unknown_table WHERE 'FROM orders' = $1":         "delete",
-		"with recursive r(n) as (select 1) select n from r":          "select",
-		"SELECT * FROM public.orders, customers WHERE true":          "select public.customers,public.orders",
-		"VACUUM orders":                                              "vacuum",
-		"WITH a AS (SELECT 1) , b AS (SELECT 2) DELETE FROM orders": "delete public.orders",
+	cases := [][2]string{
+		{"SELECT * FROM orders WHERE id = $1", "select public.orders"},
+		{"select o.* from customers c join orders o on o.c = c.id",
+			"select public.customers,public.orders"},
+		{"  /* tag */ INSERT INTO app.events VALUES ($1)", "insert app.events"},
+		{"WITH x AS (SELECT 1 FROM customers) UPDATE orders SET a=1",
+			"update public.customers,public.orders"},
+		{"(SELECT 1 FROM orders) UNION (SELECT 2 FROM orders)", "select public.orders"},
+		{"SELECT now()", "select"},
+		{"DELETE FROM unknown_table WHERE 'FROM orders' = $1", "delete"},
+		{"with recursive r(n) as (select 1) select n from r", "select"},
+		{"SELECT * FROM public.orders, customers WHERE true",
+			"select public.customers,public.orders"},
+		{"VACUUM orders", "vacuum"},
+		{"WITH a AS (SELECT 1) , b AS (SELECT 2) DELETE FROM orders", "delete public.orders"},
 	}
-	for text, want := range cases {
+	for _, c := range cases {
+		text, want := c[0], c[1]
 		if got := familyKey(42, text, knownTables); got != want {
 			t.Errorf("familyKey(%q) = %q, want %q", text, got, want)
 		}
