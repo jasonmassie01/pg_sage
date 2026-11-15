@@ -36,6 +36,10 @@ const (
 	// it, peak windows, growth, retention; evid-03a). It never binds: it is
 	// prompt context only.
 	TypeOwnerBrief Type = "owner_brief"
+	// TypeDoNotTouch is the owner's "must not be touched" (evid-03b): every
+	// change to its subject is held, operator-approved or not, until a
+	// person expires the fact. Only rollbacks of pg_sage's own changes run.
+	TypeDoNotTouch Type = "do_not_touch"
 )
 
 // Kind is the catalog kind of a fact's subject.
@@ -181,6 +185,11 @@ func (f Fact) Describe() string {
 			f.Value["window"])
 	case TypeOwnerBrief:
 		return describeBrief(f.Value)
+	case TypeDoNotTouch:
+		if f.Kind == KindSchema {
+			subject = "schema " + f.Subject
+		}
+		return subject + " must not be touched"
 	}
 	return subject + " " + string(f.Type)
 }

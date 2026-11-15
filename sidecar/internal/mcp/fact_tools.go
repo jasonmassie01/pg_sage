@@ -45,7 +45,7 @@ func factTools() []Tool {
 	}
 	db := `"database":{"type":"string","description":"fleet database name"}`
 	types := `"type":{"type":"string","enum":["owned_by_app_migrations","test_fixture",` +
-		`"slot_consumer","append_only","table_window","owner_brief"]}`
+		`"slot_consumer","append_only","table_window","owner_brief","do_not_touch"]}`
 	return []Tool{
 		{Name: "list_facts", Description: "List pg_sage's typed facts about a database " +
 			"(who owns an object, test fixtures, CDC slots, archives, table windows, " +

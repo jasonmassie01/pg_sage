@@ -26,6 +26,9 @@ const (
 	RouteExcluded Route = "excluded"
 	// RouteWait: the table's window decides when work may run.
 	RouteWait Route = "wait_for_window"
+	// RouteHold: the owner said the object must not be touched; nothing
+	// runs on it until a person expires the fact (evid-03b).
+	RouteHold Route = "hold"
 )
 
 // Request is what a binding is judged on: the action, its SQL, its target
@@ -136,6 +139,8 @@ func routeFor(f Fact, class requestClass, req Request) (Route, bool) {
 		return RouteExcluded, !req.OperatorApproved
 	case TypeTableWindow:
 		return RouteWait, !req.OperatorApproved && windowHolds(f, req.Now)
+	case TypeDoNotTouch:
+		return RouteHold, true // every class, operator-approved or not
 	case TypeOwnerBrief:
 		return "", false // context only: it never narrows or widens
 	}

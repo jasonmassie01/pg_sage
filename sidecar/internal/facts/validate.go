@@ -28,6 +28,7 @@ var typeKinds = map[Type][]Kind{
 	TypeAppendOnly:    {KindTable},
 	TypeTableWindow:   {KindTable},
 	TypeOwnerBrief:    {KindDatabase},
+	TypeDoNotTouch:    {KindTable, KindIndex, KindSchema},
 }
 
 // valueKeys are the value fields each fact type accepts; required ones
@@ -42,6 +43,7 @@ var valueKeys = map[Type]map[string]bool{
 	TypeTableWindow:   {"kind": true, "window": true},
 	TypeOwnerBrief: {"owner": true, "contact": true, "growth": true,
 		"growth_pct_month": true, "retention": true, "peak_windows": true, "note": true},
+	TypeDoNotTouch: {"note": true},
 }
 
 // Validate checks a proposal and returns it normalized: the subject in its

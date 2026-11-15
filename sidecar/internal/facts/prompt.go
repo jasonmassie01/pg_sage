@@ -23,14 +23,16 @@ var guidance = map[Type]string{
 		"could invalidate it; alert instead.",
 	TypeAppendOnly: "Its rows are never updated or deleted: keep its data and its " +
 		"indexes (they serve rare reads).",
+	TypeDoNotTouch: "Never propose any change to it.",
 }
 
 // promptPriority orders the facts of a prompt before its budget cuts: the
-// owner brief (about the whole database), then the facts behind WAL and
-// vacuum advice, so many index ownership facts never crowd them out. Ties
-// go by fact id.
-var promptPriority = map[Type]int{TypeOwnerBrief: 0, TypeSlotConsumer: 1,
-	TypeTableWindow: 2, TypeAppendOnly: 3, TypeAppMigrations: 4, TypeTestFixture: 5}
+// owner brief (about the whole database), what must not be touched, then
+// the facts behind WAL and vacuum advice, so many index ownership facts
+// never crowd them out. Ties go by fact id.
+var promptPriority = map[Type]int{TypeOwnerBrief: 0, TypeDoNotTouch: 1,
+	TypeSlotConsumer: 2, TypeTableWindow: 3, TypeAppendOnly: 4, TypeAppMigrations: 5,
+	TypeTestFixture: 6}
 
 func promptRank(t Type) int {
 	if p, ok := promptPriority[t]; ok {

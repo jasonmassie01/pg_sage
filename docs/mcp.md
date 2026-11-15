@@ -989,7 +989,7 @@ Scope: `read`
 |---|---|---|---|
 | `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
 | `status` | string | no |  |
-| `type` | string | no | one of `owned_by_app_migrations`, `test_fixture`, `slot_consumer`, `append_only`, `table_window`, `owner_brief` |
+| `type` | string | no | one of `owned_by_app_migrations`, `test_fixture`, `slot_consumer`, `append_only`, `table_window`, `owner_brief`, `do_not_touch` |
 
 ### `propose_fact`
 
@@ -1003,7 +1003,7 @@ Scope: `propose`
 | `evidence` | string | yes | length <= 500 |
 | `subject` | string | yes | length <= 300 |
 | `subject_kind` | string | yes | one of `index`, `table`, `schema`, `slot`, `database` |
-| `type` | string | yes | one of `owned_by_app_migrations`, `test_fixture`, `slot_consumer`, `append_only`, `table_window`, `owner_brief` |
+| `type` | string | yes | one of `owned_by_app_migrations`, `test_fixture`, `slot_consumer`, `append_only`, `table_window`, `owner_brief`, `do_not_touch` |
 | `value` | object | no |  |
 
 ### `decide_fact`
