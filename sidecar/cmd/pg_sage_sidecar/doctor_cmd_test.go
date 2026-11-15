@@ -212,3 +212,35 @@ func TestDoctorProviderAgreesWithHostedProvider(t *testing.T) {
 		}
 	}
 }
+
+// Integration (safety): the CLI's session is read-only and bounded, so no
+// check can write to the monitored database or wait long on a lock.
+func TestDoctorCmdDBSessionIsReadOnlyAndBounded(t *testing.T) {
+	dsn := testdb.CreateDatabase(t, "doctor_cmd_ro")
+	ctx := context.Background()
+	pool, secret, err := openDoctorPool(ctx, dsn)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	if secret == "" {
+		t.Fatal("openDoctorPool returned no password to mask")
+	}
+	var ro, stmt, lock, app string
+	if err := pool.QueryRow(ctx, "SELECT current_setting('default_transaction_read_only'), "+
+		"current_setting('statement_timeout'), current_setting('lock_timeout'), "+
+		"current_setting('application_name')").Scan(&ro, &stmt, &lock, &app); err != nil {
+		t.Fatalf("read settings: %v", err)
+	}
+	if ro != "on" || stmt != "5s" || lock != "1s" || app != "pg_sage_doctor" {
+		t.Fatalf("session read_only=%s statement_timeout=%s lock_timeout=%s app=%s",
+			ro, stmt, lock, app)
+	}
+	_, err = pool.Exec(ctx, "CREATE TABLE doctor_must_not_write (id int)")
+	if err == nil || !strings.Contains(err.Error(), "read-only") {
+		t.Fatalf("CREATE TABLE in the doctor session: %v, want a read-only error", err)
+	}
+	if got := pool.Stat().MaxConns(); got != 1 {
+		t.Fatalf("MaxConns = %d, want 1", got)
+	}
+}
