@@ -97,6 +97,22 @@ still goes through the policy gate and the trust ledger.
   "ok". `pg_stat_archiver` is still read on managed servers, but providers often run their own
   archiving, so the provider's restorable time is the evidence to trust there. See
   [Backups and WAL archiving](findings.md#backups-and-wal-archiving).
+- **Provider events.** Automatic minor upgrades, live migrations and forced failovers are
+  put on the Sage SRE change feed timeline, so an investigation sees "the provider patched
+  the server at 03:04" next to the latency jump. From SQL on every platform: a restart
+  (`pg_postmaster_start_time()`), a failover (recovery role and timeline), a server version
+  change (`server_version_num`, `version_change`, minor or major) and a host change (the server
+  address and `pg_control_system().system_identifier`, `host_change`; the address alone
+  without EXECUTE on `pg_control_system()`). With telemetry on RDS or Aurora pg_sage also reads
+  `DescribeEvents` (maintenance and failover categories) for the instance or cluster, and on
+  Cloud SQL the 50 newest operations (maintenance, failover, major version upgrade); these
+  events have source `provider_api`, the first read reaches back a day and a re-read records
+  nothing twice. Each such event has an attribution: `operator` when it happened within 10
+  minutes after a pg_sage setting change (`sage.config_audit`) or a pg_sage config apply that
+  awaits a restart, otherwise `provider` on a managed database and `unknown` when
+  self-managed. These sources run even with `sre.change_events.feed_enabled: false` (they are
+  a few catalog reads per interval); the database's SRE read policy still decides whether the
+  feed reads the database at all. All of it is read-only.
 - **Parameter drift.** Values set in the parameter group or flags that PostgreSQL does not run
   (pending a reboot, overridden by a database/role setting, or not in effect) open
   `managed_parameter_drift` findings.
@@ -362,11 +378,13 @@ Credentials come only from the standard chains and are never stored, logged or p
 
 - **AWS:** the default chain (environment, shared config/SSO, web identity, ECS task or EC2
   instance role). Read-only permissions: `cloudwatch:GetMetricData`, `pi:GetResourceMetrics`,
-  `rds:DescribeDBInstances`, `rds:DescribeDBClusters`, `rds:DescribeDBParameters`.
+  `rds:DescribeDBInstances`, `rds:DescribeDBClusters`, `rds:DescribeDBParameters`,
+  `rds:DescribeEvents` (provider events on the change feed timeline).
 - **Google Cloud:** Application Default Credentials (`GOOGLE_APPLICATION_CREDENTIALS` with a
   service-account key or user credentials, `gcloud auth application-default login`, or the
   metadata server on GCE/GKE/Cloud Run). Roles: `roles/monitoring.viewer`,
-  `roles/cloudsql.viewer` (it includes `cloudsql.backupRuns.list` for backup freshness). The
+  `roles/cloudsql.viewer` (it includes `cloudsql.backupRuns.list` for backup freshness and
+  `cloudsql.instances.get`, which covers the operations list read for provider events). The
   project comes from the Auth Proxy socket,
   `cloud_resource.gcp.project`, `cloud_telemetry.gcp.project` or the credentials, in that
   order. AlloyDB needs only `roles/monitoring.viewer`; its project comes from
