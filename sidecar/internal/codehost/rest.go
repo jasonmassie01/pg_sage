@@ -69,8 +69,28 @@ func newRest(kind, defaultBase string, opts Options,
 		opts.Now = time.Now
 	}
 	return &rest{kind: kind, base: base, token: opts.Token, auth: auth,
-		client: egress.HTTPClient(0), timeout: opts.Timeout,
+		client: sameOriginClient(base), timeout: opts.Timeout,
 		sem: make(chan struct{}, opts.MaxConcurrent), now: opts.Now}, nil
+}
+
+// sameOriginClient is the egress client that follows a redirect only
+// within base's origin. net/http forwards custom headers such as GitLab's
+// PRIVATE-TOKEN to any redirect target, so a redirect elsewhere is refused
+// rather than handing the token to another host.
+func sameOriginClient(base *url.URL) *http.Client {
+	client := egress.HTTPClient(0)
+	floor := client.CheckRedirect
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if err := floor(req, via); err != nil {
+			return err
+		}
+		if !egress.SameOrigin(req.URL.String(), base.String()) {
+			return fmt.Errorf("redirect to another origin %s://%s refused: the token is "+
+				"sent only to %s", req.URL.Scheme, req.URL.Host, base.Host)
+		}
+		return nil
+	}
+	return client
 }
 
 // parseBase checks the API root: https (http only on loopback), no user
