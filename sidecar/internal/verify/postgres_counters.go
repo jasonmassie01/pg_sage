@@ -52,7 +52,7 @@ func (s *CounterSource) check(from, to time.Time) error {
 }
 
 // Window sums the snapshot intervals of ids (all when empty) ending in
-// [from, to) into buckets of width from from (bucketWidth of the window
+// [from, to) into buckets of width from from (BucketWidth of the window
 // when width is not positive).
 func (s *CounterSource) Window(ctx context.Context, ids []int64, from, to time.Time,
 	width time.Duration) (CounterWindow, error) {
@@ -60,7 +60,7 @@ func (s *CounterSource) Window(ctx context.Context, ids []int64, from, to time.T
 		return CounterWindow{}, err
 	}
 	if width <= 0 {
-		width = bucketWidth(to.Sub(from))
+		width = BucketWidth(to.Sub(from))
 	}
 	ivs, err := querystore.SnapshotIntervals(ctx, s.queryer, from, to, ids)
 	if err != nil {

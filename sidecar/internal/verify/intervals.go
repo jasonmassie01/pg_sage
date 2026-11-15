@@ -11,9 +11,9 @@ import (
 // finer than the collector's cadence holds one sample interval.
 const minBucket = 5 * time.Second
 
-// bucketWidth sizes the time buckets of a window: about 48 buckets, never
+// BucketWidth sizes the time buckets of a window: about 48 buckets, never
 // finer than minBucket or coarser than 6 hours.
-func bucketWidth(window time.Duration) time.Duration {
+func BucketWidth(window time.Duration) time.Duration {
 	width := window / 48
 	switch {
 	case width < minBucket:
@@ -31,7 +31,7 @@ func (s *PostgresObservationSource) queryMeasurement(
 	ctx context.Context, id int64, from, to time.Time,
 ) (Measurement, error) {
 	buckets, err := querystore.QueryIntervals(ctx, s.historyStore(), id, from, to,
-		bucketWidth(to.Sub(from)))
+		BucketWidth(to.Sub(from)))
 	if err != nil {
 		return Measurement{}, err
 	}
