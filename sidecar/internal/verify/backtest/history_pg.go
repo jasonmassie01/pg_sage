@@ -135,11 +135,12 @@ func (h *PostgresHistory) Actions(ctx context.Context, from, to time.Time) ([]Ac
 	if err != nil {
 		return nil, fmt.Errorf("read the executed actions: %w", err)
 	}
+	words := tableWords(known)
 	var out []Action
 	var at time.Time
 	var sql string
 	_, err = pgx.ForEachRow(rows, []any{&at, &sql}, func() error {
-		out = append(out, Action{At: at.UTC(), Tables: touched(sql, known)})
+		out = append(out, Action{At: at.UTC(), Tables: touched(sql, words)})
 		return nil
 	})
 	if err != nil {
@@ -148,18 +149,34 @@ func (h *PostgresHistory) Actions(ctx context.Context, from, to time.Time) ([]Ac
 	return out, nil
 }
 
-// touched are the known tables (schema.name) whose name sql names as a
-// word, case-insensitively.
-func touched(sql string, known map[string][]string) []string {
-	var out []string
+// tableWord matches a known table's name as a word of an action's SQL,
+// case-insensitively, and names the tables (schema.name) it stands for.
+type tableWord struct {
+	re     *regexp.Regexp
+	tables []string
+}
+
+// tableWords compiles one matcher per known table name, once per read.
+func tableWords(known map[string][]string) []tableWord {
+	out := make([]tableWord, 0, len(known))
 	for name, schemas := range known {
-		re := regexp.MustCompile(`(?i)(^|[^A-Za-z0-9_$])"?` + regexp.QuoteMeta(name) +
-			`"?($|[^A-Za-z0-9_$])`)
-		if !re.MatchString(sql) {
-			continue
-		}
+		w := tableWord{re: regexp.MustCompile(`(?i)(^|[^A-Za-z0-9_$])"?` +
+			regexp.QuoteMeta(name) + `"?($|[^A-Za-z0-9_$])`)}
 		for _, s := range schemas {
-			out = append(out, s+"."+name)
+			w.tables = append(w.tables, s+"."+name)
+		}
+		out = append(out, w)
+	}
+	return out
+}
+
+// touched are the known tables (schema.name) whose name sql names as a
+// word.
+func touched(sql string, words []tableWord) []string {
+	var out []string
+	for _, w := range words {
+		if w.re.MatchString(sql) {
+			out = append(out, w.tables...)
 		}
 	}
 	slices.Sort(out)
