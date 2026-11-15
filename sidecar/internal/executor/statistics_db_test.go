@@ -44,7 +44,11 @@ func newStatsFixture(t *testing.T) *statsFixture {
 	fx.sql = fmt.Sprintf("CREATE STATISTICS public.%s (dependencies, ndistinct) "+
 		"ON a, b FROM public.%s", fx.name, table)
 	fx.query = fmt.Sprintf("SELECT * FROM public.%s WHERE a = 1 AND b = 1", table)
-	for _, sql := range []string{"INSERT INTO public." + table +
+	// No autoanalyze: one that lands after the plans are captured moves the
+	// statistics build time past them, and the verdict finds no plans after
+	// it (the insert's counts can reach the stats system after the ANALYZE).
+	for _, sql := range []string{"ALTER TABLE public." + table +
+		" SET (autovacuum_enabled = off)", "INSERT INTO public." + table +
 		" SELECT i % 100, i % 100 FROM generate_series(1, 20000) i",
 		"ANALYZE public." + table} {
 		fx.mustExec(t, sql)
