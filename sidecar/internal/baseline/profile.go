@@ -126,35 +126,56 @@ func (s Score) Exceeds(z, floor float64) bool {
 	return !s.Learning() && s.Z >= z && s.Observed-s.Median >= floor
 }
 
-// Judge scores observed against history, one value per earlier week.
-// NaN and infinite weeks are dropped. The scale is 1.4826 x the MAD,
-// floored at 5% of the median; when both are zero it is floor (the
-// metric's absolute delta floor), and 1 without one.
-func Judge(history []float64, observed, floor float64) Score {
-	vals := make([]float64, 0, len(history))
-	for _, v := range history {
+// Spread is the robust centre and scale of a set of values: the median,
+// the MAD, and the scale Judge divides by (1.4826 x the MAD, floored at
+// 5% of the median; when both are zero the caller's floor, and 1 without
+// one). OK is false with fewer than MinWeeks usable values.
+type Spread struct {
+	N                  int
+	Median, MAD, Scale float64
+	OK                 bool
+}
+
+// Robust is the Spread of vals; NaN and infinite values are dropped and
+// vals is not modified.
+func Robust(vals []float64, floor float64) Spread {
+	kept := make([]float64, 0, len(vals))
+	for _, v := range vals {
 		if usable(v) {
-			vals = append(vals, v)
+			kept = append(kept, v)
 		}
 	}
-	s := Score{Observed: observed, Weeks: len(vals)}
-	if s.Learning() || !usable(observed) {
+	s := Spread{N: len(kept)}
+	if s.N < MinWeeks {
 		return s
 	}
-	s.Median = median(vals)
-	dev := make([]float64, len(vals))
-	for i, v := range vals {
+	s.Median = median(kept)
+	dev := make([]float64, len(kept))
+	for i, v := range kept {
 		dev[i] = math.Abs(v - s.Median)
 	}
 	s.MAD = median(dev)
-	scale := madScale * math.Max(s.MAD, madFloorFraction*math.Abs(s.Median))
-	if scale <= 0 {
-		scale = floor
+	s.Scale = madScale * math.Max(s.MAD, madFloorFraction*math.Abs(s.Median))
+	if s.Scale <= 0 {
+		s.Scale = floor
 	}
-	if scale <= 0 {
-		scale = 1
+	if s.Scale <= 0 {
+		s.Scale = 1
 	}
-	s.Z = (observed - s.Median) / scale
+	s.OK = true
+	return s
+}
+
+// Judge scores observed against history, one value per earlier week.
+// NaN and infinite weeks are dropped; the scale is Robust's.
+func Judge(history []float64, observed, floor float64) Score {
+	r := Robust(history, floor)
+	s := Score{Observed: observed, Weeks: r.N}
+	if s.Learning() || !usable(observed) {
+		return s
+	}
+	s.Median, s.MAD = r.Median, r.MAD
+	s.Z = (observed - s.Median) / r.Scale
 	return s
 }
 
