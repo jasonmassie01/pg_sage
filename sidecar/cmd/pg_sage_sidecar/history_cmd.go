@@ -11,9 +11,19 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/databricksauth"
 
+	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/histstore"
+	"github.com/pg-sage/sidecar/internal/querystore"
 	"github.com/pg-sage/sidecar/internal/schema"
 )
+
+// rebuildHourlyRollup rebuilds the derived hourly query rollup in a
+// migration's destination from the copied snapshots, over the default
+// hourly retention (evid-01b); the retention purge trims a shorter one.
+func rebuildHourlyRollup(ctx context.Context, dst histstore.Store) error {
+	_, err := querystore.RebuildHourly(ctx, dst, config.DefaultRetentionQueryRollupHourlyDays)
+	return err
+}
 
 // pg_sage history migrate|status: moves one database's telemetry
 // history (snapshots and the query store) between its monitored database
@@ -155,6 +165,7 @@ func historyDatabaseID(ctx context.Context, meta *pgxpool.Pool, a historyArgs) (
 func migrateHistory(ctx context.Context, a historyArgs, src, dst histstore.Store,
 	stdout, stderr io.Writer) error {
 	rep, err := histstore.Migrate(ctx, src, dst, histstore.MigrateOptions{BatchRows: a.batch,
+		Rebuild: rebuildHourlyRollup,
 		Log: func(format string, args ...any) {
 			_, _ = fmt.Fprintf(stderr, format+"\n", args...)
 		}})
@@ -169,6 +180,9 @@ func migrateHistory(ctx context.Context, a historyArgs, src, dst histstore.Store
 		_, _ = fmt.Fprintf(stdout, "sage.%s: copied %d, skipped %d unreadable, %s\n",
 			t.Table, t.Copied, t.Skipped, state)
 	}
+	if rep.HourlyRebuilt {
+		_, _ = fmt.Fprintln(stdout, "sage.query_rollup_hourly: hourly rollup rebuilt")
+	}
 	if !a.cleanup {
 		return nil
 	}
@@ -176,7 +190,8 @@ func migrateHistory(ctx context.Context, a historyArgs, src, dst histstore.Store
 	if err != nil {
 		return err
 	}
-	for _, table := range []string{"snapshots", "query_store"} {
+	for _, table := range []string{"snapshots", "query_store", "query_rollup_hourly",
+		"query_rollup_daily", "query_rollup_coverage"} {
 		_, _ = fmt.Fprintf(stdout, "sage.%s: removed %d rows from the source\n", table,
 			clean.Removed[table])
 	}

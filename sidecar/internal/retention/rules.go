@@ -263,14 +263,29 @@ func purgeRules(cfg *config.Config) []purgeRule {
 	return append(rules, rollupPurgeRules(r)...)
 }
 
-// rollupPurgeRules age out the hourly per-query rollup (evid-01a): it is
-// built from the snapshots and kept as long as they are.
+// rollupPurgeRules age out the per-query rollup by tier (evid-01b): an
+// hourly row after retention.query_rollup_hourly_days (never past the
+// snapshots it is rebuilt from), and only once its UTC day is in the daily
+// tier; daily rows and the hourly coverage after
+// retention.query_rollup_daily_days, so a long window can still state its
+// coverage once the hours are gone.
 func rollupPurgeRules(r config.RetentionConfig) []purgeRule {
 	return []purgeRule{
-		{table: "query_rollup_hourly", timeCol: "hour", days: r.SnapshotsDays},
-		{table: "query_rollup_coverage", timeCol: "hour", days: r.SnapshotsDays},
+		{table: "query_rollup_hourly", timeCol: "hour",
+			days: r.EffectiveQueryRollupHourlyDays(), extra: keepUnrolledHours},
+		{table: "query_rollup_daily", timeCol: "day", days: r.QueryRollupDailyDays},
+		{table: "query_rollup_coverage", timeCol: "hour", days: r.QueryRollupDailyDays},
 	}
 }
+
+// keepUnrolledHours keeps an hourly row until its day's daily row exists
+// (found on the daily table's unique key): a purge racing the daily roll
+// never removes hours the daily tier does not hold yet.
+const keepUnrolledHours = `AND EXISTS (SELECT 1 FROM sage.query_rollup_daily d
+	                   WHERE COALESCE(d.database_id, 0) =
+	                         COALESCE(query_rollup_hourly.database_id, 0)
+	                     AND d.queryid = query_rollup_hourly.queryid
+	                     AND d.day = (query_rollup_hourly.hour AT TIME ZONE 'UTC')::date)`
 
 // baselineDays is baseline.weeks + 1 weeks and baselineSlackDays; a zero
 // (literal) config keeps the default window.

@@ -385,6 +385,8 @@ operator_preference retention.auth_audit_days
 operator_preference retention.decisions_days
 derivable retention.explains_days
 derivable retention.findings_days
+derivable retention.query_rollup_daily_days
+derivable retention.query_rollup_hourly_days
 derivable retention.query_store_days
 derivable retention.sage_size_warning_pct
 derivable retention.snapshots_days
