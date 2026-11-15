@@ -18,6 +18,7 @@ would not have done anyway.
 | `slot_consumer` | replication slot | The slot feeds a named consumer (Debezium, Fivetran, Airbyte...) | Never drops or advances the slot and never bounds WAL in a way that could invalidate it; it alerts instead. `max_slot_wal_keep_size` is cluster-wide, so any finite bound (and `RESET`) is blocked whichever slot it names; only `-1` (unbounded) is allowed. A confirmed slot is also registered in `sage.slot_consumer_registry`, so the WAL custodian escalates instead of acting; rejecting or expiring the fact yourself unregisters the slot again (owner and last confirmation are kept); an automatic expiry does not (see [Expiry and re-verification](#expiry-and-re-verification)). |
 | `append_only` | table | Rows are only inserted (an archive or a log) | Never deletes its rows, rewrites it (`VACUUM FULL`, bloat plans) or drops its indexes (they look unused because an archive is rarely read). |
 | `table_window` | table | `maintenance` window (act only inside) or `batch` window (never act during) | Holds pg_sage's own work on the table until the window allows it. Your own approvals are not held. |
+| `do_not_touch` | index, table or schema | The owner said it must not be touched | Never changes it: every action on it is held (route `hold`), whoever approved it, until a person expires the fact. Findings about it stay visible as advice, without the SQL. Only pg_sage undoing its own change on it still runs. See [Tables that must not be touched](#tables-that-must-not-be-touched). |
 | `owner_brief` | the database (`*`) | What you know and telemetry does not: who owns the database, its peak windows, expected growth, retention rules | Nothing on its own: it never binds, narrows or widens what the gate allows. Prompts carry it first, as context. See [The owner brief](#the-owner-brief). |
 
 ## Subjects
@@ -65,13 +66,44 @@ it again replaces it in place (the same fact, `proposals` counts the declaration
 At least one key is required; each value is at most 300 characters, and blank keys are
 dropped. Declare it with `POST /api/v1/facts?database=...` and
 `{"type": "owner_brief", "subject_kind": "database", "subject": "*", "value": {...}}`, or
-propose it over MCP (`propose_fact`); a form in the dashboard follows.
+propose it over MCP (`propose_fact`), or use the **Owner brief** form at the top of the
+Facts page (operators and admins; viewers see the brief read-only). The form shows the
+current brief and sends every key it read back, so keys it does not edit
+(`growth_pct_month`) are kept.
 
 The brief never binds: the gate allows exactly what it allowed without it. Re-verification
 never expires it for absence (its subject is the database itself, so there is no catalog
 lookup); it expires only on its expiry date or when you expire it. Prompts carry it as one
 line of at most 300 characters, first; a longer brief is cut and the line ends with
 `(rest of the brief omitted)`.
+
+### Measured peak windows
+
+A peak window is something pg_sage can measure. `GET
+/api/v1/databases/{db}/facts/peak-suggestion` (any signed-in role that can read the
+database) reads the 28 days before the current hour of the hourly query rollup
+(`sage.query_rollup_hourly`) and suggests, as a `peak_windows` value in UTC, the hours of the
+week whose execution time is in that week's top decile (the 17 busiest of its 168 hours;
+hours tied at the boundary are left out) in at least 3 of the 4 weeks. Days with the same
+hours share a window: `mon,tue,wed 09:00-12:00 UTC; fri 14:00-16:00 UTC`. The answer lists
+the rollup hours the suggestion rests on.
+
+```json
+{"database": "orders", "suggestion": "peak_windows",
+ "peak_windows": "mon 09:00-12:00 UTC", "coverage_status": "ok",
+ "from": "2026-10-19T00:00:00Z", "to": "2026-11-16T00:00:00Z",
+ "hours": [{"hour": "2026-10-19T09:00:00Z", "exec_ms": 10009}]}
+```
+
+It suggests nothing (`"suggestion": "none"` with a `reason`) with less than 28 days of
+hourly rollup, when the rollup coverage status (`GET /api/v1/queries/coverage`, see
+[architecture](architecture.md#collector)) is anything but `ok`
+(`learning`, `mostly_breaks`, `unknown`), when no hour peaks in 3 of 4 weeks, or when the
+windows would not fit a brief field (300 characters). The suggestion is computed on request
+and never stored or proposed as a fact; the Owner brief form shows it beside the brief
+while it differs from the brief's `peak_windows` (**Use as peak windows** fills the field,
+**Save owner brief** declares the brief). Its reads are bounded by a 10 s statement timeout
+and a 1 s lock timeout.
 
 To see whether it helps, `/metrics` exports `pg_sage_owner_brief_present{database}` and
 `pg_sage_owner_brief_steps{database,period,outcome}`: approved or executed (`accepted`)
@@ -180,6 +212,33 @@ SELECT at, actor, verb, from_status, to_status, note
 FROM sage.fact_events WHERE fact_id = 12 ORDER BY id;
 ```
 
+## Tables that must not be touched
+
+A `do_not_touch` fact is the owner's "never touch this": an index, a table (with its
+indexes and partitions) or a schema pattern. It takes an optional `note`. Declare it in the
+**Declare a fact** form (type **Do not touch**), with `POST /api/v1/facts?database=...` and
+`{"type": "do_not_touch", "subject_kind": "table", "subject": "public.orders"}`, or propose
+it over MCP (a proposal binds nothing until a person confirms it). Slots and the database
+itself are refused (`invalid_fact`), and so is any subject that could match pg_sage's or a
+system schema (`protected_subject`).
+
+Once confirmed it blocks every action on its subject, autonomous or operator-approved,
+index builds, vacuums, analyzes and reindexes included, with `bound_by_fact` and the route
+`hold`:
+
+```
+fact #41: table public.orders must not be touched (confirmed by alice@example.com on
+2026-10-03); route: hold
+```
+
+Rollbacks of pg_sage's own changes on it (dropping an index pg_sage built, restoring one it
+dropped) still run: they restore what the owner had. Findings about the object stay listed,
+as advice: their SQL is withdrawn and the hold packet says why. Prompts carry the fact right
+after the owner brief, with "Never propose any change to it." To act on the object, expire
+the fact (recorded with who and why in `expired_by` and `expired_reason`); declaring it
+again binds again. To count it, look for `bound_by_fact` decisions whose detail ends in
+`route: hold` in the decision ledger.
+
 ## How a fact binds
 
 The policy gate checks every action against the confirmed facts by typed matching (the
@@ -191,7 +250,8 @@ fact #12: index public.idx_thesis_allocation_run is owned by the application's
 migrations (confirmed by alice@example.com on 2026-10-04); route: source_fix
 ```
 
-Facts bind your own approvals too, except test-fixture and window facts: to let pg_sage act
+Facts bind your own approvals too (a `do_not_touch` fact always does), except
+test-fixture and window facts: to let pg_sage act
 on an object again, reject or expire the fact first (one click; it is recorded). Read-only
 diagnostics and pg_sage undoing its own change are never bound. If the facts cannot be read,
 the gate fails closed (`facts_unavailable`).
@@ -213,8 +273,8 @@ model, is what enforces them):
 * The **advisor**'s review prompts and the **investigator**'s review turns carry the
   database's confirmed facts: at most 12 facts and 1,500 characters. When there are more,
   the owner brief goes first (it is about the whole database and reaches every prompt,
-  whatever objects it is about), then the facts behind WAL and vacuum advice:
-  `slot_consumer`, then `table_window`,
+  whatever objects it is about), then `do_not_touch`, then the facts behind WAL and vacuum
+  advice: `slot_consumer`, then `table_window`,
   `append_only`, `owned_by_app_migrations` and `test_fixture`, by fact id within a type.
   The last line then says how many were left out (`- 19 more confirmed facts omitted.`);
   the budget still holds with that line.
