@@ -195,7 +195,7 @@ func TestCollectQueries_ResetReadsTextsAgain(t *testing.T) {
 // most once.
 func TestCollect_TenSteadyCyclesReadTextsAtMostOnce(t *testing.T) {
 	ctx := context.Background()
-	pool := textTestDB(t, ctx)
+	pool := exclusiveTextTestDB(t, "pg_stat_statements text reads")
 	seedTextWorkload(t, pool)
 	pgssepoch.Attempt(t, ctx, pool, 3, func() []string {
 		c := warmCollector(t, ctx, pool, 500, true)
@@ -227,7 +227,7 @@ func TestCollect_TenSteadyCyclesReadTextsAtMostOnce(t *testing.T) {
 // ranking did not: the golden covers the rows the total ranking admitted.
 func TestCollectQueries_MatchesLegacySingleRead(t *testing.T) {
 	ctx := context.Background()
-	pool := textTestDB(t, ctx)
+	pool := exclusiveTextTestDB(t, "the pg_stat_statements top-N ranking")
 	seedTextWorkload(t, pool)
 	sage := taggedPool(t, ctx, pool)
 	for _, limit := range []int{5000, 3} {

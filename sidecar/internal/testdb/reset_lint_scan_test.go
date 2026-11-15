@@ -75,6 +75,17 @@ type resetLintIndex struct {
 // caller vouches for, sorted.
 func scanResetLint(root, modulePath string, include func(rel string) bool,
 ) ([]resetFinding, error) {
+	idx, err := indexResetLint(root, modulePath, include)
+	if err != nil {
+		return nil, err
+	}
+	return idx.unvouched(), nil
+}
+
+// indexResetLint parses every file under root that include accepts and
+// marks each function that reaches testdb.Exclusive.
+func indexResetLint(root, modulePath string, include func(rel string) bool,
+) (*resetLintIndex, error) {
 	idx := &resetLintIndex{modulePath: modulePath}
 	fset := token.NewFileSet()
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
@@ -106,7 +117,7 @@ func scanResetLint(root, modulePath string, include func(rel string) bool,
 		return nil, err
 	}
 	idx.spreadExclusive()
-	return idx.unvouched(), nil
+	return idx, nil
 }
 
 // imports maps each import's local name to its path.
