@@ -13,7 +13,8 @@ package schema
 // not partitioned: at the 500-queryid cap 90 days of hourly rows are about
 // 1.1M rows per database, and the daily purge deletes about 12,000.
 // Every counter is checked non-negative: a negative delta cannot be
-// stored, whatever the builder does.
+// stored, whatever the builder does. The _age indexes serve retention's
+// purge by hour across databases.
 //
 // CREATE ... IF NOT EXISTS on new tables and their indexes; lock_timeout
 // bounds the catalog locks on the first run.
@@ -56,4 +57,6 @@ CREATE TABLE IF NOT EXISTS sage.query_rollup_coverage (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS query_rollup_coverage_key
     ON sage.query_rollup_coverage (COALESCE(database_id, 0), hour);
+CREATE INDEX IF NOT EXISTS query_rollup_hourly_age ON sage.query_rollup_hourly (hour);
+CREATE INDEX IF NOT EXISTS query_rollup_coverage_age ON sage.query_rollup_coverage (hour);
 `
