@@ -3979,9 +3979,9 @@ action or changes trust. API: `GET /api/v1/case-tickets?database=` (viewer) list
 | `retention.snapshots_days` | `90` | Days to retain snapshot data, the source the hourly per-query rollup is built and rebuilt from |
 | `retention.query_rollup_hourly_days` | `35` | Days to keep the hourly per-query rollup (`sage.query_rollup_hourly`): two weeks for every hour-of-week bucket twice plus the baseline's minimum weeks. An hour is removed only once its UTC day is in the daily tier, or once it is older than `query_rollup_daily_days`. At most `snapshots_days` (a larger value is refused; the default follows a smaller `snapshots_days`). `0` disables. Range 0-3650. |
 | `retention.query_rollup_daily_days` | `400` | Days to keep the daily per-query rollup (`sage.query_rollup_daily`) and the hourly coverage rows (`sage.query_rollup_coverage`), so a long window still states its coverage after the hourly rows are gone. At least `query_rollup_hourly_days`. `0` disables. Range 0-3650. |
-| `retention.workload_packs_days` | `180` | Days to keep stored workload evidence packs (`sage.workload_packs`), counted from when each pack was built. A pack is never changed once stored; this purge only deletes. `0` disables. Range 0-3650. |
+| `retention.workload_packs_days` | `180` | Days to keep stored workload evidence packs (`sage.workload_packs`), counted from when each pack was built. A pack is never changed once stored; this purge only deletes. A pack that an open plan, or a terminal plan younger than `retention.actions_days`, cites is kept. `0` disables. Range 0-3650. |
 | `retention.findings_days` | `180` | Days to retain resolved findings |
-| `retention.actions_days` | `365` | Days to retain action log entries |
+| `retention.actions_days` | `365` | Days to retain action log entries; also plans in a terminal status (completed, reverted, rejected, voided, cancelled), counted from their last change. Open plans are kept. |
 | `retention.explains_days` | `90` | Days to retain EXPLAIN plan captures |
 | `retention.sage_size_warning_pct` | `10` | Raise a `sage_footprint` finding when pg_sage's own tables (the `sage` schema, with TOAST and indexes) exceed this percent of the database size; below 256 MB it is never a finding. `0` disables the check. With `history.store: meta` the snapshots and the query store are not in this schema. |
 

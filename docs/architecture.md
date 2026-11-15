@@ -616,6 +616,42 @@ through change control like schema work.
 
 The executor checks: trust level, trust ramp, per-tier toggles, maintenance window, emergency stop flag, and replica status before acting.
 
+#### Plans
+
+A plan (`internal/changeplan`) is durable, multi-step work in which every step
+is an ordinary typed action. `sage.plan` holds the goal, scope, origin
+(generator, model, person or agent), the evidence pack it was built from and
+its status; `sage.plan_step` holds each step: its action type and SQL, its
+rollback, the finding or pack evidence ids it cites, its target query ids and
+metric, the expected direction and size and where that size comes from, its
+guardrails, minimum evidence, deadline, checkpoint flag and one outcome action
+per verdict (keep, revert this step, revert to the checkpoint, or halt and
+ask; an undeclared unverifiable step and an expired monitor halt and ask).
+`sage.plan_step_edge` says which step must finish before which, and
+`sage.plan_approval` records who approved which plan hash, with at most one
+live approval per plan. Plans live in the monitored database's `sage` schema,
+beside `sage.action_queue`; the link from a step to the ledger (queue item,
+action log row, decision) is held on the plan side, so no chained table
+changes.
+
+A plan is refused unless it validates: its edges form a DAG over its own
+steps, each action step's type has an executor contract, its SQL passes the
+executor's allowlist, it carries a rollback exactly when the contract is
+reversible, every executable step cites a finding that exists or evidence ids
+in the plan's pack, and a step whose targets ran fewer than its minimum calls
+in the last 14 days declares itself unverifiable. The plan hash (`plan-v1`,
+SHA-256 over a NUL-separated canonical encoding of the goal, scope, origin,
+pack hash, every step's hashed fields in ordinal order and the sorted edges;
+the runtime columns are outside it) binds an approval to what runs, as the
+card hash does for one action. Editing a step or the edges voids a live
+approval in the same transaction and returns the plan to `proposed`; an
+approval at a hash the rows no longer have is refused; and `Verify`
+recomputes the hash from the stored rows, so a row edited by direct SQL
+reports `hash_mismatch`. Terminal plans age out with
+`retention.actions_days`; open plans are kept, and so is a workload pack an
+open plan, or a terminal plan younger than `actions_days`, cites. Nothing
+creates or runs a plan yet: the engine and the approval modes follow.
+
 ### API + Dashboard (Web UI)
 
 REST API and embedded React SPA on `:8080` (configurable). The v1 UI is
