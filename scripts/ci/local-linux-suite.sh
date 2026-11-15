@@ -53,7 +53,10 @@ readonly SUITE_CMD="go test ./... -race -cover -tags=integration -count=1 \
 readonly E2E_CMD='go test ./e2e -cover -tags=e2e -count=1 -timeout 900s -json'
 readonly VALID_MAJORS="14 15 16 17 18"
 readonly DEFAULT_MAJORS="14 15 17"
-readonly TEST_URL='postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable'
+# The suite reaches the server by its container IP (SERVER_IP), not by
+# loopback: the postgres images trust 127.0.0.1 without a password, while
+# CI's client arrives over the bridge and must pass scram-sha-256.
+SERVER_IP=
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../.." && pwd -P)
@@ -345,6 +348,10 @@ start_server() {
     sleep 1
   done
   [ -n "$ready" ] || die 5 "server $srv did not become ready on TCP in 90s"
+  SERVER_IP=$(dk 60 container inspect -f \
+    '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$srv" 2>/dev/null)
+  [[ $SERVER_IP =~ ^[0-9]+([.][0-9]+){3}$ ]] ||
+    die 5 "server $srv has no container IP address ('$SERVER_IP'); the suite needs one"
   sleep 1
   psql_srv "$srv" -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements" >/dev/null ||
     die 5 "CREATE EXTENSION pg_stat_statements failed on $srv"
@@ -367,11 +374,13 @@ check_server() {
 # container on the server's network and returns its status.
 go_test() {
   local m=$1 name=${PREFIX}go-pg$1 st=0
+  local url="postgres://postgres:postgres@$SERVER_IP:5432/postgres?sslmode=disable"
   claim "$name"
   go_args "$name" "container:${PREFIX}pg$m"
   dk 5400 run "${GO_ARGS[@]}" -v "$(host_path "$OUT/stage.tar"):/stage.tar:ro" -w / \
-    -e "GOFLAGS=-mod=vendor -buildvcs=false" -e "SAGE_TEST_DATABASE_URL=$TEST_URL" \
-    -e PGHOST=127.0.0.1 -e PGPORT=5432 -e PGUSER=postgres -e PGPASSWORD=postgres \
+    -e "GOFLAGS=-mod=vendor -buildvcs=false" \
+    -e "SAGE_TEST_DATABASE_URL=$url" \
+    -e "PGHOST=$SERVER_IP" -e PGPORT=5432 -e PGUSER=postgres -e PGPASSWORD=postgres \
     -e PGDATABASE=postgres "$GO_IMAGE" \
     sh -c "mkdir -p /work && tar -xf /stage.tar -C /work && cd /work/sidecar && $2" \
     >"$3" 2>"${3%.json}.stderr.txt" || st=$?
