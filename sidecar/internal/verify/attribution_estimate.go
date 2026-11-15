@@ -5,14 +5,13 @@ import (
 	"math"
 	"slices"
 	"time"
-
-	"github.com/pg-sage/sidecar/internal/baseline"
 )
 
 // The estimate of an attribution (lab-01a): per-bucket log values of a
-// unit (the pooled targets, or one control), normalized against a
-// reference (the pre-window's mean, or each post hour's seasonal
-// expectation), then Welch's comparison of the reference and post means.
+// unit (the pooled targets, or one control), each statement read against
+// its own reference level (the pre-window's, or each post hour's seasonal
+// expectation; attribution_levels.go), then Welch's comparison of the
+// reference and post means.
 
 const week = 7 * 24 * time.Hour
 
@@ -29,92 +28,28 @@ type unit struct {
 	pre, post, hist Series
 }
 
-// logs is the unit's weighted per-call value per bucket start, in log
-// space; a bucket whose pooled value is not positive is left out.
-func (u unit) logs(s Series, weights map[int64]float64, m metric) map[time.Time]float64 {
-	num, den := map[time.Time]float64{}, map[time.Time]float64{}
-	for _, id := range sortedKeys(weights) {
-		for _, b := range s[id] {
-			num[b.Start] += weights[id] * m(b)
-			den[b.Start] += weights[id]
-		}
-	}
-	out := make(map[time.Time]float64, len(num))
-	for t, n := range num {
-		if v := n / den[t]; v > 0 && !math.IsInf(v, 0) {
-			out[t] = math.Log(v)
-		}
-	}
-	return out
-}
-
-func (u unit) postLogs(m metric) map[time.Time]float64 {
-	if u.postW != nil {
-		return u.logs(u.post, u.postW, m)
-	}
-	return u.logs(u.post, u.weights, m)
-}
-
 // samples are normalized log values keyed by bucket start: ref (the
 // reference: pre-window buckets, or the seasonal weeks' hours) and post.
 type samples struct{ ref, post map[time.Time]float64 }
 
+// samples reads the unit's reference and post buckets against each
+// statement's own level on basis (see pooled).
 func (u unit) samples(basis string, m metric) samples {
-	post := u.postLogs(m)
-	if basis == BasisPreWindow {
-		ref := u.logs(u.pre, u.weights, m)
-		level := mean(values(ref))
-		return samples{ref: shifted(ref, -level), post: shifted(post, -level)}
+	lv, ref := u.preLevels(m), u.pre
+	refKey := func(time.Time) time.Time { return time.Time{} }
+	postKey := refKey
+	if basis != BasisPreWindow {
+		var hourOf map[time.Time]time.Time
+		lv, hourOf = u.seasonalLevels(m)
+		ref, refKey = u.hist, func(t time.Time) time.Time { return hourOf[t] }
+		postKey = func(t time.Time) time.Time { return t.Truncate(time.Hour) }
 	}
-	hist := u.logs(u.hist, u.weights, m)
-	s := samples{ref: map[time.Time]float64{}, post: map[time.Time]float64{}}
-	expected := map[time.Time]float64{}
-	for _, t := range sortedTimes(post) {
-		h := t.Truncate(time.Hour)
-		if _, done := expected[h]; done {
-			continue
-		}
-		var weeks []time.Time
-		for k := 1; k <= baseline.DefaultWeeks; k++ {
-			if _, ok := hist[h.Add(-time.Duration(k)*week)]; ok {
-				weeks = append(weeks, h.Add(-time.Duration(k)*week))
-			}
-		}
-		if len(weeks) == 0 {
-			continue
-		}
-		e := mean(valuesAt(hist, weeks))
-		expected[h] = e
-		for _, at := range weeks {
-			s.ref[at] = hist[at] - e
-		}
+	postW, postLevel := u.weights, lv.own(postKey)
+	if u.postW != nil {
+		postW, postLevel = u.postW, lv.pooledOf(u.weights, postKey)
 	}
-	for t, v := range post {
-		if e, ok := expected[t.Truncate(time.Hour)]; ok {
-			s.post[t] = v - e
-		}
-	}
-	return s
-}
-
-// seasonalWeeks counts the earlier weeks (up to baseline.DefaultWeeks)
-// with history at any of the post period's hours.
-func (u unit) seasonalWeeks() int {
-	hist := u.logs(u.hist, u.weights, blocksPerCall)
-	hours := map[time.Time]bool{}
-	for t := range u.postLogs(blocksPerCall) {
-		hours[t.Truncate(time.Hour)] = true
-	}
-	n := 0
-	for k := 1; k <= baseline.DefaultWeeks; k++ {
-		for h := range hours {
-			if _, ok := hist[h.Add(-time.Duration(k)*week)]; ok {
-				n++
-				break
-			}
-		}
-	}
-	return n
+	return samples{ref: pooled(ref, u.weights, m, lv.own(refKey)),
+		post: pooled(u.post, postW, m, postLevel)}
 }
 
 // change is the unit's mean log change on basis (0 without samples).

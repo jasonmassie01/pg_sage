@@ -297,7 +297,9 @@ yet) asks a narrower question: did the targets' work change because of this step
   time alone never makes one.
 - **Frozen weights.** The targets are pooled with their call shares from before the
   step, stored with the watch, so traffic moving toward a cheap target after the
-  step does not look like an improvement. A target with no calls after the step is
+  step does not look like an improvement. Each target is read against its own
+  level before the step, so a low-traffic target that runs in only some buckets
+  does not move the pooled value either. A target with no calls after the step is
   dropped from the pool, and the evidence says so.
 - **Seasonal match.** When at least 3 of the 4 earlier weeks have the same
   hour-of-week in the hourly rollup (`sage.query_rollup_hourly`), the after-period
