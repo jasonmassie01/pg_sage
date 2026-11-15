@@ -99,6 +99,29 @@ last sample, and at least once an hour (a keyframe). Readers take an absent samp
 differenced (R10). Both rules live once, in `internal/querystore` (`QueryIntervals` for
 verification, `CaptureDeltas` for the SLO latency proxy).
 
+**Hourly per-query rollup.** `sage.query_store` keeps 14 days; the snapshot `queries`
+category (calls, execution time, rows, shared and temp blocks, WAL of the admitted top
+`collector.max_queries`) keeps 90. A `querystore.RollupWorker`, started beside each
+collector, sums per queryid and UTC hour the differences between consecutive `queries`
+snapshots into `sage.query_rollup_hourly`, and writes one `sage.query_rollup_coverage` row
+per hour: the snapshots it saw, the hour's sampled execution time against the database's
+own statement time (`statements_total_exec_ms` of the system category, all entries but
+pg_sage's own, whatever the cap admits; NULL when unknown), the epoch breaks, the
+`pg_stat_statements` deallocations, and whether the epochs were recorded or, for snapshots
+written before the system category carried `statements_epoch`, inferred from counters only.
+A pair of snapshots counts only within one statistics epoch (R10, the same `EpochBreak`
+predicate) and at most `AnchorLookback` apart; a breaking pair (a reset, a Neon or Lakebase
+suspend) adds nothing and flags `epoch_break`, so a counter is never negative (a `CHECK`
+refuses one) and an hour undercounts one interval at worst. The pair's later snapshot
+decides its hour. Each hour is rolled in one transaction under a 30 s statement bound and
+a per-database advisory lock and upserted, so rolling it again gives the same rows. The
+worker backfills from the oldest snapshot, 24 hours per pass every 5 minutes (the first
+90 days take about 7.5 hours per database), then rolls the previous hour at :05 and
+re-rolls the one before it for late snapshots. `SnapshotIntervals` exposes the pairs to
+other readers. Both tables follow `retention.snapshots_days`;
+`pg_sage_query_rollup_hours_total{database,result}` and
+`pg_sage_query_rollup_lag_hours{database}` report progress.
+
 **The workload rule.** The collector keeps every statement. Advice paths (findings, the
 tuning agent, plan capture, verification targets, the briefing) read only application
 workload as `internal/workload` classifies it: pg_sage's own tagged statements,

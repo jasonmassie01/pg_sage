@@ -3951,7 +3951,7 @@ action or changes trust. API: `GET /api/v1/case-tickets?database=` (viewer) list
 
 | Parameter | Default | Description |
 |---|---|---|
-| `retention.snapshots_days` | `90` | Days to retain snapshot data |
+| `retention.snapshots_days` | `90` | Days to retain snapshot data and the hourly per-query rollup built from it (`sage.query_rollup_hourly`, `sage.query_rollup_coverage`) |
 | `retention.findings_days` | `180` | Days to retain resolved findings |
 | `retention.actions_days` | `365` | Days to retain action log entries |
 | `retention.explains_days` | `90` | Days to retain EXPLAIN plan captures |

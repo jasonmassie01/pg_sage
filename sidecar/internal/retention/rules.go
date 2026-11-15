@@ -260,7 +260,16 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		{table: "sre_eval_runs", timeCol: "ingested_at",
 			days: cfg.SRE.Autonomy.ReportRetentionDays, extra: keepEvalRun},
 	}
-	return rules
+	return append(rules, rollupPurgeRules(r)...)
+}
+
+// rollupPurgeRules age out the hourly per-query rollup (evid-01a): it is
+// built from the snapshots and kept as long as they are.
+func rollupPurgeRules(r config.RetentionConfig) []purgeRule {
+	return []purgeRule{
+		{table: "query_rollup_hourly", timeCol: "hour", days: r.SnapshotsDays},
+		{table: "query_rollup_coverage", timeCol: "hour", days: r.SnapshotsDays},
+	}
 }
 
 // baselineDays is baseline.weeks + 1 weeks and baselineSlackDays; a zero
