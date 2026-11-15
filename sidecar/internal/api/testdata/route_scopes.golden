@@ -72,6 +72,7 @@ bare POST /api/v1/facts gate:operator scope:database:query-or-only
 bare POST /api/v1/facts/{id}/confirm gate:operator scope:database:query-or-only
 bare POST /api/v1/facts/{id}/reject gate:operator scope:database:query-or-only
 bare POST /api/v1/facts/{id}/expire gate:operator scope:database:query-or-only
+bare GET /api/v1/databases/{db}/facts/peak-suggestion gate:viewer scope:database:path:db
 bare GET /api/v1/agent-classifications/{database} gate:viewer scope:database:path:database
 bare GET /api/v1/agent-classifications/{database}/column gate:viewer scope:database:path:database
 bare PUT /api/v1/agent-classifications/{database}/columns gate:operator scope:database:path:database
@@ -244,6 +245,7 @@ standalone POST /api/v1/facts gate:operator scope:database:query-or-only
 standalone POST /api/v1/facts/{id}/confirm gate:operator scope:database:query-or-only
 standalone POST /api/v1/facts/{id}/reject gate:operator scope:database:query-or-only
 standalone POST /api/v1/facts/{id}/expire gate:operator scope:database:query-or-only
+standalone GET /api/v1/databases/{db}/facts/peak-suggestion gate:viewer scope:database:path:db
 standalone GET /api/v1/agent-classifications/{database} gate:viewer scope:database:path:database
 standalone GET /api/v1/agent-classifications/{database}/column gate:viewer scope:database:path:database
 standalone PUT /api/v1/agent-classifications/{database}/columns gate:operator scope:database:path:database
@@ -475,6 +477,7 @@ fleet-readonly POST /api/v1/facts gate:operator scope:database:query-or-only
 fleet-readonly POST /api/v1/facts/{id}/confirm gate:operator scope:database:query-or-only
 fleet-readonly POST /api/v1/facts/{id}/reject gate:operator scope:database:query-or-only
 fleet-readonly POST /api/v1/facts/{id}/expire gate:operator scope:database:query-or-only
+fleet-readonly GET /api/v1/databases/{db}/facts/peak-suggestion gate:viewer scope:database:path:db
 fleet-readonly GET /api/v1/agent-classifications/{database} gate:viewer scope:database:path:database
 fleet-readonly GET /api/v1/agent-classifications/{database}/column gate:viewer scope:database:path:database
 fleet-readonly PUT /api/v1/agent-classifications/{database}/columns gate:operator scope:database:path:database
@@ -709,6 +712,7 @@ store-only-actions POST /api/v1/facts gate:operator scope:database:query-or-only
 store-only-actions POST /api/v1/facts/{id}/confirm gate:operator scope:database:query-or-only
 store-only-actions POST /api/v1/facts/{id}/reject gate:operator scope:database:query-or-only
 store-only-actions POST /api/v1/facts/{id}/expire gate:operator scope:database:query-or-only
+store-only-actions GET /api/v1/databases/{db}/facts/peak-suggestion gate:viewer scope:database:path:db
 store-only-actions GET /api/v1/agent-classifications/{database} gate:viewer scope:database:path:database
 store-only-actions GET /api/v1/agent-classifications/{database}/column gate:viewer scope:database:path:database
 store-only-actions PUT /api/v1/agent-classifications/{database}/columns gate:operator scope:database:path:database
@@ -890,6 +894,7 @@ optional POST /api/v1/facts gate:operator scope:database:query-or-only
 optional POST /api/v1/facts/{id}/confirm gate:operator scope:database:query-or-only
 optional POST /api/v1/facts/{id}/reject gate:operator scope:database:query-or-only
 optional POST /api/v1/facts/{id}/expire gate:operator scope:database:query-or-only
+optional GET /api/v1/databases/{db}/facts/peak-suggestion gate:viewer scope:database:path:db
 optional GET /api/v1/agent-classifications/{database} gate:viewer scope:database:path:database
 optional GET /api/v1/agent-classifications/{database}/column gate:viewer scope:database:path:database
 optional PUT /api/v1/agent-classifications/{database}/columns gate:operator scope:database:path:database
@@ -1122,6 +1127,7 @@ databricks-app POST /api/v1/facts gate:operator scope:database:query-or-only
 databricks-app POST /api/v1/facts/{id}/confirm gate:operator scope:database:query-or-only
 databricks-app POST /api/v1/facts/{id}/reject gate:operator scope:database:query-or-only
 databricks-app POST /api/v1/facts/{id}/expire gate:operator scope:database:query-or-only
+databricks-app GET /api/v1/databases/{db}/facts/peak-suggestion gate:viewer scope:database:path:db
 databricks-app GET /api/v1/agent-classifications/{database} gate:viewer scope:database:path:database
 databricks-app GET /api/v1/agent-classifications/{database}/column gate:viewer scope:database:path:database
 databricks-app PUT /api/v1/agent-classifications/{database}/columns gate:operator scope:database:path:database
