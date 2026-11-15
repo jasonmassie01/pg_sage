@@ -171,6 +171,52 @@ stores the pack once per database and hash in `sage.workload_packs` beside the h
 the database). `pg_sage_workload_pack_builds_total{database,result}` and
 `pg_sage_workload_pack_bytes{database}` report builds.
 
+Packs built since evid-02b hold nine more sections, each fact with an id. Nothing
+pg_sage could not measure is ever zero or left out: it is `unknown` (or `absent`,
+`unreadable`, `unavailable`).
+- `indexes.json` (`index/idx/<schema.index>`): every index of the user schemas, from
+  `pg_index`. Each has its size, definition, the unique, primary, constraint, valid and
+  partial flags, and exact-duplicate and left-prefix overlaps (same table, method,
+  predicate, keys, operator classes, collations and options). It also has the window's
+  scans and its table's writes, from the first and last `indexes` and `tables` snapshots.
+  Both are `unknown` when the relation-statistics epoch moved in between. There is no
+  advice.
+- `settings.json` (`setting/<name>`): the last config snapshot's settings, with their
+  changes by day. Beside them are the measures they are judged by: temp bytes per hour,
+  requested and timed checkpoints and WAL bytes per hour, each only within one
+  statistics epoch, and peak client backends against `max_connections` less the
+  reserved slots. Hardware (vCPUs, memory) comes from `sage.host_usage_hourly` for the
+  database's cloud resource.
+- `autovacuum.json` (`table/av/<schema.table>`): autovacuum and autoanalyze runs over the
+  window, the last times, a daily dead-tuple series and the reloptions (one that does not
+  parse is kept as text).
+- `schema.json` (`schema/table/<schema.table>`): tables and partition roots, with size,
+  partition key and partition count, columns, constraints and index definitions. At most
+  2,000 tables and 20,000 columns, with `truncated`. pg_sage's and the system schemas are
+  left out.
+- `plans.json` (`plan/query/<queryid>`): the latest captured plan before the window's
+  end of each of the top 50 queryids. It is shape only (`planhash.Shape`: structure,
+  plan rows, total cost, actual rows and loops), with its fingerprint.
+- `connections.json` (`connections/hour/<0-167>`): mean client sessions per hour of week,
+  by state and by connection age.
+- `provider.json` (`provider/<fact>`): instance class, vCPUs, memory, storage and the
+  serverless flag from the cloud telemetry, or `provider/status = unknown`. It is never
+  inferred.
+- `stats.json` (`stats/column/<schema.table.column>`, `stats/table/<schema.table>`):
+  `null_frac`, `n_distinct`, `correlation` and `avg_width` of the referenced tables'
+  columns.
+- `context.json` (`context/brief`, `context/fact/<type.kind.subject>`): the confirmed
+  owner brief and binding facts, with who confirmed them and when.
+
+Each catalog section reads the monitored database in its own read-only transaction with
+the safety statement and lock timeouts. A failed section fails the build and names the
+section and the bounds. The exception is `provider`, which records `unavailable` with its
+error class. A build's body may set `include_conditions` (each full plan, every string's
+literals redacted) and `include_value_samples` (`pg_stats` most common values and
+histogram bounds, into `stats.json` only). Both are off by default. The manifest's
+`completeness` gives, per section, whether every fact is known, and the share of
+sections that are. Packs built before keep their hash and still open.
+
 **The workload rule.** The collector keeps every statement. Advice paths (findings, the
 tuning agent, plan capture, verification targets, the briefing) read only application
 workload as `internal/workload` classifies it: pg_sage's own tagged statements,
@@ -195,7 +241,9 @@ Each snapshot holds one row per category: `queries`, `tables`, `indexes`,
 `index_bloat` (the largest btree indexes' bloat estimated from planner statistics, at most 200),
 `workload_sessions` (this database's client sessions by role, application and state, at most
 200 groups, its 50 longest-running sessions with their sqlcommenter tags, and per-role
-statement time and cluster-wide session counts, which workload budgets read),
+statement time and cluster-wide session counts, which workload budgets read, and its
+client sessions by state and connection age: under 1 min, 1-10 min, 10-60 min, 1 h and
+over; snapshots written before carry no ages),
 `wait_events` (this database's active client sessions grouped by wait class and event, a
 session without a wait event counted as `CPU`: one aggregate of `pg_stat_activity` per
 cycle, with no query text and no pid, and without pg_sage's own sessions; it is sampled
