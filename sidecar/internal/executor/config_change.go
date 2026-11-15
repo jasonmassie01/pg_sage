@@ -106,7 +106,8 @@ func (e *Executor) prepareConfigChange(ctx context.Context, sql string) (*config
 		return nil, nil
 	}
 	if metric, table := outcomeMetricFor(c); metric != "" {
-		baseline, err := captureOutcomeBaseline(ctx, e.pool, metric, table)
+		at := e.databaseNow(ctx, "outcome baseline for "+metric)
+		baseline, err := captureOutcomeBaseline(ctx, e.pool, metric, table, at)
 		if err != nil {
 			e.logFn("executor", "outcome baseline for %q unavailable (change will "+
 				"be unverifiable): %v", sql, err)
