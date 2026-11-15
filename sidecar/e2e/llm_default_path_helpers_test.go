@@ -94,7 +94,7 @@ postgres:
   max_connections: 4
 
 collector:
-  interval_seconds: 3
+  interval_seconds: 5
 
 analyzer:
   interval_seconds: %d
@@ -401,7 +401,7 @@ func writeLLMFleetConfig(
 databases:
 %s%s
 collector:
-  interval_seconds: 3
+  interval_seconds: 5
 
 analyzer:
   interval_seconds: %d
