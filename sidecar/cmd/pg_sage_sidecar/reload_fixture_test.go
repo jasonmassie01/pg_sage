@@ -43,11 +43,13 @@ func newFleetReloadEnv(t *testing.T, names ...string) *fleetReloadEnv {
 	analyzeSem = make(chan struct{}, 1)
 	fleetMgr = fleet.NewManager(cfg)
 	initializeFleetBudget(names)
+	// As at startup (main.go), the controller exists before any runtime
+	// starts: runtime workers read it (env-race).
+	configController = config.NewConfigController(cfg, nil, newTrustPolicyOwner())
 	boot := &fleetBootstrap{}
 	for _, db := range dbs {
 		boot.start(db)
 	}
-	configController = config.NewConfigController(cfg, nil, newTrustPolicyOwner())
 	registerFleetDatabasesOwner(boot)
 	t.Cleanup(func() {
 		cancel()
