@@ -95,8 +95,9 @@ func checkResult(problems []Problem, err error) error {
 }
 
 // Create validates p and stores it with its steps and edges as a draft
-// or proposed plan (proposed when p.Status is empty). The plan returned
-// is the stored one: ids, times, defaults and its plan hash.
+// or proposed plan (proposed when p.Status is empty), with its created
+// event (plan-01b) in the same transaction. The plan returned is the
+// stored one: ids, times, defaults and its plan hash.
 func (s *Store) Create(ctx context.Context, p Plan, r Resolver) (Plan, error) {
 	if p.Status == "" {
 		p.Status = StatusProposed
@@ -117,7 +118,12 @@ func (s *Store) Create(ctx context.Context, p Plan, r Resolver) (Plan, error) {
 	var id int64
 	err := s.inTx(ctx, func(tx pgx.Tx) error {
 		var err error
-		id, err = insertPlan(ctx, tx, p)
+		if id, err = insertPlan(ctx, tx, p); err != nil {
+			return err
+		}
+		_, err = AppendEvent(ctx, tx, Event{PlanID: id, Kind: EventCreated,
+			PlanHash: p.PlanHash, Actor: p.CreatedBy,
+			Detail: map[string]any{"status": string(p.Status), "steps": len(p.Steps)}})
 		return err
 	})
 	if err != nil {

@@ -36,7 +36,7 @@ func lockPlan(ctx context.Context, tx pgx.Tx, id int64) (Plan, error) {
 // one transaction. It returns the stored plan.
 func (s *Store) UpdateStep(ctx context.Context, planID int64, step Step,
 	r Resolver) (Plan, error) {
-	err := s.edit(ctx, planID, r, func(p *Plan) (func(pgx.Tx) error, error) {
+	err := s.edit(ctx, planID, r, func(p *Plan) (planEdit, error) {
 		idx := -1
 		for i := range p.Steps {
 			if p.Steps[i].Ordinal == step.Ordinal {
@@ -44,13 +44,14 @@ func (s *Store) UpdateStep(ctx context.Context, planID int64, step Step,
 			}
 		}
 		if idx < 0 {
-			return nil, fmt.Errorf("%w: plan %d has no step %d", ErrNotFound, planID,
-				step.Ordinal)
+			return planEdit{}, fmt.Errorf("%w: plan %d has no step %d", ErrNotFound,
+				planID, step.Ordinal)
 		}
 		edited := step.WithDefaults()
 		edited.ID, edited.Runtime = p.Steps[idx].ID, p.Steps[idx].Runtime
 		p.Steps[idx] = edited
-		return func(tx pgx.Tx) error { return updateStepRow(ctx, tx, edited) }, nil
+		return planEdit{stepID: &edited.ID, detail: map[string]any{"ordinal": step.Ordinal},
+			write: func(tx pgx.Tx) error { return updateStepRow(ctx, tx, edited) }}, nil
 	})
 	if err != nil {
 		return Plan{}, fmt.Errorf("changeplan: update step %d of plan %d: %w", step.Ordinal,
@@ -62,15 +63,16 @@ func (s *Store) UpdateStep(ctx context.Context, planID int64, step Step,
 // SetEdges replaces the plan's edges, with UpdateStep's voiding rule.
 func (s *Store) SetEdges(ctx context.Context, planID int64, edges []Edge,
 	r Resolver) (Plan, error) {
-	err := s.edit(ctx, planID, r, func(p *Plan) (func(pgx.Tx) error, error) {
+	err := s.edit(ctx, planID, r, func(p *Plan) (planEdit, error) {
 		p.Edges = edges
-		return func(tx pgx.Tx) error {
+		write := func(tx pgx.Tx) error {
 			if _, err := tx.Exec(ctx, `/* pg_sage */ DELETE FROM sage.plan_step_edge
 				WHERE plan_id = $1`, planID); err != nil {
 				return fmt.Errorf("clear the edges: %w", err)
 			}
 			return insertEdges(ctx, tx, planID, edges)
-		}, nil
+		}
+		return planEdit{detail: map[string]any{"edges": len(edges)}, write: write}, nil
 	})
 	if err != nil {
 		return Plan{}, fmt.Errorf("changeplan: set the edges of plan %d: %w", planID, err)
@@ -78,11 +80,19 @@ func (s *Store) SetEdges(ctx context.Context, planID int64, edges []Edge,
 	return s.Get(ctx, planID)
 }
 
+// planEdit is one change edit writes: its rows, and its event's step and
+// detail.
+type planEdit struct {
+	write  func(pgx.Tx) error
+	stepID *int64
+	detail map[string]any
+}
+
 // edit locks the plan, applies change to its in-memory copy, validates
-// the result and then writes it, voids a live approval and stores the new
-// hash.
+// the result and then writes it, voids a live approval, stores the new
+// hash and records the edited event under ctx's actor (WithActor).
 func (s *Store) edit(ctx context.Context, planID int64, r Resolver,
-	change func(*Plan) (func(pgx.Tx) error, error)) error {
+	change func(*Plan) (planEdit, error)) error {
 	return s.inTx(ctx, func(tx pgx.Tx) error {
 		p, err := lockPlan(ctx, tx, planID)
 		if err != nil {
@@ -91,24 +101,32 @@ func (s *Store) edit(ctx context.Context, planID int64, r Resolver,
 		if !editable(p.Status) {
 			return fmt.Errorf("%w: plan %d is %s", ErrNotEditable, planID, p.Status)
 		}
-		write, err := change(&p)
+		e, err := change(&p)
 		if err != nil {
 			return err
 		}
 		if err := checkResult(Validate(ctx, p, r)); err != nil {
 			return err
 		}
-		if err := write(tx); err != nil {
+		if err := e.write(tx); err != nil {
 			return err
 		}
-		if err := voidLive(ctx, tx, planID, VoidEdited); err != nil {
+		voided, err := voidLive(ctx, tx, planID, VoidEdited)
+		if err != nil {
 			return err
 		}
 		status := p.Status
 		if status == StatusApproved {
 			status = StatusProposed
 		}
-		return setPlan(ctx, tx, planID, status, PlanHash(p))
+		hash := PlanHash(p)
+		if err := setPlan(ctx, tx, planID, status, hash); err != nil {
+			return err
+		}
+		e.detail["voided_approval"], e.detail["status"] = voided, string(status)
+		_, err = AppendEvent(ctx, tx, Event{PlanID: planID, StepID: e.stepID,
+			Kind: EventEdited, PlanHash: hash, Actor: actorOf(ctx), Detail: e.detail})
+		return err
 	})
 }
 
@@ -134,14 +152,15 @@ func updateStepRow(ctx context.Context, tx pgx.Tx, s Step) error {
 	return nil
 }
 
-func voidLive(ctx context.Context, tx pgx.Tx, planID int64, reason string) error {
-	_, err := tx.Exec(ctx, `/* pg_sage */ UPDATE sage.plan_approval
+// voidLive voids the plan's live approval, reporting whether there was one.
+func voidLive(ctx context.Context, tx pgx.Tx, planID int64, reason string) (bool, error) {
+	tag, err := tx.Exec(ctx, `/* pg_sage */ UPDATE sage.plan_approval
 		SET voided_at = now(), void_reason = $2 WHERE plan_id = $1 AND voided_at IS NULL`,
 		planID, reason)
 	if err != nil {
-		return fmt.Errorf("void the live approval: %w", err)
+		return false, fmt.Errorf("void the live approval: %w", err)
 	}
-	return nil
+	return tag.RowsAffected() > 0, nil
 }
 
 func setPlan(ctx context.Context, tx pgx.Tx, planID int64, status Status, hash string) error {
@@ -175,11 +194,21 @@ func (s *Store) Approve(ctx context.Context, planID int64, planHash string,
 		if planHash != current {
 			return fmt.Errorf("%w (plan %d)", ErrStaleHash, planID)
 		}
-		a, err = approveLocked(ctx, tx, planID, current, userID)
+		var fresh bool
+		a, fresh, err = approveLocked(ctx, tx, planID, current, userID)
 		if err != nil {
 			return err
 		}
-		return setPlan(ctx, tx, planID, StatusApproved, current)
+		if err := setPlan(ctx, tx, planID, StatusApproved, current); err != nil {
+			return err
+		}
+		if !fresh {
+			return nil // the live approval already holds this hash: nothing changed
+		}
+		_, err = AppendEvent(ctx, tx, Event{PlanID: planID, Kind: EventApproved,
+			PlanHash: current, Actor: fmt.Sprintf("user:%d", userID),
+			Detail: map[string]any{"approval_id": a.ID}})
+		return err
 	})
 	if err != nil {
 		return Approval{}, fmt.Errorf("changeplan: approve plan %d: %w", planID, err)
@@ -188,35 +217,35 @@ func (s *Store) Approve(ctx context.Context, planID int64, planHash string,
 }
 
 // approveLocked returns the live approval when it holds hash, else voids
-// any other live approval ("superseded") and inserts a new one.
+// any other live approval ("superseded") and inserts a new one (fresh).
 func approveLocked(ctx context.Context, tx pgx.Tx, planID int64, hash string,
-	userID int) (Approval, error) {
-	var a Approval
-	err := tx.QueryRow(ctx, `/* pg_sage */ SELECT id, plan_id, plan_hash, approver_user_id,
+	userID int) (a Approval, fresh bool, err error) {
+	err = tx.QueryRow(ctx, `/* pg_sage */ SELECT id, plan_id, plan_hash, approver_user_id,
 		decided_at FROM sage.plan_approval WHERE plan_id = $1 AND voided_at IS NULL`,
 		planID).Scan(&a.ID, &a.PlanID, &a.PlanHash, &a.ApproverUserID, &a.DecidedAt)
 	switch {
 	case err == nil && a.PlanHash == hash:
-		return a, nil
+		return a, false, nil
 	case err == nil:
-		if err := voidLive(ctx, tx, planID, "superseded"); err != nil {
-			return Approval{}, err
+		if _, err := voidLive(ctx, tx, planID, "superseded"); err != nil {
+			return Approval{}, false, err
 		}
 	case !errors.Is(err, pgx.ErrNoRows):
-		return Approval{}, fmt.Errorf("read the live approval: %w", err)
+		return Approval{}, false, fmt.Errorf("read the live approval: %w", err)
 	}
 	a = Approval{PlanID: planID, PlanHash: hash, ApproverUserID: userID}
 	err = tx.QueryRow(ctx, `/* pg_sage */ INSERT INTO sage.plan_approval (plan_id, plan_hash,
 		approver_user_id) VALUES ($1, $2, $3) RETURNING id, decided_at`,
 		planID, hash, userID).Scan(&a.ID, &a.DecidedAt)
 	if err != nil {
-		return Approval{}, fmt.Errorf("store the approval: %w", err)
+		return Approval{}, false, fmt.Errorf("store the approval: %w", err)
 	}
-	return a, nil
+	return a, true, nil
 }
 
 // Void ends a plan that has not started or has halted: its live approval
-// is voided with reason and the plan becomes voided (terminal).
+// is voided with reason, the plan becomes voided (terminal) and the voided
+// event names ctx's actor (WithActor).
 func (s *Store) Void(ctx context.Context, planID int64, reason string) error {
 	if n := utf8.RuneCountInString(reason); n < 1 || n > maxRefRunes {
 		return fmt.Errorf("changeplan: void plan %d: the reason is 1 to %d characters",
@@ -230,10 +259,16 @@ func (s *Store) Void(ctx context.Context, planID int64, reason string) error {
 		if !editable(p.Status) && p.Status != StatusHalted {
 			return fmt.Errorf("%w: plan %d is %s", ErrNotEditable, planID, p.Status)
 		}
-		if err := voidLive(ctx, tx, planID, reason); err != nil {
+		if _, err := voidLive(ctx, tx, planID, reason); err != nil {
 			return err
 		}
-		return setPlan(ctx, tx, planID, StatusVoided, p.PlanHash)
+		if err := setPlan(ctx, tx, planID, StatusVoided, p.PlanHash); err != nil {
+			return err
+		}
+		_, err = AppendEvent(ctx, tx, Event{PlanID: planID, Kind: EventVoided,
+			PlanHash: p.PlanHash, Actor: actorOf(ctx),
+			Detail: map[string]any{"reason": reason, "from_status": string(p.Status)}})
+		return err
 	})
 	if err != nil {
 		return fmt.Errorf("changeplan: void plan %d: %w", planID, err)
