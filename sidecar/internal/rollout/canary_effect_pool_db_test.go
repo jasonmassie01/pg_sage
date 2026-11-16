@@ -85,6 +85,20 @@ func seedOutcome(t *testing.T, pool *pgxpool.Pool, from, to time.Time, evidence,
 const v2Evidence = `{"v2": {"verifier": "v2", "measured": true, "effect_pct": -28,
 	"ci_low_pct": -35, "ci_high_pct": -20, "basis": "pre_window"}}`
 
+// seedOrdersAndItems gives pool the orders statement, flat, and an items
+// statement that grows 90-fold; its newest snapshot holds both (two snapshots
+// at one instant would leave which one is newest to the sort).
+func seedOrdersAndItems(t *testing.T, pool *pgxpool.Pool, from, to time.Time) {
+	t.Helper()
+	seedQuery(t, pool, 33, "SELECT * FROM orders WHERE status = $1", from,
+		to.Add(-time.Hour), 20, 20)
+	seedQuery(t, pool, 34, "SELECT * FROM items WHERE id = $1", from, to.Add(-time.Hour),
+		1, 90)
+	seedSnapshot(t, pool, to.Add(-30*time.Minute), `[{"queryid": 33, "query":
+		"SELECT * FROM orders WHERE status = $1"}, {"queryid": 34, "query":
+		"SELECT * FROM items WHERE id = $1"}]`)
+}
+
 // Integration: the stored rollout_instance rows carry effect_pct and
 // effect_method, measured from the three databases' own history.
 func TestEffectPoolReadsAcrossThreeFixtureDatabases(t *testing.T) {
@@ -97,18 +111,7 @@ func TestEffectPoolReadsAcrossThreeFixtureDatabases(t *testing.T) {
 		to.Add(-time.Hour), 10, 7)
 	seedQuery(t, d2, 22, "select *\n from orders where status = $1", from,
 		to.Add(-time.Hour), 10, 10)
-	seedQuery(t, d3, 33, "SELECT * FROM orders WHERE status = $1", from,
-		to.Add(-time.Hour), 20, 20)
-	seedQuery(t, d3, 34, "SELECT * FROM items WHERE id = $1", from, to.Add(-time.Hour),
-		1, 90)
-	// d3's newest snapshot holds both statements (two snapshots at one
-	// instant would leave which one is newest to the sort).
-	if _, err := d3.Exec(context.Background(), `INSERT INTO sage.snapshots (collected_at,
-		category, data) VALUES ($1, 'queries', '[{"queryid": 33, "query":
-		"SELECT * FROM orders WHERE status = $1"}, {"queryid": 34, "query":
-		"SELECT * FROM items WHERE id = $1"}]'::jsonb)`, to.Add(-30*time.Minute)); err != nil {
-		t.Fatalf("seed d3 snapshot: %v", err)
-	}
+	seedOrdersAndItems(t, d3, from, to)
 	queueID := seedQueueRow(t, d1)
 
 	eff, err := NewPoolEffects(d1).ActionEffect(context.Background(), 101)

@@ -71,17 +71,18 @@ func (p PoolEffects) ActionEffect(ctx context.Context, actionLogID int64) (Membe
 	if err := decodeV2(v2, &eff); err != nil || !eff.Measured {
 		return eff, err
 	}
+	// Target queries that cannot be read leave the v2 number deciding (fail
+	// closed: a measured effect is never turned into flag only), with no
+	// fleet control and the reason said.
 	ids, err := queryIDs(targets)
 	if err != nil {
-		// The v2 number still decides (fail closed: never flag only for a
-		// measured effect); without target queries there is no fleet control.
 		eff.Reason = err.Error()
 		return eff, nil
 	}
-	eff.Queries, err = p.queryTexts(ctx, ids, eff.To)
-	if err != nil {
-		return MemberEffect{}, fmt.Errorf("read the target queries of action %d: %w",
-			actionLogID, err)
+	if eff.Queries, err = p.queryTexts(ctx, ids, eff.To); err != nil {
+		eff.Queries = nil
+		eff.Reason = fmt.Sprintf("read the target queries of action %d: %v", actionLogID,
+			err)
 	}
 	return eff, nil
 }
