@@ -111,20 +111,26 @@ func (w *Worker) deliverDigest(ctx context.Context, s digestSend) map[string]Del
 		claimed = err == nil
 	}
 	out := w.Dispatch(ctx, s.text)
-	w.notifyDigest(ctx, s, out)
-	if claimed && !reachedAChannel(out) {
+	missed := w.notifyDigest(ctx, s, out)
+	// A digest the Notifications channels all missed is tried again at the
+	// next schedule even when stdout took it: stdout alone must not mark it
+	// delivered, or an unchanged digest would never reach a person.
+	if claimed && (missed || !reachedAChannel(out)) {
 		w.unclaimDigest(ctx, s)
 	}
 	return out
 }
 
 // notifyDigest submits the digest_ready event and adds each channel's
-// outcome to out, keyed by channel name.
-func (w *Worker) notifyDigest(ctx context.Context, s digestSend, out map[string]Delivery) {
+// outcome to out, keyed by channel name. It reports whether Notifications
+// had somewhere to send the digest and no channel took it (missed).
+func (w *Worker) notifyDigest(
+	ctx context.Context, s digestSend, out map[string]Delivery,
+) (missed bool) {
 	if w.notifier == nil {
 		out[deliveryKeyNotifications] = delivered(DeliverySkipped,
 			"no notification dispatcher is wired")
-		return
+		return false
 	}
 	if created, err := w.notifier.EnsureDefaultRule(ctx, notify.EventDigestReady); err != nil {
 		w.logFn("WARN", "briefing: default digest_ready rule: %v", err)
@@ -137,26 +143,34 @@ func (w *Worker) notifyDigest(ctx context.Context, s digestSend, out map[string]
 		w.logFn("WARN", "briefing: send digest through notifications: %v", err)
 		out[deliveryKeyNotifications] = delivered(DeliveryError,
 			"notifications: "+notify.RedactError(err).Error())
-		return
+		return true
 	}
 	if len(outs) == 0 {
 		out[deliveryKeyNotifications] = delivered(DeliverySkipped,
 			"no enabled digest_ready notification rule")
+		return false
 	}
-	now := time.Now().UTC()
+	now, missed := time.Now().UTC(), true
 	for _, o := range outs {
 		status := o.Status
 		if status == notify.OutcomeRefused {
 			status = DeliveryError
 		}
 		out[o.Channel] = Delivery{Status: status, Error: o.Error, At: now}
+		missed = missed && !tookDigest(status)
 	}
+	return missed
+}
+
+// tookDigest reports whether a channel status means the digest got there.
+func tookDigest(status string) bool {
+	return status == DeliverySent || status == notify.OutcomeQueued
 }
 
 // reachedAChannel reports whether any channel took the digest.
 func reachedAChannel(out map[string]Delivery) bool {
 	for _, d := range out {
-		if d.Status == DeliverySent || d.Status == notify.OutcomeQueued {
+		if tookDigest(d.Status) {
 			return true
 		}
 	}

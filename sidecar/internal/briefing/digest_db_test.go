@@ -311,6 +311,51 @@ func TestDigestDB_NotifierErrorIsRecorded(t *testing.T) {
 	}
 }
 
+// Error propagation (review fix): stdout taking the digest does not mark
+// it delivered when every Notifications channel failed, so the unchanged
+// digest is sent again at the next schedule instead of never reaching a
+// person. One channel that took it does mark it delivered. Only standing
+// state is seeded, so every run builds the same digest.
+func TestDigestDB_StdoutAloneDoesNotMarkDelivered(t *testing.T) {
+	pool := digestDB(t)
+	mustExec(t, pool, `INSERT INTO sage.decision (feature, intent, verdict, risk_tier,
+		reason, evidence_id, fingerprint) VALUES
+		('index', 'index', 'parked', 'safe', 'outside_maintenance_window', 'ev-a', 'fp-a')`)
+	failed := &recordingNotifier{result: []notify.ChannelOutcome{{ChannelID: 1,
+		Channel: "team-slack", Status: notify.OutcomeError, Error: "HTTP 500"}}}
+	w := digestWorker(pool, failed, true, 2)
+	w.stdout = &strings.Builder{}
+	w.live.Load().cfg.Channels = []string{"stdout"}
+	if err := w.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	got := latestDigest(t, pool)
+	if got.delivery["stdout"].Status != DeliverySent ||
+		got.delivery["team-slack"].Status != DeliveryError {
+		t.Fatalf("delivery = %+v, want stdout sent and team-slack failed", got.delivery)
+	}
+	var claimed int
+	_ = pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM sage.digest_delivery`).Scan(&claimed)
+	if claimed != 0 {
+		t.Fatalf("%d claims: a digest every notification channel missed was kept "+
+			"as delivered", claimed)
+	}
+	failed.result = sentTo("team-slack")
+	if err := w.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(failed.sent()) != 2 {
+		t.Fatalf("%d events, want the unchanged digest sent again", len(failed.sent()))
+	}
+	if err := w.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(failed.sent()) != 2 {
+		t.Fatalf("%d events, want the delivered digest held back", len(failed.sent()))
+	}
+}
+
 // Concurrency: two leader-election flaps producing the same digest send it
 // once; the hash check is one INSERT ... ON CONFLICT on scope and hash.
 func TestDigestDB_TwoFlapsSendOnce(t *testing.T) {
