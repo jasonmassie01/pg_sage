@@ -10,10 +10,18 @@ import (
 // of the install. No concurrent access tests here: two creators are
 // covered by workpack.TestPseudonymKeyDB_ConcurrentCallersAgree.
 
-func TestWorkloadPseudonymKeyStep_IsLastBoundedAndIdempotent(t *testing.T) {
+// The step follows ddlPlanApprovalModes; ux-01b's ddlUserInboxSeenAt
+// follows it, so its place is pinned rather than "last".
+func TestWorkloadPseudonymKeyStep_IsInPlaceBoundedAndIdempotent(t *testing.T) {
 	steps := trancheFiveMigrations()
-	if len(steps) == 0 || steps[len(steps)-1][0] != "ddlWorkloadPseudonymKey" {
-		t.Fatalf("T5 steps = %v, want ddlWorkloadPseudonymKey last", steps)
+	idx := -1
+	for i, step := range steps {
+		if step[0] == "ddlWorkloadPseudonymKey" {
+			idx = i
+		}
+	}
+	if idx < 1 || steps[idx-1][0] != "ddlPlanApprovalModes" {
+		t.Fatalf("T5 steps = %v, want ddlPlanApprovalModes then ddlWorkloadPseudonymKey", steps)
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout",
 		"CREATE TABLE IF NOT EXISTS sage.workload_pseudonym_key", "CHECK (id = 1)",
