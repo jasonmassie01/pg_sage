@@ -35,11 +35,14 @@ type measurer struct {
 }
 
 // measured is one statement's measurement: blocks is nil when it was not
-// executed, and notExecuted then says why.
+// executed, and notExecuted then says why. plan is the EXPLAIN JSON and
+// latencyMS the execution time of an executed statement.
 type measured struct {
 	cost        float64
 	blocks      *int64
 	notExecuted string
+	plan        []byte
+	latencyMS   float64
 }
 
 // before measures every statement without the index.
@@ -88,8 +91,9 @@ func (m measurer) measure(ctx context.Context, text string) (measured, error) {
 		return measured{}, errMultiStatement
 	}
 	if paramRef.MatchString(workload.BlankLiteralsAndComments(body)) {
-		cost, err := planCost(ctx, m.conn, body, m.version)
-		return measured{cost: cost, notExecuted: notExecutedParams}, err
+		got, err := planOutside(ctx, m.conn, body, m.version)
+		got.notExecuted = notExecutedParams
+		return got, err
 	}
 	tx, err := m.conn.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
 	if err != nil {
@@ -108,63 +112,76 @@ func (m measurer) measure(ctx context.Context, text string) (measured, error) {
 		return measured{}, fmt.Errorf("prove the statement read-only on the clone: %w", err)
 	}
 	if refusal != "" {
-		cost, err := planIn(ctx, tx, body, m.version)
-		return measured{cost: cost, notExecuted: "not executed: it " + refusal}, err
+		got, err := planIn(ctx, tx, body, m.version)
+		got.notExecuted = "not executed: it " + refusal
+		return got, err
 	}
 	return analyze(ctx, tx, body)
 }
 
-// planCost is the total cost of a statement's plan (EXPLAIN, never
-// ANALYZE; a generic plan for a parameterized statement on PG16+), planned
-// in a READ ONLY transaction on the application's search_path
-// (security-01c-n) that is always rolled back.
+// planCost is the total cost of a statement's plan (planOutside).
 func planCost(ctx context.Context, conn *pgx.Conn, text string, version int) (float64,
+	error) {
+	got, err := planOutside(ctx, conn, text, version)
+	return got.cost, err
+}
+
+// planOutside plans a statement (EXPLAIN, never ANALYZE; a generic plan
+// for a parameterized statement on PG16+) in a READ ONLY transaction on
+// the application's search_path (security-01c-n) that is always rolled
+// back.
+func planOutside(ctx context.Context, conn *pgx.Conn, text string, version int) (measured,
 	error) {
 	body, ok := singleStatement(text)
 	if !ok {
-		return 0, errMultiStatement
+		return measured{}, errMultiStatement
 	}
 	tx, err := conn.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
 	if err != nil {
-		return 0, fmt.Errorf("begin the plan transaction on the clone: %w", err)
+		return measured{}, fmt.Errorf("begin the plan transaction on the clone: %w", err)
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 	if err := apppath.Pin(ctx, tx); err != nil {
-		return 0, err
+		return measured{}, err
 	}
 	return planIn(ctx, tx, body, version)
 }
 
 // planIn plans body in tx, never executing it.
-func planIn(ctx context.Context, tx pgx.Tx, body string, version int) (float64, error) {
+func planIn(ctx context.Context, tx pgx.Tx, body string, version int) (measured, error) {
 	prefix := "EXPLAIN (FORMAT JSON) "
 	if paramRef.MatchString(workload.BlankLiteralsAndComments(body)) {
 		if version < 160000 {
-			return 0, errNoGenericPlanning
+			return measured{}, errNoGenericPlanning
 		}
 		prefix = "EXPLAIN (GENERIC_PLAN, FORMAT JSON) "
 	}
 	raw, err := rawSingleValue(ctx, tx.Conn().PgConn(), prefix+body)
 	if err != nil {
-		return 0, timedOut(err)
+		return measured{}, timedOut(err)
 	}
-	root, err := planRoot(raw)
-	return root.TotalCost, err
+	doc, err := planRoot(raw)
+	if err != nil {
+		return measured{}, err
+	}
+	return measured{cost: doc.Plan.TotalCost, plan: raw}, nil
 }
 
-// analyze executes the proven statement once and reads its shared blocks.
+// analyze executes the proven statement once and reads its shared blocks
+// and execution time.
 func analyze(ctx context.Context, tx pgx.Tx, body string) (measured, error) {
 	raw, err := rawSingleValue(ctx, tx.Conn().PgConn(),
 		"EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) "+body)
 	if err != nil {
 		return measured{}, timedOut(err)
 	}
-	root, err := planRoot(raw)
+	doc, err := planRoot(raw)
 	if err != nil {
 		return measured{}, err
 	}
-	blocks := root.SharedHit + root.SharedRead
-	return measured{cost: root.TotalCost, blocks: &blocks}, nil
+	blocks := doc.Plan.SharedHit + doc.Plan.SharedRead
+	return measured{cost: doc.Plan.TotalCost, blocks: &blocks, plan: raw,
+		latencyMS: doc.ExecutionTime}, nil
 }
 
 // planNode is the root node of an EXPLAIN (FORMAT JSON): its buffer
@@ -175,17 +192,22 @@ type planNode struct {
 	SharedRead int64   `json:"Shared Read Blocks"`
 }
 
-func planRoot(raw []byte) (planNode, error) {
-	var plans []struct {
-		Plan planNode `json:"Plan"`
-	}
+// planDoc is one EXPLAIN (FORMAT JSON) result: the root node and, for
+// ANALYZE, the execution time in milliseconds.
+type planDoc struct {
+	Plan          planNode `json:"Plan"`
+	ExecutionTime float64  `json:"Execution Time"`
+}
+
+func planRoot(raw []byte) (planDoc, error) {
+	var plans []planDoc
 	if err := json.Unmarshal(raw, &plans); err != nil {
-		return planNode{}, fmt.Errorf("unreadable plan: %w", err)
+		return planDoc{}, fmt.Errorf("unreadable plan: %w", err)
 	}
 	if len(plans) == 0 {
-		return planNode{}, errors.New("unreadable plan: no plan returned")
+		return planDoc{}, errors.New("unreadable plan: no plan returned")
 	}
-	return plans[0].Plan, nil
+	return plans[0], nil
 }
 
 // timedOut names a statement timeout (query_canceled) as such.
