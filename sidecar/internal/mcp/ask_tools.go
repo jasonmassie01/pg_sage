@@ -90,7 +90,7 @@ func askFailure(err error) *rpcError {
 	case errors.Is(err, ask.ErrNotFound):
 		return failure(codeNotFound, "not found")
 	case errors.Is(err, ask.ErrDisabled):
-		return failure(codeUnavailable, "Ask Sage is disabled (ask.enabled: false)")
+		return unconfigured("Ask Sage is disabled (ask.enabled: false)")
 	case errors.Is(err, ask.ErrUnavailable):
 		return failure(codeUnavailable, "Ask Sage is temporarily unavailable; retry later")
 	}

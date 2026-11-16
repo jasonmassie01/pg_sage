@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 	"unicode"
 )
 
@@ -57,6 +58,12 @@ type rpcError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 	Data    any    `json:"data,omitempty"`
+	// retryAfter is the known wait before a retry (ux-05f); retryKnown
+	// tells a known zero from none. unconfigured marks an unavailable
+	// feature only a person can switch on, so no retry is suggested.
+	retryAfter   time.Duration
+	retryKnown   bool
+	unconfigured bool
 }
 
 // toolFamily routes one family of tools.
@@ -123,22 +130,23 @@ func (s *Server) callTool(ctx context.Context, raw json.RawMessage) (map[string]
 		return nil, failure(codeInvalidParams, "tool arguments must be a JSON object")
 	}
 	if failed := databasesUnavailable(ctx); failed != nil {
-		return toolError(failed), nil
+		return s.callError(call.Name, arguments, failed), nil
 	}
 	if failed := authorizeTool(ctx, call.Name, arguments); failed != nil {
-		return toolError(failed), nil
+		return s.callError(call.Name, arguments, failed), nil
 	}
-	ctx, arguments, failed := s.bindDatabase(ctx, call.Name, arguments)
+	ctx, bound, failed := s.bindDatabase(ctx, call.Name, arguments)
 	if failed != nil {
-		return toolError(failed), nil
+		return s.callError(call.Name, arguments, failed), nil
 	}
+	arguments = bound
 	ctx = bindAgentRef(ctx, call.Name)
 	result, failed := familyOf(call.Name)(s, ctx, call.Name, arguments)
 	if failed != nil {
 		if failed.Code == codeCancelled {
 			return nil, failed
 		}
-		return toolError(failed), nil
+		return s.callError(call.Name, arguments, failed), nil
 	}
 	if structured, ok := result.(map[string]any); ok {
 		return structured, nil

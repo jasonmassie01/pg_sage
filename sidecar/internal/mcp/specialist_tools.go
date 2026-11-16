@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+
+	"github.com/pg-sage/sidecar/internal/specialist"
 )
 
 // The Postgres-specialist contract over MCP (roadmap phase 3): the same
@@ -91,7 +93,7 @@ func (s *Server) callSpecialistTool(ctx context.Context, name string,
 	arguments json.RawMessage) (any, *rpcError) {
 	backend, ok := s.backend.(SpecialistBackend)
 	if !ok {
-		return nil, failure(codeUnavailable, "the specialist contract is unavailable")
+		return nil, unconfigured("the specialist contract is unavailable")
 	}
 	database, args, failed := specialistArguments(name, arguments)
 	if failed != nil {
@@ -171,7 +173,10 @@ var specialistCodes = map[string]int{"scope_required": codeScopeRequired,
 
 func specialistFailure(err error) *rpcError {
 	var coded interface{ SpecialistCode() string }
+	var limited *specialist.RateLimitError
 	switch {
+	case errors.As(err, &limited):
+		return failure(codeRateLimited, err.Error()).withRetryAfter(limited.RetryAfter)
 	case errors.As(err, &coded):
 		if code, ok := specialistCodes[coded.SpecialistCode()]; ok {
 			return failure(code, err.Error())

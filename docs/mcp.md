@@ -171,6 +171,29 @@ A tool call the agent can correct comes back as a tool result with `isError: tru
 | -32009 | `conflict` | the object is not in a state that allows this |
 | -32010 | `unavailable` | retry later: e.g. target database unavailable, no HypoPG |
 
+The error also says what to do next. These keys are added where they apply; `code`, `reason`
+and `message` keep their values:
+
+| Key | Value |
+|---|---|
+| `next` | `{"tool": ..., "arguments": {...}}` to call next; for `invalid_arguments` and `runbook_rejected` the same tool with `required`, its schema's required arguments; or `"wait"` |
+| `retry_after` | whole seconds to wait before retrying (at least 1), where pg_sage knows it |
+| `approval_url` | for `approval_reserved_for_humans`, the dashboard page where a person decides |
+
+| Reason | `next` | `retry_after` |
+|---|---|---|
+| `approval_reserved_for_humans` | `get_inbox` (with the call's `database`) | none: a person decides |
+| `database_not_permitted`, `database_required`, `unknown_database` | `list_databases` | none |
+| `invalid_arguments`, `runbook_rejected` | the same tool, with `required` | none |
+| `not_found` | the matching list tool (`list_facts`, `sre_list_incidents`, `sre_list_runbooks`, `sre_list_slos`) where there is one | none |
+| `rate_limited` | `"wait"` | the limiter's reset |
+| `unavailable` | `"wait"` | 30, unless the feature is switched off (then neither key) |
+| `conflict`, `too_many_investigations`, `scope_required` | `"wait"` | none: the state, a live investigation or the token has to change first |
+| `internal_error` | none | none |
+
+`"wait"` without `retry_after` means the condition clears only when something else changes;
+do not retry in a loop.
+
 Every tool rejects an argument its schema does not list, or one of the wrong type, with
 -32602 (a misspelled `databse_id` is an error, not ignored); so is an intent pg_sage cannot
 plan, such as an unsupported `request_change` kind. Any other failure is -32603
@@ -561,7 +584,7 @@ application's database driver (most ORMs have a plugin) for reliable attribution
 
 ### `get_policy`
 
-Read standing policy.
+Use before request_change or optimize_query to see the rules pg_sage's policy gate applies to this database. Returns the standing policy's version and profile. Read-only: it never changes policy or approves anything; propose_policy_change asks a person for a change.
 
 Scope: `read`
 
@@ -585,7 +608,7 @@ Scope: `propose`
 
 ### `request_change`
 
-Request an intent-level database change; pg_sage's policy gate decides.
+Use to ask for a database change by intent rather than SQL: intent names a kind plus that kind's arguments. pg_sage plans it and its policy gate decides. Returns the gate's decision, the evidence_id, the reason and, when the change ran, its outcome. It never approves: a change the gate holds waits for a person (see get_inbox).
 
 Scope: `propose` (`approve` when the intent kind is `declare_table_contract` or `register_consumer`)
 
@@ -594,11 +617,11 @@ Scope: `propose` (`approve` when the intent kind is `declare_table_contract` or 
 | `caller_claims` | object | no |  |
 | `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
 | `database_id` | integer | no | legacy numeric database id; prefer database |
-| `intent` | object | yes |  |
+| `intent` | object | yes | the change: kind is optimize_query, ensure_fk_indexes, apply_migration, declare_table_contract or register_consumer, plus that kind's arguments (such as query_id, schema, table or slot_name) |
 
 ### `optimize_query`
 
-Optimize a query under standing policy.
+Use when a query is slow: name it by query_id or query_text with goal latency. pg_sage plans an index under standing policy and its policy gate decides whether it runs. Returns the gate's decision, the evidence_id, the reason and the outcome. It never approves: a change the gate holds waits for a person (see get_inbox).
 
 Scope: `propose`
 
@@ -669,7 +692,7 @@ Scope: `approve`
 
 ### `set_maintenance_policy`
 
-Propose a maintenance policy patch.
+Use to propose a change to how pg_sage maintains a scope (a patch to its maintenance policy). Returns the proposal_id and the dry-run impact; a person ratifies the proposal. It never approves or applies the patch itself.
 
 Scope: `propose`
 
@@ -693,7 +716,7 @@ Scope: `read`
 
 ### `get_value`
 
-Read verified DBA-hours saved.
+Use to report what pg_sage has been worth. Returns verified DBA-hours saved by period, feature and database, incidents avoided, hours still pending and a daily trend; partial and unavailable name any source that could not be read. Read-only: it never changes anything.
 
 Scope: `read`
 
@@ -704,7 +727,7 @@ Scope: `read`
 
 ### `get_ledger`
 
-Read evidence ledger.
+Use to audit what pg_sage's policy gate decided. Returns the newest policy decision records (evidence_id, decision, feature), narrowed by filter {decision, feature, limit 1-1000, default 100}. Read-only and it never approves. It holds decisions, not results: use get_outcomes for what an executed change measurably did.
 
 Scope: `read`
 
@@ -1274,7 +1297,7 @@ Scope: `read`
 
 ### `get_inbox`
 
-List every decision waiting on a person (change approvals, plans, autonomy promotions, proposed facts, unsigned runbooks, agent capability requests, policy proposals) with counts by kind, newest risk first. Read-only: it never approves, and an agent decides nothing from it; a person decides each item on its page (href). Without database it reads every database you may read. A source that could not be read is named in errors and the total is then a lower bound.
+List every decision waiting on a person (change approvals, plans, autonomy promotions, proposed facts, unsigned runbooks, agent capability requests, policy proposals). Returns the items with counts by kind, newest risk first. Read-only: it never approves, and an agent decides nothing from it; a person decides each item on its page (href). Without database it reads every database you may read. A source that could not be read is named in errors and the total is then a lower bound.
 
 Scope: `read`
 
@@ -1297,7 +1320,7 @@ Scope: `read`
 
 ### `get_outcomes`
 
-List what pg_sage changed in a window: one row per executed change with what, why, origin, the expected and measured effect, the verdict (pending until judged) and whether it can still be rolled back, plus a summary with the share of changes with a measured effect. Read-only. Without database it reads every database you may read; a database that could not be read is named in errors.
+List what pg_sage changed in a window. Returns one row per executed change with what, why, origin, the expected and measured effect, the verdict (pending until judged) and whether it can still be rolled back, plus a summary with the share of changes with a measured effect. Read-only. Without database it reads every database you may read; a database that could not be read is named in errors.
 
 Scope: `read`
 

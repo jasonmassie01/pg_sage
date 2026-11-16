@@ -47,8 +47,8 @@ func inboxTools() []Tool {
 	}
 	return []Tool{{Name: toolGetInbox, Description: "List every decision waiting on a " +
 		"person (change approvals, plans, autonomy promotions, proposed facts, unsigned " +
-		"runbooks, agent capability requests, policy proposals) with counts by kind, " +
-		"newest risk first. Read-only: it never approves, and an agent decides nothing " +
+		"runbooks, agent capability requests, policy proposals). Returns the items with " +
+		"counts by kind, newest risk first. Read-only: it never approves, and an agent decides nothing " +
 		"from it; a person decides each item on its page (href). Without database it " +
 		"reads every database you may read. A source that could not be read is named " +
 		"in errors and the total is then a lower bound",
