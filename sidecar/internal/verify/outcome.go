@@ -101,6 +101,9 @@ type Prediction struct {
 	Confidence        float64  `json:"confidence,omitempty"`
 	Source            string   `json:"source,omitempty"`
 	Note              string   `json:"note,omitempty"`
+	// Ladder is what the change was tested on before production
+	// (lab-03a), copied from its queue item or finding at execution.
+	Ladder []LadderRecord `json:"ladder,omitempty"`
 }
 
 // Predicts reports a real prediction: a known method and an expected change.
