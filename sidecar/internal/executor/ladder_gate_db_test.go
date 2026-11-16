@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -157,5 +158,40 @@ func TestLadderDB_VerdictAppendsTierThree(t *testing.T) {
 	}
 	if recs[len(recs)-2].Tier != verify.TierClone {
 		t.Fatalf("records = %+v, want the clone record before tier 3", recs)
+	}
+}
+
+// The approved path reads the queue item's ladder into the context; an
+// unreadable or missing one is logged and the finding's ladder applies.
+func TestLadderDB_QueueLadderReachesTheContext(t *testing.T) {
+	f := newLadderFixture(t)
+	var logged []string
+	f.exec.logFn = func(_ string, format string, args ...any) {
+		logged = append(logged, fmt.Sprintf(format, args...))
+	}
+	n := time.Now().UnixNano()
+	af := ladderDropFinding(map[string]any{"ladder": ladderDetail(t, passedClone())})
+	af.ObjectIdentifier = fmt.Sprintf("public.idx_ctx_%d", n)
+	af.RecommendedSQL = fmt.Sprintf(`DROP INDEX CONCURRENTLY "public"."idx_ctx_%d"`, n)
+	queueID, err := f.exec.proposeForApproval(f.ctx, f.finding(af), af, nil)
+	if err != nil {
+		t.Fatalf("propose: %v", err)
+	}
+	recs := queueLadderFrom(f.exec.withQueueLadderOf(f.ctx, queueID))
+	if len(recs) != 2 || recs[1].Tier != verify.TierClone || !recs[1].Passed() {
+		t.Fatalf("context ladder = %+v, want the skipped what-if and the clone", recs)
+	}
+	if _, err := f.pool.Exec(f.ctx, `UPDATE sage.action_queue SET ladder = '{"x":1}'
+		WHERE id = $1`, queueID); err != nil {
+		t.Fatal(err)
+	}
+	if got := queueLadderFrom(f.exec.withQueueLadderOf(f.ctx, queueID)); got != nil {
+		t.Fatalf("unreadable ladder reached the context: %+v", got)
+	}
+	if got := queueLadderFrom(f.exec.withQueueLadderOf(f.ctx, -1)); got != nil {
+		t.Fatalf("a missing queue item gave a ladder: %+v", got)
+	}
+	if len(logged) != 2 || !strings.Contains(logged[0], fmt.Sprintf("queue item %d", queueID)) {
+		t.Fatalf("logged = %q, want two lines naming the queue item", logged)
 	}
 }
