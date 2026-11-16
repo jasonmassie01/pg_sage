@@ -243,5 +243,6 @@ func trancheFiveMigrations() []namedStep {
 		{"ddlVerifierBacktest", ddlVerifierBacktest},                         // lab-02
 		{"ddlPlans", ddlPlans},                                               // plan-01a
 		{"ddlPlanEvents", ddlPlanEvents},                                     // plan-01b
+		{"ddlPlanStepRun", ddlPlanStepRun},                                   // plan-02a
 	}
 }

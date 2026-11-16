@@ -27,8 +27,10 @@ func TestPlansStep_FollowsTheBacktestStep(t *testing.T) {
 			naming = append(naming, s.name)
 		}
 	}
-	if len(naming) != 1 || naming[0] != "ddlPlans" {
-		t.Fatalf("steps naming sage.plan_step = %v, want only ddlPlans", naming)
+	// plan-02a's ddlPlanStepRun adds the engine's run columns.
+	if strings.Join(naming, ",") != "ddlPlans,ddlPlanStepRun" {
+		t.Fatalf("steps naming sage.plan_step = %v, want ddlPlans then ddlPlanStepRun",
+			naming)
 	}
 }
 

@@ -12,11 +12,15 @@ import (
 
 func TestPlanEventsStep_FollowsThePlansStep(t *testing.T) {
 	steps := trancheFiveMigrations()
-	last := steps[len(steps)-1]
-	if last[0] != "ddlPlanEvents" || last[1] != ddlPlanEvents ||
-		steps[len(steps)-2][0] != "ddlPlans" {
-		t.Fatalf("tranche five ends %v, want ddlPlans then ddlPlanEvents", steps)
+	for i := 1; i < len(steps); i++ {
+		if steps[i][0] == "ddlPlanEvents" {
+			if steps[i][1] != ddlPlanEvents || steps[i-1][0] != "ddlPlans" {
+				t.Fatalf("tranche five %v: want ddlPlanEvents right after ddlPlans", steps)
+			}
+			return
+		}
 	}
+	t.Fatalf("tranche five %v lacks ddlPlanEvents", steps)
 }
 
 func TestPlanEventsStep_IsIdempotentBoundedAndAppendOnly(t *testing.T) {
