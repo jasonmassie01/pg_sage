@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/api"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/mcp"
@@ -96,6 +97,8 @@ func mcpDependencies() mcp.ProductionDependencies {
 		Briefings: fleetBriefingsMCP{manager: fleetMgr},
 		// upgrade_readiness (market-05): read-only, on the resolved database.
 		UpgradeReadiness: upgradeReadinessMCP{manager: fleetMgr},
+		// get_inbox (ux-01a): the inbox's read, never a decision.
+		Inbox: api.InboxMCP(fleetMgr, processAutonomy().registry),
 	}
 }
 

@@ -271,6 +271,7 @@ func registerFleetScopedRoutes(
 	registerTrustRoutes(apiMux, mgr, rt.Autonomy)
 	registerSelfAwareRoutes(apiMux, mgr)
 	registerFactRoutes(apiMux, mgr)
+	registerInboxRoutes(apiMux, mgr, autonomyRegistry(rt.Autonomy))
 	registerAgentClassRoutes(apiMux, mgr)
 	registerAgentEnvRoutes(apiMux, rt.AgentEnvironments)
 	registerAgentKillRoutes(apiMux, rt.AgentKill)
