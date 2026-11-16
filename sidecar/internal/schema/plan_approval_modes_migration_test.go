@@ -10,14 +10,18 @@ import (
 // test: the step is a constant string (the bootstrap lock serializes it;
 // the DB test boots twice).
 
-func TestPlanApprovalModesStep_IsTheLastT5StepAfterPlanStepApproval(t *testing.T) {
+func TestPlanApprovalModesStep_FollowsPlanStepApproval(t *testing.T) {
 	steps := trancheFiveMigrations()
-	last := steps[len(steps)-1]
-	if last[0] != "ddlPlanApprovalModes" || last[1] != ddlPlanApprovalModes ||
-		steps[len(steps)-2][0] != "ddlPlanStepApproval" {
-		t.Fatalf("tranche five ends %v, want ddlPlanStepApproval then ddlPlanApprovalModes",
-			steps)
+	for i := 1; i < len(steps); i++ {
+		if steps[i][0] == "ddlPlanApprovalModes" {
+			if steps[i][1] != ddlPlanApprovalModes || steps[i-1][0] != "ddlPlanStepApproval" {
+				t.Fatalf("tranche five %v: want ddlPlanStepApproval then "+
+					"ddlPlanApprovalModes", steps)
+			}
+			return
+		}
 	}
+	t.Fatalf("tranche five %v lacks ddlPlanApprovalModes", steps)
 }
 
 func TestPlanApprovalModesStep_IsIdempotentAndBounded(t *testing.T) {
