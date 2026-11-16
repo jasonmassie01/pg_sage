@@ -180,7 +180,10 @@ func buildDatabaseRuntime(
 	rt := newDatabaseRuntime(spec, checks)
 	rt.startHA()
 	if err := rt.installHistory(ctx); err != nil { // history_store_wiring.go
+		// Drain what already started (the HA loop, the LLM release) so no
+		// worker of a refused runtime outlives the refusal (env-race).
 		rt.cancel()
+		rt.workers.Wait()
 		return nil, err
 	}
 	rt.initOnboarding(ctx)
