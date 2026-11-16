@@ -10,13 +10,17 @@ import (
 // dropped and no ledger table is touched. No concurrent access test: the
 // step is a constant string (the bootstrap lock serializes it).
 
-func TestPlanStepRunStep_IsTheLastT5StepAfterPlanEvents(t *testing.T) {
+func TestPlanStepRunStep_FollowsPlanEvents(t *testing.T) {
 	steps := trancheFiveMigrations()
-	last := steps[len(steps)-1]
-	if last[0] != "ddlPlanStepRun" || last[1] != ddlPlanStepRun ||
-		steps[len(steps)-2][0] != "ddlPlanEvents" {
-		t.Fatalf("tranche five ends %v, want ddlPlanEvents then ddlPlanStepRun", steps)
+	for i, s := range steps {
+		if s[0] == "ddlPlanStepRun" {
+			if s[1] != ddlPlanStepRun || i == 0 || steps[i-1][0] != "ddlPlanEvents" {
+				t.Fatalf("tranche five %v, want ddlPlanEvents then ddlPlanStepRun", steps)
+			}
+			return
+		}
 	}
+	t.Fatalf("tranche five %v has no ddlPlanStepRun", steps)
 }
 
 func TestPlanStepRunStep_IsIdempotentAndBounded(t *testing.T) {
