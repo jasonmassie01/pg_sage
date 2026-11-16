@@ -108,6 +108,13 @@ const changeIntentSchema = `{"type":"object","description":"the change: kind is 
 	`"ensure_fk_indexes","apply_migration","declare_table_contract",` +
 	`"register_consumer"]}},"required":["kind"]}`
 
+// ledgerDescription points get_ledger users at get_outcomes for results.
+const ledgerDescription = "Use to audit what pg_sage's policy gate decided. Returns " +
+	"the newest policy decision records (evidence_id, decision, feature), narrowed by " +
+	"filter {decision, feature, limit 1-1000, default 100}. Read-only and it never " +
+	"approves. It holds decisions, not results: use get_outcomes for what an executed " +
+	"change measurably did"
+
 func intentTools() []Tool {
 	object := func(properties string, required string) json.RawMessage {
 		return json.RawMessage(`{"type":"object","properties":` + properties +
@@ -187,11 +194,7 @@ func moreIntentTools(object func(string, string) json.RawMessage, dbID string) [
 			"avoided, hours still pending and a daily trend; partial and unavailable name " +
 			"any source that could not be read. Read-only: it never changes anything",
 			InputSchema: object(`{`+dbID+`}`, `[]`)},
-		{Name: "get_ledger", Description: "Use to audit what pg_sage's policy gate " +
-			"decided. Returns the newest policy decision records (evidence_id, decision, " +
-			"feature), narrowed by filter {decision, feature, limit 1-1000, default 100}. " +
-			"Read-only and it never approves. It holds decisions, not results: use " +
-			"get_outcomes for what an executed change measurably did",
+		{Name: "get_ledger", Description: ledgerDescription,
 			InputSchema: object(`{`+dbID+`,"filter":{"type":"object"}}`, `[]`)},
 	}
 }

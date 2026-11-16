@@ -95,6 +95,12 @@ func TestRequestChangeIntentSchemaNamesTheKinds(t *testing.T) {
 		require.Contains(t, description, kind)
 	}
 	require.Contains(t, description, "kind")
+	kind := objectMap(t, objectMap(t, intent["properties"])["kind"])
+	require.Equal(t, []any{"optimize_query", "ensure_fk_indexes", "apply_migration",
+		"declare_table_contract", "register_consumer"}, kind["enum"])
+	require.Equal(t, []any{"kind"}, intent["required"])
+	_, _, err := intentContract("drop_table", nil)
+	require.Error(t, err, "a kind outside the enum is one pg_sage cannot plan")
 }
 
 func TestToolsListShowsTheRewrittenDescriptions(t *testing.T) {
