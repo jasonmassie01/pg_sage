@@ -44,7 +44,7 @@ func revokePublicGrantContract() ActionContract {
 	return ActionContract{
 		ActionType:      ActionTypeRevokePublicGrant,
 		BaseRiskTier:    "moderate",
-		ProviderSupport: lakebaseOwnedActionProviders(),
+		ProviderSupport: portableActionProviders(),
 		RequiredPermissions: []string{"ownership of the table, or membership in its " +
 			"owner role"},
 		Prechecks: []string{"exposure.mode is enforce",
@@ -71,7 +71,7 @@ func enableRLSContract() ActionContract {
 	return ActionContract{
 		ActionType:          ActionTypeEnableRLS,
 		BaseRiskTier:        "high",
-		ProviderSupport:     lakebaseOwnedActionProviders(),
+		ProviderSupport:     portableActionProviders(),
 		RequiredPermissions: []string{"ownership of the table"},
 		Prechecks: []string{"exposure.mode is enforce",
 			"an open AP-03 finding names the table",

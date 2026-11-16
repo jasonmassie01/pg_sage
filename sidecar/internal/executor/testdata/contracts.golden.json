@@ -1855,8 +1855,7 @@
       "supabase",
       "azure",
       "azure-cosmos",
-      "cnpg",
-      "lakebase"
+      "cnpg"
     ],
     "RequiredPermissions": [
       "ownership of the table, or membership in its owner role"
@@ -1909,8 +1908,7 @@
       "supabase",
       "azure",
       "azure-cosmos",
-      "cnpg",
-      "lakebase"
+      "cnpg"
     ],
     "RequiredPermissions": [
       "ownership of the table"
