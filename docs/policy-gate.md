@@ -257,8 +257,11 @@ After a revoke, pg_sage verifies the readers: every `pg_stat_statements` stateme
 references the table and ran in the hour before must keep running in the window after
 (15 minutes). pg_stat_statements counts only statements that succeed, so a reader that
 relied on PUBLIC and now gets "permission denied" stops; the revoke is then reverted
-through the rollback path (`rollback_mitigation`). Without statement history the revoke
-is kept and marked `unverifiable`.
+through the rollback path (`rollback_mitigation`). Without statement history, or when
+`pg_stat_statements` cannot be read, the revoke is kept and marked `unverifiable`. The
+revoke holds the table's change lease, so two cycles on one table record one action, and
+a statement that fails `maxActionRetries` (3) times is not retried: the count is per
+table, so failures on one relation of an AP-15 finding do not hold back the others.
 
 The approval card of `enable_row_level_security` (in the queuing decision's evidence,
 `exposure_card`) lists the top 20 statements by calls that reference the table
