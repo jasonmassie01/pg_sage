@@ -1,8 +1,11 @@
 package changeplan
 
 import (
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/pg-sage/sidecar/internal/policy"
 )
 
 // plan-02b: steps that are never automatic at any trust level. Approve-all
@@ -140,18 +143,51 @@ func TestNeedsOwnApproval_OperatorStepIsNotClassified(t *testing.T) {
 	}
 }
 
-func TestSettingNames_ComeFromTheStepOrItsSQL(t *testing.T) {
-	cases := map[string]Step{
-		"shared_buffers": {Kind: KindAction, Setting: "Shared_Buffers",
-			ProposedSQL: "ALTER SYSTEM SET shared_buffers = '1GB'"},
-		"max_connections": {Kind: KindAction,
-			ProposedSQL: "alter system set MAX_CONNECTIONS to 300"},
-		"work_mem": {Kind: KindAction, ProposedSQL: `ALTER ROLE app SET "work_mem" = '4MB'`},
-		"":         {Kind: KindAction, ProposedSQL: "CREATE INDEX CONCURRENTLY i ON t (a)"},
+// A step's Setting names what its readback reads; the SQL is what runs.
+// A restart-bound setting in the SQL needs its own approval whatever the
+// Setting says, and CheckPlanCaps counts it (no fail open on a mismatch).
+func TestNeedsOwnApproval_SQLSettingWinsOverAMismatchedSetting(t *testing.T) {
+	s := settingAction("work_mem", "ALTER SYSTEM SET shared_buffers = '1GB'")
+	got, why := NeedsOwnApproval(s, testSettings)
+	if !got || !strings.HasPrefix(why, ReasonRestartBound+": shared_buffers") {
+		t.Fatalf("mismatched setting: (%v, %q), want %s on shared_buffers", got, why,
+			ReasonRestartBound)
 	}
-	for want, s := range cases {
-		if got := stepSettingName(s); got != want {
-			t.Errorf("setting of %q = %q, want %q", s.ProposedSQL, got, want)
+	other := settingAction("shared_buffers", "ALTER SYSTEM SET work_mem = '64MB'")
+	if got, why := NeedsOwnApproval(other, testSettings); !got ||
+		!strings.HasPrefix(why, ReasonRestartBound+": shared_buffers") {
+		t.Fatalf("readback of a restart-bound setting: (%v, %q), want %s", got, why,
+			ReasonRestartBound)
+	}
+	p := Plan{Steps: []Step{s, settingAction("max_connections",
+		"ALTER SYSTEM SET max_connections = 300")}}
+	var capErr *CapError
+	if err := CheckPlanCaps(p, policy.PlanCaps{}, testSettings); !errors.As(err, &capErr) ||
+		capErr.Cap != CapRestartBoundSteps || capErr.Got != 2 {
+		t.Fatalf("two restart-bound steps behind a mismatched setting: %v, want %s 2", err,
+			CapRestartBoundSteps)
+	}
+}
+
+func TestSettingNames_EveryNameTheStepTouches(t *testing.T) {
+	cases := []struct {
+		step Step
+		want string
+	}{
+		{settingAction("work_mem", "ALTER SYSTEM SET shared_buffers = '1GB'"),
+			"shared_buffers,work_mem"},
+		{settingAction("Shared_Buffers", "ALTER SYSTEM SET shared_buffers = '1GB'"),
+			"shared_buffers"},
+		{actionStep("alter_system_guc", "alter system set MAX_CONNECTIONS to 300", ""),
+			"max_connections"},
+		{actionStep("alter_role_guc", `ALTER ROLE app SET "work_mem" = '4MB'`, ""),
+			"work_mem"},
+		{actionStep("create_index", "CREATE INDEX i ON t (a)", ""), ""},
+	}
+	for _, c := range cases {
+		if got := strings.Join(stepSettingNames(c.step), ","); got != c.want {
+			t.Errorf("names of %q (setting %q) = %q, want %q", c.step.ProposedSQL,
+				c.step.Setting, got, c.want)
 		}
 	}
 }

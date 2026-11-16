@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -133,26 +134,33 @@ func sqlClass(sql string) string {
 	return ""
 }
 
-// settingClass is why a setting step needs its own approval: it is
+// settingClass is why a setting step needs its own approval: a setting it
+// touches (the one its SQL sets and the one its readback names) is
 // restart-bound (pg_settings.context postmaster, the change the executor
-// records as applied_pending_restart) or its context is unknown.
+// records as applied_pending_restart) or of unknown context.
 func settingClass(s Step, settings SettingContexts) string {
 	if !isSetting(s) {
 		return ""
 	}
-	name := stepSettingName(s)
-	settingContext, ok := settings[name]
-	switch {
-	case name == "" || name == "all":
+	names := stepSettingNames(s)
+	if len(names) == 0 {
 		return ReasonSettingUnknown + ": the step does not name one setting"
-	case !ok:
-		return fmt.Sprintf("%s: the context of setting %s is unknown", ReasonSettingUnknown,
-			name)
-	case settingContext == "postmaster":
-		return fmt.Sprintf("%s: %s takes effect only after a restart", ReasonRestartBound,
-			name)
 	}
-	return ""
+	unknown := ""
+	for _, name := range names {
+		settingContext, ok := settings[name]
+		switch {
+		case name == "all":
+			return ReasonSettingUnknown + ": the step does not name one setting"
+		case !ok && unknown == "":
+			unknown = fmt.Sprintf("%s: the context of setting %s is unknown",
+				ReasonSettingUnknown, name)
+		case settingContext == "postmaster":
+			return fmt.Sprintf("%s: %s takes effect only after a restart", ReasonRestartBound,
+				name)
+		}
+	}
+	return unknown
 }
 
 // contractClass is the rule on the executor contracts the step runs under
@@ -180,16 +188,20 @@ func contractClass(s Step) (bool, string) {
 	return false, ""
 }
 
-// stepSettingName is the setting step s changes (lower case): its Setting,
-// else the one its SQL names ("" for none).
-func stepSettingName(s Step) string {
-	if s.Setting != "" {
-		return strings.ToLower(s.Setting)
-	}
+// stepSettingNames are the settings step s touches (lower case, sorted,
+// distinct): the one its SQL sets or resets and the one its Setting reads
+// back. Both are classified, so a readback naming another setting never
+// hides what the SQL changes.
+func stepSettingNames(s Step) []string {
+	var names []string
 	if m := reSettingName.FindStringSubmatch(s.ProposedSQL); m != nil {
-		return strings.ToLower(m[1])
+		names = append(names, strings.ToLower(m[1]))
 	}
-	return ""
+	if s.Setting != "" {
+		names = append(names, strings.ToLower(s.Setting))
+	}
+	slices.Sort(names)
+	return slices.Compact(names)
 }
 
 // readSettingContexts reads the contexts of the settings p's steps
@@ -199,9 +211,7 @@ func readSettingContexts(ctx context.Context, q querier, steps []Step) (SettingC
 	var names []string
 	for _, s := range steps {
 		if s.Kind == KindAction && isSetting(s) {
-			if name := stepSettingName(s); name != "" {
-				names = append(names, name)
-			}
+			names = append(names, stepSettingNames(s)...)
 		}
 	}
 	out := SettingContexts{}
