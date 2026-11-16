@@ -13,6 +13,7 @@ import { useActionsData } from './actions/useActionsData'
 import { ExecutedTab } from './actions/ExecutedList'
 import { PendingTab } from './actions/PendingList'
 import { PlansTab } from './actions/PlansTab'
+import { planParam } from './actions/plans'
 
 // The Actions page shell: the scope header, the tab bar and the tab bodies.
 // The lists, their rows and their data live in pages/actions/ (dashboard-31).
@@ -24,9 +25,13 @@ const FLEET_NOTE = ' Stored recommendations require a single database; '
 const VIEWER_NOTE = ' Your role can inspect changes; '
   + 'approval requests are available to operators and admins.'
 
+// linkedTab is the link's tab= (ux-01b), else Plans for a plan= link
+// (ux-03), else ''.
+const linkedTab = () => actionTabParam() || (planParam() ? 'plans' : '')
+
 // initialTab: an executed-record focus picks its own tab (null), else the
-// link's tab= (ux-01b), else Proposed changes.
-const initialTab = () => (actionFocusID() ? null : actionTabParam() || 'recommendations')
+// link's tab, else Proposed changes.
+const initialTab = () => (actionFocusID() ? null : linkedTab() || 'recommendations')
 
 function useActionsNav() {
   const [tab, setTab] = useState(initialTab)
@@ -38,7 +43,7 @@ function useActionsNav() {
       setCaseScope(actionCaseScope())
       setActionFocus(actionFocusID())
       setQueueFocus(queueFocusID())
-      if (actionTabParam()) setTab(actionTabParam())
+      if (linkedTab()) setTab(linkedTab())
     }
     window.addEventListener('hashchange', changed)
     return () => window.removeEventListener('hashchange', changed)

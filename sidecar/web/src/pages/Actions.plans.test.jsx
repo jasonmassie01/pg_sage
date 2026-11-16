@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Actions } from './Actions'
 
@@ -56,5 +56,30 @@ describe('Actions > Plans', () => {
     render(<Actions database="all" user={{ role: 'viewer' }} />)
     expect(screen.getByTestId('actions-tab-plans')).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByTestId('plans-list')).toBeInTheDocument()
+  })
+
+  it('opens a plan from plan=<id> alone, as the plan entry links it', () => {
+    window.location.hash = '#/actions?plan=7&database=orders'
+    render(<Actions database="all" user={{ role: 'viewer' }} />)
+    expect(screen.getByTestId('actions-tab-plans')).toHaveAttribute('aria-selected', 'true')
+    expect(requested).toContain('/api/v1/plans/7?database=orders')
+  })
+
+  it('ignores a hostile plan id and keeps the default tab', () => {
+    window.location.hash = '#/actions?plan=7%3Cimg%3E'
+    render(<Actions database="all" user={{ role: 'viewer' }} />)
+    expect(screen.getByTestId('actions-tab-recommendations'))
+      .toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('moves to the Plans tab when a plan link is followed on the page', () => {
+    render(<Actions database="all" user={{ role: 'operator' }} />)
+    expect(screen.getByTestId('actions-tab-recommendations'))
+      .toHaveAttribute('aria-selected', 'true')
+    act(() => {
+      window.location.hash = '#/actions?plan=7&database=orders'
+      window.dispatchEvent(new HashChangeEvent('hashchange'))
+    })
+    expect(screen.getByTestId('actions-tab-plans')).toHaveAttribute('aria-selected', 'true')
   })
 })
