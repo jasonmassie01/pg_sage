@@ -249,5 +249,6 @@ func trancheFiveMigrations() []namedStep {
 		{"ddlPlanApprovalModes", ddlPlanApprovalModes},                       // plan-03a
 		{"ddlWorkloadPseudonymKey", ddlWorkloadPseudonymKey},                 // evid-02c
 		{"ddlUserInboxSeenAt", ddlUserInboxSeenAt},                           // ux-01b
+		{"ddlOnboardingSetupSteps", ddlOnboardingSetupSteps},                 // ux-04b
 	}
 }

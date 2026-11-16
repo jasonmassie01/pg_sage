@@ -110,6 +110,7 @@ bare GET /api/v1/outcomes gate:viewer scope:aggregate
 bare POST /api/v1/migrations/lint gate:viewer-write-or-token scope:-
 bare GET /api/v1/upgrade-readiness gate:viewer scope:fleet-only
 bare GET /api/v1/onboarding gate:viewer scope:fleet-only
+bare POST /api/v1/onboarding/setup gate:admin scope:-
 bare GET /api/v1/onboarding/trust gate:viewer scope:fleet-only
 bare GET /api/v1/first-look gate:viewer scope:fleet-only
 bare POST /api/v1/first-look/recheck gate:operator scope:fleet-wide
@@ -302,6 +303,7 @@ standalone GET /api/v1/outcomes gate:viewer scope:aggregate
 standalone POST /api/v1/migrations/lint gate:viewer-write-or-token scope:-
 standalone GET /api/v1/upgrade-readiness gate:viewer scope:fleet-only
 standalone GET /api/v1/onboarding gate:viewer scope:fleet-only
+standalone POST /api/v1/onboarding/setup gate:admin scope:-
 standalone GET /api/v1/onboarding/trust gate:viewer scope:fleet-only
 standalone GET /api/v1/first-look gate:viewer scope:fleet-only
 standalone POST /api/v1/first-look/recheck gate:operator scope:fleet-wide
@@ -549,6 +551,7 @@ fleet-readonly GET /api/v1/outcomes gate:viewer scope:aggregate
 fleet-readonly POST /api/v1/migrations/lint gate:viewer-write-or-token scope:-
 fleet-readonly GET /api/v1/upgrade-readiness gate:viewer scope:fleet-only
 fleet-readonly GET /api/v1/onboarding gate:viewer scope:fleet-only
+fleet-readonly POST /api/v1/onboarding/setup gate:admin scope:-
 fleet-readonly GET /api/v1/onboarding/trust gate:viewer scope:fleet-only
 fleet-readonly GET /api/v1/first-look gate:viewer scope:fleet-only
 fleet-readonly POST /api/v1/first-look/recheck gate:operator scope:fleet-wide
@@ -802,6 +805,7 @@ store-only-actions GET /api/v1/outcomes gate:viewer scope:aggregate
 store-only-actions POST /api/v1/migrations/lint gate:viewer-write-or-token scope:-
 store-only-actions GET /api/v1/upgrade-readiness gate:viewer scope:fleet-only
 store-only-actions GET /api/v1/onboarding gate:viewer scope:fleet-only
+store-only-actions POST /api/v1/onboarding/setup gate:admin scope:-
 store-only-actions GET /api/v1/onboarding/trust gate:viewer scope:fleet-only
 store-only-actions GET /api/v1/first-look gate:viewer scope:fleet-only
 store-only-actions POST /api/v1/first-look/recheck gate:operator scope:fleet-wide
@@ -1014,6 +1018,7 @@ optional GET /api/v1/outcomes gate:viewer scope:aggregate
 optional POST /api/v1/migrations/lint gate:viewer-write-or-token scope:-
 optional GET /api/v1/upgrade-readiness gate:viewer scope:fleet-only
 optional GET /api/v1/onboarding gate:viewer scope:fleet-only
+optional POST /api/v1/onboarding/setup gate:admin scope:-
 optional GET /api/v1/onboarding/trust gate:viewer scope:fleet-only
 optional GET /api/v1/first-look gate:viewer scope:fleet-only
 optional POST /api/v1/first-look/recheck gate:operator scope:fleet-wide
@@ -1251,6 +1256,7 @@ databricks-app GET /api/v1/outcomes gate:viewer scope:aggregate
 databricks-app POST /api/v1/migrations/lint gate:viewer-write-or-token scope:-
 databricks-app GET /api/v1/upgrade-readiness gate:viewer scope:fleet-only
 databricks-app GET /api/v1/onboarding gate:viewer scope:fleet-only
+databricks-app POST /api/v1/onboarding/setup gate:admin scope:-
 databricks-app GET /api/v1/onboarding/trust gate:viewer scope:fleet-only
 databricks-app GET /api/v1/first-look gate:viewer scope:fleet-only
 databricks-app POST /api/v1/first-look/recheck gate:operator scope:fleet-wide

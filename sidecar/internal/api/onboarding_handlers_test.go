@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -41,6 +42,12 @@ type fakeOnboardingReader struct {
 	guide    onboarding.GuideInput
 	target   grantTarget
 	guideErr error
+	// ux-04b: the model status Model returns, and what RecordSetup stored.
+	mu         sync.Mutex
+	model      *onboarding.ModelStatus
+	modelAsked string
+	recorded   []string
+	recordErr  error
 }
 
 func (f *fakeOnboardingReader) Names(database string) ([]string, bool) {
@@ -158,7 +165,7 @@ func TestOnboardingHandlerReportsChecklist(t *testing.T) {
 		t.Fatalf("first look = %v", fl)
 	}
 	steps := db["steps"].([]any)
-	if len(steps) != 6 {
+	if len(steps) != 7 {
 		t.Fatalf("steps = %v", steps)
 	}
 	first := steps[0].(map[string]any)

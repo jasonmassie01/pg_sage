@@ -43,6 +43,11 @@ type onboardingReader interface {
 	MCP(ctx context.Context) (bool, *bool)
 	Notifications(ctx context.Context) *bool
 	Guide(ctx context.Context, name string) (onboarding.GuideInput, grantTarget, error)
+	// Model is the status of the model the database's LLM features use
+	// (nil: unknown); RecordSetup stores a setup wizard step's first-done
+	// time and reports whether it stored one (ux-04b).
+	Model(ctx context.Context, name string) *onboarding.ModelStatus
+	RecordSetup(ctx context.Context, name, step string, at time.Time) (bool, error)
 }
 
 type firstLookSummary struct {
@@ -73,6 +78,7 @@ type onboardingEntry struct {
 	TTFFSeconds *float64          `json:"time_to_first_finding_seconds"`
 	FirstLook   firstLookSummary  `json:"first_look"`
 	Steps       []onboarding.Step `json:"steps"`
+	Setup       setupTimes        `json:"setup"`
 	// Error is why this database could not be read (no_runtime,
 	// unreachable, read_failed); the other entries are unaffected.
 	Error string `json:"error,omitempty"`
@@ -114,22 +120,25 @@ func onboardingHandler(reader onboardingReader) http.Handler {
 			if code == entryUnreachable || code == entryNoRuntime {
 				db.Connected = false
 			}
-			out[i] = entryFor(db, mcpOn, token, notifications)
+			out[i] = entryFor(db, mcpOn, token, notifications, reader.Model(ctx, name))
 			out[i].Error = code
 		})
 		jsonResponse(w, map[string]any{"databases": out})
 	})
 }
 
-func entryFor(db onboardingDatabase, mcpOn bool, token, notifications *bool) onboardingEntry {
+func entryFor(db onboardingDatabase, mcpOn bool, token, notifications *bool,
+	model *onboarding.ModelStatus) onboardingEntry {
 	e := onboardingEntry{Database: db.Name, Connected: db.Connected,
-		TrustLevel: db.TrustLevel}
+		TrustLevel: db.TrustLevel, Setup: setupTimesOf(db.State)}
 	in := onboarding.ChecklistInput{Connected: db.Connected, MCPEnabled: mcpOn,
-		MCPToken: token, Notifications: notifications, TrustLevel: db.TrustLevel}
+		MCPToken: token, Notifications: notifications, TrustLevel: db.TrustLevel,
+		Model: model}
 	if db.State != nil {
 		e.InstallKind = string(db.State.InstallKind)
 		e.TTFFSeconds = db.State.TTFFSeconds
 		in.TTFFSeconds = db.State.TTFFSeconds
+		in.AutonomyChosen = db.State.AutonomyChosenAt != nil
 	}
 	if fl := db.FirstLook; fl != nil {
 		n := fl.Checks

@@ -46,6 +46,11 @@ type State struct {
 	FirstFindingAt     *time.Time  `json:"first_finding_at,omitempty"`
 	FirstFindingSource string      `json:"first_finding_source,omitempty"`
 	TTFFSeconds        *float64    `json:"time_to_first_finding_seconds,omitempty"`
+	// When the setup wizard's model, channel and autonomy steps were first
+	// finished (ux-04b); nil until then.
+	ModelConfiguredAt   *time.Time `json:"model_configured_at,omitempty"`
+	ChannelConfiguredAt *time.Time `json:"channel_configured_at,omitempty"`
+	AutonomyChosenAt    *time.Time `json:"autonomy_chosen_at,omitempty"`
 }
 
 func check(pool *pgxpool.Pool, database string) error {
@@ -93,6 +98,7 @@ func Init(ctx context.Context, pool *pgxpool.Pool, database string) (State, erro
 	if !found {
 		return State{}, fmt.Errorf("record onboarding of %q: %w", database, ErrNotInitialized)
 	}
+	ObserveSetup(st)
 	return st, nil
 }
 
@@ -104,9 +110,11 @@ func Get(ctx context.Context, pool *pgxpool.Pool, database string) (State, bool,
 	st := State{Database: database}
 	var ttff *int64
 	err := pool.QueryRow(ctx, `SELECT install_kind, installed_at, first_look_at,
-		first_finding_at, first_finding_source, ttff_ms FROM sage.onboarding
+		first_finding_at, first_finding_source, ttff_ms, model_configured_at,
+		channel_configured_at, autonomy_chosen_at FROM sage.onboarding
 		WHERE database_name = $1`, database).Scan(&st.InstallKind, &st.InstalledAt,
-		&st.FirstLookAt, &st.FirstFindingAt, &st.FirstFindingSource, &ttff)
+		&st.FirstLookAt, &st.FirstFindingAt, &st.FirstFindingSource, &ttff,
+		&st.ModelConfiguredAt, &st.ChannelConfiguredAt, &st.AutonomyChosenAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return State{}, false, nil
 	}

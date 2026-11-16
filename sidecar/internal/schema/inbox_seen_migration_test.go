@@ -11,15 +11,20 @@ import (
 // constant string run under the bootstrap lock; the GREATEST race is
 // api.TestInboxSeenDB_ConcurrentMarksKeepTheLaterTime.
 
-func TestUserInboxSeenAtStep_IsLastBoundedAndIdempotent(t *testing.T) {
+func TestUserInboxSeenAtStep_IsInOrderBoundedAndIdempotent(t *testing.T) {
 	steps := trancheFiveMigrations()
-	if len(steps) < 2 || steps[len(steps)-1][0] != "ddlUserInboxSeenAt" ||
-		steps[len(steps)-1][1] != ddlUserInboxSeenAt {
-		t.Fatalf("T5 steps = %v, want ddlUserInboxSeenAt last", steps)
+	at := -1
+	for i, s := range steps {
+		if s[0] == "ddlUserInboxSeenAt" && s[1] == ddlUserInboxSeenAt {
+			at = i
+		}
 	}
-	if steps[len(steps)-2][0] != "ddlWorkloadPseudonymKey" {
+	if at < 1 {
+		t.Fatalf("T5 steps = %v, want ddlUserInboxSeenAt after another step", steps)
+	}
+	if steps[at-1][0] != "ddlWorkloadPseudonymKey" {
 		t.Fatalf("ddlUserInboxSeenAt follows %s, want ddlWorkloadPseudonymKey",
-			steps[len(steps)-2][0])
+			steps[at-1][0])
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout",
 		"ALTER TABLE sage.users", "ADD COLUMN IF NOT EXISTS inbox_seen_at timestamptz"} {
