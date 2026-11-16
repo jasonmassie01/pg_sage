@@ -30,7 +30,7 @@
       "AQ-01": "rejected_before_execution",
       "AQ-02": "rejected_before_execution",
       "AQ-03": "rejected_before_execution",
-      "AQ-04": "leaked_in_error",
+      "AQ-04": "withheld_data_error",
       "RO-01": "rejected_before_execution",
       "RO-02": "rejected_before_execution",
       "RO-03": "rejected_before_execution",

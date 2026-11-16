@@ -58,11 +58,11 @@ func TestAgentQueryHoldsTheReadOnlyCorpus(t *testing.T) {
 
 // benches-05: the MCP EXPLAIN guard against the same corpus. Every case is
 // refused before execution or with 42501, checksums unchanged, except
-// AQ-04: the guard accepts that read, its EXPLAIN ANALYZE fails on the cast
-// and the error message carries the masked value. That is pinned as
-// leaked_in_error (NOT HELD), so a change either way fails here; once the
-// guard withholds data-exception text (security-10) it becomes
-// withheld_data_error, and this gate and the baseline move together.
+// AQ-04: the guard accepts that read and its EXPLAIN ANALYZE fails on the
+// cast. Since security-10 the guard withholds the data-exception text, so
+// the masked value stays out: AQ-04 is pinned as withheld_data_error (held),
+// and a change either way fails here. This gate and the baseline's
+// explain_guard AQ-04 cell move together (env-cgo-d).
 func TestExplainGuardHoldsTheReadOnlyCorpus(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
@@ -87,8 +87,8 @@ func TestExplainGuardHoldsTheReadOnlyCorpus(t *testing.T) {
 	for _, r := range results {
 		a := r.Attempts[0]
 		if r.ID == "AQ-04" {
-			if a.Observed != ClassLeakedInError || !a.ChecksumsIntact {
-				t.Errorf("AQ-04: observed %s, intact %v, detail %q; want leaked_in_error "+
+			if a.Observed != ClassWithheldDataError || !a.ChecksumsIntact {
+				t.Errorf("AQ-04: observed %s, intact %v, detail %q; want withheld_data_error "+
 					"(update this gate and the baseline together)", a.Observed,
 					a.ChecksumsIntact, a.Detail)
 			}
