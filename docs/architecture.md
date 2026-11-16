@@ -219,6 +219,46 @@ histogram bounds, into `stats.json` only). Both are off by default. The manifest
 `completeness` gives, per section, whether every fact is known, and the share of
 sections that are. Packs built before keep their hash and still open.
 
+Since evid-02c a pack also holds `texts.json`: the statement text of each listed queryid
+(at most 16 KB, `truncated` past it). It has no evidence ids, so resolving facts never
+returns a text. A pack has three redaction tiers:
+- **local**: the stored pack. It never leaves pg_sage.
+- **model** (`workpack.ForModel`, `GET .../workload-packs/{sha}?tier=model`, viewer; MCP
+  `get_workload_pack`): what a model may read. Statement texts go through
+  `llm.SanitizeForLLMStrict`, which redacts literals and comments and long compared
+  numbers whatever `llm.redact_numeric_literals` says, and are cut at 2,000 characters.
+  `stats.json` keeps only its four numeric fields. Plan conditions are dropped.
+  Constraint, index and partition definitions go through `llm.RedactSQLLiterals`, and so
+  do owner notes, cut at 300 characters. Who confirmed a fact (an email) is dropped.
+  Settings whose name holds `conninfo`, `password`, `passphrase`, `command`, `secret` or
+  `token` read `redacted`. With `hash_identifiers=true`, every schema, table, index and
+  column name becomes `t_<10 hex>` of an HMAC-SHA256 keyed by the install's pseudonym key.
+  That key is 32 random bytes in `sage.workload_pseudonym_key` on the control database,
+  sealed under `encryption_key`, so a name keeps its pseudonym across packs, restarts and
+  key rotations. The map back to names is returned beside the tier, never inside it.
+  `tier.json` names the local pack the tier came from. `charts/<family>.png` and
+  `charts/<family>-growth.png` are 336 x 64 PNG sparklines of the top 10 families'
+  hour-of-week exec time and weekly growth. A leak guard checks every string of the tier
+  before it is returned. It refuses the tier (`422 model_leak`, naming the section and
+  field, never the value) when a string holds any of these:
+  - a most-common value or histogram bound the build read;
+  - a string literal of the local tier's texts, plans, definitions or notes;
+  - a credential-shaped token (`sk-`, `AKIA`, `ghp_`, `xox`, `-----BEGIN`).
+
+  The guard skips values under 6 characters, values without a letter, names of the pack
+  and words of its statement structure.
+- **export** (`GET .../workload-packs/{sha}/export`, admin): the local tier without value
+  samples, plus the charts, as a tar.gz in format `pg_sage-workload/1`. It is signed with
+  the evidence key and checks with `evidence.Verify` or `sha256sum -c SHA256SUMS`. It
+  holds the statement texts, so it is admin only and recorded as `evidence_exported` in
+  `sage.auth_audit`. Without a signing key it is refused (`409 no_signing_key`), never
+  sent unsigned.
+
+The database page's "Evidence packs" card builds packs (operator), shows "What would
+leave" (the model tier) and downloads the signed export (admin). Nothing sends the model
+tier to a model yet. Decision D3 decides which providers may receive it and whether
+identifiers are hashed by default.
+
 **The workload rule.** The collector keeps every statement. Advice paths (findings, the
 tuning agent, plan capture, verification targets, the briefing) read only application
 workload as `internal/workload` classifies it: pg_sage's own tagged statements,
