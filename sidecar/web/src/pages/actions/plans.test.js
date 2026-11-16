@@ -76,6 +76,29 @@ describe('haltSummary', () => {
       kept: [1], reverted: [], notStarted: [3] })
   })
 
+  it('names the regressed stage, not the checkpoint walk, after revert_to_checkpoint', () => {
+    // Stage 4 regressed; the walk back to the checkpoint at 1 also reverted
+    // 2 and 3, which had been kept. The plan halted at stage 4.
+    const steps = [1, 2, 3, 4, 5].map(n => planStep(n * 10, n, `i${n}`))
+    const walk = 'revert_to_checkpoint from step 4'
+    const detail = withStates(proposedPlan({ steps }), 'halted', {
+      1: { state: 'kept', verdict: 'improved' },
+      2: { state: 'reverted', verdict: 'improved', state_reason: walk },
+      3: { state: 'reverted', verdict: 'no_change', state_reason: walk },
+      4: { state: 'reverted', verdict: 'regressed', state_reason: 'time per call rose 25%' },
+    })
+    expect(haltSummary(detail.plan)).toEqual({ halted: 4, reason: 'time per call rose 25%',
+      reverted: [2, 3, 4], kept: [1], notStarted: [5] })
+  })
+
+  it('names a stage whose revert failed over the stages reverted before it', () => {
+    const detail = withStates(proposedPlan(), 'halted', {
+      1: { state: 'failed', state_reason: 'the revert did not land' },
+      2: { state: 'reverted', verdict: 'regressed' } })
+    expect(haltSummary(detail.plan)).toMatchObject({ halted: 1,
+      reason: 'the revert did not land', reverted: [2] })
+  })
+
   it('is null for a plan that is not halted', () => {
     expect(haltSummary(proposedPlan().plan)).toBeNull()
     expect(haltSummary(null)).toBeNull()

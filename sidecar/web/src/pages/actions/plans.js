@@ -93,8 +93,11 @@ export function dependants(edges, ordinal) {
 export function haltSummary(plan) {
   if (plan?.status !== 'halted') return null
   const steps = sortedSteps(plan)
+  // A revert_to_checkpoint walk also reverts the kept stages before the
+  // one that regressed, so the last reverted stage is where it halted.
   const at = steps.find(s => s.runtime?.state === 'halted')
-    || steps.find(s => ['failed', 'reverted'].includes(s.runtime?.state))
+    || steps.find(s => s.runtime?.state === 'failed')
+    || [...steps].reverse().find(s => s.runtime?.state === 'reverted')
   const of = states => steps.filter(s => states(s.runtime?.state || 'pending'))
     .map(s => s.ordinal)
   return { halted: at ? at.ordinal : null, reason: at?.runtime?.state_reason || '',
