@@ -122,3 +122,34 @@ func TestRehearseTool_OfferedOnlyWithARehearser(t *testing.T) {
 		t.Fatalf("tool names = %v", names)
 	}
 }
+
+// The record is matched to the proposal by index shape: a rehearsal of
+// the same index under another name (and another spelling of the table)
+// rides on the proposal; a rehearsal of another shape does not.
+func TestRehearseTool_RecordMatchesTheProposalByShape(t *testing.T) {
+	for name, tc := range map[string]struct {
+		ddl  string
+		want bool
+	}{
+		"other index name": {`{"ddl":"CREATE INDEX CONCURRENTLY rehearsed_on_clone ON ` +
+			`PUBLIC.ORDERS (customer_id)"}`, true},
+		"other key columns": {`{"ddl":"CREATE INDEX CONCURRENTLY orders_customer_idx ON ` +
+			`public.orders (customer_id, id)"}`, false},
+		"partial index": {`{"ddl":"CREATE INDEX CONCURRENTLY orders_customer_idx ON ` +
+			`public.orders (customer_id) WHERE customer_id > 0"}`, false},
+	} {
+		h := newHarness(t, toolCall("rehearse", tc.ddl), indexAnswer(t))
+		reh := passingRehearser()
+		h.agent.deps.Rehearse = reh
+		out := tune(t, h)
+		f, ok := findingByCategory(out.Findings, optimizer.OptimizerCategory)
+		if !ok || len(reh.got) != 1 {
+			t.Fatalf("%s: findings %+v rehearsals %d", name, out.Findings, len(reh.got))
+		}
+		_, has := f.Detail["ladder"]
+		if has != tc.want {
+			t.Fatalf("%s: ladder attached = %v, want %v (%v)", name, has, tc.want,
+				f.Detail["ladder"])
+		}
+	}
+}
