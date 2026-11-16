@@ -4,7 +4,8 @@
 
 These changes are planned as five releases: v2.5.1 (tranche T0a, the safety fixes),
 v2.5.2 (tranche T0b), v2.6.0 (tranche T1), v2.7.0 (tranche T2) and v2.8.0+ (tranche T3).
-The tranche T4 changes, listed last, finish them and ship with the T4 release.
+The tranche T4 changes finish them and ship with the T4 release; the T4 follow-ups (tranche T4c)
+are listed last.
 
 ### v2.5.1 (tranche T0a, safety)
 
@@ -2816,6 +2817,64 @@ The tranche T4 changes, listed last, finish them and ship with the T4 release.
   self-test passes on Windows, with the restored binary's owner-only mode checked in a POSIX-only
   test (databricks-12). The meta lifecycle fixture no longer fails under a shuffled order, and
   cmd/pg_sage_sidecar measures 79.9% (Windows) and 80.0% (Linux, PG17) as one package (config-14).
+
+### T4 follow-ups (tranche T4c)
+
+#### Security
+
+- **ALTER ROLE ... CONNECTION LIMIT.** The parse-tree validator now accepts `ALTER ROLE ...
+  CONNECTION LIMIT` only with an explicit allowlist, and refuses postgres, pg_ and provider
+  administration roles. The parse-tree layer is now verified under cgo and `-race` on PostgreSQL
+  14, 15 and 17 (env-cgo).
+
+#### Changed
+
+- **Parser refusals in migration lint.** Migration lint now ends the note of a statement the SQL
+  parser refused with the parser's own message (for example "The SQL parser refused it: syntax
+  error at end of input."). Literals stay redacted, and no statement's lock class changed
+  (env-cgo-b).
+- **EXPLAIN guard bench score.** The safety bench's EXPLAIN guard now scores AQ-04 (a masked value
+  in a cast error) as held (`withheld_data_error`) instead of leaked, matching security-10's
+  withheld agent-facing errors. The committed baseline and the published results table
+  (explain_guard 23/23) are updated from a cgo PostgreSQL 17 run (env-cgo-d).
+
+#### Added
+
+- **Local Linux suite toolchain and server options.** The local Linux CI suite runner can now take
+  its Go toolchain from a Docker volume (`GO_ROOT_VOLUME`). Its PostgreSQL server cap and data
+  directory can be set (`LOCAL_SUITE_PG_MEMORY`, `LOCAL_SUITE_PG_TMPFS=off`). It unpacks the
+  source inside the container, and it makes loopback logins pass scram-sha-256 like CI's, so a
+  full `-race` run on 14, 15 and 17 completes and reproduces CI's password checks (ci-19).
+- **Local Linux suite: PSS server and package scope.** `scripts/ci/local-linux-suite.sh` takes
+  `LOCAL_SUITE_PSS_SMALL=1`, which starts a server with `pg_stat_statements.max=100` so the
+  attribution dealloc test runs instead of skipping, and `LOCAL_SUITE_PACKAGES=<./pkg ...>` for a
+  scoped cgo/`-race` run; with both, the agent broker measures 90.6% coverage with zero skips on
+  PostgreSQL 14 and 17 (agentgov-12).
+
+#### Fixed
+
+- **Post-action monitor clock.** The post-action monitor now runs its verification windows, its
+  schedule, the expiry of a resumed monitor and the pre-action baselines on the database clock
+  (`clock_timestamp()`) instead of the sidecar host's clock. A database clock that leads the host
+  no longer drops the newest samples or delays the first check. If the clock read fails, the
+  monitor uses the host clock and records why in the verdict's evidence (`clock.source`,
+  `clock.reason`) (executor-31).
+- **Runtime wiring races.** A drained fleet database no longer leaves its LLM client release
+  running, standalone mode creates its fleet manager before any runtime worker reads it, and
+  `logwatch.poll_interval_ms` is read under the hot-reload lock (env-race).
+- **Cases API race.** A per-database cases read that outlives its request at the deadline no
+  longer reads shared package state (env-race-b).
+- **Notifications Log in the embedded dashboard.** The embedded dashboard is rebuilt from current
+  sources, so the Notifications Log tab now shows why a log read failed (server message and HTTP
+  status) instead of calling the log empty (dist-regen).
+- **Race-clean and isolated tests.** The EXPLAIN ANALYZE guard's real-parser tests now run cleanly
+  with cgo and `-race` on PostgreSQL 14 and 17; no guard behaviour changed (env-cgo-c). The
+  manual CONCURRENTLY index-build tests (TestCoverage_ExecuteManual_*) now pass 50 times in a row
+  under the Go race detector on PostgreSQL 14 and 17, which closes out the April race-flake
+  report (executor-11r). The emergency-freeze lifecycle test and the three pg_stat_statements
+  ranking and text-read collector tests now run on the exclusive test server
+  (SAGE_TEST_EXCLUSIVE_URL), which starts with an empty pg_stat_statements, so other packages'
+  work on the shared server no longer makes them flake (ci-23).
 
 ## v2.5.0 (2026-11-03) -- The Databricks release
 
