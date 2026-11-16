@@ -424,9 +424,16 @@ pssurl='SAGE_TEST_PSS_SMALL_URL=postgres://postgres:postgres@127.0.0.1:5434/post
 '?sslmode=disable'
 # Happy path, full suite: the PSS server joins the suite server's namespace
 # on port 5434 with CI's flags and max=100 last, and every Go test gets its URL.
+# Two majors, so a max=100 left over from PG14's PSS server would show on PG17's.
 o=$(newout)
 expect 0 'summary: .*summary.md' "stubbed full run with the PSS server" -- \
-  $guard FAKE_FREE_GB=99 LOCAL_SUITE_PSS_SMALL=1 bash "$script" "$o" 17
+  $guard FAKE_FREE_GB=99 LOCAL_SUITE_PSS_SMALL=1 bash "$script" "$o" 14 17
+grep '^docker run' "$log" | grep -v -- '--name improve-ci-pss-pg1[47] ' |
+  grep -q 'pg_stat_statements.max=100' && fail "max=100 leaked into another server"
+[[ $(grep -c '^docker run .*--name improve-ci-pss-pg1[47] ' "$log") -eq 2 ]] ||
+  fail "want one PSS server per major: $(grep -c pss-pg "$log")"
+grep -q 'go test ./\.\.\. .*(PostgreSQL 17 also runs the e2e step)' "$o/summary.md" &&
+  ! grep -q '^\*\*Scope:' "$o/summary.md" || fail "full-run summary: $(head -15 "$o/summary.md")"
 prun=$(grep '^docker run' "$log" | grep -- '--name improve-ci-pss-pg17 ')
 for want in " --network container:improve-ci-pg17 " " -e PGPORT=5434 " \
   " --memory=1536m --memory-swap=1536m " " -c shared_preload_libraries=" \
@@ -463,6 +470,9 @@ grep -qx 'pss_small=0 packages=./internal/agentguard/broker/' "$o/run.txt" ||
   fail "run.txt: $(cat "$o/run.txt")"
 grep -q 'packages ./internal/agentguard/broker/' "$o/summary.md" ||
   fail "the summary does not name the scope: $(head -20 "$o/summary.md")"
+grep -q '^\*\*Command:\*\* `go test ./internal/agentguard/broker/ -race ' "$o/summary.md" &&
+  ! grep -q 'e2e step)\|go test \./\.\.\.' "$o/summary.md" ||
+  fail "a scoped summary names ./... or an e2e step: $(head -15 "$o/summary.md")"
 # Error propagation: a PSS server that did not take max=100 stops the run.
 expect 5 'improve-ci-pss-pg17 runs pg_stat_statements.max=50000, want 100' "PSS max ignored" \
   -- $guard FAKE_FREE_GB=99 STUB_PSS_MAX=50000 LOCAL_SUITE_PSS_SMALL=1 bash "$script" \
