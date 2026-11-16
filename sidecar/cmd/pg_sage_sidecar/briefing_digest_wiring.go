@@ -29,6 +29,14 @@ func (n digestNotifier) EnsureDefaultRule(ctx context.Context, event string) (bo
 	return n.s.EnsureDefaultRule(ctx, event)
 }
 
+// newBriefingWorker is the database's briefing worker: its digest goes
+// through Notifications and its Needs you section counts the inbox.
+func (rt *databaseRuntime) newBriefingWorker() *briefing.Worker {
+	return briefing.New(rt.spec.Pool, cfg, rt.generalLLM, logStructuredWrapper).
+		WithDatabaseName(rt.spec.Name).WithNotifier(rt.briefingNotifier()).
+		WithInboxCounter(digestInboxCounts)
+}
+
 // briefingNotifier is the database runtime's digest notifier, or nil when
 // it has no dispatcher (the digest then goes to stdout only, and its row
 // says Notifications was not wired).

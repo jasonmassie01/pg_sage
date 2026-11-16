@@ -26,6 +26,7 @@ func slackWorker(url string, channels ...string) *Worker {
 		Channels: channels, SlackWebhookURL: url}}, logFn: noopLog,
 		stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}}
 }
+
 // ux-02b: "slack" is no longer posted by Dispatch: briefing.slack_webhook_url
 // is reconciled into the Notifications channel config:slack:briefing, which
 // reports under its own name. (Before, this test counted a webhook call;

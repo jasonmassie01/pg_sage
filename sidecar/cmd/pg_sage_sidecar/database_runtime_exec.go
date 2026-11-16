@@ -4,7 +4,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pg-sage/sidecar/internal/briefing"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/retention"
 	"github.com/pg-sage/sidecar/internal/schema"
@@ -52,9 +51,7 @@ func (rt *databaseRuntime) startExecution() {
 	rt.start(func() {
 		store.StartActionExpiry(rt.ctx, rt.actions, logStructuredWrapper)
 	})
-	rt.brief = briefing.New(rt.spec.Pool, cfg, rt.generalLLM, logStructuredWrapper).
-		WithDatabaseName(rt.spec.Name).WithNotifier(rt.briefingNotifier()).
-		WithInboxCounter(digestInboxCounts) // ux-02b
+	rt.brief = rt.newBriefingWorker()
 	briefingWorkers.track(rt.ctx, rt.brief) // live briefing.* changes (llm-06)
 	deps := fleetCycleDeps{
 		name: rt.spec.Name, ha: rt.ha, exec: rt.executor, plans: rt.buildPlanEngine(),

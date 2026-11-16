@@ -129,12 +129,12 @@ func TestDigestHeadline_BadRepliesFallBack(t *testing.T) {
 		"over 200 characters": {chatReply(long), "longer than 200"},
 		"names a seeded table": {chatReply("Orders on public.orders were held back."),
 			"identifier"},
-		"empty body":    {chatReply("   "), "empty"},
-		"fenced json":   {chatReply("```json\n{\"headline\":\"6 changes\"}\n```"), "plain"},
+		"empty body":     {chatReply("   "), "empty"},
+		"fenced json":    {chatReply("```json\n{\"headline\":\"6 changes\"}\n```"), "plain"},
 		"malformed json": {chatReply(`{"headline": "6 changes"`), "plain"},
-		"two lines":     {chatReply("Six changes.\nTwo need you."), "one line"},
-		"timeout":       {slow, "model"},
-		"rate limited":  {limited, "model"},
+		"two lines":      {chatReply("Six changes.\nTwo need you."), "one line"},
+		"timeout":        {slow, "model"},
+		"rate limited":   {limited, "model"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			restore := headlineTimeout

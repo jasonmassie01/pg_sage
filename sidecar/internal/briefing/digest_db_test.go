@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 
@@ -412,7 +412,7 @@ func TestDigestDB_WithoutNotifier(t *testing.T) {
 
 type okSender struct{}
 
-func (okSender) Type() string                                          { return "slack" }
+func (okSender) Type() string                                             { return "slack" }
 func (okSender) Send(context.Context, notify.Channel, notify.Event) error { return nil }
 
 type badSender struct{}
@@ -438,4 +438,3 @@ func (n dispatcherNotifier) EnsureDefaultRule(ctx context.Context, event string)
 ) {
 	return n.s.EnsureDefaultRule(ctx, event)
 }
-

@@ -360,7 +360,6 @@ func TestValidEventTypes_Completeness(t *testing.T) {
 		"canary_interrupted":      true,
 		"digest_ready":            true, // ux-02b
 	}
-
 	// Verify exact count.
 	if len(ValidEventTypes) != len(expectedTypes) {
 		t.Errorf("ValidEventTypes has %d entries, want %d",
