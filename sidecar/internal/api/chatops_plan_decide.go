@@ -139,7 +139,8 @@ func checkPlanCardUse(w http.ResponseWriter, r *http.Request, ch notify.Channel,
 func chatPlanDecision(w http.ResponseWriter, ch notify.Channel, a chatops.Action,
 	t planCardTarget) (changeplan.Decision, bool) {
 	offer := changeplan.OfferForChat(t.detail)
-	d := changeplan.Decision{PlanHash: t.card.PlanHash, Via: changeplan.ViaChat}
+	d := changeplan.Decision{PlanHash: t.card.PlanHash, Via: changeplan.ViaChat,
+		ProposedOnly: true}
 	allowed := true
 	switch a.PlanChoice {
 	case chatops.PlanReject:

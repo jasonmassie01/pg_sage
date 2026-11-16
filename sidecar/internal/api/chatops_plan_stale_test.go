@@ -7,6 +7,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/changeplan"
 	"github.com/pg-sage/sidecar/internal/chatops"
+	"github.com/pg-sage/sidecar/internal/fleet"
 )
 
 // Stale plan cards (plan-03b review): what a card offered, the hash it
@@ -14,8 +15,8 @@ import (
 // pressed, so a card that no longer matches the plan decides nothing and
 // stays unused.
 
-// No concurrent access tests here: TestChatPlanTwoClicksMakeOneDecision
-// covers two presses of one card.
+// TestChatPlanTwoClicksMakeOneDecision covers two presses of one card;
+// the race with an app approval is simulated below.
 
 func TestChatPlanStaleUpToOfferIsRefused(t *testing.T) {
 	cf := newChatCardFixture(t)
@@ -89,5 +90,47 @@ func TestChatPlanRefusesAPlanAlreadyApprovedInTheApp(t *testing.T) {
 	}
 	if card := cf.planCard(t, token); card.UsedAt != nil {
 		t.Fatalf("a refused press used the card: %+v", card)
+	}
+}
+
+// appApprovesFirst is the real plan store where an approval in the app
+// lands just before the chat decision: the race the status check before
+// the card is consumed cannot close.
+type appApprovesFirst struct {
+	planService
+	operator int
+}
+
+func (s appApprovesFirst) ApproveWith(ctx context.Context, id int64, d changeplan.Decision,
+	userID int) (changeplan.Approval, error) {
+	app := changeplan.Decision{Mode: changeplan.ModeAll, PlanHash: d.PlanHash,
+		Via: changeplan.ViaUI}
+	if _, err := s.planService.ApproveWith(ctx, id, app, s.operator); err != nil {
+		return changeplan.Approval{}, err
+	}
+	return s.planService.ApproveWith(ctx, id, d, userID)
+}
+
+func TestChatPlanNeverSupersedesAnAppApprovalThatRacesIt(t *testing.T) {
+	cf := newChatCardFixture(t)
+	p := cf.createPlan(t, moderateStep(1, cf.table), moderateStep(2, cf.table))
+	token := cf.issuePlan(t, cf.slackCh, p, 0, allChoices...)
+	restore := chatPlanStores
+	chatPlanStores = func(inst *fleet.DatabaseInstance) planService {
+		return appApprovesFirst{planService: restore(inst), operator: cf.operator}
+	}
+	t.Cleanup(func() { chatPlanStores = restore })
+	code, body := cf.slackPress(t, "U-OP"+cf.suffix, chatops.SlackPlanApproveNextAction,
+		token, testSigningSecret)
+	if code != http.StatusConflict || body["code"] != "not_pending" {
+		t.Fatalf("chat press racing an app approval: %d %v", code, body)
+	}
+	d := cf.planDetail(t, p.ID)
+	if len(d.Approvals) != 1 || d.Approvals[0].Via != changeplan.ViaUI ||
+		d.Approvals[0].Mode != changeplan.ModeAll || d.Approvals[0].VoidedAt != nil {
+		t.Fatalf("approvals %+v, want only the app's approve-all, live", d.Approvals)
+	}
+	if card := cf.planCard(t, token); card.UsedAt != nil {
+		t.Fatalf("a refused decision kept the card used: %+v", card)
 	}
 }
