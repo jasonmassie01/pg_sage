@@ -80,6 +80,8 @@ func mcpDependencies() mcp.ProductionDependencies {
 		Facts: factsMCPBackend{manager: fleetMgr},
 		// Fleet findings across the databases the caller may see.
 		FleetLearning: fleetFindingsMCP{},
+		// A workload pack's model tier, never its local tier (evid-02c).
+		WorkloadPacks: workloadPackMCPBackend{manager: fleetMgr},
 		// agent_query and agent_whoami (agent_broker_wiring.go).
 		AgentBroker: agentBrokerMCP{},
 		// Coding-agent tools (roadmap phase 3) on the resolved database.

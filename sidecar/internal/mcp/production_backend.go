@@ -65,6 +65,8 @@ type ProductionDependencies struct {
 	Facts FactBackend
 	// FleetLearning serves fleet_findings (fleet learning); optional.
 	FleetLearning FleetLearningBackend
+	// WorkloadPacks serves get_workload_pack (evid-02c); optional.
+	WorkloadPacks WorkloadPackBackend
 	// AgentBroker serves agent_query and agent_whoami (agent governance);
 	// optional.
 	AgentBroker AgentBrokerBackend
