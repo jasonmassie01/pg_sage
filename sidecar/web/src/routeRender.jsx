@@ -10,6 +10,7 @@ import { ProfilePage } from './pages/ProfilePage'
 import { NotificationsPage } from './pages/NotificationsPage'
 import { DatabasesPage } from './pages/DatabasesPage'
 import { ValuePage } from './pages/ValuePage'
+import { LedgerPage } from './pages/LedgerPage'
 import { OnboardingPanel } from './components/onboarding/OnboardingPanel'
 import { FirstLookPanel } from './components/onboarding/FirstLookPanel'
 import { SLOsPage } from './pages/SLOsPage'
@@ -110,6 +111,7 @@ export const RENDERERS = Object.freeze({
   ),
   cases: ctx => cases(ctx),
   actions,
+  ledger: ctx => <LedgerPage key={ctx.route} database={ctx.database} />,
   queries: ctx => <QueriesPage database={ctx.database} />,
   query: ctx => <QueryDetailPage route={ctx.route} database={ctx.database} />,
   slos: ctx => <SLOsPage database={ctx.database} user={ctx.user} />,

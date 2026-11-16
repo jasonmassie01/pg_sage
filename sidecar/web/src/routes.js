@@ -13,7 +13,7 @@
 // header shows the picker only there, captioned with timeRangeLabel
 // (dashboard-07).
 import {
-  Activity, AlertTriangle, BarChart3, Bell, BookCheck, Bot, Gauge, Home, KeyRound,
+  Activity, AlertTriangle, BarChart3, Bell, BookCheck, Bot, ClipboardCheck, Gauge, Home, KeyRound,
   MessageSquare, ScrollText, Server, Settings, ShieldCheck, Users,
 } from 'lucide-react'
 
@@ -52,6 +52,11 @@ export const ROUTES = Object.freeze([
     usesTimeRange: true, timeRangeLabel: 'Ledger window',
     guide: 'Follow proposed database changes through review, approval and outcome '
       + 'checks. The execution mode determines whether a change can run.' },
+  { id: 'ledger', path: '/ledger', title: 'Outcome ledger', label: 'Ledger',
+    navGroup: 'operate', testId: 'nav-ledger', icon: ClipboardCheck,
+    hint: 'What changed, and what it did',
+    guide: 'See every change pg_sage made in a window, what it expected, what was '
+      + 'measured and whether it can still be rolled back.' },
   { id: 'queries', path: '/queries', title: 'Workload', navGroup: 'operate',
     testId: 'nav-queries', icon: BarChart3, hint: 'Top statements and wait-class load',
     guide: 'See which statements carry the load and what active sessions wait on. '

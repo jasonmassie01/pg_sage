@@ -206,12 +206,12 @@ function IncidentsAvoided({ incidents }) {
                 style={{ color: 'var(--text-secondary)' }}>
                 {humanize(item.severity)}
               </span>
-              {/* No ledger route exists yet, so show the id for lookup
-                  (MCP get_ledger) instead of a dead link (SURF-14). */}
-              <span className="ml-3 text-xs font-mono"
+              {/* The outcome ledger lists the changes this evidence cites. */}
+              <a className="ml-3 text-xs font-mono underline"
+                href={`#/ledger?evidence=${encodeURIComponent(item.evidence_id)}`}
                 style={{ color: 'var(--text-secondary)' }}>
                 Evidence {item.evidence_id}
-              </span>
+              </a>
             </li>
           ))}
         </ul>
