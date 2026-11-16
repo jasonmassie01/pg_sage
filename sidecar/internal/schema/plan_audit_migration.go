@@ -11,7 +11,7 @@ package schema
 //     up to 1 MiB and its SHA-256), the input a later model is replayed on.
 //
 // Both are append-only and have no foreign key: the record outlives a plan
-// retention purges, like sage.fact_events. Only the audit chain's own
+// retention purges. A row is never deleted, and only the audit chain's own
 // columns may be written after the insert; the chains (auditchain
 // PlanEvents and PlanModelRecords) are installed by the audit chain
 // migration, Bootstrap's last step. CREATE ... IF NOT EXISTS and catalog
@@ -45,13 +45,18 @@ CREATE TABLE IF NOT EXISTS sage.plan_model_record (
 CREATE INDEX IF NOT EXISTS plan_model_record_plan ON sage.plan_model_record (plan_id, id);
 ` + ddlPlanAuditGuard
 
-// ddlPlanAuditGuard refuses any update of a plan event or model record
-// except the audit chain writing its own columns into the row it just
-// linked.
+// ddlPlanAuditGuard refuses any delete of a plan event or model record,
+// and any update except the audit chain writing its own columns into the
+// row it just linked. A truncation is left to the chain, which records it
+// and so fails the replay of every plan it covers.
 const ddlPlanAuditGuard = `
 CREATE OR REPLACE FUNCTION sage.plan_audit_append_only() RETURNS trigger
 LANGUAGE plpgsql AS $fn$
 BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION 'pg_sage: %.% is append-only; row % cannot be deleted',
+            TG_TABLE_SCHEMA, TG_TABLE_NAME, OLD.id USING ERRCODE = '55000';
+    END IF;
     IF to_jsonb(NEW) - 'chain_seq' - 'chain_prev_hash' - 'chain_hash' IS DISTINCT FROM
        to_jsonb(OLD) - 'chain_seq' - 'chain_prev_hash' - 'chain_hash' THEN
         RAISE EXCEPTION 'pg_sage: %.% is append-only (row %)', TG_TABLE_SCHEMA,
@@ -63,13 +68,14 @@ DO $plan_audit$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'sage.plan_event'::regclass
                    AND tgname = 'plan_event_append_only') THEN
-        CREATE TRIGGER plan_event_append_only BEFORE UPDATE ON sage.plan_event
+        CREATE TRIGGER plan_event_append_only BEFORE UPDATE OR DELETE ON sage.plan_event
             FOR EACH ROW EXECUTE FUNCTION sage.plan_audit_append_only();
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_trigger
                    WHERE tgrelid = 'sage.plan_model_record'::regclass
                    AND tgname = 'plan_model_record_append_only') THEN
-        CREATE TRIGGER plan_model_record_append_only BEFORE UPDATE ON sage.plan_model_record
+        CREATE TRIGGER plan_model_record_append_only
+            BEFORE UPDATE OR DELETE ON sage.plan_model_record
             FOR EACH ROW EXECUTE FUNCTION sage.plan_audit_append_only();
     END IF;
 END

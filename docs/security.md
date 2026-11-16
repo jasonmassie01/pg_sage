@@ -1582,8 +1582,8 @@ every write appends a link to `sage.audit_chain_link`, and every inserted
 row carries its own link.
 
 The two plan chains (`plan_events` over `sage.plan_event`,
-`plan_model_records` over `sage.plan_model_record`) are append-only and
-seal every column. A plan event is written in the transaction of the
+`plan_model_records` over `sage.plan_model_record`) are append-only (a
+trigger refuses any update or delete of a row) and seal every column. A plan event is written in the transaction of the
 change it records (created, edited, approved, voided, and the engine's
 step transitions and verdicts), with the plan hash after it and the actor
 who made it; a write whose caller named nobody is recorded as
@@ -1592,7 +1592,10 @@ plan: the evidence pack hash, the model, the prompt version, the raw
 output byte for byte (markdown fences included, at most 1 MiB) and its
 SHA-256. The replay input of a plan is handed back only when every pass
 still matches its own SHA-256 (`hash mismatch` otherwise) and its chain
-link, and the chain verifies from the first pass to the head. Both chains
+link, and the chain verifies, with no delete or truncation, from the
+plan's creation (or its first event, once retention purged the plan) to
+the head, so a pass removed behind the chain fails the replay instead of
+being left out of it. Both chains
 install on the first boot that has their tables and reach SIEM sinks as
 the `log_name` values `plan_events` and `plan_model_records` (OCSF API
 Activity, activity Other); the other chains, their versions and the SIEM

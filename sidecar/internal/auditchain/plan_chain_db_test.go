@@ -166,9 +166,9 @@ func TestPlanEventChainFindsEditsDeletesAndReordering(t *testing.T) {
 	}
 }
 
-// Both plan tables are append-only: an ordinary update is refused, and
-// the refusal leaves the chain intact.
-func TestPlanChainTablesRefuseAnUpdate(t *testing.T) {
+// Both plan tables are append-only: an ordinary update or delete is
+// refused, and the refusal leaves the chain intact.
+func TestPlanChainTablesRefuseAnUpdateOrDelete(t *testing.T) {
 	pool := freshDB(t, "chain_plan_append_only")
 	ids := insertPlanEvents(t, pool, 1)
 	var rec int64
@@ -182,6 +182,8 @@ func TestPlanChainTablesRefuseAnUpdate(t *testing.T) {
 	for _, sql := range []string{
 		fmt.Sprintf(`UPDATE sage.plan_event SET actor = 'mallory' WHERE id = %d`, ids[0]),
 		fmt.Sprintf(`UPDATE sage.plan_model_record SET raw_output = 'x' WHERE id = %d`, rec),
+		fmt.Sprintf(`DELETE FROM sage.plan_event WHERE id = %d`, ids[0]),
+		fmt.Sprintf(`DELETE FROM sage.plan_model_record WHERE id = %d`, rec),
 	} {
 		_, err := pool.Exec(context.Background(), sql)
 		if err == nil || !strings.Contains(err.Error(), "append-only") {

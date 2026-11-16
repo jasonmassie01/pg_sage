@@ -148,13 +148,62 @@ func TestReplay_OneMiBIsTheLimit(t *testing.T) {
 
 // Tamper: an edited raw output fails the replay with a hash mismatch; an
 // output edited together with its hash fails the chain; a record written
-// behind the chain is refused as unchained.
+// behind the chain is refused as unchained; a pass deleted behind the
+// chain (the plan's only or first one included) or a truncation fails it.
 func TestReplay_TamperedRecordsAreRefused(t *testing.T) {
-	cases := []struct {
-		name, want string
-		tamper     func(t *testing.T, pool *pgxpool.Pool, id, planID int64)
-		is         error
-	}{
+	for _, tc := range replayTampers() {
+		t.Run(tc.name, func(t *testing.T) {
+			pool := planPool(t, "plan_replay_"+strings.ReplaceAll(tc.name, " ", "_"))
+			s := NewStore(pool)
+			p := mustCreate(t, s, threeStepPlan())
+			rec := mustRecord(t, s, p.ID, ModelPass{Model: "m", RawOutput: fenced})
+			mustReplay(t, s, p.ID)
+			tc.tamper(t, pool, rec.ID, p.ID)
+			_, err := s.ReplayInput(context.Background(), p.ID)
+			if !errors.Is(err, tc.is) || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("%s: %v, want %v naming %q", tc.name, err, tc.is, tc.want)
+			}
+		})
+	}
+}
+
+// A pass cannot be deleted; a plan retention purged still replays from
+// its records, and a pass deleted behind the chain after the purge still
+// fails the replay, found from the plan's first event.
+func TestReplay_PurgedPlanReplaysAndAPassCannotBeDeleted(t *testing.T) {
+	pool := planPool(t, "plan_replay_purged")
+	s := NewStore(pool)
+	ctx := context.Background()
+	p := mustCreate(t, s, threeStepPlan())
+	rec := mustRecord(t, s, p.ID, ModelPass{Model: "m", RawOutput: fenced})
+	_, err := pool.Exec(ctx, `DELETE FROM sage.plan_model_record WHERE id = $1`, rec.ID)
+	if err == nil || !strings.Contains(err.Error(), "append-only") {
+		t.Fatalf("delete of a model pass: %v, want an append-only refusal", err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM sage.plan WHERE id = $1`, p.ID); err != nil {
+		t.Fatalf("purge the plan: %v", err)
+	}
+	in := mustReplay(t, s, p.ID)
+	if len(in.Passes) != 1 || in.Passes[0].ID != rec.ID || in.Passes[0].RawOutput != fenced {
+		t.Fatalf("replay of the purged plan = %+v, want its one pass", in)
+	}
+	bypassExec(t, pool, `DELETE FROM sage.plan_model_record WHERE id = $1`, rec.ID)
+	_, err = s.ReplayInput(ctx, p.ID)
+	if !errors.Is(err, ErrReplayChain) || !strings.Contains(err.Error(), "row_missing") {
+		t.Fatalf("replay after the only pass was deleted: %v, want row_missing", err)
+	}
+}
+
+// replayTamper is one way to tamper with a plan's model passes: the error
+// the replay must return and the text it must name.
+type replayTamper struct {
+	name, want string
+	tamper     func(t *testing.T, pool *pgxpool.Pool, id, planID int64)
+	is         error
+}
+
+func replayTampers() []replayTamper {
+	return []replayTamper{
 		{"edited output", "hash mismatch", func(t *testing.T, pool *pgxpool.Pool, id,
 			_ int64) {
 			bypassExec(t, pool, `UPDATE sage.plan_model_record SET raw_output = 'forged'
@@ -177,19 +226,21 @@ func TestReplay_TamperedRecordsAreRefused(t *testing.T) {
 			later := mustRecord(t, s, planID, ModelPass{Model: "m2", RawOutput: "second"})
 			bypassExec(t, pool, `DELETE FROM sage.plan_model_record WHERE id = $1`, later.ID)
 		}, ErrReplayChain},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			pool := planPool(t, "plan_replay_"+strings.ReplaceAll(tc.name, " ", "_"))
-			s := NewStore(pool)
-			p := mustCreate(t, s, threeStepPlan())
-			rec := mustRecord(t, s, p.ID, ModelPass{Model: "m", RawOutput: fenced})
-			mustReplay(t, s, p.ID)
-			tc.tamper(t, pool, rec.ID, p.ID)
-			_, err := s.ReplayInput(context.Background(), p.ID)
-			if !errors.Is(err, tc.is) || !strings.Contains(err.Error(), tc.want) {
-				t.Fatalf("%s: %v, want %v naming %q", tc.name, err, tc.is, tc.want)
+		{"deleted only pass", "row_missing", func(t *testing.T, pool *pgxpool.Pool, id,
+			_ int64) {
+			bypassExec(t, pool, `DELETE FROM sage.plan_model_record WHERE id = $1`, id)
+		}, ErrReplayChain},
+		{"deleted first pass", "row_missing", func(t *testing.T, pool *pgxpool.Pool, id,
+			planID int64) {
+			mustRecord(t, NewStore(pool), planID, ModelPass{Model: "m2", RawOutput: "two"})
+			bypassExec(t, pool, `DELETE FROM sage.plan_model_record WHERE id = $1`, id)
+		}, ErrReplayChain},
+		{"truncated records", "1 truncations", func(t *testing.T, pool *pgxpool.Pool, _,
+			_ int64) {
+			if _, err := pool.Exec(context.Background(),
+				`TRUNCATE sage.plan_model_record`); err != nil {
+				t.Fatalf("truncate: %v", err)
 			}
-		})
+		}, ErrReplayChain},
 	}
 }
