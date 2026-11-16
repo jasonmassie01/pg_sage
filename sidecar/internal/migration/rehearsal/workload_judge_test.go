@@ -128,3 +128,20 @@ func TestJudgeLatencyRegressionDetail(t *testing.T) {
 		t.Fatalf("result = %#v", got)
 	}
 }
+
+// Safety (review of lab-04b): a statement that ran before the expand
+// steps and fails after them (an added column made a name ambiguous)
+// is broken by the migration; a measured neighbour must not promote it.
+func TestJudgeFailureAfterStepsNeverPromotes(t *testing.T) {
+	got := judgeOf(Measurement{AffectedQueries: []QueryMeasurement{
+		{QueryID: 7, BeforeLatencyMS: 4, AfterLatencyMS: 4, BeforePlanHash: "a",
+			AfterPlanHash: "a"},
+		{QueryID: 8, BeforeCost: 9, BeforePlanHash: "b",
+			Unmeasured: UnmeasuredFailedAfter + `: column reference "note" is ambiguous`},
+	}})
+	if got.Verdict != VerdictRecommendOnly || got.Reason != ReasonInconclusiveWorkload ||
+		!strings.Contains(got.Detail, "queryid 8 failed on the clone after the expand") ||
+		!strings.Contains(got.Detail, "ambiguous") {
+		t.Fatalf("result = %#v", got)
+	}
+}

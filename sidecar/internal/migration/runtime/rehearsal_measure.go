@@ -158,6 +158,8 @@ func unmeasured(err error, afterSteps bool) (string, bool) {
 		return rehearsalpkg.UnmeasuredNotOne, false
 	case err == nil:
 		return "not measured " + when + " the expand steps", false
+	case afterSteps:
+		return fmt.Sprintf("%s: %v", rehearsalpkg.UnmeasuredFailedAfter, err), false
 	}
 	return fmt.Sprintf("measure %s the expand steps: %v", when, err), false
 }

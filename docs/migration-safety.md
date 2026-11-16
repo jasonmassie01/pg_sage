@@ -133,7 +133,7 @@ measured in a read-only transaction that is rolled back, on the application's
   PostgreSQL 16 and later) and judged on plan cost.
 - Each executed statement has `clone.rehearsal_statement_timeout_seconds` (default 5 s). A
   statement that times out is recorded as timed out and is not measured. One that ran before
-  the expand steps and timed out after them keeps the rehearsal from promoting.
+  the expand steps and timed out or failed after them keeps the rehearsal from promoting.
 - A text that holds more than one statement is skipped, with that reason.
 
 A statement slower by more than 15%, or by more than `rehearsal.plan_flip_pct` (default 5%)

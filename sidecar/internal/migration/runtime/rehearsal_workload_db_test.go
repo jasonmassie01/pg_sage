@@ -275,3 +275,29 @@ func TestPostgresRecorderPersistsLadderAndReceipt(t *testing.T) {
 			unmeasured)
 	}
 }
+
+// Safety (review of lab-04b): a statement that names the index the
+// expand step drops fails after it; the rehearsal names it and never
+// promotes, though another statement is measured unchanged.
+func TestRehearsalNeverPromotesAStatementTheExpandBreaks(t *testing.T) {
+	pool := migrationRuntimePool(t)
+	table := lookupTable(t, pool, "lab04b_brk", 2000)
+	source := sourceOf([]AffectedStatement{
+		{QueryID: 61, Text: "SELECT email FROM public.lab04b_brk WHERE id = 42"},
+		{QueryID: 62, Text: "SELECT count(*), " +
+			"pg_relation_size('public.lab04b_brk_email_idx') FROM public.lab04b_brk"},
+	}, nil)
+	got := rehearseOn(t, testdb.SkipUnlessLive(t), source, dropIndexPlan(table))
+	if got.Verdict != rehearsalpkg.VerdictRecommendOnly ||
+		got.Reason != rehearsalpkg.ReasonInconclusiveWorkload ||
+		!strings.Contains(got.Detail, "queryid 62 failed on the clone after") {
+		t.Fatalf("result = %#v", got)
+	}
+	queries := got.Measurement.AffectedQueries
+	if len(queries) != 2 || queries[0].Unmeasured != "" ||
+		queries[0].BeforePlanHash != queries[0].AfterPlanHash ||
+		!strings.HasPrefix(queries[1].Unmeasured, rehearsalpkg.UnmeasuredFailedAfter+": ") ||
+		!strings.Contains(queries[1].Unmeasured, "does not exist") {
+		t.Fatalf("queries = %#v", queries)
+	}
+}

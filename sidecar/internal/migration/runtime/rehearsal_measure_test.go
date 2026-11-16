@@ -82,7 +82,7 @@ func TestPairQueryInvalidInput(t *testing.T) {
 		t.Fatalf("bad plan = %#v", q)
 	}
 	q = pairQuery(5, planned(5, indexPlan), side{err: errors.New("connection reset")})
-	if q.Unmeasured != "measure after the expand steps: connection reset" {
+	if q.Unmeasured != rehearsalpkg.UnmeasuredFailedAfter+": connection reset" {
 		t.Fatalf("after error = %#v", q)
 	}
 }

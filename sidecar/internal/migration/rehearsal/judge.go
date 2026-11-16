@@ -3,6 +3,7 @@ package rehearsal
 import (
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 // LatencyNoiseFloorMS is the smallest latency rise, in milliseconds, that
@@ -16,13 +17,16 @@ const (
 	UnmeasuredTimedOutBefore = "timed out on the clone before the expand steps"
 	UnmeasuredTimedOutAfter  = "timed out on the clone after the expand steps"
 	UnmeasuredNotOne         = "skipped: the text holds more than one statement"
+	// UnmeasuredFailedAfter starts the reason of a statement that was
+	// measured before the expand steps and failed after them.
+	UnmeasuredFailedAfter = "failed on the clone after the expand steps"
 )
 
 // judge turns a measurement into a verdict. A step over its budget
 // parks first: that evidence stands without a workload. A measured
 // statement that regressed parks next. Without a measured statement the
 // result is inconclusive and never promotes, nor when a statement that
-// ran before the expand steps timed out after them.
+// ran before the expand steps timed out or failed after them.
 func (o *Orchestrator) judge(measurement Measurement) Result {
 	result := Result{Verdict: VerdictPromoteExpand, Reason: ReasonRehearsalPassed,
 		Measurement: measurement}
@@ -90,9 +94,8 @@ func regressed(measurement Measurement, threshold, flipPct float64) (string, boo
 func inconclusive(measurement Measurement) (string, bool) {
 	measured, firstGap := 0, ""
 	for _, query := range measurement.AffectedQueries {
-		if query.Unmeasured == UnmeasuredTimedOutAfter {
-			return fmt.Sprintf("queryid %d %s, not before them", query.QueryID,
-				UnmeasuredTimedOutAfter), true
+		if detail, ok := brokenAfter(query); ok {
+			return detail, true
 		}
 		if _, ok := query.metric(); ok {
 			measured++
@@ -111,6 +114,22 @@ func inconclusive(measurement Measurement) (string, bool) {
 		return "", true
 	}
 	return "no affected statement was measured on the clone (" + firstGap + ")", true
+}
+
+// brokenAfter names a statement that ran before the expand steps and
+// timed out or failed after them: the migration may have broken it, so
+// no other statement's evidence may promote the rehearsal.
+func brokenAfter(query QueryMeasurement) (string, bool) {
+	switch {
+	case query.Unmeasured == UnmeasuredTimedOutAfter:
+		return fmt.Sprintf("queryid %d %s, not before them", query.QueryID,
+			UnmeasuredTimedOutAfter), true
+	case strings.HasPrefix(query.Unmeasured, UnmeasuredFailedAfter+": "):
+		return fmt.Sprintf("queryid %d %s, not before them (%s)", query.QueryID,
+			UnmeasuredFailedAfter, strings.TrimPrefix(query.Unmeasured,
+				UnmeasuredFailedAfter+": ")), true
+	}
+	return "", false
 }
 
 func gapReason(query QueryMeasurement) string {
