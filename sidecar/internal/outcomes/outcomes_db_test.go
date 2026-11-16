@@ -91,8 +91,10 @@ func read(t *testing.T, pool *pgxpool.Pool, q Query) Result {
 
 const measured42 = `{"metric":"blocks_per_call","before":100,"after":58,"change_pct":-42}`
 
-func TestOutcomeLedgerDB_OneRowWithEveryField(t *testing.T) {
-	pool := outcomesDB(t, "outcomes_happy")
+// seedApprovedPlanStep stores an approved index from a plan step with its
+// finding, approval card and decision; it returns the action and plan ids.
+func seedApprovedPlanStep(t *testing.T, pool *pgxpool.Pool) (int64, int64) {
+	t.Helper()
 	finding := id(t, pool, `INSERT INTO sage.findings (category, severity, title, detail,
 		status, object_identifier) VALUES ('missing_index', 'warning', 'Seq scans on orders',
 		'{}', 'open', 'public.orders') RETURNING id`)
@@ -114,6 +116,12 @@ func TestOutcomeLedgerDB_OneRowWithEveryField(t *testing.T) {
 		on_regressed, on_inconclusive, on_expired, action_log_id, expected_pct) VALUES
 		($1, 1, 'action', 'blocks_per_call', 'down', 'hypopg', 60, 'keep', 'keep',
 		'revert_step', 'halt_ask', 'halt_ask', $2, 30)`, plan, act)
+	return act, plan
+}
+
+func TestOutcomeLedgerDB_OneRowWithEveryField(t *testing.T) {
+	pool := outcomesDB(t, "outcomes_happy")
+	act, plan := seedApprovedPlanStep(t, pool)
 	verdict(t, pool, act, "improved", measured42, "")
 
 	res := read(t, pool, Query{})
@@ -236,8 +244,8 @@ func TestOutcomeLedgerDB_StateTransitions(t *testing.T) {
 	exec(t, pool, `UPDATE sage.action_log SET outcome = 'rolled_back',
 		rollback_reason = 'regressed' WHERE id = $1`, reg)
 	r := read(t, pool, Query{}).Rows[0]
-	if r.ActionID != reg || r.Verdict != VerdictRegressed || r.RollbackState != RollbackRolledBack ||
-		r.Measured == nil || r.Measured.ChangePct != 50 {
+	if r.ActionID != reg || r.Verdict != VerdictRegressed ||
+		r.RollbackState != RollbackRolledBack || r.Measured == nil || r.Measured.ChangePct != 50 {
 		t.Fatalf("auto-reverted row = %+v", r)
 	}
 	if s := read(t, pool, Query{}).Summary; s.Reverted != 2 || s.Verified != 2 {
@@ -258,8 +266,8 @@ func TestOutcomeLedgerDB_EvidenceFilterFindsDecisionsAndIncidents(t *testing.T) 
 		VALUES ($1, $2, '{}', '{}', 1, now(), now(), 'success') RETURNING id`, dec, b)
 	exec(t, pool, `INSERT INTO sage.incident_avoided (kind, severity, credited_minutes,
 		evidence_id, model_version, decision_id, action_log_id, verification_id,
-		occurred_at) VALUES ('xid_wraparound', 'near_miss', 30, 'ev-incident', 1, $1, $2, $3, now())`,
-		dec, b, ver)
+		occurred_at) VALUES ('xid_wraparound', 'near_miss', 30, 'ev-incident', 1, $1, $2,
+		$3, now())`, dec, b, ver)
 	if r := read(t, pool, Query{Evidence: "ev-dec"}); len(r.Rows) != 1 ||
 		r.Rows[0].ActionID != a || r.Rows[0].EvidenceID != "ev-dec" {
 		t.Fatalf("decision evidence: %+v", r.Rows)
