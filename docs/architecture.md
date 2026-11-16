@@ -545,16 +545,19 @@ plans on PG16+; the HypoPG hide what-if for a drop; a hint's plan comparison; or
 a reloadable setting's target plans under `SET LOCAL` in a read-only transaction
 that is always rolled back, plan cost only), tier 2 `clone` (a clone rehearsal,
 where a clone provider is configured), tier 3 `canary` (the production verdict,
-appended when it lands) and tier 4 `fleet` (a staggered fleet rollout). A tier
+recorded when it lands; a later verdict of the same action replaces it) and tier 4 `fleet` (a staggered fleet rollout). A tier
 that could not run is recorded as skipped with why ("no clone provider
 configured", "HypoPG cannot model gin indexes"); a method that cannot model the
 index type, or an unreadable result, is never a pass. The entry rule: every
 action class says whether it is cheap to revert (create index, reloadable
 setting, storage parameters, hint, extended statistics: yes; drop index, index
-replace, ALTER TABLE, retention delete, a setting that needs a restart: no). A
-class that is not cheap to revert and has no passed tier 2 is queued for approval
+replace, ALTER TABLE, a setting that needs a restart: no). A finding's change
+whose class is not cheap to revert and has no passed tier 2 is queued for approval
 at every trust level, and its card says "not rehearsed on a clone"; automatic
-rollbacks are not gated. At execution the ladder is copied into the action's
+rollbacks are not gated, and a rehearsal that is both passed and inconclusive is
+no pass. A bounded retention delete is classed costly too, but its authority stays
+the owner's declared retention contract (it does not run through the finding
+gate). At execution the ladder is copied into the action's
 prediction (`sage.action_outcome.predicted.ladder`), so the outcome ledger row
 shows the highest tier passed. The approval card lists each tier, or "No
 pre-production test recorded" for an item queued before the ladder existed.
