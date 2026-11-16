@@ -650,8 +650,55 @@ approval at a hash the rows no longer have is refused; and `Verify`
 recomputes the hash from the stored rows, so a row edited by direct SQL
 reports `hash_mismatch`. Terminal plans age out with
 `retention.actions_days`; open plans are kept, and so is a workload pack an
-open plan, or a terminal plan younger than `actions_days`, cites. Nothing
-creates or runs a plan yet: the engine and the approval modes follow.
+open plan, or a terminal plan younger than `actions_days`, cites.
+
+The plan engine (`changeplan.Engine`) runs approved plans, one step at a
+time, through the executor. Each database's runtime ticks it after the
+executor cycle, on a writable primary and only on the fleet leader. A tick
+advances each approved or running plan by at most one decision. The tick holds
+an advisory lock and the plan row (`FOR UPDATE SKIP LOCKED`), so two sidecars
+never move one plan and never start conflicting steps at once.
+
+- **When a step may start.** Its predecessors must be kept, no other step of
+  the plan may be in flight, and the plan's rows must still hash to the live
+  approval. If they do not, the plan is voided with `hash_mismatch`.
+- **Waiting on other changes.** A step waits while a step of another plan on
+  a shared target query, or any setting step, is in flight. A setting step
+  (`ALTER SYSTEM`, or `ALTER DATABASE`, `ROLE` or `USER ... SET`) waits until
+  no plan step and no executor change is in flight. The executor's rule of one
+  change per object also applies to every step.
+- **Starting a step.** The engine writes `starting` first. It then queues the
+  item `plan_step:<plan>:<step>` (proposed by `plan:<id>`), approves it as the
+  plan's approver with exactly the step's SQL, and calls `RunApprovedAction`.
+  The gate re-authorizes the step and it runs through Apply.
+- **The plan runner.** It is one of the executor's approved-action runners,
+  each owning disjoint identity-key prefixes. It runs a plan step only when its
+  own engine hands it over for a queued, claimed step with that item and SQL.
+  Approving the item on the Actions page or through the scheduled runner runs
+  nothing, and no approval card is sent for it.
+- **Waiting for the verdict.** After the run the step is `judging`. It waits
+  for the verifier's outcome (`neutral` becomes `no_change` and
+  `insufficient_evidence` becomes `inconclusive`), a rollback by the verifier,
+  an expired monitor, or the step's deadline. An expired monitor queues no
+  `verify.on_expired` revert item, because the step's `on_expired` decides.
+  A verdict decided after the deadline counts as `expired`.
+- **Acting on the verdict.** The engine then carries out `keep`,
+  `revert_step` (through `RollbackAction`) or `halt_ask`. A step the verifier
+  already reverted is recorded `reverted_by_verifier` and never rolled back
+  again. A step after a reverted step is skipped (`predecessor_reverted`).
+- **Halting.** A failed or regressed step halts the plan, with one `halted`
+  event and one notification (an `approval_needed` event naming the plan, the
+  step and the verdict). A halted plan starts nothing until a person decides
+  it. `Store.ListNeedingPerson` lists proposed and halted plans and steps
+  awaiting their operator.
+- **Emergency stop.** While the stop is set nothing moves, and running plans
+  show `pause_reason` "emergency stop".
+- **Steps without a finding.** A queue item is approvable only for an open
+  finding, so a step citing only pack evidence fails at its approval and
+  halts the plan.
+
+The engine runs only plans a person approved, so it is on with no
+configuration.
 
 ### API + Dashboard (Web UI)
 
