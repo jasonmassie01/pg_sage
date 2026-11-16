@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/pg-sage/sidecar/internal/executor"
 )
 
 // A revert's landing, read back from the catalog before a step is recorded
@@ -37,6 +39,7 @@ var (
 		`(?:IF\s+EXISTS\s+)?(` + identPart + `(?:\.` + identPart + `)?)\s*;?\s*$`)
 	reReindex = regexp.MustCompile(`(?is)^\s*REINDEX\s+INDEX\s+(?:CONCURRENTLY\s+)?(` +
 		identPart + `(?:\.` + identPart + `)?)\s*;?\s*$`)
+	reBareIdent     = regexp.MustCompile(`^[a-z_][a-z0-9_$]*$`)
 	reSystemSetting = regexp.MustCompile(`(?is)^\s*ALTER\s+SYSTEM\s+(?:SET|RESET)\s+(` +
 		identPart + `(?:\.` + identPart + `)?)`)
 )
@@ -45,13 +48,14 @@ var (
 // back, whether its rollback landed.
 func (e *Engine) readLanding(ctx context.Context, actionLogID int64) (revertLanding, error) {
 	var l revertLanding
-	var rollbackSQL string
+	var forwardSQL, rollbackSQL string
 	var prior *string
 	err := e.inTx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `/* pg_sage */ SELECT COALESCE(outcome, ''),
-			COALESCE(rollback_sql, ''), before_state #>> '{config_change,prior,setting}'
-			FROM sage.action_log WHERE id = $1`, actionLogID).Scan(&l.outcome, &rollbackSQL,
-			&prior)
+			COALESCE(sql_executed, ''), COALESCE(rollback_sql, ''),
+			before_state #>> '{config_change,prior,setting}'
+			FROM sage.action_log WHERE id = $1`, actionLogID).Scan(&l.outcome, &forwardSQL,
+			&rollbackSQL, &prior)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return l, fmt.Errorf("action %d: %w", actionLogID, ErrNotFound)
@@ -69,8 +73,63 @@ func (e *Engine) readLanding(ctx context.Context, actionLogID int64) (revertLand
 			l.outcome)
 		return l, nil
 	}
+	if why := rollbackMismatch(forwardSQL, rollbackSQL); why != "" {
+		l.note = why
+		return l, nil
+	}
 	l.landed, l.note, err = e.readBack(ctx, rollbackSQL, prior)
 	return l, err
+}
+
+// rollbackMismatch is why rollbackSQL cannot undo forwardSQL: the two name
+// different indexes or settings, so reading the rollback's own target back
+// would not show the pre-step state. Empty when they name the same object,
+// or when forwardSQL names none this check knows (an index replace, which
+// RollbackIndexReplace undoes from its own record).
+func rollbackMismatch(forwardSQL, rollbackSQL string) string {
+	if executor.IsIndexReplaceSQL(forwardSQL) {
+		return ""
+	}
+	want := touchedObject(forwardSQL)
+	if want == "" {
+		return ""
+	}
+	if got := touchedObject(rollbackSQL); got != want {
+		return fmt.Sprintf("the rollback %q does not undo the action's %s: a person "+
+			"checks it", truncate(rollbackSQL, 200), want)
+	}
+	return ""
+}
+
+// touchedObject is the one index or setting sql creates, drops, rebuilds
+// or sets ("index schema.name", "setting name"), empty for anything else.
+func touchedObject(sql string) string {
+	if m := reDropIndex.FindStringSubmatch(sql); m != nil {
+		return "index " + plainIdent(qualifyIndex(m[1]))
+	}
+	if m := reReindex.FindStringSubmatch(sql); m != nil {
+		return "index " + plainIdent(qualifyIndex(m[1]))
+	}
+	if index, _, ok := newIndexOf(Step{Kind: KindAction, ProposedSQL: sql}); ok &&
+		index != "" {
+		return "index " + plainIdent(index)
+	}
+	if m := reSystemSetting.FindStringSubmatch(sql); m != nil {
+		return "setting " + strings.ToLower(m[1])
+	}
+	return ""
+}
+
+// plainIdent drops the quotes around each part of a qualified name that
+// needs none, so "public"."idx" and public.idx compare equal.
+func plainIdent(name string) string {
+	parts := splitIdent(name)
+	for i, p := range parts {
+		if inner := strings.Trim(p, `"`); len(p) > 2 && reBareIdent.MatchString(inner) {
+			parts[i] = inner
+		}
+	}
+	return strings.Join(parts, ".")
 }
 
 // readBack checks the catalog for what rollbackSQL was to restore.

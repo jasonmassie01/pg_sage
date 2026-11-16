@@ -702,7 +702,8 @@ never move one plan and never start conflicting steps at once.
   back: the index is gone, or restored and valid, or the setting is back at
   the prior value the executor recorded. A revert that does not read back
   fails the step and halts the plan. A rollback that this check cannot read
-  back fails the same way. An action someone already rolled back outside the
+  back fails the same way, and so does one that names another index or
+  setting than the one the action changed. An action someone already rolled back outside the
   plan is not rolled back again. Each revert is a `step_reverted` event that
   carries the action_log id.
 - **Reverting to a checkpoint.** `revert_to_checkpoint` reverts the failed
