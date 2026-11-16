@@ -86,7 +86,7 @@ type Row struct {
 	FindingID      *int64    `json:"finding_id,omitempty"`
 	PlanID         *int64    `json:"plan_id,omitempty"`
 	PackHash       string    `json:"pack_hash,omitempty"`
-	Tier           string    `json:"tier,omitempty"` // lab-03's ladder tier, once recorded
+	Tier           string    `json:"tier,omitempty"` // lab-03a: highest ladder tier passed
 	SavedHours     *float64  `json:"saved_hours,omitempty"`
 	ExecutedAt     time.Time `json:"executed_at"`
 }
