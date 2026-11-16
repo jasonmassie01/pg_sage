@@ -64,6 +64,11 @@ func (e *Executor) expireMonitorAndAct(ctx context.Context, actionID int64,
 	if !expireMonitor(ctx, e.pool, actionID, executedAt, window, e.logFn) {
 		return
 	}
+	if e.isPlanStepAction(ctx, actionID) {
+		e.recordExpiryDecision(ctx, actionID, rollbackSQL, policy.VerdictObserveOnly,
+			"verification expired; its plan step's on_expired decides (no revert item)")
+		return
+	}
 	switch onExpired := e.onExpired(); {
 	case strings.TrimSpace(rollbackSQL) == "":
 		e.recordExpiryDecision(ctx, actionID, rollbackSQL, policy.VerdictObserveOnly,
@@ -77,6 +82,26 @@ func (e *Executor) expireMonitorAndAct(ctx context.Context, actionID int64,
 		e.askExpired(ctx, actionID, rollbackSQL,
 			"verification expired; revert offered (verify.on_expired=ask)")
 	}
+}
+
+// planStepActionSQL finds whether action $1 ran a plan step: its queue
+// item has a plan_step: identity key, or a plan step records it.
+const planStepActionSQL = `/* pg_sage executor */ SELECT
+	EXISTS (SELECT 1 FROM sage.action_queue WHERE action_log_id = $1
+	         AND identity_key LIKE '` + PlanStepIdentityPrefix + `%')
+	OR EXISTS (SELECT 1 FROM sage.plan_step WHERE action_log_id = $1)`
+
+// isPlanStepAction reports whether actionID ran a plan step (plan-02a),
+// whose expiry the plan engine handles. A failed read is logged and
+// treated as not a plan step, so lab-01c still asks a person.
+func (e *Executor) isPlanStepAction(ctx context.Context, actionID int64) bool {
+	var plan bool
+	if err := e.pool.QueryRow(ctx, planStepActionSQL, actionID).Scan(&plan); err != nil {
+		e.logFn("ERROR", "action %d: could not read whether it is a plan step (%v); "+
+			"verify.on_expired applies", actionID, err)
+		return false
+	}
+	return plan
 }
 
 // revertExpired rolls an expired action back through the operator

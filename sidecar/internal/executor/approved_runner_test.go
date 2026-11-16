@@ -47,7 +47,7 @@ func queuedSRE() store.QueuedAction {
 func TestRunApprovedActionRoutesOwnedItemsToTheRunner(t *testing.T) {
 	exec := New(nil, advisoryConfig(), time.Time{}, nopLog)
 	runner := &fakeRunner{owns: true}
-	exec.SetApprovedActionRunner(runner)
+	mustAddSRERunner(t, exec, runner)
 	run, err := exec.RunApprovedAction(context.Background(), queuedSRE(), 12)
 	if err != nil {
 		t.Fatalf("RunApprovedAction: %v", err)
@@ -61,7 +61,7 @@ func TestRunApprovedActionRoutesOwnedItemsToTheRunner(t *testing.T) {
 func TestRunApprovedActionPropagatesRunnerErrors(t *testing.T) {
 	exec := New(nil, advisoryConfig(), time.Time{}, nopLog)
 	sentinel := errors.New("identity changed")
-	exec.SetApprovedActionRunner(&fakeRunner{owns: true, err: sentinel})
+	mustAddSRERunner(t, exec, &fakeRunner{owns: true, err: sentinel})
 	_, err := exec.RunApprovedAction(context.Background(), queuedSRE(), 12)
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("runner error = %v, want the runner's error", err)
@@ -73,7 +73,9 @@ func TestRunApprovedActionKeepsTheManualPathForOtherItems(t *testing.T) {
 		"no runner": nil, "not owned": &fakeRunner{owns: false},
 	} {
 		exec := New(nil, advisoryConfig(), time.Time{}, nopLog)
-		exec.SetApprovedActionRunner(runner)
+		if runner != nil {
+			mustAddSRERunner(t, exec, runner)
+		}
 		action := store.QueuedAction{ID: 6, FindingID: 3, ProposedSQL: "DROP TABLE x"}
 		_, err := exec.RunApprovedAction(context.Background(), action, 12)
 		if err == nil || !strings.Contains(err.Error(), "SQL validation") {
@@ -89,7 +91,7 @@ func TestRunApprovedActionKeepsTheManualPathForOtherItems(t *testing.T) {
 func TestRunApprovedActionRejectsMissingApprover(t *testing.T) {
 	exec := New(nil, advisoryConfig(), time.Time{}, nopLog)
 	runner := &fakeRunner{owns: true}
-	exec.SetApprovedActionRunner(runner)
+	mustAddSRERunner(t, exec, runner)
 	if _, err := exec.RunApprovedAction(context.Background(), queuedSRE(), 0); !errors.Is(
 		err, ErrBackendApprovalRequired) {
 		t.Fatalf("approver 0 = %v, want ErrBackendApprovalRequired", err)
@@ -99,23 +101,31 @@ func TestRunApprovedActionRejectsMissingApprover(t *testing.T) {
 	}
 }
 
-// The runner can be (re)registered while approvals run.
-func TestSetApprovedActionRunnerIsRaceFree(t *testing.T) {
+// A runner can be registered while approvals run.
+func TestAddApprovedActionRunnerIsRaceFree(t *testing.T) {
 	exec := New(nil, advisoryConfig(), time.Time{}, nopLog)
 	runner := &fakeRunner{owns: true}
 	var wg sync.WaitGroup
+	wg.Add(9)
+	go func() { defer wg.Done(); mustAddSRERunner(t, exec, runner) }()
 	for i := 0; i < 8; i++ {
-		wg.Add(2)
-		go func() { defer wg.Done(); exec.SetApprovedActionRunner(runner) }()
 		go func() {
 			defer wg.Done()
 			_, _ = exec.RunApprovedAction(context.Background(), queuedSRE(), 1)
 		}()
 	}
 	wg.Wait()
-	exec.SetApprovedActionRunner(runner)
 	if _, err := exec.RunApprovedAction(context.Background(), queuedSRE(), 1); err != nil {
 		t.Fatalf("after concurrent registration: %v", err)
+	}
+}
+
+// mustAddSRERunner registers runner for the Sage SRE proposal keys.
+func mustAddSRERunner(t *testing.T, exec *Executor, runner ApprovedActionRunner) {
+	t.Helper()
+	if err := exec.AddApprovedActionRunner("sre", []string{"sre_proposal:"},
+		runner); err != nil {
+		t.Errorf("add the SRE runner: %v", err)
 	}
 }
 

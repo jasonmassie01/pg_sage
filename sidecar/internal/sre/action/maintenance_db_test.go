@@ -105,7 +105,10 @@ func newMaintenanceHarnessWith(t *testing.T, finish maintenanceFinish,
 	if err != nil {
 		t.Fatal(err)
 	}
-	e.SetApprovedActionRunner(m)
+	if err := e.AddApprovedActionRunner("maintenance", []string{MaintenanceIdentityPrefix},
+		m); err != nil {
+		t.Fatal(err)
+	}
 	req := StatisticsRequest{Schema: "public", Table: table, Columns: []string{"a", "b"}, Kinds: []string{"dependencies", "ndistinct"}, EvidenceID: ev[0].ID, EvidenceSHA256: hex.EncodeToString(ev[0].SHA256), Rationale: "Operator hypothesis: fixture columns a and b are correlated"}
 	return &maintenanceHarness{actionHarness: h, m: m, exec: e, cfg: cfg, req: req, table: table}
 }
@@ -307,7 +310,8 @@ func TestMaintenanceEvidenceAndApprovalRefusals(t *testing.T) {
 					t.Fatal(err)
 				}
 			case "runner missing":
-				h.exec.SetApprovedActionRunner(nil)
+				// An executor with no runner registered.
+				h.exec = executor.New(h.pool, h.cfg, time.Time{}, func(string, string, ...any) {})
 			case "changed table":
 				_, err := h.pool.Exec(h.ctx, "DROP TABLE public."+h.table+"; CREATE TABLE public."+h.table+"(a int,b int)")
 				if err != nil {

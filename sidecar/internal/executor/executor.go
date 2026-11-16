@@ -116,7 +116,8 @@ type Executor struct {
 	// retriesReopened is set once the startup sweep of transient unverifiable
 	// watches from before observation retries has succeeded (executor-02).
 	retriesReopened atomic.Bool
-	// approvedRunner runs approved queue items it owns (Sage SRE M5).
+	// approvedRunner runs approved queue items its runners own (Sage SRE
+	// M5, plan steps plan-02a).
 	approvedRunner approvedRunnerSlot
 	// replaceWatch and replaceHooks: the replace action's verification
 	// watches and its test seams (roadmap 2.3).
