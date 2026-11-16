@@ -10,7 +10,9 @@ import (
 // HashIdentifiers (evid-02c): every schema, table, index and column name
 // the local tier lists becomes t_<10 hex> of HMAC-SHA256(key, name), in
 // structured fields, evidence ids and SQL text alike. Names are compared
-// exactly, so two that differ only in case get different pseudonyms. The
+// exactly, so two that differ only in case get different pseudonyms; an
+// unquoted token of SQL text that names none exactly is folded to lower
+// case first, as PostgreSQL reads it. The
 // key is per install (LoadOrCreatePseudonymKey), so a name has the same
 // pseudonym in every pack and across encryption-key rotations.
 
@@ -141,7 +143,8 @@ func (ps *pseudonymizer) id(s string) string {
 	return parts[0] + "/" + parts[1] + "/" + ps.text(parts[2])
 }
 
-// text replaces every whole-token name, bare or double-quoted.
+// text replaces every whole-token name, bare (case-folded) or
+// double-quoted (exact).
 func (ps *pseudonymizer) text(s string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); {
@@ -159,11 +162,7 @@ func (ps *pseudonymizer) text(s string) string {
 			for j < len(s) && isIdentByte(s[j]) {
 				j++
 			}
-			if tok := s[i:j]; ps.names[tok] {
-				b.WriteString(ps.name(tok))
-			} else {
-				b.WriteString(tok)
-			}
+			b.WriteString(ps.bare(s[i:j]))
 			i = j
 		default:
 			b.WriteByte(c)
@@ -171,6 +170,31 @@ func (ps *pseudonymizer) text(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// bare is an unquoted token's replacement: the name it spells exactly
+// (as evidence ids and structured fields write it), else the name it folds
+// to, as PostgreSQL folds an unquoted identifier to lower case (FROM
+// Public.ORDERS reads public.orders), else the token itself.
+func (ps *pseudonymizer) bare(tok string) string {
+	if ps.names[tok] {
+		return ps.name(tok)
+	}
+	if folded := foldASCII(tok); ps.names[folded] {
+		return ps.name(folded)
+	}
+	return tok
+}
+
+// foldASCII lower-cases A-Z only, as PostgreSQL's downcase_identifier
+// does for an unquoted identifier in a multi-byte encoding.
+func foldASCII(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r >= 'A' && r <= 'Z' {
+			return r + ('a' - 'A')
+		}
+		return r
+	}, s)
 }
 
 // quotedIdent reads the double-quoted identifier at i ("" is one quote):

@@ -138,3 +138,43 @@ func TestHashTokens_QuotedAndBareNamesOnly(t *testing.T) {
 		t.Fatalf("hashed text = %q", got)
 	}
 }
+
+// PostgreSQL folds an unquoted identifier to lower case, so a statement
+// text that writes FROM Public.ORDERS names public.orders: the hashed tier
+// must not keep the name in any spelling.
+func TestForModel_HashIdentifiersHidesUnquotedNamesInAnyCase(t *testing.T) {
+	w := fourWeeks()
+	h := synthHistory(w)
+	h.texts[1] = "SELECT TOKEN, State FROM Public.ORDERS WHERE Id = $1"
+	p := withSections(t, mustAssemble(t, synthRequest(w), h), fixtureCatalog())
+	m := hashed(t, p)
+	texts := string(m.File(fileTexts))
+	if !strings.Contains(string(p.File(fileTexts)), "Public.ORDERS") {
+		t.Fatalf("the fixture text is not in the local tier: %s", p.File(fileTexts))
+	}
+	for _, name := range []string{"TOKEN", "State", "Public", "ORDERS"} {
+		if regexp.MustCompile(`\b` + name + `\b`).MatchString(texts) {
+			t.Errorf("the hashed texts.json still names %q: %s", name, texts)
+		}
+	}
+	ps := newPseudonymizer(testPseudonymKey(), nil)
+	for _, name := range []string{"token", "state", "public", "orders"} {
+		if !strings.Contains(texts, ps.name(name)) {
+			t.Errorf("%s is not hashed to its own pseudonym in %s", name, texts)
+		}
+	}
+}
+
+// An exact name wins over the folded one: with tables orders and "Orders"
+// both listed, the token Orders is the quoted table's (as its evidence ids
+// and structured fields spell it), ORDERS folds to orders, and a quoted
+// identifier is never folded.
+func TestHashTokens_ExactNameBeforeTheFoldedOne(t *testing.T) {
+	ps := newPseudonymizer(testPseudonymKey(), map[string]bool{"orders": true,
+		"Orders": true})
+	got := ps.text(`Orders ORDERS "ORDERS" orders`)
+	want := ps.name("Orders") + " " + ps.name("orders") + ` "ORDERS" ` + ps.name("orders")
+	if got != want {
+		t.Fatalf("hashed text = %q, want %q", got, want)
+	}
+}
