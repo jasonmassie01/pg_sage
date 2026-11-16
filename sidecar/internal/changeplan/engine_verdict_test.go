@@ -225,3 +225,35 @@ func TestEngine_BusyObjectsWait(t *testing.T) {
 			s.State)
 	}
 }
+
+// An unknown verifier verdict halts the plan even when the step keeps on
+// inconclusive (plan-01a: any other string halts, fail closed); a known
+// insufficient_evidence still follows on_inconclusive.
+func TestEngine_UnknownVerdictHaltsWhateverOnInconclusive(t *testing.T) {
+	f := newEngineFixture(t, "engine_unknown_verdict")
+	for _, c := range []struct {
+		verdict, outcome string
+		state            StepState
+		status           Status
+	}{
+		{"exploded", "monitoring", StateHalted, StatusHalted},
+		{"exploded", "rolled_back", StateHalted, StatusHalted},
+		{"insufficient_evidence", "monitoring", StateKept, StatusCompleted},
+	} {
+		in := chain(1, 101)
+		in.Steps[0].OnInconclusive = ActionKeep
+		p := f.approved(in)
+		f.tick() // executed
+		f.tick() // judging
+		f.judgeAll(p.ID, c.verdict, c.outcome)
+		f.tick()
+		f.tick()
+		got := f.get(p.ID)
+		if s := got.Steps[0].Runtime; s.State != c.state || got.Status != c.status ||
+			f.exec.rollbackCount() != 0 {
+			t.Fatalf("%s/%s: plan %s step %s (%s), rollbacks %d: want %s and %s", c.verdict,
+				c.outcome, got.Status, s.State, s.StateReason, f.exec.rollbackCount(),
+				c.status, c.state)
+		}
+	}
+}

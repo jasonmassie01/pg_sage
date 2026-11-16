@@ -30,6 +30,10 @@ func (e *Engine) judge(ctx context.Context, tx pgx.Tx, p Plan, s Step) (followUp
 	w := stepWrite{verdict: o, verdictAt: &now, claim: true,
 		detail: map[string]any{"verifier_verdict": v.Verdict,
 			"action_outcome": v.ActionOutcome}}
+	if w.reason = unknownVerdict(v.Verdict); w.reason != "" {
+		return nil, e.transitionTx(ctx, tx, p.ID, p.PlanHash, s.ID, StateJudging,
+			StateHalted, w)
+	}
 	if byVerifier {
 		w.reason = ReasonRevertedByVerifier
 		if v.Verdict == "" || v.Verdict == "pending" {
@@ -55,6 +59,23 @@ func (e *Engine) judge(ctx context.Context, tx pgx.Tx, p Plan, s Step) (followUp
 		return nil, e.transitionTx(ctx, tx, p.ID, p.PlanHash, s.ID, StateJudging,
 			StateHalted, w)
 	}
+}
+
+// verifierVerdicts are the stored verifier outcomes the plan maps
+// (MapVerifierOutcome), plus "" and "pending" while undecided.
+var verifierVerdicts = map[string]bool{"": true, "pending": true, "improved": true,
+	"neutral": true, "regressed": true, "insufficient_evidence": true,
+	"unverifiable": true, "expired": true}
+
+// unknownVerdict is why a verifier verdict outside that vocabulary halts
+// its step ("" for a known one): any other string halts the plan whatever
+// the step's on_inconclusive says, even if the action was rolled back
+// (plan-01a's rule, fail closed).
+func unknownVerdict(verdict string) string {
+	if verifierVerdicts[verdict] {
+		return ""
+	}
+	return fmt.Sprintf("unknown verifier verdict %q: a person decides", truncate(verdict, 100))
 }
 
 // revert rolls step s's action back through the executor's RollbackAction
