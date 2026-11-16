@@ -92,8 +92,13 @@ func (e *Engine) prepareStart(ctx context.Context, tx pgx.Tx, p Plan, s Step) (f
 			return nil, err
 		}
 	}
+	floor, err := ledgerFloor(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
 	err = e.transitionTx(ctx, tx, p.ID, p.PlanHash, s.ID, StatePending, StateStarting,
-		stepWrite{claim: true, attempt: true, detail: map[string]any{"approver": approver}})
+		stepWrite{claim: true, attempt: true, detail: map[string]any{"approver": approver,
+			ledgerFloorKey: floor}})
 	if err != nil {
 		return nil, err
 	}

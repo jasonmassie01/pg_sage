@@ -321,3 +321,13 @@ func TestNilElectorIsAlwaysLeader(t *testing.T) {
 		t.Fatalf("nil status = %+v", s)
 	}
 }
+
+// plan-02e: the plan engine claims steps under the elector's holder id.
+func TestElector_HolderIsTheHolderItLeadsAs(t *testing.T) {
+	if got := NewElector(nil, "s", "host-1-abcd", 0).Holder(); got != "host-1-abcd" {
+		t.Fatalf("Holder() = %q, want host-1-abcd", got)
+	}
+	if got := NewElector(nil, "s", "", 0).Holder(); got != "" {
+		t.Fatalf("Holder() = %q, want empty", got)
+	}
+}

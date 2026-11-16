@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -124,6 +125,11 @@ var (
 type Engine struct {
 	cfg     EngineConfig
 	actions *store.ActionStore
+	resume  resumeReader
+	// needResume is set until a leading tick has resumed every step a
+	// restart or a leader change left in flight (plan-02e).
+	mu         sync.Mutex
+	needResume bool
 }
 
 // NewEngine checks cfg and returns its engine.
@@ -165,15 +171,21 @@ func NewEngine(cfg EngineConfig) (*Engine, error) {
 	if cfg.Landings == nil {
 		cfg.Landings = NewDBLandings(cfg.Pool)
 	}
-	return &Engine{cfg: cfg, actions: store.NewActionStore(cfg.Pool)}, nil
+	return &Engine{cfg: cfg, actions: store.NewActionStore(cfg.Pool),
+		resume: dbResume{pool: cfg.Pool}, needResume: true}, nil
 }
 
 // Tick advances each approved or running plan by at most one decision. A
-// follower does nothing. While the emergency stop is set nothing moves and
-// each running plan shows "emergency stop". It returns the plans' engine
-// failures (a step's own failure is recorded on the step, not returned).
+// follower does nothing. The first leading tick (after a start or a
+// leader change) resumes what was left in flight first, and a plan whose
+// resume is not settled (another engine's live claim, a failed read)
+// waits for the next tick (plan-02e). While the emergency stop is set
+// nothing moves and each running plan shows "emergency stop". It returns
+// the plans' engine failures (a step's own failure is recorded on the
+// step, not returned).
 func (e *Engine) Tick(ctx context.Context) error {
 	if !e.cfg.Leader() {
+		e.setNeedResume(true)
 		return nil
 	}
 	ids, err := e.activePlans(ctx)
@@ -182,7 +194,19 @@ func (e *Engine) Tick(ctx context.Context) error {
 	}
 	stopped := e.cfg.Stopped(ctx)
 	var errs []error
+	unsettled := map[int64]bool{}
+	if !stopped && e.needsResume() {
+		var resumeErr error
+		_, unsettled, resumeErr = e.resumeAll(ctx)
+		if resumeErr != nil {
+			errs = append(errs, resumeErr)
+		}
+		e.setNeedResume(len(unsettled) > 0 || resumeErr != nil)
+	}
 	for _, id := range ids {
+		if unsettled[id] {
+			continue
+		}
 		if err := e.advance(ctx, id, stopped); err != nil {
 			e.cfg.LogFn("plan", "plan %d: %v", id, err)
 			errs = append(errs, fmt.Errorf("plan %d: %w", id, err))

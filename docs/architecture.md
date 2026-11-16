@@ -734,6 +734,27 @@ never move one plan and never start conflicting steps at once.
   `skipped` (its dependents are skipped) and a halted step `kept` (its change
   stays in place). `Store.ListNeedingPerson` lists proposed and halted plans, and steps
   awaiting their operator or their own approval.
+- **Restart and leader change (plan-02e).** The first tick after a start, and
+  after gaining fleet leadership, resumes each step left in flight before
+  anything else moves. It reads what may have happened, as the index replace
+  does, and never guesses. A step's start records the ledger's highest
+  action id (`action_log_floor` on its `step_started` event), so a run of
+  the step is a later `sage.action_log` row with its SQL that no step has
+  recorded. `starting` with no queue item starts again, and with its own
+  pending item adopts that item. `queued` runs its item through
+  `RunApprovedAction` only while the ledger holds no run of its SQL.
+  `running` with its one ledger row, and `executed`, go on to `judging`
+  (a failed run fails the step). `reverting` reads its revert back and
+  finishes or fails. Anything else (`running` with no ledger row, two
+  candidate rows, an item in an unexpected status, a state the table does
+  not know) halts the step and the plan with `interrupted_unknown` and one
+  notification: a person reads it. A read that fails leaves the step as it
+  was, and resume runs again on the next tick. Step claims are the fleet
+  leader's holder id with the elector's lease
+  (`fleet_learning.leader_lease_seconds`, 30 s by default). A new leader
+  takes over a step only after the old claim expired, and every engine
+  transition refuses a step another engine holds, so an old leader that
+  wakes up moves nothing.
 - **Emergency stop.** While the stop is set nothing moves, and running plans
   show `pause_reason` "emergency stop".
 - **Steps without a finding.** A queue item is approvable only for an open

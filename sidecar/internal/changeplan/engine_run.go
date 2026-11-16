@@ -32,11 +32,9 @@ func parsePlanStepKey(key string) (planID, stepID int64, ok bool) {
 }
 
 // runStep walks the approval path of step s (state starting): the queue
-// item, its approval as approver with exactly the step's SQL, and the
-// executor's RunApprovedAction, which hands it to this engine's runner. A
-// queue failure leaves the step starting with the error recorded; any
-// later failure fails the step with the error's text (the plan halts on
-// its next tick).
+// item, then runQueued. A queue failure leaves the step starting with the
+// error recorded; any later failure fails the step with the error's text
+// (the plan halts on its next tick).
 func (e *Engine) runStep(ctx context.Context, p Plan, s Step, approver int) error {
 	queueID, err := e.queue(ctx, p, s)
 	if err != nil {
@@ -48,9 +46,27 @@ func (e *Engine) runStep(ctx context.Context, p Plan, s Step, approver int) erro
 		stepWrite{queueID: &qid, claim: true}); err != nil {
 		return err
 	}
-	item, err := e.actions.ApproveExpecting(ctx, queueID, approver, s.ProposedSQL)
-	if err != nil {
-		return e.failStep(ctx, p.ID, s.ID, queueID, "approve the queue item: "+err.Error())
+	return e.runQueued(ctx, p, s, queueID, approver, true)
+}
+
+// runQueued runs queued step s's queue item: approved first as approver
+// with exactly the step's SQL (approve), then through the executor's
+// RunApprovedAction, which hands it to this engine's runner. An approved
+// item is read back instead (a resumed step, plan-02e); a read that fails
+// leaves the step queued.
+func (e *Engine) runQueued(ctx context.Context, p Plan, s Step, queueID, approver int,
+	approve bool) error {
+	var item *store.QueuedAction
+	var err error
+	if approve {
+		item, err = e.actions.ApproveExpecting(ctx, queueID, approver, s.ProposedSQL)
+		if err != nil {
+			return e.failStep(ctx, p.ID, s.ID, queueID,
+				"approve the queue item: "+err.Error())
+		}
+	} else if item, err = e.actions.GetByID(ctx, queueID); err != nil {
+		return fmt.Errorf("plan %d step %d: read queue item %d: %w", p.ID, s.Ordinal,
+			queueID, err)
 	}
 	runCtx := context.WithValue(ctx, engineRunKey{}, engineRun{plan: p.ID, step: s.ID,
 		owner: e.cfg.Owner})

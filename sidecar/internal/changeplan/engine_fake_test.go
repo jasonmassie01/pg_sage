@@ -59,6 +59,9 @@ type fakeManual struct {
 	clock  *fakeClock
 	refuse map[string]string
 	calls  []manualCall
+	// crash, when set, runs before the ledger row ("before") and after it
+	// ("after"): a panic there is the sidecar killed mid-run (plan-02e).
+	crash func(stage string)
 }
 
 func (m *fakeManual) ExecuteManual(ctx context.Context, findingID int, sql,
@@ -69,6 +72,7 @@ func (m *fakeManual) ExecuteManual(ctx context.Context, findingID int, sql,
 	if refused {
 		return 0, fmt.Errorf("policy refused operator action: %s", reason)
 	}
+	m.crashAt("before")
 	var id int64
 	err := m.pool.QueryRow(ctx, `INSERT INTO sage.action_log (action_type, finding_id,
 		sql_executed, rollback_sql, outcome, executed_at)
@@ -85,7 +89,19 @@ func (m *fakeManual) ExecuteManual(ctx context.Context, findingID int, sql,
 	}
 	m.calls = append(m.calls, manualCall{findingID: findingID, sql: sql, approver: approver,
 		actionID: id, at: m.clock.Now()})
+	if m.crash != nil {
+		defer m.crash("after")
+	}
 	return id, nil
+}
+
+func (m *fakeManual) crashAt(stage string) {
+	m.mu.Lock()
+	crash := m.crash
+	m.mu.Unlock()
+	if crash != nil {
+		crash(stage)
+	}
 }
 
 func (m *fakeManual) callCount() int {
@@ -109,13 +125,19 @@ type fakeExec struct {
 	rollbackFailSQL map[string]error
 	// afterRollback runs after each rollback the fake records.
 	afterRollback func()
+	// beforeRun, when set, runs first in RunApprovedAction (plan-02e's
+	// kill between a step's approval and its run).
+	beforeRun func()
 }
 
 func (f *fakeExec) RunApprovedAction(ctx context.Context, a store.QueuedAction,
 	approvedBy int) (executor.ApprovedRun, error) {
 	f.mu.Lock()
-	runErr, runner := f.runErr, f.runner
+	runErr, runner, before := f.runErr, f.runner, f.beforeRun
 	f.mu.Unlock()
+	if before != nil {
+		before()
+	}
 	if runErr != nil {
 		return executor.ApprovedRun{}, runErr
 	}

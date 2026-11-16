@@ -14,15 +14,16 @@ import (
 // moves it from awaiting_approval back to pending, and resuming a halted
 // plan moves a failed step to skipped and a halted one (its change in
 // place) to kept. A kept step is reverted only by a revert_to_checkpoint
-// walk (plan-02c). Anything else is ErrIllegalTransition and changes
-// nothing.
+// walk (plan-02c). A step a restart or a leader change left starting,
+// queued, running or executed halts when resume cannot tell what happened
+// (plan-02e). Anything else is ErrIllegalTransition and changes nothing.
 var legalTransitions = map[StepState][]StepState{
 	StatePending: {StateStarting, StateSkipped, StateKept, StateAwaitingOperator,
 		StateAwaitingApproval},
-	StateStarting: {StateQueued, StateFailed},
-	StateQueued:   {StateRunning, StateFailed},
-	StateRunning:  {StateExecuted, StateFailed},
-	StateExecuted: {StateJudging},
+	StateStarting: {StateQueued, StateFailed, StateHalted},
+	StateQueued:   {StateRunning, StateFailed, StateHalted},
+	StateRunning:  {StateExecuted, StateFailed, StateHalted},
+	StateExecuted: {StateJudging, StateHalted},
 	// An operator step lands (judging) or expires unlanded (skipped).
 	StateAwaitingOperator: {StateJudging, StateSkipped},
 	StateJudging:          {StateKept, StateReverting, StateReverted, StateHalted},
@@ -95,10 +96,14 @@ const transitionSQL = `/* pg_sage */ UPDATE sage.plan_step SET state = $4,
 	  AND ($15::bigint IS NULL OR queue_id = $15)
 	  AND (NOT $16 OR (claimed_by = $13 AND claimed_until > $17::timestamptz))
 	  AND ($18::text IS NULL OR proposed_sql = $18)
+	  AND (claimed_by IS NULL OR claimed_by IN ('', $13) OR claimed_until IS NULL
+	       OR claimed_until <= $17::timestamptz)
 	RETURNING ordinal`
 
 // transition moves step stepID of plan planID from one state to another
-// in its own transaction (the plan row locked), with its event.
+// in its own transaction (the plan row locked), with its event. Another
+// engine's live claim on the step refuses it (ErrStepMoved): an old leader
+// that wakes up after a leader change moves nothing (plan-02e).
 func (e *Engine) transition(ctx context.Context, planID, stepID int64, from,
 	to StepState, w stepWrite) error {
 	return e.inTx(ctx, func(tx pgx.Tx) error {
