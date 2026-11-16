@@ -556,6 +556,7 @@ application's database driver (most ORMs have a plugin) for reliable attribution
 | [`agent_request_capability`](#agent_request_capability) | `propose` | always |
 | [`upgrade_readiness`](#upgrade_readiness) | `read` | always |
 | [`get_inbox`](#get_inbox) | `read` | always |
+| [`get_workload_pack`](#get_workload_pack) | `read` | always |
 
 ### `get_policy`
 
@@ -1281,5 +1282,16 @@ Scope: `read`
 | `database` | string | no | Monitored database name (see list_databases); without it, every database you may read. |
 | `kinds` | array of string | no | kinds to list (default all) |
 | `limit` | integer | no | items returned (default 500); counts cover every item; value 1-10000 |
+
+### `get_workload_pack`
+
+Read a workload evidence pack's model tier: the redacted form a model may read (numeric column statistics, sanitized statement texts, plan shapes, schema and settings with literals redacted, sparkline charts as PNG data URIs) and its size. It never returns the local tier: no statement text as written, no most-common value, no plan condition. List packs and build one in the dashboard or with POST /api/v1/databases/{db}/workload-packs.
+
+Scope: `read`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `content_sha256` | string | yes | the pack's content hash (64 lower-case hex); pattern `^[0-9a-f]{64}$` |
+| `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
 
 <!-- END GENERATED MCP TOOL REFERENCE -->

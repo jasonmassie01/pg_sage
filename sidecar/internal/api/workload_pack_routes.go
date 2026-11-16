@@ -22,7 +22,9 @@ import (
 // the database lists its packs, reads one pack's manifest and header, and
 // resolves one evidence id. A build only reads the history and (evid-02b)
 // the database's catalog, each read bounded by the safety timeouts; the
-// pack is stored once per database and content hash.
+// pack is stored once per database and content hash. A viewer reads its
+// model tier and an admin downloads its signed export (evid-02c,
+// workload_pack_tiers.go).
 
 const workloadPacksPath = "/api/v1/databases/{db}/workload-packs"
 
@@ -33,13 +35,16 @@ const (
 )
 
 func registerWorkloadPackRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
-	cfg *config.Config) {
+	cfg *config.Config, keys WorkloadPackKeys) {
 	routeDB(mux, "POST "+workloadPacksPath, gateOperator, pathDB,
 		workloadPackBuildHandler(mgr, cfg))
 	route(mux, "GET "+workloadPacksPath, gateViewer, workloadPackListHandler(mgr))
-	route(mux, "GET "+workloadPacksPath+"/{sha}", gateViewer, workloadPackGetHandler(mgr))
+	route(mux, "GET "+workloadPacksPath+"/{sha}", gateViewer,
+		workloadPackGetHandler(mgr, keys))
 	route(mux, "GET "+workloadPacksPath+"/{sha}/evidence/{id...}", gateViewer,
 		workloadPackEvidenceHandler(mgr))
+	route(mux, "GET "+workloadPacksPath+"/{sha}/export", gateAdmin,
+		workloadPackExportHandler(mgr, keys))
 }
 
 // packInstance is the path's database with a pool, or false after an

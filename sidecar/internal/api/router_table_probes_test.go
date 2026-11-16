@@ -194,6 +194,7 @@ var routeProbes = []routeProbe{
 	{"GET", "/api/v1/databases/7/workload-packs"},
 	{"GET", "/api/v1/databases/7/workload-packs/7"},
 	{"GET", "/api/v1/databases/7/workload-packs/7/evidence/7"},
+	{"GET", "/api/v1/databases/7/workload-packs/7/export"},
 	{"GET", "/api/v1/debug/pprof/"},
 	{"GET", "/api/v1/debug/pprof/7"},
 	{"GET", "/api/v1/deployment/status"},

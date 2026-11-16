@@ -224,7 +224,15 @@ func isTagCont(c byte) bool {
 // like JSON (it fails to parse) is scanned with double quotes as plain
 // bytes, so literals inside its string values are still redacted.
 func SanitizeForLLM(text string) string {
-	numbers := RedactNumericLiteralsEnabled() // read once: one call, one mode
+	return sanitizeForLLM(text, RedactNumericLiteralsEnabled()) // one call, one mode
+}
+
+// SanitizeForLLMStrict is SanitizeForLLM with numeric redaction on
+// whatever llm.redact_numeric_literals says: for text whose redaction must
+// not depend on the process switch (the workload pack's model tier).
+func SanitizeForLLMStrict(text string) string { return sanitizeForLLM(text, true) }
+
+func sanitizeForLLM(text string, numbers bool) string {
 	trimmed := strings.TrimSpace(text)
 	if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
 		if out, ok := sanitizeJSONStrings(trimmed, numbers); ok {

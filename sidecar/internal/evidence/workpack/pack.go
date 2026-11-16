@@ -25,7 +25,11 @@ type Pack struct {
 	Files    []evidence.File
 	Body     []byte
 	Manifest Manifest
-	facts    map[string]Fact
+	// Pseudonyms maps each pseudonym of a model tier derived with
+	// HashIdentifiers back to its name (evid-02c). It is never a file of
+	// the tier: it stays local.
+	Pseudonyms map[string]string
+	facts      map[string]Fact
 }
 
 // Manifest is what sage.workload_packs.manifest holds: the pack's format,
@@ -40,6 +44,9 @@ type Manifest struct {
 	// Completeness is which sections have every fact known (evid-02b);
 	// absent on packs built before it.
 	Completeness *Completeness `json:"completeness,omitempty"`
+	// Tier is "model" for a model tier (evid-02c); absent on the stored
+	// local tier.
+	Tier string `json:"tier,omitempty"`
 }
 
 // Fact is one resolved evidence id: its section, value (the entry's

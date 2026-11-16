@@ -10,12 +10,19 @@ import (
 // test: the step is a constant string (the bootstrap lock serializes it;
 // the DB test boots twice).
 
-func TestPlanApprovalModesStep_IsTheLastT5StepAfterPlanOperatorSteps(t *testing.T) {
+// evid-02c's ddlWorkloadPseudonymKey was merged after this step, so the
+// pin is its place (right after ddlPlanOperatorSteps), not "last".
+func TestPlanApprovalModesStep_FollowsPlanOperatorSteps(t *testing.T) {
 	steps := trancheFiveMigrations()
-	last := steps[len(steps)-1]
-	if last[0] != "ddlPlanApprovalModes" || last[1] != ddlPlanApprovalModes ||
-		steps[len(steps)-2][0] != "ddlPlanOperatorSteps" {
-		t.Fatalf("tranche five ends %v, want ddlPlanOperatorSteps then ddlPlanApprovalModes",
+	idx := -1
+	for i, step := range steps {
+		if step[0] == "ddlPlanApprovalModes" {
+			idx = i
+		}
+	}
+	if idx < 1 || steps[idx][1] != ddlPlanApprovalModes ||
+		steps[idx-1][0] != "ddlPlanOperatorSteps" {
+		t.Fatalf("tranche five is %v, want ddlPlanOperatorSteps then ddlPlanApprovalModes",
 			steps)
 	}
 }

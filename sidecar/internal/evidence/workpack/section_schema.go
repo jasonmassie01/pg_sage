@@ -13,7 +13,8 @@ import (
 // columns.
 
 // schemaTableRow is one table as read. total is how many tables the read
-// counted before its bound.
+// counted before its bound; partsCut says the bound of its columns,
+// constraints or index definitions cut this table's lists.
 type schemaTableRow struct {
 	oid                uint32
 	schema, name, kind string
@@ -23,6 +24,7 @@ type schemaTableRow struct {
 	columns            []ColumnFact
 	constraints        []string
 	indexes            []string
+	partsCut           bool
 }
 
 var schemaTablesSQL = `/* pg_sage */ SELECT c.oid, n.nspname, c.relname,
@@ -90,6 +92,7 @@ func readSchemaParts(ctx context.Context, tx pgx.Tx, tables []schemaTableRow) er
 		return err
 	}
 	defer rows.Close()
+	read := map[string]int{}
 	for rows.Next() {
 		var kind, name, def string
 		var oid uint32
@@ -98,6 +101,12 @@ func readSchemaParts(ctx context.Context, tx pgx.Tx, tables []schemaTableRow) er
 			return err
 		}
 		t := &tables[at[oid]]
+		// Each kind is read in table order to one row past its bound: the
+		// table of that row has lost the rest of its list.
+		if read[kind]++; read[kind] > MaxSchemaColumns {
+			t.partsCut = true
+			continue
+		}
 		switch kind {
 		case "c":
 			t.columns = append(t.columns, ColumnFact{Name: name, Type: def, NotNull: notNull})
@@ -110,14 +119,15 @@ func readSchemaParts(ctx context.Context, tx pgx.Tx, tables []schemaTableRow) er
 	return rows.Err()
 }
 
-// buildSchema keeps tables while both bounds hold.
+// buildSchema keeps tables while both bounds hold and their lists are
+// whole: from the first table whose lists a bound cut, none is kept.
 func buildSchema(rows []schemaTableRow) Schema {
 	out := Schema{Tables: []TableFact{}, TablesTotal: len(rows)}
 	if len(rows) > 0 && rows[0].total > out.TablesTotal {
 		out.TablesTotal = rows[0].total
 	}
 	for _, x := range rows {
-		if len(out.Tables) == MaxSchemaTables ||
+		if len(out.Tables) == MaxSchemaTables || x.partsCut ||
 			out.ColumnsTotal+len(x.columns) > MaxSchemaColumns {
 			out.Truncated = true
 			break

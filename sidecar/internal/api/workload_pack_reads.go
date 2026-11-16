@@ -48,10 +48,20 @@ func loadPack(w http.ResponseWriter, r *http.Request,
 	return row, pack, true
 }
 
-func workloadPackGetHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
+func workloadPackGetHandler(mgr *fleet.DatabaseManager,
+	keys WorkloadPackKeys) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		tier, err := parsePackTier(r)
+		if err != nil {
+			sreErrorCode(w, err.Error(), "invalid_tier", http.StatusBadRequest)
+			return
+		}
 		row, pack, ok := loadPack(w, r, mgr)
 		if !ok {
+			return
+		}
+		if tier.tier == workpack.TierModel {
+			writeModelTier(w, row, pack, tier, keys)
 			return
 		}
 		hdr, err := pack.Header()
