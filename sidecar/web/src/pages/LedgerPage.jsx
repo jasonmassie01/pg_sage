@@ -3,6 +3,7 @@ import { useAPI } from '../hooks/useAPI'
 import { QueryState } from '../components/QueryState'
 import { LiveTimeAgo } from '../components/TimeAgo'
 import { ROLLBACK_LABELS as ROLLBACK, VERDICT_LABELS as VERDICTS } from '../lib/outcomes'
+import { ledgerTierLabel } from './actions/LadderSection'
 
 // LedgerPage (ux-02a): what pg_sage changed in a window, one row per
 // change from GET /api/v1/outcomes. The API computes every number (effect
@@ -79,7 +80,15 @@ function LedgerRow({ row }) {
         <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
           {ORIGINS[row.origin] || row.origin}</div>
       </td>
-      <td className="p-2">{VERDICTS[row.verdict] || row.verdict}</td>
+      <td className="p-2">
+        {VERDICTS[row.verdict] || row.verdict}
+        {ledgerTierLabel(row.tier) && (
+          <div data-testid={`ledger-tier-${row.database}-${row.action_id}`}
+            className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+            {ledgerTierLabel(row.tier)}
+          </div>
+        )}
+      </td>
       <td className="p-2"><Measured row={row} /></td>
       <td className="p-2">{ROLLBACK[row.rollback_state] || row.rollback_state}</td>
       <td className="p-2"><Links row={row} /></td>

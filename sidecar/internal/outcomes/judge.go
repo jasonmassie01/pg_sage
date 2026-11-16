@@ -133,3 +133,14 @@ func expectedOf(predicted []byte, step stepExpect) *Effect {
 	}
 	return &Effect{Metric: step.metric, ChangePct: round(pct, 1), Source: step.source}
 }
+
+// tierOf is the highest verification-ladder tier (lab-03a) the change
+// passed before production, from its stored prediction; "" for none or
+// an unreadable prediction.
+func tierOf(predicted []byte) string {
+	var p verify.Prediction
+	if len(predicted) == 0 || json.Unmarshal(predicted, &p) != nil {
+		return ""
+	}
+	return verify.HighestPassedName(p.Ladder)
+}

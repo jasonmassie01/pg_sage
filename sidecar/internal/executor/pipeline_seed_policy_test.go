@@ -27,7 +27,8 @@ func pipelineSeedFindings() []analyzer.Finding {
 	return []analyzer.Finding{
 		{Category: "duplicate_index", ObjectType: "index",
 			ObjectIdentifier: "public.pipe_dup_b",
-			RecommendedSQL:   "DROP INDEX CONCURRENTLY public.pipe_dup_b;"},
+			RecommendedSQL:   "DROP INDEX CONCURRENTLY public.pipe_dup_b;",
+			Detail:           map[string]any{"ladder": rehearsedLadder()}},
 		{Category: "table_bloat", ObjectType: "table", ObjectIdentifier: "public.pipe_bloat",
 			RecommendedSQL: "VACUUM public.pipe_bloat;"},
 		{Category: "stale_statistics", ObjectType: "table",
@@ -37,7 +38,8 @@ func pipelineSeedFindings() []analyzer.Finding {
 				"SET (autovacuum_vacuum_scale_factor = 0.05);"},
 		{Category: "invalid_index", ObjectType: "index",
 			ObjectIdentifier: "public.pipe_invalid_idx",
-			RecommendedSQL:   "DROP INDEX CONCURRENTLY public.pipe_invalid_idx;"},
+			RecommendedSQL:   "DROP INDEX CONCURRENTLY public.pipe_invalid_idx;",
+			Detail:           map[string]any{"ladder": rehearsedLadder()}},
 	}
 }
 

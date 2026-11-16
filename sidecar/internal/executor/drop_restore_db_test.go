@@ -89,7 +89,8 @@ func newRestoreFixture(t *testing.T, unique bool) restoreFixture {
 	def := indexDef(t, ctx, pool, f.index)
 	f.finding = analyzer.Finding{Category: "unused_index", Severity: "warning",
 		ObjectType: "index", ObjectIdentifier: "public." + f.index,
-		Title: "Unused index public." + f.index, Detail: map[string]any{},
+		Title:          "Unused index public." + f.index,
+		Detail:         map[string]any{"ladder": rehearsedLadder()},
 		RecommendedSQL: `DROP INDEX CONCURRENTLY "public"."` + f.index + `";`,
 		RollbackSQL:    def + ";", ActionRisk: "safe"}
 	f.findingID = insertDropFinding(t, f)

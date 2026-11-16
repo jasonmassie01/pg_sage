@@ -13,6 +13,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/store"
+	"github.com/pg-sage/sidecar/internal/verify"
 )
 
 // Loader reads cards of one monitored database.
@@ -112,6 +113,9 @@ func (l Loader) forAction(ctx context.Context, a store.QueuedAction, trust trust
 		return Card{}, err
 	}
 	if in.Revert, err = l.revert(ctx, a); err != nil {
+		return Card{}, err
+	}
+	if in.Ladder, err = l.ladder(ctx, a.ID); err != nil {
 		return Card{}, err
 	}
 	l.readWaits(ctx, &in)
@@ -214,4 +218,17 @@ func (l Loader) snooze(ctx context.Context, queueID int) (*SnoozeRow, error) {
 	}
 	s.Until = *until
 	return &s, nil
+}
+
+// ladder is the queue row's stored verification ladder; a row that is
+// gone (a card of an item deleted meanwhile) has none.
+func (l Loader) ladder(ctx context.Context, queueID int) ([]byte, error) {
+	raw, err := verify.ReadLadder(ctx, l.Pool, queueID)
+	if errors.Is(err, verify.ErrLadderQueueNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("approvalcard: %w", err)
+	}
+	return raw, nil
 }

@@ -79,7 +79,9 @@ func recordVerdict(
 ) {
 	if err := verify.NewOutcomeStore(pool).RecordVerdict(ctx, o); err != nil {
 		logFn("verify", "record outcome of action %d: %v", o.ActionLogID, err)
+		return
 	}
+	appendVerdictTier(ctx, pool, o, logFn)
 }
 
 func creditVerified(

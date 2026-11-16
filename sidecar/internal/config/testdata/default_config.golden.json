@@ -386,7 +386,8 @@
       },
       "Canary": {
         "CanaryInstances": 1,
-        "RegressionLimitPct": 10
+        "RegressionLimitPct": 10,
+        "StageWaitHours": 24
       },
       "ClassPromotion": {
         "MinSuccessesL2": 3,

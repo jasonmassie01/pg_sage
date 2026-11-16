@@ -51,7 +51,9 @@ func (p *progressBackend) Measure(ctx context.Context, instance Instance,
 	}
 	rec := InstanceRecord{InstanceID: instance.ID, Status: StatusApplied,
 		ActionLogID: actionID, EvidenceID: outcome.EvidenceID,
-		RegressionPct: outcome.RegressionPct, Detail: outcome.Detail}
+		RegressionPct: outcome.RegressionPct, Detail: outcome.Detail,
+		EffectPct: outcome.EffectPct, ControlPct: outcome.ControlPct,
+		EffectMethod: outcome.EffectMethod}
 	if outcome.Pending {
 		rec.Status = StatusVerificationPending
 	}

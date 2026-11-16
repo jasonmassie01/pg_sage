@@ -122,6 +122,7 @@ func build(r Row, s scanned, database string) Row {
 	r.RollbackState = rollbackStateOf(s.outcome, s.rollbackSQL)
 	r.Measured, r.MeasuredReason = measuredOf(r.Verdict, s.observed, s.reason)
 	r.Expected = expectedOf(s.predicted, s.step)
+	r.Tier = tierOf(s.predicted)
 	switch {
 	case r.PlanID != nil:
 		r.Origin = OriginPlan

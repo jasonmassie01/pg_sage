@@ -47,12 +47,21 @@ type Outcome struct {
 	// still owns the change, so the rollout halts without a rollback.
 	Pending bool
 	Detail  string
+	// EffectPct is the measured effect RegressionPct holds (lab-03b): the
+	// member's own v2 effect, or its change net of ControlPct, the
+	// untreated members' median change; CILowPct and CIHighPct are its v2
+	// interval. Nil with EffectMethod flag_only: the flag alone decided.
+	EffectPct, CILowPct, CIHighPct, ControlPct *float64
+	EffectMethod                               string
 }
 type InstanceResult struct {
 	Status        string
 	EvidenceID    string
 	RegressionPct float64
 	Detail        string
+	// EffectPct, ControlPct and EffectMethod are the outcome's (lab-03b).
+	EffectPct, ControlPct *float64
+	EffectMethod          string
 }
 type Result struct {
 	Halted                 bool
