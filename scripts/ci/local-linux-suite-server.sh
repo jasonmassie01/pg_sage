@@ -9,6 +9,13 @@
 readonly EXCLUSIVE_PORT=5433
 readonly EXCLUSIVE_URL="postgres://postgres:postgres@127.0.0.1:$EXCLUSIVE_PORT/postgres"\
 "?sslmode=disable"
+# LOCAL_SUITE_PSS_SMALL=1 (agentgov-12): CI's agent-servers job gives the
+# attribution dealloc test (SAGE_TEST_PSS_SMALL_URL) a server whose
+# pg_stat_statements.max is 100; the shared servers keep 50000.
+readonly PSS_PORT=5434
+readonly PSS_URL="postgres://postgres:postgres@127.0.0.1:$PSS_PORT/postgres?sslmode=disable"
+# SERVER_EXTRA: -c flags run_server adds after CI's, so they win.
+SERVER_EXTRA=()
 
 # server_flags <image>: CI's settings as -c flags. The official postgres
 # image has no pg_hint_plan, so it preloads pg_stat_statements only.
@@ -67,7 +74,8 @@ run_server() {
   dk 180 run -d --rm --name "$srv" --label pg_sage.improve=1 --label "$RUN_LABEL=$RUN_ID" \
     --oom-score-adj=500 --cpu-shares=256 --cpus=2 -e POSTGRES_PASSWORD=postgres \
     --shm-size=256m -e PGDATA=/var/lib/postgresql/data/pgdata "$@" \
-    "$img" postgres "${SERVER_FLAGS[@]}" >/dev/null || die 5 "server $srv ($img) did not start"
+    "$img" postgres "${SERVER_FLAGS[@]}" "${SERVER_EXTRA[@]}" >/dev/null ||
+    die 5 "server $srv ($img) did not start"
   for i in $(seq 1 90); do
     if dk 20 exec "$srv" pg_isready -U postgres -h 127.0.0.1 >/dev/null 2>&1; then
       ready=1
@@ -100,6 +108,21 @@ start_exclusive() {
   run_server "${PREFIX}exclusive-pg$1" "$(pg_image "$1")" \
     --network "container:${PREFIX}pg$1" -e "PGPORT=$EXCLUSIVE_PORT" \
     --memory=1536m --memory-swap=1536m
+}
+
+# start_pss_small <major>: the PSS server, like the exclusive one but on
+# PSS_PORT with pg_stat_statements.max=100. The run stops if the server did
+# not take the setting, so the dealloc test cannot pass on a 50000-entry one.
+start_pss_small() {
+  local srv=${PREFIX}pss-pg$1 max
+  SERVER_EXTRA=(-c pg_stat_statements.max=100)
+  run_server "$srv" "$(pg_image "$1")" \
+    --network "container:${PREFIX}pg$1" -e "PGPORT=$PSS_PORT" \
+    --memory=1536m --memory-swap=1536m
+  SERVER_EXTRA=()
+  max=$(psql_srv "$srv" -c "SHOW pg_stat_statements.max") ||
+    die 5 "could not read pg_stat_statements.max on $srv"
+  [ "$max" = 100 ] || die 5 "$srv runs pg_stat_statements.max=$max, want 100"
 }
 
 # check_server <major>: records what the suite's server cannot cover; never

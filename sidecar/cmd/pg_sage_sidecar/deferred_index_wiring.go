@@ -78,12 +78,15 @@ func runDeferredIndexBuilderFor(ctx context.Context, b *schema.DeferredIndexBuil
 }
 
 // startDeferredIndexBuilder runs the database's builder as an instance
-// worker: rt.ctx ends when the database is removed or rebuilt.
+// worker: rt.ctx ends when the database is removed or rebuilt. It asks the
+// manager the runtime is built under, read here and never again from the
+// builder's goroutine (env-race).
 func (rt *databaseRuntime) startDeferredIndexBuilder() {
 	name := rt.spec.Name
+	mgr, inst := fleetMgr, rt.inst
 	b := &schema.DeferredIndexBuilder{
 		Pool: rt.spec.Pool, Database: name,
-		Stopped: func() bool { return deferredBuildStopped(fleetMgr, rt.inst) },
+		Stopped: func() bool { return deferredBuildStopped(mgr, inst) },
 	}
 	b.Observe = func(c schema.DeferredIndexCounts) { deferredIndexGauges.set(name, b, c) }
 	ctx := rt.ctx

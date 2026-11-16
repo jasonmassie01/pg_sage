@@ -78,8 +78,12 @@ func resolvedLogWatchConfig(
 	return settings, nil
 }
 
+// logwatchPollInterval reads logwatch.poll_interval_ms under the hot-reload
+// lock a dashboard edit writes it under (env-race).
 func logwatchPollInterval() time.Duration {
+	config.RLockForHotReload()
 	interval := time.Duration(cfg.LogWatch.PollIntervalMs) * time.Millisecond
+	config.RUnlockForHotReload()
 	if interval <= 0 {
 		return time.Second
 	}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"go/ast"
 	"strings"
 	"testing"
@@ -22,6 +23,12 @@ func TestFleetRuntimeInitializesAnalyzeSemaphore(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			preserveFleetRuntimeGlobals(t)
+			// The fleet briefing roll-up runs until shutdownCtx ends: without
+			// one it outlived the subtest and raced the next one (env-race).
+			oldCtx := shutdownCtx
+			ctx, cancel := context.WithCancel(context.Background())
+			shutdownCtx = ctx
+			t.Cleanup(func() { cancel(); shutdownCtx = oldCtx })
 			cfg = config.DefaultConfig()
 			cfg.Mode = "fleet"
 			cfg.Databases = nil

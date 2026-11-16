@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,12 +23,14 @@ func TestReleaseLLMClientsUntracksFromOwningRegistry(t *testing.T) {
 	llmClients = owner
 	general := owner.newClient(llmRoleGeneral, "orders", true)
 	ctx, cancel := context.WithCancel(context.Background())
-	releaseLLMClientsOnDone(ctx, llm.NewManager(general, nil, false))
+	var workers sync.WaitGroup // the runtime's workers: the release is one (env-race)
+	releaseLLMClientsOnDone(ctx, &workers, llm.NewManager(general, nil, false))
 	replacement := &llmClientRegistry{}
 	replacement.newClient(llmRoleGeneral, "other", true)
 	llmClients = replacement
 
 	cancel()
+	workers.Wait()
 
 	deadline := time.Now().Add(2 * time.Second)
 	for owner.tracked() != 0 && time.Now().Before(deadline) {
@@ -45,7 +48,9 @@ func TestReleaseLLMClientsIgnoresMissingManager(t *testing.T) {
 	preserveFleetRuntimeGlobals(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	releaseLLMClientsOnDone(ctx, nil)
+	var workers sync.WaitGroup
+	releaseLLMClientsOnDone(ctx, &workers, nil)
+	workers.Wait()
 	if llmClients.tracked() != 0 {
 		t.Fatal("a nil manager changed the registry")
 	}

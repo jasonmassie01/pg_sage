@@ -182,8 +182,11 @@ func readDatabaseWithDeadline(
 		err error
 	}
 	done := make(chan outcome, 1)
+	// The read can outlive this call (it may ignore its context), so it is
+	// handed the reader here rather than reading the package seam itself.
+	read := readDatabaseCases
 	go func() {
-		res, err := readDatabaseCases(dbCtx, mgr, sel)
+		res, err := read(dbCtx, mgr, sel)
 		done <- outcome{res: res, err: err}
 	}()
 	select {

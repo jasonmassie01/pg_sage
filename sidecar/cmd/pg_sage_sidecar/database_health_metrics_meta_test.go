@@ -18,8 +18,8 @@ func TestDatabaseHealthMetaModeExportsMonitoredFindings(t *testing.T) {
 	// Created first so its drop runs after the target runtime is drained.
 	targetDSN := testdb.CreateDatabase(t, "meta_health_target")
 	state, input, userID := metaLifecycleFixture(t)
+	preserveValueGlobals(t) // restores fleetMgr after its runtime drains (env-race)
 	prepareMetaGlobals(t)
-	preserveValueGlobals(t)
 	ctx := context.Background()
 	parsed, err := url.Parse(targetDSN)
 	if err != nil {

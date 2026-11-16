@@ -309,7 +309,7 @@ func (rt *databaseRuntime) resolveLLM() {
 		rt.generalLLM, rt.llmManager = newFleetDBLLMClients(
 			rt.spec.Name, rt.spec.Config.IsLLMEnabled(),
 		)
-		releaseLLMClientsOnDone(rt.ctx, rt.llmManager)
+		releaseLLMClientsOnDone(rt.ctx, rt.workers, rt.llmManager)
 	}
 	if rt.llmManager != nil {
 		rt.attachPolicyCeiling(rt.llmManager.General, rt.llmManager.Optimizer)

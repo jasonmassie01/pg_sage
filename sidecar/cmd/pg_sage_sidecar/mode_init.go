@@ -49,6 +49,7 @@ func initStandalone() {
 		logError("startup", "%v", err)
 		os.Exit(1)
 	}
+	fleetMgr = fleet.NewManager(cfg) // env-race: before any runtime worker reads it
 	rt, err := buildDatabaseRuntime(ctx, databaseRuntimeSpec{
 		Scope: "startup", Name: name, Config: dbCfg, Pool: pool, ActionPool: actionPool,
 		ControlPool: pool, ExecMode: resolveExecutionMode(),
@@ -59,7 +60,6 @@ func initStandalone() {
 		os.Exit(1)
 	}
 	coll, anal, exec, actionStore = rt.collector, rt.analyzer, rt.executor, rt.actions
-	fleetMgr = fleet.NewManager(cfg)
 	rt.publish(fleetMgr)
 	logInfo("startup", "standalone mode initialized — collector=%ds, analyzer=%ds, trust=%s",
 		cfg.Collector.IntervalSeconds, cfg.Analyzer.IntervalSeconds, cfg.Trust.Level)

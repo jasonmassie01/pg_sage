@@ -66,9 +66,9 @@ func addReloadAction(t *testing.T, p *pgxpool.Pool) {
 // holder, the pass stops with ErrFenced and the sink status says so.
 func TestFleetReloadKeepsSIEMFence(t *testing.T) {
 	ctx := context.Background()
+	preserveAuditFenceGlobals(t) // restored after the runtimes drain (env-race)
 	env := newFleetReloadEnv(t, "ctl", "b")
 	control := fleetMgr.GetInstance("ctl").Pool
-	preserveAuditFenceGlobals(t)
 	scope := fleetLearningScope(cfg)
 	fleetLeader = leader.NewElector(leader.NewPostgresStore(control), scope,
 		"reload-holder", time.Minute)
