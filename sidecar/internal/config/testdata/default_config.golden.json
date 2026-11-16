@@ -536,6 +536,8 @@
     "DLEEndpoint": "",
     "DLEToken": "",
     "MaxCloneAgeMinutes": 1440,
+    "RehearsalsPerHour": 2,
+    "RehearsalStatementTimeoutSeconds": 5,
     "Lakebase": {
       "Project": "",
       "SourceBranch": "",

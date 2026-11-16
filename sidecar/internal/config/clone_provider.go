@@ -38,6 +38,28 @@ func (c CloneProviderConfig) validate() error {
 	if c.MaxCloneAgeMinutes <= 0 {
 		return fmt.Errorf("clone.max_clone_age_minutes must be positive")
 	}
+	return c.validateRehearsals()
+}
+
+// Bounds of the index rehearsal settings (lab-04a).
+const (
+	CloneMaxRehearsalsPerHour               = 60
+	CloneMaxRehearsalStatementTimeoutSecond = 300
+)
+
+// validateRehearsals checks the index rehearsal settings; 0 is unset and
+// the default applies.
+func (c CloneProviderConfig) validateRehearsals() error {
+	if c.RehearsalsPerHour < 0 || c.RehearsalsPerHour > CloneMaxRehearsalsPerHour {
+		return fmt.Errorf("clone.rehearsals_per_hour must be within 1-%d, got %d",
+			CloneMaxRehearsalsPerHour, c.RehearsalsPerHour)
+	}
+	if c.RehearsalStatementTimeoutSeconds < 0 ||
+		c.RehearsalStatementTimeoutSeconds > CloneMaxRehearsalStatementTimeoutSecond {
+		return fmt.Errorf("clone.rehearsal_statement_timeout_seconds must be within 1-%d, "+
+			"got %d", CloneMaxRehearsalStatementTimeoutSecond,
+			c.RehearsalStatementTimeoutSeconds)
+	}
 	return nil
 }
 

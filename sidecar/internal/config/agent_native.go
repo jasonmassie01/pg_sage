@@ -48,6 +48,12 @@ type CloneProviderConfig struct {
 	DLEEndpoint        string `yaml:"dle_endpoint" doc:"Database Lab Engine API endpoint." api:"string"`
 	DLEToken           string `yaml:"dle_token" doc:"Database Lab bearer token." secret:"true" api:"string"`
 	MaxCloneAgeMinutes int    `yaml:"max_clone_age_minutes" doc:"Maximum source snapshot age." api:"int_pos"`
+	// RehearsalsPerHour caps the index rehearsals one database starts in
+	// any hour, tuning agent and index floor together (lab-04a).
+	RehearsalsPerHour int `yaml:"rehearsals_per_hour" doc:"Most index rehearsals on a clone one database starts in any hour, 1 to 60. Default: 2."`
+	// RehearsalStatementTimeoutSeconds bounds each statement a rehearsal
+	// executes on the clone (EXPLAIN ANALYZE).
+	RehearsalStatementTimeoutSeconds int `yaml:"rehearsal_statement_timeout_seconds" doc:"Longest one statement an index rehearsal executes on the clone may run, in seconds, 1 to 300; a statement that hits it records timed out, not a cost. Default: 5."`
 	// Lakebase configures clone.provider lakebase_branch (market-03).
 	Lakebase CloneLakebaseConfig `yaml:"lakebase"`
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/optimizer"
 	"github.com/pg-sage/sidecar/internal/sqlident"
+	"github.com/pg-sage/sidecar/internal/verify"
 )
 
 // IndexFloor is the deterministic index-candidate floor (indexes-12,
@@ -149,6 +150,9 @@ func floorFindings(admitted []optimizer.Admission, skip map[string]bool) []Findi
 		}
 		seen[f.ObjectIdentifier] = true
 		f.Detail["source"] = optimizer.FloorSource
+		if ladder := verify.LadderValue(adm.Rec.Ladder...); ladder != nil {
+			f.Detail["ladder"] = ladder
+		}
 		if adm.Rec.WhatIf != optimizer.WhatIfVerified {
 			adviseUnmeasured(&f, adm.Rec)
 		}

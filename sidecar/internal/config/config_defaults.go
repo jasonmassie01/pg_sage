@@ -432,8 +432,10 @@ func defaultVerifyConfig() VerifyConfig {
 // defaultCloneConfig returns the clone defaults.
 func defaultCloneConfig() CloneProviderConfig {
 	return CloneProviderConfig{
-		Provider:           DefaultCloneProvider,
-		MaxCloneAgeMinutes: DefaultCloneMaxAgeMinutes,
+		Provider:                         DefaultCloneProvider,
+		MaxCloneAgeMinutes:               DefaultCloneMaxAgeMinutes,
+		RehearsalsPerHour:                DefaultCloneRehearsalsPerHour,
+		RehearsalStatementTimeoutSeconds: DefaultCloneRehearsalStatementTimeoutSeconds,
 		Lakebase: CloneLakebaseConfig{TTLMinutes: DefaultCloneLakebaseTTLMinutes,
 			EndpointMaxCU: DefaultCloneLakebaseEndpointMaxCU},
 	}

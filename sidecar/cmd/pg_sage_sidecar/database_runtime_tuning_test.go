@@ -1,9 +1,14 @@
 package main
 
 import (
+	"context"
+	"errors"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/tuning"
 )
 
 // indexes-12: the deterministic index floor follows tuning.enabled (and
@@ -42,5 +47,65 @@ func TestNewIndexFloor_NilWhenOff(t *testing.T) {
 	cfg = config.DefaultConfig()
 	if f := rt.newIndexFloor(); f == nil {
 		t.Fatal("floor on but not built")
+	}
+}
+
+// lab-04a: with clone.provider set, the tuning agent offers the rehearse
+// tool and the index floor rehearses; with none, neither does.
+
+func dleCloneConfig(c *config.Config) {
+	c.Clone.Provider, c.Clone.DLEEndpoint, c.Clone.DLEToken = "dle",
+		"http://127.0.0.1:1", "test-token"
+}
+
+func TestBuildCloneRehearser_FollowsTheProvider(t *testing.T) {
+	c := config.DefaultConfig()
+	if r, err := buildCloneRehearser(c, nil, nil, nil); r != nil || err != nil {
+		t.Fatalf("clone.provider none: %v, %v", r, err)
+	}
+	if r, err := buildCloneRehearser(nil, nil, nil, nil); r != nil || err != nil {
+		t.Fatalf("no configuration: %v, %v", r, err)
+	}
+	dleCloneConfig(c)
+	r, err := buildCloneRehearser(c, nil, nil, nil)
+	if err != nil || r == nil {
+		t.Fatalf("dle: %v, %v", r, err)
+	}
+	// An unreachable Database Lab: no clone, a distinguishable error that
+	// does not carry the token.
+	_, err = r.Rehearse(context.Background(), tuning.RehearsalRequest{
+		DDL:        "CREATE INDEX CONCURRENTLY o_c ON public.orders (customer_id)",
+		Statements: []tuning.RehearsalStatement{{QueryID: 1, Text: "SELECT 1"}}})
+	if !errors.Is(err, tuning.ErrCloneUnavailable) || strings.Contains(err.Error(),
+		"test-token") {
+		t.Fatalf("rehearsal on an unreachable provider: %v", err)
+	}
+	c.Clone.Provider = "snapshot"
+	if r, err := buildCloneRehearser(c, nil, nil, nil); r != nil || err == nil {
+		t.Fatalf("an unsupported provider is an error: %v, %v", r, err)
+	}
+}
+
+func TestNewTuningAgent_RehearseToolFollowsTheCloneProvider(t *testing.T) {
+	for _, provider := range []string{"none", "dle"} {
+		rt := standaloneDefaultsRuntime(t, "http://127.0.0.1:1/v1", "fixture-key")
+		if provider == "dle" {
+			dleCloneConfig(cfg)
+		}
+		agent := rt.newTuningAgent(nil)
+		if agent == nil {
+			t.Fatalf("%s: tuning on with a model builds the agent", provider)
+		}
+		offered := slices.Contains(agent.ToolNames(), "rehearse")
+		if offered != (provider == "dle") {
+			t.Fatalf("%s: rehearse offered = %v, tools %v", provider, offered,
+				agent.ToolNames())
+		}
+		if (rt.floorRehearser() != nil) != (provider == "dle") {
+			t.Fatalf("%s: floor rehearser %v", provider, rt.floorRehearser())
+		}
+		if rt.cloneRehearser() != rt.cloneRehearser() {
+			t.Fatalf("%s: one rehearser per database, shared by agent and floor", provider)
+		}
 	}
 }

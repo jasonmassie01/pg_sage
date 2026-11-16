@@ -34,6 +34,9 @@ type floorDeps interface {
 type Floor struct {
 	opt   floorDeps
 	logFn func(string, string, ...any)
+	// reh rehearses each admitted candidate on a clone (nil: no clone
+	// provider, the ladder says so).
+	reh IndexRehearser
 }
 
 // NewFloor is the floor of one database's optimizer; a nil optimizer
@@ -114,6 +117,7 @@ func (f *Floor) runTable(ctx context.Context, snap *collector.Snapshot, table st
 				adm.Outcome, adm.Reason)
 			continue
 		}
+		f.rehearse(ctx, &adm, tc)
 		admitted = append(admitted, adm)
 	}
 	return admitted, used, true

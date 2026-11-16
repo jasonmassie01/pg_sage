@@ -105,6 +105,8 @@ type validator struct {
 	history    map[string][]SettingAction
 	historyErr error
 	flight     inFlight
+	// tools is the cycle's tool state: the rehearsals its cases ran.
+	tools *cycleTools
 }
 
 func (a *Agent) newValidator(cur *collector.Snapshot, w Workload, confirmed []facts.Fact,
