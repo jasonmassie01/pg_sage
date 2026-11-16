@@ -154,15 +154,19 @@ func (r *llmClientRegistry) remove(clients ...*llm.Client) {
 // releaseLLMClientsOnDone untracks a runtime's clients once its instance
 // context ends (removal, replacement or shutdown), so reconnect churn does
 // not grow the registry. The registry that tracked them is captured now.
-func releaseLLMClientsOnDone(ctx context.Context, manager *llm.Manager) {
+// The release is an instance worker: draining the runtime waits for it, so
+// nothing it reads is replaced under it (env-race).
+func releaseLLMClientsOnDone(
+	ctx context.Context, workers *sync.WaitGroup, manager *llm.Manager,
+) {
 	if manager == nil {
 		return
 	}
 	registry := llmClients
-	go func() {
+	startInstanceWorker(workers, func() {
 		<-ctx.Done()
 		registry.remove(manager.General, manager.Optimizer)
-	}()
+	})
 }
 
 func (r *llmClientRegistry) reconfigure(parent config.LLMConfig) {
