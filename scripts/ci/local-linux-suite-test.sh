@@ -137,15 +137,17 @@ grep -q 'plan pg17 server=improve-ci-pg17 image=improve-pg:17 go=improve-ci-go-p
 [[ $(grep -c '^plan pg' <<<"$out") -eq 3 ]] || fail "dry run: want 3 plan lines: $out"
 grep -q 'go-image=golang:1.27.3-alpine3.24 go-root=none' <<<"$out" ||
   fail "dry run: empty GO_ROOT must mount nothing: $out"
+grep -q 'go=improve-ci-go-pg17 exclusive=improve-ci-exclusive-pg17 ' <<<"$out" ||
+  fail "dry run: pg17 lacks its exclusive server (SAGE_TEST_EXCLUSIVE_URL): $out"
 no_docker_call "dry run touches no docker"
 
 # Concurrency: two runs with other prefixes or majors get distinct names.
 expect 0 'plan pg17 server=improve-t4-a-pg17 .* go=improve-t4-a-go-pg17' "dry run: prefix A" -- \
   $dry LOCAL_SUITE_PREFIX=improve-t4-a- bash "$script" "$(newout)" 17
-names_a=$(grep '^plan' <<<"$out" | grep -oE '(server|go)=improve-[a-z0-9-]*' | sort -u)
+names_a=$(grep '^plan' <<<"$out" | grep -oE '(server|exclusive|go)=improve-[a-z0-9-]*' | sort -u)
 expect 0 'plan pg17 server=improve-t4-b-pg17' "dry run: prefix B" -- \
   $dry LOCAL_SUITE_PREFIX=improve-t4-b- bash "$script" "$(newout)" 17
-names_b=$(grep '^plan' <<<"$out" | grep -oE '(server|go)=improve-[a-z0-9-]*' | sort -u)
+names_b=$(grep '^plan' <<<"$out" | grep -oE '(server|exclusive|go)=improve-[a-z0-9-]*' | sort -u)
 [[ -n $(comm -12 <(echo "$names_a") <(echo "$names_b")) ]] &&
   fail "two prefixes share a container name: $names_a / $names_b"
 mkdir -p "$work/goroot/bin" && touch "$work/goroot/bin/go"
@@ -254,14 +256,26 @@ grep -q 'docker rm .*improve-ci-pg17' "$log" &&
   fail "the cleanup removed another run's improve-ci-pg17: $(cat "$log")"
 grep -q '^improve-ci-pg17 other-run$' "$state" || fail "the other run's container is gone"
 
+# Error propagation: an exclusive server that cannot start stops the run
+# before any suite, removes the suite server and leaves alone the other
+# run's container that took the name.
+expect 5 'server improve-ci-exclusive-pg17 .* did not start' "exclusive server fails" -- \
+  $guard FAKE_FREE_GB=99 STUB_TAKEN_ON_RUN=improve-ci-exclusive-pg17 bash "$script" \
+  "$(newout)" 17
+grep -q -- '--name improve-ci-go-pg17' "$log" && fail "a suite started without its exclusive server"
+grep -q 'docker rm -f -v improve-ci-pg17$' "$log" || fail "the server was left after exit 5"
+grep -q 'docker rm .*improve-ci-exclusive-pg17' "$log" &&
+  fail "the cleanup removed another run's improve-ci-exclusive-pg17: $(cat "$log")"
+grep -q '^improve-ci-exclusive-pg17 other-run$' "$state" || fail "the other run's container is gone"
+
 # Happy path through stubs: every container carries this run's label, the
 # server is removed at the end, and the summary is written.
 o=$(newout)
 expect 0 'summary: .*summary.md' "stubbed full run" -- \
   $guard FAKE_FREE_GB=99 bash "$script" "$o" 17
 runs=$(grep '^docker run' "$log")
-[[ $(grep -c . <<<"$runs") -eq 5 ]] || fail "want 5 docker runs (gcc, race probe, server, suite,"\
-" e2e): $runs"
+[[ $(grep -c . <<<"$runs") -eq 6 ]] || fail "want 6 docker runs (gcc, race probe, server,"\
+" exclusive server, suite, e2e): $runs"
 ids=$(grep -oE 'pg_sage.local-suite.run=[^ ]+' <<<"$runs" | sort -u)
 [[ $(grep -c . <<<"$ids") -eq 1 ]] ||
   fail "every container needs one run label with a value: $ids"
@@ -306,6 +320,32 @@ while IFS= read -r r; do
   [[ $r == *" -e SAGE_TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/"* &&
     $r == *" -e PGHOST=127.0.0.1 "* ]] || fail "the suite does not connect to 127.0.0.1: $r"
 done <<<"$gotests"
+# ci-12: CI's test job gives the exclusive tests a second server from the
+# same image (SAGE_TEST_EXCLUSIVE_URL). Here it joins the suite server's
+# network namespace on port 5433, with the same scram and pg_stat_statements
+# setup, and the cleanup removes it before the server whose namespace it uses.
+xrun=$(grep '^docker run' "$log" | grep -- '--name improve-ci-exclusive-pg17 ')
+[[ -n $xrun ]] || fail "no exclusive server was started: $(grep '^docker run' "$log")"
+for want in " --network container:improve-ci-pg17 " " -e PGPORT=5433 " \
+  " --memory=1536m --memory-swap=1536m " " -e POSTGRES_PASSWORD=postgres " \
+  " improve-pg:17 postgres -c shared_preload_libraries=" " --label pg_sage.local-suite.run="; do
+  [[ $xrun == *"$want"* ]] || fail "the exclusive server lacks '$want': $xrun"
+done
+[[ $xrun == *"--tmpfs"* ]] && fail "the exclusive server's data is in memory: $xrun"
+[[ $xrun == *" -p "* || $xrun == *"--publish"* ]] && fail "the exclusive server publishes a port"
+xexec=$(grep '^docker exec improve-ci-exclusive-pg17 ' "$log")
+for want in 'pg_hba.conf' 'pg_reload_conf' 'psql -w -h 127.0.0.1 ' 'pg_stat_statements'; do
+  grep -qF -- "$want" <<<"$xexec" || fail "the exclusive server's setup lacks '$want': $xexec"
+done
+xurl='postgres://postgres:postgres@127.0.0.1:5433/postgres?sslmode=disable'
+while IFS= read -r r; do
+  [[ $r == *" -e SAGE_TEST_EXCLUSIVE_URL=$xurl "* ]] ||
+    fail "a Go test container lacks SAGE_TEST_EXCLUSIVE_URL on port 5433: $r"
+done <<<"$gotests"
+rm_x=$(grep -n 'docker rm -f -v improve-ci-exclusive-pg17$' "$log" | cut -d: -f1)
+rm_s=$(grep -n 'docker rm -f -v improve-ci-pg17$' "$log" | cut -d: -f1)
+[[ -n $rm_x && -n $rm_s && $rm_x -lt $rm_s ]] ||
+  fail "the exclusive server must be removed before the suite server ($rm_x, $rm_s)"
 grep -q 'covfloor=0' "$o/pg17/status.txt" ||
   fail "status.txt lacks the coverage floors result: $(cat "$o/pg17/status.txt")"
 grep -q '^go run ./cmd/covfloor' "$log" || fail "covfloor did not run: $(cat "$log")"
@@ -318,7 +358,7 @@ expect 0 'summary: .*summary.md' "stubbed full run with GO_ROOT_VOLUME" -- \
   LOCAL_SUITE_PG_MEMORY=4g LOCAL_SUITE_PG_TMPFS=off bash "$script" "$o" 17
 grep -q '^docker volume inspect improve-go1273-root$' "$log" ||
   fail "the Go volume was not checked: $(cat "$log")"
-goruns=$(grep '^docker run' "$log" | grep -v -- '--name improve-ci-pg17 ')
+goruns=$(grep '^docker run' "$log" | grep -v '^docker run -d ')
 [[ $(grep -c . <<<"$goruns") -eq 4 ]] || fail "want 4 Go containers: $goruns"
 while IFS= read -r r; do
   [[ $r == *" -v improve-go1273-root:/opt/go:ro "* && $r == *" -e GOROOT=/opt/go "* &&
@@ -329,6 +369,10 @@ done <<<"$goruns"
 # can fail the pipe and hide the very match these checks look for.
 srvrun=$(grep '^docker run' "$log" | grep -- '--name improve-ci-pg17 ')
 grep -q improve-go1273-root <<<"$srvrun" && fail "the server mounted the Go volume: $srvrun"
+xrun=$(grep '^docker run' "$log" | grep -- '--name improve-ci-exclusive-pg17 ')
+grep -q improve-go1273-root <<<"$xrun" && fail "the exclusive server mounted the Go volume: $xrun"
+[[ $xrun == *" --memory=1536m --memory-swap=1536m "* && $xrun != *"--tmpfs"* ]] ||
+  fail "the exclusive server must keep its 1536m cap and on-disk data: $xrun"
 [[ $srvrun == *" --memory=4g --memory-swap=4g "* ]] ||
   fail "LOCAL_SUITE_PG_MEMORY=4g did not cap the server at 4g: $srvrun"
 # LOCAL_SUITE_PG_TMPFS=off: the data directory stays on the container's

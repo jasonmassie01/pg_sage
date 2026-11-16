@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Runs CI's Go suite on Linux with cgo and the race detector, once per
-# PostgreSQL major, in local containers (ci-19). For each major it starts a
-# server with CI's settings (images/postgresql.ci.conf), records what the
-# server cannot cover (verify-test-postgres.sh), runs the test job's
-# go test command in a Go container on the server's network, then the skip
+# PostgreSQL major, in local containers (ci-19). For each major it starts
+# CI's two servers with CI's settings (images/postgresql.ci.conf): the
+# suite's, and the exclusive one (SAGE_TEST_EXCLUSIVE_URL, ci-12; see
+# local-linux-suite-server.sh). It records what the suite's server cannot
+# cover (verify-test-postgres.sh), runs the test job's
+# go test command in a Go container on the servers' network, then the skip
 # budget (and, on PG17, the coverage floors of cmd/covfloor, ci-20), and
 # writes <out-dir>/summary.md.
 #
@@ -56,6 +58,8 @@ readonly DEFAULT_MAJORS="14 15 17"
 readonly TEST_URL='postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable'
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=local-linux-suite-server.sh
+. "$here/local-linux-suite-server.sh"
 repo=$(cd "$here/../.." && pwd -P)
 GO_IMAGE=${GO_IMAGE-golang:1.27.3-alpine3.24}
 GO_ROOT=${GO_ROOT:-}
@@ -157,7 +161,7 @@ print_plan() {
   echo "dry run: inputs valid"
   for m in "${MAJORS[@]}"; do
     echo "plan pg$m server=${PREFIX}pg$m image=$(pg_image "$m") go=${PREFIX}go-pg$m" \
-      "go-image=$GO_IMAGE go-root=$root"
+      "exclusive=${PREFIX}exclusive-pg$m go-image=$GO_IMAGE go-root=$root"
   done
   echo "cache=$GOCACHE_VOL rev=$REV_SHA out=$OUT"
 }
@@ -202,10 +206,13 @@ claim() {
 
 # cleanup removes the containers this run claimed that still exist and
 # carry this run's label; never a name outside improve-, and never a
-# container that another run started under a name claimed here.
+# container that another run started under a name claimed here. It goes
+# newest first, so a container that joined a server's network namespace
+# is removed before that server.
 cleanup() {
-  local c owner
-  for c in "${CREATED[@]-}"; do
+  local c owner i
+  for ((i = ${#CREATED[@]} - 1; i >= 0; i--)); do
+    c=${CREATED[i]}
     case "$c" in improve-?*) ;; *) continue ;; esac
     owner=$(dk 60 container inspect -f "{{index .Config.Labels \"$RUN_LABEL\"}}" "$c" \
       2>/dev/null) || continue
@@ -301,92 +308,15 @@ vendor_source() {
   fi
 }
 
-# server_flags <image>: CI's settings as -c flags. The official postgres
-# image has no pg_hint_plan, so it preloads pg_stat_statements only.
-server_flags() {
-  local line name value
-  SERVER_FLAGS=()
-  while IFS= read -r line || [ -n "$line" ]; do
-    line=${line%%#*}
-    line=$(echo "$line" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-    [ -n "$line" ] || continue
-    name=$(echo "${line%%=*}" | sed 's/[[:space:]]*$//')
-    value=$(echo "${line#*=}" | sed -e 's/^[[:space:]]*//' -e "s/^'//" -e "s/'$//")
-    case "$1:$name" in
-      postgres:*:shared_preload_libraries | */postgres:*:shared_preload_libraries)
-        value=pg_stat_statements ;;
-    esac
-    SERVER_FLAGS+=(-c "$name=$value")
-  done <"$OUT/stage/scripts/ci/images/postgresql.ci.conf"
-}
-
-psql_srv() {
-  dk 120 exec "$1" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -qAtX "${@:2}"
-}
-
-# loopback_scram <server>: the postgres images trust TCP logins from
-# loopback without a password, while CI's client reaches its server over
-# the bridge and must pass scram-sha-256. The suite connects to 127.0.0.1,
-# so switch every host line to scram-sha-256 (socket lines stay trusted for
-# docker exec), reload, and prove a password-less loopback login fails.
-loopback_scram() {
-  dk 60 exec "$1" sh -c 'sed -i "/^host/s/trust\$/scram-sha-256/" "$PGDATA/pg_hba.conf"' ||
-    die 5 "could not switch $1's pg_hba.conf host lines to scram-sha-256"
-  psql_srv "$1" -c "SELECT pg_reload_conf()" >/dev/null || die 5 "could not reload $1"
-  if dk 60 exec "$1" psql -w -h 127.0.0.1 -U postgres -d postgres -qAtX -c 'SELECT 1' \
-    >/dev/null 2>&1; then
-    die 5 "server $1 still accepts a loopback login without a password"
-  fi
-}
-
-# start_server <major>: CI's server, by default with its data directory in
-# memory and the caps of tools/pg-ephemeral.sh; no port is published.
-start_server() {
-  local m=$1 srv=${PREFIX}pg$1 img ready= i data=()
-  [ "$PG_TMPFS" = off ] || data=(--tmpfs "/var/lib/postgresql/data:rw,size=$PG_TMPFS")
-  img=$(pg_image "$m")
-  server_flags "$img"
-  claim "$srv"
-  dk 180 run -d --rm --name "$srv" --label pg_sage.improve=1 --label "$RUN_LABEL=$RUN_ID" \
-    --memory="$PG_MEMORY" --memory-swap="$PG_MEMORY" --oom-score-adj=500 --cpu-shares=256 --cpus=2 \
-    -e POSTGRES_PASSWORD=postgres --shm-size=256m \
-    "${data[@]}" -e PGDATA=/var/lib/postgresql/data/pgdata \
-    "$img" postgres "${SERVER_FLAGS[@]}" >/dev/null || die 5 "server $srv ($img) did not start"
-  for i in $(seq 1 90); do
-    if dk 20 exec "$srv" pg_isready -U postgres -h 127.0.0.1 >/dev/null 2>&1; then
-      ready=1
-      break
-    fi
-    sleep 1
-  done
-  [ -n "$ready" ] || die 5 "server $srv did not become ready on TCP in 90s"
-  sleep 1
-  loopback_scram "$srv"
-  psql_srv "$srv" -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements" >/dev/null ||
-    die 5 "CREATE EXTENSION pg_stat_statements failed on $srv"
-}
-
-# check_server <major>: records what this server cannot cover; never fatal.
-check_server() {
-  local m=$1 srv=${PREFIX}pg$1 dir=$OUT/pg$1 st=0
-  bash "$OUT/stage/scripts/ci/verify-test-postgres.sh" "$srv" "$m" \
-    >"$dir/server-check.txt" 2>&1 || st=$?
-  if ! psql_srv "$srv" -c BEGIN -c "CREATE EXTENSION vector" -c ROLLBACK >/dev/null 2>&1; then
-    echo "  - CREATE EXTENSION vector fails (pgvector is not installed; local check)" \
-      >>"$dir/server-check.txt"
-    [ "$st" -ne 0 ] || st=1
-  fi
-  echo "server_check=$st" >>"$dir/status.txt"
-}
-
 # go_test <major> <command> <output>: runs a go test command in the Go
-# container on the server's network and returns its status.
+# container on the servers' network and returns its status.
 go_test() {
   local m=$1 name=${PREFIX}go-pg$1 st=0
   claim "$name"
   go_args "$name" "container:${PREFIX}pg$m"
   dk 5400 run "${GO_ARGS[@]}" -v "$(host_path "$OUT/stage.tar"):/stage.tar:ro" -w / \
     -e "GOFLAGS=-mod=vendor -buildvcs=false" -e "SAGE_TEST_DATABASE_URL=$TEST_URL" \
+    -e "SAGE_TEST_EXCLUSIVE_URL=$EXCLUSIVE_URL" \
     -e PGHOST=127.0.0.1 -e PGPORT=5432 -e PGUSER=postgres -e PGPASSWORD=postgres \
     -e PGDATABASE=postgres "$GO_IMAGE" \
     sh -c "mkdir -p /work && tar -xf /stage.tar -C /work && cd /work/sidecar && $2" \
@@ -424,6 +354,7 @@ run_major() {
   echo "image=$(pg_image "$m")" >"$dir/status.txt"
   disk_guard
   start_server "$m"
+  start_exclusive "$m"
   check_server "$m"
   go_test "$m" "$SUITE_CMD" "$dir/suite.json" || st=$?
   echo "suite=$st" >>"$dir/status.txt"
