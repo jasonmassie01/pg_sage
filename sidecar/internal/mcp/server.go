@@ -85,6 +85,8 @@ func familyOf(name string) toolFamily {
 		return (*Server).callAskTool
 	case fleetToolNames[name]:
 		return (*Server).callFleetTool
+	case name == toolGetInbox:
+		return (*Server).callInboxTool
 	case upgradeToolNames[name]:
 		return (*Server).callUpgradeTool
 	case agentBrokerToolNames[name]:

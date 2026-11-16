@@ -555,6 +555,7 @@ application's database driver (most ORMs have a plugin) for reliable attribution
 | [`agent_whoami`](#agent_whoami) | `read` | always |
 | [`agent_request_capability`](#agent_request_capability) | `propose` | always |
 | [`upgrade_readiness`](#upgrade_readiness) | `read` | always |
+| [`get_inbox`](#get_inbox) | `read` | always |
 
 ### `get_policy`
 
@@ -1268,5 +1269,17 @@ Scope: `read`
 | `method` | string | no | default pg_upgrade; one of `pg_upgrade`, `blue_green`, `logical` |
 | `target_database` | string | no | a monitored database already at target_major to compare extensions against; length <= 63 |
 | `target_major` | integer | yes | the major to upgrade to (above the server's, at most the newest pg_sage knows); value >= 1 |
+
+### `get_inbox`
+
+List every decision waiting on a person (change approvals, plans, autonomy promotions, proposed facts, unsigned runbooks, agent capability requests, policy proposals) with counts by kind, newest risk first. Read-only: it never approves, and an agent decides nothing from it; a person decides each item on its page (href). Without database it reads every database you may read. A source that could not be read is named in errors and the total is then a lower bound.
+
+Scope: `read`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `database` | string | no | Monitored database name (see list_databases); without it, every database you may read. |
+| `kinds` | array of string | no | kinds to list (default all) |
+| `limit` | integer | no | items returned (default 500); counts cover every item; value 1-10000 |
 
 <!-- END GENERATED MCP TOOL REFERENCE -->

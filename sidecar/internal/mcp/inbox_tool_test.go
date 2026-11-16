@@ -78,7 +78,7 @@ func TestInboxToolPassesArgumentsAndAViewerMayRead(t *testing.T) {
 func TestInboxToolRestrictsScopedPrincipalsToTheirDatabases(t *testing.T) {
 	backend := &inboxRecordingBackend{}
 	agent := WithPrincipal(context.Background(), Principal{Actor: "agent:a", Role: "viewer",
-		Kind: KindAgent, Databases: []string{"tenant_a"}})
+		Kind: KindAgent, Scopes: []Scope{ScopeRead}, Databases: []string{"tenant_a"}})
 	response := invoke(t, NewServer(backend), agent, toolCall(toolGetInbox, `{}`))
 	require.Equal(t, 0, response.Error.Code, "an agent may read")
 	require.Equal(t, "tenant_a", strings.Join(backend.last.Databases, ","))
@@ -126,4 +126,23 @@ func TestInboxToolProductionBackendNeedsItsDependency(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "orders", rec.last.Database)
 	require.True(t, got.(map[string]any)["total"] == 0, "result passed through")
+}
+
+func TestInboxToolDatabaseIsOptionalButBoundWhenNamed(t *testing.T) {
+	backend := &inboxRecordingBackend{}
+	server := NewServer(backend).WithDirectory(fleetOf("orders", "billing"))
+	viewer := WithPrincipal(context.Background(), Principal{Actor: "user:3", Role: "viewer"})
+	response := invoke(t, server, viewer, toolCall(toolGetInbox, `{}`))
+	require.Equal(t, 0, response.Error.Code, "two databases and none named: all of them")
+	require.Equal(t, "", backend.last.Database)
+	response = invoke(t, server, viewer, toolCall(toolGetInbox, `{"database":"nope"}`))
+	require.True(t, response.Error.Code != 0, "an unknown database is refused")
+	scoped := WithPrincipal(context.Background(), Principal{Actor: "token:1", Role: "viewer",
+		Databases: []string{"orders"}})
+	response = invoke(t, server, scoped, toolCall(toolGetInbox, `{"database":"billing"}`))
+	require.Equal(t, codeNotPermitted, response.Error.Code, "a hidden database is refused")
+	require.Equal(t, 1, backend.calls, "refusals never reached the backend")
+	tool := inboxTool(t)
+	require.True(t, strings.Contains(string(tool.InputSchema), "every database you may read"),
+		"the database argument says it is optional")
 }

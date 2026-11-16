@@ -83,6 +83,8 @@ type ProductionDependencies struct {
 	Briefings BriefingBackend
 	// UpgradeReadiness serves upgrade_readiness (market-05); optional.
 	UpgradeReadiness UpgradeReadinessBackend
+	// Inbox serves get_inbox (ux-01a); optional.
+	Inbox InboxBackend
 }
 
 type ProductionBackend struct {

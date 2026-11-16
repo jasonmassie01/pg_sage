@@ -37,3 +37,12 @@ func (backend *ProductionBackend) FleetFindings(ctx context.Context,
 	}
 	return backend.dependencies.FleetLearning.FleetFindings(ctx, request)
 }
+
+// Inbox serves get_inbox.
+func (backend *ProductionBackend) Inbox(ctx context.Context,
+	request InboxRequest) (any, error) {
+	if backend.dependencies.Inbox == nil {
+		return nil, ErrProductionDependencyUnavailable
+	}
+	return backend.dependencies.Inbox.Inbox(ctx, request)
+}
