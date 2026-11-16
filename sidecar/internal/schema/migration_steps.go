@@ -242,5 +242,6 @@ func trancheFiveMigrations() []namedStep {
 		{"ddlActionOutcomeVerifier", ddlActionOutcomeVerifier},               // lab-01c
 		{"ddlVerifierBacktest", ddlVerifierBacktest},                         // lab-02
 		{"ddlPlans", ddlPlans},                                               // plan-01a
+		{"ddlPlanEvents", ddlPlanEvents},                                     // plan-01b
 	}
 }

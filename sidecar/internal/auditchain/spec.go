@@ -171,11 +171,33 @@ var PolicyApprovals = Spec{
 	Optional: true,
 }
 
+// PlanEvents chains a plan's history (plan-01b): every plan write and
+// engine transition, with the plan hash after it. Append-only. The table
+// belongs to the plan objects (internal/changeplan), so the chain installs
+// once it exists.
+var PlanEvents = Spec{
+	Chain: "plan_events", Table: "sage.plan_event", Version: 1,
+	Sealed: []string{col("id"), col("plan_id"), col("step_id"), col("kind"),
+		col("plan_hash"), col("actor"), col("detail"), epochUS("created_at")},
+	Optional: true,
+}
+
+// PlanModelRecords chains the model passes a plan was built from
+// (plan-01b): the pack, model, prompt version and raw output a later model
+// is replayed on. Append-only; every column is sealed.
+var PlanModelRecords = Spec{
+	Chain: "plan_model_records", Table: "sage.plan_model_record", Version: 1,
+	Sealed: []string{col("id"), col("plan_id"), col("pack_hash"), col("model"),
+		col("prompt_version"), col("raw_output"), col("raw_output_sha256"),
+		epochUS("created_at")},
+	Optional: true,
+}
+
 // Specs lists the chains the schema migration installs. New chains are
 // appended: the order is the install order.
 func Specs() []Spec {
 	return []Spec{ActionLog, AuthAudit, ConfigAudit, GuardQueryAudit, PGAuditEvents,
-		FactEvents, DecisionLedger, PolicyApprovals}
+		FactEvents, DecisionLedger, PolicyApprovals, PlanEvents, PlanModelRecords}
 }
 
 // SpecFor returns the built-in spec of chain.

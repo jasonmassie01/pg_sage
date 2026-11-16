@@ -98,6 +98,19 @@ var goldenFixtures = map[string]goldenFixture{
 		single_operator, review_status, decided_at) OVERRIDING SYSTEM VALUE
 		SELECT 8008, p.id, 'ünï@example.com', 7, E'Ünicode ✓ "quoted" \\ backslash\ttab',
 		true, 'pending', '2026-03-04 13:14:15.123456+00' FROM p`},
+	// plan-01b's plan event and model record chains.
+	"plan_events": {9009, `INSERT INTO sage.plan_event (id, plan_id, step_id, kind,
+		plan_hash, actor, detail, created_at) VALUES (9009, 41, NULL, 'approved',
+		'0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef', 'user:ünï',
+		'{"z": {"b": [1, 2.50], "a": null}, "approval_id": 7, "q": "é\"q"}',
+		'2026-03-04 14:15:16.000001+00')`},
+	"plan_model_records": {10010, `INSERT INTO sage.plan_model_record (id, plan_id,
+		pack_hash, model, prompt_version, raw_output, raw_output_sha256, created_at)
+		VALUES (10010, 41,
+		'abababababababababababababababababababababababababababababababab', 'model-ünï',
+		'plan-v1', E'` + "```json\\n" + `{"goal": "東京 ✓", "steps": [1, 2.50]}\n` + "```" + `',
+		'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210',
+		'2026-03-04 15:16:17.5+00')`},
 }
 
 var (
