@@ -22,11 +22,11 @@ import (
 type fakeOpen struct {
 	findings []analyzer.Finding
 	err      error
-	calls    int
 }
 
+// OpenFindings only reads: the advisor calls it from parallel cycles
+// (TestLifecycle_ParallelCyclesOneCall), as it does the real store.
 func (f *fakeOpen) OpenFindings(context.Context, []string) ([]analyzer.Finding, error) {
-	f.calls++
 	return f.findings, f.err
 }
 

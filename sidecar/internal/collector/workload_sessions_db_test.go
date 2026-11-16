@@ -29,9 +29,21 @@ func openSession(t *testing.T, pool *pgxpool.Pool, app string) *pgx.Conn {
 }
 
 // sleepIn starts a tagged pg_sleep on conn and returns once it is active.
+// A pgx.Conn is not safe for concurrent use, so the test's cleanup cancels
+// the sleep and waits for it before openSession's cleanup closes conn
+// (cleanups run last-registered first).
 func sleepIn(t *testing.T, pool *pgxpool.Pool, conn *pgx.Conn, app, sql string) {
 	t.Helper()
-	go func() { _, _ = conn.Exec(context.Background(), sql) }()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = conn.Exec(ctx, sql)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		var n int
