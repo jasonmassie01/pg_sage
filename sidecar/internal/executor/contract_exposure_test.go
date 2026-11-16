@@ -115,7 +115,9 @@ func TestExposureStatementsRefuseOtherForms(t *testing.T) {
 	}
 	for _, sql := range []string{`REVOKE SELECT ON TABLE pg_catalog.pg_class FROM PUBLIC`,
 		`ALTER TABLE sage.findings ENABLE ROW LEVEL SECURITY`,
-		`REVOKE SELECT ON TABLE information_schema.tables FROM PUBLIC`} {
+		`REVOKE SELECT ON TABLE information_schema.tables FROM PUBLIC`,
+		// Quoted: the validator sees the statement upper-cased.
+		`GRANT SELECT ON TABLE "pg_temp_3".t TO PUBLIC`} {
 		if err := ValidateExecutorSQL(sql); err == nil {
 			t.Errorf("a system or sage table passed validation: %s", sql)
 		}

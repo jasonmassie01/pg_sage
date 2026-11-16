@@ -208,7 +208,10 @@ func checkExposureSQL(sql string) error {
 			"re-GRANT TO PUBLIC and ALTER TABLE s.t ENABLE|DISABLE ROW LEVEL SECURITY "+
 			"are allowed", ErrDisallowedSQL)
 	}
-	if isProtectedExecutorSchema(stmt.schema) || strings.HasPrefix(stmt.schema, "pg_") {
+	// The validator passes sql upper-cased, so a quoted "pg_temp_3" reads
+	// "PG_TEMP_3" here: compare case-blind.
+	if isProtectedExecutorSchema(stmt.schema) ||
+		strings.HasPrefix(strings.ToLower(stmt.schema), "pg_") {
 		return fmt.Errorf("%w: %s is a protected schema", ErrDisallowedSQL, stmt.schema)
 	}
 	return nil
