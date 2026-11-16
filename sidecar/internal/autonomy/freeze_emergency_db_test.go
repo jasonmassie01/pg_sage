@@ -80,8 +80,11 @@ func (w *warnLog) warnings() []string {
 
 // Happy path and state transitions: normal, two caps, emergency, the
 // emergency freeze completes and the table leaves red, then normal again.
+// On the exclusive server (ci-23): another package's open transaction on
+// the shared server holds the xmin horizon, and the freeze cannot advance
+// relfrozenxid past it.
 func TestFreezeEmergencyProfileLifecycleOnRealPostgres(t *testing.T) {
-	pool := requireAutonomyDB(t)
+	pool := exclusiveAutonomyDB(t, "the xmin horizon an emergency freeze advances past")
 	bare, table := emergencyTable(t, pool)
 	logs := &warnLog{}
 	c := NewPostgresFreezeCustodian(pool, "testdb", deadlineRedBuffer).WithLogger(logs.log)

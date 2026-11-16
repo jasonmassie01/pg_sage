@@ -298,7 +298,7 @@ func runSpilling(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql stri
 // slowest statement.
 func TestReadQueryCounters_OwnIDsLeftOutOfMeanAndIO(t *testing.T) {
 	ctx := context.Background()
-	pool := textTestDB(t, ctx)
+	pool := exclusiveTextTestDB(t, "the slowest pg_stat_statements rows")
 	runSpilling(t, ctx, pool, `SELECT pg_sleep(0.3), count(*) AS heavy_own_marker
 		FROM (SELECT g FROM generate_series(1, 300000) g ORDER BY g DESC) s`)
 	for range 2 {
