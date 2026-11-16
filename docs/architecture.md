@@ -677,6 +677,15 @@ never move one plan and never start conflicting steps at once.
   steps: a rewrite, dropped data, a type change, a restart-bound setting, a
   revoke, a topology or pooler change, or a contract that cannot be undone.
   The engine stops before each one with `awaiting_approval`.
+- **Approval modes.** A plan is approved `all` (every step except the
+  never-automatic ones), `up_to` N (ordinals 1..N except those; N equal to
+  the step count is stored as `all`) or `step` (no step by itself). A step
+  starts only when the plan's live approval covers it or the step has its own
+  approval (`sage.plan_step_approval`) at the current plan hash; otherwise it
+  stops with `awaiting_approval`, and its approval sets it back to pending and
+  runs it as that approver. An edit voids every approval of the plan, step
+  approvals included. Each approval records where the person decided (`ui`,
+  `api`, `chat` or `cli`).
 - **Starting a step.** The engine writes `starting` first. It then queues the
   item `plan_step:<plan>:<step>` (proposed by `plan:<id>`), approves it as the
   plan's approver with exactly the step's SQL, and calls `RunApprovedAction`.
@@ -698,8 +707,11 @@ never move one plan and never start conflicting steps at once.
   again. A step after a reverted step is skipped (`predecessor_reverted`).
 - **Halting.** A failed or regressed step halts the plan, with one `halted`
   event and one notification (an `approval_needed` event naming the plan, the
-  step and the verdict). A halted plan starts nothing until a person decides
-  it. `Store.ListNeedingPerson` lists proposed and halted plans, and steps
+  step and the verdict). A halted plan starts nothing until a person resumes
+  or cancels it. Resuming (at the approved hash) marks each step that halted
+  it `resumed_at`, so it no longer halts the plan: a failed step becomes
+  `skipped` (its dependents are skipped) and a halted step `kept` (its change
+  stays in place). `Store.ListNeedingPerson` lists proposed and halted plans, and steps
   awaiting their operator or their own approval.
 - **Emergency stop.** While the stop is set nothing moves, and running plans
   show `pause_reason` "emergency stop".
@@ -709,6 +721,36 @@ never move one plan and never start conflicting steps at once.
 
 The engine runs only plans a person approved, so it is on with no
 configuration.
+
+**Plan API and CLI (plan-03a).** Each plan lives in its monitored database, so
+`?database=` names it (optional with one database), as for approval cards:
+
+| Route | Who | Body | Does |
+|---|---|---|---|
+| `GET /api/v1/plans` | any role | `?status=`, `?limit=` (1-500) | Plans of every visible database, newest first. |
+| `GET /api/v1/plans/{id}` | any role | | The plan, steps, edges, hash, approvals, step approvals and each step's coverage. |
+| `POST /api/v1/plans/{id}/approve` | operator | `{plan_hash, mode, up_to}` | Approve all, up to step N, or step by step. |
+| `POST /api/v1/plans/{id}/steps/{step}/approve` | operator | `{plan_hash}` | Approve one step (by step id). |
+| `POST /api/v1/plans/{id}/reject` | operator | `{reason}` | End a proposed plan as rejected. |
+| `POST /api/v1/plans/{id}/resume` | operator | `{plan_hash}` | Run a halted plan again. |
+| `POST /api/v1/plans/{id}/cancel` | operator | `{reason}` (optional) | End an approved or halted plan, never a running one. |
+
+A hash that is no longer the plan's is 409 `content_changed`; a decision the
+plan's status does not allow is 409 (`not_pending`, `not_halted`,
+`not_cancellable`, `step_not_pending`); bad input is 400 with its code
+(`invalid_mode`, `invalid_up_to`, `plan_hash_required`, `reason_required`,
+`step_not_in_plan`, `invalid_via`). Outside a Databricks App each route also
+takes an operator API token as `Authorization: Bearer`: the read scope reads,
+the approve scope decides, an agent token is refused whatever scopes it lists,
+a session cookie beside the token is ignored, and the decision is the token
+owner's, with their current role and database grants.
+
+`pg_sage_sidecar plan list|show|approve|reject|resume|cancel` uses these
+routes with `SAGE_API_URL` (https, or http to localhost only) and
+`SAGE_API_TOKEN` (or `SAGE_API_TOKEN_FILE`): `plan approve <id> --hash <h>
+--all | --up-to N | --step N`, and `--json` prints the answer as JSON. It
+exits 0 when decided, 1 when the sidecar refused (stale hash, not pending, a
+server error), 2 on a usage error and 3 when the token was refused.
 
 ### API + Dashboard (Web UI)
 

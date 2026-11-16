@@ -282,8 +282,32 @@ The gate checks one action at a time. A plan runs many, so the standing policy d
     publications, or instance actions.
   - `privilege_revoke` and `pooler_mode_change`.
 
-  The statements are read with the migration statement classifier. A per-step approval
-  arrives with plan-03a. Until then such a step waits for a person.
+  The statements are read with the migration statement classifier. Such a step runs only
+  with its own approval (see Plan approval coverage below).
+
+## Plan approval coverage
+
+A person approves a plan at the plan hash they were shown, in one of three modes:
+
+| Mode | Covers |
+|---|---|
+| `all` | Every step except the never-automatic ones above. |
+| `up_to` N | Steps 1 to N except the never-automatic ones. N equal to the step count is `all`; N past it is refused (`invalid_up_to`). |
+| `step` | No step by itself. |
+
+- **The rule.** A step starts only when the plan's live approval covers it, or the step has
+  its own live approval at the current plan hash. Check and operator steps change nothing,
+  so any current plan approval covers them. Without a plan approval at the current hash,
+  nothing is covered.
+- **A step that is not covered** stops with `awaiting_approval` and its reason, and one
+  notification asks for it. Its own approval (`POST /api/v1/plans/{id}/steps/{step}/approve`
+  or `pg_sage_sidecar plan approve <id> --hash <h> --step N`) sets it back to pending. The
+  executor then runs it as the person who approved the step.
+- **An edit voids every approval** of the plan, step approvals included, and the plan goes
+  back to `proposed`. Two people approving with the same hash and mode make one live
+  approval; an approval racing an edit is either voided by it or refused as stale.
+- **Approval is never automatic.** Every plan needs a person's approval, whatever the trust
+  level. A never-automatic step always needs its own approval as well.
 
 ## The decision ledger
 
