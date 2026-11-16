@@ -40,7 +40,8 @@ as `restart`. In-flight work keeps its original snapshot.
 `llm` (the LLM connection: `llm.enabled`, `llm.endpoint`, `llm.api_key`,
 `llm.model`, `llm.auth` and its timeouts), `llm_redaction`
 (`llm.redact_numeric_literals`) and `briefing` (`briefing.schedule`,
-`briefing.channels`, `briefing.slack_webhook_url`) in every mode, and
+`briefing.channels`, `briefing.slack_webhook_url`, `briefing.only_when_changed`,
+`briefing.dba_hour_rate_usd`) in every mode, and
 `fleet_databases` (`databases` and `defaults.*`) in YAML fleet mode. A
 briefing schedule that does not parse is rejected when it is applied, naming
 `briefing.schedule`, and the workers keep the old one. Every other field,
@@ -436,22 +437,52 @@ retention:
 briefing:
   schedule: "0 6 * * *"         # cron expression; "" turns briefings off
   channels: ["stdout"]          # stdout, slack
-  slack_webhook_url: ""
+  slack_webhook_url: ""         # reconciled into the channel config:slack:briefing
   fleet_mode: rollup            # fleet only: rollup (one message) or per_database
+  only_when_changed: true       # send the digest only when it changed
+  dba_hour_rate_usd: 0          # cost of one DBA hour; 0 shows hours only
 ```
 
-A briefing covers the time since the previous briefing (on the first run,
-since the schedule's previous fire time), so a weekly schedule reports a week
-of actions; the structured text names the window ("Recent Actions (7d)").
-Slack receives the briefing as mrkdwn: headings and `**bold**` become `*bold*`,
-and `<`, `>` and `&` are escaped, so text from the model or the database
-cannot ping `<!channel>` or post a link. Each channel's result is stored in
-`sage.briefings.delivery_status`. In fleet mode, YAML or meta-db,
-`briefing.fleet_mode: rollup`
-(the default) posts one message with a section per database; each database
-still stores its own briefing row, and every row records that message's
-result. `per_database` posts one message per database, as before. Changing
-`fleet_mode` needs a restart; it is ignored in standalone mode.
+Each scheduled briefing sends a **digest** (ux-02b): what pg_sage did since the
+previous one, in a fixed order.
+
+1. **Did**: the changes in the window, from the outcome ledger (`GET /api/v1/outcomes`).
+2. **Verified or reverted**: verified, reverted, inconclusive and pending counts.
+3. **Saved**: DBA hours, with dollars only when `briefing.dba_hour_rate_usd` is set
+   (pg_sage ships no rates).
+4. **Needs you**: what waits in the inbox, by kind (`GET /api/v1/inbox`).
+5. **Could not do and why**: the open held-back decisions (`GET /api/v1/decisions`),
+   grouped by reason.
+
+Every count is computed by pg_sage. With an LLM configured, the model may write
+the one-sentence headline from the counts alone (no database, object or SQL is
+sent); a reply that is empty, longer than 200 characters, not one plain sentence,
+names an identifier, times out or is rate limited is replaced by the computed
+headline ("6 changes, 5 verified, 1 reverted, 2 need you"), and the reason is
+logged and stored with the digest.
+
+The digest is the notification event `digest_ready` (severity `info`), sent at
+once through Notifications, so Slack, email, Teams, Telegram and webhook channels
+receive it under their rules. When no `digest_ready` rule exists, pg_sage adds one
+on the first enabled channel that suits a digest (never PagerDuty, Opsgenie or
+incident.io); disable that rule to stop digests there (deleting it brings the
+default back). `briefing.slack_webhook_url` with `slack` in `briefing.channels` is
+reconciled into the managed channel `config:slack:briefing` with a `digest_ready`
+rule, at startup and on a live change; removing it removes the channel. `stdout`
+prints the digest locally. The briefing has no Slack post path of its own any more.
+
+With `briefing.only_when_changed: true` (the default) an empty digest, or one
+equal to the last digest delivered for the same database (or the fleet roll-up),
+is stored but not sent; its row says `suppressed_unchanged`. Two sidecars that
+both produce the same digest send it once. `false` sends every scheduled digest,
+an empty one saying "Nothing changed". Each channel's result is stored in
+`sage.briefings.delivery_status`, keyed by channel name, and every attempt is in
+the notification log. In fleet mode, YAML or meta-db, `briefing.fleet_mode: rollup`
+(the default) sends one digest with a section per database; each database still
+stores its own briefing row, and every row records that message's result.
+`per_database` sends one per database. Changing `fleet_mode` needs a restart; it
+is ignored in standalone mode. The stored briefing still keeps the long-form
+health text (`content_text`) for the API and MCP readers.
 
 Stored briefings are readable by every signed-in role:
 `GET /api/v1/briefings?database=<name|all>&limit=<1-100, default 20>` lists them newest first,
@@ -459,7 +490,7 @@ and `GET /api/v1/briefings/latest?database=<name|all>` returns each database's l
 (`without_briefing` names the databases that have none yet). Both return `content_json` and
 `delivery_status` exactly as stored; in a fleet, a database whose read fails is listed under
 `unavailable` while the others answer. When no database has a briefing yet, `latest` answers
-404 with the reason. The Overview page shows the latest briefing in a card, and MCP clients
+404 with the reason. Home shows each database's latest digest in a card, and MCP clients
 read it as the resource `pgsage://databases/{database}/briefings/latest`
 ([MCP resources](mcp.md#resources)).
 
