@@ -10,10 +10,17 @@ import (
 // of the install. No concurrent access tests here: two creators are
 // covered by workpack.TestPseudonymKeyDB_ConcurrentCallersAgree.
 
-func TestWorkloadPseudonymKeyStep_IsLastBoundedAndIdempotent(t *testing.T) {
+func TestWorkloadPseudonymKeyStep_IsInPlaceBoundedAndIdempotent(t *testing.T) {
 	steps := trancheFiveMigrations()
-	if len(steps) == 0 || steps[len(steps)-1][0] != "ddlWorkloadPseudonymKey" {
-		t.Fatalf("T5 steps = %v, want ddlWorkloadPseudonymKey last", steps)
+	at := -1
+	for i, s := range steps {
+		if s[0] == "ddlWorkloadPseudonymKey" {
+			at = i
+		}
+	}
+	if at < 1 || steps[at-1][0] != "ddlPlanApprovalModes" {
+		t.Fatalf("T5 steps = %v, want ddlWorkloadPseudonymKey right after "+
+			"ddlPlanApprovalModes", steps)
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout",
 		"CREATE TABLE IF NOT EXISTS sage.workload_pseudonym_key", "CHECK (id = 1)",
