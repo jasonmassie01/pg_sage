@@ -74,6 +74,12 @@ func TestForModel_KeepsNumericStatisticsAndRedactedTexts(t *testing.T) {
 	if m.ContentSHA256 == local.ContentSHA256 {
 		t.Fatal("the model tier has the local tier's hash")
 	}
+	var tier ModelTier
+	decodeModel(t, m, fileTier, &tier)
+	if tier.SourceContentSHA256 != local.ContentSHA256 || tier.Tier != TierModel ||
+		tier.HashIdentifiers {
+		t.Fatalf("tier.json = %+v, want the local pack %s", tier, local.ContentSHA256)
+	}
 }
 
 func TestForModel_DropsPlanConditionsOwnerEmailAndSensitiveSettings(t *testing.T) {
@@ -186,8 +192,9 @@ func TestForModel_NilPackIsRefused(t *testing.T) {
 func TestForModel_EmptyPackGivesAnEmptyTierWithAValidHashAndNoCharts(t *testing.T) {
 	w := fourWeeks()
 	m := mustForModel(t, mustAssemble(t, synthRequest(w), history{}), ModelOptions{})
-	if !ValidSHA(m.ContentSHA256) {
-		t.Fatalf("empty model hash %q", m.ContentSHA256)
+	if !ValidSHA(m.ContentSHA256) ||
+		m.ContentSHA256 == mustAssemble(t, synthRequest(w), history{}).ContentSHA256 {
+		t.Fatalf("empty model hash %q is not a hash of its own", m.ContentSHA256)
 	}
 	for _, f := range m.Files {
 		if strings.HasPrefix(f.Name, chartDir) {

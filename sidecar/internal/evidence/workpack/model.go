@@ -95,7 +95,22 @@ func ForModel(p *Pack, opts ModelOptions) (*Pack, error) {
 	if err := checkLeaks(model, leakNeedles(local, names, model)); err != nil {
 		return nil, err
 	}
+	model[fileTier] = ModelTier{Format: Format, Tier: TierModel,
+		SourceContentSHA256: p.ContentSHA256, HashIdentifiers: opts.HashIdentifiers}
 	return sealModel(p, model, ps)
+}
+
+// fileTier names the model tier's provenance file.
+const fileTier = "tier.json"
+
+// ModelTier says what a model tier is: the local pack it was derived from
+// (the pack its evidence ids resolve against) and whether its names are
+// pseudonyms. It also gives every model tier a hash of its own.
+type ModelTier struct {
+	Format              string `json:"format"`
+	Tier                string `json:"tier"`
+	SourceContentSHA256 string `json:"source_content_sha256"`
+	HashIdentifiers     bool   `json:"hash_identifiers"`
 }
 
 // sealModel encodes the model sections, adds the charts and seals them.
