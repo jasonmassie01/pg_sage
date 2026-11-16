@@ -237,7 +237,7 @@ The gate checks one action at a time. A plan runs many, so the standing policy d
 |---|---|---|---|
 | `max_new_indexes_per_table` | 2 | 1-10 | Indexes the running plans of a database build on one table. |
 | `max_new_index_bytes_pct` | 10 | 1-50 | Bytes of the indexes the running plans built, as a percentage of `pg_database_size`. |
-| `max_restart_bound_steps` | 1 | 1 only | Steps in one plan that take effect only after a restart. A document asking for more is refused. |
+| `max_restart_bound_steps` | 1 | 1 only | Steps in one plan that take effect only after a restart, operator steps included (one whose setting is unknown, such as a managed change with no landing setting, counts). A document asking for more is refused. |
 | `peak_windows` | none | window expressions | Times when no plan step starts. They use the same grammar as `maintenance_windows`. |
 
 - **Defaults.** A document without `plans`, or with `"plans": {}` or `null`, gets the

@@ -727,6 +727,28 @@ never move one plan and never start conflicting steps at once.
 - **Steps without a finding.** A queue item is approvable only for an open
   finding, so a step citing only pack evidence fails at its approval and
   halts the plan.
+- **Operator steps ("you run this").** On a managed platform pg_sage never
+  applies a parameter-group or flag change, so a plan can hold an `operator`
+  step instead. It carries the command for the operator (copied from a managed
+  change proposal, linked by `managed_change_id`, or free text), an optional
+  revert command, and a landing check: a setting and the value `pg_settings`
+  (or `SHOW`) must read with no restart pending, the linked proposal reaching
+  `applied`, or both. pg_sage runs nothing for it. It runs alone like a
+  setting step and never inside a peak window. The engine moves it to
+  `awaiting_operator` and sends one notification that says what to run.
+  It reads the landing each tick. A failed read is recorded on the step and
+  the step keeps waiting; it never counts as landed. Once the check passes, the
+  step is `judging` from `landed_at`. A readback step is decided by its
+  landing. A measured step gets one look, a verification window
+  (`verify.window_minutes`) after landing, by verification v2's interrupted
+  time series with no control group (a global setting moves every query), and
+  its verdict says so. A step not landed by its deadline (counted from the
+  ask) ends `expired`. pg_sage cannot revert an operator step: validation
+  refuses `revert_step` and `revert_to_checkpoint` on it
+  (`operator_not_revertible`), a regression halts and asks with the operator's
+  revert command in the event and the notification, and a checkpoint walk
+  stops at it. A restart-bound operator step counts against
+  `max_restart_bound_steps`.
 
 The engine runs only plans a person approved, so it is on with no
 configuration.
