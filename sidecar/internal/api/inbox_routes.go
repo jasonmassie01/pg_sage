@@ -3,9 +3,11 @@ package api
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 
+	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/earned"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/inbox"
@@ -76,11 +78,7 @@ func inboxHandler(mgr *fleet.DatabaseManager, ledgers *earned.Registry,
 		if _, scoped := visibleDatabasesFrom(r.Context()); !scoped && q.database == "" {
 			inbox.ObserveItems(res) // the whole fleet, every kind: the gauge
 		}
-		if user := UserFromContext(r.Context()); user != nil {
-			for i := range res.Items {
-				res.Items[i].Actionable = inbox.CanDecide(res.Items[i].Kind, user.Role)
-			}
-		}
+		markActionable(r, res.Items)
 		if countOnly {
 			jsonResponse(w, map[string]any{"total": res.Total,
 				"counts_by_kind": res.CountsByKind, "lower_bound": res.LowerBound,
@@ -88,6 +86,32 @@ func inboxHandler(mgr *fleet.DatabaseManager, ledgers *earned.Registry,
 			return
 		}
 		jsonResponse(w, res)
+	}
+}
+
+// markActionable sets each item's actionable from the caller's role on the
+// item's own database: a database grant can lower an operator to viewer on
+// one database, where the decision route answers 403. A grant store that
+// cannot be read leaves every item not actionable (fail closed).
+func markActionable(r *http.Request, items []inbox.Item) {
+	user := UserFromContext(r.Context())
+	if user == nil {
+		return
+	}
+	roleOn := func(string) string { return user.Role }
+	if a := databaseAuthzFrom(r.Context()); a != nil && user.Role != auth.RoleAdmin {
+		grants, err := a.grants.UserDatabaseGrants(r.Context(), user.ID)
+		if err != nil {
+			slog.Error("database grant check failed; no inbox item is actionable",
+				"user_id", user.ID, "error", err)
+			return
+		}
+		roleOn = func(db string) string {
+			return auth.EffectiveDatabaseRole(user.Role, grants, db)
+		}
+	}
+	for i := range items {
+		items[i].Actionable = inbox.CanDecide(items[i].Kind, roleOn(items[i].Database))
 	}
 }
 

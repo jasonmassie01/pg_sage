@@ -282,3 +282,31 @@ func TestInboxRoutesDB_GetInboxAnswersWhatTheRouteAnswers(t *testing.T) {
 		t.Fatal("get_inbox offered a decision to an agent")
 	}
 }
+
+// An operator whose grant lowers them to viewer on one database may not
+// decide its items (the decision route answers 403 there), so the inbox
+// must not offer them as actionable; their operator database still is.
+func TestInboxRoutesDB_ActionableFollowsTheRoleOnEachDatabase(t *testing.T) {
+	mgr, reg := fleet.NewManager(config.DefaultConfig()), earned.NewRegistry(false)
+	for _, db := range []string{"orders", "billing"} {
+		seedInbox(t, mgr, inboxInstance(t, mgr, reg, db), db)
+	}
+	src := &dbAuthzSource{}
+	src.set(4, map[string]string{"orders": auth.RoleViewer, "billing": auth.RoleOperator})
+	res := readInbox(t, inboxMux(mgr, reg, src), "/api/v1/inbox", dbOperator(4))
+	seen := map[string]bool{}
+	for _, it := range res.Items {
+		if it["kind"] != "change_approval" {
+			continue
+		}
+		db := it["database"].(string)
+		seen[db] = true
+		if want := db == "billing"; it["actionable"] != want {
+			t.Fatalf("change approval on %s actionable=%v, want %v", db, it["actionable"],
+				want)
+		}
+	}
+	if !seen["orders"] || !seen["billing"] {
+		t.Fatalf("change approvals seen %v, want both databases", seen)
+	}
+}

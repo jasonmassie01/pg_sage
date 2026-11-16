@@ -55,7 +55,8 @@ Viewer and up. Query parameters, all optional:
 
 Items are sorted by risk (`high`, then `moderate`, then `safe`; an unknown
 risk counts as `moderate`), then oldest first. `actionable` says whether your
-role decides that kind: always `false` for a viewer.
+role on the item's database decides that kind: always `false` for a viewer,
+and `false` on a database where a grant makes you a viewer.
 
 Each source is read per database with a 2 second timeout. A source that could
 not be read is named in `errors` (`{source, database, error}`, for example
