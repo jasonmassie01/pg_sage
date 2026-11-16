@@ -8,8 +8,8 @@ import (
 )
 
 // judge reads judging step s's verdict and carries out its outcome
-// action: keep, revert_step (the rollback runs after the commit, through
-// the executor's RollbackAction) or halt_ask. A step the verifier already
+// action: keep, revert_step or revert_to_checkpoint (the reverts run after
+// the commit, through RevertTo) or halt_ask. A step the verifier already
 // rolled back is recorded reverted and never rolled back again. A pending
 // verdict before the deadline waits; a failed read waits too (logged).
 func (e *Engine) judge(ctx context.Context, tx pgx.Tx, p Plan, s Step) (followUp, error) {
@@ -46,15 +46,16 @@ func (e *Engine) judge(ctx context.Context, tx pgx.Tx, p Plan, s Step) (followUp
 	case ActionKeep:
 		return nil, e.transitionTx(ctx, tx, p.ID, p.PlanHash, s.ID, StateJudging,
 			StateKept, w)
-	case ActionRevertStep:
-		w.reason = "verdict " + string(o) + ": reverting the step"
+	case ActionRevertStep, ActionRevertToCheckpoint:
+		w.reason = fmt.Sprintf("verdict %s: %s", o, act)
 		if err := e.transitionTx(ctx, tx, p.ID, p.PlanHash, s.ID, StateJudging,
 			StateReverting, w); err != nil {
 			return nil, err
 		}
-		return func(ctx context.Context) error { return e.revert(ctx, p, s, o) }, nil
+		s.Runtime.State, s.Runtime.Verdict = StateReverting, o
+		return func(ctx context.Context) error { return e.RevertTo(ctx, p, s, act) }, nil
 	default:
-		// halt_ask, and revert_to_checkpoint until plan-02c: a person decides.
+		// halt_ask: a person decides.
 		w.reason = fmt.Sprintf("verdict %s asks a person (%s)", o, act)
 		return nil, e.transitionTx(ctx, tx, p.ID, p.PlanHash, s.ID, StateJudging,
 			StateHalted, w)
@@ -76,19 +77,4 @@ func unknownVerdict(verdict string) string {
 		return ""
 	}
 	return fmt.Sprintf("unknown verifier verdict %q: a person decides", truncate(verdict, 100))
-}
-
-// revert rolls step s's action back through the executor's RollbackAction
-// (which routes an index replace to RollbackIndexReplace): reverted, or
-// failed with the rollback's error.
-func (e *Engine) revert(ctx context.Context, p Plan, s Step, o Outcome) error {
-	reason := fmt.Sprintf("plan %d step %d: verdict %s (on_%s revert_step)", p.ID,
-		s.Ordinal, o, o)
-	if err := e.cfg.Executor.RollbackAction(ctx, *s.Runtime.ActionLogID,
-		reason); err != nil {
-		return e.transition(ctx, p.ID, s.ID, StateReverting, StateFailed,
-			stepWrite{reason: "rollback: " + err.Error()})
-	}
-	return e.transition(ctx, p.ID, s.ID, StateReverting, StateReverted,
-		stepWrite{reason: "reverted by the plan: verdict " + string(o)})
 }

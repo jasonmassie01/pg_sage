@@ -32,9 +32,12 @@ type realPlan struct {
 	store  *Store
 }
 
-func newRealPlan(t *testing.T) *realPlan {
+func newRealPlan(t *testing.T) *realPlan { return newRealPlanOn(t, "engine_real") }
+
+// newRealPlanOn is newRealPlan on a fresh database named for label.
+func newRealPlanOn(t *testing.T, label string) *realPlan {
 	t.Helper()
-	pool := planPool(t, "engine_real")
+	pool := planPool(t, label)
 	ctx := context.Background()
 	if err := schema.MigrateConfigSchema(ctx, pool); err != nil {
 		t.Fatalf("config schema: %v", err)

@@ -52,6 +52,9 @@ const (
 	CodeUnverifiableUndeclared = "unverifiable_undeclared"
 	CodeDeadlineRange          = "deadline_range"
 	CodeOutcomeActionInvalid   = "outcome_action_invalid"
+	// CodeCheckpointNotBefore: a step reverts to a checkpoint that its
+	// edges make run after it (plan-02c).
+	CodeCheckpointNotBefore = "checkpoint_not_before"
 )
 
 // Bounds.
@@ -100,6 +103,7 @@ func Validate(ctx context.Context, p Plan, r Resolver) ([]Problem, error) {
 	v.planFields()
 	v.ordinals()
 	v.edges()
+	v.checkpoints()
 	for _, s := range p.Steps {
 		v.stepFields(s)
 	}

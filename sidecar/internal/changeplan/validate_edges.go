@@ -77,3 +77,60 @@ func findCycle(next map[int][]int) (int, bool) {
 	}
 	return 0, false
 }
+
+// checkpoints refuses a step whose revert_to_checkpoint walks back to a
+// checkpoint (the latest checkpoint step before it, by ordinal) that its
+// edges make run after it: that checkpoint never ran when the step fails.
+// A plan whose edges cycle is refused by edges and not checked here.
+func (v *validator) checkpoints() {
+	next := map[int][]int{}
+	for _, e := range v.plan.Edges {
+		next[e.From] = append(next[e.From], e.To)
+	}
+	if _, cyclic := findCycle(next); cyclic {
+		return
+	}
+	for _, s := range v.plan.Steps {
+		if !revertsToCheckpoint(s) {
+			continue
+		}
+		cp := checkpointBefore(v.plan, s.Ordinal)
+		if cp != 0 && reaches(next, s.Ordinal, cp) {
+			v.add(CodeCheckpointNotBefore, s.Ordinal, "step %d reverts to checkpoint step "+
+				"%d, but step %d depends on step %d and so runs after it", s.Ordinal, cp, cp,
+				s.Ordinal)
+		}
+	}
+}
+
+// revertsToCheckpoint reports whether any of s's outcome actions is
+// revert_to_checkpoint.
+func revertsToCheckpoint(s Step) bool {
+	for _, a := range []OutcomeAction{s.OnImproved, s.OnNoChange, s.OnRegressed,
+		s.OnInconclusive, s.OnUnverifiable, s.OnExpired} {
+		if a == ActionRevertToCheckpoint {
+			return true
+		}
+	}
+	return false
+}
+
+// reaches reports whether an edge path leads from ordinal from to to.
+func reaches(next map[int][]int, from, to int) bool {
+	seen := map[int]bool{}
+	stack := []int{from}
+	for len(stack) > 0 {
+		n := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		for _, m := range next[n] {
+			if m == to {
+				return true
+			}
+			if !seen[m] {
+				seen[m] = true
+				stack = append(stack, m)
+			}
+		}
+	}
+	return false
+}

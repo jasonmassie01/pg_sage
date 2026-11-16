@@ -12,9 +12,24 @@ import (
 
 // decideAndApply makes plan p's next decision in tx (the plan row held).
 // Starting and reverting a step continue after the commit (followUp), so
-// no transaction is open while the executor changes the database.
+// no transaction is open while the executor changes the database; a
+// revert goes on along its revert_to_checkpoint walk (continueWalk).
 func (e *Engine) decideAndApply(ctx context.Context, tx pgx.Tx, p Plan) (followUp, error) {
 	m := decide(p, e.cfg.Now(), e.cfg.Owner)
+	next, err := e.apply(ctx, tx, p, m)
+	if err != nil || next == nil || (m.kind != moveRevert && m.kind != moveWalkRevert) {
+		return next, err
+	}
+	return func(ctx context.Context) error {
+		if err := next(ctx); err != nil {
+			return err
+		}
+		return e.continueWalk(ctx, p.ID)
+	}, nil
+}
+
+// apply carries out move m on plan p in tx.
+func (e *Engine) apply(ctx context.Context, tx pgx.Tx, p Plan, m move) (followUp, error) {
 	switch m.kind {
 	case moveJudgeStart:
 		return nil, e.transitionTx(ctx, tx, p.ID, p.PlanHash, m.step.ID, StateExecuted,
@@ -34,9 +49,13 @@ func (e *Engine) decideAndApply(ctx context.Context, tx pgx.Tx, p Plan) (followU
 		return nil, e.setStatus(ctx, tx, p, StatusCompleted, EventCompleted,
 			map[string]any{"steps": len(p.Steps)})
 	case moveHalt:
-		return e.halt(ctx, tx, p, m.step, m.reason)
+		return e.haltMove(ctx, tx, p, m)
 	case moveStart:
 		return e.prepareStart(ctx, tx, p, m.step)
+	case moveRevert:
+		return e.resumeRevert(p, m.step), nil
+	case moveWalkRevert:
+		return e.startWalkRevert(ctx, tx, p, m)
 	}
 	return nil, nil
 }
@@ -155,8 +174,11 @@ func (e *Engine) void(ctx context.Context, tx pgx.Tx, p Plan, why error) error {
 // commit, one notification naming the plan, the step and why. A halted
 // plan starts nothing until a person resumes or cancels it.
 func (e *Engine) halt(ctx context.Context, tx pgx.Tx, p Plan, s Step,
-	reason string) (followUp, error) {
+	reason string, extra map[string]any) (followUp, error) {
 	detail := map[string]any{"reason": truncate(reason, 1000)}
+	for k, v := range extra {
+		detail[k] = v
+	}
 	if s.ID != 0 {
 		detail["ordinal"], detail["step_state"] = s.Ordinal, string(s.Runtime.State)
 		detail["verdict"] = string(s.Runtime.Verdict)

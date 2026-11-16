@@ -10,7 +10,8 @@ import (
 )
 
 // legalTransitions is every step transition the engine (and its runner)
-// may write; anything else is ErrIllegalTransition and changes nothing.
+// may write; anything else is ErrIllegalTransition and changes nothing. A
+// kept step is reverted only by a revert_to_checkpoint walk (plan-02c).
 var legalTransitions = map[StepState][]StepState{
 	StatePending: {StateStarting, StateSkipped, StateKept, StateAwaitingOperator,
 		StateAwaitingApproval},
@@ -19,6 +20,7 @@ var legalTransitions = map[StepState][]StepState{
 	StateRunning:   {StateExecuted, StateFailed},
 	StateExecuted:  {StateJudging},
 	StateJudging:   {StateKept, StateReverting, StateReverted, StateHalted},
+	StateKept:      {StateReverting},
 	StateReverting: {StateReverted, StateFailed},
 }
 
@@ -62,6 +64,9 @@ type stepWrite struct {
 	requireClaim bool
 	requireSQL   *string
 	detail       map[string]any
+	// kind overrides the event kind eventKindFor gives (a walk's revert
+	// starting is step_reverted, not a verdict).
+	kind EventKind
 }
 
 const transitionSQL = `/* pg_sage */ UPDATE sage.plan_step SET state = $4,
@@ -129,8 +134,12 @@ func (e *Engine) transitionTx(ctx context.Context, tx pgx.Tx, planID int64, hash
 	if w.verdict != "" {
 		detail["verdict"] = string(w.verdict)
 	}
+	kind := eventKindFor(to)
+	if w.kind != "" {
+		kind = w.kind
+	}
 	_, err = AppendEvent(ctx, tx, Event{PlanID: planID, StepID: &stepID,
-		Kind: eventKindFor(to), PlanHash: hash, Actor: e.actor(), Detail: detail})
+		Kind: kind, PlanHash: hash, Actor: e.actor(), Detail: detail})
 	return err
 }
 

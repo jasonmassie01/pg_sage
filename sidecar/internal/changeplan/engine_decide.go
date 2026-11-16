@@ -19,6 +19,8 @@ const (
 	moveComplete                   // every step ended: the plan is completed
 	moveHalt                       // a step failed, halted or regressed
 	moveStart                      // start the next runnable action step
+	moveRevert                     // carry on a reverting step's revert (plan-02c)
+	moveWalkRevert                 // kept -> reverting: the walk's next step
 )
 
 // move is decide's answer: what to do, to which step and why.
@@ -26,6 +28,7 @@ type move struct {
 	kind   moveKind
 	step   Step
 	reason string
+	walk   *walk // the revert_to_checkpoint walk the move belongs to
 }
 
 // inFlightStates are the states of a started step without a verdict (or
@@ -49,10 +52,12 @@ const (
 )
 
 // decide is the plan's next move, a pure function of its rows. A step in
-// flight is judged (or waited on) first; a failed, halted or regressed
-// step halts the plan; then predecessors' reverts are propagated; then the
-// plan completes, or its lowest runnable step starts. owner's claims and
-// lapsed claims may be judged; another live engine's may not.
+// flight is judged, reverted (or waited on) first; then a
+// revert_to_checkpoint walk goes on (plan-02c); a failed, halted or
+// regressed step halts the plan; then predecessors' reverts are
+// propagated; then the plan completes, or its lowest runnable step starts.
+// owner's claims and lapsed claims may be judged; another live engine's
+// may not.
 func decide(p Plan, now time.Time, owner string) move {
 	for _, s := range p.Steps {
 		if !inFlightStates[s.Runtime.State] {
@@ -65,8 +70,13 @@ func decide(p Plan, now time.Time, owner string) move {
 			return move{kind: moveJudgeStart, step: s}
 		case s.Runtime.State == StateJudging && claimable:
 			return move{kind: moveJudge, step: s}
+		case s.Runtime.State == StateReverting && claimable:
+			return move{kind: moveRevert, step: s}
 		}
 		return move{kind: moveWait, step: s, reason: "step in flight"}
+	}
+	if m, ok := walkMove(p); ok {
+		return m
 	}
 	for _, s := range p.Steps {
 		if why := haltReason(s); why != "" {
@@ -147,7 +157,7 @@ func haltReason(s Step) string {
 	case s.Runtime.State == StateSkipped && s.Runtime.Verdict == OutcomeExpired &&
 		s.ActionFor(OutcomeExpired) != ActionKeep &&
 		s.ActionFor(OutcomeExpired) != ActionRevertStep:
-		// halt_ask, and revert_to_checkpoint until plan-02c.
+		// halt_ask; revert_to_checkpoint walks first (walkMove).
 		return "step expired waiting on a plan cap or a peak window: " +
 			s.Runtime.StateReason
 	}

@@ -104,6 +104,11 @@ type fakeExec struct {
 	runErr      error
 	rollbacks   []int64
 	rollbackErr error
+	// rollbackFailSQL fails the rollback of the action that ran that SQL
+	// (plan-02c's walk tests).
+	rollbackFailSQL map[string]error
+	// afterRollback runs after each rollback the fake records.
+	afterRollback func()
 }
 
 func (f *fakeExec) RunApprovedAction(ctx context.Context, a store.QueuedAction,
@@ -124,10 +129,23 @@ func (f *fakeExec) RunApprovedAction(ctx context.Context, a store.QueuedAction,
 func (f *fakeExec) RollbackAction(ctx context.Context, actionID int64, _ string) error {
 	f.mu.Lock()
 	f.rollbacks = append(f.rollbacks, actionID)
-	err := f.rollbackErr
+	err, failSQL, after := f.rollbackErr, f.rollbackFailSQL, f.afterRollback
 	f.mu.Unlock()
+	if after != nil {
+		defer after()
+	}
 	if err != nil {
 		return err
+	}
+	if len(failSQL) > 0 {
+		var sql string
+		if err := f.pool.QueryRow(ctx, `SELECT sql_executed FROM sage.action_log
+			WHERE id = $1`, actionID).Scan(&sql); err != nil {
+			return err
+		}
+		if err := failSQL[sql]; err != nil {
+			return err
+		}
 	}
 	_, err = f.pool.Exec(ctx, `UPDATE sage.action_log SET outcome = 'rolled_back'
 		WHERE id = $1`, actionID)
