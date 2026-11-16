@@ -1566,6 +1566,8 @@ unless pruning is turned on.
 | `sage.fact_events` | never | Kept: who lifted a guard outlives the fact |
 | `sage.decision` | `retention.decisions_days` (withheld verdicts), `retention.actions_days` | Decisions behind an action, a verification or an open deadline are kept |
 | `sage.policy_approvals` | never | Deleted only with the policy version it approves |
+| `sage.plan_event` | never | Kept: a plan's history outlives the plan |
+| `sage.plan_model_record` | never | Kept: the model passes a plan is replayed from |
 | `sage.audit_chain_link` | never | Kept whole, unless `audit.prune_below_signed_checkpoint` is on (see below) |
 
 A row removed by retention leaves a delete link in its chain, so
@@ -1575,8 +1577,26 @@ verification still proves what was there.
 
 Each audit table (`action_log`, `auth_audit`, `config_audit`,
 `guard_query_audit`, `guard_pgaudit_events`, `fact_events`, `decision`,
-`policy_approvals`) is hash-chained: every write appends a link to
-`sage.audit_chain_link`, and every inserted row carries its own link.
+`policy_approvals`, `plan_events`, `plan_model_records`) is hash-chained:
+every write appends a link to `sage.audit_chain_link`, and every inserted
+row carries its own link.
+
+The two plan chains (`plan_events` over `sage.plan_event`,
+`plan_model_records` over `sage.plan_model_record`) are append-only and
+seal every column. A plan event is written in the transaction of the
+change it records (created, edited, approved, voided, and the engine's
+step transitions and verdicts), with the plan hash after it and the actor
+who made it; a write whose caller named nobody is recorded as
+`unattributed`. A model record holds one model pass that contributed to a
+plan: the evidence pack hash, the model, the prompt version, the raw
+output byte for byte (markdown fences included, at most 1 MiB) and its
+SHA-256. The replay input of a plan is handed back only when every pass
+still matches its own SHA-256 (`hash mismatch` otherwise) and its chain
+link, and the chain verifies from the first pass to the head. Both chains
+install on the first boot that has their tables and reach SIEM sinks as
+the `log_name` values `plan_events` and `plan_model_records` (OCSF API
+Activity, activity Other); the other chains, their versions and the SIEM
+cursor are unchanged.
 
 The `decision` chain records the authority a change ran under. What was
 decided about (database, feature, intent, targets), the risk tier, the
@@ -1864,7 +1884,12 @@ the approvals of the policy versions they name: a decision or approval
 edited, or an approval deleted, behind the chain sets the manifest's
 `chain_ok` to `false`. The approvals proof verifies the whole
 `policy_approvals` chain, so an approval no query can list any more is
-still reported. The manifest is signed with Ed25519 (`manifest.sig`) by the
+still reported. When the action ran as a plan step (its queue item's
+identity key is `plan_step:<plan>:<step>`), the pack also holds the plan's
+events (`plan_events.json`), the model passes it was built from
+(`plan_model_records.json`) and their chain proofs (`plan_chains.json`); an
+edited or deleted plan event or model record sets `chain_ok` to `false`.
+The manifest is signed with Ed25519 (`manifest.sig`) by the
 first key that applies:
 
 1. **`audit.evidence.signing_key_env`**, the operator's own PKCS#8 PEM
