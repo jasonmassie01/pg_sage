@@ -90,7 +90,7 @@ func fixtureCatalog() map[string]any {
 			Facts: []ContextFact{}},
 		fileSettings: Settings{Status: relStatusOK, Settings: []SettingFact{
 			{ID: "setting/primary_conninfo", Name: "primary_conninfo",
-				Value: "host=replica user=rep password=hunter2-conninfo",
+				Value:  "host=replica user=rep password=hunter2-conninfo",
 				Source: "configuration file", Changes: []SettingChange{{Day: "2026-10-02",
 					From: "", To: "host=replica user=rep password=hunter2-conninfo"}}},
 			{ID: "setting/work_mem", Name: "work_mem", Value: "4096", Unit: "kB",

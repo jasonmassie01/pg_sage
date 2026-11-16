@@ -30,6 +30,13 @@ type WorkloadPackKeys struct {
 	Control   *pgxpool.Pool
 }
 
+// workloadPackKeys are rt's keys for the tier routes, exports recorded on
+// the control pool.
+func workloadPackKeys(rt RuntimeDeps, control *pgxpool.Pool) WorkloadPackKeys {
+	return WorkloadPackKeys{Signing: rt.Audit.EvidenceKey, Pseudonym: rt.WorkloadPseudonymKey,
+		Control: control}
+}
+
 // packTier is a GET's tier and identifier hashing.
 type packTier struct {
 	tier string
