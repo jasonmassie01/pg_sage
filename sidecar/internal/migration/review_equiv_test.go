@@ -59,10 +59,37 @@ func TestReviewAgreesWithAdvisorAndAgentguard(t *testing.T) {
 			t.Errorf("%q: Review top %+v, advisor %s/%s/%.2f", sql, top, risk.RuleID,
 				risk.LockLevel, risk.RiskScore)
 		}
-		additive := decide.ClassifyDDL(sql) == decide.CapDDLAdditive
-		if additive != (rep.Verdict == migration.VerdictSafe) {
-			t.Errorf("%q: Review %s, agentguard %s", sql, rep.Verdict, decide.ClassifyDDL(sql))
-		}
+		checkReviewAgreesWithAgentguard(t, sql, rep.Verdict == migration.VerdictSafe)
+	}
+}
+
+// parserOnlySafe are the corpus statements the parse tree proves a safe
+// form (metadata-only, as Review's own NOT VALID rewrite emits) that the
+// additive allowlist refuses by design: agentguard keeps them locking.
+var parserOnlySafe = map[string]bool{
+	"ALTER TABLE t ADD CONSTRAINT ck CHECK (v > 0) NOT VALID": true,
+}
+
+// checkReviewAgreesWithAgentguard: agentguard never classes additive what
+// Review does not call safe. Without the parser both prove a safe form
+// only through the additive allowlist, so they agree exactly; with it,
+// Review is wider by the parserOnlySafe statements and no others.
+func checkReviewAgreesWithAgentguard(t *testing.T, sql string, safe bool) {
+	t.Helper()
+	class := decide.ClassifyDDL(sql)
+	additive := class == decide.CapDDLAdditive
+	cls, err := migration.ClassifyStatements(context.Background(), nil, sql, 0)
+	if err != nil {
+		t.Fatalf("ClassifyStatements(%q): %v", sql, err)
+	}
+	switch {
+	case additive && !safe:
+		t.Errorf("%q: agentguard additive, Review not safe", sql)
+	case cls.Degraded && safe != additive:
+		t.Errorf("%q: Review safe %v, agentguard %s (no parser)", sql, safe, class)
+	case !cls.Degraded && safe != (additive || parserOnlySafe[sql]):
+		t.Errorf("%q: Review safe %v, agentguard %s, parser-only safe %v", sql, safe,
+			class, parserOnlySafe[sql])
 	}
 }
 
