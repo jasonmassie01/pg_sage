@@ -352,3 +352,28 @@ func TestPlanRoutes_AppModeIsSessionOnly(t *testing.T) {
 			code, f.tokens.calls.Load(), f.fake.users)
 	}
 }
+
+// An agent token is refused by its kind alone: even one whose grant names
+// an operator owner (which an agent grant never should) cannot read or
+// decide, and the store is never asked.
+func TestPlanRoutes_AgentTokenRefusedByKind(t *testing.T) {
+	agent := operatorGrant("ag", []string{mcptoken.ScopeRead, mcptoken.ScopeApprove})
+	agent.Kind, agent.PrincipalID = mcptoken.KindAgent, "agp_1"
+	f := newPlanFixture(t, "orders")
+	f.tokens = lintTokens(map[string]mcptoken.Grant{lintSecret(1): agent})
+	h := f.router(nil, false)
+	approve := `{"plan_hash":"` + goldenHash + `","mode":"all"}`
+	for _, c := range []struct{ method, path, body string }{
+		{http.MethodPost, "/api/v1/plans/7/approve", approve},
+		{http.MethodGet, "/api/v1/plans/7", ""},
+	} {
+		code, out, _ := planCall(t, h, c.method, c.path, c.body, "Bearer "+lintSecret(1))
+		if code != http.StatusForbidden || out["code"] != "agent_token" {
+			t.Errorf("agent token %s %s: %d %v, want 403 agent_token", c.method, c.path,
+				code, out)
+		}
+	}
+	if len(f.fake.decisions) != 0 || len(f.fake.users) != 0 {
+		t.Fatalf("the store was asked %v as %v", f.fake.decisions, f.fake.users)
+	}
+}
