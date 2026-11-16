@@ -133,6 +133,13 @@ describe('stage words', () => {
     expect(measuredText(undefined)).toBe('not measured yet')
   })
 
+  it('says the ledger could not be read instead of not measured yet', () => {
+    expect(measuredText(undefined, 'ledger down (500)'))
+      .toBe('could not be read: ledger down (500)')
+    expect(measuredText({ measured: { metric: 'blocks_per_call', change_pct: -10 } },
+      'ledger down (500)')).toBe('blocks per call -10%')
+  })
+
   it('names the ladder tier from the ledger row, else from the expected source', () => {
     expect(tierText(planStep(1, 1, 'a'), { tier: 'clone' })).toBe('Tested on a clone')
     expect(tierText(planStep(1, 1, 'a'), undefined)).toBe('Tested on plans only')

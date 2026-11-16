@@ -84,7 +84,9 @@ function useOutcomes(detail, pollMs) {
     database: db, since: outcomesSince(created), limit: '500' })}` : null), [ran, db, created])
   const res = useAPI(url, pollMs)
   const rows = Array.isArray(res.data?.rows) ? res.data.rows : []
-  return new Map(rows.map(r => [r.action_id, r]))
+  // A failed read says so on each stage that ran, never "not measured yet".
+  return { byAction: new Map(rows.map(r => [r.action_id, r])),
+    error: url && res.error ? String(res.error) : '' }
 }
 
 function useStepApproval(detail, database, refetch) {
@@ -129,7 +131,8 @@ function Stages({ detail, steps, outcomes, canReview, stepApproval }) {
     style={{ maxHeight: '70vh', overflowY: 'auto' }}>
     {steps.map((s, i) => <PlanStageRow key={s.ordinal} step={s} edges={detail.plan.edges}
       next={i + 1 < steps.length ? cov.get(steps[i + 1].ordinal) || null : null}
-      outcome={outcomes.get(s.runtime?.action_log_id)} busy={stepApproval.busy}
+      outcome={outcomes.byAction.get(s.runtime?.action_log_id)}
+      ledgerError={s.runtime?.action_log_id ? outcomes.error : ''} busy={stepApproval.busy}
       onApproveStep={stepApprovable(detail, s, cov.get(s.ordinal), canReview)
         ? stepApproval.approve : null} />)}
   </ul>

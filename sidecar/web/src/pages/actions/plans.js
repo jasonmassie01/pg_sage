@@ -128,12 +128,15 @@ export function expectedText(step) {
   return `${metricName(step.metric)} ${dir} ${size}`
 }
 
-export function measuredText(outcome) {
+// measuredText is a stage's measured effect; unreadable is the ledger's
+// read error, said instead of "not measured yet" when there is no row.
+export function measuredText(outcome, unreadable = '') {
   const m = outcome?.measured
   if (m && typeof m.change_pct === 'number') {
     const pct = Math.round(m.change_pct * 10) / 10
     return `${metricName(m.metric)} ${pct > 0 ? '+' : ''}${pct}%`
   }
+  if (!outcome && unreadable) return `could not be read: ${unreadable}`
   return outcome?.measured_reason ? `not measured yet: ${outcome.measured_reason}`
     : 'not measured yet'
 }

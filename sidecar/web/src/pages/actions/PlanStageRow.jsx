@@ -58,18 +58,19 @@ function Rollback({ step, edges }) {
   </div>
 }
 
-function Effects({ step, outcome, next }) {
+function Effects({ step, outcome, next, ledgerError }) {
   const verdict = outcome?.verdict && outcome.verdict !== 'pending' ? outcome.verdict
     : step.runtime?.verdict
   return <div className="text-xs space-y-0.5" style={muted}>
     <p>Expected: {expectedText(step)} · {tierText(step, outcome)}</p>
-    <p>Measured: {measuredText(outcome)}</p>
+    <p>Measured: {measuredText(outcome, ledgerError)}</p>
     {verdict && <p>Verdict: {verdictText(verdict)}</p>}
     <p>Gate: {gateText(step, next)}</p>
   </div>
 }
 
-export function PlanStageRow({ step, edges, next, outcome, onApproveStep, busy }) {
+export function PlanStageRow({ step, edges, next, outcome, ledgerError = '', onApproveStep,
+  busy }) {
   const n = step.ordinal
   const operator = step.kind === 'operator'
   return <li data-testid={`plan-stage-${n}`} className="rounded border p-3 space-y-2"
@@ -85,7 +86,7 @@ export function PlanStageRow({ step, edges, next, outcome, onApproveStep, busy }
     <EvidenceLinks ids={step.evidence_ids} />
     {operator ? <OperatorBody step={step} /> : step.proposed_sql
       && <Code id={`plan-stage-sql-${n}`} text={step.proposed_sql} />}
-    <Effects step={step} outcome={outcome} next={next} />
+    <Effects step={step} outcome={outcome} next={next} ledgerError={ledgerError} />
     {!operator && <Rollback step={step} edges={edges} />}
     {onApproveStep && !operator && <button type="button" disabled={busy} aria-busy={busy}
       onClick={() => onApproveStep(step)} className="px-3 py-1.5 rounded text-sm"

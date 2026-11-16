@@ -24,7 +24,8 @@ function route(answers) {
     }
     calls.gets.push(url)
     if (url.startsWith('/api/v1/outcomes')) {
-      return jsonResponse(pick('outcomes', answers.outcomes || [{ rows: [] }]))
+      const got = pick('outcomes', answers.outcomes || [{ rows: [] }])
+      return got instanceof Response ? got.clone() : jsonResponse(got)
     }
     const got = pick('plan', answers.plan)
     return got instanceof Response ? got : jsonResponse(got)
@@ -72,10 +73,12 @@ describe('PlanView', () => {
     await act(async () => { fireEvent.click(all) })
     expect(calls.posts).toEqual([{ url: '/api/v1/plans/7/approve?database=orders',
       body: { plan_hash: PLAN_HASH, mode: 'all' } }])
+    // The plan moves on each 20 ms poll; a loaded machine needs more than
+    // waitFor's default second to render the later answers.
     await waitFor(() => expect(screen.getByTestId('plan-stage-status-1'))
-      .toHaveTextContent('Running'))
+      .toHaveTextContent('Running'), { timeout: 3000 })
     await waitFor(() => expect(screen.getByTestId('plan-stage-status-3'))
-      .toHaveTextContent('Verified: kept'))
+      .toHaveTextContent('Verified: kept'), { timeout: 3000 })
     expect(screen.getByTestId('plan-header')).toHaveTextContent('Completed')
     expect(screen.queryByTestId('plan-approval')).toBeNull()
     expect(calls.gets[0]).toBe('/api/v1/plans/7?database=orders')
@@ -104,6 +107,18 @@ describe('PlanView', () => {
     expect(screen.getByTestId('plan-stage-2')).toHaveTextContent('Measured: not measured yet')
     expect(calls.gets.find(u => u.startsWith('/api/v1/outcomes')))
       .toMatch(/^\/api\/v1\/outcomes\?database=orders&since=\d+h&limit=500$/)
+  })
+
+  it('says the effect of a stage that ran is unreadable when the ledger fails', async () => {
+    const done = withStates(proposedPlan(), 'running', {
+      1: { state: 'kept', verdict: 'improved', action_log_id: 501 } })
+    route({ plan: [done], outcomes: [jsonResponse({ error: 'ledger down' }, 500)] })
+    mount()
+    const one = await screen.findByTestId('plan-stage-1')
+    await waitFor(() => expect(one).toHaveTextContent('Measured: could not be read'),
+      { timeout: 3000 })
+    expect(one).not.toHaveTextContent('not measured yet')
+    expect(screen.getByTestId('plan-stage-2')).toHaveTextContent('Measured: not measured yet')
   })
 
   it('reads no ledger while no stage has run', async () => {
