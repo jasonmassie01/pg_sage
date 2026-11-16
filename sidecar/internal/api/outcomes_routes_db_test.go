@@ -80,3 +80,37 @@ func TestOutcomesRouteDB_MatchesTheSharedReadAcrossDatabases(t *testing.T) {
 		t.Fatalf("get_outcomes = %s %v", raw, err)
 	}
 }
+
+// The summary covers the window, not the page: a limit that cuts the rows
+// must not cut the counts, for one database or several.
+func TestOutcomesRouteDB_SummaryCoversTheWindowNotThePage(t *testing.T) {
+	mgr := fleet.NewManager(config.DefaultConfig())
+	outcomesSeed(t, mgr, "orders", 3*time.Hour)
+	outcomesSeed(t, mgr, "billing", 2*time.Hour)
+	pool := mgr.GetInstance("orders").Pool
+	for _, ago := range []string{"1 hour", "30 minutes"} {
+		inboxExec(t, pool, `INSERT INTO sage.action_log (executed_at, action_type,
+			sql_executed, outcome) VALUES (now() - $1::interval, 'vacuum', 'VACUUM t',
+			'success') RETURNING id`, ago)
+	}
+	h := outcomesMux(mgr, nil)
+	for _, c := range []struct {
+		url               string
+		changes, measured int
+	}{
+		{"/api/v1/outcomes?database=orders&limit=1", 3, 1},
+		{"/api/v1/outcomes?limit=1", 4, 2},
+	} {
+		code, _, body := inboxGet(t, h, c.url, testViewerUser())
+		var got outcomes.Result
+		if code != 200 || json.Unmarshal([]byte(body), &got) != nil {
+			t.Fatalf("GET %s = %d %s", c.url, code, body)
+		}
+		s := got.Summary
+		if len(got.Rows) != 1 || s.Changes != c.changes || s.Measured != c.measured ||
+			s.Pending != 2 || s.MeasuredShare == nil {
+			t.Fatalf("GET %s: rows %d summary %+v, want %d changes, %d measured",
+				c.url, len(got.Rows), s, c.changes, c.measured)
+		}
+	}
+}

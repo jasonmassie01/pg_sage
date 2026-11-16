@@ -228,18 +228,29 @@ func TestSummarize_CountsAndTheMeasuredShare(t *testing.T) {
 func TestMerge_CombinesDatabasesNewestFirstAndKeepsErrors(t *testing.T) {
 	t0 := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
 	m := &Effect{ChangePct: -5}
-	a := Result{Rows: []Row{{ActionID: 1, Database: "a", ExecutedAt: t0, Measured: m,
-		Verdict: VerdictImproved}}}
-	b := Result{Rows: []Row{{ActionID: 7, Database: "b", ExecutedAt: t0.Add(time.Hour),
+	aRows := []Row{{ActionID: 1, Database: "a", ExecutedAt: t0, Measured: m,
+		Verdict: VerdictImproved}}
+	a := Result{Rows: aRows, Summary: Summarize(aRows)}
+	bRows := []Row{{ActionID: 7, Database: "b", ExecutedAt: t0.Add(time.Hour),
 		Verdict: VerdictPending}, {ActionID: 2, Database: "b", ExecutedAt: t0,
-		Verdict: VerdictPending}}, Truncated: true}
+		Verdict: VerdictPending}}
+	b := Result{Rows: bRows, Summary: Summarize(bRows), Truncated: true}
 	bad := Result{Errors: []ReadError{{Database: "c", Error: "read outcomes: c: refused"}}}
 	got := Merge(2, a, b, bad)
 	if len(got.Rows) != 2 || got.Rows[0].ActionID != 7 || got.Rows[1].Database != "a" {
 		t.Fatalf("rows = %+v, want b/7 then a/1 (same time: database order)", got.Rows)
 	}
-	if got.Summary.Changes != 3 || *got.Summary.MeasuredShare != 0.333 {
+	if got.Summary.Changes != 3 || got.Summary.Pending != 2 || got.Summary.Verified != 1 ||
+		*got.Summary.MeasuredShare != 0.333 {
 		t.Fatalf("summary covers every row read: %+v", got.Summary)
+	}
+	// A part's rows are already cut to the page; its summary covers its
+	// window, so the merged summary adds summaries, not rows.
+	paged := Result{Rows: aRows, Summary: Summary{Changes: 4, Verified: 1, Pending: 3,
+		Measured: 1}}
+	if s := Merge(1, paged, b).Summary; s.Changes != 6 || s.Pending != 5 ||
+		s.Measured != 1 || *s.MeasuredShare != 0.167 {
+		t.Fatalf("paged merge summary = %+v, want 6 changes, 1 measured", s)
 	}
 	if !got.Truncated || len(got.Errors) != 1 || got.Errors[0].Database != "c" {
 		t.Fatalf("truncated %v errors %+v", got.Truncated, got.Errors)
