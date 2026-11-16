@@ -50,7 +50,7 @@ describe('route registry integrity', () => {
 
   it('keeps the existing nav test ids and hash URLs', () => {
     const expected = {
-      'nav-value': '#/', 'nav-cases': '#/cases', 'nav-actions': '#/actions',
+      'nav-inbox': '#/', 'nav-cases': '#/cases', 'nav-actions': '#/actions',
       'nav-slos': '#/slos', 'nav-trust': '#/trust', 'nav-facts': '#/facts',
       'nav-ask': '#/ask', 'nav-databases': '#/manage-databases',
       'nav-settings': '#/settings', 'nav-mcp-tokens': '#/mcp-tokens',
@@ -91,7 +91,9 @@ describe('findRoute', () => {
     expect(findRoute('#/cases').id).toBe('cases')
     expect(findRoute('/cases').id).toBe('cases')
     expect(findRoute('#/cases?case=12&database=orders').id).toBe('cases')
-    expect(findRoute('#/').id).toBe('value')
+    expect(findRoute('#/').id).toBe('inbox')
+    // ux-01b: the Inbox is home; the Value page stays at #/value.
+    expect(findRoute('#/value').id).toBe('value')
   })
 
   it('resolves the old Advanced and findings URLs as aliases', () => {
@@ -110,10 +112,10 @@ describe('findRoute', () => {
   })
 
   it('treats a missing or empty route as the landing page', () => {
-    expect(findRoute(undefined).id).toBe('value')
-    expect(findRoute(null).id).toBe('value')
-    expect(findRoute('').id).toBe('value')
-    expect(findRoute('#').id).toBe('value')
+    expect(findRoute(undefined).id).toBe('inbox')
+    expect(findRoute(null).id).toBe('inbox')
+    expect(findRoute('').id).toBe('inbox')
+    expect(findRoute('#').id).toBe('inbox')
   })
 
   it('finds signed-out pages only when asked to', () => {

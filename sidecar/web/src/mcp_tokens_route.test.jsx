@@ -53,7 +53,7 @@ describe('MCP tokens route', () => {
     api.useAPI.mockImplementation(url => ({
       data: url === '/api/v1/databases' ? fleet
         : url?.startsWith(TOKENS) ? { tokens: [] }
-          : url === '/api/v1/actions/pending/count' ? { count: 0 }
+          : url === '/api/v1/inbox/count' ? { total: 0 }
             : null,
       loading: false, error: null, refetch: vi.fn(),
     }))

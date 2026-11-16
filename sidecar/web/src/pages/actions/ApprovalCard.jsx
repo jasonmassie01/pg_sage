@@ -5,6 +5,7 @@ import { useToast } from '../../components/Toast'
 import { HintPlanSection } from './HintPlanSection'
 import { ShadowHistory } from './ShadowHistory'
 import { blockerText, riskLabel } from './workflow'
+import { withSurface } from '../../lib/inbox'
 
 // ApprovalCard shows one queued action with the why (roadmap 1.5): what
 // pg_sage wants to do, why it needs a person, the cited evidence, the
@@ -222,8 +223,9 @@ function RollbackSection({ rollback }) {
 
 // facts is an optional node (the binding facts about the card's targets)
 // shown under the why and trust lines.
+// surface names the page deciding (X-Sage-Surface, ux-01a); the Inbox passes 'inbox'.
 export function ApprovalCard({ card, onDecided, facts = null, eligible, blockedReason, mode,
-  windowOnly = false }) {
+  windowOnly = false, surface }) {
   const [now] = useState(() => Date.now())
   return (
     <div data-testid="approval-card" className="rounded p-4 space-y-3"
@@ -267,7 +269,7 @@ export function ApprovalCard({ card, onDecided, facts = null, eligible, blockedR
         </p>
       </Section>
       <ShadowHistory history={card.shadow_history} />
-      <ApprovalActions card={card} onDecided={onDecided}
+      <ApprovalActions card={card} onDecided={onDecided} surface={surface}
         eligible={eligible} blockedReason={blockedReason} mode={mode} windowOnly={windowOnly} />
     </div>
   )
@@ -278,10 +280,11 @@ function decisionURL(card, verb) {
   return `/api/v1/approvals/${card.queue_id}/${verb}${db}`
 }
 
-async function postDecision(card, verb, body) {
+async function postDecision(card, verb, body, surface) {
   const res = await fetch(decisionURL(card, verb), {
     method: 'POST', credentials: 'include',
-    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    headers: withSurface({ 'Content-Type': 'application/json' }, surface),
+    body: JSON.stringify(body),
   })
   let json = {}
   try {
@@ -293,7 +296,7 @@ async function postDecision(card, verb, body) {
 }
 
 function ApprovalActions({ card, onDecided, eligible, blockedReason, mode: executionMode,
-  windowOnly }) {
+  windowOnly, surface }) {
   const toast = useToast()
   const [busy, setBusy] = useState(false)
   const [mode, setMode] = useState(null)
@@ -311,7 +314,7 @@ function ApprovalActions({ card, onDecided, eligible, blockedReason, mode: execu
   async function run(verb, body, describe) {
     setBusy(true)
     try {
-      const { status, json } = await postDecision(card, verb, body)
+      const { status, json } = await postDecision(card, verb, body, surface)
       const msg = describe(status, json)
       if (msg.ok) toast.success(msg.text)
       else toast.error(msg.text)

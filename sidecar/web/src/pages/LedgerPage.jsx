@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useAPI } from '../hooks/useAPI'
 import { QueryState } from '../components/QueryState'
 import { LiveTimeAgo } from '../components/TimeAgo'
+import { ROLLBACK_LABELS as ROLLBACK, VERDICT_LABELS as VERDICTS } from '../lib/outcomes'
 
 // LedgerPage (ux-02a): what pg_sage changed in a window, one row per
 // change from GET /api/v1/outcomes. The API computes every number (effect
@@ -13,15 +14,6 @@ const pollMs = 60000
 const RETENTION = '9600h'
 const WINDOWS = [['24h', 'Last 24 hours'], ['168h', 'Last 7 days'], ['720h', 'Last 30 days']]
 
-const VERDICTS = {
-  pending: 'Not judged yet', improved: 'Improved', no_change: 'No change',
-  regressed: 'Regressed', inconclusive: 'Inconclusive', unverifiable: 'Cannot be verified',
-  expired: 'Expired before a verdict',
-}
-const ROLLBACK = {
-  available: 'Can roll back', rolled_back: 'Rolled back', rollback_failed: 'Rollback failed',
-  not_reversible: 'Not reversible', rolling_back: 'Rolling back',
-}
 const ORIGINS = {
   plan: 'Plan step', approved: 'Approved by a person', agent: 'Agent under its grant',
   autonomous: 'Autonomous under policy',

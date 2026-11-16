@@ -58,16 +58,42 @@ function Buttons({ action, danger, canConfirm, busy, onCancel, onConfirm, testId
   )
 }
 
+const REASON_MIN = 3
+const REASON_MAX = 500
+
+// ReasonInput is the required "why" of a confirm that asks for one
+// (ux-01b): REASON_MIN to REASON_MAX characters once trimmed.
+function ReasonInput({ label, value, onChange, testId }) {
+  const id = useId()
+  return (
+    <div className="space-y-1">
+      <label htmlFor={id} className="block text-sm" style={{ color: 'var(--text-secondary)' }}>
+        {label}
+      </label>
+      <textarea id={id} data-testid={testId} value={value} rows={2} maxLength={REASON_MAX}
+        onChange={e => onChange(e.target.value.slice(0, REASON_MAX))}
+        className="w-full rounded px-2 py-1 text-sm"
+        style={{
+          background: 'var(--bg-primary)', color: 'var(--text-primary)',
+          border: '1px solid var(--border)',
+        }} />
+    </div>
+  )
+}
+
 // ConfirmBody mounts only while the dialog is open, so a reopened dialog
-// starts with an empty phrase.
+// starts with an empty phrase and reason. With reasonLabel, Confirm waits
+// for a reason and onConfirm receives it trimmed.
 function ConfirmBody({
   action, database, sql, riskTier, consequence, confirmPhrase, busy, error,
-  onConfirm, onCancel, testId,
+  onConfirm, onCancel, testId, reasonLabel,
 }) {
   const [typed, setTyped] = useState('')
+  const [reason, setReason] = useState('')
   const high = isHighRisk(riskTier)
   const phrase = confirmPhrase || database || FALLBACK_PHRASE
-  const canConfirm = !high || typed === phrase
+  const reasoned = !reasonLabel || reason.trim().length >= REASON_MIN
+  const canConfirm = (!high || typed === phrase) && reasoned
   return (
     <>
       {consequence && <p className="text-sm">{consequence}</p>}
@@ -80,6 +106,10 @@ function ConfirmBody({
         <PhraseInput phrase={phrase} value={typed} onChange={setTyped}
           testId={`${testId}-phrase`} />
       )}
+      {reasonLabel && (
+        <ReasonInput label={reasonLabel} value={reason} onChange={setReason}
+          testId={`${testId}-reason`} />
+      )}
       {error && (
         <div role="alert" data-testid={`${testId}-error`} className="text-sm p-2 rounded"
           style={{ color: 'var(--red)', border: '1px solid var(--red)' }}>
@@ -87,7 +117,8 @@ function ConfirmBody({
         </div>
       )}
       <Buttons action={action} danger={high} canConfirm={canConfirm} busy={busy}
-        onCancel={onCancel} onConfirm={onConfirm} testId={testId} />
+        onCancel={onCancel} testId={testId}
+        onConfirm={() => (reasonLabel ? onConfirm(reason.trim()) : onConfirm())} />
     </>
   )
 }

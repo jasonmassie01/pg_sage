@@ -66,7 +66,9 @@ Have no database at hand? [Try pg_sage locally](try-it-out.md) starts one with D
 
 ### Minute 1: the first look
 
-The landing page opens with **"Getting started"**, a checklist with live status:
+The landing page is the **Inbox** (decisions waiting on you, then the changes made since
+your last visit; see [API: The Inbox page](api.md#the-inbox-page)). Until setup is done it
+opens with **"Getting started"**, a checklist with live status:
 
 | Step | Done when |
 |---|---|

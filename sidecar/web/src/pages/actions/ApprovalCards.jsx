@@ -1,4 +1,6 @@
+import { useEffect, useRef } from 'react'
 import { useAPI } from '../../hooks/useAPI'
+import { isFocusedQueue } from './actionFocus'
 import { EmptyState } from '../../components/EmptyState'
 import { FactBadges } from '../../components/FactBadges'
 import { ApprovalCard } from './ApprovalCard'
@@ -17,9 +19,24 @@ function CardFacts({ card, onDecided }) {
   )
 }
 
+// FocusedCard scrolls to and outlines the queued proposal a link named
+// (queue=<id>, ux-01b).
+function FocusedCard({ focused, children }) {
+  const ref = useRef(null)
+  useEffect(() => {
+    if (focused) ref.current?.scrollIntoView?.({ block: 'center' })
+  }, [focused])
+  return <div ref={ref} className="space-y-1 rounded"
+    data-testid={focused ? 'approval-card-focused' : undefined}
+    style={focused ? { outline: '2px solid var(--accent)', outlineOffset: '4px' } : undefined}>
+    {children}
+  </div>
+}
+
 // PendingCardsView is the Pending Approval tab's default view: one
 // approval card per waiting action, with the compact table one click away.
-export function PendingCardsView({ cards, errors, onShowTable, onDecided, pending = [], cases = [], database, modeForDatabase }) {
+export function PendingCardsView({ cards, errors, onShowTable, onDecided, pending = [],
+  cases = [], database, modeForDatabase, queueFocus = '' }) {
   return (
     <div className="space-y-3" data-testid="approval-cards">
       <div className="flex items-center justify-between gap-2">
@@ -42,7 +59,8 @@ export function PendingCardsView({ cards, errors, onShowTable, onDecided, pendin
         const readiness = pending.find(r => rowDatabase(r, database) === card.database
           && String(r.id) === String(card.queue_id))
         const linked = relatedCase(card, cases, database)
-        return <div key={`${card.database}:${card.queue_id}`} className="space-y-1">
+        return <FocusedCard key={`${card.database}:${card.queue_id}`}
+          focused={isFocusedQueue(card, queueFocus)}>
           <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
             {linked ? <a href={caseHref(linked, database)} className="underline"
               style={{ color: 'var(--accent)' }}>Review case: {linked.title}</a>
@@ -54,7 +72,7 @@ export function PendingCardsView({ cards, errors, onShowTable, onDecided, pendin
             windowOnly={readiness?.policy_detail?.window_only === true}
             mode={modeForDatabase?.(card.database)}
             facts={<CardFacts card={card} onDecided={onDecided} />} />
-        </div>
+        </FocusedCard>
       })}
     </div>
   )
