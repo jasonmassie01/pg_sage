@@ -14,6 +14,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/earned"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/gameday"
+	"github.com/pg-sage/sidecar/internal/inbox"
 	"github.com/pg-sage/sidecar/internal/rollout"
 )
 
@@ -232,12 +233,14 @@ func (h autonomyHandlers) approve(w http.ResponseWriter, r *http.Request) {
 	if !ok || !decodeAutonomyBody(w, r, &body) {
 		return
 	}
+	waiting, _ := e.Service.Proposal(r.Context(), r.PathValue("id"))
 	st, err := e.Service.Approve(r.Context(), r.PathValue("id"),
 		autonomyActor(UserFromContext(r.Context())), body.Note)
 	if err != nil {
 		autonomyError(w, r, err)
 		return
 	}
+	recordDecision(r, inbox.KindAutonomyPromotion, waiting.ProposedAt)
 	jsonResponse(w, map[string]any{"state": st})
 }
 
@@ -255,6 +258,7 @@ func (h autonomyHandlers) reject(w http.ResponseWriter, r *http.Request) {
 		autonomyError(w, r, err)
 		return
 	}
+	recordDecision(r, inbox.KindAutonomyPromotion, p.ProposedAt)
 	jsonResponse(w, map[string]any{"proposal": p})
 }
 

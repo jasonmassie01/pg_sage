@@ -73,6 +73,9 @@ func inboxHandler(mgr *fleet.DatabaseManager, ledgers *earned.Registry,
 			return
 		}
 		res := listInbox(r.Context(), mgr, ledgers, q, inboxDatabases(mgr, nil))
+		if _, scoped := visibleDatabasesFrom(r.Context()); !scoped && q.database == "" {
+			inbox.ObserveItems(res) // the whole fleet, every kind: the gauge
+		}
 		if user := UserFromContext(r.Context()); user != nil {
 			for i := range res.Items {
 				res.Items[i].Actionable = inbox.CanDecide(res.Items[i].Kind, user.Role)

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/inbox"
 	"github.com/pg-sage/sidecar/internal/mcp"
 )
 
@@ -148,6 +149,9 @@ func logAccess(r *http.Request, entry *accessEntry, status int, latency time.Dur
 			path = path[:accessLogMaxPath]
 		}
 		attrs = append(attrs, "path", path)
+	}
+	if surface := r.Header.Get(inbox.SurfaceHeader); surface != "" {
+		attrs = append(attrs, "decided_from", inbox.Surface(surface))
 	}
 	if entry.hasUser {
 		attrs = append(attrs, "user_id", entry.userID, "role", entry.role)

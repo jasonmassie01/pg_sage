@@ -11,6 +11,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/agentguard/envbind"
 	"github.com/pg-sage/sidecar/internal/agentguard/grants"
 	"github.com/pg-sage/sidecar/internal/executor"
+	"github.com/pg-sage/sidecar/internal/inbox"
 )
 
 // Agent grants (spec §6.6, §8.3; G1: every grant is L2, operator-approved):
@@ -214,6 +215,9 @@ func (h agentGrantHandlers) deny(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, err := h.svc.Deny(r.Context(), db, pid, id, userID(r))
+	if err == nil {
+		recordDecision(r, inbox.KindAgentRequest, res.RequestedAt)
+	}
 	writeGrantResult(w, r, res, err, http.StatusOK)
 }
 

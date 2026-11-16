@@ -6,6 +6,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/earned"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/inbox"
 	"github.com/pg-sage/sidecar/internal/sre"
 )
 
@@ -107,6 +108,9 @@ func runbookSignHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
 			rb, err = svc.SignRunbook(r.Context(), id, body.Version, body.ContentHash,
 				actorOf(r), user.Role)
 			if err == nil {
+				if rb.LatestVersion == body.Version {
+					recordDecision(r, inbox.KindRunbookSignature, rb.Latest.CreatedAt)
+				}
 				jsonResponse(w, rb)
 				return
 			}
