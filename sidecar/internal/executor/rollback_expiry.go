@@ -88,7 +88,7 @@ func (e *Executor) expireMonitorAndAct(ctx context.Context, actionID int64,
 // item has a plan_step: identity key, or a plan step records it.
 const planStepActionSQL = `/* pg_sage executor */ SELECT
 	EXISTS (SELECT 1 FROM sage.action_queue WHERE action_log_id = $1
-	         AND identity_key LIKE '` + PlanStepIdentityPrefix + `%')
+	         AND starts_with(identity_key, '` + PlanStepIdentityPrefix + `'))
 	OR EXISTS (SELECT 1 FROM sage.plan_step WHERE action_log_id = $1)`
 
 // isPlanStepAction reports whether actionID ran a plan step (plan-02a),
