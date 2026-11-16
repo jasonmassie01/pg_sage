@@ -378,8 +378,10 @@ operator_preference alerting.routes
 safety_critical alerting.slack_webhook_url
 operator_preference alerting.timezone
 safety_critical alerting.webhooks
+operator_preference briefing.dba_hour_rate_usd
 operator_preference briefing.channels
 operator_preference briefing.fleet_mode
+operator_preference briefing.only_when_changed
 operator_preference briefing.schedule
 safety_critical briefing.slack_webhook_url
 

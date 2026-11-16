@@ -1000,12 +1000,26 @@
     "class": "operator_preference",
     "lifecycle": "reconfigure"
   },
+  "briefing.dba_hour_rate_usd": {
+    "type": "float64",
+    "default": 0,
+    "doc": "Operator-supplied cost of one DBA hour in US dollars; the digest's Saved line shows dollars beside hours when set. 0 (default) shows hours only: pg_sage ships no rates.",
+    "class": "operator_preference",
+    "lifecycle": "reconfigure"
+  },
   "briefing.fleet_mode": {
     "type": "string",
     "default": "rollup",
     "doc": "Fleet and meta-db modes: rollup (default) posts one briefing message covering every database; per_database posts one per database. Each database still stores its own briefing. Restart to change.",
     "class": "operator_preference",
     "lifecycle": "restart"
+  },
+  "briefing.only_when_changed": {
+    "type": "bool",
+    "default": true,
+    "doc": "Send the digest only when it differs from the last one delivered (and never an empty one); it is still stored. false sends every scheduled digest, \"Nothing changed\" included. Default: true.",
+    "class": "operator_preference",
+    "lifecycle": "reconfigure"
   },
   "briefing.schedule": {
     "type": "string",

@@ -129,7 +129,9 @@
 | `baseline.z_critical` | `restart` | `-` | `operator_preference` |
 | `baseline.z_warning` | `restart` | `-` | `operator_preference` |
 | `briefing.channels` | `reconfigure` | `briefing` | `operator_preference` |
+| `briefing.dba_hour_rate_usd` | `reconfigure` | `briefing` | `operator_preference` |
 | `briefing.fleet_mode` | `restart` | `-` | `operator_preference` |
+| `briefing.only_when_changed` | `reconfigure` | `briefing` | `operator_preference` |
 | `briefing.schedule` | `reconfigure` | `briefing` | `operator_preference` |
 | `briefing.slack_webhook_url` | `reconfigure` | `briefing` | `safety_critical` |
 | `budgets` | `restart` | `-` | `safety_critical` |
