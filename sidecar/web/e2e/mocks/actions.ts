@@ -24,10 +24,12 @@ export function executedRow(overrides: Record<string, unknown> = {}) {
   }
 }
 
-// The body RollbackControl.postRollback sends today (dashboard-10 kept it
-// unchanged from the window.confirm flow); rollbackActionHandler reads
-// "reason" and the ledger kind guard reads "record_kind".
-export const rollbackBody = { reason: 'manual rollback from actions UI', record_kind: 'executed' }
+// The body RollbackControl.postRollback sends: since ux-01b the reason is
+// the one the operator types (required, 3 to 500 characters) instead of a
+// fixed string; rollbackActionHandler reads "reason" and the ledger kind
+// guard reads "record_kind".
+export const rollbackReason = 'checkout writes slowed down'
+export const rollbackBody = { reason: rollbackReason, record_kind: 'executed' }
 
 /* ---------- Scheduled approvals (GET /api/v1/actions/pending) ---------- */
 
