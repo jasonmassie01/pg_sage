@@ -2,13 +2,10 @@ package api
 
 import (
 	"crypto/ed25519"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -59,9 +56,9 @@ func parsePackTier(r *http.Request) (packTier, error) {
 	return t, nil
 }
 
-// writeModelTier answers the model tier of pack: its sections as JSON,
-// its charts as PNG data URIs, its size and (when hashed) the pseudonym
-// map, which is local only and never part of the tier.
+// writeModelTier answers the model tier of pack (workpack.ViewOf) and,
+// when hashed, the pseudonym map, which is local only and never part of
+// the tier.
 func writeModelTier(w http.ResponseWriter, row workpack.Stored, pack *workpack.Pack,
 	t packTier, keys WorkloadPackKeys) {
 	m, err := workpack.ForModel(pack, workpack.ModelOptions{HashIdentifiers: t.hash,
@@ -70,31 +67,16 @@ func writeModelTier(w http.ResponseWriter, row workpack.Stored, pack *workpack.P
 		modelTierError(w, err)
 		return
 	}
-	out := modelTierBody(m)
-	out["pack"], out["hash_identifiers"] = row, t.hash
+	out := struct {
+		workpack.TierView
+		Pack            workpack.Stored   `json:"pack"`
+		HashIdentifiers bool              `json:"hash_identifiers"`
+		Pseudonyms      map[string]string `json:"pseudonyms,omitempty"`
+	}{TierView: workpack.ViewOf(m), Pack: row, HashIdentifiers: t.hash}
 	if t.hash {
-		out["pseudonyms"] = m.Pseudonyms
+		out.Pseudonyms = m.Pseudonyms
 	}
 	jsonResponse(w, out)
-}
-
-// modelTierBody is the tier's sections, charts and size: the bytes a
-// model would read and a rough token estimate (4 bytes a token).
-func modelTierBody(m *workpack.Pack) map[string]any {
-	sections, charts := map[string]json.RawMessage{}, map[string]string{}
-	total := 0
-	for _, f := range m.Manifest.Files {
-		data := m.File(f.Name)
-		total += len(data)
-		if strings.HasSuffix(f.Name, ".png") {
-			charts[f.Name] = "data:image/png;base64," + base64.StdEncoding.EncodeToString(data)
-			continue
-		}
-		sections[f.Name] = json.RawMessage(data)
-	}
-	return map[string]any{"tier": workpack.TierModel, "content_sha256": m.ContentSHA256,
-		"manifest": m.Manifest, "sections": sections, "charts": charts, "bytes": total,
-		"tokens_estimate": total / 4}
 }
 
 func modelTierError(w http.ResponseWriter, err error) {
