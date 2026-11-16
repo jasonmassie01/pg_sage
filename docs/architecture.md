@@ -637,7 +637,8 @@ changes.
 A plan is refused unless it validates: its edges form a DAG over its own
 steps, each action step's type has an executor contract, its SQL passes the
 executor's allowlist, it carries a rollback exactly when the contract is
-reversible, every executable step cites a finding that exists or evidence ids
+reversible, a check step (which changes nothing) carries no SQL, every executable
+step cites a finding that exists or evidence ids
 in the plan's pack, and a step whose targets ran fewer than its minimum calls
 in the last 14 days declares itself unverifiable. The plan hash (`plan-v1`,
 SHA-256 over a NUL-separated canonical encoding of the goal, scope, origin,

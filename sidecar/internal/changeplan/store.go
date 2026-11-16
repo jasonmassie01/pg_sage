@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -104,6 +105,7 @@ func (s *Store) Create(ctx context.Context, p Plan, r Resolver) (Plan, error) {
 		return Plan{}, fmt.Errorf("%w: a new plan is draft or proposed, not %s", ErrInvalid,
 			p.Status)
 	}
+	p.Steps = slices.Clone(p.Steps) // the caller's steps are not changed
 	for i := range p.Steps {
 		p.Steps[i] = p.Steps[i].WithDefaults()
 		p.Steps[i].Runtime = StepRuntime{State: StatePending}

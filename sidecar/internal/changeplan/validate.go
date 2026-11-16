@@ -36,6 +36,7 @@ const (
 	CodeActionTypeUnknown      = "action_type_unknown"
 	CodeSQLMissing             = "sql_missing"
 	CodeSQLRefused             = "sql_refused"
+	CodeSQLNotApplicable       = "sql_not_applicable"
 	CodeRollbackMissing        = "rollback_missing"
 	CodeRollbackRefused        = "rollback_refused"
 	CodeRollbackNotApplicable  = "rollback_not_applicable"

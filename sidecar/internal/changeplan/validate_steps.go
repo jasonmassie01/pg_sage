@@ -13,8 +13,12 @@ import (
 // kindRules checks what a step runs: an action resolves to an executor
 // contract, its SQL passes the executor's allowlist and it carries a
 // rollback exactly when the contract is reversible. An operator step
-// names what the operator runs and has no rollback pg_sage could run; a
-// check step changes nothing, so it has no rollback either.
+// names what the operator runs and has no rollback pg_sage could run. A
+// check step changes nothing, so it carries no SQL and no rollback: it
+// reads back its setting or measures its targets. Every statement the
+// executor's allowlist accepts is a change (DDL, ALTER SYSTEM, a backend
+// signal), so a check step's SQL would be a change that skipped the
+// contract and citation rules (fail closed).
 func (v *validator) kindRules(s Step) {
 	n := s.Ordinal
 	switch s.Kind {
@@ -27,7 +31,8 @@ func (v *validator) kindRules(s Step) {
 		v.noRollback(s, "an operator step cannot be reverted by pg_sage")
 	case KindCheck:
 		if s.ProposedSQL != "" {
-			v.sqlRule(n, CodeSQLRefused, "proposed", s.ProposedSQL)
+			v.add(CodeSQLNotApplicable, n, "step %d: a check step changes nothing, so it "+
+				"carries no SQL; make it an action step with an action type", n)
 		}
 		v.noRollback(s, "a check step changes nothing")
 	default:
