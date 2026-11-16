@@ -45,7 +45,7 @@ var outcomeSiteExemptions = map[string]outcomeSite{
 	"executor.parkedWithhold":          {reason: "read: withheld park"},
 	"executor.readLastFailure":         {reason: "read: the last-failure gauge"},
 	"executor.inFlightSQL":             {reason: "read: changes in flight"},
-	"executor.exposureRefusedBefore":   {reason: "read: a recorded ownership refusal"},
+	"executor.exposureHeldBack":        {reason: "read: a statement's recorded failures"},
 	"executor.supersedeSettledRestoresSQL": {
 		reason: "read: writes sage.action_queue, reading the outcome"},
 	"executor.supersedeSettledRevertsSQL": {

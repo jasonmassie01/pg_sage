@@ -112,8 +112,7 @@ func (e *Executor) processExposure(
 	stmt, ok := parseExposureSQL(f.RecommendedSQL)
 	gate := e.StandingPolicyGate()
 	if !ok || gate == nil || e.actionStore == nil ||
-		e.pendingApproval(ctx, f, findingID) || e.exposureRefusedBefore(ctx, f, findingID) ||
-		e.exceedsMaxRetries(ctx, findingID) {
+		e.pendingApproval(ctx, f, findingID) || e.exposureHeldBack(ctx, f, findingID) {
 		return
 	}
 	_, err := e.precheckExposure(ctx, stmt)
@@ -200,21 +199,27 @@ func (e *Executor) runAuthorizedExposure(
 	return actionID
 }
 
-// exposureRefusedBefore reports an ownership refusal already recorded for
-// this statement and finding: it is permanent, so it is never retried.
-func (e *Executor) exposureRefusedBefore(
+// exposureHeldBack reports a statement this finding must not run again:
+// an ownership refusal already recorded (permanent), or maxActionRetries
+// failed runs. Both are per statement, not per finding: an AP-15 finding
+// names every exposed relation of its schema, and failures on one table
+// must not hold back the others (exceedsMaxRetries counts the finding's).
+func (e *Executor) exposureHeldBack(
 	ctx context.Context, f analyzer.Finding, findingID int64,
 ) bool {
 	var refused bool
-	err := e.pool.QueryRow(ctx, `/* pg_sage executor */ SELECT EXISTS (
-		SELECT 1 FROM sage.action_log WHERE finding_id = $1 AND sql_executed = $2
-		  AND outcome = 'failed' AND rollback_reason LIKE $3)`,
-		findingID, f.RecommendedSQL, "%"+ErrExposureNotOwner.Error()+"%").Scan(&refused)
+	var failed int
+	err := e.pool.QueryRow(ctx, `/* pg_sage executor */ SELECT
+		  COALESCE(bool_or(rollback_reason LIKE $3), false), count(*)
+		FROM sage.action_log
+		WHERE finding_id = $1 AND sql_executed = $2 AND outcome = 'failed'`,
+		findingID, f.RecommendedSQL, "%"+ErrExposureNotOwner.Error()+"%").Scan(
+		&refused, &failed)
 	if err != nil {
-		e.logFn("executor", "check exposure refusals: %v", err)
+		e.logFn("executor", "check exposure failures: %v", err)
 		return true // unknown: never retry blind
 	}
-	return refused
+	return refused || failed >= maxActionRetries
 }
 
 // withdrawExposureProposals supersedes every pending exposure proposal of
