@@ -52,10 +52,15 @@ func judgeRevokeReaders(before, after map[int64]verify.Measurement) (bool, strin
 }
 
 // revokeReaderCalls are the calls of each statement that references the
-// table, read when the revoke runs (empty without pg_stat_statements).
+// table. nil means pg_stat_statements could not be read: there is no reader
+// evidence (empty means no statement references the table).
 func (e *Executor) revokeReaderCalls(ctx context.Context, stmt exposureStmt) map[int64]int64 {
-	out := map[int64]int64{}
-	for _, s := range e.tableStatements(ctx, stmt) {
+	stmts, ok := e.tableStatements(ctx, stmt)
+	if !ok {
+		return nil
+	}
+	out := make(map[int64]int64, len(stmts))
+	for _, s := range stmts {
 		out[s.QueryID] = s.Calls
 	}
 	return out
@@ -63,15 +68,17 @@ func (e *Executor) revokeReaderCalls(ctx context.Context, stmt exposureStmt) map
 
 // tableStatements are the pg_stat_statements entries of this database that
 // reference the table, by calls; the query text is read only to match the
-// table and is never kept.
-func (e *Executor) tableStatements(ctx context.Context, stmt exposureStmt) []exposureStatement {
+// table and is never kept. ok is false when pg_stat_statements is unreadable.
+func (e *Executor) tableStatements(
+	ctx context.Context, stmt exposureStmt,
+) (out []exposureStatement, ok bool) {
 	if e.pool == nil {
-		return nil
+		return nil, false
 	}
 	rel, err := extschema.StatementsRel(ctx, e.pool, "pg_stat_statements")
 	if err != nil {
 		e.logFn("executor", "exposure readers of %s: %v", stmt.qualified(), err)
-		return nil
+		return nil, false
 	}
 	rows, err := e.pool.Query(ctx, `/* pg_sage executor */ SELECT queryid, calls, query
 		FROM `+rel+` WHERE dbid = (SELECT oid FROM pg_catalog.pg_database
@@ -79,23 +86,26 @@ func (e *Executor) tableStatements(ctx context.Context, stmt exposureStmt) []exp
 		ORDER BY calls DESC LIMIT $1`, revokeReaderLimit)
 	if err != nil {
 		e.logFn("executor", "exposure readers of %s: %v", stmt.qualified(), err)
-		return nil
+		return nil, false
 	}
 	defer rows.Close()
 	known := map[string][]string{stmt.table: {stmt.schema}}
-	var out []exposureStatement
 	for rows.Next() {
 		var s exposureStatement
 		var query string
 		if err := rows.Scan(&s.QueryID, &s.Calls, &query); err != nil {
 			e.logFn("executor", "exposure readers of %s: %v", stmt.qualified(), err)
-			return nil
+			return nil, false
 		}
 		if refs := workload.ReferencedTables(query, known); len(refs) > 0 {
 			out = append(out, s)
 		}
 	}
-	return out
+	if err := rows.Err(); err != nil {
+		e.logFn("executor", "exposure readers of %s: %v", stmt.qualified(), err)
+		return nil, false
+	}
+	return out, true
 }
 
 // startRevokeWatch watches the readers of an executed revoke in the
@@ -110,6 +120,11 @@ func (e *Executor) startRevokeWatch(ctx context.Context, f analyzer.Finding, act
 
 func (e *Executor) watchRevokeReaders(ctx context.Context, f analyzer.Finding,
 	actionID int64, stmt exposureStmt, readers map[int64]int64, at time.Time) {
+	if readers == nil {
+		e.verifyRevokeKept(ctx, actionID, "unverifiable",
+			"pg_stat_statements was unreadable at the revoke: no reader evidence")
+		return
+	}
 	ids := make([]int64, 0, len(readers))
 	for id := range readers {
 		ids = append(ids, id)
@@ -126,6 +141,11 @@ func (e *Executor) watchRevokeReaders(ctx context.Context, f analyzer.Finding,
 		return
 	}
 	now := e.revokeReaderCalls(ctx, stmt)
+	if now == nil {
+		e.verifyRevokeKept(ctx, actionID, "unverifiable",
+			"pg_stat_statements was unreadable after the window: no reader evidence")
+		return
+	}
 	after := make(map[int64]verify.Measurement, len(ids))
 	for _, id := range ids {
 		after[id] = verify.Measurement{Samples: int(now[id] - readers[id])}
@@ -165,8 +185,8 @@ func (e *Executor) exposureHistoryFn() queryObserver {
 // rlsCard is the approval card of an RLS enable: the statements that
 // reference the table and the roles that would lose access.
 func (e *Executor) rlsCard(ctx context.Context, stmt exposureStmt) map[string]any {
-	return rlsApprovalCard(stmt.schema, stmt.table, e.tableStatements(ctx, stmt),
-		e.rlsRolesLosingAccess(ctx, stmt))
+	stmts, _ := e.tableStatements(ctx, stmt) // unreadable: the card lists none
+	return rlsApprovalCard(stmt.schema, stmt.table, stmts, e.rlsRolesLosingAccess(ctx, stmt))
 }
 
 // rlsRolesLosingAccess are the grantees of the table (PUBLIC included) that

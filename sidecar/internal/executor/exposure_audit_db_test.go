@@ -82,3 +82,44 @@ func TestRevokePublic_NoHistoryIsKeptUnverifiable(t *testing.T) {
 		t.Fatal("an unverifiable revoke must be kept, not reverted")
 	}
 }
+
+// Without pg_stat_statements there is no reader evidence: the revoke is
+// kept but settles unverifiable, never success (no trust credit without
+// evidence; fleetpol-02b review).
+func TestRevokePublic_NoStatementsViewIsKeptUnverifiable(t *testing.T) {
+	f := newExposureFixture(t, "GRANT SELECT ON $T TO PUBLIC")
+	ctx := context.Background()
+	var installed bool
+	if err := f.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_extension
+		WHERE extname = 'pg_stat_statements')`).Scan(&installed); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, "DROP EXTENSION IF EXISTS pg_stat_statements"); err != nil {
+		t.Fatalf("drop pg_stat_statements: %v", err)
+	}
+	if installed {
+		t.Cleanup(func() {
+			_, _ = f.pool.Exec(context.Background(),
+				"CREATE EXTENSION IF NOT EXISTS pg_stat_statements")
+		})
+	}
+	f.ap15Finding(t)
+	e := exposureExecutor(f.pool, policy.ExposureModeEnforce, true)
+	e.runExposureRemediations(ctx, false)
+	var outcome string
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		acts := f.actions(t)
+		if len(acts) == 1 && acts[0]["outcome"] != "monitoring" {
+			outcome = acts[0]["outcome"].(string)
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if outcome != "unverifiable" {
+		t.Fatalf("outcome = %q (%+v), want unverifiable", outcome, f.actions(t))
+	}
+	if f.publicPrivileges(t) != "" {
+		t.Fatal("an unverifiable revoke must be kept, not reverted")
+	}
+}
