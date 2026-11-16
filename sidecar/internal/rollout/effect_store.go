@@ -1,6 +1,7 @@
 package rollout
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -72,7 +73,10 @@ func (p PoolEffects) ActionEffect(ctx context.Context, actionLogID int64) (Membe
 	}
 	ids, err := queryIDs(targets)
 	if err != nil {
-		return MemberEffect{Malformed: true, Reason: err.Error()}, nil
+		// The v2 number still decides (fail closed: never flag only for a
+		// measured effect); without target queries there is no fleet control.
+		eff.Reason = err.Error()
+		return eff, nil
 	}
 	eff.Queries, err = p.queryTexts(ctx, ids, eff.To)
 	if err != nil {
@@ -130,20 +134,27 @@ func jsonKind(v any) string {
 	return "value"
 }
 
-// queryIDs decodes a target_queryids array (numbers or numeric strings).
+// queryIDs decodes a target_queryids array (integers or integer strings)
+// exactly: queryids span int64, past float64's 53 exact bits.
 func queryIDs(raw []byte) ([]int64, error) {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil, nil
 	}
 	var items []any
-	if err := json.Unmarshal(raw, &items); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	if err := dec.Decode(&items); err != nil {
 		return nil, fmt.Errorf("the target queryids are not a JSON array: %w", err)
 	}
 	out := make([]int64, 0, len(items))
 	for _, item := range items {
 		switch v := item.(type) {
-		case float64:
-			out = append(out, int64(v))
+		case json.Number:
+			id, err := strconv.ParseInt(v.String(), 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("target queryid %s is not a number", v)
+			}
+			out = append(out, id)
 		case string:
 			id, err := strconv.ParseInt(v, 10, 64)
 			if err != nil {

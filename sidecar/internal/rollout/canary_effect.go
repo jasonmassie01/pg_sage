@@ -31,7 +31,8 @@ const minFleetControls = 2
 // effect in percent of blocks per call with the v2 interval, the
 // normalized texts of the change's target queries, and the verdict's
 // window. Measured false: no usable number, with why (Reason); Malformed
-// marks a stored v2 record that is not the shape v2 writes.
+// marks a stored v2 record that is not the shape v2 writes. Measured with
+// a Reason: the number stands but its target queries could not be read.
 type MemberEffect struct {
 	Measured, Malformed            bool
 	Reason                         string
@@ -109,7 +110,11 @@ func flagOnly(o Outcome, why string) Outcome {
 func (b *canaryBackend) netEffect(ctx context.Context, self string, reader EffectReader,
 	eff MemberEffect) (float64, *float64, string) {
 	if len(eff.Queries) == 0 {
-		return eff.EffectPct, nil, "no fleet control: no target query text on " + self
+		note := "no fleet control: no target query text on " + self
+		if eff.Reason != "" {
+			note += " (" + eff.Reason + ")"
+		}
+		return eff.EffectPct, nil, note
 	}
 	control, note := b.fleetControl(ctx, self, eff)
 	if control == nil {
