@@ -117,14 +117,22 @@ func readLandingSetting(ctx context.Context, tx pgx.Tx, l Landing) (bool, string
 	if err != nil {
 		return false, "", fmt.Errorf("read setting %s: %w", l.Setting, err)
 	}
+	ok, detail := landingRead(l, setting, display, pending)
+	return ok, detail, nil
+}
+
+// landingRead is whether landing l holds on what pg_settings read: the
+// setting reads l.Value with no restart pending; detail says what was
+// read.
+func landingRead(l Landing, setting, display string, pending bool) (bool, string) {
 	if pending {
 		return false, fmt.Sprintf("%s is %s with a restart pending (want %s)", l.Setting,
-			display, l.Value), nil
+			display, l.Value)
 	}
 	if !settingMatches(l.Value, setting, display) {
-		return false, fmt.Sprintf("%s is %s (want %s)", l.Setting, display, l.Value), nil
+		return false, fmt.Sprintf("%s is %s (want %s)", l.Setting, display, l.Value)
 	}
-	return true, fmt.Sprintf("%s is %s", l.Setting, display), nil
+	return true, fmt.Sprintf("%s is %s", l.Setting, display)
 }
 
 // RevertCommand implements LandingReader: the managed change's rollback

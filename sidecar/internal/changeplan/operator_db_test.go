@@ -365,3 +365,34 @@ func TestOperatorStep_WaitsForOtherPlansInFlight(t *testing.T) {
 		t.Fatalf("after the other plan finished: %+v, want awaiting_operator", rt)
 	}
 }
+
+// Another plan's step waits while an operator step awaits its operator
+// (the operator may apply it at any moment), and starts once it is kept.
+func TestOperatorStep_OtherPlansWaitOnAnAwaitingOperatorStep(t *testing.T) {
+	f := newEngineFixture(t, "op_blocks")
+	f.operatorEngine(nil, nil)
+	op := f.approved(operatorPlan())
+	f.tick()
+	if rt := f.step1(op.ID); rt.State != StateAwaitingOperator {
+		t.Fatalf("operator step: %+v, want awaiting_operator", rt)
+	}
+	idx := f.approved(chain(1, 101))
+	for range 3 {
+		f.clock.Add(time.Minute)
+		f.tick()
+	}
+	if rt := f.step1(idx.ID); rt.State != StatePending || rt.QueueID != nil {
+		t.Fatalf("index step beside an awaiting operator step: %+v, want pending", rt)
+	}
+	f.operate("64MB")
+	for range 3 {
+		f.clock.Add(time.Minute)
+		f.tick()
+	}
+	if rt := f.step1(op.ID); rt.State != StateKept {
+		t.Fatalf("operator step after landing: %+v, want kept", rt)
+	}
+	if rt := f.step1(idx.ID); rt.State == StatePending {
+		t.Fatalf("index step after the operator step was kept: %+v, want started", rt)
+	}
+}

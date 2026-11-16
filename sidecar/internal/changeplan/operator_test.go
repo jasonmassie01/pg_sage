@@ -385,3 +385,25 @@ func (passMechanism) CheckMechanism(_ context.Context, in verify.MechanismInput,
 	_ time.Time) (verify.Mechanism, error) {
 	return verify.MechanismCheck(in)
 }
+
+// A restart-bound change has not landed while a restart is pending, even
+// when pg_settings already shows the new value; the reading says so.
+func TestLandingRead_RestartPending(t *testing.T) {
+	l := Landing{Setting: "shared_buffers", Value: "2GB"}
+	cases := []struct {
+		setting, display string
+		pending, ok      bool
+		detail           string
+	}{
+		{"262144", "2GB", true, false, "restart pending"},
+		{"262144", "2GB", false, true, "shared_buffers is 2GB"},
+		{"16384", "128MB", false, false, "want 2GB"},
+	}
+	for _, c := range cases {
+		ok, detail := landingRead(l, c.setting, c.display, c.pending)
+		if ok != c.ok || !strings.Contains(detail, c.detail) {
+			t.Errorf("landingRead(%s, pending %v) = %v %q, want %v naming %q", c.display,
+				c.pending, ok, detail, c.ok, c.detail)
+		}
+	}
+}
