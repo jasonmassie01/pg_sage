@@ -338,7 +338,9 @@ most a constant or stable default (`now()`, `current_timestamp`). `SET lock_time
 `SET statement_timeout`, `BEGIN` and `COMMIT` are allowed alongside. A statement containing
 `UNIQUE`, `REFERENCES`, `CHECK`, `EXCLUDE`, `PRIMARY KEY`, `LOGGED`, `ACCESS METHOD`,
 `NOT NULL`, `RENAME` or `TRIGGER` is never additive, and neither is SQL that ends inside an
-unterminated literal, quoted identifier or comment.
+unterminated literal, quoted identifier or comment. So a form lint proves safe can still be
+`ddl_locking` at the gate: `ADD CONSTRAINT ... CHECK (...) NOT VALID` is a safe form in lint
+on a build with the SQL parser, but it holds `CHECK`, so the gate never classes it additive.
 
 * The agent gate classes such DDL `ddl_locking` (any `DROP` or `TRUNCATE` is still
   `ddl_destructive` first), so it earns trust in the locking class, not the additive one.

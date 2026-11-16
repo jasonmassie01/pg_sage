@@ -26,6 +26,20 @@ func astStatement(stmt string, version int) ([]DDLClassification, bool) {
 	return found, true
 }
 
+// parseRefusal is the SQL parser's error for one sanitized statement, the
+// one astStatement saw ("" when it parses, or when the build has no
+// parser: the report's degraded note says so instead). The statement is
+// redacted, so the message holds no literal.
+func parseRefusal(stmt string) string {
+	if !parserAvailable {
+		return ""
+	}
+	if _, err := parseStatement(stmt); err != nil {
+		return err.Error()
+	}
+	return ""
+}
+
 // serverMajor maps server_version_num (170004) or a bare major (17) to
 // the major; 0 means unknown.
 func serverMajor(version int) int {

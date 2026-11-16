@@ -41,7 +41,9 @@ rewrite with a redacted literal would not run); apply the safe alternative by ha
 | (tool error) | 3 | Unreadable, empty or over-100 kB file, no connection, a catalog read that failed or timed out |
 
 Exit 3 is never a verdict: a gate that cannot measure the migration fails, it does not
-read as "review". Below the row threshold a metadata-only ACCESS EXCLUSIVE change is
+read as "review". When the SQL parser refuses a statement, its note ends with the parser's
+own message, for example `The SQL parser refused it: syntax error at end of input.`
+(literals are redacted before the parse, so the message never holds one). Below the row threshold a metadata-only ACCESS EXCLUSIVE change is
 review, not risky.
 
 ### Static mode
