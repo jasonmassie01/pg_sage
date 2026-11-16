@@ -67,6 +67,10 @@ var workFamilies = []Family{
 			"the decision came from (X-Sage-Surface: inbox, page, chat, api, cli)",
 		Labels: []string{"kind", "decided_from"}, Modes: AllModes, Unit: "seconds",
 		Since: "v2.8.0"},
+	{Name: "pg_sage_plan_approvals_total", Type: Counter, Area: AreaActions,
+		Help: "New plan approvals by the mode stored (all, up_to, step) since the " +
+			"process started; all and up_to approve multi-step work once",
+		Labels: []string{"mode"}, Modes: AllModes, Since: "v2.8.0"},
 	{Name: "pg_sage_actions_pending_approval", Type: Gauge, Area: AreaActions,
 		Help: "Pending approvals a person can act on now (past cooldown, not " +
 			"expired), by risk",

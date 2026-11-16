@@ -30,6 +30,7 @@ func (s *Store) ApproveWith(ctx context.Context, planID int64, d Decision,
 		return Approval{}, fmt.Errorf("changeplan: approve plan %d: %w", planID, err)
 	}
 	var a Approval
+	var fresh bool
 	err := s.inTx(ctx, func(tx pgx.Tx) error {
 		p, err := lockPlan(ctx, tx, planID)
 		if err != nil {
@@ -48,28 +49,31 @@ func (s *Store) ApproveWith(ctx context.Context, planID int64, d Decision,
 		if err := checkCapsIn(ctx, tx, s.capsSource(), p); err != nil {
 			return err
 		}
-		a, err = recordApproval(ctx, tx, p, d, userID)
+		a, fresh, err = recordApproval(ctx, tx, p, d, userID)
 		return err
 	})
 	if err != nil {
 		return Approval{}, fmt.Errorf("changeplan: approve plan %d: %w", planID, err)
 	}
+	if fresh {
+		countApproval(a.Mode)
+	}
 	return a, nil
 }
 
 // recordApproval stores d on locked plan p, sets it approved and, for a
-// new approval, appends the approved event.
+// new approval (fresh), appends the approved event.
 func recordApproval(ctx context.Context, tx pgx.Tx, p Plan, d Decision,
-	userID int) (Approval, error) {
+	userID int) (Approval, bool, error) {
 	a, fresh, err := approveLocked(ctx, tx, p.ID, d, userID)
 	if err != nil {
-		return Approval{}, err
+		return Approval{}, false, err
 	}
 	if err := setPlan(ctx, tx, p.ID, StatusApproved, d.PlanHash); err != nil {
-		return Approval{}, err
+		return Approval{}, false, err
 	}
 	if !fresh {
-		return a, nil // the live approval already holds this decision
+		return a, false, nil // the live approval already holds this decision
 	}
 	detail := map[string]any{"approval_id": a.ID, "mode": string(d.Mode),
 		"via": string(d.Via)}
@@ -78,7 +82,7 @@ func recordApproval(ctx context.Context, tx pgx.Tx, p Plan, d Decision,
 	}
 	_, err = AppendEvent(ctx, tx, Event{PlanID: p.ID, Kind: EventApproved,
 		PlanHash: d.PlanHash, Actor: userActor(userID), Detail: detail})
-	return a, err
+	return a, err == nil, err
 }
 
 func userActor(userID int) string { return fmt.Sprintf("user:%d", userID) }
