@@ -266,6 +266,7 @@ The gate checks one action at a time. A plan runs many, so the standing policy d
   A step that waits past its `deadline_minutes`, counted from when it first waited, ends
   `skipped` with verdict `expired`, and its `on_expired` decides. `halt_ask` (the default)
   halts the plan. `keep` and `revert_step` let it go on, since nothing ran.
+  `revert_to_checkpoint` reverts the kept steps back to the checkpoint, then halts the plan.
 - **Steps that are never automatic.** Approving a plan never covers some steps, at any trust
   level. The engine stops before each one with step state `awaiting_approval` and sends one
   notification. The step is listed with the plans that need a person. These are the steps

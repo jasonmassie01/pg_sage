@@ -693,9 +693,29 @@ never move one plan and never start conflicting steps at once.
   `verify.on_expired` revert item, because the step's `on_expired` decides.
   A verdict decided after the deadline counts as `expired`.
 - **Acting on the verdict.** The engine then carries out `keep`,
-  `revert_step` (through `RollbackAction`) or `halt_ask`. A step the verifier
+  `revert_step`, `revert_to_checkpoint` or `halt_ask`. A step the verifier
   already reverted is recorded `reverted_by_verifier` and never rolled back
   again. A step after a reverted step is skipped (`predecessor_reverted`).
+- **Reverting.** Every revert goes through `RollbackAction`, which runs the
+  stored rollback SQL under the DDL slot and the lock timeout (an index
+  replace goes to `RollbackIndexReplace`). The engine then reads the revert
+  back: the index is gone, or restored and valid, or the setting is back at
+  the prior value the executor recorded. A revert that does not read back
+  fails the step and halts the plan. A rollback that this check cannot read
+  back fails the same way. An action someone already rolled back outside the
+  plan is not rolled back again. Each revert is a `step_reverted` event that
+  carries the action_log id.
+- **Reverting to a checkpoint.** `revert_to_checkpoint` reverts the failed
+  step. It then walks back to the latest step before it marked
+  `checkpoint`, or to the plan's start if none is marked, and reverts kept
+  steps newest first. The walk never reverts a step that a kept step
+  outside the walk depends on; it stops there. A step whose action needs no
+  rollback (`ANALYZE`, `VACUUM`) stays kept with `no_rollback_needed`. Any
+  other class of action (`forward_fix_only`, `not_reversible`, an operator's
+  step) stops the walk. The plan then halts, and the halted event lists what
+  was reverted and what was kept, and why. The walk resumes after a restart,
+  and the emergency stop holds it between steps. Validation refuses a step
+  whose checkpoint its edges make run after it (`checkpoint_not_before`).
 - **Halting.** A failed or regressed step halts the plan, with one `halted`
   event and one notification (an `approval_needed` event naming the plan, the
   step and the verdict). A halted plan starts nothing until a person decides
