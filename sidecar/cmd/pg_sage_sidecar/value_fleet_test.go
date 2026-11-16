@@ -25,8 +25,10 @@ func TestValueMetaModeReadsTargetLedger(t *testing.T) {
 	// Created first so its drop runs after the target runtime is drained.
 	targetDSN := testdb.CreateDatabase(t, "meta_value_target")
 	state, input, userID := metaLifecycleFixture(t)
-	prepareMetaGlobals(t)
+	// Value globals first: cleanups run last-in first-out, so the meta
+	// runtime is drained before cfg, pool and fleetMgr are restored.
 	preserveValueGlobals(t)
+	prepareMetaGlobals(t)
 	ctx := context.Background()
 	parsed, err := url.Parse(targetDSN)
 	if err != nil {

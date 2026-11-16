@@ -99,8 +99,10 @@ func TestGrafanaDashboardFamiliesHaveSamples(t *testing.T) {
 func TestGrafanaDashboardMetaDatabaseLabels(t *testing.T) {
 	targetDSN := testdb.CreateDatabase(t, "grafana_meta_target")
 	state, input, userID := metaLifecycleFixture(t)
-	prepareMetaGlobals(t)
+	// Value globals first: cleanups run last-in first-out, so the meta
+	// runtime is drained before cfg, pool and fleetMgr are restored.
 	preserveValueGlobals(t)
+	prepareMetaGlobals(t)
 	ctx := context.Background()
 	parsed, err := url.Parse(targetDSN)
 	if err != nil {
