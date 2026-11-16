@@ -69,7 +69,8 @@ container) # inspect: prints the owner label of a known container
 exec) # a password-less loopback login fails unless STUB_LOOPBACK_TRUST is set
   if [[ $* == *" psql -w -h 127.0.0.1 "* ]]; then
     [[ -n ${STUB_LOOPBACK_TRUST:-} ]] || { echo "fe_sendauth: no password supplied" >&2; exit 2; }
-  fi ;;
+  fi
+  [[ $* == *"SHOW pg_stat_statements.max"* ]] && echo "${STUB_PSS_MAX:-100}" ;;
 rm)
   grep -v "^${!#} " "$STUB_STATE" >"$STUB_STATE.new"; mv "$STUB_STATE.new" "$STUB_STATE" ;;
 run)
@@ -399,6 +400,75 @@ grep -q 'covfloor=1' "$o/pg17/status.txt" ||
 grep -q 'covfloor' "$o/pg15/status.txt" && fail "covfloor ran on PG15: $(cat "$o/pg15/status.txt")"
 [[ $(grep -c '^go run ./cmd/covfloor' "$log") -eq 1 ]] ||
   fail "want one covfloor call for majors 15 and 17: $(grep covfloor "$log")"
+
+# agentgov-12: LOCAL_SUITE_PSS_SMALL=1 adds a third server with
+# pg_stat_statements.max=100 (SAGE_TEST_PSS_SMALL_URL, as CI's agent-servers
+# job), and LOCAL_SUITE_PACKAGES scopes the suite to some packages.
+expect 0 'exclusive=improve-ci-exclusive-pg17 .* pss-small=off packages=all$' \
+  "dry run: PSS server and package scope off by default" -- $dry bash "$script" "$(newout)" 17
+expect 0 'pss-small=improve-ci-pss-pg17 packages=./internal/agentguard/broker/ ./internal/x/...$' \
+  "dry run: PSS server and two packages" -- $dry LOCAL_SUITE_PSS_SMALL=1 \
+  "LOCAL_SUITE_PACKAGES=./internal/agentguard/broker/ ./internal/x/..." bash "$script" \
+  "$(newout)" 17
+expect 2 "LOCAL_SUITE_PSS_SMALL 'yes' must be 0 or 1" "bad PSS switch" -- \
+  $dry LOCAL_SUITE_PSS_SMALL=yes bash "$script" "$(newout)"
+expect 2 "LOCAL_SUITE_PACKAGES pattern 'internal/x' must start with ./" "package without ./" -- \
+  $dry LOCAL_SUITE_PACKAGES=internal/x bash "$script" "$(newout)"
+expect 2 "LOCAL_SUITE_PACKAGES pattern './x;rm' must start with ./" "package with a ;" -- \
+  $dry "LOCAL_SUITE_PACKAGES=./x;rm -rf ." bash "$script" "$(newout)"
+expect 2 "LOCAL_SUITE_PACKAGES pattern '\./\*' must start" "a glob is refused, not expanded" \
+  -- $dry "LOCAL_SUITE_PACKAGES=./*" bash "$script" "$(newout)"
+expect 2 "LOCAL_SUITE_PACKAGES ' ' names no package" "blank package list" -- \
+  $dry "LOCAL_SUITE_PACKAGES= " bash "$script" "$(newout)"
+pssurl='SAGE_TEST_PSS_SMALL_URL=postgres://postgres:postgres@127.0.0.1:5434/postgres'\
+'?sslmode=disable'
+# Happy path, full suite: the PSS server joins the suite server's namespace
+# on port 5434 with CI's flags and max=100 last, and every Go test gets its URL.
+o=$(newout)
+expect 0 'summary: .*summary.md' "stubbed full run with the PSS server" -- \
+  $guard FAKE_FREE_GB=99 LOCAL_SUITE_PSS_SMALL=1 bash "$script" "$o" 17
+prun=$(grep '^docker run' "$log" | grep -- '--name improve-ci-pss-pg17 ')
+for want in " --network container:improve-ci-pg17 " " -e PGPORT=5434 " \
+  " --memory=1536m --memory-swap=1536m " " -c shared_preload_libraries=" \
+  " -c pg_stat_statements.max=100"; do
+  [[ $prun == *"$want"* ]] || fail "the PSS server lacks '$want': $prun"
+done
+[[ $(grep -o 'pg_stat_statements.max=[0-9]*' <<<"$prun" | tail -1) == *=100 ]] ||
+  fail "a later flag overrides pg_stat_statements.max=100: $prun"
+[[ $prun == *"--tmpfs"* || $prun == *" -p "* ]] && fail "PSS server in memory or published"
+grep -q '^docker exec improve-ci-pss-pg17 .*SHOW pg_stat_statements.max' "$log" ||
+  fail "the PSS server's setting was not checked"
+gotests=$(grep '^docker run' "$log" | grep -- '--name improve-ci-go-pg17 ')
+[[ $(grep -c -- " -e $pssurl " <<<"$gotests") -eq 2 ]] ||
+  fail "the suite and e2e containers lack $pssurl: $gotests"
+grep -q '^go run ./cmd/skipbudget .*-require' "$log" || fail "a full run dropped -require"
+rm_p=$(grep -n 'docker rm -f -v improve-ci-pss-pg17$' "$log" | cut -d: -f1)
+rm_s=$(grep -n 'docker rm -f -v improve-ci-pg17$' "$log" | cut -d: -f1)
+[[ -n $rm_p && -n $rm_s && $rm_p -lt $rm_s ]] || fail "PSS server removal order ($rm_p, $rm_s)"
+grep -qx 'pss_small=1 packages=all' "$o/run.txt" || fail "run.txt: $(cat "$o/run.txt")"
+# A scoped run without the PSS server: no third server, no PSS URL, no e2e,
+# and the skip budget drops the -require lines of packages it did not run.
+o=$(newout)
+expect 0 'summary: .*summary.md' "stubbed scoped run" -- $guard FAKE_FREE_GB=99 \
+  LOCAL_SUITE_PACKAGES=./internal/agentguard/broker/ bash "$script" "$o" 17
+gotests=$(grep '^docker run' "$log" | grep -- '--name improve-ci-go-pg17 ')
+[[ $(grep -c . <<<"$gotests") -eq 1 ]] || fail "a scoped run wants one Go test: $gotests"
+[[ $gotests == *"go test ./internal/agentguard/broker/ -race -cover -tags=integration "* &&
+  $gotests != *"./..."* ]] || fail "the suite is not scoped to the broker: $gotests"
+grep -q 'pss-pg17\|PSS_SMALL' "$log" && fail "the PSS server started while off"
+grep -q '^go run ./cmd/skipbudget .*-stale=off' "$log" && ! grep -q -- '-require' \
+  <(grep '^go run ./cmd/skipbudget' "$log") || fail "scoped skip budget: $(grep skipb "$log")"
+grep -q '^go run ./cmd/covfloor' "$log" || fail "a scoped run skipped covfloor"
+grep -qx 'pss_small=0 packages=./internal/agentguard/broker/' "$o/run.txt" ||
+  fail "run.txt: $(cat "$o/run.txt")"
+grep -q 'packages ./internal/agentguard/broker/' "$o/summary.md" ||
+  fail "the summary does not name the scope: $(head -20 "$o/summary.md")"
+# Error propagation: a PSS server that did not take max=100 stops the run.
+expect 5 'improve-ci-pss-pg17 runs pg_stat_statements.max=50000, want 100' "PSS max ignored" \
+  -- $guard FAKE_FREE_GB=99 STUB_PSS_MAX=50000 LOCAL_SUITE_PSS_SMALL=1 bash "$script" \
+  "$(newout)" 17
+grep -q -- '--name improve-ci-go-pg17' "$log" && fail "a suite started on a wrong PSS server"
+grep -q 'docker rm -f -v improve-ci-pss-pg17$' "$log" || fail "the PSS server was left"
 
 after=$(git -C "$repo" status --porcelain)
 [[ $before == "$after" ]] || fail "a run changed the worktree: $before -> $after"

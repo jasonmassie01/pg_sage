@@ -37,6 +37,12 @@
 #                          as pg-ephemeral.sh), or off to keep it on the
 #                          container's disk, removed with the container
 #   LOCAL_SUITE_REV        revision to test (default HEAD)
+#   LOCAL_SUITE_PSS_SMALL=1 also start a server with pg_stat_statements.max=100
+#                          and pass SAGE_TEST_PSS_SMALL_URL, as CI's agent-servers
+#                          job does (default 0)
+#   LOCAL_SUITE_PACKAGES   go package patterns (./... style) to run instead of
+#                          ./...: no e2e, and the skip budget runs -stale=off
+#                          without the -require lines (default: the full suite)
 #   LOCAL_SUITE_DISK_GUARD disk guard script (default: tools/disk-guard.sh
 #                          up to two directories above the repository)
 #   LOCAL_SUITE_DRY_RUN=1  validate the inputs, print the plan and stop
@@ -70,6 +76,8 @@ GO_MEMORY=${LOCAL_SUITE_GO_MEMORY-6g}
 PG_MEMORY=${LOCAL_SUITE_PG_MEMORY-1536m}
 PG_TMPFS=${LOCAL_SUITE_PG_TMPFS-2g}
 REV=${LOCAL_SUITE_REV:-HEAD}
+PSS_SMALL=${LOCAL_SUITE_PSS_SMALL:-0}
+PACKAGES=${LOCAL_SUITE_PACKAGES-}
 readonly RUN_LABEL=pg_sage.local-suite.run
 RUN_ID=
 CREATED=()
@@ -143,11 +151,32 @@ validate_env() {
     [[ $GO_ROOT_VOLUME =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] ||
       die 2 "GO_ROOT_VOLUME '$GO_ROOT_VOLUME' is not a volume name"
   fi
+  [[ $PSS_SMALL =~ ^[01]$ ]] || die 2 "LOCAL_SUITE_PSS_SMALL '$PSS_SMALL' must be 0 or 1"
+  validate_packages
   check_image_name GO_IMAGE "$GO_IMAGE"
   local m
   for m in "${MAJORS[@]}"; do check_image_name "PG_IMAGE_$m" "$(pg_image "$m")"; done
   REV_SHA=$(git -C "$repo" rev-parse --verify --quiet "$REV^{commit}") ||
     die 2 "LOCAL_SUITE_REV '$REV' is not a commit in $repo"
+}
+
+# validate_packages: each pattern must be a relative package path, because
+# the suite command runs in sh -c inside the Go container.
+validate_packages() {
+  [ -n "$PACKAGES" ] || return 0
+  local p pkgs=()
+  read -ra pkgs <<<"$PACKAGES" # splits on blanks without expanding globs
+  [ "${#pkgs[@]}" -gt 0 ] || die 2 "LOCAL_SUITE_PACKAGES '$PACKAGES' names no package"
+  for p in "${pkgs[@]}"; do
+    [[ $p =~ ^\./[A-Za-z0-9_./-]*$ ]] ||
+      die 2 "LOCAL_SUITE_PACKAGES pattern '$p' must start with ./ ([A-Za-z0-9_./-] only)"
+  done
+  PACKAGES=${pkgs[*]}
+}
+
+# scope_desc: the packages the run tests, as run.txt and the plan record it.
+scope_desc() {
+  if [ -n "$PACKAGES" ]; then echo "$PACKAGES"; else echo all; fi
 }
 
 # go_root_desc: the Go tree the Go containers use, as run.txt records it.
@@ -156,12 +185,15 @@ go_root_desc() {
 }
 
 print_plan() {
-  local m root
+  local m root pss
   root=$(go_root_desc)
   echo "dry run: inputs valid"
   for m in "${MAJORS[@]}"; do
+    pss=off
+    [ "$PSS_SMALL" = 0 ] || pss=${PREFIX}pss-pg$m
     echo "plan pg$m server=${PREFIX}pg$m image=$(pg_image "$m") go=${PREFIX}go-pg$m" \
-      "exclusive=${PREFIX}exclusive-pg$m go-image=$GO_IMAGE go-root=$root"
+      "exclusive=${PREFIX}exclusive-pg$m go-image=$GO_IMAGE go-root=$root" \
+      "pss-small=$pss packages=$(scope_desc)"
   done
   echo "cache=$GOCACHE_VOL rev=$REV_SHA out=$OUT"
 }
@@ -285,6 +317,7 @@ stage_source() {
     "$GO_IMAGE" "$(go_root_desc)" "$(grep -m1 '^go version ' "$OUT/race-probe.txt")" \
     "${MAJORS[*]}" >"$OUT/run.txt"
   echo "pg_memory=$PG_MEMORY pg_tmpfs=$PG_TMPFS" >>"$OUT/run.txt"
+  echo "pss_small=$PSS_SMALL packages=$(scope_desc)" >>"$OUT/run.txt"
 }
 
 # pack_stage: one tar of the vendored stage for the Go containers. Docker
@@ -311,12 +344,13 @@ vendor_source() {
 # go_test <major> <command> <output>: runs a go test command in the Go
 # container on the servers' network and returns its status.
 go_test() {
-  local m=$1 name=${PREFIX}go-pg$1 st=0
+  local m=$1 name=${PREFIX}go-pg$1 st=0 pss=()
   claim "$name"
   go_args "$name" "container:${PREFIX}pg$m"
+  [ "$PSS_SMALL" = 0 ] || pss=(-e "SAGE_TEST_PSS_SMALL_URL=$PSS_URL")
   dk 5400 run "${GO_ARGS[@]}" -v "$(host_path "$OUT/stage.tar"):/stage.tar:ro" -w / \
     -e "GOFLAGS=-mod=vendor -buildvcs=false" -e "SAGE_TEST_DATABASE_URL=$TEST_URL" \
-    -e "SAGE_TEST_EXCLUSIVE_URL=$EXCLUSIVE_URL" \
+    -e "SAGE_TEST_EXCLUSIVE_URL=$EXCLUSIVE_URL" "${pss[@]}" \
     -e PGHOST=127.0.0.1 -e PGPORT=5432 -e PGUSER=postgres -e PGPASSWORD=postgres \
     -e PGDATABASE=postgres "$GO_IMAGE" \
     sh -c "mkdir -p /work && tar -xf /stage.tar -C /work && cd /work/sidecar && $2" \
@@ -326,13 +360,17 @@ go_test() {
 
 # skip_budget <major> <inputs...>: CI's skip budget (ci.yml: test job and
 # integration-matrix) on this run's -json streams.
+# A scoped run (LOCAL_SUITE_PACKAGES) is a partial stream: like CI's
+# agent-servers job it runs -stale=off, and it drops the -require lines,
+# whose packages it may not have run.
 skip_budget() {
-  local m=$1 st=0
+  local m=$1 st=0 gate=(
+    -require 'internal/alerting TestEvaluate_.*'
+    -require 'internal/notify TestPhase2_(ProcessRule|LoadChannel|LoadMatchingRules)_.*')
   shift
+  [ -z "$PACKAGES" ] || gate=(-stale=off)
   (cd "$OUT/stage/sidecar" && cat "$@" | GOFLAGS=-mod=vendor GOPROXY=off \
-    go run ./cmd/skipbudget -pg "$m" \
-    -require 'internal/alerting TestEvaluate_.*' \
-    -require 'internal/notify TestPhase2_(ProcessRule|LoadChannel|LoadMatchingRules)_.*') \
+    go run ./cmd/skipbudget -pg "$m" "${gate[@]}") \
     >"$OUT/pg$m/skipbudget.txt" 2>&1 || st=$?
   echo "skipbudget=$st" >>"$OUT/pg$m/status.txt"
   return "$st"
@@ -348,6 +386,12 @@ cov_floor() {
   return "$st"
 }
 
+# suite_cmd: SUITE_CMD, with LOCAL_SUITE_PACKAGES in place of ./... when set.
+suite_cmd() {
+  local all=' ./... '
+  if [ -z "$PACKAGES" ]; then echo "$SUITE_CMD"; else echo "${SUITE_CMD/"$all"/ $PACKAGES }"; fi
+}
+
 run_major() {
   local m=$1 dir=$OUT/pg$1 st=0 inputs
   mkdir -p "$dir"
@@ -355,11 +399,12 @@ run_major() {
   disk_guard
   start_server "$m"
   start_exclusive "$m"
+  [ "$PSS_SMALL" = 0 ] || start_pss_small "$m"
   check_server "$m"
-  go_test "$m" "$SUITE_CMD" "$dir/suite.json" || st=$?
+  go_test "$m" "$(suite_cmd)" "$dir/suite.json" || st=$?
   echo "suite=$st" >>"$dir/status.txt"
   inputs=("$dir/suite.json")
-  if [ "$m" = 17 ]; then
+  if [ "$m" = 17 ] && [ -z "$PACKAGES" ]; then
     local e2e=0
     go_test "$m" "$E2E_CMD" "$dir/e2e.json" || e2e=$?
     echo "e2e=$e2e" >>"$dir/status.txt"

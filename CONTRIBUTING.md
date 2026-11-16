@@ -213,6 +213,15 @@ each major also gets the exclusive server for the cluster-wide tests
 on port 5433 of the first server's network, capped at 1536m with its data on
 disk. A full run therefore needs about 11.5g of Docker memory (4g, 1536m and
 the Go container's 6g).
+`LOCAL_SUITE_PSS_SMALL=1` adds the server that CI's `agent-servers` job gives
+`TestActivityReportsDeallocAndFallsBack` (`SAGE_TEST_PSS_SMALL_URL`), so that
+test runs instead of skipping: `improve-ci-pss-pg<N>`, on port 5434 of the
+first server's network, with `pg_stat_statements.max=100` and another 1536m.
+The run stops with exit 5 if the server did not take that setting.
+`LOCAL_SUITE_PACKAGES` runs only the given packages (for example
+`LOCAL_SUITE_PACKAGES=./internal/agentguard/broker/`) in place of `./...`.
+Such a run is not CI-equivalent: it skips the e2e step, and its skip budget
+runs `-stale=off` without CI's `-require` lines. `summary.md` names the scope.
 `LOCAL_SUITE_DRY_RUN=1` checks the inputs and prints the plan, and
 `scripts/ci/local-linux-suite-test.sh` tests the script without Docker.
 The local servers are not CI's image. The `improve-pg` images lack pgaudit,

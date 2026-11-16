@@ -161,6 +161,12 @@ read -r _ TOT_P TOT_F TOT_S < <(tail -1 <<<"$body")
   echo
   echo "**Command:** \`go test ./... -race -cover -tags=integration -count=1" \
     "-timeout 1500s -json -p 4\` (PostgreSQL 17 also runs the e2e step)"
+  scope=
+  [ ! -f "$out/run.txt" ] || scope=$(sed -n 's/^pss_small=[01] packages=//p' "$out/run.txt")
+  if [ -n "$scope" ] && [ "$scope" != all ]; then
+    echo "**Scope:** packages $scope only, in place of ./... (no e2e step; the skip" \
+      "budget runs -stale=off without the -require lines)"
+  fi
   echo "**Total:** $TOT_P passed, $TOT_F failed, $TOT_S skipped"
   echo
   sed '$d' <<<"$body"
