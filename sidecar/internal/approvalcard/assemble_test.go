@@ -347,13 +347,13 @@ func TestContentHashIsStableAndSensitive(t *testing.T) {
 		t.Fatal("lifecycle fields must not change the content hash")
 	}
 	mutations := map[string]func(*store.QueuedAction){
-		"sql":         func(q *store.QueuedAction) { q.ProposedSQL += " " },
-		"rollback":    func(q *store.QueuedAction) { q.RollbackSQL = "" },
-		"type":        func(q *store.QueuedAction) { q.ActionType = "other" },
-		"finding":     func(q *store.QueuedAction) { q.FindingID++ },
-		"queue":       func(q *store.QueuedAction) { q.ID++ },
-		"content":     func(q *store.QueuedAction) { q.ContentHash = "x" },
-		"risk":        func(q *store.QueuedAction) { q.ActionRisk = "high" },
+		"sql":      func(q *store.QueuedAction) { q.ProposedSQL += " " },
+		"rollback": func(q *store.QueuedAction) { q.RollbackSQL = "" },
+		"type":     func(q *store.QueuedAction) { q.ActionType = "other" },
+		"finding":  func(q *store.QueuedAction) { q.FindingID++ },
+		"queue":    func(q *store.QueuedAction) { q.ID++ },
+		"content":  func(q *store.QueuedAction) { q.ContentHash = "x" },
+		"risk":     func(q *store.QueuedAction) { q.ActionRisk = "high" },
 		"sql vs roll": func(q *store.QueuedAction) {
 			q.ProposedSQL, q.RollbackSQL = q.RollbackSQL, q.ProposedSQL
 		},

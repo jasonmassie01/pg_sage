@@ -476,7 +476,10 @@
     "AuthAuditDays": 365,
     "SageSizeWarningPct": 10,
     "QueryStoreDays": 14,
-    "SnapshotsMaxPct": 5
+    "SnapshotsMaxPct": 5,
+    "QueryRollupHourlyDays": 35,
+    "QueryRollupDailyDays": 400,
+    "WorkloadPacksDays": 180
   },
   "Prometheus": {
     "ListenAddr": "127.0.0.1:8187",
@@ -518,6 +521,10 @@
     "RegressPct": 15,
     "WriteImpactPct": 20,
     "MinSamples": 30,
+    "Method": "auto",
+    "OnExpired": "ask",
+    "BacktestMaxRuntimeMinutes": 10,
+    "BacktestPlacebos": 300,
     "IOBaselineDays": 7,
     "DropWindowHours": 168,
     "IOBaselineHours": 0,

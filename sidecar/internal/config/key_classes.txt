@@ -145,13 +145,17 @@ safety_critical safety.reindex_timeout_seconds
 safety_critical safety.vacuum_stall_minutes
 safety_critical safety.vacuum_timeout_seconds
 safety_critical safety.wal_io_ceiling_pct
+operator_preference verify.backtest_max_runtime_minutes
+safety_critical verify.backtest_placebos
 safety_critical verify.drop_window_hours
 safety_critical verify.io_baseline_days
 safety_critical verify.io_baseline_hours
 operator_preference verify.io_capacity
 derivable verify.io_sample_retention_days
+safety_critical verify.method
 safety_critical verify.min_gain_pct
 safety_critical verify.min_samples
+safety_critical verify.on_expired
 safety_critical verify.regress_pct
 safety_critical verify.window_max_minutes
 safety_critical verify.window_minutes
@@ -385,10 +389,13 @@ operator_preference retention.auth_audit_days
 operator_preference retention.decisions_days
 derivable retention.explains_days
 derivable retention.findings_days
+derivable retention.query_rollup_daily_days
+derivable retention.query_rollup_hourly_days
 derivable retention.query_store_days
 derivable retention.sage_size_warning_pct
 derivable retention.snapshots_days
 derivable retention.snapshots_max_pct
+derivable retention.workload_packs_days
 
 # Sage SRE: actions and autonomy are authority; detectors, runways, SLO
 # proxies and sampling are derivable thresholds and cadences.

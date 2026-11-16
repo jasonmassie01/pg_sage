@@ -93,7 +93,10 @@ func TestLakebaseSREStatisticsMaintenance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e.SetApprovedActionRunner(m)
+	if err := e.AddApprovedActionRunner("maintenance",
+		[]string{action.MaintenanceIdentityPrefix}, m); err != nil {
+		t.Fatal(err)
+	}
 	request := action.StatisticsRequest{Schema: "sage_live", Table: table, Columns: []string{"a", "b"}, Kinds: []string{"dependencies", "ndistinct"}, EvidenceID: evidence[0].ID, EvidenceSHA256: hex.EncodeToString(evidence[0].SHA256), Rationale: "Operator hypothesis: owned fixture columns a and b are correlated"}
 	proposal, err := m.ProposeStatistics(ctx, inv.ID, request, "user:1")
 	if err != nil {

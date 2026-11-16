@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -47,6 +48,9 @@ func (l Loader) Card(ctx context.Context, queueID int) (Card, error) {
 	if err != nil {
 		return Card{}, fmt.Errorf("approvalcard: read queue item %d: %w", queueID, err)
 	}
+	if isPlanStep(*a) {
+		return Card{}, fmt.Errorf("queue item %d: %w", queueID, ErrPlanStepItem)
+	}
 	return l.forAction(ctx, *a, l.readTrust(ctx))
 }
 
@@ -62,6 +66,9 @@ func (l Loader) Pending(ctx context.Context) ([]Card, error) {
 	out := make([]Card, 0, len(actions))
 	trust := l.readTrust(ctx)
 	for _, a := range actions {
+		if isPlanStep(a) {
+			continue
+		}
 		c, err := l.forAction(ctx, a, trust)
 		if err != nil {
 			return nil, err
@@ -69,6 +76,11 @@ func (l Loader) Pending(ctx context.Context) ([]Card, error) {
 		out = append(out, c)
 	}
 	return out, nil
+}
+
+// isPlanStep reports a plan step's queue item (plan-02a).
+func isPlanStep(a store.QueuedAction) bool {
+	return strings.HasPrefix(a.IdentityKey, executor.PlanStepIdentityPrefix)
 }
 
 // ForAction reads a queue row's card inputs and assembles its card.

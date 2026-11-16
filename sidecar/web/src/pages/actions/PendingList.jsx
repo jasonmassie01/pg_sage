@@ -58,7 +58,8 @@ function ActionMessage({ msg }) {
 
 // PendingList leads with the approval cards when every queued action has one
 // and otherwise shows the table, where each row is approved or rejected.
-export function PendingList({ data, refetch, cards, cases, database, modeForDatabase }) {
+export function PendingList({ data, refetch, cards, cases, database, modeForDatabase,
+  queueFocus = '' }) {
   const [view, setView] = useState('cards')
   const refetchPendingCount = usePendingActionsRefetch()
   const decision = usePendingActions(refetch)
@@ -72,7 +73,8 @@ export function PendingList({ data, refetch, cards, cases, database, modeForData
   if (complete && view === 'cards') {
     return <PendingCardsView cards={cardList} errors={cards.data.errors}
       onShowTable={() => setView('table')} onDecided={refreshAll}
-      pending={actions} cases={cases} database={database} modeForDatabase={modeForDatabase} />
+      pending={actions} cases={cases} database={database} modeForDatabase={modeForDatabase}
+      queueFocus={queueFocus} />
   }
   return (
     <div className="space-y-3">

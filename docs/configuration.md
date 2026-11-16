@@ -1032,8 +1032,8 @@ targets, the metric that should move and by how much, and how that was predicted
 | Verdict | Meaning | Trust and credit |
 |---|---|---|
 | `improved` | the predicted effect was observed (a drop: reads held for the whole cycle) | counts toward earned autonomy and value |
-| `neutral` | measured, no change beyond the bars | neither |
-| `insufficient_evidence` | too few calls, too few sampling intervals, or too noisy to tell | neither |
+| `neutral` | measured, no change beyond the bars (shown as "No change") | neither |
+| `insufficient_evidence` | too few calls, too few sampling intervals, or too noisy to tell (shown as "Inconclusive") | neither |
 | `unverifiable` | nothing measurable, or no prediction | neither |
 | `regressed` | a targeted query (or the targeted metric) got significantly worse | rolled back; counts against trust |
 
@@ -1043,6 +1043,31 @@ only when it is both significant and beyond its bar. With several targets each i
 with a Bonferroni-corrected significance and the call-weighted pool decides. A first verdict
 comes after `trust.rollback_window_minutes` once there are `verify.min_samples` calls; without
 enough evidence the watch extends up to `verify.window_max_minutes`.
+
+`verify.method` picks the verifier that decides (`v1`, `shadow`, `v2` or `auto`,
+default `auto`): `shadow` computes verification v2 beside v1 and acts on v1, `v2`
+acts on v2, and `auto` is `v2` only on a database whose latest verifier back-test
+passed within 35 days, `shadow` otherwise: v2 becomes a database's verifier once its
+own back-test passes (see [verification.md](verification.md)). The weekly back-test
+draws `verify.backtest_placebos` placebo steps (default 300, 200-10000) and stops,
+storing nothing, after `verify.backtest_max_runtime_minutes` (default 10, 1-1440);
+`pg_sage_sidecar verifier-backtest --database NAME` runs one by hand. In v2 a "No change" result keeps the index instead of
+reverting it as `no_gain`. The post-action monitor (index drops, settings, storage
+parameters) always acts on v1 for now and records v2's verdict beside it for comparison.
+`verify.on_expired` (`ask`, `keep` or `revert`, default
+`ask`) decides what happens to a monitor whose window ended while pg_sage was not
+watching: `ask` queues one "Revert action N" item, `keep` keeps the change
+(recorded), `revert` rolls it back through the operator rollback (a refused rollback queues the
+revert item instead). An expired change with no rollback SQL is kept and recorded. Any other value of
+either key is refused at startup. A step whose targets ran too rarely in the last 4
+weeks to be judged within `verify.window_max_minutes` needs approval at every trust
+level ("cannot be verified within 72 h: the targets run N times a week").
+
+```yaml
+verify:
+  method: auto        # v1 | shadow | v2 | auto
+  on_expired: ask     # ask | keep | revert
+```
 
 Verification pauses while its evidence is unreadable. A failed read of the query history
 or the catalog (a lost connection, or the meta database down under
@@ -3951,9 +3976,12 @@ action or changes trust. API: `GET /api/v1/case-tickets?database=` (viewer) list
 
 | Parameter | Default | Description |
 |---|---|---|
-| `retention.snapshots_days` | `90` | Days to retain snapshot data |
+| `retention.snapshots_days` | `90` | Days to retain snapshot data, the source the hourly per-query rollup is built and rebuilt from |
+| `retention.query_rollup_hourly_days` | `35` | Days to keep the hourly per-query rollup (`sage.query_rollup_hourly`): two weeks for every hour-of-week bucket twice plus the baseline's minimum weeks. An hour is removed only once its UTC day is in the daily tier, or once it is older than `query_rollup_daily_days`. At most `snapshots_days` (a larger value is refused; the default follows a smaller `snapshots_days`). `0` disables. Range 0-3650. |
+| `retention.query_rollup_daily_days` | `400` | Days to keep the daily per-query rollup (`sage.query_rollup_daily`) and the hourly coverage rows (`sage.query_rollup_coverage`), so a long window still states its coverage after the hourly rows are gone. At least `query_rollup_hourly_days`. `0` disables. Range 0-3650. |
+| `retention.workload_packs_days` | `180` | Days to keep stored workload evidence packs (`sage.workload_packs`), counted from when each pack was built. A pack is never changed once stored; this purge only deletes. A pack that an open plan, or a terminal plan younger than `retention.actions_days`, cites is kept. `0` disables. Range 0-3650. |
 | `retention.findings_days` | `180` | Days to retain resolved findings |
-| `retention.actions_days` | `365` | Days to retain action log entries |
+| `retention.actions_days` | `365` | Days to retain action log entries; also plans in a terminal status (completed, reverted, rejected, voided, cancelled), counted from their last change. Open plans are kept. |
 | `retention.explains_days` | `90` | Days to retain EXPLAIN plan captures |
 | `retention.sage_size_warning_pct` | `10` | Raise a `sage_footprint` finding when pg_sage's own tables (the `sage` schema, with TOAST and indexes) exceed this percent of the database size; below 256 MB it is never a finding. `0` disables the check. With `history.store: meta` the snapshots and the query store are not in this schema. |
 
@@ -3964,6 +3992,13 @@ exactly as collected, through `sage.snapshot_data(data, base_id)`. Retention kee
 keyframe as long as a retained row is built on it, so the oldest kept rows can be up
 to 6 hours older than `snapshots_days`. Rows written by earlier versions stay readable
 and age out with `snapshots_days`; nothing is rewritten.
+
+The per-query rollup is measured, not estimated: at the default 500-query cap, 28 days of
+hourly rows (500 queryids x 24 hours x 28 days, 336,000 rows) with their 14,000 daily rows
+and 672 coverage rows take 75.9 MB (79,577,088 bytes, PostgreSQL 17, tables and indexes).
+The hourly rows dominate: the 35-day hourly tier is about 1.25 times that figure.
+`GET /api/v1/queries/coverage` reports each database's
+measured `rollup_bytes` (with `history.store: meta`, its share of the store's tables).
 
 > **Complete reference:** See `sidecar/config.example.yaml` for all
 > configuration fields including `safety`, `alerting`, `auto_explain`,

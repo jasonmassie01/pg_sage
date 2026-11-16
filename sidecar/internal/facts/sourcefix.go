@@ -43,6 +43,9 @@ func BuildSourceFix(b Binding, sql, rollback string) SourceFix {
 	case RouteAlert:
 		fix.Summary = "pg_sage will not run this: " + why + ". pg_sage alerts instead of " +
 			"acting on the slot."
+	case RouteHold:
+		fix.Summary = "pg_sage will not change this: " + why + ". To act on it, " +
+			"expire the fact first (the expiry records who and why)."
 	case RouteExcluded:
 		fix.Summary = "pg_sage leaves this alone: " + why + ". A test fixture is not " +
 			"workload; clean up the fixtures with the cleanup batch."

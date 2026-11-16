@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -25,24 +26,105 @@ type ApprovedActionRunner interface {
 		approvedBy int) (ApprovedRun, error)
 }
 
-// approvedRunnerSlot guards the registered runner.
-type approvedRunnerSlot struct {
-	mu     sync.RWMutex
-	runner ApprovedActionRunner
+// PlanStepIdentityPrefix starts the identity key of a plan step's queue
+// item (plan_step:<plan>:<step>, plan-02a). Such an item runs only
+// through the plan runner: with none registered it is refused.
+const PlanStepIdentityPrefix = "plan_step:"
+
+// Errors of the approved-action runner list.
+var (
+	ErrInvalidRunner = errors.New("invalid approved-action runner")
+	// ErrRunnerOverlap: two runners claim the same identity keys.
+	ErrRunnerOverlap = errors.New("approved-action runners overlap")
+	// ErrPlanStepOutsidePlan: a plan step's queue item reached the
+	// executor without its plan engine (an Actions approval, a card, the
+	// scheduled runner) and was refused.
+	ErrPlanStepOutsidePlan = errors.New("a plan step runs only through its plan engine")
+)
+
+// registeredRunner is one runner and the identity-key prefixes it owns.
+type registeredRunner struct {
+	name     string
+	prefixes []string
+	runner   ApprovedActionRunner
 }
 
-// SetApprovedActionRunner registers the runner for approved items it owns;
-// nil removes it.
-func (e *Executor) SetApprovedActionRunner(r ApprovedActionRunner) {
+// claims reports whether key starts with one of the runner's prefixes.
+func (r registeredRunner) claims(key string) bool {
+	for _, p := range r.prefixes {
+		if strings.HasPrefix(key, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// approvedRunnerSlot guards the registered runners, in registration order.
+type approvedRunnerSlot struct {
+	mu      sync.RWMutex
+	runners []registeredRunner
+}
+
+// AddApprovedActionRunner registers r for the approved items whose
+// identity key starts with one of prefixes (and that r.Owns). Prefixes
+// must be disjoint from every registered runner's: a key two runners
+// could own is a startup error naming both, and nothing is registered.
+func (e *Executor) AddApprovedActionRunner(name string, prefixes []string,
+	r ApprovedActionRunner) error {
+	if r == nil || strings.TrimSpace(name) == "" || len(prefixes) == 0 {
+		return fmt.Errorf("%w %q: it needs a runner, a name and identity-key prefixes",
+			ErrInvalidRunner, name)
+	}
+	for _, p := range prefixes {
+		if strings.TrimSpace(p) == "" {
+			return fmt.Errorf("%w %q: an empty identity-key prefix owns every item",
+				ErrInvalidRunner, name)
+		}
+	}
 	slot := &e.approvedRunner
 	slot.mu.Lock()
 	defer slot.mu.Unlock()
-	slot.runner = r
+	for _, have := range slot.runners {
+		for _, p := range prefixes {
+			for _, q := range have.prefixes {
+				if strings.HasPrefix(p, q) || strings.HasPrefix(q, p) {
+					return fmt.Errorf("%w: runner %q (%q) and runner %q (%q) would both "+
+						"own the same queue items", ErrRunnerOverlap, have.name, q, name, p)
+				}
+			}
+		}
+	}
+	slot.runners = append(slot.runners, registeredRunner{name: name,
+		prefixes: append([]string(nil), prefixes...), runner: r})
+	return nil
+}
+
+// ownerOf is the registered runner that owns action, or nil.
+func (e *Executor) ownerOf(action store.QueuedAction) ApprovedActionRunner {
+	slot := &e.approvedRunner
+	slot.mu.RLock()
+	runners := slot.runners
+	slot.mu.RUnlock()
+	for _, r := range runners {
+		if r.claims(action.IdentityKey) && r.runner.Owns(action) {
+			return r.runner
+		}
+	}
+	return nil
+}
+
+// approvedRunnerCount is the number of registered runners.
+func (e *Executor) approvedRunnerCount() int {
+	slot := &e.approvedRunner
+	slot.mu.RLock()
+	defer slot.mu.RUnlock()
+	return len(slot.runners)
 }
 
 // RunApprovedAction runs an approved queue item for its approver: items a
 // registered runner owns go to it, every other item keeps the manual path
-// (ExecuteManual against its finding).
+// (ExecuteManual against its finding), except a plan step or SRE
+// maintenance item no runner owns, which is refused.
 func (e *Executor) RunApprovedAction(ctx context.Context, action store.QueuedAction,
 	approvedBy int) (ApprovedRun, error) {
 	if approvedBy <= 0 {
@@ -55,12 +137,12 @@ func (e *Executor) RunApprovedAction(ctx context.Context, action store.QueuedAct
 		return e.runApprovedRevert(ctx, action)
 	}
 	ctx = withQueuedPrincipal(ctx, action)
-	slot := &e.approvedRunner
-	slot.mu.RLock()
-	runner := slot.runner
-	slot.mu.RUnlock()
-	if runner != nil && runner.Owns(action) {
+	if runner := e.ownerOf(action); runner != nil {
 		return runner.RunApproved(ctx, action, approvedBy)
+	}
+	if strings.HasPrefix(action.IdentityKey, PlanStepIdentityPrefix) {
+		return ApprovedRun{}, fmt.Errorf("queue item %d (%s): %w", action.ID,
+			action.IdentityKey, ErrPlanStepOutsidePlan)
 	}
 	if strings.HasPrefix(action.IdentityKey, "sre_maintenance:") {
 		return ApprovedRun{}, fmt.Errorf("SRE maintenance requires its typed runner")

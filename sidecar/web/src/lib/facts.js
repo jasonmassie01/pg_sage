@@ -1,3 +1,5 @@
+import { withSurface } from './inbox'
+
 // Binding facts (roadmap 2.3): API helpers and the declare-form rules
 // shared by the Facts page and the inline fact badges. Confirmed facts
 // only narrow or redirect what pg_sage does on its own; proposed facts
@@ -5,8 +7,12 @@
 
 export const FACT_TYPES = [
   'owned_by_app_migrations', 'test_fixture', 'slot_consumer', 'append_only',
-  'table_window',
+  'table_window', 'do_not_touch',
 ]
+
+// FACT_TYPE_LABELS names the fact types the declare form shows in words;
+// the others show their type name.
+export const FACT_TYPE_LABELS = { do_not_touch: 'Do not touch' }
 
 // KINDS_BY_TYPE is the subject kinds each fact type may be about.
 export const KINDS_BY_TYPE = {
@@ -15,6 +21,7 @@ export const KINDS_BY_TYPE = {
   slot_consumer: ['slot'],
   append_only: ['table'],
   table_window: ['table'],
+  do_not_touch: ['table', 'index', 'schema'],
 }
 
 export const SUBJECT_PLACEHOLDERS = {
@@ -80,10 +87,10 @@ export function factErrorMessage(status, json) {
   return json?.error || `Request failed (${status})`
 }
 
-async function postJSON(url, body) {
+async function postJSON(url, body, surface) {
   const res = await fetch(url, {
     method: 'POST', credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
+    headers: withSurface({ 'Content-Type': 'application/json' }, surface),
     body: JSON.stringify(body),
   })
   let json = {}
@@ -96,10 +103,11 @@ async function postJSON(url, body) {
   return json
 }
 
-// decideFact confirms, rejects or expires one fact on its database.
-export function decideFact(database, id, verb, note) {
+// decideFact confirms, rejects or expires one fact on its database;
+// surface names the deciding page (X-Sage-Surface, ux-01a).
+export function decideFact(database, id, verb, note, surface) {
   return postJSON(`/api/v1/facts/${id}/${verb}${dbQuery(database)}`,
-    { note: note || '' })
+    { note: note || '' }, surface)
 }
 
 export function declareFact(database, body) {
@@ -154,4 +162,94 @@ export function collectMatches(data) {
 
 function asList(value) {
   return Array.isArray(value) ? value.filter(f => f && f.id != null) : []
+}
+
+// The owner brief (evid-03a/03b): one confirmed fact per database (type
+// owner_brief, subject kind database, subject "*"). A declaration replaces
+// the whole value, so the form sends every key it read back.
+
+export const BRIEF_FIELDS = [
+  { key: 'owner', label: 'Owner', placeholder: 'Payments team' },
+  { key: 'contact', label: 'Contact', placeholder: '#payments-oncall' },
+  { key: 'growth', label: 'Growth', placeholder: '20 GB a month' },
+  { key: 'retention', label: 'Retention', placeholder: 'orders kept 7 years' },
+  { key: 'peak_windows', label: 'Peak windows',
+    placeholder: 'weekdays 09:00-17:00 America/Chicago' },
+  { key: 'note', label: 'Note', placeholder: 'Quiet in August' },
+]
+
+// BRIEF_MAX is the server's bound on each brief field (facts.maxValueText).
+export const BRIEF_MAX = 300
+
+export const PEAK_WINDOW_HINT = 'One or more windows separated by ";": weekdays ' +
+  '09:00-17:00, mon,tue 08:00-12:00 UTC, weekends, or a 5-field cron with @duration. ' +
+  'Without a time zone the sidecar\'s clock is used.'
+
+export function ownerBriefURL(database) {
+  return `/api/v1/facts${dbQuery(database)}&status=confirmed&type=owner_brief`
+}
+
+export function peakSuggestionURL(database) {
+  return `/api/v1/databases/${encodeURIComponent(database)}/facts/peak-suggestion`
+}
+
+async function getJSON(url) {
+  const res = await fetch(url, { credentials: 'include' })
+  let json = {}
+  try {
+    json = await res.json()
+  } catch (err) {
+    json = { error: `unreadable response (${res.status}: ${err.message})` }
+  }
+  if (!res.ok) throw new Error(factErrorMessage(res.status, json))
+  return json
+}
+
+// fetchOwnerBrief returns the database's confirmed brief, or null.
+export async function fetchOwnerBrief(database) {
+  const json = await getJSON(ownerBriefURL(database))
+  if (!Array.isArray(json.facts)) throw new Error('unreadable owner brief response')
+  return json.facts.find(f => f.type === 'owner_brief') || null
+}
+
+// fetchPeakSuggestion returns the suggestion; a reply that is neither a
+// suggestion nor "none" is an error, never "none".
+export async function fetchPeakSuggestion(database) {
+  const json = await getJSON(peakSuggestionURL(database))
+  if (json.suggestion === 'peak_windows' && typeof json.peak_windows === 'string') return json
+  if (json.suggestion === 'none') return json
+  throw new Error('unreadable peak-window suggestion')
+}
+
+// briefValue is the value to declare: the brief's other keys as read,
+// then the form's fields, blanks left out.
+export function briefValue(current, form) {
+  const value = {}
+  for (const [k, v] of Object.entries(current || {})) {
+    if (typeof v === 'string' && v.trim()) value[k] = v
+  }
+  for (const { key } of BRIEF_FIELDS) {
+    const v = (form[key] || '').trim()
+    if (v) value[key] = v
+    else delete value[key]
+  }
+  return value
+}
+
+// briefProblem says why the form cannot be saved yet, or null.
+export function briefProblem(value) {
+  if (Object.keys(value).length === 0) return 'Fill in at least one field.'
+  for (const [k, v] of Object.entries(value)) {
+    if (v.length > BRIEF_MAX) return `${k} is longer than ${BRIEF_MAX} characters.`
+  }
+  const windows = value.peak_windows
+  if (windows && windows.split(';').some(part => !part.trim())) {
+    return 'Peak windows has an empty window between ";" separators.'
+  }
+  return null
+}
+
+export function declareBrief(database, value) {
+  return declareFact(database, { type: 'owner_brief', subject_kind: 'database',
+    subject: '*', value, note: '' })
 }

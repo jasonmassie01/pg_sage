@@ -71,6 +71,12 @@ func ParsePattern(kind Kind, raw string) (Pattern, error) {
 				"_ or *", ErrInvalidSubject, raw)
 		}
 		return Pattern{Kind: KindSlot, Name: s}, nil
+	case KindDatabase:
+		if s != "*" {
+			return Pattern{}, fmt.Errorf("%w: a database fact's subject is * (the "+
+				"database whose facts hold it), not %q", ErrInvalidSubject, raw)
+		}
+		return Pattern{Kind: KindDatabase, Name: s}, nil
 	case KindSchema, KindIndex, KindTable:
 	default:
 		return Pattern{}, fmt.Errorf("%w: %q", ErrInvalidKind, kind)
@@ -111,7 +117,7 @@ func patternFromParts(kind Kind, parts []identPart, raw string) (Pattern, error)
 // need no quotes.
 func (p Pattern) String() string {
 	switch p.Kind {
-	case KindSlot:
+	case KindSlot, KindDatabase:
 		return p.Name
 	case KindSchema:
 		return quoteIdent(p.Schema)
@@ -123,7 +129,8 @@ func (p Pattern) String() string {
 // matches any schema, and a relation of unknown kind matches both table
 // and index patterns: when unsure, a fact binds (it can only narrow). A
 // table or schema pattern also covers a ref whose partition root it
-// covers: a fact on a partitioned table covers all its partitions.
+// covers: a fact on a partitioned table covers all its partitions. A
+// database pattern names no object and matches no ref.
 func (p Pattern) Matches(ref ObjectRef) bool {
 	switch p.Kind {
 	case KindSlot:

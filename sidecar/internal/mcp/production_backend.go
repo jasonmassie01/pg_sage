@@ -65,6 +65,8 @@ type ProductionDependencies struct {
 	Facts FactBackend
 	// FleetLearning serves fleet_findings (fleet learning); optional.
 	FleetLearning FleetLearningBackend
+	// WorkloadPacks serves get_workload_pack (evid-02c); optional.
+	WorkloadPacks WorkloadPackBackend
 	// AgentBroker serves agent_query and agent_whoami (agent governance);
 	// optional.
 	AgentBroker AgentBrokerBackend
@@ -83,6 +85,10 @@ type ProductionDependencies struct {
 	Briefings BriefingBackend
 	// UpgradeReadiness serves upgrade_readiness (market-05); optional.
 	UpgradeReadiness UpgradeReadinessBackend
+	// Inbox serves get_inbox (ux-01a); optional.
+	Inbox InboxBackend
+	// Outcomes serves get_outcomes (ux-02a); optional.
+	Outcomes OutcomesBackend
 }
 
 type ProductionBackend struct {

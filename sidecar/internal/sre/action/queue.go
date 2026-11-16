@@ -217,3 +217,13 @@ func (q *PGApprovalQueue) Resolve(ctx context.Context, queueID int) error {
 	}
 	return nil
 }
+
+// RunnerName names the Sage SRE runner among the executor's approved-action
+// runners (executor.AddApprovedActionRunner).
+const RunnerName = "sre"
+
+// RunnerKeyPrefixes are the queue identity keys the Sage SRE runner owns:
+// its proposals' approval items and operator maintenance.
+func RunnerKeyPrefixes() []string {
+	return []string{ApprovalIdentityPrefix, MaintenanceIdentityPrefix}
+}

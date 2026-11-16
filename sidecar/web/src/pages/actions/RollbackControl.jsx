@@ -6,7 +6,8 @@ import { rowDatabase } from './workflow'
 // Rollback from the Actions ledger (dashboard-10). The button opens a
 // ConfirmDialog that shows the action id, target database, exact rollback SQL
 // and risk tier; nothing is sent until Confirm, and a failure stays in the
-// open dialog. The request body is unchanged from the window.confirm flow.
+// open dialog. The request body is {reason, record_kind}, the reason now
+// typed by the operator (ux-01b) instead of a fixed string.
 
 const buttonStyle = { background: 'var(--yellow)', color: '#111827' }
 
@@ -37,32 +38,36 @@ export function RollbackButton({ row, onOpen }) {
   )
 }
 
-async function postRollback(row) {
+// postRollback sends today's body with the operator's reason. surface
+// names the page the decision came from (X-Sage-Surface, ux-01a).
+async function postRollback(row, reason, surface) {
   const dbParam = row.database_name
     ? `?database=${encodeURIComponent(row.database_name)}` : ''
+  const headers = { 'Content-Type': 'application/json' }
+  if (surface) headers['X-Sage-Surface'] = surface
   const res = await fetch(`/api/v1/actions/${row.id}/rollback${dbParam}`, {
     method: 'POST',
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      reason: 'manual rollback from actions UI',
-      record_kind: row.record_kind,
-    }),
+    headers,
+    body: JSON.stringify({ reason, record_kind: row.record_kind }),
   })
   let json = {}
   try { json = await res.json() } catch { /* non-JSON error body */ }
   if (!res.ok || !json.ok) throw new Error(json.error || `Rollback failed (${res.status})`)
 }
 
-export function RollbackDialog({ row, database, riskTier, onClose, onDone }) {
+// RollbackDialog asks why (ux-01b): the reason is kept with the rollback,
+// so the ledger and the trust model learn it. onDone receives the row and
+// the reason sent.
+export function RollbackDialog({ row, database, riskTier, surface, onClose, onDone }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
-  async function runRollback() {
+  async function runRollback(reason) {
     setBusy(true)
     setError(null)
     try {
-      await postRollback(row)
-      onDone(row)
+      await postRollback(row, reason, surface)
+      onDone(row, reason)
     } catch (err) {
       // A destructive rollback must never fail silently: the operator sees
       // why in the dialog they confirmed, not in a toast behind it.
@@ -78,6 +83,7 @@ export function RollbackDialog({ row, database, riskTier, onClose, onDone }) {
       database={target} riskTier={riskTier} sql={row?.rollback_sql}
       confirmPhrase={target || (row ? `action ${row.id}` : '')}
       consequence="pg_sage runs the stored rollback SQL below on this database now."
+      reasonLabel="Why roll it back? (3 to 500 characters, kept with the rollback)"
       busy={busy} error={error} onConfirm={runRollback} onCancel={onClose} />
   )
 }

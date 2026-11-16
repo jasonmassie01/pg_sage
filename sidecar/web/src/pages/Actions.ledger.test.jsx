@@ -2,6 +2,11 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Actions } from './Actions'
 
+// ux-01b: a rollback now requires the operator's reason; these tests type one
+// before Confirm, and the posted body carries it.
+const giveReason = () => fireEvent.change(screen.getByTestId('confirm-dialog-reason'),
+  { target: { value: 'operator rollback reason' } })
+
 // G9-B01 / G6-B05 / G9-B04 / G9-B14 / SURF-12: the merged ledger must
 // distinguish queued proposals from executed actions.
 
@@ -76,6 +81,7 @@ describe('Action ledger record kinds', () => {
     expect(buttons).toHaveLength(1)
     expect(screen.getByText('SQL Executed')).toBeInTheDocument()
     fireEvent.click(buttons[0])
+    giveReason()
     expect(fetch).not.toHaveBeenCalled()
     fireEvent.click(screen.getByTestId('confirm-dialog-confirm'))
     await waitFor(() => expect(fetch).toHaveBeenCalled())

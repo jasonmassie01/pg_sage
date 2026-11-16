@@ -29,6 +29,15 @@ func (backend *ProductionBackend) DecideFact(ctx context.Context, request FactRe
 	return backend.dependencies.Facts.DecideFact(ctx, request, actor)
 }
 
+// WorkloadPackModel serves get_workload_pack.
+func (backend *ProductionBackend) WorkloadPackModel(ctx context.Context,
+	request WorkloadPackRequest) (any, error) {
+	if backend.dependencies.WorkloadPacks == nil {
+		return nil, ErrProductionDependencyUnavailable
+	}
+	return backend.dependencies.WorkloadPacks.WorkloadPackModel(ctx, request)
+}
+
 // FleetFindings serves fleet_findings.
 func (backend *ProductionBackend) FleetFindings(ctx context.Context,
 	request FleetFindingsRequest) (any, error) {
@@ -36,4 +45,22 @@ func (backend *ProductionBackend) FleetFindings(ctx context.Context,
 		return nil, ErrProductionDependencyUnavailable
 	}
 	return backend.dependencies.FleetLearning.FleetFindings(ctx, request)
+}
+
+// Inbox serves get_inbox.
+func (backend *ProductionBackend) Inbox(ctx context.Context,
+	request InboxRequest) (any, error) {
+	if backend.dependencies.Inbox == nil {
+		return nil, ErrProductionDependencyUnavailable
+	}
+	return backend.dependencies.Inbox.Inbox(ctx, request)
+}
+
+// Outcomes serves get_outcomes.
+func (backend *ProductionBackend) Outcomes(ctx context.Context,
+	request OutcomesRequest) (any, error) {
+	if backend.dependencies.Outcomes == nil {
+		return nil, ErrProductionDependencyUnavailable
+	}
+	return backend.dependencies.Outcomes.Outcomes(ctx, request)
 }

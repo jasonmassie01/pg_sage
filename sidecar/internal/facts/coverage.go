@@ -59,6 +59,10 @@ func CoverageOf(ctx context.Context, db txBeginner, kind Kind, subject string) (
 	if err != nil {
 		return Coverage{}, err
 	}
+	if p.Kind == KindDatabase {
+		return Coverage{}, fmt.Errorf("%w: a database fact covers the database itself; "+
+			"there are no objects to list", ErrInvalidKind)
+	}
 	out := Coverage{Objects: []string{}}
 	err = boundedRead(ctx, db, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, coverageSQL[p.Kind], likePattern(p.Schema),

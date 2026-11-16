@@ -58,22 +58,34 @@ func queryStatsTemplate(hasWAL, hasPlan bool) string {
 // database the ranked read admits: counters first, texts from the cache
 // (statements_text.go).
 func (c *Collector) collectQueries(ctx context.Context) ([]QueryStats, error) {
-	return c.collectQueriesVia(ctx, timedCatalogQuerier{collector: c})
+	return c.queriesVia(ctx, timedCatalogQuerier{collector: c}, nil)
 }
 
-// collectQueriesVia is collectQueries over db. The counters are not
-// published without their texts: a failed text read fails the step.
+// collectQueriesVia is collectQueries over db.
 func (c *Collector) collectQueriesVia(ctx context.Context,
 	db catalogQuerier) ([]QueryStats, error) {
+	return c.queriesVia(ctx, db, nil)
+}
+
+// queriesVia reads the queries over db and, when totals is not nil, the
+// database's statement totals the same read carries (evid-01a); they are
+// unknown (zero) when the read fails or returns no row. The counters are
+// not published without their texts: a failed text read fails the step.
+func (c *Collector) queriesVia(ctx context.Context, db catalogQuerier,
+	totals *statementTotals) ([]QueryStats, error) {
+	var read statementTotals
+	if totals != nil {
+		*totals = statementTotals{}
+	}
 	caps := c.queryCapabilities(ctx)
 	names, err := c.pgss()
 	if err != nil {
 		return nil, fmt.Errorf("read pg_stat_statements counters: %w", err)
 	}
 	admission := admissionFor(c.maxQueries())
-	read := rankedRead{admission: admission,
+	ranked := rankedRead{admission: admission, totals: &read,
 		pins: c.pinnedQueryIDs(ctx, admission.pinCap), own: c.stmtTexts.ownIDs()}
-	candidates, err := readQueryCounters(ctx, db, names.fn, caps, read)
+	candidates, err := readQueryCounters(ctx, db, names.fn, caps, ranked)
 	if err != nil {
 		return nil, fmt.Errorf("read pg_stat_statements counters: %w", err)
 	}
@@ -85,6 +97,9 @@ func (c *Collector) collectQueriesVia(ctx context.Context,
 		stmtTextEntriesPerQuery*admission.limit)
 	if err != nil {
 		return nil, err
+	}
+	if totals != nil {
+		*totals = read
 	}
 	return applicationQueries(candidates, texts, admission.limit), nil
 }
@@ -107,6 +122,32 @@ const candidateHeadroom = 2
 type rankedRead struct {
 	admission queryAdmission
 	pins, own []int64
+	// totals, when set, receives the statement totals every row carries.
+	totals *statementTotals
+}
+
+// statementTotals are the database's pg_stat_statements totals over its
+// entries less pg_sage's known own (evid-01a); known is false when no row
+// carried them.
+type statementTotals struct {
+	execMs  float64
+	calls   int64
+	entries int
+	known   bool
+}
+
+// applyStatementTotals copies the statements epoch and, when known, the
+// queries step's statement totals into the system category, after the
+// steps (the system step replaces System).
+func applyStatementTotals(snap *Snapshot) {
+	snap.System.StatementsEpoch = snap.StatsEpoch
+	t := snap.stmtTotals
+	if !t.known {
+		t = statementTotals{}
+	}
+	snap.System.StatementsTotalExecMs = t.execMs
+	snap.System.StatementsCalls = t.calls
+	snap.System.StatementsEntries = t.entries
 }
 
 // readQueryCounters reads the admitted queryids (queryStatsFrom), pinned
@@ -125,15 +166,24 @@ func readQueryCounters(ctx context.Context, db catalogQuerier, fn string,
 	}
 	defer rows.Close()
 	var result []QueryStats
+	var t statementTotals
 	for rows.Next() {
 		var q QueryStats
-		dest := append(queryCounterDest(&q, hasWAL, hasPlan), &q.AdmittedBy)
+		dest := append(queryCounterDest(&q, hasWAL, hasPlan),
+			&t.execMs, &t.calls, &t.entries, &q.AdmittedBy)
 		if err := rows.Scan(dest...); err != nil {
 			return nil, err
 		}
 		result = append(result, q)
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if read.totals != nil && len(result) > 0 {
+		t.known = true
+		*read.totals = t
+	}
+	return result, nil
 }
 
 // nonNil is ids, or an empty slice for nil: pgx sends nil as NULL, and

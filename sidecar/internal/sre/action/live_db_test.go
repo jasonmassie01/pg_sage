@@ -156,7 +156,10 @@ func newLiveActions(t *testing.T, st *sre.PostgresStore, pool *pgxpool.Pool,
 	if err != nil {
 		t.Fatalf("NewActionService: %v", err)
 	}
-	exec.SetApprovedActionRunner(actions)
+	if err := exec.AddApprovedActionRunner(RunnerName, RunnerKeyPrefixes(),
+		actions); err != nil {
+		t.Fatalf("add the SRE runner: %v", err)
+	}
 	h := &actionHarness{st: st, pool: pool, ctx: ctx, coord: coord, svc: svc, inv: inv,
 		actions: actions, as: store.NewActionStore(pool), cfg: ac}
 	return &liveActions{h: h, exec: exec, actions: actions}

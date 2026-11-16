@@ -116,6 +116,9 @@ func NewElector(store Store, scope, holder string, ttl time.Duration,
 // TTL is the lease duration.
 func (e *Elector) TTL() time.Duration { return e.ttl }
 
+// Holder is the holder id this elector leads as.
+func (e *Elector) Holder() string { return e.holder }
+
 // Tick acquires or renews the lease once. The store call is bounded by
 // ttl/3 (pool acquire and every query), so a half-open connection or an
 // exhausted pool costs one renewal interval, not the TCP timeout. A

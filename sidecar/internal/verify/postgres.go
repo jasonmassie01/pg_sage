@@ -105,6 +105,14 @@ type persistedWatch struct {
 	// WriteScope is the write signal the watch is judged by: "table" for
 	// every watch stored since executor-03b. A row without it is older.
 	WriteScope string `json:"write_scope,omitempty"`
+	// FrozenWeights are the targets' pre-period call shares (lab-01a); a
+	// row without them is older and judged by v1 only.
+	FrozenWeights map[int64]float64 `json:"frozen_weights,omitempty"`
+	// AlphaSpend is the alpha spent by the watch's looks (lab-01b), kept
+	// here so a restart continues the spend instead of starting from zero.
+	AlphaSpend AlphaSpend `json:"alpha_spend,omitzero"`
+	// Other is the other verifier's latest verdict (lab-01c).
+	Other *OtherVerdict `json:"other,omitempty"`
 }
 
 // writeScopeTable marks a watch judged by the table-scoped write signal.
@@ -296,7 +304,8 @@ func (s *PostgresStateStore) scanState(row stateScanner) (WatchState, error) {
 	}
 	state.ID, state.ExecutedAt = persisted.WatchID, persisted.ExecutedAt
 	state.Table, state.IndexName = persisted.Table, persisted.IndexName
-	state.Window = persisted.Window
+	state.Window, state.FrozenWeights = persisted.Window, persisted.FrozenWeights
+	state.AlphaSpend, state.Other = persisted.AlphaSpend, persisted.Other
 	return state, nil
 }
 
@@ -308,6 +317,8 @@ func marshalState(state WatchState) ([]byte, []byte, error) {
 	baseline, err := json.Marshal(persistedWatch{
 		WatchID: state.ID, ExecutedAt: state.ExecutedAt, Table: state.Table,
 		IndexName: state.IndexName, Window: state.Window, WriteScope: writeScopeTable,
+		FrozenWeights: state.FrozenWeights, AlphaSpend: state.AlphaSpend,
+		Other: state.Other,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("encode watch identity: %w", err)

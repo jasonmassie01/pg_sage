@@ -16,6 +16,7 @@ func (e *Engine) Watch(ctx context.Context, request WatchRequest) (Verdict, erro
 	}
 	state := WatchStateFromRequest(request)
 	e.applyDefaults(&state)
+	e.freezeWeights(ctx, &state)
 	if err := e.store.Create(ctx, state); err != nil {
 		return persistenceFailure(), fmt.Errorf("create verification state: %w: %w",
 			ErrStateNotPersisted, err)
@@ -99,6 +100,12 @@ func (e *Engine) evaluateAndPersist(
 	next.Window = verdict.Window
 	next.NextEvaluationAt = verdict.NextEvaluationAt
 	next.ObservationFailures = verdict.ObservationFailures
+	if verdict.AlphaSpend != nil {
+		next.AlphaSpend = *verdict.AlphaSpend
+	}
+	if verdict.Other != nil {
+		next.Other = verdict.Other
+	}
 	if verdict.Revert {
 		next.NextEvaluationAt = e.options.Now().Add(RevertRetryInterval)
 	}

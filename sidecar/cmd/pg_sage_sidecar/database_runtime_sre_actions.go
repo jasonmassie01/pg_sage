@@ -78,7 +78,10 @@ func newSREActions(d sreActionDeps) (*sreaction.ActionService, error) {
 		}
 		a.SetMaintenanceService(m)
 	}
-	d.executor.SetApprovedActionRunner(a)
+	if err := d.executor.AddApprovedActionRunner(sreaction.RunnerName,
+		sreaction.RunnerKeyPrefixes(), a); err != nil {
+		return nil, err
+	}
 	return a, nil
 }
 

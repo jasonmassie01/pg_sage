@@ -103,7 +103,10 @@ func maintenanceAPIFixture(t *testing.T) (*fleet.DatabaseManager, *sre.Service, 
 		t.Fatal(err)
 	}
 	actions.SetMaintenanceService(maintenance)
-	exec.SetApprovedActionRunner(actions)
+	if err := exec.AddApprovedActionRunner(sreaction.RunnerName,
+		sreaction.RunnerKeyPrefixes(), actions); err != nil {
+		t.Fatal(err)
+	}
 	mgr := fleet.NewManager(cfg)
 	mgr.RegisterInstance(&fleet.DatabaseInstance{Name: "owned", Pool: pool, Status: &fleet.InstanceStatus{}, Executor: exec, Investigations: svc, Actions: actions})
 	request := sreaction.StatisticsRequest{Schema: "public", Table: "fixture", Columns: []string{"a", "b"}, Kinds: []string{"dependencies", "ndistinct"}, EvidenceID: ev[0].ID, EvidenceSHA256: hex.EncodeToString(ev[0].SHA256), Rationale: "Operator hypothesis: owned fixture columns have correlated distributions"}

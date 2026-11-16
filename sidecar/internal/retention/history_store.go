@@ -32,7 +32,10 @@ func (c *Cleaner) historyElsewhere() bool {
 	return !c.storeMode && histstore.Resolve(c.pool).Scoped()
 }
 
-// rules are the purge rules this cleaner runs.
+// rules are the purge rules this cleaner runs: the store cleaner runs the
+// history tables and the tables kept beside them (inHistory); a
+// per-database cleaner whose history is elsewhere runs the rest, those
+// included (their rows left in the monitored database age out there).
 func (c *Cleaner) rules() []purgeRule {
 	all := purgeRules(c.cfg)
 	if !c.storeMode && !c.historyElsewhere() {
@@ -40,7 +43,8 @@ func (c *Cleaner) rules() []purgeRule {
 	}
 	out := make([]purgeRule, 0, len(all))
 	for _, r := range all {
-		if (r.partitioned != nil) == c.storeMode {
+		history := r.partitioned != nil
+		if history == c.storeMode || c.storeMode && r.inHistory {
 			out = append(out, r)
 		}
 	}

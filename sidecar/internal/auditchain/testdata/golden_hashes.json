@@ -56,6 +56,20 @@
       "sealed_hash": "0fc12ea83f1408dc7f1e33562c310c32c694cd0ae7a94666757cd018f3f02c1a",
       "state": "[\"pending\"]",
       "link_hash": "aec913404a4ddd73d9832c05f836db64e779a07e015e15ba0d7b97bc7bf54b22"
+    },
+    "plan_events": {
+      "row_id": 9009,
+      "sealed_text": "[9009, 41, null, \"approved\", \"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\", \"user:ünï\", {\"q\": \"é\\\"q\", \"z\": {\"a\": null, \"b\": [1, 2.50]}, \"approval_id\": 7}, 1772633716000001]",
+      "sealed_hash": "c90ad7a0b7cf62b85a7c00bb40bf91682d8a409883a11b887e938b165649b6aa",
+      "state": "",
+      "link_hash": "5163b6163d9716b45beec649778d299b84f397eaacc97815d7a85a34419efeb1"
+    },
+    "plan_model_records": {
+      "row_id": 10010,
+      "sealed_text": "[10010, 41, \"abababababababababababababababababababababababababababababababab\", \"model-ünï\", \"plan-v1\", \"```json\\n{\\\"goal\\\": \\\"東京 ✓\\\", \\\"steps\\\": [1, 2.50]}\\n```\", \"fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210\", 1772637377500000]",
+      "sealed_hash": "fbbfbf8d058359348855fe9471103e0800764d43d47e6e0a6f8f7530ced1b046",
+      "state": "",
+      "link_hash": "09bfa740675fe4fdea11cdf04c1eebe08e6061632ce7c8e97e5eabfc10991032"
     }
   }
 }

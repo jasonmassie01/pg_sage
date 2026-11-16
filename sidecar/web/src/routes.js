@@ -13,8 +13,8 @@
 // header shows the picker only there, captioned with timeRangeLabel
 // (dashboard-07).
 import {
-  Activity, AlertTriangle, BarChart3, Bell, BookCheck, Bot, Gauge, Home, KeyRound,
-  MessageSquare, ScrollText, Server, Settings, ShieldCheck, Users,
+  Activity, AlertTriangle, BarChart3, Bell, BookCheck, Bot, ClipboardCheck, Gauge, Home, Inbox,
+  KeyRound, MessageSquare, ScrollText, Server, Settings, ShieldCheck, Users,
 } from 'lucide-react'
 
 export const NAV_GROUPS = [
@@ -39,8 +39,14 @@ function caseView(id, path, label, guide) {
 }
 
 export const ROUTES = Object.freeze([
-  { id: 'value', path: '/', title: 'Value', navGroup: 'operate', testId: 'nav-value',
-    icon: Home, hint: 'Verified DBA hours saved',
+  // The Inbox is home (ux-01b): what needs a person, what changed since
+  // they were last here, and one Value line linking to the Value page.
+  { id: 'inbox', path: '/', title: 'Inbox', navGroup: 'operate', testId: 'nav-inbox',
+    icon: Inbox, hint: 'Decisions waiting on you, and what changed',
+    guide: 'Decide what waits on you, from any page that owns it, and review the '
+      + 'changes made since your last visit. Undo asks why and runs the stored rollback.' },
+  // The full Value page stays at #/value, linked from the Inbox.
+  { id: 'value', path: '/value', title: 'Value', icon: Home, hint: 'Verified DBA hours saved',
     guide: 'Compare verified outcomes and estimated DBA effort saved, and see '
       + 'recommendations still waiting for review.' },
   { id: 'cases', path: '/cases', aliases: ['/findings', '/advanced/findings'], title: 'Cases',
@@ -52,6 +58,11 @@ export const ROUTES = Object.freeze([
     usesTimeRange: true, timeRangeLabel: 'Ledger window',
     guide: 'Follow proposed database changes through review, approval and outcome '
       + 'checks. The execution mode determines whether a change can run.' },
+  { id: 'ledger', path: '/ledger', title: 'Outcome ledger', label: 'Ledger',
+    navGroup: 'operate', testId: 'nav-ledger', icon: ClipboardCheck,
+    hint: 'What changed, and what it did',
+    guide: 'See every change pg_sage made in a window, what it expected, what was '
+      + 'measured and whether it can still be rolled back.' },
   { id: 'queries', path: '/queries', title: 'Workload', navGroup: 'operate',
     testId: 'nav-queries', icon: BarChart3, hint: 'Top statements and wait-class load',
     guide: 'See which statements carry the load and what active sessions wait on. '

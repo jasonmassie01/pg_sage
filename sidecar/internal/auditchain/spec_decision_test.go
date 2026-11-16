@@ -70,10 +70,10 @@ func TestExistingChainsUnchanged(t *testing.T) {
 	want := []string{"action_log", "auth_audit", "config_audit", "guard_query_audit",
 		"pgaudit_events", "fact_events", "decision", "policy_approvals"}
 	specs := Specs()
-	if len(specs) != len(want) {
-		t.Fatalf("%d specs, want %d", len(specs), len(want))
+	if len(specs) < len(want) {
+		t.Fatalf("%d specs, want the %d released chains first", len(specs), len(want))
 	}
-	for i, s := range specs {
+	for i, s := range specs[:len(want)] {
 		if s.Chain != want[i] || s.Version != 1 {
 			t.Fatalf("spec %d = %s v%d, want %s v1", i, s.Chain, s.Version, want[i])
 		}

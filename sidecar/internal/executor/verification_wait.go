@@ -65,6 +65,18 @@ func (w *VerificationWaits) PendingFor(
 	return matchTables(ctx, db, sql, relations, candidates, now, windows)
 }
 
+// AnyInFlight reports whether any change is in flight or in verification
+// on the database, whatever its objects: a plan's setting step starts only
+// when nothing is (plan-02a), since a setting moves every query.
+func (w *VerificationWaits) AnyInFlight(ctx context.Context) (bool, error) {
+	if w == nil || w.pool == nil {
+		return false, errors.New("in-flight verifications: database pool unavailable")
+	}
+	candidates, err := readInFlight(ctx, waitQuerier(ctx, w.pool), w.windows().HoldHorizon,
+		"", nil)
+	return len(candidates) > 0, err
+}
+
 // waitQuerier reads in the gate's budget transaction when there is one,
 // so concurrent proposals see each other's authorizations under the lock.
 func waitQuerier(ctx context.Context, pool *pgxpool.Pool) policy.TargetQuerier {
