@@ -10,6 +10,8 @@ import {
 // the config PUT with the generation read just before, so a second admin's
 // write first is a 409. "Do safe things" asks for the typed database name
 // (TrustLevelConfirm, dashboard-10c). A YAML fleet shows the YAML instead.
+// Where execution_mode cannot be written and is auto, "Ask me first" is
+// refused rather than silently becoming "act without asking".
 
 async function readGuide(database) {
   const url = `/api/v1/onboarding/trust?database=${encodeURIComponent(database)}`
@@ -75,8 +77,27 @@ function Choices({ database, picked, onPick }) {
   )
 }
 
+// actsUnasked: a choice that asks first would, written where execution_mode
+// cannot be (it stays as it is), let pg_sage act without asking. An unknown
+// mode reads as auto, the executor's default, so this fails closed.
+function actsUnasked(guide, choice) {
+  if (!choice || choice.confirm || choice.trust === 'observation') return false
+  if (guide.grant?.method === 'yaml' || guide.grant?.execution_mode_writable) return false
+  return (guide.execution_mode || 'auto') === 'auto'
+}
+
+function Blocked({ choice, database }) {
+  return (
+    <Notice testId="setup-mode-blocked">
+      Here execution_mode is auto and this configuration scope cannot change it, so
+      {' '}{choice.label} would let pg_sage run safe actions on {database} without asking.
+      Choose Watch only, or Do safe things and tell me.
+    </Notice>
+  )
+}
+
 function ModeNote({ guide, choice, database }) {
-  if (guide.grant?.execution_mode_writable || !choice) return null
+  if (guide.grant?.execution_mode_writable || !choice || actsUnasked(guide, choice)) return null
   if (guide.grant?.method === 'yaml' || choice.mode === guide.execution_mode) return null
   return (
     <p data-testid="setup-mode-note" className="text-xs" style={{ color: 'var(--yellow)' }}>
@@ -155,8 +176,10 @@ export function AutonomyStep({ database, onDone, onSkip }) {
         <>
           <Choices database={database} picked={picked} onPick={setPicked} />
           <ModeNote guide={state.guide} choice={choice} database={database} />
-          {choice && <Apply guide={state.guide} choice={choice} database={database}
-            reload={reload} onDone={onDone} />}
+          {choice && actsUnasked(state.guide, choice) &&
+            <Blocked choice={choice} database={database} />}
+          {choice && !actsUnasked(state.guide, choice) && <Apply guide={state.guide}
+            choice={choice} database={database} reload={reload} onDone={onDone} />}
         </>
       )}
       <SkipButton step="autonomy" onSkip={onSkip} />

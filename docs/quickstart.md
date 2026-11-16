@@ -108,7 +108,9 @@ viewers are told that an admin connects the first one.
    `execution_mode: manual`), **Ask me first** (`advisory`, `approval`) or **Do safe
    things and tell me** (`advisory`, `auto`, which asks you to type the database name).
    The write carries the config generation, so a second admin's write first is refused
-   with 409. High-risk actions always wait for approval.
+   with 409. High-risk actions always wait for approval. Where only `trust.level` can be
+   written (the global configuration, whose `execution_mode` is `auto`), **Ask me first**
+   is refused, since it would act without asking; choose another option there.
 
 In a YAML-configured fleet the Connect, Model and autonomy steps show the YAML to paste
 instead of saving. Each finished step is recorded once (`POST /api/v1/onboarding/setup`,

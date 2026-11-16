@@ -110,6 +110,33 @@ describe('AutonomyStep', () => {
         'trust.level': 'observation', expected_generation: 4 })
     })
 
+  // Review fix: where execution_mode cannot be written and is auto (the
+  // standalone default), "Ask me first" written as trust.level advisory alone
+  // would let pg_sage act without asking, so it is refused, not applied.
+  for (const [what, mode] of [['auto', 'auto'], ['unknown', undefined]]) {
+    it(`global scope with execution_mode ${what}: "Ask me first" is refused`, async () => {
+      const { fetchFn, onDone } = renderStep({
+        [`GET ${TRUST}`]: { json: { ...guide({ config_url: '/api/v1/config/global',
+          execution_mode_writable: false }), execution_mode: mode } },
+        'GET /api/v1/config/global': { json: { desired_generation: 4 } },
+        'PUT /api/v1/config/global': { json: { ok: true } },
+      })
+      fireEvent.click(await screen.findByRole('radio', { name: /Ask me first/ }))
+      expect(screen.getByTestId('setup-mode-blocked'))
+        .toHaveTextContent(/would let pg_sage run safe actions on orders without asking/)
+      expect(screen.queryByTestId('setup-autonomy-apply')).toBeNull()
+      expect(puts(fetchFn)).toHaveLength(0)
+      expect(onDone).not.toHaveBeenCalled()
+      fireEvent.click(screen.getByRole('radio', { name: /Watch only/ }))
+      expect(screen.queryByTestId('setup-mode-blocked')).toBeNull()
+      fireEvent.click(screen.getByRole('radio', { name: /Do safe things/ }))
+      expect(screen.queryByTestId('setup-mode-blocked')).toBeNull()
+      apply()
+      expect(await screen.findByTestId('trust-level-confirm-btn')).toBeDisabled()
+      expect(puts(fetchFn)).toHaveLength(0)
+    })
+  }
+
   it('a YAML fleet shows the YAML to paste and writes nothing', async () => {
     const { fetchFn, onDone } = renderStep({
       [`GET ${TRUST}`]: { json: guide({ method: 'yaml', config_url: undefined }) },
