@@ -171,6 +171,12 @@ func TestReplay_TamperedRecordsAreRefused(t *testing.T) {
 				raw_output, raw_output_sha256) VALUES ($1, 'm', 'hidden', $2)`, planID,
 				sha256Hex("hidden"))
 		}, ErrReplayChain},
+		{"deleted later pass", "row_missing", func(t *testing.T, pool *pgxpool.Pool, _,
+			planID int64) {
+			s := NewStore(pool)
+			later := mustRecord(t, s, planID, ModelPass{Model: "m2", RawOutput: "second"})
+			bypassExec(t, pool, `DELETE FROM sage.plan_model_record WHERE id = $1`, later.ID)
+		}, ErrReplayChain},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
