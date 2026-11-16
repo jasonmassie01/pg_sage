@@ -92,7 +92,8 @@ func ForModel(p *Pack, opts ModelOptions) (*Pack, error) {
 			model[name] = ps.walk(model[name], "")
 		}
 	}
-	if err := checkLeaks(model, leakNeedles(local, names, model)); err != nil {
+	if err := checkLeaks(model, leakGuard{needles: leakNeedles(local, names, model),
+		names: names}); err != nil {
 		return nil, err
 	}
 	model[fileTier] = ModelTier{Format: Format, Tier: TierModel,

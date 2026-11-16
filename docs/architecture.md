@@ -246,7 +246,12 @@ returns a text. A pack has three redaction tiers:
   - a credential-shaped token (`sk-`, `AKIA`, `ghp_`, `xox`, `-----BEGIN`).
 
   The guard skips values under 6 characters, values without a letter, names of the pack
-  and words of its statement structure.
+  and words of its statement structure. A value matches only as a whole token
+  (`is_active` does not hold `active`). Credential-shaped tokens are refused everywhere,
+  but values are not searched for in map keys (session states, option names), in strings
+  that are exactly a name of the pack, or in fixed-vocabulary fields such as a setting's
+  `source`, a plan's `Node Type` or the header's `timezone`. Without these exemptions,
+  a common literal such as `'active'` or `'default'` would refuse nearly every tier.
 - **export** (`GET .../workload-packs/{sha}/export`, admin): the local tier without value
   samples, plus the charts, as a tar.gz in format `pg_sage-workload/1`. It is signed with
   the evidence key and checks with `evidence.Verify` or `sha256sum -c SHA256SUMS`. It

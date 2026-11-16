@@ -128,19 +128,42 @@ func allStrings(v any) []string {
 	return nil
 }
 
+// leakGuard is what checkLeaks searches the model tier for: the needles
+// and the pack's names.
+type leakGuard struct {
+	needles map[string][]needle
+	names   map[string]bool
+}
+
+// vocabularyKeys are fields whose values come from a closed vocabulary
+// (pg_sage's own words, pg_settings' sources, plan node fields, catalog
+// types and versions), never from table data or statement literals: a
+// needle there is a common word the structure spells, as a setting's
+// "default" source is, and is not searched for. Credential-shaped tokens
+// are refused in them like everywhere else.
+var vocabularyKeys = map[string]bool{"format": true, "tier": true, "status": true,
+	"scans_status": true, "source": true, "kind": true, "subject_kind": true,
+	"method": true, "command": true, "unit": true, "plan": true, "order": true,
+	"granularity": true, "type": true, "error_class": true, "timezone": true,
+	"pg_version": true, "platform": true, "Node Type": true, "Parent Relationship": true,
+	"Join Type": true, "Strategy": true, "Partial Mode": true, "Scan Direction": true,
+	"Operation": true, "Command": true}
+
 // checkLeaks walks the model tier, sections and keys in order, and
 // returns ErrModelLeak at the first string holding a needle or a
-// credential-shaped token.
-func checkLeaks(model map[string]any, needles map[string][]needle) error {
+// credential-shaped token. Map keys are structure (session states, option
+// names, fact value keys): only credential-shaped tokens are refused there.
+func checkLeaks(model map[string]any, g leakGuard) error {
 	for _, name := range sortedNames(model) {
-		if path, kind, ok := findLeak(model[name], "", needles); ok {
+		if path, kind, ok := g.find(model[name], "", ""); ok {
 			return fmt.Errorf("%w: %s field %s holds %s", ErrModelLeak, name, path, kind)
 		}
 	}
 	return nil
 }
 
-func findLeak(v any, path string, needles map[string][]needle) (string, string, bool) {
+// find searches v, the value of field key at path.
+func (g leakGuard) find(v any, path, key string) (string, string, bool) {
 	switch x := v.(type) {
 	case map[string]any:
 		keys := make([]string, 0, len(x))
@@ -149,38 +172,64 @@ func findLeak(v any, path string, needles map[string][]needle) (string, string, 
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
-			at := strings.TrimPrefix(path+"."+k, ".")
-			if kind, ok := leakIn(k, needles); ok {
-				return at + " (key)", kind, true
+			// A key is reported by where it stands, never by its text.
+			if kind, ok := credentialIn(k); ok {
+				return strings.TrimPrefix(path+" (a key)", " "), kind, true
 			}
-			if p, kind, ok := findLeak(x[k], at, needles); ok {
+			at := strings.TrimPrefix(path+"."+k, ".")
+			if p, kind, ok := g.find(x[k], at, k); ok {
 				return p, kind, true
 			}
 		}
 	case []any:
 		for i, e := range x {
-			if p, kind, ok := findLeak(e, path+"["+strconv.Itoa(i)+"]", needles); ok {
+			if p, kind, ok := g.find(e, path+"["+strconv.Itoa(i)+"]", key); ok {
 				return p, kind, true
 			}
 		}
 	case string:
-		if kind, ok := leakIn(x, needles); ok {
+		if kind, ok := g.leakIn(x, key); ok {
 			return path, kind, true
 		}
 	}
 	return "", "", false
 }
 
-// leakIn reports whether s holds a needle or a credential-shaped token.
-func leakIn(s string, needles map[string][]needle) (string, bool) {
+// leakIn reports whether s, a value of field key, holds a credential-shaped
+// token or, outside the vocabulary fields and the pack's names, a needle.
+func (g leakGuard) leakIn(s, key string) (string, bool) {
+	if kind, ok := credentialIn(s); ok {
+		return kind, true
+	}
+	if vocabularyKeys[key] || g.names[s] {
+		return "", false
+	}
+	return needleIn(s, g.needles)
+}
+
+func credentialIn(s string) (string, bool) {
 	for _, p := range credentialPatterns {
 		if p.re.MatchString(s) {
 			return "a credential-shaped token (" + p.name + ")", true
 		}
 	}
+	return "", false
+}
+
+// needleIn finds a needle in s as a whole token: where the needle starts
+// or ends with an identifier character, s must not continue the word
+// there (is_active does not hold active; 'active' and x.active do).
+func needleIn(s string, needles map[string][]needle) (string, bool) {
 	for i := 0; i+minNeedle <= len(s); i++ {
+		if i > 0 && isIdentByte(s[i-1]) && isIdentByte(s[i]) {
+			continue
+		}
 		for _, n := range needles[s[i:i+minNeedle]] {
-			if strings.HasPrefix(s[i:], n.value) {
+			end := i + len(n.value)
+			if !strings.HasPrefix(s[i:], n.value) {
+				continue
+			}
+			if end == len(s) || !isIdentByte(s[end-1]) || !isIdentByte(s[end]) {
 				return n.kind, true
 			}
 		}
