@@ -5,7 +5,7 @@ import { IndexAdmissionPanel } from '../components/IndexAdmissionPanel'
 import { RecommendationsTab } from './actions/RecommendationsTab'
 import { DecisionsTab } from './actions/DecisionsTab'
 import { ManagedChanges } from './actions/ManagedChanges'
-import { actionFocusID } from './actions/actionFocus'
+import { actionFocusID, actionTabParam, queueFocusID } from './actions/actionFocus'
 import { ActionFocusNotice } from './actions/ActionFocusNotice'
 import { caseHref, inProgress } from './actions/workflow'
 import { actionCaseScope } from './actions/actionFormat'
@@ -23,16 +23,26 @@ const FLEET_NOTE = ' Stored recommendations require a single database; '
 const VIEWER_NOTE = ' Your role can inspect changes; '
   + 'approval requests are available to operators and admins.'
 
+// initialTab: an executed-record focus picks its own tab (null), else the
+// link's tab= (ux-01b), else Proposed changes.
+const initialTab = () => (actionFocusID() ? null : actionTabParam() || 'recommendations')
+
 function useActionsNav() {
-  const [tab, setTab] = useState(() => (actionFocusID() ? null : 'recommendations'))
+  const [tab, setTab] = useState(initialTab)
   const [caseScope, setCaseScope] = useState(actionCaseScope)
   const [actionFocus, setActionFocus] = useState(actionFocusID)
+  const [queueFocus, setQueueFocus] = useState(queueFocusID)
   useEffect(() => {
-    const changed = () => { setCaseScope(actionCaseScope()); setActionFocus(actionFocusID()) }
+    const changed = () => {
+      setCaseScope(actionCaseScope())
+      setActionFocus(actionFocusID())
+      setQueueFocus(queueFocusID())
+      if (actionTabParam()) setTab(actionTabParam())
+    }
     window.addEventListener('hashchange', changed)
     return () => window.removeEventListener('hashchange', changed)
   }, [])
-  return { tab, setTab, caseScope, setCaseScope, actionFocus, setActionFocus }
+  return { tab, setTab, caseScope, setCaseScope, actionFocus, setActionFocus, queueFocus }
 }
 
 export function Actions({ database, user, fleetData }) {
@@ -46,7 +56,8 @@ export function Actions({ database, user, fleetData }) {
     ? chosenTab : 'recommendations'
   const modeForDatabase = db =>
     fleetData?.databases?.find(x => x.name === db)?.status?.trust_level || null
-  const ctx = { d, database, user, canReview, modeForDatabase, setTab: nav.setTab }
+  const ctx = { d, database, user, canReview, modeForDatabase, setTab: nav.setTab,
+    queueFocus: nav.queueFocus }
   return (
     <div className="space-y-4" data-testid="actions-page">
       <p className="text-sm" data-testid="actions-page-description"
@@ -135,7 +146,7 @@ function managedResponse(d) {
 }
 
 function TabBody({ tab, ctx }) {
-  const { d, database, canReview, modeForDatabase, setTab } = ctx
+  const { d, database, canReview, modeForDatabase, setTab, queueFocus } = ctx
   const { caseData, recommendations } = d.q
   if (tab === 'recommendations') {
     return <RecommendationsTab database={database} items={d.proposals}
@@ -148,7 +159,8 @@ function TabBody({ tab, ctx }) {
       <ManagedChanges database={database} canDecide={canReview} response={managedResponse(d)}
         statuses={['pending']} />
       <PendingTab data={d.pendingData} query={{ ...d.q.pending, refetch: d.refreshAll }}
-        cards={d.cards} cases={d.cases} database={database} modeForDatabase={modeForDatabase} />
+        cards={d.cards} cases={d.cases} database={database} modeForDatabase={modeForDatabase}
+        queueFocus={queueFocus} />
     </>
   }
   if (tab === 'progress' || tab === 'executed') return <LedgerTab key={tab} tab={tab} ctx={ctx} />
