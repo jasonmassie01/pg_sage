@@ -231,7 +231,8 @@ func reviewStatement(ctx context.Context, ra *RiskAssessor, st ClassifiedStateme
 		sr.Note = "No DDL safety rule matches this statement and it is not a known " +
 			"safe form: unrecognized DDL is not proven safe."
 		if msg := parseRefusal(st.Statement); msg != "" {
-			sr.Note += " The SQL parser refused it: " + msg + "."
+			sr.Note += " The SQL parser (" + parserGrammar + " grammar) refused it: " +
+				msg + "."
 		}
 	}
 	sr.GuardedRewrite, sr.Note = guardedRewrite(sr, risks, sr.Note)

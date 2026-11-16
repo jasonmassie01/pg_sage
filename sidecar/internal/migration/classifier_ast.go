@@ -26,6 +26,12 @@ func astStatement(stmt string, version int) ([]DDLClassification, bool) {
 	return found, true
 }
 
+// parserGrammar is the grammar of the bundled parser (pg_query_go v6,
+// libpg_query): a statement only a newer server accepts, such as a PG 18
+// VIRTUAL generated column, is refused as a syntax error, so the note
+// names the grammar.
+const parserGrammar = "PostgreSQL 17"
+
 // parseRefusal is the SQL parser's error for one sanitized statement, the
 // one astStatement saw ("" when it parses, or when the build has no
 // parser: the report's degraded note says so instead). The statement is

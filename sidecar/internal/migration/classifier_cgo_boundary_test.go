@@ -94,9 +94,30 @@ func TestReviewNoteCarriesTheParserRefusal(t *testing.T) {
 		if !strings.HasPrefix(st.Note, "No DDL safety rule matches") {
 			t.Errorf("%q: note %q lost the fixed text", sql, st.Note)
 		}
-		if !strings.Contains(st.Note, "The SQL parser refused it: "+perr.Error()) {
+		if !strings.Contains(st.Note, refusalPrefix+perr.Error()+".") {
 			t.Errorf("%q: note %q does not carry the parser's %q", sql, st.Note, perr)
 		}
+	}
+}
+
+// refusalPrefix is the note's text before the parser's own message.
+const refusalPrefix = "The SQL parser (PostgreSQL 17 grammar) refused it: "
+
+// Boundary (parser version): syntax only PostgreSQL 18 accepts is refused
+// by the PG 17 grammar; it fails closed and the note names the grammar,
+// so a valid PG 18 statement does not read as the author's typo.
+func TestReviewNoteNamesTheGrammarForNewerSyntax(t *testing.T) {
+	sql := "ALTER TABLE t ADD COLUMN c int GENERATED ALWAYS AS (a * 2) VIRTUAL"
+	if _, known := astStatement(sql, 180000); known {
+		t.Fatalf("%q is a known form to the PG 17 grammar", sql)
+	}
+	st := reviewOne(t, sql)
+	if st.Status != StatementUnrecognized || st.Verdict != VerdictReview {
+		t.Fatalf("status %s verdict %s, want unrecognized review", st.Status, st.Verdict)
+	}
+	want := refusalPrefix + `syntax error at or near "VIRTUAL".`
+	if !strings.HasSuffix(st.Note, want) {
+		t.Fatalf("note %q, want it to end %q", st.Note, want)
 	}
 }
 
@@ -104,7 +125,7 @@ func TestReviewNoteCarriesTheParserRefusal(t *testing.T) {
 func TestReviewNoteNamesNoRefusalForParsedText(t *testing.T) {
 	for _, sql := range []string{"GRANT SELECT ON t TO r",
 		"CREATE INDEX CONCURRENTLY i ON t (c)", "ALTER TABLE t DROP COLUMN c"} {
-		if st := reviewOne(t, sql); strings.Contains(st.Note, "parser refused") {
+		if st := reviewOne(t, sql); strings.Contains(st.Note, "refused it") {
 			t.Errorf("%q parses, but its note says %q", sql, st.Note)
 		}
 	}
@@ -119,7 +140,7 @@ func TestReviewNoteNamesNoRefusalForParsedText(t *testing.T) {
 // The refusal is of the redacted statement: a literal never reaches it.
 func TestReviewParserRefusalKeepsLiteralsRedacted(t *testing.T) {
 	st := reviewOne(t, "ALTER TABLE t ADD COLUMN c text DEFAULT 'hunter2' (")
-	if !strings.Contains(st.Note, "The SQL parser refused it: ") {
+	if !strings.Contains(st.Note, refusalPrefix) {
 		t.Fatalf("note %q lacks the refusal", st.Note)
 	}
 	if strings.Contains(st.Note, "hunter2") || strings.Contains(st.Statement, "hunter2") {
