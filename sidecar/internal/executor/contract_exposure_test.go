@@ -49,13 +49,14 @@ func TestExposureContractsAreRegistered(t *testing.T) {
 }
 
 func TestExposureStatementsClassify(t *testing.T) {
+	rp, rls := ActionTypeRevokePublicGrant, ActionTypeEnableRLS
 	cases := map[string]string{
-		`REVOKE SELECT ON TABLE public.leads FROM PUBLIC`:                   ActionTypeRevokePublicGrant,
-		`REVOKE ALL ON TABLE "App"."Lead s" FROM PUBLIC`:                    ActionTypeRevokePublicGrant,
-		`revoke select, insert on public.leads from public;`:                ActionTypeRevokePublicGrant,
-		`GRANT SELECT ON TABLE public.leads TO PUBLIC`:                      ActionTypeRevokePublicGrant,
-		`ALTER TABLE public.leads ENABLE ROW LEVEL SECURITY`:                ActionTypeEnableRLS,
-		`ALTER TABLE "public"."leads" DISABLE ROW LEVEL SECURITY`:           ActionTypeEnableRLS,
+		`REVOKE SELECT ON TABLE public.leads FROM PUBLIC`:                   rp,
+		`REVOKE ALL ON TABLE "App"."Lead s" FROM PUBLIC`:                    rp,
+		`revoke select, insert on public.leads from public;`:                rp,
+		`GRANT SELECT ON TABLE public.leads TO PUBLIC`:                      rp,
+		`ALTER TABLE public.leads ENABLE ROW LEVEL SECURITY`:                rls,
+		`ALTER TABLE "public"."leads" DISABLE ROW LEVEL SECURITY`:           rls,
 		`ALTER TABLE public.leads SET (autovacuum_vacuum_scale_factor=0.1)`: "set_table_autovacuum",
 	}
 	for sql, want := range cases {
@@ -188,16 +189,17 @@ func TestExposureTargetRefusal(t *testing.T) {
 		f    analyzer.Finding
 		stmt exposureStmt
 	}{
-		"table not named":    {ap15, other},
-		"pg_catalog view":    {exposureFinding("AP-15", "schema", "pg_catalog"), pgView},
-		"system catalog":     {exposureFinding("AP-03", "table", "pg_catalog.pg_class"), sysTable},
-		"not an exposure":    {exposureFinding("AP-04", "table", "public.leads"), rls},
-		"revoke from AP-03":  {exposureFinding("AP-03", "table", "public.leads"), revoke},
-		"RLS from AP-15":     {ap15, rls},
-		"AP-03 on other":     {exposureFinding("AP-03", "table", "public.other"), rls},
-		"empty finding":      {analyzer.Finding{}, revoke},
-		"AP-15 no evidence":  {exposureFinding("AP-15", "schema", "public"), revoke},
-		"inverse is forward": {ap15, exposureStmt{kind: exposureRegrant, schema: "public", table: "leads"}},
+		"table not named":   {ap15, other},
+		"pg_catalog view":   {exposureFinding("AP-15", "schema", "pg_catalog"), pgView},
+		"system catalog":    {exposureFinding("AP-03", "table", "pg_catalog.pg_class"), sysTable},
+		"not an exposure":   {exposureFinding("AP-04", "table", "public.leads"), rls},
+		"revoke from AP-03": {exposureFinding("AP-03", "table", "public.leads"), revoke},
+		"RLS from AP-15":    {ap15, rls},
+		"AP-03 on other":    {exposureFinding("AP-03", "table", "public.other"), rls},
+		"empty finding":     {analyzer.Finding{}, revoke},
+		"AP-15 no evidence": {exposureFinding("AP-15", "schema", "public"), revoke},
+		"inverse is forward": {ap15, exposureStmt{kind: exposureRegrant, schema: "public",
+			table: "leads"}},
 	}
 	for name, c := range refused {
 		err := exposureTargetRefusal(c.f, c.stmt)
@@ -319,8 +321,8 @@ func TestExposureReaderVerdict(t *testing.T) {
 			map[int64]verify.Measurement{1: m(9), 2: m(0)}, true},
 		{"absent after", map[int64]verify.Measurement{1: m(30)}, map[int64]verify.Measurement{},
 			true},
-		{"idle before", map[int64]verify.Measurement{1: m(0)}, map[int64]verify.Measurement{1: m(0)},
-			false},
+		{"idle before", map[int64]verify.Measurement{1: m(0)},
+			map[int64]verify.Measurement{1: m(0)}, false},
 		{"no readers", nil, nil, false},
 	}
 	for _, c := range cases {
