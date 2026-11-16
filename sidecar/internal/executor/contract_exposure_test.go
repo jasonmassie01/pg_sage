@@ -50,12 +50,12 @@ func TestExposureContractsAreRegistered(t *testing.T) {
 
 func TestExposureStatementsClassify(t *testing.T) {
 	cases := map[string]string{
-		`REVOKE SELECT ON TABLE public.leads FROM PUBLIC`:                ActionTypeRevokePublicGrant,
-		`REVOKE ALL ON TABLE "App"."Lead s" FROM PUBLIC`:                 ActionTypeRevokePublicGrant,
-		`revoke select, insert on public.leads from public;`:             ActionTypeRevokePublicGrant,
-		`GRANT SELECT ON TABLE public.leads TO PUBLIC`:                   ActionTypeRevokePublicGrant,
-		`ALTER TABLE public.leads ENABLE ROW LEVEL SECURITY`:             ActionTypeEnableRLS,
-		`ALTER TABLE "public"."leads" DISABLE ROW LEVEL SECURITY`:        ActionTypeEnableRLS,
+		`REVOKE SELECT ON TABLE public.leads FROM PUBLIC`:                   ActionTypeRevokePublicGrant,
+		`REVOKE ALL ON TABLE "App"."Lead s" FROM PUBLIC`:                    ActionTypeRevokePublicGrant,
+		`revoke select, insert on public.leads from public;`:                ActionTypeRevokePublicGrant,
+		`GRANT SELECT ON TABLE public.leads TO PUBLIC`:                      ActionTypeRevokePublicGrant,
+		`ALTER TABLE public.leads ENABLE ROW LEVEL SECURITY`:                ActionTypeEnableRLS,
+		`ALTER TABLE "public"."leads" DISABLE ROW LEVEL SECURITY`:           ActionTypeEnableRLS,
 		`ALTER TABLE public.leads SET (autovacuum_vacuum_scale_factor=0.1)`: "set_table_autovacuum",
 	}
 	for sql, want := range cases {
@@ -90,14 +90,14 @@ func TestExposureStatementsParse(t *testing.T) {
 // statement and the validator refuses it.
 func TestExposureStatementsRefuseOtherForms(t *testing.T) {
 	bad := []string{
-		`REVOKE SELECT ON TABLE leads FROM PUBLIC`,                    // unqualified
-		`REVOKE SELECT ON TABLE public.leads FROM app_reader`,         // not PUBLIC
-		`REVOKE SELECT (email) ON TABLE public.leads FROM PUBLIC`,     // column list
-		`REVOKE SELECT ON TABLE public.leads, public.b FROM PUBLIC`,    // two tables
-		`REVOKE SELECT ON TABLE public.leads FROM PUBLIC CASCADE`,     // cascade
-		`REVOKE GRANT OPTION FOR SELECT ON public.leads FROM PUBLIC`,  // option
-		`REVOKE SELECT ON ALL TABLES IN SCHEMA public FROM PUBLIC`,     // bulk
-		`GRANT SELECT ON TABLE public.leads TO app_reader`,            // not PUBLIC
+		`REVOKE SELECT ON TABLE leads FROM PUBLIC`,                   // unqualified
+		`REVOKE SELECT ON TABLE public.leads FROM app_reader`,        // not PUBLIC
+		`REVOKE SELECT (email) ON TABLE public.leads FROM PUBLIC`,    // column list
+		`REVOKE SELECT ON TABLE public.leads, public.b FROM PUBLIC`,  // two tables
+		`REVOKE SELECT ON TABLE public.leads FROM PUBLIC CASCADE`,    // cascade
+		`REVOKE GRANT OPTION FOR SELECT ON public.leads FROM PUBLIC`, // option
+		`REVOKE SELECT ON ALL TABLES IN SCHEMA public FROM PUBLIC`,   // bulk
+		`GRANT SELECT ON TABLE public.leads TO app_reader`,           // not PUBLIC
 		`GRANT SELECT ON TABLE public.leads TO PUBLIC WITH GRANT OPTION`,
 		`REVOKE USAGE ON SCHEMA public FROM PUBLIC`,
 		`ALTER TABLE public.leads FORCE ROW LEVEL SECURITY`,
@@ -188,16 +188,16 @@ func TestExposureTargetRefusal(t *testing.T) {
 		f    analyzer.Finding
 		stmt exposureStmt
 	}{
-		"table not named":     {ap15, other},
-		"pg_catalog view":     {exposureFinding("AP-15", "schema", "pg_catalog"), pgView},
-		"system catalog":      {exposureFinding("AP-03", "table", "pg_catalog.pg_class"), sysTable},
-		"not an exposure":     {exposureFinding("AP-04", "table", "public.leads"), rls},
-		"revoke from AP-03":   {exposureFinding("AP-03", "table", "public.leads"), revoke},
-		"RLS from AP-15":      {ap15, rls},
-		"AP-03 on other":      {exposureFinding("AP-03", "table", "public.other"), rls},
-		"empty finding":       {analyzer.Finding{}, revoke},
-		"AP-15 no evidence":   {exposureFinding("AP-15", "schema", "public"), revoke},
-		"inverse is forward":  {ap15, exposureStmt{kind: exposureRegrant, schema: "public", table: "leads"}},
+		"table not named":    {ap15, other},
+		"pg_catalog view":    {exposureFinding("AP-15", "schema", "pg_catalog"), pgView},
+		"system catalog":     {exposureFinding("AP-03", "table", "pg_catalog.pg_class"), sysTable},
+		"not an exposure":    {exposureFinding("AP-04", "table", "public.leads"), rls},
+		"revoke from AP-03":  {exposureFinding("AP-03", "table", "public.leads"), revoke},
+		"RLS from AP-15":     {ap15, rls},
+		"AP-03 on other":     {exposureFinding("AP-03", "table", "public.other"), rls},
+		"empty finding":      {analyzer.Finding{}, revoke},
+		"AP-15 no evidence":  {exposureFinding("AP-15", "schema", "public"), revoke},
+		"inverse is forward": {ap15, exposureStmt{kind: exposureRegrant, schema: "public", table: "leads"}},
 	}
 	for name, c := range refused {
 		err := exposureTargetRefusal(c.f, c.stmt)

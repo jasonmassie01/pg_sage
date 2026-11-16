@@ -43,6 +43,14 @@ func (e *Executor) EnableStandingPolicyWithStore(
 	e.databaseID = databaseID
 	e.policyMu.Unlock()
 	e.WithPolicyGate(e.newStandingPolicyGate(policyStore, scope))
+	e.setExposureMode(func(ctx context.Context) (string, error) {
+		current, err := policyStore.Current(ctx, scope)
+		if err != nil {
+			return "", err
+		}
+		doc, err := policy.DocumentFromPolicy(current)
+		return doc.ExposureMode, err
+	})
 	cfg, _, _ := e.policySnapshot()
 	zone := ""
 	if cfg != nil {
@@ -214,6 +222,7 @@ func int64Pointer(value *int) *int64 {
 // table; production executors use EnableStandingPolicyWithStore.
 func (e *Executor) EnableStandingPolicyDocument(doc policy.Document, now func() time.Time) {
 	doc = inMemoryDocument(doc)
+	e.setExposureMode(func(context.Context) (string, error) { return doc.ExposureMode, nil })
 	config := policy.GateConfig{
 		Runtime: func(ctx context.Context, req policy.ActionRequest) (policy.RuntimeState, error) {
 			state := e.standingRuntimeState(ctx, req)
@@ -265,4 +274,12 @@ func (e *Executor) WithEmergencyStopCheck(check func(context.Context) bool) {
 	e.policyMu.Lock()
 	defer e.policyMu.Unlock()
 	e.emergencyStopFn = check
+}
+
+// setExposureMode installs the reader of the standing document's exposure
+// mode (fleetpol-02b), with the gate it belongs to.
+func (e *Executor) setExposureMode(read func(context.Context) (string, error)) {
+	e.policyMu.Lock()
+	e.exposureMode = read
+	e.policyMu.Unlock()
 }

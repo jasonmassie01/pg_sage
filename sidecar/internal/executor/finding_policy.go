@@ -51,6 +51,13 @@ func (e *Executor) evaluateRollbackPolicy(
 	// object than the forward finding (a dropped index's table): it is not
 	// target-bound.
 	request := unboundFindingRequest(f, false)
+	if request.Contract == nil && isExposureInverseSQL(f.RecommendedSQL) {
+		// An exposure rollback (re-GRANT, RLS disable) has a contract only
+		// as a rollback: the forward contract it reverts (fleetpol-02b).
+		if c, ok := ContractForActionType(exposureActionType(f.RecommendedSQL)); ok {
+			request.Contract = policyContract(c)
+		}
+	}
 	request.Rollback = true
 	request.Evidence = map[string]any{"source": rollbackSource(false)}
 	if actionID > 0 {
@@ -196,6 +203,9 @@ func contractForFinding(f analyzer.Finding) (ActionContract, bool) {
 	}
 	if err := ValidateExecutorSQL(f.RecommendedSQL); err != nil {
 		return ActionContract{}, false
+	}
+	if isExposureInverseSQL(f.RecommendedSQL) {
+		return ActionContract{}, false // a rollback form: rollbackContractFor only
 	}
 	actionType := ActionTypeForSQL(f.RecommendedSQL)
 	return ContractForActionType(actionType)

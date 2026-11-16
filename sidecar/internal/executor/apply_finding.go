@@ -35,6 +35,9 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 		e.settleStuckRollbacks(ctx)
 	}
 	e.reconcileRecommendations(ctx)
+	// Exposure remediations (fleetpol-02b): withdrawn in shadow mode in
+	// every execution mode, proposed or run only in enforce mode.
+	e.runExposureRemediations(ctx, isReplica)
 	// Queue housekeeping runs in every mode: a proposal whose reason is
 	// gone must not wait for an operator (dogfood round 2 item 5).
 	if n, err := e.supersedeStaleApprovals(ctx); err != nil {
@@ -323,6 +326,9 @@ func (e *Executor) prepareAndRunFinding(
 func (e *Executor) findingRefusal(f analyzer.Finding) error {
 	if IsIndexReplaceSQL(f.RecommendedSQL) {
 		return ErrReplaceApprovalRequired
+	}
+	if exposureActionType(f.RecommendedSQL) != "" {
+		return errExposureTypedOnly // only the exposure producer runs these
 	}
 	if _, _, isSignal := parseBackendSignal(f.RecommendedSQL); isSignal {
 		e.logFn("executor", "refused autonomous backend signal %q", f.Title)

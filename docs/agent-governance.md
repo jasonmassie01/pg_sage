@@ -410,7 +410,9 @@ and flags the grants, roles, policies and functions that let an agent do more th
 Posture is on by default and needs no configuration. It works on any PostgreSQL 14–18,
 self-managed or managed, and needs only pg_sage's usual `pg_monitor` role. Every fix it
 proposes is a SQL script for you to review and run. pg_sage never runs a posture fix
-itself: posture findings stop at autonomy level L1.
+itself: posture findings stop at autonomy level L1. The one exception is opt-in: with the
+policy document's `exposure.mode` set to `enforce`, AP-03 and AP-15 become typed
+remediations (see [Exposure remediation](#exposure-remediation)).
 
 Posture says how exposed a database is; it does not decide whether a change runs. Every
 change, an agent's included, passes the policy gate: see [Policy gate](policy-gate.md) for
@@ -615,6 +617,28 @@ agents:
 | `agents.exposure.sweep_seconds` | operator_preference | 15 to 600; default 60 |
 
 The keys take effect on restart. The analyzer's posture run reads them each time it runs.
+
+## Exposure remediation
+
+Each AP-03 and AP-15 finding names the action that would close it in
+`detail.would_be_action`, and `detail.mode` says `shadow`. Nothing runs in shadow mode,
+the default. With `"exposure": {"mode": "enforce"}` in the standing policy document:
+
+- an AP-15 finding (relations granted to PUBLIC in one schema) becomes one
+  `revoke_public_grant` per table it lists. It revokes only what PUBLIC holds, stores the
+  exact re-GRANT as its rollback, and runs unattended where `moderate` is granted
+  (`trust.level: autonomous` with `trust.tier3_moderate`), otherwise it is proposed for
+  approval. A reader that relied on PUBLIC and stops after the revoke reverts it.
+- an AP-03 finding on a table becomes one `enable_row_level_security` proposal. It always
+  needs approval: with RLS on and no policy, every reader but the owner and `BYPASSRLS`
+  roles sees no rows. Its card lists the affected statements and the roles losing access,
+  with an optional `CREATE POLICY` template you write yourself.
+
+Views, foreign tables and sequences in AP-15's list, and tables pg_sage's action role does
+not own, are left to the finding's script. The proposal says who must run it. Network
+exposure and who holds a key are not visible from SQL, so a remediation closes the SQL
+side only. Contracts, verification and the approval card: [Policy
+gate](policy-gate.md#exposure-remediation).
 
 ## Kill switch, freeze and unfreeze
 

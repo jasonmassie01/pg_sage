@@ -117,11 +117,14 @@ func (f exposureFixture) analyzerFinding(detector string) analyzer.Finding {
 	return finding
 }
 
-// exposureExecutor is an executor on pool whose standing policy is doc
-// (exposure mode set) and whose trust grants moderate when moderate.
+// exposureExecutor is an executor on pool whose standing policy has the
+// exposure mode and whose trust runs moderate unattended when moderate
+// (autonomous), else only with approval (advisory).
 func exposureExecutor(pool *pgxpool.Pool, mode string, moderate bool) *Executor {
 	cfg := windowedAutonomousConfig()
-	cfg.Trust.Tier3Moderate = moderate
+	if !moderate {
+		cfg.Trust.Level = "advisory" // moderate runs only with approval
+	}
 	e := New(pool, cfg, time.Now().Add(-60*24*time.Hour), noopExecLog)
 	e.WithEmergencyStopCheck(func(context.Context) bool { return false })
 	e.SetExecutionMode("auto")
@@ -140,7 +143,8 @@ func exposureExecutor(pool *pgxpool.Pool, mode string, moderate bool) *Executor 
 func (f exposureFixture) actions(t *testing.T) []map[string]any {
 	t.Helper()
 	rows, err := f.pool.Query(context.Background(), `SELECT id, action_type, outcome,
-		COALESCE(rollback_sql, ''), sql_executed FROM sage.action_log
+		COALESCE(rollback_sql, ''), sql_executed, COALESCE(rollback_reason, '')
+		FROM sage.action_log
 		WHERE sql_executed LIKE $1 ORDER BY id`, "%"+f.table+"%")
 	if err != nil {
 		t.Fatalf("read actions: %v", err)
@@ -149,12 +153,12 @@ func (f exposureFixture) actions(t *testing.T) []map[string]any {
 	var out []map[string]any
 	for rows.Next() {
 		var id int64
-		var kind, outcome, rollback, sql string
-		if err := rows.Scan(&id, &kind, &outcome, &rollback, &sql); err != nil {
+		var kind, outcome, rollback, sql, reason string
+		if err := rows.Scan(&id, &kind, &outcome, &rollback, &sql, &reason); err != nil {
 			t.Fatal(err)
 		}
 		out = append(out, map[string]any{"id": id, "type": kind, "outcome": outcome,
-			"rollback": rollback, "sql": sql})
+			"rollback": rollback, "sql": sql, "reason": reason})
 	}
 	return out
 }
@@ -252,8 +256,10 @@ func TestRevokePublic_ShadowEnforceShadow(t *testing.T) {
 		t.Fatalf("shadow proposed %d / acted %d, want nothing", n, len(f.actions(t)))
 	}
 	var decisions int
-	_ = f.pool.QueryRow(ctx, `SELECT count(*) FROM sage.decision WHERE proposed_sql LIKE $1`,
-		"%"+f.table+"%").Scan(&decisions)
+	if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM sage.decision
+		WHERE target_objects::text LIKE $1`, "%"+f.table+"%").Scan(&decisions); err != nil {
+		t.Fatalf("count decisions: %v", err)
+	}
 	if decisions != 0 {
 		t.Fatalf("shadow recorded %d decisions, want none", decisions)
 	}
@@ -404,7 +410,7 @@ func TestEnableRLS_ProposedWithCardThenApprovedAndRolledBack(t *testing.T) {
 	var rollback, evidence string
 	if err := f.pool.QueryRow(ctx, `SELECT COALESCE(q.rollback_sql, ''),
 		COALESCE((SELECT d.evidence::text FROM sage.decision d
-		  WHERE d.proposed_sql = q.proposed_sql ORDER BY d.id DESC LIMIT 1), '')
+		  WHERE d.queue_id = q.id ORDER BY d.id DESC LIMIT 1), '')
 		FROM sage.action_queue q
 		WHERE q.proposed_sql LIKE $1 AND q.status = 'pending'`, "%"+f.table+"%").
 		Scan(&rollback, &evidence); err != nil {
