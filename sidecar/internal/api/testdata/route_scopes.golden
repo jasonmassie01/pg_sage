@@ -154,6 +154,7 @@ bare POST /api/v1/databases/{db}/workload-packs gate:operator scope:database:pat
 bare GET /api/v1/databases/{db}/workload-packs gate:viewer scope:database:path:db
 bare GET /api/v1/databases/{db}/workload-packs/{sha} gate:viewer scope:database:path:db
 bare GET /api/v1/databases/{db}/workload-packs/{sha}/evidence/{id...} gate:viewer scope:database:path:db
+bare GET /api/v1/databases/{db}/workload-packs/{sha}/export gate:admin scope:admin-only
 standalone POST /api/v1/chatops/slack/{channel} gate:self-auth scope:-
 standalone POST /api/v1/chatops/telegram/{channel} gate:self-auth scope:-
 standalone /ready gate:public scope:-
@@ -409,6 +410,7 @@ standalone POST /api/v1/databases/{db}/workload-packs gate:operator scope:databa
 standalone GET /api/v1/databases/{db}/workload-packs gate:viewer scope:database:path:db
 standalone GET /api/v1/databases/{db}/workload-packs/{sha} gate:viewer scope:database:path:db
 standalone GET /api/v1/databases/{db}/workload-packs/{sha}/evidence/{id...} gate:viewer scope:database:path:db
+standalone GET /api/v1/databases/{db}/workload-packs/{sha}/export gate:admin scope:admin-only
 fleet-readonly POST /api/v1/chatops/slack/{channel} gate:self-auth scope:-
 fleet-readonly POST /api/v1/chatops/telegram/{channel} gate:self-auth scope:-
 fleet-readonly /ready gate:public scope:-
@@ -650,6 +652,7 @@ fleet-readonly POST /api/v1/databases/{db}/workload-packs gate:operator scope:da
 fleet-readonly GET /api/v1/databases/{db}/workload-packs gate:viewer scope:database:path:db
 fleet-readonly GET /api/v1/databases/{db}/workload-packs/{sha} gate:viewer scope:database:path:db
 fleet-readonly GET /api/v1/databases/{db}/workload-packs/{sha}/evidence/{id...} gate:viewer scope:database:path:db
+fleet-readonly GET /api/v1/databases/{db}/workload-packs/{sha}/export gate:admin scope:admin-only
 store-only-actions /ready gate:public scope:-
 store-only-actions /health gate:public scope:-
 store-only-actions / gate:public scope:-
@@ -815,6 +818,7 @@ store-only-actions POST /api/v1/databases/{db}/workload-packs gate:operator scop
 store-only-actions GET /api/v1/databases/{db}/workload-packs gate:viewer scope:database:path:db
 store-only-actions GET /api/v1/databases/{db}/workload-packs/{sha} gate:viewer scope:database:path:db
 store-only-actions GET /api/v1/databases/{db}/workload-packs/{sha}/evidence/{id...} gate:viewer scope:database:path:db
+store-only-actions GET /api/v1/databases/{db}/workload-packs/{sha}/export gate:admin scope:admin-only
 optional POST /api/v1/chatops/slack/{channel} gate:self-auth scope:-
 optional POST /api/v1/chatops/telegram/{channel} gate:self-auth scope:-
 optional /ready gate:public scope:-
@@ -1072,6 +1076,7 @@ optional POST /api/v1/databases/{db}/workload-packs gate:operator scope:database
 optional GET /api/v1/databases/{db}/workload-packs gate:viewer scope:database:path:db
 optional GET /api/v1/databases/{db}/workload-packs/{sha} gate:viewer scope:database:path:db
 optional GET /api/v1/databases/{db}/workload-packs/{sha}/evidence/{id...} gate:viewer scope:database:path:db
+optional GET /api/v1/databases/{db}/workload-packs/{sha}/export gate:admin scope:admin-only
 databricks-app /ready gate:public scope:-
 databricks-app /health gate:public scope:-
 databricks-app / gate:public scope:-
@@ -1274,3 +1279,4 @@ databricks-app POST /api/v1/databases/{db}/workload-packs gate:operator scope:da
 databricks-app GET /api/v1/databases/{db}/workload-packs gate:viewer scope:database:path:db
 databricks-app GET /api/v1/databases/{db}/workload-packs/{sha} gate:viewer scope:database:path:db
 databricks-app GET /api/v1/databases/{db}/workload-packs/{sha}/evidence/{id...} gate:viewer scope:database:path:db
+databricks-app GET /api/v1/databases/{db}/workload-packs/{sha}/export gate:admin scope:admin-only

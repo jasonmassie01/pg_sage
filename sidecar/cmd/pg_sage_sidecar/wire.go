@@ -197,9 +197,11 @@ func wireRouter(p WireParams) (WireResult, error) {
 			MCPHandler: p.MCPHandler,
 			MCPOAuth:   mcpOAuthValidator(p.Cfg, p.FleetMgr, authPool),
 			Audit:      auditAPIDeps(p.Cfg, authPool),
-			Autonomy:   autonomy,
-			Ask:        askServices(),
-			Specialist: specialistHandler,
+			// evid-02c: keys the workload pack model tier's identifier hashing.
+			WorkloadPseudonymKey: workloadPseudonymKey(authPool),
+			Autonomy:             autonomy,
+			Ask:                  askServices(),
+			Specialist:           specialistHandler,
 			// Look-alikes and leader status (fleet learning).
 			FleetLearning: fleetLearningAPI{},
 			// The request audit of the Postgres-specialist contract.

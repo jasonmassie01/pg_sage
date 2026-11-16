@@ -25,7 +25,7 @@ const packsPath = "/api/v1/databases/%s/workload-packs"
 
 func packMux(mgr *fleet.DatabaseManager) *http.ServeMux {
 	mux := http.NewServeMux()
-	registerWorkloadPackRoutes(mux, mgr, config.DefaultConfig())
+	registerWorkloadPackRoutes(mux, mgr, config.DefaultConfig(), WorkloadPackKeys{})
 	return mux
 }
 
