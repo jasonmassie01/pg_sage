@@ -48,12 +48,13 @@ func (m measurer) before(ctx context.Context, stmts []RehearsalStatement) []Rehe
 	for i, s := range stmts {
 		out[i].QueryID = s.QueryID
 		got, err := m.measure(ctx, s.Text)
+		// Why it was not executed holds even when planning failed too.
+		out[i].NotExecuted = got.notExecuted
 		if err != nil {
 			out[i].Error = err.Error()
 			continue
 		}
 		out[i].BeforeCost, out[i].BeforeBlocks = got.cost, got.blocks
-		out[i].NotExecuted = got.notExecuted
 	}
 	return out
 }
