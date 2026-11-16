@@ -11,14 +11,15 @@ import (
 
 const planColumns = `id, database_id, goal, scope, origin, origin_ref,
 	COALESCE(pack_hash, ''), model, prompt_version, status, plan_hash, created_at,
-	updated_at, created_by`
+	updated_at, created_by, pause_reason`
 
 const stepColumns = `id, ordinal, kind, action_type, setting, proposed_sql, rollback_sql,
 	finding_id, evidence_ids, target_queryids, metric, expected_direction,
 	expected_pct::float8, expected_source, guardrails, min_evidence, deadline_minutes,
 	checkpoint, on_improved, on_no_change, on_regressed, on_inconclusive,
 	COALESCE(on_unverifiable, ''), on_expired, state, queue_id, action_log_id, decision_id,
-	COALESCE(verdict, ''), verdict_at, state_reason`
+	COALESCE(verdict, ''), verdict_at, state_reason, COALESCE(claimed_by, ''),
+	claimed_until, attempt, executed_at`
 
 func scanPlan(row pgx.Row) (Plan, error) {
 	var p Plan
@@ -26,7 +27,7 @@ func scanPlan(row pgx.Row) (Plan, error) {
 	var origin, status string
 	err := row.Scan(&p.ID, &p.DatabaseID, &p.Goal, &scope, &origin, &p.OriginRef, &p.PackHash,
 		&p.Model, &p.PromptVersion, &status, &p.PlanHash, &p.CreatedAt, &p.UpdatedAt,
-		&p.CreatedBy)
+		&p.CreatedBy, &p.PauseReason)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -47,7 +48,8 @@ func scanStep(rows pgx.Rows) (Step, error) {
 		&s.ExpectedPct, &source, &guards, &minEv, &s.DeadlineMinutes, &s.Checkpoint,
 		&acts[0], &acts[1], &acts[2], &acts[3], &acts[4], &acts[5], &state,
 		&s.Runtime.QueueID, &s.Runtime.ActionLogID, &s.Runtime.DecisionID, &verdict,
-		&s.Runtime.VerdictAt, &s.Runtime.StateReason)
+		&s.Runtime.VerdictAt, &s.Runtime.StateReason, &s.Runtime.ClaimedBy,
+		&s.Runtime.ClaimedUntil, &s.Runtime.Attempt, &s.Runtime.ExecutedAt)
 	if err != nil {
 		return Step{}, err
 	}

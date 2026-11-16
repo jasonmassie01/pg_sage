@@ -184,6 +184,13 @@ type StepRuntime struct {
 	Verdict     Outcome    `json:"verdict,omitempty"`
 	VerdictAt   *time.Time `json:"verdict_at,omitempty"`
 	StateReason string     `json:"state_reason,omitempty"`
+	// ClaimedBy and ClaimedUntil are the engine running the step and when
+	// its claim lapses; Attempt counts its starts; ExecutedAt is when its
+	// action ran, from which DeadlineMinutes counts (plan-02a).
+	ClaimedBy    string     `json:"claimed_by,omitempty"`
+	ClaimedUntil *time.Time `json:"claimed_until,omitempty"`
+	Attempt      int        `json:"attempt,omitempty"`
+	ExecutedAt   *time.Time `json:"executed_at,omitempty"`
 }
 
 // Edge says the step at From must finish before the step at To starts.
@@ -209,8 +216,11 @@ type Plan struct {
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 	CreatedBy     string    `json:"created_by"`
-	Steps         []Step    `json:"steps"`
-	Edges         []Edge    `json:"edges"`
+	// PauseReason says why a running plan is not advancing ("emergency
+	// stop"); empty otherwise. It is the engine's and is never hashed.
+	PauseReason string `json:"pause_reason,omitempty"`
+	Steps       []Step `json:"steps"`
+	Edges       []Edge `json:"edges"`
 }
 
 // Defaults for a step's minimum evidence (verify.min_samples' default).
