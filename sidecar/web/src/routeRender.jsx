@@ -13,6 +13,7 @@ import { ValuePage } from './pages/ValuePage'
 import { LedgerPage } from './pages/LedgerPage'
 import { OnboardingPanel } from './components/onboarding/OnboardingPanel'
 import { FirstLookPanel } from './components/onboarding/FirstLookPanel'
+import { DigestCard } from './components/DigestCard'
 import { SLOsPage } from './pages/SLOsPage'
 import { RunbooksPage } from './pages/RunbooksPage'
 import { AutonomyPage } from './pages/AutonomyPage'
@@ -106,6 +107,7 @@ export const RENDERERS = Object.freeze({
     <div className="space-y-6">
       <OnboardingPanel database={ctx.database} authMode={ctx.authMode} user={ctx.user} />
       <FirstLookPanel database={ctx.database} user={ctx.user} />
+      <DigestCard database={ctx.database} />
       <ValuePage database={ctx.database} />
     </div>
   ),
