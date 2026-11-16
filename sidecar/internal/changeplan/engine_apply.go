@@ -43,9 +43,11 @@ func (e *Engine) decideAndApply(ctx context.Context, tx pgx.Tx, p Plan) (followU
 
 // prepareStart checks that step s may start now and writes starting (with
 // this engine's claim and the attempt) before anything else happens. The
-// plan's rows must hash to its live approval (else the plan is voided);
-// another plan's step on the same queries, any setting step, a setting
-// step's company and an in-flight change on its objects make it wait.
+// plan's rows must hash to its live approval (else the plan is voided); a
+// never-automatic step stops with awaiting_approval; another plan's step
+// on the same queries, any setting step, a setting step's company, an
+// in-flight change on its objects, a plan cap and a peak window make it
+// wait (holdBeforeStart).
 func (e *Engine) prepareStart(ctx context.Context, tx pgx.Tx, p Plan, s Step) (followUp,
 	error) {
 	if err := verifyOn(ctx, tx, p.ID); err != nil {
@@ -58,11 +60,8 @@ func (e *Engine) prepareStart(ctx context.Context, tx pgx.Tx, p Plan, s Step) (f
 	if err != nil {
 		return nil, err
 	}
-	if wait, err := e.mustWait(ctx, tx, p, s); err != nil || wait != "" {
-		if wait != "" {
-			e.cfg.LogFn("plan", "plan %d step %d waits: %s", p.ID, s.Ordinal, wait)
-		}
-		return nil, err
+	if next, held, err := e.holdBeforeStart(ctx, tx, p, s); held || err != nil {
+		return next, err
 	}
 	if p.Status == StatusApproved {
 		if err := e.setStatus(ctx, tx, p, StatusRunning, "", nil); err != nil {

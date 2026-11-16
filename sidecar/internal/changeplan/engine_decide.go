@@ -72,8 +72,11 @@ func decide(p Plan, now time.Time, owner string) move {
 		if why := haltReason(s); why != "" {
 			return move{kind: moveHalt, step: s, reason: why}
 		}
-		if s.Runtime.State == StateAwaitingOperator {
+		switch s.Runtime.State {
+		case StateAwaitingOperator:
 			return move{kind: moveWait, step: s, reason: "awaiting the operator"}
+		case StateAwaitingApproval:
+			return move{kind: moveWait, step: s, reason: "awaiting its own approval"}
 		}
 	}
 	return nextPending(p)
@@ -141,6 +144,12 @@ func haltReason(s Step) string {
 	case s.Runtime.State == StateReverted && s.ActionFor(s.Runtime.Verdict) == ActionHaltAsk:
 		return "step reverted on verdict " + string(s.Runtime.Verdict) +
 			", which asks a person"
+	case s.Runtime.State == StateSkipped && s.Runtime.Verdict == OutcomeExpired &&
+		s.ActionFor(OutcomeExpired) != ActionKeep &&
+		s.ActionFor(OutcomeExpired) != ActionRevertStep:
+		// halt_ask, and revert_to_checkpoint until plan-02c.
+		return "step expired waiting on a plan cap or a peak window: " +
+			s.Runtime.StateReason
 	}
 	return ""
 }

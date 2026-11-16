@@ -229,17 +229,27 @@ type engineFixture struct {
 	stopped  *atomic.Bool
 	leader   *atomic.Bool
 	engine   *Engine
+	// caps are the plan caps the store and the engines read (plan-02b).
+	// plan-02a's engine tests are about sequencing, so the fixture allows
+	// 10 new indexes per table (their chains build 3 on one table);
+	// caps_db_test.go sets the policy defaults. sizes, when set, replaces
+	// the database's live sizes.
+	caps    policy.PlanCaps
+	capsErr error
+	sizes   *fakeSizes
 }
 
 func newEngineFixture(t *testing.T, label string) *engineFixture {
 	t.Helper()
 	pool := planPool(t, label)
-	f := &engineFixture{t: t, ctx: context.Background(), pool: pool, store: NewStore(pool),
+	f := &engineFixture{t: t, ctx: context.Background(), pool: pool,
+		caps:     policy.PlanCaps{MaxNewIndexesPerTable: 10},
 		clock:    &fakeClock{now: time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC)},
 		waits:    &fakeWaits{pending: map[string]bool{}},
 		verdicts: &fakeVerdicts{by: map[int64]ActionVerdict{}},
 		notes:    &fakeNotify{}, stopped: &atomic.Bool{}, leader: &atomic.Bool{}}
 	f.leader.Store(true)
+	f.store = NewStore(pool).WithCaps(f.readCaps)
 	// The resolver's findings, open, so their queue items are approvable.
 	if _, err := pool.Exec(f.ctx, `INSERT INTO sage.findings (id, category, severity,
 		object_type, object_identifier, title, detail, recommendation, recommended_sql)
@@ -265,7 +275,7 @@ func (f *engineFixture) newEngine(owner string, leader *atomic.Bool) *Engine {
 	}
 	e, err := NewEngine(EngineConfig{Pool: f.pool, Executor: ex, Waits: f.waits,
 		Verdicts: f.verdicts, Notify: f.notes, Leader: leader.Load, Now: f.clock.Now,
-		Owner: owner, Database: "db1",
+		Owner: owner, Database: "db1", Caps: f.readCaps, Sizes: fixtureSizes{f},
 		Stopped: func(context.Context) bool { return f.stopped.Load() }})
 	if err != nil {
 		f.t.Fatalf("NewEngine: %v", err)

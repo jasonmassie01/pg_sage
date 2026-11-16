@@ -120,6 +120,9 @@ const (
 	StateFailed           StepState = "failed"
 	StateAwaitingOperator StepState = "awaiting_operator"
 	StateHalted           StepState = "halted"
+	// StateAwaitingApproval is a step approve-all never covers
+	// (NeedsOwnApproval): it waits for its own approval (plan-02b).
+	StateAwaitingApproval StepState = "awaiting_approval"
 )
 
 // Scope is what a plan may touch: object names and query ids.
@@ -191,6 +194,9 @@ type StepRuntime struct {
 	ClaimedUntil *time.Time `json:"claimed_until,omitempty"`
 	Attempt      int        `json:"attempt,omitempty"`
 	ExecutedAt   *time.Time `json:"executed_at,omitempty"`
+	// WaitingSince is when a pending step first waited on a plan cap or a
+	// peak window; its deadline counts from it (plan-02b).
+	WaitingSince *time.Time `json:"waiting_since,omitempty"`
 }
 
 // Edge says the step at From must finish before the step at To starts.

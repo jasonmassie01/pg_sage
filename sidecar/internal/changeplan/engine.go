@@ -83,6 +83,10 @@ type EngineConfig struct {
 	Database string
 	Lease    time.Duration // a step claim's life (0: DefaultClaimLease)
 	LogFn    func(string, string, ...any)
+	// Caps reads the plan caps (nil: the policy defaults); Sizes reads
+	// the live sizes the byte cap needs (nil: DBSizes on Pool).
+	Caps  CapsSource
+	Sizes SizeReader
 }
 
 // DefaultClaimLease is how long an engine's claim on a step holds.
@@ -140,6 +144,12 @@ func NewEngine(cfg EngineConfig) (*Engine, error) {
 	}
 	if cfg.LogFn == nil {
 		cfg.LogFn = func(string, string, ...any) {}
+	}
+	if cfg.Caps == nil {
+		cfg.Caps = noPolicyCaps
+	}
+	if cfg.Sizes == nil {
+		cfg.Sizes = NewDBSizes(cfg.Pool)
 	}
 	return &Engine{cfg: cfg, actions: store.NewActionStore(cfg.Pool)}, nil
 }

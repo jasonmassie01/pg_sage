@@ -194,6 +194,9 @@ func (s *Store) Approve(ctx context.Context, planID int64, planHash string,
 		if planHash != current {
 			return fmt.Errorf("%w (plan %d)", ErrStaleHash, planID)
 		}
+		if err := checkCapsIn(ctx, tx, s.capsSource(), p); err != nil {
+			return err
+		}
 		var fresh bool
 		a, fresh, err = approveLocked(ctx, tx, planID, current, userID)
 		if err != nil {

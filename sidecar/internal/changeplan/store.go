@@ -20,10 +20,21 @@ import (
 // recorded on a hash the rows no longer have.
 type Store struct {
 	pool *pgxpool.Pool
+	caps CapsSource
 }
 
-// NewStore returns a store on pool (the monitored database).
-func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
+// NewStore returns a store on pool (the monitored database) that checks
+// plans against the default plan caps.
+func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool, caps: noPolicyCaps} }
+
+// WithCaps is s checking plans against the caps src reads (the standing
+// policy's plans block) when they are proposed and approved.
+func (s *Store) WithCaps(src CapsSource) *Store {
+	if src == nil {
+		src = noPolicyCaps
+	}
+	return &Store{pool: s.pool, caps: src}
+}
 
 // Errors the store returns; each is wrapped with the plan it concerns.
 var (
@@ -117,6 +128,11 @@ func (s *Store) Create(ctx context.Context, p Plan, r Resolver) (Plan, error) {
 	p.PlanHash = PlanHash(p)
 	var id int64
 	err := s.inTx(ctx, func(tx pgx.Tx) error {
+		if p.Status == StatusProposed {
+			if err := checkCapsIn(ctx, tx, s.capsSource(), p); err != nil {
+				return err
+			}
+		}
 		var err error
 		if id, err = insertPlan(ctx, tx, p); err != nil {
 			return err

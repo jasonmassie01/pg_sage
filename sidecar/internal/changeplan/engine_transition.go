@@ -12,7 +12,8 @@ import (
 // legalTransitions is every step transition the engine (and its runner)
 // may write; anything else is ErrIllegalTransition and changes nothing.
 var legalTransitions = map[StepState][]StepState{
-	StatePending:   {StateStarting, StateSkipped, StateKept, StateAwaitingOperator},
+	StatePending: {StateStarting, StateSkipped, StateKept, StateAwaitingOperator,
+		StateAwaitingApproval},
 	StateStarting:  {StateQueued, StateFailed},
 	StateQueued:    {StateRunning, StateFailed},
 	StateRunning:   {StateExecuted, StateFailed},
