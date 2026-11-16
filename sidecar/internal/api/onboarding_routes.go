@@ -197,6 +197,7 @@ func (f *fleetOnboardingReader) target(inst *fleet.DatabaseInstance) grantTarget
 	switch {
 	case f.cfg.HasMetaDB() && inst.DatabaseID > 0:
 		t.ConfigURL = fmt.Sprintf("/api/v1/config/databases/%d", inst.DatabaseID)
+		t.ExecutionModeWritable = true
 	case f.cfg.IsFleet():
 		t = grantTarget{Method: "yaml", Key: "trust.level"}
 	}

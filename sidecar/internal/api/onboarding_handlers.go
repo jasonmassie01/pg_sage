@@ -21,11 +21,14 @@ type onboardingDatabase struct {
 	FirstLook  *firstlook.ReportSummary
 }
 
-// grantTarget tells the UI how trust.level is changed in this mode.
+// grantTarget tells the UI how trust.level is changed in this mode, and
+// whether that config URL also stores execution_mode (a database's row
+// does; the global config strips it).
 type grantTarget struct {
-	Method    string `json:"method"` // "api" or "yaml"
-	ConfigURL string `json:"config_url,omitempty"`
-	Key       string `json:"key"`
+	Method                string `json:"method"` // "api" or "yaml"
+	ConfigURL             string `json:"config_url,omitempty"`
+	Key                   string `json:"key"`
+	ExecutionModeWritable bool   `json:"execution_mode_writable"`
 }
 
 // onboardingReader is where the handlers read from (the fleet in
@@ -203,8 +206,8 @@ func trustGuideHandler(reader onboardingReader) http.Handler {
 			return
 		}
 		jsonResponse(w, map[string]any{"database": names[0], "current": in.Current,
-			"levels": onboarding.TrustGuide(in), "grant": target,
-			"grants": in.Grants, "action_grants": in.ActionGrants,
+			"execution_mode": in.ExecutionMode, "levels": onboarding.TrustGuide(in),
+			"grant": target, "grants": in.Grants, "action_grants": in.ActionGrants,
 			"scripts": onboarding.GrantScripts(in)})
 	})
 }
