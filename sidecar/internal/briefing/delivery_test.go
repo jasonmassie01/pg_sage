@@ -26,46 +26,11 @@ func slackWorker(url string, channels ...string) *Worker {
 		Channels: channels, SlackWebhookURL: url}}, logFn: noopLog,
 		stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}}
 }
-
-// Error propagation: a 500 is an error with its HTTP status, never the URL.
-func TestDispatchRecordsSlackRejection(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer srv.Close()
-	got := slackWorker(srv.URL+secretHookPath, "slack").Dispatch(context.Background(), "b")
-	d, ok := got["slack"]
-	if !ok || len(got) != 1 {
-		t.Fatalf("delivery = %+v, want exactly one slack entry", got)
-	}
-	if d.Status != DeliveryError || d.HTTPStatus != http.StatusInternalServerError {
-		t.Fatalf("slack delivery = %+v, want error with HTTP 500", d)
-	}
-	if !strings.Contains(d.Error, "500") || strings.Contains(d.Error, "SECRET") ||
-		strings.Contains(d.Error, srv.URL) {
-		t.Fatalf("error text %q must name the status and not the webhook URL", d.Error)
-	}
-	if d.At.IsZero() {
-		t.Fatal("delivery has no time")
-	}
-}
-
-// Error propagation: a refused connection is an error without the URL path.
-func TestDispatchRecordsSlackTransportError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-	url := srv.URL + secretHookPath
-	srv.Close()
-	d := slackWorker(url, "slack").Dispatch(context.Background(), "b")["slack"]
-	if d.Status != DeliveryError || d.HTTPStatus != 0 || d.Error == "" {
-		t.Fatalf("slack delivery = %+v, want a transport error", d)
-	}
-	if strings.Contains(d.Error, "SECRET") || strings.Contains(d.Error, "/services/") {
-		t.Fatalf("error text %q leaks the webhook path", d.Error)
-	}
-}
-
-// Happy path: every configured channel reports; slack without a URL and an
-// unknown channel are skipped with a reason.
+// ux-02b: "slack" is no longer posted by Dispatch: briefing.slack_webhook_url
+// is reconciled into the Notifications channel config:slack:briefing, which
+// reports under its own name. (Before, this test counted a webhook call;
+// that post path is deleted.) stdout is still written; an unknown channel
+// is skipped with a reason.
 func TestDispatchReportsEveryChannel(t *testing.T) {
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -74,19 +39,15 @@ func TestDispatchReportsEveryChannel(t *testing.T) {
 	defer srv.Close()
 	w := slackWorker(srv.URL, "stdout", "slack", "pager")
 	got := w.Dispatch(context.Background(), "briefing text")
-	if got["stdout"].Status != DeliverySent || got["slack"].Status != DeliverySent ||
-		got["slack"].HTTPStatus != http.StatusOK {
-		t.Fatalf("delivery = %+v, want stdout and slack sent", got)
+	if got["stdout"].Status != DeliverySent {
+		t.Fatalf("delivery = %+v, want stdout sent", got)
+	}
+	if _, posted := got["slack"]; posted || calls.Load() != 0 {
+		t.Fatalf("slack = %+v with %d webhook calls, want no post from the briefing",
+			got["slack"], calls.Load())
 	}
 	if got["pager"].Status != DeliverySkipped || got["pager"].Error == "" {
 		t.Fatalf("unknown channel = %+v, want skipped with a reason", got["pager"])
-	}
-	if calls.Load() != 1 {
-		t.Fatalf("webhook calls = %d, want 1", calls.Load())
-	}
-	noURL := slackWorker("", "slack").Dispatch(context.Background(), "b")["slack"]
-	if noURL.Status != DeliverySkipped || !strings.Contains(noURL.Error, "slack_webhook_url") {
-		t.Fatalf("slack without URL = %+v, want skipped naming slack_webhook_url", noURL)
 	}
 }
 
