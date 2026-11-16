@@ -163,14 +163,8 @@ func runSubcommandAndExit() {
 	if len(os.Args) > 1 && os.Args[1] == "bench" {
 		os.Exit(runBenchCommand(os.Args[2:], os.Stdout, os.Stderr))
 	}
-	if len(os.Args) > 1 && os.Args[1] == "history" {
-		getenv, err := secretGetenv("SAGE_HISTORY_MONITORED_DSN", "SAGE_META_DB")
-		if err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "history: %v\n", err)
-			os.Exit(2)
-		}
-		os.Exit(runHistoryCommand(context.Background(), os.Args[2:], getenv, os.Stdout,
-			os.Stderr))
+	if len(os.Args) > 1 && (os.Args[1] == "history" || os.Args[1] == ledgerSubcommand) {
+		os.Exit(runTelemetryDSNSubcommand(os.Args[1], os.Args[2:]))
 	}
 	if len(os.Args) > 1 && os.Args[1] == lintMigrationSubcommand {
 		getenv, err := secretGetenv(lintDSNEnv)
@@ -201,6 +195,20 @@ func runSubcommandAndExit() {
 		fmt.Println(versionLine())
 		os.Exit(0)
 	}
+}
+
+// runTelemetryDSNSubcommand runs history or ledger, which read the
+// monitored and meta DSNs from SAGE_HISTORY_MONITORED_DSN and SAGE_META_DB.
+func runTelemetryDSNSubcommand(name string, args []string) int {
+	getenv, err := secretGetenv("SAGE_HISTORY_MONITORED_DSN", "SAGE_META_DB")
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "%s: %v\n", name, err)
+		return 2
+	}
+	if name == ledgerSubcommand {
+		return runLedgerCommand(context.Background(), args, getenv, os.Stdout, os.Stderr)
+	}
+	return runHistoryCommand(context.Background(), args, getenv, os.Stdout, os.Stderr)
 }
 
 // loadStartupConfigOrExit loads the config, keeps the file baseline and

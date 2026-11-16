@@ -71,7 +71,7 @@ func Read(ctx context.Context, db Querier, database string, q Query) (Result, er
 	if err != nil {
 		return Result{}, fmt.Errorf("read outcomes: %s: %w", database, err)
 	}
-	res := Result{Since: formatHours(q.Since), Errors: []ReadError{}}
+	res := Result{Since: FormatSince(q.Since), Errors: []ReadError{}}
 	if len(all) > MaxLimit {
 		all, res.Truncated = all[:MaxLimit], true
 	}

@@ -34,7 +34,7 @@ func toolDefinitions() []Tool {
 	tools = append(append(append(tools, fleetTools()...), agentBrokerTools()...),
 		grantTools()...)
 	tools = append(append(tools, upgradeTools()...), inboxTools()...)
-	tools = append(tools, workloadPackTools()...)
+	tools = append(append(tools, workloadPackTools()...), outcomesTools()...)
 	for i := range tools {
 		tools[i] = finishTool(tools[i])
 	}

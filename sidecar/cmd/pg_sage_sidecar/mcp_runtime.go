@@ -100,7 +100,8 @@ func mcpDependencies() mcp.ProductionDependencies {
 		// upgrade_readiness (market-05): read-only, on the resolved database.
 		UpgradeReadiness: upgradeReadinessMCP{manager: fleetMgr},
 		// get_inbox (ux-01a): the inbox's read, never a decision.
-		Inbox: api.InboxMCP(fleetMgr, processAutonomy().registry),
+		Inbox:    api.InboxMCP(fleetMgr, processAutonomy().registry),
+		Outcomes: api.OutcomesMCP(fleetMgr),
 	}
 }
 

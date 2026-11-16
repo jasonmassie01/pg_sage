@@ -309,6 +309,7 @@ func registerFleetReadRoutes(apiMux *http.ServeMux, mgr *fleet.DatabaseManager,
 			return valueHandler(fleetValueReader(m, cfg))
 		})
 	registerBriefingRoutes(apiMux, mgr)
+	registerOutcomesRoutes(apiMux, mgr) // the outcome ledger (ux-02a)
 	if appMode {
 		registerMigrationLintRoutes(apiMux, mgr, cfg)
 	} else {

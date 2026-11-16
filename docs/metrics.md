@@ -139,6 +139,7 @@ Action outcomes, pending approvals, verification verdicts, policy parks and shad
 |---|---|---|---|---|---|---|
 | `pg_sage_action_last_failure_timestamp_seconds` | gauge | `database` | seconds | all | v2.7.0 | When the latest failed action was recorded (no sample: none has failed) |
 | `pg_sage_inbox_items` | gauge | `kind` | - | all | v2.8.0 | Decisions waiting on a person by kind at the last complete fleet-wide inbox read (no sample before one; a read that missed a source is not recorded) |
+| `pg_sage_outcomes_measured_ratio` | gauge | `database` | - | all | v2.8.0 | Share of the last 24 hours' changes with a measured effect, per database, at the last complete outcome ledger read of that window (no sample before one, or when the window has no changes) |
 | `pg_sage_inbox_decision_seconds` | histogram | `kind`, `decided_from` | seconds | all | v2.8.0 | Time from approval needed to decision, by inbox kind and the surface the decision came from (X-Sage-Surface: inbox, page, chat, api, cli) |
 | `pg_sage_actions_pending_approval` | gauge | `database`, `risk` | - | all | v2.7.0 | Pending approvals a person can act on now (past cooldown, not expired), by risk |
 | `pg_sage_actions_total` | counter | `database`, `class`, `outcome` | - | all | v2.7.0 | Actions that ended, by change class and outcome (success, failed, rolled_back, cancelled, unverifiable, other) |

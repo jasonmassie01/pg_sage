@@ -120,7 +120,7 @@ type Result struct {
 }
 
 var errSince = fmt.Errorf("since must be a duration from 1s to %s (the 400-day "+
-	"retention), such as 24h or 168h", formatHours(MaxSince))
+	"retention), such as 24h or 168h", FormatSince(MaxSince))
 
 // ParseSince parses a window such as 24h; "" is DefaultSince.
 func ParseSince(raw string) (time.Duration, error) {
@@ -159,8 +159,8 @@ func ParseLimit(raw string) (int, error) {
 	return n, nil
 }
 
-// formatHours renders a window as hours, such as 24h or 1.5h.
-func formatHours(d time.Duration) string {
+// FormatSince renders a window as hours, such as 24h or 1.5h.
+func FormatSince(d time.Duration) string {
 	return strconv.FormatFloat(d.Hours(), 'f', -1, 64) + "h"
 }
 

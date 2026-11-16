@@ -9,6 +9,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/ask"
 	"github.com/pg-sage/sidecar/internal/metricsreg"
 	"github.com/pg-sage/sidecar/internal/migration"
+	"github.com/pg-sage/sidecar/internal/outcomes"
 	"github.com/pg-sage/sidecar/internal/shadow"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
@@ -110,10 +111,12 @@ func writeFleetMetrics(b *strings.Builder) {
 		status.Summary.TotalCritical)
 }
 
-// writeAskAndInboxMetrics renders Ask Sage's answers and runs and the
-// inbox, the in-process families of the people-facing surfaces.
+// writeAskAndInboxMetrics renders Ask Sage's answers and runs, the inbox
+// and the outcome ledger, the in-process families of the people-facing
+// surfaces.
 func writeAskAndInboxMetrics(b *strings.Builder) {
 	writeAskMetrics(b, ask.AnswerCounts())
 	writeAskRunMetrics(b, ask.ActiveRuns(), ask.RunCounts())
 	writeInboxMetrics(b)
+	writeOutcomesMetrics(b, outcomes.MeasuredRatios())
 }

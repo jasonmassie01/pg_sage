@@ -20,7 +20,7 @@ const toolGetInbox = "get_inbox"
 // databaseOptionalTools take the standard database argument but, without
 // one, read every database the caller may read instead of requiring one.
 // A named database is bound and checked like any other tool's.
-var databaseOptionalTools = map[string]bool{toolGetInbox: true}
+var databaseOptionalTools = map[string]bool{toolGetInbox: true, toolGetOutcomes: true}
 
 // InboxRequest are get_inbox's typed arguments plus the databases the
 // caller may see (nil: all).

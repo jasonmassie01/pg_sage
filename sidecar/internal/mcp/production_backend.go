@@ -87,6 +87,8 @@ type ProductionDependencies struct {
 	UpgradeReadiness UpgradeReadinessBackend
 	// Inbox serves get_inbox (ux-01a); optional.
 	Inbox InboxBackend
+	// Outcomes serves get_outcomes (ux-02a); optional.
+	Outcomes OutcomesBackend
 }
 
 type ProductionBackend struct {
