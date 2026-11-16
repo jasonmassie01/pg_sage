@@ -72,7 +72,7 @@ func (e *Engine) awaitApproval(ctx context.Context, tx pgx.Tx, p Plan, s Step,
 	evt := notify.Event{Type: "approval_needed", Severity: "warning",
 		Subject: fmt.Sprintf("Plan %d step %d needs its own approval", p.ID, s.Ordinal),
 		Body: fmt.Sprintf("Plan %d (%s) on %s stopped before step %d: approving the plan "+
-			"does not cover it. Why: %s. Approve the step to go on.", p.ID,
+			"does not cover it. Why: %s. Approve the step to go on, or cancel the plan.", p.ID,
 			truncate(p.Goal, 120), e.cfg.Database, s.Ordinal, truncate(why, 500)),
 		Data: map[string]any{"plan_id": p.ID, "step": s.Ordinal,
 			"database": e.cfg.Database},

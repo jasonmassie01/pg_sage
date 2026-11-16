@@ -11,15 +11,17 @@ import (
 )
 
 // A person's other plan decisions (plan-03a): reject a proposed plan,
-// resume a halted one, cancel an approved or halted one. Each locks the
-// plan row and records one event naming the person.
+// resume a halted one, cancel an approved or halted one, or a running one
+// with no step in flight (stopped before a step awaiting its approval or
+// its operator). Each locks the plan row and records one event naming the
+// person.
 
 // Errors the decisions return when the plan is in the wrong status.
 var (
 	ErrNotRejectable  = errors.New("changeplan: only a proposed plan can be rejected")
 	ErrNotResumable   = errors.New("changeplan: only a halted plan can be resumed")
-	ErrNotCancellable = errors.New("changeplan: only an approved or halted plan can be " +
-		"cancelled")
+	ErrNotCancellable = errors.New("changeplan: only an approved or halted plan, or a " +
+		"running one with no step in flight, can be cancelled")
 )
 
 // checkReason trims reason and requires 1..200 characters (blank is
@@ -48,7 +50,7 @@ func (s *Store) Reject(ctx context.Context, planID int64, reason string, userID 
 	}
 	err = s.inTx(ctx, func(tx pgx.Tx) error {
 		return endPlan(ctx, tx, planID, StatusRejected, EventRejected, reason, userID,
-			func(st Status) bool { return st == StatusProposed }, ErrNotRejectable)
+			func(p Plan) bool { return p.Status == StatusProposed }, ErrNotRejectable)
 	})
 	if err != nil {
 		return fmt.Errorf("changeplan: reject plan %d: %w", planID, err)
@@ -56,9 +58,11 @@ func (s *Store) Reject(ctx context.Context, planID int64, reason string, userID 
 	return nil
 }
 
-// Cancel ends approved or halted plan planID as cancelled (never a running
-// one: its step in flight is the executor's); its approvals are voided.
-// reason may be blank.
+// Cancel ends plan planID as cancelled when it is approved, halted, or
+// running with no step in flight (a step in flight is the executor's, so
+// such a plan is refused); its approvals are voided. reason may be blank.
+// The plan row lock holds off the engine's tick, so no step starts while
+// the plan is cancelled.
 func (s *Store) Cancel(ctx context.Context, planID int64, reason string, userID int) error {
 	reason, err := checkReason(reason, true)
 	if err != nil {
@@ -66,8 +70,7 @@ func (s *Store) Cancel(ctx context.Context, planID int64, reason string, userID 
 	}
 	err = s.inTx(ctx, func(tx pgx.Tx) error {
 		return endPlan(ctx, tx, planID, StatusCancelled, EventCancelled, reason, userID,
-			func(st Status) bool { return st == StatusApproved || st == StatusHalted },
-			ErrNotCancellable)
+			cancellable, ErrNotCancellable)
 	})
 	if err != nil {
 		return fmt.Errorf("changeplan: cancel plan %d: %w", planID, err)
@@ -75,10 +78,27 @@ func (s *Store) Cancel(ctx context.Context, planID int64, reason string, userID 
 	return nil
 }
 
+// cancellable reports a plan Cancel may end: approved, halted, or running
+// with every step pending, ended or waiting on a person.
+func cancellable(p Plan) bool {
+	switch p.Status {
+	case StatusApproved, StatusHalted:
+		return true
+	case StatusRunning:
+		for _, st := range p.Steps {
+			if inFlightStates[st.Runtime.State] {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
 // endPlan moves the locked plan to terminal status to when allowed accepts
-// its status (else refused), voiding every approval.
+// it (else refused), voiding every approval.
 func endPlan(ctx context.Context, tx pgx.Tx, planID int64, to Status, kind EventKind,
-	reason string, userID int, allowed func(Status) bool, refused error) error {
+	reason string, userID int, allowed func(Plan) bool, refused error) error {
 	if userID <= 0 {
 		return errors.New("no person decided")
 	}
@@ -86,7 +106,7 @@ func endPlan(ctx context.Context, tx pgx.Tx, planID int64, to Status, kind Event
 	if err != nil {
 		return err
 	}
-	if !allowed(p.Status) {
+	if !allowed(p) {
 		return fmt.Errorf("%w: plan %d is %s", refused, planID, p.Status)
 	}
 	if err := voidAll(ctx, tx, planID, string(to)); err != nil {

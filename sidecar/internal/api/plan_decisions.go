@@ -217,8 +217,8 @@ var planRefusals = []struct {
 	{changeplan.ErrNotResumable, http.StatusConflict, "not_halted",
 		"only a halted plan can be resumed"},
 	{changeplan.ErrNotCancellable, http.StatusConflict, "not_cancellable",
-		"only an approved or halted plan can be cancelled; a running plan stops when " +
-			"its step ends, or with the emergency stop"},
+		"only an approved or halted plan, or a running one with no step in flight, can " +
+			"be cancelled; a step in flight ends first, or use the emergency stop"},
 }
 
 // writePlanError answers err: an input error with its code, a refusal

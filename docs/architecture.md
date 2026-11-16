@@ -733,7 +733,7 @@ configuration.
 | `POST /api/v1/plans/{id}/steps/{step}/approve` | operator | `{plan_hash}` | Approve one step (by step id). |
 | `POST /api/v1/plans/{id}/reject` | operator | `{reason}` | End a proposed plan as rejected. |
 | `POST /api/v1/plans/{id}/resume` | operator | `{plan_hash}` | Run a halted plan again. |
-| `POST /api/v1/plans/{id}/cancel` | operator | `{reason}` (optional) | End an approved or halted plan, never a running one. |
+| `POST /api/v1/plans/{id}/cancel` | operator | `{reason}` (optional) | End an approved or halted plan, or a running one with no step in flight (one stopped before a step awaiting its approval or its operator). |
 
 A hash that is no longer the plan's is 409 `content_changed`; a decision the
 plan's status does not allow is 409 (`not_pending`, `not_halted`,

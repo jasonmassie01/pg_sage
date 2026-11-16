@@ -302,7 +302,9 @@ A person approves a plan at the plan hash they were shown, in one of three modes
 - **A step that is not covered** stops with `awaiting_approval` and its reason, and one
   notification asks for it. Its own approval (`POST /api/v1/plans/{id}/steps/{step}/approve`
   or `pg_sage_sidecar plan approve <id> --hash <h> --step N`) sets it back to pending. The
-  executor then runs it as the person who approved the step.
+  executor then runs it as the person who approved the step. To decline it instead, cancel
+  the plan (`POST /api/v1/plans/{id}/cancel` or `pg_sage_sidecar plan cancel <id>`): a
+  running plan with no step in flight can be cancelled.
 - **An edit voids every approval** of the plan, step approvals included, and the plan goes
   back to `proposed`. Two people approving with the same hash and mode make one live
   approval; an approval racing an edit is either voided by it or refused as stale.
