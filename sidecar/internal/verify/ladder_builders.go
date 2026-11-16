@@ -31,8 +31,9 @@ type HintComparison struct {
 }
 
 // Rehearsal is a clone rehearsal's result (lab-04a fills it): passed, or
-// inconclusive (the rehearsal could not judge), else failed; the change of
-// blocks per call it measured, the receipt and the clone provider.
+// inconclusive (the rehearsal could not judge, which wins over passed),
+// else failed; the change of blocks per call it measured, the receipt and
+// the clone provider.
 type Rehearsal struct {
 	Passed           bool
 	Inconclusive     bool
@@ -126,11 +127,13 @@ func FromRehearsal(reh Rehearsal, at time.Time) LadderRecord {
 	if reh.Reason != "" {
 		r.Evidence["reason"] = reh.Reason
 	}
+	// Inconclusive first: a result that says both passed and could not
+	// judge is contradictory and fails closed.
 	switch {
-	case reh.Passed:
-		r.Result = LadderPassed
 	case reh.Inconclusive:
 		return inconclusive(r, reh.Reason)
+	case reh.Passed:
+		r.Result = LadderPassed
 	}
 	return r
 }

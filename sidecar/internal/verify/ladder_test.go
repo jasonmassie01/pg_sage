@@ -121,6 +121,21 @@ func TestFromRehearsal_IsTierTwo(t *testing.T) {
 	}
 }
 
+// Invalid input: a rehearsal that says it both passed and could not judge
+// is contradictory, so it fails closed as inconclusive, never a tier-2
+// pass that would let a costly step run unattended.
+func TestFromRehearsal_PassedAndInconclusiveIsNoPass(t *testing.T) {
+	r := FromRehearsal(Rehearsal{Passed: true, Inconclusive: true,
+		Reason: "clone lost mid-run", ReceiptID: 9}, ladderNow)
+	if r.Passed() || r.Result != LadderInconclusive ||
+		PassedTier([]LadderRecord{r}, TierClone) {
+		t.Fatalf("contradictory rehearsal = %+v, want inconclusive, no tier-2 pass", r)
+	}
+	if len(r.Skipped) != 1 || r.Skipped[0].Reason != "clone lost mid-run" {
+		t.Fatalf("skipped = %+v, want the rehearsal's reason", r.Skipped)
+	}
+}
+
 func TestFromVerdict_IsTierThree(t *testing.T) {
 	r := FromVerdict(OutcomeImproved, ladderPct(-22), 77, ladderNow)
 	if r.Tier != TierCanary || r.Name != "canary" || !r.Passed() {
