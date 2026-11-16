@@ -245,6 +245,8 @@ The gate checks one action at a time. A plan runs many, so the standing policy d
   value is refused when the document is parsed, and the error names the field. The block is
   written back only when it differs from the defaults, so the stored documents keep their
   bytes and their `policy_doc_sha256`.
+- **Widening.** Raising a cap, or dropping or changing a peak window, widens the policy, so
+  an agent's proposal that does it needs two people (see Agent policy proposals below).
 - **When a plan is proposed and approved**, it is refused if it holds more index steps on
   one table than the cap, or more than one restart-bound step. A setting whose
   `pg_settings.context` cannot be read counts as restart-bound. The refusal names the cap,
