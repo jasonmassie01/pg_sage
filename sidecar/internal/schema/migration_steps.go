@@ -245,5 +245,6 @@ func trancheFiveMigrations() []namedStep {
 		{"ddlPlanEvents", ddlPlanEvents},                                     // plan-01b
 		{"ddlPlanStepRun", ddlPlanStepRun},                                   // plan-02a
 		{"ddlPlanStepApproval", ddlPlanStepApproval},                         // plan-02b
+		{"ddlPlanOperatorSteps", ddlPlanOperatorSteps},                       // plan-02d
 	}
 }

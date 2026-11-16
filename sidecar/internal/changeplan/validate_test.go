@@ -282,15 +282,17 @@ func TestValidate_OperatorAndCheckSteps(t *testing.T) {
 	r := newFakeResolver()
 	p := threeStepPlan()
 	p.Steps[2] = Step{Ordinal: 3, Kind: KindOperator,
-		ProposedSQL: "Set work_mem to 64MB in the provider console", FindingID: ptr(int64(13)),
+		OperatorCommand: "Set work_mem to 64MB in the provider console",
+		Landing:         &Landing{Setting: "work_mem", Value: "64MB"}, FindingID: ptr(int64(13)),
 		Setting: "work_mem", Metric: MetricReadback, ExpectedDirection: DirectionNone,
 		ExpectedSource: SourceNone, DeadlineMinutes: 1440}
 	if ps := validate(t, p, r); len(ps) != 0 {
 		t.Fatalf("operator step: %v, want clean", codes(ps))
 	}
-	p.Steps[2].ProposedSQL = ""
-	if ps := validate(t, p, r); !hasCode(ps, CodeSQLMissing, 3) {
-		t.Fatalf("operator step with nothing to run: %v, want %s@3", codes(ps), CodeSQLMissing)
+	p.Steps[2].OperatorCommand = ""
+	if ps := validate(t, p, r); !hasCode(ps, CodeCommandMissing, 3) {
+		t.Fatalf("operator step with nothing to run: %v, want %s@3", codes(ps),
+			CodeCommandMissing)
 	}
 	p.Steps[2] = Step{Ordinal: 3, Kind: KindCheck, Setting: "random_page_cost",
 		Metric: MetricReadback, ExpectedDirection: DirectionNone, ExpectedSource: SourceNone,

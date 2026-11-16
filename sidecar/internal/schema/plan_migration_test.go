@@ -28,10 +28,11 @@ func TestPlansStep_FollowsTheBacktestStep(t *testing.T) {
 		}
 	}
 	// plan-02a's ddlPlanStepRun adds the engine's run columns; plan-02b's
-	// ddlPlanStepApproval widens the state vocabulary.
-	if strings.Join(naming, ",") != "ddlPlans,ddlPlanStepRun,ddlPlanStepApproval" {
-		t.Fatalf("steps naming sage.plan_step = %v, want ddlPlans, ddlPlanStepRun, "+
-			"ddlPlanStepApproval", naming)
+	// ddlPlanStepApproval widens the state vocabulary; plan-02d's
+	// ddlPlanOperatorSteps adds the operator step columns.
+	want := "ddlPlans,ddlPlanStepRun,ddlPlanStepApproval,ddlPlanOperatorSteps"
+	if strings.Join(naming, ",") != want {
+		t.Fatalf("steps naming sage.plan_step = %v, want %s", naming, want)
 	}
 }
 

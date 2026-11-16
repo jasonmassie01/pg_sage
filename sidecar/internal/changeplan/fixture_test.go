@@ -19,6 +19,11 @@ type fakeResolver struct {
 	evErr     error
 	callsErr  error
 	gotWindow time.Duration
+	// settings are the server's setting names and managed the managed
+	// change proposals that exist (plan-02d's landing lookups).
+	settings   map[string]bool
+	managed    map[int64]bool
+	settingErr error
 }
 
 func newFakeResolver() *fakeResolver {
@@ -26,7 +31,24 @@ func newFakeResolver() *fakeResolver {
 		findings: map[int64]bool{11: true, 12: true, 13: true},
 		evidence: map[string]bool{testPack + "|setting/random_page_cost": true},
 		calls:    map[int64]int64{101: 5000, 102: 5000},
+		settings: map[string]bool{"work_mem": true, "random_page_cost": true,
+			"shared_buffers": true, "max_connections": true},
+		managed: map[int64]bool{},
 	}
+}
+
+func (f *fakeResolver) SettingExists(_ context.Context, name string) (bool, error) {
+	if f.settingErr != nil {
+		return false, f.settingErr
+	}
+	return f.settings[name], nil
+}
+
+func (f *fakeResolver) ManagedChangeExists(_ context.Context, id int64) (bool, error) {
+	if f.settingErr != nil {
+		return false, f.settingErr
+	}
+	return f.managed[id], nil
 }
 
 func (f *fakeResolver) FindingExists(_ context.Context, id int64) (bool, error) {
