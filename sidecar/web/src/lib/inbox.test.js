@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  changesSince, goalSentence, inboxBadge, kindLabel, sinceLabel, sinceWindow, sourceErrorText,
-  withSurface,
+  changesSince, goalSentence, inboxBadge, kindLabel, ledgerGaps, sinceLabel, sinceWindow,
+  sourceErrorText, withSurface,
 } from './inbox'
 
 // ux-01b: the Inbox's wording and window arithmetic. No concurrent access
@@ -43,6 +43,28 @@ describe('changesSince', () => {
   })
 })
 
+describe('ledgerGaps', () => {
+  const from = Date.parse('2026-11-10T15:00:00Z')
+  const row = at => ({ database: 'a', action_id: at, executed_at: new Date(at).toISOString() })
+  it('is complete for a short page, an empty one and a missing one', () => {
+    const none = { partial: false, failed: [], cut: false }
+    expect(ledgerGaps({ rows: [row(from)], errors: [] }, from)).toEqual(none)
+    expect(ledgerGaps({ rows: [], errors: null }, from)).toEqual(none)
+    expect(ledgerGaps(null, from)).toEqual(none)
+  })
+
+  it('names unreadable databases and a full page that stays after from', () => {
+    const full = Array.from({ length: 500 }, (_, i) => row(from + i))
+    expect(ledgerGaps({ rows: full, errors: [{ database: 'b', error: 'x' }] }, from))
+      .toEqual({ partial: true, failed: ['b (x)'], cut: true })
+    full[499] = row(from - 1)
+    expect(ledgerGaps({ rows: full, errors: [] }, from))
+      .toEqual({ partial: false, failed: [], cut: false })
+    expect(ledgerGaps({ rows: [row(from)], truncated: true, errors: [] }, from))
+      .toEqual({ partial: true, failed: [], cut: true })
+  })
+})
+
 describe('labels and sentences', () => {
   it('words the seen time by how long ago it was', () => {
     const now = local(2026, 11, 12, 18)
@@ -57,6 +79,12 @@ describe('labels and sentences', () => {
       .toBe('Nothing needs you. 1 change since Tuesday, all verified.')
     expect(goalSentence([{ verdict: 'pending' }, { verdict: 'unverifiable' }], 'today'))
       .toBe('Nothing needs you. 2 changes today, 0 verified.')
+  })
+
+  it('never claims all verified for a partial count', () => {
+    expect(goalSentence([{ verdict: 'improved' }], 'today', true))
+      .toBe('Nothing needs you. At least 1 change today, 1 verified.')
+    expect(goalSentence([], 'today', true)).toBe('Nothing needs you.')
   })
 
   it('names failed sources once each', () => {

@@ -182,6 +182,15 @@ describe('InboxPage needs you', () => {
     expect(screen.queryByText(/Nothing needs you/)).toBeNull()
   })
 
+  it('counts every waiting item in the heading when the list is cut short', async () => {
+    setAPI({ inbox: q({ items: threeItems, errors: [], total: 30, lower_bound: false,
+      counts_by_kind: {}, truncated: true }) })
+    await renderInbox()
+    expect(screen.getByRole('heading', { name: 'Needs you (30)' })).toBeInTheDocument()
+    expect(screen.getByTestId('inbox-truncated'))
+      .toHaveTextContent('Showing the first 3 of 30; open each page for the rest.')
+  })
+
   it('names a failed source above the list and claims no goal state', async () => {
     setAPI({ errors: [{ source: 'autonomy_promotion', database: 'orders',
       error: 'timed out after 2s' }] })
@@ -208,6 +217,37 @@ describe('InboxPage since you were last here', () => {
     view.rerender(<InboxPage database="orders" user={operator} />)
     expect(screen.getByTestId('inbox-goal'))
       .toHaveTextContent('Nothing needs you. 3 changes since Tuesday, 2 verified.')
+  })
+
+  it('claims no full count while a database ledger could not be read', async () => {
+    setAPI({ rows: [change(1), change(2)] })
+    queries.outcomes = q({ rows: [change(1), change(2)], summary: {}, since: '48h',
+      truncated: false, errors: [{ database: 'billing', error: 'timed out' }] })
+    await renderInbox()
+    expect(screen.getByTestId('inbox-goal'))
+      .toHaveTextContent(/^Nothing needs you\. At least 2 changes since Tuesday, 2 verified\.$/)
+    expect(screen.getByTestId('inbox-ledger-partial'))
+      .toHaveTextContent('Could not read the ledger of: billing (timed out)')
+  })
+
+  it('says at least when the ledger page is full of changes since the seen time', async () => {
+    const rows = Array.from({ length: 500 }, (_, i) => change(i + 1))
+    setAPI({ rows })
+    await renderInbox()
+    expect(screen.getByTestId('inbox-goal'))
+      .toHaveTextContent('Nothing needs you. At least 500 changes since Tuesday, 500 verified.')
+    expect(screen.getByTestId('inbox-ledger-partial'))
+      .toHaveTextContent('Showing the newest 500 changes; the Ledger page has the rest.')
+  })
+
+  it('counts exactly when the full page reaches back past the seen time', async () => {
+    const rows = Array.from({ length: 499 }, (_, i) => change(i + 1))
+    rows.push(change(999, { executed_at: '2026-11-09T00:00:00Z' }))
+    setAPI({ rows })
+    await renderInbox()
+    expect(screen.getByTestId('inbox-goal'))
+      .toHaveTextContent('Nothing needs you. 499 changes since Tuesday, all verified.')
+    expect(screen.queryByTestId('inbox-ledger-partial')).toBeNull()
   })
 
   it('reads the ledger since the seen time, a change exactly at it once', async () => {

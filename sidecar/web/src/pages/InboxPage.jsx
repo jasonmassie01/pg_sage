@@ -5,7 +5,7 @@ import { LoadingSpinner } from '../components/LoadingSpinner'
 import { usePendingActionsRefetch } from '../components/Layout'
 import { apiGet } from '../lib/api'
 import {
-  changesSince, goalSentence, sinceLabel, sinceWindow, sourceErrorText,
+  changesSince, goalSentence, ledgerGaps, sinceLabel, sinceWindow, sourceErrorText,
 } from '../lib/inbox'
 import { NeedsYou } from './inbox/NeedsYou'
 import { SinceLastVisit } from './inbox/SinceLastVisit'
@@ -97,22 +97,26 @@ function ValueLine({ query }) {
 }
 
 // NeedsSection is (a), or the goal state when nothing waits and every
-// source answered.
-function NeedsSection({ data, changes, when, onDecided }) {
+// source answered. The heading counts every item found (total), which a
+// cut-short list (truncated) does not all show.
+function NeedsSection({ data, changes, when, partial, onDecided }) {
   const items = Array.isArray(data?.items) ? data.items : []
+  const total = Number.isInteger(data?.total) ? Math.max(data.total, items.length) : items.length
   const failed = sourceErrorText(data?.errors)
   return <section className="space-y-2" aria-label="Needs you">
     {failed && <p role="status" data-testid="inbox-source-errors" className="text-sm"
       style={{ color: 'var(--yellow)' }}>{failed}</p>}
     {items.length > 0 && <>
       <h2 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-        Needs you ({items.length}{data?.lower_bound ? '+' : ''})</h2>
+        Needs you ({total}{data?.lower_bound ? '+' : ''})</h2>
+      {total > items.length && <p data-testid="inbox-truncated" className="text-xs" style={muted}>
+        Showing the first {items.length} of {total}; open each page for the rest.</p>}
       <NeedsYou items={items} onDecided={onDecided} />
     </>}
     {items.length === 0 && (failed
       ? <p className="text-sm" style={muted}>Nothing waits in the sources that answered.</p>
       : <p data-testid="inbox-goal" className="text-base font-medium"
-        style={{ color: 'var(--text-primary)' }}>{goalSentence(changes, when)}</p>)}
+        style={{ color: 'var(--text-primary)' }}>{goalSentence(changes, when, partial)}</p>)}
   </section>
 }
 
@@ -127,6 +131,7 @@ export function InboxPage({ database, user }) {
     ? `/api/v1/outcomes?since=${win.since}${dbParam(database, '&')}` : null, 30000)
   const value = useAPI(`/api/v1/value${dbParam(database, '?')}`, 60000)
   const changes = changesSince(outcomes.data?.rows, win.from)
+  const gaps = ledgerGaps(outcomes.data, win.from)
   const when = win.firstVisit ? 'in the last 24 hours' : sinceLabel(win.from, openedAt)
   const canUndo = user?.role === 'admin' || user?.role === 'operator'
   const onDecided = () => {
@@ -137,10 +142,10 @@ export function InboxPage({ database, user }) {
     <div className="space-y-6" data-testid="inbox-page">
       <QueryState query={inbox} skeleton={<LoadingSpinner />}>
         {data => <NeedsSection data={data} changes={changes} when={when}
-          onDecided={onDecided} />}
+          partial={gaps.partial} onDecided={onDecided} />}
       </QueryState>
       {seen.ready && <SinceLastVisit changes={changes} query={outcomes} canUndo={canUndo}
-        label={windowLabel(seen, win, openedAt)} />}
+        gaps={gaps} label={windowLabel(seen, win, openedAt)} />}
       {markError && <p className="text-xs" style={muted}>{markError}</p>}
       <ValueLine query={value} />
     </div>

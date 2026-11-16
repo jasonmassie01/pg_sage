@@ -109,13 +109,32 @@ export function sinceLabel(from, now = Date.now()) {
 const MEASURED = new Set(['improved', 'no_change', 'regressed'])
 
 // goalSentence is the empty state, built from counts: "Nothing needs you."
-// and, when changes ran, "6 changes since Tuesday, all verified."
-export function goalSentence(changes, when) {
+// and, when changes ran, "6 changes since Tuesday, all verified." A partial
+// count (see ledgerGaps) is "At least 6" and never claims "all verified".
+export function goalSentence(changes, when, partial = false) {
   if (!changes.length) return 'Nothing needs you.'
   const verified = changes.filter(r => MEASURED.has(r.verdict)).length
   const noun = changes.length === 1 ? 'change' : 'changes'
-  const tail = verified === changes.length ? 'all verified' : `${verified} verified`
-  return `Nothing needs you. ${changes.length} ${noun} ${when}, ${tail}.`
+  const count = `${partial ? 'At least ' : ''}${changes.length} ${noun}`
+  const tail = verified === changes.length && !partial ? 'all verified' : `${verified} verified`
+  return `Nothing needs you. ${count} ${when}, ${tail}.`
+}
+
+// LEDGER_PAGE is the outcome ledger's default page (outcomes.DefaultLimit).
+export const LEDGER_PAGE = 500
+
+// ledgerGaps says whether a ledger read since from may miss changes: a
+// database that could not be read (failed, "name (error)"), or a page cut
+// short (cut: the server truncated, or a full page whose oldest row is
+// still at or after from, so older changes since from may be off it).
+export function ledgerGaps(data, from) {
+  const rows = Array.isArray(data?.rows) ? data.rows : []
+  const failed = (Array.isArray(data?.errors) ? data.errors : [])
+    .map(e => `${e?.database || 'unknown'} (${e?.error || 'not read'})`)
+  const oldest = rows.length ? Date.parse(rows[rows.length - 1]?.executed_at) : NaN
+  const full = rows.length >= LEDGER_PAGE && !(oldest < from)
+  const cut = data?.truncated === true || full
+  return { partial: cut || failed.length > 0, failed, cut }
 }
 
 // withSurface adds X-Sage-Surface to a request's headers (ux-01a's metric).

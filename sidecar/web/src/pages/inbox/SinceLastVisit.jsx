@@ -71,7 +71,17 @@ function useUndo(onRolledBack) {
   return { dialog, loadError, reasons, open, done, close: () => setDialog(null) }
 }
 
-export function SinceLastVisit({ changes, label, query, canUndo }) {
+// LedgerGaps names what the list may miss (lib/inbox ledgerGaps).
+function LedgerGaps({ gaps, shown }) {
+  if (!gaps?.partial) return null
+  const parts = []
+  if (gaps.failed.length) parts.push(`Could not read the ledger of: ${gaps.failed.join(', ')}.`)
+  if (gaps.cut) parts.push(`Showing the newest ${shown} changes; the Ledger page has the rest.`)
+  return <p role="status" data-testid="inbox-ledger-partial" className="text-xs"
+    style={{ color: 'var(--yellow)' }}>{parts.join(' ')}</p>
+}
+
+export function SinceLastVisit({ changes, label, query, canUndo, gaps }) {
   const undo = useUndo(() => query.refetch?.())
   return (
     <section className="space-y-2" aria-label="Since you were last here">
@@ -81,6 +91,7 @@ export function SinceLastVisit({ changes, label, query, canUndo }) {
       {query.error && <ErrorBanner message={`The outcome ledger could not be read: ${query.error}`}
         onRetry={query.refetch} />}
       {undo.loadError && <ErrorBanner message={undo.loadError} />}
+      <LedgerGaps gaps={gaps} shown={changes.length} />
       {changes.length === 0 && !query.error
         ? <p className="text-sm" style={muted}>No changes in this window.</p>
         : <ul className="space-y-2">
