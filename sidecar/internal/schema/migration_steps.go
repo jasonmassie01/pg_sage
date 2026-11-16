@@ -239,5 +239,6 @@ func trancheFiveMigrations() []namedStep {
 		{"ddlHistoryMigrationRollupTables", ddlHistoryMigrationRollupTables}, // evid-01b
 		{"ddlWorkloadPacks", ddlWorkloadPacks},                               // evid-02a
 		{"ddlFactsOwnerBrief", ddlFactsOwnerBrief},                           // evid-03a
+		{"ddlWorkloadPseudonymKey", ddlWorkloadPseudonymKey},                 // evid-02c
 	}
 }

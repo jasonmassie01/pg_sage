@@ -34,6 +34,7 @@ func assemble(req Request, plan dayPlan, h history) (*Pack, error) {
 			CountersOnlyHours: c.CountersOnlyHours}},
 		{fileWorkload, wl},
 		{fileGrowth, buildGrowth(req, plan, h, fams)},
+		{fileTexts, buildTexts(wl, h.texts)},
 	}
 	parts = append(parts, catalogParts(req, plan, h, wl)...)
 	files := make([]evidence.File, 0, len(parts))

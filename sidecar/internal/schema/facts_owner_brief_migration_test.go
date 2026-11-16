@@ -19,8 +19,16 @@ import (
 
 func TestFactsOwnerBriefStepIsLastAndBounded(t *testing.T) {
 	steps := trancheFiveMigrations()
-	if len(steps) == 0 || steps[len(steps)-1][0] != "ddlFactsOwnerBrief" {
-		t.Fatalf("T5 steps = %v, want ddlFactsOwnerBrief last", steps)
+	// evid-02c's ddlWorkloadPseudonymKey was added after this step; it must
+	// stay in tranche five, right after the workload packs.
+	idx := -1
+	for i, step := range steps {
+		if step[0] == "ddlFactsOwnerBrief" {
+			idx = i
+		}
+	}
+	if idx < 1 || steps[idx-1][0] != "ddlWorkloadPacks" {
+		t.Fatalf("T5 steps = %v, want ddlFactsOwnerBrief after ddlWorkloadPacks", steps)
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout", "pg_catalog.pg_constraint",
 		"facts_fact_type_v2", "facts_subject_kind_v2", "'owner_brief'", "'do_not_touch'",
