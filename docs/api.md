@@ -88,3 +88,99 @@ and surface. Today the action approve and reject, fact confirm and reject,
 runbook sign, agent request deny and autonomy approve and reject routes feed
 it. `pg_sage_inbox_items` is the waiting count by kind at the last complete
 fleet-wide inbox read ([Metrics](metrics.md)).
+
+## Outcome ledger
+
+The outcome ledger answers "what did pg_sage change, and what did it do": one
+row per change pg_sage executed, with what it was, why, how it came to run,
+the effect it expected, the effect the verifier measured, the verdict and
+whether the change can still be rolled back. It reads `sage.action_log`,
+lab-01's verdict record (`sage.action_outcome`), the decision, the approval
+card and the plan step, and writes nothing. A failed action changed nothing
+and is not a row. The dashboard shows it at `#/ledger`.
+
+### `GET /api/v1/outcomes`
+
+Viewer and up. Query parameters, all optional:
+
+- `since`: the window, a duration from `1s` to `9600h` (the 400-day history
+  retention), such as `24h` (the default) or `168h`. Anything else is `400`
+  with the range in the message. A change executed exactly `since` ago is in
+  the window.
+- `database`: one monitored database. An unknown database, or one your grants
+  do not cover, is `404 database not found`; a malformed name is `400`.
+- `verdict`: one of `pending`, `improved`, `no_change`, `regressed`,
+  `inconclusive`, `unverifiable`, `expired`; anything else is `400`.
+- `evidence`: only the changes a decision's or a credited incident's evidence
+  id cites (at most 200 characters).
+- `limit`: the rows returned, from 1 to 10000 (default 500). The summary
+  covers every change in the window.
+
+```json
+{
+  "since": "24h",
+  "rows": [
+    {"action_id": 12, "database": "orders", "action_type": "create_index",
+     "what": "Add an index", "why": "orders lookups read 1.2 GB per call",
+     "origin": "approved",
+     "expected": {"metric": "blocks_per_call", "change_pct": -40, "source": "hypopg"},
+     "measured": {"metric": "blocks_per_call", "change_pct": -42},
+     "verdict": "improved", "rollback_state": "available",
+     "evidence_id": "ev-orders-1", "finding_id": 9, "saved_hours": 0.75,
+     "executed_at": "2026-11-16T03:00:00Z"}
+  ],
+  "summary": {"changes": 1, "verified": 1, "reverted": 0, "inconclusive": 0,
+              "pending": 0, "measured": 1, "measured_share": 1},
+  "truncated": false,
+  "errors": []
+}
+```
+
+- `origin` is `plan` (a step of an approved change plan), `approved` (a person
+  approved it), `agent` (an agent ran it under its grant) or `autonomous`
+  (pg_sage ran it under policy and trust).
+- `expected` is the prediction stored before the change ran, else the plan
+  step's expectation; `null` when there was none.
+- `measured` is the verifier's measured change in percent, to one decimal
+  place. It is `null` with `measured_reason` while the change is not judged
+  yet, or where the verifier declares the target unverifiable (for example a
+  scale-to-zero suspend broke the counters' epoch).
+- `verdict` is `pending` until the verifier decides, then one of the verdicts
+  above (lab-01's verdicts in the plan engine's words: `neutral` is
+  `no_change`, `insufficient_evidence` is `inconclusive`).
+- `rollback_state` is `available`, `rolled_back`, `rollback_failed`,
+  `rolling_back` (a rollback still running) or `not_reversible` (no rollback
+  statement).
+- `summary.verified` counts changes judged on a measurement (improved, no
+  change, regressed); `inconclusive` counts inconclusive, unverifiable and
+  expired ones; `measured_share` is `measured / changes` to three places and
+  `null` (not 0) for a window with no changes.
+- `truncated` is `true` when the window held more than 10000 changes on a
+  database: the summary then covers the newest 10000.
+- A database that could not be read is named in `errors`
+  (`{database, error}`, for example `read outcomes: orders: not connected`);
+  its changes are missing, never shown as none. The details are in the
+  sidecar's log.
+
+With `api.database_grants` on, a user scoped by grants sees only the databases
+they are granted.
+
+### Over MCP and the CLI
+
+`get_outcomes` answers the same payload to an agent ([MCP](mcp.md#get_outcomes));
+`get_ledger` still reads policy decisions. `pg_sage ledger` prints one
+database's ledger, one line per change, or this payload with `--json`:
+
+```sh
+pg_sage ledger --since 24h [--database NAME] [--verdict V] [--limit N] [--json] [--dsn DSN]
+```
+
+It reads the pg_sage tables of the database named by `--dsn`, else
+`SAGE_HISTORY_MONITORED_DSN`, else `SAGE_META_DB` (like `pg_sage history`);
+`--database` names it in the output (default: the DSN's database name). It
+only reads, exits 0 for a read and 2 for a usage error or a database it could
+not read (the error goes to stderr and nothing to stdout).
+
+`pg_sage_outcomes_measured_ratio{database}` is the share of the last 24 hours'
+changes with a measured effect at the last complete ledger read of that window
+([Metrics](metrics.md)).
