@@ -147,7 +147,7 @@ func (e *Executor) RunApprovedAction(ctx context.Context, action store.QueuedAct
 	if strings.HasPrefix(action.IdentityKey, "sre_maintenance:") {
 		return ApprovedRun{}, fmt.Errorf("SRE maintenance requires its typed runner")
 	}
-	ctx = withProposalOrigin(ctx, action)
+	ctx = e.withQueueLadderOf(withProposalOrigin(ctx, action), action.ID)
 	id, err := e.ExecuteManual(ctx, action.FindingID, action.ProposedSQL,
 		action.RollbackSQL, &approvedBy)
 	return ApprovedRun{ActionLogID: id}, err

@@ -63,6 +63,7 @@ func dropIndexFinding(index string) analyzer.Finding {
 	return analyzer.Finding{
 		Category: "duplicate_index", ObjectType: "index", ObjectIdentifier: index,
 		RecommendedSQL: "DROP INDEX CONCURRENTLY " + index,
+		Detail:         map[string]any{"ladder": rehearsedLadder()},
 	}
 }
 
