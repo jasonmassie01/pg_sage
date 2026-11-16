@@ -14,13 +14,11 @@ import (
 // cgo tests that use the real parser and the catalog tests that run on
 // every build with a recorded parse shape.
 
-const guardFixtureSQL = `
-DROP SCHEMA IF EXISTS eg_shadow CASCADE;
+// guardFixtureSQL starts with the cleanup, so a run that was stopped
+// before its cleanup does not fail the next run's setup.
+const guardFixtureSQL = guardCleanupSQL + `
 CREATE SCHEMA eg_shadow;
 CREATE FUNCTION eg_shadow.lower(text) RETURNS text LANGUAGE sql VOLATILE AS 'SELECT $1';
-DROP TABLE IF EXISTS public.eg_probe, public.eg_rls CASCADE;
-DROP SEQUENCE IF EXISTS public.eg_seq;
-DROP DOMAIN IF EXISTS public.eg_dom;
 CREATE TABLE public.eg_probe (v int);
 INSERT INTO public.eg_probe VALUES (42);
 CREATE SEQUENCE public.eg_seq;
@@ -157,8 +155,7 @@ DROP FUNCTION IF EXISTS public.eg_defaulted(bool), public.eg_const_default(int),
 
 // castFixtureSQL adds an implicit cast through a volatile function. It
 // applies to the whole database, so a test creates it and drops it.
-const castFixtureSQL = `
-DROP TYPE IF EXISTS public.eg_enum CASCADE;
+const castFixtureSQL = castCleanupSQL + `;
 CREATE TYPE public.eg_enum AS ENUM ('a');
 CREATE TABLE public.eg_cast_t (x public.eg_enum);
 INSERT INTO public.eg_cast_t VALUES ('a');
@@ -168,7 +165,10 @@ CREATE CAST (public.eg_enum AS text) WITH FUNCTION public.eg_enum_text(public.eg
 	AS IMPLICIT;
 `
 
-const castCleanupSQL = `DROP TYPE IF EXISTS public.eg_enum CASCADE`
+// castCleanupSQL drops the table first: DROP TYPE ... CASCADE only drops
+// the table's column, and the empty table would fail the next setup.
+const castCleanupSQL = `DROP TABLE IF EXISTS public.eg_cast_t;
+DROP TYPE IF EXISTS public.eg_enum CASCADE`
 
 // assertNoAdvisoryLocks fails when any session holds one of the advisory
 // locks the hidden-call fixtures take (4242 to 4244): a lock survives the

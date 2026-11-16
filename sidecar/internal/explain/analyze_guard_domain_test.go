@@ -14,8 +14,7 @@ import (
 // whose CHECK takes advisory lock 4243, reached as a function argument, an
 // array element argument, an operator operand and a composite field, plus
 // a function over the safe fixture domain eg_dom (CHECK (VALUE > 0)).
-const domainFixtureSQL = `
-DROP DOMAIN IF EXISTS public.eg_lockdom CASCADE;
+const domainFixtureSQL = domainCleanupSQL + `
 CREATE DOMAIN public.eg_lockdom AS int CHECK (pg_try_advisory_lock(4243) IS NOT NULL);
 CREATE FUNCTION public.eg_domarg(x public.eg_lockdom) RETURNS int LANGUAGE plpgsql STABLE
 	AS 'BEGIN RETURN 1; END';
@@ -30,7 +29,10 @@ CREATE FUNCTION public.eg_safe_domarg(x public.eg_dom) RETURNS int LANGUAGE plpg
 	AS 'BEGIN RETURN 1; END';
 `
 
+// domainCleanupSQL drops eg_comp first: DROP DOMAIN ... CASCADE only drops
+// the composite's attribute, and the empty type would fail the next setup.
 const domainCleanupSQL = `
+DROP TYPE IF EXISTS public.eg_comp;
 DROP DOMAIN IF EXISTS public.eg_lockdom CASCADE;
 DROP FUNCTION IF EXISTS public.eg_safe_domarg(public.eg_dom);
 `
