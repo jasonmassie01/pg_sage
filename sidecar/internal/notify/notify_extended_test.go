@@ -358,6 +358,7 @@ func TestValidEventTypes_Completeness(t *testing.T) {
 		"custodian_escalation":    true,
 		"fact_expired":            true,
 		"canary_interrupted":      true,
+		"digest_ready":            true, // ux-02b
 	}
 
 	// Verify exact count.
