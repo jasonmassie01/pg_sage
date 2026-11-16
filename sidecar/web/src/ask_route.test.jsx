@@ -53,7 +53,7 @@ describe('Ask Sage route', () => {
     api.useAPI.mockReset()
     api.useAPI.mockImplementation(url => ({
       data: url === '/api/v1/databases' ? fleet
-        : url === '/api/v1/actions/pending/count' ? { count: 0 } : null,
+        : url === '/api/v1/inbox/count' ? { total: 0 } : null,
       loading: false, error: null, refetch: vi.fn(),
     }))
   })

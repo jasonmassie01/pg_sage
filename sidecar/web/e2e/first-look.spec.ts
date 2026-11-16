@@ -77,7 +77,8 @@ test('no databases renders no panel; a failed read and an unreachable database s
     let answer: { status?: number, json: unknown } = { json: { databases: [] } }
     await routeFirstLook(page, () => answer)
     await page.goto('/#/')
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Value')
+    // ux-01b: home is the Inbox.
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Inbox')
     await expect(page.getByRole('heading', { name: 'First look' })).toHaveCount(0)
 
     answer = { status: 503, json: { error: 'first look store unavailable' } }
