@@ -109,7 +109,8 @@ func TestGuardFixturesRerunAndCleanUpCompletely(t *testing.T) {
 }
 
 // A run killed before its cleanup leaves the fixture in place; the next
-// run's setup must replace it, not fail on it.
+// run's setups, the base guard fixture's first, must replace it, not fail
+// on it.
 func TestGuardFixtureSetupsReplaceALeftover(t *testing.T) {
 	pool := liveExplainPool(t)
 	for name, steps := range guardFixtureLifecycles() {
@@ -122,7 +123,7 @@ func TestGuardFixtureSetupsReplaceALeftover(t *testing.T) {
 					last = i
 				}
 			}
-			again := append(append([]fixtureStep{}, steps[:last+1]...), steps[last:]...)
+			again := append(append([]fixtureStep{}, steps[:last+1]...), steps...)
 			for _, s := range again {
 				if _, err := pool.Exec(context.Background(), s.sql); err != nil {
 					t.Fatalf("%s: %v", s.name, err)

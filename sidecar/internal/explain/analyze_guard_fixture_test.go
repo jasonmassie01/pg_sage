@@ -15,7 +15,8 @@ import (
 // every build with a recorded parse shape.
 
 // guardFixtureSQL starts with the cleanup, so a run that was stopped
-// before its cleanup does not fail the next run's setup.
+// before its cleanup does not fail the next run's setup. The cleanup drops
+// eg_dom with CASCADE: a stopped domain check leaves eg_safe_domarg on it.
 const guardFixtureSQL = guardCleanupSQL + `
 CREATE SCHEMA eg_shadow;
 CREATE FUNCTION eg_shadow.lower(text) RETURNS text LANGUAGE sql VOLATILE AS 'SELECT $1';
@@ -49,7 +50,7 @@ DROP AGGREGATE IF EXISTS public.eg_agg(int);
 DROP OPERATOR IF EXISTS public.=== (int, int);
 DROP TABLE IF EXISTS public.eg_probe, public.eg_rls CASCADE;
 DROP SEQUENCE IF EXISTS public.eg_seq;
-DROP DOMAIN IF EXISTS public.eg_dom;
+DROP DOMAIN IF EXISTS public.eg_dom CASCADE;
 DROP FUNCTION IF EXISTS public.eg_volatile(), public.eg_stable(), public.upper(text),
 	public.eg_volop(int, int), public.eg_sfunc(int, int);
 `
