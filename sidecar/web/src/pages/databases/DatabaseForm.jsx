@@ -23,7 +23,9 @@ function requestBody(form, storedActionUser) {
   return body
 }
 
-export function DatabaseForm({ db, onClose, onError }) {
+// initial prefills a new database's fields (the setup wizard's pasted
+// URL, ux-04b); onSaved, when given, runs after a save instead of onClose.
+export function DatabaseForm({ db, initial, onClose, onSaved, onError }) {
   const isEdit = !!db
   const storedActionUser = db?.action_identity?.username || ''
   const [form, setForm] = useState({
@@ -42,6 +44,7 @@ export function DatabaseForm({ db, onClose, onError }) {
     // Round-trip tags: the PUT replaces them, so omitting them wiped
     // tags set through the API or MCP (G9-B10).
     ...(db?.tags ? { tags: db.tags } : {}),
+    ...(isEdit ? {} : initial),
   })
   const [saving, setSaving] = useState(false)
   const [testResult, setTestResult] = useState(null)
@@ -107,7 +110,8 @@ export function DatabaseForm({ db, onClose, onError }) {
         const data = await res.json()
         throw new Error(data.error || 'Failed to save')
       }
-      onClose()
+      if (onSaved) onSaved()
+      else onClose()
     } catch (err) {
       onError(err.message)
     } finally {
