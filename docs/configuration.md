@@ -1900,7 +1900,10 @@ receipt id: passed when the executed statements' blocks per call fell, failed
 when they did not, inconclusive when nothing was executed, skipped (with the
 reason) when no clone could be made, the cap was reached, or no clone provider
 is configured. A rehearsal never changes the monitored database, and a failed
-or skipped one still lets the proposal queue as before. `pg_stat_statements`
+or skipped one still lets the proposal queue as before. Every rehearsal ends
+within the rehearsal bound (1 hour, or the Lakebase branch TTL when shorter), and
+the floor reuses a candidate's passed, failed or inconclusive record for 24 hours
+instead of rehearsing it again each cycle. `pg_stat_statements`
 stores statements with their constants replaced by `$n`, so most targets are
 planned only; generic plans of parameterized statements need PostgreSQL 16 or
 later.

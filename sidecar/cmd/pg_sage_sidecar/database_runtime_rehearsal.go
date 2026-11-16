@@ -36,9 +36,29 @@ func (rt *databaseRuntime) cloneRehearser() tuning.Rehearser {
 				"could not be built: %v", rt.spec.Name, cfg.Clone.Provider, err)
 			return
 		}
-		rt.rehearser = reh
+		if reh != nil {
+			rt.rehearser = boundedRehearser{inner: reh, bound: rehearsalMaxDuration(cfg.Clone)}
+		}
 	})
 	return rt.rehearser
+}
+
+// boundedRehearser ends every rehearsal, the tuning agent's and the
+// floor's alike, within bound (rehearsalMaxDuration: 1 h, or the Lakebase
+// branch TTL, so a rehearsal never outlives its branch).
+type boundedRehearser struct {
+	inner tuning.Rehearser
+	bound time.Duration
+}
+
+func (b boundedRehearser) Rehearse(ctx context.Context, req tuning.RehearsalRequest) (
+	tuning.RehearsalResult, error) {
+	if b.bound > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, b.bound)
+		defer cancel()
+	}
+	return b.inner.Rehearse(ctx, req)
 }
 
 // buildCloneRehearser is a receipted, production-guarded, capped clone
@@ -72,19 +92,13 @@ func buildCloneRehearser(c *config.Config, pool, receipts *pgxpool.Pool,
 }
 
 // floorRehearsal adapts the tuning rehearser to the index floor
-// (optimizer cannot import tuning). Each rehearsal ends within bound.
+// (optimizer cannot import tuning).
 type floorRehearsal struct {
-	reh   tuning.Rehearser
-	bound time.Duration
+	reh tuning.Rehearser
 }
 
 func (f floorRehearsal) RehearseIndex(ctx context.Context, ddl string,
 	queries []optimizer.QueryInfo) verify.LadderRecord {
-	if f.bound > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, f.bound)
-		defer cancel()
-	}
 	req := tuning.RehearsalRequest{DDL: ddl}
 	for _, q := range queries {
 		req.Statements = append(req.Statements, tuning.RehearsalStatement{
@@ -100,5 +114,5 @@ func (rt *databaseRuntime) floorRehearser() optimizer.IndexRehearser {
 	if reh == nil {
 		return nil
 	}
-	return floorRehearsal{reh: reh, bound: rehearsalMaxDuration(cfg.Clone)}
+	return floorRehearsal{reh: reh}
 }

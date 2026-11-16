@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/tuning"
@@ -107,5 +108,42 @@ func TestNewTuningAgent_RehearseToolFollowsTheCloneProvider(t *testing.T) {
 		if rt.cloneRehearser() != rt.cloneRehearser() {
 			t.Fatalf("%s: one rehearser per database, shared by agent and floor", provider)
 		}
+	}
+}
+
+type deadlineRehearser struct{ left time.Duration }
+
+func (d *deadlineRehearser) Rehearse(ctx context.Context, _ tuning.RehearsalRequest) (
+	tuning.RehearsalResult, error) {
+	if dl, ok := ctx.Deadline(); ok {
+		d.left = time.Until(dl)
+	}
+	return tuning.RehearsalResult{BuildMs: 1}, ctx.Err()
+}
+
+// Every rehearsal, the tuning agent's included, ends within the
+// rehearsal bound (a Lakebase branch's TTL when shorter than 1 h).
+func TestCloneRehearser_EveryRehearsalIsBounded(t *testing.T) {
+	inner := &deadlineRehearser{}
+	res, err := boundedRehearser{inner: inner, bound: 5 * time.Minute}.Rehearse(
+		context.Background(), tuning.RehearsalRequest{})
+	if err != nil || res.BuildMs != 1 || inner.left <= 4*time.Minute ||
+		inner.left > 5*time.Minute {
+		t.Fatalf("bounded: left %s, %+v, %v", inner.left, res, err)
+	}
+	inner.left = 0
+	if _, err := (boundedRehearser{inner: inner}).Rehearse(context.Background(),
+		tuning.RehearsalRequest{}); err != nil || inner.left != 0 {
+		t.Fatalf("no bound adds no deadline: left %s, %v", inner.left, err)
+	}
+	rt := standaloneDefaultsRuntime(t, "http://127.0.0.1:1/v1", "fixture-key")
+	dleCloneConfig(cfg)
+	b, ok := rt.cloneRehearser().(boundedRehearser)
+	if !ok || b.bound != rehearsalMaxDuration(cfg.Clone) || b.bound <= 0 {
+		t.Fatalf("the database's rehearser is bounded: %#v", rt.cloneRehearser())
+	}
+	f, ok := rt.floorRehearser().(floorRehearsal)
+	if !ok || f.reh != rt.cloneRehearser() {
+		t.Fatalf("the floor shares the bounded rehearser: %#v", rt.floorRehearser())
 	}
 }
