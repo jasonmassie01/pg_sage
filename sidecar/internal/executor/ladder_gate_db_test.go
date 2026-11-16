@@ -195,3 +195,49 @@ func TestLadderDB_QueueLadderReachesTheContext(t *testing.T) {
 		t.Fatalf("logged = %q, want two lines naming the queue item", logged)
 	}
 }
+
+// A verdict recorded again (a retried revert, a re-verification) replaces
+// the action's tier-3 record instead of stacking another; the records
+// before it stay in order.
+func TestLadderDB_ReRecordedVerdictReplacesTierThree(t *testing.T) {
+	f := newLadderFixture(t)
+	n := time.Now().UnixNano()
+	af := ladderDropFinding(map[string]any{"ladder": ladderDetail(t, passedClone())})
+	af.ObjectIdentifier = fmt.Sprintf("public.idx_rerecord_%d", n)
+	af.RecommendedSQL = fmt.Sprintf(`DROP INDEX CONCURRENTLY "public"."idx_rerecord_%d"`, n)
+	queueID, err := f.exec.proposeForApproval(f.ctx, f.finding(af), af, nil)
+	if err != nil {
+		t.Fatalf("propose: %v", err)
+	}
+	before := f.queueLadder(queueID)
+	actionID := f.actionLog(af.RecommendedSQL)
+	if _, err := f.pool.Exec(f.ctx, `UPDATE sage.action_queue SET action_log_id = $1
+		WHERE id = $2`, actionID, queueID); err != nil {
+		t.Fatal(err)
+	}
+	regressed, improved := 9.0, -4.0
+	for _, o := range []verify.Outcome{
+		{ActionLogID: actionID, Verdict: verify.OutcomeRegressed,
+			Observed: verify.Observed{ChangePct: &regressed}},
+		{ActionLogID: actionID, Verdict: verify.OutcomeRegressed,
+			Observed: verify.Observed{ChangePct: &regressed}},
+		{ActionLogID: actionID, Verdict: verify.OutcomeImproved,
+			Observed: verify.Observed{ChangePct: &improved}},
+	} {
+		appendVerdictTier(f.ctx, f.pool, o, noopExecLog)
+	}
+	recs := f.queueLadder(queueID)
+	if len(recs) != len(before)+1 {
+		t.Fatalf("ladder = %+v, want the %d earlier records and one tier 3", recs, len(before))
+	}
+	for i := range before {
+		if recs[i].Tier != before[i].Tier || recs[i].Result != before[i].Result {
+			t.Fatalf("record %d = %+v, want the earlier %+v", i, recs[i], before[i])
+		}
+	}
+	last := recs[len(recs)-1]
+	if last.Tier != verify.TierCanary || !last.Passed() || *last.Predicted != -4 ||
+		last.Evidence["verdict"] != verify.OutcomeImproved {
+		t.Fatalf("tier 3 = %+v, want the latest verdict, improved -4", last)
+	}
+}

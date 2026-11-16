@@ -148,6 +148,23 @@ func TestLadder_ConcurrentAppendsBothLand(t *testing.T) {
 	}
 }
 
+// createLadderSortTable creates and analyzes the 20000-row table the
+// session-setting tests plan sorts on.
+func createLadderSortTable(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	ctx := t.Context()
+	if _, err := pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS public.ladder_sort AS
+		SELECT g AS id, md5(g::text) AS v FROM generate_series(1, 20000) g`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS public.ladder_sort")
+	})
+	if _, err := pool.Exec(ctx, "ANALYZE public.ladder_sort"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // Happy path: a work_mem step's plans are read under SET LOCAL in a
 // transaction that is rolled back, so the session's work_mem is unchanged.
 func TestFromSessionSetting_WorkMemRollsBack(t *testing.T) {
@@ -158,16 +175,7 @@ func TestFromSessionSetting_WorkMemRollsBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.Release()
-	if _, err := conn.Exec(ctx, `CREATE TABLE IF NOT EXISTS public.ladder_sort AS
-		SELECT g AS id, md5(g::text) AS v FROM generate_series(1, 20000) g`); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS public.ladder_sort")
-	})
-	if _, err := conn.Exec(ctx, "ANALYZE public.ladder_sort"); err != nil {
-		t.Fatal(err)
-	}
+	createLadderSortTable(t, pool)
 	before := showWorkMem(t, conn.Conn())
 	r := FromSessionSetting(ctx, conn.Conn(), SessionSetting{Name: "work_mem",
 		Value: "256MB", Queries: []string{

@@ -42,23 +42,31 @@ func AppendLadder(ctx context.Context, db LadderDB, queueID int,
 	return nil
 }
 
-// AppendLadderForAction appends recs to the ladder of the queue rows that
-// ran action actionID and reports how many it updated (0: the action ran
-// without a queue item, autonomously).
-func AppendLadderForAction(ctx context.Context, db LadderDB, actionID int64,
-	recs ...LadderRecord) (int64, error) {
-	if len(recs) == 0 {
-		return 0, nil
-	}
-	raw, err := json.Marshal(recs)
+// recordVerdictForActionSQL drops the action's earlier verdict records
+// and appends the new one, in one UPDATE (concurrent producers never
+// overwrite each other). A stored value that is not an array is kept as is.
+const recordVerdictForActionSQL = `/* pg_sage */ UPDATE sage.action_queue
+	SET ladder = (CASE WHEN jsonb_typeof(ladder) = 'array' THEN COALESCE(
+		(SELECT jsonb_agg(e ORDER BY n) FROM jsonb_array_elements(ladder)
+			WITH ORDINALITY AS t(e, n) WHERE e->>'method' IS DISTINCT FROM $3),
+		'[]'::jsonb) ELSE COALESCE(ladder, '[]'::jsonb) END) || $2::jsonb
+	WHERE action_log_id = $1`
+
+// RecordVerdictForAction sets the production verdict (tier 3) on the
+// ladder of the queue rows that ran action actionID: a verdict recorded
+// again (a retried revert, a re-verification) replaces the earlier one.
+// It reports how many rows it updated (0: the action ran without a queue
+// item, autonomously).
+func RecordVerdictForAction(ctx context.Context, db LadderDB, actionID int64,
+	rec LadderRecord) (int64, error) {
+	rec.Method = MethodLadderVerdict
+	raw, err := json.Marshal([]LadderRecord{rec})
 	if err != nil {
-		return 0, fmt.Errorf("encode ladder for action %d: %w", actionID, err)
+		return 0, fmt.Errorf("encode the verdict record of action %d: %w", actionID, err)
 	}
-	tag, err := db.Exec(ctx, `/* pg_sage */ UPDATE sage.action_queue
-		SET ladder = COALESCE(ladder, '[]'::jsonb) || $2::jsonb
-		WHERE action_log_id = $1`, actionID, raw)
+	tag, err := db.Exec(ctx, recordVerdictForActionSQL, actionID, raw, MethodLadderVerdict)
 	if err != nil {
-		return 0, fmt.Errorf("append ladder for action %d: %w", actionID, err)
+		return 0, fmt.Errorf("record the tier-3 verdict of action %d: %w", actionID, err)
 	}
 	return tag.RowsAffected(), nil
 }

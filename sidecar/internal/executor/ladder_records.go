@@ -160,15 +160,16 @@ func (e *Executor) recordQueueLadder(ctx context.Context, queueID int, f analyze
 	}
 }
 
-// appendVerdictTier appends the production verdict (tier 3) to the
-// ladder of the queue item that ran the action, if one did.
+// appendVerdictTier records the production verdict (tier 3) on the
+// ladder of the queue item that ran the action, if one did, replacing an
+// earlier verdict of the same action.
 func appendVerdictTier(ctx context.Context, pool *pgxpool.Pool, o verify.Outcome,
 	logFn func(string, string, ...any)) {
 	if pool == nil || o.ActionLogID <= 0 {
 		return
 	}
 	rec := verify.FromVerdict(o.Verdict, o.Observed.ChangePct, o.ActionLogID, time.Now())
-	if _, err := verify.AppendLadderForAction(ctx, pool, o.ActionLogID, rec); err != nil {
-		logFn("verify", "record the tier-3 verdict of action %d: %v", o.ActionLogID, err)
+	if _, err := verify.RecordVerdictForAction(ctx, pool, o.ActionLogID, rec); err != nil {
+		logFn("verify", "%v", err)
 	}
 }
