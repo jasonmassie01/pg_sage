@@ -141,7 +141,7 @@ export const RENDERERS = Object.freeze({
     <Dashboard database={ctx.database} onSelectDB={ctx.setSelectedDB} user={ctx.user}
       fleet={ctx.fleetQuery} />
   ),
-  database: ctx => <DatabasePage database={ctx.database} />,
+  database: ctx => <DatabasePage database={ctx.database} user={ctx.user} />,
   forecasts: ctx => cases(ctx, 'forecast'),
   'query-hints': ctx => cases(ctx, 'query_hint'),
   'schema-health': ctx => cases(ctx, 'schema_health'),

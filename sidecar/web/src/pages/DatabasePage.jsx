@@ -5,6 +5,7 @@ import { QueryState } from '../components/QueryState'
 import { queryBlocked } from '../lib/queryState'
 import { EmptyState } from '../components/EmptyState'
 import { DatabaseSummary } from './databases/DatabaseSummary'
+import { EvidencePacks } from './database/EvidencePacks'
 
 const MAX_INLINE_CHARS = 500000
 
@@ -80,7 +81,7 @@ function SnapshotView({ snapshot }) {
   )
 }
 
-export function DatabasePage({ database }) {
+export function DatabasePage({ database, user }) {
   const db = database && database !== 'all' ? database : null
   const snapshot = useAPI(db ? `/api/v1/snapshots/latest?database=${db}` : null, 0)
   const { data } = snapshot
@@ -93,6 +94,7 @@ export function DatabasePage({ database }) {
   return (
     <div className="space-y-6">
       <DatabaseSummary database={db} />
+      <EvidencePacks database={db} user={user} />
       {queryBlocked(snapshot) ? (
         <QueryState query={snapshot} skeleton={<LoadingSpinner />} />
       ) : (
