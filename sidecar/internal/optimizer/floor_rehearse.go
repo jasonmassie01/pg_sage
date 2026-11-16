@@ -50,11 +50,53 @@ func (f *Floor) rehearse(ctx context.Context, adm *Admission, tc TableContext) {
 		rec = verify.LadderBuildError(verify.TierClone, verify.MethodLadderRehearsal,
 			errors.New(floorNoTargets), now)
 	default:
-		rec = f.reh.RehearseIndex(ctx, adm.Rec.DDL, queries)
-		f.logFn("INFO", "optimizer: index floor: %s rehearsed on a clone: %s",
-			adm.Rec.DDL, rec.Result)
+		rec = f.rehearseOnce(ctx, adm.Rec, queries, now)
 	}
 	adm.Rec.Ladder = append(adm.Rec.Ladder, rec)
+}
+
+// floorRehearsalReuse is how long the floor keeps a candidate's tier-2
+// record: the floor re-judges its open candidates every cycle and a
+// finding's detail is replaced on refresh, so a fresh record is reused
+// rather than a new clone built each cycle (and, at the hourly cap, the
+// result replaced by a "cap reached" skip). It matches the default
+// clone.max_clone_age_minutes.
+const floorRehearsalReuse = 24 * time.Hour
+
+// rehearseOnce is the candidate's fresh remembered record, or a new
+// rehearsal. A skip (the cap, a clone that could not be made) is not
+// remembered, so the next cycle tries again.
+func (f *Floor) rehearseOnce(ctx context.Context, rec Recommendation,
+	queries []QueryInfo, now time.Time) verify.LadderRecord {
+	key := rec.FindingIdentifier()
+	f.mu.Lock()
+	prior, ok := f.rehearsed[key]
+	f.mu.Unlock()
+	if ok && now.Sub(prior.At) < floorRehearsalReuse {
+		return prior
+	}
+	got := f.reh.RehearseIndex(ctx, rec.DDL, queries)
+	f.logFn("INFO", "optimizer: index floor: %s rehearsed on a clone: %s", rec.DDL,
+		got.Result)
+	if got.Result != verify.LadderSkipped {
+		f.remember(key, got, now)
+	}
+	return got
+}
+
+// remember keeps rec for key and drops the records past their reuse.
+func (f *Floor) remember(key string, rec verify.LadderRecord, now time.Time) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.rehearsed == nil {
+		f.rehearsed = map[string]verify.LadderRecord{}
+	}
+	for k, r := range f.rehearsed {
+		if now.Sub(r.At) >= floorRehearsalReuse {
+			delete(f.rehearsed, k)
+		}
+	}
+	f.rehearsed[key] = rec
 }
 
 // floorTargets are the statements a rehearsal measures: the candidate's

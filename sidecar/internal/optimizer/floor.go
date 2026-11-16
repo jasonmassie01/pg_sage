@@ -2,8 +2,10 @@ package optimizer
 
 import (
 	"context"
+	"sync"
 
 	"github.com/pg-sage/sidecar/internal/collector"
+	"github.com/pg-sage/sidecar/internal/verify"
 )
 
 // FloorSource is detail.source on the findings the deterministic index
@@ -29,14 +31,19 @@ type floorDeps interface {
 // Floor is the deterministic index-candidate floor (indexes-12): when the
 // tuning agent is inactive it proposes btree indexes for the statements of
 // seq-scan-heavy tables, admitted only through Optimizer.Admit (the
-// validator, rejection memory and the HypoPG what-if). It holds no state
-// between runs; each database has its own.
+// validator, rejection memory and the HypoPG what-if). Between runs it
+// keeps only its candidates' clone rehearsal records; each database has
+// its own.
 type Floor struct {
 	opt   floorDeps
 	logFn func(string, string, ...any)
 	// reh rehearses each admitted candidate on a clone (nil: no clone
 	// provider, the ladder says so).
 	reh IndexRehearser
+	// rehearsed are the fresh tier-2 records by finding identifier, so a
+	// re-judged candidate is not rehearsed again (floorRehearsalReuse).
+	mu        sync.Mutex
+	rehearsed map[string]verify.LadderRecord
 }
 
 // NewFloor is the floor of one database's optimizer; a nil optimizer
