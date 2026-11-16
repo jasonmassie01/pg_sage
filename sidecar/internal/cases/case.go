@@ -88,6 +88,10 @@ type Case struct {
 	// (market-09); ProviderAdviceUnavailable is set when it could not be read.
 	ProviderAdvice            []ProviderAdvice `json:"provider_advice,omitempty"`
 	ProviderAdviceUnavailable bool             `json:"provider_advice_unavailable,omitempty"`
+	// Plans are the plans the case's finding is a step of (ux-03);
+	// PlansUnavailable is set when they could not be read.
+	Plans            []PlanLink `json:"plans,omitempty"`
+	PlansUnavailable bool       `json:"plans_unavailable,omitempty"`
 }
 
 // Recurrence is an incident's place in its chain of recurrences
