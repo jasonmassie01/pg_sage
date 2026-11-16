@@ -667,6 +667,16 @@ never move one plan and never start conflicting steps at once.
   (`ALTER SYSTEM`, or `ALTER DATABASE`, `ROLE` or `USER ... SET`) waits until
   no plan step and no executor change is in flight. The executor's rule of one
   change per object also applies to every step.
+- **Plan caps and peak windows.** The standing policy's `plans` block bounds
+  the indexes per table, the bytes of new indexes and the restart-bound steps
+  of the running plans, and names peak windows (docs/policy-gate.md). A plan
+  over a cap is refused when it is proposed and when it is approved. A step
+  that would cross a cap, or start inside a peak window, waits. If it waits
+  past its deadline it ends `expired`.
+- **Steps that are never automatic.** Approving the plan never covers some
+  steps: a rewrite, dropped data, a type change, a restart-bound setting, a
+  revoke, a topology or pooler change, or a contract that cannot be undone.
+  The engine stops before each one with `awaiting_approval`.
 - **Starting a step.** The engine writes `starting` first. It then queues the
   item `plan_step:<plan>:<step>` (proposed by `plan:<id>`), approves it as the
   plan's approver with exactly the step's SQL, and calls `RunApprovedAction`.
@@ -689,8 +699,8 @@ never move one plan and never start conflicting steps at once.
 - **Halting.** A failed or regressed step halts the plan, with one `halted`
   event and one notification (an `approval_needed` event naming the plan, the
   step and the verdict). A halted plan starts nothing until a person decides
-  it. `Store.ListNeedingPerson` lists proposed and halted plans and steps
-  awaiting their operator.
+  it. `Store.ListNeedingPerson` lists proposed and halted plans, and steps
+  awaiting their operator or their own approval.
 - **Emergency stop.** While the stop is set nothing moves, and running plans
   show `pause_reason` "emergency stop".
 - **Steps without a finding.** A queue item is approvable only for an open

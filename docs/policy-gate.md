@@ -219,6 +219,70 @@ action's rollback class, to a verdict:
 `change_class_not_allowed`, `policy_unavailable` and `unknown_trust_level` apply to agents
 as above. An operator-approved agent request at L2 or above takes the operator path.
 
+## Plan caps
+
+The gate checks one action at a time. A plan runs many, so the standing policy document's
+`plans` block bounds what plans concentrate. Every step still goes through the gate as above.
+
+```json
+"plans": {
+  "max_new_indexes_per_table": 2,
+  "max_new_index_bytes_pct": 10,
+  "max_restart_bound_steps": 1,
+  "peak_windows": ["weekdays 09:00-17:00 America/Chicago"]
+}
+```
+
+| Field | Default | Range | What it bounds |
+|---|---|---|---|
+| `max_new_indexes_per_table` | 2 | 1-10 | Indexes the running plans of a database build on one table. |
+| `max_new_index_bytes_pct` | 10 | 1-50 | Bytes of the indexes the running plans built, as a percentage of `pg_database_size`. |
+| `max_restart_bound_steps` | 1 | 1 only | Steps in one plan that take effect only after a restart. A document asking for more is refused. |
+| `peak_windows` | none | window expressions | Times when no plan step starts. They use the same grammar as `maintenance_windows`. |
+
+- **Defaults.** A document without `plans`, or with `"plans": {}` or `null`, gets the
+  defaults. A field you leave out takes its default. An explicit `0` or an out-of-range
+  value is refused when the document is parsed, and the error names the field. The block is
+  written back only when it differs from the defaults, so the stored documents keep their
+  bytes and their `policy_doc_sha256`.
+- **When a plan is proposed and approved**, it is refused if it holds more index steps on
+  one table than the cap, or more than one restart-bound step. A setting whose
+  `pg_settings.context` cannot be read counts as restart-bound. The refusal names the cap,
+  the table and the numbers.
+- **Before each step**, the engine counts the started steps of every running plan on the
+  database (`approved`, `running` or `halted`; pending, skipped and reverted steps do not
+  count). The step waits, and its `state_reason` says why, when one of these holds:
+  - `max_new_indexes_per_table`: an index step would put its table over the cap.
+  - `max_new_index_bytes_pct`: the indexes the running plans built already exceed the cap,
+    using live `pg_relation_size`. The next index's own size is unknown until it is built,
+    so the cap limits what is already built when the next index starts.
+  - `peak_window`: a peak window is open. A window `09:00-17:00` holds steps from 09:00 and
+    lets them start at 17:00.
+  - `caps_unavailable` or `size_unavailable`: the policy or a size could not be read. The
+    step waits and never passes the cap.
+
+  A step that waits past its `deadline_minutes`, counted from when it first waited, ends
+  `skipped` with verdict `expired`, and its `on_expired` decides. `halt_ask` (the default)
+  halts the plan. `keep` and `revert_step` let it go on, since nothing ran.
+- **Steps that are never automatic.** Approving a plan never covers some steps, at any trust
+  level. The engine stops before each one with step state `awaiting_approval` and sends one
+  notification. The step is listed with the plans that need a person. These are the steps
+  and the reason each one records:
+  - `rollback_class`: the contract is not `reversible` or `no_rollback_needed`.
+  - `rollback_missing`: the contract is reversible, but the step has no rollback SQL.
+  - `no_contract`: the executor has no contract for the step's SQL or action type.
+  - `table_rewrite`: VACUUM FULL, CLUSTER, SET TABLESPACE, SET ACCESS METHOD or SET LOGGED.
+  - `partition_conversion`, `type_change` and `dropped_data`: these include DROP TABLE,
+    DROP COLUMN, TRUNCATE and DELETE.
+  - `restart_bound_setting`: `pg_settings.context = 'postmaster'`.
+  - `setting_context_unknown`: the setting's context could not be read.
+  - `instance_or_topology_change`: promotion, replication slots, subscriptions or
+    publications, or instance actions.
+  - `privilege_revoke` and `pooler_mode_change`.
+
+  The statements are read with the migration statement classifier. A per-step approval
+  arrives with plan-03a. Until then such a step waits for a person.
+
 ## The decision ledger
 
 Each decision is one row in `sage.decision`:
