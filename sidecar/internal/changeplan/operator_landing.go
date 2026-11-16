@@ -28,7 +28,7 @@ type LandingReader interface {
 }
 
 // DBLandings reads landings on the monitored database: pg_settings and
-// sage.managed_change_proposals, read-only, under the store's timeouts.
+// sage.managed_change_proposals, read-only and bounded.
 type DBLandings struct{ pool *pgxpool.Pool }
 
 // NewDBLandings reads landings on pool.
@@ -45,7 +45,7 @@ func (d DBLandings) CheckLanding(ctx context.Context, s Step, now time.Time) (La
 	}
 	var parts []string
 	landed, at := true, time.Time{}
-	err := (&Store{pool: d.pool}).inTx(ctx, func(tx pgx.Tx) error {
+	err := d.readOnly(ctx, func(tx pgx.Tx) error {
 		if s.ManagedChangeID != nil {
 			ok, applied, detail, err := readManaged(ctx, tx, *s.ManagedChangeID)
 			if err != nil {
@@ -68,6 +68,24 @@ func (d DBLandings) CheckLanding(ctx context.Context, s Step, now time.Time) (La
 		return LandingCheck{}, err
 	}
 	return LandingCheck{Landed: landed, At: at, Detail: strings.Join(parts, "; ")}, nil
+}
+
+// readOnly runs fn in a read-only transaction bounded by lookupTimeout.
+// It sets no SET LOCAL timeouts as the store's transactions do: a landing
+// on statement_timeout or lock_timeout must read the server's value, not
+// the reader's own.
+func (d DBLandings) readOnly(ctx context.Context, fn func(pgx.Tx) error) error {
+	ctx, cancel := context.WithTimeout(ctx, lookupTimeout)
+	defer cancel()
+	tx, err := d.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return fmt.Errorf("begin the landing read: %w", err)
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	if err := fn(tx); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func readManaged(ctx context.Context, tx pgx.Tx, id int64) (bool, time.Time, string, error) {
