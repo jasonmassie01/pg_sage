@@ -11,13 +11,19 @@ import (
 // No concurrent access test: the step is a constant string (the bootstrap
 // lock serializes it).
 
-func TestPlanStepApprovalStep_IsTheLastT5StepAfterPlanStepRun(t *testing.T) {
+// plan-03a's ddlPlanApprovalModes follows it, so this pins its place
+// right after ddlPlanStepRun rather than at the end.
+func TestPlanStepApprovalStep_FollowsPlanStepRun(t *testing.T) {
 	steps := trancheFiveMigrations()
-	last := steps[len(steps)-1]
-	if last[0] != "ddlPlanStepApproval" || last[1] != ddlPlanStepApproval ||
-		steps[len(steps)-2][0] != "ddlPlanStepRun" {
-		t.Fatalf("tranche five ends %v, want ddlPlanStepRun then ddlPlanStepApproval", steps)
+	for i, s := range steps {
+		if s[0] == "ddlPlanStepApproval" {
+			if s[1] != ddlPlanStepApproval || i == 0 || steps[i-1][0] != "ddlPlanStepRun" {
+				t.Fatalf("tranche five %v, want ddlPlanStepRun then ddlPlanStepApproval", steps)
+			}
+			return
+		}
 	}
+	t.Fatalf("tranche five %v has no ddlPlanStepApproval", steps)
 }
 
 func TestPlanStepApprovalStep_IsIdempotentAndBounded(t *testing.T) {
