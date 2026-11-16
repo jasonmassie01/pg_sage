@@ -9,13 +9,14 @@ import { actionFocusID, actionTabParam, isFocusedQueue, queueFocusID } from './a
 describe('actionTabParam', () => {
   it('reads a known tab key', () => {
     expect(actionTabParam('#/actions?tab=pending&queue=42&database=orders')).toBe('pending')
-    for (const key of ['recommendations', 'pending', 'progress', 'executed', 'decisions']) {
+    for (const key of ['plans', 'recommendations', 'pending', 'progress', 'executed',
+      'decisions']) {
       expect(actionTabParam(`#/actions?tab=${key}`)).toBe(key)
     }
   })
 
   it('ignores unknown, hostile, empty and differently cased keys', () => {
-    for (const hash of ['#/actions?tab=plans', '#/actions?tab=%3Cscript%3E',
+    for (const hash of ['#/actions?tab=drafts', '#/actions?tab=%3Cscript%3E',
       '#/actions?tab=', '#/actions', '', '#/actions?tab=PENDING',
       '#/actions?tab=pending%20', '#/actions?tab=__proto__', undefined, null]) {
       expect(actionTabParam(hash)).toBe('')

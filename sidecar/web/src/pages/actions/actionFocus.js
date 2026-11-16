@@ -3,11 +3,12 @@
 // id), so a queued proposal that shares the number is never the focus.
 // ux-01b adds tab=<key> (the tab to open) and queue=<id> (a queued
 // proposal, focused on the Needs your review tab); the Inbox, ux-05b and
-// ux-05e link with them. A value that is not exactly a known tab or a
+// ux-05e link with them. ux-03 adds the plans tab (plan=<id>, read by
+// PlansTab). A value that is not exactly a known tab or a
 // positive integer id is ignored.
 
 export const ACTION_TABS = Object.freeze(
-  ['recommendations', 'pending', 'progress', 'executed', 'decisions'])
+  ['plans', 'recommendations', 'pending', 'progress', 'executed', 'decisions'])
 
 // A positive integer that fits a bigint: at most 19 digits, no leading 0.
 const QUEUE_ID = /^[1-9][0-9]{0,18}$/

@@ -63,7 +63,7 @@ describe('Actions exact links', () => {
   })
 
   it('ignores a hostile queue id and an unknown tab', () => {
-    renderAt('#/actions?tab=plans&queue=42%3Cimg%3E')
+    renderAt('#/actions?tab=drafts&queue=42%3Cimg%3E')
     expect(screen.getByTestId('actions-tab-recommendations'))
       .toHaveAttribute('aria-selected', 'true')
     expect(screen.queryByTestId('approval-card-focused')).toBeNull()

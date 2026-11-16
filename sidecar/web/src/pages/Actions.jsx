@@ -12,6 +12,7 @@ import { actionCaseScope } from './actions/actionFormat'
 import { useActionsData } from './actions/useActionsData'
 import { ExecutedTab } from './actions/ExecutedList'
 import { PendingTab } from './actions/PendingList'
+import { PlansTab } from './actions/PlansTab'
 
 // The Actions page shell: the scope header, the tab bar and the tab bodies.
 // The lists, their rows and their data live in pages/actions/ (dashboard-31).
@@ -124,7 +125,8 @@ function NotTimeScoped() {
 }
 
 function TabBar({ tab, setTab, counts, canReview }) {
-  const tabs = [{ key: 'recommendations', label: 'Proposed changes' }]
+  const tabs = [{ key: 'plans', label: 'Plans' },
+    { key: 'recommendations', label: 'Proposed changes' }]
   if (canReview) tabs.push({ key: 'pending', label: 'Needs your review' })
   tabs.push({ key: 'progress', label: 'In progress' }, { key: 'executed', label: 'History' })
   if (canReview) tabs.push({ key: 'decisions', label: 'Decisions' })
@@ -165,6 +167,7 @@ function TabBody({ tab, ctx }) {
   }
   if (tab === 'progress' || tab === 'executed') return <LedgerTab key={tab} tab={tab} ctx={ctx} />
   if (tab === 'decisions') return <DecisionsTab database={database} />
+  if (tab === 'plans') return <PlansTab database={database} canReview={canReview} />
   return null
 }
 
