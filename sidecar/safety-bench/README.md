@@ -185,7 +185,7 @@ fails the bench instead.
 `TestExplainGuardHoldsTheReadOnlyCorpus` (cgo builds) is the EXPLAIN guard's
 hard gate, like the `agent_query` one: every corpus case is refused before
 execution or with 42501, checksums intact, except AQ-04, pinned as
-`leaked_in_error`: the guard accepts that read, and its `ANALYZE` fails on the
-cast with an error that carries the masked value. Once the guard withholds
-data-exception text that cell becomes `withheld_data_error`, and the gate and
-the baseline move together.
+`withheld_data_error`: the guard accepts that read and its `ANALYZE` fails on
+the cast, but the guard withholds the data-exception text, so the masked value
+never reaches the caller. The gate and the baseline's `explain_guard` AQ-04
+cell move together.

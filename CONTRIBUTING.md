@@ -195,12 +195,24 @@ coverage floors) and writes `<out-dir>/summary.md`, which lists every failure,
 data race, UNLISTED skip and package under its floor.
 It uses local images only and never pulls one. `GO_IMAGE` needs gcc and a
 race runtime that links. The default, `golang:1.27.3-alpine3.24`, has no gcc,
-so the run stops with exit 7; set `GO_IMAGE` (and `GO_ROOT` for a Go tree
-mounted at `/opt/go`) to an image that has them. It tests a `git archive` of
+so the run stops with exit 7; set `GO_IMAGE` to an image that has them. To use
+a newer Go than the image ships, give a Linux Go tree as a host directory
+(`GO_ROOT`) or as a Docker volume (`GO_ROOT_VOLUME`, for example
+`GO_IMAGE=golang:1.25 GO_ROOT_VOLUME=<volume with go1.27.3>`). It is mounted
+read-only at `/opt/go` and used as `GOROOT`. It tests a `git archive` of
 `LOCAL_SUITE_REV` (default `HEAD`), vendored offline from your module cache,
 and never writes inside the worktree. It creates and removes only containers
 named `improve-ci-*` (`LOCAL_SUITE_PREFIX`). A full run takes about 40 to 70
-minutes per major, so run one per machine at a time.
+minutes per major, so run one per machine at a time. A full suite's server
+grows past the 1536m default cap and fills the default 2g in-memory data
+directory ("No space left on device"), so run it with
+`LOCAL_SUITE_PG_MEMORY=4g LOCAL_SUITE_PG_TMPFS=off`, which keeps the data on
+the container's disk and removes it with the container. As in CI's test job,
+each major also gets the exclusive server for the cluster-wide tests
+(`SAGE_TEST_EXCLUSIVE_URL`): `improve-ci-exclusive-pg<N>`, from the same image,
+on port 5433 of the first server's network, capped at 1536m with its data on
+disk. A full run therefore needs about 11.5g of Docker memory (4g, 1536m and
+the Go container's 6g).
 `LOCAL_SUITE_DRY_RUN=1` checks the inputs and prints the plan, and
 `scripts/ci/local-linux-suite-test.sh` tests the script without Docker.
 The local servers are not CI's image. The `improve-pg` images lack pgaudit,

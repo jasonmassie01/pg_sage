@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Runs CI's Go suite on Linux with cgo and the race detector, once per
-# PostgreSQL major, in local containers (ci-19). For each major it starts a
-# server with CI's settings (images/postgresql.ci.conf), records what the
-# server cannot cover (verify-test-postgres.sh), runs the test job's
-# go test command in a Go container on the server's network, then the skip
+# PostgreSQL major, in local containers (ci-19). For each major it starts
+# CI's two servers with CI's settings (images/postgresql.ci.conf): the
+# suite's, and the exclusive one (SAGE_TEST_EXCLUSIVE_URL, ci-12; see
+# local-linux-suite-server.sh). It records what the suite's server cannot
+# cover (verify-test-postgres.sh), runs the test job's
+# go test command in a Go container on the servers' network, then the skip
 # budget (and, on PG17, the coverage floors of cmd/covfloor, ci-20), and
 # writes <out-dir>/summary.md.
 #
@@ -21,12 +23,19 @@
 # Environment:
 #   GO_IMAGE               Go image, needs gcc (default golang:1.27.3-alpine3.24,
 #                          which has none, so the run stops on exit 7)
-#   GO_ROOT                Linux Go tree mounted read-only at /opt/go and put
-#                          first on PATH (default: none)
+#   GO_ROOT                Linux Go tree mounted read-only at /opt/go, set as
+#                          GOROOT and put first on PATH (default: none)
+#   GO_ROOT_VOLUME         Docker volume holding such a tree, used the same way
+#                          instead of GO_ROOT (default: none; never created)
 #   PG_IMAGE_<N>           server image (default improve-pg:<N>, postgres:15)
 #   LOCAL_SUITE_PREFIX     container name prefix (must start with improve-)
 #   LOCAL_SUITE_GOCACHE    Go build cache volume (default improve-ci-gocache)
 #   LOCAL_SUITE_GO_MEMORY  Go container memory cap (default 6g)
+#   LOCAL_SUITE_PG_MEMORY  server memory cap, its in-memory data directory
+#                          included (default 1536m, as tools/pg-ephemeral.sh)
+#   LOCAL_SUITE_PG_TMPFS   size of the in-memory data directory (default 2g,
+#                          as pg-ephemeral.sh), or off to keep it on the
+#                          container's disk, removed with the container
 #   LOCAL_SUITE_REV        revision to test (default HEAD)
 #   LOCAL_SUITE_DISK_GUARD disk guard script (default: tools/disk-guard.sh
 #                          up to two directories above the repository)
@@ -49,12 +58,17 @@ readonly DEFAULT_MAJORS="14 15 17"
 readonly TEST_URL='postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable'
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=local-linux-suite-server.sh
+. "$here/local-linux-suite-server.sh"
 repo=$(cd "$here/../.." && pwd -P)
 GO_IMAGE=${GO_IMAGE-golang:1.27.3-alpine3.24}
 GO_ROOT=${GO_ROOT:-}
+GO_ROOT_VOLUME=${GO_ROOT_VOLUME:-}
 PREFIX=${LOCAL_SUITE_PREFIX-improve-ci-}
 GOCACHE_VOL=${LOCAL_SUITE_GOCACHE-improve-ci-gocache}
 GO_MEMORY=${LOCAL_SUITE_GO_MEMORY-6g}
+PG_MEMORY=${LOCAL_SUITE_PG_MEMORY-1536m}
+PG_TMPFS=${LOCAL_SUITE_PG_TMPFS-2g}
 REV=${LOCAL_SUITE_REV:-HEAD}
 readonly RUN_LABEL=pg_sage.local-suite.run
 RUN_ID=
@@ -117,8 +131,17 @@ validate_env() {
     die 2 "LOCAL_SUITE_GOCACHE '$GOCACHE_VOL' must start with improve- ([a-z0-9-] only)"
   [[ $GO_MEMORY =~ ^[1-9][0-9]*[mg]$ ]] ||
     die 2 "LOCAL_SUITE_GO_MEMORY '$GO_MEMORY' must be a size such as 6g or 4096m"
+  [[ $PG_MEMORY =~ ^[1-9][0-9]*[mg]$ ]] ||
+    die 2 "LOCAL_SUITE_PG_MEMORY '$PG_MEMORY' must be a size such as 1536m or 4g"
+  [[ $PG_TMPFS =~ ^([1-9][0-9]*[mg]|off)$ ]] ||
+    die 2 "LOCAL_SUITE_PG_TMPFS '$PG_TMPFS' must be a size such as 2g, or off"
   if [ -n "$GO_ROOT" ] && [ ! -f "$GO_ROOT/bin/go" ]; then
     die 2 "GO_ROOT $GO_ROOT has no bin/go (a Linux Go tree is expected)"
+  fi
+  if [ -n "$GO_ROOT_VOLUME" ]; then
+    [ -z "$GO_ROOT" ] || die 2 "GO_ROOT and GO_ROOT_VOLUME are both set: give one Go tree"
+    [[ $GO_ROOT_VOLUME =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] ||
+      die 2 "GO_ROOT_VOLUME '$GO_ROOT_VOLUME' is not a volume name"
   fi
   check_image_name GO_IMAGE "$GO_IMAGE"
   local m
@@ -127,12 +150,18 @@ validate_env() {
     die 2 "LOCAL_SUITE_REV '$REV' is not a commit in $repo"
 }
 
+# go_root_desc: the Go tree the Go containers use, as run.txt records it.
+go_root_desc() {
+  if [ -n "$GO_ROOT_VOLUME" ]; then echo "volume:$GO_ROOT_VOLUME"; else echo "${GO_ROOT:-none}"; fi
+}
+
 print_plan() {
-  local m root=${GO_ROOT:-none}
+  local m root
+  root=$(go_root_desc)
   echo "dry run: inputs valid"
   for m in "${MAJORS[@]}"; do
     echo "plan pg$m server=${PREFIX}pg$m image=$(pg_image "$m") go=${PREFIX}go-pg$m" \
-      "go-image=$GO_IMAGE go-root=$root"
+      "exclusive=${PREFIX}exclusive-pg$m go-image=$GO_IMAGE go-root=$root"
   done
   echo "cache=$GOCACHE_VOL rev=$REV_SHA out=$OUT"
 }
@@ -157,6 +186,10 @@ check_images() {
   local m
   dk 60 image inspect "$GO_IMAGE" >/dev/null 2>&1 ||
     die 6 "GO_IMAGE $GO_IMAGE is not present locally; the script never pulls"
+  if [ -n "$GO_ROOT_VOLUME" ]; then
+    dk 60 volume inspect "$GO_ROOT_VOLUME" >/dev/null 2>&1 ||
+      die 6 "GO_ROOT_VOLUME $GO_ROOT_VOLUME is not present locally; the script never creates it"
+  fi
   for m in "${MAJORS[@]}"; do
     dk 60 image inspect "$(pg_image "$m")" >/dev/null 2>&1 ||
       die 6 "PG_IMAGE_$m $(pg_image "$m") is not present locally; the script never pulls"
@@ -173,10 +206,13 @@ claim() {
 
 # cleanup removes the containers this run claimed that still exist and
 # carry this run's label; never a name outside improve-, and never a
-# container that another run started under a name claimed here.
+# container that another run started under a name claimed here. It goes
+# newest first, so a container that joined a server's network namespace
+# is removed before that server.
 cleanup() {
-  local c owner
-  for c in "${CREATED[@]-}"; do
+  local c owner i
+  for ((i = ${#CREATED[@]} - 1; i >= 0; i--)); do
+    c=${CREATED[i]}
     case "$c" in improve-?*) ;; *) continue ;; esac
     owner=$(dk 60 container inspect -f "{{index .Config.Labels \"$RUN_LABEL\"}}" "$c" \
       2>/dev/null) || continue
@@ -192,8 +228,11 @@ go_args() {
     --cpus=4 --cpu-shares=256 --oom-score-adj=500
     -e CGO_ENABLED=1 -e GOPROXY=off -e GOTOOLCHAIN=local -e GOCACHE=/gocache
     -v "$GOCACHE_VOL:/gocache")
-  if [ -n "$GO_ROOT" ]; then
-    GO_ARGS+=(-v "$(host_path "$GO_ROOT"):/opt/go:ro"
+  local src=
+  [ -n "$GO_ROOT" ] && src=$(host_path "$GO_ROOT")
+  [ -n "$GO_ROOT_VOLUME" ] && src=$GO_ROOT_VOLUME
+  if [ -n "$src" ]; then
+    GO_ARGS+=(-v "$src:/opt/go:ro" -e GOROOT=/opt/go
       -e "PATH=/opt/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
   fi
 }
@@ -228,7 +267,8 @@ func TestRaceRuntimeLinks(t *testing.T) {
 }
 EOF
   if ! dk 600 run "${GO_ARGS[@]}" -e GOFLAGS= -v "$(host_path "$OUT/probe"):/probe" \
-    -w /probe "$GO_IMAGE" go test -race -count=1 ./... >"$OUT/race-probe.txt" 2>&1; then
+    -w /probe "$GO_IMAGE" sh -c 'go version && go test -race -count=1 ./...' \
+    >"$OUT/race-probe.txt" 2>&1; then
     tail -20 "$OUT/race-probe.txt" >&2
     die 9 "the race runtime does not link in GO_IMAGE; use a glibc image ($GO_IMAGE)"
   fi
@@ -241,8 +281,18 @@ stage_source() {
   local st=("${PIPESTATUS[@]}")
   [ "${st[0]}" -eq 0 ] && [ "${st[1]}" -eq 0 ] ||
     die 1 "staging $REV_SHA into $OUT/stage failed (git archive ${st[0]}, tar ${st[1]})"
-  printf 'rev=%s\ngo_image=%s\ngo_root=%s\nmajors=%s\n' "$REV_SHA" "$GO_IMAGE" \
-    "${GO_ROOT:-none}" "${MAJORS[*]}" >"$OUT/run.txt"
+  printf 'rev=%s\ngo_image=%s\ngo_root=%s\ngo_version=%s\nmajors=%s\n' "$REV_SHA" \
+    "$GO_IMAGE" "$(go_root_desc)" "$(grep -m1 '^go version ' "$OUT/race-probe.txt")" \
+    "${MAJORS[*]}" >"$OUT/run.txt"
+  echo "pg_memory=$PG_MEMORY pg_tmpfs=$PG_TMPFS" >>"$OUT/run.txt"
+}
+
+# pack_stage: one tar of the vendored stage for the Go containers. Docker
+# Desktop's bind mounts of a Windows directory fail go's directory reads
+# under load ("readdirent ...: cannot allocate memory"), so each container
+# mounts this file read-only and unpacks it into its own filesystem.
+pack_stage() {
+  tar -cf "$OUT/stage.tar" -C "$OUT/stage" . || die 1 "packing $OUT/stage into stage.tar failed"
 }
 
 vendor_source() {
@@ -258,77 +308,19 @@ vendor_source() {
   fi
 }
 
-# server_flags <image>: CI's settings as -c flags. The official postgres
-# image has no pg_hint_plan, so it preloads pg_stat_statements only.
-server_flags() {
-  local line name value
-  SERVER_FLAGS=()
-  while IFS= read -r line || [ -n "$line" ]; do
-    line=${line%%#*}
-    line=$(echo "$line" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-    [ -n "$line" ] || continue
-    name=$(echo "${line%%=*}" | sed 's/[[:space:]]*$//')
-    value=$(echo "${line#*=}" | sed -e 's/^[[:space:]]*//' -e "s/^'//" -e "s/'$//")
-    case "$1:$name" in
-      postgres:*:shared_preload_libraries | */postgres:*:shared_preload_libraries)
-        value=pg_stat_statements ;;
-    esac
-    SERVER_FLAGS+=(-c "$name=$value")
-  done <"$OUT/stage/scripts/ci/images/postgresql.ci.conf"
-}
-
-psql_srv() {
-  dk 120 exec "$1" psql -U postgres -h 127.0.0.1 -d postgres -v ON_ERROR_STOP=1 -qAtX "${@:2}"
-}
-
-# start_server <major>: CI's server, with its data directory in memory and
-# the caps of tools/pg-ephemeral.sh; no port is published.
-start_server() {
-  local m=$1 srv=${PREFIX}pg$1 img ready= i
-  img=$(pg_image "$m")
-  server_flags "$img"
-  claim "$srv"
-  dk 180 run -d --rm --name "$srv" --label pg_sage.improve=1 --label "$RUN_LABEL=$RUN_ID" \
-    --memory=1536m --memory-swap=1536m --oom-score-adj=500 --cpu-shares=256 --cpus=2 \
-    -e POSTGRES_PASSWORD=postgres --shm-size=256m \
-    --tmpfs /var/lib/postgresql/data:rw,size=2g -e PGDATA=/var/lib/postgresql/data/pgdata \
-    "$img" postgres "${SERVER_FLAGS[@]}" >/dev/null || die 5 "server $srv ($img) did not start"
-  for i in $(seq 1 90); do
-    if dk 20 exec "$srv" pg_isready -U postgres -h 127.0.0.1 >/dev/null 2>&1; then
-      ready=1
-      break
-    fi
-    sleep 1
-  done
-  [ -n "$ready" ] || die 5 "server $srv did not become ready on TCP in 90s"
-  sleep 1
-  psql_srv "$srv" -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements" >/dev/null ||
-    die 5 "CREATE EXTENSION pg_stat_statements failed on $srv"
-}
-
-# check_server <major>: records what this server cannot cover; never fatal.
-check_server() {
-  local m=$1 srv=${PREFIX}pg$1 dir=$OUT/pg$1 st=0
-  bash "$OUT/stage/scripts/ci/verify-test-postgres.sh" "$srv" "$m" \
-    >"$dir/server-check.txt" 2>&1 || st=$?
-  if ! psql_srv "$srv" -c BEGIN -c "CREATE EXTENSION vector" -c ROLLBACK >/dev/null 2>&1; then
-    echo "  - CREATE EXTENSION vector fails (pgvector is not installed; local check)" \
-      >>"$dir/server-check.txt"
-    [ "$st" -ne 0 ] || st=1
-  fi
-  echo "server_check=$st" >>"$dir/status.txt"
-}
-
 # go_test <major> <command> <output>: runs a go test command in the Go
-# container on the server's network and returns its status.
+# container on the servers' network and returns its status.
 go_test() {
   local m=$1 name=${PREFIX}go-pg$1 st=0
   claim "$name"
   go_args "$name" "container:${PREFIX}pg$m"
-  dk 5400 run "${GO_ARGS[@]}" -v "$(host_path "$OUT/stage"):/src" -w /src/sidecar \
+  dk 5400 run "${GO_ARGS[@]}" -v "$(host_path "$OUT/stage.tar"):/stage.tar:ro" -w / \
     -e "GOFLAGS=-mod=vendor -buildvcs=false" -e "SAGE_TEST_DATABASE_URL=$TEST_URL" \
+    -e "SAGE_TEST_EXCLUSIVE_URL=$EXCLUSIVE_URL" \
     -e PGHOST=127.0.0.1 -e PGPORT=5432 -e PGUSER=postgres -e PGPASSWORD=postgres \
-    -e PGDATABASE=postgres "$GO_IMAGE" sh -c "$2" >"$3" 2>"${3%.json}.stderr.txt" || st=$?
+    -e PGDATABASE=postgres "$GO_IMAGE" \
+    sh -c "mkdir -p /work && tar -xf /stage.tar -C /work && cd /work/sidecar && $2" \
+    >"$3" 2>"${3%.json}.stderr.txt" || st=$?
   return "$st"
 }
 
@@ -362,6 +354,7 @@ run_major() {
   echo "image=$(pg_image "$m")" >"$dir/status.txt"
   disk_guard
   start_server "$m"
+  start_exclusive "$m"
   check_server "$m"
   go_test "$m" "$SUITE_CMD" "$dir/suite.json" || st=$?
   echo "suite=$st" >>"$dir/status.txt"
@@ -399,6 +392,7 @@ main() {
   check_toolchain
   stage_source
   vendor_source
+  pack_stage
   local m failed=0
   for m in "${MAJORS[@]}"; do
     run_major "$m" || failed=1

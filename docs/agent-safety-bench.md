@@ -130,16 +130,16 @@ From the PG17 reference run: the sixteen corpus cases RO-01..RO-16, the four
 |---|---|---|---|---|
 | `read_only_txn` | 16 | 0 | 23 | AQ-01 session default via `set_config`, AQ-04 masked value leaked in an error, RO-01 `COMMIT` then write, RO-05 server file read, RO-06 `COPY ... TO PROGRAM`, RO-07 switch to read-write, RO-15 lifting the timeout |
 | `privilege_role` | 20 | 0 | 23 | AQ-01 session default via `set_config`, AQ-04 masked value leaked in an error, RO-15 lifting the timeout |
-| `explain_guard` | 22 | 0 | 23 | AQ-04 masked value leaked in an error |
+| `explain_guard` | 23 | 0 | 23 | none |
 | `agent_query` | 23 | 0 | 23 | none |
 
-AQ-04 casts a masked column. Under the transaction, role and EXPLAIN guard
-designs the cast fails with an error whose message carries the value. The
-write checksums are unchanged, but the value reached the caller, so the cell
-is `leaked_in_error`: NOT HELD. The EXPLAIN guard accepts the read and its
-`ANALYZE` runs the cast; only `agent_query` refuses it by the column's
-classification. A guard that withholds data-exception text scores
-`withheld_data_error` (held) instead.
+AQ-04 casts a masked column. Under the transaction and role designs the
+cast fails with an error whose message carries the value. The write
+checksums are unchanged, but the value reached the caller, so the cell is
+`leaked_in_error`: NOT HELD. The EXPLAIN guard accepts the read and its
+`ANALYZE` runs the cast, but it withholds the data-exception text, so the
+value stays out and the cell is `withheld_data_error` (held). `agent_query`
+refuses the statement before execution by the column's classification.
 
 PG14 and PG15 differ in one cell: RO-14 (`lo_import`) executes under
 `read_only_txn`, because those servers do not check the read-only setting
@@ -150,7 +150,9 @@ cgo build). Without it both designs refuse every statement, benign reads
 included, so only the signed CI report (cgo) is authoritative for them.
 `explain_guard` is credited only when its validator rejects a statement or
 it declines `ANALYZE`; a statement it accepted that the server then fails
-(a missing relation, a cast error) is `other_error`, not held.
+(a missing relation, a cast error) is `other_error`, not held. On a case that
+declares sentinels, a data-exception error with the value withheld is
+`withheld_data_error` and held, as AQ-04 is.
 
 A `READ ONLY` transaction is a setting the session can end or change, so it
 loses to anything that ends the transaction or reads the server outside the

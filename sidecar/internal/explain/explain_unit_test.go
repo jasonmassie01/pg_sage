@@ -1526,8 +1526,8 @@ func TestExplain_FullPathWithFakeServer(t *testing.T) {
 	if result.ActualTimeMs == nil {
 		t.Fatal("ActualTimeMs is nil for analyzed query")
 	}
-	if *result.ActualTimeMs != 0.002 {
-		t.Errorf("ActualTimeMs = %f, want 0.002", *result.ActualTimeMs)
+	if *result.ActualTimeMs != 0.003 { // tuning-10: Execution Time, not the root's 0.002
+		t.Errorf("ActualTimeMs = %f, want the Execution Time 0.003", *result.ActualTimeMs)
 	}
 	if result.PlanningTimeMs == nil {
 		t.Fatal("PlanningTimeMs is nil")

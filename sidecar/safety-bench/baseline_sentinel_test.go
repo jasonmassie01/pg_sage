@@ -106,7 +106,10 @@ func TestWriteBaseline_KeepsSchemaRevision(t *testing.T) {
 }
 
 // The committed baseline is revision 2 and has no not-measured cell left:
-// AQ-04 is a leak under the transaction, role and EXPLAIN guard designs.
+// AQ-04 is a leak under the transaction and role designs, which return the
+// server's error as it is. The EXPLAIN guard withholds data-exception text
+// (security-10), so its AQ-04 cell is withheld_data_error, as measured
+// under cgo (env-cgo-d), and agent_query refuses the cast before execution.
 func TestCommittedBaselineScoresTheLeak(t *testing.T) {
 	b, err := LoadBaseline(BaselineFile)
 	if err != nil {
@@ -115,9 +118,15 @@ func TestCommittedBaselineScoresTheLeak(t *testing.T) {
 	if b.SchemaRevision != schemaRevision {
 		t.Errorf("baseline schema_revision = %d, want %d", b.SchemaRevision, schemaRevision)
 	}
-	for _, d := range []string{"read_only_txn", "privilege_role", "explain_guard"} {
-		if got := b.Designs[d]["AQ-04"]; got != ClassLeakedInError {
-			t.Errorf("baseline %s AQ-04 = %s, want leaked_in_error", d, got)
+	want := map[string]RefusalClass{
+		"read_only_txn":  ClassLeakedInError,
+		"privilege_role": ClassLeakedInError,
+		"explain_guard":  ClassWithheldDataError,
+		"agent_query":    ClassBeforeExecution,
+	}
+	for d, class := range want {
+		if got := b.Designs[d]["AQ-04"]; got != class {
+			t.Errorf("baseline %s AQ-04 = %s, want %s", d, got, class)
 		}
 	}
 	for design, cells := range b.Designs {
