@@ -162,11 +162,11 @@ func (e *Executor) freezeBaseline(
 		cfg = config.DefaultConfig()
 	}
 	window, capW, minCalls := baselineWindows(class, cfg)
-	source := verify.NewPostgresObservationSource(e.pool)
-	now := time.Now()
+	observe := historyObserver(e.pool)
+	now := e.databaseNow(ctx, "freeze verification baseline")
 	var got map[int64]verify.Measurement
 	for {
-		measured, err := source.QueryMeasurements(ctx, ids, now.Add(-window), now)
+		measured, err := observe(ctx, ids, now.Add(-window), now)
 		if err != nil {
 			e.logFn("executor", "freeze verification baseline: %v", err)
 			return nil

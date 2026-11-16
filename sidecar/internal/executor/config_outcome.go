@@ -133,15 +133,16 @@ func readOutcomeCounters(
 	return out, nil
 }
 
-// captureOutcomeBaseline records the metric's counters at apply time.
+// captureOutcomeBaseline records the metric's counters at apply time, at:
+// the database clock the monitor judges the window by (executor-31).
 func captureOutcomeBaseline(
-	ctx context.Context, pool *pgxpool.Pool, metric, table string,
+	ctx context.Context, pool *pgxpool.Pool, metric, table string, at time.Time,
 ) (*outcomeBaseline, error) {
 	counters, err := readOutcomeCounters(ctx, pool, metric, table)
 	if err != nil {
 		return nil, err
 	}
-	return &outcomeBaseline{Metric: metric, Table: table, At: time.Now().UTC(),
+	return &outcomeBaseline{Metric: metric, Table: table, At: at.UTC(),
 		Counters: counters}, nil
 }
 

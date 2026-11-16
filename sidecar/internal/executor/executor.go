@@ -123,6 +123,9 @@ type Executor struct {
 	remnantHooks remnantHooks
 	// vacuumHooks: the watched VACUUM's test seams (vacuum-05).
 	vacuumHooks vacuumHooks
+	// clock reads the monitored database's clock for windows over the
+	// samples it stamps; nil reads pool (executor-31).
+	clock dbClock
 
 	// monitors tracks background MonitorAndRollback goroutines so
 	// Shutdown can wait for them. shutdownCh is closed to signal

@@ -104,7 +104,7 @@ func (e *Executor) statisticsBaseline(
 	if len(p.TargetQueryIDs) == 0 {
 		return
 	}
-	now := time.Now()
+	now := e.databaseNow(ctx, "estimate baseline for "+table)
 	sample, err := verify.NewPostgresObservationSource(e.pool).EstimateErrors(ctx,
 		p.TargetQueryIDs, now.Add(-estimateLookback), now)
 	if err != nil {

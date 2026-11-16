@@ -1044,6 +1044,17 @@ with a Bonferroni-corrected significance and the call-weighted pool decides. A f
 comes after `trust.rollback_window_minutes` once there are `verify.min_samples` calls; without
 enough evidence the watch extends up to `verify.window_max_minutes`.
 
+The windows run on the database's clock, the clock that stamps the action's `executed_at`
+and every sample's `captured_at`, so a sidecar host whose clock differs from the database's
+(different machines on a managed platform) neither drops the newest samples nor checks early
+or late. pg_sage reads `clock_timestamp()` before each check; the verdict's evidence names the
+clock it used (`clock.source = database`). When that read fails, the check uses the sidecar
+host's clock and records why (`clock.source = host`, `clock.reason`). Resumed monitors are
+expired, pre-action baselines frozen and a config change's metric baseline stamped on the
+same database clock. Under `history.store: meta` the meta database stamps the query samples,
+so each sample window is moved by how far the meta database's clock leads the monitored
+one's; when the meta database's clock cannot be read, the samples count as unreadable.
+
 Verification pauses while its evidence is unreadable. A failed read of the query history
 or the catalog (a lost connection, or the meta database down under
 `history.store: meta`) and a shutdown mid-check are not evidence that the change failed: the

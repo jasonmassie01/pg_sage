@@ -52,6 +52,9 @@ type RollbackMonitorConfig struct {
 	execRollback func(context.Context, string, time.Duration, ...DDLOption) error
 	applyConfig  func(context.Context, string) configApplyOutcome
 	observe      queryObserver
+	// clock reads the database clock the monitor judges by; nil reads the
+	// monitor's pool (executor-31).
+	clock dbClock
 }
 
 // RollbackVerdict is an authorizer's answer for one automatic rollback.
@@ -88,7 +91,7 @@ func (c RollbackMonitorConfig) observer(pool *pgxpool.Pool) queryObserver {
 	if c.observe != nil {
 		return c.observe
 	}
-	return verify.NewPostgresObservationSource(pool).QueryMeasurements
+	return historyObserver(pool)
 }
 
 // MonitorAndRollback runs as a goroutine to verify an executed action
@@ -123,23 +126,24 @@ func MonitorAndRollback(
 	if rollbackSQL != "" {
 		plan.rollbackSQL = rollbackSQL
 	}
-	next := plan.firstCheck()
+	next, clock := plan.firstCheck(), cfg.databaseClock(pool)
 	for {
-		if !waitRollbackWindow(ctx, pool, actionID, time.Until(next), logFn, shutdownCh) {
+		now, ok := waitMonitorCheck(ctx, pool, actionID, next, clock, logFn, shutdownCh)
+		if !ok {
 			return
 		}
-		now := time.Now()
-		j := plan.judge(ctx, pool, cfg, now)
+		j := plan.judge(ctx, pool, cfg, now.at)
+		j.outcome.Evidence["clock"] = now.evidence()
 		if j.outcome.Verdict == verify.OutcomeRegressed {
 			finishRegressed(ctx, pool, plan, j.outcome, cfg, logFn)
 			return
 		}
-		if plan.final(now, j.outcome.Verdict) || !j.accruing &&
+		if plan.final(now.at, j.outcome.Verdict) || !j.accruing &&
 			j.outcome.Verdict == verify.OutcomeInsufficient {
 			finishMonitored(ctx, pool, plan, j.outcome, logFn)
 			return
 		}
-		next = plan.nextCheck(now)
+		next = plan.nextCheck(now.at)
 	}
 }
 
@@ -185,6 +189,29 @@ func finishMonitored(
 		}
 	}
 	settleOutcome(ctx, pool, o, logFn)
+}
+
+// waitMonitorCheck waits until next on the database clock, which stamped
+// executed_at and the samples (executor-31), and returns the check's time;
+// false when the monitor stops (cancelled, or the sidecar shuts down).
+func waitMonitorCheck(
+	ctx context.Context, pool *pgxpool.Pool, actionID int64, next time.Time, clock dbClock,
+	logFn func(string, string, ...any), shutdownCh <-chan struct{},
+) (monitorTime, bool) {
+	for {
+		now := readMonitorTime(ctx, clock)
+		wait := next.Sub(now.at)
+		if !waitRollbackWindow(ctx, pool, actionID, wait, logFn, shutdownCh) {
+			return now, false
+		}
+		if wait <= 0 {
+			if now.fallback != "" {
+				logFn("rollback", "action %d: %s", actionID, now.fallback)
+			}
+			return now, true
+		}
+		// Re-read the clock: the two clocks may have drifted while it slept.
+	}
 }
 
 func waitRollbackWindow(

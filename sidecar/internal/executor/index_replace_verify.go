@@ -167,7 +167,11 @@ func (e *Executor) runReplaceWatch(ctx context.Context, actionID int64,
 			return
 		case <-timer.C:
 		}
-		d, err := e.checkIndexReplace(ctx, actionID, cfg, time.Now())
+		now := readMonitorTime(ctx, cfg.databaseClock(e.pool))
+		if now.fallback != "" {
+			e.logFn("executor", "check replacement of action %d: %s", actionID, now.fallback)
+		}
+		d, err := e.checkIndexReplace(ctx, actionID, cfg, now.at)
 		if err != nil {
 			e.logFn("executor", "check replacement of action %d: %v", actionID, err)
 		}

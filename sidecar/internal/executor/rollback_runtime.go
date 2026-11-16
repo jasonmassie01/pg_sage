@@ -17,7 +17,7 @@ func (e *Executor) rollbackMonitorConfig(
 	cfg, _, _ := e.policySnapshot()
 	result := RollbackMonitorConfig{Authorize: authorize, Acquire: e.acquireDDLSlot,
 		Track: e.trackRun, QueueRevert: e.queueRevert, ActionPool: e.actionPool,
-		RoleLock: e.roleLock}
+		RoleLock: e.roleLock, clock: e.clock}
 	if cfg != nil {
 		result.ThresholdPct = cfg.Trust.RollbackThresholdPct
 		result.WindowMinutes = cfg.Trust.RollbackWindowMinutes
@@ -154,8 +154,9 @@ func (e *Executor) resumeMonitor(
 	// recorded rollback decision of the standing gate (policy-05).
 	cfg := e.actionRollbackConfig(actionID, sql)
 	_, capW, _ := monitorWindows(verificationClass(sql), cfg)
-	if verificationExpired(executedAt, capW, time.Now()) {
-		expireMonitor(ctx, e.pool, actionID, executedAt, capW, e.logFn)
+	now := e.databaseNow(ctx, fmt.Sprintf("resume monitor of action %d", actionID))
+	if verificationExpired(executedAt, capW, now) {
+		expireMonitor(ctx, e.pool, actionID, executedAt, capW, now, e.logFn)
 		return
 	}
 	e.logFn("executor", "resuming rollback monitor for action %d", actionID)
