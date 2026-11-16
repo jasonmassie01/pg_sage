@@ -15,13 +15,15 @@ import (
 var legalTransitions = map[StepState][]StepState{
 	StatePending: {StateStarting, StateSkipped, StateKept, StateAwaitingOperator,
 		StateAwaitingApproval},
-	StateStarting:  {StateQueued, StateFailed},
-	StateQueued:    {StateRunning, StateFailed},
-	StateRunning:   {StateExecuted, StateFailed},
-	StateExecuted:  {StateJudging},
-	StateJudging:   {StateKept, StateReverting, StateReverted, StateHalted},
-	StateKept:      {StateReverting},
-	StateReverting: {StateReverted, StateFailed},
+	StateStarting: {StateQueued, StateFailed},
+	StateQueued:   {StateRunning, StateFailed},
+	StateRunning:  {StateExecuted, StateFailed},
+	StateExecuted: {StateJudging},
+	// An operator step lands (judging) or expires unlanded (skipped).
+	StateAwaitingOperator: {StateJudging, StateSkipped},
+	StateJudging:          {StateKept, StateReverting, StateReverted, StateHalted},
+	StateKept:             {StateReverting},
+	StateReverting:        {StateReverted, StateFailed},
 }
 
 func legal(from, to StepState) bool {
@@ -59,6 +61,10 @@ type stepWrite struct {
 	executedAt  *time.Time
 	verdict     Outcome
 	verdictAt   *time.Time
+	landedAt    *time.Time
+	// waitFromNow restarts waiting_since at now: an operator step's
+	// landing deadline counts from when the operator was asked.
+	waitFromNow bool
 	// requireQueue and requireClaim guard the runner's queued -> running.
 	requireQueue *int64
 	requireClaim bool
@@ -75,7 +81,9 @@ const transitionSQL = `/* pg_sage */ UPDATE sage.plan_step SET state = $4,
 	executed_at = COALESCE($8, executed_at), verdict = COALESCE(NULLIF($9, ''), verdict),
 	verdict_at = COALESCE($10, verdict_at), attempt = attempt + $11,
 	claimed_by = CASE WHEN $12 THEN $13 ELSE claimed_by END,
-	claimed_until = CASE WHEN $12 THEN $14::timestamptz ELSE claimed_until END
+	claimed_until = CASE WHEN $12 THEN $14::timestamptz ELSE claimed_until END,
+	landed_at = COALESCE($19, landed_at),
+	waiting_since = CASE WHEN $20 THEN $17::timestamptz ELSE waiting_since END
 	WHERE id = $1 AND plan_id = $2 AND state = $3
 	  AND ($15::bigint IS NULL OR queue_id = $15)
 	  AND (NOT $16 OR (claimed_by = $13 AND claimed_until > $17::timestamptz))
@@ -116,7 +124,7 @@ func (e *Engine) transitionTx(ctx context.Context, tx pgx.Tx, planID int64, hash
 	err := tx.QueryRow(ctx, transitionSQL, stepID, planID, string(from), string(to),
 		truncate(w.reason, 1000), w.queueID, w.actionLogID, w.executedAt, string(w.verdict),
 		w.verdictAt, attempt, w.claim, e.cfg.Owner, now.Add(e.cfg.Lease), w.requireQueue,
-		w.requireClaim, now, w.requireSQL).Scan(&ordinal)
+		w.requireClaim, now, w.requireSQL, w.landedAt, w.waitFromNow).Scan(&ordinal)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("%w: step %d of plan %d is not %s", ErrStepMoved, stepID, planID,
 			from)

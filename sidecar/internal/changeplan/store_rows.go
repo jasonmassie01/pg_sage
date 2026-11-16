@@ -19,7 +19,8 @@ const stepColumns = `id, ordinal, kind, action_type, setting, proposed_sql, roll
 	checkpoint, on_improved, on_no_change, on_regressed, on_inconclusive,
 	COALESCE(on_unverifiable, ''), on_expired, state, queue_id, action_log_id, decision_id,
 	COALESCE(verdict, ''), verdict_at, state_reason, COALESCE(claimed_by, ''),
-	claimed_until, attempt, executed_at, waiting_since`
+	claimed_until, attempt, executed_at, waiting_since, operator_command, operator_revert,
+	landing, managed_change_id, landed_at`
 
 func scanPlan(row pgx.Row) (Plan, error) {
 	var p Plan
@@ -42,7 +43,7 @@ func scanStep(rows pgx.Rows) (Step, error) {
 	var s Step
 	var kind, metric, dir, source, state, verdict string
 	var acts [6]string
-	var guards, minEv []byte
+	var guards, minEv, landing []byte
 	err := rows.Scan(&s.ID, &s.Ordinal, &kind, &s.ActionType, &s.Setting, &s.ProposedSQL,
 		&s.RollbackSQL, &s.FindingID, &s.EvidenceIDs, &s.TargetQueryIDs, &metric, &dir,
 		&s.ExpectedPct, &source, &guards, &minEv, &s.DeadlineMinutes, &s.Checkpoint,
@@ -50,7 +51,8 @@ func scanStep(rows pgx.Rows) (Step, error) {
 		&s.Runtime.QueueID, &s.Runtime.ActionLogID, &s.Runtime.DecisionID, &verdict,
 		&s.Runtime.VerdictAt, &s.Runtime.StateReason, &s.Runtime.ClaimedBy,
 		&s.Runtime.ClaimedUntil, &s.Runtime.Attempt, &s.Runtime.ExecutedAt,
-		&s.Runtime.WaitingSince)
+		&s.Runtime.WaitingSince, &s.OperatorCommand, &s.OperatorRevert, &landing,
+		&s.ManagedChangeID, &s.Runtime.LandedAt)
 	if err != nil {
 		return Step{}, err
 	}
@@ -68,6 +70,11 @@ func scanStep(rows pgx.Rows) (Step, error) {
 	}
 	if len(s.Guardrails) == 0 {
 		s.Guardrails = nil
+	}
+	if landing != nil {
+		if err := json.Unmarshal(landing, &s.Landing); err != nil {
+			return Step{}, fmt.Errorf("decode the landing of step %d: %w", s.Ordinal, err)
+		}
 	}
 	return s, nil
 }
@@ -156,9 +163,10 @@ const insertStepSQL = `/* pg_sage */ INSERT INTO sage.plan_step (plan_id, ordina
 	action_type, setting, proposed_sql, rollback_sql, finding_id, evidence_ids,
 	target_queryids, metric, expected_direction, expected_pct, expected_source, guardrails,
 	min_evidence, deadline_minutes, checkpoint, on_improved, on_no_change, on_regressed,
-	on_inconclusive, on_unverifiable, on_expired)
+	on_inconclusive, on_unverifiable, on_expired, operator_command, operator_revert, landing,
+	managed_change_id)
 	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
-	        $19, $20, $21, $22, NULLIF($23, ''), $24)`
+	        $19, $20, $21, $22, NULLIF($23, ''), $24, $25, $26, $27, $28)`
 
 func insertStep(ctx context.Context, tx pgx.Tx, planID int64, s Step) error {
 	args, err := stepArgs(s)
@@ -187,12 +195,19 @@ func stepArgs(s Step) ([]any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("encode the minimum evidence of step %d: %w", s.Ordinal, err)
 	}
+	var landing []byte
+	if s.Landing != nil {
+		if landing, err = json.Marshal(s.Landing); err != nil {
+			return nil, fmt.Errorf("encode the landing of step %d: %w", s.Ordinal, err)
+		}
+	}
 	return []any{s.Ordinal, string(s.Kind), s.ActionType, s.Setting, s.ProposedSQL,
 		s.RollbackSQL, s.FindingID, nilIfEmpty(s.EvidenceIDs), nilIfEmpty(s.TargetQueryIDs),
 		string(s.Metric), string(s.ExpectedDirection), s.ExpectedPct,
 		string(s.ExpectedSource), g, m, s.DeadlineMinutes, s.Checkpoint,
 		string(s.OnImproved), string(s.OnNoChange), string(s.OnRegressed),
-		string(s.OnInconclusive), string(s.OnUnverifiable), string(s.OnExpired)}, nil
+		string(s.OnInconclusive), string(s.OnUnverifiable), string(s.OnExpired),
+		s.OperatorCommand, s.OperatorRevert, landing, s.ManagedChangeID}, nil
 }
 
 // nilIfEmpty stores an empty list as NULL, so it reads back as nil.

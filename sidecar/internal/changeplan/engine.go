@@ -54,6 +54,9 @@ type ActionVerdict struct {
 	Verdict       string
 	DecidedAt     *time.Time
 	ActionOutcome string
+	// Detail is what an operator step's judge says about how it judged
+	// (recorded with the verdict event); nil for an action's verdict.
+	Detail map[string]any
 }
 
 // VerdictSource reads an action's verdict (DBVerdicts in production).
@@ -87,6 +90,11 @@ type EngineConfig struct {
 	// the live sizes the byte cap needs (nil: DBSizes on Pool).
 	Caps  CapsSource
 	Sizes SizeReader
+	// Operator judges landed operator steps (nil: NewOperatorJudge(nil,
+	// 0), which decides readback steps only); Landings reads their
+	// landing (nil: DBLandings on Pool) (plan-02d).
+	Operator OperatorJudge
+	Landings LandingReader
 }
 
 // DefaultClaimLease is how long an engine's claim on a step holds.
@@ -150,6 +158,12 @@ func NewEngine(cfg EngineConfig) (*Engine, error) {
 	}
 	if cfg.Sizes == nil {
 		cfg.Sizes = NewDBSizes(cfg.Pool)
+	}
+	if cfg.Operator == nil {
+		cfg.Operator = NewOperatorJudge(nil, 0)
+	}
+	if cfg.Landings == nil {
+		cfg.Landings = NewDBLandings(cfg.Pool)
 	}
 	return &Engine{cfg: cfg, actions: store.NewActionStore(cfg.Pool)}, nil
 }

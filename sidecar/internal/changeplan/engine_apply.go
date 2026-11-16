@@ -35,6 +35,9 @@ func (e *Engine) apply(ctx context.Context, tx pgx.Tx, p Plan, m move) (followUp
 		return nil, e.transitionTx(ctx, tx, p.ID, p.PlanHash, m.step.ID, StateExecuted,
 			StateJudging, stepWrite{claim: true})
 	case moveJudge:
+		if m.step.Kind == KindOperator {
+			return nil, e.judgeOperator(ctx, tx, p, m.step)
+		}
 		return e.judge(ctx, tx, p, m.step)
 	case moveSkip:
 		return nil, e.transitionTx(ctx, tx, p.ID, p.PlanHash, m.step.ID, StatePending,
@@ -43,8 +46,9 @@ func (e *Engine) apply(ctx context.Context, tx pgx.Tx, p Plan, m move) (followUp
 		return nil, e.transitionTx(ctx, tx, p.ID, p.PlanHash, m.step.ID, StatePending,
 			StateKept, stepWrite{reason: "check step: nothing to change"})
 	case moveOperator:
-		return nil, e.transitionTx(ctx, tx, p.ID, p.PlanHash, m.step.ID, StatePending,
-			StateAwaitingOperator, stepWrite{reason: "an operator runs this step"})
+		return e.askOperator(ctx, tx, p, m.step)
+	case moveLand:
+		return nil, e.land(ctx, tx, p, m.step)
 	case moveComplete:
 		return nil, e.setStatus(ctx, tx, p, StatusCompleted, EventCompleted,
 			map[string]any{"steps": len(p.Steps)})
@@ -126,19 +130,20 @@ func (e *Engine) mustWait(ctx context.Context, tx pgx.Tx, p Plan, s Step) (strin
 }
 
 func otherInFlight(ctx context.Context, tx pgx.Tx, planID int64) ([]otherStep, error) {
-	states := make([]string, 0, len(inFlightStates))
+	// An operator step awaiting its operator may land at any moment.
+	states := []string{string(StateAwaitingOperator)}
 	for s := range inFlightStates {
 		states = append(states, string(s))
 	}
 	rows, err := tx.Query(ctx, `/* pg_sage */ SELECT plan_id, ordinal,
-		COALESCE(target_queryids, '{}'), proposed_sql FROM sage.plan_step
-		WHERE plan_id <> $1 AND state = ANY($2)`, planID, states)
+		COALESCE(target_queryids, '{}'), proposed_sql, kind = 'operator'
+		FROM sage.plan_step WHERE plan_id <> $1 AND state = ANY($2)`, planID, states)
 	if err != nil {
 		return nil, fmt.Errorf("read the other plans' steps in flight: %w", err)
 	}
 	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (otherStep, error) {
 		var o otherStep
-		return o, r.Scan(&o.planID, &o.ordinal, &o.targets, &o.sql)
+		return o, r.Scan(&o.planID, &o.ordinal, &o.targets, &o.sql, &o.operator)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("read the other plans' steps in flight: %w", err)

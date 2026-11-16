@@ -21,6 +21,7 @@ const (
 	moveStart                      // start the next runnable action step
 	moveRevert                     // carry on a reverting step's revert (plan-02c)
 	moveWalkRevert                 // kept -> reverting: the walk's next step
+	moveLand                       // read an awaiting_operator step's landing (plan-02d)
 )
 
 // move is decide's answer: what to do, to which step and why.
@@ -84,7 +85,7 @@ func decide(p Plan, now time.Time, owner string) move {
 		}
 		switch s.Runtime.State {
 		case StateAwaitingOperator:
-			return move{kind: moveWait, step: s, reason: "awaiting the operator"}
+			return move{kind: moveLand, step: s, reason: "awaiting the operator"}
 		case StateAwaitingApproval:
 			return move{kind: moveWait, step: s, reason: "awaiting its own approval"}
 		}
@@ -158,6 +159,9 @@ func haltReason(s Step) string {
 		s.ActionFor(OutcomeExpired) != ActionKeep &&
 		s.ActionFor(OutcomeExpired) != ActionRevertStep:
 		// halt_ask; revert_to_checkpoint walks first (walkMove).
+		if s.Kind == KindOperator {
+			return "operator step expired before it landed: " + s.Runtime.StateReason
+		}
 		return "step expired waiting on a plan cap or a peak window: " +
 			s.Runtime.StateReason
 	}
@@ -172,8 +176,12 @@ func haltReason(s Step) string {
 func judgeOutcome(s Step, v ActionVerdict, now time.Time) (o Outcome, byVerifier,
 	done bool) {
 	deadline := now
-	if s.Runtime.ExecutedAt != nil {
-		deadline = s.Runtime.ExecutedAt.Add(time.Duration(s.DeadlineMinutes) * time.Minute)
+	from := s.Runtime.ExecutedAt
+	if from == nil {
+		from = s.Runtime.LandedAt // an operator step's change landed (plan-02d)
+	}
+	if from != nil {
+		deadline = from.Add(time.Duration(s.DeadlineMinutes) * time.Minute)
 	}
 	final := v.Verdict != "" && v.Verdict != "pending"
 	switch v.ActionOutcome {
@@ -200,15 +208,21 @@ var settingSQL = regexp.MustCompile(
 	`(?is)^\s*ALTER\s+(SYSTEM\s|(DATABASE|ROLE|USER)\s.*\b(SET|RESET)\b)`)
 
 // isSetting reports whether s changes a setting (it moves every query, so
-// it runs alone on the database).
-func isSetting(s Step) bool { return settingSQL.MatchString(s.ProposedSQL) }
+// it runs alone on the database). An operator step is counted as one
+// whatever it changes: pg_sage cannot see what the operator's command
+// touches (fail closed).
+func isSetting(s Step) bool {
+	return s.Kind == KindOperator || settingSQL.MatchString(s.ProposedSQL)
+}
 
-// otherStep is a step of another plan in flight on the database.
+// otherStep is a step of another plan in flight on the database; operator
+// marks an operator step (awaiting its operator or judged).
 type otherStep struct {
-	planID  int64
-	ordinal int
-	targets []int64
-	sql     string
+	planID   int64
+	ordinal  int
+	targets  []int64
+	sql      string
+	operator bool
 }
 
 // conflict is the other plan's step that keeps s from starting, if any:
@@ -216,7 +230,7 @@ type otherStep struct {
 // step whatever s is.
 func conflict(s Step, others []otherStep) (otherStep, bool) {
 	for _, o := range others {
-		if isSetting(s) || settingSQL.MatchString(o.sql) {
+		if isSetting(s) || o.operator || settingSQL.MatchString(o.sql) {
 			return o, true
 		}
 		for _, q := range s.TargetQueryIDs {

@@ -78,7 +78,8 @@ func CheckPlanCaps(p Plan, caps policy.PlanCaps, settings SettingContexts) error
 		if _, table, ok := newIndexOf(s); ok {
 			perTable[table]++
 		}
-		if why := settingClass(s, settings); s.Kind == KindAction && why != "" {
+		counted := s.Kind == KindAction || s.Kind == KindOperator
+		if why := settingClass(s, settings); counted && why != "" {
 			restart++
 		}
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/verify"
 	"github.com/pg-sage/sidecar/internal/workload"
 )
@@ -31,6 +32,17 @@ func controlStatementsSQL(rel string) string {
 // passes. Without it auto stays in shadow.
 func (e *Executor) WithBacktestReader(reader verify.BacktestReader) {
 	e.methodResolver = verify.NewMethodResolver(reader, nil)
+}
+
+// OperatorVerification is what judges a plan's operator steps on this
+// executor's database (plan-02d): v2's readers and the verification
+// window (verify.window_minutes, else its default).
+func (e *Executor) OperatorVerification() (verify.V2Options, time.Duration) {
+	minutes := config.DefaultVerifyWindowMinutes
+	if e.cfg != nil && e.cfg.Verify.WindowMinutes > 0 {
+		minutes = e.cfg.Verify.WindowMinutes
+	}
+	return e.verificationV2Options(), time.Duration(minutes) * time.Minute
 }
 
 // verificationV2Options wires v2 to this executor's database.

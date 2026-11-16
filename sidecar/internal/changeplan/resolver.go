@@ -112,3 +112,31 @@ func (r *DBResolver) TargetCalls(ctx context.Context, queryids []int64,
 	}
 	return calls, nil
 }
+
+// SettingExists reports whether pg_settings on the monitored database has
+// the setting name (an operator step's landing check, plan-02d).
+func (r *DBResolver) SettingExists(ctx context.Context, name string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, lookupTimeout)
+	defer cancel()
+	var ok bool
+	err := r.monitored.QueryRow(ctx, `/* pg_sage */ SELECT EXISTS (SELECT 1
+		FROM pg_catalog.pg_settings WHERE name = $1)`, name).Scan(&ok)
+	if err != nil {
+		return false, fmt.Errorf("look up setting %s: %w", name, err)
+	}
+	return ok, nil
+}
+
+// ManagedChangeExists reports whether sage.managed_change_proposals holds
+// id (an operator step linked to a managed change, plan-02d).
+func (r *DBResolver) ManagedChangeExists(ctx context.Context, id int64) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, lookupTimeout)
+	defer cancel()
+	var ok bool
+	err := r.monitored.QueryRow(ctx, `/* pg_sage */ SELECT EXISTS (SELECT 1
+		FROM sage.managed_change_proposals WHERE id = $1)`, id).Scan(&ok)
+	if err != nil {
+		return false, fmt.Errorf("look up managed change %d: %w", id, err)
+	}
+	return ok, nil
+}

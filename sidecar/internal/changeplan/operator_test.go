@@ -75,7 +75,7 @@ func TestValidate_OperatorStepRefusals(t *testing.T) {
 		"malformed setting": {func(s *Step) { s.Landing.Setting = "work_mem; DROP" },
 			CodeLandingInvalid},
 		"no expected value": {func(s *Step) { s.Landing.Value = "  " }, CodeLandingInvalid},
-		"no landing at all":  {func(s *Step) { s.Landing = nil }, CodeLandingMissing},
+		"no landing at all": {func(s *Step) { s.Landing = nil }, CodeLandingMissing},
 		"unknown managed change": {func(s *Step) {
 			s.Landing, s.ManagedChangeID = nil, ptr(int64(999))
 		}, CodeLandingInvalid},

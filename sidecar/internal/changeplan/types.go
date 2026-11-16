@@ -174,7 +174,23 @@ type Step struct {
 	// halts and asks. Only a declared keep keeps an unmeasurable step.
 	OnUnverifiable OutcomeAction `json:"on_unverifiable,omitempty"`
 	OnExpired      OutcomeAction `json:"on_expired,omitempty"`
-	Runtime        StepRuntime   `json:"runtime"`
+	// OperatorCommand is what an operator step asks the operator to run,
+	// OperatorRevert what undoes it (pg_sage never runs either); Landing
+	// and ManagedChangeID are how the engine sees it land (plan-02d).
+	OperatorCommand string      `json:"operator_command,omitempty"`
+	OperatorRevert  string      `json:"operator_revert,omitempty"`
+	Landing         *Landing    `json:"landing,omitempty"`
+	ManagedChangeID *int64      `json:"managed_change_id,omitempty"`
+	Runtime         StepRuntime `json:"runtime"`
+}
+
+// Landing is an operator step's landing check on pg_settings: the setting
+// reads Value (as pg_settings or SHOW prints it) with no restart pending.
+// A step linked to a managed change (ManagedChangeID) also lands only when
+// that proposal is applied; with both, both must hold.
+type Landing struct {
+	Setting string `json:"setting"`
+	Value   string `json:"value"`
 }
 
 // StepRuntime is the engine's view of a step. It links the step to the
@@ -197,6 +213,9 @@ type StepRuntime struct {
 	// WaitingSince is when a pending step first waited on a plan cap or a
 	// peak window; its deadline counts from it (plan-02b).
 	WaitingSince *time.Time `json:"waiting_since,omitempty"`
+	// LandedAt is when an operator step's change landed; its verdict
+	// deadline counts from it (plan-02d).
+	LandedAt *time.Time `json:"landed_at,omitempty"`
 }
 
 // Edge says the step at From must finish before the step at To starts.
@@ -281,11 +300,15 @@ func (s Step) actionField(o Outcome) OutcomeAction {
 // WithDefaults fills every outcome action except OnUnverifiable (whose
 // emptiness means "undeclared") and the minimum evidence. Store.Create
 // applies it, so the stored rows and the hash hold the effective values.
+// pg_sage cannot revert an operator step, so its regression halts and asks.
 func (s Step) WithDefaults() Step {
 	fill := func(a *OutcomeAction, o Outcome) {
 		if *a == "" {
 			*a = defaultActions[o]
 		}
+	}
+	if s.Kind == KindOperator && s.OnRegressed == "" {
+		s.OnRegressed = ActionHaltAsk
 	}
 	fill(&s.OnImproved, OutcomeImproved)
 	fill(&s.OnNoChange, OutcomeNoChange)

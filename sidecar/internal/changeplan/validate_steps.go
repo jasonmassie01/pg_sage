@@ -25,10 +25,8 @@ func (v *validator) kindRules(s Step) {
 	case KindAction:
 		v.actionRules(s)
 	case KindOperator:
-		if s.ProposedSQL == "" {
-			v.add(CodeSQLMissing, n, "step %d: an operator step says what the operator runs", n)
-		}
-		v.noRollback(s, "an operator step cannot be reverted by pg_sage")
+		v.operatorRules(s)
+		return
 	case KindCheck:
 		if s.ProposedSQL != "" {
 			v.add(CodeSQLNotApplicable, n, "step %d: a check step changes nothing, so it "+
@@ -38,6 +36,7 @@ func (v *validator) kindRules(s Step) {
 	default:
 		v.add(CodeKindInvalid, n, "step %d: kind %q is not action, operator or check", n, s.Kind)
 	}
+	v.noOperatorFields(s)
 }
 
 func (v *validator) actionRules(s Step) {
@@ -161,6 +160,11 @@ func (v *validator) guardrailRules(s Step) {
 func (v *validator) stepEvidence(ctx context.Context, r Resolver, s Step) error {
 	if s.Kind == KindAction || s.Kind == KindOperator {
 		if err := v.citations(ctx, r, s); err != nil {
+			return err
+		}
+	}
+	if s.Kind == KindOperator {
+		if err := v.landingLookups(ctx, r, s); err != nil {
 			return err
 		}
 	}

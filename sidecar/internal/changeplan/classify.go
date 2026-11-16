@@ -200,6 +200,9 @@ func stepSettingNames(s Step) []string {
 	if s.Setting != "" {
 		names = append(names, strings.ToLower(s.Setting))
 	}
+	if s.Landing != nil && s.Landing.Setting != "" {
+		names = append(names, strings.ToLower(s.Landing.Setting))
+	}
 	slices.Sort(names)
 	return slices.Compact(names)
 }
@@ -210,7 +213,7 @@ func readSettingContexts(ctx context.Context, q querier, steps []Step) (SettingC
 	error) {
 	var names []string
 	for _, s := range steps {
-		if s.Kind == KindAction && isSetting(s) {
+		if (s.Kind == KindAction || s.Kind == KindOperator) && isSetting(s) {
 			names = append(names, stepSettingNames(s)...)
 		}
 	}

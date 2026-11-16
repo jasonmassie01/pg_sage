@@ -55,6 +55,15 @@ const (
 	// CodeCheckpointNotBefore: a step reverts to a checkpoint that its
 	// edges make run after it (plan-02c).
 	CodeCheckpointNotBefore = "checkpoint_not_before"
+	// Operator steps (plan-02d): the command text is missing, the landing
+	// check is missing or names what does not exist, an outcome would
+	// revert what pg_sage cannot, an action or check step carries operator
+	// fields.
+	CodeCommandMissing              = "command_missing"
+	CodeLandingMissing              = "landing_missing"
+	CodeLandingInvalid              = "landing_invalid"
+	CodeOperatorNotRevertible       = "operator_not_revertible"
+	CodeOperatorFieldsNotApplicable = "operator_fields_not_applicable"
 )
 
 // Bounds.
@@ -85,6 +94,12 @@ type Resolver interface {
 	EvidenceExists(ctx context.Context, packHash, id string) (bool, error)
 	// TargetCalls is how often the query ids ran in the last window.
 	TargetCalls(ctx context.Context, queryids []int64, window time.Duration) (int64, error)
+	// SettingExists reports whether pg_settings has the setting (an
+	// operator step's landing check).
+	SettingExists(ctx context.Context, name string) (bool, error)
+	// ManagedChangeExists reports whether the managed change proposal id
+	// exists (an operator step linked to one).
+	ManagedChangeExists(ctx context.Context, id int64) (bool, error)
 }
 
 var (

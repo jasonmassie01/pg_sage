@@ -82,6 +82,25 @@ func (h *hasher) step(s Step) {
 		s.OnInconclusive, s.OnUnverifiable, s.OnExpired} {
 		h.str(string(a))
 	}
+	if s.Kind == KindOperator {
+		h.operator(s)
+	}
+}
+
+// operator hashes what an operator step asks for and how it lands
+// (plan-02d). Only operator steps carry these fields (validation refuses
+// them elsewhere), so every action and check step keeps its plan-v1 bytes.
+func (h *hasher) operator(s Step) {
+	h.str("operator")
+	h.str(s.OperatorCommand)
+	h.str(s.OperatorRevert)
+	if s.Landing == nil {
+		h.str("null")
+	} else {
+		h.str(s.Landing.Setting)
+		h.str(s.Landing.Value)
+	}
+	h.optInt(s.ManagedChangeID)
 }
 
 type hasher struct{ sum hash.Hash }

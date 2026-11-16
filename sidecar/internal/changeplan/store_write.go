@@ -141,7 +141,8 @@ func updateStepRow(ctx context.Context, tx pgx.Tx, s Step) error {
 		expected_direction = $12, expected_pct = $13, expected_source = $14,
 		guardrails = $15, min_evidence = $16, deadline_minutes = $17, checkpoint = $18,
 		on_improved = $19, on_no_change = $20, on_regressed = $21, on_inconclusive = $22,
-		on_unverifiable = NULLIF($23, ''), on_expired = $24
+		on_unverifiable = NULLIF($23, ''), on_expired = $24, operator_command = $25,
+		operator_revert = $26, landing = $27, managed_change_id = $28
 		WHERE id = $1 AND ordinal = $2`, append([]any{s.ID}, args...)...)
 	if err != nil {
 		return fmt.Errorf("store step %d: %w", s.Ordinal, err)
