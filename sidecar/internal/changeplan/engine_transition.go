@@ -10,16 +10,23 @@ import (
 )
 
 // legalTransitions is every step transition the engine (and its runner)
-// may write; anything else is ErrIllegalTransition and changes nothing.
+// may write, and a person's decisions (plan-03a): a step's own approval
+// moves it from awaiting_approval back to pending, and resuming a halted
+// plan moves a failed step to skipped and a halted one (its change in
+// place) to kept. Anything else is ErrIllegalTransition and changes
+// nothing.
 var legalTransitions = map[StepState][]StepState{
 	StatePending: {StateStarting, StateSkipped, StateKept, StateAwaitingOperator,
 		StateAwaitingApproval},
-	StateStarting:  {StateQueued, StateFailed},
-	StateQueued:    {StateRunning, StateFailed},
-	StateRunning:   {StateExecuted, StateFailed},
-	StateExecuted:  {StateJudging},
-	StateJudging:   {StateKept, StateReverting, StateReverted, StateHalted},
-	StateReverting: {StateReverted, StateFailed},
+	StateStarting:         {StateQueued, StateFailed},
+	StateQueued:           {StateRunning, StateFailed},
+	StateRunning:          {StateExecuted, StateFailed},
+	StateExecuted:         {StateJudging},
+	StateJudging:          {StateKept, StateReverting, StateReverted, StateHalted},
+	StateReverting:        {StateReverted, StateFailed},
+	StateAwaitingApproval: {StatePending},
+	StateFailed:           {StateSkipped},
+	StateHalted:           {StateKept},
 }
 
 func legal(from, to StepState) bool {

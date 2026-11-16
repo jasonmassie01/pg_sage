@@ -70,12 +70,17 @@ func (e *InvalidPlanError) Error() string {
 
 func (e *InvalidPlanError) Unwrap() error { return ErrInvalid }
 
-// Approval is a sage.plan_approval row.
+// Approval is a sage.plan_approval row: who approved which hash, in which
+// mode (UpTo set for up_to) and where (Via is empty on rows stored before
+// plan-03a).
 type Approval struct {
 	ID             int64      `json:"id"`
 	PlanID         int64      `json:"plan_id"`
 	PlanHash       string     `json:"plan_hash"`
 	ApproverUserID int        `json:"approver_user_id"`
+	Mode           Mode       `json:"mode"`
+	UpTo           *int       `json:"up_to,omitempty"`
+	Via            Via        `json:"via,omitempty"`
 	DecidedAt      time.Time  `json:"decided_at"`
 	VoidedAt       *time.Time `json:"voided_at,omitempty"`
 	VoidReason     string     `json:"void_reason,omitempty"`
@@ -186,26 +191,34 @@ func (s *Store) List(ctx context.Context, f ListFilter) ([]Plan, error) {
 
 // Approvals returns every approval of plan id, oldest first.
 func (s *Store) Approvals(ctx context.Context, id int64) ([]Approval, error) {
-	rows, err := s.pool.Query(ctx, `/* pg_sage */ SELECT id, plan_id, plan_hash,
-		approver_user_id, decided_at, voided_at, COALESCE(void_reason, '')
-		  FROM sage.plan_approval WHERE plan_id = $1 ORDER BY id`, id)
+	out, err := approvalsOf(ctx, s.pool, id)
 	if err != nil {
 		return nil, fmt.Errorf("changeplan: approvals of plan %d: %w", id, err)
 	}
-	defer rows.Close()
-	var out []Approval
-	for rows.Next() {
-		var a Approval
-		if err := rows.Scan(&a.ID, &a.PlanID, &a.PlanHash, &a.ApproverUserID, &a.DecidedAt,
-			&a.VoidedAt, &a.VoidReason); err != nil {
-			return nil, fmt.Errorf("changeplan: approvals of plan %d: %w", id, err)
-		}
-		out = append(out, a)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("changeplan: approvals of plan %d: %w", id, err)
-	}
 	return out, nil
+}
+
+// approvalColumns are the columns scanApproval reads.
+const approvalColumns = `id, plan_id, plan_hash, approver_user_id, mode, up_to_ordinal,
+	COALESCE(via, ''), decided_at, voided_at, COALESCE(void_reason, '')`
+
+func scanApproval(row pgx.Row) (Approval, error) {
+	var a Approval
+	err := row.Scan(&a.ID, &a.PlanID, &a.PlanHash, &a.ApproverUserID, &a.Mode, &a.UpTo,
+		&a.Via, &a.DecidedAt, &a.VoidedAt, &a.VoidReason)
+	return a, err
+}
+
+// approvalsOf reads every approval of plan id, oldest first.
+func approvalsOf(ctx context.Context, q querier, id int64) ([]Approval, error) {
+	rows, err := q.Query(ctx, `/* pg_sage */ SELECT `+approvalColumns+`
+		  FROM sage.plan_approval WHERE plan_id = $1 ORDER BY id`, id)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (Approval, error) {
+		return scanApproval(r)
+	})
 }
 
 // inTx runs fn in one transaction bounded by lock and statement timeouts.

@@ -44,7 +44,8 @@ func (e *Engine) decideAndApply(ctx context.Context, tx pgx.Tx, p Plan) (followU
 // prepareStart checks that step s may start now and writes starting (with
 // this engine's claim and the attempt) before anything else happens. The
 // plan's rows must hash to its live approval (else the plan is voided); a
-// never-automatic step stops with awaiting_approval; another plan's step
+// step the approval does not cover, with no approval of its own, stops
+// with awaiting_approval; another plan's step
 // on the same queries, any setting step, a setting step's company, an
 // in-flight change on its objects, a plan cap and a peak window make it
 // wait (holdBeforeStart).
@@ -56,12 +57,12 @@ func (e *Engine) prepareStart(ctx context.Context, tx pgx.Tx, p Plan, s Step) (f
 		}
 		return nil, err
 	}
-	approver, err := liveApprover(ctx, tx, p.ID)
-	if err != nil {
-		return nil, err
-	}
 	if next, held, err := e.holdBeforeStart(ctx, tx, p, s); held || err != nil {
 		return next, err
+	}
+	approver, err := startApprover(ctx, tx, p, s)
+	if err != nil {
+		return nil, err
 	}
 	if p.Status == StatusApproved {
 		if err := e.setStatus(ctx, tx, p, StatusRunning, "", nil); err != nil {
@@ -127,12 +128,21 @@ func otherInFlight(ctx context.Context, tx pgx.Tx, planID int64) ([]otherStep, e
 	return out, nil
 }
 
-func liveApprover(ctx context.Context, tx pgx.Tx, planID int64) (int, error) {
-	var id int
-	err := tx.QueryRow(ctx, `/* pg_sage */ SELECT approver_user_id FROM sage.plan_approval
-		WHERE plan_id = $1 AND voided_at IS NULL`, planID).Scan(&id)
+// startApprover is who the step's change runs as: the person who approved
+// the step itself at the plan's hash (plan-03a), else the plan's approver.
+func startApprover(ctx context.Context, tx pgx.Tx, p Plan, s Step) (int, error) {
+	own, err := liveStepApproval(ctx, tx, s.ID)
 	if err != nil {
-		return 0, fmt.Errorf("read the approver of plan %d: %w", planID, err)
+		return 0, err
+	}
+	if own != nil && own.PlanHash == p.PlanHash {
+		return own.ApproverUserID, nil
+	}
+	var id int
+	err = tx.QueryRow(ctx, `/* pg_sage */ SELECT approver_user_id FROM sage.plan_approval
+		WHERE plan_id = $1 AND voided_at IS NULL`, p.ID).Scan(&id)
+	if err != nil {
+		return 0, fmt.Errorf("read the approver of plan %d: %w", p.ID, err)
 	}
 	return id, nil
 }
@@ -143,7 +153,7 @@ func (e *Engine) void(ctx context.Context, tx pgx.Tx, p Plan, why error) error {
 	if errors.Is(why, ErrNotApproved) {
 		reason = "no_live_approval"
 	}
-	if _, err := voidLive(ctx, tx, p.ID, reason); err != nil {
+	if err := voidAll(ctx, tx, p.ID, reason); err != nil {
 		return err
 	}
 	e.cfg.LogFn("plan", "plan %d voided before its next step: %v", p.ID, why)

@@ -19,7 +19,7 @@ const stepColumns = `id, ordinal, kind, action_type, setting, proposed_sql, roll
 	checkpoint, on_improved, on_no_change, on_regressed, on_inconclusive,
 	COALESCE(on_unverifiable, ''), on_expired, state, queue_id, action_log_id, decision_id,
 	COALESCE(verdict, ''), verdict_at, state_reason, COALESCE(claimed_by, ''),
-	claimed_until, attempt, executed_at, waiting_since`
+	claimed_until, attempt, executed_at, waiting_since, resumed_at`
 
 func scanPlan(row pgx.Row) (Plan, error) {
 	var p Plan
@@ -50,7 +50,7 @@ func scanStep(rows pgx.Rows) (Step, error) {
 		&s.Runtime.QueueID, &s.Runtime.ActionLogID, &s.Runtime.DecisionID, &verdict,
 		&s.Runtime.VerdictAt, &s.Runtime.StateReason, &s.Runtime.ClaimedBy,
 		&s.Runtime.ClaimedUntil, &s.Runtime.Attempt, &s.Runtime.ExecutedAt,
-		&s.Runtime.WaitingSince)
+		&s.Runtime.WaitingSince, &s.Runtime.ResumedAt)
 	if err != nil {
 		return Step{}, err
 	}

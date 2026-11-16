@@ -52,6 +52,14 @@ func TestPlanApprovalModesMigration_BootstrapTwiceIsClean(t *testing.T) {
 			t.Errorf("%s was stored", name)
 		}
 	}
+	checkStepApprovals(t, ctx, pool, planA, stepA, stepB)
+}
+
+// checkStepApprovals: at most one live approval per step, never of
+// another plan's step; a new step's resumed_at is NULL.
+func checkStepApprovals(t *testing.T, ctx context.Context, pool *pgxpool.Pool, planA,
+	stepA, stepB int64) {
+	t.Helper()
 	stepApproval := `INSERT INTO sage.plan_step_approval (plan_id, step_id, plan_hash,
 		approver_user_id, via) VALUES ($1, $2, repeat('a', 64), 7, 'cli')`
 	if _, err := pool.Exec(ctx, stepApproval, planA, stepA); err != nil {

@@ -197,6 +197,9 @@ type StepRuntime struct {
 	// WaitingSince is when a pending step first waited on a plan cap or a
 	// peak window; its deadline counts from it (plan-02b).
 	WaitingSince *time.Time `json:"waiting_since,omitempty"`
+	// ResumedAt is when a person resumed the plan past this step's halt;
+	// the engine no longer halts on it (plan-03a).
+	ResumedAt *time.Time `json:"resumed_at,omitempty"`
 }
 
 // Edge says the step at From must finish before the step at To starts.
