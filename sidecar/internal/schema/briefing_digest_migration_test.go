@@ -12,9 +12,13 @@ import (
 // briefing.TestDigestDB_TwoFlapsSendOnce.
 
 func TestBriefingsDigestHashStep_IsLastBoundedAndIdempotent(t *testing.T) {
+	// The T5 merge put ux-01b's and plan-03b's steps after this one, so
+	// its place is pinned by its predecessor rather than "last".
 	steps := trancheFiveMigrations()
-	if len(steps) == 0 || steps[len(steps)-1][0] != "ddlBriefingsDigestHash" {
-		t.Fatalf("T5 steps = %v, want ddlBriefingsDigestHash last", steps)
+	at := t5StepIndex(steps, "ddlBriefingsDigestHash")
+	if at < 1 || steps[at-1][0] != "ddlWorkloadPseudonymKey" {
+		t.Fatalf("T5 steps = %v, want ddlWorkloadPseudonymKey then ddlBriefingsDigestHash",
+			steps)
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout",
 		"ALTER TABLE sage.briefings ADD COLUMN IF NOT EXISTS digest_hash text",

@@ -115,6 +115,13 @@ func checkResult(problems []Problem, err error) error {
 // event (plan-01b) in the same transaction. The plan returned is the
 // stored one: ids, times, defaults and its plan hash.
 func (s *Store) Create(ctx context.Context, p Plan, r Resolver) (Plan, error) {
+	return s.create(ctx, p, r, nil)
+}
+
+// create is Create with guard run first in the transaction (nil: none); a
+// stored proposed plan is told to the pool's proposal notifier.
+func (s *Store) create(ctx context.Context, p Plan, r Resolver,
+	guard func(context.Context, pgx.Tx) error) (Plan, error) {
 	if p.Status == "" {
 		p.Status = StatusProposed
 	}
@@ -133,6 +140,11 @@ func (s *Store) Create(ctx context.Context, p Plan, r Resolver) (Plan, error) {
 	p.PlanHash = PlanHash(p)
 	var id int64
 	err := s.inTx(ctx, func(tx pgx.Tx) error {
+		if guard != nil {
+			if err := guard(ctx, tx); err != nil {
+				return err
+			}
+		}
 		if p.Status == StatusProposed {
 			if err := checkCapsIn(ctx, tx, s.capsSource(), p); err != nil {
 				return err
@@ -150,7 +162,11 @@ func (s *Store) Create(ctx context.Context, p Plan, r Resolver) (Plan, error) {
 	if err != nil {
 		return Plan{}, fmt.Errorf("changeplan: create plan %q: %w", p.Goal, err)
 	}
-	return s.Get(ctx, id)
+	stored, err := s.Get(ctx, id)
+	if err == nil {
+		s.notifyProposed(ctx, stored)
+	}
+	return stored, err
 }
 
 // Get returns plan id with its steps and edges (ErrNotFound when absent).

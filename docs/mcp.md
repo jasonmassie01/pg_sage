@@ -477,6 +477,23 @@ timeout; it writes nothing and opens no finding (the daily check does that). The
 form is `GET /api/v1/upgrade-readiness?database=&target_major=&method=&target_database=`
 (any signed-in role; 400 for an invalid target, 404 for an unknown database).
 
+## Plans
+
+An agent can propose a multi-step plan and read plans; it can never approve one.
+`propose_plan` (propose scope) takes `plan`, a JSON object (`goal`, `scope`, `pack_hash`,
+`steps`, `edges`) or a string holding exactly that JSON. Markdown fences, text around the
+JSON, unknown fields and the fields pg_sage sets (`status`, `origin`, the hash, ids) are
+refused with `plan_code` `plan_fenced`, `plan_malformed` or `plan_empty`; a plan that fails
+validation (more than 50 steps, a step whose `finding_id` or `evidence_ids` do not resolve)
+is `invalid_plan` with its `problems`. Nothing is stored on a refusal. The plan is stored
+`proposed` with origin `agent` and the agent's principal id (a person over MCP is recorded
+as a person). Each principal may hold 5 open plans (draft, proposed, approved, running or
+halted); the sixth is `open_plan_limit` (`rate_limited`). `list_plans` (`status`, `limit`
+up to 500; an empty list is `[]`) and `get_plan` (`plan_id`: steps, edges, approvals and
+what each approval covers now) need the read scope. There is no MCP tool that approves,
+rejects or resumes a plan: a person decides in the app, with the plan CLI or from a chat
+plan card (see [Policy gate](policy-gate.md)).
+
 ## Query to source attribution
 
 Without any extension pg_sage attributes statements from two places:
@@ -558,6 +575,9 @@ application's database driver (most ORMs have a plugin) for reliable attribution
 | [`get_inbox`](#get_inbox) | `read` | always |
 | [`get_workload_pack`](#get_workload_pack) | `read` | always |
 | [`get_outcomes`](#get_outcomes) | `read` | always |
+| [`propose_plan`](#propose_plan) | `propose` | always |
+| [`list_plans`](#list_plans) | `read` | always |
+| [`get_plan`](#get_plan) | `read` | always |
 
 ### `get_policy`
 
@@ -1308,5 +1328,39 @@ Scope: `read`
 | `limit` | integer | no | rows returned (default 500); the summary covers the window; value 1-10000 |
 | `since` | string | no | window as a duration from 1s to 9600h (default 24h), such as 24h or 168h |
 | `verdict` | string | no | one of `pending`, `improved`, `no_change`, `regressed`, `inconclusive`, `unverifiable`, `expired` |
+
+### `propose_plan`
+
+Propose a multi-step plan (goal, scope, steps and edges, each step citing a finding_id or evidence_ids that resolve) for a person to decide. It is stored proposed and nothing runs until a person approves it in pg_sage; agents can never approve. At most 5 open plans per principal.
+
+Scope: `propose`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
+| `plan` | object or string | yes | the plan as a JSON object (goal, scope, pack_hash, steps, edges), or a string holding exactly that JSON, without markdown fences |
+
+### `list_plans`
+
+List a database's plans, newest first, with their status (proposed ones await a person).
+
+Scope: `read`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
+| `limit` | integer | no | value 1-500 |
+| `status` | string | no |  |
+
+### `get_plan`
+
+Read one plan: its steps and edges, every approval and what each approval covers now.
+
+Scope: `read`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
+| `plan_id` | integer | yes | value >= 1 |
 
 <!-- END GENERATED MCP TOOL REFERENCE -->

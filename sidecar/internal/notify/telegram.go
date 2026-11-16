@@ -76,7 +76,9 @@ func telegramMessage(evt Event) map[string]any {
 	}
 	msg := map[string]any{"text": TruncateRunes(text, telegramTextMax),
 		"disable_web_page_preview": true}
-	if token := factToken(evt); token != "" {
+	if planToken(evt) != "" {
+		msg["reply_markup"] = planKeyboard(evt)
+	} else if token := factToken(evt); token != "" {
 		msg["reply_markup"] = factKeyboard(token)
 	} else if token := cardToken(evt); token != "" {
 		msg["reply_markup"] = cardKeyboard(token, cardSnooze(evt))

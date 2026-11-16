@@ -12,14 +12,16 @@ import (
 // api.TestInboxSeenDB_ConcurrentMarksKeepTheLaterTime.
 
 func TestUserInboxSeenAtStep_IsLastBoundedAndIdempotent(t *testing.T) {
+	// The T5 merge ordered ux-02b's step before this one and plan-03b's
+	// after it, so its place is pinned by its predecessor.
 	steps := trancheFiveMigrations()
-	if len(steps) < 2 || steps[len(steps)-1][0] != "ddlUserInboxSeenAt" ||
-		steps[len(steps)-1][1] != ddlUserInboxSeenAt {
-		t.Fatalf("T5 steps = %v, want ddlUserInboxSeenAt last", steps)
+	at := t5StepIndex(steps, "ddlUserInboxSeenAt")
+	if at < 1 || steps[at][1] != ddlUserInboxSeenAt {
+		t.Fatalf("T5 steps = %v, want ddlUserInboxSeenAt with its DDL", steps)
 	}
-	if steps[len(steps)-2][0] != "ddlWorkloadPseudonymKey" {
-		t.Fatalf("ddlUserInboxSeenAt follows %s, want ddlWorkloadPseudonymKey",
-			steps[len(steps)-2][0])
+	if steps[at-1][0] != "ddlBriefingsDigestHash" {
+		t.Fatalf("ddlUserInboxSeenAt follows %s, want ddlBriefingsDigestHash",
+			steps[at-1][0])
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout",
 		"ALTER TABLE sage.users", "ADD COLUMN IF NOT EXISTS inbox_seen_at timestamptz"} {
