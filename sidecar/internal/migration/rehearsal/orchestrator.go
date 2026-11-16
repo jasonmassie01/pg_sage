@@ -63,12 +63,24 @@ var (
 	ErrTargetUnverified = clonepkg.ErrTargetUnverified
 )
 
+// QueryMeasurement is one affected statement measured on the clone before
+// and after the expand steps (lab-04b). An executed statement carries its
+// latency and shared blocks; one planned only carries its plan cost and
+// NotExecuted. Unmeasured says why a statement gives no evidence (a
+// timeout, more than one statement, an error): it is never judged.
 type QueryMeasurement struct {
-	QueryID         int64
-	BeforeLatencyMS float64
-	AfterLatencyMS  float64
-	BeforePlanHash  string
-	AfterPlanHash   string
+	QueryID         int64   `json:"query_id,string"`
+	BeforeLatencyMS float64 `json:"before_latency_ms,omitempty"`
+	AfterLatencyMS  float64 `json:"after_latency_ms,omitempty"`
+	BeforePlanHash  string  `json:"before_plan_hash,omitempty"`
+	AfterPlanHash   string  `json:"after_plan_hash,omitempty"`
+	BeforeCost      float64 `json:"before_cost,omitempty"`
+	AfterCost       float64 `json:"after_cost,omitempty"`
+	BeforeBlocks    *int64  `json:"before_blocks,omitempty"`
+	AfterBlocks     *int64  `json:"after_blocks,omitempty"`
+	NotExecuted     string  `json:"not_executed,omitempty"`
+	Unmeasured      string  `json:"unmeasured,omitempty"`
+	TimedOut        bool    `json:"timed_out,omitempty"`
 }
 type Measurement struct {
 	// MaxStepDuration is the longest step's wall time (migration-06
@@ -79,6 +91,10 @@ type Measurement struct {
 	AffectedQueries  []QueryMeasurement
 	// Steps holds every rehearsed step's wall time and lock, in order.
 	Steps []StepMeasurement
+	// WorkloadNote says why AffectedQueries is empty: no statement
+	// references the table, or pg_stat_statements is unavailable on
+	// production.
+	WorkloadNote string
 }
 type Result struct {
 	Verdict Verdict
@@ -89,6 +105,13 @@ type Result struct {
 	// CleanupError is non-empty when the rehearsal clone could not be
 	// destroyed; callers must record it durably (leaked resource).
 	CleanupError string
+	// CloneID and ReceiptID name the clone the rehearsal ran on and its
+	// durable receipt (0 without a receipting provider); Provider is
+	// Options.Provider. At is when the rehearsal ended.
+	CloneID   string
+	ReceiptID int64
+	Provider  string
+	At        time.Time
 }
 type Options struct {
 	MaxCloneAge   time.Duration
@@ -104,6 +127,9 @@ type Options struct {
 	// MaxLock bounds how long a step without CONCURRENTLY may hold
 	// ACCESS EXCLUSIVE (migration.max_lock_ms); zero means DefaultMaxLock.
 	MaxLock time.Duration
+	// Provider names the clone provider on the result and its ladder
+	// record (dle, lakebase_branch).
+	Provider string
 }
 type Runner interface {
 	Run(context.Context, string, planpkg.Plan) (Measurement, error)
@@ -121,6 +147,7 @@ func NewOrchestrator(p clonepkg.Provider, r Runner, o Options) *Orchestrator {
 func (o *Orchestrator) Rehearse(
 	ctx context.Context, plan planpkg.Plan,
 ) (result Result, err error) {
+	defer func() { result.Provider, result.At = o.options.Provider, time.Now() }()
 	ctx, cancel := context.WithTimeout(ctx, o.maxDuration())
 	defer cancel()
 	age, err := o.provider.SnapshotAge(ctx)
@@ -136,7 +163,13 @@ func (o *Orchestrator) Rehearse(
 		return Result{Verdict: VerdictRecommendOnly},
 			fmt.Errorf("%w: create rehearsal clone: %w", ErrCloneUnavailable, err)
 	}
-	defer func() { result.CleanupError = o.destroy(target) }()
+	// The receipt is named while the clone lives: a destroyed clone has
+	// none to name.
+	receipt := o.receiptOf(target)
+	defer func() {
+		result.CloneID, result.ReceiptID = target.ID, receipt
+		result.CleanupError = o.destroy(target)
+	}()
 	expandOnly := plan
 	expandOnly.ContractSteps = nil
 	measurement, err := o.runner.Run(ctx, target.DSN, expandOnly)
@@ -154,6 +187,17 @@ func (o *Orchestrator) maxDuration() time.Duration {
 	return DefaultMaxDuration
 }
 
+// receiptOf is the clone's durable receipt id, or 0 when the provider
+// keeps none.
+func (o *Orchestrator) receiptOf(target clonepkg.Clone) int64 {
+	if namer, ok := o.provider.(clonepkg.ReceiptNamer); ok {
+		if id, ok := namer.ReceiptOf(target.ID); ok {
+			return id
+		}
+	}
+	return 0
+}
+
 // destroy tears the clone down on a fresh context (the caller's may be
 // cancelled) and reports a failure instead of discarding it (R08).
 func (o *Orchestrator) destroy(target clonepkg.Clone) string {
@@ -163,40 +207,4 @@ func (o *Orchestrator) destroy(target clonepkg.Clone) string {
 		return fmt.Sprintf("destroy rehearsal clone %s: %v", target.ID, err)
 	}
 	return ""
-}
-
-// judge turns a measurement into a verdict. A step over its budget
-// parks first: that evidence stands without a workload. Without
-// affected-query evidence the result is inconclusive and never promotes.
-func (o *Orchestrator) judge(measurement Measurement) Result {
-	result := Result{Verdict: VerdictPromoteExpand, Reason: ReasonRehearsalPassed,
-		Measurement: measurement}
-	if detail, over := o.overBudget(measurement); over {
-		result.Verdict, result.Reason, result.Detail = VerdictPark, ReasonStepBudget, detail
-		return result
-	}
-	if len(measurement.AffectedQueries) == 0 {
-		result.Verdict, result.Reason = VerdictRecommendOnly, ReasonInconclusiveWorkload
-		return result
-	}
-	if regressed(measurement, o.options.RegressionPct, o.planFlipPct()) {
-		result.Verdict, result.Reason = VerdictPark, ReasonPlanRegression
-	}
-	return result
-}
-
-// regressed: a query slower by more than threshold percent, or by more
-// than flipPct percent when its plan hash changed.
-func regressed(measurement Measurement, threshold, flipPct float64) bool {
-	for _, query := range measurement.AffectedQueries {
-		if query.BeforeLatencyMS <= 0 {
-			continue
-		}
-		change := (query.AfterLatencyMS - query.BeforeLatencyMS) * 100 / query.BeforeLatencyMS
-		flipped := query.AfterPlanHash != query.BeforePlanHash
-		if change > threshold || (flipped && change > flipPct) {
-			return true
-		}
-	}
-	return false
 }

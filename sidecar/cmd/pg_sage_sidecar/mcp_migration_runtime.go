@@ -112,8 +112,11 @@ func configuredMCPMigrationRuntime(
 		maxAge = 24 * time.Hour
 	}
 	runner := runtimepkg.NewPostgresRehearsalRunner(migrationLockTimeout,
-		migrationStatementTimeout).WithProduction(runtimepkg.PoolIdentity(pool))
+		migrationStatementTimeout).WithProduction(runtimepkg.PoolIdentity(pool)).
+		WithWorkload(runtimepkg.PostgresWorkload(pool),
+			time.Duration(cloneConfig.RehearsalStatementTimeoutSeconds)*time.Second)
 	options := migrationRehearsalOptions(cfg, maxAge)
+	options.Provider = cloneConfig.Provider
 	// A lakebase_branch rehearsal ends before its branch expires (market-03).
 	options.MaxDuration = rehearsalMaxDuration(cloneConfig)
 	rehearser := rehearsalpkg.NewOrchestrator(provider, runner, options)

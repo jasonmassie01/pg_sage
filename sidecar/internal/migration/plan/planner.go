@@ -80,6 +80,10 @@ type Plan struct {
 	ContractNotBefore time.Duration
 	// ContractGuard is the proof the contract script asserts first.
 	ContractGuard ContractGuard
+	// Table is the migrated table (Request.Table): the rehearsal measures
+	// the statements that reference it (lab-04b). Not part of the plan's
+	// JSON.
+	Table TableFacts `json:"-"`
 }
 
 func (p Plan) StepsForCycle(cycle int, phase Phase) []Step {
@@ -122,6 +126,7 @@ func (p *Planner) Plan(ctx context.Context, request Request) (Plan, error) {
 		return Plan{}, err
 	}
 	planned.ContractNotBefore = p.delay()
+	planned.Table = request.Table
 	return planned, nil
 }
 

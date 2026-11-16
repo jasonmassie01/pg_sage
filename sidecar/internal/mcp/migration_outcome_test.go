@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/migration/plan"
 	rehearsalpkg "github.com/pg-sage/sidecar/internal/migration/rehearsal"
@@ -39,9 +40,18 @@ func runOutcome(t *testing.T, rehearsal rehearsalpkg.Result) MigrationOutcome {
 	return result.(MigrationOutcome)
 }
 
+// passedRehearsal promoted on one measured statement, on a receipted
+// clone (lab-04b).
 func passedRehearsal() rehearsalpkg.Result {
+	blocks := int64(4)
 	return rehearsalpkg.Result{Verdict: rehearsalpkg.VerdictPromoteExpand,
-		Reason: rehearsalpkg.ReasonRehearsalPassed}
+		Reason: rehearsalpkg.ReasonRehearsalPassed, CloneID: "clone-9", ReceiptID: 31,
+		Provider: "dle", At: time.Date(2026, 11, 16, 9, 30, 0, 0, time.UTC),
+		Measurement: rehearsalpkg.Measurement{AffectedQueries: []rehearsalpkg.QueryMeasurement{{
+			QueryID: 9007199254740993, BeforeLatencyMS: 0.25, AfterLatencyMS: 0.3,
+			BeforePlanHash: "v2u:1a", AfterPlanHash: "v2u:1a", BeforeCost: 8.3,
+			AfterCost: 8.3, BeforeBlocks: &blocks, AfterBlocks: &blocks,
+		}}}}
 }
 
 // Happy path: SET NOT NULL reports contract_pending, both contract
@@ -61,6 +71,8 @@ func TestApplyMigrationOutcomeCarriesPendingContract(t *testing.T) {
 
 // CHECK-27: the JSON golden for the apply_migration outcome includes
 // reason and pending_contract_sql (the plan itself is pinned elsewhere).
+// lab-04b CHECK-26: and the measured affected_queries and the rehearsal's
+// tier-2 ladder record with its clone receipt.
 func TestApplyMigrationOutcomeJSONGolden(t *testing.T) {
 	parsetree.Require(t)
 	raw, err := json.Marshal(runOutcome(t, passedRehearsal()))
@@ -73,8 +85,16 @@ func TestApplyMigrationOutcomeJSONGolden(t *testing.T) {
 	doc["contract_script"] = "SCRIPT"
 	got, err := json.Marshal(doc)
 	require.NoError(t, err)
-	const golden = `{"contract_not_before_cycle":8,"contract_script":"SCRIPT",` +
-		`"evidence_id":"ev-mcp-06","pending_contract_sql":[` +
+	const golden = `{"affected_queries":[{"after_blocks":4,"after_cost":8.3,` +
+		`"after_latency_ms":0.3,"after_plan_hash":"v2u:1a","before_blocks":4,` +
+		`"before_cost":8.3,"before_latency_ms":0.25,"before_plan_hash":"v2u:1a",` +
+		`"query_id":"9007199254740993"}],` +
+		`"contract_not_before_cycle":8,"contract_script":"SCRIPT",` +
+		`"evidence_id":"ev-mcp-06","ladder":{"at":"2026-11-16T09:30:00Z",` +
+		`"evidence":{"measured":1,"provider":"dle","reason":"rehearsal_passed",` +
+		`"receipt_id":31,"statements":1,"verdict":"promote_expand"},` +
+		`"method":"clone_rehearsal","name":"clone","result":"passed","tier":2},` +
+		`"pending_contract_sql":[` +
 		`"ALTER TABLE \"public\".\"users\" ALTER COLUMN \"email\" SET NOT NULL",` +
 		`"ALTER TABLE \"public\".\"users\" DROP CONSTRAINT \"users_email_nn\""],` +
 		`"reason":"contract_pending","verdict":"expanded"}`
