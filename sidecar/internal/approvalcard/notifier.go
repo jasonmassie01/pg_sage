@@ -2,6 +2,7 @@ package approvalcard
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/chatops"
@@ -59,28 +60,36 @@ func (n *Notifier) Dispatch(ctx context.Context, evt notify.Event) error {
 		return nil
 	}
 	if evt.Type == "approval_needed" {
-		evt = n.enrich(ctx, evt)
+		var skip bool
+		if evt, skip = n.enrich(ctx, evt); skip {
+			return nil
+		}
 	}
 	return n.inner.Dispatch(ctx, evt)
 }
 
 // enrich attaches the card; a card that cannot be built is logged and the
-// plain request goes out (without buttons: it is decided in the UI).
-func (n *Notifier) enrich(ctx context.Context, evt notify.Event) notify.Event {
+// plain request goes out (without buttons: it is decided in the UI). A
+// plan step's request is not sent at all (skip): it is decided on its plan.
+func (n *Notifier) enrich(ctx context.Context, evt notify.Event) (notify.Event, bool) {
 	id, ok := evt.Data["queue_id"].(int)
 	if !ok || id <= 0 {
-		return evt
+		return evt, false
 	}
 	l := n.loader
 	if n.trust != nil {
 		l.TrustLevel = n.trust()
 	}
 	c, err := l.Card(ctx, id)
+	if errors.Is(err, ErrPlanStepItem) {
+		n.logFn("approvalcard", "queue item %d is a plan step: no approval request sent", id)
+		return evt, true
+	}
 	if err != nil {
 		n.logFn("approvalcard", "queue item %d sent without its card: %v", id, err)
-		return evt
+		return evt, false
 	}
-	return notify.WithApprovalCard(evt, CardRefOf(c), Text(c, n.loader.now()))
+	return notify.WithApprovalCard(evt, CardRefOf(c), Text(c, n.loader.now())), false
 }
 
 // TokenIssuer mints card tokens in the control database

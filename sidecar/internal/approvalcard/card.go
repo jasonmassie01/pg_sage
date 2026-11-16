@@ -24,6 +24,11 @@ import (
 // ErrNotFound means the queue item does not exist.
 var ErrNotFound = errors.New("approvalcard: queue item not found")
 
+// ErrPlanStepItem: a plan step's queue item has no card; it is decided on
+// its plan (plan-02a), so no card, chat button or follow-up approves it.
+var ErrPlanStepItem = errors.New("approvalcard: a plan step is decided on its plan, " +
+	"not on a card")
+
 // Card is one queued action presented for a decision.
 type Card struct {
 	QueueID        int                `json:"queue_id"`
