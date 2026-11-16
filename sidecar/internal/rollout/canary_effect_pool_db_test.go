@@ -101,6 +101,14 @@ func TestEffectPoolReadsAcrossThreeFixtureDatabases(t *testing.T) {
 		to.Add(-time.Hour), 20, 20)
 	seedQuery(t, d3, 34, "SELECT * FROM items WHERE id = $1", from, to.Add(-time.Hour),
 		1, 90)
+	// d3's newest snapshot holds both statements (two snapshots at one
+	// instant would leave which one is newest to the sort).
+	if _, err := d3.Exec(context.Background(), `INSERT INTO sage.snapshots (collected_at,
+		category, data) VALUES ($1, 'queries', '[{"queryid": 33, "query":
+		"SELECT * FROM orders WHERE status = $1"}, {"queryid": 34, "query":
+		"SELECT * FROM items WHERE id = $1"}]'::jsonb)`, to.Add(-30*time.Minute)); err != nil {
+		t.Fatalf("seed d3 snapshot: %v", err)
+	}
 	queueID := seedQueueRow(t, d1)
 
 	eff, err := NewPoolEffects(d1).ActionEffect(context.Background(), 101)
