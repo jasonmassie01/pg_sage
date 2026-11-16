@@ -1,6 +1,7 @@
 package changeplan
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -176,8 +177,9 @@ func TestResumedEngineNeedsResumeOnlyAsLeader(t *testing.T) {
 	if e.needsResume() {
 		t.Fatal("a settled resume must not run again")
 	}
-	e.setNeedResume(true)
-	if !e.needsResume() {
-		t.Fatal("losing leadership must make the next leading tick resume")
+	e.cfg.Leader = func() bool { return false }
+	if err := e.Tick(context.Background()); err != nil || !e.needsResume() {
+		t.Fatalf("follower tick: %v, resume pending %v: losing leadership must make the "+
+			"next leading tick resume", err, e.needsResume())
 	}
 }

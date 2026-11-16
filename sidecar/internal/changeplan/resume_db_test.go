@@ -423,3 +423,60 @@ func TestResume_OldLeaderTransitionIsRefusedByTheClaim(t *testing.T) {
 		}
 	}
 }
+
+// State transitions: the same engine losing and regaining leadership (no
+// restart) resumes on its next leading tick. Without the follower tick in
+// between nothing resumes: the step its own crash left running waits.
+func TestResume_RegainingLeadershipResumesTheSameEngine(t *testing.T) {
+	f := newEngineFixture(t, "resume_regain")
+	p := f.approved(chain(3, 101))
+	f.killDuringStep2(p, "after")
+	f.manual.mu.Lock()
+	f.manual.crash = nil
+	f.manual.mu.Unlock()
+	f.tick()
+	if s := f.stepAt(p.ID, 2); s.Runtime.State != StateRunning {
+		t.Fatalf("leading tick with resume settled: step 2 %s, want running", s.Runtime.State)
+	}
+	f.leader.Store(false)
+	f.tick()
+	if !f.engine.needsResume() {
+		t.Fatal("a follower tick must make the next leading tick resume")
+	}
+	f.leader.Store(true)
+	f.tick()
+	s := f.stepAt(p.ID, 2)
+	if s.Runtime.State != StateJudging || s.Runtime.ClaimedBy != "engine-a" ||
+		f.manual.callCount() != 2 || f.engine.needsResume() {
+		t.Fatalf("after regaining leadership step 2 %s claimed by %s after %d runs, resume "+
+			"pending %v: want judging by engine-a after 2, settled", s.Runtime.State,
+			s.Runtime.ClaimedBy, f.manual.callCount(), f.engine.needsResume())
+	}
+}
+
+// A run of the same SQL that another plan's step recorded as its own is
+// not this step's run: the queued step runs its item instead of halting.
+func TestResume_AnotherStepsRunIsNotThisStepsRun(t *testing.T) {
+	f := newEngineFixture(t, "resume_other_run")
+	p := f.approved(chain(3, 101))
+	f.killDuringStep2(p, "approved")
+	s2 := f.stepAt(p.ID, 2)
+	var actionID int64
+	if err := f.pool.QueryRow(f.ctx, `INSERT INTO sage.action_log (action_type, finding_id,
+		sql_executed, outcome) VALUES ('create_index', $1, $2, 'success') RETURNING id`,
+		*s2.FindingID, s2.ProposedSQL).Scan(&actionID); err != nil {
+		t.Fatalf("ledger row: %v", err)
+	}
+	other := mustCreate(t, f.store, chain(1, 102))
+	f.exec1(`UPDATE sage.plan_step SET action_log_id = $1 WHERE plan_id = $2`, actionID,
+		other.ID)
+	b := f.restart()
+	f.tickWith(b)
+	s := f.stepAt(p.ID, 2)
+	if (s.Runtime.State != StateExecuted && s.Runtime.State != StateJudging) ||
+		f.manual.callCount() != 2 || *s.Runtime.ActionLogID == actionID {
+		t.Fatalf("step 2 %s (%s) after %d runs, want its own run (not action %d)",
+			s.Runtime.State, s.Runtime.StateReason, f.manual.callCount(), actionID)
+	}
+	f.checkHalt(p.ID, false)
+}
