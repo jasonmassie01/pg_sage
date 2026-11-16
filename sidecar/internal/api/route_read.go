@@ -78,8 +78,15 @@ func routeRead(mux *http.ServeMux, pattern string, gate routeGate, scope readSco
 // request is served by build over a view holding their visible databases.
 func routeAggregate(mux *http.ServeMux, pattern string, gate routeGate,
 	mgr *fleet.DatabaseManager, build func(*fleet.DatabaseManager) http.Handler) {
+	routeRead(mux, pattern, gate, readScope{kind: readKindAggregate}, aggregateRead(mgr, build))
+}
+
+// aggregateRead serves unscoped callers with build(mgr) and a scoped
+// caller with build over a view holding their visible databases.
+func aggregateRead(mgr *fleet.DatabaseManager,
+	build func(*fleet.DatabaseManager) http.Handler) http.Handler {
 	whole := build(mgr)
-	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		visible, scoped := visibleDatabasesFrom(r.Context())
 		switch {
 		case !scoped:
@@ -90,7 +97,6 @@ func routeAggregate(mux *http.ServeMux, pattern string, gate routeGate,
 			build(mgr.ReadView(visible)).ServeHTTP(w, r)
 		}
 	})
-	routeRead(mux, pattern, gate, readScope{kind: readKindAggregate}, h)
 }
 
 // aggregateHandler adapts a handler factory to routeAggregate.

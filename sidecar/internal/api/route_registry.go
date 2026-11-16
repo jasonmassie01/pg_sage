@@ -39,7 +39,9 @@ const (
 	// only for the patterns in viewerWriteOrTokenRoutes, and only for a
 	// handler built by newTokenOrSession (any other is session-only).
 	gateViewerWriteOrToken
-	// gateOperator allows operators and admins.
+	// gateOperator allows operators and admins (on a plan route, or
+	// instead an operator API token with the approve scope whose owner is
+	// an operator or admin now: plan_token.go).
 	gateOperator
 	// gateAdmin allows admins only.
 	gateAdmin
@@ -95,6 +97,11 @@ var (
 // wrap applies the gate to h. Public and self-authenticating routes are
 // returned unchanged; an unknown gate fails closed for every request.
 func (g routeGate) wrap(h http.Handler) http.Handler {
+	// A plan route's handler gates its session requests itself and takes
+	// an operator API token instead (plan-03a, plan_token.go).
+	if ts, ok := h.(*planTokenOrSession); ok && ts.gate == g {
+		return ts
+	}
 	switch g {
 	case gatePublic, gateSelfAuth:
 		return h

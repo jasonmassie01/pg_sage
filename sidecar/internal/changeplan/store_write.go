@@ -115,6 +115,11 @@ func (s *Store) edit(ctx context.Context, planID int64, r Resolver,
 		if err != nil {
 			return err
 		}
+		voidedSteps, err := voidStepApprovals(ctx, tx, planID, VoidEdited)
+		if err != nil {
+			return err
+		}
+		e.detail["voided_step_approvals"] = voidedSteps
 		status := p.Status
 		if status == StatusApproved {
 			status = StatusProposed
@@ -173,74 +178,40 @@ func setPlan(ctx context.Context, tx pgx.Tx, planID int64, status Status, hash s
 	return nil
 }
 
-// Approve records userID's approval of plan planID at planHash, the hash
-// the approver was shown. It refuses with ErrStaleHash when the rows hash
-// to something else; approving again at the live approval's hash returns
-// that approval, so a plan holds at most one live approval.
+// Approve records userID's approve-all of plan planID at planHash through
+// the API (ApproveWith with mode all).
 func (s *Store) Approve(ctx context.Context, planID int64, planHash string,
 	userID int) (Approval, error) {
-	if userID <= 0 {
-		return Approval{}, fmt.Errorf("changeplan: approve plan %d: no approver", planID)
-	}
-	var a Approval
-	err := s.inTx(ctx, func(tx pgx.Tx) error {
-		p, err := lockPlan(ctx, tx, planID)
-		if err != nil {
-			return err
-		}
-		if p.Status != StatusProposed && p.Status != StatusApproved {
-			return fmt.Errorf("%w: plan %d is %s", ErrNotApprovable, planID, p.Status)
-		}
-		current := PlanHash(p)
-		if planHash != current {
-			return fmt.Errorf("%w (plan %d)", ErrStaleHash, planID)
-		}
-		if err := checkCapsIn(ctx, tx, s.capsSource(), p); err != nil {
-			return err
-		}
-		var fresh bool
-		a, fresh, err = approveLocked(ctx, tx, planID, current, userID)
-		if err != nil {
-			return err
-		}
-		if err := setPlan(ctx, tx, planID, StatusApproved, current); err != nil {
-			return err
-		}
-		if !fresh {
-			return nil // the live approval already holds this hash: nothing changed
-		}
-		_, err = AppendEvent(ctx, tx, Event{PlanID: planID, Kind: EventApproved,
-			PlanHash: current, Actor: fmt.Sprintf("user:%d", userID),
-			Detail: map[string]any{"approval_id": a.ID}})
-		return err
-	})
-	if err != nil {
-		return Approval{}, fmt.Errorf("changeplan: approve plan %d: %w", planID, err)
-	}
-	return a, nil
+	return s.ApproveWith(ctx, planID, Decision{PlanHash: planHash, Mode: ModeAll,
+		Via: ViaAPI}, userID)
 }
 
-// approveLocked returns the live approval when it holds hash, else voids
-// any other live approval ("superseded") and inserts a new one (fresh).
-func approveLocked(ctx context.Context, tx pgx.Tx, planID int64, hash string,
+// approveLocked returns the live approval when it holds d's hash and mode,
+// else voids any other live approval ("superseded") and inserts a new one
+// (fresh).
+func approveLocked(ctx context.Context, tx pgx.Tx, planID int64, d Decision,
 	userID int) (a Approval, fresh bool, err error) {
-	err = tx.QueryRow(ctx, `/* pg_sage */ SELECT id, plan_id, plan_hash, approver_user_id,
-		decided_at FROM sage.plan_approval WHERE plan_id = $1 AND voided_at IS NULL`,
-		planID).Scan(&a.ID, &a.PlanID, &a.PlanHash, &a.ApproverUserID, &a.DecidedAt)
-	switch {
-	case err == nil && a.PlanHash == hash:
-		return a, false, nil
-	case err == nil:
+	live, err := liveApproval(ctx, tx, planID)
+	if err != nil {
+		return Approval{}, false, err
+	}
+	if live != nil && live.PlanHash == d.PlanHash && live.Mode == d.Mode &&
+		derefInt(live.UpTo) == d.UpTo {
+		return *live, false, nil
+	}
+	if live != nil {
 		if _, err := voidLive(ctx, tx, planID, "superseded"); err != nil {
 			return Approval{}, false, err
 		}
-	case !errors.Is(err, pgx.ErrNoRows):
-		return Approval{}, false, fmt.Errorf("read the live approval: %w", err)
 	}
-	a = Approval{PlanID: planID, PlanHash: hash, ApproverUserID: userID}
-	err = tx.QueryRow(ctx, `/* pg_sage */ INSERT INTO sage.plan_approval (plan_id, plan_hash,
-		approver_user_id) VALUES ($1, $2, $3) RETURNING id, decided_at`,
-		planID, hash, userID).Scan(&a.ID, &a.DecidedAt)
+	var upTo *int
+	if d.Mode == ModeUpTo {
+		upTo = &d.UpTo
+	}
+	a, err = scanApproval(tx.QueryRow(ctx, `/* pg_sage */ INSERT INTO sage.plan_approval
+		(plan_id, plan_hash, approver_user_id, mode, up_to_ordinal, via)
+		VALUES ($1, $2, $3, $4, $5, $6) RETURNING `+approvalColumns,
+		planID, d.PlanHash, userID, string(d.Mode), upTo, string(d.Via)))
 	if err != nil {
 		return Approval{}, false, fmt.Errorf("store the approval: %w", err)
 	}
@@ -263,7 +234,7 @@ func (s *Store) Void(ctx context.Context, planID int64, reason string) error {
 		if !editable(p.Status) && p.Status != StatusHalted {
 			return fmt.Errorf("%w: plan %d is %s", ErrNotEditable, planID, p.Status)
 		}
-		if _, err := voidLive(ctx, tx, planID, reason); err != nil {
+		if err := voidAll(ctx, tx, planID, reason); err != nil {
 			return err
 		}
 		if err := setPlan(ctx, tx, planID, StatusVoided, p.PlanHash); err != nil {

@@ -191,7 +191,7 @@ func NewRouterFullRuntime(
 		registerActionRoutes(apiMux, actions)
 	}
 	if mgr != nil {
-		registerApprovalCardRoutes(apiMux, mgr, autonomyRegistry(rt.Autonomy))
+		registerChangeDecisionRoutes(apiMux, mgr, pool, rt)
 	}
 	if dbDeps != nil && dbDeps.Store != nil {
 		registerDatabaseRoutes(apiMux, dbDeps)
@@ -228,6 +228,16 @@ func NewRouterFullRuntime(
 	}
 	registerRootRoutes(root)
 	return root, nil
+}
+
+// registerChangeDecisionRoutes registers the approval cards and the plan routes
+// (plan-03a), which decide changes on one monitored database each. Outside
+// a Databricks App the plan routes also take an operator API token from
+// pool's store.
+func registerChangeDecisionRoutes(apiMux *http.ServeMux, mgr *fleet.DatabaseManager,
+	pool *pgxpool.Pool, rt RuntimeDeps) {
+	registerApprovalCardRoutes(apiMux, mgr, autonomyRegistry(rt.Autonomy))
+	registerPlanRoutes(apiMux, mgr, lintTokenStore(mcpTokenStore(pool)), rt.DatabricksAppAuth)
 }
 
 // registerFleetScopedRoutes registers the routes that resolve their data

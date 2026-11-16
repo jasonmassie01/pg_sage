@@ -11,6 +11,8 @@ import (
 // No concurrent access test: the step is a constant string (the bootstrap
 // lock serializes it).
 
+// plan-02d's and plan-03a's steps follow it, so this pins its place
+// right after ddlPlanStepRun rather than at the end.
 func TestPlanStepApprovalStep_FollowsPlanStepRun(t *testing.T) {
 	steps := trancheFiveMigrations()
 	for i, s := range steps {

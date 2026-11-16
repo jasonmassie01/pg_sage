@@ -142,9 +142,11 @@ func nextPending(p Plan) move {
 
 // haltReason is why step s halts its plan ("" when it does not): it
 // failed or halted, regressed (whatever its action did), or was reverted
-// on a verdict whose action asks a person.
+// on a verdict whose action asks a person, unless a person resumed past it.
 func haltReason(s Step) string {
 	switch {
+	case s.Runtime.ResumedAt != nil:
+		return "" // a person resumed the plan past it (plan-03a)
 	case s.Runtime.State == StateFailed:
 		return "step failed: " + s.Runtime.StateReason
 	case s.Runtime.State == StateHalted:

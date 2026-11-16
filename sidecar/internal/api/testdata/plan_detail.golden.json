@@ -1,0 +1,148 @@
+{
+  "approvals": [
+    {
+      "approver_user_id": 2,
+      "decided_at": "2026-11-16T09:30:00Z",
+      "id": 41,
+      "mode": "up_to",
+      "plan_hash": "4f1c2b0d9e8a7f6e5d4c3b2a19087f6e5d4c3b2a19087f6e5d4c3b2a19087f6e",
+      "plan_id": 7,
+      "up_to": 2,
+      "via": "ui"
+    }
+  ],
+  "coverage": [
+    {
+      "by": "plan",
+      "covered": true,
+      "needs_own_approval": false,
+      "ordinal": 1,
+      "step_id": 70
+    },
+    {
+      "by": "plan",
+      "covered": true,
+      "needs_own_approval": false,
+      "ordinal": 2,
+      "step_id": 71
+    },
+    {
+      "covered": false,
+      "needs_own_approval": false,
+      "ordinal": 3,
+      "reason": "the plan was approved up to step 2",
+      "step_id": 72
+    }
+  ],
+  "database": "orders",
+  "plan": {
+    "created_at": "2026-11-16T09:30:00Z",
+    "created_by": "alice",
+    "edges": [
+      {
+        "from": 1,
+        "to": 2
+      },
+      {
+        "from": 2,
+        "to": 3
+      }
+    ],
+    "goal": "cut blocks per call on the order lookups",
+    "id": 7,
+    "origin": "person",
+    "plan_hash": "4f1c2b0d9e8a7f6e5d4c3b2a19087f6e5d4c3b2a19087f6e5d4c3b2a19087f6e",
+    "scope": {
+      "objects": [
+        "public.orders"
+      ],
+      "queryids": [
+        101
+      ]
+    },
+    "status": "approved",
+    "steps": [
+      {
+        "action_type": "create_index_concurrently",
+        "checkpoint": false,
+        "deadline_minutes": 60,
+        "expected_direction": "down",
+        "expected_source": "hypopg",
+        "finding_id": 11,
+        "id": 70,
+        "kind": "action",
+        "metric": "blocks_per_call",
+        "min_evidence": {},
+        "on_expired": "halt_ask",
+        "on_improved": "keep",
+        "on_inconclusive": "halt_ask",
+        "on_no_change": "keep",
+        "on_regressed": "revert_step",
+        "ordinal": 1,
+        "proposed_sql": "CREATE INDEX CONCURRENTLY idx_a ON public.orders (customer_id)",
+        "rollback_sql": "DROP INDEX CONCURRENTLY public.idx_a",
+        "runtime": {
+          "state": "pending"
+        },
+        "target_queryids": [
+          101
+        ]
+      },
+      {
+        "action_type": "create_index_concurrently",
+        "checkpoint": false,
+        "deadline_minutes": 60,
+        "expected_direction": "down",
+        "expected_source": "hypopg",
+        "finding_id": 11,
+        "id": 71,
+        "kind": "action",
+        "metric": "blocks_per_call",
+        "min_evidence": {},
+        "on_expired": "halt_ask",
+        "on_improved": "keep",
+        "on_inconclusive": "halt_ask",
+        "on_no_change": "keep",
+        "on_regressed": "revert_step",
+        "ordinal": 2,
+        "proposed_sql": "CREATE INDEX CONCURRENTLY idx_b ON public.orders (customer_id)",
+        "rollback_sql": "DROP INDEX CONCURRENTLY public.idx_b",
+        "runtime": {
+          "state": "pending"
+        },
+        "target_queryids": [
+          101
+        ]
+      },
+      {
+        "action_type": "create_index_concurrently",
+        "checkpoint": false,
+        "deadline_minutes": 60,
+        "expected_direction": "down",
+        "expected_source": "hypopg",
+        "finding_id": 11,
+        "id": 72,
+        "kind": "action",
+        "metric": "blocks_per_call",
+        "min_evidence": {},
+        "on_expired": "halt_ask",
+        "on_improved": "keep",
+        "on_inconclusive": "halt_ask",
+        "on_no_change": "keep",
+        "on_regressed": "revert_step",
+        "ordinal": 3,
+        "proposed_sql": "CREATE INDEX CONCURRENTLY idx_c ON public.orders (customer_id)",
+        "rollback_sql": "DROP INDEX CONCURRENTLY public.idx_c",
+        "runtime": {
+          "state": "pending"
+        },
+        "target_queryids": [
+          101
+        ]
+      }
+    ],
+    "updated_at": "2026-11-16T09:30:00Z"
+  },
+  "plan_hash": "4f1c2b0d9e8a7f6e5d4c3b2a19087f6e5d4c3b2a19087f6e5d4c3b2a19087f6e",
+  "step_approvals": []
+}

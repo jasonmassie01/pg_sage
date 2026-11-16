@@ -27,10 +27,7 @@ func (rt *databaseRuntime) buildPlanEngine() planTicker {
 	if rt.dispatcher != nil {
 		dispatch = rt.dispatcher
 	}
-	store, scope := rt.policyStoreScope()
-	caps := planCapsFrom(func(ctx context.Context) (policy.Policy, error) {
-		return store.Current(ctx, scope)
-	})
+	caps := rt.planCaps()
 	v2, window := rt.executor.OperatorVerification()
 	engine, err := changeplan.NewEngine(changeplan.EngineConfig{Pool: rt.spec.Pool,
 		Executor: rt.executor, Waits: rt.executor.VerificationWaits(),
@@ -49,6 +46,16 @@ func (rt *databaseRuntime) buildPlanEngine() planTicker {
 	}
 	rt.note("plans")
 	return engine
+}
+
+// planCaps reads the plan caps from the plans block of the standing policy
+// the executor enforces (plan-02b): the engine checks steps against it and
+// the plan API checks approvals against it (plan-03a).
+func (rt *databaseRuntime) planCaps() changeplan.CapsSource {
+	store, scope := rt.policyStoreScope()
+	return planCapsFrom(func(ctx context.Context) (policy.Policy, error) {
+		return store.Current(ctx, scope)
+	})
 }
 
 // planEngineOwner names this sidecar's claims on plan steps.

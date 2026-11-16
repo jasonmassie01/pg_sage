@@ -10,8 +10,10 @@ import (
 	"github.com/pg-sage/sidecar/internal/notify"
 )
 
-// The engine's holds before a step starts (plan-02b): a step that is never
-// automatic stops with awaiting_approval; a step that would cross a plan
+// The engine's holds before a step starts (plan-02b): a step the plan's
+// approval does not cover (a never-automatic step, one past an up_to, any
+// step of a step-by-step plan; plan-03a) and that has no approval of its
+// own stops with awaiting_approval; a step that would cross a plan
 // cap, or start inside a peak window, waits, and past its deadline it ends
 // skipped with verdict expired and its on_expired runs.
 
@@ -28,8 +30,12 @@ func (e *Engine) holdBeforeStart(ctx context.Context, tx pgx.Tx, p Plan, s Step)
 	if err != nil {
 		return nil, true, err
 	}
-	if own, why := NeedsOwnApproval(s, settings); own {
-		next, err := e.awaitApproval(ctx, tx, p, s, why)
+	cov, err := coverageNow(ctx, tx, p, s, settings)
+	if err != nil {
+		return nil, true, err
+	}
+	if !cov.Covered {
+		next, err := e.awaitApproval(ctx, tx, p, s, cov.Reason)
 		return next, true, err
 	}
 	wait, err := e.mustWait(ctx, tx, p, s)
@@ -48,8 +54,9 @@ func (e *Engine) holdBeforeStart(ctx context.Context, tx pgx.Tx, p Plan, s Step)
 	return nil, true, e.waitOnCap(ctx, tx, p, s, why)
 }
 
-// awaitApproval stops plan p before never-automatic step s: the step is
-// awaiting_approval with why, and one notification asks a person.
+// awaitApproval stops plan p before step s, which its approval does not
+// cover: the step is awaiting_approval with why, and one notification asks
+// a person.
 func (e *Engine) awaitApproval(ctx context.Context, tx pgx.Tx, p Plan, s Step,
 	why string) (followUp, error) {
 	if p.Status == StatusApproved {
@@ -65,7 +72,7 @@ func (e *Engine) awaitApproval(ctx context.Context, tx pgx.Tx, p Plan, s Step,
 	evt := notify.Event{Type: "approval_needed", Severity: "warning",
 		Subject: fmt.Sprintf("Plan %d step %d needs its own approval", p.ID, s.Ordinal),
 		Body: fmt.Sprintf("Plan %d (%s) on %s stopped before step %d: approving the plan "+
-			"does not cover it. Why: %s. Approve or skip the step to go on.", p.ID,
+			"does not cover it. Why: %s. Approve the step to go on, or cancel the plan.", p.ID,
 			truncate(p.Goal, 120), e.cfg.Database, s.Ordinal, truncate(why, 500)),
 		Data: map[string]any{"plan_id": p.ID, "step": s.Ordinal,
 			"database": e.cfg.Database},
@@ -165,4 +172,23 @@ func (e *Engine) waitOnCap(ctx context.Context, tx pgx.Tx, p Plan, s Step,
 		return fmt.Errorf("record why step %d of plan %d waits: %w", s.Ordinal, p.ID, err)
 	}
 	return nil
+}
+
+// coverageNow is the approval coverage of step s of plan p (its rows
+// locked by tx): the plan's live approval and the step's own.
+func coverageNow(ctx context.Context, tx pgx.Tx, p Plan, s Step,
+	settings SettingContexts) (StepCoverage, error) {
+	live, err := liveApproval(ctx, tx, p.ID)
+	if err != nil {
+		return StepCoverage{}, err
+	}
+	own, err := liveStepApproval(ctx, tx, s.ID)
+	if err != nil {
+		return StepCoverage{}, err
+	}
+	var steps []StepApproval
+	if own != nil {
+		steps = []StepApproval{*own}
+	}
+	return Coverage(Plan{PlanHash: p.PlanHash, Steps: []Step{s}}, live, steps, settings)[0], nil
 }
