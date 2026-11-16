@@ -6,13 +6,15 @@ import { AutonomyStep } from './AutonomyStep'
 import {
   SKIP_COST, STEP_LABELS, WIZARD_STEPS, readSkipped, stepStatus, wizardFinished, writeSkipped,
 } from './wizardState'
-import { Notice, cardStyle, postJSON } from './parts'
+import { Notice, PrimaryButton, cardStyle, postJSON } from './parts'
 
 // SetupWizard is the four-step first-run setup on the home page (ux-04b):
 // Connect, Model, Where to reach you, How much may I do. Each step's status
 // is the onboarding checklist's, so the two never disagree; a finished step
 // records its first-done time (POST /api/v1/onboarding/setup), and a skip
-// says what it costs. It ends on the first look.
+// says what it costs. A step finished just now stays open, so its result
+// (the model's answer, the test notification) stays readable, until Next.
+// It ends on the first look.
 
 const STATUS_MARK = { done: '✓', skipped: '–', todo: '○' }
 
@@ -105,6 +107,7 @@ export function SetupWizard({ entry, onChanged = noop, onFinished = noop }) {
   const [skipped, skip] = useSkips(entry?.database ?? null)
   const status = stepStatus(entry, skipped)
   const [current, setCurrent] = useState(() => firstOpen(status) ?? 'connect')
+  const [held, setHeld] = useState(null)
   const { error, record } = useRecord(entry, onChanged)
   const finished = wizardFinished(status)
   useFinished(finished, onFinished)
@@ -116,7 +119,14 @@ export function SetupWizard({ entry, onChanged = noop, onFinished = noop }) {
       else onChanged()
       return
     }
-    if (await record(key)) advance(key, status)
+    const wasDone = status[key] === 'done'
+    if (!(await record(key))) return
+    if (wasDone || key === 'autonomy') advance(key, status)
+    else setHeld(key)
+  }
+  function openStep(key) {
+    setHeld(null)
+    setCurrent(key)
   }
   function onSkip(key) {
     advance(key, stepStatus(entry, skip(key)))
@@ -127,12 +137,18 @@ export function SetupWizard({ entry, onChanged = noop, onFinished = noop }) {
       className="rounded-lg p-4 space-y-4" style={cardStyle}>
       <h2 id="setup-heading" className="text-lg font-semibold">Set up pg_sage</h2>
       <StepNav status={status} current={finished ? null : open} hasDatabase={Boolean(entry)}
-        onOpen={setCurrent} />
+        onOpen={openStep} />
       {error && <Notice testId="setup-record-error">{error}</Notice>}
       {finished
         ? <Finished database={entry?.database} />
         : <div data-testid="setup-step-body">
           <StepBody step={open} entry={entry} status={status} onDone={onDone} onSkip={onSkip} />
+          {held === open && (
+            <PrimaryButton testId="setup-step-next" onClick={() => {
+              setHeld(null)
+              advance(open, status)
+            }}>Next</PrimaryButton>
+          )}
         </div>}
     </section>
   )

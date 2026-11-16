@@ -70,7 +70,30 @@ describe('SetupWizard', () => {
     const [url, init] = fetchFn.mock.calls[0]
     expect(`${init.method} ${url}`).toBe(SETUP)
     expect(JSON.parse(init.body)).toEqual({ database: 'app', step: 'model' })
+    // Review fix: the step stays open so its result stays readable, until Next.
+    expect(screen.getByTestId('step-body-model')).toBeInTheDocument()
+    fireEvent.click(await screen.findByTestId('setup-step-next'))
     expect(screen.getByTestId('step-body-channel')).toBeInTheDocument()
+    expect(screen.queryByTestId('setup-step-next')).toBeNull()
+  })
+
+  it('finishing a step that was already done moves on at once', async () => {
+    const { fetchFn } = renderWizard({ entry: entry({ connected: true, notifications: true }) })
+    fireEvent.click(nav('channel'))
+    fireEvent.click(screen.getByText('finish channel'))
+    expect(await screen.findByTestId('step-body-autonomy')).toBeInTheDocument()
+    expect(fetchFn).toHaveBeenCalledTimes(1)
+    expect(screen.queryByTestId('setup-step-next')).toBeNull()
+  })
+
+  it('a step left through the step list does not keep its Next', async () => {
+    const { onChanged } = renderWizard()
+    fireEvent.click(screen.getByText('finish model'))
+    await waitFor(() => expect(onChanged).toHaveBeenCalled())
+    expect(await screen.findByTestId('setup-step-next')).toBeInTheDocument()
+    fireEvent.click(nav('channel'))
+    fireEvent.click(nav('model'))
+    expect(screen.queryByTestId('setup-step-next')).toBeNull()
   })
 
   it('a refused record (409) is shown and the step stays open', async () => {
