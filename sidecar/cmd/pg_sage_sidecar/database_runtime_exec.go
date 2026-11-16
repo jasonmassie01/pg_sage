@@ -53,7 +53,8 @@ func (rt *databaseRuntime) startExecution() {
 		store.StartActionExpiry(rt.ctx, rt.actions, logStructuredWrapper)
 	})
 	rt.brief = briefing.New(rt.spec.Pool, cfg, rt.generalLLM, logStructuredWrapper).
-		WithDatabaseName(rt.spec.Name)
+		WithDatabaseName(rt.spec.Name).WithNotifier(rt.briefingNotifier()).
+		WithInboxCounter(digestInboxCounts) // ux-02b
 	briefingWorkers.track(rt.ctx, rt.brief) // live briefing.* changes (llm-06)
 	deps := fleetCycleDeps{
 		name: rt.spec.Name, ha: rt.ha, exec: rt.executor, plans: rt.buildPlanEngine(),
