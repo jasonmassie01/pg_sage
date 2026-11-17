@@ -1161,6 +1161,27 @@
     "class": "safety_critical",
     "lifecycle": "restart"
   },
+  "clone.alloydb.cluster": {
+    "type": "string",
+    "default": "",
+    "doc": "Cluster id of the monitored AlloyDB cluster; it needs continuous backup on, and pg_sage must connect to its primary instance's IP.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "clone.alloydb.location": {
+    "type": "string",
+    "default": "",
+    "doc": "Region of the monitored AlloyDB cluster, such as us-central1; restores are made in the same region.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "clone.alloydb.project": {
+    "type": "string",
+    "default": "",
+    "doc": "Google Cloud project of the monitored AlloyDB cluster; restores are made there and the reaper looks for leaked ones there.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
   "clone.aurora.instance_class": {
     "type": "string",
     "default": "",
@@ -1294,7 +1315,7 @@
   "clone.provider": {
     "type": "string",
     "default": "none",
-    "doc": "Clone provider: none, dle (Database Lab), lakebase_branch or neon_branch (a branch per rehearsal), aurora_clone (an Aurora clone), or the full copies rds_restore and cloudsql_clone (allow_full_copy).",
+    "doc": "Clone provider: none, dle (Database Lab), lakebase_branch or neon_branch (a branch), aurora_clone (an Aurora clone), or the full copies rds_restore, cloudsql_clone, alloydb_restore (allow_full_copy).",
     "class": "safety_critical",
     "lifecycle": "restart",
     "enum": [
@@ -1304,7 +1325,8 @@
       "neon_branch",
       "aurora_clone",
       "rds_restore",
-      "cloudsql_clone"
+      "cloudsql_clone",
+      "alloydb_restore"
     ]
   },
   "clone.rds.instance_class": {
@@ -1338,7 +1360,7 @@
   "clone.restore_deadline_minutes": {
     "type": "int",
     "default": 120,
-    "doc": "Longest a full-copy restore or clone (rds_restore, cloudsql_clone) may take to become available, in minutes, 30 to 720; one still not ready is left to the reaper. Default: 120.",
+    "doc": "Longest a full-copy restore or clone (rds_restore, cloudsql_clone, alloydb_restore) may take to become available, in minutes, 30 to 720; one still not ready is left to the reaper. Default: 120.",
     "class": "operator_preference",
     "lifecycle": "restart"
   },

@@ -44,7 +44,7 @@ type IOCapacityConfig struct {
 }
 
 type CloneProviderConfig struct {
-	Provider           string `yaml:"provider" doc:"Clone provider: none, dle (Database Lab), lakebase_branch or neon_branch (a branch per rehearsal), aurora_clone (an Aurora clone), or the full copies rds_restore and cloudsql_clone (allow_full_copy)." api:"clone_provider" enum:"none|dle|lakebase_branch|neon_branch|aurora_clone|rds_restore|cloudsql_clone"`
+	Provider           string `yaml:"provider" doc:"Clone provider: none, dle (Database Lab), lakebase_branch or neon_branch (a branch), aurora_clone (an Aurora clone), or the full copies rds_restore, cloudsql_clone, alloydb_restore (allow_full_copy)." api:"clone_provider" enum:"none|dle|lakebase_branch|neon_branch|aurora_clone|rds_restore|cloudsql_clone|alloydb_restore"`
 	DLEEndpoint        string `yaml:"dle_endpoint" doc:"Database Lab Engine API endpoint." api:"string"`
 	DLEToken           string `yaml:"dle_token" doc:"Database Lab bearer token." secret:"true" api:"string"`
 	MaxCloneAgeMinutes int    `yaml:"max_clone_age_minutes" doc:"Maximum source snapshot age." api:"int_pos"`
@@ -67,11 +67,13 @@ type CloneProviderConfig struct {
 	// Aurora configures clone.provider aurora_clone (lab-05c).
 	Aurora CloneAuroraConfig `yaml:"aurora"`
 	// RestoreDeadlineMinutes bounds a full-copy restore (lab-05d).
-	RestoreDeadlineMinutes int `yaml:"restore_deadline_minutes" doc:"Longest a full-copy restore or clone (rds_restore, cloudsql_clone) may take to become available, in minutes, 30 to 720; one still not ready is left to the reaper. Default: 120."`
+	RestoreDeadlineMinutes int `yaml:"restore_deadline_minutes" doc:"Longest a full-copy restore or clone (rds_restore, cloudsql_clone, alloydb_restore) may take to become available, in minutes, 30 to 720; one still not ready is left to the reaper. Default: 120."`
 	// RDS configures clone.provider rds_restore (lab-05d).
 	RDS CloneRDSConfig `yaml:"rds"`
 	// CloudSQL configures clone.provider cloudsql_clone (lab-05e).
 	CloudSQL CloneCloudSQLConfig `yaml:"cloudsql"`
+	// AlloyDB configures clone.provider alloydb_restore (lab-05f).
+	AlloyDB CloneAlloyDBConfig `yaml:"alloydb"`
 }
 
 // CloneLakebaseConfig is the Lakebase project rehearsal branches are made

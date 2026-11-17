@@ -289,7 +289,7 @@ Variables that only the test suites and benches read (`SAGE_TEST_*`, `SAGE_BENCH
 | `SAGE_VERIFY_REGRESS_PCT` | `15` | Regression percentage that triggers a revert (`verify.regress_pct`) |
 | `SAGE_VERIFY_WRITE_IMPACT_PCT` | `20` | Maximum rise of the table's WAL bytes per written tuple (`verify.write_impact_pct`) |
 | `SAGE_VERIFY_MIN_SAMPLES` | `30` | Minimum verification samples (`verify.min_samples`) |
-| `SAGE_CLONE_PROVIDER` | `none` | Clone provider (`clone.provider`): `none`, `dle`, `lakebase_branch`, `neon_branch`, `aurora_clone`, `rds_restore` or `cloudsql_clone` |
+| `SAGE_CLONE_PROVIDER` | `none` | Clone provider (`clone.provider`): `none`, `dle`, `lakebase_branch`, `neon_branch`, `aurora_clone`, `rds_restore`, `cloudsql_clone` or `alloydb_restore` |
 | `SAGE_CLONE_DLE_ENDPOINT` | (none) | Database Lab Engine API endpoint (`clone.dle_endpoint`) |
 | `SAGE_CLONE_DLE_TOKEN` / `_FILE` | (none) | Database Lab bearer token (`clone.dle_token`) |
 | `SAGE_CLONE_NEON_API_KEY` / `_FILE` | (none) | Neon API key for `neon_branch` rehearsal branches (`clone.neon.api_key`) |
@@ -520,7 +520,8 @@ Ranges that changed in tranche T4 (config-02b), where the file and the API used 
   `clone.lakebase` project binding is file-only and restart-bound. `neon_branch` is
   refused the same way: its `clone.neon` project and API key are file or env only, as are
   `aurora_clone` and `rds_restore`: their `clone.aurora` and `clone.rds` regions are
-  file-only, and `cloudsql_clone`: its `clone.cloudsql` project and instance are file-only.
+  file-only, `cloudsql_clone`: its `clone.cloudsql` project and instance are file-only, and
+  `alloydb_restore`: its `clone.alloydb` project, location and cluster are file-only.
 
 A stored override that a moved range now refuses is skipped at replay with a warning naming the
 key and its `updated_at`, and the default applies until a valid value is saved.
@@ -1865,12 +1866,14 @@ point-in-time restore of the monitored RDS instance per rehearsal: a full copy a
 the full instance price, which needs `clone.allow_full_copy: true` or startup
 fails). `snapshot` is refused at startup with the names that replace it:
 `rds_restore`, `cloudsql_clone`, `alloydb_restore` and `azure_restore`, the
-full-copy restores. `cloudsql_clone`, `alloydb_restore` and `azure_restore` are
-still refused in this build (no adapter yet).
+full-copy restores. `cloudsql_clone` (a Cloud SQL instance clone) and
+`alloydb_restore` (a point-in-time restore of the monitored AlloyDB cluster) are
+full copies too and need `clone.allow_full_copy: true`; `azure_restore` is still
+refused in this build (no adapter yet).
 
 | Key | Default | Meaning |
 |---|---|---|
-| `clone.provider` | `none` | `none`, `dle`, `lakebase_branch`, `neon_branch`, `aurora_clone`, `rds_restore` or `cloudsql_clone` |
+| `clone.provider` | `none` | `none`, `dle`, `lakebase_branch`, `neon_branch`, `aurora_clone`, `rds_restore`, `cloudsql_clone` or `alloydb_restore` |
 | `clone.lakebase.project` | (none) | Lakebase project id the rehearsal branches are created in. Required for `lakebase_branch` |
 | `clone.lakebase.source_branch` | the monitored endpoint's branch | Branch id, or `projects/<project>/branches/<id>` of the same project, a rehearsal branches from |
 | `clone.lakebase.ttl_minutes` | `60` | Server-side expiry of every rehearsal branch, 1 to 1440: the backstop if pg_sage cannot delete it |
@@ -1887,7 +1890,10 @@ still refused in this build (no adapter yet).
 | `clone.rds.instance_class` | the source instance's class | Class of the restored instance, such as `db.m6g.large` |
 | `clone.cloudsql.project` | (none) | Google Cloud project of the monitored Cloud SQL for PostgreSQL instance; clones are made, and leaked ones looked for, there. Required for `cloudsql_clone` |
 | `clone.cloudsql.instance` | (none) | Instance id of the monitored Cloud SQL for PostgreSQL instance; pg_sage must connect to one of its IPs. Required for `cloudsql_clone` |
-| `clone.restore_deadline_minutes` | `120` | Longest a full-copy restore or clone (`rds_restore`, `cloudsql_clone`) may take to become available, 30 to 720; one still not ready is left to the reaper, which finds it by tag or name. A full-copy rehearsal is bounded by this plus one hour, and its receipt lives 15 minutes longer |
+| `clone.alloydb.project` | (none) | Google Cloud project of the monitored AlloyDB cluster; restores are made, and leaked ones looked for, there. Required for `alloydb_restore` |
+| `clone.alloydb.location` | (none) | Region of the monitored AlloyDB cluster, such as `us-central1` (not a zone). Required for `alloydb_restore` |
+| `clone.alloydb.cluster` | (none) | Cluster id of the monitored AlloyDB cluster; it needs continuous backup on, and pg_sage must connect to its primary instance's IP. Required for `alloydb_restore` |
+| `clone.restore_deadline_minutes` | `120` | Longest a full-copy restore or clone (`rds_restore`, `cloudsql_clone`, `alloydb_restore`) may take to become available, 30 to 720; one still not ready is left to the reaper, which finds it by tag or name. A full-copy rehearsal is bounded by this plus one hour, and its receipt lives 15 minutes longer |
 | `clone.rehearsals_per_hour` | `2` | Most index rehearsals on a clone one database starts in any hour (tuning agent and index floor together), 1 to 60 |
 | `clone.allow_full_copy` | `false` | Allow full-copy clones (a whole-instance restore: hours and a full instance bill). Without it a full-copy provider, or one that does not say what its clones are, creates nothing. `true` with a provider that makes no full copies logs a startup warning |
 | `clone.max_creates_per_hour` | `4` | Most clones this deployment creates in any hour, every purpose together, 1 to 60; the next create is refused naming the limit |
@@ -1908,6 +1914,9 @@ checked only when `clone.provider` is `rds_restore`. See
 The `clone.cloudsql.*` keys are read at startup and checked only when
 `clone.provider` is `cloudsql_clone` (which also checks `clone.restore_deadline_minutes`).
 See [Managed clouds: Cloud SQL clone rehearsal](managed-clouds.md#cloud-sql-clone-rehearsal).
+The `clone.alloydb.*` keys are read at startup and checked only when
+`clone.provider` is `alloydb_restore` (which also checks `clone.restore_deadline_minutes`).
+See [Managed clouds: AlloyDB restore rehearsal](managed-clouds.md#alloydb-restore-rehearsal).
 
 A rehearsal clone holds production data, so pg_sage keeps a receipt for it
 (`sage.clone_instances`, purpose `rehearsal`) in the agent governance control

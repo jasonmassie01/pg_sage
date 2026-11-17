@@ -820,6 +820,110 @@ The live check (`SAGE_CLOUDSQL_LIVE=1` with `SAGE_CLOUDSQL_LIVE_DATABASE_URL`,
 `SAGE_CLOUDSQL_PROJECT`, `SAGE_CLOUDSQL_INSTANCE` and `SAGE_TEST_DATABASE_URL`) runs the
 clone contract on a real, funded instance; it is owner-run and never in CI.
 
+## AlloyDB restore rehearsal
+
+> **Cost warning: read this before the first run.** AlloyDB has no copy-on-write clone.
+> Every `alloydb_restore` rehearsal restores production into a **whole new cluster** with
+> its own primary instance of the source primary's machine size, billed at the **full
+> price** (vCPUs, memory and the restored storage) from the restore until teardown: up to
+> `clone.restore_deadline_minutes` of restoring plus up to an hour of rehearsal. A restore
+> takes minutes to hours, growing with the data. pg_sage creates nothing unless you set
+> `clone.allow_full_copy: true`, logs this cost at every startup, and writes each clone's
+> instance-hours on its receipt before AlloyDB is asked for it.
+
+`clone.provider: alloydb_restore` rehearses a migration or an index on a point-in-time
+restore (`clusters:restore` from continuous backup) of the monitored AlloyDB cluster, in the
+same project and region.
+
+```yaml
+clone:
+  provider: alloydb_restore
+  allow_full_copy: true          # required: without it startup fails
+  restore_deadline_minutes: 120  # 30-720: the longest a restore may take to be ready
+  alloydb:
+    project: acme-prod-1234      # the monitored cluster's project (required)
+    location: us-central1        # its region, not a zone (required)
+    cluster: shop                # its cluster id (required)
+```
+
+What pg_sage does for each clone:
+
+- The source is `clone.alloydb.cluster`. It must be a `READY` PostgreSQL primary cluster
+  (not a secondary) with **continuous backup on**: a cluster with
+  `continuousBackupConfig.enabled` false is refused with that setting named (turn it on with
+  `gcloud alloydb clusters update <cluster> --region <region> --enable-continuous-backup`).
+  pg_sage must connect to the private or public IP of the cluster's `READY` primary
+  instance. A read pool, the AlloyDB Auth Proxy, a Unix socket or a DNS name is refused with
+  "not the configured AlloyDB primary cluster".
+- The point in time is five minutes ago (`AlloyDBRestoreLag`), so continuous backup already
+  holds it. One before the cluster's earliest restorable time (continuous backup was turned
+  on recently) is refused with reason `clone_unavailable`.
+- It restores cluster `sage-<purpose>-<8 hex>` (lowercase, at most 63 characters) into the
+  source's network (`networkConfig`, or `network`) under the source's encryption key
+  (`encryptionConfig`, so a CMEK cluster stays CMEK), labelled `pg-sage-receipt=<its name>`
+  and `pg-sage-expires-at=<Unix seconds>` as it is created, with the source's other labels
+  kept. When the restore is done, pg_sage adds a zonal primary instance (no
+  high-availability standby is billed) with the source primary's `machineConfig` and
+  `networkConfig` (public IP and authorized networks). All of this happens within
+  `clone.restore_deadline_minutes`.
+- The clone's DSN is the monitored DSN on the new primary's IP of the same kind (private for
+  private, public for public): the same users and passwords, `sslmode` at least `require`.
+  A clone that answers on one of production's IPs is refused and deleted.
+- Teardown deletes the cluster with `force`, which deletes its instances too. Only a
+  `sage-*` cluster labelled with its own name is deleted. The restore labels the cluster as
+  it creates it, so an unlabelled cluster is never pg_sage's and is never deleted: if
+  AlloyDB ever restores one without the labels, pg_sage reports it left behind and names the
+  `gcloud alloydb clusters delete` command to run by hand.
+- A restore Google refused (4xx, including an id that already exists) made nothing. A
+  failed restore operation, an instance create that fails after the cluster exists, a failed
+  instance operation or a primary that is not `READY` deletes the cluster before the error
+  returns. A lost reply or a 5xx is looked up by name and deleted. A restore or instance not
+  done by the deadline leaves its receipt `create_uncertain`, and the reaper finds the
+  cluster by name and destroys it. AlloyDB has no server-side expiry, so the reaper is the
+  backstop: check `gcloud alloydb clusters list --region <region>` for `sage-*` clusters if
+  a sidecar was down for long.
+- The receipt and the rehearsal bound cover the clone: a rehearsal on it may run
+  `restore_deadline_minutes` plus one hour, and its receipt lives 15 minutes longer. Receipts
+  are scoped `gcp/<project>/<region>`.
+- A caller that ends before `restore_deadline_minutes` is refused before the restore is
+  asked for (reason `clone_unavailable`), so `apply_migration` over stdio MCP is
+  recommendation-only with `alloydb_restore`, as with `rds_restore` and `cloudsql_clone`.
+
+Credentials come from Google Application Default Credentials, the same chain as Cloud SQL
+and AlloyDB telemetry (`GOOGLE_APPLICATION_CREDENTIALS`, the gcloud ADC file, then the
+metadata server). Without them, or without the monitored pool, nothing is created and
+rehearsals are recommendation-only with reason `clone_unavailable`. A refused call names the
+permission it needs. The API cannot switch `clone.provider` to `alloydb_restore`; set it in
+YAML and restart.
+
+The permissions the sidecar's identity needs, on top of the telemetry reads (a custom role on
+the project; `roles/alloydb.admin` also covers them):
+
+| Permission | Used for |
+| --- | --- |
+| `alloydb.clusters.get` | Read the source and the restored cluster |
+| `alloydb.instances.list`, `alloydb.instances.get` | Find the source primary, read the new one |
+| `alloydb.operations.get` | Poll the restore and instance operations |
+| `alloydb.clusters.restore` | Restore the source's continuous backup to a new cluster |
+| `alloydb.instances.create` | Add the restored cluster's primary instance |
+| `alloydb.clusters.delete` | Delete the restored cluster and its instances |
+
+An IAM condition on `resource.name` starting with
+`projects/<project>/locations/<region>/clusters/sage-` can narrow `instances.create` and
+`clusters.delete` to pg_sage's clones. The live check confirms the permission names and
+that the restore applies the requested labels.
+
+Cost: each receipt carries the instance-hours of one primary instance for the receipt's
+lifetime (`restore_deadline_minutes` plus 75 minutes), priced only by a `cost.rates` entry
+you supply for the source (pg_sage ships no prices; storage is not priced). The number that
+says it works: restores that are ready within their estimate, their instance-hours, and
+clusters left after 24 hours (0).
+
+The live check (`SAGE_ALLOYDB_LIVE=1` with `SAGE_ALLOYDB_LIVE_DATABASE_URL`,
+`SAGE_ALLOYDB_PROJECT`, `SAGE_ALLOYDB_LOCATION`, `SAGE_ALLOYDB_CLUSTER` and
+`SAGE_TEST_DATABASE_URL`) runs the clone contract on a real, funded cluster; it is
+owner-run and never in CI.
+
 ## Live check (owner-run, never in CI)
 
 CI uses httptest fakes only. To check against a real, disposable instance (read-only calls):

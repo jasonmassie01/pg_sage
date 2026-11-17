@@ -33,10 +33,12 @@ var companions = map[string]map[string]string{
 // neon_branch the YAML-only clone.neon project and API key (lab-05b),
 // aurora_clone the YAML-only clone.aurora region (lab-05c), rds_restore
 // the YAML-only clone.rds region (lab-05d), cloudsql_clone the YAML-only
-// clone.cloudsql project and instance (lab-05e).
+// clone.cloudsql project and instance (lab-05e), alloydb_restore the
+// YAML-only clone.alloydb project, location and cluster (lab-05f).
 var apiRefused = map[string]bool{"clone.provider=lakebase_branch": true,
 	"clone.provider=neon_branch": true, "clone.provider=aurora_clone": true,
-	"clone.provider=rds_restore": true, "clone.provider=cloudsql_clone": true}
+	"clone.provider=rds_restore": true, "clone.provider=cloudsql_clone": true,
+	"clone.provider=alloydb_restore": true}
 
 func TestEveryRegistryRangeHasYAMLAndAPIParity(t *testing.T) {
 	ranged := 0

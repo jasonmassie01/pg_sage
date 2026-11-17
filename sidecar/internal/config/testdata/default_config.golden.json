@@ -566,6 +566,11 @@
     "CloudSQL": {
       "Project": "",
       "Instance": ""
+    },
+    "AlloyDB": {
+      "Project": "",
+      "Location": "",
+      "Cluster": ""
     }
   },
   "Custodian": {

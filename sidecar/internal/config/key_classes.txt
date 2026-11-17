@@ -194,6 +194,9 @@ operator_preference clone.rds.instance_class
 operator_preference clone.restore_deadline_minutes
 safety_critical clone.cloudsql.project
 safety_critical clone.cloudsql.instance
+safety_critical clone.alloydb.project
+safety_critical clone.alloydb.location
+safety_critical clone.alloydb.cluster
 safety_critical clone.provider
 operator_preference value.toil_model_version
 
