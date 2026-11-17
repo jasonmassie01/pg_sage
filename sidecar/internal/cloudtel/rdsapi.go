@@ -27,14 +27,19 @@ type rdsInstance struct {
 	BackupRetention                          *int32
 	DeletionProtection                       *bool
 	// LatestRestorable is the instance's latest restorable time, or on
-	// Aurora the cluster's.
-	LatestRestorable *time.Time
+	// Aurora the cluster's; EarliestRestorable is the cluster's (Aurora).
+	LatestRestorable, EarliestRestorable *time.Time
+	// AWSBackupARN is the instance's (on Aurora the cluster's) AWS Backup
+	// recovery point; Replications counts cross-region backup replications.
+	AWSBackupARN string
+	Replications int
 }
 
 // rdsCluster is what collection reads from an Aurora cluster.
 type rdsCluster struct {
-	Writer           string
-	LatestRestorable *time.Time
+	Writer                               string
+	LatestRestorable, EarliestRestorable *time.Time
+	AWSBackupARN                         string
 }
 
 type rdsAPI struct{ client *rds.Client }
@@ -65,7 +70,9 @@ func (a *rdsAPI) instance(ctx context.Context, id string) (rdsInstance, error) {
 		AllocatedGiB: aws.ToInt32(d.AllocatedStorage), MaxAllocatedGiB: aws.ToInt32(
 			d.MaxAllocatedStorage), PIEnabled: aws.ToBool(d.PerformanceInsightsEnabled),
 		Replicas: d.ReadReplicaDBInstanceIdentifiers, BackupRetention: d.BackupRetentionPeriod,
-		DeletionProtection: d.DeletionProtection, LatestRestorable: d.LatestRestorableTime}
+		DeletionProtection: d.DeletionProtection, LatestRestorable: d.LatestRestorableTime,
+		AWSBackupARN: aws.ToString(d.AwsBackupRecoveryPointArn),
+		Replications: len(d.DBInstanceAutomatedBackupsReplications)}
 	if len(d.DBParameterGroups) > 0 {
 		inst.ParameterGroup = aws.ToString(d.DBParameterGroups[0].DBParameterGroupName)
 		inst.ParameterApplyStatus = aws.ToString(d.DBParameterGroups[0].ParameterApplyStatus)
@@ -85,7 +92,9 @@ func (a *rdsAPI) clusterWriter(ctx context.Context, cluster string) (rdsCluster,
 		for _, m := range c.DBClusterMembers {
 			if aws.ToBool(m.IsClusterWriter) {
 				return rdsCluster{Writer: aws.ToString(m.DBInstanceIdentifier),
-					LatestRestorable: c.LatestRestorableTime}, nil
+					LatestRestorable:   c.LatestRestorableTime,
+					EarliestRestorable: c.EarliestRestorableTime,
+					AWSBackupARN:       aws.ToString(c.AwsBackupRecoveryPointArn)}, nil
 			}
 		}
 	}

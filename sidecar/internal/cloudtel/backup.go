@@ -12,6 +12,11 @@ import "time"
 // Cloud SQL's last successful backup run (one bounded backupRuns.list).
 // FreshnessUnavailable says why the results could not be read; the
 // configuration fields stay as read.
+//
+// The isolation fields (drill-01b) say whether a backup survives the
+// deletion of the instance (SurvivesDelete, with the IsolationEvidence
+// that decided it) and how wide the point-in-time window is. Nil is
+// unknown; IsolationUnavailable says why the records could not be read.
 type BackupPosture struct {
 	BackupsEnabled       *bool      `json:"backups_enabled,omitempty"`
 	PITREnabled          *bool      `json:"pitr_enabled,omitempty"`
@@ -23,6 +28,11 @@ type BackupPosture struct {
 	// no successful run.
 	NoRecentSuccess      bool   `json:"no_recent_success,omitempty"`
 	FreshnessUnavailable string `json:"freshness_unavailable,omitempty"`
+	SurvivesDelete       *bool  `json:"survives_delete,omitempty"`
+	IsolationEvidence    string `json:"isolation_evidence,omitempty"`
+	IsolationUnavailable string `json:"isolation_unavailable,omitempty"`
+	// PITRWindow is how far back point-in-time recovery reaches.
+	PITRWindow *time.Duration `json:"pitr_window_ns,omitempty"`
 }
 
 // Freshness sources LastGood names.
@@ -55,6 +65,7 @@ func (b *BackupPosture) clone() *BackupPosture {
 	c.DeletionProtection = clonePtr(b.DeletionProtection)
 	c.LatestRestorableTime = clonePtr(b.LatestRestorableTime)
 	c.LastSuccessfulBackup = clonePtr(b.LastSuccessfulBackup)
+	c.SurvivesDelete, c.PITRWindow = clonePtr(b.SurvivesDelete), clonePtr(b.PITRWindow)
 	return &c
 }
 
@@ -102,6 +113,28 @@ func (c *cloudSQLBackup) posture(deletionProtection *bool) *BackupPosture {
 		b.RetentionDays = c.TransactionLogRetentionDays
 	}
 	return b.clone()
+}
+
+// cloudSQLIsolation (drill-01b): settings.retainBackupsOnDelete says
+// whether the instance's backups outlive it (absent is unknown); the
+// point-in-time window is the transaction log retention while PITR is on.
+func cloudSQLIsolation(b *BackupPosture, retain *bool) {
+	if retain != nil {
+		v := *retain
+		b.SurvivesDelete = &v
+		b.IsolationEvidence = "Cloud SQL deletes the instance's backups with it " +
+			"(settings.retainBackupsOnDelete is false); exports and final backups " +
+			"are not read"
+		if v {
+			b.IsolationEvidence = "Cloud SQL retains the instance's backups after it " +
+				"is deleted (settings.retainBackupsOnDelete)"
+		}
+	}
+	if b.PITREnabled != nil && *b.PITREnabled && b.RetentionDays != nil &&
+		*b.RetentionDays > 0 {
+		w := time.Duration(*b.RetentionDays) * 24 * time.Hour
+		b.PITRWindow = &w
+	}
 }
 
 // Backup is a copy of the latest sample's backup posture; nil before the

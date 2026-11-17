@@ -195,6 +195,7 @@ func (s *GCPSource) Collect(ctx context.Context, now time.Time) (Sample, error) 
 	}
 	applyCloudSQLStorage(&sample, inst, now)
 	sample.Backup = inst.Settings.BackupConfiguration.posture(inst.Settings.DeletionProtection)
+	cloudSQLIsolation(sample.Backup, inst.Settings.RetainBackupsOnDelete)
 	s.applyBackupFreshness(ctx, &sample, inst.Name, now)
 	if err := ctx.Err(); err != nil {
 		return Sample{}, err

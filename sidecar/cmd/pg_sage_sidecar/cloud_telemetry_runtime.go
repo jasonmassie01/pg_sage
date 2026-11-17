@@ -93,8 +93,7 @@ func cloudSourceFor(ctx context.Context, c *config.Config, provider, host string
 		}
 		return s, s, nil
 	case "rds", "aurora":
-		s, err := awsSourceFor(ctx, c.CloudTelemetry, resource.AWS, provider, host,
-			standalone, deps)
+		s, err := awsSourceFor(ctx, c, resource.AWS, provider, host, standalone, deps)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -123,11 +122,13 @@ func cloudLimits(ct config.CloudTelemetryConfig) cloudtel.Limits {
 
 // awsSourceFor names the RDS instance or Aurora cluster; provider is the
 // normalized platform PostgreSQL reported, so an Aurora writer reached by
-// its instance endpoint is Aurora.
-func awsSourceFor(ctx context.Context, ct config.CloudTelemetryConfig,
-	r config.CloudResourceAWS, provider, host string, standalone bool,
-	deps cloudDeps) (*cloudtel.AWSSource, error) {
-	opts := cloudtel.AWSOptions{DetectedProvider: provider}
+// its instance endpoint is Aurora. A manual snapshot counts as surviving a
+// delete within backup.max_age_hours (drill-01b).
+func awsSourceFor(ctx context.Context, c *config.Config, r config.CloudResourceAWS,
+	provider, host string, standalone bool, deps cloudDeps) (*cloudtel.AWSSource, error) {
+	ct := c.CloudTelemetry
+	opts := cloudtel.AWSOptions{DetectedProvider: provider,
+		IsolationMaxAge: c.Backup.MaxAge()}
 	if h, ok := cloudtel.ParseRDSHost(host); ok {
 		opts.Region, opts.ReaderEndpoint = h.Region, h.Reader
 		if h.Cluster {
