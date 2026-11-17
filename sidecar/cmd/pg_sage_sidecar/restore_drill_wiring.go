@@ -9,9 +9,11 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/api"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/drill"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/mcp"
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/policy"
 )
@@ -103,6 +105,11 @@ func runtimeControlPool(mgr *fleet.DatabaseManager, meta *metaDBState) *pgxpool.
 func restoreDrillResults(c *config.Config, mgr *fleet.DatabaseManager,
 	meta *metaDBState) func(string) *pgxpool.Pool {
 	return func(string) *pgxpool.Pool { return controlPoolOf(c, mgr, meta) }
+}
+
+// mcpRestoreDrills serves MCP restore_drills from the API's read.
+func mcpRestoreDrills(mgr *fleet.DatabaseManager) mcp.RestoreDrillsBackend {
+	return api.RestoreDrillsMCP(mgr, cfg, restoreDrillResults(cfg, mgr, globalMetaState))
 }
 
 func drillInstances(c *config.Config, mgr *fleet.DatabaseManager,

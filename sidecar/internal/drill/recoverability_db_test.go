@@ -52,7 +52,8 @@ func TestHistoryDB_NewestFirstWithEveryFieldRoundTripped(t *testing.T) {
 	if err != nil || len(got) != 2 {
 		t.Fatalf("History(orders, 2) = %d rows %v, want 2", len(got), err)
 	}
-	if got[0].Failure != fail.Failure || got[0].Passed || got[1].RequestedAt != noMarker.RequestedAt {
+	if got[0].Failure != fail.Failure || got[0].Passed ||
+		!got[1].RequestedAt.Equal(noMarker.RequestedAt) {
 		t.Fatalf("order = %+v / %+v, want the failure then the unmarked pass", got[0], got[1])
 	}
 	if got[1].RPOSeconds != nil || got[1].RPOReason != noMarker.Invariants[0].Evidence {

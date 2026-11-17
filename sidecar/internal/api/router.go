@@ -268,9 +268,7 @@ func registerFleetScopedRoutes(
 	registerDeploymentStatusRoutes(apiMux, cfg, rt, llmBudgetSource(rt.LLMBudgets, llmMgr))
 	// Sage SRE investigations live with each database's runtime (D3-style
 	// fleet resolution), not in the control pool.
-	drills := drillReads{cfg: cfg, results: rt.RestoreDrillResults}
-	registerSRERoutes(apiMux, mgr, autonomyRegistry(rt.Autonomy), cfg, workloadPackKeys(rt, pool),
-		drills)
+	registerSRERoutes(apiMux, mgr, cfg, pool, rt)
 	registerSRESignalRoutes(apiMux, mgr, cfg)
 	if rt.DatabricksAppAuth {
 		registerAppSLISampleRoute(apiMux, mgr, cfg)
@@ -287,7 +285,6 @@ func registerFleetScopedRoutes(
 	registerAgentGrantRoutes(apiMux, rt.AgentGrants)
 	registerFleetLearningRoutes(apiMux, mgr, cfg, rt.FleetLearning)
 	registerManagedCloudRoutes(apiMux, mgr)
-	registerFleetRecoverabilityRoute(apiMux, mgr, drills)
 	registerProviderAdviceRoutes(apiMux, mgr)
 	registerModelLiftRoutes(apiMux, rt.Autonomy)
 	registerAskRoutes(apiMux, rt.Ask)

@@ -85,8 +85,8 @@ func ReportUnknown(ctx context.Context, pool *pgxpool.Pool, pager Pager, databas
 	}
 	f := analyzer.Finding{Category: CategoryUnknown, Severity: "info",
 		ObjectType: "database", ObjectIdentifier: objectID(database),
-		Title:  "SQL only: recoverability unknown for " + database,
-		Detail: map[string]any{"reason": reason},
+		Title:          "SQL only: recoverability unknown for " + database,
+		Detail:         map[string]any{"reason": reason},
 		Recommendation: UnknownAdvice}
 	return open(ctx, pool, pager, database, f)
 }

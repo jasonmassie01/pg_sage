@@ -55,6 +55,7 @@ bare GET /api/v1/deployment/status gate:admin scope:admin-only
 bare GET /api/v1/lakebase-observability/history gate:admin scope:admin-only
 bare GET /api/v1/lakebase-observability/status gate:viewer scope:fleet-only
 bare GET /api/v1/investigations gate:viewer scope:aggregate
+bare GET /api/v1/fleet/recoverability gate:viewer scope:aggregate
 bare POST /api/v1/sre/change-events gate:self-auth scope:-
 bare POST /api/v1/sre/sli/{name} gate:self-auth scope:-
 bare GET /api/v1/sre/slos gate:viewer scope:aggregate
@@ -102,7 +103,6 @@ bare GET /api/v1/managed-changes gate:viewer scope:aggregate
 bare POST /api/v1/managed-changes/{id}/approve gate:operator scope:database:query
 bare POST /api/v1/managed-changes/{id}/reject gate:operator scope:database:query
 bare GET /api/v1/cloud-telemetry gate:viewer scope:aggregate
-bare GET /api/v1/fleet/recoverability gate:viewer scope:aggregate
 bare GET /api/v1/provider-advice gate:viewer scope:aggregate
 bare GET /api/v1/value gate:viewer scope:aggregate
 bare GET /api/v1/briefings gate:viewer scope:aggregate
@@ -226,6 +226,7 @@ standalone GET /api/v1/deployment/status gate:admin scope:admin-only
 standalone GET /api/v1/lakebase-observability/history gate:admin scope:admin-only
 standalone GET /api/v1/lakebase-observability/status gate:viewer scope:fleet-only
 standalone GET /api/v1/investigations gate:viewer scope:aggregate
+standalone GET /api/v1/fleet/recoverability gate:viewer scope:aggregate
 standalone POST /api/v1/sre/change-events gate:self-auth scope:-
 standalone POST /api/v1/sre/sli/{name} gate:self-auth scope:-
 standalone GET /api/v1/sre/slos gate:viewer scope:aggregate
@@ -292,7 +293,6 @@ standalone GET /api/v1/managed-changes gate:viewer scope:aggregate
 standalone POST /api/v1/managed-changes/{id}/approve gate:operator scope:database:query
 standalone POST /api/v1/managed-changes/{id}/reject gate:operator scope:database:query
 standalone GET /api/v1/cloud-telemetry gate:viewer scope:aggregate
-standalone GET /api/v1/fleet/recoverability gate:viewer scope:aggregate
 standalone GET /api/v1/provider-advice gate:viewer scope:aggregate
 standalone GET /api/v1/model-lift gate:viewer scope:fleet-only
 standalone POST /api/v1/mcp gate:self-auth scope:-
@@ -494,6 +494,7 @@ fleet-readonly GET /api/v1/deployment/status gate:admin scope:admin-only
 fleet-readonly GET /api/v1/lakebase-observability/history gate:admin scope:admin-only
 fleet-readonly GET /api/v1/lakebase-observability/status gate:viewer scope:fleet-only
 fleet-readonly GET /api/v1/investigations gate:viewer scope:aggregate
+fleet-readonly GET /api/v1/fleet/recoverability gate:viewer scope:aggregate
 fleet-readonly POST /api/v1/sre/change-events gate:self-auth scope:-
 fleet-readonly POST /api/v1/sre/sli/{name} gate:self-auth scope:-
 fleet-readonly GET /api/v1/sre/slos gate:viewer scope:aggregate
@@ -541,7 +542,6 @@ fleet-readonly GET /api/v1/managed-changes gate:viewer scope:aggregate
 fleet-readonly POST /api/v1/managed-changes/{id}/approve gate:operator scope:database:query
 fleet-readonly POST /api/v1/managed-changes/{id}/reject gate:operator scope:database:query
 fleet-readonly GET /api/v1/cloud-telemetry gate:viewer scope:aggregate
-fleet-readonly GET /api/v1/fleet/recoverability gate:viewer scope:aggregate
 fleet-readonly GET /api/v1/provider-advice gate:viewer scope:aggregate
 fleet-readonly GET /api/v1/value gate:viewer scope:aggregate
 fleet-readonly GET /api/v1/briefings gate:viewer scope:aggregate
@@ -746,6 +746,7 @@ store-only-actions GET /api/v1/deployment/status gate:admin scope:admin-only
 store-only-actions GET /api/v1/lakebase-observability/history gate:admin scope:admin-only
 store-only-actions GET /api/v1/lakebase-observability/status gate:viewer scope:fleet-only
 store-only-actions GET /api/v1/investigations gate:viewer scope:aggregate
+store-only-actions GET /api/v1/fleet/recoverability gate:viewer scope:aggregate
 store-only-actions POST /api/v1/sre/change-events gate:self-auth scope:-
 store-only-actions POST /api/v1/sre/sli/{name} gate:self-auth scope:-
 store-only-actions GET /api/v1/sre/slos gate:viewer scope:aggregate
@@ -793,7 +794,6 @@ store-only-actions GET /api/v1/managed-changes gate:viewer scope:aggregate
 store-only-actions POST /api/v1/managed-changes/{id}/approve gate:operator scope:database:query
 store-only-actions POST /api/v1/managed-changes/{id}/reject gate:operator scope:database:query
 store-only-actions GET /api/v1/cloud-telemetry gate:viewer scope:aggregate
-store-only-actions GET /api/v1/fleet/recoverability gate:viewer scope:aggregate
 store-only-actions GET /api/v1/provider-advice gate:viewer scope:aggregate
 store-only-actions GET /api/v1/value gate:viewer scope:aggregate
 store-only-actions GET /api/v1/briefings gate:viewer scope:aggregate
@@ -926,6 +926,7 @@ optional GET /api/v1/deployment/status gate:admin scope:admin-only
 optional GET /api/v1/lakebase-observability/history gate:admin scope:admin-only
 optional GET /api/v1/lakebase-observability/status gate:viewer scope:fleet-only
 optional GET /api/v1/investigations gate:viewer scope:aggregate
+optional GET /api/v1/fleet/recoverability gate:viewer scope:aggregate
 optional POST /api/v1/sre/change-events gate:self-auth scope:-
 optional POST /api/v1/sre/sli/{name} gate:self-auth scope:-
 optional GET /api/v1/sre/slos gate:viewer scope:aggregate
@@ -992,7 +993,6 @@ optional GET /api/v1/managed-changes gate:viewer scope:aggregate
 optional POST /api/v1/managed-changes/{id}/approve gate:operator scope:database:query
 optional POST /api/v1/managed-changes/{id}/reject gate:operator scope:database:query
 optional GET /api/v1/cloud-telemetry gate:viewer scope:aggregate
-optional GET /api/v1/fleet/recoverability gate:viewer scope:aggregate
 optional GET /api/v1/provider-advice gate:viewer scope:aggregate
 optional GET /api/v1/model-lift gate:viewer scope:fleet-only
 optional POST /api/v1/databases/{db}/ask gate:viewer-write scope:-
@@ -1194,6 +1194,7 @@ databricks-app GET /api/v1/deployment/status gate:admin scope:admin-only
 databricks-app GET /api/v1/lakebase-observability/history gate:admin scope:admin-only
 databricks-app GET /api/v1/lakebase-observability/status gate:viewer scope:fleet-only
 databricks-app GET /api/v1/investigations gate:viewer scope:aggregate
+databricks-app GET /api/v1/fleet/recoverability gate:viewer scope:aggregate
 databricks-app POST /api/v1/sre/change-events gate:self-auth scope:-
 databricks-app POST /api/v1/sre/sli/{name} gate:self-auth scope:-
 databricks-app GET /api/v1/sre/slos gate:viewer scope:aggregate
@@ -1242,7 +1243,6 @@ databricks-app GET /api/v1/managed-changes gate:viewer scope:aggregate
 databricks-app POST /api/v1/managed-changes/{id}/approve gate:operator scope:database:query
 databricks-app POST /api/v1/managed-changes/{id}/reject gate:operator scope:database:query
 databricks-app GET /api/v1/cloud-telemetry gate:viewer scope:aggregate
-databricks-app GET /api/v1/fleet/recoverability gate:viewer scope:aggregate
 databricks-app GET /api/v1/provider-advice gate:viewer scope:aggregate
 databricks-app GET /api/v1/value gate:viewer scope:aggregate
 databricks-app GET /api/v1/briefings gate:viewer scope:aggregate
