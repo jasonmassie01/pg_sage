@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
+	osexec "os/exec"
 	"strings"
 	"sync"
 	"testing"
@@ -316,7 +316,7 @@ func TestDrillCloneHolderProcess(t *testing.T) {
 // once its clone exists; it returns the clone id.
 func killedDrillHolder(t *testing.T, pool *pgxpool.Pool) string {
 	t.Helper()
-	cmd := exec.Command(os.Args[0], "-test.run=^TestDrillCloneHolderProcess$",
+	cmd := osexec.Command(os.Args[0], "-test.run=^TestDrillCloneHolderProcess$",
 		"-test.count=1")
 	cmd.Env = append(os.Environ(), drillHolderDSNEnv+"="+pool.Config().ConnString(),
 		"SAGE_TEST_DATABASE_URL=", "SAGE_DATABASE_URL=")

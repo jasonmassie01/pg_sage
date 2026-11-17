@@ -43,6 +43,10 @@ var (
 	ErrNotReceipted = errors.New("restore drill: the clone provider writes no receipts")
 	// ErrNoStore: no database to record drills in.
 	ErrNoStore = errors.New("restore drill: no control database for drill results")
+	// ErrDeferred: the shared clone create limit or the provider's backoff
+	// held the clone back. Nothing was created and nothing is recorded: it
+	// says nothing about the backups, and the next pass tries again.
+	ErrDeferred = errors.New("restore drill deferred")
 )
 
 // Budget bounds one drill.
@@ -144,6 +148,10 @@ func (d Drill) Run(ctx context.Context) (Result, error) {
 	runCtx, cancel := context.WithTimeout(ctx, d.Budget.MaxDuration)
 	stepErr := d.restoreAndCheck(runCtx, &res)
 	cancel()
+	if errors.Is(stepErr, clone.ErrCreateRateLimited) ||
+		errors.Is(stepErr, clone.ErrProviderBackoff) {
+		return res, fmt.Errorf("%w: %w", ErrDeferred, stepErr)
+	}
 	res.FinishedAt = d.now()
 	if stepErr != nil {
 		res.Passed, res.Failure = false, stepErr.Error()

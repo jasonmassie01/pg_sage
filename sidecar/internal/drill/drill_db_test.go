@@ -437,3 +437,31 @@ func TestRunDB_ClosedControlDatabaseStillDestroys(t *testing.T) {
 		t.Fatal("the clone was not destroyed")
 	}
 }
+
+func TestRunDB_TheSharedCreateLimitDefersWithoutARow(t *testing.T) {
+	r := newRig(t, "", false, 0)
+	p, err := NewReceiptedProvider(r.adapter, clone.NewReceiptStore(r.control),
+		ProviderConfig{Adapter: "neon_branch", Scope: "limited",
+			Deployment:        func(context.Context) (string, error) { return testDeployment, nil },
+			MaxCreatesPerHour: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := r.drill(t, "limited")
+	d.Provider = p
+	if _, err := d.Run(context.Background()); err != nil {
+		t.Fatalf("first drill: %v", err)
+	}
+	res, err := d.Run(context.Background())
+	if !errors.Is(err, ErrDeferred) || !errors.Is(err, clone.ErrCreateRateLimited) {
+		t.Fatalf("second drill = %v, want deferred by the create limit", err)
+	}
+	if res.Passed {
+		t.Fatal("a deferred drill passed")
+	}
+	var rows int
+	if err := r.control.QueryRow(context.Background(),
+		`SELECT count(*) FROM sage.restore_drills`).Scan(&rows); err != nil || rows != 1 {
+		t.Fatalf("%d rows (%v), want only the first drill's", rows, err)
+	}
+}

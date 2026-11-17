@@ -1230,6 +1230,44 @@ Retention 0 is AP-11's "backups off" case and is left to it.
 
 **Detail:** `retention_days`, `min_retention_days` and `resource`.
 
+### restore_drill_failed
+
+**Severity:** critical
+
+**What it detects:** a restore drill of the database failed or could not run. A
+drill asks `clone.provider` for a copy at the latest restorable point, connects only
+after the identity guard proves the copy is not the source, and checks, read-only:
+the source's 20 largest tables exist with the same columns; each table's row
+estimate is within 5% of the source's (5.0% passes, 5.1% fails) and the 3 smallest
+match an exact `count(*)` within 5%; a checksum of the first 1,000 rows by primary
+key created before the recovery point matches the source (only for tables with a
+`created_at`-like column, else `unknown`); `SELECT 1` reads each table; and the
+newest committed marker (`sage.snapshots.collected_at`, or the policy document's
+`drill.marker_query`) is read to measure RPO. A provider error, a clone that is the
+source (`target_is_production`) or a failed invariant opens the finding, and it
+pages through the finding alerts (`finding_opened` at critical). The next passed
+drill resolves it. A failed drill after a pass does not reset the pass that D7
+reads ([agent governance](agent-governance.md)).
+
+**Detail:** `drill_id`, `provider`, `kind`, `failure` (the step and provider, or the
+failed invariants), `receipt_id`, `cost_label`, `rto_seconds`, and `rpo_seconds` or
+`rpo_unknown`. Every drill, passed or not, is a row of `sage.restore_drills`.
+
+### recoverability_unknown
+
+**Severity:** info
+
+**What it detects:** no clone provider is configured (`clone.provider: none`), so no
+drill can prove the database's backups restore ("SQL only: recoverability
+unknown"). The recommendation names what to configure: a branch or copy-on-write
+provider (`lakebase_branch`, `neon_branch`, `aurora_clone`) or `dle` drills by
+default; a full copy (`rds_restore`, `cloudsql_clone`, `alloydb_restore`,
+`azure_restore`) needs `clone.allow_full_copy: true` and `full_copy` in the policy
+document's `drill.kinds`. Until a drill passes, D7 keeps production agent writes at
+L2. A passed drill resolves it.
+
+**Detail:** `reason`.
+
 ---
 
 ## More Tier 1 Categories

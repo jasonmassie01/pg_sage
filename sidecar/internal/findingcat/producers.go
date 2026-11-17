@@ -125,6 +125,12 @@ var otherEntries = []Category{
 	e("backup_retention_below_policy", "cloud", "cloud_telemetry", sevW,
 		k("backup.min_retention_days"), nil,
 		"A managed instance keeping backups for fewer days than the retention policy."),
+	e("restore_drill_failed", "cloud", "drill", sevC, k("drill.max_concurrent_per_fleet"),
+		nil, "A restore drill of the database's latest backup failed its checks or "+
+			"could not run; resolved by the next passed drill (drill-01a)."),
+	e("recoverability_unknown", "cloud", "drill", sevI, k("clone.provider"), nil,
+		"No clone provider can restore the database, so no drill proves its backups "+
+			"restore; says what to configure."),
 	e("instance_rightsize", "cloud", "cost", sevI, k("cost.rates"), nil,
 		"An instance that is over or under its size on 14 days of host usage (advisory)."),
 	e("cnpg_target_unconfigured", "cloud", "cnpg", sevW, nil, nil,
