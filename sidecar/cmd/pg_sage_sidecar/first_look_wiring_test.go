@@ -53,6 +53,7 @@ func seedDuplicateIndex(t *testing.T, ctx context.Context, p *pgxpool.Pool) {
 func TestFirstLookRunPersistsMeasuresAndRecords(t *testing.T) {
 	_, p, ctx := firstLookDB(t)
 	seedDuplicateIndex(t, ctx, p)
+	t.Cleanup(func() { onboarding.ForgetSetup("app") }) // Init records a process gauge
 	if _, err := onboarding.Init(ctx, p, "app"); err != nil {
 		t.Fatalf("onboarding init: %v", err)
 	}
@@ -92,6 +93,7 @@ func TestFirstLookRunPersistsMeasuresAndRecords(t *testing.T) {
 
 func TestFirstLookAwaitsAnAnalyzerFindingWhenEmpty(t *testing.T) {
 	_, p, ctx := firstLookDB(t)
+	t.Cleanup(func() { onboarding.ForgetSetup("app") }) // Init records a process gauge
 	if _, err := onboarding.Init(ctx, p, "app"); err != nil {
 		t.Fatalf("onboarding init: %v", err)
 	}
@@ -298,6 +300,7 @@ func insertAnalyzerFinding(t *testing.T, ctx context.Context, p *pgxpool.Pool, s
 func awaitRun(t *testing.T, ctx context.Context, p *pgxpool.Pool) (*firstLookRun,
 	*logRecorder) {
 	t.Helper()
+	t.Cleanup(func() { onboarding.ForgetSetup("app") }) // Init records a process gauge
 	if _, err := onboarding.Init(ctx, p, "app"); err != nil {
 		t.Fatalf("onboarding init: %v", err)
 	}

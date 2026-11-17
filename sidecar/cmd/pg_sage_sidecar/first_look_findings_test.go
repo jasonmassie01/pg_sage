@@ -17,6 +17,7 @@ import (
 func setupOnlyRun(t *testing.T) (*firstLookRun, *onboarding.Tracker, context.Context) {
 	t.Helper()
 	_, p, ctx := firstLookDB(t)
+	t.Cleanup(func() { onboarding.ForgetSetup("app") }) // Init records a process gauge
 	if _, err := onboarding.Init(ctx, p, "app"); err != nil {
 		t.Fatalf("onboarding init: %v", err)
 	}
