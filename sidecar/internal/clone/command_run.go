@@ -68,16 +68,6 @@ func (p *CommandProvider) run(ctx context.Context, argv []string, limit time.Dur
 // commandBaseEnv are the sidecar variables every program gets.
 var commandBaseEnv = []string{"PATH"}
 
-// commandBaseEnvName reports whether name (upper case) is one the
-// programs always get or the OS adds for a child.
-func commandBaseEnvName(name string) bool {
-	switch strings.ToUpper(name) {
-	case "PATH", "SYSTEMROOT":
-		return true
-	}
-	return false
-}
-
 // env is the program's whole environment: the base variables, the
 // allowed ones that are set, the drilled database (restore only), then
 // idName=id.
