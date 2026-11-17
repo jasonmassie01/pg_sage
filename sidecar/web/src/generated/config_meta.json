@@ -3512,6 +3512,13 @@
     "class": "operator_preference",
     "lifecycle": "restart"
   },
+  "review.large_table_bytes": {
+    "type": "int64",
+    "default": 10737418240,
+    "doc": "Bytes from which Sage Review advises partitioning an unpartitioned table with a time-ordered key. Range 1073741824-1125899906842624 (1 GiB-1 PiB). Default: 10737418240 (10 GiB).",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
   "review.window_days": {
     "type": "int",
     "default": 90,

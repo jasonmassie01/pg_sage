@@ -3625,6 +3625,7 @@ deterministic and read-only; it writes only `sage.review_run` and `sage.review_g
 | `review.enabled` | `true` | Grade each database once after its first look, then every `review.grade_interval_hours`. Restart to change |
 | `review.grade_interval_hours` | `24` | Hours between two grades of one database (1-720). Restart to change |
 | `review.window_days` | `90` | Days of history the review generators judge (14-100). The workload pack is the shorter of this and the retained rollups; a shorter pack is reported as partial coverage. Restart to change |
+| `review.large_table_bytes` | `10737418240` | Bytes (1 GiB-1 PiB, default 10 GiB) from which the schema-debt generator advises range-partitioning an unpartitioned table that a date or timestamp key orders in time. Advice only. Restart to change |
 
 ### Forecaster
 

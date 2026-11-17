@@ -400,6 +400,7 @@
 | `retention.workload_packs_days` | `restart` | `-` | `derivable` |
 | `review.enabled` | `restart` | `-` | `operator_preference` |
 | `review.grade_interval_hours` | `restart` | `-` | `operator_preference` |
+| `review.large_table_bytes` | `restart` | `-` | `operator_preference` |
 | `review.window_days` | `restart` | `-` | `operator_preference` |
 | `runaway.enabled` | `restart` | `-` | `safety_critical` |
 | `runaway.policies` | `restart` | `-` | `safety_critical` |

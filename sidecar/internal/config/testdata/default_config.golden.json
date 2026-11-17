@@ -612,7 +612,8 @@
   "Review": {
     "Enabled": true,
     "GradeIntervalHours": 24,
-    "WindowDays": 90
+    "WindowDays": 90,
+    "LargeTableBytes": 10737418240
   },
   "Facts": {
     "ConfirmedAbsenceDays": 7
