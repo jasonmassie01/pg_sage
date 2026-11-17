@@ -3,6 +3,7 @@ package schemadebt
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/cases"
 	"github.com/pg-sage/sidecar/internal/review/candidate"
@@ -47,9 +48,10 @@ func runwayPrediction(r Runway, s Series, seq string, key bool) candidate.Predic
 	src := "sage.runway_samples: no sequence feeds the column"
 	switch {
 	case seq != "" && r.Samples > 0:
+		pts := finitePoints(s.Points)
 		src = fmt.Sprintf("sage.runway_samples sequence %s epoch %s: %d samples from %s "+
-			"to %s", seq, s.Epoch, r.Samples, s.Points[0].At.UTC().Format("2006-01-02"),
-			s.Points[len(s.Points)-1].At.UTC().Format("2006-01-02"))
+			"to %s", seq, s.Epoch, r.Samples, pts[0].At.UTC().Format(time.DateOnly),
+			pts[len(pts)-1].At.UTC().Format(time.DateOnly))
 	case seq != "":
 		src = "sage.runway_samples: no samples of sequence " + seq + " in the window"
 	}

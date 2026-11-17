@@ -130,10 +130,10 @@ func (r Runway) Statement() string {
 	}
 	high := "unbounded"
 	if !math.IsInf(r.DaysHigh, 1) {
-		high = strconv.Itoa(int(math.Floor(r.DaysHigh)))
+		high = num(math.Floor(r.DaysHigh))
 	}
-	return fmt.Sprintf("exhausts in %d days (%d standard errors: %d to %s days) at %s, "+
-		"toward the %s", r.Days, errorSpread, int(math.Floor(r.DaysLow)), high, basis,
+	return fmt.Sprintf("exhausts in %d days (%d standard errors: %s to %s days) at %s, "+
+		"toward the %s", r.Days, errorSpread, num(math.Floor(r.DaysLow)), high, basis,
 		r.limitText())
 }
 
