@@ -435,6 +435,7 @@ func defaultCloneConfig() CloneProviderConfig {
 		Provider:                         DefaultCloneProvider,
 		MaxCloneAgeMinutes:               DefaultCloneMaxAgeMinutes,
 		RehearsalsPerHour:                DefaultCloneRehearsalsPerHour,
+		MaxCreatesPerHour:                DefaultCloneMaxCreatesPerHour,
 		RehearsalStatementTimeoutSeconds: DefaultCloneRehearsalStatementTimeoutSeconds,
 		Lakebase: CloneLakebaseConfig{TTLMinutes: DefaultCloneLakebaseTTLMinutes,
 			EndpointMaxCU: DefaultCloneLakebaseEndpointMaxCU},

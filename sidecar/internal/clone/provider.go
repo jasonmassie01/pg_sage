@@ -8,6 +8,10 @@ import (
 type CloneSpec struct {
 	IncludeData         bool  `json:"include_data"`
 	TargetSizeHintBytes int64 `json:"target_size_hint_bytes"`
+	// ResourceName is the name the provider gives the clone's resource
+	// when it names resources (a Finder looks it up by this name); set from
+	// the receipt by ReceiptingProvider. Never sent as a request field.
+	ResourceName string `json:"-"`
 }
 
 type Clone struct {

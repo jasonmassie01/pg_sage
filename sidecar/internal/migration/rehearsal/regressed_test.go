@@ -50,14 +50,17 @@ func TestRegressedBoundaries(t *testing.T) {
 	}
 }
 
-// A query with no baseline latency is not evidence either way.
+// A query with no baseline latency is not evidence either way: it never
+// parks, and with no other statement measured it cannot promote either
+// (lab-04b: before, this test expected a promote on a workload with no
+// measured statement, which is the vacuous pass G7-B22 forbids).
 func TestRegressedIgnoresZeroBaseline(t *testing.T) {
 	measurement := Measurement{AffectedQueries: []QueryMeasurement{{
 		QueryID: 7, BeforeLatencyMS: 0, AfterLatencyMS: 500,
 		BeforePlanHash: "plan-a", AfterPlanHash: "plan-b",
 	}}}
 	if got := NewOrchestrator(nil, nil, testOptions()).judge(measurement); got.Verdict !=
-		VerdictPromoteExpand {
+		VerdictRecommendOnly || got.Reason != ReasonInconclusiveWorkload {
 		t.Fatalf("zero baseline: %#v", got)
 	}
 }

@@ -54,6 +54,12 @@ type CloneProviderConfig struct {
 	// RehearsalStatementTimeoutSeconds bounds each statement a rehearsal
 	// executes on the clone (EXPLAIN ANALYZE).
 	RehearsalStatementTimeoutSeconds int `yaml:"rehearsal_statement_timeout_seconds" doc:"Longest one statement an index rehearsal executes on the clone may run, in seconds, 1 to 300; a statement that hits it records timed out, not a cost. Default: 5."`
+	// AllowFullCopy opts in to full-copy clones (a whole-instance restore:
+	// hours and a full instance bill), lab-05a.
+	AllowFullCopy bool `yaml:"allow_full_copy" doc:"Allow full-copy clones that restore a whole instance (the *_restore and cloudsql_clone providers, or a provider that does not describe its clones). Default: false: they create nothing."`
+	// MaxCreatesPerHour caps the clones one deployment creates in any
+	// hour, all purposes together (lab-05a).
+	MaxCreatesPerHour int `yaml:"max_creates_per_hour" doc:"Most clones this deployment creates in any hour, rehearsals and every other purpose together, 1 to 60. Default: 4."`
 	// Lakebase configures clone.provider lakebase_branch (market-03).
 	Lakebase CloneLakebaseConfig `yaml:"lakebase"`
 }

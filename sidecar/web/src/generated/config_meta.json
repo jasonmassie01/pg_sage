@@ -1154,6 +1154,13 @@
     "class": "safety_critical",
     "lifecycle": "restart"
   },
+  "clone.allow_full_copy": {
+    "type": "bool",
+    "default": false,
+    "doc": "Allow full-copy clones that restore a whole instance (the *_restore and cloudsql_clone providers, or a provider that does not describe its clones). Default: false: they create nothing.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
   "clone.dle_endpoint": {
     "type": "string",
     "default": "",
@@ -1205,6 +1212,13 @@
     "lifecycle": "restart",
     "min": 1,
     "max": 1073741824
+  },
+  "clone.max_creates_per_hour": {
+    "type": "int",
+    "default": 4,
+    "doc": "Most clones this deployment creates in any hour, rehearsals and every other purpose together, 1 to 60. Default: 4.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
   },
   "clone.provider": {
     "type": "string",

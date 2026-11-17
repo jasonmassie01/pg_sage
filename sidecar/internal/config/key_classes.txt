@@ -175,6 +175,8 @@ safety_critical clone.dle_token
 operator_preference clone.max_clone_age_minutes
 operator_preference clone.rehearsals_per_hour
 operator_preference clone.rehearsal_statement_timeout_seconds
+safety_critical clone.allow_full_copy
+operator_preference clone.max_creates_per_hour
 safety_critical clone.lakebase.project
 safety_critical clone.lakebase.source_branch
 operator_preference clone.lakebase.ttl_minutes

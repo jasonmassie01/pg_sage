@@ -61,14 +61,14 @@ func dleCloneConfig(c *config.Config) {
 
 func TestBuildCloneRehearser_FollowsTheProvider(t *testing.T) {
 	c := config.DefaultConfig()
-	if r, err := buildCloneRehearser(c, nil, nil, nil); r != nil || err != nil {
+	if r, err := buildCloneRehearser(c, "", nil, nil, nil); r != nil || err != nil {
 		t.Fatalf("clone.provider none: %v, %v", r, err)
 	}
-	if r, err := buildCloneRehearser(nil, nil, nil, nil); r != nil || err != nil {
+	if r, err := buildCloneRehearser(nil, "", nil, nil, nil); r != nil || err != nil {
 		t.Fatalf("no configuration: %v, %v", r, err)
 	}
 	dleCloneConfig(c)
-	r, err := buildCloneRehearser(c, nil, nil, nil)
+	r, err := buildCloneRehearser(c, "", nil, nil, nil)
 	if err != nil || r == nil {
 		t.Fatalf("dle: %v, %v", r, err)
 	}
@@ -82,7 +82,7 @@ func TestBuildCloneRehearser_FollowsTheProvider(t *testing.T) {
 		t.Fatalf("rehearsal on an unreachable provider: %v", err)
 	}
 	c.Clone.Provider = "snapshot"
-	if r, err := buildCloneRehearser(c, nil, nil, nil); r != nil || err == nil {
+	if r, err := buildCloneRehearser(c, "", nil, nil, nil); r != nil || err == nil {
 		t.Fatalf("an unsupported provider is an error: %v, %v", r, err)
 	}
 }

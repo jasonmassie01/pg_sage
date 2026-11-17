@@ -20,8 +20,12 @@ var cloneLakebaseID = regexp.MustCompile(`^` + lakebaseid.Pattern + `$`)
 func (c CloneProviderConfig) validate() error {
 	switch c.Provider {
 	case "snapshot":
-		return fmt.Errorf("clone.provider snapshot has no adapter in this build: " +
-			"use dle, lakebase_branch or none")
+		return fmt.Errorf("clone.provider snapshot has no adapter in this build: it was "+
+			"replaced by the full-copy providers %s; use dle, lakebase_branch or none",
+			strings.Join(CloneFullCopyProviders, ", "))
+	case CloneRDSRestore, CloneCloudSQLClone, CloneAlloyDBRestore, CloneAzureRestore:
+		return fmt.Errorf("clone.provider %s is not in this build yet: use dle, "+
+			"lakebase_branch or none", c.Provider)
 	case "none":
 	case "dle":
 		if c.DLEEndpoint == "" {
@@ -41,6 +45,42 @@ func (c CloneProviderConfig) validate() error {
 	return c.validateRehearsals()
 }
 
+// The full-copy clone providers (lab-05a): each restores a whole instance,
+// so each needs clone.allow_full_copy. They replace clone.provider
+// snapshot; lab-05d to lab-05g add their adapters.
+const (
+	CloneRDSRestore     = "rds_restore"
+	CloneCloudSQLClone  = "cloudsql_clone"
+	CloneAlloyDBRestore = "alloydb_restore"
+	CloneAzureRestore   = "azure_restore"
+)
+
+// CloneFullCopyProviders are the full-copy clone.provider names.
+var CloneFullCopyProviders = []string{CloneRDSRestore, CloneCloudSQLClone,
+	CloneAlloyDBRestore, CloneAzureRestore}
+
+// CloneMaxCreatesPerHour bounds clone.max_creates_per_hour.
+const CloneMaxCreatesPerHour = 60
+
+// Warnings are the clone settings that are valid but do nothing:
+// allow_full_copy without a full-copy provider.
+func (c CloneProviderConfig) Warnings() []string {
+	if !c.AllowFullCopy {
+		return nil
+	}
+	for _, name := range CloneFullCopyProviders {
+		if c.Provider == name {
+			return nil
+		}
+	}
+	provider := c.Provider
+	if provider == "" {
+		provider = "none"
+	}
+	return []string{fmt.Sprintf("clone.allow_full_copy is true but clone.provider %s "+
+		"makes no full copies: the setting has no effect", provider)}
+}
+
 // Bounds of the index rehearsal settings (lab-04a).
 const (
 	CloneMaxRehearsalsPerHour               = 60
@@ -50,6 +90,10 @@ const (
 // validateRehearsals checks the index rehearsal settings; 0 is unset and
 // the default applies.
 func (c CloneProviderConfig) validateRehearsals() error {
+	if c.MaxCreatesPerHour < 0 || c.MaxCreatesPerHour > CloneMaxCreatesPerHour {
+		return fmt.Errorf("clone.max_creates_per_hour must be within 1-%d, got %d",
+			CloneMaxCreatesPerHour, c.MaxCreatesPerHour)
+	}
 	if c.RehearsalsPerHour < 0 || c.RehearsalsPerHour > CloneMaxRehearsalsPerHour {
 		return fmt.Errorf("clone.rehearsals_per_hour must be within 1-%d, got %d",
 			CloneMaxRehearsalsPerHour, c.RehearsalsPerHour)

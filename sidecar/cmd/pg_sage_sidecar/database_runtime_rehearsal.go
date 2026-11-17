@@ -29,7 +29,7 @@ const indexRehearsalBuildTimeout = 15 * time.Minute
 // clone.provider none or a provider that cannot be built (logged).
 func (rt *databaseRuntime) cloneRehearser() tuning.Rehearser {
 	rt.rehearserOnce.Do(func() {
-		reh, err := buildCloneRehearser(cfg, rt.spec.Pool,
+		reh, err := buildCloneRehearser(cfg, rt.spec.Name, rt.spec.Pool,
 			rehearsalReceiptPool(rt.spec.Pool), nil)
 		if err != nil {
 			logStructuredWrapper("WARN", "clone rehearsal off for %s: clone.provider %s "+
@@ -62,9 +62,9 @@ func (b boundedRehearser) Rehearse(ctx context.Context, req tuning.RehearsalRequ
 }
 
 // buildCloneRehearser is a receipted, production-guarded, capped clone
-// rehearser for the database pool reaches; nil for clone.provider none.
-// now nil is time.Now.
-func buildCloneRehearser(c *config.Config, pool, receipts *pgxpool.Pool,
+// rehearser for database, which pool reaches; nil for clone.provider
+// none. now nil is time.Now.
+func buildCloneRehearser(c *config.Config, database string, pool, receipts *pgxpool.Pool,
 	now func() time.Time) (tuning.Rehearser, error) {
 	if c == nil || c.Clone.Provider == "" || c.Clone.Provider == "none" {
 		return nil, nil
@@ -73,7 +73,8 @@ func buildCloneRehearser(c *config.Config, pool, receipts *pgxpool.Pool,
 	if err != nil || adapter == nil {
 		return nil, err
 	}
-	provider, err := receiptingRehearsalProvider(adapter, receipts, c.Clone)
+	provider, err := pricedRehearsalProvider(adapter, receipts, c.Clone,
+		cloneRateFor(c.Cost, database))
 	if err != nil {
 		return nil, err
 	}

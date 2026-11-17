@@ -539,6 +539,8 @@
     "MaxCloneAgeMinutes": 1440,
     "RehearsalsPerHour": 2,
     "RehearsalStatementTimeoutSeconds": 5,
+    "AllowFullCopy": false,
+    "MaxCreatesPerHour": 4,
     "Lakebase": {
       "Project": "",
       "SourceBranch": "",

@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 
 	"github.com/pg-sage/sidecar/internal/migration/plan"
+	"github.com/pg-sage/sidecar/internal/migration/rehearsal"
 	migrationruntime "github.com/pg-sage/sidecar/internal/migration/runtime"
+	"github.com/pg-sage/sidecar/internal/verify"
 )
 
 type TableContractDeclaration struct {
@@ -86,6 +88,11 @@ type MigrationOutcome struct {
 	ContractScript string            `json:"contract_script,omitempty"`
 	Plan           plan.Plan         `json:"plan"`
 	Actions        []ChangeCandidate `json:"actions,omitempty"`
+	// AffectedQueries is what the clone rehearsal measured of the
+	// statements that reference the table, and Ladder its tier-2 record
+	// with the clone receipt (lab-04b).
+	AffectedQueries []rehearsal.QueryMeasurement `json:"affected_queries,omitempty"`
+	Ladder          *verify.LadderRecord         `json:"ladder,omitempty"`
 }
 
 // Reasons for apply_migration outcomes that never reach the rehearsal
