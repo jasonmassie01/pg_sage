@@ -291,6 +291,12 @@ A document without the block, or with a field left out, gets the defaults; an ex
 or an out-of-range value is refused when the document is parsed, and the error names the
 field. The block is written back only when it differs from the defaults.
 
+The drill reads the same standing policy the executor enforces: the database's own
+policy in meta mode, the global policy in standalone and YAML fleet mode, where one
+`drill` block covers every database. When the configured clone kind is not allowed (not in
+`kinds`, or `full_copy` without `clone.allow_full_copy`), no drill runs and the database
+gets the info finding `recoverability_unknown` with the reason.
+
   A step that waits past its `deadline_minutes`, counted from when it first waited, ends
   `skipped` with verdict `expired`, and its `on_expired` decides. `halt_ask` (the default)
   halts the plan. `keep` and `revert_step` let it go on, since nothing ran.
