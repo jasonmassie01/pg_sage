@@ -50,11 +50,22 @@ function initialMode() {
   return readPref(MODE_PREF, 'simple') === 'advanced' ? 'advanced' : 'simple'
 }
 
+// LINKED_TABS are the advanced tabs a link may open with ?tab= (the inbox
+// links a policy exception to Policy sets, fleetpol-01c).
+const LINKED_TABS = { 'policy-sets': 'Policy sets' }
+
+// settingsTabFromRoute is the route's ?tab= value, '' when it has none.
+export function settingsTabFromRoute(route) {
+  return new URLSearchParams((route || '').split('?')[1] || '').get('tab') || ''
+}
+
 // useSettingsMode is the simple/advanced switch, stored with writePref,
 // and the selected tab, which falls back to General when the mode hides it.
-export function useSettingsMode() {
-  const [mode, setMode] = useState(initialMode)
-  const [tab, setTab] = useState('General')
+// linkedTab (a LINKED_TABS key) opens that tab in advanced mode.
+export function useSettingsMode(linkedTab) {
+  const linked = Object.hasOwn(LINKED_TABS, linkedTab || '') ? LINKED_TABS[linkedTab] : null
+  const [mode, setMode] = useState(() => (linked ? 'advanced' : initialMode()))
+  const [tab, setTab] = useState(linked || 'General')
   const tabs = mode === 'simple' ? SIMPLE_TABS : ADVANCED_TABS
   const toggleMode = () => {
     const next = mode === 'simple' ? 'advanced' : 'simple'

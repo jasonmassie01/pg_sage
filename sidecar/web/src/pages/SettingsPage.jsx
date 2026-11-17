@@ -28,8 +28,8 @@ function fieldPropsOf(s) {
   }
 }
 
-export function SettingsPage({ database, databaseId, user }) {
-  const view = useSettingsMode()
+export function SettingsPage({ database, databaseId, user, linkedTab }) {
+  const view = useSettingsMode(linkedTab)
   const s = useSettingsConfig({ database, databaseId, tab: view.tab })
   const save = useSettingsSave(s)
   const restart = useRestartNow()

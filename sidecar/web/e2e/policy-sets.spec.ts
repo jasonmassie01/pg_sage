@@ -129,3 +129,11 @@ test('the database page says which set governs it and why', async ({ page }) => 
     'Governed by: prod (exception: lock_duration_ceiling_ms changed by alice@example.com, '
     + 'expires 2026-12-01)')
 })
+
+test('the inbox link opens the Policy sets tab directly', async ({ page }) => {
+  await withState(page)
+  await page.goto('/#/settings?tab=policy-sets&database=billing')
+  await expect(page.getByTestId('settings-tab-policy-sets')).toHaveAttribute('aria-selected',
+    'true')
+  await expect(page.getByTestId('policy-set')).toHaveCount(2)
+})
