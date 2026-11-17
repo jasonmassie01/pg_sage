@@ -37,6 +37,23 @@ func TestAzureRestore_NameInUseIsAConflictNamingTheName(t *testing.T) {
 	}
 }
 
+// A server of the name that appears between the free-name check and the
+// PUT meets If-None-Match: * as a 412: the same conflict, nothing deleted.
+func TestAzureRestore_PreconditionFailedPutIsANameConflict(t *testing.T) {
+	f, base := newAzureFake(t)
+	f.putStatus = http.StatusPreconditionFailed
+	_, err := createAZ(t, base, nil)
+	var status *clone.ProviderStatusError
+	if !errors.Is(err, clone.ErrAzureAlreadyExists) || !errors.As(err, &status) ||
+		status.StatusCode != http.StatusPreconditionFailed ||
+		!strings.Contains(err.Error(), azName) || errors.Is(err, clone.ErrCloneLeftBehind) {
+		t.Fatalf("err = %v; want a 412 name conflict naming %s", err, azName)
+	}
+	if got := strings.Join(f.mutating(), "|"); got != "put "+azName {
+		t.Fatalf("mutating %q, want the one refused PUT and no delete", got)
+	}
+}
+
 // ARM's PUT is create-or-update: a server of the clone's name in the
 // resource group is never PUT to, even one pg_sage tagged.
 func TestAzureRestore_ExistingServerOfTheNameIsNeverPut(t *testing.T) {
@@ -149,6 +166,10 @@ func TestAzureRestore_ForeignOperationURLIsNeverPolled(t *testing.T) {
 		"another host":         func(string) string { return evil.URL + azOpPrefix + "op-1" },
 		"another subscription": func(base string) string { return base + other },
 		"a path out":           func(base string) string { return base + azOpPrefix + "../../x" },
+		"a dot-dot id":         func(base string) string { return base + azOpPrefix + ".." },
+		"userinfo": func(base string) string {
+			return strings.Replace(base, "://", "://u:p@", 1) + azOpPrefix + "op-1"
+		},
 		"not an operation": func(base string) string {
 			return base + azServersID + "other-server"
 		},

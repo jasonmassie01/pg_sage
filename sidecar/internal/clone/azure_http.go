@@ -233,7 +233,8 @@ func (a *azureHTTP) request(ctx context.Context, method, target string,
 
 // statusError is a non-2xx reply: ErrAzureNotFound for 404,
 // ErrAzureAlreadyExists for a PUT's 409 (a name in use; another call's
-// 409 is an operation in progress), ErrAzurePermission naming the RBAC
+// 409 is an operation in progress) or 412 (If-None-Match: * met a server
+// of the name), ErrAzurePermission naming the RBAC
 // action for 401 and 403, each also a ProviderStatusError (429 and 5xx
 // are throttled, lab-05a) with ARM's code and message.
 func (a *azureHTTP) statusError(op string, code int, data []byte) error {
@@ -249,6 +250,10 @@ func (a *azureHTTP) statusError(op string, code int, data []byte) error {
 	}
 	msg = sanitizeARM(msg)
 	status := &ProviderStatusError{Op: "azure " + op, StatusCode: code}
+	if code == http.StatusPreconditionFailed && op == "servers.put" {
+		return fmt.Errorf("%w: %w: %s (a server of the name exists)", ErrAzureAlreadyExists,
+			status, msg)
+	}
 	switch code {
 	case http.StatusNotFound:
 		return fmt.Errorf("%w: %w: %s", ErrAzureNotFound, status, msg)
