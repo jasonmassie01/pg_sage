@@ -199,9 +199,11 @@ func (r *auroraCreate) create(ctx context.Context) (Clone, error) {
 	if err != nil {
 		err = fmt.Errorf("aurora_clone: restore %s from %s: %w", r.name, src.ID, err)
 		// RDS refused it (4xx): nothing was made. A 5xx or a lost reply may
-		// follow a restore RDS accepted, so it is looked for by tag.
+		// follow a restore RDS accepted, and so may "already exists": the
+		// SDK retries a restore whose reply was lost. It is looked for by tag.
 		var status *ProviderStatusError
-		if errors.As(err, &status) && status.StatusCode < 500 {
+		if errors.As(err, &status) && status.StatusCode < 500 &&
+			!errors.Is(err, ErrAuroraAlreadyExists) {
 			return Clone{}, err
 		}
 		return Clone{}, r.cleanupByTag(err)
@@ -312,12 +314,17 @@ func (r *auroraCreate) cleanup(cause error) error {
 }
 
 // cleanupByTag deletes the cluster a restore whose reply was lost may have
-// made, found by its tag.
+// made, found by its tag. One not listed yet may still appear, and Aurora
+// has no server-side expiry, so the create stays uncertain: the reaper
+// looks for it by tag again once the receipt expires.
 func (r *auroraCreate) cleanupByTag(cause error) error {
 	ctx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
 	defer cancel()
 	_, found, err := r.p.FindByName(ctx, r.name)
-	if err == nil && found {
+	if err == nil && !found {
+		err = fmt.Errorf("RDS does not list cluster %s yet, and the restore may have "+
+			"been accepted", r.name)
+	} else if err == nil {
 		err = r.p.deleteOwned(ctx, r.api, r.name)
 	}
 	if err != nil {

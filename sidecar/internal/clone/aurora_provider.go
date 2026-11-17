@@ -25,6 +25,9 @@ var (
 	ErrAuroraCloneLimit = errors.New("clone: the Aurora copy-on-write clone limit is reached")
 	// ErrAuroraNotFound: RDS describes no such cluster or instance.
 	ErrAuroraNotFound = errors.New("clone: aurora resource not found")
+	// ErrAuroraAlreadyExists: RDS already has a cluster or instance of that
+	// name, as when the SDK retries a restore RDS accepted.
+	ErrAuroraAlreadyExists = errors.New("clone: aurora resource already exists")
 )
 
 // Aurora bounds, tags and defaults.

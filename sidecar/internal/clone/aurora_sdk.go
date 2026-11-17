@@ -265,7 +265,8 @@ type rdsAPIError interface {
 type rdsStatusError interface{ HTTPStatusCode() int }
 
 // auroraError maps an SDK error: a missing cluster or instance to
-// ErrAuroraNotFound, missing credentials to ErrCloneUnavailable, any other
+// ErrAuroraNotFound, an existing one to ErrAuroraAlreadyExists (also a
+// ProviderStatusError), missing credentials to ErrCloneUnavailable, any other
 // fault to a ProviderStatusError (throttling as 429, a denied permission
 // as 403) with RDS's code and message. A transport error keeps its cause,
 // so a timeout reads as an uncertain create.
@@ -285,6 +286,11 @@ func auroraError(ctx context.Context, op string, err error) error {
 	switch code {
 	case "DBClusterNotFoundFault", "DBInstanceNotFound", "DBInstanceNotFoundFault":
 		return fmt.Errorf("%w: aurora %s: %s", ErrAuroraNotFound, op, api.ErrorMessage())
+	case "DBClusterAlreadyExistsFault", "DBInstanceAlreadyExists",
+		"DBInstanceAlreadyExistsFault":
+		return fmt.Errorf("%w: aurora %s: %s: %s: %w", ErrAuroraAlreadyExists, op, code,
+			api.ErrorMessage(), &ProviderStatusError{Op: "aurora " + op,
+				StatusCode: rdsStatus(err, code)})
 	}
 	return fmt.Errorf("aurora %s: %s: %s: %w", op, code, api.ErrorMessage(),
 		&ProviderStatusError{Op: "aurora " + op, StatusCode: rdsStatus(err, code)})
