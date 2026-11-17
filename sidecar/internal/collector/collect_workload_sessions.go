@@ -11,7 +11,8 @@ import (
 
 // Workload sessions (market-08): who is using this database right now,
 // for workload budgets. Four bounded reads per cycle, whether or not any
-// budget is configured:
+// budget is configured (plus the connection ages of evid-02b and
+// review-02e):
 //
 //   - this database's client sessions grouped by (role, application,
 //     state), at most 200 groups (one more row detects truncation);
@@ -82,6 +83,11 @@ type WorkloadSessions struct {
 	// Ages is the sessions by state and connection-age bucket (evid-02b);
 	// nil (absent) on snapshots written before it.
 	Ages []WorkloadAgeBucket `json:"ages,omitempty"`
+	// AppAges is the sessions by application and connection minute
+	// (review-02e), at most WorkloadAppAgeCap rows (AppAgesTruncated);
+	// nil (absent) on snapshots written before it.
+	AppAges          []WorkloadAppAge `json:"app_ages,omitempty"`
+	AppAgesTruncated bool             `json:"app_ages_truncated,omitempty"`
 }
 
 var workloadSessionFilter = `
@@ -151,6 +157,9 @@ func (c *Collector) collectWorkloadSessions(ctx context.Context) (*WorkloadSessi
 	}
 	if ws.Ages, err = c.workloadAges(ctx); err != nil {
 		return nil, fmt.Errorf("workload connection ages: %w", err)
+	}
+	if ws.AppAges, ws.AppAgesTruncated, err = c.workloadAppAges(ctx); err != nil {
+		return nil, fmt.Errorf("workload connection ages by application: %w", err)
 	}
 	return ws, nil
 }
