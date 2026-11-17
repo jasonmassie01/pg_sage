@@ -62,10 +62,9 @@ func run(mode string, args []string) int {
 		fmt.Fprintln(os.Stderr, "ERROR: repo locked password=hunter2")
 		return 3
 	case "hold-output":
-		return holdOutput()
+		return holdOutput(firstArg(args))
 	case "linger":
-		time.Sleep(8 * time.Second)
-		return 0
+		return linger(firstArg(args))
 	case "sleep":
 		time.Sleep(10 * time.Minute)
 		return 0
@@ -175,13 +174,26 @@ func destroyOK() int {
 
 // holdOutput starts a child that keeps this program's stdout and stderr
 // open after it exits (a server started without a log file), then prints
-// a valid line and exits 0.
-func holdOutput() int {
-	child := exec.Command(os.Args[0], Marker, "linger")
+// a valid line and exits 0. The child lingers until release exists.
+func holdOutput(release string) int {
+	child := exec.Command(os.Args[0], Marker, "linger", release)
 	child.Stdout, child.Stderr, child.Dir = os.Stdout, os.Stderr, os.TempDir()
 	if err := child.Start(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 5
 	}
 	return printResult("ok")
+}
+
+// linger holds its output until the file release exists (at most 30s),
+// then removes it and exits, so a test can wait for it to be gone.
+func linger(release string) int {
+	for end := time.Now().Add(30 * time.Second); time.Now().Before(end); {
+		if _, err := os.Stat(release); err == nil {
+			_ = os.Remove(release)
+			return 0
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return 0
 }

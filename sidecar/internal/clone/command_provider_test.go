@@ -233,9 +233,11 @@ func TestCommand_TimeoutKillsTheProgram(t *testing.T) {
 // output (pg_ctl start without -l) may have left a server running: the
 // create is uncertain, never a certain failure, and the error says why.
 func TestCommand_OutputHeldOpenAfterExitIsUncertain(t *testing.T) {
-	p := newCommand(t, commandConfig(t, "hold-output"))
+	release := filepath.Join(t.TempDir(), "release")
+	p := newCommand(t, commandConfig(t, "hold-output", release))
 	start := time.Now()
 	cl, err := p.Create(context.Background(), drillSpec("sage-drill-66666666"))
+	releaseLingerer(t, release)
 	if !errors.Is(err, ErrCommandOutputHeld) {
 		t.Fatalf("err = %v, want ErrCommandOutputHeld", err)
 	}
@@ -251,6 +253,23 @@ func TestCommand_OutputHeldOpenAfterExitIsUncertain(t *testing.T) {
 	if took := time.Since(start); took > 30*time.Second {
 		t.Fatalf("Create took %s: the held output was waited on unbounded", took)
 	}
+}
+
+// releaseLingerer lets the child that held the output exit and waits for
+// it, so it does not outlive the test binary (Windows locks a running exe).
+func releaseLingerer(t *testing.T, release string) {
+	t.Helper()
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for end := time.Now().Add(10 * time.Second); time.Now().Before(end); {
+		if _, err := os.Stat(release); errors.Is(err, os.ErrNotExist) {
+			time.Sleep(200 * time.Millisecond) // the exit after the remove
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Error("the child holding the output did not exit")
 }
 
 func TestCommand_StdoutBoundary(t *testing.T) {
