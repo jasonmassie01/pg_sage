@@ -3923,6 +3923,13 @@
     "class": "safety_critical",
     "lifecycle": "restart"
   },
+  "sre.autonomy.canary.stage_wait_hours": {
+    "type": "int",
+    "default": 24,
+    "doc": "Hours between a database's verdict and the next change, 0-720. Default: 24.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
   "sre.autonomy.class_promotion.min_success_rate_pct": {
     "type": "float64",
     "default": 80,
