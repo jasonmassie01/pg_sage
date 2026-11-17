@@ -9,7 +9,7 @@ import { useLiveStatus } from '../hooks/liveEventsContext'
 import { FreshnessIndicator } from './FreshnessIndicator'
 import { TimeRangePicker } from './TimeRangePicker'
 import { HeaderTrustBadge } from './HeaderTrustBadge'
-import { PostgresMeme } from './PostgresMeme'
+import { PageIntro } from './PageIntro'
 import { pageGuide } from './pageGuide'
 import { MonitoringContext } from './MonitoringContext'
 import { PageErrorBoundary } from './PageErrorBoundary'
@@ -333,7 +333,7 @@ export function Layout({
             <SecretsPostureBanner isAdmin={isAdmin} />
             <MonitoringContext database={selectedDB} fleetData={fleetData}
               error={fleetError} user={user} />
-            <PostgresMeme route={hash} guide={pageGuide(hash, { pageTitle, authMode })} />
+            <PageIntro route={hash} guide={pageGuide(hash, { pageTitle, authMode })} />
             <PendingActionsContext.Provider
               value={{ refetch: refetchPending }}>
               {children}

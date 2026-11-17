@@ -274,6 +274,12 @@ and reflects filtered Cases links, access restrictions and the App's disabled
 agent/MCP workflows. It describes the page; it does not infer database health
 or grant access to a feature.
 
+The meme and page description now open only on a viewer's first visit to each
+page. After that they fold to a one-line "About this page" toggle, and a page
+the viewer opens folds again on the next page. Visits are remembered in this
+browser only. With site data blocked the block stays folded, and below 768 px
+it is hidden, so phones show the page content right under the context bar.
+
 These changes address heuristic usability findings. Actual novice usability
 testing and explicit synthetic-fixture labels in Cases remain outstanding; the
 UI does not infer that arbitrary schemas are synthetic from their names.

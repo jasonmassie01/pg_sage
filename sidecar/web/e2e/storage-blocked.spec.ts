@@ -55,14 +55,41 @@ test('dashboard-03 CHECK-06: with site data blocked the dashboard loads and work
     await expect(page.getByTestId('monitoring-context')).toContainText('primary')
 
     // Pages with their own stored preferences render too.
+    // Home is the Inbox since ux-01b; Value moved to #/value.
     for (const [hash, title] of [['#/settings', 'Settings'], ['#/actions', 'Actions'],
-      ['#/', 'Value']]) {
+      ['#/', 'Inbox'], ['#/value', 'Value']]) {
       await page.evaluate(h => { window.location.hash = h }, hash)
       await expect(page.locator('header h1')).toHaveText(title)
       await noErrorBoundary(page)
     }
     expect(errors).toEqual([])
   })
+
+// ux-05c: a visit cannot be remembered with site data blocked, so the page
+// guide stays a collapsed "About this page" toggle instead of opening on
+// every page; it still opens on a click. Phones hide it either way.
+for (const width of [1280, 375]) {
+  test(`with site data blocked the page guide is collapsed at ${width}px`, async ({ page }) => {
+    const errors = watchPageErrors(page)
+    await page.setViewportSize({ width, height: 900 })
+    await blockStorage(page)
+    for (const hash of ['#/', '#/cases', '#/settings']) {
+      await page.goto('/' + hash)
+      await expect(page.locator('header h1')).not.toBeEmpty()
+      await expect(page.getByTestId('postgres-meme')).toHaveCount(0)
+      const toggle = page.getByRole('button', { name: 'About this page' })
+      if (width < 768) {
+        await expect(toggle).toHaveCount(0)
+        continue
+      }
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+      await toggle.click()
+      await expect(page.getByTestId('tab-introduction')).toBeVisible()
+      await noErrorBoundary(page)
+    }
+    expect(errors).toEqual([])
+  })
+}
 
 test('a blocked store forgets the scope on reload; a working one keeps it',
   async ({ page, context }) => {

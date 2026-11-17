@@ -53,46 +53,112 @@ test('Fleet shows the configured runtime and opens its database scope', async ({
   await expect(page.getByRole('combobox', { name: 'Database scope' })).toHaveValue('primary')
 })
 
+// ux-05c (decision D5): the meme and its "What's here" guide open on the first
+// visit to each page, then collapse to a one-line "About this page" toggle;
+// below 768 px they are hidden. Aliases share their page's visit.
 const routes = ['/', '/cases', '/actions', '/slos', '/trust', '/facts', '/ask',
-  '/manage-databases', '/settings', '/advanced', '/advanced/findings',
-  '/advanced/actions', '/advanced/runbooks', '/advanced/autonomy', '/database',
+  '/manage-databases', '/settings', '/advanced',
+  '/advanced/runbooks', '/advanced/autonomy', '/database',
   '/alerts', '/notifications', '/profile', '/users', '/mcp-tokens', '/agents', '/unknown-route']
+const aliases = ['/advanced/findings', '/advanced/actions']
 
-for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
-  test(`every signed-in page has its meme and fits ${viewport.width}px`, async ({ page }) => {
-    test.setTimeout(90000)
-    await page.setViewportSize(viewport)
-    await singletonApp(page)
-    const errors: string[] = []
-    page.on('pageerror', error => errors.push(error.message))
-    for (const route of routes) {
-      await page.goto('/#' + route)
-      const meme = page.getByTestId('postgres-meme')
-      await expect(meme).toHaveCount(1)
-      await expect(meme).toBeInViewport({ ratio: 1 })
-      const introduction = page.getByTestId('tab-introduction')
-      await expect(introduction).toBeVisible()
-      await expect(introduction.getByRole('heading', { level: 2 })).toContainText('About ')
-      if (viewport.width === 1440) {
-        const [imageBox, introBox] = await Promise.all([meme.getByRole('img').boundingBox(), introduction.boundingBox()])
-        expect(introBox!.x).toBeGreaterThan(imageBox!.x + imageBox!.width)
-        expect(introBox!.y).toBeLessThan(imageBox!.y + imageBox!.height)
-      }
-      const image = meme.getByRole('img')
-      await expect(image).toHaveCount(1)
-      // dashboard-09: memes are Vite-hashed bundle assets served from /assets/.
-      await expect(image).toHaveAttribute('src', /^\/assets\/[^/]+-[\w-]+\.jpg$/)
-      await expect.poll(() => image.evaluate((element: HTMLImageElement) =>
-        element.complete && element.naturalWidth > 0 && element.naturalHeight > 0
-          && new URL(element.currentSrc).origin === window.location.origin
-      ), { message: `local meme image decodes on ${route} at ${viewport.width}px` }).toBe(true)
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), route).toBe(true)
-    }
-    expect(errors).toEqual([])
+async function firstVisitShowsGuide(page: Page, route: string, wide: boolean) {
+  await page.goto('/#' + route)
+  await expect(page.getByRole('button', { name: 'About this page' }), route)
+    .toHaveAttribute('aria-expanded', 'true')
+  const meme = page.getByTestId('postgres-meme')
+  await expect(meme).toHaveCount(1)
+  await expect(meme).toBeInViewport({ ratio: 1 })
+  const introduction = page.getByTestId('tab-introduction')
+  await expect(introduction).toBeVisible()
+  await expect(introduction.getByRole('heading', { level: 2 })).toContainText('About ')
+  if (wide) {
+    const [imageBox, introBox] = await Promise.all([
+      meme.getByRole('img').boundingBox(), introduction.boundingBox()])
+    expect(introBox!.x).toBeGreaterThan(imageBox!.x + imageBox!.width)
+    expect(introBox!.y).toBeLessThan(imageBox!.y + imageBox!.height)
+  }
+  const image = meme.getByRole('img')
+  await expect(image).toHaveCount(1)
+  // dashboard-09: memes are Vite-hashed bundle assets served from /assets/.
+  await expect(image).toHaveAttribute('src', /^\/assets\/[^/]+-[\w-]+\.jpg$/)
+  await expect.poll(() => image.evaluate((element: HTMLImageElement) =>
+    element.complete && element.naturalWidth > 0 && element.naturalHeight > 0
+      && new URL(element.currentSrc).origin === window.location.origin
+  ), { message: `local meme image decodes on ${route}` }).toBe(true)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), route)
+    .toBe(true)
+}
+
+// gapAboveContent is the distance from the bottom of the database context bar
+// to the top of the page's own content: on a phone, nothing sits between them.
+function gapAboveContent(page: Page) {
+  return page.evaluate(() => {
+    const area = document.querySelector('.sage-content')!
+    const context = area.querySelector('[data-testid="monitoring-context"]')!
+    return area.lastElementChild!.getBoundingClientRect().top - context.getBoundingClientRect().bottom
   })
 }
 
-for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
+for (const viewport of [{ width: 1280, height: 1000 }, { width: 768, height: 1000 }]) {
+  test(`every signed-in page opens its guide once, then collapses, at ${viewport.width}px`,
+    async ({ page }) => {
+      test.setTimeout(120000)
+      await page.setViewportSize(viewport)
+      await singletonApp(page)
+      const errors: string[] = []
+      page.on('pageerror', error => errors.push(error.message))
+      for (const route of routes) await firstVisitShowsGuide(page, route, viewport.width === 1280)
+      const toggle = page.getByRole('button', { name: 'About this page' })
+      for (const route of [...routes, ...aliases]) {
+        await page.goto('/#' + route)
+        await expect(toggle, route).toHaveAttribute('aria-expanded', 'false')
+        await expect(toggle).toBeInViewport()
+        await expect(page.getByTestId('postgres-meme')).toHaveCount(0)
+        await expect(page.getByTestId('tab-introduction')).toHaveCount(0)
+      }
+      // Opened by the viewer, then collapsed again on the next page.
+      await toggle.click()
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+      await expect(page.getByTestId('tab-introduction')).toBeVisible()
+      await page.goto('/#/cases')
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+      await expect(page.getByTestId('postgres-meme')).toHaveCount(0)
+      expect(errors).toEqual([])
+    })
+}
+
+for (const width of [375, 767]) {
+  test(`phones show no meme or guide at ${width}px and keep the inbox near the top`,
+    async ({ page }) => {
+      test.setTimeout(90000)
+      await page.setViewportSize({ width, height: 844 })
+      await singletonApp(page)
+      const errors: string[] = []
+      page.on('pageerror', error => errors.push(error.message))
+      for (const route of routes) {
+        await page.goto('/#' + route)
+        await expect(page.locator('header h1')).not.toBeEmpty()
+        await expect(page.getByTestId('postgres-meme'), route).toHaveCount(0)
+        await expect(page.getByRole('button', { name: 'About this page' })).toHaveCount(0)
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), route)
+          .toBe(true)
+      }
+      await page.goto('/#/')
+      await expect(page.getByTestId('inbox-page')).toBeVisible()
+      // Only the context bar's own 16 px margin; the meme block took 200+ px here.
+      expect(await gapAboveContent(page)).toBeLessThanOrEqual(16)
+      // A visit on a phone is not a visit to the guide: widening the window to
+      // 768 px opens it on this page.
+      await page.setViewportSize({ width: 768, height: 844 })
+      await expect(page.getByRole('button', { name: 'About this page' }))
+        .toHaveAttribute('aria-expanded', 'true')
+      expect(errors).toEqual([])
+    })
+}
+
+// The guide is hidden below 768 px (ux-05c), so the deck runs where it shows.
+for (const viewport of [{ width: 1440, height: 1000 }, { width: 768, height: 1000 }]) {
   test(`all 50 shuffled memes fit near the top at ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport)
     await singletonApp(page)
@@ -141,5 +207,6 @@ test('mobile navigation closes after choosing Ask Sage', async ({ page }) => {
   await drawer.getByTestId('nav-ask').click()
   await expect(drawer).toHaveCount(0)
   await expect(page.getByTestId('ask-input')).toBeVisible()
-  await expect(page.getByTestId('postgres-meme')).toBeVisible()
+  // ux-05c: phones do not show the meme block (decision D5).
+  await expect(page.getByTestId('postgres-meme')).toHaveCount(0)
 })
