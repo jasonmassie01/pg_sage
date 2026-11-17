@@ -10,6 +10,11 @@ import (
 	"github.com/pg-sage/sidecar/internal/review/candidate"
 )
 
+// minUnusedWindowDays is the shortest window over which no scan makes an
+// index unused: review.window_days' minimum. A younger pack (a new install,
+// short retention) calls no index unused.
+const minUnusedWindowDays = 14
+
 // writeCostSource says how the write cost is computed.
 const writeCostSource = "indexes.json table_writes over the pack window: one leaf block " +
 	"per inserted or updated row per index (an upper bound; a HOT update writes none)"
@@ -17,11 +22,14 @@ const writeCostSource = "indexes.json table_writes over the pack window: one lea
 // builder collects one Generate call's candidates. It lives for one call,
 // so generators share no state.
 type builder struct {
-	pf       portfolio
-	env      candidate.Env
-	cov      *candidate.Coverage
-	days     int
-	taken    map[string]bool // indexes a candidate already targets
+	pf    portfolio
+	env   candidate.Env
+	cov   *candidate.Coverage
+	days  int
+	taken map[string]bool // indexes a candidate already targets
+	// kept are the indexes a proposed drop moves lookups onto (a set's
+	// cover, a duplicate's kept copy): no candidate of the review drops one.
+	kept     map[string]bool
 	perTable map[string]int  // candidates per schema.table
 	capped   map[string]bool // tables whose cap a candidate hit
 	out      []candidate.Candidate
@@ -33,7 +41,7 @@ func newBuilder(pf portfolio, env candidate.Env, cov *candidate.Coverage) *build
 		cov.Note("the pack lists only the first %d indexes", len(pf.facts))
 	}
 	return &builder{pf: pf, env: env, cov: cov, days: cov.WindowDays,
-		taken: map[string]bool{}, perTable: map[string]int{}, capped: map[string]bool{}}
+		taken: map[string]bool{}, kept: map[string]bool{}, perTable: map[string]int{}, capped: map[string]bool{}}
 }
 
 // room reports whether the table may take another candidate besides the
@@ -122,6 +130,7 @@ func (b *builder) duplicates() {
 			if !b.pf.droppable(d) || b.taken[factName(d)] || !b.room(factTable(d), 0) {
 				continue
 			}
+			b.kept[factName(keep)] = true
 			b.add(b.drop(d, KindDuplicate, fmt.Sprintf("identical to %s (same keys, "+
 				"operator classes, collations and predicate): every write maintains both",
 				factName(keep)), candidate.TierNone, keep), factTable(d))
@@ -129,7 +138,8 @@ func (b *builder) duplicates() {
 	}
 }
 
-// keepFirst orders copies of one index: the one to keep first.
+// keepFirst orders copies of one index: the one to keep first, then the
+// one the workload scanned most.
 func keepFirst(a, b workpack.IndexFact) int {
 	rank := func(f workpack.IndexFact) int {
 		switch {
@@ -142,12 +152,26 @@ func keepFirst(a, b workpack.IndexFact) int {
 		}
 		return 3
 	}
-	return cmp.Or(cmp.Compare(rank(a), rank(b)), cmp.Compare(factName(a), factName(b)))
+	scanned := func(f workpack.IndexFact) float64 {
+		if n, ok := scans(f); ok {
+			return n
+		}
+		return -1
+	}
+	return cmp.Or(cmp.Compare(rank(a), rank(b)), cmp.Compare(scanned(b), scanned(a)),
+		cmp.Compare(factName(a), factName(b)))
 }
 
 // unused drops indexes with no scan over the whole window, when the
-// statistics held unbroken across it (scans_status ok).
+// statistics held unbroken across it (scans_status ok) and the window is
+// at least minUnusedWindowDays long.
 func (b *builder) unused() {
+	if b.days < minUnusedWindowDays {
+		b.cov.Status = candidate.CoveragePartial
+		b.cov.Note("the pack covers %d days, under the %d days an index must go unscanned "+
+			"to be called unused, so none is", b.days, minUnusedWindowDays)
+		return
+	}
 	if b.pf.status != "ok" {
 		b.cov.Note("index scans are %s over the window (a statistics reset or too few "+
 			"snapshots): whether an index is used is unknown, so none is called unused",
@@ -161,7 +185,7 @@ func (b *builder) unused() {
 			unknown++
 			continue
 		}
-		if n != 0 || !b.pf.droppable(f) || b.taken[factName(f)] ||
+		if n != 0 || !b.pf.droppable(f) || b.taken[factName(f)] || b.kept[factName(f)] ||
 			!b.room(factTable(f), 0) {
 			continue
 		}

@@ -101,13 +101,12 @@ func (b *builder) consolidate(ctx context.Context, m Measurer, s set) error {
 		return nil
 	}
 	why, keep, err := b.validate(ctx, m, s, len(steps))
-	if err != nil {
+	if err != nil || !keep {
 		return err
 	}
+	b.kept[factName(s.cover)] = true
 	for _, c := range steps {
 		switch {
-		case !keep:
-			continue
 		case why != "":
 			c = advise(c, why)
 		default:

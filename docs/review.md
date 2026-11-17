@@ -147,11 +147,13 @@ The `indexes` generator judges a database's indexes as a set, over the whole pac
 
 | Kind | Proposal | Validation |
 |---|---|---|
-| `duplicate` | Drop every exact copy but one (constraint-backing, then unique, then by name is kept). | None needed: a drop is reversible by rebuild. |
+| `duplicate` | Drop every exact copy but one (constraint-backing, then unique, then the most scanned, then by name is kept). | None needed: a drop is reversible by rebuild. |
 | `consolidation` | Drop the indexes whose keys lead a wider btree index of the same table, which serves the same lookups. At most one set per table per review. | HypoPG hides the whole set and plans the table's top statements. The set is kept only when no statement that used it rises more than `optimizer.hypopg_min_improvement_pct`. |
-| `unused` | Drop an index with no scan over the whole window. | The statistics must be unbroken across the window: a reset makes every index `unknown`, never unused. |
+| `unused` | Drop an index with no scan over the whole window. | The statistics must be unbroken across the window: a reset makes every index `unknown`, never unused. A window under 14 days calls no index unused. |
 
-Constraint-backing, primary, unique, invalid and partition indexes are never proposed. At most
+Constraint-backing, primary, unique, invalid and partition indexes are never proposed, nor is
+an index another drop of the same review relies on: a set's covering index or a duplicate's
+kept copy is never dropped as unused too. At most
 `optimizer.max_indexes_per_table` candidates are proposed per table per review.
 
 Without HypoPG (not installed, too old to hide an index, or refused), a consolidation set is
