@@ -38,6 +38,7 @@ nav:
       - "Walkthrough: fleet": walkthrough-fleet.md
       - Neon and Supabase: neon-supabase.md
       - "Managed clouds: RDS, Aurora and Cloud SQL": managed-clouds.md
+      - "Restore drills on self-managed servers": restore-drills.md
       - LLM costing: llm-costing.md
   - Configuration: configuration.md
   - HTTP API and inbox: api.md
