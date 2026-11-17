@@ -56,6 +56,18 @@ function ActionMessage({ msg }) {
   )
 }
 
+// QueueFocusMissing says a linked approval request (queue=<id>) is not
+// among the waiting ones: it was decided or expired after the link was
+// made (ux-05b), so the list is not silently shown as if it were focused.
+function QueueFocusMissing({ id, actions }) {
+  if (!id || actions.some(action => String(action.id) === id)) return null
+  return <p role="status" data-testid="approval-queue-missing" className="text-sm"
+    style={{ color: 'var(--yellow)' }}>
+    Approval request #{id} is no longer waiting for review: it was decided or expired.
+    History lists what was run.
+  </p>
+}
+
 // PendingList leads with the approval cards when every queued action has one
 // and otherwise shows the table, where each row is approved or rejected.
 export function PendingList({ data, refetch, cards, cases, database, modeForDatabase,
@@ -70,14 +82,19 @@ export function PendingList({ data, refetch, cards, cases, database, modeForData
     cards?.refetch?.()
     refetchPendingCount()
   }
+  const missing = <QueueFocusMissing id={queueFocus} actions={actions} />
   if (complete && view === 'cards') {
-    return <PendingCardsView cards={cardList} errors={cards.data.errors}
-      onShowTable={() => setView('table')} onDecided={refreshAll}
-      pending={actions} cases={cases} database={database} modeForDatabase={modeForDatabase}
-      queueFocus={queueFocus} />
+    return <>
+      {missing}
+      <PendingCardsView cards={cardList} errors={cards.data.errors}
+        onShowTable={() => setView('table')} onDecided={refreshAll}
+        pending={actions} cases={cases} database={database} modeForDatabase={modeForDatabase}
+        queueFocus={queueFocus} />
+    </>
   }
   return (
     <div className="space-y-3">
+      {missing}
       {hasCards && (
         <button data-testid="pending-view-cards" onClick={() => setView('cards')}
           className="px-2 py-1 rounded text-xs"

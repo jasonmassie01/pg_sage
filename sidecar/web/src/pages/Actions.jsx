@@ -151,7 +151,7 @@ function TabBar({ tab, setTab, counts, canReview }) {
     { key: 'recommendations', label: 'Proposed changes' }]
   if (canReview) tabs.push({ key: 'pending', label: 'Needs your review' })
   tabs.push({ key: 'progress', label: 'In progress' }, { key: 'executed', label: 'History' })
-  if (canReview) tabs.push({ key: 'decisions', label: 'Decisions' })
+  if (canReview) tabs.push({ key: 'decisions', label: 'Held back' })
   return <div className="flex flex-wrap gap-2" role="tablist" aria-label="Change tasks">
     {tabs.map(t => <button key={t.key} type="button" role="tab" aria-selected={tab === t.key}
       onClick={() => setTab(t.key)} data-testid={`actions-tab-${t.key}`}

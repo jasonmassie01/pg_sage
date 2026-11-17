@@ -2,20 +2,22 @@ import { useState } from 'react'
 import { useAPI } from '../../hooks/useAPI'
 import { QueryState } from '../../components/QueryState'
 import { POLICY_GATE_DOC } from '../settings/StandingPolicy'
+import { reasonText, riskLabel, verdictLabel } from './workflow'
 
-// Actions > Decisions (policy-07): why a change has not run. Each row is
+// Actions > Held back (policy-07; the route key stays "decisions"): why a
+// change has not run. Each row is
 // one candidate the standing gate withheld (queued, parked, blocked or
 // observe-only) and has not run since, from GET /api/v1/decisions: the
-// verdict, the reason as the gate words it, how often the gate repeated
-// it and, for a budget park, when the budget frees. Operators only: the
-// route refuses viewers.
+// verdict and the reason in words with a next step (gateLabels.js, ux-05b),
+// how often the gate repeated it and, for a budget park, when the budget
+// frees. A row links to its exact approval card or finding. Operators
+// only: the route refuses viewers.
 
 const muted = { color: 'var(--text-secondary)' }
 const strong = { color: 'var(--text-primary)' }
-const VERDICTS = [
-  ['', 'Every verdict'], ['queue_approval', 'Waiting for approval'], ['parked', 'Parked'],
-  ['blocked', 'Blocked'], ['observe_only', 'Observe only'],
-]
+// The filter's verdicts, in the ledger's spelling, named as the rows name them.
+const VERDICTS = [['', 'Every verdict'], ...['queue_approval', 'parked', 'blocked',
+  'observe_only'].map(value => [value, verdictLabel(value)])]
 
 function decisionsURL(database, verdict) {
   const params = new URLSearchParams()
@@ -74,10 +76,20 @@ function DecisionsList({ data, database }) {
   </>
 }
 
+// decisionLink focuses the row's approval request on Needs your review
+// (tab= and queue=, ux-01b) or its finding on Cases (finding=, caseFocus.js).
+// queue= is a queue id, never action= (an executed change record's id).
 function decisionLink(d) {
-  const db = `database=${encodeURIComponent(d.database)}`
-  if (d.queue_id) return { href: `#/actions?${db}`, label: `Approval request #${d.queue_id}` }
-  if (d.finding_id) return { href: `#/cases?${db}`, label: `Finding #${d.finding_id}` }
+  const link = (path, params) => `#/${path}?${new URLSearchParams(params)}`
+  const db = d.database ? { database: d.database } : {}
+  if (d.queue_id) {
+    return { href: link('actions', { tab: 'pending', queue: d.queue_id, ...db }),
+      label: `Approval request #${d.queue_id}` }
+  }
+  if (d.finding_id) {
+    return { href: link('cases', { finding: d.finding_id, ...db }),
+      label: `Finding #${d.finding_id}` }
+  }
   return null
 }
 
@@ -88,13 +100,14 @@ function DecisionRow({ decision: d, database }) {
     <li data-testid="decision-row" className="rounded border p-3 text-sm"
       style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
       <div className="flex flex-wrap items-baseline gap-2">
-        <span className="font-medium uppercase text-xs" style={strong}>{d.verdict}</span>
-        <span style={strong}>{d.human_reason || d.reason}</span>
+        <span className="font-medium text-xs" style={strong}>{verdictLabel(d.verdict)}</span>
+        <span style={strong}>{reasonText(d.reason)}</span>
       </div>
       <p className="mt-1 text-xs" style={muted}>
         {(!database || database === 'all') && <span>{d.database} · </span>}
-        {d.feature}{targets && ` on ${targets}`} · {d.risk_tier} · seen {d.repeat_count}
-        {' '}{d.repeat_count === 1 ? 'time' : 'times'}, last {formatTime(d.last_seen_at)}
+        {d.feature}{targets && ` on ${targets}`} · Risk: {riskLabel(d.risk_tier)} · seen
+        {' '}{d.repeat_count}{' '}{d.repeat_count === 1 ? 'time' : 'times'}, last
+        {' '}{formatTime(d.last_seen_at)}
         {d.policy_version ? ` · policy v${d.policy_version}` : ''}
       </p>
       {d.budget_detail && <p data-testid="decision-budget" className="mt-1 text-xs"

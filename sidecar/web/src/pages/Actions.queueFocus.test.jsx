@@ -62,6 +62,24 @@ describe('Actions exact links', () => {
     expect(scrolled).toHaveBeenCalledTimes(1)
   })
 
+  // ux-05b: a Held back link names a queued proposal that may have been
+  // decided since; the page says so instead of silently showing the list.
+  it('says when the linked proposal no longer waits for review', () => {
+    renderAt('#/actions?tab=pending&queue=77&database=orders')
+    expect(screen.getByTestId('actions-tab-pending')).toHaveAttribute('aria-selected', 'true')
+    expect(screen.queryByTestId('approval-card-focused')).toBeNull()
+    expect(screen.getByTestId('approval-queue-missing')).toHaveTextContent(
+      'Approval request #77 is no longer waiting for review')
+    expect(screen.getByTestId('approval-cards')).toHaveTextContent('Card 41')
+    expect(screen.getByTestId('approval-cards')).toHaveTextContent('Card 42')
+  })
+
+  it('shows no missing notice when the linked card is listed', () => {
+    renderAt('#/actions?tab=pending&queue=41&database=orders')
+    expect(screen.getByTestId('approval-card-focused')).toHaveTextContent('Card 41')
+    expect(screen.queryByTestId('approval-queue-missing')).toBeNull()
+  })
+
   it('ignores a hostile queue id and an unknown tab', () => {
     renderAt('#/actions?tab=drafts&queue=42%3Cimg%3E')
     // ux-05a: an ignored tab= falls to the landing tab, which is Needs your
