@@ -24,6 +24,8 @@ const commandWaitDelay = 5 * time.Second
 // run runs argv with idName=id in its environment, bounded by limit, and
 // returns its stdout. A non-zero exit is ErrCommandFailed quoting the
 // redacted stderr tail; a timeout wraps the context's error.
+// Output held open after a successful exit is ErrCommandOutputHeld, an
+// uncertain create.
 func (p *CommandProvider) run(ctx context.Context, argv []string, limit time.Duration,
 	bound, idName, id string) ([]byte, error) {
 	if err := os.MkdirAll(p.cfg.WorkDir, 0o700); err != nil {
@@ -41,6 +43,12 @@ func (p *CommandProvider) run(ctx context.Context, argv []string, limit time.Dur
 	if ctxErr := runCtx.Err(); ctxErr != nil {
 		return nil, fmt.Errorf("restore command %s did not finish within %s (%s), "+
 			"killed: %w%s", argv[0], limit, bound, ctxErr, stderrQuote(stderr))
+	}
+	if errors.Is(err, exec.ErrWaitDelay) {
+		// It exited 0, but what it started (a server) still holds its output.
+		return nil, fmt.Errorf("%w: %s exited 0 but a process it started held its stdout "+
+			"or stderr open for %s more; start servers with pg_ctl -l or redirect their "+
+			"output: %w", ErrCommandOutputHeld, argv[0], commandWaitDelay, ErrCloneLeftBehind)
 	}
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {

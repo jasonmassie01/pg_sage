@@ -229,6 +229,30 @@ func TestCommand_TimeoutKillsTheProgram(t *testing.T) {
 	}
 }
 
+// A program that exits 0 while a process it started still holds its
+// output (pg_ctl start without -l) may have left a server running: the
+// create is uncertain, never a certain failure, and the error says why.
+func TestCommand_OutputHeldOpenAfterExitIsUncertain(t *testing.T) {
+	p := newCommand(t, commandConfig(t, "hold-output"))
+	start := time.Now()
+	cl, err := p.Create(context.Background(), drillSpec("sage-drill-66666666"))
+	if !errors.Is(err, ErrCommandOutputHeld) {
+		t.Fatalf("err = %v, want ErrCommandOutputHeld", err)
+	}
+	if !uncertainCreate(err) {
+		t.Fatalf("err = %v: a restore that may be running must be create_uncertain", err)
+	}
+	if cl != (Clone{}) {
+		t.Fatalf("clone = %+v, want none", cl)
+	}
+	if !strings.Contains(err.Error(), "pg_ctl -l") {
+		t.Errorf("error %q does not say how to fix the wrapper", err)
+	}
+	if took := time.Since(start); took > 30*time.Second {
+		t.Fatalf("Create took %s: the held output was waited on unbounded", took)
+	}
+}
+
 func TestCommand_StdoutBoundary(t *testing.T) {
 	for _, tc := range []struct {
 		bytes int

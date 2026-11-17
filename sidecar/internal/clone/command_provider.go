@@ -40,6 +40,8 @@ var (
 	ErrCommandMissingField   = errors.New("restore command: the JSON line lacks a field")
 	ErrCommandDSNIsSource    = errors.New("restore command: the printed dsn is the source")
 	ErrCommandOutputTooLarge = errors.New("restore command: stdout exceeds 64 KiB")
+	ErrCommandOutputHeld     = errors.New("restore command: a process it started kept " +
+		"its output open")
 )
 
 // CommandConfig is one restore command. Programs run without a shell, in

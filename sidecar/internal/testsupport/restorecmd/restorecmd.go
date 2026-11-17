@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -60,6 +61,11 @@ func run(mode string, args []string) int {
 		fmt.Fprintln(os.Stderr, "pgbackrest: connecting with postgres://backup:hunter2@db1/app")
 		fmt.Fprintln(os.Stderr, "ERROR: repo locked password=hunter2")
 		return 3
+	case "hold-output":
+		return holdOutput()
+	case "linger":
+		time.Sleep(8 * time.Second)
+		return 0
 	case "sleep":
 		time.Sleep(10 * time.Minute)
 		return 0
@@ -165,4 +171,17 @@ func destroyOK() int {
 		return 5
 	}
 	return 0
+}
+
+// holdOutput starts a child that keeps this program's stdout and stderr
+// open after it exits (a server started without a log file), then prints
+// a valid line and exits 0.
+func holdOutput() int {
+	child := exec.Command(os.Args[0], Marker, "linger")
+	child.Stdout, child.Stderr, child.Dir = os.Stdout, os.Stderr, os.TempDir()
+	if err := child.Start(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 5
+	}
+	return printResult("ok")
 }
