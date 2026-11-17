@@ -68,9 +68,11 @@ func (rt *databaseRuntime) startMonitoring() {
 	rt.startObservedPlans()
 }
 
-// startAnalyzer starts the fully configured analyzer, then the exposure
-// sweep that publishes through it (fleetpol-02a).
+// startAnalyzer starts the Supabase Data API reader posture reads
+// (fleetpol-02c), the fully configured analyzer, then the exposure sweep
+// that publishes through it (fleetpol-02a).
 func (rt *databaseRuntime) startAnalyzer(posture *agentposture.Monitor) {
+	rt.startSupabaseDataAPI()
 	rt.start(func() { rt.analyzer.Run(rt.ctx) })
 	rt.startExposureSweep(posture)
 }

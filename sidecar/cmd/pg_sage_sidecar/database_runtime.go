@@ -167,6 +167,9 @@ type databaseRuntime struct {
 	// providerObs is Supabase observability (nil: not running); its memory
 	// backs the gates when there is no managed-cloud telemetry.
 	providerObs atomic.Pointer[providerobs.Runtime]
+	// dataAPI is the Supabase Data API exposure reader (fleetpol-02c), set
+	// before the analyzer starts; nil off Supabase or without a token.
+	dataAPI *cloudtel.SupabaseDataAPI
 }
 
 // buildDatabaseRuntime is the only per-database runtime constructor. It

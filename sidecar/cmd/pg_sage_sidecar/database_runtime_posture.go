@@ -60,12 +60,14 @@ func (rt *databaseRuntime) exposureSweepInterval() time.Duration {
 
 // newPostureMonitorConfig is the posture monitor's configuration for one
 // cycle: the live agents.* keys, the backup posture and the action role
-// (AP-14 checks both of pg_sage's roles, security-09).
+// (AP-14 checks both of pg_sage's roles, security-09) and, on Supabase, the
+// Data API exposure (fleetpol-02c).
 func (rt *databaseRuntime) newPostureMonitorConfig() agentposture.Config {
 	config.RLockForHotReload()
 	defer config.RUnlockForHotReload()
 	cfg := postureConfig(rt.cfg)
 	cfg.Platform.Backup = rt.postureBackup()
+	cfg.Platform.DataAPI = postureDataAPI(rt.dataAPI)
 	cfg.ActionRole = actionRole(rt.spec.ActionPool)
 	return cfg
 }
