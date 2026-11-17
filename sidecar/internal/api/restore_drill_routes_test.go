@@ -113,6 +113,7 @@ func drillFleetOn(t *testing.T, pool *pgxpool.Pool, provider string,
 	reads := drillReads{cfg: cfg, results: results, now: func() time.Time { return drillNow }}
 	mux := http.NewServeMux()
 	registerRestoreDrillRoutes(mux, mgr, reads)
+	registerFleetRecoverabilityRoute(mux, mgr, reads)
 	return mgr, mux, reads
 }
 
@@ -405,6 +406,7 @@ func drillUnitMux() http.Handler {
 		Config: config.DatabaseConfig{Name: "orders"}})
 	mux := http.NewServeMux()
 	registerRestoreDrillRoutes(mux, mgr, drillReads{cfg: cfg})
+	registerFleetRecoverabilityRoute(mux, mgr, drillReads{cfg: cfg})
 	return mux
 }
 
@@ -435,7 +437,7 @@ func TestRestoreDrillRoutes_NotConnectedIs503(t *testing.T) {
 
 func TestRestoreDrillRoutes_FleetWithoutAManagerIsEmpty(t *testing.T) {
 	mux := http.NewServeMux()
-	registerRestoreDrillRoutes(mux, nil, drillReads{})
+	registerFleetRecoverabilityRoute(mux, nil, drillReads{})
 	code, body := drillGet(t, mux, "/api/v1/fleet/recoverability")
 	got := decodeFleetRecover(t, body)
 	if code != http.StatusOK || got.Total != 0 || got.MedianRTO != nil || got.WindowDays != 35 {

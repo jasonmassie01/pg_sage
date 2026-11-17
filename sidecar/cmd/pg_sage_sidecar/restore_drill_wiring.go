@@ -95,6 +95,16 @@ func runtimeControlPool(mgr *fleet.DatabaseManager, meta *metaDBState) *pgxpool.
 	return mgr.PoolForDatabase("all")
 }
 
+// restoreDrillResults is where the API and MCP read a database's drill
+// rows (drill-01d): the control database drills record in, as
+// drillInstances resolves it, or nil for the database's own sage schema.
+// It is resolved per request, so a control database that connects later
+// is read once it is up.
+func restoreDrillResults(c *config.Config, mgr *fleet.DatabaseManager,
+	meta *metaDBState) func(string) *pgxpool.Pool {
+	return func(string) *pgxpool.Pool { return controlPoolOf(c, mgr, meta) }
+}
+
 func drillInstances(c *config.Config, mgr *fleet.DatabaseManager,
 	meta *metaDBState) []drillInstance {
 	control := governanceControlPool(c, mgr, meta)

@@ -100,6 +100,9 @@ func mcpDependencies() mcp.ProductionDependencies {
 		// get_inbox (ux-01a): the inbox's read, never a decision.
 		Inbox:    api.InboxMCP(fleetMgr, processAutonomy().registry),
 		Outcomes: api.OutcomesMCP(fleetMgr),
+		// restore_drills (drill-01d): the drill history, never a drill.
+		RestoreDrills: api.RestoreDrillsMCP(fleetMgr, cfg,
+			restoreDrillResults(cfg, fleetMgr, globalMetaState)),
 	}
 }
 

@@ -26,10 +26,11 @@ const sreInvestigationsPath = "/api/v1/databases/{db}/investigations"
 const fleetInvestigationLimit = 100
 
 func registerSRERoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
-	ledgers *earned.Registry, cfg *config.Config, packKeys WorkloadPackKeys) {
+	ledgers *earned.Registry, cfg *config.Config, packKeys WorkloadPackKeys,
+	drills drillReads) {
 	routeAggregate(mux, "GET /api/v1/investigations", gateViewer, mgr,
 		aggregateHandler(fleetInvestigationsHandler))
-	perDB := perDatabaseSREMux(mgr, ledgers, cfg, packKeys)
+	perDB := perDatabaseSREMux(mgr, ledgers, cfg, packKeys, drills)
 	// The per-database routes go through their own mux behind one
 	// catch-all per method: "{db}/investigations" and the fleet-mode
 	// "managed/{id}" routes overlap with neither more specific, which
@@ -44,7 +45,7 @@ func registerSRERoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
 }
 
 func perDatabaseSREMux(mgr *fleet.DatabaseManager, ledgers *earned.Registry,
-	cfg *config.Config, packKeys WorkloadPackKeys) *http.ServeMux {
+	cfg *config.Config, packKeys WorkloadPackKeys, drills drillReads) *http.ServeMux {
 	base := sreInvestigationsPath
 	mux := http.NewServeMux()
 	route(mux, "GET "+base, gateViewer, investigationListHandler(mgr))
@@ -68,6 +69,7 @@ func perDatabaseSREMux(mgr *fleet.DatabaseManager, ledgers *earned.Registry,
 	registerReplayCaseRoute(mux, mgr)
 	registerTranscriptRoute(mux, mgr)
 	registerWorkloadPackRoutes(mux, mgr, cfg, packKeys)
+	registerRestoreDrillRoutes(mux, mgr, drills) // drill-01d
 	return mux
 }
 
