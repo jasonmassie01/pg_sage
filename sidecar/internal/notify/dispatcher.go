@@ -24,6 +24,8 @@ type Dispatcher struct {
 	cards CardTokenIssuer
 	// factCards mints fact-card tokens (roadmap 2.3); nil: no buttons.
 	factCards FactTokenIssuer
+	// plans mints plan-card tokens (plan-03b); nil: no buttons.
+	plans PlanTokenIssuer
 	// outbox queues rule deliveries for DrainOutbox; nil delivers at
 	// once (alerting-06). policy governs finding alerts in the outbox.
 	outbox   OutboxStore
@@ -151,6 +153,7 @@ func (d *Dispatcher) deliver(
 ) error {
 	event, revoke := d.withCardToken(ctx, ch, event)
 	event, revokeFact := d.withFactToken(ctx, ch, event)
+	event, revokePlan := d.withPlanToken(ctx, ch, event)
 	messageID, sendErr := send(ctx, sender, ch, event)
 	sendErr = RedactError(sendErr)
 	rec := Delivery{ChannelID: ch.ID, Event: event, Status: "sent",
@@ -158,6 +161,7 @@ func (d *Dispatcher) deliver(
 	if sendErr != nil {
 		revoke()
 		revokeFact()
+		revokePlan()
 		rec.Status, rec.Error, rec.ProviderMessageID = "error", sendErr.Error(), ""
 	}
 	return d.recordDelivery(ctx, rec)
