@@ -1875,6 +1875,8 @@ this build has no RDS, Aurora, Cloud SQL or AlloyDB snapshot adapter.
 | `clone.lakebase.source_branch` | the monitored endpoint's branch | Branch id, or `projects/<project>/branches/<id>` of the same project, a rehearsal branches from |
 | `clone.lakebase.ttl_minutes` | `60` | Server-side expiry of every rehearsal branch, 1 to 1440: the backstop if pg_sage cannot delete it |
 | `clone.lakebase.endpoint_max_cu` | `1` | Autoscaling maximum of the read-write endpoint on a rehearsal branch |
+| `clone.rehearsals_per_hour` | `2` | Most index rehearsals on a clone one database starts in any hour (tuning agent and index floor together), 1 to 60 |
+| `clone.rehearsal_statement_timeout_seconds` | `5` | Longest one statement an index rehearsal executes on the clone may run, 1 to 300 seconds; a statement that hits it records "timed out on the clone", not a cost |
 
 The `clone.lakebase.*` keys are read at startup (restart to change them) and are
 not dashboard overrides. They are checked only when `clone.provider` is
@@ -1893,6 +1895,29 @@ expired receipt that never got a clone id is logged, never destroyed. Before the
 first step the rehearsal checks that the clone is not the production server:
 the same DSN host and port, or the same postmaster start time and port under
 any name, is refused (`target_is_production`), and nothing runs on it.
+
+The same clones rehearse proposed indexes (lab-04a). With `clone.provider` set,
+the tuning agent offers the model a `rehearse` tool (once per cycle) and the
+deterministic index floor rehearses each candidate it admits, at most
+`clone.rehearsals_per_hour` per database. A rehearsal builds the index on the
+clone, after the same production check, and measures each target statement
+before and after: a statement with no `$n` parameters that the analyze guard
+proves read-only is executed with `EXPLAIN (ANALYZE, BUFFERS)` and its shared
+blocks (hit plus read) are compared, under
+`clone.rehearsal_statement_timeout_seconds` per statement; any other statement
+is planned only and says why ("not executed: parameters unknown"). The result
+is the proposal's tier-2 ladder record on the approval card, with the clone
+receipt id: passed when the executed statements' blocks per call fell, failed
+when they did not, inconclusive when nothing was executed, skipped (with the
+reason) when no clone could be made, the cap was reached, or no clone provider
+is configured. A rehearsal never changes the monitored database, and a failed
+or skipped one still lets the proposal queue as before. Every rehearsal ends
+within the rehearsal bound (1 hour, or the Lakebase branch TTL when shorter), and
+the floor reuses a candidate's passed, failed or inconclusive record for 24 hours
+instead of rehearsing it again each cycle. `pg_stat_statements`
+stores statements with their constants replaced by `$n`, so most targets are
+planned only; generic plans of parameterized statements need PostgreSQL 16 or
+later.
 
 #### Freeze custodian: what holds the xmin horizon
 

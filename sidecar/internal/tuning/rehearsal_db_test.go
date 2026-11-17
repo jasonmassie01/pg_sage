@@ -76,7 +76,8 @@ func TestCloneRehearsal_BuildsAndPlansOnTheClone(t *testing.T) {
 	pool := dbPool(t)
 	provider := &fakeCloneProvider{dsn: cloneDB(t)}
 	r := NewCloneRehearser(provider, RehearsalOptions{MaxCloneAge: time.Hour,
-		StatementTimeout: time.Minute, LockTimeout: 5 * time.Second})
+		StatementTimeout: time.Minute, LockTimeout: 5 * time.Second,
+		Production: notProduction})
 	res, err := r.Rehearse(context.Background(), rehearsalRequest())
 	if err != nil {
 		t.Fatalf("rehearse: %v", err)
@@ -135,7 +136,8 @@ func TestCloneRehearsal_Refusals(t *testing.T) {
 func TestCloneRehearsal_FailedBuildStillDestroysTheClone(t *testing.T) {
 	provider := &fakeCloneProvider{dsn: cloneDB(t)}
 	r := NewCloneRehearser(provider, RehearsalOptions{MaxCloneAge: time.Hour,
-		StatementTimeout: time.Minute, LockTimeout: 5 * time.Second})
+		StatementTimeout: time.Minute, LockTimeout: 5 * time.Second,
+		Production: notProduction})
 	req := rehearsalRequest()
 	req.DDL = "CREATE INDEX CONCURRENTLY bad_idx ON public.orders (no_such_column)"
 	if _, err := r.Rehearse(context.Background(), req); err == nil {

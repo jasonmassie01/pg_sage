@@ -37,6 +37,9 @@ func (rt *databaseRuntime) newTuningAgent(hints *tuner.Tuner) *tuning.Agent {
 	if cfg.FleetLearning.Enabled {
 		deps.Priors = fleetPriorSource{}
 	}
+	if reh := rt.cloneRehearser(); reh != nil {
+		deps.Rehearse = reh
+	}
 	rt.note("tuning")
 	settings := tuningSettings(cfg, rt.provider, rt.spec.Config.Database, 0)
 	settings.HostMemory = rt.hostMemory
@@ -71,7 +74,7 @@ func (rt *databaseRuntime) newIndexFloor() *optimizer.Floor {
 	opt := optimizer.New(rt.spec.Pool, &cfg.LLM.Optimizer, logStructuredWrapper,
 		optimizer.WithCatalogReadTimeouts(catalogread.FromSafety(cfg.Safety)))
 	rt.note("index_floor")
-	return optimizer.NewFloor(opt, logStructuredWrapper)
+	return optimizer.NewFloor(opt, logStructuredWrapper).WithRehearser(rt.floorRehearser())
 }
 
 // tuningModels returns the agent's model (the optimizer-purpose client)

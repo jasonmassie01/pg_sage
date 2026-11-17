@@ -1,5 +1,7 @@
 package optimizer
 
+import "github.com/pg-sage/sidecar/internal/verify"
+
 // Recommendation is a validated index recommendation from the optimizer.
 type Recommendation struct {
 	Table   string `json:"table"`
@@ -37,6 +39,9 @@ type Recommendation struct {
 	// Replaces is the existing index this candidate replaces (nil for a
 	// plain create): the per-table index cap does not count it.
 	Replaces *IndexRef `json:"-"`
+	// Ladder are verification-ladder records a producer attached (the
+	// floor's clone rehearsal, lab-04a); the finding carries them.
+	Ladder []verify.LadderRecord `json:"-"`
 }
 
 // IndexRef names an existing index of the table and its identity (OID).

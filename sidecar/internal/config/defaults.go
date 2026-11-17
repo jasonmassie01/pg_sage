@@ -229,6 +229,11 @@ const (
 	DefaultWALIOCeilingPct        = 70
 	DefaultCloneProvider          = "none"
 	DefaultCloneMaxAgeMinutes     = 1440
+	// DefaultCloneRehearsalsPerHour is clone.rehearsals_per_hour (lab-04a).
+	DefaultCloneRehearsalsPerHour = 2
+	// DefaultCloneRehearsalStatementTimeoutSeconds is
+	// clone.rehearsal_statement_timeout_seconds (lab-04a).
+	DefaultCloneRehearsalStatementTimeoutSeconds = 5
 	// DefaultCloneLakebaseTTLMinutes is clone.lakebase.ttl_minutes: the
 	// rehearsal bound (1 h), so a leaked branch lives no longer than one.
 	DefaultCloneLakebaseTTLMinutes = 60

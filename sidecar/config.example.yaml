@@ -237,6 +237,9 @@ clone:
   dle_endpoint: ""
   dle_token: "${DLE_TOKEN}"
   max_clone_age_minutes: 1440
+  # Index rehearsals (tuning agent and index floor), per database:
+  # rehearsals_per_hour: 2
+  # rehearsal_statement_timeout_seconds: 5
   # lakebase_branch: one instant Lakebase branch per rehearsal (docs/lakebase.md)
   # lakebase:
   #   project: "<project>"

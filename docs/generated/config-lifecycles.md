@@ -142,6 +142,8 @@
 | `clone.lakebase.ttl_minutes` | `restart` | `-` | `operator_preference` |
 | `clone.max_clone_age_minutes` | `restart` | `-` | `operator_preference` |
 | `clone.provider` | `restart` | `-` | `safety_critical` |
+| `clone.rehearsal_statement_timeout_seconds` | `restart` | `-` | `operator_preference` |
+| `clone.rehearsals_per_hour` | `restart` | `-` | `operator_preference` |
 | `cloud_telemetry.alloydb.cluster` | `restart` | `-` | `safety_critical` |
 | `cloud_telemetry.alloydb.instance` | `restart` | `-` | `safety_critical` |
 | `cloud_telemetry.alloydb.project` | `restart` | `-` | `safety_critical` |

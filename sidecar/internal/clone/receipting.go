@@ -174,6 +174,21 @@ func (p *ReceiptingProvider) Destroy(ctx context.Context, target Clone) error {
 	return nil
 }
 
+// ReceiptNamer is a provider that can name the receipt of a live clone it
+// created, so a rehearsal's record links to it (lab-04a).
+type ReceiptNamer interface {
+	ReceiptOf(cloneID string) (int64, bool)
+}
+
+// ReceiptOf is the receipt id of a live clone this provider created; false
+// once it is destroyed or for a clone it did not create.
+func (p *ReceiptingProvider) ReceiptOf(cloneID string) (int64, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	id, ok := p.live[cloneID]
+	return id, ok
+}
+
 // SnapshotAge is the inner provider's.
 func (p *ReceiptingProvider) SnapshotAge(ctx context.Context) (time.Duration, error) {
 	return p.inner.SnapshotAge(ctx)

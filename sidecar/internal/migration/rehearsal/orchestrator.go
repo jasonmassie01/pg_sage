@@ -55,11 +55,12 @@ var (
 	ErrCloneUnavailable = errors.New("rehearsal clone unavailable")
 	ErrStepFailed       = errors.New("rehearsal step failed")
 	// ErrTargetIsProduction: a Runner refuses a target that is the
-	// production server (the same server, under any DSN).
-	ErrTargetIsProduction = errors.New("rehearsal target is the production server")
+	// production server (the same server, under any DSN). It is the clone
+	// identity guard's error, shared with the tuning rehearser (lab-04a).
+	ErrTargetIsProduction = clonepkg.ErrTargetIsProduction
 	// ErrTargetUnverified: a Runner could not show the target is not the
 	// production server, so it ran nothing (fail closed).
-	ErrTargetUnverified = errors.New("rehearsal target not verified as non-production")
+	ErrTargetUnverified = clonepkg.ErrTargetUnverified
 )
 
 type QueryMeasurement struct {
