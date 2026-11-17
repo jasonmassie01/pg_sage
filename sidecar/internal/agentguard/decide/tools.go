@@ -68,6 +68,9 @@ var toolClasses = map[string]toolClass{
 	"whatif_index": read(), "list_plans": read(), "get_plan": read(),
 	// market-05: one bounded read-only transaction; it writes nothing.
 	"upgrade_readiness": read(),
+	// ux-01a, ux-02a, evid-02c: read scope, read-only; they decide nothing
+	// and get_workload_pack returns only the model tier.
+	"get_inbox": read(), "get_outcomes": read(), "get_workload_pack": read(),
 	// agent_* tools (G1+): every D-step applies.
 	"agent_query": agentTool(CapRead), "agent_whoami": agentTool(CapRead),
 	// The capability class of a grant request is the class it asks for;
