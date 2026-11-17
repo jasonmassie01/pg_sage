@@ -48,6 +48,9 @@ type Record struct {
 	CreatedAt        time.Time    `json:"created_at"`
 	// Query is the statement the caller scoped its investigation to (1.1.0).
 	Query *QueryScope `json:"query,omitempty"`
+	// ApprovalQueueID is the approval a queued cancel remediation waits on,
+	// read from its proposal record by Recent (ux-05e); 0 when none.
+	ApprovalQueueID int64 `json:"approval_queue_id,omitempty"`
 }
 
 // LiveRef is an investigation an identity opened that was not yet seen
@@ -128,14 +131,17 @@ func (s *PGStore) Record(ctx context.Context, r Record) (Record, error) {
 	return out, nil
 }
 
-func scanRecord(row pgx.Row) (Record, error) {
+func scanRecord(row pgx.Row) (Record, error) { return scanRecordWith(row) }
+
+// scanRecordWith scans recordColumns followed by extra columns.
+func scanRecordWith(row pgx.Row, extra ...any) (Record, error) {
 	var r Record
 	var sym, win, ext, query []byte
-	err := row.Scan(&r.ID, &r.Kind, &r.TokenID, &r.IdentityName, &r.Actor, &r.Transport,
+	dest := []any{&r.ID, &r.Kind, &r.TokenID, &r.IdentityName, &r.Actor, &r.Transport,
 		&r.Database, &r.InvestigationID, &r.Created, &r.Match, &sym, &win, &ext,
 		&r.RemediationID, &r.Verdict, &r.Reason, &r.Outbound, &r.OutboundAttempts,
-		&r.OutboundNextAt, &r.OutboundError, &r.CreatedAt, &query)
-	if err != nil {
+		&r.OutboundNextAt, &r.OutboundError, &r.CreatedAt, &query}
+	if err := row.Scan(append(dest, extra...)...); err != nil {
 		return Record{}, err
 	}
 	for _, f := range []struct {
@@ -233,10 +239,40 @@ func (s *PGStore) HasExternal(ctx context.Context, system, id string) (bool, err
 
 // Recent lists the newest records.
 func (s *PGStore) Recent(ctx context.Context, limit int) ([]Record, error) {
-	rows, err := s.pool.Query(ctx, `/* pg_sage */ SELECT `+recordColumns+`
-		FROM sage.specialist_requests ORDER BY created_at DESC LIMIT $1`, limit)
+	rows, err := s.pool.Query(ctx, `/* pg_sage */ SELECT `+recordColumns+`,
+		`+recentQueueColumn+` FROM sage.specialist_requests r
+		ORDER BY created_at DESC LIMIT $1`, limit, cancelPrefix)
 	if err != nil {
 		return nil, fmt.Errorf("list specialist requests: %w", err)
 	}
-	return scanRecords(rows)
+	defer rows.Close()
+	out := []Record{}
+	for rows.Next() {
+		var queue int64
+		r, err := scanRecordWith(rows, &queue)
+		if err != nil {
+			return nil, fmt.Errorf("scan specialist request: %w", err)
+		}
+		r.ApprovalQueueID = queue
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list specialist requests: %w", err)
+	}
+	return out, nil
 }
+
+// recentQueueColumn is the approval queue id of a cancel remediation the
+// gate queued (or found already queued), from its proposal record in the
+// same investigation; 0 otherwise. The id is checked to be a UUID before
+// the CASE casts it, so a malformed or hostile remediation id reads as 0.
+// A custodian remediation keeps no proposal record and reads as 0.
+const recentQueueColumn = `COALESCE((SELECT p.queue_id::bigint
+		FROM sage.sre_action_proposals p
+		WHERE r.kind = 'remediation'
+		  AND r.verdict IN ('queued_for_approval', 'already_requested')
+		  AND p.investigation_id::text = r.investigation_id
+		  AND p.id = CASE WHEN starts_with(r.remediation_id, $2::text)
+		      AND substr(r.remediation_id, length($2::text) + 1) ~*
+		        '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+		    THEN substr(r.remediation_id, length($2::text) + 1)::uuid END), 0)`

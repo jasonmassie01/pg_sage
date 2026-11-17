@@ -7,7 +7,7 @@
 
 import { expect, test, type Page } from '@playwright/test'
 import { mockAllAPIs } from './fixtures'
-import { executedRow, rollbackBody, routeActions } from './mocks/actions'
+import { executedRow, rollbackBody, rollbackReason, routeActions } from './mocks/actions'
 
 test.beforeEach(async ({ page }) => {
   await mockAllAPIs(page)
@@ -39,6 +39,9 @@ test('executor-07 CHECK-31: a rollback_skipped row offers Retry rollback with it
       .toContainText('DROP INDEX CONCURRENTLY IF EXISTS idx_s')
     await expect(dialog.getByTestId('confirm-dialog-database')).toHaveText('Database: orders')
     expect(posts, 'nothing is sent before Confirm').toEqual([])
+    // ux-01b: Confirm waits for the operator's reason.
+    await expect(dialog.getByTestId('confirm-dialog-confirm')).toBeDisabled()
+    await dialog.getByTestId('confirm-dialog-reason').fill(rollbackReason)
 
     await dialog.getByTestId('confirm-dialog-confirm').click()
     await expect(dialog).toBeHidden()
@@ -51,7 +54,7 @@ test('Retry moves the row from rollback_skipped to Rolled Back', async ({ page }
   let outcome = 'rollback_skipped'
   const posts = await routeActions(page, {
     ledger: () => [executedRow({ outcome,
-      rollback_reason: outcome === 'rolled_back' ? 'manual rollback from actions UI'
+      rollback_reason: outcome === 'rolled_back' ? rollbackReason
         : 'emergency stop active; automatic rollback withheld' })],
     rollback: () => {
       outcome = 'rolled_back'
@@ -61,6 +64,7 @@ test('Retry moves the row from rollback_skipped to Rolled Back', async ({ page }
   const table = await openExecutedRow(page)
   await expect(table.getByRole('row').nth(1)).toContainText('rollback_skipped')
   await page.getByTestId('rollback-action-button').click()
+  await page.getByTestId('confirm-dialog-reason').fill(rollbackReason)
   await page.getByTestId('confirm-dialog-confirm').click()
 
   await expect(page.getByText('Action 9 rolled back')).toBeVisible()
@@ -70,7 +74,7 @@ test('Retry moves the row from rollback_skipped to Rolled Back', async ({ page }
   const expander = table.getByTestId('row-expander').first()
   if (await expander.getAttribute('aria-expanded') !== 'true') await expander.click()
   await expect(expander).toHaveAttribute('aria-expanded', 'true')
-  await expect(table.getByText('manual rollback from actions UI')).toBeVisible()
+  await expect(table.getByText(rollbackReason)).toBeVisible()
   await expect(page.getByTestId('rollback-action-button')).toHaveCount(0)
   expect(posts).toHaveLength(1)
 })

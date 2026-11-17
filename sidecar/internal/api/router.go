@@ -367,6 +367,7 @@ func registerControlPoolRoutes(
 	registerPolicySetRoutes(apiMux, policy.NewStore(pool)) // fleetpol-01a
 	registerDecommissionRoutes(apiMux, pool)
 	registerSecurityPostureRoutes(apiMux, rt.SecretsPosture)
+	registerInboxSeenRoutes(apiMux, pool) // the Inbox seen time (ux-01b)
 }
 
 // newRouterOAuthProvider builds the configured OAuth provider, tries

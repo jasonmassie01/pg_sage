@@ -1,9 +1,32 @@
 import { useEffect, useRef } from 'react'
-import { KEYMAP } from './keymap'
+import { APPROVAL_KEYMAP, KEYMAP } from './keymap'
 
-// ShortcutsSheet lists the keyboard shortcuts from the keymap the command
-// palette's key handlers use (dashboard-06). `?` opens it; Escape, the
-// Close button or a click outside closes it.
+// ShortcutsRows renders one row per keymap entry: its keys, then what it does.
+function ShortcutsRows({ entries, testId }) {
+  return (
+    <dl className="text-sm">
+      {entries.map(entry => (
+        <div key={entry.id} data-testid={testId}
+          className="flex items-center justify-between gap-4 py-1.5">
+          <dt className="flex gap-1">
+            {entry.keys.map(key => (
+              <kbd key={key} className="text-xs px-1.5 py-0.5 rounded"
+                style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}>
+                {key}
+              </kbd>
+            ))}
+          </dt>
+          <dd style={{ color: 'var(--text-secondary)' }}>{entry.description}</dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
+// ShortcutsSheet lists the keyboard shortcuts from the keymaps the key
+// handlers use (dashboard-06): the global keys, then the approval list's
+// verbs (ux-05a). `?` opens it; Escape, the Close button or a click outside
+// closes it.
 export function ShortcutsSheet({ onClose }) {
   const closeRef = useRef(null)
   useEffect(() => {
@@ -31,22 +54,14 @@ export function ShortcutsSheet({ onClose }) {
             Close
           </button>
         </div>
-        <dl className="text-sm">
-          {KEYMAP.map(entry => (
-            <div key={entry.id} data-testid="shortcut-row"
-              className="flex items-center justify-between gap-4 py-1.5">
-              <dt className="flex gap-1">
-                {entry.keys.map(key => (
-                  <kbd key={key} className="text-xs px-1.5 py-0.5 rounded"
-                    style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}>
-                    {key}
-                  </kbd>
-                ))}
-              </dt>
-              <dd style={{ color: 'var(--text-secondary)' }}>{entry.description}</dd>
-            </div>
-          ))}
-        </dl>
+        <ShortcutsRows entries={KEYMAP} testId="shortcut-row" />
+        <div data-testid="approval-shortcuts" className="mt-3 pt-3"
+          style={{ borderTop: '1px solid var(--border)' }}>
+          <h3 className="text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
+            On the Needs your review cards
+          </h3>
+          <ShortcutsRows entries={APPROVAL_KEYMAP} testId="approval-shortcut-row" />
+        </div>
       </div>
     </div>
   )

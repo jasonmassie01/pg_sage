@@ -186,6 +186,28 @@ describe('ValuePage', () => {
       .toBeInTheDocument()
   })
 
+  // ux-05c: the empty state says what earns the first credit and where to start.
+  it('names the first verified change and links to the first look when empty', () => {
+    api.useAPI.mockReturnValue(response({ data: {} }))
+
+    render(<ValuePage database="orders" />)
+
+    const status = screen.getByRole('status')
+    expect(status).toHaveTextContent(/first credit comes from the first verified change/i)
+    // Auto-run actions within the trust level earn credit too, not only approved ones.
+    expect(status).toHaveTextContent(/with your approval or within its trust level/i)
+    const link = within(status).getByRole('link', { name: 'Start with the first look' })
+    expect(link).toHaveAttribute('href', '#/')
+  })
+
+  it('drops the first-credit hint once value has been credited', () => {
+    render(<ValuePage database="all" />)
+
+    expect(screen.queryByRole('link', { name: 'Start with the first look' }))
+      .not.toBeInTheDocument()
+    expect(screen.queryByText(/first verified change/i)).not.toBeInTheDocument()
+  })
+
   it('propagates the selected fleet database to the value endpoint', () => {
     const { rerender } = render(<ValuePage database="orders/eu" />)
 

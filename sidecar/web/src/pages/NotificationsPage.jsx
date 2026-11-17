@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { TabList, TabPanel } from '../components/Tabs'
 import { ChannelsTab } from './notifications/ChannelsTab'
 import { RulesTab } from './notifications/RulesTab'
 import { LogTab } from './notifications/LogTab'
@@ -19,28 +20,25 @@ export function NotificationsPage({ user, database, initialTab }) {
   const [tab, setTab] = useState(
     () => tabs.find(t => t.toLowerCase() === initialTab) || tabs[0])
 
+  const tabList = tabs.map(t => ({
+    key: t, label: t, testId: `notifications-tab-${t.toLowerCase()}`,
+  }))
+
   return (
     <div>
-      <div className="flex gap-1 mb-4">
-        {tabs.map(t => (
-          <button key={t} onClick={() => setTab(t)}
-            data-testid={`notifications-tab-${t.toLowerCase()}`}
-            className="px-4 py-2 rounded-t text-sm font-medium"
-            style={{
-              background: tab === t
-                ? 'var(--bg-card)' : 'transparent',
-              color: tab === t
-                ? 'var(--accent)' : 'var(--text-secondary)',
-              borderBottom: tab === t
-                ? '2px solid var(--accent)' : 'none',
-            }}>
-            {t}
-          </button>
-        ))}
-      </div>
-      {tab === 'Channels' && <ChannelsTab />}
-      {tab === 'Rules' && <RulesTab />}
-      {tab === 'Log' && <LogTab database={database} />}
+      <TabList id="notifications" label="Notification sections" tabs={tabList}
+        active={tab} onSelect={setTab} className="flex gap-1 mb-4"
+        tabClassName="px-4 py-2 rounded-t text-sm font-medium"
+        tabStyle={selected => ({
+          background: selected ? 'var(--bg-card)' : 'transparent',
+          color: selected ? 'var(--accent)' : 'var(--text-secondary)',
+          borderBottom: selected ? '2px solid var(--accent)' : 'none',
+        })} />
+      <TabPanel id="notifications" active={tab}>
+        {tab === 'Channels' && <ChannelsTab />}
+        {tab === 'Rules' && <RulesTab />}
+        {tab === 'Log' && <LogTab database={database} />}
+      </TabPanel>
     </div>
   )
 }

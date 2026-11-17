@@ -43,6 +43,7 @@ var routeProbes = []routeProbe{
 	{"GET", "/api/v1/findings"},
 	{"GET", "/api/v1/inbox"},
 	{"GET", "/api/v1/inbox/count"},
+	{"GET", "/api/v1/inbox/seen"},
 	{"GET", "/api/v1/outcomes"},
 	{"GET", "/api/v1/findings/categories"},
 	{"GET", "/api/v1/findings/stats"},
@@ -89,6 +90,7 @@ var routeProbes = []routeProbe{
 	{"GET", "/api/v1/users"},
 	{"GET", "/api/v1/value"},
 	{"GET", "/api/v1/wait-load"}, // market-01
+	{"POST", "/api/v1/inbox/seen"},
 	{"POST", "/api/v1/actions/execute"},
 	{"POST", "/api/v1/actions/7/approve"},
 	{"POST", "/api/v1/actions/7/reject"},

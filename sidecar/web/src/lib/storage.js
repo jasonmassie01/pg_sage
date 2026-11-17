@@ -20,6 +20,17 @@ export function readPref(key, fallback) {
   }
 }
 
+// prefsAvailable reports whether localStorage can be reached at all, without
+// reading or writing a key. A full store still counts as available.
+export function prefsAvailable() {
+  try {
+    return Boolean(window.localStorage)
+  } catch (err) {
+    if (err instanceof DOMException) return false
+    throw err
+  }
+}
+
 // writePref stores value as a string and reports whether it was saved.
 export function writePref(key, value) {
   try {

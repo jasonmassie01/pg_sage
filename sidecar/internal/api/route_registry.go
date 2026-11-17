@@ -77,6 +77,8 @@ var viewerWriteRoutes = map[string]string{
 		"same read-only tools and gates as the question route; the run is the caller's own",
 	"POST " + askBasePath + "/runs/{id}/cancel": "cancels the caller's own Ask Sage run; " +
 		"another actor's run is not found (mcp-07b)",
+	"POST " + inboxSeenPath: "moves forward only the caller's own Inbox seen time on " +
+		"their user row (ux-01b); it changes no database and decides nothing",
 }
 
 // viewerWriteOrTokenRoutes lists the writes a signed-in user or a

@@ -1,6 +1,7 @@
 import { checkText } from '../autonomy/checkText'
 import { holdsText } from '../autonomy/holdsText'
 import { ShadowDecisions, ShadowSummary } from './ShadowDecisions'
+import { formatTime } from '../../lib/time'
 
 // One database's trust grid for one kind (self-initiated classes or
 // incident remediations): level, evidence counts, last change and why,
@@ -157,7 +158,7 @@ function Evidence({ counts }) {
 // counts for this build, whatever its origin (earned-10).
 function BenchReport({ bench }) {
   const generated = bench.generated_at
-    ? `, generated ${new Date(bench.generated_at).toLocaleString()}` : ''
+    ? `, generated ${formatTime(bench.generated_at)}` : ''
   return (
     <div data-testid="trust-bench" data-origin={bench.origin || ''}
       title={`bench report ${bench.id || ''}${generated}`}>
@@ -171,7 +172,7 @@ function LastChange({ change }) {
   return (
     <span>
       <span style={strong}>{change.event || 'changed'}</span>
-      {' '}{new Date(change.at).toLocaleString()}
+      {' '}{formatTime(change.at)}
       {change.by && <span> by {change.by}</span>}
       {change.reason && <div>{change.reason}</div>}
     </span>
@@ -231,7 +232,7 @@ function NextLevel({ database, row, isAdmin, onApprove }) {
       {unmet.map(c => (
         <li key={c.name}>
           {checkText(c)}
-          {c.eta && <span style={strong}> (ETA {new Date(c.eta).toLocaleString()})</span>}
+          {c.eta && <span style={strong}> (ETA {formatTime(c.eta)})</span>}
         </li>
       ))}
     </ul>
