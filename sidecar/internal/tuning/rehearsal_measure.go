@@ -84,8 +84,17 @@ func (m measurer) after(ctx context.Context, stmts []RehearsalStatement, qs []Re
 	}
 }
 
-// measure executes or plans one statement; see the file comment.
+// measure executes or plans one statement; see the file comment. A
+// failure's server text can quote the clone's data, and it reaches the
+// rehearsal result and the model, so a data exception or a constraint
+// violation is withheld (explain.SafeError, security-10); its SQLSTATE is
+// kept.
 func (m measurer) measure(ctx context.Context, text string) (measured, error) {
+	got, err := m.measureStatement(ctx, text)
+	return got, explain.SafeError(err)
+}
+
+func (m measurer) measureStatement(ctx context.Context, text string) (measured, error) {
 	body, ok := singleStatement(text)
 	if !ok {
 		return measured{}, errMultiStatement
