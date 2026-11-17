@@ -200,9 +200,12 @@ func checkAlloyDBName(name, what string) error {
 }
 
 // FindByName is the cluster named name labelled with that name. found is
-// false when AlloyDB describes none, or one not labelled for this receipt
-// (the restore labels the cluster as it creates it, so an unlabelled one
-// is not provably pg_sage's).
+// false only when AlloyDB describes none. A cluster of that name not
+// labelled for this receipt is an error, never "not found": the restore
+// labels the cluster as it creates it, so pg_sage cannot prove it is its
+// own and must not delete it, but closing the receipt as gone would lose
+// track of a billable copy of production. The reaper leaves the receipt
+// unresolved and reports why.
 func (a *AlloyDBRestoreAPI) FindByName(ctx context.Context, name string) (string, bool,
 	error) {
 	api, err := a.client(ctx)
@@ -221,8 +224,12 @@ func (a *AlloyDBRestoreAPI) FindByName(ctx context.Context, name string) (string
 	if err != nil {
 		return "", false, fmt.Errorf("alloydb_restore: find cluster %s: %w", name, err)
 	}
-	if c.Labels[AlloyDBReceiptLabel] != name {
-		return "", false, nil
+	if label := c.Labels[AlloyDBReceiptLabel]; label != name {
+		return "", false, fmt.Errorf("%w: alloydb_restore: cluster %s exists but its label "+
+			"%s is %q, not its own name, so pg_sage cannot prove it is its own and leaves "+
+			"it and its receipt; delete it by hand if it is a clone (gcloud alloydb "+
+			"clusters delete %s --region %s --force)", ErrCloneLeftBehind, name,
+			AlloyDBReceiptLabel, label, name, a.cfg.Location)
 	}
 	return name, true, nil
 }

@@ -288,8 +288,10 @@ func TestAlloyDB_DestroyDeletesOnlyPgSageClusters(t *testing.T) {
 	}
 }
 
-// State transitions of a lookup: labelled, unlabelled (not provably
-// pg_sage's), labelled for another receipt, and gone.
+// State transitions of a lookup: labelled (found), gone (not found), and
+// unlabelled or labelled for another receipt: not provably pg_sage's, so
+// an error that leaves the receipt unresolved, never "not found" (which
+// would let the reaper close the receipt of a cluster that still bills).
 func TestAlloyDB_FindByName(t *testing.T) {
 	f, base := newAlloyDBFake(t)
 	api := newAlloyDBAPI(t, base, nil)
@@ -299,13 +301,22 @@ func TestAlloyDB_FindByName(t *testing.T) {
 		Labels: map[string]string{"team": "shop"}})
 	f.put(fakeADBCluster{Name: "sage-rehearsal-0000cccc", State: "READY",
 		Labels: map[string]string{clone.AlloyDBReceiptLabel: "sage-rehearsal-0000dddd"}})
-	want := map[string]bool{"sage-rehearsal-0000aaaa": true, "sage-rehearsal-0000bbbb": false,
-		"sage-rehearsal-0000cccc": false, "sage-rehearsal-0000ffff": false}
+	want := map[string]bool{"sage-rehearsal-0000aaaa": true, "sage-rehearsal-0000ffff": false}
 	for name, found := range want {
 		ref, ok, err := api.FindByName(context.Background(), name)
 		if err != nil || ok != found || (found && ref != name) || (!found && ref != "") {
 			t.Errorf("find %s = %q, %v, %v; want found %v", name, ref, ok, err, found)
 		}
+	}
+	for _, name := range []string{"sage-rehearsal-0000bbbb", "sage-rehearsal-0000cccc"} {
+		ref, ok, err := api.FindByName(context.Background(), name)
+		if !errors.Is(err, clone.ErrCloneLeftBehind) || ok || ref != "" ||
+			!strings.Contains(err.Error(), "gcloud alloydb clusters delete "+name) {
+			t.Errorf("find %s = %q, %v, %v; want a left-behind error", name, ref, ok, err)
+		}
+	}
+	if len(f.mutating()) != 0 {
+		t.Fatalf("a lookup mutated %q", f.mutating())
 	}
 	if _, _, err := api.FindByName(context.Background(), "shop"); !errors.Is(err,
 		clone.ErrInvalidAlloyDBConfig) {

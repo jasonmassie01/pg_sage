@@ -2,6 +2,7 @@ package clone_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -161,5 +162,51 @@ func TestAlloyDBReceipting_PastTheDeadlineIsReapedByName(t *testing.T) {
 	if got := adbReceipts(t, pool); got[0].status != clone.StatusDestroyed ||
 		got[0].ref == "" || f.exists(got[0].ref) {
 		t.Fatalf("receipts = %+v", got)
+	}
+}
+
+// Error propagation: a restored cluster without its receipt label is left
+// behind and never deleted; the reaper must not close its receipt as gone
+// once it expires, or the billable copy of production would no longer be
+// tracked. The receipt stays create_uncertain and the lookup error says why.
+func TestAlloyDBReceipting_UnlabelledClusterKeepsItsReceiptOpen(t *testing.T) {
+	pool := adbReceiptPool(t)
+	f, base := newAlloyDBFake(t)
+	f.dropLabels = true
+	api := newAlloyDBAPI(t, base, nil)
+	inner, err := clone.NewSnapshotProvider(api, func() time.Time { return adbNow })
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = adbReceipting(t, pool, inner, true).Create(context.Background(),
+		clone.CloneSpec{})
+	if !errors.Is(err, clone.ErrCloneLeftBehind) {
+		t.Fatalf("create = %v, want left behind", err)
+	}
+	if _, err := pool.Exec(context.Background(), `UPDATE sage.clone_instances
+		SET heartbeat_at = now() - interval '1 hour', expires_at = now() - interval '1 hour'
+		WHERE deployment_id = $1::uuid`, adbDeployment); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := clone.Reaper{Store: clone.NewReceiptStore(pool), Provider: inner,
+		Scope: clone.ReceiptScope{DeploymentID: adbDeployment,
+			Adapter: clone.AlloyDBRestoreAdapter, Scope: api.TargetScope()},
+		Purpose: clone.PurposeRehearsal, Holder: "adb-next-process"}.Reap(
+		context.Background())
+	if err != nil || len(rep.Unresolved) != 1 || len(rep.Destroyed) != 0 ||
+		len(rep.FindFailed) != 1 {
+		t.Fatalf("reap = %+v, %v: want the receipt unresolved", rep, err)
+	}
+	for _, ferr := range rep.FindFailed {
+		if !errors.Is(ferr, clone.ErrCloneLeftBehind) {
+			t.Fatalf("find error = %v, want left behind", ferr)
+		}
+	}
+	got := adbReceipts(t, pool)
+	if len(got) != 1 || got[0].status != clone.StatusCreateUncertain {
+		t.Fatalf("receipts = %+v, want one still create_uncertain", got)
+	}
+	if name := clone.ResourceName(rep.Unresolved[0]); !f.exists(name) {
+		t.Fatalf("unlabelled cluster %s was deleted", name)
 	}
 }
