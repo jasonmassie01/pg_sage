@@ -77,6 +77,7 @@ func perDatabaseSREMux(mgr *fleet.DatabaseManager, ledgers *earned.Registry,
 	registerTranscriptRoute(mux, mgr)
 	registerWorkloadPackRoutes(mux, mgr, cfg, packKeys)
 	registerRestoreDrillRoutes(mux, mgr, drills) // drill-01d
+	registerReviewRoutes(mux, mgr)               // review-01a
 	return mux
 }
 

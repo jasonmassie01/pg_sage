@@ -91,6 +91,8 @@ type ProductionDependencies struct {
 	Outcomes OutcomesBackend
 	// RestoreDrills serves restore_drills (drill-01d); optional.
 	RestoreDrills RestoreDrillsBackend
+	// ReviewGrade serves review_grade (review-01a); optional.
+	ReviewGrade ReviewGradeBackend
 }
 
 type ProductionBackend struct {

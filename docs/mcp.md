@@ -562,6 +562,7 @@ application's database driver (most ORMs have a plugin) for reliable attribution
 | [`get_workload_pack`](#get_workload_pack) | `read` | always |
 | [`get_outcomes`](#get_outcomes) | `read` | always |
 | [`restore_drills`](#restore_drills) | `read` | always |
+| [`review_grade`](#review_grade) | `read` | always |
 
 ### `get_policy`
 
@@ -1322,5 +1323,15 @@ Scope: `read`
 | Argument | Type | Required | Notes |
 |---|---|---|---|
 | `database` | string | no | Monitored database name (see list_databases); without it, every database you may read. |
+
+### `review_grade`
+
+Grade the database against pg_sage's well-run Postgres rubric: the latest grade (overall A to F or unknown, each of eight dimensions with its score, coverage and every check's result, evidence and reason), the previous grade and what changed. A check that could not run is unknown and only lowers a grade. Read-only: it never starts a grade.
+
+Scope: `read`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
 
 <!-- END GENERATED MCP TOOL REFERENCE -->

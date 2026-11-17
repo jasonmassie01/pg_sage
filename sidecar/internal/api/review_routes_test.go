@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/mcp"
 	"github.com/pg-sage/sidecar/internal/review/rubric"
 )
 
@@ -35,8 +37,8 @@ func reviewMux(t *testing.T, pool *pgxpool.Pool) http.Handler {
 }
 
 type reviewGradeBody struct {
-	Latest   *rubric.Run    `json:"latest"`
-	Previous *rubric.Run    `json:"previous"`
+	Latest   *rubric.Run     `json:"latest"`
+	Previous *rubric.Run     `json:"previous"`
 	Delta    *rubric.Changes `json:"delta"`
 }
 
@@ -106,5 +108,27 @@ func TestReviewGradeRoute_UnknownOrDisconnectedDatabase(t *testing.T) {
 	if code, _ := drillGet(t, h, "/api/v1/databases/offline/review/grade"); code !=
 		http.StatusServiceUnavailable {
 		t.Fatalf("disconnected database = %d, want 503", code)
+	}
+}
+
+func TestReviewGradeMCPDB_ServesTheRouteRead(t *testing.T) {
+	pool := auditPool(t, "review_grade_mcp")
+	seedGrade(t, rubric.NewStore(pool), nil)
+	cfg := config.DefaultConfig()
+	mgr := fleet.NewManager(cfg)
+	mgr.RegisterInstance(&fleet.DatabaseInstance{Name: "orders",
+		Config: config.DatabaseConfig{Name: "orders"}, Pool: pool,
+		Status: &fleet.InstanceStatus{Connected: true}})
+	backend := ReviewGradeMCP(mgr)
+	got, err := backend.ReviewGrade(context.Background(), mcp.ReviewGradeRequest{
+		Database: "orders"})
+	body, ok := got.(reviewGradeResponse)
+	if err != nil || !ok || body.Latest == nil || body.Delta == nil || !body.Delta.FirstRun {
+		t.Fatalf("mcp read = %+v %v, want the first grade", got, err)
+	}
+	if _, err := backend.ReviewGrade(context.Background(),
+		mcp.ReviewGradeRequest{Database: "nope"}); err == nil ||
+		!strings.Contains(err.Error(), "nope") {
+		t.Fatalf("unknown database = %v, want an error naming it", err)
 	}
 }
