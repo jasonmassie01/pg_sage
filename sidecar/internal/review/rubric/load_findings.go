@@ -56,9 +56,10 @@ func findingCategories(r Rubric) []string {
 // collected snapshot, the forecaster a snapshot more than a day old (it
 // needs history), the advisor a successful sub-advisor run. The migration
 // safety detector watches live DDL from the monitoring loop, so it counts
-// as run once a snapshot was collected, never before. The cost and cloud telemetry producers leave no run record
-// here, so their checks pass only when cost.rates says right-sizing is
-// graded; cloud backup checks stay unknown without an open finding.
+// as run once a snapshot was collected, never before. The cost and cloud
+// telemetry producers leave no run record here, so their checks pass only
+// when cost.rates says right-sizing is graded; cloud backup checks stay
+// unknown without an open finding.
 func (l *DBLoader) producersRan(ctx context.Context) (map[string]bool, error) {
 	var snapshot, history, advisor bool
 	err := l.Pool.QueryRow(ctx, `/* pg_sage review v1 */
