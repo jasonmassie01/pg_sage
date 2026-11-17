@@ -305,3 +305,27 @@ func hasCheckBlocker(b Brief, id string) bool {
 	}
 	return false
 }
+
+// The reindex list holds only indexes whose collation version changed: an
+// index on an ICU collation whose recorded version matches stays out.
+func TestBriefDB_ReindexListsOnlyChangedCollations(t *testing.T) {
+	d := newDB(t, "")
+	requireBelow18(t, d)
+	d.exec(t, `CREATE TABLE public.notes (id int PRIMARY KEY,
+		a text COLLATE "en-US-x-icu", b text COLLATE "de-x-icu", c text)`,
+		"CREATE INDEX notes_a ON public.notes (a)",
+		"CREATE INDEX notes_b ON public.notes (b)",
+		"CREATE INDEX notes_c ON public.notes (c)",
+		`UPDATE pg_catalog.pg_collation SET collversion = '0.0'
+		 WHERE collname = 'en-US-x-icu'`)
+	b, err := BuildBrief(d.ctx, d.pool, Target{Major: 18, Provider: "self-managed"},
+		BriefOptions{})
+	if err != nil {
+		t.Fatalf("BuildBrief: %v", err)
+	}
+	re := b.CollationReindex
+	if re.State != SectionKnown || re.Total != 1 || len(re.Items) != 1 ||
+		re.Items[0].Index != "public.notes_a" {
+		t.Fatalf("reindex = %+v, want only public.notes_a", re)
+	}
+}
