@@ -22,7 +22,10 @@ internal/optimizer/hypopg_session.go hypopgSession.explain via boundSession -- o
 internal/optimizer/skipscan.go poolPlanner.genericPlans via boundSession -- genericPlans pins its read-only evidence transaction with boundSession
 internal/sre/investigator_explain.go runExplain pin
 internal/tuner/hint_explain.go compareInTx pin
-internal/tuning/rehearsal.go planCost via planOnApplicationPath -- planned by planOnApplicationPath
+internal/tuning/rehearsal_measure.go analyze via measurer.measureStatement -- measureStatement pins the clone transaction with apppath.Pin before it runs the proven statement
+internal/tuning/rehearsal_measure.go planIn via planOutside -- planOutside and measurer.measureStatement pin the transaction with apppath.Pin before planIn
 internal/tuning/store_plan.go postgresStore.explainAfresh via postgresStore.explain -- planned by postgresStore.explain
 internal/vectorlab/plan.go postgresSource.planIndexes qualified -- pg_sage's own vector query over pgx.Identifier-quoted schema.table names
+internal/verify/ladder_session.go planCosts via planUnderSetting -- planUnderSetting pins its read-only transaction with apppath.Pin before planning the targets
+internal/verify/ladder_session.go totalCost text -- an error message naming EXPLAIN
 internal/workload/workload.go explainPart text -- a pattern that recognizes EXPLAIN statements

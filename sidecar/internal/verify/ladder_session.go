@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/pg-sage/sidecar/internal/apppath"
 )
 
 // SessionSetting is a reloadable setting step to test on plans: the
@@ -41,10 +43,11 @@ const sessionCostTolerancePct = 0.5
 
 // FromSessionSetting is the tier-1 record of a reloadable setting: each
 // target read is planned (EXPLAIN, never run) without and then with the
-// setting under set_config(..., is_local) in a read-only transaction that
-// is always rolled back, so nothing outlives the test. A statement that
-// is not a read, or that needs a generic plan before PG16, is not planned
-// and makes the test inconclusive; any error is a skipped tier.
+// setting under set_config(..., is_local) in a read-only transaction on
+// the application's search_path that is always rolled back, so nothing
+// outlives the test. A statement that is not a read, or that needs a
+// generic plan before PG16, is not planned and makes the test
+// inconclusive; any error is a skipped tier.
 func FromSessionSetting(ctx context.Context, db TxBeginner, s SessionSetting,
 	at time.Time) LadderRecord {
 	if err := checkSessionSetting(s); err != nil {
@@ -95,6 +98,11 @@ func planUnderSetting(ctx context.Context, db TxBeginner, s SessionSetting) (
 		current_setting('server_version_num')::int`).
 		Scan(new(string), new(string), &res.pgVersion); err != nil {
 		return sessionPlans{}, fmt.Errorf("bound the plan-only transaction: %w", err)
+	}
+	// The targets are the application's statements: plan them on its
+	// search_path, not the observation session's (security-01c-n).
+	if err := apppath.Pin(ctx, tx); err != nil {
+		return sessionPlans{}, err
 	}
 	queries := eligibleQueries(s.Queries, res.pgVersion, &res.notPlanned)
 	before, err := planCosts(ctx, tx, queries, res.pgVersion)

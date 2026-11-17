@@ -138,7 +138,8 @@ func TestExplainSites_RatchetCoversTheAuditedFiles(t *testing.T) {
 		"internal/sre/investigator_explain.go":  "pin",
 		"internal/tuner/hint_explain.go":        "pin",
 		"internal/tuning/store_plan.go":         "via",
-		"internal/tuning/rehearsal.go":          "via",
+		"internal/tuning/rehearsal_measure.go":  "via",
+		"internal/verify/ladder_session.go":     "via",
 		"internal/briefing/ground.go":           "text",
 		"internal/cases/query_actions.go":       "text",
 	} {
