@@ -95,15 +95,33 @@ func (rt *databaseRuntime) startReviewGrades(done <-chan struct{}, started time.
 			return
 		case <-done:
 		}
-		first := true
-		every(rt.ctx, interval, func(ctx context.Context) {
-			if rt.gradeOnce(ctx, run, first, started) {
-				first = false
-			}
-		})
+		if rt.firstGrade(run, started) {
+			everyAfter(rt.ctx, interval, interval, func(ctx context.Context) {
+				rt.gradeOnce(ctx, run, false, started)
+			})
+		}
 		reviewFirstGrades.forget(rt.spec.Name) // a rebuilt runtime measures anew
 	})
 	rt.note("review")
+}
+
+// reviewFirstGradeRetry is how soon a first grade that did not record is
+// tried again: a transient error, or the running row of a sidecar killed
+// mid-run (reaped after rubric.StaleRunAfter), must not delay the first
+// grade by a whole interval.
+var reviewFirstGradeRetry = time.Minute
+
+// firstGrade tries the first grade until one is recorded; false when the
+// runtime ended first.
+func (rt *databaseRuntime) firstGrade(run *rubric.Runner, started time.Time) bool {
+	for !rt.gradeOnce(rt.ctx, run, true, started) {
+		select {
+		case <-rt.ctx.Done():
+			return false
+		case <-time.After(reviewFirstGradeRetry):
+		}
+	}
+	return true
 }
 
 // gradeOnce runs one grade; it reports whether a grade was recorded.

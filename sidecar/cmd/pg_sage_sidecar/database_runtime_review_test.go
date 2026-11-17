@@ -95,3 +95,39 @@ func TestFirstGrades_RecordKeepsTheFirstAndForgetClears(t *testing.T) {
 		t.Fatal("letterOrUnknown")
 	}
 }
+
+// A first grade that cannot record (here: a running row left by another
+// sidecar) is retried soon, not after a whole grade interval.
+func TestReviewGradesDB_FirstGradeRetriesAfterARunningRow(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	rt := reviewRuntime(t, ctx, "review_retry", true)
+	t.Cleanup(func() { cancel(); rt.workers.Wait() })
+	old := reviewFirstGradeRetry
+	reviewFirstGradeRetry = 50 * time.Millisecond
+	t.Cleanup(func() { reviewFirstGradeRetry = old })
+	store := rubric.NewStore(rt.spec.Pool)
+	held, err := store.Start(ctx, rubric.RunSpec{Database: "review_retry",
+		Kind: rubric.KindGrade, Triggers: []string{"other"}, RubricVersion: rubric.Version})
+	if err != nil {
+		t.Fatalf("hold a running row: %v", err)
+	}
+	done := make(chan struct{})
+	close(done)
+	rt.startReviewGrades(done, time.Now())
+	time.Sleep(300 * time.Millisecond)
+	if runs, _ := store.Latest(ctx, "review_retry", 1); len(runs) != 0 {
+		t.Fatalf("graded while another run was running: %+v", runs)
+	}
+	if err := store.Finish(ctx, held, rubric.RunFailed, nil, "test"); err != nil {
+		t.Fatalf("release the running row: %v", err)
+	}
+	var runs []rubric.Run
+	deadline := time.Now().Add(30 * time.Second)
+	for len(runs) == 0 && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+		runs, _ = store.Latest(ctx, "review_retry", 1)
+	}
+	if len(runs) != 1 || runs[0].Triggers[0] != "first_look" {
+		t.Fatalf("runs = %+v, want the retried first_look grade", runs)
+	}
+}
