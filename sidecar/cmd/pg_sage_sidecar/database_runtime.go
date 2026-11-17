@@ -258,6 +258,7 @@ func prepareMonitoredDatabase(
 		return nil, fmt.Errorf("prerequisite checks for %q: %w", name, err)
 	}
 	reportChecks(name, checks, err, logWarn)
+	logDoctorCounts(ctx, pool, name, logInfo, logWarn)
 	logInfo("runtime", "db %q: PG version %d, WAL columns: %v, plan_time "+
 		"columns: %v", name, checks.PGVersionNum, checks.HasWALColumns,
 		checks.HasPlanTimeColumns)
