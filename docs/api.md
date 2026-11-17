@@ -249,3 +249,19 @@ not monitored is 404.
  "delta": {"first_run": false, "rubric_changed": false, "from_overall": "B",
   "to_overall": "B", "dimensions": []}}
 ```
+
+The Review page reads three more fields. `running` is the run in progress (`id`, `kind`,
+`started_at`) or null. `report` is the latest grade's report: `run_id`, `model_pass`
+(`status` with `model` or `reason`; a grade-only run is `skipped`) and `findings`, the failed
+then warned checks ranked (critical first, then by weight, then rubric order), each with
+`rank`, `dimension`, `dimension_title`, `check`, `status`, `weight`, `reason` and `evidence`.
+`viewed_at` is when the signed-in caller first opened the latest grade, or null.
+
+### `POST /api/v1/databases/{db}/review/runs/{id}/viewed`
+
+Any signed-in role, scoped like a read of `{db}`; no body. Records the caller's first opening
+of a finished review (`done` or `partial`) in `sage.review_view`, once per run and user, and
+answers `{"run_id": 12, "viewed_at": "2026-11-16T10:00:00Z", "first": true}`; a repeat
+answers the same time with `first: false`. It decides nothing and changes no monitored data.
+An id that is not a positive integer is 400, a request without a user id 401, an unknown
+database or run 404, a running or failed run 409, a disconnected database 503.

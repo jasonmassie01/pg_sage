@@ -109,3 +109,60 @@ error names it) or `failed`; a finished run never moves again. One run per datab
 running (a partial unique index); a second gets "already running". A run a killed sidecar
 left running for 30 minutes is failed with "sidecar stopped during run". `sage.review_grade`
 holds each dimension's letter, score, coverage and check results. Runs are kept 400 days.
+
+## The Review page
+
+`#/review` (Operate, every role) shows one database's review: the database named in `?db=`,
+else the one picked in the header. The grade chip on the first look ("Day-one grade") and in
+the database page header ("Grade") links to `#/review?db=<name>`. Neither chip shows before
+the first grade.
+
+What the page shows, top to bottom:
+
+- **A running banner** while a grade is in progress ("A grade is running since ..."). The
+  page then polls every 5 seconds, and the poll after the run ends swaps the banner for the
+  new grade. Before the first grade it says "First grade runs after the first look."
+- **The grade card**: the overall letter in large type, the coverage and the rubric version,
+  and "Partial" when a producer could not be read.
+- **The dimensions**: eight stacked rows (they fit a 375 px phone with no sideways scroll),
+  each with its letter, its coverage and a disclosure listing the checks behind it, each
+  check with its status and reason. A reason longer than 100 characters is cut, with the
+  full text on hover.
+- **What changed since <date>**: the checks that moved since the previous grade, as
+  `check: Fail → Pass`, or "No change since <date>". A first grade says there is nothing to
+  compare with, and a rubric change is named.
+- **The report**: the model pass status line, then the ranked findings. Until a model pass
+  is recorded (review-03a), the report is templated: the failed checks, then the warned
+  ones, critical first, then by weight, then in rubric order. A grade-only run reads
+  "Model pass: skipped: grade-only run". When a model pass is done, the page adds its
+  cross-dimension links, its hypotheses labelled as advice (pg_sage does not act on them),
+  its text per dimension, and a "Review the plan" link to the plan in Actions.
+
+Letters are written out on a colour with at least 4.5:1 contrast, so colour is never the
+only signal. A dimension or overall without a letter reads "Unknown: <reason>" (for example
+"Unknown: coverage 42%, below 60%" or "Unknown: 3 of 8 dimensions known, 4 needed"), never a
+grey letter or an empty cell. A letter outside A to F or a score outside 0 to 100 reads
+"Unknown: invalid grade". Model text is shown as plain text, never as HTML or markdown.
+
+## Read receipts
+
+Opening a finished review (`done` or `partial`) sends
+`POST /api/v1/databases/{db}/review/runs/{id}/viewed` once, unless the grade route's
+`viewed_at` says this person already opened it. A failed receipt is retried once after a
+second and never blocks the page. The server keeps the first `viewed_at` per run and user in
+`sage.review_view` (`run_id`, `user_id`, `viewed_at`; primary key `(run_id, user_id)`), so two
+tabs give one row. Receipts go with their run (`ON DELETE CASCADE`).
+
+This is the evidence that a person read a review. The share of finished reviews opened by a
+person within 7 days, per database:
+
+```sql
+SELECT r.database_name,
+       count(*) FILTER (WHERE EXISTS (
+           SELECT 1 FROM sage.review_view v
+           WHERE v.run_id = r.id AND v.viewed_at < r.finished_at + interval '7 days'))
+         ::float8 / count(*) AS opened_within_7_days
+FROM sage.review_run r
+WHERE r.status IN ('done', 'partial') AND r.finished_at < now() - interval '7 days'
+GROUP BY r.database_name;
+```
