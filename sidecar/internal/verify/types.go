@@ -34,6 +34,10 @@ type WatchRequest struct {
 	Table      string
 	IndexName  string
 	Criterion  Criterion
+	// FrozenWeights are the targets' pre-period call shares
+	// (FrozenWeights), fixed when the watch is created so the attribution's
+	// pooled metric cannot move with the post-period call mix (lab-01a).
+	FrozenWeights map[int64]float64
 }
 
 type WatchState struct {
@@ -51,6 +55,25 @@ type WatchState struct {
 	// ObservationFailures counts consecutive observations that could not
 	// read their evidence; a successful observation resets it.
 	ObservationFailures int
+	// FrozenWeights are the request's; nil for a watch stored before
+	// lab-01a (judged by v1 only).
+	FrozenWeights map[int64]float64
+	// AlphaSpend is the alpha the watch's looks have spent (lab-01b,
+	// SpendLook); zero before its first look.
+	AlphaSpend AlphaSpend
+	// Other is the latest verdict of the verifier that did not act
+	// (lab-01c); nil while only v1 judges.
+	Other *OtherVerdict
+}
+
+// OtherVerdict is the verdict of the verifier that did not act: v2 in
+// shadow, v1 in v2 (lab-01c). It is stored with the watch and in
+// sage.action_outcome.other_verdict and other_evidence for comparison.
+type OtherVerdict struct {
+	Verifier string         `json:"verifier"`
+	Outcome  string         `json:"outcome,omitempty"`
+	Reason   string         `json:"reason,omitempty"`
+	Evidence map[string]any `json:"evidence,omitempty"`
 }
 
 type Verdict struct {
@@ -70,6 +93,12 @@ type Verdict struct {
 	// ObservationFailures is the watch's consecutive failed observations
 	// after this evaluation (0 when it read its evidence).
 	ObservationFailures int
+	// Verifier is the judge that decided this verdict (v1 or v2); Other the
+	// other judge's verdict, and AlphaSpend the look's spend to store
+	// (lab-01c). Both nil while only v1 judges.
+	Verifier   string
+	Other      *OtherVerdict
+	AlphaSpend *AlphaSpend
 }
 
 // ErrStateNotPersisted marks a Watch that returned before its durable state
@@ -149,6 +178,7 @@ type Engine struct {
 	source  ObservationSource
 	store   StateStore
 	options Options
+	v2      *V2Options
 }
 
 func NewEngine(source ObservationSource, store StateStore, options Options) (*Engine, error) {
@@ -167,5 +197,6 @@ func WatchStateFromRequest(request WatchRequest) WatchState {
 		Table: request.Table, IndexName: request.IndexName, Criterion: request.Criterion,
 		Status: "pending", Window: request.Criterion.Window,
 		NextEvaluationAt: request.ExecutedAt.Add(request.Criterion.Window),
+		FrozenWeights:    request.FrozenWeights,
 	}
 }

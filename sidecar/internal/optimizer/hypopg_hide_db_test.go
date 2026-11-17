@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/planhash"
 )
 
 // indexes-07 on real PostgreSQL with HypoPG 1.4+: a replacement is
@@ -289,7 +290,7 @@ func TestHypoPGHiddenIndexIsSessionLocal(t *testing.T) {
 				t.Errorf("explain in session %d: %v", i, err)
 				return
 			}
-			uses[i] = planUsesIndex(plan, "items_a")
+			uses[i] = planhash.UsesIndex(plan, "items_a")
 		}()
 	}
 	wg.Wait()

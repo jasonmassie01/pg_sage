@@ -53,6 +53,20 @@ var workFamilies = []Family{
 		Help: "When the latest failed action was recorded (no sample: none has " +
 			"failed)",
 		Labels: []string{"database"}, Modes: AllModes, Unit: "seconds", Since: "v2.7.0"},
+	{Name: "pg_sage_inbox_items", Type: Gauge, Area: AreaActions,
+		Help: "Decisions waiting on a person by kind at the last complete fleet-wide " +
+			"inbox read (no sample before one; a read that missed a source is not recorded)",
+		Labels: []string{"kind"}, Modes: AllModes, Since: "v2.8.0"},
+	{Name: "pg_sage_outcomes_measured_ratio", Type: Gauge, Area: AreaActions,
+		Help: "Share of the last 24 hours' changes with a measured effect, per database, " +
+			"at the last complete outcome ledger read of that window (no sample before " +
+			"one, or when the window has no changes)",
+		Labels: []string{"database"}, Modes: AllModes, Since: "v2.8.0"},
+	{Name: "pg_sage_inbox_decision_seconds", Type: Histogram, Area: AreaActions,
+		Help: "Time from approval needed to decision, by inbox kind and the surface " +
+			"the decision came from (X-Sage-Surface: inbox, page, chat, api, cli)",
+		Labels: []string{"kind", "decided_from"}, Modes: AllModes, Unit: "seconds",
+		Since: "v2.8.0"},
 	{Name: "pg_sage_actions_pending_approval", Type: Gauge, Area: AreaActions,
 		Help: "Pending approvals a person can act on now (past cooldown, not " +
 			"expired), by risk",

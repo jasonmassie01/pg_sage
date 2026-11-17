@@ -13,6 +13,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/recommendation"
 	"github.com/pg-sage/sidecar/internal/store"
+	"github.com/pg-sage/sidecar/internal/verify"
 )
 
 // EventDispatcher sends notification events. Nil means no
@@ -101,19 +102,22 @@ type Executor struct {
 	principalHold      PrincipalHold          // §6.2.7 cross-database re-check
 	managedConfig      ManagedConfigAdapter
 	indexVerification  *verifiedIndexLifecycle
-	hostCPU            HostCPUReader
-	ioEvidence         IOEvidenceReader
-	retainedCleanupMu  sync.Mutex
-	recordFailures     recordFailureLog // rate-limits record-failure logs (policy-01)
-	resumeOnce         sync.Once
-	inflight           inflightRegistry        // running work the emergency stop cancels
-	leaseQueueCfg      policy.LeaseQueueConfig // serialize_mode queue bounds
-	postDDLMu          sync.RWMutex
-	postDDLHook        func(context.Context) error
+	// methodResolver resolves verify.method for this database (lab-01c).
+	methodResolver    *verify.MethodResolver
+	hostCPU           HostCPUReader
+	ioEvidence        IOEvidenceReader
+	retainedCleanupMu sync.Mutex
+	recordFailures    recordFailureLog // rate-limits record-failure logs (policy-01)
+	resumeOnce        sync.Once
+	inflight          inflightRegistry        // running work the emergency stop cancels
+	leaseQueueCfg     policy.LeaseQueueConfig // serialize_mode queue bounds
+	postDDLMu         sync.RWMutex
+	postDDLHook       func(context.Context) error
 	// retriesReopened is set once the startup sweep of transient unverifiable
 	// watches from before observation retries has succeeded (executor-02).
 	retriesReopened atomic.Bool
-	// approvedRunner runs approved queue items it owns (Sage SRE M5).
+	// approvedRunner runs approved queue items its runners own (Sage SRE
+	// M5, plan steps plan-02a).
 	approvedRunner approvedRunnerSlot
 	// replaceWatch and replaceHooks: the replace action's verification
 	// watches and its test seams (roadmap 2.3).

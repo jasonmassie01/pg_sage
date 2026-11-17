@@ -48,7 +48,7 @@ describe('Actions verification outcome', () => {
     render(<Actions database="all" user={{ role: 'admin' }} />)
     fireEvent.click(screen.getByTestId('actions-tab-executed'))
     const table = screen.getByTestId('executed-actions-table')
-    expect(within(table).getByText('Neutral')).toBeInTheDocument()
+    expect(within(table).getByText('No change')).toBeInTheDocument()
     fireEvent.click(screen.getByLabelText('Expand row'))
     const panel = screen.getByTestId('verification-outcome')
     expect(within(panel).getByTestId('outcome-predicted')).toHaveTextContent('-50%')

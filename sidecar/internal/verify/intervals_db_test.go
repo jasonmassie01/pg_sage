@@ -91,8 +91,8 @@ func TestBucketWidthScalesWithWindow(t *testing.T) {
 		{60 * 24 * time.Hour, 6 * time.Hour},
 	}
 	for _, tc := range cases {
-		if got := bucketWidth(tc.window); got != tc.want {
-			t.Errorf("bucketWidth(%s) = %s, want %s", tc.window, got, tc.want)
+		if got := BucketWidth(tc.window); got != tc.want {
+			t.Errorf("BucketWidth(%s) = %s, want %s", tc.window, got, tc.want)
 		}
 	}
 }

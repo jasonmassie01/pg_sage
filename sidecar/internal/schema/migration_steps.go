@@ -239,6 +239,15 @@ func trancheFiveMigrations() []namedStep {
 		{"ddlHistoryMigrationRollupTables", ddlHistoryMigrationRollupTables}, // evid-01b
 		{"ddlWorkloadPacks", ddlWorkloadPacks},                               // evid-02a
 		{"ddlFactsOwnerBrief", ddlFactsOwnerBrief},                           // evid-03a
+		{"ddlActionOutcomeVerifier", ddlActionOutcomeVerifier},               // lab-01c
+		{"ddlVerifierBacktest", ddlVerifierBacktest},                         // lab-02
+		{"ddlPlans", ddlPlans},                                               // plan-01a
+		{"ddlPlanEvents", ddlPlanEvents},                                     // plan-01b
+		{"ddlPlanStepRun", ddlPlanStepRun},                                   // plan-02a
+		{"ddlPlanStepApproval", ddlPlanStepApproval},                         // plan-02b
+		{"ddlPlanOperatorSteps", ddlPlanOperatorSteps},                       // plan-02d
+		{"ddlPlanApprovalModes", ddlPlanApprovalModes},                       // plan-03a
 		{"ddlWorkloadPseudonymKey", ddlWorkloadPseudonymKey},                 // evid-02c
+		{"ddlActionQueueLadder", ddlActionQueueLadder},                       // lab-03a
 	}
 }

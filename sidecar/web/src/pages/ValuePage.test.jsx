@@ -130,10 +130,10 @@ describe('ValuePage', () => {
     expect(within(incidents).getByText(/near miss/i)).toBeInTheDocument()
     expect(incidents).toHaveTextContent(/credited separately/i)
 
-    // SURF-14: there is no ledger route, so no dead link; the evidence
-    // id is shown for lookup via MCP get_ledger.
-    expect(within(incidents).queryByRole('link')).toBeNull()
-    expect(within(incidents).getByText(/ev-xid-7/)).toBeInTheDocument()
+    // ux-02a: the outcome ledger route exists, so the evidence id links
+    // to the ledger rows that cite it (SURF-14 showed it as plain text).
+    expect(within(incidents).getByRole('link', { name: /ev-xid-7/ }))
+      .toHaveAttribute('href', '#/ledger?evidence=ev-xid-7')
   })
 
   it('renders an accessible loading state', () => {

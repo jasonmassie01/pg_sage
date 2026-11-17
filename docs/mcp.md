@@ -557,7 +557,9 @@ application's database driver (most ORMs have a plugin) for reliable attribution
 | [`agent_whoami`](#agent_whoami) | `read` | always |
 | [`agent_request_capability`](#agent_request_capability) | `propose` | always |
 | [`upgrade_readiness`](#upgrade_readiness) | `read` | always |
+| [`get_inbox`](#get_inbox) | `read` | always |
 | [`get_workload_pack`](#get_workload_pack) | `read` | always |
+| [`get_outcomes`](#get_outcomes) | `read` | always |
 
 ### `get_policy`
 
@@ -1272,6 +1274,18 @@ Scope: `read`
 | `target_database` | string | no | a monitored database already at target_major to compare extensions against; length <= 63 |
 | `target_major` | integer | yes | the major to upgrade to (above the server's, at most the newest pg_sage knows); value >= 1 |
 
+### `get_inbox`
+
+List every decision waiting on a person (change approvals, plans, autonomy promotions, proposed facts, unsigned runbooks, agent capability requests, policy proposals) with counts by kind, newest risk first. Read-only: it never approves, and an agent decides nothing from it; a person decides each item on its page (href). Without database it reads every database you may read. A source that could not be read is named in errors and the total is then a lower bound.
+
+Scope: `read`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `database` | string | no | Monitored database name (see list_databases); without it, every database you may read. |
+| `kinds` | array of string | no | kinds to list (default all) |
+| `limit` | integer | no | items returned (default 500); counts cover every item; value 1-10000 |
+
 ### `get_workload_pack`
 
 Read a workload evidence pack's model tier: the redacted form a model may read (numeric column statistics, sanitized statement texts, plan shapes, schema and settings with literals redacted, sparkline charts as PNG data URIs) and its size. It never returns the local tier: no statement text as written, no most-common value, no plan condition. List packs and build one in the dashboard or with POST /api/v1/databases/{db}/workload-packs.
@@ -1282,5 +1296,19 @@ Scope: `read`
 |---|---|---|---|
 | `content_sha256` | string | yes | the pack's content hash (64 lower-case hex); pattern `^[0-9a-f]{64}$` |
 | `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
+
+### `get_outcomes`
+
+List what pg_sage changed in a window: one row per executed change with what, why, origin, the expected and measured effect, the verdict (pending until judged) and whether it can still be rolled back, plus a summary with the share of changes with a measured effect. Read-only. Without database it reads every database you may read; a database that could not be read is named in errors.
+
+Scope: `read`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `database` | string | no | Monitored database name (see list_databases); without it, every database you may read. |
+| `evidence` | string | no | only the changes a decision or credited incident evidence id cites; length <= 200 |
+| `limit` | integer | no | rows returned (default 500); the summary covers the window; value 1-10000 |
+| `since` | string | no | window as a duration from 1s to 9600h (default 24h), such as 24h or 168h |
+| `verdict` | string | no | one of `pending`, `improved`, `no_change`, `regressed`, `inconclusive`, `unverifiable`, `expired` |
 
 <!-- END GENERATED MCP TOOL REFERENCE -->

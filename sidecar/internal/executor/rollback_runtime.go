@@ -29,6 +29,10 @@ func (e *Executor) rollbackMonitorConfig(
 		result.LockTimeoutMs = cfg.Safety.LockTimeout()
 		result.CloudEnvironment = cfg.CloudEnvironment
 	}
+	if e.pool != nil {
+		v2 := e.verificationV2Options()
+		result.V2 = &v2
+	}
 	return result
 }
 
@@ -156,7 +160,7 @@ func (e *Executor) resumeMonitor(
 	_, capW, _ := monitorWindows(verificationClass(sql), cfg)
 	now := e.databaseNow(ctx, fmt.Sprintf("resume monitor of action %d", actionID))
 	if verificationExpired(executedAt, capW, now) {
-		expireMonitor(ctx, e.pool, actionID, executedAt, capW, now, e.logFn)
+		e.expireMonitorAndAct(ctx, actionID, rollbackSQL, executedAt, capW, now)
 		return
 	}
 	e.logFn("executor", "resuming rollback monitor for action %d", actionID)

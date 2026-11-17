@@ -46,3 +46,21 @@ func (backend *ProductionBackend) FleetFindings(ctx context.Context,
 	}
 	return backend.dependencies.FleetLearning.FleetFindings(ctx, request)
 }
+
+// Inbox serves get_inbox.
+func (backend *ProductionBackend) Inbox(ctx context.Context,
+	request InboxRequest) (any, error) {
+	if backend.dependencies.Inbox == nil {
+		return nil, ErrProductionDependencyUnavailable
+	}
+	return backend.dependencies.Inbox.Inbox(ctx, request)
+}
+
+// Outcomes serves get_outcomes.
+func (backend *ProductionBackend) Outcomes(ctx context.Context,
+	request OutcomesRequest) (any, error) {
+	if backend.dependencies.Outcomes == nil {
+		return nil, ErrProductionDependencyUnavailable
+	}
+	return backend.dependencies.Outcomes.Outcomes(ctx, request)
+}

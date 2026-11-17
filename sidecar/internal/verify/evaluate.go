@@ -29,7 +29,7 @@ func (e *Engine) evaluate(ctx context.Context, state WatchState) (Verdict, error
 		// carried in the verdict, never returned for a caller to revert on.
 		return e.retryVerdict(ctx, state, err), nil
 	}
-	return e.decide(state, observed), nil
+	return e.withV2(ctx, state, observed, e.decide(state, observed)), nil
 }
 
 // observationRetryDelays is the backoff after the 1st, 2nd and 3rd or later

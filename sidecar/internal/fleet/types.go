@@ -15,6 +15,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/forecaster"
 	"github.com/pg-sage/sidecar/internal/ha"
 	"github.com/pg-sage/sidecar/internal/logwatch"
+	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/sre"
 	"github.com/pg-sage/sidecar/internal/sre/action"
 	"github.com/pg-sage/sidecar/internal/sre/changefeed"
@@ -62,6 +63,10 @@ type DatabaseInstance struct {
 	// CapabilityRefresh asks the runtime's capability refresher for a
 	// prompt recollection without blocking; nil when none runs.
 	CapabilityRefresh func()
+	// PlanCaps reads the plan caps the database's standing policy sets (its
+	// plans block, plan-02b), which plan approvals are checked against;
+	// nil reads the defaults.
+	PlanCaps func(context.Context) (policy.PlanCaps, error)
 	// FirstLookRecheck re-runs the first look on request; nil without one.
 	FirstLookRecheck func(context.Context) (firstlook.Report, error)
 	Stopped          bool

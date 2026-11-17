@@ -42,6 +42,9 @@ func TestOneChange_RollbackOfTheInFlightActionIsExempt(t *testing.T) {
 	fresh.Category, fresh.ObjectIdentifier = "unused_index",
 		"public.idx_memories_live_status_type_quality"
 	fresh.RecommendedSQL = created.RollbackSQL
+	// A clone rehearsal passed, so the ladder's entry rule (lab-03a) does
+	// not queue the drop first and the one-change rule is what decides.
+	fresh.Detail = map[string]any{"ladder": rehearsedLadder()}
 	if d := authorizeFinding(t, exec, ctx, fresh); d.Reason !=
 		policy.ReasonAwaitingVerification {
 		t.Fatalf("fresh drop of the verified index = %+v, want parked", d)

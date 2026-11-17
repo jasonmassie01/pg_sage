@@ -1,0 +1,36 @@
+{
+  "action_type": "drop_unused_index",
+  "ladder": [
+    {
+      "at": "2026-11-16T09:00:00Z",
+      "evidence": {
+        "measured": 4
+      },
+      "method": "hypopg_hide",
+      "metric": "plan_cost",
+      "name": "plan_only",
+      "predicted": -41,
+      "result": "passed",
+      "tier": 1
+    },
+    {
+      "at": "2026-11-16T09:00:00Z",
+      "name": "clone",
+      "result": "skipped",
+      "skipped": [
+        {
+          "reason": "no clone provider configured",
+          "tier": 2
+        }
+      ],
+      "tier": 2
+    }
+  ],
+  "status": "pending",
+  "why_approval": [
+    {
+      "code": "not_rehearsed",
+      "text": "This change is not rehearsed on a clone: undoing an index drop costs a rebuild"
+    }
+  ]
+}

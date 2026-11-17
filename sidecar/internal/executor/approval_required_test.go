@@ -25,19 +25,27 @@ func hasApprovalGuardrail(req policy.ActionRequest) bool {
 }
 
 func TestFindingRequestApprovalRequirement(t *testing.T) {
+	// The drops carry a passed clone rehearsal, so the ladder's entry rule
+	// (lab-03a) does not decide them; "unrehearsed drop" pins that rule.
+	rehearsed := ladderDetail(t, passedClone())
 	drop := analyzer.Finding{Category: "unused_index", ObjectIdentifier: "public.idx_a",
-		RecommendedSQL: `DROP INDEX CONCURRENTLY "public"."idx_a"`}
+		RecommendedSQL: `DROP INDEX CONCURRENTLY "public"."idx_a"`,
+		Detail:         map[string]any{"ladder": rehearsed}}
+	unrehearsed := analyzer.Finding{Category: "unused_index",
+		ObjectIdentifier: "public.idx_a", RecommendedSQL: drop.RecommendedSQL}
 	replicaDrop := drop
-	replicaDrop.Detail = map[string]any{
+	replicaDrop.Detail = map[string]any{"ladder": rehearsed,
 		analyzer.DetailApprovalRequired: "2 streaming replicas; standby index usage unknown"}
 	emptyMarker := drop
-	emptyMarker.Detail = map[string]any{analyzer.DetailApprovalRequired: ""}
+	emptyMarker.Detail = map[string]any{"ladder": rehearsed,
+		analyzer.DetailApprovalRequired: ""}
 	cases := []struct {
 		name string
 		f    analyzer.Finding
 		want bool
 	}{
 		{"plain drop", drop, false},
+		{"unrehearsed drop", unrehearsed, true},
 		{"drop with replicas", replicaDrop, true},
 		{"empty marker", emptyMarker, false},
 		{"reload-only GUC", analyzer.Finding{

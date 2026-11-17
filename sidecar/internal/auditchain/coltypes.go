@@ -71,6 +71,16 @@ var SealedColumnTypes = map[SpecKey]map[string]string{
 		"approver_user_id": "integer", "reason": "text", "single_operator": "boolean",
 		"decided_at": tstz, "review_status": "text",
 	},
+	// plan-01b's plan event and model record chains.
+	{Chain: "plan_events", Version: 1}: {
+		"id": "bigint", "plan_id": "bigint", "step_id": "bigint", "kind": "text",
+		"plan_hash": "text", "actor": "text", "detail": "jsonb", "created_at": tstz,
+	},
+	{Chain: "plan_model_records", Version: 1}: {
+		"id": "bigint", "plan_id": "bigint", "pack_hash": "text", "model": "text",
+		"prompt_version": "text", "raw_output": "text", "raw_output_sha256": "text",
+		"created_at": tstz,
+	},
 }
 
 var columnRef = regexp.MustCompile(`%\[1\]s\.([a-z_][a-z0-9_]*)`)

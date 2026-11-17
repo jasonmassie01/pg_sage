@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/store"
+	"github.com/pg-sage/sidecar/internal/verify"
 )
 
 // Loader reads cards of one monitored database.
@@ -47,6 +49,9 @@ func (l Loader) Card(ctx context.Context, queueID int) (Card, error) {
 	if err != nil {
 		return Card{}, fmt.Errorf("approvalcard: read queue item %d: %w", queueID, err)
 	}
+	if isPlanStep(*a) {
+		return Card{}, fmt.Errorf("queue item %d: %w", queueID, ErrPlanStepItem)
+	}
 	return l.forAction(ctx, *a, l.readTrust(ctx))
 }
 
@@ -62,6 +67,9 @@ func (l Loader) Pending(ctx context.Context) ([]Card, error) {
 	out := make([]Card, 0, len(actions))
 	trust := l.readTrust(ctx)
 	for _, a := range actions {
+		if isPlanStep(a) {
+			continue
+		}
 		c, err := l.forAction(ctx, a, trust)
 		if err != nil {
 			return nil, err
@@ -69,6 +77,11 @@ func (l Loader) Pending(ctx context.Context) ([]Card, error) {
 		out = append(out, c)
 	}
 	return out, nil
+}
+
+// isPlanStep reports a plan step's queue item (plan-02a).
+func isPlanStep(a store.QueuedAction) bool {
+	return strings.HasPrefix(a.IdentityKey, executor.PlanStepIdentityPrefix)
 }
 
 // ForAction reads a queue row's card inputs and assembles its card.
@@ -100,6 +113,9 @@ func (l Loader) forAction(ctx context.Context, a store.QueuedAction, trust trust
 		return Card{}, err
 	}
 	if in.Revert, err = l.revert(ctx, a); err != nil {
+		return Card{}, err
+	}
+	if in.Ladder, err = l.ladder(ctx, a.ID); err != nil {
 		return Card{}, err
 	}
 	l.readWaits(ctx, &in)
@@ -202,4 +218,17 @@ func (l Loader) snooze(ctx context.Context, queueID int) (*SnoozeRow, error) {
 	}
 	s.Until = *until
 	return &s, nil
+}
+
+// ladder is the queue row's stored verification ladder; a row that is
+// gone (a card of an item deleted meanwhile) has none.
+func (l Loader) ladder(ctx context.Context, queueID int) ([]byte, error) {
+	raw, err := verify.ReadLadder(ctx, l.Pool, queueID)
+	if errors.Is(err, verify.ErrLadderQueueNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("approvalcard: %w", err)
+	}
+	return raw, nil
 }

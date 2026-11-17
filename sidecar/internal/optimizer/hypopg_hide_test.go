@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/pg-sage/sidecar/internal/planhash"
 )
 
 // indexes-07: a replacement was judged with the old index still present
@@ -74,13 +76,13 @@ func TestPlanUsesIndexWalksNestedPlans(t *testing.T) {
 		{"Node Type":"Seq Scan"},
 		{"Node Type":"Bitmap Heap Scan","Plans":[
 			{"Node Type":"Bitmap Index Scan","Index Name":"orders_status_idx"}]}]}}]`)
-	if !planUsesIndex(plan, "orders_status_idx") {
+	if !planhash.UsesIndex(plan, "orders_status_idx") {
 		t.Fatal("nested bitmap index scan not found")
 	}
-	if planUsesIndex(plan, "orders_status") || planUsesIndex(plan, "") {
+	if planhash.UsesIndex(plan, "orders_status") || planhash.UsesIndex(plan, "") {
 		t.Fatal("a prefix or an empty name matched")
 	}
-	if planUsesIndex([]byte("not json"), "orders_status_idx") {
+	if planhash.UsesIndex([]byte("not json"), "orders_status_idx") {
 		t.Fatal("malformed plan reported a use")
 	}
 }

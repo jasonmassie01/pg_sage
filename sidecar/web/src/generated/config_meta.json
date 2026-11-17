@@ -4768,6 +4768,20 @@
     "min": 1,
     "max": 1073741824
   },
+  "verify.backtest_max_runtime_minutes": {
+    "type": "int",
+    "default": 10,
+    "doc": "Longest one verifier back-test may run, 1-1440 minutes; a run past it stops and stores nothing. Default: 10.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "verify.backtest_placebos": {
+    "type": "int",
+    "default": 300,
+    "doc": "Placebo steps the weekly verifier back-test draws, 200-10000 (auto needs 200 usable). Default: 300.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
   "verify.drop_window_hours": {
     "type": "int",
     "default": 168,
@@ -4798,6 +4812,14 @@
     "class": "derivable",
     "lifecycle": "restart"
   },
+  "verify.method": {
+    "type": "string",
+    "default": "auto",
+    "doc": "Verifier: v1, shadow (v2 beside v1, act on v1), v2, or auto (v2 where the latest back-test passed within 35 days, else shadow). Default: auto.",
+    "warning": "v2 decides reverts from blocks per call against untouched control statements; auto switches to it only after a passing back-test.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
   "verify.min_gain_pct": {
     "type": "float64",
     "default": 20,
@@ -4815,6 +4837,13 @@
     "lifecycle": "restart",
     "min": 1,
     "max": 1073741824
+  },
+  "verify.on_expired": {
+    "type": "string",
+    "default": "ask",
+    "doc": "A monitor whose window ended unwatched: ask (queue a Revert action N item), keep (keep the change, recorded) or revert (operator rollback). Default: ask.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
   },
   "verify.regress_pct": {
     "type": "float64",

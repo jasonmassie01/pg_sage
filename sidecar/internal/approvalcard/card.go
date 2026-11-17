@@ -19,10 +19,16 @@ import (
 	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/shadow"
 	"github.com/pg-sage/sidecar/internal/store"
+	"github.com/pg-sage/sidecar/internal/verify"
 )
 
 // ErrNotFound means the queue item does not exist.
 var ErrNotFound = errors.New("approvalcard: queue item not found")
+
+// ErrPlanStepItem: a plan step's queue item has no card; it is decided on
+// its plan (plan-02a), so no card, chat button or follow-up approves it.
+var ErrPlanStepItem = errors.New("approvalcard: a plan step is decided on its plan, " +
+	"not on a card")
 
 // Card is one queued action presented for a decision.
 type Card struct {
@@ -59,6 +65,11 @@ type Card struct {
 	// ShadowHistory is the action class's shadow record (roadmap 1.4);
 	// not part of the hash: it changes as decisions score, the action not.
 	ShadowHistory *shadow.History `json:"shadow_history,omitempty"`
+	// Ladder is what the change was tested on before production, in the
+	// order recorded (lab-03a); LadderNote says when nothing was. Not part
+	// of the hash: producers append to it while the item waits.
+	Ladder     []verify.LadderRecord `json:"ladder,omitempty"`
+	LadderNote string                `json:"ladder_note,omitempty"`
 	// VerificationWait is another change still being verified on this
 	// change's object (one change per object); approving overrides it. Not
 	// part of the hash: it ends when that verdict lands.
@@ -203,7 +214,10 @@ type Inputs struct {
 	// unreadable in-flight state.
 	Waits    []policy.PendingVerification
 	WaitsErr error
-	Now      time.Time
+	// Ladder is the queue row's stored verification ladder (JSON; nil for
+	// NULL).
+	Ladder []byte
+	Now    time.Time
 }
 
 // FindingRow is the finding of a queued action.

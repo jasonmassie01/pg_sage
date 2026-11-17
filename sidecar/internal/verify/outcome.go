@@ -101,6 +101,9 @@ type Prediction struct {
 	Confidence        float64  `json:"confidence,omitempty"`
 	Source            string   `json:"source,omitempty"`
 	Note              string   `json:"note,omitempty"`
+	// Ladder is what the change was tested on before production
+	// (lab-03a), copied from its queue item or finding at execution.
+	Ladder []LadderRecord `json:"ladder,omitempty"`
 }
 
 // Predicts reports a real prediction: a known method and an expected change.
@@ -141,6 +144,11 @@ type Outcome struct {
 	WindowEnd   *time.Time     `json:"window_end,omitempty"`
 	CreatedAt   *time.Time     `json:"created_at,omitempty"`
 	DecidedAt   *time.Time     `json:"decided_at,omitempty"`
+	// Verifier is the judge whose verdict this is (v1 when empty);
+	// OtherVerdict and OtherEvidence the other judge's (lab-01c).
+	Verifier      string         `json:"verifier,omitempty"`
+	OtherVerdict  string         `json:"other_verdict,omitempty"`
+	OtherEvidence map[string]any `json:"other_evidence,omitempty"`
 }
 
 // DecidedVerdict reports one of the five final verdicts.

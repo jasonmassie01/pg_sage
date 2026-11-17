@@ -430,6 +430,138 @@ actions at autonomous trust, and queues higher-risk supported actions. Neither
 trust nor its ramp can promote `manual` to `auto`. Emergency Stop and a
 per-database disabled executor are hard mutation blocks.
 
+**Verification v2 (attribution).** Today's judge compares the targets'
+call-weighted time per call with the same-length window just before the action.
+Version 2 (`verify.Attribute`; it decides a verdict only under `verify.method: v2`,
+see below) asks a narrower question: did the targets' work change because of this step?
+
+- **Metric.** Shared blocks (hit plus read) per call, which moves with the plan and
+  not with cache warmth or a busy host. Time per call is a guardrail: a rise beyond
+  `verify.regress_pct` whose confidence interval is above zero vetoes a gain, but
+  time alone never makes one.
+- **Frozen weights.** The targets are pooled with their call shares from before the
+  step, stored with the watch, so traffic moving toward a cheap target after the
+  step does not look like an improvement. Each target is read against its own
+  level before the step, so a low-traffic target that runs in only some buckets
+  does not move the pooled value either. A target with no calls after the step is
+  dropped from the pool, and the evidence says so.
+- **Seasonal match.** When at least 3 of the 4 earlier weeks have the same
+  hour-of-week in the hourly rollup (`sage.query_rollup_hourly`), the after-period
+  is compared with those weeks (`basis: seasonal`); otherwise with the pre-window
+  (`basis: pre_window`), and the evidence gives the weeks found.
+- **Control group.** For an index or reloptions step, statements in the admitted
+  top set that do not touch the changed table are controls: the effect is the
+  targets' change minus the median control change (`method: did`), so a deploy or a
+  noisy neighbour that slows everything is not charged to the step. With fewer
+  than 3 controls the evidence says `controls<3` and there is no control term
+  (`method: its`); a global setting has none by design ("no control group: global
+  setting").
+- **Confidence.** Welch's comparison of per-bucket log ratios (the same machinery as
+  v1) gives the interval; the effect is reported in log space and as a percentage.
+- **Evidence gaps.** A statistics epoch change inside a window (a reset, or a Neon
+  or Lakebase suspend and resume) gives no measurement, as do no blocks before the
+  step or too few buckets; each says why.
+
+The counters come from the snapshot `queries` category through the same reader as
+the hourly rollup, in the database's history store. Watches stored before v2 carry
+no frozen weights and are judged by v1 only.
+
+Three guards sit in front of the v2 estimate:
+
+- **Mechanism required** (`verify.MechanismCheck`). An index step is credited for a
+  target only when the index can have caused the change: the target's plan
+  fingerprint in the query store changed within one collector cycle of the step,
+  and its newest plan in `sage.explain_cache` names the index in an `Index Name`
+  node (a name in a filter or condition does not count). For a dropped index the
+  plan must change and no longer name it. A target that improved without that is
+  "unexplained" and left out; with no target left the result is
+  `insufficient_evidence` with reason `no_mechanism`. A setting's mechanism is the
+  metric the executor already maps to it (temp spills for `work_mem`, dead tuples
+  for autovacuum knobs, requested checkpoints for the WAL bounds); a setting with
+  no mapped metric is `no_mechanism`. A plan without actual row counts (the
+  generic `EXPLAIN` that is the only evidence on Neon and Lakebase) is labelled
+  "estimated plan". If the plans cannot be read, the reason is
+  `mechanism_unavailable: <cause>`: insufficient evidence, never a revert.
+- **Contamination** (`verify.DetectContamination`). Each target's residual and the
+  median control's residual after the step are scanned with a two-sided CUSUM
+  (k = 0.5 and h = 5 robust deviations, the scale `baseline.Judge` uses, floored
+  at 5%). The step's own effect is the window's level, so a break that starts more
+  than one collector cycle after the step (a deploy at hour 5 of a 24-hour window)
+  marks the window contaminated: `insufficient_evidence` with reason
+  `contaminated_at=<time>`, and the next look starts after the break. An alarm
+  counts only when the levels on either side differ by at least 3 standard errors,
+  so slow drift is not called a break.
+- **Repeated looks** (`verify.SpendLook`). A watch is looked at 2, 4, 8, 16, 32, 64
+  and 72 hours after the step with the defaults, and seven tests at 5% each would
+  call about one in five unchanged steps a change. Each look instead spends a share
+  of the 5% by an O'Brien-Fleming-type schedule of the information so far (calls
+  seen over the calls expected by the hard maximum): early looks need
+  overwhelming evidence, and the last look spends exactly what is left. The shares
+  add up to 5%, the per-target Bonferroni split stays on top, and the spend is
+  stored with the watch (`alpha_spend` in its baseline) so a restart continues it.
+
+**Verification v2 in the executor** (`verify.method`). `v1` judges by v1 only;
+`shadow` computes v2 beside v1 at every look and acts on v1; `v2` acts on v2 and
+keeps v1 for comparison; `auto` (the default) is `v2` on a database whose latest
+verifier back-test passed within 35 days and `shadow` otherwise. The back-test
+(`internal/verify/backtest`, [verification.md](verification.md)) replays placebo
+steps over the database's stored history every week on the leader and stores its
+rates in `sage.verifier_backtest`; until a passing row exists `auto` is `shadow`
+and no verdict changes. The choice is read at each look through a 10-minute cache, so a new
+back-test takes effect without a restart. `verify.JudgeV2` maps v2's evidence to
+a verdict: a confidence interval below zero with the effect at or beyond
+`verify.min_gain_pct` and the mechanism present is `improved`; an interval inside
+both bars is `neutral` ("No change", and the index is kept); an interval above zero
+beyond `verify.regress_pct` on blocks, or the time guardrail, is `regressed`; a
+contaminated window, no mechanism or too wide an interval is
+`insufficient_evidence`, extended until the last look, which reverts as
+unverifiable as v1 does. `sage.action_outcome.verifier` names the verdict that was
+acted on, and `other_verdict` / `other_evidence` hold the other one; the trust
+ledger reads `verdict` only. The post-action monitor stores v2 beside v1 for
+index drops, settings and storage parameters, and acts on v1 in every mode.
+
+**Up-front unverifiable.** Before a step runs, its targets' hourly history
+(`sage.query_rollup_hourly`) gives the calls expected within
+`verify.window_max_minutes`: per hour, the median of the same hour of the week over
+the last 4 weeks. Fewer than `verify.min_samples` expected calls, or fewer than 3
+active hours, mean no watch could judge the step: it needs an operator's approval at
+every trust level, and the card says "cannot be verified within 72 h: the targets
+run N times a week". No history (a new database) is `unknown`: recorded with the
+finding and never inferred either way. VACUUM, ANALYZE and REINDEX are judged at
+once and exempt.
+
+**Expired monitors** (`verify.on_expired`). A monitor whose window ended while
+pg_sage was not watching keeps its `verification_expired` record, and then: `ask`
+(the default) queues one "Revert action N" item through the revert card (approving
+it runs the recorded rollback; rejecting it records "kept by operator"); `keep`
+keeps the change; `revert` rolls it back through the operator rollback. Each path
+writes the decision ledger.
+
+**Verification ladder** (lab-03a). Each queued change records what it was tested
+on before production, in `sage.action_queue.ladder` (one record per tier, appended
+by each producer with a single `UPDATE ... SET ladder = coalesce(ladder, '[]') ||
+$1`): tier 1 `plan_only` (the optimizer's HypoPG what-if for a create, generic
+plans on PG16+; the HypoPG hide what-if for a drop; a hint's plan comparison; or
+a reloadable setting's target plans under `SET LOCAL` in a read-only transaction
+that is always rolled back, plan cost only), tier 2 `clone` (a clone rehearsal,
+where a clone provider is configured), tier 3 `canary` (the production verdict,
+recorded when it lands; a later verdict of the same action replaces it) and tier 4 `fleet` (a staggered fleet rollout). A tier
+that could not run is recorded as skipped with why ("no clone provider
+configured", "HypoPG cannot model gin indexes"); a method that cannot model the
+index type, or an unreadable result, is never a pass. The entry rule: every
+action class says whether it is cheap to revert (create index, reloadable
+setting, storage parameters, hint, extended statistics: yes; drop index, index
+replace, ALTER TABLE, a setting that needs a restart: no). A finding's change
+whose class is not cheap to revert and has no passed tier 2 is queued for approval
+at every trust level, and its card says "not rehearsed on a clone"; automatic
+rollbacks are not gated, and a rehearsal that is both passed and inconclusive is
+no pass. A bounded retention delete is classed costly too, but its authority stays
+the owner's declared retention contract (it does not run through the finding
+gate). At execution the ladder is copied into the action's
+prediction (`sage.action_outcome.predicted.ladder`), so the outcome ledger row
+shows the highest tier passed. The approval card lists each tier, or "No
+pre-production test recorded" for an item queued before the ladder existed.
+
 High-risk schema changes are handled as migration-safety cases before direct
 execution. The case projector attaches deterministic DDL preflight evidence,
 including lock/rewrite classification plus live table-size, activity, pending
@@ -555,6 +687,206 @@ rollback class, verification steps, and PR/script output so they can move
 through change control like schema work.
 
 The executor checks: trust level, trust ramp, per-tier toggles, maintenance window, emergency stop flag, and replica status before acting.
+
+#### Plans
+
+A plan (`internal/changeplan`) is durable, multi-step work in which every step
+is an ordinary typed action. `sage.plan` holds the goal, scope, origin
+(generator, model, person or agent), the evidence pack it was built from and
+its status; `sage.plan_step` holds each step: its action type and SQL, its
+rollback, the finding or pack evidence ids it cites, its target query ids and
+metric, the expected direction and size and where that size comes from, its
+guardrails, minimum evidence, deadline, checkpoint flag and one outcome action
+per verdict (keep, revert this step, revert to the checkpoint, or halt and
+ask; an undeclared unverifiable step and an expired monitor halt and ask).
+`sage.plan_step_edge` says which step must finish before which, and
+`sage.plan_approval` records who approved which plan hash, with at most one
+live approval per plan. Plans live in the monitored database's `sage` schema,
+beside `sage.action_queue`; the link from a step to the ledger (queue item,
+action log row, decision) is held on the plan side, so no chained table
+changes.
+
+A plan is refused unless it validates: its edges form a DAG over its own
+steps, each action step's type has an executor contract, its SQL passes the
+executor's allowlist, it carries a rollback exactly when the contract is
+reversible, a check step (which changes nothing) carries no SQL, every executable
+step cites a finding that exists or evidence ids
+in the plan's pack, and a step whose targets ran fewer than its minimum calls
+in the last 14 days declares itself unverifiable. The plan hash (`plan-v1`,
+SHA-256 over a NUL-separated canonical encoding of the goal, scope, origin,
+pack hash, every step's hashed fields in ordinal order and the sorted edges;
+the runtime columns are outside it) binds an approval to what runs, as the
+card hash does for one action. Editing a step or the edges voids a live
+approval in the same transaction and returns the plan to `proposed`; an
+approval at a hash the rows no longer have is refused; and `Verify`
+recomputes the hash from the stored rows, so a row edited by direct SQL
+reports `hash_mismatch`. Terminal plans age out with
+`retention.actions_days`; open plans are kept, and so is a workload pack an
+open plan, or a terminal plan younger than `actions_days`, cites.
+
+The plan engine (`changeplan.Engine`) runs approved plans, one step at a
+time, through the executor. Each database's runtime ticks it after the
+executor cycle, on a writable primary and only on the fleet leader. A tick
+advances each approved or running plan by at most one decision. The tick holds
+an advisory lock and the plan row (`FOR UPDATE SKIP LOCKED`), so two sidecars
+never move one plan and never start conflicting steps at once.
+
+- **When a step may start.** Its predecessors must be kept, no other step of
+  the plan may be in flight, and the plan's rows must still hash to the live
+  approval. If they do not, the plan is voided with `hash_mismatch`.
+- **Waiting on other changes.** A step waits while a step of another plan on
+  a shared target query, or any setting step, is in flight. A setting step
+  (`ALTER SYSTEM`, or `ALTER DATABASE`, `ROLE` or `USER ... SET`) waits until
+  no plan step and no executor change is in flight. The executor's rule of one
+  change per object also applies to every step.
+- **Plan caps and peak windows.** The standing policy's `plans` block bounds
+  the indexes per table, the bytes of new indexes and the restart-bound steps
+  of the running plans, and names peak windows (docs/policy-gate.md). A plan
+  over a cap is refused when it is proposed and when it is approved. A step
+  that would cross a cap, or start inside a peak window, waits. If it waits
+  past its deadline it ends `expired`.
+- **Steps that are never automatic.** Approving the plan never covers some
+  steps: a rewrite, dropped data, a type change, a restart-bound setting, a
+  revoke, a topology or pooler change, or a contract that cannot be undone.
+  The engine stops before each one with `awaiting_approval`.
+- **Approval modes.** A plan is approved `all` (every step except the
+  never-automatic ones), `up_to` N (ordinals 1..N except those; N equal to
+  the step count is stored as `all`) or `step` (no step by itself). A step
+  starts only when the plan's live approval covers it or the step has its own
+  approval (`sage.plan_step_approval`) at the current plan hash; otherwise it
+  stops with `awaiting_approval`, and its approval sets it back to pending and
+  runs it as that approver. An edit voids every approval of the plan, step
+  approvals included. Each approval records where the person decided (`ui`,
+  `api`, `chat` or `cli`).
+- **Starting a step.** The engine writes `starting` first. It then queues the
+  item `plan_step:<plan>:<step>` (proposed by `plan:<id>`), approves it as the
+  plan's approver with exactly the step's SQL, and calls `RunApprovedAction`.
+  The gate re-authorizes the step and it runs through Apply.
+- **The plan runner.** It is one of the executor's approved-action runners,
+  each owning disjoint identity-key prefixes. It runs a plan step only when its
+  own engine hands it over for a queued, claimed step with that item and SQL.
+  Approving the item on the Actions page or through the scheduled runner runs
+  nothing, and no approval card is sent for it.
+- **Waiting for the verdict.** After the run the step is `judging`. It waits
+  for the verifier's outcome (`neutral` becomes `no_change` and
+  `insufficient_evidence` becomes `inconclusive`), a rollback by the verifier,
+  an expired monitor, or the step's deadline. An expired monitor queues no
+  `verify.on_expired` revert item, because the step's `on_expired` decides.
+  A verdict decided after the deadline counts as `expired`.
+- **Acting on the verdict.** The engine then carries out `keep`,
+  `revert_step`, `revert_to_checkpoint` or `halt_ask`. A step the verifier
+  already reverted is recorded `reverted_by_verifier` and never rolled back
+  again. A step after a reverted step is skipped (`predecessor_reverted`).
+- **Reverting.** Every revert goes through `RollbackAction`, which runs the
+  stored rollback SQL under the DDL slot and the lock timeout (an index
+  replace goes to `RollbackIndexReplace`). The engine then reads the revert
+  back: the index is gone, or restored and valid, or the setting is back at
+  the prior value the executor recorded. A revert that does not read back
+  fails the step and halts the plan. A rollback that this check cannot read
+  back fails the same way, and so does one that names another index or
+  setting than the one the action changed. An action someone already rolled back outside the
+  plan is not rolled back again. Each revert is a `step_reverted` event that
+  carries the action_log id.
+- **Reverting to a checkpoint.** `revert_to_checkpoint` reverts the failed
+  step. It then walks back to the latest step before it marked
+  `checkpoint`, or to the plan's start if none is marked, and reverts kept
+  steps newest first. The walk never reverts a step that a kept step
+  outside the walk depends on; it stops there. A step whose action needs no
+  rollback (`ANALYZE`, `VACUUM`) stays kept with `no_rollback_needed`. Any
+  other class of action (`forward_fix_only`, `not_reversible`, an operator's
+  step) stops the walk. The plan then halts, and the halted event lists what
+  was reverted and what was kept, and why. The walk resumes after a restart,
+  and the emergency stop holds it between steps. Validation refuses a step
+  whose checkpoint its edges make run after it (`checkpoint_not_before`).
+- **Halting.** A failed or regressed step halts the plan, with one `halted`
+  event and one notification (an `approval_needed` event naming the plan, the
+  step and the verdict). A halted plan starts nothing until a person resumes
+  or cancels it. Resuming (at the approved hash) marks each step that halted
+  it `resumed_at`, so it no longer halts the plan: a failed step becomes
+  `skipped` (its dependents are skipped) and a halted step `kept` (its change
+  stays in place). `Store.ListNeedingPerson` lists proposed and halted plans, and steps
+  awaiting their operator or their own approval.
+- **Restart and leader change (plan-02e).** The first tick after a start, and
+  after gaining fleet leadership, resumes each step left in flight before
+  anything else moves. It reads what may have happened, as the index replace
+  does, and never guesses. A step's start records the ledger's highest
+  action id (`action_log_floor` on its `step_started` event), so a run of
+  the step is a later `sage.action_log` row with its SQL that no step has
+  recorded. `starting` with no queue item starts again, and with its own
+  pending item adopts that item. `queued` runs its item through
+  `RunApprovedAction` only while the ledger holds no run of its SQL.
+  `running` with its one ledger row, and `executed`, go on to `judging`
+  (a failed run fails the step). `reverting` reads its revert back and
+  finishes or fails. Anything else (`running` with no ledger row, two
+  candidate rows, an item in an unexpected status, a state the table does
+  not know) halts the step and the plan with `interrupted_unknown` and one
+  notification: a person reads it. A read that fails leaves the step as it
+  was, and resume runs again on the next tick. Step claims are the fleet
+  leader's holder id with the elector's lease
+  (`fleet_learning.leader_lease_seconds`, 30 s by default). A new leader
+  takes over a step only after the old claim expired, and every engine
+  transition refuses a step another engine holds, so an old leader that
+  wakes up moves nothing.
+- **Emergency stop.** While the stop is set nothing moves, and running plans
+  show `pause_reason` "emergency stop".
+- **Steps without a finding.** A queue item is approvable only for an open
+  finding, so a step citing only pack evidence fails at its approval and
+  halts the plan.
+- **Operator steps ("you run this").** On a managed platform pg_sage never
+  applies a parameter-group or flag change, so a plan can hold an `operator`
+  step instead. It carries the command for the operator (copied from a managed
+  change proposal, linked by `managed_change_id`, or free text), an optional
+  revert command, and a landing check: a setting and the value `pg_settings`
+  (or `SHOW`) must read with no restart pending, the linked proposal reaching
+  `applied`, or both. pg_sage runs nothing for it. It runs alone like a
+  setting step and never inside a peak window. The engine moves it to
+  `awaiting_operator` and sends one notification that says what to run.
+  It reads the landing each tick. A failed read is recorded on the step and
+  the step keeps waiting; it never counts as landed. Once the check passes, the
+  step is `judging` from `landed_at`. A readback step is decided by its
+  landing. A measured step gets one look, a verification window
+  (`verify.window_minutes`) after landing, by verification v2's interrupted
+  time series with no control group (a global setting moves every query), and
+  its verdict says so. A step not landed by its deadline (counted from the
+  ask) ends `expired`. pg_sage cannot revert an operator step: validation
+  refuses `revert_step` and `revert_to_checkpoint` on it
+  (`operator_not_revertible`), a regression halts and asks with the operator's
+  revert command in the event and the notification, and a checkpoint walk
+  stops at it. A restart-bound operator step counts against
+  `max_restart_bound_steps`.
+
+The engine runs only plans a person approved, so it is on with no
+configuration.
+
+**Plan API and CLI (plan-03a).** Each plan lives in its monitored database, so
+`?database=` names it (optional with one database), as for approval cards:
+
+| Route | Who | Body | Does |
+|---|---|---|---|
+| `GET /api/v1/plans` | any role | `?status=`, `?limit=` (1-500) | Plans of every visible database, newest first. |
+| `GET /api/v1/plans/{id}` | any role | | The plan, steps, edges, hash, approvals, step approvals and each step's coverage. |
+| `POST /api/v1/plans/{id}/approve` | operator | `{plan_hash, mode, up_to}` | Approve all, up to step N, or step by step. |
+| `POST /api/v1/plans/{id}/steps/{step}/approve` | operator | `{plan_hash}` | Approve one step (by step id). |
+| `POST /api/v1/plans/{id}/reject` | operator | `{reason}` | End a proposed plan as rejected. |
+| `POST /api/v1/plans/{id}/resume` | operator | `{plan_hash}` | Run a halted plan again. |
+| `POST /api/v1/plans/{id}/cancel` | operator | `{reason}` (optional) | End an approved or halted plan, or a running one with no step in flight (one stopped before a step awaiting its approval or its operator). |
+
+A hash that is no longer the plan's is 409 `content_changed`; a decision the
+plan's status does not allow is 409 (`not_pending`, `not_halted`,
+`not_cancellable`, `step_not_pending`); bad input is 400 with its code
+(`invalid_mode`, `invalid_up_to`, `plan_hash_required`, `reason_required`,
+`step_not_in_plan`, `invalid_via`). Outside a Databricks App each route also
+takes an operator API token as `Authorization: Bearer`: the read scope reads,
+the approve scope decides, an agent token is refused whatever scopes it lists,
+a session cookie beside the token is ignored, and the decision is the token
+owner's, with their current role and database grants.
+
+`pg_sage_sidecar plan list|show|approve|reject|resume|cancel` uses these
+routes with `SAGE_API_URL` (https, or http to localhost only) and
+`SAGE_API_TOKEN` (or `SAGE_API_TOKEN_FILE`): `plan approve <id> --hash <h>
+--all | --up-to N | --step N`, and `--json` prints the answer as JSON. It
+exits 0 when decided, 1 when the sidecar refused (stale hash, not pending, a
+server error), 2 on a usage error and 3 when the token was refused.
 
 ### API + Dashboard (Web UI)
 

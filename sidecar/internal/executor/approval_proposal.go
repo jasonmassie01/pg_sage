@@ -18,6 +18,19 @@ func (e *Executor) proposeForApproval(
 	f analyzer.Finding,
 	cand *recommendation.Candidate,
 ) (int, error) {
+	id, err := e.proposeQueueItem(ctx, findingID, f, cand)
+	if err == nil {
+		e.recordQueueLadder(ctx, id, f)
+	}
+	return id, err
+}
+
+func (e *Executor) proposeQueueItem(
+	ctx context.Context,
+	findingID int,
+	f analyzer.Finding,
+	cand *recommendation.Candidate,
+) (int, error) {
 	if proposer, ok := e.actionStore.(ActionMetadataProposer); ok {
 		meta := e.buildApprovalProposalMetadata(f, time.Now().UTC())
 		if cand != nil {

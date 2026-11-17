@@ -163,6 +163,11 @@ const (
 // decision), and for references kept by a keep predicate (decision before
 // action_queue). Nullable references are ON DELETE SET NULL (schema
 // migration), so the other purges cannot block each other.
+// verifierBacktestRule keeps a year of verifier back-tests (lab-02):
+// verify.method auto reads only the newest, and only within 35 days.
+var verifierBacktestRule = purgeRule{table: "verifier_backtest", timeCol: "ran_at",
+	days: 365}
+
 func purgeRules(cfg *config.Config) []purgeRule {
 	r := cfg.Retention
 	rules := []purgeRule{
@@ -266,7 +271,8 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		{table: "sre_eval_runs", timeCol: "ingested_at",
 			days: cfg.SRE.Autonomy.ReportRetentionDays, extra: keepEvalRun},
 	}
-	return append(rules, rollupPurgeRules(r)...)
+	rules = append(append(rules, rollupPurgeRules(r)...), verifierBacktestRule)
+	return append(rules, planPurgeRule(r))
 }
 
 // rollupPurgeRules age out the per-query rollup by tier (evid-01b): an
@@ -283,9 +289,10 @@ func rollupPurgeRules(r config.RetentionConfig) []purgeRule {
 		{table: "query_rollup_daily", timeCol: "day", days: r.QueryRollupDailyDays},
 		{table: "query_rollup_coverage", timeCol: "hour", days: r.QueryRollupDailyDays},
 		// Stored workload evidence packs (evid-02a) age from their build;
-		// a pack is never updated, only deleted.
+		// a pack is never updated, only deleted. A pack a plan cites is
+		// kept (plan-01a).
 		{table: "workload_packs", timeCol: "built_at", days: r.WorkloadPacksDays,
-			inHistory: true},
+			extra: keepCitedPacks(r.ActionsDays), inHistory: true},
 	}
 }
 

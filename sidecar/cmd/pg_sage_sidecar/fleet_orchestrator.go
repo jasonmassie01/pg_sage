@@ -14,6 +14,11 @@ type cycleExecutor interface {
 	RunCycle(ctx context.Context, isReplica bool)
 }
 
+// planTicker is the database's plan engine (changeplan.Engine, plan-02a).
+type planTicker interface {
+	Tick(ctx context.Context) error
+}
+
 // retentionRunner is the per-instance retention cleaner (retention.Cleaner).
 type retentionRunner interface {
 	Run(ctx context.Context)
@@ -25,6 +30,7 @@ type fleetCycleDeps struct {
 	// ha is the database's one HA monitor (ha_loop.go).
 	ha      *ha.Monitor
 	exec    cycleExecutor
+	plans   planTicker // nil: no plan engine
 	brief   *briefing.Worker
 	cleaner retentionRunner
 	// interval is the cycle period, fixed when the runtime is built so the
@@ -78,15 +84,24 @@ func runFleetDBCycle(ctx context.Context, deps fleetCycleDeps) {
 	}
 }
 
-// runExecutorCycle runs one HA-gated executor cycle. The executor logs
-// each step's failure and carries on; it has no cycle-level failure.
+// runExecutorCycle runs one HA-gated executor cycle, then one plan engine
+// tick. The executor logs each step's failure and carries on; it has no
+// cycle-level failure, and a plan tick's failure is logged.
 func runExecutorCycle(ctx context.Context, deps fleetCycleDeps) {
 	isReplica := checkHA(ctx, deps.ha)
 	if deps.ha.Snapshot().SafeMode {
 		logWarn("ha", "[%s] safe mode active — "+
 			"suppressing autonomous actions", deps.name)
 	}
-	deps.exec.RunCycle(ctx, isReplica || haNotWritable(deps.ha))
+	notWritable := isReplica || haNotWritable(deps.ha)
+	deps.exec.RunCycle(ctx, notWritable)
+	// Plans change the database: only a writable primary advances them.
+	if deps.plans == nil || notWritable {
+		return
+	}
+	if err := deps.plans.Tick(ctx); err != nil {
+		logWarn("plan", "[%s] plan engine: %v", deps.name, err)
+	}
 }
 
 // runRetention runs the retention cleaner. It logs and survives each

@@ -340,7 +340,7 @@ func (b *builder) rows(ctx context.Context, q rowQuery) (fileMeta, bool, error) 
 
 // action collects one change: request, decision and the policy it names
 // with its approvals, queue entry, verification, outcome, pgaudit
-// corroboration and chain proof.
+// corroboration, the plan a plan step's change belongs to, and chain proof.
 func (b *builder) action(ctx context.Context, id int64) error {
 	var raw []byte
 	err := b.db.q.QueryRow(ctx, `/* pg_sage evidence v1 */ SELECT to_jsonb(a)
@@ -371,6 +371,9 @@ func (b *builder) action(ctx context.Context, id int64) error {
 		}
 	}
 	if err := b.policies(ctx, id); err != nil {
+		return err
+	}
+	if err := b.plans(ctx, id); err != nil {
 		return err
 	}
 	return b.actionChain(ctx, id)

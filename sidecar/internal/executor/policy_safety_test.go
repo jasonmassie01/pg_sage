@@ -256,7 +256,8 @@ func TestEarnedAutonomyExecutesOnlyAfterTrustIsEarned(t *testing.T) {
 	young := New(nil, &config.Config{}, time.Time{}, func(string, string, ...any) {})
 	young.WithPolicyGate(rampAgeGate(time.Now(), 10*24*time.Hour))
 	for _, sql := range cases {
-		finding := analyzer.Finding{ObjectIdentifier: "public.t", RecommendedSQL: sql}
+		finding := analyzer.Finding{ObjectIdentifier: "public.t", RecommendedSQL: sql,
+			Detail: map[string]any{"ladder": rehearsedLadder()}}
 		got := earned.evaluateFindingPolicy(context.Background(), finding, false)
 		if got.Decision != PolicyDecisionExecute {
 			t.Fatalf("%q with earned trust: %#v, want execute", sql, got)

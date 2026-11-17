@@ -39,6 +39,9 @@ func (s *Server) bindDatabase(ctx context.Context, tool string,
 	if failed != nil {
 		return ctx, nil, failed
 	}
+	if name == nil && id == nil && databaseOptionalTools[tool] {
+		return ctx, arguments, nil // every database the caller may read
+	}
 	ref, failed := s.resolveDatabase(ctx, name, id)
 	if failed != nil || ref.Name == "" {
 		return ctx, arguments, failed

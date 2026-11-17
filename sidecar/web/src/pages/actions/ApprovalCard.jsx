@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { SQLBlock } from '../../components/SQLBlock'
 import { useToast } from '../../components/Toast'
 import { HintPlanSection } from './HintPlanSection'
+import { LadderSection } from './LadderSection'
 import { ShadowHistory } from './ShadowHistory'
 import { blockerText, riskLabel } from './workflow'
 
@@ -255,6 +256,7 @@ export function ApprovalCard({ card, onDecided, facts = null, eligible, blockedR
       {facts}
       <EvidenceSection evidence={card.evidence} />
       <HintPlanSection evidence={card.hint_evidence} />
+      <LadderSection ladder={card.ladder} note={card.ladder_note} />
       <RationaleSection rationale={card.rationale} />
       <PredictedSection predicted={card.predicted_effect} />
       <Section title="SQL" testId="approval-sql"><SQLBlock sql={card.sql} /></Section>

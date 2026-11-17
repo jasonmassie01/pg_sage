@@ -57,6 +57,7 @@ func (p monitorPlan) judge(
 		o.Verdict, o.Reason = combineVerdict(p.class, p.prediction, queries, metric)
 	}
 	o.Observed = observedFrom(queries, metric)
+	p.shadowV2(ctx, cfg, now, &o)
 	accruing := p.softDrop || queries != nil && queries.Verdict == verify.OutcomeInsufficient ||
 		metric != nil && metric.Verdict == verify.OutcomeInsufficient && !metric.Terminal
 	return judgement{outcome: o, accruing: accruing}

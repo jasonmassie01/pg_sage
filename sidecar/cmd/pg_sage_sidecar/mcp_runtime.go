@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/api"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/mcp"
@@ -62,11 +63,9 @@ func mcpDependencies() mcp.ProductionDependencies {
 			migrationFactory: configuredMCPMigrationRuntime,
 		},
 		Policy: access, Ledger: access, Value: access, Guarantees: access,
-		// Sage SRE read tools (sre_list_incidents, sre_get_investigation,
-		// sre_get_evidence) resolve through the same fleet.
+		// SRE reads (sre_list_incidents, sre_get_investigation, sre_get_evidence).
 		Investigations: access,
-		// SLO and change-feed read tools (sre_list_slos, sre_get_slo,
-		// sre_list_changes).
+		// SLO and change-feed read tools (sre_list_slos, sre_get_slo, sre_list_changes).
 		Signals: access,
 		// Sage SRE action tools (sre_propose_action, sre_request_execution)
 		// propose and queue; they never execute.
@@ -98,6 +97,9 @@ func mcpDependencies() mcp.ProductionDependencies {
 		Briefings: fleetBriefingsMCP{manager: fleetMgr},
 		// upgrade_readiness (market-05): read-only, on the resolved database.
 		UpgradeReadiness: upgradeReadinessMCP{manager: fleetMgr},
+		// get_inbox (ux-01a): the inbox's read, never a decision.
+		Inbox:    api.InboxMCP(fleetMgr, processAutonomy().registry),
+		Outcomes: api.OutcomesMCP(fleetMgr),
 	}
 }
 

@@ -30,7 +30,7 @@ func (r *principalRunner) RunApproved(ctx context.Context, _ store.QueuedAction,
 func TestRunApprovedActionBindsTheItemsPrincipal(t *testing.T) {
 	exec := New(nil, advisoryConfig(), time.Time{}, nopLog)
 	r := &principalRunner{}
-	exec.SetApprovedActionRunner(r)
+	mustAddSRERunner(t, exec, r)
 	item := queuedSRE()
 	item.PrincipalID = "agp_aaaaaaaaaaaaaaaaaaaa"
 	if _, err := exec.RunApprovedAction(context.Background(), item, 12); err != nil {
@@ -39,8 +39,9 @@ func TestRunApprovedActionBindsTheItemsPrincipal(t *testing.T) {
 	if !r.bound || r.ref.ID != item.PrincipalID {
 		t.Fatalf("principal not bound: %+v %v", r.ref, r.bound)
 	}
+	exec = New(nil, advisoryConfig(), time.Time{}, nopLog)
 	r = &principalRunner{}
-	exec.SetApprovedActionRunner(r)
+	mustAddSRERunner(t, exec, r)
 	if _, err := exec.RunApprovedAction(context.Background(), queuedSRE(), 12); err != nil {
 		t.Fatalf("run: %v", err)
 	}
