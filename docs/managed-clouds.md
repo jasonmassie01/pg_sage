@@ -1018,9 +1018,10 @@ the failure.
 - The Database page's **Recoverability** panel shows the last drill (when, pass or fail, kind
   and provider), RPO and RTO in plain units (`RPO unknown` with the reason when no marker
   exists), whether backups survive a delete of the database (the [backup
-  isolation](#what-the-telemetry-is-used-for) evidence, unknown without a cloud source), the cost label of
-  the next full-copy drill, and, when unknown, what to configure and grant. The fleet overview
-  shows one line: "7 of 9 databases passed a restore drill in the last 35 days".
+  isolation](#what-the-telemetry-is-used-for) evidence, unknown without a cloud source),
+  the cost label of the next full-copy drill, and, when unknown, what to configure and grant.
+  The fleet overview shows one line: "7 of 9 databases passed a restore drill in the last 35
+  days".
 - `GET /api/v1/databases/{db}/restore-drills?limit=20` (viewer and up) is that database's
   newest drills, newest first (`limit` 1 to 100, default 20; anything else is `400`), with
   `status`, `reason`, `advice`, `latest`, `last_pass`, `isolation` and
