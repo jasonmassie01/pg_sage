@@ -154,14 +154,18 @@ WHERE expires_at <= $1 FOR UPDATE`, now)
 	return out, nil
 }
 
+// expireException deletes the exception row before it supersedes the
+// document, as the sweep locks it (FOR UPDATE) before the document: a
+// sweep and a ratification or SetException on one database then take the
+// two row locks in the same order instead of deadlocking.
 func expireException(ctx context.Context, tx pgx.Tx, databaseID int64, set string) error {
-	if _, err := tx.Exec(ctx, `UPDATE sage.policy SET status = 'superseded'
-WHERE database_id = $1 AND set_name IS NULL AND status = 'active'`, databaseID); err != nil {
-		return fmt.Errorf("supersede database %d's expired exception: %w", databaseID, err)
-	}
 	if _, err := tx.Exec(ctx, `DELETE FROM sage.policy_exceptions WHERE database_id = $1`,
 		databaseID); err != nil {
 		return fmt.Errorf("remove database %d's expired exception: %w", databaseID, err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE sage.policy SET status = 'superseded'
+WHERE database_id = $1 AND set_name IS NULL AND status = 'active'`, databaseID); err != nil {
+		return fmt.Errorf("supersede database %d's expired exception: %w", databaseID, err)
 	}
 	return recordSetEvent(ctx, tx, "exception_expired", set, &databaseID, expiryActor, nil)
 }
