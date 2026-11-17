@@ -45,6 +45,18 @@ func bulkTable(t *testing.T) (*pgxpool.Pool, context.Context, workpack.Autovacuu
 			t.Fatalf("%s: %v", sql, err)
 		}
 	}
+	live, dead, kv := tableStats(t, ctx, pool)
+	return pool, ctx, workpack.AutovacuumFact{ID: "table/av/review02b.bulk",
+		Table: "review02b.bulk", Autovacuums: int64(0), Autoanalyzes: int64(1),
+		LastAutovacuum: "absent", LastAutoanalyze: "absent", LiveTuples: live,
+		DeadTuples: series(dead/4, dead/2, dead), Reloptions: kv, ReloptionsText: []string{}}
+}
+
+// tableStats waits for the bulk update's dead tuples to show in the
+// statistics and returns the live and dead rows and the table options.
+func tableStats(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+) (int64, int64, map[string]string) {
+	t.Helper()
 	var live, dead int64
 	var opts []string
 	deadline := time.Now().Add(30 * time.Second)
@@ -70,10 +82,7 @@ func bulkTable(t *testing.T) (*pgxpool.Pool, context.Context, workpack.Autovacuu
 		k, v, _ := strings.Cut(o, "=")
 		kv[k] = v
 	}
-	return pool, ctx, workpack.AutovacuumFact{ID: "table/av/review02b.bulk",
-		Table: "review02b.bulk", Autovacuums: int64(0), Autoanalyzes: int64(1),
-		LastAutovacuum: "absent", LastAutoanalyze: "absent", LiveTuples: live,
-		DeadTuples: series(dead/4, dead/2, dead), Reloptions: kv, ReloptionsText: []string{}}
+	return live, dead, kv
 }
 
 // liveSettings reads the autovacuum settings the generator judges by, from
