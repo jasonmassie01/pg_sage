@@ -87,7 +87,8 @@ func TestNewSubsystemsFilterTheirCategories(t *testing.T) {
 		[]string{"backup_retention_below_policy", "backup_stale", // market-07
 			"cnpg_target_unconfigured", // market-12
 			"instance_rightsize",       // market-04
-			"managed_parameter_drift", "managed_storage_runway"}) {
+			"managed_parameter_drift", "managed_storage_runway",
+			"recoverability_unknown", "restore_drill_failed"}) { // drill-01a
 		t.Errorf("cloud = (%v, %v), want the cloud categories", args, ok)
 	}
 }
