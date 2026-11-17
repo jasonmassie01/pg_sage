@@ -927,6 +927,14 @@ The live check (`SAGE_ALLOYDB_LIVE=1` with `SAGE_ALLOYDB_LIVE_DATABASE_URL`,
 `SAGE_TEST_DATABASE_URL`) runs the clone contract on a real, funded cluster; it is
 owner-run and never in CI.
 
+## Azure restore rehearsal
+
+`clone.provider: azure_restore` rehearses on a point-in-time restore of the monitored Azure
+flexible server to a new server in the same region and major version: a full copy at the full
+server price, which needs `clone.allow_full_copy: true`. See
+[Azure: restore rehearsal](azure.md#restore-rehearsal) for the cost warning, the flow and the
+RBAC actions.
+
 ## Live check (owner-run, never in CI)
 
 CI uses httptest fakes only. To check against a real, disposable instance (read-only calls):

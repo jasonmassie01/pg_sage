@@ -571,6 +571,11 @@
       "Project": "",
       "Location": "",
       "Cluster": ""
+    },
+    "Azure": {
+      "SubscriptionID": "",
+      "ResourceGroup": "",
+      "Server": ""
     }
   },
   "Custodian": {

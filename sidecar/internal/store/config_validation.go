@@ -67,12 +67,13 @@ func validateSpec(spec config.KeySpec, value string) error {
 }
 
 // validateAPICloneProvider refuses lakebase_branch, neon_branch,
-// aurora_clone, rds_restore, cloudsql_clone and alloydb_restore on save:
-// they need the clone.lakebase or clone.neon project binding (and Neon's
-// API key), the clone.aurora or clone.rds region, the clone.cloudsql
-// project and instance, or the clone.alloydb project, location and
-// cluster, which are YAML or env only and restart-bound, so the API cannot
-// switch to them.
+// aurora_clone, rds_restore, cloudsql_clone, alloydb_restore and
+// azure_restore on save: they need the clone.lakebase or clone.neon
+// project binding (and Neon's API key), the clone.aurora or clone.rds
+// region, the clone.cloudsql project and instance, the clone.alloydb
+// project, location and cluster, or the clone.azure subscription, resource
+// group and server, which are YAML or env only and restart-bound, so the
+// API cannot switch to them.
 func validateAPICloneProvider(value string) error {
 	switch value {
 	case "lakebase_branch":
@@ -95,6 +96,10 @@ func validateAPICloneProvider(value string) error {
 		return fmt.Errorf("validate: clone.provider alloydb_restore is set in YAML with " +
 			"its clone.alloydb project, location and cluster and clone.allow_full_copy, " +
 			"not through the API")
+	case config.CloneAzureRestore:
+		return fmt.Errorf("validate: clone.provider azure_restore is set in YAML with " +
+			"its clone.azure subscription_id, resource_group and server and " +
+			"clone.allow_full_copy, not through the API")
 	}
 	return nil
 }

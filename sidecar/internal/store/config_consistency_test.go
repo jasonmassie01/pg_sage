@@ -55,6 +55,9 @@ var excludedPrefixes = []string{
 	// lab-05f: the AlloyDB project, location and cluster: YAML only,
 	// restart-bound, safety-critical
 	"clone.alloydb.",
+	// lab-05g: the Azure subscription, resource group and server: YAML
+	// only, restart-bound, safety-critical
+	"clone.azure.",
 	"sre.read_policy.", // trusted observation boundary; never a model-derived grant
 	"self_config.",     // derivation switch and soak: YAML only, safety-critical, restart-bound
 	// fleet learning and leader election: YAML only, restart-bound

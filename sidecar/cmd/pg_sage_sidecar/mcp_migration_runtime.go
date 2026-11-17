@@ -69,17 +69,20 @@ func cloneProviderFor(cloneConfig config.CloneProviderConfig,
 		return cloudSQLCloneProvider(cloneConfig, monitored)
 	case clonepkg.AlloyDBRestoreAdapter:
 		return alloyDBRestoreProvider(cloneConfig, monitored)
+	case clonepkg.AzureRestoreAdapter:
+		return azureRestoreProvider(cloneConfig, monitored)
 	default:
 		return nil, errors.New("unsupported clone provider " + cloneConfig.Provider +
 			" (this build has none, dle, lakebase_branch, neon_branch, aurora_clone, " +
-			"rds_restore, cloudsql_clone or alloydb_restore)")
+			"rds_restore, cloudsql_clone, alloydb_restore or azure_restore)")
 	}
 }
 
 // cloneReceiptScope is the provider scope receipts are written under: the
 // Lakebase or Neon project, the Aurora or RDS region, the Cloud SQL project,
-// the AlloyDB project and region, or the adapter's endpoint without
-// credentials or a trailing slash.
+// the AlloyDB project and region, the Azure subscription and resource
+// group, or the adapter's endpoint without credentials or a trailing
+// slash.
 func cloneReceiptScope(cloneConfig config.CloneProviderConfig) string {
 	switch cloneConfig.Provider {
 	case clonepkg.LakebaseAdapter:
@@ -94,6 +97,9 @@ func cloneReceiptScope(cloneConfig config.CloneProviderConfig) string {
 		return "gcp/" + cloneConfig.CloudSQL.Project
 	case clonepkg.AlloyDBRestoreAdapter:
 		return "gcp/" + cloneConfig.AlloyDB.Project + "/" + cloneConfig.AlloyDB.Location
+	case clonepkg.AzureRestoreAdapter:
+		return "azure/" + strings.ToLower(cloneConfig.Azure.SubscriptionID) + "/" +
+			cloneConfig.Azure.ResourceGroup
 	}
 	parsed, err := url.Parse(cloneConfig.DLEEndpoint)
 	if err != nil || parsed.Host == "" {
@@ -225,15 +231,16 @@ func migrationPlanner(loaded *config.Config) *planpkg.Planner {
 // after its create starts, so the rehearsal ends by then (market-03,
 // lab-05b), as it does by an aurora_clone clone's ttl_minutes (lab-05c):
 // never later than the clone, and never zero (the orchestrator's
-// default), at least a minute. An rds_restore, cloudsql_clone or
-// alloydb_restore rehearsal waits up to clone.restore_deadline_minutes for
-// its full copy, then has the default bound (lab-05d to lab-05f).
+// default), at least a minute. An rds_restore, cloudsql_clone,
+// alloydb_restore or azure_restore rehearsal waits up to
+// clone.restore_deadline_minutes for its full copy, then has the default
+// bound (lab-05d to lab-05g).
 func rehearsalMaxDuration(cloneConfig config.CloneProviderConfig) time.Duration {
 	bound := rehearsalpkg.DefaultMaxDuration
 	var minutes int
 	switch cloneConfig.Provider {
 	case clonepkg.RDSRestoreAdapter, clonepkg.CloudSQLCloneAdapter,
-		clonepkg.AlloyDBRestoreAdapter:
+		clonepkg.AlloyDBRestoreAdapter, clonepkg.AzureRestoreAdapter:
 		return restoreDeadline(cloneConfig) + bound
 	case clonepkg.LakebaseAdapter:
 		minutes = cloneConfig.Lakebase.TTLMinutes

@@ -197,6 +197,9 @@ safety_critical clone.cloudsql.instance
 safety_critical clone.alloydb.project
 safety_critical clone.alloydb.location
 safety_critical clone.alloydb.cluster
+safety_critical clone.azure.subscription_id
+safety_critical clone.azure.resource_group
+safety_critical clone.azure.server
 safety_critical clone.provider
 operator_preference value.toil_model_version
 
