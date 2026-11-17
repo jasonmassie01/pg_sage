@@ -169,8 +169,25 @@ func writers(qs []packQuery) []packQuery {
 	return out
 }
 
-// hottest bounds qs to maxTargetQueries.
-func hottest(qs []packQuery) []packQuery { return qs[:min(len(qs), maxTargetQueries)] }
+// hottest is qs with each statement once, hottest first (as readQueries
+// orders them), bounded to maxTargetQueries. A candidate whose evidence
+// reaches a statement twice (a table and one of its indexes) counts it
+// once, and which statements survive the bound does not depend on the
+// order the evidence was read in.
+func hottest(qs []packQuery) []packQuery {
+	out := make([]packQuery, 0, len(qs))
+	seen := map[int64]bool{}
+	for _, q := range qs {
+		if !seen[q.id] {
+			seen[q.id] = true
+			out = append(out, q)
+		}
+	}
+	slices.SortStableFunc(out, func(a, b packQuery) int {
+		return cmp.Or(cmp.Compare(b.execMs, a.execMs), cmp.Compare(a.id, b.id))
+	})
+	return out[:min(len(out), maxTargetQueries)]
+}
 
 func ids(qs []packQuery) []int64 {
 	out := make([]int64, 0, len(qs))
