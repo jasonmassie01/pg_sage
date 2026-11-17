@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { Play, ShieldAlert } from 'lucide-react'
+import { formatTime } from '../lib/time'
 
 // D8: the header emergency stop. It follows the database picker, needs
 // arm + confirm for both stop and resume, and names who stopped a
@@ -53,7 +54,7 @@ async function postControl(url, failure) {
 
 function StoppedAt({ at }) {
   if (!at) return null
-  return <time dateTime={at}>{new Date(at).toLocaleString()}</time>
+  return <time dateTime={at}>{formatTime(at)}</time>
 }
 
 function Attribution({ db }) {

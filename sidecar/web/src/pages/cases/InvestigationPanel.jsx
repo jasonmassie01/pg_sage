@@ -11,6 +11,7 @@ import { InvestigationReview } from './InvestigationReview'
 import { EvidenceAge } from './EvidenceAge'
 import { isStaleExpiry, STALE_EVIDENCE_TEXT } from './staleEvidence'
 import { AttemptNotice } from './AttemptNotice'
+import { formatTime } from '../../lib/time'
 
 // Sage SRE investigation of a case (AI-SRE-SPEC §9): impact and state,
 // observed facts, the likely explanation, other and ruled-out
@@ -166,7 +167,7 @@ function Warnings({ data }) {
       {!data.evidence_available && (
         <div data-testid="investigation-purged" style={strong}>
           Evidence deleted by retention
-          {purged ? ` on ${new Date(purged.deleted_at).toLocaleString()}` : ''}; the
+          {purged ? ` on ${formatTime(purged.deleted_at)}` : ''}; the
           conclusion below can no longer be re-checked.
         </div>
       )}
@@ -275,7 +276,7 @@ function EvidenceList({ evidence, openID }) {
           <summary style={muted}>
             {e.probe_id} - {e.capability_state}
             {e.reason_code ? ` (${e.reason_code})` : ''}
-            {e.observed_at ? `, observed ${new Date(e.observed_at).toLocaleString()}` : ''}
+            {e.observed_at ? `, observed ${formatTime(e.observed_at)}` : ''}
             {e.hash_verified ? '' : ', hash does not verify'}
           </summary>
           <pre className="overflow-x-auto whitespace-pre-wrap" style={muted}>

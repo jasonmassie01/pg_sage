@@ -16,9 +16,24 @@ test('fleet-09 CHECK-04: the fleet stop badge names who pressed it', async ({ pa
   await routeStop(page, () => ({ fleetStopped: true, stoppedBy: 'operator@test.com' }))
   await page.goto('/#/')
   const badge = page.getByTestId('emergency-stop-badge')
-  const at = await page.evaluate(iso => new Date(iso).toLocaleString(), STOPPED_AT)
-  await expect(badge).toHaveText(`Fleet stopped by operator@test.com at ${at}`)
+  await expect(badge)
+    .toHaveText(/^Fleet stopped by operator@test\.com at \d{4}-\d\d-\d\d \d\d:\d\d \S+$/)
   await expect(badge.locator('time')).toHaveAttribute('datetime', STOPPED_AT)
+})
+
+// ux-05d (win 15): the time names its zone, and the header zone toggle
+// rewrites it in UTC and remembers the choice across a reload.
+test('the stop time names its zone and follows the header UTC toggle', async ({ page }) => {
+  await routeStop(page, () => ({ fleetStopped: true, stoppedBy: 'operator@test.com' }))
+  await page.goto('/#/')
+  const badge = page.getByTestId('emergency-stop-badge')
+  await expect(badge).toContainText('Fleet stopped by operator@test.com at')
+  await page.getByRole('combobox', { name: 'Time zone' }).selectOption('utc')
+  await expect(badge).toHaveText('Fleet stopped by operator@test.com at 2026-11-13 07:30 UTC')
+  await page.reload()
+  await expect(page.getByTestId('emergency-stop-badge'))
+    .toHaveText('Fleet stopped by operator@test.com at 2026-11-13 07:30 UTC')
+  await expect(page.getByRole('combobox', { name: 'Time zone' })).toHaveValue('utc')
 })
 
 test('a fleet stop with no recorded presser reads "unknown"', async ({ page }) => {

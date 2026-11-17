@@ -5,6 +5,7 @@ import { apiGet } from '../../lib/api'
 import { RollbackDialog } from '../actions/RollbackControl'
 import { actionRisk } from '../actions/actionFormat'
 import { ROLLBACK_LABELS as ROLLBACK, VERDICT_LABELS as VERDICTS } from '../../lib/outcomes'
+import { formatTime } from '../../lib/time'
 
 // SinceLastVisit is the Inbox's section (b): the outcome ledger's rows
 // (ux-02a) since the person was last here, with Undo on a row whose
@@ -28,7 +29,7 @@ function ChangeRow({ row, canUndo, reason, onUndo }) {
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{row.what}</span>
         <span className="text-xs" style={muted}>
-          {row.database} · {new Date(row.executed_at).toLocaleString()}
+          {row.database} · {formatTime(row.executed_at)}
         </span>
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-3 text-xs" style={muted}>

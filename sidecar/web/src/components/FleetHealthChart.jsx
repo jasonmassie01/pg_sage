@@ -6,6 +6,7 @@ import {
 } from 'recharts'
 import { useAPI, withTimeRange } from '../hooks/useAPI'
 import { useTimeRange } from '../context/TimeRangeContext'
+import { formatTime } from '../lib/time'
 
 // Stable colour ramp per-database. Recharts picks default colours
 // that drift when series count changes, which makes the Overview
@@ -127,7 +128,7 @@ export function FleetHealthChart({ database }) {
               stroke="var(--border)"
             />
             <Tooltip
-              labelFormatter={ms => new Date(ms).toLocaleString()}
+              labelFormatter={ms => formatTime(ms)}
               contentStyle={{
                 background: 'var(--bg-card)',
                 border: '1px solid var(--border)',

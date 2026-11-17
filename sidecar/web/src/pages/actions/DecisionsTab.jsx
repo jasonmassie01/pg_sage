@@ -3,6 +3,7 @@ import { useAPI } from '../../hooks/useAPI'
 import { QueryState } from '../../components/QueryState'
 import { POLICY_GATE_DOC } from '../settings/StandingPolicy'
 import { reasonText, riskLabel, verdictLabel } from './workflow'
+import { formatTime } from '../../lib/time'
 
 // Actions > Held back (policy-07; the route key stays "decisions"): why a
 // change has not run. Each row is
@@ -107,7 +108,7 @@ function DecisionRow({ decision: d, database }) {
         {(!database || database === 'all') && <span>{d.database} · </span>}
         {d.feature}{targets && ` on ${targets}`} · Risk: {riskLabel(d.risk_tier)} · seen
         {' '}{d.repeat_count}{' '}{d.repeat_count === 1 ? 'time' : 'times'}, last
-        {' '}{formatTime(d.last_seen_at)}
+        {' '}{decidedAt(d.last_seen_at)}
         {d.policy_version ? ` · policy v${d.policy_version}` : ''}
       </p>
       {d.budget_detail && <p data-testid="decision-budget" className="mt-1 text-xs"
@@ -115,15 +116,17 @@ function DecisionRow({ decision: d, database }) {
       {d.verification_wait_detail && <p className="mt-1 text-xs" style={muted}>
         Waiting on: {d.verification_wait_detail}</p>}
       {d.deadline_kind && <p className="mt-1 text-xs" style={muted}>
-        Deadline: {d.deadline_kind} by {formatTime(d.deadline_hard_at)}</p>}
+        Deadline: {d.deadline_kind} by {decidedAt(d.deadline_hard_at)}</p>}
       {link && <a className="mt-1 inline-block text-xs underline" href={link.href}
         style={{ color: 'var(--accent)' }}>{link.label}</a>}
     </li>
   )
 }
 
-function formatTime(value) {
+// decidedAt names a held-back decision's time; missing or unreadable is
+// "unknown", as before ux-05d.
+function decidedAt(value) {
   if (!value) return 'unknown'
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? 'unknown' : date.toLocaleString()
+  return Number.isNaN(date.getTime()) ? 'unknown' : formatTime(date)
 }

@@ -6,6 +6,7 @@ import { LadderSection } from './LadderSection'
 import { ShadowHistory } from './ShadowHistory'
 import { riskLabel } from './workflow'
 import { ApprovalActions } from './ApprovalActions'
+import { formatTime } from '../../lib/time'
 
 export { approvalOutcomeMessage } from './approvalOutcome'
 
@@ -218,7 +219,7 @@ export function ApprovalCard({ card, onDecided, facts = null, eligible, blockedR
       {card.snoozed_until && (
         <div data-testid="approval-snoozed-badge" className="text-xs"
           style={{ color: 'var(--text-secondary)' }}>
-          Snoozed until {new Date(card.snoozed_until).toLocaleString()}
+          Snoozed until {formatTime(card.snoozed_until)}
           {card.snooze_reason ? ` — ${card.snooze_reason}` : ''}
         </div>
       )}

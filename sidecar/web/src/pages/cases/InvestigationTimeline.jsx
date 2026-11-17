@@ -1,4 +1,5 @@
 import { useAPI } from '../../hooks/useAPI'
+import { formatTime } from '../../lib/time'
 
 // The investigation's event timeline (its append-only hash chain): every
 // step and transition, with the model turn's events called out:
@@ -35,7 +36,7 @@ function Event({ event }) {
   return (
     <li data-testid={`timeline-${event.type}`} data-kind={model ? 'model' : 'graph'}
       style={color}>
-      {event.observed_at ? new Date(event.observed_at).toLocaleTimeString() : ''}{' '}
+      {event.observed_at ? formatTime(event.observed_at) : ''}{' '}
       <span style={model ? color : strong}>{event.type}</span>: {describe(event)}
       {event.actor ? ` (${event.actor})` : ''}
     </li>

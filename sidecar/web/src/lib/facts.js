@@ -1,4 +1,5 @@
 import { withSurface } from './inbox'
+import { formatTime } from './time'
 
 // Binding facts (roadmap 2.3): API helpers and the declare-form rules
 // shared by the Facts page and the inline fact badges. Confirmed facts
@@ -143,7 +144,7 @@ export function formatFactDate(value) {
   if (!value) return null
   const date = new Date(value)
   if (Number.isNaN(date.getTime()) || date.getUTCFullYear() < 1971) return null
-  return date.toLocaleString()
+  return formatTime(date)
 }
 
 // collectMatches flattens a /facts/match response into the distinct

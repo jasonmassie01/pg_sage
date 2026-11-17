@@ -2,6 +2,7 @@
 // (each one a named MCP token) asked pg_sage what, on which database, and
 // what pg_sage's gate answered. The list never shows the caller's free text.
 import { useEffect, useState } from 'react'
+import { formatTime } from '../../lib/time'
 
 export const REQUESTS_URL = '/api/v1/specialist-requests'
 
@@ -43,7 +44,7 @@ function RequestRow({ rec }) {
   return (
     <tr data-testid={`specialist-request-${rec.id}`}
       style={{ borderTop: '1px solid var(--border)' }}>
-      <td className="py-1 pr-3">{new Date(rec.created_at).toLocaleString()}</td>
+      <td className="py-1 pr-3">{formatTime(rec.created_at)}</td>
       <td className="py-1 pr-3" title={rec.actor}>{rec.identity_name || rec.actor}</td>
       <td className="py-1 pr-3">{rec.kind}</td>
       <td className="py-1 pr-3">{rec.database}</td>

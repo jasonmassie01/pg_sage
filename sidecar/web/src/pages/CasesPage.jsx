@@ -28,6 +28,7 @@ import { EvidenceList } from './cases/CaseEvidence'
 import { FindingSourceSelect } from './cases/FindingSourceSelect'
 import { useFindingSource } from './cases/findingSource'
 import { CasePlans } from './cases/CasePlans'
+import { formatTime } from '../lib/time'
 
 const SOURCE_FILTERS = [
   { value: 'all', label: 'All' },
@@ -76,7 +77,7 @@ function formatDate(value) {
   if (Number.isNaN(date.getTime()) || date.getUTCFullYear() < 1971) {
     return null
   }
-  return date.toLocaleString()
+  return formatTime(date)
 }
 
 export function CasesPage(props) {

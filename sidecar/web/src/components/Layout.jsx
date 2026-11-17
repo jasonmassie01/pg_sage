@@ -8,6 +8,7 @@ import { useLiveRefetch } from '../hooks/useLiveEvents'
 import { useLiveStatus } from '../hooks/liveEventsContext'
 import { FreshnessIndicator } from './FreshnessIndicator'
 import { TimeRangePicker } from './TimeRangePicker'
+import { TimeZoneToggle } from './TimeZoneToggle'
 import { HeaderTrustBadge } from './HeaderTrustBadge'
 import { PageIntro } from './PageIntro'
 import { pageGuide } from './pageGuide'
@@ -317,6 +318,7 @@ export function Layout({
             {activeRoute?.usesTimeRange && (
               <TimeRangePicker label={activeRoute.timeRangeLabel} />
             )}
+            <TimeZoneToggle />
             {databases && databases.length > 0 && (
               <DatabasePicker
                 data-testid="database-picker"
