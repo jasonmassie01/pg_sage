@@ -178,3 +178,26 @@ func TestUpgradeBrief_StoreErrorStillReturnsTheBrief(t *testing.T) {
 		t.Fatalf("store error = %d %+v, want the brief with store_error", code, got)
 	}
 }
+
+// The facts read runs inside the request's slot and under its budget, so
+// a hung database cannot hold requests past the run's bound.
+func TestUpgradeBrief_OptionsReadHoldsTheSlotUnderTheBudget(t *testing.T) {
+	f := &fakeBrief{brief: upgradecheck.Brief{Database: "orders"}}
+	d := briefDeps(f)
+	var hasDeadline, heldSlot bool
+	d.options = func(ctx context.Context, _ string, _ *pgxpool.Pool) upgradecheck.BriefOptions {
+		_, hasDeadline = ctx.Deadline()
+		heldSlot = len(d.slots) == 1
+		return upgradecheck.BriefOptions{}
+	}
+	if code, body, _ := getBrief(t, d, "prod", ""); code != http.StatusOK {
+		t.Fatalf("status %d: %s", code, body)
+	}
+	if !hasDeadline || !heldSlot {
+		t.Fatalf("options read: deadline %v, slot held %v; want both", hasDeadline, heldSlot)
+	}
+	if f.builds != 1 || len(d.slots) != 0 {
+		t.Fatalf("builds %d, slots left %d; want 1 build and the slot released", f.builds,
+			len(d.slots))
+	}
+}

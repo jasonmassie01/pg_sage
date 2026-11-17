@@ -158,10 +158,9 @@ func upgradeBriefHandler(d upgradeBriefDeps) http.Handler {
 			return
 		}
 		req.target.Provider = d.provider(req.database)
-		opts := d.options(r.Context(), req.database, pool)
-		opts.TargetDatabase = req.targetDatabase
+		var member *pgxpool.Pool
 		if req.targetDatabase != "" {
-			if opts.TargetDB, err = d.member(req.targetDatabase); err != nil {
+			if member, err = d.member(req.targetDatabase); err != nil {
 				jsonError(w, err.Error(), targetDatabaseStatus(err))
 				return
 			}
@@ -176,6 +175,9 @@ func upgradeBriefHandler(d upgradeBriefDeps) http.Handler {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), upgradeReadinessBudget)
 		defer cancel()
+		// The facts read counts against the slot and the budget, like the run.
+		opts := d.options(ctx, req.database, pool)
+		opts.TargetDB, opts.TargetDatabase = member, req.targetDatabase
 		brief, err := d.build(ctx, pool, req.target, opts)
 		if err != nil {
 			writeUpgradeReadiness(w, upgradecheck.Report{}, err)
