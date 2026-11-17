@@ -25,6 +25,7 @@ const (
 	EnvMarker  = "RESTORE_HELPER_CANARY"
 	envDrillID = "SAGE_DRILL_ID"
 	envCloneID = "SAGE_CLONE_ID"
+	envMajor   = "SAGE_TARGET_MAJOR"
 )
 
 // Argv is the program line of this test binary acting in mode.
@@ -72,6 +73,12 @@ func run(mode string, args []string) int {
 		return printEnv()
 	case "destroy-ok":
 		return destroyOK()
+	case "upgrade-ok":
+		return upgradeOK()
+	case "upgrade-dsn":
+		return printJSON(map[string]string{"dsn": os.Getenv(EnvDSN)})
+	case "upgrade-dsn-arg":
+		return printJSON(map[string]string{"dsn": firstArg(args)})
 	case "destroy-fail":
 		fmt.Fprintln(os.Stderr, "pg_ctl: could not stop server")
 		return 1
@@ -166,6 +173,23 @@ func destroyOK() int {
 	}
 	name := "destroyed-" + strings.NewReplacer("/", "_", "\\", "_", ":", "_").Replace(id)
 	if err := os.WriteFile(filepath.Join(".", name), []byte(id), 0o600); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 5
+	}
+	return 0
+}
+
+// upgradeOK (drill-02b) records the SAGE_CLONE_ID and SAGE_TARGET_MAJOR
+// it was given in upgraded-<id> in its working directory and prints
+// nothing: the clone was upgraded in place.
+func upgradeOK() int {
+	id, major := os.Getenv(envCloneID), os.Getenv(envMajor)
+	if id == "" || major == "" {
+		fmt.Fprintln(os.Stderr, "no SAGE_CLONE_ID or SAGE_TARGET_MAJOR")
+		return 4
+	}
+	if err := os.WriteFile(filepath.Join(".", "upgraded-"+id), []byte(id+" "+major),
+		0o600); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 5
 	}

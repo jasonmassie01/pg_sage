@@ -21,13 +21,14 @@ import (
 // (a child it started) before Wait gives up on them.
 const commandWaitDelay = 5 * time.Second
 
-// run runs argv with idName=id in its environment, bounded by limit, and
+// run runs argv with idName=id and the extra NAME=value pairs in its
+// environment, bounded by limit, and
 // returns its stdout. A non-zero exit is ErrCommandFailed quoting the
 // redacted stderr tail; a timeout wraps the context's error.
 // Output held open after a successful exit is ErrCommandOutputHeld, an
 // uncertain create.
 func (p *CommandProvider) run(ctx context.Context, argv []string, limit time.Duration,
-	bound, idName, id string) ([]byte, error) {
+	bound, idName, id string, extra ...string) ([]byte, error) {
 	if err := os.MkdirAll(p.cfg.WorkDir, 0o700); err != nil {
 		return nil, fmt.Errorf("restore command: create work directory %s: %w",
 			p.cfg.WorkDir, err)
@@ -35,7 +36,8 @@ func (p *CommandProvider) run(ctx context.Context, argv []string, limit time.Dur
 	runCtx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, argv[0], argv[1:]...)
-	cmd.Dir, cmd.Env, cmd.WaitDelay = p.cfg.WorkDir, p.env(idName, id), commandWaitDelay
+	cmd.Dir, cmd.Env, cmd.WaitDelay = p.cfg.WorkDir, p.env(idName, id, extra...),
+		commandWaitDelay
 	stdout := &headBuffer{limit: CommandMaxStdout}
 	stderr := &tailBuffer{limit: CommandMaxStderr}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
@@ -70,8 +72,8 @@ var commandBaseEnv = []string{"PATH"}
 
 // env is the program's whole environment: the base variables, the
 // allowed ones that are set, the drilled database (restore only), then
-// idName=id.
-func (p *CommandProvider) env(idName, id string) []string {
+// idName=id and extra.
+func (p *CommandProvider) env(idName, id string, extra ...string) []string {
 	names := append([]string(nil), commandBaseEnv...)
 	if runtime.GOOS == "windows" {
 		names = append(names, "SystemRoot")
@@ -86,7 +88,7 @@ func (p *CommandProvider) env(idName, id string) []string {
 	if idName == "SAGE_DRILL_ID" && p.cfg.Database != "" {
 		out = append(out, "SAGE_DRILL_DATABASE="+p.cfg.Database)
 	}
-	return append(out, idName+"="+id)
+	return append(append(out, idName+"="+id), extra...)
 }
 
 // stderrQuote is the redacted stderr tail as an error suffix.
