@@ -78,7 +78,9 @@ function useReadReceipt(db, data) {
     if (sent.current.has(key)) return undefined
     sent.current.add(key)
     let timer = null
-    const send = () => apiSend('POST', viewedURL(db, runID))
+    // An empty JSON body: the server refuses a POST without a JSON
+    // Content-Type (415), and apiSend sets it only when there is a body.
+    const send = () => apiSend('POST', viewedURL(db, runID), {})
     send().catch(() => {
       timer = setTimeout(() => send().catch(err => {
         console.warn(`review read receipt of run ${runID} on ${db} failed twice:`, err)

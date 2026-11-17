@@ -16,7 +16,9 @@ async function routeGrade(page: Page, status: number, body: unknown) {
 async function routeViewed(page: Page, status = 200) {
   const posts: string[] = []
   await page.route(viewedPath, route => {
-    posts.push(new URL(route.request().url()).pathname)
+    // The real server refuses a POST without a JSON Content-Type (415).
+    const type = route.request().headers()['content-type'] || 'none'
+    posts.push(`${new URL(route.request().url()).pathname} ${type}`)
     return route.fulfill({ status, json: status === 200
       ? { run_id: 12, viewed_at: '2026-11-16T10:00:00Z', first: true }
       : { error: 'the read receipt could not be recorded' } })
@@ -38,7 +40,8 @@ test('shows the grade, the eight dimensions, the delta and the report', async ({
   await expect(page.getByTestId('delta-check')).toHaveCount(2)
   await expect(page.getByTestId('model-pass')).toContainText('Model pass: skipped')
   await expect(page.getByTestId('report-finding').first()).toBeVisible()
-  await expect.poll(() => posts).toEqual(['/api/v1/databases/primary/review/runs/12/viewed'])
+  await expect.poll(() => posts).toEqual(
+    ['/api/v1/databases/primary/review/runs/12/viewed application/json'])
 })
 
 test('links the plan of a review with a model pass', async ({ page }) => {

@@ -22,7 +22,7 @@ let posts
 function stubFetch(statuses = [200]) {
   posts = []
   vi.stubGlobal('fetch', vi.fn(async (url, init = {}) => {
-    posts.push({ url, method: init.method })
+    posts.push({ url, method: init.method, type: init.headers?.['Content-Type'] })
     const status = statuses[Math.min(posts.length - 1, statuses.length - 1)]
     const body = status === 200 ? { run_id: 12, viewed_at: '2026-11-16T10:00:00Z',
       first: true } : { error: 'the read receipt could not be recorded' }
@@ -49,7 +49,9 @@ describe('ReviewPage', () => {
     expect(screen.getAllByTestId('dimension-row')).toHaveLength(8)
     expect(screen.getAllByTestId('delta-check')).toHaveLength(2)
     expect(screen.getAllByTestId('report-finding')).toHaveLength(2)
-    await waitFor(() => expect(posts).toEqual([{ url: viewedURL, method: 'POST' }]))
+    // The server refuses a POST without Content-Type: application/json (415).
+    await waitFor(() => expect(posts).toEqual([{ url: viewedURL, method: 'POST',
+      type: 'application/json' }]))
   })
 
   it('says the first grade runs after the first look when there is none', () => {
