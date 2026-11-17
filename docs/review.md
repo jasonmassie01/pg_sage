@@ -258,3 +258,34 @@ coverage. A table under 100,000 rows is left alone without a note. When no trigg
 target, because the growth outruns it, the table's own threshold (left alone, see step 5) or the
 0.001 floor keeps the predicted peak over it, or the table is already tuned tighter, the candidate
 is advice that autovacuum is falling behind.
+
+## Connection generator
+
+The `connections` generator judges the connection architecture from the window's
+`workload_sessions` snapshots: the newest 288 for recycle herds, and the whole window for each
+role's cluster-wide peak, each role's longest idle-in-transaction session and each
+application's state mix. It reads `pg_sage`'s history and, on the monitored database, the
+roles it names (bounded, read-only). Its candidates cite the pack's connection hours and the
+`max_connections` setting.
+
+| Kind | When | Output |
+|---|---|---|
+| `recycle_herd` | In at least 3 samples, more than 30% of an application's sessions (10 or more) connected in the same minute. | `advice`: jitter the pool's connection lifetime, so its sessions stop reconnecting together. |
+| `pooler_sizing` | An application with 10 or more sessions on average, at least half of them idle. | `advice`: a pooler in transaction mode with a pool of its active peak plus 20%, and what transaction mode breaks. |
+| `idle_in_transaction_timeout` | A role's session sat idle in a transaction for more than 10 minutes, and the role's own timeout is unset or looser. | `set_role_timeout`: `idle_in_transaction_session_timeout = '600000ms'` for the role in this database. Its rollback restores the role's prior value, or resets it. |
+| `role_connection_limit` | Under 10% of usable connections (`max_connections` less the reserved slots) were free at the window's peak, and the role's peak is over its fair share (the usable connections over the roles seen). | `set_role_connection_limit`: the role's peak plus 20%, capped at the usable connections, and never below the peak plus the contract's margin (2 sessions or 10%). Its rollback restores the prior limit. |
+
+A session whose `backend_start` pg_sage's role cannot see has no age and is skipped. A
+negative age (clock skew, or a session that connected during the read) is skipped too. The
+coverage counts both. A truncated age read is judged against the application's session
+total, so a cut list never inflates a share.
+
+**Always approved.** Both steps need a person's approval at every trust level, because a
+review has none of a workload budget's warn-mode shadow data. A role the role-budget contract
+refuses (a superuser, pg_sage's own role, a `pg_` role or a provider administration role) gets
+no step, and the coverage names it. When the roles cannot be read, each step becomes advice.
+Pooler mode, pool size and lifetimes are advice only: pg_sage never changes a pooler.
+
+Application names never enter a model tier: the pack's connections section holds none, and
+candidates are not part of a pack. The review's numbers are the herds found and the headroom
+at peak. The headroom after accepted steps is the next review's headroom at peak.
