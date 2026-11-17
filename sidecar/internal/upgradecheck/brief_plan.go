@@ -194,10 +194,13 @@ func postUpgradeDetail(b Brief) string {
 		"says so; REFRESH COLLATION VERSION once rebuilt (drill-02c)"
 }
 
-// briefHash is the sha256 of the brief's content without its build time
-// and its rehearsal.
+// briefHash is the sha256 of the brief's content without its build time,
+// its rehearsal and its query-time share: the share moves with every
+// statement run, so it would store a row per build of a delta-only
+// history; StoreBrief refreshes it on the latest row instead.
 func briefHash(b Brief) string {
 	b.BuiltAt, b.Hash, b.Rehearsal = time.Time{}, "", nil
+	b.QueryTime = QueryTimeSection{}
 	doc, err := json.Marshal(b)
 	if err != nil { // a Brief is plain data; Marshal cannot fail on it
 		return ""

@@ -111,7 +111,7 @@ func storeInTx(ctx context.Context, tx pgx.Tx, b Brief) (StoredBrief, error) {
 	}
 	out.Rehearsal = b.Rehearsal
 	if err == nil && latest == b.Hash {
-		return out, nil
+		return out, refreshQueryTime(ctx, tx, out.ID, b.QueryTime)
 	}
 	doc, err := json.Marshal(b)
 	if err != nil {
@@ -123,4 +123,25 @@ func storeInTx(ctx context.Context, tx pgx.Tx, b Brief) (StoredBrief, error) {
 		RETURNING id, built_at`, b.Database, b.Target.Major, doc, b.Hash).
 		Scan(&out.ID, &out.BuiltAt)
 	return out, err
+}
+
+// refreshQueryTime carries a known, non-empty query-time share onto the
+// stored row id (drill-02c): the share is not part of the hash, so an
+// unchanged brief keeps its row and the post-upgrade ANALYZE still reads
+// the latest share. An unknown or empty share (pg_stat_statements absent
+// or reset) keeps the stored one.
+func refreshQueryTime(ctx context.Context, tx pgx.Tx, id int64, q QueryTimeSection) error {
+	if q.State != SectionKnown || len(q.Items) == 0 {
+		return nil
+	}
+	doc, err := json.Marshal(q)
+	if err != nil {
+		return fmt.Errorf("encode the query-time share: %w", err)
+	}
+	if _, err := tx.Exec(ctx, storeTag+`UPDATE sage.upgrade_briefs
+		SET brief = pg_catalog.jsonb_set(brief, '{query_time_share}', $2::jsonb)
+		WHERE id = $1`, id, doc); err != nil {
+		return fmt.Errorf("refresh the query-time share: %w", err)
+	}
+	return nil
 }

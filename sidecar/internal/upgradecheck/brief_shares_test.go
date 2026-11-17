@@ -108,8 +108,9 @@ func TestQueryTimeSection_StatesAndHash(t *testing.T) {
 	a := newBrief(Report{Database: "db", Target: Target{Major: 18}}, briefFacts{}, BriefOptions{})
 	b := newBrief(Report{Database: "db", Target: Target{Major: 18}}, briefFacts{
 		shares: []TableShare{{Table: "public.a", Share: 1}}, sharesTotal: 1}, BriefOptions{})
-	if a.Hash == b.Hash || b.QueryTime.Total != 1 {
-		t.Fatalf("the query-time share is not part of the brief's content: %s %s", a.Hash,
-			b.Hash)
+	// The share moves with every statement, so it is kept out of the hash
+	// (else the delta-only brief history would grow a row per build).
+	if a.Hash != b.Hash || b.QueryTime.Total != 1 {
+		t.Fatalf("the query-time share changed the brief's hash: %s %s", a.Hash, b.Hash)
 	}
 }
