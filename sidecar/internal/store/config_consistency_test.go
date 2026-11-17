@@ -40,6 +40,9 @@ var excludedPrefixes = []string{
 	// market-03: the Lakebase project rehearsal branches are made in and
 	// their limits: YAML only, restart-bound, the project safety-critical
 	"clone.lakebase.",
+	// lab-05b: the Neon project, parent branch and API key of rehearsal
+	// branches: YAML or env only, restart-bound, the key a secret
+	"clone.neon.",
 	"sre.read_policy.", // trusted observation boundary; never a model-derived grant
 	"self_config.",     // derivation switch and soak: YAML only, safety-critical, restart-bound
 	// fleet learning and leader election: YAML only, restart-bound
