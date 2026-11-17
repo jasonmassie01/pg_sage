@@ -578,9 +578,11 @@ What pg_sage does for each clone:
 - Teardown deletes the instance, waits for it to go, then deletes the cluster with no final
   snapshot and no retained automated backups. Only a `sage-*` cluster tagged with its own
   name and without deletion protection is ever deleted.
-- A failure after the cluster exists deletes it before the error returns. A restore answered
-  with 5xx, or a create cut short, leaves the receipt `create_uncertain`; the reaper finds
-  the cluster by its tag and destroys it. Aurora has no server-side expiry, so the reaper
+- A failure after the cluster exists deletes it before the error returns. A restore whose
+  outcome is unknown (a 5xx, a lost reply, or "already exists" when the SDK retried one RDS
+  accepted) is looked for by tag and deleted; when it is not listed yet, or a create is cut
+  short, the receipt stays `create_uncertain` and the reaper looks for the cluster by its
+  tag and destroys it. Aurora has no server-side expiry, so the reaper
   is the backstop: check `aws rds describe-db-clusters` for `sage-*` clusters if a sidecar
   was down for long.
 
@@ -589,9 +591,11 @@ an instance role), as for telemetry. Without them nothing is created or deleted 
 rehearsals are recommendation-only with reason `clone_unavailable`. The API cannot switch
 `clone.provider` to `aurora_clone`; set it in YAML and restart.
 
-The IAM policy the sidecar needs, on top of the telemetry reads (narrow `Resource` to your
-account's cluster and instance ARNs, `arn:aws:rds:<region>:<account>:cluster:sage-*` and
-`...:db:sage-*` for the writes):
+The IAM policy the sidecar needs, on top of the telemetry reads. To narrow `Resource`, keep
+the deletes on `arn:aws:rds:<region>:<account>:cluster:sage-*` and `...:db:sage-*`; the
+restore and the instance create are also authorized against the source cluster, its subnet
+group and its parameter groups, so their `Resource` must name those ARNs too, or the create
+is refused (403) and the rehearsal is recommendation-only:
 
 ```json
 {
