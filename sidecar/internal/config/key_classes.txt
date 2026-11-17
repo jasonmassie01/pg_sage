@@ -633,6 +633,13 @@ operator_preference backup.min_retention_days
 # Each drill's clone is still bounded by clone.max_creates_per_hour.
 operator_preference drill.max_concurrent_per_fleet
 
+# Self-managed restore drills (drill-01c): programs the sidecar runs on its own
+# host, with what they may read from its environment. Never derived, never
+# API-writable.
+safety_critical drill.command.restore_argv
+safety_critical drill.command.destroy_argv
+safety_critical drill.command.env_allow
+
 # History placement (v2.3.0): where pg_sage keeps its own telemetry history is
 # deployment topology the operator declares. It never widens what pg_sage may
 # do and is never derived; a change is restart-bound and refused at startup

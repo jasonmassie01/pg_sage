@@ -1870,6 +1870,27 @@
     "class": "safety_critical",
     "lifecycle": "restart"
   },
+  "drill.command.destroy_argv": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Required with drill.command.restore_argv: program and arguments that remove a restore, given SAGE_CLONE_ID; may run twice for one id. YAML only, restart-bound.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "drill.command.env_allow": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Sidecar environment variable names passed to the drill.command programs besides PATH. SAGE_ names are refused; values are never logged. YAML only, restart-bound.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "drill.command.restore_argv": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Self-managed restore drill program and arguments (absolute path, no shell); prints one JSON line {dsn, id, recovery_point}. Needs clone.allow_full_copy. YAML only, restart-bound.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
   "drill.max_concurrent_per_fleet": {
     "type": "int",
     "default": 2,
