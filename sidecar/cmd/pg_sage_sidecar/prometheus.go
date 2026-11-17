@@ -22,7 +22,6 @@ func handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	var b strings.Builder
 
 	writeBuildMetrics(&b, cfg.Mode)
-
 	writeModeMetric(&b, cfg.Mode)
 	writeMetricsListenerMetric(&b)
 	writeLoginLimiterMetric(&b, api.LoginLimiterSaturatedTotal())

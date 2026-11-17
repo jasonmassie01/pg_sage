@@ -34,7 +34,8 @@ func TestReviewGradesDB_FirstGradeAfterTheFirstLookAndTheMetric(t *testing.T) {
 	started := time.Now()
 	rt.startReviewGrades(done, started)
 	time.Sleep(200 * time.Millisecond)
-	if runs, _ := rubric.NewStore(rt.spec.Pool).Latest(ctx, "review_wired", 1); len(runs) != 0 {
+	store := rubric.NewStore(rt.spec.Pool)
+	if runs, _ := store.Latest(ctx, "review_wired", 1); len(runs) != 0 {
 		t.Fatal("graded before the startup first look ended")
 	}
 	close(done)
@@ -53,7 +54,8 @@ func TestReviewGradesDB_FirstGradeAfterTheFirstLookAndTheMetric(t *testing.T) {
 	}
 	var b strings.Builder
 	writeReviewMetrics(&b, reviewFirstGrades)
-	if !strings.Contains(b.String(), `pg_sage_review_first_grade_seconds{database="review_wired"}`) {
+	want := `pg_sage_review_first_grade_seconds{database="review_wired"}`
+	if !strings.Contains(b.String(), want) {
 		t.Fatalf("metrics = %q, want the first grade of review_wired", b.String())
 	}
 	if !strings.Contains(strings.Join(rt.features, ","), "review") {
