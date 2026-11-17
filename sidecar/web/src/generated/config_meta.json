@@ -3498,6 +3498,20 @@
     "class": "derivable",
     "lifecycle": "restart"
   },
+  "review.enabled": {
+    "type": "bool",
+    "default": true,
+    "doc": "Grade each database against the rubric after its first look, then every grade_interval_hours. Deterministic and read-only; writes only sage.review_* rows. Default: true.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "review.grade_interval_hours": {
+    "type": "int",
+    "default": 24,
+    "doc": "Hours between two grades of one database. Range 1-720. Default: 24.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
   "runaway.enabled": {
     "type": "bool",
     "default": false,

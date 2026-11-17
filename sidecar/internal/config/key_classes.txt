@@ -556,6 +556,8 @@ derivable ask.max_tokens_per_question
 operator_preference ask.max_concurrent_runs
 operator_preference ask.max_seconds_per_question
 operator_preference ask.retention_days
+operator_preference review.enabled
+operator_preference review.grade_interval_hours
 operator_preference facts.confirmed_absence_days
 
 # Managed-cloud telemetry (v2.2.0): the provider identity is an endpoint; the

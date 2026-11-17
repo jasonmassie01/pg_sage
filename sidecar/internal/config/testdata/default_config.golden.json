@@ -608,6 +608,10 @@
     "MaxSecondsPerQuestion": 60,
     "MaxConcurrentRuns": 4
   },
+  "Review": {
+    "Enabled": true,
+    "GradeIntervalHours": 24
+  },
   "Facts": {
     "ConfirmedAbsenceDays": 7
   },

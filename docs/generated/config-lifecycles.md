@@ -398,6 +398,8 @@
 | `retention.snapshots_days` | `restart` | `-` | `derivable` |
 | `retention.snapshots_max_pct` | `restart` | `-` | `derivable` |
 | `retention.workload_packs_days` | `restart` | `-` | `derivable` |
+| `review.enabled` | `restart` | `-` | `operator_preference` |
+| `review.grade_interval_hours` | `restart` | `-` | `operator_preference` |
 | `runaway.enabled` | `restart` | `-` | `safety_critical` |
 | `runaway.policies` | `restart` | `-` | `safety_critical` |
 | `runaway.safe_patterns` | `restart` | `-` | `safety_critical` |

@@ -86,6 +86,7 @@ func (c *Config) validateFeatures() error {
 		func() error { return c.RCA.validate() },
 		func() error { return c.SRE.validate() },
 		func() error { return c.Ask.validate() },
+		func() error { return c.Review.validate() },
 		func() error { return c.Forecaster.validate() },
 		func() error { return c.Facts.validate() },
 		c.validateRulePacks,

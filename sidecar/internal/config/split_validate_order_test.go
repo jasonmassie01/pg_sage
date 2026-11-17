@@ -35,6 +35,7 @@ var unsplitValidateOrder = []string{
 	"c.RCA.validate()",
 	"c.SRE.validate()",
 	"c.Ask.validate()",
+	"c.Review.validate()",
 	"c.Forecaster.validate()",
 	"c.Facts.validate()",
 	"c.validateRulePacks()",

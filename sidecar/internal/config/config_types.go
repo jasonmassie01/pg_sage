@@ -46,12 +46,14 @@ type Config struct {
 	Custodian   CustodianConfig     `yaml:"custodian"`
 	MCP         MCPConfig           `yaml:"mcp"`
 	Ask         AskConfig           `yaml:"ask"`
-	Facts       FactsConfig         `yaml:"facts"`
-	SelfBudget  SelfBudgetConfig    `yaml:"self_budget"`
-	Baseline    BaselineConfig      `yaml:"baseline"`
-	History     HistoryConfig       `yaml:"history"`
-	Debug       DebugConfig         `yaml:"debug"`
-	SelfConfig  SelfConfigConfig    `yaml:"self_config"`
+	// Review is Sage Review's grade (review.go, review-01a).
+	Review     ReviewConfig     `yaml:"review"`
+	Facts      FactsConfig      `yaml:"facts"`
+	SelfBudget SelfBudgetConfig `yaml:"self_budget"`
+	Baseline   BaselineConfig   `yaml:"baseline"`
+	History    HistoryConfig    `yaml:"history"`
+	Debug      DebugConfig      `yaml:"debug"`
+	SelfConfig SelfConfigConfig `yaml:"self_config"`
 	// Specialist is the Postgres-specialist contract other agents call.
 	Specialist SpecialistConfig `yaml:"specialist"`
 	// Budgets are the workload budgets (workload_budgets.go, market-08).
