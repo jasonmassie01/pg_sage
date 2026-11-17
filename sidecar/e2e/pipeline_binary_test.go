@@ -75,7 +75,7 @@ func seedBinaryScenarios(t *testing.T, pool *pgxpool.Pool, dsn string) {
 			pipe_bloat, pipe_stale, pipe_av, pipe_invalid CASCADE;
 		DROP SEQUENCE IF EXISTS pipe_seq;`)
 
-	// A1 duplicate_index → executor drops one copy.
+	// A1 duplicate_index → the drop is queued for approval (lab-03a).
 	mustExec(t, pool, `
 		CREATE TABLE pipe_dup (s text);
 		INSERT INTO pipe_dup SELECT g::text FROM generate_series(1,2000) g;
@@ -142,7 +142,7 @@ func seedBinaryAdvisories(t *testing.T, pool *pgxpool.Pool, dsn string) {
 		mustExec(t, pool, "SELECT pg_sleep(0.8)")
 	}
 
-	// A8 invalid_index → executor drops the invalid leftover. A tiny
+	// A8 invalid_index → the drop of the leftover is queued for approval. A tiny
 	// statement_timeout aborts a CONCURRENTLY build, which by design
 	// leaves an INVALID index behind.
 	mustExec(t, pool, `
@@ -333,16 +333,12 @@ func assertBinaryExpectations(
 	expectations := []binaryExpectation{
 		{
 			id:   "CHECK-A01",
-			desc: "duplicate_index: one of pipe_dup_a/b auto-dropped, one intact",
+			desc: "duplicate_index: the drop waits for approval (no clone rehearsal), both intact",
 			check: func(p *pgxpool.Pool) (bool, string) {
 				n := quickScalar(p, `SELECT count(*)::text FROM pg_indexes
 					WHERE indexname IN ('pipe_dup_a','pipe_dup_b')`)
-				act := quickScalar(p, `SELECT count(*)::text FROM sage.action_log
-					WHERE action_type = 'drop_index'
-					  AND sql_executed LIKE '%pipe_dup_%'
-					  AND outcome IN ('success','monitoring')`)
-				return n == "1" && act != "0",
-					fmt.Sprintf("indexes_left=%s drop_actions=%s", n, act)
+				q := queuedDecisions(p, "pipe_dup_")
+				return n == "2" && q != "0", fmt.Sprintf("indexes_left=%s queued=%s", n, q)
 			},
 		},
 		{
@@ -433,11 +429,12 @@ func assertBinaryExpectations(
 		},
 		{
 			id:   "CHECK-A08",
-			desc: "invalid_index: pipe_invalid_idx auto-dropped",
+			desc: "invalid_index: the drop waits for approval (no clone rehearsal), index intact",
 			check: func(p *pgxpool.Pool) (bool, string) {
 				n := quickScalar(p, `SELECT count(*)::text FROM pg_indexes
 					WHERE indexname = 'pipe_invalid_idx'`)
-				return n == "0", fmt.Sprintf("invalid_index_left=%s", n)
+				q := queuedDecisions(p, "pipe_invalid_idx")
+				return n == "1" && q != "0", fmt.Sprintf("invalid_index_left=%s queued=%s", n, q)
 			},
 		},
 		{

@@ -87,8 +87,7 @@ func TestUnexplainedQueues(t *testing.T) {
 }
 
 func TestPipelineSeedsCoverEveryMutatingCheck(t *testing.T) {
-	want := map[string]string{"A01": "pipe_dup_", "A03": "pipe_bloat",
-		"A04": "pipe_stale", "A05": "pipe_av", "A08": "pipe_invalid_idx"}
+	want := map[string]string{"A03": "pipe_bloat", "A04": "pipe_stale", "A05": "pipe_av"}
 	got := map[string]string{}
 	for _, seed := range mutatingSeeds {
 		got[seed.check] = seed.name
@@ -96,8 +95,16 @@ func TestPipelineSeedsCoverEveryMutatingCheck(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("mutating seeds %v, want %v", got, want)
 	}
-	if len(pipelineSeeds) != len(mutatingSeeds)+2 {
-		t.Fatalf("pipelineSeeds has %d entries, want the mutating ones plus A02 and A06",
+	drops := map[string]string{}
+	for _, seed := range rehearsalSeeds {
+		drops[seed.check] = seed.name
+	}
+	wantDrops := map[string]string{"A01": "pipe_dup_", "A08": "pipe_invalid_idx"}
+	if !reflect.DeepEqual(drops, wantDrops) {
+		t.Fatalf("rehearsal seeds %v, want %v", drops, wantDrops)
+	}
+	if len(pipelineSeeds) != len(mutatingSeeds)+len(rehearsalSeeds)+2 {
+		t.Fatalf("pipelineSeeds has %d entries, want the mutating and rehearsal ones, A02 and A06",
 			len(pipelineSeeds))
 	}
 }

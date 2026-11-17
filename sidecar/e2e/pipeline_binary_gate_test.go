@@ -42,13 +42,30 @@ type seededObject struct{ check, name string }
 
 // mutatingSeeds are the seeds the autonomous binary must change itself.
 var mutatingSeeds = []seededObject{
-	{"A01", "pipe_dup_"}, {"A03", "pipe_bloat"}, {"A04", "pipe_stale"},
-	{"A05", "pipe_av"}, {"A08", "pipe_invalid_idx"},
+	{"A03", "pipe_bloat"}, {"A04", "pipe_stale"}, {"A05", "pipe_av"},
 }
 
+// rehearsalSeeds are the drops: costly to revert, so without a passed clone
+// rehearsal the binary queues them for approval at every trust level
+// (lab-03a), and e2e has no clone provider.
+var rehearsalSeeds = []seededObject{{"A01", "pipe_dup_"}, {"A08", "pipe_invalid_idx"}}
+
 // pipelineSeeds adds the seeds that must stay advisory or withheld.
-var pipelineSeeds = append(append([]seededObject(nil), mutatingSeeds...),
-	seededObject{"A02", "pipe_child"}, seededObject{"A06", "pipe_seq"})
+var pipelineSeeds = append(append(append([]seededObject(nil), mutatingSeeds...),
+	rehearsalSeeds...), seededObject{"A02", "pipe_child"}, seededObject{"A06", "pipe_seq"})
+
+// queuedDecisions counts the queue_approval decisions on a seeded object.
+func queuedDecisions(pool *pgxpool.Pool, name string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var n int
+	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM sage.decision
+		WHERE strpos(target_objects::text, $1) > 0 AND verdict = 'queue_approval'`,
+		name).Scan(&n); err != nil {
+		return "error: " + err.Error()
+	}
+	return fmt.Sprint(n)
+}
 
 type pipelineRunOptions struct {
 	tier3Safe bool
@@ -321,7 +338,8 @@ func TestPipelineGate_DegradedValidationQueuesEveryMutation(t *testing.T) {
 	defer run.dump(t, "Layer A gate — build without parse-tree validation")
 	awaitSeedVerdicts(t, run, "CHECK-D01", mutatingSeeds,
 		policy.VerdictQueueApproval, policy.ReasonAutonomyHandoff)
-	assertNoActionsOn(t, run, "CHECK-D02", mutatingSeeds)
+	assertNoActionsOn(t, run, "CHECK-D02", append(append([]seededObject(nil),
+		mutatingSeeds...), rehearsalSeeds...))
 	warned := strings.Contains(run.out.String(), "built without cgo: parse-tree SQL "+
 		"validation is unavailable, so unattended changes wait for operator approval")
 	run.report.add(t, "CHECK-D03", warned,
