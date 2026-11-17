@@ -106,6 +106,9 @@ type firstLookRun struct {
 	reprobe func(context.Context)
 	gate    passGate
 	flight  recheckFlight
+	// startupDone closes when the startup pass ends; the review grade
+	// waits for it (review-01a). Nil: nobody waits.
+	startupDone chan struct{}
 }
 
 // startFirstLook runs the first look on the instance worker group.
@@ -121,6 +124,8 @@ func (rt *databaseRuntime) startFirstLook() {
 	}
 	run.tracker.Start(run.name, run.started)
 	rt.firstLook = run
+	run.startupDone = make(chan struct{})
+	rt.startReviewGrades(run.startupDone, run.started)
 	rt.start(func() {
 		run.runOnce(rt.ctx)
 		<-rt.ctx.Done()
@@ -168,6 +173,9 @@ func firstLookOptions(c *config.Config, operatorSet map[string]bool) firstlook.O
 
 func (f *firstLookRun) runOnce(ctx context.Context) {
 	report, ok := f.startupPass(ctx)
+	if f.startupDone != nil {
+		close(f.startupDone)
+	}
 	if !ok {
 		return
 	}
