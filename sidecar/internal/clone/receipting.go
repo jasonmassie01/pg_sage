@@ -20,8 +20,13 @@ type ReceiptingProvider struct {
 	store *ReceiptStore
 	cfg   ReceiptingConfig
 
-	mu   sync.Mutex
-	live map[string]int64 // clone id -> receipt id
+	backoff *CreateBackoff
+
+	mu      sync.Mutex
+	live    map[string]int64 // clone id -> receipt id
+	held    map[int64]bool   // receipts this process heartbeats
+	beating bool
+	beatErr error // the last heartbeat's error
 }
 
 // ReceiptingConfig says whose receipts a ReceiptingProvider writes.
@@ -35,6 +40,25 @@ type ReceiptingConfig struct {
 	// TTL is how long after Record a receipt expires; it must outlast the
 	// longest use of the clone, or a reaper may destroy it in use.
 	TTL time.Duration
+
+	// lab-05a. AllowFullCopy is clone.allow_full_copy: without it a
+	// full-copy (or undescribed) provider is asked for nothing.
+	AllowFullCopy bool
+	// MaxCreatesPerHour is clone.max_creates_per_hour, per deployment and
+	// all purposes; 0 is DefaultMaxCreatesPerHour.
+	MaxCreatesPerHour int
+	// Rate prices the source for the cost label; nil is unpriced.
+	Rate *Rate
+	// Holder is the holder id receipts name; "" is ProcessHolder().
+	Holder string
+	// Lifetime is the process's life: heartbeats stop when it ends. nil
+	// is context.Background().
+	Lifetime context.Context
+	// HeartbeatEvery is the heartbeat period; 0 is DefaultHeartbeatEvery.
+	HeartbeatEvery time.Duration
+	// Backoff is the provider's create backoff; nil is the process-wide
+	// one of Adapter and Scope (SharedCreateBackoff).
+	Backoff *CreateBackoff
 }
 
 // cleanupTimeout bounds a teardown or receipt update that runs on a fresh
@@ -56,23 +80,60 @@ func NewReceiptingProvider(inner Provider, store *ReceiptStore,
 		return nil, fmt.Errorf("receipting clone provider: unknown purpose %q", cfg.Purpose)
 	case cfg.TTL <= 0:
 		return nil, errors.New("receipting clone provider: TTL must be positive")
+	case cfg.MaxCreatesPerHour < 0 || cfg.HeartbeatEvery < 0:
+		return nil, errors.New("receipting clone provider: max creates per hour and " +
+			"heartbeat period must not be negative")
 	}
+	cfg = receiptingDefaults(cfg)
 	return &ReceiptingProvider{inner: inner, store: store, cfg: cfg,
-		live: map[string]int64{}}, nil
+		backoff: cfg.Backoff, live: map[string]int64{}, held: map[int64]bool{}}, nil
 }
 
-// Create records a creating receipt, asks the inner provider for the
-// clone, then marks the receipt ready with the clone's id.
+func receiptingDefaults(cfg ReceiptingConfig) ReceiptingConfig {
+	if cfg.MaxCreatesPerHour == 0 {
+		cfg.MaxCreatesPerHour = DefaultMaxCreatesPerHour
+	}
+	if cfg.Holder == "" {
+		cfg.Holder = ProcessHolder()
+	}
+	if cfg.Lifetime == nil {
+		cfg.Lifetime = context.Background()
+	}
+	if cfg.HeartbeatEvery == 0 {
+		cfg.HeartbeatEvery = DefaultHeartbeatEvery
+	}
+	if cfg.Backoff == nil {
+		cfg.Backoff = SharedCreateBackoff(cfg.Adapter, cfg.Scope)
+	}
+	return cfg
+}
+
+// Create checks the provider's kind against the opt-in and its backoff,
+// records a creating receipt with the cost label and this holder, asks the
+// inner provider for the clone under the receipt's resource name, then
+// marks the receipt ready with the clone's id.
 func (p *ReceiptingProvider) Create(ctx context.Context, spec CloneSpec) (Clone, error) {
-	receipt, err := p.record(ctx)
+	capability, err := CheckOptIn(ctx, p.inner, p.cfg.AllowFullCopy)
 	if err != nil {
 		return Clone{}, err
 	}
-	created, err := p.inner.Create(ctx, spec)
+	if err := p.backoff.Allow(); err != nil {
+		return Clone{}, err
+	}
+	receipt, err := p.record(ctx, capability.Estimate(p.cfg.TTL, p.cfg.Rate))
 	if err != nil {
+		return Clone{}, err
+	}
+	p.hold(receipt.ID)
+	spec.ResourceName = ResourceName(receipt)
+	created, err := p.inner.Create(ctx, spec)
+	p.backoff.Observe(err)
+	if err != nil {
+		p.release(receipt.ID)
 		return Clone{}, p.createFailed(receipt, err)
 	}
 	if _, err := p.store.MarkReady(ctx, receipt.ID, created.ID); err != nil {
+		p.release(receipt.ID)
 		return Clone{}, p.unrecorded(receipt, created, err)
 	}
 	p.mu.Lock()
@@ -81,7 +142,7 @@ func (p *ReceiptingProvider) Create(ctx context.Context, spec CloneSpec) (Clone,
 	return created, nil
 }
 
-func (p *ReceiptingProvider) record(ctx context.Context) (Receipt, error) {
+func (p *ReceiptingProvider) record(ctx context.Context, estimate Cost) (Receipt, error) {
 	if p.store == nil || p.store.pool == nil {
 		return Receipt{}, ErrNoReceiptStore
 	}
@@ -93,9 +154,13 @@ func (p *ReceiptingProvider) record(ctx context.Context) (Receipt, error) {
 	if err != nil {
 		return Receipt{}, err
 	}
-	receipt, err := p.store.Record(ctx, Receipt{DeploymentID: deployment,
+	receipt, err := p.store.RecordLimited(ctx, Receipt{DeploymentID: deployment,
 		Adapter: p.cfg.Adapter, Scope: p.cfg.Scope, Name: name, Purpose: p.cfg.Purpose,
-		ExpiresAt: time.Now().Add(p.cfg.TTL)})
+		ExpiresAt: time.Now().Add(p.cfg.TTL), HolderID: p.cfg.Holder, Estimate: &estimate},
+		p.cfg.MaxCreatesPerHour)
+	if errors.Is(err, ErrCreateRateLimited) {
+		return Receipt{}, err
+	}
 	if err != nil {
 		return Receipt{}, fmt.Errorf("%w: no clone is created without one: %w",
 			ErrNoReceiptStore, err)
@@ -151,6 +216,7 @@ func (p *ReceiptingProvider) Destroy(ctx context.Context, target Clone) error {
 	p.mu.Lock()
 	id, ok := p.live[target.ID]
 	delete(p.live, target.ID)
+	delete(p.held, id)
 	p.mu.Unlock()
 	if !ok {
 		return fmt.Errorf("%w: clone %q was not created by this provider", ErrReceiptNotFound,

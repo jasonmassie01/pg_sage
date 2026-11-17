@@ -231,6 +231,8 @@ const (
 	DefaultCloneMaxAgeMinutes     = 1440
 	// DefaultCloneRehearsalsPerHour is clone.rehearsals_per_hour (lab-04a).
 	DefaultCloneRehearsalsPerHour = 2
+	// DefaultCloneMaxCreatesPerHour is clone.max_creates_per_hour (lab-05a).
+	DefaultCloneMaxCreatesPerHour = 4
 	// DefaultCloneRehearsalStatementTimeoutSeconds is
 	// clone.rehearsal_statement_timeout_seconds (lab-04a).
 	DefaultCloneRehearsalStatementTimeoutSeconds = 5

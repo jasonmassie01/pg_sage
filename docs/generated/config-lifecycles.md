@@ -134,6 +134,7 @@
 | `briefing.slack_webhook_url` | `reconfigure` | `briefing` | `safety_critical` |
 | `budgets` | `restart` | `-` | `safety_critical` |
 | `checks` | `restart` | `-` | `safety_critical` |
+| `clone.allow_full_copy` | `restart` | `-` | `safety_critical` |
 | `clone.dle_endpoint` | `restart` | `-` | `safety_critical` |
 | `clone.dle_token` | `restart` | `-` | `safety_critical` |
 | `clone.lakebase.endpoint_max_cu` | `restart` | `-` | `operator_preference` |
@@ -141,6 +142,7 @@
 | `clone.lakebase.source_branch` | `restart` | `-` | `safety_critical` |
 | `clone.lakebase.ttl_minutes` | `restart` | `-` | `operator_preference` |
 | `clone.max_clone_age_minutes` | `restart` | `-` | `operator_preference` |
+| `clone.max_creates_per_hour` | `restart` | `-` | `operator_preference` |
 | `clone.provider` | `restart` | `-` | `safety_critical` |
 | `clone.rehearsal_statement_timeout_seconds` | `restart` | `-` | `operator_preference` |
 | `clone.rehearsals_per_hour` | `restart` | `-` | `operator_preference` |

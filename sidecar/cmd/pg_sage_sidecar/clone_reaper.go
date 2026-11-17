@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -14,11 +15,13 @@ import (
 	"github.com/pg-sage/sidecar/internal/fleet"
 )
 
-// The rehearsal clone reaper (migration-07): a crash between a rehearsal's
+// The clone reaper (migration-07, lab-05a): a crash between a rehearsal's
 // create and destroy leaves a ready receipt, and once it expires the
-// reaper destroys its clone. It runs at startup and every 10 minutes, on
-// the fleet leader only, and acts only on rehearsal receipts of its own
-// adapter, scope and deployment.
+// reaper destroys its clone; a clone whose holder process stopped
+// heartbeating (a killed sidecar) is destroyed before its TTL, whatever
+// its purpose. It runs at startup and every 10 minutes, on the fleet
+// leader only, and acts only on receipts of its own adapter, scope and
+// deployment.
 
 const cloneReapInterval = 10 * time.Minute
 
@@ -31,6 +34,9 @@ func startCloneReaper(ctx context.Context, c *config.Config, mgr *fleet.Database
 	meta *metaDBState) {
 	if c == nil {
 		return
+	}
+	for _, w := range c.Clone.Warnings() {
+		logWarn("clone", "%s", w)
 	}
 	adapter, err := configuredMCPCloneProvider(c.Clone)
 	if err != nil {
@@ -104,18 +110,25 @@ func reapRehearsalClones(ctx context.Context, cloneCfg config.CloneProviderConfi
 	report, err := clone.Reaper{Store: clone.NewReceiptStore(pool), Provider: adapter,
 		Scope: clone.ReceiptScope{DeploymentID: deployment, Adapter: cloneCfg.Provider,
 			Scope: cloneReceiptScope(cloneCfg)},
-		Purpose: clone.PurposeRehearsal}.Reap(ctx)
+		Purpose: clone.PurposeRehearsal, Holder: clone.ProcessHolder()}.Reap(ctx)
 	if err != nil {
 		logWarn("clone", "rehearsal clone reaper: %v", err)
 		return report
 	}
 	for _, r := range report.Destroyed {
-		logInfo("clone", "destroyed expired rehearsal clone %s (receipt %d, %s)",
-			r.ProviderRef(), r.ID, r.Name)
+		logInfo("clone", "destroyed left-behind %s clone %s (receipt %d, %s, holder %q)",
+			r.Purpose, r.ProviderRef(), r.ID, r.Name, r.HolderID)
 	}
 	for id, ferr := range report.Failed {
-		logWarn("clone", "expired rehearsal clone of receipt %d not destroyed, retried "+
-			"in %s: %v", id, cloneReapInterval, ferr)
+		logWarn("clone", "left-behind clone of receipt %d not destroyed, retried in %s: %v",
+			id, cloneReapInterval, ferr)
+	}
+	for id, ferr := range report.FindFailed {
+		if _, seen := cloneReapUnresolved.LoadOrStore(fmt.Sprintf("%s/find/%d", deployment,
+			id), struct{}{}); !seen {
+			logWarn("clone", "clone receipt %d not resolved by name, retried in %s: %v", id,
+				cloneReapInterval, ferr)
+		}
 	}
 	for _, r := range report.Unresolved {
 		key := deployment + "/" + r.Name

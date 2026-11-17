@@ -83,8 +83,17 @@ func rehearsalReceiptPool(target *pgxpool.Pool) *pgxpool.Pool {
 
 // receiptingRehearsalProvider wraps adapter so every rehearsal clone is
 // receipted in receiptPool; a nil pool creates no clone (no_receipt_store).
+// Every receipt names this process as its holder and carries the clone's
+// cost label, unpriced (lab-05a).
 func receiptingRehearsalProvider(adapter clonepkg.Provider, receiptPool *pgxpool.Pool,
 	cloneConfig config.CloneProviderConfig) (clonepkg.Provider, error) {
+	return pricedRehearsalProvider(adapter, receiptPool, cloneConfig, nil)
+}
+
+// pricedRehearsalProvider is receiptingRehearsalProvider whose cost
+// labels are priced by rate (nil: unpriced).
+func pricedRehearsalProvider(adapter clonepkg.Provider, receiptPool *pgxpool.Pool,
+	cloneConfig config.CloneProviderConfig, rate *clonepkg.Rate) (clonepkg.Provider, error) {
 	return clonepkg.NewReceiptingProvider(adapter, clonepkg.NewReceiptStore(receiptPool),
 		clonepkg.ReceiptingConfig{
 			Adapter: cloneConfig.Provider, Scope: cloneReceiptScope(cloneConfig),
@@ -92,7 +101,25 @@ func receiptingRehearsalProvider(adapter clonepkg.Provider, receiptPool *pgxpool
 				return earned.EnsureDeployment(ctx, receiptPool)
 			},
 			Purpose: clonepkg.PurposeRehearsal, TTL: rehearsalReceiptTTL,
+			AllowFullCopy: cloneConfig.AllowFullCopy, Rate: rate,
+			MaxCreatesPerHour: cloneConfig.MaxCreatesPerHour,
+			Holder:            clonepkg.ProcessHolder(),
 		})
+}
+
+// cloneRateFor is the cost.rates entry pricing database's compute, as a
+// clone cost rate; nil (unpriced) when no entry names the database.
+func cloneRateFor(cost config.CostConfig, database string) *clonepkg.Rate {
+	if database == "" {
+		return nil
+	}
+	for _, r := range cost.Rates {
+		if r.Database == database && r.HasCompute() {
+			return &clonepkg.Rate{PerHour: r.ComputePerHourValue(), Currency: r.Currency,
+				AsOf: r.AsOf, Source: "database " + database}
+		}
+	}
+	return nil
 }
 
 func configuredMCPMigrationRuntime(
