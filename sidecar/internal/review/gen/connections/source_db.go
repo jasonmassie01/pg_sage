@@ -34,14 +34,19 @@ func arrayOf(member string) string {
 }
 
 // samplesSQL reads the newest $3 documents' groups and app ages, oldest
-// first, with the window's document count.
-var samplesSQL = `/* pg_sage review:connections */ ` + windowCTE + `
-SELECT x.at, x.n, x.groups, x.ages, x.truncated FROM (
-    SELECT w.at, count(*) OVER () AS n, COALESCE(w.d->'groups', '[]')::text AS groups,
-           (w.d->'app_ages')::text AS ages,
-           COALESCE((w.d->>'app_ages_truncated')::bool, false) AS truncated
-      FROM w ORDER BY w.at DESC LIMIT $3) x
- ORDER BY x.at`
+// first, with the window's document count. The newest rows are picked
+// before any document is decoded, so a long window decodes only $3.
+var samplesSQL = `/* pg_sage review:connections */ WITH k AS (
+    SELECT s.collected_at, s.data, s.base_id, count(*) OVER () AS n
+      FROM sage.snapshots s
+     WHERE {db:s} AND s.category = 'workload_sessions' AND s.collected_at >= $1
+       AND s.collected_at < $2 AND ` + snapstore.NonEmptySQL("s") + `
+     ORDER BY s.collected_at DESC LIMIT $3),
+w AS MATERIALIZED (SELECT k.collected_at AS at, k.n, ` + snapstore.DataSQL("k") + ` AS d
+                     FROM k)
+SELECT w.at, w.n, COALESCE(w.d->'groups', '[]')::text, (w.d->'app_ages')::text,
+       COALESCE((w.d->>'app_ages_truncated')::bool, false)
+  FROM w ORDER BY w.at`
 
 // windowSQL reads, in one pass, each role's cluster peak (kind r), its
 // longest idle in transaction (kind i) and each application state's mean
