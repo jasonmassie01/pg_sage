@@ -14,7 +14,9 @@ const entry = { database: 'app', report: { database: 'app', duration_ms: 5, rela
 
 function respond(grade) {
   api.useAPI.mockImplementation(url => {
-    if (url === null) return { data: null, loading: false, error: null, refetch: vi.fn() }
+    if (typeof url !== 'string') {
+      return { data: null, loading: false, error: null, refetch: vi.fn() }
+    }
     if (url.includes('/review/grade')) {
       return { data: grade, loading: false, error: null, refetch: vi.fn() }
     }
