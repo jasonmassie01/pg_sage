@@ -285,6 +285,9 @@ describe('PolicySets', () => {
       .toHaveTextContent('Version 3')
     expect(screen.queryByTestId('policy-exception-diff')).toBeNull()
     expect(screen.getByTestId('policy-exception-same')).toHaveTextContent(/no difference/i)
+    // The editor held version 2's document; it closes rather than refile it.
+    expect(within(setCard('prod')).queryByTestId('policy-propose')).toBeNull()
+    expect(screen.getByTestId('policy-sets-ratified')).toHaveTextContent('prod is now version 3')
   })
 
   it('shows the server message when ratification is refused', async () => {

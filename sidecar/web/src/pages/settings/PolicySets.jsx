@@ -80,6 +80,12 @@ function SetCard({ set, user, onMembers, onRatified }) {
   const [proposing, setProposing] = useState(false)
   const role = user?.role
   const canPropose = role === 'admin' || role === 'operator'
+  // A ratified proposal closes the editor: its document and expected
+  // version are the old ones, so filing again would only conflict.
+  const ratified = (name, version) => {
+    setProposing(false)
+    onRatified(name, version)
+  }
   return (
     <li data-testid="policy-set" data-set={set.name} className="space-y-1 rounded p-3"
       style={card}>
@@ -98,7 +104,7 @@ function SetCard({ set, user, onMembers, onRatified }) {
           {proposing ? 'Close' : 'Propose change'}</button> : null}
       </div>
       {proposing ? <ProposeSetChange set={set} isAdmin={role === 'admin'}
-        onRatified={onRatified} /> : null}
+        onRatified={ratified} /> : null}
     </li>
   )
 }
