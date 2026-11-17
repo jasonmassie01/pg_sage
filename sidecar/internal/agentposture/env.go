@@ -2,8 +2,14 @@ package agentposture
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/pg-sage/sidecar/internal/catalogread"
 )
 
 // PublicOID stands for PUBLIC in role lists, as in aclexplode's grantee.
@@ -58,6 +64,10 @@ type Env struct {
 	Missing []string
 	// Agents is the registered agent roles, then the client-hint roles.
 	Agents []Role
+	// SessionsErr is why the session list could not be read (pg_sage's
+	// role may not read pg_stat_activity); nil when it was read. The
+	// detectors that need it (Spec.ReadsSessions) do not complete then.
+	SessionsErr error
 	// PrincipalsExist is true once any registered agent role exists; some
 	// detectors raise their severity then (AP-13, AP-16).
 	PrincipalsExist bool
@@ -165,7 +175,7 @@ func ResolveEnv(ctx context.Context, q Querier, cfg Config) (Env, error) {
 	if err := resolveVia(ctx, q, &env); err != nil {
 		return Env{}, err
 	}
-	if err := resolveHints(ctx, q, cfg, &env); err != nil {
+	if err := resolveHintsSaved(ctx, q, cfg, &env); err != nil {
 		return Env{}, err
 	}
 	env.PrincipalsExist = len(env.RegisteredAgents()) > 0
@@ -232,6 +242,28 @@ func exposedRoles(configured []string, found map[string]namedRole,
 		add("authenticated", SourceSupabase)
 	}
 	return out
+}
+
+// resolveHintsSaved runs resolveHints under a savepoint when q is a
+// transaction. When pg_sage's role may not read pg_stat_activity, it
+// records the denial in env.SessionsErr instead of failing the run: the
+// catalog detectors still run, and those that need the sessions fail.
+func resolveHintsSaved(ctx context.Context, q Querier, cfg Config, env *Env) error {
+	tx, ok := q.(pgx.Tx)
+	if !ok {
+		return resolveHints(ctx, q, cfg, env)
+	}
+	agents := len(env.Agents)
+	err := catalogread.InSavepoint(ctx, tx, func(sp pgx.Tx) error {
+		return resolveHints(ctx, sp, cfg, env)
+	})
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "42501" {
+		env.Agents = env.Agents[:agents]
+		env.SessionsErr = err
+		return nil
+	}
+	return err
 }
 
 // resolveHints adds the roles seen with an agent-like application_name

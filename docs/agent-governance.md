@@ -448,6 +448,29 @@ its evaluation order and every verdict and reason it records.
     row limit isn't complete: see [Large catalogs](#large-catalogs).
   - The fix script is stored as `detail.manual_script`, with `detail.proposal_level = L1`.
   - The finding has no `recommended_sql`, so the executor never acts on it.
+- **Exposure sweep.** Between analyzer cycles, pg_sage reads the same catalog hash every
+  `agents.exposure.sweep_seconds` (default 60). When it changed, or the database was just
+  enrolled, the exposure detectors run at once: AP-01 to AP-05, AP-15 and AP-17. A table an
+  agent creates for `anon` without row-level security is then a finding within about a
+  minute, not at the next analyzer cycle (600 s by default).
+  - The sweep and the analyzer's posture run share one lock and one record of what ran on
+    which catalog: they never run together, and the next cycle doesn't repeat the sweep's
+    detectors on the same catalog. The daily run still runs every detector.
+  - Sweep findings take the analyzer's own path: the same identity, notifications,
+    suppressions and resolution. A sweep resolves only its own detectors' findings.
+    Confirmed facts, clone-schema families and disabled rules shape them as in a cycle.
+    Before the collector's first snapshot the sweep waits: the first cycle runs every
+    detector.
+  - The hash covers the catalog, not sessions. An agent that connects as an owner on an
+    unchanged catalog is reported by AP-17 at the next catalog change or the daily run.
+  - An unchanged catalog costs one hash query per sweep. Each sweep logs how many findings
+    it reported.
+  - Exposure findings (AP-03, AP-04, AP-05, AP-15, AP-17) carry `detail.mode = shadow`:
+    nothing acts on them yet. AP-03 and AP-15 also name the action that would close them
+    (`detail.would_be_action`: `enable_row_level_security` or `revoke_public_grant`).
+  - pg_sage reads SQL only. Whether the database is reachable from the network, and who
+    holds its keys or connection strings, can't be seen from there: `detail.not_visible`
+    says so on every exposure finding.
 
 Every posture statement carries the `/* pg_sage first_look */ /* agent_posture AP-NN */` tag,
 so its cost shows in `pg_stat_statements` and in pg_sage's performance gate.
@@ -514,13 +537,14 @@ pg_sage's own role is never counted as an agent.
 | AP-14 | pg_sage's own role is a superuser, holds `BYPASSRLS`, or has the privileges of an agent role | warning | `ALTER ROLE … NOBYPASSRLS`; `REVOKE <agent> FROM …` (PostgreSQL 14/15) or `REVOKE INHERIT OPTION FOR <agent> FROM …` (16+); a dedicated non-superuser role |
 | AP-15 | The `PUBLIC` baseline: tables, views and foreign tables granted to `PUBLIC` (one finding per schema), and default privileges that grant `PUBLIC` on new tables or sequences. Extension-owned objects are skipped | warning | `REVOKE ALL ON TABLE … FROM PUBLIC`; `ALTER DEFAULT PRIVILEGES FOR ROLE … REVOKE ALL ON TABLES FROM PUBLIC` |
 | AP-16 | Once any registered agent role exists, a login role seen with an agent-like `application_name` that isn't one (an agent outside agent governance) | warning | `ALTER ROLE … NOLOGIN` after the agent moves to its own credentials |
+| AP-17 | A session with an agent-like `application_name` connected as a role that owns tables or views in a user schema, holds `BYPASSRLS` or superuser, or is Supabase's `service_role`. Registered agent roles are left to AP-01 and AP-02 | critical; warning on a database verified as not production | `CREATE ROLE <role>_agent LOGIN NOINHERIT NOBYPASSRLS`, then move the agent to it |
 
 AP-03 and AP-06 skip tables and views an extension owns (pg_hint_plan's `hint_plan.hints`,
 for example): those grants come from the extension, not from you.
 AP-08 skips pg_sage's own role, reserved `pg_` roles and managed-service admin logins
 (`rdsadmin`, `cloudsqladmin`, `azure_superuser`, `alloydbadmin` and similar).
 
-Notes on AP-09 to AP-16:
+Notes on AP-09 to AP-17:
 - **AP-10.** The pgvector fix releases come from pg_sage's research of pgvector's changelog;
   no CVE id is cited because none is verified. End-of-life dates are from the PostgreSQL
   versioning policy (PostgreSQL 14: 2026-11-12). A major older than 13 counts as past end of
@@ -538,6 +562,13 @@ Notes on AP-09 to AP-16:
 - **AP-13** needs `pg_read_all_stats` (part of `pg_monitor`) to see other roles' client
   addresses. Without it, clients are counted by `application_name` only, and the finding's
   caveat says so.
+- **AP-17** names the role and the `application_name`, never the query text. It reads
+  sessions, so it sees an agent while it is connected: it runs with the other exposure
+  detectors on a catalog change, on enrollment and daily. Every database counts as
+  production for its severity until its environment is verified otherwise.
+- **Sessions unreadable.** When pg_sage's role may not read `pg_stat_activity`, the
+  detectors that need sessions or client hints (AP-01, AP-02, AP-08, AP-11, AP-13, AP-16,
+  AP-17) don't complete: their open findings stay open, and the other detectors still run.
 - **AP-14.** pg_sage also warns once at startup when it connects as a superuser: agent governance
   features need a non-superuser role. Posture still runs. Inheritance is read with
   `pg_has_role` on every version; the arms decide the fix (PostgreSQL 14/15 inherit per role,
@@ -551,7 +582,7 @@ PostgreSQL 15+".
 ### Large catalogs
 
 **Row limits.** Each catalog read is bounded: AP-01 to AP-08 read at most 50,000 rows, AP-09
-to AP-16 at most 5,000. A read that reaches its limit is *truncated*:
+to AP-17 at most 5,000. A read that reaches its limit is *truncated*:
 - the check's note says so, for example "relations: first 50,000 rows read, later rows not
   checked";
 - the analyzer logs a warning naming the detector;
@@ -583,6 +614,8 @@ agents:
   posture:
     memory_growth_gb_day: 5  # agent memory-store growth reported (AP-12)
     daily_at: "03:00"        # local HH:MM of the daily posture run
+  exposure:
+    sweep_seconds: 60        # seconds between exposure sweeps, 15-600
 ```
 
 | Key | Class | Notes |
@@ -591,6 +624,7 @@ agents:
 | `agents.client_patterns` | operator_preference | Each pattern must start with `^` |
 | `agents.posture.memory_growth_gb_day` | operator_preference | Greater than 0 |
 | `agents.posture.daily_at` | operator_preference | `H:MM` or `HH:MM`, 24-hour |
+| `agents.exposure.sweep_seconds` | operator_preference | 15 to 600; default 60 |
 
 The keys take effect on restart. The analyzer's posture run reads them each time it runs.
 

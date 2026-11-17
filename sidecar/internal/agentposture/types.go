@@ -140,6 +140,11 @@ type Spec struct {
 	Title    string
 	Severity Severity
 	Arms     []Arm
+	// ReadsSessions marks a detector that needs the session list:
+	// pg_stat_activity or the client-hint agent roles read from it. When
+	// that list is unreadable (Env.SessionsErr), the detector does not
+	// complete, so its open findings stay open.
+	ReadsSessions bool
 }
 
 // Detector is one posture check.

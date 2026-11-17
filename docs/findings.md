@@ -1489,7 +1489,7 @@ and config keys are in the [generated catalog](generated/finding-catalog.md).
 | <a id="upgrade_readiness"></a>`upgrade_readiness` | Upgrade readiness | A major-version upgrade check (U1-U7) that does not pass; see [Upgrade Readiness](#upgrade-readiness). |
 | <a id="test_fixture_cleanup"></a>`test_fixture_cleanup` | Facts | A confirmed test-fixture fact's cleanup batch for an operator to review. pg_sage never drops a schema itself. |
 | <a id="schema_lint"></a>`schema_lint` | Schema lint | `schema_lint:<rule id>`: a schema lint rule's finding. |
-| <a id="agent_posture"></a>`agent_posture` | Agent posture | `agent_posture:<detector>`: an agent posture detector's finding. |
+| <a id="agent_posture"></a>`agent_posture` | Agent posture | `agent_posture:<detector>`: an agent posture detector's finding (AP-01 to AP-17; AP-17 is an agent-like session connected as an owner or service role). The exposure detectors also run in a sweep between cycles; see [Agent governance](agent-governance.md#where-you-see-it). |
 | <a id="agent_environment_binding"></a>`agent_environment_binding` | Agent guard | An agent connected to a database outside its bound environment. |
 | <a id="agent_role_drift"></a>`agent_role_drift` | Agent guard | An agent role whose access differs from what governance recorded. |
 | <a id="agent_backend_violation"></a>`agent_backend_violation` | Agent guard | A connected agent role that breaks the agent role rules. |
