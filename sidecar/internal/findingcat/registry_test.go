@@ -126,6 +126,15 @@ var retired = map[string]string{
 	"forecast_sequence_exhaustion": "schema/sequence_forecast_retire_migration.go",
 }
 
+// notFindings are category strings a producer sends in an alert that is
+// never stored as a finding, so no findings source shows them and they
+// have no registry entry.
+var notFindings = map[string]string{
+	// ux-04a: pg_sage doctor --send-test sends one synthetic alert straight
+	// to the channels to show they work.
+	"test": "doctor_cmd_output.go",
+}
+
 var (
 	categoryLiteral  = regexp.MustCompile(`Category:\s*"([a-z0-9_]+)"`)
 	categoryConstant = regexp.MustCompile(
@@ -200,6 +209,9 @@ func TestEveryEmittedCategoryIsRegistered(t *testing.T) {
 	}
 	for name, path := range found {
 		if _, ok := retired[name]; ok {
+			continue
+		}
+		if file, ok := notFindings[name]; ok && filepath.Base(path) == file {
 			continue
 		}
 		c, ok := Lookup(name)
