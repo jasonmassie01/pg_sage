@@ -119,6 +119,9 @@ the document comes from a set, `set` names the set.
   failed read never falls back to a wider document.
 - A tie between two sets at the same priority on one database is `policy_unavailable` for
   that database.
+- A database whose highest-priority set has no document yet is `policy_unavailable`; a
+  lower-priority set's document never stands in for it. The sidecar gives every set a
+  document when it starts, and a set saved through the API gets one at once.
 - Resolution reads the sets, the database's own document and its exception in one
   read-only, repeatable-read transaction, so a set change lands for a decision whole or not
   at all.

@@ -190,17 +190,17 @@ func MatchSet(sets []PolicySet, m Member) (PolicySet, bool, error) {
 
 // Resolve picks the document in force for member: its own document while
 // its exception holds (expires_at after now), else the matching set's.
-// Sets without a document are skipped; nothing to resolve is ErrNotFound.
+// Nothing to resolve is ErrNotFound, and so is a matching set without a
+// document yet: a lower-priority set's document, which may be wider than
+// the one the operator chose for this database, never stands in for it.
 func Resolve(
 	sets []SetDocument, member Member, own *Policy, exc *Exception, now time.Time,
 ) (Resolution, error) {
 	byName := make(map[string]*Policy, len(sets))
 	candidates := make([]PolicySet, 0, len(sets))
 	for _, s := range sets {
-		if s.Policy != nil {
-			byName[s.Set.Name] = s.Policy
-			candidates = append(candidates, s.Set)
-		}
+		byName[s.Set.Name] = s.Policy
+		candidates = append(candidates, s.Set)
 	}
 	set, ok, err := MatchSet(candidates, member)
 	if err != nil {
@@ -218,6 +218,10 @@ func Resolve(
 	}
 	if !ok {
 		return Resolution{}, ErrNotFound
+	}
+	if byName[set.Name] == nil {
+		return Resolution{}, fmt.Errorf("%w: policy set %q has no document yet; the "+
+			"sidecar gives every set one when it starts", ErrNotFound, set.Name)
 	}
 	// The set's row, under the database's scope: a proposal on this scope
 	// becomes the database's own document (an exception), never the set's.

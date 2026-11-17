@@ -334,3 +334,25 @@ func TestDecodeMemberTags_ObjectListAndInvalid(t *testing.T) {
 		t.Fatal("a non-string tag value decoded; resolution must fail closed on it")
 	}
 }
+
+// A database whose highest-priority set has no document yet resolves to
+// nothing (the gate's policy_unavailable), never to a lower-priority set's
+// document, which may be wider than the one chosen for it (review fix).
+func TestResolve_MatchedSetWithoutDocumentFailsClosed(t *testing.T) {
+	now := time.Now()
+	sets := []SetDocument{testSetDoc(defaultSet(), 10, 3, docA), {Set: prodSet()}}
+	prod := Member{DatabaseID: 5, Tags: map[string]string{"tier": "prod"}}
+	got, err := Resolve(sets, prod, nil, nil, now)
+	if !errors.Is(err, ErrNotFound) || got.Policy.ID != 0 {
+		t.Fatalf("prod without a document resolved to %+v, %v; want ErrNotFound", got, err)
+	}
+	dev := Member{DatabaseID: 6, Tags: map[string]string{"tier": "dev"}}
+	if got, err := Resolve(sets, dev, nil, nil, now); err != nil || got.Policy.ID != 10 {
+		t.Fatalf("a dev member resolved to %+v, %v; want default's 10", got, err)
+	}
+	own := &Policy{ID: 40, Version: 1, Document: json.RawMessage(docB)}
+	got, err = Resolve(sets, prod, own, nil, now)
+	if err != nil || got.Policy.ID != 40 || got.Exception == nil {
+		t.Fatalf("an exception over a set without a document = %+v, %v", got, err)
+	}
+}
