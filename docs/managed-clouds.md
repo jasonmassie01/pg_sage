@@ -1005,6 +1005,38 @@ A failed or errored drill opens the critical finding
 alerts and resolves on the next pass. A drill held back by the create limit or the provider's
 backoff is retried on the next pass and records nothing.
 
+### Recoverability: the panel, the API and `restore_drills`
+
+Each database is in one status: `passed` (its newest passed drill finished at most 35 days
+ago; a pass exactly 35 days old counts), `failed` (no pass in the window and the newest drill
+failed), `stale` (the newest drill passed, more than 35 days ago), `never_drilled` (a provider
+can drill it, no drill has run) or `unknown` (no drill can run: `clone.provider` is none or no
+kind is allowed, as `recoverability_unknown` says, or the history could not be read). A failed
+drill after a pass in the window does not reset the pass, as D7 reads it; the panel still shows
+the failure.
+
+- The Database page's **Recoverability** panel shows the last drill (when, pass or fail, kind
+  and provider), RPO and RTO in plain units (`RPO unknown` with the reason when no marker
+  exists), whether backups survive a delete of the database (the [backup
+  isolation](#what-the-telemetry-is-used-for) evidence, unknown without a cloud source), the cost label of
+  the next full-copy drill, and, when unknown, what to configure and grant. The fleet overview
+  shows one line: "7 of 9 databases passed a restore drill in the last 35 days".
+- `GET /api/v1/databases/{db}/restore-drills?limit=20` (viewer and up) is that database's
+  newest drills, newest first (`limit` 1 to 100, default 20; anything else is `400`), with
+  `status`, `reason`, `advice`, `latest`, `last_pass`, `isolation` and
+  `next_full_copy_cost_label`. An unknown database, or one your grants do not cover, is `404`;
+  one not connected is `503`; an unreadable history is `500` naming the database.
+- `GET /api/v1/fleet/recoverability` (viewer and up) counts the databases you may read by
+  status, with `median_rto_seconds` over the passed databases' newest passes. A database
+  that could not be read counts as `unknown` and is named in `errors`; it never counts as
+  passed.
+- The MCP tool [`restore_drills`](mcp.md#restore_drills) answers the same count, with each
+  database's newest drill and newest pass, for the databases the token may read (or the one
+  named). It only reads; no API route or tool starts a drill.
+
+Drill rows are read where the drill pass records them: the governance control database when
+one is set (meta mode, or `agents.control_database`), else the database's own `sage` schema.
+
 ## Live check (owner-run, never in CI)
 
 CI uses httptest fakes only. To check against a real, disposable instance (read-only calls):
