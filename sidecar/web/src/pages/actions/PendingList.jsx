@@ -59,12 +59,18 @@ function ActionMessage({ msg }) {
 // QueueFocusMissing says a linked approval request (queue=<id>) is not
 // among the waiting ones: it was decided or expired after the link was
 // made (ux-05b), so the list is not silently shown as if it were focused.
-function QueueFocusMissing({ id, actions }) {
+// When a database could not be read (errors), the request may still wait
+// there, so the notice does not claim it was decided.
+function QueueFocusMissing({ id, actions, errors }) {
   if (!id || actions.some(action => String(action.id) === id)) return null
+  const partial = Array.isArray(errors) && errors.length > 0
   return <p role="status" data-testid="approval-queue-missing" className="text-sm"
     style={{ color: 'var(--yellow)' }}>
-    Approval request #{id} is no longer waiting for review: it was decided or expired.
-    History lists what was run.
+    {partial
+      ? `Approval request #${id} is not in this list: it was decided or expired, or its `
+        + 'database could not be read.'
+      : `Approval request #${id} is no longer waiting for review: it was decided or expired.`}
+    {' '}History lists what was run.
   </p>
 }
 
@@ -82,7 +88,8 @@ export function PendingList({ data, refetch, cards, cases, database, modeForData
     cards?.refetch?.()
     refetchPendingCount()
   }
-  const missing = <QueueFocusMissing id={queueFocus} actions={actions} />
+  const missing = <QueueFocusMissing id={queueFocus} actions={actions}
+    errors={data?.errors} />
   if (complete && view === 'cards') {
     return <>
       {missing}

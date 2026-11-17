@@ -24,6 +24,9 @@ const card = id => ({ queue_id: id, database: 'orders', title: `Card ${id}`,
   risk: { tier: 'safe', guardrails: [], post_checks: [] }, why_approval: [],
   expires_at: '2026-10-04T11:00:00Z', card_hash: `h${id}` })
 
+// pendingErrors are the databases the pending list could not read.
+let pendingErrors = []
+
 vi.mock('../hooks/useAPI', () => ({
   withTimeRange: path => path,
   useAPI: path => {
@@ -32,7 +35,8 @@ vi.mock('../hooks/useAPI', () => ({
       return ok({ cards: [card(41), card(42)], total: 2, errors: [] })
     }
     if (path?.includes('/api/v1/actions/pending')) {
-      return ok({ pending: [pendingRow(41), pendingRow(42)], total: 2 })
+      return ok({ pending: [pendingRow(41), pendingRow(42)], total: 2,
+        errors: pendingErrors })
     }
     return ok({ actions: [], total: 0 })
   },
@@ -46,6 +50,7 @@ function renderAt(hash) {
 }
 
 afterEach(() => {
+  pendingErrors = []
   window.location.hash = ''
   scrolled.mockReset()
   delete Element.prototype.scrollIntoView
@@ -72,6 +77,18 @@ describe('Actions exact links', () => {
       'Approval request #77 is no longer waiting for review')
     expect(screen.getByTestId('approval-cards')).toHaveTextContent('Card 41')
     expect(screen.getByTestId('approval-cards')).toHaveTextContent('Card 42')
+  })
+
+  // A database the list could not read may hold the request, so the notice
+  // must not claim it was decided.
+  it('does not claim a decision when a database could not be read', () => {
+    pendingErrors = [{ database: 'orders', error: 'timeout' }]
+    renderAt('#/actions?tab=pending&queue=77&database=orders')
+    const notice = screen.getByTestId('approval-queue-missing')
+    expect(notice).toHaveTextContent(
+      'Approval request #77 is not in this list: it was decided or expired, or its')
+    expect(notice).toHaveTextContent('database could not be read')
+    expect(notice).not.toHaveTextContent('no longer waiting')
   })
 
   it('shows no missing notice when the linked card is listed', () => {
