@@ -41,7 +41,7 @@ type Result struct {
 	RequestedAt   time.Time   `json:"requested_at"`
 	ReadyAt       *time.Time  `json:"ready_at,omitempty"`
 	FinishedAt    time.Time   `json:"finished_at"`
-	RecoveryPoint time.Time   `json:"recovery_point,omitempty"`
+	RecoveryPoint time.Time   `json:"recovery_point,omitzero"`
 	RTOSeconds    *float64    `json:"rto_seconds,omitempty"`
 	RPOSeconds    *float64    `json:"rpo_seconds,omitempty"`
 	RPOReason     string      `json:"rpo_reason,omitempty"`

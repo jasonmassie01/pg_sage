@@ -561,6 +561,7 @@ application's database driver (most ORMs have a plugin) for reliable attribution
 | [`get_inbox`](#get_inbox) | `read` | always |
 | [`get_workload_pack`](#get_workload_pack) | `read` | always |
 | [`get_outcomes`](#get_outcomes) | `read` | always |
+| [`restore_drills`](#restore_drills) | `read` | always |
 
 ### `get_policy`
 
@@ -1311,5 +1312,15 @@ Scope: `read`
 | `limit` | integer | no | rows returned (default 500); the summary covers the window; value 1-10000 |
 | `since` | string | no | window as a duration from 1s to 9600h (default 24h), such as 24h or 168h |
 | `verdict` | string | no | one of `pending`, `improved`, `no_change`, `regressed`, `inconclusive`, `unverifiable`, `expired` |
+
+### `restore_drills`
+
+Say whether each database can be restored: its newest restore drill (when, passed or failed, measured RPO and RTO, each invariant's evidence), its newest pass, and a status of passed (a pass in the last 35 days), failed, stale, never_drilled or unknown (no drill can run; advice says what to configure), plus the count and median RTO. Read-only: it never starts a drill. Without database it reads every database you may read.
+
+Scope: `read`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `database` | string | no | Monitored database name (see list_databases); without it, every database you may read. |
 
 <!-- END GENERATED MCP TOOL REFERENCE -->
