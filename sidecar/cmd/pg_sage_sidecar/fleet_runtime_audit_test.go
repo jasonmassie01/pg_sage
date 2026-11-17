@@ -125,6 +125,7 @@ func preserveFleetRuntimeGlobals(t *testing.T) {
 	oldRegistry, oldHealth := llmClients, llmHealth
 	llmClients, llmHealth = &llmClientRegistry{}, newLLMHealthMetrics()
 	t.Cleanup(func() {
+		stopBriefingRollup() // an init's roll-up loop must not outlive its test
 		llmClients, llmHealth = oldRegistry, oldHealth
 		cfg = oldCfg
 		fleetMgr = oldManager

@@ -157,28 +157,64 @@ func cycleBriefing(c *config.Config, w *briefing.Worker) *briefing.Worker {
 	return w
 }
 
+// briefingRollupLoop is the process's one fleet roll-up loop. A briefing
+// worker's schedule state (its last run) has one owner, so a new start
+// stops the running loop and waits for it to exit before it starts another.
+var briefingRollupLoop struct {
+	mu     sync.Mutex
+	cancel context.CancelFunc
+	done   chan struct{}
+}
+
 // startBriefingRollup runs the fleet roll-up on the orchestrator cadence
-// until shutdown, when the mode rolls briefings up.
+// until shutdown, when the mode rolls briefings up. It replaces a roll-up
+// loop already running (a meta or fleet init run again in one process).
 func startBriefingRollup() {
 	if !briefingRollup(cfg) {
 		return
 	}
-	ctx := shutdownCtx
-	if ctx == nil {
-		ctx = context.Background()
+	parent := shutdownCtx
+	if parent == nil {
+		parent = context.Background()
 	}
 	interval := orchestratorInterval(cfg)
-	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				briefing.RunRollup(ctx, briefingWorkers.workers(), time.Now())
-			}
-		}
-	}()
+	briefingRollupLoop.mu.Lock()
+	defer briefingRollupLoop.mu.Unlock()
+	stopBriefingRollupLocked()
+	ctx, cancel := context.WithCancel(parent)
+	done := make(chan struct{})
+	briefingRollupLoop.cancel, briefingRollupLoop.done = cancel, done
+	go runBriefingRollup(ctx, interval, done)
 	logInfo("briefing", "fleet roll-up on: one briefing message covers every database")
+}
+
+// runBriefingRollup is the roll-up loop; it closes done when it returns.
+func runBriefingRollup(ctx context.Context, interval time.Duration, done chan<- struct{}) {
+	defer close(done)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			briefing.RunRollup(ctx, briefingWorkers.workers(), time.Now())
+		}
+	}
+}
+
+// stopBriefingRollup stops the roll-up loop, if one runs, and waits for it.
+func stopBriefingRollup() {
+	briefingRollupLoop.mu.Lock()
+	defer briefingRollupLoop.mu.Unlock()
+	stopBriefingRollupLocked()
+}
+
+func stopBriefingRollupLocked() {
+	if briefingRollupLoop.cancel == nil {
+		return
+	}
+	briefingRollupLoop.cancel()
+	<-briefingRollupLoop.done
+	briefingRollupLoop.cancel, briefingRollupLoop.done = nil, nil
 }
