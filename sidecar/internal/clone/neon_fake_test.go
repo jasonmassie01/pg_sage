@@ -39,6 +39,9 @@ type neonFake struct {
 	uriQuery       string // query of every connection URI; "": Neon's
 	endpointHost   string // every new endpoint answers on this host
 	deleteStatus   int    // answer every delete with this status
+	// createThenStatus makes the branch, then answers the create with this
+	// status (a gateway error after Neon committed it).
+	createThenStatus int
 }
 
 type fakeNeonBranch struct {
@@ -195,6 +198,10 @@ func (f *neonFake) createBranch(w http.ResponseWriter, r *http.Request) {
 	e := fakeNeonEndpoint{ID: fmt.Sprintf("ep-fake-%d", f.n), Host: host, BranchID: b.ID,
 		Type: "read_write"}
 	f.branches[b.ID], f.endpoints[e.ID] = b, e
+	if f.createThenStatus != 0 {
+		neonError(w, f.createThenStatus, "upstream timed out")
+		return
+	}
 	ops := []*fakeNeonOp{
 		{ID: fmt.Sprintf("op-%d-a", f.n), Action: "create_branch", Status: "running",
 			BranchID: b.ID},

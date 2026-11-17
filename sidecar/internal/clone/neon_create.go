@@ -15,6 +15,8 @@ import (
 // production's role with sslmode=require. A failure after the branch
 // exists deletes it before the error returns; a wait cut short leaves it
 // to the reaper, which finds it by name (the receipt is create_uncertain).
+// A reply lost in transport or a 5xx is followed by a lookup by name, and
+// a branch found is deleted.
 // The clone id is the branch id.
 func (p *NeonBranchProvider) Create(ctx context.Context, spec CloneSpec) (Clone, error) {
 	if err := p.available(); err != nil {
@@ -117,9 +119,11 @@ func (r *neonCreate) create(ctx context.Context, parent string) (Clone, error) {
 	created, err := r.p.api.CreateBranch(ctx, req)
 	if err != nil {
 		err = fmt.Errorf("neon_branch: create branch %s from %s: %w", r.name, parent, err)
+		// Neon refused it (4xx): nothing was made. A 5xx may come from a
+		// gateway after Neon made the branch, so it is looked for by name.
 		var status *ProviderStatusError
-		if errors.As(err, &status) {
-			return Clone{}, err // Neon answered: nothing was made
+		if errors.As(err, &status) && status.StatusCode < 500 {
+			return Clone{}, err
 		}
 		return Clone{}, r.cleanupByName(err)
 	}

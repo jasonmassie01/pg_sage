@@ -228,3 +228,57 @@ func TestNeonFindByName(t *testing.T) {
 		t.Fatalf("find of a name pg_sage never gives: %v", err)
 	}
 }
+
+// lab-05b review: a 5xx can come from a gateway after Neon made the
+// branch, so the create looks for it by name and deletes it; the error
+// stays a throttled status (the shared backoff still applies).
+func TestNeonCreate_5xxAfterTheBranchWasMadeDeletesItByName(t *testing.T) {
+	f := newNeonFake(t)
+	f.createThenStatus = http.StatusBadGateway
+	p := newNeonProvider(t, f, nil)
+	_, err := p.Create(context.Background(), neonSpec(neonName))
+	var status *clone.ProviderStatusError
+	if !clone.Throttled(err) || !errors.As(err, &status) ||
+		status.StatusCode != http.StatusBadGateway {
+		t.Fatalf("err = %v, want a throttled 502 ProviderStatusError", err)
+	}
+	if errors.Is(err, clone.ErrCloneLeftBehind) {
+		t.Fatalf("a cleaned-up create is reported left behind: %v", err)
+	}
+	if _, ok := f.branchNamed(neonName); ok || f.countRequests("DELETE ") != 1 {
+		t.Fatalf("the branch made before the 502 was kept: %v", f.requestLog())
+	}
+	if !f.exists(neonProdBranch) || !f.exists(neonDevBranch) {
+		t.Fatal("cleanup deleted a branch pg_sage did not make")
+	}
+}
+
+// A 5xx that made nothing is looked for and not found: nothing deleted.
+func TestNeonCreate_5xxWithNothingMadeDeletesNothing(t *testing.T) {
+	f := newNeonFake(t)
+	f.createStatus = http.StatusServiceUnavailable
+	p := newNeonProvider(t, f, nil)
+	_, err := p.Create(context.Background(), neonSpec(neonName))
+	if !clone.Throttled(err) || errors.Is(err, clone.ErrCloneLeftBehind) {
+		t.Fatalf("err = %v, want a throttled 503 and nothing left behind", err)
+	}
+	if f.countRequests("DELETE ") != 0 || f.countRequests("GET /projects/"+neonProject+
+		"/branches") < 1 {
+		t.Fatalf("requests = %v, want a lookup by name and no delete", f.requestLog())
+	}
+}
+
+// A 5xx whose branch cannot be deleted is left behind (create_uncertain),
+// so the reaper resolves it by name.
+func TestNeonCreate_5xxWhoseBranchCannotBeDeletedIsLeftBehind(t *testing.T) {
+	f := newNeonFake(t)
+	f.createThenStatus, f.deleteStatus = http.StatusGatewayTimeout, http.StatusLocked
+	p := newNeonProvider(t, f, nil)
+	_, err := p.Create(context.Background(), neonSpec(neonName))
+	if !errors.Is(err, clone.ErrCloneLeftBehind) || !strings.Contains(err.Error(), neonName) {
+		t.Fatalf("err = %v, want ErrCloneLeftBehind naming the branch", err)
+	}
+	if _, ok := f.branchNamed(neonName); !ok {
+		t.Fatal("the fake refused the delete, yet the branch is gone")
+	}
+}
