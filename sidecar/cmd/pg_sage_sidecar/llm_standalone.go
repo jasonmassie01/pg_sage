@@ -13,5 +13,15 @@ func newStandaloneLLMManager(general *llm.Client) *llm.Manager {
 	}
 	return llm.NewManager(
 		general, optimizerClient, cfg.LLM.OptimizerLLM.FallbackToGeneral,
-	)
+	).WithReview(newReviewLLMClient(""))
+}
+
+// newReviewLLMClient is the registry-tracked review client when
+// llm.review_llm is enabled, else nil (the review then routes to the
+// optimizer or the general client, review-03a).
+func newReviewLLMClient(databaseName string) *llm.Client {
+	if !cfg.LLM.ReviewLLM.Enabled {
+		return nil
+	}
+	return llmClients.newClient(llmRoleReview, databaseName, true)
 }

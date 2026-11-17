@@ -60,7 +60,8 @@ func TestReviewRunsMigration_BootstrapTwice(t *testing.T) {
 // so ddlReviewRuns is the step just before it rather than the last.
 func TestReviewRunsStep_IsAT6StepIdempotentAndBounded(t *testing.T) {
 	steps := trancheSixMigrations()
-	if len(steps) < 2 || steps[len(steps)-2][0] != "ddlReviewRuns" {
+	// review-03a appended ddlReviewModelRuns after ddlReviewCandidates.
+	if len(steps) < 3 || steps[len(steps)-3][0] != "ddlReviewRuns" {
 		t.Fatalf("T6 steps %v, want ddlReviewRuns just before ddlReviewCandidates", steps)
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout",

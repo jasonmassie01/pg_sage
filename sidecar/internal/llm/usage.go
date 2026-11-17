@@ -169,6 +169,22 @@ func callCost(p config.LLMPrice, d UsageCounts) float64 {
 		float64(reasoning)*reasoningPrice) / 1e6
 }
 
+// CostOf is the USD cost of one model's tokens at its operator price, and
+// false when price does not price model (the cost is then unknown, never a
+// guess).
+func CostOf(price PriceFunc, model string, prompt, completion, reasoning int64) (float64,
+	bool) {
+	if price == nil {
+		return 0, false
+	}
+	p, ok := price(model)
+	if !ok {
+		return 0, false
+	}
+	return callCost(p, UsageCounts{PromptTokens: prompt, CompletionTokens: completion,
+		ReasoningTokens: reasoning}), true
+}
+
 // Pending copies the deltas not yet flushed.
 func (a *UsageAccumulator) Pending() map[UsageKey]UsageCounts {
 	if a == nil {

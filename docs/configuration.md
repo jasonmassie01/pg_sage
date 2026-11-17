@@ -273,6 +273,9 @@ Variables that only the test suites and benches read (`SAGE_TEST_*`, `SAGE_BENCH
 | `SAGE_OPTIMIZER_LLM_API_KEY` / `_FILE` | (none) | Separate API key for the optimizer model (optional) |
 | `SAGE_OPTIMIZER_LLM_ENDPOINT` | (none) | Separate endpoint for the optimizer model (optional) |
 | `SAGE_OPTIMIZER_LLM_MODEL` | (none) | Separate model name for the optimizer (optional) |
+| `SAGE_REVIEW_LLM_API_KEY` / `_FILE` | (none) | Separate API key for the Sage Review model (optional) |
+| `SAGE_REVIEW_LLM_ENDPOINT` | (none) | Separate endpoint for the Sage Review model (optional) |
+| `SAGE_REVIEW_LLM_MODEL` | (none) | Separate model name for Sage Review (optional) |
 | `SAGE_LAKEBASE_ENDPOINT` | (none) | Lakebase endpoint resource path for OAuth; applies to target and metadata pools |
 | `SAGE_LAKEBASE_ENDPOINTS` | (none) | JSON hostname-to-endpoint map for a fleet spanning Lakebase endpoints; use instead of the singular variable |
 | `SAGE_AUTH_MODE` | (none) | `databricks_app` selects Databricks Apps authentication (see Web UI and API Authentication) |
