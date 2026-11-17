@@ -19,10 +19,12 @@ func (d *Dispatcher) attempt(ctx context.Context, e OutboxEntry, now time.Time) 
 	}
 	evt, revoke := d.withCardToken(ctx, *ch, evt)
 	evt, revokeFact := d.withFactToken(ctx, *ch, evt)
+	evt, revokePlan := d.withPlanToken(ctx, *ch, evt)
 	messageID, sendErr := send(ctx, sender, *ch, evt)
 	if sendErr != nil {
 		revoke()
 		revokeFact()
+		revokePlan()
 	}
 	status := d.finish(ctx, e, now, sendErr)
 	rec := Delivery{ChannelID: ch.ID, Event: evt, Status: "sent", ProviderMessageID: messageID}

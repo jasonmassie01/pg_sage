@@ -58,6 +58,7 @@ func sharedNotifyDispatcher(controlPool *pgxpool.Pool) *notify.Dispatcher {
 	startNotifyOutbox(dispatcher, store)
 	withApprovalCardTokens(dispatcher, controlPool)
 	withFactCardTokens(dispatcher, controlPool)
+	withPlanCardTokens(dispatcher, controlPool)
 	notifyDispatchers[controlPool] = dispatcher
 	return dispatcher
 }
