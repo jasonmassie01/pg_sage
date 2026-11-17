@@ -56,10 +56,18 @@ func TestReviewRunsMigration_BootstrapTwice(t *testing.T) {
 	}
 }
 
-func TestReviewRunsStep_IsTheLastT6StepIdempotentAndBounded(t *testing.T) {
+// review-01b appends ddlReviewViews after this step; its own test pins
+// the order (TestReviewViewsStep_IsTheLastT6StepIdempotentAndBounded).
+func TestReviewRunsStep_IsAT6StepIdempotentAndBounded(t *testing.T) {
 	steps := trancheSixMigrations()
-	if len(steps) == 0 || steps[len(steps)-1][0] != "ddlReviewRuns" {
-		t.Fatalf("T6 steps end with %v, want ddlReviewRuns", steps[len(steps)-1])
+	at := -1
+	for i, step := range steps {
+		if step[0] == "ddlReviewRuns" {
+			at = i
+		}
+	}
+	if at < 0 {
+		t.Fatalf("T6 steps = %v, want ddlReviewRuns", steps)
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout",
 		"CREATE TABLE IF NOT EXISTS sage.review_run",

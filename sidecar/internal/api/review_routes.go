@@ -9,6 +9,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/mcp"
+	"github.com/pg-sage/sidecar/internal/review/report"
 	"github.com/pg-sage/sidecar/internal/review/rubric"
 )
 
@@ -17,6 +18,11 @@ import (
 //     the database (done or partial), the one before it, and the delta
 //     between them; the first grade's delta is the full report. Before
 //     the first grade, latest is null.
+//
+// The Review page (review-01b) reads three more fields: running (the run
+// in progress, polled until it finishes), report (the latest grade's
+// templated report) and viewed_at (when the caller first opened the latest
+// grade; review_view_routes.go records it).
 //
 // Runs live in the database's own sage schema (sage.review_run and
 // sage.review_grade). The route never starts a grade.
@@ -30,12 +36,25 @@ type reviewGradeResponse struct {
 	Latest   *rubric.Run     `json:"latest"`
 	Previous *rubric.Run     `json:"previous"`
 	Delta    *rubric.Changes `json:"delta"`
+	Running  *reviewRunning  `json:"running"`
+	Report   *report.Report  `json:"report"`
+	ViewedAt *time.Time      `json:"viewed_at"`
 }
 
-// registerReviewRoutes registers the grade route on the per-database mux
-// (perDatabaseSREMux), beside the other "{db}/..." routes.
+// reviewRunning is the run in progress, shown as a banner.
+type reviewRunning struct {
+	ID        int64       `json:"id"`
+	Kind      rubric.Kind `json:"kind"`
+	StartedAt time.Time   `json:"started_at"`
+}
+
+// registerReviewRoutes registers the grade route and the read receipt on
+// the per-database mux (perDatabaseSREMux), beside the other "{db}/..."
+// routes. The receipt is scoped like a read of the database.
 func registerReviewRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
 	route(mux, "GET "+reviewGradePath, gateViewer, reviewGradeHandler(mgr))
+	route(mux, "POST "+reviewViewedPath, gateViewerWrite,
+		requireReadScope(readDatabase(pathDB))(reviewViewedHandler(mgr)))
 }
 
 func reviewGradeHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
@@ -46,32 +65,73 @@ func reviewGradeHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), reviewGradeReadTimeout)
 		defer cancel()
-		out, err := readReviewGrade(ctx, rubric.NewStore(inst.Pool), inst.Name)
+		store := rubric.NewStore(inst.Pool)
+		out, err := readReviewGrade(ctx, store, inst.Name)
 		if err != nil {
 			slog.Error("review grade read failed", "database", inst.Name, "error", err)
 			jsonError(w, "the review grade of "+inst.Name+" could not be read",
 				http.StatusInternalServerError)
 			return
 		}
+		out.ViewedAt = callerViewedAt(ctx, r, store, out.Latest)
 		jsonResponse(w, out)
 	}
 }
 
-// readReviewGrade is database's two newest graded runs and their delta.
+// readReviewGrade is database's two newest graded runs, their delta, the
+// latest one's report and the run in progress.
 func readReviewGrade(ctx context.Context, s *rubric.Store, database string) (
 	reviewGradeResponse, error) {
 	runs, err := s.Latest(ctx, database, 2)
-	if err != nil || len(runs) == 0 {
+	if err != nil {
 		return reviewGradeResponse{}, err
 	}
-	out := reviewGradeResponse{Latest: &runs[0]}
+	running, err := s.Running(ctx, database)
+	if err != nil {
+		return reviewGradeResponse{}, err
+	}
+	return buildReviewGrade(runs, running), nil
+}
+
+// buildReviewGrade is the response of runs (newest first; two are read)
+// and the running run, if any.
+func buildReviewGrade(runs []rubric.Run, running *rubric.Run) reviewGradeResponse {
+	var out reviewGradeResponse
+	if running != nil {
+		out.Running = &reviewRunning{ID: running.ID, Kind: running.Kind,
+			StartedAt: running.StartedAt.UTC()}
+	}
+	if len(runs) == 0 {
+		return out
+	}
+	out.Latest = &runs[0]
 	var prev *rubric.Grade
 	if len(runs) > 1 {
 		out.Previous, prev = &runs[1], &runs[1].Grade
 	}
 	delta := rubric.Delta(prev, runs[0].Grade)
 	out.Delta = &delta
-	return out, nil
+	rep := report.FromRun(runs[0])
+	out.Report = &rep
+	return out
+}
+
+// callerViewedAt is when the signed-in caller first opened latest, or nil.
+// A failed read is logged and left nil: the receipt never blocks the page,
+// whose own POST then reports the failure.
+func callerViewedAt(ctx context.Context, r *http.Request, s *rubric.Store,
+	latest *rubric.Run) *time.Time {
+	user := UserFromContext(r.Context())
+	if latest == nil || user == nil || user.ID <= 0 {
+		return nil
+	}
+	at, err := s.ViewedAt(ctx, latest.ID, user.ID)
+	if err != nil {
+		slog.Warn("review read receipt lookup failed", "run_id", latest.ID,
+			"user_id", user.ID, "error", err)
+		return nil
+	}
+	return at
 }
 
 // ReviewGradeMCP serves MCP review_grade with the route's read.
