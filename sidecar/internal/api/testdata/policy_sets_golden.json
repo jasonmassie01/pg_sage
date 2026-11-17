@@ -1,0 +1,131 @@
+{
+  "exceptions": {
+    "exceptions": [
+      {
+        "database_id": 9,
+        "set_name": "prod",
+        "diff": [
+          {
+            "field": "lock_duration_ceiling_ms",
+            "set": 30000,
+            "exception": 120000
+          }
+        ],
+        "set_by": "alice@example.com",
+        "reason": "month-end batch needs longer locks",
+        "set_at": "2026-11-10T09:00:00Z",
+        "expires_at": "2026-12-01T00:00:00Z",
+        "policy_id": 12,
+        "policy_version": 3
+      }
+    ]
+  },
+  "prod_members": {
+    "members": [
+      {
+        "member": {
+          "database_id": 4,
+          "name": "orders",
+          "tags": {
+            "tier": "prod"
+          }
+        },
+        "set": "prod",
+        "policy": {
+          "id": 3,
+          "scope": {},
+          "set": "prod",
+          "version": 2,
+          "profile": "staffed",
+          "document": {
+            "profile": "staffed",
+            "lock_duration_ceiling_ms": 30000
+          },
+          "updated_by": "system-bootstrap",
+          "updated_at": "2026-11-10T09:00:00Z"
+        }
+      },
+      {
+        "member": {
+          "database_id": 9,
+          "name": "billing",
+          "tags": {
+            "tier": "prod"
+          }
+        },
+        "set": "prod",
+        "policy": {
+          "id": 12,
+          "scope": {},
+          "version": 3,
+          "profile": "staffed",
+          "document": {
+            "profile": "staffed",
+            "lock_duration_ceiling_ms": 120000
+          },
+          "updated_by": "alice@example.com",
+          "updated_at": "2026-11-10T09:00:00Z"
+        },
+        "exception": {
+          "database_id": 9,
+          "set_name": "prod",
+          "diff": [
+            {
+              "field": "lock_duration_ceiling_ms",
+              "set": 30000,
+              "exception": 120000
+            }
+          ],
+          "set_by": "alice@example.com",
+          "reason": "month-end batch needs longer locks",
+          "set_at": "2026-11-10T09:00:00Z",
+          "expires_at": "2026-12-01T00:00:00Z",
+          "policy_id": 12,
+          "policy_version": 3
+        }
+      }
+    ],
+    "set": "prod"
+  },
+  "sets": {
+    "sets": [
+      {
+        "name": "default",
+        "priority": 0,
+        "selectors": [
+          {
+            "all": true
+          }
+        ],
+        "requirements": {},
+        "created_by": "system-bootstrap",
+        "updated_at": "2026-11-10T09:00:00Z",
+        "policy_id": 1,
+        "version": 1,
+        "profile": "staffed"
+      },
+      {
+        "name": "prod",
+        "priority": 10,
+        "selectors": [
+          {
+            "tags": {
+              "tier": "prod"
+            }
+          }
+        ],
+        "requirements": {
+          "owner_required": true,
+          "trust_ceiling": {
+            "index": "advisory"
+          }
+        },
+        "created_by": "system-bootstrap",
+        "updated_at": "2026-11-10T09:00:00Z",
+        "policy_id": 3,
+        "version": 2,
+        "profile": "staffed"
+      }
+    ]
+  }
+}
