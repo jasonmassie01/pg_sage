@@ -194,6 +194,8 @@ describe('ValuePage', () => {
 
     const status = screen.getByRole('status')
     expect(status).toHaveTextContent(/first credit comes from the first verified change/i)
+    // Auto-run actions within the trust level earn credit too, not only approved ones.
+    expect(status).toHaveTextContent(/with your approval or within its trust level/i)
     const link = within(status).getByRole('link', { name: 'Start with the first look' })
     expect(link).toHaveAttribute('href', '#/')
   })

@@ -54,8 +54,9 @@ function EmptyState() {
           Verified successful actions earn credit once their outcome is proven.
         </p>
         <p className="mt-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
-          The first credit comes from the first verified change: an approved
-          action that ran and whose outcome pg_sage measured.
+          The first credit comes from the first verified change: an action
+          pg_sage ran, with your approval or within its trust level, whose
+          outcome it then measured and verified.
         </p>
         <a href="#/" className="mt-3 inline-block text-sm underline"
           style={{ color: 'var(--accent)' }}>
