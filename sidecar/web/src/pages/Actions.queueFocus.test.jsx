@@ -64,7 +64,9 @@ describe('Actions exact links', () => {
 
   it('ignores a hostile queue id and an unknown tab', () => {
     renderAt('#/actions?tab=drafts&queue=42%3Cimg%3E')
-    expect(screen.getByTestId('actions-tab-recommendations'))
+    // ux-05a: an ignored tab= falls to the landing tab, which is Needs your
+    // review here because two approvals wait.
+    expect(screen.getByTestId('actions-tab-pending'))
       .toHaveAttribute('aria-selected', 'true')
     expect(screen.queryByTestId('approval-card-focused')).toBeNull()
   })

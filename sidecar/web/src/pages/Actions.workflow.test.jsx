@@ -52,6 +52,10 @@ const fleet = mode => ({ databases: [{ name: 'prod', status: { trust_level: mode
 describe('Actions task workflow', () => {
   it('starts with contextual proposals, exact risk and recovery limits', () => {
     render(<Actions database="prod" user={{ role: 'admin' }} fleetData={fleet('observation')} />)
+    // ux-05a: one approval waits, so the page lands on Needs your review.
+    expect(screen.getByRole('tab', { name: /Needs your review/ }))
+      .toHaveAttribute('aria-selected', 'true')
+    fireEvent.click(screen.getByRole('tab', { name: /Proposed changes/ }))
     expect(screen.getByRole('tab', { name: /Proposed changes/ })).toHaveAttribute('aria-selected', 'true')
     const proposal = screen.getByTestId('proposed-change')
     expect(proposal).toHaveTextContent('Risk: High')
@@ -131,6 +135,7 @@ describe('Actions task workflow', () => {
     responses['/api/v1/recommendations'].recommendations.push({ id: 8, database_name: 'other',
       finding_id: 5, state: 'proposed', action_type: 'create_index' })
     render(<Actions database="prod" user={{ role: 'admin' }} />)
+    fireEvent.click(screen.getByRole('tab', { name: /Proposed changes/ }))
     expect(screen.getAllByTestId('proposed-change')).toHaveLength(1)
     expect(screen.getByTestId('actions-case-context')).toHaveTextContent('A query used temporary disk space')
     fireEvent.click(screen.getByRole('link', { name: 'Show all changes' }))
