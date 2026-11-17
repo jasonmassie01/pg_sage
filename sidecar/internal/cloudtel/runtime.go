@@ -226,6 +226,29 @@ func (r *Runtime) CapacityBytes(ctx context.Context) (int64, error) {
 	return int64(capacity), nil
 }
 
+// FreeStorage is fresh effective free and total storage and when free
+// storage was sampled (check_pressure's input, guard-01a);
+// ErrUnbounded when storage auto-grows.
+func (r *Runtime) FreeStorage(ctx context.Context) (float64, float64, time.Time, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, 0, time.Time{}, err
+	}
+	s, _ := r.current()
+	switch {
+	case s == nil:
+		return 0, 0, time.Time{}, fmt.Errorf("%w: no fresh storage sample", ErrUnavailable)
+	case s.StorageAutoGrows:
+		return 0, 0, time.Time{}, fmt.Errorf("%w: storage grows automatically",
+			ErrUnbounded)
+	}
+	free, capacity, ok := s.EffectiveFreeStorage(r.now())
+	if !ok {
+		return 0, 0, time.Time{}, fmt.Errorf("%w: free storage or capacity unknown or stale",
+			ErrUnavailable)
+	}
+	return free, capacity, s.FreeStorageBytes.At, nil
+}
+
 // SetDrift publishes the parameter drift the managed-change worker found.
 func (r *Runtime) SetDrift(d []managedparam.Drift) {
 	r.mu.Lock()

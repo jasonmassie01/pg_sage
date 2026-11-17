@@ -97,6 +97,8 @@ type Document struct {
 	Plans PlanCaps
 	// Drill is the restore drill block (drill-01a); zero is the defaults.
 	Drill DrillPolicy
+	// Pressure is the check_pressure block (guard-01a); zero is the defaults.
+	Pressure PressurePolicy
 	// ExposureMode is shadow ("" or "shadow", the default) or enforce
 	// (fleetpol-02b): whether exposure findings become proposals.
 	ExposureMode string
@@ -123,6 +125,7 @@ type documentWire struct {
 	Plans                   *plansWire      `json:"plans,omitempty"`
 	Drill                   *drillWire      `json:"drill,omitempty"`
 	Exposure                *exposureWire   `json:"exposure,omitempty"`
+	Pressure                json.RawMessage `json:"pressure,omitempty"`
 }
 
 type budgetWire struct {
@@ -181,6 +184,9 @@ func MarshalDocument(doc Document) ([]byte, error) {
 	}
 	if !doc.Drill.isDefault() {
 		wire["drill"] = drillJSON(doc.Drill)
+	}
+	if !doc.Pressure.isDefault() {
+		wire["pressure"] = pressureJSON(doc.Pressure)
 	}
 	if doc.ExposureMode != "" {
 		wire["exposure"] = exposureWire{Mode: doc.ExposureMode} // only when set
@@ -257,6 +263,10 @@ func documentFromWire(wire documentWire, budgets Budgets) (Document, error) {
 	if err != nil {
 		return Document{}, err
 	}
+	pressure, err := pressureFromWire(wire.Pressure)
+	if err != nil {
+		return Document{}, err
+	}
 	overrides := make(map[DeadlineKind]bool, len(wire.DeadlineOverrides))
 	for kind, enabled := range wire.DeadlineOverrides {
 		overrides[DeadlineKind(kind)] = enabled
@@ -276,6 +286,7 @@ func documentFromWire(wire documentWire, budgets Budgets) (Document, error) {
 		WindowStartMarginMinutes: wire.WindowStartMargin,
 		Plans:                    plans,
 		Drill:                    drill,
+		Pressure:                 pressure,
 		ExposureMode:             exposureFromWire(wire.Exposure),
 	}, nil
 }
@@ -301,6 +312,9 @@ func ValidateDocument(doc Document) error {
 		return err
 	}
 	if err := ValidateDrillPolicy(doc.Drill); err != nil {
+		return err
+	}
+	if err := ValidatePressurePolicy(doc.Pressure); err != nil {
 		return err
 	}
 	if err := validateExposureMode(doc.ExposureMode); err != nil {
