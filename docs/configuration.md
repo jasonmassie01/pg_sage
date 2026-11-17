@@ -289,9 +289,10 @@ Variables that only the test suites and benches read (`SAGE_TEST_*`, `SAGE_BENCH
 | `SAGE_VERIFY_REGRESS_PCT` | `15` | Regression percentage that triggers a revert (`verify.regress_pct`) |
 | `SAGE_VERIFY_WRITE_IMPACT_PCT` | `20` | Maximum rise of the table's WAL bytes per written tuple (`verify.write_impact_pct`) |
 | `SAGE_VERIFY_MIN_SAMPLES` | `30` | Minimum verification samples (`verify.min_samples`) |
-| `SAGE_CLONE_PROVIDER` | `none` | Clone provider (`clone.provider`): `none`, `dle` or `lakebase_branch` |
+| `SAGE_CLONE_PROVIDER` | `none` | Clone provider (`clone.provider`): `none`, `dle`, `lakebase_branch` or `neon_branch` |
 | `SAGE_CLONE_DLE_ENDPOINT` | (none) | Database Lab Engine API endpoint (`clone.dle_endpoint`) |
 | `SAGE_CLONE_DLE_TOKEN` / `_FILE` | (none) | Database Lab bearer token (`clone.dle_token`) |
+| `SAGE_CLONE_NEON_API_KEY` / `_FILE` | (none) | Neon API key for `neon_branch` rehearsal branches (`clone.neon.api_key`) |
 | `SAGE_CLONE_MAX_AGE_MINUTES` | `1440` | Maximum source snapshot age (`clone.max_clone_age_minutes`) |
 | `SAGE_CUSTODIAN_FREEZE_RED_BUFFER_PCT` | `25` | Remaining XID percentage classified red (`custodian.freeze.red_buffer_pct`) |
 | `SAGE_CUSTODIAN_WAL_ABANDON_AFTER_MINUTES` | `1440` | Inactive replication-slot abandonment age (`custodian.wal.abandon_after_minutes`) |
@@ -516,7 +517,8 @@ Ranges that changed in tranche T4 (config-02b), where the file and the API used 
 - The API now refuses `analyzer.self_cost_budget_ms` above `3600000` and
   `rca.dedup_window_minutes` above `525600`, which the file refused.
 - `clone.provider: lakebase_branch` stays file-only: the API refuses it, because its
-  `clone.lakebase` project binding is file-only and restart-bound.
+  `clone.lakebase` project binding is file-only and restart-bound. `neon_branch` is
+  refused the same way: its `clone.neon` project and API key are file or env only.
 
 A stored override that a moved range now refuses is skipped at replay with a warning naming the
 key and its `updated_at`, and the default applies until a valid value is saved.
@@ -1853,19 +1855,25 @@ The default `unattended` policy profile permits explicitly bounded deadline
 overrides for XID and disk emergencies. Use `staffed` for narrow maintenance
 windows without deadline overrides. Clone-backed migration rehearsal defaults
 to disabled (`clone.provider: none`) and stale clones are recommendation-only.
-The clone adapters are `dle` (Database Lab Engine) and `lakebase_branch` (an
-instant Lakebase branch per rehearsal, below). `snapshot` is refused at startup
+The clone adapters are `dle` (Database Lab Engine), `lakebase_branch` (an
+instant Lakebase branch per rehearsal, below) and `neon_branch` (a copy-on-write
+Neon branch per rehearsal, below). `snapshot` is refused at startup
 with the names that replace it: `rds_restore`, `cloudsql_clone`,
 `alloydb_restore` and `azure_restore`, the full-copy restores. Those names are
 also refused in this build (no adapter yet).
 
 | Key | Default | Meaning |
 |---|---|---|
-| `clone.provider` | `none` | `none`, `dle` or `lakebase_branch` |
+| `clone.provider` | `none` | `none`, `dle`, `lakebase_branch` or `neon_branch` |
 | `clone.lakebase.project` | (none) | Lakebase project id the rehearsal branches are created in. Required for `lakebase_branch` |
 | `clone.lakebase.source_branch` | the monitored endpoint's branch | Branch id, or `projects/<project>/branches/<id>` of the same project, a rehearsal branches from |
 | `clone.lakebase.ttl_minutes` | `60` | Server-side expiry of every rehearsal branch, 1 to 1440: the backstop if pg_sage cannot delete it |
 | `clone.lakebase.endpoint_max_cu` | `1` | Autoscaling maximum of the read-write endpoint on a rehearsal branch |
+| `clone.neon.project_id` | (none) | Neon project id the rehearsal branches are created in (the monitored database's project). Required for `neon_branch` |
+| `clone.neon.parent_branch` | the monitored endpoint's branch | Branch id (`br-...`) or name in the project a rehearsal branches from; one outside the project is refused |
+| `clone.neon.api_key` | (none) | Neon API key (secret; also `SAGE_CLONE_NEON_API_KEY` or `_FILE`). Without it `neon_branch` creates nothing, rehearsals are recommendation-only and startup logs a warning |
+| `clone.neon.endpoint_max_cu` | `1` | Autoscaling maximum, 0.25 to 8 compute units, of the read-write endpoint on a rehearsal branch (minimum 0.25) |
+| `clone.neon.ttl_minutes` | `60` | Expiry Neon sets on every rehearsal branch, 1 to 1440: the backstop if pg_sage cannot delete it |
 | `clone.rehearsals_per_hour` | `2` | Most index rehearsals on a clone one database starts in any hour (tuning agent and index floor together), 1 to 60 |
 | `clone.allow_full_copy` | `false` | Allow full-copy clones (a whole-instance restore: hours and a full instance bill). Without it a full-copy provider, or one that does not say what its clones are, creates nothing. `true` with a provider that makes no full copies logs a startup warning |
 | `clone.max_creates_per_hour` | `4` | Most clones this deployment creates in any hour, every purpose together, 1 to 60; the next create is refused naming the limit |
@@ -1874,6 +1882,9 @@ also refused in this build (no adapter yet).
 The `clone.lakebase.*` keys are read at startup (restart to change them) and are
 not dashboard overrides. They are checked only when `clone.provider` is
 `lakebase_branch`. See [Lakebase: branch rehearsal](lakebase.md#branch-rehearsal).
+The `clone.neon.*` keys are likewise read at startup and checked only when
+`clone.provider` is `neon_branch`. See
+[Neon and Supabase: branch rehearsal](neon-supabase.md#branch-rehearsal-on-neon).
 
 A rehearsal clone holds production data, so pg_sage keeps a receipt for it
 (`sage.clone_instances`, purpose `rehearsal`) in the agent governance control
@@ -1882,15 +1893,16 @@ before the clone is requested and is closed when the clone is destroyed. With no
 receipt store the rehearsal is recommendation-only with reason
 `no_receipt_store`. A rehearsal is bounded to one hour and its receipt expires
 15 minutes later. Every 10 minutes the fleet leader destroys the clones of
-expired rehearsal receipts of its own adapter, endpoint (for `lakebase_branch`,
-the project) and deployment. An
+expired rehearsal receipts of its own adapter, endpoint (for `lakebase_branch`
+and `neon_branch`, the project) and deployment. An
 expired receipt that never got a clone id is logged, never destroyed. Before the
 first step the rehearsal checks that the clone is not the production server:
 the same DSN host and port, or the same postmaster start time and port under
 any name, is refused (`target_is_production`), and nothing runs on it.
 
 Clone lifecycle (lab-05a). Each adapter says what kind of clone it makes:
-`dle` a thin clone (no new instance), `lakebase_branch` a branch; a full-copy
+`dle` a thin clone (no new instance), `lakebase_branch` and `neon_branch` a
+branch; a full-copy
 restore needs `clone.allow_full_copy`. Before the clone is requested its
 receipt gets a cost label: instance-hours for the receipt's lifetime and, when a
 `cost.rates` entry names the database, a figure in that entry's currency with
@@ -3203,7 +3215,7 @@ literals always removed.
 | `sre.autonomy.game_days.interval_hours` | `168` | Hours between scheduled game days, `24`-`2160` |
 | `sre.autonomy.game_days.local_dsn` | `""` | Development fallback when `clone.provider` is `none`, for game days and local bench runs. It must be its own cluster, marked (see below). A database on the cluster of a monitored or the metadata database is refused |
 | `sre.autonomy.game_days.families` | `[]` | Families to exercise. Empty: every family the bench covers |
-| `sre.autonomy.game_days.customer_programs` | unset | Run the customer programs, which exercise the monitored database's own hottest table on the clone (see below). Unset: on when the clone provider copies the database (`dle`, `lakebase_branch`); `local_dsn` never runs them |
+| `sre.autonomy.game_days.customer_programs` | unset | Run the customer programs, which exercise the monitored database's own hottest table on the clone (see below). Unset: on when the clone provider copies the database (`dle`, `lakebase_branch`, `neon_branch`); `local_dsn` never runs them |
 | `sre.autonomy.canary.canary_instances` | `1` | Databases changed and verified before a fleet rollout widens, `1`-`10` |
 | `sre.autonomy.canary.regression_limit_pct` | `10` | Regression that halts and rolls back a rollout, `0`-`100` |
 | `sre.autonomy.canary.settle_seconds` | removed | Removed in executor-04: a canary now waits for each database's own verification verdict instead of a fixed settle time. A config that still sets it loads and prints one startup warning that the key is ignored; remove the key, which a later release rejects |
