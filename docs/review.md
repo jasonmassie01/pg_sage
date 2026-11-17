@@ -109,3 +109,56 @@ error names it) or `failed`; a finished run never moves again. One run per datab
 running (a partial unique index); a second gets "already running". A run a killed sidecar
 left running for 30 minutes is failed with "sidecar stopped during run". `sage.review_grade`
 holds each dimension's letter, score, coverage and check results. Runs are kept 400 days.
+
+## Candidates
+
+A review's generators turn the workload pack into **candidates**: proposals only. A candidate
+becomes a change when a plan (review-03b) includes it, and then it runs through the executor's
+contract for its action type like every other change (policy gate, trust, approval,
+verification, rollback, audit). The generators add no action type and no write path.
+
+Each candidate (`internal/review/candidate`) has:
+
+- an `id`: the SHA-256 of its generator, kind, target and forward SQL, so the same proposal
+  keeps its id across reviews;
+- an `action_type`: a registered executor contract, or `advice` (text for a person) or
+  `operator` (a step an operator runs);
+- the forward and rollback SQL, rendered by the existing builders (never free text);
+- `evidence_ids`: the pack facts it rests on, each of which must resolve in the pack;
+- a `prediction`: metric, direction, size, the lab ladder tier that measured it (`none` when
+  nothing did), its source, and the computed quantities;
+- `approval`: `automatic` or `approval_required`.
+
+Validation refuses an unknown action type, a candidate without evidence, an evidence id the
+pack does not hold, a registered action without SQL, and SQL that classifies as another action
+type. A step that is never automatic (table rewrites, type changes, dropped data, restarts,
+topology, privilege revokes, pooler mode) is forced to `approval_required`.
+
+Candidates are stored in `sage.review_candidate`, one row per (run, candidate), and go with
+their run. A candidate starts `proposed` and moves once: to `planned`, `rejected` or
+`superseded`. A superseded candidate never becomes planned.
+
+The window is `review.window_days` (default 90, 14-100). When the retained history is shorter,
+the pack is shorter and the generator reports its coverage as `partial`.
+
+## Index portfolio generator
+
+The `indexes` generator judges a database's indexes as a set, over the whole pack window:
+
+| Kind | Proposal | Validation |
+|---|---|---|
+| `duplicate` | Drop every exact copy but one (constraint-backing, then unique, then by name is kept). | None needed: a drop is reversible by rebuild. |
+| `consolidation` | Drop the indexes whose keys lead a wider btree index of the same table, which serves the same lookups. At most one set per table per review. | HypoPG hides the whole set and plans the table's top statements. The set is kept only when no statement that used it rises more than `optimizer.hypopg_min_improvement_pct`. |
+| `unused` | Drop an index with no scan over the whole window. | The statistics must be unbroken across the window: a reset makes every index `unknown`, never unused. |
+
+Constraint-backing, primary, unique, invalid and partition indexes are never proposed. At most
+`optimizer.max_indexes_per_table` candidates are proposed per table per review.
+
+Without HypoPG (not installed, too old to hide an index, or refused), a consolidation set is
+**advice** with tier `none`, and the reason says what HypoPG could not do. Plain duplicates and
+unused indexes stay steps.
+
+Each drop states the index bytes it reclaims and, when the table's writes are known, the
+write blocks it saves a day: the table's inserted and updated rows a day, one leaf block per
+row per index. That is an upper bound, since a HOT update writes no index. The review's numbers
+are the sum over its steps.

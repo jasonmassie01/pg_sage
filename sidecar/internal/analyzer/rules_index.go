@@ -355,3 +355,9 @@ func dropIndexSQL(idx collector.IndexStats) string {
 	return "DROP INDEX CONCURRENTLY " +
 		sanitize.QuoteQualifiedName(idx.SchemaName, idx.IndexRelName) + ";"
 }
+
+// DropIndexSQL is the analyzer's DROP statement for the index schema.name,
+// for the review generators (review-02a), so no candidate SQL is free text.
+func DropIndexSQL(schema, name string) string {
+	return dropIndexSQL(collector.IndexStats{SchemaName: schema, IndexRelName: name})
+}
