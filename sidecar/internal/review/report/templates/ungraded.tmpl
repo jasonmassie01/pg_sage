@@ -1,0 +1,1 @@
+{{define "ungraded"}}{{.Title}}: not graded by this review's rubric.{{if .Candidates}} {{len .Candidates}} candidate{{if gt (len .Candidates) 1}}s{{end}} ranked here; first: {{with index .Candidates 0}}{{.Kind}} on {{.Target}}{{end}}.{{end}}{{end}}
