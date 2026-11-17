@@ -14,6 +14,9 @@ you see it. Configuration lives in [Configuration](configuration.md): the trust 
 reports how exposed a database is to AI agents, is a separate check: see
 [Agent governance](agent-governance.md).
 
+In a fleet, the standing policy a database's gate reads comes from its
+[policy set](policy-sets.md), or from its own document when it has an exception.
+
 The gate fails closed. Whatever it cannot read (the runtime state, the standing policy, the
 usage counters, the confirmed facts, the autonomy ledger, the in-flight verifications) turns
 into a `blocked` verdict, never into an `execute`.
