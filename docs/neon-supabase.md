@@ -147,7 +147,10 @@ set it in the config file.
 branch, as the Neon branch API documents; it has not been verified against a live project in
 this build (OWNER ACTION). The receipt and its reaper are the backstop either way: a branch
 whose create timed out is left `create_uncertain`, found by its name and deleted by the next
-reaper pass, and a failed create deletes its branch before it returns. pg_sage deletes only
+reaper pass, and a failed create deletes its branch before it returns. A create reply lost in
+transport or a 5xx (which a gateway can send after Neon made the branch) is followed by a lookup
+by name, and a branch found is deleted. A rehearsal ends within `clone.neon.ttl_minutes` when
+that is shorter than the 1-hour rehearsal bound, so it never outlives its branch. pg_sage deletes only
 branches named `sage-*` that are neither the default nor protected. Neon throttles branch
 creation: a 429 or 5xx backs creates off (one minute doubling to an hour), and
 `clone.max_creates_per_hour` caps creates per deployment. Each branch is billed for its compute
