@@ -7,6 +7,7 @@ import { AlertingTab } from './AlertingTab'
 import { RetentionTab } from './RetentionTab'
 import { SimpleMonitoringTab } from './SimpleMonitoringTab'
 import { SimpleAIAlertsTab } from './SimpleAIAlertsTab'
+import { PolicySets } from '../PolicySets'
 
 const SIMPLE = {
   Monitoring: SimpleMonitoringTab,
@@ -23,8 +24,9 @@ const ADVANCED = {
 }
 
 // TabContent renders the selected tab of the selected mode. General is the
-// same in both modes and edits nothing; every other tab gets fieldProps.
-export function TabContent({ mode, tab, data, database, fieldProps }) {
+// same in both modes and edits nothing; Policy sets (fleetpol-01c) edits
+// no config either; every other tab gets fieldProps.
+export function TabContent({ mode, tab, data, database, fieldProps, user }) {
   if (tab === 'General') {
     return (
       <GeneralTab
@@ -33,6 +35,7 @@ export function TabContent({ mode, tab, data, database, fieldProps }) {
       />
     )
   }
+  if (tab === 'Policy sets' && mode !== 'simple') return <PolicySets user={user} />
   const Tab = (mode === 'simple' ? SIMPLE : ADVANCED)[tab]
   return Tab ? <Tab {...fieldProps} /> : null
 }

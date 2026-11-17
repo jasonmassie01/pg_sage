@@ -1,10 +1,12 @@
 import { useAPI } from '../../hooks/useAPI'
 import { QueryState } from '../../components/QueryState'
 import { formatTime } from '../../lib/time'
+import { GovernedByLine } from './GovernedBy'
 
 // The standing policy the gate decides under (policy-07), read-only: the
-// current document and its ratified versions. Changes go through a
-// proposal and an admin ratification (POST /api/v1/policy/proposals).
+// current document and its ratified versions, and for a database the set
+// it resolves to (fleetpol-01c). Changes go through a proposal and an admin
+// ratification (POST /api/v1/policy/proposals).
 
 export const POLICY_GATE_DOC =
   'https://github.com/jasonmassie01/pg_sage/blob/master/docs/policy-gate.md'
@@ -39,7 +41,10 @@ export function StandingPolicy({ databaseId }) {
       <div data-testid="standing-policy-current">
         <QueryState query={current}>
           {data => data?.version
-            ? <CurrentPolicy policy={data} />
+            ? <>
+              {databaseId ? <GovernedByLine databaseId={databaseId} policy={data} /> : null}
+              <CurrentPolicy policy={data} />
+            </>
             : <p style={muted}>No standing policy has been ratified yet.</p>}
         </QueryState>
       </div>

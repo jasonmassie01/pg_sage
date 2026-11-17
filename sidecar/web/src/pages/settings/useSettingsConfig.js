@@ -10,7 +10,7 @@ import { maskedByKey } from './SourceBadge'
 
 export const ADVANCED_TABS = [
   'General', 'Collector', 'Analyzer', 'Trust & Safety',
-  'LLM', 'Alerting', 'Retention',
+  'LLM', 'Alerting', 'Retention', 'Policy sets',
 ]
 
 export const SIMPLE_TABS = ['General', 'Monitoring', 'AI & Alerts']

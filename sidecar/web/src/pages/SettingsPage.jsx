@@ -28,7 +28,7 @@ function fieldPropsOf(s) {
   }
 }
 
-export function SettingsPage({ database, databaseId }) {
+export function SettingsPage({ database, databaseId, user }) {
   const view = useSettingsMode()
   const s = useSettingsConfig({ database, databaseId, tab: view.tab })
   const save = useSettingsSave(s)
@@ -57,7 +57,7 @@ export function SettingsPage({ database, databaseId }) {
         {s.feedback && <FeedbackBanner {...s.feedback} />}
         <div className="rounded p-5" style={CARD_STYLE}>
           <TabContent mode={view.mode} tab={view.tab} data={s.data}
-            database={database} fieldProps={fieldProps} />
+            database={database} fieldProps={fieldProps} user={user} />
         </div>
         {view.tab !== 'General' && s.hasEdits && <SaveBar save={save} onDiscard={s.discard} />}
       </TabPanel>

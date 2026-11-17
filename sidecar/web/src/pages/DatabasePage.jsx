@@ -7,6 +7,7 @@ import { EmptyState } from '../components/EmptyState'
 import { DatabaseSummary } from './databases/DatabaseSummary'
 import { EvidencePacks } from './database/EvidencePacks'
 import { RecoverabilityPanel } from '../components/RecoverabilityPanel'
+import { GovernedBy } from './settings/GovernedBy'
 
 const MAX_INLINE_CHARS = 500000
 
@@ -82,7 +83,7 @@ function SnapshotView({ snapshot }) {
   )
 }
 
-export function DatabasePage({ database, user }) {
+export function DatabasePage({ database, user, databaseId }) {
   const db = database && database !== 'all' ? database : null
   const snapshot = useAPI(db ? `/api/v1/snapshots/latest?database=${db}` : null, 0)
   const { data } = snapshot
@@ -95,6 +96,7 @@ export function DatabasePage({ database, user }) {
   return (
     <div className="space-y-6">
       <DatabaseSummary database={db} />
+      <GovernedBy databaseId={databaseId} />
       <RecoverabilityPanel database={db} />
       <EvidencePacks database={db} user={user} />
       {queryBlocked(snapshot) ? (

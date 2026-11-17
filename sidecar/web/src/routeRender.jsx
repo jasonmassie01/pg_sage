@@ -135,7 +135,7 @@ export const RENDERERS = Object.freeze({
   },
   alerts: ctx => <AlertsRedirect route={ctx.route} />,
   settings: ctx => (
-    <SettingsPage database={ctx.database}
+    <SettingsPage database={ctx.database} user={ctx.user}
       databaseId={ctx.selectedDatabase?.id || ctx.selectedDatabase?.database_id} />
   ),
   'mcp-tokens': () => <MCPTokensPage />,
@@ -146,7 +146,8 @@ export const RENDERERS = Object.freeze({
     <Dashboard database={ctx.database} onSelectDB={ctx.setSelectedDB} user={ctx.user}
       fleet={ctx.fleetQuery} />
   ),
-  database: ctx => <DatabasePage database={ctx.database} user={ctx.user} />,
+  database: ctx => <DatabasePage database={ctx.database} user={ctx.user}
+    databaseId={ctx.selectedDatabase?.id || ctx.selectedDatabase?.database_id} />,
   forecasts: ctx => cases(ctx, 'forecast'),
   'query-hints': ctx => cases(ctx, 'query_hint'),
   'schema-health': ctx => cases(ctx, 'schema_health'),
