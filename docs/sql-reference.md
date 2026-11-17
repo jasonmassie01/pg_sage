@@ -254,6 +254,18 @@ Generated health briefings.
 | `llm_used` | boolean | Whether the LLM wrote `content_text` |
 | `token_count` | integer | LLM tokens used |
 | `delivery_status` | jsonb | Per-channel delivery result, for example `{"slack": {"status": "error", "http_status": 500, "error": "slack rejected the briefing: HTTP 500", "at": "..."}}`. `status` is `sent`, `error` or `skipped`; the webhook URL is never stored. In a fleet roll-up every database's row holds the one message's result. NULL when the row could not be dispatched |
+| `digest_hash` | text | Hex SHA-256 of what the digest says (its database, counts, sections and gaps; never its window or headline), ux-02b. NULL for a briefing stored without a digest |
+
+### `sage.digest_delivery`
+
+The last digest delivered per scope (ux-02b): `db:<name>` for one database, `fleet` for the roll-up. Under the default "only when changed", a digest is sent only when one `INSERT ... ON CONFLICT (scope)` changes `digest_hash`, so two leaders that produce the same digest send it once. A claim that reached no channel is deleted, so the digest is tried again at the next schedule.
+
+| Column | Type | Description |
+|---|---|---|
+| `scope` | text | Primary key: `db:<name>` or `fleet` (never empty) |
+| `digest_hash` | text | Hex SHA-256 (64 characters) of the digest last delivered for the scope |
+| `briefing_id` | bigint | The `sage.briefings` row that carried it (NULL when none was stored) |
+| `delivered_at` | timestamptz | When the claim was made |
 
 ---
 

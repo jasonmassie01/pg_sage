@@ -81,6 +81,27 @@ func ddlTableColumns(ddl string) map[string]string {
 
 // columnDocProblems lists columns the doc names that the DDL lacks,
 // columns the DDL has that the doc omits, and type mismatches.
+// migrationAddColumnRE is one ADD COLUMN clause of an ALTER TABLE.
+var migrationAddColumnRE = regexp.MustCompile(
+	`(?i)ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-z_][a-z0-9_]*)\s+([a-z]+)`)
+
+// migrationAddedColumns are the columns the migration steps add to
+// sage.<table> with ALTER TABLE ... ADD COLUMN, by name and type: the
+// table's documented shape is its CREATE TABLE plus these.
+func migrationAddedColumns(statements []string, table string) map[string]string {
+	cols := map[string]string{}
+	alter := regexp.MustCompile(`(?is)ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?sage\.` +
+		regexp.QuoteMeta(table) + `\s+([^;]*)`)
+	for _, sql := range statements {
+		for _, m := range alter.FindAllStringSubmatch(sql, -1) {
+			for _, c := range migrationAddColumnRE.FindAllStringSubmatch(m[1], -1) {
+				cols[strings.ToLower(c[1])] = strings.ToLower(c[2])
+			}
+		}
+	}
+	return cols
+}
+
 func columnDocProblems(table string, doc, ddl map[string]string) []string {
 	var problems []string
 	for name, docType := range doc {
@@ -121,6 +142,13 @@ func TestSQLReferenceBriefingsMatchesDDL(t *testing.T) {
 	ddl := ddlTableColumns(ddlBriefings)
 	if len(ddl) < 9 {
 		t.Fatalf("parsed only %d DDL columns from ddlBriefings: %v", len(ddl), ddl)
+	}
+	added := migrationAddedColumns(migrationStatements(), "briefings")
+	if added["digest_hash"] != "text" { // ux-02b's ddlBriefingsDigestHash
+		t.Fatalf("migration steps add %v to sage.briefings, want digest_hash text", added)
+	}
+	for name, typ := range added {
+		ddl[name] = typ
 	}
 	for _, p := range columnDocProblems("briefings", doc, ddl) {
 		t.Error(p)
@@ -257,5 +285,23 @@ func TestSQLReferenceBriefingsMatchesLiveTable(t *testing.T) {
 	}
 	if len(live) < 10 {
 		t.Errorf("live sage.briefings has %d columns, want at least 10", len(live))
+	}
+}
+
+func TestMigrationAddedColumnsReadsOnlyTheNamedTable(t *testing.T) {
+	stmts := []string{
+		"SET LOCAL lock_timeout = '5s';\nALTER TABLE sage.briefings ADD COLUMN IF NOT EXISTS" +
+			" digest_hash text;\nALTER TABLE sage.briefings_old ADD COLUMN x integer;",
+		"ALTER TABLE IF EXISTS sage.briefings\n  ADD COLUMN a integer,\n" +
+			"  ADD COLUMN IF NOT EXISTS b jsonb NOT NULL DEFAULT '{}';",
+		"ALTER TABLE sage.findings ADD COLUMN IF NOT EXISTS c text;",
+	}
+	got := migrationAddedColumns(stmts, "briefings")
+	want := map[string]string{"digest_hash": "text", "a": "integer", "b": "jsonb"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("migrationAddedColumns = %v, want %v", got, want)
+	}
+	if got := migrationAddedColumns(nil, "briefings"); len(got) != 0 {
+		t.Fatalf("no statements: %v, want none", got)
 	}
 }
