@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -118,5 +119,31 @@ func TestGameDayProviderSelectsNeonBranch(t *testing.T) {
 		neonCloneCfg(), guard)
 	if err != nil || bname != "neon_branch" || b == nil {
 		t.Fatalf("bench neon provider = %v %q %v", b, bname, err)
+	}
+}
+
+// lab-05b review: Neon expires a rehearsal branch ttl_minutes after its
+// create, so a rehearsal ends by then, as for Lakebase (market-03).
+func TestRehearsalMaxDurationEndsBeforeTheNeonBranchExpires(t *testing.T) {
+	cases := []struct {
+		ttl  int
+		want time.Duration
+	}{
+		{1, time.Minute}, {59, 59 * time.Minute}, {60, rehearsal.DefaultMaxDuration},
+		{1440, rehearsal.DefaultMaxDuration}, {0, time.Minute}, {-5, time.Minute},
+	}
+	for _, tc := range cases {
+		c := neonCloneCfg()
+		c.Neon.TTLMinutes = tc.ttl
+		if got := rehearsalMaxDuration(c); got != tc.want {
+			t.Errorf("neon ttl %d: rehearsal bound = %s, want %s", tc.ttl, got, tc.want)
+		}
+	}
+	// A short Lakebase TTL left in YAML does not bound a Neon rehearsal.
+	c := neonCloneCfg()
+	c.Lakebase.TTLMinutes = 5
+	if got := rehearsalMaxDuration(c); got != rehearsal.DefaultMaxDuration {
+		t.Errorf("neon with a leftover lakebase ttl: bound = %s, want %s", got,
+			rehearsal.DefaultMaxDuration)
 	}
 }

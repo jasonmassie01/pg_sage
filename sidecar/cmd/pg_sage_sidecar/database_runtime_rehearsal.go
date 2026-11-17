@@ -45,7 +45,7 @@ func (rt *databaseRuntime) cloneRehearser() tuning.Rehearser {
 
 // boundedRehearser ends every rehearsal, the tuning agent's and the
 // floor's alike, within bound (rehearsalMaxDuration: 1 h, or the Lakebase
-// branch TTL, so a rehearsal never outlives its branch).
+// or Neon branch TTL, so a rehearsal never outlives its branch).
 type boundedRehearser struct {
 	inner tuning.Rehearser
 	bound time.Duration

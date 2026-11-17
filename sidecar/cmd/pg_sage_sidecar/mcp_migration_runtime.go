@@ -195,15 +195,22 @@ func migrationPlanner(loaded *config.Config) *planpkg.Planner {
 }
 
 // rehearsalMaxDuration bounds one rehearsal, clone creation included. A
-// lakebase_branch branch expires on the server ttl_minutes after its create
-// starts, so the rehearsal ends by then (market-03): never later than the
-// branch, and never zero (the orchestrator's default), at least a minute.
+// lakebase_branch or neon_branch branch expires on the server ttl_minutes
+// after its create starts, so the rehearsal ends by then (market-03,
+// lab-05b): never later than the branch, and never zero (the
+// orchestrator's default), at least a minute.
 func rehearsalMaxDuration(cloneConfig config.CloneProviderConfig) time.Duration {
 	bound := rehearsalpkg.DefaultMaxDuration
-	if cloneConfig.Provider != clonepkg.LakebaseAdapter {
+	var minutes int
+	switch cloneConfig.Provider {
+	case clonepkg.LakebaseAdapter:
+		minutes = cloneConfig.Lakebase.TTLMinutes
+	case clonepkg.NeonAdapter:
+		minutes = cloneConfig.Neon.TTLMinutes
+	default:
 		return bound
 	}
-	ttl := time.Duration(cloneConfig.Lakebase.TTLMinutes) * time.Minute
+	ttl := time.Duration(minutes) * time.Minute
 	if ttl < time.Minute {
 		ttl = time.Minute
 	}
