@@ -193,6 +193,17 @@ grep -q 'docker rm .*improve-ci-exclusive-pg17' "$log" &&
   fail "the cleanup removed another run's improve-ci-exclusive-pg17: $(cat "$log")"
 grep -q '^improve-ci-exclusive-pg17 other-run$' "$state" || fail "the other run's container is gone"
 
+# Boundary and error propagation: a Go container cut by LOCAL_SUITE_GO_TIMEOUT
+# is removed at once, so the e2e step can claim the name again.
+expect 2 "LOCAL_SUITE_GO_TIMEOUT '0' must be a whole number" "zero Go timeout" --   $dry LOCAL_SUITE_GO_TIMEOUT=0 bash "$script" "$(newout)"
+expect 2 "LOCAL_SUITE_GO_TIMEOUT '90m' must be a whole number" "Go timeout with a unit" --   $dry LOCAL_SUITE_GO_TIMEOUT=90m bash "$script" "$(newout)"
+expect 0 'go-timeout=5400s' "default Go timeout" -- $dry bash "$script" "$(newout)" 17
+o=$(newout)
+expect 1 'improve-ci-go-pg17 passed LOCAL_SUITE_GO_TIMEOUT=1s; removing it' "cut Go run" --   $guard FAKE_FREE_GB=99 STUB_GO_SLEEP=4 LOCAL_SUITE_GO_TIMEOUT=1 bash "$script" "$o" 17
+[[ $(grep -c 'docker rm -f -v improve-ci-go-pg17$' "$log") -eq 2 ]] &&
+  grep -q '^suite=124$' "$o/pg17/status.txt" && grep -q '^e2e=124$' "$o/pg17/status.txt" ||
+  fail "a cut Go container was not removed before e2e: $(cat "$o/pg17/status.txt" "$log")"
+
 # Happy path through stubs: every container carries this run's label, the
 # server is removed at the end, and the summary is written.
 o=$(newout)

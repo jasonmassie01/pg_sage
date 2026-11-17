@@ -37,6 +37,9 @@
 #                          as pg-ephemeral.sh), or off to keep it on the
 #                          container's disk, removed with the container
 #   LOCAL_SUITE_REV        revision to test (default HEAD)
+#   LOCAL_SUITE_GO_TIMEOUT seconds each Go container may run (default 5400);
+#                          a container cut at this bound is removed at once, so
+#                          the next step can claim its name
 #   LOCAL_SUITE_PSS_SMALL=1 also start a server with pg_stat_statements.max=100
 #                          and pass SAGE_TEST_PSS_SMALL_URL, as CI's agent-servers
 #                          job does (default 0)
@@ -76,6 +79,7 @@ GO_MEMORY=${LOCAL_SUITE_GO_MEMORY-6g}
 PG_MEMORY=${LOCAL_SUITE_PG_MEMORY-1536m}
 PG_TMPFS=${LOCAL_SUITE_PG_TMPFS-2g}
 REV=${LOCAL_SUITE_REV:-HEAD}
+GO_TIMEOUT=${LOCAL_SUITE_GO_TIMEOUT-5400}
 PSS_SMALL=${LOCAL_SUITE_PSS_SMALL:-0}
 PACKAGES=${LOCAL_SUITE_PACKAGES-}
 readonly RUN_LABEL=pg_sage.local-suite.run
@@ -151,6 +155,8 @@ validate_env() {
     [[ $GO_ROOT_VOLUME =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] ||
       die 2 "GO_ROOT_VOLUME '$GO_ROOT_VOLUME' is not a volume name"
   fi
+  [[ $GO_TIMEOUT =~ ^[1-9][0-9]*$ ]] ||
+    die 2 "LOCAL_SUITE_GO_TIMEOUT '$GO_TIMEOUT' must be a whole number of seconds such as 5400"
   [[ $PSS_SMALL =~ ^[01]$ ]] || die 2 "LOCAL_SUITE_PSS_SMALL '$PSS_SMALL' must be 0 or 1"
   validate_packages
   check_image_name GO_IMAGE "$GO_IMAGE"
@@ -195,7 +201,7 @@ print_plan() {
       "exclusive=${PREFIX}exclusive-pg$m go-image=$GO_IMAGE go-root=$root" \
       "pss-small=$pss packages=$(scope_desc)"
   done
-  echo "cache=$GOCACHE_VOL rev=$REV_SHA out=$OUT"
+  echo "cache=$GOCACHE_VOL rev=$REV_SHA out=$OUT go-timeout=${GO_TIMEOUT}s"
 }
 
 disk_guard() {
@@ -242,15 +248,19 @@ claim() {
 # newest first, so a container that joined a server's network namespace
 # is removed before that server.
 cleanup() {
-  local c owner i
-  for ((i = ${#CREATED[@]} - 1; i >= 0; i--)); do
-    c=${CREATED[i]}
-    case "$c" in improve-?*) ;; *) continue ;; esac
-    owner=$(dk 60 container inspect -f "{{index .Config.Labels \"$RUN_LABEL\"}}" "$c" \
-      2>/dev/null) || continue
-    [ "$owner" = "$RUN_ID" ] || continue
-    dk 120 rm -f -v "$c" >/dev/null 2>&1 || echo "local-linux-suite: could not remove $c" >&2
-  done
+  local i
+  for ((i = ${#CREATED[@]} - 1; i >= 0; i--)); do remove_own "${CREATED[i]}"; done
+}
+
+# remove_own <name>: removes that container if it exists, is named improve-*
+# and carries this run's label.
+remove_own() {
+  local c=$1 owner
+  case "$c" in improve-?*) ;; *) return 0 ;; esac
+  owner=$(dk 60 container inspect -f "{{index .Config.Labels \"$RUN_LABEL\"}}" "$c" \
+    2>/dev/null) || return 0
+  [ "$owner" = "$RUN_ID" ] || return 0
+  dk 120 rm -f -v "$c" >/dev/null 2>&1 || echo "local-linux-suite: could not remove $c" >&2
 }
 
 # go_args <name> <network>: the Go container's options.
@@ -348,13 +358,19 @@ go_test() {
   claim "$name"
   go_args "$name" "container:${PREFIX}pg$m"
   [ "$PSS_SMALL" = 0 ] || pss=(-e "SAGE_TEST_PSS_SMALL_URL=$PSS_URL")
-  dk 5400 run "${GO_ARGS[@]}" -v "$(host_path "$OUT/stage.tar"):/stage.tar:ro" -w / \
+  dk "$GO_TIMEOUT" run "${GO_ARGS[@]}" -v "$(host_path "$OUT/stage.tar"):/stage.tar:ro" -w / \
     -e "GOFLAGS=-mod=vendor -buildvcs=false" -e "SAGE_TEST_DATABASE_URL=$TEST_URL" \
     -e "SAGE_TEST_EXCLUSIVE_URL=$EXCLUSIVE_URL" "${pss[@]}" \
     -e PGHOST=127.0.0.1 -e PGPORT=5432 -e PGUSER=postgres -e PGPASSWORD=postgres \
     -e PGDATABASE=postgres "$GO_IMAGE" \
     sh -c "mkdir -p /work && tar -xf /stage.tar -C /work && cd /work/sidecar && $2" \
     >"$3" 2>"${3%.json}.stderr.txt" || st=$?
+  if [ "$st" -eq 124 ]; then
+    # timeout stops only the docker client: the container still runs.
+    echo "local-linux-suite: $name passed LOCAL_SUITE_GO_TIMEOUT=${GO_TIMEOUT}s;" \
+      "removing it" >&2
+    remove_own "$name"
+  fi
   return "$st"
 }
 
