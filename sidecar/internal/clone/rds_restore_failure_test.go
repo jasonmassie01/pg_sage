@@ -143,13 +143,12 @@ func TestRDSRestore_WaitPastTheDeadlineIsLeftForTheReaper(t *testing.T) {
 	f := newRDSFake(t)
 	f.neverReady = true
 	a := newRDSAPI(t, f, nil)
+	clone.SetRDSRestoreDeadlineForTest(a, 30*time.Millisecond)
 	p, err := clone.NewSnapshotProvider(a, func() time.Time { return rdsNow })
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-	_, err = p.Create(ctx, clone.CloneSpec{ResourceName: rdsName})
+	_, err = p.Create(context.Background(), clone.CloneSpec{ResourceName: rdsName})
 	if !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(),
 		clone.AuroraReceiptTag) {
 		t.Fatalf("err = %v, want the deadline naming the tag the reaper finds", err)

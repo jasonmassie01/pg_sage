@@ -17,6 +17,23 @@ func (a *RDSRestoreAPI) requireProduction() error {
 	return nil
 }
 
+// callerOutlastsDeadline refuses a restore whose caller ends before the
+// restore deadline (a bounded MCP call: mcp.call_timeout_seconds is at
+// most 10 minutes): the wait would be cut short and leave a billable
+// full copy to the reaper every time. Nothing is created.
+func (a *RDSRestoreAPI) callerOutlastsDeadline(ctx context.Context) error {
+	end, ok := ctx.Deadline()
+	if !ok {
+		return nil
+	}
+	if left := time.Until(end); left < a.cfg.Deadline {
+		return fmt.Errorf("%w: the caller ends in %s, before the restore deadline %s "+
+			"(clone.restore_deadline_minutes), so the full copy could not be used; nothing "+
+			"created", ErrCloneUnavailable, left.Round(time.Second), a.cfg.Deadline)
+	}
+	return nil
+}
+
 // rdsSource is the monitored instance a restore is taken from.
 type rdsSource struct {
 	dsn, host string
@@ -117,6 +134,9 @@ func (a *RDSRestoreAPI) Restore(ctx context.Context, snap Snapshot,
 	if err := a.requireProduction(); err != nil {
 		return Clone{}, err
 	}
+	if err := a.callerOutlastsDeadline(ctx); err != nil {
+		return Clone{}, err
+	}
 	api, err := a.client(ctx)
 	if err != nil {
 		return Clone{}, err
@@ -207,10 +227,17 @@ func (r *rdsRestore) restore(ctx context.Context) (Clone, error) {
 }
 
 // waitReady polls the restored instance until it is available. A failed
-// status deletes it; the deadline leaves it to the reaper.
+// status deletes it; one not described, or the deadline, leaves it to the
+// reaper.
 func (r *rdsRestore) waitReady(ctx context.Context) (RDSInstance, error) {
 	for {
 		in, err := r.api.DescribeInstance(ctx, r.name)
+		if errors.Is(err, ErrRDSNotFound) && ctx.Err() == nil {
+			// RDS accepted the restore but does not describe it (yet): it
+			// may still appear, so the create stays uncertain.
+			return RDSInstance{}, errors.Join(fmt.Errorf("rds_restore: poll instance %s: %w",
+				r.name, err), r.leftBehind(errors.New("the accepted restore is not described")))
+		}
 		if err != nil && !Throttled(err) && ctx.Err() == nil {
 			return RDSInstance{}, r.cleanup(fmt.Errorf("rds_restore: poll instance %s: %w",
 				r.name, err))

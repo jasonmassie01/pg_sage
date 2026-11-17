@@ -31,6 +31,7 @@ type rdsFake struct {
 	restoreThenErr error  // the instance is made, then this is returned
 	deleteErr      error
 	describeErr    error // every describe fails with this
+	unlisted       bool  // a restore is accepted but never described
 	cloneEndpoint  string
 }
 
@@ -111,6 +112,9 @@ func (f *rdsFake) RestoreInstance(_ context.Context,
 		ParameterGroup: req.ParameterGroup, StorageType: req.StorageType,
 		AllocatedStorageGB: src.AllocatedStorageGB, SecurityGroups: req.SecurityGroups,
 		PubliclyAccessible: req.PubliclyAccessible, Tags: req.Tags}
+	if f.unlisted {
+		return copyRDSInstance(in), nil
+	}
 	f.instances[req.ID] = in
 	if f.restoreThenErr != nil {
 		return clone.RDSInstance{}, f.restoreThenErr

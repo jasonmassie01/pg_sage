@@ -683,6 +683,11 @@ What pg_sage does for each clone:
   down for long.
 - The receipt and the rehearsal bound cover the restore: a rehearsal on a full copy may run
   `restore_deadline_minutes` plus one hour, and its receipt lives 15 minutes longer.
+- A caller that ends before `restore_deadline_minutes` is refused before anything is
+  created (reason `clone_unavailable`): a stdio MCP call (`mcp.call_timeout_seconds`, at most
+  10 minutes) can never wait out a full copy, so `apply_migration` over stdio is
+  recommendation-only with `rds_restore`. Use the HTTP transport or the sidecar's own
+  rehearsals.
 
 Credentials come from the AWS default chain, as for `aurora_clone`. Without them, or
 without the monitored pool, nothing is created and rehearsals are recommendation-only with
