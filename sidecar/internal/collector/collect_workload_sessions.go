@@ -85,8 +85,9 @@ type WorkloadSessions struct {
 	Ages []WorkloadAgeBucket `json:"ages,omitempty"`
 	// AppAges is the sessions by application and connection minute
 	// (review-02e), at most WorkloadAppAgeCap rows (AppAgesTruncated);
-	// nil (absent) on snapshots written before it.
-	AppAges          []WorkloadAppAge `json:"app_ages,omitempty"`
+	// nil (absent) on snapshots written before it. It is never omitted
+	// when read: an empty list (no client sessions) is known, not absent.
+	AppAges          []WorkloadAppAge `json:"app_ages"`
 	AppAgesTruncated bool             `json:"app_ages_truncated,omitempty"`
 }
 

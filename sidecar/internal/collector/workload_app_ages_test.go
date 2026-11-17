@@ -86,5 +86,24 @@ func TestWorkloadSessions_LegacyJSONHasNoAppAges(t *testing.T) {
 	}
 }
 
+// An empty read (no client sessions) is written as an empty list, so a
+// reader tells it from a snapshot written before app ages (absent).
+func TestWorkloadSessions_EmptyAppAgesAreWrittenNotOmitted(t *testing.T) {
+	b, err := json.Marshal(WorkloadSessions{Groups: []WorkloadGroup{},
+		Long: []WorkloadLongSession{}, Roles: []WorkloadRoleStats{},
+		AppAges: []WorkloadAppAge{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"app_ages":[]`) {
+		t.Fatalf("empty app ages written as %s, want \"app_ages\":[]", b)
+	}
+	var back WorkloadSessions
+	if err := json.Unmarshal(b, &back); err != nil || back.AppAges == nil ||
+		len(back.AppAges) != 0 {
+		t.Fatalf("round trip %#v, err %v; want an empty non-nil list", back.AppAges, err)
+	}
+}
+
 // No concurrent access tests: ScanWorkloadAppAges is stateless and reads
 // only the rows it is given.
