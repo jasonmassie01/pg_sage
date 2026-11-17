@@ -90,6 +90,11 @@ var runtimeEnvVars = []EnvVar{
 		"([CSRF](security.md#csrf-and-cross-origin-requests))"},
 	{Name: "SAGE_API_KEY", Default: envNone, File: true, Doc: "Legacy config field; the " +
 		"current web/API path uses session login cookies"},
+	{Name: "SAGE_API_URL", Default: envNone, Doc: "The sidecar API the `plan` command " +
+		"calls: `https://`, or `http://` only to a loopback host"},
+	{Name: "SAGE_API_TOKEN", Default: envNone, File: true, Doc: "Operator API token the " +
+		"`plan` command sends as a Bearer header (read scope to read, approve scope to " +
+		"decide); never printed"},
 	{Name: "SAGE_TLS_CERT", Default: envNone, Doc: "PEM certificate (chain) file; with " +
 		"`SAGE_TLS_KEY`, the API serves HTTPS only"},
 	{Name: "SAGE_TLS_KEY", Default: envNone, Doc: "PEM private key file for `SAGE_TLS_CERT`; " +
