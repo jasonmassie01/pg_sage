@@ -57,10 +57,11 @@ func TestUpgradeBriefsMigration_BootstrapTwice(t *testing.T) {
 	}
 }
 
-func TestUpgradeBriefsStep_IsTheLastT6StepIdempotentAndBounded(t *testing.T) {
+func TestUpgradeBriefsStep_IsAT6StepIdempotentAndBounded(t *testing.T) {
 	steps := trancheSixMigrations()
-	if len(steps) == 0 || steps[len(steps)-1][0] != "ddlUpgradeBriefs" {
-		t.Fatalf("T6 steps end with %v, want ddlUpgradeBriefs", steps[len(steps)-1])
+	// guard-02b's step follows it, so it is pinned after its predecessor.
+	if i := stepIndex(steps, "ddlUpgradeBriefs"); i < 1 || steps[i-1][0] != "ddlReviewRuns" {
+		t.Fatalf("T6 steps = %v, want ddlUpgradeBriefs after ddlReviewRuns", steps)
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout",
 		"CREATE TABLE IF NOT EXISTS sage.upgrade_briefs",

@@ -1,6 +1,7 @@
 package main
 
 import (
+	prov "github.com/pg-sage/sidecar/internal/provider"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 	"github.com/pg-sage/sidecar/internal/sre/slo"
 )
@@ -12,7 +13,9 @@ func (rt *databaseRuntime) newSignals(legacyID *int) *sreSignals {
 	sig, err := newSRESignals(sreSignalsDeps{control: rt.spec.ControlPool,
 		readPolicy: rt.sreReadPolicy(),
 		monitored:  rt.spec.Pool, name: rt.spec.Name, legacyID: legacyID,
-		settings: rt.cfg.SRE, errors: rt.logErrorCounter(), history: rt.sreHistorySource(), logFn: logStructuredWrapper})
+		settings: rt.cfg.SRE, errors: rt.logErrorCounter(), history: rt.sreHistorySource(),
+		logFn: logStructuredWrapper, managed: prov.IsManaged(rt.provider),
+		providerAPI: rt.providerEventReader()})
 	if err != nil {
 		logWarn(rt.spec.Scope, "db %q: sre change feed and SLOs not started: %v",
 			rt.spec.Name, err)
@@ -49,6 +52,9 @@ func (rt *databaseRuntime) startSignals(sig *sreSignals) {
 	sig.start(rt.start, rt.ctx)
 	if sig.poller != nil {
 		rt.note("sre_change_feed")
+	}
+	if sig.providerPoller != nil {
+		rt.note("sre_provider_events")
 	}
 	if sig.engine != nil {
 		rt.note("sre_slo")

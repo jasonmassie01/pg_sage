@@ -3,8 +3,11 @@
 // changed around a database. External systems submit signed deploys,
 // migrations, feature flags and config changes; pg_sage's own sources
 // (its actions, sage.config_audit, DDL seen by the migration detector,
-// pg_stat_statements resets, restarts, failovers and extension version
-// changes) are polled. Investigations read the feed in their window as
+// pg_stat_statements resets, restarts, failovers, server version and
+// host changes, extension version changes and, where a cloud API is
+// configured, the provider's maintenance and failover events) are polled;
+// restarts, failovers, version and host changes carry an attribution
+// (operator, provider or unknown). Investigations read the feed in their window as
 // typed change_feed evidence, so "what changed?" is answered with
 // evidence. Event text is untrusted data: bounded, never control
 // characters, never SQL text or setting values.
@@ -43,6 +46,11 @@ const (
 	KindFailover    Kind = "failover"
 	KindExtension   Kind = "extension"
 	KindOther       Kind = "other"
+	// KindVersionChange is a server_version_num change; its event id says
+	// minor or major (VersionChangeMajor).
+	KindVersionChange Kind = "version_change"
+	// KindHostChange is a new server address or system identifier.
+	KindHostChange Kind = "host_change"
 )
 
 // External reports whether external systems may submit the kind.
@@ -59,6 +67,9 @@ const (
 	SignatureVerified = "verified"
 	SignatureInternal = "internal"
 	SourceSage        = "pg_sage"
+	// SourceProviderAPI is pg_sage's reader of the cloud provider's own
+	// event API (RDS DescribeEvents, Cloud SQL operations).
+	SourceProviderAPI = "provider_api"
 )
 
 // Submission bounds.
@@ -99,6 +110,9 @@ type Event struct {
 	ReceivedAt time.Time `json:"received_at"`
 	Signature  string    `json:"signature"`
 	Hash       string    `json:"hash"`
+	// Attribution is operator, provider or unknown on a provider event
+	// (attributable kinds), empty otherwise.
+	Attribution string `json:"attribution,omitempty"`
 }
 
 // Submission is the signed JSON body of POST /api/v1/sre/change-events.
@@ -133,6 +147,9 @@ func (s Submission) validate(now time.Time) error {
 	switch {
 	case !ValidSource(s.Source):
 		return invalid("source must match %s", sourcePattern)
+	case s.Source == SourceProviderAPI:
+		return invalid("source %s is reserved for pg_sage's provider event reader",
+			SourceProviderAPI)
 	case !s.Kind.External():
 		return invalid("kind %q cannot be submitted", s.Kind)
 	case s.OccurredAt.IsZero():
@@ -209,6 +226,10 @@ func hashOf(e Event) string {
 	parts := []string{e.Source, e.EventID, string(e.Kind), e.Service, e.Summary, e.Link,
 		strings.Join(e.Objects, "\x1f"), e.OccurredAt.UTC().Format(time.RFC3339Nano),
 		fmt.Sprint(e.Scoped)}
+	if e.Attribution != "" {
+		// Only when set, so events recorded before attribution hash the same.
+		parts = append(parts, e.Attribution)
+	}
 	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
 	return hex.EncodeToString(sum[:])
 }

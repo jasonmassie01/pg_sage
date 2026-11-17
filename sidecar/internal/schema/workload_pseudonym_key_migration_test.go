@@ -10,10 +10,12 @@ import (
 // of the install. No concurrent access tests here: two creators are
 // covered by workpack.TestPseudonymKeyDB_ConcurrentCallersAgree.
 
-func TestWorkloadPseudonymKeyStep_IsLastBoundedAndIdempotent(t *testing.T) {
+func TestWorkloadPseudonymKeyStep_IsInOrderBoundedAndIdempotent(t *testing.T) {
 	steps := trancheFiveMigrations()
-	if len(steps) == 0 || steps[len(steps)-1][0] != "ddlWorkloadPseudonymKey" {
-		t.Fatalf("T5 steps = %v, want ddlWorkloadPseudonymKey last", steps)
+	// Later T5 steps (lab-03a, lab-05a) follow it, so it is pinned after its predecessor.
+	if i := stepIndex(steps, "ddlWorkloadPseudonymKey"); i < 1 ||
+		steps[i-1][0] != "ddlPlanApprovalModes" {
+		t.Fatalf("T5 steps = %v, want ddlWorkloadPseudonymKey after ddlPlanApprovalModes", steps)
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout",
 		"CREATE TABLE IF NOT EXISTS sage.workload_pseudonym_key", "CHECK (id = 1)",
@@ -62,4 +64,14 @@ func TestWorkloadPseudonymKeyMigration_BootstrapTwiceAndConstraints(t *testing.T
 			t.Errorf("%s was accepted", name)
 		}
 	}
+}
+
+// stepIndex is the position of the step named name in steps, or -1.
+func stepIndex(steps []namedStep, name string) int {
+	for i, s := range steps {
+		if s[0] == name {
+			return i
+		}
+	}
+	return -1
 }

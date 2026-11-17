@@ -113,6 +113,27 @@ func TestWithChanges_UntrustedSummaryIsBounded(t *testing.T) {
 	}
 }
 
+// guard-02b review: a provider event's attribution is part of the fact,
+// so the investigation says who most likely made the change; a change
+// without one reads as before.
+func TestWithChanges_FactNamesTheAttribution(t *testing.T) {
+	failover := change("failover", "A Multi-AZ failover has completed.", 40)
+	failover["source"], failover["attribution"] = "provider_api", "provider"
+	d := WithChanges(Diagnosis{Family: FamilyWAL}, []Observation{changeObs("C1",
+		failover, change("deploy", "deploy checkout v1.2.3", 90))})
+	h := requireStatus(t, d, RecentChange, StatusAlternative)
+	if len(h.Support) != 2 {
+		t.Fatalf("support = %+v, want the failover and the deploy", h.Support)
+	}
+	if !strings.Contains(h.Support[0].Text, "failover") ||
+		!strings.Contains(h.Support[0].Text, "attributed to provider") {
+		t.Fatalf("failover fact = %q, want its attribution", h.Support[0].Text)
+	}
+	if strings.Contains(h.Support[1].Text, "attributed") {
+		t.Fatalf("deploy fact = %q, want no attribution", h.Support[1].Text)
+	}
+}
+
 func sloRow(name, kind, state string, burnLong any, impact bool, unknown string) probes.Row {
 	return probes.Row{"name": name, "kind": kind, "state": state,
 		"fast_burning": state == "page", "customer_impact": impact, "burn_long": burnLong,

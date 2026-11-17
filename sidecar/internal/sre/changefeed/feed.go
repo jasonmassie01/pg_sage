@@ -89,12 +89,12 @@ func (f *Feed) Probe(ctx context.Context, args probes.Args) probes.Result {
 		return res
 	}
 	res.Columns = []string{"kind", "source", "service", "summary", "occurred_at", "age_s",
-		"signature", "event_id"}
+		"signature", "event_id", "attribution"}
 	for _, e := range events {
 		res.Rows = append(res.Rows, probes.Row{"kind": string(e.Kind), "source": e.Source,
 			"service": e.Service, "summary": e.Summary, "occurred_at": e.OccurredAt,
 			"age_s": res.ObservedAt.Sub(e.OccurredAt).Seconds(), "signature": e.Signature,
-			"event_id": e.EventID})
+			"event_id": e.EventID, "attribution": e.Attribution})
 	}
 	res.Status = probes.StatusOK
 	if len(res.Rows) == 0 {

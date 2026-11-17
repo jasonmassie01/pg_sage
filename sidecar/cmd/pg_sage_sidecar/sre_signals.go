@@ -21,10 +21,13 @@ import (
 // (change_feed and slo_status evidence) and open an slo_burn
 // investigation on a page-level burn.
 type sreSignals struct {
-	name            string
-	settings        config.SREConfig
-	feed            *changefeed.Feed
-	poller          *changefeed.Poller
+	name     string
+	settings config.SREConfig
+	feed     *changefeed.Feed
+	poller   *changefeed.Poller
+	// providerPoller polls the provider-event sources alone (restart,
+	// failover, version, host, provider API) when feed polling is off.
+	providerPoller  *changefeed.Poller
 	engine          *slo.Engine
 	applicationOnly bool
 	// owners maps an SLO to its owner_database: only that database's
@@ -45,11 +48,16 @@ type sreSignalsDeps struct {
 	errors  slo.ErrorCounter
 	history probes.HistoricalSource
 	logFn   func(string, string, ...any)
+	// managed: the database is a managed service (provider attribution);
+	// providerAPI reads its provider's event API (nil: none).
+	managed     bool
+	providerAPI changefeed.ProviderEventReader
 }
 
 // newSRESignals builds the feed (always: ingested events are read even
-// when polling is off), the poller (sre.change_events.feed_enabled) and
-// the SLO engine (sre.slo.enabled).
+// when polling is off), the poller (sre.change_events.feed_enabled; the
+// provider-event sources alone when it is off) and the SLO engine
+// (sre.slo.enabled).
 func newSRESignals(d sreSignalsDeps) (*sreSignals, error) {
 	s := &sreSignals{name: d.name, settings: d.settings, logFn: d.logFn}
 	cs, err := changefeed.NewStore(d.control)
@@ -57,14 +65,8 @@ func newSRESignals(d sreSignalsDeps) (*sreSignals, error) {
 		return nil, err
 	}
 	s.feed = changefeed.NewFeed(cs, d.name, s.scope)
-	ce := d.settings.ChangeEvents
-	if ce.FeedEnabled && d.readPolicy.Allows(probes.WALRunwayProbe) {
-		s.poller, err = changefeed.NewPoller(changefeed.PollerDeps{Feed: s.feed,
-			Monitored: d.monitored, Control: d.control, LegacyDatabaseID: d.legacyID,
-			Interval: ce.FeedInterval(), Retention: ce.Retention(), Logf: d.logFn})
-		if err != nil {
-			return nil, err
-		}
+	if err := s.newPoller(d); err != nil {
+		return nil, err
 	}
 	s.applicationOnly = !d.readPolicy.Allows(probes.SLOStatus) && d.readPolicy.Allows(probes.ApplicationSLOStatus)
 	if d.settings.SLO.Enabled && (d.readPolicy.Allows(probes.SLOStatus) || s.applicationOnly) {
@@ -81,6 +83,30 @@ func newSRESignals(d sreSignalsDeps) (*sreSignals, error) {
 		}
 	}
 	return s, nil
+}
+
+// newPoller builds the change feed poller the read policy allows: every
+// source with feed polling on, the provider-event sources alone with it
+// off (guard-02b: provider changes are always on the timeline).
+func (s *sreSignals) newPoller(d sreSignalsDeps) error {
+	if !d.readPolicy.Allows(probes.WALRunwayProbe) {
+		return nil
+	}
+	ce := d.settings.ChangeEvents
+	p, err := changefeed.NewPoller(changefeed.PollerDeps{Feed: s.feed,
+		Monitored: d.monitored, Control: d.control, LegacyDatabaseID: d.legacyID,
+		Interval: ce.FeedInterval(), Retention: ce.Retention(), Logf: d.logFn,
+		Managed: d.managed, ProviderAPI: d.providerAPI,
+		ProviderEventsOnly: !ce.FeedEnabled})
+	if err != nil {
+		return err
+	}
+	if ce.FeedEnabled {
+		s.poller = p
+	} else {
+		s.providerPoller = p
+	}
+	return nil
 }
 
 func (s *sreSignals) newEngine(d sreSignalsDeps) (*slo.Engine, error) {
@@ -202,8 +228,10 @@ func (s *sreSignals) onPage(ctx context.Context, st slo.Status) error {
 
 // start runs the poller and the engine on the runtime's worker group.
 func (s *sreSignals) start(run func(func()), ctx context.Context) {
-	if s.poller != nil {
-		run(func() { s.poller.Run(ctx) })
+	for _, p := range []*changefeed.Poller{s.poller, s.providerPoller} {
+		if p != nil {
+			run(func() { p.Run(ctx) })
+		}
 	}
 	if s.engine != nil {
 		run(func() { s.engine.Run(ctx) })
