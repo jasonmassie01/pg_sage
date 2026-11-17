@@ -168,6 +168,11 @@ const (
 var verifierBacktestRule = purgeRule{table: "verifier_backtest", timeCol: "ran_at",
 	days: 365}
 
+// restoreDrillsRule keeps 400 days of restore drills (drill-01a): a year
+// of monthly drills with their measured RTO and RPO, for review and audit.
+var restoreDrillsRule = purgeRule{table: "restore_drills", timeCol: "finished_at",
+	days: 400}
+
 func purgeRules(cfg *config.Config) []purgeRule {
 	r := cfg.Retention
 	rules := []purgeRule{
@@ -271,7 +276,8 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		{table: "sre_eval_runs", timeCol: "ingested_at",
 			days: cfg.SRE.Autonomy.ReportRetentionDays, extra: keepEvalRun},
 	}
-	rules = append(append(rules, rollupPurgeRules(r)...), verifierBacktestRule)
+	rules = append(append(rules, rollupPurgeRules(r)...), verifierBacktestRule,
+		restoreDrillsRule)
 	return append(rules, planPurgeRule(r))
 }
 

@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"testing"
@@ -271,5 +274,111 @@ func TestCloneReceiptPoolsAndScope(t *testing.T) {
 	if _, err := receiptingRehearsalProvider(nil, nil, reaperCloneConfig); err == nil ||
 		errors.Is(err, clone.ErrNoReceiptStore) {
 		t.Fatalf("nil adapter: %v", err)
+	}
+}
+
+// drill-01a: a drill clone left by a killed sidecar is destroyed by the
+// next start's reaper once its receipt expires (spec crash CHECK).
+
+// drillHolderDSNEnv tells TestDrillCloneHolderProcess, run as a
+// subprocess, where to write the drill receipt.
+const drillHolderDSNEnv = "PG_SAGE_DRILL_HOLDER_DSN"
+
+// TestDrillCloneHolderProcess is not a test of its own: run as a subprocess
+// it creates one receipted drill clone and waits to be killed.
+func TestDrillCloneHolderProcess(t *testing.T) {
+	dsn := os.Getenv(drillHolderDSNEnv)
+	if dsn == "" {
+		return
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("helper: %v", err)
+	}
+	p, err := clone.NewReceiptingProvider(&reaperAdapter{}, clone.NewReceiptStore(pool),
+		clone.ReceiptingConfig{Adapter: "dle", Scope: cloneReceiptScope(reaperCloneConfig),
+			Deployment: func(ctx context.Context) (string, error) {
+				return earned.EnsureDeployment(ctx, pool)
+			}, Purpose: clone.PurposeDrill, TTL: 2 * time.Hour})
+	if err != nil {
+		t.Fatalf("helper: %v", err)
+	}
+	c, err := p.Create(ctx, clone.CloneSpec{IncludeData: true})
+	if err != nil {
+		t.Fatalf("helper: create: %v", err)
+	}
+	os.Stdout.WriteString("created " + c.ID + "\n")
+	time.Sleep(2 * time.Minute)
+}
+
+// killedDrillHolder runs the helper against pool's database and kills it
+// once its clone exists; it returns the clone id.
+func killedDrillHolder(t *testing.T, pool *pgxpool.Pool) string {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestDrillCloneHolderProcess$",
+		"-test.count=1")
+	cmd.Env = append(os.Environ(), drillHolderDSNEnv+"="+pool.Config().ConnString(),
+		"SAGE_TEST_DATABASE_URL=", "SAGE_DATABASE_URL=")
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	created := make(chan string, 1)
+	go func() {
+		s := bufio.NewScanner(out)
+		for s.Scan() {
+			if id, ok := strings.CutPrefix(strings.TrimSpace(s.Text()), "created "); ok {
+				created <- id
+				return
+			}
+		}
+		created <- ""
+	}()
+	select {
+	case id := <-created:
+		if id == "" {
+			t.Fatal("the drill holder exited before creating its clone")
+		}
+		if err := cmd.Process.Kill(); err != nil {
+			t.Fatal(err)
+		}
+		_ = cmd.Wait()
+		return id
+	case <-time.After(90 * time.Second):
+		t.Fatal("the drill holder never created its clone")
+	}
+	return ""
+}
+
+func TestReapDestroysTheDrillCloneOfAKilledSidecar(t *testing.T) {
+	pool := reaperPool(t)
+	ctx := context.Background()
+	id := killedDrillHolder(t, pool)
+	if got := receiptStatus(t, pool, id); got != clone.StatusReady {
+		t.Fatalf("killed holder's receipt is %s, want ready", got)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE sage.clone_instances
+		SET expires_at = now() - interval '1 minute' WHERE ref = $1`, id); err != nil {
+		t.Fatal(err)
+	}
+	adapter := &reaperAdapter{}
+	report := reapRehearsalClones(ctx, reaperCloneConfig, adapter, pool)
+	if len(adapter.destroyed) != 1 || adapter.destroyed[0] != id ||
+		len(report.Destroyed) != 1 || report.Destroyed[0].Purpose != clone.PurposeDrill {
+		t.Fatalf("destroyed %v report %+v, want the drill clone %s", adapter.destroyed,
+			report, id)
+	}
+	var left int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sage.clone_instances
+		WHERE purpose = 'drill' AND status IN ('ready', 'destroying')`).Scan(&left); err != nil {
+		t.Fatal(err)
+	}
+	if left != 0 {
+		t.Fatalf("%d drill receipts still ready or destroying after the first pass", left)
 	}
 }
