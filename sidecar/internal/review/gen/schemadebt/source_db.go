@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -45,7 +46,8 @@ SELECT u.subject, r.epoch, r.sampled_at, r.value, r.limit_value
          FROM sage.runway_samples s
         WHERE s.kind = 'sequence' AND s.subject = u.subject AND s.sampled_at >= $2
         ORDER BY s.sampled_at DESC
-        LIMIT $3) r`
+        LIMIT $3) r
+ ORDER BY u.subject, r.sampled_at DESC`
 
 // DBSource reads the catalog facts of the monitored database through
 // catalog (bounded, read-only: a catalogread.Reader) and the runway
@@ -151,11 +153,18 @@ func (s *DBSource) readSeries(ctx context.Context, subjects []string, since time
 			sr = Series{Subject: subject, Epoch: epoch, Limit: limitOf(limit)}
 		}
 		if epoch == sr.Epoch {
-			sr.Points = append([]Point{p}, sr.Points...)
+			sr.Points = append(sr.Points, p)
 		}
 		out[subject] = sr
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for subject, sr := range out { // read newest first; a series is oldest first
+		slices.Reverse(sr.Points)
+		out[subject] = sr
+	}
+	return out, nil
 }
 
 // limitOf is a stored limit; NULL is no limit of the series' own.
