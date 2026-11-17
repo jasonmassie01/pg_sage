@@ -5,7 +5,7 @@
 These changes are planned as five releases: v2.5.1 (tranche T0a, the safety fixes),
 v2.5.2 (tranche T0b), v2.6.0 (tranche T1), v2.7.0 (tranche T2) and v2.8.0+ (tranche T3).
 The tranche T4 changes finish them and ship with the T4 release; the T4 follow-ups (tranche T4c)
-are listed last.
+follow them, and the T5 foundations (tranche T5) are listed last.
 
 ### v2.5.1 (tranche T0a, safety)
 
@@ -2875,6 +2875,279 @@ are listed last.
   ranking and text-read collector tests now run on the exclusive test server
   (SAGE_TEST_EXCLUSIVE_URL), which starts with an empty pg_stat_statements, so other packages'
   work on the shared server no longer makes them flake (ci-23).
+
+### T5 foundations: Evidence, Lab, Plan, Inbox (tranche T5)
+
+#### Security
+
+- **Workload pack model tier.** Workload evidence packs now show what would leave the network
+  before any model reads it. The database page's new Evidence packs card previews the model tier:
+  statement texts redacted (numbers included), numeric column statistics only, no plan filter
+  values, and sparkline charts. Identifiers can be hashed. A leak guard refuses the tier if a
+  seeded value or credential-shaped token survives. Admins can download a signed export (`GET
+  .../workload-packs/{sha}/export`, recorded as `evidence_exported`), and the new MCP tool
+  `get_workload_pack` returns the model tier only (evid-02c).
+- **Do not touch.** A new "Do not touch" fact (`do_not_touch`) for tables, indexes and schemas
+  blocks every change pg_sage would make to them, operator-approved or not, until a person expires
+  the fact. Only pg_sage's own rollbacks still run, and findings about the object stay listed as
+  advice. The Facts page gains an Owner brief form that shows a peak-window suggestion measured
+  from 28 days of the hourly query rollup (`GET /api/v1/databases/{db}/facts/peak-suggestion`);
+  saving the form declares the brief (evid-03b).
+- **Plan audit chains.** Plans now leave a tamper-evident audit record in two new append-only
+  audit chains: `plan_events` (every plan create, edit, approval and void, written in the same
+  transaction as the change, with who made it) and `plan_model_records` (every model pass a plan
+  was built from, raw output kept byte for byte up to 1 MiB with its SHA-256). A plan's replay
+  input is returned only when it still matches its hashes and chain. The evidence pack of an
+  action run by a plan step now includes the plan's events and model records with their chain
+  proofs (plan-01b).
+
+#### Changed
+
+- **Verification v2 core.** Verification v2's core is in place, not yet deciding verdicts: a step
+  is judged by shared blocks per call, with time per call as a guardrail. Targets are pooled with
+  call shares frozen before the step, so a traffic shift no longer reads as a gain. The step is
+  compared with the same hour-of-week of earlier weeks when 3 or more exist, and the median change
+  of at least 3 untouched control statements is subtracted. Watches now store their frozen weights
+  (lab-01a).
+- **Verification v2 guards.** Verification v2 gains three guards, not yet used in verdicts. An
+  index step is credited only for targets whose plan changed at the step and uses the index;
+  otherwise the result is `no_mechanism`, or `mechanism_unavailable` when plans cannot be read. A
+  CUSUM scan marks a window `contaminated_at=<time>` when an unrelated break happens after the
+  step. Repeated looks share alpha with O'Brien-Fleming spending, and the spend is stored with the
+  watch so a restart continues it (lab-01b).
+- **Verification v2 in shadow; expired monitors ask.** Verification v2 runs in shadow until the
+  back-test passes. New `verify.method` (`v1`, `shadow`, `v2` or `auto`; default `auto`, which is
+  shadow until a passing back-test) and `verify.on_expired` (`ask`, `keep` or `revert`; default
+  `ask`). A step whose targets run too rarely to be judged within the verification window now
+  needs approval at every trust level. The outcome ledger records which verifier decided and the
+  other verifier's verdict, and the dashboard shows "No change", "Inconclusive" and "v2 would say:
+  ..." (lab-01c).
+- **Verification ladder.** Each queued change records what it was tested on before production
+  (plans only, a clone, production), shown on the approval card and as the highest tier on the
+  outcome ledger row. A drop, an index replace, an `ALTER TABLE` or a restart-only setting now
+  needs approval at every trust level unless it was rehearsed on a clone. Automatic rollbacks are
+  not affected. The migration adds `sage.action_queue.ladder` (lab-03a).
+- **Fleet canary on a measured number.** Fleet canary rollouts now halt on a measured number: each
+  database's effect on its target queries, net of the median change of the same queries on the
+  databases not yet changed (or its own verification v2 effect when there are fewer than two such
+  controls), compared with `sre.autonomy.canary.regression_limit_pct`. Databases with no v2 number
+  are judged by their verdict flag, marked "flag only". The new
+  `sre.autonomy.canary.stage_wait_hours` (default 24) pauses between databases.
+  `sage.rollout_instance` records `effect_pct`, `control_pct` and `effect_method` (lab-03b).
+- **Clone receipts and limits.** Clones now say what they are and what they cost: every clone
+  receipt records its kind and a cost label (instance-hours, priced only from your `cost.rates`)
+  before the clone is requested. A full-copy restore creates nothing unless
+  `clone.allow_full_copy` is true (default false). `clone.max_creates_per_hour` (default 4) caps
+  clones per deployment, and creates back off after provider 429/5xx replies. Clones left by a
+  killed sidecar are reaped once its heartbeat is 5 minutes old instead of waiting for their TTL.
+  `clone.provider: snapshot` is still refused, now naming its replacements `rds_restore`,
+  `cloudsql_clone`, `alloydb_restore` and `azure_restore` (lab-05a).
+- **Home is the Inbox.** Home is now the Inbox: decisions waiting on you, decided in place, and
+  the changes made since your last visit (kept per user across devices), with Undo. The one nav
+  badge moves from Actions to Inbox (N+, 99+). Rollback asks for a reason. The Value page moved to
+  `#/value` (ux-01b).
+- **Actions accessibility.** Actions now opens on Needs your review when approvals wait. Approve,
+  Reject and danger buttons use dark fills that reach WCAG AA under white text. The approval cards
+  answer j/k/a/r/s, and `a` always asks you to confirm. On screens narrower than 768 px the card's
+  decision row stays at the bottom of the screen. The scheduled-approval message now names where
+  to cancel the approval (ux-05a).
+- **Held back.** The Actions "Decisions" tab is now "Held back". Its rows and a case's "Why hasn't
+  this run?" show verdicts and reasons in words, with a next step for budget, verification-wait,
+  emergency-stop, replica and provider-managed holds, and each row links to its exact approval
+  request or finding (ux-05b).
+- **Page guides.** The meme and "About this page" guide now open only on your first visit to each
+  page, then fold to a one-line toggle; phones (below 768 px) no longer show them. Error and Not
+  found pages link "Go to Inbox". An empty Value page says the first verified change earns the
+  first credit and links to the first look (ux-05c).
+- **Time zones and keyboard tabs.** Every time in the dashboard now shows its zone (2026-11-15
+  14:05 CST), and a header Time zone switch (Local or UTC) changes every time on the page and is
+  remembered per browser. The five tab bars (Actions, Snapshot, Fleet, Notifications, Settings)
+  are proper keyboard tabs with Arrow, Home and End. Grant more is a real modal (Escape closes it,
+  focus returns), and table headers are announced per column (ux-05d).
+- **Agent requests and long database lists.** External agent requests now link to their
+  investigation on Cases and, for a queued cancel remediation, to its approval (new `queue_id` on
+  `GET /api/v1/specialist-requests`). The Databases table has a name/host/tag filter and shows at
+  most 100 rows at a time. From six databases, the header scope picker adds a "Find database" box
+  (ux-05e).
+- **MCP errors say what to do next.** MCP tool errors now tell agents what to do next: `next` (a
+  tool to call, the same tool with its required arguments, or "wait"), `retry_after` in seconds
+  where pg_sage knows it (the rate limiter's reset, 30 s for an unavailable dependency) and
+  `approval_url` for approvals reserved for a person (paired with `next: get_inbox`). `code`,
+  `reason` and `message` are unchanged. The `get_policy`, `request_change`, `get_ledger`,
+  `get_value`, `optimize_query` and `set_maintenance_policy` descriptions now say when to use each
+  tool, what it returns and what it never does (ux-05f).
+
+#### Added
+
+- **Hourly query history.** pg_sage now keeps hourly per-query history beyond 14 days: a rollup of
+  the snapshot queries category (calls, time, rows, blocks, temp, WAL per queryid and UTC hour,
+  epoch breaks flagged, never negative) in `sage.query_rollup_hourly`, with per-hour coverage in
+  `sage.query_rollup_coverage`. It backfills 90 days in about 7.5 hours per database and is
+  reported by `pg_sage_query_rollup_hours_total` and `pg_sage_query_rollup_lag_hours` (evid-01a).
+- **Long query history and coverage.** Per-query history keeps a daily tier for 400 days and
+  hourly rows for 35 days (new settings `retention.query_rollup_hourly_days` and
+  `retention.query_rollup_daily_days`). History migrations now carry the rollup with them. A new
+  `GET /api/v1/queries/coverage` endpoint, plus a one-line notice in the workload explorer,
+  reports how much of the execution time the long history covers (evid-01b).
+- **Workload evidence packs.** `POST /api/v1/databases/{db}/workload-packs` (operator) builds a
+  hashed, versioned bundle (`pg_sage-workload/1`) of a database's workload over 14-100 days
+  (default 28). It holds statement families with an hour-of-week shape, coverage, and weekly and
+  capacity trends with slope, R2 and standard error. Every fact has a stable evidence id. The same
+  window and data always give the same `content_sha256`, and a pack is stored once and never
+  changed. `GET .../workload-packs`, `.../{sha}` and `.../{sha}/evidence/{id}` read packs (viewer,
+  scoped to the database). Also adds `retention.workload_packs_days` (default 180) and the metrics
+  `pg_sage_workload_pack_builds_total` and `pg_sage_workload_pack_bytes` (evid-02a).
+- **Workload pack sections.** Workload evidence packs now also hold indexes, settings, autovacuum,
+  schema, plans (shape only), connections by hour and age, provider, column statistics and
+  owner-context sections, each fact with an evidence id and "unknown" rather than zero where
+  pg_sage could not measure it. Builds read the catalog under the safety timeouts, and plan
+  conditions or `pg_stats` value samples enter a pack only when that build opts in
+  (`include_conditions`, `include_value_samples`) (evid-02b).
+- **Owner brief.** Record an owner brief per database (owner, contact, peak windows, growth,
+  growth % per month, retention, note) with `POST /api/v1/facts` or MCP `propose_fact` (type
+  `owner_brief`, subject kind `database`, subject `*`). It never binds, is never expired for
+  absence, goes first in model prompts, and is measured by `pg_sage_owner_brief_present` and
+  `pg_sage_owner_brief_steps` (accepted vs rejected queued actions before and after the brief)
+  (evid-03a).
+- **Verifier back-test.** Verification v2 becomes the verifier per database once its own back-test
+  passes. pg_sage replays 300 placebo steps over the stored history every week on the leader, and
+  the new `pg_sage_sidecar verifier-backtest --database NAME` command runs one by hand. The run
+  stores the placebo false-positive rate (with its Wilson 95% bound), the inconclusive share and
+  the detection rate on injected 30% drops in `sage.verifier_backtest`. `verify.method: auto` acts
+  on v2 only when the latest row has at least 200 usable placebos, a rate at or below 5% and
+  detection at or above 80%, and ran within 35 days. New settings:
+  `verify.backtest_max_runtime_minutes` (default 10) and `verify.backtest_placebos` (default 300).
+  The bench fixture rates are in docs/generated/verifier-backtest.md (lab-02).
+- **Index rehearsals on a clone.** Index proposals are now rehearsed on a clone when
+  `clone.provider` is set (`dle` or `lakebase_branch`). The tuning agent offers a rehearse tool
+  and the index floor rehearses each candidate it admits. pg_sage builds the index on a receipted
+  clone after checking that the clone is not production. It then compares shared blocks per call
+  before and after for read-only statements that have no parameters, and records the result as the
+  tier-2 ladder entry on the approval card. New settings: `clone.rehearsals_per_hour` (default 2)
+  and `clone.rehearsal_statement_timeout_seconds` (default 5) (lab-04a).
+- **Migration rehearsals measure the workload.** Migration rehearsals now measure the 20 busiest
+  production statements that reference the migrated table (texts from pg_stat_statements) on the
+  clone before and after the expand steps. A plan or latency regression parks the migration with
+  the statement named. A measured workload with no regression promotes the expand steps. The
+  verdict stays inconclusive, with the reason, when production has no pg_stat_statements or no
+  statement references the table. The result is a tier-2 ladder record with the clone receipt,
+  returned in the `apply_migration` outcome (`affected_queries`, `ladder`) and kept on
+  `sage.migration_run` (`measurement.ladder`, `clone_id`) (lab-04b).
+- **Neon branch clones.** `clone.provider: neon_branch` rehearses migrations and index changes on
+  a copy-on-write Neon branch of production (`clone.neon.project_id`, `parent_branch`, `api_key`
+  or `SAGE_CLONE_NEON_API_KEY[_FILE]`, `endpoint_max_cu`, `ttl_minutes`). Each branch is named
+  `sage-*`, asks Neon to expire it, and is deleted on failure or found by name by the reaper.
+  Without an API key, rehearsals are recommendation-only (lab-05b).
+- **Aurora clones.** `clone.provider: aurora_clone` gives each rehearsal an Aurora PostgreSQL
+  copy-on-write clone of the monitored cluster (one instance, ready in 10 to 20 minutes), with the
+  monitored DSN pointed at the clone's endpoint. Configure it with `clone.aurora.{region,
+  instance_class, ttl_minutes}` and the AWS default credentials. It refuses a 16th copy-on-write
+  clone, the cluster is tagged so the reaper can find a leaked clone, and docs/managed-clouds.md
+  has the IAM policy it needs (lab-05c).
+- **RDS restores.** `clone.provider: rds_restore` rehearses on a point-in-time restore of the
+  monitored RDS for PostgreSQL instance. Each restore is a full copy billed at the full instance
+  price. It needs `clone.allow_full_copy: true` (startup refuses it otherwise), logs a cost
+  warning at startup, and takes `clone.rds.region` / `clone.rds.instance_class` plus
+  `clone.restore_deadline_minutes` (default 120). Restores are tagged so the reaper deletes any
+  that leak (lab-05d).
+- **Cloud SQL clones.** `clone.provider: cloudsql_clone` rehearses on a Cloud SQL for PostgreSQL
+  instance clone. It is a full copy: it needs `clone.allow_full_copy` and
+  `clone.cloudsql.{project,instance}`, is bounded by `clone.restore_deadline_minutes`, and the
+  clone is labelled `pg-sage-receipt` so the reaper can find and delete leaks (lab-05e).
+- **AlloyDB restores.** `clone.provider: alloydb_restore` rehearses on a point-in-time restore of
+  the monitored AlloyDB cluster's continuous backup to a new cluster plus a zonal primary
+  instance. It is a full copy: it needs `clone.allow_full_copy` and
+  `clone.alloydb.{project,location,cluster}` and is bounded by `clone.restore_deadline_minutes`
+  (lab-05f).
+- **Azure restores.** `clone.provider: azure_restore` rehearses on a point-in-time restore of the
+  monitored Azure Database for PostgreSQL flexible server to a new `sage-*` server in the same
+  region and resource group. It is a full copy: it needs `clone.allow_full_copy` and
+  `clone.azure.{subscription_id,resource_group,server}` and is bounded by
+  `clone.restore_deadline_minutes`. Clones are tagged with their receipt and keep the source's
+  subnet and customer key, and untagged servers are never deleted (lab-05g).
+- **Plans.** New `sage.plan`, `sage.plan_step`, `sage.plan_step_edge` and `sage.plan_approval`
+  tables (migration ddlPlans) with validation (DAG edges, executor contracts and SQL allowlist,
+  required rollbacks, evidence-cited steps, up-front unverifiable rule) and a plan-v1 hash that
+  binds an approval to what runs. Editing a step or edges voids the approval, and a direct SQL
+  edit reports `hash_mismatch`. Terminal plans age out with `retention.actions_days`, and workload
+  packs a plan cites are kept (plan-01a).
+- **Plan engine.** Each database's plan engine runs an approved plan one step at a time through
+  the executor's normal approval path (gate, trust, Apply, verification). It waits for each step's
+  verdict before the next step starts, waits for other changes on the same queries or objects,
+  keeps, reverts or halts on each verdict as the step says, and sends one notification when a plan
+  halts. It runs only plans a person approved, needs no configuration, runs only on the fleet
+  leader, and pauses under the emergency stop. Approving a plan step's queue item from the Actions
+  page or the scheduled runner runs nothing, and no approval card is sent for it (plan-02a).
+- **Plan caps and never-automatic steps.** The standing policy gains a `plans` block
+  (`max_new_indexes_per_table` 2, `max_new_index_bytes_pct` 10, `max_restart_bound_steps` 1,
+  `peak_windows`). A plan over a cap is refused when it is proposed or approved. A step that would
+  cross a cap, or start inside a peak window, waits, and expires past its deadline. Steps that are
+  never automatic stop with `awaiting_approval` whatever the plan's approval says: restart-bound
+  settings, rewrites, dropped data, type changes, revokes, topology or pooler changes, and changes
+  that cannot be undone (plan-02b).
+- **Revert to a checkpoint.** `revert_to_checkpoint` reverts the failed step and every kept step
+  back to the latest checkpoint, newest first. It never reverts a step that a kept step outside
+  the walk depends on, and then halts the plan with what it reverted and kept, and why. Every plan
+  revert is checked in the catalog before the step counts as reverted; a revert that does not land
+  fails the step and halts the plan. Validation now refuses a checkpoint that cannot run before
+  the step that reverts to it (`checkpoint_not_before`) (plan-02c).
+- **Operator steps.** Plans can include operator steps ("you run this"). pg_sage tells the
+  operator the command to run, waits until the change shows up in pg_settings or the managed
+  change proposal is marked applied, then judges it like any other step. It never reverts one: if
+  the change makes things worse, the plan halts and the notification gives the operator's revert
+  command (plan-02d).
+- **Plan resume.** Plans resume after a sidecar restart or a fleet leader change. Each step left
+  in flight is read back from its queue item and the action ledger: it is started again, run once,
+  judged, or has its revert read back, and is never run twice. A step whose state cannot be
+  determined halts the plan as `interrupted_unknown`, with one notification. Plan step claims use
+  the leader's holder id and the elector's lease, so an old leader that wakes up can no longer
+  move a step (plan-02e).
+- **Plan approval API and CLI.** Plans can be approved all at once, up to step N, or step by step,
+  from the new `/api/v1/plans` routes or the new `pg_sage_sidecar plan
+  list|show|approve|reject|resume|cancel` command. The command uses an operator API token: read
+  scope to read, approve scope to decide; agent tokens are refused. Never-automatic steps still
+  need their own approval, and editing a plan voids every approval (plan-03a).
+- **Plans in chat and MCP.** Proposed plans go to the chat channels that already get approval
+  cards, with Approve all / Approve up to step K / Approve step 1 only / Reject buttons; only
+  steps of risk tier safe or moderate can be approved from chat, and the rest needs the app.
+  Agents can propose plans over MCP with `propose_plan` (at most 5 open per principal) and read
+  them with `list_plans` and `get_plan`, but no MCP tool approves a plan (plan-03b).
+- **Inbox.** `GET /api/v1/inbox` and `/api/v1/inbox/count`, and the read-only MCP tool
+  `get_inbox`, list every decision waiting on a person (change approvals, plans, autonomy
+  promotions, proposed facts, unsigned runbooks, agent capability requests and policy proposals)
+  across the databases you may read, newest risk first. A source that could not be read is named
+  and the total marked as a lower bound. New metrics `pg_sage_inbox_items` and
+  `pg_sage_inbox_decision_seconds`; decision requests may send `X-Sage-Surface` (ux-01a).
+- **Outcome ledger.** One row per change pg_sage made in a window, giving what, why, origin, the
+  expected and measured effect, the verdict (pending until judged) and whether the change can
+  still be rolled back. It is available as `GET /api/v1/outcomes`, the dashboard's new Ledger page
+  (`#/ledger`), `pg_sage ledger --since 24h [--json]` and the MCP tool `get_outcomes`, with the
+  new metric `pg_sage_outcomes_measured_ratio`. Value's incident evidence ids now link to the
+  ledger (ux-02a).
+- **Plans tab.** Actions has a Plans tab (first in the tab bar) to review a multi-step plan.
+  Stages show status, evidence, exact SQL, expected and measured effect, ladder tier, gate and
+  rollback with its dependants; operator stages read "You run this". You approve it all at once,
+  up to stage N, or step by step, bound to the plan hash ("This plan changed after approval;
+  approval voided" when it is stale). Cases show "Part of plan: <goal>", and /metrics exports
+  `pg_sage_plan_approvals_total{mode}` (ux-03).
+- **Digest.** The scheduled briefing sends a digest (Did, Verified or reverted, Saved, Needs you,
+  Could not do and why) as the `digest_ready` notification event through your Notifications
+  channels. By default it is sent only when something changed (`briefing.only_when_changed`).
+  `briefing.slack_webhook_url` becomes the managed channel `config:slack:briefing`. An optional
+  `briefing.dba_hour_rate_usd` shows saved hours in dollars. Home shows the latest digest
+  (ux-02b).
+- **pg_sage doctor.** `pg_sage doctor --pg-url ... [--config sage.yaml] [--json] [--send-test]` is
+  a read-only preflight that checks the connection, PostgreSQL version, role grants (with the
+  exact GRANT), pg_stat_statements/HypoPG, provider, query text visibility, model key, a test
+  notification, the meta database schema and clock skew, each with a copyable fix (exit 0/1/2, DSN
+  never printed). The same report is at admin-only `GET /api/v1/doctor`, and each database logs
+  its doctor counts once at startup (ux-04a).
+- **Setup wizard.** A new install opens on "Set up pg_sage", four steps you can skip: Connect
+  (paste a URL, get the provider's role SQL and a doctor report), Model (endpoint and key, tested
+  in place), Where to reach you (one channel and a test send) and How much may I do (Watch only,
+  Ask me first, Do safe things and tell me). The checklist gains a Model step, `POST
+  /api/v1/onboarding/setup` records each finished step, and
+  `pg_sage_setup_within_hour_ratio{part=model|channel}` is exported (ux-04b).
 
 ## v2.5.0 (2026-11-03) -- The Databricks release
 
