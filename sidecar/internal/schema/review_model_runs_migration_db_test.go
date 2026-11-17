@@ -13,10 +13,13 @@ import (
 // client's role. No concurrent-writer test here: Bootstrap holds its
 // advisory lock, and a run's rows are written by one pass.
 
-func TestReviewModelRunsStep_IsTheLastT6StepIdempotentAndBounded(t *testing.T) {
+// review-03b appended ddlReviewPlans after this step, so the pin is its
+// place (just before ddlReviewPlans), not "last".
+func TestReviewModelRunsStep_IsPlacedIdempotentAndBounded(t *testing.T) {
 	steps := trancheSixMigrations()
-	if len(steps) == 0 || steps[len(steps)-1][0] != "ddlReviewModelRuns" {
-		t.Fatalf("T6 steps end with %v, want ddlReviewModelRuns", steps[len(steps)-1])
+	if len(steps) < 2 || steps[len(steps)-2][0] != "ddlReviewModelRuns" ||
+		steps[len(steps)-1][0] != "ddlReviewPlans" {
+		t.Fatalf("T6 steps %v, want ddlReviewModelRuns then ddlReviewPlans", steps)
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout",
 		"CREATE TABLE IF NOT EXISTS sage.review_model_run",

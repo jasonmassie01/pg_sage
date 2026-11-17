@@ -27,6 +27,7 @@ type Spec struct {
 	Texts    *workpack.Texts
 	Indexes  *workpack.Indexes
 	Schema   *workpack.Schema
+	Settings *workpack.Settings
 }
 
 // Window is the days-long window ending at 2026-11-01 00:00 UTC.
@@ -52,6 +53,9 @@ func Build(s Spec) (*workpack.Pack, error) {
 	}
 	if s.Schema != nil {
 		files["schema.json"] = *s.Schema
+	}
+	if s.Settings != nil {
+		files["settings.json"] = *s.Settings
 	}
 	return seal(s, files)
 }

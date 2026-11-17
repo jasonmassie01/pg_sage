@@ -82,9 +82,10 @@ func checkCandidateConstraints(t *testing.T, ctx context.Context, pool *pgxpool.
 
 func TestReviewCandidatesStep_IsTheLastT6StepIdempotentAndBounded(t *testing.T) {
 	steps := trancheSixMigrations()
-	// review-03a appended ddlReviewModelRuns after it (the last-step pin
-	// moved there).
-	if len(steps) < 2 || steps[len(steps)-2][0] != "ddlReviewCandidates" {
+	// review-03a and review-03b appended steps after it (the last-step pin
+	// moved), so the pin is its place: just before ddlReviewModelRuns.
+	at := stepIndex(steps, "ddlReviewCandidates")
+	if at < 0 || at+1 >= len(steps) || steps[at+1][0] != "ddlReviewModelRuns" {
 		t.Fatalf("T6 steps %v, want ddlReviewCandidates just before ddlReviewModelRuns",
 			steps)
 	}

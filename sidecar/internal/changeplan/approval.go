@@ -168,27 +168,19 @@ type StepCoverage struct {
 // settings its steps change.
 func Coverage(p Plan, live *Approval, steps []StepApproval,
 	settings SettingContexts) []StepCoverage {
-	own := map[int64]bool{}
-	for _, sa := range steps {
-		if sa.VoidedAt == nil && sa.PlanHash == p.PlanHash {
-			own[sa.StepID] = true
-		}
-	}
-	if live != nil && live.PlanHash != p.PlanHash {
-		live = nil
-	}
-	out := make([]StepCoverage, 0, len(p.Steps))
-	for _, s := range p.Steps {
-		out = append(out, stepCoverage(s, live, own[s.ID], settings))
-	}
-	return out
+	return CoverageWithHolds(p, live, steps, settings, nil)
 }
 
-// stepCoverage is the rule for one step; live is nil or at the plan's hash.
+// stepCoverage is the rule for one step; live is nil or at the plan's hash;
+// hold, when set, is why the step needs its own approval beyond its class
+// (a model-origin step, review-03b).
 func stepCoverage(s Step, live *Approval, ownApproval bool,
-	settings SettingContexts) StepCoverage {
+	settings SettingContexts, hold string) StepCoverage {
 	c := StepCoverage{StepID: s.ID, Ordinal: s.Ordinal}
 	needs, why := NeedsOwnApproval(s, settings)
+	if !needs && hold != "" && s.Kind == KindAction {
+		needs, why = true, hold
+	}
 	c.NeedsOwnApproval = needs
 	switch {
 	case live == nil:
