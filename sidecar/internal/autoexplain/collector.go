@@ -171,15 +171,21 @@ func (c *Collector) reportCapture(queryID int64, err error) bool {
 	}
 }
 
-// candidateSQL reads slow statements without a recent plan from rel, the
-// qualified pg_stat_statements view.
+// candidateSQL reads slow statements from rel, the qualified
+// pg_stat_statements view, that have no plan from the last day or whose
+// newest plan predates an ANALYZE (auto or manual) of a relation it reads:
+// a plan flip after a statistics refresh is then seen within one capture
+// interval (guard-02c). Each statement's newest plan is read through
+// idx_explain_queryid.
 func candidateSQL(rel string) string {
 	return `
 		SELECT s.queryid, s.query
 		FROM ` + rel + ` s
-		LEFT JOIN sage.explain_cache e
-			ON e.queryid = s.queryid AND e.source <> 'lakebase_plan_history'
-			AND e.captured_at > now() - interval '1 day'
+		LEFT JOIN LATERAL (
+			SELECT e.captured_at, e.plan_json FROM sage.explain_cache e
+			 WHERE e.queryid = s.queryid AND e.source <> 'lakebase_plan_history'
+			   AND e.captured_at > now() - interval '1 day'
+			 ORDER BY e.captured_at DESC LIMIT 1) e ON true
 		WHERE s.mean_exec_time > $1
 			AND s.calls > 10
 			AND s.dbid = (
@@ -187,7 +193,11 @@ func candidateSQL(rel string) string {
 				WHERE datname = current_database()
 			)
 			AND ` + workload.AdviceSQL("s.query") + `
-			AND e.id IS NULL
+			AND (e.captured_at IS NULL OR EXISTS (
+				SELECT 1
+				  FROM jsonb_path_query(e.plan_json, 'strict $.**."Relation Name"') AS r(name)
+				  JOIN pg_catalog.pg_stat_user_tables t ON t.relname = r.name #>> '{}'
+				 WHERE GREATEST(t.last_analyze, t.last_autoanalyze) > e.captured_at))
 		ORDER BY s.mean_exec_time DESC
 		LIMIT $2`
 }
