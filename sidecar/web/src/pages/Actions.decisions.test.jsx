@@ -32,6 +32,9 @@ vi.mock('../hooks/useAPI', () => ({
 describe('Actions > Decisions', () => {
   it('shows an operator the withheld decisions', () => {
     render(<Actions database="all" user={{ role: 'operator' }} />)
+    // ux-05b: the tab reads "Held back"; its key and test id stay.
+    expect(screen.getByTestId('actions-tab-decisions')).toHaveTextContent(/^Held back/)
+    expect(screen.getByRole('tab', { name: /^Held back/ })).toBeInTheDocument()
     fireEvent.click(screen.getByTestId('actions-tab-decisions'))
     expect(screen.getByTestId('decision-row')).toHaveTextContent('budget exceeded')
     expect(requested).toContain('/api/v1/decisions')

@@ -10,6 +10,7 @@ import {
 } from './users/UserPasswordReset'
 import { resetUserPassword } from './users/passwordApi'
 import { DatabaseGrantsButton, UserDatabaseGrants } from './users/UserDatabaseGrants'
+import { formatTime } from '../lib/time'
 
 export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
   const platformManaged = authMode === 'databricks_app'
@@ -321,12 +322,12 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
                 </td>
                 <td className="px-4 py-2"
                   style={{ color: 'var(--text-secondary)' }}>
-                  {new Date(u.created_at).toLocaleDateString()}
+                  {formatTime(u.created_at)}
                 </td>
                 <td className="px-4 py-2"
                   style={{ color: 'var(--text-secondary)' }}>
                   {u.last_login
-                    ? new Date(u.last_login).toLocaleString()
+                    ? formatTime(u.last_login)
                     : 'Never'}
                 </td>
                 {!platformManaged && <td className="px-4 py-2 text-right">

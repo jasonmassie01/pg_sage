@@ -17,7 +17,11 @@ vi.mock('./hooks/useLiveEvents', () => ({
 
 vi.mock('./components/Toast', () => ({
   ToastProvider: ({ children }) => children,
+  useToast: () => ({ success: vi.fn(), error: vi.fn() }),
 }))
+
+// ux-01b: the Inbox replaced Value as the landing page; Value stays at
+// #/value and the Inbox carries one Value line linking to it.
 
 vi.mock('./pages/Dashboard', () => ({
   Dashboard: () => <div data-testid="legacy-overview">Legacy overview</div>,
@@ -49,7 +53,7 @@ describe('agent-native Value routing and navigation', () => {
     api.useAPI.mockImplementation(url => ({
       data: url?.startsWith('/api/v1/value') ? value
         : url === '/api/v1/databases' ? fleet
-          : url === '/api/v1/actions/pending/count' ? { count: 0 }
+          : url === '/api/v1/inbox/count' ? { total: 0 }
             : null,
       loading: false,
       error: null,
@@ -68,28 +72,37 @@ describe('agent-native Value routing and navigation', () => {
     vi.restoreAllMocks()
   })
 
-  it('uses Value as the default landing route instead of telemetry overview',
+  it('lands on the Inbox with the Value line instead of telemetry overview',
     async () => {
       render(<App />)
 
       await waitFor(() => {
         expect(screen.getByTestId('app-loaded')).toBeInTheDocument()
       })
-      expect(screen.getByRole('heading', { level: 1, name: 'Value' }))
+      expect(screen.getByRole('heading', { level: 1, name: 'Inbox' }))
         .toBeInTheDocument()
-      expect(screen.getByRole('heading', { name: /value delivered/i }))
-        .toBeInTheDocument()
+      expect(screen.getByTestId('inbox-value'))
+        .toHaveTextContent('Verified DBA hours saved: 1 h this week, 12 h all time.')
       expect(screen.queryByTestId('legacy-overview')).not.toBeInTheDocument()
     })
 
-  it('makes Value primary and keeps telemetry behind collapsed Advanced nav',
+  it('keeps the Value page at #/value', async () => {
+    window.location.hash = '#/value'
+    render(<App />)
+    await screen.findByTestId('app-loaded')
+    expect(screen.getByRole('heading', { level: 1, name: 'Value' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /value delivered/i })).toBeInTheDocument()
+  })
+
+  it('makes the Inbox primary and keeps telemetry behind collapsed Advanced nav',
     async () => {
       render(<App />)
       await screen.findByTestId('app-loaded')
 
-      const valueLink = screen.getByTestId('nav-value')
-      expect(valueLink).toHaveAccessibleName('Value')
-      expect(valueLink).toHaveAttribute('href', '#/')
+      const inboxLink = screen.getByTestId('nav-inbox')
+      expect(inboxLink).toHaveAccessibleName('Inbox')
+      expect(inboxLink).toHaveAttribute('href', '#/')
+      expect(screen.queryByTestId('nav-value')).toBeNull()
 
       const advanced = screen.getByRole('button', { name: /advanced/i })
       expect(advanced).toHaveAttribute('aria-expanded', 'false')
@@ -112,7 +125,7 @@ describe('agent-native Value routing and navigation', () => {
         .toBeInTheDocument()
     })
 
-  it('offers Value as the primary command-palette destination', async () => {
+  it('offers the Inbox as the primary command-palette destination', async () => {
     render(<App />)
     await screen.findByTestId('app-loaded')
 
@@ -125,13 +138,13 @@ describe('agent-native Value routing and navigation', () => {
       expect(findPalette()).toBeInTheDocument()
     })
     const palette = findPalette()
-    expect(within(palette).getByRole('button', { name: /go to value/i }))
+    expect(within(palette).getByRole('button', { name: /go to inbox/i }))
       .toBeInTheDocument()
     expect(within(palette).queryByRole('button', { name: /go to overview/i }))
       .not.toBeInTheDocument()
   })
 
-  it('keeps the selected fleet database when Value is the landing page',
+  it('keeps the selected fleet database for the Value line of the Inbox',
     async () => {
       localStorage.setItem('pg_sage_db', 'orders')
       render(<App />)

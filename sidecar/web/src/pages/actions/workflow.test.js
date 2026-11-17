@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { actionFamily, proposedChanges, recoveryForRevision } from './workflow'
+import {
+  actionFamily, blockerText, hasReasonLabel, proposedChanges, reasonText, recoveryForRevision,
+  verdictLabel,
+} from './workflow'
+import gateValues from './gateValues.json'
 
 const issue = ({ database = 'prod', finding = '7', id = 'case-7', action = 'create_index_concurrently', candidate = {} } = {}) => ({
   id, database_name: database, source_type: 'finding', source_ids: [finding],
@@ -88,5 +92,96 @@ describe('stored recovery presentation', () => {
     expect(recoveryForRevision({ currentCandidate: current }, {
       forward_sql: forward, inverse_sql: inverse,
     })).toEqual({ sql: inverse, reason: '' })
+  })
+})
+
+// ux-05b wins 6 and 8: the gate's verdicts and reasons read as words, each
+// held-back reason with a next step. gateValues.json is generated from the
+// Go constants (internal/executor/gate_values_test.go), so a new reason
+// constant fails the Go test until the list is regenerated, then fails
+// here until it has a label. No concurrent access tests: pure functions.
+describe('gate labels', () => {
+  const rawEnum = /\b[a-z0-9]+_[a-z0-9_]+\b/
+
+  // The product's own name is the one snake_case word a label may carry.
+  const withoutProductName = text => text.replaceAll('pg_sage', 'pg-sage')
+
+  it('labels every reason the gate can record, never as the bare enum', () => {
+    expect(gateValues.reasons.length).toBeGreaterThan(50)
+    for (const reason of gateValues.reasons) {
+      expect(hasReasonLabel(reason), reason).toBe(true)
+      const text = blockerText(reason)
+      expect(withoutProductName(text), reason).not.toMatch(rawEnum)
+      expect(text.toLowerCase(), reason).not.toBe(reason.replaceAll('_', ' '))
+    }
+  })
+
+  it('labels every verdict spelling the gate, ledger and executor serve', () => {
+    expect(gateValues.verdicts).toEqual(expect.arrayContaining(
+      ['park', 'parked', 'queue_approval', 'queue_for_approval']))
+    for (const verdict of gateValues.verdicts) {
+      expect(verdictLabel(verdict), verdict).not.toMatch(/^Unknown verdict/)
+      expect(verdictLabel(verdict), verdict).not.toMatch(rawEnum)
+    }
+  })
+
+  it('names the held-back verdicts as the filter does', () => {
+    expect(verdictLabel('queue_approval')).toBe('Waiting for approval')
+    expect(verdictLabel('queue_for_approval')).toBe('Waiting for approval')
+    expect(verdictLabel('parked')).toBe('Parked')
+    expect(verdictLabel('park')).toBe('Parked')
+    expect(verdictLabel('observe_only')).toBe('Observe only')
+  })
+
+  it('gives the five held-back reasons a next step', () => {
+    expect(blockerText('emergency_stop'))
+      .toBe('Emergency stop is on. Release it in the header to resume.')
+    expect(blockerText('budget_exceeded')).toMatch(/budget exceeded\. .*budget frees/i)
+    expect(blockerText('awaiting_verification')).toMatch(/verif.*\. .*retried/i)
+    expect(blockerText('replica_mutation')).toMatch(/replica.*\. .*primary/i)
+    expect(blockerText('provider_managed_setting')).toMatch(/provider.*\. .*console/i)
+  })
+
+  it('keeps the labels it had', () => {
+    expect(blockerText('observation_mode'))
+      .toBe('Database changes are disabled in Observation mode.')
+    expect(blockerText('maintenance_window')).toBe('Waiting for an allowed maintenance window.')
+  })
+
+  it('labels the case restrictions a candidate can carry (cases-10)', () => {
+    expect(blockerText('evidence_expired'))
+      .toBe('Evidence expired; waiting for a fresh observation.')
+    expect(blockerText('recommendation_reverted')).toMatch(/reverted .*not propose it again/)
+    expect(blockerText('recommendation_abandoned')).toMatch(/retries .*not propose it again/)
+  })
+
+  it('names an unknown code as unknown, keeping the code readable', () => {
+    expect(blockerText('made_up_reason')).toBe('Unknown reason (made_up_reason)')
+    expect(hasReasonLabel('made_up_reason')).toBe(false)
+    expect(verdictLabel('maybe_later')).toBe('Unknown verdict (maybe_later)')
+    expect(verdictLabel('<b>x</b>')).toBe('Unknown verdict (<b>x</b>)')
+  })
+
+  it('passes a reason written as a sentence through unchanged', () => {
+    const sentence = 'IO is saturated; wait for maintenance window or lower load'
+    expect(blockerText(sentence)).toBe(sentence)
+    expect(reasonText(sentence)).toBe(sentence)
+  })
+
+  it('does not inherit labels from the object prototype', () => {
+    expect(hasReasonLabel('constructor')).toBe(false)
+    expect(hasReasonLabel('toString')).toBe(false)
+    expect(blockerText('constructor')).toBe('Unknown reason (constructor)')
+    expect(verdictLabel('constructor')).toBe('Unknown verdict (constructor)')
+  })
+
+  it('says no reason or verdict was recorded for an empty value', () => {
+    expect(blockerText('')).toBe('')
+    expect(blockerText(undefined)).toBe('')
+    expect(reasonText('')).toBe('No reason recorded.')
+    expect(reasonText(null)).toBe('No reason recorded.')
+    expect(reasonText('  ')).toBe('No reason recorded.')
+    expect(verdictLabel('')).toBe('No verdict recorded')
+    expect(verdictLabel(null)).toBe('No verdict recorded')
   })
 })

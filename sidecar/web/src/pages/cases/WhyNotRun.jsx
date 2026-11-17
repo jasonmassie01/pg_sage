@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { apiGet } from '../../lib/api'
+import { actionLabel, reasonText, verdictLabel } from '../actions/workflow'
 
 // "Why hasn't this run?" on a finding's case (policy-07): asks the
 // standing gate how it would decide each of the finding's candidates now
 // (GET /api/v1/policy/explain), which records nothing, and shows each
-// verdict with the gate's reason. Operators only: the route refuses
-// viewers.
+// verdict with the gate's reason, all in words (ux-05b win 7). Operators
+// only: the route refuses viewers.
 
 const muted = { color: 'var(--text-secondary)' }
 
@@ -22,8 +23,14 @@ function explainURL(caseRow) {
   return `/api/v1/policy/explain?${params.toString()}`
 }
 
+// candidateLine: "Add an index: Blocked. <reason> (<gate detail>)". A
+// candidate the gate would run needs no reason; any other says one, or
+// that none was recorded.
 function candidateLine(c) {
-  return `${c.action_type}: ${c.decision}${c.human_reason ? `, ${c.human_reason}` : ''}`
+  const head = `${actionLabel(c.action_type)}: ${verdictLabel(c.decision)}.`
+  if (c.decision === 'execute' && !c.blocked_reason) return head
+  const detail = c.detail ? ` (${c.detail})` : ''
+  return `${head} ${reasonText(c.blocked_reason)}${detail}`
 }
 
 export function WhyNotRun({ caseRow, user }) {

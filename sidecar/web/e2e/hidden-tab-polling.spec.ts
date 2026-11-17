@@ -55,7 +55,7 @@ test('dashboard-08 CHECK-INT: a hidden Actions tab polls nothing but /events for
     await openActions(page)
     const mounted = new Set(polls(log))
     expect(mounted).toContain('/api/v1/databases')
-    expect(mounted).toContain('/api/v1/actions/pending/count')
+    expect(mounted).toContain('/api/v1/inbox/count')
 
     // Visible, the page polls: one 30 s round asks for the fleet again.
     let mark = log.length
@@ -80,7 +80,7 @@ test('dashboard-08 CHECK-INT: a hidden Actions tab polls nothing but /events for
     await settle(page)
     const woke = countBy(polls(log, mark))
     expect(woke['/api/v1/databases']).toBe(1)
-    expect(woke['/api/v1/actions/pending/count']).toBe(1)
+    expect(woke['/api/v1/inbox/count']).toBe(1)
     for (const [query, count] of Object.entries(woke)) {
       expect(count, `${query} refetched ${count} times`).toBe(1)
       expect(mounted, `${query} was not polled before the tab hid`).toContain(query)

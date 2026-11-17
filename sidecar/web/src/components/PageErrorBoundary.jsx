@@ -33,7 +33,7 @@ function PageRenderError({ error, onRetry }) {
           Retry
         </button>
         <a href="#/" className="text-sm underline" style={{ color: 'var(--accent)' }}>
-          Go to Dashboard
+          Go to Inbox
         </a>
       </div>
     </div>

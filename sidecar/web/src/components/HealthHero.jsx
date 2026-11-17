@@ -1,4 +1,5 @@
 import { CheckCircle, Server } from 'lucide-react'
+import { formatClock } from '../lib/time'
 
 // cases-11: the hero may say no work is open only when every count the
 // fleet summary carries is a known zero. A count the summary lacks is
@@ -61,9 +62,7 @@ function oldestCollection(databases) {
     .map(db => Date.parse(db?.status?.collector_last_run))
     .filter(t => Number.isFinite(t) && t > 0)
   if (times.length === 0) return null
-  const d = new Date(Math.min(...times))
-  const pad = n => String(n).padStart(2, '0')
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`
+  return formatClock(Math.min(...times))
 }
 
 function ClearHero({ summary, databases }) {

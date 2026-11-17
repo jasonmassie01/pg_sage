@@ -27,6 +27,8 @@ import { CaseTicket } from './cases/CaseTicket'
 import { EvidenceList } from './cases/CaseEvidence'
 import { FindingSourceSelect } from './cases/FindingSourceSelect'
 import { useFindingSource } from './cases/findingSource'
+import { CasePlans } from './cases/CasePlans'
+import { formatTime } from '../lib/time'
 
 const SOURCE_FILTERS = [
   { value: 'all', label: 'All' },
@@ -75,7 +77,7 @@ function formatDate(value) {
   if (Number.isNaN(date.getTime()) || date.getUTCFullYear() < 1971) {
     return null
   }
-  return date.toLocaleString()
+  return formatTime(date)
 }
 
 export function CasesPage(props) {
@@ -313,6 +315,7 @@ function CaseCard({
         <summary className="cursor-pointer">What {summary.glossary.term === 'table statistics' ? 'are' : 'is'} {summary.glossary.term}?</summary>
         <p className="mt-1">{summary.glossary.definition}</p>
       </details>}
+      <CasePlans plans={caseRow.plans} database={caseRow.database_name} />
       <CaseFacts target={factTarget} user={user} onDone={onDone} />
       <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
         {!focused && <a href={caseLink('cases', caseRow)} onClick={onReview}

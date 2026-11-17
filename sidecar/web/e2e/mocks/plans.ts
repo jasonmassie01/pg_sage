@@ -77,19 +77,44 @@ export type PlanDecision = { url: string, body: unknown }
 export type PlanAnswer = { status: number, json: unknown } | null
 
 // routePlans serves the list and detail and records each decision POST;
-// answer may refuse one (the default approves).
-export async function routePlans(page: Page, detail = planDetail(),
+// answer may refuse one (the default approves). detail may be a function,
+// called for each GET, so a spec can move the plan on between polls (ux-03).
+export async function routePlans(page: Page,
+  detail: unknown | (() => unknown) = planDetail(),
   answer: () => PlanAnswer = () => null) {
   const decisions: PlanDecision[] = []
   await page.route(url => url.pathname === '/api/v1/plans',
     route => route.fulfill({ json: planList() }))
   await page.route(url => /^\/api\/v1\/plans\/\d+(\/.*)?$/.test(url.pathname), route => {
     const req = route.request()
-    if (req.method() === 'GET') return route.fulfill({ json: detail })
+    if (req.method() === 'GET') {
+      return route.fulfill({ json: typeof detail === 'function' ? detail() : detail })
+    }
     decisions.push({ url: req.url(), body: req.postDataJSON() })
     const refused = answer()
     if (refused) return route.fulfill({ status: refused.status, json: refused.json })
     return route.fulfill({ json: approveAnswer })
   })
   return decisions
+}
+
+// fivePlan is ux-03's halted-plan story: a proposed five-stage plan with
+// no approval; withRuntimes moves it on (plan status and stage runtimes).
+export function fivePlan() {
+  const steps = [1, 2, 3, 4, 5].map(n => planStep(69 + n, n, `idx_${n}`))
+  return planDetail({
+    approvals: [],
+    coverage: steps.map(s => ({ covered: false, needs_own_approval: false,
+      ordinal: s.ordinal, reason: 'the plan has no live approval at its current hash',
+      step_id: s.id })),
+    plan: { ...planDetail().plan, status: 'proposed', steps,
+      edges: [1, 2, 3, 4].map(n => ({ from: n, to: n + 1 })) },
+  })
+}
+
+export function withRuntimes(detail: ReturnType<typeof planDetail>, status: string,
+  runtimes: Record<number, Record<string, unknown>>) {
+  const steps = detail.plan.steps.map(s => ({ ...s,
+    runtime: { ...s.runtime, ...(runtimes[s.ordinal] || {}) } }))
+  return { ...detail, plan: { ...detail.plan, status, steps } }
 }

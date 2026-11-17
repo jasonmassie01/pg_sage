@@ -371,6 +371,8 @@ standalone POST /api/v1/policy/proposals/{id}/ratify gate:admin scope:-
 standalone GET /api/v1/agentdb/decommission gate:admin scope:admin-only
 standalone POST /api/v1/agentdb/decommission/ack gate:admin scope:-
 standalone POST /api/v1/agentdb/decommission/drop-legacy-tables gate:admin scope:-
+standalone GET /api/v1/inbox/seen gate:viewer scope:global
+standalone POST /api/v1/inbox/seen gate:viewer-write scope:-
 standalone GET /api/v1/actions/pending gate:operator scope:fleet-only
 standalone GET /api/v1/actions/pending/count gate:operator scope:fleet-only
 standalone GET /api/v1/findings/{id}/pending-actions gate:operator scope:fleet-only
@@ -618,6 +620,8 @@ fleet-readonly POST /api/v1/policy/proposals/{id}/ratify gate:admin scope:-
 fleet-readonly GET /api/v1/agentdb/decommission gate:admin scope:admin-only
 fleet-readonly POST /api/v1/agentdb/decommission/ack gate:admin scope:-
 fleet-readonly POST /api/v1/agentdb/decommission/drop-legacy-tables gate:admin scope:-
+fleet-readonly GET /api/v1/inbox/seen gate:viewer scope:global
+fleet-readonly POST /api/v1/inbox/seen gate:viewer-write scope:-
 fleet-readonly GET /api/v1/actions/pending gate:operator scope:aggregate
 fleet-readonly GET /api/v1/actions/pending/count gate:operator scope:aggregate
 fleet-readonly GET /api/v1/findings/{id}/pending-actions gate:operator scope:fleet-only
@@ -1085,6 +1089,8 @@ optional POST /api/v1/policy/proposals/{id}/ratify gate:admin scope:-
 optional GET /api/v1/agentdb/decommission gate:admin scope:admin-only
 optional POST /api/v1/agentdb/decommission/ack gate:admin scope:-
 optional POST /api/v1/agentdb/decommission/drop-legacy-tables gate:admin scope:-
+optional GET /api/v1/inbox/seen gate:viewer scope:global
+optional POST /api/v1/inbox/seen gate:viewer-write scope:-
 optional GET /api/v1/approvals gate:operator scope:aggregate
 optional GET /api/v1/approvals/{id} gate:operator scope:aggregate
 optional POST /api/v1/approvals/{id}/approve gate:operator scope:database:query-or-only
@@ -1304,6 +1310,8 @@ databricks-app POST /api/v1/policy/proposals/{id}/ratify gate:admin scope:-
 databricks-app GET /api/v1/agentdb/decommission gate:admin scope:admin-only
 databricks-app POST /api/v1/agentdb/decommission/ack gate:admin scope:-
 databricks-app POST /api/v1/agentdb/decommission/drop-legacy-tables gate:admin scope:-
+databricks-app GET /api/v1/inbox/seen gate:viewer scope:global
+databricks-app POST /api/v1/inbox/seen gate:viewer-write scope:-
 databricks-app GET /api/v1/approvals gate:operator scope:aggregate
 databricks-app GET /api/v1/approvals/{id} gate:operator scope:aggregate
 databricks-app POST /api/v1/approvals/{id}/approve gate:operator scope:database:query-or-only

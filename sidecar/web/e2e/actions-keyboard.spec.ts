@@ -9,7 +9,9 @@
 
 import { expect, test, type Page } from '@playwright/test'
 import { mockAllAPIs } from './fixtures'
-import { executedRow, rollbackBody, routeActions, routeTokens } from './mocks/actions'
+import {
+  executedRow, rollbackBody, rollbackReason, routeActions, routeTokens,
+} from './mocks/actions'
 
 test.beforeEach(async ({ page }) => {
   await mockAllAPIs(page)
@@ -34,6 +36,12 @@ async function tabTo(page: Page, testId: string, limit = 25) {
     await page.keyboard.press('Tab')
   }
   expect(await activeTestId(page), `Tab never reached ${testId}`).toBe(testId)
+}
+
+// typeReason tabs to the required rollback reason (ux-01b) and types it.
+async function typeReason(page: Page) {
+  await tabTo(page, 'confirm-dialog-reason')
+  await page.keyboard.type(rollbackReason)
 }
 
 // openRollbackByKeyboard reaches the row's rollback button and presses Enter.
@@ -74,6 +82,7 @@ test('Shift+Tab from the first control wraps to Confirm, and Tab wraps back',
   async ({ page }) => {
     await routeActions(page, { ledger: () => [executedRow()] })
     await openRollbackByKeyboard(page)
+    await typeReason(page)
     const first = await page.evaluate(() => {
       const dialog = document.querySelector('[data-testid="confirm-dialog"]')
       const items = dialog?.querySelectorAll('button:not([disabled]), input:not([disabled])')
@@ -92,6 +101,7 @@ test('Shift+Tab from the first control wraps to Confirm, and Tab wraps back',
 test('Enter on Confirm sends the rollback once with today\'s body', async ({ page }) => {
   const posts = await routeActions(page, { ledger: () => [executedRow()] })
   const dialog = await openRollbackByKeyboard(page)
+  await typeReason(page)
   await tabTo(page, 'confirm-dialog-confirm')
   await page.keyboard.press('Enter')
   await expect(dialog).toBeHidden()
@@ -123,6 +133,8 @@ test('a HIGH-tier rollback keeps Confirm disabled for a wrong phrase', async ({ 
   await page.keyboard.press('End')
   await page.keyboard.type('s')
   await expect(phrase).toHaveValue('orders')
+  await expect(confirm, 'the phrase alone is not enough: a reason is required').toBeDisabled()
+  await typeReason(page)
   await expect(confirm).toBeEnabled()
   await tabTo(page, 'confirm-dialog-confirm')
   await page.keyboard.press('Enter')
@@ -137,6 +149,7 @@ test('a failed rollback keeps the dialog open with the error and focus inside',
       rollback: () => ({ status: 400, json: { error: 'rollback refused: index in use' } }),
     })
     const dialog = await openRollbackByKeyboard(page)
+    await typeReason(page)
     await tabTo(page, 'confirm-dialog-confirm')
     await page.keyboard.press('Enter')
     await expect(page.getByTestId('confirm-dialog-error'))

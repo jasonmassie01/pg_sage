@@ -60,9 +60,13 @@ export function DataTable({
       <table className="w-full text-sm">
         <thead>
           <tr style={{ background: 'var(--bg-card)' }}>
-            {expandable && <th className="w-8 p-2" />}
+            {expandable && (
+              <th scope="col" className="w-8 p-2">
+                <span className="sr-only">Details</span>
+              </th>
+            )}
             {columns.map(col => (
-              <th key={col.key} className="p-2 text-left font-medium"
+              <th key={col.key} scope="col" className="p-2 text-left font-medium"
                 style={{ color: 'var(--text-secondary)' }}>
                 {col.label}
               </th>

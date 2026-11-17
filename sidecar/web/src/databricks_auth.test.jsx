@@ -55,7 +55,7 @@ describe('Databricks Apps sign-in', () => {
     expect(screen.queryByTestId('nav-mcp-tokens')).toBeNull()
     expect(screen.queryByTestId('nav-agents')).toBeNull()
     expect(screen.queryByTestId('mcp-tokens-page')).toBeNull()
-    expect(screen.getByRole('link', { name: 'Go to Dashboard' })).toHaveAttribute('href', '#/')
+    expect(screen.getByRole('link', { name: 'Go to Inbox' })).toHaveAttribute('href', '#/')
     expect(globalThis.fetch.mock.calls.some(([url]) => String(url).includes('/mcp/'))).toBe(false)
     expect(api.useAPI.mock.calls.some(([url]) => String(url).includes('/mcp/'))).toBe(false)
   })

@@ -15,7 +15,7 @@ test.beforeEach(async ({ page }) => {
 test('market-04 CHECK-04: with rates the card shows dollars, source and date',
   async ({ page }) => {
     await routeValue(page, pricedCost)
-    await page.goto('/#/')
+    await page.goto('/#/value') // ux-01b: Value moved from home to #/value
     const card = page.getByRole('region', { name: 'Cost' })
     await expect(card.getByTestId('cost-source'))
       .toHaveText('Rates from config, as of 2026-11-01. Last 24 h.')
@@ -33,7 +33,7 @@ test('market-04 CHECK-04: with rates the card shows dollars, source and date',
 
 test('market-04 CHECK-04: without rates it says so and shows no figure', async ({ page }) => {
   await routeValue(page, noRates)
-  await page.goto('/#/')
+  await page.goto('/#/value') // ux-01b: Value moved from home to #/value
   const card = page.getByRole('region', { name: 'Cost' })
   await expect(card).toContainText('Rates not configured: set cost.rates')
   await expect(card).not.toContainText('$')
@@ -44,7 +44,7 @@ test('market-04 CHECK-04: without rates it says so and shows no figure', async (
 
 test('a report with no cost section says why there is no figure', async ({ page }) => {
   await routeValue(page, { available: false, reason: 'no instance telemetry yet' })
-  await page.goto('/#/')
+  await page.goto('/#/value') // ux-01b: Value moved from home to #/value
   const card = page.getByRole('region', { name: 'Cost' })
   await expect(card).toContainText('Cost unavailable: no instance telemetry yet.')
   await expect(card).not.toContainText('$')

@@ -15,6 +15,8 @@ var readRouteScopes = map[string]readScope{
 	"GET /api/v1/auth/sso":            readGlobal,
 	"GET /api/v1/llm/models":          readGlobal,
 	"GET /api/v1/findings/categories": readGlobal,
+	// ux-01b: the caller's own Inbox seen time, on their user row.
+	"GET " + inboxSeenPath: readGlobal,
 
 	// One database, named in the path.
 	"GET /api/v1/databases/{db}/ask/budget":             readDatabase(pathDB),

@@ -142,6 +142,7 @@ Action outcomes, pending approvals, verification verdicts, policy parks and shad
 | `pg_sage_inbox_items` | gauge | `kind` | - | all | v2.8.0 | Decisions waiting on a person by kind at the last complete fleet-wide inbox read (no sample before one; a read that missed a source is not recorded) |
 | `pg_sage_outcomes_measured_ratio` | gauge | `database` | - | all | v2.8.0 | Share of the last 24 hours' changes with a measured effect, per database, at the last complete outcome ledger read of that window (no sample before one, or when the window has no changes) |
 | `pg_sage_inbox_decision_seconds` | histogram | `kind`, `decided_from` | seconds | all | v2.8.0 | Time from approval needed to decision, by inbox kind and the surface the decision came from (X-Sage-Surface: inbox, page, chat, api, cli) |
+| `pg_sage_plan_approvals_total` | counter | `mode` | - | all | v2.8.0 | New plan approvals by the mode stored (all, up_to, step) since the process started; all and up_to approve multi-step work once |
 | `pg_sage_actions_pending_approval` | gauge | `database`, `risk` | - | all | v2.7.0 | Pending approvals a person can act on now (past cooldown, not expired), by risk |
 | `pg_sage_actions_total` | counter | `database`, `class`, `outcome` | - | all | v2.7.0 | Actions that ended, by change class and outcome (success, failed, rolled_back, cancelled, unverifiable, other) |
 | `pg_sage_owner_brief_present` | gauge | `database` | - | all | v2.7.0 | 1 when the database has a confirmed owner brief (owner, peak windows, growth), else 0 |

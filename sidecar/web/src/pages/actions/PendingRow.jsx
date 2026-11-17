@@ -53,12 +53,12 @@ function DecisionCell({ row, database, modeForDatabase, decision }) {
             modeForDatabase?.(rowDatabase(row, database)) === 'observation'}
           title={row.eligible === false
             ? (row.defer_reason || row.blocked_reason || 'Action is not eligible') : undefined}
-          className={BUTTON} style={{ background: 'var(--green)', color: '#fff' }}>
+          className={BUTTON} style={{ background: 'var(--green-solid)', color: '#fff' }}>
           {row.eligible === false && windowOnly ? 'Approve for the next window' : 'Approve and run'}
         </button>
         <button onClick={() => decision.toggleReject(row)}
           data-testid="reject-button" className={BUTTON}
-          style={{ background: 'var(--red)', color: '#fff' }}>Reject</button>
+          style={{ background: 'var(--red-solid)', color: '#fff' }}>Reject</button>
       </div>
       {open && <div className="flex flex-wrap gap-2">
         <input value={decision.rejectReason} aria-label="Reason for rejection"
@@ -67,7 +67,7 @@ function DecisionCell({ row, database, modeForDatabase, decision }) {
           className="px-2 py-1 rounded text-sm" style={{ background: 'var(--bg-primary)',
             color: 'var(--text-primary)', border: '1px solid var(--border)' }} />
         <button onClick={() => decision.reject(row)} disabled={!decision.rejectReason.trim()}
-          className={BUTTON} style={{ background: 'var(--red)', color: '#fff' }}>
+          className={BUTTON} style={{ background: 'var(--red-solid)', color: '#fff' }}>
           Confirm Reject</button>
       </div>}
     </div>
