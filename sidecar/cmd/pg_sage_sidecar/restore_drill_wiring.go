@@ -75,11 +75,31 @@ type drillInstance struct {
 	id      int
 	pool    *pgxpool.Pool
 	results *pgxpool.Pool // where receipts and drill rows live
+	// runtime is the runtimes' control database (databaseRuntimeSpec's
+	// ControlPool): the standing policy the executor enforces and the
+	// notification routes the database's alerts use live there.
+	runtime *pgxpool.Pool
+	// policyScoped: the standing policy is per database (meta mode); in
+	// standalone and YAML fleet the executor enforces the global one.
+	policyScoped bool
+}
+
+// runtimeControlPool is the control database every runtime is built with:
+// the meta database, else the fleet's primary (standalone: the one
+// database). It is the API's auth pool, where operators edit the policy
+// and the notification routes.
+func runtimeControlPool(mgr *fleet.DatabaseManager, meta *metaDBState) *pgxpool.Pool {
+	if meta != nil && meta.Pool != nil {
+		return meta.Pool
+	}
+	return mgr.PoolForDatabase("all")
 }
 
 func drillInstances(c *config.Config, mgr *fleet.DatabaseManager,
 	meta *metaDBState) []drillInstance {
 	control := governanceControlPool(c, mgr, meta)
+	runtime := runtimeControlPool(mgr, meta)
+	scoped := meta != nil && meta.Pool != nil
 	instances := mgr.Instances()
 	names := make([]string, 0, len(instances))
 	for name, inst := range instances {
@@ -96,7 +116,7 @@ func drillInstances(c *config.Config, mgr *fleet.DatabaseManager,
 			results = inst.Pool
 		}
 		out = append(out, drillInstance{name: name, id: inst.DatabaseID, pool: inst.Pool,
-			results: results})
+			results: results, runtime: runtime, policyScoped: scoped})
 	}
 	return out
 }
@@ -118,7 +138,7 @@ func restoreDrillTargets(ctx context.Context, c *config.Config,
 		if !doc.On() {
 			continue
 		}
-		pager := sharedNotifyDispatcher(notificationControlPool(meta, inst.pool))
+		pager := sharedNotifyDispatcher(inst.runtime)
 		if cloneCfg.Provider == "" || cloneCfg.Provider == "none" {
 			reportRecoverabilityUnknown(ctx, inst, pager, "clone.provider is none")
 			continue
@@ -126,6 +146,11 @@ func restoreDrillTargets(ctx context.Context, c *config.Config,
 		t, err := drillTarget(ctx, c, cloneCfg, inst, doc, pager)
 		if err != nil {
 			logWarn("drill", "restore drill of %s skipped this pass: %v", inst.name, err)
+			continue
+		}
+		if err := t.KindAllowed(); err != nil {
+			reportRecoverabilityUnknown(ctx, inst, pager, "no restore drill can run: "+
+				err.Error())
 			continue
 		}
 		history[inst.name] = drill.NewStore(inst.results)
@@ -151,15 +176,19 @@ func drillPager(d *notify.Dispatcher) drill.Pager {
 	return d
 }
 
-// drillPolicyOf is the database's standing policy drill block; the
-// defaults when it has no standing policy yet.
+// drillPolicyOf is the drill block of the standing policy the database's
+// executor enforces (policyStoreScope); the defaults when it has no
+// standing policy yet.
 func drillPolicyOf(ctx context.Context, inst drillInstance) (policy.DrillPolicy, error) {
 	var scope policy.Scope
-	if inst.id > 0 {
+	if inst.policyScoped && inst.id > 0 {
 		id := int64(inst.id)
 		scope.DatabaseID = &id
 	}
-	current, err := policy.NewStore(inst.results).Current(ctx, scope)
+	if inst.runtime == nil {
+		return policy.DrillPolicy{}, errors.New("no control database to read the policy")
+	}
+	current, err := policy.NewStore(inst.runtime).Current(ctx, scope)
 	if errors.Is(err, policy.ErrNotFound) {
 		return policy.DrillPolicy{}, nil
 	}
