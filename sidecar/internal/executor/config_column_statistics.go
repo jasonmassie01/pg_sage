@@ -2,7 +2,10 @@ package executor
 
 import (
 	"context"
+	"fmt"
 	"strconv"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // configKindColumnStatistics is a set_column_statistics change: its prior
@@ -11,21 +14,26 @@ import (
 const configKindColumnStatistics = "column_statistics"
 
 // prepareColumnStatistics captures the column's prior target and builds
-// the rollback that restores it.
+// the rollback that restores it. It has no outcome metric: the ANALYZE
+// that uses the new target is its own step.
 func (e *Executor) prepareColumnStatistics(
-	ctx context.Context, c *configChange, stmt ColumnStatisticsStmt,
-) error {
+	ctx context.Context, sql string, stmt ColumnStatisticsStmt,
+) (*configChange, error) {
 	prior, err := captureColumnStatTarget(ctx, e.pool, stmt)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	rollback, err := columnStatisticsRollbackSQL(stmt, prior)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	c.kind, c.colStats, c.priorStatTarget, c.rollbackSQL = configKindColumnStatistics, stmt,
-		prior, rollback
-	return nil
+	if !stmt.Only {
+		if err := checkDescendantTargets(ctx, e.pool, stmt, prior); err != nil {
+			return nil, err
+		}
+	}
+	return &configChange{sql: sql, kind: configKindColumnStatistics, colStats: stmt,
+		priorStatTarget: prior, rollbackSQL: rollback}, nil
 }
 
 // recordColumnStatistics is the change's before_state entry.
@@ -61,4 +69,35 @@ func statTargetText(v *int16) string {
 		return "default"
 	}
 	return strconv.Itoa(int(*v))
+}
+
+// checkDescendantTargets refuses a change without ONLY when an inheritance
+// child or partition of the table has a target other than the table's
+// own: PostgreSQL sets the new target on every descendant, and the
+// rollback, which restores the table's prior to all of them, could not
+// give that child its own target back.
+func checkDescendantTargets(
+	ctx context.Context, pool *pgxpool.Pool, stmt ColumnStatisticsStmt, prior *int16,
+) error {
+	var differ int
+	var first *string
+	err := pool.QueryRow(ctx, `/* pg_sage executor */ WITH RECURSIVE kids(oid) AS (
+		SELECT inhrelid FROM pg_inherits WHERE inhparent = to_regclass($1)
+		UNION SELECT i.inhrelid FROM pg_inherits i JOIN kids k ON i.inhparent = k.oid)
+		SELECT count(*)::int, min(a.attrelid::regclass::text)
+		  FROM kids k JOIN pg_attribute a ON a.attrelid = k.oid AND a.attname = $2
+		   AND NOT a.attisdropped
+		 WHERE COALESCE(a.attstattarget::int, -1) <> COALESCE($3::int, -1)`,
+		stmt.Table, stmt.Column, prior).Scan(&differ, &first)
+	if err != nil {
+		return fmt.Errorf("%w: statistics targets of the children of %s.%s: %v",
+			ErrConfigPrior, stmt.Table, stmt.Column, err)
+	}
+	if differ > 0 {
+		return fmt.Errorf("%w: %d inheritance children or partitions of %s (%s first) have "+
+			"their own statistics target on %s; SET STATISTICS without ONLY would overwrite "+
+			"it and the rollback could not restore it", ErrNoFaithfulRollback, differ,
+			stmt.Table, *first, stmt.Column)
+	}
+	return nil
 }

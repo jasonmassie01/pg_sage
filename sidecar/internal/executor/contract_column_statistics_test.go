@@ -248,3 +248,28 @@ func TestColumnStatistics_PolicyLadderAndLease(t *testing.T) {
 		t.Fatalf("ClassifySQL = %s/%s, want set_column_statistics/moderate", at, tier)
 	}
 }
+
+// ALTER TABLE ONLY reaches the named table alone, so its rollback must
+// too: a rollback without ONLY would reset every inheritance child and
+// partition the forward never touched (review-02c review).
+func TestColumnStatistics_OnlyKeptInRollback(t *testing.T) {
+	stmt, ok := ParseSetColumnStatistics("ALTER TABLE ONLY public.t ALTER COLUMN c " +
+		"SET STATISTICS 500")
+	want := ColumnStatisticsStmt{Table: "public.t", Column: "c", Target: 500, Only: true}
+	if !ok || !reflect.DeepEqual(stmt, want) {
+		t.Fatalf("parse ONLY = %+v, %v; want %+v", stmt, ok, want)
+	}
+	prior := int16(40)
+	got, err := columnStatisticsRollbackSQL(stmt, &prior)
+	if err != nil || got != "ALTER TABLE ONLY public.t ALTER COLUMN c SET STATISTICS 40" {
+		t.Fatalf("ONLY rollback = %q, %v; want ONLY kept", got, err)
+	}
+	if at := ActionTypeForSQL(got); at != ActionTypeSetColumnStatistics {
+		t.Fatalf("ONLY rollback %q classifies as %q", got, at)
+	}
+	plain, ok := ParseSetColumnStatistics("ALTER TABLE public.t ALTER COLUMN c " +
+		"SET STATISTICS 500")
+	if !ok || plain.Only {
+		t.Fatalf("parse without ONLY = %+v, %v; want Only false", plain, ok)
+	}
+}

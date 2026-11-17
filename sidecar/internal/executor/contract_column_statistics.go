@@ -62,17 +62,20 @@ func setColumnStatisticsContract() ActionContract {
 
 // ColumnStatisticsStmt is a parsed SET STATISTICS. Table is as written
 // (quotes kept); Column is the name PostgreSQL resolves (bare names folded
-// to lower case, quoted ones unescaped).
+// to lower case, quoted ones unescaped). Only is ALTER TABLE ONLY: without
+// it PostgreSQL also sets the target on every inheritance child and
+// partition, so the rollback keeps the same reach.
 type ColumnStatisticsStmt struct {
 	Table  string
 	Column string
 	Target int
+	Only   bool
 }
 
 const statIdent = `(?:"(?:[^"]|"")+"|[A-Za-z_][A-Za-z0-9_$]*)`
 
 var setColumnStatisticsPattern = regexp.MustCompile(`(?i)^ALTER TABLE (?:IF EXISTS )?` +
-	`(?:ONLY )?(` + statIdent + `(?:\.` + statIdent + `)?) ALTER (?:COLUMN )?(` + statIdent +
+	`(ONLY )?(` + statIdent + `(?:\.` + statIdent + `)?) ALTER (?:COLUMN )?(` + statIdent +
 	`) SET STATISTICS (-?[0-9]{1,6}) ?;?$`)
 
 // ParseSetColumnStatistics reads one ALTER TABLE ... ALTER [COLUMN] c SET
@@ -84,11 +87,12 @@ func ParseSetColumnStatistics(sql string) (ColumnStatisticsStmt, bool) {
 	if m == nil {
 		return ColumnStatisticsStmt{}, false
 	}
-	target, err := strconv.Atoi(m[3])
+	target, err := strconv.Atoi(m[4])
 	if err != nil {
 		return ColumnStatisticsStmt{}, false
 	}
-	return ColumnStatisticsStmt{Table: m[1], Column: resolvedIdent(m[2]), Target: target}, true
+	return ColumnStatisticsStmt{Table: m[2], Column: resolvedIdent(m[3]), Target: target,
+		Only: m[1] != ""}, true
 }
 
 // resolvedIdent is an identifier as PostgreSQL resolves it.
@@ -144,7 +148,11 @@ func columnStatisticsRollbackSQL(stmt ColumnStatisticsStmt, prior *int16) (strin
 		return "", fmt.Errorf("%w: %s.%s has statistics target %d, which pg_sage never "+
 			"sets back", ErrNoFaithfulRollback, stmt.Table, stmt.Column, target)
 	}
-	return columnStatisticsSQL(stmt.Table, stmt.Column, target), nil
+	qualified := stmt.Table
+	if stmt.Only {
+		qualified = "ONLY " + qualified
+	}
+	return columnStatisticsSQL(qualified, stmt.Column, target), nil
 }
 
 // statTargetMatches compares a read-back attstattarget with the request.

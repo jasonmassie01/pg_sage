@@ -260,3 +260,57 @@ func planRows(t *testing.T, ctx context.Context, pool *pgxpool.Pool, table strin
 	rows, _ := plan[0]["Plan"]["Plan Rows"].(float64)
 	return rows
 }
+
+// Without ONLY, PostgreSQL sets the target on every inheritance child too.
+// A child with its own target could not get it back from the rollback, so
+// the change is refused; children that share the parent's target are
+// restored with it; with ONLY the child is never touched (review-02c
+// review).
+func TestColumnStatistics_DBInheritanceChildren(t *testing.T) {
+	pool, ctx := requireDB(t)
+	e := configTestExecutor(pool)
+	parent := columnStatsTable(t, ctx, pool, "r02c_parent")
+	child := "public.r02c_child"
+	if _, err := pool.Exec(ctx, "CREATE TABLE "+child+" () INHERITS ("+parent+")"); err != nil {
+		t.Fatalf("create child: %v", err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS "+child) })
+	sql := "ALTER TABLE " + parent + " ALTER COLUMN status SET STATISTICS 1000"
+	cc, err := e.prepareConfigChange(ctx, sql)
+	if err != nil || cc == nil {
+		t.Fatalf("prepare with a child on the default = %v, %v; want accepted", cc, err)
+	}
+	if err := ExecInTransaction(ctx, pool, sql, time.Minute); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if _, err := executeRollbackSQL(ctx, pool, cc.rollbackSQL,
+		RollbackMonitorConfig{}); err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+	if got := statTarget(t, ctx, pool, child, "status"); !isDefaultTarget(got) {
+		t.Fatalf("child target after rollback = %v, want the default", statTargetText(got))
+	}
+	if _, err := pool.Exec(ctx, "ALTER TABLE ONLY "+child+
+		" ALTER COLUMN status SET STATISTICS 50"); err != nil {
+		t.Fatal(err)
+	}
+	_, err = e.prepareConfigChange(ctx, sql)
+	if !errors.Is(err, ErrNoFaithfulRollback) || !strings.Contains(err.Error(), "r02c_child") {
+		t.Fatalf("prepare with a child at 50 = %v, want ErrNoFaithfulRollback naming it", err)
+	}
+	only := "ALTER TABLE ONLY " + parent + " ALTER COLUMN status SET STATISTICS 1000"
+	cc, err = e.prepareConfigChange(ctx, only)
+	if err != nil || !strings.HasPrefix(cc.rollbackSQL, "ALTER TABLE ONLY ") {
+		t.Fatalf("prepare ONLY = %v, %v; want a rollback with ONLY", cc, err)
+	}
+	if err := ExecInTransaction(ctx, pool, only, time.Minute); err != nil {
+		t.Fatalf("apply ONLY: %v", err)
+	}
+	if _, err := executeRollbackSQL(ctx, pool, cc.rollbackSQL,
+		RollbackMonitorConfig{}); err != nil {
+		t.Fatalf("rollback ONLY: %v", err)
+	}
+	if got := statTarget(t, ctx, pool, child, "status"); got == nil || *got != 50 {
+		t.Fatalf("child target after ONLY round trip = %v, want 50", statTargetText(got))
+	}
+}
