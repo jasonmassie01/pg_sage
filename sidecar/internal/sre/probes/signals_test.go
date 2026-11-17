@@ -113,3 +113,21 @@ func TestSLORows(t *testing.T) {
 		t.Fatal("a row without a name decoded")
 	}
 }
+
+// guard-02b review: a change_feed row's attribution (operator, provider
+// or unknown) decodes; a row without one decodes as empty.
+func TestChangeRows_Attribution(t *testing.T) {
+	res := Result{ProbeID: ChangeFeed, Status: StatusOK, Rows: []Row{
+		{"kind": "restart", "source": "pg_sage", "attribution": "operator"},
+		{"kind": "deploy", "source": "github-actions"}}}
+	for name, r := range map[string]Result{"live": res, "stored": roundTrip(t, res)} {
+		rows, err := ChangeRows(r)
+		if err != nil || len(rows) != 2 {
+			t.Fatalf("%s: rows=%+v err=%v", name, rows, err)
+		}
+		if rows[0].Attribution != "operator" || rows[1].Attribution != "" {
+			t.Fatalf("%s: attributions %q, %q, want operator and none", name,
+				rows[0].Attribution, rows[1].Attribution)
+		}
+	}
+}

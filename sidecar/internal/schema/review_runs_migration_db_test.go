@@ -58,13 +58,14 @@ func TestReviewRunsMigration_BootstrapTwice(t *testing.T) {
 
 // review-02a appends ddlReviewCandidates, whose rows reference review_run,
 // and review-02b ddlReviewCandidateOperator after it, so ddlReviewRuns is
-// the step just before those two rather than the last.
+// the step just before those two.
 func TestReviewRunsStep_IsAT6StepIdempotentAndBounded(t *testing.T) {
 	steps := trancheSixMigrations()
-	if len(steps) < 3 || steps[len(steps)-3][0] != "ddlReviewRuns" ||
-		steps[len(steps)-2][0] != "ddlReviewCandidates" {
-		t.Fatalf("T6 steps %v, want ddlReviewRuns then ddlReviewCandidates before "+
-			"the last step", steps)
+	at := t6StepIndex(steps, "ddlReviewRuns")
+	if at < 0 || at+2 >= len(steps) || steps[at+1][0] != "ddlReviewCandidates" ||
+		steps[at+2][0] != "ddlReviewCandidateOperator" {
+		t.Fatalf("T6 steps %v, want ddlReviewRuns, ddlReviewCandidates, "+
+			"ddlReviewCandidateOperator in a row", steps)
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout",
 		"CREATE TABLE IF NOT EXISTS sage.review_run",
@@ -79,4 +80,14 @@ func TestReviewRunsStep_IsAT6StepIdempotentAndBounded(t *testing.T) {
 			t.Errorf("statement %q is not classified", stmt.sql)
 		}
 	}
+}
+
+// t6StepIndex is the position of name in steps, or -1.
+func t6StepIndex(steps []namedStep, name string) int {
+	for i, s := range steps {
+		if s[0] == name {
+			return i
+		}
+	}
+	return -1
 }

@@ -4163,7 +4163,7 @@
   "sre.change_events.feed_enabled": {
     "type": "bool",
     "default": true,
-    "doc": "Poll pg_sage's own change sources (actions, config audit, DDL, statistics resets, restarts, failovers, extensions). Default: true.",
+    "doc": "Poll pg_sage's own change sources (actions, config audit, DDL, statistics resets, extensions). Restarts, failovers, server version and host changes are polled even when off. Default: true.",
     "class": "operator_preference",
     "lifecycle": "restart"
   },

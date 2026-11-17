@@ -47,11 +47,14 @@ func TestReviewCandidateOperatorMigration_BootstrapTwice(t *testing.T) {
 	}
 }
 
-func TestReviewCandidateOperatorStep_IsTheLastT6StepAndBounded(t *testing.T) {
+// Later T6 items append their own steps, so the pin is the order of the
+// review steps, not the tail of the list.
+func TestReviewCandidateOperatorStep_IsAT6StepAfterCandidatesAndBounded(t *testing.T) {
 	steps := trancheSixMigrations()
-	if len(steps) == 0 || steps[len(steps)-1][0] != "ddlReviewCandidateOperator" {
-		t.Fatalf("T6 steps end with %v, want ddlReviewCandidateOperator",
-			steps[len(steps)-1])
+	at := t6StepIndex(steps, "ddlReviewCandidateOperator")
+	if at < 1 || steps[at-1][0] != "ddlReviewCandidates" {
+		t.Fatalf("T6 steps %v, want ddlReviewCandidateOperator right after "+
+			"ddlReviewCandidates", steps)
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout",
 		"ADD COLUMN IF NOT EXISTS operator jsonb"} {
