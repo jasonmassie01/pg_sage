@@ -55,6 +55,16 @@ func sequenceCapacityCandidates(f SourceFinding) []ActionCandidate {
 	return []ActionCandidate{c}
 }
 
+// SequenceCapacityScript is the same review-only script for the sequence
+// named schema.name by its catalog names, with detail's runway forecast
+// (the DetailRunway* keys and "increment") as Step 1's rate. Sage Review's
+// schema-debt generator attaches it to its capacity proposals
+// (review-02d); pg_sage never runs it.
+func SequenceCapacityScript(sequence string, detail map[string]any) string {
+	return sequenceCapacityMigrationSQL(sanitize.QuoteQualifiedString(sequence),
+		sequenceRateComment(detail))
+}
+
 // sequenceCapacityMigrationSQL takes an already quoted sequence name. The
 // name appears only inside quoted identifiers and string literals, never on
 // a comment line, where a newline in it would become SQL. rateComment is
