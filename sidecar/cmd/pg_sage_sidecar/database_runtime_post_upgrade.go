@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/pg-sage/sidecar/internal/changeplan"
+	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/upgradecheck"
 )
 
@@ -40,9 +41,10 @@ func (rt *databaseRuntime) withPostUpgrade(engine planTicker) planTicker {
 	}
 	producer, err := upgradecheck.NewPostUpgrade(upgradecheck.PostUpgradeOptions{
 		Pool: rt.spec.Pool, Events: rt.changeFeed,
-		Plans:    changeplan.NewStore(rt.spec.Pool).WithCaps(rt.planCaps()),
-		Resolver: changeplan.NewDBResolver(rt.spec.Pool, rt.spec.Pool),
-		Logf:     logStructuredWrapper})
+		Plans:         changeplan.NewStore(rt.spec.Pool).WithCaps(rt.planCaps()),
+		Resolver:      changeplan.NewDBResolver(rt.spec.Pool, rt.spec.Pool),
+		Logf:          logStructuredWrapper,
+		MaxTableBytes: rt.analyzeMaxTableBytes()})
 	if err != nil {
 		logError(rt.spec.Scope, "db %q: post-upgrade plans unavailable: %v", rt.spec.Name, err)
 		return engine
@@ -50,4 +52,15 @@ func (rt *databaseRuntime) withPostUpgrade(engine planTicker) planTicker {
 	rt.note("post_upgrade_plans")
 	return postUpgradeTicker{name: rt.spec.Name, producer: producer, next: engine,
 		leader: func() bool { return fleetLeader == nil || fleetLeader.IsLeader() }}
+}
+
+// analyzeMaxTableBytes is the executor's ANALYZE size bound
+// (tuner.analyze_max_table_mb), which the post-upgrade ANALYZE step keeps;
+// without a runtime config, the default.
+func (rt *databaseRuntime) analyzeMaxTableBytes() int64 {
+	mb := int64(config.DefaultTunerAnalyzeMaxTableMB)
+	if rt.cfg != nil {
+		mb = rt.cfg.Tuner.AnalyzeMaxTableMB
+	}
+	return mb << 20
 }

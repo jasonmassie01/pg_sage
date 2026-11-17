@@ -85,6 +85,10 @@ type PostUpgradeOptions struct {
 	DatabaseID       *int
 	Logf             func(level, msg string, args ...any) // nil: no log
 	StatementTimeout time.Duration                        // 0: DefaultStatementTimeout
+	// MaxTableBytes is tuner.analyze_max_table_mb in bytes: larger tables
+	// are left out of the ANALYZE step, as the executor's own ANALYZE
+	// findings leave them (0: no bound).
+	MaxTableBytes int64
 }
 
 // PostUpgrade proposes the post-upgrade plans of one database.

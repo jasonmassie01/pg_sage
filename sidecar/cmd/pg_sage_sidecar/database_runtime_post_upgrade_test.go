@@ -7,6 +7,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/config"
+
 	"github.com/pg-sage/sidecar/internal/sre/changefeed"
 	"github.com/pg-sage/sidecar/internal/upgradecheck"
 )
@@ -104,4 +106,21 @@ func slicesContain(list []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func TestAnalyzeMaxTableBytes_IsTheTunerBoundInBytes(t *testing.T) {
+	rt := &databaseRuntime{}
+	if got := rt.analyzeMaxTableBytes(); got != config.DefaultTunerAnalyzeMaxTableMB<<20 {
+		t.Fatalf("no config = %d, want the default %d MB in bytes", got,
+			config.DefaultTunerAnalyzeMaxTableMB)
+	}
+	rt.cfg = &config.Config{}
+	rt.cfg.Tuner.AnalyzeMaxTableMB = 3
+	if got := rt.analyzeMaxTableBytes(); got != 3<<20 {
+		t.Fatalf("3 MB = %d bytes, want %d", got, 3<<20)
+	}
+	rt.cfg.Tuner.AnalyzeMaxTableMB = 0
+	if got := rt.analyzeMaxTableBytes(); got != 0 {
+		t.Fatalf("0 MB = %d, want 0 (no bound, as the executor reads it)", got)
+	}
 }

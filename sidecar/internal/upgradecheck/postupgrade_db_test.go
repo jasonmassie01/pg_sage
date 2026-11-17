@@ -296,3 +296,29 @@ func TestPostUpgradeDB_LiveReadsSeeRightsAndChangedCollations(t *testing.T) {
 		t.Fatalf("changed indexes = %+v, %v; want notes_a without rights", idx, err)
 	}
 }
+
+// A partitioned table is listed once, with its partitions' size (its
+// ANALYZE reads them), so the size bound sees what the step would read.
+func TestPostUpgradeDB_PartitionedTableCarriesItsPartitionsSize(t *testing.T) {
+	d := bootstrapped(t)
+	d.exec(t, "CREATE TABLE public.events (id int) PARTITION BY RANGE (id)",
+		"CREATE TABLE public.events_1 PARTITION OF public.events FOR VALUES FROM (0) TO (5000)",
+		"INSERT INTO public.events SELECT g FROM generate_series(1, 4000) g")
+	tx, err := d.pool.Begin(d.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	tables, err := readLiveTables(d.ctx, tx, d.major)
+	if err != nil {
+		t.Fatalf("readLiveTables: %v", err)
+	}
+	sizes := map[string]int64{}
+	for _, tb := range tables {
+		sizes[tb.Name] = tb.Bytes
+	}
+	if _, listed := sizes["public.events_1"]; listed || sizes["public.events"] < 8192 {
+		t.Fatalf("sizes = %v, want public.events with its partition's pages, the "+
+			"partition not listed", sizes)
+	}
+}

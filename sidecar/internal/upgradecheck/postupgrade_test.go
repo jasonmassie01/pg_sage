@@ -307,7 +307,7 @@ func TestPostUpgradeBuild_StepBoundKeepsFiftyAndNamesTheRest(t *testing.T) {
 	assertValid(t, withFindings(d.Plan))
 }
 
-func TestPostUpgradeBuild_ALongTableListAnalyzesTheWholeDatabase(t *testing.T) {
+func TestPostUpgradeBuild_ALongTableListKeepsTheBusiestWithinTheBound(t *testing.T) {
 	in := baseInput()
 	in.Tables = nil
 	for i := range 800 {
@@ -315,10 +315,49 @@ func TestPostUpgradeBuild_ALongTableListAnalyzesTheWholeDatabase(t *testing.T) {
 			Bytes: int64(i), CanMaintain: true})
 	}
 	d := buildPostUpgrade(in)
-	if len(d.Plan.Steps) == 0 || d.Plan.Steps[0].ProposedSQL != "ANALYZE" {
-		t.Fatalf("800 tables: step 1 = %+v, want a database-wide ANALYZE", d.Plan.Steps)
+	if len(d.Plan.Steps) == 0 {
+		t.Fatalf("800 tables: no step, operator %v", d.Operator)
+	}
+	sql := d.Plan.Steps[0].ProposedSQL
+	// 21 runes for the first table, 15 for each next: 666 fit in 10,000.
+	if len([]rune(sql)) > maxAnalyzeSQLRunes || sql == "ANALYZE" ||
+		!strings.HasPrefix(sql, "ANALYZE public.t_0799, public.t_0798") ||
+		strings.Count(sql, ",") != 665 || strings.Contains(sql, "public.t_0133,") {
+		t.Fatalf("800 tables: step 1 = %.80q..., want the 666 largest, never a "+
+			"database-wide ANALYZE", sql)
+	}
+	text := strings.Join(d.Operator, "\n")
+	if !strings.Contains(text, "134 tables past the plan's ANALYZE statement bound") {
+		t.Fatalf("operator = %v, want the 134 tables left named", d.Operator)
 	}
 	assertValid(t, withFindings(d.Plan))
+}
+
+func TestPostUpgradeBuild_TablesAboveTheAnalyzeSizeBoundAreOperatorText(t *testing.T) {
+	in := baseInput()
+	in.MaxTableBytes = 1 << 30 // public.orders is exactly at it, public.logs above
+	d := buildPostUpgrade(in)
+	want := "ANALYZE public.notes, public.orders, public.mid, public.small"
+	if len(d.Plan.Steps) != 2 || d.Plan.Steps[0].ProposedSQL != want {
+		t.Fatalf("plan = %+v, want %q (public.logs above the bound)", d.Plan.Steps, want)
+	}
+	text := strings.Join(d.Operator, "\n")
+	if !strings.Contains(text, "1 table above tuner.analyze_max_table_mb") ||
+		!strings.Contains(text, "vacuumdb --analyze-in-stages") {
+		t.Fatalf("operator = %v, want vacuumdb text for the 1 table above the bound",
+			d.Operator)
+	}
+	in.MaxTableBytes = 0 // no bound
+	if d := buildPostUpgrade(in); !strings.Contains(d.Plan.Steps[0].ProposedSQL,
+		"public.logs") || len(d.Operator) != 0 {
+		t.Fatalf("no bound: %q operator %v, want every table", d.Plan.Steps[0].ProposedSQL,
+			d.Operator)
+	}
+	in.MaxTableBytes = 1 // every table is above it
+	if d := buildPostUpgrade(in); len(d.Plan.Steps) != 1 ||
+		d.Plan.Steps[0].ActionType != ReindexAction {
+		t.Fatalf("all above the bound: %+v, want the reindex step alone", d.Plan.Steps)
+	}
 }
 
 func TestPostUpgradeBuild_TargetsAreBoundedAndDeduplicated(t *testing.T) {

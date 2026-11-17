@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
-	"strings"
 	"unicode/utf8"
 
 	"github.com/pg-sage/sidecar/internal/changeplan"
@@ -27,8 +26,8 @@ const StatisticsCarriedOver = "statistics carried over"
 const (
 	// maxPostUpgradeTargets bounds a step's target queries.
 	maxPostUpgradeTargets = 20
-	// maxAnalyzeSQLRunes is the plan's SQL bound: a longer table list is a
-	// database-wide ANALYZE instead.
+	// maxAnalyzeSQLRunes is the plan's SQL bound: the tables past it are
+	// left to the operator.
 	maxAnalyzeSQLRunes     = 10000
 	analyzeDeadlineMinutes = 6 * 60
 	reindexDeadlineMinutes = 24 * 60
@@ -60,6 +59,9 @@ type postUpgradeInput struct {
 	Tables     []LiveTable
 	Reindex    []LiveIndex
 	Fallback   []int64 // the live top statements, when the brief names none
+	// MaxTableBytes is the executor's ANALYZE size bound
+	// (tuner.analyze_max_table_mb); 0 is none.
+	MaxTableBytes int64
 }
 
 // postUpgradeFinding is the finding a step cites (same order as the steps).
@@ -171,14 +173,55 @@ func plural(n int, word string) string {
 	return strconv.Itoa(n) + " " + word + "s"
 }
 
+// withinSize drops the tables above the executor's ANALYZE size bound
+// (the bound the executor applies to its own ANALYZE findings), counting
+// them; limit 0 keeps every table.
+func withinSize(tables []LiveTable, limit int64) (kept []LiveTable, over int) {
+	for _, t := range tables {
+		if limit > 0 && t.Bytes > limit {
+			over++
+			continue
+		}
+		kept = append(kept, t)
+	}
+	return kept, over
+}
+
+// fitSQL is the longest prefix of ordered whose ANALYZE fits the plan's
+// SQL bound, and how many tables are left past it.
+func fitSQL(ordered []string) (sql string, kept []string) {
+	sql = "ANALYZE"
+	for i, t := range ordered {
+		next := sql + ", " + t
+		if i == 0 {
+			next = sql + " " + t
+		}
+		if utf8.RuneCountInString(next) > maxAnalyzeSQLRunes {
+			return sql, ordered[:i]
+		}
+		sql = next
+	}
+	return sql, ordered
+}
+
 func (d *postUpgradeDraft) addAnalyze(in postUpgradeInput, shares []TableShare) {
-	ordered, denied := analyzeOrder(shares, in.Tables)
+	tables, over := withinSize(in.Tables, in.MaxTableBytes)
+	if over > 0 {
+		d.Operator = append(d.Operator, vacuumdbText(in.Database, plural(over, "table")+
+			" above tuner.analyze_max_table_mb, which pg_sage never ANALYZEs itself"))
+	}
+	ordered, denied := analyzeOrder(shares, tables)
 	if denied > 0 {
 		d.Operator = append(d.Operator, vacuumdbText(in.Database, plural(denied, "table")+
 			" pg_sage's role may not ANALYZE"))
 	}
 	if len(ordered) == 0 {
 		return
+	}
+	sql, ordered := fitSQL(ordered)
+	if left := len(tables) - denied - len(ordered); left > 0 {
+		d.Operator = append(d.Operator, vacuumdbText(in.Database, plural(left, "table")+
+			" past the plan's ANALYZE statement bound, the least busy and smallest"))
 	}
 	in2 := map[string]bool{}
 	for _, t := range ordered {
@@ -192,10 +235,6 @@ func (d *postUpgradeDraft) addAnalyze(in postUpgradeInput, shares []TableShare) 
 		d.Operator = append(d.Operator, vacuumdbText(in.Database, "there are no target "+
 			"queries to verify an ANALYZE step by (no stored brief and no statements yet)"))
 		return
-	}
-	sql := "ANALYZE " + strings.Join(ordered, ", ")
-	if utf8.RuneCountInString(sql) > maxAnalyzeSQLRunes {
-		sql = "ANALYZE"
 	}
 	d.targets = targets
 	d.add(analyzeStep(sql, targets), postUpgradeFinding{

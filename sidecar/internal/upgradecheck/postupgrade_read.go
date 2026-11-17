@@ -43,7 +43,9 @@ func maintainExpr(major int, rel string, dbOwner bool) string {
 
 func liveTablesSQL(major int) string {
 	return Tag + `SELECT pg_catalog.format('%I.%I', n.nspname, c.relname),
-  pg_catalog.pg_relation_size(c.oid), ` + maintainExpr(major, "c.oid", true) + `
+  CASE WHEN c.relkind = 'p' THEN COALESCE((SELECT pg_catalog.sum(
+      pg_catalog.pg_relation_size(t.relid)) FROM pg_catalog.pg_partition_tree(c.oid) t),
+    0)::bigint ELSE pg_catalog.pg_relation_size(c.oid) END, ` + maintainExpr(major, "c.oid", true) + `
 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 WHERE c.relkind IN ('r', 'p', 'm') AND c.relpersistence <> 't' AND NOT c.relispartition
   AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'sage')
@@ -52,7 +54,8 @@ ORDER BY 1 LIMIT ` + strconv.Itoa(maxLiveTables)
 }
 
 // readLiveTables lists the user tables (partitions through their parent,
-// pg_sage's own schema left out) with their size and the role's rights.
+// pg_sage's own schema left out) with their size (a partitioned table's
+// is its partitions', which its ANALYZE reads) and the role's rights.
 func readLiveTables(ctx context.Context, tx pgx.Tx, major int) ([]LiveTable, error) {
 	rows, err := tx.Query(ctx, liveTablesSQL(major))
 	if err != nil {
@@ -125,7 +128,8 @@ func liveTopQueries(ctx context.Context, tx pgx.Tx) []int64 {
 // read gathers the plan's input in one READ ONLY transaction.
 func (p *PostUpgrade) read(ctx context.Context, database string, ch VersionChange) (
 	postUpgradeInput, error) {
-	in := postUpgradeInput{Database: database, DatabaseID: p.opts.DatabaseID, Change: ch}
+	in := postUpgradeInput{Database: database, DatabaseID: p.opts.DatabaseID, Change: ch,
+		MaxTableBytes: p.opts.MaxTableBytes}
 	tx, err := catalogread.Begin(ctx, p.opts.Pool, catalogread.Timeouts{
 		Statement: p.opts.StatementTimeout, Lock: time.Second})
 	if err != nil {
