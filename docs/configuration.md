@@ -1854,8 +1854,10 @@ overrides for XID and disk emergencies. Use `staffed` for narrow maintenance
 windows without deadline overrides. Clone-backed migration rehearsal defaults
 to disabled (`clone.provider: none`) and stale clones are recommendation-only.
 The clone adapters are `dle` (Database Lab Engine) and `lakebase_branch` (an
-instant Lakebase branch per rehearsal, below). `snapshot` is refused at startup:
-this build has no RDS, Aurora, Cloud SQL or AlloyDB snapshot adapter.
+instant Lakebase branch per rehearsal, below). `snapshot` is refused at startup
+with the names that replace it: `rds_restore`, `cloudsql_clone`,
+`alloydb_restore` and `azure_restore`, the full-copy restores. Those names are
+also refused in this build (no adapter yet).
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -1865,6 +1867,8 @@ this build has no RDS, Aurora, Cloud SQL or AlloyDB snapshot adapter.
 | `clone.lakebase.ttl_minutes` | `60` | Server-side expiry of every rehearsal branch, 1 to 1440: the backstop if pg_sage cannot delete it |
 | `clone.lakebase.endpoint_max_cu` | `1` | Autoscaling maximum of the read-write endpoint on a rehearsal branch |
 | `clone.rehearsals_per_hour` | `2` | Most index rehearsals on a clone one database starts in any hour (tuning agent and index floor together), 1 to 60 |
+| `clone.allow_full_copy` | `false` | Allow full-copy clones (a whole-instance restore: hours and a full instance bill). Without it a full-copy provider, or one that does not say what its clones are, creates nothing. `true` with a provider that makes no full copies logs a startup warning |
+| `clone.max_creates_per_hour` | `4` | Most clones this deployment creates in any hour, every purpose together, 1 to 60; the next create is refused naming the limit |
 | `clone.rehearsal_statement_timeout_seconds` | `5` | Longest one statement an index rehearsal executes on the clone may run, 1 to 300 seconds; a statement that hits it records "timed out on the clone", not a cost |
 
 The `clone.lakebase.*` keys are read at startup (restart to change them) and are
@@ -1884,6 +1888,22 @@ expired receipt that never got a clone id is logged, never destroyed. Before the
 first step the rehearsal checks that the clone is not the production server:
 the same DSN host and port, or the same postmaster start time and port under
 any name, is refused (`target_is_production`), and nothing runs on it.
+
+Clone lifecycle (lab-05a). Each adapter says what kind of clone it makes:
+`dle` a thin clone (no new instance), `lakebase_branch` a branch; a full-copy
+restore needs `clone.allow_full_copy`. Before the clone is requested its
+receipt gets a cost label: instance-hours for the receipt's lifetime and, when a
+`cost.rates` entry names the database, a figure in that entry's currency with
+its date; otherwise "unpriced" (pg_sage ships no price tables). The receipt also
+names the sidecar process holding the clone (`holder_id`), which heartbeats it
+every minute. On startup and every pass the leader's reaper also destroys, before
+their TTL, the clones of this deployment, any purpose, whose holder is another
+process and whose heartbeat is more than 5 minutes old: what a killed sidecar
+left. Receipts written before this release have no holder and end by their TTL
+only. A create the provider answers with 429 or 5xx backs off that adapter's
+creates (1 minute, doubling to 1 hour); a provider that can look its clones up
+by name resolves an uncertain create by the name the receipt gave it, else the
+receipt is logged, never guessed.
 
 The same clones rehearse proposed indexes (lab-04a). With `clone.provider` set,
 the tuning agent offers the model a `rehearse` tool (once per cycle) and the
