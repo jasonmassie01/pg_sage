@@ -23,37 +23,52 @@ const storeTimeout = 5 * time.Second
 var ErrInvalidBrief = errors.New("upgradecheck: invalid upgrade brief")
 
 // StoredBrief is the store's answer: the latest row of the brief's
-// database and target, whether this call added it, and when its content
-// was first stored (the brief's age).
+// database and target, whether this call added it, when its content was
+// first stored (the brief's age), and the rehearsal the row carries.
 type StoredBrief struct {
-	ID      int64     `json:"id"`
-	Stored  bool      `json:"stored"`
-	BuiltAt time.Time `json:"built_at"`
-	Hash    string    `json:"hash"`
+	ID        int64            `json:"id"`
+	Stored    bool             `json:"stored"`
+	BuiltAt   time.Time        `json:"built_at"`
+	Hash      string           `json:"hash"`
+	Rehearsal *RehearsalReport `json:"rehearsal,omitempty"`
 }
 
 // StoreBrief keeps b in sage.upgrade_briefs only when its hash differs
 // from the latest stored brief of its database and target major
-// (delta-only), so older briefs stay. Concurrent stores of one database
-// and target serialize on a transaction advisory lock.
+// (delta-only), so older briefs stay. A new row carries the latest row's
+// rehearsal when b has none. Concurrent stores of one database and target
+// serialize on a transaction advisory lock.
 func StoreBrief(ctx context.Context, pool *pgxpool.Pool, b Brief) (StoredBrief, error) {
+	return storeBrief(ctx, pool, b, nil)
+}
+
+func validStoredBrief(pool *pgxpool.Pool, b Brief) error {
 	if pool == nil {
-		return StoredBrief{}, ErrNoPool
+		return ErrNoPool
 	}
 	if b.Database == "" || b.Target.Major <= 0 || len(b.Hash) != 64 {
-		return StoredBrief{}, fmt.Errorf("%w: database %q, target %d, hash %q",
+		return fmt.Errorf("%w: database %q, target %d, hash %q",
 			ErrInvalidBrief, b.Database, b.Target.Major, b.Hash)
 	}
-	doc, err := json.Marshal(b)
-	if err != nil {
-		return StoredBrief{}, fmt.Errorf("store upgrade brief: encode: %w", err)
+	return nil
+}
+
+// storeBrief stores b, then, with after set, runs after on the stored row
+// in the same transaction.
+func storeBrief(ctx context.Context, pool *pgxpool.Pool, b Brief,
+	after func(pgx.Tx, *StoredBrief) error) (StoredBrief, error) {
+	if err := validStoredBrief(pool, b); err != nil {
+		return StoredBrief{}, err
 	}
 	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return StoredBrief{}, fmt.Errorf("store upgrade brief: begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }() // no-op after commit
-	got, err := storeInTx(ctx, tx, b, doc)
+	got, err := storeInTx(ctx, tx, b)
+	if err == nil && after != nil {
+		err = after(tx, &got)
+	}
 	if err != nil {
 		return StoredBrief{}, fmt.Errorf("store upgrade brief of %s: %w", b.Database, err)
 	}
@@ -64,7 +79,7 @@ func StoreBrief(ctx context.Context, pool *pgxpool.Pool, b Brief) (StoredBrief, 
 	return got, nil
 }
 
-func storeInTx(ctx context.Context, tx pgx.Tx, b Brief, doc []byte) (StoredBrief, error) {
+func storeInTx(ctx context.Context, tx pgx.Tx, b Brief) (StoredBrief, error) {
 	ms := strconv.FormatInt(storeTimeout.Milliseconds(), 10)
 	if _, err := tx.Exec(ctx, storeTag+"SET LOCAL statement_timeout = "+ms); err != nil {
 		return StoredBrief{}, err
@@ -79,15 +94,28 @@ func storeInTx(ctx context.Context, tx pgx.Tx, b Brief, doc []byte) (StoredBrief
 	}
 	out := StoredBrief{Hash: b.Hash}
 	var latest string
-	err := tx.QueryRow(ctx, storeTag+`SELECT id, hash, built_at FROM sage.upgrade_briefs
-		WHERE database = $1 AND target_major = $2
+	var prev []byte
+	err := tx.QueryRow(ctx, storeTag+`SELECT id, hash, built_at, brief->'rehearsal'
+		FROM sage.upgrade_briefs WHERE database = $1 AND target_major = $2
 		ORDER BY built_at DESC, id DESC LIMIT 1`, b.Database, b.Target.Major).
-		Scan(&out.ID, &latest, &out.BuiltAt)
-	switch {
-	case err == nil && latest == b.Hash:
-		return out, nil
-	case err != nil && !errors.Is(err, pgx.ErrNoRows):
+		Scan(&out.ID, &latest, &out.BuiltAt, &prev)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return StoredBrief{}, err
+	}
+	if b.Rehearsal == nil && len(prev) > 0 {
+		var carried RehearsalReport
+		if err := json.Unmarshal(prev, &carried); err != nil {
+			return StoredBrief{}, fmt.Errorf("decode the stored rehearsal: %w", err)
+		}
+		b.Rehearsal = &carried
+	}
+	out.Rehearsal = b.Rehearsal
+	if err == nil && latest == b.Hash {
+		return out, nil
+	}
+	doc, err := json.Marshal(b)
+	if err != nil {
+		return StoredBrief{}, fmt.Errorf("encode: %w", err)
 	}
 	out.Stored = true
 	err = tx.QueryRow(ctx, storeTag+`INSERT INTO sage.upgrade_briefs

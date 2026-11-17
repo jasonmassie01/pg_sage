@@ -194,9 +194,10 @@ func postUpgradeDetail(b Brief) string {
 		"says so; REFRESH COLLATION VERSION once rebuilt (drill-02c)"
 }
 
-// briefHash is the sha256 of the brief's content without its build time.
+// briefHash is the sha256 of the brief's content without its build time
+// and its rehearsal.
 func briefHash(b Brief) string {
-	b.BuiltAt, b.Hash = time.Time{}, ""
+	b.BuiltAt, b.Hash, b.Rehearsal = time.Time{}, "", nil
 	doc, err := json.Marshal(b)
 	if err != nil { // a Brief is plain data; Marshal cannot fail on it
 		return ""
