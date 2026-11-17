@@ -215,3 +215,25 @@ func TestGenerate_ValuesStayInRange(t *testing.T) {
 		}
 	}
 }
+
+// review-02b review: a trigger the step cannot bring under the target is
+// never a step that claims it does. orders' own threshold of 1M is left
+// alone (its prior state differs from the scale factor's, so one rollback
+// statement could not restore both), and even the 0.001 floor of the scale
+// factor then predicts 1M + 10k + 25.4k = 1,035,417 dead tuples, over the
+// 500k target: that is advice naming the threshold, not a step.
+func TestGenerate_TriggerThatCannotHoldTheTargetIsAdvice(t *testing.T) {
+	f := orders()
+	f.Reloptions = map[string]string{"autovacuum_vacuum_threshold": "1000000"}
+	cands, _ := generate(t, packOf(t, stockSettings(), f))
+	if len(cands) != 1 {
+		t.Fatalf("candidates %+v, want one", cands)
+	}
+	c := cands[0]
+	if c.ActionType != candidate.ActionAdvice || c.Kind != KindFallingBehind ||
+		c.ForwardSQL != "" || c.RollbackSQL != "" ||
+		!strings.Contains(c.Reason, "threshold now 1000000") ||
+		strings.Contains(c.Reason, "under the") {
+		t.Fatalf("candidate %+v", c)
+	}
+}

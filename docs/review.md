@@ -219,5 +219,6 @@ settings (PostgreSQL's defaults when the pack has none).
 A table with fewer than two days of dead tuples, unknown live rows, autovacuum switched off by
 its owner, or storage parameters that do not parse is left alone, with the reason in the
 coverage. A table under 100,000 rows is left alone without a note. When no trigger can hold the
-target, because the growth outruns it or the table is already tuned tighter, the candidate is
-advice that autovacuum is falling behind.
+target, because the growth outruns it, the table's own threshold (left alone, see step 5) or the
+0.001 floor keeps the predicted peak over it, or the table is already tuned tighter, the candidate
+is advice that autovacuum is falling behind.

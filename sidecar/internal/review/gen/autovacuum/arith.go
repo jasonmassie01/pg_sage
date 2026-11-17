@@ -52,7 +52,9 @@ func judge(f workpack.AutovacuumFact, g globals, cov *candidate.Coverage,
 // the budget, only together with keys of the same prior state (one
 // statement must roll back exactly); the scale factor takes the rest of
 // the budget, floored to 0.001. false when it would not tighten the
-// trigger: autovacuum is falling behind, not triggering late.
+// trigger, or the tightest trigger it may set still predicts a peak over
+// the target (a threshold it cannot lower, or the 0.001 floor): no step
+// may claim a peak it cannot hold.
 func (p *plan) size(t table) bool {
 	set := func(k string) bool { _, ok := t.fact.Reloptions[k]; return ok }
 	p.keys, p.thresh = []string{keyScale}, t.thresh
@@ -61,7 +63,7 @@ func (p *plan) size(t table) bool {
 		p.keys, p.thresh = append(p.keys, keyThresh), want
 	}
 	p.scale = math.Max(0.001, math.Floor((p.budget-p.thresh)/t.live*1000)/1000)
-	if p.scale >= t.scale {
+	if p.scale >= t.scale || p.predicted(t) > p.target {
 		return false
 	}
 	p.analyze = math.Max(0.001, math.Floor(p.scale/2*1000)/1000)
@@ -96,7 +98,7 @@ func (p plan) render(c *candidate.Candidate, t table) string {
 	if len(prior) > 0 {
 		c.RollbackSQL = "ALTER TABLE " + rel + " SET (" + strings.Join(prior, ", ") + ")"
 	}
-	predicted := p.thresh + p.scale*t.live + p.growth*p.lag
+	predicted := p.predicted(t)
 	pct := (p.peak - predicted) / p.peak * 100
 	c.Prediction.SizePct = &pct
 	c.Prediction.Quantities["predicted_peak"] = predicted
@@ -106,6 +108,12 @@ func (p plan) render(c *candidate.Candidate, t table) string {
 		strings.Join(set, ", "), predicted, TargetDeadShare*100)
 	c.ID = candidate.NewID(c.Generator, c.Kind, c.Target, c.IDBody())
 	return ""
+}
+
+// predicted is the dead-tuple peak under the planned trigger: the trigger
+// plus the growth while autovacuum gets to the table.
+func (p plan) predicted(t table) float64 {
+	return p.thresh + p.scale*t.live + p.growth*p.lag
 }
 
 // base is the candidate's common part: what it cites and the numbers.
@@ -125,10 +133,11 @@ func base(t table, g globals, p plan) candidate.Candidate {
 func fallingBehind(c candidate.Candidate, t table, p plan) candidate.Candidate {
 	c.Kind, c.ActionType = KindFallingBehind, candidate.ActionAdvice
 	c.Reason = fmt.Sprintf("Autovacuum is falling behind on %s: dead tuples peaked at %.0f "+
-		"(target %.0f) and grow %.0f an hour, and a tighter trigger (scale factor now %s) "+
-		"cannot hold the target. Look at autovacuum_vacuum_cost_limit, the number of "+
-		"workers and long-running transactions that hold back cleanup.", t.fact.Table,
-		p.peak, p.target, p.growth, num(t.scale))
+		"(target %.0f) and grow %.0f an hour, and a tighter trigger (scale factor now %s, "+
+		"threshold now %s) cannot hold the target. Look at the table's own threshold, "+
+		"autovacuum_vacuum_cost_limit, the number of workers and long-running "+
+		"transactions that hold back cleanup.", t.fact.Table, p.peak, p.target, p.growth,
+		num(t.scale), num(t.thresh))
 	c.ID = candidate.NewID(c.Generator, c.Kind, c.Target, c.IDBody())
 	return c
 }
