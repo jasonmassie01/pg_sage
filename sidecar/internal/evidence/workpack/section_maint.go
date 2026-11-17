@@ -89,6 +89,10 @@ func buildAutovacuum(win relWindow, days []string,
 				f.Autoanalyzes = last.aa - first.aa
 			}
 		}
+		f.LiveTuples = valueUnknown
+		if last.live != nil {
+			f.LiveTuples = *last.live
+		}
 		f.Reloptions, f.ReloptionsText = parseReloptions(last.reloptions)
 		f.DeadTuples = make([]*int64, len(days))
 		for i, d := range days {
