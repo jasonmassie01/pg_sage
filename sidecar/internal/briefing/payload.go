@@ -24,6 +24,8 @@ type Payload struct {
 	// OpenBySeverity counts every open finding by severity, not only the
 	// capped Findings list.
 	OpenBySeverity map[string]int `json:"open_by_severity,omitempty"`
+	// Digest is what the briefing sends (ux-02b); never part of the prompt.
+	Digest *Digest `json:"digest,omitempty"`
 	// database is the fleet database the case links open on the Cases page.
 	database string
 }
@@ -113,6 +115,7 @@ func (r findingRow) ref(database string) FindingRef {
 // promptJSON is the payload as the LLM sees it: without case keys.
 func (p Payload) promptJSON() (string, error) {
 	view := p
+	view.Digest = nil
 	view.Findings = make([]FindingRef, len(p.Findings))
 	for i, f := range p.Findings {
 		f.CaseKey = ""

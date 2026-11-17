@@ -75,38 +75,58 @@ func (d *Dispatcher) Dispatch(
 // each: queued in the outbox (when UseOutbox was called and the event
 // can wait), delivered at once, refused or suppressed by the alert state.
 func (d *Dispatcher) Submit(ctx context.Context, event Event) (DispatchResult, error) {
+	res, _, err := d.SubmitWithOutcomes(ctx, event)
+	return res, err
+}
+
+// SubmitWithOutcomes is Submit that also says what each matching rule's
+// channel did (ux-02b), so a caller can record which channel failed.
+func (d *Dispatcher) SubmitWithOutcomes(
+	ctx context.Context, event Event,
+) (DispatchResult, []ChannelOutcome, error) {
 	var res DispatchResult
 	rules, err := d.loadMatchingRules(ctx, event.Type)
 	if err != nil {
-		return res, fmt.Errorf("loading rules: %w", err)
+		return res, nil, fmt.Errorf("loading rules: %w", err)
 	}
+	outs := make([]ChannelOutcome, 0, len(rules))
 	for _, rule := range rules {
-		d.submitRule(ctx, rule, event, &res)
+		d.submitRule(ctx, rule, event, &res, &outs)
 	}
-	return res, nil
+	return res, outs, nil
 }
 
 func (d *Dispatcher) submitRule(
 	ctx context.Context, rule Rule, event Event, res *DispatchResult,
+	outs *[]ChannelOutcome,
 ) {
 	ch, sender, err := d.ruleTarget(ctx, rule, event)
 	switch {
 	case err != nil:
 		d.logFn("ERROR", "rule %d dispatch: %v", rule.ID, err)
 		res.Refused++
+		*outs = append(*outs, ChannelOutcome{ChannelID: rule.ChannelID,
+			Channel: fmt.Sprintf("channel %d", rule.ChannelID), Status: OutcomeRefused,
+			Error: RedactError(err).Error()})
 		return
 	case ch == nil:
 		return
 	case d.outbox != nil && queueable(event):
+		before := *res
 		d.enqueue(ctx, *ch, event, res)
+		*outs = append(*outs, ChannelOutcome{ChannelID: ch.ID,
+			Channel: ch.Name, Status: queuedOutcome(before, *res)})
 		return
 	}
+	out := ChannelOutcome{ChannelID: ch.ID, Channel: ch.Name, Status: OutcomeSent}
 	if err := d.deliver(ctx, sender, *ch, event); err != nil {
 		d.logFn("ERROR", "rule %d dispatch: %v", rule.ID, err)
 		res.Failed++
-		return
+		out.Status, out.Error = OutcomeError, err.Error()
+	} else {
+		res.Delivered++
 	}
-	res.Delivered++
+	*outs = append(*outs, out)
 }
 
 func (d *Dispatcher) processRule(

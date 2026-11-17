@@ -51,6 +51,35 @@ export const briefing = {
   },
 }
 
+// digestBriefing is a briefing.Record whose content_json carries the
+// ux-02b digest (briefing.Digest): headline, the five sections in order,
+// and the per-channel delivery of the digest_ready event.
+export const digestBriefing = {
+  ...briefing,
+  content_json: {
+    total_open: 3,
+    digest: {
+      database: 'orders', headline: '6 changes, 5 verified, 1 reverted, 2 need you',
+      headline_source: 'deterministic', gaps: [],
+      counts: { changes: 6, verified: 5, reverted: 1, needs_you: 2, held_back: 2 },
+      sections: [
+        { key: 'did', title: 'Did', summary: '6 changes',
+          items: [{ label: 'Index created', detail: 'improved' }] },
+        { key: 'verified', title: 'Verified or reverted',
+          summary: '5 verified, 1 reverted, 0 inconclusive, 1 pending', items: [] },
+        { key: 'saved', title: 'Saved', summary: '3 DBA hours', items: [] },
+        { key: 'needs_you', title: 'Needs you', summary: '2 items',
+          items: [{ label: 'change_approval', count: 2 }] },
+        { key: 'could_not', title: 'Could not do and why', summary: '2 held back',
+          items: [{ label: 'outside maintenance window', count: 2 }] },
+      ],
+    },
+  },
+  delivery_status: {
+    'config:slack:briefing': { status: 'sent', at: '2026-11-13T08:00:02Z' },
+  },
+}
+
 // NO_BRIEFING copies noBriefingMessage("") with briefing.NoBriefingReason:
 // the 404 the route answers when no database has a briefing.
 export const NO_BRIEFING = 'no briefing yet: pg_sage writes one at each briefing.schedule '

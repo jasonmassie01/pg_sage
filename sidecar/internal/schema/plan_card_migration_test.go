@@ -9,7 +9,7 @@ import (
 // concurrent access test: the step is a constant string (the bootstrap
 // lock serializes it; the DB test boots twice).
 
-// Other T5 steps merged between them (evid-02c, lab-03a, lab-03b, lab-05a),
+// Other T5 steps merged between them (evid-02c, ux-01b, lab-03a, lab-03b, lab-05a),
 // so the pin is that the step follows ddlPlanApprovalModes, not that it
 // is last; the final step is pinned in TestMigrationStatements_AreTheStepsInOrder.
 func TestPlanCardStep_FollowsPlanApprovalModes(t *testing.T) {
