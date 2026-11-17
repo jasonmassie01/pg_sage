@@ -1557,3 +1557,25 @@ finding resolves.
 A check that cannot read (for example permission denied) is `unknown` with
 its SQLSTATE; the other checks still run. All reads run in one read-only
 REPEATABLE READ transaction under a statement timeout.
+
+### Upgrade brief
+
+`GET /api/v1/databases/{db}/upgrade-brief?target_major=&method=&target_database=`
+(or the MCP tool `upgrade_readiness` with `brief: true`) turns one readiness run
+into a dated plan for the database. `target_major` defaults to the newest
+community major pg_sage knows. The brief has:
+
+| Section | What it says |
+|---------|--------------|
+| `blockers` | Every check that blocks, plus `hypopg` on Azure for an in-place upgrade (Azure's precheck refuses it). `summary` is `no blockers found` when there are none; `unknown_checks` names checks that could not tell. |
+| `extension_path` | Each installed extension with the versions `target_database` offers and its path (carried, `ALTER EXTENSION ... UPDATE` after, or not offered), or `unknown` without a member at the target major. |
+| `slot_plan` | Each logical slot (with its consumer from a confirmed `slot_consumer` fact) and subscription, with its step: from below 17 via `pg_upgrade`, "drop and recreate after, consumer re-snapshots" or use blue/green. |
+| `collation_reindex` | Indexes on collations whose recorded version changed, and the U5 indexes an 18+ target folds case differently for, each a future `reindex_concurrently` step. |
+| `cost_of_waiting` | On RDS, Aurora and Azure: months in extended support x vCPUs x 730 h x your `cost.rates[].extended_support_per_vcpu_hour` ([Configuration](configuration.md)), else `unpriced`; `not_applicable` elsewhere. `dba_hours` is always an estimate range with its formula. |
+| `checklist` | Ordered steps: resolve blockers, extension path, reindex plan, slot plan, rehearsal, the operator's cutover, post-upgrade steps. |
+
+A section whose read fails is `unknown` with its SQLSTATE. The brief only reads
+the monitored database; pg_sage keeps it in `sage.upgrade_briefs` only when it
+changed (`stored`, `brief_id`, and `stored_at`, the brief's age), so a resolved
+blocker adds a row and keeps the old one. The upgrade itself stays with the
+operator.

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/api"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/mcp"
@@ -60,11 +61,14 @@ func (u upgradeReadinessMCP) UpgradeReadiness(ctx context.Context,
 				req.TargetDatabase)
 		}
 	}
-	provider := u.provider(name)
+	target := upgradecheck.Target{Major: req.TargetMajor, Method: req.Method,
+		Provider: u.provider(name)}
 	ctx, cancel := context.WithTimeout(ctx, upgradeReadinessBudget)
 	defer cancel()
-	return upgradecheck.Run(ctx, pool, upgradecheck.Target{Major: req.TargetMajor,
-		Method: req.Method, Provider: provider}, opts)
+	if req.Brief {
+		return api.UpgradeBriefMCP(ctx, cfg, name, pool, target, opts) // drill-02a
+	}
+	return upgradecheck.Run(ctx, pool, target, opts)
 }
 
 // provider is the member's detected provider (each fleet member has its

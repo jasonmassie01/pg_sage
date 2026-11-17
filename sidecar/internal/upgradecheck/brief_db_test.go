@@ -11,37 +11,36 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
-// targetMemberEnv names a server at a newer major (the cross-version
-// integration: a PG14 source with a PG17 member as the target-side fact
-// source). Unset, the member is a second database on the same server, so
-// its major differs from the target and the extension path must say so.
-const targetMemberEnv = "SAGE_TEST_TARGET_DATABASE_URL"
-
 // targetMember is the fleet member the brief reads target-side facts
-// from, and the target major to plan for.
+// from, and the target major to plan for. With SAGE_TEST_SECOND_CLUSTER_URL
+// naming a newer major it is the cross-version integration (a PG14 source
+// with a PG17 member as the target-side fact source); without it the
+// member is a second database on the same server, whose major is not the
+// target, so the extension path must say so.
 func targetMember(t *testing.T, src liveDB) (*pgxpool.Pool, string, int, bool) {
 	t.Helper()
-	if url := os.Getenv(targetMemberEnv); url != "" {
-		pool, err := pgxpool.New(src.ctx, url)
-		if err != nil {
-			t.Fatalf("connect %s: %v", targetMemberEnv, err)
-		}
-		t.Cleanup(pool.Close)
-		var v int
-		if err := pool.QueryRow(src.ctx, "SELECT current_setting('server_version_num')::int").
-			Scan(&v); err != nil {
-			t.Fatalf("member version: %v", err)
-		}
-		if v/10000 > src.major {
-			return pool, "member", v / 10000, true
-		}
-		t.Fatalf("%s runs PostgreSQL %d, not above the source %d", targetMemberEnv,
-			v/10000, src.major)
+	if os.Getenv(testdb.SecondClusterEnvName) == "" {
+		other := newDB(t, "")
+		return other.pool, other.name, 18, false
 	}
-	other := newDB(t, "")
-	return other.pool, other.name, 18, false
+	pool, err := pgxpool.New(src.ctx, testdb.CreateDatabaseOnSecondCluster(t, "upgbrief"))
+	if err != nil {
+		t.Fatalf("connect the second cluster: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	var v int
+	if err := pool.QueryRow(src.ctx, "SELECT current_setting('server_version_num')::int").
+		Scan(&v); err != nil {
+		t.Fatalf("member version: %v", err)
+	}
+	if v/10000 <= src.major {
+		t.Fatalf("%s runs PostgreSQL %d, not above the source %d",
+			testdb.SecondClusterEnvName, v/10000, src.major)
+	}
+	return pool, "member", v / 10000, true
 }
 
 // briefFixture: pgvector installed, one index on a column whose ICU

@@ -23,6 +23,8 @@ var readRouteScopes = map[string]readScope{
 	"GET /api/v1/databases/{db}/ask/runs/{id}":          readDatabase(pathDB),
 	"GET /api/v1/databases/{db}/facts/peak-suggestion":  readDatabase(pathDB),
 	"GET /api/v1/databases/{db}/investigations":         readDatabase(pathDB),
+	// drill-02a: a database's upgrade brief (stored delta-only in its sage schema).
+	"GET /api/v1/databases/{db}/upgrade-brief": readDatabase(pathDB),
 	// evid-02a: a database's workload evidence packs.
 	"GET /api/v1/databases/{db}/workload-packs":                        readDatabase(pathDB),
 	"GET /api/v1/databases/{db}/workload-packs/{sha}":                  readDatabase(pathDB),

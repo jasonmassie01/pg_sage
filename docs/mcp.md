@@ -479,6 +479,10 @@ U2 is `unknown`. The tool only reads, in one read-only transaction with a statem
 timeout; it writes nothing and opens no finding (the daily check does that). The REST
 form is `GET /api/v1/upgrade-readiness?database=&target_major=&method=&target_database=`
 (any signed-in role; 400 for an invalid target, 404 for an unknown database).
+With `brief: true` (`target_major` then optional) it returns the
+[upgrade brief](findings.md#upgrade-brief) instead, which pg_sage stores in the
+database's own sage schema only when it changed; the REST form is
+`GET /api/v1/databases/{db}/upgrade-brief`.
 
 ## Query to source attribution
 
@@ -1266,16 +1270,17 @@ Scope: `propose`
 
 ### `upgrade_readiness`
 
-Check the database for a major-version upgrade: tables logical replication cannot identify rows of, extensions against a target member, logical slots and subscriptions, data checksums against PG18's initdb default, collation versions and indexes to reindex, removed settings and dated support windows. Each check is pass, warn, block or unknown with up to 50 evidence rows. Read-only; it changes nothing.
+Check the database for a major-version upgrade: tables logical replication cannot identify rows of, extensions against a target member, logical slots and subscriptions, data checksums against PG18's initdb default, collation versions and indexes to reindex, removed settings and dated support windows. Each check is pass, warn, block or unknown with up to 50 evidence rows. Read-only on the database. With brief: true it returns the upgrade brief instead: blockers, extension path, slot and CDC plan, collation reindex list, cost of waiting and an ordered checklist (the upgrade itself stays with the operator); pg_sage keeps a changed brief in its own sage schema.
 
 Scope: `read`
 
 | Argument | Type | Required | Notes |
 |---|---|---|---|
+| `brief` | boolean | no | return the upgrade brief |
 | `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
 | `method` | string | no | default pg_upgrade; one of `pg_upgrade`, `blue_green`, `logical` |
 | `target_database` | string | no | a monitored database already at target_major to compare extensions against; length <= 63 |
-| `target_major` | integer | yes | the major to upgrade to (above the server's, at most the newest pg_sage knows); value >= 1 |
+| `target_major` | integer | no | the major to upgrade to (above the server's, at most the newest pg_sage knows); optional with brief; value >= 1 |
 
 ### `get_inbox`
 
