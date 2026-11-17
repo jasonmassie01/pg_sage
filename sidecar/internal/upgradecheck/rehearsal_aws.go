@@ -34,13 +34,17 @@ type AWSUpgrader struct {
 	MaxWait   time.Duration
 }
 
-// LiveRehearsalReceipt is AWSUpgrader.Live over the receipt store: the
-// identifier is the receipt's name (the clone adapters name the resource
-// after it) and the receipt's purpose is rehearsal.
+// LiveRehearsalReceipt is AWSUpgrader.Live over the receipt store: a
+// ready, unexpired receipt of purpose rehearsal records the identifier as
+// its clone's resource id (the receipt's ref; its name is another string,
+// rehearsal-<uuid>, from which the adapters derive sage-rehearsal-<hex>).
 func LiveRehearsalReceipt(store *clone.ReceiptStore) func(context.Context, string) (bool,
 	error) {
 	return func(ctx context.Context, id string) (bool, error) {
-		r, ok, err := store.Active(ctx, id)
+		if store == nil {
+			return false, clone.ErrNoReceiptStore
+		}
+		r, ok, err := store.ActiveRef(ctx, id)
 		if err != nil || !ok {
 			return false, err
 		}
