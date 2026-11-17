@@ -98,9 +98,9 @@ func evaluate(c CheckSpec, in Inputs) CheckResult {
 	}
 	switch c.Source {
 	case SourceFirstLook:
-		return firstLookResult(in.FirstLook, c.Ref, "")
+		return firstLookResult(in.FirstLook, c.Ref, "", in.Now)
 	case SourcePosture:
-		return firstLookResult(in.FirstLook, c.Ref, firstlook.SectionAgentPosture)
+		return firstLookResult(in.FirstLook, c.Ref, firstlook.SectionAgentPosture, in.Now)
 	case SourceFinding, SourceRunway:
 		if c.Requires == RequiresCostRates && !in.CostRates {
 			return unknown("cost.rates is not set: right-sizing needs operator rates")
@@ -148,13 +148,24 @@ func worstOf(a, b string) string {
 	return a
 }
 
-func firstLookResult(in FirstLookInput, rule, section string) CheckResult {
+// FirstLookMaxAge is the oldest first look a grade reads. The first look
+// runs at startup and on an operator's re-check only, so a long-running
+// sidecar's report ages; past this age its results are unknown, never a
+// pass resting on old facts.
+const FirstLookMaxAge = 7 * 24 * time.Hour
+
+func firstLookResult(in FirstLookInput, rule, section string, now time.Time) CheckResult {
+	finished := in.Report.FinishedAt
 	switch {
 	case in.Err != nil:
 		return unknown("firstlook: the newest first look could not be read: " +
 			in.Err.Error())
 	case !in.Found:
 		return unknown("firstlook: no first look yet")
+	case !now.IsZero() && !finished.IsZero() && now.Sub(finished) > FirstLookMaxAge:
+		return unknown(fmt.Sprintf("firstlook: the newest first look finished %s, more "+
+			"than 7 days ago; re-check it (POST /api/v1/first-look/recheck)",
+			finished.UTC().Format(time.RFC3339)))
 	}
 	ev := []string{fmt.Sprintf("first_look:%d#%s", in.Report.ID, rule)}
 	for _, chk := range in.Report.Checks {

@@ -55,8 +55,8 @@ func findingCategories(r Rubric) []string {
 // this database: the analyzer (and the upgrade readiness case it runs) a
 // collected snapshot, the forecaster a snapshot more than a day old (it
 // needs history), the advisor a successful sub-advisor run. The migration
-// preflight runs on request, so it counts as run once the findings are
-// readable. The cost and cloud telemetry producers leave no run record
+// safety detector watches live DDL from the monitoring loop, so it counts
+// as run once a snapshot was collected, never before. The cost and cloud telemetry producers leave no run record
 // here, so their checks pass only when cost.rates says right-sizing is
 // graded; cloud backup checks stay unknown without an open finding.
 func (l *DBLoader) producersRan(ctx context.Context) (map[string]bool, error) {
@@ -72,6 +72,6 @@ func (l *DBLoader) producersRan(ctx context.Context) (map[string]bool, error) {
 		return nil, fmt.Errorf("read the producers' run records: %w", err)
 	}
 	return map[string]bool{"analyzer": snapshot, "upgradecheck": snapshot,
-		"forecaster": history, "runway": history, "advisor": advisor, "migration": true,
+		"forecaster": history, "runway": history, "advisor": advisor, "migration": snapshot,
 		"cost": l.CostRates}, nil
 }

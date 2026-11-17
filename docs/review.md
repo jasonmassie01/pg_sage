@@ -72,9 +72,12 @@ Where each result comes from:
 
 - **First look and agent posture**: the newest stored first look. `ok` passes, `finding`
   fails (warns when every item is info), `degraded` or a check that did not run is unknown.
+  The first look runs at startup and on a re-check only, so a report that finished more
+  than 7 days ago grades unknown: re-check it (`POST /api/v1/first-look/recheck`).
 - **Findings**: open rows of `sage.findings`. With none open, a check passes only when its
-  producer has run for the database: the analyzer (a collected snapshot), the forecaster (a
-  snapshot over a day old), the advisor (a successful run). Cloud backup checks have no run
+  producer has run for the database: the analyzer and the migration safety detector (a
+  collected snapshot), the forecaster (a snapshot over a day old), the advisor (a
+  successful run). Cloud backup checks have no run
   record, so they are unknown unless a finding is open.
 - **Schema lint**: a live, read-only scan of the lint rules (when `schema_lint.enabled`); a
   rule in `schema_lint.disabled_rules` or whose catalog read failed is unknown.

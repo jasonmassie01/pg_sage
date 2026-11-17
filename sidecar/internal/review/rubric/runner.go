@@ -70,7 +70,9 @@ func (r *Runner) Run(ctx context.Context, kind Kind, triggers []string) (Outcome
 		out.Status, out.LoadErr, msg = RunPartial, loadErr, loadErr.Error()
 	}
 	if err := r.Store.Finish(ctx, id, out.Status, &out.Grade, msg); err != nil {
-		return out, err
+		// Fail the row rather than leave it running for the reaper, which
+		// would turn every run of the next 30 minutes into ErrRunning.
+		return out, r.fail(id, err)
 	}
 	var before *Grade
 	if len(prev) > 0 {
