@@ -71,3 +71,16 @@ func RollupLags() []RollupLag {
 	sort.Slice(out, func(i, j int) bool { return out[i].Database < out[j].Database })
 	return out
 }
+
+// ForgetRollupDatabase drops database's hour counters and lag gauge, so a
+// database the process no longer monitors leaves /metrics.
+func ForgetRollupDatabase(database string) {
+	rollupMetrics.mu.Lock()
+	defer rollupMetrics.mu.Unlock()
+	delete(rollupMetrics.lag, database)
+	for k := range rollupMetrics.hours {
+		if k.database == database {
+			delete(rollupMetrics.hours, k)
+		}
+	}
+}

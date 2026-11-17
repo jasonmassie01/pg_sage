@@ -17,6 +17,8 @@ import (
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/outcomes"
+	"github.com/pg-sage/sidecar/internal/querystore"
 	"github.com/pg-sage/sidecar/internal/rollout"
 	"github.com/pg-sage/sidecar/internal/selfbudget"
 	"github.com/pg-sage/sidecar/internal/shadow"
@@ -430,8 +432,9 @@ func replaceManagedDatabase(
 // the LLM budget share returns to the remaining databases (G5-B06), its
 // Sage SRE probe queue series leave /metrics (sre-06), and the
 // process-wide /metrics counters drop its series (observability-07), the
-// LLM health counters included (observability-05), and its workload
-// evidence pack series (evid-02a).
+// LLM health counters included (observability-05), its workload
+// evidence pack series (evid-02a), its hourly query rollup series
+// (evid-01a) and its measured-outcome share (ux-02a).
 func forgetRemovedDatabase(name string) {
 	if fleetLLMBudget != nil {
 		fleetLLMBudget.Unregister(name)
@@ -443,6 +446,8 @@ func forgetRemovedDatabase(name string) {
 	ask.ForgetDatabase(name)
 	selfbudget.Process().ForgetDatabase(name)
 	workpack.ForgetDatabase(name)
+	querystore.ForgetRollupDatabase(name)
+	outcomes.ForgetDatabase(name)
 }
 
 func cleanupManagedCandidate(candidate *fleet.DatabaseInstance) error {

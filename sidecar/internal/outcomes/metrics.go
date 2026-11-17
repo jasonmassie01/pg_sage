@@ -39,6 +39,14 @@ func MeasuredRatios() map[string]float64 {
 	return out
 }
 
+// ForgetDatabase drops database's share, so a database the process no
+// longer monitors leaves /metrics.
+func ForgetDatabase(database string) {
+	measured.Lock()
+	defer measured.Unlock()
+	delete(measured.ratio, database)
+}
+
 // resetMeasured forgets every recorded share (tests).
 func resetMeasured() {
 	measured.Lock()

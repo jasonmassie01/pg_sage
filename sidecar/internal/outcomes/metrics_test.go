@@ -66,3 +66,20 @@ func TestObserve_ConcurrentWritersAndReaders(t *testing.T) {
 		t.Fatalf("ratios = %v, want four databases", got)
 	}
 }
+
+func TestForgetDatabase_DropsOnlyThatDatabase(t *testing.T) {
+	resetMeasured()
+	t.Cleanup(resetMeasured)
+	def := Query{Since: DefaultSince, Limit: DefaultLimit}
+	Observe("gone", def, Result{Summary: Summary{Changes: 2, Measured: 1,
+		MeasuredShare: share(0.5)}})
+	Observe("kept", def, Result{Summary: Summary{Changes: 4, Measured: 3,
+		MeasuredShare: share(0.75)}})
+	ForgetDatabase("gone")
+	ForgetDatabase("never-seen")
+	ForgetDatabase("")
+	got := MeasuredRatios()
+	if len(got) != 1 || got["kept"] != 0.75 {
+		t.Fatalf("ratios = %v, want only kept = 0.75", got)
+	}
+}
