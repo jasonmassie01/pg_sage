@@ -3962,7 +3962,9 @@ action or changes trust. API: `GET /api/v1/case-tickets?database=` (viewer) list
 
 | Parameter | Default | Description |
 |---|---|---|
-| `retention.snapshots_days` | `90` | Days to retain snapshot data |
+| `retention.snapshots_days` | `90` | Days to retain snapshot data, the source the hourly per-query rollup is built and rebuilt from |
+| `retention.query_rollup_hourly_days` | `35` | Days to keep the hourly per-query rollup (`sage.query_rollup_hourly`): two weeks for every hour-of-week bucket twice plus the baseline's minimum weeks. An hour is removed only once its UTC day is in the daily tier, or once it is older than `query_rollup_daily_days`. At most `snapshots_days` (a larger value is refused; the default follows a smaller `snapshots_days`). `0` disables. Range 0-3650. |
+| `retention.query_rollup_daily_days` | `400` | Days to keep the daily per-query rollup (`sage.query_rollup_daily`) and the hourly coverage rows (`sage.query_rollup_coverage`), so a long window still states its coverage after the hourly rows are gone. At least `query_rollup_hourly_days`. `0` disables. Range 0-3650. |
 | `retention.findings_days` | `180` | Days to retain resolved findings |
 | `retention.actions_days` | `365` | Days to retain action log entries |
 | `retention.explains_days` | `90` | Days to retain EXPLAIN plan captures |
@@ -3975,6 +3977,13 @@ exactly as collected, through `sage.snapshot_data(data, base_id)`. Retention kee
 keyframe as long as a retained row is built on it, so the oldest kept rows can be up
 to 6 hours older than `snapshots_days`. Rows written by earlier versions stay readable
 and age out with `snapshots_days`; nothing is rewritten.
+
+The per-query rollup is measured, not estimated: at the default 500-query cap, 28 days of
+hourly rows (500 queryids x 24 hours x 28 days, 336,000 rows) with their 14,000 daily rows
+and 672 coverage rows take 75.9 MB (79,577,088 bytes, PostgreSQL 17, tables and indexes).
+The hourly rows dominate: the 35-day hourly tier is about 1.25 times that figure.
+`GET /api/v1/queries/coverage` reports each database's
+measured `rollup_bytes` (with `history.store: meta`, its share of the store's tables).
 
 > **Complete reference:** See `sidecar/config.example.yaml` for all
 > configuration fields including `safety`, `alerting`, `auto_explain`,
