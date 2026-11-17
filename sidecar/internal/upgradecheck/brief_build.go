@@ -25,6 +25,11 @@ type briefFacts struct {
 	reindex      []ReindexStep
 	reindexTotal int
 	reindexErr   error
+	// shares are the tables' query-time shares (drill-02c), sharesErr why
+	// they could not be read.
+	shares      []TableShare
+	sharesTotal int
+	sharesErr   error
 }
 
 // reindexSQL: indexes with a key whose collation's recorded version
@@ -117,6 +122,7 @@ func readBriefFacts(ctx context.Context, tx pgx.Tx, in input) briefFacts {
 		}
 		return nil
 	})
+	f.shares, f.sharesTotal, f.sharesErr = readTableShares(ctx, tx)
 	return f
 }
 

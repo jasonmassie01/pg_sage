@@ -173,8 +173,10 @@ type Brief struct {
 	ExtensionPath    ExtensionSection `json:"extension_path"`
 	SlotPlan         SlotSection      `json:"slot_plan"`
 	CollationReindex ReindexSection   `json:"collation_reindex"`
-	CostOfWaiting    CostOfWaiting    `json:"cost_of_waiting"`
-	Checklist        []ChecklistStep  `json:"checklist"`
+	// QueryTime orders the post-upgrade ANALYZE (drill-02c).
+	QueryTime     QueryTimeSection `json:"query_time_share"`
+	CostOfWaiting CostOfWaiting    `json:"cost_of_waiting"`
+	Checklist     []ChecklistStep  `json:"checklist"`
 	// Rehearsal is the latest upgrade rehearsal to this target (drill-02b),
 	// carried from brief to brief; it is not part of the content hash.
 	Rehearsal *RehearsalReport `json:"rehearsal,omitempty"`

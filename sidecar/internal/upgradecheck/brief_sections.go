@@ -28,6 +28,7 @@ func newBrief(rep Report, f briefFacts, opts BriefOptions) Brief {
 	b.Blockers = blockerSection(rep, b.ExtensionPath)
 	b.SlotPlan = slotSection(rep, opts)
 	b.CollationReindex = reindexSection(rep, f)
+	b.QueryTime = queryTimeSection(f)
 	b.CostOfWaiting = costOfWaiting(b, opts.Rate)
 	b.Checklist = checklist(b)
 	b.Hash = briefHash(b)
