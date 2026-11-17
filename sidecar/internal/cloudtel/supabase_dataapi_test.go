@@ -241,6 +241,23 @@ func TestSupabaseDataAPI_FailureAfterKnownIsUnknown(t *testing.T) {
 	requireSchemas(t, r, []string{"public"})
 }
 
+// Invalid input: a SupabaseAPI that answers no schema and no error is
+// unknown and logged as malformed, never "no schema served".
+func TestSupabaseDataAPI_EmptySchemaListIsUnknown(t *testing.T) {
+	api := &fakeSupabaseAPI{}
+	r, clock, logs := newTestDataAPI(api)
+	api.set(fakeSupabaseResult{schemas: []string{"api"}})
+	r.Refresh(context.Background())
+	requireSchemas(t, r, []string{"api"})
+	clock.advance(time.Hour)
+	api.set(fakeSupabaseResult{schemas: []string{}})
+	r.Refresh(context.Background())
+	requireSchemas(t, r, nil)
+	if logs.matching("list no schema") != 1 {
+		t.Fatalf("empty schema list not logged as malformed: %q", logs.lines)
+	}
+}
+
 // A context error is not a provider answer: the read is retried at the
 // next refresh and nothing is logged.
 func TestSupabaseDataAPI_CancelledReadRetriesAtOnce(t *testing.T) {
