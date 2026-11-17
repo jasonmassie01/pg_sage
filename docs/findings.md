@@ -1571,6 +1571,7 @@ community major pg_sage knows. The brief has:
 | `extension_path` | Each installed extension with the versions `target_database` offers and its path (carried, `ALTER EXTENSION ... UPDATE` after, or not offered), or `unknown` without a member at the target major. |
 | `slot_plan` | Each logical slot (with its consumer from a confirmed `slot_consumer` fact) and subscription, with its step: from below 17 via `pg_upgrade`, "drop and recreate after, consumer re-snapshots" or use blue/green. |
 | `collation_reindex` | Indexes on collations whose recorded version changed, and the U5 indexes an 18+ target folds case differently for, each a future `reindex_concurrently` step. |
+| `query_time_share` | The 50 busiest tables by their share of this database's `pg_stat_statements` total time (a statement counts toward each table it names), each with up to 5 of its statements. `unknown` without `pg_stat_statements`. It orders the ANALYZE after the upgrade. |
 | `cost_of_waiting` | On RDS, Aurora and Azure: months in extended support x vCPUs x 730 h x your `cost.rates[].extended_support_per_vcpu_hour` ([Configuration](configuration.md)), else `unpriced`; `not_applicable` elsewhere. `dba_hours` is always an estimate range with its formula. |
 | `checklist` | Ordered steps: resolve blockers, extension path, reindex plan, slot plan, rehearsal, the operator's cutover, post-upgrade steps. |
 
@@ -1624,3 +1625,38 @@ The rehearsal is built into the sidecar but not yet exposed: no API route, MCP
 tool or `config.yaml` key starts one, and the restore command's `upgrade_argv`
 cannot be set from the configuration yet. Until that wiring lands, the brief
 carries a `rehearsal` section only when the sidecar's code stores one.
+
+#### After the upgrade
+
+When the change feed records a major version upgrade (the `server_version`
+source, `version_change` with `version:major:...`), pg_sage proposes one plan per
+database and new version (`origin_ref` `post_upgrade:<database>:<server_version_num>`;
+see [Plans](architecture.md)). It reads the change feed of the last 7 days on each
+executor cycle, on the fleet leader of a writable primary. The plan is proposed,
+never approved: a person approves it, and every step runs through the executor.
+
+1. `analyze_table`: one `ANALYZE` of every table pg_sage's role may analyze
+   (from PG17 the `MAINTAIN` privilege; before it ownership, the database owner or
+   a superuser), ordered by the stored brief's `query_time_share` (the latest brief
+   of the database, its target first), then the tables not in it by size, largest
+   first. `pg_stat_statements` starts empty after `pg_upgrade`, so the live view
+   cannot order it. A list longer than 10,000 characters is a database-wide
+   `ANALYZE`. On PostgreSQL 18 and later there is no ANALYZE step, with the reason
+   "statistics carried over" (extended statistics are not: ANALYZE the tables
+   that have them).
+2. `reindex_concurrently`: one `REINDEX INDEX CONCURRENTLY` per index in the
+   stored brief's `collation_reindex` whose collation version still differs on
+   the upgraded server, each after step 1.
+
+Each step cites its own open `post_upgrade` finding, targets the brief's
+statements on its tables (else the live top statements), and measures time per
+call. The executor judges an ANALYZE by the rows modified since the last one,
+which `pg_upgrade` resets, so an inconclusive or unverifiable verdict keeps the
+ANALYZE step and the plan moves on; a regression halts the plan and asks.
+What pg_sage cannot run is logged as an operator step instead: `vacuumdb
+--analyze-in-stages` when the role may not ANALYZE some tables or no target
+statement is known, `REINDEX INDEX CONCURRENTLY ...` for an index the role does
+not own or past the plan's 50 steps. If the plan cannot be stored, the failure is
+logged and the next cycle tries again. This needs the SRE change feed (the
+provider-event sources run even with `sre.change_events.feed_enabled: false`, but
+only where the SRE read policy lets the feed read the database).
