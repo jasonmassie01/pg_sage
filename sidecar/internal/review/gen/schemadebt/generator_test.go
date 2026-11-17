@@ -200,3 +200,16 @@ func TestTotals_CountsMeasuredRunwaysAndInt4Keys(t *testing.T) {
 		t.Fatalf("nil totals %d %d %d", m, k, km)
 	}
 }
+
+// Post-test audit: a source that read only MaxColumns columns makes the
+// coverage partial and says so.
+func TestBuild_TruncatedColumnReadIsPartial(t *testing.T) {
+	in := keyInputs(linear(ordersSeq, 1.9e9, 1e6, 5, int4Max))
+	in.Truncated = true
+	_, cov, err := Build(t.Context(), schemaPack(t, nil, nil, ordersTable(1<<20)), in, env(),
+		Options{})
+	if err != nil || cov.Status != candidate.CoveragePartial ||
+		!strings.Contains(strings.Join(cov.Notes, " "), "at most 64 columns") {
+		t.Fatalf("truncated read coverage %+v (%v)", cov, err)
+	}
+}

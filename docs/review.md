@@ -164,3 +164,39 @@ Each drop states the index bytes it reclaims and, when the table's writes are kn
 write blocks it saves a day: the table's inserted and updated rows a day, one leaf block per
 row per index. That is an upper bound, since a HOT update writes no index. The review's numbers
 are the sum over its steps.
+
+## Schema debt generator
+
+The `schemadebt` generator joins the shapes the schema lint finds to a rate. The lint says
+"int4 key"; the runway monitor says "sequence at 80%"; this generator says "exhausts in 247
+days" and attaches the migration plan. It reads the pack's schema, workload and index sections,
+the catalog facts of the debt columns (bounded, read-only), and the sequences' samples in
+`sage.runway_samples` since the pack window's start (the newest epoch of each sequence only).
+
+| Kind | When | Output |
+|---|---|---|
+| `int4_key` | A single-column `smallint` or `integer` primary key fed by a sequence (serial or identity). | Under 365 days of measured runway: `prepare_sequence_capacity_migration` with the sequence playbook's forward-fix script. Otherwise `advice`. |
+| `fk_type_mismatch` | An integer foreign key column narrower than the key it references. | `advice`: the referenced key's sequence rate against the column's own limit. |
+| `timestamp_without_time_zone` | A `timestamp without time zone` column of a table the window's top query families read. | The online swap to `timestamptz` as an `operator` step, or `advice` when it cannot be planned. |
+| `large_unpartitioned_table` | An unpartitioned table of at least `review.large_table_bytes` (default 10 GiB) whose primary key or an index leads with a date or timestamp column. | `advice`: range partitioning on that column. |
+| `queue_table`, `soft_delete_table` | At least 100000 rows updated or deleted over the window, at least half of all its writes, and a `status`/`state` or `deleted_at`/`is_deleted`/`deleted` column. | `advice`. |
+| `column_swap` | Beside an int4 key or a foreign key mismatch, when the migration planner drafts the online widening. | An `operator` step: the planner's expand, backfill and contract script. |
+
+**The runway arithmetic.** The rate is a least-squares fit of the sequence's samples against
+time, in values a day. The remaining values run from the newest sample to the binding limit:
+the smaller of the sequence's own limit (as the runway store records it) and the column's type
+(2147483647 for `integer`; the minimum, -2147483648, for a descending sequence, which the store
+samples negated). The runway is the whole days of remaining values at that rate, and the
+statement gives the range at the rate plus and minus 2 standard errors. With fewer than 3
+samples, or samples all at one instant, the statement is `rate not measured yet` and no date
+is given. A rate at or below zero is "not consuming values", also without a date.
+
+**Never automatic.** Every schema-debt candidate needs a person's approval at every trust
+level: the capacity migration's contract is forward-fix only and direct execution is disabled;
+a type change, a table rewrite and a partition conversion are never automatic. When the planner
+refuses a column (an identity column, a default that is not the column's own sequence, a
+partitioned table, foreign keys it cannot carry over), the refusal is attached to the debt
+item's reason and the runway is kept.
+
+The review's numbers are the debt items with a measured runway, and the share of int4 keys
+whose runway is measured rather than `rate not measured yet`.
