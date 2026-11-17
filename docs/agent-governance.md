@@ -471,6 +471,10 @@ its evaluation order and every verdict and reason it records.
   - pg_sage reads SQL only. Whether the database is reachable from the network, and who
     holds its keys or connection strings, can't be seen from there: `detail.not_visible`
     says so on every exposure finding.
+  - On Supabase, AP-03 and AP-04 also carry `detail.data_api_exposed` (`true`, `false` or
+    `unknown`): whether the project's Data API serves the finding's schema, read from the
+    Management API. Known not served lowers a critical finding to warning. See
+    [Data API exposure](neon-supabase.md#data-api-exposure).
 
 Every posture statement carries the `/* pg_sage first_look */ /* agent_posture AP-NN */` tag,
 so its cost shows in `pg_stat_statements` and in pg_sage's performance gate.
