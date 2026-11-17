@@ -50,6 +50,7 @@ func newDefaults() *Config {
 		Fleet:              defaultFleetConfig(),
 		HA:                 defaultHAConfig(),
 		Backup:             defaultBackupConfig(),
+		Drill:              defaultDrillConfig(),
 		Agents:             defaultAgentsConfig(),
 		Audit:              defaultAuditConfig(),
 	}

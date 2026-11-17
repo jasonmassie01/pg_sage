@@ -629,6 +629,10 @@ operator_preference backup.max_age_hours
 operator_preference backup.max_archive_gap_minutes
 operator_preference backup.min_retention_days
 
+# Restore drills (drill-01a): the fleet-wide cap on drills running at once.
+# Each drill's clone is still bounded by clone.max_creates_per_hour.
+operator_preference drill.max_concurrent_per_fleet
+
 # History placement (v2.3.0): where pg_sage keeps its own telemetry history is
 # deployment topology the operator declares. It never widens what pg_sage may
 # do and is never derived; a change is restart-bound and refused at startup

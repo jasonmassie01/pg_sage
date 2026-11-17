@@ -688,6 +688,9 @@
     "MaxArchiveGapMinutes": 15,
     "MinRetentionDays": 7
   },
+  "Drill": {
+    "MaxConcurrentPerFleet": 2
+  },
   "CloudTelemetry": {
     "Enabled": null,
     "PollIntervalSeconds": 0,

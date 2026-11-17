@@ -64,6 +64,8 @@ type Config struct {
 	HA HAConfig `yaml:"ha"`
 	// Backup is the backup freshness policy (backup.go, market-07).
 	Backup BackupConfig `yaml:"backup"`
+	// Drill is the fleet-wide restore drill cap (drill.go, drill-01a).
+	Drill DrillConfig `yaml:"drill"`
 	// CloudTelemetry is managed-cloud host telemetry (cloud_telemetry.go).
 	CloudTelemetry        CloudTelemetryConfig        `yaml:"cloud_telemetry"`
 	LakebaseObservability LakebaseObservabilityConfig `yaml:"lakebase_observability"`

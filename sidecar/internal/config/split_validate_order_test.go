@@ -71,6 +71,7 @@ var unsplitValidateOrder = []string{
 	"c.Fleet.Discovery.Validate()",
 	"c.HA.validate()",
 	"c.Backup.validate()",
+	"c.Drill.validate()",
 	"c.Agents.validate()",
 	"c.Audit.validate()",
 	"c.MCP.OAuth.validate(c.MCP.Transport)",
