@@ -251,6 +251,7 @@ func trancheFiveMigrations() []namedStep {
 		{"ddlWorkloadPseudonymKey", ddlWorkloadPseudonymKey},                 // evid-02c
 		{"ddlActionQueueLadder", ddlActionQueueLadder},                       // lab-03a
 		{"ddlCloneInstancesHolder", ddlCloneInstancesHolder},                 // lab-05a
+		{"ddlRolloutInstanceEffect", ddlRolloutInstanceEffect},               // lab-03b
 	}
 }
 

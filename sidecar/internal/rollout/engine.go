@@ -118,7 +118,8 @@ func (engine *Engine) step(ctx context.Context, run *rolloutRun, instance Instan
 	}
 	run.result.Instances[instance.ID] = InstanceResult{Status: status,
 		EvidenceID: outcome.EvidenceID, RegressionPct: outcome.RegressionPct,
-		Detail: outcome.Detail}
+		Detail: outcome.Detail, EffectPct: outcome.EffectPct,
+		ControlPct: outcome.ControlPct, EffectMethod: outcome.EffectMethod}
 	return run.judge(instance, outcome), nil
 }
 

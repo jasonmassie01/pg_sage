@@ -436,6 +436,7 @@ operator_preference sre.automatic_start
 safety_critical sre.autonomy.bench_results_path
 safety_critical sre.autonomy.canary.canary_instances
 safety_critical sre.autonomy.canary.regression_limit_pct
+safety_critical sre.autonomy.canary.stage_wait_hours
 safety_critical sre.autonomy.class_promotion.min_success_rate_pct
 safety_critical sre.autonomy.class_promotion.min_successes_l2
 safety_critical sre.autonomy.class_promotion.min_successes_l3
