@@ -8,6 +8,7 @@ import { DiscoveredDatabases } from './databases/DiscoveredDatabases'
 import { RuntimeCells } from './databases/RuntimeCells'
 import { LeaderBadge } from './databases/LeaderBadge'
 import { RUNTIME_HEADERS, joinRuntime } from './databases/runtimeStatus'
+import { TabList, TabPanel } from '../components/Tabs'
 
 export function DatabasesPage({ onSelectDatabase }) {
   const [databases, setDatabases] = useState([])
@@ -216,18 +217,22 @@ export function DatabasesPage({ onSelectDatabase }) {
 
       {!loading && !readOnly && <FleetTabs tab={tab} onChange={setTab} />}
 
-      {!loading && !readOnly && tab === 'discovered' && <DiscoveredDatabases />}
+      {!loading && !readOnly && (
+        <TabPanel id="fleet" active={tab}>
+          {tab === 'discovered' ? <DiscoveredDatabases /> : databases.length > 0 ? (
+            <DatabaseTable databases={databases}
+              onEdit={handleEdit}
+              onDelete={setDeleteTarget}
+              onError={setError}
+              runtimeFor={runtimeFor} runtimeKnown={runtimeAvailable}
+              onSelectDatabase={onSelectDatabase} />
+          ) : null}
+        </TabPanel>
+      )}
 
-      {!loading && (readOnly || tab === 'databases') && (readOnly ? (
+      {!loading && readOnly && (
         <ReadOnlyFleet databases={databases} onSelectDatabase={onSelectDatabase} />
-      ) : databases.length > 0 ? (
-        <DatabaseTable databases={databases}
-          onEdit={handleEdit}
-          onDelete={setDeleteTarget}
-          onError={setError}
-          runtimeFor={runtimeFor} runtimeKnown={runtimeAvailable}
-          onSelectDatabase={onSelectDatabase} />
-      ) : null)}
+      )}
 
       {!loading && inventoryComplete && inventory.length === 0 && (
         <div data-testid="fleet-inventory-empty" className="rounded-lg p-8 text-center text-sm" style={{
@@ -267,19 +272,15 @@ async function fetchInventory(url, label) {
 // (market-06, fleet auto-discovery).
 function FleetTabs({ tab, onChange }) {
   const tabs = [['databases', 'Databases'], ['discovered', 'Discovered']]
+    .map(([key, label]) => ({ key, label, testId: `fleet-tab-${key}` }))
   return (
-    <div className="flex gap-2" role="tablist" data-testid="fleet-tabs">
-      {tabs.map(([key, label]) => (
-        <button key={key} role="tab" aria-selected={tab === key}
-          data-testid={`fleet-tab-${key}`} onClick={() => onChange(key)}
-          className="px-3 py-1 rounded text-sm"
-          style={{
-            background: tab === key ? 'var(--accent)' : 'var(--bg-card)',
-            color: tab === key ? '#fff' : 'var(--text-primary)',
-            border: '1px solid var(--border)',
-          }}>{label}</button>
-      ))}
-    </div>
+    <TabList id="fleet" label="Fleet sections" tabs={tabs} active={tab} onSelect={onChange}
+      className="flex gap-2" data-testid="fleet-tabs" tabClassName="px-3 py-1 rounded text-sm"
+      tabStyle={selected => ({
+        background: selected ? 'var(--accent)' : 'var(--bg-card)',
+        color: selected ? '#fff' : 'var(--text-primary)',
+        border: '1px solid var(--border)',
+      })} />
   )
 }
 

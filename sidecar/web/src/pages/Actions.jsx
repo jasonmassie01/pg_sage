@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ErrorBanner } from '../components/ErrorBanner'
+import { TabList, TabPanel } from '../components/Tabs'
 import { combineQueries } from '../lib/queryState'
 import { IndexAdmissionPanel } from '../components/IndexAdmissionPanel'
 import { RecommendationsTab } from './actions/RecommendationsTab'
@@ -97,12 +98,14 @@ export function Actions({ database, user, fleetData }) {
         Review Cases and proposed changes; no database changes will run in this mode.
       </p>}
       <TabBar tab={activeTab} setTab={nav.setTab} counts={d.counts} canReview={canReview} />
-      {activeTab === 'recommendations' && landing.error && <div
-        data-testid="actions-landing-error"><ErrorBanner onRetry={d.refreshAll}
-          message={`Approvals waiting for you could not be counted: ${landing.error}. `
-            + 'Needs your review shows what did load.'} /></div>}
-      {(activeTab === 'recommendations' || activeTab === 'pending') && <NotTimeScoped />}
-      <TabBody tab={activeTab} ctx={ctx} />
+      <TabPanel id="actions" active={activeTab} className="space-y-4">
+        {activeTab === 'recommendations' && landing.error && <div
+          data-testid="actions-landing-error"><ErrorBanner onRetry={d.refreshAll}
+            message={`Approvals waiting for you could not be counted: ${landing.error}. `
+              + 'Needs your review shows what did load.'} /></div>}
+        {(activeTab === 'recommendations' || activeTab === 'pending') && <NotTimeScoped />}
+        <TabBody tab={activeTab} ctx={ctx} />
+      </TabPanel>
       <SafetyDetails database={database} />
     </div>
   )
@@ -152,17 +155,14 @@ function TabBar({ tab, setTab, counts, canReview }) {
   if (canReview) tabs.push({ key: 'pending', label: 'Needs your review' })
   tabs.push({ key: 'progress', label: 'In progress' }, { key: 'executed', label: 'History' })
   if (canReview) tabs.push({ key: 'decisions', label: 'Held back' })
-  return <div className="flex flex-wrap gap-2" role="tablist" aria-label="Change tasks">
-    {tabs.map(t => <button key={t.key} type="button" role="tab" aria-selected={tab === t.key}
-      onClick={() => setTab(t.key)} data-testid={`actions-tab-${t.key}`}
-      className="px-3 py-1.5 rounded text-sm" style={{
-        background: tab === t.key ? 'var(--accent)' : 'var(--bg-card)',
-        color: tab === t.key ? '#fff' : 'var(--text-secondary)',
-        border: '1px solid var(--border)' }}>
-      {t.label} {counts[t.key] !== undefined && <span className="ml-1.5"
-        aria-label={`${counts[t.key]} loaded items`}>({counts[t.key]})</span>}
-    </button>)}
-  </div>
+  const labelled = tabs.map(t => ({ ...t, testId: `actions-tab-${t.key}`,
+    label: <>{t.label} {counts[t.key] !== undefined && <span className="ml-1.5"
+      aria-label={`${counts[t.key]} loaded items`}>({counts[t.key]})</span>}</> }))
+  return <TabList id="actions" label="Change tasks" tabs={labelled} active={tab}
+    onSelect={setTab} tabStyle={selected => ({
+      background: selected ? 'var(--accent)' : 'var(--bg-card)',
+      color: selected ? '#fff' : 'var(--text-secondary)',
+      border: '1px solid var(--border)' })} />
 }
 
 function managedResponse(d) {

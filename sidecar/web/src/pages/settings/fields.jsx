@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Check, RotateCcw, X } from 'lucide-react'
 import { ConfigTooltip } from '../../components/ConfigTooltip'
+import { TabList } from '../../components/Tabs'
 import { MaskedBadge, SourceBadge } from './SourceBadge'
 import { LifecycleBadge } from './LifecycleBadge'
 import { isMaskedSecret } from './secretMask'
@@ -40,25 +41,20 @@ export function DatabaseOnlySetting({ label }) {
   )
 }
 
+// TabBar is the Settings tab bar on the shared Tabs (ux-05d); SettingsPage
+// wraps the tab content in the TabPanel of the same id, "settings".
 export function TabBar({ tabs, active, onSelect }) {
+  const items = tabs.map(t => ({ key: t, label: t, testId: tabTestId(t) }))
   return (
-    <div className="flex gap-1 border-b pb-0 min-w-0 overflow-x-auto"
-      style={{ borderColor: 'var(--border)' }}>
-      {tabs.map(t => (
-        <button key={t} onClick={() => onSelect(t)}
-          data-testid={tabTestId(t)}
-          className="px-4 py-2 text-sm rounded-t whitespace-nowrap"
-          style={{
-            color: active === t ? 'var(--accent)' : 'var(--text-secondary)',
-            borderBottom: active === t
-              ? '2px solid var(--accent)'
-              : '2px solid transparent',
-            background: active === t ? 'var(--bg-card)' : 'transparent',
-          }}>
-          {t}
-        </button>
-      ))}
-    </div>
+    <TabList id="settings" label="Settings sections" tabs={items} active={active}
+      onSelect={onSelect} className="flex gap-1 border-b pb-0 min-w-0 overflow-x-auto"
+      style={{ borderColor: 'var(--border)' }}
+      tabClassName="px-4 py-2 text-sm rounded-t whitespace-nowrap"
+      tabStyle={selected => ({
+        color: selected ? 'var(--accent)' : 'var(--text-secondary)',
+        borderBottom: selected ? '2px solid var(--accent)' : '2px solid transparent',
+        background: selected ? 'var(--bg-card)' : 'transparent',
+      })} />
   )
 }
 
