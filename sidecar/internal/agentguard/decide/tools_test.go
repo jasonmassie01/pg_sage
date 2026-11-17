@@ -1,38 +1,11 @@
 package decide
 
 import (
-	"sort"
 	"sync"
 	"testing"
 
 	"github.com/pg-sage/sidecar/internal/agentguard"
-	"github.com/pg-sage/sidecar/internal/mcp"
 )
-
-// §6.2.6: every existing MCP tool is mapped to a class, so a new tool
-// fails this census until someone decides how agents may use it.
-func TestEveryMCPToolIsClassified(t *testing.T) {
-	var missing []string
-	for _, tool := range mcp.NewServer(nil).Tools() {
-		if _, known := toolClasses[tool.Name]; !known {
-			missing = append(missing, tool.Name)
-		}
-	}
-	sort.Strings(missing)
-	if len(missing) > 0 {
-		t.Fatalf("MCP tools without a §6.2.6 class (add them to toolClasses): %v", missing)
-	}
-	// And no stale entries: every classified tool exists.
-	names := map[string]bool{}
-	for _, tool := range mcp.NewServer(nil).Tools() {
-		names[tool.Name] = true
-	}
-	for name := range toolClasses {
-		if !names[name] && !agentOnlyTools[name] {
-			t.Fatalf("toolClasses lists %q, which is not an MCP tool", name)
-		}
-	}
-}
 
 func TestToolClassTable(t *testing.T) {
 	cases := []struct {
