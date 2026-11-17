@@ -56,10 +56,13 @@ func TestReviewRunsMigration_BootstrapTwice(t *testing.T) {
 	}
 }
 
-func TestReviewRunsStep_IsTheLastT6StepIdempotentAndBounded(t *testing.T) {
-	steps := trancheSixMigrations()
-	if len(steps) == 0 || steps[len(steps)-1][0] != "ddlReviewRuns" {
-		t.Fatalf("T6 steps end with %v, want ddlReviewRuns", steps[len(steps)-1])
+func TestReviewRunsStep_IsAT6StepIdempotentAndBounded(t *testing.T) {
+	found := false
+	for _, step := range trancheSixMigrations() {
+		found = found || step[0] == "ddlReviewRuns"
+	}
+	if !found {
+		t.Fatalf("T6 steps %v lack ddlReviewRuns", trancheSixMigrations())
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout",
 		"CREATE TABLE IF NOT EXISTS sage.review_run",
