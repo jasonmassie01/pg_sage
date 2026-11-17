@@ -71,18 +71,22 @@ func commandBaseEnvName(name string) bool {
 }
 
 // env is the program's whole environment: the base variables, the
-// allowed ones that are set, then idName=id.
+// allowed ones that are set, the drilled database (restore only), then
+// idName=id.
 func (p *CommandProvider) env(idName, id string) []string {
 	names := append([]string(nil), commandBaseEnv...)
 	if runtime.GOOS == "windows" {
 		names = append(names, "SystemRoot")
 	}
 	names = append(names, p.cfg.EnvAllow...)
-	out := make([]string, 0, len(names)+1)
+	out := make([]string, 0, len(names)+2)
 	for _, name := range names {
 		if v, ok := p.cfg.LookupEnv(name); ok {
 			out = append(out, name+"="+v)
 		}
+	}
+	if idName == "SAGE_DRILL_ID" && p.cfg.Database != "" {
+		out = append(out, "SAGE_DRILL_DATABASE="+p.cfg.Database)
 	}
 	return append(out, idName+"="+id)
 }

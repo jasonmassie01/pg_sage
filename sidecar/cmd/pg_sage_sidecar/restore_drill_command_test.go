@@ -103,7 +103,7 @@ func TestReapCommandDrillClonesRunsTheDestroyProgram(t *testing.T) {
 	pool := reaperPool(t)
 	ctx := context.Background()
 	c := commandDrillCfg(t, "ok")
-	adapter, err := commandDrillAdapter(c, pool, 1)
+	adapter, err := commandDrillAdapter(c, "live", pool, 1)
 	if err != nil {
 		t.Fatal(err)
 	}

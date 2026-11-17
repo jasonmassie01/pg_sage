@@ -255,6 +255,7 @@ func TestCommand_MinimalEnvironmentAndWorkDir(t *testing.T) {
 	t.Setenv(restorecmd.EnvMarker, "not-allowed")
 	cfg := commandConfig(t, "env")
 	cfg.LookupEnv = nil // the real environment
+	cfg.Database = "orders"
 	t.Setenv(restorecmd.EnvDSN, testCloneDSN)
 	p := newCommand(t, cfg)
 	if _, err := p.Create(context.Background(), drillSpec("sage-drill-66666666")); err != nil {
@@ -274,7 +275,7 @@ func TestCommand_MinimalEnvironmentAndWorkDir(t *testing.T) {
 	for _, n := range lines[1:] {
 		names[strings.ToUpper(n)] = true
 	}
-	for _, want := range []string{"SAGE_DRILL_ID", restorecmd.EnvDSN} {
+	for _, want := range []string{"SAGE_DRILL_ID", "SAGE_DRILL_DATABASE", restorecmd.EnvDSN} {
 		if !names[want] {
 			t.Errorf("environment lacks %s: %v", want, lines[1:])
 		}
@@ -286,7 +287,8 @@ func TestCommand_MinimalEnvironmentAndWorkDir(t *testing.T) {
 		}
 	}
 	for n := range names {
-		if !commandBaseEnvName(n) && n != "SAGE_DRILL_ID" && n != restorecmd.EnvDSN {
+		if !commandBaseEnvName(n) && n != "SAGE_DRILL_ID" && n != "SAGE_DRILL_DATABASE" &&
+			n != restorecmd.EnvDSN {
 			t.Errorf("unexpected variable %s in the program's environment", n)
 		}
 	}

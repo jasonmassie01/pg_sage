@@ -44,7 +44,8 @@ var (
 
 // CommandConfig is one restore command. Programs run without a shell, in
 // WorkDir, with a minimal environment: PATH (and SystemRoot on Windows),
-// SAGE_DRILL_ID or SAGE_CLONE_ID, and the EnvAllow variables that are set.
+// SAGE_DRILL_ID and SAGE_DRILL_DATABASE (restore) or SAGE_CLONE_ID
+// (destroy), and the EnvAllow variables that are set.
 type CommandConfig struct {
 	// RestoreArgv prints {"dsn","id","recovery_point"} on one line.
 	RestoreArgv []string
@@ -59,6 +60,10 @@ type CommandConfig struct {
 	// SourceDSN is the monitored database: a restore that prints it is
 	// refused.
 	SourceDSN string
+	// Database is the drilled database's pg_sage name, passed to the
+	// restore program as SAGE_DRILL_DATABASE (a fleet's wrapper picks the
+	// backup by it); empty for the reaper's destroy-only use.
+	Database string
 	// LookupEnv reads the sidecar's environment; nil is os.LookupEnv.
 	LookupEnv func(string) (string, bool)
 }

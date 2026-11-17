@@ -27,9 +27,9 @@ func commandDrillWorkDir(c *config.Config) string {
 }
 
 // commandDrillAdapter is the restore command provider of a drill of
-// source, bounded by the drill's max_duration_minutes; a nil source is
-// the reaper's destroy-only use.
-func commandDrillAdapter(c *config.Config, source *pgxpool.Pool,
+// database on source, bounded by the drill's max_duration_minutes; a nil
+// source is the reaper's destroy-only use.
+func commandDrillAdapter(c *config.Config, database string, source *pgxpool.Pool,
 	maxMinutes int64) (clone.Provider, error) {
 	cmd := c.Drill.Command
 	cfg := clone.CommandConfig{RestoreArgv: cmd.RestoreArgv, DestroyArgv: cmd.DestroyArgv,
@@ -38,6 +38,7 @@ func commandDrillAdapter(c *config.Config, source *pgxpool.Pool,
 	if source != nil {
 		cfg.SourceDSN = source.Config().ConnString()
 	}
+	cfg.Database = database
 	return clone.NewCommandProvider(cfg)
 }
 
@@ -46,7 +47,7 @@ func commandDrillAdapter(c *config.Config, source *pgxpool.Pool,
 func drillAdapter(c *config.Config, cloneCfg config.CloneProviderConfig,
 	inst drillInstance, maxMinutes int64) (clone.Provider, string, string, error) {
 	if c.Drill.Command.Configured() {
-		adapter, err := commandDrillAdapter(c, inst.pool, maxMinutes)
+		adapter, err := commandDrillAdapter(c, inst.name, inst.pool, maxMinutes)
 		return adapter, clone.CommandAdapter, clone.CommandScope(c.Drill.Command.RestoreArgv),
 			err
 	}
@@ -103,7 +104,7 @@ func reapCommandDrillClones(ctx context.Context, c *config.Config,
 		return clone.ReapReport{}
 	}
 	// The destroy program only: no restore runs here, so any bound works.
-	adapter, err := commandDrillAdapter(c, nil, 1)
+	adapter, err := commandDrillAdapter(c, "", nil, 1)
 	if err != nil {
 		logError("clone", "restore command clone reaper is off: %v", err)
 		return clone.ReapReport{}
