@@ -113,8 +113,6 @@ var otherEntries = []Category{
 		"A schema lint rule's finding: schema_lint:<rule id>."),
 	family("agent_posture:", "governance", "agentposture", sevIWC,
 		"An agent posture detector's finding: agent_posture:<detector>."),
-	e("test", "doctor", "doctor", sevI, nil, nil,
-		"The test alert `pg_sage doctor --send-test` sends through each channel. Nothing to do."),
 	e("incident", "incident", "rca", sevIWC, nil, nil, "An incident-class row."),
 	e("incident_open", "incident", "rca", sevIWC, nil, nil, "An open incident."),
 	e("incident_resolved", "incident", "rca", sevIWC, nil, nil, "A resolved incident."),

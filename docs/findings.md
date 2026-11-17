@@ -1275,10 +1275,6 @@ projects into a case with no action. A check that fails, times out, is refused o
 than `max_rows` rows resolves nothing: its open findings stay open until a complete run no
 longer returns them.
 
-<a id="test"></a>**Doctor test alert (`test`).** `pg_sage doctor --send-test` sends one `info`
-alert with category `test` straight to each configured alert channel, so an operator can see
-that the channel works. It is never stored in `sage.findings` and needs no action.
-
 ---
 
 ## LLM Advisors, Query Tuner and Executor
