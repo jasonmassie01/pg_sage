@@ -173,6 +173,12 @@ var verifierBacktestRule = purgeRule{table: "verifier_backtest", timeCol: "ran_a
 var restoreDrillsRule = purgeRule{table: "restore_drills", timeCol: "finished_at",
 	days: 400}
 
+// reviewRunRule keeps 400 days of grade runs (review-01a): a year of
+// daily grades for the trend; the dimension rows go with their run by
+// ON DELETE CASCADE. A running row is never purged (the reaper ends it).
+var reviewRunRule = purgeRule{table: "review_run", timeCol: "started_at", days: 400,
+	extra: "AND status <> 'running'"}
+
 func purgeRules(cfg *config.Config) []purgeRule {
 	r := cfg.Retention
 	rules := []purgeRule{
@@ -277,7 +283,7 @@ func purgeRules(cfg *config.Config) []purgeRule {
 			days: cfg.SRE.Autonomy.ReportRetentionDays, extra: keepEvalRun},
 	}
 	rules = append(append(rules, rollupPurgeRules(r)...), verifierBacktestRule,
-		restoreDrillsRule)
+		restoreDrillsRule, reviewRunRule)
 	return append(rules, planPurgeRule(r))
 }
 
