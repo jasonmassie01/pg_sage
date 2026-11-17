@@ -52,7 +52,7 @@ func newRDSFake(t *testing.T) *rdsFake {
 	f.instances["shop"] = &clone.RDSInstance{ID: "shop", Engine: "postgres",
 		Status: "available", Endpoint: rdsProdHost, Port: 5432, Class: "db.m6g.large",
 		SubnetGroup: "shop-subnets", ParameterGroup: "shop-params", StorageType: "gp3",
-		AllocatedStorageGB: 500, SecurityGroups: []string{"sg-0a1", "sg-0b2"},
+		Iops: 12000, AllocatedStorageGB: 500, SecurityGroups: []string{"sg-0a1", "sg-0b2"},
 		MultiAZ: true, DeletionProtection: true,
 		LatestRestorableTime: rdsNow.Add(-5 * time.Minute),
 		Tags:                 map[string]string{"team": "shop"}}
