@@ -31,6 +31,7 @@ tests/lakebaselive TestLakebaseProviderProbeCompatibility # native strict provid
 tests/lakebaselive TestLakebaseTelemetry # controlled selected-resource system-table reads/delivery, PG_SAGE_LIVE_LAKEBASE_TELEMETRY=1, exact isolated native fixture and explicit SQL warehouse; absent delivery remains skipped/unverified
 tests/lakebaselive TestLakebaseTelemetryAttribution # bounded read-only counts for exact owned telemetry fixture identities, PG_SAGE_LIVE_LAKEBASE_TELEMETRY_ATTRIBUTION=1 plus prior owned report
 internal/databricksauth TestGatewayModelDiscoveryLive # real Unity Gateway catalog, PG_SAGE_LIVE_LLM=1 and selected workspace credentials
+internal/clone TestAlloyDBLive_ContractOnARealCluster|TestAuroraLive_ContractOnARealCluster|TestAzureRestoreLive_ContractOnARealServer|TestCloudSQLLive_ContractOnARealInstance|TestNeonLive_ContractOnARealProject|TestRDSRestoreLive_ContractOnARealInstance reason=/live\sclone\sprovider\scontract\sskipped/ # live clone provider contracts (lab-05), opt-in per provider via SAGE_<PROVIDER>_LIVE=1 and real cloud credentials
 
 # Live LLM calls: need a provider key and spend quota.
 internal/rca TestTier2Live_.* # live LLM, PG_SAGE_LIVE_LLM=1 opt-in
