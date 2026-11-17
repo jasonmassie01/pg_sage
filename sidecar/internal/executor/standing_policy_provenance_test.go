@@ -194,14 +194,18 @@ func TestFleetDecisionRecordsTheControlPolicyHash(t *testing.T) {
 	if d.DecisionID <= 0 {
 		t.Fatalf("decision %s was not recorded: %s", d.LedgerLabel(), d.Detail)
 	}
-	var version int
-	var hash string
-	if err := control.QueryRow(ctx, `SELECT version,
-		encode(sha256(convert_to(doc::text, 'UTF8')), 'hex') FROM sage.policy
-		WHERE database_id = $1 AND status = 'active'`, databaseID).Scan(&version,
-		&hash); err != nil {
+	// The database follows the default policy set (fleetpol-01a): the
+	// control policy in force is resolved, not a row keyed by its id.
+	id64 := int64(databaseID)
+	current, err := policy.NewStore(control).Current(ctx, policy.Scope{DatabaseID: &id64})
+	if err != nil {
 		t.Fatalf("read control policy: %v", err)
 	}
+	doc, err := policy.DocumentFromPolicy(current)
+	if err != nil {
+		t.Fatalf("control policy document: %v", err)
+	}
+	version, hash := int(doc.Version), doc.SHA256
 	got := provenanceOn(t, ctx, monitored, d)
 	if got.rows != 1 || got.version != version || got.hash == nil || *got.hash != hash {
 		t.Fatalf("recorded %+v (hash %v), want v%d hash %s from the control policy",

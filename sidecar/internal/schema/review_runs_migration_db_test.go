@@ -58,8 +58,9 @@ func TestReviewRunsMigration_BootstrapTwice(t *testing.T) {
 
 func TestReviewRunsStep_IsTheLastT6StepIdempotentAndBounded(t *testing.T) {
 	steps := trancheSixMigrations()
-	if len(steps) == 0 || steps[len(steps)-1][0] != "ddlReviewRuns" {
-		t.Fatalf("T6 steps end with %v, want ddlReviewRuns", steps[len(steps)-1])
+	// fleetpol-01a appended ddlPolicySets after this step.
+	if len(steps) < 2 || steps[len(steps)-2][0] != "ddlReviewRuns" {
+		t.Fatalf("T6 steps %v, want ddlReviewRuns just before ddlPolicySets", steps)
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout",
 		"CREATE TABLE IF NOT EXISTS sage.review_run",
